@@ -480,8 +480,8 @@ NTSC_VBLANK_LINES      = 38
 PAL_VBLANK_LINES        = 72
 NTSC_CYCLES_PER_VBLANK  = 18500
 PAL_CYCLES_PER_VBLANK   = 35100
-NTSC_DMA_BUDGET         = 7500      ; bytes per VBlank
-PAL_DMA_BUDGET          = 14000     ; bytes per VBlank
+DMA_BUDGET_NTSC         = 7200      ; usable DMA bytes per VBlank
+DMA_BUDGET_PAL          = 15000     ; usable DMA bytes per VBlank
 ```
 
 **PAL compensation** (from modern frame-rate independent design):
@@ -523,30 +523,25 @@ PAL_TIMING_STEP         = $0133     ; 1.2 — 6/5 ratio, so every 5 frames we ge
 
 ### 0.10 Interrupt System — Dispatch Architecture
 
-**VBlank (IRQ6) — ROM-based with dispatch table:**
+**VBlank (IRQ6) — function pointer dispatch with lag detection (implemented in §1):**
 
 ```asm
 VBlank_Handler:
-        movem.l d0-a6, -(sp)           ; Save all registers
-        move.b  #1, (VBlank_Flag).w     ; Signal main loop that VBlank occurred
-
-; Phase 1: Time-critical VDP work (must complete before active display)
-        bsr.w   Flush_VDP_Shadow        ; Write changed VDP registers (§0.4)
-        bsr.w   DMA_Queue_Drain         ; Process DMA queue (§1.1)
-        bsr.w   Sprite_Table_Upload     ; Upload sprite attribute table
-
-; Phase 2: I/O
-        bsr.w   Read_Controllers        ; Read P1/P2 joypads (§9.4)
-
-; Phase 3: Sound
-        bsr.w   Sound_Driver_Update     ; Flamedriver VBlank call (§6)
-
-; Phase 4: Frame tracking
-        addq.w  #1, (Frame_Counter).w   ; Monotonic frame counter
-
+        movem.l d0-a6, -(sp)
+        tst.b   (VBlank_Ready).w        ; Main loop signals readiness each frame
+        beq.s   .lag
+        movea.l (VInt_Ptr).w, a0        ; Dispatch through RAM pointer (VInt_Level, etc.)
+        jsr     (a0)
+        bra.s   .done
+.lag:
+        bsr.w   VInt_Lag                ; Minimal handler — Critical DMA only
+.done:
+        clr.b   (VBlank_Ready).w
         movem.l (sp)+, d0-a6
         rte
 ```
+
+`VInt_Level` (normal frames) runs: stopZ80 → Flush_VDP_Shadow → VSRAM write → Enqueue_Dirty_Buffers → Process_DMA_Critical → budget set → Process_DMA_Important → Process_DMA_Deferrable → startZ80 → Read_Controllers → frame counter → VBlank_Flag. `VInt_Lag` runs only Critical DMA and controllers. See §1.4 for details.
 
 **HBlank (IRQ4) — RAM-patched dispatch** (Vectorman/Batman/Treasure pattern):
 
@@ -570,7 +565,7 @@ HBlank_Null:
         rts                             ; Immediate return — ~16 cycles total including dispatch
 ```
 
-**Why RAM-patched HBlank but ROM-based VBlank:** HBlank fires up to 224 times per frame and must be as fast as possible. The dispatch through a RAM pointer adds only 16 cycles to the null case. Changing what happens per-scanline (water palette swap, parallax scroll, etc.) is a single pointer write. VBlank fires once per frame and always does the same work — ROM is fine.
+**Why RAM-patched HBlank but pointer-dispatched VBlank:** HBlank fires up to 224 times per frame and must be as fast as possible. The dispatch through a RAM pointer adds only 16 cycles to the null case. VBlank fires once per frame but needs mode-specific behavior (VInt_Level, VInt_Lag, future VInt_Menu/VInt_Load). The `VInt_Ptr` RAM pointer selects the mode; the lag detection is handled in the ROM dispatcher itself via the `VBlank_Ready` flag.
 
 ### 0.11 Soft Reset Detection (CrossResetRAM §9.5)
 
@@ -752,7 +747,7 @@ Total: 32 slots × 14 bytes = 448 bytes RAM
 
 **Drain strategy — hybrid unrolled/looped:**
 
-- **Critical queue (8 slots):** Jump-table unrolled drain. The queue slot pointer doubles as a jump offset into fully unrolled `move.l (a1)+,(a5)` sequences. Zero comparisons, zero branches. ~514 cycles to drain all 8 entries. Ported from S.C.E.'s `Process_DMA_Queue`.
+- **Critical queue (8 slots):** Jump-table unrolled drain. The slot pointer is converted to a queue offset (`suba.w #DMA_Critical, a1`) then used as a jump index into fully unrolled `move.l (a1)+,(a5)` sequences. Zero comparisons, zero branches per entry. ~514 cycles to drain all 8 entries. Note: S.C.E. uses `jmp table-queue(a1)` directly, but our RAM layout puts the queue too far from ROM for a 16-bit displacement — the two-instruction split is functionally equivalent. Ported from S.C.E.'s `Process_DMA_Queue`.
 - **Important + Deferrable queues (12 slots each):** Linear loop drain with `dbf` counter. ~932 cycles per queue. The loop overhead (~14 cycles/entry for branch + counter) is acceptable for non-critical transfers.
 
 **Why hybrid, not fully unrolled:** Unrolling all 32 slots costs 704 bytes ROM. The hybrid approach costs ~280 bytes — 60% smaller with 60% of the performance benefit. The critical queue (where every cycle matters for visual stability) gets the fast path. The deferrable queues (where one extra frame of latency is acceptable) get the compact path.
@@ -776,15 +771,17 @@ Total: 32 slots × 14 bytes = 448 bytes RAM
 
 The practical budget accounts for CPU overhead (drain loop, VDP shadow flush, controller polling, sound driver). Vectorman's $B40 (2,880 bytes) is conservative — our 3-queue system with ~7,200 bytes available has substantial headroom for art streaming in the Deferrable queue.
 
-**128KB boundary safety:** The VDP increments only the low 17 bits of the 23-bit DMA source address. Transfers crossing a 128KB boundary wrap within the same block, producing garbage. This is fundamental to VDP silicon — all hardware revisions are affected. `QueueDMATransfer` detects boundary crossings and automatically splits into two entries (Flamewing's overflow detection via subtraction carry).
+**128KB boundary safety:** The VDP increments only the low 17 bits of the 23-bit DMA source address. Transfers crossing a 128KB boundary wrap within the same block, producing garbage. This is fundamental to VDP silicon — all hardware revisions are affected. **DEFERRED:** `QueueDMATransfer` does not currently split boundary-crossing transfers. No current consumer crosses a 128KB boundary (test art is 10KB, palette is 32 bytes). When S4LZ art streaming (§3) introduces larger transfers, add Flamewing's overflow detection via subtraction carry.
 
 **RAM source address safety:** When a RAM source address ($FF0000+) is right-shifted by 1 for the VDP, bit 23 can become set, which the VDP interprets as a VRAM copy flag instead of 68K→VDP DMA. `QueueDMATransfer` clears bit 23 after the shift (`bclr.l #23,d1`).
 
 **VInt safety:** SR masking (disable interrupts) during `QueueDMATransfer`. Costs 46 cycles per enqueue call. Prevents queue corruption if VBlank fires mid-enqueue. Enabled for all three queues.
 
+**Three entry points:** `QueueDMA_Critical`, `QueueDMA_Important`, `QueueDMA_Deferrable` — each sets up the target sub-queue (slot pointer address + end address), then branches to the shared `QueueDMATransfer` core. Callers provide: d1.l = source address, d2.w = VRAM destination, d3.w = transfer length (bytes).
+
 **No double buffering.** Vectorman uses double-buffered queues (write to A, drain B, swap). With SR masking preventing mid-enqueue interrupts, double buffering solves a problem we don't have. Saves 448 bytes RAM.
 
-**QueueStaticDMA macro:** For transfers with build-time-known source, destination, and length (sprite table, individual palette lines), a `QueueStaticDMA` macro bypasses `QueueDMATransfer` entirely. The 14-byte entry is pre-computed at assembly time or init, then block-copied into the next queue slot with `movem.l`. ~32 cycles inlined vs 184 cycles for the full function — 6× faster. Used for all Critical queue fixed transfers. Ported from Flamewing's `QueueStaticDMA`.
+**QueueStaticDMA macro:** For transfers with build-time-known source, destination, and length (sprite table, individual palette lines), a `QueueStaticDMA` macro bypasses `QueueDMATransfer` entirely. The 14-byte entry is pre-computed at boot by `BuildStaticDMA` (5 entries: 4 palette lines + sprite table), then block-copied into the next queue slot with `3×move.l + 1×move.w`. ~52 cycles inlined vs 184 cycles for the full function. Used by `Enqueue_Dirty_Buffers` to populate the Critical queue from dirty flags. Adapted from Flamewing's `QueueStaticDMA`.
 
 **Critical queue overflow assertion:** In debug builds, `QueueDMATransfer` and `QueueStaticDMA` assert (via `trap`) if the Critical queue is full. Critical overflow means a design bug — the queue should always have capacity for the fixed transfers. In release builds, silently returns without enqueueing (graceful degradation). Important/Deferrable queues do not assert on overflow — budget-gated skipping is expected behavior.
 
@@ -914,44 +911,48 @@ Tile writes use direct CPU writes to VDP data port (not DMA). This is correct �
 
 **Purpose:** Process all time-critical VDP operations within the vertical blanking interval. Prioritize visual stability over throughput.
 
-**Handler dispatch:** Function pointer `VInt_ptr` selects the mode-specific handler. Four modes:
+**Handler dispatch:** Function pointer `VInt_Ptr` selects the mode-specific handler. `VBlank_Handler` (ROM) checks `VBlank_Ready` to detect lag frames — if the main loop hasn't finished, `VInt_Lag` runs instead of the selected handler.
 
-| Mode | When | What it does |
-|------|------|-------------|
-| `VInt_Level` | Gameplay | Full pipeline: DMA queue + plane buffer + HUD + sound |
-| `VInt_Menu` | Menus/title | DMA queue + sound (no plane buffer, no HUD) |
-| `VInt_Load` | Loading screens | DMA queue + S4LZ processing (no gameplay state) |
-| `VInt_Lag` | Lag frame detected | Critical DMA only + sound (everything else skipped) |
+| Mode | When | What it does | Status |
+|------|------|-------------|--------|
+| `VInt_Level` | Gameplay | Full pipeline: shadow flush + VSRAM + dirty buffers + DMA queue + controllers | Implemented |
+| `VInt_Menu` | Menus/title | DMA queue + sound (no plane buffer, no HUD) | Planned |
+| `VInt_Load` | Loading screens | DMA queue + S4LZ processing (no gameplay state) | Planned |
+| `VInt_Lag` | Lag frame detected | Critical DMA only (Important/Deferrable persist to next frame) | Implemented |
 
-**VInt_Level execution order:**
+**VInt_Level execution order (as implemented):**
 
 ```
 Step  System                    Priority    Timing
 ─────────────────────────────────────────────────────
-  1   VSRAM write (direct)      Critical    ~32 cycles
-  2   Drain Critical DMA queue  Critical    ~514 cycles
-  3   Drain Important DMA queue Budget-gated ~932 cycles
-  4   Drain Deferrable DMA queue Budget-gated ~932 cycles
-  5   Process Plane Buffer      Normal      variable
-  6   S4LZ bookmark save        Normal      ~50 cycles
-  7   HUD update (if dirty)     Normal      ~200-400 cycles
-  8   Start Z80 + sound update  Normal      ~100 cycles
+  1   stopZ80                   Bus safety  ~20 cycles
+  2   Flush_VDP_Shadow          Critical    ~50-190 cycles
+  3   VSRAM write (direct)      Critical    ~32 cycles
+  4   Enqueue_Dirty_Buffers     Critical    ~20-260 cycles
+  5   Drain Critical DMA queue  Critical    ~514 cycles
+  6   Set DMA budget            Setup       ~12 cycles
+  7   Drain Important DMA queue Budget-gated ~932 cycles
+  8   Drain Deferrable DMA queue Budget-gated ~932 cycles
+  9   startZ80                  Bus release ~16 cycles
+ 10   Read_Controllers          I/O         ~200 cycles
+ 11   Frame_Counter increment   Tracking    ~8 cycles
+ 12   VBlank_Flag signal        Sync        ~8 cycles
 ```
 
-**Step 1 — VSRAM:** Direct VDP write, not queued. Vertical scroll data is 4 bytes (FG + BG) written to VSRAM via control port command + data port write. Too small to justify queue overhead. RAM shadow at `Vscroll_Factor` updated by scroll routines.
+Steps 1-9 run with Z80 bus stopped (required for safe VDP access). Steps 10-12 run after Z80 release. `Enqueue_Dirty_Buffers` checks palette dirty bitmask (4 bits) and sprite dirty flag, enqueueing pre-computed static DMA entries to the Critical queue via `QueueStaticDMA`. Plane buffer processing, HUD update, S4LZ, and sound are deferred to later §§.
 
-**Steps 2-4 — DMA queue drain:** Critical queue always drains fully. Important and Deferrable queues are budget-gated: check cumulative bytes transferred against the frame's byte budget. If exceeded, stop draining and defer remaining entries to next frame. On lag frames (`VInt_Lag`), only the Critical queue drains — Important and Deferrable are skipped entirely.
+**Step 3 — VSRAM:** Direct VDP write, not queued. Vertical scroll data is 4 bytes (FG + BG) written to VSRAM via control port command + data port write. Too small to justify queue overhead. RAM shadow at `Vscroll_Factor` updated by scroll routines.
 
-**Step 5 — Plane buffer:** Processed AFTER DMA queue because tile writes use direct CPU→VDP writes (not DMA) and don't compete with DMA transfers. The buffer must be processed within VBlank to ensure nametable updates are visible on the next frame.
+**Steps 5-8 — DMA queue drain:** Critical queue always drains fully via jump-table dispatch (zero branches per entry). Important and Deferrable queues are budget-gated: check `DMA_Budget_Remaining` before each entry. Budget is reset from `DMA_Budget_Default` (7,200 NTSC / 15,000 PAL) at the start of Important drain. On lag frames (`VInt_Lag`), only the Critical queue drains — Important and Deferrable entries persist in the queue for the next frame.
 
-**Step 7 — HUD update:** Gated by `HUD_Dirty` flags (one per element: score, rings, timer, lives). If all flags are clear, the entire HUD update is skipped. On a typical gameplay frame where the player is running without collecting anything, this saves ~200-400 cycles.
+**Plane buffer, HUD update, sound:** Not yet implemented (deferred to §4, §9.13, §6 respectively). These will be inserted into VInt_Level after the DMA pipeline and before startZ80 (or after, depending on bus requirements).
 
-**Lag frame handling:** `VInt_Lag` fires when VBlank interrupt occurs before the main loop signals readiness (the main loop took longer than one frame). On a lag frame:
-- Critical DMA drains (palette, sprites, hscroll — player never sees visual glitches)
-- Sound updates (audio never drops out)
-- Everything else skipped (plane buffer, HUD, Important/Deferrable DMA)
-- `Lag_Frame_Count` increments for debugging
-- Lag recovery budget activates for next 2-3 frames
+**Lag frame handling:** `VBlank_Handler` checks `VBlank_Ready` (set by `VSync_Wait` in the main loop). If clear, `VInt_Lag` runs instead of the handler selected by `VInt_Ptr`. On a lag frame:
+- Critical DMA drains (palette, sprites — player never sees visual glitches)
+- Important/Deferrable entries remain in queue (drained next normal frame)
+- Controllers still read, frame counter still advances
+- `Lag_Frame_Count` increments for debugging (debug builds only)
+- `VBlank_Ready` is cleared by VBlank_Handler after dispatch
 
 **Why this order:** Visual stability first (VSRAM + Critical DMA ensure correct display), then throughput (Important/Deferrable DMA for art streaming), then deferred writes (plane buffer), then housekeeping (HUD, sound). Each step is independently skippable without corrupting state.
 
