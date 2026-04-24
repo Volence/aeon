@@ -19,13 +19,9 @@ Warm_Boot:
         btst    #1, d0
         bne.s   .wait_dma
 
-        ; Check CrossResetRAM magic
-        cmpi.l  #CROSS_RESET_MAGIC, (Cross_Reset_Magic_Addr).l
-        bne.s   Cold_Boot                   ; magic invalid → full cold boot
-
-        ; Valid warm boot — for now, just cold boot anyway
-        ; Full warm-boot preservation comes when there's game state worth keeping
-        bra.s   Cold_Boot
+        ; Check CrossResetRAM magic (warm boot detection)
+        ; When game state worth preserving exists, branch here on valid magic
+        ; For now, fall through to cold boot regardless
 
 ; -----------------------------------------------
 ; Cold_Boot — full hardware initialization
