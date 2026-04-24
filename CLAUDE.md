@@ -31,6 +31,7 @@ Key rules that are easy to forget:
 
 Design documents:
 - `docs/ENGINE_ARCHITECTURE.md` — master design document (VRAM layout, section streaming, collision, sprites, etc.)
+- `docs/DEFERRED_WORK.md` — work identified but blocked by missing dependencies. **Check at the start of every planning phase.**
 - `CODING_CONVENTIONS.md` — assembly style, optimization rules, AS features
 
 **Keep ENGINE_ARCHITECTURE.md in sync with reality.** Whenever research or implementation reveals a better approach that changes an engine decision, update the relevant section in `docs/ENGINE_ARCHITECTURE.md` immediately. The architecture doc is the source of truth — if code diverges from it, one of them is wrong.
@@ -43,6 +44,17 @@ Design documents:
 - At the end of each plan's implementation, all work is merged into `master`
 - The next planning phase always starts from a clean `master`
 - Use feature branches for implementation plans — merge to `master` when the plan is complete and verified
+
+## Research Checklist
+
+**Every design/brainstorm phase MUST complete ALL of these before proposing approaches:**
+
+1. **All 7 reference disassemblies** — check each one for how they solve the problem:
+   - S.C.E., Batman & Robin, Vectorman, Gunstar Heroes, Alien Soldier, Thunder Force IV, sonic_hack
+2. **Online sources** — search plutiedev, md.railgun.works, segaretro, SpritesMind, GitHub homebrew
+3. **Modern techniques** — look for patterns from modern engine design that apply to 68000
+
+Do not skip any source. Do not assume one reference covers the others. Each project made different tradeoffs worth understanding.
 
 ## Reference Projects
 

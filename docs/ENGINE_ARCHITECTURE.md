@@ -757,7 +757,9 @@ Total: 32 slots × 14 bytes = 448 bytes RAM
 
 **Why hybrid, not fully unrolled:** Unrolling all 32 slots costs 704 bytes ROM. The hybrid approach costs ~280 bytes — 60% smaller with 60% of the performance benefit. The critical queue (where every cycle matters for visual stability) gets the fast path. The deferrable queues (where one extra frame of latency is acceptable) get the compact path.
 
-**Static DMA for fixed transfers:** Palette ($80 bytes → CRAM $0000) and sprite table ($280 bytes → VRAM $F800) always transfer from the same RAM address to the same VRAM address with the same size. Their 14-byte DMA entries are pre-computed once at level init and copied directly into the Critical queue each frame, bypassing the `QueueDMATransfer` enqueue logic entirely. Saves ~400 cycles/frame (2× the ~200-cycle enqueue cost).
+**Static DMA for fixed transfers:** Sprite table ($280 bytes → VRAM $D800) always transfers from the same RAM address to the same VRAM address with the same size. Its 14-byte DMA entry is pre-computed once at level init and copied directly into the Critical queue each frame, bypassing the `QueueDMATransfer` enqueue logic entirely. Saves ~200 cycles/frame.
+
+**Per-palette-line dirty DMA:** Palette uses a 4-bit dirty bitmask (`Palette_Dirty`, one bit per palette line = 32 bytes). Each frame, only dirty lines are enqueued as Critical DMA. On a typical gameplay frame, only Line 3 (effects/water) changes — 32 bytes instead of 128. On section transitions, all 4 bits set. Palette line mapping: Line 0 = BG/environment, Line 1 = player character, Line 2 = objects, Line 3 = effects/water/fade.
 
 **Variable-size hscroll DMA:** Unlike palette and sprites, the hscroll buffer benefits from dirty-range tracking. The scroll update routines record `Hscroll_Dirty_Start` and `Hscroll_Dirty_End` (scanline indices). The DMA entry is computed each frame to transfer only the changed portion: source = `Horiz_Scroll_Buf + start*4`, dest = `$FC00 + start*4`, length = `(end - start + 1) * 4`. On slow-scroll frames (camera moved 1-2 pixels), this can reduce the hscroll DMA from 448 bytes to ~20 bytes — a 95% reduction in a Priority 0 transfer.
 
@@ -765,18 +767,40 @@ Total: 32 slots × 14 bytes = 448 bytes RAM
 
 **Lag recovery budget:** After a lag frame causes the Deferrable queue to be skipped, those entries pile up. To prevent cascade (one lag frame → backlog → another lag frame), temporarily grant 1.5× budget to the Deferrable queue for 2-3 frames after a lag event. This flushes the backlog without risking another overrun.
 
+**VBlank DMA budget (concrete numbers from hardware research):**
+
+| System | VBlank Lines | 68K Cycles | DMA Bytes (68K→VRAM) | Practical Budget |
+|--------|-------------|------------|---------------------|-----------------|
+| NTSC H40 | 38 | ~18,544 | 7,524 | ~7,200 |
+| PAL H40 (224p) | 89 | ~43,432 | 17,622 | ~15,000 |
+
+The practical budget accounts for CPU overhead (drain loop, VDP shadow flush, controller polling, sound driver). Vectorman's $B40 (2,880 bytes) is conservative — our 3-queue system with ~7,200 bytes available has substantial headroom for art streaming in the Deferrable queue.
+
+**128KB boundary safety:** The VDP increments only the low 17 bits of the 23-bit DMA source address. Transfers crossing a 128KB boundary wrap within the same block, producing garbage. This is fundamental to VDP silicon — all hardware revisions are affected. `QueueDMATransfer` detects boundary crossings and automatically splits into two entries (Flamewing's overflow detection via subtraction carry).
+
+**RAM source address safety:** When a RAM source address ($FF0000+) is right-shifted by 1 for the VDP, bit 23 can become set, which the VDP interprets as a VRAM copy flag instead of 68K→VDP DMA. `QueueDMATransfer` clears bit 23 after the shift (`bclr.l #23,d1`).
+
 **VInt safety:** SR masking (disable interrupts) during `QueueDMATransfer`. Costs 46 cycles per enqueue call. Prevents queue corruption if VBlank fires mid-enqueue. Enabled for all three queues.
 
 **No double buffering.** Vectorman uses double-buffered queues (write to A, drain B, swap). With SR masking preventing mid-enqueue interrupts, double buffering solves a problem we don't have. Saves 448 bytes RAM.
 
+**QueueStaticDMA macro:** For transfers with build-time-known source, destination, and length (sprite table, individual palette lines), a `QueueStaticDMA` macro bypasses `QueueDMATransfer` entirely. The 14-byte entry is pre-computed at assembly time or init, then block-copied into the next queue slot with `movem.l`. ~32 cycles inlined vs 184 cycles for the full function — 6× faster. Used for all Critical queue fixed transfers. Ported from Flamewing's `QueueStaticDMA`.
+
+**Critical queue overflow assertion:** In debug builds, `QueueDMATransfer` and `QueueStaticDMA` assert (via `trap`) if the Critical queue is full. Critical overflow means a design bug — the queue should always have capacity for the fixed transfers. In release builds, silently returns without enqueueing (graceful degradation). Important/Deferrable queues do not assert on overflow — budget-gated skipping is expected behavior.
+
+**Debug profiling counters (§8 integration):** Behind `ifdebug` guards, the DMA system tracks: `DMA_Bytes_ThisFrame` (total bytes enqueued), `DMA_Peak_Queue_Fill` (high-water mark per sub-queue), `DMA_Overflow_Count` (enqueue rejections), `Lag_Frame_Count` (VBlank overruns). Readable via Exodus MCP or KDebug console. Zero cost in release builds.
+
 **Why not S.C.E.'s hybrid (immediate + queued):** S.C.E. DMAs palette, sprites, and hscroll immediately during VBlank, using the queue only for art streaming (7 slots). We route everything through the queue because: (a) one code path to maintain, (b) the priority system gives us the same "critical transfers always complete" guarantee, (c) the queue provides byte budget enforcement and lag-frame behavior that immediate DMA can't.
 
 **Cross-references:**
-- Flamewing Ultra DMA Queue: entry format, boundary safety, VInt protection
+- Flamewing Ultra DMA Queue: entry format, boundary safety, VInt protection, QueueStaticDMA
 - S.C.E. `DMA Queue.asm`: jump-table drain mechanism
-- Vectorman: byte budget concept, pre-computed VDP command words
-- Alien Soldier: variable-size DMA based on dirty region (applied to hscroll)
+- Vectorman: byte budget concept ($B40), pre-computed VDP command words, atomic batch enqueue
+- Alien Soldier: variable-size DMA based on dirty region (applied to hscroll), dirty flags for palette/sprites
 - Batman: pre-staged VDP command buffer at fixed RAM addresses (applied to static DMA)
+- Gunstar Heroes: conditional sprite DMA via dirty flags
+- Thunder Force IV: round-robin sprite flicker for overflow (deferred to §1.2)
+- plutiedev.com, Kabuto hardware notes: VBlank timing, DMA transfer rates, 128KB boundary, sprite cache write-through
 
 ---
 
@@ -816,6 +840,8 @@ Phase 1 — During Object Loop          Phase 2 — Render_Sprites
 
 **Sprite table dirty flag:** `Sprite_Table_Dirty` byte, set by `Render_Sprites` after writing entries, cleared after DMA. Before enqueueing the sprite table DMA in the Critical queue, check this flag. If clear (no objects moved or animated since last frame), skip the $280-byte DMA entirely. This saves a Priority 0 queue slot and VBlank transfer time on static frames (pauses, cutscenes, menus, any calm moment). Confirmed by Gunstar Heroes' conditional sprite DMA pattern.
 
+**VDP sprite cache is write-through:** The VDP maintains an internal cache of Y-position and size/link fields. This cache updates only via VRAM writes to the sprite table address — changing the sprite table base address register does NOT update the cache. Therefore the full sprite table must always be DMA'd to VRAM; you cannot swap tables by changing the VDP register alone.
+
 **Cross-references:**
 - S.C.E. `Draw Sprite.asm`, `Render Sprites.asm`: two-phase system, Init_SpriteTable, MultiDraw, band overflow
 - TF4: round-robin sprite flicker for overflow
@@ -853,7 +879,7 @@ Game Loop                              VBlank
 
 **Overflow protection (gap in S.C.E.):** Before each entry write, check remaining buffer capacity. If full, defer excess tile updates to next frame rather than corrupting memory. The deferred updates are re-queued on the next scroll check. Slight visual pop (one frame of missing tiles at screen edge) is preferable to memory corruption.
 
-**Dual plane support:** `Plane_buffer_2_addr` long pointer enables simultaneous Plane A and Plane B updates. `VInt_DrawLevel` processes the primary buffer first, then the secondary buffer if the pointer is non-zero. Used for parallax background plane updates.
+**Dual plane support with independent dirty flags:** Separate `Plane_A_Dirty` and `Plane_B_Dirty` flags allow FG and BG planes to be updated independently. Camera scroll on one axis may only affect Plane A (foreground), while Plane B (background parallax) updates on a different schedule. `VInt_DrawLevel` checks each flag and only processes the corresponding buffer if dirty. Section transitions that change only the BG art don't force FG redraws and vice versa. Each plane has its own buffer: `Plane_A_Buffer` (primary) and `Plane_B_Buffer` (secondary).
 
 **Double-update mechanism:** When camera moves >16 pixels in one frame (fast scrolling), `Draw_TileColumn`/`Draw_TileRow` queues two sequential updates instead of one. The `Plane_Double_Update_Flag` triggers automatically based on camera delta.
 
