@@ -60,7 +60,7 @@ enableInts macro
 ; SetVDPReg — write to shadow table + mark dirty
 ; \1 = register number (0-18), \2 = value (register or immediate)
 SetVDPReg macro
-        move.b  \2, VDP_Shadow_Table+\1
+        move.b  \2, (VDP_Shadow_Table+\1).w
         ori.l   #(1<<\1), (VDP_Dirty_Mask).w
         endm
 
