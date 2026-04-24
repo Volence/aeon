@@ -85,3 +85,100 @@ QueueDMATransfer:
     endif
         move.w  (sp)+, sr
         rts
+
+; -----------------------------------------------
+; Process_DMA_Critical — drain Critical queue via jump table
+; Zero branches per entry. ~64 cycles/entry, ~514 for all 8.
+; Ported from S.C.E. Process_DMA_Queue (Flamewing).
+; In:  none
+; Out: none
+; Clobbers: a1, a5
+; -----------------------------------------------
+Process_DMA_Critical:
+        movea.w (DMA_Critical_Slot).w, a1
+        suba.w  #DMA_Critical, a1               ; a1 = byte offset into queue
+        jmp     .jump_table(a1)
+
+.jump_table:
+        bra.w   .done
+        rept 5
+        trap    #0
+        endr
+
+    set .c, 1
+    rept DMA_CRITICAL_SLOTS
+        lea     (VDP_CTRL).l, a5
+        lea     (DMA_Critical).w, a1
+    if .c <> DMA_CRITICAL_SLOTS
+        bra.w   .drain_end-.c*8
+    endif
+    set .c, .c+1
+    endr
+
+    rept DMA_CRITICAL_SLOTS
+        move.l  (a1)+, (a5)
+        move.l  (a1)+, (a5)
+        move.l  (a1)+, (a5)
+        move.w  (a1)+, (a5)
+    endr
+
+.drain_end:
+        move.w  #DMA_Critical, (DMA_Critical_Slot).w
+.done:
+        rts
+
+; -----------------------------------------------
+; Process_DMA_Important — drain Important queue with byte budget
+; In:  none (reads DMA_Budget_Remaining)
+; Out: none
+; Clobbers: d0-d1, a0-a1, a5
+; -----------------------------------------------
+Process_DMA_Important:
+        movea.w (DMA_Important_Slot).w, a1
+        lea     (DMA_Important).w, a0
+        cmpa.l  a0, a1
+        bls.s   .done
+        bsr.s   Drain_Budgeted_Queue
+.done:
+        move.w  #DMA_Important, (DMA_Important_Slot).w
+        rts
+
+; -----------------------------------------------
+; Process_DMA_Deferrable — drain Deferrable queue with byte budget
+; In:  none (reads DMA_Budget_Remaining)
+; Out: none
+; Clobbers: d0-d1, a0-a1, a5
+; -----------------------------------------------
+Process_DMA_Deferrable:
+        movea.w (DMA_Deferrable_Slot).w, a1
+        lea     (DMA_Deferrable).w, a0
+        cmpa.l  a0, a1
+        bls.s   .done
+        bsr.s   Drain_Budgeted_Queue
+.done:
+        move.w  #DMA_Deferrable, (DMA_Deferrable_Slot).w
+        rts
+
+; -----------------------------------------------
+; Drain_Budgeted_Queue — shared loop for Important/Deferrable
+; In:  a0 = queue start, a1 = slot pointer (first free)
+;      DMA_Budget_Remaining must be set
+; Out: none
+; Clobbers: d0-d1, a0, a5
+; -----------------------------------------------
+Drain_Budgeted_Queue:
+        lea     (VDP_CTRL).l, a5
+.loop:
+        move.w  (DMA_Budget_Remaining).w, d0
+        ble.s   .done
+        movep.w DMAEntry_SizeH(a0), d1          ; read size in words
+        add.w   d1, d1                          ; words -> bytes
+        sub.w   d1, (DMA_Budget_Remaining).w
+        move.l  (a0)+, (a5)
+        move.l  (a0)+, (a5)
+        move.l  (a0)+, (a5)
+        move.w  (a0)+, (a5)
+        cmpa.l  a0, a1
+        bhi.s   .loop
+.done:
+        rts
