@@ -8,6 +8,10 @@
 # Allow test art data
 !test/*.bin
 
+# Allow sprite art and DPLC data
+!art/uncompressed/**/*.bin
+!data/dplc/*.bin
+
 # MCP config (machine-specific)
 .mcp.json
 *.s4lz
