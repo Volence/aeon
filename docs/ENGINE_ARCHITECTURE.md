@@ -1065,17 +1065,20 @@ The art pipeline handles getting graphical data from ROM into VRAM — compresse
 
 **S4LZ (bulk — all sequential art loads):**
 - Custom word-aligned LZ format, designed for the 68000
-- Token: single byte, nibble-split — high nibble = literal count in words, low nibble = match count in words
+- **Header:** 4 bytes — 16-bit uncompressed size, 8-bit flags (bit 0 = tile-delta XOR enabled), 8-bit reserved
+- **Token:** single byte, nibble-split — high nibble = literal count in words, low nibble = match count in words. Token $00 = end-of-stream
 - All copies word-aligned: `move.w (a0)+,(a1)+` copies 2 bytes in 12 cycles (same cost as `move.b`, double throughput)
-- Big-endian offsets: native 68000 byte order saves 20 cycles/match vs LZ4's little-endian
+- Big-endian offsets: native 68000 byte order saves 14 cycles/match vs LZ4's little-endian (no `rol.w #8` needed)
 - 16-bit dictionary window (64KB): zero speed penalty over 8-bit on 68000 — all address math is 16-bit minimum
-- 256-entry jump table dispatch: token byte indexes directly into unrolled handler table, eliminating branch chains
-- Extension mechanism for counts >15 words (rare, single byte extension)
-- **Tile-delta preprocessing** (build-time): XOR each 32-byte tile against the previous before compression. Adjacent tiles differ by few pixels → XOR produces mostly zeros → LZ compresses 10-25% better. Runtime undo cost: ~8.5 cycles/byte (negligible). MEGAPACK (Codemasters) proved tile-aware preprocessing beats generic LZ by ~30%
+- **Two 16-entry jump tables** for dispatch: one for literal count (hi nibble), one for match count (lo nibble). Each table entry is an unrolled copy sequence. ~200-400 bytes ROM total. Full 256-entry table reserved as optimization if profiling demands it
+- **Minimum match:** 2 words (4 bytes) — the natural breakeven point for 3-byte match token overhead (1 token + 2 offset bytes)
+- **Extension mechanism:** when nibble = 15, read one extension byte; count = 15 + byte. If byte = 255, read a 16-bit word for the count. Simpler than LZ4's chained-255 scheme, sufficient for Genesis data sizes
+- **Tile-delta preprocessing** (build-time): XOR each 32-byte tile against the previous before compression. Adjacent tiles differ by few pixels → XOR produces mostly zeros → LZ compresses 5-30% better depending on tile correlation. Runtime undo cost: ~12 cycles/byte (XOR + writeback per word). Header flag allows disabling when delta doesn't help. MEGAPACK (Codemasters) proved tile-aware preprocessing beats generic LZ by ~30%
 - PC-side compressor: optimal parsing (graph-based, like clownlzss) written in Python/C. Runs at build time
-- 68000 decompressor: ~2-5 KB ROM (jump table dominates)
+- 68000 decompressor: ~200-400 bytes ROM (two jump tables + main loop)
 - Used for both streaming loads (interruptible, one buffer per frame) and instant loads (blocking, completes in one call). S4LZ is fast enough for both use cases
 - Streaming mode: decompress into ~4KB RAM buffer → DMA to VRAM (Deferrable priority). VBlank bookmark saves decompressor state if interrupted mid-frame
+- See `docs/research/lz-compression-survey.md` for full design validation against LZ4W, Comper, LZSA, FC8, MEGAPACK, and all 7 reference disassemblies
 
 **UFTC (sprite art — on-demand tile decompression):**
 - By Sik (sikthehedgehog). Splits 8x8 tiles into four 4x4 blocks, builds dictionary of unique blocks, stores each tile as 4 dictionary indices
@@ -1092,12 +1095,12 @@ The art pipeline handles getting graphical data from ROM into VRAM — compresse
 
 **Why S4LZ over existing formats:**
 - **vs KosPM:** S4LZ projects 700-1,100 KB/s vs KosPM's 190-310 KB/s. 3-4x faster. Comparable or better compression ratio with tile-delta preprocessing. Eliminates the need for a separate "fast" format
-- **vs Comper:** S4LZ is faster (word-aligned with jump table vs Comper's simpler loop) AND compresses better (64KB dictionary + tile-delta vs Comper's small window). No need for a separate fast format
-- **vs LZ4W (SGDK):** S4LZ improves on LZ4W's design — big-endian offsets (20 cycles/match saved), larger dictionary (64KB vs 512 bytes), tile-delta preprocessing for better ratio. LZ4W achieves 550-950 KB/s; S4LZ targets the high end of that range and beyond
-- **vs Nemesis:** UFTC provides random-access decompression that Nemesis cannot. And S4LZ is ~8x faster than Nemesis for sequential loads
+- **vs Comper:** S4LZ is faster (word-aligned with unrolled tables vs Comper's simpler loop) AND compresses better (64KB dictionary + tile-delta vs Comper's 512-byte window at ~0.65-0.75 ratio). No need for a separate fast format
+- **vs LZ4W (SGDK):** S4LZ improves on LZ4W's design — big-endian offsets (14 cycles/match saved vs LZ4's little-endian), much larger dictionary (64KB vs 512 bytes), tile-delta preprocessing for better ratio. LZ4W achieves 600-950 KB/s; S4LZ targets the same range with better compression
+- **vs Nemesis:** UFTC provides random-access decompression that Nemesis cannot. And S4LZ is ~8-14x faster than Nemesis for sequential loads
 - **vs Raw/uncompressed (Batman):** Sonic needs 10+ zones — uncompressed art would exceed 4MB ROM. Per-section tile art with S4LZ compression keeps ROM manageable while decompressing faster than any bit-stream format
 
-**Cross-references:** See `RESEARCH_FINDINGS.md` sections 1.1-1.9 for the full format analysis.
+**Cross-references:** See `docs/research/lz-compression-survey.md` for the full format survey and design validation.
 
 ### 2.2 Dynamic VRAM Allocator (NOVEL)
 
