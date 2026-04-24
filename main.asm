@@ -90,6 +90,7 @@ Checksum:
 ; Engine code
 ; -----------------------------------------------
     include "engine/boot.asm"
+    include "engine/vdp_init.asm"
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)

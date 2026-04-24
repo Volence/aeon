@@ -139,8 +139,11 @@ Cold_Boot:
         ; Disable all interrupts
         disableInts
 
-        ; Continue to remaining init (added in later tasks)
-        bra.s   *                            ; PLACEHOLDER — replaced by Task 8+
+        ; Init VDP shadow table (§0.4)
+        bsr.w   VDP_Shadow_Init
+
+        ; Continue to remaining init
+        bra.s   *                            ; PLACEHOLDER
 
 ; -----------------------------------------------
 ; Boot Data Table — read sequentially via (a5)+
@@ -159,6 +162,7 @@ BootData:
         dc.l    VDP_CTRL                    ; a4
 
         ; VDP register values $00-$17 (§0.3)
+BootData_VDPRegs:
         dc.b    $04                         ; $00: HInt off, HV counter readable
         dc.b    $14                         ; $01: display OFF, VInt OFF, DMA ON
         dc.b    $30                         ; $02: Plane A nametable at $C000

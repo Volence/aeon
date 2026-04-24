@@ -54,6 +54,17 @@ enableInts macro
         endm
 
 ; -----------------------------------------------
+; VDP shadow table write-through
+; -----------------------------------------------
+
+; SetVDPReg — write to shadow table + mark dirty
+; \1 = register number (0-18), \2 = value (register or immediate)
+SetVDPReg macro
+        move.b  \2, VDP_Shadow_Table+\1
+        ori.l   #(1<<\1), (VDP_Dirty_Mask).w
+        endm
+
+; -----------------------------------------------
 ; Debug subsystem flags (only meaningful when __DEBUG__ is defined)
 ; Use the MD Debugger's ifdebug macro (from debug/debugger.asm) for conditionals.
 ; -----------------------------------------------
