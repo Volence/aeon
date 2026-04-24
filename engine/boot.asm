@@ -1,0 +1,202 @@
+; Boot sequence — TMSS, VDP init, Z80 init, memory clearing
+
+; -----------------------------------------------
+; EntryPoint — first instruction after reset
+; -----------------------------------------------
+EntryPoint:
+        tst.l   (HW_PORT_A_CTRL_FULL).l
+        bne.s   Warm_Boot
+        tst.w   (HW_EXPANSION_CTRL_FULL).l
+        beq.s   Cold_Boot
+
+; -----------------------------------------------
+; Warm_Boot — soft reset path
+; Placeholder: just fall through to cold boot
+; -----------------------------------------------
+Warm_Boot:
+        ; Wait for any in-progress DMA
+.wait_dma:
+        move.w  (VDP_CTRL).l, d0
+        btst    #1, d0
+        bne.s   .wait_dma
+
+        ; TODO: preserve CrossResetRAM, jump to title
+        ; For now, fall through to cold boot
+
+; -----------------------------------------------
+; Cold_Boot — full hardware initialization
+; -----------------------------------------------
+Cold_Boot:
+        ; TMSS handshake (§0.2)
+        move.b  (HW_VERSION).l, d0
+        andi.b  #$F, d0
+        beq.s   .no_tmss
+        move.l  #$53454741, (TMSS_REGISTER).l   ; "SEGA"
+.no_tmss:
+
+        ; Reset VDP command word state machine
+        move.w  (VDP_CTRL).l, d0
+
+        ; Preload hardware addresses (S.C.E. movem pattern)
+        lea.l   BootData(pc), a5
+        movem.w (a5)+, d5-d7
+        movem.l (a5)+, a0-a4
+
+        ; VDP register init — 24 registers from table (§0.3)
+        moveq   #23, d1
+.vdp_loop:
+        move.b  (a5)+, d5
+        move.w  d5, (a4)
+        add.w   d7, d5                  ; d7 = $0100 → next register
+        dbf     d1, .vdp_loop
+
+        ; Start VRAM DMA fill (§0.7) — runs in background on VDP clock
+        move.l  (a5)+, (a4)                ; vdpComm(0, VRAM, DMA)
+        moveq   #0, d0
+        move.w  d0, (a3)                    ; trigger fill (fill byte = 0)
+
+        ; --- PARALLEL WORK WHILE DMA FILLS VRAM ---
+
+        ; Z80 init (§0.5)
+        move.w  d0, (a2)                    ; assert Z80 reset
+        move.w  d7, (a1)                    ; request Z80 bus
+        move.w  d7, (a2)                    ; release Z80 reset
+
+.wait_z80:
+        btst    d0, (a1)                    ; wait for bus grant (d0 = 0 → test bit 0)
+        bne.s   .wait_z80
+
+        ; Copy Z80 idle program to Z80 RAM
+        moveq   #Z80_IDLE_SIZE-1, d1
+.load_z80:
+        move.b  (a5)+, (a0)+
+        dbf     d1, .load_z80
+
+        ; Z80 reset with YM2612-safe delay
+        move.w  d0, (a2)                    ; assert reset
+        moveq   #25, d2
+.ym_delay:
+        dbf     d2, .ym_delay               ; ~264 cycles (YM2612 needs >= 192)
+        move.w  d7, (a2)                    ; release reset — Z80 starts idle loop
+        move.w  d0, (a1)                    ; release bus — Z80 has control
+
+        ; Clear Work RAM — 64KB (§0.7)
+        movea.l d0, a6                      ; a6 = 0
+        move.w  d6, d2                      ; d2 = $3FFF (longword count)
+.clear_ram:
+        move.l  d0, -(a6)                   ; wraps: $00000000 → $FFFFFFFC → ... → $FFFF0000
+        dbf     d2, .clear_ram
+
+        ; PSG silence (§0.6) — 4 bytes from data table
+        moveq   #3, d2
+.silence_psg:
+        move.b  (a5)+, PSG_PORT-VDP_DATA(a3)
+        dbf     d2, .silence_psg
+        align 2
+
+        ; --- WAIT FOR DMA FILL TO COMPLETE ---
+.wait_fill:
+        move.w  (a4), d2
+        btst    #1, d2
+        bne.s   .wait_fill
+
+        ; Restore auto-increment to 2
+        move.w  (a5)+, (a4)                 ; vdpReg($0F, $02)
+
+        ; Clear CRAM — 128 bytes (§0.7)
+        move.l  (a5)+, (a4)                 ; vdpComm(0, CRAM, WRITE)
+        moveq   #bytesToLcnt($80), d2
+.clear_cram:
+        move.l  d0, (a3)
+        dbf     d2, .clear_cram
+
+        ; Clear VSRAM — 80 bytes (§0.7)
+        move.l  (a5)+, (a4)                 ; vdpComm(0, VSRAM, WRITE)
+        moveq   #bytesToLcnt($50), d2
+.clear_vsram:
+        move.l  d0, (a3)
+        dbf     d2, .clear_vsram
+
+        ; YM2612 key-off — silence all 6 FM channels (§0.6)
+        stopZ80
+        lea.l   (YM2612_A0).l, a6
+        move.b  #$28, (a6)                  ; select Key On/Off register
+        moveq   #2, d2
+.keyoff_part1:
+        move.b  d2, 1(a6)                   ; key off channels 0-2
+        dbf     d2, .keyoff_part1
+        moveq   #6, d2
+        moveq   #2, d1
+.keyoff_part2:
+        move.b  d2, 1(a6)                   ; key off channels 4-6 ($04,$05,$06)
+        subq.w  #1, d2
+        dbf     d1, .keyoff_part2
+        startZ80
+
+        ; Clear all 68K registers
+        movem.l (RAM_Start).w, d0-a6
+
+        ; Disable all interrupts
+        disableInts
+
+        ; Continue to remaining init (added in later tasks)
+        bra.s   *                            ; PLACEHOLDER — replaced by Task 8+
+
+; -----------------------------------------------
+; Boot Data Table — read sequentially via (a5)+
+; -----------------------------------------------
+BootData:
+        ; Movem preload: d5-d7
+        dc.w    $8000                       ; d5: VDP reg command base
+        dc.w    bytesToLcnt($10000)         ; d6: RAM clear longword count ($3FFF)
+        dc.w    $0100                       ; d7: Z80 bus/reset value
+
+        ; Movem preload: a0-a4
+        dc.l    Z80_RAM                     ; a0
+        dc.l    Z80_BUS_REQUEST             ; a1
+        dc.l    Z80_RESET                   ; a2
+        dc.l    VDP_DATA                    ; a3
+        dc.l    VDP_CTRL                    ; a4
+
+        ; VDP register values $00-$17 (§0.3)
+        dc.b    $04                         ; $00: HInt off, HV counter readable
+        dc.b    $14                         ; $01: display OFF, VInt OFF, DMA ON
+        dc.b    $30                         ; $02: Plane A nametable at $C000
+        dc.b    $3C                         ; $03: Window nametable at $F000
+        dc.b    $07                         ; $04: Plane B nametable at $E000
+        dc.b    $6C                         ; $05: Sprite table at $D800
+        dc.b    $00                         ; $06: unused
+        dc.b    $00                         ; $07: BG color = pal 0, entry 0
+        dc.b    $00                         ; $08: unused (SMS compat)
+        dc.b    $00                         ; $09: unused (SMS compat)
+        dc.b    $FF                         ; $0A: HInt counter = every 256 lines
+        dc.b    $00                         ; $0B: full-screen V/H scroll
+        dc.b    $81                         ; $0C: H40 (320px), no interlace
+        dc.b    $37                         ; $0D: HScroll table at $DC00
+        dc.b    $00                         ; $0E: unused
+        dc.b    $01                         ; $0F: auto-increment = 1 (for DMA fill)
+        dc.b    $11                         ; $10: 64x64 scroll planes
+        dc.b    $00                         ; $11: window H disabled
+        dc.b    $00                         ; $12: window V disabled
+        dc.b    $FF                         ; $13: DMA length low = $FF
+        dc.b    $FF                         ; $14: DMA length high = $FF
+        dc.b    $00                         ; $15: DMA source low
+        dc.b    $00                         ; $16: DMA source mid
+        dc.b    $80                         ; $17: DMA fill mode
+
+        ; VRAM DMA fill command
+        dc.l    vdpComm(0, VRAM, DMA)
+
+        ; Z80 idle program (assembled Z80 code)
+        include "engine/z80_init.asm"
+        align 2
+
+        ; PSG silence values
+        dc.b    $9F, $BF, $DF, $FF
+        align 2
+
+        ; Post-DMA VDP commands
+        dc.w    vdpReg($0F, $02)            ; restore auto-increment to 2
+        dc.l    vdpComm(0, CRAM, WRITE)
+        dc.l    vdpComm(0, VSRAM, WRITE)
+BootData_End:

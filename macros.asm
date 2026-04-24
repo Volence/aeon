@@ -36,9 +36,9 @@ bytesToLcnt function n, (n)/4-1
 
 stopZ80 macro
         move.w  #$0100, (Z80_BUS_REQUEST).l
-.wait_z80\@:
+.wait_z80:
         btst    #0, (Z80_BUS_REQUEST).l
-        bne.s   .wait_z80\@
+        bne.s   .wait_z80
         endm
 
 startZ80 macro

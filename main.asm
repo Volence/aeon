@@ -86,22 +86,24 @@ Checksum:
     dc.b    "JUE             "                          ; $1F0: Region (16 bytes)
 
 ; -----------------------------------------------
-; Temporary stubs (replaced by engine code in later tasks)
+; Engine code
 ; -----------------------------------------------
-ErrorTrap:
-    bra.s   ErrorTrap
+    include "engine/boot.asm"
 
-NullInterrupt:
-    rte
-
+; -----------------------------------------------
+; Temporary stubs (replaced in later tasks)
+; -----------------------------------------------
 HBlank_Dispatch:
     rte
 
 VBlank_Handler:
     rte
 
-EntryPoint:
-    bra.s   EntryPoint
+ErrorTrap:
+    bra.s   ErrorTrap
+
+NullInterrupt:
+    rte
 
 ; -----------------------------------------------
 ; End of ROM
