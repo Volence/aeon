@@ -152,6 +152,9 @@ Cold_Boot:
         ; Build static DMA entries (§1.5)
         bsr.w   BuildStaticDMA
 
+        ; Set initial VBlank handler (§1.2)
+        move.l  #VInt_Level, (VInt_Ptr).w
+
         ; Region detection (§0.8)
         move.b  (HW_VERSION).l, d0
         move.b  d0, (Hardware_Region).w
@@ -160,9 +163,11 @@ Cold_Boot:
         btst    #6, d0
         bne.s   .pal
         move.w  #NTSC_TIMING_STEP, (Timing_Step).w
+        move.w  #DMA_BUDGET_NTSC, (DMA_Budget_Default).w
         bra.s   .region_done
 .pal:
         move.w  #PAL_TIMING_STEP, (Timing_Step).w
+        move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w
 .region_done:
         clr.w   (Frame_Accumulator).w
 

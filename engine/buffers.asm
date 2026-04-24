@@ -103,3 +103,38 @@ PlaneMapToVRAM:
         add.l   d4, d0                          ; advance to next row
         dbf     d2, .row
         rts
+
+; -----------------------------------------------
+; Enqueue_Dirty_Buffers — enqueue dirty palette lines and sprite table
+; Called from VBlank handlers (Z80 already stopped).
+; In:  none
+; Out: none
+; Clobbers: d0, a1-a2
+; -----------------------------------------------
+Enqueue_Dirty_Buffers:
+        move.b  (Palette_Dirty).w, d0
+        beq.w   .no_pal
+        btst    #0, d0
+        beq.s   .skip_pal0
+        QueueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Pal_Line0
+.skip_pal0:
+        btst    #1, d0
+        beq.s   .skip_pal1
+        QueueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Pal_Line1
+.skip_pal1:
+        btst    #2, d0
+        beq.s   .skip_pal2
+        QueueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Pal_Line2
+.skip_pal2:
+        btst    #3, d0
+        beq.s   .skip_pal3
+        QueueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Pal_Line3
+.skip_pal3:
+        clr.b   (Palette_Dirty).w
+.no_pal:
+        tst.b   (Sprite_Table_Dirty).w
+        beq.s   .no_spr
+        QueueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Sprite_DMA
+        clr.b   (Sprite_Table_Dirty).w
+.no_spr:
+        rts
