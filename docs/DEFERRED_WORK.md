@@ -79,6 +79,32 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 
 ---
 
+## From §3 — Object System (Research Phase)
+
+These items were identified during §3 Phase 0 research but require a full SST field audit before committing.
+
+### SST Field Audit & Size Re-evaluation (§3)
+**Blocked by:** Implementation of animation, collision, and player subsystems (need real field usage data)
+**What:** Audit every SST field across all object types (player, badnik, platform, effect, boss, system) once subsystems are implemented. Determine actual field usage per type. Evaluate whether the SST can shrink from $50 to $4C or $48.
+**When ready:** After §3 Phase 3 (animation) and Phase 4 (collision) are implemented — enough subsystems exist to see real field pressure.
+
+### Word code_addr at $00 (§3)
+**Blocked by:** SST field audit (want full picture before committing field sizes)
+**What:** Use a word offset at $00 instead of longword function pointer (sonic_hack pattern). `objroutine function x,(x)-ObjCodeBase` computes offset from a $10000-aligned code bank. Dispatch: `moveq #BANK, d0; swap d0; move.w (a0), d0; movea.l d0, a1; jsr (a1)`. Saves 2 bytes per SST, 20 cycles per dispatch (~1,320 cycles/frame across 66 slots). Constraint: all object code must fit in one 64KB bank.
+**When ready:** During SST field audit. Requires organizing object code contiguously.
+
+### Word Mappings Offset (§3)
+**Blocked by:** SST field audit
+**What:** Use a word offset for `mappings` instead of a longword ROM pointer. All sprite mappings would live within 64KB of a base address. Saves 2 bytes per SST. Combined with word code_addr, that's 4 bytes freed — may enable SST shrink.
+**When ready:** During SST field audit. Requires organizing mapping data contiguously.
+
+### Variable SST Sizing — Effect Pool (§3)
+**Blocked by:** SST field audit (need to know actual effect field usage)
+**What:** Thunder Force IV uses $20/$40/$60 per-type pools. A $20 effect SST (explosions, dust, score popups, debris) shares the $00-$19 prefix with the full SST, enabling shared routines (ObjectMove, Draw_Sprite). Saves ~768 bytes at 16 effect slots. Trade-off: separate RunEffects loop, effects can't use routines that access fields past $19 (e.g., AnimateSprite needs anim_table at $28).
+**When ready:** After SST field audit determines which fields effects actually need. May be unnecessary if SST shrinks enough overall.
+
+---
+
 ## How to Use This Document
 
 When starting a new planning phase:

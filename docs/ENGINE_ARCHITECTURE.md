@@ -1420,55 +1420,69 @@ Build Pipeline (8.1)
 
 The object system is the backbone — every gameplay entity (players, badniks, rings, monitors, bosses, effects, HUD elements) is an object with a fixed-size slot in RAM, running a state machine each frame. The design targets: O(1) allocation, data-driven spawning and child creation, a modular collision system, and an animation system that doubles as a lightweight behavior sequencer.
 
-### 3.1 SST Layout — $50 Bytes, Hot/Cold Reordering (NOVEL)
+### 3.1 SST Layout — $50 Bytes, Logical Field Grouping
 
-Every object occupies an 80-byte ($50) Sprite Status Table entry. Fields are reordered by access frequency — no reference engine does this, all inherit stock Sonic 1 layout.
+Every object occupies an 80-byte ($50) Sprite Status Table entry. Fields are grouped by logical function — dispatch, physics, render/collision, animation, links, engine, and custom data. The 68000 has no data cache, so there is no hardware benefit to field ordering. The grouping is a code-maintenance and `movem` optimization: related fields at contiguous offsets means routines that access multiple fields can batch them, and the layout is self-documenting.
+
+The one field that IS performance-critical at $00: `move.w (a0), d0` (zero offset) saves 2 bytes + 4 cycles per dispatch versus any non-zero `d(a0)` offset. All `d(An)` displacements within a $50 SST are 16-bit and cost the same — $00 is the only special case.
 
 ```
-; === "Hot" fields — accessed every frame by every object ===
-$00  id / objroutine        ; (word) — dispatch + state machine
-$02  x_pos                  ; (long) — 32-bit subpixel position
-$06  y_pos                  ; (long) — 32-bit subpixel position
+; === Dispatch ===
+$00  code_addr              ; (word) — object code offset from ObjCodeBase
+                            ;          zero = empty slot
+
+; === Physics ===
+$02  x_pos                  ; (long) — 16.16 subpixel position
+$06  y_pos                  ; (long) — 16.16 subpixel position
 $0A  x_vel                  ; (word) — horizontal velocity
 $0C  y_vel                  ; (word) — vertical velocity
+
+; === Render / Collision ===
 $0E  render_flags           ; (byte) — display flags, on-screen check
 $0F  collision_response     ; (byte) — collision type dispatch
-
-; === "Warm" fields — accessed during render/animation ===
 $10  mappings               ; (long) — sprite mapping pointer
 $14  art_tile               ; (word) — VRAM tile index (from allocator)
 $16  priority               ; (word) — sprite priority band
 $18  width_pixels           ; (byte) — collision/display width (FULL, not half)
-$19  height_pixels           ; (byte) — collision/display height (FULL, not half)
-$1A  anim                   ; (byte) — current animation
-$1B  anim_frame             ; (byte) — current frame
-$1C  anim_frame_duration    ; (byte) — frame timer
-$1D  mapping_frame          ; (byte) — current mapping index
-$1E  subtype                ; (byte) — object subtype
-$1F  respawn_index          ; (byte) — respawn tracking
+$19  height_pixels          ; (byte) — collision/display height (FULL, not half)
 
-; === "Link" fields — parent/child relationships ===
-$20  parent_ptr             ; (word) — parent object address
-$22  child_ptr              ; (word) — child object address
+; === Animation ===
+$1A  anim                   ; (byte) — current animation ID
+$1B  anim_cursor            ; (long) — self-advancing ROM pointer (replaces
+                            ;          anim_frame + anim_frame_duration)
+$1F  mapping_frame          ; (byte) — current mapping index
 
-; === "Engine" fields — system integrations ===
-$24  anim_table             ; (long) — animation table pointer
-$28  wait_timer             ; (word) — Obj_Wait countdown
-$2A  callback_ptr           ; (long) — Obj_Wait/callback target
+; === Identity / Spawn ===
+$20  subtype                ; (byte) — object subtype
+$21  respawn_index          ; (byte) — respawn tracking
 
-; === "Cold" fields — per-object custom data ===
-$2E-$4F  free (34 bytes)    ; Player overlay, boss overlay, or custom
+; === Links ===
+$22  parent_ptr             ; (word) — parent object address
+$24  sibling_ptr            ; (word) — sibling link (for multi-part objects)
+
+; === Engine ===
+$26  anim_table             ; (long) — animation table pointer
+$2A  wait_timer             ; (word) — Obj_Wait countdown
+
+; === Custom data — per-object overlays ===
+$2C-$4F  free (36 bytes)    ; Player overlay, boss overlay, or custom
 ```
 
-**Key wins:** x_pos/y_pos at $02/$06 means every ObjectMove, TouchResponse, and DisplaySprite reference is at minimal offset. Position and velocity are contiguous. Collision fields (render_flags through height_pixels) cluster at $0E-$19 for sequential TouchResponse reads.
+**Dispatch:** Word code_addr at $00 stores an offset from `ObjCodeBase` (a $10000-aligned label). Dispatch reconstructs the full address: `moveq #BANK, d0; swap d0; move.w (a0), d0; movea.l d0, a1; jsr (a1)`. The `objroutine` AS function computes offsets at build time: `objroutine function x, (x)-ObjCodeBase`. `tst.w (a0); beq.s .skip` tests for empty slots. This is the sonic_hack pattern — validated across the full game.
 
-**Slot ranges (from S.C.E.):**
+**Animation:** `anim_cursor` replaces separate `anim_frame` and `anim_frame_duration` fields using Alien Soldier's self-advancing ROM pointer technique. The pointer IS the animation state — it walks forward through bytecode data, and loop/branch control codes rewrite it to a target address. Saves 2 bytes vs separate fields and simplifies event code processing.
+
+**Links:** `sibling_ptr` replaces `child_ptr` — Alien Soldier's research shows dual link fields (parent + sibling) are more useful than parent + child for multi-part boss communication.
+
+**SST size is $50 pending a full field audit** — see DEFERRED_WORK.md. Once animation, collision, and player subsystems are implemented, audit every SST field across all object types. Word offsets for `code_addr` and `mappings` may free enough bytes to shrink the SST. Variable-size effect pools ($20 for lightweight effects) also deferred to that audit.
+
+**Slot ranges:**
 - Slots 0-1: Players (Sonic, Tails)
 - Slots 2-41: Dynamic level objects (40 slots)
-- Slots 42-46: Effects (explosions, score popups, dust)
-- Slots 47-54: System objects (HUD, shields, title cards)
+- Slots 42-57: Effects/particles (16 slots — ring scatter, explosions, dust, score popups)
+- Slots 58-65: System objects (HUD, shields, title cards)
 
-Each range can have its own free list for targeted allocation. Effect objects can never fill gameplay slots.
+Each range has its own free stack for targeted allocation. Effect objects can never fill gameplay slots. Spawn guard (from Thunder Force IV): `cmp.w #MAX, spawn_count; bhi .skip` prevents cascade pool exhaustion.
 
 ### 3.2 Free Slot Stack — O(1) Allocation (NOVEL)
 
@@ -1489,7 +1503,11 @@ FreeSlot:
 ; Init at level start: push all dynamic slot addresses
 ```
 
-O(1) allocate, O(1) free, zero overhead, no linked-list pointers consuming SST space. All five `SingleObjLoad` variants collapse into one stack pop. `DeleteObject` becomes a stack push + slot clear (via `movem.l` — two instructions clear all 80 bytes).
+O(1) allocate, O(1) free, zero overhead, no linked-list pointers consuming SST space. All five `SingleObjLoad` variants collapse into one stack pop. `DeleteObject` becomes a stack push + slot clear (via `movem.l` — two instructions clear all 80 bytes). No commercial Genesis game uses this approach — all use linear scan. This is the single biggest algorithmic win in the object system.
+
+**Deletion strategy: immediate.** Research across 7 references overwhelmingly favors immediate deletion (5/7 use it). `DeleteObject` pushes the slot address back to the free stack, then zeros the entire SST. No mark bits, no sweep pass, no deferred phase. `RunObjects` skips empty slots via `tst.w (a0); beq.s .skip`. Parent-child cascades are safe: children check `tst.w (parent_ptr)` — if parent's code_addr is zero, child self-deletes. Alien Soldier's mark-and-sweep exists to solve mid-iteration mutation of a pointer list, which our stride-based iteration avoids by design.
+
+**Spawn guard (from Thunder Force IV):** `cmp.w #MAX_SPAWNS_PER_FRAME, spawn_count; bhi .skip` prevents pathological pool exhaustion from spawn cascades (e.g., ring scatter triggering multiple explosion spawns).
 
 ### 3.3 Data-Driven Child Creation (from S.C.E.)
 
@@ -1502,9 +1520,9 @@ S.C.E. has 12 child creation routines, all driven by descriptor tables. Distille
 | **CreateChild_Linked** | code_addr (repeated, doubly-linked chain) | Snake segments, train cars |
 | **CreateChild_FlipAware** | Same as Complex, negates X when parent flipped | Directional boss weapons |
 
-All use the free slot stack for allocation. All auto-set `parent_ptr`/`child_ptr`. Children inherit `mappings` and `art_tile` from parent (no separate VRAM allocation for shared art).
+All use the free slot stack for allocation. All auto-set `parent_ptr`/`sibling_ptr`. Children inherit `mappings` and `art_tile` from parent (no separate VRAM allocation for shared art).
 
-**Cleanup chain:** On parent death, walk child_ptr chain and delete all children. Children also check parent — if parent's id is zero, self-delete. S.C.E.'s `Child_Draw_Sprite` auto-delete behavior is ported into the render path.
+**Cleanup chain:** On parent death, walk sibling_ptr chain and delete all children. Children also check parent — if parent's code_addr is zero, self-delete. S.C.E.'s `Child_Draw_Sprite` auto-delete behavior is ported into the render path.
 
 **Descriptor table example:**
 ```
