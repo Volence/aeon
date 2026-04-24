@@ -1,6 +1,12 @@
 ; Sonic 4 Engine — main assembly file
     cpu 68000
     padding off
+    supmode on
+
+; -----------------------------------------------
+; Assembly options
+; -----------------------------------------------
+padToPowerOfTwo         = 1
 
 ; -----------------------------------------------
 ; Definitions (no ROM output)
@@ -11,13 +17,111 @@
     include "ram.asm"
 
 ; -----------------------------------------------
-; ROM starts here
+; ROM image
 ; -----------------------------------------------
     org 0
 
-    dc.l    SYSTEM_STACK
-    dc.l    Entry
-Entry:
-    bra.s   Entry
+; -----------------------------------------------
+; Vector Table ($000000 - $0000FF)
+; -----------------------------------------------
+Vectors:
+    dc.l    SYSTEM_STACK                    ; $00: Initial SSP
+    dc.l    EntryPoint                      ; $04: Reset PC
+    dc.l    ErrorTrap                       ; $08: Bus error
+    dc.l    ErrorTrap                       ; $0C: Address error
+    dc.l    ErrorTrap                       ; $10: Illegal instruction
+    dc.l    ErrorTrap                       ; $14: Division by zero
+    dc.l    ErrorTrap                       ; $18: CHK exception
+    dc.l    ErrorTrap                       ; $1C: TRAPV
+    dc.l    ErrorTrap                       ; $20: Privilege violation
+    dc.l    ErrorTrap                       ; $24: Trace
+    dc.l    ErrorTrap                       ; $28: Line 1010
+    dc.l    ErrorTrap                       ; $2C: Line 1111
+    dc.l    ErrorTrap                       ; $30: Reserved
+    dc.l    ErrorTrap                       ; $34: Reserved
+    dc.l    ErrorTrap                       ; $38: Reserved
+    dc.l    ErrorTrap                       ; $3C: Reserved
+    dc.l    ErrorTrap                       ; $40: Reserved
+    dc.l    ErrorTrap                       ; $44: Reserved
+    dc.l    ErrorTrap                       ; $48: Reserved
+    dc.l    ErrorTrap                       ; $4C: Reserved
+    dc.l    ErrorTrap                       ; $50: Reserved
+    dc.l    ErrorTrap                       ; $54: Reserved
+    dc.l    ErrorTrap                       ; $58: Reserved
+    dc.l    ErrorTrap                       ; $5C: Reserved
+    dc.l    ErrorTrap                       ; $60: Spurious interrupt
+    dc.l    NullInterrupt                   ; $64: IRQ1 (external)
+    dc.l    NullInterrupt                   ; $68: IRQ2 (external)
+    dc.l    NullInterrupt                   ; $6C: IRQ3
+    dc.l    HBlank_Dispatch                 ; $70: IRQ4 (HBlank)
+    dc.l    NullInterrupt                   ; $74: IRQ5
+    dc.l    VBlank_Handler                  ; $78: IRQ6 (VBlank)
+    dc.l    NullInterrupt                   ; $7C: IRQ7 (NMI)
+    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   ; $80-$8C: TRAP 0-3
+    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   ; $90-$9C: TRAP 4-7
+    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   ; $A0-$AC: TRAP 8-11
+    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   ; $B0-$BC: TRAP 12-15
+    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   ; $C0-$CC: Reserved
+    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   ; $D0-$DC: Reserved
+    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   ; $E0-$EC: Reserved
+    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   ; $F0-$FC: Reserved
+
+; -----------------------------------------------
+; ROM Header ($000100 - $0001FF)
+; -----------------------------------------------
+    dc.b    "SEGA GENESIS    "                          ; $100: Console name (16 bytes)
+    dc.b    "(C)     2026.APR"                          ; $110: Copyright (16 bytes)
+    dc.b    "SONIC THE HEDGEHOG 4                            "  ; $120: Domestic name (48 bytes)
+    dc.b    "SONIC THE HEDGEHOG 4                            "  ; $150: Overseas name (48 bytes)
+    dc.b    "GM S4-0001-00 "                            ; $180: Serial (14 bytes)
+Checksum:
+    dc.w    $0000                                       ; $18E: Checksum (fixheader patches)
+    dc.b    "J               "                          ; $190: I/O support (16 bytes)
+    dc.l    $00000000                                   ; $1A0: ROM start
+    dc.l    EndOfRom-1                                  ; $1A4: ROM end
+    dc.l    $00FF0000                                   ; $1A8: RAM start
+    dc.l    $00FFFFFF                                   ; $1AC: RAM end
+    dc.b    "            "                              ; $1B0: No SRAM (12 bytes)
+    dc.b    "                                                    "  ; $1BC: Memo (52 bytes, fills $1BC-$1EF)
+    dc.b    "JUE             "                          ; $1F0: Region (16 bytes)
+
+; -----------------------------------------------
+; Temporary stubs (replaced by engine code in later tasks)
+; -----------------------------------------------
+ErrorTrap:
+    bra.s   ErrorTrap
+
+NullInterrupt:
+    rte
+
+HBlank_Dispatch:
+    rte
+
+VBlank_Handler:
+    rte
+
+EntryPoint:
+    bra.s   EntryPoint
+
+; -----------------------------------------------
+; End of ROM
+; -----------------------------------------------
+EndOfRom:
+    align 2
+
+    if (EndOfRom & 1) <> 0
+      error "ROM size is odd"
+    endif
+
+    if EndOfRom > $3FFFFF
+      error "ROM exceeds 4MB without banking"
+    endif
+
+; -----------------------------------------------
+; Compile-time validation
+; -----------------------------------------------
+    if PLANE_H_CELLS * PLANE_V_CELLS > 4096
+      error "Plane exceeds 8KB"
+    endif
 
     END
