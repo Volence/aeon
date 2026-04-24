@@ -265,6 +265,15 @@ Each test: compress at build time → BINCLUDE → decompress at runtime → DMA
 
 ---
 
+## Asset Workflow
+
+**Raw art in repo, compress at build time.** The source of truth is uncompressed tile data (`.bin` files). The build script runs the S4LZ/tile compressor to produce compressed versions that get BINCLUDE'd into the ROM.
+
+- Raw art lives in `art/` subdirectories as uncompressed binary tile data
+- Build step: raw `.bin` → compressor tool → compressed output → BINCLUDE in assembly
+- If the compressor improves, just rebuild — everything benefits automatically
+- The compressor is the single source of truth for the format
+
 ## Art Sources for Testing
 
 All test art sourced from existing projects — no new art creation needed:
