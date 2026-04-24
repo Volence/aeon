@@ -54,9 +54,3 @@ VSync_Wait:
         clr.b   (VBlank_Flag).w
         rts
 
-; -----------------------------------------------
-; HBlank_Null — default HBlank handler (no raster effects)
-; Temporary — moved to hblank.asm in Task 10
-; -----------------------------------------------
-HBlank_Null:
-        rts
