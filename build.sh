@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROM_NAME="s4"
 MAIN_ASM="main.asm"
-TOOLS="${TOOLS:-../sonic_hack/tools/as}"
+TOOLS="${TOOLS:-tools}"
 
 export AS_MSGPATH="${TOOLS}"
 export USEANSI="n"
