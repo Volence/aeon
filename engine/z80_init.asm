@@ -8,7 +8,7 @@ Z80_IdleProgram:
         ld      bc, (Z80_RAM_END-Z80_RAM)-Z80_IdleProgram_CodeEnd-1
         ld      de, Z80_IdleProgram_CodeEnd+1
         ld      hl, Z80_IdleProgram_CodeEnd
-        ld      sp, Z80_RAM_END-Z80_RAM
+        ld      sp, hl
         ld      (hl), a
         ldir
         pop     ix
