@@ -91,14 +91,12 @@ Checksum:
 ; -----------------------------------------------
     include "engine/boot.asm"
     include "engine/vdp_init.asm"
+    include "engine/vblank.asm"
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)
 ; -----------------------------------------------
 HBlank_Dispatch:
-    rte
-
-VBlank_Handler:
     rte
 
 NullInterrupt:

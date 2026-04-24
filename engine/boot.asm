@@ -164,6 +164,15 @@ Cold_Boot:
         move.b  #$40, (HW_PORT_2_DATA).l
         move.b  #$40, (HW_PORT_EXP_DATA).l
 
+        ; Init HBlank handler pointer (§0.10)
+        move.l  #HBlank_Null, (HBlank_Handler_Ptr).w
+
+        ; Enable VBlank interrupt (set VDP reg $01 bit 5)
+        SetVDPReg VDP_Shadow_vdp_mode2, #$34   ; $14 | $20 (VInt enable) = $34
+
+        ; Enable interrupts
+        enableInts
+
         ; Continue to remaining init
         bra.s   *                            ; PLACEHOLDER
 
