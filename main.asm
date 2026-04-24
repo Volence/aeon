@@ -8,6 +8,7 @@
     include "constants.asm"
     include "structs.asm"
     include "macros.asm"
+    include "ram.asm"
 
 ; -----------------------------------------------
 ; ROM starts here
