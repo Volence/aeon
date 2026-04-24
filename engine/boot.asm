@@ -51,6 +51,7 @@ Cold_Boot:
         dbf     d1, .vdp_loop
 
         ; Start VRAM DMA fill (§0.7) — runs in background on VDP clock
+        move.w  #vdpReg($0F, $01), (a4)    ; auto-increment = 1 for byte-by-byte DMA fill
         move.l  (a5)+, (a4)                ; vdpComm(0, VRAM, DMA)
         moveq   #0, d0
         move.w  d0, (a3)                    ; trigger fill (fill byte = 0)
@@ -220,7 +221,7 @@ BootData_VDPRegs:
         dc.b    $81                         ; $0C: H40 (320px), no interlace
         dc.b    $37                         ; $0D: HScroll table at $DC00
         dc.b    $00                         ; $0E: unused
-        dc.b    $01                         ; $0F: auto-increment = 1 (for DMA fill)
+        dc.b    $02                         ; $0F: auto-increment = 2 (normal word access)
         dc.b    $11                         ; $10: 64x64 scroll planes
         dc.b    $00                         ; $11: window H disabled
         dc.b    $00                         ; $12: window V disabled

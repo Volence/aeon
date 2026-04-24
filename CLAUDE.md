@@ -33,6 +33,17 @@ Design documents:
 - `docs/ENGINE_ARCHITECTURE.md` — master design document (VRAM layout, section streaming, collision, sprites, etc.)
 - `CODING_CONVENTIONS.md` — assembly style, optimization rules, AS features
 
+**Keep ENGINE_ARCHITECTURE.md in sync with reality.** Whenever research or implementation reveals a better approach that changes an engine decision, update the relevant section in `docs/ENGINE_ARCHITECTURE.md` immediately. The architecture doc is the source of truth — if code diverges from it, one of them is wrong.
+
+## Git Workflow
+
+**Commit early and often.** Lost work from uncommitted changes is unacceptable.
+
+- Each implementation step should be committed as it's completed
+- At the end of each plan's implementation, all work is merged into `master`
+- The next planning phase always starts from a clean `master`
+- Use feature branches for implementation plans — merge to `master` when the plan is complete and verified
+
 ## Reference Projects
 
 When researching how to implement a system, check these in order:
