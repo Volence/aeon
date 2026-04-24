@@ -11,7 +11,6 @@ EntryPoint:
 
 ; -----------------------------------------------
 ; Warm_Boot — soft reset path
-; Placeholder: just fall through to cold boot
 ; -----------------------------------------------
 Warm_Boot:
         ; Wait for any in-progress DMA
@@ -20,8 +19,13 @@ Warm_Boot:
         btst    #1, d0
         bne.s   .wait_dma
 
-        ; TODO: preserve CrossResetRAM, jump to title
-        ; For now, fall through to cold boot
+        ; Check CrossResetRAM magic
+        cmpi.l  #CROSS_RESET_MAGIC, (Cross_Reset_Magic_Addr).l
+        bne.s   Cold_Boot                   ; magic invalid → full cold boot
+
+        ; Valid warm boot — for now, just cold boot anyway
+        ; Full warm-boot preservation comes when there's game state worth keeping
+        bra.s   Cold_Boot
 
 ; -----------------------------------------------
 ; Cold_Boot — full hardware initialization
@@ -172,6 +176,9 @@ Cold_Boot:
 
         ; Enable interrupts
         enableInts
+
+        ; Mark cold boot complete (§0.11)
+        move.l  #CROSS_RESET_MAGIC, (Cross_Reset_Magic_Addr).l
 
         ; Set initial game state
         move.l  #GameState_Boot, (Game_State).w
