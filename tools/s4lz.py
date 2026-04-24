@@ -25,7 +25,7 @@ TILE_SIZE = 32          # Genesis tile: 8x8 pixels, 4bpp = 32 bytes
 MIN_MATCH_WORDS = 2     # Minimum match length in words (4 bytes)
 MAX_WINDOW = 65534      # Maximum backwards offset in bytes (16-bit, even)
 TOKEN_END = 0x00        # End-of-stream marker
-EXTENDED_THRESHOLD = 15 # Nibble value that triggers extension byte
+EXTENDED_THRESHOLD = 15 # Nibble value that triggers extension word
 
 # ---------------------------------------------------------------------------
 # Tile-delta XOR preprocessing
@@ -61,32 +61,12 @@ def tile_delta_decode(data: bytes) -> bytes:
 # Encoding helpers
 # ---------------------------------------------------------------------------
 
-def _encode_count(count: int) -> bytes:
-    """Encode an extended count (used when nibble = 15).
-    Returns the extension bytes to append after the token."""
-    extra = count - 15
-    if extra < 255:
-        return struct.pack("B", extra)
-    else:
-        return struct.pack(">BH", 255, count)
-
-
-def _build_token(lit_count: int, match_count: int) -> tuple:
-    """Build a token byte plus any extension bytes for lit and match counts.
-    Returns (token_byte, lit_ext_bytes, match_ext_bytes)."""
+def _build_token(lit_count: int, match_count: int) -> int:
+    """Build a token byte from literal and match word counts.
+    Each nibble encodes 0-14 directly; 15 means 'read next word for count'."""
     lit_nibble = min(lit_count, 15)
     match_nibble = min(match_count, 15)
-    token = (lit_nibble << 4) | match_nibble
-
-    lit_ext = b""
-    if lit_count >= 15:
-        lit_ext = _encode_count(lit_count)
-
-    match_ext = b""
-    if match_count >= 15:
-        match_ext = _encode_count(match_count)
-
-    return (token, lit_ext, match_ext)
+    return (lit_nibble << 4) | match_nibble
 
 # ---------------------------------------------------------------------------
 # Match finder (brute-force scan within window)
@@ -245,26 +225,32 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
         lit_count = len(lits)
         match_count = match_words
 
-        token, lit_ext, match_ext = _build_token(lit_count, match_count)
+        token = _build_token(lit_count, match_count)
+        lit_nibble = (token >> 4) & 0x0F
+        match_nibble = token & 0x0F
+
+        # Token + pad byte (word-aligned for 68000)
         out.append(token)
+        out.append(0)
 
-        # Literal extension
-        out.extend(lit_ext)
+        # Literal count extension (word, when nibble == 15)
+        if lit_nibble == 15:
+            out.extend(struct.pack(">H", lit_count))
 
-        # Literal words
+        # Literal data words
         for (hi, lo) in lits:
             out.append(hi)
             out.append(lo)
 
-        # Match extension
-        out.extend(match_ext)
-
-        # Match offset (only if there's a match)
+        # Match offset + optional count extension
         if match_count > 0:
             out.extend(struct.pack(">H", match_offset))
+            if match_nibble == 15:
+                out.extend(struct.pack(">H", match_count))
 
-    # End-of-stream marker
+    # End-of-stream + pad
     out.append(TOKEN_END)
+    out.append(0)
 
     return bytes(out)
 
@@ -292,24 +278,19 @@ def decompress(compressed: bytes) -> bytes:
 
     while pos < len(compressed):
         token = compressed[pos]
-        pos += 1
+        pos += 2  # token + pad byte (word-aligned)
 
         # End of stream
         if token == TOKEN_END:
             break
 
         lit_count = (token >> 4) & 0x0F
-        match_count = token & 0x0F
+        match_raw = token & 0x0F
 
-        # Extended literal count
+        # Extended literal count (word)
         if lit_count == 15:
-            ext = compressed[pos]
-            pos += 1
-            if ext == 255:
-                lit_count = struct.unpack(">H", compressed[pos:pos + 2])[0]
-                pos += 2
-            else:
-                lit_count = 15 + ext
+            lit_count = struct.unpack(">H", compressed[pos:pos + 2])[0]
+            pos += 2
 
         # Read literal words
         for _ in range(lit_count):
@@ -317,20 +298,14 @@ def decompress(compressed: bytes) -> bytes:
             output.append(compressed[pos + 1])
             pos += 2
 
-        # Extended match count
-        if match_count == 15:
-            ext = compressed[pos]
-            pos += 1
-            if ext == 255:
-                match_count = struct.unpack(">H", compressed[pos:pos + 2])[0]
-                pos += 2
-            else:
-                match_count = 15 + ext
-
-        # Copy match words
-        if match_count > 0:
+        # Match: offset + optional extended count
+        if match_raw > 0:
             match_offset = struct.unpack(">H", compressed[pos:pos + 2])[0]
             pos += 2
+            match_count = match_raw
+            if match_raw == 15:
+                match_count = struct.unpack(">H", compressed[pos:pos + 2])[0]
+                pos += 2
             src_start = len(output) - match_offset
             if src_start < 0:
                 raise ValueError(

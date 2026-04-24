@@ -3,17 +3,24 @@
 ; -----------------------------------------------
 ; S4LZ_Decompress — blocking S4LZ stream decompressor
 ;
+; Word-aligned format — all fields are word-sized or padded.
+;
 ; Header (4 bytes):
 ;   $00.w = uncompressed size (BE, bytes)
 ;   $02.b = flags (bit 0 = tile-delta)
 ;   $03.b = reserved (0)
 ;
-; Token byte:
-;   High nibble (7-4) = literal word count (0-14, 15 = extended)
-;   Low nibble  (3-0) = match word count   (0-14, 15 = extended)
-;   Token $00 = end of stream
+; Per sequence (all word-aligned):
+;   Token: byte + pad byte (2 bytes)
+;     High nibble (7-4) = literal word count (0-14, 15 = read next word)
+;     Low nibble  (3-0) = match word count   (0-14, 15 = read next word)
+;     Token $00 = end of stream
+;   If lit nibble == 15: literal count word (2 bytes)
+;   Literal data: count × word
+;   If match nibble > 0: match offset word (2 bytes)
+;   If match nibble == 15: match count word (2 bytes)
 ;
-; In:  a0 = source (compressed S4LZ data)
+; In:  a0 = source (compressed S4LZ data, word-aligned)
 ;      a1 = destination (word-aligned RAM buffer)
 ; Out: a0 = past end of compressed data
 ;      a1 = past end of decompressed data
@@ -29,6 +36,7 @@ S4LZ_Decompress:
         moveq   #0, d0
         move.b  (a0)+, d0                       ; read token byte
         beq.w   .stream_done                    ; token $00 = end of stream
+        addq.l  #1, a0                          ; skip pad byte (word alignment)
 
     ; --- Extract literal count (high nibble) ---
         move.w  d0, d1
@@ -36,7 +44,7 @@ S4LZ_Decompress:
         beq.s   .no_literals                    ; 0 literals -> skip
 
         cmpi.w  #15, d1
-        beq.w   .lit_extended                   ; 15 = extended count
+        beq.w   .lit_extended                   ; 15 = read count word
 
     ; --- Unrolled literal copy (1-14 words) ---
         add.w   d1, d1                          ; count * 2 bytes per move.w instruction
@@ -62,13 +70,13 @@ S4LZ_Decompress:
 .no_literals:
     ; --- Extract match count (low nibble) ---
         andi.w  #$0F, d0                        ; d0 = MATCH_CNT (0-15)
-        beq.s   .token_loop                     ; 0 matches -> next token (no offset read)
+        beq.s   .token_loop                     ; 0 matches -> next token
 
         cmpi.w  #15, d0
-        beq.w   .match_extended                 ; 15 = extended count
+        beq.s   .match_extended                 ; 15 = read count word
 
     ; --- Read match offset and set source ---
-        move.w  (a0)+, d1                       ; d1.w = match offset (bytes, from dest)
+        move.w  (a0)+, d1                       ; d1.w = match offset (bytes)
         movea.l a1, a2
         suba.w  d1, a2                          ; a2 = match source (dest - offset)
 
@@ -96,17 +104,7 @@ S4LZ_Decompress:
 
     ; --- Extended literal count ---
 .lit_extended:
-        moveq   #0, d1
-        move.b  (a0)+, d1                       ; extension byte
-        cmpi.b  #$FF, d1
-        beq.s   .lit_ext_word
-        addi.w  #15, d1                         ; count = 15 + B
-        bra.s   .lit_dbf
-
-.lit_ext_word:
-        move.w  (a0)+, d1                       ; 16-bit BE count
-
-.lit_dbf:
+        move.w  (a0)+, d1                       ; literal count (word)
         subq.w  #1, d1                          ; adjust for dbf
 .lit_dbf_loop:
         move.w  (a0)+, (a1)+
@@ -115,21 +113,11 @@ S4LZ_Decompress:
 
     ; --- Extended match count ---
 .match_extended:
-        move.w  (a0)+, d1                       ; match offset
+        move.w  (a0)+, d1                       ; match offset (word)
         movea.l a1, a2
         suba.w  d1, a2                          ; a2 = match source
 
-        moveq   #0, d0
-        move.b  (a0)+, d0                       ; extension byte
-        cmpi.b  #$FF, d0
-        beq.s   .match_ext_word
-        addi.w  #15, d0                         ; count = 15 + B
-        bra.s   .match_dbf
-
-.match_ext_word:
-        move.w  (a0)+, d0                       ; 16-bit BE count
-
-.match_dbf:
+        move.w  (a0)+, d0                       ; match count (word)
         subq.w  #1, d0                          ; adjust for dbf
 .match_dbf_loop:
         move.w  (a2)+, (a1)+
