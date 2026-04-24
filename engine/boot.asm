@@ -143,6 +143,18 @@ Cold_Boot:
         ; Init VDP shadow table (§0.4)
         bsr.w   VDP_Shadow_Init
 
+        ; Init DMA queue (§1.1)
+        bsr.w   Init_DMA_Queue
+
+        ; Init sprite table link chain (§1.3)
+        bsr.w   Init_SpriteTable
+
+        ; Build static DMA entries (§1.5)
+        bsr.w   BuildStaticDMA
+
+        ; Set initial VBlank handler (§1.2)
+        move.l  #VInt_Level, (VInt_Ptr).w
+
         ; Region detection (§0.8)
         move.b  (HW_VERSION).l, d0
         move.b  d0, (Hardware_Region).w
@@ -151,9 +163,11 @@ Cold_Boot:
         btst    #6, d0
         bne.s   .pal
         move.w  #NTSC_TIMING_STEP, (Timing_Step).w
+        move.w  #DMA_BUDGET_NTSC, (DMA_Budget_Default).w
         bra.s   .region_done
 .pal:
         move.w  #PAL_TIMING_STEP, (Timing_Step).w
+        move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w
 .region_done:
         clr.w   (Frame_Accumulator).w
 
@@ -181,8 +195,8 @@ Cold_Boot:
         move.l  #CROSS_RESET_MAGIC, (Cross_Reset_Magic_Addr).l
 
         ; Set initial game state
-        move.l  #GameState_Boot, (Game_State).w
-        move.b  #GS_BOOT, (Game_State_ID).w
+        move.l  #GameState_DMATest, (Game_State).w
+        move.b  #GS_DMATEST, (Game_State_ID).w
         clr.b   (Game_State_Init).w
 
         ; Enter main loop — never returns

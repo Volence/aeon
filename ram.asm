@@ -48,6 +48,72 @@ Ctrl_2_Press:           ds.b 1
 ; -----------------------------------------------
 RNG_Seed:               ds.l 1
 
+; -----------------------------------------------
+; VBlank dispatch (§1 — VDP Pipeline)
+; -----------------------------------------------
+VInt_Ptr:               ds.l 1          ; pointer to current VBlank handler
+VBlank_Ready:           ds.b 1          ; set by main loop, cleared by VBlank
+                        ds.b 1          ; pad
+
+; -----------------------------------------------
+; DMA Queue (§1.1)
+; Three priority sub-queues, contiguous in memory
+; -----------------------------------------------
+DMA_Queue:
+DMA_Critical:           ds.b DMA_CRITICAL_SLOTS*DMAEntry_len
+DMA_Critical_End:
+DMA_Important:          ds.b DMA_IMPORTANT_SLOTS*DMAEntry_len
+DMA_Important_End:
+DMA_Deferrable:         ds.b DMA_DEFERRABLE_SLOTS*DMAEntry_len
+DMA_Deferrable_End:
+DMA_Queue_End:
+
+DMA_Critical_Slot:      ds.w 1          ; next free Critical slot
+DMA_Important_Slot:     ds.w 1          ; next free Important slot
+DMA_Deferrable_Slot:    ds.w 1          ; next free Deferrable slot
+
+DMA_Budget_Default:     ds.w 1          ; per-frame byte budget (set at boot)
+DMA_Budget_Remaining:   ds.w 1          ; remaining bytes this frame
+
+; -----------------------------------------------
+; RAM Buffers and Dirty Flags (§1.3)
+; -----------------------------------------------
+Palette_Buffer:         ds.b 128        ; 4 lines × 32 bytes
+Palette_Dirty:          ds.b 1          ; bits 0-3 = per-line dirty
+                        ds.b 1          ; pad
+
+Sprite_Table_Buffer:    ds.b 640        ; 80 entries × 8 bytes
+Sprite_Table_Dirty:     ds.b 1
+                        ds.b 1          ; pad
+
+Hscroll_Buffer:         ds.b 896        ; 224 lines × 4 bytes (FG + BG)
+Hscroll_Dirty_Start:    ds.b 1          ; first dirty scanline ($FF = clean)
+Hscroll_Dirty_End:      ds.b 1          ; last dirty scanline
+
+Vscroll_Factor:         ds.l 1          ; FG word + BG word
+
+; -----------------------------------------------
+; Static DMA Entries (§1.5)
+; Pre-computed 14-byte entries for fixed transfers
+; -----------------------------------------------
+Static_Pal_Line0:       ds.b DMAEntry_len
+Static_Pal_Line1:       ds.b DMAEntry_len
+Static_Pal_Line2:       ds.b DMAEntry_len
+Static_Pal_Line3:       ds.b DMAEntry_len
+Static_Sprite_DMA:      ds.b DMAEntry_len
+
+; -----------------------------------------------
+; Debug profiling (§1.7) — zero in release builds
+; -----------------------------------------------
+    ifdef __DEBUG__
+DMA_Bytes_ThisFrame:    ds.w 1
+DMA_Peak_Critical:      ds.w 1
+DMA_Peak_Important:     ds.w 1
+DMA_Peak_Deferrable:    ds.w 1
+DMA_Overflow_Count:     ds.w 1
+Lag_Frame_Count:        ds.l 1
+    endif
+
 RAM_End:
 
         if RAM_End >= SYSTEM_STACK

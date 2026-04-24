@@ -91,6 +91,8 @@ Checksum:
 ; -----------------------------------------------
     include "engine/boot.asm"
     include "engine/vdp_init.asm"
+    include "engine/dma_queue.asm"
+    include "engine/buffers.asm"
     include "engine/vblank.asm"
     include "engine/hblank.asm"
     include "engine/controllers.asm"

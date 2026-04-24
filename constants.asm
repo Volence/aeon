@@ -85,3 +85,15 @@ CROSS_RESET_MAGIC       = 'INIT'
 ; Game state IDs
 ; -----------------------------------------------
 GS_BOOT                 = 0
+GS_DMATEST              = 1
+
+; -----------------------------------------------
+; DMA Queue (§1.1)
+; -----------------------------------------------
+DMA_CRITICAL_SLOTS      = 8
+DMA_IMPORTANT_SLOTS     = 12
+DMA_DEFERRABLE_SLOTS    = 12
+DMA_TOTAL_SLOTS         = DMA_CRITICAL_SLOTS+DMA_IMPORTANT_SLOTS+DMA_DEFERRABLE_SLOTS
+
+DMA_BUDGET_NTSC         = 7200          ; usable DMA bytes per NTSC VBlank
+DMA_BUDGET_PAL          = 15000         ; usable DMA bytes per PAL VBlank

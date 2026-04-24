@@ -23,6 +23,18 @@ sprSize     function w,h, ((((h)-1)<<2)|((w)-1))<<8
 ; Byte count to longword loop count (for dbf)
 bytesToLcnt function n, (n)/4-1
 
+; VDP command delta — scrambled offset for row advancement in PlaneMapToVRAM
+vdpCommDelta    function addr, (((addr)&$3FFF)<<16)|(((addr)&$C000)>>14)
+
+; Plane cell byte offset — offset for cell (col, row) in plane of given width
+planeLoc        function width,col,row, (((width)*(row)+(col))*2)
+
+; DMA source word address (bit 23 cleared for RAM safety)
+dmaSource       function addr, (((addr)>>1)&$7FFFFF)
+
+; DMA length in words
+dmaLength       function bytes, (((bytes)>>1)&$FFFF)
+
 ; -----------------------------------------------
 ; Struct macros
 ; -----------------------------------------------
@@ -62,6 +74,52 @@ enableInts macro
 SetVDPReg macro reg,val
         move.b  val, (VDP_Shadow_Table+reg).w
         ori.l   #(1<<reg), (VDP_Dirty_Mask).w
+        endm
+
+; -----------------------------------------------
+; vdpCommReg — runtime VDP command from register
+; Converts a VRAM/CRAM/VSRAM byte address in a data register
+; to a VDP command longword (in-place).
+; type/rwd must be assembly-time constants.
+; clr: 1 = clear upper word of reg first, 0 = assume clean
+; From Flamewing Ultra DMA Queue.
+; -----------------------------------------------
+vdpCommReg macro reg, type, rwd, clr
+        lsl.l   #2, reg
+    if ((type)&(rwd))&3 <> 0
+        addq.w  #((type)&(rwd))&3, reg
+    endif
+        ror.w   #2, reg
+        swap    reg
+    if (clr) <> 0
+        andi.w  #3, reg
+    endif
+    if ((type)&(rwd))&$FC = $20
+        tas.b   reg
+    elseif ((type)&(rwd))&$FC <> 0
+        ori.w   #(((type)&(rwd))&$FC)<<2, reg
+    endif
+        endm
+
+; -----------------------------------------------
+; QueueStaticDMA — inline block-copy of pre-computed 14-byte DMA entry
+; Copies from a RAM source entry into the next free queue slot.
+; In: slotvar = queue slot pointer variable (e.g. DMA_Critical_Slot)
+;     queueend = queue end address constant
+;     entryvar = pre-computed entry variable (e.g. Static_Pal_Line0)
+; Clobbers: a1, a2
+; -----------------------------------------------
+QueueStaticDMA macro slotvar, queueend, entryvar
+        movea.w (slotvar).w, a1
+        cmpa.w  #queueend, a1
+        beq.s   .done
+        lea     (entryvar).w, a2
+        move.l  (a2)+, (a1)+
+        move.l  (a2)+, (a1)+
+        move.l  (a2)+, (a1)+
+        move.w  (a2)+, (a1)+
+        move.w  a1, (slotvar).w
+.done:
         endm
 
 ; -----------------------------------------------

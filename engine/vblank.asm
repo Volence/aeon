@@ -1,53 +1,94 @@
-; VBlank handler and VSync synchronization
+; VBlank handler with function pointer dispatch and lag detection (§1.2)
 
 ; -----------------------------------------------
-; VBlank_Handler — IRQ6, fires once per frame (§0.10)
+; VBlank_Handler — IRQ6 entry point
+; Dispatches through VInt_Ptr on normal frames,
+; VInt_Lag when main loop hasn't finished.
 ; -----------------------------------------------
 VBlank_Handler:
         movem.l d0-a6, -(sp)
-
-        move.b  #1, (VBlank_Flag).w
-
-        ; Phase 1: Time-critical VDP work
-        bsr.w   Flush_VDP_Shadow
-        bsr.w   DMA_Queue_Drain_Stub
-        bsr.w   Sprite_Table_Upload_Stub
-
-        ; Phase 2: I/O
-        bsr.w   Read_Controllers
-
-        ; Phase 3: Sound
-        bsr.w   Sound_Update_Stub
-
-        ; Phase 4: Frame tracking
-        addq.w  #1, (Frame_Counter).w
-
+        tst.b   (VBlank_Ready).w
+        beq.s   .lag
+        movea.l (VInt_Ptr).w, a0
+        jsr     (a0)
+        bra.s   .done
+.lag:
+        bsr.w   VInt_Lag
+.done:
+        clr.b   (VBlank_Ready).w
         movem.l (sp)+, d0-a6
         rte
 
 ; -----------------------------------------------
-; Stubs for systems not yet implemented
-; Replaced by real routines as systems are built
+; VInt_Level — full pipeline handler (normal frames)
+; Execution order: shadow flush -> VSRAM -> dirty enqueue ->
+;   Critical drain -> budget -> Important drain -> Deferrable drain ->
+;   controllers -> frame counter -> VBlank flag
 ; -----------------------------------------------
-DMA_Queue_Drain_Stub:
-        rts
+VInt_Level:
+        ; --- VDP work (Z80 stopped) ---
+        stopZ80
 
-Sprite_Table_Upload_Stub:
-        rts
+        bsr.w   Flush_VDP_Shadow
 
-Sound_Update_Stub:
+        move.l  #vdpComm(0, VSRAM, WRITE), (VDP_CTRL).l
+        move.l  (Vscroll_Factor).w, (VDP_DATA).l
+
+        bsr.w   Enqueue_Dirty_Buffers
+
+        bsr.w   Process_DMA_Critical
+
+        move.w  (DMA_Budget_Default).w, (DMA_Budget_Remaining).w
+        bsr.w   Process_DMA_Important
+        bsr.w   Process_DMA_Deferrable
+
+        startZ80
+
+        ; --- Non-VDP work ---
+        bsr.w   Read_Controllers
+        addq.w  #1, (Frame_Counter).w
+        move.b  #1, (VBlank_Flag).w
         rts
 
 ; -----------------------------------------------
-; VSync_Wait — block until VBlank fires
+; VInt_Lag — minimal handler (lag frames)
+; Critical DMA only. Important/Deferrable entries persist.
+; -----------------------------------------------
+VInt_Lag:
+        stopZ80
+
+        bsr.w   Flush_VDP_Shadow
+
+        move.l  #vdpComm(0, VSRAM, WRITE), (VDP_CTRL).l
+        move.l  (Vscroll_Factor).w, (VDP_DATA).l
+
+        bsr.w   Enqueue_Dirty_Buffers
+        bsr.w   Process_DMA_Critical
+
+        startZ80
+
+        bsr.w   Read_Controllers
+        addq.w  #1, (Frame_Counter).w
+        move.b  #1, (VBlank_Flag).w
+
+    ifdef __DEBUG__
+        addq.l  #1, (Lag_Frame_Count).w
+    endif
+        rts
+
+; -----------------------------------------------
+; VSync_Wait — block until VBlank fires (§1.2.5)
 ; In:  none
 ; Out: none
 ; Clobbers: none
 ; -----------------------------------------------
 VSync_Wait:
+        move.b  #1, (VBlank_Ready).w
 .wait:
         tst.b   (VBlank_Flag).w
         beq.s   .wait
         clr.b   (VBlank_Flag).w
+    ifdef __DEBUG__
+        clr.w   (DMA_Bytes_ThisFrame).w
+    endif
         rts
-
