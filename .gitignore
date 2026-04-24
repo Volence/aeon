@@ -10,3 +10,5 @@
 
 # MCP config (machine-specific)
 .mcp.json
+*.s4lz
+*.tf
