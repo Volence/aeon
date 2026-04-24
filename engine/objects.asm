@@ -54,7 +54,7 @@ AllocDynamic:
         movea.w (Dynamic_Free_SP).w, a1
         subq.w  #2, (Dynamic_Free_SP).w
         movea.w -(a1), a1
-        ori     #0, ccr                 ; clear carry (success)
+        andi    #$FE, ccr               ; clear carry (success)
         rts
 .full:
         ori     #1, ccr                 ; set carry (pool exhausted)
@@ -73,7 +73,7 @@ AllocEffect:
         movea.w (Effect_Free_SP).w, a1
         subq.w  #2, (Effect_Free_SP).w
         movea.w -(a1), a1
-        ori     #0, ccr
+        andi    #$FE, ccr
         rts
 .full:
         ori     #1, ccr
