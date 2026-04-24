@@ -195,26 +195,76 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
             hash_table[key] = []
         hash_table[key].append(i)
 
-    # Greedy parser: collect sequences of (literal_words[], match_offset, match_words)
+    # Optimal parser (forward DP with sequence-aware cost model):
+    # Each match creates a new sequence boundary (costing 2 bytes for the
+    # next token+pad). The DP accounts for this, so matches are only chosen
+    # when they genuinely save bytes after all overhead.
+    num_words = data_len // 2
+    INF = float('inf')
+
+    # Phase 1: find best match at each word position
+    match_at = [None] * num_words  # (byte_offset, word_length) or None
+    for i in range(num_words):
+        offset, length = _find_best_match_fast(work_data, i * 2, data_len, hash_table)
+        if length >= MIN_MATCH_WORDS:
+            match_at[i] = (offset, length)
+
+    # Phase 2: forward DP — arrival[i] = min compressed bytes for words[0..i)
+    # Cost includes token+pad overhead for sequence boundaries.
+    arrival = [INF] * (num_words + 1)
+    arrival[0] = 2  # first sequence always costs token+pad
+    prev = [None] * (num_words + 1)
+
+    for i in range(num_words):
+        if arrival[i] == INF:
+            continue
+
+        # Option 1: literal word (2 bytes, stays in current sequence)
+        new_cost = arrival[i] + 2
+        if new_cost < arrival[i + 1]:
+            arrival[i + 1] = new_cost
+            prev[i + 1] = ('lit', i)
+
+        # Option 2: match — try all sublengths of best match
+        if match_at[i] is not None:
+            m_offset, max_len = match_at[i]
+            for m_len in range(MIN_MATCH_WORDS, max_len + 1):
+                dest = i + m_len
+                if dest > num_words:
+                    break
+                # Match cost: offset word (2) + extension if >= 15
+                m_cost = 2
+                if m_len >= 15:
+                    m_cost += 2
+                # Match ends current sequence; next sequence needs token+pad
+                if dest < num_words:
+                    m_cost += 2
+                new_cost = arrival[i] + m_cost
+                if new_cost < arrival[dest]:
+                    arrival[dest] = new_cost
+                    prev[dest] = ('match', i, m_offset, m_len)
+
+    # Phase 3: trace back to recover optimal parse
+    path = []
+    i = num_words
+    while i > 0:
+        p = prev[i]
+        path.append(p)
+        i = p[1]  # source position
+    path.reverse()
+
+    # Phase 4: build sequences from path
     sequences = []
-    pos = 0
     literal_words = []
-
-    while pos < data_len:
-        offset, match_len = _find_best_match_fast(work_data, pos, data_len, hash_table)
-
-        if match_len >= MIN_MATCH_WORDS:
-            # We have a match — emit current literals + this match as one sequence
-            sequences.append((list(literal_words), offset, match_len))
-            literal_words = []
-            pos += match_len * 2
+    for entry in path:
+        if entry[0] == 'lit':
+            pos = entry[1]
+            literal_words.append((work_data[pos * 2], work_data[pos * 2 + 1]))
         else:
-            # No match — accumulate as literal word
-            if pos + 2 <= data_len:
-                literal_words.append((work_data[pos], work_data[pos + 1]))
-            pos += 2
+            _, pos, m_offset, m_length = entry
+            sequences.append((list(literal_words), m_offset, m_length))
+            literal_words = []
 
-    # Trailing literals with no match
     if literal_words:
         sequences.append((list(literal_words), 0, 0))
 
