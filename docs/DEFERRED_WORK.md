@@ -43,24 +43,39 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 **What:** Per-element dirty flags (score, rings, timer, lives) to skip HUD VDP writes on frames where nothing changed.
 **When ready:** After HUD rendering exists.
 
-### 128KB DMA Boundary Splitting (§1.1 / §2.1)
-**Blocked by:** Nothing — can be added any time before production
-**What:** DMA transfers from ROM that cross a 128KB boundary ($20000, $40000, etc.) cause the VDP source address to wrap within the bank, loading garbage tiles. `QueueDMATransfer` must check if `source + length` crosses a boundary and split into two entries. S.C.E. has a proven implementation (~20 lines, ~16 cycles common case, ~154 for split transfers). See `docs/research/dplc-improvements.md` for details.
-**When ready:** Should be added before any real sprite art or level art loads from ROM. Safe to add now.
-
 ---
 
 ## From §2 — Art & Compression Pipeline
 
 ### Generic Perform_DPLC Routine (§2.1 / §3.9)
 **Blocked by:** Object System (§3) — specifically SST layout with `ros_prev_frame`, `art_source`, `dplc_script` fields
-**What:** Single generic DPLC routine that works for all objects (S.C.E. approach). Per-object `ros_prev_frame` for frame change detection. Reads DPLC table, computes ROM source from `art_source` pointer, queues DMA to allocated VRAM address. Character DPLCs → Important priority, Object DPLCs → Deferrable priority.
+**What:** Basic Perform_DPLC implemented (`engine/dplc.asm`), but needs SST integration for per-object `ros_prev_frame` frame change detection, `art_source` pointer, and `dplc_script` fields. Character DPLCs → Important priority, Object DPLCs → Deferrable priority.
 **When ready:** After §3 defines SST layout and animation system.
 
-### Build-Time DPLC Tools (§2.1 / §2.6)
-**Blocked by:** Sprite art extraction from sonic_hack
-**What:** Two build-time tools: (1) Contiguous art layout — rearrange tiles so each animation frame's tiles are contiguous in ROM, guaranteeing 1 DMA entry per frame change. (2) DPLC entry merging — merge adjacent entries in legacy DPLC tables (3.1 → 1.2 entries average). Both produce optimized DPLC tables and rearranged art.
-**When ready:** After sprite art is extracted from sonic_hack to `art/uncompressed/`.
+### Dynamic VRAM Allocator (§2.2)
+**Blocked by:** §3 Object System (`Load_Object` spawn/destroy lifecycle drives `AllocVRAM`/`FreeVRAM` calls)
+**What:** Bump allocator for unified VRAM pool, loaded table tracking, refcount per type_id, lazy reclaim, section compaction.
+**When ready:** After §3 defines object RAM layout and the object loop exists.
+
+### Refcount-based Art Caching / Lazy Reclaim (§2.2)
+**Blocked by:** §3 Object System (refcount increments/decrements tied to object spawn/destroy)
+**What:** Freed art stays in VRAM until pool needs space. Re-spawn of same type is free (refcount bump, no decompression).
+**When ready:** After §3 and the dynamic VRAM allocator exist.
+
+### Build-time Graph Coloring (§2.3)
+**Blocked by:** §4 Level/World (section adjacency graph) + §8 Build Tools (tile deduplication pipeline)
+**What:** Non-adjacent sections share VRAM tile indices. Build tool computes coloring from section adjacency graph.
+**When ready:** After §4 defines section grid and §8 has flatten/deduplicate pipeline.
+
+### Section-aware Streaming / Predictive Preloading (§2.1/§4.8)
+**Blocked by:** §4 Level/World (section transition triggers, camera position, leapfrog loading)
+**What:** Deferrable-priority DMA streaming of next section's art based on camera velocity and direction.
+**When ready:** After §4 implements section transitions and camera system.
+
+### S4LZ Streaming Mode (§2.1)
+**Blocked by:** §9.7 Cooperative Multitasking (interruptible decompression with VBlank context switch)
+**What:** Bookmark-based interruptible decompression. VBlank preempts mid-decompress, resumes next frame.
+**When ready:** After §9.7 supervisor/user mode exists. Blocking mode handles all current use cases.
 
 ---
 
@@ -71,3 +86,15 @@ When starting a new planning phase:
 2. Check if any blockers are now resolved
 3. If so, include the deferred work in the new plan
 4. Move completed items to a "Done" section at the bottom (with the date and the system that unblocked them)
+
+---
+
+## Done
+
+### 128KB DMA Boundary Splitting (§1.1 / §2.1) — 2026-04-24
+**Completed in:** §2 Art & Compression Pipeline
+**What:** `QueueDMATransfer` checks if `source + length` crosses a 128KB boundary and splits into two queue entries. Sub+sub carry-flag approach (~16 cycles common case).
+
+### Build-Time DPLC Tools (§2.1 / §2.6) — 2026-04-24
+**Completed in:** §2 Art & Compression Pipeline
+**What:** `tools/dplc_layout.py` — contiguous art rearrangement (1 DMA entry per frame change) + DPLC entry merging (3.1 → 1.2 entries average). Sprite art extracted to `art/uncompressed/`, optimized art in `art/optimized/`, DPLC tables in `data/dplc/`.
