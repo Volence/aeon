@@ -1,0 +1,9 @@
+# Build outputs
+*.bin
+*.lst
+*.log
+*.p
+*.h
+
+# MCP config (machine-specific)
+.mcp.json
