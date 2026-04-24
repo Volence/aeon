@@ -97,6 +97,7 @@ Checksum:
     include "engine/hblank.asm"
     include "engine/controllers.asm"
     include "engine/game_loop.asm"
+    include "engine/s4lz_decompress.asm"
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)

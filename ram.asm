@@ -114,6 +114,12 @@ DMA_Overflow_Count:     ds.w 1
 Lag_Frame_Count:        ds.l 1
     endif
 
+; -----------------------------------------------
+; Decompression buffer (§2)
+; -----------------------------------------------
+Decomp_Buffer:          ds.b DECOMP_BUFFER_SIZE
+Decomp_Buffer_End:
+
 RAM_End:
 
         if RAM_End >= SYSTEM_STACK
