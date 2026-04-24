@@ -99,6 +99,7 @@ Checksum:
     include "engine/game_loop.asm"
     include "engine/s4lz_decompress.asm"
     include "engine/dplc.asm"
+    include "engine/objects.asm"
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)
