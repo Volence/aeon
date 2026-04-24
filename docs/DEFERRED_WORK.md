@@ -43,6 +43,25 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 **What:** Per-element dirty flags (score, rings, timer, lives) to skip HUD VDP writes on frames where nothing changed.
 **When ready:** After HUD rendering exists.
 
+### 128KB DMA Boundary Splitting (§1.1 / §2.1)
+**Blocked by:** Nothing — can be added any time before production
+**What:** DMA transfers from ROM that cross a 128KB boundary ($20000, $40000, etc.) cause the VDP source address to wrap within the bank, loading garbage tiles. `QueueDMATransfer` must check if `source + length` crosses a boundary and split into two entries. S.C.E. has a proven implementation (~20 lines, ~16 cycles common case, ~154 for split transfers). See `docs/research/dplc-improvements.md` for details.
+**When ready:** Should be added before any real sprite art or level art loads from ROM. Safe to add now.
+
+---
+
+## From §2 — Art & Compression Pipeline
+
+### Generic Perform_DPLC Routine (§2.1 / §3.9)
+**Blocked by:** Object System (§3) — specifically SST layout with `ros_prev_frame`, `art_source`, `dplc_script` fields
+**What:** Single generic DPLC routine that works for all objects (S.C.E. approach). Per-object `ros_prev_frame` for frame change detection. Reads DPLC table, computes ROM source from `art_source` pointer, queues DMA to allocated VRAM address. Character DPLCs → Important priority, Object DPLCs → Deferrable priority.
+**When ready:** After §3 defines SST layout and animation system.
+
+### Build-Time DPLC Tools (§2.1 / §2.6)
+**Blocked by:** Sprite art extraction from sonic_hack
+**What:** Two build-time tools: (1) Contiguous art layout — rearrange tiles so each animation frame's tiles are contiguous in ROM, guaranteeing 1 DMA entry per frame change. (2) DPLC entry merging — merge adjacent entries in legacy DPLC tables (3.1 → 1.2 entries average). Both produce optimized DPLC tables and rearranged art.
+**When ready:** After sprite art is extracted from sonic_hack to `art/uncompressed/`.
+
 ---
 
 ## How to Use This Document

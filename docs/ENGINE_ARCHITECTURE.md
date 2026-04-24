@@ -14,8 +14,8 @@ This is the **design bible**. This document describes the engine we're building 
 |---|--------|---------------|
 | 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (Batman — only changed registers written during VBlank), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, deterministic cold/warm boot (CrossResetRAM), region detection with PAL timing constants, 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
-| 2 | Art & Compression Pipeline | Two-tier compression: S4LZ (custom word-aligned LZ, 700-1100 KB/s), UFTC (random-access tile dictionary for sprites). Raw tilemaps (menu/level select — too few to justify a decoder). **Unified VRAM art pool $000-$5FF (1,536 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character sprites + VDP tables embedded in off-screen nametable rows**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support, two formats only (Nemesis/Kosinski/Comper/Enigma not used) |
-| 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via allocator+UFTC, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting**, **sprite multiplexing (particle/weather systems)** |
+| 2 | Art & Compression Pipeline | S4LZ (custom word-aligned LZ, 700-1100 KB/s) for level/bulk art. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5FF (1,536 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character sprites + VDP tables embedded in off-screen nametable rows**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
+| 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting**, **sprite multiplexing (particle/weather systems)** |
 | 4 | Level / World | 2D section grid with signed Y (novel), 2-slot bidirectional leapfrog (novel), pre-computed nametable strips (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), velocity-based preload, per-section everything, diagonal preview loading, **section-local entity management with warp-based teleport preview (novel)**, per-section type tables, pattern-encoded rings, rolling 4-slot state, **zero-lag teleport (progressive nametable preload + palette crossfade, novel)**, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **per-section collision map (flat byte array, 128-column shift-based lookup — zero multiply)**, **per-section full palette copies (128 bytes, instant load)** |
 | 5 | Player / Character | 6-button controller support, per-section terrain physics (novel), air drag apex-only fix (S3K), roll-jump air control fix (S3K), flat acceleration with per-character tuning, angle continuity for loop stability, vector projection on slope landing, state entry/exit hooks, hierarchical state machine evaluation, landing camera lock, spindash charge curve (table-based), slope muls→shift optimization, configurable physics tables, 3-character shared code via Player_Common, shield system unified, **SWAP-based 16.16 fixed point (Treasure)** |
 | 6 | Audio | Flamedriver (full Z80 autonomy), Zyrinx log volume + per-algorithm carrier mask, verified Z80 writes, DPCM + 32kHz DAC + DMA protection buffering (24KB survival), YM Timer A sub-frame tempo (NTSC/PAL independent), bank switch optimization (pack per-section, 100+ cycle savings), section-aware sound banking (novel), distance-based attenuation (novel), pseudo-stereo DAC, PSG pause silencing, Ch3 special mode for sound design, **SSG-EG envelope modes (evolving FM tones)**, LFO limitations documented, continuous SFX, music fade state machine, build-time DC offset tool, **multi-channel DAC mixing (2-4 channels, per-channel sample rate)** |
@@ -1053,15 +1053,15 @@ Raster Command Table (§7.2) + Section Streaming
 
 The art pipeline handles getting graphical data from ROM into VRAM — compressed art decompression, VRAM address assignment, section-aware streaming, and background plane support. Every visual element in the game flows through this pipeline.
 
-### 2.1 Two-Tier Compression: S4LZ + UFTC
+### 2.1 Compression & Art Formats: S4LZ + Uncompressed/DPLC
 
-**Purpose:** Two decompression formats, each optimized for a specific data class. The 68000 has no barrel shifter — every bit extraction costs 14-18 cycles. Byte/word-aligned formats are 4-9x faster per token than bit-stream formats (Kosinski, Nemesis, KosPM). See `RESEARCH_FINDINGS.md` Section 1 for the full analysis.
+**Purpose:** Minimal format set, each optimized for a specific data class. The 68000 has no barrel shifter — every bit extraction costs 14-18 cycles. Byte/word-aligned formats are 4-9x faster per token than bit-stream formats (Kosinski, Nemesis, KosPM). See `docs/research/lz-compression-survey.md` for the full LZ analysis. See `docs/research/tile-format-survey.md` for the UFTC evaluation and decision to use uncompressed sprites.
 
-| Tier | Format | Speed (KB/s) | Ratio | Use Case |
-|------|--------|-------------|-------|----------|
-| Bulk/streaming | **S4LZ** (custom) | 700-1,100 | ~0.45-0.50 | Level tiles, BG art, large sprite sets, section preloads |
-| Sprite art | **UFTC** (Sik) | ~12.5 KB/frame | ~0.50 | Per-frame character/object art |
-| Tilemaps | **Raw** | instant | 1.0 | Menu/level select nametables — stored uncompressed, direct DMA to VDP |
+| Tier | Format | Speed | Ratio | Use Case |
+|------|--------|-------|-------|----------|
+| Bulk/streaming | **S4LZ** (custom) | 700-1,100 KB/s | ~0.45-0.50 | Level tiles, BG art, section preloads |
+| Sprite art | **Uncompressed + DPLC** | Bus speed (DMA) | 1.0 | Per-frame character/object art via DMA from ROM |
+| Tilemaps | **Raw** | instant | 1.0 | Menu/level select nametables — direct DMA to VDP |
 
 **S4LZ (bulk — all sequential art loads):**
 - Custom word-aligned LZ format, designed for the 68000
@@ -1080,27 +1080,53 @@ The art pipeline handles getting graphical data from ROM into VRAM — compresse
 - Streaming mode: decompress into ~4KB RAM buffer → DMA to VRAM (Deferrable priority). VBlank bookmark saves decompressor state if interrupted mid-frame
 - See `docs/research/lz-compression-survey.md` for full design validation against LZ4W, Comper, LZSA, FC8, MEGAPACK, and all 7 reference disassemblies
 
-**UFTC (sprite art — on-demand tile decompression):**
-- By Sik (sikthehedgehog). Splits 8x8 tiles into four 4x4 blocks, builds dictionary of unique blocks, stores each tile as 4 dictionary indices
-- **Key property: random access.** Decompress any individual tile without decompressing preceding tiles. No LZ format can do this
-- UFTC decompresses only the 5-8 tiles needed for the current animation frame directly to a small buffer, then DMA to VRAM. No pre-decompressed ROM frames needed
-- UFTC16 variant: unsigned 16-bit offsets, max 8192 dictionary blocks
-- ~50% compression ratio on sprite art
-- Source: https://github.com/sikthehedgehog/mdtools/tree/master/uftc
+**Uncompressed sprite art + DPLC/DMA (per-frame character/object art):**
+
+UFTC was originally planned for random-access sprite decompression, but measured only 0.82-0.86 ratio on real Sonic sprite art (not the projected ~0.50). Every commercial Genesis game stores sprite art uncompressed and uses DMA from ROM. We follow suit with several improvements. See `docs/research/tile-format-survey.md` for full measurements and `docs/research/dplc-improvements.md` for the improvement design.
+
+- Sprite art stored as uncompressed tiles in ROM (`ArtUnc_*` labels)
+- **DPLC tables** map each animation frame to tile ranges in the art data (S2/S3K format: word entry count + word entries with 4-bit tile_count/12-bit tile_start)
+- On animation frame change, `Perform_DPLC` queues DMA transfers from ROM directly to VRAM — zero CPU decompression cost
+- Per-object `ros_prev_frame` field prevents redundant DMA when frame unchanged (S.C.E. pattern)
+- **Build-time contiguous art layout:** Build tool rearranges tiles so each animation frame's tiles are contiguous in ROM, guaranteeing 1 DMA entry per frame change (12% ROM overhead from tile duplication — acceptable in 4MB ROM)
+- **Build-time entry merging:** Merge adjacent DPLC entries at build time, reducing average DMA entries from 3.1 to 1.2 per frame change for pre-existing DPLC tables
+- **Priority integration:** Character DPLCs → Important priority (guaranteed delivery). Object DPLCs → Deferrable priority (budget-gated, can slip one frame). Prevents VBlank overflow when many objects change frame simultaneously
+- **DPLC Lookahead (§1.6):** When `anim_timer <= 1`, pre-load next frame's art as Important-priority DMA. Zero-latency animation transitions. No Genesis game does this
+- **128KB DMA boundary safety:** `QueueDMATransfer` splits any transfer crossing a 128KB ROM boundary ($20000, $40000, etc.) into two entries. DMA source address wraps within 128KB banks on the Genesis — without splitting, art loads from wrong ROM addresses
+
+**DMA bandwidth analysis (from `docs/research/dplc-improvements.md`):**
+- Average tiles per frame change: 17.1 (547 bytes)
+- VBlank DMA budget: ~7,000 bytes (NTSC)
+- Single frame change = 7.8% of budget
+- Worst case (3 characters + 8 objects simultaneous change): 4,202 bytes (60%)
+- Amortized (frame changes every ~7 frames on average): 1.1% of budget
+- **DPLC is not a DMA bandwidth bottleneck**
+
+**ROM budget for uncompressed sprites (~463 KB):**
+- Character sprites: ~308 KB (Sonic, Tails, Knuckles + shields/effects)
+- Object/enemy sprites: ~155 KB
+- Total: 11.3% of 4 MB ROM — fits comfortably with 2,783 KB free
 
 **Raw tilemaps (menu/level select):**
-- Menu tilemaps are small and infrequent — compression overhead isn't justified. Even a dozen full-screen tilemaps at ~2-5 KB each is under 0.5% of a 4 MB cart.
-- Menu tilemaps stored as uncompressed VDP nametable data. Load via direct DMA from ROM — zero CPU cost, instant.
-- Future menu screens (title, options, etc.) also stored raw. Even a dozen full-screen tilemaps at ~2-5 KB each is under 0.5% of a 4 MB cart.
+- Menu tilemaps are small and infrequent — compression overhead isn't justified
+- Stored as uncompressed VDP nametable data. Load via direct DMA from ROM — zero CPU cost, instant
+- Even a dozen full-screen tilemaps at ~2-5 KB each is under 0.5% of a 4 MB cart
 
-**Why S4LZ over existing formats:**
-- **vs KosPM:** S4LZ projects 700-1,100 KB/s vs KosPM's 190-310 KB/s. 3-4x faster. Comparable or better compression ratio with tile-delta preprocessing. Eliminates the need for a separate "fast" format
-- **vs Comper:** S4LZ is faster (word-aligned with unrolled tables vs Comper's simpler loop) AND compresses better (64KB dictionary + tile-delta vs Comper's 512-byte window at ~0.65-0.75 ratio). No need for a separate fast format
-- **vs LZ4W (SGDK):** S4LZ improves on LZ4W's design — big-endian offsets (14 cycles/match saved vs LZ4's little-endian), much larger dictionary (64KB vs 512 bytes), tile-delta preprocessing for better ratio. LZ4W achieves 600-950 KB/s; S4LZ targets the same range with better compression
-- **vs Nemesis:** UFTC provides random-access decompression that Nemesis cannot. And S4LZ is ~8-14x faster than Nemesis for sequential loads
-- **vs Raw/uncompressed (Batman):** Sonic needs 10+ zones — uncompressed art would exceed 4MB ROM. Per-section tile art with S4LZ compression keeps ROM manageable while decompressing faster than any bit-stream format
+**Why S4LZ over existing LZ formats:**
+- **vs KosPM:** S4LZ projects 700-1,100 KB/s vs KosPM's 190-310 KB/s. 3-4x faster. Comparable or better compression ratio with tile-delta preprocessing
+- **vs Comper:** S4LZ is faster (word-aligned with unrolled tables vs Comper's simpler loop) AND compresses better (64KB dictionary + tile-delta vs Comper's 512-byte window at ~0.65-0.75 ratio)
+- **vs LZ4W (SGDK):** S4LZ improves on LZ4W's design — big-endian offsets (14 cycles/match saved vs LZ4's little-endian), much larger dictionary (64KB vs 512 bytes), tile-delta preprocessing for better ratio
+- **vs Nemesis:** S4LZ is ~8-14x faster than Nemesis for sequential loads, with comparable or better ratio via tile-delta
+- **vs Raw/uncompressed (Batman):** Sonic needs 10+ zones — uncompressed level art would exceed 4MB ROM. Per-section tile art with S4LZ compression keeps ROM manageable while decompressing faster than any bit-stream format
 
-**Cross-references:** See `docs/research/lz-compression-survey.md` for the full format survey and design validation.
+**Why uncompressed + DPLC over UFTC:**
+- Zero CPU overhead for per-frame sprite loading (DMA runs on VDP clock)
+- UFTC achieves only 0.82-0.86 ratio on real Sonic sprite art — saves ~55 KB (1.3% of ROM) at cost of added complexity and per-frame CPU work
+- Every commercial Genesis game (and all 7 reference disassemblies) stores sprite art uncompressed
+- DPLC tables from sonic_hack can be migrated directly
+- Simpler codebase (no UFTC encoder/decompressor/format handling)
+
+**Cross-references:** See `docs/research/lz-compression-survey.md` for LZ format survey. See `docs/research/tile-format-survey.md` for UFTC evaluation. See `docs/research/dplc-improvements.md` for DPLC improvement design.
 
 ### 2.2 Dynamic VRAM Allocator (NOVEL)
 
@@ -1124,7 +1150,7 @@ The art pipeline handles getting graphical data from ROM into VRAM — compresse
 │     3. Bump cursor, register in loaded table             │
 │     4. Check format: S4LZ → queue stream (Deferrable)    │
 │                      S4LZ blocking → instant decompress   │
-│                      UFTC → register dict, tiles on demand│
+│                      Uncompressed → set art_source for DPLC│
 │     5. Return VRAM address                               │
 │                                                          │
 │   FreeVRAM(type_id)                                      │
@@ -1143,7 +1169,7 @@ The art pipeline handles getting graphical data from ROM into VRAM — compresse
 └──────────────────────────────────────────────────────────┘
 ```
 
-**Object init integration:** When `Load_Object` spawns an object, it calls `AllocVRAM(type_id)`. The allocator scans the loaded table (~20 cycles if found, ~50 if new allocation needed). Most spawns find art already loaded — refcount bumps and returns immediately. First spawn of a new type triggers S4LZ streaming or S4LZ instant decompression (blocking call for small art sets).
+**Object init integration:** When `Load_Object` spawns an object, it calls `AllocVRAM(type_id)`. The allocator scans the loaded table (~20 cycles if found, ~50 if new allocation needed). Most spawns find art already loaded — refcount bumps and returns immediately. First spawn of a new type triggers S4LZ streaming, S4LZ instant decompression (blocking call for small art sets), or sets up the art_source pointer for DPLC-based per-frame loading (uncompressed sprite art).
 
 **Art caching via refcounting:** Shared objects (springs, monitors, rings) accumulate high refcounts across sections. On section transition, `FreeVRAM` decrements but art stays in VRAM. `Section_ResetVRAM` only reclaims entries with refcount = 0. This means backtracking through previously visited sections has near-zero art loading cost — the art is still there.
 
@@ -1156,7 +1182,7 @@ The art pipeline handles getting graphical data from ROM into VRAM — compresse
 
 **Debug safety:** In debug builds, `AllocVRAM` asserts on pool overflow — the crash screen (§8.3) shows "VRAM POOL OVERFLOW in Section(X,Y)" with full context (which objects are loaded, current cursor, refcounts).
 
-**Cross-references:** §2.1 (S4LZ/UFTC formats), §2.3 (VRAM layout), §4.8 (predictive pre-allocation)
+**Cross-references:** §2.1 (S4LZ + uncompressed/DPLC formats), §2.3 (VRAM layout), §4.8 (predictive pre-allocation)
 
 ### 2.3 VRAM Layout — Unified Pool + 64×64 Scroll Planes
 
@@ -1290,42 +1316,42 @@ Boss spawns new enemy type not in section layout
   (S4LZ at 700-1100 KB/s: 12 tiles = 384 bytes decompressed in <0.5ms)
 ```
 
-**Sprite art via UFTC (per-frame):**
+**Sprite art via DPLC/DMA (per-frame):**
 ```
 AnimateSprite
-  → Animation frame changes
-  → UFTC random-access lookup: decompress only the 5-8 tiles needed
-    for this animation frame from the UFTC dictionary
-  → Decompressed tiles → small RAM buffer → DMA to off-screen nametable area
-    (Important priority, character tiles embedded in Plane A off-screen rows)
-  → UFTC Lookahead: if anim_timer <= 1, peek next frame's tile set
-    → Pre-decompress + pre-queue as Important DMA
-    → Art ready before animation advances
+  → Animation frame changes (ros_prev_frame != current frame)
+  → Perform_DPLC: read DPLC table for this animation frame
+    → DPLC entry: tile_count + tile_start → ROM source address
+    → Build-time contiguous layout: 1 DMA entry per frame change
+  → Queue DMA from ROM directly to allocated VRAM address
+    (Important priority for characters, Deferrable for objects)
+  → DPLC Lookahead (§1.6): if anim_timer <= 1, peek next frame's DPLC
+    → Pre-queue as Important DMA → art ready before animation advances
+  → Zero CPU decompression cost — DMA runs on VDP clock
 ```
 
 **Per-section tile art — RAM footprint:**
 ```
 S4LZ decomp buffer: ~$1000 (4,096 bytes)
-UFTC tile buffer:   ~$0200 (512 bytes — 16 tiles)
-Total:              ~4,608 bytes
 
-No chunk tables, block tables, or level layout arrays in RAM.
+No chunk tables, block tables, level layout arrays, or UFTC tile buffers in RAM.
 All tile data streams from ROM via S4LZ on demand.
+Sprite art DMA'd directly from ROM — no RAM buffer needed.
 ```
 
 ### 2.6 Data Format Summary
 
-The engine uses exactly two compression formats and one raw format. No other decompressors exist in the codebase.
+The engine uses one compression format (S4LZ), one random-access format (uncompressed + DPLC), and raw tilemaps. No other decompressors exist in the codebase.
 
 | Data Class | Format | Build Tool | ROM Label Convention |
 |---|---|---|---|
 | Level/bulk art | S4LZ (with tile-delta preprocessing) | `s4lz_compress` (Python/C, optimal parsing) | `ArtS4LZ_*` |
-| Sprite art | UFTC (Sik's random-access tile dictionary) | `uftc` (sikthehedgehog/mdtools) | `ArtUFTC_*` |
+| Sprite art | Uncompressed + DPLC tables | `dplc_layout` (build-time contiguous rearrangement + entry merging) | `ArtUnc_*` / `DPLC_*` |
 | Tilemaps | Raw (uncompressed VDP nametable words) | Direct export from editor | `Tilemap_*` |
 
-**Art source pipeline:** Original art assets (extracted from Sonic 2/3K or created new) are stored as raw uncompressed tiles in `art/raw/`. The build pipeline compresses them into the appropriate format per data class. No intermediate formats — raw → final in one step.
+**Art source pipeline:** Original art assets (extracted from Sonic 2/3K or created new) are stored as raw uncompressed tiles in `art/raw/`. Level art is compressed to S4LZ at build time. Sprite art stays uncompressed — the build tool rearranges tiles for contiguous per-frame layout and generates optimized DPLC tables.
 
-**ROM footprint:** S4LZ decompressor is ~2-5 KB (jump table dominates). UFTC decompressor is ~0.5 KB. Raw tilemaps need no decompressor. Total decompression code: ~3-6 KB ROM.
+**ROM footprint:** S4LZ decompressor is ~2-5 KB (jump table dominates). DPLC routine (`Perform_DPLC`) is ~0.2 KB. Raw tilemaps need no decompressor. Total decompression/loading code: ~2.5-5.5 KB ROM.
 
 ### 2.7 Cascade Effects
 
@@ -1337,18 +1363,17 @@ Two-Tier Compression (2.1)
     → 700-1100 KB/s throughput
     → Tile-delta preprocessing: 10-25% better compression at build time
       → Runtime undo: ~8.5 cycles/byte (negligible)
-  → UFTC handles all sprite art
-    → Random-access: decompress only the tiles needed per frame
-    → No sequential decompression dependency
-      → Character animation loads 5-8 tiles instead of 40
-        → DMA bandwidth freed for section streaming + effects
+  → Uncompressed sprite art + DPLC/DMA — zero CPU decode cost
+    → Build-time contiguous layout: 1 DMA per animation frame change
+    → DMA from ROM on VDP clock — CPU free for game logic
+    → DPLC Lookahead (§1.6) pre-loads next frame's art
   → Raw tilemaps for menus — direct DMA from ROM, zero decode cost
 
 Dynamic VRAM Allocator (2.2)
   → AllocVRAM reads art metadata for tile counts + format
     → S4LZ format → queue Deferrable DMA stream (streaming)
     → S4LZ blocking → instant decompress (small/emergency)
-    → UFTC format → register dictionary, tiles decompressed on demand
+    → Uncompressed → set art_source pointer for DPLC per-frame loading
   → Refcounting keeps shared art across section transitions
     → Springs, monitors, rings never re-decompress
     → Lazy reclaim = free caching for backtracking
@@ -1385,7 +1410,7 @@ Predictive Pre-Allocation (4.8)
 
 Build Pipeline (8.1)
   → S4LZ compressor (Python/C, optimal parsing)
-  → UFTC encoder (Sik's mdtools)
+  → DPLC layout tool (contiguous art rearrangement + entry merging)
     → Raw tilemap export (no encoder needed — direct nametable data)
 ```
 
@@ -1617,11 +1642,11 @@ When bit 7 is set, the data block includes art requirements:
 ```
 dc.l  art_pointer      ; ROM address of compressed art
 dc.w  art_tile_count   ; tiles needed in VRAM
-dc.b  art_format       ; 0 = S4LZ (streamed), 1 = S4LZ blocking, 2 = UFTC
+dc.b  art_format       ; 0 = S4LZ (streamed), 1 = S4LZ blocking, 2 = uncompressed (DPLC)
 dc.b  0                ; padding
 ```
 
-`Load_Object` calls `AllocVRAM` — if art is already loaded (allocator returns existing address, bumps refcount), no decompression. If new, art is queued for S4LZ streaming, instant-loaded via S4LZ blocking, or registered as a UFTC dictionary (tiles decompressed on demand per animation frame). The returned VRAM address goes into `art_tile(a1)`.
+`Load_Object` calls `AllocVRAM` — if art is already loaded (allocator returns existing address, bumps refcount), no loading needed. If new, art is queued for S4LZ streaming, instant-loaded via S4LZ blocking, or registered for DPLC per-frame loading (uncompressed sprite art — `art_source` and `dplc_script` pointers set up, tiles DMA'd from ROM each animation frame). The returned VRAM address goes into `art_tile(a1)`.
 
 This is where the dynamic VRAM allocator (Section 2.2) meets the object system. Every object type's art requirements live in its data block — single source of truth.
 
@@ -1647,8 +1672,9 @@ Comparative analysis across S.C.E. and 5 commercial Genesis engines informed whi
 Two tiers of per-frame art management:
 
 - **Static object art:** Loaded via `AllocVRAM` at spawn (§2.2). Stays resident until section transition or refcount reaches zero. No per-frame processing needed.
-- **Character sprite art:** Per-frame — animation frame changes need different tiles. UFTC random-access decompression (§2.1) decompresses only the 5-8 tiles needed for the current animation frame from the tile dictionary. DPLC frame table maps animation frames to UFTC tile indices.
-- **DPLC Lookahead (NOVEL):** When `anim_timer <= 1`, peek at the next animation frame's DPLC requirements and pre-load as an Important-priority DMA entry. Art arrives before the frame changes — zero-latency animation transitions. No Genesis game does this.
+- **Animated sprite art:** Per-frame — animation frame changes need different tiles. Generic `Perform_DPLC` routine (works for all objects, not per-character) detects frame changes via per-object `ros_prev_frame` field, reads DPLC table for the new frame, and queues DMA from uncompressed ROM art directly to the object's allocated VRAM address. Build-time contiguous art layout guarantees 1 DMA entry per frame change. Character DPLCs → Important priority (guaranteed delivery). Object DPLCs → Deferrable priority (budget-gated).
+- **DPLC Lookahead (NOVEL — §1.6):** When `anim_timer <= 1`, peek at the next animation frame's DPLC requirements and pre-load as an Important-priority DMA entry. Art arrives before the frame changes — zero-latency animation transitions. No Genesis game does this.
+- **128KB DMA boundary safety:** All DPLC DMA transfers are checked for 128KB ROM boundary crossings. Transfers that would cross a boundary are split into two entries. See §2.1 for details.
 
 ### 3.10 Cascade Effects
 
@@ -1682,14 +1708,16 @@ Animation Events (3.6)
 Load_Object + Allocator (3.7)
   → Format byte includes art requirements
     → AllocVRAM checks loaded table → refcount bump or new load
-      → S4LZ (streamed or blocking) or UFTC (sprite dict) based on format flag
+      → S4LZ (streamed or blocking) or uncompressed (DPLC) based on format flag
         → art_tile written to SST from allocator return value
           → Child objects inherit parent art_tile (no separate alloc)
 
 Per-Frame Art Loading (3.9)
-  → Object art: allocator handles at spawn (no per-frame processing)
-  → Character art: UFTC random-access decompresses only needed tiles
-    → DPLC Lookahead pre-loads next frame's tiles
+  → Static object art: allocator handles at spawn (no per-frame processing)
+  → Animated sprite art: Perform_DPLC queues DMA from ROM on frame change
+    → Build-time contiguous layout: 1 DMA per frame change
+    → Character DPLCs → Important priority, Object DPLCs → Deferrable
+    → DPLC Lookahead (§1.6) pre-loads next frame's tiles
       → Zero-latency animation transitions
 
 Section-Local Entity Integration (4.9 → 3.2 + 3.7)
