@@ -143,6 +143,9 @@ Cold_Boot:
         ; Init VDP shadow table (§0.4)
         bsr.w   VDP_Shadow_Init
 
+        ; Init DMA queue (§1.1)
+        bsr.w   Init_DMA_Queue
+
         ; Region detection (§0.8)
         move.b  (HW_VERSION).l, d0
         move.b  d0, (Hardware_Region).w
