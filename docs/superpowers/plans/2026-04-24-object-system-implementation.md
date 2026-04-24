@@ -40,7 +40,7 @@
 | `objects/test_player.asm` | Phase 3 test: controllable player with gravity |
 | `objects/test_enemy.asm` | Phase 3 test: simple enemy with collision |
 | `objects/test_solid.asm` | Phase 3 test: solid block with side detection |
-| `objects/test_spring.asm` | Phase 3 test: spring with bounce |
+
 | `objects/test_parent.asm` | Phase 4 test: multi-part parent with children |
 | `objects/test_particle.asm` | Phase 4 test: particle emitter |
 | `data/mappings/test_mappings.asm` | Simple sprite mappings for test objects |
@@ -1314,13 +1314,25 @@ AABB test (doubled-delta, full dimensions):
         ; Overlap confirmed — dispatch to handler
 ```
 
-- [ ] **Step 2: Implement collision handlers**
+- [ ] **Step 2: Implement core collision handlers (infrastructure only)**
 
-At minimum for Phase 3:
-- `Touch_Enemy` — player spin/roll kills enemy, otherwise player gets hurt
-- `Touch_Hurt` — player takes damage
-- `Touch_Solid` — AABB push-out with side detection (top/bottom/left/right)
-- `Touch_Spring` — solid + apply bounce velocity
+Only implement handlers needed for Phase 3 testing. All other collision types get `rts` stubs in the jump table — they'll be built alongside the actual objects that use them (springs with the spring object, monitors with the monitor object, etc.).
+
+Phase 3 handlers:
+- `Touch_Solid` — AABB push-out with side detection (top/bottom/left/right). The foundation — needed for any platform gameplay.
+- `Touch_Hurt` — player takes damage. Simplest damage response for testing enemy contact.
+
+Stub entries (implemented later alongside their objects):
+- `Touch_Enemy` → `rts` (implemented with badnik objects)
+- `Touch_Boss` → `rts` (implemented with boss objects)
+- `Touch_Monitor` → `rts` (implemented with monitor object)
+- `Touch_Ring` → `rts` (implemented with ring system)
+- `Touch_Bubble` → `rts` (implemented with bubble object)
+- `Touch_Projectile` → `rts` (implemented with projectile objects)
+- `Touch_SolidBreak` → `rts` (implemented with breakable terrain)
+- `Touch_Spring` → `rts` (implemented with spring object)
+- `Touch_SolidHurt` → `rts` (implemented with spike/hazard objects)
+- `Touch_Generic` → `rts` (implemented as needed)
 
 Each handler is a subroutine called with a2 = player, a3 = target.
 
@@ -1339,7 +1351,7 @@ Determine which side the player contacted the solid object. Compare overlap dist
 
 ```bash
 git add engine/collision.asm main.asm
-git commit -m "feat(§3): add TouchResponse + collision handlers (enemy, hurt, solid, spring)"
+git commit -m "feat(§3): add TouchResponse + Touch_Solid/Hurt, stub table for remaining types"
 ```
 
 ---
@@ -1369,38 +1381,33 @@ JUMP_VELOCITY           = -$680         ; initial jump velocity
 WALK_SPEED              = $200          ; horizontal speed
 ```
 
-- [ ] **Step 2: Create test enemy, solid block, and spring objects**
+- [ ] **Step 2: Create test enemy and solid block objects**
 
 `objects/test_enemy.asm`:
 - Simple patrol: walk left/right, reverse at boundaries
-- collision_resp = COLLISION_ENEMY
-- On death: play explosion animation, delete
+- collision_resp = COLLISION_HURT (uses the core handler — Touch_Enemy is stubbed until badniks exist)
+- On death: delete (no explosion yet — particles come in Phase 4)
 
 `objects/test_solid.asm`:
 - Static position, no movement
 - collision_resp = COLLISION_SOLID
 - width_pixels/height_pixels set to block dimensions
 
-`objects/test_spring.asm`:
-- collision_resp = COLLISION_SPRING
-- Stores bounce velocity in custom data
-- Spring animation on contact
-
 - [ ] **Step 3: Update test game state**
 
-Modify `GameState_ObjectTest_Init` to spawn: 1 player, 2 enemies, 3 solid blocks, 1 spring. Set up positions for a testable scene.
+Modify `GameState_ObjectTest_Init` to spawn: 1 player, 2 enemies, 3 solid blocks. Set up positions for a testable scene.
 
 Wire collision: call `TouchResponse` from `GameState_ObjectTest` between `RunObjects` and `Render_Sprites`.
 
 - [ ] **Step 4: Build and test**
 
-Expected: Player walks, jumps, lands on stub floor and solid blocks. Enemies patrol. Springs bounce. Collision response works correctly.
+Expected: Player walks, jumps, lands on stub floor and solid blocks. Enemies hurt player on contact. Player can stand on solid blocks. Collision response works correctly.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add objects/test_player.asm objects/test_enemy.asm objects/test_solid.asm objects/test_spring.asm test/object_test_state.asm
-git commit -m "feat(§3): Phase 3 complete — controllable player, collision, stub terrain, springs"
+git add objects/test_player.asm objects/test_enemy.asm objects/test_solid.asm test/object_test_state.asm
+git commit -m "feat(§3): Phase 3 complete — controllable player, collision, stub terrain"
 ```
 
 ---
@@ -1598,7 +1605,6 @@ Modify `GameState_ObjectTest_Init` to create a comprehensive test scene:
 - **Player** (Sonic sprites, animated, controllable, DPLC art streaming)
 - **3 enemies** (patrol AI, hurtable, death explosions via particle emitter)
 - **5 solid blocks** (various positions, player stands on them)
-- **2 springs** (bounce player)
 - **1 multi-part boss-like object** (parent + 2 children, animation events change collision)
 - **1 particle emitter** (continuous shower)
 
@@ -1608,9 +1614,8 @@ Scene layout: arrange objects to create a mini platforming playground. Player st
 
 Test checklist:
 - Player moves, jumps, lands on floor and solid blocks
-- Player kills enemies by jumping on them (spin)
+- Player kills enemies by jumping on them (spin) — if Touch_Enemy is implemented by Phase 5
 - Enemy contact hurts player (when not spinning)
-- Springs bounce player
 - Boss parent death cascades to children
 - Particles render without corruption
 - Animation events fire correctly (collision changes, sounds)
