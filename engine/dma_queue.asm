@@ -1,4 +1,4 @@
-; DMA queue — 3-priority sub-queue system with Flamewing Ultra format
+; DMA queue — 3-priority sub-queue system with movep-interleaved format
 
 ; -----------------------------------------------
 ; Init_DMA_Queue — pre-fill all 32 slots with VDP register markers
@@ -67,7 +67,7 @@ QueueDMATransfer:
 
         lsr.w   #1, d3                          ; length to words
 
-        ; 128KB boundary check (Flamewing sub+sub approach).
+        ; 128KB boundary check (sub+sub approach).
         ; Detects if (source_words.w + length_words.w) > $10000,
         ; i.e. the DMA crosses a 128KB byte boundary.
         moveq   #0, d0
@@ -135,7 +135,7 @@ QueueDMATransfer:
 ; -----------------------------------------------
 ; Process_DMA_Critical — drain Critical queue via jump table
 ; Zero branches per entry. ~64 cycles/entry, ~514 for all 8.
-; Ported from S.C.E. Process_DMA_Queue (Flamewing).
+; Jump-table drain — zero branches per entry.
 ; In:  none
 ; Out: none
 ; Clobbers: a1, a5

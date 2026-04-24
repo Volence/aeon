@@ -210,5 +210,151 @@ def main():
         print(f"Written: {out_dplc}")
 
 
+def cmd_test():
+    """Built-in self-tests for DPLC layout tool."""
+    print("DPLC layout tool self-tests")
+    print("=" * 60)
+
+    passed = 0
+    failed = 0
+
+    def check(name, condition, detail=""):
+        nonlocal passed, failed
+        if condition:
+            passed += 1
+            print(f"  PASS {name}")
+        else:
+            failed += 1
+            print(f"  FAIL {name}: {detail}")
+
+    # Build a synthetic DPLC + art for testing
+    # 8 frames, 16 tiles of art, various entry patterns
+    def make_tile(value):
+        return bytes([value]) * TILE_SIZE
+
+    art = b''.join(make_tile(i) for i in range(16))
+
+    # frames: list of [(start, count), ...]
+    test_frames = [
+        [(0, 3)],                    # frame 0: tiles 0-2
+        [(4, 2)],                    # frame 1: tiles 4-5
+        [(0, 2), (4, 2)],            # frame 2: tiles 0-1 + 4-5 (non-contiguous)
+        [(8, 1)],                    # frame 3: tile 8
+        [],                          # frame 4: empty
+        [(3, 3), (6, 2)],            # frame 5: tiles 3-5 + 6-7 (adjacent, mergeable)
+        [(10, 5)],                   # frame 6: tiles 10-14
+        [(0, 1)],                    # frame 7: tile 0
+    ]
+
+    # Test 1: write_dplc + parse_dplc round-trip
+    dplc_bytes = write_dplc(test_frames)
+    parsed = parse_dplc(dplc_bytes)
+    check("1. DPLC write/parse round-trip",
+          parsed == test_frames,
+          f"expected {test_frames}, got {parsed}")
+
+    # Test 2: frame count preserved
+    check("2. Frame count preserved",
+          len(parsed) == len(test_frames),
+          f"expected {len(test_frames)}, got {len(parsed)}")
+
+    # Test 3: contiguous rearrangement produces 1 entry per frame
+    new_art, new_frames = build_contiguous_art(art, test_frames)
+    all_single = all(count <= 16 for _, count in new_frames)
+    check("3. Contiguous layout: 1 entry per frame", all_single)
+
+    # Test 4: contiguous art preserves tile data
+    ok = True
+    detail = ""
+    for fi, entries in enumerate(test_frames):
+        new_start, new_count = new_frames[fi]
+        expected_tiles = []
+        for start, count in entries:
+            for t in range(count):
+                expected_tiles.append(art[(start + t) * TILE_SIZE:(start + t + 1) * TILE_SIZE])
+        actual_tiles = []
+        for t in range(new_count):
+            actual_tiles.append(new_art[(new_start + t) * TILE_SIZE:(new_start + t + 1) * TILE_SIZE])
+        if expected_tiles != actual_tiles:
+            ok = False
+            detail = f"frame {fi} tile data mismatch"
+            break
+    check("4. Contiguous layout preserves tile data", ok, detail)
+
+    # Test 5: contiguous layout tile counts match original
+    ok = True
+    detail = ""
+    for fi, entries in enumerate(test_frames):
+        orig_count = sum(c for _, c in entries)
+        _, new_count = new_frames[fi]
+        if orig_count != new_count:
+            ok = False
+            detail = f"frame {fi}: expected {orig_count}, got {new_count}"
+            break
+    check("5. Contiguous layout tile counts match", ok, detail)
+
+    # Test 6: merge_adjacent_entries merges correctly
+    merge_input = [
+        [(3, 3), (6, 2)],           # adjacent: 3+3=6 == 6 → merge to (3,5)
+        [(0, 2), (4, 2)],           # gap: not mergeable
+        [(10, 1), (11, 1), (12, 1)],  # triple adjacent → (10, 3)
+    ]
+    merged, before, after = merge_adjacent_entries(merge_input)
+    check("6a. Merge: adjacent entries combined",
+          merged[0] == [(3, 5)],
+          f"expected [(3,5)], got {merged[0]}")
+    check("6b. Merge: non-adjacent preserved",
+          merged[1] == [(0, 2), (4, 2)],
+          f"expected [(0,2),(4,2)], got {merged[1]}")
+    check("6c. Merge: triple adjacent combined",
+          merged[2] == [(10, 3)],
+          f"expected [(10,3)], got {merged[2]}")
+    check("6d. Merge: entry count reduction",
+          before == 7 and after == 4,
+          f"expected 7→4, got {before}→{after}")
+
+    # Test 7: optimized DPLC round-trips through write/parse
+    contiguous_frames = [[(start, count)] if count > 0 else [] for start, count in new_frames]
+    opt_bytes = write_dplc(contiguous_frames)
+    opt_parsed = parse_dplc(opt_bytes)
+    check("7. Optimized DPLC write/parse round-trip",
+          opt_parsed == contiguous_frames,
+          f"mismatch in round-trip")
+
+    # Test 8: empty frame handling
+    empty_frames = [[], [(0, 1)], []]
+    empty_dplc = write_dplc(empty_frames)
+    empty_parsed = parse_dplc(empty_dplc)
+    check("8. Empty frame round-trip",
+          empty_parsed == empty_frames,
+          f"expected {empty_frames}, got {empty_parsed}")
+
+    # Test 9: single-tile frame round-trip through full pipeline
+    single_art = make_tile(0x42)
+    single_frames = [[(0, 1)]]
+    new_a, new_f = build_contiguous_art(single_art, single_frames)
+    check("9. Single-tile pipeline",
+          new_a == single_art and new_f == [(0, 1)],
+          f"art match: {new_a == single_art}, frames: {new_f}")
+
+    # Test 10: max entry size (16 tiles)
+    big_art = b''.join(make_tile(i) for i in range(20))
+    big_frames = [[(0, 16)], [(4, 16)]]
+    big_dplc = write_dplc(big_frames)
+    big_parsed = parse_dplc(big_dplc)
+    check("10. Max tile count (16) entry",
+          big_parsed == big_frames,
+          f"expected {big_frames}, got {big_parsed}")
+
+    print("=" * 60)
+    print(f"Results: {passed}/{passed + failed} passed, {failed} failed")
+    if failed:
+        sys.exit(1)
+    print("All tests passed.")
+
+
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == 'test':
+        cmd_test()
+    else:
+        main()

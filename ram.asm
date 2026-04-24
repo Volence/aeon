@@ -115,12 +115,6 @@ Lag_Frame_Count:        ds.l 1
     endif
 
 ; -----------------------------------------------
-; DPLC Test State (temporary — removed when object system exists)
-; -----------------------------------------------
-DPLC_Test_Frame:        ds.w 1          ; current animation frame
-DPLC_Test_Timer:        ds.w 1          ; auto-advance timer
-
-; -----------------------------------------------
 ; Decompression buffer (§2)
 ; -----------------------------------------------
 Decomp_Buffer:          ds.b DECOMP_BUFFER_SIZE

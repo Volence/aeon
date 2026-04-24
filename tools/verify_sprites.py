@@ -137,6 +137,10 @@ def main():
     shield_dir = base / 'art' / 'uncompressed' / 'shields'
     dplc_dir = base / 'data' / 'dplc'
 
+    ART_ALIASES = {
+        'wind_shield': 'lightning_shield',
+    }
+
     all_ok = True
 
     print("=" * 70)
@@ -164,7 +168,11 @@ def main():
     if dplc_dir.exists():
         for f in sorted(dplc_dir.glob('*.bin')):
             name = f.stem
-            art_count = art_files.get(name, 0)
+            art_name = ART_ALIASES.get(name, name)
+            art_count = art_files.get(art_name, 0)
+
+            if art_name != name and art_count > 0:
+                print(f"\n       (using art from '{art_name}' — shared animation)")
 
             if art_count == 0:
                 print(f"\n  [WARN] {f.relative_to(base)}")

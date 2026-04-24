@@ -82,7 +82,7 @@ SetVDPReg macro reg,val
 ; to a VDP command longword (in-place).
 ; type/rwd must be assembly-time constants.
 ; clr: 1 = clear upper word of reg first, 0 = assume clean
-; From Flamewing Ultra DMA Queue.
+; Used by DMA queue entry writes (movep interleave).
 ; -----------------------------------------------
 vdpCommReg macro reg, type, rwd, clr
         lsl.l   #2, reg

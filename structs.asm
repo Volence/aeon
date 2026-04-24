@@ -34,8 +34,8 @@ VDP_Shadow endstruct
 
 ; -----------------------------------------------
 ; DMA Queue Entry (§1.2)
-; Flamewing Ultra format — VDP reg numbers at even offsets,
-; data at odd offsets. movep writes interleave naturally.
+; VDP reg numbers at even offsets, data at odd offsets.
+; movep writes interleave naturally.
 ; -----------------------------------------------
 
 DMAEntry struct

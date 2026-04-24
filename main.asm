@@ -109,28 +109,6 @@ NullInterrupt:
     include "debug/error_handler.asm"
 
 ; -----------------------------------------------
-; ROM Data — large BINCLUDEs at end to keep code compact
-; -----------------------------------------------
-
-; DPLC test data (§2 verification)
-DPLC_Test_Art:
-        binclude "art/optimized/characters/sonic.bin"
-DPLC_Test_Art_End:
-        align 2
-
-DPLC_Test_Table:
-        binclude "data/dplc/optimized/sonic.bin"
-DPLC_Test_Table_End:
-
-DPLC_TEST_FRAMES        = 224
-
-        align 2
-
-DPLC_Test_Palette:
-        binclude "test/sonic_palette.bin"
-        align 2
-
-; -----------------------------------------------
 ; End of ROM
 ; -----------------------------------------------
 EndOfRom:
