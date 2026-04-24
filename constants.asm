@@ -87,6 +87,7 @@ CROSS_RESET_MAGIC       = 'INIT'
 GS_BOOT                 = 0
 GS_DMATEST              = 1
 GS_S4LZ_TEST            = 2
+GS_DPLC_TEST            = 3
 
 ; -----------------------------------------------
 ; DMA Queue (§1.1)
