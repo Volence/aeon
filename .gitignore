@@ -5,5 +5,8 @@
 *.p
 *.h
 
+# Allow test art data
+!test/*.bin
+
 # MCP config (machine-specific)
 .mcp.json
