@@ -1,4 +1,4 @@
-; DMA queue — 3-priority sub-queue system with Flamewing Ultra format
+; DMA queue — 3-priority sub-queue system with movep-interleaved format
 
 ; -----------------------------------------------
 ; Init_DMA_Queue — pre-fill all 32 slots with VDP register markers
@@ -66,8 +66,19 @@ QueueDMATransfer:
         movep.l d1, DMAEntry_SizeL(a1)          ; source → offsets 3,5,7,9
 
         lsr.w   #1, d3                          ; length to words
-        movep.w d3, DMAEntry_SizeH(a1)          ; length → offsets 1,3 (overwrites junk at 3)
 
+        ; 128KB boundary check (sub+sub approach).
+        ; Detects if (source_words.w + length_words.w) > $10000,
+        ; i.e. the DMA crosses a 128KB byte boundary.
+        moveq   #0, d0
+        sub.w   d3, d0
+        sub.w   d1, d0
+        blo.s   .split                          ; carry = crosses boundary
+
+        ; No crossing — write length and finish
+        movep.w d3, DMAEntry_SizeH(a1)          ; length → offsets 1,3
+
+.finish_entry:
         moveq   #0, d0
         move.w  d2, d0
         vdpCommReg d0, VRAM, DMA, 0
@@ -86,10 +97,45 @@ QueueDMATransfer:
         move.w  (sp)+, sr
         rts
 
+        ; --- 128KB boundary split ---
+        ; Split the transfer into two queue entries: one up to the boundary,
+        ; one for the remainder. Both go to the same sub-queue.
+.split:
+        add.w   d3, d0                          ; d0 = words until 128KB boundary
+        movep.w d0, DMAEntry_SizeH(a1)         ; write first part length
+
+        ; Need two free slots — check room for second entry
+        subi.w  #DMAEntry_len, d4               ; d4 = start of last slot
+        cmpa.w  d4, a1
+        bhs.s   .finish_entry                   ; only one slot — finish first part
+
+        ; Second part parameters
+        sub.w   d0, d3                          ; d3 = second part length (words)
+        add.l   d0, d1                          ; d1 = second part source (words)
+        add.w   d0, d0                          ; d0 = first part length (bytes)
+        add.w   d2, d0                          ; d0 = second part VRAM dest
+
+        ; Finish first entry with original destination
+        vdpCommReg d2, VRAM, DMA, 1             ; d2 → VDP command (clr=1, upper word unknown)
+        move.l  d2, DMAEntry_Command(a1)
+
+        ; Write second entry into next slot
+        movep.l d1, DMAEntry_len+DMAEntry_SizeL(a1)
+        movep.w d3, DMAEntry_len+DMAEntry_SizeH(a1)
+
+        ; Second entry VDP command — d0 upper word known zero
+        vdpCommReg d0, VRAM, DMA, 0
+        lea     DMAEntry_len+DMAEntry_Command(a1), a1
+        move.l  d0, (a1)+
+        move.w  a1, (a2)
+
+        move.w  (sp)+, sr
+        rts
+
 ; -----------------------------------------------
 ; Process_DMA_Critical — drain Critical queue via jump table
 ; Zero branches per entry. ~64 cycles/entry, ~514 for all 8.
-; Ported from S.C.E. Process_DMA_Queue (Flamewing).
+; Jump-table drain — zero branches per entry.
 ; In:  none
 ; Out: none
 ; Clobbers: a1, a5

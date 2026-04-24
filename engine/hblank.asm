@@ -2,7 +2,7 @@
 
 ; -----------------------------------------------
 ; HBlank_Dispatch — ROM stub, dispatches through RAM pointer
-; Vectorman/Batman/Treasure pattern
+; RAM-indirect dispatch for per-line raster effects
 ; -----------------------------------------------
 HBlank_Dispatch:
         movem.l d0-d1/a0, -(sp)

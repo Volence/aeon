@@ -85,7 +85,7 @@ CROSS_RESET_MAGIC       = 'INIT'
 ; Game state IDs
 ; -----------------------------------------------
 GS_BOOT                 = 0
-GS_DMATEST              = 1
+GS_IDLE                 = 1
 
 ; -----------------------------------------------
 ; DMA Queue (§1.1)
@@ -97,3 +97,9 @@ DMA_TOTAL_SLOTS         = DMA_CRITICAL_SLOTS+DMA_IMPORTANT_SLOTS+DMA_DEFERRABLE_
 
 DMA_BUDGET_NTSC         = 7200          ; usable DMA bytes per NTSC VBlank
 DMA_BUDGET_PAL          = 15000         ; usable DMA bytes per PAL VBlank
+
+; -----------------------------------------------
+; Decompression (§2)
+; -----------------------------------------------
+TILE_SIZE               = 32            ; bytes per 8x8 4bpp tile
+DECOMP_BUFFER_SIZE      = 32768         ; 32KB decompression work buffer

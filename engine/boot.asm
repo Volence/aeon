@@ -37,7 +37,7 @@ Cold_Boot:
         ; Reset VDP command word state machine
         move.w  (VDP_CTRL).l, d0
 
-        ; Preload hardware addresses (S.C.E. movem pattern)
+        ; Preload hardware addresses via movem
         lea.l   BootData(pc), a5
         movem.w (a5)+, d5-d7
         movem.l (a5)+, a0-a4
@@ -195,8 +195,8 @@ Cold_Boot:
         move.l  #CROSS_RESET_MAGIC, (Cross_Reset_Magic_Addr).l
 
         ; Set initial game state
-        move.l  #GameState_DMATest, (Game_State).w
-        move.b  #GS_DMATEST, (Game_State_ID).w
+        move.l  #GameState_Idle, (Game_State).w
+        move.b  #GS_IDLE, (Game_State_ID).w
         clr.b   (Game_State_Init).w
 
         ; Enter main loop — never returns
