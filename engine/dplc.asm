@@ -3,13 +3,13 @@
 ; -----------------------------------------------
 ; Perform_DPLC — queue DMA for an animation frame's sprite tiles
 ;
-; Reads a DPLC table in S2 pointer-table format:
+; DPLC table format:
 ;   Offset table: word per frame (offset from file start to frame data)
 ;   Frame data:   word entry_count, then entry_count words
 ;   Entry word:   bits 15-12 = tile_count-1 (1-16), bits 11-0 = tile_start
 ;
-; For optimized (contiguous) art, each frame has exactly 1 DPLC entry.
-; For legacy S2 art, frames may have 1-16 entries.
+; With contiguous art layout (build-time optimized), each frame has
+; exactly 1 DPLC entry — guaranteed single DMA per frame change.
 ;
 ; In:  d0.w = animation frame number (0-based, word-extended)
 ;      a0   = DPLC table pointer (ROM)
