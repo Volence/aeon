@@ -78,3 +78,28 @@ BuildStaticDMA:
         movep.w d3, DMAEntry_SizeH(a0)          ; length -> offsets 1,3
         move.l  d2, DMAEntry_Command(a0)
         rts
+
+; -----------------------------------------------
+; PlaneMapToVRAM — CPU-based row-by-row nametable writer
+; For one-shot plane loads (title screens, menus, level init).
+; Use during display-off or VBlank only.
+; In:  a1   = source nametable data (VDP-ready words)
+;      d0.l = VDP write command for top-left cell
+;      d1.w = width in cells - 1
+;      d2.w = height in rows - 1
+; Out: none
+; Clobbers: d0-d4, a1, a5-a6
+; -----------------------------------------------
+PlaneMapToVRAM:
+        move.l  #vdpCommDelta(planeLoc(PLANE_H_CELLS,0,1)), d4
+        lea     (VDP_DATA).l, a6
+        lea     VDP_CTRL-VDP_DATA(a6), a5
+.row:
+        move.l  d0, (a5)                        ; set VRAM write address
+        move.w  d1, d3
+.cell:
+        move.w  (a1)+, (a6)                     ; write one nametable word
+        dbf     d3, .cell
+        add.l   d4, d0                          ; advance to next row
+        dbf     d2, .row
+        rts
