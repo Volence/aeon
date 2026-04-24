@@ -93,6 +93,7 @@ Checksum:
     include "engine/vdp_init.asm"
     include "engine/vblank.asm"
     include "engine/hblank.asm"
+    include "engine/controllers.asm"
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)

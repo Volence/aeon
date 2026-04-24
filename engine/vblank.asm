@@ -14,7 +14,7 @@ VBlank_Handler:
         bsr.w   Sprite_Table_Upload_Stub
 
         ; Phase 2: I/O
-        bsr.w   Read_Controllers_Stub
+        bsr.w   Read_Controllers
 
         ; Phase 3: Sound
         bsr.w   Sound_Update_Stub
@@ -33,9 +33,6 @@ DMA_Queue_Drain_Stub:
         rts
 
 Sprite_Table_Upload_Stub:
-        rts
-
-Read_Controllers_Stub:
         rts
 
 Sound_Update_Stub:
