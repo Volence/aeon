@@ -52,6 +52,60 @@ GameState_DMATest:
         rts
 
 ; -----------------------------------------------
+; GameState_S4LZTest — §2 compressed art verification
+; Decompresses S4LZ title screen art to RAM buffer,
+; DMAs to VRAM, writes nametable, enables display.
+; -----------------------------------------------
+GameState_S4LZTest:
+        tst.b   (Game_State_Init).w
+        bne.s   .update
+
+        move.b  #1, (Game_State_Init).w
+
+        ; Copy palette to buffer line 0
+        lea     Test_Palette(pc), a0
+        lea     (Palette_Buffer).w, a1
+        moveq   #(32/4)-1, d0
+.pal_copy:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .pal_copy
+        move.b  #1, (Palette_Dirty).w
+
+        ; Decompress S4LZ art to buffer
+        lea     Test_TileArt_S4LZ(pc), a0
+        lea     (Decomp_Buffer).w, a1
+        bsr.w   S4LZ_Decompress
+
+        ; Queue DMA from buffer to VRAM tile 0
+        move.l  #Decomp_Buffer, d1
+        move.w  #0, d2
+        move.w  #TEST_ART_SIZE, d3
+        bsr.w   QueueDMA_Critical
+
+        ; Write nametable (same as uncompressed test)
+        stopZ80
+        lea     Test_Nametable(pc), a1
+        move.l  #vdpComm(VRAM_PLANE_A, VRAM, WRITE), d0
+        move.w  #TEST_MAP_WIDTH-1, d1
+        move.w  #TEST_MAP_HEIGHT-1, d2
+        bsr.w   PlaneMapToVRAM
+        startZ80
+
+        ; Enable display
+        SetVDPReg VDP_Shadow_vdp_mode2, #$74
+
+.update:
+        rts
+
+; -----------------------------------------------
+; Compressed test data
+; -----------------------------------------------
+Test_TileArt_S4LZ:
+        binclude "test/title_art.s4lz"
+Test_TileArt_S4LZ_End:
+        align 2
+
+; -----------------------------------------------
 ; Test data — included in ROM
 ; -----------------------------------------------
 TEST_MAP_WIDTH          = 40

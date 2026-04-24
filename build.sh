@@ -31,6 +31,10 @@ if [[ "${PRINT_ERRORS_ONLY}" == "0" ]]; then
     ASFLAGS="${ASFLAGS} -E ${ROM_NAME}.log"
 fi
 
+# Compress art assets
+echo "Compressing art..."
+python3 tools/s4lz.py compress test/title_art.bin test/title_art.s4lz
+
 echo "Assembling ${MAIN_ASM}..."
 "${TOOLS}/asl" ${ASFLAGS} "${MAIN_ASM}"
 
