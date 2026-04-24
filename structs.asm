@@ -31,3 +31,27 @@ VDP_Shadow endstruct
         if VDP_Shadow_len <> 19
           error "VDP_Shadow struct is \{VDP_Shadow_len} bytes, expected 19"
         endif
+
+; -----------------------------------------------
+; DMA Queue Entry (§1.2)
+; Flamewing Ultra format — VDP reg numbers at even offsets,
+; data at odd offsets. movep writes interleave naturally.
+; -----------------------------------------------
+
+DMAEntry struct
+Reg94           ds.b 1          ; +0  VDP reg $14 marker
+SizeH           ds.b 1          ; +1  DMA length high byte
+Reg93           ds.b 1          ; +2  VDP reg $13 marker
+SizeL           ds.b 1          ; +3  DMA length low byte
+Reg97           ds.b 1          ; +4  VDP reg $17 marker
+SrcH            ds.b 1          ; +5  source address bits 22-16
+Reg96           ds.b 1          ; +6  VDP reg $16 marker
+SrcM            ds.b 1          ; +7  source address bits 15-8
+Reg95           ds.b 1          ; +8  VDP reg $15 marker
+SrcL            ds.b 1          ; +9  source address bits 7-0
+Command         ds.l 1          ; +10 VDP command (destination + DMA trigger)
+DMAEntry endstruct
+
+        if DMAEntry_len <> 14
+          error "DMAEntry struct is \{DMAEntry_len} bytes, expected 14"
+        endif
