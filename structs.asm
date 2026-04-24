@@ -55,3 +55,38 @@ DMAEntry endstruct
         if DMAEntry_len <> 14
           error "DMAEntry struct is \{DMAEntry_len} bytes, expected 14"
         endif
+
+; -----------------------------------------------
+; Sprite Status Table entry (§3.1)
+; Object system per-slot data structure.
+; Fields grouped logically; anim_cursor at $1C (even) for longword alignment.
+; -----------------------------------------------
+
+SST struct
+code_addr       ds.w 1      ; $00 — object code offset from ObjCodeBase (0 = empty)
+x_pos           ds.l 1      ; $02 — 16.16 subpixel X position
+y_pos           ds.l 1      ; $06 — 16.16 subpixel Y position
+x_vel           ds.w 1      ; $0A — horizontal velocity
+y_vel           ds.w 1      ; $0C — vertical velocity
+render_flags    ds.b 1      ; $0E — display flags (bit 0 = on-screen, bit 1 = x-flip, bit 2 = y-flip, bit 3 = coordinate mode)
+collision_resp  ds.b 1      ; $0F — collision type dispatch (0 = none)
+mappings        ds.l 1      ; $10 — sprite mapping pointer (ROM)
+art_tile        ds.w 1      ; $14 — VRAM tile index + palette + priority
+priority        ds.w 1      ; $16 — sprite priority band (0-7, 0 = back)
+width_pixels    ds.b 1      ; $18 — collision width (full, not half)
+height_pixels   ds.b 1      ; $19 — collision height (full, not half)
+anim            ds.b 1      ; $1A — current animation ID
+mapping_frame   ds.b 1      ; $1B — current mapping index
+anim_cursor     ds.l 1      ; $1C — self-advancing animation ROM pointer
+subtype         ds.b 1      ; $20 — object subtype
+respawn_index   ds.b 1      ; $21 — respawn tracking
+parent_ptr      ds.w 1      ; $22 — parent object RAM address
+sibling_ptr     ds.w 1      ; $24 — sibling link (multi-part objects)
+anim_table      ds.l 1      ; $26 — animation table pointer (ROM)
+wait_timer      ds.w 1      ; $2A — Obj_Wait countdown
+sst_custom      ds.b 36     ; $2C-$4F — per-object custom data overlay
+SST endstruct
+
+        if SST_len <> $50
+          error "SST struct is \{SST_len} bytes, expected $50"
+        endif

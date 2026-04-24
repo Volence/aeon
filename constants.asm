@@ -103,3 +103,48 @@ DMA_BUDGET_PAL          = 15000         ; usable DMA bytes per PAL VBlank
 ; -----------------------------------------------
 TILE_SIZE               = 32            ; bytes per 8x8 4bpp tile
 DECOMP_BUFFER_SIZE      = 32768         ; 32KB decompression work buffer
+
+; -----------------------------------------------
+; Object System (§3)
+; -----------------------------------------------
+
+; Slot counts per pool
+NUM_PLAYERS             = 2
+NUM_DYNAMIC             = 40
+NUM_EFFECTS             = 16
+NUM_SYSTEM              = 8
+NUM_TOTAL_SLOTS         = NUM_PLAYERS+NUM_DYNAMIC+NUM_EFFECTS+NUM_SYSTEM
+
+; Object code bank (ObjCodeBase aligned to $10000)
+OBJ_CODE_BANK           = 1         ; moveq #1,d0; swap d0 → $00010000
+
+; Sprite priority bands
+PRIORITY_BANDS          = 8
+SPRITES_PER_BAND        = 16
+
+; Collision response types
+COLLISION_NONE          = 0
+COLLISION_ENEMY         = 1
+COLLISION_BOSS          = 2
+COLLISION_HURT          = 3
+COLLISION_MONITOR       = 4
+COLLISION_RING          = 5
+COLLISION_BUBBLE        = 6
+COLLISION_PROJECTILE    = 7
+COLLISION_SOLID         = 8
+COLLISION_SOLID_BREAK   = 9
+COLLISION_SPRING        = 10
+COLLISION_SOLID_HURT    = 11
+COLLISION_TOUCH         = 12
+
+; render_flags bits
+RF_ONSCREEN             = 0         ; set by Draw_Sprite if visible
+RF_XFLIP                = 1         ; horizontal flip
+RF_YFLIP                = 2         ; vertical flip
+RF_COORDMODE            = 3         ; 0 = world coords, 1 = screen coords
+
+; Spawn guard
+MAX_SPAWNS_PER_FRAME    = 8
+
+; Game state IDs (extend existing)
+GS_OBJECT_TEST          = 2

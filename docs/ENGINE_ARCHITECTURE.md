@@ -1448,9 +1448,10 @@ $19  height_pixels          ; (byte) — collision/display height (FULL, not hal
 
 ; === Animation ===
 $1A  anim                   ; (byte) — current animation ID
-$1B  anim_cursor            ; (long) — self-advancing ROM pointer (replaces
+$1B  mapping_frame          ; (byte) — current mapping index (moved here for longword alignment)
+$1C  anim_cursor            ; (long) — self-advancing ROM pointer (replaces
                             ;          anim_frame + anim_frame_duration)
-$1F  mapping_frame          ; (byte) — current mapping index
+                            ;          NOTE: was $1B (odd) — Address Error! Fixed to $1C.
 
 ; === Identity / Spawn ===
 $20  subtype                ; (byte) — object subtype
