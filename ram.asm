@@ -120,6 +120,54 @@ Lag_Frame_Count:        ds.l 1
 Decomp_Buffer:          ds.b DECOMP_BUFFER_SIZE
 Decomp_Buffer_End:
 
+; -----------------------------------------------
+; Object System (§3)
+; -----------------------------------------------
+
+; Object RAM — all slots contiguous, stride = SST_len ($50)
+Object_RAM:
+Player_1:               ds.b SST_len
+Player_2:               ds.b SST_len
+Dynamic_Slots:          ds.b SST_len * NUM_DYNAMIC
+System_Slots:           ds.b SST_len * NUM_SYSTEM
+Effect_Slots:           ds.b SST_len * NUM_EFFECTS
+Object_RAM_End:
+
+; Free slot stacks — word arrays of SST addresses, one per pool
+Dynamic_Free_Stack:     ds.w NUM_DYNAMIC
+Dynamic_Free_SP:        ds.w 1
+
+Effect_Free_Stack:      ds.w NUM_EFFECTS
+Effect_Free_SP:         ds.w 1
+
+; Spawn guard counter (reset each frame)
+Spawn_Count:            ds.w 1
+
+; -----------------------------------------------
+; Sprite Rendering (§3.5)
+; -----------------------------------------------
+
+; Priority band lists — each band holds up to SPRITES_PER_BAND object addresses
+Sprite_Bands:           ds.w SPRITES_PER_BAND * PRIORITY_BANDS
+Sprite_Band_Counts:     ds.b PRIORITY_BANDS
+                        ds.b 1          ; pad to even
+
+; Sprite link counter (next VDP sprite index to assign)
+Sprite_Link_Next:       ds.w 1
+
+; Total sprites rendered this frame
+Sprites_Rendered:       ds.w 1
+
+; -----------------------------------------------
+; Camera (stub for §3, real implementation in §4)
+; -----------------------------------------------
+Camera_X:               ds.l 1          ; 16.16 camera X position
+Camera_Y:               ds.l 1          ; 16.16 camera Y position
+
+; Game pause / freeze flag
+Game_Paused:            ds.b 1
+                        ds.b 1          ; pad
+
 RAM_End:
 
         if RAM_End >= SYSTEM_STACK
