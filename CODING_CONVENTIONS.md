@@ -248,6 +248,30 @@ These are hard rules, not guidelines. The 68000 at 7.67 MHz has no margin for sl
 
 **LEA displacement chaining:** Instead of multiple `adda` operations, chain `lea`: `lea 8(a0),a1` then `lea 12(a1),a2`. LEA sets up the effective address in the calculation stage while ADDA stalls on the address bus. Useful when computing multiple derived pointers from a base.
 
+**SWAP as free register:** `swap d2` stashes the lower word in the upper half, freeing the lower word for subroutine use. `swap d2` after the call restores it. Cost: 4 cycles per swap (8 total) vs 32+36=68 cycles for a `movem.l` save/restore pair with 3 registers. Use this when you need to preserve exactly one data register across a call and have no other use for its upper word. From Gunstar Heroes — used pervasively in their sprite renderer.
+
+```asm
+; Instead of:
+        movem.l d4, -(sp)          ; 16 cycles
+        jsr     SomeRoutine
+        movem.l (sp)+, d4          ; 16 cycles  (32 total)
+
+; Use:
+        swap    d4                  ; 4 cycles
+        jsr     SomeRoutine         ; (clobbers d4.w but upper word is safe)
+        swap    d4                  ; 4 cycles   (8 total, saves 24 cycles)
+```
+
+**SWAP for 16.16 fixed-point extraction:** After a 32-bit fixed-point add, `swap` brings the integer part into the low word without a shift or divide. From Gunstar Heroes' physics engine.
+
+```asm
+; Extract integer pixel delta from 16.16 fixed-point:
+        add.l   d0, d1              ; full 32-bit position += velocity
+        swap    d0                  ; integer part of velocity now in d0.w
+        swap    d1                  ; integer part of position now in d1.w
+        sub.w   d0, d1              ; pixel delta = new_int - vel_int
+```
+
 **Hybrid SoA for batch operations:** When batch-processing a single field across all objects (e.g., culling by X position, updating all Y velocities), struct-of-arrays layout enables sequential `(a0)+` access instead of strided `offset(a0)` with stride advances. The 68000 has no cache, but sequential access eliminates offset encoding (2 bytes saved per access) and enables MOVEM batch loads. Use SoA for hot-path batch fields (x_pos, y_pos, render_flags) alongside AoS for per-object logic.
 
 ### 2.7 Loop Patterns

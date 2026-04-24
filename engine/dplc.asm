@@ -16,7 +16,7 @@
 ;      a1   = uncompressed art base address (ROM)
 ;      d1.w = VRAM destination (byte address)
 ; Out: none
-; Clobbers: d0-d4, a0-a2
+; Clobbers: d0-d5, a0-a2
 ; -----------------------------------------------
 Perform_DPLC:
         add.w   d0, d0
@@ -47,9 +47,11 @@ Perform_DPLC:
 
         ; Queue as Important-priority DMA (character art)
         ; d1.l = source, d2.w = VRAM dest, d3.w = length
-        movem.l d4/a0-a1, -(sp)
+        swap    d4
+        move.l  a1, d5
         jsr     QueueDMA_Important
-        movem.l (sp)+, d4/a0-a1
+        move.l  d5, a1
+        swap    d4
 
         ; Advance VRAM dest for next entry
         add.w   d3, d2
@@ -63,7 +65,7 @@ Perform_DPLC:
 ; Used for non-player objects (budget-gated, can slip one frame)
 ;
 ; In/Out: same as Perform_DPLC
-; Clobbers: d0-d4, a0-a2
+; Clobbers: d0-d5, a0-a2
 ; -----------------------------------------------
 Perform_DPLC_Deferrable:
         add.w   d0, d0
@@ -89,9 +91,11 @@ Perform_DPLC_Deferrable:
         move.w  d3, d3
         lsl.w   #5, d3
 
-        movem.l d4/a0-a1, -(sp)
+        swap    d4
+        move.l  a1, d5
         jsr     QueueDMA_Deferrable
-        movem.l (sp)+, d4/a0-a1
+        move.l  d5, a1
+        swap    d4
 
         add.w   d3, d2
         dbf     d4, .entry_loop
