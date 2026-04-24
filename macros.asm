@@ -54,20 +54,9 @@ enableInts macro
         endm
 
 ; -----------------------------------------------
-; Debug macros
-; -----------------------------------------------
-
-ifdebug macro
-        ifdef __DEBUG__
-        if DEBUG_\1
-        endm
-
-debugend macro
-        endif
-        endif
-        endm
-
 ; Debug subsystem flags (only meaningful when __DEBUG__ is defined)
+; Use the MD Debugger's ifdebug macro (from debug/debugger.asm) for conditionals.
+; -----------------------------------------------
 DEBUG_ALL               = 0
 DEBUG_DMA               = 0 | DEBUG_ALL
 DEBUG_VRAM              = 0 | DEBUG_ALL

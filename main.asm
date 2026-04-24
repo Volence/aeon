@@ -15,6 +15,7 @@ padToPowerOfTwo         = 1
     include "structs.asm"
     include "macros.asm"
     include "ram.asm"
+    include "debug/debugger.asm"
 
 ; -----------------------------------------------
 ; ROM image
@@ -27,29 +28,29 @@ padToPowerOfTwo         = 1
 Vectors:
     dc.l    SYSTEM_STACK                    ; $00: Initial SSP
     dc.l    EntryPoint                      ; $04: Reset PC
-    dc.l    ErrorTrap                       ; $08: Bus error
-    dc.l    ErrorTrap                       ; $0C: Address error
-    dc.l    ErrorTrap                       ; $10: Illegal instruction
-    dc.l    ErrorTrap                       ; $14: Division by zero
-    dc.l    ErrorTrap                       ; $18: CHK exception
-    dc.l    ErrorTrap                       ; $1C: TRAPV
-    dc.l    ErrorTrap                       ; $20: Privilege violation
-    dc.l    ErrorTrap                       ; $24: Trace
-    dc.l    ErrorTrap                       ; $28: Line 1010
-    dc.l    ErrorTrap                       ; $2C: Line 1111
-    dc.l    ErrorTrap                       ; $30: Reserved
-    dc.l    ErrorTrap                       ; $34: Reserved
-    dc.l    ErrorTrap                       ; $38: Reserved
-    dc.l    ErrorTrap                       ; $3C: Reserved
-    dc.l    ErrorTrap                       ; $40: Reserved
-    dc.l    ErrorTrap                       ; $44: Reserved
-    dc.l    ErrorTrap                       ; $48: Reserved
-    dc.l    ErrorTrap                       ; $4C: Reserved
-    dc.l    ErrorTrap                       ; $50: Reserved
-    dc.l    ErrorTrap                       ; $54: Reserved
-    dc.l    ErrorTrap                       ; $58: Reserved
-    dc.l    ErrorTrap                       ; $5C: Reserved
-    dc.l    ErrorTrap                       ; $60: Spurious interrupt
+    dc.l    BusError                        ; $08: Bus error
+    dc.l    AddressError                    ; $0C: Address error
+    dc.l    IllegalInstr                    ; $10: Illegal instruction
+    dc.l    ZeroDivide                      ; $14: Division by zero
+    dc.l    ChkInstr                        ; $18: CHK exception
+    dc.l    TrapvInstr                      ; $1C: TRAPV
+    dc.l    PrivilegeViol                   ; $20: Privilege violation
+    dc.l    Trace                           ; $24: Trace
+    dc.l    Line1010Emu                     ; $28: Line 1010
+    dc.l    Line1111Emu                     ; $2C: Line 1111
+    dc.l    ErrorExcept                     ; $30: Reserved
+    dc.l    ErrorExcept                     ; $34: Reserved
+    dc.l    ErrorExcept                     ; $38: Reserved
+    dc.l    ErrorExcept                     ; $3C: Reserved
+    dc.l    ErrorExcept                     ; $40: Reserved
+    dc.l    ErrorExcept                     ; $44: Reserved
+    dc.l    ErrorExcept                     ; $48: Reserved
+    dc.l    ErrorExcept                     ; $4C: Reserved
+    dc.l    ErrorExcept                     ; $50: Reserved
+    dc.l    ErrorExcept                     ; $54: Reserved
+    dc.l    ErrorExcept                     ; $58: Reserved
+    dc.l    ErrorExcept                     ; $5C: Reserved
+    dc.l    ErrorExcept                     ; $60: Spurious interrupt
     dc.l    NullInterrupt                   ; $64: IRQ1 (external)
     dc.l    NullInterrupt                   ; $68: IRQ2 (external)
     dc.l    NullInterrupt                   ; $6C: IRQ3
@@ -99,11 +100,10 @@ HBlank_Dispatch:
 VBlank_Handler:
     rte
 
-ErrorTrap:
-    bra.s   ErrorTrap
-
 NullInterrupt:
     rte
+
+    include "debug/error_handler.asm"
 
 ; -----------------------------------------------
 ; End of ROM
