@@ -10,7 +10,9 @@
 
 # Allow sprite art and DPLC data
 !art/uncompressed/**/*.bin
+!art/optimized/**/*.bin
 !data/dplc/*.bin
+!data/dplc/optimized/*.bin
 
 # MCP config (machine-specific)
 .mcp.json
