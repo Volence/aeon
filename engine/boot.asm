@@ -146,6 +146,12 @@ Cold_Boot:
         ; Init DMA queue (§1.1)
         bsr.w   Init_DMA_Queue
 
+        ; Init sprite table link chain (§1.3)
+        bsr.w   Init_SpriteTable
+
+        ; Build static DMA entries (§1.5)
+        bsr.w   BuildStaticDMA
+
         ; Region detection (§0.8)
         move.b  (HW_VERSION).l, d0
         move.b  d0, (Hardware_Region).w
