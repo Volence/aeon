@@ -173,8 +173,13 @@ Cold_Boot:
         ; Enable interrupts
         enableInts
 
-        ; Continue to remaining init
-        bra.s   *                            ; PLACEHOLDER
+        ; Set initial game state
+        move.l  #GameState_Boot, (Game_State).w
+        move.b  #GS_BOOT, (Game_State_ID).w
+        clr.b   (Game_State_Init).w
+
+        ; Enter main loop — never returns
+        bra.w   GameLoop
 
 ; -----------------------------------------------
 ; Boot Data Table — read sequentially via (a5)+
