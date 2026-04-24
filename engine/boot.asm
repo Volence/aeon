@@ -142,6 +142,28 @@ Cold_Boot:
         ; Init VDP shadow table (§0.4)
         bsr.w   VDP_Shadow_Init
 
+        ; Region detection (§0.8)
+        move.b  (HW_VERSION).l, d0
+        move.b  d0, (Hardware_Region).w
+        andi.b  #$C0, d0
+        move.b  d0, (Region_Flags).w
+        btst    #6, d0
+        bne.s   .pal
+        move.w  #NTSC_TIMING_STEP, (Timing_Step).w
+        bra.s   .region_done
+.pal:
+        move.w  #PAL_TIMING_STEP, (Timing_Step).w
+.region_done:
+        clr.w   (Frame_Accumulator).w
+
+        ; Controller port init (§0.9)
+        move.b  #$40, (HW_PORT_1_CTRL).l    ; TH as output
+        move.b  #$40, (HW_PORT_2_CTRL).l
+        move.b  #$40, (HW_EXPANSION_CTRL).l
+        move.b  #$40, (HW_PORT_1_DATA).l    ; TH high (initial state)
+        move.b  #$40, (HW_PORT_2_DATA).l
+        move.b  #$40, (HW_PORT_EXP_DATA).l
+
         ; Continue to remaining init
         bra.s   *                            ; PLACEHOLDER
 
