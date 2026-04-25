@@ -101,6 +101,7 @@ Checksum:
     include "engine/dplc.asm"
     include "engine/objects.asm"
     include "engine/sprites.asm"
+    include "engine/animate.asm"
 
 ; -----------------------------------------------
 ; Object code bank
