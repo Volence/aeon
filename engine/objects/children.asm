@@ -338,3 +338,109 @@ DeleteChildren:
         bne.s   .walk_chain
 .done:
         rts
+
+; -----------------------------------------------
+; CreateEffect_Normal — spawn effect children from a descriptor table
+; Allocates from Effect pool (not Dynamic). Children are NOT linked
+; into the parent's sibling chain — effects are fire-and-forget.
+;
+; Descriptor format (4 bytes per child, terminated by dc.w 0):
+;   dc.w objroutine(EffectCode)   ; child code_addr (0 = end)
+;   dc.b x_offset_signed          ; signed byte, relative to parent X
+;   dc.b y_offset_signed          ; signed byte, relative to parent Y
+;
+; In:  a0 = parent SST pointer
+;      a1 = descriptor table pointer (ROM)
+; Out: none (effects allocated, or silently skipped if pool full)
+; Clobbers: d0-d2, a1-a2
+; -----------------------------------------------
+CreateEffect_Normal:
+.effect_loop:
+        move.w  (a1)+, d2               ; d2 = effect code_addr
+        beq.s   .done                   ; 0 = end of table
+
+        movem.l a0-a1, -(sp)
+        jsr     AllocEffect
+        bne.s   .alloc_fail
+        movea.l a1, a2                  ; a2 = effect SST
+        movem.l (sp)+, a0-a1
+
+        move.w  d2, SST_code_addr(a2)
+
+        ; Position = parent + signed byte offset (16.16)
+        move.b  (a1)+, d0               ; x_offset signed byte
+        ext.w   d0
+        swap    d0
+        clr.w   d0
+        add.l   SST_x_pos(a0), d0
+        move.l  d0, SST_x_pos(a2)
+
+        move.b  (a1)+, d0               ; y_offset signed byte
+        ext.w   d0
+        swap    d0
+        clr.w   d0
+        add.l   SST_y_pos(a0), d0
+        move.l  d0, SST_y_pos(a2)
+
+        ; Inherit mappings, art_tile from parent
+        move.l  SST_mappings(a0), SST_mappings(a2)
+        move.w  SST_art_tile(a0), SST_art_tile(a2)
+
+        ; Set parent_ptr so effect can reference parent if needed
+        move.w  a0, SST_parent_ptr(a2)
+
+        bra.s   .effect_loop
+
+.alloc_fail:
+        movem.l (sp)+, a0-a1
+        addq.w  #2, a1                  ; skip x_off, y_off of failed entry
+.skip_rest:
+        tst.w   (a1)                    ; check next entry
+        beq.s   .done
+        addq.w  #4, a1                  ; skip full 4-byte entry
+        bra.s   .skip_rest
+.done:
+        rts
+
+; -----------------------------------------------
+; CreateEffect_Simple — spawn N copies of the same effect at parent position
+; Allocates from Effect pool. Fire-and-forget (no sibling chain).
+;
+; In:  a0 = parent SST pointer
+;      d0.w = effect code_addr (objroutine value)
+;      d1.w = number of copies to spawn
+; Out: none (silently stops if pool exhausted)
+; Clobbers: d0-d3, a1-a2
+; -----------------------------------------------
+CreateEffect_Simple:
+        subq.w  #1, d1                  ; adjust for dbf
+        bmi.s   .done
+        move.w  d0, d2                  ; d2 = code_addr (preserved)
+        move.w  d1, d3                  ; d3 = counter (preserved)
+
+.spawn_loop:
+        movem.l d2-d3/a0, -(sp)
+        jsr     AllocEffect
+        bne.s   .alloc_fail
+        movea.l a1, a2                  ; a2 = effect SST
+        movem.l (sp)+, d2-d3/a0
+
+        move.w  d2, SST_code_addr(a2)
+
+        ; Position = parent position
+        move.l  SST_x_pos(a0), SST_x_pos(a2)
+        move.l  SST_y_pos(a0), SST_y_pos(a2)
+
+        ; Inherit mappings, art_tile
+        move.l  SST_mappings(a0), SST_mappings(a2)
+        move.w  SST_art_tile(a0), SST_art_tile(a2)
+
+        move.w  a0, SST_parent_ptr(a2)
+
+        dbf     d3, .spawn_loop
+.done:
+        rts
+
+.alloc_fail:
+        movem.l (sp)+, d2-d3/a0
+        rts

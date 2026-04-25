@@ -120,6 +120,8 @@ ObjCodeBase:
     include "objects/test_player.asm"
     include "objects/test_enemy.asm"
     include "objects/test_solid.asm"
+    include "objects/test_particle.asm"
+    include "objects/test_emitter.asm"
     include "objects/test_parent.asm"
 
 ; -----------------------------------------------
@@ -127,6 +129,7 @@ ObjCodeBase:
 ; -----------------------------------------------
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
+    include "data/animations/particle_anims.asm"
     include "data/objdefs/test_objects.asm"
 
 Map_Sonic:
