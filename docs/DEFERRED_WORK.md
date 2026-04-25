@@ -104,6 +104,20 @@ These items were identified during §3 Phase 0 research but require a full SST f
 
 ---
 
+## From s4lint — Static Analysis (Phase 1)
+
+### Fall-Through State Carry-Forward
+**Blocked by:** Real codebase patterns that use fall-through across global labels during VDP access
+**What:** When a routine doesn't end with `rts`/`rte`/`bra`/`jmp`, carry Z80/interrupt state forward to the next global label instead of resetting. Currently all state resets at every global label boundary.
+**When ready:** When fall-through patterns appear in engine code that cause false positives on E006/E007/E008.
+
+### W010 Loop Detection Refinement
+**Blocked by:** Phase 2 or when false positive volume becomes annoying
+**What:** W010 (indexed addressing in loops) currently triggers after ANY local label, not just actual `dbf`/`dbra` loop bodies. Should only flag indexed addressing between a local label and the `dbf` that references it.
+**When ready:** Phase 2 refinement, or when the false positive rate on W010 becomes disruptive.
+
+---
+
 ## How to Use This Document
 
 When starting a new planning phase:

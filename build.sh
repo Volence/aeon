@@ -10,9 +10,11 @@ export USEANSI="n"
 
 # Parse flags
 PRINT_ERRORS_ONLY=0
+NO_LINT=0
 for arg in "$@"; do
     case "$arg" in
         -pe) PRINT_ERRORS_ONLY=1 ;;
+        -nl|--no-lint) NO_LINT=1 ;;
     esac
 done
 
@@ -29,6 +31,14 @@ fi
 
 if [[ "${PRINT_ERRORS_ONLY}" == "0" ]]; then
     ASFLAGS="${ASFLAGS} -E ${ROM_NAME}.log"
+fi
+
+if [[ "${NO_LINT:-0}" == "0" ]]; then
+    echo "Linting..."
+    if ! python3 "${TOOLS}/s4lint.py" "${MAIN_ASM}"; then
+        echo "Lint errors found — fix before assembling."
+        exit 1
+    fi
 fi
 
 echo "Assembling ${MAIN_ASM}..."

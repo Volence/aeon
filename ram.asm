@@ -33,7 +33,7 @@ Game_State_Init:        ds.b 1
 ; VDP Shadow Table (§0.4)
 ; -----------------------------------------------
 VDP_Shadow_Table:       ds.b VDP_Shadow_len
-                        ds.b 1          ; pad to even
+                        ds.b 1          ; pad to even (VDP_Shadow_len is 19 = odd)
 VDP_Dirty_Mask:         ds.l 1          ; bits 0-18 for regs $00-$12
 
 ; -----------------------------------------------
