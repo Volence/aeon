@@ -188,7 +188,7 @@ TestPlayer_Main:
         cmpi.w  #STUB_FLOOR_Y, d0
         ble.s   .no_floor
         move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a0)
-        clr.w   SST_y_vel(a0)
+        move.w  #0, SST_y_vel(a0)
         bclr    #ST_IN_AIR, SST_status(a0)
 .no_floor:
 

@@ -19,7 +19,7 @@ Warm_Boot:
         btst    #1, d0
         bne.s   .wait_dma
 
-        ; Check CrossResetRAM magic (warm boot detection)
+        ; Check CROSS_RESET_RAM magic (warm boot detection)
         ; When game state worth preserving exists, branch here on valid magic
         ; For now, fall through to cold boot regardless
 
@@ -169,7 +169,7 @@ Cold_Boot:
         move.w  #PAL_TIMING_STEP, (Timing_Step).w
         move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w
 .region_done:
-        clr.w   (Frame_Accumulator).w
+        move.w  #0, (Frame_Accumulator).w
 
         ; Controller port init (§0.9)
         move.b  #$40, (HW_PORT_1_CTRL).l    ; TH as output
@@ -192,7 +192,7 @@ Cold_Boot:
         enableInts
 
         ; Mark cold boot complete (§0.11)
-        move.l  #CROSS_RESET_MAGIC, (Cross_Reset_Magic_Addr).l
+        move.l  #CROSS_RESET_MAGIC, (CROSS_RESET_MAGIC_ADDR).l
 
         ; Set initial game state
         move.l  #GameState_ObjectTest_Init, (Game_State).w

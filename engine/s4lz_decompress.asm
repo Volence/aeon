@@ -132,7 +132,7 @@ S4LZ_Decompress:
         movea.l a3, a0                          ; a0 = buffer start
         move.w  d3, d0                          ; d0.w = uncompressed size
         bsr.s   TileDelta_Undo
-        move.l  (sp)+, a0                       ; restore compressed-end pointer
+        movea.l (sp)+, a0                       ; restore compressed-end pointer
 
 .return:
         rts

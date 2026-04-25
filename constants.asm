@@ -77,7 +77,7 @@ BUTTON_A                = 1<<6          ; $40
 BUTTON_START            = 1<<7          ; $80
 
 ; -----------------------------------------------
-; CrossResetRAM
+; CROSS_RESET_RAM
 ; -----------------------------------------------
 CROSS_RESET_MAGIC       = 'INIT'
 

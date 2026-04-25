@@ -208,7 +208,7 @@ Touch_Solid:
         move.w  d1, SST_y_pos(a2)
         tst.w   SST_y_vel(a2)
         bpl.s   .solid_done
-        clr.w   SST_y_vel(a2)
+        move.w  #0, SST_y_vel(a2)
         rts
 
 .solid_top:
@@ -218,7 +218,7 @@ Touch_Solid:
         sub.w   d2, d1                  ; target.y - combined_half_h
         addq.w  #1, d1                  ; maintain contact
         move.w  d1, SST_y_pos(a2)
-        clr.w   SST_y_vel(a2)
+        move.w  #0, SST_y_vel(a2)
         bclr    #ST_IN_AIR, SST_status(a2)
         bset    #ST_ON_OBJECT, SST_status(a2)
         bset    #ST_P1_STANDING, SST_status(a3)
@@ -231,12 +231,12 @@ Touch_Solid:
         bmi.s   .solid_push_left
 
         add.w   d0, SST_x_pos(a2)       ; push right
-        clr.w   SST_x_vel(a2)
+        move.w  #0, SST_x_vel(a2)
         rts
 
 .solid_push_left:
         sub.w   d0, SST_x_pos(a2)       ; push left
-        clr.w   SST_x_vel(a2)
+        move.w  #0, SST_x_vel(a2)
 
 .solid_done:
         rts

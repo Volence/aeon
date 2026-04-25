@@ -45,14 +45,14 @@ TestParent:
         move.w  #PARENT_LIFETIME, _parent_life_timer(a0)
 
         ; Spawn 3 children around parent
-        lea     .ChildDesc(pc), a1
+        lea     .child_desc(pc), a1
         jsr     CreateChild_Normal
 
         move.w  #objroutine(TestParent_Main), SST_code_addr(a0)
         bra.s   TestParent_Main
 
 ; Child descriptor: 3 children at offsets around parent
-.ChildDesc:
+.child_desc:
         dc.w    objroutine(TestChildPart)
         dc.b    -24, 0                          ; left of parent
         dc.w    objroutine(TestChildPart)

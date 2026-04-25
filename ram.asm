@@ -187,12 +187,12 @@ RAM_End:
         endif
 
 ; -----------------------------------------------
-; CrossResetRAM (fixed address near top of RAM)
+; CROSS_RESET_RAM (fixed address near top of RAM)
 ; Survives soft reset, cleared only on cold boot
 ; -----------------------------------------------
-CrossResetRAM:          = $FFFFFE00
-Cross_Reset_Magic_Addr: = $FFFFFE00
-Cross_Reset_Magic_End:  = $FFFFFE04
-CrossResetRAM_End:      = $FFFFFF00
+CROSS_RESET_RAM:            = $FFFFFE00
+CROSS_RESET_MAGIC_ADDR:     = $FFFFFE00
+CROSS_RESET_MAGIC_END:      = $FFFFFE04
+CROSS_RESET_RAM_END:        = $FFFFFF00
 
         dephase

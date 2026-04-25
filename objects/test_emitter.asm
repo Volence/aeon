@@ -33,14 +33,14 @@ TestEmitter_Main:
 
         ; Timer expired — spawn particle (particle sets its own velocity)
         move.w  #EMITTER_INTERVAL, _emitter_timer(a0)
-        lea     .ParticleDesc(pc), a1
+        lea     .particle_desc(pc), a1
         jsr     CreateEffect_Normal
 
 .draw:
         jmp     Draw_Sprite
 
 ; Descriptor: one particle at emitter position (0,0 offset)
-.ParticleDesc:
+.particle_desc:
         dc.w    objroutine(TestParticle)
         dc.b    0, 0                            ; x_off, y_off = centered
         dc.w    0                               ; terminator

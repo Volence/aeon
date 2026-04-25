@@ -322,7 +322,7 @@ DeleteChildren:
         move.w  SST_sibling_ptr(a0), d0
         beq.s   .done                   ; no children
 
-        clr.w   SST_sibling_ptr(a0)     ; disconnect from parent
+        move.w  #0, SST_sibling_ptr(a0) ; disconnect from parent
 
 .walk_chain:
         movea.w d0, a1                  ; a1 = current child

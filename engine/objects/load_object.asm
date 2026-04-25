@@ -122,9 +122,9 @@ Load_ObjectList:
         move.w  (a0)+, d0              ; X position
         move.w  (a0)+, d1              ; Y position
         move.w  (a0)+, d2              ; subtype (low byte)
-        movem.l a0, -(sp)
+        move.l  a0, -(sp)
         jsr     Load_Object
-        movem.l (sp)+, a0
+        movea.l (sp)+, a0
         bra.s   .loop
 .done:
         rts

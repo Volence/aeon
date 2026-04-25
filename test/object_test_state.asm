@@ -27,8 +27,8 @@ GameState_ObjectTest_Init:
         jsr     Init_SpriteTable
 
         ; Clear camera
-        clr.l   (Camera_X).w
-        clr.l   (Camera_Y).w
+        move.l  #0, (Camera_X).w
+        move.l  #0, (Camera_Y).w
 
         ; --- Player goes in reserved slot (not via Load_Object) ---
         lea     (Player_1).w, a1
