@@ -270,10 +270,8 @@ Render_Sprites:
         ; SAT +6: X position — negate X offset for horizontal flip
         move.w  a1, d0                    ; X offset
         neg.w   d0                         ; negate for flip
-        ; Adjust for sprite width: need to account for sprite cell width
+        ; Adjust for sprite width: d1 still has VDP size code from piece read
         ; Width in cells = ((size >> 2) & 3) + 1, pixel width = cells * 8
-        moveq   #0, d1                    ; clear d1 — reuse for width calc
-        move.b  -5(a4), d1                ; read back size byte from SAT
         lsr.b   #2, d1                    ; shift width bits down
         andi.w  #3, d1                    ; mask to 2 bits (width - 1)
         addq.w  #1, d1                    ; width in cells
