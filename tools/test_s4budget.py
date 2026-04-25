@@ -245,10 +245,11 @@ class TestFormatROMReport(unittest.TestCase):
         self.assertIn("=== ROM Budget ===", output)
         self.assertIn("Engine", output)
 
-    def test_objbank_shows_limit(self):
+    def test_objbank_shows_limit_with_percentage(self):
         regions = [Region("Object Bank", 0x10000, 0x18000, 0x8000)]
         output = format_rom_report(regions, [], 0x18000, 0x18000)
         self.assertIn("64 KB limit", output)
+        self.assertIn("50.0%", output)
 
     def test_per_file_breakdown(self):
         regions = [Region("Engine", 0x200, 0x600, 0x400)]
@@ -275,6 +276,18 @@ class TestFormatRAMReport(unittest.TestCase):
         self.assertIn("=== RAM Budget ===", output)
         self.assertIn("DECOMP_BUFFER", output)
         self.assertIn("free before stack", output)
+
+    def test_lower_only_no_trailing_blank(self):
+        layout = RAMLayout(
+            lower=[RAMEntry("DECOMP_BUFFER", 0xFFFF0000, 0x8000)],
+            upper=[],
+            total_used=0x8000,
+            free_before_stack=0x7F00,
+            stack_addr=0xFFFFFF00,
+        )
+        output = format_ram_report(layout)
+        self.assertFalse(output.endswith("\n"))
+        self.assertIn("DECOMP_BUFFER", output)
 
 
 class TestFormatVRAMReport(unittest.TestCase):

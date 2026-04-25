@@ -412,9 +412,9 @@ def _fmt_size_aligned(n: int, width: int = 10) -> str:
 def format_rom_report(regions: List[Region],
                       file_contributions: List[FileContribution],
                       endofrom: int,
-                      rom_file_size: int) -> str:
+                      rom_file_size: Optional[int] = None) -> str:
     lines = []
-    actual_size = rom_file_size if rom_file_size else endofrom
+    actual_size = rom_file_size if rom_file_size is not None else endofrom
     pct = actual_size / _ROM_MAX * 100
 
     lines.append("=== ROM Budget ===")
@@ -460,7 +460,8 @@ def format_ram_report(layout: RAMLayout) -> str:
         lines.append(f"  Lower RAM (${_LOWER_RAM_START:08X}-${_UPPER_RAM_START - 1:08X}):")
         for e in layout.lower:
             lines.append(f"    {e.name:<30} {e.size:>10,} B")
-        lines.append("")
+        if layout.upper:
+            lines.append("")
 
     if layout.upper:
         lines.append(f"  Upper RAM (${_UPPER_RAM_START:08X}+):")
@@ -485,12 +486,15 @@ def format_vram_report(layout: VRAMLayout) -> str:
         ("Window Plane", layout.window_addr, layout.window_size, layout.window_size // _TILE_SIZE),
     ]
     for name, addr, size, tiles in entries:
-        tile_str = f"  ({tiles:,} tiles)" if tiles else ""
+        tile_str = f"  ({tiles:,} tiles)" if tiles is not None else ""
         end_addr = addr + size - 1
         lines.append(f"  {name:<16} ${addr:04X}-${end_addr:04X}  {size:>6,} B{tile_str}")
 
     art_bytes = layout.art_tiles_available * _TILE_SIZE
-    lines.append(f"  {'Art Tiles':<16} $0000-${art_bytes - 1:04X}  {art_bytes:>6,} B  ({layout.art_tiles_available:,} tiles available)")
+    if art_bytes > 0:
+        lines.append(f"  {'Art Tiles':<16} $0000-${art_bytes - 1:04X}  {art_bytes:>6,} B  ({layout.art_tiles_available:,} tiles available)")
+    else:
+        lines.append(f"  {'Art Tiles':<16} {'':>11}      0 B  (0 tiles available)")
 
     return "\n".join(lines)
 
