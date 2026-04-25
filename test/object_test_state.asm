@@ -40,6 +40,14 @@ GameState_ObjectTest_Init:
         lea     TestObjectList(pc), a0
         jsr     Load_ObjectList
 
+        ; --- Spawn test emitter (effect pool demo) ---
+        jsr     AllocDynamic
+        bne.s   .no_emitter
+        move.w  #objroutine(TestEmitter), SST_code_addr(a1)
+        move.l  #60<<16, SST_x_pos(a1)
+        move.l  #80<<16, SST_y_pos(a1)
+.no_emitter:
+
         ; Enable display (VDP reg $01 bit 6)
         setVDPReg VDP_Shadow_vdp_mode2, #$74
 
