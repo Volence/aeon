@@ -205,15 +205,6 @@ RunObjects_Frozen:
         rts
 
 ; -----------------------------------------------
-; Draw_Sprite — stub replaced by engine/sprites.asm in Task 4
-; In:  a0 = SST pointer
-; Out: none
-; Clobbers: none
-; -----------------------------------------------
-Draw_Sprite:
-        rts
-
-; -----------------------------------------------
 ; ObjectMove — apply velocity to position (X and Y)
 ; In:  a0 = SST pointer
 ; Out: none

@@ -100,6 +100,7 @@ Checksum:
     include "engine/s4lz_decompress.asm"
     include "engine/dplc.asm"
     include "engine/objects.asm"
+    include "engine/sprites.asm"
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)

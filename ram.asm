@@ -150,7 +150,7 @@ Spawn_Count:            ds.w 1
 ; Priority band lists — each band holds up to SPRITES_PER_BAND object addresses
 Sprite_Bands:           ds.w SPRITES_PER_BAND * PRIORITY_BANDS
 Sprite_Band_Counts:     ds.b PRIORITY_BANDS
-                        ds.b 1          ; pad to even
+                                        ; PRIORITY_BANDS=8, already even — no pad needed
 
 ; Sprite link counter (next VDP sprite index to assign)
 Sprite_Link_Next:       ds.w 1
