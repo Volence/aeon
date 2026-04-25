@@ -24,13 +24,11 @@ GameState_ObjectTest_Init:
         clr.l   (Camera_X).w
         clr.l   (Camera_Y).w
 
-        ; --- Spawn test player at (160, STUB_FLOOR_Y) ---
-        jsr     AllocDynamic
-        bcs.s   .skip_player
+        ; --- Init test player in Player_1 slot (TouchResponse checks player slots) ---
+        lea     (Player_1).w, a1
         move.w  #objroutine(TestPlayer), SST_code_addr(a1)
         move.l  #160<<16, SST_x_pos(a1)
         move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
-.skip_player:
 
         ; --- Spawn test enemy at (100, STUB_FLOOR_Y) ---
         jsr     AllocDynamic
