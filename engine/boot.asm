@@ -195,8 +195,8 @@ Cold_Boot:
         move.l  #CROSS_RESET_MAGIC, (Cross_Reset_Magic_Addr).l
 
         ; Set initial game state
-        move.l  #GameState_Idle, (Game_State).w
-        move.b  #GS_IDLE, (Game_State_ID).w
+        move.l  #GameState_ObjectTest_Init, (Game_State).w
+        move.b  #GS_OBJECT_TEST, (Game_State_ID).w
         clr.b   (Game_State_Init).w
 
         ; Enter main loop — never returns

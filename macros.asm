@@ -35,6 +35,11 @@ dmaSource       function addr, (((addr)>>1)&$7FFFFF)
 ; DMA length in words
 dmaLength       function bytes, (((bytes)>>1)&$FFFF)
 
+; Object code offset from ObjCodeBase (word — stored at SST $00)
+; Usage: move.w #objroutine(MyObject), code_addr(a0)
+; ObjCodeBase is defined in main.asm at align $10000
+objroutine  function x, (x)-ObjCodeBase
+
 ; -----------------------------------------------
 ; Struct macros
 ; -----------------------------------------------

@@ -99,6 +99,47 @@ Checksum:
     include "engine/game_loop.asm"
     include "engine/s4lz_decompress.asm"
     include "engine/dplc.asm"
+    include "engine/objects.asm"
+    include "engine/sprites.asm"
+    include "engine/animate.asm"
+    include "engine/collision.asm"
+    include "engine/children.asm"
+
+; -----------------------------------------------
+; Object code bank
+; All object routines must live within this 64KB block.
+; objroutine() computes offsets from ObjCodeBase.
+; -----------------------------------------------
+    org $10000
+ObjCodeBase:
+    rts                         ; offset 0 = empty slot safety net
+
+    include "objects/test_static.asm"
+    include "objects/test_animated.asm"
+    include "objects/test_player.asm"
+    include "objects/test_enemy.asm"
+    include "objects/test_solid.asm"
+
+; -----------------------------------------------
+; Data (outside object code bank — addressed directly, not via objroutine)
+; -----------------------------------------------
+    include "data/mappings/test_mappings.asm"
+    include "data/animations/sonic_anims.asm"
+
+Map_Sonic:
+    BINCLUDE "data/mappings/sonic.bin"
+    align 2
+DPLC_Sonic:
+    BINCLUDE "data/dplc/optimized/sonic.bin"
+    align 2
+Art_Sonic:
+    BINCLUDE "art/optimized/characters/sonic.bin"
+    align 2
+
+; -----------------------------------------------
+; Test game states
+; -----------------------------------------------
+    include "test/object_test_state.asm"
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)
