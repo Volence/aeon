@@ -66,5 +66,5 @@ echo "Build complete: ${ROM_NAME}.bin — ${ROM_SIZE} bytes (${ROM_KB} KB, ${ROM
 
 # Budget summary
 if [[ -f "${ROM_NAME}.lst" ]]; then
-    python3 "${TOOLS}/s4budget.py" "${ROM_NAME}.lst" "${ROM_NAME}.bin" --summary 2>&1 || true
+    python3 "${TOOLS}/s4budget.py" "${ROM_NAME}.lst" "${ROM_NAME}.bin" --summary || true
 fi

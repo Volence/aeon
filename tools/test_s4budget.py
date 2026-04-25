@@ -377,43 +377,45 @@ class TestCLI(unittest.TestCase):
         bin_file.close()
 
         try:
-            buf = io.StringIO()
-            with contextlib.redirect_stderr(buf):
+            out_buf = io.StringIO()
+            err_buf = io.StringIO()
+            with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
                 code = s4budget_main([lst_file.name, bin_file.name] + (extra_args or []))
-            return code, buf.getvalue()
+            return code, out_buf.getvalue(), err_buf.getvalue()
         finally:
             os.unlink(lst_file.name)
             os.unlink(bin_file.name)
 
     def test_full_report_exits_zero(self):
-        code, output = self._run(self._make_listing())
+        code, stdout, _stderr = self._run(self._make_listing())
         self.assertEqual(code, 0)
-        self.assertIn("ROM Budget", output)
-        self.assertIn("RAM Budget", output)
-        self.assertIn("VRAM Budget", output)
+        self.assertIn("ROM Budget", stdout)
+        self.assertIn("RAM Budget", stdout)
+        self.assertIn("VRAM Budget", stdout)
 
     def test_summary_mode(self):
-        code, output = self._run(self._make_listing(), ["--summary"])
+        code, stdout, stderr = self._run(self._make_listing(), ["--summary"])
         self.assertEqual(code, 0)
-        self.assertIn("ROM:", output)
-        self.assertNotIn("=== ROM Budget ===", output)
+        self.assertIn("ROM:", stderr)
+        self.assertEqual(stdout, "")
+        self.assertNotIn("=== ROM Budget ===", stderr)
 
     def test_rom_only(self):
-        code, output = self._run(self._make_listing(), ["--rom-only"])
+        code, stdout, _stderr = self._run(self._make_listing(), ["--rom-only"])
         self.assertEqual(code, 0)
-        self.assertIn("ROM Budget", output)
-        self.assertNotIn("RAM Budget", output)
+        self.assertIn("ROM Budget", stdout)
+        self.assertNotIn("RAM Budget", stdout)
 
     def test_ram_only(self):
-        code, output = self._run(self._make_listing(), ["--ram-only"])
+        code, stdout, _stderr = self._run(self._make_listing(), ["--ram-only"])
         self.assertEqual(code, 0)
-        self.assertNotIn("ROM Budget", output)
-        self.assertIn("RAM Budget", output)
+        self.assertNotIn("ROM Budget", stdout)
+        self.assertIn("RAM Budget", stdout)
 
     def test_json_output(self):
-        code, output = self._run(self._make_listing(), ["--json"])
+        code, stdout, _stderr = self._run(self._make_listing(), ["--json"])
         self.assertEqual(code, 0)
-        data = json.loads(output)
+        data = json.loads(stdout)
         self.assertIn("rom", data)
         self.assertIn("ram", data)
 

@@ -539,16 +539,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("listing", help="Path to AS listing file (s4.lst)")
     p.add_argument("rom", help="Path to ROM binary (s4.bin)")
-    p.add_argument("--summary", action="store_true",
-                   help="Print compact one-liner (for build integration)")
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument("--summary", action="store_true",
+                      help="Print compact one-liner to stderr (for build integration)")
+    mode.add_argument("--json", action="store_true",
+                      help="Output as JSON to stdout")
     p.add_argument("--rom-only", action="store_true",
-                   help="Show only ROM budget")
+                   help="Show only ROM budget (full report mode)")
     p.add_argument("--ram-only", action="store_true",
-                   help="Show only RAM budget")
+                   help="Show only RAM budget (full report mode)")
     p.add_argument("--vram-only", action="store_true",
-                   help="Show only VRAM budget")
-    p.add_argument("--json", action="store_true",
-                   help="Output as JSON")
+                   help="Show only VRAM budget (full report mode)")
     return p
 
 
@@ -599,7 +600,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "art_tiles_available": vram.art_tiles_available if vram else 0,
             } if vram else None,
         }
-        print(json.dumps(data, indent=2), file=sys.stderr)
+        print(json.dumps(data, indent=2))
         return 0
 
     if args.summary:
@@ -619,8 +620,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         sections.append(format_ram_report(ram))
     if (show_all or args.vram_only) and vram:
         sections.append(format_vram_report(vram))
+    elif args.vram_only and not vram:
+        print("s4budget: VRAM constants not found in listing", file=sys.stderr)
+        return 1
 
-    print("\n\n".join(sections), file=sys.stderr)
+    print("\n\n".join(sections))
     return 0
 
 
