@@ -81,7 +81,7 @@ Draw_Sprite:
         ; Compute slot index in Sprite_Bands:
         ; offset = band * SPRITES_PER_BAND * 2 + count * 2
         move.w  d0, d2
-        lsl.w   #5, d2                 ; d2 = band * 32 (SPRITES_PER_BAND=16, *2 bytes = 32)
+        lsl.w   #6, d2                 ; d2 = band * 64 (SPRITES_PER_BAND=32, *2 bytes)
         move.w  d1, d3
         add.w   d3, d3                 ; d3 = count * 2
         add.w   d3, d2                 ; d2 = byte offset into Sprite_Bands
@@ -142,7 +142,7 @@ Render_Sprites:
 
         ; Get base of this band's object list
         move.w  d6, d0
-        lsl.w   #5, d0                     ; d0 = band * 32 byte offset
+        lsl.w   #6, d0                     ; d0 = band * 64 (SPRITES_PER_BAND=32, *2 bytes)
         lea     (Sprite_Bands).w, a2
         adda.w  d0, a2                     ; a2 = pointer to this band's list
 
@@ -229,6 +229,9 @@ Render_Sprites:
         move.w  a1, d0                    ; retrieve X offset
         add.w   d2, d0                     ; screen X + X offset
         addi.w  #VDP_SPRITE_X_OFFSET, d0   ; VDP X position
+        bne.s   .x_ok                      ; guard: X=0 masks lower sprites
+        moveq   #1, d0
+.x_ok:
         move.w  d0, (a4)+                 ; X position
 
         addq.w  #1, d5                     ; increment sprite index
@@ -279,6 +282,9 @@ Render_Sprites:
         sub.w   d1, d0                     ; adjust flipped X offset
         add.w   d2, d0                     ; screen X
         addi.w  #VDP_SPRITE_X_OFFSET, d0
+        bne.s   .x_ok_flip                 ; guard: X=0 masks lower sprites
+        moveq   #1, d0
+.x_ok_flip:
         move.w  d0, (a4)+                 ; X position
 
         addq.w  #1, d5

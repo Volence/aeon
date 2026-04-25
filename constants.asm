@@ -120,7 +120,7 @@ OBJ_CODE_BANK           = 1         ; moveq #1,d0; swap d0 → $00010000
 
 ; Sprite priority bands
 PRIORITY_BANDS          = 8
-SPRITES_PER_BAND        = 16
+SPRITES_PER_BAND        = 32
 
 ; Collision response types
 COLLISION_NONE          = 0
@@ -142,6 +142,11 @@ RF_ONSCREEN             = 0         ; set by Draw_Sprite if visible
 RF_XFLIP                = 1         ; horizontal flip
 RF_YFLIP                = 2         ; vertical flip
 RF_COORDMODE            = 3         ; 0 = world coords, 1 = screen coords
+RF_DELETE               = 7         ; marked for deferred deletion
+
+; Execution culling distances (pixels from camera center)
+CULL_DISTANCE_X         = $300      ; 768px — skip dynamic objects beyond this
+CULL_DISTANCE_Y         = $200      ; 512px
 
 ; Spawn guard
 MAX_SPAWNS_PER_FRAME    = 8

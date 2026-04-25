@@ -156,6 +156,10 @@ DeleteObject:
 
 ; -----------------------------------------------
 ; RunObjects — dispatch all active object slots
+; Per-pool loops: players/system/effects always execute,
+; dynamic pool is culled by distance from camera.
+; Deferred deletion sweep runs after all objects.
+;
 ; Convention: object routines receive a0 = self SST pointer.
 ; Object routines MUST preserve a0 and d7.
 ; In:  none
@@ -163,26 +167,106 @@ DeleteObject:
 ; Clobbers: d0-d6, a0-a6 (object code may clobber freely except a0/d7)
 ; -----------------------------------------------
 RunObjects:
-        ; Reset spawn counter for this frame
         clr.w   (Spawn_Count).w
 
-        ; Check global freeze
         tst.b   (Game_Paused).w
         bne.w   RunObjects_Frozen
 
-        lea     (Object_RAM).w, a0
-        move.w  #NUM_TOTAL_SLOTS-1, d7
+        ; --- Player slots (always execute) ---
+        lea     (Player_1).w, a0
+        move.w  #NUM_PLAYERS-1, d7
+        bsr.s   .run_always
 
-.loop:
+        ; --- Dynamic slots (culled by distance) ---
+        lea     (Dynamic_Slots).w, a0
+        move.w  #NUM_DYNAMIC-1, d7
+        bsr.w   .run_culled
+
+        ; --- System slots (always execute) ---
+        lea     (System_Slots).w, a0
+        move.w  #NUM_SYSTEM-1, d7
+        bsr.s   .run_always
+
+        ; --- Effect slots (always execute) ---
+        lea     (Effect_Slots).w, a0
+        move.w  #NUM_EFFECTS-1, d7
+        bsr.s   .run_always
+
+        ; --- Deferred deletion sweep ---
+        bra.w   .deletion_sweep
+
+; Dispatch loop — no culling
+.run_always:
+.always_loop:
         moveq   #OBJ_CODE_BANK, d0
-        swap    d0                      ; d0 = bank << 16
-        move.w  (a0), d0                ; d0 = bank | offset
-        beq.s   .next                   ; zero = empty slot
+        swap    d0
+        move.w  (a0), d0
+        beq.s   .always_next
         movea.l d0, a1
-        jsr     (a1)                    ; dispatch — a0 = self, d7 = loop counter
-.next:
+        jsr     (a1)
+.always_next:
         lea     SST_len(a0), a0
-        dbf     d7, .loop
+        dbf     d7, .always_loop
+        rts
+
+; Dispatch loop — skip objects far from camera
+.run_culled:
+.culled_loop:
+        tst.w   (a0)
+        beq.s   .culled_next
+
+        ; X distance check: abs(obj_x - camera_x)
+        move.w  SST_x_pos(a0), d0
+        sub.w   (Camera_X).w, d0
+        bpl.s   .culled_xpos
+        neg.w   d0
+.culled_xpos:
+        cmpi.w  #CULL_DISTANCE_X, d0
+        bhi.s   .culled_next
+
+        ; Y distance check: abs(obj_y - camera_y)
+        move.w  SST_y_pos(a0), d0
+        sub.w   (Camera_Y).w, d0
+        bpl.s   .culled_ypos
+        neg.w   d0
+.culled_ypos:
+        cmpi.w  #CULL_DISTANCE_Y, d0
+        bhi.s   .culled_next
+
+        ; Within range — dispatch
+        moveq   #OBJ_CODE_BANK, d0
+        swap    d0
+        move.w  (a0), d0
+        movea.l d0, a1
+        jsr     (a1)
+.culled_next:
+        lea     SST_len(a0), a0
+        dbf     d7, .culled_loop
+        rts
+
+; Deferred deletion — sweep dynamic + effect pools for RF_DELETE
+.deletion_sweep:
+        lea     (Dynamic_Slots).w, a0
+        move.w  #NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS-1, d7
+.del_loop:
+        tst.w   (a0)
+        beq.s   .del_next
+        btst    #RF_DELETE, SST_render_flags(a0)
+        beq.s   .del_next
+        bsr.w   DeleteObject
+.del_next:
+        lea     SST_len(a0), a0
+        dbf     d7, .del_loop
+        rts
+
+; -----------------------------------------------
+; MarkForDeletion — flag object for end-of-frame deletion
+; In:  a0 = SST pointer
+; Out: none
+; Clobbers: none
+; -----------------------------------------------
+MarkForDeletion:
+        bset    #RF_DELETE, SST_render_flags(a0)
         rts
 
 ; -----------------------------------------------
@@ -213,9 +297,11 @@ RunObjects_Frozen:
 ObjectMove:
         move.w  SST_x_vel(a0), d0
         ext.l   d0
+        asl.l   #8, d0
         add.l   d0, SST_x_pos(a0)
         move.w  SST_y_vel(a0), d0
         ext.l   d0
+        asl.l   #8, d0
         add.l   d0, SST_y_pos(a0)
         rts
 
@@ -228,6 +314,7 @@ ObjectMove:
 ObjectMoveX:
         move.w  SST_x_vel(a0), d0
         ext.l   d0
+        asl.l   #8, d0
         add.l   d0, SST_x_pos(a0)
         rts
 
@@ -240,5 +327,6 @@ ObjectMoveX:
 ObjectMoveY:
         move.w  SST_y_vel(a0), d0
         ext.l   d0
+        asl.l   #8, d0
         add.l   d0, SST_y_pos(a0)
         rts
