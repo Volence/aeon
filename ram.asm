@@ -126,6 +126,17 @@ DMA_Peak_Important:     ds.w 1
 DMA_Peak_Deferrable:    ds.w 1
 DMA_Overflow_Count:     ds.w 1
 Lag_Frame_Count:        ds.l 1
+
+Prof_RunObjects:        ds.w 1          ; V counter lines spent in RunObjects
+Prof_TouchResponse:     ds.w 1          ; V counter lines spent in TouchResponse
+Prof_RenderSprites:     ds.w 1          ; V counter lines spent in Render_Sprites
+Prof_FrameTotal:        ds.w 1          ; V counter lines for full game loop
+Prof_Peak_RunObjects:   ds.w 1          ; peak RunObjects across all frames
+Prof_Peak_Touch:        ds.w 1          ; peak TouchResponse
+Prof_Peak_Render:       ds.w 1          ; peak Render_Sprites
+Prof_Peak_Frame:        ds.w 1          ; peak full frame
+Prof_Dynamic_Used:      ds.w 1          ; dynamic slots in use this frame
+Prof_Effect_Used:       ds.w 1          ; effect slots in use this frame
     endif
 
 ; -----------------------------------------------
