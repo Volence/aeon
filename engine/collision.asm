@@ -200,9 +200,11 @@ Touch_Solid:
         bmi.s   .solid_top              ; player above target
 
         ; Player below target — snap below, zero y_vel if rising
+        ; +1/-1 offsets keep 1px overlap so next frame's AABB check still passes
         add.w   d3, d2                  ; restore combined_half_h
         move.w  SST_y_pos(a3), d1
         add.w   d2, d1                  ; target.y + combined_half_h
+        subq.w  #1, d1                  ; maintain contact
         move.w  d1, SST_y_pos(a2)
         tst.w   SST_y_vel(a2)
         bpl.s   .solid_done
@@ -214,6 +216,7 @@ Touch_Solid:
         add.w   d3, d2                  ; restore combined_half_h
         move.w  SST_y_pos(a3), d1
         sub.w   d2, d1                  ; target.y - combined_half_h
+        addq.w  #1, d1                  ; maintain contact
         move.w  d1, SST_y_pos(a2)
         clr.w   SST_y_vel(a2)
         bclr    #ST_IN_AIR, SST_status(a2)
@@ -222,7 +225,8 @@ Touch_Solid:
         rts
 
 .solid_side:
-        ; Push player horizontally by pen_x
+        ; Push player horizontally — subtract 1 from pen to maintain contact
+        subq.w  #1, d0
         tst.w   d4
         bmi.s   .solid_push_left
 
