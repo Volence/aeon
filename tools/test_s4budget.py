@@ -6,7 +6,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from s4budget import parse_symbol_table
+from s4budget import parse_symbol_table, parse_source_listing, FileContribution, Region
 
 
 SAMPLE_SYMTAB = """\
@@ -71,6 +71,88 @@ class TestParseSymbolTable(unittest.TestCase):
         ).splitlines()
         result = parse_symbol_table(lines)
         self.assertIn("ENDOFROM", result.rom_labels)
+
+
+SAMPLE_LISTING = """\
+ AS V1.42 Beta [Bld 212] - Source File main.asm - Page 1 - 04/25/2026
+
+       1/       0 :                     ; Sonic 4 Engine
+      23/       0 :                         org 0
+      28/       0 :                     __BUDGET_VECTORS:
+      29/       0 : 00FF FF00               dc.l    $00FFFF00
+      30/       4 : 0000 0200               dc.l    $00000200
+      88/     200 :                     __BUDGET_ENGINE:
+      92/     200 :                         include "engine/boot.asm"
+(1)    1/     200 :                     ; Boot sequence
+(1)    2/     200 : 4AB9 00A1 0008              tst.l   ($00A10008).l
+(1)    3/     206 : 66FE                        bne.s   .skip
+(1)    4/     208 : 4E75                        rts
+      93/     20A :                         include "engine/vdp_init.asm"
+(1)    1/     20A :                     ; VDP init
+(1)    2/     20A : 41FA 0010                   lea.l   Data(pc), a0
+(1)    3/     20E : 4E75                        rts
+     114/     210 :                         org $10000
+     115/   10000 :                     __BUDGET_OBJBANK:
+     116/   10000 : 4E75                        rts
+     118/   10002 :                         include "objects/test_obj.asm"
+(1)    1/   10002 :                     TestObj:
+(1)    2/   10002 : 7000                        moveq   #0, d0
+(1)    3/   10004 : 4E75                        rts
+     131/   10006 :                     __BUDGET_DATA:
+     132/   10006 : 0001 0002                   dc.l    $00010002
+     162/   1000A :                     EndOfRom:
+"""
+
+
+class TestParseSourceListing(unittest.TestCase):
+
+    def setUp(self):
+        self.result = parse_source_listing(SAMPLE_LISTING.splitlines())
+
+    def test_regions_found(self):
+        names = [r.name for r in self.result.regions]
+        self.assertIn("Vectors", names)
+        self.assertIn("Engine", names)
+        self.assertIn("Object Bank", names)
+        self.assertIn("Game Data", names)
+
+    def test_vectors_region_range(self):
+        r = next(r for r in self.result.regions if r.name == "Vectors")
+        self.assertEqual(r.start, 0x0)
+        self.assertEqual(r.end, 0x200)
+
+    def test_engine_region_range(self):
+        r = next(r for r in self.result.regions if r.name == "Engine")
+        self.assertEqual(r.start, 0x200)
+        self.assertEqual(r.end, 0x10000)
+
+    def test_objbank_region_range(self):
+        r = next(r for r in self.result.regions if r.name == "Object Bank")
+        self.assertEqual(r.start, 0x10000)
+        self.assertEqual(r.end, 0x10006)
+
+    def test_data_region_range(self):
+        r = next(r for r in self.result.regions if r.name == "Game Data")
+        self.assertEqual(r.start, 0x10006)
+        self.assertEqual(r.end, 0x1000A)
+
+    def test_file_contributions_found(self):
+        files = {fc.filename for fc in self.result.file_contributions}
+        self.assertIn("engine/boot.asm", files)
+        self.assertIn("engine/vdp_init.asm", files)
+        self.assertIn("objects/test_obj.asm", files)
+
+    def test_boot_asm_size(self):
+        fc = next(f for f in self.result.file_contributions if f.filename == "engine/boot.asm")
+        self.assertEqual(fc.size, 0x20A - 0x200)
+
+    def test_vdp_init_size(self):
+        fc = next(f for f in self.result.file_contributions if f.filename == "engine/vdp_init.asm")
+        self.assertEqual(fc.size, 0x210 - 0x20A)
+
+    def test_test_obj_size(self):
+        fc = next(f for f in self.result.file_contributions if f.filename == "objects/test_obj.asm")
+        self.assertEqual(fc.size, 0x10006 - 0x10002)
 
 
 if __name__ == "__main__":

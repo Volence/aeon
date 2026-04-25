@@ -13,7 +13,27 @@ Usage:
 from __future__ import annotations
 
 import re
-from typing import Dict, List, NamedTuple, Set
+from typing import Dict, List, NamedTuple, Optional, Set, Tuple
+
+
+class FileContribution(NamedTuple):
+    filename: str
+    start: int
+    end: int
+    size: int
+
+
+class Region(NamedTuple):
+    name: str
+    start: int
+    end: int
+    size: int
+
+
+class SourceListingResult(NamedTuple):
+    regions: List[Region]
+    file_contributions: List[FileContribution]
+    endofrom: int
 
 
 class SymbolTable(NamedTuple):
@@ -100,3 +120,129 @@ def parse_symbol_table(lines: List[str]) -> SymbolTable:
                 constants[name] = val
 
     return SymbolTable(rom_labels, ram_labels, constants, unused)
+
+
+# ---------------------------------------------------------------------------
+# Source listing parser
+# ---------------------------------------------------------------------------
+
+_SOURCE_LINE_RE = re.compile(
+    r'^(?:\((\d+)\))?\s*(\d+)\s*/\s*([0-9A-Fa-f]+)\s*:'
+)
+_INCLUDE_RE = re.compile(r'include\s+"([^"]+)"', re.IGNORECASE)
+_SENTINEL_RE = re.compile(r'(__BUDGET_\w+):')
+_ENDOFROM_RE = re.compile(r'EndOfRom:', re.IGNORECASE)
+
+_SENTINEL_NAMES: Dict[str, str] = {
+    "__BUDGET_VECTORS": "Vectors",
+    "__BUDGET_ENGINE": "Engine",
+    "__BUDGET_OBJBANK": "Object Bank",
+    "__BUDGET_DATA": "Game Data",
+}
+
+
+def _is_ram_addr_str(addr_str: str) -> bool:
+    """Return True if the address string represents a RAM phase block."""
+    return len(addr_str) > 6 and addr_str.upper().startswith("FFFFFFFFFFFF")
+
+
+def _build_regions(
+    sentinels: List[Tuple[str, int]], endofrom: int
+) -> List[Region]:
+    """Build region list from ordered sentinel addresses and EndOfRom."""
+    regions: List[Region] = []
+    for i, (name, start) in enumerate(sentinels):
+        if i + 1 < len(sentinels):
+            end = sentinels[i + 1][1]
+        else:
+            end = endofrom
+        regions.append(Region(name=name, start=start, end=end, size=end - start))
+    return regions
+
+
+def parse_source_listing(lines: List[str]) -> SourceListingResult:
+    """Parse the source listing section of an AS listing file.
+
+    Tracks which include file contributes how many ROM bytes and detects
+    ``__BUDGET_*`` sentinel labels for region boundaries.
+    """
+    # include_stack entries: [filename, start_addr]
+    include_stack: List[List] = []
+    file_contributions: List[FileContribution] = []
+    sentinel_map: Dict[str, int] = {}
+    sentinel_order: List[str] = []
+    endofrom: int = 0
+    prev_depth: int = 0
+    last_addr: int = 0
+
+    for line in lines:
+        if _PAGE_BREAK_RE.match(line):
+            continue
+
+        m = _SOURCE_LINE_RE.match(line)
+        if m is None:
+            continue
+
+        depth = int(m.group(1)) if m.group(1) else 0
+        addr_str = m.group(3)
+
+        # Skip RAM phase blocks for ROM accounting
+        if _is_ram_addr_str(addr_str):
+            continue
+
+        addr = int(addr_str, 16)
+
+        # Depth decreased — pop include entries that have ended.
+        # The current line's address marks where the parent resumes,
+        # which is the byte right after the included file's last opcode.
+        while prev_depth > depth and include_stack:
+            entry = include_stack.pop()
+            fname, first = entry[0], entry[1]
+            file_contributions.append(FileContribution(
+                filename=fname, start=first, end=addr, size=addr - first
+            ))
+            prev_depth -= 1
+
+        # Check for sentinel labels
+        ms = _SENTINEL_RE.search(line)
+        if ms:
+            label = ms.group(1)
+            if label in _SENTINEL_NAMES:
+                sentinel_map[label] = addr
+                if label not in sentinel_order:
+                    sentinel_order.append(label)
+
+        # Check for EndOfRom
+        if _ENDOFROM_RE.search(line):
+            endofrom = addr
+
+        # Check for include directive
+        mi = _INCLUDE_RE.search(line)
+        if mi:
+            include_stack.append([mi.group(1), addr])
+            prev_depth = depth + 1
+            last_addr = addr
+            continue
+
+        last_addr = addr
+        prev_depth = depth
+
+    # Flush any remaining include stack entries (EOF before depth returned)
+    while include_stack:
+        entry = include_stack.pop()
+        fname, first = entry[0], entry[1]
+        file_contributions.append(FileContribution(
+            filename=fname, start=first, end=last_addr, size=last_addr - first
+        ))
+
+    # Build regions from sentinels
+    sentinels: List[Tuple[str, int]] = [
+        (_SENTINEL_NAMES[key], sentinel_map[key]) for key in sentinel_order
+    ]
+    regions = _build_regions(sentinels, endofrom)
+
+    return SourceListingResult(
+        regions=regions,
+        file_contributions=file_contributions,
+        endofrom=endofrom,
+    )
