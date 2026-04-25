@@ -47,10 +47,9 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 
 ## From §2 — Art & Compression Pipeline
 
-### Generic Perform_DPLC Routine (§2.1 / §3.9)
-**Blocked by:** Object System (§3) — specifically SST layout with `ros_prev_frame`, `art_source`, `dplc_script` fields
-**What:** Basic Perform_DPLC implemented (`engine/dplc.asm`), but needs SST integration for per-object `ros_prev_frame` frame change detection, `art_source` pointer, and `dplc_script` fields. Character DPLCs → Important priority, Object DPLCs → Deferrable priority.
-**When ready:** After §3 defines SST layout and animation system.
+### ~~Generic Perform_DPLC Routine (§2.1 / §3.9)~~ — DONE 2026-04-25
+**Completed in:** §3 Object System audit cleanup
+**What:** Perform_DPLC with internalized change detection (SST_prev_frame), Important and Deferrable variants. Objects pass a2=DPLC table, a3=art base, d1=VRAM dest.
 
 ### Dynamic VRAM Allocator (§2.2)
 **Blocked by:** §3 Object System (`Load_Object` spawn/destroy lifecycle drives `AllocVRAM`/`FreeVRAM` calls)

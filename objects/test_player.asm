@@ -106,7 +106,7 @@ TestPlayer_Main:
         bge.s   .set_flip_left
         move.w  #-TOP_SPEED, d0
 .set_flip_left:
-        bset    #RF_XFLIP, SST_render_flags(a0)
+        bset    #ST_XFLIP, SST_status(a0)
         bra.s   .clamp_vel
 
 .check_right:
@@ -126,7 +126,7 @@ TestPlayer_Main:
         ble.s   .set_flip_right
         move.w  #TOP_SPEED, d0
 .set_flip_right:
-        bclr    #RF_XFLIP, SST_render_flags(a0)
+        bclr    #ST_XFLIP, SST_status(a0)
         bra.s   .clamp_vel
 
 .no_input:

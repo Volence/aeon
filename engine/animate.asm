@@ -29,6 +29,12 @@ AF_DELETE           = $FB
 ; Clobbers: d0-d2, a1
 ; -----------------------------------------------
 AnimateSprite:
+        ; Propagate flip bits: status bits 1-2 → render_flags bits 1-2
+        andi.b  #$F9, SST_render_flags(a0)
+        move.b  SST_status(a0), d0
+        andi.b  #$06, d0
+        or.b    d0, SST_render_flags(a0)
+
         moveq   #0, d0
         move.b  SST_anim(a0), d0
         cmp.b   SST_prev_anim(a0), d0
@@ -129,6 +135,12 @@ AnimateSprite:
 ; Clobbers: d0-d2, a1
 ; -----------------------------------------------
 AnimateSprite_PerFrame:
+        ; Propagate flip bits: status bits 1-2 → render_flags bits 1-2
+        andi.b  #$F9, SST_render_flags(a0)
+        move.b  SST_status(a0), d0
+        andi.b  #$06, d0
+        or.b    d0, SST_render_flags(a0)
+
         moveq   #0, d0
         move.b  SST_anim(a0), d0
         cmp.b   SST_prev_anim(a0), d0

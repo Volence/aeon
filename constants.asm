@@ -143,16 +143,17 @@ RF_XFLIP                = 1         ; horizontal flip
 RF_YFLIP                = 2         ; vertical flip
 RF_COORDMODE            = 3         ; 0 = world coords, 1 = screen coords
 
-; status byte bits (SST_status) — matches S2/S.C.E. convention
+; status byte bits (SST_status)
+; Bits 1-2 aligned with RF_XFLIP/RF_YFLIP for direct propagation.
 ; Player interpretation:
-ST_FACING               = 0         ; 1 = facing left (mirrors RF_XFLIP)
-ST_IN_AIR               = 1         ; 1 = airborne (jumped or falling)
-ST_ROLLING              = 2         ; 1 = in ball form
-ST_ON_OBJECT            = 3         ; 1 = standing on a solid object
-ST_ROLLJUMP             = 4         ; 1 = jumped from roll
-ST_PUSHING              = 5         ; 1 = pushing against object
-ST_UNDERWATER           = 6         ; 1 = submerged
-; Object interpretation (bits 3-6 reused):
+ST_XFLIP                = 1         ; = RF_XFLIP — facing left
+ST_YFLIP                = 2         ; = RF_YFLIP — vertical flip
+ST_IN_AIR               = 3         ; 1 = airborne (jumped or falling)
+ST_ROLLING              = 4         ; 1 = in ball form
+ST_ON_OBJECT            = 5         ; 1 = standing on a solid object
+ST_PUSHING              = 6         ; 1 = pushing against object
+ST_UNDERWATER           = 7         ; 1 = submerged
+; Object interpretation (platforms use bits 3-6):
 ST_P1_STANDING          = 3         ; 1 = player 1 standing on this object
 ST_P2_STANDING          = 4         ; 1 = player 2 standing on this object
 ST_P1_PUSHING           = 5         ; 1 = player 1 pushing this object
