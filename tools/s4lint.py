@@ -16,7 +16,7 @@ import argparse
 import os
 import re
 import sys
-from collections import namedtuple
+from collections import namedtuple, deque
 from typing import List, Optional, Set, Dict, Tuple
 
 # ---------------------------------------------------------------------------
@@ -370,14 +370,18 @@ class LintContext:
         self.in_dbf_loop: bool = False
         # Name of the current routine (global label)
         self.current_routine: str = ""
-        # Previous token (for fall-through / pairing checks)
-        self.prev_instruction: str = ""
+        # Previous token (full Token, for W009 swap+clr.w and other pairing checks)
+        self.prev_token: Optional["Token"] = None
         # Local labels seen in the current routine
         self.local_labels: Set[str] = set()
         # Number of lines in the current routine
         self.routine_lines: int = 0
         # Whether the last routine ended cleanly (rts/rte/jmp/bra)
         self.last_routine_terminated: bool = False
+        # Sliding window of last 15 raw lines (for W006 header detection)
+        self.recent_raw_lines: deque = deque(maxlen=15)
+        # Pending global label for W006: (label_name, lines_snapshot) or None
+        self.pending_w006 = None
 
         # Block-level guards (linting is suppressed inside these blocks)
         self.in_struct: bool = False
@@ -392,6 +396,8 @@ class LintContext:
         self.in_dbf_loop = False
         self.local_labels = set()
         self.routine_lines = 0
+        self.prev_token = None
+        self.pending_w006 = None
 
     def check_routine_end(self, line_num: int) -> None:
         """Run checks at rts/rte — paired-resource validation."""
@@ -552,6 +558,46 @@ def _extract_address_value(operand: str) -> Optional[int]:
 
     # Plain with no suffix
     return parse_numeric(s)
+
+
+# ---------------------------------------------------------------------------
+# Register / immediate helpers (W001-W013)
+# ---------------------------------------------------------------------------
+
+RE_DREG = re.compile(r'^d[0-7]$', re.IGNORECASE)
+RE_AREG = re.compile(r'^a[0-7]$', re.IGNORECASE)
+RE_INDEXED = re.compile(r'\(a[0-7]\s*,\s*d[0-7]\.[wl]\)', re.IGNORECASE)
+
+# Bare immediate: #N, #$XX, #-N
+_IMM_RE = re.compile(r'^#(-?\d+|(?:\$[0-9A-Fa-f]+))$')
+
+
+def _is_dreg(s: str) -> bool:
+    """Return True if *s* (stripped) is a data register d0-d7."""
+    return bool(RE_DREG.match(s.strip()))
+
+
+def _is_areg(s: str) -> bool:
+    """Return True if *s* (stripped) is an address register a0-a7."""
+    return bool(RE_AREG.match(s.strip()))
+
+
+def _is_memory_operand(s: str) -> bool:
+    """Return True if *s* is NOT a simple register (data, address, sp, sr, ccr)."""
+    t = s.strip().lower()
+    return t not in ("sp", "sr", "ccr") and not _is_dreg(t) and not _is_areg(t)
+
+
+def _parse_immediate(s: str) -> Optional[int]:
+    """Parse an immediate operand (#N, #$XX, #-N); returns int or None."""
+    s = s.strip()
+    m = _IMM_RE.match(s)
+    if not m:
+        return None
+    raw = m.group(1)
+    if raw.startswith("$"):
+        return int(raw[1:], 16)
+    return int(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -993,6 +1039,206 @@ def check_sr_tracking(ctx: LintContext, token: Token, line_num: int) -> None:
         ctx.sr_saved = False
 
 
+# ---------------------------------------------------------------------------
+# W001-W013 warning checks
+# ---------------------------------------------------------------------------
+
+# Branch mnemonics eligible for W005 (excludes dbf/dbra which use .w legitimately)
+_W005_BRANCH_MNEMONICS: frozenset = frozenset({
+    "bra", "bsr",
+    "beq", "bne", "blt", "bgt", "ble", "bge",
+    "blo", "bls", "bhi", "bhs",
+    "bcc", "bcs", "bvc", "bvs",
+    "bpl", "bmi",
+})
+
+# Patterns for W006 header detection
+_HEADER_PATTERNS: tuple = ("in:", "out:", "clobbers:", "-------")
+
+
+def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
+                   raw_line: str, suppressed: Set[str]) -> None:
+    """Run all W001-W013 optimization and style warning checks."""
+    instr = token.instruction.lower()
+
+    # ------------------------------------------------------------------
+    # W001: clr.w / clr.l on memory (read-modify-write)
+    # ------------------------------------------------------------------
+    if "W001" not in suppressed:
+        if instr == "clr" and token.size in (".w", ".l"):
+            if token.operands and _is_memory_operand(token.operands[0]):
+                ctx.warning("W001", line_num,
+                            f"clr{token.size} on memory does a read-modify-write "
+                            f"(use move{token.size} #0 or clr on a register)")
+
+    # ------------------------------------------------------------------
+    # W002: cmp/cmpi #0 instead of tst
+    # ------------------------------------------------------------------
+    if "W002" not in suppressed:
+        if instr in ("cmp", "cmpi") and token.operands:
+            val = _parse_immediate(token.operands[0])
+            if val == 0:
+                ctx.warning("W002", line_num,
+                            f"'{token.instruction}{token.size} #0' — "
+                            f"use 'tst{token.size}' instead (shorter, faster)")
+
+    # ------------------------------------------------------------------
+    # W003: move.w #0 to data register instead of moveq
+    # ------------------------------------------------------------------
+    if "W003" not in suppressed:
+        if instr == "move" and token.size == ".w" and len(token.operands) == 2:
+            src_val = _parse_immediate(token.operands[0])
+            dst = token.operands[1].strip()
+            if src_val == 0 and _is_dreg(dst):
+                ctx.warning("W003", line_num,
+                            f"'move.w #0, {dst}' — use 'moveq #0, {dst}' (shorter, faster)")
+
+    # ------------------------------------------------------------------
+    # W004: add/sub/addi/subi #1-8 instead of addq/subq
+    # ------------------------------------------------------------------
+    if "W004" not in suppressed:
+        if instr in ("add", "sub", "addi", "subi") and token.operands:
+            val = _parse_immediate(token.operands[0])
+            if val is not None and 1 <= val <= 8:
+                better = "addq" if instr in ("add", "addi") else "subq"
+                ctx.warning("W004", line_num,
+                            f"'{token.instruction}{token.size} #{val}, ...' — "
+                            f"use '{better}{token.size}' instead (2 bytes, faster)")
+
+    # ------------------------------------------------------------------
+    # W005: .w branch to local label (should be .s)
+    # ------------------------------------------------------------------
+    if "W005" not in suppressed:
+        if instr in _W005_BRANCH_MNEMONICS and token.size == ".w" and token.operands:
+            target = token.operands[0].strip()
+            if target.startswith("."):
+                ctx.warning("W005", line_num,
+                            f"'{token.instruction}.w {target}' — local label is almost "
+                            f"always in .s range; use '{token.instruction}.s {target}'")
+
+    # ------------------------------------------------------------------
+    # W006: global label without header comment (phase B)
+    #
+    # Phase A is in run_checks: when a global label is seen, snapshot
+    # recent_raw_lines into ctx.pending_w006.
+    # Phase B (here): on the next instruction, check pending and emit.
+    # ------------------------------------------------------------------
+    if "W006" not in suppressed:
+        if ctx.pending_w006 is not None:
+            label_name, lines_snapshot = ctx.pending_w006
+            ctx.pending_w006 = None  # consume it
+            is_data = instr in ("dc", "ds", "dcb", "binclude", "=", "equ", "set", "function", "macro", "struct")
+            if not is_data:
+                found_header = False
+                for raw in lines_snapshot:
+                    low = raw.lower()
+                    for pat in _HEADER_PATTERNS:
+                        if pat in low:
+                            found_header = True
+                            break
+                    if found_header:
+                        break
+                if not found_header:
+                    ctx.warning("W006", line_num,
+                                f"routine '{label_name}' has no header comment "
+                                f"(add ; In:, ; Out:, ; Clobbers:, or a ------- divider)")
+
+    # ------------------------------------------------------------------
+    # W007: lsl #1 instead of add dn, dn (2 cycles faster)
+    # ------------------------------------------------------------------
+    if "W007" not in suppressed:
+        if instr == "lsl" and token.operands:
+            val = _parse_immediate(token.operands[0])
+            if val == 1:
+                dst = token.operands[-1].strip() if len(token.operands) > 1 else ""
+                ctx.warning("W007", line_num,
+                            f"'lsl{token.size} #1, {dst}' — "
+                            f"use 'add{token.size} {dst}, {dst}' (2 cycles faster)")
+
+    # ------------------------------------------------------------------
+    # W008: sub dn, dn (zeroing — should be moveq #0)
+    # ------------------------------------------------------------------
+    if "W008" not in suppressed:
+        if instr == "sub" and len(token.operands) == 2:
+            src = token.operands[0].strip()
+            dst = token.operands[1].strip()
+            if src.lower() == dst.lower() and _is_dreg(src):
+                ctx.warning("W008", line_num,
+                            f"'sub{token.size} {src}, {dst}' zeroes the register — "
+                            f"use 'moveq #0, {dst}' instead")
+
+    # ------------------------------------------------------------------
+    # W009: swap dN followed immediately by clr.w dN (same register)
+    # ------------------------------------------------------------------
+    if "W009" not in suppressed:
+        if instr == "clr" and token.size == ".w" and token.operands:
+            dst = token.operands[0].strip()
+            prev = ctx.prev_token
+            if (prev is not None and
+                    prev.instruction.lower() == "swap" and
+                    prev.operands and
+                    prev.operands[0].strip().lower() == dst.lower()):
+                ctx.warning("W009", line_num,
+                            f"'swap {dst}' + 'clr.w {dst}' — "
+                            f"use 'clr.l {dst}' instead (one instruction)")
+
+    # ------------------------------------------------------------------
+    # W010: indexed addressing (aN, dN.w/l) inside a dbf loop body
+    # ------------------------------------------------------------------
+    if "W010" not in suppressed:
+        if ctx.in_dbf_loop:
+            for op in token.operands:
+                if RE_INDEXED.search(op):
+                    ctx.warning("W010", line_num,
+                                f"indexed addressing '{op}' inside loop — "
+                                f"consider precomputing the address in a register")
+                    break
+
+    # ------------------------------------------------------------------
+    # W011: movem with single register (use plain move instead)
+    # ------------------------------------------------------------------
+    if "W011" not in suppressed:
+        if instr == "movem" and len(token.operands) == 2:
+            op0 = token.operands[0].strip()
+            op1 = token.operands[1].strip()
+            # Push form: reglist, -(sp)    Pop form: (sp)+, reglist
+            if op1 == "-(sp)":
+                reglist = op0
+            elif op0 == "(sp)+":
+                reglist = op1
+            else:
+                reglist = None
+            if reglist is not None:
+                # Single register: no '-' range and no '/' separator
+                if "-" not in reglist and "/" not in reglist:
+                    if _is_dreg(reglist) or _is_areg(reglist):
+                        ctx.warning("W011", line_num,
+                                    f"'movem{token.size} ...' with single register '{reglist}' — "
+                                    f"use 'move{token.size}' instead")
+
+    # ------------------------------------------------------------------
+    # W012: move.l to address register (should be movea.l)
+    # ------------------------------------------------------------------
+    if "W012" not in suppressed:
+        if instr == "move" and token.size == ".l" and len(token.operands) == 2:
+            dst = token.operands[1].strip()
+            if _is_areg(dst):
+                ctx.warning("W012", line_num,
+                            f"'move.l ..., {dst}' — use 'movea.l' for address register destination")
+
+    # ------------------------------------------------------------------
+    # W013: move.w/move.l #N in moveq range (-128..127, not 0) to data reg
+    # ------------------------------------------------------------------
+    if "W013" not in suppressed:
+        if instr == "move" and token.size in (".w", ".l") and len(token.operands) == 2:
+            val = _parse_immediate(token.operands[0])
+            dst = token.operands[1].strip()
+            if val is not None and val != 0 and -128 <= val <= 127 and _is_dreg(dst):
+                ctx.warning("W013", line_num,
+                            f"'move{token.size} #{val}, {dst}' — "
+                            f"use 'moveq #{val}, {dst}' (shorter, faster)")
+
+
 def run_checks(ctx: LintContext, token: Token, line_num: int,
                raw_line: str, suppressed: Set[str]) -> None:
     """Apply all enabled checks to *token*.
@@ -1006,6 +1252,11 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     """
     instr = token.instruction
     instr_lower = instr.lower()
+
+    # ------------------------------------------------------------------
+    # Sliding window of raw lines (W006 header detection)
+    # ------------------------------------------------------------------
+    ctx.recent_raw_lines.append(raw_line)
 
     # ------------------------------------------------------------------
     # Block-level tracking — update state FIRST so checks inside blocks
@@ -1050,10 +1301,15 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         ctx.current_routine = label
         ctx.reset_routine_state()
         ctx.last_routine_terminated = False
+        # W006 phase A: snapshot lines leading up to this label for header check,
+        # then clear the window so the next routine starts fresh.
+        ctx.pending_w006 = (label, list(ctx.recent_raw_lines))
+        ctx.recent_raw_lines.clear()
 
     if label and label.startswith("."):
-        # Local label — record it
+        # Local label — record it; assume it may be a loop top (W010)
         ctx.local_labels.add(label)
+        ctx.in_dbf_loop = True
 
     if not instr:
         # Label-only or blank line — nothing more to check
@@ -1067,6 +1323,10 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     if instr_lower in ("rts", "rte"):
         ctx.check_routine_end(line_num)
         ctx.last_routine_terminated = True
+
+    # dbf/dbra — end of loop body
+    if instr_lower in ("dbf", "dbra"):
+        ctx.in_dbf_loop = False
 
     # ------------------------------------------------------------------
     # Stateful checks (must run before stateless checks)
@@ -1095,9 +1355,16 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         check_e009(ctx, token, line_num, suppressed)
 
     # ------------------------------------------------------------------
-    # Track prev_instruction for fall-through detection (future checks)
+    # Warning checks (W001-W013)
     # ------------------------------------------------------------------
-    ctx.prev_instruction = instr_lower
+    if token.instruction:
+        check_warnings(ctx, token, line_num, raw_line, suppressed)
+
+    # ------------------------------------------------------------------
+    # Track prev_token for multi-line checks (W009, etc.)
+    # ------------------------------------------------------------------
+    if token.instruction:
+        ctx.prev_token = token
 
 
 # ---------------------------------------------------------------------------

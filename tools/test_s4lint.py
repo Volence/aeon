@@ -18,6 +18,8 @@ from tools.s4lint import (
     check_e001, check_e002, check_e003, check_e004,
     check_e005_track, _count_dc_b_items, _count_ds_b_items,
     run_checks, _parse_suppressed,
+    check_warnings,
+    _is_dreg, _is_areg, _is_memory_operand, _parse_immediate,
 )
 
 
@@ -1327,6 +1329,569 @@ Routine:
 """
         errs = self._errs(code)
         self.assertEqual(len(errs), 0)
+
+
+# ---------------------------------------------------------------------------
+# Helper for warning tests
+# ---------------------------------------------------------------------------
+
+def _lint(line, filepath="engine/test.asm"):
+    """Lint a single line; return all Diagnostics."""
+    ctx = LintContext(filepath, {})
+    t = tokenize_line(line)
+    suppressed = _parse_suppressed(t.comment) if t.comment else set()
+    run_checks(ctx, t, 1, line, suppressed)
+    return ctx.diagnostics
+
+
+def _lint_lines_w(lines_str, filepath="engine/test.asm"):
+    """Process multi-line assembly string; return all Diagnostics (including warnings)."""
+    ctx = LintContext(filepath, {})
+    for i, line in enumerate(lines_str.strip().split("\n"), 1):
+        t = tokenize_line(line)
+        suppressed = _parse_suppressed(t.comment) if t.comment else set()
+        run_checks(ctx, t, i, line, suppressed)
+    return ctx.diagnostics
+
+
+# ---------------------------------------------------------------------------
+# W001: clr on memory (read-modify-write)
+# ---------------------------------------------------------------------------
+
+class TestW001_ClrOnMemory(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W001"]
+
+    def test_clr_w_memory_warns(self):
+        warns = self._warns("    clr.w   ($FF0000).l")
+        self.assertEqual(len(warns), 1)
+        self.assertIn("clr", warns[0].message)
+
+    def test_clr_l_memory_warns(self):
+        warns = self._warns("    clr.l   (a0)")
+        self.assertEqual(len(warns), 1)
+
+    def test_clr_w_memory_indirect_warns(self):
+        warns = self._warns("    clr.w   (a1)+")
+        self.assertEqual(len(warns), 1)
+
+    def test_clr_w_register_ok(self):
+        warns = self._warns("    clr.w   d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_clr_l_register_ok(self):
+        warns = self._warns("    clr.l   d3")
+        self.assertEqual(len(warns), 0)
+
+    def test_clr_b_memory_ok(self):
+        """clr.b on memory is not checked (less problematic)."""
+        warns = self._warns("    clr.b   (a0)")
+        self.assertEqual(len(warns), 0)
+
+    def test_clr_w_suppressed(self):
+        warns = [d for d in _lint("    clr.w   (a0)  ; lint: disable=W001")
+                 if d.code == "W001"]
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W002: cmp #0 instead of tst
+# ---------------------------------------------------------------------------
+
+class TestW002_CmpZero(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W002"]
+
+    def test_cmp_w_zero_warns(self):
+        warns = self._warns("    cmp.w   #0, d0")
+        self.assertEqual(len(warns), 1)
+        self.assertIn("tst", warns[0].message)
+
+    def test_cmp_l_zero_warns(self):
+        warns = self._warns("    cmp.l   #0, d1")
+        self.assertEqual(len(warns), 1)
+
+    def test_cmpi_w_zero_warns(self):
+        warns = self._warns("    cmpi.w  #0, d0")
+        self.assertEqual(len(warns), 1)
+
+    def test_cmpi_b_zero_warns(self):
+        warns = self._warns("    cmpi.b  #0, d0")
+        self.assertEqual(len(warns), 1)
+
+    def test_cmp_nonzero_ok(self):
+        warns = self._warns("    cmp.w   #1, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_cmp_negative_ok(self):
+        warns = self._warns("    cmp.w   #-1, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_tst_ok(self):
+        warns = self._warns("    tst.w   d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_cmp_zero_suppressed(self):
+        warns = [d for d in _lint("    cmp.w   #0, d0  ; lint: disable=W002")
+                 if d.code == "W002"]
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W003: move.w #0 to dreg instead of moveq
+# ---------------------------------------------------------------------------
+
+class TestW003_MoveWZero(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W003"]
+
+    def test_move_w_zero_to_dreg_warns(self):
+        warns = self._warns("    move.w  #0, d0")
+        self.assertEqual(len(warns), 1)
+        self.assertIn("moveq", warns[0].message)
+
+    def test_move_w_zero_to_d7_warns(self):
+        warns = self._warns("    move.w  #0, d7")
+        self.assertEqual(len(warns), 1)
+
+    def test_move_w_zero_to_memory_ok(self):
+        warns = self._warns("    move.w  #0, (a0)")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_l_zero_to_dreg_not_w003(self):
+        """W003 only checks move.w #0. move.l #0 to dreg is caught by W013."""
+        warns = self._warns("    move.l  #0, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_moveq_zero_ok(self):
+        warns = self._warns("    moveq   #0, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_w_nonzero_ok(self):
+        warns = self._warns("    move.w  #1, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_w_zero_to_dreg_suppressed(self):
+        warns = [d for d in _lint("    move.w  #0, d0  ; lint: disable=W003")
+                 if d.code == "W003"]
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W004: add/sub #1-8 instead of addq/subq
+# ---------------------------------------------------------------------------
+
+class TestW004_AddSubQ(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W004"]
+
+    def test_add_w_one_warns(self):
+        warns = self._warns("    add.w   #1, d0")
+        self.assertEqual(len(warns), 1)
+        self.assertIn("addq", warns[0].message)
+
+    def test_sub_l_eight_warns(self):
+        warns = self._warns("    sub.l   #8, a0")
+        self.assertEqual(len(warns), 1)
+
+    def test_addi_w_four_warns(self):
+        warns = self._warns("    addi.w  #4, d0")
+        self.assertEqual(len(warns), 1)
+
+    def test_subi_b_three_warns(self):
+        warns = self._warns("    subi.b  #3, d1")
+        self.assertEqual(len(warns), 1)
+
+    def test_add_w_nine_ok(self):
+        warns = self._warns("    add.w   #9, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_sub_zero_ok(self):
+        warns = self._warns("    sub.w   #0, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_addq_ok(self):
+        warns = self._warns("    addq.w  #1, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_subq_ok(self):
+        warns = self._warns("    subq.w  #8, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_add_w_one_suppressed(self):
+        warns = [d for d in _lint("    add.w   #1, d0  ; lint: disable=W004")
+                 if d.code == "W004"]
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W005: long branch to local label
+# ---------------------------------------------------------------------------
+
+class TestW005_LongBranchLocal(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W005"]
+
+    def test_bra_w_local_warns(self):
+        warns = self._warns("    bra.w   .loop")
+        self.assertEqual(len(warns), 1)
+        self.assertIn(".s", warns[0].message)
+
+    def test_beq_w_local_warns(self):
+        warns = self._warns("    beq.w   .done")
+        self.assertEqual(len(warns), 1)
+
+    def test_bne_w_local_warns(self):
+        warns = self._warns("    bne.w   .retry")
+        self.assertEqual(len(warns), 1)
+
+    def test_bra_w_global_ok(self):
+        warns = self._warns("    bra.w   GlobalLabel")
+        self.assertEqual(len(warns), 0)
+
+    def test_bra_s_local_ok(self):
+        warns = self._warns("    bra.s   .loop")
+        self.assertEqual(len(warns), 0)
+
+    def test_bra_s_global_ok(self):
+        warns = self._warns("    bra.s   GlobalLabel")
+        self.assertEqual(len(warns), 0)
+
+    def test_bra_w_local_suppressed(self):
+        warns = [d for d in _lint("    bra.w   .loop  ; lint: disable=W005")
+                 if d.code == "W005"]
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W006: routine missing header comment
+# ---------------------------------------------------------------------------
+
+class TestW006_MissingHeader(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines_w(lines_str) if d.code == "W006"]
+
+    def test_no_header_warns(self):
+        code = "\n; some unrelated comment\nMyRoutine:\n    moveq   #0, d0\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 1)
+        self.assertIn("MyRoutine", warns[0].message)
+
+    def test_with_in_comment_ok(self):
+        code = "\n; In: d0 = value\nMyRoutine:\n    moveq   #0, d0\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_with_out_comment_ok(self):
+        code = "\n; Out: d0 = result\nMyRoutine:\n    moveq   #0, d0\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_with_clobbers_comment_ok(self):
+        code = "\n; Clobbers: d0-d2\nMyRoutine:\n    moveq   #0, d0\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_with_divider_ok(self):
+        code = "\n; -------\nMyRoutine:\n    moveq   #0, d0\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_data_label_ok(self):
+        """Labels followed by dc.* are data, not routines -- skip W006."""
+        code = "\nMyData:\n    dc.w    $0000\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_binclude_label_ok(self):
+        """Labels followed by BINCLUDE are data -- skip W006."""
+        code = '\nMyBinData:\n    BINCLUDE "data/foo.bin"\n'
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_local_label_not_checked(self):
+        """Local labels (.dot) are never checked for W006."""
+        code = "\n; In: d0\nMyRoutine:\n    moveq   #0, d0\n.loop:\n    dbf     d0, .loop\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_second_routine_no_header_warns(self):
+        """First routine has header, second doesnt -- only second warns."""
+        code = "\n; In: d0\nFirstRoutine:\n    rts\n\nSecondRoutine:\n    moveq   #1, d0\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 1)
+        self.assertIn("SecondRoutine", warns[0].message)
+
+
+# ---------------------------------------------------------------------------
+# W007: lsl #1 instead of add dn, dn
+# ---------------------------------------------------------------------------
+
+class TestW007_LslOne(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W007"]
+
+    def test_lsl_w_one_warns(self):
+        warns = self._warns("    lsl.w   #1, d0")
+        self.assertEqual(len(warns), 1)
+        self.assertIn("add", warns[0].message)
+
+    def test_lsl_l_one_warns(self):
+        warns = self._warns("    lsl.l   #1, d3")
+        self.assertEqual(len(warns), 1)
+
+    def test_lsl_b_one_warns(self):
+        warns = self._warns("    lsl.b   #1, d1")
+        self.assertEqual(len(warns), 1)
+
+    def test_lsl_two_ok(self):
+        warns = self._warns("    lsl.w   #2, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_lsr_one_ok(self):
+        """lsr is right shift -- different semantics, dont flag."""
+        warns = self._warns("    lsr.w   #1, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_asl_one_ok(self):
+        """asl -- not lsl, dont flag."""
+        warns = self._warns("    asl.w   #1, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_lsl_one_suppressed(self):
+        warns = [d for d in _lint("    lsl.w   #1, d0  ; lint: disable=W007")
+                 if d.code == "W007"]
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W008: sub dn, dn to zero
+# ---------------------------------------------------------------------------
+
+class TestW008_SubSelf(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W008"]
+
+    def test_sub_w_same_reg_warns(self):
+        warns = self._warns("    sub.w   d0, d0")
+        self.assertEqual(len(warns), 1)
+        self.assertIn("moveq", warns[0].message)
+
+    def test_sub_l_same_reg_warns(self):
+        warns = self._warns("    sub.l   d3, d3")
+        self.assertEqual(len(warns), 1)
+
+    def test_sub_b_same_reg_warns(self):
+        warns = self._warns("    sub.b   d1, d1")
+        self.assertEqual(len(warns), 1)
+
+    def test_sub_different_regs_ok(self):
+        warns = self._warns("    sub.w   d1, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_sub_w_same_reg_suppressed(self):
+        warns = [d for d in _lint("    sub.w   d0, d0  ; lint: disable=W008")
+                 if d.code == "W008"]
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W009: swap + clr.w on same register
+# ---------------------------------------------------------------------------
+
+class TestW009_SwapClrW(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines_w(lines_str) if d.code == "W009"]
+
+    def test_swap_then_clr_w_same_reg_warns(self):
+        code = "\nRoutine:\n    swap    d0\n    clr.w   d0\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 1)
+        self.assertIn("clr.l", warns[0].message)
+
+    def test_swap_then_clr_w_different_reg_ok(self):
+        code = "\nRoutine:\n    swap    d0\n    clr.w   d1\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_no_preceding_swap_ok(self):
+        code = "\nRoutine:\n    moveq   #0, d0\n    clr.w   d1\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_swap_then_clr_w_suppressed(self):
+        code = "\nRoutine:\n    swap    d0\n    clr.w   d0  ; lint: disable=W009\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W010: indexed addressing in dbf loop
+# ---------------------------------------------------------------------------
+
+class TestW010_IndexedInLoop(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines_w(lines_str) if d.code == "W010"]
+
+    def test_indexed_in_loop_warns(self):
+        code = "\nRoutine:\n.loop:\n    move.w  (a0,d1.w), d2\n    dbf     d0, .loop\n    rts\n"
+        warns = self._warns(code)
+        self.assertGreater(len(warns), 0)
+
+    def test_indexed_outside_loop_ok(self):
+        code = "\nRoutine:\n    move.w  (a0,d1.w), d2\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_simple_addressing_in_loop_ok(self):
+        code = "\nRoutine:\n.loop:\n    move.w  (a0)+, d2\n    dbf     d0, .loop\n    rts\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W011: movem with single register
+# ---------------------------------------------------------------------------
+
+class TestW011_MovemSingle(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W011"]
+
+    def test_movem_single_push_warns(self):
+        warns = self._warns("    movem.l d0, -(sp)")
+        self.assertEqual(len(warns), 1)
+        self.assertIn("move", warns[0].message)
+
+    def test_movem_single_pop_warns(self):
+        warns = self._warns("    movem.l (sp)+, d0")
+        self.assertEqual(len(warns), 1)
+
+    def test_movem_single_areg_warns(self):
+        warns = self._warns("    movem.l a0, -(sp)")
+        self.assertEqual(len(warns), 1)
+
+    def test_movem_range_ok(self):
+        warns = self._warns("    movem.l d0-d3, -(sp)")
+        self.assertEqual(len(warns), 0)
+
+    def test_movem_list_ok(self):
+        warns = self._warns("    movem.l d0/a0, -(sp)")
+        self.assertEqual(len(warns), 0)
+
+    def test_movem_multi_range_ok(self):
+        warns = self._warns("    movem.l d0-d2/a1-a3, -(sp)")
+        self.assertEqual(len(warns), 0)
+
+    def test_movem_single_suppressed(self):
+        warns = [d for d in _lint("    movem.l d0, -(sp)  ; lint: disable=W011")
+                 if d.code == "W011"]
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W012: move.l to address register instead of movea.l
+# ---------------------------------------------------------------------------
+
+class TestW012_MoveToAreg(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W012"]
+
+    def test_move_l_to_a0_warns(self):
+        warns = self._warns("    move.l  d0, a0")
+        self.assertEqual(len(warns), 1)
+        self.assertIn("movea.l", warns[0].message)
+
+    def test_move_l_to_a5_warns(self):
+        warns = self._warns("    move.l  (a1), a5")
+        self.assertEqual(len(warns), 1)
+
+    def test_movea_l_ok(self):
+        warns = self._warns("    movea.l d0, a0")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_l_to_dreg_ok(self):
+        warns = self._warns("    move.l  d1, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_l_to_memory_ok(self):
+        warns = self._warns("    move.l  d0, (a0)")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_w_to_areg_ok(self):
+        """W012 only checks .l moves."""
+        warns = self._warns("    move.w  d0, a0")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_l_to_areg_suppressed(self):
+        warns = [d for d in _lint("    move.l  d0, a0  ; lint: disable=W012")
+                 if d.code == "W012"]
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# W013: move.w/move.l #N in moveq range to data register
+# ---------------------------------------------------------------------------
+
+class TestW013_MoveInMoveqRange(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W013"]
+
+    def test_move_w_small_positive_to_dreg_warns(self):
+        warns = self._warns("    move.w  #$10, d0")
+        self.assertEqual(len(warns), 1)
+        self.assertIn("moveq", warns[0].message)
+
+    def test_move_w_negative_in_range_to_dreg_warns(self):
+        warns = self._warns("    move.w  #-1, d0")
+        self.assertEqual(len(warns), 1)
+
+    def test_move_l_small_to_dreg_warns(self):
+        warns = self._warns("    move.l  #$7F, d0")
+        self.assertEqual(len(warns), 1)
+
+    def test_move_w_zero_not_w013(self):
+        """#0 is caught by W003, not W013."""
+        warns = self._warns("    move.w  #0, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_w_out_of_range_ok(self):
+        warns = self._warns("    move.w  #$100, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_w_neg_out_of_range_ok(self):
+        warns = self._warns("    move.w  #-129, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_w_to_memory_ok(self):
+        warns = self._warns("    move.w  #$10, (a0)")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_w_to_areg_ok(self):
+        """move.w/l #N to address register is not flagged by W013."""
+        warns = self._warns("    move.w  #$10, a0")
+        self.assertEqual(len(warns), 0)
+
+    def test_moveq_ok(self):
+        warns = self._warns("    moveq   #$10, d0")
+        self.assertEqual(len(warns), 0)
+
+    def test_move_w_small_suppressed(self):
+        warns = [d for d in _lint("    move.w  #$10, d0  ; lint: disable=W013")
+                 if d.code == "W013"]
+        self.assertEqual(len(warns), 0)
 
 
 if __name__ == "__main__":
