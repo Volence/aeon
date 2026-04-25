@@ -188,6 +188,11 @@ class TestComputeRAMLayout(unittest.TestCase):
 
         self.assertGreater(len(result.upper), 0)
         self.assertEqual(result.free_before_stack, 0xFFFFFF00 - 0xFFFF9000)
+        # total_used + free must not double-count
+        self.assertEqual(
+            result.total_used + result.free_before_stack,
+            0x8000 + (0xFFFFFF00 - 0xFFFF8000),
+        )
 
     def test_upper_ram_sorted_by_address(self):
         ram_labels = {
@@ -198,7 +203,7 @@ class TestComputeRAMLayout(unittest.TestCase):
         constants = {"SYSTEM_STACK": 0xFFFFFF00}
         result = compute_ram_layout(ram_labels, constants)
         names = [e.name for e in result.upper]
-        self.assertEqual(names, ["A_FIRST", "B_SECOND", "C_THIRD"])
+        self.assertEqual(names, ["A_FIRST", "B_SECOND"])
 
     def test_missing_stack_uses_default(self):
         ram_labels = {"RAM_END": 0xFFFF9000}

@@ -264,7 +264,6 @@ class RAMLayout(NamedTuple):
 
 
 _DEFAULT_STACK = 0xFFFFFF00
-_LOWER_RAM_START = 0xFFFF0000
 _UPPER_RAM_START = 0xFFFF8000
 
 
@@ -307,14 +306,15 @@ def compute_ram_layout(ram_labels: Dict[str, int],
     )
 
     lower = _entries_from_sorted(lower_syms, _UPPER_RAM_START)
-    upper = _entries_from_sorted(upper_syms, stack_addr)
-
-    total_lower = sum(e.size for e in lower)
-    total_upper = sum(e.size for e in upper)
+    # Don't extend the last upper entry to the stack — its actual size is
+    # unknowable from labels alone.  free_before_stack owns that gap.
     highest = upper_syms[-1][1] if upper_syms else _UPPER_RAM_START
+    upper = _entries_from_sorted(upper_syms, highest)
+
+    total_used = sum(e.size for e in lower) + sum(e.size for e in upper)
     free = stack_addr - highest
 
-    return RAMLayout(lower, upper, total_lower + total_upper, free, stack_addr)
+    return RAMLayout(lower, upper, total_used, free, stack_addr)
 
 
 # ---------------------------------------------------------------------------
