@@ -29,6 +29,39 @@ _LOCAL_LABEL_RE = re.compile(r'^\.[a-z][a-z0-9_]*$')
 _NAMING_SKIP_INSTRS = frozenset({"struct", "macro", "function", "endstruct", "endm"})
 ROUTINE_LENGTH_THRESHOLD = 100
 
+DIAGNOSTIC_LABELS: Dict[str, str] = {
+    "E001": "unsized branch",
+    "E002": "multiply/divide in hot path",
+    "E003": "odd address",
+    "E004": "word/long access to odd address",
+    "E005": "missing alignment after byte data",
+    "E006": "VDP write without Z80 stopped",
+    "E007": "unpaired stopZ80/startZ80",
+    "E008": "macro contract violation",
+    "E009": "SST field out of bounds",
+    "E010": "SR save/restore mismatch",
+    "E011": "double stopZ80",
+    "W001": "clr on memory (read-modify-write)",
+    "W002": "cmp #0 instead of tst",
+    "W003": "move #0 instead of moveq",
+    "W004": "add/sub #1-8 instead of addq/subq",
+    "W005": "branch should use .s",
+    "W006": "routine missing header comment",
+    "W007": "lsl #1 instead of add",
+    "W008": "sub dn,dn to zero",
+    "W009": "swap + clr.w pattern",
+    "W010": "indexed addressing in loop",
+    "W011": "movem with single register",
+    "W012": "move.l to areg instead of movea.l",
+    "W013": "move in moveq range",
+    "W014": "multiply/divide outside hot path",
+    "W015": "global label not PascalCase",
+    "W016": "constant not ALL_CAPS",
+    "W017": "local label not .lowercase",
+    "W018": "routine too long",
+    "W019": "file missing header comment",
+}
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -1557,6 +1590,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     has_errors = False
     has_warnings = False
+    code_counts: Dict[str, int] = {}
 
     project_root = os.path.dirname(os.path.abspath(args.files[0])) if args.files else os.getcwd()
 
@@ -1578,11 +1612,29 @@ def main(argv: Optional[List[str]] = None) -> int:
                 diag.severity = "error"
 
             print(str(diag), file=sys.stderr)
+            code_counts[diag.code] = code_counts.get(diag.code, 0) + 1
 
             if diag.severity == "error":
                 has_errors = True
             elif diag.severity == "warning":
                 has_warnings = True
+
+    # Summary footer
+    total_errors = sum(v for k, v in code_counts.items() if k.startswith("E"))
+    total_warnings = sum(v for k, v in code_counts.items() if k.startswith("W"))
+
+    if total_errors == 0 and total_warnings == 0:
+        print("\ns4lint: no issues found", file=sys.stderr)
+    else:
+        parts = []
+        if total_errors:
+            parts.append(f"{total_errors} error{'s' if total_errors != 1 else ''}")
+        if total_warnings:
+            parts.append(f"{total_warnings} warning{'s' if total_warnings != 1 else ''}")
+        print(f"\ns4lint: {', '.join(parts)}", file=sys.stderr)
+        for code in sorted(code_counts):
+            label = DIAGNOSTIC_LABELS.get(code, "")
+            print(f"  {code}  {code_counts[code]:>3}  {label}", file=sys.stderr)
 
     if has_errors:
         return 1

@@ -8,6 +8,9 @@ Run with: python3 -m pytest tools/test_s4lint.py -v
 
 import sys
 import os
+import io
+import contextlib
+import tempfile
 import unittest
 
 # Allow running from the s4_engine root
@@ -21,6 +24,7 @@ from tools.s4lint import (
     check_warnings,
     _is_dreg, _is_areg, _is_memory_operand, _parse_immediate,
     lint_file,
+    main as s4lint_main,
 )
 
 
@@ -2264,6 +2268,60 @@ class TestW019_FileHeader(unittest.TestCase):
         """Comments with leading whitespace still count."""
         w = self._lint_content("    ; indented header\nRoutine:\n    rts\n")
         self.assertEqual(len(w), 0)
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic summary footer
+# ---------------------------------------------------------------------------
+
+class TestSummaryFooter(unittest.TestCase):
+
+    def _run_lint(self, content, extra_args=None):
+        """Write content to temp file, run main(), return (exit_code, stderr)."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
+            f.write(content)
+            f.flush()
+            fname = f.name
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                code = s4lint_main(["--no-follow-includes"] + (extra_args or []) + [fname])
+            return code, buf.getvalue()
+        finally:
+            os.unlink(fname)
+
+    def test_summary_with_warnings(self):
+        """Summary line appears after diagnostics."""
+        _, stderr = self._run_lint("; header\nvdp_init:\n    rts\n")
+        self.assertIn("s4lint:", stderr)
+        self.assertIn("warning", stderr.split("s4lint:")[-1])
+
+    def test_summary_no_issues(self):
+        """Clean file shows 'no issues found'."""
+        _, stderr = self._run_lint(
+            "; header\n; -------\nClean_Routine:\n    rts\n",
+            extra_args=["--skip=W006,W018"],
+        )
+        self.assertIn("no issues found", stderr)
+
+    def test_summary_counts_by_code(self):
+        """Per-code breakdown shows the code."""
+        _, stderr = self._run_lint("; header\nvdp_init:\n    rts\nbad_func:\n    rts\n")
+        summary = stderr.split("s4lint:")[-1]
+        self.assertIn("W015", summary)
+
+    def test_summary_respects_no_warnings(self):
+        """--no-warnings suppresses warning counts in summary."""
+        _, stderr = self._run_lint(
+            "; header\nvdp_init:\n    rts\n",
+            extra_args=["--no-warnings"],
+        )
+        self.assertIn("no issues found", stderr)
+
+    def test_summary_shows_label(self):
+        """Human-readable label appears next to code."""
+        _, stderr = self._run_lint("; header\nvdp_init:\n    rts\n")
+        self.assertIn("global label not PascalCase", stderr)
 
 
 if __name__ == "__main__":
