@@ -103,6 +103,27 @@ Checksum:
     include "engine/sprites.asm"
 
 ; -----------------------------------------------
+; Object code bank
+; All object routines must live within this 64KB block.
+; objroutine() computes offsets from ObjCodeBase.
+; -----------------------------------------------
+    org $10000
+ObjCodeBase:
+    rts                         ; offset 0 = empty slot safety net
+
+    include "objects/test_static.asm"
+
+; -----------------------------------------------
+; Data
+; -----------------------------------------------
+    include "data/mappings/test_mappings.asm"
+
+; -----------------------------------------------
+; Test game states
+; -----------------------------------------------
+    include "test/object_test_state.asm"
+
+; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)
 ; -----------------------------------------------
 NullInterrupt:

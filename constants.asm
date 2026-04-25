@@ -148,3 +148,8 @@ MAX_SPAWNS_PER_FRAME    = 8
 
 ; Game state IDs (extend existing)
 GS_OBJECT_TEST          = 2
+
+; -----------------------------------------------
+; Test VRAM allocation
+; -----------------------------------------------
+VRAM_TEST_OBJ           = $0001         ; tile index 1 (8 tiles for test art)
