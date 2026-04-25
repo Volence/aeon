@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from s4budget import (
     parse_symbol_table, parse_source_listing, FileContribution, Region,
     compute_ram_layout, compute_vram_layout, RAMLayout, RAMEntry, VRAMLayout,
+    format_rom_report, format_ram_report, format_vram_report, format_summary,
 )
 
 
@@ -233,6 +234,87 @@ class TestComputeVRAMLayout(unittest.TestCase):
     def test_missing_constants_returns_none(self):
         result = compute_vram_layout({})
         self.assertIsNone(result)
+
+
+class TestFormatROMReport(unittest.TestCase):
+
+    def test_contains_header(self):
+        regions = [Region("Engine", 0x200, 0x1000, 0xE00)]
+        files = [FileContribution("engine/boot.asm", 0x200, 0x600, 0x400)]
+        output = format_rom_report(regions, files, 0x1000, 0x1000)
+        self.assertIn("=== ROM Budget ===", output)
+        self.assertIn("Engine", output)
+
+    def test_objbank_shows_limit(self):
+        regions = [Region("Object Bank", 0x10000, 0x18000, 0x8000)]
+        output = format_rom_report(regions, [], 0x18000, 0x18000)
+        self.assertIn("64 KB limit", output)
+
+    def test_per_file_breakdown(self):
+        regions = [Region("Engine", 0x200, 0x600, 0x400)]
+        files = [
+            FileContribution("engine/boot.asm", 0x200, 0x400, 0x200),
+            FileContribution("engine/vdp_init.asm", 0x400, 0x600, 0x200),
+        ]
+        output = format_rom_report(regions, files, 0x600, 0x600)
+        self.assertIn("engine/boot.asm", output)
+        self.assertIn("engine/vdp_init.asm", output)
+
+
+class TestFormatRAMReport(unittest.TestCase):
+
+    def test_contains_header(self):
+        layout = RAMLayout(
+            lower=[RAMEntry("DECOMP_BUFFER", 0xFFFF0000, 0x8000)],
+            upper=[RAMEntry("VBLANK_FLAG", 0xFFFF8000, 1)],
+            total_used=0x8001,
+            free_before_stack=0x6FFF,
+            stack_addr=0xFFFFFF00,
+        )
+        output = format_ram_report(layout)
+        self.assertIn("=== RAM Budget ===", output)
+        self.assertIn("DECOMP_BUFFER", output)
+        self.assertIn("free before stack", output)
+
+
+class TestFormatVRAMReport(unittest.TestCase):
+
+    def test_contains_header(self):
+        layout = VRAMLayout(
+            total_bytes=65536, total_tiles=2048,
+            plane_a_addr=0xC000, plane_a_size=8192,
+            plane_b_addr=0xE000, plane_b_size=8192,
+            sprite_table_addr=0xD800, sprite_table_size=640,
+            hscroll_table_addr=0xDC00, hscroll_table_size=896,
+            window_addr=0xF000, window_size=8192,
+            art_tiles_available=1536,
+        )
+        output = format_vram_report(layout)
+        self.assertIn("=== VRAM Budget ===", output)
+        self.assertIn("Plane A", output)
+        self.assertIn("1,536 tiles", output)
+
+
+class TestFormatSummary(unittest.TestCase):
+
+    def test_oneliner_format(self):
+        regions = [
+            Region("Engine", 0x200, 0x1000, 0xE00),
+            Region("Object Bank", 0x10000, 0x18000, 0x8000),
+        ]
+        ram = RAMLayout(
+            lower=[], upper=[],
+            total_used=26624,
+            free_before_stack=5888,
+            stack_addr=0xFFFFFF00,
+        )
+        output = format_summary(regions, 209408, ram)
+        self.assertIn("ROM:", output)
+        self.assertIn("ObjBank:", output)
+        self.assertIn("RAM:", output)
+        self.assertIn("Free:", output)
+        # Should be a single line
+        self.assertEqual(output.count("\n"), 0)
 
 
 if __name__ == "__main__":

@@ -264,6 +264,7 @@ class RAMLayout(NamedTuple):
 
 
 _DEFAULT_STACK = 0xFFFFFF00
+_LOWER_RAM_START = 0xFFFF0000
 _UPPER_RAM_START = 0xFFFF8000
 
 
@@ -385,4 +386,135 @@ def compute_vram_layout(constants: Dict[str, int]) -> Optional[VRAMLayout]:
         window_addr=window_addr,
         window_size=window_size,
         art_tiles_available=art_tiles,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Report formatters
+# ---------------------------------------------------------------------------
+
+_ROM_MAX = 4 * 1024 * 1024  # 4MB
+_OBJBANK_LIMIT = 64 * 1024  # 64KB
+
+
+def _fmt_size(n: int) -> str:
+    if n >= 1024 * 1024:
+        return f"{n / (1024*1024):.1f} MB"
+    if n >= 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n:,} B"
+
+
+def _fmt_size_aligned(n: int, width: int = 10) -> str:
+    return _fmt_size(n).rjust(width)
+
+
+def format_rom_report(regions: List[Region],
+                      file_contributions: List[FileContribution],
+                      endofrom: int,
+                      rom_file_size: int) -> str:
+    lines = []
+    actual_size = rom_file_size if rom_file_size else endofrom
+    pct = actual_size / _ROM_MAX * 100
+
+    lines.append("=== ROM Budget ===")
+    lines.append(f"ROM: {actual_size:,} / {_ROM_MAX:,} bytes ({pct:.1f}%)")
+    lines.append("")
+
+    for r in regions:
+        extra = ""
+        if r.name == "Object Bank":
+            ob_pct = r.size / _OBJBANK_LIMIT * 100
+            extra = f"  (of 64 KB limit: {ob_pct:.1f}%)"
+        lines.append(f"  {r.name:<14} ${r.start:06X}-${r.end:06X}  {_fmt_size_aligned(r.size)}{extra}")
+
+    free = _ROM_MAX - actual_size
+    lines.append(f"  {'Free':<14} {'':>15} {_fmt_size_aligned(free)}")
+
+    for r in regions:
+        region_files = [
+            fc for fc in file_contributions
+            if fc.start >= r.start and fc.start < r.end
+        ]
+        if not region_files:
+            continue
+        region_files.sort(key=lambda f: f.start)
+        lines.append("")
+        lines.append(f"  {r.name} ({_fmt_size(r.size)}):")
+        for fc in region_files:
+            lines.append(f"    {fc.filename:<40} {_fmt_size_aligned(fc.size)}")
+
+    return "\n".join(lines)
+
+
+def format_ram_report(layout: RAMLayout) -> str:
+    lines = []
+    lines.append("=== RAM Budget ===")
+    lines.append(
+        f"RAM: {layout.total_used:,} bytes  "
+        f"[{layout.free_before_stack:,} free before stack]"
+    )
+    lines.append("")
+
+    if layout.lower:
+        lines.append(f"  Lower RAM (${_LOWER_RAM_START:08X}-${_UPPER_RAM_START - 1:08X}):")
+        for e in layout.lower:
+            lines.append(f"    {e.name:<30} {e.size:>10,} B")
+        lines.append("")
+
+    if layout.upper:
+        lines.append(f"  Upper RAM (${_UPPER_RAM_START:08X}+):")
+        for e in layout.upper:
+            lines.append(f"    {e.name:<30} {e.size:>10,} B")
+        lines.append(f"    {'[Free]':<30} {layout.free_before_stack:>10,} B  -> ${layout.stack_addr:08X} (stack)")
+
+    return "\n".join(lines)
+
+
+def format_vram_report(layout: VRAMLayout) -> str:
+    lines = []
+    lines.append("=== VRAM Budget ===")
+    lines.append(f"VRAM: {layout.total_bytes:,} bytes ({layout.total_tiles:,} tiles)")
+    lines.append("")
+
+    entries = [
+        ("Plane A", layout.plane_a_addr, layout.plane_a_size, layout.plane_a_size // _TILE_SIZE),
+        ("Plane B", layout.plane_b_addr, layout.plane_b_size, layout.plane_b_size // _TILE_SIZE),
+        ("Sprite Table", layout.sprite_table_addr, layout.sprite_table_size, None),
+        ("Hscroll Table", layout.hscroll_table_addr, layout.hscroll_table_size, None),
+        ("Window Plane", layout.window_addr, layout.window_size, layout.window_size // _TILE_SIZE),
+    ]
+    for name, addr, size, tiles in entries:
+        tile_str = f"  ({tiles:,} tiles)" if tiles else ""
+        end_addr = addr + size - 1
+        lines.append(f"  {name:<16} ${addr:04X}-${end_addr:04X}  {size:>6,} B{tile_str}")
+
+    art_bytes = layout.art_tiles_available * _TILE_SIZE
+    lines.append(f"  {'Art Tiles':<16} $0000-${art_bytes - 1:04X}  {art_bytes:>6,} B  ({layout.art_tiles_available:,} tiles available)")
+
+    return "\n".join(lines)
+
+
+def format_summary(regions: List[Region], rom_file_size: int,
+                   ram: RAMLayout) -> str:
+    rom_kb = rom_file_size // 1024
+    rom_pct = int(rom_file_size / _ROM_MAX * 100)
+
+    objbank = next((r for r in regions if r.name == "Object Bank"), None)
+    ob_str = ""
+    if objbank:
+        ob_kb = objbank.size // 1024
+        ob_pct = int(objbank.size / _OBJBANK_LIMIT * 100)
+        ob_str = f" | ObjBank: {ob_kb}KB/64KB ({ob_pct}%)"
+
+    ram_kb = ram.total_used // 1024
+    ram_total_kb = 32
+    ram_pct = int(ram.total_used / (32 * 1024) * 100)
+    free_kb = ram.free_before_stack / 1024
+
+    return (
+        f"ROM: {rom_kb}KB/4MB ({rom_pct}%)"
+        f"{ob_str}"
+        f" | RAM: {ram_kb}KB/{ram_total_kb}KB ({ram_pct}%)"
+        f" | Free: {free_kb:.1f}KB before stack"
     )
