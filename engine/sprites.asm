@@ -72,12 +72,20 @@ Draw_Sprite:
         move.w  SST_priority(a0), d0   ; 0-7
         andi.w  #PRIORITY_BANDS-1, d0  ; clamp to valid range
 
-        ; Check band overflow
+        ; Check band overflow — cascade to lower bands if full
         lea     (Sprite_Band_Counts).w, a1
         move.b  (a1,d0.w), d1
         cmpi.b  #SPRITES_PER_BAND, d1
-        beq.s   .band_full             ; band is full, silently drop
+        blo.s   .band_has_room
 
+.cascade:
+        subq.w  #1, d0
+        bmi.s   .all_bands_full         ; all bands full, truly drop
+        move.b  (a1,d0.w), d1
+        cmpi.b  #SPRITES_PER_BAND, d1
+        bhs.s   .cascade
+
+.band_has_room:
         ; Compute slot index in Sprite_Bands:
         ; offset = band * SPRITES_PER_BAND * 2 + count * 2
         move.w  d0, d2
@@ -94,7 +102,7 @@ Draw_Sprite:
         lea     (Sprite_Band_Counts).w, a1
         addq.b  #1, (a1,d0.w)
 
-.band_full:
+.all_bands_full:
         rts
 
 .offscreen:
@@ -125,7 +133,7 @@ Draw_Sprite:
 ;
 ; In:  none
 ; Out: none
-; Clobbers: d0-d7, a0-a5
+; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 Render_Sprites:
         lea     (Sprite_Table_Buffer).w, a4  ; a4 = SAT buffer write pointer
@@ -189,114 +197,198 @@ Render_Sprites:
         move.w  SST_y_pos(a0), d3
 
 .have_pos:
-        ; Load object art_tile for combining with piece tile attrs
-        move.w  SST_art_tile(a0), d6       ; d6 = base art_tile (reuse d6 here safely)
+        move.w  SST_art_tile(a0), d6
 
-        ; Check object-level X-flip
-        btst    #RF_XFLIP, SST_render_flags(a0)
-        bne.s   .pieces_flipped
+        ; Determine flip variant from render_flags bits 1-2
+        move.b  SST_render_flags(a0), d0
+        andi.w  #(1<<RF_XFLIP)|(1<<RF_YFLIP), d0
+        lea     CellOffsets_XFlip(pc), a0  ; a0 free now — reuse for flip tables
+        beq.s   .pieces_unflipped
+        cmpi.b  #1<<RF_XFLIP, d0
+        beq.w   .pieces_xflip
+        cmpi.b  #1<<RF_YFLIP, d0
+        beq.w   .pieces_yflip
+        bra.w   .pieces_xyflip
 
         ; --- Unflipped piece loop ---
-        subq.w  #1, d4                     ; adjust for dbf
+.pieces_unflipped:
+        subq.w  #1, d4
 .piece_loop:
-        cmpi.w  #MAX_VDP_SPRITES, d5
-        bge.w   .done
+        move.w  (a3)+, d0               ; Y offset (signed)
+        move.b  (a3)+, d1               ; VDP size code
+        addq.w  #1, a3                  ; skip padding byte
+        move.w  (a3)+, a6              ; tile attrs (relative)
+        move.w  (a3)+, a1              ; X offset (signed)
 
-        ; Read mapping piece (8 bytes)
-        move.w  (a3)+, d0                  ; Y offset (signed)
-        move.b  (a3)+, d1                  ; VDP size code
-        addq.l  #1, a3                     ; skip padding byte
-        move.w  (a3)+, a6                  ; tile attributes (relative) — stash in a6
-        move.w  (a3)+, a1                  ; X offset (signed) — stash in a1
-
-        ; Compute VDP Y: screen_y + y_offset + 128
-        add.w   d3, d0                     ; d0 = screen Y + Y offset
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0   ; d0 = VDP Y position
-        move.w  d0, (a4)+                 ; SAT +0: Y position
-
-        ; SAT +2: size | link
-        move.b  d1, (a4)+                 ; size code
-        ; Link: this sprite links to next index
-        move.w  d5, d0
-        addq.w  #1, d0                    ; next sprite index
-        move.b  d0, (a4)+                 ; link byte
-
-        ; SAT +4: tile attributes (base art_tile + piece relative tile)
-        move.w  a6, d0                    ; retrieve piece tile attrs
-        add.w   d6, d0                     ; combine with base art_tile
-        move.w  d0, (a4)+                 ; tile + palette + priority + flip
-
-        ; SAT +6: X position
-        move.w  a1, d0                    ; retrieve X offset
-        add.w   d2, d0                     ; screen X + X offset
-        addi.w  #VDP_SPRITE_X_OFFSET, d0   ; VDP X position
-        bne.s   .x_ok                      ; guard: X=0 masks lower sprites
-        moveq   #1, d0
-.x_ok:
-        move.w  d0, (a4)+                 ; X position
-
-        addq.w  #1, d5                     ; increment sprite index
-        dbf     d4, .piece_loop
-
-        bra.s   .next_object
-
-        ; --- X-flipped piece loop ---
-.pieces_flipped:
-        subq.w  #1, d4                     ; adjust for dbf
-.piece_loop_flip:
-        cmpi.w  #MAX_VDP_SPRITES, d5
-        bge.w   .done
-
-        ; Read mapping piece (8 bytes)
-        move.w  (a3)+, d0                  ; Y offset (signed)
-        move.b  (a3)+, d1                  ; VDP size code
-        addq.l  #1, a3                     ; skip padding byte
-        move.w  (a3)+, a6                  ; tile attributes (relative)
-        move.w  (a3)+, a1                  ; X offset (signed)
-
-        ; Compute VDP Y: screen_y + y_offset + 128
+        ; VDP Y: screen_y + y_offset + 128
         add.w   d3, d0
         addi.w  #VDP_SPRITE_Y_OFFSET, d0
-        move.w  d0, (a4)+                 ; SAT +0: Y position
+        move.w  d0, (a4)+              ; SAT +0: Y
 
         ; SAT +2: size | link
-        move.b  d1, (a4)+                 ; size code
-        move.w  d5, d0
-        addq.w  #1, d0
-        move.b  d0, (a4)+                 ; link byte
+        move.b  d1, (a4)+              ; size code
+        addq.b  #1, d5
+        move.b  d5, (a4)+              ; link = next sprite index
 
-        ; SAT +4: tile attributes — flip X bit and combine
-        move.w  a6, d0                    ; piece tile attrs
-        eori.w  #$0800, d0                ; toggle horizontal flip bit (bit 11)
-        add.w   d6, d0                     ; combine with base art_tile
+        ; SAT +4: tile attributes
+        move.w  a6, d0
+        add.w   d6, d0
         move.w  d0, (a4)+
 
-        ; SAT +6: X position — negate X offset for horizontal flip
-        move.w  a1, d0                    ; X offset
-        neg.w   d0                         ; negate for flip
-        ; Adjust for sprite width: d1 still has VDP size code from piece read
-        ; Width in cells = ((size >> 2) & 3) + 1, pixel width = cells * 8
-        lsr.b   #2, d1                    ; shift width bits down
-        andi.w  #3, d1                    ; mask to 2 bits (width - 1)
-        addq.w  #1, d1                    ; width in cells
-        lsl.w   #3, d1                    ; width in pixels
-        sub.w   d1, d0                     ; adjust flipped X offset
-        add.w   d2, d0                     ; screen X
+        ; SAT +6: X position
+        move.w  a1, d0
+        add.w   d2, d0
         addi.w  #VDP_SPRITE_X_OFFSET, d0
-        bne.s   .x_ok_flip                 ; guard: X=0 masks lower sprites
+        bne.s   .x_ok
         moveq   #1, d0
-.x_ok_flip:
-        move.w  d0, (a4)+                 ; X position
+.x_ok:
+        move.w  d0, (a4)+
 
-        addq.w  #1, d5
-        dbf     d4, .piece_loop_flip
+        cmpi.b  #MAX_VDP_SPRITES, d5
+        dbeq    d4, .piece_loop
+        bra.w   .next_object
+
+        ; --- X-flipped piece loop ---
+.pieces_xflip:
+        subq.w  #1, d4
+.piece_loop_xf:
+        move.w  (a3)+, d0
+        move.b  (a3)+, d1
+        addq.w  #1, a3
+        move.w  (a3)+, a6
+        move.w  (a3)+, a1
+
+        add.w   d3, d0
+        addi.w  #VDP_SPRITE_Y_OFFSET, d0
+        move.w  d0, (a4)+
+
+        move.b  d1, (a4)+
+        addq.b  #1, d5
+        move.b  d5, (a4)+
+
+        ; Toggle X flip bit
+        move.w  a6, d0
+        eori.w  #$0800, d0
+        add.w   d6, d0
+        move.w  d0, (a4)+
+
+        ; Negate X offset and subtract sprite width via lookup table
+        move.w  a1, d0
+        neg.w   d0
+        moveq   #0, d1                  ; re-zero for table index
+        move.b  -6(a3), d1              ; re-read VDP size code from mapping piece
+        move.b  (a0,d1.w), d1           ; X-flip width from CellOffsets_XFlip
+        sub.w   d1, d0
+        add.w   d2, d0
+        addi.w  #VDP_SPRITE_X_OFFSET, d0
+        bne.s   .x_ok_xf
+        moveq   #1, d0
+.x_ok_xf:
+        move.w  d0, (a4)+
+
+        cmpi.b  #MAX_VDP_SPRITES, d5
+        dbeq    d4, .piece_loop_xf
+        bra.w   .next_object
+
+        ; --- Y-flipped piece loop ---
+.pieces_yflip:
+        subq.w  #1, d4
+.piece_loop_yf:
+        move.w  (a3)+, d0               ; Y offset (signed)
+        move.b  (a3)+, d1               ; VDP size code
+        addq.w  #1, a3
+        move.w  (a3)+, a6
+        move.w  (a3)+, a1
+
+        ; Negate Y offset and subtract sprite height
+        neg.w   d0
+        andi.w  #3, d1                  ; height-1 from VDP size code low 2 bits
+        addq.w  #1, d1                  ; height in cells
+        lsl.w   #3, d1                  ; height in pixels
+        sub.w   d1, d0
+        add.w   d3, d0
+        addi.w  #VDP_SPRITE_Y_OFFSET, d0
+        move.w  d0, (a4)+
+
+        move.b  -6(a3), d1              ; re-read VDP size code
+        move.b  d1, (a4)+
+        addq.b  #1, d5
+        move.b  d5, (a4)+
+
+        ; Toggle Y flip bit
+        move.w  a6, d0
+        eori.w  #$1000, d0
+        add.w   d6, d0
+        move.w  d0, (a4)+
+
+        ; X position (normal, no X flip)
+        move.w  a1, d0
+        add.w   d2, d0
+        addi.w  #VDP_SPRITE_X_OFFSET, d0
+        bne.s   .x_ok_yf
+        moveq   #1, d0
+.x_ok_yf:
+        move.w  d0, (a4)+
+
+        cmpi.b  #MAX_VDP_SPRITES, d5
+        dbeq    d4, .piece_loop_yf
+        bra.w   .next_object
+
+        ; --- XY-flipped piece loop ---
+.pieces_xyflip:
+        subq.w  #1, d4
+.piece_loop_xyf:
+        move.w  (a3)+, d0               ; Y offset
+        move.b  (a3)+, d1               ; VDP size code
+        addq.w  #1, a3
+        move.w  (a3)+, a6
+        move.w  (a3)+, a1
+
+        ; Negate Y offset, subtract sprite height
+        neg.w   d0
+        andi.w  #3, d1                  ; height-1 from VDP size code low 2 bits
+        addq.w  #1, d1                  ; height in cells
+        lsl.w   #3, d1                  ; height in pixels
+        sub.w   d1, d0
+        add.w   d3, d0
+        addi.w  #VDP_SPRITE_Y_OFFSET, d0
+        move.w  d0, (a4)+
+
+        move.b  -6(a3), d1              ; re-read VDP size code
+        move.b  d1, (a4)+
+        addq.b  #1, d5
+        move.b  d5, (a4)+
+
+        ; Toggle both flip bits
+        move.w  a6, d0
+        eori.w  #$1800, d0
+        add.w   d6, d0
+        move.w  d0, (a4)+
+
+        ; Negate X offset, subtract sprite width
+        move.w  a1, d0
+        neg.w   d0
+        moveq   #0, d1
+        move.b  -6(a3), d1              ; re-read VDP size code again
+        move.b  (a0,d1.w), d1           ; X-flip width from CellOffsets_XFlip
+        sub.w   d1, d0
+        add.w   d2, d0
+        addi.w  #VDP_SPRITE_X_OFFSET, d0
+        bne.s   .x_ok_xyf
+        moveq   #1, d0
+.x_ok_xyf:
+        move.w  d0, (a4)+
+
+        cmpi.b  #MAX_VDP_SPRITES, d5
+        dbeq    d4, .piece_loop_xyf
+        bra.w   .next_object
 
 .next_object:
         dbf     d7, .object_loop
 
 .next_band:
         ; Decrement band counter
-        suba.w  #1, a5
+        subq.w  #1, a5
         move.w  a5, d0
         bpl.w   .band_loop                ; continue while band >= 0
 
@@ -316,3 +408,17 @@ Render_Sprites:
         move.b  #1, (Sprite_Table_Dirty).w
 .skip_dirty:
         rts
+
+; -----------------------------------------------
+; Flip offset lookup table (indexed by raw VDP size byte)
+; VDP size byte: bits 3-2 = width-1, bits 1-0 = height-1
+; -----------------------------------------------
+
+; Width adjustment for X-flipped sprites
+; Returns pixel width: (((size>>2)&3)+1)*8
+CellOffsets_XFlip:
+        dc.b  8,  8,  8,  8            ; width=1 (8px)
+        dc.b 16, 16, 16, 16            ; width=2 (16px)
+        dc.b 24, 24, 24, 24            ; width=3 (24px)
+        dc.b 32, 32, 32, 32            ; width=4 (32px)
+        align 2
