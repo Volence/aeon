@@ -15,12 +15,6 @@ AIR_ACCEL               = $18           ; air horizontal acceleration
 STUB_FLOOR_Y            = 192           ; pixel Y for stub ground plane
 
 ; -----------------------------------------------
-; Custom SST fields (overlay on sst_custom at $2C)
-; _dplc_ptr ($2C) and _art_base ($30) shared with test_animated.asm
-; -----------------------------------------------
-_on_ground              = SST_sst_custom+8      ; $34 — byte, 1 = grounded, 0 = airborne
-
-; -----------------------------------------------
 ; TestPlayer — init routine
 ; In:  a0 = SST pointer (slot already allocated)
 ; -----------------------------------------------
@@ -37,28 +31,50 @@ TestPlayer:
         move.b  #16, SST_width_pixels(a0)
         move.b  #32, SST_height_pixels(a0)
         move.b  #COLLISION_NONE, SST_collision_resp(a0)
-        move.b  #1, _on_ground(a0)
+        clr.b   SST_status(a0)                 ; start grounded (in_air clear)
         move.w  #objroutine(TestPlayer_Main), SST_code_addr(a0)
 
         ; Fall through to main for first frame
 ; -----------------------------------------------
 ; TestPlayer_Main — per-frame update
 ; In:  a0 = SST pointer
+;
+; Ground detection: "grounded" = on_object was set by Touch_Solid
+; last frame, OR player is on the stub floor. ST_ON_OBJECT is
+; cleared each frame and re-set by Touch_Solid if still overlapping.
+; This gives 1 frame of grace when walking off an edge (coyote time).
 ; -----------------------------------------------
 TestPlayer_Main:
+        ; --- Snapshot on_object, then clear it (Touch_Solid re-sets if needed) ---
+        move.b  SST_status(a0), d5             ; d5 = status snapshot
+        bclr    #ST_ON_OBJECT, SST_status(a0)
+
+        ; --- Determine grounded state into d5 bit 7 (1 = grounded) ---
+        ; Grounded if: on_object was set, OR on stub floor
+        btst    #ST_ON_OBJECT, d5
+        bne.s   .is_grounded
+        cmpi.w  #STUB_FLOOR_Y, SST_y_pos(a0)
+        bge.s   .is_grounded
+        ; Airborne
+        bset    #ST_IN_AIR, SST_status(a0)
+        bra.s   .grounded_done
+.is_grounded:
+        bclr    #ST_IN_AIR, SST_status(a0)
+.grounded_done:
+
         ; --- Read controller ---
         move.b  (Ctrl_1_Held).w, d6             ; d6 = held buttons
         move.b  (Ctrl_1_Press).w, d7            ; d7 = newly pressed
 
-        ; --- Jump check ---
-        tst.b   _on_ground(a0)
-        beq.s   .no_jump_start
-        ; Check B or C pressed
+        ; --- Jump check (only if grounded) ---
+        btst    #ST_IN_AIR, SST_status(a0)
+        bne.s   .no_jump_start
         move.b  d7, d0
         andi.b  #BUTTON_B|BUTTON_C, d0
         beq.s   .no_jump_start
         move.w  #JUMP_VELOCITY, SST_y_vel(a0)
-        clr.b   _on_ground(a0)
+        bset    #ST_IN_AIR, SST_status(a0)
+        bclr    #ST_ON_OBJECT, SST_status(a0)
 .no_jump_start:
 
         ; --- Horizontal movement ---
@@ -67,8 +83,8 @@ TestPlayer_Main:
         ; Determine accel/decel values based on ground state
         move.w  #ACCELERATION, d2               ; d2 = accel
         move.w  #DECELERATION, d3               ; d3 = decel
-        tst.b   _on_ground(a0)
-        bne.s   .have_phys
+        btst    #ST_IN_AIR, SST_status(a0)
+        beq.s   .have_phys
         move.w  #AIR_ACCEL, d2                  ; air: use air accel for both
         move.w  #AIR_ACCEL, d3
 .have_phys:
@@ -80,16 +96,15 @@ TestPlayer_Main:
         ; LEFT held
         tst.w   d0
         ble.s   .accel_left
-        ; Moving right, decelerate toward 0
         sub.w   d3, d0
-        bpl.s   .clamp_vel                      ; still positive, done
-        clr.w   d0                              ; crossed zero, clamp
+        bpl.s   .clamp_vel
+        clr.w   d0
         bra.s   .clamp_vel
 .accel_left:
-        sub.w   d2, d0                          ; accelerate leftward
+        sub.w   d2, d0
         cmpi.w  #-TOP_SPEED, d0
-        bge.s   .set_flip_left                  ; signed: -TOP_SPEED <= d0
-        move.w  #-TOP_SPEED, d0                 ; clamp at max
+        bge.s   .set_flip_left
+        move.w  #-TOP_SPEED, d0
 .set_flip_left:
         bset    #RF_XFLIP, SST_render_flags(a0)
         bra.s   .clamp_vel
@@ -101,16 +116,15 @@ TestPlayer_Main:
         ; RIGHT held
         tst.w   d0
         bge.s   .accel_right
-        ; Moving left, decelerate toward 0
         add.w   d3, d0
-        bmi.s   .clamp_vel                      ; still negative, done
-        clr.w   d0                              ; crossed zero, clamp
+        bmi.s   .clamp_vel
+        clr.w   d0
         bra.s   .clamp_vel
 .accel_right:
-        add.w   d2, d0                          ; accelerate rightward
+        add.w   d2, d0
         cmpi.w  #TOP_SPEED, d0
-        ble.s   .set_flip_right                 ; signed: d0 <= TOP_SPEED
-        move.w  #TOP_SPEED, d0                  ; clamp at max
+        ble.s   .set_flip_right
+        move.w  #TOP_SPEED, d0
 .set_flip_right:
         bclr    #RF_XFLIP, SST_render_flags(a0)
         bra.s   .clamp_vel
@@ -118,15 +132,13 @@ TestPlayer_Main:
 .no_input:
         ; No direction held — apply friction toward 0
         tst.w   d0
-        beq.s   .clamp_vel                      ; already stopped
+        beq.s   .clamp_vel
         bmi.s   .friction_neg
-        ; Positive velocity — decelerate
         sub.w   d3, d0
         bpl.s   .clamp_vel
         clr.w   d0
         bra.s   .clamp_vel
 .friction_neg:
-        ; Negative velocity — decelerate
         add.w   d3, d0
         bmi.s   .clamp_vel
         clr.w   d0
@@ -135,21 +147,20 @@ TestPlayer_Main:
         move.w  d0, SST_x_vel(a0)
 
         ; --- Variable jump (cut short if button released while rising) ---
-        tst.b   _on_ground(a0)
-        bne.s   .skip_var_jump
+        btst    #ST_IN_AIR, SST_status(a0)
+        beq.s   .skip_var_jump
         move.w  SST_y_vel(a0), d0
         cmpi.w  #JUMP_CAP, d0
         bge.s   .skip_var_jump                  ; y_vel >= cap — not rising fast enough
-        ; Still rising fast — check if B/C still held
         move.b  d6, d1
         andi.b  #BUTTON_B|BUTTON_C, d1
         bne.s   .skip_var_jump                  ; still held, maintain full jump
-        move.w  #JUMP_CAP, SST_y_vel(a0)       ; cap velocity
+        move.w  #JUMP_CAP, SST_y_vel(a0)
 .skip_var_jump:
 
-        ; --- Gravity ---
-        tst.b   _on_ground(a0)
-        bne.s   .skip_gravity
+        ; --- Gravity (only if airborne) ---
+        btst    #ST_IN_AIR, SST_status(a0)
+        beq.s   .skip_gravity
         move.w  SST_y_vel(a0), d0
         addi.w  #GRAVITY, d0
         cmpi.w  #TERMINAL_VELOCITY, d0
@@ -168,12 +179,12 @@ TestPlayer_Main:
         ble.s   .no_floor
         move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a0)
         clr.w   SST_y_vel(a0)
-        move.b  #1, _on_ground(a0)
+        bclr    #ST_IN_AIR, SST_status(a0)
 .no_floor:
 
         ; --- Animation selection ---
-        tst.b   _on_ground(a0)
-        beq.s   .anim_air
+        btst    #ST_IN_AIR, SST_status(a0)
+        bne.s   .anim_air
         tst.w   SST_x_vel(a0)
         beq.s   .anim_idle
         move.b  #0, SST_anim(a0)               ; walk

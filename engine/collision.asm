@@ -210,12 +210,15 @@ Touch_Solid:
         rts
 
 .solid_top:
-        ; Player above target — snap above, zero y_vel
+        ; Player above target — snap above, zero y_vel, set grounded
         add.w   d3, d2                  ; restore combined_half_h
         move.w  SST_y_pos(a3), d1
         sub.w   d2, d1                  ; target.y - combined_half_h
         move.w  d1, SST_y_pos(a2)
         clr.w   SST_y_vel(a2)
+        bclr    #ST_IN_AIR, SST_status(a2)
+        bset    #ST_ON_OBJECT, SST_status(a2)
+        bset    #ST_P1_STANDING, SST_status(a3)
         rts
 
 .solid_side:

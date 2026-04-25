@@ -89,7 +89,9 @@ respawn_index   ds.b 1      ; $25 — respawn tracking
 parent_ptr      ds.w 1      ; $26 — parent object RAM address
 sibling_ptr     ds.w 1      ; $28 — sibling link (multi-part objects)
 wait_timer      ds.w 1      ; $2A — Obj_Wait countdown
-sst_custom      ds.b 36     ; $2C-$4F — per-object custom data overlay
+status          ds.b 1      ; $2C — player/object status bits (ST_* constants)
+                ds.b 1      ; $2D — pad
+sst_custom      ds.b 34     ; $2E-$4F — per-object custom data overlay
 SST endstruct
 
         if SST_len <> $50
