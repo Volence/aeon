@@ -102,6 +102,7 @@ Checksum:
     include "engine/objects.asm"
     include "engine/sprites.asm"
     include "engine/animate.asm"
+    include "engine/collision.asm"
 
 ; -----------------------------------------------
 ; Object code bank
