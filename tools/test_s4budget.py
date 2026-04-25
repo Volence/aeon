@@ -6,7 +6,10 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from s4budget import parse_symbol_table, parse_source_listing, FileContribution, Region
+from s4budget import (
+    parse_symbol_table, parse_source_listing, FileContribution, Region,
+    compute_ram_layout, compute_vram_layout, RAMLayout, RAMEntry, VRAMLayout,
+)
 
 
 SAMPLE_SYMTAB = """\
@@ -162,6 +165,69 @@ class TestParseSourceListing(unittest.TestCase):
         self.assertEqual(result.regions, [])
         self.assertEqual(result.file_contributions, [])
         self.assertEqual(result.endofrom, 0)
+
+
+class TestComputeRAMLayout(unittest.TestCase):
+
+    def test_basic_layout(self):
+        ram_labels = {
+            "DECOMP_BUFFER": 0xFFFF0000,
+            "DECOMP_BUFFER_END": 0xFFFF8000,
+            "RAM_START": 0xFFFF8000,
+            "VBLANK_FLAG": 0xFFFF8000,
+            "FRAME_COUNTER": 0xFFFF8002,
+            "OBJECT_RAM": 0xFFFF8010,
+            "RAM_END": 0xFFFF9000,
+        }
+        constants = {"SYSTEM_STACK": 0xFFFFFF00}
+        result = compute_ram_layout(ram_labels, constants)
+
+        self.assertEqual(len(result.lower), 1)
+        self.assertEqual(result.lower[0].name, "DECOMP_BUFFER")
+        self.assertEqual(result.lower[0].size, 0x8000)
+
+        self.assertGreater(len(result.upper), 0)
+        self.assertEqual(result.free_before_stack, 0xFFFFFF00 - 0xFFFF9000)
+
+    def test_upper_ram_sorted_by_address(self):
+        ram_labels = {
+            "B_SECOND": 0xFFFF8010,
+            "A_FIRST": 0xFFFF8000,
+            "C_THIRD": 0xFFFF8020,
+        }
+        constants = {"SYSTEM_STACK": 0xFFFFFF00}
+        result = compute_ram_layout(ram_labels, constants)
+        names = [e.name for e in result.upper]
+        self.assertEqual(names, ["A_FIRST", "B_SECOND", "C_THIRD"])
+
+    def test_missing_stack_uses_default(self):
+        ram_labels = {"RAM_END": 0xFFFF9000}
+        result = compute_ram_layout(ram_labels, {})
+        self.assertEqual(result.free_before_stack, 0xFFFFFF00 - 0xFFFF9000)
+
+
+class TestComputeVRAMLayout(unittest.TestCase):
+
+    def test_basic_layout(self):
+        constants = {
+            "VRAM_PLANE_A": 0xC000,
+            "VRAM_PLANE_B": 0xE000,
+            "VRAM_SPRITE_TABLE": 0xD800,
+            "VRAM_HSCROLL_TABLE": 0xDC00,
+            "VRAM_WINDOW": 0xF000,
+            "PLANE_H_CELLS": 64,
+            "PLANE_V_CELLS": 64,
+        }
+        result = compute_vram_layout(constants)
+        self.assertEqual(result.total_bytes, 65536)
+        self.assertEqual(result.total_tiles, 2048)
+        self.assertEqual(result.plane_a_size, 64 * 64 * 2)
+        self.assertEqual(result.plane_b_size, 64 * 64 * 2)
+        self.assertGreater(result.art_tiles_available, 0)
+
+    def test_missing_constants_returns_none(self):
+        result = compute_vram_layout({})
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

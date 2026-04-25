@@ -13,7 +13,7 @@ Usage:
 from __future__ import annotations
 
 import re
-from typing import Dict, List, NamedTuple, Set, Tuple
+from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 
 class FileContribution(NamedTuple):
@@ -242,4 +242,147 @@ def parse_source_listing(lines: List[str]) -> SourceListingResult:
         regions=regions,
         file_contributions=file_contributions,
         endofrom=endofrom,
+    )
+
+
+# ---------------------------------------------------------------------------
+# RAM layout computation
+# ---------------------------------------------------------------------------
+
+class RAMEntry(NamedTuple):
+    name: str
+    address: int
+    size: int
+
+
+class RAMLayout(NamedTuple):
+    lower: List[RAMEntry]
+    upper: List[RAMEntry]
+    total_used: int
+    free_before_stack: int
+    stack_addr: int
+
+
+_DEFAULT_STACK = 0xFFFFFF00
+_LOWER_RAM_START = 0xFFFF0000
+_UPPER_RAM_START = 0xFFFF8000
+
+
+def _entries_from_sorted(syms: List[Tuple[str, int]],
+                         boundary: int) -> List[RAMEntry]:
+    """Build RAMEntry list from address-sorted symbols.
+
+    Each entry's size is the gap to the next symbol (or *boundary* for the
+    last one).  Zero-size entries (two symbols at the same address) are
+    dropped.
+    """
+    entries: List[RAMEntry] = []
+    for i, (name, addr) in enumerate(syms):
+        if i + 1 < len(syms):
+            size = syms[i + 1][1] - addr
+        else:
+            size = boundary - addr
+        if size > 0:
+            entries.append(RAMEntry(name, addr, size))
+    return entries
+
+
+def compute_ram_layout(ram_labels: Dict[str, int],
+                       constants: Dict[str, int]) -> RAMLayout:
+    """Compute per-buffer RAM breakdown from symbol addresses.
+
+    Splits symbols into Lower RAM ($FFFF0000-$FFFF7FFF) and Upper RAM
+    ($FFFF8000+).  Free space is measured from the highest symbol to
+    SYSTEM_STACK.
+    """
+    stack_addr = constants.get("SYSTEM_STACK", _DEFAULT_STACK)
+
+    lower_syms = sorted(
+        [(n, a) for n, a in ram_labels.items() if a < _UPPER_RAM_START],
+        key=lambda x: x[1],
+    )
+    upper_syms = sorted(
+        [(n, a) for n, a in ram_labels.items() if a >= _UPPER_RAM_START],
+        key=lambda x: x[1],
+    )
+
+    lower = _entries_from_sorted(lower_syms, _UPPER_RAM_START)
+    upper = _entries_from_sorted(upper_syms, stack_addr)
+
+    total_lower = sum(e.size for e in lower)
+    total_upper = sum(e.size for e in upper)
+    highest = upper_syms[-1][1] if upper_syms else _UPPER_RAM_START
+    free = stack_addr - highest
+
+    return RAMLayout(lower, upper, total_lower + total_upper, free, stack_addr)
+
+
+# ---------------------------------------------------------------------------
+# VRAM layout computation
+# ---------------------------------------------------------------------------
+
+class VRAMLayout(NamedTuple):
+    total_bytes: int         # 65536
+    total_tiles: int         # 2048
+    plane_a_addr: int
+    plane_a_size: int
+    plane_b_addr: int
+    plane_b_size: int
+    sprite_table_addr: int
+    sprite_table_size: int
+    hscroll_table_addr: int
+    hscroll_table_size: int
+    window_addr: int
+    window_size: int
+    art_tiles_available: int
+
+
+_SPRITE_TABLE_SIZE = 640   # 80 entries x 8 bytes
+_HSCROLL_SIZE = 896        # 224 lines x 4 bytes (per-line hscroll)
+_TILE_SIZE = 32            # 8x8 tile, 4bpp = 32 bytes
+
+
+def compute_vram_layout(constants: Dict[str, int]) -> Optional[VRAMLayout]:
+    """Compute static VRAM layout from VDP configuration constants.
+
+    Returns None when required constants (VRAM_PLANE_A, VRAM_PLANE_B,
+    PLANE_H_CELLS, PLANE_V_CELLS) are missing.
+    """
+    required = ["VRAM_PLANE_A", "VRAM_PLANE_B", "PLANE_H_CELLS", "PLANE_V_CELLS"]
+    if not all(k in constants for k in required):
+        return None
+
+    h_cells = constants["PLANE_H_CELLS"]
+    v_cells = constants["PLANE_V_CELLS"]
+    plane_size = h_cells * v_cells * 2
+
+    sprite_addr = constants.get("VRAM_SPRITE_TABLE", 0xD800)
+    hscroll_addr = constants.get("VRAM_HSCROLL_TABLE", 0xDC00)
+    window_addr = constants.get("VRAM_WINDOW", 0xF000)
+    window_size = plane_size
+
+    vdp_tables_start = min(
+        constants["VRAM_PLANE_A"],
+        constants["VRAM_PLANE_B"],
+        sprite_addr,
+        hscroll_addr,
+        window_addr,
+    )
+    art_bytes = vdp_tables_start
+    art_tiles = art_bytes // _TILE_SIZE
+
+    return VRAMLayout(
+        total_bytes=65536,
+        total_tiles=2048,
+        plane_a_addr=constants["VRAM_PLANE_A"],
+        plane_a_size=plane_size,
+        plane_b_addr=constants["VRAM_PLANE_B"],
+        plane_b_size=plane_size,
+        sprite_table_addr=sprite_addr,
+        sprite_table_size=_SPRITE_TABLE_SIZE,
+        hscroll_table_addr=hscroll_addr,
+        hscroll_table_size=_HSCROLL_SIZE,
+        window_addr=window_addr,
+        window_size=window_size,
+        art_tiles_available=art_tiles,
     )
