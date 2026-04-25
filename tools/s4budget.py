@@ -12,12 +12,8 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
-import json
-import os
 import re
-import sys
-from typing import Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import Dict, List, NamedTuple, Set
 
 
 class SymbolTable(NamedTuple):
@@ -41,6 +37,22 @@ _PAGE_BREAK_RE = re.compile(r'^\s*AS V\d+\.\d+')
 
 
 def parse_symbol_table(lines: List[str]) -> SymbolTable:
+    """Parse the AS Macro Assembler symbol table section from listing lines.
+
+    Buckets:
+      rom_labels  — type C, address < $400000, not RAM-prefixed.
+                    These are code/data labels assembled into the ROM.
+      ram_labels  — type C, FFFFFFFFFFFF prefix (AS sign-extends negative
+                    equates to 48 bits).  Values are masked to 32-bit so
+                    callers get the real Genesis RAM address (e.g. $FFFF8000).
+      constants   — type -, all values.  Covers hardware register addresses
+                    ($C00000-$C0001F), VRAM tile constants, numeric equates,
+                    and any other AS "absolute" symbol.
+      unused      — names whose entry is prefixed with '*' in the listing.
+                    A symbol in this set also appears in its value bucket
+                    (rom_labels / ram_labels / constants) — membership is
+                    not exclusive.
+    """
     rom_labels: Dict[str, int] = {}
     ram_labels: Dict[str, int] = {}
     constants: Dict[str, int] = {}
@@ -62,7 +74,7 @@ def parse_symbol_table(lines: List[str]) -> SymbolTable:
 
         if in_symtab and re.match(r'\s+\d+ symbols', line):
             break
-        if in_symtab and "Defined" in line:
+        if in_symtab and line.strip().startswith("Defined"):
             break
 
         if not in_symtab:

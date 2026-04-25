@@ -5,7 +5,7 @@ import unittest
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from s4budget import parse_symbol_table
 
 
@@ -59,6 +59,18 @@ class TestParseSymbolTable(unittest.TestCase):
 
     def test_endofrom_is_rom_label(self):
         self.assertEqual(self.result.rom_labels["ENDOFROM"], 0x312D6)
+
+    def test_unused_symbol_still_classified(self):
+        self.assertIn("ADDRESSERROR", self.result.rom_labels)
+        self.assertIn("ADDRESSERROR", self.result.unused)
+
+    def test_page_break_skipped(self):
+        lines = SAMPLE_SYMTAB.replace(
+            " ENDOFROM",
+            " AS V1.42 Beta [Bld 212] - Source File main.asm - Page 150 - 04/25/2026\n\n\n ENDOFROM"
+        ).splitlines()
+        result = parse_symbol_table(lines)
+        self.assertIn("ENDOFROM", result.rom_labels)
 
 
 if __name__ == "__main__":
