@@ -125,10 +125,10 @@ Map_Sonic:
     BINCLUDE "data/mappings/sonic.bin"
     align 2
 DPLC_Sonic:
-    BINCLUDE "data/dplc/optimized/sonic.bin"
+    BINCLUDE "data/dplc/sonic.bin"
     align 2
 Art_Sonic:
-    BINCLUDE "art/optimized/characters/sonic.bin"
+    BINCLUDE "art/uncompressed/characters/sonic.bin"
     align 2
 
 ; -----------------------------------------------

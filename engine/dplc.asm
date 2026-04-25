@@ -34,22 +34,21 @@ Perform_DPLC:
         lsr.w   #4, d3                          ; d3 = tile_count - 1 (0-15)
         addq.w  #1, d3                          ; d3 = tile_count (1-16)
 
-        andi.w  #$0FFF, d0                      ; d0 = tile_start_index
+        andi.l  #$0FFF, d0                      ; d0.l = tile_start_index (clear upper word)
 
         ; Compute source: art_base + tile_start * 32
-        lsl.w   #5, d0                          ; tile_start * 32 = byte offset
+        lsl.l   #5, d0                          ; byte offset (.l — art may exceed 64KB)
         move.l  a1, d1                          ; d1.l = art base ROM address
         add.l   d0, d1                          ; d1.l = source address (bytes)
 
         ; Compute length: tile_count * 32
-        move.w  d3, d3
         lsl.w   #5, d3                          ; d3.w = transfer length (bytes)
 
         ; Queue as Important-priority DMA (character art)
         ; d1.l = source, d2.w = VRAM dest, d3.w = length
-        movem.l d3-d4/a1, -(sp)
+        movem.l d2-d4/a1, -(sp)
         jsr     QueueDMA_Important
-        movem.l (sp)+, d3-d4/a1
+        movem.l (sp)+, d2-d4/a1
 
         ; Advance VRAM dest for next entry
         add.w   d3, d2
@@ -80,18 +79,17 @@ Perform_DPLC_Deferrable:
         lsr.w   #8, d3
         lsr.w   #4, d3
         addq.w  #1, d3
-        andi.w  #$0FFF, d0
+        andi.l  #$0FFF, d0
 
-        lsl.w   #5, d0
+        lsl.l   #5, d0
         move.l  a1, d1
         add.l   d0, d1
 
-        move.w  d3, d3
         lsl.w   #5, d3
 
-        movem.l d3-d4/a1, -(sp)
+        movem.l d2-d4/a1, -(sp)
         jsr     QueueDMA_Deferrable
-        movem.l (sp)+, d3-d4/a1
+        movem.l (sp)+, d2-d4/a1
 
         add.w   d3, d2
         dbf     d4, .entry_loop

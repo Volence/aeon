@@ -137,7 +137,8 @@ Render_Sprites:
 .band_loop:
         move.w  a5, d6                      ; d6 = current band index
         lea     (Sprite_Band_Counts).w, a1
-        move.b  (a1,d6.w), d7              ; d7 = number of objects in this band
+        moveq   #0, d7
+        move.b  (a1,d6.w), d7              ; d7.w = number of objects in this band
         beq.w   .next_band                  ; skip empty bands
 
         ; Get base of this band's object list
@@ -146,7 +147,7 @@ Render_Sprites:
         lea     (Sprite_Bands).w, a2
         adda.w  d0, a2                     ; a2 = pointer to this band's list
 
-        subq.b  #1, d7                     ; adjust for dbf
+        subq.w  #1, d7                     ; adjust for dbf (must be .w — dbf uses full word)
 
 .object_loop:
         ; Check VDP sprite limit
