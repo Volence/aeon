@@ -8,6 +8,9 @@ Run with: python3 -m pytest tools/test_s4lint.py -v
 
 import sys
 import os
+import io
+import contextlib
+import tempfile
 import unittest
 
 # Allow running from the s4_engine root
@@ -20,6 +23,8 @@ from tools.s4lint import (
     run_checks, _parse_suppressed,
     check_warnings,
     _is_dreg, _is_areg, _is_memory_operand, _parse_immediate,
+    lint_file,
+    main as s4lint_main,
 )
 
 
@@ -1974,6 +1979,360 @@ class TestEndToEnd(unittest.TestCase):
             capture_output=True, text=True, cwd=base
         )
         self.assertIn(result.returncode, (0, 1))
+
+
+# ---------------------------------------------------------------------------
+# W015: Global label not PascalCase
+# ---------------------------------------------------------------------------
+
+class TestW015_PascalCase(unittest.TestCase):
+
+    def _errs(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W015"]
+
+    # --- Clean cases (should NOT warn) ---
+
+    def test_pascal_case_simple(self):
+        """PascalCase label — no W015."""
+        self.assertEqual(len(self._errs("EntryPoint:\n    rts\n")), 0)
+
+    def test_pascal_case_with_underscore_segment(self):
+        """PascalCase_Segment style is valid."""
+        self.assertEqual(len(self._errs("Camera_X:\n    rts\n")), 0)
+
+    def test_pascal_case_vdp_init(self):
+        """VDP_Init is valid PascalCase."""
+        self.assertEqual(len(self._errs("VDP_Init:\n    rts\n")), 0)
+
+    def test_pascal_case_dma_queue_process(self):
+        """DMA_Queue_Process is valid PascalCase."""
+        self.assertEqual(len(self._errs("DMA_Queue_Process:\n    rts\n")), 0)
+
+    def test_pascal_case_ram_start(self):
+        """RAM_Start is valid PascalCase."""
+        self.assertEqual(len(self._errs("RAM_Start:\n    rts\n")), 0)
+
+    def test_single_char_label_skipped(self):
+        """Single-character labels are exempt from W015."""
+        self.assertEqual(len(self._errs("X:\n    rts\n")), 0)
+
+    def test_constant_with_equals_skipped(self):
+        """Constants defined via = are W016 territory, not W015."""
+        errs = self._errs("max_objects = 40\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_constant_with_equ_skipped(self):
+        """Constants defined via equ are W016 territory, not W015."""
+        errs = self._errs("vdp_data equ $C00000\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_struct_definition_skipped(self):
+        """struct definitions are exempt from W015."""
+        errs = self._errs("my_struct struct\nendstruct\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_macro_definition_skipped(self):
+        """macro definitions are exempt from W015."""
+        errs = self._errs("my_macro macro\nendm\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_function_definition_skipped(self):
+        """function definitions are exempt from W015."""
+        errs = self._errs("vram_bytes function x, x*32\n")
+        self.assertEqual(len(errs), 0)
+
+    # --- Warning cases ---
+
+    def test_lowercase_start_warns(self):
+        """Label starting with lowercase triggers W015."""
+        errs = self._errs("vdp_init:\n    rts\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("vdp_init", errs[0].message)
+
+    def test_all_caps_label_passes(self):
+        """ALL_CAPS label (not a constant) matches the PascalCase regex — no W015.
+        Uppercase letters satisfy [A-Za-z0-9]*, so DMA_QUEUE_ADD is accepted."""
+        errs = self._errs("DMA_QUEUE_ADD:\n    rts\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_camel_case_warns(self):
+        """camelCase label triggers W015."""
+        errs = self._errs("myRoutine:\n    rts\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("myRoutine", errs[0].message)
+
+    def test_suppression_works(self):
+        """W015 can be suppressed with ; lint: disable=W015."""
+        errs = self._errs("vdp_init: ; lint: disable=W015\n    rts\n")
+        self.assertEqual(len(errs), 0)
+
+
+# ---------------------------------------------------------------------------
+# W016: Constant not ALL_CAPS
+# ---------------------------------------------------------------------------
+
+class TestW016_AllCaps(unittest.TestCase):
+
+    def _errs(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W016"]
+
+    # --- Clean cases (should NOT warn) ---
+
+    def test_all_caps_equals(self):
+        """ALL_CAPS constant with = — no W016."""
+        self.assertEqual(len(self._errs("MAX_OBJECTS = 40\n")), 0)
+
+    def test_all_caps_equ(self):
+        """ALL_CAPS constant with equ — no W016."""
+        self.assertEqual(len(self._errs("VDP_DATA equ $C00000\n")), 0)
+
+    def test_single_char_constant(self):
+        """Single-char constant N = 5 — no W016 (single-char uppercase satisfies regex)."""
+        self.assertEqual(len(self._errs("N = 5\n")), 0)
+
+    def test_all_caps_with_numbers(self):
+        """ALL_CAPS_1 style is valid."""
+        self.assertEqual(len(self._errs("VRAM_POOL_SIZE = $600\n")), 0)
+
+    # --- Warning cases ---
+
+    def test_mixed_case_warns(self):
+        """Mixed-case constant triggers W016."""
+        errs = self._errs("Vram_Pool = $1000\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("Vram_Pool", errs[0].message)
+
+    def test_camel_case_warns(self):
+        """camelCase constant triggers W016."""
+        errs = self._errs("maxObjects = 40\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("maxObjects", errs[0].message)
+
+    def test_lowercase_equ_warns(self):
+        """lowercase equ constant triggers W016."""
+        errs = self._errs("vdp_data equ $C00000\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("vdp_data", errs[0].message)
+
+    def test_suppression_works(self):
+        """W016 can be suppressed with ; lint: disable=W016."""
+        errs = self._errs("vdp_data equ $C00000 ; lint: disable=W016\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_underscore_prefix_skipped(self):
+        """SST custom overlays use _lowercase convention — W016 skips them."""
+        for line in ("_dplc_ptr = SST_sst_custom+0", "_art_base = SST_sst_custom+4"):
+            errs = self._errs(f"{line}\n")
+            self.assertEqual(len(errs), 0, f"'{line}' should be skipped (SST overlay)")
+
+
+# ---------------------------------------------------------------------------
+# W017: Local label not .lowercase
+# ---------------------------------------------------------------------------
+
+class TestW017_LocalLabel(unittest.TestCase):
+
+    def _errs(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W017"]
+
+    # --- Clean cases (should NOT warn) ---
+
+    def test_lowercase_loop(self):
+        """'.loop' is valid — no W017."""
+        self.assertEqual(len(self._errs("Routine:\n.loop:\n    rts\n")), 0)
+
+    def test_lowercase_done(self):
+        """'.done' is valid — no W017."""
+        self.assertEqual(len(self._errs("Routine:\n.done:\n    rts\n")), 0)
+
+    def test_lowercase_with_underscores(self):
+        """'.not_found' with underscores is valid — no W017."""
+        self.assertEqual(len(self._errs("Routine:\n.not_found:\n    rts\n")), 0)
+
+    def test_lowercase_with_digits(self):
+        """'.skip_pal' is valid — no W017."""
+        self.assertEqual(len(self._errs("Routine:\n.skip_pal:\n    rts\n")), 0)
+
+    # --- Warning cases ---
+
+    def test_uppercase_start_warns(self):
+        """'.Loop' (capital start) triggers W017."""
+        errs = self._errs("Routine:\n.Loop:\n    rts\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn(".Loop", errs[0].message)
+
+    def test_all_caps_warns(self):
+        """'.DONE' triggers W017."""
+        errs = self._errs("Routine:\n.DONE:\n    rts\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn(".DONE", errs[0].message)
+
+    def test_camel_case_warns(self):
+        """'.notFound' (camelCase) triggers W017."""
+        errs = self._errs("Routine:\n.notFound:\n    rts\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn(".notFound", errs[0].message)
+
+    def test_suppression_works(self):
+        """W017 can be suppressed with ; lint: disable=W017."""
+        errs = self._errs("Routine:\n.Loop: ; lint: disable=W017\n    rts\n")
+        self.assertEqual(len(errs), 0)
+
+
+# ---------------------------------------------------------------------------
+# W018: Routine too long
+# ---------------------------------------------------------------------------
+
+class TestW018_RoutineLength(unittest.TestCase):
+
+    def _warnings(self, lines_str, filepath="engine/test.asm"):
+        diags = _lint_lines(lines_str, filepath)
+        return [d for d in diags if d.code == "W018"]
+
+    def _make_routine(self, name, instruction_count):
+        """Build a multi-line routine with N nop instructions + rts."""
+        lines = [f"{name}:"]
+        for _ in range(instruction_count):
+            lines.append("    nop")
+        lines.append("    rts")
+        return "\n".join(lines) + "\n"
+
+    def test_short_routine_ok(self):
+        w = self._warnings(self._make_routine("Short_Routine", 50))
+        self.assertEqual(len(w), 0)
+
+    def test_exactly_100_ok(self):
+        """100 instructions is at the threshold — should not warn.
+        99 nops + 1 rts = 100 instructions."""
+        w = self._warnings(self._make_routine("Threshold_Routine", 99))
+        self.assertEqual(len(w), 0)
+
+    def test_101_warns(self):
+        """101 instructions exceeds threshold — should warn.
+        100 nops + 1 rts = 101 instructions."""
+        w = self._warnings(self._make_routine("Long_Routine", 100))
+        self.assertEqual(len(w), 1)
+        self.assertIn("Long_Routine", w[0].message)
+        self.assertIn("101", w[0].message)
+
+    def test_suppressed(self):
+        lines = "Long_Routine:\n" + "    nop\n" * 110 + "    rts ; lint: disable=W018\n"
+        w = self._warnings(lines)
+        self.assertEqual(len(w), 0)
+
+    def test_bra_does_not_fire(self):
+        """Routines ending with bra (tail call) don't fire W018."""
+        lines = "Long_Routine:\n" + "    nop\n" * 110 + "    bra.w Other_Routine\n"
+        w = self._warnings(lines)
+        self.assertEqual(len(w), 0)
+
+
+# ---------------------------------------------------------------------------
+# W019: File missing header comment
+# ---------------------------------------------------------------------------
+
+class TestW019_FileHeader(unittest.TestCase):
+
+    def _lint_content(self, content, filename="test.asm"):
+        """Write content to a temp file, lint it, return W019 diagnostics."""
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
+            f.write(content)
+            f.flush()
+            ctx = lint_file(f.name, {}, os.path.dirname(f.name))
+        os.unlink(f.name)
+        return [d for d in ctx.diagnostics if d.code == "W019"]
+
+    def test_comment_first_line_ok(self):
+        w = self._lint_content("; Boot sequence\nEntryPoint:\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_blank_then_comment_ok(self):
+        """Blank lines before the header comment are fine."""
+        w = self._lint_content("\n\n; Boot sequence\nEntryPoint:\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_code_first_warns(self):
+        w = self._lint_content("EntryPoint:\n    rts\n")
+        self.assertEqual(len(w), 1)
+
+    def test_empty_file_warns(self):
+        w = self._lint_content("")
+        self.assertEqual(len(w), 1)
+
+    def test_whitespace_only_warns(self):
+        w = self._lint_content("   \n   \n")
+        self.assertEqual(len(w), 1)
+
+    def test_indented_comment_ok(self):
+        """Comments with leading whitespace still count."""
+        w = self._lint_content("    ; indented header\nRoutine:\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic summary footer
+# ---------------------------------------------------------------------------
+
+class TestSummaryFooter(unittest.TestCase):
+
+    def _run_lint(self, content, extra_args=None):
+        """Write content to temp file, run main(), return (exit_code, stderr)."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
+            f.write(content)
+            f.flush()
+            fname = f.name
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                code = s4lint_main(["--no-follow-includes"] + (extra_args or []) + [fname])
+            return code, buf.getvalue()
+        finally:
+            os.unlink(fname)
+
+    def test_summary_with_warnings(self):
+        """Summary line appears after diagnostics."""
+        _, stderr = self._run_lint("; header\nvdp_init:\n    rts\n")
+        self.assertIn("s4lint:", stderr)
+        self.assertIn("warning", stderr.split("s4lint:")[-1])
+
+    def test_summary_no_issues(self):
+        """Clean file shows 'no issues found'."""
+        _, stderr = self._run_lint(
+            "; header\n; -------\nClean_Routine:\n    rts\n",
+            extra_args=["--skip=W006,W018"],
+        )
+        self.assertIn("no issues found", stderr)
+
+    def test_summary_counts_by_code(self):
+        """Per-code breakdown shows the code."""
+        _, stderr = self._run_lint("; header\nvdp_init:\n    rts\nbad_func:\n    rts\n")
+        summary = stderr.split("s4lint:")[-1]
+        self.assertIn("W015", summary)
+
+    def test_summary_respects_no_warnings(self):
+        """--no-warnings suppresses warning counts in summary."""
+        _, stderr = self._run_lint(
+            "; header\nvdp_init:\n    rts\n",
+            extra_args=["--no-warnings"],
+        )
+        self.assertIn("no issues found", stderr)
+
+    def test_summary_shows_label(self):
+        """Human-readable label appears next to code."""
+        _, stderr = self._run_lint("; header\nvdp_init:\n    rts\n")
+        self.assertIn("global label not PascalCase", stderr)
+
+    def test_summary_warnings_as_errors(self):
+        """--warnings-as-errors promotes warning counts to error counts in summary."""
+        code, stderr = self._run_lint(
+            "; header\nvdp_init:\n    rts\n",
+            extra_args=["--warnings-as-errors"],
+        )
+        summary_line = [l for l in stderr.splitlines() if l.startswith("s4lint:")][0]
+        self.assertIn("error", summary_line)
+        self.assertNotIn("warning", summary_line)
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":

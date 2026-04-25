@@ -20,6 +20,49 @@ from collections import namedtuple, deque
 from typing import List, Optional, Set, Dict, Tuple
 
 # ---------------------------------------------------------------------------
+# Naming convention regexes (W015–W017)
+# ---------------------------------------------------------------------------
+
+_PASCAL_CASE_RE = re.compile(r'^[A-Z][A-Za-z0-9]*(_[A-Za-z0-9]+)*$')
+_ALL_CAPS_RE = re.compile(r'^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$')
+_LOCAL_LABEL_RE = re.compile(r'^\.[a-z][a-z0-9_]*$')
+_NAMING_SKIP_INSTRS = frozenset({"struct", "macro", "function", "endstruct", "endm"})
+ROUTINE_LENGTH_THRESHOLD = 100
+
+DIAGNOSTIC_LABELS: Dict[str, str] = {
+    "E001": "unsized branch",
+    "E002": "multiply/divide in hot path",
+    "E003": "odd address",
+    "E004": "word/long access to odd address",
+    "E005": "missing alignment after byte data",
+    "E006": "VDP write without Z80 stopped",
+    "E007": "unpaired stopZ80/startZ80",
+    "E008": "macro contract violation",
+    "E009": "SST field out of bounds",
+    "E010": "SR save/restore mismatch",
+    "E011": "double stopZ80",
+    "W001": "clr on memory (read-modify-write)",
+    "W002": "cmp #0 instead of tst",
+    "W003": "move #0 instead of moveq",
+    "W004": "add/sub #1-8 instead of addq/subq",
+    "W005": "branch should use .s",
+    "W006": "routine missing header comment",
+    "W007": "lsl #1 instead of add",
+    "W008": "sub dn,dn to zero",
+    "W009": "swap + clr.w pattern",
+    "W010": "indexed addressing in loop",
+    "W011": "movem with single register",
+    "W012": "move.l to areg instead of movea.l",
+    "W013": "move in moveq range",
+    "W014": "multiply/divide outside hot path",
+    "W015": "global label not PascalCase",
+    "W016": "constant not ALL_CAPS",
+    "W017": "local label not .lowercase",
+    "W018": "routine too long",
+    "W019": "file missing header comment",
+}
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
@@ -1329,6 +1372,36 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         ctx.local_labels.add(label)
         ctx.in_dbf_loop = True
 
+    # ------------------------------------------------------------------
+    # Naming convention checks (W015-W017)
+    # ------------------------------------------------------------------
+    if label:
+        instr_for_naming = token.instruction.lower() if token.instruction else ""
+
+        if label.startswith("."):
+            # W017: local label not .lowercase
+            if "W017" not in suppressed and not _LOCAL_LABEL_RE.match(label):
+                ctx.warning("W017", line_num,
+                            f"local label '{label}' should be .lowercase "
+                            f"(expected '{label.lower()}' or similar)")
+        else:
+            # Constant definition (= or equ) → W016
+            # Skip _underscored SST custom overlays (their convention is _lowercase)
+            if instr_for_naming in ("=", "equ"):
+                if ("W016" not in suppressed
+                        and not label.startswith("_")
+                        and not _ALL_CAPS_RE.match(label)):
+                    ctx.warning("W016", line_num,
+                                f"constant '{label}' should be ALL_CAPS "
+                                f"(expected '{label.upper()}' or similar)")
+            # Skip struct/macro/function definitions
+            elif instr_for_naming not in _NAMING_SKIP_INSTRS:
+                # W015: global label not PascalCase (skip single-char labels)
+                if "W015" not in suppressed and len(label) > 1 and not _PASCAL_CASE_RE.match(label):
+                    ctx.warning("W015", line_num,
+                                f"global label '{label}' is not PascalCase "
+                                f"(expected '{label.title().replace(' ', '_')}' or similar)")
+
     if not instr:
         # Label-only or blank line — nothing more to check
         return
@@ -1341,6 +1414,12 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     if instr_lower in ("rts", "rte"):
         ctx.check_routine_end(line_num)
         ctx.last_routine_terminated = True
+
+        # W018: routine too long
+        if "W018" not in suppressed and ctx.routine_lines > ROUTINE_LENGTH_THRESHOLD:
+            ctx.warning("W018", line_num,
+                        f"routine '{ctx.current_routine}' is {ctx.routine_lines} instructions "
+                        f"(threshold: {ROUTINE_LENGTH_THRESHOLD}) — consider splitting")
 
     # dbf/dbra — end of loop body
     if instr_lower in ("dbf", "dbra"):
@@ -1402,6 +1481,21 @@ def lint_file(filepath: str, options: dict, base_dir: str) -> LintContext:
     except OSError as exc:
         ctx.error("E000", 0, f"cannot open file: {exc}")
         return ctx
+
+    # W019: file missing header comment
+    skip_codes = options.get("skip", set())
+    if "W019" not in skip_codes:
+        has_header = False
+        for raw_line in raw_lines:
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(";"):
+                has_header = True
+            break
+        if not has_header:
+            ctx.warning("W019", 1,
+                        "file has no header comment (first line should be '; description')")
 
     for line_num, raw_line in enumerate(raw_lines, start=1):
         token = tokenize_line(raw_line)
@@ -1496,6 +1590,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     has_errors = False
     has_warnings = False
+    code_counts: Dict[str, int] = {}
 
     project_root = os.path.dirname(os.path.abspath(args.files[0])) if args.files else os.getcwd()
 
@@ -1517,11 +1612,36 @@ def main(argv: Optional[List[str]] = None) -> int:
                 diag.severity = "error"
 
             print(str(diag), file=sys.stderr)
+            code_counts[diag.code] = code_counts.get(diag.code, 0) + 1
 
             if diag.severity == "error":
                 has_errors = True
             elif diag.severity == "warning":
                 has_warnings = True
+
+    # Summary footer — count by actual severity (respects --warnings-as-errors)
+    warn_as_err = options["warnings_as_errors"]
+    total_errors = sum(
+        v for k, v in code_counts.items()
+        if k.startswith("E") or (warn_as_err and k.startswith("W"))
+    )
+    total_warnings = sum(
+        v for k, v in code_counts.items()
+        if k.startswith("W") and not warn_as_err
+    )
+
+    if total_errors == 0 and total_warnings == 0:
+        print("\ns4lint: no issues found", file=sys.stderr)
+    else:
+        parts = []
+        if total_errors:
+            parts.append(f"{total_errors} error{'s' if total_errors != 1 else ''}")
+        if total_warnings:
+            parts.append(f"{total_warnings} warning{'s' if total_warnings != 1 else ''}")
+        print(f"\ns4lint: {', '.join(parts)}", file=sys.stderr)
+        for code in sorted(code_counts):
+            label = DIAGNOSTIC_LABELS.get(code, "")
+            print(f"  {code}  {code_counts[code]:>3}  {label}", file=sys.stderr)
 
     if has_errors:
         return 1
