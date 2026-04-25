@@ -116,12 +116,11 @@ ObjCodeBase:
     include "objects/test_animated.asm"
 
 ; -----------------------------------------------
-; Data
+; Data (outside object code bank — addressed directly, not via objroutine)
 ; -----------------------------------------------
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
 
-; Sonic sprite data (binary includes)
 Map_Sonic:
     BINCLUDE "data/mappings/sonic.bin"
     align 2

@@ -1,6 +1,20 @@
 ; RAM layout via phase/dephase
-; Upper 32KB ($FFFF8000+) uses .w addressing for speed
+; Lower 32KB ($FFFF0000+) for large buffers — .l addressing required
+; Upper 32KB ($FFFF8000+) for hot data — .w addressing for speed
 
+; -----------------------------------------------
+; Lower RAM — large, infrequently-accessed buffers
+; -----------------------------------------------
+        phase $FFFF0000
+
+Decomp_Buffer:          ds.b DECOMP_BUFFER_SIZE
+Decomp_Buffer_End:
+
+        dephase
+
+; -----------------------------------------------
+; Upper RAM — hot data (.w addressing)
+; -----------------------------------------------
         phase $FFFF8000
 
 RAM_Start:
@@ -115,12 +129,6 @@ Lag_Frame_Count:        ds.l 1
     endif
 
 ; -----------------------------------------------
-; Decompression buffer (§2)
-; -----------------------------------------------
-Decomp_Buffer:          ds.b DECOMP_BUFFER_SIZE
-Decomp_Buffer_End:
-
-; -----------------------------------------------
 ; Object System (§3)
 ; -----------------------------------------------
 
@@ -172,6 +180,10 @@ RAM_End:
 
         if RAM_End >= SYSTEM_STACK
           error "RAM overflow into stack by \{RAM_End - SYSTEM_STACK} bytes!"
+        endif
+
+        if (Object_RAM & $FFFF) < $8000
+          error "Object_RAM .w address $\{Object_RAM & $FFFF} has bit 15 clear — will resolve to ROM"
         endif
 
 ; -----------------------------------------------
