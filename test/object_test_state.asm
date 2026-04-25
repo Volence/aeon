@@ -1,4 +1,4 @@
-; Object system test — init objects, load palette+art, spawn test objects, run loop
+; Object system test — controllable player, enemies, solid blocks
 
 GameState_ObjectTest_Init:
         ; Load test palette to CRAM line 0
@@ -10,7 +10,7 @@ GameState_ObjectTest_Init:
         dbf     d0, .copy_pal
         move.b  #$0F, (Palette_Dirty).w
 
-        ; DMA test art to VRAM
+        ; DMA test art to VRAM (colored squares for enemies/solids)
         move.l  #TestArt, d1
         move.w  #vram_bytes(VRAM_TEST_OBJ), d2
         move.w  #TestArt_End-TestArt, d3
@@ -24,39 +24,51 @@ GameState_ObjectTest_Init:
         clr.l   (Camera_X).w
         clr.l   (Camera_Y).w
 
-        ; Spawn 3 test objects at different positions and priorities
+        ; --- Spawn test player at (160, STUB_FLOOR_Y) ---
         jsr     AllocDynamic
-        bcs.s   .skip1
-        move.w  #objroutine(TestStatic), SST_code_addr(a1)
+        bcs.s   .skip_player
+        move.w  #objroutine(TestPlayer), SST_code_addr(a1)
         move.l  #160<<16, SST_x_pos(a1)
-        move.l  #112<<16, SST_y_pos(a1)
-        move.w  #4, SST_priority(a1)
-.skip1:
+        move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
+.skip_player:
 
+        ; --- Spawn test enemy at (100, STUB_FLOOR_Y) ---
         jsr     AllocDynamic
-        bcs.s   .skip2
-        move.w  #objroutine(TestStatic), SST_code_addr(a1)
-        move.l  #80<<16, SST_x_pos(a1)
-        move.l  #80<<16, SST_y_pos(a1)
-        move.w  #2, SST_priority(a1)
-.skip2:
+        bcs.s   .skip_enemy1
+        move.w  #objroutine(TestEnemy), SST_code_addr(a1)
+        move.l  #100<<16, SST_x_pos(a1)
+        move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
+.skip_enemy1:
 
+        ; --- Spawn test enemy at (240, STUB_FLOOR_Y) ---
         jsr     AllocDynamic
-        bcs.s   .skip3
-        move.w  #objroutine(TestStatic), SST_code_addr(a1)
+        bcs.s   .skip_enemy2
+        move.w  #objroutine(TestEnemy), SST_code_addr(a1)
         move.l  #240<<16, SST_x_pos(a1)
-        move.l  #144<<16, SST_y_pos(a1)
-        move.w  #6, SST_priority(a1)
-        move.b  #1, SST_mapping_frame(a1)   ; different frame (color 2)
-.skip3:
+        move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
+.skip_enemy2:
 
-        ; Spawn animated Sonic walk cycle
+        ; --- Spawn solid blocks (platforms above floor) ---
         jsr     AllocDynamic
-        bcs.s   .skip4
-        move.w  #objroutine(TestAnimated), SST_code_addr(a1)
+        bcs.s   .skip_solid1
+        move.w  #objroutine(TestSolid), SST_code_addr(a1)
+        move.l  #120<<16, SST_x_pos(a1)
+        move.l  #150<<16, SST_y_pos(a1)
+.skip_solid1:
+
+        jsr     AllocDynamic
+        bcs.s   .skip_solid2
+        move.w  #objroutine(TestSolid), SST_code_addr(a1)
+        move.l  #200<<16, SST_x_pos(a1)
+        move.l  #130<<16, SST_y_pos(a1)
+.skip_solid2:
+
+        jsr     AllocDynamic
+        bcs.s   .skip_solid3
+        move.w  #objroutine(TestSolid), SST_code_addr(a1)
         move.l  #160<<16, SST_x_pos(a1)
-        move.l  #160<<16, SST_y_pos(a1)
-.skip4:
+        move.l  #100<<16, SST_y_pos(a1)
+.skip_solid3:
 
         ; Enable display (VDP reg $01 bit 6)
         SetVDPReg VDP_Shadow_vdp_mode2, #$74
@@ -68,6 +80,7 @@ GameState_ObjectTest_Init:
 GameState_ObjectTest:
         jsr     InitSpriteSystem
         jsr     RunObjects
+        jsr     TouchResponse
         jsr     Render_Sprites
         rts
 

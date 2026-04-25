@@ -115,6 +115,9 @@ ObjCodeBase:
 
     include "objects/test_static.asm"
     include "objects/test_animated.asm"
+    include "objects/test_player.asm"
+    include "objects/test_enemy.asm"
+    include "objects/test_solid.asm"
 
 ; -----------------------------------------------
 ; Data (outside object code bank — addressed directly, not via objroutine)
