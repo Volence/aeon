@@ -1354,7 +1354,9 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         ctx.last_routine_terminated = False
         # W006 phase A: snapshot lines leading up to this label for header check,
         # then clear the window so the next routine starts fresh.
-        ctx.pending_w006 = (label, list(ctx.recent_raw_lines))
+        # Skip __-prefixed labels (build-tool sentinels, not routines).
+        if not label.startswith("__"):
+            ctx.pending_w006 = (label, list(ctx.recent_raw_lines))
         ctx.recent_raw_lines.clear()
 
     if label and label.startswith("."):
@@ -1386,8 +1388,8 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
                                 f"(expected '{label.upper()}' or similar)")
             # Skip struct/macro/function definitions
             elif instr_for_naming not in _NAMING_SKIP_INSTRS:
-                # W015: global label not PascalCase (skip single-char labels)
-                if "W015" not in suppressed and len(label) > 1 and not _PASCAL_CASE_RE.match(label):
+                # W015: global label not PascalCase (skip single-char and __-prefixed labels)
+                if "W015" not in suppressed and len(label) > 1 and not label.startswith("__") and not _PASCAL_CASE_RE.match(label):
                     ctx.warning("W015", line_num,
                                 f"global label '{label}' is not PascalCase "
                                 f"(expected '{label.title().replace(' ', '_')}' or similar)")
