@@ -136,6 +136,8 @@ Draw_Sprite:
 ; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 Render_Sprites:
+        addq.w  #1, (Sprite_Cycle_Counter).w
+
         lea     (Sprite_Table_Buffer).w, a4  ; a4 = SAT buffer write pointer
         moveq   #0, d5                      ; d5 = VDP sprite index (0-based)
 
@@ -157,13 +159,25 @@ Render_Sprites:
 
         subq.w  #1, d7                     ; adjust for dbf (must be .w — dbf uses full word)
 
+        ; --- Link-order cycling: reverse intra-band order on odd frames ---
+        btst    #0, (Sprite_Cycle_Counter+1).w
+        bne.s   .reverse_band
+        move.w  #2, -(sp)                  ; even frame: forward step
+        bra.s   .object_loop
+.reverse_band:
+        move.w  d7, d0
+        add.w   d0, d0                     ; d0 = (count-1) * 2
+        adda.w  d0, a2                     ; a2 → last entry in band
+        move.w  #-2, -(sp)                 ; odd frame: reverse step
+
 .object_loop:
         ; Check VDP sprite limit
         cmpi.w  #MAX_VDP_SPRITES, d5
-        bge.w   .done                      ; hard limit reached
+        bge.w   .band_limit_pop            ; pop step, then done
 
-        ; Get object SST address
-        movea.w (a2)+, a0                  ; a0 = SST pointer
+        ; Get object SST address (step direction from stack)
+        movea.w (a2), a0
+        adda.w  (sp), a2                   ; advance by +2 or -2
 
         ; Guard: skip objects deleted mid-frame (slot zeroed after Draw_Sprite)
         movea.l SST_mappings(a0), a3       ; a3 = mapping table base
@@ -387,6 +401,7 @@ Render_Sprites:
 
 .next_object:
         dbf     d7, .object_loop
+        addq.w  #2, sp                    ; pop step value after band complete
 
 .next_band:
         ; Decrement band counter
@@ -410,6 +425,10 @@ Render_Sprites:
         move.b  #1, (Sprite_Table_Dirty).w
 .skip_dirty:
         rts
+
+.band_limit_pop:
+        addq.w  #2, sp                    ; pop step value before done
+        bra.s   .done
 
 ; -----------------------------------------------
 ; Flip offset lookup table (indexed by raw VDP size byte)

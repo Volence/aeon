@@ -177,6 +177,9 @@ Sprite_Link_Next:       ds.w 1
 ; Total sprites rendered this frame
 Sprites_Rendered:       ds.w 1
 
+; Link-order cycling frame counter (incremented each Render_Sprites call)
+Sprite_Cycle_Counter:   ds.w 1
+
 ; -----------------------------------------------
 ; Camera (stub for §3, real implementation in §4)
 ; -----------------------------------------------
