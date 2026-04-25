@@ -575,6 +575,49 @@ _DATA_DIRECTIVES: frozenset = frozenset({"dc", "ds", "dcb"})
 
 
 # ---------------------------------------------------------------------------
+# Macro contract registry (E008, E011)
+# ---------------------------------------------------------------------------
+
+# Each entry maps a macro name (original case) to a dict with optional keys:
+#   requires: {state_key: expected_value} — E008 if condition not met (or unknown)
+#   rejects:  {state_key: rejected_value} — E011 if state matches exactly
+#   sets:     {state_key: new_value}       — applied after checks
+MACRO_CONTRACTS: Dict[str, dict] = {
+    "stopZ80":        {"rejects":  {"z80": "stopped"},  "sets": {"z80": "stopped"}},
+    "startZ80":       {"requires": {"z80": "stopped"},  "sets": {"z80": "running"}},
+    "disableInts":    {"sets": {"ints": "disabled"}},
+    "enableInts":     {"requires": {"ints": "disabled"}, "sets": {"ints": "enabled"}},
+    # setVDPReg writes to shadow table RAM only — does NOT touch VDP hardware.
+    # Flush_VDP_Shadow is what requires Z80 stopped. No requires needed here.
+    "setVDPReg":      {},
+    "vdpCommReg":     {},
+    "queueStaticDMA": {},
+}
+
+# VDP port identifiers that E006 watches for writes
+_VDP_WRITE_TARGETS: frozenset = frozenset({
+    "VDP_CTRL", "VDP_DATA", "$C00004", "$C00000",
+})
+
+
+def _get_hw_state(ctx: LintContext, key: str) -> str:
+    """Return the current hardware state for *key* ('z80' or 'ints')."""
+    if key == "z80":
+        return ctx.z80_state
+    if key == "ints":
+        return ctx.ints_state
+    return "unknown"
+
+
+def _set_hw_state(ctx: LintContext, key: str, value: str, line_num: int) -> None:
+    """Update hardware state for *key* to *value*."""
+    if key == "z80":
+        ctx.z80_state = value
+    elif key == "ints":
+        ctx.ints_state = value
+
+
+# ---------------------------------------------------------------------------
 # E005 byte-counting helpers
 # ---------------------------------------------------------------------------
 
@@ -743,6 +786,101 @@ def check_e004(ctx: LintContext, token: Token, line_num: int,
             return  # one error per line is enough
 
 
+def check_macro_contracts(ctx: LintContext, token: Token, line_num: int,
+                          suppressed: Set[str]) -> None:
+    """E008 / E011: Check and apply macro contracts.
+
+    - E008: a ``requires`` precondition is not met (state != expected, or unknown)
+    - E011: a ``rejects`` precondition matches (state == rejected value exactly)
+    - After checks, ``sets`` updates are applied to ctx state.
+    """
+    # Macro names are preserved in original case (see tokenize_line)
+    contract = MACRO_CONTRACTS.get(token.instruction)
+    if contract is None:
+        return
+
+    # Check rejects (E011 — double invocation guard)
+    rejects = contract.get("rejects", {})
+    for key, rejected_val in rejects.items():
+        current = _get_hw_state(ctx, key)
+        if current == rejected_val:
+            if "E011" not in suppressed:
+                ctx.error("E011", line_num,
+                          f"'{token.instruction}' invoked when {key}={current!r} "
+                          f"(double-stop or similar)")
+
+    # Check requires (E008 — precondition not satisfied)
+    requires = contract.get("requires", {})
+    for key, expected_val in requires.items():
+        current = _get_hw_state(ctx, key)
+        if current != expected_val:
+            if "E008" not in suppressed:
+                ctx.error("E008", line_num,
+                          f"'{token.instruction}' requires {key}={expected_val!r} "
+                          f"but current state is {key}={current!r}")
+
+    # Apply sets — update state after checking
+    for key, new_val in contract.get("sets", {}).items():
+        _set_hw_state(ctx, key, new_val, line_num)
+
+
+# Regex to detect 68000 address registers inside an operand (register-indirect)
+_ADDR_REG_RE = re.compile(r'\b(a[0-7]|sp)\b', re.IGNORECASE)
+
+
+def check_e006(ctx: LintContext, token: Token, line_num: int,
+               suppressed: Set[str]) -> None:
+    """E006: VDP write (to VDP_CTRL or VDP_DATA) when Z80 is not stopped.
+
+    Only checks move instructions whose DESTINATION operand names a VDP port
+    (by symbolic name or literal $C00000/$C00004 address).
+
+    Register-indirect addressing (e.g. ``(a4)``, ``PSG_PORT-VDP_DATA(a3)``)
+    is NOT flagged because the linter cannot resolve register contents at lint
+    time — boot code intentionally preloads VDP_CTRL / VDP_DATA into address
+    registers and accesses them indirectly.
+
+    VDP reads (VDP port as SOURCE operand) are legal without Z80 stopped.
+    """
+    if "E006" in suppressed:
+        return
+    if ctx.z80_state == "stopped":
+        return
+
+    instr_lower = token.instruction.lower()
+    if instr_lower != "move":
+        return
+
+    # The destination is the LAST operand of a move instruction.
+    if not token.operands:
+        return
+    dest = token.operands[-1].strip()
+
+    # Skip register-indirect addressing modes — if any address or stack
+    # register appears in the destination the linter cannot determine the
+    # effective address at lint time.
+    if _ADDR_REG_RE.search(dest):
+        return
+
+    # Check whether dest references a VDP port (symbolic or literal hex address)
+    dest_upper = dest.upper()
+
+    # Symbolic name check (e.g. "(VDP_CTRL).l", "(VDP_DATA).l")
+    for name in ("VDP_CTRL", "VDP_DATA"):
+        if name in dest_upper:
+            ctx.error("E006", line_num,
+                      f"VDP write to {name} while Z80 is not stopped "
+                      f"(use stopZ80 before VDP access)")
+            return
+
+    # Literal hex address check ($C00000 or $C00004)
+    val = _extract_address_value(dest)
+    if val is not None and val in (0xC00000, 0xC00004):
+        ctx.error("E006", line_num,
+                  f"VDP write to ${val:X} while Z80 is not stopped "
+                  f"(use stopZ80 before VDP access)")
+
+
 def run_checks(ctx: LintContext, token: Token, line_num: int,
                raw_line: str, suppressed: Set[str]) -> None:
     """Apply all enabled checks to *token*.
@@ -823,6 +961,15 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     # ------------------------------------------------------------------
     if token.instruction:
         check_e005_track(ctx, token, line_num, suppressed)
+
+    # ------------------------------------------------------------------
+    # Hardware state tracking — macro contracts (E008/E011) then VDP write
+    # check (E006).  Order matters: macro_contracts updates state first so
+    # that e006 sees the updated z80_state for the current instruction.
+    # ------------------------------------------------------------------
+    if token.instruction:
+        check_macro_contracts(ctx, token, line_num, suppressed)
+        check_e006(ctx, token, line_num, suppressed)
 
     # ------------------------------------------------------------------
     # Stateless per-instruction checks

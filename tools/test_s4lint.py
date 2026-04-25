@@ -17,7 +17,7 @@ from tools.s4lint import (
     parse_numeric, _extract_address_value,
     check_e001, check_e002, check_e003, check_e004,
     check_e005_track, _count_dc_b_items, _count_ds_b_items,
-    run_checks,
+    run_checks, _parse_suppressed,
 )
 
 
@@ -908,6 +908,285 @@ class TestE005_MissingEven(unittest.TestCase):
         """ds.b 1 (odd) then dc.l -> E005."""
         errs = self._lint_lines("Routine:\n    ds.b    1\n    dc.l    $00000000\n")
         self.assertEqual(len(errs), 1)
+
+
+# ---------------------------------------------------------------------------
+# Shared helper for multi-line lint tests (E006–E011)
+# ---------------------------------------------------------------------------
+
+def _lint_lines(lines_str, filepath="engine/test.asm"):
+    """Process multi-line assembly string; return all Diagnostics."""
+    ctx = LintContext(filepath, {})
+    for i, line in enumerate(lines_str.strip().split("\n"), 1):
+        t = tokenize_line(line)
+        suppressed = _parse_suppressed(t.comment) if t.comment else set()
+        run_checks(ctx, t, i, line, suppressed)
+    return ctx.diagnostics
+
+
+# ---------------------------------------------------------------------------
+# E006: VDP write without Z80 stopped
+# ---------------------------------------------------------------------------
+
+class TestE006_VDPWithoutZ80(unittest.TestCase):
+
+    def _errs(self, lines_str, filepath="engine/test.asm"):
+        return [d for d in _lint_lines(lines_str, filepath) if d.code == "E006"]
+
+    def test_vdp_ctrl_write_without_stop_fires(self):
+        """Direct write to (VDP_CTRL).l without stopZ80 -> E006."""
+        code = """
+Routine:
+        move.l  #$40000000, (VDP_CTRL).l
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+        self.assertIn("VDP_CTRL", errs[0].message)
+
+    def test_vdp_data_write_without_stop_fires(self):
+        """Write to (VDP_DATA).l without stopZ80 -> E006."""
+        code = """
+Routine:
+        move.l  d0, (VDP_DATA).l
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+
+    def test_vdp_ctrl_write_after_stop_clean(self):
+        """Write to (VDP_CTRL).l after stopZ80 -> no E006."""
+        code = """
+Routine:
+        stopZ80
+        move.l  #$40000000, (VDP_CTRL).l
+        startZ80
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_vdp_ctrl_read_without_stop_clean(self):
+        """Reading VDP_CTRL (VDP status read) -> not a write -> no E006."""
+        code = """
+Routine:
+        move.w  (VDP_CTRL).l, d0
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_vdp_hex_addr_write_without_stop_fires(self):
+        """Write to ($C00004).l (literal VDP_CTRL address) without stop -> E006."""
+        code = """
+Routine:
+        move.l  #$40000000, ($C00004).l
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+
+    def test_vdp_data_hex_addr_write_without_stop_fires(self):
+        """Write to ($C00000).l (literal VDP_DATA address) without stop -> E006."""
+        code = """
+Routine:
+        move.l  d0, ($C00000).l
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+
+    def test_setvdpreg_without_stop_no_e006_no_e008(self):
+        """setVDPReg only writes shadow table RAM — no VDP hardware access.
+        Neither E006 nor E008 should fire regardless of Z80 state."""
+        code = """
+Routine:
+        setVDPReg vdp_mode2, #$34
+        rts
+"""
+        diags = _lint_lines(code)
+        e006 = [d for d in diags if d.code == "E006"]
+        e008 = [d for d in diags if d.code == "E008"]
+        self.assertEqual(len(e006), 0)
+        self.assertEqual(len(e008), 0)
+
+
+# ---------------------------------------------------------------------------
+# E007: Unpaired stopZ80 / startZ80
+# ---------------------------------------------------------------------------
+
+class TestE007_UnpairedZ80(unittest.TestCase):
+
+    def _errs(self, lines_str, filepath="engine/test.asm"):
+        return [d for d in _lint_lines(lines_str, filepath) if d.code == "E007"]
+
+    def test_stop_without_start_before_rts_fires(self):
+        """stopZ80 with no matching startZ80 before rts -> E007."""
+        code = """
+Routine:
+        stopZ80
+        move.l  #$40000000, (VDP_CTRL).l
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+
+    def test_paired_stop_start_clean(self):
+        """Properly paired stopZ80/startZ80 before rts -> no E007."""
+        code = """
+Routine:
+        stopZ80
+        move.l  #$40000000, (VDP_CTRL).l
+        startZ80
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_rts_without_stop_clean(self):
+        """rts with Z80 never stopped -> no E007."""
+        code = """
+Routine:
+        moveq   #0, d0
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+
+# ---------------------------------------------------------------------------
+# E008: Macro contract violation (requires precondition not met)
+# ---------------------------------------------------------------------------
+
+class TestE008_MacroContract(unittest.TestCase):
+
+    def _errs(self, lines_str, filepath="engine/test.asm"):
+        return [d for d in _lint_lines(lines_str, filepath) if d.code == "E008"]
+
+    def test_startz80_without_prior_stop_fires(self):
+        """startZ80 when Z80 not stopped -> E008."""
+        code = """
+Routine:
+        startZ80
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+        self.assertIn("startZ80", errs[0].message)
+
+    def test_setvdpreg_no_e008_regardless_of_z80_state(self):
+        """setVDPReg writes shadow table RAM only — no VDP hardware access.
+        No E008 should fire regardless of Z80 state."""
+        code = """
+Routine:
+        setVDPReg vdp_mode2, #$34
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_setvdpreg_with_stop_also_clean(self):
+        """setVDPReg after stopZ80 -> still no E008 (shadow table only)."""
+        code = """
+Routine:
+        stopZ80
+        setVDPReg vdp_mode2, #$34
+        startZ80
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_enableints_without_disable_fires(self):
+        """enableInts without prior disableInts -> E008."""
+        code = """
+Routine:
+        enableInts
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+        self.assertIn("enableInts", errs[0].message)
+
+    def test_enableints_with_disable_clean(self):
+        """enableInts after disableInts -> no E008."""
+        code = """
+Routine:
+        disableInts
+        enableInts
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_queuestaticdma_no_requirement_clean(self):
+        """queueStaticDMA has no requires -> no E008 regardless of state."""
+        code = """
+Routine:
+        queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Pal_Line0
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_startz80_after_stop_clean(self):
+        """startZ80 after stopZ80 -> no E008."""
+        code = """
+Routine:
+        stopZ80
+        nop
+        startZ80
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+
+# ---------------------------------------------------------------------------
+# E011: Double stopZ80
+# ---------------------------------------------------------------------------
+
+class TestE011_DoubleStop(unittest.TestCase):
+
+    def _errs(self, lines_str, filepath="engine/test.asm"):
+        return [d for d in _lint_lines(lines_str, filepath) if d.code == "E011"]
+
+    def test_double_stopz80_fires(self):
+        """Two consecutive stopZ80 calls -> E011 on the second."""
+        code = """
+Routine:
+        stopZ80
+        stopZ80
+        startZ80
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+        self.assertIn("stopZ80", errs[0].message)
+
+    def test_single_stopz80_clean(self):
+        """Single stopZ80 followed by startZ80 -> no E011."""
+        code = """
+Routine:
+        stopZ80
+        startZ80
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_stop_start_stop_clean(self):
+        """stopZ80 / startZ80 / stopZ80 is valid -> no E011."""
+        code = """
+Routine:
+        stopZ80
+        startZ80
+        stopZ80
+        startZ80
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
 
 
 if __name__ == "__main__":
