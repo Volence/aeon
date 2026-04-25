@@ -13,7 +13,7 @@ Usage:
 from __future__ import annotations
 
 import re
-from typing import Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import Dict, List, NamedTuple, Set, Tuple
 
 
 class FileContribution(NamedTuple):
@@ -166,8 +166,7 @@ def parse_source_listing(lines: List[str]) -> SourceListingResult:
     Tracks which include file contributes how many ROM bytes and detects
     ``__BUDGET_*`` sentinel labels for region boundaries.
     """
-    # include_stack entries: [filename, start_addr]
-    include_stack: List[List] = []
+    include_stack: List[Tuple[str, int]] = []
     file_contributions: List[FileContribution] = []
     sentinel_map: Dict[str, int] = {}
     sentinel_order: List[str] = []
@@ -196,8 +195,7 @@ def parse_source_listing(lines: List[str]) -> SourceListingResult:
         # The current line's address marks where the parent resumes,
         # which is the byte right after the included file's last opcode.
         while prev_depth > depth and include_stack:
-            entry = include_stack.pop()
-            fname, first = entry[0], entry[1]
+            fname, first = include_stack.pop()
             file_contributions.append(FileContribution(
                 filename=fname, start=first, end=addr, size=addr - first
             ))
@@ -219,7 +217,7 @@ def parse_source_listing(lines: List[str]) -> SourceListingResult:
         # Check for include directive
         mi = _INCLUDE_RE.search(line)
         if mi:
-            include_stack.append([mi.group(1), addr])
+            include_stack.append((mi.group(1), addr))
             prev_depth = depth + 1
             last_addr = addr
             continue
@@ -229,8 +227,7 @@ def parse_source_listing(lines: List[str]) -> SourceListingResult:
 
     # Flush any remaining include stack entries (EOF before depth returned)
     while include_stack:
-        entry = include_stack.pop()
-        fname, first = entry[0], entry[1]
+        fname, first = include_stack.pop()
         file_contributions.append(FileContribution(
             filename=fname, start=first, end=last_addr, size=last_addr - first
         ))

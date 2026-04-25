@@ -154,6 +154,15 @@ class TestParseSourceListing(unittest.TestCase):
         fc = next(f for f in self.result.file_contributions if f.filename == "objects/test_obj.asm")
         self.assertEqual(fc.size, 0x10006 - 0x10002)
 
+    def test_endofrom_value(self):
+        self.assertEqual(self.result.endofrom, 0x1000A)
+
+    def test_empty_input(self):
+        result = parse_source_listing([])
+        self.assertEqual(result.regions, [])
+        self.assertEqual(result.file_contributions, [])
+        self.assertEqual(result.endofrom, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
