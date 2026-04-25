@@ -113,11 +113,24 @@ ObjCodeBase:
     rts                         ; offset 0 = empty slot safety net
 
     include "objects/test_static.asm"
+    include "objects/test_animated.asm"
 
 ; -----------------------------------------------
 ; Data
 ; -----------------------------------------------
     include "data/mappings/test_mappings.asm"
+    include "data/animations/sonic_anims.asm"
+
+; Sonic sprite data (binary includes)
+Map_Sonic:
+    BINCLUDE "data/mappings/sonic.bin"
+    align 2
+DPLC_Sonic:
+    BINCLUDE "data/dplc/optimized/sonic.bin"
+    align 2
+Art_Sonic:
+    BINCLUDE "art/optimized/characters/sonic.bin"
+    align 2
 
 ; -----------------------------------------------
 ; Test game states

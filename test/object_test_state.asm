@@ -50,6 +50,14 @@ GameState_ObjectTest_Init:
         move.b  #1, SST_mapping_frame(a1)   ; different frame (color 2)
 .skip3:
 
+        ; Spawn animated Sonic walk cycle
+        jsr     AllocDynamic
+        bcs.s   .skip4
+        move.w  #objroutine(TestAnimated), SST_code_addr(a1)
+        move.l  #160<<16, SST_x_pos(a1)
+        move.l  #160<<16, SST_y_pos(a1)
+.skip4:
+
         ; Enable display (VDP reg $01 bit 6)
         SetVDPReg VDP_Shadow_vdp_mode2, #$74
 
@@ -81,21 +89,8 @@ TestArt_End:
 
 ; -----------------------------------------------
 ; Test palette — 16 colors for CRAM line 0
+; Color 1=red, 2=green for static test squares.
+; Sonic's palette loaded at CRAM line 0 (overwritten at init).
 ; -----------------------------------------------
 TestPalette:
-        dc.w    $0000               ; 0: transparent
-        dc.w    $000E               ; 1: red
-        dc.w    $00E0               ; 2: green
-        dc.w    $0E00               ; 3: blue
-        dc.w    $0EEE               ; 4: white
-        dc.w    $00EE               ; 5: yellow
-        dc.w    $0E0E               ; 6: cyan
-        dc.w    $0EE0               ; 7: magenta
-        dc.w    $0444               ; 8: dark gray
-        dc.w    $0888               ; 9: gray
-        dc.w    $0CCC               ; A: light gray
-        dc.w    $006E               ; B: orange
-        dc.w    $060E               ; C: purple
-        dc.w    $0060               ; D: dark green
-        dc.w    $0006               ; E: dark blue
-        dc.w    $0600               ; F: dark red
+        BINCLUDE "art/palettes/sonic.bin"

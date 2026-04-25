@@ -158,3 +158,4 @@ GS_OBJECT_TEST          = 2
 ; Test VRAM allocation
 ; -----------------------------------------------
 VRAM_TEST_OBJ           = $0001         ; tile index 1 (8 tiles for test art)
+VRAM_TEST_SONIC         = $0010         ; tile index 16 (up to 25 tiles for Sonic frames)

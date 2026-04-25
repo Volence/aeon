@@ -13,6 +13,8 @@
 !art/optimized/**/*.bin
 !data/dplc/*.bin
 !data/dplc/optimized/*.bin
+!data/mappings/*.bin
+!art/palettes/*.bin
 
 # MCP config (machine-specific)
 .mcp.json
