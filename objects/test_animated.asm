@@ -19,22 +19,10 @@ TestAnimated:
 TestAnimated_Main:
         jsr     AnimateSprite
 
-        move.b  SST_mapping_frame(a0), d0
-        cmp.b   SST_prev_frame(a0), d0
-        beq.s   .no_dplc
-        move.b  d0, SST_prev_frame(a0)
-
-        movea.l a0, a3
-
-        moveq   #0, d0
-        move.b  SST_mapping_frame(a3), d0
-        movea.l _dplc_ptr(a3), a0
-        movea.l _art_base(a3), a1
+        movea.l _dplc_ptr(a0), a2
+        movea.l _art_base(a0), a3
         move.w  #vram_bytes(VRAM_TEST_SONIC), d1
         jsr     Perform_DPLC
 
-        movea.l a3, a0
-
-.no_dplc:
         jsr     Draw_Sprite
         rts
