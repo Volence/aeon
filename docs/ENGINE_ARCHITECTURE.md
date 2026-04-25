@@ -1610,29 +1610,29 @@ Ani_Walk:
 ```
 
 **Animation events (NOVEL):**
+All events consume an even number of bytes (for PerFrame alignment). Events execute inline when encountered and continue reading the next byte — multiple events can chain before a frame.
 ```
-$F9 = play sound     (next byte: sound ID)
-$F8 = call routine   (next word: routine pointer offset)
-$F7 = set collision   (next byte: collision_response value)
-$F6 = set field       (next 2 bytes: SST offset, value)
-$F5 = speed-linked    (frame duration scales with object velocity)
-$F4 = per-frame delay (each frame has its own duration byte)
+$FA = AF_CALLBACK   (dc.b $FA, 0)                    — call pointer in SST_anim_callback
+$F9 = AF_SOUND      (dc.b $F9, sound_id)             — play sound effect (stub until driver)
+$F8 = AF_COLLISION  (dc.b $F8, collision_type)        — set SST_collision_resp
+$F7 = AF_SET_FIELD  (dc.b $F7, sst_offset, value, 0) — set arbitrary SST byte
 ```
 
-**Example — boss attack with events:**
+Speed-linked animation and per-frame delays are handled by calling conventions (`AnimateSprite` vs `AnimateSprite_PerFrame`), not by event codes. Speed formula: `duration = max(0, ($800 - abs_speed)) >> 8`.
+
+**Example — boss attack with events (PerFrame mode):**
 ```
 Ani_BossAttack:
-    dc.b  $F4              ; per-frame delay mode
-    dc.b  8, 0             ; frame 0: 8 ticks (slow wind-up)
-    dc.b  6, 1             ; frame 1: 6 ticks
-    dc.b  $F7, COLLISION_HURT  ; EVENT: become dangerous
+    dc.b  0, 8             ; frame 0: 8 ticks (slow wind-up)
+    dc.b  1, 6             ; frame 1: 6 ticks
+    dc.b  AF_COLLISION, COLLISION_HURT  ; EVENT: become dangerous
     dc.b  2, 2             ; frame 2: 2 ticks (strike)
-    dc.b  $F9, sfx_Impact  ; EVENT: play impact sound
-    dc.b  $F8              ; EVENT: call routine
-    dc.w  Boss__SpawnShockwave - ObjBase
-    dc.b  $F7, COLLISION_SOLID ; EVENT: safe again
-    dc.b  4, 3             ; frame 3: follow-through
-    dc.b  $FF              ; loop
+    dc.b  AF_SOUND, sfx_Impact         ; EVENT: play impact sound
+    dc.b  AF_CALLBACK, 0              ; EVENT: call SST_anim_callback
+    dc.b  AF_COLLISION, COLLISION_SOLID ; EVENT: safe again
+    dc.b  3, 4             ; frame 3: follow-through
+    dc.b  AF_END            ; loop
+    even
 ```
 
 Objects that currently do "check timer → spawn thing" delete that logic entirely. Animation scripts handle all timing. New attack patterns = new data, not new code.

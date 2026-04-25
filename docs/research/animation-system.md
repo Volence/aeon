@@ -404,14 +404,16 @@ We already have `Perform_DPLC` and `Perform_DPLC_Deferrable` in `engine/dplc.asm
 
 These four codes cover all standard Sonic object animation needs and match the proven S.C.E./S2/S3K set.
 
-**Phase 4 (advanced, added later if needed)**:
+**Implemented (all phases complete)**:
 | Code | Byte | Meaning |
 |------|------|---------|
 | AF_DELETE | $FB | Mark object for deletion |
-| AF_CALLBACK | $FA | Call custom function pointer |
-| AF_SFX | $F9 | Play sound effect (next byte = SFX ID) |
+| AF_CALLBACK | $FA | Call SST_anim_callback pointer; format: `dc.b $FA, 0` |
+| AF_SOUND | $F9 | Play sound (stub); format: `dc.b $F9, sound_id` |
+| AF_COLLISION | $F8 | Set collision type; format: `dc.b $F8, collision_type` |
+| AF_SET_FIELD | $F7 | Set SST byte; format: `dc.b $F7, sst_offset, value, 0` |
 
-The $FA callback is inspired by S.C.E.'s `Animate_Raw` which uses `wait_addr(a0)` for custom code jumps. The $F9 SFX trigger is new but useful for tying sound to specific animation frames.
+$FA callback inspired by S.C.E.'s `wait_addr(a0)` pattern. All events consume even byte counts for PerFrame alignment. Events execute inline — the sequencer processes them and continues to the next byte without advancing the frame counter. Multiple events can chain before a frame byte.
 
 ### 3.5 Per-Frame vs Per-Animation Duration
 
