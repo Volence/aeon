@@ -492,6 +492,166 @@ def _parse_suppressed(comment: str) -> Set[str]:
     return {code.strip() for code in m.group(1).split(",")}
 
 
+# ---------------------------------------------------------------------------
+# Numeric parsing helpers (E003/E004)
+# ---------------------------------------------------------------------------
+
+def parse_numeric(s: str) -> Optional[int]:
+    """Parse a bare numeric literal (hex ``$XXXX`` or decimal) from *s*.
+
+    Returns the integer value, or *None* if *s* is not a plain numeric literal
+    (e.g. contains operators, is a symbolic label, or is empty).
+    """
+    s = s.strip()
+    if not s:
+        return None
+    if s.startswith("$"):
+        hex_part = s[1:]
+        if hex_part and all(c in "0123456789abcdefABCDEF" for c in hex_part):
+            return int(hex_part, 16)
+        return None
+    # Decimal — must be all digits (no operators, no labels)
+    if s.isdigit():
+        return int(s)
+    return None
+
+
+def _extract_address_value(operand: str) -> Optional[int]:
+    """Extract a numeric address from an operand like ``($C00004).l`` or
+    ``$FF0000``.
+
+    Returns the integer address, or *None* when the operand is symbolic or
+    cannot be resolved at lint time.
+
+    Handles:
+    - ``$XXXX``                  plain hex
+    - ``$XXXX.w``                hex with address-size suffix (no parens)
+    - ``($XXXX)``                hex in parens, no suffix
+    - ``($XXXX).l`` / ``.w``     hex in parens with suffix
+    - ``#...``                    immediate — NOT an address operand → None
+    """
+    s = operand.strip()
+
+    # Immediate values (#...) are not address operands
+    if s.startswith("#"):
+        return None
+
+    # Strip outer paren + optional size suffix: ($C00004).l → $C00004
+    paren_suffix_re = re.compile(r"^\(\s*([^)]+)\s*\)(?:\.[bwlBWL])?$")
+    m = paren_suffix_re.match(s)
+    if m:
+        inner = m.group(1).strip()
+        return parse_numeric(inner)
+
+    # Plain with optional address-size suffix: $FF0000.w → $FF0000
+    dot_suffix_re = re.compile(r"^(.+?)(\.[bwlBWL])$")
+    m2 = dot_suffix_re.match(s)
+    if m2:
+        base = m2.group(1)
+        return parse_numeric(base)
+
+    # Plain with no suffix
+    return parse_numeric(s)
+
+
+# ---------------------------------------------------------------------------
+# Mnemonics for checks
+# ---------------------------------------------------------------------------
+
+_MULDIV_MNEMONICS: frozenset = frozenset({"mulu", "muls", "divu", "divs"})
+_ADDRESS_MNEMONICS: frozenset = frozenset({"movea", "lea", "jmp", "jsr"})
+
+# Branch mnemonics that E001 checks (excludes dbf/dbra variants and jmp/jsr)
+_E001_BRANCH_MNEMONICS: frozenset = frozenset({
+    "bra", "bsr",
+    "beq", "bne", "blt", "bgt", "ble", "bge",
+    "blo", "bls", "bhi", "bhs",
+    "bcc", "bcs", "bvc", "bvs",
+    "bpl", "bmi",
+})
+
+# AS data-layout directives — skip for E004 (dc.w $0001 is not a memory access)
+_DATA_DIRECTIVES: frozenset = frozenset({"dc", "ds", "dcb"})
+
+
+# ---------------------------------------------------------------------------
+# Check functions
+# ---------------------------------------------------------------------------
+
+def check_e001(ctx: LintContext, token: Token, line_num: int,
+               suppressed: Set[str]) -> None:
+    """E001: Branch without explicit size suffix (.s or .w)."""
+    if "E001" in suppressed:
+        return
+    if token.instruction.lower() not in _E001_BRANCH_MNEMONICS:
+        return
+    if not token.size:
+        ctx.error("E001", line_num,
+                  f"unsized branch '{token.instruction}' — use .s or .w suffix")
+
+
+def check_e002(ctx: LintContext, token: Token, line_num: int,
+               suppressed: Set[str]) -> None:
+    """E002/W014: mulu/muls/divu/divs — error in engine/ or objects/, warning elsewhere."""
+    if token.instruction.lower() not in _MULDIV_MNEMONICS:
+        return
+
+    fp = ctx.filepath.replace("\\", "/")
+    in_hot_path = (
+        fp.startswith("engine/") or "/engine/" in fp or
+        fp.startswith("objects/") or "/objects/" in fp
+    )
+
+    if in_hot_path:
+        if "E002" in suppressed:
+            return
+        ctx.error("E002", line_num,
+                  f"'{token.instruction}' in hot-path file — use shifts/adds/lookup table")
+    else:
+        if "W014" in suppressed:
+            return
+        ctx.warning("W014", line_num,
+                    f"'{token.instruction}' is slow (75+ cycles) — consider alternative")
+
+
+def check_e003(ctx: LintContext, token: Token, line_num: int,
+               suppressed: Set[str]) -> None:
+    """E003: Odd address in movea/lea/jmp/jsr operand."""
+    if "E003" in suppressed:
+        return
+    if token.instruction.lower() not in _ADDRESS_MNEMONICS:
+        return
+
+    for operand in token.operands:
+        val = _extract_address_value(operand)
+        if val is not None and (val & 1):
+            ctx.error("E003", line_num,
+                      f"odd address {operand!r} in '{token.instruction}' "
+                      f"(addresses must be word-aligned)")
+            return  # one error per line is enough
+
+
+def check_e004(ctx: LintContext, token: Token, line_num: int,
+               suppressed: Set[str]) -> None:
+    """E004: Word or long-sized instruction accesses an odd literal address."""
+    if "E004" in suppressed:
+        return
+    if token.size not in (".w", ".l"):
+        return
+
+    # Skip data-layout directives
+    instr_lower = token.instruction.lower()
+    if instr_lower in _DATA_DIRECTIVES or instr_lower in ASM_DIRECTIVES:
+        return
+
+    for operand in token.operands:
+        val = _extract_address_value(operand)
+        if val is not None and (val & 1):
+            ctx.error("E004", line_num,
+                      f"word/long access to odd address {operand!r} — bus error on 68000")
+            return  # one error per line is enough
+
+
 def run_checks(ctx: LintContext, token: Token, line_num: int,
                raw_line: str, suppressed: Set[str]) -> None:
     """Apply all enabled checks to *token*.
@@ -566,6 +726,15 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     if instr_lower in ("rts", "rte"):
         ctx.check_routine_end(line_num)
         ctx.last_routine_terminated = True
+
+    # ------------------------------------------------------------------
+    # Stateless per-instruction checks
+    # ------------------------------------------------------------------
+    if token.instruction:
+        check_e001(ctx, token, line_num, suppressed)
+        check_e002(ctx, token, line_num, suppressed)
+        check_e003(ctx, token, line_num, suppressed)
+        check_e004(ctx, token, line_num, suppressed)
 
     # ------------------------------------------------------------------
     # Track prev_instruction for fall-through detection (future checks)

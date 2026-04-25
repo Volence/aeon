@@ -12,7 +12,11 @@ import unittest
 
 # Allow running from the s4_engine root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from tools.s4lint import tokenize_line, Token, Diagnostic, LintContext
+from tools.s4lint import (
+    tokenize_line, Token, Diagnostic, LintContext,
+    parse_numeric, _extract_address_value,
+    check_e001, check_e002, check_e003, check_e004,
+)
 
 
 class TestTokenizer(unittest.TestCase):
@@ -434,6 +438,360 @@ class TestLintContext(unittest.TestCase):
         self.assertFalse(ctx.in_struct)
         self.assertFalse(ctx.in_rept)
         self.assertFalse(ctx.in_macro_def)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for check tests
+# ---------------------------------------------------------------------------
+
+def _make_ctx(filepath="engine/core.asm"):
+    """Create a minimal LintContext for check tests."""
+    return LintContext(filepath, {})
+
+
+def _run_check(check_fn, line_text, filepath="engine/core.asm", suppressed=None):
+    """Tokenize *line_text*, run *check_fn*, return list of diagnostics."""
+    if suppressed is None:
+        suppressed = set()
+    ctx = _make_ctx(filepath)
+    tok = tokenize_line(line_text)
+    check_fn(ctx, tok, 1, suppressed)
+    return ctx.diagnostics
+
+
+# ---------------------------------------------------------------------------
+# parse_numeric / _extract_address_value helpers
+# ---------------------------------------------------------------------------
+
+class TestParseNumeric(unittest.TestCase):
+
+    def test_hex_dollar(self):
+        self.assertEqual(parse_numeric("$C00000"), 0xC00000)
+
+    def test_hex_lowercase(self):
+        self.assertEqual(parse_numeric("$ff0000"), 0xFF0000)
+
+    def test_decimal(self):
+        self.assertEqual(parse_numeric("42"), 42)
+
+    def test_odd_hex(self):
+        self.assertEqual(parse_numeric("$C00001"), 0xC00001)
+
+    def test_non_numeric_returns_none(self):
+        self.assertIsNone(parse_numeric("MyLabel"))
+
+    def test_expression_returns_none(self):
+        self.assertIsNone(parse_numeric("$FF0000+4"))
+
+    def test_zero(self):
+        self.assertEqual(parse_numeric("0"), 0)
+
+
+class TestExtractAddressValue(unittest.TestCase):
+
+    def test_plain_hex(self):
+        self.assertEqual(_extract_address_value("$FF0000"), 0xFF0000)
+
+    def test_parens_with_suffix(self):
+        self.assertEqual(_extract_address_value("($C00004).l"), 0xC00004)
+
+    def test_parens_without_suffix(self):
+        self.assertEqual(_extract_address_value("($FF0000)"), 0xFF0000)
+
+    def test_w_suffix_no_parens(self):
+        self.assertEqual(_extract_address_value("$FF0000.w"), 0xFF0000)
+
+    def test_symbolic_returns_none(self):
+        self.assertIsNone(_extract_address_value("(VDP_CTRL).l"))
+
+    def test_symbolic_plain_returns_none(self):
+        self.assertIsNone(_extract_address_value("Object_RAM"))
+
+    def test_immediate_hash_returns_none(self):
+        """Immediate operands (#value) are not addresses — ignore."""
+        self.assertIsNone(_extract_address_value("#$C00000"))
+
+
+# ---------------------------------------------------------------------------
+# E001: Unsized branch or jump
+# ---------------------------------------------------------------------------
+
+class TestE001_UnsizedBranch(unittest.TestCase):
+
+    def _errors(self, line, filepath="engine/core.asm", suppressed=None):
+        diags = _run_check(check_e001, line, filepath, suppressed or set())
+        return [d for d in diags if d.code == "E001"]
+
+    # --- should fire ---
+
+    def test_bra_no_size(self):
+        errs = self._errors("        bra     .loop")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("bra", errs[0].message)
+
+    def test_beq_no_size(self):
+        errs = self._errors("        beq     .done")
+        self.assertEqual(len(errs), 1)
+
+    def test_bne_no_size(self):
+        errs = self._errors("        bne     .retry")
+        self.assertEqual(len(errs), 1)
+
+    def test_bsr_no_size(self):
+        errs = self._errors("        bsr     Subroutine")
+        self.assertEqual(len(errs), 1)
+
+    def test_bhi_no_size(self):
+        errs = self._errors("        bhi     .over")
+        self.assertEqual(len(errs), 1)
+
+    def test_bmi_no_size(self):
+        errs = self._errors("        bmi     .neg")
+        self.assertEqual(len(errs), 1)
+
+    def test_bcc_no_size(self):
+        errs = self._errors("        bcc     .ok")
+        self.assertEqual(len(errs), 1)
+
+    # --- should NOT fire ---
+
+    def test_bra_s_ok(self):
+        errs = self._errors("        bra.s   .loop")
+        self.assertEqual(len(errs), 0)
+
+    def test_bne_w_ok(self):
+        errs = self._errors("        bne.w   .far_label")
+        self.assertEqual(len(errs), 0)
+
+    def test_beq_s_ok(self):
+        errs = self._errors("        beq.s   .done")
+        self.assertEqual(len(errs), 0)
+
+    def test_jmp_not_checked(self):
+        """jmp is always long — not in the E001 set."""
+        errs = self._errors("        jmp     (a0)")
+        self.assertEqual(len(errs), 0)
+
+    def test_jsr_not_checked(self):
+        errs = self._errors("        jsr     SomeRoutine")
+        self.assertEqual(len(errs), 0)
+
+    def test_dbf_not_checked(self):
+        errs = self._errors("        dbf     d1, .loop")
+        self.assertEqual(len(errs), 0)
+
+    def test_dbra_not_checked(self):
+        errs = self._errors("        dbra    d0, .wait")
+        self.assertEqual(len(errs), 0)
+
+    def test_suppressed_e001(self):
+        errs = self._errors("        bra     .loop", suppressed={"E001"})
+        self.assertEqual(len(errs), 0)
+
+    def test_non_branch_not_checked(self):
+        errs = self._errors("        move.w  d0, d1")
+        self.assertEqual(len(errs), 0)
+
+
+# ---------------------------------------------------------------------------
+# E002: Multiply / divide in hot path
+# ---------------------------------------------------------------------------
+
+class TestE002_MultiplyDivide(unittest.TestCase):
+
+    def _diags(self, line, filepath="engine/core.asm", suppressed=None):
+        diags = _run_check(check_e002, line, filepath, suppressed or set())
+        return diags
+
+    # --- engine/ → error ---
+
+    def test_mulu_in_engine_is_error(self):
+        diags = self._diags("        mulu    #8, d0", filepath="engine/core.asm")
+        errs = [d for d in diags if d.code == "E002" and d.severity == "error"]
+        self.assertEqual(len(errs), 1)
+
+    def test_muls_in_engine_is_error(self):
+        diags = self._diags("        muls    d1, d0", filepath="engine/physics.asm")
+        errs = [d for d in diags if d.code == "E002" and d.severity == "error"]
+        self.assertEqual(len(errs), 1)
+
+    def test_divu_in_engine_is_error(self):
+        diags = self._diags("        divu    #10, d0", filepath="engine/math.asm")
+        errs = [d for d in diags if d.code == "E002" and d.severity == "error"]
+        self.assertEqual(len(errs), 1)
+
+    def test_divs_in_engine_is_error(self):
+        diags = self._diags("        divs    d2, d1", filepath="engine/scroll.asm")
+        errs = [d for d in diags if d.code == "E002" and d.severity == "error"]
+        self.assertEqual(len(errs), 1)
+
+    # --- objects/ → error ---
+
+    def test_mulu_in_objects_is_error(self):
+        diags = self._diags("        mulu    #4, d0", filepath="objects/player.asm")
+        errs = [d for d in diags if d.code == "E002" and d.severity == "error"]
+        self.assertEqual(len(errs), 1)
+
+    def test_divs_in_objects_is_error(self):
+        diags = self._diags("        divs    d0, d1", filepath="objects/enemy.asm")
+        errs = [d for d in diags if d.code == "E002" and d.severity == "error"]
+        self.assertEqual(len(errs), 1)
+
+    # --- other directories → warning W014 ---
+
+    def test_mulu_in_init_is_warning(self):
+        diags = self._diags("        mulu    #8, d0", filepath="init/boot.asm")
+        warns = [d for d in diags if d.code == "W014" and d.severity == "warning"]
+        self.assertEqual(len(warns), 1)
+
+    def test_muls_in_data_is_warning(self):
+        diags = self._diags("        muls    d0, d1", filepath="data/tables.asm")
+        warns = [d for d in diags if d.code == "W014" and d.severity == "warning"]
+        self.assertEqual(len(warns), 1)
+
+    # --- not flagged ---
+
+    def test_add_not_flagged(self):
+        diags = self._diags("        add.w   d0, d1", filepath="engine/core.asm")
+        self.assertEqual(len(diags), 0)
+
+    def test_suppressed_e002(self):
+        diags = self._diags("        mulu    #8, d0", filepath="engine/core.asm",
+                             suppressed={"E002"})
+        errs = [d for d in diags if d.code == "E002"]
+        self.assertEqual(len(errs), 0)
+
+    def test_suppressed_w014(self):
+        diags = self._diags("        mulu    #8, d0", filepath="init/boot.asm",
+                             suppressed={"W014"})
+        warns = [d for d in diags if d.code == "W014"]
+        self.assertEqual(len(warns), 0)
+
+
+# ---------------------------------------------------------------------------
+# E003: Odd immediate address
+# ---------------------------------------------------------------------------
+
+class TestE003_OddAddress(unittest.TestCase):
+
+    def _errors(self, line, filepath="engine/core.asm", suppressed=None):
+        diags = _run_check(check_e003, line, filepath, suppressed or set())
+        return [d for d in diags if d.code == "E003"]
+
+    # --- should fire ---
+
+    def test_lea_odd_address(self):
+        errs = self._errors("        lea     ($FF0001).l, a0")
+        self.assertEqual(len(errs), 1)
+
+    def test_movea_odd_address(self):
+        errs = self._errors("        movea.l ($C00003).l, a1")
+        self.assertEqual(len(errs), 1)
+
+    def test_jmp_odd_address(self):
+        errs = self._errors("        jmp     ($1001).l")
+        self.assertEqual(len(errs), 1)
+
+    def test_jsr_odd_address(self):
+        errs = self._errors("        jsr     ($1003).l")
+        self.assertEqual(len(errs), 1)
+
+    def test_lea_odd_plain_hex(self):
+        errs = self._errors("        lea     $FF0001, a0")
+        self.assertEqual(len(errs), 1)
+
+    # --- should NOT fire ---
+
+    def test_lea_even_address(self):
+        errs = self._errors("        lea     ($FF0000).l, a0")
+        self.assertEqual(len(errs), 0)
+
+    def test_movea_even_address(self):
+        errs = self._errors("        movea.l ($C00004).l, a1")
+        self.assertEqual(len(errs), 0)
+
+    def test_lea_symbolic_not_flagged(self):
+        errs = self._errors("        lea     (Object_RAM).w, a0")
+        self.assertEqual(len(errs), 0)
+
+    def test_movea_symbolic_not_flagged(self):
+        errs = self._errors("        movea.l (VDP_CTRL).l, a0")
+        self.assertEqual(len(errs), 0)
+
+    def test_move_not_checked_by_e003(self):
+        """E003 only checks movea/lea/jmp/jsr — plain move is E004 territory."""
+        errs = self._errors("        move.w  ($C00001).l, d0")
+        self.assertEqual(len(errs), 0)
+
+    def test_suppressed_e003(self):
+        errs = self._errors("        lea     ($FF0001).l, a0", suppressed={"E003"})
+        self.assertEqual(len(errs), 0)
+
+
+# ---------------------------------------------------------------------------
+# E004: Word/long access to odd literal address
+# ---------------------------------------------------------------------------
+
+class TestE004_OddWordAccess(unittest.TestCase):
+
+    def _errors(self, line, filepath="engine/core.asm", suppressed=None):
+        diags = _run_check(check_e004, line, filepath, suppressed or set())
+        return [d for d in diags if d.code == "E004"]
+
+    # --- should fire ---
+
+    def test_move_w_odd_src(self):
+        errs = self._errors("        move.w  ($C00001).l, d0")
+        self.assertEqual(len(errs), 1)
+
+    def test_move_w_odd_dst(self):
+        errs = self._errors("        move.w  d0, ($C00001).l")
+        self.assertEqual(len(errs), 1)
+
+    def test_move_l_odd_address(self):
+        errs = self._errors("        move.l  ($FF0003).l, d0")
+        self.assertEqual(len(errs), 1)
+
+    def test_add_w_odd_address(self):
+        errs = self._errors("        add.w   ($FF0001).l, d0")
+        self.assertEqual(len(errs), 1)
+
+    def test_move_w_plain_odd_hex(self):
+        errs = self._errors("        move.w  $FF0001, d0")
+        self.assertEqual(len(errs), 1)
+
+    # --- should NOT fire ---
+
+    def test_move_b_odd_ok(self):
+        """Byte access to odd address is legal."""
+        errs = self._errors("        move.b  ($C00001).l, d0")
+        self.assertEqual(len(errs), 0)
+
+    def test_move_w_even_ok(self):
+        errs = self._errors("        move.w  ($C00004).l, d0")
+        self.assertEqual(len(errs), 0)
+
+    def test_move_l_even_ok(self):
+        errs = self._errors("        move.l  ($FF0000).l, d0")
+        self.assertEqual(len(errs), 0)
+
+    def test_move_w_symbolic_not_flagged(self):
+        errs = self._errors("        move.w  (VDP_DATA).l, d0")
+        self.assertEqual(len(errs), 0)
+
+    def test_move_no_size_not_flagged(self):
+        """Without explicit .w or .l size we cannot determine access width."""
+        errs = self._errors("        move    d0, d1")
+        self.assertEqual(len(errs), 0)
+
+    def test_suppressed_e004(self):
+        errs = self._errors("        move.w  ($C00001).l, d0", suppressed={"E004"})
+        self.assertEqual(len(errs), 0)
+
+    def test_dc_w_not_checked(self):
+        """dc.w is a directive, not an instruction accessing memory."""
+        errs = self._errors("        dc.w    $0001")
+        self.assertEqual(len(errs), 0)
 
 
 if __name__ == "__main__":
