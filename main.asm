@@ -122,6 +122,7 @@ ObjCodeBase:
     include "objects/test_solid.asm"
     include "objects/test_particle.asm"
     include "objects/test_emitter.asm"
+    include "objects/test_parent.asm"
 
 ; -----------------------------------------------
 ; Data (outside object code bank — addressed directly, not via objroutine)

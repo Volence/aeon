@@ -48,6 +48,14 @@ GameState_ObjectTest_Init:
         move.l  #80<<16, SST_y_pos(a1)
 .no_emitter:
 
+        ; --- Spawn test parent (child lifecycle demo) ---
+        jsr     AllocDynamic
+        bne.s   .no_parent
+        move.w  #objroutine(TestParent), SST_code_addr(a1)
+        move.l  #260<<16, SST_x_pos(a1)
+        move.l  #80<<16, SST_y_pos(a1)
+.no_parent:
+
         ; Enable display (VDP reg $01 bit 6)
         setVDPReg VDP_Shadow_vdp_mode2, #$74
 
