@@ -172,9 +172,14 @@ TestPlayer_Main:
 .no_floor:
 
         ; --- Animation selection ---
+        tst.b   _on_ground(a0)
+        beq.s   .anim_air
         tst.w   SST_x_vel(a0)
         beq.s   .anim_idle
         move.b  #0, SST_anim(a0)               ; walk
+        bra.s   .do_anim
+.anim_air:
+        move.b  #2, SST_anim(a0)               ; roll/jump
         bra.s   .do_anim
 .anim_idle:
         move.b  #1, SST_anim(a0)               ; idle
