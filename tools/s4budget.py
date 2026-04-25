@@ -516,8 +516,8 @@ def format_summary(regions: List[Region], rom_file_size: int,
         ob_str = f" | ObjBank: {ob_kb}KB/64KB ({ob_pct}%)"
 
     ram_kb = ram.total_used // 1024
-    ram_total_kb = 32
-    ram_pct = int(ram.total_used / (32 * 1024) * 100)
+    ram_total_kb = 64
+    ram_pct = int(ram.total_used / (64 * 1024) * 100)
     free_kb = ram.free_before_stack / 1024
 
     return (
