@@ -25,6 +25,7 @@ PAD_TO_POWER_OF_TWO     = 1
 ; -----------------------------------------------
 ; Vector Table ($000000 - $0000FF)
 ; -----------------------------------------------
+__BUDGET_VECTORS:
 Vectors:
     dc.l    SYSTEM_STACK                    ; $00: Initial SSP
     dc.l    EntryPoint                      ; $04: Reset PC
@@ -89,6 +90,7 @@ Checksum:
 ; -----------------------------------------------
 ; Engine code
 ; -----------------------------------------------
+__BUDGET_ENGINE:
     include "engine/boot.asm"
     include "engine/vdp_init.asm"
     include "engine/dma_queue.asm"
@@ -114,6 +116,7 @@ Checksum:
     org $10000
 ObjCodeBase:
     rts                         ; offset 0 = empty slot safety net
+__BUDGET_OBJBANK:
 
     include "objects/test_static.asm"
     include "objects/test_animated.asm"
@@ -128,6 +131,7 @@ ObjCodeBase:
 ; -----------------------------------------------
 ; Data (outside object code bank — addressed directly, not via objroutine)
 ; -----------------------------------------------
+__BUDGET_DATA:
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
     include "data/animations/particle_anims.asm"

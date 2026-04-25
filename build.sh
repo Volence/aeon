@@ -63,3 +63,8 @@ ROM_SIZE=$(stat -c%s "${ROM_NAME}.bin")
 ROM_KB=$(awk "BEGIN {printf \"%.1f\", ${ROM_SIZE}/1024}")
 ROM_PCT=$(awk "BEGIN {printf \"%.1f\", ${ROM_SIZE}/4194304*100}")
 echo "Build complete: ${ROM_NAME}.bin — ${ROM_SIZE} bytes (${ROM_KB} KB, ${ROM_PCT}% of 4MB)"
+
+# Budget summary
+if [[ -f "${ROM_NAME}.lst" ]]; then
+    python3 "${TOOLS}/s4budget.py" "${ROM_NAME}.lst" "${ROM_NAME}.bin" --summary 2>&1 || true
+fi

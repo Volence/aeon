@@ -12,7 +12,11 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
 import re
+import sys
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 
@@ -522,3 +526,103 @@ def format_summary(regions: List[Region], rom_file_size: int,
         f" | RAM: {ram_kb}KB/{ram_total_kb}KB ({ram_pct}%)"
         f" | Free: {free_kb:.1f}KB before stack"
     )
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="s4budget",
+        description="ROM/RAM/VRAM budget dashboard for the Sonic 4 Engine.",
+    )
+    p.add_argument("listing", help="Path to AS listing file (s4.lst)")
+    p.add_argument("rom", help="Path to ROM binary (s4.bin)")
+    p.add_argument("--summary", action="store_true",
+                   help="Print compact one-liner (for build integration)")
+    p.add_argument("--rom-only", action="store_true",
+                   help="Show only ROM budget")
+    p.add_argument("--ram-only", action="store_true",
+                   help="Show only RAM budget")
+    p.add_argument("--vram-only", action="store_true",
+                   help="Show only VRAM budget")
+    p.add_argument("--json", action="store_true",
+                   help="Output as JSON")
+    return p
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if not os.path.isfile(args.listing):
+        print(f"s4budget: error: listing file not found: {args.listing}", file=sys.stderr)
+        return 1
+
+    with open(args.listing, "r", encoding="utf-8", errors="replace") as f:
+        listing_lines = f.readlines()
+
+    symbols = parse_symbol_table(listing_lines)
+    source = parse_source_listing(listing_lines)
+
+    rom_file_size: Optional[int] = None
+    if os.path.isfile(args.rom):
+        rom_file_size = os.path.getsize(args.rom)
+
+    ram = compute_ram_layout(symbols.ram_labels, symbols.constants)
+    vram = compute_vram_layout(symbols.constants)
+
+    if args.json:
+        data = {
+            "rom": {
+                "size": rom_file_size if rom_file_size is not None else source.endofrom,
+                "max": _ROM_MAX,
+                "percent": round((rom_file_size if rom_file_size is not None else source.endofrom) / _ROM_MAX * 100, 1),
+                "regions": [
+                    {"name": r.name, "start": r.start, "end": r.end, "size": r.size}
+                    for r in source.regions
+                ],
+                "files": [
+                    {"filename": f.filename, "start": f.start, "end": f.end, "size": f.size}
+                    for f in source.file_contributions
+                ],
+            },
+            "ram": {
+                "total_used": ram.total_used,
+                "free_before_stack": ram.free_before_stack,
+                "lower": [{"name": e.name, "address": e.address, "size": e.size} for e in ram.lower],
+                "upper": [{"name": e.name, "address": e.address, "size": e.size} for e in ram.upper],
+            },
+            "vram": {
+                "total_tiles": vram.total_tiles if vram else 0,
+                "art_tiles_available": vram.art_tiles_available if vram else 0,
+            } if vram else None,
+        }
+        print(json.dumps(data, indent=2), file=sys.stderr)
+        return 0
+
+    if args.summary:
+        actual_rom = rom_file_size if rom_file_size is not None else source.endofrom
+        print(format_summary(source.regions, actual_rom, ram), file=sys.stderr)
+        return 0
+
+    show_all = not (args.rom_only or args.ram_only or args.vram_only)
+
+    sections = []
+    if show_all or args.rom_only:
+        sections.append(format_rom_report(
+            source.regions, source.file_contributions,
+            source.endofrom, rom_file_size
+        ))
+    if show_all or args.ram_only:
+        sections.append(format_ram_report(ram))
+    if (show_all or args.vram_only) and vram:
+        sections.append(format_vram_report(vram))
+
+    print("\n\n".join(sections), file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

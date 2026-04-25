@@ -4,12 +4,17 @@
 import unittest
 import os
 import sys
+import tempfile
+import io
+import contextlib
+import json
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from s4budget import (
     parse_symbol_table, parse_source_listing, FileContribution, Region,
     compute_ram_layout, compute_vram_layout, RAMLayout, RAMEntry, VRAMLayout,
     format_rom_report, format_ram_report, format_vram_report, format_summary,
+    main as s4budget_main,
 )
 
 
@@ -328,6 +333,95 @@ class TestFormatSummary(unittest.TestCase):
         self.assertIn("Free:", output)
         # Should be a single line
         self.assertEqual(output.count("\n"), 0)
+
+
+class TestCLI(unittest.TestCase):
+
+    def _make_listing(self):
+        return """\
+ AS V1.42 Beta [Bld 212] - Source File main.asm - Page 1 - 04/25/2026
+
+       1/       0 :                     ; Sonic 4 Engine
+      23/       0 :                         org 0
+      28/       0 :                     __BUDGET_VECTORS:
+      29/       0 : 00FF FF00               dc.l    $00FFFF00
+      88/     200 :                     __BUDGET_ENGINE:
+      92/     200 : 4E75                        rts
+     114/     202 :                         org $10000
+     115/   10000 :                     __BUDGET_OBJBANK:
+     116/   10000 : 4E75                        rts
+     131/   10002 :                     __BUDGET_DATA:
+     132/   10002 : 0001                        dc.w    1
+     162/   10004 :                     EndOfRom:
+
+  Symbol Table (* = unused):
+  --------------------------
+
+ DECOMP_BUFFER :             FFFFFFFFFFFF0000 C |  RAM_END :  FFFFFFFFFFFF9000 C |
+ SYSTEM_STACK :            FFFFFF00 - |  VRAM_PLANE_A :            C000 - |
+ VRAM_PLANE_B :            E000 - |  VRAM_SPRITE_TABLE :       D800 - |
+ VRAM_HSCROLL_TABLE :      DC00 - |  VRAM_WINDOW :             F000 - |
+ PLANE_H_CELLS :             40 - |  PLANE_V_CELLS :            40 - |
+
+    10 symbols
+"""
+
+    def _run(self, listing_content, extra_args=None):
+        lst_file = tempfile.NamedTemporaryFile(mode="w", suffix=".lst", delete=False)
+        lst_file.write(listing_content)
+        lst_file.flush()
+        lst_file.close()
+
+        bin_file = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+        bin_file.write(b"\x00" * 0x10004)
+        bin_file.close()
+
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                code = s4budget_main([lst_file.name, bin_file.name] + (extra_args or []))
+            return code, buf.getvalue()
+        finally:
+            os.unlink(lst_file.name)
+            os.unlink(bin_file.name)
+
+    def test_full_report_exits_zero(self):
+        code, output = self._run(self._make_listing())
+        self.assertEqual(code, 0)
+        self.assertIn("ROM Budget", output)
+        self.assertIn("RAM Budget", output)
+        self.assertIn("VRAM Budget", output)
+
+    def test_summary_mode(self):
+        code, output = self._run(self._make_listing(), ["--summary"])
+        self.assertEqual(code, 0)
+        self.assertIn("ROM:", output)
+        self.assertNotIn("=== ROM Budget ===", output)
+
+    def test_rom_only(self):
+        code, output = self._run(self._make_listing(), ["--rom-only"])
+        self.assertEqual(code, 0)
+        self.assertIn("ROM Budget", output)
+        self.assertNotIn("RAM Budget", output)
+
+    def test_ram_only(self):
+        code, output = self._run(self._make_listing(), ["--ram-only"])
+        self.assertEqual(code, 0)
+        self.assertNotIn("ROM Budget", output)
+        self.assertIn("RAM Budget", output)
+
+    def test_json_output(self):
+        code, output = self._run(self._make_listing(), ["--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(output)
+        self.assertIn("rom", data)
+        self.assertIn("ram", data)
+
+    def test_missing_listing_exits_one(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            code = s4budget_main(["/nonexistent.lst", "/nonexistent.bin"])
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":
