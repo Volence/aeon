@@ -76,7 +76,7 @@ enableInts macro
 
 ; SetVDPReg — write to shadow table + mark dirty
 ; reg = struct field offset (e.g. vdp_mode2), val = value (register or immediate)
-SetVDPReg macro reg,val
+setVDPReg macro reg,val
         move.b  val, (VDP_Shadow_Table+reg).w
         ori.l   #(1<<reg), (VDP_Dirty_Mask).w
         endm
@@ -114,7 +114,7 @@ vdpCommReg macro reg, type, rwd, clr
 ;     entryvar = pre-computed entry variable (e.g. Static_Pal_Line0)
 ; Clobbers: a1, a2
 ; -----------------------------------------------
-QueueStaticDMA macro slotvar, queueend, entryvar
+queueStaticDMA macro slotvar, queueend, entryvar
         movea.w (slotvar).w, a1
         cmpa.w  #queueend, a1
         beq.s   .done

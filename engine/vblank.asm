@@ -15,7 +15,8 @@ VBlank_Handler:
 .lag:
         bsr.w   VInt_Lag
 .done:
-        clr.b   (VBlank_Ready).w
+        moveq   #0, d0
+        move.b  d0, (VBlank_Ready).w
         movem.l (sp)+, d0-a6
         rte
 
@@ -80,15 +81,16 @@ VInt_Lag:
 ; VSync_Wait — block until VBlank fires (§1.2.5)
 ; In:  none
 ; Out: none
-; Clobbers: none
+; Clobbers: d0
 ; -----------------------------------------------
 VSync_Wait:
         move.b  #1, (VBlank_Ready).w
 .wait:
         tst.b   (VBlank_Flag).w
         beq.s   .wait
-        clr.b   (VBlank_Flag).w
+        moveq   #0, d0
+        move.b  d0, (VBlank_Flag).w
     ifdef __DEBUG__
-        clr.w   (DMA_Bytes_ThisFrame).w
+        move.w  d0, (DMA_Bytes_ThisFrame).w
     endif
         rts

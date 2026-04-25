@@ -98,13 +98,13 @@ Checksum:
     include "engine/controllers.asm"
     include "engine/game_loop.asm"
     include "engine/s4lz_decompress.asm"
-    include "engine/dplc.asm"
-    include "engine/objects.asm"
-    include "engine/sprites.asm"
-    include "engine/animate.asm"
-    include "engine/collision.asm"
-    include "engine/children.asm"
-    include "engine/load_object.asm"
+    include "engine/objects/dplc.asm"
+    include "engine/objects/core.asm"
+    include "engine/objects/sprites.asm"
+    include "engine/objects/animate.asm"
+    include "engine/objects/collision.asm"
+    include "engine/objects/children.asm"
+    include "engine/objects/load_object.asm"
 
 ; -----------------------------------------------
 ; Object code bank

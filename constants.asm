@@ -113,7 +113,7 @@ NUM_PLAYERS             = 2
 NUM_DYNAMIC             = 40
 NUM_EFFECTS             = 16
 NUM_SYSTEM              = 8
-NUM_TOTAL_SLOTS         = NUM_PLAYERS+NUM_DYNAMIC+NUM_EFFECTS+NUM_SYSTEM
+NUM_TOTAL_SLOTS         = NUM_PLAYERS+NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS
 
 ; Object code bank (ObjCodeBase aligned to $10000)
 OBJ_CODE_BANK           = 1         ; moveq #1,d0; swap d0 → $00010000

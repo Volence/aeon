@@ -1,5 +1,11 @@
 ; Object system test — controllable player + data-driven object spawning
 
+; -----------------------------------------------
+; GameState_ObjectTest_Init — one-shot setup for object test scene
+; In:  none
+; Out: none
+; Clobbers: d0-d3, a0-a2
+; -----------------------------------------------
 GameState_ObjectTest_Init:
         ; Load test palette to CRAM line 0
         lea     TestPalette(pc), a0
@@ -35,12 +41,18 @@ GameState_ObjectTest_Init:
         jsr     Load_ObjectList
 
         ; Enable display (VDP reg $01 bit 6)
-        SetVDPReg VDP_Shadow_vdp_mode2, #$74
+        setVDPReg VDP_Shadow_vdp_mode2, #$74
 
         ; Switch to running loop
         move.l  #GameState_ObjectTest, (Game_State).w
         rts
 
+; -----------------------------------------------
+; GameState_ObjectTest — per-frame update loop
+; In:  none
+; Out: none
+; Clobbers: d0-d7, a0-a6
+; -----------------------------------------------
 GameState_ObjectTest:
         jsr     InitSpriteSystem
         jsr     RunObjects

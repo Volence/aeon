@@ -183,7 +183,7 @@ Cold_Boot:
         move.l  #HBlank_Null, (HBlank_Handler_Ptr).w
 
         ; Enable VBlank interrupt (set VDP reg $01 bit 5)
-        SetVDPReg VDP_Shadow_vdp_mode2, #$34   ; $14 | $20 (VInt enable) = $34
+        setVDPReg VDP_Shadow_vdp_mode2, #$34   ; $14 | $20 (VInt enable) = $34
 
         ; Flush shadow to hardware — VInt must be enabled in VDP before unmasking
         bsr.w   Flush_VDP_Shadow

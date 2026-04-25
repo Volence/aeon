@@ -302,6 +302,7 @@ These are hard rules, not guidelines. The 68000 at 7.67 MHz has no margin for sl
 - **Keep hot routines short.** If a routine is called per-object per-frame, it should fit in ~50 instructions. Large routines should be split into inlined fast-path + called slow-path.
 - **Leaf routines don't need `movem`.** If a routine doesn't call other routines, don't save/restore registers — just document which registers it clobbers. The caller manages its own register state.
 - **Document register clobber.** Every routine header states inputs, outputs, and clobbered registers.
+- **Tail calls.** When the last instruction before `rts` is `jsr Target`, replace with `jmp Target`. Saves 10 cycles and 4 bytes by eliminating the `jsr`/`rts` pair overhead.
 
 ```asm
 ; -----------------------------------------------
@@ -367,8 +368,11 @@ NTSC VBlank = ~4,300 68K cycles. Everything that touches the VDP must finish wit
 | Local labels | `.lowercase_dotted` | `.loop`, `.skip`, `.done`, `.return`, `.not_found` |
 | Struct fields | `lowercase_underscored` | `x_pos`, `art_tile`, `render_flags`, `code_addr` |
 | AS functions | `camelCase` | `vdpComm`, `vram_art`, `sprSize`, `secIndex` |
-| AS macros | `camelCase` | `clearRAM`, `stopZ80`, `dma68kToVDP`, `ifdebug` |
+| AS macros | `camelCase` | `stopZ80`, `setVDPReg`, `queueStaticDMA`, `ifdebug` |
 | Enum values | `ALL_CAPS` with prefix | `STATE_IDLE`, `STATE_RUNNING`, `FLAG_ON_SCREEN` |
+| SST custom overlays | `_lowercase_underscored` | `_dplc_ptr`, `_patrol_left`, `_art_base` |
+
+SST custom field overlays use a leading underscore to distinguish them from global labels. Defined as `= SST_sst_custom + offset` at the top of the object file that uses them. When multiple objects share the same custom layout, guard definitions with `ifndef` so include order doesn't matter.
 
 ### 4.2 Routine Naming
 

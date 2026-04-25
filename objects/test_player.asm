@@ -1,6 +1,12 @@
 ; Test player — controllable character with movement, gravity, jumping
 ; Uses Sonic sprite art (DPLC-loaded), reads P1 controller input
 
+; Custom SST field offsets (shared layout with TestAnimated)
+    ifndef _dplc_ptr
+_dplc_ptr       = SST_sst_custom            ; long — DPLC table pointer (ROM)
+_art_base       = SST_sst_custom+4          ; long — uncompressed art base (ROM)
+    endif
+
 ; -----------------------------------------------
 ; Physics constants (S2/S.C.E. reference values)
 ; -----------------------------------------------
@@ -17,6 +23,8 @@ STUB_FLOOR_Y            = 192           ; pixel Y for stub ground plane
 ; -----------------------------------------------
 ; TestPlayer — init routine
 ; In:  a0 = SST pointer (slot already allocated)
+; Out: none
+; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 TestPlayer:
         move.l  #Map_Sonic, SST_mappings(a0)
@@ -38,6 +46,8 @@ TestPlayer:
 ; -----------------------------------------------
 ; TestPlayer_Main — per-frame update
 ; In:  a0 = SST pointer
+; Out: none
+; Clobbers: d0-d7, a0-a6
 ;
 ; Ground detection: "grounded" = on_object was set by Touch_Solid
 ; last frame, OR player is on the stub floor. ST_ON_OBJECT is
@@ -204,5 +214,4 @@ TestPlayer_Main:
         jsr     Perform_DPLC
 
         ; --- Draw ---
-        jsr     Draw_Sprite
-        rts
+        jmp     Draw_Sprite

@@ -13,7 +13,8 @@ VDP_Shadow_Init:
 .copy:
         move.b  (a0)+, (a1)+
         dbf     d0, .copy
-        clr.l   (VDP_Dirty_Mask).w
+        moveq   #0, d0
+        move.l  d0, (VDP_Dirty_Mask).w
         rts
 
 ; -----------------------------------------------
@@ -40,6 +41,7 @@ Flush_VDP_Shadow:
         addi.w  #$0100, d0                  ; next register command
         addq.w  #1, d2                      ; next register index
         dbf     d3, .loop
-        clr.l   (VDP_Dirty_Mask).w
+        moveq   #0, d0
+        move.l  d0, (VDP_Dirty_Mask).w
 .done:
         rts

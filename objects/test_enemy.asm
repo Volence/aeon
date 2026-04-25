@@ -13,6 +13,8 @@ ENEMY_PATROL_RANGE      = 48
 ; -----------------------------------------------
 ; TestEnemy_Init — behavior-specific init (called as first-frame code_addr)
 ; In:  a0 = SST pointer (base fields already set by Load_Object)
+; Out: none
+; Clobbers: d0-d3, a1
 ; -----------------------------------------------
 TestEnemy_Init:
         move.w  SST_x_pos(a0), d0
@@ -28,6 +30,8 @@ TestEnemy_Init:
 ; -----------------------------------------------
 ; TestEnemy_Main — per-frame update
 ; In:  a0 = SST pointer
+; Out: none
+; Clobbers: d0-d3, a1
 ; -----------------------------------------------
 TestEnemy_Main:
         jsr     ObjectMoveX
@@ -52,5 +56,4 @@ TestEnemy_Main:
         bclr    #RF_XFLIP, SST_render_flags(a0)
 
 .draw:
-        jsr     Draw_Sprite
-        rts
+        jmp     Draw_Sprite

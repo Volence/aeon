@@ -37,8 +37,8 @@ InitObjectRAM:
         dbf     d0, .push_eff
         move.w  #Effect_Free_Stack+NUM_EFFECTS*2, (Effect_Free_SP).w
 
-        ; Reset spawn counter
-        clr.w   (Spawn_Count).w
+        ; Reset spawn counter (d1 still 0 from .clear loop)
+        move.w  d1, (Spawn_Count).w
         rts
 
 ; -----------------------------------------------
@@ -166,7 +166,8 @@ DeleteObject:
 ; Clobbers: d0-d6, a0-a6 (object code may clobber freely except a0/d7)
 ; -----------------------------------------------
 RunObjects:
-        clr.w   (Spawn_Count).w
+        moveq   #0, d0
+        move.w  d0, (Spawn_Count).w
 
         tst.b   (Game_Paused).w
         bne.w   RunObjects_Frozen
