@@ -142,7 +142,6 @@ RF_ONSCREEN             = 0         ; set by Draw_Sprite if visible
 RF_XFLIP                = 1         ; horizontal flip
 RF_YFLIP                = 2         ; vertical flip
 RF_COORDMODE            = 3         ; 0 = world coords, 1 = screen coords
-RF_DELETE               = 7         ; marked for deferred deletion
 
 ; status byte bits (SST_status) — matches S2/S.C.E. convention
 ; Player interpretation:

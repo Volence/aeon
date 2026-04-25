@@ -44,9 +44,9 @@ InitObjectRAM:
 ; -----------------------------------------------
 ; AllocDynamic — pop a free dynamic slot
 ; In:  none
-; Out: a1 = SST address of allocated slot (carry clear on success)
-;      carry set if pool exhausted
-; Clobbers: none
+; Out: a1 = SST address of allocated slot (d0=0/Z set on success)
+;      d0=1/Z clear if pool exhausted
+; Clobbers: d0
 ; -----------------------------------------------
 AllocDynamic:
         cmpi.w  #Dynamic_Free_Stack, (Dynamic_Free_SP).w
@@ -54,18 +54,18 @@ AllocDynamic:
         movea.w (Dynamic_Free_SP).w, a1
         subq.w  #2, (Dynamic_Free_SP).w
         movea.w -(a1), a1
-        andi    #$FE, ccr               ; clear carry (success)
+        moveq   #0, d0                  ; Z set = success
         rts
 .full:
-        ori     #1, ccr                 ; set carry (pool exhausted)
+        moveq   #1, d0                  ; Z clear = pool exhausted
         rts
 
 ; -----------------------------------------------
 ; AllocEffect — pop a free effect slot
 ; In:  none
-; Out: a1 = SST address of allocated slot (carry clear on success)
-;      carry set if pool exhausted
-; Clobbers: none
+; Out: a1 = SST address of allocated slot (d0=0/Z set on success)
+;      d0=1/Z clear if pool exhausted
+; Clobbers: d0
 ; -----------------------------------------------
 AllocEffect:
         cmpi.w  #Effect_Free_Stack, (Effect_Free_SP).w
@@ -73,10 +73,10 @@ AllocEffect:
         movea.w (Effect_Free_SP).w, a1
         subq.w  #2, (Effect_Free_SP).w
         movea.w -(a1), a1
-        andi    #$FE, ccr
+        moveq   #0, d0
         rts
 .full:
-        ori     #1, ccr
+        moveq   #1, d0
         rts
 
 ; -----------------------------------------------
@@ -92,7 +92,7 @@ AllocEffect:
 ;                 SST_len*NUM_EFFECTS → effect pool
 ; In:  a0 = SST address of object to delete
 ; Out: none
-; Clobbers: d0-d1, a1
+; Clobbers: d0, a1
 ; -----------------------------------------------
 DeleteObject:
         ; Check Effect pool first (highest address range)
@@ -130,7 +130,6 @@ DeleteObject:
 .clear_slot:
         ; Zero all $50 bytes of the SST entry
         moveq   #0, d0
-        moveq   #0, d1
         move.l  d0, (a0)+       ; $00
         move.l  d0, (a0)+       ; $04
         move.l  d0, (a0)+       ; $08
@@ -158,7 +157,7 @@ DeleteObject:
 ; RunObjects — dispatch all active object slots
 ; Per-pool loops: players/system/effects always execute,
 ; dynamic pool is culled by distance from camera.
-; Deferred deletion sweep runs after all objects.
+; Objects that want to die call DeleteObject directly.
 ;
 ; Convention: object routines receive a0 = self SST pointer.
 ; Object routines MUST preserve a0 and d7.
@@ -191,9 +190,7 @@ RunObjects:
         lea     (Effect_Slots).w, a0
         move.w  #NUM_EFFECTS-1, d7
         bsr.s   .run_always
-
-        ; --- Deferred deletion sweep ---
-        bra.w   .deletion_sweep
+        rts
 
 ; Dispatch loop — no culling
 .run_always:
@@ -242,31 +239,6 @@ RunObjects:
 .culled_next:
         lea     SST_len(a0), a0
         dbf     d7, .culled_loop
-        rts
-
-; Deferred deletion — sweep dynamic + effect pools for RF_DELETE
-.deletion_sweep:
-        lea     (Dynamic_Slots).w, a0
-        move.w  #NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS-1, d7
-.del_loop:
-        tst.w   (a0)
-        beq.s   .del_next
-        btst    #RF_DELETE, SST_render_flags(a0)
-        beq.s   .del_next
-        bsr.w   DeleteObject
-.del_next:
-        lea     SST_len(a0), a0
-        dbf     d7, .del_loop
-        rts
-
-; -----------------------------------------------
-; MarkForDeletion — flag object for end-of-frame deletion
-; In:  a0 = SST pointer
-; Out: none
-; Clobbers: none
-; -----------------------------------------------
-MarkForDeletion:
-        bset    #RF_DELETE, SST_render_flags(a0)
         rts
 
 ; -----------------------------------------------

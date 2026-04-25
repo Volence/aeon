@@ -32,7 +32,7 @@ GameState_ObjectTest_Init:
 
         ; --- Spawn test enemy at (100, STUB_FLOOR_Y) ---
         jsr     AllocDynamic
-        bcs.s   .skip_enemy1
+        bne.s   .skip_enemy1
         move.w  #objroutine(TestEnemy), SST_code_addr(a1)
         move.l  #100<<16, SST_x_pos(a1)
         move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
@@ -40,7 +40,7 @@ GameState_ObjectTest_Init:
 
         ; --- Spawn test enemy at (240, STUB_FLOOR_Y) ---
         jsr     AllocDynamic
-        bcs.s   .skip_enemy2
+        bne.s   .skip_enemy2
         move.w  #objroutine(TestEnemy), SST_code_addr(a1)
         move.l  #240<<16, SST_x_pos(a1)
         move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
@@ -48,21 +48,21 @@ GameState_ObjectTest_Init:
 
         ; --- Spawn solid blocks (platforms above floor) ---
         jsr     AllocDynamic
-        bcs.s   .skip_solid1
+        bne.s   .skip_solid1
         move.w  #objroutine(TestSolid), SST_code_addr(a1)
         move.l  #120<<16, SST_x_pos(a1)
         move.l  #150<<16, SST_y_pos(a1)
 .skip_solid1:
 
         jsr     AllocDynamic
-        bcs.s   .skip_solid2
+        bne.s   .skip_solid2
         move.w  #objroutine(TestSolid), SST_code_addr(a1)
         move.l  #200<<16, SST_x_pos(a1)
         move.l  #130<<16, SST_y_pos(a1)
 .skip_solid2:
 
         jsr     AllocDynamic
-        bcs.s   .skip_solid3
+        bne.s   .skip_solid3
         move.w  #objroutine(TestSolid), SST_code_addr(a1)
         move.l  #160<<16, SST_x_pos(a1)
         move.l  #100<<16, SST_y_pos(a1)
