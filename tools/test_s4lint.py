@@ -440,7 +440,7 @@ class TestLintContext(unittest.TestCase):
         self.assertEqual(ctx.ints_state, "enabled")
         self.assertFalse(ctx.sr_saved)
         self.assertFalse(ctx.in_struct)
-        self.assertFalse(ctx.in_rept)
+        self.assertEqual(ctx.in_rept, 0)
         self.assertFalse(ctx.in_macro_def)
 
 
@@ -727,6 +727,15 @@ class TestE003_OddAddress(unittest.TestCase):
         errs = self._errors("        move.w  ($C00001).l, d0")
         self.assertEqual(len(errs), 0)
 
+    def test_movea_immediate_odd_fires(self):
+        """movea.l #$FF0001, a0 — odd immediate loaded into address register."""
+        errs = self._errors("        movea.l #$FF0001, a0")
+        self.assertEqual(len(errs), 1)
+
+    def test_movea_immediate_even_ok(self):
+        errs = self._errors("        movea.l #$FF0000, a0")
+        self.assertEqual(len(errs), 0)
+
     def test_suppressed_e003(self):
         errs = self._errors("        lea     ($FF0001).l, a0", suppressed={"E003"})
         self.assertEqual(len(errs), 0)
@@ -935,6 +944,20 @@ class TestE005_MissingEven(unittest.TestCase):
             "    dc.w    $0000\n"
         )
         self.assertEqual(len(errs), 1)
+
+    def test_nested_rept_suppresses_correctly(self):
+        """Nested rept blocks must not unsuppress on inner endr."""
+        errs = self._lint_lines(
+            "Routine:\n"
+            "    rept 4\n"
+            "    rept 2\n"
+            "    dc.b 1\n"
+            "    endr\n"
+            "    dc.b 1\n"       # still inside outer rept — should be suppressed
+            "    dc.w $0000\n"   # would be E005 if not suppressed
+            "    endr\n"
+        )
+        self.assertEqual(len(errs), 0)
 
 
 # ---------------------------------------------------------------------------

@@ -385,7 +385,7 @@ class LintContext:
 
         # Block-level guards (linting is suppressed inside these blocks)
         self.in_struct: bool = False
-        self.in_rept: bool = False
+        self.in_rept: int = 0
         self.in_macro_def: bool = False
         self.in_phase: bool = False
 
@@ -897,16 +897,20 @@ def check_e003(ctx: LintContext, token: Token, line_num: int,
     """E003: Odd address in movea/lea/jmp/jsr operand."""
     if "E003" in suppressed:
         return
-    if token.instruction.lower() not in _ADDRESS_MNEMONICS:
+    instr_lower = token.instruction.lower()
+    if instr_lower not in _ADDRESS_MNEMONICS:
         return
 
     for operand in token.operands:
         val = _extract_address_value(operand)
+        # movea loads an immediate into an address register — check that too
+        if val is None and instr_lower == "movea" and operand.strip().startswith("#"):
+            val = parse_numeric(operand.strip()[1:])
         if val is not None and (val & 1):
             ctx.error("E003", line_num,
                       f"odd address {operand!r} in '{token.instruction}' "
                       f"(addresses must be word-aligned)")
-            return  # one error per line is enough
+            return
 
 
 def check_e004(ctx: LintContext, token: Token, line_num: int,
@@ -1285,12 +1289,12 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         ctx.in_macro_def = False
         return
 
-    # Rept block
+    # Rept block (nesting-aware)
     if instr_lower == "rept":
-        ctx.in_rept = True
+        ctx.in_rept += 1
         return
     if instr_lower == "endr":
-        ctx.in_rept = False
+        ctx.in_rept = max(0, ctx.in_rept - 1)
         return
 
     # Phase block (RAM layout — ds.b is padding, not ROM data)
@@ -1493,10 +1497,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     has_errors = False
     has_warnings = False
 
+    project_root = os.path.dirname(os.path.abspath(args.files[0])) if args.files else os.getcwd()
+
     for filepath in all_files:
         base_dir = os.path.dirname(filepath)
+        rel_path = os.path.relpath(filepath, project_root)
         ctx = lint_file(filepath, options, base_dir)
         for diag in ctx.diagnostics:
+            diag.file = rel_path
             # Apply --only / --skip / --no-warnings filters
             if only_codes and diag.code not in only_codes:
                 continue
@@ -1508,7 +1516,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             if options["warnings_as_errors"] and diag.severity == "warning":
                 diag.severity = "error"
 
-            print(str(diag))
+            print(str(diag), file=sys.stderr)
 
             if diag.severity == "error":
                 has_errors = True
