@@ -47,3 +47,31 @@ Peak values captured across all frames since boot, including the init frame.
 - Parent self-destruct + DeleteChildren cascade stable
 - No lag frames observed (frame total stays under 224 active scanlines)
 - Real game scenes will have fewer objects on screen; this is intentionally worst-case
+
+---
+
+## Phase 7 Comparison — Link-Order Cycling
+
+Date: 2026-04-25
+Build: `DEBUG=1 ./build.sh` (209,837 bytes)
+Change: Added `Sprite_Cycle_Counter` + per-band intra-band reversal on odd frames
+
+### Per-Subsystem Scanline Costs
+
+| Subsystem | Phase 5 | Phase 7 | Delta |
+|---|---|---|---|
+| RunObjects | 52 | 52 | 0 |
+| TouchResponse | 10 | 10 | 0 |
+| Render_Sprites | 43 | 46 | **+3** |
+| **Frame Total** | **108** | **108** | **0** |
+
+### Slot Usage
+
+Unchanged: 30/40 dynamic, 16/16 effects.
+
+### Analysis
+
+- Render_Sprites gained +3 scanlines from link-order cycling overhead (btst per band, stack push/pop, indexed read instead of auto-increment)
+- Frame total unchanged at 108 — the +3 is within measurement variance of the VDP V counter (1-scanline granularity)
+- **Cost: ~3 scanlines (1.3% of active frame) for flicker-based overflow instead of permanent dropout**
+- No visual artifacts, no crashes, no regressions under stress test load
