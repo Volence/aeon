@@ -1537,6 +1537,19 @@ BossChildren:
     dc.b  0, -32             ; child 3 XY offset
 ```
 
+### 3.3.1 Effect Pool Spawning (fire-and-forget)
+
+`CreateEffect_Normal` and `CreateEffect_Simple` mirror the child creation API but allocate from the **effect pool** (16 dedicated slots) instead of the dynamic pool. Effects are fire-and-forget: no sibling chain linking, no parent lifecycle management. They auto-despawn via `AF_DELETE` when their animation ends.
+
+| Routine | Inputs | Behavior |
+|---|---|---|
+| **CreateEffect_Normal** | a0=parent, a1=descriptor (same 4-byte format as CreateChild_Normal) | Allocate from effect pool, inherit mappings/art_tile, set parent_ptr, position from parent + offsets |
+| **CreateEffect_Simple** | a0=parent, d0.w=code_addr, d1.w=count | Spawn N identical effects at parent position from effect pool |
+
+Both fail silently on pool exhaustion. Effects use `AllocEffect`/`DeleteObject` which manages the effect free stack independently from dynamic slots — effect objects can never consume gameplay object slots.
+
+**Render_Sprites mid-frame guard:** Objects added to a sprite band via `Draw_Sprite` can be deleted later in the same `RunObjects` pass (e.g., `DeleteChildren` cascade). `Render_Sprites` guards against this by checking for null mappings before processing each band entry, skipping zeroed slots.
+
 ### 3.4 Collision System — Type Dispatch with Direct Dimensions (NOVEL)
 
 The collision system is a custom design that's more modular than any reference engine. Traditional approaches pack collision type + size into one byte and look up dimensions from a table. S.C.E. uses a registration list. Our approach:
