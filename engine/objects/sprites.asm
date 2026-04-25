@@ -165,8 +165,10 @@ Render_Sprites:
         ; Get object SST address
         movea.w (a2)+, a0                  ; a0 = SST pointer
 
-        ; Load mappings pointer
+        ; Guard: skip objects deleted mid-frame (slot zeroed after Draw_Sprite)
         movea.l SST_mappings(a0), a3       ; a3 = mapping table base
+        move.l  a3, d0
+        beq.w   .next_object
 
         ; Get frame offset from mapping table
         moveq   #0, d0
