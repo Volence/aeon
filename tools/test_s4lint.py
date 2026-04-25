@@ -1189,5 +1189,145 @@ Routine:
         self.assertEqual(len(errs), 0)
 
 
+# ---------------------------------------------------------------------------
+# E009: SST access past bounds
+# ---------------------------------------------------------------------------
+
+class TestE009_SSTBounds(unittest.TestCase):
+
+    def _errs(self, lines_str, filepath="engine/test.asm"):
+        return [d for d in _lint_lines(lines_str, filepath) if d.code == "E009"]
+
+    # --- should NOT fire ---
+
+    def test_valid_sst_field_access_no_error(self):
+        """SST_x_pos (offset $02) in operand -> no E009."""
+        code = """
+Routine:
+        move.l  SST_x_pos(a0), d0
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_sst_custom_base_no_error(self):
+        """SST_sst_custom ($32) with no addition -> offset $32 < $50 -> no E009."""
+        code = """
+Routine:
+        move.b  SST_sst_custom(a0), d0
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_sst_custom_plus_28_no_error(self):
+        """SST_sst_custom+28 = $32+$1C = $4E < $50 -> no E009."""
+        code = """
+Routine:
+        move.b  SST_sst_custom+28(a0), d0
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_non_sst_offset_no_error(self):
+        """Non-SST symbol in operand -> no E009."""
+        code = """
+Routine:
+        move.b  some_other_field(a0), d0
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_equ_sst_custom_in_range_no_error(self):
+        """Assignment _foo = SST_sst_custom+4 ($36 < $50) -> no E009."""
+        code = """
+_foo = SST_sst_custom+4
+Routine:
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    # --- should fire ---
+
+    def test_sst_custom_plus_30_fires(self):
+        """SST_sst_custom+30 = $32+$1E = $50 = SST_len -> out of bounds, E009."""
+        code = """
+Routine:
+        move.b  SST_sst_custom+30(a0), d0
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+        self.assertIn("E009", errs[0].code)
+
+    def test_sst_custom_plus_40_fires(self):
+        """SST_sst_custom+40 = $32+$28 = $5A -> way out of bounds, E009."""
+        code = """
+Routine:
+        move.b  SST_sst_custom+40(a0), d0
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+
+    def test_equ_definition_out_of_range_fires(self):
+        """_bad_field = SST_sst_custom+32 ($32+$20=$52 >= $50) -> E009."""
+        code = """
+_bad_field = SST_sst_custom+32
+Routine:
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+        self.assertIn("E009", errs[0].code)
+
+
+# ---------------------------------------------------------------------------
+# E010: SR save/restore mismatch
+# ---------------------------------------------------------------------------
+
+class TestE010_SRMismatch(unittest.TestCase):
+
+    def _errs(self, lines_str, filepath="engine/test.asm"):
+        return [d for d in _lint_lines(lines_str, filepath) if d.code == "E010"]
+
+    def test_sr_save_no_restore_rts_fires(self):
+        """move.w sr, -(sp) with no restore before rts -> E010."""
+        code = """
+Routine:
+        move.w  sr, -(sp)
+        nop
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 1)
+        self.assertIn("E010", errs[0].code)
+
+    def test_sr_save_restore_rts_clean(self):
+        """move.w sr, -(sp) then move.w (sp)+, sr then rts -> no E010."""
+        code = """
+Routine:
+        move.w  sr, -(sp)
+        nop
+        move.w  (sp)+, sr
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+    def test_no_sr_save_rts_clean(self):
+        """rts without any SR save -> no E010."""
+        code = """
+Routine:
+        moveq   #0, d0
+        rts
+"""
+        errs = self._errs(code)
+        self.assertEqual(len(errs), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

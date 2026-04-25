@@ -555,6 +555,98 @@ def _extract_address_value(operand: str) -> Optional[int]:
 
 
 # ---------------------------------------------------------------------------
+# SST struct constants (E009)
+# ---------------------------------------------------------------------------
+
+SST_LEN: int = 0x50
+
+SST_FIELDS: Dict[str, int] = {
+    "SST_code_addr":      0x00,
+    "SST_x_pos":          0x02,
+    "SST_y_pos":          0x06,
+    "SST_x_vel":          0x0A,
+    "SST_y_vel":          0x0C,
+    "SST_render_flags":   0x0E,
+    "SST_collision_resp": 0x0F,
+    "SST_mappings":       0x10,
+    "SST_art_tile":       0x14,
+    "SST_priority":       0x16,
+    "SST_width_pixels":   0x18,
+    "SST_height_pixels":  0x19,
+    "SST_anim":           0x1A,
+    "SST_prev_anim":      0x1B,
+    "SST_anim_frame":     0x1C,
+    "SST_anim_timer":     0x1D,
+    "SST_mapping_frame":  0x1E,
+    "SST_prev_frame":     0x1F,
+    "SST_anim_table":     0x20,
+    "SST_subtype":        0x24,
+    "SST_respawn_index":  0x25,
+    "SST_parent_ptr":     0x26,
+    "SST_sibling_ptr":    0x28,
+    "SST_wait_timer":     0x2A,
+    "SST_status":         0x2C,
+    "SST_anim_callback":  0x2E,
+    "SST_sst_custom":     0x32,
+}
+
+# Regex: matches SST_fieldname optionally followed by +N (decimal)
+_SST_EXPR_RE = re.compile(r'\b(SST_\w+)(?:\+(\d+))?')
+
+
+def _resolve_sst_offset(expr: str) -> Optional[int]:
+    """Resolve an SST field expression to its byte offset within the struct.
+
+    Handles:
+    - ``SST_x_pos``            → base offset
+    - ``SST_sst_custom+28``    → base + 28
+
+    Returns the resolved integer offset, or *None* if the field is not
+    a known SST symbol or cannot be resolved.
+    """
+    m = _SST_EXPR_RE.search(expr)
+    if not m:
+        return None
+    field_name = m.group(1)
+    base = SST_FIELDS.get(field_name)
+    if base is None:
+        return None
+    addition = int(m.group(2)) if m.group(2) else 0
+    return base + addition
+
+
+def check_e009(ctx: LintContext, token: Token, line_num: int,
+               suppressed: Set[str]) -> None:
+    """E009: SST field access beyond the end of the struct (offset >= SST_LEN).
+
+    Checks two forms:
+    1. Assignment definitions:  ``_foo = SST_sst_custom+32``
+    2. Instruction operands:    ``move.b  SST_sst_custom+30(a0), d0``
+    """
+    if "E009" in suppressed:
+        return
+
+    # Build a list of expressions to check
+    exprs_to_check: List[str] = []
+
+    if token.instruction == "=":
+        # Assignment: operands[0] is the rhs expression
+        if token.operands:
+            exprs_to_check.append(token.operands[0])
+    else:
+        # Regular instruction operands
+        exprs_to_check.extend(token.operands)
+
+    for expr in exprs_to_check:
+        offset = _resolve_sst_offset(expr)
+        if offset is not None and offset >= SST_LEN:
+            ctx.error("E009", line_num,
+                      f"SST access at offset ${offset:02X} is past end of struct "
+                      f"(SST_len=${SST_LEN:02X}) in expression {expr!r}")
+            return  # one error per line is enough
+
+
+# ---------------------------------------------------------------------------
 # Mnemonics for checks
 # ---------------------------------------------------------------------------
 
@@ -881,6 +973,26 @@ def check_e006(ctx: LintContext, token: Token, line_num: int,
                   f"(use stopZ80 before VDP access)")
 
 
+def check_sr_tracking(ctx: LintContext, token: Token, line_num: int) -> None:
+    """E010 tracking: detect SR save/restore move.w pairs.
+
+    - ``move.w sr, -(sp)``   → sets ctx.sr_saved = True
+    - ``move.w (sp)+, sr``   → sets ctx.sr_saved = False
+
+    The actual E010 error is emitted by ctx.check_routine_end() at rts/rte.
+    """
+    if token.instruction != "move" or token.size != ".w":
+        return
+    if len(token.operands) != 2:
+        return
+    src = token.operands[0].strip().lower()
+    dst = token.operands[1].strip().lower()
+    if src == "sr" and dst == "-(sp)":
+        ctx.sr_saved = True
+    elif src == "(sp)+" and dst == "sr":
+        ctx.sr_saved = False
+
+
 def run_checks(ctx: LintContext, token: Token, line_num: int,
                raw_line: str, suppressed: Set[str]) -> None:
     """Apply all enabled checks to *token*.
@@ -970,6 +1082,7 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     if token.instruction:
         check_macro_contracts(ctx, token, line_num, suppressed)
         check_e006(ctx, token, line_num, suppressed)
+        check_sr_tracking(ctx, token, line_num)
 
     # ------------------------------------------------------------------
     # Stateless per-instruction checks
@@ -979,6 +1092,7 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         check_e002(ctx, token, line_num, suppressed)
         check_e003(ctx, token, line_num, suppressed)
         check_e004(ctx, token, line_num, suppressed)
+        check_e009(ctx, token, line_num, suppressed)
 
     # ------------------------------------------------------------------
     # Track prev_instruction for fall-through detection (future checks)
