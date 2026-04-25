@@ -575,6 +575,97 @@ _DATA_DIRECTIVES: frozenset = frozenset({"dc", "ds", "dcb"})
 
 
 # ---------------------------------------------------------------------------
+# E005 byte-counting helpers
+# ---------------------------------------------------------------------------
+
+def _count_dc_b_items(operands: List[str]) -> int:
+    """Count the number of bytes produced by a dc.b operand list.
+
+    Each comma-separated operand is 1 byte, except string literals which
+    contribute one byte per character (quotes excluded).
+
+    Example: ["1", "2", '"AB"'] -> 4
+    """
+    total = 0
+    for op in operands:
+        s = op.strip()
+        if s.startswith('"') and s.endswith('"') and len(s) >= 2:
+            # String literal: count characters between the quotes
+            total += len(s) - 2
+        else:
+            total += 1
+    return total
+
+
+def _count_ds_b_items(operands: List[str]) -> int:
+    """Return the byte count from a ds.b directive operand list.
+
+    Only supports plain numeric literals ($XX or decimal).  Returns 0 for
+    symbolic or expression operands that cannot be resolved at lint time.
+    """
+    if not operands:
+        return 0
+    val = parse_numeric(operands[0])
+    return val if val is not None else 0
+
+
+def check_e005_track(ctx: LintContext, token: Token, line_num: int,
+                     suppressed: Set[str]) -> None:
+    """E005: Missing alignment after byte data.
+
+    Accumulates the running byte count from dc.b / ds.b directives.  When a
+    word-or-larger directive (dc.w / dc.l / ds.w / ds.l) or any 68K
+    instruction is encountered while the accumulated count is odd, an error
+    is emitted and the counter is reset.  ``even`` and ``align`` reset the
+    counter unconditionally.
+    """
+    instr_lower = token.instruction.lower()
+
+    # Alignment / address-reset directives -- reset counter
+    if instr_lower in ("even", "align", "phase", "dephase", "org"):
+        ctx.byte_count = 0
+        return
+
+    # dc.b -- accumulate bytes
+    if instr_lower == "dc" and token.size == ".b":
+        ctx.byte_count += _count_dc_b_items(token.operands)
+        return
+
+    # ds.b -- accumulate bytes if count is a resolvable literal; otherwise
+    # the alignment state is unknown so reset the counter to avoid false
+    # positives on symbolic counts like "ds.b VDP_Shadow_len".
+    if instr_lower == "ds" and token.size == ".b":
+        n = _count_ds_b_items(token.operands)
+        if token.operands and parse_numeric(token.operands[0]) is None:
+            # Symbolic count -- alignment tracking is broken; reset
+            ctx.byte_count = 0
+        else:
+            ctx.byte_count += n
+        return
+
+    # Word-or-larger dc/ds -- must check alignment then reset
+    is_word_or_larger_data = (
+        instr_lower in ("dc", "ds") and token.size in (".w", ".l")
+    )
+
+    # 68K instruction -- must check alignment then reset
+    is_68k = instr_lower in _M68K_MNEMONICS
+
+    if is_word_or_larger_data or is_68k:
+        if ctx.byte_count % 2 != 0:
+            if "E005" not in suppressed:
+                ctx.error("E005", line_num,
+                          f"word-or-larger data/instruction after {ctx.byte_count} "
+                          f"unaligned byte(s) -- insert 'even' or 'align 2' first")
+        ctx.byte_count = 0
+        return
+
+    # Any other dc/ds or non-byte directive: reset byte tracking
+    if instr_lower in _DATA_DIRECTIVES:
+        ctx.byte_count = 0
+
+
+# ---------------------------------------------------------------------------
 # Check functions
 # ---------------------------------------------------------------------------
 
@@ -726,6 +817,12 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     if instr_lower in ("rts", "rte"):
         ctx.check_routine_end(line_num)
         ctx.last_routine_terminated = True
+
+    # ------------------------------------------------------------------
+    # Stateful checks (must run before stateless checks)
+    # ------------------------------------------------------------------
+    if token.instruction:
+        check_e005_track(ctx, token, line_num, suppressed)
 
     # ------------------------------------------------------------------
     # Stateless per-instruction checks

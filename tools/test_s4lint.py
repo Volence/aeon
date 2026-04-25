@@ -16,6 +16,8 @@ from tools.s4lint import (
     tokenize_line, Token, Diagnostic, LintContext,
     parse_numeric, _extract_address_value,
     check_e001, check_e002, check_e003, check_e004,
+    check_e005_track, _count_dc_b_items, _count_ds_b_items,
+    run_checks,
 )
 
 
@@ -792,6 +794,120 @@ class TestE004_OddWordAccess(unittest.TestCase):
         """dc.w is a directive, not an instruction accessing memory."""
         errs = self._errors("        dc.w    $0001")
         self.assertEqual(len(errs), 0)
+
+
+# ---------------------------------------------------------------------------
+# E005: Missing alignment after byte data
+# ---------------------------------------------------------------------------
+
+class TestE005_MissingEven(unittest.TestCase):
+    """Tests for E005: dc.w/dc.l/ds.w/ds.l or 68K instruction after an odd
+    number of dc.b/ds.b bytes without an intervening even/align."""
+
+    def _lint_lines(self, lines_str: str):
+        """Process multi-line assembly string; return list of E005 Diagnostics."""
+        ctx = LintContext("test.asm", {})
+        for line_num, raw_line in enumerate(lines_str.split("\n"), start=1):
+            token = tokenize_line(raw_line)
+            run_checks(ctx, token, line_num, raw_line, set())
+        return [d for d in ctx.diagnostics if d.code == "E005"]
+
+    # --- helper unit tests ---
+
+    def test_count_dc_b_simple(self):
+        self.assertEqual(_count_dc_b_items(["1", "2", "3"]), 3)
+
+    def test_count_dc_b_string(self):
+        self.assertEqual(_count_dc_b_items(['\"SEGA\"']), 4)
+
+    def test_count_dc_b_mixed(self):
+        self.assertEqual(_count_dc_b_items(["0", '\"SEGA\"']), 5)
+
+    def test_count_ds_b_decimal(self):
+        self.assertEqual(_count_ds_b_items(["3"]), 3)
+
+    def test_count_ds_b_hex(self):
+        self.assertEqual(_count_ds_b_items(["$04"]), 4)
+
+    def test_count_ds_b_unknown_returns_zero(self):
+        self.assertEqual(_count_ds_b_items(["SYMBOL"]), 0)
+
+    # --- integration tests ---
+
+    def test_odd_dc_b_then_dc_w_fires(self):
+        """1 dc.b byte followed by dc.w -> E005."""
+        errs = self._lint_lines("Routine:\n    dc.b    1\n    dc.w    $0000\n")
+        self.assertEqual(len(errs), 1)
+
+    def test_even_dc_b_then_dc_w_ok(self):
+        """2 dc.b bytes then dc.w -> no error."""
+        errs = self._lint_lines("Routine:\n    dc.b    1, 2\n    dc.w    $0000\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_odd_dc_b_even_dc_w_ok(self):
+        """1 dc.b byte + even -> dc.w -> no error."""
+        errs = self._lint_lines("Routine:\n    dc.b    1\n    even\n    dc.w    $0000\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_odd_dc_b_align2_dc_w_ok(self):
+        """1 dc.b byte + align 2 -> dc.w -> no error."""
+        errs = self._lint_lines("Routine:\n    dc.b    1\n    align 2\n    dc.w    $0000\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_ds_b_odd_count_then_dc_w_fires(self):
+        """ds.b 3 (odd) then dc.w -> E005."""
+        errs = self._lint_lines("Routine:\n    ds.b    3\n    dc.w    $0000\n")
+        self.assertEqual(len(errs), 1)
+
+    def test_ds_b_even_count_then_dc_w_ok(self):
+        """ds.b 4 (even) then dc.w -> no error."""
+        errs = self._lint_lines("Routine:\n    ds.b    4\n    dc.w    $0000\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_accumulate_multiple_dc_b_to_odd_fires(self):
+        """Two dc.b lines accumulating to odd -> E005 at dc.w."""
+        errs = self._lint_lines("Routine:\n    dc.b    1, 2\n    dc.b    3\n    dc.w    $0000\n")
+        self.assertEqual(len(errs), 1)
+
+    def test_accumulate_multiple_dc_b_to_even_ok(self):
+        """Two dc.b lines accumulating to even -> no error."""
+        errs = self._lint_lines("Routine:\n    dc.b    1\n    dc.b    2\n    dc.w    $0000\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_instruction_after_odd_bytes_fires(self):
+        """68K instruction after 1 dc.b byte -> E005."""
+        errs = self._lint_lines("Routine:\n    dc.b    1\n    nop\n")
+        self.assertEqual(len(errs), 1)
+
+    def test_dc_l_after_odd_bytes_fires(self):
+        """dc.l after 1 dc.b byte -> E005."""
+        errs = self._lint_lines("Routine:\n    dc.b    1\n    dc.l    $00000000\n")
+        self.assertEqual(len(errs), 1)
+
+    def test_ds_w_after_odd_bytes_fires(self):
+        """ds.w after 1 dc.b byte -> E005."""
+        errs = self._lint_lines("Routine:\n    dc.b    1\n    ds.w    1\n")
+        self.assertEqual(len(errs), 1)
+
+    def test_no_bytes_just_dc_w_ok(self):
+        """dc.w with no preceding byte data -> no error."""
+        errs = self._lint_lines("Routine:\n    dc.w    $0000\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_string_dc_b_odd_fires(self):
+        """dc.b "ABC" (3 bytes, odd) then dc.w -> E005."""
+        errs = self._lint_lines('Routine:\n    dc.b    "ABC"\n    dc.w    $0000\n')
+        self.assertEqual(len(errs), 1)
+
+    def test_string_dc_b_even_ok(self):
+        """dc.b "SEGA" (4 bytes, even) then dc.w -> no error."""
+        errs = self._lint_lines('Routine:\n    dc.b    "SEGA"\n    dc.w    $0000\n')
+        self.assertEqual(len(errs), 0)
+
+    def test_dc_l_after_odd_ds_b_fires(self):
+        """ds.b 1 (odd) then dc.l -> E005."""
+        errs = self._lint_lines("Routine:\n    ds.b    1\n    dc.l    $00000000\n")
+        self.assertEqual(len(errs), 1)
 
 
 if __name__ == "__main__":
