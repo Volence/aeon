@@ -11,6 +11,10 @@ SPRITE_MARGIN_X         = 32            ; off-screen margin for partial sprites
 SPRITE_MARGIN_Y         = 32
 MAX_VDP_SPRITES         = 80
 
+; Sprite X=0 masking — VDP size code for mask sprites (1×4 cells = 8×32 pixels)
+SPRITE_MASK_SIZE        = %00000011     ; width=1, height=4 (32 scanlines per mask)
+SPRITE_MASK_HEIGHT      = 32
+
 ; -----------------------------------------------
 ; InitSpriteSystem — clear priority band counts and sprite counters
 ; Called at frame start, before RunObjects.
@@ -404,6 +408,15 @@ Render_Sprites:
         addq.w  #2, sp                    ; pop step value after band complete
 
 .next_band:
+        ; --- Sprite X=0 mask insertion at band boundary ---
+        move.w  a5, d0                    ; d0 = band we just finished (or about to start)
+        cmp.b   (SpriteMask_After_Band).w, d0
+        bne.s   .no_mask_insert
+        tst.w   (SpriteMask_Y).w
+        beq.s   .no_mask_insert
+        bsr.w   InsertSpriteMasks
+.no_mask_insert:
+
         ; Decrement band counter
         subq.w  #1, a5
         move.w  a5, d0
@@ -443,3 +456,38 @@ CellOffsets_XFlip:
         dc.b 24, 24, 24, 24            ; width=3 (24px)
         dc.b 32, 32, 32, 32            ; width=4 (32px)
         align 2
+
+; -----------------------------------------------
+; InsertSpriteMasks — write X=0 mask sprites into the SAT buffer
+; Inserts enough 8×32 mask sprites to cover SpriteMask_Height scanlines
+; starting at SpriteMask_Y. Sprites after these in the link chain are
+; hidden on the covered scanlines (VDP hardware feature).
+;
+; In:  a4 = SAT buffer write pointer (current position)
+;      d5 = current VDP sprite index
+; Out: a4 = advanced past mask entries
+;      d5 = updated sprite index
+; Clobbers: d0-d1
+; -----------------------------------------------
+InsertSpriteMasks:
+        move.w  (SpriteMask_Y).w, d0       ; d0 = VDP Y start position
+        move.w  (SpriteMask_Height).w, d1  ; d1 = remaining scanlines to cover
+        ble.s   .masks_done
+
+.mask_loop:
+        cmpi.w  #MAX_VDP_SPRITES, d5
+        bge.s   .masks_done
+
+        move.w  d0, (a4)+                 ; SAT +0: Y position
+        move.b  #SPRITE_MASK_SIZE, (a4)+  ; SAT +2: size (1×4 = 8×32px)
+        addq.b  #1, d5
+        move.b  d5, (a4)+                 ; SAT +3: link to next sprite
+        move.w  #0, (a4)+                 ; SAT +4: tile 0 (transparent)
+        move.w  #0, (a4)+                 ; SAT +6: X = 0 (triggers masking)
+
+        addi.w  #SPRITE_MASK_HEIGHT, d0   ; advance Y by 32 scanlines
+        subi.w  #SPRITE_MASK_HEIGHT, d1   ; subtract covered height
+        bgt.s   .mask_loop                ; continue if scanlines remain
+
+.masks_done:
+        rts

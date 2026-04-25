@@ -180,6 +180,16 @@ Sprites_Rendered:       ds.w 1
 ; Link-order cycling frame counter (incremented each Render_Sprites call)
 Sprite_Cycle_Counter:   ds.w 1
 
+; Sprite X=0 masking configuration
+; Set SpriteMask_Y to VDP Y position (screen Y + 128) and SpriteMask_Height
+; to the number of scanlines to mask. Set SpriteMask_After_Band to the band
+; index AFTER which mask sprites are inserted (e.g. 7 = after HUD band).
+; SpriteMask_Y = 0 disables masking.
+SpriteMask_Y:           ds.w 1          ; VDP Y position of mask top (0 = disabled)
+SpriteMask_Height:      ds.w 1          ; scanlines to cover
+SpriteMask_After_Band:  ds.b 1          ; insert after this band (0-7)
+                        ds.b 1          ; pad
+
 ; -----------------------------------------------
 ; Camera (stub for §3, real implementation in §4)
 ; -----------------------------------------------
