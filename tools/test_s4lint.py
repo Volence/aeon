@@ -2174,5 +2174,53 @@ class TestW017_LocalLabel(unittest.TestCase):
         self.assertEqual(len(errs), 0)
 
 
+# ---------------------------------------------------------------------------
+# W018: Routine too long
+# ---------------------------------------------------------------------------
+
+class TestW018_RoutineLength(unittest.TestCase):
+
+    def _warnings(self, lines_str, filepath="engine/test.asm"):
+        diags = _lint_lines(lines_str, filepath)
+        return [d for d in diags if d.code == "W018"]
+
+    def _make_routine(self, name, instruction_count):
+        """Build a multi-line routine with N nop instructions + rts."""
+        lines = [f"{name}:"]
+        for _ in range(instruction_count):
+            lines.append("    nop")
+        lines.append("    rts")
+        return "\n".join(lines) + "\n"
+
+    def test_short_routine_ok(self):
+        w = self._warnings(self._make_routine("Short_Routine", 50))
+        self.assertEqual(len(w), 0)
+
+    def test_exactly_100_ok(self):
+        """100 instructions is at the threshold — should not warn.
+        99 nops + 1 rts = 100 instructions."""
+        w = self._warnings(self._make_routine("Threshold_Routine", 99))
+        self.assertEqual(len(w), 0)
+
+    def test_101_warns(self):
+        """101 instructions exceeds threshold — should warn.
+        100 nops + 1 rts = 101 instructions."""
+        w = self._warnings(self._make_routine("Long_Routine", 100))
+        self.assertEqual(len(w), 1)
+        self.assertIn("Long_Routine", w[0].message)
+        self.assertIn("101", w[0].message)
+
+    def test_suppressed(self):
+        lines = "Long_Routine:\n" + "    nop\n" * 110 + "    rts ; lint: disable=W018\n"
+        w = self._warnings(lines)
+        self.assertEqual(len(w), 0)
+
+    def test_bra_does_not_fire(self):
+        """Routines ending with bra (tail call) don't fire W018."""
+        lines = "Long_Routine:\n" + "    nop\n" * 110 + "    bra.w Other_Routine\n"
+        w = self._warnings(lines)
+        self.assertEqual(len(w), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

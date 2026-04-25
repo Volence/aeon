@@ -1382,6 +1382,12 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         ctx.check_routine_end(line_num)
         ctx.last_routine_terminated = True
 
+        # W018: routine too long
+        if "W018" not in suppressed and ctx.routine_lines > ROUTINE_LENGTH_THRESHOLD:
+            ctx.warning("W018", line_num,
+                        f"routine '{ctx.current_routine}' is {ctx.routine_lines} instructions "
+                        f"(threshold: {ROUTINE_LENGTH_THRESHOLD}) — consider splitting")
+
     # dbf/dbra — end of loop body
     if instr_lower in ("dbf", "dbra"):
         ctx.in_dbf_loop = False
