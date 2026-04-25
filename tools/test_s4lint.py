@@ -2323,6 +2323,17 @@ class TestSummaryFooter(unittest.TestCase):
         _, stderr = self._run_lint("; header\nvdp_init:\n    rts\n")
         self.assertIn("global label not PascalCase", stderr)
 
+    def test_summary_warnings_as_errors(self):
+        """--warnings-as-errors promotes warning counts to error counts in summary."""
+        code, stderr = self._run_lint(
+            "; header\nvdp_init:\n    rts\n",
+            extra_args=["--warnings-as-errors"],
+        )
+        summary_line = [l for l in stderr.splitlines() if l.startswith("s4lint:")][0]
+        self.assertIn("error", summary_line)
+        self.assertNotIn("warning", summary_line)
+        self.assertEqual(code, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

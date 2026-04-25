@@ -1619,9 +1619,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             elif diag.severity == "warning":
                 has_warnings = True
 
-    # Summary footer
-    total_errors = sum(v for k, v in code_counts.items() if k.startswith("E"))
-    total_warnings = sum(v for k, v in code_counts.items() if k.startswith("W"))
+    # Summary footer — count by actual severity (respects --warnings-as-errors)
+    warn_as_err = options["warnings_as_errors"]
+    total_errors = sum(
+        v for k, v in code_counts.items()
+        if k.startswith("E") or (warn_as_err and k.startswith("W"))
+    )
+    total_warnings = sum(
+        v for k, v in code_counts.items()
+        if k.startswith("W") and not warn_as_err
+    )
 
     if total_errors == 0 and total_warnings == 0:
         print("\ns4lint: no issues found", file=sys.stderr)
