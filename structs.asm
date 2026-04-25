@@ -59,30 +59,35 @@ DMAEntry endstruct
 ; -----------------------------------------------
 ; Sprite Status Table entry (§3.1)
 ; Object system per-slot data structure.
-; Fields grouped logically; anim_cursor at $1C (even) for longword alignment.
+; Animation block at $1A-$23 grouped for move.l init.
 ; -----------------------------------------------
 
 SST struct
 code_addr       ds.w 1      ; $00 — object code offset from ObjCodeBase (0 = empty)
 x_pos           ds.l 1      ; $02 — 16.16 subpixel X position
 y_pos           ds.l 1      ; $06 — 16.16 subpixel Y position
-x_vel           ds.w 1      ; $0A — horizontal velocity
-y_vel           ds.w 1      ; $0C — vertical velocity
-render_flags    ds.b 1      ; $0E — display flags (bit 0 = on-screen, bit 1 = x-flip, bit 2 = y-flip, bit 3 = coordinate mode)
+x_vel           ds.w 1      ; $0A — horizontal velocity (8.8 fixed-point)
+y_vel           ds.w 1      ; $0C — vertical velocity (8.8 fixed-point)
+render_flags    ds.b 1      ; $0E — display flags (bit 0 = on-screen, bit 1 = x-flip, bit 2 = y-flip, bit 3 = coordinate mode, bit 7 = delete)
 collision_resp  ds.b 1      ; $0F — collision type dispatch (0 = none)
 mappings        ds.l 1      ; $10 — sprite mapping pointer (ROM)
 art_tile        ds.w 1      ; $14 — VRAM tile index + palette + priority
 priority        ds.w 1      ; $16 — sprite priority band (0-7, 0 = back)
 width_pixels    ds.b 1      ; $18 — collision width (full, not half)
 height_pixels   ds.b 1      ; $19 — collision height (full, not half)
-anim            ds.b 1      ; $1A — current animation ID
-mapping_frame   ds.b 1      ; $1B — current mapping index
-anim_cursor     ds.l 1      ; $1C — self-advancing animation ROM pointer
-subtype         ds.b 1      ; $20 — object subtype
-respawn_index   ds.b 1      ; $21 — respawn tracking
-parent_ptr      ds.w 1      ; $22 — parent object RAM address
-sibling_ptr     ds.w 1      ; $24 — sibling link (multi-part objects)
-anim_table      ds.l 1      ; $26 — animation table pointer (ROM)
+; --- animation block (clr.l $1A + clr.w $1E + move.l $20 inits all) ---
+anim            ds.b 1      ; $1A — desired animation ID
+prev_anim       ds.b 1      ; $1B — previous anim ID (change detection)
+anim_frame      ds.b 1      ; $1C — byte offset within animation script
+anim_timer      ds.b 1      ; $1D — frame duration countdown
+mapping_frame   ds.b 1      ; $1E — current mapping frame index
+prev_frame      ds.b 1      ; $1F — previous mapping_frame (DPLC change detection)
+anim_table      ds.l 1      ; $20 — animation table pointer (ROM)
+; --- end animation block ---
+subtype         ds.b 1      ; $24 — object subtype
+respawn_index   ds.b 1      ; $25 — respawn tracking
+parent_ptr      ds.w 1      ; $26 — parent object RAM address
+sibling_ptr     ds.w 1      ; $28 — sibling link (multi-part objects)
 wait_timer      ds.w 1      ; $2A — Obj_Wait countdown
 sst_custom      ds.b 36     ; $2C-$4F — per-object custom data overlay
 SST endstruct
