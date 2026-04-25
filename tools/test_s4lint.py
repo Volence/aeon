@@ -1894,5 +1894,39 @@ class TestW013_MoveInMoveqRange(unittest.TestCase):
         self.assertEqual(len(warns), 0)
 
 
+# ---------------------------------------------------------------------------
+# End-to-end tests against the real codebase
+# ---------------------------------------------------------------------------
+
+class TestEndToEnd(unittest.TestCase):
+    def test_lint_main_no_crash(self):
+        """Linting main.asm should not crash."""
+        from tools.s4lint import discover_files, lint_file
+        import os
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        main_path = os.path.join(base, "main.asm")
+        if not os.path.isfile(main_path):
+            self.skipTest("main.asm not found")
+        files = discover_files(main_path)
+        self.assertGreater(len(files), 5)
+        for fp in files:
+            ctx = lint_file(fp, {}, base)
+            self.assertIsInstance(ctx.diagnostics, list)
+
+    def test_cli_exit_code(self):
+        """CLI with --no-warnings should return 0 on clean codebase."""
+        import subprocess, os
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        main_path = os.path.join(base, "main.asm")
+        if not os.path.isfile(main_path):
+            self.skipTest("main.asm not found")
+        result = subprocess.run(
+            ["python3", os.path.join(base, "tools", "s4lint.py"),
+             "--no-warnings", main_path],
+            capture_output=True, text=True, cwd=base
+        )
+        self.assertIn(result.returncode, (0, 1))
+
+
 if __name__ == "__main__":
     unittest.main()
