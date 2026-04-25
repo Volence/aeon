@@ -20,6 +20,16 @@ from collections import namedtuple, deque
 from typing import List, Optional, Set, Dict, Tuple
 
 # ---------------------------------------------------------------------------
+# Naming convention regexes (W015–W017)
+# ---------------------------------------------------------------------------
+
+_PASCAL_CASE_RE = re.compile(r'^[A-Z][A-Za-z0-9]*(_[A-Za-z0-9]+)*$')
+_ALL_CAPS_RE = re.compile(r'^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$')
+_LOCAL_LABEL_RE = re.compile(r'^\.[a-z][a-z0-9_]*$')
+_NAMING_SKIP_INSTRS = frozenset({"struct", "macro", "function", "endstruct", "endm"})
+ROUTINE_LENGTH_THRESHOLD = 100
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
@@ -1328,6 +1338,33 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         # Local label — record it; assume it may be a loop top (W010)
         ctx.local_labels.add(label)
         ctx.in_dbf_loop = True
+
+    # ------------------------------------------------------------------
+    # Naming convention checks (W015-W017)
+    # ------------------------------------------------------------------
+    if label:
+        instr_for_naming = token.instruction.lower() if token.instruction else ""
+
+        if label.startswith("."):
+            # W017: local label not .lowercase
+            if "W017" not in suppressed and not _LOCAL_LABEL_RE.match(label):
+                ctx.warning("W017", line_num,
+                            f"local label '{label}' should be .lowercase "
+                            f"(expected '{label.lower()}' or similar)")
+        else:
+            # Constant definition (= or equ) → W016
+            if instr_for_naming in ("=", "equ"):
+                if "W016" not in suppressed and not _ALL_CAPS_RE.match(label):
+                    ctx.warning("W016", line_num,
+                                f"constant '{label}' should be ALL_CAPS "
+                                f"(expected '{label.upper()}' or similar)")
+            # Skip struct/macro/function definitions
+            elif instr_for_naming not in _NAMING_SKIP_INSTRS:
+                # W015: global label not PascalCase (skip single-char labels)
+                if "W015" not in suppressed and len(label) > 1 and not _PASCAL_CASE_RE.match(label):
+                    ctx.warning("W015", line_num,
+                                f"global label '{label}' is not PascalCase "
+                                f"(expected '{label.title().replace(' ', '_')}' or similar)")
 
     if not instr:
         # Label-only or blank line — nothing more to check

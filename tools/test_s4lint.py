@@ -1976,5 +1976,197 @@ class TestEndToEnd(unittest.TestCase):
         self.assertIn(result.returncode, (0, 1))
 
 
+# ---------------------------------------------------------------------------
+# W015: Global label not PascalCase
+# ---------------------------------------------------------------------------
+
+class TestW015_PascalCase(unittest.TestCase):
+
+    def _errs(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W015"]
+
+    # --- Clean cases (should NOT warn) ---
+
+    def test_pascal_case_simple(self):
+        """PascalCase label — no W015."""
+        self.assertEqual(len(self._errs("EntryPoint:\n    rts\n")), 0)
+
+    def test_pascal_case_with_underscore_segment(self):
+        """PascalCase_Segment style is valid."""
+        self.assertEqual(len(self._errs("Camera_X:\n    rts\n")), 0)
+
+    def test_pascal_case_vdp_init(self):
+        """VDP_Init is valid PascalCase."""
+        self.assertEqual(len(self._errs("VDP_Init:\n    rts\n")), 0)
+
+    def test_pascal_case_dma_queue_process(self):
+        """DMA_Queue_Process is valid PascalCase."""
+        self.assertEqual(len(self._errs("DMA_Queue_Process:\n    rts\n")), 0)
+
+    def test_pascal_case_ram_start(self):
+        """RAM_Start is valid PascalCase."""
+        self.assertEqual(len(self._errs("RAM_Start:\n    rts\n")), 0)
+
+    def test_single_char_label_skipped(self):
+        """Single-character labels are exempt from W015."""
+        self.assertEqual(len(self._errs("X:\n    rts\n")), 0)
+
+    def test_constant_with_equals_skipped(self):
+        """Constants defined via = are W016 territory, not W015."""
+        errs = self._errs("max_objects = 40\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_constant_with_equ_skipped(self):
+        """Constants defined via equ are W016 territory, not W015."""
+        errs = self._errs("vdp_data equ $C00000\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_struct_definition_skipped(self):
+        """struct definitions are exempt from W015."""
+        errs = self._errs("my_struct struct\nendstruct\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_macro_definition_skipped(self):
+        """macro definitions are exempt from W015."""
+        errs = self._errs("my_macro macro\nendm\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_function_definition_skipped(self):
+        """function definitions are exempt from W015."""
+        errs = self._errs("vram_bytes function x, x*32\n")
+        self.assertEqual(len(errs), 0)
+
+    # --- Warning cases ---
+
+    def test_lowercase_start_warns(self):
+        """Label starting with lowercase triggers W015."""
+        errs = self._errs("vdp_init:\n    rts\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("vdp_init", errs[0].message)
+
+    def test_all_caps_label_passes(self):
+        """ALL_CAPS label (not a constant) matches the PascalCase regex — no W015.
+        Uppercase letters satisfy [A-Za-z0-9]*, so DMA_QUEUE_ADD is accepted."""
+        errs = self._errs("DMA_QUEUE_ADD:\n    rts\n")
+        self.assertEqual(len(errs), 0)
+
+    def test_camel_case_warns(self):
+        """camelCase label triggers W015."""
+        errs = self._errs("myRoutine:\n    rts\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("myRoutine", errs[0].message)
+
+    def test_suppression_works(self):
+        """W015 can be suppressed with ; lint: disable=W015."""
+        errs = self._errs("vdp_init: ; lint: disable=W015\n    rts\n")
+        self.assertEqual(len(errs), 0)
+
+
+# ---------------------------------------------------------------------------
+# W016: Constant not ALL_CAPS
+# ---------------------------------------------------------------------------
+
+class TestW016_AllCaps(unittest.TestCase):
+
+    def _errs(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W016"]
+
+    # --- Clean cases (should NOT warn) ---
+
+    def test_all_caps_equals(self):
+        """ALL_CAPS constant with = — no W016."""
+        self.assertEqual(len(self._errs("MAX_OBJECTS = 40\n")), 0)
+
+    def test_all_caps_equ(self):
+        """ALL_CAPS constant with equ — no W016."""
+        self.assertEqual(len(self._errs("VDP_DATA equ $C00000\n")), 0)
+
+    def test_single_char_constant(self):
+        """Single-char constant N = 5 — no W016 (single-char uppercase satisfies regex)."""
+        self.assertEqual(len(self._errs("N = 5\n")), 0)
+
+    def test_all_caps_with_numbers(self):
+        """ALL_CAPS_1 style is valid."""
+        self.assertEqual(len(self._errs("VRAM_POOL_SIZE = $600\n")), 0)
+
+    # --- Warning cases ---
+
+    def test_mixed_case_warns(self):
+        """Mixed-case constant triggers W016."""
+        errs = self._errs("Vram_Pool = $1000\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("Vram_Pool", errs[0].message)
+
+    def test_camel_case_warns(self):
+        """camelCase constant triggers W016."""
+        errs = self._errs("maxObjects = 40\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("maxObjects", errs[0].message)
+
+    def test_lowercase_equ_warns(self):
+        """lowercase equ constant triggers W016."""
+        errs = self._errs("vdp_data equ $C00000\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn("vdp_data", errs[0].message)
+
+    def test_suppression_works(self):
+        """W016 can be suppressed with ; lint: disable=W016."""
+        errs = self._errs("vdp_data equ $C00000 ; lint: disable=W016\n")
+        self.assertEqual(len(errs), 0)
+
+
+# ---------------------------------------------------------------------------
+# W017: Local label not .lowercase
+# ---------------------------------------------------------------------------
+
+class TestW017_LocalLabel(unittest.TestCase):
+
+    def _errs(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W017"]
+
+    # --- Clean cases (should NOT warn) ---
+
+    def test_lowercase_loop(self):
+        """'.loop' is valid — no W017."""
+        self.assertEqual(len(self._errs("Routine:\n.loop:\n    rts\n")), 0)
+
+    def test_lowercase_done(self):
+        """'.done' is valid — no W017."""
+        self.assertEqual(len(self._errs("Routine:\n.done:\n    rts\n")), 0)
+
+    def test_lowercase_with_underscores(self):
+        """'.not_found' with underscores is valid — no W017."""
+        self.assertEqual(len(self._errs("Routine:\n.not_found:\n    rts\n")), 0)
+
+    def test_lowercase_with_digits(self):
+        """'.skip_pal' is valid — no W017."""
+        self.assertEqual(len(self._errs("Routine:\n.skip_pal:\n    rts\n")), 0)
+
+    # --- Warning cases ---
+
+    def test_uppercase_start_warns(self):
+        """'.Loop' (capital start) triggers W017."""
+        errs = self._errs("Routine:\n.Loop:\n    rts\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn(".Loop", errs[0].message)
+
+    def test_all_caps_warns(self):
+        """'.DONE' triggers W017."""
+        errs = self._errs("Routine:\n.DONE:\n    rts\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn(".DONE", errs[0].message)
+
+    def test_camel_case_warns(self):
+        """'.notFound' (camelCase) triggers W017."""
+        errs = self._errs("Routine:\n.notFound:\n    rts\n")
+        self.assertEqual(len(errs), 1)
+        self.assertIn(".notFound", errs[0].message)
+
+    def test_suppression_works(self):
+        """W017 can be suppressed with ; lint: disable=W017."""
+        errs = self._errs("Routine:\n.Loop: ; lint: disable=W017\n    rts\n")
+        self.assertEqual(len(errs), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
