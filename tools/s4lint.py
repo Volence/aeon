@@ -387,6 +387,7 @@ class LintContext:
         self.in_struct: bool = False
         self.in_rept: bool = False
         self.in_macro_def: bool = False
+        self.in_phase: bool = False
 
     def reset_routine_state(self) -> None:
         """Reset per-routine tracking at each global label boundary."""
@@ -802,8 +803,13 @@ def check_e005_track(ctx: LintContext, token: Token, line_num: int,
     """
     instr_lower = token.instruction.lower()
 
+    # Inside phase blocks, ds.b is RAM layout padding — not ROM data.
+    # Alignment tracking is meaningless here.
+    if ctx.in_phase:
+        return
+
     # Alignment / address-reset directives -- reset counter
-    if instr_lower in ("even", "align", "phase", "dephase", "org"):
+    if instr_lower in ("even", "align", "org"):
         ctx.byte_count = 0
         return
 
@@ -1285,6 +1291,14 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         return
     if instr_lower == "endr":
         ctx.in_rept = False
+        return
+
+    # Phase block (RAM layout — ds.b is padding, not ROM data)
+    if instr_lower == "phase":
+        ctx.in_phase = True
+        return
+    if instr_lower == "dephase":
+        ctx.in_phase = False
         return
 
     # Skip linting inside struct / macro def / rept bodies

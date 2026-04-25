@@ -911,6 +911,31 @@ class TestE005_MissingEven(unittest.TestCase):
         errs = self._lint_lines("Routine:\n    ds.b    1\n    dc.l    $00000000\n")
         self.assertEqual(len(errs), 1)
 
+    def test_phase_block_skips_e005(self):
+        """ds.b inside phase/dephase is RAM layout — E005 must not fire."""
+        errs = self._lint_lines(
+            "    phase $FFFF8000\n"
+            "RAM_Start:\n"
+            "    ds.b    19\n"
+            "    ds.b    1\n"
+            "    ds.l    1\n"
+            "    dephase\n"
+        )
+        self.assertEqual(len(errs), 0)
+
+    def test_after_dephase_e005_resumes(self):
+        """E005 tracking resumes after dephase."""
+        errs = self._lint_lines(
+            "    phase $FFFF8000\n"
+            "RAM_Start:\n"
+            "    ds.b    1\n"
+            "    dephase\n"
+            "Routine:\n"
+            "    dc.b    1\n"
+            "    dc.w    $0000\n"
+        )
+        self.assertEqual(len(errs), 1)
+
 
 # ---------------------------------------------------------------------------
 # Shared helper for multi-line lint tests (E006–E011)
