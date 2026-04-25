@@ -20,6 +20,7 @@ from tools.s4lint import (
     run_checks, _parse_suppressed,
     check_warnings,
     _is_dreg, _is_areg, _is_memory_operand, _parse_immediate,
+    lint_file,
 )
 
 
@@ -2219,6 +2220,49 @@ class TestW018_RoutineLength(unittest.TestCase):
         """Routines ending with bra (tail call) don't fire W018."""
         lines = "Long_Routine:\n" + "    nop\n" * 110 + "    bra.w Other_Routine\n"
         w = self._warnings(lines)
+        self.assertEqual(len(w), 0)
+
+
+# ---------------------------------------------------------------------------
+# W019: File missing header comment
+# ---------------------------------------------------------------------------
+
+class TestW019_FileHeader(unittest.TestCase):
+
+    def _lint_content(self, content, filename="test.asm"):
+        """Write content to a temp file, lint it, return W019 diagnostics."""
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
+            f.write(content)
+            f.flush()
+            ctx = lint_file(f.name, {}, os.path.dirname(f.name))
+        os.unlink(f.name)
+        return [d for d in ctx.diagnostics if d.code == "W019"]
+
+    def test_comment_first_line_ok(self):
+        w = self._lint_content("; Boot sequence\nEntryPoint:\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_blank_then_comment_ok(self):
+        """Blank lines before the header comment are fine."""
+        w = self._lint_content("\n\n; Boot sequence\nEntryPoint:\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_code_first_warns(self):
+        w = self._lint_content("EntryPoint:\n    rts\n")
+        self.assertEqual(len(w), 1)
+
+    def test_empty_file_warns(self):
+        w = self._lint_content("")
+        self.assertEqual(len(w), 1)
+
+    def test_whitespace_only_warns(self):
+        w = self._lint_content("   \n   \n")
+        self.assertEqual(len(w), 1)
+
+    def test_indented_comment_ok(self):
+        """Comments with leading whitespace still count."""
+        w = self._lint_content("    ; indented header\nRoutine:\n    rts\n")
         self.assertEqual(len(w), 0)
 
 

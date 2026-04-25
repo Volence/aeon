@@ -1449,6 +1449,21 @@ def lint_file(filepath: str, options: dict, base_dir: str) -> LintContext:
         ctx.error("E000", 0, f"cannot open file: {exc}")
         return ctx
 
+    # W019: file missing header comment
+    skip_codes = options.get("skip", set())
+    if "W019" not in skip_codes:
+        has_header = False
+        for raw_line in raw_lines:
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(";"):
+                has_header = True
+            break
+        if not has_header:
+            ctx.warning("W019", 1,
+                        "file has no header comment (first line should be '; description')")
+
     for line_num, raw_line in enumerate(raw_lines, start=1):
         token = tokenize_line(raw_line)
         suppressed = _parse_suppressed(token.comment)
