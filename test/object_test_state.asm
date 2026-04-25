@@ -1,7 +1,7 @@
 ; Combined integration + stress test scene
-; Tests all object subsystems under load: animation, collision, effects,
-; children, DPLC, alloc/free cycling. Debug build captures per-frame
-; profiling via VDP V counter.
+; Tests all object subsystems at near-capacity: 35+ dynamic slots,
+; 10+ effect slots, collision pressure, alloc/free cycling.
+; Debug build captures per-frame profiling via VDP V counter.
 
 ; -----------------------------------------------
 ; GameState_ObjectTest_Init — one-shot setup
@@ -39,49 +39,29 @@ GameState_ObjectTest_Init:
         move.l  #40<<16, SST_x_pos(a1)
         move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
 
-        ; --- Level objects from list ---
+        ; --- Level objects from list (25 objects: 10 enemies + 12 solids + 3 parents) ---
         lea     TestObjectList(pc), a0
         jsr     Load_ObjectList
 
-        ; --- Emitter 1: left side, continuous particle shower ---
+        ; --- 8 fast emitters spread across screen (effect pool pressure) ---
+        ; Each spawns every 8 frames; particles live 12 frames
+        ; Steady state: ~12 effect slots occupied
+        moveq   #8-1, d4
+        lea     .emitter_positions(pc), a2
+.spawn_emitters:
         jsr     AllocDynamic
-        bne.s   .no_em1
-        move.w  #objroutine(TestEmitter), SST_code_addr(a1)
-        move.l  #60<<16, SST_x_pos(a1)
-        move.l  #40<<16, SST_y_pos(a1)
-.no_em1:
-
-        ; --- Emitter 2: center ---
-        jsr     AllocDynamic
-        bne.s   .no_em2
-        move.w  #objroutine(TestEmitter), SST_code_addr(a1)
-        move.l  #160<<16, SST_x_pos(a1)
-        move.l  #40<<16, SST_y_pos(a1)
-.no_em2:
-
-        ; --- Emitter 3: right side ---
-        jsr     AllocDynamic
-        bne.s   .no_em3
-        move.w  #objroutine(TestEmitter), SST_code_addr(a1)
-        move.l  #260<<16, SST_x_pos(a1)
-        move.l  #40<<16, SST_y_pos(a1)
-.no_em3:
-
-        ; --- Parent 1: left cluster ---
-        jsr     AllocDynamic
-        bne.s   .no_par1
-        move.w  #objroutine(TestParent), SST_code_addr(a1)
-        move.l  #80<<16, SST_x_pos(a1)
-        move.l  #80<<16, SST_y_pos(a1)
-.no_par1:
-
-        ; --- Parent 2: right cluster ---
-        jsr     AllocDynamic
-        bne.s   .no_par2
-        move.w  #objroutine(TestParent), SST_code_addr(a1)
-        move.l  #240<<16, SST_x_pos(a1)
-        move.l  #80<<16, SST_y_pos(a1)
-.no_par2:
+        bne.s   .emitters_done
+        move.w  #objroutine(TestStressEmitter), SST_code_addr(a1)
+        move.w  (a2)+, d0
+        swap    d0
+        clr.w   d0
+        move.l  d0, SST_x_pos(a1)
+        move.w  (a2)+, d0
+        swap    d0
+        clr.w   d0
+        move.l  d0, SST_y_pos(a1)
+        dbf     d4, .spawn_emitters
+.emitters_done:
 
         ; Enable display
         setVDPReg VDP_Shadow_vdp_mode2, #$74
@@ -89,6 +69,17 @@ GameState_ObjectTest_Init:
         ; Switch to running loop
         move.l  #GameState_ObjectTest, (Game_State).w
         rts
+
+.emitter_positions:
+        ;       X,    Y
+        dc.w    30,   30
+        dc.w    70,   25
+        dc.w    110,  30
+        dc.w    150,  25
+        dc.w    190,  30
+        dc.w    230,  25
+        dc.w    270,  30
+        dc.w    300,  25
 
 ; -----------------------------------------------
 ; GameState_ObjectTest — per-frame update loop with profiling
@@ -174,59 +165,75 @@ GameState_ObjectTest:
         rts
 
 ; -----------------------------------------------
-; Object spawn list — mini platforming playground
+; Object spawn list — stress layout
 ;
-; Layout (320x224 screen, floor at Y=192):
-;
-;   Emitters rain particles from top (spawned via AllocDynamic)
-;   Parents with children orbit at Y=80 (spawned via AllocDynamic)
-;
-;       [S]     [S]         <- floating platforms (Y=100, Y=80)
-;         [S]               <- mid platform (Y=130)
-;   [E]     [S]     [E]     <- ground-level staircase + enemies
-;     [S] [S] [S]   [S] [E] <- low platforms (Y=160, Y=170) + enemies
-;   P___________________________[E]__[E]___  <- floor (Y=192)
-;   0   40  80 120 160 200 240 280
+; 10 enemies + 12 solids + 3 parents = 25 from list
+; + 8 emitters via AllocDynamic = 33 dynamic slots
+; + 9 children from parents = 42 total at peak (overflows to 40 cap)
+; + up to 16 effect slots from emitters
 ;
 ; dc.l definition_ptr
 ; dc.w x, y, subtype
 ; -----------------------------------------------
 TestObjectList:
-        ; Ground enemies — patrol across floor
+        ; --- 10 enemies across the scene ---
+        dc.l    ObjDef_Enemy
+        dc.w    50, STUB_FLOOR_Y, 0
         dc.l    ObjDef_Enemy
         dc.w    100, STUB_FLOOR_Y, 0
         dc.l    ObjDef_Enemy
+        dc.w    150, STUB_FLOOR_Y, 0
+        dc.l    ObjDef_Enemy
         dc.w    200, STUB_FLOOR_Y, 0
         dc.l    ObjDef_Enemy
-        dc.w    280, STUB_FLOOR_Y, 0
-
-        ; Elevated enemies — patrol on platforms
+        dc.w    250, STUB_FLOOR_Y, 0
         dc.l    ObjDef_Enemy
-        dc.w    60, 160, 0
+        dc.w    80, 155, 0
         dc.l    ObjDef_Enemy
-        dc.w    260, 160, 0
+        dc.w    160, 155, 0
+        dc.l    ObjDef_Enemy
+        dc.w    240, 155, 0
+        dc.l    ObjDef_Enemy
+        dc.w    120, 120, 0
+        dc.l    ObjDef_Enemy
+        dc.w    200, 120, 0
 
-        ; Low platforms — stepping stones (Y=170)
+        ; --- 12 solid platforms ---
+        ; Ground-level stepping stones
         dc.l    ObjDef_Solid
-        dc.w    70, 170, 1
+        dc.w    60, 175, 1
         dc.l    ObjDef_Solid
-        dc.w    110, 170, 1
+        dc.w    100, 175, 1
         dc.l    ObjDef_Solid
-        dc.w    150, 170, 1
+        dc.w    140, 175, 1
         dc.l    ObjDef_Solid
-        dc.w    250, 170, 1
+        dc.w    180, 175, 1
+        dc.l    ObjDef_Solid
+        dc.w    220, 175, 1
+        dc.l    ObjDef_Solid
+        dc.w    260, 175, 1
+        ; Mid platforms
+        dc.l    ObjDef_Solid
+        dc.w    80, 140, 1
+        dc.l    ObjDef_Solid
+        dc.w    160, 140, 1
+        dc.l    ObjDef_Solid
+        dc.w    240, 140, 1
+        ; High platforms
+        dc.l    ObjDef_Solid
+        dc.w    120, 105, 1
+        dc.l    ObjDef_Solid
+        dc.w    200, 105, 1
+        dc.l    ObjDef_Solid
+        dc.w    280, 105, 1
 
-        ; Mid platforms — staircase up (Y=150, Y=130)
-        dc.l    ObjDef_Solid
-        dc.w    130, 150, 1
-        dc.l    ObjDef_Solid
-        dc.w    180, 130, 1
-
-        ; High platforms (Y=100, Y=80)
-        dc.l    ObjDef_Solid
-        dc.w    100, 100, 1
-        dc.l    ObjDef_Solid
-        dc.w    220, 80, 1
+        ; --- 3 parents (each spawns 3 children = 9 more dynamic slots) ---
+        dc.l    ObjDef_Parent
+        dc.w    60, 70, 0
+        dc.l    ObjDef_Parent
+        dc.w    160, 60, 0
+        dc.l    ObjDef_Parent
+        dc.w    260, 70, 0
 
         dc.l    0                       ; end
 

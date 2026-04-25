@@ -44,3 +44,16 @@ ObjDef_Enemy:
         dc.b    COLLISION_HURT, 0
         ; ODF_PRIORITY:
         dc.w    4
+
+; -----------------------------------------------
+; ObjDef_Parent — multi-part object (spawns children on init)
+; Format: OBJ_FMT_MINIMAL + priority
+; -----------------------------------------------
+ObjDef_Parent:
+        dc.w    objroutine(TestParent)
+        dc.b    (1<<ODF_PRIORITY)
+        dc.b    0
+        dc.l    Map_TestObj
+        dc.w    vram_art(VRAM_TEST_OBJ,0,0)
+        ; ODF_PRIORITY:
+        dc.w    3

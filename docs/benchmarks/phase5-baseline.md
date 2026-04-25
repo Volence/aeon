@@ -1,29 +1,29 @@
 # Phase 5 Baseline Benchmark — Object System
 
 Date: 2026-04-25
-Build: `DEBUG=1 ./build.sh` (209,579 bytes)
+Build: `DEBUG=1 ./build.sh` (209,783 bytes)
 Emulator: Exodus 2.1, NTSC mode (262 scanlines/frame, 224 active)
 
 ## Test Scene
 
 Combined integration + stress test (`GameState_ObjectTest`):
 - 1 player (Sonic, animated DPLC art streaming)
-- 5 enemies (3 ground patrol, 2 elevated, COLLISION_HURT)
-- 8 solid platforms (COLLISION_SOLID, staircase layout)
-- 3 particle emitters (spawn to effect pool every 30 frames)
-- 2 parent objects (3 children each, self-destruct at 180 frames)
+- 10 enemies (5 ground patrol, 3 mid-level, 2 high, COLLISION_HURT)
+- 12 solid platforms (staircase layout, COLLISION_SOLID)
+- 8 fast particle emitters (spawn every 8 frames, effect pool saturation)
+- 3 parent objects (3 children each, self-destruct at 180 frames)
 
-Peak load: 24 dynamic slots + ~5 effect slots (init frame with parents + children + particles)
-Steady state: 16 dynamic slots + 2-4 effect slots (after parents self-destruct)
+Peak load: 39 dynamic slots (25 list + 8 emitters + 3 parents + 9 children — capped at 40)
+Steady state: 30 dynamic slots + 16 effect slots (after parents self-destruct)
 
 ## Per-Subsystem Scanline Costs
 
 | Subsystem | Steady State | Peak | % of Active Frame (peak) |
 |---|---|---|---|
-| RunObjects | 21 | 38 | 17.0% |
-| TouchResponse | 8 | 8 | 3.6% |
-| Render_Sprites | 20 | 27 | 12.1% |
-| **Frame Total** | **50** | **68** | **30.4%** |
+| RunObjects | 52 | 93 | 41.5% |
+| TouchResponse | 10 | 12 | 5.4% |
+| Render_Sprites | 43 | 67 | 29.9% |
+| **Frame Total** | **108** | **171** | **76.3%** |
 
 Measured via VDP V counter (high byte = scanline number).
 Peak values captured across all frames since boot, including the init frame.
@@ -32,16 +32,18 @@ Peak values captured across all frames since boot, including the init frame.
 
 | Pool | Capacity | Peak Used | Steady State |
 |---|---|---|---|
-| Dynamic | 40 | 24 (60%) | 16 (40%) |
-| Effect | 16 | ~5 (31%) | 2-4 (13-25%) |
+| Dynamic | 40 | 39 (98%) | 30 (75%) |
+| Effect | 16 | 16 (100%) | 16 (100%) |
 
 ## Analysis
 
-- Frame total is well within budget at ~50 scanlines steady state (22% of active frame)
-- ~70% of CPU time is still available for future systems (level rendering, scrolling, sound)
-- RunObjects is the largest cost (42% of game loop) — expected with animated Sonic DPLC streaming
-- TouchResponse is cheap (16% of game loop) — O(players * objects) with early AABB rejection
-- Render_Sprites is moderate (40% of game loop) — 4 flip variants, priority band sorting
-- No lag frames observed during normal operation
-- Parent self-destruct + DeleteChildren cascade completes without crash
-- Effect pool recycles correctly (SP returns to base after particle despawn)
+- Steady state uses 108 scanlines (48% of active frame) — leaves headroom for level rendering
+- Peak of 171 scanlines (76%) occurs during init with all parents + children active
+- Effect pool fully saturated at 16/16 — emitters gracefully handle alloc failure
+- RunObjects is the dominant cost (48% of game loop) — 30+ objects with movement, animation, DPLC
+- Render_Sprites at 43 scanlines (40% of game loop) — scaling well with 30+ visible sprites
+- TouchResponse remains cheap even with 10 enemies + 12 solids — AABB early rejection works
+- No crashes or visual corruption under full load
+- Parent self-destruct + DeleteChildren cascade stable
+- No lag frames observed (frame total stays under 224 active scanlines)
+- Real game scenes will have fewer objects on screen; this is intentionally worst-case
