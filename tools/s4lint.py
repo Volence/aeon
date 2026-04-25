@@ -49,7 +49,7 @@ DIAGNOSTIC_LABELS: Dict[str, str] = {
     "W006": "routine missing header comment",
     "W007": "lsl #1 instead of add",
     "W008": "sub dn,dn to zero",
-    "W009": "swap + clr.w pattern",
+    "W009": "REMOVED",
     "W010": "indexed addressing in loop",
     "W011": "movem with single register",
     "W012": "move.l to areg instead of movea.l",
@@ -1166,8 +1166,9 @@ def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
             target = token.operands[0].strip()
             if target.startswith("."):
                 ctx.warning("W005", line_num,
-                            f"'{token.instruction}.w {target}' — local label is almost "
-                            f"always in .s range; use '{token.instruction}.s {target}'")
+                            f"'{token.instruction}.w {target}' — local label is likely "
+                            f"in .s range; verify distance is ≤128 bytes before "
+                            f"changing to '{token.instruction}.s {target}'")
 
     # ------------------------------------------------------------------
     # W006: global label without header comment (phase B)
@@ -1180,8 +1181,10 @@ def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
         if ctx.pending_w006 is not None:
             label_name, lines_snapshot = ctx.pending_w006
             ctx.pending_w006 = None  # consume it
-            is_data = instr in ("dc", "ds", "dcb", "binclude", "=", "equ", "set", "function", "macro", "struct")
-            if not is_data:
+            is_data = instr in ("dc", "ds", "dcb", "binclude", "=", "equ", "set",
+                                "function", "macro", "struct", "phase", "dephase",
+                                "endstruct", "endm")
+            if not is_data and not ctx.in_phase:
                 found_header = False
                 for raw in lines_snapshot:
                     low = raw.lower()
@@ -1220,20 +1223,7 @@ def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
                             f"'sub{token.size} {src}, {dst}' zeroes the register — "
                             f"use 'moveq #0, {dst}' instead")
 
-    # ------------------------------------------------------------------
-    # W009: swap dN followed immediately by clr.w dN (same register)
-    # ------------------------------------------------------------------
-    if "W009" not in suppressed:
-        if instr == "clr" and token.size == ".w" and token.operands:
-            dst = token.operands[0].strip()
-            prev = ctx.prev_token
-            if (prev is not None and
-                    prev.instruction.lower() == "swap" and
-                    prev.operands and
-                    prev.operands[0].strip().lower() == dst.lower()):
-                ctx.warning("W009", line_num,
-                            f"'swap {dst}' + 'clr.w {dst}' — "
-                            f"use 'clr.l {dst}' instead (one instruction)")
+    # W009: REMOVED — swap+clr.w is a 16.16 fixed-point pattern, not redundant code.
 
     # ------------------------------------------------------------------
     # W010: indexed addressing (aN, dN.w/l) inside a dbf loop body
@@ -1244,7 +1234,7 @@ def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
                 if RE_INDEXED.search(op):
                     ctx.warning("W010", line_num,
                                 f"indexed addressing '{op}' inside loop — "
-                                f"consider precomputing the address in a register")
+                                f"if index is loop-invariant, precompute the effective address")
                     break
 
     # ------------------------------------------------------------------
@@ -1419,7 +1409,8 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         if "W018" not in suppressed and ctx.routine_lines > ROUTINE_LENGTH_THRESHOLD:
             ctx.warning("W018", line_num,
                         f"routine '{ctx.current_routine}' is {ctx.routine_lines} instructions "
-                        f"(threshold: {ROUTINE_LENGTH_THRESHOLD}) — consider splitting")
+                        f"(threshold: {ROUTINE_LENGTH_THRESHOLD}) — consider splitting "
+                        f"(hot-path code with inlined variants may justify this length)")
 
     # dbf/dbra — end of loop body
     if instr_lower in ("dbf", "dbra"):

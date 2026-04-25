@@ -1620,6 +1620,10 @@ class TestW005_LongBranchLocal(unittest.TestCase):
                  if d.code == "W005"]
         self.assertEqual(len(warns), 0)
 
+    def test_message_includes_verify_note(self):
+        warns = self._warns("    bra.w   .loop")
+        self.assertIn("verify distance", warns[0].message)
+
 
 # ---------------------------------------------------------------------------
 # W006: routine missing header comment
@@ -1680,6 +1684,18 @@ class TestW006_MissingHeader(unittest.TestCase):
         warns = self._warns(code)
         self.assertEqual(len(warns), 1)
         self.assertIn("SecondRoutine", warns[0].message)
+
+    def test_phase_block_label_ok(self):
+        """Labels inside phase/dephase blocks are RAM addresses, not routines."""
+        code = "\n    phase   $FFFF8000\nRAM_Start:\n    ds.b    $100\nRAM_End:\n    dephase\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
+
+    def test_dephase_label_ok(self):
+        """Label followed by dephase is an end marker, not a routine."""
+        code = "\n    phase   $FFFF8000\nSomeData:\n    ds.b    $10\nSomeEnd:\n    dephase\n"
+        warns = self._warns(code)
+        self.assertEqual(len(warns), 0)
 
 
 # ---------------------------------------------------------------------------
@@ -1760,29 +1776,14 @@ class TestW008_SubSelf(unittest.TestCase):
 # W009: swap + clr.w on same register
 # ---------------------------------------------------------------------------
 
-class TestW009_SwapClrW(unittest.TestCase):
+class TestW009_Removed(unittest.TestCase):
+    """W009 was removed — swap+clr.w is a 16.16 fixed-point pattern, not redundant."""
 
     def _warns(self, lines_str):
         return [d for d in _lint_lines_w(lines_str) if d.code == "W009"]
 
-    def test_swap_then_clr_w_same_reg_warns(self):
+    def test_swap_then_clr_w_no_longer_warns(self):
         code = "\nRoutine:\n    swap    d0\n    clr.w   d0\n    rts\n"
-        warns = self._warns(code)
-        self.assertEqual(len(warns), 1)
-        self.assertIn("clr.l", warns[0].message)
-
-    def test_swap_then_clr_w_different_reg_ok(self):
-        code = "\nRoutine:\n    swap    d0\n    clr.w   d1\n    rts\n"
-        warns = self._warns(code)
-        self.assertEqual(len(warns), 0)
-
-    def test_no_preceding_swap_ok(self):
-        code = "\nRoutine:\n    moveq   #0, d0\n    clr.w   d1\n    rts\n"
-        warns = self._warns(code)
-        self.assertEqual(len(warns), 0)
-
-    def test_swap_then_clr_w_suppressed(self):
-        code = "\nRoutine:\n    swap    d0\n    clr.w   d0  ; lint: disable=W009\n    rts\n"
         warns = self._warns(code)
         self.assertEqual(len(warns), 0)
 
@@ -1800,6 +1801,7 @@ class TestW010_IndexedInLoop(unittest.TestCase):
         code = "\nRoutine:\n.loop:\n    move.w  (a0,d1.w), d2\n    dbf     d0, .loop\n    rts\n"
         warns = self._warns(code)
         self.assertGreater(len(warns), 0)
+        self.assertIn("loop-invariant", warns[0].message)
 
     def test_indexed_outside_loop_ok(self):
         code = "\nRoutine:\n    move.w  (a0,d1.w), d2\n    rts\n"
@@ -2214,6 +2216,7 @@ class TestW018_RoutineLength(unittest.TestCase):
         self.assertEqual(len(w), 1)
         self.assertIn("Long_Routine", w[0].message)
         self.assertIn("101", w[0].message)
+        self.assertIn("hot-path", w[0].message)
 
     def test_suppressed(self):
         lines = "Long_Routine:\n" + "    nop\n" * 110 + "    rts ; lint: disable=W018\n"
