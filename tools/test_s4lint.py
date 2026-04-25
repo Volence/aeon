@@ -2114,6 +2114,12 @@ class TestW016_AllCaps(unittest.TestCase):
         errs = self._errs("vdp_data equ $C00000 ; lint: disable=W016\n")
         self.assertEqual(len(errs), 0)
 
+    def test_underscore_prefix_skipped(self):
+        """SST custom overlays use _lowercase convention — W016 skips them."""
+        for line in ("_dplc_ptr = SST_sst_custom+0", "_art_base = SST_sst_custom+4"):
+            errs = self._errs(f"{line}\n")
+            self.assertEqual(len(errs), 0, f"'{line}' should be skipped (SST overlay)")
+
 
 # ---------------------------------------------------------------------------
 # W017: Local label not .lowercase

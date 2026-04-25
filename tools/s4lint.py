@@ -1353,8 +1353,11 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
                             f"(expected '{label.lower()}' or similar)")
         else:
             # Constant definition (= or equ) → W016
+            # Skip _underscored SST custom overlays (their convention is _lowercase)
             if instr_for_naming in ("=", "equ"):
-                if "W016" not in suppressed and not _ALL_CAPS_RE.match(label):
+                if ("W016" not in suppressed
+                        and not label.startswith("_")
+                        and not _ALL_CAPS_RE.match(label)):
                     ctx.warning("W016", line_num,
                                 f"constant '{label}' should be ALL_CAPS "
                                 f"(expected '{label.upper()}' or similar)")
