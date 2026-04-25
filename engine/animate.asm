@@ -6,7 +6,7 @@
 ;               even
 ;
 ; Per-frame duration format (used by AnimateSprite_PerFrame):
-;   Anim0:      dc.b frame0, dur0, frame1, dur1, ..., control_code [, arg]
+;   Anim0:      dc.b frame0, dur0, frame1, dur1, ..., control_code
 ;               even
 ;
 ; Control codes (negative bytes, $80+):
@@ -14,11 +14,13 @@
 ;   $FE (AF_BACK)    — jump back N: next byte = rewind count
 ;   $FD (AF_CHANGE)  — switch animation: next byte = new anim ID
 ;   $FC (AF_ROUTINE) — increment routine counter (SST_custom byte 0) by 2
+;   $FB (AF_DELETE)  — delete the object
 
 AF_END              = $FF
 AF_BACK             = $FE
 AF_CHANGE           = $FD
 AF_ROUTINE          = $FC
+AF_DELETE           = $FB
 
 ; -----------------------------------------------
 ; AnimateSprite — per-animation duration
@@ -47,7 +49,7 @@ AnimateSprite:
         move.b  SST_anim_frame(a0), d1
         move.b  1(a1,d1.w), d0          ; read frame byte (skip duration at byte 0)
         bmi.s   .control_code
-        move.b  d0, SST_mapping_frame(a0)
+        bra.s   .set_frame
 .done:
         rts
 
@@ -63,26 +65,34 @@ AnimateSprite:
         move.b  (a1), SST_anim_timer(a0) ; load duration from byte 0
         move.b  1(a1), d0               ; first frame byte
         bmi.s   .control_code
+
+.set_frame:
         move.b  d0, SST_mapping_frame(a0)
         rts
 
-; --- Control code handling ---
+; --- Control code dispatch via jump table ---
 .control_code:
-        cmpi.b  #AF_BACK, d0
-        bhi.s   .cc_end                  ; $FF = loop
-        beq.s   .cc_back                 ; $FE = jump back
-        cmpi.b  #AF_ROUTINE, d0
-        bhi.s   .cc_change               ; $FD = switch anim
-        beq.s   .cc_routine              ; $FC = advance routine
+        neg.b   d0                      ; $FF->$01, $FE->$02, $FD->$03, $FC->$04, $FB->$05
+        andi.w  #$FF, d0
+        cmpi.b  #5, d0
+        bhi.s   .cc_end                 ; unknown code -> treat as loop
+        add.w   d0, d0
+        add.w   d0, d0                  ; d0 * 4 (bra.w entry size)
+        jmp     .cc_table-4(pc,d0.w)    ; -4 because index starts at 1
 
-        ; Unknown code — treat as loop
+.cc_table:
+        bra.w   .cc_end                 ; $FF (neg=1) — loop
+        bra.w   .cc_back                ; $FE (neg=2) — jump back
+        bra.w   .cc_change              ; $FD (neg=3) — switch anim
+        bra.w   .cc_routine             ; $FC (neg=4) — advance routine
+        bra.w   .cc_delete              ; $FB (neg=5) — delete object
+
 .cc_end:
         ; $FF — restart from first frame
         clr.b   SST_anim_frame(a0)
         move.b  1(a1), d0               ; re-read first frame byte
         bmi.s   .control_code            ; handle chained control codes
-        move.b  d0, SST_mapping_frame(a0)
-        rts
+        bra.s   .set_frame
 
 .cc_back:
         ; $FE — jump back N frames: next byte = count
@@ -94,8 +104,7 @@ AnimateSprite:
         move.b  SST_anim_frame(a0), d1
         move.b  1(a1,d1.w), d0           ; read frame at new position
         bmi.s   .control_code
-        move.b  d0, SST_mapping_frame(a0)
-        rts
+        bra.s   .set_frame
 
 .cc_change:
         ; $FD — switch to animation N: next byte = new anim ID
@@ -107,6 +116,10 @@ AnimateSprite:
         ; $FC — increment routine counter (first byte of SST_custom) by 2
         addq.b  #2, SST_sst_custom(a0)
         rts
+
+.cc_delete:
+        ; $FB — delete the object
+        jmp     DeleteObject
 
 ; -----------------------------------------------
 ; AnimateSprite_PerFrame — per-frame duration (pairs: frame, duration)
@@ -137,6 +150,7 @@ AnimateSprite_PerFrame:
         bmi.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1,d1.w), SST_anim_timer(a0) ; per-frame duration
+        bra.s   .pf_set_frame
 .pf_done:
         rts
 
@@ -152,18 +166,26 @@ AnimateSprite_PerFrame:
         bmi.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1), SST_anim_timer(a0) ; first frame's duration
+
+.pf_set_frame:
         rts
 
+; --- PerFrame control code dispatch via jump table ---
 .pf_control:
-        ; Reuse same control code handlers
-        ; a1 = script base, d1 = anim_frame offset, d0 = code byte
-        ; For per-frame, AF_BACK rewinds by N*2 instead of N
-        cmpi.b  #AF_BACK, d0
+        neg.b   d0
+        andi.w  #$FF, d0
+        cmpi.b  #5, d0
         bhi.s   .pfc_end
-        beq.s   .pfc_back
-        cmpi.b  #AF_ROUTINE, d0
-        bhi.s   .pfc_change
-        beq.s   .pfc_routine
+        add.w   d0, d0
+        add.w   d0, d0
+        jmp     .pf_cc_table-4(pc,d0.w)
+
+.pf_cc_table:
+        bra.w   .pfc_end                ; $FF — loop
+        bra.w   .pfc_back               ; $FE — jump back (double rewind)
+        bra.w   .pfc_change             ; $FD — switch anim
+        bra.w   .pfc_routine            ; $FC — advance routine
+        bra.w   AnimateSprite.cc_delete  ; $FB — delete (shared handler)
 
 .pfc_end:
         clr.b   SST_anim_frame(a0)
@@ -171,7 +193,7 @@ AnimateSprite_PerFrame:
         bmi.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1), SST_anim_timer(a0)
-        rts
+        bra.s   .pf_set_frame
 
 .pfc_back:
         addq.b  #1, d1
@@ -185,7 +207,7 @@ AnimateSprite_PerFrame:
         bmi.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1,d1.w), SST_anim_timer(a0)
-        rts
+        bra.s   .pf_set_frame
 
 .pfc_change:
         addq.b  #1, d1
