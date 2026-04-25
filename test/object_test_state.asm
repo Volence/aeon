@@ -98,58 +98,61 @@ GameState_ObjectTest_Init:
 ; -----------------------------------------------
 GameState_ObjectTest:
     ifdef __DEBUG__
-        move.w  (VDP_HV_COUNTER).l, d7  ; frame start V counter
+        move.w  (VDP_HV_COUNTER).l, -(sp)       ; save frame start on stack
 
         jsr     InitSpriteSystem
 
-        move.w  (VDP_HV_COUNTER).l, d6  ; before RunObjects
+        ; --- Profile RunObjects ---
+        move.w  (VDP_HV_COUNTER).l, -(sp)
         jsr     RunObjects
-        move.w  (VDP_HV_COUNTER).l, d5
-        sub.w   d6, d5
-        andi.w  #$FF00, d5
-        lsr.w   #8, d5
-        move.w  d5, (Prof_RunObjects).w
-        cmp.w   (Prof_Peak_RunObjects).w, d5
+        move.w  (VDP_HV_COUNTER).l, d0
+        move.w  (sp)+, d1
+        sub.w   d1, d0
+        lsr.w   #8, d0
+        move.w  d0, (Prof_RunObjects).w
+        cmp.w   (Prof_Peak_RunObjects).w, d0
         blo.s   .no_peak_run
-        move.w  d5, (Prof_Peak_RunObjects).w
+        move.w  d0, (Prof_Peak_RunObjects).w
 .no_peak_run:
 
-        move.w  (VDP_HV_COUNTER).l, d6  ; before TouchResponse
+        ; --- Profile TouchResponse ---
+        move.w  (VDP_HV_COUNTER).l, -(sp)
         jsr     TouchResponse
-        move.w  (VDP_HV_COUNTER).l, d5
-        sub.w   d6, d5
-        andi.w  #$FF00, d5
-        lsr.w   #8, d5
-        move.w  d5, (Prof_TouchResponse).w
-        cmp.w   (Prof_Peak_Touch).w, d5
+        move.w  (VDP_HV_COUNTER).l, d0
+        move.w  (sp)+, d1
+        sub.w   d1, d0
+        lsr.w   #8, d0
+        move.w  d0, (Prof_TouchResponse).w
+        cmp.w   (Prof_Peak_Touch).w, d0
         blo.s   .no_peak_touch
-        move.w  d5, (Prof_Peak_Touch).w
+        move.w  d0, (Prof_Peak_Touch).w
 .no_peak_touch:
 
-        move.w  (VDP_HV_COUNTER).l, d6  ; before Render_Sprites
+        ; --- Profile Render_Sprites ---
+        move.w  (VDP_HV_COUNTER).l, -(sp)
         jsr     Render_Sprites
-        move.w  (VDP_HV_COUNTER).l, d5
-        sub.w   d6, d5
-        andi.w  #$FF00, d5
-        lsr.w   #8, d5
-        move.w  d5, (Prof_RenderSprites).w
-        cmp.w   (Prof_Peak_Render).w, d5
+        move.w  (VDP_HV_COUNTER).l, d0
+        move.w  (sp)+, d1
+        sub.w   d1, d0
+        lsr.w   #8, d0
+        move.w  d0, (Prof_RenderSprites).w
+        cmp.w   (Prof_Peak_Render).w, d0
         blo.s   .no_peak_render
-        move.w  d5, (Prof_Peak_Render).w
+        move.w  d0, (Prof_Peak_Render).w
 .no_peak_render:
 
-        ; Total frame time
-        move.w  (VDP_HV_COUNTER).l, d5
-        sub.w   d7, d5
-        andi.w  #$FF00, d5
-        lsr.w   #8, d5
-        move.w  d5, (Prof_FrameTotal).w
-        cmp.w   (Prof_Peak_Frame).w, d5
+        ; --- Total frame time ---
+        move.w  (VDP_HV_COUNTER).l, d0
+        move.w  (sp)+, d1                       ; frame start from stack
+        sub.w   d1, d0
+        lsr.w   #8, d0
+        move.w  d0, (Prof_FrameTotal).w
+        cmp.w   (Prof_Peak_Frame).w, d0
         blo.s   .no_peak_frame
-        move.w  d5, (Prof_Peak_Frame).w
+        move.w  d0, (Prof_Peak_Frame).w
 .no_peak_frame:
 
-        ; Slot usage: count = (stack_base - SP) / 2
+        ; --- Slot usage ---
         move.w  #Dynamic_Free_Stack+NUM_DYNAMIC*2, d0
         sub.w   (Dynamic_Free_SP).w, d0
         lsr.w   #1, d0
