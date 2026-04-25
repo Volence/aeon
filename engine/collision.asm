@@ -2,13 +2,21 @@
 
 ; -----------------------------------------------
 ; TouchResponse — check player(s) against all collidable objects
-; Iterates dynamic + effect slots. For each with collision_resp != 0,
-; performs AABB overlap test against each player. On overlap, dispatches
-; to per-type handler via jump table.
+; Iterates dynamic + system + effect slots. For each with
+; collision_resp != 0, performs AABB overlap test against each
+; player. On overlap, dispatches to per-type handler via jump table.
+;
+; Handler register convention (d0-d3 set before dispatch):
+;   d0.w = combined_w (player.width + target.width)
+;   d1.w = signed delta_x (player.x - target.x)
+;   d2.w = combined_h (player.height + target.height)
+;   d3.w = signed delta_y (player.y - target.y)
+;   a2   = player SST
+;   a3   = target SST
 ;
 ; In:  none (reads Object_RAM directly)
 ; Out: none
-; Clobbers: d0-d6, a0-a3
+; Clobbers: d0-d7, a0-a3
 ; -----------------------------------------------
 TouchResponse:
         lea     (Player_1).w, a2
@@ -18,12 +26,9 @@ TouchResponse:
         tst.w   SST_code_addr(a2)
         beq.w   .next_player
 
-        ; Preload player position and dimensions for inner loop
-        move.w  SST_x_pos(a2), d4       ; player X integer
-        move.w  SST_y_pos(a2), d5       ; player Y integer
+        move.w  SST_x_pos(a2), d4       ; cache player X integer
+        move.w  SST_y_pos(a2), d5       ; cache player Y integer
 
-        ; Scan dynamic + system + effect slots (system slots with
-        ; collision_resp=0 are rejected by tst.b fast path)
         lea     (Dynamic_Slots).w, a3
         move.w  #NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS-1, d6
 
@@ -34,55 +39,67 @@ TouchResponse:
         beq.s   .next_object
 
         ; --- X axis overlap ---
-        ; combined_w = player.width + target.width (byte add, extend to word)
         moveq   #0, d0
         move.b  SST_width_pixels(a2), d0
         moveq   #0, d1
         move.b  SST_width_pixels(a3), d1
         add.w   d1, d0                  ; d0 = combined_w
 
-        ; delta_x = abs(player.x - target.x), then double it
         move.w  d4, d1                  ; player X
-        sub.w   SST_x_pos(a3), d1       ; signed delta
+        sub.w   SST_x_pos(a3), d1       ; d1 = signed delta_x
+
+        move.w  d1, d2
         bpl.s   .x_pos
-        neg.w   d1
+        neg.w   d2
 .x_pos:
-        add.w   d1, d1                  ; doubled distance
-        cmp.w   d0, d1
-        bhs.s   .next_object            ; no X overlap
+        add.w   d2, d2                  ; abs(delta_x) * 2
+        cmp.w   d0, d2
+        bhs.s   .next_object
+
+        ; Stash X results in address registers
+        movea.w d0, a0                  ; a0 = combined_w
+        movea.w d1, a1                  ; a1 = signed delta_x
 
         ; --- Y axis overlap ---
-        moveq   #0, d0
-        move.b  SST_height_pixels(a2), d0
         moveq   #0, d2
-        move.b  SST_height_pixels(a3), d2
-        add.w   d2, d0                  ; d0 = combined_h
+        move.b  SST_height_pixels(a2), d2
+        moveq   #0, d3
+        move.b  SST_height_pixels(a3), d3
+        add.w   d3, d2                  ; d2 = combined_h
 
-        move.w  d5, d2                  ; player Y
-        sub.w   SST_y_pos(a3), d2       ; signed delta
+        move.w  d5, d3                  ; player Y
+        sub.w   SST_y_pos(a3), d3       ; d3 = signed delta_y
+
+        move.w  d3, d0                  ; scratch for abs
         bpl.s   .y_pos
-        neg.w   d2
+        neg.w   d0
 .y_pos:
-        add.w   d2, d2                  ; doubled distance
-        cmp.w   d0, d2
-        bhs.s   .next_object            ; no Y overlap
+        add.w   d0, d0                  ; abs(delta_y) * 2
+        cmp.w   d2, d0
+        bhs.s   .next_object
 
-        ; --- Overlap confirmed: dispatch to handler ---
-        moveq   #0, d0
-        move.b  SST_collision_resp(a3), d0
-        cmpi.b  #COLLISION_TOUCH, d0
-        bhi.s   .next_object            ; reject invalid types
+        ; --- Overlap confirmed: set up handler registers ---
+        move.w  a0, d0                  ; d0 = combined_w
+        move.w  a1, d1                  ; d1 = signed delta_x
+                                        ; d2 = combined_h (already set)
+                                        ; d3 = signed delta_y (already set)
 
-        ; Save loop state across handler call
+        ; Dispatch via collision_resp jump table
+        moveq   #0, d4
+        move.b  SST_collision_resp(a3), d4
+        cmpi.b  #COLLISION_TOUCH, d4
+        bhi.s   .overlap_done
+
         movem.l d6-d7/a2-a3, -(sp)
 
-        add.w   d0, d0
-        add.w   d0, d0                  ; type * 4 (bra.w entry size)
-        jsr     .handler_table(pc, d0.w)
+        add.w   d4, d4
+        add.w   d4, d4                  ; type * 4 (bra.w entry size)
+        jsr     .handler_table(pc, d4.w)
 
         movem.l (sp)+, d6-d7/a2-a3
 
-        ; Reload player position (handler may have changed it)
+.overlap_done:
+        ; Reload cached player position (handler may have moved player)
         move.w  SST_x_pos(a2), d4
         move.w  SST_y_pos(a2), d5
 
@@ -98,7 +115,10 @@ TouchResponse:
 ; -----------------------------------------------
 ; Handler jump table — bra.w entries, 4 bytes each
 ; Type 0 (COLLISION_NONE) through 12 (COLLISION_TOUCH)
-; a2 = player SST, a3 = target SST on entry
+;
+; On entry: d0 = combined_w, d1 = signed delta_x,
+;           d2 = combined_h, d3 = signed delta_y,
+;           a2 = player SST, a3 = target SST
 ; -----------------------------------------------
 .handler_table:
         bra.w   Touch_None              ; 0 — COLLISION_NONE
@@ -116,7 +136,7 @@ TouchResponse:
         bra.w   Touch_Touch             ; 12 — COLLISION_TOUCH
 
 ; -----------------------------------------------
-; Stub handlers — all return immediately until implemented
+; Stub handlers — return immediately until implemented
 ; -----------------------------------------------
 Touch_None:
 Touch_Enemy:
@@ -133,10 +153,7 @@ Touch_Touch:
 
 ; -----------------------------------------------
 ; Touch_Hurt — damage the player (stub)
-; Player invincibility check will be added when
-; the player object and damage system exist.
-;
-; In:  a2 = player SST, a3 = target SST
+; In:  a2 = player SST, a3 = target SST, d0-d3 = overlap data
 ; Out: none
 ; Clobbers: none (currently)
 ; -----------------------------------------------
@@ -149,51 +166,30 @@ Touch_Hurt:
 ; then pushes the player out and zeroes the relevant velocity.
 ;
 ; In:  a2 = player SST, a3 = target SST
+;      d0.w = combined_w, d1.w = signed delta_x
+;      d2.w = combined_h, d3.w = signed delta_y
 ; Out: none
 ; Clobbers: d0-d5
 ; -----------------------------------------------
 Touch_Solid:
-        ; Compute half-widths (combined)
-        moveq   #0, d0
-        move.b  SST_width_pixels(a2), d0
-        moveq   #0, d1
-        move.b  SST_width_pixels(a3), d1
-        add.w   d1, d0
         lsr.w   #1, d0                  ; d0 = combined_half_w
+        lsr.w   #1, d2                  ; d2 = combined_half_h
 
-        ; Signed X delta: player - target
-        move.w  SST_x_pos(a2), d1
-        sub.w   SST_x_pos(a3), d1       ; d1 = signed delta_x
-        move.w  d1, d4                  ; d4 = signed delta_x (preserved for direction)
-
-        ; abs(delta_x)
+        ; pen_x = combined_half_w - abs(delta_x)
+        move.w  d1, d4                  ; d4 = signed delta_x (for direction)
         bpl.s   .solid_ax_pos
         neg.w   d1
 .solid_ax_pos:
-        ; pen_x = combined_half_w - abs(delta_x)
         sub.w   d1, d0                  ; d0 = pen_x
-        ble.s   .solid_done             ; no X penetration (shouldn't happen, but guard)
+        ble.s   .solid_done
 
-        ; Compute half-heights (combined)
-        moveq   #0, d2
-        move.b  SST_height_pixels(a2), d2
-        moveq   #0, d3
-        move.b  SST_height_pixels(a3), d3
-        add.w   d3, d2
-        lsr.w   #1, d2                  ; d2 = combined_half_h
-
-        ; Signed Y delta: player - target
-        move.w  SST_y_pos(a2), d3
-        sub.w   SST_y_pos(a3), d3       ; d3 = signed delta_y
-        move.w  d3, d5                  ; d5 = signed delta_y (preserved for direction)
-
-        ; abs(delta_y)
+        ; pen_y = combined_half_h - abs(delta_y)
+        move.w  d3, d5                  ; d5 = signed delta_y (for direction)
         bpl.s   .solid_ay_pos
         neg.w   d3
 .solid_ay_pos:
-        ; pen_y = combined_half_h - abs(delta_y)
         sub.w   d3, d2                  ; d2 = pen_y
-        ble.s   .solid_done             ; no Y penetration
+        ble.s   .solid_done
 
         ; Minimum penetration axis: pen_x vs pen_y
         cmp.w   d2, d0
@@ -201,19 +197,13 @@ Touch_Solid:
 
         ; --- Vertical contact (pen_y <= pen_x) ---
         tst.w   d5
-        bmi.s   .solid_top              ; player above target (delta_y < 0)
+        bmi.s   .solid_top              ; player above target
 
         ; Player below target — snap below, zero y_vel if rising
-.solid_bottom:
-        ; Compute combined_half_h fresh from d2 + abs_delta_y
-        ; Actually: snap player.y = target.y + combined_half_h
-        ; combined_half_h is in the original sum before pen_y subtraction
-        ; Recompute: combined_half_h = pen_y + abs(delta_y) = d2 + d3
-        add.w   d3, d2                  ; d2 = combined_half_h (restored)
+        add.w   d3, d2                  ; restore combined_half_h
         move.w  SST_y_pos(a3), d1
         add.w   d2, d1                  ; target.y + combined_half_h
-        move.w  d1, SST_y_pos(a2)       ; snap player Y below
-        ; Zero y_vel only if player was rising
+        move.w  d1, SST_y_pos(a2)
         tst.w   SST_y_vel(a2)
         bpl.s   .solid_done
         clr.w   SST_y_vel(a2)
@@ -221,27 +211,24 @@ Touch_Solid:
 
 .solid_top:
         ; Player above target — snap above, zero y_vel
-        ; Restore combined_half_h = d2 + d3
-        add.w   d3, d2                  ; d2 = combined_half_h
+        add.w   d3, d2                  ; restore combined_half_h
         move.w  SST_y_pos(a3), d1
         sub.w   d2, d1                  ; target.y - combined_half_h
-        move.w  d1, SST_y_pos(a2)       ; snap player Y above
+        move.w  d1, SST_y_pos(a2)
         clr.w   SST_y_vel(a2)
         rts
 
 .solid_side:
-        ; Push player horizontally by pen_x in direction away from target
+        ; Push player horizontally by pen_x
         tst.w   d4
         bmi.s   .solid_push_left
 
-        ; Player is right of target — push right
-        add.w   d0, SST_x_pos(a2)       ; x += pen_x
+        add.w   d0, SST_x_pos(a2)       ; push right
         clr.w   SST_x_vel(a2)
         rts
 
 .solid_push_left:
-        ; Player is left of target — push left
-        sub.w   d0, SST_x_pos(a2)       ; x -= pen_x
+        sub.w   d0, SST_x_pos(a2)       ; push left
         clr.w   SST_x_vel(a2)
 
 .solid_done:
