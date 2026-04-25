@@ -159,6 +159,20 @@ ST_P2_STANDING          = 4         ; 1 = player 2 standing on this object
 ST_P1_PUSHING           = 5         ; 1 = player 1 pushing this object
 ST_P2_PUSHING           = 6         ; 1 = player 2 pushing this object
 
+; Object definition format byte bits (Load_Object data blocks)
+ODF_VELOCITY            = 0         ; dc.w x_vel, y_vel
+ODF_COLLISION           = 1         ; dc.b width, height, collision_type, pad
+ODF_ANIMATION           = 2         ; dc.l anim_table
+ODF_SUBTYPE             = 3         ; flag only — copy caller's subtype to SST
+ODF_RENDER_FLAGS        = 4         ; dc.b render_flags, pad
+ODF_PRIORITY            = 5         ; dc.w priority
+
+; Pre-built format byte combinations
+OBJ_FMT_MINIMAL         = 0                                ; mappings + art_tile only
+OBJ_FMT_STATIC          = (1<<ODF_COLLISION)|(1<<ODF_PRIORITY) ; + collision + priority
+OBJ_FMT_MOVING          = OBJ_FMT_STATIC|(1<<ODF_VELOCITY) ; + velocity
+OBJ_FMT_ANIMATED        = OBJ_FMT_STATIC|(1<<ODF_ANIMATION) ; + animation
+
 ; Execution culling distances (pixels from camera center)
 CULL_DISTANCE_X         = $300      ; 768px — skip dynamic objects beyond this
 CULL_DISTANCE_Y         = $200      ; 512px

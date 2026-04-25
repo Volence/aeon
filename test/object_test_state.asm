@@ -1,4 +1,4 @@
-; Object system test — controllable player, enemies, solid blocks
+; Object system test — controllable player + data-driven object spawning
 
 GameState_ObjectTest_Init:
         ; Load test palette to CRAM line 0
@@ -24,49 +24,15 @@ GameState_ObjectTest_Init:
         clr.l   (Camera_X).w
         clr.l   (Camera_Y).w
 
-        ; --- Init test player in Player_1 slot (TouchResponse checks player slots) ---
+        ; --- Player goes in reserved slot (not via Load_Object) ---
         lea     (Player_1).w, a1
         move.w  #objroutine(TestPlayer), SST_code_addr(a1)
         move.l  #160<<16, SST_x_pos(a1)
         move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
 
-        ; --- Spawn test enemy at (100, STUB_FLOOR_Y) ---
-        jsr     AllocDynamic
-        bne.s   .skip_enemy1
-        move.w  #objroutine(TestEnemy), SST_code_addr(a1)
-        move.l  #100<<16, SST_x_pos(a1)
-        move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
-.skip_enemy1:
-
-        ; --- Spawn test enemy at (240, STUB_FLOOR_Y) ---
-        jsr     AllocDynamic
-        bne.s   .skip_enemy2
-        move.w  #objroutine(TestEnemy), SST_code_addr(a1)
-        move.l  #240<<16, SST_x_pos(a1)
-        move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
-.skip_enemy2:
-
-        ; --- Spawn solid blocks (platforms above floor) ---
-        jsr     AllocDynamic
-        bne.s   .skip_solid1
-        move.w  #objroutine(TestSolid), SST_code_addr(a1)
-        move.l  #120<<16, SST_x_pos(a1)
-        move.l  #150<<16, SST_y_pos(a1)
-.skip_solid1:
-
-        jsr     AllocDynamic
-        bne.s   .skip_solid2
-        move.w  #objroutine(TestSolid), SST_code_addr(a1)
-        move.l  #200<<16, SST_x_pos(a1)
-        move.l  #130<<16, SST_y_pos(a1)
-.skip_solid2:
-
-        jsr     AllocDynamic
-        bne.s   .skip_solid3
-        move.w  #objroutine(TestSolid), SST_code_addr(a1)
-        move.l  #160<<16, SST_x_pos(a1)
-        move.l  #100<<16, SST_y_pos(a1)
-.skip_solid3:
+        ; --- Spawn level objects from list ---
+        lea     TestObjectList(pc), a0
+        jsr     Load_ObjectList
 
         ; Enable display (VDP reg $01 bit 6)
         SetVDPReg VDP_Shadow_vdp_mode2, #$74
@@ -81,6 +47,24 @@ GameState_ObjectTest:
         jsr     TouchResponse
         jsr     Render_Sprites
         rts
+
+; -----------------------------------------------
+; Test object spawn list (10 bytes per entry, dc.l 0 terminator)
+;   dc.l  definition_pointer
+;   dc.w  x, y, subtype
+; -----------------------------------------------
+TestObjectList:
+        dc.l    ObjDef_Enemy
+        dc.w    100, STUB_FLOOR_Y, 0
+        dc.l    ObjDef_Enemy
+        dc.w    240, STUB_FLOOR_Y, 0
+        dc.l    ObjDef_Solid
+        dc.w    120, 150, 1
+        dc.l    ObjDef_Solid
+        dc.w    200, 130, 1
+        dc.l    ObjDef_Solid
+        dc.w    160, 100, 1
+        dc.l    0                       ; end
 
 ; -----------------------------------------------
 ; Test art — two 16x16 colored squares (4 tiles each = 128 bytes each)
@@ -100,8 +84,6 @@ TestArt_End:
 
 ; -----------------------------------------------
 ; Test palette — 16 colors for CRAM line 0
-; Color 1=red, 2=green for static test squares.
-; Sonic's palette loaded at CRAM line 0 (overwritten at init).
 ; -----------------------------------------------
 TestPalette:
         BINCLUDE "art/palettes/sonic.bin"

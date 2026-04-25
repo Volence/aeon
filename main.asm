@@ -104,6 +104,7 @@ Checksum:
     include "engine/animate.asm"
     include "engine/collision.asm"
     include "engine/children.asm"
+    include "engine/load_object.asm"
 
 ; -----------------------------------------------
 ; Object code bank
@@ -125,6 +126,7 @@ ObjCodeBase:
 ; -----------------------------------------------
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
+    include "data/objdefs/test_objects.asm"
 
 Map_Sonic:
     BINCLUDE "data/mappings/sonic.bin"
