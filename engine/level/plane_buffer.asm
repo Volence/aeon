@@ -16,7 +16,7 @@ Plane_Buffer_Reset:
 ;      d1.w = section tile column index (0-based from section left edge)
 ;      a0   = section def pointer (Sec struct in ROM)
 ; Out: none (silently drops if buffer full)
-; Clobbers: d0–d3, a0–a2
+; Clobbers: d0–d3, a1–a2
 ; -----------------------------------------------
 Draw_TileColumn:
         ; -- overflow check --
@@ -27,7 +27,7 @@ Draw_TileColumn:
 
         ; -- get source strip data --
         movea.l Sec_sec_strips_a(a0), a1           ; ROM strip array
-        lsl.w   #6, d1                             ; d1 = section_col × 64 bytes
+        lsl.w   #6, d1                             ; d1 = col × 64 bytes (safe 0..511)
         adda.w  d1, a1                             ; a1 → ROM strip for this tile column
 
         ; -- buffer write pointer --
@@ -65,6 +65,7 @@ Draw_TileColumn:
 ; Out: none (silently drops if buffer full)
 ; Clobbers: d0–d4, a1–a2
 ; Note: not called in Phase 1 (no vertical scroll). Exists for Phase 2+.
+; Note: d2 must be even — odd values produce wrong tile count.
 ; -----------------------------------------------
 Draw_TileRow:
         ; -- entry size = 4 + d2*2 bytes --
