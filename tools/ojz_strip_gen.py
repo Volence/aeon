@@ -26,6 +26,10 @@ import sys
 import os
 import shutil
 
+# Allow running from the s4_engine root (where build.sh lives).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tile_dedupe
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -42,8 +46,8 @@ OUTPUT_DIR = os.path.join(
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-STRIP_TILE_HEIGHT = 32  # nametable rows per strip (rows 0-31 of 64-row plane)
-OJZ_TILES_COUNT = 322   # tiles 0-321 cover all indices referenced in the 32-row strips
+STRIP_TILE_HEIGHT = 48  # nametable rows per strip (rows 0-47; sprite table at row 48)
+OJZ_TILES_COUNT = 322   # legacy — pre-A.1 raw export count, kept for old test_generate_tile_art
 TILES_PER_BLOCK_ROW = 2  # each block is 2 tiles wide × 2 tiles tall
 TILES_PER_BLOCK_COL = 2
 BLOCKS_PER_CHUNK_ROW = 8  # each chunk is 8×8 blocks
@@ -386,6 +390,58 @@ def generate_tile_art(
 
 
 # ---------------------------------------------------------------------------
+# Tile dedupe + remap helpers (§2 A.1)
+# ---------------------------------------------------------------------------
+
+def decompress_full_ojz_art(path: str) -> bytes:
+    """Decompress every Kosinski stream in OJZ.bin and concatenate.
+
+    The source file holds multiple back-to-back streams; the original 322-tile
+    helper only used stream 0. A.1 needs the full tile space because nametable
+    references can land anywhere in the source's flat tile-index range.
+    """
+    src = open(path, "rb").read()
+    out = bytearray()
+    pos = 0
+    while pos < len(src):
+        try:
+            decoded, pos = kos_decompress(src, pos)
+        except (IndexError, KeyError):
+            break
+        if not decoded:
+            break
+        out.extend(decoded)
+    return bytes(out)
+
+
+def collect_referenced_tiles(
+    all_section_strips: dict,  # sec_id → list[list[int]]
+    full_tile_blob: bytes,
+) -> tuple[list[int], list[bytes]]:
+    """Walk every nametable word across all sections.
+
+    Returns (sorted_indices, raw_tiles):
+      sorted_indices = sorted list of unique source tile indices referenced
+      raw_tiles[i]   = the 32 bytes of source tile sorted_indices[i]
+                       (zero-tile if the source blob doesn't reach that index)
+    """
+    referenced: set[int] = set()
+    for strips in all_section_strips.values():
+        for col in strips:
+            for word in col:
+                referenced.add(word & tile_dedupe.NAMETABLE_TILE_MASK)
+    sorted_indices = sorted(referenced)
+    raw_tiles: list[bytes] = []
+    for idx in sorted_indices:
+        base = idx * tile_dedupe.TILE_SIZE
+        if base + tile_dedupe.TILE_SIZE <= len(full_tile_blob):
+            raw_tiles.append(full_tile_blob[base : base + tile_dedupe.TILE_SIZE])
+        else:
+            raw_tiles.append(bytes(tile_dedupe.TILE_SIZE))  # missing → zero tile
+    return sorted_indices, raw_tiles
+
+
+# ---------------------------------------------------------------------------
 # Self-tests
 # ---------------------------------------------------------------------------
 
@@ -518,6 +574,26 @@ def test_generate_tile_art():
           f"(Kosinski source: {os.path.getsize(OJZ_ART_PATH)} bytes)")
 
 
+def test_full_pipeline_runs():
+    """Smoke test the whole generate() pipeline produces a deduped pool."""
+    import tempfile
+    global OUTPUT_DIR
+    saved = OUTPUT_DIR
+    with tempfile.TemporaryDirectory() as td:
+        OUTPUT_DIR = td
+        try:
+            generate()
+            tile_path = os.path.join(td, "ojz_tiles.bin")
+            assert os.path.exists(tile_path), "deduped pool not written"
+            size = os.path.getsize(tile_path)
+            assert size > 0, "deduped pool is empty"
+            assert size % 32 == 0, f"pool size {size} not a multiple of 32"
+            assert size // 32 <= 1536, f"pool {size//32} exceeds 1536 tiles"
+        finally:
+            OUTPUT_DIR = saved
+    print(f"  [OK] test_full_pipeline_runs: deduped pool fits in 1536 tiles")
+
+
 def run_tests():
     """Run all self-tests."""
     print("Running ojz_strip_gen tests...")
@@ -530,6 +606,7 @@ def run_tests():
     test_explicit_truncation()
     test_binary_round_trip()
     test_generate_tile_art()
+    test_full_pipeline_runs()
     print("All tests passed")
 
 
@@ -570,8 +647,9 @@ def generate():
         print(f"ERROR: No layout files found matching {pattern}")
         sys.exit(1)
 
-    total_strips = 0
-    first_strips = None
+    # ---- Pass 1: build per-section strips, hold in memory ----
+    per_section_strips: dict[str, list[list[int]]] = {}
+    section_meta: dict[str, tuple[int, int]] = {}  # sec_id → (rows, cols)
     for sec_path in section_files:
         sec_name = os.path.basename(sec_path).replace(".bin", "")
         sec_id = sec_name.split("sec")[1]
@@ -582,32 +660,75 @@ def generate():
             continue
 
         strips = generate_section_strips(layout, chunks, blocks)
-        n_cols = len(strips)
-
-        # Write all columns concatenated into a single plane A file
-        out_a = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
-        write_strips_to_file(strips, out_a)
-
-        # Write plane B placeholder (all zeros, same size)
-        out_b = os.path.join(out_dir, f"sec{sec_id}_strips_b.bin")
-        with open(out_b, "wb") as f:
-            f.write(bytes(n_cols * STRIP_TILE_HEIGHT * 2))
-        print(f"  sec{sec_id}: plane B placeholder -> {out_b}")
-
-        if first_strips is None:
-            first_strips = strips
-
-        total_strips += n_cols
+        per_section_strips[sec_id] = strips
+        section_meta[sec_id] = (len(layout), len(layout[0]))
         print(
             f"  {sec_name}: {len(layout)} rows × {len(layout[0])} chunks "
-            f"→ {n_cols} strips → {out_a}"
+            f"→ {len(strips)} strips"
         )
 
-    # Extract tile art (stream 0 of OJZ.bin, first OJZ_TILES_COUNT tiles)
+    # ---- Pass 2: dedupe across all sections, emit deduped tile pool ----
+    full_blob = decompress_full_ojz_art(OJZ_ART_PATH)
+    sorted_indices, raw_tiles = collect_referenced_tiles(per_section_strips, full_blob)
+    unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
+
+    # Build src_idx → (canonical_idx, flip_bits) lookup
+    src_to_canon: dict[int, tuple[int, int]] = {
+        src_idx: mapping[i]
+        for i, src_idx in enumerate(sorted_indices)
+    }
+
+    # ---- Pass 3: rewrite each section's strips and emit binaries ----
+    total_strips = 0
+    first_strips = None
+    for sec_id, strips in per_section_strips.items():
+        remapped_strips = []
+        for col in strips:
+            remapped_col = []
+            for word in col:
+                src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
+                canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
+                remapped_col.append(
+                    tile_dedupe.remap_nametable_word(word, canon_idx, flip_bits)
+                )
+            remapped_strips.append(remapped_col)
+
+        out_a = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
+        write_strips_to_file(remapped_strips, out_a)
+
+        out_b = os.path.join(out_dir, f"sec{sec_id}_strips_b.bin")
+        with open(out_b, "wb") as f:
+            f.write(bytes(len(remapped_strips) * STRIP_TILE_HEIGHT * 2))
+        print(f"  sec{sec_id}: emitted {len(remapped_strips)} strips → {out_a}")
+
+        if first_strips is None:
+            first_strips = remapped_strips
+        total_strips += len(remapped_strips)
+
+    # ---- Emit deduped tile pool ----
     tile_out = os.path.join(out_dir, "ojz_tiles.bin")
-    generate_tile_art(OJZ_ART_PATH, tile_out, OJZ_TILES_COUNT)
-    print(f"Tile art: {OJZ_TILES_COUNT} tiles ({OJZ_TILES_COUNT*32} bytes raw, "
-          f"Kosinski source {os.path.getsize(OJZ_ART_PATH)} bytes) -> {tile_out}")
+    with open(tile_out, "wb") as f:
+        for tile in unique:
+            f.write(tile)
+
+    raw_referenced = len(sorted_indices)
+    deduped = len(unique)
+    pct = (1.0 - deduped / raw_referenced) * 100 if raw_referenced else 0.0
+    fits = deduped <= 1536
+    print(
+        f"\n=== OJZ Act 1 — Phase A.1 measurement ===\n"
+        f"  Tile references (post-section walk): {raw_referenced}\n"
+        f"  Deduped (with flip canonicalization): {deduped} "
+        f"({pct:.1f}% reduction)\n"
+        f"  Pool fits in 1536: {'yes' if fits else 'NO — A.2 multi-region needed'}\n"
+        f"  Deduped blob: {deduped * 32} bytes uncompressed → {tile_out}\n"
+    )
+    if not fits:
+        print(
+            "ERROR: post-dedupe pool exceeds 1536 tiles; "
+            "A.2 multi-region packing required (out of scope for A.1)."
+        )
+        sys.exit(1)
 
     # Copy palette file
     pal_src  = os.path.join(src_dir, "art", "palettes", "OJZ.bin")

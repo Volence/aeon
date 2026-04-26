@@ -27,7 +27,11 @@ Draw_TileColumn:
 
         ; -- get source strip data --
         movea.l Sec_sec_strips_a(a0), a1           ; ROM strip array
-        lsl.w   #6, d1                             ; d1 = col × 64 bytes (safe 0..511)
+        ; col × STRIP_BYTE_SIZE (= col × 96 for 48-row strips: col*64 + col*32)
+        move.w  d1, d3
+        lsl.w   #6, d1                             ; d1 = col × 64
+        lsl.w   #5, d3                             ; d3 = col × 32
+        add.w   d3, d1                             ; d1 = col × 96 (= STRIP_BYTE_SIZE)
         adda.w  d1, a1                             ; a1 → ROM strip for this tile column
 
         ; -- buffer write pointer --
@@ -38,10 +42,11 @@ Draw_TileColumn:
         add.w   d0, d0                             ; d0 = col × 2
         addi.w  #VRAM_PLANE_A & $FFFF, d0          ; d0 = $C000 + col*2
         move.w  d0, (a2)+                          ; write VRAM addr
-        move.w  #$800F, (a2)+                      ; column flag | (32/2-1 = 15)
+        ; column flag | (longword count - 1) = $8000 | (STRIP_TILE_HEIGHT/2 - 1)
+        move.w  #$8000 | (STRIP_TILE_HEIGHT/2 - 1), (a2)+
 
-        ; -- copy strip data (32 words = 16 longwords) --
-        moveq   #16-1, d3
+        ; -- copy strip data (STRIP_TILE_HEIGHT words = STRIP_TILE_HEIGHT/2 longwords) --
+        moveq   #STRIP_TILE_HEIGHT/2 - 1, d3
 .copy:
         move.l  (a1)+, (a2)+
         dbf     d3, .copy
