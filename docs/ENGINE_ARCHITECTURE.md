@@ -1261,13 +1261,17 @@ The Genesis VDP has completely separate planes — Plane A and Plane B have inde
 | 2. Per-section layout | Different BG arrangement | Shares FG tiles | Zero | Visual variety with existing art |
 | 3. Per-section art+layout | Different BG tiles+layout | Own VRAM slots | Pool tiles | Unique BG (mountain skyline, etc.) |
 
-**Section entry integration:** Two new optional fields in the section definition:
-- `sec_bg_layout_off` — BG layout pointer (0 = use zone default)
-- `sec_bg_plc_off` — BG art PLC pointer (0 = share FG tiles)
+**Section entry integration (post-§2 A.5):**
+- `act_bg_layout` (Act struct, longword at $16) — zone-wide BG nametable pointer; drawn once at level load by `BG_Init`.
+- `sec_bg_layout` (Sec struct, longword at $1C) — per-section BG nametable pointer (NULL = use Act default). On FWD/BWD teleport, `BG_RedrawForSection` blits the new section's layout to Plane B.
 
-**Allocator integration:** Tier 3 sections call `AllocVRAM` for BG art types alongside FG types. The allocator treats BG art the same as any other allocation — no special handling. Debug assertions catch pool overflow if FG + BG combined exceeds capacity.
+**Storage shape:** Each layout is a **raw 64×32 nametable** (4096 bytes uncompressed). No `sec_bg_plc_off` field — T3 BG tile art folds into the section's existing A.3 art group (`sec_tile_art_s4lz`). A.4's `Section_StreamArtGroup` covers both FG and BG tiles via the unified blob — no parallel streaming code.
 
-**Current system:** Uses `Section_BG_Layout_Ptr` for a zone-wide BG fallback. Sections with BG rows use their own layout; sections without fall back to the zone default (e.g., `Level_OJZ1_BG`).
+**Tier detection (build-time):** `sec_bg_layout=NULL` → T1; `sec_bg_layout≠NULL` and BG tile refs ⊆ section's FG tile-set → T2; `sec_bg_layout≠NULL` with BG-only tiles → T3.
+
+**Engine cost:** T1 = one 4 KB blit at level init, zero per-frame. T2/T3 = one 4 KB blit on FWD/BWD teleport (~0.6 ms blocking via VDP DATA port; deferrable-DMA optimization tracked in DEFERRED_WORK).
+
+**Allocator integration:** T3 BG tiles are part of the section's existing tile-art group, so the allocator treats them identically to FG tiles. Debug assertions catch pool overflow if FG + BG combined exceeds the section's color-graph slot budget.
 
 ### 2.5 Art Loading Flow
 

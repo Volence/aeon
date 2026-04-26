@@ -266,17 +266,22 @@ Implement all three BG tiers from ENGINE_ARCHITECTURE.md §2.4 end-to-end, valid
 - S.C.E. — modern Sonic-style per-act backgrounds
 - plutiedev on Plane B nametable swaps
 
-### Open implementation questions (research-driven)
-- Whether to pre-clear Plane B before redraw on tier-2/3 transition, or trust the new strip data to fully overwrite (faster but assumes full-coverage strips).
-- Whether tier-3 BG tile art shares the same "art group" concept from A.3 (cleaner; my hunch) or has its own parallel system.
-- Whether BG-tile dedupe shares the same global pool as FG-tile dedupe (more aliasing opportunities) or runs as a separate pass (simpler, less aliasing).
+### Implementation decisions (research-settled — see `docs/research/per-section-background.md`)
+- **No pre-clear before redraw.** Layouts are full-coverage 64×32 nametables; pre-clear doubles cost for zero correctness benefit.
+- **T3 BG tile art shares A.3 art group.** Per-section combined FG+BG art group, streamed via existing A.4 `Section_StreamArtGroup`. No parallel system. Validated by Thunder Force IV (unified stage DMA batch) and Alien Soldier (per-section section headers).
+- **BG-tile dedupe runs in same per-section pass as FG.** A.1/A.3's per-section dedupe pass folds BG-referenced tiles in. Captures FG↔BG aliasing within the section.
+- **BG layout storage = raw 64×32 nametable (4096 B per layout), uncompressed.** Compression deferrable; ROM cost (≤68 KB worst case for our OJZ scale) is negligible vs. 4 MB ROM budget. Column-strip approach explicitly rejected — would force unneeded Plane B column-streaming engine.
 
 ### Build tool — extends the strip generator
-- Read `sec_bg_layout_off` and `sec_bg_plc_off` from the act/section descriptor (existing fields per arch doc §2.4, not yet emitted by the strip generator).
-- Tier detection from sentinels: `layout_off=0` → tier 1; `layout_off≠0, plc_off=0` → tier 2; both nonzero → tier 3.
-- Emit per-section `secN_bg_strips_a.bin` for tiers 2/3 (parallel to existing FG strip emission).
-- For tier 3, emit BG tile data as part of the section's art group (A.3's group concept already supports multiple kinds of art — flagged as the cleaner path; research will confirm).
-- Build-time printed report: per section, `tier T; BG strips bytes B; BG tile bytes (tier 3 only) C`.
+- Read `act_bg_layout` (Act, longword) and `sec_bg_layout` (Sec, longword) — added as fresh fields, replacing the unused `sec_strips_b` placeholder.
+- Tier detection from sentinels:
+  - `sec_bg_layout = NULL` → **tier 1** (uses `act_bg_layout` zone-wide BG)
+  - `sec_bg_layout ≠ NULL`, BG tile refs subset of section's existing FG tile-set → **tier 2** (per-section BG layout, shared FG tiles)
+  - `sec_bg_layout ≠ NULL`, BG tile refs include tiles not in FG set → **tier 3** (per-section BG layout + BG tiles folded into section's A.3 art group)
+- Emit `zone_bg.bin` (4 KB raw nametable) once per act for T1.
+- Emit per-section `secN_bg.bin` (4 KB raw nametable each) for T2/T3 sections under `--bg-fixture=t2` / `t3` flag.
+- For T3, fold BG tile refs into the section's A.3 dedupe pass (`sec_tile_refs[sec_id] |= bg_tile_refs`); section's S4LZ blob then carries both FG and BG tiles unified.
+- Build-time printed report: per section, `tier T; BG layout bytes 4096; BG-only tiles added to art group (T3 only) N`.
 
 ### Engine — Plane B redraw on section transition
 - Section enter (tier 2): redraw Plane B nametable from the new section's BG strips. One-shot blit, similar to FG strip drawing already in `Section_Init` / `Section_QueueNewSlot1Cols`.
