@@ -60,6 +60,7 @@ DIAGNOSTIC_LABELS: Dict[str, str] = {
     "W017": "local label not .lowercase",
     "W018": "routine too long",
     "W019": "file missing header comment",
+    "W020": "tail call — bsr/jsr before rts",
 }
 
 DIAGNOSTIC_SEVERITY: Dict[str, str] = {
@@ -422,6 +423,8 @@ class LintContext:
         self.current_routine: str = ""
         # Previous token (full Token, for W009 swap+clr.w and other pairing checks)
         self.prev_token: Optional["Token"] = None
+        # True if a label was seen since the last instruction (W020 guard)
+        self.label_since_last_instr: bool = False
         # Local labels seen in the current routine
         self.local_labels: Set[str] = set()
         # Number of lines in the current routine
@@ -448,6 +451,7 @@ class LintContext:
         self.local_labels = set()
         self.routine_lines = 0
         self.prev_token = None
+        self.label_since_last_instr = False
         self.pending_w006 = None
 
     def check_routine_end(self, line_num: int) -> None:
@@ -1372,6 +1376,9 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         ctx.local_labels.add(label)
         ctx.in_dbf_loop = True
 
+    if label:
+        ctx.label_since_last_instr = True
+
     # ------------------------------------------------------------------
     # Naming convention checks (W015-W017)
     # ------------------------------------------------------------------
@@ -1422,6 +1429,23 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
                         f"(threshold: {ROUTINE_LENGTH_THRESHOLD}) — consider splitting "
                         f"(hot-path code with inlined variants may justify this length)")
 
+        # W020: tail call — bsr/jsr immediately before rts (not rte —
+        # rte pops SR+PC, so the stack layout differs from bsr's push)
+        if instr_lower == "rts" and "W020" not in suppressed and ctx.prev_token and not ctx.label_since_last_instr:
+            prev_instr = ctx.prev_token.instruction.lower()
+            if prev_instr in ("bsr", "jsr"):
+                if prev_instr == "bsr":
+                    suffix = ctx.prev_token.size if ctx.prev_token.size else ".w"
+                    replacement = f"bra{suffix}"
+                else:
+                    replacement = "jmp"
+                operand = ctx.prev_token.operands[0] if ctx.prev_token.operands else "?"
+                ctx.warning("W020", line_num,
+                            f"'{ctx.prev_token.instruction}{ctx.prev_token.size} {operand}' "
+                            f"immediately followed by rts — use "
+                            f"'{replacement} {operand}' for tail call "
+                            f"(saves 4 bytes, ~16 cycles)")
+
     # dbf/dbra — end of loop body
     if instr_lower in ("dbf", "dbra"):
         ctx.in_dbf_loop = False
@@ -1460,8 +1484,10 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
 
     # ------------------------------------------------------------------
     # Track prev_token for multi-line checks (W009, etc.)
+    # Clear label_since_last_instr now that we've processed an instruction.
     # ------------------------------------------------------------------
     if token.instruction:
+        ctx.label_since_last_instr = False
         ctx.prev_token = token
 
 

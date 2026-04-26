@@ -2470,5 +2470,94 @@ class TestSeverityOutput(unittest.TestCase):
         self.assertIn("no issues found", stderr)
 
 
+# ---------------------------------------------------------------------------
+# W020: tail call — bsr/jsr immediately before rts
+# ---------------------------------------------------------------------------
+
+class TestW020_TailCall(unittest.TestCase):
+
+    def _diags(self, lines_str):
+        """Lint a snippet and return diagnostics."""
+        content = "; header\n; ---\nTestRoutine:\n" + lines_str
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
+            f.write(content)
+            f.flush()
+            fname = f.name
+        try:
+            ctx = lint_file(fname, {
+                "no_warnings": False,
+                "warnings_as_errors": False,
+                "no_suggestions": False,
+            }, os.path.dirname(fname))
+            return ctx.diagnostics
+        finally:
+            os.unlink(fname)
+
+    def test_bsr_then_rts_warns(self):
+        """bsr followed by rts should trigger W020."""
+        diags = self._diags("    bsr.w SomeRoutine\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 1)
+        self.assertIn("bra.w", w020[0].message)
+        self.assertEqual(w020[0].severity, "warning")
+
+    def test_jsr_then_rts_warns(self):
+        """jsr followed by rts should trigger W020."""
+        diags = self._diags("    jsr SomeRoutine\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 1)
+        self.assertIn("jmp", w020[0].message)
+
+    def test_bsr_with_label_between_no_warn(self):
+        """bsr followed by a label then rts should NOT trigger W020."""
+        diags = self._diags("    bsr.w SomeRoutine\n.local_entry:\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_bsr_with_global_label_between_no_warn(self):
+        """bsr followed by a global label then rts should NOT trigger W020."""
+        diags = self._diags("    bsr.w SomeRoutine\nOtherEntry:\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_bsr_then_other_instr_no_warn(self):
+        """bsr followed by a non-rts instruction should NOT trigger W020."""
+        diags = self._diags("    bsr.w SomeRoutine\n    nop\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_standalone_rts_no_warn(self):
+        """rts without a preceding bsr/jsr should NOT trigger W020."""
+        diags = self._diags("    move.w d0, d1\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_bsr_s_then_rts_warns(self):
+        """bsr.s followed by rts should also trigger W020 (use bra.s)."""
+        diags = self._diags("    bsr.s SomeRoutine\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 1)
+        self.assertIn("bra.s", w020[0].message)
+
+    def test_w020_suppressed(self):
+        """W020 should be suppressible via inline comment."""
+        diags = self._diags("    bsr.w SomeRoutine\n    rts ; lint: disable=W020\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_bsr_then_rte_no_warn(self):
+        """bsr before rte is not a tail call — rte restores SR+PC, not just PC."""
+        diags = self._diags("    bsr.w Helper\n    rte\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_bsr_unsized_suggests_bra_w(self):
+        """Bare bsr (no size) should suggest bra.w as the default."""
+        diags = self._diags("    bsr SomeRoutine\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 1)
+        self.assertIn("bra.w", w020[0].message)
+
+
 if __name__ == "__main__":
     unittest.main()
