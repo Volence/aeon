@@ -207,6 +207,17 @@ SECTION_BWD_PRELOAD     = $0400     ; camera X → queue backward section art
 STRIP_TILE_HEIGHT       = 48        ; rows per strip (0–47; row 48+ = sprite table)
 STRIP_BYTE_SIZE         = STRIP_TILE_HEIGHT*2   ; 96 bytes per strip
 
+; Multi-region VRAM tile packing (§2 A.2)
+; Region 1: primary art pool $0000-$BFFF (1536 tiles).
+; Region 2: Plane B off-screen rows, $F800-$FFFF (64 tiles).
+;   Safe because OJZ act_descriptor's cam_max_y=128 caps the visible
+;   bottom row at nametable row 44; rows 45+ of Plane B never render.
+;   Row 48 chosen for a 3-row safety margin against future cam_max_y bumps.
+; tools/ojz_strip_gen.py REGION* constants must match.
+REGION1_TILE_CAPACITY   = 1536
+REGION2_VRAM_BASE       = $F800
+REGION2_TILE_CAPACITY   = 64        ; ($10000 - $F800) / 32
+
 ; Plane buffer
 PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
 
