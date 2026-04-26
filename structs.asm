@@ -98,3 +98,34 @@ SST endstruct
         if SST_len <> $50
           error "SST struct is \{SST_len} bytes, expected $50"
         endif
+
+; -----------------------------------------------
+; Section Definition (§4) — 64 bytes, ROM table
+; All fields: 0 = keep current / no change
+; -----------------------------------------------
+Sec struct
+sec_strips_a        ds.l 1          ; $00 — plane A nametable strip array ptr (ROM)
+sec_objects         ds.l 1          ; $04 — compact 4-byte object entries
+sec_rings           ds.l 1          ; $08 — pattern-encoded ring entries
+sec_plc             ds.l 1          ; $0C — S4LZ art PLC list
+sec_pal             ds.l 1          ; $10 — 128-byte palette (4 lines × 32 bytes)
+sec_scroll          ds.l 1          ; $14 — parallax layer table (Phase 4)
+sec_raster_table    ds.l 1          ; $18 — raster command table (§7.2)
+sec_strips_b        ds.l 1          ; $1C — plane B nametable strip array ptr (ROM)
+sec_reserved        ds.l 1          ; $20 — reserved
+sec_pal_cycle       ds.l 1          ; $24 — palette cycling script (Phase 4)
+sec_sound_bank      ds.l 1          ; $28 — DAC sample bank pointer
+sec_deform_table    ds.l 1          ; $2C — deformation table (Phase 4)
+sec_anim_blocks     ds.l 1          ; $30 — animated tile script (Phase 4)
+sec_collision       ds.l 1          ; $34 — flat 128×128 collision map
+sec_flags           ds.w 1          ; $38 — SF_* bitmask
+sec_music           ds.w 1          ; $3A — music track (0 = keep current)
+sec_layer_mask      ds.b 1          ; $3C — parallax layer enable (Phase 4)
+sec_camera_lookahead ds.b 1         ; $3D — lookahead pixels (0 = zone default)
+sec_deform_speed    ds.b 1          ; $3E — deformation rate (Phase 4)
+sec_transition_type ds.b 1          ; $3F — transition type (Phase 4)
+Sec endstruct
+
+    if Sec_len <> $40
+      error "Sec struct is \{Sec_len} bytes, expected $40"
+    endif
