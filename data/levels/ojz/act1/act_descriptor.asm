@@ -37,7 +37,7 @@ OJZ_Sec0:
     dc.w    0, 0                    ; sec_flags, sec_music
     dc.b    0, 0, 0, 0              ; sec_layer_mask..sec_transition_type
     dc.l    OJZ_Sec0_Tiles_S4LZ     ; sec_tile_art_s4lz (§2 A.3)
-    dc.w    OJZ_Sec0_Vram           ; sec_tile_art_vram
+    dc.w    OJZ_SEC0_VRAM           ; sec_tile_art_vram
     dc.w    0                       ; pad
     align 2
 
@@ -51,7 +51,7 @@ OJZ_Sec1:
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec1_Tiles_S4LZ
-    dc.w    OJZ_Sec1_Vram
+    dc.w    OJZ_SEC1_VRAM
     dc.w    0
     align 2
 
@@ -65,7 +65,7 @@ OJZ_Sec2:
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec2_Tiles_S4LZ
-    dc.w    OJZ_Sec2_Vram
+    dc.w    OJZ_SEC2_VRAM
     dc.w    0
     align 2
 
@@ -79,7 +79,7 @@ OJZ_Sec3:
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec3_Tiles_S4LZ
-    dc.w    OJZ_Sec3_Vram
+    dc.w    OJZ_SEC3_VRAM
     dc.w    0
     align 2
 
@@ -93,7 +93,7 @@ OJZ_Sec4:
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec4_Tiles_S4LZ
-    dc.w    OJZ_Sec4_Vram
+    dc.w    OJZ_SEC4_VRAM
     dc.w    0
     align 2
 
@@ -107,7 +107,7 @@ OJZ_Sec5:
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec5_Tiles_S4LZ
-    dc.w    OJZ_Sec5_Vram
+    dc.w    OJZ_SEC5_VRAM
     dc.w    0
     align 2
 
@@ -121,7 +121,7 @@ OJZ_Sec6:
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec6_Tiles_S4LZ
-    dc.w    OJZ_Sec6_Vram
+    dc.w    OJZ_SEC6_VRAM
     dc.w    0
     align 2
 
@@ -135,7 +135,7 @@ OJZ_Sec7:
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec7_Tiles_S4LZ
-    dc.w    OJZ_Sec7_Vram
+    dc.w    OJZ_SEC7_VRAM
     dc.w    0
     align 2
 
@@ -149,7 +149,7 @@ OJZ_Sec8:
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec8_Tiles_S4LZ
-    dc.w    OJZ_Sec8_Vram
+    dc.w    OJZ_SEC8_VRAM
     dc.w    0
     align 2
 

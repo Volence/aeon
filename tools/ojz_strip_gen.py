@@ -767,7 +767,7 @@ def generate(force_region1_cap=None):
         f.write("; Per-section VRAM byte destinations (color_base × 32 bytes/tile)\n")
         for s_idx, sec_id in enumerate(sec_ids_in_order):
             base_slot = color_bases[colors[s_idx]]
-            f.write(f"OJZ_Sec{sec_id}_Vram = {base_slot} * 32\n")
+            f.write(f"OJZ_SEC{sec_id.upper()}_VRAM = {base_slot} * 32\n")
 
     # ---- A.3 measurement ----
     raw_referenced = len(sorted_indices)

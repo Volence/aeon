@@ -208,8 +208,7 @@ Section_TeleportFwd:
         moveq   #SLOT_RIGHT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 1
-        bsr.w   Section_LoadArt
-        rts
+        bra.w   Section_LoadArt                     ; tail call
 
 ; -----------------------------------------------
 ; Section_TeleportBwd — backward (leftward) teleport
@@ -242,8 +241,7 @@ Section_TeleportBwd:
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 0
-        bsr.w   Section_LoadArt
-        rts
+        bra.w   Section_LoadArt                     ; tail call
 
 ; -----------------------------------------------
 ; Section_QueueNewSlot1Cols — queue slot 1 tile columns (nametable cols 32–63)
