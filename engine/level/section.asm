@@ -153,13 +153,27 @@ Section_Check:
         swap    d0                                 ; d0.w = camera X in pixels
 
         cmpi.w  #SECTION_FWD_THRESHOLD, d0
-        bge.s   .fwd
+        bge.s   .fwd_check
         cmpi.w  #SECTION_BWD_THRESHOLD, d0
-        ble.s   .bwd
+        ble.s   .bwd_check
         rts
 
-.fwd:   bra.w   Section_TeleportFwd
-.bwd:   bra.w   Section_TeleportBwd
+.bwd_check:
+        ; skip BWD if slot 0 already at leftmost section (sec_x = 0)
+        tst.b   (Slot_Section_Map).w
+        beq.s   .skip
+        bra.w   Section_TeleportBwd
+
+.fwd_check:
+        ; skip FWD if slot 1 already at rightmost section (sec_x + 1 = grid_w)
+        movea.l (Current_Act_Ptr).w, a0
+        move.b  (Slot_Section_Map+2).w, d0
+        addq.b  #1, d0
+        cmp.b   Act_grid_w+1(a0), d0     ; grid_w is a word; low byte at +1
+        bge.s   .skip
+        bra.w   Section_TeleportFwd
+
+.skip:  rts
 
 ; -----------------------------------------------
 ; Section_TeleportFwd — forward (rightward) teleport

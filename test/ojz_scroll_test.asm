@@ -76,6 +76,24 @@ GameState_OJZScroll_Update:
         subi.l  #6<<16, (Camera_X).w
 
 .camera_done:
+        ; -- clamp Camera_X to act bounds (prevent BWD teleport at section 0) --
+        movea.l (Current_Act_Ptr).w, a0
+        move.l  (Camera_X).w, d0
+        swap    d0
+        cmp.w   Act_cam_min_x(a0), d0
+        bge.s   .check_max_x
+        move.w  Act_cam_min_x(a0), d0
+        bra.s   .clamp_x
+.check_max_x:
+        cmp.w   Act_cam_max_x(a0), d0
+        ble.s   .clamp_done
+        move.w  Act_cam_max_x(a0), d0
+.clamp_x:
+        swap    d0
+        clr.w   d0
+        move.l  d0, (Camera_X).w
+.clamp_done:
+
         ; -- section teleport check --
         jsr     Section_Check
 
