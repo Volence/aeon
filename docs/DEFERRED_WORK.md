@@ -13,10 +13,14 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 **What:** Two-phase render (Draw_Sprite during object loop → Render_Sprites converts to VDP format), priority-band sorting, overflow handling, multi-sprite batching, sprite count per object.
 **When ready:** After §3 defines object RAM layout and the object loop exists.
 
-### Scroll / Plane Drawing (§1.3)
-**Blocked by:** Level / World System (§4)
-**What:** Deferred plane buffer (768 words), Draw_TileColumn/Row, VInt_DrawLevel, overflow protection, dual plane support, double-update mechanism, pre-computed nametable strips.
-**When ready:** After §4 defines section format and level layout RAM.
+### ~~Scroll / Plane Drawing — Core (§1.3)~~ — DONE 2026-04-25
+**Completed in:** §4 Phase 1 Level/World System
+**What:** Deferred Plane_Buffer (1536 bytes), Draw_TileColumn/Row, VInt_DrawLevel with autoincrement $80 column mode, overflow protection, pre-computed nametable strips.
+
+### Scroll / Plane Drawing — Dual Plane / Row Updates (§1.3)
+**Blocked by:** Vertical section support (§4.2)
+**What:** Plane B scroll support, Draw_TileRow for vertical section transitions, double-update mechanism for fast travel.
+**When ready:** After §4.2 adds vertical section teleport.
 
 ### DPLC Lookahead (§1.6)
 **Blocked by:** Object System (§3) — specifically AnimateSprite and DPLC tables
@@ -28,10 +32,14 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 **What:** Per-frame DMA byte tracking, lag-frame budget reduction, lag recovery 1.5x burst. Self-tuning throughput based on scene complexity.
 **When ready:** After enough consumers exist to generate meaningful DMA load (character art streaming, level tile loading, animated tiles).
 
-### Variable HScroll DMA (§1.1)
-**Blocked by:** Scroll system (§4) — specifically camera and scroll routines
-**What:** Dirty-range tracking (Hscroll_Dirty_Start/End), variable-length DMA for only changed hscroll entries instead of full 448-byte buffer.
-**When ready:** After §4 implements camera movement and scroll update routines.
+### ~~Variable HScroll DMA — Infrastructure (§1.1)~~ — DONE 2026-04-25
+**Completed in:** §4 Phase 1 Level/World System
+**What:** Hscroll_Dirty_Start/End tracking, Hscroll_Update fills 28 per-8-row bands from Camera_X.
+
+### Variable HScroll DMA — Variable-Length Transfer (§1.1)
+**Blocked by:** Confirmed performance need (currently always DMAs full 224-line table)
+**What:** Use Hscroll_Dirty_Start/End to DMA only the dirty scanline range instead of all 896 bytes.
+**When ready:** When HScroll partial updates become a measurable DMA budget issue.
 
 ### Background Work / Cooperative Multitasking (§1.5 → §9.7)
 **Blocked by:** Full design of §9.7
@@ -125,6 +133,41 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **Blocked by:** When suggestion-tier noise becomes annoying even with `--no-suggestions`
 **What:** W010 (indexed addressing in loops) currently triggers after ANY local label, not just actual `dbf`/`dbra` loop bodies. Should only flag indexed addressing between a local label and the `dbf` that references it. Phase 3 reclassified W010 as a suggestion (not warning), so the noise is lower-priority now.
 **When ready:** When the false positive rate is still disruptive even as a suggestion.
+
+---
+
+## From §4 Phase 1 — Level/World System
+
+### Section Preload with S4LZ Deferrable DMA (§4.2)
+**Blocked by:** S4LZ art streaming pipeline (§2.1) and section adjacency graph
+**What:** When camera crosses Section_FWD/BWD_PRELOAD threshold, queue Deferrable-priority DMA to load next section's tile art into the VRAM pool. Currently Section_QueueNewSlot1/0Cols just writes nametable strips; the art must already be in VRAM.
+**When ready:** After §2 art streaming and §4.2 section preload are designed.
+
+### Section Preload — Velocity-Based Timing (§4.2)
+**Blocked by:** Player physics providing ground_speed
+**What:** Preload threshold adapts to player ground_speed — trigger earlier at high speed to ensure art arrives before new columns are visible. Currently fires at fixed SECTION_FWD/BWD_PRELOAD constants.
+**When ready:** After §3 player physics provides ground_speed to the section system.
+
+### Vertical Section Teleport (§4.2)
+**Blocked by:** Vertical level design and camera Y handling
+**What:** Section_TeleportUp / Section_TeleportDown paths (stub exists in Section_Check). Camera Y threshold mirrors the X system. Required for multi-row section grids.
+**When ready:** After a level with vertical transitions is designed.
+
+### Section Null-Neighbor Camera Clamp (§4.2)
+**Blocked by:** Act descriptor null-section encoding
+**What:** When camera approaches a section slot with no neighbour (edge of the level), Camera_X should clamp to the act boundary instead of teleporting. Currently Section_TeleportBwd has a note for zero-clamp but no null check.
+**When ready:** After act descriptors encode level boundaries.
+
+### Dynamic Tile Override Table (§4.3)
+**Blocked by:** Gameplay objects that need runtime tile patching
+**What:** Tile_Override_Table (16 entries × 6 bytes) is allocated in RAM. Needs a writer (object sets col/row/new_tile) and a drain routine (VInt_DrawLevel emits row updates). Used for breakable tiles, activated switches, destroyed terrain.
+**When ready:** When a gameplay object needs to modify level geometry at runtime.
+
+### OJZ Tile Art Loading (§4.1 integration test)
+**Blocked by:** S4LZ art pipeline (§2) — OJZ art is currently Nemesis/Kosinski in sonic_hack
+**What:** Convert OJZ level art to S4LZ, add to s4_engine ROM, DMA to VRAM in the OJZ scroll test init. Without this, the OJZ test displays a black screen (nametable is written correctly but all tile indices reference blank VRAM).
+**Note:** Nametable strips ARE correct — verified via Exodus MCP (Slot_Section_Map and teleport mechanics work). The black screen is purely an art-not-loaded issue.
+**When ready:** After §2 S4LZ art pipeline handles level art conversion.
 
 ---
 

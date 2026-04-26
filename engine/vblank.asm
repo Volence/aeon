@@ -37,6 +37,8 @@ VInt_Level:
 
         bsr.w   Enqueue_Dirty_Buffers
 
+        bsr.w   VInt_DrawLevel          ; drain Plane_Buffer to VDP (§4.1)
+
         bsr.w   Process_DMA_Critical
 
         move.w  (DMA_Budget_Default).w, (DMA_Budget_Remaining).w
@@ -64,6 +66,7 @@ VInt_Lag:
         move.l  (Vscroll_Factor).w, (VDP_DATA).l
 
         bsr.w   Enqueue_Dirty_Buffers
+        bsr.w   VInt_DrawLevel
         bsr.w   Process_DMA_Critical
 
         startZ80

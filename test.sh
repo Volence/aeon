@@ -110,7 +110,16 @@ for char in sonic tails; do
 done
 
 # -----------------------------------------------
-section "6. ROM Build"
+section "6. OJZ Strip Generator Self-Tests"
+# -----------------------------------------------
+if python3 "${TOOLS}/ojz_strip_gen.py" test; then
+    pass_test "OJZ strip generator self-tests"
+else
+    fail_test "OJZ strip generator self-tests"
+fi
+
+# -----------------------------------------------
+section "7. ROM Build"
 # -----------------------------------------------
 if ./build.sh -pe 2>&1; then
     pass_test "ROM build"

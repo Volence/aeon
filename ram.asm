@@ -205,6 +205,41 @@ Camera_Y:               ds.l 1          ; 16.16 camera Y position
 Game_Paused:            ds.b 1
                         ds.b 1          ; pad
 
+; -----------------------------------------------
+; Level System (§4 Phase 1)
+; -----------------------------------------------
+
+; Deferred plane write buffer — game loop appends, VBlank drains
+Plane_Buffer:           ds.b PLANE_BUFFER_SIZE   ; 1536 bytes
+Plane_Buffer_Ptr:       ds.w 1          ; byte offset (0 = empty)
+
+; Camera position history — 64 frames × 4 bytes (X.w, Y.w)
+Pos_table:              ds.b 256
+H_scroll_frame_offset:  ds.b 1          ; camera lag depth (0 = no lag)
+                        ds.b 1          ; pad
+
+; Camera parameters
+Camera_Deadzone_Base:   ds.w 1          ; base deadzone width in pixels
+Camera_Lookahead:       ds.w 1          ; zone-default lookahead pixels
+Camera_Pan_Offset:      ds.w 1          ; current extended lookahead pan
+                        ds.w 1          ; pad
+
+; Section slot state
+; Slot_Origins: 4 slots × 8 bytes = [origin_x.l][origin_y.l] each
+Slot_Origins:           ds.b 32
+; Slot_Section_Map: 4 slots × 2 bytes = [section_x.b][section_y.b] each
+Slot_Section_Map:       ds.b 8
+
+; Section streaming state
+Section_Preload_Flags:  ds.b 1          ; bits: fwd/bwd/up/dn preloaded
+Section_Teleport_Guard: ds.b 1          ; cooldown after teleport (frames)
+
+; Dynamic tile override (16 entries × 6 bytes: col.w, row.w, new_tile.w)
+Tile_Override_Table:    ds.b 96
+
+; Active level pointer
+Current_Act_Ptr:        ds.l 1
+
 RAM_End:
 
         if RAM_End >= SYSTEM_STACK

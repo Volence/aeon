@@ -107,6 +107,10 @@ __BUDGET_ENGINE:
     include "engine/objects/collision.asm"
     include "engine/objects/children.asm"
     include "engine/objects/load_object.asm"
+    include "engine/level/plane_buffer.asm"
+    include "engine/level/section.asm"
+    include "engine/level/camera.asm"
+    include "engine/level/hscroll.asm"
 
 ; -----------------------------------------------
 ; Object code bank
@@ -132,6 +136,7 @@ __BUDGET_OBJBANK:
 ; Data (outside object code bank — addressed directly, not via objroutine)
 ; -----------------------------------------------
 __BUDGET_DATA:
+    include "data/levels/ojz/act1/act_descriptor.asm"
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
     include "data/animations/particle_anims.asm"
@@ -151,6 +156,7 @@ Art_Sonic:
 ; Test game states
 ; -----------------------------------------------
     include "test/object_test_state.asm"
+    include "test/ojz_scroll_test.asm"
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)

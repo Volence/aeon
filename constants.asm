@@ -188,6 +188,43 @@ MAX_SPAWNS_PER_FRAME    = 8
 GS_OBJECT_TEST          = 2
 
 ; -----------------------------------------------
+; §4 Level / World System
+; -----------------------------------------------
+
+; Section coordinate space
+SECTION_SHIFT           = $1000     ; uniform shift applied on teleport (pixels)
+SECTION_SIZE            = $0800     ; slot width/height in engine pixels
+SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
+SLOT_ORIGIN_R           = $0A00     ; right slot engine-space left edge
+SLOT_ORIGIN_U           = $0200     ; upper slot engine-space top edge
+SLOT_ORIGIN_D           = $0A00     ; lower slot engine-space top edge
+SECTION_FWD_THRESHOLD   = $1200     ; camera X → fire forward teleport
+SECTION_BWD_THRESHOLD   = $0200     ; camera X → fire backward teleport
+SECTION_FWD_PRELOAD     = $0E00     ; camera X → queue forward section art
+SECTION_BWD_PRELOAD     = $0400     ; camera X → queue backward section art
+
+; Nametable strips
+STRIP_TILE_HEIGHT       = 32        ; rows per strip (0–31; row 48 = sprite table start)
+STRIP_BYTE_SIZE         = STRIP_TILE_HEIGHT*2   ; 64 bytes per strip
+
+; Plane buffer
+PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
+
+; Camera
+CAM_LOOKAHEAD_THRESHOLD = $0600     ; ground speed for pan enable
+CAM_PAN_SPEED           = 2         ; pixels/frame pan rate
+CAM_PAN_LIMIT           = 64        ; max pan pixels
+
+; Section flags (sec_flags word bits)
+SF_HAS_WATER            = 1<<0
+SF_UNDERGROUND          = 1<<1
+SF_NO_Y_WRAP            = 1<<2
+SF_PRESERVE_STATE       = 1<<3
+
+; Game state IDs (extend existing table)
+GS_OJZ_SCROLL_TEST      = 3
+
+; -----------------------------------------------
 ; Test VRAM allocation
 ; -----------------------------------------------
 VRAM_TEST_OBJ           = $0001         ; tile index 1 (8 tiles for test art)
