@@ -129,3 +129,25 @@ Sec endstruct
     if Sec_len <> $40
       error "Sec struct is \{Sec_len} bytes, expected $40"
     endif
+
+; -----------------------------------------------
+; Act Descriptor (§4) — 22 bytes ($16), ROM table
+; Fields prefixed with Act_ to match access pattern Act_fieldname(reg).
+; -----------------------------------------------
+Act struct
+sec_grid_ptr        ds.l 1          ; $00 — pointer to section definition array
+grid_w              ds.w 1          ; $04 — sections wide
+grid_h              ds.w 1          ; $06 — sections tall
+start_local_x       ds.w 1          ; $08 — player start X within section (0–$7FF)
+start_local_y       ds.w 1          ; $0A — player start Y within section
+start_sec_x         ds.b 1          ; $0C — starting section X index
+start_sec_y         ds.b 1          ; $0D — starting section Y index
+cam_min_x           ds.w 1          ; $0E — camera X lower bound (pixels)
+cam_max_x           ds.w 1          ; $10 — camera X upper bound (pixels)
+cam_min_y           ds.w 1          ; $12 — camera Y lower bound (pixels)
+cam_max_y           ds.w 1          ; $14 — camera Y upper bound (pixels)
+Act endstruct
+
+    if Act_len <> $16
+      error "Act struct is \{Act_len} bytes, expected $16"
+    endif
