@@ -75,32 +75,54 @@ Section_LoadArt:
 ; convention).
 ; -----------------------------------------------
 Level_LoadArt:
-        movem.l a0/a4, -(sp)
-        movea.l a0, a4                              ; a4 = act ptr (saved across calls)
+        ; A.4 fix: read section IDs from act descriptor directly, NOT from
+        ; Slot_Section_Map. Test state calls Level_LoadArt BEFORE Section_Init,
+        ; so Slot_Section_Map is uninitialized at this point.
+        ; LoadArt_S4LZ saves/restores a4 internally, so a4 survives across
+        ; nested calls — we use it to keep act ptr.
+        move.l  a4, -(sp)                           ; save caller's a4
+        movea.l a0, a4                              ; a4 = act ptr
 
-        ; -- slot 0 --
-        moveq   #SLOT_LEFT, d0
-        movea.l a4, a2                              ; a2 = act ptr for Section_GetSlotDef
-        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 0
-        bsr.w   Section_LoadArt
-        ; A.4: mark slot 0's section RESIDENT
+        ; -- slot 0 = Act_start_sec_x --
         moveq   #0, d6
-        move.b  (Slot_Section_Map).w, d6
+        move.b  Act_start_sec_x(a4), d6             ; flat section_id (sec_y=0 for OJZ)
+        bsr.w   .compute_sec_ptr                    ; a0 = Sec ptr
+        bsr.w   Section_LoadArt                     ; clobbers a0; a4 preserved
+        moveq   #0, d6
+        move.b  Act_start_sec_x(a4), d6
         lea     (Section_Stream_State).w, a1
         move.b  #SS_RESIDENT, (a1, d6.w)
 
-        ; -- slot 1 --
-        moveq   #SLOT_RIGHT, d0
-        movea.l a4, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 1
-        bsr.w   Section_LoadArt
-        ; A.4: mark slot 1's section RESIDENT
+        ; -- slot 1 = Act_start_sec_x + 1 (skip if at grid edge) --
         moveq   #0, d6
-        move.b  (Slot_Section_Map+2).w, d6
+        move.b  Act_start_sec_x(a4), d6
+        addq.b  #1, d6
+        cmp.b   Act_grid_w+1(a4), d6
+        bge.s   .skip_slot1
+        bsr.w   .compute_sec_ptr                    ; a0 = Sec ptr
+        bsr.w   Section_LoadArt
+        moveq   #0, d6
+        move.b  Act_start_sec_x(a4), d6
+        addq.b  #1, d6
         lea     (Section_Stream_State).w, a1
         move.b  #SS_RESIDENT, (a1, d6.w)
 
-        movem.l (sp)+, a0/a4
+.skip_slot1:
+        movea.l (sp)+, a4                           ; restore caller's a4
+        rts
+
+.compute_sec_ptr:
+        ; In:  d6.w = flat section_id, a4 = act ptr
+        ; Out: a0 = Sec ptr for that section
+        ; Clobbers: d0-d1, a0
+        movea.l Act_sec_grid_ptr(a4), a0
+        moveq   #0, d0
+        move.b  d6, d0
+        move.w  d0, d1
+        lsl.w   #6, d0                              ; sec × 64
+        lsl.w   #3, d1                              ; sec × 8
+        add.w   d1, d0                              ; sec × 72 = Sec_len
+        adda.w  d0, a0
         rts
 
 ; -----------------------------------------------
