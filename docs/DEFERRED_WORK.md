@@ -163,11 +163,13 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **What:** Tile_Override_Table (16 entries × 6 bytes) is allocated in RAM. Needs a writer (object sets col/row/new_tile) and a drain routine (VInt_DrawLevel emits row updates). Used for breakable tiles, activated switches, destroyed terrain.
 **When ready:** When a gameplay object needs to modify level geometry at runtime.
 
-### OJZ Tile Art Loading (§4.1 integration test)
-**Blocked by:** S4LZ art pipeline (§2) — OJZ art is currently Nemesis/Kosinski in sonic_hack
-**What:** Convert OJZ level art to S4LZ, add to s4_engine ROM, DMA to VRAM in the OJZ scroll test init. Without this, the OJZ test displays a black screen (nametable is written correctly but all tile indices reference blank VRAM).
-**Note:** Nametable strips ARE correct — verified via Exodus MCP (Slot_Section_Map and teleport mechanics work). The black screen is purely an art-not-loaded issue.
-**When ready:** After §2 S4LZ art pipeline handles level art conversion.
+### OJZ Tile Art Loading — Full Terrain Visibility (§4.1 integration test)
+**Blocked by:** §2 art pipeline with build-time tile graph coloring / fragmented VRAM remap
+**Status (2026-04-26):** Phase 1 currently loads tiles 0-321 (stream 0 of OJZ.bin, 10KB) and shows only the sky-level tiles at section 0 row 24-30. The actual OJZ ground terrain lives at layout rows 32-127 and references tile indices up to 1856 (~60KB raw across all 5 OJZ Kosinski streams).
+**Why we can't just "load more tiles":** Plane A nametable lives at VRAM byte $C000 (= tile slot 1536). Loading tiles 1536-1856 linearly into VRAM clobbers the nametable. ~42% of section 0's row 32-63 tile references are ≥ 1536, so the simple "cap at 1535" workaround leaves nearly half the visible terrain as glitched bytes. Moving Plane A higher just shifts the problem (sprite table at $D000, HScroll at $DC00 also conflict).
+**Proper fix needs §2's tile-graph-coloring pipeline:** non-adjacent sections share VRAM indices, art is split into multiple disjoint VRAM regions, nametable references get remapped at strip-generation time. None of that exists yet.
+**What works in Phase 1:** Section streaming, column streaming (Section_UpdateColumns), camera tracking, HScroll, section teleport — verified via Exodus MCP. The sparse tiles seen in the test ARE correct OJZ data, just the wrong band of OJZ.
+**When ready:** After §2 S4LZ + tile-graph-coloring pipeline produces VRAM-remapped strips and a multi-region tile loader.
 
 ---
 
@@ -182,6 +184,12 @@ When starting a new planning phase:
 ---
 
 ## Done
+
+### VInt_DrawLevel CD-bit Corruption + Section_UpdateColumns Ring-Buffer Tracking (§4.1) — 2026-04-26
+**Completed in:** §4 Phase 1 polish
+**What:** Two integration bugs uncovered by the synthetic scroll test (`tools/synth_scroll_test_gen.py`).
+1. VInt_DrawLevel's `lsl.l #2, d0` encoding leaked d0[31:16] garbage into VDP CD bits, randomly redirecting ~70% of column writes to VSRAM instead of Plane A. Fix: `moveq #0, d0` before reading the VRAM addr each iteration of `.next`.
+2. Section_UpdateColumns tracked left/right boundaries independently, ignoring that the 64-col nametable wraps. Fix: clamp the opposite side after each loop so `Right - Left ≤ 63` always represents what's actually correct in VRAM.
 
 ### 128KB DMA Boundary Splitting (§1.1 / §2.1) — 2026-04-24
 **Completed in:** §2 Art & Compression Pipeline
