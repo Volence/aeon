@@ -110,6 +110,18 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **What:** Thunder Force IV uses $20/$40/$60 per-type pools. A $20 effect SST (explosions, dust, score popups, debris) shares the $00-$19 prefix with the full SST, enabling shared routines (ObjectMove, Draw_Sprite). Saves ~768 bytes at 16 effect slots. Trade-off: separate RunEffects loop, effects can't use routines that access fields past $19 (e.g., AnimateSprite needs anim_table at $28).
 **When ready:** After SST field audit determines which fields effects actually need. May be unnecessary if SST shrinks enough overall.
 
+### Pack collision_resp + width + height for Single-Longword Init (§3)
+**Blocked by:** SST field audit + Load_Object init path performance pressure
+**Source:** TheBlad768's S.C.E. and S1-in-S3 collision refactors (`d1e24ee` / `05512e4`) put `collision_type`, `collision_height`, `collision_width` adjacent so spawn init can do `move.b d0,collision_type(a0); swap d0; move.w d0,collision_height(a0)` — three bytes initialized from one ROM longword. Currently `collision_resp` is at $0F and `width_pixels`/`height_pixels` at $18-$19, so they need separate fetches.
+**What:** Reorder SST so the type byte is adjacent to the width/height pair (or move both into the $0E neighborhood). Lets objdef tables emit `dc.b coltype, colh, colw, pad` and Load_Object init reads them in one `move.l`. Rough estimate: ~10-20 cycles saved per spawn × spawn frequency. Not free — reorder breaks the current $00-$19 "shared-prefix" boundary that we may want for a future $20 effect SST, so these two items must be evaluated together.
+**When ready:** During SST field audit, alongside the effect-pool decision.
+
+### Object Data Macros (`subObjData` family) (§3)
+**Blocked by:** Objdef format finalization (currently still raw `dc.b`/`dc.l` in `data/objdefs/test_objects.asm`)
+**Source:** S.C.E.'s `subObjData frame,coltype,(colh/2),(colw/2)` macro hides the field layout behind a named-parameter call so reordering SST fields doesn't ripple through every object table. Same idea for child priority data, animation script entries, etc.
+**What:** Once the objdef format is stable, wrap the byte/word emission in `function`-and-macro pairs that take semantic args (`coltype`, `colh`, `colw`, `frame`, `priority`, ...) rather than positional bytes. Uses our `function` for any /2 or shift conversion, `struct`/`endstruct` patterns where appropriate. Pure ergonomics — zero runtime cost, but it's the difference between objdef tables that read like data and ones that read like a binary blob.
+**When ready:** When more than 2-3 objects exist and the objdef format stops churning.
+
 ---
 
 ## From s4lint — Static Analysis (Phase 1)
@@ -163,13 +175,11 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **What:** Tile_Override_Table (16 entries × 6 bytes) is allocated in RAM. Needs a writer (object sets col/row/new_tile) and a drain routine (VInt_DrawLevel emits row updates). Used for breakable tiles, activated switches, destroyed terrain.
 **When ready:** When a gameplay object needs to modify level geometry at runtime.
 
-### OJZ Tile Art Loading — Full Terrain Visibility (§4.1 integration test)
-**Blocked by:** §2 art pipeline with build-time tile graph coloring / fragmented VRAM remap
-**Status (2026-04-26):** Phase 1 currently loads tiles 0-321 (stream 0 of OJZ.bin, 10KB) and shows only the sky-level tiles at section 0 row 24-30. The actual OJZ ground terrain lives at layout rows 32-127 and references tile indices up to 1856 (~60KB raw across all 5 OJZ Kosinski streams).
-**Why we can't just "load more tiles":** Plane A nametable lives at VRAM byte $C000 (= tile slot 1536). Loading tiles 1536-1856 linearly into VRAM clobbers the nametable. ~42% of section 0's row 32-63 tile references are ≥ 1536, so the simple "cap at 1535" workaround leaves nearly half the visible terrain as glitched bytes. Moving Plane A higher just shifts the problem (sprite table at $D000, HScroll at $DC00 also conflict).
-**Proper fix needs §2's tile-graph-coloring pipeline:** non-adjacent sections share VRAM indices, art is split into multiple disjoint VRAM regions, nametable references get remapped at strip-generation time. None of that exists yet.
-**What works in Phase 1:** Section streaming, column streaming (Section_UpdateColumns), camera tracking, HScroll, section teleport — verified via Exodus MCP. The sparse tiles seen in the test ARE correct OJZ data, just the wrong band of OJZ.
-**When ready:** After §2 S4LZ + tile-graph-coloring pipeline produces VRAM-remapped strips and a multi-region tile loader.
+### ~~OJZ Tile Art Loading — Full Terrain Visibility~~ — DONE 2026-04-26
+**Completed in:** §2 Phase 2 Layer A.1 (tile dedupe + nametable remap)
+**What:** ojz_strip_gen.py now globally dedupes tile data with hflip/vflip canonicalization across all 16 sections and rewrites strip files to reference the new compact index space. The deduped pool (10 tiles for OJZ act 1's current visible 48-row strip band) loads via Level_LoadArt → S4LZ_Decompress → DMA. Strip tile-index ceiling collapsed from 1856 → 9; nametable at VRAM $C000 is no longer at risk of being clobbered.
+**Caveat:** Visible band still capped at strip rows 0-47 (sprite attribute table at VRAM $D800 = nametable row 48). Showing the *full* layout (chunk rows 2-12 of the 16-row OJZ layouts, the actual ground terrain) requires vertical-axis section transitions (still §4 deferred) or relocating the sprite table out of the Plane A nametable region (not currently planned). The pipeline is correct end-to-end; only the camera/strip envelope limits how much of OJZ becomes visible at once.
+**Measurements:** see `docs/research/tile-pipeline-measurements.md`.
 
 ---
 
@@ -184,6 +194,10 @@ When starting a new planning phase:
 ---
 
 ## Done
+
+### §2 Phase 2 Layer A.1 — Tile Dedupe + Nametable Remap — 2026-04-26
+**Completed in:** §2 Phase 2 Layer A.1
+**What:** Global flip-aware tile dedupe across all 16 OJZ sections, with build-tool nametable strip remap. New `tools/tile_dedupe.py` module (canonical_form + dedupe_tiles + remap_nametable_word, 12 unit tests, lex-smallest of 4 orientations as canonicalization rule per `docs/research/tile-dedupe-canonicalization.md`). `tools/ojz_strip_gen.py` extended with `decompress_full_ojz_art` + `collect_referenced_tiles` and a 3-pass generate flow (build strips → dedupe globally → remap + emit). Engine: new `engine/level/load_art.asm` exposes `LoadArt_S4LZ` (decompress to `Decomp_Buffer`, queue Critical DMA) and `Level_LoadArt` (act-descriptor-driven orchestrator). `Act_Desc` struct gained `tile_art_s4lz` longword + `tile_art_vram` word. `STRIP_TILE_HEIGHT` bumped 32 → 48 to sample first ground band. Build.sh now invokes ojz_strip_gen + s4lz compress. Test state replaces two manual `QueueDMA_Critical` calls with one `Level_LoadArt`. Closes the deferred "OJZ Tile Art Loading — Full Terrain Visibility" item. **Headline:** strip tile-index ceiling 1856 → 9, nametable collisions 2 → 0, VRAM bytes 10,304 → 320 (32× less). Full per-layer metrics in `docs/research/tile-pipeline-measurements.md`.
 
 ### VInt_DrawLevel CD-bit Corruption + Section_UpdateColumns Ring-Buffer Tracking (§4.1) — 2026-04-26
 **Completed in:** §4 Phase 1 polish

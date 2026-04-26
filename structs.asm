@@ -131,7 +131,7 @@ Sec endstruct
     endif
 
 ; -----------------------------------------------
-; Act Descriptor (§4) — 22 bytes ($16), ROM table
+; Act Descriptor (§4) — 28 bytes ($1C), ROM table
 ; Fields prefixed with Act_ to match access pattern Act_fieldname(reg).
 ; -----------------------------------------------
 Act struct
@@ -146,8 +146,10 @@ cam_min_x           ds.w 1          ; $0E — camera X lower bound (pixels)
 cam_max_x           ds.w 1          ; $10 — camera X upper bound (pixels)
 cam_min_y           ds.w 1          ; $12 — camera Y lower bound (pixels)
 cam_max_y           ds.w 1          ; $14 — camera Y upper bound (pixels)
+tile_art_s4lz       ds.l 1          ; $16 — pointer to S4LZ-compressed FG tile pool (§2 A.1)
+tile_art_vram       ds.w 1          ; $1A — VRAM byte destination (tile-slot * 32)
 Act endstruct
 
-    if Act_len <> $16
-      error "Act struct is \{Act_len} bytes, expected $16"
+    if Act_len <> $1C
+      error "Act struct is \{Act_len} bytes, expected $1C"
     endif

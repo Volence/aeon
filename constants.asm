@@ -204,8 +204,8 @@ SECTION_FWD_PRELOAD     = $0E00     ; camera X → queue forward section art
 SECTION_BWD_PRELOAD     = $0400     ; camera X → queue backward section art
 
 ; Nametable strips
-STRIP_TILE_HEIGHT       = 32        ; rows per strip (0–31; row 48 = sprite table start)
-STRIP_BYTE_SIZE         = STRIP_TILE_HEIGHT*2   ; 64 bytes per strip
+STRIP_TILE_HEIGHT       = 48        ; rows per strip (0–47; row 48+ = sprite table)
+STRIP_BYTE_SIZE         = STRIP_TILE_HEIGHT*2   ; 96 bytes per strip
 
 ; Plane buffer
 PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
