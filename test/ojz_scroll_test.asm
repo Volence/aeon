@@ -16,7 +16,7 @@ GameState_OJZScroll_Init:
         ; -- load OJZ palette into Palette_Buffer --
         lea     OJZ_Palette, a0
         lea     (Palette_Buffer).w, a1
-        moveq   #128/4-1, d0
+        moveq   #96/4-1, d0
 .copy_pal:
         move.l  (a0)+, (a1)+
         dbf     d0, .copy_pal
@@ -45,13 +45,13 @@ GameState_OJZScroll_Update:
         moveq   #0, d0
         move.b  (Ctrl_1_Held).w, d0
 
-        btst    #BUTTON_RIGHT, d0
+        btst    #3, d0          ; bit 3 = RIGHT
         beq.s   .check_left
         addi.l  #6<<16, (Camera_X).w
         bra.s   .camera_done
 
 .check_left:
-        btst    #BUTTON_LEFT, d0
+        btst    #2, d0          ; bit 2 = LEFT
         beq.s   .camera_done
         subi.l  #6<<16, (Camera_X).w
 
