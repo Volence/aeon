@@ -212,6 +212,10 @@ Touch_Solid:
         rts
 
 .solid_top:
+        ; Only land if player is falling (y_vel >= 0)
+        tst.w   SST_y_vel(a2)
+        bmi.s   .solid_done             ; still rising — don't snap to top
+
         ; Player above target — snap above, zero y_vel, set grounded
         add.w   d3, d2                  ; restore combined_half_h
         move.w  SST_y_pos(a3), d1
