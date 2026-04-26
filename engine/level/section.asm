@@ -203,6 +203,12 @@ Section_TeleportFwd:
         move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
 
         move.b  #4, (Section_Teleport_Guard).w
+
+        ; -- A.3: load new slot 1 section's tile art (blocking) --
+        moveq   #SLOT_RIGHT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 1
+        bsr.w   Section_LoadArt
         rts
 
 ; -----------------------------------------------
@@ -231,6 +237,12 @@ Section_TeleportBwd:
         move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
 
         move.b  #4, (Section_Teleport_Guard).w
+
+        ; -- A.3: load new slot 0 section's tile art (blocking) --
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 0
+        bsr.w   Section_LoadArt
         rts
 
 ; -----------------------------------------------
