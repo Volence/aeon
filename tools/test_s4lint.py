@@ -25,6 +25,7 @@ from tools.s4lint import (
     _is_dreg, _is_areg, _is_memory_operand, _parse_immediate,
     lint_file,
     main as s4lint_main,
+    DIAGNOSTIC_SEVERITY,
 )
 
 
@@ -2317,7 +2318,7 @@ class TestSummaryFooter(unittest.TestCase):
         """--no-warnings suppresses warning counts in summary."""
         _, stderr = self._run_lint(
             "; header\nvdp_init:\n    rts\n",
-            extra_args=["--no-warnings"],
+            extra_args=["--no-warnings", "--skip=W006,W018"],
         )
         self.assertIn("no issues found", stderr)
 
@@ -2336,6 +2337,233 @@ class TestSummaryFooter(unittest.TestCase):
         self.assertIn("error", summary_line)
         self.assertNotIn("warning", summary_line)
         self.assertEqual(code, 1)
+
+
+class TestSeverityClassification(unittest.TestCase):
+
+    def _lint(self, content, extra_args=None):
+        """Write content to temp file, run lint, return diagnostics list."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
+            f.write(content)
+            f.flush()
+            fname = f.name
+        try:
+            ctx = lint_file(fname, {
+                "no_warnings": False,
+                "warnings_as_errors": False,
+                "no_suggestions": False,
+            }, os.path.dirname(fname))
+            return ctx.diagnostics
+        finally:
+            os.unlink(fname)
+
+    def test_w005_is_suggestion(self):
+        """W005 (branch should use .s) should have severity 'suggestion'."""
+        diags = self._lint("; header\n; ---\nMyRoutine:\n    bne.w .foo\n.foo:\n    rts\n")
+        w005 = [d for d in diags if d.code == "W005"]
+        self.assertTrue(len(w005) > 0, "Expected at least one W005")
+        self.assertEqual(w005[0].severity, "suggestion")
+
+    def test_w006_is_suggestion(self):
+        """W006 (missing header comment) should have severity 'suggestion'."""
+        diags = self._lint("; header\nMyRoutine:\n    rts\n")
+        w006 = [d for d in diags if d.code == "W006"]
+        self.assertTrue(len(w006) > 0, "Expected at least one W006")
+        self.assertEqual(w006[0].severity, "suggestion")
+
+    def test_w010_is_suggestion(self):
+        """W010 (indexed addressing in loop) should have severity 'suggestion'."""
+        diags = self._lint(
+            "; header\n; ---\nMyRoutine:\n"
+            ".loop:\n    move.w (a0,d0.w), d1\n    dbf d2, .loop\n    rts\n"
+        )
+        w010 = [d for d in diags if d.code == "W010"]
+        self.assertTrue(len(w010) > 0, "Expected at least one W010")
+        self.assertEqual(w010[0].severity, "suggestion")
+
+    def test_w018_is_suggestion(self):
+        """W018 (routine too long) should have severity 'suggestion'."""
+        diags = self._lint("; header\n; ---\nLongRoutine:\n" + "    nop\n" * 101 + "    rts\n")
+        w018 = [d for d in diags if d.code == "W018"]
+        self.assertTrue(len(w018) > 0, "Expected at least one W018")
+        self.assertEqual(w018[0].severity, "suggestion")
+
+    def test_w001_stays_warning(self):
+        """W001 (clr on memory) should remain severity 'warning'."""
+        diags = self._lint("; header\n; ---\nMyRoutine:\n    clr.w (a0)\n    rts\n")
+        w001 = [d for d in diags if d.code == "W001"]
+        self.assertTrue(len(w001) > 0, "Expected at least one W001")
+        self.assertEqual(w001[0].severity, "warning")
+
+    def test_severity_dict_has_four_entries(self):
+        """DIAGNOSTIC_SEVERITY should classify exactly W005, W006, W010, W018."""
+        self.assertEqual(set(DIAGNOSTIC_SEVERITY.keys()), {"W005", "W006", "W010", "W018"})
+        for code in DIAGNOSTIC_SEVERITY:
+            self.assertEqual(DIAGNOSTIC_SEVERITY[code], "suggestion")
+
+
+class TestSeverityOutput(unittest.TestCase):
+
+    def _run(self, content, extra_args=None):
+        """Write content to temp file, run main(), return (exit_code, stderr)."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
+            f.write(content)
+            f.flush()
+            fname = f.name
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                code = s4lint_main(["--no-follow-includes"] + (extra_args or []) + [fname])
+            return code, buf.getvalue()
+        finally:
+            os.unlink(fname)
+
+    def test_suggestion_line_format(self):
+        """Suggestion diagnostics print 'suggestion:' not 'warning:'."""
+        _, stderr = self._run("; header\n; ---\nMyRoutine:\n    bne.w .foo\n.foo:\n    rts\n")
+        w005_lines = [l for l in stderr.splitlines() if "W005" in l]
+        self.assertTrue(len(w005_lines) > 0)
+        self.assertIn("suggestion:", w005_lines[0])
+        self.assertNotIn("warning:", w005_lines[0])
+
+    def test_summary_three_tier(self):
+        """Summary shows separate suggestion count."""
+        _, stderr = self._run("; header\n; ---\nMyRoutine:\n    bne.w .foo\n.foo:\n    rts\n")
+        summary_line = [l for l in stderr.splitlines() if l.startswith("s4lint:")]
+        self.assertTrue(len(summary_line) > 0)
+        self.assertIn("suggestion", summary_line[0])
+
+    def test_no_suggestions_flag(self):
+        """--no-suggestions hides suggestions but shows warnings."""
+        _, stderr = self._run(
+            "; header\n; ---\nMyRoutine:\n    clr.w (a0)\n    bne.w .foo\n.foo:\n    rts\n",
+            extra_args=["--no-suggestions"],
+        )
+        self.assertNotIn("W005", stderr)
+        self.assertIn("W001", stderr)
+
+    def test_no_warnings_suppresses_suggestions_too(self):
+        """--no-warnings hides both warnings and suggestions."""
+        _, stderr = self._run(
+            "; header\n; ---\nMyRoutine:\n    clr.w (a0)\n    bne.w .foo\n.foo:\n    rts\n",
+            extra_args=["--no-warnings"],
+        )
+        self.assertNotIn("W005", stderr)
+        self.assertNotIn("W001", stderr)
+        self.assertIn("no issues found", stderr)
+
+    def test_suggestions_dont_affect_exit_code(self):
+        """Suggestions alone should not cause exit code 1."""
+        code, _ = self._run("; header\n; ---\nMyRoutine:\n    bne.w .foo\n.foo:\n    rts\n")
+        self.assertEqual(code, 0)
+
+    def test_warnings_as_errors_ignores_suggestions(self):
+        """--warnings-as-errors promotes warnings but not suggestions."""
+        code, stderr = self._run(
+            "; header\n; ---\nMyRoutine:\n    bne.w .foo\n.foo:\n    rts\n",
+            extra_args=["--warnings-as-errors"],
+        )
+        w005_lines = [l for l in stderr.splitlines() if "W005" in l]
+        self.assertTrue(len(w005_lines) > 0)
+        self.assertIn("suggestion:", w005_lines[0])
+        self.assertEqual(code, 0)
+
+    def test_summary_omits_zero_counts(self):
+        """Summary omits tiers with zero count."""
+        _, stderr = self._run(
+            "; header\n; ---\nClean:\n    rts\n",
+            extra_args=["--skip=W006,W018"],
+        )
+        self.assertIn("no issues found", stderr)
+
+
+# ---------------------------------------------------------------------------
+# W020: tail call — bsr/jsr immediately before rts
+# ---------------------------------------------------------------------------
+
+class TestW020_TailCall(unittest.TestCase):
+
+    def _diags(self, lines_str):
+        """Lint a snippet and return diagnostics."""
+        content = "; header\n; ---\nTestRoutine:\n" + lines_str
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
+            f.write(content)
+            f.flush()
+            fname = f.name
+        try:
+            ctx = lint_file(fname, {
+                "no_warnings": False,
+                "warnings_as_errors": False,
+                "no_suggestions": False,
+            }, os.path.dirname(fname))
+            return ctx.diagnostics
+        finally:
+            os.unlink(fname)
+
+    def test_bsr_then_rts_warns(self):
+        """bsr followed by rts should trigger W020."""
+        diags = self._diags("    bsr.w SomeRoutine\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 1)
+        self.assertIn("bra.w", w020[0].message)
+        self.assertEqual(w020[0].severity, "warning")
+
+    def test_jsr_then_rts_warns(self):
+        """jsr followed by rts should trigger W020."""
+        diags = self._diags("    jsr SomeRoutine\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 1)
+        self.assertIn("jmp", w020[0].message)
+
+    def test_bsr_with_label_between_no_warn(self):
+        """bsr followed by a label then rts should NOT trigger W020."""
+        diags = self._diags("    bsr.w SomeRoutine\n.local_entry:\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_bsr_with_global_label_between_no_warn(self):
+        """bsr followed by a global label then rts should NOT trigger W020."""
+        diags = self._diags("    bsr.w SomeRoutine\nOtherEntry:\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_bsr_then_other_instr_no_warn(self):
+        """bsr followed by a non-rts instruction should NOT trigger W020."""
+        diags = self._diags("    bsr.w SomeRoutine\n    nop\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_standalone_rts_no_warn(self):
+        """rts without a preceding bsr/jsr should NOT trigger W020."""
+        diags = self._diags("    move.w d0, d1\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_bsr_s_then_rts_warns(self):
+        """bsr.s followed by rts should also trigger W020 (use bra.s)."""
+        diags = self._diags("    bsr.s SomeRoutine\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 1)
+        self.assertIn("bra.s", w020[0].message)
+
+    def test_w020_suppressed(self):
+        """W020 should be suppressible via inline comment."""
+        diags = self._diags("    bsr.w SomeRoutine\n    rts ; lint: disable=W020\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_bsr_then_rte_no_warn(self):
+        """bsr before rte is not a tail call — rte restores SR+PC, not just PC."""
+        diags = self._diags("    bsr.w Helper\n    rte\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 0)
+
+    def test_bsr_unsized_suggests_bra_w(self):
+        """Bare bsr (no size) should suggest bra.w as the default."""
+        diags = self._diags("    bsr SomeRoutine\n    rts\n")
+        w020 = [d for d in diags if d.code == "W020"]
+        self.assertEqual(len(w020), 1)
+        self.assertIn("bra.w", w020[0].message)
 
 
 if __name__ == "__main__":
