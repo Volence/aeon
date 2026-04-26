@@ -174,3 +174,6 @@ OJZ_Sec8_Strips_B: BINCLUDE "data/generated/ojz/act1/sec8_strips_b.bin"
 
 OJZ_Palette: BINCLUDE "data/generated/ojz/act1/ojz_palette.bin"
     align 2
+
+OJZ_Tiles: BINCLUDE "data/generated/ojz/act1/ojz_tiles.bin"
+    align 2

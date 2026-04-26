@@ -33,6 +33,7 @@ SONIC_HACK = "/home/volence/sonic_hacks/sonic_hack"
 LAYOUT_DIR = os.path.join(SONIC_HACK, "level/layout")
 CHUNK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/128x128/OJZ.bin")
 BLOCK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/16x16/OJZ.bin")
+OJZ_ART_PATH = os.path.join(SONIC_HACK, "art/kosinski/OJZ.bin")
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "data", "generated", "ojz", "act1"
@@ -42,6 +43,7 @@ OUTPUT_DIR = os.path.join(
 # Constants
 # ---------------------------------------------------------------------------
 STRIP_TILE_HEIGHT = 32  # nametable rows per strip (rows 0-31 of 64-row plane)
+OJZ_TILES_COUNT = 322   # tiles 0-321 cover all indices referenced in the 32-row strips
 TILES_PER_BLOCK_ROW = 2  # each block is 2 tiles wide × 2 tiles tall
 TILES_PER_BLOCK_COL = 2
 BLOCKS_PER_CHUNK_ROW = 8  # each chunk is 8×8 blocks
@@ -357,6 +359,33 @@ def generate_section_strips(
 
 
 # ---------------------------------------------------------------------------
+# Tile art extractor
+# ---------------------------------------------------------------------------
+
+def generate_tile_art(
+    ojz_bin_path: str,
+    out_path: str,
+    n_tiles: int = OJZ_TILES_COUNT,
+) -> None:
+    """Decompress stream 0 of OJZ.bin and output the first n_tiles raw tiles.
+
+    Each Genesis tile is 32 bytes (8×8 pixels, 4bpp).
+    Stream 0 of OJZ.bin covers the first 891 tiles; tiles 0-321 are all that
+    the 32-row strips reference, so only those are included in the output.
+    """
+    data = open(ojz_bin_path, "rb").read()
+    raw, _ = kos_decompress(data, 0)
+    tile_bytes = n_tiles * 32
+    if len(raw) < tile_bytes:
+        raise ValueError(
+            f"OJZ.bin stream 0 decompressed to {len(raw)} bytes "
+            f"but {tile_bytes} needed for {n_tiles} tiles"
+        )
+    with open(out_path, "wb") as f:
+        f.write(raw[:tile_bytes])
+
+
+# ---------------------------------------------------------------------------
 # Self-tests
 # ---------------------------------------------------------------------------
 
@@ -473,6 +502,22 @@ def test_binary_round_trip():
     print("  PASS: binary round-trip")
 
 
+def test_generate_tile_art():
+    """Test that generate_tile_art decompresses stream 0 and returns correct tile count."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix='.bin', delete=False) as tf:
+        tmp = tf.name
+    generate_tile_art(OJZ_ART_PATH, tmp, OJZ_TILES_COUNT)
+    data = open(tmp, 'rb').read()
+    expected = OJZ_TILES_COUNT * 32
+    assert len(data) == expected, f"Expected {expected} bytes, got {len(data)}"
+    # Tile 0 should be all-zero (sky/transparent tile in OJZ)
+    assert data[:32] == bytes(32), "Tile 0 expected to be all zeros (sky tile)"
+    os.unlink(tmp)
+    print(f"  [OK] generate_tile_art: {OJZ_TILES_COUNT} tiles = {expected} bytes "
+          f"(Kosinski source: {os.path.getsize(OJZ_ART_PATH)} bytes)")
+
+
 def run_tests():
     """Run all self-tests."""
     print("Running ojz_strip_gen tests...")
@@ -484,6 +529,7 @@ def run_tests():
     test_column_layout_correctness()
     test_explicit_truncation()
     test_binary_round_trip()
+    test_generate_tile_art()
     print("All tests passed")
 
 
@@ -556,6 +602,12 @@ def generate():
             f"  {sec_name}: {len(layout)} rows × {len(layout[0])} chunks "
             f"→ {n_cols} strips → {out_a}"
         )
+
+    # Extract tile art (stream 0 of OJZ.bin, first OJZ_TILES_COUNT tiles)
+    tile_out = os.path.join(out_dir, "ojz_tiles.bin")
+    generate_tile_art(OJZ_ART_PATH, tile_out, OJZ_TILES_COUNT)
+    print(f"Tile art: {OJZ_TILES_COUNT} tiles ({OJZ_TILES_COUNT*32} bytes raw, "
+          f"Kosinski source {os.path.getsize(OJZ_ART_PATH)} bytes) -> {tile_out}")
 
     # Copy palette file
     pal_src  = os.path.join(src_dir, "art", "palettes", "OJZ.bin")

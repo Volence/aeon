@@ -3,17 +3,20 @@
 ; Left/right pad: 6px/frame camera movement.
 ; Section teleport fires automatically at X thresholds.
 
+; Tile art DMA split: 322 tiles = 10304 bytes > NTSC budget (7200).
+; Load in two Critical DMA batches so each fits within one VBlank.
+OJZ_TILES_SIZE   = 322 * 32     ; 10304 bytes raw
+OJZ_TILES_BATCH1 = 160 * 32     ; 5120 bytes — first batch
+OJZ_TILES_BATCH2 = OJZ_TILES_SIZE - OJZ_TILES_BATCH1   ; 5184 bytes — second batch
+
 ; -----------------------------------------------
 ; GameState_OJZScroll_Init — one-shot setup
 ; -----------------------------------------------
 GameState_OJZScroll_Init:
-        ; -- enable display --
-        setVDPReg VDP_Shadow_vdp_mode2, #$64    ; display on, VBlank on, DMA on
-
         ; -- per-8-row HScroll mode (reg $0B bits 1:0 = %10) --
         setVDPReg VDP_Shadow_vdp_mode3, #$02
 
-        ; -- load OJZ palette into Palette_Buffer --
+        ; -- load OJZ palette into Palette_Buffer (drained by first VBlank) --
         lea     OJZ_Palette, a0
         lea     (Palette_Buffer).w, a1
         moveq   #96/4-1, d0
@@ -22,13 +25,30 @@ GameState_OJZScroll_Init:
         dbf     d0, .copy_pal
         move.b  #$0F, (Palette_Dirty).w
 
-        ; -- initialise section streaming --
+        ; -- DMA tile art: batch 1 (tiles 0-159 → VRAM $0000) --
+        move.l  #OJZ_Tiles, d1
+        moveq   #0, d2
+        move.w  #OJZ_TILES_BATCH1, d3
+        jsr     QueueDMA_Critical
+        jsr     VSync_Wait
+
+        ; -- DMA tile art: batch 2 (tiles 160-321 → VRAM OJZ_TILES_BATCH1) --
+        move.l  #OJZ_Tiles+OJZ_TILES_BATCH1, d1
+        move.w  #OJZ_TILES_BATCH1, d2
+        move.w  #OJZ_TILES_BATCH2, d3
+        jsr     QueueDMA_Critical
+        jsr     VSync_Wait
+
+        ; -- initialise section streaming (fills nametable over 3 VBlanks) --
         lea     OJZ_Act1_Descriptor, a0
         jsr     Section_Init
 
         ; -- initialise camera --
         lea     OJZ_Act1_Descriptor, a0
         jsr     Camera_Init
+
+        ; -- enable display now that VRAM and nametable are populated --
+        setVDPReg VDP_Shadow_vdp_mode2, #$64    ; display on, VBlank on, DMA on
 
         ; -- set VInt_Ptr to level handler --
         move.l  #VInt_Level, (VInt_Ptr).w
