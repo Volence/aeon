@@ -11,7 +11,7 @@ import unittest
 # Allow running from the s4_engine root or the tools dir.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from tile_dedupe import hflip_tile, vflip_tile
+from tile_dedupe import hflip_tile, vflip_tile, canonical_form
 
 
 # Build a sentinel tile where each pixel = row*8 + col so flips are visible.
@@ -55,6 +55,33 @@ class TestFlipPrimitives(unittest.TestCase):
     def test_vflip_idempotent_pair(self):
         t = _make_test_tile()
         self.assertEqual(vflip_tile(vflip_tile(t)), t)
+
+
+class TestCanonicalForm(unittest.TestCase):
+    def test_canonical_form_picks_smallest(self):
+        """canonical_form returns the lex-smallest of the 4 orientations."""
+        t = _make_test_tile()
+        h = hflip_tile(t)
+        v = vflip_tile(t)
+        hv = hflip_tile(v)
+        smallest = min([t, h, v, hv])
+        canon, flip_bits = canonical_form(t)
+        self.assertEqual(canon, smallest)
+        # Verify flip_bits maps from the original to the canonical
+        rebuilt = t
+        if flip_bits & 1:
+            rebuilt = hflip_tile(rebuilt)
+        if flip_bits & 2:
+            rebuilt = vflip_tile(rebuilt)
+        self.assertEqual(rebuilt, canon)
+
+    def test_canonical_form_horizontal_partner(self):
+        """An H-flipped tile and its original share the same canonical form."""
+        t = _make_test_tile()
+        h = hflip_tile(t)
+        canon_t, _ = canonical_form(t)
+        canon_h, _ = canonical_form(h)
+        self.assertEqual(canon_t, canon_h)
 
 
 if __name__ == "__main__":
