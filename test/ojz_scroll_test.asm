@@ -10,9 +10,12 @@ GameState_OJZScroll_Init:
         ; -- per-8-row HScroll mode (reg $0B bits 1:0 = %10) --
         setVDPReg VDP_Shadow_vdp_mode3, #$02
 
-        ; -- load OJZ palette into Palette_Buffer (drained by first VBlank) --
+        ; -- load OJZ palette into Palette_Buffer lines 1-3 (drained by first VBlank) --
+        ; sonic_hack uses `palptr Pal_OJZ, 1` — palette starts at CRAM line 1, not 0.
+        ; Strip cells with palette bits=2 then map to CRAM line 2 = OJZ palette line 1
+        ; (the greens). Line 0 stays at default (black) for now.
         lea     OJZ_Palette, a0
-        lea     (Palette_Buffer).w, a1
+        lea     (Palette_Buffer+$20).w, a1          ; offset $20 = line 1 base
         moveq   #96/4-1, d0
 .copy_pal:
         move.l  (a0)+, (a1)+
