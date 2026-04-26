@@ -75,3 +75,49 @@ Unchanged: 30/40 dynamic, 16/16 effects.
 - Frame total unchanged at 108 — the +3 is within measurement variance of the VDP V counter (1-scanline granularity)
 - **Cost: ~3 scanlines (1.3% of active frame) for flicker-based overflow instead of permanent dropout**
 - No visual artifacts, no crashes, no regressions under stress test load
+
+---
+
+## Phase 7 Final — All Advanced Sprite Features
+
+Date: 2026-04-25
+Build: `DEBUG=1 ./build.sh` (209,988 bytes)
+Changes since Phase 5:
+- Link-order cycling (per-band intra-band reversal on odd frames)
+- Sprite X=0 masking support (configurable band-boundary insertion)
+- Scanline-aware sprite budgeting (7 bands × 32 scanlines, 24-piece limit)
+- Threshold optimization (skip budget check when total pieces < 24)
+- Solid collision fix (skip landing snap while player is rising)
+
+### Per-Subsystem Scanline Costs
+
+| Subsystem | Phase 5 | Phase 7 (cycling only) | Phase 7 Final | Delta (5→final) |
+|---|---|---|---|---|
+| RunObjects | 52 | 52 | 52 | 0 |
+| TouchResponse | 10 | 10 | 10 | 0 |
+| Render_Sprites | 43 | 46 | 52 | **+9** |
+| **Frame Total** | **108** | **108** | **115** | **+7** |
+
+### Peak Values
+
+| Subsystem | Phase 5 | Phase 7 Final | Delta |
+|---|---|---|---|
+| RunObjects | 93 | 73 | -20 |
+| TouchResponse | 12 | 11 | -1 |
+| Render_Sprites | 67 | 64 | -3 |
+| **Frame Total** | **171** | **146** | **-25** |
+
+### Slot Usage
+
+Unchanged: 30/40 dynamic, 16/16 effects.
+
+### Analysis
+
+- Render_Sprites +9 scanlines over baseline from three features: cycling (+3), budgeting (+6)
+- Frame total 115/224 (51%) at steady state — healthy headroom for level rendering
+- Peak frame DROPPED from 171 to 146 — the budget check skips objects in overloaded bands, reducing peak render cost
+- Threshold optimization saved 4 scanlines on Render_Sprites (56→52) by skipping the budget check when total pieces < 24
+- X=0 masking adds zero steady-state cost (mask sprites only inserted when SpriteMask_Y ≠ 0)
+- Solid collision fix: player no longer clips to platform tops mid-jump
+- No lag frames, no visual corruption, no crashes under full stress load
+- **Total Phase 7 cost: +7 scanlines (3.1% of active frame) for link-order cycling + scanline budgeting + X=0 masking support**
