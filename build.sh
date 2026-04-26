@@ -33,6 +33,14 @@ if [[ "${PRINT_ERRORS_ONLY}" == "0" ]]; then
     ASFLAGS="${ASFLAGS} -E ${ROM_NAME}.log"
 fi
 
+echo "Generating OJZ section data..."
+python3 "${TOOLS}/ojz_strip_gen.py" generate
+
+echo "Compressing OJZ tile pool with S4LZ..."
+python3 "${TOOLS}/s4lz.py" compress --tile-delta \
+    data/generated/ojz/act1/ojz_tiles.bin \
+    data/generated/ojz/act1/ojz_tiles.s4lz
+
 if [[ "${NO_LINT:-0}" == "0" ]]; then
     echo "Linting..."
     if ! python3 "${TOOLS}/s4lint.py" "${MAIN_ASM}"; then

@@ -7,7 +7,7 @@ Running tally as A.1 → A.5 ship. Each row is the same OJZ Act 1 build pass; co
 | Layer | Strip height | Source indices referenced | Max source index | Indices ≥1536 (nametable collision) | Deduped pool | Max remapped index | Pool fits 1536? | Deduped blob bytes (uncompressed) | S4LZ blob bytes | VRAM region(s) used |
 |---|---:|---:|---:|---:|---:|---:|---|---:|---:|---|
 | **Pre-A.1** | 32 | n/a (no walk) | n/a | **would clobber** | n/a — fixed 322-tile slug | n/a | n/a | 10,304 | n/a | $0000-$2840 (322 tiles, no actual nametable mapping; high indices rendered as garbage) |
-| **A.1** | 48 | 14 (min=0, max=1856) | **1856** | **2** | **10** (28.6% reduction) | **9** | yes | 320 | tbd (Task 9) | $0000-$013F (10 tiles) |
+| **A.1** | 48 | 14 (min=0, max=1856) | **1856** | **2** | **10** (28.6% reduction) | **9** | yes | 320 | **262** (ratio 0.819, tile-delta) | $0000-$013F (10 tiles) |
 | A.2 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
 | A.3 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
 | A.4 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
