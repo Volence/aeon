@@ -291,9 +291,17 @@ Section_UpdateColumns:
         lsr.w   #3, d7                      ; d7 = right_needed tile col
 
         move.w  (Section_Right_Col_Written).w, d5
+        ; clamp right_needed to slot 1's last valid col (prevents OOB read)
+        cmpi.w  #SLOT_ORIGIN_L/8 + SECTION_SIZE*2/8 - 1, d7
+        ble.s   .right_loop
+        move.w  #SLOT_ORIGIN_L/8 + SECTION_SIZE*2/8 - 1, d7
 .right_loop:
         cmp.w   d7, d5
         bge.s   .right_done
+        ; stop if Plane_Buffer would overflow on next entry. Otherwise the
+        ; tracker advances but Draw_TileColumn silently drops, leaving holes.
+        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + STRIP_TILE_HEIGHT*2), (Plane_Buffer_Ptr).w
+        bhi.s   .right_done
         addq.w  #1, d5
 
         move.w  d5, d3
@@ -339,6 +347,8 @@ Section_UpdateColumns:
 .left_loop:
         cmp.w   d7, d5
         ble.s   .left_done
+        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + STRIP_TILE_HEIGHT*2), (Plane_Buffer_Ptr).w
+        bhi.s   .left_done
         subq.w  #1, d5
 
         move.w  d5, d3
