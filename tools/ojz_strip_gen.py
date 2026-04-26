@@ -715,11 +715,18 @@ def generate():
     deduped = len(unique)
     pct = (1.0 - deduped / raw_referenced) * 100 if raw_referenced else 0.0
     fits = deduped <= 1536
+    src_max = max(sorted_indices) if sorted_indices else 0
+    src_min = min(sorted_indices) if sorted_indices else 0
+    src_collisions = sum(1 for i in sorted_indices if i >= 1536)
+    post_max = deduped - 1
     print(
         f"\n=== OJZ Act 1 — Phase A.1 measurement ===\n"
-        f"  Tile references (post-section walk): {raw_referenced}\n"
+        f"  Source tile indices referenced: {raw_referenced} "
+        f"(min={src_min}, max={src_max})\n"
+        f"  Source indices ≥1536 (nametable collision risk): {src_collisions}\n"
         f"  Deduped (with flip canonicalization): {deduped} "
         f"({pct:.1f}% reduction)\n"
+        f"  Highest remapped tile index: {post_max}\n"
         f"  Pool fits in 1536: {'yes' if fits else 'NO — A.2 multi-region needed'}\n"
         f"  Deduped blob: {deduped * 32} bytes uncompressed → {tile_out}\n"
     )
