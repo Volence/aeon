@@ -11,8 +11,18 @@ Running tally as A.1 → A.5 ship. Each row is the same OJZ Act 1 build pass; co
 | **A.2 default** | 48 | 14 | 1856 | 2 | 10 (28.6%) | 9 | yes (region 1) | r1=320; r2=0 | r1=262 (0.819); r2=4 (placeholder) | $0000-$013F (region 1 only; region 2 empty) |
 | A.2 forced spill (cap=5) | 48 | 14 | 1856 | 2 | 10 (28.6%) | **1988** | yes (split: r1=5, r2=5) | r1=160; r2=160 | r1=108 (0.675); r2=162 (1.012, S4LZ overhead exceeds compression on tiny non-redundant data) | $0000-$009F (r1) + $F800-$F89F (r2) |
 | **A.3** | 48 | 14 | 1856 | 2 | 10 (28.6%) | 19 (color 1 base + 9) | yes (2 colors) | per-section: 9 blobs ≤320 each | per-section: ~270 each (ratio 0.844) | $0000-$013F (color 0) + $0140-$027F (color 1) |
-| A.4 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
+| **A.4** | 48 | 14 | 1856 | 2 | 10 (28.6%) | 19 | yes (2 colors) | per-section: 9 blobs ≤320 each (unchanged from A.3) | per-section: ~270 each (unchanged) | $0000-$013F + $0140-$027F (unchanged) |
 | A.5 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
+
+## A.4 makes section transitions seamless (structural; visual verification blocked)
+
+A.4 adds a preload trigger to `Section_Check`: when the camera crosses `SECTION_FWD_PRELOAD` (1024 px before the teleport threshold) or `SECTION_BWD_PRELOAD` (512 px before), `Section_StreamArtGroup` decompresses the upcoming section's S4LZ blob into one of two streaming buffers (double-buffered for fast direction reversals) and queues a Deferrable DMA. By the time the camera reaches the teleport threshold, the DMA has drained — the teleport itself does no work beyond clearing a flag.
+
+**Per-section state machine:** `SS_IDLE` / `SS_STREAMING` / `SS_RESIDENT`, tracked in 16 bytes RAM (`Section_Stream_State`). Initial slots 0+1 are RESIDENT after `Level_LoadArt`. Crossing a preload threshold transitions the upcoming section IDLE → STREAMING; crossing the teleport threshold promotes it to RESIDENT. Cold camera writes that bypass preload fall back to blocking `Section_LoadArt`.
+
+**No measurement change:** A.4 doesn't alter tile counts, deduped pool size, or S4LZ ratios. It changes *when* loads happen, not how much. The empirical win is "no stutter on section transition" — which would be visible only when there's actual section content to render.
+
+**Visual verification blocked on upstream chunk/block parsing bug:** While verifying A.4 in Exodus, we discovered that `tools/ojz_strip_gen.py`'s chunk/block parsing produces mostly-empty tile references for the OJZ data: 1010 of 2002 blocks parse as all-zero, and chunk 0x3f (a "ground" chunk per the layout) references block IDs 92, 128, 241, 784 — all of which are zeros in our parsed table. This means strips reference real positions but get mostly-empty tile data, so the rendered viewport stays mostly black regardless of which chunk-rows we sample. **The bug is upstream of all five layers (A.1-A.5) and was masked through A.1-A.3 verification by my misinterpreting "sparse non-zero pixels" as "correct sky/cloud rendering."** A.4 verification was structural only (`Section_Stream_State` byte transitions, slot map advancement, teleport hook firing — all confirmed via Exodus MCP).
 
 ## A.3 reorganizes around sections with graph coloring
 

@@ -49,6 +49,12 @@ OUTPUT_DIR = os.path.join(
 STRIP_TILE_HEIGHT = 48  # nametable rows per strip (rows 0-47; sprite table at row 48)
 OJZ_TILES_COUNT = 322   # legacy — pre-A.1 raw export count, kept for old test_generate_tile_art
 
+# (HACK_STRIP_CHUNK_ROW_OFFSET hack reverted — didn't help because the
+# upstream chunk/block table parsing is producing mostly-empty data for
+# what should be ground chunks. Bug is in load_chunk_map / load_block_map
+# / chunk_get_tile_word, not in the strip generator's row sampling.)
+HACK_STRIP_CHUNK_ROW_OFFSET = 0
+
 # Multi-region VRAM packing (§2 A.2) — must match constants.asm
 # REGION2_VRAM_BASE / 32 == REGION2 starting tile slot
 REGION1_TILE_CAPACITY = 1536          # primary art pool $0000-$BFFF
@@ -343,9 +349,12 @@ def generate_section_strips(
     total_tile_cols = width_chunks * TILES_PER_CHUNK_ROW
 
     # Build a flat 2D nametable: nametable[tile_row][tile_col] = word
+    # HACK (§2 A.4): apply HACK_STRIP_CHUNK_ROW_OFFSET to skip empty top
+    # padding so the test viewport shows actual terrain. Remove when a
+    # real start-row mechanism exists.
     nametable = []
     for tile_row in range(strip_rows):
-        chunk_row = tile_row // TILES_PER_CHUNK_COL
+        chunk_row = (tile_row // TILES_PER_CHUNK_COL) + HACK_STRIP_CHUNK_ROW_OFFSET
         sub_tile_row = tile_row % TILES_PER_CHUNK_COL
         row_words = []
         for tile_col in range(total_tile_cols):
