@@ -79,3 +79,29 @@ def dedupe_tiles(tiles: list[bytes]) -> tuple[list[bytes], list[tuple[int, int]]
             unique.append(canon)
         mapping.append((idx, flip_bits))
     return unique, mapping
+
+
+# ---------------------------------------------------------------------------
+# Nametable strip remap
+# ---------------------------------------------------------------------------
+
+# Genesis nametable word: priority[15] | palette[14:13] | V[12] | H[11] | tile_index[10:0]
+NAMETABLE_TILE_MASK = 0x07FF
+NAMETABLE_H_BIT     = 0x0800
+NAMETABLE_V_BIT     = 0x1000
+
+
+def remap_nametable_word(word: int, canonical_index: int, canon_flip_bits: int) -> int:
+    """Rewrite a 16-bit nametable word for the deduped tile space.
+
+    Preserves priority + palette; replaces tile_index with canonical_index;
+    XORs the original H/V bits with canon_flip_bits to recover the original
+    visual orientation.
+    """
+    # Strip old tile_index
+    high = word & ~NAMETABLE_TILE_MASK
+    if canon_flip_bits & 1:
+        high ^= NAMETABLE_H_BIT
+    if canon_flip_bits & 2:
+        high ^= NAMETABLE_V_BIT
+    return high | (canonical_index & NAMETABLE_TILE_MASK)

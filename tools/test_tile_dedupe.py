@@ -11,7 +11,16 @@ import unittest
 # Allow running from the s4_engine root or the tools dir.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from tile_dedupe import hflip_tile, vflip_tile, canonical_form, dedupe_tiles
+from tile_dedupe import (
+    hflip_tile,
+    vflip_tile,
+    canonical_form,
+    dedupe_tiles,
+    remap_nametable_word,
+    NAMETABLE_TILE_MASK,
+    NAMETABLE_H_BIT,
+    NAMETABLE_V_BIT,
+)
 
 
 # Build a sentinel tile where each pixel = row*8 + col so flips are visible.
@@ -107,6 +116,35 @@ class TestDedupeTiles(unittest.TestCase):
         t2 = bytes([0x22] * 32)  # palindromic — already canonical
         unique, _ = dedupe_tiles([t1, t2, t1])
         self.assertEqual(unique, [t1, t2])
+
+
+class TestRemapNametableWord(unittest.TestCase):
+    def test_preserves_priority_palette(self):
+        # priority=1, palette=2, no flips, tile_index=42
+        word = (1 << 15) | (2 << 13) | 42
+        new = remap_nametable_word(word, canonical_index=7, canon_flip_bits=0)
+        self.assertEqual((new >> 15) & 1, 1, "priority preserved")
+        self.assertEqual((new >> 13) & 3, 2, "palette preserved")
+        self.assertEqual(new & 0x7FF, 7, "tile_index = canonical_index")
+        self.assertEqual((new >> 11) & 1, 0, "H bit unchanged")
+        self.assertEqual((new >> 12) & 1, 0, "V bit unchanged")
+
+    def test_xors_flip_bits(self):
+        # Original word: H=1, V=0, tile_index=42
+        word = (1 << 11) | 42
+        # Canonicalization needed an additional H flip
+        new = remap_nametable_word(word, canonical_index=7, canon_flip_bits=1)
+        self.assertEqual((new >> 11) & 1, 0, "1 ^ 1 = 0 — H now off")
+        self.assertEqual((new >> 12) & 1, 0, "V still 0")
+        self.assertEqual(new & 0x7FF, 7, "tile_index updated")
+
+    def test_double_flip(self):
+        # Original: H=1, V=1, tile=42; canon needs H+V flip
+        word = (1 << 12) | (1 << 11) | 42
+        new = remap_nametable_word(word, canonical_index=7, canon_flip_bits=3)
+        self.assertEqual((new >> 11) & 1, 0)
+        self.assertEqual((new >> 12) & 1, 0)
+        self.assertEqual(new & 0x7FF, 7)
 
 
 if __name__ == "__main__":
