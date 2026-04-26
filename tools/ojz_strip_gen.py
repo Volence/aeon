@@ -614,8 +614,13 @@ def run_tests():
 # Generator
 # ---------------------------------------------------------------------------
 
-def generate():
-    """Generate strip data for all OJZ sections."""
+def generate(force_region1_cap=None):
+    """Generate strip data for all OJZ sections.
+
+    `force_region1_cap` (optional, A.2 stress flag): caps region 1 capacity
+    to this value, forcing remaining tiles into region 2. Used for testing
+    the spill code path on data that doesn't naturally exceed 1536 tiles.
+    """
     out_dir = os.path.normpath(OUTPUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
 
@@ -767,13 +772,26 @@ def generate():
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ("test", "generate"):
-        print(f"Usage: {sys.argv[0]} test|generate")
+        print(f"Usage: {sys.argv[0]} test|generate [--force-region1-cap=N]")
         sys.exit(1)
 
     if sys.argv[1] == "test":
         run_tests()
-    else:
-        generate()
+        return
+
+    # generate
+    force_cap = None
+    for arg in sys.argv[2:]:
+        if arg.startswith("--force-region1-cap="):
+            try:
+                force_cap = int(arg.split("=", 1)[1])
+            except ValueError:
+                print(f"Invalid --force-region1-cap value: {arg}")
+                sys.exit(1)
+        else:
+            print(f"Unknown arg: {arg}")
+            sys.exit(1)
+    generate(force_region1_cap=force_cap)
 
 
 if __name__ == "__main__":
