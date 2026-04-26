@@ -1,0 +1,46 @@
+# AS Macro Assembler (68000) — Universal Ctags configuration
+# Project-local: only applies when ctags is run from s4_engine/
+
+# Define language; map .asm files exclusively to it (disable built-in Asm)
+--langdef=AS68K
+--map-AS68K=+.asm
+--langmap=Asm:
+
+# Only index AS68K — skip markdown, Python, shell, JSON, etc.
+--languages=AS68K
+
+# Exclude non-source directories
+--exclude=docs
+--exclude=tools
+--exclude=art
+--exclude=data
+
+# Symbol kinds
+--kinddef-AS68K=r,routine,routines
+--kinddef-AS68K=c,constant,constants
+--kinddef-AS68K=f,function,AS functions
+--kinddef-AS68K=m,macro,macros
+--kinddef-AS68K=s,struct,structs
+--kinddef-AS68K=e,field,struct fields
+--kinddef-AS68K=v,variable,RAM variables
+
+# Routines — PascalCase label alone on a line (code entry points)
+--regex-AS68K=/^([A-Z][A-Za-z0-9_]*):[ \t]*(;.*)?$/\1/r/
+
+# RAM variables — label:  ds.[bwl] on same line
+--regex-AS68K=/^([A-Za-z][A-Za-z0-9_]*):[ \t]+ds\.[bwlBWL]/\1/v/
+
+# Constants — ALL_CAPS = value (colon before = is optional, e.g. CROSS_RESET_RAM:)
+--regex-AS68K=/^([A-Z_][A-Z0-9_]+)[ \t]*:?[ \t]*=[ \t]*/\1/c/
+
+# AS functions — name function args, expression
+--regex-AS68K=/^([a-z][A-Za-z0-9_]*)[ \t]+function[ \t]/\1/f/
+
+# Macros — name macro [args]
+--regex-AS68K=/^([A-Za-z][A-Za-z0-9_]*)[ \t]+macro/\1/m/
+
+# Structs — Name struct
+--regex-AS68K=/^([A-Z][A-Za-z0-9_]*)[ \t]+struct/\1/s/
+
+# Struct fields — name ds.[bwl] with no preceding colon (struct context)
+--regex-AS68K=/^([A-Za-z][A-Za-z0-9_]*)[ \t]+ds\.[bwlBWL]/\1/e/
