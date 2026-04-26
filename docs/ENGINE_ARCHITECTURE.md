@@ -1819,7 +1819,7 @@ Each section in the 2D grid is fully self-describing — almost its own level:
     dc.l    sec_pal             ; +$10: palette pointer — full 128-byte copy (0 = no change)
     dc.l    sec_scroll          ; +$14: parallax layer table (0 = keep current)
     dc.l    sec_raster_table    ; +$18: raster command table pointer (0 = keep current, see §7.2)
-    dc.l    sec_strips_b        ; +$1C: pre-computed plane B nametable strips (ROM pointer)
+    dc.l    sec_bg_layout       ; +$1C: per-section Plane B layout pointer (§2 A.5; NULL = use Act default)
     dc.l    sec_reserved        ; +$20: reserved for future use
     dc.l    sec_pal_cycle       ; +$24: palette cycling script (0 = keep current)
     dc.l    sec_sound_bank      ; +$28: DAC sample bank pointer (0 = keep current)
