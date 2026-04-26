@@ -8,7 +8,8 @@ Running tally as A.1 → A.5 ship. Each row is the same OJZ Act 1 build pass; co
 |---|---:|---:|---:|---:|---:|---:|---|---:|---:|---|
 | **Pre-A.1** | 32 | n/a (no walk) | n/a | **would clobber** | n/a — fixed 322-tile slug | n/a | n/a | 10,304 | n/a | $0000-$2840 (322 tiles, no actual nametable mapping; high indices rendered as garbage) |
 | **A.1** | 48 | 14 (min=0, max=1856) | **1856** | **2** | **10** (28.6% reduction) | **9** | yes | 320 | **262** (ratio 0.819, tile-delta) | $0000-$013F (10 tiles) |
-| A.2 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
+| **A.2 default** | 48 | 14 | 1856 | 2 | 10 (28.6%) | 9 | yes (region 1) | r1=320; r2=0 | r1=262 (0.819); r2=4 (placeholder) | $0000-$013F (region 1 only; region 2 empty) |
+| A.2 forced spill (cap=5) | 48 | 14 | 1856 | 2 | 10 (28.6%) | **1988** | yes (split: r1=5, r2=5) | r1=160; r2=160 | r1=108 (0.675); r2=162 (1.012, S4LZ overhead exceeds compression on tiny non-redundant data) | $0000-$009F (r1) + $F800-$F89F (r2) |
 | A.3 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
 | A.4 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
 | A.5 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
