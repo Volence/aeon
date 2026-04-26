@@ -42,14 +42,33 @@ LoadArt_S4LZ:
 ;
 ; In:  a0 = act descriptor pointer
 ; Out: none
-; Clobbers: d0–d3, a0–a4
+; Clobbers: d0–d4, a0–a4
 ;
-; A.1 single-region behaviour: act descriptor has ONE compressed tile-art
-; pointer (Act_tile_art_s4lz) and ONE VRAM destination (Act_tile_art_vram).
-; A.2 will extend this routine to walk a region table.
+; A.2 behaviour: region 1 always loads (Act_tile_art_s4lz / Act_tile_art_vram).
+; Region 2 loads only when Act_tile_art_r2_s4lz is non-null AND the S4LZ
+; stream's uncompressed-size header is non-zero. Region 2's VRAM destination
+; is the engine constant REGION2_VRAM_BASE.
 ; -----------------------------------------------
 Level_LoadArt:
+        movea.l a0, a4                              ; a4 = act ptr (saved across LoadArt_S4LZ)
+
+        ; -- region 1 (always) --
         moveq   #0, d0
-        move.w  Act_tile_art_vram(a0), d0           ; d0.w = VRAM byte dest
-        movea.l Act_tile_art_s4lz(a0), a0           ; a0 = compressed S4LZ source
+        move.w  Act_tile_art_vram(a4), d0           ; d0.w = VRAM byte dest
+        movea.l Act_tile_art_s4lz(a4), a0           ; a0 = compressed S4LZ source
+        bsr.w   LoadArt_S4LZ
+
+        ; -- region 2 (skip if pointer null) --
+        movea.l Act_tile_art_r2_s4lz(a4), a0
+        cmpa.w  #0, a0
+        beq.s   .done
+
+        ; -- skip if uncompressed-size header is zero (placeholder no-spill blob) --
+        move.w  (a0), d4
+        beq.s   .done
+
+        move.w  #REGION2_VRAM_BASE, d0              ; d0.w = region 2 VRAM byte dest
         bra.w   LoadArt_S4LZ                        ; tail call
+
+.done:
+        rts
