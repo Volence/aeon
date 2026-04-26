@@ -54,3 +54,28 @@ def canonical_form(tile: bytes) -> tuple[bytes, int]:
     candidates = [(tile, 0), (h, 1), (v, 2), (hv, 3)]
     candidates.sort(key=lambda c: c[0])
     return candidates[0]
+
+
+def dedupe_tiles(tiles: list[bytes]) -> tuple[list[bytes], list[tuple[int, int]]]:
+    """Globally dedupe a list of 32-byte tiles using canonical form.
+
+    Returns (unique_tiles, mapping):
+      unique_tiles[k] is the k-th distinct canonical-form tile, in first-seen order.
+      mapping[i] = (canonical_index, flip_bits) for the i-th input tile.
+
+    Two input tiles whose canonical forms match collapse to the same index
+    with potentially different flip_bits — strip remap uses those flip_bits
+    (XORed against the original H/V) to recover the original orientation.
+    """
+    canonical_to_index: dict[bytes, int] = {}
+    unique: list[bytes] = []
+    mapping: list[tuple[int, int]] = []
+    for t in tiles:
+        canon, flip_bits = canonical_form(t)
+        idx = canonical_to_index.get(canon)
+        if idx is None:
+            idx = len(unique)
+            canonical_to_index[canon] = idx
+            unique.append(canon)
+        mapping.append((idx, flip_bits))
+    return unique, mapping

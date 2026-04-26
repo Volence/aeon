@@ -11,7 +11,7 @@ import unittest
 # Allow running from the s4_engine root or the tools dir.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from tile_dedupe import hflip_tile, vflip_tile, canonical_form
+from tile_dedupe import hflip_tile, vflip_tile, canonical_form, dedupe_tiles
 
 
 # Build a sentinel tile where each pixel = row*8 + col so flips are visible.
@@ -82,6 +82,31 @@ class TestCanonicalForm(unittest.TestCase):
         canon_t, _ = canonical_form(t)
         canon_h, _ = canonical_form(h)
         self.assertEqual(canon_t, canon_h)
+
+
+class TestDedupeTiles(unittest.TestCase):
+    def test_dedupe_tiles_collapses_flips(self):
+        t = _make_test_tile()
+        h = hflip_tile(t)
+        different = bytes([0xAA] * 32)  # not a flip of t
+        inputs = [t, h, t, different]   # tile 0 and 1 are H-flips; tile 2 dup of 0
+        unique, mapping = dedupe_tiles(inputs)
+        # Two unique canonical forms: canonical(t) and 'different'
+        self.assertEqual(len(unique), 2)
+        # Tiles 0, 1, 2 all map to the same canonical index
+        self.assertEqual(mapping[0][0], mapping[1][0])
+        self.assertEqual(mapping[1][0], mapping[2][0])
+        # Tile 3 maps to the other canonical index
+        self.assertNotEqual(mapping[3][0], mapping[0][0])
+        # Tile 0 and tile 1 differ by exactly the H flip bit
+        self.assertEqual(mapping[0][1] ^ mapping[1][1], 1)
+
+    def test_dedupe_tiles_first_seen_order(self):
+        """Unique tiles emitted in first-seen-canonical order."""
+        t1 = bytes([0x11] * 32)  # palindromic — already canonical
+        t2 = bytes([0x22] * 32)  # palindromic — already canonical
+        unique, _ = dedupe_tiles([t1, t2, t1])
+        self.assertEqual(unique, [t1, t2])
 
 
 if __name__ == "__main__":
