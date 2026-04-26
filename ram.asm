@@ -234,6 +234,13 @@ Slot_Section_Map:       ds.b 8
 Section_Preload_Flags:  ds.b 1          ; bits: fwd/bwd/up/dn preloaded
 Section_Teleport_Guard: ds.b 1          ; cooldown after teleport (frames)
 
+; Per-section streaming state (§2 A.4) — one byte per section
+; (SS_IDLE / SS_STREAMING / SS_RESIDENT). Indexed by flat section_id
+; (sec_y * grid_w + sec_x). Sized to OJZ act 1's 9 sections; pad to 16.
+Section_Stream_State:   ds.b 16         ; up to 16 sections; even-aligned
+Streaming_Active_Buffer: ds.b 1         ; 0 = next stream uses A; 1 = next uses B
+                        ds.b 1          ; pad to even
+
 ; Column streaming state — engine tile columns (Camera_X/8 domain)
 ; Right: last tile col written to nametable on the right side of view
 ; Left:  last tile col written to nametable on the left side of view

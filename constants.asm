@@ -218,6 +218,23 @@ REGION1_TILE_CAPACITY   = 1536
 REGION2_VRAM_BASE       = $F800
 REGION2_TILE_CAPACITY   = 64        ; ($10000 - $F800) / 32
 
+; Per-section streaming (§2 A.4)
+; Two double-buffered ~4 KB regions inside Decomp_Buffer ($FFFF0000-$FFFF7FFF).
+; Decomp_Buffer is only used during Level_LoadArt at level init (display off);
+; after init it's free, so streaming buffers carve out the first 8 KB.
+STREAMING_BUFFER_SIZE   = 4096
+STREAMING_BUFFER_A      = $FFFF0000     ; first 4 KB of Decomp_Buffer
+STREAMING_BUFFER_B      = $FFFF1000     ; next 4 KB
+
+; Per-section streaming state values (single byte per section)
+SS_IDLE      = 0    ; not loaded, not streaming
+SS_STREAMING = 1    ; decompressed + DMA queued, awaiting drain
+SS_RESIDENT  = 2    ; in VRAM, valid
+
+; Section_Preload_Flags bit definitions
+SPF_FWD_PRELOADED = 0       ; bit 0: forward neighbour streamed
+SPF_BWD_PRELOADED = 1       ; bit 1: backward neighbour streamed
+
 ; Plane buffer
 PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
 

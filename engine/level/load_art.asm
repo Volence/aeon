@@ -75,20 +75,121 @@ Section_LoadArt:
 ; convention).
 ; -----------------------------------------------
 Level_LoadArt:
-        movem.l a0/a4, -(sp)
-        movea.l a0, a4                              ; a4 = act ptr (saved across calls)
+        ; A.4 fix: read section IDs from act descriptor directly, NOT from
+        ; Slot_Section_Map. Test state calls Level_LoadArt BEFORE Section_Init,
+        ; so Slot_Section_Map is uninitialized at this point.
+        ; LoadArt_S4LZ saves/restores a4 internally, so a4 survives across
+        ; nested calls — we use it to keep act ptr.
+        move.l  a4, -(sp)                           ; save caller's a4
+        movea.l a0, a4                              ; a4 = act ptr
 
-        ; -- slot 0 --
-        moveq   #SLOT_LEFT, d0
-        movea.l a4, a2                              ; a2 = act ptr for Section_GetSlotDef
-        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 0
+        ; -- slot 0 = Act_start_sec_x --
+        moveq   #0, d6
+        move.b  Act_start_sec_x(a4), d6             ; flat section_id (sec_y=0 for OJZ)
+        bsr.w   .compute_sec_ptr                    ; a0 = Sec ptr
+        bsr.w   Section_LoadArt                     ; clobbers a0; a4 preserved
+        moveq   #0, d6
+        move.b  Act_start_sec_x(a4), d6
+        lea     (Section_Stream_State).w, a1
+        move.b  #SS_RESIDENT, (a1, d6.w)
+
+        ; -- slot 1 = Act_start_sec_x + 1 (skip if at grid edge) --
+        moveq   #0, d6
+        move.b  Act_start_sec_x(a4), d6
+        addq.b  #1, d6
+        cmp.b   Act_grid_w+1(a4), d6
+        bge.s   .skip_slot1
+        bsr.w   .compute_sec_ptr                    ; a0 = Sec ptr
         bsr.w   Section_LoadArt
+        moveq   #0, d6
+        move.b  Act_start_sec_x(a4), d6
+        addq.b  #1, d6
+        lea     (Section_Stream_State).w, a1
+        move.b  #SS_RESIDENT, (a1, d6.w)
 
-        ; -- slot 1 --
-        moveq   #SLOT_RIGHT, d0
-        movea.l a4, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 1
-        bsr.w   Section_LoadArt
+.skip_slot1:
+        movea.l (sp)+, a4                           ; restore caller's a4
+        rts
 
-        movem.l (sp)+, a0/a4
+.compute_sec_ptr:
+        ; In:  d6.w = flat section_id, a4 = act ptr
+        ; Out: a0 = Sec ptr for that section
+        ; Clobbers: d0-d1, a0
+        movea.l Act_sec_grid_ptr(a4), a0
+        moveq   #0, d0
+        move.b  d6, d0
+        move.w  d0, d1
+        lsl.w   #6, d0                              ; sec × 64
+        lsl.w   #3, d1                              ; sec × 8
+        add.w   d1, d0                              ; sec × 72 = Sec_len
+        adda.w  d0, a0
+        rts
+
+; -----------------------------------------------
+; Section_StreamArtGroup — preload one section's tile art via Deferrable DMA.
+;
+; In:  a0 = Sec struct pointer
+;      a4 = Sec struct pointer (preserved copy; S4LZ_Decompress clobbers a0)
+;      d6.w = flat section_id (sec_y * grid_w + sec_x), used to index
+;             Section_Stream_State
+; Out: none
+; Clobbers: d0–d4, a0–a3
+;
+; State machine:
+;   SS_IDLE      → decompress to next streaming buffer (round-robin A/B),
+;                  queue Deferrable DMA, mark SS_STREAMING.
+;   SS_STREAMING → no-op (already in-flight)
+;   SS_RESIDENT  → no-op (already in VRAM)
+;
+; A.4 model: run-to-completion S4LZ decompress + queued Deferrable DMA.
+; The queue drains across upcoming VBlanks. By the time camera reaches
+; the teleport threshold (~85-170 frames after preload), tiles are in VRAM.
+; -----------------------------------------------
+Section_StreamArtGroup:
+        ; -- check current state --
+        lea     (Section_Stream_State).w, a1
+        move.b  (a1, d6.w), d0
+        cmpi.b  #SS_IDLE, d0
+        bne.s   .skip                               ; already STREAMING or RESIDENT
+
+        ; -- bail if section has no tile art (null pointer) --
+        movea.l Sec_sec_tile_art_s4lz(a0), a2
+        cmpa.w  #0, a2
+        beq.s   .skip
+
+        ; -- bail if S4LZ uncompressed size is 0 (placeholder blob) --
+        move.w  (a2), d4                            ; d4.w = uncompressed size
+        beq.s   .skip
+
+        ; -- pick next streaming buffer (round-robin via Streaming_Active_Buffer) --
+        ; Active=0 → use buffer A, flip to 1 for next call
+        ; Active=1 → use buffer B, flip to 0 for next call
+        moveq   #0, d0
+        move.b  (Streaming_Active_Buffer).w, d0
+        bne.s   .use_buffer_b
+        lea     (STREAMING_BUFFER_A).l, a3
+        move.b  #1, (Streaming_Active_Buffer).w
+        bra.s   .have_buffer
+.use_buffer_b:
+        lea     (STREAMING_BUFFER_B).l, a3
+        move.b  #0, (Streaming_Active_Buffer).w
+.have_buffer:
+
+        ; -- decompress run-to-completion: a2 = source S4LZ, a3 = dest buffer --
+        movea.l a2, a0                              ; a0 = source
+        movea.l a3, a1                              ; a1 = dest
+        bsr.w   S4LZ_Decompress                     ; clobbers d0-d3, a2
+
+        ; -- queue Deferrable DMA: streaming buffer → section's VRAM dest --
+        move.l  a3, d1                              ; d1 = source (RAM addr)
+        moveq   #0, d2
+        move.w  Sec_sec_tile_art_vram(a4), d2       ; d2.w = VRAM dest (from saved Sec ptr)
+        move.w  d4, d3                              ; d3.w = byte length
+        bsr.w   QueueDMA_Deferrable
+
+        ; -- mark section STREAMING --
+        lea     (Section_Stream_State).w, a1
+        move.b  #SS_STREAMING, (a1, d6.w)
+
+.skip:
         rts
