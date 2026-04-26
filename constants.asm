@@ -122,6 +122,10 @@ OBJ_CODE_BANK           = 1         ; moveq #1,d0; swap d0 → $00010000
 PRIORITY_BANDS          = 8
 SPRITES_PER_BAND        = 32
 
+; Scanline-aware sprite budgeting
+SCANLINE_BANDS          = 7             ; 224 / 32 = 7 bands of 32 scanlines each
+SCANLINE_SPRITE_LIMIT   = 24           ; max sprite pieces per band before skipping
+
 ; Collision response types
 COLLISION_NONE          = 0
 COLLISION_ENEMY         = 1

@@ -190,6 +190,11 @@ SpriteMask_Height:      ds.w 1          ; scanlines to cover
 SpriteMask_After_Band:  ds.b 1          ; insert after this band (0-7)
                         ds.b 1          ; pad
 
+; Scanline band sprite budgeting (§3.5)
+; 7 bands of 32 scanlines — tracks accumulated sprite pieces per band
+Scanline_Band_Sprites:  ds.b SCANLINE_BANDS
+                        ds.b 1          ; pad to even (7+1=8)
+
 ; -----------------------------------------------
 ; Camera (stub for §3, real implementation in §4)
 ; -----------------------------------------------

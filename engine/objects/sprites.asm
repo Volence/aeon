@@ -29,6 +29,11 @@ InitSpriteSystem:
         move.l  d0, (a0)+              ; bands 0-3
         move.l  d0, (a0)+              ; bands 4-7 + pad byte
 
+        ; Clear scanline band sprite counters (8 bytes: 7 bands + 1 pad)
+        lea     (Scanline_Band_Sprites).w, a0
+        move.l  d0, (a0)+
+        move.l  d0, (a0)
+
         ; Reset counters
         move.w  d0, (Sprites_Rendered).w
         move.w  d0, (Sprite_Link_Next).w
@@ -218,6 +223,23 @@ Render_Sprites:
 
 .have_pos:
         move.w  SST_art_tile(a0), d6
+
+        ; --- Scanline band budget check ---
+        ; Skip entirely when total pieces < limit — no band can overflow yet
+        cmpi.w  #SCANLINE_SPRITE_LIMIT, d5
+        blo.s   .budget_ok
+        move.w  d3, d0                     ; d0 = screen-relative Y
+        bmi.s   .budget_ok                 ; above screen — allow
+        lsr.w   #5, d0                     ; d0 = screen_y >> 5 = band index (0-6)
+        cmpi.w  #SCANLINE_BANDS, d0
+        bhs.s   .budget_ok                 ; below screen — allow
+        lea     (Scanline_Band_Sprites).w, a1
+        move.b  (a1,d0.w), d1
+        add.b   d4, d1                     ; d1 = current count + this object's pieces
+        cmpi.b  #SCANLINE_SPRITE_LIMIT, d1
+        bhs.w   .next_object               ; band overloaded — skip object
+        move.b  d1, (a1,d0.w)             ; commit updated count
+.budget_ok:
 
         ; Determine flip variant from render_flags bits 1-2
         move.b  SST_render_flags(a0), d0
