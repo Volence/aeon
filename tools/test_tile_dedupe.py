@@ -122,7 +122,7 @@ class TestRemapNametableWord(unittest.TestCase):
     def test_preserves_priority_palette(self):
         # priority=1, palette=2, no flips, tile_index=42
         word = (1 << 15) | (2 << 13) | 42
-        new = remap_nametable_word(word, canonical_index=7, canon_flip_bits=0)
+        new = remap_nametable_word(word, vram_tile_slot=7, canon_flip_bits=0)
         self.assertEqual((new >> 15) & 1, 1, "priority preserved")
         self.assertEqual((new >> 13) & 3, 2, "palette preserved")
         self.assertEqual(new & 0x7FF, 7, "tile_index = canonical_index")
@@ -133,7 +133,7 @@ class TestRemapNametableWord(unittest.TestCase):
         # Original word: H=1, V=0, tile_index=42
         word = (1 << 11) | 42
         # Canonicalization needed an additional H flip
-        new = remap_nametable_word(word, canonical_index=7, canon_flip_bits=1)
+        new = remap_nametable_word(word, vram_tile_slot=7, canon_flip_bits=1)
         self.assertEqual((new >> 11) & 1, 0, "1 ^ 1 = 0 — H now off")
         self.assertEqual((new >> 12) & 1, 0, "V still 0")
         self.assertEqual(new & 0x7FF, 7, "tile_index updated")
@@ -141,7 +141,7 @@ class TestRemapNametableWord(unittest.TestCase):
     def test_double_flip(self):
         # Original: H=1, V=1, tile=42; canon needs H+V flip
         word = (1 << 12) | (1 << 11) | 42
-        new = remap_nametable_word(word, canonical_index=7, canon_flip_bits=3)
+        new = remap_nametable_word(word, vram_tile_slot=7, canon_flip_bits=3)
         self.assertEqual((new >> 11) & 1, 0)
         self.assertEqual((new >> 12) & 1, 0)
         self.assertEqual(new & 0x7FF, 7)
