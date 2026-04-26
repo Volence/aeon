@@ -55,8 +55,6 @@ WORDS_PER_BLOCK = TILES_PER_BLOCK_ROW * TILES_PER_BLOCK_COL        # 4
 TILE_INDEX_MASK = 0x07FF   # bits 10-0: tile index (0-2047)
 PALETTE_SHIFT = 13
 PRIORITY_BIT = 0x8000
-HFLIP_BIT = 0x0800
-VFLIP_BIT = 0x1000
 
 # ---------------------------------------------------------------------------
 # Kosinski decompressor (standard Sega Genesis variant)
@@ -183,7 +181,12 @@ def load_chunk_map(path: str) -> list[list[int]]:
     """Load the 128x128 chunk map (Kosinski compressed, two concatenated streams).
 
     Returns a list of chunks, each chunk being 64 big-endian words
-    (8×8 grid of block entries).  Each word: bits15-10 flags, bits9-0 block_id.
+    (8×8 grid of block entries).
+
+    Each chunk entry word:
+      bits[15:10] = per-chunk flags (xflip/yflip/priority overrides).
+                    NOTE: currently not applied — Phase 1 uses tile-level flags only.
+      bits[9:0]   = block_id (confirmed by sonic_hack scroll_camera.asm andi.w #$3FF)
     """
     data = open(path, "rb").read()
     all_words = []
@@ -505,8 +508,17 @@ def generate():
 
     # Find all OJZ section layout files
     import glob
+    import re
     pattern = os.path.join(LAYOUT_DIR, "OJZ_1_sec*.bin")
-    section_files = sorted(glob.glob(pattern))
+    def extract_sec_id(path: str) -> int:
+        m = re.search(r'sec([0-9A-Fa-f]+)', os.path.basename(path))
+        if m:
+            try:
+                return int(m.group(1), 16)  # Hexadecimal (handles 0-9, A-F)
+            except ValueError:
+                return int(m.group(1))  # Fallback to decimal
+        return -1
+    section_files = sorted(glob.glob(pattern), key=extract_sec_id)
 
     if not section_files:
         print(f"ERROR: No layout files found matching {pattern}")
@@ -551,7 +563,8 @@ def generate():
     shutil.copy(pal_src, pal_dest)
     print(f"Copied palette -> {pal_dest}")
 
-    print(f"Done. {total_strips} total strips written to {out_dir}")
+    num_sections_processed = len([1 for f in section_files if os.path.exists(os.path.join(out_dir, f"{os.path.basename(f).replace('OJZ_1_sec', 'sec').replace('.bin', '')}_strips_a.bin"))])
+    print(f"Done. {num_sections_processed} sections, {total_strips} total strips written to {out_dir}")
 
     # Print a brief sanity summary for the first section's first strip
     if first_strips:
