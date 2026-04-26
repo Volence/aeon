@@ -122,7 +122,7 @@ class TestRemapNametableWord(unittest.TestCase):
     def test_preserves_priority_palette(self):
         # priority=1, palette=2, no flips, tile_index=42
         word = (1 << 15) | (2 << 13) | 42
-        new = remap_nametable_word(word, canonical_index=7, canon_flip_bits=0)
+        new = remap_nametable_word(word, vram_tile_slot=7, canon_flip_bits=0)
         self.assertEqual((new >> 15) & 1, 1, "priority preserved")
         self.assertEqual((new >> 13) & 3, 2, "palette preserved")
         self.assertEqual(new & 0x7FF, 7, "tile_index = canonical_index")
@@ -133,7 +133,7 @@ class TestRemapNametableWord(unittest.TestCase):
         # Original word: H=1, V=0, tile_index=42
         word = (1 << 11) | 42
         # Canonicalization needed an additional H flip
-        new = remap_nametable_word(word, canonical_index=7, canon_flip_bits=1)
+        new = remap_nametable_word(word, vram_tile_slot=7, canon_flip_bits=1)
         self.assertEqual((new >> 11) & 1, 0, "1 ^ 1 = 0 — H now off")
         self.assertEqual((new >> 12) & 1, 0, "V still 0")
         self.assertEqual(new & 0x7FF, 7, "tile_index updated")
@@ -141,7 +141,7 @@ class TestRemapNametableWord(unittest.TestCase):
     def test_double_flip(self):
         # Original: H=1, V=1, tile=42; canon needs H+V flip
         word = (1 << 12) | (1 << 11) | 42
-        new = remap_nametable_word(word, canonical_index=7, canon_flip_bits=3)
+        new = remap_nametable_word(word, vram_tile_slot=7, canon_flip_bits=3)
         self.assertEqual((new >> 11) & 1, 0)
         self.assertEqual((new >> 12) & 1, 0)
         self.assertEqual(new & 0x7FF, 7)
@@ -183,6 +183,32 @@ class TestRoundTrip(unittest.TestCase):
             rebuilt = reconstruct(new_word, unique)
             self.assertEqual(rebuilt, tiles[original_idx],
                              f"round-trip mismatch at tile {original_idx}")
+
+
+class TestPackRegions(unittest.TestCase):
+    def test_packs_into_first_region_when_fits(self):
+        from tile_dedupe import pack_regions
+        slots = pack_regions(3, [(0, 1536), (1984, 64)])
+        self.assertEqual(slots, [0, 1, 2], "all 3 fit in region 0 starting at slot 0")
+
+    def test_spills_into_second_region_when_first_exhausted(self):
+        from tile_dedupe import pack_regions
+        slots = pack_regions(5, [(0, 3), (1984, 64)])
+        self.assertEqual(
+            slots,
+            [0, 1, 2, 1984, 1985],
+            "first 3 in region 0; remainder starts at region 1's base 1984",
+        )
+
+    def test_raises_on_total_overflow(self):
+        from tile_dedupe import pack_regions
+        with self.assertRaises(OverflowError):
+            pack_regions(10, [(0, 3), (1984, 2)])
+
+    def test_skips_zero_capacity_region(self):
+        from tile_dedupe import pack_regions
+        slots = pack_regions(2, [(0, 0), (1984, 64)])
+        self.assertEqual(slots, [1984, 1985])
 
 
 if __name__ == "__main__":

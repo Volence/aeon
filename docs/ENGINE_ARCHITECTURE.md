@@ -1203,7 +1203,7 @@ VRAM (64KB = 2048 tiles)
 ├───────────────┼─────────────────────────────────────────────────────┤
 │ $700-$7FF     │ PLANE B NAMETABLE (256 tiles = 8KB, 64×64)         │
 │ (256 tiles)   │   Visible area: ~40×28 tiles                       │
-│               │   Off-screen rows: available for future use         │
+│               │   Off-screen rows 48-63: §2 A.2 region 2 (64 tiles) │
 └───────────────┴─────────────────────────────────────────────────────┘
 
 VDP byte addresses: $000×32=$0000 ... $600×32=$C000 ... $700×32=$E000

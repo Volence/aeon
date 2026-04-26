@@ -48,6 +48,12 @@ OUTPUT_DIR = os.path.join(
 # ---------------------------------------------------------------------------
 STRIP_TILE_HEIGHT = 48  # nametable rows per strip (rows 0-47; sprite table at row 48)
 OJZ_TILES_COUNT = 322   # legacy — pre-A.1 raw export count, kept for old test_generate_tile_art
+
+# Multi-region VRAM packing (§2 A.2) — must match constants.asm
+# REGION2_VRAM_BASE / 32 == REGION2 starting tile slot
+REGION1_TILE_CAPACITY = 1536          # primary art pool $0000-$BFFF
+REGION2_VRAM_BASE     = 0xF800        # Plane B off-screen, row 48+ (per A.2 research)
+REGION2_TILE_CAPACITY = 64            # ($10000 - $F800) / 32 = 64 tiles
 TILES_PER_BLOCK_ROW = 2  # each block is 2 tiles wide × 2 tiles tall
 TILES_PER_BLOCK_COL = 2
 BLOCKS_PER_CHUNK_ROW = 8  # each chunk is 8×8 blocks
@@ -583,12 +589,16 @@ def test_full_pipeline_runs():
         OUTPUT_DIR = td
         try:
             generate()
-            tile_path = os.path.join(td, "ojz_tiles.bin")
-            assert os.path.exists(tile_path), "deduped pool not written"
-            size = os.path.getsize(tile_path)
-            assert size > 0, "deduped pool is empty"
-            assert size % 32 == 0, f"pool size {size} not a multiple of 32"
-            assert size // 32 <= 1536, f"pool {size//32} exceeds 1536 tiles"
+            r1_path = os.path.join(td, "ojz_tiles_r1.bin")
+            r2_path = os.path.join(td, "ojz_tiles_r2.bin")
+            assert os.path.exists(r1_path), "region 1 pool not written"
+            assert os.path.exists(r2_path), "region 2 pool not written (even if empty)"
+            r1_size = os.path.getsize(r1_path)
+            r2_size = os.path.getsize(r2_path)
+            assert r1_size % 32 == 0, f"r1 size {r1_size} not a multiple of 32"
+            assert r2_size % 32 == 0, f"r2 size {r2_size} not a multiple of 32"
+            assert r1_size // 32 <= REGION1_TILE_CAPACITY
+            assert r2_size // 32 <= REGION2_TILE_CAPACITY
         finally:
             OUTPUT_DIR = saved
     print(f"  [OK] test_full_pipeline_runs: deduped pool fits in 1536 tiles")
@@ -614,8 +624,13 @@ def run_tests():
 # Generator
 # ---------------------------------------------------------------------------
 
-def generate():
-    """Generate strip data for all OJZ sections."""
+def generate(force_region1_cap=None):
+    """Generate strip data for all OJZ sections.
+
+    `force_region1_cap` (optional, A.2 stress flag): caps region 1 capacity
+    to this value, forcing remaining tiles into region 2. Used for testing
+    the spill code path on data that doesn't naturally exceed 1536 tiles.
+    """
     out_dir = os.path.normpath(OUTPUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
 
@@ -667,16 +682,28 @@ def generate():
             f"→ {len(strips)} strips"
         )
 
-    # ---- Pass 2: dedupe across all sections, emit deduped tile pool ----
+    # ---- Pass 2: dedupe across all sections, pack into regions, emit pools ----
     full_blob = decompress_full_ojz_art(OJZ_ART_PATH)
     sorted_indices, raw_tiles = collect_referenced_tiles(per_section_strips, full_blob)
     unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
 
-    # Build src_idx → (canonical_idx, flip_bits) lookup
-    src_to_canon: dict[int, tuple[int, int]] = {
-        src_idx: mapping[i]
-        for i, src_idx in enumerate(sorted_indices)
-    }
+    region1_cap = REGION1_TILE_CAPACITY
+    if force_region1_cap is not None:
+        region1_cap = force_region1_cap
+
+    region2_start_slot = REGION2_VRAM_BASE // tile_dedupe.TILE_SIZE
+    regions = [(0, region1_cap), (region2_start_slot, REGION2_TILE_CAPACITY)]
+    slots = tile_dedupe.pack_regions(len(unique), regions)
+
+    # Build src_idx → (vram_tile_slot, flip_bits) lookup
+    src_to_slot: dict[int, tuple[int, int]] = {}
+    for i, src_idx in enumerate(sorted_indices):
+        canon_idx, flip_bits = mapping[i]
+        src_to_slot[src_idx] = (slots[canon_idx], flip_bits)
+
+    # Partition unique tiles by region
+    r1_tiles = [unique[i] for i in range(len(unique)) if slots[i] < region2_start_slot]
+    r2_tiles = [unique[i] for i in range(len(unique)) if slots[i] >= region2_start_slot]
 
     # ---- Pass 3: rewrite each section's strips and emit binaries ----
     total_strips = 0
@@ -687,9 +714,9 @@ def generate():
             remapped_col = []
             for word in col:
                 src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
-                canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
+                vram_slot, flip_bits = src_to_slot.get(src_idx, (0, 0))
                 remapped_col.append(
-                    tile_dedupe.remap_nametable_word(word, canon_idx, flip_bits)
+                    tile_dedupe.remap_nametable_word(word, vram_slot, flip_bits)
                 )
             remapped_strips.append(remapped_col)
 
@@ -705,37 +732,49 @@ def generate():
             first_strips = remapped_strips
         total_strips += len(remapped_strips)
 
-    # ---- Emit deduped tile pool ----
-    tile_out = os.path.join(out_dir, "ojz_tiles.bin")
-    with open(tile_out, "wb") as f:
-        for tile in unique:
+    # ---- Emit deduped tile pools (one per region) ----
+    r1_out = os.path.join(out_dir, "ojz_tiles_r1.bin")
+    with open(r1_out, "wb") as f:
+        for tile in r1_tiles:
+            f.write(tile)
+
+    r2_out = os.path.join(out_dir, "ojz_tiles_r2.bin")
+    with open(r2_out, "wb") as f:
+        for tile in r2_tiles:
             f.write(tile)
 
     raw_referenced = len(sorted_indices)
     deduped = len(unique)
     pct = (1.0 - deduped / raw_referenced) * 100 if raw_referenced else 0.0
-    fits = deduped <= 1536
     src_max = max(sorted_indices) if sorted_indices else 0
     src_min = min(sorted_indices) if sorted_indices else 0
     src_collisions = sum(1 for i in sorted_indices if i >= 1536)
-    post_max = deduped - 1
+    r1_count = len(r1_tiles)
+    r2_count = len(r2_tiles)
+    r1_max_slot = max(
+        (slots[i] for i in range(len(unique)) if slots[i] < region2_start_slot),
+        default=-1,
+    )
+    r2_max_slot = max(
+        (slots[i] for i in range(len(unique)) if slots[i] >= region2_start_slot),
+        default=-1,
+    )
+    cap_label = (
+        f" (region1 force-capped at {region1_cap})"
+        if force_region1_cap is not None else ""
+    )
     print(
-        f"\n=== OJZ Act 1 — Phase A.1 measurement ===\n"
+        f"\n=== OJZ Act 1 — Phase A.2 measurement{cap_label} ===\n"
         f"  Source tile indices referenced: {raw_referenced} "
         f"(min={src_min}, max={src_max})\n"
         f"  Source indices ≥1536 (nametable collision risk): {src_collisions}\n"
         f"  Deduped (with flip canonicalization): {deduped} "
         f"({pct:.1f}% reduction)\n"
-        f"  Highest remapped tile index: {post_max}\n"
-        f"  Pool fits in 1536: {'yes' if fits else 'NO — A.2 multi-region needed'}\n"
-        f"  Deduped blob: {deduped * 32} bytes uncompressed → {tile_out}\n"
+        f"  Region 1: {r1_count} tiles (max slot {r1_max_slot}) → {r1_out}\n"
+        f"  Region 2: {r2_count} tiles (max slot {r2_max_slot}) → {r2_out}\n"
+        f"  R1 cap: {region1_cap}; R2 cap: {REGION2_TILE_CAPACITY}; "
+        f"total cap: {region1_cap + REGION2_TILE_CAPACITY}\n"
     )
-    if not fits:
-        print(
-            "ERROR: post-dedupe pool exceeds 1536 tiles; "
-            "A.2 multi-region packing required (out of scope for A.1)."
-        )
-        sys.exit(1)
 
     # Copy palette file
     pal_src  = os.path.join(src_dir, "art", "palettes", "OJZ.bin")
@@ -767,13 +806,26 @@ def generate():
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ("test", "generate"):
-        print(f"Usage: {sys.argv[0]} test|generate")
+        print(f"Usage: {sys.argv[0]} test|generate [--force-region1-cap=N]")
         sys.exit(1)
 
     if sys.argv[1] == "test":
         run_tests()
-    else:
-        generate()
+        return
+
+    # generate
+    force_cap = None
+    for arg in sys.argv[2:]:
+        if arg.startswith("--force-region1-cap="):
+            try:
+                force_cap = int(arg.split("=", 1)[1])
+            except ValueError:
+                print(f"Invalid --force-region1-cap value: {arg}")
+                sys.exit(1)
+        else:
+            print(f"Unknown arg: {arg}")
+            sys.exit(1)
+    generate(force_region1_cap=force_cap)
 
 
 if __name__ == "__main__":

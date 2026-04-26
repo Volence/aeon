@@ -91,17 +91,53 @@ NAMETABLE_H_BIT     = 0x0800
 NAMETABLE_V_BIT     = 0x1000
 
 
-def remap_nametable_word(word: int, canonical_index: int, canon_flip_bits: int) -> int:
-    """Rewrite a 16-bit nametable word for the deduped tile space.
+def remap_nametable_word(word: int, vram_tile_slot: int, canon_flip_bits: int) -> int:
+    """Rewrite a 16-bit nametable word with a final VRAM tile slot.
 
-    Preserves priority + palette; replaces tile_index with canonical_index;
+    Preserves priority + palette; replaces tile_index with vram_tile_slot;
     XORs the original H/V bits with canon_flip_bits to recover the original
     visual orientation.
+
+    The tile-index field is 11 bits (0-2047), spanning the full VRAM tile
+    range. Region 1 tiles get slots 0..REGION1_CAPACITY-1; region 2 tiles
+    get slots starting at REGION2_VRAM_BASE/32.
     """
-    # Strip old tile_index
     high = word & ~NAMETABLE_TILE_MASK
     if canon_flip_bits & 1:
         high ^= NAMETABLE_H_BIT
     if canon_flip_bits & 2:
         high ^= NAMETABLE_V_BIT
-    return high | (canonical_index & NAMETABLE_TILE_MASK)
+    return high | (vram_tile_slot & NAMETABLE_TILE_MASK)
+
+
+# ---------------------------------------------------------------------------
+# Multi-region packing (§2 A.2)
+# ---------------------------------------------------------------------------
+
+def pack_regions(
+    unique_count: int,
+    regions: list[tuple[int, int]],
+) -> list[int]:
+    """Assign each canonical tile to a VRAM tile slot.
+
+    `regions` is a list of (start_tile_slot, capacity) tuples in fill order.
+    Returns a list of length `unique_count` where slots[i] is the VRAM
+    tile slot assigned to canonical tile i.
+
+    Raises OverflowError if total capacity is insufficient.
+    """
+    slots: list[int] = []
+    region_idx = 0
+    region_used = 0
+    for canon_idx in range(unique_count):
+        # Skip exhausted (or zero-capacity) regions
+        while region_idx < len(regions) and region_used >= regions[region_idx][1]:
+            region_idx += 1
+            region_used = 0
+        if region_idx >= len(regions):
+            raise OverflowError(
+                f"Tile pool exceeds region capacity at canonical tile {canon_idx}"
+            )
+        slots.append(regions[region_idx][0] + region_used)
+        region_used += 1
+    return slots
