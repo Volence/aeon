@@ -193,6 +193,7 @@ Section_TeleportFwd:
         move.b  d0, (a0)                           ; new slot 0 sec_x
         move.b  d1, 1(a0)                          ; new slot 0 sec_y
         addq.b  #1, d0                             ; new slot 1 sec_x = slot 0 + 1
+        ; TODO: clamp d0 to act grid width — Act_grid_w; Phase 1 safe (OJZ = 9 sections)
         move.b  d0, 2(a0)
         ; sec_y unchanged
 
@@ -293,8 +294,10 @@ Section_EngineToWorld:
 ; In:  d1.w = section-local X (0–$7FF)
 ; Out: d0.w = engine X = SLOT_ORIGIN_L + local_x
 ; Clobbers: d0
+; Note: d0.b (section_x) not used in Phase 1 — target always placed in slot 0.
+;       Pass section_x in d0 for Phase 2+ compatibility.
 ; -----------------------------------------------
 Section_WorldToEngine:
-        addi.w  #SLOT_ORIGIN_L, d1
         move.w  d1, d0
+        addi.w  #SLOT_ORIGIN_L, d0
         rts
