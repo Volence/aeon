@@ -183,20 +183,11 @@ These items were identified during §3 Phase 0 research but require a full SST f
 
 ---
 
-### Chunk/block parsing produces mostly-empty tiles (build tool)
-**Blocked by:** Investigation needed — root cause not yet known
-**Discovered:** 2026-04-26 during §2 A.4 visual verification (had been latent since §4 Phase 1; masked by misinterpretation of sparse-pixel rendering in A.1-A.3 verification)
-**Symptom:** `tools/ojz_strip_gen.py`'s chunk/block parsing pipeline produces strips where most cells reference the canonical empty tile, even though the source layout claims those cells are real terrain. Concretely:
-- 1010 of 2002 blocks in `mappings/16x16/OJZ.bin` parse as all-zero (50% empty)
-- Chunk 0x3f, a "ground" chunk per the layout, has block_entries referencing blocks 92, 128, 241, 784 — all of which are all-zero in our parsed table
-- Default OJZ post-dedupe has only 10 unique tiles for what visually should be a level with hundreds
-**Hypotheses to investigate:**
-1. Sonic 2's 128×128 chunk file may have multiple Kosinski streams (primary + secondary) that `load_chunk_map` is concatenating wrong, putting the wrong chunks at the indices we look up
-2. Block-ID extraction (`block_entry & 0x3FF`, 10-bit mask) may be missing higher bits if sonic_hack's custom OJZ uses a wider field
-3. Chunk indexing or the chunk-file's "stride" between streams may be misinterpreted
-**What works correctly:** Kosinski decompression itself (verified by checking decompressed byte count matches expected `block_count × 8`). The pipeline downstream of chunk/block parsing (dedupe, graph coloring, streaming) operates correctly on whatever data it receives — it's just receiving wrong data.
-**Why it matters:** Blocks A.1-A.5's visual verification. Until fixed, the OJZ scroll test renders mostly black regardless of which strip rows or sections are loaded. The §2 phase 2 milestone is *structurally* complete (state machines, dedupe, coloring, streaming all verified via RAM/state inspection) but cannot be visually demonstrated.
-**When ready:** Investigation should be the next priority after merging A.4. Likely needs: dump raw chunk-file bytes alongside sonic_hack's runtime chunk-table-loaded RAM after a level boot; cross-reference our parsed chunks against what the original engine sees.
+### ~~Chunk/block parsing produces mostly-empty tiles~~ — DONE 2026-04-26
+**Completed in:** kos_decompress rewrite
+**What:** Root cause was the homegrown Kosinski decoder in `tools/ojz_strip_gen.py` — subtle bit-order / displacement bugs that produced ~5× too much output and ~50% of blocks parsing as all-zero. Hypothesis 1 (multi-stream Kosinski) was wrong; hypothesis 2 (block-ID mask) was wrong. Real bug was the decoder itself. Fixed by porting `sonic_hack/code/engines/kosinski.asm` KosDec literally to Python: LUT bit-reversal of each descriptor byte + `add.b`-style MSB-first reads, exact stream-copy semantics matching the asm.
+**Post-fix verification:** chunk 0x3f now references blocks 272-302 (all 4/4 non-zero, real ground data). Block count: 374 (was 2002 garbage). Tile art: 919 tiles (was 322 truncated). 141 unique source tile indices in OJZ act 1 sec0 strips (was 14). With this fix + a related palette-line-1 offset fix in the test state (sonic_hack's `palptr Pal_OJZ, 1` means OJZ palette occupies CRAM lines 1-3, not 0-2), the OJZ scroll test now renders actual OJZ art with correct green palette. Verified via Exodus Plane A viewer.
+**Bonus learning:** Investigation revealed I had been over-confidently calling sparse-pixel screenshots "clean rendering" through A.1-A.3 verification. Honest visual ground truth (level editor screenshots from the user) was what surfaced the bug. Process lesson saved as a memory.
 
 ## How to Use This Document
 

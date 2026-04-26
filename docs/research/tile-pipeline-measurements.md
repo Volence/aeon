@@ -12,6 +12,7 @@ Running tally as A.1 → A.5 ship. Each row is the same OJZ Act 1 build pass; co
 | A.2 forced spill (cap=5) | 48 | 14 | 1856 | 2 | 10 (28.6%) | **1988** | yes (split: r1=5, r2=5) | r1=160; r2=160 | r1=108 (0.675); r2=162 (1.012, S4LZ overhead exceeds compression on tiny non-redundant data) | $0000-$009F (r1) + $F800-$F89F (r2) |
 | **A.3** | 48 | 14 | 1856 | 2 | 10 (28.6%) | 19 (color 1 base + 9) | yes (2 colors) | per-section: 9 blobs ≤320 each | per-section: ~270 each (ratio 0.844) | $0000-$013F (color 0) + $0140-$027F (color 1) |
 | **A.4** | 48 | 14 | 1856 | 2 | 10 (28.6%) | 19 | yes (2 colors) | per-section: 9 blobs ≤320 each (unchanged from A.3) | per-section: ~270 each (unchanged) | $0000-$013F + $0140-$027F (unchanged) |
+| **kos_decompress fix (post-A.4)** | 48 | **141** | 732 | 0 | 141 (no flip dups) | 245 | yes (2 colors) | per-section: variable | per-section: variable | $0000-$0E1F + $0E20-$1EBF (color 0 + color 1) |
 | A.5 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
 
 ## A.4 makes section transitions seamless (structural; visual verification blocked)
@@ -23,6 +24,8 @@ A.4 adds a preload trigger to `Section_Check`: when the camera crosses `SECTION_
 **No measurement change:** A.4 doesn't alter tile counts, deduped pool size, or S4LZ ratios. It changes *when* loads happen, not how much. The empirical win is "no stutter on section transition" — which would be visible only when there's actual section content to render.
 
 **Visual verification blocked on upstream chunk/block parsing bug:** While verifying A.4 in Exodus, we discovered that `tools/ojz_strip_gen.py`'s chunk/block parsing produces mostly-empty tile references for the OJZ data: 1010 of 2002 blocks parse as all-zero, and chunk 0x3f (a "ground" chunk per the layout) references block IDs 92, 128, 241, 784 — all of which are zeros in our parsed table. This means strips reference real positions but get mostly-empty tile data, so the rendered viewport stays mostly black regardless of which chunk-rows we sample. **The bug is upstream of all five layers (A.1-A.5) and was masked through A.1-A.3 verification by my misinterpreting "sparse non-zero pixels" as "correct sky/cloud rendering."** A.4 verification was structural only (`Section_Stream_State` byte transitions, slot map advancement, teleport hook firing — all confirmed via Exodus MCP).
+
+**RESOLVED (post-A.4):** Root cause was the homegrown Kosinski decoder in `tools/ojz_strip_gen.py` — subtle bit-order bugs that produced ~5× too much output. Fixed by porting `sonic_hack/code/engines/kosinski.asm` KosDec literally to Python (LUT bit-reversal + `add.b`-style reads). Plus a test-state palette-offset fix (sonic_hack uses `palptr Pal_OJZ, 1` so OJZ palette starts at CRAM line 1, not 0). Post-fix A.3 measurement: **141 unique tile references** (was 14), max source index **732** (was 1856 — and now below 1536 so no nametable collisions), **0 collision-risk indices** (was 2), 245 tiles max simultaneously-resident (was 20). Real data flows through dedupe + coloring + streaming, and the OJZ scroll test renders actual green-tree art per Exodus Plane A viewer.
 
 ## A.3 reorganizes around sections with graph coloring
 
