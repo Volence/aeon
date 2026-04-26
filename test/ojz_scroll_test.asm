@@ -39,13 +39,13 @@ GameState_OJZScroll_Init:
         jsr     QueueDMA_Critical
         jsr     VSync_Wait
 
+        ; -- initialise camera first (Section_FillInitial reads Camera_X) --
+        lea     OJZ_Act1_Descriptor, a0
+        jsr     Camera_Init
+
         ; -- initialise section streaming (fills nametable over 3 VBlanks) --
         lea     OJZ_Act1_Descriptor, a0
         jsr     Section_Init
-
-        ; -- initialise camera --
-        lea     OJZ_Act1_Descriptor, a0
-        jsr     Camera_Init
 
         ; -- enable display now that VRAM and nametable are populated --
         setVDPReg VDP_Shadow_vdp_mode2, #$64    ; display on, VBlank on, DMA on
@@ -78,6 +78,9 @@ GameState_OJZScroll_Update:
 .camera_done:
         ; -- section teleport check --
         jsr     Section_Check
+
+        ; -- per-column nametable streaming --
+        jsr     Section_UpdateColumns
 
         ; -- update HScroll buffer --
         jsr     Hscroll_Update

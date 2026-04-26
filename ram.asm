@@ -234,6 +234,12 @@ Slot_Section_Map:       ds.b 8
 Section_Preload_Flags:  ds.b 1          ; bits: fwd/bwd/up/dn preloaded
 Section_Teleport_Guard: ds.b 1          ; cooldown after teleport (frames)
 
+; Column streaming state — engine tile columns (Camera_X/8 domain)
+; Right: last tile col written to nametable on the right side of view
+; Left:  last tile col written to nametable on the left side of view
+Section_Right_Col_Written: ds.w 1
+Section_Left_Col_Written:  ds.w 1
+
 ; Dynamic tile override (16 entries × 6 bytes: col.w, row.w, new_tile.w)
 Tile_Override_Table:    ds.b 96
 
