@@ -83,12 +83,22 @@ Level_LoadArt:
         movea.l a4, a2                              ; a2 = act ptr for Section_GetSlotDef
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 0
         bsr.w   Section_LoadArt
+        ; A.4: mark slot 0's section RESIDENT
+        moveq   #0, d6
+        move.b  (Slot_Section_Map).w, d6
+        lea     (Section_Stream_State).w, a1
+        move.b  #SS_RESIDENT, (a1, d6.w)
 
         ; -- slot 1 --
         moveq   #SLOT_RIGHT, d0
         movea.l a4, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 1
         bsr.w   Section_LoadArt
+        ; A.4: mark slot 1's section RESIDENT
+        moveq   #0, d6
+        move.b  (Slot_Section_Map+2).w, d6
+        lea     (Section_Stream_State).w, a1
+        move.b  #SS_RESIDENT, (a1, d6.w)
 
         movem.l (sp)+, a0/a4
         rts
