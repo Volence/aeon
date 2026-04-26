@@ -124,10 +124,13 @@ sec_layer_mask      ds.b 1          ; $3C — parallax layer enable (Phase 4)
 sec_camera_lookahead ds.b 1         ; $3D — lookahead pixels (0 = zone default)
 sec_deform_speed    ds.b 1          ; $3E — deformation rate (Phase 4)
 sec_transition_type ds.b 1          ; $3F — transition type (Phase 4)
+sec_tile_art_s4lz   ds.l 1          ; $40 — per-section S4LZ tile pool ptr (§2 A.3)
+sec_tile_art_vram   ds.w 1          ; $44 — VRAM byte dest (color base × 32)
+                    ds.w 1          ; $46 — pad
 Sec endstruct
 
-    if Sec_len <> $40
-      error "Sec struct is \{Sec_len} bytes, expected $40"
+    if Sec_len <> $48
+      error "Sec struct is \{Sec_len} bytes, expected $48"
     endif
 
 ; -----------------------------------------------

@@ -121,10 +121,13 @@ Section_GetSlotDef:
         lea     (Slot_Section_Map).w, a0
         move.b  (a0, d0.w), d1                     ; d1.b = sec_x for this slot
         movea.l Act_sec_grid_ptr(a2), a1
-        ; sec_x × Sec_len ($40) = sec_x × 64 = sec_x << 6
+        ; sec_x × Sec_len ($48 = 72): compute as sec_x*64 + sec_x*8
         moveq   #0, d0
         move.b  d1, d0
-        lsl.w   #6, d0
+        move.w  d0, d2
+        lsl.w   #6, d0                             ; sec_x × 64
+        lsl.w   #3, d2                             ; sec_x × 8
+        add.w   d2, d0                             ; sec_x × 72 = Sec_len
         adda.w  d0, a1                             ; a1 → Sec struct for this section
         movea.l a1, a0
         rts
