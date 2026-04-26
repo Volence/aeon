@@ -25,6 +25,7 @@ from tools.s4lint import (
     _is_dreg, _is_areg, _is_memory_operand, _parse_immediate,
     lint_file,
     main as s4lint_main,
+    DIAGNOSTIC_SEVERITY,
 )
 
 
@@ -2317,7 +2318,7 @@ class TestSummaryFooter(unittest.TestCase):
         """--no-warnings suppresses warning counts in summary."""
         _, stderr = self._run_lint(
             "; header\nvdp_init:\n    rts\n",
-            extra_args=["--no-warnings"],
+            extra_args=["--no-warnings", "--skip=W006,W018"],
         )
         self.assertIn("no issues found", stderr)
 
@@ -2336,6 +2337,62 @@ class TestSummaryFooter(unittest.TestCase):
         self.assertIn("error", summary_line)
         self.assertNotIn("warning", summary_line)
         self.assertEqual(code, 1)
+
+
+class TestSeverityClassification(unittest.TestCase):
+
+    def _lint(self, content, extra_args=None):
+        """Write content to temp file, run lint, return diagnostics list."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
+            f.write(content)
+            f.flush()
+            fname = f.name
+        try:
+            ctx = lint_file(fname, {
+                "no_warnings": False,
+                "warnings_as_errors": False,
+                "no_suggestions": False,
+            }, os.path.dirname(fname))
+            return ctx.diagnostics
+        finally:
+            os.unlink(fname)
+
+    def test_w005_is_suggestion(self):
+        """W005 (branch should use .s) should have severity 'suggestion'."""
+        diags = self._lint("; header\n; ---\nMyRoutine:\n    bne.w .foo\n.foo:\n    rts\n")
+        w005 = [d for d in diags if d.code == "W005"]
+        self.assertTrue(len(w005) > 0, "Expected at least one W005")
+        self.assertEqual(w005[0].severity, "suggestion")
+
+    def test_w006_is_suggestion(self):
+        """W006 (missing header comment) should have severity 'suggestion'."""
+        diags = self._lint("; header\nMyRoutine:\n    rts\n")
+        w006 = [d for d in diags if d.code == "W006"]
+        self.assertTrue(len(w006) > 0, "Expected at least one W006")
+        self.assertEqual(w006[0].severity, "suggestion")
+
+    def test_w010_is_suggestion(self):
+        """W010 (indexed addressing in loop) should have severity 'suggestion'."""
+        diags = self._lint(
+            "; header\n; ---\nMyRoutine:\n"
+            ".loop:\n    move.w (a0,d0.w), d1\n    dbf d2, .loop\n    rts\n"
+        )
+        w010 = [d for d in diags if d.code == "W010"]
+        self.assertTrue(len(w010) > 0, "Expected at least one W010")
+        self.assertEqual(w010[0].severity, "suggestion")
+
+    def test_w001_stays_warning(self):
+        """W001 (clr on memory) should remain severity 'warning'."""
+        diags = self._lint("; header\n; ---\nMyRoutine:\n    clr.w (a0)\n    rts\n")
+        w001 = [d for d in diags if d.code == "W001"]
+        self.assertTrue(len(w001) > 0, "Expected at least one W001")
+        self.assertEqual(w001[0].severity, "warning")
+
+    def test_severity_dict_has_four_entries(self):
+        """DIAGNOSTIC_SEVERITY should classify exactly W005, W006, W010, W018."""
+        self.assertEqual(set(DIAGNOSTIC_SEVERITY.keys()), {"W005", "W006", "W010", "W018"})
+        for code in DIAGNOSTIC_SEVERITY:
+            self.assertEqual(DIAGNOSTIC_SEVERITY[code], "suggestion")
 
 
 if __name__ == "__main__":

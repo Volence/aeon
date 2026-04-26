@@ -62,6 +62,13 @@ DIAGNOSTIC_LABELS: Dict[str, str] = {
     "W019": "file missing header comment",
 }
 
+DIAGNOSTIC_SEVERITY: Dict[str, str] = {
+    "W005": "suggestion",
+    "W006": "suggestion",
+    "W010": "suggestion",
+    "W018": "suggestion",
+}
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -457,7 +464,8 @@ class LintContext:
     # ------------------------------------------------------------------
 
     def emit(self, severity: str, code: str, line_num: int, message: str) -> None:
-        d = Diagnostic(self.filepath, line_num, severity, code, message)
+        effective = DIAGNOSTIC_SEVERITY.get(code, severity)
+        d = Diagnostic(self.filepath, line_num, effective, code, message)
         self.diagnostics.append(d)
 
     def error(self, code: str, line_num: int, message: str) -> None:
