@@ -420,6 +420,16 @@ def decompress_full_ojz_art(path: str) -> bytes:
     return bytes(out)
 
 
+def _ojz_grid_dimensions(sec_ids: list[str]) -> tuple[int, int]:
+    """Read OJZ act layout grid dimensions.
+
+    OJZ act 1 uses a flat horizontal layout. For now hard-coded to
+    (len(sec_ids), 1). Future acts with 2D grids should parse the
+    descriptor or pass dims explicitly.
+    """
+    return (len(sec_ids), 1)
+
+
 def collect_referenced_tiles(
     all_section_strips: dict,  # sec_id → list[list[int]]
     full_tile_blob: bytes,
@@ -589,16 +599,16 @@ def test_full_pipeline_runs():
         OUTPUT_DIR = td
         try:
             generate()
-            r1_path = os.path.join(td, "ojz_tiles_r1.bin")
-            r2_path = os.path.join(td, "ojz_tiles_r2.bin")
-            assert os.path.exists(r1_path), "region 1 pool not written"
-            assert os.path.exists(r2_path), "region 2 pool not written (even if empty)"
-            r1_size = os.path.getsize(r1_path)
-            r2_size = os.path.getsize(r2_path)
-            assert r1_size % 32 == 0, f"r1 size {r1_size} not a multiple of 32"
-            assert r2_size % 32 == 0, f"r2 size {r2_size} not a multiple of 32"
-            assert r1_size // 32 <= REGION1_TILE_CAPACITY
-            assert r2_size // 32 <= REGION2_TILE_CAPACITY
+            # A.3: per-section blobs (one per OJZ section)
+            import glob
+            sec_files = sorted(glob.glob(os.path.join(td, "sec*_tiles.bin")))
+            assert len(sec_files) > 0, "no per-section tile blobs written"
+            for f in sec_files:
+                size = os.path.getsize(f)
+                assert size % 32 == 0, f"{f} size {size} not a multiple of 32"
+                assert size <= REGION1_TILE_CAPACITY * 32
+            bases_path = os.path.join(td, "sec_vram_bases.asm")
+            assert os.path.exists(bases_path), "sec_vram_bases.asm not written"
         finally:
             OUTPUT_DIR = saved
     print(f"  [OK] test_full_pipeline_runs: deduped pool fits in 1536 tiles")
@@ -682,39 +692,52 @@ def generate(force_region1_cap=None):
             f"→ {len(strips)} strips"
         )
 
-    # ---- Pass 2: dedupe across all sections, pack into regions, emit pools ----
+    # ---- Pass 2: dedupe across all sections ----
     full_blob = decompress_full_ojz_art(OJZ_ART_PATH)
     sorted_indices, raw_tiles = collect_referenced_tiles(per_section_strips, full_blob)
     unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
 
-    region1_cap = REGION1_TILE_CAPACITY
-    if force_region1_cap is not None:
-        region1_cap = force_region1_cap
+    # src_idx → canonical_idx + flip_bits
+    src_to_canon: dict[int, tuple[int, int]] = {
+        src_idx: mapping[i]
+        for i, src_idx in enumerate(sorted_indices)
+    }
 
-    region2_start_slot = REGION2_VRAM_BASE // tile_dedupe.TILE_SIZE
-    regions = [(0, region1_cap), (region2_start_slot, REGION2_TILE_CAPACITY)]
-    slots = tile_dedupe.pack_regions(len(unique), regions)
+    # ---- Pass 3: per-section unique canonical-tile lists ----
+    sec_ids_in_order = list(per_section_strips.keys())
+    per_section_canon_tiles: list[list[int]] = []
+    for sec_id in sec_ids_in_order:
+        seen: set[int] = set()
+        ordered: list[int] = []
+        for col in per_section_strips[sec_id]:
+            for word in col:
+                src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
+                canon_idx, _ = src_to_canon.get(src_idx, (0, 0))
+                if canon_idx not in seen:
+                    seen.add(canon_idx)
+                    ordered.append(canon_idx)
+        per_section_canon_tiles.append(ordered)
 
-    # Build src_idx → (vram_tile_slot, flip_bits) lookup
-    src_to_slot: dict[int, tuple[int, int]] = {}
-    for i, src_idx in enumerate(sorted_indices):
-        canon_idx, flip_bits = mapping[i]
-        src_to_slot[src_idx] = (slots[canon_idx], flip_bits)
+    # ---- Pass 4: section adjacency + coloring + slot assignment ----
+    grid_w, grid_h = _ojz_grid_dimensions(sec_ids_in_order)
+    edges = tile_dedupe.compute_adjacency(grid_w, grid_h)
+    colors = tile_dedupe.color_sections(len(sec_ids_in_order), edges)
+    color_bases, section_slots = tile_dedupe.assign_section_slots(
+        per_section_canon_tiles, colors, region_start=0
+    )
 
-    # Partition unique tiles by region
-    r1_tiles = [unique[i] for i in range(len(unique)) if slots[i] < region2_start_slot]
-    r2_tiles = [unique[i] for i in range(len(unique)) if slots[i] >= region2_start_slot]
-
-    # ---- Pass 3: rewrite each section's strips and emit binaries ----
+    # ---- Pass 5: rewrite each section's strips using its own slot map ----
     total_strips = 0
     first_strips = None
-    for sec_id, strips in per_section_strips.items():
+    for s_idx, sec_id in enumerate(sec_ids_in_order):
+        slot_map = section_slots[s_idx]
         remapped_strips = []
-        for col in strips:
+        for col in per_section_strips[sec_id]:
             remapped_col = []
             for word in col:
                 src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
-                vram_slot, flip_bits = src_to_slot.get(src_idx, (0, 0))
+                canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
+                vram_slot = slot_map.get(canon_idx, 0)
                 remapped_col.append(
                     tile_dedupe.remap_nametable_word(word, vram_slot, flip_bits)
                 )
@@ -722,58 +745,53 @@ def generate(force_region1_cap=None):
 
         out_a = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
         write_strips_to_file(remapped_strips, out_a)
-
         out_b = os.path.join(out_dir, f"sec{sec_id}_strips_b.bin")
         with open(out_b, "wb") as f:
             f.write(bytes(len(remapped_strips) * STRIP_TILE_HEIGHT * 2))
-        print(f"  sec{sec_id}: emitted {len(remapped_strips)} strips → {out_a}")
-
         if first_strips is None:
             first_strips = remapped_strips
         total_strips += len(remapped_strips)
 
-    # ---- Emit deduped tile pools (one per region) ----
-    r1_out = os.path.join(out_dir, "ojz_tiles_r1.bin")
-    with open(r1_out, "wb") as f:
-        for tile in r1_tiles:
-            f.write(tile)
+    # ---- Pass 6: emit per-section tile-art blobs ----
+    for s_idx, sec_id in enumerate(sec_ids_in_order):
+        sec_tiles = per_section_canon_tiles[s_idx]
+        sec_out = os.path.join(out_dir, f"sec{sec_id}_tiles.bin")
+        with open(sec_out, "wb") as f:
+            for canon_idx in sec_tiles:
+                f.write(unique[canon_idx])
 
-    r2_out = os.path.join(out_dir, "ojz_tiles_r2.bin")
-    with open(r2_out, "wb") as f:
-        for tile in r2_tiles:
-            f.write(tile)
+    # ---- Pass 7: emit per-section VRAM-base constants for the act descriptor ----
+    bases_path = os.path.join(out_dir, "sec_vram_bases.asm")
+    with open(bases_path, "w") as f:
+        f.write("; Auto-generated by tools/ojz_strip_gen.py — DO NOT EDIT\n")
+        f.write("; Per-section VRAM byte destinations (color_base × 32 bytes/tile)\n")
+        for s_idx, sec_id in enumerate(sec_ids_in_order):
+            base_slot = color_bases[colors[s_idx]]
+            f.write(f"OJZ_Sec{sec_id}_Vram = {base_slot} * 32\n")
 
+    # ---- A.3 measurement ----
     raw_referenced = len(sorted_indices)
     deduped = len(unique)
     pct = (1.0 - deduped / raw_referenced) * 100 if raw_referenced else 0.0
     src_max = max(sorted_indices) if sorted_indices else 0
     src_min = min(sorted_indices) if sorted_indices else 0
     src_collisions = sum(1 for i in sorted_indices if i >= 1536)
-    r1_count = len(r1_tiles)
-    r2_count = len(r2_tiles)
-    r1_max_slot = max(
-        (slots[i] for i in range(len(unique)) if slots[i] < region2_start_slot),
-        default=-1,
-    )
-    r2_max_slot = max(
-        (slots[i] for i in range(len(unique)) if slots[i] >= region2_start_slot),
-        default=-1,
-    )
-    cap_label = (
-        f" (region1 force-capped at {region1_cap})"
-        if force_region1_cap is not None else ""
+    num_colors = max(colors) + 1 if colors else 0
+    max_simultaneous = sum(
+        max((len(per_section_canon_tiles[s]) for s in range(len(colors)) if colors[s] == c), default=0)
+        for c in range(num_colors)
     )
     print(
-        f"\n=== OJZ Act 1 — Phase A.2 measurement{cap_label} ===\n"
+        f"\n=== OJZ Act 1 — Phase A.3 measurement ===\n"
         f"  Source tile indices referenced: {raw_referenced} "
         f"(min={src_min}, max={src_max})\n"
         f"  Source indices ≥1536 (nametable collision risk): {src_collisions}\n"
         f"  Deduped (with flip canonicalization): {deduped} "
         f"({pct:.1f}% reduction)\n"
-        f"  Region 1: {r1_count} tiles (max slot {r1_max_slot}) → {r1_out}\n"
-        f"  Region 2: {r2_count} tiles (max slot {r2_max_slot}) → {r2_out}\n"
-        f"  R1 cap: {region1_cap}; R2 cap: {REGION2_TILE_CAPACITY}; "
-        f"total cap: {region1_cap + REGION2_TILE_CAPACITY}\n"
+        f"  Section adjacency: {grid_w}×{grid_h} grid, {len(edges)} edges\n"
+        f"  Chromatic number: {num_colors} (DSATUR greedy)\n"
+        f"  Max simultaneously-resident: {max_simultaneous} tiles\n"
+        f"  Color bases: {color_bases}\n"
     )
 
     # Copy palette file
