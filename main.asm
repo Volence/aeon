@@ -136,6 +136,7 @@ __BUDGET_OBJBANK:
 ; Data (outside object code bank — addressed directly, not via objroutine)
 ; -----------------------------------------------
 __BUDGET_DATA:
+    include "data/levels/ojz/act1/act_descriptor.asm"
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
     include "data/animations/particle_anims.asm"
