@@ -75,99 +75,132 @@ PALETTE_SHIFT = 13
 PRIORITY_BIT = 0x8000
 
 # ---------------------------------------------------------------------------
-# Kosinski decompressor (standard Sega Genesis variant)
-#
-# Descriptor word: 16-bit little-endian, read LSB-first (PopWhere::Low).
-# Bit=1  → literal byte
-# Bit=0, Bit=1 → long back-reference
-#   offset = 0x2000 - ((hi & 0xF8)<<5 | lo)
-#   count  = (hi & 7) + 2   if count >= 2 else read extended byte:
-#            ext+1; if 1 → end; if 2 → skip (no copy)
-# Bit=0, Bit=0 → short back-reference
-#   count  = 2 + 2*b3 + b4
-#   offset = 0x100 - next_byte
+# Kosinski decompressor — direct port of sonic_hack's KosDec
+# (code/engines/kosinski.asm). The earlier homegrown decoder had subtle
+# bit-order / displacement bugs that produced ~5x too much output and
+# ~50% spurious-empty blocks on real OJZ data. The fix is to mirror the
+# asm exactly: LUT bit-reversal of each descriptor byte + add.b reads.
 # ---------------------------------------------------------------------------
-KOSINSKI_WINDOW = 0x2000  # 8192-byte ring buffer
+
+# Bit-reversal LUT (KosDec_ByteMap) from kosinski.asm
+_BYTE_MAP = bytes([
+    0x00,0x80,0x40,0xC0,0x20,0xA0,0x60,0xE0,0x10,0x90,0x50,0xD0,0x30,0xB0,0x70,0xF0,
+    0x08,0x88,0x48,0xC8,0x28,0xA8,0x68,0xE8,0x18,0x98,0x58,0xD8,0x38,0xB8,0x78,0xF8,
+    0x04,0x84,0x44,0xC4,0x24,0xA4,0x64,0xE4,0x14,0x94,0x54,0xD4,0x34,0xB4,0x74,0xF4,
+    0x0C,0x8C,0x4C,0xCC,0x2C,0xAC,0x6C,0xEC,0x1C,0x9C,0x5C,0xDC,0x3C,0xBC,0x7C,0xFC,
+    0x02,0x82,0x42,0xC2,0x22,0xA2,0x62,0xE2,0x12,0x92,0x52,0xD2,0x32,0xB2,0x72,0xF2,
+    0x0A,0x8A,0x4A,0xCA,0x2A,0xAA,0x6A,0xEA,0x1A,0x9A,0x5A,0xDA,0x3A,0xBA,0x7A,0xFA,
+    0x06,0x86,0x46,0xC6,0x26,0xA6,0x66,0xE6,0x16,0x96,0x56,0xD6,0x36,0xB6,0x76,0xF6,
+    0x0E,0x8E,0x4E,0xCE,0x2E,0xAE,0x6E,0xEE,0x1E,0x9E,0x5E,0xDE,0x3E,0xBE,0x7E,0xFE,
+    0x01,0x81,0x41,0xC1,0x21,0xA1,0x61,0xE1,0x11,0x91,0x51,0xD1,0x31,0xB1,0x71,0xF1,
+    0x09,0x89,0x49,0xC9,0x29,0xA9,0x69,0xE9,0x19,0x99,0x59,0xD9,0x39,0xB9,0x79,0xF9,
+    0x05,0x85,0x45,0xC5,0x25,0xA5,0x65,0xE5,0x15,0x95,0x55,0xD5,0x35,0xB5,0x75,0xF5,
+    0x0D,0x8D,0x4D,0xCD,0x2D,0xAD,0x6D,0xED,0x1D,0x9D,0x5D,0xDD,0x3D,0xBD,0x7D,0xFD,
+    0x03,0x83,0x43,0xC3,0x23,0xA3,0x63,0xE3,0x13,0x93,0x53,0xD3,0x33,0xB3,0x73,0xF3,
+    0x0B,0x8B,0x4B,0xCB,0x2B,0xAB,0x6B,0xEB,0x1B,0x9B,0x5B,0xDB,0x3B,0xBB,0x7B,0xFB,
+    0x07,0x87,0x47,0xC7,0x27,0xA7,0x67,0xE7,0x17,0x97,0x57,0xD7,0x37,0xB7,0x77,0xF7,
+    0x0F,0x8F,0x4F,0xCF,0x2F,0xAF,0x6F,0xEF,0x1F,0x9F,0x5F,0xDF,0x3F,0xBF,0x7F,0xFF,
+])
 
 
 def kos_decompress(src: bytes, start: int = 0) -> tuple[bytes, int]:
-    """Decompress one Kosinski stream from src[start:]. Returns (data, end_pos)."""
-    ring = bytearray(KOSINSKI_WINDOW)
-    ring_pos = 0
-    result = bytearray()
+    """Decompress one Kosinski stream from src[start:]. Returns (data, end_pos).
+
+    Direct port of sonic_hack/code/engines/kosinski.asm KosDec.
+    Models d0/d1/d2/d3 register state from the asm.
+    """
     pos = start
+    out = bytearray()
 
-    desc_val = 0
-    desc_bits = 0
+    # Initial descriptor pair read (bit-reversed via LUT)
+    d0 = _BYTE_MAP[src[pos]]; pos += 1
+    d1 = _BYTE_MAP[src[pos]]; pos += 1
+    d2 = 7      # bits remaining in current d0
+    d3 = 0      # toggle: 0 = on lo, switch to hi next; -1 = on hi, refill next
 
-    def read_descriptor():
-        nonlocal pos, desc_val, desc_bits
-        lo = src[pos];  pos += 1
-        hi = src[pos];  pos += 1
-        desc_val = lo | (hi << 8)
-        desc_bits = 16
+    def run_bitstream():
+        """`_Kos_RunBitStream` — refill d0 if exhausted."""
+        nonlocal d0, d1, d2, d3, pos
+        if d2 > 0:
+            d2 -= 1
+            return
+        d2 = 7
+        d0 = d1
+        d3 = (~d3) & 0xFFFF  # not.w
+        if d3 != 0:
+            return  # used hi byte; will refill next
+        # Refill both bytes
+        d0 = _BYTE_MAP[src[pos]] if pos < len(src) else 0
+        pos += 1
+        d1 = _BYTE_MAP[src[pos]] if pos < len(src) else 0
+        pos += 1
 
-    def pop_bit() -> int:
-        nonlocal desc_val, desc_bits
-        if desc_bits == 0:
-            read_descriptor()
-        b = desc_val & 1
-        desc_val >>= 1
-        desc_bits -= 1
-        return b
-
-    def write_byte(b: int):
-        nonlocal ring_pos
-        ring[ring_pos & (KOSINSKI_WINDOW - 1)] = b
-        ring_pos += 1
-        result.append(b)
-
-    read_descriptor()
+    def read_bit() -> int:
+        """`_Kos_ReadBit` — `add.b d0, d0` returns the (post-LUT) MSB."""
+        nonlocal d0
+        carry = (d0 >> 7) & 1
+        d0 = (d0 << 1) & 0xFF
+        return carry
 
     while True:
-        if pos >= len(src):
-            break
-        try:
-            if pop_bit():
-                # Literal byte
-                write_byte(src[pos]);  pos += 1
+        bit = read_bit()
+        if bit:
+            # Code 1: uncompressed byte
+            run_bitstream()
+            out.append(src[pos]); pos += 1
+            continue
+
+        # Code 0: dictionary ref
+        run_bitstream()
+        bit = read_bit()
+        if bit:
+            # Code 01: long dict ref
+            run_bitstream()
+            d6 = src[pos]; pos += 1   # LLLLLLLL
+            d4 = src[pos]; pos += 1   # HHHHHCCC
+
+            # d5 = displacement word: build from d4<<5 | d6 with sign extension
+            d5w = ((0xFF00 | d4) << 5) & 0xFFFF
+            d5w = (d5w & 0xFF00) | d6
+            d5_signed = d5w - 0x10000 if (d5w & 0x8000) else d5w
+
+            count_bits = d4 & 7
+            if count_bits != 0:
+                n_bytes = count_bits + 2
             else:
-                if pop_bit():
-                    # Long back-reference
-                    if pos + 1 >= len(src):
-                        break
-                    lo = src[pos];  pos += 1
-                    hi = src[pos];  pos += 1
-                    offset = 0x2000 - (((hi & 0xF8) << 5) | lo)
-                    count  = hi & 7
-                    if count:
-                        count += 2
-                    else:
-                        if pos >= len(src):
-                            break
-                        ext = src[pos];  pos += 1
-                        count = ext + 1
-                        if count == 1:
-                            break           # end-of-stream
-                        if count == 2:
-                            continue        # skip, no copy
-                else:
-                    # Short back-reference
-                    b3 = pop_bit()
-                    b4 = pop_bit()
-                    count  = 2 + b3 * 2 + b4
-                    if pos >= len(src):
-                        break
-                    offset = 0x100 - src[pos];  pos += 1
+                if pos >= len(src):
+                    break
+                ext = src[pos]; pos += 1
+                if ext == 0:
+                    break        # end of stream
+                if ext == 1:
+                    continue     # skip, fetch new code
+                n_bytes = ext + 1
 
-                cp = ring_pos - offset
-                for _ in range(count):
-                    write_byte(ring[cp & (KOSINSKI_WINDOW - 1)])
-                    cp += 1
-        except IndexError:
-            break
+            # Copy n_bytes from (output_end + d5_signed) to output_end
+            base = len(out)
+            for i in range(n_bytes):
+                src_idx = base + d5_signed + i
+                out.append(out[src_idx] if 0 <= src_idx < len(out) else 0)
+        else:
+            # Code 00: short dict ref (2..5 bytes)
+            run_bitstream()
+            bit_a = read_bit()
+            run_bitstream()
+            bit_b = read_bit()
+            count = (bit_a << 1) | bit_b
+            n_bytes = count + 2
 
-    return bytes(result), pos
+            run_bitstream()
+            d5_byte = src[pos]; pos += 1
+            d5_signed = d5_byte - 0x100  # always negative (one-byte back-ref)
+
+            base = len(out)
+            for i in range(n_bytes):
+                src_idx = base + d5_signed + i
+                out.append(out[src_idx] if 0 <= src_idx < len(out) else 0)
+
+    return bytes(out), pos
 
 
 # ---------------------------------------------------------------------------
@@ -477,15 +510,23 @@ def test_kos_decompress():
     assert len(decoded) > 0, "Block map decompressed to empty"
     # Decompressed data is floor-aligned to whole blocks
     num_blocks = len(decoded) // (WORDS_PER_BLOCK * 2)
-    assert num_blocks >= 1000, f"Expected >=1000 blocks, got {num_blocks}"
+    # Expect ~374 blocks for OJZ post-bugfix; old buggy decoder produced 2002.
+    assert 200 < num_blocks < 800, f"Expected 200-800 blocks, got {num_blocks}"
+    # Most blocks should be non-empty (correct decoder gives ~99% non-empty;
+    # buggy decoder gave ~50% non-empty due to garbage bytes).
+    nonempty = sum(1 for i in range(num_blocks)
+                   if any(decoded[i*8 + j] for j in range(8)))
+    assert nonempty / num_blocks > 0.9, (
+        f"Expected >90% non-empty blocks (correct Kosinski), got {nonempty}/{num_blocks}"
+    )
     print(f"  [OK] kos_decompress: {len(data)} bytes -> {len(decoded)} bytes, "
-          f"{num_blocks} blocks")
+          f"{num_blocks} blocks ({nonempty} non-empty)")
 
 
 def test_load_block_map():
     """Load block map and validate structure."""
     blocks = load_block_map(BLOCK_MAP_PATH)
-    assert len(blocks) > 1000, f"Expected >1000 blocks, got {len(blocks)}"
+    assert 200 < len(blocks) < 800, f"Expected 200-800 blocks, got {len(blocks)}"
     for i, blk in enumerate(blocks[:10]):
         assert len(blk) == WORDS_PER_BLOCK, (
             f"Block {i} has {len(blk)} words, expected {WORDS_PER_BLOCK}"
@@ -496,10 +537,11 @@ def test_load_block_map():
 def test_load_chunk_map():
     """Load chunk map and validate structure."""
     chunks = load_chunk_map(CHUNK_MAP_PATH)
-    assert len(chunks) >= 92, f"Expected >=92 chunks, got {len(chunks)}"
+    # Expect ~71 chunks post-bugfix; old buggy decoder gave 179.
+    assert 32 < len(chunks) < 128, f"Expected 32-128 chunks, got {len(chunks)}"
     for i, ch in enumerate(chunks[:5]):
         assert len(ch) == 64, f"Chunk {i} has {len(ch)} words, expected 64"
-    # All block IDs in stream 1 must fit in the block table (verified: 2002 blocks)
+    # All block IDs must fit in the block table.
     blocks = load_block_map(BLOCK_MAP_PATH)
     num_blocks = len(blocks)
     for ci, ch in enumerate(chunks):
