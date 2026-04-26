@@ -147,5 +147,43 @@ class TestRemapNametableWord(unittest.TestCase):
         self.assertEqual(new & 0x7FF, 7)
 
 
+class TestRoundTrip(unittest.TestCase):
+    def test_dedupe_remap_round_trip(self):
+        """Dedupe + remap a small tile + nametable set, expand back, byte-compare."""
+        t1 = _make_test_tile()
+        t2 = hflip_tile(t1)              # H-flipped duplicate of t1
+        t3 = bytes([0x55] * 32)          # palindromic — different
+        tiles = [t1, t2, t3]
+        # Nametable: tile 0 (no flip), tile 1 (no flip), tile 2 (no flip)
+        # palette=1, priority=0
+        words = [(1 << 13) | i for i in range(3)]
+
+        unique, mapping = dedupe_tiles(tiles)
+        new_words = [
+            remap_nametable_word(
+                w,
+                mapping[w & NAMETABLE_TILE_MASK][0],
+                mapping[w & NAMETABLE_TILE_MASK][1],
+            )
+            for w in words
+        ]
+
+        def reconstruct(word, pool):
+            idx = word & NAMETABLE_TILE_MASK
+            h = bool(word & NAMETABLE_H_BIT)
+            v = bool(word & NAMETABLE_V_BIT)
+            out = pool[idx]
+            if h:
+                out = hflip_tile(out)
+            if v:
+                out = vflip_tile(out)
+            return out
+
+        for original_idx, new_word in enumerate(new_words):
+            rebuilt = reconstruct(new_word, unique)
+            self.assertEqual(rebuilt, tiles[original_idx],
+                             f"round-trip mismatch at tile {original_idx}")
+
+
 if __name__ == "__main__":
     unittest.main()
