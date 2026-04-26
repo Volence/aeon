@@ -17,8 +17,10 @@ OJZ_Act1_Descriptor:
     dc.w    SLOT_ORIGIN_L + $4680   ; cam_max_x (approximate for 9 sections)
     dc.w    0                       ; cam_min_y
     dc.w    128                     ; cam_max_y
-    dc.l    OJZ_Tiles_S4LZ          ; tile_art_s4lz (deduped pool, S4LZ-compressed)
-    dc.w    $0000                   ; tile_art_vram (VRAM byte $0000 = tile slot 0)
+    dc.l    OJZ_Tiles_R1_S4LZ       ; tile_art_s4lz (region 1)
+    dc.w    $0000                   ; tile_art_vram (VRAM byte $0000)
+    dc.l    OJZ_Tiles_R2_S4LZ       ; tile_art_r2_s4lz (region 2; 4-byte placeholder if no spill)
+    dc.w    0                       ; pad
     align 2
 
 ; -----------------------------------------------
@@ -177,5 +179,6 @@ OJZ_Sec8_Strips_B: BINCLUDE "data/generated/ojz/act1/sec8_strips_b.bin"
 OJZ_Palette: BINCLUDE "data/generated/ojz/act1/ojz_palette.bin"
     align 2
 
-OJZ_Tiles_S4LZ: BINCLUDE "data/generated/ojz/act1/ojz_tiles.s4lz"
+OJZ_Tiles_R1_S4LZ: BINCLUDE "data/generated/ojz/act1/ojz_tiles_r1.s4lz"
+OJZ_Tiles_R2_S4LZ: BINCLUDE "data/generated/ojz/act1/ojz_tiles_r2.s4lz"
     align 2

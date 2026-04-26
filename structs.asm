@@ -146,10 +146,12 @@ cam_min_x           ds.w 1          ; $0E — camera X lower bound (pixels)
 cam_max_x           ds.w 1          ; $10 — camera X upper bound (pixels)
 cam_min_y           ds.w 1          ; $12 — camera Y lower bound (pixels)
 cam_max_y           ds.w 1          ; $14 — camera Y upper bound (pixels)
-tile_art_s4lz       ds.l 1          ; $16 — pointer to S4LZ-compressed FG tile pool (§2 A.1)
-tile_art_vram       ds.w 1          ; $1A — VRAM byte destination (tile-slot * 32)
+tile_art_s4lz       ds.l 1          ; $16 — pointer to S4LZ-compressed FG tile pool, region 1 (§2 A.1)
+tile_art_vram       ds.w 1          ; $1A — VRAM byte destination for region 1
+tile_art_r2_s4lz    ds.l 1          ; $1C — pointer to region-2 S4LZ pool (0 = no spill) (§2 A.2)
+                    ds.w 1          ; $20 — pad to align next long
 Act endstruct
 
-    if Act_len <> $1C
-      error "Act struct is \{Act_len} bytes, expected $1C"
+    if Act_len <> $22
+      error "Act struct is \{Act_len} bytes, expected $22"
     endif
