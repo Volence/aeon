@@ -1,13 +1,7 @@
-; OJZ horizontal scroll test state (§4 Phase 1)
+; OJZ horizontal scroll test state (§4 Phase 1, §2 A.1 wired)
 ; Drives camera directly via controller input (no player physics).
 ; Left/right pad: 6px/frame camera movement.
 ; Section teleport fires automatically at X thresholds.
-
-; Tile art DMA split: 322 tiles = 10304 bytes > NTSC budget (7200).
-; Load in two Critical DMA batches so each fits within one VBlank.
-OJZ_TILES_SIZE   = 322 * 32     ; 10304 bytes raw
-OJZ_TILES_BATCH1 = 160 * 32     ; 5120 bytes — first batch
-OJZ_TILES_BATCH2 = OJZ_TILES_SIZE - OJZ_TILES_BATCH1   ; 5184 bytes — second batch
 
 ; -----------------------------------------------
 ; GameState_OJZScroll_Init — one-shot setup
@@ -25,19 +19,9 @@ GameState_OJZScroll_Init:
         dbf     d0, .copy_pal
         move.b  #$0F, (Palette_Dirty).w
 
-        ; -- DMA tile art: batch 1 (tiles 0-159 → VRAM $0000) --
-        move.l  #OJZ_Tiles, d1
-        moveq   #0, d2
-        move.w  #OJZ_TILES_BATCH1, d3
-        jsr     QueueDMA_Critical
-        jsr     VSync_Wait
-
-        ; -- DMA tile art: batch 2 (tiles 160-321 → VRAM OJZ_TILES_BATCH1) --
-        move.l  #OJZ_Tiles+OJZ_TILES_BATCH1, d1
-        move.w  #OJZ_TILES_BATCH1, d2
-        move.w  #OJZ_TILES_BATCH2, d3
-        jsr     QueueDMA_Critical
-        jsr     VSync_Wait
+        ; -- load deduped FG tile pool via S4LZ → VRAM (display still off) --
+        lea     OJZ_Act1_Descriptor, a0
+        jsr     Level_LoadArt
 
         ; -- initialise camera first (Section_FillInitial reads Camera_X) --
         lea     OJZ_Act1_Descriptor, a0

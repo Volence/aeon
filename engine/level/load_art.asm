@@ -52,5 +52,4 @@ Level_LoadArt:
         moveq   #0, d0
         move.w  Act_tile_art_vram(a0), d0           ; d0.w = VRAM byte dest
         movea.l Act_tile_art_s4lz(a0), a0           ; a0 = compressed S4LZ source
-        bsr.w   LoadArt_S4LZ
-        rts
+        bra.w   LoadArt_S4LZ                        ; tail call
