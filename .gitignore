@@ -21,3 +21,4 @@
 *.s4lz
 *.tf
 __pycache__/
+.worktrees/
