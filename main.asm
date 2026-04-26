@@ -109,6 +109,8 @@ __BUDGET_ENGINE:
     include "engine/objects/load_object.asm"
     include "engine/level/plane_buffer.asm"
     include "engine/level/section.asm"
+    include "engine/level/camera.asm"
+    include "engine/level/hscroll.asm"
 
 ; -----------------------------------------------
 ; Object code bank
