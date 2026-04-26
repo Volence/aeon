@@ -13,6 +13,12 @@ Running tally as A.1 → A.5 ship. Each row is the same OJZ Act 1 build pass; co
 | A.4 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
 | A.5 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
 
+## A.2 spill path validated on synthetic stress
+
+OJZ act 1 doesn't naturally exceed 1536 tiles — the deduped pool is only 10 tiles. To confirm A.2's spill path works end-to-end, the build was run with `--force-region1-cap=5`, artificially capping region 1 at 5 tiles and forcing 5 tiles into region 2 ($F800-$F89F). Exodus screenshot of the forced-spill build is byte-identical to the default-build screenshot — proves the nametable remap correctly references both regions and the runtime loader DMAs to the right VRAM addresses.
+
+The forced-spill row's max remapped index of **1988** demonstrates the tile-index field successfully spans into region 2's slot range (1984+). That's the spec's promise (the 11-bit tile-index field can address the entire 2048-tile VRAM space), made real.
+
 ## Headline: A.1 closes the OJZ visibility deferred item
 
 The deferred-work entry "OJZ Tile Art Loading — Full Terrain Visibility" pointed at this exact bug: strips reference tile index **1856**, which lands inside Plane A's nametable at VRAM byte $C000 (= tile slot 1536). Loading "tiles 0-1856 linearly" clobbers the nametable.
