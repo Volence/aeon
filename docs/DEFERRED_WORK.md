@@ -122,9 +122,9 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **When ready:** When a gameplay object needs to react to another non-player object.
 
 ### W010 Loop Detection Refinement
-**Blocked by:** Phase 2 or when false positive volume becomes annoying
-**What:** W010 (indexed addressing in loops) currently triggers after ANY local label, not just actual `dbf`/`dbra` loop bodies. Should only flag indexed addressing between a local label and the `dbf` that references it.
-**When ready:** Phase 2 refinement, or when the false positive rate on W010 becomes disruptive.
+**Blocked by:** When suggestion-tier noise becomes annoying even with `--no-suggestions`
+**What:** W010 (indexed addressing in loops) currently triggers after ANY local label, not just actual `dbf`/`dbra` loop bodies. Should only flag indexed addressing between a local label and the `dbf` that references it. Phase 3 reclassified W010 as a suggestion (not warning), so the noise is lower-priority now.
+**When ready:** When the false positive rate is still disruptive even as a suggestion.
 
 ---
 
