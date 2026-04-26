@@ -68,3 +68,8 @@ echo "Build complete: ${ROM_NAME}.bin — ${ROM_SIZE} bytes (${ROM_KB} KB, ${ROM
 if [[ -f "${ROM_NAME}.lst" ]]; then
     python3 "${TOOLS}/s4budget.py" "${ROM_NAME}.lst" "${ROM_NAME}.bin" --summary || true
 fi
+
+# Update ctags symbol index
+if command -v ctags &>/dev/null; then
+    ctags -R .
+fi

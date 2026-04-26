@@ -18,6 +18,9 @@
 
 # MCP config (machine-specific)
 .mcp.json
+
+# ctags symbol index (generated)
+tags
 *.s4lz
 *.tf
 __pycache__/
