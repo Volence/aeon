@@ -195,8 +195,8 @@ Cold_Boot:
         move.l  #CROSS_RESET_MAGIC, (CROSS_RESET_MAGIC_ADDR).l
 
         ; Set initial game state
-        move.l  #GameState_ObjectTest_Init, (Game_State).w
-        move.b  #GS_OBJECT_TEST, (Game_State_ID).w
+        move.l  #GameState_OJZScroll_Init, (Game_State).w
+        move.b  #GS_OJZ_SCROLL_TEST, (Game_State_ID).w
         clr.b   (Game_State_Init).w
 
         ; Enter main loop — never returns

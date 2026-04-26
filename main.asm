@@ -156,6 +156,7 @@ Art_Sonic:
 ; Test game states
 ; -----------------------------------------------
     include "test/object_test_state.asm"
+    include "test/ojz_scroll_test.asm"
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)
