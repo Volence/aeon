@@ -267,11 +267,24 @@ Section_TeleportFwd:
 
         move.b  #4, (Section_Teleport_Guard).w
 
-        ; -- A.3: load new slot 1 section's tile art (blocking) --
+        ; -- A.4: clear FWD-preload flag so the next preload past the threshold can fire --
+        bclr    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
+
+        ; -- promote new slot 1 section's state to RESIDENT (DMA assumed drained).
+        ;    If state is still IDLE (preload didn't fire — cold camera write),
+        ;    fall back to blocking Section_LoadArt.
         moveq   #SLOT_RIGHT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 1
-        bra.w   Section_LoadArt                     ; tail call
+        moveq   #0, d6
+        move.b  (Slot_Section_Map+2).w, d6         ; slot 1 flat section_id
+        lea     (Section_Stream_State).w, a1
+        move.b  (a1, d6.w), d0
+        cmpi.b  #SS_IDLE, d0
+        beq.w   Section_LoadArt                     ; blocking fallback (tail call)
+        ; STREAMING or RESIDENT → just mark RESIDENT
+        move.b  #SS_RESIDENT, (a1, d6.w)
+        rts
 
 ; -----------------------------------------------
 ; Section_TeleportBwd — backward (leftward) teleport
@@ -300,11 +313,21 @@ Section_TeleportBwd:
 
         move.b  #4, (Section_Teleport_Guard).w
 
-        ; -- A.3: load new slot 0 section's tile art (blocking) --
+        ; -- A.4: clear BWD-preload flag --
+        bclr    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
+
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 0
-        bra.w   Section_LoadArt                     ; tail call
+        moveq   #0, d6
+        move.b  (Slot_Section_Map).w, d6           ; slot 0 flat section_id
+        lea     (Section_Stream_State).w, a1
+        move.b  (a1, d6.w), d0
+        cmpi.b  #SS_IDLE, d0
+        beq.w   Section_LoadArt                     ; blocking fallback (tail call)
+        ; STREAMING or RESIDENT → mark RESIDENT
+        move.b  #SS_RESIDENT, (a1, d6.w)
+        rts
 
 ; -----------------------------------------------
 ; Section_QueueNewSlot1Cols — queue slot 1 tile columns (nametable cols 32–63)
