@@ -1510,6 +1510,11 @@ def lint_file(filepath: str, options: dict, base_dir: str) -> LintContext:
 # CLI
 # ---------------------------------------------------------------------------
 
+def _effective_severity(code: str) -> str:
+    """Resolve effective severity for a diagnostic code."""
+    return DIAGNOSTIC_SEVERITY.get(code, "error" if code.startswith("E") else "warning")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="s4lint",
@@ -1529,7 +1534,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-warnings",
         action="store_true",
-        help="Suppress all warnings (only report errors).",
+        help="Suppress all warnings and suggestions (only report errors).",
+    )
+    p.add_argument(
+        "--no-suggestions",
+        action="store_true",
+        help="Suppress suggestions (only report errors and warnings).",
     )
     p.add_argument(
         "--only",
@@ -1567,6 +1577,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     options = {
         "warnings_as_errors": args.warnings_as_errors,
         "no_warnings": args.no_warnings,
+        "no_suggestions": args.no_suggestions,
         "only": only_codes,
         "skip": skip_codes,
     }
@@ -1606,9 +1617,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                 continue
             if diag.code in skip_codes:
                 continue
-            if options["no_warnings"] and diag.severity == "warning":
+            # --no-warnings suppresses both warnings and suggestions
+            if options["no_warnings"] and diag.severity in ("warning", "suggestion"):
                 continue
-            # Promote warnings → errors if requested
+            # --no-suggestions suppresses suggestions only
+            if options["no_suggestions"] and diag.severity == "suggestion":
+                continue
+            # Promote warnings → errors if requested (suggestions stay suggestions)
             if options["warnings_as_errors"] and diag.severity == "warning":
                 diag.severity = "error"
 
@@ -1624,14 +1639,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     warn_as_err = options["warnings_as_errors"]
     total_errors = sum(
         v for k, v in code_counts.items()
-        if k.startswith("E") or (warn_as_err and k.startswith("W"))
+        if _effective_severity(k) == "error"
+        or (warn_as_err and _effective_severity(k) == "warning")
     )
     total_warnings = sum(
         v for k, v in code_counts.items()
-        if k.startswith("W") and not warn_as_err
+        if _effective_severity(k) == "warning" and not warn_as_err
+    )
+    total_suggestions = sum(
+        v for k, v in code_counts.items()
+        if _effective_severity(k) == "suggestion"
     )
 
-    if total_errors == 0 and total_warnings == 0:
+    if total_errors == 0 and total_warnings == 0 and total_suggestions == 0:
         print("\ns4lint: no issues found", file=sys.stderr)
     else:
         parts = []
@@ -1639,6 +1659,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             parts.append(f"{total_errors} error{'s' if total_errors != 1 else ''}")
         if total_warnings:
             parts.append(f"{total_warnings} warning{'s' if total_warnings != 1 else ''}")
+        if total_suggestions:
+            parts.append(f"{total_suggestions} suggestion{'s' if total_suggestions != 1 else ''}")
         print(f"\ns4lint: {', '.join(parts)}", file=sys.stderr)
         for code in sorted(code_counts):
             label = DIAGNOSTIC_LABELS.get(code, "")

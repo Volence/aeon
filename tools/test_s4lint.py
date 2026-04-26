@@ -2395,5 +2395,80 @@ class TestSeverityClassification(unittest.TestCase):
             self.assertEqual(DIAGNOSTIC_SEVERITY[code], "suggestion")
 
 
+class TestSeverityOutput(unittest.TestCase):
+
+    def _run(self, content, extra_args=None):
+        """Write content to temp file, run main(), return (exit_code, stderr)."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
+            f.write(content)
+            f.flush()
+            fname = f.name
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf):
+                code = s4lint_main(["--no-follow-includes"] + (extra_args or []) + [fname])
+            return code, buf.getvalue()
+        finally:
+            os.unlink(fname)
+
+    def test_suggestion_line_format(self):
+        """Suggestion diagnostics print 'suggestion:' not 'warning:'."""
+        _, stderr = self._run("; header\n; ---\nMyRoutine:\n    bne.w .foo\n.foo:\n    rts\n")
+        w005_lines = [l for l in stderr.splitlines() if "W005" in l]
+        self.assertTrue(len(w005_lines) > 0)
+        self.assertIn("suggestion:", w005_lines[0])
+        self.assertNotIn("warning:", w005_lines[0])
+
+    def test_summary_three_tier(self):
+        """Summary shows separate suggestion count."""
+        _, stderr = self._run("; header\n; ---\nMyRoutine:\n    bne.w .foo\n.foo:\n    rts\n")
+        summary_line = [l for l in stderr.splitlines() if l.startswith("s4lint:")]
+        self.assertTrue(len(summary_line) > 0)
+        self.assertIn("suggestion", summary_line[0])
+
+    def test_no_suggestions_flag(self):
+        """--no-suggestions hides suggestions but shows warnings."""
+        _, stderr = self._run(
+            "; header\n; ---\nMyRoutine:\n    clr.w (a0)\n    bne.w .foo\n.foo:\n    rts\n",
+            extra_args=["--no-suggestions"],
+        )
+        self.assertNotIn("W005", stderr)
+        self.assertIn("W001", stderr)
+
+    def test_no_warnings_suppresses_suggestions_too(self):
+        """--no-warnings hides both warnings and suggestions."""
+        _, stderr = self._run(
+            "; header\n; ---\nMyRoutine:\n    clr.w (a0)\n    bne.w .foo\n.foo:\n    rts\n",
+            extra_args=["--no-warnings"],
+        )
+        self.assertNotIn("W005", stderr)
+        self.assertNotIn("W001", stderr)
+        self.assertIn("no issues found", stderr)
+
+    def test_suggestions_dont_affect_exit_code(self):
+        """Suggestions alone should not cause exit code 1."""
+        code, _ = self._run("; header\n; ---\nMyRoutine:\n    bne.w .foo\n.foo:\n    rts\n")
+        self.assertEqual(code, 0)
+
+    def test_warnings_as_errors_ignores_suggestions(self):
+        """--warnings-as-errors promotes warnings but not suggestions."""
+        code, stderr = self._run(
+            "; header\n; ---\nMyRoutine:\n    bne.w .foo\n.foo:\n    rts\n",
+            extra_args=["--warnings-as-errors"],
+        )
+        w005_lines = [l for l in stderr.splitlines() if "W005" in l]
+        self.assertTrue(len(w005_lines) > 0)
+        self.assertIn("suggestion:", w005_lines[0])
+        self.assertEqual(code, 0)
+
+    def test_summary_omits_zero_counts(self):
+        """Summary omits tiers with zero count."""
+        _, stderr = self._run(
+            "; header\n; ---\nClean:\n    rts\n",
+            extra_args=["--skip=W006,W018"],
+        )
+        self.assertIn("no issues found", stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
