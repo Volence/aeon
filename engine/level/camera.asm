@@ -65,13 +65,13 @@ Camera_Update:
         neg.w   d2
         cmp.w   d2, d3
         bge.s   .check_right
-        add.w   d2, d3                             ; overshoot amount
+        sub.w   d2, d3                             ; overshoot amount
         bra.s   .apply_x
 
 .check_right:
         neg.w   d2
         cmp.w   d2, d3
-        ble.s   .y_track
+        ble.s   .no_move
         sub.w   d2, d3
 
 .apply_x:
@@ -80,7 +80,8 @@ Camera_Update:
         lsl.l   #8, d3                             ; to 16.16 fixed (lsl.l #16 split for AS)
         add.l   d3, (Camera_X).w
 
-        ; clamp to act bounds
+.no_move:
+        ; clamp to act bounds (always run regardless of deadzone)
         movea.l (Current_Act_Ptr).w, a0
         move.l  (Camera_X).w, d0
         swap    d0
