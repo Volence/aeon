@@ -106,7 +106,7 @@ sec_entry_size:         equ $40
 - Scroll engine never converts chunks at runtime. New column = DMA one strip from ROM to the off-screen VDP plane columns.
 - **Dynamic override table** — 16 entries per section in RAM: `(column_index, tile_offset, new_tile_word)`. `Draw_TileColumn` checks table before DMA and patches overridden tiles. Handles breakable floors, mutable terrain. Cleared on section unload.
 - **Editor workflow:** Editor (SonLVL for now) saves per-section layout files in standard binary format (16×16 words = 512 bytes). Build tool reads these as input. Editor never knows strips exist.
-- **Future editor format:** one binary layout file (512 bytes, 16×16 word chunk indices) + one TOML sidecar per section for metadata (palette, music, flags, etc.). Build tool reads both; outputs generated ROM data to `data/generated/` (gitignored).
+- **Future editor format:** one binary layout file (512 bytes, 16×16 word chunk indices) + one JSON sidecar per section for metadata (palette, music, flags, etc.). Build tool reads both; outputs generated ROM data to `data/generated/` (gitignored).
 - **File organisation:** `data/levels/ojz/act1/sec_0_0.bin`, `sec_0_0.toml`, `sec_0_1.bin`, etc. One file pair per section cell.
 
 ### Deferred Plane Buffer
@@ -461,10 +461,10 @@ tools/
   collision_gen.py    ; chunk collision → flat byte arrays (any zone)
   ring_encode.py      ; raw ring X/Y pairs → pattern-encoded (any zone)
   object_encode.py    ; object layout → compact 4-byte + type tables
-  section_meta.py     ; TOML sidecar → 64-byte section struct include
+  section_meta.py     ; JSON sidecar → 64-byte section struct include
 ```
 
-`level_build.py <zone> <act>` discovers the zone's `data/levels/<zone>/act<n>/` directory, runs all passes, writes `data/generated/<zone>/act<n>/` includes. Adding a new zone = new source directory + TOML sidecars. No engine code touched.
+`level_build.py <zone> <act>` discovers the zone's `data/levels/<zone>/act<n>/` directory, runs all passes, writes `data/generated/<zone>/act<n>/` includes. Adding a new zone = new source directory + JSON sidecars. No engine code touched.
 
 ### Data Directory Layout (canonical)
 
