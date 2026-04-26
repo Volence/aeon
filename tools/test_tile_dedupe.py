@@ -185,5 +185,31 @@ class TestRoundTrip(unittest.TestCase):
                              f"round-trip mismatch at tile {original_idx}")
 
 
+class TestPackRegions(unittest.TestCase):
+    def test_packs_into_first_region_when_fits(self):
+        from tile_dedupe import pack_regions
+        slots = pack_regions(3, [(0, 1536), (1984, 64)])
+        self.assertEqual(slots, [0, 1, 2], "all 3 fit in region 0 starting at slot 0")
+
+    def test_spills_into_second_region_when_first_exhausted(self):
+        from tile_dedupe import pack_regions
+        slots = pack_regions(5, [(0, 3), (1984, 64)])
+        self.assertEqual(
+            slots,
+            [0, 1, 2, 1984, 1985],
+            "first 3 in region 0; remainder starts at region 1's base 1984",
+        )
+
+    def test_raises_on_total_overflow(self):
+        from tile_dedupe import pack_regions
+        with self.assertRaises(OverflowError):
+            pack_regions(10, [(0, 3), (1984, 2)])
+
+    def test_skips_zero_capacity_region(self):
+        from tile_dedupe import pack_regions
+        slots = pack_regions(2, [(0, 0), (1984, 64)])
+        self.assertEqual(slots, [1984, 1985])
+
+
 if __name__ == "__main__":
     unittest.main()

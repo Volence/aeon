@@ -105,3 +105,36 @@ def remap_nametable_word(word: int, canonical_index: int, canon_flip_bits: int) 
     if canon_flip_bits & 2:
         high ^= NAMETABLE_V_BIT
     return high | (canonical_index & NAMETABLE_TILE_MASK)
+
+
+# ---------------------------------------------------------------------------
+# Multi-region packing (§2 A.2)
+# ---------------------------------------------------------------------------
+
+def pack_regions(
+    unique_count: int,
+    regions: list[tuple[int, int]],
+) -> list[int]:
+    """Assign each canonical tile to a VRAM tile slot.
+
+    `regions` is a list of (start_tile_slot, capacity) tuples in fill order.
+    Returns a list of length `unique_count` where slots[i] is the VRAM
+    tile slot assigned to canonical tile i.
+
+    Raises OverflowError if total capacity is insufficient.
+    """
+    slots: list[int] = []
+    region_idx = 0
+    region_used = 0
+    for canon_idx in range(unique_count):
+        # Skip exhausted (or zero-capacity) regions
+        while region_idx < len(regions) and region_used >= regions[region_idx][1]:
+            region_idx += 1
+            region_used = 0
+        if region_idx >= len(regions):
+            raise OverflowError(
+                f"Tile pool exceeds region capacity at canonical tile {canon_idx}"
+            )
+        slots.append(regions[region_idx][0] + region_used)
+        region_used += 1
+    return slots
