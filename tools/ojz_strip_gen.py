@@ -8,7 +8,13 @@ Usage:
     python3 tools/ojz_strip_gen.py test      # run self-tests
     python3 tools/ojz_strip_gen.py generate  # generate strip data files
 
-Output: source/data/ojz_strips/section_N.bin for each OJZ section.
+Output: data/generated/ojz/act1/sec{N}_strips_a.bin for each OJZ section.
+        data/generated/ojz/act1/sec{N}_strips_b.bin (all-zeros plane B placeholder)
+        data/generated/ojz/act1/ojz_palette.bin (copied from sonic_hack)
+
+Each file contains ALL columns for section N concatenated sequentially:
+col 0 words, then col 1 words, ..., col W-1 words.
+Total size per file: num_columns * STRIP_TILE_HEIGHT * 2 bytes.
 
 Each strip covers STRIP_TILE_HEIGHT=32 rows (nametable rows 0-31 only;
 the sprite table lives at row 48 in the 64x64 Plane A nametable).
@@ -18,6 +24,7 @@ Each strip is a column of STRIP_TILE_HEIGHT big-endian nametable words.
 import struct
 import sys
 import os
+import shutil
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -28,7 +35,7 @@ CHUNK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/128x128/OJZ.bin")
 BLOCK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/16x16/OJZ.bin")
 
 OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "source", "data", "ojz_strips"
+    os.path.dirname(__file__), "..", "data", "generated", "ojz", "act1"
 )
 
 # ---------------------------------------------------------------------------
@@ -256,18 +263,55 @@ def chunk_get_tile_word(
     return blocks[block_id][word_idx]
 
 
+def build_strips_from_nametable(
+    nametable: list[list[int]],
+    strip_height: int,
+) -> list[list[int]]:
+    """Build column strips from a 2D nametable (list of rows, each row a list of ints).
+
+    Returns list[list[int]] — one list per column, each containing exactly
+    strip_height word values (rows 0..strip_height-1).  Rows beyond strip_height
+    are ignored; missing rows are filled with 0.
+    """
+    if not nametable:
+        return []
+    n_cols = len(nametable[0])
+    strips = []
+    for col in range(n_cols):
+        words = []
+        for row in range(strip_height):
+            if row < len(nametable) and col < len(nametable[row]):
+                words.append(nametable[row][col])
+            else:
+                words.append(0)
+        strips.append(words)
+    return strips
+
+
+def write_strips_to_file(strips: list[list[int]], path: str) -> None:
+    """Write all column strips concatenated into a single binary file.
+
+    Format: col 0 words (STRIP_TILE_HEIGHT big-endian uint16s), then col 1, ...
+    Total size: len(strips) * STRIP_TILE_HEIGHT * 2 bytes.
+    """
+    with open(path, "wb") as f:
+        for strip in strips:
+            for word in strip:
+                f.write(struct.pack(">H", word))
+
+
 def generate_section_strips(
     layout: list[list[int]],
     chunks: list[list[int]],
     blocks: list[list[int]],
-) -> list[bytes]:
-    """Generate one binary strip per layout column.
+) -> list[list[int]]:
+    """Generate one strip (list of ints) per layout tile-column.
 
-    Each strip is STRIP_TILE_HEIGHT big-endian words = rows 0-31 of the
-    nametable column.  A layout row is TILES_PER_CHUNK_COL=16 nametable rows
-    tall, so STRIP_TILE_HEIGHT=32 rows covers exactly 2 layout rows (chunks).
+    Each strip is STRIP_TILE_HEIGHT words = rows 0-31 of the nametable column.
+    A layout row is TILES_PER_CHUNK_COL=16 nametable rows tall, so
+    STRIP_TILE_HEIGHT=32 rows covers exactly 2 layout rows (chunks).
 
-    Returns list of bytes objects (one per strip/column).
+    Returns list[list[int]] — one list per column, each STRIP_TILE_HEIGHT long.
     """
     if not layout:
         return []
@@ -280,19 +324,18 @@ def generate_section_strips(
     # We clamp to STRIP_TILE_HEIGHT
     strip_rows = min(STRIP_TILE_HEIGHT, total_tile_rows)
 
-    # One strip per chunk-column, each strip-column is TILES_PER_CHUNK_ROW wide
-    # but we produce one strip per *tile column* (nametable column)
+    # One strip per *tile column* (nametable column)
     total_tile_cols = width_chunks * TILES_PER_CHUNK_ROW
 
-    strips = []
-    for tile_col in range(total_tile_cols):
-        chunk_col = tile_col // TILES_PER_CHUNK_ROW
-        sub_tile_col = tile_col % TILES_PER_CHUNK_ROW
-
-        strip_words = bytearray()
-        for tile_row in range(strip_rows):
-            chunk_row = tile_row // TILES_PER_CHUNK_COL
-            sub_tile_row = tile_row % TILES_PER_CHUNK_COL
+    # Build a flat 2D nametable: nametable[tile_row][tile_col] = word
+    nametable = []
+    for tile_row in range(strip_rows):
+        chunk_row = tile_row // TILES_PER_CHUNK_COL
+        sub_tile_row = tile_row % TILES_PER_CHUNK_COL
+        row_words = []
+        for tile_col in range(total_tile_cols):
+            chunk_col = tile_col // TILES_PER_CHUNK_ROW
+            sub_tile_col = tile_col % TILES_PER_CHUNK_ROW
 
             if chunk_col >= width_chunks or chunk_row >= height_chunks:
                 word = 0
@@ -304,16 +347,10 @@ def generate_section_strips(
                     word = chunk_get_tile_word(
                         chunks[chunk_id], blocks, sub_tile_col, sub_tile_row
                     )
+            row_words.append(word)
+        nametable.append(row_words)
 
-            strip_words += struct.pack(">H", word)
-
-        # Pad to STRIP_TILE_HEIGHT if layout is shorter than 32 rows
-        while len(strip_words) < STRIP_TILE_HEIGHT * 2:
-            strip_words += b"\x00\x00"
-
-        strips.append(bytes(strip_words))
-
-    return strips
+    return build_strips_from_nametable(nametable, STRIP_TILE_HEIGHT)
 
 
 # ---------------------------------------------------------------------------
@@ -387,13 +424,50 @@ def test_generate_strips_sec0():
         f"Expected {expected_strips} strips, got {len(strips)}"
     )
     for i, s in enumerate(strips):
-        assert len(s) == STRIP_TILE_HEIGHT * 2, (
-            f"Strip {i}: {len(s)} bytes, expected {STRIP_TILE_HEIGHT * 2}"
+        assert len(s) == STRIP_TILE_HEIGHT, (
+            f"Strip {i}: {len(s)} words, expected {STRIP_TILE_HEIGHT}"
         )
     print(
         f"  [OK] generate_strips_sec0: {len(strips)} strips × "
         f"{STRIP_TILE_HEIGHT} words each"
     )
+
+
+def test_column_layout_correctness():
+    """Test A: column layout with synthetic data where cell = row*10 + col."""
+    nametable = [[r * 10 + c for c in range(4)] for r in range(STRIP_TILE_HEIGHT + 4)]
+    strips = build_strips_from_nametable(nametable, STRIP_TILE_HEIGHT)
+    assert len(strips) == 4, f"Expected 4 strips, got {len(strips)}"
+    assert strips[2][0] == 2,  f"col 2 row 0: expected 2, got {strips[2][0]}"
+    assert strips[2][3] == 32, f"col 2 row 3: expected 32, got {strips[2][3]}"
+    assert strips[0][STRIP_TILE_HEIGHT - 1] == (STRIP_TILE_HEIGHT - 1) * 10, \
+        "Last row of strip 0 wrong"
+    print("  PASS: column layout correctness")
+
+
+def test_explicit_truncation():
+    """Test B: strips must be exactly STRIP_TILE_HEIGHT rows (sprite table safety)."""
+    tall = [[c for c in range(8)] for r in range(64)]
+    tall_strips = build_strips_from_nametable(tall, STRIP_TILE_HEIGHT)
+    assert all(len(s) == STRIP_TILE_HEIGHT for s in tall_strips), \
+        "Strips must be exactly STRIP_TILE_HEIGHT rows (sprite table safety)"
+    print(f"  PASS: strips truncate at {STRIP_TILE_HEIGHT} (sprite table at row 48 safe)")
+
+
+def test_binary_round_trip():
+    """Test C: write strips to temp file, read back, verify first word and total size."""
+    import tempfile
+    test_strips = [[r + c * 100 for r in range(STRIP_TILE_HEIGHT)] for c in range(3)]
+    with tempfile.NamedTemporaryFile(suffix='.bin', delete=False) as tf:
+        tmp = tf.name
+    write_strips_to_file(test_strips, tmp)
+    data = open(tmp, 'rb').read()
+    assert len(data) == 3 * STRIP_TILE_HEIGHT * 2, f"Size mismatch: {len(data)}"
+    first_word = struct.unpack_from('>H', data, 0)[0]
+    assert first_word == test_strips[0][0], \
+        f"First word: expected {test_strips[0][0]}, got {first_word}"
+    os.unlink(tmp)
+    print("  PASS: binary round-trip")
 
 
 def run_tests():
@@ -404,6 +478,9 @@ def run_tests():
     test_load_chunk_map()
     test_load_layout()
     test_generate_strips_sec0()
+    test_column_layout_correctness()
+    test_explicit_truncation()
+    test_binary_round_trip()
     print("All tests passed")
 
 
@@ -415,6 +492,8 @@ def generate():
     """Generate strip data for all OJZ sections."""
     out_dir = os.path.normpath(OUTPUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
+
+    src_dir = SONIC_HACK
 
     print(f"Loading block map: {BLOCK_MAP_PATH}")
     blocks = load_block_map(BLOCK_MAP_PATH)
@@ -434,9 +513,10 @@ def generate():
         sys.exit(1)
 
     total_strips = 0
+    first_strips = None
     for sec_path in section_files:
         sec_name = os.path.basename(sec_path).replace(".bin", "")
-        sec_num = sec_name.split("sec")[1]
+        sec_id = sec_name.split("sec")[1]
 
         layout = load_layout(sec_path)
         if not layout:
@@ -444,43 +524,48 @@ def generate():
             continue
 
         strips = generate_section_strips(layout, chunks, blocks)
+        n_cols = len(strips)
 
-        # Write each strip as a separate file
-        sec_out_dir = os.path.join(out_dir, f"section_{sec_num}")
-        os.makedirs(sec_out_dir, exist_ok=True)
+        # Write all columns concatenated into a single plane A file
+        out_a = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
+        write_strips_to_file(strips, out_a)
 
-        for i, strip in enumerate(strips):
-            out_path = os.path.join(sec_out_dir, f"col_{i:04d}.bin")
-            with open(out_path, "wb") as f:
-                f.write(strip)
+        # Write plane B placeholder (all zeros, same size)
+        out_b = os.path.join(out_dir, f"sec{sec_id}_strips_b.bin")
+        with open(out_b, "wb") as f:
+            f.write(bytes(n_cols * STRIP_TILE_HEIGHT * 2))
+        print(f"  sec{sec_id}: plane B placeholder -> {out_b}")
 
-        total_strips += len(strips)
+        if first_strips is None:
+            first_strips = strips
+
+        total_strips += n_cols
         print(
             f"  {sec_name}: {len(layout)} rows × {len(layout[0])} chunks "
-            f"→ {len(strips)} strips written to {sec_out_dir}"
+            f"→ {n_cols} strips → {out_a}"
         )
+
+    # Copy palette file
+    pal_src  = os.path.join(src_dir, "art", "palettes", "OJZ.bin")
+    pal_dest = os.path.join(out_dir, "ojz_palette.bin")
+    shutil.copy(pal_src, pal_dest)
+    print(f"Copied palette -> {pal_dest}")
 
     print(f"Done. {total_strips} total strips written to {out_dir}")
 
     # Print a brief sanity summary for the first section's first strip
-    if section_files:
-        first_sec = load_layout(section_files[0])
-        if first_sec:
-            first_chunks = load_chunk_map(CHUNK_MAP_PATH)
-            first_blocks = load_block_map(BLOCK_MAP_PATH)
-            strips = generate_section_strips(first_sec, first_chunks, first_blocks)
-            if strips:
-                first_strip = strips[0]
-                print("\nFirst strip (section 0, column 0) — first 8 nametable words:")
-                for row in range(min(8, STRIP_TILE_HEIGHT)):
-                    w = struct.unpack_from(">H", first_strip, row * 2)[0]
-                    tile = w & TILE_INDEX_MASK
-                    pal  = (w >> PALETTE_SHIFT) & 3
-                    pri  = bool(w & PRIORITY_BIT)
-                    print(
-                        f"    row {row:2d}: 0x{w:04X}  "
-                        f"tile={tile:4d}  pal={pal}  pri={pri}"
-                    )
+    if first_strips:
+        first_strip = first_strips[0]
+        print("\nFirst strip (section 0, column 0) — first 8 nametable words:")
+        for row in range(min(8, STRIP_TILE_HEIGHT)):
+            w = first_strip[row]
+            tile = w & TILE_INDEX_MASK
+            pal  = (w >> PALETTE_SHIFT) & 3
+            pri  = bool(w & PRIORITY_BIT)
+            print(
+                f"    row {row:2d}: 0x{w:04X}  "
+                f"tile={tile:4d}  pal={pal}  pri={pri}"
+            )
 
 
 # ---------------------------------------------------------------------------
