@@ -121,10 +121,13 @@ Section_GetSlotDef:
         lea     (Slot_Section_Map).w, a0
         move.b  (a0, d0.w), d1                     ; d1.b = sec_x for this slot
         movea.l Act_sec_grid_ptr(a2), a1
-        ; sec_x × Sec_len ($40) = sec_x × 64 = sec_x << 6
+        ; sec_x × Sec_len ($48 = 72): compute as sec_x*64 + sec_x*8
         moveq   #0, d0
         move.b  d1, d0
-        lsl.w   #6, d0
+        move.w  d0, d2
+        lsl.w   #6, d0                             ; sec_x × 64
+        lsl.w   #3, d2                             ; sec_x × 8
+        add.w   d2, d0                             ; sec_x × 72 = Sec_len
         adda.w  d0, a1                             ; a1 → Sec struct for this section
         movea.l a1, a0
         rts
@@ -200,7 +203,12 @@ Section_TeleportFwd:
         move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
 
         move.b  #4, (Section_Teleport_Guard).w
-        rts
+
+        ; -- A.3: load new slot 1 section's tile art (blocking) --
+        moveq   #SLOT_RIGHT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 1
+        bra.w   Section_LoadArt                     ; tail call
 
 ; -----------------------------------------------
 ; Section_TeleportBwd — backward (leftward) teleport
@@ -228,7 +236,12 @@ Section_TeleportBwd:
         move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
 
         move.b  #4, (Section_Teleport_Guard).w
-        rts
+
+        ; -- A.3: load new slot 0 section's tile art (blocking) --
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 0
+        bra.w   Section_LoadArt                     ; tail call
 
 ; -----------------------------------------------
 ; Section_QueueNewSlot1Cols — queue slot 1 tile columns (nametable cols 32–63)

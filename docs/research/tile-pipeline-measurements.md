@@ -10,9 +10,19 @@ Running tally as A.1 → A.5 ship. Each row is the same OJZ Act 1 build pass; co
 | **A.1** | 48 | 14 (min=0, max=1856) | **1856** | **2** | **10** (28.6% reduction) | **9** | yes | 320 | **262** (ratio 0.819, tile-delta) | $0000-$013F (10 tiles) |
 | **A.2 default** | 48 | 14 | 1856 | 2 | 10 (28.6%) | 9 | yes (region 1) | r1=320; r2=0 | r1=262 (0.819); r2=4 (placeholder) | $0000-$013F (region 1 only; region 2 empty) |
 | A.2 forced spill (cap=5) | 48 | 14 | 1856 | 2 | 10 (28.6%) | **1988** | yes (split: r1=5, r2=5) | r1=160; r2=160 | r1=108 (0.675); r2=162 (1.012, S4LZ overhead exceeds compression on tiny non-redundant data) | $0000-$009F (r1) + $F800-$F89F (r2) |
-| A.3 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
+| **A.3** | 48 | 14 | 1856 | 2 | 10 (28.6%) | 19 (color 1 base + 9) | yes (2 colors) | per-section: 9 blobs ≤320 each | per-section: ~270 each (ratio 0.844) | $0000-$013F (color 0) + $0140-$027F (color 1) |
 | A.4 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
 | A.5 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
+
+## A.3 reorganizes around sections with graph coloring
+
+**A.3 reorganizes the same 10-tile deduped pool around per-section art groups, colored over the section adjacency graph.** Default OJZ has 16 sections in a horizontal chain (path graph), chromatic number 2 — sections alternate between color 0 and color 1. DSATUR greedy coloring assigns sec0/2/4/.../14 to color 1 (base 10) and sec1/3/.../15 to color 0 (base 0).
+
+**Counterintuitive result for OJZ:** Max simultaneously-resident = 20 tiles (vs A.1/A.2's flat 10). Reason: sections share many common tiles (tile 0 sky in every section), so each section's per-section blob includes tile 0 separately. Per-color VRAM range = max-section-tile-count = 10 for both colors; total = 20. Functionally equivalent (rendering matches default), but uses 2× VRAM byte capacity vs A.1's flat pool.
+
+**A.3's structural value is for big zones, not OJZ.** A.1 with a 10K-tile zone would fail (exceeds 1536-tile pool). A.3 loads at most max-color tiles per section transition, which scales with section complexity not zone size. For OJZ this is a slight regression in working-set; for any zone that exceeds the A.1/A.2 ceiling, A.3 is what makes it possible at all.
+
+**Verified end-to-end in Exodus:** Default rendering matches A.2 (clean black sky + cloud band). Forward teleport (Camera_X = $1200) updates slot map 0/1 → 1/2; Section_TeleportFwd's Section_LoadArt loads section 2's tiles into VRAM at color 1's base; rendering remains glitch-free. Backward teleport (Camera_X back to $0260) restores slot map 0/1; Section_TeleportBwd's Section_LoadArt reloads section 0's tiles at color 1's base; rendering returns to default state. Decomp_Buffer contents confirm Section_LoadArt fires on each transition.
 
 ## A.2 spill path validated on synthetic stress
 

@@ -36,22 +36,16 @@ fi
 echo "Generating OJZ section data..."
 python3 "${TOOLS}/ojz_strip_gen.py" generate
 
-echo "Compressing OJZ region 1 tile pool with S4LZ..."
-python3 "${TOOLS}/s4lz.py" compress --tile-delta \
-    data/generated/ojz/act1/ojz_tiles_r1.bin \
-    data/generated/ojz/act1/ojz_tiles_r1.s4lz
-
-# Region 2 only emits a non-empty blob when there's spill; compress only if non-empty.
-if [[ -s data/generated/ojz/act1/ojz_tiles_r2.bin ]]; then
-    echo "Compressing OJZ region 2 tile pool with S4LZ..."
-    python3 "${TOOLS}/s4lz.py" compress --tile-delta \
-        data/generated/ojz/act1/ojz_tiles_r2.bin \
-        data/generated/ojz/act1/ojz_tiles_r2.s4lz
-else
-    # No spill — write a 4-byte zero-length S4LZ stream so the BINCLUDE always exists.
-    # Header: uncompressed size = 0 (BE word), flags = 0, reserved = 0
-    printf '\x00\x00\x00\x00' > data/generated/ojz/act1/ojz_tiles_r2.s4lz
-fi
+echo "Compressing OJZ per-section tile blobs with S4LZ..."
+for sec_bin in data/generated/ojz/act1/sec*_tiles.bin; do
+    sec_s4lz="${sec_bin%.bin}.s4lz"
+    if [[ -s "$sec_bin" ]]; then
+        python3 "${TOOLS}/s4lz.py" compress --tile-delta "$sec_bin" "$sec_s4lz"
+    else
+        # Zero-length section — write a 4-byte zero-length S4LZ header.
+        printf '\x00\x00\x00\x00' > "$sec_s4lz"
+    fi
+done
 
 if [[ "${NO_LINT:-0}" == "0" ]]; then
     echo "Linting..."

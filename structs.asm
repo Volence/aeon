@@ -124,10 +124,13 @@ sec_layer_mask      ds.b 1          ; $3C — parallax layer enable (Phase 4)
 sec_camera_lookahead ds.b 1         ; $3D — lookahead pixels (0 = zone default)
 sec_deform_speed    ds.b 1          ; $3E — deformation rate (Phase 4)
 sec_transition_type ds.b 1          ; $3F — transition type (Phase 4)
+sec_tile_art_s4lz   ds.l 1          ; $40 — per-section S4LZ tile pool ptr (§2 A.3)
+sec_tile_art_vram   ds.w 1          ; $44 — VRAM byte dest (color base × 32)
+                    ds.w 1          ; $46 — pad
 Sec endstruct
 
-    if Sec_len <> $40
-      error "Sec struct is \{Sec_len} bytes, expected $40"
+    if Sec_len <> $48
+      error "Sec struct is \{Sec_len} bytes, expected $48"
     endif
 
 ; -----------------------------------------------
@@ -146,12 +149,8 @@ cam_min_x           ds.w 1          ; $0E — camera X lower bound (pixels)
 cam_max_x           ds.w 1          ; $10 — camera X upper bound (pixels)
 cam_min_y           ds.w 1          ; $12 — camera Y lower bound (pixels)
 cam_max_y           ds.w 1          ; $14 — camera Y upper bound (pixels)
-tile_art_s4lz       ds.l 1          ; $16 — pointer to S4LZ-compressed FG tile pool, region 1 (§2 A.1)
-tile_art_vram       ds.w 1          ; $1A — VRAM byte destination for region 1
-tile_art_r2_s4lz    ds.l 1          ; $1C — pointer to region-2 S4LZ pool (0 = no spill) (§2 A.2)
-                    ds.w 1          ; $20 — pad to align next long
 Act endstruct
 
-    if Act_len <> $22
-      error "Act struct is \{Act_len} bytes, expected $22"
+    if Act_len <> $16
+      error "Act struct is \{Act_len} bytes, expected $16"
     endif
