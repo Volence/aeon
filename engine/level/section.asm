@@ -155,11 +155,74 @@ Section_Check:
         move.l  (Camera_X).w, d0
         swap    d0                                 ; d0.w = camera X in pixels
 
+        ; -- preload triggers (§2 A.4) — fire BEFORE teleport thresholds --
+        cmpi.w  #SECTION_FWD_PRELOAD, d0
+        bge.s   .fwd_preload_check
+        cmpi.w  #SECTION_BWD_PRELOAD, d0
+        ble.s   .bwd_preload_check
+        bra.s   .threshold_check
+
+.fwd_preload_check:
+        btst    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
+        bne.s   .threshold_check
+        bsr.w   .preload_fwd
+        bset    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
+        bra.s   .threshold_check
+
+.bwd_preload_check:
+        btst    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
+        bne.s   .threshold_check
+        bsr.w   .preload_bwd
+        bset    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
+
+.threshold_check:
         cmpi.w  #SECTION_FWD_THRESHOLD, d0
         bge.s   .fwd_check
         cmpi.w  #SECTION_BWD_THRESHOLD, d0
         ble.s   .bwd_check
         rts
+
+.preload_fwd:
+        ; Section to forward = current slot 1's sec_x + 1 (clamped to grid_w).
+        movea.l (Current_Act_Ptr).w, a2
+        moveq   #0, d6
+        move.b  (Slot_Section_Map+2).w, d6         ; slot 1 sec_x (and section_id since 1-row)
+        addq.b  #1, d6
+        cmp.b   Act_grid_w+1(a2), d6
+        bge.s   .preload_skip
+        ; Compute Sec ptr for section_id d6.w
+        movea.l Act_sec_grid_ptr(a2), a4
+        moveq   #0, d0
+        move.b  d6, d0
+        move.w  d0, d1
+        lsl.w   #6, d0                             ; sec × 64
+        lsl.w   #3, d1                             ; sec × 8
+        add.w   d1, d0                             ; sec × 72 = Sec_len
+        adda.w  d0, a4                             ; a4 = Sec ptr
+        movea.l a4, a0                             ; a0 = Sec ptr (Section_StreamArtGroup convention)
+        bra.w   Section_StreamArtGroup
+.preload_skip:
+        rts
+
+.preload_bwd:
+        ; Section to backward = current slot 0's sec_x - 1 (clamped to 0).
+        movea.l (Current_Act_Ptr).w, a2
+        moveq   #0, d6
+        move.b  (Slot_Section_Map).w, d6           ; slot 0 sec_x
+        tst.b   d6
+        beq.s   .preload_skip                       ; already at section 0 → no BWD neighbour
+        subq.b  #1, d6
+        ; Compute Sec ptr for section_id d6.w
+        movea.l Act_sec_grid_ptr(a2), a4
+        moveq   #0, d0
+        move.b  d6, d0
+        move.w  d0, d1
+        lsl.w   #6, d0
+        lsl.w   #3, d1
+        add.w   d1, d0
+        adda.w  d0, a4
+        movea.l a4, a0
+        bra.w   Section_StreamArtGroup
 
 .bwd_check:
         ; skip BWD if slot 0 already at leftmost section (sec_x = 0)
