@@ -1808,15 +1808,15 @@ Each section in the 2D grid is fully self-describing — almost its own level:
 
 ```
 ; Section definition — 64 bytes per (X, Y) cell:
-    dc.l    sec_layout          ; +$00: layout data (or nametable strip pointer)
-    dc.l    sec_objects         ; +$04: object layout (4-byte entries + inline type table, see 4.9)
+    dc.l    sec_strips_a        ; +$00: pre-computed plane A nametable strips (ROM pointer)
+    dc.l    sec_objects         ; +$04: object layout (compact 4-byte entries, see 4.9)
     dc.l    sec_rings           ; +$08: ring layout (pattern-encoded, section-local coords, see 4.9)
     dc.l    sec_plc             ; +$0C: art PLC list (S4LZ format)
     dc.l    sec_pal             ; +$10: palette pointer — full 128-byte copy (0 = no change)
     dc.l    sec_scroll          ; +$14: parallax layer table (0 = keep current)
     dc.l    sec_raster_table    ; +$18: raster command table pointer (0 = keep current, see §7.2)
-    dc.l    sec_nametable_a     ; +$1C: pre-computed plane A strips (0 = use layout)
-    dc.l    sec_nametable_b     ; +$20: pre-computed plane B strips (0 = use layout)
+    dc.l    sec_strips_b        ; +$1C: pre-computed plane B nametable strips (ROM pointer)
+    dc.l    sec_reserved        ; +$20: reserved for future use
     dc.l    sec_pal_cycle       ; +$24: palette cycling script (0 = keep current)
     dc.l    sec_sound_bank      ; +$28: DAC sample bank pointer (0 = keep current)
     dc.l    sec_deform_table    ; +$2C: deformation table pointer (0 = zone default)
@@ -1924,7 +1924,7 @@ Foundation: S.C.E.'s `HScroll_Deform` deformation script, extended with TF4's la
 
 **Build tool generates collision maps:** The editor paints with tiles/blocks/chunks that have collision attributes. The build tool flattens each section's layout into the 128-column byte array, mapping each 16×16 cell to its collision type. Collision data is stored per-section in ROM alongside nametable strips.
 
-**ROM cost:** ~2-4 KB per section (128 columns × 16-32 rows × 1 byte). Comparable to the current chunk/block collision tables but with zero runtime conversion overhead.
+**ROM cost:** ~16 KB per section (128 columns × 128 rows × 1 byte). A 2048px section / 16px per block = 128 blocks per axis. For a 4×3 act grid (12 sections): ~192 KB — under 5% of a 4 MB ROM. Zero runtime conversion overhead in exchange for the storage cost.
 
 **Why flat array over hierarchical lookup:** A chunk→block→tile collision chain is 3 levels of indirection with potential cache misses. The flat array is a single indexed read. The build tool does the indirection once; runtime never does it again.
 
