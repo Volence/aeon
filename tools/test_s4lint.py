@@ -2381,6 +2381,13 @@ class TestSeverityClassification(unittest.TestCase):
         self.assertTrue(len(w010) > 0, "Expected at least one W010")
         self.assertEqual(w010[0].severity, "suggestion")
 
+    def test_w018_is_suggestion(self):
+        """W018 (routine too long) should have severity 'suggestion'."""
+        diags = self._lint("; header\n; ---\nLongRoutine:\n" + "    nop\n" * 101 + "    rts\n")
+        w018 = [d for d in diags if d.code == "W018"]
+        self.assertTrue(len(w018) > 0, "Expected at least one W018")
+        self.assertEqual(w018[0].severity, "suggestion")
+
     def test_w001_stays_warning(self):
         """W001 (clr on memory) should remain severity 'warning'."""
         diags = self._lint("; header\n; ---\nMyRoutine:\n    clr.w (a0)\n    rts\n")
