@@ -211,5 +211,94 @@ class TestPackRegions(unittest.TestCase):
         self.assertEqual(slots, [1984, 1985])
 
 
+class TestComputeAdjacency(unittest.TestCase):
+    def test_linear_chain(self):
+        from tile_dedupe import compute_adjacency
+        edges = compute_adjacency(4, 1)
+        self.assertEqual(set(edges), {(0, 1), (1, 2), (2, 3)})
+
+    def test_2x2_grid(self):
+        from tile_dedupe import compute_adjacency
+        # id 0 (0,0)  id 1 (1,0)
+        # id 2 (0,1)  id 3 (1,1)
+        # 4-neighbor: (0,1), (0,2), (1,3), (2,3)
+        edges = compute_adjacency(2, 2)
+        self.assertEqual(set(edges), {(0, 1), (0, 2), (1, 3), (2, 3)})
+
+    def test_single_section(self):
+        from tile_dedupe import compute_adjacency
+        edges = compute_adjacency(1, 1)
+        self.assertEqual(edges, [])
+
+    def test_3x1_grid(self):
+        from tile_dedupe import compute_adjacency
+        edges = compute_adjacency(3, 1)
+        self.assertEqual(set(edges), {(0, 1), (1, 2)})
+
+
+class TestColorSections(unittest.TestCase):
+    def test_path_graph_two_colors(self):
+        from tile_dedupe import color_sections
+        edges = [(0, 1), (1, 2), (2, 3)]
+        colors = color_sections(4, edges)
+        for a, b in edges:
+            self.assertNotEqual(colors[a], colors[b])
+        self.assertEqual(set(colors), {0, 1})
+
+    def test_single_section_color_zero(self):
+        from tile_dedupe import color_sections
+        colors = color_sections(1, [])
+        self.assertEqual(colors, [0])
+
+    def test_triangle_three_colors(self):
+        from tile_dedupe import color_sections
+        edges = [(0, 1), (1, 2), (0, 2)]
+        colors = color_sections(3, edges)
+        for a, b in edges:
+            self.assertNotEqual(colors[a], colors[b])
+        self.assertEqual(set(colors), {0, 1, 2})
+
+    def test_disconnected_graph_minimal_colors(self):
+        from tile_dedupe import color_sections
+        colors = color_sections(2, [])
+        self.assertEqual(colors, [0, 0])
+
+
+class TestAssignSectionSlots(unittest.TestCase):
+    def test_two_color_chain(self):
+        from tile_dedupe import assign_section_slots
+        per_section_tiles = [[0, 1, 2], [3], [4], [5, 6]]
+        colors = [0, 1, 0, 1]
+        color_bases, section_slots = assign_section_slots(
+            per_section_tiles, colors, region_start=0
+        )
+        self.assertEqual(color_bases, [0, 3])
+        self.assertEqual(section_slots[0], {0: 0, 1: 1, 2: 2})
+        self.assertEqual(section_slots[2], {4: 0})
+        self.assertEqual(section_slots[1], {3: 3})
+        self.assertEqual(section_slots[3], {5: 3, 6: 4})
+
+    def test_single_color_no_aliasing(self):
+        from tile_dedupe import assign_section_slots
+        per_section_tiles = [[0, 1], [2]]
+        colors = [0, 0]
+        color_bases, section_slots = assign_section_slots(
+            per_section_tiles, colors, region_start=0
+        )
+        self.assertEqual(color_bases, [0])
+        self.assertEqual(section_slots[0], {0: 0, 1: 1})
+        self.assertEqual(section_slots[1], {2: 0})
+
+    def test_region_start_offset(self):
+        from tile_dedupe import assign_section_slots
+        per_section_tiles = [[0]]
+        colors = [0]
+        color_bases, section_slots = assign_section_slots(
+            per_section_tiles, colors, region_start=100
+        )
+        self.assertEqual(color_bases, [100])
+        self.assertEqual(section_slots[0], {0: 100})
+
+
 if __name__ == "__main__":
     unittest.main()
