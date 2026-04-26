@@ -317,6 +317,43 @@ def chunk_get_tile_word(
     return blocks[block_id][word_idx]
 
 
+def emit_zone_bg_layout(
+    chunks: list[list[int]],
+    blocks: list[list[int]],
+    out_path: str,
+    sample_chunk_id: int = 0,
+) -> None:
+    """Emit a 64×32 raw nametable for the zone-wide Plane B background (§2 A.5 T1).
+
+    Plane B is 64 cells wide × 32 cells tall = 2048 nametable words = 4096 bytes.
+    Each chunk is 16 tiles × 16 tiles, so the chosen chunk tiles 4× horizontally
+    and 2× vertically to cover the plane.
+
+    The priority bit is stripped on every word so BG stays behind FG (Plane A).
+    Per-chunk flag bits (xflip/yflip/priority overrides) at chunk word bits[15:10]
+    are not applied — Phase 2 honours tile-level flags only, matching FG strips.
+    """
+    PLANE_W = 64
+    PLANE_H = 32
+
+    if sample_chunk_id >= len(chunks):
+        raise ValueError(f"sample_chunk_id {sample_chunk_id} out of range (have {len(chunks)} chunks)")
+    chunk = chunks[sample_chunk_id]
+
+    out = bytearray(PLANE_W * PLANE_H * 2)
+    for plane_row in range(PLANE_H):
+        tile_row_in_chunk = plane_row % TILES_PER_CHUNK_COL
+        for plane_col in range(PLANE_W):
+            tile_col_in_chunk = plane_col % TILES_PER_CHUNK_ROW
+            word = chunk_get_tile_word(chunk, blocks, tile_col_in_chunk, tile_row_in_chunk)
+            word &= ~PRIORITY_BIT  # BG stays low-priority
+            offset = (plane_row * PLANE_W + plane_col) * 2
+            struct.pack_into(">H", out, offset, word)
+
+    with open(out_path, "wb") as f:
+        f.write(out)
+
+
 def build_strips_from_nametable(
     nametable: list[list[int]],
     strip_height: int,
@@ -810,6 +847,11 @@ def generate(force_region1_cap=None):
         with open(sec_out, "wb") as f:
             for canon_idx in sec_tiles:
                 f.write(unique[canon_idx])
+
+    # ---- Pass 6b (§2 A.5 T1): emit zone-wide Plane B background layout ----
+    zone_bg_path = os.path.join(out_dir, "zone_bg.bin")
+    emit_zone_bg_layout(chunks, blocks, zone_bg_path)
+    print(f"Emitted zone BG layout: {zone_bg_path} ({os.path.getsize(zone_bg_path)} bytes)")
 
     # ---- Pass 7: emit per-section VRAM-base constants for the act descriptor ----
     bases_path = os.path.join(out_dir, "sec_vram_bases.asm")
