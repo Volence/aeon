@@ -122,9 +122,12 @@ VInt_DrawLevel:
 
         lea     (Plane_Buffer).w, a0
         lea     (VDP_DATA).l, a6
-        lea     VDP_CTRL-VDP_DATA(a6), a5          ; a5 = VDP_CTRL (register, no lint hit)
+        lea     VDP_CTRL-VDP_DATA(a6), a5          ; a5 = VDP_CTRL
 
 .next:
+        moveq   #0, d0                             ; clear high word: lsl.l later
+                                                   ; would otherwise let d0[31:16]
+                                                   ; garbage corrupt CD bits
         move.w  (a0)+, d0                          ; VRAM addr (0 = end)
         beq.s   .done
         move.w  (a0)+, d1                          ; flags | count

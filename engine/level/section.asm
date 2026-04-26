@@ -303,6 +303,14 @@ Section_UpdateColumns:
         bra.s   .right_loop
 .right_done:
         move.w  d5, (Section_Right_Col_Written).w
+        ; Right-stream advanced past Left+63: nametable wrapped, old left cols
+        ; were overwritten. Bump Left to keep within 64-col valid window.
+        move.w  d5, d3
+        subi.w  #63, d3                     ; d3 = Right - 63
+        cmp.w   (Section_Left_Col_Written).w, d3
+        ble.s   .left_clamp_skip
+        move.w  d3, (Section_Left_Col_Written).w
+.left_clamp_skip:
 
         ; -------- left side --------
         ; left_needed = Camera_X / 8  (screen left edge tile col)
@@ -340,6 +348,14 @@ Section_UpdateColumns:
         bra.s   .left_loop
 .left_done:
         move.w  d5, (Section_Left_Col_Written).w
+        ; Left-stream went below Right-63: nametable wrapped (the old right
+        ; nametable col now holds left col data). Pull Right back to match.
+        move.w  d5, d3
+        addi.w  #63, d3                     ; d3 = Left + 63
+        cmp.w   (Section_Right_Col_Written).w, d3
+        bge.s   .right_clamp_skip
+        move.w  d3, (Section_Right_Col_Written).w
+.right_clamp_skip:
 
         movem.l (sp)+, d2-d7/a0-a3
         rts
