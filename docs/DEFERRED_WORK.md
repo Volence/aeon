@@ -163,6 +163,13 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **What:** Tile_Override_Table (16 entries × 6 bytes) is allocated in RAM. Needs a writer (object sets col/row/new_tile) and a drain routine (VInt_DrawLevel emits row updates). Used for breakable tiles, activated switches, destroyed terrain.
 **When ready:** When a gameplay object needs to modify level geometry at runtime.
 
+### Section_FillInitial Column Drop-Out (§4.1 — partial render bug)
+**Blocked by:** none (independent bug; needs careful debugger trace)
+**Status (2026-04-26):** Diagnostic via `tools/synth_scroll_test_gen.py` reveals only ~5–7 of the 64 columns Section_FillInitial queues actually appear in the nametable after the 3 batches drain. Verified Plane_Buffer holds 22 well-formed entries after `.fill_batch1` (Plane_Buffer_Ptr = $05D8 = 22×68). Per-batch step trace shows VInt_DrawLevel correctly drains entries 0 and 1 (d1 counts down 15→-1 over 16 longwords each). Bug is somewhere between buffer drain and final VRAM state — possibly a VBlank/VInt_Lag interaction during the active DMA window, FIFO contention with the Critical-priority palette/tile DMAs running in the same VBlank, or a subtle `dbf` / autoincrement state issue we haven't pinned down. Direct VRAM writes from the test (with IRQs disabled) succeed. Section_FillInitial fails consistently across runs.
+**How to reproduce:** `python3 tools/synth_scroll_test_gen.py` then build/load. Each visible col should render a rainbow / blue / yellow / magenta / white-ruler column pattern. Most columns instead render as black sky.
+**Why deferred:** Phase 1 milestone is scroll INFRASTRUCTURE (column streaming, camera, HScroll, teleport, plane buffer producer/consumer). Those mechanisms are correct in code; the visible drop-out is in the integration of Plane_Buffer drain + Critical DMA + VBlank timing. Investigating it requires a longer debugger session and possibly a watchpoint-driven trace of every VDP_DATA write per drain.
+**When ready:** Spend a focused debug session with run_to_scanline + VRAM read instrumentation. Likely fixed by either (a) holding Critical DMA off until after VInt_DrawLevel completes, or (b) running Section_FillInitial entirely with VBlank IRQ masked and explicit `bsr.w VInt_DrawLevel` between batches.
+
 ### OJZ Tile Art Loading — Full Terrain Visibility (§4.1 integration test)
 **Blocked by:** §2 art pipeline with build-time tile graph coloring / fragmented VRAM remap
 **Status (2026-04-26):** Phase 1 currently loads tiles 0-321 (stream 0 of OJZ.bin, 10KB) and shows only the sky-level tiles at section 0 row 24-30. The actual OJZ ground terrain lives at layout rows 32-127 and references tile indices up to 1856 (~60KB raw across all 5 OJZ Kosinski streams).
