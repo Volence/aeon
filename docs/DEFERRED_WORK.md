@@ -183,6 +183,21 @@ These items were identified during §3 Phase 0 research but require a full SST f
 
 ---
 
+### Chunk/block parsing produces mostly-empty tiles (build tool)
+**Blocked by:** Investigation needed — root cause not yet known
+**Discovered:** 2026-04-26 during §2 A.4 visual verification (had been latent since §4 Phase 1; masked by misinterpretation of sparse-pixel rendering in A.1-A.3 verification)
+**Symptom:** `tools/ojz_strip_gen.py`'s chunk/block parsing pipeline produces strips where most cells reference the canonical empty tile, even though the source layout claims those cells are real terrain. Concretely:
+- 1010 of 2002 blocks in `mappings/16x16/OJZ.bin` parse as all-zero (50% empty)
+- Chunk 0x3f, a "ground" chunk per the layout, has block_entries referencing blocks 92, 128, 241, 784 — all of which are all-zero in our parsed table
+- Default OJZ post-dedupe has only 10 unique tiles for what visually should be a level with hundreds
+**Hypotheses to investigate:**
+1. Sonic 2's 128×128 chunk file may have multiple Kosinski streams (primary + secondary) that `load_chunk_map` is concatenating wrong, putting the wrong chunks at the indices we look up
+2. Block-ID extraction (`block_entry & 0x3FF`, 10-bit mask) may be missing higher bits if sonic_hack's custom OJZ uses a wider field
+3. Chunk indexing or the chunk-file's "stride" between streams may be misinterpreted
+**What works correctly:** Kosinski decompression itself (verified by checking decompressed byte count matches expected `block_count × 8`). The pipeline downstream of chunk/block parsing (dedupe, graph coloring, streaming) operates correctly on whatever data it receives — it's just receiving wrong data.
+**Why it matters:** Blocks A.1-A.5's visual verification. Until fixed, the OJZ scroll test renders mostly black regardless of which strip rows or sections are loaded. The §2 phase 2 milestone is *structurally* complete (state machines, dedupe, coloring, streaming all verified via RAM/state inspection) but cannot be visually demonstrated.
+**When ready:** Investigation should be the next priority after merging A.4. Likely needs: dump raw chunk-file bytes alongside sonic_hack's runtime chunk-table-loaded RAM after a level boot; cross-reference our parsed chunks against what the original engine sees.
+
 ## How to Use This Document
 
 When starting a new planning phase:
@@ -194,6 +209,14 @@ When starting a new planning phase:
 ---
 
 ## Done
+
+### §2 Phase 2 Layer A.4 — Per-Section Deferrable Streaming — 2026-04-26
+**Completed in:** §2 Phase 2 Layer A.4 (structural — visual verification blocked on upstream bug below)
+**What:** `Section_StreamArtGroup` (engine/level/load_art.asm) decompresses + queues Deferrable DMA for an upcoming section. `Section_Check` extended to fire the preload trigger ~1024 px before the FWD teleport threshold (and ~512 px before BWD). Per-section state machine in `Section_Stream_State` (16 bytes RAM): `SS_IDLE` → `SS_STREAMING` → `SS_RESIDENT`. Two streaming buffers (`STREAMING_BUFFER_A`/`B`, 4 KB each, carved from existing `Decomp_Buffer`) handle fast direction reversals via round-robin. `Section_TeleportFwd`/`Bwd` retain blocking `Section_LoadArt` as a fallback for IDLE-state sections. `Level_LoadArt` reads section IDs from the act descriptor (not `Slot_Section_Map`) so it can be called before `Section_Init`.
+**Verified structurally in Exodus:** `Section_Stream_State[0]=[1]=SS_RESIDENT` after Level_LoadArt; forward teleport advanced slot map 0/1 → 1/2 and Section_LoadArt fallback path fired correctly; backward teleport reversed cleanly.
+**Visual verification blocked:** the test viewport renders mostly black due to a pre-existing upstream chunk/block parsing bug — see "Chunk/block parsing produces mostly-empty tiles" below.
+**Closes the §4 Phase 1 deferred item:** "Section Preload with S4LZ Deferrable DMA" (the engine plumbing).
+**See:** `docs/research/section-streaming.md`, `docs/research/tile-pipeline-measurements.md`.
 
 ### §2 Phase 2 Layer A.3 — Build-time Graph Coloring — 2026-04-26
 **Completed in:** §2 Phase 2 Layer A.3
