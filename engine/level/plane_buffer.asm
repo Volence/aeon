@@ -46,6 +46,9 @@ Draw_TileColumn:
         move.l  (a1)+, (a2)+
         dbf     d3, .copy
 
+        ; -- write zero terminator (consumed by VInt_DrawLevel as end-of-buffer) --
+        move.w  #0, (a2)
+
         ; -- update buffer pointer --
         move.w  (Plane_Buffer_Ptr).w, d2
         addi.w  #4 + STRIP_TILE_HEIGHT*2, d2
@@ -94,6 +97,9 @@ Draw_TileRow:
         move.l  (a1)+, (a2)+
         dbf     d0, .copy
 
+        ; -- write zero terminator (consumed by VInt_DrawLevel as end-of-buffer) --
+        move.w  #0, (a2)
+
         ; -- update pointer --
         move.w  (Plane_Buffer_Ptr).w, d4
         add.w   d3, d4
@@ -135,14 +141,11 @@ VInt_DrawLevel:
 
 .write:
         ; -- reconstruct 32-bit VDP write command from 16-bit addr --
-        swap    d0
-        clr.w   d0
-        swap    d0
-        lsl.l   #2, d0
-        lsr.w   #2, d0
-        ori.w   #vdpComm(0,VRAM,WRITE) & $FFFF, d0
-        swap    d0
-        move.l  d0, (a5)                           ; send VDP write command
+        lsl.l   #2, d0                             ; shift addr bits for VDP encoding
+        addq.w  #1, d0                             ; VRAM WRITE lower CD bits = 1
+        ror.w   #2, d0                             ; rotate lower CD bits into position 15:14
+        swap    d0                                 ; d0 = 32-bit VDP WRITE command
+        move.l  d0, (a5)                           ; write to VDP_CTRL
 
         ; -- write d1+1 longwords --
 .drain:
