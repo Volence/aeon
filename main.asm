@@ -14,6 +14,7 @@ PAD_TO_POWER_OF_TWO     = 1
     include "constants.asm"
     include "structs.asm"
     include "macros.asm"
+    include "engine/parallax_macros.inc"
     include "ram.asm"
     include "debug/debugger.asm"
 

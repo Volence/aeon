@@ -70,3 +70,24 @@ S.C.E.'s simpler structure suffices for level-by-level fixed parallax (no transi
 **Conclusion:** Plan struct layout is sound. Proceed to implementation.
 
 ---
+
+## Task 2 — AS macro quirks discovered during implementation
+
+The plan's Task 2 implementation surfaced four AS Macro Assembler behaviors that aren't well documented and matter for future macro-heavy work:
+
+1. **Macro parameter names cannot contain underscores.** AS rejects `factor_a`, `LAYER_MASK`, etc. as parameter names with `error #1020: invalid symbol name`. Workaround: use camelCase (`layerMask`, `factA`, `factB`). The user-facing keyword form must match: `parallax_section layerMask=$1F, vFactorBg=3, ...`.
+2. **No `\` escape for parameter expansion.** AS substitutes bare parameter names directly — `\layerMask` is interpreted as the literal `\` followed by the substitution. Use `layerMask` (no backslash) to expand the parameter inside the macro body.
+3. **Substitution is token-aware on `_` boundaries.** A parameter named `top` with value `0` will replace the trailing token in identifiers like `parallax_section_last_top` → `parallax_section_last_0`. State-tracking variables MUST avoid containing the macro's parameter names as terminal tokens. Workaround: rename either the parameter or the state variable so they share no tokens. We renamed `parallax_section_last_top` → `pscLastCellY` and the param `top` → `cellY`.
+4. **`save`/`restore` does NOT preserve `*`.** It saves segment state (text/data/bss) only. To patch a placeholder byte at a saved position and resume:
+   ```asm
+   psStart := *           ; before emit
+   ; ... emit data including placeholder ...
+   psEnd := *             ; capture end before patching
+   org psStart            ; jump back
+   dc.b actualValue       ; patch placeholder
+   org psEnd              ; resume
+   ```
+
+These quirks apply to any future authoring-API macros (raster command tables, level descriptors, etc.). Add to the engine's macro authoring guide if/when one is written.
+
+---
