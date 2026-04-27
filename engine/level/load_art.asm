@@ -108,6 +108,10 @@ Level_LoadArt:
         move.b  #SS_RESIDENT, (a1, d6.w)
 
 .skip_slot1:
+        ; -- §2 A.5: blit zone-wide BG to Plane B nametable (T1) --
+        movea.l a4, a0                              ; a0 = act ptr
+        bsr.w   BG_Init
+
         movea.l (sp)+, a4                           ; restore caller's a4
         rts
 
