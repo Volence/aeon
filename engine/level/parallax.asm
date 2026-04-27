@@ -151,11 +151,20 @@ Parallax_Update:
         cmp.w   d7, d5
         blo.s   .band_loop
 
-        ; --- fill HScroll buffer (per-cell mode) ---
+        ; --- Step 4: fill HScroll buffer (mode auto-selected from config) ---
+        ;   mode_per_line if either H-deform table is non-NULL.
+        move.l  parallax_config_pcfg_deform_table_fg(a0), d0
+        or.l    parallax_config_pcfg_deform_table_bg(a0), d0
+        beq.s   .fill_per_cell
+        bsr.w   Parallax_Fill_PerLine
+        move.b  #0, (Hscroll_Dirty_Start).w
+        move.b  #(28*8)-1, (Hscroll_Dirty_End).w
+        bra.s   .fill_done
+.fill_per_cell:
         bsr.w   Parallax_Fill_PerCell
-
         move.b  #0, (Hscroll_Dirty_Start).w
         move.b  #27, (Hscroll_Dirty_End).w
+.fill_done:
 
         ; --- Step 5: compute Vscroll (whole-plane only; per-column in T12) ---
         ; (a0 still holds current_config from above)
@@ -259,6 +268,126 @@ Decode_Factor_B:
 .locked:
         moveq   #0, d2
         rts
+
+; ----------------------------------------------------------------------
+; Parallax_Fill_PerLine — emit 224 longwords with FG/BG deform sampling
+; In:  a0 = parallax_config*, d7 = band count
+; Out: Hscroll_Buffer filled (224 longwords); a0/d7 preserved
+; Clobbers: d0-d6, a1-a6
+;
+; Per band:
+;   1. Cache (current_a << 16) | current_b in a stack-saved word pair
+;   2. For each line in [band.top_cell*8, end_line):
+;        - reload base scroll (FG_a, BG_b)
+;        - if FG deform active: sample table, shift, add to FG word
+;        - if BG deform active: sample table, shift, add to BG word
+;        - pack + emit longword
+;   3. Advance to next band
+;
+; Deform-table indices wrap at 256 via byte arithmetic on the index register.
+; ----------------------------------------------------------------------
+Parallax_Fill_PerLine:
+        movem.l a0/d7, -(sp)                        ; preserve caller's config ptr + band count
+
+        lea     (Hscroll_Buffer).w, a4              ; output ptr
+        lea     parallax_config_len(a0), a1         ; band[0]
+        lea     (Parallax_Current_Scroll_A).w, a2
+        lea     (Parallax_Current_Scroll_B).w, a3
+        movea.l parallax_config_pcfg_deform_table_fg(a0), a5  ; NULL = no FG sampling
+        movea.l parallax_config_pcfg_deform_table_bg(a0), a6  ; NULL = no BG sampling
+
+        moveq   #0, d4                              ; current line index (0..223)
+        moveq   #0, d3                              ; band index (0..count-1)
+
+.next_band:
+        ; --- compute end_line for this band ---
+        addq.w  #1, d3                              ; d3 = band_index + 1
+        cmp.w   d7, d3
+        bhi.s   .last_band
+        moveq   #0, d5
+        move.b  band_entry_band_top_cell+band_entry_len(a1), d5
+        lsl.w   #3, d5                              ; end_line = next.top_cell × 8
+        bra.s   .have_end
+.last_band:
+        move.w  #224, d5                            ; last band ends at line 224
+.have_end:
+
+        ; --- per-band setup: phase index = (Phase_xx + band_phase + line) & $FF ---
+        ; Precompute (Phase_xx + band_phase) into d_idx_fg / d_idx_bg.
+        ; Then add line each iteration.
+        moveq   #0, d6                              ; d6.w = FG phase index base
+        cmpa.w  #0, a5
+        beq.s   .skip_fg_idx
+        move.w  (Parallax_Deform_Phase_FG).w, d6
+        add.b   band_entry_band_phase_offset(a1), d6
+.skip_fg_idx:
+
+        ; .line loop
+.line:
+        ; --- start with band's base scroll (in d0 = packed FG_high|BG_low) ---
+        move.w  (a2), d0                            ; FG (already negated)
+        swap    d0
+        move.w  (a3), d0                            ; BG
+
+        ; --- FG deform sampling ---
+        cmpa.w  #0, a5
+        beq.s   .skip_fg_sample
+        moveq   #15, d2
+        cmp.b   band_entry_band_deform_shift_a(a1), d2
+        beq.s   .skip_fg_sample
+        ; index = (d6 + line) & $FF
+        move.w  d6, d1
+        add.w   d4, d1
+        andi.w  #$FF, d1
+        move.b  (a5, d1.w), d2                      ; sample (signed byte)
+        ext.w   d2
+        moveq   #0, d1
+        move.b  band_entry_band_deform_shift_a(a1), d1
+        asr.w   d1, d2                              ; offset = sample >> deform_shift_a
+        ; Add offset to FG word (high half of d0)
+        swap    d0
+        add.w   d2, d0
+        swap    d0
+.skip_fg_sample:
+
+        ; --- BG deform sampling ---
+        cmpa.w  #0, a6
+        beq.s   .skip_bg_sample
+        moveq   #15, d2
+        cmp.b   band_entry_band_deform_shift_b(a1), d2
+        beq.s   .skip_bg_sample
+        ; index = (Phase_BG + band_phase + line) & $FF
+        ; Recompute base each line (BG path doesn't cache, simpler)
+        move.w  (Parallax_Deform_Phase_BG).w, d1
+        add.b   band_entry_band_phase_offset(a1), d1
+        add.w   d4, d1
+        andi.w  #$FF, d1
+        move.b  (a6, d1.w), d2
+        ext.w   d2
+        moveq   #0, d1
+        move.b  band_entry_band_deform_shift_b(a1), d1
+        asr.w   d1, d2                              ; offset
+        add.w   d2, d0                              ; add to BG word (low half)
+.skip_bg_sample:
+
+        ; --- emit packed longword ---
+        move.l  d0, (a4)+
+        addq.w  #1, d4
+        cmp.w   d5, d4
+        blo.w   .line
+
+        ; advance to next band
+        adda.l  #band_entry_len, a1
+        addq.l  #2, a2
+        addq.l  #2, a3
+        cmp.w   d7, d3
+        blo.w   .next_band
+
+        movem.l (sp)+, a0/d7
+        rts
+
+; ----------------------------------------------------------------------
+; Parallax_Fill_PerCell — emit 28 longwords from current_scroll arrays
 
 ; ----------------------------------------------------------------------
 ; Parallax_Fill_PerCell — emit 28 longwords from current_scroll arrays

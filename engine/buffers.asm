@@ -42,40 +42,47 @@ BuildStaticDMA:
         move.l  #dmaSource(Palette_Buffer), d1
         move.w  #dmaLength(32), d3
         move.l  #vdpComm(0, CRAM, DMA), d2
-        bsr.s   .build_entry
+        bsr.w   .build_entry
 
         ; Palette line 1: Palette_Buffer+$20 -> CRAM $0020, 32 bytes
         lea     (Static_Pal_Line1).w, a0
         move.l  #dmaSource(Palette_Buffer+$20), d1
         move.w  #dmaLength(32), d3
         move.l  #vdpComm($20, CRAM, DMA), d2
-        bsr.s   .build_entry
+        bsr.w   .build_entry
 
         ; Palette line 2: Palette_Buffer+$40 -> CRAM $0040, 32 bytes
         lea     (Static_Pal_Line2).w, a0
         move.l  #dmaSource(Palette_Buffer+$40), d1
         move.w  #dmaLength(32), d3
         move.l  #vdpComm($40, CRAM, DMA), d2
-        bsr.s   .build_entry
+        bsr.w   .build_entry
 
         ; Palette line 3: Palette_Buffer+$60 -> CRAM $0060, 32 bytes
         lea     (Static_Pal_Line3).w, a0
         move.l  #dmaSource(Palette_Buffer+$60), d1
         move.w  #dmaLength(32), d3
         move.l  #vdpComm($60, CRAM, DMA), d2
-        bsr.s   .build_entry
+        bsr.w   .build_entry
 
         ; Sprite table: Sprite_Table_Buffer -> VRAM $D800, 640 bytes
         lea     (Static_Sprite_DMA).w, a0
         move.l  #dmaSource(Sprite_Table_Buffer), d1
         move.w  #dmaLength(640), d3
         move.l  #vdpComm(VRAM_SPRITE_TABLE, VRAM, DMA), d2
-        bsr.s   .build_entry
+        bsr.w   .build_entry
 
         ; §4.6 HScroll cell mode: Hscroll_Buffer -> VRAM $DC00, 112 bytes
         lea     (Static_Hscroll_Cell).w, a0
         move.l  #dmaSource(Hscroll_Buffer), d1
         move.w  #dmaLength(112), d3
+        move.l  #vdpComm(VRAM_HSCROLL_TABLE, VRAM, DMA), d2
+        bsr.w   .build_entry
+
+        ; §4.6 HScroll line mode: Hscroll_Buffer -> VRAM $DC00, 896 bytes
+        lea     (Static_Hscroll_Line).w, a0
+        move.l  #dmaSource(Hscroll_Buffer), d1
+        move.w  #dmaLength(896), d3
         move.l  #vdpComm(VRAM_HSCROLL_TABLE, VRAM, DMA), d2
 
 .build_entry:
@@ -146,10 +153,16 @@ Enqueue_Dirty_Buffers:
         move.b  d0, (Sprite_Table_Dirty).w
 .no_spr:
         ; §4.6: enqueue HScroll DMA when a parallax_config is active
-        ; v1: always per-cell (112 bytes). T9 will switch per-mode.
+        ; Mode auto-selected: any H-deform table → per-line (896B), else per-cell (112B)
         movea.l (Parallax_Current_Config).w, a1
         cmpa.w  #0, a1
         beq.s   .no_hscroll
+        move.l  parallax_config_pcfg_deform_table_fg(a1), d0
+        or.l    parallax_config_pcfg_deform_table_bg(a1), d0
+        beq.s   .hs_cell
+        queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Hscroll_Line
+        bra.s   .no_hscroll
+.hs_cell:
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Hscroll_Cell
 .no_hscroll:
         rts
