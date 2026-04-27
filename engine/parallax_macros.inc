@@ -198,6 +198,85 @@ pscEndPos := *
     endm
 
 ; ----------------------------------------------------------------------
+; Deformation table generators (§4.6 T3)
+; All emit exactly 256 signed bytes for sampling at (frame*speed + line + phase) & $FF.
+; ----------------------------------------------------------------------
+
+; ----------------------------------------------------------------------
+; deform_table_sine — 256-byte signed sine wave
+; AS has built-in sin() returning a float; cast to int via expression.
+; AMPLITUDE: peak value 1..127
+; PERIOD:    samples per full cycle (must divide 256)
+; ----------------------------------------------------------------------
+deform_table_sine macro AMPLITUDE,PERIOD
+    if "AMPLITUDE" = ""
+        fatal "deform_table_sine: AMPLITUDE required"
+    endif
+    if "PERIOD" = ""
+        fatal "deform_table_sine: PERIOD required"
+    endif
+    if (256 # PERIOD) <> 0
+        fatal "deform_table_sine: PERIOD=\{PERIOD} must divide 256"
+    endif
+deform_sine_i set 0
+    rept 256
+        dc.b int(AMPLITUDE * sin(6.283185307179586 * deform_sine_i / PERIOD))
+deform_sine_i set deform_sine_i + 1
+    endr
+    endm
+
+; ----------------------------------------------------------------------
+; deform_table_triangle — 256-byte signed triangle wave
+; Pure integer math (no sin needed). Linear ramp -A → +A → -A per period.
+; ----------------------------------------------------------------------
+deform_table_triangle macro AMPLITUDE,PERIOD
+    if "AMPLITUDE" = ""
+        fatal "deform_table_triangle: AMPLITUDE required"
+    endif
+    if "PERIOD" = ""
+        fatal "deform_table_triangle: PERIOD required"
+    endif
+    if (256 # PERIOD) <> 0
+        fatal "deform_table_triangle: PERIOD=\{PERIOD} must divide 256"
+    endif
+deform_tri_i set 0
+    rept 256
+deform_tri_x := deform_tri_i # PERIOD
+        if deform_tri_x < (PERIOD/2)
+            dc.b ((deform_tri_x * AMPLITUDE * 4) / PERIOD) - AMPLITUDE
+        else
+            dc.b AMPLITUDE - (((deform_tri_x - PERIOD/2) * AMPLITUDE * 4) / PERIOD)
+        endif
+deform_tri_i set deform_tri_i + 1
+    endr
+    endm
+
+; ----------------------------------------------------------------------
+; v_column_perspective — 256-byte pseudo-3D floor ramp for per-column V-scroll
+; FOCAL: column index where offset is 0 (the "horizon" column)
+; MAX_OFFSET: peak offset at column 0 or 39 (whichever is further from focal)
+; First 40 entries are the actual column shape; remaining 216 mirror the last
+; (sentinel for animated indexing, harmless for static-shape sections).
+; ----------------------------------------------------------------------
+v_column_perspective macro FOCAL,maxOffset
+    if "FOCAL" = ""
+        fatal "v_column_perspective: FOCAL required"
+    endif
+    if "maxOffset" = ""
+        fatal "v_column_perspective: maxOffset required"
+    endif
+v_persp_i set 0
+    rept 256
+        if v_persp_i < 40
+            dc.b ((v_persp_i - FOCAL) * maxOffset) / 20
+        else
+            dc.b ((39 - FOCAL) * maxOffset) / 20
+        endif
+v_persp_i set v_persp_i + 1
+    endr
+    endm
+
+; ----------------------------------------------------------------------
 ; Self-test (gated by __PARALLAX_MACRO_SELFTEST__)
 ; ----------------------------------------------------------------------
     ifdef __PARALLAX_MACRO_SELFTEST__
@@ -213,5 +292,26 @@ ParallaxConfig_SelfTest:
     ; Expected: 28 (header) + 5 × 10 (bands) = 78 bytes
     if (* - ParallaxConfig_SelfTest) <> 78
         error "parallax_section selftest size mismatch: got \{*-ParallaxConfig_SelfTest}, expected 78"
+    endif
+
+DeformTable_SelfTest_Sine:
+    deform_table_sine AMPLITUDE=4, PERIOD=128
+DeformTable_SelfTest_Sine_End:
+    if (DeformTable_SelfTest_Sine_End - DeformTable_SelfTest_Sine) <> 256
+        error "deform_table_sine selftest: got \{DeformTable_SelfTest_Sine_End-DeformTable_SelfTest_Sine} bytes, expected 256"
+    endif
+
+DeformTable_SelfTest_Tri:
+    deform_table_triangle AMPLITUDE=8, PERIOD=64
+DeformTable_SelfTest_Tri_End:
+    if (DeformTable_SelfTest_Tri_End - DeformTable_SelfTest_Tri) <> 256
+        error "deform_table_triangle selftest: got \{DeformTable_SelfTest_Tri_End-DeformTable_SelfTest_Tri} bytes, expected 256"
+    endif
+
+DeformTable_SelfTest_Persp:
+    v_column_perspective FOCAL=20, maxOffset=12
+DeformTable_SelfTest_Persp_End:
+    if (DeformTable_SelfTest_Persp_End - DeformTable_SelfTest_Persp) <> 256
+        error "v_column_perspective selftest: got \{DeformTable_SelfTest_Persp_End-DeformTable_SelfTest_Persp} bytes, expected 256"
     endif
     endif
