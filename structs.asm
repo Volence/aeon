@@ -150,8 +150,9 @@ cam_max_x           ds.w 1          ; $10 — camera X upper bound (pixels)
 cam_min_y           ds.w 1          ; $12 — camera Y lower bound (pixels)
 cam_max_y           ds.w 1          ; $14 — camera Y upper bound (pixels)
 act_bg_layout       ds.l 1          ; $16 — zone-wide Plane B layout pointer (T1 default)
+act_bg_tiles        ds.l 1          ; $1A — zone-wide Plane B tile blob (raw, loaded into shared BG region)
 Act endstruct
 
-    if Act_len <> $1A
-      error "Act struct is \{Act_len} bytes, expected $1A"
+    if Act_len <> $1E
+      error "Act struct is \{Act_len} bytes, expected $1E"
     endif

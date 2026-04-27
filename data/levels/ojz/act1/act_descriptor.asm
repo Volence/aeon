@@ -20,7 +20,8 @@ OJZ_Act1_Descriptor:
     dc.w    SLOT_ORIGIN_L + $4680   ; cam_max_x (approximate for 9 sections)
     dc.w    0                       ; cam_min_y
     dc.w    128                     ; cam_max_y
-    dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG)
+    dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)
+    dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles  (§2 A.5 T1 shared BG tile blob)
     align 2
 
 ; -----------------------------------------------
@@ -187,8 +188,10 @@ OJZ_Sec8_Strips_A: BINCLUDE "data/generated/ojz/act1/sec8_strips_a.bin"
 OJZ_Palette: BINCLUDE "data/generated/ojz/act1/ojz_palette.bin"
     align 2
 
-; Zone-wide BG layout (§2 A.5 T1)
+; Zone-wide BG layout + shared BG tile blob (§2 A.5 T1)
 OJZ_Act1_BG_Layout: BINCLUDE "data/generated/ojz/act1/zone_bg.bin"
+    align 2
+OJZ_Act1_BG_Tiles:  BINCLUDE "data/generated/ojz/act1/bg_tiles.bin"
     align 2
 
 ; Per-section tile blobs (§2 A.3)
