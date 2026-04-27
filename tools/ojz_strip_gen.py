@@ -319,6 +319,10 @@ def load_bg_layout(path: str) -> list[list[int]]:
 # Strip generation
 # ---------------------------------------------------------------------------
 
+CHUNK_YFLIP_BIT = 0x0800   # bit 11 of chunk entry word — Y-flip whole block
+CHUNK_XFLIP_BIT = 0x0400   # bit 10 of chunk entry word — X-flip whole block
+
+
 def chunk_get_tile_word(
     chunk: list[int],
     blocks: list[list[int]],
@@ -329,6 +333,13 @@ def chunk_get_tile_word(
 
     tile_col and tile_row are in [0, TILES_PER_CHUNK_ROW).
     Within a chunk: 8×8 block grid, each block 2×2 tiles.
+
+    Chunk-level X/Y-flip flags (bits 10/11 of the chunk entry word) are
+    honoured — they swap the sub-tile within the block AND toggle the H/V
+    bits in the returned tile word. This matches sonic_hack's
+    ProcessAndWriteBlock (`btst #3,(a0)` for Y-flip, `btst #2,(a0)` for X-flip
+    in code/engines/scroll_camera.asm); without applying these, BG layouts
+    that rely on flipped chunks render with the wrong orientation.
     """
     block_col = tile_col // TILES_PER_BLOCK_ROW   # 0-7
     block_row = tile_row // TILES_PER_BLOCK_COL   # 0-7
@@ -336,10 +347,27 @@ def chunk_get_tile_word(
     block_id = block_entry & 0x3FF                # 10-bit mask (confirmed by scroll_camera.asm)
     if block_id >= len(blocks):
         return 0  # out-of-range → transparent tile
+
     sub_col = tile_col & 1  # 0 or 1 within block
     sub_row = tile_row & 1  # 0 or 1 within block
+
+    # Apply chunk-level X-flip: swap left/right tiles and toggle H-bit later
+    if block_entry & CHUNK_XFLIP_BIT:
+        sub_col ^= 1
+    # Apply chunk-level Y-flip: swap top/bottom tiles and toggle V-bit later
+    if block_entry & CHUNK_YFLIP_BIT:
+        sub_row ^= 1
+
     word_idx = sub_row * TILES_PER_BLOCK_ROW + sub_col
-    return blocks[block_id][word_idx]
+    word = blocks[block_id][word_idx]
+
+    # Toggle the tile's H/V bits to flip pixels within the tile
+    if block_entry & CHUNK_XFLIP_BIT:
+        word ^= tile_dedupe.NAMETABLE_H_BIT
+    if block_entry & CHUNK_YFLIP_BIT:
+        word ^= tile_dedupe.NAMETABLE_V_BIT
+
+    return word
 
 
 PLANE_B_W = 64       # Plane B cells horizontally
@@ -439,18 +467,16 @@ def emit_zone_bg_layout(
     to (BG_TILE_BASE_SLOT + canon_idx). The original H/V bits XOR canonicalization-
     flip-bits so visual orientation is preserved. Priority bit forced low.
 
-    Palette bits forced to 0: chunk-source words natively reference CRAM lines
-    {0, 2}. With the test scaffold loading OJZ_Palette starting at CRAM line 0,
-    palette bits 0 → CRAM line 0 = OJZ palette page 0 = sky/cloud colors —
-    matches the sonic_hack rendering of OJZ Plane B.
+    Palette bits flow through unchanged from each chunk-source tile word.
+    Cloud chunks reference palette 0 (= CRAM line 0 = BGND/SonicAndTails),
+    grass-band chunks reference palette 2 (= CRAM line 2 = OJZ page 1) — both
+    routes are valid in sonic_hack's runtime. Forcing every cell to a single
+    palette discards real per-cell colour information.
     """
     if len(bg_nametable_words) != PLANE_B_W * PLANE_B_H:
         raise ValueError(
             f"BG nametable has {len(bg_nametable_words)} words; expected {PLANE_B_W * PLANE_B_H}"
         )
-
-    BG_PALETTE_BITS = 0 << 13
-    PALETTE_MASK    = 0x6000
 
     out = bytearray(PLANE_B_W * PLANE_B_H * 2)
     for i, word in enumerate(bg_nametable_words):
@@ -458,8 +484,7 @@ def emit_zone_bg_layout(
         canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
         slot = BG_TILE_BASE_SLOT_PY + canon_idx
         remapped = tile_dedupe.remap_nametable_word(word, slot, flip_bits)
-        remapped &= ~PRIORITY_BIT
-        remapped = (remapped & ~PALETTE_MASK) | BG_PALETTE_BITS
+        remapped &= ~PRIORITY_BIT          # BG always low-priority
         struct.pack_into(">H", out, i * 2, remapped)
 
     with open(out_path, "wb") as f:
