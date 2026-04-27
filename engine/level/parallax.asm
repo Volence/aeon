@@ -120,6 +120,37 @@ Parallax_Update:
         move.b  #0, (Hscroll_Dirty_Start).w
         move.b  #27, (Hscroll_Dirty_End).w
 
+        ; --- Step 5: compute Vscroll (whole-plane only; per-column in T12) ---
+        ; (a0 still holds current_config from above)
+        move.l  parallax_config_pcfg_v_deform_table_bg(a0), d0
+        bne.s   .v_done                             ; per-column path lands in T12; fall through for now
+
+        ; -- whole-plane Vscroll --
+        ; FG: vscroll_a = camY (Plane A follows camera 1:1)
+        ; BG: target_b  = ((camY - v_center_y) >> v_factor_bg) + v_offset
+        ;     current_vscroll_bg += (target_b - current_vscroll_bg) >> PARALLAX_LERP_SHIFT
+        move.l  (Camera_Y).w, d0
+        swap    d0                                  ; d0.w = camY (signed pixels)
+        move.w  d0, d1                              ; d1.w = camY  (FG vscroll = camY)
+        sub.w   parallax_config_pcfg_v_center_y(a0), d0   ; d0 = camY - center_y
+        moveq   #0, d2
+        move.b  parallax_config_pcfg_v_factor_bg(a0), d2
+        asr.w   d2, d0                              ; d0 = delta >> v_factor_bg
+        add.w   parallax_config_pcfg_v_offset(a0), d0     ; d0 = target_b
+
+        move.w  (Parallax_Current_Vscroll_BG).w, d2
+        sub.w   d2, d0                              ; d0 = target - current
+        asr.w   #PARALLAX_LERP_SHIFT, d0
+        add.w   d0, d2                              ; d2 = new current_vscroll_bg
+        move.w  d2, (Parallax_Current_Vscroll_BG).w
+
+        ; pack: Vscroll_Factor = (FG << 16) | BG (both signed words)
+        swap    d1                                  ; FG in high half
+        move.w  d2, d1                              ; BG in low half
+        move.l  d1, (Vscroll_Factor).w
+
+.v_done:
+
 .no_config:
         rts
 

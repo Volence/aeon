@@ -110,12 +110,6 @@ GameState_OJZScroll_Update:
         ; -- per-column nametable streaming --
         jsr     Section_UpdateColumns
 
-        ; -- update HScroll buffer (§4.6 parallax) --
+        ; -- update HScroll buffer + Vscroll (§4.6 parallax) --
         jsr     Parallax_Update
-
-        ; -- update vertical scroll (Camera_Y -> Vscroll_Factor) --
-        move.l  (Camera_Y).w, d0
-        swap    d0
-        neg.w   d0
-        move.w  d0, (Vscroll_Factor+2).w
         rts
