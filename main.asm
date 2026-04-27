@@ -141,6 +141,7 @@ __BUDGET_OBJBANK:
 ; -----------------------------------------------
 __BUDGET_DATA:
     include "data/parallax/ojz_default.asm"
+    include "data/parallax/ojz_windy.asm"
     include "data/levels/ojz/act1/act_descriptor.asm"
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
