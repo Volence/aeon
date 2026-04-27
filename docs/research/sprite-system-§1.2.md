@@ -131,3 +131,20 @@ This matches sonic_hack's hybrid approach plus our existing scanline-band budget
 - d7 preserved (band-loop counter must survive).
 
 **Verified:** OJZ scroll test renders byte-identical to pre-refactor (10842 bytes both screenshots). ObjectTest shows sprites correctly emitting through new path. No regression.
+
+---
+
+## Task 7 — Multi-part test fixture baseline (2026-04-27)
+
+**Decision:** Reuse the existing `objects/test_parent.asm` (TestParent + TestChildPart) instead of creating a new `test_multipart.asm`. TestParent already spawns parent + 3 children at offsets via `CreateChild_Normal`, has children calling `Draw_Sprite` independently, and is wired into the ObjectTest scene. Plan said "build on existing test_parent.asm" — interpreted as "reuse" rather than "create alongside."
+
+**Baseline state (Task 7):**
+- Parent and children spawn correctly via Load_Object → TestParent init → CreateChild_Normal.
+- Each child's per-frame routine: `jmp Draw_Sprite` (independent registration, current code path).
+- Parent has `RF_COORDMODE` set but NOT `RF_MULTISPRITE` — children draw via existing band-registration path.
+- Visual: 3 small parents at top spawn 3 children each (9 child squares visible), Sonic at bottom-left, 8 stress emitters scattered.
+- Baseline screenshot saved at `test/multipart_baseline.png` (1740 bytes).
+
+**Task 8 will:** Add the Draw_Sprite child-skip guard + Render_Sprites sibling walk, then `bset #RF_MULTISPRITE` on the parent in TestParent's init, and verify identical visual output via screenshot diff.
+
+**Reference fixture patterns checked:** TestParent's existing structure mirrors S.C.E.'s child-creation patterns (data-driven descriptor table). No additional research needed for fixture design itself.
