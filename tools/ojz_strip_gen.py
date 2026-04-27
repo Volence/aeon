@@ -439,18 +439,17 @@ def emit_zone_bg_layout(
     to (BG_TILE_BASE_SLOT + canon_idx). The original H/V bits XOR canonicalization-
     flip-bits so visual orientation is preserved. Priority bit forced low.
 
-    Palette bits forced to 1: chunk-source words natively reference CRAM lines
-    {0, 2}, but our test scaffold loads OJZ_Palette into lines 1-3. Line 1 in
-    sonic_hack's labelling is the cloud/sky palette, so that's where BG content
-    looks correct under our load. (Loading the OJZ shared palette into CRAM
-    line 0 — and dropping this override — is tracked as deferred polish.)
+    Palette bits forced to 0: chunk-source words natively reference CRAM lines
+    {0, 2}. With the test scaffold loading OJZ_Palette starting at CRAM line 0,
+    palette bits 0 → CRAM line 0 = OJZ palette page 0 = sky/cloud colors —
+    matches the sonic_hack rendering of OJZ Plane B.
     """
     if len(bg_nametable_words) != PLANE_B_W * PLANE_B_H:
         raise ValueError(
             f"BG nametable has {len(bg_nametable_words)} words; expected {PLANE_B_W * PLANE_B_H}"
         )
 
-    BG_PALETTE_BITS = 1 << 13
+    BG_PALETTE_BITS = 0 << 13
     PALETTE_MASK    = 0x6000
 
     out = bytearray(PLANE_B_W * PLANE_B_H * 2)
