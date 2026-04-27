@@ -87,11 +87,18 @@ VInt_Lag:
 ; Clobbers: d0
 ; -----------------------------------------------
 VSync_Wait:
+        ; Clear any STALE VBlank_Flag first — VInt_Lag (which fires when
+        ; VBlank_Ready=0) sets VBlank_Flag, so a long pre-Wait operation
+        ; (e.g., S4LZ_Decompress) can leave the flag set from a previous
+        ; lag-frame VBlank. Without this clear, VSync_Wait returns
+        ; immediately and the queued Critical DMA never drains before the
+        ; CALLER overwrites the source buffer (Decomp_Buffer).
+        moveq   #0, d0
+        move.b  d0, (VBlank_Flag).w
         move.b  #1, (VBlank_Ready).w
 .wait:
         tst.b   (VBlank_Flag).w
         beq.s   .wait
-        moveq   #0, d0
         move.b  d0, (VBlank_Flag).w
     ifdef __DEBUG__
         move.w  d0, (DMA_Bytes_ThisFrame).w
