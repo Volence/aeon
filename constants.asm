@@ -162,6 +162,7 @@ RF_ONSCREEN             = 0         ; set by Draw_Sprite if visible
 RF_XFLIP                = 1         ; horizontal flip
 RF_YFLIP                = 2         ; vertical flip
 RF_COORDMODE            = 3         ; 0 = world coords, 1 = screen coords
+RF_MULTISPRITE          = 4         ; (parent only) batch render via sibling-chain walk
 
 ; status byte bits (SST_status)
 ; Bits 1-2 aligned with RF_XFLIP/RF_YFLIP for direct propagation.

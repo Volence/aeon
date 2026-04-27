@@ -36,3 +36,31 @@ The doc claim "links never rebuilt during gameplay" is **technically achievable*
 **Decision for Task 1:** Stick with the planned doc correction — change wording to match what our code does (rewrites links every piece + terminator at end), explain the wash. Don't refactor code to S.C.E. style; it would be a cycle-neutral architectural change outside this plan's scope.
 
 **Insight to surface in final summary:** A future cleanup task could swap our 4× `move.b d5, (a4)+` for 4× `addq.l #1, a4` plus update Init_SpriteTable as the source of truth — same cycles, cleaner mental model. Out-of-scope for §1.2 deferred-work closure but worth logging.
+
+---
+
+## Task 2 — Piece-count cache patterns (2026-04-27)
+
+**Question:** Do reference engines cache sprite-piece count in their object structure for predictive overflow checks? If so, where, what size, when populated?
+
+**Findings:**
+
+- **Batman & Robin** — confirmed: `sprite_link_count` at object offset **$18, word-sized**. Populated at spawn + animation frame change. Used for predictive overflow ("would emitting this object overflow the SAT?").
+- **Gunstar Heroes / Alien Soldier** — no piece-count cache, but extensive parent/child object linking ($58/$5C longwords). Handle overflow via global per-frame budgets rather than per-object caching.
+- **S.C.E.** — no dedicated piece-count field in the SST. Reads count from mapping data inline at render time.
+- **sonic_hack** — `build_sprites.asm:125` reads child sprite count from mapping data via `move.b (a6)+, d0`. Not cached in SST.
+- **Vectorman** — separate dispatch-stub architecture, sprite work queued via `QueueDMA` with global per-frame budget (2880 bytes / 54 entries). No per-object piece count.
+- **Thunder Force IV** — 32-byte type-segregated object pools, no piece-count cache. Overflow handled via round-robin priority rotation.
+
+**Online evidence:**
+- SpritesMind threads on VDP internals + sprite limit confirm 80-sprite cap is the hard hardware constraint and per-line dropout is independent.
+- Hugues Johnson's link-list article describes the chain mechanism but doesn't mention piece-count caches.
+
+**Decision for Task 2:**
+
+- **Byte at $2D is correct** — max value is 80 (hardware cap), comfortably fits in 8 bits. Word would be wasteful for our case (Batman's word reservation may have been for future-proofing or alignment, not necessity).
+- **Pattern validated** — Batman is the canonical example; we're following the same design with an SST size optimization.
+- **Field placement at $2D pad slot** — keeps SST size at $50, no struct reshuffle needed. Verified by the existing `if SST_len <> $50 ; error` assert at structs.asm:98.
+- `RF_MULTISPRITE = 4` is consistent with the existing render_flags bit allocation (bits 0-3 used, bits 4-6 free, bit 7 reserved for delete).
+
+**Insight:** sonic_hack's "read count from mapping data inline" (no SST cache) is also viable — but our piece-count is checked BEFORE we begin walking the frame data, so caching avoids the pointer chase for the overflow check. Worth the byte.
