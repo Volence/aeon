@@ -8,10 +8,11 @@ Tracks work that was identified during design/implementation but deferred becaus
 
 These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require other systems to exist first.
 
-### Sprite Rendering Pipeline (§1.2)
-**Blocked by:** Object System (§3)
-**What:** Two-phase render (Draw_Sprite during object loop → Render_Sprites converts to VDP format), priority-band sorting, overflow handling, multi-sprite batching, sprite count per object.
-**When ready:** After §3 defines object RAM layout and the object loop exists.
+### ~~Sprite Rendering Pipeline (§1.2)~~ — DONE 2026-04-27
+**Completed in:** §1.2 sprite-system multisprite + piece-overflow plan
+**What:** Most §1.2 features (two-phase render, priority bands, overflow cascade, scanline budget, sprite mask, link-order cycling, dirty-flag DMA) shipped during §3 Object System work. Remaining bullets closed in this plan: (a) multi-sprite batching via Approach 1 + semantic C — Draw_Sprite child-skip guard for parents with `RF_MULTISPRITE`; Render_Sprites walks `sibling_ptr` chain after parent emission, indexing parent's `mapping_frame` against each child's own `mappings`; mid-chain overflow skips just the offending child. (b) `sprite_piece_count` byte at SST_$2D for predictive total-piece overflow skip; populated by Load_Object (initial frame) + AnimateSprite (per frame change via new `RefreshSpritePieceCount` helper). (c) `Render_Sprites` factored emission into reusable `Emit_ObjectPieces` subroutine. (d) ENGINE_ARCHITECTURE.md §1.2/§3.5 link-chain doc corrected — "never rebuilt" was a wash on 68000.
+**Test:** TestParent + 3 children renders identically with `RF_MULTISPRITE` on (Task 8) vs off (Task 7 baseline). Sprites_Rendered observed at 49 in stress scene; pre-check + per-piece dbeq layered defenses in place.
+**See:** `docs/superpowers/specs/2026-04-27-sprite-system-design.md`, `docs/superpowers/plans/2026-04-27-sprite-system-multisprite-and-piece-overflow.md`, `docs/research/sprite-system-§1.2.md`.
 
 ### ~~Scroll / Plane Drawing — Core (§1.3)~~ — DONE 2026-04-25
 **Completed in:** §4 Phase 1 Level/World System

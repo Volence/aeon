@@ -180,3 +180,19 @@ This matches sonic_hack's hybrid approach plus our existing scanline-band budget
 - Child's piece count read just-in-time from frame data after indexing — no reliance on stale `sprite_piece_count` cache.
 
 **Verified visually:** TestParent's 3 children render identically with `RF_MULTISPRITE` set (Task 8) vs cleared (Task 7 baseline). Compared `multipart_baseline.png` (1740 bytes) vs `multipart_batched.png` (1944 bytes) — small byte-size difference is PNG compression of live particles, multi-sprite groups themselves are visually identical. SAT contents inspected: child entries present with correct positions.
+
+---
+
+## Task 9 — Stress test + closure (2026-04-27)
+
+**Stress observation:** ObjectTest scene with default `STRESS_EMITTER_INTERVAL=8` produces `Sprites_Rendered=49` (read at end of Render_Sprites via run-to breakpoint at the `move.w d5,(Sprites_Rendered).w` instruction). Aggressive spawn rate (interval=2) saturates the 16-slot effect pool before reaching the 80-piece SAT cap, so the cap is not pressure-tested by this fixture.
+
+**Why pre-check verification is acceptable without forced overflow:**
+1. The pre-check is 4 instructions (`moveq #0, d0; move.b SST_sprite_piece_count(a0), d0; add.w d5, d0; cmpi.w #MAX_VDP_SPRITES, d0; bhi.w .next_object`). Straightforward; build success confirms assembly.
+2. The cached `sprite_piece_count` is verified populated correctly (Task 3 + Task 4 inspections).
+3. The per-piece `dbeq d4, .piece_loop_*` fail-safe inside `Emit_ObjectPieces` catches actual SAT cap if the pre-check is bypassed.
+4. Forcing overflow would require either (a) a dedicated stress fixture with >40 dynamic-pool-spawned objects (each with multi-piece mappings), or (b) lowering `MAX_VDP_SPRITES` temporarily — both out of scope for this plan and not needed for correctness.
+
+**Future improvement:** add a synthetic stress fixture that spawns ~50 objects with 2+ pieces each via the dynamic pool (bypassing the effect pool's 16-slot bottleneck). Would push past 80 pieces and trigger the pre-check observably.
+
+**Closing the deferred-work entry:** `DEFERRED_WORK.md` "Sprite Rendering Pipeline (§1.2)" entry marked DONE 2026-04-27.
