@@ -9,8 +9,9 @@ Usage:
     python3 tools/ojz_strip_gen.py generate  # generate strip data files
 
 Output: data/generated/ojz/act1/sec{N}_strips_a.bin for each OJZ section.
-        data/generated/ojz/act1/sec{N}_strips_b.bin (all-zeros plane B placeholder)
-        data/generated/ojz/act1/ojz_palette.bin (copied from sonic_hack)
+        data/generated/ojz/act1/sec{N}_tiles.bin (per-section tile blob, §2 A.3).
+        data/generated/ojz/act1/zone_bg.bin (zone-wide Plane B nametable, §2 A.5 T1).
+        data/generated/ojz/act1/ojz_palette.bin (copied from sonic_hack).
 
 Each file contains ALL columns for section N concatenated sequentially:
 col 0 words, then col 1 words, ..., col W-1 words.
@@ -833,9 +834,8 @@ def generate(force_region1_cap=None):
 
         out_a = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
         write_strips_to_file(remapped_strips, out_a)
-        out_b = os.path.join(out_dir, f"sec{sec_id}_strips_b.bin")
-        with open(out_b, "wb") as f:
-            f.write(bytes(len(remapped_strips) * STRIP_TILE_HEIGHT * 2))
+        # (§2 A.5: per-section strips_b placeholder removed — Plane B is now
+        # driven by zone_bg.bin (T1) or per-section secN_bg.bin (T2/T3).)
         if first_strips is None:
             first_strips = remapped_strips
         total_strips += len(remapped_strips)
