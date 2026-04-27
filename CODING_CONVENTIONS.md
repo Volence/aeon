@@ -201,6 +201,19 @@ These are hard rules, not guidelines. The 68000 at 7.67 MHz has no margin for sl
 
 **Rule:** No `mulu`/`muls`/`divu`/`divs` in any code that runs per-frame. Use shifts, adds, or lookup tables. The ONLY exception is code that runs once (level load, init).
 
+**Technique — shift-add fraction decomposition.** Any fractional scaling `p/q` where `q` is a power of 2 reduces to ≤2 shift-add operations. The supported set: `0`, `1`, `1/q`, `(q-1)/q`, `3/q`, `5/q` for q in {1, 2, 4, 8, 16, 32, ...}. Examples:
+
+| Fraction | Decomposition | Cost |
+|---|---|---|
+| `1/8` | `x >> 3` | 12 cycles (1 shift) |
+| `3/8` | `(x >> 2) + (x >> 3)` | 28 cycles (2 shifts + add) |
+| `1/2` | `x >> 1` (or `add x,x` for shift-by-1 saving 2 cycles) | 12 cycles |
+| `3/4` | `x - (x >> 2)` | 24 cycles (1 shift + sub) |
+| `7/8` | `x - (x >> 3)` | 24 cycles |
+| `5/8` | `(x >> 1) + (x >> 3)` | 28 cycles |
+
+Encode bands' factors as `(shift1, shift2, op)` byte triples in ROM data; runtime decodes via `asr.w Dn,Dm` with the shift count in a data register. A sentinel value (e.g., `shift1=15`) means "factor = 0" (locked). For arbitrary fractions outside this set (e.g., `2/3`), build a lookup table at compile time — never `mulu` for fractional scaling.
+
 ### 2.2 Branching
 
 - **Fall-through for the common case.** The 68000 has no branch predictor — taken branches cost 10 cycles, not-taken costs 8. Put the likely path as fall-through.
@@ -273,6 +286,28 @@ These are hard rules, not guidelines. The 68000 at 7.67 MHz has no margin for sl
 ```
 
 **Hybrid SoA for batch operations:** When batch-processing a single field across all objects (e.g., culling by X position, updating all Y velocities), struct-of-arrays layout enables sequential `(a0)+` access instead of strided `offset(a0)` with stride advances. The 68000 has no cache, but sequential access eliminates offset encoding (2 bytes saved per access) and enables MOVEM batch loads. Use SoA for hot-path batch fields (x_pos, y_pos, render_flags) alongside AoS for per-object logic.
+
+**Exponential lerp via shift:** Smooth transitions without keeping a frame counter or interpolation table. Each frame, advance `current` toward `target` by a power-of-2 fraction:
+
+```asm
+; current += (target - current) >> N
+        move.w  Current(a0), d0
+        sub.w   d0, d_target              ; delta
+        asr.w   #LERP_SHIFT, d_target     ; >> N
+        add.w   d_target, d0
+        move.w  d0, Current(a0)
+```
+
+Convergence vs frame count (assuming target stays fixed):
+
+| Shift `N` | Frames to ~95% | Frames to ~99% | Use case |
+|---|---|---|---|
+| 2 | ~4 | ~6 | Snappy (UI, hit-stop recovery) |
+| 3 | ~8 | ~13 | Camera, parallax transitions |
+| 4 | ~16 | ~26 | Audio fade, palette crossfade |
+| 5 | ~32 | ~52 | Gentle environmental drift |
+
+Cost: ~6 cycles per value. Idempotent — safe to run when already converged (delta = 0 → no-op). Works for any signed value. Use this everywhere a transition needs to feel smooth: camera lookahead pan, parallax factor changes across section boundaries, palette fade, audio gain ramps, animation easing. Avoid frame-counter-driven lerps (`current = lerp(start, end, frame/N)`) — they require state and a multiply, this requires neither.
 
 ### 2.7 Loop Patterns
 
@@ -353,6 +388,27 @@ NTSC VBlank = ~4,300 68K cycles. Everything that touches the VDP must finish wit
 | Art streaming DMA | Variable | Deferrable — skip on lag |
 
 **Rule:** Critical operations get unrolled/pre-computed drain. Deferrable operations use linear loop drain and are skipped when the frame budget is tight.
+
+### 3.4 VBlank Step Ordering — Data Before State
+
+When a frame's display depends on **both** VRAM data (HScroll table, tile art, sprite table) **and** VDP state writes (VSRAM, register changes), the data must be DMA'd before the state is written. The VDP latches scroll/state registers per scanline; if VSRAM changes before HScroll-table DMA completes, scanline 1 reads stale HScroll values against new VSRAM, producing a one-frame tear.
+
+**Required VBlank order:**
+
+```
+1. stopZ80
+2. Flush_VDP_Shadow              ; register changes go through shadow first
+3. Enqueue_Dirty_Buffers         ; queue palette + sprite + HScroll DMAs
+4. VInt_DrawLevel                ; plane buffer drain (VRAM nametable writes)
+5. Process_DMA_Critical          ; drain queued DMAs — palette, sprites, HScroll
+6. VSRAM writes                  ; whole-plane Vscroll OR per-column buffer
+7. Process_DMA_Important / Deferrable
+8. startZ80
+```
+
+**Hard rule:** Any new VBlank work must respect: VRAM data → state-register writes → less-critical DMAs. Don't write VSRAM at the top of the handler "because it's quick" — it has to come after HScroll DMA finishes. Source: SpritesMind t=1482 documents this exact one-frame tear bug.
+
+This applies to any pair of (data, state) that are both consumed mid-scanline. New entries to think about: palette CRAM writes during a S/H mode toggle, font tile DMA before VSRAM column changes, etc. When in doubt, DMA first.
 
 ---
 
