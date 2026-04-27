@@ -198,7 +198,28 @@ These decisions confirm Tasks 2–10 of the plan as written:
 - **Q2 confirms** T3's BG tiles fold into the section's existing A.3 art group (Task 9 design).
 - **Q3 confirms** the `sec_tile_refs[sec_id] |= bg_tile_refs` union approach in Task 9 (combined per-section dedupe).
 
-No structural changes to the plan needed. Compression of BG layouts gets added to the deferred-work list in Task 11.
+Compression of BG layouts gets added to the deferred-work list in Task 11.
+
+## Q5 — Where do T1/T2 BG tiles live in VRAM? (surfaced during implementation)
+
+**Question** (not foreseen in spec): A.3's per-section graph coloring means VRAM slots 0-1279 are owned by whichever sections are currently loaded. The BG nametable can't reference those slots — slot content shifts on every section transition. So T1's "shares FG tiles" claim isn't operational without a fix.
+
+**Decision: reserve a shared BG tile region at slots 1280-1535 ($A000-$BFFF), 256 tiles capacity, loaded once at level init.**
+
+**Justification:**
+- Sonic CD precedent: BG art is loaded once per act, not streamed.
+- Thunder Force IV: stage init bundles nametable + tile art in one DMA batch, then the art stays put.
+- sonic_hack: ArtKos_OJZ loads zone tiles flat at level init (no per-section pools), so its BG can reference any tile.
+- s4_engine's per-section A.3 model is a memory-efficiency win, but it forces the question of where BG tiles live. The cleanest answer is a separate fixed region.
+
+**Sizing:** 256 tiles = 8 KB. Empirically the OJZ BG (cloud + grass band, sampled 64 cells × 32 cells from `OJZ_1.bin`'s BG section) deduplicates well below this — actual count populated in measurement doc by Task 6. Future zones with richer BG art may need to expand the region; if so, claim more slots from the (currently unused) middle of slots 226-1279.
+
+**Trade-offs:**
+- Fixed-size region wastes VRAM for zones with simpler BGs. Acceptable: 256 slots is small relative to 1536 total.
+- Reserves slots that can't be used for FG growth. Acceptable: A.3 caps each color at ~700 tiles for OJZ-scale zones; future zones up to ~640 tiles per color stay clear of the BG region.
+- Load cost at level init grows by 8 KB DMA. Acceptable: this happens once with display off.
+
+**Implication for plan:** add Task 5b "shared BG tile region" between Tasks 5 and 6. Emits `bg_tiles.bin` from build tool, loads it via `BG_Init`. Without this, T1 ships with placeholder content (engine path proven, visuals incorrect). With it, T1 ships with image-9-quality cloud + grass BG.
 
 ## Deferred from A.5 (carried to a future milestone)
 

@@ -515,6 +515,131 @@ git commit -m "feat(§2 A.5 T1): BG_Init blits zone-wide Plane B at level load"
 
 ---
 
+## Task 5b: Shared BG tile region (architectural extension surfaced during Task 5 verification)
+
+**Why this exists:** Visual verification of Task 5 revealed that A.3's per-section graph-colored FG pool means VRAM slots 0–1279 are swapped on every section transition. The BG nametable can't reliably reference those slots — slot content shifts as the player moves. T1's "shares FG tiles" claim from §2.4 is a pre-A.3 assumption that didn't survive.
+
+**Fix:** reserve VRAM slots 1280–1535 ($A000-$BFFF) as a permanent shared BG tile region. Load it once at level init alongside the initial FG sections, never swap. BG nametable references resolve into this region. See `docs/research/per-section-background.md` Q5 for justification.
+
+**Files:**
+- Create: nothing new
+- Modify: `tools/ojz_strip_gen.py` — extract BG layout from sonic_hack's `OJZ_1.bin`, dedupe BG-referenced tiles, emit `bg_tiles.bin` and remapped `zone_bg.bin`
+- Modify: `tools/test_bg_emit.py` — tests for BG-tile dedupe + remap into shared region
+- Modify: `constants.asm` — add `BG_TILE_BASE_VRAM = $A000`, `BG_TILE_BASE_SLOT = 1280`, `BG_TILE_CAPACITY = 256`
+- Modify: `structs.asm` — Act struct gains `act_bg_tiles ds.l 1` at `$1A` (Act_len → $1E)
+- Modify: `engine/level/bg.asm` — `BG_Init` loads `act_bg_tiles` to VRAM $A000 first, then blits Plane B nametable
+- Modify: `data/levels/ojz/act1/act_descriptor.asm` — wire `act_bg_tiles` to new `OJZ_BG_Tiles` BINCLUDE
+
+- [ ] **Step 1: Add BG-tile constants**
+
+`constants.asm`:
+```asm
+BG_TILE_BASE_VRAM   = $A000           ; (slot 1280) start of shared BG tile region
+BG_TILE_BASE_SLOT   = BG_TILE_BASE_VRAM/32   ; 1280 — for nametable index remap
+BG_TILE_CAPACITY    = 256             ; tiles ($A000..$BFFF = 8 KB)
+```
+
+- [ ] **Step 2: Add `act_bg_tiles` to Act struct**
+
+```asm
+act_bg_layout       ds.l 1          ; $16 — zone-wide Plane B nametable
+act_bg_tiles        ds.l 1          ; $1A — zone-wide Plane B tile blob (raw)
+Act endstruct
+    if Act_len <> $1E
+      error "Act struct is \{Act_len} bytes, expected $1E"
+    endif
+```
+
+- [ ] **Step 3: Extend build tool — extract BG layout from OJZ_1.bin**
+
+Add helpers in `tools/ojz_strip_gen.py`:
+- `load_bg_layout(path) → list[list[int]]` parses OJZ_1.bin's BG section (rows after FG)
+- `extract_bg_tile_refs(bg_layout, chunks, blocks) → set[int]` collects unique tile indices referenced by the BG region we'll display
+- `emit_bg_tiles(unique_indices, full_blob, out_path) → mapping` writes raw deduped tile bytes, returns src→canon map (with hflip/vflip canonicalization via tile_dedupe)
+- Modify `emit_zone_bg_layout` to accept a `tile_remap` dict and rewrite each tile_index → `BG_TILE_BASE_SLOT + canon_index`
+
+- [ ] **Step 4: Tests in test_bg_emit.py**
+
+```python
+def test_bg_tile_count_fits_capacity(self):
+    """BG tile pool must fit in BG_TILE_CAPACITY (256 slots) for OJZ."""
+    # ... extracts BG tiles, asserts len(unique) <= 256
+def test_zone_bg_indices_in_shared_region(self):
+    """Every BG nametable word's tile_index must land in [1280, 1535]."""
+    # ... emits zone_bg, asserts all words have tile_index ∈ [1280, 1535]
+```
+
+- [ ] **Step 5: Engine — `BG_Init` loads BG tiles + blits nametable**
+
+```asm
+BG_Init:
+        movem.l d0-d4/a0-a3, -(sp)
+        movea.l a0, a3                          ; a3 = act ptr (preserve)
+
+        ; --- load BG tile blob to VRAM at BG_TILE_BASE_VRAM ---
+        movea.l Act_act_bg_tiles(a3), a1
+        cmpa.w  #0, a1
+        beq.s   .skip_tiles
+        ; size baked into the blob's first word (uncompressed length, big-endian)
+        move.w  (a1)+, d4                       ; d4 = byte length
+        beq.s   .skip_tiles
+        stopZ80
+        move.w  #$8F02, (VDP_CTRL).l
+        move.l  #vdpComm(BG_TILE_BASE_VRAM,VRAM,WRITE), (VDP_CTRL).l
+        lea     (VDP_DATA).l, a2
+        lsr.w   #1, d4                          ; words = bytes / 2
+        subq.w  #1, d4
+.tile_copy:
+        move.w  (a1)+, (a2)
+        dbf     d4, .tile_copy
+        startZ80
+.skip_tiles:
+
+        ; --- blit BG nametable to Plane B ---
+        movea.l Act_act_bg_layout(a3), a1
+        cmpa.w  #0, a1
+        beq.s   .skip_nt
+        stopZ80
+        move.w  #$8F02, (VDP_CTRL).l
+        move.l  #vdpComm(VRAM_PLANE_B_BYTES,VRAM,WRITE), (VDP_CTRL).l
+        lea     (VDP_DATA).l, a2
+        move.w  #BG_LAYOUT_SIZE/2 - 1, d0
+.nt_copy:
+        move.w  (a1)+, (a2)
+        dbf     d0, .nt_copy
+        startZ80
+.skip_nt:
+        movem.l (sp)+, d0-d4/a0-a3
+        rts
+```
+
+(Header word convention: BG-tiles blob starts with a big-endian uncompressed-length word, mirroring S4LZ's blob shape so the engine doesn't need a separate "byte count" field.)
+
+- [ ] **Step 6: Wire `act_bg_tiles` into OJZ descriptor**
+
+`act_descriptor.asm`:
+```asm
+    dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout
+    dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles (§2 A.5 T1 shared region)
+    align 2
+...
+OJZ_Act1_BG_Tiles: BINCLUDE "data/generated/ojz/act1/bg_tiles.bin"
+    align 2
+```
+
+- [ ] **Step 7: Build, reload, visually verify**
+
+Build, reload ROM in Exodus, screenshot, confirm Plane B shows authentic OJZ clouds + grass band (matches sonic_hack image-9 reference).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add tools/ojz_strip_gen.py tools/test_bg_emit.py constants.asm structs.asm engine/level/bg.asm data/levels/ojz/act1/act_descriptor.asm
+git commit -m "feat(§2 A.5 T1): shared BG tile region — load OJZ_1.bin BG tiles once at level init"
+```
+
+---
+
 ## Task 6: T1 measurement entry + visual confirmation in measurements doc
 
 **Files:**

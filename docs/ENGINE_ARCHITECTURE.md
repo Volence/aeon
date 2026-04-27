@@ -1257,21 +1257,37 @@ The Genesis VDP has completely separate planes — Plane A and Plane B have inde
 
 | Tier | Layout | Art | VRAM Cost | Use Case |
 |------|--------|-----|-----------|----------|
-| 1. Zone-wide shared | One BG layout for zone | Shares FG tiles | Zero | Simple parallax, most sections |
-| 2. Per-section layout | Different BG arrangement | Shares FG tiles | Zero | Visual variety with existing art |
-| 3. Per-section art+layout | Different BG tiles+layout | Own VRAM slots | Pool tiles | Unique BG (mountain skyline, etc.) |
+| 1. Zone-wide shared | One BG layout for zone | Shared BG tile region (zone-wide, fixed) | 256 slots reserved | Simple parallax, most sections |
+| 2. Per-section layout | Different BG arrangement | Shared BG tile region (zone-wide, fixed) | 256 slots reserved | Visual variety with existing BG art |
+| 3. Per-section art+layout | Different BG tiles+layout | Section's A.3 art group | Pool tiles | Unique BG (mountain skyline, etc.) |
+
+**Shared BG tile region (T1/T2):** A fixed VRAM range — slots 1280-1535, byte addresses $A000-$BFFF, 256 tiles × 32 B = 8 KB capacity — is reserved for BG-only tile art. Loaded **once** at level init alongside the initial FG section pools and **never** overwritten by section transitions. This solves the architectural mismatch with A.3's per-section graph-colored FG pool: BG tiles must remain at consistent VRAM slots across all section transitions for the BG nametable's tile-index references to stay valid.
+
+T1 ships with the shared region populated from `act_bg_tiles` (zone-wide pointer). T2 reuses the same region — only the per-section nametable changes. T3 sidesteps the region entirely and lives in the section's A.3 art group (per-section, swapped on transition), giving each T3 section unique BG tile art at the cost of additional FG-pool budget pressure.
 
 **Section entry integration (post-§2 A.5):**
 - `act_bg_layout` (Act struct, longword at $16) — zone-wide BG nametable pointer; drawn once at level load by `BG_Init`.
+- `act_bg_tiles` (Act struct, longword at $1A) — zone-wide BG tile blob pointer; loaded once at level load into VRAM $A000 by `BG_Init`.
 - `sec_bg_layout` (Sec struct, longword at $1C) — per-section BG nametable pointer (NULL = use Act default). On FWD/BWD teleport, `BG_RedrawForSection` blits the new section's layout to Plane B.
 
-**Storage shape:** Each layout is a **raw 64×32 nametable** (4096 bytes uncompressed). No `sec_bg_plc_off` field — T3 BG tile art folds into the section's existing A.3 art group (`sec_tile_art_s4lz`). A.4's `Section_StreamArtGroup` covers both FG and BG tiles via the unified blob — no parallel streaming code.
+**Storage shape:** Each layout is a **raw 64×32 nametable** (4096 bytes uncompressed). BG tile blob is raw uncompressed tiles (32 B per tile, ≤ 256 tiles per zone). No `sec_bg_plc_off` field — T3 BG tile art folds into the section's existing A.3 art group (`sec_tile_art_s4lz`). A.4's `Section_StreamArtGroup` covers both FG and BG tiles via the unified blob — no parallel streaming code for T3.
 
-**Tier detection (build-time):** `sec_bg_layout=NULL` → T1; `sec_bg_layout≠NULL` and BG tile refs ⊆ section's FG tile-set → T2; `sec_bg_layout≠NULL` with BG-only tiles → T3.
+**Tier detection (build-time):** `sec_bg_layout=NULL` → T1; `sec_bg_layout≠NULL` and BG tile refs ⊆ shared BG region → T2; `sec_bg_layout≠NULL` with section-specific BG-only tiles → T3.
 
-**Engine cost:** T1 = one 4 KB blit at level init, zero per-frame. T2/T3 = one 4 KB blit on FWD/BWD teleport (~0.6 ms blocking via VDP DATA port; deferrable-DMA optimization tracked in DEFERRED_WORK).
+**Engine cost:** T1 = one 4 KB nametable blit + one BG-tile-blob DMA at level init, zero per-frame. T2 = same load cost; one 4 KB nametable blit on FWD/BWD teleport (~0.6 ms blocking via VDP DATA port). T3 = nametable blit + tile streaming via A.4. Deferrable-DMA optimisation tracked in DEFERRED_WORK.
 
-**Allocator integration:** T3 BG tiles are part of the section's existing tile-art group, so the allocator treats them identically to FG tiles. Debug assertions catch pool overflow if FG + BG combined exceeds the section's color-graph slot budget.
+**Allocator integration:** T3 BG tiles are part of the section's existing tile-art group, so the allocator treats them identically to FG tiles. Debug assertions catch pool overflow if FG + BG combined exceeds the section's color-graph slot budget. Shared BG tile region (T1/T2) is allocator-owned but treated as a single permanent allocation — never freed.
+
+**VRAM map summary (post-§2 A.5):**
+```
+$0000-$0E1F  color-0 section's FG tile pool (113 tiles for OJZ; per-section, swapped)
+$0E20-$1EBF  color-1 section's FG tile pool (113 tiles for OJZ; per-section, swapped)
+...          (free for FG growth as zones get bigger; up to slot 1279)
+$A000-$BFFF  shared BG tile region (256 tiles max; fixed, loaded once)
+$C000-$CFFF  Plane A nametable
+$E000-$EFFF  Plane B nametable
+$F800-$FFFF  region-2 spill (A.2; off-screen Plane B rows)
+```
 
 ### 2.5 Art Loading Flow
 

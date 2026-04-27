@@ -255,9 +255,11 @@ Implement all three BG tiers from ENGINE_ARCHITECTURE.md §2.4 end-to-end, valid
 ### The three tiers
 | Tier | Layout | Tiles | Engine cost |
 |---|---|---|---|
-| 1 — Zone-shared | Single zone-wide BG layout | Shares FG tiles | Zero — already working via `Section_BG_Layout_Ptr` |
-| 2 — Per-section layout | Per-section BG arrangement | Shares FG tiles | Build-tool: emit per-section BG strips. Runtime: redraw on transition |
-| 3 — Per-section art + layout | Per-section BG arrangement + own tiles | Own tile slots | Build-tool: each section has its own BG tile group. Runtime: stream BG art alongside FG via A.4 |
+| 1 — Zone-shared | Single zone-wide BG layout | Shared BG tile region (256-slot fixed VRAM) | Build-tool: emit zone BG nametable + zone BG tile blob. Runtime: load both once at level init via `BG_Init` |
+| 2 — Per-section layout | Per-section BG arrangement | Shared BG tile region (same as T1) | Build-tool: emit per-section BG nametable using same shared region. Runtime: redraw nametable on transition |
+| 3 — Per-section art + layout | Per-section BG arrangement + section-specific tiles | Section's A.3 art group | Build-tool: BG tiles fold into the section's tile group. Runtime: stream BG art alongside FG via A.4 |
+
+**Shared BG tile region (T1/T2):** Fixed VRAM slots 1280-1535 ($A000-$BFFF), 256 tiles capacity, loaded once at level init and never overwritten by section transitions. Required because A.3's per-section graph-colored FG pool means slots 0-1279 are owned by whichever sections are currently loaded — the BG nametable can't reliably reference those slots. Reserving 1280-1535 gives BG a permanent home that all sections share. Build tool extracts BG-referenced tiles from `OJZ_1.bin`'s BG section (sonic_hack's reference data), dedupes, and emits a `bg_tiles.bin` blob loaded into the region by `BG_Init`.
 
 ### Research targets (specific to A.5)
 - Thunder Force IV per-stage BG swapping
