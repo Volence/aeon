@@ -22,7 +22,7 @@
 ;      d2.b = subtype (0 if unused)
 ; Out: Z set = success, a1 = new SST pointer
 ;      Z clear = allocation failed
-; Clobbers: d0-d3, a1-a2
+; Clobbers: d0-d3, a1-a3
 ; -----------------------------------------------
 Load_Object:
         movem.l d0-d2/a1, -(sp)
@@ -54,6 +54,17 @@ Load_Object:
         swap    d1
         clr.w   d1
         move.l  d1, SST_y_pos(a1)
+
+        ; --- Initial sprite_piece_count (mapping_frame is 0 at spawn) ---
+        ; Reads the first word of the initial frame's data, which is the
+        ; piece count. Used by Render_Sprites for predictive overflow skip.
+        move.l  SST_mappings(a1), d0
+        beq.s   .no_piece_count
+        movea.l d0, a3
+        move.w  (a3), d0                ; word offset to frame[0] data
+        move.w  (a3,d0.w), d0           ; first word of frame = piece count
+        move.b  d0, SST_sprite_piece_count(a1)
+.no_piece_count:
 
         ; --- conditional fields (test format bits in order) ---
 

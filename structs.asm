@@ -90,7 +90,7 @@ parent_ptr      ds.w 1      ; $26 — parent object RAM address
 sibling_ptr     ds.w 1      ; $28 — sibling link (multi-part objects)
 wait_timer      ds.w 1      ; $2A — Obj_Wait countdown
 status          ds.b 1      ; $2C — player/object status bits (ST_* constants)
-                ds.b 1      ; $2D — pad
+sprite_piece_count ds.b 1   ; $2D — current frame's piece count (overflow prediction)
 anim_callback   ds.l 1      ; $2E — callback pointer for AF_CALLBACK animation event
 sst_custom      ds.b 30     ; $32-$4F — per-object custom data overlay
 SST endstruct
