@@ -10,13 +10,6 @@ GameState_OJZScroll_Init:
         ; -- per-8-row HScroll mode (reg $0B bits 1:0 = %10) --
         setVDPReg VDP_Shadow_vdp_mode3, #$02
 
-        ; -- backdrop = palette 0 color 2 (sky cyan from BGND palette).
-        ; FG sky-band strip cells reference the all-zero canonical tile
-        ; (lex-smallest of the deduped pool, lands at slot 0 of every section's
-        ; tile pool). All-zero pixels are transparent → backdrop shows through.
-        ; Without a non-black backdrop, sky reads as black.
-        setVDPReg VDP_Shadow_vdp_bgcolor, #$02
-
         ; -- load BGND palette (32 bytes, "SonicAndTails") into CRAM line 0 --
         ; -- load OJZ palette (96 bytes, 3 pages) into CRAM lines 1-3 --
         ; sonic_hack runtime layout: PalPtr_BGND -> line 0, PalPtr_OJZ -> line 1.
