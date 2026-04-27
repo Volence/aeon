@@ -302,6 +302,13 @@ Section_TeleportFwd:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef
         bsr.w   BG_RedrawForSection
+
+        ; -- §4.6 T8: snap parallax_config to new slot 0's section --
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
+        movea.l Sec_sec_parallax_config(a0), a0
+        bsr.w   Parallax_StartTransition
         rts
 
 ; -----------------------------------------------
@@ -358,6 +365,13 @@ Section_TeleportBwd:
         ;    a2 for the T1 fallback to act_bg_layout. --
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   BG_RedrawForSection
+
+        ; -- §4.6 T8: snap parallax_config to new slot 0's section --
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
+        movea.l Sec_sec_parallax_config(a0), a0
+        bsr.w   Parallax_StartTransition
         rts
 
 ; -----------------------------------------------

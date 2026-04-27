@@ -25,6 +25,43 @@ Parallax_Init:
         rts
 
 ; ----------------------------------------------------------------------
+; Parallax_StartTransition — handle parallax_config change at section boundary
+; T8: instant snap regardless of pcfg_transition. Smooth lerp lands in T14.
+;
+; In:  a0 = new parallax_config* (NULL = inherit, no-op)
+; Out: Parallax_Current_Config swapped; transition state cleared;
+;      VDP shadow reg $0B (Mode Set 3) updated for new H-/V-scroll modes.
+; Clobbers: d0, d1
+; ----------------------------------------------------------------------
+Parallax_StartTransition:
+        cmpa.w  #0, a0
+        beq.w   .no_change                          ; null → inherit, no-op
+        cmpa.l  (Parallax_Current_Config).w, a0
+        beq.w   .no_change                          ; same config → no-op
+
+        move.l  a0, (Parallax_Current_Config).w
+        move.l  #0, (Parallax_Target_Config).w
+        move.b  #0, (Parallax_Transition_Frames).w
+
+        ; --- VDP reg $0B Mode Set 3 update ---
+        ;   bits 1:0 = HScroll mode: %10 per-cell, %11 per-line
+        ;   bit 2    = VScroll mode: 0 whole-plane, 1 per-column
+        moveq   #%10, d0                            ; default per-cell HScroll
+        move.l  parallax_config_pcfg_deform_table_fg(a0), d1
+        or.l    parallax_config_pcfg_deform_table_bg(a0), d1
+        beq.s   .h_done
+        moveq   #%11, d0                            ; per-line if any H-deform
+.h_done:
+        move.l  parallax_config_pcfg_v_deform_table_bg(a0), d1
+        beq.s   .v_done
+        ori.b   #%100, d0                           ; bit 2 = per-column V
+.v_done:
+        setVDPReg VDP_Shadow_vdp_mode3, d0
+
+.no_change:
+        rts
+
+; ----------------------------------------------------------------------
 ; Vscroll_Write — emit Vscroll_Factor (whole-plane) or column buf (per-column)
 ; T6 stub: always whole-plane. T12 adds per-column branch.
 ;
