@@ -824,7 +824,7 @@ Phase 1 — During Object Loop          Phase 2 — Render_Sprites
 
 **Why two-phase:** A naive approach iterates all objects N times (once per priority level), scanning the full object list each pass. With 40+ objects and 8 priority levels, that's 320+ iterations. The two-phase approach does one pass during the object loop (piggybacks on existing iteration) and one pass during Render_Sprites (only processes registered objects). Eliminates redundant full-table scans.
 
-**Link chain pre-initialization:** `Init_SpriteTable` runs at level load and fills the 80-entry sprite link chain: entry 0 links to 1, 1 to 2, ..., 79 to 0. During gameplay, Render_Sprites only updates positions, sizes, and tile indices — links are never rebuilt. Unused entries get Y=0 (off-screen). The VDP walks the full chain but skips off-screen entries visually.
+**Link chain pre-initialization:** `Init_SpriteTable` runs at level load and fills the 80-entry sprite link chain: entry 0 links to 1, 1 to 2, ..., 79 to 0. During gameplay, `Render_Sprites` writes the link byte for each emitted piece (sequential 0,1,2,...) and patches the last rendered piece's link to 0 as the chain terminator. The pre-init covers the unused tail of the SAT; per-frame writes are the source of truth for active entries. ("Never rebuilt" was investigated as a 68000 cycle optimization but is genuinely a wash — `move.b Dn,(An)+` and `addq.l #1,An` both cost 8 cycles, so skipping the write doesn't save anything once you account for advancing the pointer. S.C.E./Batman use the advance-past style, sonic_hack rewrites; both end up at the same per-piece cost.) Unused entries keep Y=0 (off-screen) from Init_SpriteTable; Render_Sprites writes link=0 to the last emitted entry to halt the VDP's chain walk early.
 
 **Sprite overflow handling — two layers:**
 
@@ -1613,7 +1613,7 @@ S.C.E.'s two-phase approach:
 **Multi-sprite batching:** `render_flags.multi_sprite` routes to `Render_Sprites_MultiDraw`. Combined with parent-driven animation (3.7), a multi-part boss is: one AnimateSprite call on parent → one bounds check → all children render. Three systems converge.
 
 **Additional features:**
-- Pre-initialized link chain (80 entries, set at level init, never rebuilt)
+- Pre-initialized link chain (80 entries, set at level init); per-frame Render_Sprites rewrites links for emitted pieces and patches the terminator after the last one (the "never rebuilt" optimization is a wash on 68000 — see §1.2)
 - Overflow protection: full priority band overflows to next band (S.C.E.), with TF4-style round-robin rotation if overflow is visible
 - Sprite count per object in SST for overflow prediction (from Batman's `sprite_link_count`)
 - Sprite table dirty flag — skip $280-byte DMA on static frames (confirmed by Gunstar's conditional sprite DMA pattern)
