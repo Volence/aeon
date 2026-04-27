@@ -188,6 +188,10 @@ OJZ_Sec8_Strips_A: BINCLUDE "data/generated/ojz/act1/sec8_strips_a.bin"
 OJZ_Palette: BINCLUDE "data/generated/ojz/act1/ojz_palette.bin"
     align 2
 
+; Shared/HUD palette (CRAM line 0) — sonic_hack convention for level rendering.
+BGND_Palette: BINCLUDE "art/palettes/SonicAndTails.bin"
+    align 2
+
 ; Zone-wide BG layout + shared BG tile blob (§2 A.5 T1)
 OJZ_Act1_BG_Layout: BINCLUDE "data/generated/ojz/act1/zone_bg.bin"
     align 2

@@ -10,26 +10,26 @@ GameState_OJZScroll_Init:
         ; -- per-8-row HScroll mode (reg $0B bits 1:0 = %10) --
         setVDPReg VDP_Shadow_vdp_mode3, #$02
 
-        ; -- backdrop = palette 0 color 2 (= OJZ palette page 0 color 2 = sky cyan).
-        ; Without this, Plane A sky tiles (which use the all-zero canonical tile
-        ; at slot 113 → fully transparent) would show black backdrop — no sky.
-        setVDPReg VDP_Shadow_vdp_bgcolor, #$02
-
-        ; -- load OJZ palette into Palette_Buffer lines 0-2 (drained by first VBlank) --
-        ; sonic_hack stores OJZ as `palptr Pal_OJZ, 1` (3 lines starting at CRAM
-        ; line 1). Their CRAM line 0 holds a SHARED/HUD palette loaded by the
-        ; system loader. We don't have that source data, so we shift OJZ down by
-        ; one line: line 0 = OJZ palette page 0 (sky/cloud), line 1 = page 1
-        ; (greens), line 2 = page 2 (ground). Tile palette bits then resolve as:
-        ;   pal=0 → CRAM line 0 → sky colors (sky tiles render visibly)
-        ;   pal=1 → CRAM line 1 → tree colors
-        ;   pal=2 → CRAM line 2 → ground colors
-        lea     OJZ_Palette, a0
-        lea     (Palette_Buffer).w, a1              ; line 0 base
-        moveq   #96/4-1, d0
-.copy_pal:
+        ; -- load BGND palette (32 bytes, "SonicAndTails") into CRAM line 0 --
+        ; -- load OJZ palette (96 bytes, 3 pages) into CRAM lines 1-3 --
+        ; sonic_hack runtime layout: PalPtr_BGND -> line 0, PalPtr_OJZ -> line 1.
+        ; The BGND palette is what gives OJZ's clouds + grass band their real
+        ; (magenta/pink) colors — chunk-source nametable words use palette bits
+        ; 0 to reference these entries. Without BGND loaded, palette-0 BG tiles
+        ; render against an empty CRAM line 0 = black.
+        lea     BGND_Palette, a0
+        lea     (Palette_Buffer).w, a1              ; CRAM line 0 base
+        moveq   #32/4-1, d0
+.copy_bgnd:
         move.l  (a0)+, (a1)+
-        dbf     d0, .copy_pal
+        dbf     d0, .copy_bgnd
+
+        lea     OJZ_Palette, a0
+        lea     (Palette_Buffer+$20).w, a1          ; CRAM line 1 base
+        moveq   #96/4-1, d0
+.copy_ojz:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .copy_ojz
         move.b  #$0F, (Palette_Dirty).w
 
         ; -- load deduped FG tile pool via S4LZ → VRAM (display still off) --
