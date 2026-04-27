@@ -284,6 +284,16 @@ Flush_VDP_Shadow:
 
 **Fallback:** If profiling shows dirty tracking isn't worth it, revert to Batman's bulk-write approach. 190 cycles is only ~4.4% of VBlank and is completely predictable.
 
+**Direct VDP register-write conventions** (audited 2026-04-27, see `docs/superpowers/specs/2026-04-27-vdp-shadow-dma-audit-design.md`):
+
+The `setVDPReg` macro is the only sanctioned write path for **persistent** frame state on registers `$00-$12`. Direct writes to those registers (e.g., `move.w #$8Fxx, (VDP_CTRL).l`) are permitted **only** for transient setup that the caller fully controls and that does not represent shared frame state:
+
+1. **Pre-DMA autoincrement (`$0F`) configuration.** Caller sets `$8Fxx` immediately before a VRAM/CRAM/VSRAM transfer; subsequent transfers either tolerate the value or restore it. Examples: `engine/level/bg.asm`, `engine/level/plane_buffer.asm`. Shadow drift is harmless because nothing reads back the shadow as authoritative state — `Flush_VDP_Shadow` only writes registers whose dirty bit is set.
+2. **HInt-handler-internal raster effects (future §7.2).** HInt handlers may freely write VDP registers during the active line — that's the entire point of raster effects. They MUST NOT update the shadow or set the dirty mask. The shadow represents settled frame state, not transient mid-frame VDP changes. When the section's HInt program exits, hardware register state is whatever the last write left; the next VBlank's `Flush_VDP_Shadow` re-asserts settled values for any dirty registers, and HInt handlers re-establish their own per-line program from scratch.
+3. **DMA register writes (`$13-$17`)** are not shadowed and are set per-transfer by the DMA queue. This is by design — `setVDPReg` only covers `$00-$12`.
+
+**Hard rule:** any direct VDP write to `$00-$12` that represents settled state (display enable, scroll mode, plane base, etc.) MUST go through `setVDPReg`. Bypassing the shadow for settled state risks the next dirty-flush overwriting a hardware-only change with a stale shadow value. Audit grep: `grep -rEn 'move\.w\s+#\$8[0-9A-Fa-f]|#\$9[0-2][0-9A-Fa-f]' engine/` periodically; classify each new hit as transient (OK) or settled (use shadow).
+
 ### 0.5 Z80 Initialization & Sound System Bootstrap
 
 **Z80 bus control registers:**

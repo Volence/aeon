@@ -367,6 +367,7 @@ Get_Collision_Type:
 2. **All tile/palette/scroll updates go through the DMA queue or deferred plane buffer.** No direct VDP writes from the game loop.
 3. **`stopZ80` before ANY VDP access.** The Z80 shares the bus. Failing to stop it risks data corruption. Always pair with `startZ80`.
 4. **VDP register writes use cached values.** Store a copy of each register in RAM so code can read back register state (VDP registers are write-only hardware).
+5. **Settled state goes through `setVDPReg`; transient goes direct.** Persistent frame state on registers `$00-$12` (display enable, scroll mode, plane base, palette base, etc.) MUST use `setVDPReg` so the shadow stays in sync and `Flush_VDP_Shadow` writes the right value next VBlank. Transient register writes are legitimate ONLY for: (a) pre-DMA autoincrement (`$0F`) setup that the caller controls, (b) HInt-handler raster effects during active scan that do NOT touch the shadow. Anything else direct-writing `$00-$12` is a bug — `Flush_VDP_Shadow` will overwrite hardware with the stale shadow value the next time that register's dirty bit is set. See `ENGINE_ARCHITECTURE.md` §0.4 for the full convention.
 
 ### 3.2 DMA Safety
 
