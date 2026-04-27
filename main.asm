@@ -113,6 +113,7 @@ __BUDGET_ENGINE:
     include "engine/level/section.asm"
     include "engine/level/camera.asm"
     include "engine/level/hscroll.asm"
+    include "engine/level/parallax.asm"
     include "engine/level/load_art.asm"
     include "engine/level/bg.asm"
 
@@ -140,6 +141,7 @@ __BUDGET_OBJBANK:
 ; Data (outside object code bank — addressed directly, not via objroutine)
 ; -----------------------------------------------
 __BUDGET_DATA:
+    include "data/parallax/ojz_default.asm"
     include "data/levels/ojz/act1/act_descriptor.asm"
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"

@@ -33,7 +33,7 @@ OJZ_Sec0:
     dc.l    OJZ_Sec0_Strips_A       ; sec_strips_a
     dc.l    0, 0, 0                 ; sec_objects, sec_rings, sec_plc
     dc.l    OJZ_Palette             ; sec_pal
-    dc.l    0, 0                    ; sec_scroll, sec_raster_table
+    dc.l    ParallaxConfig_OJZ_Default, 0  ; sec_parallax_config, sec_raster_table
     dc.l    0                       ; sec_bg_layout (NULL = use Act_act_bg_layout, T1)
     dc.l    0, 0, 0, 0, 0, 0        ; sec_reserved..sec_collision
     dc.w    0, 0                    ; sec_flags, sec_music

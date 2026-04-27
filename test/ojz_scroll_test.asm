@@ -44,6 +44,19 @@ GameState_OJZScroll_Init:
         lea     OJZ_Act1_Descriptor, a0
         jsr     Section_Init
 
+        ; -- §4.6 parallax init: pull start section's parallax_config --
+        lea     OJZ_Act1_Descriptor, a0
+        movea.l Act_sec_grid_ptr(a0), a1        ; a1 = sec table base
+        moveq   #0, d0
+        move.b  Act_start_sec_x(a0), d0         ; flat section_id (sec_y=0 for OJZ)
+        move.w  d0, d1
+        lsl.w   #6, d0                          ; sec_id × 64
+        lsl.w   #3, d1                          ; sec_id × 8
+        add.w   d1, d0                          ; sec_id × 72 = Sec_len
+        adda.w  d0, a1                          ; a1 = start section ptr
+        movea.l Sec_sec_parallax_config(a1), a0 ; a0 = parallax_config* (NULL = inert)
+        jsr     Parallax_Init
+
         ; -- enable display now that VRAM and nametable are populated --
         setVDPReg VDP_Shadow_vdp_mode2, #$64    ; display on, VBlank on, DMA on
 
