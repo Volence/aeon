@@ -258,29 +258,27 @@ EOF
 
 ## Task 2: Authoring macros — `band`, `parallax_section`, `factor_decompose`
 
-Build-time machinery. After this task, an author can write `band TOP=4, FACTOR_A=1, FACTOR_B=1/4` and the assembler emits the correct 10 bytes. Pure assembly-time; no runtime behavior.
+Build-time machinery. After this task, an author can write `band 4, FACTOR_1, FACTOR_1_4` and the assembler emits the correct 10 bytes. Pure assembly-time; no runtime behavior.
 
 **Files:**
 - Create: `engine/parallax_macros.inc`
 - Modify: `S4.asm` (include the new file)
 
-- [ ] **Step 1: Research — AS Macro Assembler `function` and macro patterns**
+- [ ] **Step 1: Research — AS Macro Assembler `function` and macro patterns** (RESOLVED via pre-flight spike, 2026-04-27)
 
-Targets:
-- **AS Macro Assembler docs** — `function` syntax for build-time math; macro parameter parsing for `KEY=value` style; how to emit conditional bytes and trigger `fatal`.
-- **S.C.E.** macros directory — find a complex macro example with key-value args and validation.
-- **sonic_hack** — `code/macros/*.asm` if present; AS feature usage patterns.
-- **Existing s4_engine macros** — `engine/dma_queue.asm` (`queueStaticDMA`), `engine/objects/sprites.asm` (`vram_art`, `vram_bytes`). What patterns work in this codebase?
-- **CODING_CONVENTIONS.md** — the "function" rule for build-time math.
+Spike performed before plan execution (`tools/factor_spike.asm`, `tools/factor_spike2.asm`). Findings:
 
-Specific questions:
-- Can AS `function` recursively decompose a fraction `p/q` into a packed integer? Or do we need a series of nested `if` checks?
-- How does AS handle the `band` macro emitting 10 bytes when arguments may be omitted (need defaults)?
-- Best way to track "section open" state across macros — global `set` variable, scope counter?
+1. **AS evaluates `1/8` at substitution time as integer division (= 0).** `band TOP=0, FACTOR_B=1/8` is unworkable — the fraction collapses to 0 before the macro can inspect it.
+2. **`function f(p,q, expr)` works correctly when called with explicit positional integer args** — e.g., `f(1,8)` evaluates `expr` with `p=1, q=8` and proper multiplication ordering. So `packed(0,15,0)` etc. work as compile-time constants.
+3. **Named-equate fractions are the cleanest UX.** Pre-define `FACTOR_1_8`, `FACTOR_3_8`, etc. as integer equates at the top of `parallax_macros.inc`. The author writes `band 0, FACTOR_1, FACTOR_1_8` (positional args) and the macro reads the integer values.
+4. **`fatal` cannot fire from inside a `function`** — it's expression-only. Validation lives in the `band` macro's `if` checks against the resolved integer.
+5. **Section-open state** is tracked via global `set` variables (`parallax_section_band_count`, `parallax_section_last_top`).
 
-Append to research doc under "Task 2 — Macro patterns and factor_decompose feasibility."
+This task implements that decision.
 
-- [ ] **Step 2: Create `engine/parallax_macros.inc` with `factor_decompose` function**
+Append the spike artifacts and findings to `docs/research/parallax-§4.6.md` under "Task 2 — Macro spike results."
+
+- [ ] **Step 2: Create `engine/parallax_macros.inc` with `packed` function + FACTOR_* equates**
 
 ```asm
 ; engine/parallax_macros.inc — Authoring API for §4.6 parallax
@@ -288,67 +286,46 @@ Append to research doc under "Task 2 — Macro patterns and factor_decompose fea
 ; Usage:
 ;   ParallaxConfig_Foo:
 ;     parallax_section LAYER_MASK=$1F, V_FACTOR_BG=3, ...
-;       band TOP=0,  FACTOR_A=1, FACTOR_B=1/8
-;       band TOP=4,  FACTOR_A=1, FACTOR_B=1/4
+;       band 0,  FACTOR_1, FACTOR_1_8        ; top_cell, factor_a, factor_b
+;       band 4,  FACTOR_1, FACTOR_1_4
 ;     parallax_section_end
 ;
-; Factor encoding:
-;   shift1 = primary shift (0..14, 15 = "term zero", whole factor = 0)
-;   shift2 = secondary shift (0..14, 15 = "single-term factor")
-;   op    = 0 = ADD second term, 1 = SUB
+; Factor encoding (24-bit packed):
+;   bits 0-3:  shift1 (0..14, 15 = "term zero", whole factor = 0)
+;   bits 4-7:  shift2 (0..14, 15 = "single-term factor")
+;   bit  8:    op    (0 = ADD second term, 1 = SUB)
 
 ; ----------------------------------------------------------------------
-; factor_decompose — build-time fraction decomposer
-; Input: p, q (numerator, denominator)
-; Output: packed 24-bit integer:
-;   bits 0-3:  shift1
-;   bits 4-7:  shift2
-;   bit  8:    op (0=ADD, 1=SUB)
-; Fatals if q is not power of 2, p > q, or fraction needs >2 shift terms.
+; packed — build-time factor encoder (used to define FACTOR_* equates)
 ; ----------------------------------------------------------------------
-factor_log2 function n,(n=1)*0+(n=2)*1+(n=4)*2+(n=8)*3+(n=16)*4+(n=32)*5+(n=64)*6+(n=128)*7+(n=256)*8
+packed function s1,s2,op, ((op&1)<<8) | ((s2&15)<<4) | (s1&15)
 
-factor_is_pow2 function n,(n=1)|(n=2)|(n=4)|(n=8)|(n=16)|(n=32)|(n=64)|(n=128)|(n=256)
+; ----------------------------------------------------------------------
+; Pre-defined factor equates — fractions p/q where q is a power of 2
+; and decomposition uses ≤2 shift-add ops.
+; ----------------------------------------------------------------------
+FACTOR_LOCKED equ $0FF                  ; s1=15 → factor = 0 ("locked layer")
+FACTOR_0      equ FACTOR_LOCKED         ; alias
+FACTOR_1      equ packed(0,15,0)        ; camX
+FACTOR_1_2    equ packed(1,15,0)        ; camX>>1
+FACTOR_1_4    equ packed(2,15,0)        ; camX>>2
+FACTOR_1_8    equ packed(3,15,0)        ; camX>>3
+FACTOR_1_16   equ packed(4,15,0)        ; camX>>4
+FACTOR_1_32   equ packed(5,15,0)        ; camX>>5
+FACTOR_3_4    equ packed(0,2,1)         ; camX - camX>>2
+FACTOR_3_8    equ packed(2,3,0)         ; camX>>2 + camX>>3
+FACTOR_3_16   equ packed(3,4,0)         ; camX>>3 + camX>>4
+FACTOR_5_8    equ packed(1,3,0)         ; camX>>1 + camX>>3
+FACTOR_5_16   equ packed(2,4,0)         ; camX>>2 + camX>>4
+FACTOR_7_8    equ packed(0,3,1)         ; camX - camX>>3
+FACTOR_7_16   equ packed(1,4,1)         ; camX>>1 - camX>>4
+FACTOR_15_16  equ packed(0,4,1)         ; camX - camX>>4
 
-factor_pack_single function s1,((15<<4)|(s1&15))
-factor_pack_add    function s1,s2,((0<<8)|((s2&15)<<4)|(s1&15))
-factor_pack_sub    function s1,s2,((1<<8)|((s2&15)<<4)|(s1&15))
-
-; --- Public: factor_decompose ---
-; Implementation strategy: enumerate the supported fractions explicitly.
-; For p/q with q a power of 2, the supported set with ≤2 shift terms is:
-;   0/1            -> $0FF (shift1=15, locked zero)
-;   1/q            -> single term: shift1 = log2(q)
-;   (q-1)/q        -> SUB form: 1 - 1/q = (camX) - (camX >> log2(q))
-;   sums of two 1/2^k -> ADD form: (camX>>a) + (camX>>b) where a < b
-;   1/1            -> shift1 = 0 (camX itself)
-;
-; A pragmatic implementation: tabulate the common cases.
-
-factor_decompose macro p,q,result
-    if (\p) = 0
-        \result := $0FF                                        ; locked
-    elseif (\p) = (\q)
-        \result := factor_pack_single(0)                       ; factor = 1
-    elseif factor_is_pow2(\q) = 0
-        fatal "parallax: factor \{p}/\{q} — denominator must be power of 2"
-    elseif (\p) = 1
-        \result := factor_pack_single(factor_log2(\q))         ; 1/q
-    elseif (\p) = (\q) - 1
-        \result := factor_pack_sub(0,factor_log2(\q))          ; (q-1)/q = 1 - 1/q
-    elseif (\p) = 3 && factor_is_pow2(\q) && (\q) >= 8
-        ; 3/q = 1/(q/2) + 1/q — needs (\q) >= 8
-        \result := factor_pack_add(factor_log2(\q)-1,factor_log2(\q))
-    elseif (\p) = 5 && factor_is_pow2(\q) && (\q) >= 8
-        ; 5/q = 1/(q/4) + 1/q — needs (\q) >= 8
-        \result := factor_pack_add(factor_log2(\q)-2,factor_log2(\q))
-    else
-        fatal "parallax: factor \{p}/\{q} unsupported (max 2 shift terms; supported set: 0, 1, 1/q, 3/q, 5/q, (q-1)/q for q in 1,2,4,8,16,...)"
-    endif
-endm
+; (Add more as needed. Custom fractions outside this set must be authored
+; as raw `packed(s1,s2,op)` calls inline.)
 ```
 
-(Note: `factor_decompose` here is a macro that sets a label `result` rather than a `function`, because emitting `fatal` from a function is not supported in AS. The `band` macro will call `factor_decompose ...,packed_a` then read `packed_a` to emit bytes. Verify in Step 1 research that this works in AS; if not, use a different mechanism — e.g., emit a forward-referenced equate.)
+Verified in pre-flight spike: each FACTOR_* equate resolves to its expected integer; passing them as macro args works because macro substitution is purely textual and AS doesn't pre-evaluate them.
 
 - [ ] **Step 3: Add `parallax_section` / `parallax_section_end` / `band` macros**
 
@@ -421,63 +398,37 @@ endm
 
 ; ----------------------------------------------------------------------
 ; band — emit one band_entry record
-; Required: TOP=, FACTOR_A=p/q, FACTOR_B=p/q
-; Optional: DEFORM_SHIFT_A=, DEFORM_SHIFT_B=, PHASE=
+; Positional args: top_cell, factor_a, factor_b
+; Optional per-band fields read from globals (set via :=):
+;   BAND_DSA, BAND_DSB (default = BAND_DSA_DEFAULT / BAND_DSB_DEFAULT, set by parallax_section)
+;   BAND_PHASE (default 0, set by parallax_section)
+;
+; Author may override per-band:
+;   BAND_PHASE := 64
+;   band 4, FACTOR_1, FACTOR_1_4
 ; ----------------------------------------------------------------------
-band macro
+band macro top, factor_a, factor_b
     if parallax_section_band_count >= MAX_PARALLAX_BANDS
         fatal "parallax: more than \{MAX_PARALLAX_BANDS} bands"
     endif
-    if "TOP" = ""
-        fatal "parallax band: TOP required"
+    if (top) < 0 | (top) > 27
+        fatal "parallax band: TOP=\{top} out of range 0..27"
     endif
-    if "FACTOR_A" = ""
-        fatal "parallax band: FACTOR_A required"
+    if (top) <= parallax_section_last_top
+        fatal "parallax band: TOP=\{top} not strictly after previous band's TOP=\{parallax_section_last_top}"
     endif
-    if "FACTOR_B" = ""
-        fatal "parallax band: FACTOR_B required"
-    endif
-    if TOP < 0 | TOP > 27
-        fatal "parallax band: TOP=\{TOP} out of range 0..27"
-    endif
-    if TOP <= parallax_section_last_top
-        fatal "parallax band: TOP=\{TOP} not strictly after previous band's TOP=\{parallax_section_last_top}"
-    endif
-parallax_section_last_top := TOP
+parallax_section_last_top := (top)
 
-    ; decompose factors (numerators/denominators come from FACTOR_A=p/q expressions
-    ; — see Task 2 Step 1 research for AS's expression-parsing approach;
-    ; if AS can't directly parse "1/8" as two ints, the band macro takes
-    ; FACTOR_A_NUM= / FACTOR_A_DEN= and the user uses helper macros).
-    factor_decompose FACTOR_A_P,FACTOR_A_Q,band_factor_a_packed
-    factor_decompose FACTOR_B_P,FACTOR_B_Q,band_factor_b_packed
-
-    if "DEFORM_SHIFT_A" = ""
-band_dsa := DEFORM_SHIFT_DEFAULT
-    else
-band_dsa := DEFORM_SHIFT_A
-    endif
-    if "DEFORM_SHIFT_B" = ""
-band_dsb := DEFORM_SHIFT_DEFAULT
-    else
-band_dsb := DEFORM_SHIFT_B
-    endif
-    if "PHASE" = ""
-band_phase := 0
-    else
-band_phase := PHASE
-    endif
-
-    dc.b TOP
-    dc.b band_factor_a_packed & 15           ; s1
-    dc.b (band_factor_a_packed >> 4) & 15    ; s2
-    dc.b (band_factor_a_packed >> 8) & 1     ; op
-    dc.b band_factor_b_packed & 15
-    dc.b (band_factor_b_packed >> 4) & 15
-    dc.b (band_factor_b_packed >> 8) & 1
-    dc.b band_dsa
-    dc.b band_dsb
-    dc.b band_phase
+    dc.b top
+    dc.b (factor_a) & 15                        ; s1
+    dc.b ((factor_a) >> 4) & 15                 ; s2
+    dc.b ((factor_a) >> 8) & 1                  ; op
+    dc.b (factor_b) & 15
+    dc.b ((factor_b) >> 4) & 15
+    dc.b ((factor_b) >> 8) & 1
+    dc.b BAND_DSA
+    dc.b BAND_DSB
+    dc.b BAND_PHASE
 
 parallax_section_band_count := parallax_section_band_count + 1
 endm
@@ -498,7 +449,16 @@ parallax_section_end macro
 endm
 ```
 
-(Note on `FACTOR_A=1/8` parsing: if AS can't split that into two integer args within a macro, fall back to `FACTOR_A_P=1, FACTOR_A_Q=8`. Decide based on Task 2 Step 1 research. Update the `band` macro and authoring example accordingly.)
+Also append to the macros file: defaults for `BAND_DSA` / `BAND_DSB` / `BAND_PHASE` (set inside `parallax_section` to the section-wide default; author can override per-band before invoking `band`):
+
+```asm
+; Set inside parallax_section opening (using DEFORM_SHIFT_DEFAULT and 0)
+;   BAND_DSA := DEFORM_SHIFT_DEFAULT
+;   BAND_DSB := DEFORM_SHIFT_DEFAULT
+;   BAND_PHASE := 0
+```
+
+(parallax_section macro implementation should set these via `:=` so that subsequent `band` invocations within the section pick them up. Author may override before any specific `band` to vary phase/amplitude.)
 
 - [ ] **Step 4: Include `parallax_macros.inc` in `S4.asm`**
 
@@ -518,11 +478,11 @@ Create a minimal test file inline at the bottom of `engine/parallax_macros.inc` 
     ifdef __PARALLAX_MACRO_SELFTEST__
 ParallaxConfig_SelfTest:
     parallax_section LAYER_MASK=$0F, V_FACTOR_BG=3, V_CENTER=0, V_OFFSET=0
-        band TOP=0,  FACTOR_A=1,   FACTOR_B=1/8
-        band TOP=4,  FACTOR_A=1,   FACTOR_B=1/4
-        band TOP=10, FACTOR_A=1,   FACTOR_B=3/8
-        band TOP=14, FACTOR_A=1,   FACTOR_B=1/2
-        band TOP=20, FACTOR_A=1,   FACTOR_B=1
+        band 0,  FACTOR_1, FACTOR_1_8
+        band 4,  FACTOR_1, FACTOR_1_4
+        band 10, FACTOR_1, FACTOR_3_8
+        band 14, FACTOR_1, FACTOR_1_2
+        band 20, FACTOR_1, FACTOR_1
     parallax_section_end
 
     ; Expected size: 22 (header) + 5 × 10 (bands) = 72 bytes
@@ -540,7 +500,7 @@ cd /home/volence/sonic_hacks/s4_engine && asw -D __PARALLAX_MACRO_SELFTEST__ -P 
 
 Expected: build emits ParallaxConfig_SelfTest at exactly 72 bytes; no errors.
 
-If the build fails on `FACTOR_A=1/8` parsing, fall back to `FACTOR_A_P=/FACTOR_A_Q=` form per Step 3 note.
+No fallback needed — the FACTOR_* named-equate form is verified working via the pre-flight spike.
 
 - [ ] **Step 6: Run normal build to confirm no regressions**
 
@@ -836,11 +796,11 @@ Append to research doc under "Task 4 — Init order."
 
 ParallaxConfig_OJZ_Default:
     parallax_section LAYER_MASK=$1F, V_FACTOR_BG=3, V_CENTER=128, V_OFFSET=0
-        band TOP=0,  FACTOR_A=1, FACTOR_B=1/8       ; clouds
-        band TOP=4,  FACTOR_A=1, FACTOR_B=1/4       ; far mountains
-        band TOP=10, FACTOR_A=1, FACTOR_B=3/8       ; mid mountains
-        band TOP=14, FACTOR_A=1, FACTOR_B=1/2       ; hills
-        band TOP=20, FACTOR_A=1, FACTOR_B=1         ; ground (FG-sync)
+        band 0,  FACTOR_1, FACTOR_1_8       ; clouds
+        band 4,  FACTOR_1, FACTOR_1_4       ; far mountains
+        band 10, FACTOR_1, FACTOR_3_8       ; mid mountains
+        band 14, FACTOR_1, FACTOR_1_2       ; hills
+        band 20, FACTOR_1, FACTOR_1         ; ground (FG-sync)
     parallax_section_end
 ```
 
@@ -2064,11 +2024,23 @@ DeformTable_OJZ_Calm:
 ParallaxConfig_OJZ_Windy:
     parallax_section LAYER_MASK=$1F, V_FACTOR_BG=3, V_CENTER=128, V_OFFSET=0, \
                      DEFORM_BG=DeformTable_OJZ_Calm, DEFORM_SPEED_BG=1
-        band TOP=0,  FACTOR_A=1, FACTOR_B=1/8, PHASE=0      ; clouds (full deform)
-        band TOP=4,  FACTOR_A=1, FACTOR_B=1/4, PHASE=64     ; far mountains (mid deform)
-        band TOP=10, FACTOR_A=1, FACTOR_B=3/8, PHASE=128, DEFORM_SHIFT_B=6   ; mid mountains, weak deform
-        band TOP=14, FACTOR_A=1, FACTOR_B=1/2, PHASE=192, DEFORM_SHIFT_B=8   ; hills, very weak
-        band TOP=20, FACTOR_A=1, FACTOR_B=1, DEFORM_SHIFT_B=15               ; ground, no deform
+        ; clouds — full deform
+        BAND_PHASE := 0
+        band 0,  FACTOR_1, FACTOR_1_8
+        ; far mountains — mid deform
+        BAND_PHASE := 64
+        band 4,  FACTOR_1, FACTOR_1_4
+        ; mid mountains — weak deform via larger amplitude shift
+        BAND_PHASE := 128
+        BAND_DSB := 6
+        band 10, FACTOR_1, FACTOR_3_8
+        ; hills — very weak
+        BAND_PHASE := 192
+        BAND_DSB := 8
+        band 14, FACTOR_1, FACTOR_1_2
+        ; ground — no deform (DSB sentinel = 15)
+        BAND_DSB := 15
+        band 20, FACTOR_1, FACTOR_1
     parallax_section_end
 ```
 
@@ -2250,11 +2222,11 @@ DeformTable_OJZ_Floor:
 ParallaxConfig_OJZ_Floor:
     parallax_section LAYER_MASK=$1F, V_FACTOR_BG=3, V_CENTER=128, V_OFFSET=0, \
                      V_DEFORM_BG=DeformTable_OJZ_Floor, V_DEFORM_SPEED_BG=0, V_DEFORM_SHIFT_BG=4
-        band TOP=0,  FACTOR_A=1, FACTOR_B=1/8
-        band TOP=4,  FACTOR_A=1, FACTOR_B=1/4
-        band TOP=10, FACTOR_A=1, FACTOR_B=3/8
-        band TOP=14, FACTOR_A=1, FACTOR_B=1/2
-        band TOP=20, FACTOR_A=1, FACTOR_B=1
+        band 0,  FACTOR_1, FACTOR_1_8
+        band 4,  FACTOR_1, FACTOR_1_4
+        band 10, FACTOR_1, FACTOR_3_8
+        band 14, FACTOR_1, FACTOR_1_2
+        band 20, FACTOR_1, FACTOR_1
     parallax_section_end
 ```
 
@@ -2339,11 +2311,17 @@ DeformTable_OJZ_HeatHaze:
 ParallaxConfig_OJZ_FGWave:
     parallax_section LAYER_MASK=$1F, V_FACTOR_BG=3, V_CENTER=128, V_OFFSET=0, \
                      DEFORM_FG=DeformTable_OJZ_HeatHaze, DEFORM_SPEED_FG=2
-        band TOP=0,  FACTOR_A=1, FACTOR_B=1/8, DEFORM_SHIFT_A=15   ; sky: no FG deform
-        band TOP=4,  FACTOR_A=1, FACTOR_B=1/4, DEFORM_SHIFT_A=15
-        band TOP=10, FACTOR_A=1, FACTOR_B=3/8, DEFORM_SHIFT_A=15
-        band TOP=14, FACTOR_A=1, FACTOR_B=1/2, DEFORM_SHIFT_A=8    ; hills: faint FG deform
-        band TOP=20, FACTOR_A=1, FACTOR_B=1,   DEFORM_SHIFT_A=4    ; ground: full FG deform
+        ; sky / far / mid: no FG deform (BAND_DSA = 15)
+        BAND_DSA := 15
+        band 0,  FACTOR_1, FACTOR_1_8
+        band 4,  FACTOR_1, FACTOR_1_4
+        band 10, FACTOR_1, FACTOR_3_8
+        ; hills: faint FG deform
+        BAND_DSA := 8
+        band 14, FACTOR_1, FACTOR_1_2
+        ; ground: full FG deform
+        BAND_DSA := 4
+        band 20, FACTOR_1, FACTOR_1
     parallax_section_end
 ```
 
@@ -2552,11 +2530,11 @@ Append to research doc under "Task 15 — Layer mask use cases."
 ParallaxConfig_OJZ_Caves:
     parallax_section LAYER_MASK=$1F, V_FACTOR_BG=4, V_CENTER=64, V_OFFSET=-16, \
                      TRANSITION=0
-        band TOP=0,  FACTOR_A=1, FACTOR_B=1/16    ; deep caves: very slow BG
-        band TOP=4,  FACTOR_A=1, FACTOR_B=1/16
-        band TOP=10, FACTOR_A=1, FACTOR_B=1/8
-        band TOP=14, FACTOR_A=1, FACTOR_B=1/4
-        band TOP=20, FACTOR_A=1, FACTOR_B=1
+        band 0,  FACTOR_1, FACTOR_1_16    ; deep caves: very slow BG
+        band 4,  FACTOR_1, FACTOR_1_16
+        band 10, FACTOR_1, FACTOR_1_8
+        band 14, FACTOR_1, FACTOR_1_4
+        band 20, FACTOR_1, FACTOR_1
     parallax_section_end
 ```
 
@@ -2564,29 +2542,18 @@ Wire OJZ Sections 0 and 1 to alternate between Default and Caves. F4 verificatio
 
 - [ ] **Step 3: Author F6 — `data/parallax/ojz_layermask.asm`**
 
-```asm
-; data/parallax/ojz_layermask.asm — F6 fixture: only bottom 4 bands active
-
-ParallaxConfig_OJZ_LayerMask:
-    parallax_section LAYER_MASK=$0F, V_FACTOR_BG=3, V_CENTER=128, V_OFFSET=0
-        band TOP=0,  FACTOR_A=1, FACTOR_B=1/8       ; band 0 — DISABLED (mask bit 4 = 0)
-        band TOP=4,  FACTOR_A=1, FACTOR_B=1/4       ; band 1 — active
-        band TOP=10, FACTOR_A=1, FACTOR_B=3/8       ; band 2 — active
-        band TOP=14, FACTOR_A=1, FACTOR_B=1/2       ; band 3 — active
-        band TOP=20, FACTOR_A=1, FACTOR_B=1         ; band 4 — active
-    parallax_section_end
-```
-
-Wait — `LAYER_MASK=$0F` is binary `00001111`, so bits 0-3 set, bits 4-7 clear. With 5 bands, that activates bands 0-3 and disables band 4 (ground). That's not the visual we want — we'd disable the ground.
-
-Adjust: with 5 bands and want to disable band 0 only, use `LAYER_MASK=$1E` (binary `11110`). For "disable bands 0 and 1", `LAYER_MASK=$1C`. Choose what's visually testable. Probably `$1E` (clouds disabled) is clearest:
+For 5 bands and `LAYER_MASK=$1E` (binary `11110`), band 0 (clouds) is disabled and inherits previous-band scroll = 0 (locked, since band 0 has no previous). Visually: clouds stay still while everything else parallaxes normally.
 
 ```asm
+; data/parallax/ojz_layermask.asm — F6 fixture: clouds locked via layer mask
+
 ParallaxConfig_OJZ_LayerMask:
     parallax_section LAYER_MASK=$1E, V_FACTOR_BG=3, V_CENTER=128, V_OFFSET=0
-        band TOP=0,  FACTOR_A=1, FACTOR_B=1/8       ; clouds DISABLED → inherit from previous (none) → 0
-        band TOP=4,  FACTOR_A=1, FACTOR_B=1/4
-        ...
+        band 0,  FACTOR_1, FACTOR_1_8       ; clouds DISABLED → inherit (none) → 0 (locked)
+        band 4,  FACTOR_1, FACTOR_1_4       ; far mountains — active
+        band 10, FACTOR_1, FACTOR_3_8       ; mid mountains — active
+        band 14, FACTOR_1, FACTOR_1_2       ; hills — active
+        band 20, FACTOR_1, FACTOR_1         ; ground — active
     parallax_section_end
 ```
 
