@@ -114,3 +114,20 @@ Add per-object pre-check using cached `SST_sprite_piece_count`. Sit it right aft
 3. Existing per-piece `cmpi.b #MAX_VDP_SPRITES, d5; dbeq d4, .piece_loop_*` fail-safe
 
 This matches sonic_hack's hybrid approach plus our existing scanline-band budget — most defensive Genesis sprite engine in the references.
+
+---
+
+## Task 6 — Piece-emission factoring (2026-04-27)
+
+**Question:** Single subroutine with flag-dispatch, or 4 separate inline blocks for the 4 flip variants?
+
+**Findings:** All references (S.C.E., sonic_hack, Batman) use **4 separate inline blocks**. Reasoning: each flip variant has 1-3 unique instructions (eori for X-flip, neg + height lookup for Y-flip), and a unified subroutine would require per-piece conditionals that erase any code-size savings.
+
+**Decision for Task 6:** Factor into `Emit_ObjectPieces` but **keep the 4 flip variants inline within the subroutine**. The subroutine wraps the dispatch + 4 blocks. Caller does `bsr.w Emit_ObjectPieces`. JSR/RTS overhead: one per object (not per piece). Code-size savings: ~120 bytes by removing the duplicate 4-block dispatch from inline code path.
+
+**Calling convention:** All registers passed via expected-state convention:
+- a3 (frame data, post piece-count word), a4 (SAT write ptr), d2/d3 (screen pos), d4 (piece count raw), d5 (running total), d6 (art_tile), d0 (flip bits, masked).
+- a0 is repurposed inside the subroutine as the flip-table base.
+- d7 preserved (band-loop counter must survive).
+
+**Verified:** OJZ scroll test renders byte-identical to pre-refactor (10842 bytes both screenshots). ObjectTest shows sprites correctly emitting through new path. No regression.

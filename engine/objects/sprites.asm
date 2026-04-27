@@ -255,186 +255,7 @@ Render_Sprites:
         ; Determine flip variant from render_flags bits 1-2
         move.b  SST_render_flags(a0), d0
         andi.w  #(1<<RF_XFLIP)|(1<<RF_YFLIP), d0
-        lea     CellOffsets_XFlip(pc), a0  ; a0 free now — reuse for flip tables
-        beq.s   .pieces_unflipped
-        cmpi.b  #1<<RF_XFLIP, d0
-        beq.w   .pieces_xflip
-        cmpi.b  #1<<RF_YFLIP, d0
-        beq.w   .pieces_yflip
-        bra.w   .pieces_xyflip
-
-        ; --- Unflipped piece loop ---
-.pieces_unflipped:
-        subq.w  #1, d4
-.piece_loop:
-        move.w  (a3)+, d0               ; Y offset (signed)
-        move.b  (a3)+, d1               ; VDP size code
-        addq.w  #1, a3                  ; skip padding byte
-        move.w  (a3)+, a6              ; tile attrs (relative)
-        move.w  (a3)+, a1              ; X offset (signed)
-
-        ; VDP Y: screen_y + y_offset + 128
-        add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
-        move.w  d0, (a4)+              ; SAT +0: Y
-
-        ; SAT +2: size | link
-        move.b  d1, (a4)+              ; size code
-        addq.b  #1, d5
-        move.b  d5, (a4)+              ; link = next sprite index
-
-        ; SAT +4: tile attributes
-        move.w  a6, d0
-        add.w   d6, d0
-        move.w  d0, (a4)+
-
-        ; SAT +6: X position
-        move.w  a1, d0
-        add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
-        bne.s   .x_ok
-        moveq   #1, d0
-.x_ok:
-        move.w  d0, (a4)+
-
-        cmpi.b  #MAX_VDP_SPRITES, d5
-        dbeq    d4, .piece_loop
-        bra.w   .next_object
-
-        ; --- X-flipped piece loop ---
-.pieces_xflip:
-        subq.w  #1, d4
-.piece_loop_xf:
-        move.w  (a3)+, d0
-        move.b  (a3)+, d1
-        addq.w  #1, a3
-        move.w  (a3)+, a6
-        move.w  (a3)+, a1
-
-        add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
-        move.w  d0, (a4)+
-
-        move.b  d1, (a4)+
-        addq.b  #1, d5
-        move.b  d5, (a4)+
-
-        ; Toggle X flip bit
-        move.w  a6, d0
-        eori.w  #$0800, d0
-        add.w   d6, d0
-        move.w  d0, (a4)+
-
-        ; Negate X offset and subtract sprite width via lookup table
-        move.w  a1, d0
-        neg.w   d0
-        moveq   #0, d1                  ; re-zero for table index
-        move.b  -6(a3), d1              ; re-read VDP size code from mapping piece
-        move.b  (a0,d1.w), d1           ; X-flip width from CellOffsets_XFlip
-        sub.w   d1, d0
-        add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
-        bne.s   .x_ok_xf
-        moveq   #1, d0
-.x_ok_xf:
-        move.w  d0, (a4)+
-
-        cmpi.b  #MAX_VDP_SPRITES, d5
-        dbeq    d4, .piece_loop_xf
-        bra.w   .next_object
-
-        ; --- Y-flipped piece loop ---
-.pieces_yflip:
-        subq.w  #1, d4
-.piece_loop_yf:
-        move.w  (a3)+, d0               ; Y offset (signed)
-        move.b  (a3)+, d1               ; VDP size code
-        addq.w  #1, a3
-        move.w  (a3)+, a6
-        move.w  (a3)+, a1
-
-        ; Negate Y offset and subtract sprite height
-        neg.w   d0
-        andi.w  #3, d1                  ; height-1 from VDP size code low 2 bits
-        addq.w  #1, d1                  ; height in cells
-        lsl.w   #3, d1                  ; height in pixels
-        sub.w   d1, d0
-        add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
-        move.w  d0, (a4)+
-
-        move.b  -6(a3), d1              ; re-read VDP size code
-        move.b  d1, (a4)+
-        addq.b  #1, d5
-        move.b  d5, (a4)+
-
-        ; Toggle Y flip bit
-        move.w  a6, d0
-        eori.w  #$1000, d0
-        add.w   d6, d0
-        move.w  d0, (a4)+
-
-        ; X position (normal, no X flip)
-        move.w  a1, d0
-        add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
-        bne.s   .x_ok_yf
-        moveq   #1, d0
-.x_ok_yf:
-        move.w  d0, (a4)+
-
-        cmpi.b  #MAX_VDP_SPRITES, d5
-        dbeq    d4, .piece_loop_yf
-        bra.w   .next_object
-
-        ; --- XY-flipped piece loop ---
-.pieces_xyflip:
-        subq.w  #1, d4
-.piece_loop_xyf:
-        move.w  (a3)+, d0               ; Y offset
-        move.b  (a3)+, d1               ; VDP size code
-        addq.w  #1, a3
-        move.w  (a3)+, a6
-        move.w  (a3)+, a1
-
-        ; Negate Y offset, subtract sprite height
-        neg.w   d0
-        andi.w  #3, d1                  ; height-1 from VDP size code low 2 bits
-        addq.w  #1, d1                  ; height in cells
-        lsl.w   #3, d1                  ; height in pixels
-        sub.w   d1, d0
-        add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
-        move.w  d0, (a4)+
-
-        move.b  -6(a3), d1              ; re-read VDP size code
-        move.b  d1, (a4)+
-        addq.b  #1, d5
-        move.b  d5, (a4)+
-
-        ; Toggle both flip bits
-        move.w  a6, d0
-        eori.w  #$1800, d0
-        add.w   d6, d0
-        move.w  d0, (a4)+
-
-        ; Negate X offset, subtract sprite width
-        move.w  a1, d0
-        neg.w   d0
-        moveq   #0, d1
-        move.b  -6(a3), d1              ; re-read VDP size code again
-        move.b  (a0,d1.w), d1           ; X-flip width from CellOffsets_XFlip
-        sub.w   d1, d0
-        add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
-        bne.s   .x_ok_xyf
-        moveq   #1, d0
-.x_ok_xyf:
-        move.w  d0, (a4)+
-
-        cmpi.b  #MAX_VDP_SPRITES, d5
-        dbeq    d4, .piece_loop_xyf
-        bra.w   .next_object
+        bsr.w   Emit_ObjectPieces
 
 .next_object:
         dbf     d7, .object_loop
@@ -489,6 +310,197 @@ CellOffsets_XFlip:
         dc.b 24, 24, 24, 24            ; width=3 (24px)
         dc.b 32, 32, 32, 32            ; width=4 (32px)
         align 2
+
+; -----------------------------------------------
+; Emit_ObjectPieces — emit one object's mapping pieces to the SAT buffer
+; Reusable across single-object render path and multi-sprite sibling walk
+; (Task 8). Four flip variants kept inline (zero JSR per piece).
+;
+; In:  a3 = pointer to first piece data (after piece-count word)
+;      a4 = SAT buffer write pointer
+;      d2.w = screen X (camera-adjusted)
+;      d3.w = screen Y (camera-adjusted)
+;      d4.w = piece count (raw, not yet dbf-adjusted)
+;      d5.w = running sprite total (in/out, incremented per piece)
+;      d6.w = art_tile (palette/priority/tile base)
+;      d0.b = flip variant (RF_XFLIP|RF_YFLIP bits, ALREADY MASKED)
+; Out: a3 advanced past consumed pieces
+;      a4 advanced past emitted SAT entries
+;      d5 incremented per emitted piece (capped at MAX_VDP_SPRITES)
+;      d4 = -1 (consumed by dbf)
+; Clobbers: d0, d1, a0 (repurposed for flip-table), a1, a6
+; Preserves: d2, d3, d6, d7
+; -----------------------------------------------
+Emit_ObjectPieces:
+        lea     CellOffsets_XFlip(pc), a0  ; a0 = flip-table base for variants
+        tst.b   d0
+        beq.s   .pieces_unflipped
+        cmpi.b  #1<<RF_XFLIP, d0
+        beq.w   .pieces_xflip
+        cmpi.b  #1<<RF_YFLIP, d0
+        beq.w   .pieces_yflip
+        bra.w   .pieces_xyflip
+
+        ; --- Unflipped piece loop ---
+.pieces_unflipped:
+        subq.w  #1, d4
+.piece_loop:
+        move.w  (a3)+, d0               ; Y offset (signed)
+        move.b  (a3)+, d1               ; VDP size code
+        addq.w  #1, a3                  ; skip padding byte
+        move.w  (a3)+, a6              ; tile attrs (relative)
+        move.w  (a3)+, a1              ; X offset (signed)
+
+        add.w   d3, d0
+        addi.w  #VDP_SPRITE_Y_OFFSET, d0
+        move.w  d0, (a4)+              ; SAT +0: Y
+
+        move.b  d1, (a4)+              ; SAT +2: size code
+        addq.b  #1, d5
+        move.b  d5, (a4)+              ; SAT +3: link
+
+        move.w  a6, d0
+        add.w   d6, d0
+        move.w  d0, (a4)+              ; SAT +4: tile attrs
+
+        move.w  a1, d0
+        add.w   d2, d0
+        addi.w  #VDP_SPRITE_X_OFFSET, d0
+        bne.s   .x_ok
+        moveq   #1, d0
+.x_ok:
+        move.w  d0, (a4)+              ; SAT +6: X
+
+        cmpi.b  #MAX_VDP_SPRITES, d5
+        dbeq    d4, .piece_loop
+        rts
+
+        ; --- X-flipped piece loop ---
+.pieces_xflip:
+        subq.w  #1, d4
+.piece_loop_xf:
+        move.w  (a3)+, d0
+        move.b  (a3)+, d1
+        addq.w  #1, a3
+        move.w  (a3)+, a6
+        move.w  (a3)+, a1
+
+        add.w   d3, d0
+        addi.w  #VDP_SPRITE_Y_OFFSET, d0
+        move.w  d0, (a4)+
+
+        move.b  d1, (a4)+
+        addq.b  #1, d5
+        move.b  d5, (a4)+
+
+        move.w  a6, d0
+        eori.w  #$0800, d0              ; toggle X flip bit
+        add.w   d6, d0
+        move.w  d0, (a4)+
+
+        move.w  a1, d0
+        neg.w   d0
+        moveq   #0, d1
+        move.b  -6(a3), d1              ; re-read VDP size code
+        move.b  (a0,d1.w), d1           ; X-flip width from CellOffsets_XFlip
+        sub.w   d1, d0
+        add.w   d2, d0
+        addi.w  #VDP_SPRITE_X_OFFSET, d0
+        bne.s   .x_ok_xf
+        moveq   #1, d0
+.x_ok_xf:
+        move.w  d0, (a4)+
+
+        cmpi.b  #MAX_VDP_SPRITES, d5
+        dbeq    d4, .piece_loop_xf
+        rts
+
+        ; --- Y-flipped piece loop ---
+.pieces_yflip:
+        subq.w  #1, d4
+.piece_loop_yf:
+        move.w  (a3)+, d0
+        move.b  (a3)+, d1
+        addq.w  #1, a3
+        move.w  (a3)+, a6
+        move.w  (a3)+, a1
+
+        neg.w   d0
+        andi.w  #3, d1                  ; height-1 from VDP size code low 2 bits
+        addq.w  #1, d1
+        lsl.w   #3, d1                  ; height in pixels
+        sub.w   d1, d0
+        add.w   d3, d0
+        addi.w  #VDP_SPRITE_Y_OFFSET, d0
+        move.w  d0, (a4)+
+
+        move.b  -6(a3), d1
+        move.b  d1, (a4)+
+        addq.b  #1, d5
+        move.b  d5, (a4)+
+
+        move.w  a6, d0
+        eori.w  #$1000, d0              ; toggle Y flip bit
+        add.w   d6, d0
+        move.w  d0, (a4)+
+
+        move.w  a1, d0
+        add.w   d2, d0
+        addi.w  #VDP_SPRITE_X_OFFSET, d0
+        bne.s   .x_ok_yf
+        moveq   #1, d0
+.x_ok_yf:
+        move.w  d0, (a4)+
+
+        cmpi.b  #MAX_VDP_SPRITES, d5
+        dbeq    d4, .piece_loop_yf
+        rts
+
+        ; --- XY-flipped piece loop ---
+.pieces_xyflip:
+        subq.w  #1, d4
+.piece_loop_xyf:
+        move.w  (a3)+, d0
+        move.b  (a3)+, d1
+        addq.w  #1, a3
+        move.w  (a3)+, a6
+        move.w  (a3)+, a1
+
+        neg.w   d0
+        andi.w  #3, d1
+        addq.w  #1, d1
+        lsl.w   #3, d1
+        sub.w   d1, d0
+        add.w   d3, d0
+        addi.w  #VDP_SPRITE_Y_OFFSET, d0
+        move.w  d0, (a4)+
+
+        move.b  -6(a3), d1
+        move.b  d1, (a4)+
+        addq.b  #1, d5
+        move.b  d5, (a4)+
+
+        move.w  a6, d0
+        eori.w  #$1800, d0              ; toggle both flip bits
+        add.w   d6, d0
+        move.w  d0, (a4)+
+
+        move.w  a1, d0
+        neg.w   d0
+        moveq   #0, d1
+        move.b  -6(a3), d1
+        move.b  (a0,d1.w), d1
+        sub.w   d1, d0
+        add.w   d2, d0
+        addi.w  #VDP_SPRITE_X_OFFSET, d0
+        bne.s   .x_ok_xyf
+        moveq   #1, d0
+.x_ok_xyf:
+        move.w  d0, (a4)+
+
+        cmpi.b  #MAX_VDP_SPRITES, d5
+        dbeq    d4, .piece_loop_xyf
+        rts
 
 ; -----------------------------------------------
 ; InsertSpriteMasks — write X=0 mask sprites into the SAT buffer
