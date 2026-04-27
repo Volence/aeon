@@ -58,7 +58,7 @@ GameState_OJZScroll_Init:
         jsr     Parallax_Init
 
         ; -- enable display now that VRAM and nametable are populated --
-        setVDPReg VDP_Shadow_vdp_mode2, #$64    ; display on, VBlank on, DMA on
+        setVDPReg VDP_Shadow_vdp_mode2, #$74    ; display on, VBlank on, DMA on, M5 on
 
         ; -- set VInt_Ptr to level handler --
         move.l  #VInt_Level, (VInt_Ptr).w
