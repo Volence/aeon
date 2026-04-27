@@ -70,6 +70,7 @@ AnimateSprite:
         bmi.s   .control_code
 .set_frame:
         move.b  d0, SST_mapping_frame(a0)
+        bsr.w   RefreshSpritePieceCount
 .done:
         rts
 
@@ -214,6 +215,7 @@ AnimateSprite_PerFrame:
 .pf_set_frame:
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1,d1.w), SST_anim_timer(a0)
+        bsr.w   RefreshSpritePieceCount
 .pf_done:
         rts
 
@@ -230,7 +232,7 @@ AnimateSprite_PerFrame:
         bmi.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1), SST_anim_timer(a0)
-        rts
+        bra.w   RefreshSpritePieceCount    ; tail-call
 
 ; --- PerFrame control code / event dispatch ---
 .pf_control:
@@ -260,7 +262,7 @@ AnimateSprite_PerFrame:
         bmi.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1), SST_anim_timer(a0)
-        rts
+        bra.w   RefreshSpritePieceCount    ; tail-call
 
 .pfc_back:
         addq.b  #1, d1
@@ -274,7 +276,7 @@ AnimateSprite_PerFrame:
         bmi.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1,d1.w), SST_anim_timer(a0)
-        rts
+        bra.w   RefreshSpritePieceCount    ; tail-call
 
 .pfc_change:
         addq.b  #1, d1
@@ -325,3 +327,23 @@ AnimateSprite_PerFrame:
         move.b  (a1,d1.w), d0
         bmi.w   .pf_control
         bra.w   .pf_set_frame
+
+; -----------------------------------------------
+; RefreshSpritePieceCount — refresh SST_sprite_piece_count from current frame
+; Called from AnimateSprite paths whenever mapping_frame is written.
+; In:  a0 = SST pointer
+; Out: SST_sprite_piece_count(a0) = first word of current frame's data
+; Clobbers: d2, a1
+; -----------------------------------------------
+RefreshSpritePieceCount:
+        movea.l SST_mappings(a0), a1
+        move.l  a1, d2
+        beq.s   .skip                       ; null mappings — leave field untouched
+        moveq   #0, d2
+        move.b  SST_mapping_frame(a0), d2
+        add.w   d2, d2                       ; word offset
+        move.w  (a1,d2.w), d2                ; offset to frame data
+        move.w  (a1,d2.w), d2                ; first word = piece count
+        move.b  d2, SST_sprite_piece_count(a0)
+.skip:
+        rts

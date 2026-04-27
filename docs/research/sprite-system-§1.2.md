@@ -64,3 +64,30 @@ The doc claim "links never rebuilt during gameplay" is **technically achievable*
 - `RF_MULTISPRITE = 4` is consistent with the existing render_flags bit allocation (bits 0-3 used, bits 4-6 free, bit 7 reserved for delete).
 
 **Insight:** sonic_hack's "read count from mapping data inline" (no SST cache) is also viable — but our piece-count is checked BEFORE we begin walking the frame data, so caching avoids the pointer chase for the overflow check. Worth the byte.
+
+---
+
+## Task 4 — AnimateSprite frame-change refresh site (2026-04-27)
+
+**Question:** Where do reference engines react to `mapping_frame` change beyond updating the index? Should our `sprite_piece_count` refresh sit (a) directly in AnimateSprite, (b) in a separate helper, (c) at the existing `prev_frame` update site (consolidate side effects)?
+
+**Findings:**
+
+- **s4_engine** — has change detection in two places: `animate.asm:54` (compares `prev_anim`, not `prev_frame`) and `dplc.asm:22-25` (compares `mapping_frame` vs `prev_frame`, then advances `prev_frame`). AnimateSprite *writes* `mapping_frame` but doesn't touch `prev_frame`. Perform_DPLC is the canonical "frame change" detector but only runs for objects that explicitly call it.
+- **sonic_hack** — animation update at `display_animate.asm:67-86` does change detection on anim, not frame; uses a separate deferred PLC queue for DPLC.
+- **S.C.E.** — `Animate Sprite.asm:13` does anim-change detection, no piece-count or DPLC side effects (clean engine, leaves DPLC to caller).
+- **Batman & Robin / Vectorman / Gunstar / Alien Soldier / Thunder Force IV** — varied patterns, none exposed a piece-count cache update site distinct from animation.
+
+**Decision for Task 4:**
+
+Option (b) — separate helper called from each `mapping_frame` write site. Reasoning:
+
+- Putting refresh inside Perform_DPLC (option c) wouldn't fire for objects without DPLC tables (most of our test objects). Wrong scope.
+- Putting refresh always-unconditionally at end of AnimateSprite (variant of a) wastes cycles when frame didn't change.
+- Helper at each `mapping_frame` write site fires exactly when needed, is reusable from PerFrame variant too.
+
+**Implementation:** New `RefreshSpritePieceCount` helper at end of `animate.asm`. Called via `bsr.w` after each `move.b d0, SST_mapping_frame(a0)` in the main path; called via `bra.w` (tail-call) from PerFrame paths whose only post-write op is the rts. Five sites total: 1 in main AnimateSprite, 4 in AnimateSprite_PerFrame.
+
+**Cycle cost:** bsr.w + rts adds ~34 cycles to the change path, plus ~30c for the helper body. Total ~64c per frame change. Frame changes are rare (every several gameplay frames, not every game tick). Negligible budget impact.
+
+**Insight:** Our existing `prev_frame` field at $1F is touched ONLY by Perform_DPLC, never by AnimateSprite. That's why Perform_DPLC's change-detection works (mapping_frame and prev_frame diverge on each AnimateSprite frame change, then DPLC reconverges them). The piece_count refresh is independent — it doesn't touch prev_frame and won't interfere with DPLC.
