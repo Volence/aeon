@@ -57,11 +57,18 @@ VRAM_WINDOW             = $F000
 ; Shared BG tile region (§2 A.5 T1/T2)
 ; Reserved permanent VRAM slot range for zone-wide BG tile art.
 ; Loaded once at level init and never overwritten by section transitions.
-; Lives between FG section pools (which may grow up to ~slot 1279) and
+; Lives between FG section pools (which may grow up to ~slot 1023) and
 ; Plane A nametable (slot 1536).
-BG_TILE_BASE_VRAM       = $A000         ; Byte address (slot 1280)
-BG_TILE_BASE_SLOT       = BG_TILE_BASE_VRAM/32   ; 1280 — for nametable index remap
-BG_TILE_CAPACITY        = 256           ; tiles ($A000..$BFFF = 8 KB)
+;
+; T2/T3 (per-section BG variation) requires holding the union of all
+; sections' BG tiles simultaneously, since the region is loaded once at
+; level init. 512 slots (16 KB) covers OJZ Act 1's measured worst-case
+; (~344 tiles when all four section variants were authored during T2/T3
+; verification). T1-only zones use ~218 of the 512 slots; the headroom is
+; reserved for future T2/T3 zones.
+BG_TILE_BASE_VRAM       = $8000         ; Byte address (slot 1024)
+BG_TILE_BASE_SLOT       = BG_TILE_BASE_VRAM/32   ; 1024 — for nametable index remap
+BG_TILE_CAPACITY        = 512           ; tiles ($8000..$BFFF = 16 KB)
 
 ; Plane size
 PLANE_H_CELLS           = 64

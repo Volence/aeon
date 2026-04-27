@@ -55,15 +55,31 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 
 ## From §2 — Art & Compression Pipeline
 
-### §2 A.5 T2/T3 — Per-Section BG Fixtures
-**Status:** Engine code paths complete (`BG_RedrawForSection` in `engine/level/bg.asm` ready, `Sec.sec_bg_layout` field wired). Build-tool fixture emission deferred until a zone actually needs per-section BG variation.
-**Deferred:** `--bg-fixture=t2/t3` CLI flag in `ojz_strip_gen.py`, `emit_section_bg_layout` helper, fixture descriptor files (`bg_fixture_t2.asm` / `bg_fixture_t3.asm`), `BG_FIXTURE` asw conditional in `test/ojz_scroll_test.asm`, build.sh flag plumbing.
-**Plan stub:** `docs/superpowers/plans/2026-04-26-art-pipeline-phase2-A5-per-section-background.md` Tasks 7-10 cover the build-out.
+### ~~§2 A.5 T2/T3 — Per-Section BG~~ — VERIFIED 2026-04-27
+**Engine paths proven end-to-end** via temporary fixtures in OJZ Act 1, then reverted. Production ships pure T1.
+**T2 verified:** `sec_bg_layout` ≠ NULL → `BG_RedrawForSection` blits the section's authored layout to Plane B on teleport. Tested with sec1 = byte-identical zone copy (proved redraw doesn't corrupt content) and sec3 = palette-tinted variant (proved swap visually).
+**T3 verified:** sec5's BG layout referenced an in-section VRAM slot (color base 0, tile 5) tiled across all 64×32 cells. After A.4 streaming loaded sec5's tile pool, the BG correctly rendered tile 5 from sec5's region — not the shared 1024+ region. Proves `BG_RedrawForSection` works for any tile_index, regardless of source.
+**T1 fallback fix:** `BG_RedrawForSection` originally skipped when `sec_bg_layout` was NULL, which meant T2→T1 transitions kept the prior section's BG. Now falls back to `Act.act_bg_layout` so every transition writes the correct content.
+**For real T2/T3 use:** author per-section BG layout files, BINCLUDE them, set `sec_bg_layout` in the section descriptor. The build tool's `emit_bg_tile_blob` already accepts a list of nametables and unions their referenced tiles — no CLI flags or stubs needed.
+**Plan:** `docs/superpowers/plans/2026-04-26-art-pipeline-phase2-A5-per-section-background.md` (Tasks 7-10 superseded by inline verification).
+
+### §2 A.5 — Section_Check d0-Clobber Bug — FIXED 2026-04-27
+**Status:** `preload_fwd` / `preload_bwd` in `engine/level/section.asm` clobber d0 to build a section offset, but `.threshold_check` assumed d0 = Camera_X high word. After preload fired, the threshold check read garbage d0, frequently spurious-triggering BWD teleport (`d0 ≤ $200` accidentally true). Fixed by reloading Camera_X at the top of `.threshold_check`. Was masking BG verification work.
 
 ### §2 A.5 T1 — FG Plane A Tile-Flip Mismatch vs sonic_hack
 **Status:** Architectural milestone shipped, but Exodus's Plane A nametable viewer shows tile-orientation differences between our build and sonic_hack's running OJZ. Build-tool math verifies correct (chunk-level X/Y flip per sonic_hack ProcessAndWriteBlock + dedupe canonicalization + strip remap), so the residual gap is likely in Exodus viewer rendering details (CRAM shadow mode, palette auto-selection) rather than build-tool output — but that's not confirmed.
 **Needs:** Live A/B diagnostic with sonic_hack paused at OJZ Act 1 + our build paused at the same screen, comparing specific VRAM tile bytes.
 **Doesn't block:** anything; T1 architecture is solid and BG renders correctly.
+
+### §2 A.x — FG Strips Have Wrong Content in Upper Rows
+**Status:** Discovered while verifying §2.4 T1 fallback. As Camera_X scrolls into sec1+, Plane A's upper rows render dirt/rock chunk content with priority bit set (0xC846, 0xC04C — pal 2, priority high), filling the sky region with brown texture instead of being transparent. Plane A row 0 has all 64 cells filled with these tiles, not just slot 0's half. The BG layer underneath is correct; the FG covers it.
+**Possible causes:** (a) `tools/ojz_strip_gen.py` strip emission samples wrong chunks for upper rows, (b) FG layout source file (OJZ_1.bin FG section) genuinely has those tiles and our build is faithful, (c) section streaming writes tiles to wrong nametable rows.
+**Needs:** Compare sec1's `strips_a.bin` against expected chunks from sonic_hack's OJZ_1.bin FG layout; verify Plane A tile placement matches `Section_FillInitial` / `Section_UpdateColumns` math.
+**Doesn't block:** §2.4 BG work is complete — this is a separate FG path issue. Likely lurking since A.3, surfaced now because users see the BG more clearly.
+
+### §2 A.x — BG Tiles Render Black via Palette Index 0
+**Status:** OJZ palette line 2 entry 0 = `$0000` (black) — matches sonic_hack source palette exactly. Many BG tiles in OJZ_1.bin's BG layout use palette index 0 for "outline shadow" pixels; in sonic_hack these are normally hidden by Plane A FG covering the grass band. In our engine, Plane A occasionally has transparent gaps (likely related to FG-rows bug above), exposing the BG's intentionally-black-pixel-0 outlines as visible black gaps.
+**Doesn't block:** Cosmetic. Resolves automatically once the FG-rows bug is fixed (FG covers the BG black correctly).
 
 
 

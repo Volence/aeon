@@ -176,6 +176,11 @@ Section_Check:
         bset    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
 
 .threshold_check:
+        ; -- preload_{fwd,bwd} above clobber d0 (build a Sec offset). Reload
+        ;    Camera_X high word so the threshold compares aren't reading stale
+        ;    register state from the preload path. --
+        move.l  (Camera_X).w, d0
+        swap    d0
         cmpi.w  #SECTION_FWD_THRESHOLD, d0
         bge.s   .fwd_check
         cmpi.w  #SECTION_BWD_THRESHOLD, d0
@@ -281,9 +286,22 @@ Section_TeleportFwd:
         lea     (Section_Stream_State).w, a1
         move.b  (a1, d6.w), d0
         cmpi.b  #SS_IDLE, d0
-        beq.w   Section_LoadArt                     ; blocking fallback (tail call)
+        beq.s   .fwd_cold_load
         ; STREAMING or RESIDENT → just mark RESIDENT
         move.b  #SS_RESIDENT, (a1, d6.w)
+        bra.s   .fwd_redraw_bg
+.fwd_cold_load:
+        move.l  a0, -(sp)                           ; preserve Sec ptr across LoadArt
+        bsr.w   Section_LoadArt
+        movea.l (sp)+, a0
+.fwd_redraw_bg:
+        ; -- §2 A.5 T2: redraw Plane B based on NEW slot 0 (= section we just
+        ;    stepped into and is now visible). Slot 1 is the new off-screen
+        ;    section; its BG isn't yet on-screen so no need to redraw to it. --
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef
+        bsr.w   BG_RedrawForSection
         rts
 
 ; -----------------------------------------------
@@ -324,9 +342,22 @@ Section_TeleportBwd:
         lea     (Section_Stream_State).w, a1
         move.b  (a1, d6.w), d0
         cmpi.b  #SS_IDLE, d0
-        beq.w   Section_LoadArt                     ; blocking fallback (tail call)
+        beq.s   .bwd_cold_load
         ; STREAMING or RESIDENT → mark RESIDENT
         move.b  #SS_RESIDENT, (a1, d6.w)
+        bra.s   .bwd_redraw_bg
+.bwd_cold_load:
+        move.l  a0, -(sp)                           ; preserve Sec ptr across LoadArt
+        bsr.w   Section_LoadArt
+        movea.l (sp)+, a0
+.bwd_redraw_bg:
+        ; -- §2 A.5 T2: redraw Plane B based on NEW slot 0 (the section we just
+        ;    stepped back into). a0 already holds slot 0's Sec ptr from the
+        ;    Section_GetSlotDef above. Re-load a2 = Act ptr because the cold-load
+        ;    path may clobber it via Section_LoadArt. BG_RedrawForSection needs
+        ;    a2 for the T1 fallback to act_bg_layout. --
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   BG_RedrawForSection
         rts
 
 ; -----------------------------------------------

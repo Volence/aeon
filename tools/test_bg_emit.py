@@ -45,13 +45,13 @@ class TestBgPipeline(unittest.TestCase):
         self.assertEqual(len(nt), PLANE_B_W * PLANE_B_H)
 
     def test_bg_tile_count_fits_capacity(self):
-        """Deduped BG tile count must fit shared region capacity (256 slots)."""
+        """Deduped BG tile count must fit shared region capacity (512 slots)."""
         nt = build_bg_nametable_words(self.bg_layout, self.chunks, self.blocks)
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = os.path.join(tmpdir, "bg_tiles.bin")
             _, count = emit_bg_tile_blob(nt, self.full_blob, out_path)
-            self.assertLessEqual(count, 256,
-                                 f"BG tile count {count} exceeds shared region capacity 256")
+            self.assertLessEqual(count, 512,
+                                 f"BG tile count {count} exceeds shared region capacity 512")
 
     def test_bg_tile_blob_has_size_header(self):
         """First word of bg_tiles.bin is uncompressed body length (big-endian)."""

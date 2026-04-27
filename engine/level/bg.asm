@@ -67,11 +67,13 @@ BG_Init:
 ; BG_RedrawForSection — replace Plane B nametable from a section's BG layout.
 ;
 ; In:  a0 = Sec ptr
+;      a2 = Act ptr (for T1 fallback to act_bg_layout)
 ; Out: none
 ; Clobbers: d0, a0–a2
 ;
-; T1 (sec_bg_layout = NULL): no redraw — Plane B keeps the zone-wide content
-; placed there by BG_Init at level load.
+; T1 (sec_bg_layout = NULL): redraw with the act's zone-wide BG layout. This
+;   matters when transitioning back from a T2/T3 section — without it, Plane B
+;   keeps the old per-section content instead of reverting to the zone BG.
 ; T2/T3 (sec_bg_layout != NULL): blit the section's layout to Plane B.
 ;
 ; Per docs/research/per-section-background.md: layouts are full-coverage 64x32,
@@ -79,7 +81,11 @@ BG_Init:
 ; -----------------------------------------------
 BG_RedrawForSection:
         move.l  Sec_sec_bg_layout(a0), d0
-        beq.s   .skip                   ; T1 — no per-section override
+        bne.s   .have_layout
+        ; T1 — fall back to act-level zone BG
+        move.l  Act_act_bg_layout(a2), d0
+        beq.s   .skip                   ; no zone BG either → nothing to draw
+.have_layout:
         movea.l d0, a1
 
         stopZ80
