@@ -49,9 +49,9 @@ Design documents:
 
 **Every design/brainstorm phase MUST complete ALL of these before proposing approaches:**
 
-1. **All 7 reference disassemblies** — check each one for how they solve the problem:
-   - S.C.E., Batman & Robin, Vectorman, Gunstar Heroes, Alien Soldier, Thunder Force IV, sonic_hack
-2. **Online sources** — search plutiedev, md.railgun.works, segaretro, SpritesMind, GitHub homebrew
+1. **All reference disassemblies** — check each one for how they solve the problem:
+   - S.C.E., Batman & Robin, Vectorman, Gunstar Heroes, Alien Soldier, Thunder Force IV, Ristar, sonic_hack
+2. **Online sources** — search plutiedev, md.railgun.works, segaretro, SpritesMind, Hidden Palace prototype dumps, GitHub homebrew
 3. **Modern techniques** — look for patterns from modern engine design that apply to 68000
 
 Do not skip any source. Do not assume one reference covers the others. Each project made different tradeoffs worth understanding.
@@ -65,7 +65,8 @@ When researching how to implement a system, check these in order:
 4. **Gunstar Heroes** (`/home/volence/sonic_hacks/The Adventures of Batman and Robin/gunstar_disasm/`) — multi-sprite objects, Treasure optimization
 5. **Alien Soldier** (`/home/volence/sonic_hacks/The Adventures of Batman and Robin/aliensoldier_disasm/`) — extreme 68000 optimization
 6. **Thunder Force IV** (`/home/volence/sonic_hacks/The Adventures of Batman and Robin/thunderforce4_disasm/`) — scroll effects, layer management
-7. **sonic_hack/** (`/home/volence/sonic_hacks/sonic_hack/`) — original S2 disassembly with our modifications (data source)
+7. **Ristar** (`/home/volence/sonic_hacks/The Adventures of Batman and Robin/ristar_disasm/`) — Sonic 1-derived platformer (NOT Sonic 3K, despite the team overlap); cinematic per-stage HInt scripting (HBlank → `$FFEA70` RAM), chained-sprite rope rendering (grab arm), event-tagged animation frames, SMPS 68k Type 2 + custom Z80 dual-PCM mixer, Star compression (Kosinski cousin). v1 raw disasm + ANALYSIS.md + MEMORY_MAP.md + labels.txt produced locally via capstone (`scripts/disasm.py`). Cross-references at `s4_engine/docs/research/ristar-techniques.md`.
+8. **sonic_hack/** (`/home/volence/sonic_hacks/sonic_hack/`) — original S2 disassembly with our modifications (data source)
 
 ## Online Research & Modern Techniques
 
