@@ -322,7 +322,7 @@ def emit_zone_bg_layout(
     chunks: list[list[int]],
     blocks: list[list[int]],
     out_path: str,
-    sample_chunk_id: int = 0,
+    sample_chunk_id: int = 1,
 ) -> None:
     """Emit a 64×32 raw nametable for the zone-wide Plane B background (§2 A.5 T1).
 
@@ -331,8 +331,15 @@ def emit_zone_bg_layout(
     and 2× vertically to cover the plane.
 
     The priority bit is stripped on every word so BG stays behind FG (Plane A).
-    Per-chunk flag bits (xflip/yflip/priority overrides) at chunk word bits[15:10]
-    are not applied — Phase 2 honours tile-level flags only, matching FG strips.
+
+    Default sample = chunk 1 (chunk 0 is "void" in OJZ — all tile-0 references).
+
+    Palette bits are forced to 2, addressing CRAM line 2 (= OJZ_Palette line 1,
+    the greens). Native chunk tile words carry palette bits {0, 2} only; line 0
+    is intentionally unloaded by the test scaffold so palette-0 tiles render
+    black. Forcing line 2 across the BG keeps every cell visible. Future T1
+    polish: load a sky/cloud palette into CRAM line 0 and let chunk-native
+    palette bits flow through unchanged. Tracked as deferred work.
     """
     PLANE_W = 64
     PLANE_H = 32
@@ -341,13 +348,17 @@ def emit_zone_bg_layout(
         raise ValueError(f"sample_chunk_id {sample_chunk_id} out of range (have {len(chunks)} chunks)")
     chunk = chunks[sample_chunk_id]
 
+    BG_PALETTE_BITS = 2 << 13   # palette[14:13] = 10 → CRAM line 2
+    PALETTE_MASK    = 0x6000
+
     out = bytearray(PLANE_W * PLANE_H * 2)
     for plane_row in range(PLANE_H):
         tile_row_in_chunk = plane_row % TILES_PER_CHUNK_COL
         for plane_col in range(PLANE_W):
             tile_col_in_chunk = plane_col % TILES_PER_CHUNK_ROW
             word = chunk_get_tile_word(chunk, blocks, tile_col_in_chunk, tile_row_in_chunk)
-            word &= ~PRIORITY_BIT  # BG stays low-priority
+            word &= ~PRIORITY_BIT          # BG stays low-priority
+            word = (word & ~PALETTE_MASK) | BG_PALETTE_BITS
             offset = (plane_row * PLANE_W + plane_col) * 2
             struct.pack_into(">H", out, offset, word)
 
