@@ -10,16 +10,26 @@ GameState_OJZScroll_Init:
         ; -- per-8-row HScroll mode (reg $0B bits 1:0 = %10) --
         setVDPReg VDP_Shadow_vdp_mode3, #$02
 
-        ; -- load OJZ palette into Palette_Buffer lines 1-3 (drained by first VBlank) --
-        ; sonic_hack uses `palptr Pal_OJZ, 1` — palette starts at CRAM line 1, not 0.
-        ; Strip cells with palette bits=2 then map to CRAM line 2 = OJZ palette line 1
-        ; (the greens). Line 0 stays at default (black) for now.
-        lea     OJZ_Palette, a0
-        lea     (Palette_Buffer+$20).w, a1          ; offset $20 = line 1 base
-        moveq   #96/4-1, d0
-.copy_pal:
+        ; -- load BGND palette (32 bytes, "SonicAndTails") into CRAM line 0 --
+        ; -- load OJZ palette (96 bytes, 3 pages) into CRAM lines 1-3 --
+        ; sonic_hack runtime layout: PalPtr_BGND -> line 0, PalPtr_OJZ -> line 1.
+        ; The BGND palette is what gives OJZ's clouds + grass band their real
+        ; (magenta/pink) colors — chunk-source nametable words use palette bits
+        ; 0 to reference these entries. Without BGND loaded, palette-0 BG tiles
+        ; render against an empty CRAM line 0 = black.
+        lea     BGND_Palette, a0
+        lea     (Palette_Buffer).w, a1              ; CRAM line 0 base
+        moveq   #32/4-1, d0
+.copy_bgnd:
         move.l  (a0)+, (a1)+
-        dbf     d0, .copy_pal
+        dbf     d0, .copy_bgnd
+
+        lea     OJZ_Palette, a0
+        lea     (Palette_Buffer+$20).w, a1          ; CRAM line 1 base
+        moveq   #96/4-1, d0
+.copy_ojz:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .copy_ojz
         move.b  #$0F, (Palette_Dirty).w
 
         ; -- load deduped FG tile pool via S4LZ → VRAM (display still off) --

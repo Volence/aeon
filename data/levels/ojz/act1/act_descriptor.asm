@@ -20,6 +20,8 @@ OJZ_Act1_Descriptor:
     dc.w    SLOT_ORIGIN_L + $4680   ; cam_max_x (approximate for 9 sections)
     dc.w    0                       ; cam_min_y
     dc.w    128                     ; cam_max_y
+    dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)
+    dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles  (§2 A.5 T1 shared BG tile blob)
     align 2
 
 ; -----------------------------------------------
@@ -32,7 +34,7 @@ OJZ_Sec0:
     dc.l    0, 0, 0                 ; sec_objects, sec_rings, sec_plc
     dc.l    OJZ_Palette             ; sec_pal
     dc.l    0, 0                    ; sec_scroll, sec_raster_table
-    dc.l    OJZ_Sec0_Strips_B       ; sec_strips_b
+    dc.l    0                       ; sec_bg_layout (NULL = use Act_act_bg_layout, T1)
     dc.l    0, 0, 0, 0, 0, 0        ; sec_reserved..sec_collision
     dc.w    0, 0                    ; sec_flags, sec_music
     dc.b    0, 0, 0, 0              ; sec_layer_mask..sec_transition_type
@@ -46,7 +48,7 @@ OJZ_Sec1:
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
-    dc.l    OJZ_Sec1_Strips_B
+    dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
     dc.b    0, 0, 0, 0
@@ -60,7 +62,7 @@ OJZ_Sec2:
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
-    dc.l    OJZ_Sec2_Strips_B
+    dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
     dc.b    0, 0, 0, 0
@@ -74,7 +76,7 @@ OJZ_Sec3:
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
-    dc.l    OJZ_Sec3_Strips_B
+    dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
     dc.b    0, 0, 0, 0
@@ -88,7 +90,7 @@ OJZ_Sec4:
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
-    dc.l    OJZ_Sec4_Strips_B
+    dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
     dc.b    0, 0, 0, 0
@@ -102,7 +104,7 @@ OJZ_Sec5:
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
-    dc.l    OJZ_Sec5_Strips_B
+    dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
     dc.b    0, 0, 0, 0
@@ -116,7 +118,7 @@ OJZ_Sec6:
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
-    dc.l    OJZ_Sec6_Strips_B
+    dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
     dc.b    0, 0, 0, 0
@@ -130,7 +132,7 @@ OJZ_Sec7:
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
-    dc.l    OJZ_Sec7_Strips_B
+    dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
     dc.b    0, 0, 0, 0
@@ -144,7 +146,7 @@ OJZ_Sec8:
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
-    dc.l    OJZ_Sec8_Strips_B
+    dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
     dc.b    0, 0, 0, 0
@@ -158,50 +160,42 @@ OJZ_Sec8:
 ; -----------------------------------------------
 OJZ_Sec0_Strips_A: BINCLUDE "data/generated/ojz/act1/sec0_strips_a.bin"
     align 2
-OJZ_Sec0_Strips_B: BINCLUDE "data/generated/ojz/act1/sec0_strips_b.bin"
-    align 2
 
 OJZ_Sec1_Strips_A: BINCLUDE "data/generated/ojz/act1/sec1_strips_a.bin"
-    align 2
-OJZ_Sec1_Strips_B: BINCLUDE "data/generated/ojz/act1/sec1_strips_b.bin"
     align 2
 
 OJZ_Sec2_Strips_A: BINCLUDE "data/generated/ojz/act1/sec2_strips_a.bin"
     align 2
-OJZ_Sec2_Strips_B: BINCLUDE "data/generated/ojz/act1/sec2_strips_b.bin"
-    align 2
 
 OJZ_Sec3_Strips_A: BINCLUDE "data/generated/ojz/act1/sec3_strips_a.bin"
-    align 2
-OJZ_Sec3_Strips_B: BINCLUDE "data/generated/ojz/act1/sec3_strips_b.bin"
     align 2
 
 OJZ_Sec4_Strips_A: BINCLUDE "data/generated/ojz/act1/sec4_strips_a.bin"
     align 2
-OJZ_Sec4_Strips_B: BINCLUDE "data/generated/ojz/act1/sec4_strips_b.bin"
-    align 2
 
 OJZ_Sec5_Strips_A: BINCLUDE "data/generated/ojz/act1/sec5_strips_a.bin"
-    align 2
-OJZ_Sec5_Strips_B: BINCLUDE "data/generated/ojz/act1/sec5_strips_b.bin"
     align 2
 
 OJZ_Sec6_Strips_A: BINCLUDE "data/generated/ojz/act1/sec6_strips_a.bin"
     align 2
-OJZ_Sec6_Strips_B: BINCLUDE "data/generated/ojz/act1/sec6_strips_b.bin"
-    align 2
 
 OJZ_Sec7_Strips_A: BINCLUDE "data/generated/ojz/act1/sec7_strips_a.bin"
-    align 2
-OJZ_Sec7_Strips_B: BINCLUDE "data/generated/ojz/act1/sec7_strips_b.bin"
     align 2
 
 OJZ_Sec8_Strips_A: BINCLUDE "data/generated/ojz/act1/sec8_strips_a.bin"
     align 2
-OJZ_Sec8_Strips_B: BINCLUDE "data/generated/ojz/act1/sec8_strips_b.bin"
-    align 2
 
 OJZ_Palette: BINCLUDE "data/generated/ojz/act1/ojz_palette.bin"
+    align 2
+
+; Shared/HUD palette (CRAM line 0) — sonic_hack convention for level rendering.
+BGND_Palette: BINCLUDE "art/palettes/SonicAndTails.bin"
+    align 2
+
+; Zone-wide BG layout + shared BG tile blob (§2 A.5 T1)
+OJZ_Act1_BG_Layout: BINCLUDE "data/generated/ojz/act1/zone_bg.bin"
+    align 2
+OJZ_Act1_BG_Tiles:  BINCLUDE "data/generated/ojz/act1/bg_tiles.bin"
     align 2
 
 ; Per-section tile blobs (§2 A.3)

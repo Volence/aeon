@@ -54,6 +54,15 @@ VRAM_SPRITE_TABLE       = $D800
 VRAM_HSCROLL_TABLE      = $DC00
 VRAM_WINDOW             = $F000
 
+; Shared BG tile region (§2 A.5 T1/T2)
+; Reserved permanent VRAM slot range for zone-wide BG tile art.
+; Loaded once at level init and never overwritten by section transitions.
+; Lives between FG section pools (which may grow up to ~slot 1279) and
+; Plane A nametable (slot 1536).
+BG_TILE_BASE_VRAM       = $A000         ; Byte address (slot 1280)
+BG_TILE_BASE_SLOT       = BG_TILE_BASE_VRAM/32   ; 1280 — for nametable index remap
+BG_TILE_CAPACITY        = 256           ; tiles ($A000..$BFFF = 8 KB)
+
 ; Plane size
 PLANE_H_CELLS           = 64
 PLANE_V_CELLS           = 64

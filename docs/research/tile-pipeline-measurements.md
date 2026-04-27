@@ -15,6 +15,37 @@ Running tally as A.1 → A.5 ship. Each row is the same OJZ Act 1 build pass; co
 | **kos_decompress fix (post-A.4)** | 48 | **141** | 732 | 0 | 141 (no flip dups) | 245 | yes (2 colors) | per-section: variable | per-section: variable | $0000-$0E1F + $0E20-$1EBF (color 0 + color 1) |
 | A.5 | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd | tbd |
 
+## A.5 T1 — Per-section background art (zone-shared tier)
+
+T1 ships per-zone Plane B nametable + a permanent shared BG tile region at slots 1280-1535 ($A000-$BFFF). At level init `BG_Init` blits the zone tile blob then the zone nametable; both happen once with display off, zero per-frame cost.
+
+**Build-tool output (OJZ Act 1):**
+
+| Metric | Value |
+|---|---:|
+| Source: `OJZ_1.bin` BG section | 16 chunk-rows × 128 cols (2048 bytes of chunk IDs) |
+| Plane B nametable shape | 64×32 tile-cells = 4096 bytes (raw, uncompressed) |
+| BG-referenced tile indices (raw) | 218 unique source tiles after dedupe |
+| BG tile blob: shape | 2-byte length header + 218 × 32 = 6978 bytes raw |
+| Shared BG region capacity | 256 slots (8 KB) — 38 slots of headroom |
+| ROM cost (zone_bg.bin + bg_tiles.bin) | 4096 + 6978 = 11,074 bytes |
+| Engine RAM cost | 0 (data BINCLUDE'd directly into ROM, no streaming) |
+
+**Engine cost at level init:**
+- 8 KB-class blocking VDP DATA-port write (BG tiles to $A000–$B5C0): ~1.0 ms
+- 4 KB-class blocking VDP DATA-port write (BG nametable to $E000–$EFFF): ~0.5 ms
+- Both run with display off inside `Level_LoadArt` flow; no perceptible cost.
+
+**Per-frame and per-transition cost:** zero. Plane B nametable stays put; shared BG tile region is never overwritten by section transitions (slots 1280-1535 are reserved permanently).
+
+**Architectural fix vs. original spec:** §2.4's "T1 shares FG tiles, zero VRAM cost" claim was unworkable with A.3's per-section graph-colored FG pool (slots 0-1279 swap on every section transition). Reserving a permanent shared BG region recovers the visual stability at the cost of 256 reserved slots. See `docs/research/per-section-background.md` Q5.
+
+**Visual verification (Exodus MCP):** Plane B renders OJZ's authentic cloud band (top 16 cells) + sky transition + grass band (bottom 16 cells), matching sonic_hack's `Level_OJZ1_BG` reference. Sub-pixel-perfect colour match requires loading both `Pal_BGND` (SonicAndTails, CRAM line 0) and `Pal_OJZ` (CRAM lines 1-3) — this dual load is wired in the test scaffold.
+
+**Known Plane A flip mismatch:** comparing Exodus's Plane A nametable viewer between our build and sonic_hack's running OJZ revealed orientation differences in some FG tiles. Build-tool math (chunk-level X/Y flip per sonic_hack ProcessAndWriteBlock + dedupe canonicalization + strip remap) verifies correct, suggesting the residual gap is in viewer-rendering details (CRAM shadow mode, palette auto-selection) rather than build-tool output. Tracked for follow-up live A/B diagnostic.
+
+---
+
 ## A.4 makes section transitions seamless (structural; visual verification blocked)
 
 A.4 adds a preload trigger to `Section_Check`: when the camera crosses `SECTION_FWD_PRELOAD` (1024 px before the teleport threshold) or `SECTION_BWD_PRELOAD` (512 px before), `Section_StreamArtGroup` decompresses the upcoming section's S4LZ blob into one of two streaming buffers (double-buffered for fast direction reversals) and queues a Deferrable DMA. By the time the camera reaches the teleport threshold, the DMA has drained — the teleport itself does no work beyond clearing a flag.

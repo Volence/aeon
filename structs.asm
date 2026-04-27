@@ -111,7 +111,7 @@ sec_plc             ds.l 1          ; $0C — S4LZ art PLC list
 sec_pal             ds.l 1          ; $10 — 128-byte palette (4 lines × 32 bytes)
 sec_scroll          ds.l 1          ; $14 — parallax layer table (Phase 4)
 sec_raster_table    ds.l 1          ; $18 — raster command table (§7.2)
-sec_strips_b        ds.l 1          ; $1C — plane B nametable strip array ptr (ROM)
+sec_bg_layout       ds.l 1          ; $1C — plane B layout pointer (NULL = use Act_act_bg_layout, T1)
 sec_reserved        ds.l 1          ; $20 — reserved
 sec_pal_cycle       ds.l 1          ; $24 — palette cycling script (Phase 4)
 sec_sound_bank      ds.l 1          ; $28 — DAC sample bank pointer
@@ -149,8 +149,10 @@ cam_min_x           ds.w 1          ; $0E — camera X lower bound (pixels)
 cam_max_x           ds.w 1          ; $10 — camera X upper bound (pixels)
 cam_min_y           ds.w 1          ; $12 — camera Y lower bound (pixels)
 cam_max_y           ds.w 1          ; $14 — camera Y upper bound (pixels)
+act_bg_layout       ds.l 1          ; $16 — zone-wide Plane B layout pointer (T1 default)
+act_bg_tiles        ds.l 1          ; $1A — zone-wide Plane B tile blob (raw, loaded into shared BG region)
 Act endstruct
 
-    if Act_len <> $16
-      error "Act struct is \{Act_len} bytes, expected $16"
+    if Act_len <> $1E
+      error "Act struct is \{Act_len} bytes, expected $1E"
     endif

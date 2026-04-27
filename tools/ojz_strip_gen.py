@@ -9,8 +9,9 @@ Usage:
     python3 tools/ojz_strip_gen.py generate  # generate strip data files
 
 Output: data/generated/ojz/act1/sec{N}_strips_a.bin for each OJZ section.
-        data/generated/ojz/act1/sec{N}_strips_b.bin (all-zeros plane B placeholder)
-        data/generated/ojz/act1/ojz_palette.bin (copied from sonic_hack)
+        data/generated/ojz/act1/sec{N}_tiles.bin (per-section tile blob, §2 A.3).
+        data/generated/ojz/act1/zone_bg.bin (zone-wide Plane B nametable, §2 A.5 T1).
+        data/generated/ojz/act1/ojz_palette.bin (copied from sonic_hack).
 
 Each file contains ALL columns for section N concatenated sequentially:
 col 0 words, then col 1 words, ..., col W-1 words.
@@ -290,9 +291,37 @@ def load_layout(path: str) -> list[list[int]]:
     return rows
 
 
+def load_bg_layout(path: str) -> list[list[int]]:
+    """Load the BG section of an OJZ layout file (§2 A.5 T1 source).
+
+    Returns bg_rows × width chunk IDs.
+
+    Same file as load_layout(), but reads the BG portion that follows the FG
+    data. Sonic 2 layout files store FG and BG separately:
+        ... FG data (fg_rows × width bytes) ...
+        ... BG data (bg_rows × width bytes) — no separate pointer table ...
+    """
+    data = open(path, "rb").read()
+    if len(data) < 8:
+        return []
+    magic, width, fg_rows, bg_rows = struct.unpack_from(">4H", data, 0)
+    if magic != 0xFE:
+        raise ValueError(f"Bad layout magic: 0x{magic:04X} in {path}")
+    bg_start = 8 + fg_rows * 4 + fg_rows * width
+    rows = []
+    for r in range(bg_rows):
+        row_start = bg_start + r * width
+        rows.append(list(data[row_start:row_start + width]))
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Strip generation
 # ---------------------------------------------------------------------------
+
+CHUNK_YFLIP_BIT = 0x0800   # bit 11 of chunk entry word — Y-flip whole block
+CHUNK_XFLIP_BIT = 0x0400   # bit 10 of chunk entry word — X-flip whole block
+
 
 def chunk_get_tile_word(
     chunk: list[int],
@@ -304,6 +333,13 @@ def chunk_get_tile_word(
 
     tile_col and tile_row are in [0, TILES_PER_CHUNK_ROW).
     Within a chunk: 8×8 block grid, each block 2×2 tiles.
+
+    Chunk-level X/Y-flip flags (bits 10/11 of the chunk entry word) are
+    honoured — they swap the sub-tile within the block AND toggle the H/V
+    bits in the returned tile word. This matches sonic_hack's
+    ProcessAndWriteBlock (`btst #3,(a0)` for Y-flip, `btst #2,(a0)` for X-flip
+    in code/engines/scroll_camera.asm); without applying these, BG layouts
+    that rely on flipped chunks render with the wrong orientation.
     """
     block_col = tile_col // TILES_PER_BLOCK_ROW   # 0-7
     block_row = tile_row // TILES_PER_BLOCK_COL   # 0-7
@@ -311,10 +347,148 @@ def chunk_get_tile_word(
     block_id = block_entry & 0x3FF                # 10-bit mask (confirmed by scroll_camera.asm)
     if block_id >= len(blocks):
         return 0  # out-of-range → transparent tile
+
     sub_col = tile_col & 1  # 0 or 1 within block
     sub_row = tile_row & 1  # 0 or 1 within block
+
+    # Apply chunk-level X-flip: swap left/right tiles and toggle H-bit later
+    if block_entry & CHUNK_XFLIP_BIT:
+        sub_col ^= 1
+    # Apply chunk-level Y-flip: swap top/bottom tiles and toggle V-bit later
+    if block_entry & CHUNK_YFLIP_BIT:
+        sub_row ^= 1
+
     word_idx = sub_row * TILES_PER_BLOCK_ROW + sub_col
-    return blocks[block_id][word_idx]
+    word = blocks[block_id][word_idx]
+
+    # Toggle the tile's H/V bits to flip pixels within the tile
+    if block_entry & CHUNK_XFLIP_BIT:
+        word ^= tile_dedupe.NAMETABLE_H_BIT
+    if block_entry & CHUNK_YFLIP_BIT:
+        word ^= tile_dedupe.NAMETABLE_V_BIT
+
+    return word
+
+
+PLANE_B_W = 64       # Plane B cells horizontally
+PLANE_B_H = 32       # Plane B cells vertically (= 4 chunk-rows-worth, but we only show 2)
+BG_TILE_BASE_SLOT_PY = 1280   # mirrors constants.asm BG_TILE_BASE_SLOT
+
+
+def build_bg_nametable_words(
+    bg_layout: list[list[int]],
+    chunks: list[list[int]],
+    blocks: list[list[int]],
+) -> list[int]:
+    """Build a 64×32 list of raw chunk-source nametable words for Plane B (§2 A.5 T1).
+
+    Samples the first 4 chunks of BG rows 0-1 (= 64 tiles wide × 32 tiles tall).
+    Returns words with original tile_index in sonic_hack's source space — the
+    caller dedupes + remaps to the shared BG VRAM region.
+    """
+    if not bg_layout:
+        raise ValueError("BG layout is empty — load_bg_layout returned no rows")
+
+    out: list[int] = []
+    for plane_row in range(PLANE_B_H):
+        chunk_row = plane_row // TILES_PER_CHUNK_COL
+        tile_row_in_chunk = plane_row % TILES_PER_CHUNK_COL
+        if chunk_row >= len(bg_layout):
+            out.extend([0] * PLANE_B_W)
+            continue
+        for plane_col in range(PLANE_B_W):
+            chunk_col = plane_col // TILES_PER_CHUNK_ROW
+            tile_col_in_chunk = plane_col % TILES_PER_CHUNK_ROW
+            if chunk_col >= len(bg_layout[chunk_row]):
+                out.append(0)
+                continue
+            chunk_id = bg_layout[chunk_row][chunk_col]
+            if chunk_id >= len(chunks):
+                out.append(0)
+                continue
+            word = chunk_get_tile_word(
+                chunks[chunk_id], blocks, tile_col_in_chunk, tile_row_in_chunk
+            )
+            out.append(word)
+    return out
+
+
+def emit_bg_tile_blob(
+    bg_nametable_words: list[int],
+    full_blob: bytes,
+    out_path: str,
+) -> tuple[dict[int, tuple[int, int]], int]:
+    """Dedupe BG-referenced tiles and emit a raw VRAM-ready blob (§2 A.5 T1 shared region).
+
+    Walks the BG nametable's tile_index field, gathers unique source tiles from
+    full_blob (32 bytes each), runs hflip/vflip canonicalization via
+    tile_dedupe.dedupe_tiles, and writes the deduped tile bytes prefixed with
+    a big-endian word giving the uncompressed size. Mirrors the S4LZ blob shape
+    so the engine's BG_Init can read length without a separate field.
+
+    Returns (src_to_canon, unique_tile_count) where src_to_canon[src_idx] =
+    (canon_idx, flip_bits) for callers that remap nametable words.
+    """
+    referenced: set[int] = set()
+    for word in bg_nametable_words:
+        referenced.add(word & tile_dedupe.NAMETABLE_TILE_MASK)
+    sorted_indices = sorted(referenced)
+
+    raw_tiles: list[bytes] = []
+    for idx in sorted_indices:
+        base = idx * tile_dedupe.TILE_SIZE
+        if base + tile_dedupe.TILE_SIZE <= len(full_blob):
+            raw_tiles.append(full_blob[base : base + tile_dedupe.TILE_SIZE])
+        else:
+            raw_tiles.append(bytes(tile_dedupe.TILE_SIZE))
+
+    unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
+    src_to_canon: dict[int, tuple[int, int]] = {
+        src_idx: mapping[i] for i, src_idx in enumerate(sorted_indices)
+    }
+
+    body = b"".join(unique)
+    header = struct.pack(">H", len(body))
+    with open(out_path, "wb") as f:
+        f.write(header)
+        f.write(body)
+
+    return src_to_canon, len(unique)
+
+
+def emit_zone_bg_layout(
+    bg_nametable_words: list[int],
+    src_to_canon: dict[int, tuple[int, int]],
+    out_path: str,
+) -> None:
+    """Emit a 64×32 nametable with tile_index fields remapped into the shared BG region.
+
+    Each input word's tile_index is rewritten via tile_dedupe.remap_nametable_word
+    to (BG_TILE_BASE_SLOT + canon_idx). The original H/V bits XOR canonicalization-
+    flip-bits so visual orientation is preserved. Priority bit forced low.
+
+    Palette bits flow through unchanged from each chunk-source tile word.
+    Cloud chunks reference palette 0 (= CRAM line 0 = BGND/SonicAndTails),
+    grass-band chunks reference palette 2 (= CRAM line 2 = OJZ page 1) — both
+    routes are valid in sonic_hack's runtime. Forcing every cell to a single
+    palette discards real per-cell colour information.
+    """
+    if len(bg_nametable_words) != PLANE_B_W * PLANE_B_H:
+        raise ValueError(
+            f"BG nametable has {len(bg_nametable_words)} words; expected {PLANE_B_W * PLANE_B_H}"
+        )
+
+    out = bytearray(PLANE_B_W * PLANE_B_H * 2)
+    for i, word in enumerate(bg_nametable_words):
+        src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
+        canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
+        slot = BG_TILE_BASE_SLOT_PY + canon_idx
+        remapped = tile_dedupe.remap_nametable_word(word, slot, flip_bits)
+        remapped &= ~PRIORITY_BIT          # BG always low-priority
+        struct.pack_into(">H", out, i * 2, remapped)
+
+    with open(out_path, "wb") as f:
+        f.write(out)
 
 
 def build_strips_from_nametable(
@@ -796,9 +970,8 @@ def generate(force_region1_cap=None):
 
         out_a = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
         write_strips_to_file(remapped_strips, out_a)
-        out_b = os.path.join(out_dir, f"sec{sec_id}_strips_b.bin")
-        with open(out_b, "wb") as f:
-            f.write(bytes(len(remapped_strips) * STRIP_TILE_HEIGHT * 2))
+        # (§2 A.5: per-section strips_b placeholder removed — Plane B is now
+        # driven by zone_bg.bin (T1) or per-section secN_bg.bin (T2/T3).)
         if first_strips is None:
             first_strips = remapped_strips
         total_strips += len(remapped_strips)
@@ -810,6 +983,27 @@ def generate(force_region1_cap=None):
         with open(sec_out, "wb") as f:
             for canon_idx in sec_tiles:
                 f.write(unique[canon_idx])
+
+    # ---- Pass 6b (§2 A.5 T1): emit shared-region BG tile blob + remapped Plane B nametable ----
+    ojz_master_layout_path = os.path.join(LAYOUT_DIR, "OJZ_1.bin")
+    bg_layout = load_bg_layout(ojz_master_layout_path)
+    bg_nt = build_bg_nametable_words(bg_layout, chunks, blocks)
+
+    bg_tiles_path = os.path.join(out_dir, "bg_tiles.bin")
+    bg_src_to_canon, bg_tile_count = emit_bg_tile_blob(bg_nt, full_blob, bg_tiles_path)
+
+    zone_bg_path = os.path.join(out_dir, "zone_bg.bin")
+    emit_zone_bg_layout(bg_nt, bg_src_to_canon, zone_bg_path)
+
+    print(
+        f"Emitted BG tile blob: {bg_tiles_path} "
+        f"({bg_tile_count} unique tiles, {os.path.getsize(bg_tiles_path)} bytes)"
+    )
+    print(f"Emitted zone BG layout: {zone_bg_path} ({os.path.getsize(zone_bg_path)} bytes)")
+    if bg_tile_count > 256:
+        raise RuntimeError(
+            f"BG tile count {bg_tile_count} exceeds shared region capacity 256"
+        )
 
     # ---- Pass 7: emit per-section VRAM-base constants for the act descriptor ----
     bases_path = os.path.join(out_dir, "sec_vram_bases.asm")

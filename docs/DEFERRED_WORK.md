@@ -55,6 +55,18 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 
 ## From §2 — Art & Compression Pipeline
 
+### §2 A.5 T2/T3 — Per-Section BG Fixtures
+**Status:** Engine code paths complete (`BG_RedrawForSection` in `engine/level/bg.asm` ready, `Sec.sec_bg_layout` field wired). Build-tool fixture emission deferred until a zone actually needs per-section BG variation.
+**Deferred:** `--bg-fixture=t2/t3` CLI flag in `ojz_strip_gen.py`, `emit_section_bg_layout` helper, fixture descriptor files (`bg_fixture_t2.asm` / `bg_fixture_t3.asm`), `BG_FIXTURE` asw conditional in `test/ojz_scroll_test.asm`, build.sh flag plumbing.
+**Plan stub:** `docs/superpowers/plans/2026-04-26-art-pipeline-phase2-A5-per-section-background.md` Tasks 7-10 cover the build-out.
+
+### §2 A.5 T1 — FG Plane A Tile-Flip Mismatch vs sonic_hack
+**Status:** Architectural milestone shipped, but Exodus's Plane A nametable viewer shows tile-orientation differences between our build and sonic_hack's running OJZ. Build-tool math verifies correct (chunk-level X/Y flip per sonic_hack ProcessAndWriteBlock + dedupe canonicalization + strip remap), so the residual gap is likely in Exodus viewer rendering details (CRAM shadow mode, palette auto-selection) rather than build-tool output — but that's not confirmed.
+**Needs:** Live A/B diagnostic with sonic_hack paused at OJZ Act 1 + our build paused at the same screen, comparing specific VRAM tile bytes.
+**Doesn't block:** anything; T1 architecture is solid and BG renders correctly.
+
+
+
 ### ~~Generic Perform_DPLC Routine (§2.1 / §3.9)~~ — DONE 2026-04-25
 **Completed in:** §3 Object System audit cleanup
 **What:** Perform_DPLC with internalized change detection (SST_prev_frame), Important and Deferrable variants. Objects pass a2=DPLC table, a3=art base, d1=VRAM dest.
@@ -200,6 +212,14 @@ When starting a new planning phase:
 ---
 
 ## Done
+
+### §2 Phase 2 Layer A.5 T1 — Per-Section Background (Zone-Shared Tier) — 2026-04-26
+**Completed in:** §2 Phase 2 Layer A.5 (T1 only — T2/T3 fixtures deferred, see new entry below)
+**What:** Plane B per-zone background art end-to-end. New shared-region VRAM block at slots 1280-1535 ($A000-$BFFF, 8 KB) reserved for BG tiles permanently — never overwritten by section transitions. Build tool extended: `load_bg_layout` parses OJZ_1.bin's BG section (16 chunk-rows × 128 cols), `build_bg_nametable_words` samples a 64×32 region, `emit_bg_tile_blob` dedupes + emits `bg_tiles.bin` with a 2-byte length header, `emit_zone_bg_layout` rewrites tile-index fields into the shared region (BG_TILE_BASE_SLOT + canon_idx). `chunk_get_tile_word` now honours chunk-entry X/Y flip flags (bits 10/11 per sonic_hack ProcessAndWriteBlock) — a latent bug uncovered during BG visual diff. Engine: new `engine/level/bg.asm` with `BG_Init` (loads BG tile blob to $A000 + blits zone nametable to Plane B at $E000, both blocking VDP DATA-port writes wrapped in stopZ80/startZ80) and `BG_RedrawForSection` (T2/T3-ready, called from teleport handlers; T1 sections with NULL `sec_bg_layout` skip). New struct fields: Sec.sec_bg_layout (replaces dead sec_strips_b placeholder, $1C, longword), Act.act_bg_layout ($16, longword), Act.act_bg_tiles ($1A, longword), Act struct $1A → $1E. Test scaffold loads dual palette: Pal_BGND (SonicAndTails, CRAM line 0) + Pal_OJZ (CRAM lines 1-3) matching sonic_hack's runtime layout.
+**OJZ measurement:** 218 unique BG tiles (well within 256-slot capacity), bg_tiles.bin = 6978 bytes, zone_bg.bin = 4096 bytes, ROM cost ~11 KB. Engine cost: ~1.5 ms blocking at level init (display off), zero per-frame. Drop of 212 KB ROM elsewhere from removing the placeholder strips_b BINCLUDEs.
+**Verified visually in Exodus:** Plane B renders OJZ's authentic cloud band (top) + sky transition + grass band (bottom) with magenta/pink/green palette colors, matching sonic_hack's Level_OJZ1_BG reference structure (image-9-style).
+**Architectural fix vs spec:** §2.4's "T1 shares FG tiles, zero VRAM cost" claim was unworkable with A.3's per-section graph-colored FG pool — slots 0-1279 swap on every section transition, so BG nametable references can't reliably use them. The shared 256-slot region is the correct architectural fit. See `docs/research/per-section-background.md` Q5.
+**See:** `docs/research/per-section-background.md`, `docs/research/tile-pipeline-measurements.md`.
 
 ### §2 Phase 2 Layer A.4 — Per-Section Deferrable Streaming — 2026-04-26
 **Completed in:** §2 Phase 2 Layer A.4 (structural — visual verification blocked on upstream bug below)
