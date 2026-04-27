@@ -188,6 +188,17 @@ Render_Sprites:
         movea.w (a2), a0
         adda.w  (sp), a2                   ; advance by +2 or -2
 
+        ; --- Total-piece overflow pre-check (§1.2) ---
+        ; Skip whole object if its cached piece count would push us past
+        ; the 80-piece SAT cap. For uncached objects (sprite_piece_count=0),
+        ; this is a no-op since d5 + 0 can never exceed the cap that the
+        ; outer .object_loop check (above) already guarded.
+        moveq   #0, d0
+        move.b  SST_sprite_piece_count(a0), d0
+        add.w   d5, d0
+        cmpi.w  #MAX_VDP_SPRITES, d0
+        bhi.w   .next_object               ; would overflow — skip whole object
+
         ; Guard: skip objects deleted mid-frame (slot zeroed after Draw_Sprite)
         movea.l SST_mappings(a0), a3       ; a3 = mapping table base
         move.l  a3, d0

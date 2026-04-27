@@ -91,3 +91,26 @@ Option (b) — separate helper called from each `mapping_frame` write site. Reas
 **Cycle cost:** bsr.w + rts adds ~34 cycles to the change path, plus ~30c for the helper body. Total ~64c per frame change. Frame changes are rare (every several gameplay frames, not every game tick). Negligible budget impact.
 
 **Insight:** Our existing `prev_frame` field at $1F is touched ONLY by Perform_DPLC, never by AnimateSprite. That's why Perform_DPLC's change-detection works (mapping_frame and prev_frame diverge on each AnimateSprite frame change, then DPLC reconverges them). The piece_count refresh is independent — it doesn't touch prev_frame and won't interfere with DPLC.
+
+---
+
+## Task 5 — Predictive overflow pre-check (2026-04-27)
+
+**Question:** Predictive vs reactive overflow handling: do reference engines pre-check sprite overflow before emitting an object's pieces, or only react per-piece?
+
+**Findings:**
+
+- **S.C.E.** — per-piece dbeq only, no predictive pre-check. Half-rendered objects possible at the cap.
+- **sonic_hack** — hybrid: `cmpi.b #80, d5; blo DrawSprite_Cont` pre-check at start of each piece-emission entry, AND per-piece dbeq fail-safe. Most defensive.
+- **s4_engine** existing — outer `.object_loop` has `cmpi.w #MAX_VDP_SPRITES, d5; bge .band_limit_pop` (already-at-cap), per-piece dbeq inside loop. No PIECE-COUNT-aware pre-check before loop.
+
+**Decision for Task 5:**
+
+Add per-object pre-check using cached `SST_sprite_piece_count`. Sit it right after `movea.w (a2), a0` (SST address loaded), before any indexing or per-piece work. Five new instructions ~28 cycles per object. For uncached objects (sprite_piece_count=0), the pre-check is a no-op (d5 + 0 ≤ 80 unless we already hit the cap, which the outer check catches), so behavior is preserved.
+
+**Layered defense:**
+1. Outer `.object_loop` check — "already at cap, stop"
+2. **NEW: per-object pre-check** — "this object would push us over, skip whole"
+3. Existing per-piece `cmpi.b #MAX_VDP_SPRITES, d5; dbeq d4, .piece_loop_*` fail-safe
+
+This matches sonic_hack's hybrid approach plus our existing scanline-band budget — most defensive Genesis sprite engine in the references.
