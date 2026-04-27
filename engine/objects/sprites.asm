@@ -48,6 +48,16 @@ InitSpriteSystem:
 ; Clobbers: d0-d3, a1
 ; -----------------------------------------------
 Draw_Sprite:
+        ; --- Child-skip guard for multi-sprite parents ---
+        ; If our parent has RF_MULTISPRITE set, we render via the parent's
+        ; sibling walk in Render_Sprites — don't register independently.
+        move.w  SST_parent_ptr(a0), d0
+        beq.s   .no_parent
+        movea.w d0, a1
+        btst    #RF_MULTISPRITE, SST_render_flags(a1)
+        bne.s   .offscreen              ; parent batches — clear ONSCREEN, don't register
+.no_parent:
+
         ; Check if object has mappings — skip if null
         tst.l   SST_mappings(a0)
         beq.s   .offscreen
@@ -255,7 +265,73 @@ Render_Sprites:
         ; Determine flip variant from render_flags bits 1-2
         move.b  SST_render_flags(a0), d0
         andi.w  #(1<<RF_XFLIP)|(1<<RF_YFLIP), d0
+
+        ; --- Multi-sprite branch (Approach 1 + semantic C) ---
+        btst    #RF_MULTISPRITE, SST_render_flags(a0)
+        bne.s   .multi_sprite
+
+        ; Single-sprite: emit pieces and continue to next band entry
         bsr.w   Emit_ObjectPieces
+        bra.w   .next_object
+
+.multi_sprite:
+        ; Save band-pointer a2; repurpose a2 = parent SST throughout sibling walk
+        move.l  a2, -(sp)
+        movea.l a0, a2
+        bsr.w   Emit_ObjectPieces       ; emit parent's pieces
+
+        move.w  SST_sibling_ptr(a2), d0
+.sibling_loop:
+        tst.w   d0
+        beq.w   .multi_done
+
+        movea.w d0, a0                  ; a0 = current child SST
+
+        ; Read child's mappings; index using PARENT's mapping_frame (semantic C)
+        move.l  SST_mappings(a0), d1
+        beq.s   .sibling_advance
+        movea.l d1, a3
+        moveq   #0, d1
+        move.b  SST_mapping_frame(a2), d1   ; PARENT's mapping_frame
+        add.w   d1, d1
+        move.w  (a3,d1.w), d1
+        lea     (a3,d1.w), a3                ; a3 = child's frame data
+        move.w  (a3)+, d4                    ; piece count for this child's frame
+        beq.s   .sibling_advance
+
+        ; Just-in-time overflow pre-check (uses live count, not cache)
+        move.w  d5, d1
+        add.w   d4, d1
+        cmpi.w  #MAX_VDP_SPRITES, d1
+        bhi.s   .sibling_advance             ; would overflow — skip just this child
+
+        ; Compute child screen position
+        btst    #RF_COORDMODE, SST_render_flags(a0)
+        bne.s   .child_screen_pos
+        move.w  SST_x_pos(a0), d2
+        sub.w   (Camera_X).w, d2
+        move.w  SST_y_pos(a0), d3
+        sub.w   (Camera_Y).w, d3
+        bra.s   .child_have_pos
+.child_screen_pos:
+        move.w  SST_x_pos(a0), d2
+        move.w  SST_y_pos(a0), d3
+.child_have_pos:
+        move.w  SST_art_tile(a0), d6
+        move.b  SST_render_flags(a0), d0
+        andi.b  #(1<<RF_XFLIP)|(1<<RF_YFLIP), d0
+
+        ; Save child SST across Emit (a0 clobbered by subroutine)
+        move.l  a0, -(sp)
+        bsr.w   Emit_ObjectPieces
+        movea.l (sp)+, a0
+
+.sibling_advance:
+        move.w  SST_sibling_ptr(a0), d0
+        bra.s   .sibling_loop
+
+.multi_done:
+        movea.l (sp)+, a2               ; restore band-pointer
 
 .next_object:
         dbf     d7, .object_loop

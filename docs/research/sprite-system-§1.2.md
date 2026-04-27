@@ -148,3 +148,35 @@ This matches sonic_hack's hybrid approach plus our existing scanline-band budget
 **Task 8 will:** Add the Draw_Sprite child-skip guard + Render_Sprites sibling walk, then `bset #RF_MULTISPRITE` on the parent in TestParent's init, and verify identical visual output via screenshot diff.
 
 **Reference fixture patterns checked:** TestParent's existing structure mirrors S.C.E.'s child-creation patterns (data-driven descriptor table). No additional research needed for fixture design itself.
+
+---
+
+## Task 8 — Compound/multi-sprite rendering (2026-04-27)
+
+**Question:** Validate Approach 1 + semantic C against real engines. Where does sibling walk happen? What's the screen-position semantic for children? mapping_frame semantic? art_tile inheritance? Cycle cost?
+
+**Findings:**
+
+- **Sonic 3K** (`skdisasm/s3.asm:29940-30024`) and **S.C.E.** (`Render Sprites.asm:259-292`) both walk children **inline within Render_Sprites** after the parent's pieces have been emitted. Pattern is identical between the two.
+- **Major divergence from spec discovered**: Both real engines use a **static sub-sprite array** (count + per-child X/Y/frame triplets) embedded in object data, NOT a sibling chain walk. The array approach is ~10 cycles faster per child (no null-check, tighter loop).
+- **mapping_frame semantic**: Real engines have **each child store its own frame byte** in the static table. Parent's mappings pointer is reused; per-child frame indexes that table. Our spec's "shared parent mapping_frame" (semantic C) is a SLIGHT DEVIATION — but valid as long as children visually want to follow parent's animation. For independent-frame children, would need adapting.
+- **screen position**: Real engines store **independent world coordinates** for each child, then camera-adjust per child. Matches what our chain-walk does (reads child's `SST_x_pos`/`SST_y_pos`).
+- **art_tile/palette/priority**: Both engines have all children inherit parent's `art_tile`. Our spec has children use their OWN `art_tile`. Per-child art_tile is more flexible (allows different palettes per part); the cost is one extra word read per child.
+
+**Decision for Task 8:**
+
+**Stay with the spec's sibling-chain approach** for this implementation. Reasons:
+- We already have `sibling_ptr` infrastructure for object lifecycle (CreateChild_Normal, DeleteChildren). Using a separate static array would duplicate or complicate.
+- Cycle cost difference is small (~10c per child, negligible for typical multi-part objects).
+- Sibling chain naturally grows/shrinks as children are added/removed at runtime; static array is fixed-size.
+- Our use case (mostly Sonic-style multi-part bosses, Tails' tails) doesn't push the cycle budget.
+
+**Document as future-improvement:** static sub-sprite array (S3K/S.C.E. style) is a known optimization. Worth revisiting if multi-sprite cycle budget becomes a concern with real workloads.
+
+**Implementation gotchas resolved:**
+- Register pressure: a2 (band-pointer in outer loop) repurposed as parent SST during sibling walk; saved/restored on stack. Child SST also stack-saved across `Emit_ObjectPieces` calls (since the subroutine clobbers a0).
+- `RF_ONSCREEN` for children: Never set (children skip Draw_Sprite). Acceptable; parent's bounds check is the gate.
+- Mid-chain overflow: skip just the offending child, continue chain (matches spec).
+- Child's piece count read just-in-time from frame data after indexing — no reliance on stale `sprite_piece_count` cache.
+
+**Verified visually:** TestParent's 3 children render identically with `RF_MULTISPRITE` set (Task 8) vs cleared (Task 7 baseline). Compared `multipart_baseline.png` (1740 bytes) vs `multipart_batched.png` (1944 bytes) — small byte-size difference is PNG compression of live particles, multi-sprite groups themselves are visually identical. SAT contents inspected: child entries present with correct positions.
