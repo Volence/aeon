@@ -1,6 +1,30 @@
 ; Child creation — data-driven parent-child object spawning
 
 ; -----------------------------------------------
+; PopulateSpawnedPieceCount — refresh sprite_piece_count for newly-spawned
+; SST in a2. Called from each CreateChild_*/CreateEffect_* site after
+; mappings have been inherited. Direct-alloc path that bypasses Load_Object.
+;
+; In:  a2 = newly-spawned SST (with mappings + mapping_frame already set)
+; Out: SST_sprite_piece_count(a2) populated from current frame data
+; Preserves: all caller registers
+; -----------------------------------------------
+PopulateSpawnedPieceCount:
+        movem.l d0/a0-a1, -(sp)
+        movea.l SST_mappings(a2), a0
+        move.l  a0, d0
+        beq.s   .skip
+        moveq   #0, d0
+        move.b  SST_mapping_frame(a2), d0
+        add.w   d0, d0                  ; word offset
+        move.w  (a0,d0.w), d0           ; offset to frame data
+        move.w  (a0,d0.w), d0           ; first word = piece count
+        move.b  d0, SST_sprite_piece_count(a2)
+.skip:
+        movem.l (sp)+, d0/a0-a1
+        rts
+
+; -----------------------------------------------
 ; CreateChild_Normal — spawn children from a descriptor table
 ; Allocates from Dynamic pool. Each child inherits parent's
 ; mappings and art_tile. Chains children via sibling_ptr.
@@ -55,6 +79,8 @@ CreateChild_Normal:
         move.w  d3, SST_sibling_ptr(a2) ; child points to previous head
         move.w  a2, d3                  ; new head = this child
         move.w  a2, SST_sibling_ptr(a0) ; parent always points to newest child
+
+        bsr.w   PopulateSpawnedPieceCount
 
         bra.s   .child_loop
 
@@ -134,6 +160,8 @@ CreateChild_Complex:
         move.w  d3, SST_sibling_ptr(a2)
         move.w  a2, d3
         move.w  a2, SST_sibling_ptr(a0)
+
+        bsr.w   PopulateSpawnedPieceCount
 
         bra.s   .child_loop
 
@@ -223,6 +251,8 @@ CreateChild_FlipAware:
         move.w  a2, d3
         move.w  a2, SST_sibling_ptr(a0)
 
+        bsr.w   PopulateSpawnedPieceCount
+
         bra.w   .child_loop
 
 .alloc_fail:
@@ -300,6 +330,8 @@ CreateChild_Linked:
         move.w  a2, SST_sibling_ptr(a0) ; parent -> first child
 .linked:
         move.w  a2, d1                  ; this child becomes previous
+
+        bsr.w   PopulateSpawnedPieceCount
 
         dbf     d5, .spawn_loop
         addq.w  #8, sp                  ; clean running position from stack
@@ -389,6 +421,8 @@ CreateEffect_Normal:
         ; Set parent_ptr so effect can reference parent if needed
         move.w  a0, SST_parent_ptr(a2)
 
+        bsr.w   PopulateSpawnedPieceCount
+
         bra.s   .effect_loop
 
 .alloc_fail:
@@ -436,6 +470,8 @@ CreateEffect_Simple:
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
         move.w  a0, SST_parent_ptr(a2)
+
+        bsr.w   PopulateSpawnedPieceCount
 
         dbf     d3, .spawn_loop
 .done:

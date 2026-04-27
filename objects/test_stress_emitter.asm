@@ -19,6 +19,10 @@ TestStressEmitter:
         move.b  #8, SST_width_pixels(a0)
         move.b  #8, SST_height_pixels(a0)
         bset    #RF_COORDMODE, SST_render_flags(a0)
+        ; Direct-alloc + no animation: populate sprite_piece_count manually
+        ; (Load_Object would have done this; AnimateSprite refresh won't fire.)
+        movea.l a0, a2
+        jsr     PopulateSpawnedPieceCount
         move.w  #STRESS_EMITTER_INTERVAL, _stress_timer(a0)
         move.w  #objroutine(TestStressEmitter_Main), SST_code_addr(a0)
 

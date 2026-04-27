@@ -8,6 +8,22 @@ Tracks work that was identified during design/implementation but deferred becaus
 
 These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require other systems to exist first.
 
+### Static Sub-Sprite Array — Render-Path Optimization (§1.2 / §3.5)
+**Surfaced during:** §1.2 multi-sprite implementation Task 8 research (2026-04-27).
+**Status:** Implementation shipped with sibling-chain walk per spec; the static-array
+optimization is logged here as a real follow-up, not just research backlog.
+**What:** Sonic 3K (`s3.asm:29940-30024`) and S.C.E. (`Render Sprites.asm:259-292`)
+both use a **static sub-sprite array** (count + per-child X/Y/frame triplets) embedded
+in parent's object data, not a sibling-pointer chain. ~10 cycles/child saved (no
+null-check, tighter loop) plus simpler render-time logic. Our `sibling_ptr` chain is
+already wired to `CreateChild_*` / `DeleteChildren` lifecycle, so the trade-off is:
+(a) keep chain for lifecycle + duplicate to a render array (data-sync risk), or
+(b) replace chain with array and refactor all `CreateChild_*` / `DeleteChildren`.
+**When to revisit:** When we have a real workload showing the per-child cycle cost
+matters — multi-part bosses with 6+ children, Tails-tail-style trails, formation
+enemies, etc. Premature without that signal.
+**See:** `docs/research/sprite-system-§1.2.md` Task 8 for the cross-engine evidence.
+
 ### ~~Sprite Rendering Pipeline (§1.2)~~ — DONE 2026-04-27
 **Completed in:** §1.2 sprite-system multisprite + piece-overflow plan
 **What:** Most §1.2 features (two-phase render, priority bands, overflow cascade, scanline budget, sprite mask, link-order cycling, dirty-flag DMA) shipped during §3 Object System work. Remaining bullets closed in this plan: (a) multi-sprite batching via Approach 1 + semantic C — Draw_Sprite child-skip guard for parents with `RF_MULTISPRITE`; Render_Sprites walks `sibling_ptr` chain after parent emission, indexing parent's `mapping_frame` against each child's own `mappings`; mid-chain overflow skips just the offending child. (b) `sprite_piece_count` byte at SST_$2D for predictive total-piece overflow skip; populated by Load_Object (initial frame) + AnimateSprite (per frame change via new `RefreshSpritePieceCount` helper). (c) `Render_Sprites` factored emission into reusable `Emit_ObjectPieces` subroutine. (d) ENGINE_ARCHITECTURE.md §1.2/§3.5 link-chain doc corrected — "never rebuilt" was a wash on 68000.

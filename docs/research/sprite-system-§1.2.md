@@ -35,7 +35,7 @@ The doc claim "links never rebuilt during gameplay" is **technically achievable*
 
 **Decision for Task 1:** Stick with the planned doc correction — change wording to match what our code does (rewrites links every piece + terminator at end), explain the wash. Don't refactor code to S.C.E. style; it would be a cycle-neutral architectural change outside this plan's scope.
 
-**Insight to surface in final summary:** A future cleanup task could swap our 4× `move.b d5, (a4)+` for 4× `addq.l #1, a4` plus update Init_SpriteTable as the source of truth — same cycles, cleaner mental model. Out-of-scope for §1.2 deferred-work closure but worth logging.
+**No follow-up needed.** The S.C.E.-style "advance past, don't rewrite" pattern is *cycle-equivalent* to our rewrite-every-piece approach (both 8c per piece) — there is no "improvement" to revisit. Doc updated to reflect reality. Closing this thread.
 
 ---
 
