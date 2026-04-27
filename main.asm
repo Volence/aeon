@@ -100,6 +100,7 @@ __BUDGET_ENGINE:
     include "engine/controllers.asm"
     include "engine/game_loop.asm"
     include "engine/s4lz_decompress.asm"
+    include "engine/math.asm"
     include "engine/objects/dplc.asm"
     include "engine/objects/core.asm"
     include "engine/objects/sprites.asm"
