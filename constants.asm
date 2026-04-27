@@ -220,6 +220,11 @@ SECTION_BWD_THRESHOLD   = $0200     ; camera X → fire backward teleport
 SECTION_FWD_PRELOAD     = $0E00     ; camera X → queue forward section art
 SECTION_BWD_PRELOAD     = $0400     ; camera X → queue backward section art
 
+; Parallax (§4.6)
+MAX_PARALLAX_BANDS         = 8
+PARALLAX_TRANS_DEFAULT     = 8      ; default boundary lerp duration (frames)
+PARALLAX_LERP_SHIFT        = 3      ; >>3 ≈ 8-frame convergence to ~95%
+
 ; Nametable strips
 STRIP_TILE_HEIGHT       = 48        ; rows per strip (0–47; row 48+ = sprite table)
 STRIP_BYTE_SIZE         = STRIP_TILE_HEIGHT*2   ; 96 bytes per strip

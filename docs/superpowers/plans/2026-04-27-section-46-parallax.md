@@ -72,7 +72,7 @@ Targets:
 - **Batman & Robin** — raster command table format from §7.2 reference docs; what's the per-effect field count and byte size?
 - **Online**: SGDK's scrolling structures (`vdp_bg.h`); plutiedev's "scrolling" page on per-mode-byte-counts.
 
-Cross-reference the spec's 22-byte `parallax_config` header + 10-byte `band_entry`. Question to settle: should `pcfg_v_factor_fg` (currently RESERVED) be removed entirely or kept for symmetry? Recommendation: keep (one byte of forward-compat).
+Cross-reference the spec's 28-byte `parallax_config` header + 10-byte `band_entry`. Question to settle: should `pcfg_v_factor_fg` (currently RESERVED) be removed entirely or kept for symmetry? Recommendation: keep (one byte of forward-compat).
 
 Append findings to `docs/research/parallax-§4.6.md` under "Task 1 — Struct layout cross-reference."
 
@@ -123,7 +123,7 @@ band_entry endstruct
     endif
 
 ; ----------------------------------------------------------------------
-; Parallax config — 22-byte header + N × band_entry, ROM data
+; Parallax config — 28-byte header + N × band_entry, ROM data
 ; ----------------------------------------------------------------------
 parallax_config struct
     pcfg_band_count        ds.b 1
@@ -521,7 +521,7 @@ Build-time machinery for §4.6 parallax. factor_decompose decomposes p/q
 fractions to shift-add encoding (max 2 terms), fatals on unsupported
 fractions. band macro emits 10-byte band_entry records with cross-band
 validation (strictly ascending TOP, count limits, in-range checks).
-parallax_section opens a 22-byte header + N inline band entries; the
+parallax_section opens a 28-byte header + N inline band entries; the
 section_end patches band_count.
 
 Self-test gated by __PARALLAX_MACRO_SELFTEST__ verifies a 5-band record
@@ -2709,7 +2709,7 @@ Open `docs/ENGINE_ARCHITECTURE.md`. Find §4.6 (around line 1904). Apply all 10 
 - Vertical parallax (whole-plane and per-column)
 - Section transition smoothing (8-frame lerp)
 - Per-cell vs per-line auto-mode
-- 22-byte parallax_config + 10-byte band_entry struct
+- 28-byte parallax_config + 10-byte band_entry struct
 - ~126 B Parallax_State RAM
 
 Also update the row 17 summary in the architecture doc's overview table to reflect the new design.

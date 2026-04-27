@@ -107,6 +107,23 @@ Hscroll_Dirty_End:      ds.b 1          ; last dirty scanline
 Vscroll_Factor:         ds.l 1          ; FG word + BG word
 
 ; -----------------------------------------------
+; Parallax state (§4.6) — ~126 bytes
+; -----------------------------------------------
+Parallax_State:
+Parallax_Deform_Phase_FG:    ds.w 1     ; (frame_counter * speed_fg) & $FF
+Parallax_Deform_Phase_BG:    ds.w 1
+Parallax_V_Deform_Phase_BG:  ds.w 1     ; for animated per-column V-scroll
+Parallax_Current_Scroll_A:   ds.w MAX_PARALLAX_BANDS  ; lerp accumulators, Plane A
+Parallax_Current_Scroll_B:   ds.w MAX_PARALLAX_BANDS  ; Plane B
+Parallax_Current_Vscroll_BG: ds.w 1
+Parallax_Current_Config:     ds.l 1     ; ptr to active parallax_config
+Parallax_Target_Config:      ds.l 1     ; ptr to incoming during transition
+Parallax_Transition_Frames:  ds.b 1     ; frames remaining; 0 = stable
+Parallax_Pad:                ds.b 3
+Parallax_Vscroll_Column_Buf: ds.b 80    ; 40 VSRAM entries × 2 bytes
+Parallax_State_End:
+
+; -----------------------------------------------
 ; Static DMA Entries (§1.5)
 ; Pre-computed 14-byte entries for fixed transfers
 ; -----------------------------------------------
