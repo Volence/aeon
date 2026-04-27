@@ -112,7 +112,6 @@ __BUDGET_ENGINE:
     include "engine/level/plane_buffer.asm"
     include "engine/level/section.asm"
     include "engine/level/camera.asm"
-    include "engine/level/hscroll.asm"
     include "engine/level/parallax.asm"
     include "engine/level/load_art.asm"
     include "engine/level/bg.asm"

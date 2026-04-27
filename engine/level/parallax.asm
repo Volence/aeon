@@ -25,6 +25,22 @@ Parallax_Init:
         rts
 
 ; ----------------------------------------------------------------------
+; Vscroll_Write — emit Vscroll_Factor (whole-plane) or column buf (per-column)
+; T6 stub: always whole-plane. T12 adds per-column branch.
+;
+; Caller (VBlank handler) must hold stopZ80 — VDP writes happen here.
+;
+; In:  none (reads Parallax_Current_Config, Vscroll_Factor)
+; Out: VSRAM written
+; Clobbers: a5
+; ----------------------------------------------------------------------
+Vscroll_Write:
+        lea     (VDP_CTRL).l, a5
+        move.l  #vdpComm(0, VSRAM, WRITE), (a5)
+        move.l  (Vscroll_Factor).w, VDP_DATA-VDP_CTRL(a5)
+        rts
+
+; ----------------------------------------------------------------------
 ; Parallax_Update — per-frame parallax buffer build (T5: per-cell only)
 ;
 ; Reads:  Camera_X, Parallax_Current_Config, Parallax_Current_Scroll_A/B

@@ -70,6 +70,13 @@ BuildStaticDMA:
         move.l  #dmaSource(Sprite_Table_Buffer), d1
         move.w  #dmaLength(640), d3
         move.l  #vdpComm(VRAM_SPRITE_TABLE, VRAM, DMA), d2
+        bsr.s   .build_entry
+
+        ; §4.6 HScroll cell mode: Hscroll_Buffer -> VRAM $DC00, 112 bytes
+        lea     (Static_Hscroll_Cell).w, a0
+        move.l  #dmaSource(Hscroll_Buffer), d1
+        move.w  #dmaLength(112), d3
+        move.l  #vdpComm(VRAM_HSCROLL_TABLE, VRAM, DMA), d2
 
 .build_entry:
         move.b  d0, DMAEntry_Reg94(a0)
@@ -138,4 +145,11 @@ Enqueue_Dirty_Buffers:
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Sprite_DMA
         move.b  d0, (Sprite_Table_Dirty).w
 .no_spr:
+        ; §4.6: enqueue HScroll DMA when a parallax_config is active
+        ; v1: always per-cell (112 bytes). T9 will switch per-mode.
+        movea.l (Parallax_Current_Config).w, a1
+        cmpa.w  #0, a1
+        beq.s   .no_hscroll
+        queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Hscroll_Cell
+.no_hscroll:
         rts

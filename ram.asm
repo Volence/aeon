@@ -132,6 +132,7 @@ Static_Pal_Line1:       ds.b DMAEntry_len
 Static_Pal_Line2:       ds.b DMAEntry_len
 Static_Pal_Line3:       ds.b DMAEntry_len
 Static_Sprite_DMA:      ds.b DMAEntry_len
+Static_Hscroll_Cell:    ds.b DMAEntry_len   ; §4.6 — 112-byte HScroll table per-cell mode
 
 ; -----------------------------------------------
 ; Debug profiling (§1.7) — zero in release builds

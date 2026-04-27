@@ -32,14 +32,14 @@ VInt_Level:
 
         bsr.w   Flush_VDP_Shadow
 
-        move.l  #vdpComm(0, VSRAM, WRITE), (VDP_CTRL).l
-        move.l  (Vscroll_Factor).w, (VDP_DATA).l
-
-        bsr.w   Enqueue_Dirty_Buffers
+        bsr.w   Enqueue_Dirty_Buffers   ; queues palette + sprites + HScroll (§4.6)
 
         bsr.w   VInt_DrawLevel          ; drain Plane_Buffer to VDP (§4.1)
 
-        bsr.w   Process_DMA_Critical
+        bsr.w   Process_DMA_Critical    ; drains palette + sprites + HScroll
+
+        ; §4.6: VSRAM write must come AFTER HScroll DMA (CODING_CONVENTIONS §3.4)
+        bsr.w   Vscroll_Write
 
         move.w  (DMA_Budget_Default).w, (DMA_Budget_Remaining).w
         bsr.w   Process_DMA_Important
@@ -61,13 +61,10 @@ VInt_Lag:
         stopZ80
 
         bsr.w   Flush_VDP_Shadow
-
-        move.l  #vdpComm(0, VSRAM, WRITE), (VDP_CTRL).l
-        move.l  (Vscroll_Factor).w, (VDP_DATA).l
-
         bsr.w   Enqueue_Dirty_Buffers
         bsr.w   VInt_DrawLevel
         bsr.w   Process_DMA_Critical
+        bsr.w   Vscroll_Write           ; §4.6 — after Critical DMA
 
         startZ80
 
