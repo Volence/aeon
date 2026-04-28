@@ -109,21 +109,21 @@ sec_objects         ds.l 1          ; $04 — compact 4-byte object entries
 sec_rings           ds.l 1          ; $08 — pattern-encoded ring entries
 sec_plc             ds.l 1          ; $0C — S4LZ art PLC list
 sec_pal             ds.l 1          ; $10 — 128-byte palette (4 lines × 32 bytes)
-sec_scroll          ds.l 1          ; $14 — parallax layer table (Phase 4)
+sec_parallax_config ds.l 1          ; $14 — ROM ptr to parallax_config (0 = inherit; §4.6)
 sec_raster_table    ds.l 1          ; $18 — raster command table (§7.2)
 sec_bg_layout       ds.l 1          ; $1C — plane B layout pointer (NULL = use Act_act_bg_layout, T1)
 sec_reserved        ds.l 1          ; $20 — reserved
 sec_pal_cycle       ds.l 1          ; $24 — palette cycling script (Phase 4)
 sec_sound_bank      ds.l 1          ; $28 — DAC sample bank pointer
-sec_deform_table    ds.l 1          ; $2C — deformation table (Phase 4)
+sec_pcfg_pad_2C     ds.l 1          ; $2C — RESERVED (was sec_deform_table; folded into parallax_config)
 sec_anim_blocks     ds.l 1          ; $30 — animated tile script (Phase 4)
 sec_collision       ds.l 1          ; $34 — flat 128×128 collision map
 sec_flags           ds.w 1          ; $38 — SF_* bitmask
 sec_music           ds.w 1          ; $3A — music track (0 = keep current)
-sec_layer_mask      ds.b 1          ; $3C — parallax layer enable (Phase 4)
+sec_pcfg_pad_3C     ds.b 1          ; $3C — RESERVED (was sec_layer_mask; in parallax_config)
 sec_camera_lookahead ds.b 1         ; $3D — lookahead pixels (0 = zone default)
-sec_deform_speed    ds.b 1          ; $3E — deformation rate (Phase 4)
-sec_transition_type ds.b 1          ; $3F — transition type (Phase 4)
+sec_pcfg_pad_3E     ds.b 1          ; $3E — RESERVED (was sec_deform_speed)
+sec_pcfg_pad_3F     ds.b 1          ; $3F — RESERVED (was sec_transition_type)
 sec_tile_art_s4lz   ds.l 1          ; $40 — per-section S4LZ tile pool ptr (§2 A.3)
 sec_tile_art_vram   ds.w 1          ; $44 — VRAM byte dest (color base × 32)
                     ds.w 1          ; $46 — pad
@@ -131,6 +131,54 @@ Sec endstruct
 
     if Sec_len <> $48
       error "Sec struct is \{Sec_len} bytes, expected $48"
+    endif
+
+; -----------------------------------------------
+; Parallax band entry (§4.6) — 10 bytes per band, ROM data
+; -----------------------------------------------
+band_entry struct
+band_top_cell        ds.b 1   ; first cell row of band (0..27)
+band_factor_a_s1     ds.b 1   ; Plane A shift1 (15 = whole-factor zero "locked")
+band_factor_a_s2     ds.b 1   ; Plane A shift2 (15 = single-term factor)
+band_factor_a_op     ds.b 1   ; bit 0: 0=ADD second term, 1=SUB
+band_factor_b_s1     ds.b 1   ; Plane B shift1
+band_factor_b_s2     ds.b 1   ; Plane B shift2
+band_factor_b_op     ds.b 1   ; bit 0: 0=ADD, 1=SUB
+band_deform_shift_a  ds.b 1   ; Plane A deform amplitude shift (15 = no FG deform)
+band_deform_shift_b  ds.b 1   ; Plane B deform amplitude shift
+band_phase_offset    ds.b 1   ; 0..255, added to deform sample index for desync
+band_entry endstruct
+
+    if band_entry_len <> 10
+      error "band_entry struct is \{band_entry_len} bytes, expected 10"
+    endif
+
+; -----------------------------------------------
+; Parallax config (§4.6) — 22-byte header + N × band_entry, ROM data
+; Pointed-to by Sec.sec_parallax_config; one config per section (or shared).
+; -----------------------------------------------
+parallax_config struct
+pcfg_band_count        ds.b 1
+pcfg_v_factor_bg       ds.b 1   ; whole-plane Plane B vshift (used when v_deform_table_bg = 0)
+pcfg_v_factor_fg       ds.b 1   ; RESERVED — v1 pipeline always sets fg_vscroll = camY
+pcfg_layer_mask        ds.b 1   ; bit per band; 1 = active
+pcfg_v_center_y        ds.w 1   ; section's "natural" camera Y
+pcfg_v_offset          ds.w 1   ; vscroll BG value at center_y
+pcfg_transition        ds.b 1   ; 0 = smooth lerp (default), 1 = instant snap
+pcfg_deform_speed_fg   ds.b 1   ; FG H-deform table phase increment per frame
+pcfg_deform_speed_bg   ds.b 1   ; BG H-deform table phase increment per frame
+pcfg_pad               ds.b 1
+pcfg_deform_table_fg   ds.l 1   ; ROM ptr to 256-byte signed FG H-deform (0 = none)
+pcfg_deform_table_bg   ds.l 1   ; ROM ptr to 256-byte signed BG H-deform (0 = none)
+pcfg_v_deform_table_bg ds.l 1   ; ROM ptr to 256-byte signed BG V-column (0 = whole-plane)
+pcfg_v_deform_speed_bg ds.b 1   ; 0 = static column shape, >0 = animated
+pcfg_v_deform_shift_bg ds.b 1   ; amplitude shift on V-column samples
+pcfg_pad2              ds.b 2
+; pcfg_bands inline follows: band_entry × pcfg_band_count
+parallax_config endstruct
+
+    if parallax_config_len <> 28
+      error "parallax_config header is \{parallax_config_len} bytes, expected 28"
     endif
 
 ; -----------------------------------------------

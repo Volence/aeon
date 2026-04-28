@@ -14,6 +14,7 @@ PAD_TO_POWER_OF_TWO     = 1
     include "constants.asm"
     include "structs.asm"
     include "macros.asm"
+    include "engine/parallax_macros.inc"
     include "ram.asm"
     include "debug/debugger.asm"
 
@@ -111,7 +112,7 @@ __BUDGET_ENGINE:
     include "engine/level/plane_buffer.asm"
     include "engine/level/section.asm"
     include "engine/level/camera.asm"
-    include "engine/level/hscroll.asm"
+    include "engine/level/parallax.asm"
     include "engine/level/load_art.asm"
     include "engine/level/bg.asm"
 
@@ -139,6 +140,23 @@ __BUDGET_OBJBANK:
 ; Data (outside object code bank — addressed directly, not via objroutine)
 ; -----------------------------------------------
 __BUDGET_DATA:
+    include "data/parallax/ojz_default.asm"
+    include "data/parallax/ojz_windy.asm"
+    ; Reusable parallax effects library — drop new effects under
+    ; data/parallax/effects/ and include them here. Each file defines a
+    ; deform table + ParallaxConfig_* record that any section can point
+    ; at via Sec_sec_parallax_config. Must come AFTER ojz_default.asm
+    ; because some effects reference DeformTable_Zero from there.
+    include "data/parallax/effects/shimmer.asm"
+    include "data/parallax/effects/haze.asm"
+    include "data/parallax/effects/rocking.asm"
+    ; Composite scenes — hand-authored configs that stack multiple effects
+    ; with custom per-band gradients. Must come AFTER effects/ for the
+    ; deform-table references to resolve.
+    include "data/parallax/scenes/windy_haze.asm"
+    include "data/parallax/scenes/sky_haze.asm"
+    include "data/parallax/scenes/caves.asm"
+    include "data/parallax/scenes/locked_clouds.asm"
     include "data/levels/ojz/act1/act_descriptor.asm"
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"

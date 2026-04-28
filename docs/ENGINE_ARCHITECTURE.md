@@ -1797,9 +1797,11 @@ The level system is the engine's most unique feature. A 2D section grid with bid
 
 No Genesis game, S.C.E., or commercial engine streams level data in two dimensions. This is the engine's flagship architectural feature.
 
-**2-slot bidirectional leapfrog:**
+**2-slot block-paired streaming:**
 
-2 slots per axis with full bidirectional leapfrog — no pinned slots, both directions symmetric:
+2 slots per axis. Each teleport replaces *both* slots — no recycling. Each section is visible across exactly one slot territory ($800 of camera travel). After a FWD teleport, slot index advances by 2 sections: `[Sec0,Sec1] → [Sec2,Sec3] → [Sec4,Sec5] → ...` This matches `SECTION_SHIFT = $1000 = 2 × SECTION_SIZE` and gives the user "infinite forward walking" feel where each section is seen once. Confirmed via T15 testing as the correct architecture for our streaming model. (Earlier rolling-style rotation — where slot 0 inherited the previous slot 1's content — caused each section to be visible in two consecutive slot-pair states; fixed in the T15 commit.)
+
+2 slots per axis with full bidirectional symmetry — no pinned slots:
 
 ```
 Horizontal: [Slot L][Slot R]  — leapfrog L↔R in both directions
@@ -1911,21 +1913,48 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 - Section streaming integration: camera bounds adjusted for preview zones
 - Dead zone persists for smooth centering
 
-### 4.6 8-Layer Computed Parallax (from Thunder Force IV)
+### 4.6 Multi-Band Computed Parallax — As Shipped
 
-**TF4 has the best scroll engine on the Genesis.** Replace per-zone hardcoded background scroll routines with TF4's computed system:
+**Foundation:** S.C.E.'s `HScroll_Deform` deformation script extended with TF4's per-band model. Replaces per-zone hardcoded scroll routines with a data-driven system that auto-selects mode per section, supports per-band gradients, and lerps smoothly across section boundaries.
 
-- **Per-layer scroll factor:** `factor = -(layer_index * 2 - 7)` — background layers lag, foreground layers lead, one formula handles all layers
-- **Deformation table:** 256-entry ROM array of signed byte offsets indexed by rolling frame counter (`andi.w #$FF, counter`), multiplied into each layer's scroll. Creates organic wave motion automatically. One full cycle = 256 frames ≈ 4.3 seconds at 60fps.
-- **Per-section deformation:** Each section can point to its own deformation table via `sec_deform_table`, and control the animation speed via `sec_deform_speed` (1 = normal, 2 = double, 0 = frozen). Calm jungle = slow swaying, lava section = violent churning, cave = no deformation.
-- **Layer enable mask:** `sec_layer_mask` disables unused layers per section. Underground sections skip sky layers — saves ~140 cycles per disabled layer and reduces DMA load.
-- **Parallax transition smoothing (NOVEL):** When crossing a section boundary where scroll config changes, interpolate factors over 8-16 frames: `current += (target - current) >> 3`. Sections can override with instant swap via `sec_transition_type = 1`. No Genesis game smoothly transitions parallax mid-level.
-- **Per-block linear interpolation flag (from S.C.E.):** Each deformation block's high bit controls whether offsets interpolate linearly across scanlines (smooth gradient) or repeat raw (hard edge). Allows mixing smooth transitions with sharp boundaries in one deformation table.
-- **Dual FG/BG deformation (from S.C.E.):** Separate deformation state for foreground and background planes. Each has its own table, accumulator, and speed. Foreground and background can have independent wave patterns within the same section.
-- **8 layers, 16 `muls` per frame = ~1,120 cycles (1.4% of frame budget).** Cheaper than processing two objects.
-- **New zones = new layer table + deformation table, zero code changes**
+**Multiply-free shift-add factor encoding.** Each band has a `factor_a` (FG) and `factor_b` (BG) packed into 24 bits: `s1` (4 bits, 0..14 = shift; 15 = "term zero"), `s2` (4 bits, same semantics), `op` (1 bit: 0 = ADD second term, 1 = SUB). Scroll = `(camX >> s1) op (camX >> s2)` per term — pure shift+add, no `muls`. Pre-defined factors: `FACTOR_0` (locked), `FACTOR_1`, `FACTOR_1_2`, `FACTOR_1_4`, `FACTOR_1_8`, `FACTOR_1_16`, `FACTOR_3_4`, `FACTOR_3_8`, `FACTOR_3_16`, `FACTOR_5_8`, `FACTOR_5_16`, `FACTOR_7_8`, `FACTOR_7_16`, `FACTOR_15_16`. New factors added by composing two shifts.
 
-Foundation: S.C.E.'s `HScroll_Deform` deformation script, extended with TF4's layer model.
+**Per-band Plane A + Plane B factor split.** Each band carries independent FG and BG factors. Plane A's "ground" band typically uses `FACTOR_1` (1:1 with camera); Plane B layers progressively slower (`FACTOR_1_4` mountains, `FACTOR_1_8` clouds). Gives each Y-region its own scroll rate.
+
+**Per-band amplitude shift + phase offset.** `BAND_DSA` / `BAND_DSB` (per-band shift on FG/BG deform sample, set before each `band` macro call) downscale the deform amplitude per band — clouds full-amplitude, hills faint, ground none. Sentinel value `15` skips the sample entirely. `BAND_PHASE` desyncs each band's wave from neighbours so they don't pulse in lockstep.
+
+**FG / BG H-deformation tables (256-byte signed sine/triangle/custom, sampled per line).** When `pcfg_deform_table_fg` and/or `pcfg_deform_table_bg` are non-NULL, the pipeline auto-selects per-line HScroll mode and samples the table at `(phase + band_phase + line) & $FF` per scanline, downscaled by the band's shift, added to the band's base scroll. Phase advances by `pcfg_deform_speed_fg/bg` per frame. Generators in `engine/parallax_macros.inc`: `deform_table_sine`, `deform_table_triangle`, `v_column_perspective`.
+
+**Vertical parallax (whole-plane and per-column).** Whole-plane: `pcfg_v_factor_bg` shift + `pcfg_v_center_y` + `pcfg_v_offset` produce `target_b = ((camY - vCenter) >> v_factor_bg) + vOffset`, lerped each frame. Sentinel `v_factor_bg = 15` locks BG vscroll to `vOffset` (camera-Y-independent). Per-column: when `pcfg_v_deform_table_bg` is non-NULL, mode bit 2 enables per-column VSRAM; the pipeline samples 20 column-pairs from the table each frame, shift-scaled by `pcfg_v_deform_shift_bg`, animated by `pcfg_v_deform_speed_bg`.
+
+**Section transition smoothing (16-frame lerp).** `Parallax_StartTransition` stages `Parallax_Target_Config` and sets `Parallax_Transition_Frames = 16` when entering a new section's config. `Parallax_Update` uses Target_Config to compute band targets while the per-band scroll lerp (`>>4`) eases current_scroll values toward them. `pcfg_transition = 1` overrides smooth → instant snap (additionally sets `Parallax_Snap_Pending` so band scroll values jump to targets without lerp). `Parallax_Snap_Pending` is also set automatically on section teleport (`Section_TeleportFwd/Bwd`) — Camera_X just jumped `SECTION_SHIFT` pixels, no lerp can reasonably catch up.
+
+**Per-cell vs per-line auto-mode.** `Parallax_Update` checks both H-deform tables. Both NULL → per-cell HScroll (28 entries × 4 bytes = 112-byte DMA), no per-line wave possible. Either non-NULL → per-line HScroll (224 entries × 4 bytes = 896-byte DMA). VDP register `$0B` mode bit set accordingly via shadow + dirty flag during `Parallax_StartTransition`.
+
+**Layer enable mask.** `pcfg_layer_mask` disables individual bands; disabled bands inherit the previous band's scroll (or zero if first band, = locked). Demonstrates the inheritance path — `LAYER_MASK = $1E` locks the cloud band while mountains/hills/ground continue scrolling.
+
+**RAM footprint:** `Parallax_State` ≈ 126 B in `$FF000000`-range RAM:
+- `Parallax_Deform_Phase_FG/BG/V_BG` (3 × ds.w 1 = 6 B)
+- `Parallax_Current_Scroll_A/B[8 bands]` (2 × 16 = 32 B)
+- `Parallax_Current_Vscroll_BG` (2 B)
+- `Parallax_Current_Config / Target_Config` (8 B pointers)
+- `Parallax_Transition_Frames / Snap_Pending` (2 B)
+- `Parallax_Vscroll_Column_Buf` (80 B for 20 VSRAM column-pairs)
+
+**ROM cost per section:** 28-byte `parallax_config` header + 10-byte `band_entry` per band. 5-band default = 78 B per section. Deform tables (256 B each) are shared across sections that use the same wave shape.
+
+**Effects library at `data/parallax/effects/`:** reusable single-effect building blocks. `shimmer.asm` (subtle H-wobble, plane-agnostic), `haze.asm` (graduated H-wobble — heaviest at bottom, plane-agnostic with optional uniform mode), `rocking.asm` (per-column V-scroll rocking). Each file exposes a parameterised `<effect>_config` macro plus pre-named `_Slow / default / _Fast` variants.
+
+**Composite scenes at `data/parallax/scenes/`:** hand-authored configs that mix multiple effects with custom per-band gradients. `windy_haze.asm` (windy gradient BG + uniform FG haze), `sky_haze.asm` (split-screen via `parallax_combine_split` — windy top, haze bottom), `caves.asm` (slow BG factor gradient), `locked_clouds.asm` (layer-mask demo).
+
+**Composition macros in `parallax_macros.inc`:**
+- `parallax_section` — workhorse, emits a complete config record from named keyword params.
+- `parallax_combine` — sugar for stacking up to three deform tables (FG H, BG H, BG per-column V) in one single-band config.
+- `parallax_combine_split` — 2-band variant with `PARALLAX_TOP / PARALLAX_BOTTOM / PARALLAX_ALL` bitmask `*Where` params for regional effect placement.
+
+**Performance:** ~410 NTSC cycles per frame for 5-band per-cell pure shift-add (no deform sampling). Per-line mode adds ~2× (~800 cycles for 224-line fill with deform sampling). Cheaper than processing two objects.
+
+**Foundation:** S.C.E.'s `HScroll_Deform` deformation script, extended with shift-add factor encoding (novel), per-band amplitude/phase split (novel), and section-boundary lerp transitions (novel).
 
 ### 4.7 Level Collision — Per-Section Collision Map + Dual Sensors
 

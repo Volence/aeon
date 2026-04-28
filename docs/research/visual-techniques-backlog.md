@@ -323,6 +323,30 @@ Instead of one global HInt handler that branches on the current section's effect
 
 ---
 
+## 20. Sprite multiplexing (multi-band SAT reuse)
+
+**Status:** IDEA (tier: specialty mode, not default sprite path)
+
+The VDP scans the SAT top-to-bottom as the beam descends — by the time line 100 is rendering, all sprites with Y < 100 have been processed and their SAT entries are no longer in use. So if you swap to a different SAT mid-frame, the **same 80 hardware sprite slots** can render a fresh set of 80 sprites in each band. 4 bands → 320 effective sprites, 8 bands → 640, etc. Demos have hit 1000+. Pair with CRAM rewrites between bands and you also multiply visible color count (~440 colors in published demos).
+
+**Per-line cap (20 sprites) still applies** within each band. Multiplexing does not let you stack 40 sprites on one row — only 80 sprites on different rows that each fit the 20-per-line cap.
+
+**Cost:**
+- **Approach A (DMA-rewrite SAT each band):** ~1900 cycles per DMA over many scanlines via active-display DMA, plus per-frame SAT-build cost in main RAM. Bandwidth-heavy.
+- **Approach B (multiple SATs in VRAM, swap via VDP register $05):** ~30 cycles per HInt + ~110 cycles entry/exit. **4 bands ≈ 560 cycles/frame, less than 0.5% of NTSC budget.** This is the path worth investigating first.
+- **VRAM cost (Approach B):** N × 640 bytes for N SATs (4 bands = 2.5 KB, 8 bands = 5 KB).
+- **Authoring cost:** every sprite-spawning system needs to know which band a sprite ends up in, either via static binning (per-system band assignment) or dynamic binning (sweep all sprites by Y each frame, ~5–10 cyc per sprite).
+
+**Buys:** Specialty visual moments that 80-sprite hardware can't normally do — ring-rush sections (hundreds of rings), bullet-hell bosses, snow/rain/firefly weather, crowd/audience scenes, opening logo with 200 floating particles. Color expansion is arguably the bigger Sonic-engine win: each band gets its own ~16-color palette, so a single zone can present multiple distinct color regions.
+
+**Why not always-on:** Most Sonic gameplay never needs >80 sprites. Default-on multiplexing taxes every frame for binning and SAT rebuilds even when there's nothing extra to render. Best deployed as a per-state opt-in (boss arena flips it on, normal level uses standard sprite path).
+
+**Research:** Mega Drive demoscene "Sprite Multiplex" demos, Titan Overdrive 2 (multiplexed sprites), modern homebrew (Demons of Asteborg uses it for some boss patterns), plutiedev sprite engine page, Kabuto's hardware notes for SAT timing.
+
+**Engine touchpoints:** Per-state `multiplex_bands` config; SAT-build code that bins sprites into N bands by Y range; HInt handler that writes VDP register $05 to swap SAT base address; optional CRAM-rewrite hook to multiply colors band-by-band. Composes naturally with #19 (per-section HInt handler dispatch — multiplexer is just one more handler kind) and #2 (HInt palette regions — same HInt fire can do both).
+
+---
+
 ## Cross-cutting considerations
 
 When evaluating any of these for adoption, run them through these filters:

@@ -134,7 +134,7 @@ parallax_config struct
 parallax_config endstruct
 ```
 
-22-byte header + N × 10 bytes bands. 5-band typical section ≈ 72 bytes. ROM cost per section: ~72-608 bytes depending on H-deform + V-deform usage and table sharing.
+28-byte header + N × 10 bytes bands. 5-band typical section ≈ 78 bytes. ROM cost per section: ~78-614 bytes depending on H-deform + V-deform usage and table sharing.
 
 #### Section descriptor change
 

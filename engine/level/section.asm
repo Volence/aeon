@@ -39,74 +39,29 @@ Section_Init:
 
         rts
 
-; -----------------------------------------------
-; Section_FillInitial — fill all 64 nametable columns from slot 0
-; Nametable col c = slot 0, local col c (ring-buffer start = SLOT_ORIGIN_L/8).
-; Buffer holds ~22 entries → 3 batches of 22/22/20 = 64 cols.
-; Initialises Section_Right_Col_Written and Section_Left_Col_Written.
-; Clobbers: d0–d5, a0–a3
+ ; -----------------------------------------------
+; Section_FillInitial — set up trackers; let Section_UpdateColumns
+; fill plane on first frame (matches post-teleport behavior).
+;
+; Previously pre-filled plane cols 0..63 with section cols 0..63
+; (linear order). This caused a visual artifact: when user scrolled
+; right past Cam_X = 689, streaming overwrote plane col 0 with
+; section col 64. Plane col 0 then visible at screen LEFT at Cam_X
+; = 1024 with section col 64 — content "appearing from left."
+;
+; New behavior: trackers set as if Section_TeleportFwd just fired.
+; Section_UpdateColumns on first frame streams the visible window
+; in scroll-direction order (= same as post-teleport behavior, which
+; doesn't show the artifact). User sees plane fill from screen-left
+; outward over ~3 frames as Plane_Buffer drains, then steady-state
+; matches Section_UpdateColumns' streaming pattern.
+;
+; Out: Section_Right_Col_Written, Section_Left_Col_Written initialised
+; Clobbers: none
 ; -----------------------------------------------
 Section_FillInitial:
-        ; -- batch 1: nametable cols 0–21 --
-        bsr.w   .fill_batch1
-        move.b  #1, (VBlank_Ready).w
-.wait1: tst.b   (VBlank_Flag).w
-        beq.s   .wait1
-        move.b  #0, (VBlank_Flag).w
-
-        ; -- batch 2: nametable cols 22–43 --
-        bsr.w   .fill_batch2
-        move.b  #1, (VBlank_Ready).w
-.wait2: tst.b   (VBlank_Flag).w
-        beq.s   .wait2
-        move.b  #0, (VBlank_Flag).w
-
-        ; -- batch 3: nametable cols 44–63 --
-        bsr.w   .fill_batch3
-        move.b  #1, (VBlank_Ready).w
-.wait3: tst.b   (VBlank_Flag).w
-        beq.s   .wait3
-        move.b  #0, (VBlank_Flag).w
-
-        ; -- init column tracking: SLOT_ORIGIN_L/8 + 0..63 written --
-        move.w  #SLOT_ORIGIN_L/8 + 63, (Section_Right_Col_Written).w
-        move.w  #SLOT_ORIGIN_L/8,       (Section_Left_Col_Written).w
-        rts
-
-.fill_batch1:
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef.slot0
-        moveq   #22-1, d4
-        moveq   #0, d5              ; nametable col = section local col
-.b1:    move.w  d5, d0
-        move.w  d5, d1
-        bsr.w   Draw_TileColumn
-        addq.w  #1, d5
-        dbf     d4, .b1
-        rts
-
-.fill_batch2:
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef.slot0
-        moveq   #22-1, d4
-        moveq   #22, d5
-.b2:    move.w  d5, d0
-        move.w  d5, d1
-        bsr.w   Draw_TileColumn
-        addq.w  #1, d5
-        dbf     d4, .b2
-        rts
-
-.fill_batch3:
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef.slot0
-        moveq   #20-1, d4
-        moveq   #44, d5
-.b3:    move.w  d5, d0
-        move.w  d5, d1
-        bsr.w   Draw_TileColumn
-        addq.w  #1, d5
-        dbf     d4, .b3
+        move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
+        move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
         rts
 
 ; -----------------------------------------------
@@ -256,13 +211,18 @@ Section_TeleportFwd:
         subi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_X).w
 
+        ; -- block-style rotation: advance pair index by 1 = both slots advance
+        ;    by 2 sections. New slot 0 takes the section that was preloaded
+        ;    into slot 0 during slot 1 traversal (= old slot 1 + 1). New
+        ;    slot 1 = the section after that. --
         lea     (Slot_Section_Map).w, a0
         move.b  2(a0), d0                          ; old slot 1 sec_x
         move.b  3(a0), d1                          ; old slot 1 sec_y
-        move.b  d0, (a0)                           ; new slot 0 sec_x
-        move.b  d1, 1(a0)                          ; new slot 0 sec_y
-        addq.b  #1, d0                             ; new slot 1 sec_x = slot 0 + 1
+        addq.b  #1, d0                             ; new slot 0 sec_x = old slot 1 + 1
         ; TODO: clamp d0 to act grid width — Act_grid_w; Phase 1 safe (OJZ = 9 sections)
+        move.b  d0, (a0)
+        move.b  d1, 1(a0)
+        addq.b  #1, d0                             ; new slot 1 sec_x = new slot 0 + 1
         move.b  d0, 2(a0)
         ; sec_y unchanged
 
@@ -270,7 +230,7 @@ Section_TeleportFwd:
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
         move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
 
-        move.b  #4, (Section_Teleport_Guard).w
+        move.b  #30, (Section_Teleport_Guard).w
 
         ; -- A.4: clear FWD-preload flag so the next preload past the threshold can fire --
         bclr    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
@@ -302,6 +262,19 @@ Section_TeleportFwd:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef
         bsr.w   BG_RedrawForSection
+
+        ; -- §4.6 T8: snap parallax_config to new slot 0's section.
+        ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
+        ;    the next Parallax_Update writes target_scroll directly to
+        ;    current_scroll instead of lerping. Otherwise the BG/FG would
+        ;    visibly slide for 16 frames as the lerp catches up to the new
+        ;    camera position. --
+        move.b  #1, (Parallax_Snap_Pending).w
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
+        movea.l Sec_sec_parallax_config(a0), a0
+        bsr.w   Parallax_StartTransition
         rts
 
 ; -----------------------------------------------
@@ -314,22 +287,32 @@ Section_TeleportBwd:
         addi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_X).w
 
+        ; -- block-style rotation: retreat pair index by 1 = both slots
+        ;    retreat by 2 sections. New slot 1 takes the section that was
+        ;    preloaded during slot 0 traversal (= old slot 0 - 1). New slot
+        ;    0 = the section before that. Clamp to 0 if at act start. --
         lea     (Slot_Section_Map).w, a0
         move.b  (a0), d0                           ; old slot 0 sec_x
         move.b  1(a0), d1                          ; old slot 0 sec_y
-        move.b  d0, 2(a0)                          ; new slot 1 sec_x
-        move.b  d1, 3(a0)                          ; new slot 1 sec_y
+        tst.b   d0
+        beq.s   .at_start                          ; can't go below sec 0
+        subq.b  #1, d0                             ; new slot 1 sec_x = old slot 0 - 1
+        move.b  d0, 2(a0)
+        move.b  d1, 3(a0)
         tst.b   d0
         beq.s   .clamp_zero
-        subq.b  #1, d0
+        subq.b  #1, d0                             ; new slot 0 sec_x = new slot 1 - 1
 .clamp_zero:
-        move.b  d0, (a0)                           ; new slot 0 sec_x = old - 1
+        move.b  d0, (a0)                           ; new slot 0
+.at_start:
+        ; If we branched here, slot map is left as-is (Section_Check should
+        ; guard BWD at sec 0 anyway).
 
         ; -- reset column tracking so streaming refills the visible window --
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
         move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
 
-        move.b  #4, (Section_Teleport_Guard).w
+        move.b  #30, (Section_Teleport_Guard).w
 
         ; -- A.4: clear BWD-preload flag --
         bclr    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
@@ -358,6 +341,19 @@ Section_TeleportBwd:
         ;    a2 for the T1 fallback to act_bg_layout. --
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   BG_RedrawForSection
+
+        ; -- §4.6 T8: snap parallax_config to new slot 0's section.
+        ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
+        ;    the next Parallax_Update writes target_scroll directly to
+        ;    current_scroll instead of lerping. Otherwise the BG/FG would
+        ;    visibly slide for 16 frames as the lerp catches up to the new
+        ;    camera position. --
+        move.b  #1, (Parallax_Snap_Pending).w
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
+        movea.l Sec_sec_parallax_config(a0), a0
+        bsr.w   Parallax_StartTransition
         rts
 
 ; -----------------------------------------------
