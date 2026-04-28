@@ -76,10 +76,14 @@ Parallax_StartTransition:
         bra.s   .update_mode
 
 .instant:
-        ; -- instant: swap current immediately, clear target --
+        ; -- instant: swap current immediately, clear target, AND snap
+        ;    band scroll values to the new config's targets (otherwise they
+        ;    would still lerp toward the new targets over PARALLAX_LERP_SHIFT
+        ;    frames, defeating the "instant" semantic). --
         move.l  a0, (Parallax_Current_Config).w
         move.l  #0, (Parallax_Target_Config).w
         move.b  #0, (Parallax_Transition_Frames).w
+        move.b  #1, (Parallax_Snap_Pending).w
 
 .update_mode:
         ; --- VDP reg $0B Mode Set 3 update from the NEW config ---
@@ -315,12 +319,13 @@ Parallax_Update:
         bra.s   .v_pack
 .v_locked:
         ; locked: BG = vOffset (static, ignores camera + lerp)
-        ; Also pins FG to 0 — for OJZ Phase 1 (X-only-scroll) the FG plane
-        ; is filled at plane row 0 (no camera-Y compensation in
-        ; Section_FillInitial), so any non-zero VSRAM Y exposes the
-        ; unfilled rows 48-63. Override d1 here.
+        ; FG follows camY (d1 already loaded with camY at function entry).
+        ; The earlier override that pinned FG=0 was a workaround for OJZ
+        ; Phase 1 X-only-scroll — now that vertical camera input is wired
+        ; for diagnostic, FG_V_scroll = camY exposes plane rows beyond row
+        ; 47 (sprite table region) as visible garbage. Clamp Camera_Y in
+        ; the act descriptor's cam_max_y to keep within filled rows.
         move.w  parallax_config_pcfg_v_offset(a0), d2
-        moveq   #0, d1                              ; FG = 0 (overrides camY)
 .v_pack:
         move.w  d2, (Parallax_Current_Vscroll_BG).w
 

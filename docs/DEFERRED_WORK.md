@@ -367,6 +367,33 @@ artifacts. If they persist, debug separately with the upstream noise gone.
 
 **When to revisit:** When level design surfaces a specific need ("this zone wants underwater wobble", "the boss room needs a vortex"). Build effects on demand rather than speculatively.
 
+### OJZ scroll-test sky-tint section marker (T15 diagnostic — remove later)
+**Surfaced during:** §4.6 T15 testing 2026-04-28.
+
+The `OJZScroll_Update` per-frame logic writes a section-id-keyed color into `Palette_Buffer[0]` (CRAM[0] = backdrop) so the sky tints differently per section: Sec0 black, Sec1 red, Sec2 green, Sec3 blue, Sec4 yellow, Sec5 magenta, Sec6 cyan, Sec7 gray, Sec8 white. The color table is `OJZ_SectionMarkerColors` at the bottom of `test/ojz_scroll_test.asm`. Useful for diagnosing slot rotation and section streaming visually.
+
+**Why deferred:** this is a debug/development aid, not a shipping feature. Remove or gate behind a debug flag once OJZ has real visual content per section (e.g., distinct palettes, tile art, props) that makes the section identity obvious without a marker.
+
+**When to revisit:** once §3 player physics is in and we're playtesting actual gameplay, the diagnostic tint will be confusing. Strip the marker code (~25 lines + the table) and let the per-section palette do the storytelling.
+
+### ~~Section rotation should be block-style, not rolling~~ — DONE 2026-04-28
+**Completed in:** §4.6 T15 commit. `Section_TeleportFwd`/`Bwd` now advance both slots by 2 sections per teleport (block-style), matching `SECTION_SHIFT = $1000` and the user's "infinite forward walking" intent. Architecture doc §4.1 still describes the older rolling-leapfrog model and needs updating in T17.
+
+### Section rotation cascading work (§4.2 architectural fix)
+**Surfaced during:** §4.6 T15 testing 2026-04-28.
+
+**State:** The rotation logic itself is now block-style (shipped 2026-04-28). The cascade work below remains.
+
+1. **`Section_UpdateColumns` ring-buffer math.** Currently assumes the rolling model — RC/LC trackers reset to fresh-streaming state and assume slot 1 = next section, slot 0 = continuation. With block-style, both slots are new at teleport, both need cold-fill streaming. Requires `FG_RedrawForSection` sibling to `BG_RedrawForSection` (already a separate deferred entry) so the visible content doesn't streak in over multiple frames after teleport.
+
+2. **Preload bandwidth double-up.** Currently preload only loads slot 1's next section. Block-style needs both slot 0's *and* slot 1's next sections pre-fetched (= up to 2 sections of art queued during the slot 1 traversal). Doubles preload DMA bandwidth requirement; may need bigger preload window or velocity-based timing tightening to avoid mid-teleport stalls.
+
+3. **Landing flag (separately deferred).** With block, post-teleport camera lands at `$200` (start of new slot 0), and walking left immediately fires BWD threshold. The `$0FFF` SHIFT nudge fixes that; the proper fix is sonic_hack's landing flag.
+
+**When to revisit:** §4.2 polish session. Pair with FG_RedrawForSection and landing flag — they're all the same teleport pipeline.
+
+**When to revisit:** §4.2 polish session. Pair with the FG-redraw work and the landing-flag mechanism; they're all the same teleport pipeline. Recommend reading `sonic_hack/code/engines/section_streaming.asm:Section_ForwardTeleport` end-to-end as the reference implementation.
+
 ### Plane A "fill-in" after teleport (§4.2 streaming polish)
 **Surfaced during:** §4.6 T14 testing 2026-04-28.
 

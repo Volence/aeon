@@ -211,13 +211,18 @@ Section_TeleportFwd:
         subi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_X).w
 
+        ; -- block-style rotation: advance pair index by 1 = both slots advance
+        ;    by 2 sections. New slot 0 takes the section that was preloaded
+        ;    into slot 0 during slot 1 traversal (= old slot 1 + 1). New
+        ;    slot 1 = the section after that. --
         lea     (Slot_Section_Map).w, a0
         move.b  2(a0), d0                          ; old slot 1 sec_x
         move.b  3(a0), d1                          ; old slot 1 sec_y
-        move.b  d0, (a0)                           ; new slot 0 sec_x
-        move.b  d1, 1(a0)                          ; new slot 0 sec_y
-        addq.b  #1, d0                             ; new slot 1 sec_x = slot 0 + 1
+        addq.b  #1, d0                             ; new slot 0 sec_x = old slot 1 + 1
         ; TODO: clamp d0 to act grid width — Act_grid_w; Phase 1 safe (OJZ = 9 sections)
+        move.b  d0, (a0)
+        move.b  d1, 1(a0)
+        addq.b  #1, d0                             ; new slot 1 sec_x = new slot 0 + 1
         move.b  d0, 2(a0)
         ; sec_y unchanged
 
@@ -282,16 +287,26 @@ Section_TeleportBwd:
         addi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_X).w
 
+        ; -- block-style rotation: retreat pair index by 1 = both slots
+        ;    retreat by 2 sections. New slot 1 takes the section that was
+        ;    preloaded during slot 0 traversal (= old slot 0 - 1). New slot
+        ;    0 = the section before that. Clamp to 0 if at act start. --
         lea     (Slot_Section_Map).w, a0
         move.b  (a0), d0                           ; old slot 0 sec_x
         move.b  1(a0), d1                          ; old slot 0 sec_y
-        move.b  d0, 2(a0)                          ; new slot 1 sec_x
-        move.b  d1, 3(a0)                          ; new slot 1 sec_y
+        tst.b   d0
+        beq.s   .at_start                          ; can't go below sec 0
+        subq.b  #1, d0                             ; new slot 1 sec_x = old slot 0 - 1
+        move.b  d0, 2(a0)
+        move.b  d1, 3(a0)
         tst.b   d0
         beq.s   .clamp_zero
-        subq.b  #1, d0
+        subq.b  #1, d0                             ; new slot 0 sec_x = new slot 1 - 1
 .clamp_zero:
-        move.b  d0, (a0)                           ; new slot 0 sec_x = old - 1
+        move.b  d0, (a0)                           ; new slot 0
+.at_start:
+        ; If we branched here, slot map is left as-is (Section_Check should
+        ; guard BWD at sec 0 anyway).
 
         ; -- reset column tracking so streaming refills the visible window --
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w

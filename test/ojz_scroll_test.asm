@@ -39,6 +39,11 @@ GameState_OJZScroll_Init:
         ; -- initialise camera first (Section_FillInitial reads Camera_X) --
         lea     OJZ_Act1_Descriptor, a0
         jsr     Camera_Init
+        ; Camera_Init's start_local_y formula leaves Camera_Y at $1F0 which
+        ; is outside the cam_min_y/cam_max_y range we use for diagnostic
+        ; vertical scroll (0..152). Force Y=0 so we start at top of filled
+        ; plane A and Up/Down moves stay within plane rows 0..47.
+        clr.l   (Camera_Y).w
 
         ; -- initialise section streaming (fills nametable over 3 VBlanks) --
         lea     OJZ_Act1_Descriptor, a0
@@ -86,6 +91,18 @@ GameState_OJZScroll_Update:
         subi.l  #6<<16, (Camera_X).w
 
 .camera_done:
+        ; -- vertical input: bits 0/1 of Ctrl_1_Held = UP/DOWN --
+        btst    #1, d0          ; bit 1 = DOWN
+        beq.s   .check_up
+        addi.l  #6<<16, (Camera_Y).w
+        bra.s   .camera_y_done
+
+.check_up:
+        btst    #0, d0          ; bit 0 = UP
+        beq.s   .camera_y_done
+        subi.l  #6<<16, (Camera_Y).w
+
+.camera_y_done:
         ; -- clamp Camera_X to act bounds (prevent BWD teleport at section 0) --
         movea.l (Current_Act_Ptr).w, a0
         move.l  (Camera_X).w, d0
@@ -103,6 +120,23 @@ GameState_OJZScroll_Update:
         clr.w   d0
         move.l  d0, (Camera_X).w
 .clamp_done:
+
+        ; -- clamp Camera_Y to act bounds (a0 still = Current_Act_Ptr) --
+        move.l  (Camera_Y).w, d0
+        swap    d0
+        cmp.w   Act_cam_min_y(a0), d0
+        bge.s   .check_max_y
+        move.w  Act_cam_min_y(a0), d0
+        bra.s   .clamp_y
+.check_max_y:
+        cmp.w   Act_cam_max_y(a0), d0
+        ble.s   .clamp_y_done
+        move.w  Act_cam_max_y(a0), d0
+.clamp_y:
+        swap    d0
+        clr.w   d0
+        move.l  d0, (Camera_Y).w
+.clamp_y_done:
 
         ; -- section teleport check --
         jsr     Section_Check
@@ -138,6 +172,32 @@ GameState_OJZScroll_Update:
         adda.w  d0, a1                          ; a1 = active sec entry
         movea.l Sec_sec_parallax_config(a1), a0 ; a0 = active config
         jsr     Parallax_StartTransition
+
+        ; -- T15 diagnostic: per-section sky-color marker --
+        ; Re-derive active slot section_id, look up a tint color, write to
+        ; CRAM[0] via Palette_Buffer + dirty flag. CRAM[0] is the backdrop
+        ; shown behind transparent BG pixels — visible as the "sky" tint.
+        ; Lets the user see at a glance which section they're in.
+        move.l  (Camera_X).w, d0
+        swap    d0
+        moveq   #0, d2
+        cmpi.w  #SLOT_ORIGIN_R, d0
+        blt.s   .marker_slot_resolved
+        moveq   #1, d2
+.marker_slot_resolved:
+        add.w   d2, d2                          ; d2 = slot * 2 byte offset
+        lea     (Slot_Section_Map).w, a3
+        moveq   #0, d0
+        move.b  (a3, d2.w), d0                  ; d0 = active section_id
+        cmpi.b  #9, d0                          ; clamp to table size (9 OJZ sections)
+        blo.s   .marker_id_ok
+        moveq   #0, d0
+.marker_id_ok:
+        lea     OJZ_SectionMarkerColors(pc), a3
+        add.w   d0, d0
+        move.w  (a3, d0.w), d1                  ; d1 = section's marker color
+        move.w  d1, (Palette_Buffer).w          ; CRAM[0] = backdrop tint
+        ori.b   #1, (Palette_Dirty).w           ; flag palette line 0 dirty
 
         ; -- §4.6 fix: force VDP mode_set_3 every frame from the active
         ;    config. Without this, Parallax_StartTransition's same-config
@@ -185,3 +245,19 @@ GameState_OJZScroll_Update:
         ; -- update HScroll buffer + Vscroll (§4.6 parallax) --
         jsr     Parallax_Update
         rts
+
+; -----------------------------------------------
+; Per-section sky tint table — referenced by the marker code in Update.
+; CRAM colors (BGR, 9-bit). Section_id indexes into this array, so the
+; backdrop visibly differs per section. T15 diagnostic only.
+; -----------------------------------------------
+OJZ_SectionMarkerColors:
+        dc.w    $0000           ; Sec0: black (default)
+        dc.w    $000E           ; Sec1: bright red
+        dc.w    $00E0           ; Sec2: bright green
+        dc.w    $0E00           ; Sec3: bright blue
+        dc.w    $00EE           ; Sec4: yellow
+        dc.w    $0E0E           ; Sec5: magenta
+        dc.w    $0EE0           ; Sec6: cyan
+        dc.w    $0888           ; Sec7: gray
+        dc.w    $0EEE           ; Sec8: white

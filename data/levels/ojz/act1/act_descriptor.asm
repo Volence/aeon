@@ -18,8 +18,8 @@ OJZ_Act1_Descriptor:
     dc.b    0                       ; start_sec_y = 0
     dc.w    SLOT_ORIGIN_L           ; cam_min_x ($200)
     dc.w    SLOT_ORIGIN_L + $4680   ; cam_max_x (approximate for 9 sections)
-    dc.w    0                       ; cam_min_y
-    dc.w    128                     ; cam_max_y
+    dc.w    0                       ; cam_min_y — top of filled plane A rows
+    dc.w    152                     ; cam_max_y — = (48-28)*8; FG stays within filled rows 0-47, sprite table at row 48+ never exposed
     dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)
     dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles  (§2 A.5 T1 shared BG tile blob)
     align 2
@@ -33,7 +33,7 @@ OJZ_Sec0:
     dc.l    OJZ_Sec0_Strips_A       ; sec_strips_a
     dc.l    0, 0, 0                 ; sec_objects, sec_rings, sec_plc
     dc.l    OJZ_Palette             ; sec_pal
-    dc.l    ParallaxConfig_SkyHaze, 0      ; sec_parallax_config = parallax_combine_split demo: windy top, haze bottom (scenes/sky_haze.asm)
+    dc.l    ParallaxConfig_OJZ_Caves, 0    ; sec_parallax_config = T15 F4 fixture: slow-BG cave gradient (scenes/caves.asm) — moved to Sec0 for easy testing
     dc.l    0                       ; sec_bg_layout (NULL = use Act_act_bg_layout, T1)
     dc.l    0, 0, 0, 0, 0, 0        ; sec_reserved..sec_collision
     dc.w    0, 0                    ; sec_flags, sec_music
@@ -61,7 +61,7 @@ OJZ_Sec2:
     dc.l    OJZ_Sec2_Strips_A
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
-    dc.l    ParallaxConfig_OJZ_Default, 0  ; sec_parallax_config = default (swapped from Sec0 for easier perspective testing)
+    dc.l    ParallaxConfig_SkyHaze, 0      ; sec_parallax_config = parallax_combine_split demo (was on Sec0, swapped here)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
@@ -75,7 +75,7 @@ OJZ_Sec3:
     dc.l    OJZ_Sec3_Strips_A
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
-    dc.l    0, 0
+    dc.l    ParallaxConfig_OJZ_LockedClouds, 0  ; sec_parallax_config = T15 F6 fixture: layer mask disables band 0 (scenes/locked_clouds.asm)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
