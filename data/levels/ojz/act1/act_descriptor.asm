@@ -33,7 +33,7 @@ OJZ_Sec0:
     dc.l    OJZ_Sec0_Strips_A       ; sec_strips_a
     dc.l    0, 0, 0                 ; sec_objects, sec_rings, sec_plc
     dc.l    OJZ_Palette             ; sec_pal
-    dc.l    ParallaxConfig_HeatShimmer_Slow, 0  ; sec_parallax_config = slow heat shimmer (effects/heat_shimmer.asm)
+    dc.l    ParallaxConfig_SkyHaze, 0      ; sec_parallax_config = parallax_combine_split demo: windy top, haze bottom (scenes/sky_haze.asm)
     dc.l    0                       ; sec_bg_layout (NULL = use Act_act_bg_layout, T1)
     dc.l    0, 0, 0, 0, 0, 0        ; sec_reserved..sec_collision
     dc.w    0, 0                    ; sec_flags, sec_music

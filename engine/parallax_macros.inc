@@ -289,6 +289,219 @@ v_persp_i set v_persp_i + 1
     endm
 
 ; ----------------------------------------------------------------------
+; parallax_combine — sugar over parallax_section that lets you stack up
+; to three deformation effects in one section: one FG H-deform table,
+; one BG H-deform table, and one BG per-column V-deform table. The VDP
+; supports all three running simultaneously.
+;
+; Emits a single-band full-screen config (FACTOR_1 / FACTOR_1_4 by default).
+; For multi-band layouts, use parallax_section directly.
+;
+; All params optional. Pass the deform TABLES from effect files (e.g.
+; DeformTable_Haze, DeformTable_Shimmer, DeformTable_Rocking).
+;
+; Usage:
+;   ParallaxConfig_DesertCombo:
+;       parallax_combine fgTable=DeformTable_Haze,    fgSpeed=2, \
+;                        bgTable=DeformTable_Shimmer, bgSpeed=3, \
+;                        vBgTable=DeformTable_Rocking, vBgSpeed=1
+;
+; If a table is omitted, that channel is inert. Combine with no params
+; degenerates to a flat single-band config.
+; ----------------------------------------------------------------------
+parallax_combine macro fgTable,fgSpeed,bgTable,bgSpeed,vBgTable,vBgSpeed,vBgShift,fgFactor,bgFactor,shift
+    if "fgTable" = ""
+PC_FG_T := 0
+    else
+PC_FG_T := fgTable
+    endif
+    if "fgSpeed" = ""
+PC_FG_S := 1
+    else
+PC_FG_S := fgSpeed
+    endif
+    if "bgTable" = ""
+PC_BG_T := 0
+    else
+PC_BG_T := bgTable
+    endif
+    if "bgSpeed" = ""
+PC_BG_S := 1
+    else
+PC_BG_S := bgSpeed
+    endif
+    if "vBgTable" = ""
+PC_VB_T := 0
+    else
+PC_VB_T := vBgTable
+    endif
+    if "vBgSpeed" = ""
+PC_VB_S := 0
+    else
+PC_VB_S := vBgSpeed
+    endif
+    if "vBgShift" = ""
+PC_VB_SH := 0
+    else
+PC_VB_SH := vBgShift
+    endif
+    if "fgFactor" = ""
+PC_FG_F := FACTOR_1
+    else
+PC_FG_F := fgFactor
+    endif
+    if "bgFactor" = ""
+PC_BG_F := FACTOR_1_4
+    else
+PC_BG_F := bgFactor
+    endif
+    if "shift" = ""
+PC_SH := 2
+    else
+PC_SH := shift
+    endif
+
+    parallax_section layerMask=$01, vFactorBg=15, vCenter=0, vOffset=0, \
+                     deformFg=PC_FG_T, deformSpeedFg=PC_FG_S, \
+                     deformBg=PC_BG_T, deformSpeedBg=PC_BG_S, \
+                     vDeformBg=PC_VB_T, vDeformSpeedBg=PC_VB_S, vDeformShiftBg=PC_VB_SH, \
+                     deformShiftDefault=PC_SH
+        band 0, PC_FG_F, PC_BG_F
+    parallax_section_end
+    endm
+
+; ----------------------------------------------------------------------
+; PARALLAX_TOP / _BOTTOM / _ALL — bitmask values for *Where parameters
+; in parallax_combine_split. Bit 0 = top band active, bit 1 = bottom band.
+; ----------------------------------------------------------------------
+PARALLAX_TOP    equ 1
+PARALLAX_BOTTOM equ 2
+PARALLAX_ALL    equ 3
+
+; ----------------------------------------------------------------------
+; parallax_combine_split — sugar over parallax_section that splits the
+; screen into TOP + BOTTOM bands at a configurable row, allowing FG and
+; BG H-deform effects to apply selectively to one or both bands.
+;
+; Usage:
+;   ParallaxConfig_SkyHaze:
+;       parallax_combine_split splitRow=14, \
+;                              fgTable=DeformTable_Haze,     fgSpeed=2, fgWhere=PARALLAX_BOTTOM, \
+;                              bgTable=DeformTable_OJZ_Calm, bgSpeed=1, bgWhere=PARALLAX_TOP
+;
+; All params optional. Default split row = 14 (boundary between OJZ
+; "hills" and "ground" in the standard 5-band layout). Each *Where
+; defaults to PARALLAX_ALL.
+;
+; Within each band the effect amplitude is uniform — for graduated
+; falloff across multiple bands (windy's clouds-to-ground gradient,
+; haze's gentler-near-sky shape), hand-author with parallax_section.
+;
+; The single `shift` parameter applies to both FG and BG bands. For
+; asymmetric shifts (e.g. clouds full-amplitude, haze subtle), hand-author.
+; ----------------------------------------------------------------------
+parallax_combine_split macro splitRow,fgTable,fgSpeed,fgWhere,bgTable,bgSpeed,bgWhere,vBgTable,vBgSpeed,vBgShift,shift,fgFactor,bgFactor
+    if "splitRow" = ""
+PCS_SP := 14
+    else
+PCS_SP := splitRow
+    endif
+    if "fgTable" = ""
+PCS_FG_T := 0
+    else
+PCS_FG_T := fgTable
+    endif
+    if "fgSpeed" = ""
+PCS_FG_S := 1
+    else
+PCS_FG_S := fgSpeed
+    endif
+    if "fgWhere" = ""
+PCS_FG_W := PARALLAX_ALL
+    else
+PCS_FG_W := fgWhere
+    endif
+    if "bgTable" = ""
+PCS_BG_T := 0
+    else
+PCS_BG_T := bgTable
+    endif
+    if "bgSpeed" = ""
+PCS_BG_S := 1
+    else
+PCS_BG_S := bgSpeed
+    endif
+    if "bgWhere" = ""
+PCS_BG_W := PARALLAX_ALL
+    else
+PCS_BG_W := bgWhere
+    endif
+    if "vBgTable" = ""
+PCS_VB_T := 0
+    else
+PCS_VB_T := vBgTable
+    endif
+    if "vBgSpeed" = ""
+PCS_VB_S := 0
+    else
+PCS_VB_S := vBgSpeed
+    endif
+    if "vBgShift" = ""
+PCS_VB_SH := 0
+    else
+PCS_VB_SH := vBgShift
+    endif
+    if "fgFactor" = ""
+PCS_FG_F := FACTOR_1
+    else
+PCS_FG_F := fgFactor
+    endif
+    if "bgFactor" = ""
+PCS_BG_F := FACTOR_1_4
+    else
+PCS_BG_F := bgFactor
+    endif
+    if "shift" = ""
+PCS_SH := 2
+    else
+PCS_SH := shift
+    endif
+
+    parallax_section layerMask=$03, vFactorBg=15, vCenter=0, vOffset=0, \
+                     deformFg=PCS_FG_T, deformSpeedFg=PCS_FG_S, \
+                     deformBg=PCS_BG_T, deformSpeedBg=PCS_BG_S, \
+                     vDeformBg=PCS_VB_T, vDeformSpeedBg=PCS_VB_S, vDeformShiftBg=PCS_VB_SH
+
+    ; -- TOP band (rows 0..splitRow-1) --
+    if (PCS_FG_W & 1) <> 0
+BAND_DSA := PCS_SH
+    else
+BAND_DSA := 15
+    endif
+    if (PCS_BG_W & 1) <> 0
+BAND_DSB := PCS_SH
+    else
+BAND_DSB := 15
+    endif
+        band 0, PCS_FG_F, PCS_BG_F
+
+    ; -- BOTTOM band (rows splitRow..27) --
+    if (PCS_FG_W & 2) <> 0
+BAND_DSA := PCS_SH
+    else
+BAND_DSA := 15
+    endif
+    if (PCS_BG_W & 2) <> 0
+BAND_DSB := PCS_SH
+    else
+BAND_DSB := 15
+    endif
+        band PCS_SP, PCS_FG_F, PCS_BG_F
+
+    parallax_section_end
+    endm
+
+; ----------------------------------------------------------------------
 ; Self-test (gated by __PARALLAX_MACRO_SELFTEST__)
 ; ----------------------------------------------------------------------
     ifdef __PARALLAX_MACRO_SELFTEST__

@@ -147,8 +147,14 @@ __BUDGET_DATA:
     ; deform table + ParallaxConfig_* record that any section can point
     ; at via Sec_sec_parallax_config. Must come AFTER ojz_default.asm
     ; because some effects reference DeformTable_Zero from there.
-    include "data/parallax/effects/heat_shimmer.asm"
-    include "data/parallax/effects/wave_rocking.asm"
+    include "data/parallax/effects/shimmer.asm"
+    include "data/parallax/effects/haze.asm"
+    include "data/parallax/effects/rocking.asm"
+    ; Composite scenes — hand-authored configs that stack multiple effects
+    ; with custom per-band gradients. Must come AFTER effects/ for the
+    ; deform-table references to resolve.
+    include "data/parallax/scenes/windy_haze.asm"
+    include "data/parallax/scenes/sky_haze.asm"
     include "data/levels/ojz/act1/act_descriptor.asm"
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
