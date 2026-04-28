@@ -21,11 +21,21 @@ Parallax_Init:
         dbf     d0, .zero
 
         move.l  a0, (Parallax_Current_Config).w
-        ; Snap loop temporarily removed — was producing nonsensical
-        ; lerp accumulator values when re-running Parallax_Update inline.
-        ; Cause unclear (entries 5-7 of current_scroll arrays getting
-        ; written despite band_count=5; lerp converging to FACTOR_1
-        ; result for all bands). Will debug in dedicated session.
+
+        ; Snap: drive the lerp to convergence so the first visible frame
+        ; shows the correct band scrolls instead of the "race" from 0.
+        ; PARALLAX_LERP_SHIFT=3 → ~32 iterations to zero-error.
+        ; (Pre-fix the snap was unreliable because Parallax_Fill_PerCell
+        ; trampled on Parallax_Current_Scroll_A/B via a buffer overflow
+        ; — bhi vs bhs bug on the last-band check. Now safe.)
+        move.l  d7, -(sp)
+        moveq   #32-1, d7
+.snap_loop:
+        move.l  d7, -(sp)
+        bsr.w   Parallax_Update
+        move.l  (sp)+, d7
+        dbf     d7, .snap_loop
+        move.l  (sp)+, d7
         rts
 
 ; ----------------------------------------------------------------------
@@ -378,7 +388,7 @@ Parallax_Fill_PerLine:
         ; --- compute end_line for this band ---
         addq.w  #1, d3                              ; d3 = band_index + 1
         cmp.w   d7, d3
-        bhi.s   .last_band
+        bhs.s   .last_band                          ; d3 >= d7 → this is last band
         moveq   #0, d5
         move.b  band_entry_band_top_cell+band_entry_len(a1), d5
         lsl.w   #3, d5                              ; end_line = next.top_cell × 8
@@ -482,7 +492,7 @@ Parallax_Fill_PerCell:
         ; -- determine end_cell for this band --
         addq.w  #1, d2
         cmp.w   d7, d2
-        bhi.s   .last_band_end
+        bhs.s   .last_band_end             ; d2 >= d7 → this is last band
         ; not last: peek next band's top_cell
         moveq   #0, d4
         move.b  band_entry_band_top_cell+band_entry_len(a1), d4
