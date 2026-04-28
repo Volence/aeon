@@ -270,7 +270,7 @@ Section_TeleportFwd:
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
         move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
 
-        move.b  #4, (Section_Teleport_Guard).w
+        move.b  #30, (Section_Teleport_Guard).w
 
         ; -- A.4: clear FWD-preload flag so the next preload past the threshold can fire --
         bclr    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
@@ -336,7 +336,7 @@ Section_TeleportBwd:
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
         move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
 
-        move.b  #4, (Section_Teleport_Guard).w
+        move.b  #30, (Section_Teleport_Guard).w
 
         ; -- A.4: clear BWD-preload flag --
         bclr    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w

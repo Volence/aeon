@@ -19,7 +19,7 @@ ParallaxConfig_OJZ_Default:
 ; ±16 px relative to FOCAL=20 (screen center). vDeformShiftBg=0 means
 ; full amplitude pass-through.
 DeformTable_OJZ_Floor:
-    v_column_perspective FOCAL=20, maxOffset=16
+    v_column_perspective FOCAL=20, maxOffset=64
 
 ParallaxConfig_OJZ_Floor:
     parallax_section layerMask=$1F, vFactorBg=15, vCenter=0, vOffset=0, \
