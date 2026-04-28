@@ -220,6 +220,52 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **What:** Tile_Override_Table (16 entries × 6 bytes) is allocated in RAM. Needs a writer (object sets col/row/new_tile) and a drain routine (VInt_DrawLevel emits row updates). Used for breakable tiles, activated switches, destroyed terrain.
 **When ready:** When a gameplay object needs to modify level geometry at runtime.
 
+### §4.6 lerp accumulator never converges to per-band targets
+
+**Surfaced during:** §4.6 polish session 2026-04-28 (after MCP debug session).
+
+After ~thousands of frames with Camera_X stable at 608, Plane A
+entries 0-4 of `Parallax_Current_Scroll_A` converge to -608 (the
+FACTOR_1 target — correct). But Plane B entries don't converge to
+their per-band targets:
+
+  Expected (steady state with camX=608):
+    B[0] cloud (FACTOR_1_8) → -76
+    B[1] far_mtns (FACTOR_1_4) → -152
+    B[2] mid_mtns (FACTOR_3_8) → -228
+    B[3] hills (FACTOR_1_2) → -304
+    B[4] ground (FACTOR_1) → -608
+
+  Observed: -542, -551, -608, -608, -608
+
+Entries 5-7 (which the 5-band loop shouldn't touch) read as -608 even
+though `Parallax_Init`'s zero loop correctly sets them to 0.
+
+Verified via single-step:
+- `Decode_Factor_A` returns -608 for FACTOR_1 ✓
+- `Decode_Factor_B` reads correct s1=3 for cloud band's first call ✓
+- Band loop iterates 5 times, exits with d5=5 ✓
+- `a2`/`a3` advance by 2 per iter, end at entry 5 ✓
+- `Parallax_Current_Config = $000104C2` (OJZ_Default) stable ✓
+- Camera_X stable at 608 ✓
+- `Parallax_Init` runs once at boot, never again ✓
+
+So the lerp's *individual iterations* compute correctly per-band, yet
+the steady-state values are wrong. This suggests entries are getting
+overwritten BETWEEN frames by something that doesn't appear in the
+band loop or Parallax_Update flow. Watchpoints don't fire.
+
+Live MCP debugging hit a wall — the inconsistency between "every
+instruction does the right thing" and "the stored values are wrong"
+needs **instrumented offline debugging**: dump
+`Parallax_Current_Scroll_A/B` to a debug VRAM region every frame, then
+inspect the trace to find when/which write produces the wrong value.
+
+**When to revisit:** Dedicated session with code instrumentation. Don't
+try live-stepping — too much state, too much MCP-level uncertainty.
+
+---
+
 ### §4.6 visual artifacts blocked on root-cause of state clobber
 
 **Surfaced during:** §4.6 T12 testing, expanded in T12 polish session 2026-04-27.
