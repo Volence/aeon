@@ -110,6 +110,23 @@ GameState_OJZScroll_Update:
         ; -- per-column nametable streaming --
         jsr     Section_UpdateColumns
 
+        ; -- §4.6 workaround: re-pin Parallax_Current_Config before Update.
+        ;    Tracked in DEFERRED_WORK — pointer intermittently clobbered to
+        ;    NULL or garbage; without this, Parallax_Update bails and the
+        ;    HScroll buffer + Vscroll factor stay stale.
+        ;    Always pulls slot 0's sec_parallax_config (= current visible
+        ;    section), so section transitions still get the right config.
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_sec_grid_ptr(a0), a1
+        moveq   #0, d0
+        move.b  (Slot_Section_Map).w, d0     ; slot 0 sec_x (flat id, sec_y=0 for OJZ)
+        move.w  d0, d1
+        lsl.w   #6, d0
+        lsl.w   #3, d1
+        add.w   d1, d0                       ; sec_id × 72
+        adda.w  d0, a1                       ; a1 = active sec ptr
+        move.l  Sec_sec_parallax_config(a1), (Parallax_Current_Config).w
+
         ; -- update HScroll buffer + Vscroll (§4.6 parallax) --
         jsr     Parallax_Update
         rts

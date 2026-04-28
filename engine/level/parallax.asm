@@ -21,7 +21,19 @@ Parallax_Init:
         dbf     d0, .zero
 
         move.l  a0, (Parallax_Current_Config).w
-        ; Target_Config and Transition_Frames stay 0 (no transition active).
+
+        ; Snap: drive the lerp to convergence so the first visible frame
+        ; shows the correct band scrolls instead of the "race" from 0.
+        ; PARALLAX_LERP_SHIFT=3 → ~32 iterations to zero-error.
+        ; Use d7 as counter (Parallax_Update preserves nothing, so save+restore).
+        move.l  d7, -(sp)
+        moveq   #32-1, d7
+.snap_loop:
+        move.l  d7, -(sp)
+        bsr.w   Parallax_Update
+        move.l  (sp)+, d7
+        dbf     d7, .snap_loop
+        move.l  (sp)+, d7
         rts
 
 ; ----------------------------------------------------------------------
@@ -75,10 +87,12 @@ Vscroll_Write:
         lea     (VDP_CTRL).l, a5
         move.l  #vdpComm(0, VSRAM, WRITE), (a5)
 
-        ; per-column or whole-plane?
-        movea.l (Parallax_Current_Config).w, a0
-        cmpa.w  #0, a0
+        ; per-column or whole-plane? Validate config ptr first.
+        move.l  (Parallax_Current_Config).w, d0
         beq.s   .whole_plane
+        cmpi.l  #$00400000, d0
+        bhs.s   .whole_plane                        ; outside ROM = garbage
+        movea.l d0, a0
         move.l  parallax_config_pcfg_v_deform_table_bg(a0), d0
         beq.s   .whole_plane
 
@@ -108,9 +122,14 @@ Vscroll_Write:
 ; Clobbers: d0-d7, a0-a4
 ; ----------------------------------------------------------------------
 Parallax_Update:
-        movea.l (Parallax_Current_Config).w, a0
-        cmpa.w  #0, a0
+        ; Validate Parallax_Current_Config: 0 = inert; otherwise must be in
+        ; ROM range (< $400000 = 4MB). Defensive against the deferred-work
+        ; intermittent clobber that produces garbage like $FF71FF71.
+        move.l  (Parallax_Current_Config).w, d0
         beq.w   .no_config
+        cmpi.l  #$00400000, d0
+        bhs.w   .no_config                          ; outside ROM = garbage
+        movea.l d0, a0
 
         moveq   #0, d7
         move.b  parallax_config_pcfg_band_count(a0), d7
@@ -208,7 +227,13 @@ Parallax_Update:
         add.w   d0, d2                              ; d2 = new current_vscroll_bg
         bra.s   .v_pack
 .v_locked:
-        moveq   #0, d2                              ; force BG = 0
+        ; locked: BG = vOffset (static, ignores camera + lerp)
+        ; Also pins FG to 0 — for OJZ Phase 1 (X-only-scroll) the FG plane
+        ; is filled at plane row 0 (no camera-Y compensation in
+        ; Section_FillInitial), so any non-zero VSRAM Y exposes the
+        ; unfilled rows 48-63. Override d1 here.
+        move.w  parallax_config_pcfg_v_offset(a0), d2
+        moveq   #0, d1                              ; FG = 0 (overrides camY)
 .v_pack:
         move.w  d2, (Parallax_Current_Vscroll_BG).w
 
