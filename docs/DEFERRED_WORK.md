@@ -501,6 +501,33 @@ non-zero; intermittently they read zero.
 **Post-fix verification:** chunk 0x3f now references blocks 272-302 (all 4/4 non-zero, real ground data). Block count: 374 (was 2002 garbage). Tile art: 919 tiles (was 322 truncated). 141 unique source tile indices in OJZ act 1 sec0 strips (was 14). With this fix + a related palette-line-1 offset fix in the test state (sonic_hack's `palptr Pal_OJZ, 1` means OJZ palette occupies CRAM lines 1-3, not 0-2), the OJZ scroll test now renders actual OJZ art with correct green palette. Verified via Exodus Plane A viewer.
 **Bonus learning:** Investigation revealed I had been over-confidently calling sparse-pixel screenshots "clean rendering" through A.1-A.3 verification. Honest visual ground truth (level editor screenshots from the user) was what surfaced the bug. Process lesson saved as a memory.
 
+## From §4.6 — Parallax (post-T17 backlog)
+
+### Per-block linear interpolation deformation format
+**Blocked by:** N/A — deliberately not in v1.
+**What:** S.C.E.'s block-based deformation table format with high-bit linear-interp flag. Variable-height blocks save ROM (~32 bytes vs ~256 bytes per table). v1 uses full 256-byte time-varying tables — block format is a ROM-saving optimization we don't currently need.
+**When ready:** if a section's deformation table waste becomes a real ROM problem (currently affordable — 256 B per shape, shared across sections that use the same shape).
+
+### Per-band deformation table pointers
+**Blocked by:** visual demand for different wave shapes per band.
+**What:** Each band points at its own 256-byte deform table. Currently single shared table per section (`pcfg_deform_table_fg` / `_bg`) + per-band amplitude/phase via `BAND_DSA/B` and `BAND_PHASE`. Adds 4 bytes per band (table pointer field) + multiple tables per section.
+**When ready:** when a section visually requires different shapes per band — e.g., square wave for one band, sine for another.
+
+### Per-band frequency variation
+**Blocked by:** visual demand.
+**What:** Per-band `phase_increment` byte. Currently only phase OFFSET varies per band (frequency is section-wide via `pcfg_deform_speed_fg/bg`).
+**When ready:** when "different speeds per band" surfaces as a clear visual need.
+
+### Plane A per-column V-scroll
+**Blocked by:** use case (ground-plane warping is rare in Sonic-style platformers).
+**What:** `pcfg_v_deform_table_fg` field is reserved but not wired in v1. Currently the FG plane always uses whole-plane V-scroll; `Vscroll_Write`'s per-column branch only writes the BG word per column-pair from `Parallax_Vscroll_Column_Buf`. Implementation is symmetric to the BG path — ~30 cycles + 80 bytes RAM for an FG column buffer + the fill code in `Parallax_Update`.
+**When ready:** when a section needs ground-plane vertical warping (special-stage 3D floors, post-explosion ground sink, banking-platform foreground variants).
+
+### Sprite mask for per-column V-scroll leftmost-partial-column garbage
+**Blocked by:** sprite system + zone level data hooks.
+**What:** Genesis VDP per-column V-scroll grain is 16 px. With non-zero plane B HScroll, the leftmost screen sliver renders at V-scroll = 0 regardless of VSRAM[0] — silicon-level, no register fix. v1 mitigates either by: locking plane B HScroll to 0 (`FACTOR_0`) which eliminates the partial column, or accepting the artifact. Real games drop a 16-px-wide sprite mask over the left edge to hide it (Sonic 3 Hydrocity boss arena, Streets of Rage banking, etc.).
+**When ready:** when a section uses per-column V-scroll *and* wants non-zero plane B HScroll. ~1 sprite/frame overhead from the 80-sprite budget.
+
 ## From Sound Driver Work (Future)
 
 ### Defensive Z80 RAM Upload — Verify-and-Retry
