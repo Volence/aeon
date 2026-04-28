@@ -341,6 +341,58 @@ artifacts. If they persist, debug separately with the upstream noise gone.
 
 ---
 
+### Parallax effects library — expansion backlog (§4.6)
+**Surfaced during:** §4.6 polish session 2026-04-28.
+**Where:** `data/parallax/effects/` — each effect is a self-contained file (deform table + parameterised macro + named variants). Two entries shipped so far: `heat_shimmer.asm`, `wave_rocking.asm`.
+
+**Pattern to follow when adding effects:**
+1. One file per effect under `data/parallax/effects/`.
+2. Header comment: visual description, mechanism, tuning knobs, dependencies.
+3. Shared deform table (one in ROM) + a `<effect>_config` macro that takes camelCase params (AS limitation — no underscores in macro args).
+4. A few pre-named variants (`_Slow`, default, `_Fast`) for casual use.
+5. Add an `include` line to `main.asm` after `ojz_default.asm` (some effects depend on `DeformTable_Zero`).
+
+**Effects to add (ranked by ease/impact):**
+- **screen_shake.asm** — short-duration triangle table at high speed. Per-column V or per-line H. Triggered by gameplay events; needs a "fade out over N frames" wrapper. Earthquake / explosion impact.
+- **water_surface.asm** — combined per-line H sine + per-column V sine (90° offset). Hydrocity-style ambient water surface. Complex — verify VBlank budget.
+- **mirage.asm** — extreme low-amplitude (1 px) high-frequency H-deform on a single mid band. Distant heat haze without affecting near terrain.
+- **vortex.asm** — sawtooth H-deform + sawtooth V-column with reversing phase. Boss room / portal swirl.
+- **earthquake.asm** — random/noise table V-column at high speed for ~30 frames, then quiesces. Procedural noise table generator helps here (a `deform_table_noise` macro, peer of sine/triangle).
+- **banking.asm** — linear V-column ramp whose slope tracks Camera_X velocity. "Tilts into turns." Needs runtime parameter feed (Camera_X velocity → vDeformShiftBg adjustment).
+- **falling.asm** — accelerating linear V-column ramp during fall sequences. Pairs with vertical scroll mechanics (§4.2 deferred).
+
+**Deeper effects (need new mechanisms):**
+- **raster_perspective.asm** — true 3D pseudo-perspective floor via per-LINE H-scroll programmed by HBlank IRQ. Sonic 2 special stage / S3K bonus stage feel. Different feature, not just a new table — needs HInt handler + per-line H-scroll arithmetic. Tracks as §4.7 task.
+- **palette_cycle_band.asm** — recolour a band as the deform phase advances. Combines with existing effects. Needs palette-cycling pipeline.
+
+**When to revisit:** When level design surfaces a specific need ("this zone wants underwater wobble", "the boss room needs a vortex"). Build effects on demand rather than speculatively.
+
+### VDP register $0B (mode_set_3) propagation bug — workaround in place (§4.6)
+**Surfaced during:** §4.6 polish session 2026-04-28.
+
+**Symptom:** When `pcfg_deform_table_fg` and `pcfg_deform_table_bg` are both NULL (e.g. ParallaxConfig_OJZ_Default), the parallax pipeline auto-selects per-cell HScroll mode: `Parallax_Fill_PerCell` writes 28 longwords, the per-cell static DMA enqueues 112 bytes, `setVDPReg vdp_mode3 = $02` marks shadow dirty, and Flush_VDP_Shadow writes $8B02 to VDP_CTRL on every VBlank. Visually we expected per-cell HScroll: all 28 cell rows scroll uniformly with the same `-Camera_X`. We observed instead per-line behavior: only scanlines 0-27 (the top 28 px = 3.5 cell rows) scrolled correctly, lines 28-223 stayed pinned to plane col 0.
+
+**Empirical proof of per-line state:** Patching VRAM HSCROLL_TABLE entries 28-223 directly with proper PA values via `mcp__exodus__emulator_write_vram` made the entire screen scroll correctly. This is only possible if VDP register $0B has bits 1:0 = %11 (per-line). VDP shadow byte at offset 11 reads $02 and dirty bit 11 stays set, but the visual proves register $0B is $03.
+
+**What we tried (all failed):**
+- `setVDPReg vdp_mode3, #$02` every frame in OJZScroll_Update (shadow + dirty path).
+- Direct `move.w #$8B02, (VDP_CTRL).l` with stopZ80 wrap.
+- Adding a state-machine reset (`move.w (VDP_CTRL).l, d1`) before the direct write to clear any half-finished 32-bit address command.
+- None changed the register's per-line behavior.
+
+**Workaround in place (2026-04-28):**
+- `data/parallax/ojz_default.asm` defines `DeformTable_Zero` (256 zero bytes) and adds `deformBg=DeformTable_Zero` to both `ParallaxConfig_OJZ_Default` and `ParallaxConfig_OJZ_Floor`. This forces the entire pipeline (Parallax_Update auto-select, Enqueue_Dirty_Buffers DMA selector, OJZScroll_Update mode_set_3 force) into per-line mode for these no-/V-only-deform configs.
+- Cost: ~1500-2000 extra cycles per frame (224-line fill vs 28), 8× HScroll DMA bandwidth (896 vs 112 bytes), 256 bytes ROM for the zero table. With sample = 0 the deform sampling adds 0 to each line — no visual change.
+- ParallaxConfig_OJZ_Windy was unaffected (it has a real BG H-deform table and was already per-line).
+
+**When to revisit:** When the per-cell mode is needed for performance budget. Investigation should focus on:
+1. Possible interrupt-time VDP_CTRL write that lands between Flush_VDP_Shadow and the next render.
+2. Possible Z80 bus interaction during the shadow flush — the Z80 isn't stopped during Flush_VDP_Shadow's individual `move.w` writes.
+3. Re-examine whether Boot's initial VDP register write loop properly writes $0B = $00 then OJZScroll_Init's setVDPReg path correctly upgrades it to $02 on first VBlank.
+4. Try writing $8B02 to VDP_CTRL in a known-clean place (e.g. immediately after `Flush_VDP_Shadow` returns, with explicit Z80 stop) and observe if behavior changes.
+
+**Bare-minimum reproduction:** Remove `deformBg=DeformTable_Zero` from `ParallaxConfig_OJZ_Default`, build, load OJZ scroll test, scroll right. FG bricks scroll correctly only on top 28 scanlines; rest of the screen shows plane A column 0 stuck.
+
 ### Parallax_Current_Config / Camera_Y intermittent clobber (§4.6) — investigation
 **Surfaced during:** §4.6 T12 testing (2026-04-27).
 **Symptom:** During §4.6 T12 v2 debugging, multiple MCP reads showed

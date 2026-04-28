@@ -84,6 +84,16 @@ Parallax_StartTransition:
 ; In:  none (reads Parallax_Current_Config, Vscroll_Factor)
 ; Out: VSRAM written
 ; Clobbers: a5
+;
+; HARDWARE QUIRK (per-column branch): the VDP's per-column V-scroll grain
+; is 16 px (one VSRAM entry per column-pair). When Plane B has non-zero
+; HScroll AND per-column V-scroll is on, the leftmost partial column
+; (the screen sliver before HScroll's first 16-px boundary) renders at
+; V-scroll = 0 regardless of VSRAM[0]. There is no register to fix this —
+; it's silicon. Mitigations: (a) sprite mask the leftmost 16 px (planned
+; future task), (b) lock Plane B HScroll to 0 (factor_b = FACTOR_0), or
+; (c) live with it. See DEFERRED_WORK.md "VDP register $0B …" entry and
+; the §4.6 spec note about leftmost-column garble.
 ; ----------------------------------------------------------------------
 Vscroll_Write:
         lea     (VDP_CTRL).l, a5
@@ -193,6 +203,15 @@ Parallax_Update:
         move.l  parallax_config_pcfg_deform_table_fg(a0), d0
         or.l    parallax_config_pcfg_deform_table_bg(a0), d0
         beq.s   .fill_per_cell
+        ; advance H-deform phase accumulators so animated tables (sine, etc.)
+        ; actually scroll their wave over time. Without this the wave is
+        ; static and effects like windy clouds / heat shimmer don't animate.
+        moveq   #0, d0
+        move.b  parallax_config_pcfg_deform_speed_fg(a0), d0
+        add.w   d0, (Parallax_Deform_Phase_FG).w
+        moveq   #0, d0
+        move.b  parallax_config_pcfg_deform_speed_bg(a0), d0
+        add.w   d0, (Parallax_Deform_Phase_BG).w
         bsr.w   Parallax_Fill_PerLine
         move.b  #0, (Hscroll_Dirty_Start).w
         move.b  #(28*8)-1, (Hscroll_Dirty_End).w

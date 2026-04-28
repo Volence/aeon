@@ -33,7 +33,7 @@ OJZ_Sec0:
     dc.l    OJZ_Sec0_Strips_A       ; sec_strips_a
     dc.l    0, 0, 0                 ; sec_objects, sec_rings, sec_plc
     dc.l    OJZ_Palette             ; sec_pal
-    dc.l    ParallaxConfig_OJZ_Default, 0  ; sec_parallax_config, sec_raster_table
+    dc.l    ParallaxConfig_HeatShimmer_Slow, 0  ; sec_parallax_config = slow heat shimmer (effects/heat_shimmer.asm)
     dc.l    0                       ; sec_bg_layout (NULL = use Act_act_bg_layout, T1)
     dc.l    0, 0, 0, 0, 0, 0        ; sec_reserved..sec_collision
     dc.w    0, 0                    ; sec_flags, sec_music
@@ -61,7 +61,7 @@ OJZ_Sec2:
     dc.l    OJZ_Sec2_Strips_A
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
-    dc.l    ParallaxConfig_OJZ_Floor, 0  ; sec_parallax_config = pseudo-3D floor (T12 fixture)
+    dc.l    ParallaxConfig_OJZ_Default, 0  ; sec_parallax_config = default (swapped from Sec0 for easier perspective testing)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0

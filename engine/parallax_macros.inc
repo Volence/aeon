@@ -252,11 +252,23 @@ deform_tri_i set deform_tri_i + 1
     endm
 
 ; ----------------------------------------------------------------------
-; v_column_perspective — 256-byte pseudo-3D floor ramp for per-column V-scroll
+; v_column_perspective — 256-byte linear V-tilt ramp for per-column V-scroll
 ; FOCAL: column index where offset is 0 (the "horizon" column)
 ; MAX_OFFSET: peak offset at column 0 or 39 (whichever is further from focal)
 ; First 40 entries are the actual column shape; remaining 216 mirror the last
 ; (sentinel for animated indexing, harmless for static-shape sections).
+;
+; NOTE: per-column V-scroll produces a uniform LINEAR TILT of plane B, NOT
+; a true 3D-perspective floor. A real perspective floor (like Sonic 2 special
+; stages) needs per-LINE H-scroll via HBlank IRQ raster effect — that's a
+; different feature, not in §4.6. This generator is named "perspective" for
+; historical reasons; reasonable uses are floor/road tilt, banking platforms,
+; or as the static base for animated effects.
+;
+; HARDWARE QUIRK: per-column V-scroll + non-zero plane B HScroll garbles the
+; leftmost 16-px partial column (silicon-level, no register fix). Mitigate
+; with a sprite mask or lock plane B HScroll to 0. See engine/level/parallax.asm
+; Vscroll_Write header comment for full details.
 ; ----------------------------------------------------------------------
 v_column_perspective macro FOCAL,maxOffset
     if "FOCAL" = ""

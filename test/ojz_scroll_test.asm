@@ -151,6 +151,17 @@ GameState_OJZScroll_Update:
         moveq   #%10, d0                     ; default per-cell H
 .mode_set:
         setVDPReg VDP_Shadow_vdp_mode3, d0
+        ; Also force VDP register $0B directly with proper Z80-stop wrap.
+        ; First read VDP_CTRL to reset the command state machine — otherwise
+        ; a half-finished 32-bit address command from upstream code (e.g.
+        ; Section_UpdateColumns) would consume our $8B?? as its second word,
+        ; corrupting the VDP and leaving reg $0B unchanged.
+        andi.w  #$00FF, d0
+        ori.w   #$8B00, d0                   ; d0 = $8B?? = "set reg $0B = ??"
+        stopZ80
+        move.w  (VDP_CTRL).l, d1             ; reset command state machine
+        move.w  d0, (VDP_CTRL).l
+        startZ80
 
         ; -- update HScroll buffer + Vscroll (§4.6 parallax) --
         jsr     Parallax_Update

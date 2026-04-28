@@ -142,6 +142,13 @@ __BUDGET_OBJBANK:
 __BUDGET_DATA:
     include "data/parallax/ojz_default.asm"
     include "data/parallax/ojz_windy.asm"
+    ; Reusable parallax effects library — drop new effects under
+    ; data/parallax/effects/ and include them here. Each file defines a
+    ; deform table + ParallaxConfig_* record that any section can point
+    ; at via Sec_sec_parallax_config. Must come AFTER ojz_default.asm
+    ; because some effects reference DeformTable_Zero from there.
+    include "data/parallax/effects/heat_shimmer.asm"
+    include "data/parallax/effects/wave_rocking.asm"
     include "data/levels/ojz/act1/act_descriptor.asm"
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
