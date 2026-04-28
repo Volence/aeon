@@ -110,22 +110,47 @@ GameState_OJZScroll_Update:
         ; -- per-column nametable streaming --
         jsr     Section_UpdateColumns
 
-        ; -- §4.6 workaround: re-pin Parallax_Current_Config before Update.
-        ;    Tracked in DEFERRED_WORK — pointer intermittently clobbered to
-        ;    NULL or garbage; without this, Parallax_Update bails and the
-        ;    HScroll buffer + Vscroll factor stay stale.
-        ;    Always pulls slot 0's sec_parallax_config (= current visible
-        ;    section), so section transitions still get the right config.
+        ; -- §4.6 workaround: re-pin Parallax_Current_Config from slot 0's
+        ;    sec_parallax_config (defends against the deferred-work
+        ;    intermittent clobber that has happened in past sessions).
         movea.l (Current_Act_Ptr).w, a0
         movea.l Act_sec_grid_ptr(a0), a1
         moveq   #0, d0
-        move.b  (Slot_Section_Map).w, d0     ; slot 0 sec_x (flat id, sec_y=0 for OJZ)
+        move.b  (Slot_Section_Map).w, d0
         move.w  d0, d1
         lsl.w   #6, d0
         lsl.w   #3, d1
-        add.w   d1, d0                       ; sec_id × 72
-        adda.w  d0, a1                       ; a1 = active sec ptr
+        add.w   d1, d0
+        adda.w  d0, a1
         move.l  Sec_sec_parallax_config(a1), (Parallax_Current_Config).w
+
+        ; -- §4.6 fix: force VDP mode_set_3 every frame from the active
+        ;    config. Without this, Parallax_StartTransition's same-config
+        ;    short-circuit can leave mode_set_3 stuck at a previous
+        ;    section's setting (e.g., per-line $03 from Sec1's windy
+        ;    config persists after BWD-teleport back to Sec0 because the
+        ;    per-frame Current_Config write above causes StartTransition
+        ;    to no-op). Stale per-line mode + per-cell DMA produces
+        ;    visible H-deform from uninitialised HScroll table entries.
+        movea.l (Parallax_Current_Config).w, a0
+        cmpa.w  #0, a0
+        beq.s   .mode_default
+        cmpi.l  #$00400000, a0
+        bhs.s   .mode_default
+        moveq   #%10, d0                     ; per-cell H baseline
+        move.l  parallax_config_pcfg_deform_table_fg(a0), d1
+        or.l    parallax_config_pcfg_deform_table_bg(a0), d1
+        beq.s   .mode_h_done
+        moveq   #%11, d0                     ; per-line if any H-deform
+.mode_h_done:
+        move.l  parallax_config_pcfg_v_deform_table_bg(a0), d1
+        beq.s   .mode_set
+        ori.b   #%100, d0                    ; bit 2 = per-column V-scroll
+        bra.s   .mode_set
+.mode_default:
+        moveq   #%10, d0                     ; default per-cell H
+.mode_set:
+        setVDPReg VDP_Shadow_vdp_mode3, d0
 
         ; -- update HScroll buffer + Vscroll (§4.6 parallax) --
         jsr     Parallax_Update

@@ -39,74 +39,29 @@ Section_Init:
 
         rts
 
-; -----------------------------------------------
-; Section_FillInitial — fill all 64 nametable columns from slot 0
-; Nametable col c = slot 0, local col c (ring-buffer start = SLOT_ORIGIN_L/8).
-; Buffer holds ~22 entries → 3 batches of 22/22/20 = 64 cols.
-; Initialises Section_Right_Col_Written and Section_Left_Col_Written.
-; Clobbers: d0–d5, a0–a3
+ ; -----------------------------------------------
+; Section_FillInitial — set up trackers; let Section_UpdateColumns
+; fill plane on first frame (matches post-teleport behavior).
+;
+; Previously pre-filled plane cols 0..63 with section cols 0..63
+; (linear order). This caused a visual artifact: when user scrolled
+; right past Cam_X = 689, streaming overwrote plane col 0 with
+; section col 64. Plane col 0 then visible at screen LEFT at Cam_X
+; = 1024 with section col 64 — content "appearing from left."
+;
+; New behavior: trackers set as if Section_TeleportFwd just fired.
+; Section_UpdateColumns on first frame streams the visible window
+; in scroll-direction order (= same as post-teleport behavior, which
+; doesn't show the artifact). User sees plane fill from screen-left
+; outward over ~3 frames as Plane_Buffer drains, then steady-state
+; matches Section_UpdateColumns' streaming pattern.
+;
+; Out: Section_Right_Col_Written, Section_Left_Col_Written initialised
+; Clobbers: none
 ; -----------------------------------------------
 Section_FillInitial:
-        ; -- batch 1: nametable cols 0–21 --
-        bsr.w   .fill_batch1
-        move.b  #1, (VBlank_Ready).w
-.wait1: tst.b   (VBlank_Flag).w
-        beq.s   .wait1
-        move.b  #0, (VBlank_Flag).w
-
-        ; -- batch 2: nametable cols 22–43 --
-        bsr.w   .fill_batch2
-        move.b  #1, (VBlank_Ready).w
-.wait2: tst.b   (VBlank_Flag).w
-        beq.s   .wait2
-        move.b  #0, (VBlank_Flag).w
-
-        ; -- batch 3: nametable cols 44–63 --
-        bsr.w   .fill_batch3
-        move.b  #1, (VBlank_Ready).w
-.wait3: tst.b   (VBlank_Flag).w
-        beq.s   .wait3
-        move.b  #0, (VBlank_Flag).w
-
-        ; -- init column tracking: SLOT_ORIGIN_L/8 + 0..63 written --
-        move.w  #SLOT_ORIGIN_L/8 + 63, (Section_Right_Col_Written).w
-        move.w  #SLOT_ORIGIN_L/8,       (Section_Left_Col_Written).w
-        rts
-
-.fill_batch1:
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef.slot0
-        moveq   #22-1, d4
-        moveq   #0, d5              ; nametable col = section local col
-.b1:    move.w  d5, d0
-        move.w  d5, d1
-        bsr.w   Draw_TileColumn
-        addq.w  #1, d5
-        dbf     d4, .b1
-        rts
-
-.fill_batch2:
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef.slot0
-        moveq   #22-1, d4
-        moveq   #22, d5
-.b2:    move.w  d5, d0
-        move.w  d5, d1
-        bsr.w   Draw_TileColumn
-        addq.w  #1, d5
-        dbf     d4, .b2
-        rts
-
-.fill_batch3:
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef.slot0
-        moveq   #20-1, d4
-        moveq   #44, d5
-.b3:    move.w  d5, d0
-        move.w  d5, d1
-        bsr.w   Draw_TileColumn
-        addq.w  #1, d5
-        dbf     d4, .b3
+        move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
+        move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
         rts
 
 ; -----------------------------------------------
