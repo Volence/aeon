@@ -195,6 +195,35 @@ These items were identified during §3 Phase 0 research but require a full SST f
 
 ## From §4 Phase 1 — Level/World System
 
+### Plane A wrap-cycle visible during scroll (§4.2 streaming polish)
+**Surfaced during:** §4.6 polish session 2026-04-28 (after bhi→bhs core fix + Section_Teleport_Guard increase shipped).
+
+**Symptom:** When scrolling right through a single section, foreground (Plane A) terrain appears to "draw from left to right" — chunks of FG content materialize at screen LEFT and seem to fill toward screen RIGHT as the user scrolls. When scrolling left (back), the LEFT chunk disappears first while the RIGHT chunk persists. User confirmed via experiment: stub'ing `Section_UpdateColumns` to `rts` immediately makes all FG content disappear, proving the streaming engine *is* producing the visible artifacts.
+
+**Root cause analysis:**
+- Plane A is 64 cells = 512 px wide; screen is 320 px wide
+- Section is 4096 px (`SECTION_SHIFT = $1000`); user scrolls through a section across 8 plane-widths
+- `Section_UpdateColumns` writes each new section col to plane col `(global_col mod 64)`
+- The streaming target is mathematically *correct* — it writes off-screen-right (1 col past visible right edge)
+- BUT plane col 0 has a visibility cycle as Camera_X grows: visible at screen LEFT briefly when `Cam_mod_512 ∈ [0,7]`, off-screen for ~190 px, then reappears at screen RIGHT and drifts left
+- During this cycle, each plane col gets *overwritten* every 512 px of camera travel with new section data — but the overwrite happens off-screen-right, so the new content enters from screen-right correctly
+- **The "drawing from left" perception** is the plane-wrap natural behavior: every 512 px of scroll, the pattern repeats. Content at screen LEFT after each wrap is the LATEST streamed content — user sees it as "appearing on the left."
+
+**Verified facts:**
+- HScroll values are correct (uniform `-Camera_X` across all 28 cell rows for Sec0)
+- Section_FillInitial fills cols 0..63 correctly at boot
+- Section_UpdateColumns advances Right_Col_Written / Left_Col_Written correctly
+- Streaming writes target plane col is always off-screen-right at the moment of write
+- Plane wrap is mathematically inevitable when plane width (512px) < section width (4096px)
+
+**Possible fixes (all §4.2 architecture work, not §4.6):**
+1. **Camera teleport per plane-width**: instead of `SECTION_SHIFT = $1000`, teleport every 512 px so plane wraps land at teleport boundaries (= invisible). Requires reworking section coordinate system, object spawning, collision lookups.
+2. **Wider effective plane via VRAM trickery**: not feasible — VDP is hard-limited to 64×64.
+3. **Section_UpdateColumns rewrite**: stream content N plane-widths AHEAD so each plane col is written 64+ cols before reaching visibility. Requires more aggressive write-ahead and careful Plane_Buffer budgeting.
+4. **Live with it**: accept that plane-wrap pattern is visible. Real Sonic games (S1/S2/S3K) use camera teleport to mask it; we currently don't.
+
+**When to revisit:** Dedicated §4.2 polish session. Don't try to band-aid this in §4.6 territory — it's a section-streaming engine architecture issue. Recommend Option 1 (camera teleport per plane-width) as the proper fix; it matches the technique used in real Sega Genesis Sonic games.
+
 ### Section Preload with S4LZ Deferrable DMA (§4.2)
 **Blocked by:** S4LZ art streaming pipeline (§2.1) and section adjacency graph
 **What:** When camera crosses Section_FWD/BWD_PRELOAD threshold, queue Deferrable-priority DMA to load next section's tile art into the VRAM pool. Currently Section_QueueNewSlot1/0Cols just writes nametable strips; the art must already be in VRAM.
