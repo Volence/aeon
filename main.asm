@@ -145,11 +145,13 @@ __BUDGET_DATA:
     ; Reusable parallax effects library — drop new effects under
     ; data/parallax/effects/ and include them here. Each file defines a
     ; deform table + ParallaxConfig_* record that any section can point
-    ; at via Sec_sec_parallax_config. Must come AFTER ojz_default.asm
-    ; because some effects reference DeformTable_Zero from there.
+    ; at via Sec_sec_parallax_config.
     include "data/parallax/effects/shimmer.asm"
     include "data/parallax/effects/haze.asm"
     include "data/parallax/effects/rocking.asm"
+    include "data/parallax/effects/screen_shake.asm"
+    include "data/parallax/effects/water_surface.asm"
+    include "data/parallax/effects/mirage.asm"
     ; Composite scenes — hand-authored configs that stack multiple effects
     ; with custom per-band gradients. Must come AFTER effects/ for the
     ; deform-table references to resolve.

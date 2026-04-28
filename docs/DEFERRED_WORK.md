@@ -343,19 +343,18 @@ artifacts. If they persist, debug separately with the upstream noise gone.
 
 ### Parallax effects library — expansion backlog (§4.6)
 **Surfaced during:** §4.6 polish session 2026-04-28.
-**Where:** `data/parallax/effects/` — each effect is a self-contained file (deform table + parameterised macro + named variants). Two entries shipped so far: `heat_shimmer.asm`, `wave_rocking.asm`.
+**Where:** `data/parallax/effects/` — each effect is a self-contained file (deform table + parameterised macro + named variants).
+
+**Shipped:** `shimmer.asm`, `haze.asm`, `rocking.asm`, `screen_shake.asm`, `water_surface.asm`, `mirage.asm`.
 
 **Pattern to follow when adding effects:**
 1. One file per effect under `data/parallax/effects/`.
 2. Header comment: visual description, mechanism, tuning knobs, dependencies.
 3. Shared deform table (one in ROM) + a `<effect>_config` macro that takes camelCase params (AS limitation — no underscores in macro args).
 4. A few pre-named variants (`_Slow`, default, `_Fast`) for casual use.
-5. Add an `include` line to `main.asm` after `ojz_default.asm` (some effects depend on `DeformTable_Zero`).
+5. Add an `include` line to `main.asm` after `ojz_default.asm`.
 
-**Effects to add (ranked by ease/impact):**
-- **screen_shake.asm** — short-duration triangle table at high speed. Per-column V or per-line H. Triggered by gameplay events; needs a "fade out over N frames" wrapper. Earthquake / explosion impact.
-- **water_surface.asm** — combined per-line H sine + per-column V sine (90° offset). Hydrocity-style ambient water surface. Complex — verify VBlank budget.
-- **mirage.asm** — extreme low-amplitude (1 px) high-frequency H-deform on a single mid band. Distant heat haze without affecting near terrain.
+**Effects still to add (ranked by ease/impact):**
 - **vortex.asm** — sawtooth H-deform + sawtooth V-column with reversing phase. Boss room / portal swirl.
 - **earthquake.asm** — random/noise table V-column at high speed for ~30 frames, then quiesces. Procedural noise table generator helps here (a `deform_table_noise` macro, peer of sine/triangle).
 - **banking.asm** — linear V-column ramp whose slope tracks Camera_X velocity. "Tilts into turns." Needs runtime parameter feed (Camera_X velocity → vDeformShiftBg adjustment).
@@ -432,31 +431,20 @@ The `OJZScroll_Update` per-frame logic writes a section-id-keyed color into `Pal
 
 **When to revisit:** when integrating player physics (§3 spec). Restore `SECTION_SHIFT = $1000` at the same time so post-teleport camera lands exactly at the boundary, and the landing flag handles the rest. Until then, the `$0FFF` nudge is a clean equivalent for the camera-driven test setup.
 
-### VDP register $0B (mode_set_3) propagation bug — workaround in place (§4.6)
-**Surfaced during:** §4.6 polish session 2026-04-28.
+### ~~VDP register $0B (mode_set_3) propagation bug~~ — RESOLVED 2026-04-28 (likely misdiagnosis)
+**Original symptom claim:** when no-deform configs auto-selected per-cell mode and shadow[11] was set to $02, the VDP register supposedly stayed at $03 (per-line), causing a "pink bar at top" plus stuck lower scanlines. Workaround: force per-line pipeline always via a `DeformTable_Zero` shim referenced from `pcfg_deform_table_bg`.
 
-**Symptom:** When `pcfg_deform_table_fg` and `pcfg_deform_table_bg` are both NULL (e.g. ParallaxConfig_OJZ_Default), the parallax pipeline auto-selects per-cell HScroll mode: `Parallax_Fill_PerCell` writes 28 longwords, the per-cell static DMA enqueues 112 bytes, `setVDPReg vdp_mode3 = $02` marks shadow dirty, and Flush_VDP_Shadow writes $8B02 to VDP_CTRL on every VBlank. Visually we expected per-cell HScroll: all 28 cell rows scroll uniformly with the same `-Camera_X`. We observed instead per-line behavior: only scanlines 0-27 (the top 28 px = 3.5 cell rows) scrolled correctly, lines 28-223 stayed pinned to plane col 0.
+**Re-investigation (2026-04-28, post-§4.6 cleanup branch):** removed the workaround from all configs and re-tested. With `Camera_X = $0500` in Sec0 (Caves config, no H-deform tables, mode = $02 per-cell expected):
+- Visual: clean — no pink bar, no stuck lower scanlines, all 28 cell rows scroll uniformly with `-Camera_X`.
+- Hscroll_Buffer in RAM: 28 valid entries + zeros at 28+ (per-cell pattern). Confirmed.
+- Shadow `vdp_mode3` (offset 11) = $02. Confirmed.
+- Direct test: patched VRAM HSCROLL_TABLE entries 28-223 with garbage values via `mcp__exodus__emulator_write_vram`. Screen unchanged. → VDP register $0B is genuinely $02 (per-cell), reading only entries 0-27.
 
-**Empirical proof of per-line state:** Patching VRAM HSCROLL_TABLE entries 28-223 directly with proper PA values via `mcp__exodus__emulator_write_vram` made the entire screen scroll correctly. This is only possible if VDP register $0B has bits 1:0 = %11 (per-line). VDP shadow byte at offset 11 reads $02 and dirty bit 11 stays set, but the visual proves register $0B is $03.
+**What the original "bug" actually was, in retrospect:** the "pink bar at top" was the V-anchor + Camera_Y issue we definitively root-caused at the end of T15 — non-lock `vFactorBg` made FG plane V-scroll equal `Camera_Y = $1F0`, exposing plane A's sprite-table-overlapped rows ($D800+) as pink-tinted garbage tiles. That bug looked superficially similar to "per-line mode reading zeros at lines 28+" so I conflated them.
 
-**What we tried (all failed):**
-- `setVDPReg vdp_mode3, #$02` every frame in OJZScroll_Update (shadow + dirty path).
-- Direct `move.w #$8B02, (VDP_CTRL).l` with stopZ80 wrap.
-- Adding a state-machine reset (`move.w (VDP_CTRL).l, d1`) before the direct write to clear any half-finished 32-bit address command.
-- None changed the register's per-line behavior.
+**Fix shipped:** `DeformTable_Zero` shim removed from `ParallaxConfig_OJZ_Default`, `ParallaxConfig_OJZ_Caves`, `ParallaxConfig_OJZ_LockedClouds`, and `ParallaxConfig_WaveRocking`. The 256-byte table itself removed from `data/parallax/ojz_default.asm`. Saves ~1500-2000 cycles/frame (per-cell fill + 112-byte DMA instead of per-line 224-fill + 896-byte DMA) on no-H-deform configs. ROM saving: 256 B + small per-config savings.
 
-**Workaround in place (2026-04-28):**
-- `data/parallax/ojz_default.asm` defines `DeformTable_Zero` (256 zero bytes) and adds `deformBg=DeformTable_Zero` to both `ParallaxConfig_OJZ_Default` and `ParallaxConfig_OJZ_Floor`. This forces the entire pipeline (Parallax_Update auto-select, Enqueue_Dirty_Buffers DMA selector, OJZScroll_Update mode_set_3 force) into per-line mode for these no-/V-only-deform configs.
-- Cost: ~1500-2000 extra cycles per frame (224-line fill vs 28), 8× HScroll DMA bandwidth (896 vs 112 bytes), 256 bytes ROM for the zero table. With sample = 0 the deform sampling adds 0 to each line — no visual change.
-- ParallaxConfig_OJZ_Windy was unaffected (it has a real BG H-deform table and was already per-line).
-
-**When to revisit:** When the per-cell mode is needed for performance budget. Investigation should focus on:
-1. Possible interrupt-time VDP_CTRL write that lands between Flush_VDP_Shadow and the next render.
-2. Possible Z80 bus interaction during the shadow flush — the Z80 isn't stopped during Flush_VDP_Shadow's individual `move.w` writes.
-3. Re-examine whether Boot's initial VDP register write loop properly writes $0B = $00 then OJZScroll_Init's setVDPReg path correctly upgrades it to $02 on first VBlank.
-4. Try writing $8B02 to VDP_CTRL in a known-clean place (e.g. immediately after `Flush_VDP_Shadow` returns, with explicit Z80 stop) and observe if behavior changes.
-
-**Bare-minimum reproduction:** Remove `deformBg=DeformTable_Zero` from `ParallaxConfig_OJZ_Default`, build, load OJZ scroll test, scroll right. FG bricks scroll correctly only on top 28 scanlines; rest of the screen shows plane A column 0 stuck.
+**Preserved as a lesson:** when two visual artifacts present similarly, isolate them on independent test cases before designing a workaround. The originally-reported "stuck lower scanlines" was actually the V-anchor pink bar masking the *correct* per-cell behavior.
 
 ### Parallax_Current_Config / Camera_Y intermittent clobber (§4.6) — investigation
 **Surfaced during:** §4.6 T12 testing (2026-04-27).
@@ -526,7 +514,17 @@ non-zero; intermittently they read zero.
 ### Sprite mask for per-column V-scroll leftmost-partial-column garbage
 **Blocked by:** sprite system + zone level data hooks.
 **What:** Genesis VDP per-column V-scroll grain is 16 px. With non-zero plane B HScroll, the leftmost screen sliver renders at V-scroll = 0 regardless of VSRAM[0] — silicon-level, no register fix. v1 mitigates either by: locking plane B HScroll to 0 (`FACTOR_0`) which eliminates the partial column, or accepting the artifact. Real games drop a 16-px-wide sprite mask over the left edge to hide it (Sonic 3 Hydrocity boss arena, Streets of Rage banking, etc.).
-**When ready:** when a section uses per-column V-scroll *and* wants non-zero plane B HScroll. ~1 sprite/frame overhead from the 80-sprite budget.
+
+**Implementation outline (tried during the post-§4.6 cleanup branch but deferred):**
+- Need a solid-black 8×8 tile loaded into a free VRAM slot (probably end of region 1 art pool, around tile $5F0). Tile data = 32 bytes of $FF (= color index $F repeated). Palette 0 entry $F set to $0000 (true black).
+- 7 sprite-table entries (max sprite height = 32 px, screen = 224 px → 7 × 32 = 224). Each entry: size code = $07 (2×4 cells = 16×32 px), tile = the new black tile, palette = 0, X position = 16 (= screen X 0 in VDP coord = $80 - $70... actually X=$80 places sprite at screen X=0; we want X=$80 for left edge), Y positions 0, 32, 64, ... (in VDP coord = $80 + screenY).
+- Linkage: chain into the existing sprite link chain (Init_SpriteTable in `engine/buffers.asm` sets up 0→1→...→79→0). Insert mask sprites at link slots 73-79 (high-priority slots, last in render order so they're drawn ON TOP).
+- Wire enable/disable based on whether active config uses per-column V — toggle a `Mask_Active` flag in OJZScroll_Update; when set, the 7 mask entries get visible Y positions; when clear, Y positions go off-screen ($00 = sprite hidden in Genesis VDP).
+- Mask palette must guarantee true black at index $F regardless of section palette. Either reserve palette 0 entry $F as a "system color" or use a dedicated palette line (palette 3?) for system overlays.
+
+**Why deferred:** ~100 lines of work + a tile data carve-out + palette discipline that will have implications for §3 sprite system design (where to put system-reserved palette indices). Better as part of a sprite-system polish session than a one-off bolt-on. Currently no shipped OJZ section uses per-column V, so the artifact isn't visible — work is non-blocking.
+
+**When ready:** before any section uses per-column V-scroll for its actual gameplay visual. The `rocking` effect file is the canonical user once it gets bound to a section.
 
 ## From Sound Driver Work (Future)
 

@@ -44,7 +44,6 @@ RK_SHIFT := shift
     endif
 
     parallax_section layerMask=$01, vFactorBg=15, vCenter=0, vOffset=0, \
-                     deformBg=DeformTable_Zero, \
                      vDeformBg=DeformTable_Rocking, \
                      vDeformSpeedBg=RK_SPEED, \
                      vDeformShiftBg=RK_SHIFT

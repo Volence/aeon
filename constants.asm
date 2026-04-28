@@ -209,7 +209,7 @@ GS_OBJECT_TEST          = 2
 ; -----------------------------------------------
 
 ; Section coordinate space
-SECTION_SHIFT           = $0FFF     ; teleport shift (pixels); = (FWD - BWD - 1) so post-teleport camera lands 1 pixel inside safe zone instead of exactly on the opposite threshold (prevents idle oscillation between $1200 and $200). Revert to $1000 for original boundary-touching behavior.
+SECTION_SHIFT           = $1000     ; teleport shift (pixels); = FWD - BWD = 2× SECTION_SIZE. Post-teleport camera lands exactly at the opposite threshold (sonic_hack pattern). The SPF_FWD_LANDING / SPF_BWD_LANDING flags in Section_Preload_Flags suppress the opposite-direction teleport until the camera moves into the central safe zone, preventing oscillation. (Earlier $0FFF nudge replaced by the proper landing-flag mechanism — see DEFERRED_WORK.md "Section teleport landing-flag mechanism" for context.)
 SECTION_SIZE            = $0800     ; slot width/height in engine pixels
 SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
 SLOT_ORIGIN_R           = $0A00     ; right slot engine-space left edge
@@ -256,9 +256,11 @@ SS_RESIDENT  = 2    ; in VRAM, valid
 ; Section_Preload_Flags bit definitions
 SPF_FWD_PRELOADED = 0       ; bit 0: forward neighbour streamed
 SPF_BWD_PRELOADED = 1       ; bit 1: backward neighbour streamed
+SPF_FWD_LANDING   = 2       ; bit 2: just landed from FWD teleport — suppress BWD until camera enters safe zone
+SPF_BWD_LANDING   = 3       ; bit 3: just landed from BWD teleport — suppress FWD until camera enters safe zone
 
 ; Plane buffer
-PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
+PLANE_BUFFER_SIZE       = 7168      ; bytes — sized to hold full 64-col FG redraw at teleport (64 × 100 = 6400 + slack). Per-frame Section_UpdateColumns adds ~22 cols + ~2200 bytes; the rest is reserve for FG_RedrawForSection bursts.
 
 ; Camera
 CAM_LOOKAHEAD_THRESHOLD = $0600     ; ground speed for pan enable
