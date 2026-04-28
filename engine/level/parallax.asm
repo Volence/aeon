@@ -74,6 +74,22 @@ Parallax_StartTransition:
 Vscroll_Write:
         lea     (VDP_CTRL).l, a5
         move.l  #vdpComm(0, VSRAM, WRITE), (a5)
+
+        ; per-column or whole-plane?
+        movea.l (Parallax_Current_Config).w, a0
+        cmpa.w  #0, a0
+        beq.s   .whole_plane
+        move.l  parallax_config_pcfg_v_deform_table_bg(a0), d0
+        beq.s   .whole_plane
+
+        ; per-column: emit 20 longwords from column buffer to VSRAM
+        lea     (Parallax_Vscroll_Column_Buf).w, a0
+        rept 20
+        move.l  (a0)+, VDP_DATA-VDP_CTRL(a5)
+        endr
+        rts
+
+.whole_plane:
         move.l  (Vscroll_Factor).w, VDP_DATA-VDP_CTRL(a5)
         rts
 
@@ -166,34 +182,65 @@ Parallax_Update:
         move.b  #27, (Hscroll_Dirty_End).w
 .fill_done:
 
-        ; --- Step 5: compute Vscroll (whole-plane only; per-column in T12) ---
-        ; (a0 still holds current_config from above)
-        move.l  parallax_config_pcfg_v_deform_table_bg(a0), d0
-        bne.s   .v_done                             ; per-column path lands in T12; fall through for now
-
-        ; -- whole-plane Vscroll --
+        ; --- Step 5: compute whole-plane Vscroll (always — used by per-column too) ---
         ; FG: vscroll_a = camY (Plane A follows camera 1:1)
         ; BG: target_b  = ((camY - v_center_y) >> v_factor_bg) + v_offset
         ;     current_vscroll_bg += (target_b - current_vscroll_bg) >> PARALLAX_LERP_SHIFT
         move.l  (Camera_Y).w, d0
         swap    d0                                  ; d0.w = camY (signed pixels)
-        move.w  d0, d1                              ; d1.w = camY  (FG vscroll = camY)
-        sub.w   parallax_config_pcfg_v_center_y(a0), d0   ; d0 = camY - center_y
+        move.w  d0, d1                              ; d1.w = camY  (FG vscroll)
+        sub.w   parallax_config_pcfg_v_center_y(a0), d0
         moveq   #0, d2
         move.b  parallax_config_pcfg_v_factor_bg(a0), d2
-        asr.w   d2, d0                              ; d0 = delta >> v_factor_bg
+        asr.w   d2, d0
         add.w   parallax_config_pcfg_v_offset(a0), d0     ; d0 = target_b
 
         move.w  (Parallax_Current_Vscroll_BG).w, d2
-        sub.w   d2, d0                              ; d0 = target - current
+        sub.w   d2, d0
         asr.w   #PARALLAX_LERP_SHIFT, d0
         add.w   d0, d2                              ; d2 = new current_vscroll_bg
         move.w  d2, (Parallax_Current_Vscroll_BG).w
 
-        ; pack: Vscroll_Factor = (FG << 16) | BG (both signed words)
+        ; pack into Vscroll_Factor (used by Vscroll_Write whole-plane branch)
         swap    d1                                  ; FG in high half
-        move.w  d2, d1                              ; BG in low half
+        move.w  d2, d1                              ; BG in low half (d2 = current_vscroll_bg)
         move.l  d1, (Vscroll_Factor).w
+
+        ; --- Step 5b (T12): per-column V-scroll buffer fill ---
+        ; If v_deform_table_bg != NULL, sample table per column and write
+        ; column buffer. Vscroll_Write picks this up via the same flag.
+        ; Whole-plane Vscroll_Factor is also kept correct (above) so the
+        ; whole-plane fallback path stays valid if per-column gets disabled.
+        move.l  parallax_config_pcfg_v_deform_table_bg(a0), d0
+        beq.s   .v_done
+
+        ; advance v_deform_phase_bg by speed
+        moveq   #0, d3
+        move.b  parallax_config_pcfg_v_deform_speed_bg(a0), d3
+        add.w   d3, (Parallax_V_Deform_Phase_BG).w
+        and.w   #$FF, (Parallax_V_Deform_Phase_BG).w
+
+        ; fill 20 column-pairs (80 bytes total)
+        ; d1 = camY (FG, swap'd into high half — restore low word)
+        swap    d1                                  ; restore d1.w = camY (FG)
+        ; d2 = current_vscroll_bg (BG base)
+        movea.l d0, a1                              ; a1 = v_deform_table_bg
+        lea     (Parallax_Vscroll_Column_Buf).w, a2
+        moveq   #0, d3
+        move.b  parallax_config_pcfg_v_deform_shift_bg(a0), d3   ; amplitude shift
+        moveq   #0, d4
+        move.b  (Parallax_V_Deform_Phase_BG+1).w, d4   ; phase low byte
+        moveq   #20-1, d6                           ; 20 column-pairs
+.col:
+        move.b  (a1, d4.w), d5                      ; sample (signed byte)
+        ext.w   d5
+        asr.w   d3, d5                              ; offset = sample >> v_deform_shift_bg
+        move.w  d1, (a2)+                           ; FG word = camY (constant per column)
+        move.w  d2, d0
+        add.w   d5, d0
+        move.w  d0, (a2)+                           ; BG word = base + offset
+        addq.b  #1, d4
+        dbf     d6, .col
 
 .v_done:
 

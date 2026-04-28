@@ -13,3 +13,20 @@ ParallaxConfig_OJZ_Default:
         band 14, FACTOR_1, FACTOR_1_2       ; rows 14-19 hills
         band 20, FACTOR_1, FACTOR_1         ; rows 20-27 ground (FG-sync)
     parallax_section_end
+
+; --- T12 fixture: pseudo-3D perspective floor (per-column V-scroll demo) ---
+; Static perspective ramp (vDeformSpeedBg=0): outer columns shifted up to
+; ±16 px relative to FOCAL=20 (screen center). vDeformShiftBg=0 means
+; full amplitude pass-through.
+DeformTable_OJZ_Floor:
+    v_column_perspective FOCAL=20, maxOffset=16
+
+ParallaxConfig_OJZ_Floor:
+    parallax_section layerMask=$1F, vFactorBg=3, vCenter=496, vOffset=16, \
+                     vDeformBg=DeformTable_OJZ_Floor, vDeformSpeedBg=0, vDeformShiftBg=0
+        band 0,  FACTOR_1, FACTOR_1_8
+        band 4,  FACTOR_1, FACTOR_1_4
+        band 10, FACTOR_1, FACTOR_3_8
+        band 14, FACTOR_1, FACTOR_1_2
+        band 20, FACTOR_1, FACTOR_1
+    parallax_section_end

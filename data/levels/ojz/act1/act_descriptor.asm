@@ -61,7 +61,7 @@ OJZ_Sec2:
     dc.l    OJZ_Sec2_Strips_A
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
-    dc.l    0, 0
+    dc.l    ParallaxConfig_OJZ_Floor, 0  ; sec_parallax_config = pseudo-3D floor (T12 fixture)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0, 0, 0, 0
     dc.w    0, 0
