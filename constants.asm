@@ -258,7 +258,7 @@ SPF_FWD_PRELOADED = 0       ; bit 0: forward neighbour streamed
 SPF_BWD_PRELOADED = 1       ; bit 1: backward neighbour streamed
 
 ; Plane buffer
-PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
+PLANE_BUFFER_SIZE       = 7168      ; bytes — sized to hold full 64-col FG redraw at teleport (64 × 100 = 6400 + slack). Per-frame Section_UpdateColumns adds ~22 cols + ~2200 bytes; the rest is reserve for FG_RedrawForSection bursts.
 
 ; Camera
 CAM_LOOKAHEAD_THRESHOLD = $0600     ; ground speed for pan enable
