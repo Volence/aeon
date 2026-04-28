@@ -224,6 +224,8 @@ These items were identified during §3 Phase 0 research but require a full SST f
 
 **When to revisit:** Dedicated §4.2 polish session. Don't try to band-aid this in §4.6 territory — it's a section-streaming engine architecture issue. Recommend Option 1 (camera teleport per plane-width) as the proper fix; it matches the technique used in real Sega Genesis Sonic games.
 
+**Additional finding:** `SECTION_SHIFT = $1000` ≠ `SECTION_SIZE = $0800`. Comment claims "uniform shift applied on teleport (pixels)" but the value is 2× SECTION_SIZE. With current values, post-FWD Camera_X = $200 (= cam_min_x = BWD_THRESHOLD), which is what causes the section oscillation that the 30-frame Section_Teleport_Guard patches. The "natural" fix would be `SECTION_SHIFT = SECTION_SIZE = $0800` (so FWD/BWD both land Cam mid-window at $0A00, no oscillation), but this requires recalibrating Right_Col_Written / Left_Col_Written math in Section_UpdateColumns and the Section_FillInitial init values. Worth investigating as part of §4.2 polish — may also resolve the plane-wrap perception issue if the ring rotation is "shorter" per teleport.
+
 ### Section Preload with S4LZ Deferrable DMA (§4.2)
 **Blocked by:** S4LZ art streaming pipeline (§2.1) and section adjacency graph
 **What:** When camera crosses Section_FWD/BWD_PRELOAD threshold, queue Deferrable-priority DMA to load next section's tile art into the VRAM pool. Currently Section_QueueNewSlot1/0Cols just writes nametable strips; the art must already be in VRAM.
