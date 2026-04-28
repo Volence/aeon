@@ -15,7 +15,7 @@ DeformTable_OJZ_Calm:
     deform_table_sine AMPLITUDE=96, PERIOD=64
 
 ParallaxConfig_OJZ_Windy:
-    parallax_section layerMask=$1F, vFactorBg=3, vCenter=496, vOffset=0, \
+    parallax_section layerMask=$1F, vFactorBg=3, vCenter=0, vOffset=0, \
                      deformBg=DeformTable_OJZ_Calm, deformSpeedBg=1
         ; clouds — full amplitude (±96 px), phase 0
 BAND_PHASE := 0
