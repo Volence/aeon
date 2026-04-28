@@ -209,7 +209,7 @@ GS_OBJECT_TEST          = 2
 ; -----------------------------------------------
 
 ; Section coordinate space
-SECTION_SHIFT           = $1000     ; uniform shift applied on teleport (pixels)
+SECTION_SHIFT           = $0FFF     ; teleport shift (pixels); = (FWD - BWD - 1) so post-teleport camera lands 1 pixel inside safe zone instead of exactly on the opposite threshold (prevents idle oscillation between $1200 and $200). Revert to $1000 for original boundary-touching behavior.
 SECTION_SIZE            = $0800     ; slot width/height in engine pixels
 SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
 SLOT_ORIGIN_R           = $0A00     ; right slot engine-space left edge
@@ -222,8 +222,8 @@ SECTION_BWD_PRELOAD     = $0400     ; camera X → queue backward section art
 
 ; Parallax (§4.6)
 MAX_PARALLAX_BANDS         = 8
-PARALLAX_TRANS_DEFAULT     = 8      ; default boundary lerp duration (frames)
-PARALLAX_LERP_SHIFT        = 3      ; >>3 ≈ 8-frame convergence to ~95%
+PARALLAX_TRANS_DEFAULT     = 16     ; default boundary lerp duration (frames)
+PARALLAX_LERP_SHIFT        = 4      ; >>4 ≈ 16-frame convergence to ~95% — gentler slide on factor changes
 
 ; Nametable strips
 STRIP_TILE_HEIGHT       = 48        ; rows per strip (0–47; row 48+ = sprite table)

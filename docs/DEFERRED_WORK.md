@@ -367,6 +367,44 @@ artifacts. If they persist, debug separately with the upstream noise gone.
 
 **When to revisit:** When level design surfaces a specific need ("this zone wants underwater wobble", "the boss room needs a vortex"). Build effects on demand rather than speculatively.
 
+### Plane A "fill-in" after teleport (§4.2 streaming polish)
+**Surfaced during:** §4.6 T14 testing 2026-04-28.
+
+**Symptom:** Crossing a section teleport boundary (`$1200` FWD or `$200` BWD), Plane A foreground content visibly "runs in" over ~2-3 frames as `Section_UpdateColumns` re-streams the visible 40 columns into the plane. User wants the teleport to be imperceptible — same content visible before and after.
+
+**Why it happens:**
+- After `Section_TeleportFwd`/`Bwd`, slot rotation relabels plane cols (slot 0 ↔ slot 1) but does not move data — plane content still has the OLD slot mapping's tiles.
+- `Section_Right_Col_Written` / `Left_Col_Written` reset to fresh-streaming state. `Section_UpdateColumns` then gradually re-fills columns from the new slot map.
+- `PLANE_BUFFER_SIZE = 1536` bytes only holds ~15 columns of strip data per frame; the visible 40-column window takes 2-3 frames to fully refresh.
+
+**`BG_RedrawForSection` already handles plane B at teleport** (full-section rewrite via dedicated batch path, drains in 1-2 VBlanks). Plane A doesn't have an equivalent — it relies on the per-frame streaming machinery.
+
+**Fix paths (ranked by complexity):**
+1. **`FG_RedrawForSection` sibling.** Mirror BG's batch redraw, queueing 64 plane cols of new slot 0 + slot 1 content into `Plane_Buffer` at teleport. Requires `PLANE_BUFFER_SIZE` increase to ~6400 bytes (= ~5KB extra RAM) so the burst fits in one frame. Drains in 1-2 VBlanks via existing `VInt_DrawLevel`. Cleanest but eats RAM budget.
+2. **VRAM DMA from staged source.** Pre-build a 4096-byte plane-half template during preload phase, then DMA-fill into VRAM at teleport. Faster than direct writes, doesn't need bigger Plane_Buffer. New infrastructure required.
+3. **Brief display-off during teleport.** Disable display, blast plane via direct VDP writes (huge VRAM bandwidth available with display off), re-enable. 1-2 frames of black. Simplest but ugly.
+4. **Live with the streaming fill-in.** Current state. ~33-50ms of "running in" content. Tolerable for early demos; not shippable.
+
+**When to revisit:** §4.2 polish session. Path 1 is the most aligned with the current architecture; path 2 is where to head once we're tightening the engine. Reference `BG_RedrawForSection` as the model — Plane A version follows the same structure but writes 32 nametable cols × ~30 rows per slot.
+
+### Section teleport landing-flag mechanism (player-physics polish)
+**Surfaced during:** §4.6 T14 testing 2026-04-28.
+
+**Current state:** `SECTION_SHIFT = $0FFF` (= FWD - BWD - 1) so post-teleport camera lands 1 px inside the safe zone, preventing idle oscillation between `$200` and `$1200`. Works for the OJZ camera-driven scroll test where camera is bounded directly by `cam_min_x` and user input is at fixed pixel-step.
+
+**Why it's a stopgap:** when player physics arrive, the camera will follow a player position that can be flung past thresholds by springs, knockback, terminal-velocity falls, or other physics impulses. A 1-pixel margin is too narrow for momentum-based crossings — the player may overshoot and re-trigger the opposite teleport before they can move into a safe zone.
+
+**The proper fix (sonic_hack pattern):** state-based suppression rather than geometric margin.
+- Add a `Section_Teleport_Landing_Flag` byte to RAM (or reuse a bit in `Section_Preload_Flags`).
+- On FWD teleport: set the landing flag.
+- On BWD teleport: set the landing flag.
+- In `Section_Check`: if the landing flag is set, suppress whichever teleport check is opposite to the most-recent direction. (Or: always suppress until the flag clears, which is symmetric.)
+- Clear the flag when camera enters the central safe zone (e.g., `$0400 < camX < $09FF`). User must move into the safe zone before any further teleport can fire.
+
+**Reference implementation:** `sonic_hack/code/engines/section_streaming.asm:Section_Check` lines 1100-1150. They use `ss_flags` bit 4 + `ss_landing_timer` for the same purpose; their thresholds are also asymmetric (FWD inclusive at `$1200`, BWD strict-less-than at `$200`) which complements the flag.
+
+**When to revisit:** when integrating player physics (§3 spec). Restore `SECTION_SHIFT = $1000` at the same time so post-teleport camera lands exactly at the boundary, and the landing flag handles the rest. Until then, the `$0FFF` nudge is a clean equivalent for the camera-driven test setup.
+
 ### VDP register $0B (mode_set_3) propagation bug — workaround in place (§4.6)
 **Surfaced during:** §4.6 polish session 2026-04-28.
 

@@ -1,39 +1,17 @@
-; data/parallax/ojz_windy.asm — F3 fixture: BG H-deformation enabled
+; data/parallax/ojz_windy.asm — F3 fixture: single-band BG H-deformation
 ;
-; Same band layout as the default OJZ config but with BG sine deformation.
-; Clouds (band 0) wave at full amplitude; far/mid mountains (bands 1-2)
-; wave more subtly (larger amplitude shift); hills + ground (bands 3-4)
-; don't wave at all.
-;
-; Per-band PHASE offsets desync the cloud and mountain bands so they wave
-; out of lockstep — gives a more natural "wind moving across the sky" feel
-; instead of synchronised pulsing.
+; Whole plane B waves at full sine amplitude (±96 px). Single band layout
+; matches SkyHaze's BG factor (FACTOR_1_4) so transitioning between Sec0
+; (SkyHaze) and Sec1 (this) doesn't slide the BG horizontally — only the
+; deform amplitude lerps.
 
-; Sine table: ±96 px amplitude. PERIOD=64 → half-cycle across 32-line cloud band
-; (clouds form a ramping "bulge" rather than wavy zigzag).
+; Sine table: ±96 px amplitude. PERIOD=64 → half-cycle across 32 lines.
 DeformTable_OJZ_Calm:
     deform_table_sine AMPLITUDE=96, PERIOD=64
 
 ParallaxConfig_OJZ_Windy:
-    parallax_section layerMask=$1F, vFactorBg=15, vCenter=0, vOffset=0, \
+    parallax_section layerMask=$01, vFactorBg=15, vCenter=0, vOffset=0, \
                      deformBg=DeformTable_OJZ_Calm, deformSpeedBg=1
-        ; clouds — full amplitude (±96 px), phase 0
-BAND_PHASE := 0
-BAND_DSB := 0
-        band 0,  FACTOR_1, FACTOR_1_8
-        ; far mountains — half (±16), phase 64
-BAND_PHASE := 64
-BAND_DSB := 1
-        band 4,  FACTOR_1, FACTOR_1_4
-        ; mid mountains — quarter (±8), phase 128
-BAND_PHASE := 128
-BAND_DSB := 2
-        band 10, FACTOR_1, FACTOR_3_8
-        ; hills — eighth (±4), phase 192
-BAND_PHASE := 192
-BAND_DSB := 3
-        band 14, FACTOR_1, FACTOR_1_2
-        ; ground — no deform
-BAND_DSB := 15
-        band 20, FACTOR_1, FACTOR_1
+BAND_DSB := 0                          ; full ±96 px wave (no shift)
+        band 0, FACTOR_1, FACTOR_1_4   ; FG full speed, BG quarter (matches SkyHaze)
     parallax_section_end

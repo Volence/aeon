@@ -110,29 +110,48 @@ GameState_OJZScroll_Update:
         ; -- per-column nametable streaming --
         jsr     Section_UpdateColumns
 
-        ; -- §4.6 workaround: re-pin Parallax_Current_Config from slot 0's
-        ;    sec_parallax_config (defends against the deferred-work
-        ;    intermittent clobber that has happened in past sessions).
+        ; -- §4.6 T14: parallax follows ACTIVE slot, not just slot 0.
+        ;    Compute which slot the camera is currently inside (slot 0 if
+        ;    Camera_X < SLOT_ORIGIN_R, else slot 1) and call
+        ;    Parallax_StartTransition with that slot's parallax_config.
+        ;    StartTransition is idempotent (no-ops if Current or Target
+        ;    already matches) so per-frame calls cost ~1 register read +
+        ;    a comparison branch when nothing has changed. When the user
+        ;    crosses the slot boundary, the smooth lerp begins.
+        move.l  (Camera_X).w, d0
+        swap    d0                              ; d0.w = Camera_X high word
+        moveq   #0, d2                          ; assume slot 0
+        cmpi.w  #SLOT_ORIGIN_R, d0
+        blt.s   .slot_resolved
+        moveq   #1, d2                          ; X >= $A00 → slot 1
+.slot_resolved:
         movea.l (Current_Act_Ptr).w, a0
         movea.l Act_sec_grid_ptr(a0), a1
+        add.w   d2, d2                          ; d2 *= 2 (byte offset in Slot_Section_Map)
+        lea     (Slot_Section_Map).w, a3
         moveq   #0, d0
-        move.b  (Slot_Section_Map).w, d0
+        move.b  (a3, d2.w), d0                  ; sec_id at active slot
         move.w  d0, d1
-        lsl.w   #6, d0
-        lsl.w   #3, d1
-        add.w   d1, d0
-        adda.w  d0, a1
-        move.l  Sec_sec_parallax_config(a1), (Parallax_Current_Config).w
+        lsl.w   #6, d0                          ; sec_id × 64
+        lsl.w   #3, d1                          ; sec_id × 8
+        add.w   d1, d0                          ; sec_id × 72 = Sec_len
+        adda.w  d0, a1                          ; a1 = active sec entry
+        movea.l Sec_sec_parallax_config(a1), a0 ; a0 = active config
+        jsr     Parallax_StartTransition
 
         ; -- §4.6 fix: force VDP mode_set_3 every frame from the active
         ;    config. Without this, Parallax_StartTransition's same-config
         ;    short-circuit can leave mode_set_3 stuck at a previous
-        ;    section's setting (e.g., per-line $03 from Sec1's windy
-        ;    config persists after BWD-teleport back to Sec0 because the
-        ;    per-frame Current_Config write above causes StartTransition
-        ;    to no-op). Stale per-line mode + per-cell DMA produces
-        ;    visible H-deform from uninitialised HScroll table entries.
+        ;    section's setting. During a smooth transition (T14) the
+        ;    "active" config is Target_Config — buffer is built from it
+        ;    so register must match its mode bits.
+        tst.b   (Parallax_Transition_Frames).w
+        beq.s   .mode_use_current
+        movea.l (Parallax_Target_Config).w, a0
+        bra.s   .mode_have_config
+.mode_use_current:
         movea.l (Parallax_Current_Config).w, a0
+.mode_have_config:
         cmpa.w  #0, a0
         beq.s   .mode_default
         cmpi.l  #$00400000, a0

@@ -40,24 +40,49 @@ Parallax_Init:
 
 ; ----------------------------------------------------------------------
 ; Parallax_StartTransition — handle parallax_config change at section boundary
-; T8: instant snap regardless of pcfg_transition. Smooth lerp lands in T14.
+;
+; Transition mode is picked from the NEW config's pcfg_transition byte:
+;   0 (default) = smooth: stage as Target_Config, set frame counter to
+;                 PARALLAX_TRANS_DEFAULT, leave Current_Config alone.
+;                 Parallax_Update uses Target_Config to compute band
+;                 targets while the per-band scroll lerp (>>PARALLAX_LERP_SHIFT)
+;                 naturally eases current toward those values. When the
+;                 counter hits 0, Current = Target (handled in Update).
+;   1           = instant: swap Current_Config immediately.
+;
+; In either branch the VDP $0B (Mode Set 3) shadow updates to the NEW
+; config's mode bits — the buffer is built from the new config from this
+; frame onward, so the register must match for correct rendering.
 ;
 ; In:  a0 = new parallax_config* (NULL = inherit, no-op)
-; Out: Parallax_Current_Config swapped; transition state cleared;
-;      VDP shadow reg $0B (Mode Set 3) updated for new H-/V-scroll modes.
+; Out: transition state set up; mode_set_3 shadow updated.
 ; Clobbers: d0, d1
 ; ----------------------------------------------------------------------
 Parallax_StartTransition:
         cmpa.w  #0, a0
         beq.w   .no_change                          ; null → inherit, no-op
         cmpa.l  (Parallax_Current_Config).w, a0
-        beq.w   .no_change                          ; same config → no-op
+        beq.w   .no_change                          ; matches current → no-op
+        cmpa.l  (Parallax_Target_Config).w, a0
+        beq.w   .no_change                          ; already transitioning to this → no-op
 
+        ; -- pick transition mode from the new config's pcfg_transition flag --
+        tst.b   parallax_config_pcfg_transition(a0)
+        bne.s   .instant
+
+        ; -- smooth: stage target, leave current_config intact --
+        move.l  a0, (Parallax_Target_Config).w
+        move.b  #PARALLAX_TRANS_DEFAULT, (Parallax_Transition_Frames).w
+        bra.s   .update_mode
+
+.instant:
+        ; -- instant: swap current immediately, clear target --
         move.l  a0, (Parallax_Current_Config).w
         move.l  #0, (Parallax_Target_Config).w
         move.b  #0, (Parallax_Transition_Frames).w
 
-        ; --- VDP reg $0B Mode Set 3 update ---
+.update_mode:
+        ; --- VDP reg $0B Mode Set 3 update from the NEW config ---
         ;   bits 1:0 = HScroll mode: %10 per-cell, %11 per-line
         ;   bit 2    = VScroll mode: 0 whole-plane, 1 per-column
         moveq   #%10, d0                            ; default per-cell HScroll
@@ -134,10 +159,30 @@ Vscroll_Write:
 ; Clobbers: d0-d7, a0-a4
 ; ----------------------------------------------------------------------
 Parallax_Update:
-        ; Validate Parallax_Current_Config: 0 = inert; otherwise must be in
-        ; ROM range (< $400000 = 4MB). Defensive against the deferred-work
-        ; intermittent clobber that produces garbage like $FF71FF71.
+        ; --- Step 1: select active config for this frame ---
+        ; During a smooth transition (Parallax_Transition_Frames > 0) drive
+        ; band targets from Target_Config; the per-band scroll lerp eases
+        ; current_scroll values toward those across PARALLAX_TRANS_DEFAULT
+        ; frames. When the counter hits 0, promote target → current and
+        ; clear target. Outside transitions, use Current_Config as before.
+        tst.b   (Parallax_Transition_Frames).w
+        beq.s   .use_current
+        subq.b  #1, (Parallax_Transition_Frames).w
+        bne.s   .use_target
+        ; counter just hit 0 → promote target into current, clear target
+        move.l  (Parallax_Target_Config).w, d0
+        move.l  d0, (Parallax_Current_Config).w
+        move.l  #0, (Parallax_Target_Config).w
+        bra.s   .config_resolved
+.use_target:
+        move.l  (Parallax_Target_Config).w, d0
+        bra.s   .config_resolved
+.use_current:
         move.l  (Parallax_Current_Config).w, d0
+.config_resolved:
+        ; Validate config: 0 = inert; otherwise must be in ROM range
+        ; (< $400000 = 4MB). Defensive against the deferred-work intermittent
+        ; clobber that produces garbage like $FF71FF71.
         beq.w   .no_config
         cmpi.l  #$00400000, d0
         bhs.w   .no_config                          ; outside ROM = garbage
@@ -162,25 +207,43 @@ Parallax_Update:
         moveq   #0, d3                              ; d3 = previous-band current_a (for inheritance)
         moveq   #0, d4                              ; d4 = previous-band current_b
 
+        ; If Parallax_Snap_Pending is set (post-teleport), the band loop
+        ; below writes target_scroll directly to current_scroll instead of
+        ; lerping — avoids the visible "scroll catch-up" when Camera_X
+        ; jumps SECTION_SHIFT pixels at teleport. Flag is cleared at the
+        ; end of the band loop, one-shot per teleport.
+
 .band_loop:
         btst    d5, d6
         beq.s   .band_disabled
 
-        ; -- factor_a: target into d2, lerp into current --
+        ; -- factor_a: target into d2, lerp/snap into current --
         bsr.w   Decode_Factor_A                     ; out: d2 = -decode(camX, factor_a)
+        tst.b   (Parallax_Snap_Pending).w
+        bne.s   .snap_a
         move.w  (a2), d1                            ; current_a
         sub.w   d1, d2                              ; delta = target - current
         asr.w   #PARALLAX_LERP_SHIFT, d2
-        add.w   d2, d1                              ; current_a += delta >> 3
+        add.w   d2, d1                              ; current_a += delta >> shift
+        bra.s   .write_a
+.snap_a:
+        move.w  d2, d1                              ; snap: current_a = target
+.write_a:
         move.w  d1, (a2)
         move.w  d1, d3                              ; remember for inheritance
 
         ; -- factor_b --
         bsr.w   Decode_Factor_B                     ; out: d2 = -decode(camX, factor_b)
+        tst.b   (Parallax_Snap_Pending).w
+        bne.s   .snap_b
         move.w  (a3), d1
         sub.w   d1, d2
         asr.w   #PARALLAX_LERP_SHIFT, d2
         add.w   d2, d1
+        bra.s   .write_b
+.snap_b:
+        move.w  d2, d1                              ; snap: current_b = target
+.write_b:
         move.w  d1, (a3)
         move.w  d1, d4
         bra.s   .band_done
@@ -197,6 +260,9 @@ Parallax_Update:
         addq.w  #1, d5
         cmp.w   d7, d5
         blo.s   .band_loop
+
+        ; clear Snap_Pending flag — one-shot, consumed by this Update
+        clr.b   (Parallax_Snap_Pending).w
 
         ; --- Step 4: fill HScroll buffer (mode auto-selected from config) ---
         ;   mode_per_line if either H-deform table is non-NULL.

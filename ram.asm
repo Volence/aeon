@@ -119,7 +119,8 @@ Parallax_Current_Vscroll_BG: ds.w 1
 Parallax_Current_Config:     ds.l 1     ; ptr to active parallax_config
 Parallax_Target_Config:      ds.l 1     ; ptr to incoming during transition
 Parallax_Transition_Frames:  ds.b 1     ; frames remaining; 0 = stable
-Parallax_Pad:                ds.b 3
+Parallax_Snap_Pending:       ds.b 1     ; 1 = next Update writes target_scroll directly to current (skip lerp)
+Parallax_Pad:                ds.b 2
 Parallax_Vscroll_Column_Buf: ds.b 80    ; 40 VSRAM entries × 2 bytes
 Parallax_State_End:
 

@@ -258,7 +258,13 @@ Section_TeleportFwd:
         bsr.w   Section_GetSlotDef
         bsr.w   BG_RedrawForSection
 
-        ; -- §4.6 T8: snap parallax_config to new slot 0's section --
+        ; -- §4.6 T8: snap parallax_config to new slot 0's section.
+        ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
+        ;    the next Parallax_Update writes target_scroll directly to
+        ;    current_scroll instead of lerping. Otherwise the BG/FG would
+        ;    visibly slide for 16 frames as the lerp catches up to the new
+        ;    camera position. --
+        move.b  #1, (Parallax_Snap_Pending).w
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
@@ -321,7 +327,13 @@ Section_TeleportBwd:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   BG_RedrawForSection
 
-        ; -- §4.6 T8: snap parallax_config to new slot 0's section --
+        ; -- §4.6 T8: snap parallax_config to new slot 0's section.
+        ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
+        ;    the next Parallax_Update writes target_scroll directly to
+        ;    current_scroll instead of lerping. Otherwise the BG/FG would
+        ;    visibly slide for 16 frames as the lerp catches up to the new
+        ;    camera position. --
+        move.b  #1, (Parallax_Snap_Pending).w
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
