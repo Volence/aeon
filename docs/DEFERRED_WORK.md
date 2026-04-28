@@ -220,6 +220,35 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **What:** Tile_Override_Table (16 entries × 6 bytes) is allocated in RAM. Needs a writer (object sets col/row/new_tile) and a drain routine (VInt_DrawLevel emits row updates). Used for breakable tiles, activated switches, destroyed terrain.
 **When ready:** When a gameplay object needs to modify level geometry at runtime.
 
+### Parallax_Current_Config / Camera_Y intermittent clobber (§4.6) — investigation
+**Surfaced during:** §4.6 T12 testing (2026-04-27).
+**Symptom:** During §4.6 T12 v2 debugging, multiple MCP reads showed
+`Parallax_Current_Config = $00000000` and `Camera_Y = 0` even though
+`Parallax_Init` and `Camera_Init` had set them correctly at boot. The
+zeroing wasn't caught by Exodus MCP watchpoints, didn't fire the
+breakpoint at the only `move.l #0, (Camera_Y).w` instruction
+(`object_test_state.asm:34`, never on the OJZ scroll test path), and
+no code path in the OJZ scroll test Update flow writes either field.
+The corruption is intermittent — repeated single-step sessions sometimes
+showed the values intact and Vscroll_Factor lerping correctly.
+**Practical workaround in place:** OJZ parallax configs use
+`vCenter=0, vOffset=0` so even when `Parallax_Current_Vscroll_BG` ends
+up at a wrong negative steady-state value (we observed -59 instead of
+the expected 62), the BG plane stays anchored at the top where the
+nametable is fully populated. With OJZ being X-only-scroll in §4
+Phase 1, this is functionally invisible.
+**When to revisit:** When adding vertical camera scroll (§4 Phase 2+),
+the parallax math depends on Camera_Y being accurate frame-to-frame.
+Suspect candidates to investigate: (a) interrupt-time write through a
+stale or corrupt pointer, (b) movem-out-of-bounds on the supervisor
+stack at $FFFFFEF8 (lots of save/restore traffic in band loop +
+VBlank handler), (c) Exodus MCP watchpoint not actually catching
+writes in this build.
+**Bare-minimum reproduction:** Build current `master`, load in Exodus,
+let it run a few seconds at the OJZ scroll test, MCP-read
+`Parallax_Current_Config` and `Camera_Y` repeatedly. Both should be
+non-zero; intermittently they read zero.
+
 ### ~~OJZ Tile Art Loading — Full Terrain Visibility~~ — DONE 2026-04-26
 **Completed in:** §2 Phase 2 Layer A.1 (tile dedupe + nametable remap)
 **What:** ojz_strip_gen.py now globally dedupes tile data with hflip/vflip canonicalization across all 16 sections and rewrites strip files to reference the new compact index space. The deduped pool (10 tiles for OJZ act 1's current visible 48-row strip band) loads via Level_LoadArt → S4LZ_Decompress → DMA. Strip tile-index ceiling collapsed from 1856 → 9; nametable at VRAM $C000 is no longer at risk of being clobbered.
