@@ -110,6 +110,19 @@ Section_Check:
         move.l  (Camera_X).w, d0
         swap    d0                                 ; d0.w = camera X in pixels
 
+        ; -- landing-flag clear: when camera enters the central safe zone
+        ;    (BWD_PRELOAD < camX < FWD_PRELOAD), clear both landing flags.
+        ;    User must move into the safe zone before the opposite-direction
+        ;    teleport can fire again, preventing idle oscillation at the
+        ;    boundaries (sonic_hack pattern). --
+        cmpi.w  #SECTION_BWD_PRELOAD, d0
+        ble.s   .skip_landing_clear
+        cmpi.w  #SECTION_FWD_PRELOAD, d0
+        bge.s   .skip_landing_clear
+        bclr    #SPF_FWD_LANDING, (Section_Preload_Flags).w
+        bclr    #SPF_BWD_LANDING, (Section_Preload_Flags).w
+.skip_landing_clear:
+
         ; -- preload triggers (§2 A.4) — fire BEFORE teleport thresholds --
         cmpi.w  #SECTION_FWD_PRELOAD, d0
         bge.s   .fwd_preload_check
@@ -188,6 +201,11 @@ Section_Check:
         ; skip BWD if slot 0 already at leftmost section (sec_x = 0)
         tst.b   (Slot_Section_Map).w
         beq.s   .skip
+        ; skip BWD if SPF_FWD_LANDING is set — camera just teleported
+        ; forward and would oscillate. Flag clears when camera enters the
+        ; central safe zone via .skip_landing_clear above.
+        btst    #SPF_FWD_LANDING, (Section_Preload_Flags).w
+        bne.s   .skip
         bra.w   Section_TeleportBwd
 
 .fwd_check:
@@ -197,6 +215,9 @@ Section_Check:
         addq.b  #1, d0
         cmp.b   Act_grid_w+1(a0), d0     ; grid_w is a word; low byte at +1
         bge.s   .skip
+        ; skip FWD if SPF_BWD_LANDING is set — symmetric to .bwd_check above.
+        btst    #SPF_BWD_LANDING, (Section_Preload_Flags).w
+        bne.s   .skip
         bra.w   Section_TeleportFwd
 
 .skip:  rts
@@ -234,6 +255,9 @@ Section_TeleportFwd:
 
         ; -- A.4: clear FWD-preload flag so the next preload past the threshold can fire --
         bclr    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
+        ; -- landing flag: suppress BWD teleport until camera enters safe zone --
+        bset    #SPF_FWD_LANDING,  (Section_Preload_Flags).w
+        bclr    #SPF_BWD_LANDING,  (Section_Preload_Flags).w
 
         ; -- promote new slot 1 section's state to RESIDENT (DMA assumed drained).
         ;    If state is still IDLE (preload didn't fire — cold camera write),
@@ -322,6 +346,9 @@ Section_TeleportBwd:
 
         ; -- A.4: clear BWD-preload flag --
         bclr    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
+        ; -- landing flag: suppress FWD teleport until camera enters safe zone --
+        bset    #SPF_BWD_LANDING,  (Section_Preload_Flags).w
+        bclr    #SPF_FWD_LANDING,  (Section_Preload_Flags).w
 
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
