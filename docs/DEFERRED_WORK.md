@@ -220,6 +220,50 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **What:** Tile_Override_Table (16 entries × 6 bytes) is allocated in RAM. Needs a writer (object sets col/row/new_tile) and a drain routine (VInt_DrawLevel emits row updates). Used for breakable tiles, activated switches, destroyed terrain.
 **When ready:** When a gameplay object needs to modify level geometry at runtime.
 
+### §4.6 visual artifacts blocked on root-cause of state clobber
+
+**Surfaced during:** §4.6 T12 testing, expanded in T12 polish session 2026-04-27.
+
+Three known visual artifacts in the OJZ scroll test that all derive from
+the same upstream state-corruption issue tracked below:
+
+1. **3-line race on load.** Top scanlines lerp from VSRAM=0 to their
+   converged target over the first half-second. Snap-on-init
+   (32-iter convergence loop in `Parallax_Init`) was added but didn't
+   eliminate the visible race. MCP runtime read of
+   `Parallax_Current_Scroll_B` after Init shows entries [0]=-542, [1]=-551,
+   [2..7]=-608 instead of the expected per-band targets (-76, -152, -228,
+   -304, -608). The lerp accumulators are converging toward a *different*
+   target than the math would predict — points to either a register
+   clobber inside `Parallax_Update` or stale state from a stalled iter.
+
+2. **FG appears H-deformed during section transitions.** When entering
+   Sec2 (or otherwise crossing a section boundary), Plane A tiles show
+   sine-wave horizontal offsets, even though `pcfg_deform_table_fg=NULL`
+   for every shipped config. Possibly a section-streaming race where
+   Plane A nametable updates land mid-deform-frame, or a residual
+   per-line FG entry left in `Hscroll_Buffer` from a previous config.
+
+3. **BG warps on its own when stationary.** With camera stopped, the
+   BG plane keeps animating despite `Parallax_Deform_Phase_FG/BG`
+   *never being incremented* by any code path (verified via grep of
+   `s4.lst`). The animation source is unidentified — possibly the
+   per-line H-deform sample reading garbage past the buffer when
+   per-cell DMA mode is active but per-line fill ran.
+
+**Current state:** Workarounds in place make the system not crash and
+mostly render correctly. Multi-band horizontal parallax works, sine
+deform on clouds is visible, per-section configs resolve. The artifacts
+above are polish issues that compound on top of the upstream clobber
+documented below; trying to patch them individually keeps producing
+new failure modes.
+
+**When to revisit:** When the upstream `Parallax_Current_Config` /
+`Camera_Y` clobber (below) is root-caused and fixed, re-test all three
+artifacts. If they persist, debug separately with the upstream noise gone.
+
+---
+
 ### Parallax_Current_Config / Camera_Y intermittent clobber (§4.6) — investigation
 **Surfaced during:** §4.6 T12 testing (2026-04-27).
 **Symptom:** During §4.6 T12 v2 debugging, multiple MCP reads showed
