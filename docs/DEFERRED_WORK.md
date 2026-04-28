@@ -234,6 +234,49 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **Post-fix verification:** chunk 0x3f now references blocks 272-302 (all 4/4 non-zero, real ground data). Block count: 374 (was 2002 garbage). Tile art: 919 tiles (was 322 truncated). 141 unique source tile indices in OJZ act 1 sec0 strips (was 14). With this fix + a related palette-line-1 offset fix in the test state (sonic_hack's `palptr Pal_OJZ, 1` means OJZ palette occupies CRAM lines 1-3, not 0-2), the OJZ scroll test now renders actual OJZ art with correct green palette. Verified via Exodus Plane A viewer.
 **Bonus learning:** Investigation revealed I had been over-confidently calling sparse-pixel screenshots "clean rendering" through A.1-A.3 verification. Honest visual ground truth (level editor screenshots from the user) was what surfaced the bug. Process lesson saved as a memory.
 
+## From Sound Driver Work (Future)
+
+### Defensive Z80 RAM Upload — Verify-and-Retry
+**Surfaced during:** Ristar disassembly deep-dive (2026-04-27). Source:
+`ristar_disasm/code/disasm.asm` lines 8330–8350 (`$641A` upload routine);
+analysis in `ristar_disasm/ANALYSIS.md` § "Sound architecture (CONFIRMED)".
+**Blocked by:** Flamedriver design / sound driver implementation.
+**What:** Ristar's Z80 RAM upload routine writes each byte, **reads it
+back to verify**, retries up to 16 times on mismatch before giving up.
+Most Genesis games trust the write; Ristar's team apparently saw
+intermittent bus-contention failures and added the retry loop. The
+relevant pattern (paraphrased):
+
+```asm
+; In: a0 = src, a1 = z80_dst, d0 = byte count - 1
+upload_loop:
+    move.b  (a0)+, d1               ; load src byte
+    moveq   #15, d3                 ; retry counter
+.retry:
+    move.b  d1, (a1)                ; write to z80 ram
+    cmp.b   (a1), d1                ; verify
+    beq.s   .ok                     ; matches → next byte
+    dbra    d3, .retry              ; mismatch → retry
+    bra.s   .abort                  ; give up after 16 tries
+.ok:
+    addq.w  #1, a1
+    dbra    d0, upload_loop
+```
+
+**When ready:** When we implement Flamedriver upload (`engine/z80_init.asm`
+or wherever the driver-bytes copy lives). Wrap each Z80 byte write with
+the read-back-verify retry loop. ~30 extra lines of asm.
+**Why bother:** Cheap insurance against a real-but-rare bug class. Most
+runs will hit `.ok` on the first try; the retry only fires when the bus
+is contended (probably never on most hardware revisions, but the cost is
+~zero when it doesn't fire). Catches write-loss before it manifests as
+silent driver failure or audio glitches that are nearly impossible to
+debug after the fact.
+**See:** `ristar_disasm/ANALYSIS.md`, `ristar_disasm/code/disasm.asm`
+lines ~8330–8350.
+
+---
+
 ## How to Use This Document
 
 When starting a new planning phase:
