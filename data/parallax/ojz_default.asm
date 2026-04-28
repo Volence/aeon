@@ -6,7 +6,7 @@
 ; Plane B bands graduate from 1/8 (clouds, slowest) to 1 (ground, FG-sync).
 
 ParallaxConfig_OJZ_Default:
-    parallax_section layerMask=$1F, vFactorBg=3, vCenter=496, vOffset=16
+    parallax_section layerMask=$1F, vFactorBg=3, vCenter=128, vOffset=0
         band 0,  FACTOR_1, FACTOR_1_8       ; rows 0-3   clouds
         band 4,  FACTOR_1, FACTOR_1_4       ; rows 4-9   far mountains
         band 10, FACTOR_1, FACTOR_3_8       ; rows 10-13 mid mountains
@@ -22,7 +22,7 @@ DeformTable_OJZ_Floor:
     v_column_perspective FOCAL=20, maxOffset=16
 
 ParallaxConfig_OJZ_Floor:
-    parallax_section layerMask=$1F, vFactorBg=3, vCenter=496, vOffset=16, \
+    parallax_section layerMask=$1F, vFactorBg=3, vCenter=128, vOffset=0, \
                      vDeformBg=DeformTable_OJZ_Floor, vDeformSpeedBg=0, vDeformShiftBg=0
         band 0,  FACTOR_1, FACTOR_1_8
         band 4,  FACTOR_1, FACTOR_1_4

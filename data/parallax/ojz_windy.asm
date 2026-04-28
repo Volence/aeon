@@ -9,15 +9,15 @@
 ; out of lockstep — gives a more natural "wind moving across the sky" feel
 ; instead of synchronised pulsing.
 
-; Sine table: ±32 px amplitude. Per-band DSB shifts scale this down:
-;   DSB=0 → ±32 px, DSB=1 → ±16, DSB=2 → ±8, DSB=3 → ±4, DSB=15 → no deform.
+; Sine table: ±96 px amplitude. PERIOD=64 → half-cycle across 32-line cloud band
+; (clouds form a ramping "bulge" rather than wavy zigzag).
 DeformTable_OJZ_Calm:
-    deform_table_sine AMPLITUDE=32, PERIOD=128
+    deform_table_sine AMPLITUDE=96, PERIOD=64
 
 ParallaxConfig_OJZ_Windy:
     parallax_section layerMask=$1F, vFactorBg=3, vCenter=128, vOffset=0, \
                      deformBg=DeformTable_OJZ_Calm, deformSpeedBg=1
-        ; clouds — full amplitude (±32 px), phase 0
+        ; clouds — full amplitude (±96 px), phase 0
 BAND_PHASE := 0
 BAND_DSB := 0
         band 0,  FACTOR_1, FACTOR_1_8
