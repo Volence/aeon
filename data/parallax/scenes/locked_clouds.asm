@@ -21,7 +21,7 @@
 
 ParallaxConfig_OJZ_LockedClouds:
     parallax_section layerMask=$1E, vFactorBg=15, vCenter=0, vOffset=0, \
-                     transition=1, deformBg=DeformTable_Zero
+                     transition=1
         band 0,  FACTOR_1, FACTOR_1_8       ; rows 0-3   DISABLED → inherits 0 → locked
         band 4,  FACTOR_1, FACTOR_1_4       ; rows 4-9   far mountains
         band 10, FACTOR_1, FACTOR_3_8       ; rows 10-13 mid mountains

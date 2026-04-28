@@ -432,31 +432,20 @@ The `OJZScroll_Update` per-frame logic writes a section-id-keyed color into `Pal
 
 **When to revisit:** when integrating player physics (§3 spec). Restore `SECTION_SHIFT = $1000` at the same time so post-teleport camera lands exactly at the boundary, and the landing flag handles the rest. Until then, the `$0FFF` nudge is a clean equivalent for the camera-driven test setup.
 
-### VDP register $0B (mode_set_3) propagation bug — workaround in place (§4.6)
-**Surfaced during:** §4.6 polish session 2026-04-28.
+### ~~VDP register $0B (mode_set_3) propagation bug~~ — RESOLVED 2026-04-28 (likely misdiagnosis)
+**Original symptom claim:** when no-deform configs auto-selected per-cell mode and shadow[11] was set to $02, the VDP register supposedly stayed at $03 (per-line), causing a "pink bar at top" plus stuck lower scanlines. Workaround: force per-line pipeline always via a `DeformTable_Zero` shim referenced from `pcfg_deform_table_bg`.
 
-**Symptom:** When `pcfg_deform_table_fg` and `pcfg_deform_table_bg` are both NULL (e.g. ParallaxConfig_OJZ_Default), the parallax pipeline auto-selects per-cell HScroll mode: `Parallax_Fill_PerCell` writes 28 longwords, the per-cell static DMA enqueues 112 bytes, `setVDPReg vdp_mode3 = $02` marks shadow dirty, and Flush_VDP_Shadow writes $8B02 to VDP_CTRL on every VBlank. Visually we expected per-cell HScroll: all 28 cell rows scroll uniformly with the same `-Camera_X`. We observed instead per-line behavior: only scanlines 0-27 (the top 28 px = 3.5 cell rows) scrolled correctly, lines 28-223 stayed pinned to plane col 0.
+**Re-investigation (2026-04-28, post-§4.6 cleanup branch):** removed the workaround from all configs and re-tested. With `Camera_X = $0500` in Sec0 (Caves config, no H-deform tables, mode = $02 per-cell expected):
+- Visual: clean — no pink bar, no stuck lower scanlines, all 28 cell rows scroll uniformly with `-Camera_X`.
+- Hscroll_Buffer in RAM: 28 valid entries + zeros at 28+ (per-cell pattern). Confirmed.
+- Shadow `vdp_mode3` (offset 11) = $02. Confirmed.
+- Direct test: patched VRAM HSCROLL_TABLE entries 28-223 with garbage values via `mcp__exodus__emulator_write_vram`. Screen unchanged. → VDP register $0B is genuinely $02 (per-cell), reading only entries 0-27.
 
-**Empirical proof of per-line state:** Patching VRAM HSCROLL_TABLE entries 28-223 directly with proper PA values via `mcp__exodus__emulator_write_vram` made the entire screen scroll correctly. This is only possible if VDP register $0B has bits 1:0 = %11 (per-line). VDP shadow byte at offset 11 reads $02 and dirty bit 11 stays set, but the visual proves register $0B is $03.
+**What the original "bug" actually was, in retrospect:** the "pink bar at top" was the V-anchor + Camera_Y issue we definitively root-caused at the end of T15 — non-lock `vFactorBg` made FG plane V-scroll equal `Camera_Y = $1F0`, exposing plane A's sprite-table-overlapped rows ($D800+) as pink-tinted garbage tiles. That bug looked superficially similar to "per-line mode reading zeros at lines 28+" so I conflated them.
 
-**What we tried (all failed):**
-- `setVDPReg vdp_mode3, #$02` every frame in OJZScroll_Update (shadow + dirty path).
-- Direct `move.w #$8B02, (VDP_CTRL).l` with stopZ80 wrap.
-- Adding a state-machine reset (`move.w (VDP_CTRL).l, d1`) before the direct write to clear any half-finished 32-bit address command.
-- None changed the register's per-line behavior.
+**Fix shipped:** `DeformTable_Zero` shim removed from `ParallaxConfig_OJZ_Default`, `ParallaxConfig_OJZ_Caves`, `ParallaxConfig_OJZ_LockedClouds`, and `ParallaxConfig_WaveRocking`. The 256-byte table itself removed from `data/parallax/ojz_default.asm`. Saves ~1500-2000 cycles/frame (per-cell fill + 112-byte DMA instead of per-line 224-fill + 896-byte DMA) on no-H-deform configs. ROM saving: 256 B + small per-config savings.
 
-**Workaround in place (2026-04-28):**
-- `data/parallax/ojz_default.asm` defines `DeformTable_Zero` (256 zero bytes) and adds `deformBg=DeformTable_Zero` to both `ParallaxConfig_OJZ_Default` and `ParallaxConfig_OJZ_Floor`. This forces the entire pipeline (Parallax_Update auto-select, Enqueue_Dirty_Buffers DMA selector, OJZScroll_Update mode_set_3 force) into per-line mode for these no-/V-only-deform configs.
-- Cost: ~1500-2000 extra cycles per frame (224-line fill vs 28), 8× HScroll DMA bandwidth (896 vs 112 bytes), 256 bytes ROM for the zero table. With sample = 0 the deform sampling adds 0 to each line — no visual change.
-- ParallaxConfig_OJZ_Windy was unaffected (it has a real BG H-deform table and was already per-line).
-
-**When to revisit:** When the per-cell mode is needed for performance budget. Investigation should focus on:
-1. Possible interrupt-time VDP_CTRL write that lands between Flush_VDP_Shadow and the next render.
-2. Possible Z80 bus interaction during the shadow flush — the Z80 isn't stopped during Flush_VDP_Shadow's individual `move.w` writes.
-3. Re-examine whether Boot's initial VDP register write loop properly writes $0B = $00 then OJZScroll_Init's setVDPReg path correctly upgrades it to $02 on first VBlank.
-4. Try writing $8B02 to VDP_CTRL in a known-clean place (e.g. immediately after `Flush_VDP_Shadow` returns, with explicit Z80 stop) and observe if behavior changes.
-
-**Bare-minimum reproduction:** Remove `deformBg=DeformTable_Zero` from `ParallaxConfig_OJZ_Default`, build, load OJZ scroll test, scroll right. FG bricks scroll correctly only on top 28 scanlines; rest of the screen shows plane A column 0 stuck.
+**Preserved as a lesson:** when two visual artifacts present similarly, isolate them on independent test cases before designing a workaround. The originally-reported "stuck lower scanlines" was actually the V-anchor pink bar masking the *correct* per-cell behavior.
 
 ### Parallax_Current_Config / Camera_Y intermittent clobber (§4.6) — investigation
 **Surfaced during:** §4.6 T12 testing (2026-04-27).
