@@ -21,19 +21,11 @@ Parallax_Init:
         dbf     d0, .zero
 
         move.l  a0, (Parallax_Current_Config).w
-
-        ; Snap: drive the lerp to convergence so the first visible frame
-        ; shows the correct band scrolls instead of the "race" from 0.
-        ; PARALLAX_LERP_SHIFT=3 → ~32 iterations to zero-error.
-        ; Use d7 as counter (Parallax_Update preserves nothing, so save+restore).
-        move.l  d7, -(sp)
-        moveq   #32-1, d7
-.snap_loop:
-        move.l  d7, -(sp)
-        bsr.w   Parallax_Update
-        move.l  (sp)+, d7
-        dbf     d7, .snap_loop
-        move.l  (sp)+, d7
+        ; Snap loop temporarily removed — was producing nonsensical
+        ; lerp accumulator values when re-running Parallax_Update inline.
+        ; Cause unclear (entries 5-7 of current_scroll arrays getting
+        ; written despite band_count=5; lerp converging to FACTOR_1
+        ; result for all bands). Will debug in dedicated session.
         rts
 
 ; ----------------------------------------------------------------------
