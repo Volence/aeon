@@ -22,6 +22,7 @@ OJZ_Act1_Descriptor:
     dc.w    152                     ; cam_max_y — = (48-28)*8; FG stays within filled rows 0-47, sprite table at row 48+ never exposed
     dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)
     dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles  (§2 A.5 T1 shared BG tile blob)
+    dc.l    ParallaxConfig_OJZ_Default ; act_parallax_config (fallback for sections with NULL config)
     align 2
 
 ; -----------------------------------------------
@@ -33,7 +34,7 @@ OJZ_Sec0:
     dc.l    OJZ_Sec0_Strips_A       ; sec_strips_a
     dc.l    0, 0, 0                 ; sec_objects, sec_rings, sec_plc
     dc.l    OJZ_Palette             ; sec_pal
-    dc.l    ParallaxConfig_OJZ_Caves, 0    ; sec_parallax_config = T15 F4 fixture: slow-BG cave gradient (scenes/caves.asm) — moved to Sec0 for easy testing
+    dc.l    ParallaxConfig_OJZ_Caves, 0    ; sec_parallax_config = T15 F4 fixture: slow-BG cave gradient (scenes/caves.asm)
     dc.l    0                       ; sec_bg_layout (NULL = use Act_act_bg_layout, T1)
     dc.l    0, 0, 0, 0, 0, 0        ; sec_reserved..sec_collision
     dc.w    0, 0                    ; sec_flags, sec_music

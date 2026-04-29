@@ -45,6 +45,34 @@ GameState_OJZScroll_Init:
         ; plane A and Up/Down moves stay within plane rows 0..47.
         clr.l   (Camera_Y).w
 
+        ; -- initialise Player_1 at camera-center position so Camera_Update's
+        ;    deadzone tracking begins at rest (no jolt on first frame).
+        ;    Player_1.x_pos = Camera_X + CAM_SCREEN_HALF_W; same for Y. --
+        move.w  (Camera_X).w, d0                ; high word of camera_x (16.16 → integer pixels)
+        addi.w  #CAM_SCREEN_HALF_W, d0
+        swap    d0
+        clr.w   d0
+        move.l  d0, (Player_1+SST_x_pos).w
+        move.w  (Camera_Y).w, d0
+        addi.w  #CAM_SCREEN_HALF_H, d0
+        swap    d0
+        clr.w   d0
+        move.l  d0, (Player_1+SST_y_pos).w
+        clr.w   (Player_1+SST_x_vel).w
+        clr.w   (Player_1+SST_y_vel).w
+
+        ; -- write a marker tile to VRAM so the player has a visible sprite.
+        ;    Tile 250 ($FA, = byte $1F40) sits between section art (0-225) and
+        ;    the BG region ($500+). 32 bytes of $CC = solid colour-12 8x8 block.
+        stopZ80
+        move.l  #vdpComm($1F40,VRAM,WRITE), (VDP_CTRL).l
+        lea     PlayerMarkerTile(pc), a0
+        moveq   #32/4-1, d0
+.copy_marker:
+        move.l  (a0)+, (VDP_DATA).l
+        dbf     d0, .copy_marker
+        startZ80
+
         ; -- initialise section streaming (fills nametable over 3 VBlanks) --
         lea     OJZ_Act1_Descriptor, a0
         jsr     Section_Init
@@ -59,7 +87,12 @@ GameState_OJZScroll_Init:
         lsl.w   #3, d1                          ; sec_id × 8
         add.w   d1, d0                          ; sec_id × 72 = Sec_len
         adda.w  d0, a1                          ; a1 = start section ptr
-        movea.l Sec_sec_parallax_config(a1), a0 ; a0 = parallax_config* (NULL = inert)
+        movea.l Sec_sec_parallax_config(a1), a0 ; a0 = parallax_config* (NULL = act default)
+        cmpa.w  #0, a0
+        bne.s   .init_have_config
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+.init_have_config:
         jsr     Parallax_Init
 
         ; -- enable display now that VRAM and nametable are populated --
@@ -76,73 +109,59 @@ GameState_OJZScroll_Init:
 ; GameState_OJZScroll_Update — per-frame update
 ; -----------------------------------------------
 GameState_OJZScroll_Update:
-        ; -- direct camera control via controller --
+        ; -- player input drives Player_1 motion; Camera_Update follows. --
         moveq   #0, d0
         move.b  (Ctrl_1_Held).w, d0
 
         btst    #3, d0          ; bit 3 = RIGHT
         beq.s   .check_left
-        addi.l  #6<<16, (Camera_X).w
-        bra.s   .camera_done
+        addi.l  #6<<16, (Player_1+SST_x_pos).w
+        bra.s   .player_x_done
 
 .check_left:
         btst    #2, d0          ; bit 2 = LEFT
-        beq.s   .camera_done
-        subi.l  #6<<16, (Camera_X).w
+        beq.s   .player_x_done
+        subi.l  #6<<16, (Player_1+SST_x_pos).w
 
-.camera_done:
+.player_x_done:
         ; -- vertical input: bits 0/1 of Ctrl_1_Held = UP/DOWN --
         btst    #1, d0          ; bit 1 = DOWN
         beq.s   .check_up
-        addi.l  #6<<16, (Camera_Y).w
-        bra.s   .camera_y_done
+        addi.l  #6<<16, (Player_1+SST_y_pos).w
+        bra.s   .player_y_done
 
 .check_up:
         btst    #0, d0          ; bit 0 = UP
-        beq.s   .camera_y_done
-        subi.l  #6<<16, (Camera_Y).w
+        beq.s   .player_y_done
+        subi.l  #6<<16, (Player_1+SST_y_pos).w
 
-.camera_y_done:
-        ; -- clamp Camera_X to act bounds (prevent BWD teleport at section 0) --
-        movea.l (Current_Act_Ptr).w, a0
-        move.l  (Camera_X).w, d0
-        swap    d0
-        cmp.w   Act_cam_min_x(a0), d0
-        bge.s   .check_max_x
-        move.w  Act_cam_min_x(a0), d0
-        bra.s   .clamp_x
-.check_max_x:
-        cmp.w   Act_cam_max_x(a0), d0
-        ble.s   .clamp_done
-        move.w  Act_cam_max_x(a0), d0
-.clamp_x:
-        swap    d0
-        clr.w   d0
-        move.l  d0, (Camera_X).w
-.clamp_done:
+.player_y_done:
+        ; -- camera follows Player_1 (deadzone + preview-aware clamp) --
+        jsr     Camera_Update
 
-        ; -- clamp Camera_Y to act bounds (a0 still = Current_Act_Ptr) --
-        move.l  (Camera_Y).w, d0
-        swap    d0
-        cmp.w   Act_cam_min_y(a0), d0
-        bge.s   .check_max_y
-        move.w  Act_cam_min_y(a0), d0
-        bra.s   .clamp_y
-.check_max_y:
-        cmp.w   Act_cam_max_y(a0), d0
-        ble.s   .clamp_y_done
-        move.w  Act_cam_max_y(a0), d0
-.clamp_y:
-        swap    d0
-        clr.w   d0
-        move.l  d0, (Camera_Y).w
-.clamp_y_done:
-
-        ; -- section teleport check --
+        ; -- section teleport check (reads Player_1.x_pos via .check entry below) --
         jsr     Section_Check
 
         ; -- per-column nametable streaming --
         jsr     Section_UpdateColumns
+
+        ; -- write marker sprite at Player_1's screen position. Sprite slot 0,
+        ;    link = 0 (terminate list). Tile 300 = solid colour-15 8x8 block,
+        ;    palette 1 (OJZ palette), priority 1 (renders on top of plane B). --
+        move.w  (Player_1+SST_x_pos).w, d0     ; engine-pixel X
+        sub.w   (Camera_X).w, d0               ; screen X = player - camera
+        addi.w  #128, d0                       ; sprite X = screen + 128
+        move.w  (Player_1+SST_y_pos).w, d1
+        sub.w   (Camera_Y).w, d1
+        addi.w  #128, d1                       ; sprite Y = screen + 128
+
+        lea     (Sprite_Table_Buffer).w, a0
+        move.w  d1, (a0)+                      ; Y position
+        move.b  #$00, (a0)+                    ; size (0 = 8x8)
+        move.b  #$00, (a0)+                    ; link = 0 (terminate)
+        move.w  #$A0FA, (a0)+                  ; tile $FA = 250 (= byte $1F40), pal 1, priority 1
+        move.w  d0, (a0)+                      ; X position
+        move.b  #1, (Sprite_Table_Dirty).w
 
         ; -- §4.6 T14: parallax follows ACTIVE slot, not just slot 0.
         ;    Compute which slot the camera is currently inside (slot 0 if
@@ -152,6 +171,9 @@ GameState_OJZScroll_Update:
         ;    already matches) so per-frame calls cost ~1 register read +
         ;    a comparison branch when nothing has changed. When the user
         ;    crosses the slot boundary, the smooth lerp begins.
+        ;    Skip when snap is pending — teleport already set the correct config.
+        tst.b   (Parallax_Snap_Pending).w
+        bne.s   .skip_t14
         move.l  (Camera_X).w, d0
         swap    d0                              ; d0.w = Camera_X high word
         moveq   #0, d2                          ; assume slot 0
@@ -171,7 +193,13 @@ GameState_OJZScroll_Update:
         add.w   d1, d0                          ; sec_id × 72 = Sec_len
         adda.w  d0, a1                          ; a1 = active sec entry
         movea.l Sec_sec_parallax_config(a1), a0 ; a0 = active config
+        cmpa.w  #0, a0
+        bne.s   .t14_have_config
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+.t14_have_config:
         jsr     Parallax_StartTransition
+.skip_t14:
 
         ; -- T15 diagnostic: per-section sky-color marker --
         ; Re-derive active slot section_id, look up a tint color, write to
@@ -261,3 +289,13 @@ OJZ_SectionMarkerColors:
         dc.w    $0EE0           ; Sec6: cyan
         dc.w    $0888           ; Sec7: gray
         dc.w    $0EEE           ; Sec8: white
+
+; -----------------------------------------------
+; PlayerMarkerTile — 8×8 tile, all pixels colour 12 (4bpp, 32 bytes).
+; Pal 1 entry 12 = $00EE = bright yellow (vs entry 15 = sky-blue, invisible
+; against the OJZ sky). DMA'd to VRAM tile 250 ($1F40) at level init —
+; matches the $A0FA art_tile in the sprite write.
+; -----------------------------------------------
+PlayerMarkerTile:
+        dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
+        dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC

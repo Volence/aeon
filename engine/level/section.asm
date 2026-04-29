@@ -34,6 +34,41 @@ Section_Init:
         ; -- clear teleport guard + preload flags --
         move.w  #0, (Section_Preload_Flags).w
 
+        ; -- §4.2: cache neighbor strip pointers for streaming-integrated preview --
+        ; BWD: slot 0 sec_x - 1 (none at level start if start_sec_x = 0)
+        movem.l d0-d3/a0-a2, -(sp)
+        lea     (Slot_Section_Map).w, a1
+        moveq   #0, d2
+        move.b  (a1), d2
+        subq.b  #1, d2
+        bmi.s   .init_no_bwd
+        moveq   #0, d3
+        move.b  1(a1), d3
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .init_no_bwd
+        move.l  Sec_sec_strips_a(a0), (Section_Bwd_Neighbor_Strips).w
+        bra.s   .init_bwd_done
+.init_no_bwd:
+        clr.l   (Section_Bwd_Neighbor_Strips).w
+.init_bwd_done:
+        ; FWD: slot 1 sec_x + 1
+        lea     (Slot_Section_Map).w, a1
+        moveq   #0, d2
+        move.b  2(a1), d2
+        addq.b  #1, d2
+        moveq   #0, d3
+        move.b  3(a1), d3
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .init_no_fwd
+        move.l  Sec_sec_strips_a(a0), (Section_Fwd_Neighbor_Strips).w
+        bra.s   .init_fwd_done
+.init_no_fwd:
+        clr.l   (Section_Fwd_Neighbor_Strips).w
+.init_fwd_done:
+        movem.l (sp)+, d0-d3/a0-a2
+
         ; -- fill nametable from both slots --
         bsr.w   Section_FillInitial
 
@@ -94,6 +129,31 @@ Section_GetSlotDef:
         bra.w   Section_GetSlotDef
 
 ; -----------------------------------------------
+; Section_GetSecPtrXY — Sec ptr lookup by grid coordinates (§4.2).
+; In:  d2.b = sec_x, d3.b = sec_y (unused — 1-row grid only), a2 = Act ptr
+; Out: a0 = Sec ptr; Z clear if found, Z set if out of range (a0 = 0)
+; Clobbers: d0, d1
+; Note: Phase 1 single-row layout (grid_h = 1). Multi-row deferred.
+; -----------------------------------------------
+Section_GetSecPtrXY:
+        cmp.b   Act_grid_w+1(a2), d2
+        bcc.s   .out_of_range                       ; sec_x >= grid_w (unsigned)
+        moveq   #0, d0
+        move.b  d2, d0
+        movea.l Act_sec_grid_ptr(a2), a0
+        move.w  d0, d1
+        lsl.w   #6, d0                              ; sec_x × 64
+        lsl.w   #3, d1                              ; sec_x × 8
+        add.w   d1, d0                              ; sec_x × 72 = Sec_len
+        adda.w  d0, a0
+        moveq   #1, d0                              ; Z clear (success)
+        rts
+.out_of_range:
+        suba.l  a0, a0                              ; a0 = 0
+        moveq   #0, d0                              ; Z set (not found)
+        rts
+
+; -----------------------------------------------
 ; Section_Check — per-frame teleport threshold check (horizontal)
 ; Call from game loop each frame.
 ; In:  none
@@ -103,12 +163,43 @@ Section_GetSlotDef:
 Section_Check:
         tst.b   (Section_Teleport_Guard).w
         beq.s   .check
-        subq.b  #1, (Section_Teleport_Guard).w
+        ; Guard active — hold only while player sits exactly on a threshold
+        move.l  (Player_1+SST_x_pos).w, d0
+        swap    d0
+        cmpi.w  #SECTION_FWD_THRESHOLD, d0
+        beq.s   .guard_hold
+        cmpi.w  #SECTION_BWD_THRESHOLD, d0
+        beq.s   .guard_hold
+        clr.b   (Section_Teleport_Guard).w
+.guard_hold:
         rts
 
 .check:
-        move.l  (Camera_X).w, d0
-        swap    d0                                 ; d0.w = camera X in pixels
+        ; -- §4.2: thresholds keyed off Player_1's x_pos (not Camera_X) so
+        ;    teleport fires when the CHARACTER crosses the boundary, not when
+        ;    the camera does. Camera lags player by deadzone; if we used
+        ;    camera_x, teleport would fire ~16 px after the player visually
+        ;    crossed the line. --
+        move.l  (Player_1+SST_x_pos).w, d0
+        swap    d0                                 ; d0.w = player engine X
+
+        ; -- §4.2 deferred cold-loads — fire when camera passes mid-traversal
+        ;    threshold of new pair's first section. Independent of camera
+        ;    direction; gated by both range and pending flag. --
+        btst    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
+        beq.s   .skip_deferred_fwd
+        cmpi.w  #SECTION_DEFERRED_FWD_LOAD, d0
+        blt.s   .skip_deferred_fwd
+        bsr.w   .deferred_fwd_load
+        bclr    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
+.skip_deferred_fwd:
+        btst    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
+        beq.s   .skip_deferred_bwd
+        cmpi.w  #SECTION_DEFERRED_BWD_LOAD, d0
+        bgt.s   .skip_deferred_bwd
+        bsr.w   .deferred_bwd_load
+        bclr    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
+.skip_deferred_bwd:
 
         ; -- preload triggers (§2 A.4) — fire BEFORE teleport thresholds --
         cmpi.w  #SECTION_FWD_PRELOAD, d0
@@ -132,14 +223,15 @@ Section_Check:
 
 .threshold_check:
         ; -- preload_{fwd,bwd} above clobber d0 (build a Sec offset). Reload
-        ;    Camera_X high word so the threshold compares aren't reading stale
-        ;    register state from the preload path. --
-        move.l  (Camera_X).w, d0
+        ;    Player_1.x_pos high word so the threshold compares aren't reading
+        ;    stale register state from the preload path. (§4.2: keyed off
+        ;    player position, not camera — see .check entry comment.) --
+        move.l  (Player_1+SST_x_pos).w, d0
         swap    d0
         cmpi.w  #SECTION_FWD_THRESHOLD, d0
-        bge.s   .fwd_check
+        bge.w   .fwd_check
         cmpi.w  #SECTION_BWD_THRESHOLD, d0
-        ble.s   .bwd_check
+        ble.w   .bwd_check
         rts
 
 .preload_fwd:
@@ -184,6 +276,36 @@ Section_Check:
         movea.l a4, a0
         bra.w   Section_StreamArtGroup
 
+; -----------------------------------------------
+; §4.2 deferred cold-load routines — invoked from .check when the deferred
+; flag is set AND camera has reached the mid-traversal threshold.
+;
+; .deferred_fwd_load: fires at SECTION_DEFERRED_FWD_LOAD ($0600) post-FWD-teleport.
+;                     Streams slot 1's section into VRAM. By this point camera
+;                     has moved past the BWD-preview-visible window.
+;
+; .deferred_bwd_load: mirror for BWD-teleport, fires at $0C00.
+; -----------------------------------------------
+.deferred_fwd_load:
+        clr.l   (Section_Bwd_Neighbor_Strips).w     ; old art about to be overwritten
+        moveq   #SLOT_RIGHT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 1
+        moveq   #0, d6
+        move.b  (Slot_Section_Map+2).w, d6          ; slot 1 flat section_id
+        movea.l a0, a4                              ; Section_StreamArtGroup convention
+        bra.w   Section_StreamArtGroup
+
+.deferred_bwd_load:
+        clr.l   (Section_Fwd_Neighbor_Strips).w     ; old art about to be overwritten
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 0
+        moveq   #0, d6
+        move.b  (Slot_Section_Map).w, d6            ; slot 0 flat section_id
+        movea.l a0, a4
+        bra.w   Section_StreamArtGroup
+
 .bwd_check:
         ; skip BWD if slot 0 already at leftmost section (sec_x = 0)
         tst.b   (Slot_Section_Map).w
@@ -211,6 +333,11 @@ Section_TeleportFwd:
         subi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_X).w
 
+        ; -- §4.2: player teleports with camera. Without this shift Player_1
+        ;    stays at its old world X while camera rewinds, putting the
+        ;    player off-screen. Same SECTION_SHIFT applies. --
+        subi.l  #SECTION_SHIFT<<16, (Player_1+SST_x_pos).w
+
         ; -- block-style rotation: advance pair index by 1 = both slots advance
         ;    by 2 sections. New slot 0 takes the section that was preloaded
         ;    into slot 0 during slot 1 traversal (= old slot 1 + 1). New
@@ -226,18 +353,53 @@ Section_TeleportFwd:
         move.b  d0, 2(a0)
         ; sec_y unchanged
 
-        ; -- reset column tracking so streaming refills the visible window --
+        ; -- §4.2: cache neighbor strip pointers for streaming-integrated preview --
+        movem.l d0-d3/a0-a2, -(sp)
+        ; BWD neighbor = new slot 0's sec_x - 1
+        lea     (Slot_Section_Map).w, a0
+        moveq   #0, d2
+        move.b  (a0), d2
+        subq.b  #1, d2
+        bmi.s   .no_bwd_fwd
+        moveq   #0, d3
+        move.b  1(a0), d3
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .no_bwd_fwd
+        move.l  Sec_sec_strips_a(a0), (Section_Bwd_Neighbor_Strips).w
+        bra.s   .bwd_fwd_done
+.no_bwd_fwd:
+        clr.l   (Section_Bwd_Neighbor_Strips).w
+.bwd_fwd_done:
+        ; FWD neighbor = new slot 1's sec_x + 1
+        lea     (Slot_Section_Map).w, a0
+        moveq   #0, d2
+        move.b  2(a0), d2
+        addq.b  #1, d2
+        moveq   #0, d3
+        move.b  3(a0), d3
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .no_fwd_fwd
+        move.l  Sec_sec_strips_a(a0), (Section_Fwd_Neighbor_Strips).w
+        bra.s   .fwd_fwd_done
+.no_fwd_fwd:
+        clr.l   (Section_Fwd_Neighbor_Strips).w
+.fwd_fwd_done:
+        movem.l (sp)+, d0-d3/a0-a2
+
+        ; -- reset column tracking; extend left to cover BWD preview zone --
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
-        move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
+        move.w  #SLOT_ORIGIN_L/8 - PREVIEW_COLS, (Section_Left_Col_Written).w
 
-        move.b  #30, (Section_Teleport_Guard).w
+        st      (Section_Teleport_Guard).w
 
-        ; -- A.4: clear FWD-preload flag so the next preload past the threshold can fire --
-        bclr    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
+        ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
+        clr.b   (Section_Preload_Flags).w
 
-        ; -- promote new slot 1 section's state to RESIDENT (DMA assumed drained).
-        ;    If state is still IDLE (preload didn't fire — cold camera write),
-        ;    fall back to blocking Section_LoadArt.
+        ; -- promote new slot 1 section's state to RESIDENT if already streaming.
+        ;    If SS_IDLE, defer the load to SECTION_DEFERRED_FWD_LOAD ($0600) so
+        ;    slot 1 retains the just-left section's art for BWD preview validity. --
         moveq   #SLOT_RIGHT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 1
@@ -246,35 +408,40 @@ Section_TeleportFwd:
         lea     (Section_Stream_State).w, a1
         move.b  (a1, d6.w), d0
         cmpi.b  #SS_IDLE, d0
-        beq.s   .fwd_cold_load
-        ; STREAMING or RESIDENT → just mark RESIDENT
-        move.b  #SS_RESIDENT, (a1, d6.w)
+        bne.s   .fwd_mark_resident
+        ; -- §4.2 deferred cold-load — slot 1 keeps just-left art; load fires at $0600 --
+        bset    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
         bra.s   .fwd_redraw_bg
-.fwd_cold_load:
-        move.l  a0, -(sp)                           ; preserve Sec ptr across LoadArt
-        bsr.w   Section_LoadArt
-        movea.l (sp)+, a0
+.fwd_mark_resident:
+        move.b  #SS_RESIDENT, (a1, d6.w)
 .fwd_redraw_bg:
-        ; -- §2 A.5 T2: redraw Plane B based on NEW slot 0 (= section we just
-        ;    stepped into and is now visible). Slot 1 is the new off-screen
-        ;    section; its BG isn't yet on-screen so no need to redraw to it. --
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        bsr.w   BG_RedrawForSection
+        ; -- §4.2: mark plane dirty for next-frame full atomic redraw.
+        ;    Section_UpdateColumns picks this up and calls Section_RedrawPlanes,
+        ;    rewriting both planes' nametables in one pass (matches sonic_hack
+        ;    Dirty_flag → Draw_All pattern). Replaces the old per-teleport
+        ;    BG_RedrawForSection burst.
+        st      (Section_Plane_Dirty).w
 
-        ; -- §4.6 T8: snap parallax_config to new slot 0's section.
-        ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
-        ;    the next Parallax_Update writes target_scroll directly to
-        ;    current_scroll instead of lerping. Otherwise the BG/FG would
-        ;    visibly slide for 16 frames as the lerp catches up to the new
-        ;    camera position. --
+        ; -- §4.6: force-snap parallax after teleport.
+        ;    Camera_X jumped SECTION_SHIFT pixels — band scroll values must
+        ;    snap to match. If the section has a config, force it as Current.
+        ;    If NULL, fall back to act_parallax_config. --
         move.b  #1, (Parallax_Snap_Pending).w
+        clr.l   (Parallax_Target_Config).w
+        clr.b   (Parallax_Transition_Frames).w
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
         movea.l Sec_sec_parallax_config(a0), a0
-        bsr.w   Parallax_StartTransition
+        cmpa.w  #0, a0
+        bne.s   .fwd_parallax_set
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+        cmpa.w  #0, a0
+        beq.s   .fwd_parallax_done
+.fwd_parallax_set:
+        move.l  a0, (Parallax_Current_Config).w
+.fwd_parallax_done:
         rts
 
 ; -----------------------------------------------
@@ -286,6 +453,9 @@ Section_TeleportBwd:
         move.l  (Camera_X).w, d0
         addi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_X).w
+
+        ; -- §4.2: player teleports with camera (mirror of FWD). --
+        addi.l  #SECTION_SHIFT<<16, (Player_1+SST_x_pos).w
 
         ; -- block-style rotation: retreat pair index by 1 = both slots
         ;    retreat by 2 sections. New slot 1 takes the section that was
@@ -308,15 +478,52 @@ Section_TeleportBwd:
         ; If we branched here, slot map is left as-is (Section_Check should
         ; guard BWD at sec 0 anyway).
 
-        ; -- reset column tracking so streaming refills the visible window --
+        ; -- §4.2: cache neighbor strip pointers for streaming-integrated preview --
+        movem.l d0-d3/a0-a2, -(sp)
+        ; FWD neighbor = new slot 1's sec_x + 1
+        lea     (Slot_Section_Map).w, a0
+        moveq   #0, d2
+        move.b  2(a0), d2
+        addq.b  #1, d2
+        moveq   #0, d3
+        move.b  3(a0), d3
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .no_fwd_bwd
+        move.l  Sec_sec_strips_a(a0), (Section_Fwd_Neighbor_Strips).w
+        bra.s   .fwd_bwd_done
+.no_fwd_bwd:
+        clr.l   (Section_Fwd_Neighbor_Strips).w
+.fwd_bwd_done:
+        ; BWD neighbor = new slot 0's sec_x - 1
+        lea     (Slot_Section_Map).w, a0
+        moveq   #0, d2
+        move.b  (a0), d2
+        subq.b  #1, d2
+        bmi.s   .no_bwd_bwd
+        moveq   #0, d3
+        move.b  1(a0), d3
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .no_bwd_bwd
+        move.l  Sec_sec_strips_a(a0), (Section_Bwd_Neighbor_Strips).w
+        bra.s   .bwd_bwd_done
+.no_bwd_bwd:
+        clr.l   (Section_Bwd_Neighbor_Strips).w
+.bwd_bwd_done:
+        movem.l (sp)+, d0-d3/a0-a2
+
+        ; -- reset column tracking; extend left to cover BWD preview zone --
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
-        move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
+        move.w  #SLOT_ORIGIN_L/8 - PREVIEW_COLS, (Section_Left_Col_Written).w
 
-        move.b  #30, (Section_Teleport_Guard).w
+        st      (Section_Teleport_Guard).w
 
-        ; -- A.4: clear BWD-preload flag --
-        bclr    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
+        ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
+        clr.b   (Section_Preload_Flags).w
 
+        ; -- defer slot 0 cold-load to SECTION_DEFERRED_BWD_LOAD ($0C00) so
+        ;    slot 0 retains the just-left section's art for FWD preview validity. --
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 0
@@ -325,35 +532,33 @@ Section_TeleportBwd:
         lea     (Section_Stream_State).w, a1
         move.b  (a1, d6.w), d0
         cmpi.b  #SS_IDLE, d0
-        beq.s   .bwd_cold_load
-        ; STREAMING or RESIDENT → mark RESIDENT
-        move.b  #SS_RESIDENT, (a1, d6.w)
+        bne.s   .bwd_mark_resident
+        bset    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
         bra.s   .bwd_redraw_bg
-.bwd_cold_load:
-        move.l  a0, -(sp)                           ; preserve Sec ptr across LoadArt
-        bsr.w   Section_LoadArt
-        movea.l (sp)+, a0
+.bwd_mark_resident:
+        move.b  #SS_RESIDENT, (a1, d6.w)
 .bwd_redraw_bg:
-        ; -- §2 A.5 T2: redraw Plane B based on NEW slot 0 (the section we just
-        ;    stepped back into). a0 already holds slot 0's Sec ptr from the
-        ;    Section_GetSlotDef above. Re-load a2 = Act ptr because the cold-load
-        ;    path may clobber it via Section_LoadArt. BG_RedrawForSection needs
-        ;    a2 for the T1 fallback to act_bg_layout. --
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   BG_RedrawForSection
+        ; -- §4.2: mark plane dirty for next-frame full atomic redraw.
+        ;    See Section_TeleportFwd's equivalent comment.
+        st      (Section_Plane_Dirty).w
 
-        ; -- §4.6 T8: snap parallax_config to new slot 0's section.
-        ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
-        ;    the next Parallax_Update writes target_scroll directly to
-        ;    current_scroll instead of lerping. Otherwise the BG/FG would
-        ;    visibly slide for 16 frames as the lerp catches up to the new
-        ;    camera position. --
+        ; -- §4.6: force-snap parallax (camera lands at $1200 = slot 1 territory). --
         move.b  #1, (Parallax_Snap_Pending).w
-        moveq   #SLOT_LEFT, d0
+        clr.l   (Parallax_Target_Config).w
+        clr.b   (Parallax_Transition_Frames).w
+        moveq   #SLOT_RIGHT, d0
         movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
+        bsr.w   Section_GetSlotDef                  ; a0 = new slot 1 sec ptr
         movea.l Sec_sec_parallax_config(a0), a0
-        bsr.w   Parallax_StartTransition
+        cmpa.w  #0, a0
+        bne.s   .bwd_parallax_set
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+        cmpa.w  #0, a0
+        beq.s   .bwd_parallax_done
+.bwd_parallax_set:
+        move.l  a0, (Parallax_Current_Config).w
+.bwd_parallax_done:
         rts
 
 ; -----------------------------------------------
@@ -397,14 +602,181 @@ Section_QueueNewSlot0Cols:
         rts
 
 ; -----------------------------------------------
+; Section_RedrawPlanes — camera-aware atomic full-plane rewrite at teleport (§4.2).
+;
+; Models sonic_hack's Dirty_flag → Draw_All pattern. At teleport, the entire
+; visible plane content is rewritten in one synchronous pass via direct VDP
+; pokes. No multi-frame scroll-across.
+;
+; Camera-aware: fills 64 plane cols starting at Camera_X/8, sourcing each
+; world col from the correct region (BWD neighbor → slot 0 → slot 1 → FWD
+; neighbor → tile-0 fill). This handles both FWD teleport (camera≈$0200)
+; and BWD teleport (camera≈$1200) correctly.
+;
+; In:  none (reads Camera_X, Slot_Section_Map, Current_Act_Ptr, neighbor ptrs)
+; Out: d5.w = start_world_col (for tracker reset by caller)
+;      d7.w = start_world_col + 63 (for tracker reset by caller)
+; Clobbers: d0–d7, a0–a4, a5–a6
+; -----------------------------------------------
+Section_RedrawPlanes:
+        lea     (VDP_CTRL).l, a5
+        lea     (VDP_DATA).l, a6
+
+        ; Mask interrupts for the entire VDP write sequence.
+        ; VBlank's VInt_DrawLevel changes autoincrement to $02 and clobbers the
+        ; VDP address register — if it fires mid-column, remaining strip data
+        ; lands at wrong VRAM addresses (corrupts tile art).
+        move.w  sr, -(sp)
+        move.w  #$2700, sr
+
+        ; -- Plane A: column-major write, autoincrement $80 (= 64-col stride) --
+        move.w  #$8F80, (a5)
+
+        ; -- resolve strip array pointers for both slots --
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef.slot0            ; a0 = slot 0 Sec ptr
+        movea.l Sec_sec_strips_a(a0), a3            ; a3 = slot 0 strips
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef.slot1            ; a0 = slot 1 Sec ptr
+        movea.l Sec_sec_strips_a(a0), a4            ; a4 = slot 1 strips
+
+        ; -- compute start world tile col from Camera_X --
+        move.l  (Camera_X).w, d5
+        swap    d5
+        lsr.w   #3, d5                              ; d5 = start_world_col = Camera_X / 8
+
+        moveq   #0, d3                              ; col counter (0..63)
+        moveq   #0, d6                              ; zero constant for fill loop
+
+.pla_fill:
+        ; -- compute world col and plane col --
+        move.w  d5, d7
+        add.w   d3, d7                              ; d7 = world_col
+        move.w  d7, d0
+        andi.w  #63, d0                             ; d0 = plane_col = world_col & 63
+
+        ; -- set VDP write address for this plane col --
+        moveq   #0, d4
+        move.w  d0, d4
+        add.w   d4, d4                              ; col*2
+        addi.l  #VRAM_PLANE_A, d4
+        vdpCommReg d4, VRAM, WRITE, 1
+        move.l  d4, (a5)
+
+        ; -- determine source: section_local = world_col - SLOT_ORIGIN_L/8 --
+        move.w  d7, d4
+        subi.w  #SLOT_ORIGIN_L/8, d4               ; d4 = section_local col
+        bmi.s   .pla_bwd_preview
+
+        cmpi.w  #SECTION_SIZE/8, d4
+        blt.s   .pla_slot0
+        cmpi.w  #SECTION_SIZE*2/8, d4
+        blt.s   .pla_slot1
+        cmpi.w  #SECTION_SIZE*2/8+PREVIEW_COLS, d4
+        blt.s   .pla_fwd_preview
+        bra.s   .pla_zero_fill
+
+.pla_bwd_preview:
+        move.l  (Section_Bwd_Neighbor_Strips).w, d1
+        beq.s   .pla_zero_fill
+        movea.l d1, a1
+        addi.w  #SECTION_TILE_WIDTH, d4             ; trailing col within BWD section
+        bra.s   .pla_write_strip
+
+.pla_slot0:
+        movea.l a3, a1
+        bra.s   .pla_write_strip
+
+.pla_slot1:
+        subi.w  #SECTION_SIZE/8, d4
+        movea.l a4, a1
+        bra.s   .pla_write_strip
+
+.pla_fwd_preview:
+        subi.w  #SECTION_SIZE*2/8, d4              ; d4 = preview col (0..PREVIEW_COLS-1)
+        move.l  (Section_Fwd_Neighbor_Strips).w, d1
+        beq.s   .pla_zero_fill
+        movea.l d1, a1
+        ; fall through to .pla_write_strip
+
+.pla_write_strip:
+        ; a1 = strip array base, d4 = strip col index
+        ; offset = col × STRIP_BYTE_SIZE (= col×96 = col×64 + col×32)
+        move.w  d4, d1
+        move.w  d4, d2
+        lsl.w   #6, d1                             ; col × 64
+        lsl.w   #5, d2                             ; col × 32
+        add.w   d2, d1
+        adda.w  d1, a1                             ; a1 → strip data for this col
+
+        moveq   #STRIP_TILE_HEIGHT/2-1, d4
+.pla_copy:
+        move.l  (a1)+, (a6)
+        dbf     d4, .pla_copy
+        bra.s   .pla_next
+
+.pla_zero_fill:
+        moveq   #STRIP_TILE_HEIGHT/2-1, d4
+.pla_zero:
+        move.l  d6, (a6)
+        dbf     d4, .pla_zero
+
+.pla_next:
+        addq.w  #1, d3
+        cmpi.w  #64, d3
+        blt.w   .pla_fill
+
+        ; -- Plane B: row-major linear write (BG layout is act-wide, not position-dependent) --
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = slot 0 Sec ptr
+        movea.l Sec_sec_bg_layout(a0), a1
+        cmpa.w  #0, a1
+        bne.s   .plb_have_layout
+        movea.l Act_act_bg_layout(a2), a1           ; T1 fallback to act-level BG
+        cmpa.w  #0, a1
+        beq.s   .plb_done
+.plb_have_layout:
+        move.w  #$8F02, (a5)                        ; autoincrement $02 (row-major)
+        move.l  #vdpComm(VRAM_PLANE_B_BYTES,VRAM,WRITE), (a5)
+        move.w  #1024-1, d3                         ; 4096 bytes / 4 = 1024 longwords - 1
+.plb_loop:
+        move.l  (a1)+, (a6)
+        dbf     d3, .plb_loop
+.plb_done:
+        ; Restore default autoincrement (matches VInt_DrawLevel cleanup)
+        move.w  #$8F02, (a5)
+
+        ; Restore interrupt mask (allow VBlank again)
+        move.w  (sp)+, sr
+
+        ; -- return tracker bounds in d5/d7 for caller --
+        ; d5 = start_world_col (already set above)
+        move.w  d5, d7
+        addi.w  #63, d7                             ; d7 = start_world_col + 63
+        rts
+
+; -----------------------------------------------
 ; Section_UpdateColumns — per-frame nametable ring-buffer streaming
 ; Writes newly-revealed tile columns on right and left edges each frame.
 ; Must be called AFTER Camera_X is updated each frame.
 ; In:  none
 ; Out: none
-; Clobbers: d0–d7, a0–a3
+; Clobbers: d0–d7, a0–a3, a5–a6 (a5/a6 only when Plane_Dirty triggers redraw)
 ; -----------------------------------------------
 Section_UpdateColumns:
+        ; -- §4.2: full-plane redraw if dirty (post-teleport atomic transition) --
+        tst.b   (Section_Plane_Dirty).w
+        beq.s   .not_dirty
+        clr.b   (Section_Plane_Dirty).w
+        bsr.w   Section_RedrawPlanes
+        ; Section_RedrawPlanes returns d5 = start_world_col, d7 = start + 63.
+        ; Streaming continues outward from these edges.
+        move.w  d7, (Section_Right_Col_Written).w
+        move.w  d5, (Section_Left_Col_Written).w
+        rts
+.not_dirty:
+
         movem.l d2-d7/a0-a3, -(sp)
 
         move.l  (Camera_X).w, d6
@@ -417,17 +789,23 @@ Section_UpdateColumns:
         lsr.w   #3, d7                      ; d7 = right_needed tile col
 
         move.w  (Section_Right_Col_Written).w, d5
-        ; clamp right_needed to slot 1's last valid col (prevents OOB read)
+        ; clamp right_needed: extend into FWD preview zone if neighbor exists
+        move.l  (Section_Fwd_Neighbor_Strips).w, d2
+        bne.s   .right_clamp_extended
+        ; no FWD neighbor — clamp at slot 1 boundary
         cmpi.w  #SLOT_ORIGIN_L/8 + SECTION_SIZE*2/8 - 1, d7
         ble.s   .right_loop
         move.w  #SLOT_ORIGIN_L/8 + SECTION_SIZE*2/8 - 1, d7
+        bra.s   .right_loop
+.right_clamp_extended:
+        cmpi.w  #SLOT_ORIGIN_L/8 + SECTION_SIZE*2/8 - 1 + PREVIEW_COLS, d7
+        ble.s   .right_loop
+        move.w  #SLOT_ORIGIN_L/8 + SECTION_SIZE*2/8 - 1 + PREVIEW_COLS, d7
 .right_loop:
         cmp.w   d7, d5
-        bge.s   .right_done
-        ; stop if Plane_Buffer would overflow on next entry. Otherwise the
-        ; tracker advances but Draw_TileColumn silently drops, leaving holes.
+        bge.w   .right_done
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + STRIP_TILE_HEIGHT*2), (Plane_Buffer_Ptr).w
-        bhi.s   .right_done
+        bhi.w   .right_done
         addq.w  #1, d5
 
         move.w  d5, d3
@@ -435,6 +813,8 @@ Section_UpdateColumns:
 
         move.w  d5, d4
         subi.w  #SLOT_ORIGIN_L/8, d4        ; d4 = section-local col (slot 0 assumed)
+        cmpi.w  #SECTION_SIZE*2/8, d4
+        bge.s   .right_fwd_preview
         cmpi.w  #SECTION_SIZE/8, d4
         blt.s   .right_s0
         subi.w  #SECTION_SIZE/8, d4
@@ -444,11 +824,17 @@ Section_UpdateColumns:
 .right_s0:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef.slot0
+        bra.s   .right_draw
+.right_fwd_preview:
+        subi.w  #SECTION_SIZE*2/8, d4       ; d4 = preview col (0..PREVIEW_COLS-1)
+        movea.l (Section_Fwd_Neighbor_Strips).w, a0
+        bsr.w   Draw_TileColumn_Direct      ; a0 = strips, d3 = plane col, d4 = strip col
+        bra.w   .right_loop
 .right_draw:
         move.w  d3, d0                      ; nametable col
         move.w  d4, d1                      ; section local col
         bsr.w   Draw_TileColumn             ; clobbers d0–d3, a1–a2; d5–d7 safe
-        bra.s   .right_loop
+        bra.w   .right_loop
 .right_done:
         move.w  d5, (Section_Right_Col_Written).w
         ; Right-stream advanced past Left+63: nametable wrapped, old left cols
@@ -464,17 +850,24 @@ Section_UpdateColumns:
         ; left_needed = Camera_X / 8  (screen left edge tile col)
         move.w  d6, d7
         lsr.w   #3, d7                      ; d7 = left_needed
-        ; clamp: never below SLOT_ORIGIN_L/8 (cam_min_x = SLOT_ORIGIN_L)
+        ; clamp: extend into BWD preview zone if neighbor exists
+        move.l  (Section_Bwd_Neighbor_Strips).w, d2
+        bne.s   .left_clamp_extended
         cmpi.w  #SLOT_ORIGIN_L/8, d7
         bge.s   .left_check
         move.w  #SLOT_ORIGIN_L/8, d7
+        bra.s   .left_check
+.left_clamp_extended:
+        cmpi.w  #SLOT_ORIGIN_L/8 - PREVIEW_COLS, d7
+        bge.s   .left_check
+        move.w  #SLOT_ORIGIN_L/8 - PREVIEW_COLS, d7
 .left_check:
         move.w  (Section_Left_Col_Written).w, d5
 .left_loop:
         cmp.w   d7, d5
-        ble.s   .left_done
+        ble.w   .left_done
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + STRIP_TILE_HEIGHT*2), (Plane_Buffer_Ptr).w
-        bhi.s   .left_done
+        bhi.w   .left_done
         subq.w  #1, d5
 
         move.w  d5, d3
@@ -482,6 +875,7 @@ Section_UpdateColumns:
 
         move.w  d5, d4
         subi.w  #SLOT_ORIGIN_L/8, d4
+        bmi.s   .left_bwd_preview
         cmpi.w  #SECTION_SIZE/8, d4
         blt.s   .left_s0
         subi.w  #SECTION_SIZE/8, d4
@@ -491,11 +885,17 @@ Section_UpdateColumns:
 .left_s0:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef.slot0
+        bra.s   .left_draw
+.left_bwd_preview:
+        addi.w  #SECTION_TILE_WIDTH, d4     ; d4 = trailing col (e.g. 232..255)
+        movea.l (Section_Bwd_Neighbor_Strips).w, a0
+        bsr.w   Draw_TileColumn_Direct
+        bra.w   .left_loop
 .left_draw:
         move.w  d3, d0
         move.w  d4, d1
         bsr.w   Draw_TileColumn
-        bra.s   .left_loop
+        bra.w   .left_loop
 .left_done:
         move.w  d5, (Section_Left_Col_Written).w
         ; Left-stream went below Right-63: nametable wrapped (the old right

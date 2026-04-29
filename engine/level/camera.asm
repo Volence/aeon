@@ -85,14 +85,35 @@ Camera_Update:
         movea.l (Current_Act_Ptr).w, a0
         move.l  (Camera_X).w, d0
         swap    d0
-        cmp.w   Act_cam_min_x(a0), d0
+
+        ; -- §4.2: dynamic min_x — extend by PREVIEW_PIXELS into BWD preview
+        ;    region unless we're at the first pair (Sec(-1) doesn't exist;
+        ;    BWD preview unreachable). Slot_Section_Map[0] = 0 ⇒ first pair.
+        move.w  Act_cam_min_x(a0), d1
+        tst.b   (Slot_Section_Map).w
+        beq.s   .have_min                           ; at first pair → keep act default
+        subi.w  #PREVIEW_PIXELS, d1                 ; allow scroll into BWD preview
+.have_min:
+        cmp.w   d1, d0
         bge.s   .check_max_x
-        move.w  Act_cam_min_x(a0), d0
+        move.w  d1, d0
         bra.s   .clamp_x
+
 .check_max_x:
-        cmp.w   Act_cam_max_x(a0), d0
+        ; -- §4.2: dynamic max_x — extend by PREVIEW_PIXELS into FWD preview
+        ;    region unless we're at the last pair (no next FWD section).
+        move.w  Act_cam_max_x(a0), d1
+        moveq   #0, d2
+        move.b  (Slot_Section_Map+2).w, d2          ; slot 1 sec_x
+        addq.b  #1, d2                              ; next-FWD sec_x = slot 1 + 1
+        cmp.b   Act_grid_w+1(a0), d2
+        bcc.s   .have_max                           ; >= grid_w → at last pair, no FWD neighbour
+        addi.w  #PREVIEW_PIXELS, d1
+.have_max:
+        cmp.w   d1, d0
         ble.s   .y_track
-        move.w  Act_cam_max_x(a0), d0
+        move.w  d1, d0
+
 .clamp_x:
         swap    d0
         clr.w   d0

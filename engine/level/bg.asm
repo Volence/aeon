@@ -3,8 +3,9 @@
 ; T1 (zone-wide):     BG_Init loads act_bg_tiles into the shared BG VRAM region
 ;                     (slots 1280-1535, $A000-$BFFF), then blits act_bg_layout
 ;                     into Plane B nametable. Both happen once at level load.
-; T2/T3 (per-section): BG_RedrawForSection blits the section's sec_bg_layout on
-;                      teleport. NULL sec_bg_layout = T1 fallback (no redraw).
+; T2/T3 (per-section): Section_RedrawPlanes (in section.asm) blits the section's
+;                      sec_bg_layout on teleport, alongside the Plane A redraw.
+;                      NULL sec_bg_layout = act-level T1 fallback.
 ;
 ; Layout shape: each nametable layout is a raw 64x32 = 4096 bytes.
 ; Tile-blob shape: 2-byte big-endian length header + raw deduped tile bytes
@@ -63,40 +64,8 @@ BG_Init:
         movem.l (sp)+, a3
         rts
 
-; -----------------------------------------------
-; BG_RedrawForSection — replace Plane B nametable from a section's BG layout.
-;
-; In:  a0 = Sec ptr
-;      a2 = Act ptr (for T1 fallback to act_bg_layout)
-; Out: none
-; Clobbers: d0, a0–a2
-;
-; T1 (sec_bg_layout = NULL): redraw with the act's zone-wide BG layout. This
-;   matters when transitioning back from a T2/T3 section — without it, Plane B
-;   keeps the old per-section content instead of reverting to the zone BG.
-; T2/T3 (sec_bg_layout != NULL): blit the section's layout to Plane B.
-;
-; Per docs/research/per-section-background.md: layouts are full-coverage 64x32,
-; so no pre-clear needed — the new data fully overwrites prior contents.
-; -----------------------------------------------
-BG_RedrawForSection:
-        move.l  Sec_sec_bg_layout(a0), d0
-        bne.s   .have_layout
-        ; T1 — fall back to act-level zone BG
-        move.l  Act_act_bg_layout(a2), d0
-        beq.s   .skip                   ; no zone BG either → nothing to draw
-.have_layout:
-        movea.l d0, a1
-
-        stopZ80
-        move.w  #$8F02, (VDP_CTRL).l
-        move.l  #vdpComm(VRAM_PLANE_B_BYTES,VRAM,WRITE), (VDP_CTRL).l
-
-        lea     (VDP_DATA).l, a2
-        move.w  #BG_LAYOUT_SIZE/2 - 1, d0
-.copy:
-        move.w  (a1)+, (a2)
-        dbf     d0, .copy
-        startZ80
-.skip:
-        rts
+; §4.2: BG_RedrawForSection deleted. Plane B is now redrawn atomically
+; alongside Plane A via Section_RedrawPlanes (see engine/level/section.asm),
+; triggered by the Section_Plane_Dirty flag set at every teleport. This matches
+; sonic_hack's Dirty_flag → Draw_All pattern: synchronous full-plane rewrite in
+; one frame instead of incremental streaming refill.

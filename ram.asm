@@ -252,7 +252,9 @@ Slot_Section_Map:       ds.b 8
 
 ; Section streaming state
 Section_Preload_Flags:  ds.b 1          ; bits: fwd/bwd/up/dn preloaded
-Section_Teleport_Guard: ds.b 1          ; cooldown after teleport (frames)
+Section_Teleport_Guard: ds.b 1          ; anti-oscillation flag (cleared when player leaves threshold)
+Section_Plane_Dirty:    ds.b 1          ; §4.2: full plane redraw pending (set at teleport)
+                        ds.b 1          ; pad to even
 
 ; Per-section streaming state (§2 A.4) — one byte per section
 ; (SS_IDLE / SS_STREAMING / SS_RESIDENT). Indexed by flat section_id
@@ -266,6 +268,11 @@ Streaming_Active_Buffer: ds.b 1         ; 0 = next stream uses A; 1 = next uses 
 ; Left:  last tile col written to nametable on the left side of view
 Section_Right_Col_Written: ds.w 1
 Section_Left_Col_Written:  ds.w 1
+
+; §4.2 preview: cached neighbor section strip pointers for streaming-integrated preview.
+; Set at teleport/init; NULL if no neighbor exists (act boundary).
+Section_Fwd_Neighbor_Strips: ds.l 1       ; next section's Sec_sec_strips_a
+Section_Bwd_Neighbor_Strips: ds.l 1       ; prev section's Sec_sec_strips_a
 
 ; Dynamic tile override (16 entries × 6 bytes: col.w, row.w, new_tile.w)
 Tile_Override_Table:    ds.b 96

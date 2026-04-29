@@ -199,8 +199,9 @@ cam_min_y           ds.w 1          ; $12 — camera Y lower bound (pixels)
 cam_max_y           ds.w 1          ; $14 — camera Y upper bound (pixels)
 act_bg_layout       ds.l 1          ; $16 — zone-wide Plane B layout pointer (T1 default)
 act_bg_tiles        ds.l 1          ; $1A — zone-wide Plane B tile blob (raw, loaded into shared BG region)
+act_parallax_config ds.l 1          ; $1E — default parallax config (fallback when section's is NULL)
 Act endstruct
 
-    if Act_len <> $1E
-      error "Act struct is \{Act_len} bytes, expected $1E"
+    if Act_len <> $22
+      error "Act struct is \{Act_len} bytes, expected $22"
     endif

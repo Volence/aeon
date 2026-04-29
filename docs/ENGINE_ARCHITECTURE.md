@@ -1817,8 +1817,8 @@ Slot D  [LD]         [RD]     ← lower row
 
 **Leapfrog cycle (same pattern on both axes):**
 1. Camera crosses midpoint of current section → preload next section into the behind slot (offscreen, safe to overwrite)
-2. Preview columns/rows copied at boundary edges for seamless visual transition
-3. Camera reaches slot edge → teleport: positions shift, slots swap roles, camera wraps
+2. Preview is streaming-integrated (§4.2 — `PREVIEW_COLS = 24`): the ring-buffer streaming engine extends its range by `PREVIEW_COLS` into neighbor section strips at each boundary. Neighbor strip pointers cached in `Section_Fwd/Bwd_Neighbor_Strips` (set at teleport/init, cleared when deferred cold-load overwrites the art). Preview content only becomes visible when the camera reaches the boundary, by construction — the streaming cursor writes preview cols just as they rotate off the visible right edge and onto the leading edge.
+3. Camera reaches slot edge → teleport: positions shift, slots swap roles, camera wraps. The new pair's second slot is **NOT** cold-loaded inline — the load is deferred to mid-traversal of the new pair's first section (`SECTION_DEFERRED_FWD_LOAD = $0600` going right, `SECTION_DEFERRED_BWD_LOAD = $0C00` going left), keeping the just-left section's art alive for the BWD/FWD preview-visible window.
 
 **Diagonal corner handling:** Both axes operate independently. At a corner, up to 3 sections may need preloading (H, V, and diagonal). The diagonal resolves naturally — you teleport on one axis first, then the diagonal cell becomes a normal neighbor. Diagonal preload queued at Priority 2 (deferrable) in the DMA system.
 
@@ -1896,6 +1896,10 @@ Producer-consumer pattern: all tile writes are buffered in RAM during the game l
 - **Double-update:** When camera moves >16px/frame, auto-queue two column/row updates
 - **Dual plane:** Separate pointer for Plane A + Plane B simultaneous updates
 
+**Plane B redraws at teleport via `Section_RedrawPlanes` (§4.2).** Full 4096-byte BG nametable written synchronously via direct VDP pokes on the teleport frame, alongside the 64-column Plane A refill. Both planes update atomically — no multi-frame scroll-across. Interrupts are masked (`move.w #$2700, sr`) for the entire VDP write sequence — VBlank's `VInt_DrawLevel` changes the autoincrement register from $80 (column mode) to $02 (row mode), which would corrupt remaining column writes if it fired mid-loop. SR is saved/restored around the critical section. Preview cols use the same deferred `Plane_Buffer` + `Draw_TileColumn_Direct` mechanism as normal streaming.
+
+**Anti-oscillation teleport guard.** `SECTION_SHIFT = $1000` (exact slot width) means a FWD teleport from threshold $1200 lands exactly on the BWD threshold $0200 (and vice versa). `Section_Teleport_Guard` is a position-based flag (not a timer): set on teleport, cleared only when the player moves off both thresholds. Zero dead zone — moving 1 pixel clears the guard, allowing immediate re-teleport on return. Matches sonic_hack's landing-flag pattern.
+
 ### 4.5 Camera System (from S.C.E. ExtendedCamera, enhanced)
 
 Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel features:
@@ -1912,6 +1916,11 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 - Velocity-proportional vertical tracking (faster player = faster vertical camera)
 - Section streaming integration: camera bounds adjusted for preview zones
 - Dead zone persists for smooth centering
+
+**Preview-aware clamp toggle (§4.2):** `camera_min_x` and `camera_max_x` are dynamically extended by `PREVIEW_PIXELS` (= 192px = 24 tile cols) unless the current pair is at an act boundary:
+- `camera_min_x = $0200` when `Slot_Section_Map[0] = 0` (first pair — no BWD neighbour). Otherwise `$0200 - PREVIEW_PIXELS`, allowing camera to scroll into BWD preview zone.
+- `camera_max_x = Act_cam_max_x` when slot 1 sec_x + 1 ≥ `Act_grid_w` (last pair — no FWD neighbour). Otherwise `Act_cam_max_x + PREVIEW_PIXELS`, allowing camera to scroll into FWD preview zone.
+- Mirrors apply on the Y axis once vertical streaming is implemented.
 
 ### 4.6 Multi-Band Computed Parallax — As Shipped
 
@@ -2069,20 +2078,9 @@ This serves double duty: it masks the nametable transition AND provides a natura
 
 For sections with the same palette, the fade can be shortened to 2 frames total (darken on teleport frame, brighten next frame) or skipped entirely if the progressive nametable preload covers the full screen.
 
-**3. Preview copies moved to preload phase:**
+**3. Preview is streaming-integrated (implemented §4.2):**
 
-The 4 preview copy operations (forward, backward, vertical, diagonal) currently run on the teleport frame. With pre-computed nametable strips, preview columns are just ROM pointer math — but even with the current chunk system, these copies can run during the preload window:
-
-```
-Preload phase (frame by frame):
-  Frame 0-3: Load section layout into offscreen slot
-  Frame 4-7: Copy forward preview columns
-  Frame 8-11: Copy backward preview columns
-  Frame 12-15: Copy vertical + diagonal previews
-  Frame 16+: Progressive nametable DMA to VDP
-```
-
-The preload window has ~85 frames. All preview work completes in ~15 frames, leaving 70 frames for nametable DMA and art streaming. The teleport frame does zero layout or preview work.
+Preview columns are no longer separate copy operations. The ring-buffer streaming engine (`Section_UpdateColumns`) extends its range by `PREVIEW_COLS` into neighbor section strips at each boundary. Neighbor strip pointers are cached at teleport/init (`Section_Fwd/Bwd_Neighbor_Strips`). Preview content appears naturally as the streaming cursor advances past the section boundary — no teleport-frame layout work, no separate preview pass. The teleport frame does only position math + dirty-flag for `Section_RedrawPlanes`.
 
 **Result:** The teleport becomes ~1,500 cycles of CPU work (position math) + zero visual glitch (nametable already in VDP + palette crossfade masks any residual). No Genesis game achieves zero-lag section streaming with full section independence (different art, palette, parallax, entities). This is the combination of 6 systems working together: pre-computed strips (4.3), entity warp (4.9), progressive preload, palette crossfade, DMA priority queue (1.1), and velocity-based timing.
 

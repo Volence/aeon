@@ -115,6 +115,7 @@ __BUDGET_ENGINE:
     include "engine/level/parallax.asm"
     include "engine/level/load_art.asm"
     include "engine/level/bg.asm"
+    include "engine/level/preview.asm"
 
 ; -----------------------------------------------
 ; Object code bank
@@ -150,6 +151,7 @@ __BUDGET_DATA:
     include "data/parallax/effects/shimmer.asm"
     include "data/parallax/effects/haze.asm"
     include "data/parallax/effects/rocking.asm"
+    include "data/parallax/effects/perspective.asm"
     ; Composite scenes — hand-authored configs that stack multiple effects
     ; with custom per-band gradients. Must come AFTER effects/ for the
     ; deform-table references to resolve.
