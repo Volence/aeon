@@ -45,6 +45,22 @@ GameState_OJZScroll_Init:
         ; plane A and Up/Down moves stay within plane rows 0..47.
         clr.l   (Camera_Y).w
 
+        ; -- initialise Player_1 at camera-center position so Camera_Update's
+        ;    deadzone tracking begins at rest (no jolt on first frame).
+        ;    Player_1.x_pos = Camera_X + CAM_SCREEN_HALF_W; same for Y. --
+        move.w  (Camera_X).w, d0                ; high word of camera_x (16.16 → integer pixels)
+        addi.w  #CAM_SCREEN_HALF_W, d0
+        swap    d0
+        clr.w   d0
+        move.l  d0, (Player_1+SST_x_pos).w
+        move.w  (Camera_Y).w, d0
+        addi.w  #CAM_SCREEN_HALF_H, d0
+        swap    d0
+        clr.w   d0
+        move.l  d0, (Player_1+SST_y_pos).w
+        clr.w   (Player_1+SST_x_vel).w
+        clr.w   (Player_1+SST_y_vel).w
+
         ; -- initialise section streaming (fills nametable over 3 VBlanks) --
         lea     OJZ_Act1_Descriptor, a0
         jsr     Section_Init
@@ -76,67 +92,35 @@ GameState_OJZScroll_Init:
 ; GameState_OJZScroll_Update — per-frame update
 ; -----------------------------------------------
 GameState_OJZScroll_Update:
-        ; -- direct camera control via controller --
+        ; -- player input drives Player_1 motion; Camera_Update follows. --
         moveq   #0, d0
         move.b  (Ctrl_1_Held).w, d0
 
         btst    #3, d0          ; bit 3 = RIGHT
         beq.s   .check_left
-        addi.l  #6<<16, (Camera_X).w
-        bra.s   .camera_done
+        addi.l  #6<<16, (Player_1+SST_x_pos).w
+        bra.s   .player_x_done
 
 .check_left:
         btst    #2, d0          ; bit 2 = LEFT
-        beq.s   .camera_done
-        subi.l  #6<<16, (Camera_X).w
+        beq.s   .player_x_done
+        subi.l  #6<<16, (Player_1+SST_x_pos).w
 
-.camera_done:
+.player_x_done:
         ; -- vertical input: bits 0/1 of Ctrl_1_Held = UP/DOWN --
         btst    #1, d0          ; bit 1 = DOWN
         beq.s   .check_up
-        addi.l  #6<<16, (Camera_Y).w
-        bra.s   .camera_y_done
+        addi.l  #6<<16, (Player_1+SST_y_pos).w
+        bra.s   .player_y_done
 
 .check_up:
         btst    #0, d0          ; bit 0 = UP
-        beq.s   .camera_y_done
-        subi.l  #6<<16, (Camera_Y).w
+        beq.s   .player_y_done
+        subi.l  #6<<16, (Player_1+SST_y_pos).w
 
-.camera_y_done:
-        ; -- clamp Camera_X to act bounds (prevent BWD teleport at section 0) --
-        movea.l (Current_Act_Ptr).w, a0
-        move.l  (Camera_X).w, d0
-        swap    d0
-        cmp.w   Act_cam_min_x(a0), d0
-        bge.s   .check_max_x
-        move.w  Act_cam_min_x(a0), d0
-        bra.s   .clamp_x
-.check_max_x:
-        cmp.w   Act_cam_max_x(a0), d0
-        ble.s   .clamp_done
-        move.w  Act_cam_max_x(a0), d0
-.clamp_x:
-        swap    d0
-        clr.w   d0
-        move.l  d0, (Camera_X).w
-.clamp_done:
-
-        ; -- clamp Camera_Y to act bounds (a0 still = Current_Act_Ptr) --
-        move.l  (Camera_Y).w, d0
-        swap    d0
-        cmp.w   Act_cam_min_y(a0), d0
-        bge.s   .check_max_y
-        move.w  Act_cam_min_y(a0), d0
-        bra.s   .clamp_y
-.check_max_y:
-        cmp.w   Act_cam_max_y(a0), d0
-        ble.s   .clamp_y_done
-        move.w  Act_cam_max_y(a0), d0
-.clamp_y:
-        swap    d0
-        clr.w   d0
-        move.l  d0, (Camera_Y).w
-.clamp_y_done:
+.player_y_done:
+        ; -- camera follows Player_1 (deadzone + preview-aware clamp) --
+        jsr     Camera_Update
 
         ; -- section teleport check --
         jsr     Section_Check

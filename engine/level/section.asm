@@ -289,6 +289,11 @@ Section_TeleportFwd:
         subi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_X).w
 
+        ; -- §4.2: player teleports with camera. Without this shift Player_1
+        ;    stays at its old world X while camera rewinds, putting the
+        ;    player off-screen. Same SECTION_SHIFT applies. --
+        subi.l  #SECTION_SHIFT<<16, (Player_1+SST_x_pos).w
+
         ; -- block-style rotation: advance pair index by 1 = both slots advance
         ;    by 2 sections. New slot 0 takes the section that was preloaded
         ;    into slot 0 during slot 1 traversal (= old slot 1 + 1). New
@@ -379,6 +384,9 @@ Section_TeleportBwd:
         move.l  (Camera_X).w, d0
         addi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_X).w
+
+        ; -- §4.2: player teleports with camera (mirror of FWD). --
+        addi.l  #SECTION_SHIFT<<16, (Player_1+SST_x_pos).w
 
         ; -- block-style rotation: retreat pair index by 1 = both slots
         ;    retreat by 2 sections. New slot 1 takes the section that was
