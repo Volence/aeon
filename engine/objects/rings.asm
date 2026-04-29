@@ -222,13 +222,94 @@ DrawRings:
         rts
 
 ; -----------------------------------------------
-; RingCollision — test player vs uncollected rings (stub)
+; RingCollision — test player(s) vs uncollected rings
+;
+; Iterates both slot ring buffers, skips collected via bitmask,
+; uses aabb_axis_test macro for overlap detection.
+;
+; In:  none (reads Player_1/2, ring buffers, bitmasks)
+; Out: none
+; Clobbers: d0-d7, a0-a2
 ; -----------------------------------------------
 RingCollision:
+        lea     (Player_1).w, a2
+        move.w  #NUM_PLAYERS-1, d7
+
+.player_loop:
+        tst.w   SST_code_addr(a2)
+        beq.w   .next_player
+
+        move.w  SST_x_pos(a2), d4       ; cache player X
+        move.w  SST_y_pos(a2), d5       ; cache player Y
+
+        ; Slot 0
+        lea     (Ring_Buffer_0).w, a0
+        lea     (Ring_Bitmask_0).w, a1
+        moveq   #0, d6
+        move.b  (Ring_Count_0).w, d6
+        bsr.s   .check_slot
+
+        ; Slot 1
+        lea     (Ring_Buffer_1).w, a0
+        lea     (Ring_Bitmask_1).w, a1
+        moveq   #0, d6
+        move.b  (Ring_Count_1).w, d6
+        bsr.s   .check_slot
+
+.next_player:
+        lea     SST_len(a2), a2
+        dbf     d7, .player_loop
+        rts
+
+.check_slot:
+        tst.w   d6
+        beq.s   .slot_done
+        subq.w  #1, d6                  ; dbf adjust
+        moveq   #0, d3                  ; d3 = ring index (for bitmask)
+
+.ring_loop:
+        ; Bitmask check: byte = index >> 3, bit = index & 7 (implicit mod 8)
+        move.w  d3, d0
+        lsr.w   #3, d0
+        btst    d3, (a1, d0.w)
+        bne.s   .skip_ring              ; collected
+
+        ; X axis: player width vs ring 16px
+        moveq   #0, d0
+        move.b  SST_width_pixels(a2), d0
+        moveq   #RING_WIDTH, d1
+
+        aabb_axis_test d4,(a0),d0,d1,d0,d1,d2,.skip_ring,rx
+
+        ; Y axis: player height vs ring 16px
+        moveq   #0, d0
+        move.b  SST_height_pixels(a2), d0
+        moveq   #RING_HEIGHT, d1
+
+        aabb_axis_test d5,2(a0),d0,d1,d0,d1,d2,.skip_ring,ry
+
+        ; Overlap confirmed
+        bsr.s   CollectRing
+
+.skip_ring:
+        addq.w  #4, a0                  ; next ring buffer entry
+        addq.w  #1, d3                  ; next ring index
+        dbf     d6, .ring_loop
+
+.slot_done:
         rts
 
 ; -----------------------------------------------
-; CollectRing — mark ring collected, increment counter (stub)
+; CollectRing — mark ring collected, increment counter
+;
+; In:  a1 = bitmask pointer (slot's Ring_Bitmask_N)
+;      d3.w = ring index
+; Out: none
+; Clobbers: d0
 ; -----------------------------------------------
 CollectRing:
+        move.w  d3, d0
+        lsr.w   #3, d0
+        bset    d3, (a1, d0.w)          ; set bit = collected
+        addq.w  #1, (Ring_Counter).w
         rts
