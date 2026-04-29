@@ -253,6 +253,8 @@ Slot_Section_Map:       ds.b 8
 ; Section streaming state
 Section_Preload_Flags:  ds.b 1          ; bits: fwd/bwd/up/dn preloaded
 Section_Teleport_Guard: ds.b 1          ; cooldown after teleport (frames)
+Section_Plane_Dirty:    ds.b 1          ; §4.2: full plane redraw pending (set at teleport)
+                        ds.b 1          ; pad to even
 
 ; Per-section streaming state (§2 A.4) — one byte per section
 ; (SS_IDLE / SS_STREAMING / SS_RESIDENT). Indexed by flat section_id

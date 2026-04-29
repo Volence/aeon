@@ -3,8 +3,9 @@
 ; T1 (zone-wide):     BG_Init loads act_bg_tiles into the shared BG VRAM region
 ;                     (slots 1280-1535, $A000-$BFFF), then blits act_bg_layout
 ;                     into Plane B nametable. Both happen once at level load.
-; T2/T3 (per-section): BG_RedrawForSection blits the section's sec_bg_layout on
-;                      teleport. NULL sec_bg_layout = T1 fallback (no redraw).
+; T2/T3 (per-section): Section_RedrawPlanes (in section.asm) blits the section's
+;                      sec_bg_layout on teleport, alongside the Plane A redraw.
+;                      NULL sec_bg_layout = act-level T1 fallback.
 ;
 ; Layout shape: each nametable layout is a raw 64x32 = 4096 bytes.
 ; Tile-blob shape: 2-byte big-endian length header + raw deduped tile bytes
@@ -63,33 +64,8 @@ BG_Init:
         movem.l (sp)+, a3
         rts
 
-; -----------------------------------------------
-; BG_RedrawForSection — queue Plane B nametable replacement via DMA queue (§4.2).
-;
-; In:  a0 = Sec ptr, a2 = Act ptr (for T1 fallback to act_bg_layout)
-; Out: none (silently no-ops if no BG layout available)
-; Clobbers: d0–d4, a1–a2 (per QueueDMA_Important contract)
-;
-; §4.2 change: previously this routine did a 4096-byte VDP-direct poke during
-; active display, producing a top-down tear visible at every section transition.
-; New behaviour: queue an Important-tier DMA. The transfer drains during VBlank
-; only — no active-display tear, by construction.
-;
-; T1 (sec_bg_layout = NULL): fall back to act-level zone BG.
-; T2/T3 (sec_bg_layout != NULL): use the section's layout.
-;
-; Layouts are full-coverage 64x32 (4096 bytes); the DMA fully overwrites prior
-; contents, so no pre-clear is needed.
-; -----------------------------------------------
-BG_RedrawForSection:
-        move.l  Sec_sec_bg_layout(a0), d0
-        bne.s   .have_layout
-        move.l  Act_act_bg_layout(a2), d0
-        beq.s   .skip                       ; no BG at all → nothing to do
-.have_layout:
-        move.l  d0, d1                      ; d1.l = source ROM addr
-        move.w  #VRAM_PLANE_B_BYTES, d2     ; d2.w = dest VRAM byte addr
-        move.w  #BG_LAYOUT_SIZE, d3         ; d3.w = transfer length (4096 bytes)
-        bra.w   QueueDMA_Important
-.skip:
-        rts
+; §4.2: BG_RedrawForSection deleted. Plane B is now redrawn atomically
+; alongside Plane A via Section_RedrawPlanes (see engine/level/section.asm),
+; triggered by the Section_Plane_Dirty flag set at every teleport. This matches
+; sonic_hack's Dirty_flag → Draw_All pattern: synchronous full-plane rewrite in
+; one frame instead of incremental streaming refill.

@@ -349,13 +349,12 @@ Section_TeleportFwd:
 .fwd_mark_resident:
         move.b  #SS_RESIDENT, (a1, d6.w)
 .fwd_redraw_bg:
-        ; -- §2 A.5 T2: redraw Plane B based on NEW slot 0 (= section we just
-        ;    stepped into and is now visible). Slot 1 is the new off-screen
-        ;    section; its BG isn't yet on-screen so no need to redraw to it. --
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        bsr.w   BG_RedrawForSection
+        ; -- §4.2: mark plane dirty for next-frame full atomic redraw.
+        ;    Section_UpdateColumns picks this up and calls Section_RedrawPlanes,
+        ;    rewriting both planes' nametables in one pass (matches sonic_hack
+        ;    Dirty_flag → Draw_All pattern). Replaces the old per-teleport
+        ;    BG_RedrawForSection burst.
+        st      (Section_Plane_Dirty).w
 
         ; -- §4.6 T8: snap parallax_config to new slot 0's section.
         ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
@@ -444,13 +443,9 @@ Section_TeleportBwd:
 .bwd_mark_resident:
         move.b  #SS_RESIDENT, (a1, d6.w)
 .bwd_redraw_bg:
-        ; -- §2 A.5 T2: redraw Plane B based on NEW slot 0 (the section we just
-        ;    stepped back into). a0 already holds slot 0's Sec ptr from the
-        ;    Section_GetSlotDef above. Re-load a2 = Act ptr because the cold-load
-        ;    path may clobber it via Section_LoadArt. BG_RedrawForSection needs
-        ;    a2 for the T1 fallback to act_bg_layout. --
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   BG_RedrawForSection
+        ; -- §4.2: mark plane dirty for next-frame full atomic redraw.
+        ;    See Section_TeleportFwd's equivalent comment.
+        st      (Section_Plane_Dirty).w
 
         ; -- §4.6 T8: snap parallax_config to new slot 0's section.
         ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
@@ -507,14 +502,117 @@ Section_QueueNewSlot0Cols:
         rts
 
 ; -----------------------------------------------
+; Section_RedrawPlanes — atomic full-plane rewrite at teleport (§4.2).
+;
+; Models sonic_hack's Dirty_flag → Draw_All pattern. At teleport, the entire
+; visible plane content (FG slot 0 + slot 1 strips, BG layout) is rewritten
+; in one synchronous pass via direct VDP pokes. No multi-frame scroll-across.
+;
+; In:  none (reads Slot_Section_Map and Current_Act_Ptr)
+; Out: none
+; Clobbers: d0–d4, a0–a2, a5–a6
+;
+; Cost: ~30k cycles (~25% of frame). Runs in active display, matching
+; sonic_hack's pattern. VDP_DATA writes share bandwidth with display fetch
+; but the writes complete in <1ms so any tearing is imperceptible.
+;
+; Plane A: 64 col-major writes (autoincrement $80). Cols 0-31 from slot 0's
+;   strip cols 0-31 (96 bytes per col, 24 longwords). Cols 32-63 from slot 1.
+; Plane B: row-major linear write (autoincrement $02). 4096 bytes from slot 0's
+;   sec_bg_layout (or act_bg_layout fallback) to VRAM_PLANE_B_BYTES.
+; -----------------------------------------------
+Section_RedrawPlanes:
+        lea     (VDP_CTRL).l, a5
+        lea     (VDP_DATA).l, a6
+
+        ; -- Plane A: column-major write, autoincrement $80 (= 64-col stride) --
+        move.w  #$8F80, (a5)
+
+        ; Phase A: plane cols 0-31 from slot 0's strip
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = slot 0 Sec ptr
+        movea.l Sec_sec_strips_a(a0), a1            ; a1 = strip array (col 0 base)
+        moveq   #0, d3                              ; plane col counter
+.pla_phase_a:
+        moveq   #0, d4
+        move.w  d3, d4
+        add.w   d4, d4                              ; col*2
+        addi.l  #VRAM_PLANE_A, d4                   ; full byte address
+        vdpCommReg d4, VRAM, WRITE, 1               ; build VDP CTRL command
+        move.l  d4, (a5)                            ; set write address
+        moveq   #STRIP_TILE_HEIGHT/2-1, d4          ; 24 longwords - 1
+.pla_copy_a:
+        move.l  (a1)+, (a6)
+        dbf     d4, .pla_copy_a
+        addq.w  #1, d3
+        cmpi.w  #32, d3
+        blt.s   .pla_phase_a
+
+        ; Phase B: plane cols 32-63 from slot 1's strip
+        moveq   #SLOT_RIGHT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = slot 1 Sec ptr
+        movea.l Sec_sec_strips_a(a0), a1            ; a1 = slot 1 strip array
+.pla_phase_b:
+        moveq   #0, d4
+        move.w  d3, d4
+        add.w   d4, d4
+        addi.l  #VRAM_PLANE_A, d4
+        vdpCommReg d4, VRAM, WRITE, 1
+        move.l  d4, (a5)
+        moveq   #STRIP_TILE_HEIGHT/2-1, d4
+.pla_copy_b:
+        move.l  (a1)+, (a6)
+        dbf     d4, .pla_copy_b
+        addq.w  #1, d3
+        cmpi.w  #64, d3
+        blt.s   .pla_phase_b
+
+        ; -- Plane B: row-major linear write of slot 0's bg_layout --
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = slot 0 Sec ptr
+        movea.l Sec_sec_bg_layout(a0), a1
+        cmpa.w  #0, a1
+        bne.s   .plb_have_layout
+        movea.l Act_act_bg_layout(a2), a1           ; T1 fallback to act-level BG
+        cmpa.w  #0, a1
+        beq.s   .plb_done                            ; no BG at all → skip
+.plb_have_layout:
+        move.w  #$8F02, (a5)                        ; autoincrement $02 (row-major)
+        move.l  #vdpComm(VRAM_PLANE_B_BYTES,VRAM,WRITE), (a5)
+        move.w  #1024-1, d3                         ; 4096 bytes / 4 = 1024 longwords - 1
+.plb_loop:
+        move.l  (a1)+, (a6)
+        dbf     d3, .plb_loop
+.plb_done:
+        ; Restore default autoincrement (matches VInt_DrawLevel cleanup)
+        move.w  #$8F02, (a5)
+        rts
+
+; -----------------------------------------------
 ; Section_UpdateColumns — per-frame nametable ring-buffer streaming
 ; Writes newly-revealed tile columns on right and left edges each frame.
 ; Must be called AFTER Camera_X is updated each frame.
 ; In:  none
 ; Out: none
-; Clobbers: d0–d7, a0–a3
+; Clobbers: d0–d7, a0–a3, a5–a6 (a5/a6 only when Plane_Dirty triggers redraw)
 ; -----------------------------------------------
 Section_UpdateColumns:
+        ; -- §4.2: full-plane redraw if dirty (post-teleport atomic transition) --
+        tst.b   (Section_Plane_Dirty).w
+        beq.s   .not_dirty
+        clr.b   (Section_Plane_Dirty).w
+        bsr.w   Section_RedrawPlanes
+        ; Update streaming trackers: plane cols 0-63 = world tile cols 64-127
+        ; (Camera_X = $0200 → world tile col 64 = SLOT_ORIGIN_L/8). Subsequent
+        ; streaming continues from col 128 onward as camera moves right.
+        move.w  #SLOT_ORIGIN_L/8 + 64 - 1, (Section_Right_Col_Written).w
+        move.w  #SLOT_ORIGIN_L/8, (Section_Left_Col_Written).w
+        rts
+.not_dirty:
+
         movem.l d2-d7/a0-a3, -(sp)
 
         move.l  (Camera_X).w, d6
