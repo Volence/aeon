@@ -115,6 +115,62 @@ Draw_TileRow:
         rts
 
 ; -----------------------------------------------
+; Draw_BG_TileColumn — append one tile column strip to Plane_Buffer for plane B (§4.2).
+; In:  d0.w = target VDP nametable column (0–63)
+;      d1.w = section tile column index (0..63)
+;      a0   = section def pointer (uses Sec_sec_bg_layout, Act fallback if NULL)
+; Out: none (silently drops if buffer full)
+; Clobbers: d0–d3, a1–a2
+; Note: plane B is 64×32 tiles. Strip = 32 words; header = $8000 | (16-1) = $800F.
+;       Source layout is row-major 64×32 — for col N, words at byte offsets
+;       row*128 + N*2 for row=0..31 (stride = 64 cols * 2 B = 128).
+; -----------------------------------------------
+Draw_BG_TileColumn:
+        ; -- overflow check (entry size = 4 + 32*2 = 68 bytes) --
+        move.w  (Plane_Buffer_Ptr).w, d2
+        addi.w  #4 + 32*2, d2
+        cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
+        bhi.s   .done
+
+        ; -- get source: sec_bg_layout. Fall back to act default if NULL. --
+        movea.l Sec_sec_bg_layout(a0), a1
+        cmpa.w  #0, a1
+        bne.s   .have_layout
+        movea.l (Current_Act_Ptr).w, a2
+        movea.l Act_act_bg_layout(a2), a1
+        cmpa.w  #0, a1
+        beq.s   .done
+.have_layout:
+        ; -- a1 = layout base; advance by (col * 2) to point at row 0 of col --
+        move.w  d1, d3
+        add.w   d3, d3
+        adda.w  d3, a1
+
+        ; -- write buffer header --
+        lea     (Plane_Buffer).w, a2
+        adda.w  (Plane_Buffer_Ptr).w, a2
+        add.w   d0, d0
+        addi.w  #VRAM_PLANE_B_BYTES & $FFFF, d0
+        move.w  d0, (a2)+
+        move.w  #$8000 | (32/2 - 1), (a2)+      ; column write, 16 longwords - 1
+
+        ; -- copy 32 words (one per row), reading column-major (stride = 128) --
+        moveq   #32-1, d3
+.copy:
+        move.w  (a1), (a2)+
+        adda.w  #128, a1
+        dbf     d3, .copy
+
+        ; -- zero terminator + buffer pointer update --
+        move.w  #0, (a2)
+        move.w  (Plane_Buffer_Ptr).w, d2
+        addi.w  #4 + 32*2, d2
+        move.w  d2, (Plane_Buffer_Ptr).w
+
+.done:
+        rts
+
+; -----------------------------------------------
 ; VInt_DrawLevel — drain Plane_Buffer entries to VDP (called from VBlank)
 ; Each entry: [addr.w][flags_cnt.w][data words...]
 ; addr=0 terminates.
