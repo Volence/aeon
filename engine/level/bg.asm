@@ -64,39 +64,32 @@ BG_Init:
         rts
 
 ; -----------------------------------------------
-; BG_RedrawForSection — replace Plane B nametable from a section's BG layout.
+; BG_RedrawForSection — queue Plane B nametable replacement via DMA queue (§4.2).
 ;
-; In:  a0 = Sec ptr
-;      a2 = Act ptr (for T1 fallback to act_bg_layout)
-; Out: none
-; Clobbers: d0, a0–a2
+; In:  a0 = Sec ptr, a2 = Act ptr (for T1 fallback to act_bg_layout)
+; Out: none (silently no-ops if no BG layout available)
+; Clobbers: d0–d4, a1–a2 (per QueueDMA_Important contract)
 ;
-; T1 (sec_bg_layout = NULL): redraw with the act's zone-wide BG layout. This
-;   matters when transitioning back from a T2/T3 section — without it, Plane B
-;   keeps the old per-section content instead of reverting to the zone BG.
-; T2/T3 (sec_bg_layout != NULL): blit the section's layout to Plane B.
+; §4.2 change: previously this routine did a 4096-byte VDP-direct poke during
+; active display, producing a top-down tear visible at every section transition.
+; New behaviour: queue an Important-tier DMA. The transfer drains during VBlank
+; only — no active-display tear, by construction.
 ;
-; Per docs/research/per-section-background.md: layouts are full-coverage 64x32,
-; so no pre-clear needed — the new data fully overwrites prior contents.
+; T1 (sec_bg_layout = NULL): fall back to act-level zone BG.
+; T2/T3 (sec_bg_layout != NULL): use the section's layout.
+;
+; Layouts are full-coverage 64x32 (4096 bytes); the DMA fully overwrites prior
+; contents, so no pre-clear is needed.
 ; -----------------------------------------------
 BG_RedrawForSection:
         move.l  Sec_sec_bg_layout(a0), d0
         bne.s   .have_layout
-        ; T1 — fall back to act-level zone BG
         move.l  Act_act_bg_layout(a2), d0
-        beq.s   .skip                   ; no zone BG either → nothing to draw
+        beq.s   .skip                       ; no BG at all → nothing to do
 .have_layout:
-        movea.l d0, a1
-
-        stopZ80
-        move.w  #$8F02, (VDP_CTRL).l
-        move.l  #vdpComm(VRAM_PLANE_B_BYTES,VRAM,WRITE), (VDP_CTRL).l
-
-        lea     (VDP_DATA).l, a2
-        move.w  #BG_LAYOUT_SIZE/2 - 1, d0
-.copy:
-        move.w  (a1)+, (a2)
-        dbf     d0, .copy
-        startZ80
+        move.l  d0, d1                      ; d1.l = source ROM addr
+        move.w  #VRAM_PLANE_B_BYTES, d2     ; d2.w = dest VRAM byte addr
+        move.w  #BG_LAYOUT_SIZE, d3         ; d3.w = transfer length (4096 bytes)
+        bra.w   QueueDMA_Important
 .skip:
         rts
