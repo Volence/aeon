@@ -2097,145 +2097,115 @@ preload_at = threshold - (x_vel × lead_frames)
 ```
 A player at max speed (~$C00 subpixels/frame) gets the preload trigger ~96 pixels earlier = 8 extra frames for S4LZ to decompress. A walking player barely changes. Ensures smooth transitions regardless of speed. No game does adaptive preload timing.
 
-### 4.9 Section-Local Entity Management — Warp-Based Preview (NOVEL)
+### 4.9 Section-Local Entity Management
 
-No Genesis game manages entities per-section with warp-based teleport preview. Traditional Sonic engines (and S.C.E.) use global X-sorted arrays with sliding windows — requiring merge/sort/rebuild logic. This architecture eliminates all of that complexity.
+Entity loading is tied to the slot system. When a section loads into a slot, its rings and objects load with it. When it unloads, they unload. No merging, no sorting, no global buffers. Traditional Sonic engines (and S.C.E.) use global X-sorted arrays with sliding windows — this architecture eliminates that complexity.
 
-**Core principle:** Entity loading is tied to the slot system. When a section loads into a slot, its rings and objects load with it. When it unloads, they unload. No merging, no sorting, no global buffers.
-
-**Why separate rings from objects:** Rings are high-volume (40-50 per section), stateless (no behavior code), and need only collision + rendering. Objects are lower-volume (10-20), stateful (SST slots with behavior routines), and diverse. Thunder Force IV validates this: segregated pools with type-specific fast paths outperform unified processing.
+**Why separate rings from objects:** Rings are high-volume (40-50 per section), stateless (no behavior code), and need only collision + rendering. Objects are lower-volume (10-20), stateful (SST slots with behavior routines), and diverse. Segregated pools with type-specific fast paths outperform unified processing.
 
 #### 4.9.1 Ring Layout — Pattern-Encoded, Section-Local
 
-Ring data in ROM per-section, section-local coordinates ($000-$7FF, 11 bits per axis). Three entry types, 4 bytes each:
+Ring data in ROM per-section, section-local coordinates ($000-$3FF, 10 bits per axis). Three entry types, 4 bytes each, terminated by `dc.l 0`:
 
 ```
-; High 2 bits of first word select entry type:
-; %00 = individual ring  (X, Y, flags)
+; High 2 bits select entry type:
+; %00 = individual ring  (X, Y)
 ; %01 = horizontal line  (X, Y, count, spacing)
 ; %10 = vertical line    (X, Y, count, spacing)
 ;
-; Layout: [1:0 type][10:0 X][10:0 Y][7:0 params]
-;   Individual: params = reserved/flags
-;   Pattern:    params = 5-bit count (1-32) + 3-bit spacing index
+; Layout: [2-bit type][10-bit X][10-bit Y][5-bit count-1][3-bit spacing][2-bit reserved]
+;   Individual: count/spacing/reserved ignored
+;   Pattern:    count 1-32 (field = count-1), spacing index selects pixel gap
 ;
 ; Spacing index: 0=$10, 1=$14, 2=$18, 3=$1C, 4=$20, 5=$24, 6=$28, 7=$30
 ```
 
-Pattern encoding achieves ~58% ROM savings on real data (tested: OJZ Act 1, 240 rings compress from 960 to ~400 bytes). Individual rings degrade gracefully to the current 4-byte format — a section with no patterns just has type %00 entries.
-
-At section load, patterns expand into the slot's ring buffer as individual (X, Y) pairs for fast collision/rendering. Expansion is a one-time cost (~50 cycles per pattern entry). The ring scanner iterates the expanded buffer with zero per-frame decode overhead.
+At section load, patterns expand into the slot's ring buffer as flat (X, Y) word pairs in engine-space coordinates (slot origin added during expansion). Expansion is a one-time cost (~50 cycles per pattern entry). The ring scanner iterates the expanded buffer with zero per-frame decode overhead.
 
 #### 4.9.2 Object Layout — Compact 4-Byte with Per-Section Type Table
 
-Object entries in ROM use section-local coordinates with a local type index:
+Object entries in ROM use section-local coordinates with a local type index, terminated by `dc.l 0`:
 
 ```
-; 32-bit entry: [10:0 X][10:0 Y][4:0 type][4:0 subtype]
-;   X, Y:     section-local ($000-$7FF, 11 bits each)
+; 32-bit entry: [2-bit reserved][10-bit X][10-bit Y][5-bit type][5-bit subtype]
+;   X, Y:     section-local ($000-$3FF, 10 bits each)
 ;   type:     index into this section's type table (5 bits, 0-31)
 ;   subtype:  object-specific parameter (5 bits, 0-31)
 ```
 
-4 bytes per object (compact — typical Genesis engines use 6 bytes). Each section defines a flat type table in ROM — an array of object routine longword pointers:
+4 bytes per object (compact — typical Genesis engines use 6 bytes). Each section defines a count-prefixed type table in ROM:
 
 ```
-OJZ_1_Sec0_Types:
-    dc.l Obj_Spring         ; type 0
-    dc.l Obj_Spike          ; type 1
-    dc.l Obj_PitcherPlant   ; type 2
-    ; 3 entries = 12 bytes ROM
+OJZ_Sec0_TypeTable:
+    dc.b    2, 0                ; count, pad byte
+    dc.l    ObjDef_Static       ; type 0
+    dc.l    ObjDef_Solid        ; type 1
+    ; 2 + 8 = 10 bytes ROM
 ```
 
-At section load, the type table copies to a 128-byte RAM lookup (32 entries × 4 bytes). Object spawning reads the 4-byte entry, indexes the RAM lookup for the routine pointer, calls `AllocSlot` (3.2). Lookup is one indexed `move.l` — zero branching.
+At section load, the type table copies to a 128-byte RAM lookup (32 entries × 4 bytes). Unused entries are zeroed to prevent stale pointers. Object spawning reads the 4-byte layout entry, indexes the RAM lookup for the ObjDef pointer, calls `Load_Object`. Lookup is one indexed `move.l` — zero branching.
 
-The 5-bit type index means each section independently uses up to 32 object types with no global ID space. A section using 3 types has a 12-byte table. The game can have hundreds of unique object types with no encoding pressure on the layout entries.
+The 5-bit type index means each section independently uses up to 32 object types with no global ID space. A section using 3 types has a 14-byte table (2 + 12). The game can have hundreds of unique object types with no encoding pressure on the layout entries.
 
 #### 4.9.3 Slot-Based Entity Lifecycle
 
-```
-Section loads into slot:
-  1. Expand ring patterns from ROM into slot ring buffer
-  2. Copy section's object type table to 128-byte RAM lookup
-  3. Spawn section's objects into SST via AllocSlot (3.2)
-     Objects carry a slot tag (1 byte in SST scratch space)
-  4. Check rolling state buffer for saved bitmasks → apply if found
-  5. Set slot origin (X, Y) for coordinate translation
-
-Section unloads from slot:
-  1. Save ring bitmask + object bitmask to rolling state buffer
-  2. Despawn all objects tagged with this slot (FreeSlot)
-  3. Clear slot ring buffer
-```
-
-Ring rendering and collision use the slot origin for coordinate translation: `screen_x = slot.origin_x + ring.local_x - camera_x`. Changing the origin changes where every ring in the slot appears — this is the mechanism that enables warp-based preview.
-
-#### 4.9.4 Rolling 4-Slot State Tracking
+Two horizontal slots (SLOT_LEFT at $200, SLOT_RIGHT at $A00). Entity loading is orchestrated by `Section_LoadSlotEntities`, which takes a section pointer, slot tag, slot origin, and ring buffer pointers:
 
 ```
-; 4 entries × 26 bytes = 104 bytes
-rolling_state:
-    dc.b    section_id      ; which section ($FF = empty)
-    dc.b    padding
-    ds.b    16              ; ring bitmask (128 bits = 128 rings max)
-    ds.b    8               ; object bitmask (64 bits = 64 objects max)
-; × 4 slots
+Section loads into slot (Section_Init, or teleport):
+  1. Copy section's type table to 128-byte RAM lookup (LoadTypeTable)
+  2. Spawn section's objects into SST via Load_Object (SpawnSectionObjects)
+     - Section-local X/Y offset by slot origin to engine-space
+     - Objects carry a slot tag byte (SLOT_TAG_LEFT=0 or SLOT_TAG_RIGHT=1)
+  3. Expand ring patterns from ROM into slot ring buffer (ExpandRings)
+     - Section-local X/Y offset by slot origin to engine-space
+     - Ring count stored per-slot
+
+Section unloads from slot (teleport):
+  1. Despawn all objects tagged with this slot (DespawnSlotObjects)
+  2. Clear slot ring buffer and bitmask
 ```
 
-On section load: search buffer for matching `section_id`. If found, apply bitmasks — collected rings stay gone, destroyed objects stay dead. If not found, section loads fresh.
+At `Section_Init`, both slots load entities. At teleport, the outgoing slot despawns, surviving objects shift coordinates by ±SECTION_SHIFT and retag, surviving rings copy to the other buffer with X adjustment, then the incoming slot loads fresh entities.
 
-On section unload: save state, evict oldest entry. Maximum distance to see respawned entities: ~$800 pixels ($400 forward to trigger preload + $400 back). Acceptable for Sonic gameplay.
+#### 4.9.4 Teleport Entity Shift
 
-No section count limit. Hundreds of sections, only the 4 most recently visited have preserved state. Explicitly simpler than the current 256-byte global respawn table.
+When teleport fires, entities in the surviving slot must shift to maintain spatial consistency:
 
-#### 4.9.5 Warp-Based Teleport Preview (NOVEL)
-
-When a section preloads into a slot, its entities spawn at warped coordinates — offset by SECTION_SHIFT ($1000) in the teleport direction. The preview objects ARE the real objects. No separate preview loading, no duplicate entities, no ROM-direct reads.
-
-**Forward preview flow:**
 ```
-Layout:  $000-$1FF  $200--------$9FF  $A00--------$11FF  $1200-$13FF
-         bwd preview   slot L            slot R            fwd preview
+Forward teleport (Section_TeleportFwd):
+  1. Despawn slot 0 objects (DespawnSlotObjects with SLOT_TAG_LEFT)
+  2. Shift surviving slot 1 objects: x_pos -= SECTION_SHIFT<<16 (16.16 fixed-point)
+     Retag from SLOT_TAG_RIGHT → SLOT_TAG_LEFT
+  3. Copy Ring_Buffer_1 → Ring_Buffer_0, subtracting SECTION_SHIFT from each X
+     Copy Ring_Bitmask_1 → Ring_Bitmask_0 (preserves collection state)
+     Copy Ring_Count_1 → Ring_Count_0
+     Clear Ring_Buffer_1/Bitmask_1/Count_1
+  4. Load new slot 1 entities via Section_LoadSlotEntities
 
-1. Player approaches forward boundary in slot R
-2. Preload: section N+2 loads into slot L (behind player, offscreen)
-3. Objects spawn at (slot_L_origin + SECTION_SHIFT):
-   → Pitcher plant at section-local ($14,$14) → spawns at ($1214,$214)
-   → Lives in forward preview zone, fully active
-4. Slot L ring origin set to normal_origin + SECTION_SHIFT
-   → All rings render in preview zone automatically
-
-5. Player crosses $1200 — teleport fires:
-6. Subtract SECTION_SHIFT from player, camera, ALL active objects:
-   → Player: $1200 → $0200 (start of slot L)
-   → Pitcher plant: $1214 → $0214 (correct slot L position)
-   → Projectile at $1100: → $0100 (still approaching player)
-   → Motobug that crossed teleport line at $11FF: → $01FF (backward preview, valid)
-7. Set slot L ring origin = normal_origin (one word write, all rings unwarp)
-8. Load next section into slot R, spawn its objects
+Backward teleport (Section_TeleportBwd):
+  Mirror of forward — despawn slot 1, shift slot 0 → slot 1 (x_pos += SECTION_SHIFT),
+  copy ring buffer 0 → 1 with X += SECTION_SHIFT, load new slot 0
 ```
 
-**Why it works:** The uniform SECTION_SHIFT is applied to everything — player, camera, all objects. Distances between entities are invariant. A projectile 50 pixels from the player stays 50 pixels away. No discontinuity, no special cases.
+The uniform SECTION_SHIFT applied to all positions preserves distances between entities. A projectile 50 pixels from the player stays 50 pixels away after the shift.
 
-**Objects that cross the teleport line:** The $200-pixel preview buffer on each side absorbs all realistic movement. An object from the forward preview ($1200+) that walks past the teleport line and reaches $11FF lands at $01FF after the shift — valid backward preview space, appearing naturally behind the player. An object would need to traverse an entire slot ($800 pixels) to reach invalid coordinates, which is physically impossible in the preload-to-teleport window.
+#### 4.9.5 Rolling State Tracking (DEFERRED)
 
-**Rings:** No per-ring adjustment ever. Slot origin handles everything. Warp = adjust origin by +SECTION_SHIFT. Unwarp = set origin back. One word write affects every ring in the slot.
-
-**All four directions + diagonal:** Same mechanism. Backward: warp by -SECTION_SHIFT, teleport adds +SECTION_SHIFT. Vertical: warp/unwarp on Y axis. Diagonal corners: both offsets. The preview is directionally symmetric.
+*Designed but not yet implemented.* A rolling state buffer would preserve ring collection and object destruction state across section revisits, so collected rings stay gone and destroyed objects stay dead when backtracking. Without it, revisiting a section loads it fresh. This is acceptable for initial development — state tracking will be added when gameplay demands it.
 
 #### 4.9.6 RAM Budget
 
 | Component | Size |
 |---|---|
-| Ring slot buffers (4 slots, shared pool) | 768 B |
-| Ring collected bitmasks (16B × 4 slots) | 64 B |
-| Object respawn bitmasks (8B × 4 slots) | 32 B |
-| Slot origins (4B × 4 slots) | 16 B |
-| Slot→section mapping | 8 B |
-| Object type table (RAM copy) | 128 B |
-| **Total** | **1,016 B** |
+| Ring slot buffers (2 × 512 bytes) | 1,024 B |
+| Ring collected bitmasks (2 × 16 bytes) | 32 B |
+| Ring counts (2 × 1 byte) | 2 B |
+| Object type table (RAM copy, 32 × 4 bytes) | 128 B |
+| Ring state (ring_status byte) | 1 B |
+| **Total** | **~1,187 B** |
 
-Ring positions and visual state are implicit (derived from pattern + bitmask at render time). No separate position arrays, consumption tables, or pointer tracking needed.
+Ring positions stored as engine-space (X, Y) word pairs in flat buffers — no per-frame coordinate translation needed. Slot origin is applied once at expansion time.
 
 ### 4.10 Cascade Effects
 
@@ -2275,19 +2245,18 @@ Section + Allocator Integration (4.8)
           → Pool compaction at section boundary makes room for new section
 
 Section-Local Entity Management (4.9)
-  → Rings: pattern-encoded ROM → expanded per-slot buffer at section load
-    → Slot origin controls warp/unwarp for preview (one word write)
-      → Ring collision = slot.origin + ring.local - camera (per-slot iteration)
-  → Objects: compact 4-byte entries → AllocSlot with per-section type table lookup
-    → Warp-based preview: spawn at +SECTION_SHIFT, live in preview zone
-      → Teleport: uniform -SECTION_SHIFT to all positions (spatial invariant)
-        → Objects crossing teleport line land in backward preview zone (valid)
-  → State: rolling 4-slot buffer, no section count limit
-    → Bitmasks applied at section load, saved at section unload
-      → ~$800 max respawn distance, preserve_state flag for permanent storage
+  → Rings: pattern-encoded ROM → expanded to engine-space buffer at section load
+    → Flat (X,Y) word pairs — no per-frame coordinate translation
+      → Ring collision iterates expanded buffer directly against player position
+  → Objects: compact 4-byte entries → Load_Object with per-section type table lookup
+    → Slot tag tracks which slot spawned each object
+      → Teleport: despawn outgoing slot, shift surviving objects by ±SECTION_SHIFT
+        → Ring buffers copied with X adjustment, bitmasks preserved
+  → State: rolling buffer deferred — sections load fresh on revisit for now
+
 Zero-Lag Teleport (4.8 — 6 systems converging)
   → Pre-computed strips (4.3): pointer swap, no layout conversion
-  → Entity warp (4.9): position shift, no ring/object rebuild
+  → Entity shift (4.9): ±SECTION_SHIFT to surviving positions, despawn+spawn for slot swap
   → Progressive nametable preload: DMA strips to VDP during 85-frame preload window
     → Half screen already in VDP at teleport time, other half fits one VBlank
   → Palette crossfade: 3-4 frame darken/brighten masks residual nametable update
@@ -2298,7 +2267,7 @@ Zero-Lag Teleport (4.8 — 6 systems converging)
 Section as Independent World (4.2 + 4.8 + 4.9)
   → Each section defines: layout, art, palette, music, physics, parallax, raster table, deformation, animated tiles, rings, objects, type table
     → Transition sections blend between adjacent worlds smoothly
-      → Rolling state preservation keeps nearby worlds alive when revisited
+      → Rolling state preservation deferred — fresh load on revisit for now
         → Streaming during cutscenes eliminates loading pauses
           → Result: interconnected worlds, not level chunks
 ```

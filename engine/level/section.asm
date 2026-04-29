@@ -102,9 +102,7 @@ Section_Init:
         moveq   #0, d5
         lea     (Ring_Buffer_1).w, a4
         lea     (Ring_Count_1).w, a5
-        bsr.w   Section_LoadSlotEntities
-
-        rts
+        bra.w   Section_LoadSlotEntities
 
  ; -----------------------------------------------
 ; Section_FillInitial — set up trackers; let Section_UpdateColumns
