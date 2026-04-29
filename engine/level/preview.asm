@@ -1,62 +1,87 @@
-; §4.2 Preview-zone copy routines.
+; §4.2 Preview-zone copy routines (direct VDP write).
 ;
-; Preview is nametable-only edge regions on plane A and plane B (PREVIEW_COLS
-; cols on left + right; PREVIEW_ROWS rows on top + bottom — vertical is stubbed).
-; Cells reference resident slot art; no extra VRAM is allocated.
+; Preview is nametable-only edge regions on plane A. Cells reference resident
+; slot art; no extra VRAM is allocated.
 ;
 ; FWD preview = leading PREVIEW_COLS cols of next-section nametable strip,
-;               written at plane cols 0..PREVIEW_COLS-1 (= world cols 576-579 mod 64).
+;               written at plane cols 0..PREVIEW_COLS-1.
 ; BWD preview = trailing PREVIEW_COLS cols of previous-section nametable strip,
-;               written at plane cols 60..63 (= world cols 60-63 mod 64).
+;               written at plane cols (64-PREVIEW_COLS)..63.
+;
+; Direct-VDP writes (bypass Plane_Buffer) so PREVIEW_COLS can exceed the
+; plane buffer's ~14-col single-frame ceiling. Same approach as
+; Section_RedrawPlanes — writes during active display, completes in <1ms,
+; visually clean.
 ;
 ; Triggers (see section.asm):
-;   FWD copy fires when source section's art preload completes (Section_LoadArt).
+;   FWD copy fires from .preload_fwd when the source section's art is queued.
 ;   BWD copy fires at every teleport (Section_TeleportFwd / _Bwd).
 
 ; -----------------------------------------------
-; Section_CopyFwdPreview — write FWD preview region of plane A.
+; Section_CopyFwdPreview — write FWD preview region of plane A via direct VDP.
 ; In:  a0 = Sec ptr (the section whose leading PREVIEW_COLS we copy)
 ; Out: none
-; Clobbers: d0–d3, a1–a2
+; Clobbers: d0–d4, a1–a2, a5–a6
 ; -----------------------------------------------
 Section_CopyFwdPreview:
-        movem.l d4-d5, -(sp)
-        moveq   #PREVIEW_COLS-1, d4         ; loop 4 times (d4 = 3..0)
-        moveq   #0, d5                      ; d5 = src section tile col (starts at 0)
+        lea     (VDP_CTRL).l, a5
+        lea     (VDP_DATA).l, a6
+        move.w  #$8F80, (a5)                        ; autoincrement $80 (col-major)
+
+        movea.l Sec_sec_strips_a(a0), a1            ; a1 = strip array (col 0 base)
+        moveq   #PREVIEW_COLS-1, d4                 ; outer loop: cols 0..PREVIEW_COLS-1
+        moveq   #0, d3                              ; plane col counter
 .loop:
-        move.w  d5, d0                      ; dest plane col = 0..PREVIEW_COLS-1
-        move.w  d5, d1                      ; src section tile col = 0..PREVIEW_COLS-1
-        movem.l d4-d5/a0, -(sp)
-        bsr.w   Draw_TileColumn             ; clobbers d0–d3, a1–a2
-        movem.l (sp)+, d4-d5/a0
-        addq.w  #1, d5
+        moveq   #0, d2
+        move.w  d3, d2
+        add.w   d2, d2                              ; d2 = plane_col * 2 (byte offset)
+        addi.l  #VRAM_PLANE_A, d2                   ; d2 = full byte address
+        vdpCommReg d2, VRAM, WRITE, 1               ; build VDP CTRL command
+        move.l  d2, (a5)                            ; set write address
+        moveq   #STRIP_TILE_HEIGHT/2-1, d2          ; 24 longwords - 1
+.copy:
+        move.l  (a1)+, (a6)                         ; write nametable longword
+        dbf     d2, .copy
+        addq.w  #1, d3
         dbf     d4, .loop
-        movem.l (sp)+, d4-d5
+
+        ; Restore default autoincrement (matches VInt_DrawLevel cleanup)
+        move.w  #$8F02, (a5)
         rts
 
 ; -----------------------------------------------
-; Section_CopyBwdPreview — write BWD preview region of plane A.
+; Section_CopyBwdPreview — write BWD preview region of plane A via direct VDP.
 ; In:  a0 = Sec ptr (the section whose trailing PREVIEW_COLS we copy)
 ; Out: none
-; Clobbers: d0–d3, a1–a2
+; Clobbers: d0–d4, a1–a2, a5–a6
 ;
 ; Source: section tile cols (SECTION_TILE_WIDTH-PREVIEW_COLS)..(SECTION_TILE_WIDTH-1)
-;         = cols 252..255 (last 4 cols of section).
-; Dest:   plane cols 60..63 (= world cols 60-63 mod 64).
+; Dest:   plane cols (64-PREVIEW_COLS)..63
 ; -----------------------------------------------
 Section_CopyBwdPreview:
-        movem.l d4-d5, -(sp)
-        moveq   #PREVIEW_COLS-1, d4                 ; loop 4 times
-        move.w  #SECTION_TILE_WIDTH-PREVIEW_COLS, d5    ; first of last 4 src cols (= 252)
+        lea     (VDP_CTRL).l, a5
+        lea     (VDP_DATA).l, a6
+        move.w  #$8F80, (a5)                        ; autoincrement $80
+
+        ; Advance strip ptr to first of trailing PREVIEW_COLS cols.
+        movea.l Sec_sec_strips_a(a0), a1
+        adda.l  #(SECTION_TILE_WIDTH-PREVIEW_COLS)*STRIP_BYTE_SIZE, a1
+
+        moveq   #PREVIEW_COLS-1, d4
+        move.w  #64-PREVIEW_COLS, d3                ; plane col starts at 64-PREVIEW_COLS
 .loop:
-        move.w  d5, d1                              ; src section tile col = 252..255
-        move.w  d5, d0
-        addi.w  #64-SECTION_TILE_WIDTH, d0          ; dest plane col: 252→60, 253→61, etc.
-        andi.w  #$3F, d0                            ; safety: clamp to plane col 0..63
-        movem.l d4-d5/a0, -(sp)
-        bsr.w   Draw_TileColumn
-        movem.l (sp)+, d4-d5/a0
-        addq.w  #1, d5
+        moveq   #0, d2
+        move.w  d3, d2
+        add.w   d2, d2
+        addi.l  #VRAM_PLANE_A, d2
+        vdpCommReg d2, VRAM, WRITE, 1
+        move.l  d2, (a5)
+        moveq   #STRIP_TILE_HEIGHT/2-1, d2
+.copy:
+        move.l  (a1)+, (a6)
+        dbf     d2, .copy
+        addq.w  #1, d3
         dbf     d4, .loop
-        movem.l (sp)+, d4-d5
+
+        move.w  #$8F02, (a5)
         rts

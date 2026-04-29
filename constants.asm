@@ -215,15 +215,18 @@ SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
 SLOT_ORIGIN_R           = $0A00     ; right slot engine-space left edge
 SLOT_ORIGIN_U           = $0200     ; upper slot engine-space top edge
 SLOT_ORIGIN_D           = $0A00     ; lower slot engine-space top edge
-; -- §4.2 preview-zone (12-col / 12-row edges on plane A + plane B) --
-; Bumped from 4 to 12 cols based on user feedback — 4-col preview was too narrow
-; visually. 12 cols = 96 px = ~1/3 of screen width, giving meaningful look-ahead.
-; Buffer cost per FWD/BWD copy: 12 cols × ~100 bytes per Draw_TileColumn entry
-; = 1200 bytes. Plane_Buffer is 1536 bytes; leaves 336 bytes for normal
-; per-frame streaming (1-2 cols × 100 bytes = 100-200 bytes).
-PREVIEW_COLS            = 12        ; nametable cols at FWD/BWD edges
-PREVIEW_ROWS            = 12        ; nametable rows at TOP/BOT edges (vertical: stub for now)
-PREVIEW_PIXELS          = PREVIEW_COLS*8    ; 96 px — used for camera clamp offset
+; -- §4.2 preview-zone (24-col / 24-row edges on plane A + plane B) --
+; Preview width covers the right-of-current-section visible area as camera
+; approaches the FWD teleport boundary (and mirror for BWD). 24 cols = 192 px
+; = ~3/5 of screen width. Section_CopyFwdPreview/_Bwd use direct VDP writes
+; (not the deferred plane buffer), so width isn't bounded by PLANE_BUFFER_SIZE.
+; Tradeoff: at intermediate camera positions during slot R traversal, the
+; preview cells become visible on the LEFT half of screen showing next-section
+; content while the RIGHT shows current-section. Acceptable per user request
+; that the right side near boundary be preview, not stale stream data.
+PREVIEW_COLS            = 24        ; nametable cols at FWD/BWD edges
+PREVIEW_ROWS            = 24        ; nametable rows at TOP/BOT edges (vertical: stub for now)
+PREVIEW_PIXELS          = PREVIEW_COLS*8    ; 192 px — used for camera clamp offset
 SECTION_TILE_WIDTH      = SECTION_SIZE/8    ; 256 — tile cols per section
 SECTION_FWD_THRESHOLD   = $1200     ; camera X → fire forward teleport
 SECTION_BWD_THRESHOLD   = $0200     ; camera X → fire backward teleport
