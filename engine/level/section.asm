@@ -160,7 +160,14 @@ Section_Check:
         add.w   d1, d0                             ; sec × 72 = Sec_len
         adda.w  d0, a4                             ; a4 = Sec ptr
         movea.l a4, a0                             ; a0 = Sec ptr (Section_StreamArtGroup convention)
-        bra.w   Section_StreamArtGroup
+        bsr.w   Section_StreamArtGroup
+        ; -- §4.2: that same section's leading PREVIEW_COLS are the FWD
+        ;    preview source. Write them now; the nametable DMA will drain
+        ;    alongside the art DMA over the upcoming ~85-frame preload window.
+        ;    a0 was clobbered by Section_StreamArtGroup; reload from a4.
+        movea.l a4, a0
+        bsr.w   Section_CopyFwdPreview
+        rts
 .preload_skip:
         rts
 
