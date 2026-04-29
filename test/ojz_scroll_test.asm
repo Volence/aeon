@@ -277,10 +277,10 @@ OJZ_SectionMarkerColors:
         dc.w    $0EEE           ; Sec8: white
 
 ; -----------------------------------------------
-; PlayerMarkerTile — 8×8 tile, all pixels colour 15 (4bpp, 32 bytes).
-; DMA'd to VRAM tile 300 ($1F40) at level init. Used as the player
-; placeholder sprite (until proper character art is wired up).
+; PlayerMarkerTile — 8×8 tile, all pixels colour 12 (4bpp, 32 bytes).
+; Pal 1 entry 12 = $00EE = bright yellow (vs entry 15 = sky-blue, invisible
+; against the OJZ sky). DMA'd to VRAM tile 300 ($1F40) at level init.
 ; -----------------------------------------------
 PlayerMarkerTile:
-        dc.l    $FFFFFFFF, $FFFFFFFF, $FFFFFFFF, $FFFFFFFF
-        dc.l    $FFFFFFFF, $FFFFFFFF, $FFFFFFFF, $FFFFFFFF
+        dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
+        dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
