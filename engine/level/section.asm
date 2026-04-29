@@ -255,14 +255,6 @@ Section_TeleportFwd:
         bsr.w   Section_LoadArt
         movea.l (sp)+, a0
 .fwd_redraw_bg:
-        ; -- §4.2: slot 1 just became RESIDENT — its leading PREVIEW_COLS cols
-        ;    are the FWD preview source. a0 = slot 1 Sec ptr from the
-        ;    RESIDENT-promotion block above (both warm and cold paths restore
-        ;    it before reaching this label). --
-        movem.l d0-d3/a0-a2, -(sp)
-        bsr.w   Section_CopyFwdPreview
-        movem.l (sp)+, d0-d3/a0-a2
-
         ; -- §2 A.5 T2: redraw Plane B based on NEW slot 0 (= section we just
         ;    stepped into and is now visible). Slot 1 is the new off-screen
         ;    section; its BG isn't yet on-screen so no need to redraw to it. --
@@ -342,16 +334,6 @@ Section_TeleportBwd:
         bsr.w   Section_LoadArt
         movea.l (sp)+, a0
 .bwd_redraw_bg:
-        ; -- §4.2: slot 1 is now the forward section (the section the player
-        ;    came from). Refresh FWD preview from slot 1's leading PREVIEW_COLS.
-        ;    a0 = slot 0 Sec ptr here — use Section_GetSlotDef to get slot 1. --
-        movem.l d0-d3/a0-a2, -(sp)
-        moveq   #SLOT_RIGHT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef          ; a0 = Sec ptr for slot 1 (FWD section)
-        bsr.w   Section_CopyFwdPreview
-        movem.l (sp)+, d0-d3/a0-a2
-
         ; -- §2 A.5 T2: redraw Plane B based on NEW slot 0 (the section we just
         ;    stepped back into). a0 already holds slot 0's Sec ptr from the
         ;    Section_GetSlotDef above. Re-load a2 = Act ptr because the cold-load
