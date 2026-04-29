@@ -115,6 +115,7 @@ __BUDGET_ENGINE:
     include "engine/level/parallax.asm"
     include "engine/level/load_art.asm"
     include "engine/level/bg.asm"
+    include "engine/level/preview.asm"
 
 ; -----------------------------------------------
 ; Object code bank
