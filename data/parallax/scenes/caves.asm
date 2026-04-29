@@ -17,7 +17,7 @@
 
 ParallaxConfig_OJZ_Caves:
     parallax_section layerMask=$1F, vFactorBg=15, vCenter=0, vOffset=0, \
-                     transition=1
+                     transition=1, deformBg=DeformTable_Zero
         band 0,  FACTOR_1, FACTOR_1_16      ; rows 0-3   distant cave ceiling
         band 4,  FACTOR_1, FACTOR_1_16      ; rows 4-9   far walls
         band 10, FACTOR_1, FACTOR_1_8       ; rows 10-13 mid walls

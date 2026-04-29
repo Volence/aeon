@@ -110,19 +110,6 @@ Section_Check:
         move.l  (Camera_X).w, d0
         swap    d0                                 ; d0.w = camera X in pixels
 
-        ; -- landing-flag clear: when camera enters the central safe zone
-        ;    (BWD_PRELOAD < camX < FWD_PRELOAD), clear both landing flags.
-        ;    User must move into the safe zone before the opposite-direction
-        ;    teleport can fire again, preventing idle oscillation at the
-        ;    boundaries (sonic_hack pattern). --
-        cmpi.w  #SECTION_BWD_PRELOAD, d0
-        ble.s   .skip_landing_clear
-        cmpi.w  #SECTION_FWD_PRELOAD, d0
-        bge.s   .skip_landing_clear
-        bclr    #SPF_FWD_LANDING, (Section_Preload_Flags).w
-        bclr    #SPF_BWD_LANDING, (Section_Preload_Flags).w
-.skip_landing_clear:
-
         ; -- preload triggers (§2 A.4) — fire BEFORE teleport thresholds --
         cmpi.w  #SECTION_FWD_PRELOAD, d0
         bge.s   .fwd_preload_check
@@ -201,11 +188,6 @@ Section_Check:
         ; skip BWD if slot 0 already at leftmost section (sec_x = 0)
         tst.b   (Slot_Section_Map).w
         beq.s   .skip
-        ; skip BWD if SPF_FWD_LANDING is set — camera just teleported
-        ; forward and would oscillate. Flag clears when camera enters the
-        ; central safe zone via .skip_landing_clear above.
-        btst    #SPF_FWD_LANDING, (Section_Preload_Flags).w
-        bne.s   .skip
         bra.w   Section_TeleportBwd
 
 .fwd_check:
@@ -215,9 +197,6 @@ Section_Check:
         addq.b  #1, d0
         cmp.b   Act_grid_w+1(a0), d0     ; grid_w is a word; low byte at +1
         bge.s   .skip
-        ; skip FWD if SPF_BWD_LANDING is set — symmetric to .bwd_check above.
-        btst    #SPF_BWD_LANDING, (Section_Preload_Flags).w
-        bne.s   .skip
         bra.w   Section_TeleportFwd
 
 .skip:  rts
@@ -255,9 +234,6 @@ Section_TeleportFwd:
 
         ; -- A.4: clear FWD-preload flag so the next preload past the threshold can fire --
         bclr    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
-        ; -- landing flag: suppress BWD teleport until camera enters safe zone --
-        bset    #SPF_FWD_LANDING,  (Section_Preload_Flags).w
-        bclr    #SPF_BWD_LANDING,  (Section_Preload_Flags).w
 
         ; -- promote new slot 1 section's state to RESIDENT (DMA assumed drained).
         ;    If state is still IDLE (preload didn't fire — cold camera write),
@@ -286,12 +262,6 @@ Section_TeleportFwd:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef
         bsr.w   BG_RedrawForSection
-
-        ; -- §4.2 cleanup: redraw Plane A — block-style rotation made BOTH
-        ;    slots new content; without a burst-fill the FG visibly streaks
-        ;    in over 2-3 frames as Section_UpdateColumns trickles. --
-        movea.l (Current_Act_Ptr).w, a1
-        bsr.w   FG_RedrawForSection
 
         ; -- §4.6 T8: snap parallax_config to new slot 0's section.
         ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
@@ -346,9 +316,6 @@ Section_TeleportBwd:
 
         ; -- A.4: clear BWD-preload flag --
         bclr    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
-        ; -- landing flag: suppress FWD teleport until camera enters safe zone --
-        bset    #SPF_BWD_LANDING,  (Section_Preload_Flags).w
-        bclr    #SPF_FWD_LANDING,  (Section_Preload_Flags).w
 
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
@@ -375,10 +342,6 @@ Section_TeleportBwd:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   BG_RedrawForSection
 
-        ; -- §4.2 cleanup: redraw Plane A — same reason as TeleportFwd. --
-        movea.l (Current_Act_Ptr).w, a1
-        bsr.w   FG_RedrawForSection
-
         ; -- §4.6 T8: snap parallax_config to new slot 0's section.
         ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
         ;    the next Parallax_Update writes target_scroll directly to
@@ -391,34 +354,6 @@ Section_TeleportBwd:
         bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
         movea.l Sec_sec_parallax_config(a0), a0
         bsr.w   Parallax_StartTransition
-        rts
-
-; -----------------------------------------------
-; FG_RedrawForSection — queue all 64 plane A nametable cols at teleport.
-; Sibling to BG_RedrawForSection. Block-style rotation means both slots
-; are new at teleport; without an immediate full redraw, plane A's tiles
-; "run in" over 2-3 frames as Section_UpdateColumns gradually streams.
-;
-; This queues 64 col entries (= ~6400 bytes) into Plane_Buffer in one
-; go. PLANE_BUFFER_SIZE is sized to absorb the burst; VInt_DrawLevel
-; drains it in 1-2 VBlanks, so the visible fill-in collapses to 1-2
-; frames instead of 3+.
-;
-; The streaming trackers (Section_Right/Left_Col_Written) are set to
-; the "fully filled" state so Section_UpdateColumns doesn't double-write
-; the same cols on the next frame.
-;
-; In:  a1 = Act descriptor pointer
-; Out: none
-; Clobbers: d0–d6, a0–a2
-; -----------------------------------------------
-FG_RedrawForSection:
-        bsr.w   Section_QueueNewSlot0Cols
-        bsr.w   Section_QueueNewSlot1Cols
-        ; Mark both slots as fully streamed so Section_UpdateColumns
-        ; treats this as steady-state on the next frame.
-        move.w  #SLOT_ORIGIN_L/8 + SECTION_SIZE*2/8 - 1, (Section_Right_Col_Written).w
-        move.w  #SLOT_ORIGIN_L/8,                       (Section_Left_Col_Written).w
         rts
 
 ; -----------------------------------------------
