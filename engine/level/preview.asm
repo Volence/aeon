@@ -33,3 +33,30 @@ Section_CopyFwdPreview:
         dbf     d4, .loop
         movem.l (sp)+, d4-d5
         rts
+
+; -----------------------------------------------
+; Section_CopyBwdPreview — write BWD preview region of plane A.
+; In:  a0 = Sec ptr (the section whose trailing PREVIEW_COLS we copy)
+; Out: none
+; Clobbers: d0–d3, a1–a2
+;
+; Source: section tile cols (SECTION_TILE_WIDTH-PREVIEW_COLS)..(SECTION_TILE_WIDTH-1)
+;         = cols 252..255 (last 4 cols of section).
+; Dest:   plane cols 60..63 (= world cols 60-63 mod 64).
+; -----------------------------------------------
+Section_CopyBwdPreview:
+        movem.l d4-d5, -(sp)
+        moveq   #PREVIEW_COLS-1, d4                 ; loop 4 times
+        move.w  #SECTION_TILE_WIDTH-PREVIEW_COLS, d5    ; first of last 4 src cols (= 252)
+.loop:
+        move.w  d5, d1                              ; src section tile col = 252..255
+        move.w  d5, d0
+        addi.w  #64-SECTION_TILE_WIDTH, d0          ; dest plane col: 252→60, 253→61, etc.
+        andi.w  #$3F, d0                            ; safety: clamp to plane col 0..63
+        movem.l d4-d5/a0, -(sp)
+        bsr.w   Draw_TileColumn
+        movem.l (sp)+, d4-d5/a0
+        addq.w  #1, d5
+        dbf     d4, .loop
+        movem.l (sp)+, d4-d5
+        rts
