@@ -94,6 +94,31 @@ Section_GetSlotDef:
         bra.w   Section_GetSlotDef
 
 ; -----------------------------------------------
+; Section_GetSecPtrXY — Sec ptr lookup by grid coordinates (§4.2).
+; In:  d2.b = sec_x, d3.b = sec_y (unused — 1-row grid only), a2 = Act ptr
+; Out: a0 = Sec ptr; Z clear if found, Z set if out of range (a0 = 0)
+; Clobbers: d0, d1
+; Note: Phase 1 single-row layout (grid_h = 1). Multi-row deferred.
+; -----------------------------------------------
+Section_GetSecPtrXY:
+        cmp.b   Act_grid_w+1(a2), d2
+        bcc.s   .out_of_range                       ; sec_x >= grid_w (unsigned)
+        moveq   #0, d0
+        move.b  d2, d0
+        movea.l Act_sec_grid_ptr(a2), a0
+        move.w  d0, d1
+        lsl.w   #6, d0                              ; sec_x × 64
+        lsl.w   #3, d1                              ; sec_x × 8
+        add.w   d1, d0                              ; sec_x × 72 = Sec_len
+        adda.w  d0, a0
+        moveq   #1, d0                              ; Z clear (success)
+        rts
+.out_of_range:
+        suba.l  a0, a0                              ; a0 = 0
+        moveq   #0, d0                              ; Z set (not found)
+        rts
+
+; -----------------------------------------------
 ; Section_Check — per-frame teleport threshold check (horizontal)
 ; Call from game loop each frame.
 ; In:  none
@@ -109,6 +134,24 @@ Section_Check:
 .check:
         move.l  (Camera_X).w, d0
         swap    d0                                 ; d0.w = camera X in pixels
+
+        ; -- §4.2 deferred cold-loads — fire when camera passes mid-traversal
+        ;    threshold of new pair's first section. Independent of camera
+        ;    direction; gated by both range and pending flag. --
+        btst    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
+        beq.s   .skip_deferred_fwd
+        cmpi.w  #SECTION_DEFERRED_FWD_LOAD, d0
+        blt.s   .skip_deferred_fwd
+        bsr.w   .deferred_fwd_load
+        bclr    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
+.skip_deferred_fwd:
+        btst    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
+        beq.s   .skip_deferred_bwd
+        cmpi.w  #SECTION_DEFERRED_BWD_LOAD, d0
+        bgt.s   .skip_deferred_bwd
+        bsr.w   .deferred_bwd_load
+        bclr    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
+.skip_deferred_bwd:
 
         ; -- preload triggers (§2 A.4) — fire BEFORE teleport thresholds --
         cmpi.w  #SECTION_FWD_PRELOAD, d0
@@ -137,9 +180,9 @@ Section_Check:
         move.l  (Camera_X).w, d0
         swap    d0
         cmpi.w  #SECTION_FWD_THRESHOLD, d0
-        bge.s   .fwd_check
+        bge.w   .fwd_check
         cmpi.w  #SECTION_BWD_THRESHOLD, d0
-        ble.s   .bwd_check
+        ble.w   .bwd_check
         rts
 
 .preload_fwd:
@@ -191,6 +234,34 @@ Section_Check:
         movea.l a4, a0
         bra.w   Section_StreamArtGroup
 
+; -----------------------------------------------
+; §4.2 deferred cold-load routines — invoked from .check when the deferred
+; flag is set AND camera has reached the mid-traversal threshold.
+;
+; .deferred_fwd_load: fires at SECTION_DEFERRED_FWD_LOAD ($0600) post-FWD-teleport.
+;                     Streams slot 1's section into VRAM. By this point camera
+;                     has moved past the BWD-preview-visible window.
+;
+; .deferred_bwd_load: mirror for BWD-teleport, fires at $0C00.
+; -----------------------------------------------
+.deferred_fwd_load:
+        moveq   #SLOT_RIGHT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 1
+        moveq   #0, d6
+        move.b  (Slot_Section_Map+2).w, d6          ; slot 1 flat section_id
+        movea.l a0, a4                              ; Section_StreamArtGroup convention
+        bra.w   Section_StreamArtGroup
+
+.deferred_bwd_load:
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 0
+        moveq   #0, d6
+        move.b  (Slot_Section_Map).w, d6            ; slot 0 flat section_id
+        movea.l a0, a4
+        bra.w   Section_StreamArtGroup
+
 .bwd_check:
         ; skip BWD if slot 0 already at leftmost section (sec_x = 0)
         tst.b   (Slot_Section_Map).w
@@ -233,18 +304,36 @@ Section_TeleportFwd:
         move.b  d0, 2(a0)
         ; sec_y unchanged
 
+        ; -- §4.2: BWD preview = trailing PREVIEW_COLS of just-left section.
+        ;    With deferred Sec_R load below, slot 1's old art persists so
+        ;    refs resolve correctly. Skip if at level start (no prev section).
+        movem.l d0-d3/a0-a2, -(sp)
+        lea     (Slot_Section_Map).w, a0
+        moveq   #0, d2
+        move.b  (a0), d2                           ; new slot 0 sec_x
+        subq.b  #1, d2                             ; just-left sec_x = new slot 0 - 1
+        bmi.s   .skip_bwd_preview_fwd
+        moveq   #0, d3
+        move.b  1(a0), d3
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .skip_bwd_preview_fwd
+        bsr.w   Section_CopyBwdPreview
+.skip_bwd_preview_fwd:
+        movem.l (sp)+, d0-d3/a0-a2
+
         ; -- reset column tracking so streaming refills the visible window --
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
         move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
 
         move.b  #30, (Section_Teleport_Guard).w
 
-        ; -- A.4: clear FWD-preload flag so the next preload past the threshold can fire --
-        bclr    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
+        ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
+        clr.b   (Section_Preload_Flags).w
 
-        ; -- promote new slot 1 section's state to RESIDENT (DMA assumed drained).
-        ;    If state is still IDLE (preload didn't fire — cold camera write),
-        ;    fall back to blocking Section_LoadArt.
+        ; -- promote new slot 1 section's state to RESIDENT if already streaming.
+        ;    If SS_IDLE, defer the load to SECTION_DEFERRED_FWD_LOAD ($0600) so
+        ;    slot 1 retains the just-left section's art for BWD preview validity. --
         moveq   #SLOT_RIGHT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 1
@@ -253,14 +342,12 @@ Section_TeleportFwd:
         lea     (Section_Stream_State).w, a1
         move.b  (a1, d6.w), d0
         cmpi.b  #SS_IDLE, d0
-        beq.s   .fwd_cold_load
-        ; STREAMING or RESIDENT → just mark RESIDENT
-        move.b  #SS_RESIDENT, (a1, d6.w)
+        bne.s   .fwd_mark_resident
+        ; -- §4.2 deferred cold-load — slot 1 keeps just-left art; load fires at $0600 --
+        bset    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
         bra.s   .fwd_redraw_bg
-.fwd_cold_load:
-        move.l  a0, -(sp)                           ; preserve Sec ptr across LoadArt
-        bsr.w   Section_LoadArt
-        movea.l (sp)+, a0
+.fwd_mark_resident:
+        move.b  #SS_RESIDENT, (a1, d6.w)
 .fwd_redraw_bg:
         ; -- §2 A.5 T2: redraw Plane B based on NEW slot 0 (= section we just
         ;    stepped into and is now visible). Slot 1 is the new off-screen
@@ -315,15 +402,34 @@ Section_TeleportBwd:
         ; If we branched here, slot map is left as-is (Section_Check should
         ; guard BWD at sec 0 anyway).
 
+        ; -- §4.2: FWD preview after BWD teleport = leading PREVIEW_COLS of
+        ;    just-left section (now to the right in world coords). Slot 0's
+        ;    art is preserved (deferred load below) so refs resolve correctly.
+        movem.l d0-d3/a0-a2, -(sp)
+        lea     (Slot_Section_Map).w, a0
+        moveq   #0, d2
+        move.b  2(a0), d2                          ; new slot 1 sec_x
+        addq.b  #1, d2                             ; just-left sec_x = new slot 1 + 1
+        moveq   #0, d3
+        move.b  3(a0), d3
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .skip_fwd_preview_bwd
+        bsr.w   Section_CopyFwdPreview
+.skip_fwd_preview_bwd:
+        movem.l (sp)+, d0-d3/a0-a2
+
         ; -- reset column tracking so streaming refills the visible window --
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
         move.w  #SLOT_ORIGIN_L/8,     (Section_Left_Col_Written).w
 
         move.b  #30, (Section_Teleport_Guard).w
 
-        ; -- A.4: clear BWD-preload flag --
-        bclr    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
+        ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
+        clr.b   (Section_Preload_Flags).w
 
+        ; -- defer slot 0 cold-load to SECTION_DEFERRED_BWD_LOAD ($0C00) so
+        ;    slot 0 retains the just-left section's art for FWD preview validity. --
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 0
@@ -332,14 +438,11 @@ Section_TeleportBwd:
         lea     (Section_Stream_State).w, a1
         move.b  (a1, d6.w), d0
         cmpi.b  #SS_IDLE, d0
-        beq.s   .bwd_cold_load
-        ; STREAMING or RESIDENT → mark RESIDENT
-        move.b  #SS_RESIDENT, (a1, d6.w)
+        bne.s   .bwd_mark_resident
+        bset    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
         bra.s   .bwd_redraw_bg
-.bwd_cold_load:
-        move.l  a0, -(sp)                           ; preserve Sec ptr across LoadArt
-        bsr.w   Section_LoadArt
-        movea.l (sp)+, a0
+.bwd_mark_resident:
+        move.b  #SS_RESIDENT, (a1, d6.w)
 .bwd_redraw_bg:
         ; -- §2 A.5 T2: redraw Plane B based on NEW slot 0 (the section we just
         ;    stepped back into). a0 already holds slot 0's Sec ptr from the

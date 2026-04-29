@@ -224,6 +224,9 @@ SECTION_FWD_THRESHOLD   = $1200     ; camera X → fire forward teleport
 SECTION_BWD_THRESHOLD   = $0200     ; camera X → fire backward teleport
 SECTION_FWD_PRELOAD     = $0E00     ; camera X → queue forward section art
 SECTION_BWD_PRELOAD     = $0400     ; camera X → queue backward section art
+; -- §4.2 deferred cold-load triggers (keep just-left section's art alive across teleport for preview) --
+SECTION_DEFERRED_FWD_LOAD = $0600   ; camera X → fire deferred Sec_R load (slot 0 midpoint, post-FWD-teleport)
+SECTION_DEFERRED_BWD_LOAD = $0C00   ; camera X → fire deferred Sec_L load (slot 1 quarter, post-BWD-teleport)
 
 ; Parallax (§4.6)
 MAX_PARALLAX_BANDS         = 8
@@ -261,6 +264,8 @@ SS_RESIDENT  = 2    ; in VRAM, valid
 ; Section_Preload_Flags bit definitions
 SPF_FWD_PRELOADED = 0       ; bit 0: forward neighbour streamed
 SPF_BWD_PRELOADED = 1       ; bit 1: backward neighbour streamed
+SPF_DEFERRED_FWD_LOAD = 2   ; bit 2: deferred slot 1 cold-load pending after FWD teleport (§4.2)
+SPF_DEFERRED_BWD_LOAD = 3   ; bit 3: deferred slot 0 cold-load pending after BWD teleport (§4.2)
 
 ; Plane buffer
 PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
