@@ -289,6 +289,42 @@ v_persp_i set v_persp_i + 1
     endm
 
 ; ----------------------------------------------------------------------
+; v_column_floor — 256-byte symmetric V-shape for per-column V-scroll
+; CENTER: column index where offset is 0 (screen center, typically 20)
+; MAX_OFFSET: peak offset at furthest edge column
+; First 40 entries are the actual column shape; remaining 216 mirror the last.
+;
+; Shape: V-curve (abs distance from center). Both edges push POSITIVE (down),
+; center stays at 0. Creates a "floor stretching away" pseudo-3D perspective
+; where the ground tiles near screen edges appear to recede from the viewer.
+;
+; Same hardware quirk as v_column_perspective applies.
+; ----------------------------------------------------------------------
+v_column_floor macro CENTER,maxOffset
+    if "CENTER" = ""
+        fatal "v_column_floor: CENTER required"
+    endif
+    if "maxOffset" = ""
+        fatal "v_column_floor: maxOffset required"
+    endif
+v_floor_i set 0
+v_floor_half set 0
+    rept 256
+        if v_floor_i < 40
+v_floor_dist set v_floor_i - CENTER
+            if v_floor_dist < 0
+v_floor_dist set 0 - v_floor_dist
+            endif
+v_floor_half set (v_floor_dist * maxOffset) / CENTER
+            dc.b v_floor_half
+        else
+            dc.b v_floor_half
+        endif
+v_floor_i set v_floor_i + 1
+    endr
+    endm
+
+; ----------------------------------------------------------------------
 ; parallax_combine — sugar over parallax_section that lets you stack up
 ; to three deformation effects in one section: one FG H-deform table,
 ; one BG H-deform table, and one BG per-column V-deform table. The VDP
@@ -538,5 +574,12 @@ DeformTable_SelfTest_Persp:
 DeformTable_SelfTest_Persp_End:
     if (DeformTable_SelfTest_Persp_End - DeformTable_SelfTest_Persp) <> 256
         error "v_column_perspective selftest: got \{DeformTable_SelfTest_Persp_End-DeformTable_SelfTest_Persp} bytes, expected 256"
+    endif
+
+DeformTable_SelfTest_Floor:
+    v_column_floor CENTER=20, maxOffset=24
+DeformTable_SelfTest_Floor_End:
+    if (DeformTable_SelfTest_Floor_End - DeformTable_SelfTest_Floor) <> 256
+        error "v_column_floor selftest: got \{DeformTable_SelfTest_Floor_End-DeformTable_SelfTest_Floor} bytes, expected 256"
     endif
     endif
