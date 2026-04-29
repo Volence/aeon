@@ -108,6 +108,7 @@ __BUDGET_ENGINE:
     include "engine/objects/animate.asm"
     include "engine/objects/collision.asm"
     include "engine/objects/rings.asm"
+    include "engine/objects/entity_loader.asm"
     include "engine/objects/children.asm"
     include "engine/objects/load_object.asm"
     include "engine/level/plane_buffer.asm"
