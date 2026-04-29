@@ -209,21 +209,19 @@ GS_OBJECT_TEST          = 2
 ; -----------------------------------------------
 
 ; Section coordinate space
-SECTION_SHIFT           = $0FFF     ; teleport shift (pixels); = (FWD - BWD - 1) so post-teleport camera lands 1 pixel inside safe zone instead of exactly on the opposite threshold (prevents idle oscillation between $1200 and $200). Revert to $1000 for original boundary-touching behavior.
+SECTION_SHIFT           = $1000     ; teleport shift (pixels); exact slot width. Anti-oscillation handled by Section_Teleport_Guard (position-based suppression after teleport).
 SECTION_SIZE            = $0800     ; slot width/height in engine pixels
 SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
 SLOT_ORIGIN_R           = $0A00     ; right slot engine-space left edge
 SLOT_ORIGIN_U           = $0200     ; upper slot engine-space top edge
 SLOT_ORIGIN_D           = $0A00     ; lower slot engine-space top edge
 ; -- §4.2 preview-zone (24-col / 24-row edges on plane A + plane B) --
-; Preview width covers the right-of-current-section visible area as camera
-; approaches the FWD teleport boundary (and mirror for BWD). 24 cols = 192 px
-; = ~3/5 of screen width. Section_CopyFwdPreview/_Bwd use direct VDP writes
-; (not the deferred plane buffer), so width isn't bounded by PLANE_BUFFER_SIZE.
-; Tradeoff: at intermediate camera positions during slot R traversal, the
-; preview cells become visible on the LEFT half of screen showing next-section
-; content while the RIGHT shows current-section. Acceptable per user request
-; that the right side near boundary be preview, not stale stream data.
+; Preview width covers the edge region visible as camera approaches the
+; teleport boundary. 24 cols = 192 px = ~3/5 of screen width. Preview is
+; streaming-integrated: Section_UpdateColumns extends its range into
+; neighbor section strips (Section_Fwd/Bwd_Neighbor_Strips), so preview
+; cols are written by the normal ring-buffer mechanism and only become
+; visible as the camera reaches the boundary.
 PREVIEW_COLS            = 24        ; nametable cols at FWD/BWD edges
 PREVIEW_ROWS            = 24        ; nametable rows at TOP/BOT edges (vertical: stub for now)
 PREVIEW_PIXELS          = PREVIEW_COLS*8    ; 192 px — used for camera clamp offset

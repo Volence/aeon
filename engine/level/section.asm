@@ -163,7 +163,15 @@ Section_GetSecPtrXY:
 Section_Check:
         tst.b   (Section_Teleport_Guard).w
         beq.s   .check
-        subq.b  #1, (Section_Teleport_Guard).w
+        ; Guard active — hold only while player sits exactly on a threshold
+        move.l  (Player_1+SST_x_pos).w, d0
+        swap    d0
+        cmpi.w  #SECTION_FWD_THRESHOLD, d0
+        beq.s   .guard_hold
+        cmpi.w  #SECTION_BWD_THRESHOLD, d0
+        beq.s   .guard_hold
+        clr.b   (Section_Teleport_Guard).w
+.guard_hold:
         rts
 
 .check:
@@ -384,7 +392,7 @@ Section_TeleportFwd:
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
         move.w  #SLOT_ORIGIN_L/8 - PREVIEW_COLS, (Section_Left_Col_Written).w
 
-        move.b  #30, (Section_Teleport_Guard).w
+        st      (Section_Teleport_Guard).w
 
         ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
         clr.b   (Section_Preload_Flags).w
@@ -414,18 +422,26 @@ Section_TeleportFwd:
         ;    BG_RedrawForSection burst.
         st      (Section_Plane_Dirty).w
 
-        ; -- §4.6 T8: snap parallax_config to new slot 0's section.
-        ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
-        ;    the next Parallax_Update writes target_scroll directly to
-        ;    current_scroll instead of lerping. Otherwise the BG/FG would
-        ;    visibly slide for 16 frames as the lerp catches up to the new
-        ;    camera position. --
+        ; -- §4.6: force-snap parallax after teleport.
+        ;    Camera_X jumped SECTION_SHIFT pixels — band scroll values must
+        ;    snap to match. If the section has a config, force it as Current.
+        ;    If NULL, fall back to act_parallax_config. --
         move.b  #1, (Parallax_Snap_Pending).w
+        clr.l   (Parallax_Target_Config).w
+        clr.b   (Parallax_Transition_Frames).w
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
         movea.l Sec_sec_parallax_config(a0), a0
-        bsr.w   Parallax_StartTransition
+        cmpa.w  #0, a0
+        bne.s   .fwd_parallax_set
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+        cmpa.w  #0, a0
+        beq.s   .fwd_parallax_done
+.fwd_parallax_set:
+        move.l  a0, (Parallax_Current_Config).w
+.fwd_parallax_done:
         rts
 
 ; -----------------------------------------------
@@ -501,7 +517,7 @@ Section_TeleportBwd:
         move.w  #SLOT_ORIGIN_L/8 - 1, (Section_Right_Col_Written).w
         move.w  #SLOT_ORIGIN_L/8 - PREVIEW_COLS, (Section_Left_Col_Written).w
 
-        move.b  #30, (Section_Teleport_Guard).w
+        st      (Section_Teleport_Guard).w
 
         ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
         clr.b   (Section_Preload_Flags).w
@@ -526,18 +542,23 @@ Section_TeleportBwd:
         ;    See Section_TeleportFwd's equivalent comment.
         st      (Section_Plane_Dirty).w
 
-        ; -- §4.6 T8: snap parallax_config to new slot 0's section.
-        ;    Camera_X just jumped SECTION_SHIFT pixels — set Snap_Pending so
-        ;    the next Parallax_Update writes target_scroll directly to
-        ;    current_scroll instead of lerping. Otherwise the BG/FG would
-        ;    visibly slide for 16 frames as the lerp catches up to the new
-        ;    camera position. --
+        ; -- §4.6: force-snap parallax (camera lands at $1200 = slot 1 territory). --
         move.b  #1, (Parallax_Snap_Pending).w
-        moveq   #SLOT_LEFT, d0
+        clr.l   (Parallax_Target_Config).w
+        clr.b   (Parallax_Transition_Frames).w
+        moveq   #SLOT_RIGHT, d0
         movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
+        bsr.w   Section_GetSlotDef                  ; a0 = new slot 1 sec ptr
         movea.l Sec_sec_parallax_config(a0), a0
-        bsr.w   Parallax_StartTransition
+        cmpa.w  #0, a0
+        bne.s   .bwd_parallax_set
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+        cmpa.w  #0, a0
+        beq.s   .bwd_parallax_done
+.bwd_parallax_set:
+        move.l  a0, (Parallax_Current_Config).w
+.bwd_parallax_done:
         rts
 
 ; -----------------------------------------------
@@ -590,7 +611,7 @@ Section_QueueNewSlot0Cols:
 ; Camera-aware: fills 64 plane cols starting at Camera_X/8, sourcing each
 ; world col from the correct region (BWD neighbor → slot 0 → slot 1 → FWD
 ; neighbor → tile-0 fill). This handles both FWD teleport (camera≈$0200)
-; and BWD teleport (camera≈$11FF) correctly.
+; and BWD teleport (camera≈$1200) correctly.
 ;
 ; In:  none (reads Camera_X, Slot_Section_Map, Current_Act_Ptr, neighbor ptrs)
 ; Out: d5.w = start_world_col (for tracker reset by caller)
@@ -600,6 +621,13 @@ Section_QueueNewSlot0Cols:
 Section_RedrawPlanes:
         lea     (VDP_CTRL).l, a5
         lea     (VDP_DATA).l, a6
+
+        ; Mask interrupts for the entire VDP write sequence.
+        ; VBlank's VInt_DrawLevel changes autoincrement to $02 and clobbers the
+        ; VDP address register — if it fires mid-column, remaining strip data
+        ; lands at wrong VRAM addresses (corrupts tile art).
+        move.w  sr, -(sp)
+        move.w  #$2700, sr
 
         ; -- Plane A: column-major write, autoincrement $80 (= 64-col stride) --
         move.w  #$8F80, (a5)
@@ -618,6 +646,7 @@ Section_RedrawPlanes:
         lsr.w   #3, d5                              ; d5 = start_world_col = Camera_X / 8
 
         moveq   #0, d3                              ; col counter (0..63)
+        moveq   #0, d6                              ; zero constant for fill loop
 
 .pla_fill:
         ; -- compute world col and plane col --
@@ -689,7 +718,7 @@ Section_RedrawPlanes:
 .pla_zero_fill:
         moveq   #STRIP_TILE_HEIGHT/2-1, d4
 .pla_zero:
-        move.l  #0, (a6)
+        move.l  d6, (a6)
         dbf     d4, .pla_zero
 
 .pla_next:
@@ -717,6 +746,9 @@ Section_RedrawPlanes:
 .plb_done:
         ; Restore default autoincrement (matches VInt_DrawLevel cleanup)
         move.w  #$8F02, (a5)
+
+        ; Restore interrupt mask (allow VBlank again)
+        move.w  (sp)+, sr
 
         ; -- return tracker bounds in d5/d7 for caller --
         ; d5 = start_world_col (already set above)

@@ -63,6 +63,49 @@ Draw_TileColumn:
         rts
 
 ; -----------------------------------------------
+; Draw_TileColumn_Direct — append a preview strip to Plane_Buffer
+; In:  d3.w = target VDP nametable column (0–63)
+;      d4.w = section tile column index
+;      a0   = strip array pointer (Sec_sec_strips_a value)
+; Out: none (silently drops if buffer full)
+; Clobbers: d0–d3, a1–a2
+; -----------------------------------------------
+Draw_TileColumn_Direct:
+        move.w  (Plane_Buffer_Ptr).w, d2
+        addi.w  #4 + STRIP_TILE_HEIGHT*2, d2
+        cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
+        bhi.s   .done_d
+
+        movea.l a0, a1
+        move.w  d4, d1
+        move.w  d1, d0
+        lsl.w   #6, d1
+        lsl.w   #5, d0
+        add.w   d0, d1
+        adda.w  d1, a1
+
+        lea     (Plane_Buffer).w, a2
+        adda.w  (Plane_Buffer_Ptr).w, a2
+
+        move.w  d3, d0
+        add.w   d0, d0
+        addi.w  #VRAM_PLANE_A & $FFFF, d0
+        move.w  d0, (a2)+
+        move.w  #$8000 | (STRIP_TILE_HEIGHT/2 - 1), (a2)+
+
+        moveq   #STRIP_TILE_HEIGHT/2 - 1, d0
+.copy_d:
+        move.l  (a1)+, (a2)+
+        dbf     d0, .copy_d
+
+        move.w  #0, (a2)
+        move.w  (Plane_Buffer_Ptr).w, d2
+        addi.w  #4 + STRIP_TILE_HEIGHT*2, d2
+        move.w  d2, (Plane_Buffer_Ptr).w
+.done_d:
+        rts
+
+; -----------------------------------------------
 ; Draw_TileRow — append one tile row to Plane_Buffer
 ; In:  d0.w = target VDP nametable row (0–63)
 ;      d2.w = number of tiles to write

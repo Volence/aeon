@@ -87,7 +87,12 @@ GameState_OJZScroll_Init:
         lsl.w   #3, d1                          ; sec_id × 8
         add.w   d1, d0                          ; sec_id × 72 = Sec_len
         adda.w  d0, a1                          ; a1 = start section ptr
-        movea.l Sec_sec_parallax_config(a1), a0 ; a0 = parallax_config* (NULL = inert)
+        movea.l Sec_sec_parallax_config(a1), a0 ; a0 = parallax_config* (NULL = act default)
+        cmpa.w  #0, a0
+        bne.s   .init_have_config
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+.init_have_config:
         jsr     Parallax_Init
 
         ; -- enable display now that VRAM and nametable are populated --
@@ -166,6 +171,9 @@ GameState_OJZScroll_Update:
         ;    already matches) so per-frame calls cost ~1 register read +
         ;    a comparison branch when nothing has changed. When the user
         ;    crosses the slot boundary, the smooth lerp begins.
+        ;    Skip when snap is pending — teleport already set the correct config.
+        tst.b   (Parallax_Snap_Pending).w
+        bne.s   .skip_t14
         move.l  (Camera_X).w, d0
         swap    d0                              ; d0.w = Camera_X high word
         moveq   #0, d2                          ; assume slot 0
@@ -185,7 +193,13 @@ GameState_OJZScroll_Update:
         add.w   d1, d0                          ; sec_id × 72 = Sec_len
         adda.w  d0, a1                          ; a1 = active sec entry
         movea.l Sec_sec_parallax_config(a1), a0 ; a0 = active config
+        cmpa.w  #0, a0
+        bne.s   .t14_have_config
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+.t14_have_config:
         jsr     Parallax_StartTransition
+.skip_t14:
 
         ; -- T15 diagnostic: per-section sky-color marker --
         ; Re-derive active slot section_id, look up a tint color, write to
