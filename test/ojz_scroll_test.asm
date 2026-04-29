@@ -62,8 +62,8 @@ GameState_OJZScroll_Init:
         clr.w   (Player_1+SST_y_vel).w
 
         ; -- write a marker tile to VRAM so the player has a visible sprite.
-        ;    Tile 300 (= byte $1F40) sits between section art (0-225) and the
-        ;    BG region ($500+). 32 bytes of $FF = solid colour-15 8x8 block.
+        ;    Tile 250 ($FA, = byte $1F40) sits between section art (0-225) and
+        ;    the BG region ($500+). 32 bytes of $CC = solid colour-12 8x8 block.
         stopZ80
         move.l  #vdpComm($1F40,VRAM,WRITE), (VDP_CTRL).l
         lea     PlayerMarkerTile(pc), a0
@@ -154,7 +154,7 @@ GameState_OJZScroll_Update:
         move.w  d1, (a0)+                      ; Y position
         move.b  #$00, (a0)+                    ; size (0 = 8x8)
         move.b  #$00, (a0)+                    ; link = 0 (terminate)
-        move.w  #$A12C, (a0)+                  ; tile $12C, pal 1, priority 1
+        move.w  #$A0FA, (a0)+                  ; tile $FA = 250 (= byte $1F40), pal 1, priority 1
         move.w  d0, (a0)+                      ; X position
         move.b  #1, (Sprite_Table_Dirty).w
 
@@ -279,7 +279,8 @@ OJZ_SectionMarkerColors:
 ; -----------------------------------------------
 ; PlayerMarkerTile — 8×8 tile, all pixels colour 12 (4bpp, 32 bytes).
 ; Pal 1 entry 12 = $00EE = bright yellow (vs entry 15 = sky-blue, invisible
-; against the OJZ sky). DMA'd to VRAM tile 300 ($1F40) at level init.
+; against the OJZ sky). DMA'd to VRAM tile 250 ($1F40) at level init —
+; matches the $A0FA art_tile in the sprite write.
 ; -----------------------------------------------
 PlayerMarkerTile:
         dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
