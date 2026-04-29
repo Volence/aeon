@@ -277,106 +277,251 @@ git commit -m "feat(§4.2): add Section_CopyBwdPreview (plane A)"
 
 ---
 
-## Task 5: Hook `Section_CopyBwdPreview` into teleport handlers
+## Task 5: Defer cold-loads to mid-traversal + hook `Section_CopyBwdPreview` at teleport
+
+This task replaces the original Task 5 plan. The original assumed slot 1's art persists across teleport, which it doesn't — the cold-load at `Section_TeleportFwd` (line 262) and `Section_TeleportBwd` (line 341) overwrite it immediately. Verified empirically: `data/generated/ojz/act1/sec_vram_bases.asm` shows Sec1 and Sec3 share `OJZ_SEC*_VRAM = 0 * 32` (color 1).
+
+**Fix: defer the cold-loads to mid-traversal of the new pair's first section.** This keeps the just-left section's art in slot VRAM for ~85 frames post-teleport — long enough for BWD preview (FWD teleport) and FWD preview (BWD teleport) to be valid and visible. The architecture doc §4.1 already specifies "Camera crosses midpoint of current section → preload next section into the behind slot" — this aligns the code with that.
+
+**New thresholds added to `constants.asm`:**
+- `SECTION_DEFERRED_FWD_LOAD = $0600` (slot 0 midpoint going RIGHT post-FWD-teleport)
+- `SECTION_DEFERRED_BWD_LOAD = $0C00` (slot 1 quarter-point going LEFT post-BWD-teleport)
 
 **Files:**
-- Modify: `engine/level/section.asm`
+- Modify: `constants.asm` (add 2 thresholds + 2 preload-flag bits)
+- Modify: `engine/level/section.asm` (remove cold-loads, add deferred triggers, add BWD preview hooks)
+- Modify: `ram.asm` (verify `Section_Preload_Flags` has room for 2 new bits — likely already a byte)
 
-- [ ] **Step 1: Re-read Section_TeleportFwd and Section_TeleportBwd**
+- [ ] **Step 1: Add new threshold constants and flag bits**
 
-Run: `sed -n '205,360p' engine/level/section.asm`
-
-Identify: in `Section_TeleportFwd`, the just-left section is what *was* slot 0 before rotation = `(Slot_Section_Map+0).b` BEFORE the `move.b d0, (a0)` that updates it. In `Section_TeleportBwd`, mirror.
-
-- [ ] **Step 2: Add BWD preview call in Section_TeleportFwd**
-
-In `Section_TeleportFwd`, after the slot section map updates (~line 227, after `move.b d0, 2(a0)`), add:
+In `constants.asm`, near the existing `SECTION_FWD_PRELOAD` / `SECTION_BWD_PRELOAD` definitions (lines ~225-226), add:
 
 ```asm
-        ; -- §4.2: BWD preview = trailing PREVIEW_COLS of the section just
-        ;    left behind. After FWD teleport, the just-left section is the
-        ;    NEW slot 0 - 1 (= old slot 0). Slot R (slot 1) still holds its
-        ;    art for ~85 frames until next preload, so refs resolve correctly.
+SECTION_DEFERRED_FWD_LOAD = $0600   ; camera X → fire deferred Sec_R load (slot 0 midpoint, post-FWD-teleport)
+SECTION_DEFERRED_BWD_LOAD = $0C00   ; camera X → fire deferred Sec_L load (slot 1 quarter, post-BWD-teleport)
+```
+
+Then locate the `SPF_FWD_PRELOADED` / `SPF_BWD_PRELOADED` bit definitions (search `grep -n "SPF_" constants.asm`) and add two new bits adjacent:
+
+```asm
+SPF_DEFERRED_FWD_LOAD = 2   ; deferred slot 1 cold-load pending after FWD teleport
+SPF_DEFERRED_BWD_LOAD = 3   ; deferred slot 0 cold-load pending after BWD teleport
+```
+
+(Choose the next free bit indices — read existing SPF_* bits to confirm 2 and 3 are unused.)
+
+- [ ] **Step 2: Add `Section_GetSecPtrXY` helper**
+
+In `engine/level/section.asm`, after `Section_GetSlotDef` (line 74), add a helper that takes (sec_x in d2.b, sec_y in d3.b, act ptr in a2) and returns Sec ptr in a0. This is the same index math `Section_GetSlotDef` uses, factored out:
+
+```asm
+; -----------------------------------------------
+; Section_GetSecPtrXY — Sec ptr lookup by grid coordinates.
+; In:  d2.b = sec_x, d3.b = sec_y, a2 = Act ptr
+; Out: a0 = Sec ptr; Z flag clear if found, Z set if out of range (a0 = 0)
+; Clobbers: d0, d1
+; -----------------------------------------------
+Section_GetSecPtrXY:
+        moveq   #0, d0
+        cmp.b   Act_grid_w+1(a2), d2
+        bge.s   .out_of_range
+        cmp.b   Act_grid_h+1(a2), d3
+        bge.s   .out_of_range
+        ; flat section_id = sec_y * grid_w + sec_x
+        move.b  d3, d0
+        moveq   #0, d1
+        move.b  Act_grid_w+1(a2), d1
+        ; OJZ is single-row: grid_h = 1, so section_id = sec_x. We assume
+        ; OJZ-style 1-row layout for now; multi-row Y math handled by build tool.
+        ; (For 1-row: section_id = sec_x; the multiply is a placeholder for future.)
+        moveq   #0, d0
+        move.b  d2, d0
+        ; compute Sec ptr = sec_grid_ptr + section_id * Sec_len ($48 = 72)
+        movea.l Act_sec_grid_ptr(a2), a0
+        move.w  d0, d1
+        lsl.w   #6, d0          ; sec * 64
+        lsl.w   #3, d1          ; sec * 8
+        add.w   d1, d0          ; sec * 72
+        adda.w  d0, a0
+        moveq   #1, d0          ; Z flag clear (success)
+        rts
+.out_of_range:
+        suba.l  a0, a0          ; a0 = 0
+        moveq   #0, d0          ; Z flag set
+        rts
+```
+
+(Note: this assumes 1-row act layout per the comment. If `Act_grid_h` > 1, the multiply for `sec_y * grid_w` needs to be added — the existing engine doesn't have multi-row sections yet, so we defer that.)
+
+- [ ] **Step 3: Remove the cold-load fallbacks at teleport**
+
+In `Section_TeleportFwd` (line ~253-256), remove the `.fwd_cold_load` block:
+
+```asm
+        ; DELETE THESE LINES:
+.fwd_cold_load:
+        move.l  a0, -(sp)
+        bsr.w   Section_LoadArt
+        movea.l (sp)+, a0
+```
+
+Replace the `cmpi.b #SS_IDLE, d0 / beq.s .fwd_cold_load` block (lines ~248-250) with: if SS_IDLE, set the deferred-load flag and skip the load:
+
+```asm
+        cmpi.b  #SS_IDLE, d0
+        bne.s   .mark_resident
+        ; -- §4.2: deferred cold-load — slot 1 stays stale (just-left
+        ;    section's art) until camera passes Sec_L midpoint, keeping
+        ;    BWD preview valid. Fire bset and let .deferred_fwd_load
+        ;    handle it later.
+        bset    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
+        bra.s   .fwd_redraw_bg
+.mark_resident:
+        move.b  #SS_RESIDENT, (a1, d6.w)
+        bra.s   .fwd_redraw_bg
+```
+
+Mirror the same change in `Section_TeleportBwd` (line ~330-345): remove `.bwd_cold_load`, set `SPF_DEFERRED_BWD_LOAD` if SS_IDLE.
+
+- [ ] **Step 4: Add deferred-load triggers in Section_Check**
+
+In `Section_Check` (line ~109), after the existing preload checks at `.fwd_preload_check` and `.bwd_preload_check` blocks (lines ~120-131), add new threshold checks for the deferred loads.
+
+Replace the threshold-check block (lines 113-118) with:
+
+```asm
+        ; -- preload triggers (§2 A.4) — fire BEFORE teleport thresholds --
+        cmpi.w  #SECTION_FWD_PRELOAD, d0
+        bge.s   .fwd_preload_check
+        cmpi.w  #SECTION_BWD_PRELOAD, d0
+        ble.s   .bwd_preload_check
+        ; -- §4.2 deferred load triggers --
+        cmpi.w  #SECTION_DEFERRED_FWD_LOAD, d0
+        bge.s   .deferred_fwd_check
+        cmpi.w  #SECTION_DEFERRED_BWD_LOAD, d0
+        ble.s   .deferred_bwd_check
+        bra.s   .threshold_check
+```
+
+Then add the new check blocks after the existing preload checks (around line 131):
+
+```asm
+.deferred_fwd_check:
+        btst    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
+        beq.s   .threshold_check
+        bsr.w   .deferred_fwd_load
+        bclr    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
+        bra.s   .threshold_check
+
+.deferred_bwd_check:
+        btst    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
+        beq.s   .threshold_check
+        bsr.w   .deferred_bwd_load
+        bclr    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
+```
+
+And add the implementation routines below `.preload_bwd` (line ~186):
+
+```asm
+.deferred_fwd_load:
+        ; Stream slot 1's section into VRAM via async DMA. By Sec_L midpoint
+        ; ($0600), camera is past BWD-preview-visible window, so overwriting
+        ; the just-left section's art is safe.
+        moveq   #SLOT_RIGHT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef          ; a0 = Sec ptr for slot 1
+        moveq   #0, d6
+        move.b  (Slot_Section_Map+2).w, d6  ; slot 1 flat section_id
+        ; copy a0 to a4 for Section_StreamArtGroup convention
+        movea.l a0, a4
+        bra.w   Section_StreamArtGroup
+
+.deferred_bwd_load:
+        ; Mirror for BWD: stream slot 0's section. By slot 1 quarter-point
+        ; ($0C00), FWD preview no longer visible.
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef          ; a0 = Sec ptr for slot 0
+        moveq   #0, d6
+        move.b  (Slot_Section_Map).w, d6    ; slot 0 flat section_id
+        movea.l a0, a4
+        bra.w   Section_StreamArtGroup
+```
+
+- [ ] **Step 5: Add BWD preview call in Section_TeleportFwd**
+
+After the slot section map updates in `Section_TeleportFwd` (~line 227, after `move.b d0, 2(a0)`), add:
+
+```asm
+        ; -- §4.2: BWD preview = trailing PREVIEW_COLS of the just-left section.
+        ;    With deferred Sec_R load (Step 3), slot 1's old art persists past
+        ;    teleport — refs resolve correctly until SECTION_DEFERRED_FWD_LOAD
+        ;    fires at $0600. Skip if at level start (no prev section).
         movem.l d0-d3/a0-a2, -(sp)
         lea     (Slot_Section_Map).w, a0
         moveq   #0, d2
         move.b  (a0), d2                    ; new slot 0 sec_x
-        subq.b  #1, d2                      ; just-left sec_x = slot 0 - 1
-        bmi.s   .skip_bwd_preview           ; no prev section (first pair)
-        ; Look up the just-left section in act table
-        movea.l (Current_Act_Ptr).w, a2
-        ; (Section_GetSecPtr by sec_x/sec_y) — see Section_GetSlotDef pattern
-        ; for now, build the Sec ptr via the act grid lookup that already exists
+        subq.b  #1, d2                      ; just-left sec_x = new slot 0 - 1
+        bmi.s   .skip_bwd_preview
         moveq   #0, d3
         move.b  1(a0), d3                   ; sec_y unchanged
-        ; <ENGINEER: use the existing Section_LookupByXY routine here, or copy
-        ;  the index math from Section_GetSlotDef. The routine should set
-        ;  a0 = Sec ptr for the (d2, d3) cell. If no such routine exists yet,
-        ;  add a small helper Section_GetSecPtrXY(d2.b, d3.b, a2) → a0.>
+        movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSecPtrXY
+        beq.s   .skip_bwd_preview
         bsr.w   Section_CopyBwdPreview
 .skip_bwd_preview:
         movem.l (sp)+, d0-d3/a0-a2
 ```
 
-If `Section_GetSecPtrXY` doesn't exist, factor it out from the existing index math used inside `Section_GetSlotDef`. It's a 1-line helper.
+- [ ] **Step 6: Add FWD preview call in Section_TeleportBwd**
 
-- [ ] **Step 3: Add same call in Section_TeleportBwd**
+Mirror in `Section_TeleportBwd` (~line 308, after slot map updates): the just-left section is the section we retreated from. After BWD teleport, FWD preview cells (currently containing post-rewrite or stale data) need to be rewritten with the just-left section's leading 4 cols, since plane wraparound now maps those cells to "world cols beyond the new pair's right edge."
 
-Mirror in `Section_TeleportBwd` (line ~285): the just-left section is now `slot 1 + 1` (the section we retreated FROM).
+Wait — re-derive: after BWD teleport, plane cols 576-579 in NEW world coords correspond to "right of new slot 1" = "section AFTER new slot 1" = the just-left section. So FWD preview should reference just-left section's leading cols.
 
 ```asm
-        ; -- §4.2: BWD preview after BWD teleport — just-left section is
-        ;    new slot 1 + 1 (= old slot 1). After BWD teleport, slot L
-        ;    holds the new prev section, slot R holds (old slot 0)'s art.
+        ; -- §4.2: FWD preview after BWD teleport = leading PREVIEW_COLS of
+        ;    the just-left section (now to the right in world coords). Slot 0's
+        ;    art is preserved (deferred load) so refs resolve correctly.
         movem.l d0-d3/a0-a2, -(sp)
         lea     (Slot_Section_Map).w, a0
         moveq   #0, d2
         move.b  2(a0), d2                   ; new slot 1 sec_x
-        addq.b  #1, d2                      ; just-left sec_x = slot 1 + 1
-        ; (no clamp needed — at level end the FWD preview source instead)
+        addq.b  #1, d2                      ; just-left sec_x = new slot 1 + 1
         moveq   #0, d3
         move.b  3(a0), d3
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSecPtrXY
-        bsr.w   Section_CopyBwdPreview
+        beq.s   .skip_fwd_preview
+        bsr.w   Section_CopyFwdPreview
+.skip_fwd_preview:
         movem.l (sp)+, d0-d3/a0-a2
 ```
 
-- [ ] **Step 4: Initial population in `Section_FillInitial`**
+- [ ] **Step 7: Build**
 
-Find `Section_FillInitial` (line 62). After the existing slot setup, add a call to populate the BWD preview from `Sec(-1)` if it exists, or zero-fill (Task 11 will add the zero-fill helper; for now, skip the call if no Sec(-1)):
-
-```asm
-        ; -- §4.2: initial BWD preview population. At level start, Sec(-1)
-        ;    doesn't exist → leave preview region empty. The camera clamp
-        ;    (Task 6) will prevent BWD preview from being visible anyway.
-        ;    First populated at first FWD teleport.
-```
-
-(No code change required at this step — comment is documentation only. The first BWD copy fires at first teleport.)
-
-- [ ] **Step 5: Build**
-
-Run: `./build.sh -pe`
+Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe`
 
 Expected: builds clean.
 
-- [ ] **Step 6: Exodus verify**
+- [ ] **Step 8: Exodus verify**
 
-In Exodus: scroll OJZ until first FWD teleport. After teleport, read plane A at BWD preview cols 60-63:
+Reload ROM. Drive camera through first FWD teleport in OJZ.
 
-```
-mcp__exodus__emulator_read_vram(address=0xC000+60*2, length=8)
-```
+After teleport, **before** camera reaches `$0600`:
+- Read plane A at BWD preview cols 60-63: `mcp__exodus__emulator_read_vram(address=0xC000+60*2, length=8)`. Expect: tile indices matching Sec0's last 4 cols (the just-left section). Reference: read `Sec_sec_strips_a[0]` for Sec0, take last 4 cols' first words.
+- Verify slot 1 VRAM still holds Sec1's art (read tile bytes at color-1 region: `mcp__exodus__emulator_read_vram(address=0, length=64)`). Should be Sec1's first tile pattern, not Sec3's.
 
-Expected: 4 words contain valid tile indices matching the trailing 4 cols of the section just left behind.
+After camera passes `$0600`:
+- Read slot 1 VRAM again. Should now be Sec3's art (deferred load fired and DMA drained).
+- BWD preview cells unchanged (still Sec0 trailing refs), but offscreen now.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add engine/level/section.asm
-git commit -m "feat(§4.2): fire Section_CopyBwdPreview at every teleport"
+cd /home/volence/sonic_hacks/s4_engine
+git add constants.asm engine/level/section.asm
+git commit -m "feat(§4.2): defer cold-loads to mid-traversal + BWD preview hooks"
 ```
 
 ---
