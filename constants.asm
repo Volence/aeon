@@ -215,6 +215,11 @@ SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
 SLOT_ORIGIN_R           = $0A00     ; right slot engine-space left edge
 SLOT_ORIGIN_U           = $0200     ; upper slot engine-space top edge
 SLOT_ORIGIN_D           = $0A00     ; lower slot engine-space top edge
+; -- §4.2 preview-zone (4-col / 4-row edges on plane A + plane B) --
+PREVIEW_COLS            = 4         ; nametable cols at FWD/BWD edges
+PREVIEW_ROWS            = 4         ; nametable rows at TOP/BOT edges (vertical: stub for now)
+PREVIEW_PIXELS          = PREVIEW_COLS*8    ; 32 px — used for camera clamp offset
+SECTION_TILE_WIDTH      = SECTION_SIZE/8    ; 256 — tile cols per section
 SECTION_FWD_THRESHOLD   = $1200     ; camera X → fire forward teleport
 SECTION_BWD_THRESHOLD   = $0200     ; camera X → fire backward teleport
 SECTION_FWD_PRELOAD     = $0E00     ; camera X → queue forward section art
