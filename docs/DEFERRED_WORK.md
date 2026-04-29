@@ -528,6 +528,32 @@ non-zero; intermittently they read zero.
 **What:** Genesis VDP per-column V-scroll grain is 16 px. With non-zero plane B HScroll, the leftmost screen sliver renders at V-scroll = 0 regardless of VSRAM[0] — silicon-level, no register fix. v1 mitigates either by: locking plane B HScroll to 0 (`FACTOR_0`) which eliminates the partial column, or accepting the artifact. Real games drop a 16-px-wide sprite mask over the left edge to hide it (Sonic 3 Hydrocity boss arena, Streets of Rage banking, etc.).
 **When ready:** when a section uses per-column V-scroll *and* wants non-zero plane B HScroll. ~1 sprite/frame overhead from the 80-sprite budget.
 
+## From §4.9 — Section-Local Entity Management
+
+### §4.9.4 Rolling 4-Slot State Tracking (Respawn Memory)
+**Blocked by:** §4.9 core lifecycle (components 1-3) shipping first
+**Surfaced during:** §4.9 design session 2026-04-29.
+**What:** 4-entry rolling buffer (104 bytes) that saves per-section ring bitmask + object bitmask on section unload. On section re-load, search buffer for matching section_id — if found, apply saved bitmasks so collected rings stay collected and destroyed objects stay dead. Evicts oldest entry when full. Maximum distance to see respawned entities: ~$800 pixels.
+**When ready:** After §4.9 components 1-3 ship. The ring bitmask and object slot tag infrastructure must be working first. Pure addition — no changes to existing spawn/despawn paths, just wrapping them with save/restore.
+
+### §4.9.5 Warp-Based Teleport Preview (Entities in Preview Zone)
+**Blocked by:** §4.9 core lifecycle + preview-zone integration testing
+**Surfaced during:** §4.9 design session 2026-04-29.
+**What:** When a section preloads into a slot, its entities spawn at warped coordinates — offset by SECTION_SHIFT in the teleport direction. The preview objects ARE the real objects. At teleport, SECTION_SHIFT subtracted from all objects makes them land at correct engine-space positions. Ring buffer positions adjusted via slot origin shift. No separate preview loading, no duplicate entities.
+**When ready:** After §4.9 core lifecycle is stable. Builds on the §4.2 preview-zone work (merged 2026-04-29). Needs careful integration testing — objects must survive the coordinate shift without visual discontinuity.
+
+### Bouncing "Loss Rings" (Ring Scatter on Damage)
+**Blocked by:** §4.9 ring system + player damage system
+**Surfaced during:** §4.9 design session 2026-04-29.
+**What:** When the player takes damage, scatter N rings as temporary SST objects (not buffer entries). Each has physics (gravity, bounce), a lifetime timer, and can be re-collected. Uses AllocEffect slots (lightweight). These are separate from level-placed buffer rings — buffer rings are static positions with bitmask state, loss rings are short-lived physics objects.
+**When ready:** After player damage/hurt system exists (§3 player physics) and ring collection works.
+
+### Ring Attraction (Magnet Shield)
+**Blocked by:** §4.9 ring system + shield system
+**Surfaced during:** §4.9 design session 2026-04-29.
+**What:** When player has magnet shield, uncollected rings within attraction radius accelerate toward the player. Modifies the per-frame ring collision check to also compute distance and apply pull velocity. Only affects buffer rings within range — loss rings (SST objects) would have their own attraction in their object code.
+**When ready:** After shield system exists (§3 player abilities).
+
 ## From Sound Driver Work (Future)
 
 ### Defensive Z80 RAM Upload — Verify-and-Retry
