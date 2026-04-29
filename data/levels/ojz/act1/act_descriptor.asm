@@ -32,11 +32,14 @@ OJZ_Act1_Sections:
 
 OJZ_Sec0:
     dc.l    OJZ_Sec0_Strips_A       ; sec_strips_a
-    dc.l    0, 0, 0                 ; sec_objects, sec_rings, sec_plc
+    dc.l    OJZ_Sec0_Objects        ; sec_objects
+    dc.l    OJZ_Sec0_Rings          ; sec_rings
+    dc.l    0                       ; sec_plc
     dc.l    OJZ_Palette             ; sec_pal
     dc.l    ParallaxConfig_OJZ_Caves, 0    ; sec_parallax_config = T15 F4 fixture: slow-BG cave gradient (scenes/caves.asm)
     dc.l    0                       ; sec_bg_layout (NULL = use Act_act_bg_layout, T1)
-    dc.l    0, 0, 0, 0, 0, 0        ; sec_reserved..sec_collision
+    dc.l    OJZ_Sec0_TypeTable      ; sec_type_table (§4.9)
+    dc.l    0, 0, 0, 0, 0           ; sec_pal_cycle..sec_collision
     dc.w    0, 0                    ; sec_flags, sec_music
     dc.b    0, 0, 0, 0              ; sec_layer_mask..sec_transition_type
     dc.l    OJZ_Sec0_Tiles_S4LZ     ; sec_tile_art_s4lz (§2 A.3)
@@ -46,11 +49,14 @@ OJZ_Sec0:
 
 OJZ_Sec1:
     dc.l    OJZ_Sec1_Strips_A
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec1_Objects        ; sec_objects
+    dc.l    OJZ_Sec1_Rings          ; sec_rings
+    dc.l    0                       ; sec_plc
     dc.l    OJZ_Palette
     dc.l    ParallaxConfig_OJZ_Windy, 0  ; sec_parallax_config = windy variant (F3)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0, 0, 0, 0
+    dc.l    OJZ_Sec1_TypeTable      ; sec_type_table (§4.9)
+    dc.l    0, 0, 0, 0, 0
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec1_Tiles_S4LZ

@@ -72,7 +72,37 @@ Section_Init:
         ; -- fill nametable from both slots --
         bsr.w   Section_FillInitial
 
-        rts
+        ; -- §4.9: load entities for both initial slots --
+        ; Clear ring bitmasks and counts
+        lea     (Ring_Bitmask_0).w, a0
+        moveq   #(RING_BITMASK_SIZE*2/4)-1, d0
+.ent_clr_masks:
+        clr.l   (a0)+
+        dbf     d0, .ent_clr_masks
+        clr.b   (Ring_Count_0).w
+        clr.b   (Ring_Count_1).w
+
+        ; Slot 0
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef
+        moveq   #SLOT_TAG_LEFT, d0
+        move.w  #SLOT_ORIGIN_L, d4
+        moveq   #0, d5
+        lea     (Ring_Buffer_0).w, a4
+        lea     (Ring_Count_0).w, a5
+        bsr.w   Section_LoadSlotEntities
+
+        ; Slot 1
+        moveq   #SLOT_RIGHT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef
+        moveq   #SLOT_TAG_RIGHT, d0
+        move.w  #SLOT_ORIGIN_R, d4
+        moveq   #0, d5
+        lea     (Ring_Buffer_1).w, a4
+        lea     (Ring_Count_1).w, a5
+        bra.w   Section_LoadSlotEntities
 
  ; -----------------------------------------------
 ; Section_FillInitial — set up trackers; let Section_UpdateColumns
@@ -353,6 +383,68 @@ Section_TeleportFwd:
         move.b  d0, 2(a0)
         ; sec_y unchanged
 
+        ; -- §4.9: entity lifecycle — despawn old slot 0, shift surviving, spawn new slot 1 --
+        ; Despawn old slot 0 objects
+        moveq   #SLOT_TAG_LEFT, d0
+        bsr.w   DespawnSlotObjects
+
+        ; Shift surviving objects (old slot 1 → new slot 0)
+        lea     (Dynamic_Slots).w, a0
+        move.w  #NUM_DYNAMIC-1, d1
+.ent_fwd_obj_shift:
+        tst.w   SST_code_addr(a0)
+        beq.s   .ent_fwd_obj_next
+        cmpi.b  #SLOT_TAG_RIGHT, SLOT_TAG_OFFSET(a0)
+        bne.s   .ent_fwd_obj_next
+        subi.l  #SECTION_SHIFT<<16, SST_x_pos(a0)
+        move.b  #SLOT_TAG_LEFT, SLOT_TAG_OFFSET(a0)
+.ent_fwd_obj_next:
+        lea     SST_len(a0), a0
+        dbf     d1, .ent_fwd_obj_shift
+
+        ; Shift surviving ring buffer (slot 1 → slot 0, X -= SECTION_SHIFT)
+        moveq   #0, d0
+        move.b  (Ring_Count_1).w, d0
+        beq.s   .ent_fwd_no_ring_shift
+        lea     (Ring_Buffer_1).w, a0
+        lea     (Ring_Buffer_0).w, a1
+        subq.w  #1, d0
+.ent_fwd_ring_shift:
+        move.w  (a0)+, d1
+        subi.w  #SECTION_SHIFT, d1
+        move.w  d1, (a1)+
+        move.w  (a0)+, (a1)+               ; Y unchanged
+        dbf     d0, .ent_fwd_ring_shift
+.ent_fwd_no_ring_shift:
+
+        ; Copy bitmask + count (slot 1 → slot 0)
+        lea     (Ring_Bitmask_1).w, a0
+        lea     (Ring_Bitmask_0).w, a1
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.b  (Ring_Count_1).w, (Ring_Count_0).w
+
+        ; Clear slot 1 ring data
+        lea     (Ring_Bitmask_1).w, a0
+        clr.l   (a0)+
+        clr.l   (a0)+
+        clr.l   (a0)+
+        clr.l   (a0)+
+        clr.b   (Ring_Count_1).w
+
+        ; Load entities for new slot 1
+        moveq   #SLOT_RIGHT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef              ; a0 = new slot 1 Sec ptr
+        moveq   #SLOT_TAG_RIGHT, d0
+        move.w  #SLOT_ORIGIN_R, d4
+        moveq   #0, d5
+        lea     (Ring_Buffer_1).w, a4
+        lea     (Ring_Count_1).w, a5
+        bsr.w   Section_LoadSlotEntities
+
         ; -- §4.2: cache neighbor strip pointers for streaming-integrated preview --
         movem.l d0-d3/a0-a2, -(sp)
         ; BWD neighbor = new slot 0's sec_x - 1
@@ -477,6 +569,68 @@ Section_TeleportBwd:
 .at_start:
         ; If we branched here, slot map is left as-is (Section_Check should
         ; guard BWD at sec 0 anyway).
+
+        ; -- §4.9: entity lifecycle — despawn old slot 1, shift surviving, spawn new slot 0 --
+        ; Despawn old slot 1 objects
+        moveq   #SLOT_TAG_RIGHT, d0
+        bsr.w   DespawnSlotObjects
+
+        ; Shift surviving objects (old slot 0 → new slot 1)
+        lea     (Dynamic_Slots).w, a0
+        move.w  #NUM_DYNAMIC-1, d1
+.ent_bwd_obj_shift:
+        tst.w   SST_code_addr(a0)
+        beq.s   .ent_bwd_obj_next
+        cmpi.b  #SLOT_TAG_LEFT, SLOT_TAG_OFFSET(a0)
+        bne.s   .ent_bwd_obj_next
+        addi.l  #SECTION_SHIFT<<16, SST_x_pos(a0)
+        move.b  #SLOT_TAG_RIGHT, SLOT_TAG_OFFSET(a0)
+.ent_bwd_obj_next:
+        lea     SST_len(a0), a0
+        dbf     d1, .ent_bwd_obj_shift
+
+        ; Shift surviving ring buffer (slot 0 → slot 1, X += SECTION_SHIFT)
+        moveq   #0, d0
+        move.b  (Ring_Count_0).w, d0
+        beq.s   .ent_bwd_no_ring_shift
+        lea     (Ring_Buffer_0).w, a0
+        lea     (Ring_Buffer_1).w, a1
+        subq.w  #1, d0
+.ent_bwd_ring_shift:
+        move.w  (a0)+, d1
+        addi.w  #SECTION_SHIFT, d1
+        move.w  d1, (a1)+
+        move.w  (a0)+, (a1)+               ; Y unchanged
+        dbf     d0, .ent_bwd_ring_shift
+.ent_bwd_no_ring_shift:
+
+        ; Copy bitmask + count (slot 0 → slot 1)
+        lea     (Ring_Bitmask_0).w, a0
+        lea     (Ring_Bitmask_1).w, a1
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.b  (Ring_Count_0).w, (Ring_Count_1).w
+
+        ; Clear slot 0 ring data
+        lea     (Ring_Bitmask_0).w, a0
+        clr.l   (a0)+
+        clr.l   (a0)+
+        clr.l   (a0)+
+        clr.l   (a0)+
+        clr.b   (Ring_Count_0).w
+
+        ; Load entities for new slot 0
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef              ; a0 = new slot 0 Sec ptr
+        moveq   #SLOT_TAG_LEFT, d0
+        move.w  #SLOT_ORIGIN_L, d4
+        moveq   #0, d5
+        lea     (Ring_Buffer_0).w, a4
+        lea     (Ring_Count_0).w, a5
+        bsr.w   Section_LoadSlotEntities
 
         ; -- §4.2: cache neighbor strip pointers for streaming-integrated preview --
         movem.l d0-d3/a0-a2, -(sp)

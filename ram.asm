@@ -277,6 +277,30 @@ Section_Bwd_Neighbor_Strips: ds.l 1       ; prev section's Sec_sec_strips_a
 ; Dynamic tile override (16 entries × 6 bytes: col.w, row.w, new_tile.w)
 Tile_Override_Table:    ds.b 96
 
+; -----------------------------------------------
+; Entity System (§4.9)
+; -----------------------------------------------
+
+; Ring buffers — 128 entries × 4 bytes (dc.w x, y) per slot
+Ring_Buffer_0:          ds.b RING_BUFFER_SIZE   ; 512 bytes, slot 0
+Ring_Buffer_1:          ds.b RING_BUFFER_SIZE   ; 512 bytes, slot 1
+
+; Ring bitmasks — 128 bits per slot (1 = collected)
+Ring_Bitmask_0:         ds.b RING_BITMASK_SIZE  ; 16 bytes
+Ring_Bitmask_1:         ds.b RING_BITMASK_SIZE  ; 16 bytes
+
+; Ring counts — expanded ring count per slot
+Ring_Count_0:           ds.b 1
+Ring_Count_1:           ds.b 1
+
+; Object type table — RAM copy of active section's type map
+Object_Type_Table:      ds.b TYPE_TABLE_SIZE    ; 128 bytes (32 × 4)
+
+; Ring state
+Ring_Counter:           ds.w 1          ; total collected rings (player HUD)
+Ring_Anim_Frame:        ds.b 1          ; global ring animation counter (0-3)
+Ring_Anim_Timer:        ds.b 1          ; countdown to next animation tick
+
 ; Active level pointer
 Current_Act_Ptr:        ds.l 1
 

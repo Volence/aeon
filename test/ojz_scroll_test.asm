@@ -61,13 +61,24 @@ GameState_OJZScroll_Init:
         clr.w   (Player_1+SST_x_vel).w
         clr.w   (Player_1+SST_y_vel).w
 
-        ; -- write a marker tile to VRAM so the player has a visible sprite.
-        ;    Tile 250 ($FA, = byte $1F40) sits between section art (0-225) and
-        ;    the BG region ($500+). 32 bytes of $CC = solid colour-12 8x8 block.
+        ; -- set up Player_1 as a renderable object so the sprite system
+        ;    and collision detection include it. code_addr = TestStatic_Main
+        ;    (just calls Draw_Sprite); RunObjects executes it each frame. --
+        move.w  #objroutine(TestStatic_Main), (Player_1+SST_code_addr).w
+        move.l  #Map_TestObj, (Player_1+SST_mappings).w
+        move.w  #$A0FA, (Player_1+SST_art_tile).w
+        move.w  #7, (Player_1+SST_priority).w
+        move.b  #1, (Player_1+SST_sprite_piece_count).w
+        move.b  #16, (Player_1+SST_width_pixels).w
+        move.b  #16, (Player_1+SST_height_pixels).w
+
+        ; -- write 4 marker tiles to VRAM (16×16 sprite = 2×2 tiles).
+        ;    Tile 250 ($FA, = byte $1F40) sits between section art and the
+        ;    BG region ($500+). All pixels colour 12 = solid block.
         stopZ80
         move.l  #vdpComm($1F40,VRAM,WRITE), (VDP_CTRL).l
         lea     PlayerMarkerTile(pc), a0
-        moveq   #32/4-1, d0
+        moveq   #128/4-1, d0
 .copy_marker:
         move.l  (a0)+, (VDP_DATA).l
         dbf     d0, .copy_marker
@@ -109,6 +120,9 @@ GameState_OJZScroll_Init:
 ; GameState_OJZScroll_Update — per-frame update
 ; -----------------------------------------------
 GameState_OJZScroll_Update:
+        ; -- initialize sprite system for this frame --
+        jsr     InitSpriteSystem
+
         ; -- player input drives Player_1 motion; Camera_Update follows. --
         moveq   #0, d0
         move.b  (Ctrl_1_Held).w, d0
@@ -136,6 +150,9 @@ GameState_OJZScroll_Update:
         subi.l  #6<<16, (Player_1+SST_y_pos).w
 
 .player_y_done:
+        ; -- execute all objects (Player_1 runs TestStatic_Main → Draw_Sprite) --
+        jsr     RunObjects
+
         ; -- camera follows Player_1 (deadzone + preview-aware clamp) --
         jsr     Camera_Update
 
@@ -145,22 +162,12 @@ GameState_OJZScroll_Update:
         ; -- per-column nametable streaming --
         jsr     Section_UpdateColumns
 
-        ; -- write marker sprite at Player_1's screen position. Sprite slot 0,
-        ;    link = 0 (terminate list). Tile 300 = solid colour-15 8x8 block,
-        ;    palette 1 (OJZ palette), priority 1 (renders on top of plane B). --
-        move.w  (Player_1+SST_x_pos).w, d0     ; engine-pixel X
-        sub.w   (Camera_X).w, d0               ; screen X = player - camera
-        addi.w  #128, d0                       ; sprite X = screen + 128
-        move.w  (Player_1+SST_y_pos).w, d1
-        sub.w   (Camera_Y).w, d1
-        addi.w  #128, d1                       ; sprite Y = screen + 128
+        ; -- collision detection --
+        jsr     TouchResponse
+        jsr     RingCollision
 
-        lea     (Sprite_Table_Buffer).w, a0
-        move.w  d1, (a0)+                      ; Y position
-        move.b  #$00, (a0)+                    ; size (0 = 8x8)
-        move.b  #$00, (a0)+                    ; link = 0 (terminate)
-        move.w  #$A0FA, (a0)+                  ; tile $FA = 250 (= byte $1F40), pal 1, priority 1
-        move.w  d0, (a0)+                      ; X position
+        ; -- build sprite table from priority bands + ring sprites --
+        jsr     Render_Sprites
         move.b  #1, (Sprite_Table_Dirty).w
 
         ; -- §4.6 T14: parallax follows ACTIVE slot, not just slot 0.
@@ -291,11 +298,16 @@ OJZ_SectionMarkerColors:
         dc.w    $0EEE           ; Sec8: white
 
 ; -----------------------------------------------
-; PlayerMarkerTile — 8×8 tile, all pixels colour 12 (4bpp, 32 bytes).
-; Pal 1 entry 12 = $00EE = bright yellow (vs entry 15 = sky-blue, invisible
-; against the OJZ sky). DMA'd to VRAM tile 250 ($1F40) at level init —
-; matches the $A0FA art_tile in the sprite write.
+; PlayerMarkerTile — 4 × 8×8 tiles, all pixels colour 12 (128 bytes).
+; Pal 1 entry 12 = $00EE = bright yellow. DMA'd to VRAM tile 250
+; ($1F40) at level init. 2×2 layout matches Map_TestObj_F0 (16×16).
 ; -----------------------------------------------
 PlayerMarkerTile:
+        dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
+        dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
+        dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
+        dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
+        dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
+        dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
         dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
         dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC
