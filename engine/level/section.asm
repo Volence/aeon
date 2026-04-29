@@ -132,8 +132,13 @@ Section_Check:
         rts
 
 .check:
-        move.l  (Camera_X).w, d0
-        swap    d0                                 ; d0.w = camera X in pixels
+        ; -- §4.2: thresholds keyed off Player_1's x_pos (not Camera_X) so
+        ;    teleport fires when the CHARACTER crosses the boundary, not when
+        ;    the camera does. Camera lags player by deadzone; if we used
+        ;    camera_x, teleport would fire ~16 px after the player visually
+        ;    crossed the line. --
+        move.l  (Player_1+SST_x_pos).w, d0
+        swap    d0                                 ; d0.w = player engine X
 
         ; -- §4.2 deferred cold-loads — fire when camera passes mid-traversal
         ;    threshold of new pair's first section. Independent of camera
@@ -175,9 +180,10 @@ Section_Check:
 
 .threshold_check:
         ; -- preload_{fwd,bwd} above clobber d0 (build a Sec offset). Reload
-        ;    Camera_X high word so the threshold compares aren't reading stale
-        ;    register state from the preload path. --
-        move.l  (Camera_X).w, d0
+        ;    Player_1.x_pos high word so the threshold compares aren't reading
+        ;    stale register state from the preload path. (§4.2: keyed off
+        ;    player position, not camera — see .check entry comment.) --
+        move.l  (Player_1+SST_x_pos).w, d0
         swap    d0
         cmpi.w  #SECTION_FWD_THRESHOLD, d0
         bge.w   .fwd_check

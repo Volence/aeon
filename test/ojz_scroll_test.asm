@@ -61,6 +61,18 @@ GameState_OJZScroll_Init:
         clr.w   (Player_1+SST_x_vel).w
         clr.w   (Player_1+SST_y_vel).w
 
+        ; -- write a marker tile to VRAM so the player has a visible sprite.
+        ;    Tile 300 (= byte $1F40) sits between section art (0-225) and the
+        ;    BG region ($500+). 32 bytes of $FF = solid colour-15 8x8 block.
+        stopZ80
+        move.l  #vdpComm($1F40,VRAM,WRITE), (VDP_CTRL).l
+        lea     PlayerMarkerTile(pc), a0
+        moveq   #32/4-1, d0
+.copy_marker:
+        move.l  (a0)+, (VDP_DATA).l
+        dbf     d0, .copy_marker
+        startZ80
+
         ; -- initialise section streaming (fills nametable over 3 VBlanks) --
         lea     OJZ_Act1_Descriptor, a0
         jsr     Section_Init
@@ -122,11 +134,29 @@ GameState_OJZScroll_Update:
         ; -- camera follows Player_1 (deadzone + preview-aware clamp) --
         jsr     Camera_Update
 
-        ; -- section teleport check --
+        ; -- section teleport check (reads Player_1.x_pos via .check entry below) --
         jsr     Section_Check
 
         ; -- per-column nametable streaming --
         jsr     Section_UpdateColumns
+
+        ; -- write marker sprite at Player_1's screen position. Sprite slot 0,
+        ;    link = 0 (terminate list). Tile 300 = solid colour-15 8x8 block,
+        ;    palette 1 (OJZ palette), priority 1 (renders on top of plane B). --
+        move.w  (Player_1+SST_x_pos).w, d0     ; engine-pixel X
+        sub.w   (Camera_X).w, d0               ; screen X = player - camera
+        addi.w  #128, d0                       ; sprite X = screen + 128
+        move.w  (Player_1+SST_y_pos).w, d1
+        sub.w   (Camera_Y).w, d1
+        addi.w  #128, d1                       ; sprite Y = screen + 128
+
+        lea     (Sprite_Table_Buffer).w, a0
+        move.w  d1, (a0)+                      ; Y position
+        move.b  #$00, (a0)+                    ; size (0 = 8x8)
+        move.b  #$00, (a0)+                    ; link = 0 (terminate)
+        move.w  #$A12C, (a0)+                  ; tile $12C, pal 1, priority 1
+        move.w  d0, (a0)+                      ; X position
+        move.b  #1, (Sprite_Table_Dirty).w
 
         ; -- §4.6 T14: parallax follows ACTIVE slot, not just slot 0.
         ;    Compute which slot the camera is currently inside (slot 0 if
@@ -245,3 +275,12 @@ OJZ_SectionMarkerColors:
         dc.w    $0EE0           ; Sec6: cyan
         dc.w    $0888           ; Sec7: gray
         dc.w    $0EEE           ; Sec8: white
+
+; -----------------------------------------------
+; PlayerMarkerTile — 8×8 tile, all pixels colour 15 (4bpp, 32 bytes).
+; DMA'd to VRAM tile 300 ($1F40) at level init. Used as the player
+; placeholder sprite (until proper character art is wired up).
+; -----------------------------------------------
+PlayerMarkerTile:
+        dc.l    $FFFFFFFF, $FFFFFFFF, $FFFFFFFF, $FFFFFFFF
+        dc.l    $FFFFFFFF, $FFFFFFFF, $FFFFFFFF, $FFFFFFFF
