@@ -1,5 +1,7 @@
 ; TouchResponse — player-vs-object AABB collision detection and dispatch
 
+    include "engine/objects/aabb.inc"
+
 ; -----------------------------------------------
 ; TouchResponse — check player(s) against all collidable objects
 ; Iterates dynamic + system + effect slots. For each with
@@ -38,51 +40,26 @@ TouchResponse:
         tst.b   SST_collision_resp(a3)
         beq.s   .next_object
 
-        ; --- X axis overlap ---
+        ; --- AABB overlap via shared macro (§4.9) ---
         moveq   #0, d0
         move.b  SST_width_pixels(a2), d0
         moveq   #0, d1
         move.b  SST_width_pixels(a3), d1
-        add.w   d1, d0                  ; d0 = combined_w
 
-        move.w  d4, d1                  ; player X
-        sub.w   SST_x_pos(a3), d1       ; d1 = signed delta_x
+        aabb_axis_test d4,SST_x_pos(a3),d0,d1,d0,d1,d2,.next_object,x
 
-        move.w  d1, d2
-        bpl.s   .x_pos
-        neg.w   d2
-.x_pos:
-        add.w   d2, d2                  ; abs(delta_x) * 2
-        cmp.w   d0, d2
-        bhs.s   .next_object
+        movea.w d0, a0                  ; stash combined_w
+        movea.w d1, a1                  ; stash signed delta_x
 
-        ; Stash X results in address registers
-        movea.w d0, a0                  ; a0 = combined_w
-        movea.w d1, a1                  ; a1 = signed delta_x
-
-        ; --- Y axis overlap ---
         moveq   #0, d2
         move.b  SST_height_pixels(a2), d2
         moveq   #0, d3
         move.b  SST_height_pixels(a3), d3
-        add.w   d3, d2                  ; d2 = combined_h
 
-        move.w  d5, d3                  ; player Y
-        sub.w   SST_y_pos(a3), d3       ; d3 = signed delta_y
+        aabb_axis_test d5,SST_y_pos(a3),d2,d3,d2,d3,d0,.next_object,y
 
-        move.w  d3, d0                  ; scratch for abs
-        bpl.s   .y_pos
-        neg.w   d0
-.y_pos:
-        add.w   d0, d0                  ; abs(delta_y) * 2
-        cmp.w   d2, d0
-        bhs.s   .next_object
-
-        ; --- Overlap confirmed: set up handler registers ---
         move.w  a0, d0                  ; d0 = combined_w
         move.w  a1, d1                  ; d1 = signed delta_x
-                                        ; d2 = combined_h (already set)
-                                        ; d3 = signed delta_y (already set)
 
         ; Dispatch via collision_resp jump table
         moveq   #0, d4
