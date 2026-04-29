@@ -1817,8 +1817,8 @@ Slot D  [LD]         [RD]     ← lower row
 
 **Leapfrog cycle (same pattern on both axes):**
 1. Camera crosses midpoint of current section → preload next section into the behind slot (offscreen, safe to overwrite)
-2. Preview columns/rows copied at boundary edges for seamless visual transition
-3. Camera reaches slot edge → teleport: positions shift, slots swap roles, camera wraps
+2. Preview columns/rows copied at boundary edges for seamless visual transition (§4.2 — `PREVIEW_COLS = 4`, `PREVIEW_ROWS = 4`; cells reference resident slot art, no extra VRAM allocated; copies fire on preload completion via `Section_CopyFwdPreview` and at every teleport via `Section_CopyBwdPreview`)
+3. Camera reaches slot edge → teleport: positions shift, slots swap roles, camera wraps. The new pair's second slot is **NOT** cold-loaded inline — the load is deferred to mid-traversal of the new pair's first section (`SECTION_DEFERRED_FWD_LOAD = $0600` going right, `SECTION_DEFERRED_BWD_LOAD = $0C00` going left), keeping the just-left section's art alive for the BWD/FWD preview-visible window.
 
 **Diagonal corner handling:** Both axes operate independently. At a corner, up to 3 sections may need preloading (H, V, and diagonal). The diagonal resolves naturally — you teleport on one axis first, then the diagonal cell becomes a normal neighbor. Diagonal preload queued at Priority 2 (deferrable) in the DMA system.
 
@@ -1896,6 +1896,8 @@ Producer-consumer pattern: all tile writes are buffered in RAM during the game l
 - **Double-update:** When camera moves >16px/frame, auto-queue two column/row updates
 - **Dual plane:** Separate pointer for Plane A + Plane B simultaneous updates
 
+**Plane B never writes during active display (§4.2).** The legacy `BG_RedrawForSection` burst (direct VDP pokes for ~25-30k cycles at section transition, producing a top-down tear) has been replaced with a queued `QueueDMA_Important` transfer of the section's full 64×32 BG layout (4096 bytes). The DMA drains during VBlank only, eliminating the active-display tear by construction. Plane A and Plane B preview-edge writes share the same `Plane_Buffer` mechanism via `Draw_TileColumn` (plane A) and `Draw_BG_TileColumn` (plane B).
+
 ### 4.5 Camera System (from S.C.E. ExtendedCamera, enhanced)
 
 Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel features:
@@ -1912,6 +1914,11 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 - Velocity-proportional vertical tracking (faster player = faster vertical camera)
 - Section streaming integration: camera bounds adjusted for preview zones
 - Dead zone persists for smooth centering
+
+**Preview-aware clamp toggle (§4.2):** `camera_min_x` and `camera_max_x` are dynamically extended by `PREVIEW_PIXELS` (= 32, the preview region width in pixels) unless the current pair is at an act boundary:
+- `camera_min_x = $0200` when `Slot_Section_Map[0] = 0` (first pair — Sec(-1) doesn't exist; BWD preview unreachable). Otherwise `$0200 - PREVIEW_PIXELS = $01E0`, allowing camera to scroll into BWD preview.
+- `camera_max_x = Act_cam_max_x` when slot 1 sec_x + 1 ≥ `Act_grid_w` (last pair — no FWD neighbour). Otherwise `Act_cam_max_x + PREVIEW_PIXELS`, allowing camera to scroll into FWD preview.
+- Mirrors apply on the Y axis once vertical streaming is implemented.
 
 ### 4.6 Multi-Band Computed Parallax — As Shipped
 
