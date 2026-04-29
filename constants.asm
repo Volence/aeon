@@ -291,6 +291,45 @@ SF_PRESERVE_STATE       = 1<<3
 GS_OJZ_SCROLL_TEST      = 3
 
 ; -----------------------------------------------
+; Entity System (§4.9)
+; -----------------------------------------------
+
+; Ring buffers
+MAX_RINGS_PER_SLOT      = 128
+RING_BITMASK_SIZE       = MAX_RINGS_PER_SLOT/8  ; 16 bytes per slot
+RING_BUFFER_ENTRY_SIZE  = 4             ; dc.w x, y per ring
+RING_BUFFER_SIZE        = MAX_RINGS_PER_SLOT*RING_BUFFER_ENTRY_SIZE  ; 512 bytes
+RING_WIDTH              = 16            ; collision AABB pixels
+RING_HEIGHT             = 16
+RING_ANIM_FRAMES        = 4
+RING_ANIM_SPEED         = 8             ; frames per animation tick
+
+; Object type tables
+MAX_OBJECT_TYPES        = 32
+TYPE_TABLE_SIZE         = MAX_OBJECT_TYPES*4  ; 128 bytes
+
+; Slot tag — stored at fixed SST offset, identifies which slot spawned an object
+SLOT_TAG_OFFSET         = SST_sst_custom+$1D
+SLOT_TAG_UNTAGGED       = $FF
+SLOT_TAG_LEFT           = 0
+SLOT_TAG_RIGHT          = 1
+
+; Ring pattern encoding (ROM format, 32-bit entries)
+RING_TYPE_INDIVIDUAL    = $00000000     ; %00 << 30
+RING_TYPE_HLINE         = $40000000     ; %01 << 30
+RING_TYPE_VLINE         = $80000000     ; %10 << 30
+RING_X_SHIFT            = 20            ; bits 29-20
+RING_Y_SHIFT            = 10            ; bits 19-10
+RING_COUNT_SHIFT        = 5             ; bits 9-5 (value 0-31 = 1-32 rings)
+RING_SPACING_SHIFT      = 2             ; bits 4-2
+
+; Object layout encoding (ROM format, 32-bit entries)
+OBJ_ENTRY_X_SHIFT       = 20           ; bits 29-20
+OBJ_ENTRY_Y_SHIFT       = 10           ; bits 19-10
+OBJ_ENTRY_TYPE_SHIFT    = 5            ; bits 9-5
+OBJ_ENTRY_SUBTYPE_MASK  = $1F          ; bits 4-0
+
+; -----------------------------------------------
 ; Test VRAM allocation
 ; -----------------------------------------------
 VRAM_TEST_OBJ           = $0001         ; tile index 1 (8 tiles for test art)
