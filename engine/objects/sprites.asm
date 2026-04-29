@@ -352,6 +352,8 @@ Render_Sprites:
         move.w  a5, d0
         bpl.w   .band_loop                ; continue while band >= 0
 
+        bsr.w   DrawRings                 ; emit ring sprites (§4.9)
+
 .done:
         ; Fix up last sprite's link to 0 (end of chain)
         tst.w   d5
