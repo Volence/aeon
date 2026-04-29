@@ -2,10 +2,10 @@
 ; §4.9 test fixtures
 
 ; -----------------------------------------------
-; Sec0 Type Table — 2 types
+; Sec0 Type Table — 2 types (count prefix + longword array)
 ; -----------------------------------------------
-OJZ_Sec0_TypeCount = 2
-OJZ_Sec0_Types:
+OJZ_Sec0_TypeTable:
+        dc.b    2, 0                    ; count, pad
         dc.l    ObjDef_Static           ; type 0 — static test object
         dc.l    ObjDef_Solid            ; type 1 — solid block
 
@@ -36,8 +36,8 @@ OJZ_Sec0_Rings:
 ; -----------------------------------------------
 ; Sec1 Type Table — 1 type
 ; -----------------------------------------------
-OJZ_Sec1_TypeCount = 1
-OJZ_Sec1_Types:
+OJZ_Sec1_TypeTable:
+        dc.b    1, 0                    ; count, pad
         dc.l    ObjDef_Solid            ; type 0 — solid block
 
 ; -----------------------------------------------

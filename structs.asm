@@ -112,7 +112,7 @@ sec_pal             ds.l 1          ; $10 — 128-byte palette (4 lines × 32 by
 sec_parallax_config ds.l 1          ; $14 — ROM ptr to parallax_config (0 = inherit; §4.6)
 sec_raster_table    ds.l 1          ; $18 — raster command table (§7.2)
 sec_bg_layout       ds.l 1          ; $1C — plane B layout pointer (NULL = use Act_act_bg_layout, T1)
-sec_reserved        ds.l 1          ; $20 — reserved
+sec_type_table      ds.l 1          ; $20 — type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
 sec_pal_cycle       ds.l 1          ; $24 — palette cycling script (Phase 4)
 sec_sound_bank      ds.l 1          ; $28 — DAC sample bank pointer
 sec_pcfg_pad_2C     ds.l 1          ; $2C — RESERVED (was sec_deform_table; folded into parallax_config)

@@ -4,9 +4,10 @@
 ; -----------------------------------------------
 ; LoadTypeTable — copy per-section ObjDef pointer array to RAM
 ;
-; In:  a0 = ROM type table pointer (array of ObjDef longwords)
+; ROM format: dc.b count, pad; dc.l ObjDef_Ptr × count
+;
+; In:  a0 = ROM type table pointer (count-prefixed block)
 ;           NULL = no types, clears table
-;      d0.b = entry count (0 = clear table)
 ; Out: none
 ; Clobbers: d0-d1, a0-a1
 ; -----------------------------------------------
@@ -15,11 +16,14 @@ LoadTypeTable:
 
         move.l  a0, d1
         beq.s   .clear_all
+
+        moveq   #0, d0
+        move.b  (a0)+, d0               ; d0 = entry count
+        addq.w  #1, a0                  ; skip pad byte
         tst.b   d0
         beq.s   .clear_all
 
         ; Copy count longwords from ROM to RAM
-        ext.w   d0
         move.w  d0, d1                  ; d1 = entry count (saved for zero-fill)
         subq.w  #1, d0                  ; dbf adjust
 
@@ -155,4 +159,46 @@ DespawnSlotObjects:
 .next_slot:
         lea     SST_len(a0), a0
         dbf     d1, .scan_loop
+        rts
+
+; -----------------------------------------------
+; Section_LoadSlotEntities — load type table, spawn objects, expand rings
+;
+; Orchestrates the three entity-loading primitives for one slot:
+; 1. LoadTypeTable from sec_type_table
+; 2. SpawnSectionObjects from sec_objects with slot tag
+; 3. ExpandRings from sec_rings into ring buffer
+;
+; In:  a0 = Sec ptr (ROM section definition)
+;      d0.b = slot tag (SLOT_TAG_LEFT or SLOT_TAG_RIGHT)
+;      d4.w = slot origin X (engine-space pixels)
+;      d5.w = slot origin Y (engine-space pixels)
+;      a4 = ring buffer ptr (Ring_Buffer_0 or Ring_Buffer_1)
+;      a5 = ring count byte ptr (Ring_Count_0 or Ring_Count_1)
+; Out: none
+; Clobbers: d0-d6, a0-a5
+; -----------------------------------------------
+Section_LoadSlotEntities:
+        movem.l d0/d4-d5/a0/a4-a5, -(sp)
+
+        ; 1. Load type table
+        movea.l Sec_sec_type_table(a0), a0
+        bsr.w   LoadTypeTable
+
+        ; 2. Spawn objects
+        movem.l (sp), d0/d4-d5/a0/a4-a5    ; peek (don't pop)
+        move.b  d0, d2                      ; d2.b = slot tag
+        move.w  d4, d0                      ; d0.w = origin X
+        move.w  d5, d1                      ; d1.w = origin Y
+        movea.l Sec_sec_objects(a0), a0
+        bsr.w   SpawnSectionObjects
+
+        ; 3. Expand rings
+        movem.l (sp)+, d0/d4-d5/a0/a4-a5   ; pop
+        movea.l Sec_sec_rings(a0), a0
+        movea.l a4, a1
+        move.w  d4, d0                      ; origin X
+        move.w  d5, d1                      ; origin Y
+        bsr.w   ExpandRings
+        move.b  d0, (a5)                    ; store expanded ring count
         rts
