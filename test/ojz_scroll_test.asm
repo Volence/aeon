@@ -159,6 +159,9 @@ GameState_OJZScroll_Update:
         ; -- camera follows Player_1 (deadzone + preview-aware clamp) --
         jsr     Camera_Update
 
+        ; -- §4.7: fill strip cache with new strips as camera scrolls --
+        jsr     Strip_Cache_Fill
+
         ; -- section teleport check (reads Player_1.x_pos via .check entry below) --
         jsr     Section_Check
 
