@@ -595,6 +595,23 @@ debug after the fact.
 **See:** `ristar_disasm/ANALYSIS.md`, `ristar_disasm/code/disasm.asm`
 lines ~8330–8350.
 
+## From Build Pipeline — Future Optimizations
+
+### Pre-Baked Path Tables for Loops / Special Geometry
+**Surfaced during:** §4.7 world-space strip cache brainstorm (2026-04-30).
+**What:** Define loops, S-tubes, and corkscrews as parametric curves in the editor. Build tool samples the curve and emits a path table: sequence of (x, y, angle) waypoints. At runtime, player snaps to path and interpolates between waypoints — no per-frame collision queries during traversal. Eliminates the most complex and error-prone collision scenarios. Classic Sonic's loops use path-swapping between collision layers with hand-tuned height maps; this approach makes loops reliable by construction.
+**Blocked by:** Level editor integration, §3 player physics (need movement system to consume path data).
+
+### Build-Time Collision Validation
+**Surfaced during:** §4.7 world-space strip cache brainstorm (2026-04-30).
+**What:** Use modern CPU power to simulate player traversal at build time. Verify slopes are traversable (not too steep for physics constants), detect collision gaps, flag unreachable areas, check height profile transitions between adjacent cells for smoothness. Catches level design errors before they hit hardware.
+**Blocked by:** §3 player physics (need physics constants and movement model to simulate), §4.7 collision system (need collision data format finalized).
+
+### Animated Tile DMA Scripts
+**Surfaced during:** §4.7 world-space strip cache brainstorm (2026-04-30).
+**What:** Pre-compute animated tile sequences (waterfalls, conveyors, flickering lights) as table-driven DMA scripts at build time. Each frame entry is a pre-built DMA command (source ROM addr, VRAM dest, length). Runtime just steps through the table — zero computation, zero logic. Build tool handles figuring out VRAM addresses after graph coloring and structuring DMA entries.
+**Blocked by:** Animated tile system design (Phase 4), VRAM graph coloring integration.
+
 ---
 
 ## How to Use This Document
