@@ -291,24 +291,33 @@ SF_PRESERVE_STATE       = 1<<3
 GS_OJZ_SCROLL_TEST      = 3
 
 ; -----------------------------------------------
-; Entity System (§4.9)
+; Entity System (§4.9 — camera-driven sliding window)
 ; -----------------------------------------------
 
-; Ring buffers
-MAX_RINGS_PER_SLOT      = 128
-RING_BITMASK_SIZE       = MAX_RINGS_PER_SLOT/8  ; 16 bytes per slot
-RING_BUFFER_ENTRY_SIZE  = 4             ; dc.w x, y per ring
-RING_BUFFER_SIZE        = MAX_RINGS_PER_SLOT*RING_BUFFER_ENTRY_SIZE  ; 512 bytes
+; Unified ring buffer
+MAX_RING_BUFFER         = 128           ; max rings in unified buffer
+RING_BUFFER_ENTRY_SIZE  = 6             ; dc.w x, y; dc.b section_id, list_index
 RING_WIDTH              = 16            ; collision AABB pixels
 RING_HEIGHT             = 16
 RING_ANIM_FRAMES        = 4
 RING_ANIM_SPEED         = 8             ; frames per animation tick
 
-; Object type tables
-MAX_OBJECT_TYPES        = 32
-TYPE_TABLE_SIZE         = MAX_OBJECT_TYPES*4  ; 128 bytes
+; Entity window scan
+MAX_TRACKED_SECTIONS    = 4             ; 2 active + 2 preview neighbors
+ENTITY_LOAD_BUFFER      = $180          ; pixels ahead/behind camera to load entities
+ENTITY_DESPAWN_BUFFER   = $200          ; pixels beyond load buffer to despawn (hysteresis)
+SCREEN_WIDTH            = 320           ; visible screen width in pixels
 
-; Slot tag — stored at fixed SST offset, identifies which slot spawned an object
+; 3×3 rolling collected bitmask
+COLLECTED_WINDOW_SLOTS  = 9             ; 3×3 box around player's section
+COLLECTED_SLOT_SIZE     = 18            ; 1 tag + 1 pad + 16 bitmask bytes
+COLLECTED_BITMASK_OFFSET = 2            ; bitmask starts 2 bytes into slot
+COLLECTED_EMPTY_TAG     = $FF           ; slot not owned by any section
+
+; Object type tables (read from ROM, no RAM copy)
+MAX_OBJECT_TYPES        = 32
+
+; Slot tag — stored at fixed SST offset, identifies which section spawned an object
 SLOT_TAG_OFFSET         = SST_sst_custom+$1D
 SLOT_TAG_UNTAGGED       = $FF
 SLOT_TAG_LEFT           = 0

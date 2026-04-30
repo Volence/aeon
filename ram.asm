@@ -278,28 +278,31 @@ Section_Bwd_Neighbor_Strips: ds.l 1       ; prev section's Sec_sec_strips_a
 Tile_Override_Table:    ds.b 96
 
 ; -----------------------------------------------
-; Entity System (§4.9)
+; Entity System (§4.9 — camera-driven sliding window)
 ; -----------------------------------------------
 
-; Ring buffers — 128 entries × 4 bytes (dc.w x, y) per slot
-Ring_Buffer_0:          ds.b RING_BUFFER_SIZE   ; 512 bytes, slot 0
-Ring_Buffer_1:          ds.b RING_BUFFER_SIZE   ; 512 bytes, slot 1
+; Unified ring buffer — 128 entries × 6 bytes (dc.w x, y; dc.b section_id, list_index)
+Ring_Buffer:            ds.b MAX_RING_BUFFER * RING_BUFFER_ENTRY_SIZE  ; 768 bytes
 
-; Ring bitmasks — 128 bits per slot (1 = collected)
-Ring_Bitmask_0:         ds.b RING_BITMASK_SIZE  ; 16 bytes
-Ring_Bitmask_1:         ds.b RING_BITMASK_SIZE  ; 16 bytes
+; Ring count (unified)
+Ring_Count:             ds.b 1
+                        ds.b 1          ; pad
 
-; Ring counts — expanded ring count per slot
-Ring_Count_0:           ds.b 1
-Ring_Count_1:           ds.b 1
-
-; Object type table — RAM copy of active section's type map
-Object_Type_Table:      ds.b TYPE_TABLE_SIZE    ; 128 bytes (32 × 4)
+; Entity scan state — 4 tracked sections × EntityScanState_len bytes
+Entity_Scan_State:      ds.b MAX_TRACKED_SECTIONS * EntityScanState_len
 
 ; Ring state
 Ring_Counter:           ds.w 1          ; total collected rings (player HUD)
 Ring_Anim_Frame:        ds.b 1          ; global ring animation counter (0-3)
 Ring_Anim_Timer:        ds.b 1          ; countdown to next animation tick
+
+; Entity window tracking
+Entity_Window_Active:   ds.b 1          ; number of tracked sections (0-4)
+Entity_Window_Center_ID: ds.b 1         ; section_id of 3×3 box center
+
+; 3×3 rolling collected bitmask — 9 slots × 18 bytes
+Ring_Collected_Window:  ds.b COLLECTED_WINDOW_SLOTS * COLLECTED_SLOT_SIZE  ; 162 bytes
+                        ds.b 2          ; pad to even
 
 ; Active level pointer
 Current_Act_Ptr:        ds.l 1

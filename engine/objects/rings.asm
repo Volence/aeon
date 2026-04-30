@@ -201,12 +201,15 @@ DrawRings:
         bhi.s   .skip_ring
 
         ; --- Write SAT entry (8 bytes) ---
+        ; Center 16×16 sprite on ring position (VDP draws from top-left)
+        subi.w  #8, d3
         addi.w  #VDP_SPRITE_Y_OFFSET, d3
         move.w  d3, (a4)+              ; +0: Y position
         move.b  #$05, (a4)+            ; +2: size 2×2 (16×16 px)
         addq.b  #1, d5
         move.b  d5, (a4)+              ; +3: link (next sprite index)
         move.w  #VRAM_TEST_OBJ, (a4)+  ; +4: tile attrs (placeholder art)
+        subi.w  #8, d2
         addi.w  #VDP_SPRITE_X_OFFSET, d2
         bne.s   .x_ok
         moveq   #1, d2                 ; avoid X=0 (VDP sprite masking)

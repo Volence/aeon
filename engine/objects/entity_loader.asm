@@ -202,3 +202,59 @@ Section_LoadSlotEntities:
         bsr.w   ExpandRings
         move.b  d0, (a5)                    ; store expanded ring count
         rts
+
+; -----------------------------------------------
+; SaveSlotRingBitmask — persist slot's ring bitmask to per-section array
+;
+; In:  d0.w = section_id to save under
+;      Reads Ring_Bitmask_0 or Ring_Bitmask_1 based on caller
+; These are called as .save_bitmask_0 / .save_bitmask_1 from section.asm
+; -----------------------------------------------
+
+; Save Ring_Bitmask_0 → Ring_Persist_Bitmask[d0]
+SaveRingBitmask_0:
+        lsl.w   #4, d0
+        lea     (Ring_Persist_Bitmask).w, a1
+        adda.w  d0, a1
+        lea     (Ring_Bitmask_0).w, a0
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        rts
+
+; Save Ring_Bitmask_1 → Ring_Persist_Bitmask[d0]
+SaveRingBitmask_1:
+        lsl.w   #4, d0
+        lea     (Ring_Persist_Bitmask).w, a1
+        adda.w  d0, a1
+        lea     (Ring_Bitmask_1).w, a0
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        rts
+
+; Restore Ring_Persist_Bitmask[d0] → Ring_Bitmask_0
+RestoreRingBitmask_0:
+        lsl.w   #4, d0
+        lea     (Ring_Persist_Bitmask).w, a0
+        adda.w  d0, a0
+        lea     (Ring_Bitmask_0).w, a1
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        rts
+
+; Restore Ring_Persist_Bitmask[d0] → Ring_Bitmask_1
+RestoreRingBitmask_1:
+        lsl.w   #4, d0
+        lea     (Ring_Persist_Bitmask).w, a0
+        adda.w  d0, a0
+        lea     (Ring_Bitmask_1).w, a1
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
+        rts

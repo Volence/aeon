@@ -45,6 +45,9 @@ GameState_OJZScroll_Init:
         ; plane A and Up/Down moves stay within plane rows 0..47.
         clr.l   (Camera_Y).w
 
+        ; -- init object system (must precede Player_1 setup and Section_Init) --
+        jsr     InitObjectRAM
+
         ; -- initialise Player_1 at camera-center position so Camera_Update's
         ;    deadzone tracking begins at rest (no jolt on first frame).
         ;    Player_1.x_pos = Camera_X + CAM_SCREEN_HALF_W; same for Y. --

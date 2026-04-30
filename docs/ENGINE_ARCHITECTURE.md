@@ -1799,7 +1799,7 @@ No Genesis game, S.C.E., or commercial engine streams level data in two dimensio
 
 **2-slot block-paired streaming:**
 
-2 slots per axis. Each teleport replaces *both* slots — no recycling. Each section is visible across exactly one slot territory ($800 of camera travel). After a FWD teleport, slot index advances by 2 sections: `[Sec0,Sec1] → [Sec2,Sec3] → [Sec4,Sec5] → ...` This matches `SECTION_SHIFT = $1000 = 2 × SECTION_SIZE` and gives the user "infinite forward walking" feel where each section is seen once. Confirmed via T15 testing as the correct architecture for our streaming model. (Earlier rolling-style rotation — where slot 0 inherited the previous slot 1's content — caused each section to be visible in two consecutive slot-pair states; fixed in the T15 commit.)
+2 slots per axis. Each teleport slides the window by one section: the trailing slot is despawned, the near slot shifts into the trailing position (coordinates adjust by ±SECTION_SHIFT), and the new leading slot loads fresh. The section map advances by 2 (`[Sec0,Sec1] → [Sec2,Sec3]`) but entity state in the surviving slot is preserved — collected rings stay collected, spawned objects keep their state. This sliding window matches player spatial expectation: crossing a boundary and immediately returning does not respawn entities.
 
 2 slots per axis with full bidirectional symmetry — no pinned slots:
 
@@ -2029,8 +2029,8 @@ The section system touches nearly every other engine system. These cascades are 
 **Animated Terrain Per-Section (NOVEL):**
 Each section can define its own animated tile set via `sec_anim_blocks` — conveyor belts, pulsing lava, swaying grass, shimmering ice. Animation system cycles frames and DMAs current tiles via the DMA queue (Priority 1). On teleport, old tiles stop, new tiles start. Each section becomes visually distinct not just in static art but in dynamic terrain behavior.
 
-**Section State Preservation (NOVEL):**
-Rolling 4-slot state buffer (4.9) automatically preserves ring collection and object destruction for the 4 most recently visited sections — 104 bytes total. On re-entry, saved bitmasks are applied: rings stay collected, enemies stay dead. Maximum respawn distance: ~$800 pixels. Sections with `preserve_state` flag extend this with permanent storage: dynamic block state + entity bitmasks survive indefinitely. RAM budget: 104 bytes rolling + ~32 bytes per permanently preserved section. SRAM integration (§9.6) snapshots all preserved state for mid-level checkpoint saves.
+**Section State Preservation via Sliding Window:**
+The sliding window teleport preserves entity state for the surviving slot naturally — the ring bitmask and object positions carry over with coordinate adjustment. Collected rings stay collected, destroyed objects stay gone, as long as the section remains in one of the two active slots. Once a section leaves both slots (player has moved ≥2 sections away), its entities reset to ROM defaults on next load — matching classic Sonic behavior where distant areas respawn.
 
 **Zero-Lag Teleport — Progressive Preload + Crossfade Masking (NOVEL):**
 

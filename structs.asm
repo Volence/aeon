@@ -106,7 +106,7 @@ SST endstruct
 Sec struct
 sec_strips_a        ds.l 1          ; $00 — plane A nametable strip array ptr (ROM)
 sec_objects         ds.l 1          ; $04 — compact 4-byte object entries
-sec_rings           ds.l 1          ; $08 — pattern-encoded ring entries
+sec_rings           ds.l 1          ; $08 — flat X-sorted ring entries (dc.w X, Y; dc.l 0 terminated)
 sec_plc             ds.l 1          ; $0C — S4LZ art PLC list
 sec_pal             ds.l 1          ; $10 — 128-byte palette (4 lines × 32 bytes)
 sec_parallax_config ds.l 1          ; $14 — ROM ptr to parallax_config (0 = inherit; §4.6)
@@ -204,4 +204,25 @@ Act endstruct
 
     if Act_len <> $22
       error "Act struct is \{Act_len} bytes, expected $22"
+    endif
+
+; -----------------------------------------------
+; Per-section entity scan state (§4.9 camera-driven window)
+; One per tracked section (4 max: 2 active + 2 preview neighbors)
+; -----------------------------------------------
+EntityScanState struct
+ess_ring_right_idx   ds.w 1      ; $00 — next unloaded ring index (scanning right)
+ess_ring_left_idx    ds.w 1      ; $02 — next unloaded ring index (scanning left)
+ess_obj_right_idx    ds.w 1      ; $04 — next unloaded object index (scanning right)
+ess_obj_left_idx     ds.w 1      ; $06 — next unloaded object index (scanning left)
+ess_rom_ring_ptr     ds.l 1      ; $08 — pointer to section's ROM ring list
+ess_rom_obj_ptr      ds.l 1      ; $0C — pointer to section's ROM object list
+ess_rom_type_tbl_ptr ds.l 1      ; $10 — pointer to section's ROM type table
+ess_origin_x         ds.w 1      ; $14 — section's engine-space X origin
+ess_section_id       ds.b 1      ; $16 — section grid index (sec_y * grid_w + sec_x)
+ess_pad              ds.b 1      ; $17 — pad to even
+EntityScanState endstruct
+
+    if EntityScanState_len <> $18
+      error "EntityScanState struct is \{EntityScanState_len} bytes, expected $18"
     endif

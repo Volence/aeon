@@ -66,11 +66,14 @@ OJZ_Sec1:
 
 OJZ_Sec2:
     dc.l    OJZ_Sec2_Strips_A
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec2_Objects        ; sec_objects
+    dc.l    OJZ_Sec2_Rings          ; sec_rings
+    dc.l    0
     dc.l    OJZ_Palette
     dc.l    ParallaxConfig_SkyHaze, 0      ; sec_parallax_config = parallax_combine_split demo (was on Sec0, swapped here)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0, 0, 0, 0
+    dc.l    OJZ_Sec2_TypeTable      ; sec_type_table (§4.9)
+    dc.l    0, 0, 0, 0, 0
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec2_Tiles_S4LZ
