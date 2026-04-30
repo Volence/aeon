@@ -314,15 +314,6 @@ SLOT_TAG_UNTAGGED       = $FF
 SLOT_TAG_LEFT           = 0
 SLOT_TAG_RIGHT          = 1
 
-; Ring pattern encoding (ROM format, 32-bit entries)
-RING_TYPE_INDIVIDUAL    = $00000000     ; %00 << 30
-RING_TYPE_HLINE         = $40000000     ; %01 << 30
-RING_TYPE_VLINE         = $80000000     ; %10 << 30
-RING_X_SHIFT            = 20            ; bits 29-20
-RING_Y_SHIFT            = 10            ; bits 19-10
-RING_COUNT_SHIFT        = 5             ; bits 9-5 (value 0-31 = 1-32 rings)
-RING_SPACING_SHIFT      = 2             ; bits 4-2
-
 ; Object layout encoding (ROM format, 32-bit entries)
 OBJ_ENTRY_X_SHIFT       = 20           ; bits 29-20
 OBJ_ENTRY_Y_SHIFT       = 10           ; bits 19-10

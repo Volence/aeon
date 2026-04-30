@@ -689,8 +689,72 @@ def collect_referenced_tiles(
 
 
 # ---------------------------------------------------------------------------
+# Ring expansion — §4.9 camera-driven entity window
+# ---------------------------------------------------------------------------
+
+def expand_rings(ring_defs):
+    """Expand pattern ring definitions to flat X-sorted list.
+
+    Each ring_def is a tuple:
+      ('individual', x, y)
+      ('hline', x, y, count, spacing)
+      ('vline', x, y, count, spacing)
+
+    Returns: list of (x, y) tuples, sorted ascending by (x, y).
+    """
+    rings = []
+    for entry in ring_defs:
+        rtype = entry[0]
+        x, y = entry[1], entry[2]
+        if rtype == 'individual':
+            rings.append((x, y))
+        elif rtype == 'hline':
+            count, spacing = entry[3], entry[4]
+            for i in range(count):
+                rings.append((x + i * spacing, y))
+        elif rtype == 'vline':
+            count, spacing = entry[3], entry[4]
+            for i in range(count):
+                rings.append((x, y + i * spacing))
+    rings.sort(key=lambda r: (r[0], r[1]))
+    return rings
+
+
+# ---------------------------------------------------------------------------
 # Self-tests
 # ---------------------------------------------------------------------------
+
+def test_expand_rings():
+    """Test ring pattern expansion and X-sorting."""
+    # H-line of 5 at spacing 0x10
+    result = expand_rings([('hline', 0x80, 0x60, 5, 0x10)])
+    assert result == [(0x80, 0x60), (0x90, 0x60), (0xA0, 0x60),
+                      (0xB0, 0x60), (0xC0, 0x60)]
+
+    # V-line of 3 at spacing 0x10 (same X, ascending Y)
+    result = expand_rings([('vline', 0x100, 0x40, 3, 0x10)])
+    assert result == [(0x100, 0x40), (0x100, 0x50), (0x100, 0x60)]
+
+    # Mixed — sorted by X then Y
+    result = expand_rings([
+        ('individual', 0x200, 0x80),
+        ('individual', 0x100, 0x80),
+    ])
+    assert result == [(0x100, 0x80), (0x200, 0x80)]
+
+    # OJZ Sec2 full expansion
+    result = expand_rings([
+        ('hline', 0xC0, 0x50, 4, 0x14),
+        ('vline', 0x300, 0x30, 3, 0x10),
+        ('individual', 0x200, 0x70),
+    ])
+    assert result == [
+        (0xC0, 0x50), (0xD4, 0x50), (0xE8, 0x50), (0xFC, 0x50),
+        (0x200, 0x70),
+        (0x300, 0x30), (0x300, 0x40), (0x300, 0x50),
+    ]
+    print("  test_expand_rings OK")
+
 
 def test_kos_decompress():
     """Smoke test: decompress 16x16 OJZ.bin and check basic properties."""
@@ -857,6 +921,7 @@ def test_full_pipeline_runs():
 def run_tests():
     """Run all self-tests."""
     print("Running ojz_strip_gen tests...")
+    test_expand_rings()
     test_kos_decompress()
     test_load_block_map()
     test_load_chunk_map()
