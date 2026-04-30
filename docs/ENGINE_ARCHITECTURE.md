@@ -16,7 +16,7 @@ This is the **design bible**. This document describes the engine we're building 
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
 | 2 | Art & Compression Pipeline | S4LZ (custom word-aligned LZ, 700-1100 KB/s) for level/bulk art. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5FF (1,536 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character sprites + VDP tables embedded in off-screen nametable rows**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
-| 4 | Level / World | 2D section grid with signed Y (novel), 2-slot bidirectional leapfrog (novel), pre-computed nametable strips (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), velocity-based preload, per-section everything, diagonal preview loading, **section-local entity management with warp-based teleport preview (novel)**, per-section type tables, pattern-encoded rings, rolling 4-slot state, **zero-lag teleport (progressive nametable preload + palette crossfade, novel)**, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **per-section collision map (flat byte array, 128-column shift-based lookup — zero multiply)**, **per-section full palette copies (128 bytes, instant load)** |
+| 4 | Level / World | 2D section grid with signed Y (novel), 2-slot bidirectional leapfrog (novel), pre-computed nametable strips (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), velocity-based preload, per-section everything, diagonal preview loading, **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, **zero-lag teleport (progressive nametable preload + palette crossfade, novel)**, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **per-section collision map (flat byte array, 128-column shift-based lookup — zero multiply)**, **per-section full palette copies (128 bytes, instant load)** |
 | 5 | Player / Character | 6-button controller support, per-section terrain physics (novel), air drag apex-only fix (S3K), roll-jump air control fix (S3K), flat acceleration with per-character tuning, angle continuity for loop stability, vector projection on slope landing, state entry/exit hooks, hierarchical state machine evaluation, landing camera lock, spindash charge curve (table-based), slope muls→shift optimization, configurable physics tables, 3-character shared code via Player_Common, shield system unified, **SWAP-based 16.16 fixed point (Treasure)** |
 | 6 | Audio | Flamedriver (full Z80 autonomy), Zyrinx log volume + per-algorithm carrier mask, verified Z80 writes, DPCM + 32kHz DAC + DMA protection buffering (24KB survival), YM Timer A sub-frame tempo (NTSC/PAL independent), bank switch optimization (pack per-section, 100+ cycle savings), section-aware sound banking (novel), distance-based attenuation (novel), pseudo-stereo DAC, PSG pause silencing, Ch3 special mode for sound design, **SSG-EG envelope modes (evolving FM tones)**, LFO limitations documented, continuous SFX, music fade state machine, build-time DC offset tool, **multi-channel DAC mixing (2-4 channels, per-channel sample rate)** |
 | 7 | Visual Effects | **Unified raster command table (Batman — stackable per-scanline VDP register changes)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
@@ -1718,12 +1718,12 @@ Comparative analysis across S.C.E. and 5 commercial Genesis engines informed whi
 |--------|----------|--------------|
 | **Render_Sprites** | S.C.E. two-phase | 8-priority-level iteration with pre-computed link numbers at init, render callbacks for level-specific sprite injection. |
 | **RunObjects** | Tiered execution | 4-tier execution (Reserved/Dynamic/LevelOnly/Deferred). Slot-based entity management (4.9) handles spawn/despawn lifecycle. |
-| **Entity Management** | Section-local (novel) | Section-local entity management (4.9) with per-section type tables, warp-based preview, rolling 4-slot state. Free slot stack (3.2) for runtime-spawned objects. |
+| **Entity Management** | Camera-driven window (novel) | Camera-driven entity window (4.9) with per-section X-sorted ROM lists, unified ring buffer, 3×3 rolling collected bitmask. Free slot stack (3.2) for runtime-spawned objects. |
 | **AnimateSprite** | Bytecode sequencer | Bytecode system ($FF/$FE/$FD/$FC/$FB) with animation events (3.6) and pause flag. |
 | **TouchResponse** | Type dispatch | Two-pass gather→respond with per-type handlers (3.4). Collision masks for early-exit. Modular file structure per collision type. |
-| **Ring System** | Section-local (novel) | Per-slot ring buffers with section-local coordinates, pattern-encoded ROM data, and warp-based preview (4.9). |
+| **Ring System** | Camera-driven (novel) | Unified 128-entry ring buffer, flat X-sorted ROM lists per section, swap-with-last O(1) removal, 3×3 rolling collected bitmask (4.9). |
 
-**Dynamic allocator integration with free slot stack (3.2):** The free slot stack provides the allocation primitive for both paths. Level objects spawn via section-local entity management (4.9) — when a section loads into a slot, its compact 4-byte object entries are read, type table is consulted, and `AllocSlot` pops a free SST address. Dynamic objects (boss parts, projectiles, cutscene actors) call `AllocSlot` directly. Both paths produce objects in the same SST — the execution loop doesn't distinguish them.
+**Dynamic allocator integration with free slot stack (3.2):** The free slot stack provides the allocation primitive for both paths. Level objects spawn via the camera-driven entity window (4.9) — as objects scroll into camera range, their compact 4-byte ROM entries are unpacked, the section's ROM type table is consulted for the ObjDef pointer, and `Load_Object` calls `AllocDynamic` to pop a free SST address. Dynamic objects (boss parts, projectiles, cutscene actors) call `AllocDynamic` directly. Both paths produce objects in the same SST — the execution loop doesn't distinguish them.
 
 **Parent-child links (from Treasure — Gunstar Heroes / Alien Soldier):** The `parent_ptr` ($20) and `child_ptr` ($22) fields in the SST (3.1) enable multi-part boss coordination: child auto-delete when parent dies, sibling chain iteration, inherited art/palette. Validated by 380+ references in Alien Soldier.
 
@@ -1780,8 +1780,8 @@ Per-Frame Art Loading (3.9)
     → DPLC Lookahead (§1.6) pre-loads next frame's tiles
       → Zero-latency animation transitions
 
-Section-Local Entity Integration (4.9 → 3.2 + 3.7)
-  → Level objects spawn via section entity management
+Camera-Driven Entity Integration (4.9 → 3.2 + 3.7)
+  → Level objects spawn via camera-driven entity window
     → AllocSlot (3.2) provides SST address, Load_Object (3.7) initializes fields
       → Per-section type table resolves 5-bit index to routine pointer
         → Warp-based preview: objects live in preview zone before teleport
@@ -1799,7 +1799,7 @@ No Genesis game, S.C.E., or commercial engine streams level data in two dimensio
 
 **2-slot block-paired streaming:**
 
-2 slots per axis. Each teleport slides the window by one section: the trailing slot is despawned, the near slot shifts into the trailing position (coordinates adjust by ±SECTION_SHIFT), and the new leading slot loads fresh. The section map advances by 2 (`[Sec0,Sec1] → [Sec2,Sec3]`) but entity state in the surviving slot is preserved — collected rings stay collected, spawned objects keep their state. This sliding window matches player spatial expectation: crossing a boundary and immediately returning does not respawn entities.
+2 slots per axis. Each teleport slides the window by one section: the trailing slot is despawned, the near slot shifts into the trailing position (coordinates adjust by ±SECTION_SHIFT), and the new leading slot loads fresh. The section map advances by 2 (`[Sec0,Sec1] → [Sec2,Sec3]`). Entity state is managed by the camera-driven entity window (4.9) — `EntityWindow_TeleportShift` shifts surviving entities' coordinates and rebuilds scan state from the updated slot map. The 3×3 rolling collected bitmask preserves ring collection state across nearby section revisits.
 
 2 slots per axis with full bidirectional symmetry — no pinned slots:
 
@@ -1841,8 +1841,8 @@ Each section in the 2D grid is fully self-describing — almost its own level:
 ```
 ; Section definition — 64 bytes per (X, Y) cell:
     dc.l    sec_strips_a        ; +$00: pre-computed plane A nametable strips (ROM pointer)
-    dc.l    sec_objects         ; +$04: object layout (compact 4-byte entries, see 4.9)
-    dc.l    sec_rings           ; +$08: ring layout (pattern-encoded, section-local coords, see 4.9)
+    dc.l    sec_objects         ; +$04: object layout (compact 4-byte entries, X-sorted, see 4.9)
+    dc.l    sec_rings           ; +$08: ring layout (flat X-sorted dc.w pairs, section-local coords, see 4.9)
     dc.l    sec_plc             ; +$0C: art PLC list (S4LZ format)
     dc.l    sec_pal             ; +$10: palette pointer — full 128-byte copy (0 = no change)
     dc.l    sec_scroll          ; +$14: parallax layer table (0 = keep current)
@@ -2012,7 +2012,7 @@ The section system touches nearly every other engine system. These cascades are 
 - On section exit, `FreeVRAM` decrements refcounts — art stays cached for backtracking
 - Pool compaction only runs at section boundaries
 
-**Section + Entity Management (4.9):**
+**Camera-Driven Entity Window (4.9):**
 - Objects and rings load when their section loads into a slot — not viewport-based
 - Objects spawn via `AllocSlot` (3.2) with coordinates from compact 4-byte entries
 - Per-section type table maps 5-bit indices to routine pointers (128-byte RAM lookup)
@@ -2038,7 +2038,7 @@ A naive teleport does all work in a single frame: layout conversion, ring/object
 
 | System | Work it handles | Cycles on teleport frame |
 |---|---|---|
-| Section-local entities (4.9) | Rings + objects already in place via warp | ~20 (origin adjust) |
+| Camera-driven entities (4.9) | EntityWindow_TeleportShift: shift/despawn + rebuild scan state | ~200 (shift + scan) |
 | Pre-computed nametable strips (4.3) | Layout data ready in ROM | ~0 (pointer swap) |
 | Progressive preload (below) | Nametable already in VDP | ~0 |
 
@@ -2082,7 +2082,7 @@ For sections with the same palette, the fade can be shortened to 2 frames total 
 
 Preview columns are no longer separate copy operations. The ring-buffer streaming engine (`Section_UpdateColumns`) extends its range by `PREVIEW_COLS` into neighbor section strips at each boundary. Neighbor strip pointers are cached at teleport/init (`Section_Fwd/Bwd_Neighbor_Strips`). Preview content appears naturally as the streaming cursor advances past the section boundary — no teleport-frame layout work, no separate preview pass. The teleport frame does only position math + dirty-flag for `Section_RedrawPlanes`.
 
-**Result:** The teleport becomes ~1,500 cycles of CPU work (position math) + zero visual glitch (nametable already in VDP + palette crossfade masks any residual). No Genesis game achieves zero-lag section streaming with full section independence (different art, palette, parallax, entities). This is the combination of 6 systems working together: pre-computed strips (4.3), entity warp (4.9), progressive preload, palette crossfade, DMA priority queue (1.1), and velocity-based timing.
+**Result:** The teleport becomes ~1,500 cycles of CPU work (position math) + zero visual glitch (nametable already in VDP + palette crossfade masks any residual). No Genesis game achieves zero-lag section streaming with full section independence (different art, palette, parallax, entities). This is the combination of 6 systems working together: pre-computed strips (4.3), camera-driven entity window (4.9), progressive preload, palette crossfade, DMA priority queue (1.1), and velocity-based timing.
 
 **Transition / Blend Sections (NOVEL):**
 Transition cells in the grid interpolate between adjacent sections' palettes, parallax, and physics over the cell's width. Jungle gradually darkens into cave, water tint deepens as you descend, wind picks up as you climb. Creates seamless geographic flow instead of hard boundaries.
@@ -2097,34 +2097,29 @@ preload_at = threshold - (x_vel × lead_frames)
 ```
 A player at max speed (~$C00 subpixels/frame) gets the preload trigger ~96 pixels earlier = 8 extra frames for S4LZ to decompress. A walking player barely changes. Ensures smooth transitions regardless of speed. No game does adaptive preload timing.
 
-### 4.9 Section-Local Entity Management
+### 4.9 Camera-Driven Entity Management
 
-Entity loading is tied to the slot system. When a section loads into a slot, its rings and objects load with it. When it unloads, they unload. No merging, no sorting, no global buffers. Traditional Sonic engines (and S.C.E.) use global X-sorted arrays with sliding windows — this architecture eliminates that complexity.
+Entities (rings and objects) load when they scroll into camera range and despawn when they leave. This replaces the earlier teleport-triggered bulk loading. Per-section X-sorted ROM lists with per-section scan pointers enable early-exit scanning — only entities near the camera edge are checked each frame.
 
 **Why separate rings from objects:** Rings are high-volume (40-50 per section), stateless (no behavior code), and need only collision + rendering. Objects are lower-volume (10-20), stateful (SST slots with behavior routines), and diverse. Segregated pools with type-specific fast paths outperform unified processing.
 
-#### 4.9.1 Ring Layout — Pattern-Encoded, Section-Local
+#### 4.9.1 Ring Layout — Flat X-Sorted, Section-Local
 
-Ring data in ROM per-section, section-local coordinates ($000-$3FF, 10 bits per axis). Three entry types, 4 bytes each, terminated by `dc.l 0`:
+Ring data in ROM per-section, flat `dc.w X, dc.w Y` pairs in section-local coordinates, X-sorted ascending, terminated by `dc.l 0`:
 
 ```
-; High 2 bits select entry type:
-; %00 = individual ring  (X, Y)
-; %01 = horizontal line  (X, Y, count, spacing)
-; %10 = vertical line    (X, Y, count, spacing)
-;
-; Layout: [2-bit type][10-bit X][10-bit Y][5-bit count-1][3-bit spacing][2-bit reserved]
-;   Individual: count/spacing/reserved ignored
-;   Pattern:    count 1-32 (field = count-1), spacing index selects pixel gap
-;
-; Spacing index: 0=$10, 1=$14, 2=$18, 3=$1C, 4=$20, 5=$24, 6=$28, 7=$30
+OJZ_Sec0_Rings:
+    dc.w    $080, $060      ; ring 0
+    dc.w    $090, $060      ; ring 1
+    dc.w    $0A0, $060      ; ring 2
+    dc.l    0               ; terminator
 ```
 
-At section load, patterns expand into the slot's ring buffer as flat (X, Y) word pairs in engine-space coordinates (slot origin added during expansion). Expansion is a one-time cost (~50 cycles per pattern entry). The ring scanner iterates the expanded buffer with zero per-frame decode overhead.
+No pattern encoding — rings are pre-expanded at build time. Flat lists eliminate per-frame decode overhead and enable binary/linear scanning with early exit. The X-sorted order means once a ring's engine-space X exceeds the camera's load edge, all subsequent entries are also out of range.
 
 #### 4.9.2 Object Layout — Compact 4-Byte with Per-Section Type Table
 
-Object entries in ROM use section-local coordinates with a local type index, terminated by `dc.l 0`:
+Object entries in ROM use section-local coordinates with a local type index, X-sorted ascending, terminated by `dc.l 0`:
 
 ```
 ; 32-bit entry: [2-bit reserved][10-bit X][10-bit Y][5-bit type][5-bit subtype]
@@ -2140,72 +2135,111 @@ OJZ_Sec0_TypeTable:
     dc.b    2, 0                ; count, pad byte
     dc.l    ObjDef_Static       ; type 0
     dc.l    ObjDef_Solid        ; type 1
-    ; 2 + 8 = 10 bytes ROM
 ```
 
-At section load, the type table copies to a 128-byte RAM lookup (32 entries × 4 bytes). Unused entries are zeroed to prevent stale pointers. Object spawning reads the 4-byte layout entry, indexes the RAM lookup for the ObjDef pointer, calls `Load_Object`. Lookup is one indexed `move.l` — zero branching.
+Object spawning reads the 4-byte layout entry, indexes the ROM type table for the ObjDef pointer (one indexed `move.l`), and calls `Load_Object`. The 5-bit type index means each section independently uses up to 32 object types with no global ID space.
 
-The 5-bit type index means each section independently uses up to 32 object types with no global ID space. A section using 3 types has a 14-byte table (2 + 12). The game can have hundreds of unique object types with no encoding pressure on the layout entries.
+#### 4.9.3 Entity Window — Camera-Driven Lifecycle
 
-#### 4.9.3 Slot-Based Entity Lifecycle
-
-Two horizontal slots (SLOT_LEFT at $200, SLOT_RIGHT at $A00). Entity loading is orchestrated by `Section_LoadSlotEntities`, which takes a section pointer, slot tag, slot origin, and ring buffer pointers:
+The entity window tracks per-section scan state via `EntityScanState` structs ($18 bytes each, one per active slot):
 
 ```
-Section loads into slot (Section_Init, or teleport):
-  1. Copy section's type table to 128-byte RAM lookup (LoadTypeTable)
-  2. Spawn section's objects into SST via Load_Object (SpawnSectionObjects)
-     - Section-local X/Y offset by slot origin to engine-space
-     - Objects carry a slot tag byte (SLOT_TAG_LEFT=0 or SLOT_TAG_RIGHT=1)
-  3. Expand ring patterns from ROM into slot ring buffer (ExpandRings)
-     - Section-local X/Y offset by slot origin to engine-space
-     - Ring count stored per-slot
-
-Section unloads from slot (teleport):
-  1. Despawn all objects tagged with this slot (DespawnSlotObjects)
-  2. Clear slot ring buffer and bitmask
+EntityScanState struct ($18 bytes):
+    ess_ring_right_idx   ds.w 1      ; next unloaded ring index (right scan)
+    ess_ring_left_idx    ds.w 1      ; next unloaded ring index (left scan)
+    ess_obj_right_idx    ds.w 1      ; next unloaded object index (right scan)
+    ess_obj_left_idx     ds.w 1      ; next unloaded object index (left scan)
+    ess_rom_ring_ptr     ds.l 1      ; pointer to section's ROM ring list
+    ess_rom_obj_ptr      ds.l 1      ; pointer to section's ROM object list
+    ess_rom_type_tbl_ptr ds.l 1      ; pointer to section's ROM type table
+    ess_origin_x         ds.w 1      ; section's engine-space X origin
+    ess_section_id       ds.b 1      ; section grid index
+    ess_pad              ds.b 1
 ```
 
-At `Section_Init`, both slots load entities. At teleport, the outgoing slot despawns, surviving objects shift coordinates by ±SECTION_SHIFT and retag, surviving rings copy to the other buffer with X adjustment, then the incoming slot loads fresh entities.
-
-#### 4.9.4 Teleport Entity Shift
-
-When teleport fires, entities in the surviving slot must shift to maintain spatial consistency:
+**Per-frame scan (`EntityWindow_Scan`):**
 
 ```
-Forward teleport (Section_TeleportFwd):
-  1. Despawn slot 0 objects (DespawnSlotObjects with SLOT_TAG_LEFT)
-  2. Shift surviving slot 1 objects: x_pos -= SECTION_SHIFT<<16 (16.16 fixed-point)
-     Retag from SLOT_TAG_RIGHT → SLOT_TAG_LEFT
-  3. Copy Ring_Buffer_1 → Ring_Buffer_0, subtracting SECTION_SHIFT from each X
-     Copy Ring_Bitmask_1 → Ring_Bitmask_0 (preserves collection state)
-     Copy Ring_Count_1 → Ring_Count_0
-     Clear Ring_Buffer_1/Bitmask_1/Count_1
-  4. Load new slot 1 entities via Section_LoadSlotEntities
+For each active section:
+  1. ScanRingsRight: advance ring_right_idx through X-sorted ROM list
+     - Convert section-local X to engine X (add origin)
+     - If engine X > camera right load edge: stop (X-sorted early exit)
+     - Check Collected_CheckRing bitmask: skip if already collected
+     - Add to unified Ring_Buffer via RingBuffer_Add
+  2. ScanObjectsRight: advance obj_right_idx through X-sorted ROM list
+     - Unpack [X|Y|type|subtype] from longword
+     - Look up ObjDef from section's ROM type table
+     - Call Load_Object, tag spawned object with slot tag
 
-Backward teleport (Section_TeleportBwd):
-  Mirror of forward — despawn slot 1, shift slot 0 → slot 1 (x_pos += SECTION_SHIFT),
-  copy ring buffer 0 → 1 with X += SECTION_SHIFT, load new slot 0
+After all sections:
+  3. DespawnRings: backward iterate Ring_Buffer, remove entries outside
+     Camera_X ± ENTITY_DESPAWN_BUFFER via swap-with-last O(1) removal
+  4. DespawnObjects: scan Dynamic_Slots, delete tagged objects outside range
+```
+
+**Load/despawn hysteresis:** Entities load at `Camera_X ± (SCREEN_WIDTH + ENTITY_LOAD_BUFFER)` ($180 pixels) and despawn at `Camera_X ± (SCREEN_WIDTH + ENTITY_DESPAWN_BUFFER)` ($200 pixels). The $80-pixel gap prevents load/despawn oscillation at screen edges.
+
+#### 4.9.4 Unified Ring Buffer
+
+A single 128-entry ring buffer replaces the old dual per-slot buffers. Each entry is 6 bytes:
+
+```
+Ring_Buffer entry (6 bytes):
+    dc.w    engine_X        ; +0: engine-space X
+    dc.w    engine_Y        ; +2: engine-space Y
+    dc.b    section_id      ; +4: which section owns this ring
+    dc.b    list_index      ; +5: index into section's ROM ring list
+```
+
+**Operations:**
+- `RingBuffer_Add`: append to end of buffer, increment Ring_Count. Carry set if full.
+- `RingBuffer_Remove`: swap target entry with last entry, decrement Ring_Count. O(1).
+- `DrawRings`: single-pass iteration over Ring_Count entries, 6-byte stride.
+- `RingCollision`: backward iteration (safe with swap-with-last removal). On collect, calls `Collected_MarkRing` then `RingBuffer_Remove`.
+
+#### 4.9.5 Rolling Collected Bitmask (3×3 Window)
+
+A 9-slot rolling window tracks ring collection state across section revisits. Each slot is 18 bytes: `[tag.b][pad.b][bitmask × 16 bytes]`. Tag = section_id ($00-$FE) or $FF (empty).
+
+```
+Ring_Collected_Window: 9 slots × 18 bytes = 162 bytes
+
+Collected_ClaimSlot(section_id): claim empty slot, clear bitmask
+Collected_MarkRing(section_id, list_index): set bit in section's bitmask
+Collected_CheckRing(section_id, list_index): test bit (Z set = uncollected)
+Collected_UpdateCenter(center_id, grid_w): evict slots outside 3×3 grid range
+```
+
+The 3×3 window centered on the player's current section means collection state persists for all adjacent sections. Backtracking within ±1 section preserves collected rings. Moving beyond the 3×3 range evicts distant slots, and revisiting those sections later loads them fresh. The 128-bit bitmask per slot supports up to 128 rings per section.
+
+#### 4.9.6 Teleport Entity Shift
+
+When teleport fires, `EntityWindow_TeleportShift(±SECTION_SHIFT)` handles the transition:
+
+```
+1. Compute keep-range: Camera_X ± ENTITY_LOAD_BUFFER
+2. Shift surviving rings: add shift to engine_X, remove if outside keep-range
+3. Shift surviving objects: add shift to x_pos (16.16), delete if outside range
+4. Despawn all remaining out-of-range entities
+5. Rebuild EntityScanState from updated Slot_Section_Map
+6. Run initial scan to load entities in new camera range
 ```
 
 The uniform SECTION_SHIFT applied to all positions preserves distances between entities. A projectile 50 pixels from the player stays 50 pixels away after the shift.
 
-#### 4.9.5 Rolling State Tracking (DEFERRED)
-
-*Designed but not yet implemented.* A rolling state buffer would preserve ring collection and object destruction state across section revisits, so collected rings stay gone and destroyed objects stay dead when backtracking. Without it, revisiting a section loads it fresh. This is acceptable for initial development — state tracking will be added when gameplay demands it.
-
-#### 4.9.6 RAM Budget
+#### 4.9.7 RAM Budget
 
 | Component | Size |
 |---|---|
-| Ring slot buffers (2 × 512 bytes) | 1,024 B |
-| Ring collected bitmasks (2 × 16 bytes) | 32 B |
-| Ring counts (2 × 1 byte) | 2 B |
-| Object type table (RAM copy, 32 × 4 bytes) | 128 B |
-| Ring state (ring_status byte) | 1 B |
-| **Total** | **~1,187 B** |
+| Ring_Buffer (128 entries × 6 bytes) | 768 B |
+| Ring_Count (1 byte) | 1 B |
+| Entity_Window_Active (1 byte) | 1 B |
+| Entity_Scan_State (2 × $18 bytes) | 48 B |
+| Ring_Collected_Window (9 × 18 bytes) | 162 B |
+| Entity_Window_Center_ID (1 byte) | 1 B |
+| **Total** | **~981 B** |
 
-Ring positions stored as engine-space (X, Y) word pairs in flat buffers — no per-frame coordinate translation needed. Slot origin is applied once at expansion time.
+Smaller than the old dual-buffer system (1,187 B) while supporting more features (camera-driven loading, 3×3 rolling persistence, unified buffer).
 
 ### 4.10 Cascade Effects
 
