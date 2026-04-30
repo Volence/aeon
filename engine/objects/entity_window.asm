@@ -426,8 +426,8 @@ EntityWindow_ScanObjectsRight:
         cmp.w   d7, d0
         bhi.s   .obj_update_idx
 
-        ; Spawn this object
-        movem.l d3-d4/d6-d7/a0-a1, -(sp)
+        ; Spawn this object (a3 saved: Load_Object clobbers it via mappings read)
+        movem.l d3-d4/d6-d7/a0-a1/a3, -(sp)
 
         ; d0.w = engine X (from extraction above)
         ; Extract Y (bits 19-10) — shift >8 needs two steps on 68000
@@ -456,7 +456,7 @@ EntityWindow_ScanObjectsRight:
         move.b  d6, SLOT_TAG_OFFSET(a1)
 
 .obj_spawn_fail:
-        movem.l (sp)+, d3-d4/d6-d7/a0-a1
+        movem.l (sp)+, d3-d4/d6-d7/a0-a1/a3
 
 .obj_skip:
         addq.w  #1, d4
