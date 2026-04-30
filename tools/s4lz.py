@@ -162,9 +162,22 @@ def _find_best_match_fast(data: bytes, pos: int, data_len: int,
 # Compressor
 # ---------------------------------------------------------------------------
 
-def compress(data: bytes, tile_delta: bool = False) -> bytes:
+def compress(data: bytes, tile_delta: bool = False,
+             checkpoint_interval: int = 0) -> tuple[bytes, list[int]]:
     """Compress data using S4LZ format.
-    Returns the complete compressed stream including header."""
+
+    Args:
+        data: Input data to compress
+        tile_delta: Apply tile-delta XOR preprocessing
+        checkpoint_interval: If > 0, record compressed stream offsets
+            every checkpoint_interval bytes of output. Returns list of
+            word offsets from stream start (past header).
+
+    Returns:
+        (compressed_bytes, checkpoints) where checkpoints is a list of
+        word offsets into the compressed stream at each interval boundary.
+        First checkpoint is always 0 (stream start).
+    """
     original_data = data
 
     # Apply tile-delta preprocessing if requested
@@ -178,8 +191,7 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
     header = struct.pack(">HBB", data_len, flags, 0)
 
     if data_len == 0:
-        # Empty data: just header + end token
-        return header + bytes([TOKEN_END])
+        return header + bytes([TOKEN_END]), [0]
 
     # Ensure data is word-aligned for processing
     work_data = data
@@ -270,6 +282,9 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
 
     # Encode sequences into the compressed stream
     out = bytearray(header)
+    checkpoints = [0]
+    cumulative_output = 0
+    next_checkpoint = checkpoint_interval if checkpoint_interval > 0 else 0
 
     for lits, match_offset, match_words in sequences:
         lit_count = len(lits)
@@ -298,11 +313,20 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
             if match_nibble == 15:
                 out.extend(struct.pack(">H", match_count))
 
+        # Track decompressed output for checkpoints
+        seq_output = (lit_count + match_count) * 2
+        cumulative_output += seq_output
+        if next_checkpoint > 0:
+            while cumulative_output >= next_checkpoint:
+                compressed_offset = len(out) - len(header)
+                checkpoints.append(compressed_offset)
+                next_checkpoint += checkpoint_interval
+
     # End-of-stream + pad
     out.append(TOKEN_END)
     out.append(0)
 
-    return bytes(out)
+    return bytes(out), checkpoints
 
 # ---------------------------------------------------------------------------
 # Decompressor
@@ -383,10 +407,19 @@ def cmd_compress(args):
     with open(args.input, "rb") as f:
         data = f.read()
 
-    compressed = compress(data, tile_delta=args.tile_delta)
+    ckpt_interval = getattr(args, 'checkpoint_interval', 0) or 0
+    compressed, checkpoints = compress(data, tile_delta=args.tile_delta,
+                                       checkpoint_interval=ckpt_interval)
 
     with open(args.output, "wb") as f:
         f.write(compressed)
+
+    if ckpt_interval > 0:
+        ckpt_path = args.output.replace('.s4lz', '_checkpoints.bin')
+        with open(ckpt_path, 'wb') as f:
+            for offset in checkpoints:
+                f.write(struct.pack(">H", offset))
+        print(f"Checkpoints ({len(checkpoints)}): {ckpt_path}")
 
     ratio = len(compressed) / len(data) if len(data) > 0 else 0.0
     print(f"Compressed: {len(data)} -> {len(compressed)} bytes "
@@ -416,7 +449,7 @@ def cmd_verify(args):
     with open(args.input, "rb") as f:
         original = f.read()
 
-    compressed = compress(original, tile_delta=args.tile_delta)
+    compressed, _ = compress(original, tile_delta=args.tile_delta)
     decompressed = decompress(compressed)
 
     if decompressed == original:
@@ -446,7 +479,7 @@ def cmd_verify(args):
 def _run_test(name: str, data: bytes, tile_delta: bool = False) -> bool:
     """Run a single compress-decompress round-trip test."""
     try:
-        compressed = compress(data, tile_delta=tile_delta)
+        compressed, _ = compress(data, tile_delta=tile_delta)
         decompressed = decompress(compressed)
 
         if decompressed != data:
@@ -589,6 +622,8 @@ def main():
     p_compress = subparsers.add_parser("compress", help="Compress a file")
     p_compress.add_argument("--tile-delta", action="store_true",
                             help="Enable tile-delta XOR preprocessing")
+    p_compress.add_argument("--checkpoint-interval", type=int, default=0,
+                            help="Record checkpoint offsets every N bytes of output")
     p_compress.add_argument("input", help="Input file")
     p_compress.add_argument("output", help="Output file")
 
