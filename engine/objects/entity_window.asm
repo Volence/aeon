@@ -2,7 +2,7 @@
 ; §4.9: rings and objects load/despawn based on camera proximity
 
 ; =====================================================
-; 3×3 Rolling Collected Bitmask
+; Rolling Collected/Killed Bitmask
 ; =====================================================
 
 ; -----------------------------------------------
@@ -18,6 +18,10 @@ Collected_Init:
         clr.l   COLLECTED_BITMASK_OFFSET+4(a0)
         clr.l   COLLECTED_BITMASK_OFFSET+8(a0)
         clr.l   COLLECTED_BITMASK_OFFSET+12(a0)
+        clr.l   KILLED_BITMASK_OFFSET(a0)
+        clr.l   KILLED_BITMASK_OFFSET+4(a0)
+        clr.l   KILLED_BITMASK_OFFSET+8(a0)
+        clr.l   KILLED_BITMASK_OFFSET+12(a0)
         lea     COLLECTED_SLOT_SIZE(a0), a0
         dbf     d1, .loop
         rts
@@ -87,6 +91,50 @@ Collected_MarkRing:
         rts
 
 ; -----------------------------------------------
+; Killed_CheckObject — test if object was previously killed
+;
+; In:  d0.b = section_id
+;      d1.w = list_index (0-based)
+; Out: Z clear = killed (skip), Z set = alive (spawn)
+; Clobbers: d2, a0
+; -----------------------------------------------
+Killed_CheckObject:
+        movem.l d0-d1, -(sp)
+        bsr.w   Collected_FindSlot
+        movem.l (sp)+, d0-d1
+        beq.s   .alive
+
+        move.w  d1, d2
+        lsr.w   #3, d2
+        btst    d1, KILLED_BITMASK_OFFSET(a0, d2.w)
+        rts
+
+.alive:
+        moveq   #0, d2
+        rts
+
+; -----------------------------------------------
+; Killed_MarkObject — mark object as killed in bitmask
+;
+; In:  d0.b = section_id
+;      d1.b = list_index
+; Out: none
+; Clobbers: d0, d2, a0
+; -----------------------------------------------
+Killed_MarkObject:
+        move.w  d1, -(sp)
+        bsr.w   Collected_FindSlot
+        move.w  (sp)+, d1
+        beq.s   .markdone
+        moveq   #0, d2
+        move.b  d1, d2
+        move.w  d2, d0
+        lsr.w   #3, d0
+        bset    d2, KILLED_BITMASK_OFFSET(a0, d0.w)
+.markdone:
+        rts
+
+; -----------------------------------------------
 ; Collected_ClaimSlot — claim an empty slot for a section
 ;
 ; In:  d0.b = section_id
@@ -115,6 +163,10 @@ Collected_ClaimSlot:
         clr.l   COLLECTED_BITMASK_OFFSET+4(a0)
         clr.l   COLLECTED_BITMASK_OFFSET+8(a0)
         clr.l   COLLECTED_BITMASK_OFFSET+12(a0)
+        clr.l   KILLED_BITMASK_OFFSET(a0)
+        clr.l   KILLED_BITMASK_OFFSET+4(a0)
+        clr.l   KILLED_BITMASK_OFFSET+8(a0)
+        clr.l   KILLED_BITMASK_OFFSET+12(a0)
 .already_owned:
         moveq   #1, d1                 ; Z clear = ok
         rts
@@ -190,6 +242,10 @@ Collected_UpdateCenter:
         clr.l   COLLECTED_BITMASK_OFFSET+4(a0)
         clr.l   COLLECTED_BITMASK_OFFSET+8(a0)
         clr.l   COLLECTED_BITMASK_OFFSET+12(a0)
+        clr.l   KILLED_BITMASK_OFFSET(a0)
+        clr.l   KILLED_BITMASK_OFFSET+4(a0)
+        clr.l   KILLED_BITMASK_OFFSET+8(a0)
+        clr.l   KILLED_BITMASK_OFFSET+12(a0)
 
 .slot_next:
         lea     COLLECTED_SLOT_SIZE(a0), a0
@@ -494,8 +550,20 @@ EntityWindow_ScanObjectsRight:
         cmp.w   d7, d0
         bhi.s   .obj_update_idx
 
-        ; Spawn this object (a3 saved: Load_Object clobbers it via mappings read)
-        movem.l d3-d4/d6-d7/a0-a1/a3, -(sp)
+        ; Check if object was killed in previous visit
+        movem.l d0/d2/a0, -(sp)
+        move.b  EntityScanState_ess_section_id(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1
+        bsr.w   Killed_CheckObject
+        movem.l (sp)+, d0/d2/a0
+        bne.s   .obj_skip
+
+        ; Spawn this object (d5 stashes section_id; a3 saved: Load_Object clobbers it)
+        movem.l d3-d7/a0-a1/a3, -(sp)
+
+        moveq   #0, d5
+        move.b  EntityScanState_ess_section_id(a1), d5
 
         ; d0.w = engine X (from extraction above)
         ; Extract Y (bits 19-10) — shift >8 needs two steps on 68000
@@ -519,12 +587,14 @@ EntityWindow_ScanObjectsRight:
         jsr     Load_Object
         bne.s   .obj_spawn_fail
 
-        ; Tag spawned object for despawn tracking
+        ; Tag spawned object with slot + entity metadata
         ; a1 = new SST pointer from Load_Object
         move.b  d6, SLOT_TAG_OFFSET(a1)
+        move.b  d5, ENTITY_SECTION_ID_OFFSET(a1)
+        move.b  d4, ENTITY_LIST_INDEX_OFFSET(a1)
 
 .obj_spawn_fail:
-        movem.l (sp)+, d3-d4/d6-d7/a0-a1/a3
+        movem.l (sp)+, d3-d7/a0-a1/a3
 
 .obj_skip:
         addq.w  #1, d4
@@ -606,9 +676,16 @@ EntityWindow_DespawnObjects:
 
         move.w  SST_x_pos(a0), d0
         cmp.w   d6, d0
-        blt.s   .despawn
+        blt.s   .check_active
         cmp.w   d7, d0
         ble.s   .next
+
+.check_active:
+        move.b  ENTITY_SECTION_ID_OFFSET(a0), d1
+        cmp.b   (Entity_Scan_State+EntityScanState_ess_section_id).w, d1
+        beq.s   .next
+        cmp.b   (Entity_Scan_State+EntityScanState_len+EntityScanState_ess_section_id).w, d1
+        beq.s   .next
 
 .despawn:
         movem.l d5-d7/a0, -(sp)

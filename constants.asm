@@ -310,8 +310,9 @@ SCREEN_WIDTH            = 320           ; visible screen width in pixels
 
 ; 5×5 rolling collected bitmask (±2 sections in each axis)
 COLLECTED_WINDOW_SLOTS  = 9             ; max tracked sections (9 slots)
-COLLECTED_SLOT_SIZE     = 18            ; 1 tag + 1 pad + 16 bitmask bytes
-COLLECTED_BITMASK_OFFSET = 2            ; bitmask starts 2 bytes into slot
+COLLECTED_SLOT_SIZE     = 34            ; 1 tag + 1 pad + 16 ring bitmask + 16 killed bitmask
+COLLECTED_BITMASK_OFFSET = 2            ; ring collected bitmask starts 2 bytes into slot
+KILLED_BITMASK_OFFSET   = 18           ; object killed bitmask starts after ring bitmask
 COLLECTED_EMPTY_TAG     = $FF           ; slot not owned by any section
 
 ; Object type tables (read from ROM, no RAM copy)
@@ -322,6 +323,10 @@ SLOT_TAG_OFFSET         = SST_sst_custom+$1D
 SLOT_TAG_UNTAGGED       = $FF
 SLOT_TAG_LEFT           = 0
 SLOT_TAG_RIGHT          = 1
+
+; Entity metadata — stored in SST custom region at spawn time
+ENTITY_SECTION_ID_OFFSET = SST_sst_custom+$1B
+ENTITY_LIST_INDEX_OFFSET = SST_sst_custom+$1C
 
 ; Object layout encoding (ROM format, 32-bit entries)
 OBJ_ENTRY_X_SHIFT       = 20           ; bits 29-20

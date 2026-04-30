@@ -298,10 +298,10 @@ Ring_Anim_Timer:        ds.b 1          ; countdown to next animation tick
 
 ; Entity window tracking
 Entity_Window_Active:   ds.b 1          ; number of tracked sections (0-4)
-Entity_Window_Center_ID: ds.b 1         ; section_id of 3×3 box center
+Entity_Window_Center_ID: ds.b 1         ; section_id of rolling bitmask center
 
-; 3×3 rolling collected bitmask — 9 slots × 18 bytes
-Ring_Collected_Window:  ds.b COLLECTED_WINDOW_SLOTS * COLLECTED_SLOT_SIZE  ; 162 bytes
+; Rolling collected/killed bitmask — 9 slots × 34 bytes
+Ring_Collected_Window:  ds.b COLLECTED_WINDOW_SLOTS * COLLECTED_SLOT_SIZE  ; 306 bytes
                         ds.b 2          ; pad to even
 
 ; Active level pointer
