@@ -161,12 +161,12 @@ __BUDGET_DATA:
     include "data/parallax/scenes/sky_haze.asm"
     include "data/parallax/scenes/caves.asm"
     include "data/parallax/scenes/locked_clouds.asm"
+    include "data/objdefs/test_objects.asm"
     include "data/levels/ojz/act1/entity_data.asm"
     include "data/levels/ojz/act1/act_descriptor.asm"
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
     include "data/animations/particle_anims.asm"
-    include "data/objdefs/test_objects.asm"
 
 Map_Sonic:
     BINCLUDE "data/mappings/sonic.bin"

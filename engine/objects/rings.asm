@@ -27,7 +27,7 @@ RingSpacingTable:
 ; -----------------------------------------------
 ExpandRings:
         move.l  a0, d2
-        beq.s   .no_rings
+        beq.w   .no_rings
 
         movea.l a1, a2                  ; a2 = write cursor
         moveq   #0, d6                  ; d6 = total ring count
