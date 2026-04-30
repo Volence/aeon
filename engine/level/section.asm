@@ -72,37 +72,8 @@ Section_Init:
         ; -- fill nametable from both slots --
         bsr.w   Section_FillInitial
 
-        ; -- §4.9: load entities for both initial slots --
-        ; Clear ring bitmasks and counts
-        lea     (Ring_Bitmask_0).w, a0
-        moveq   #(RING_BITMASK_SIZE*2/4)-1, d0
-.ent_clr_masks:
-        clr.l   (a0)+
-        dbf     d0, .ent_clr_masks
-        clr.b   (Ring_Count_0).w
-        clr.b   (Ring_Count_1).w
-
-        ; Slot 0
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        moveq   #SLOT_TAG_LEFT, d0
-        move.w  #SLOT_ORIGIN_L, d4
-        moveq   #0, d5
-        lea     (Ring_Buffer_0).w, a4
-        lea     (Ring_Count_0).w, a5
-        bsr.w   Section_LoadSlotEntities
-
-        ; Slot 1
-        moveq   #SLOT_RIGHT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        moveq   #SLOT_TAG_RIGHT, d0
-        move.w  #SLOT_ORIGIN_R, d4
-        moveq   #0, d5
-        lea     (Ring_Buffer_1).w, a4
-        lea     (Ring_Count_1).w, a5
-        bra.w   Section_LoadSlotEntities
+        ; -- §4.9: camera-driven entity window init --
+        jsr     EntityWindow_Init
 
  ; -----------------------------------------------
 ; Section_FillInitial — set up trackers; let Section_UpdateColumns
@@ -383,79 +354,9 @@ Section_TeleportFwd:
         move.b  d0, 2(a0)
         ; sec_y unchanged
 
-        ; -- §4.9: full reload — save bitmasks, despawn both, load both, restore --
-        ; Save old bitmasks before despawn (section map already updated)
-        ; Use OLD section IDs — saved in d2/d3 before map update
-        ; (section map was updated above, so derive old IDs from new map)
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d2
-        move.b  (a0), d2
-        subq.b  #2, d2                     ; old slot 0 sec_id = new slot 0 - 2
-        moveq   #0, d3
-        move.b  2(a0), d3
-        subq.b  #2, d3                     ; old slot 1 sec_id = new slot 1 - 2
-
-        ; Save old slot 0 bitmask → persist[old_sec0]
-        move.w  d2, d0
-        bmi.s   .skip_save_0               ; sec_id < 0 = invalid
-        bsr.w   SaveRingBitmask_0
-.skip_save_0:
-        ; Save old slot 1 bitmask → persist[old_sec1]
-        move.w  d3, d0
-        bmi.s   .skip_save_1
-        bsr.w   SaveRingBitmask_1
-.skip_save_1:
-
-        ; Despawn all objects (both slots)
-        moveq   #SLOT_TAG_LEFT, d0
-        bsr.w   DespawnSlotObjects
-        moveq   #SLOT_TAG_RIGHT, d0
-        bsr.w   DespawnSlotObjects
-
-        ; Clear both ring buffers + bitmasks
-        lea     (Ring_Bitmask_0).w, a0
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.b   (Ring_Count_0).w
-        lea     (Ring_Bitmask_1).w, a0
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.b   (Ring_Count_1).w
-
-        ; Load entities for new slot 0
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        moveq   #SLOT_TAG_LEFT, d0
-        move.w  #SLOT_ORIGIN_L, d4
-        moveq   #0, d5
-        lea     (Ring_Buffer_0).w, a4
-        lea     (Ring_Count_0).w, a5
-        bsr.w   Section_LoadSlotEntities
-
-        ; Load entities for new slot 1
-        moveq   #SLOT_RIGHT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        moveq   #SLOT_TAG_RIGHT, d0
-        move.w  #SLOT_ORIGIN_R, d4
-        moveq   #0, d5
-        lea     (Ring_Buffer_1).w, a4
-        lea     (Ring_Count_1).w, a5
-        bsr.w   Section_LoadSlotEntities
-
-        ; Restore persistent bitmasks for new sections
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d0
-        move.b  (a0), d0
-        bsr.w   RestoreRingBitmask_0
-        moveq   #0, d0
-        move.b  2(a0), d0
-        bsr.w   RestoreRingBitmask_1
+        ; -- §4.9: shift nearby entities, despawn rest, rebuild scan state --
+        move.w  #-SECTION_SHIFT, d0
+        jsr     EntityWindow_TeleportShift
 
         ; -- §4.2: cache neighbor strip pointers for streaming-integrated preview --
         movem.l d0-d3/a0-a2, -(sp)
@@ -582,79 +483,9 @@ Section_TeleportBwd:
         ; If we branched here, slot map is left as-is (Section_Check should
         ; guard BWD at sec 0 anyway).
 
-        ; -- §4.9: full reload — save bitmasks, despawn both, load both, restore --
-        ; Derive old section IDs from new map (old = new + 2 for BWD)
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d2
-        move.b  (a0), d2
-        addq.b  #2, d2                     ; old slot 0 sec_id = new slot 0 + 2
-        moveq   #0, d3
-        move.b  2(a0), d3
-        addq.b  #2, d3                     ; old slot 1 sec_id = new slot 1 + 2
-
-        ; Save old slot 0 bitmask → persist[old_sec0]
-        move.w  d2, d0
-        cmpi.w  #16, d0
-        bhs.s   .skip_save_0b
-        bsr.w   SaveRingBitmask_0
-.skip_save_0b:
-        ; Save old slot 1 bitmask → persist[old_sec1]
-        move.w  d3, d0
-        cmpi.w  #16, d0
-        bhs.s   .skip_save_1b
-        bsr.w   SaveRingBitmask_1
-.skip_save_1b:
-
-        ; Despawn all objects (both slots)
-        moveq   #SLOT_TAG_LEFT, d0
-        bsr.w   DespawnSlotObjects
-        moveq   #SLOT_TAG_RIGHT, d0
-        bsr.w   DespawnSlotObjects
-
-        ; Clear both ring buffers + bitmasks
-        lea     (Ring_Bitmask_0).w, a0
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.b   (Ring_Count_0).w
-        lea     (Ring_Bitmask_1).w, a0
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.l   (a0)+
-        clr.b   (Ring_Count_1).w
-
-        ; Load entities for new slot 0
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        moveq   #SLOT_TAG_LEFT, d0
-        move.w  #SLOT_ORIGIN_L, d4
-        moveq   #0, d5
-        lea     (Ring_Buffer_0).w, a4
-        lea     (Ring_Count_0).w, a5
-        bsr.w   Section_LoadSlotEntities
-
-        ; Load entities for new slot 1
-        moveq   #SLOT_RIGHT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        moveq   #SLOT_TAG_RIGHT, d0
-        move.w  #SLOT_ORIGIN_R, d4
-        moveq   #0, d5
-        lea     (Ring_Buffer_1).w, a4
-        lea     (Ring_Count_1).w, a5
-        bsr.w   Section_LoadSlotEntities
-
-        ; Restore persistent bitmasks for new sections
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d0
-        move.b  (a0), d0
-        bsr.w   RestoreRingBitmask_0
-        moveq   #0, d0
-        move.b  2(a0), d0
-        bsr.w   RestoreRingBitmask_1
+        ; -- §4.9: shift nearby entities, despawn rest, rebuild scan state --
+        move.w  #SECTION_SHIFT, d0
+        jsr     EntityWindow_TeleportShift
 
         ; -- §4.2: cache neighbor strip pointers for streaming-integrated preview --
         movem.l d0-d3/a0-a2, -(sp)

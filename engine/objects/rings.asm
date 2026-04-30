@@ -1,139 +1,100 @@
-; Ring system — expand, draw, collide
-; §4.9 section-local entity management
+; Ring system — buffer ops, draw, collide
+; §4.9 camera-driven entity window
 
     include "engine/objects/aabb.inc"
 
 ; -----------------------------------------------
-; Ring spacing lookup table (3-bit index → pixel spacing)
-; Index: 0=$10, 1=$14, 2=$18, 3=$1C, 4=$20, 5=$24, 6=$28, 7=$30
-; -----------------------------------------------
-RingSpacingTable:
-        dc.w    $10, $14, $18, $1C, $20, $24, $28, $30
-
-; -----------------------------------------------
-; ExpandRings — expand pattern-encoded ring layout into slot buffer
+; RingBuffer_Add — append a ring to the unified buffer
 ;
-; Reads 4-byte pattern entries from ROM, expands lines into
-; individual x,y pairs, converts section-local coords to
-; engine-space by adding slot origin X/Y.
-;
-; In:  a0 = ring layout pointer (ROM, dc.l 0 terminated)
-;           NULL = no rings, returns count 0
-;      a1 = ring buffer pointer (RAM, slot's Ring_Buffer_N)
-;      d0.w = slot origin X (engine-space pixels)
-;      d1.w = slot origin Y (engine-space pixels)
-; Out: d0.b = expanded ring count
-; Clobbers: d0-d6, a0-a2
+; In:  d0.w = engine-space X
+;      d1.w = engine-space Y
+;      d2.b = section_id
+;      d3.b = list_index (index in section's ROM ring list)
+; Out: carry clear = success, carry set = buffer full
+; Clobbers: d4, a0
 ; -----------------------------------------------
-ExpandRings:
-        move.l  a0, d2
-        beq.w   .no_rings
+RingBuffer_Add:
+        moveq   #0, d4
+        move.b  (Ring_Count).w, d4
+        cmpi.b  #MAX_RING_BUFFER, d4
+        bhs.s   .full
 
-        movea.l a1, a2                  ; a2 = write cursor
-        moveq   #0, d6                  ; d6 = total ring count
+        ; a0 = &Ring_Buffer[count * 6]
+        move.w  d4, -(sp)
+        add.w   d4, d4                  ; ×2
+        add.w   (sp)+, d4               ; ×3
+        add.w   d4, d4                  ; ×6
+        lea     (Ring_Buffer).w, a0
+        adda.w  d4, a0
 
-.entry_loop:
-        move.l  (a0)+, d2               ; read 32-bit pattern entry
-        beq.w   .done                   ; dc.l 0 = terminator
+        move.w  d0, (a0)+              ; engine_X
+        move.w  d1, (a0)+              ; engine_Y
+        move.b  d2, (a0)+              ; section_id
+        move.b  d3, (a0)+              ; list_index
 
-        cmpi.w  #MAX_RINGS_PER_SLOT, d6
-        bhs.w   .done                   ; buffer full
+        addq.b  #1, (Ring_Count).w
+        andi.b  #$FE, ccr              ; clear carry
+        rts
 
-        ; --- Extract X: bits 29-20 ---
-        move.l  d2, d3
-        swap    d3                      ; d3.w = original bits 31-16
-        lsr.w   #4, d3                  ; bits 29-20 → bits 9-0
-        andi.w  #$3FF, d3
-        add.w   d0, d3                  ; d3 = engine-space X
+.full:
+        ori.b   #1, ccr                ; set carry
+        rts
 
-        ; --- Extract Y: bits 19-10 ---
-        move.l  d2, d4
-        lsr.l   #8, d4
-        lsr.w   #2, d4                  ; total right-shift 10
-        andi.w  #$3FF, d4
-        add.w   d1, d4                  ; d4 = engine-space Y
+; -----------------------------------------------
+; RingBuffer_Remove — remove ring at index by swapping with last
+;
+; In:  d0.w = index to remove (0-based)
+; Out: none
+; Clobbers: d1-d2, a0-a1
+; -----------------------------------------------
+RingBuffer_Remove:
+        moveq   #0, d1
+        move.b  (Ring_Count).w, d1
+        subq.b  #1, d1
+        bmi.s   .done                   ; count was 0
 
-        ; --- Type: bits 31-30 ---
-        btst    #31, d2
-        bne.s   .type_hi
-        btst    #30, d2
-        bne.s   .is_line                ; %01 = h-line
+        move.b  d1, (Ring_Count).w      ; decrement count
 
-        ; --- Individual (%00) ---
-        move.w  d3, (a2)+              ; X
-        move.w  d4, (a2)+              ; Y
-        addq.w  #1, d6
-        bra.w   .entry_loop
+        cmp.w   d1, d0
+        beq.s   .done                   ; removing last entry, nothing to swap
 
-.type_hi:
-        btst    #30, d2
-        bne.w   .entry_loop            ; %11 = reserved, skip
+        ; dest = &Ring_Buffer[remove_index × 6]
+        move.w  d0, d2
+        add.w   d2, d2
+        add.w   d0, d2
+        add.w   d2, d2                  ; d2 = remove_index × 6
+        lea     (Ring_Buffer).w, a0
+        lea     (a0, d2.w), a0
 
-        ; %10 = v-line, fall through
+        ; source = &Ring_Buffer[last_index × 6]
+        move.w  d1, d2
+        add.w   d2, d2
+        add.w   d1, d2
+        add.w   d2, d2                  ; d2 = last_index × 6
+        lea     (Ring_Buffer).w, a1
+        lea     (a1, d2.w), a1
 
-.is_line:
-        ; Count: bits 9-5 → (entry.w >> 5) & $1F, then +1
-        move.w  d2, d5
-        lsr.w   #5, d5
-        andi.w  #$1F, d5
-        addq.w  #1, d5                 ; d5 = actual count (1-32)
-
-        ; Spacing: bits 4-2 → table lookup
-        ; d2 high word preserved through word-only operations
-        lsr.w   #2, d2
-        andi.w  #7, d2
-        add.w   d2, d2                 ; word offset
-        lea     RingSpacingTable(pc), a1
-        move.w  (a1, d2.w), d2         ; d2.w = spacing pixels
-
-        ; H-line or V-line? Original bit 31 still in d2 high word
-        btst    #31, d2
-        bne.s   .vline_loop
-
-        ; --- H-line loop ---
-.hline_loop:
-        cmpi.w  #MAX_RINGS_PER_SLOT, d6
-        bhs.s   .done
-        move.w  d3, (a2)+              ; X
-        move.w  d4, (a2)+              ; Y
-        addq.w  #1, d6
-        add.w   d2, d3                 ; X += spacing
-        subq.w  #1, d5
-        bne.s   .hline_loop
-        bra.w   .entry_loop
-
-        ; --- V-line loop ---
-.vline_loop:
-        cmpi.w  #MAX_RINGS_PER_SLOT, d6
-        bhs.s   .done
-        move.w  d3, (a2)+              ; X
-        move.w  d4, (a2)+              ; Y
-        addq.w  #1, d6
-        add.w   d2, d4                 ; Y += spacing
-        subq.w  #1, d5
-        bne.s   .vline_loop
-        bra.w   .entry_loop
+        move.l  (a1)+, (a0)+           ; X + Y (4 bytes)
+        move.w  (a1), (a0)             ; section_id + list_index (2 bytes)
 
 .done:
-        move.b  d6, d0
-        rts
-
-.no_rings:
-        moveq   #0, d0
         rts
 
 ; -----------------------------------------------
-; DrawRings — render uncollected rings to sprite table
-;
-; Called from Render_Sprites after all priority bands are emitted.
-; Iterates both slot ring buffers, skips collected via bitmask,
-; culls off-screen, writes SAT entries directly.
+; RingBuffer_Clear — zero the ring count
+; -----------------------------------------------
+RingBuffer_Clear:
+        clr.b   (Ring_Count).w
+        rts
+
+; -----------------------------------------------
+; DrawRings — render rings from unified buffer to sprite table
 ;
 ; In:  a4 = SAT buffer write pointer (from Render_Sprites)
 ;      d5.w = current VDP sprite count (from Render_Sprites)
 ; Out: a4 advanced past emitted ring sprites
 ;      d5 incremented per ring sprite emitted
-; Clobbers: d0-d4, d6-d7, a0-a1
+; Clobbers: d0-d4, d6-d7, a0
 ; -----------------------------------------------
 DrawRings:
         ; --- Animation timer ---
@@ -155,40 +116,21 @@ DrawRings:
         move.w  (Camera_X).w, d6
         move.w  (Camera_Y).w, d7
 
-        ; Slot 0
-        lea     (Ring_Buffer_0).w, a0
-        lea     (Ring_Bitmask_0).w, a1
+        lea     (Ring_Buffer).w, a0
         moveq   #0, d1
-        move.b  (Ring_Count_0).w, d1
-        bsr.s   .draw_slot
-
-        ; Slot 1 — fall through to .draw_slot (tail call via rts)
-        lea     (Ring_Buffer_1).w, a0
-        lea     (Ring_Bitmask_1).w, a1
-        moveq   #0, d1
-        move.b  (Ring_Count_1).w, d1
-
-.draw_slot:
-        tst.w   d1
-        beq.s   .slot_done
+        move.b  (Ring_Count).w, d1
+        beq.s   .done
         subq.w  #1, d1                  ; dbf adjust
-        moveq   #0, d4                  ; d4 = ring index (for bitmask)
 
 .ring_loop:
         cmpi.w  #MAX_VDP_SPRITES, d5
-        bhs.s   .slot_done
-
-        ; Bitmask check: byte = index>>3, bit = index & 7 (implicit mod 8)
-        move.w  d4, d0
-        lsr.w   #3, d0
-        btst    d4, (a1, d0.w)
-        bne.s   .skip_ring              ; collected
+        bhs.s   .done
 
         ; On-screen culling — X
         move.w  (a0), d2                ; engine X
         sub.w   d6, d2                  ; screen X
         move.w  d2, d0
-        addi.w  #16, d0                 ; shift for unsigned range check
+        addi.w  #16, d0
         cmpi.w  #336, d0               ; 320 + 16
         bhi.s   .skip_ring
 
@@ -201,7 +143,6 @@ DrawRings:
         bhi.s   .skip_ring
 
         ; --- Write SAT entry (8 bytes) ---
-        ; Center 16×16 sprite on ring position (VDP draws from top-left)
         subi.w  #8, d3
         addi.w  #VDP_SPRITE_Y_OFFSET, d3
         move.w  d3, (a4)+              ; +0: Y position
@@ -217,22 +158,20 @@ DrawRings:
         move.w  d2, (a4)+              ; +6: X position
 
 .skip_ring:
-        addq.w  #4, a0                 ; next ring buffer entry
-        addq.w  #1, d4                 ; next ring index
+        addq.w  #RING_BUFFER_ENTRY_SIZE, a0
         dbf     d1, .ring_loop
 
-.slot_done:
+.done:
         rts
 
 ; -----------------------------------------------
-; RingCollision — test player(s) vs uncollected rings
+; RingCollision — test player(s) vs rings in unified buffer
 ;
-; Iterates both slot ring buffers, skips collected via bitmask,
-; uses aabb_axis_test macro for overlap detection.
+; Iterates backward so swap-with-last removal doesn't skip entries.
 ;
-; In:  none (reads Player_1/2, ring buffers, bitmasks)
+; In:  none (reads Player_1/2, Ring_Buffer, Ring_Count)
 ; Out: none
-; Clobbers: d0-d7, a0-a2
+; Clobbers: d0-d7, a0-a3
 ; -----------------------------------------------
 RingCollision:
         lea     (Player_1).w, a2
@@ -245,74 +184,51 @@ RingCollision:
         move.w  SST_x_pos(a2), d4       ; cache player X
         move.w  SST_y_pos(a2), d5       ; cache player Y
 
-        ; Slot 0
-        lea     (Ring_Buffer_0).w, a0
-        lea     (Ring_Bitmask_0).w, a1
+        ; Iterate backward: index = Ring_Count - 1 down to 0
         moveq   #0, d6
-        move.b  (Ring_Count_0).w, d6
-        bsr.s   .check_slot
-
-        ; Slot 1
-        lea     (Ring_Buffer_1).w, a0
-        lea     (Ring_Bitmask_1).w, a1
-        moveq   #0, d6
-        move.b  (Ring_Count_1).w, d6
-        bsr.s   .check_slot
-
-.next_player:
-        lea     SST_len(a2), a2
-        dbf     d7, .player_loop
-        rts
-
-.check_slot:
-        tst.w   d6
-        beq.s   .slot_done
-        subq.w  #1, d6                  ; dbf adjust
-        moveq   #0, d3                  ; d3 = ring index (for bitmask)
+        move.b  (Ring_Count).w, d6
+        subq.w  #1, d6
+        bmi.s   .next_player            ; no rings
 
 .ring_loop:
-        ; Bitmask check: byte = index >> 3, bit = index & 7 (implicit mod 8)
-        move.w  d3, d0
-        lsr.w   #3, d0
-        btst    d3, (a1, d0.w)
-        bne.s   .skip_ring              ; collected
+        ; Compute buffer pointer: a0 = &Ring_Buffer[d6 * 6]
+        move.w  d6, d0
+        add.w   d0, d0
+        add.w   d6, d0
+        add.w   d0, d0                  ; d0 = d6 × 6
+        lea     (Ring_Buffer).w, a0
+        lea     (a0, d0.w), a0
 
         ; X axis: player width vs ring 16px
         moveq   #0, d0
         move.b  SST_width_pixels(a2), d0
         moveq   #RING_WIDTH, d1
 
-        aabb_axis_test d4,(a0),d0,d1,d0,d1,d2,.skip_ring,rx
+        aabb_axis_test d4,(a0),d0,d1,d0,d1,d2,.no_hit,rx
 
         ; Y axis: player height vs ring 16px
         moveq   #0, d0
         move.b  SST_height_pixels(a2), d0
         moveq   #RING_HEIGHT, d1
 
-        aabb_axis_test d5,2(a0),d0,d1,d0,d1,d2,.skip_ring,ry
+        aabb_axis_test d5,2(a0),d0,d1,d0,d1,d2,.no_hit,ry
 
-        ; Overlap confirmed
-        bsr.s   CollectRing
+        ; Overlap — collect this ring
+        ; a0 points to ring entry: +4 = section_id, +5 = list_index
+        move.b  4(a0), d2               ; section_id
+        move.b  5(a0), d3               ; list_index
+        bsr.w   Collected_MarkRing
 
-.skip_ring:
-        addq.w  #4, a0                  ; next ring buffer entry
-        addq.w  #1, d3                  ; next ring index
+        addq.w  #1, (Ring_Counter).w
+
+        ; Remove from buffer (swap-with-last)
+        move.w  d6, d0
+        bsr.w   RingBuffer_Remove
+
+.no_hit:
         dbf     d6, .ring_loop
 
-.slot_done:
-        rts
-
-; -----------------------------------------------
-; CollectRing — mark ring collected, increment counter
-;
-; In:  a1 = bitmask pointer (slot's Ring_Bitmask_N)
-;      d3.w = ring index
-; Out: none
-; Clobbers: d0
-; -----------------------------------------------
-CollectRing:
-        move.w  d3, d0
-        lsr.w   #3, d0
-        bset    d3, (a1, d0.w)          ; set bit = collected
-        addq.w  #1, (Ring_Counter).w
+.next_player:
+        lea     SST_len(a2), a2
+        dbf     d7, .player_loop
         rts

@@ -3,7 +3,6 @@
 ; -----------------------------------------------
 ; Screen dimensions and sprite coordinate offsets
 ; -----------------------------------------------
-SCREEN_WIDTH            = 320
 SCREEN_HEIGHT           = 224
 VDP_SPRITE_Y_OFFSET     = 128           ; VDP adds 128 to sprite Y
 VDP_SPRITE_X_OFFSET     = 128           ; VDP adds 128 to sprite X

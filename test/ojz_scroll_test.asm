@@ -162,6 +162,9 @@ GameState_OJZScroll_Update:
         ; -- section teleport check (reads Player_1.x_pos via .check entry below) --
         jsr     Section_Check
 
+        ; -- §4.9: camera-driven entity scan (load/despawn rings + objects) --
+        jsr     EntityWindow_Scan
+
         ; -- per-column nametable streaming --
         jsr     Section_UpdateColumns
 
