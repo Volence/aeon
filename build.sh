@@ -55,8 +55,18 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     fi
 fi
 
+# Remove stale intermediates so a failed assembly can't silently
+# leave a previous .p file for p2bin to convert.
+rm -f "${ROM_NAME}.p" "${ROM_NAME}.h"
+
 echo "Assembling ${MAIN_ASM}..."
 "${TOOLS}/asl" ${ASFLAGS} "${MAIN_ASM}"
+
+if [[ ! -f "${ROM_NAME}.p" ]]; then
+    echo "ERROR: Assembly produced no output (${ROM_NAME}.p missing)."
+    echo "       Check ${ROM_NAME}.log for errors."
+    exit 1
+fi
 
 echo "Converting to binary..."
 "${TOOLS}/p2bin" "${ROM_NAME}.p" "${ROM_NAME}.bin" "${ROM_NAME}.h"
