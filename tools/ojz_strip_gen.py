@@ -1069,7 +1069,8 @@ def generate(force_region1_cap=None):
 
         compressed, checkpoints = s4lz.compress(
             raw_data, tile_delta=False,
-            checkpoint_interval=CKPT_INTERVAL)
+            checkpoint_interval=CKPT_INTERVAL,
+            max_match_words=STRIP_BYTE_SIZE // 2)
 
         s4lz_path = os.path.join(out_dir, f"sec{sec_id}_strips.s4lz")
         with open(s4lz_path, 'wb') as f:

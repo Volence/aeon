@@ -3,17 +3,20 @@
 ; Upper 32KB ($FFFF8000+) for hot data — .w addressing for speed
 
 ; -----------------------------------------------
-; Lower RAM — strip cache, collision maps, stream state (§4.7)
+; Lower RAM — strip cache, streaming buffers, collision maps, stream state (§4.7)
 ; Replaces Decomp_Buffer after level init. LoadArt_S4LZ still
 ; writes here during init (display off, before cache is populated).
 ; -----------------------------------------------
         phase $FFFF0000
 
-; Strip cache — world-space circular buffer
-Strip_Cache:            ds.b STRIP_CACHE_SIZE       ; 7680 bytes (vertical slot 0)
+; Strip cache — world-space linear buffer with batched slide
+Strip_Cache:            ds.b STRIP_CACHE_PHYS_SIZE  ; 11520 bytes (120 strips physical)
 Strip_Cache_End:
-Strip_Cache_V1_Reserved: ds.b STRIP_CACHE_SIZE      ; 7680 bytes (vertical slot 1; unused in 1D)
-Strip_Cache_V1_End:
+                        ds.b STRIP_CACHE_GUARD_SIZE ; 512 bytes — absorbs decompressor overshoot
+
+; Streaming art DMA buffers (§2 A.4)
+STREAMING_BUFFER_A:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes
+STREAMING_BUFFER_B:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes
 
 ; Collision map slots — flat byte arrays, decompressed at preload
 Collision_Map_Slot0:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes
@@ -22,7 +25,7 @@ Collision_Map_Slot2:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes (reserved for 
 Collision_Map_Slot3:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes (reserved for 2D)
 
 ; Stream states — 4 streaming decompressor bookmarks
-S4LZ_Stream_States:     ds.b StreamState_len * 4    ; 40 bytes
+S4LZ_Stream_States:     ds.b StreamState_len * 4    ; 48 bytes
 ; Checkpoint ROM pointers — cached at stream init
 Stream_Checkpoint_Ptrs: ds.l 4                      ; 16 bytes
 
@@ -274,7 +277,7 @@ Camera_Pan_Offset:      ds.w 1          ; current extended lookahead pan
 ; Strip Cache metadata (§4.7 — .w addressable)
 ; -----------------------------------------------
 Strip_Cache_Head_Col:   ds.w 1          ; world tile col of rightmost valid entry
-Strip_Cache_Head_Idx:   ds.w 1          ; ring buffer index (0..79) of Head
+Strip_Cache_Write_Pos:  ds.w 1          ; next linear write offset in bytes (0..7679)
 Strip_Cache_Left_Col:   ds.w 1          ; world tile col of leftmost valid entry
 Strip_Cache_Fwd_Stream: ds.b 1          ; section_x of forward decompression stream
                         ds.b 1          ; pad

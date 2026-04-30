@@ -261,11 +261,7 @@ REGION2_VRAM_BASE       = $F800
 REGION2_TILE_CAPACITY   = 64        ; ($10000 - $F800) / 32
 
 ; Per-section streaming (§2 A.4)
-; Relocated into reserved vertical strip cache slot 1 region (§4.7).
-; Only valid in 1D mode — 2D vertical sections require resolution.
 STREAMING_BUFFER_SIZE   = 4096
-STREAMING_BUFFER_A      = $FFFF1E00     ; inside reserved vertical slot 1
-STREAMING_BUFFER_B      = $FFFF2E00     ; inside reserved vertical slot 1
 
 ; Per-section streaming state values (single byte per section)
 SS_IDLE      = 0    ; not loaded, not streaming
@@ -282,11 +278,16 @@ SPF_DEFERRED_BWD_LOAD = 3   ; bit 3: deferred slot 0 cold-load pending after BWD
 PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
 
 ; -----------------------------------------------
-; Strip Cache (§4.7)
+; Strip Cache (§4.7) — linear buffer with batched slide
 ; -----------------------------------------------
-STRIP_CACHE_COLS        = 80        ; columns in circular cache (viewport 40 + margin 20×2)
+STRIP_CACHE_COLS        = 80        ; logical window (viewport 40 + margin 20×2)
 STRIP_CACHE_SIZE        = STRIP_CACHE_COLS * STRIP_BYTE_SIZE  ; 80 × 96 = 7680 bytes
+STRIP_CACHE_PHYS_COLS   = 120       ; physical buffer capacity (40 extra for slide batching)
+STRIP_CACHE_PHYS_SIZE   = STRIP_CACHE_PHYS_COLS * STRIP_BYTE_SIZE  ; 120 × 96 = 11520 bytes
+STRIP_CACHE_GUARD_SIZE  = 512       ; absorbs S4LZ streaming decompressor overshoot
 STRIP_CACHE_MARGIN      = 20        ; lookahead columns each side
+STRIP_CACHE_SLIDE_KEEP  = STRIP_CACHE_MARGIN * 2  ; 40 strips kept left of camera during slide (backward scroll headroom)
+STRIP_CACHE_INIT_COLS   = STRIP_CACHE_COLS - STRIP_CACHE_MARGIN  ; 60 strips at init (room for right margin fill)
 
 ; Collision maps (§4.7)
 COLLISION_MAP_COLS      = 128       ; cells per section (SECTION_SIZE / 16)

@@ -106,10 +106,11 @@ StreamState struct
 ss_src          ds.l 1      ; $00 — current ROM position in compressed stream
 ss_output_pos   ds.l 1      ; $04 — cumulative bytes decompressed from stream start
 ss_xor_prev     ds.w 1      ; $08 — tile-delta XOR state (0 for strip streams)
-StreamState endstruct       ; = $0A (10 bytes)
+ss_pending      ds.w 1      ; $0A — overshoot bytes from previous call (linear buffer)
+StreamState endstruct       ; = $0C (12 bytes)
 
-    if StreamState_len <> $0A
-      error "StreamState struct is \{StreamState_len} bytes, expected $0A"
+    if StreamState_len <> $0C
+      error "StreamState struct is \{StreamState_len} bytes, expected $0C"
     endif
 
 ; -----------------------------------------------

@@ -11,98 +11,42 @@ Plane_Buffer_Reset:
         rts
 
 ; -----------------------------------------------
-; Draw_TileColumn — append one tile column strip to Plane_Buffer
+; Draw_TileColumn — append one tile column from strip cache to Plane_Buffer
 ; In:  d0.w = target VDP nametable column (0–63)
-;      d1.w = section tile column index (0-based from section left edge)
-;      a0   = section def pointer (Sec struct in ROM)
+;      d1.w = world tile column (strip cache lookup)
 ; Out: none (silently drops if buffer full)
-; Clobbers: d0–d3, a1–a2
+; Clobbers: d0–d3, a0–a2
 ; -----------------------------------------------
 Draw_TileColumn:
-        ; -- overflow check --
-        move.w  (Plane_Buffer_Ptr).w, d2
-        addi.w  #4 + STRIP_TILE_HEIGHT*2, d2       ; header 4B + data 64B = 68B per entry
-        cmpi.w  #PLANE_BUFFER_SIZE - 2, d2         ; -2 for terminator word
-        bhi.s   .done
-
-        ; -- get source strip data --
-        movea.l Sec_sec_strips_s4lz(a0), a1           ; ROM strip array
-        ; col × STRIP_BYTE_SIZE (= col × 96 for 48-row strips: col*64 + col*32)
-        move.w  d1, d3
-        lsl.w   #6, d1                             ; d1 = col × 64
-        lsl.w   #5, d3                             ; d3 = col × 32
-        add.w   d3, d1                             ; d1 = col × 96 (= STRIP_BYTE_SIZE)
-        adda.w  d1, a1                             ; a1 → ROM strip for this tile column
-
-        ; -- buffer write pointer --
-        lea     (Plane_Buffer).w, a2
-        adda.w  (Plane_Buffer_Ptr).w, a2
-
-        ; -- write entry header --
-        add.w   d0, d0                             ; d0 = col × 2
-        addi.w  #VRAM_PLANE_A & $FFFF, d0          ; d0 = $C000 + col*2
-        move.w  d0, (a2)+                          ; write VRAM addr
-        ; column flag | (longword count - 1) = $8000 | (STRIP_TILE_HEIGHT/2 - 1)
-        move.w  #$8000 | (STRIP_TILE_HEIGHT/2 - 1), (a2)+
-
-        ; -- copy strip data (STRIP_TILE_HEIGHT words = STRIP_TILE_HEIGHT/2 longwords) --
-        moveq   #STRIP_TILE_HEIGHT/2 - 1, d3
-.copy:
-        move.l  (a1)+, (a2)+
-        dbf     d3, .copy
-
-        ; -- write zero terminator (consumed by VInt_DrawLevel as end-of-buffer) --
-        move.w  #0, (a2)
-
-        ; -- update buffer pointer --
-        move.w  (Plane_Buffer_Ptr).w, d2
-        addi.w  #4 + STRIP_TILE_HEIGHT*2, d2
-        move.w  d2, (Plane_Buffer_Ptr).w
-
-.done:
-        rts
-
-; -----------------------------------------------
-; Draw_TileColumn_Direct — append a preview strip to Plane_Buffer
-; In:  d3.w = target VDP nametable column (0–63)
-;      d4.w = section tile column index
-;      a0   = strip array pointer (Sec_sec_strips_s4lz value)
-; Out: none (silently drops if buffer full)
-; Clobbers: d0–d3, a1–a2
-; -----------------------------------------------
-Draw_TileColumn_Direct:
         move.w  (Plane_Buffer_Ptr).w, d2
         addi.w  #4 + STRIP_TILE_HEIGHT*2, d2
         cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
-        bhi.s   .done_d
+        bhi.s   .done
 
-        movea.l a0, a1
-        move.w  d4, d1
+        move.w  d0, -(sp)
         move.w  d1, d0
-        lsl.w   #6, d1
-        lsl.w   #5, d0
-        add.w   d0, d1
-        adda.w  d1, a1
+        bsr.w   Strip_Cache_GetColumn
+        movea.l a0, a1
+        move.w  (sp)+, d0
 
         lea     (Plane_Buffer).w, a2
         adda.w  (Plane_Buffer_Ptr).w, a2
 
-        move.w  d3, d0
         add.w   d0, d0
         addi.w  #VRAM_PLANE_A & $FFFF, d0
         move.w  d0, (a2)+
         move.w  #$8000 | (STRIP_TILE_HEIGHT/2 - 1), (a2)+
 
-        moveq   #STRIP_TILE_HEIGHT/2 - 1, d0
-.copy_d:
+        moveq   #STRIP_TILE_HEIGHT/2 - 1, d3
+.copy:
         move.l  (a1)+, (a2)+
-        dbf     d0, .copy_d
+        dbf     d3, .copy
 
         move.w  #0, (a2)
         move.w  (Plane_Buffer_Ptr).w, d2
         addi.w  #4 + STRIP_TILE_HEIGHT*2, d2
         move.w  d2, (Plane_Buffer_Ptr).w
-.done_d:
+.done:
         rts
 
 ; -----------------------------------------------

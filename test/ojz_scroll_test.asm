@@ -91,6 +91,11 @@ GameState_OJZScroll_Init:
         lea     OJZ_Act1_Descriptor, a0
         jsr     Section_Init
 
+        ; -- §4.7: populate strip cache (must run AFTER Camera_Init +
+        ;    Section_Init so Camera_X, Current_Act_Ptr, and Slot_Section_Map
+        ;    are valid) --
+        jsr     Strip_Cache_Init
+
         ; -- §4.6 parallax init: pull start section's parallax_config --
         lea     OJZ_Act1_Descriptor, a0
         movea.l Act_sec_grid_ptr(a0), a1        ; a1 = sec table base

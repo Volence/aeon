@@ -13,7 +13,7 @@
 S4LZ_Stream_Init:
         move.w  d0, d1
         lsl.w   #3, d1
-        add.w   d0, d0
+        lsl.w   #2, d0
         add.w   d0, d1
         lea     (S4LZ_Stream_States).l, a1
         adda.w  d1, a1
@@ -22,6 +22,7 @@ S4LZ_Stream_Init:
         move.l  a0, StreamState_ss_src(a1)
         clr.l   StreamState_ss_output_pos(a1)
         clr.w   StreamState_ss_xor_prev(a1)
+        clr.w   StreamState_ss_pending(a1)
         rts
 
 ; -----------------------------------------------
@@ -35,7 +36,7 @@ S4LZ_Stream_Init:
 S4LZ_Stream_Decompress:
         move.w  d0, d2
         lsl.w   #3, d2
-        add.w   d0, d0
+        lsl.w   #2, d0
         add.w   d0, d2
         lea     (S4LZ_Stream_States).l, a3
         adda.w  d2, a3
@@ -43,6 +44,11 @@ S4LZ_Stream_Decompress:
         movea.l StreamState_ss_src(a3), a0
         movea.l a2, a1
         adda.w  d1, a2
+
+        move.w  StreamState_ss_pending(a3), d2
+        beq.s   .sd_token
+        adda.w  d2, a1
+        clr.w   StreamState_ss_pending(a3)
 
 .sd_token:
         moveq   #0, d0
@@ -105,9 +111,9 @@ S4LZ_Stream_Decompress:
         blt.s   .sd_token
 
         move.l  a0, StreamState_ss_src(a3)
-        sub.l   a2, a1
         move.l  a1, d0
-        add.l   d0, StreamState_ss_output_pos(a3)
+        sub.l   a2, d0
+        move.w  d0, StreamState_ss_pending(a3)
         moveq   #0, d0
         rts
 

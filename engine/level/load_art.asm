@@ -112,9 +112,6 @@ Level_LoadArt:
         movea.l a4, a0                              ; a0 = act ptr
         bsr.w   BG_Init
 
-        ; -- §4.7: populate strip cache from compressed streams --
-        jsr     Strip_Cache_Init
-
         movea.l (sp)+, a4                           ; restore caller's a4
         rts
 
