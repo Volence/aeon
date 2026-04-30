@@ -30,6 +30,7 @@ import shutil
 # Allow running from the s4_engine root (where build.sh lives).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tile_dedupe
+import s4lz
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -1055,6 +1056,34 @@ def generate(force_region1_cap=None):
         if first_strips is None:
             first_strips = remapped_strips
         total_strips += len(remapped_strips)
+
+    # ---- Pass 5b (§4.7): S4LZ compress strips + emit checkpoints ----
+    STRIPS_PER_CHECKPOINT = 64
+    STRIP_BYTE_SIZE = STRIP_TILE_HEIGHT * 2
+    CKPT_INTERVAL = STRIPS_PER_CHECKPOINT * STRIP_BYTE_SIZE
+
+    for sec_id in sec_ids_in_order:
+        raw_path = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
+        with open(raw_path, 'rb') as f:
+            raw_data = f.read()
+
+        compressed, checkpoints = s4lz.compress(
+            raw_data, tile_delta=False,
+            checkpoint_interval=CKPT_INTERVAL)
+
+        s4lz_path = os.path.join(out_dir, f"sec{sec_id}_strips.s4lz")
+        with open(s4lz_path, 'wb') as f:
+            f.write(compressed)
+
+        ckpt_path = os.path.join(out_dir, f"sec{sec_id}_strip_checkpoints.bin")
+        with open(ckpt_path, 'wb') as f:
+            while len(checkpoints) < 4:
+                checkpoints.append(checkpoints[-1] if checkpoints else 0)
+            for offset in checkpoints[:4]:
+                f.write(struct.pack(">H", offset))
+
+        ratio = len(compressed) / len(raw_data) * 100 if raw_data else 0
+        print(f"  sec{sec_id} strips: {len(raw_data)} -> {len(compressed)} ({ratio:.1f}%)")
 
     # ---- Pass 6: emit per-section tile-art blobs ----
     for s_idx, sec_id in enumerate(sec_ids_in_order):
