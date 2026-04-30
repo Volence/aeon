@@ -308,16 +308,19 @@ EntityWindow_Scan:
         addi.w  #SCREEN_WIDTH+ENTITY_LOAD_BUFFER, d7   ; d7 = right load edge
 
         lea     (Entity_Scan_State).w, a3
+        moveq   #0, d6                  ; d6.b = slot tag (0=left, 1=right)
 
 .section_loop:
         lea     (a3), a1
         bsr.w   EntityWindow_ScanRingsRight
+        bsr.w   EntityWindow_ScanObjectsRight
         lea     EntityScanState_len(a3), a3
+        addq.b  #1, d6
         dbf     d5, .section_loop
 
 .scan_done:
-        ; Despawn out-of-range rings
         bsr.w   EntityWindow_DespawnRings
+        bsr.w   EntityWindow_DespawnObjects
         rts
 
 ; -----------------------------------------------
@@ -382,6 +385,87 @@ EntityWindow_ScanRingsRight:
 .update_idx:
         move.w  d4, EntityScanState_ess_ring_right_idx(a1)
 .done:
+        rts
+
+; -----------------------------------------------
+; EntityWindow_ScanObjectsRight — load objects entering right edge
+;
+; In:  a1 = EntityScanState pointer
+;      d6.b = slot tag (SLOT_TAG_LEFT or SLOT_TAG_RIGHT)
+;      d7.w = right edge (Camera_X + SCREEN_WIDTH + ENTITY_LOAD_BUFFER)
+; Out: none
+; Clobbers: d0-d4, a0, a2
+; -----------------------------------------------
+EntityWindow_ScanObjectsRight:
+        move.l  EntityScanState_ess_rom_obj_ptr(a1), d0
+        beq.s   .obj_done
+        movea.l d0, a0
+
+        move.w  EntityScanState_ess_obj_right_idx(a1), d4
+        move.w  EntityScanState_ess_origin_x(a1), d3
+
+        ; Advance a0 to current index (4 bytes per ROM entry)
+        move.w  d4, d0
+        lsl.w   #2, d0
+        adda.w  d0, a0
+
+.obj_loop:
+        move.l  (a0), d2
+        beq.s   .obj_update_idx         ; terminator
+
+        ; Extract section-local X (bits 29-20)
+        move.l  d2, d0
+        swap    d0
+        lsr.w   #4, d0
+        andi.w  #$3FF, d0               ; 10-bit X
+
+        ; Engine-space X
+        add.w   d3, d0
+
+        ; Past right edge? List is X-sorted, stop
+        cmp.w   d7, d0
+        bhi.s   .obj_update_idx
+
+        ; Spawn this object
+        movem.l d3-d4/d6-d7/a0-a1, -(sp)
+
+        ; d0.w = engine X (from extraction above)
+        ; Extract Y (bits 19-10) — shift >8 needs two steps on 68000
+        move.l  (a0), d1
+        lsr.l   #8, d1
+        lsr.l   #2, d1
+        andi.w  #$3FF, d1               ; 10-bit Y
+
+        ; Extract type index (bits 9-5) and look up ObjDef
+        move.l  (a0), d3
+        lsr.w   #OBJ_ENTRY_TYPE_SHIFT, d3
+        andi.w  #$1F, d3                ; 5-bit type index
+        movea.l EntityScanState_ess_rom_type_tbl_ptr(a1), a2
+        lsl.w   #2, d3                  ; type × 4 (longword)
+        addq.w  #2, d3                  ; skip count+pad header
+        movea.l (a2, d3.w), a1          ; a1 = ObjDef pointer
+
+        ; Extract subtype (bits 4-0) into d2.b
+        andi.b  #OBJ_ENTRY_SUBTYPE_MASK, d2  ; d2 low byte = subtype
+
+        jsr     Load_Object
+        bne.s   .obj_spawn_fail
+
+        ; Tag spawned object for despawn tracking
+        ; a1 = new SST pointer from Load_Object
+        move.b  d6, SLOT_TAG_OFFSET(a1)
+
+.obj_spawn_fail:
+        movem.l (sp)+, d3-d4/d6-d7/a0-a1
+
+.obj_skip:
+        addq.w  #1, d4
+        addq.w  #4, a0
+        bra.s   .obj_loop
+
+.obj_update_idx:
+        move.w  d4, EntityScanState_ess_obj_right_idx(a1)
+.obj_done:
         rts
 
 ; -----------------------------------------------
