@@ -234,6 +234,12 @@ SECTION_BWD_PRELOAD     = $0400     ; camera X → queue backward section art
 SECTION_DEFERRED_FWD_LOAD = $0600   ; camera X → fire deferred Sec_R load (slot 0 midpoint, post-FWD-teleport)
 SECTION_DEFERRED_BWD_LOAD = $0C00   ; camera X → fire deferred Sec_L load (slot 1 quarter, post-BWD-teleport)
 
+; Vertical thresholds (2D-ready, unreachable in 1D)
+SECTION_UP_THRESHOLD    = $7FFF
+SECTION_DOWN_THRESHOLD  = $7FFF
+SECTION_UP_PRELOAD      = $7FFF
+SECTION_DOWN_PRELOAD    = $7FFF
+
 ; Parallax (§4.6)
 MAX_PARALLAX_BANDS         = 8
 PARALLAX_TRANS_DEFAULT     = 16     ; default boundary lerp duration (frames)
@@ -255,12 +261,11 @@ REGION2_VRAM_BASE       = $F800
 REGION2_TILE_CAPACITY   = 64        ; ($10000 - $F800) / 32
 
 ; Per-section streaming (§2 A.4)
-; Two double-buffered ~4 KB regions inside Decomp_Buffer ($FFFF0000-$FFFF7FFF).
-; Decomp_Buffer is only used during Level_LoadArt at level init (display off);
-; after init it's free, so streaming buffers carve out the first 8 KB.
+; Relocated into reserved vertical strip cache slot 1 region (§4.7).
+; Only valid in 1D mode — 2D vertical sections require resolution.
 STREAMING_BUFFER_SIZE   = 4096
-STREAMING_BUFFER_A      = $FFFF0000     ; first 4 KB of Decomp_Buffer
-STREAMING_BUFFER_B      = $FFFF1000     ; next 4 KB
+STREAMING_BUFFER_A      = $FFFF1E00     ; inside reserved vertical slot 1
+STREAMING_BUFFER_B      = $FFFF2E00     ; inside reserved vertical slot 1
 
 ; Per-section streaming state values (single byte per section)
 SS_IDLE      = 0    ; not loaded, not streaming
@@ -275,6 +280,34 @@ SPF_DEFERRED_BWD_LOAD = 3   ; bit 3: deferred slot 0 cold-load pending after BWD
 
 ; Plane buffer
 PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
+
+; -----------------------------------------------
+; Strip Cache (§4.7)
+; -----------------------------------------------
+STRIP_CACHE_COLS        = 80        ; columns in circular cache (viewport 40 + margin 20×2)
+STRIP_CACHE_SIZE        = STRIP_CACHE_COLS * STRIP_BYTE_SIZE  ; 80 × 96 = 7680 bytes
+STRIP_CACHE_MARGIN      = 20        ; lookahead columns each side
+
+; Collision maps (§4.7)
+COLLISION_MAP_COLS      = 128       ; cells per section (SECTION_SIZE / 16)
+COLLISION_MAP_ROWS      = 24        ; cells per section (384 / 16)
+COLLISION_MAP_SIZE      = COLLISION_MAP_COLS * COLLISION_MAP_ROWS  ; 3072 bytes
+COLLISION_CELL_SHIFT    = 4         ; pixel → cell (/ 16)
+COLLISION_ROW_SHIFT     = 7         ; row × 128 via lsl #7
+
+; Height maps (§4.7)
+NUM_COLLISION_PROFILES  = 256
+HEIGHT_PROFILE_SIZE     = 16        ; bytes per profile (one per pixel column in 16px block)
+HEIGHT_MAP_SIZE         = NUM_COLLISION_PROFILES * HEIGHT_PROFILE_SIZE  ; 4096 bytes
+ANGLE_TABLE_SIZE        = 256       ; one byte per collision type
+
+; Collision types
+CTYPE_AIR               = 0
+CTYPE_FLAT_SOLID        = 1
+
+; S4LZ streaming checkpoints
+STRIPS_PER_CHECKPOINT   = 64        ; checkpoint every 64 strips
+CHECKPOINT_INTERVAL     = STRIPS_PER_CHECKPOINT * STRIP_BYTE_SIZE  ; 6144 bytes
 
 ; Camera
 CAM_LOOKAHEAD_THRESHOLD = $0600     ; ground speed for pan enable

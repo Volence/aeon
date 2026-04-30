@@ -26,7 +26,7 @@ Draw_TileColumn:
         bhi.s   .done
 
         ; -- get source strip data --
-        movea.l Sec_sec_strips_a(a0), a1           ; ROM strip array
+        movea.l Sec_sec_strips_s4lz(a0), a1           ; ROM strip array
         ; col × STRIP_BYTE_SIZE (= col × 96 for 48-row strips: col*64 + col*32)
         move.w  d1, d3
         lsl.w   #6, d1                             ; d1 = col × 64
@@ -66,7 +66,7 @@ Draw_TileColumn:
 ; Draw_TileColumn_Direct — append a preview strip to Plane_Buffer
 ; In:  d3.w = target VDP nametable column (0–63)
 ;      d4.w = section tile column index
-;      a0   = strip array pointer (Sec_sec_strips_a value)
+;      a0   = strip array pointer (Sec_sec_strips_s4lz value)
 ; Out: none (silently drops if buffer full)
 ; Clobbers: d0–d3, a1–a2
 ; -----------------------------------------------

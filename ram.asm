@@ -3,12 +3,38 @@
 ; Upper 32KB ($FFFF8000+) for hot data — .w addressing for speed
 
 ; -----------------------------------------------
-; Lower RAM — large, infrequently-accessed buffers
+; Lower RAM — strip cache, collision maps, stream state (§4.7)
+; Replaces Decomp_Buffer after level init. LoadArt_S4LZ still
+; writes here during init (display off, before cache is populated).
 ; -----------------------------------------------
         phase $FFFF0000
 
-Decomp_Buffer:          ds.b DECOMP_BUFFER_SIZE
-Decomp_Buffer_End:
+; Strip cache — world-space circular buffer
+Strip_Cache:            ds.b STRIP_CACHE_SIZE       ; 7680 bytes (vertical slot 0)
+Strip_Cache_End:
+Strip_Cache_V1_Reserved: ds.b STRIP_CACHE_SIZE      ; 7680 bytes (vertical slot 1; unused in 1D)
+Strip_Cache_V1_End:
+
+; Collision map slots — flat byte arrays, decompressed at preload
+Collision_Map_Slot0:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes
+Collision_Map_Slot1:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes
+Collision_Map_Slot2:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes (reserved for 2D)
+Collision_Map_Slot3:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes (reserved for 2D)
+
+; Stream states — 4 streaming decompressor bookmarks
+S4LZ_Stream_States:     ds.b StreamState_len * 4    ; 40 bytes
+; Checkpoint ROM pointers — cached at stream init
+Stream_Checkpoint_Ptrs: ds.l 4                      ; 16 bytes
+
+; Keep Decomp_Buffer as alias for LoadArt_S4LZ backward compat
+Decomp_Buffer = Strip_Cache
+Decomp_Buffer_End = Strip_Cache_End
+
+Lower_RAM_End:
+
+        if Lower_RAM_End > $FFFF8000
+          error "Lower RAM overflow by \{Lower_RAM_End - $FFFF8000} bytes!"
+        endif
 
         dephase
 
@@ -244,6 +270,15 @@ Camera_Lookahead:       ds.w 1          ; zone-default lookahead pixels
 Camera_Pan_Offset:      ds.w 1          ; current extended lookahead pan
                         ds.w 1          ; pad
 
+; -----------------------------------------------
+; Strip Cache metadata (§4.7 — .w addressable)
+; -----------------------------------------------
+Strip_Cache_Head_Col:   ds.w 1          ; world tile col of rightmost valid entry
+Strip_Cache_Head_Idx:   ds.w 1          ; ring buffer index (0..79) of Head
+Strip_Cache_Left_Col:   ds.w 1          ; world tile col of leftmost valid entry
+Strip_Cache_Fwd_Stream: ds.b 1          ; section_x of forward decompression stream
+                        ds.b 1          ; pad
+
 ; Section slot state
 ; Slot_Origins: 4 slots × 8 bytes = [origin_x.l][origin_y.l] each
 Slot_Origins:           ds.b 32
@@ -271,8 +306,8 @@ Section_Left_Col_Written:  ds.w 1
 
 ; §4.2 preview: cached neighbor section strip pointers for streaming-integrated preview.
 ; Set at teleport/init; NULL if no neighbor exists (act boundary).
-Section_Fwd_Neighbor_Strips: ds.l 1       ; next section's Sec_sec_strips_a
-Section_Bwd_Neighbor_Strips: ds.l 1       ; prev section's Sec_sec_strips_a
+Section_Fwd_Neighbor_Strips: ds.l 1       ; next section's Sec_sec_strips_s4lz
+Section_Bwd_Neighbor_Strips: ds.l 1       ; prev section's Sec_sec_strips_s4lz
 
 ; Dynamic tile override (16 entries × 6 bytes: col.w, row.w, new_tile.w)
 Tile_Override_Table:    ds.b 96

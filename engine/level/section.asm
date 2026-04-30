@@ -47,7 +47,7 @@ Section_Init:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSecPtrXY
         beq.s   .init_no_bwd
-        move.l  Sec_sec_strips_a(a0), (Section_Bwd_Neighbor_Strips).w
+        move.l  Sec_sec_strips_s4lz(a0), (Section_Bwd_Neighbor_Strips).w
         bra.s   .init_bwd_done
 .init_no_bwd:
         clr.l   (Section_Bwd_Neighbor_Strips).w
@@ -62,7 +62,7 @@ Section_Init:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSecPtrXY
         beq.s   .init_no_fwd
-        move.l  Sec_sec_strips_a(a0), (Section_Fwd_Neighbor_Strips).w
+        move.l  Sec_sec_strips_s4lz(a0), (Section_Fwd_Neighbor_Strips).w
         bra.s   .init_fwd_done
 .init_no_fwd:
         clr.l   (Section_Fwd_Neighbor_Strips).w
@@ -371,7 +371,7 @@ Section_TeleportFwd:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSecPtrXY
         beq.s   .no_bwd_fwd
-        move.l  Sec_sec_strips_a(a0), (Section_Bwd_Neighbor_Strips).w
+        move.l  Sec_sec_strips_s4lz(a0), (Section_Bwd_Neighbor_Strips).w
         bra.s   .bwd_fwd_done
 .no_bwd_fwd:
         clr.l   (Section_Bwd_Neighbor_Strips).w
@@ -386,7 +386,7 @@ Section_TeleportFwd:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSecPtrXY
         beq.s   .no_fwd_fwd
-        move.l  Sec_sec_strips_a(a0), (Section_Fwd_Neighbor_Strips).w
+        move.l  Sec_sec_strips_s4lz(a0), (Section_Fwd_Neighbor_Strips).w
         bra.s   .fwd_fwd_done
 .no_fwd_fwd:
         clr.l   (Section_Fwd_Neighbor_Strips).w
@@ -499,7 +499,7 @@ Section_TeleportBwd:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSecPtrXY
         beq.s   .no_fwd_bwd
-        move.l  Sec_sec_strips_a(a0), (Section_Fwd_Neighbor_Strips).w
+        move.l  Sec_sec_strips_s4lz(a0), (Section_Fwd_Neighbor_Strips).w
         bra.s   .fwd_bwd_done
 .no_fwd_bwd:
         clr.l   (Section_Fwd_Neighbor_Strips).w
@@ -515,7 +515,7 @@ Section_TeleportBwd:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSecPtrXY
         beq.s   .no_bwd_bwd
-        move.l  Sec_sec_strips_a(a0), (Section_Bwd_Neighbor_Strips).w
+        move.l  Sec_sec_strips_s4lz(a0), (Section_Bwd_Neighbor_Strips).w
         bra.s   .bwd_bwd_done
 .no_bwd_bwd:
         clr.l   (Section_Bwd_Neighbor_Strips).w
@@ -644,10 +644,10 @@ Section_RedrawPlanes:
         ; -- resolve strip array pointers for both slots --
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef.slot0            ; a0 = slot 0 Sec ptr
-        movea.l Sec_sec_strips_a(a0), a3            ; a3 = slot 0 strips
+        movea.l Sec_sec_strips_s4lz(a0), a3            ; a3 = slot 0 strips
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef.slot1            ; a0 = slot 1 Sec ptr
-        movea.l Sec_sec_strips_a(a0), a4            ; a4 = slot 1 strips
+        movea.l Sec_sec_strips_s4lz(a0), a4            ; a4 = slot 1 strips
 
         ; -- compute start world tile col from Camera_X --
         move.l  (Camera_X).w, d5
