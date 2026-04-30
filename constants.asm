@@ -308,8 +308,8 @@ ENTITY_LOAD_BUFFER      = $180          ; pixels ahead/behind camera to load ent
 ENTITY_DESPAWN_BUFFER   = $200          ; pixels beyond load buffer to despawn (hysteresis)
 SCREEN_WIDTH            = 320           ; visible screen width in pixels
 
-; 3×3 rolling collected bitmask
-COLLECTED_WINDOW_SLOTS  = 9             ; 3×3 box around player's section
+; 5×5 rolling collected bitmask (±2 sections in each axis)
+COLLECTED_WINDOW_SLOTS  = 9             ; max tracked sections (9 slots)
 COLLECTED_SLOT_SIZE     = 18            ; 1 tag + 1 pad + 16 bitmask bytes
 COLLECTED_BITMASK_OFFSET = 2            ; bitmask starts 2 bytes into slot
 COLLECTED_EMPTY_TAG     = $FF           ; slot not owned by any section

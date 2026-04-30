@@ -167,20 +167,20 @@ Collected_UpdateCenter:
 .div_slot_done:
         ; d1 = slot_x, d0 = slot_y
 
-        ; Check |slot_x - center_x| <= 1
+        ; Check |slot_x - center_x| <= 2
         sub.w   d2, d1
         bpl.s   .sx_pos
         neg.w   d1
 .sx_pos:
-        cmpi.w  #1, d1
+        cmpi.w  #2, d1
         bhi.s   .evict
 
-        ; Check |slot_y - center_y| <= 1
+        ; Check |slot_y - center_y| <= 2
         sub.w   d4, d0
         bpl.s   .sy_pos
         neg.w   d0
 .sy_pos:
-        cmpi.w  #1, d0
+        cmpi.w  #2, d0
         bls.s   .slot_next
 
 .evict:
@@ -388,6 +388,74 @@ EntityWindow_ScanRingsRight:
         rts
 
 ; -----------------------------------------------
+; EntityWindow_PopulateSectionRings — full ring populate for teleport
+;
+; Adds ALL uncollected rings from a section to the buffer and sets
+; ring_right_idx to the camera-relative position (first ring past
+; right load edge). DespawnRings skips active-section rings, so
+; off-screen rings persist until the section becomes inactive.
+;
+; In:  a1 = EntityScanState pointer (fully initialized)
+; Out: ring_right_idx set
+; Clobbers: d0-d4, a0, a2
+; -----------------------------------------------
+EntityWindow_PopulateSectionRings:
+        move.l  EntityScanState_ess_rom_ring_ptr(a1), d0
+        beq.s   .pdone
+        movea.l d0, a2
+        move.w  EntityScanState_ess_origin_x(a1), d3
+
+        ; Pass 1: find ring_right_idx (first ring past right load edge)
+        move.w  (Camera_X).w, d0
+        addi.w  #SCREEN_WIDTH+ENTITY_LOAD_BUFFER, d0
+        movea.l a2, a0
+        moveq   #0, d4
+.pfind:
+        move.l  (a0), d1
+        beq.s   .pfound
+        move.w  (a0), d1
+        add.w   d3, d1
+        cmp.w   d0, d1
+        bhi.s   .pfound
+        addq.w  #1, d4
+        addq.w  #4, a0
+        bra.s   .pfind
+.pfound:
+        move.w  d4, EntityScanState_ess_ring_right_idx(a1)
+
+        ; Pass 2: add all uncollected rings to buffer
+        movea.l a2, a0
+        moveq   #0, d4
+.ploop:
+        move.l  (a0), d1
+        beq.s   .pdone
+
+        movem.l d3-d4/a0-a1, -(sp)
+        move.b  EntityScanState_ess_section_id(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1
+        bsr.w   Collected_CheckRing
+        movem.l (sp)+, d3-d4/a0-a1
+        bne.s   .pskip
+
+        movem.l d3-d4/a0-a1, -(sp)
+        move.w  (a0), d0
+        add.w   d3, d0
+        move.w  2(a0), d1
+        move.b  EntityScanState_ess_section_id(a1), d2
+        move.b  d4, d3
+        bsr.w   RingBuffer_Add
+        movem.l (sp)+, d3-d4/a0-a1
+
+.pskip:
+        addq.w  #1, d4
+        addq.w  #4, a0
+        bra.s   .ploop
+
+.pdone:
+        rts
+
+; -----------------------------------------------
 ; EntityWindow_ScanObjectsRight — load objects entering right edge
 ;
 ; In:  a1 = EntityScanState pointer
@@ -494,9 +562,16 @@ EntityWindow_DespawnRings:
         move.w  (a0, d0.w), d1          ; engine_X
 
         cmp.w   d6, d1
-        blt.s   .remove
+        blt.s   .check_active
         cmp.w   d7, d1
         ble.s   .next
+
+.check_active:
+        move.b  4(a0, d0.w), d1
+        cmp.b   (Entity_Scan_State+EntityScanState_ess_section_id).w, d1
+        beq.s   .next
+        cmp.b   (Entity_Scan_State+EntityScanState_len+EntityScanState_ess_section_id).w, d1
+        beq.s   .next
 
 .remove:
         movem.l d5-d7, -(sp)
@@ -652,6 +727,7 @@ EntityWindow_RebuildScanState:
         moveq   #0, d0
         move.b  EntityScanState_ess_section_id(a1), d0
         bsr.w   Collected_ClaimSlot
+        bsr.w   EntityWindow_PopulateSectionRings
         lea     EntityScanState_len(a3), a3
         addq.w  #1, d7
 
@@ -670,6 +746,7 @@ EntityWindow_RebuildScanState:
         moveq   #0, d0
         move.b  EntityScanState_ess_section_id(a1), d0
         bsr.w   Collected_ClaimSlot
+        bsr.w   EntityWindow_PopulateSectionRings
         lea     EntityScanState_len(a3), a3
         addq.w  #1, d7
 
