@@ -60,7 +60,26 @@ dc.b  list_index   ; index in section's ROM ring list (for removal tracking)
 
 **Single count byte:** `Ring_Count` replaces `Ring_Count_0`/`Ring_Count_1`.
 
-**No bitmasks in RAM.** Collected/killed state is implicit: if a ring is in the buffer, it's alive. If it's not, it was either collected (gone until re-entered into range from ROM) or scrolled off (will reload from ROM when back in range). The sliding window's natural range-based lifecycle provides the persistence behavior.
+### 3×3 Rolling Collected Bitmask
+
+A 3×3 sliding window of per-section bitmasks tracks which rings have been collected. The player's current section is the center; the 8 surrounding sections also retain collected state. When the player enters a new section, the box shifts and sections that fall outside get their slots cleared (rings there will respawn on next visit).
+
+**RAM format per slot (18 bytes):**
+```
+dc.b  section_id_tag    ; which section owns this slot ($FF = empty)
+dc.b  pad
+ds.b  16                ; 128-bit collected bitmask (1 bit per ring)
+```
+
+9 slots × 18 bytes = 162 bytes.
+
+**At spawn time:** scanner looks up `section_id` in the 9 tags. If found, check `bitmask[list_index]`. If bit set, skip (already collected). If not found, ring is uncollected.
+
+**At collect time:** find the slot matching the ring's `section_id` (guaranteed to exist since the ring's section is within the scanner's range, which is always inside the 3×3 box). Set the bit.
+
+**On center section change:** when the player enters a new section, any slot whose `section_id` falls outside the new 3×3 range gets cleared (`section_id_tag = $FF`). The freed slot is available for newly-entered sections.
+
+**Why 3×3:** a section must exit the box before its rings can respawn. That requires 2+ sections of travel (~$1000 pixels, ~3 screen widths). Large enough that respawn feels natural. The entity scanner's 4 tracked sections (2 active + 2 preview neighbors) are always a subset of the 3×3 box. Works for any grid size — infinite levels supported. 2D-native with no modulo collision issues.
 
 ## Sliding Window Mechanism
 
@@ -187,11 +206,11 @@ Alternatively, let the first game frame's `EntityWindow_Scan` handle it — func
 | Ring_Buffer_1 | 512 | Ring buffer (unified, 6-byte entries) | 768 |
 | Ring_Bitmask_0 | 16 | Ring_Count (single byte) | 1 |
 | Ring_Bitmask_1 | 16 | Section scan state (4 × 16) | 64 |
-| Ring_Count_1 | 1 | | |
+| Ring_Count_1 | 1 | 3×3 rolling collected bitmask (9 × 18) | 162 |
 | Object_Type_Table | 128 | | |
 | Ring_Persist_Bitmask | 256 | | |
 
-**Net change:** 929 bytes removed, 833 bytes added = **~96 bytes saved**.
+**Net change:** 929 bytes removed, 995 bytes added = **~66 bytes added** (worth it for infinite-level persistence).
 
 ## Constants
 
@@ -201,6 +220,9 @@ ENTITY_DESPAWN_BUFFER   = $200   ; pixels beyond load buffer to despawn (hystere
 MAX_RING_BUFFER         = 128    ; max rings in unified buffer
 RING_BUFFER_ENTRY_SIZE  = 6      ; bytes per ring buffer entry
 MAX_TRACKED_SECTIONS    = 4      ; 2 active + 2 preview neighbors
+COLLECTED_WINDOW_SLOTS  = 9      ; 3×3 rolling bitmask window
+COLLECTED_SLOT_SIZE     = 18     ; 1 tag + 1 pad + 16 bitmask bytes
+COLLECTED_EMPTY_TAG     = $FF    ; slot not owned by any section
 ```
 
 The despawn buffer is slightly larger than the load buffer to prevent oscillation (entity at boundary constantly loading/unloading).

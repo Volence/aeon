@@ -260,7 +260,10 @@ Ring_Anim_Timer:        ds.b 1          ; countdown to next animation tick
 
 ; Entity window tracking
 Entity_Window_Active:   ds.b 1          ; number of tracked sections (0-4)
-                        ds.b 1          ; pad
+Entity_Window_Center_ID: ds.b 1         ; section_id of 3×3 box center
+
+; 3×3 rolling collected bitmask — 9 slots × 18 bytes
+Ring_Collected_Window:  ds.b COLLECTED_WINDOW_SLOTS * COLLECTED_SLOT_SIZE  ; 162 bytes
 
 ; Active level pointer
 Current_Act_Ptr:        ds.l 1
@@ -279,6 +282,12 @@ MAX_RING_BUFFER         = 128    ; max rings in unified buffer
 RING_BUFFER_ENTRY_SIZE  = 6      ; bytes per unified ring buffer entry
 MAX_TRACKED_SECTIONS    = 4      ; 2 active + 2 preview neighbors
 SCREEN_WIDTH            = 320    ; visible screen width in pixels
+
+; 3×3 rolling collected bitmask
+COLLECTED_WINDOW_SLOTS  = 9      ; 3×3 box
+COLLECTED_SLOT_SIZE     = 18     ; 1 tag + 1 pad + 16 bitmask bytes
+COLLECTED_BITMASK_OFFSET = 2     ; bitmask starts 2 bytes into slot (after tag + pad)
+COLLECTED_EMPTY_TAG     = $FF    ; slot not owned by any section
 ```
 
 Remove the old `RING_BUFFER_SIZE = MAX_RINGS_PER_SLOT*RING_BUFFER_ENTRY_SIZE` (512), `RING_BITMASK_SIZE`, `TYPE_TABLE_SIZE`, `MAX_RINGS_PER_SLOT` lines.
@@ -424,7 +433,230 @@ git commit -m "feat(§4.9): ring buffer add/remove/clear — swap-with-last O(1)
 
 ---
 
-### Task 5: Rewrite DrawRings — Single-Pass Unified Buffer
+### Task 5: Rolling Collected Bitmask — 3×3 Window
+
+**Files:**
+- Create or add to: `engine/objects/entity_window.asm` (or `engine/objects/rings.asm` — whichever is more natural)
+- Modify: `ram.asm` (already done in Task 3)
+- Modify: `constants.asm` (already done in Task 3)
+
+- [ ] **Step 1: Research**
+
+Review sonic_hack's `Ring_Collected_Bits` (8 bytes × 16 sections = 128 bytes). Review S.C.E.'s `Ring_status_table` (1 byte per ring, 1024 bytes). Note our approach is different — per-section bitmask in a rolling 3×3 window, indexed by section_id tag. Compare memory cost and lookup speed. Confirm 128 bits per section (16 bytes) handles our max ring count per section.
+
+- [ ] **Step 2: Write Collected_FindSlot**
+
+Find the bitmask slot for a given section_id. Linear scan of 9 tags.
+
+```asm
+; -----------------------------------------------
+; Collected_FindSlot — find bitmask slot for a section
+;
+; In:  d0.b = section_id
+; Out: a0 = slot pointer, Z clear = found; Z set = not found
+; Clobbers: d1, a0
+; -----------------------------------------------
+Collected_FindSlot:
+        lea     (Ring_Collected_Window).w, a0
+        moveq   #COLLECTED_WINDOW_SLOTS-1, d1
+
+.scan:
+        cmp.b   (a0), d0
+        beq.s   .found
+        lea     COLLECTED_SLOT_SIZE(a0), a0
+        dbf     d1, .scan
+
+        ; Not found — Z set
+        moveq   #0, d0
+        rts
+
+.found:
+        ; Z clear (cmp succeeded with equal, but we need Z clear for "found")
+        moveq   #1, d1
+        rts
+```
+
+- [ ] **Step 3: Write Collected_CheckRing**
+
+Check if a ring was collected. Called by EntityWindow_Scan before adding a ring.
+
+```asm
+; -----------------------------------------------
+; Collected_CheckRing — test if ring was collected
+;
+; In:  d0.b = section_id
+;      d1.w = list_index (0-based ring index in ROM list)
+; Out: Z clear = collected (skip), Z set = uncollected (spawn)
+; Clobbers: d2, a0
+; -----------------------------------------------
+Collected_CheckRing:
+        bsr.s   Collected_FindSlot
+        beq.s   .uncollected            ; section not in window → uncollected
+
+        ; Check bit: byte = list_index >> 3, bit = list_index & 7
+        move.w  d1, d2
+        lsr.w   #3, d2
+        btst    d1, COLLECTED_BITMASK_OFFSET(a0, d2.w)
+        rts                             ; Z reflects btst result
+
+.uncollected:
+        ; Force Z set (uncollected)
+        moveq   #0, d2
+        rts
+```
+
+- [ ] **Step 4: Write Collected_MarkRing**
+
+Set collected bit. Called when a ring is collected.
+
+```asm
+; -----------------------------------------------
+; Collected_MarkRing — mark ring as collected in bitmask
+;
+; In:  d0.b = section_id
+;      d1.w = list_index
+; Out: none
+; Clobbers: d2, a0
+; -----------------------------------------------
+Collected_MarkRing:
+        bsr.s   Collected_FindSlot
+        beq.s   .done                   ; section not in window (shouldn't happen)
+
+        move.w  d1, d2
+        lsr.w   #3, d2
+        bset    d1, COLLECTED_BITMASK_OFFSET(a0, d2.w)
+.done:
+        rts
+```
+
+- [ ] **Step 5: Write Collected_UpdateCenter**
+
+Called when the player enters a new section. Evicts slots outside the new 3×3 range.
+
+```asm
+; -----------------------------------------------
+; Collected_UpdateCenter — shift 3×3 window to new center
+;
+; In:  d0.b = new center section_id
+;      d1.b = grid_w (sections per row)
+; Out: none
+; Clobbers: d0-d4, a0
+; -----------------------------------------------
+Collected_UpdateCenter:
+        move.b  d0, (Entity_Window_Center_ID).w
+
+        ; Compute center (sec_x, sec_y) from section_id
+        ; sec_x = id % grid_w, sec_y = id / grid_w (for small values, loop subtract)
+        ; Then valid range is sec_x ± 1, sec_y ± 1
+
+        ; For each of 9 slots: if tag's (sec_x, sec_y) is outside
+        ; center ± 1 in either axis, clear the slot
+        lea     (Ring_Collected_Window).w, a0
+        moveq   #COLLECTED_WINDOW_SLOTS-1, d4
+
+.check_slot:
+        move.b  (a0), d2
+        cmpi.b  #COLLECTED_EMPTY_TAG, d2
+        beq.s   .next                   ; already empty
+
+        ; Check if d2 (slot's section_id) is within 3×3 of center d0
+        ; ... (compute distance in X and Y grid coords, evict if > 1)
+
+        ; If outside range:
+        move.b  #COLLECTED_EMPTY_TAG, (a0)   ; clear tag
+        ; Clear 16 bytes of bitmask
+        lea     COLLECTED_BITMASK_OFFSET(a0), a1
+        clr.l   (a1)+
+        clr.l   (a1)+
+        clr.l   (a1)+
+        clr.l   (a1)+
+
+.next:
+        lea     COLLECTED_SLOT_SIZE(a0), a0
+        dbf     d4, .check_slot
+        rts
+```
+
+- [ ] **Step 6: Write Collected_ClaimSlot**
+
+When a section enters tracking and doesn't have a slot yet, claim an empty one.
+
+```asm
+; -----------------------------------------------
+; Collected_ClaimSlot — claim an empty slot for a section
+;
+; In:  d0.b = section_id
+; Out: a0 = slot pointer (tag set, bitmask cleared)
+;      Z clear = success, Z set = no empty slots
+; Clobbers: d1, a0
+; -----------------------------------------------
+Collected_ClaimSlot:
+        ; First check if section already has a slot
+        bsr.s   Collected_FindSlot
+        bne.s   .already_owned
+
+        ; Find an empty slot (tag == $FF)
+        lea     (Ring_Collected_Window).w, a0
+        moveq   #COLLECTED_WINDOW_SLOTS-1, d1
+.find_empty:
+        cmpi.b  #COLLECTED_EMPTY_TAG, (a0)
+        beq.s   .claim
+        lea     COLLECTED_SLOT_SIZE(a0), a0
+        dbf     d1, .find_empty
+
+        ; No empty slot — Z set
+        moveq   #0, d1
+        rts
+
+.claim:
+        move.b  d0, (a0)               ; set tag
+        ; Clear bitmask
+        lea     COLLECTED_BITMASK_OFFSET(a0), a1
+        clr.l   (a1)+
+        clr.l   (a1)+
+        clr.l   (a1)+
+        clr.l   (a1)+
+.already_owned:
+        moveq   #1, d1                 ; Z clear = success
+        rts
+```
+
+- [ ] **Step 7: Write Collected_Init**
+
+Initialize all 9 slots to empty at level start.
+
+```asm
+Collected_Init:
+        lea     (Ring_Collected_Window).w, a0
+        moveq   #(COLLECTED_WINDOW_SLOTS*COLLECTED_SLOT_SIZE/4)-1, d0
+.clr:
+        clr.l   (a0)+
+        dbf     d0, .clr
+        ; Set all tags to $FF
+        lea     (Ring_Collected_Window).w, a0
+        moveq   #COLLECTED_WINDOW_SLOTS-1, d0
+.tag:
+        move.b  #COLLECTED_EMPTY_TAG, (a0)
+        lea     COLLECTED_SLOT_SIZE(a0), a0
+        dbf     d0, .tag
+        rts
+```
+
+- [ ] **Step 8: Build**
+
+Run: `./build.sh`
+Expected: builds (new code not called yet).
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add engine/objects/entity_window.asm
+git commit -m "feat(§4.9): 3×3 rolling collected bitmask — tag-indexed window"
+```
+
+---
+
+### Task 6: Rewrite DrawRings — Single-Pass Unified Buffer
 
 **Files:**
 - Modify: `engine/objects/rings.asm`
@@ -534,7 +766,7 @@ git commit -m "feat(§4.9): single-pass DrawRings for unified ring buffer"
 
 ---
 
-### Task 6: Rewrite RingCollision and CollectRing — Buffer Removal
+### Task 7: Rewrite RingCollision and CollectRing — Buffer Removal + Bitmask
 
 **Files:**
 - Modify: `engine/objects/rings.asm`
@@ -596,6 +828,14 @@ RingCollision:
         ; Overlap — collect this ring
         addq.w  #1, (Ring_Counter).w
 
+        ; Mark collected in 3×3 rolling bitmask
+        movem.l d3-d7/a0/a2, -(sp)
+        move.b  4(a0), d0              ; section_id from ring buffer entry
+        moveq   #0, d1
+        move.b  5(a0), d1              ; list_index from ring buffer entry
+        bsr.w   Collected_MarkRing
+        movem.l (sp)+, d3-d7/a0/a2
+
         ; Remove from buffer (swap-with-last)
         movem.l d3-d7/a0/a2, -(sp)
         move.w  d3, d0
@@ -637,7 +877,7 @@ git commit -m "feat(§4.9): RingCollision rewrite — buffer removal on collect"
 
 ---
 
-### Task 7: Remove Old Entity Loader Code
+### Task 8: Remove Old Entity Loader Code
 
 **Files:**
 - Modify: `engine/objects/entity_loader.asm`
@@ -684,7 +924,7 @@ git commit -m "refactor(§4.9): remove bulk-load entity routines — camera wind
 
 ---
 
-### Task 8: EntityWindow Core — Init, Scan, TeleportShift
+### Task 9: EntityWindow Core — Init, Scan, TeleportShift
 
 **Files:**
 - Create: `engine/objects/entity_window.asm`
@@ -1114,7 +1354,7 @@ git commit -m "feat(§4.9): EntityWindow core — Init, Scan, TeleportShift"
 
 ---
 
-### Task 9: Wire Section.asm — Replace Entity Lifecycle Blocks
+### Task 10: Wire Section.asm — Replace Entity Lifecycle Blocks
 
 **Files:**
 - Modify: `engine/level/section.asm`
@@ -1174,7 +1414,7 @@ git commit -m "feat(§4.9): wire EntityWindow into Section_Init/TeleportFwd/Bwd"
 
 ---
 
-### Task 10: Wire Test — Update ojz_scroll_test.asm
+### Task 11: Wire Test — Update ojz_scroll_test.asm
 
 **Files:**
 - Modify: `test/ojz_scroll_test.asm`
@@ -1207,7 +1447,7 @@ git commit -m "feat(§4.9): wire EntityWindow_Scan into scroll test update loop"
 
 ---
 
-### Task 11: Object Spawning via Window — ROM Type Table Reads
+### Task 12: Object Spawning via Window — ROM Type Table Reads
 
 **Files:**
 - Modify: `engine/objects/entity_window.asm`
@@ -1292,7 +1532,7 @@ git commit -m "feat(§4.9): ROM type table reads for object spawning via window"
 
 ---
 
-### Task 12: Emulator Verification and Bug Fixes
+### Task 13: Emulator Verification and Bug Fixes
 
 **Files:**
 - Potentially any of the above
@@ -1359,7 +1599,7 @@ git commit -m "fix(§4.9): entity window bug fixes from emulator testing"
 
 ---
 
-### Task 13: Documentation and Cleanup
+### Task 14: Documentation and Cleanup
 
 **Files:**
 - Modify: `docs/ENGINE_ARCHITECTURE.md`
