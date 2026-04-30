@@ -37,7 +37,7 @@ Collected_FindSlot:
         beq.s   .found
         lea     COLLECTED_SLOT_SIZE(a0), a0
         dbf     d1, .scan
-        moveq   #0, d0                  ; Z set = not found
+        moveq   #0, d1                  ; Z set = not found
         rts
 .found:
         moveq   #1, d1                  ; Z clear = found
