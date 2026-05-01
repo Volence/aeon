@@ -538,14 +538,21 @@ Section_RedrawPlanes:
         move.w  d0, d5                          ; d5 = start_world_col
 
         moveq   #0, d3                          ; col counter (0..63)
-        moveq   #0, d6                          ; zero for fill
 
 .pla_fill:
         move.w  d5, d7
         add.w   d3, d7                          ; d7 = world_col
-        move.w  d7, d0
 
-        ; convert world col → engine col for nametable position
+        ; check cache range BEFORE setting VDP address — skip entirely
+        ; on miss so off-screen columns retain old nametable content
+        ; instead of flashing black/zero tiles
+        cmp.w   (Strip_Cache_Left_Col).w, d7
+        blt.s   .pla_next
+        cmp.w   (Strip_Cache_Head_Col).w, d7
+        bgt.s   .pla_next
+
+        ; convert world col → plane col
+        move.w  d7, d0
         moveq   #0, d1
         move.b  (Slot_Section_Map).w, d1
         lsl.w   #8, d1
@@ -561,27 +568,14 @@ Section_RedrawPlanes:
         vdpCommReg d4, VRAM, WRITE, 1
         move.l  d4, (a5)
 
-        ; check if world_col is in cache range
-        move.w  d7, d0
-        cmp.w   (Strip_Cache_Left_Col).w, d0
-        blt.s   .pla_zero_fill
-        cmp.w   (Strip_Cache_Head_Col).w, d0
-        bgt.s   .pla_zero_fill
-
         ; read from strip cache
+        move.w  d7, d0
         bsr.w   Strip_Cache_GetColumn           ; a0 = strip data
         movea.l a0, a1
         moveq   #STRIP_TILE_HEIGHT/2-1, d4
 .pla_copy:
         move.l  (a1)+, (a6)
         dbf     d4, .pla_copy
-        bra.s   .pla_next
-
-.pla_zero_fill:
-        moveq   #STRIP_TILE_HEIGHT/2-1, d4
-.pla_zero:
-        move.l  d6, (a6)
-        dbf     d4, .pla_zero
 
 .pla_next:
         addq.w  #1, d3
@@ -613,9 +607,14 @@ Section_RedrawPlanes:
         move.w  (sp)+, sr
 
         ; -- return tracker bounds in d5/d7 for caller --
-        ; d5 = start_world_col (already set above)
-        move.w  d5, d7
-        addi.w  #63, d7                             ; d7 = start_world_col + 63
+        ; Clamp to cache range so Section_UpdateColumns streams any
+        ; columns we skipped (outside cache at redraw time).
+        move.w  (Strip_Cache_Left_Col).w, d0
+        cmp.w   d0, d5
+        bge.s   .track_left_ok
+        move.w  d0, d5
+.track_left_ok:
+        move.w  (Strip_Cache_Head_Col).w, d7
         rts
 
 ; -----------------------------------------------
