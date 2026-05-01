@@ -101,6 +101,7 @@ __BUDGET_ENGINE:
     include "engine/controllers.asm"
     include "engine/game_loop.asm"
     include "engine/s4lz_decompress.asm"
+    include "engine/s4lz_stream.asm"
     include "engine/math.asm"
     include "engine/objects/dplc.asm"
     include "engine/objects/core.asm"
@@ -113,6 +114,8 @@ __BUDGET_ENGINE:
     include "engine/objects/children.asm"
     include "engine/objects/load_object.asm"
     include "engine/level/plane_buffer.asm"
+    include "engine/level/strip_cache.asm"
+    include "engine/level/collision_lookup.asm"
     include "engine/level/section.asm"
     include "engine/level/camera.asm"
     include "engine/level/parallax.asm"
@@ -168,6 +171,19 @@ __BUDGET_DATA:
     include "data/mappings/test_mappings.asm"
     include "data/animations/sonic_anims.asm"
     include "data/animations/particle_anims.asm"
+
+; -----------------------------------------------
+; Collision data (§4.7 — global, shared across all zones)
+; -----------------------------------------------
+HeightMaps:
+    BINCLUDE "data/collision/heightmaps.bin"
+    align 2
+HeightMapsRot:
+    BINCLUDE "data/collision/heightmaps_rot.bin"
+    align 2
+AngleTable:
+    BINCLUDE "data/collision/angles.bin"
+    align 2
 
 Map_Sonic:
     BINCLUDE "data/mappings/sonic.bin"

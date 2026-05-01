@@ -33,6 +33,9 @@ if [[ "${PRINT_ERRORS_ONLY}" == "0" ]]; then
     ASFLAGS="${ASFLAGS} -E ${ROM_NAME}.log"
 fi
 
+echo "Generating collision data (height maps, angles)..."
+python3 "${TOOLS}/gen_collision_data.py" data/collision
+
 echo "Generating OJZ section data..."
 python3 "${TOOLS}/ojz_strip_gen.py" generate
 

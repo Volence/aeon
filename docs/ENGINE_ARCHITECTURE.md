@@ -16,11 +16,11 @@ This is the **design bible**. This document describes the engine we're building 
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
 | 2 | Art & Compression Pipeline | S4LZ (custom word-aligned LZ, 700-1100 KB/s) for level/bulk art. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5FF (1,536 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character sprites + VDP tables embedded in off-screen nametable rows**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
-| 4 | Level / World | 2D section grid with signed Y (novel), 2-slot bidirectional leapfrog (novel), pre-computed nametable strips (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), velocity-based preload, per-section everything, diagonal preview loading, **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, **zero-lag teleport (progressive nametable preload + palette crossfade, novel)**, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **per-section collision map (flat byte array, 128-column shift-based lookup — zero multiply)**, **per-section full palette copies (128 bytes, instant load)** |
+| 4 | Level / World | 2D section grid with signed Y (novel), 2-slot bidirectional leapfrog (novel), pre-computed nametable strips (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), velocity-based preload, per-section everything, diagonal preview loading, **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, **zero-lag teleport (progressive nametable preload + palette crossfade, novel)**, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in strip data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)** |
 | 5 | Player / Character | 6-button controller support, per-section terrain physics (novel), air drag apex-only fix (S3K), roll-jump air control fix (S3K), flat acceleration with per-character tuning, angle continuity for loop stability, vector projection on slope landing, state entry/exit hooks, hierarchical state machine evaluation, landing camera lock, spindash charge curve (table-based), slope muls→shift optimization, configurable physics tables, 3-character shared code via Player_Common, shield system unified, **SWAP-based 16.16 fixed point (Treasure)** |
 | 6 | Audio | Flamedriver (full Z80 autonomy), Zyrinx log volume + per-algorithm carrier mask, verified Z80 writes, DPCM + 32kHz DAC + DMA protection buffering (24KB survival), YM Timer A sub-frame tempo (NTSC/PAL independent), bank switch optimization (pack per-section, 100+ cycle savings), section-aware sound banking (novel), distance-based attenuation (novel), pseudo-stereo DAC, PSG pause silencing, Ch3 special mode for sound design, **SSG-EG envelope modes (evolving FM tones)**, LFO limitations documented, continuous SFX, music fade state machine, build-time DC offset tool, **multi-channel DAC mixing (2-4 channels, per-channel sample rate)** |
 | 7 | Visual Effects | **Unified raster command table (Batman — stackable per-scanline VDP register changes)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
-| 8 | Tooling & Build | **Authoring pipeline (tile/block/chunk editor stamps → build tool: flatten, deduplicate, graph-color VRAM, generate nametable strips + collision maps + S4LZ art)**, **level editor tile budget UI (per-section shared/unique counts, per-corner budget view, warning system)**, pre-computed nametable build tool, **debug system architecture (S.C.E. two-phase gating + 10 per-subsystem toggles)**, **MD Debugger v2.6 error handler (backtrace, symbol resolution, console programs)**, **per-module debug assertions (S.C.E. + Vectorman pointer bounds/breadcrumbs/corruption detection + CHK instruction)**, **frame profiler (raster bars + VDP window lagometer + KDebug + lag detection + stack guard + watchdog)**, RAM layout documentation, build system improvements (jump sizing 10-50x speedup, dual build targets, convsym pipeline, assembly pass checking, compile-time validation), Exodus MCP integration, level editor integration |
+| 8 | Tooling & Build | **Authoring pipeline (tile/block/chunk editor stamps → build tool: flatten, deduplicate, graph-color VRAM, generate wide strips with embedded collision + S4LZ art)**, **level editor tile budget UI (per-section shared/unique counts, per-corner budget view, warning system)**, pre-computed nametable build tool, **debug system architecture (S.C.E. two-phase gating + 10 per-subsystem toggles)**, **MD Debugger v2.6 error handler (backtrace, symbol resolution, console programs)**, **per-module debug assertions (S.C.E. + Vectorman pointer bounds/breadcrumbs/corruption detection + CHK instruction)**, **frame profiler (raster bars + VDP window lagometer + KDebug + lag detection + stack guard + watchdog)**, RAM layout documentation, build system improvements (jump sizing 10-50x speedup, dual build targets, convsym pipeline, assembly pass checking, compile-time validation), Exodus MCP integration, level editor integration |
 | 9 | Cross-Cutting Systems | Level database (unified descriptors, S.C.E. levartptrs evolution), object communication (Treasure parent-child links + S.C.E. trigger array + boss event buffer), error handler with stack guard (Batman high-byte vector IDs + watchdog), 6-button controller (rapid TH cycling protocol + detection), **soft-reset persistence (CrossResetRAM cold/warm boot detection)**, SRAM save system (Sonic 3 dual-copy checksums), **cooperative multitasking (NOVEL — supervisor/user mode context switching, background S4LZ decompression)**, **ROM banking awareness (SSF2 mapper, conditional on ROM >4MB)**, **128KB VRAM mode (investigated, Kabuto byte-wide DMA)**, **PC-relative addressing audit (Batman leads with 986 refs)**, **clearRAM performance variants (3 S.C.E. macros + MOVEM bulk clear)**, **game state machine (function pointer dispatch, 11 states)**, **text/font rendering (96-char ASCII, DrawString/DrawHex/DrawDecimal)**, **screen/menu system (lifecycle init/update, title cards, credits)** |
 
 ---
@@ -1839,33 +1839,36 @@ Example: Oracle Jungle Zone Act 1
 Each section in the 2D grid is fully self-describing — almost its own level:
 
 ```
-; Section definition — 64 bytes per (X, Y) cell:
-    dc.l    sec_strips_a        ; +$00: pre-computed plane A nametable strips (ROM pointer)
+; Section definition — 72 bytes per (X, Y) cell (Sec struct in structs.asm):
+    dc.l    sec_strips_s4lz     ; +$00: S4LZ-compressed nametable strips (ROM pointer, see §4.7)
     dc.l    sec_objects         ; +$04: object layout (compact 4-byte entries, X-sorted, see 4.9)
     dc.l    sec_rings           ; +$08: ring layout (flat X-sorted dc.w pairs, section-local coords, see 4.9)
     dc.l    sec_plc             ; +$0C: art PLC list (S4LZ format)
     dc.l    sec_pal             ; +$10: palette pointer — full 128-byte copy (0 = no change)
-    dc.l    sec_scroll          ; +$14: parallax layer table (0 = keep current)
+    dc.l    sec_parallax_config ; +$14: parallax_config pointer (0 = inherit act default; §4.6)
     dc.l    sec_raster_table    ; +$18: raster command table pointer (0 = keep current, see §7.2)
-    dc.l    sec_bg_layout       ; +$1C: per-section Plane B layout pointer (§2 A.5; NULL = use Act default)
-    dc.l    sec_reserved        ; +$20: reserved for future use
+    dc.l    sec_bg_layout       ; +$1C: per-section Plane B layout pointer (NULL = use Act default; §2 A.5)
+    dc.l    sec_type_table      ; +$20: type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
     dc.l    sec_pal_cycle       ; +$24: palette cycling script (0 = keep current)
     dc.l    sec_sound_bank      ; +$28: DAC sample bank pointer (0 = keep current)
-    dc.l    sec_deform_table    ; +$2C: deformation table pointer (0 = zone default)
-    dc.l    sec_anim_blocks     ; +$30: animated tile PLC list (0 = none)
-    dc.l    sec_collision       ; +$34: per-section collision map pointer (flat byte array, see 4.7)
-    dc.w    sec_flags           ; +$38: bit flags (see below)
+    dc.l    sec_strip_checkpoints ; +$2C: strip checkpoint table (ROM; 4 × word offsets; §4.7)
+    dc.l    sec_anim_blocks     ; +$30: animated tile script (0 = none)
+    dc.l    sec_collision_s4lz  ; +$34: reserved (collision embedded in strip data; §4.7)
+    dc.w    sec_flags           ; +$38: SF_* bitmask (see below)
     dc.w    sec_music           ; +$3A: music change (0 = keep current)
-    dc.b    sec_layer_mask      ; +$3C: parallax layer enable bitmask ($FF = all)
+    dc.b    sec_pcfg_pad_3C     ; +$3C: reserved (parallax config moved to sec_parallax_config)
     dc.b    sec_camera_lookahead; +$3D: camera look-ahead pixels (0 = zone default)
-    dc.b    sec_deform_speed    ; +$3E: deformation increment per frame (1 = normal)
-    dc.b    sec_transition_type ; +$3F: 0 = smooth blend, 1 = instant swap, 2 = fade
-; sec_entry_size = $40 (64 bytes)
+    dc.b    sec_pcfg_pad_3E     ; +$3E: reserved
+    dc.b    sec_pcfg_pad_3F     ; +$3F: reserved
+    dc.l    sec_tile_art_s4lz   ; +$40: per-section S4LZ tile pool ptr (§2 A.3)
+    dc.w    sec_tile_art_vram   ; +$44: VRAM byte dest (color base × 32)
+    dc.w    sec_pad_46          ; +$46: pad
+; Sec_len = $48 (72 bytes)
 
-; sec_flags: has_water | underground | no_y_wrap | preserve_state | has_animated_blocks
+; sec_flags: SF_HAS_WATER | SF_UNDERGROUND | SF_NO_Y_WRAP | SF_PRESERVE_STATE | SF_HAS_ANIMATED_BLOCKS
 ```
 
-Fields default to 0 (keep current state). Each section is effectively its own world — unique terrain art, unique background motion, unique palette cycling, unique physics, unique music, unique collision map, all from data alone. No Genesis game has this level of per-area control within a single level.
+Fields default to 0 (keep current state). Each section is effectively its own world — unique terrain art, unique background motion, unique palette cycling, unique physics, unique music, unique parallax, all from data alone. No Genesis game has this level of per-area control within a single level.
 
 **Palette format:** `sec_pal` points to a full 128-byte palette copy (all 4 palette lines × 16 colors × 2 bytes). No delta format, no compression — raw CRAM data, instant load on section transition. Palette cross-fading (7.1) interpolates between the outgoing and incoming 128-byte copies over ~16 frames.
 
@@ -1965,36 +1968,34 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 
 **Foundation:** S.C.E.'s `HScroll_Deform` deformation script, extended with shift-add factor encoding (novel), per-band amplitude/phase split (novel), and section-boundary lerp transitions (novel).
 
-### 4.7 Level Collision — Per-Section Collision Map + Dual Sensors
+### 4.7 Level Collision — Strip-Embedded Collision + Dual Sensors
 
-**Runtime collision lookup** uses a per-section flat byte array — one collision type per 16×16 cell. The build tool generates these from editor data, flattening chunks/blocks into per-cell collision types. No chunk→block→tile lookup chain at runtime.
+**Collision is embedded in strip data.** Each strip column in the cache is 128 bytes: 96 bytes of nametable words (48 rows × 2 bytes) followed by 24 collision type bytes (one per 16×16 cell, covering 48 tile rows at 2 rows per cell) and 8 bytes of padding. The power-of-2 stride (128) enables single-shift addressing (`lsl #7`).
 
-**Format:** 128-column width for shift-based lookup (no multiply):
+**Runtime collision lookup** reads directly from the strip cache — no separate collision maps, no per-section decompression, no slot rotation at teleport. The strip cache already has the data:
 ```asm
-; Per-section collision lookup — zero multiplies
-; a0 = section collision map base (from sec_collision in section definition)
-; d0 = X position (section-local), d1 = Y position (section-local)
-    lsr.w  #4, d0              ; X → column index (0-127)
-    lsr.w  #4, d1              ; Y → row index
-    lsl.w  #7, d1              ; row × 128 (shift, not mulu)
-    add.w  d0, d1              ; flat array index
-    move.b (a0,d1.w), d0       ; collision type byte
+; Collision lookup from strip cache
+; d0.w = engine X pixels, d1.w = Y pixels
+    lsr.w   #3, d0                      ; X pixels → tile col
+    bsr.w   Engine_To_World_Col         ; d0.w = world tile col
+    bsr.w   Strip_Cache_GetColumn       ; a0 = 128-byte strip
+    lsr.w   #4, d1                      ; Y → collision row (0-23)
+    move.b  STRIP_COLLISION_OFFSET(a0,d1.w), d0  ; collision type byte
 ```
 
-**Collision type byte:** Indexes into height maps and angle arrays. The byte IS the collision ID — no further indirection.
+**Collision type byte:** Indexes into height maps and angle arrays. The byte IS the collision ID — no further indirection. Embedded in the strip data by the build tool (S.C.E./S3K-style: collision is a property of placement, not a separate data structure).
+
+**Floor distance formula** (S.C.E. convention): `distance = 16 - height - sub_cell_Y`, where `sub_cell_Y = Y_pixels & $F` and `height` is the height map value (0-16) at `(collision_type × 16) + (X_pixels & $F)`. Negative distance = embedded in solid (snap up), zero = on surface, positive = gap below foot.
 
 **Dual-sensor system** (unchanged from S.C.E./S3K):
 - **Two floor sensors** (left/right foot) positioned at `x_pos ± width_pixels/2, y_pos + height_pixels/2`
 - **Height maps** in ROM: `HeightMaps` (vertical collision) + `HeightMapsRot` (wall sensors)
 - **Angle arrays:** Pre-computed terrain angles indexed by collision ID
 - **Height map indexing:** `(collision_type × 16) + (x_pixel & 0xF)` — single-cycle lookup
-- **Dual-layer:** Foreground collision checked first, background checked if flag set
 
-**Build tool generates collision maps:** The editor paints with tiles/blocks/chunks that have collision attributes. The build tool flattens each section's layout into the 128-column byte array, mapping each 16×16 cell to its collision type. Collision data is stored per-section in ROM alongside nametable strips.
+**Build tool embeds collision in strips:** The build tool generates 128-byte strip columns — 96 bytes of nametable words plus 24 collision bytes derived from tile placement. Currently uses VDP priority bit (bit 15) to distinguish ground (priority=1 → type 1, solid) from sky (priority=0 → type 0, air). Future: proper tile→collision LUT for slopes and varied terrain types.
 
-**ROM cost:** ~16 KB per section (128 columns × 128 rows × 1 byte). A 2048px section / 16px per block = 128 blocks per axis. For a 4×3 act grid (12 sections): ~192 KB — under 5% of a 4 MB ROM. Zero runtime conversion overhead in exchange for the storage cost.
-
-**Why flat array over hierarchical lookup:** A chunk→block→tile collision chain is 3 levels of indirection with potential cache misses. The flat array is a single indexed read. The build tool does the indirection once; runtime never does it again.
+**Why embedded over separate maps:** S.C.E./S3K embed collision indices directly in their block mapping words. Our strip format adapts this by appending collision bytes to each strip column. Benefits: no separate per-section collision files, no collision map RAM slots (saves 12 KB), no collision decompression at init/preload/teleport, collision is inherently tied to position (same visual tile can have different collision in different placements). The 24 bytes of collision data per strip (plus 8 pad) increase raw strip size by 33% but compress nearly free (mostly runs of 0s and 1s).
 
 ### 4.8 Section Streaming Integration
 
@@ -2021,7 +2022,7 @@ The section system touches nearly every other engine system. These cascades are 
 - Art pre-allocation via `AllocVRAM` (2.2) still applies: section preload allocates art before objects spawn
 
 **Section + Parallax (4.6):**
-- Each section's `sec_scroll` pointer loads a new layer table on teleport
+- Each section's `sec_parallax_config` pointer loads a new parallax config on teleport
 - Different sections in the same zone can have different parallax (outdoor → cave → underwater)
 - Layer enable mask disables unused layers per section (saves cycles + DMA)
 - Parallax transition smoothing interpolates scroll factors over 8-16 frames at boundaries
@@ -2796,7 +2797,7 @@ The authoring pipeline decouples the level editor's creative tools from the runt
 2. **Deduplicate tiles:** Identify identical tiles across sections (including flip variants). Build a master tile set per zone.
 3. **Graph-color VRAM indices (2.3):** Construct section adjacency graph from the 2D grid. Assign VRAM tile indices so non-adjacent sections reuse indices. Shared tiles get permanent indices; unique tiles get reusable indices.
 4. **Generate nametable strips:** Output raw VDP nametable words (tile index + palette + priority + flip bits) per column per section. Stored in ROM, ready for direct DMA to VDP scroll planes.
-5. **Generate collision maps:** Flatten each section's collision attributes into a 128-column byte array (4.7). One collision type per 16×16 cell.
+5. **Embed collision in strips:** Append 24 collision bytes + 8 padding to each 96-byte nametable column, producing 128-byte wide strips. Collision derived from tile→collision assignments (one type per 16×16 cell).
 6. **Compress tile art:** S4LZ-compress each section's tile art with tile-delta preprocessing. Output per-section compressed art blobs for streaming decompression.
 7. **Report:** Total ROM size per section and per zone. Tile budget usage per section and per corner intersection. Warnings for any corner exceeding budget.
 

@@ -522,7 +522,7 @@ EntityWindow_PopulateSectionRings:
 ; -----------------------------------------------
 EntityWindow_ScanObjectsRight:
         move.l  EntityScanState_ess_rom_obj_ptr(a1), d0
-        beq.s   .obj_done
+        beq.w   .obj_done
         movea.l d0, a0
 
         move.w  EntityScanState_ess_obj_right_idx(a1), d4

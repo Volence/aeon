@@ -30,6 +30,7 @@ import shutil
 # Allow running from the s4_engine root (where build.sh lives).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tile_dedupe
+import s4lz
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -534,13 +535,18 @@ def build_strips_from_nametable(
 def write_strips_to_file(strips: list[list[int]], path: str) -> None:
     """Write all column strips concatenated into a single binary file.
 
-    Format: col 0 words (STRIP_TILE_HEIGHT big-endian uint16s), then col 1, ...
-    Total size: len(strips) * STRIP_TILE_HEIGHT * 2 bytes.
+    Format per column (128 bytes):
+      - 48 nametable words (96 bytes, big-endian)
+      - 24 collision bytes (stub: non-zero tile → solid)
+      - 8 bytes padding (zero)
+    Total size: len(strips) * 128 bytes.
     """
     with open(path, "wb") as f:
         for strip in strips:
             for word in strip:
                 f.write(struct.pack(">H", word))
+            f.write(generate_collision_bytes(strip))
+            f.write(b'\x00' * STRIP_COLLISION_PAD)
 
 
 def generate_section_strips(
@@ -936,6 +942,32 @@ def run_tests():
 
 
 # ---------------------------------------------------------------------------
+# Collision byte generation (§4.7 — embedded in wider strips)
+# ---------------------------------------------------------------------------
+
+COLLISION_ROWS_PER_STRIP = STRIP_TILE_HEIGHT // 2   # 24 collision cells (16px each)
+STRIP_COLLISION_PAD = 8                              # pad to 128 bytes for power-of-2 addressing
+WIDE_STRIP_SIZE = STRIP_TILE_HEIGHT * 2 + COLLISION_ROWS_PER_STRIP + STRIP_COLLISION_PAD  # 128
+
+
+def generate_collision_bytes(strip_words: list[int]) -> bytes:
+    """Generate 24 collision bytes for one strip column.
+
+    Stub: mark a cell solid only if its nametable words have the VDP
+    priority bit set (bit 15).  In OJZ, sky/cloud tiles use priority 0
+    while ground/terrain tiles use priority 1 — this cleanly separates
+    walkable ground from background scenery.
+    """
+    collision = bytearray(COLLISION_ROWS_PER_STRIP)
+    for cell in range(COLLISION_ROWS_PER_STRIP):
+        top_word = strip_words[cell * 2]
+        bot_word = strip_words[cell * 2 + 1] if cell * 2 + 1 < len(strip_words) else 0
+        if (top_word & 0x8000) or (bot_word & 0x8000):
+            collision[cell] = 1
+    return bytes(collision)
+
+
+# ---------------------------------------------------------------------------
 # Generator
 # ---------------------------------------------------------------------------
 
@@ -1055,6 +1087,38 @@ def generate(force_region1_cap=None):
         if first_strips is None:
             first_strips = remapped_strips
         total_strips += len(remapped_strips)
+
+    # ---- Pass 5b (§4.7): S4LZ compress wide strips + emit checkpoints ----
+    STRIPS_PER_CHECKPOINT = 64
+    CKPT_INTERVAL = STRIPS_PER_CHECKPOINT * WIDE_STRIP_SIZE
+
+    for sec_id in sec_ids_in_order:
+        raw_path = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
+        with open(raw_path, 'rb') as f:
+            raw_data = f.read()
+
+        if len(raw_data) > 0xFFFF:
+            print(f"  sec{sec_id} strips: {len(raw_data)} bytes — too large for S4LZ, skipping")
+            continue
+
+        compressed, checkpoints = s4lz.compress(
+            raw_data, tile_delta=False,
+            checkpoint_interval=CKPT_INTERVAL,
+            max_match_words=WIDE_STRIP_SIZE // 2)
+
+        s4lz_path = os.path.join(out_dir, f"sec{sec_id}_strips.s4lz")
+        with open(s4lz_path, 'wb') as f:
+            f.write(compressed)
+
+        ckpt_path = os.path.join(out_dir, f"sec{sec_id}_strip_checkpoints.bin")
+        with open(ckpt_path, 'wb') as f:
+            while len(checkpoints) < 4:
+                checkpoints.append(checkpoints[-1] if checkpoints else 0)
+            for offset in checkpoints[:4]:
+                f.write(struct.pack(">H", offset))
+
+        ratio = len(compressed) / len(raw_data) * 100 if raw_data else 0
+        print(f"  sec{sec_id} strips: {len(raw_data)} -> {len(compressed)} ({ratio:.1f}%) [128B/col, collision embedded]")
 
     # ---- Pass 6: emit per-section tile-art blobs ----
     for s_idx, sec_id in enumerate(sec_ids_in_order):

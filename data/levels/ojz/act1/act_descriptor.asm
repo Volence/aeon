@@ -31,7 +31,7 @@ OJZ_Act1_Descriptor:
 OJZ_Act1_Sections:
 
 OJZ_Sec0:
-    dc.l    OJZ_Sec0_Strips_A       ; sec_strips_a
+    dc.l    OJZ_Sec0_Strips_S4LZ    ; sec_strips_s4lz (§4.7)
     dc.l    OJZ_Sec0_Objects        ; sec_objects
     dc.l    OJZ_Sec0_Rings          ; sec_rings
     dc.l    0                       ; sec_plc
@@ -39,16 +39,18 @@ OJZ_Sec0:
     dc.l    ParallaxConfig_OJZ_Caves, 0    ; sec_parallax_config = T15 F4 fixture: slow-BG cave gradient (scenes/caves.asm)
     dc.l    0                       ; sec_bg_layout (NULL = use Act_act_bg_layout, T1)
     dc.l    OJZ_Sec0_TypeTable      ; sec_type_table (§4.9)
-    dc.l    0, 0, 0, 0, 0           ; sec_pal_cycle..sec_collision
+    dc.l    0, 0                    ; sec_pal_cycle, sec_sound_bank
+    dc.l    OJZ_Sec0_Strip_Checkpoints ; sec_strip_checkpoints (§4.7)
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0                    ; sec_flags, sec_music
-    dc.b    0, 0, 0, 0              ; sec_layer_mask..sec_transition_type
+    dc.b    0, 0, 0, 0              ; reserved bytes
     dc.l    OJZ_Sec0_Tiles_S4LZ     ; sec_tile_art_s4lz (§2 A.3)
     dc.w    OJZ_SEC0_VRAM           ; sec_tile_art_vram
     dc.w    0                       ; pad
     align 2
 
 OJZ_Sec1:
-    dc.l    OJZ_Sec1_Strips_A
+    dc.l    OJZ_Sec1_Strips_S4LZ
     dc.l    OJZ_Sec1_Objects        ; sec_objects
     dc.l    OJZ_Sec1_Rings          ; sec_rings
     dc.l    0                       ; sec_plc
@@ -56,7 +58,9 @@ OJZ_Sec1:
     dc.l    ParallaxConfig_OJZ_Windy, 0  ; sec_parallax_config = windy variant (F3)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    OJZ_Sec1_TypeTable      ; sec_type_table (§4.9)
-    dc.l    0, 0, 0, 0, 0
+    dc.l    0, 0                    ; sec_pal_cycle, sec_sound_bank
+    dc.l    OJZ_Sec1_Strip_Checkpoints
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec1_Tiles_S4LZ
@@ -65,7 +69,7 @@ OJZ_Sec1:
     align 2
 
 OJZ_Sec2:
-    dc.l    OJZ_Sec2_Strips_A
+    dc.l    OJZ_Sec2_Strips_S4LZ
     dc.l    OJZ_Sec2_Objects        ; sec_objects
     dc.l    OJZ_Sec2_Rings          ; sec_rings
     dc.l    0
@@ -73,7 +77,9 @@ OJZ_Sec2:
     dc.l    ParallaxConfig_SkyHaze, 0      ; sec_parallax_config = parallax_combine_split demo (was on Sec0, swapped here)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    OJZ_Sec2_TypeTable      ; sec_type_table (§4.9)
-    dc.l    0, 0, 0, 0, 0
+    dc.l    0, 0
+    dc.l    OJZ_Sec2_Strip_Checkpoints
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec2_Tiles_S4LZ
@@ -82,12 +88,14 @@ OJZ_Sec2:
     align 2
 
 OJZ_Sec3:
-    dc.l    OJZ_Sec3_Strips_A
+    dc.l    OJZ_Sec3_Strips_S4LZ
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    ParallaxConfig_OJZ_LockedClouds, 0  ; sec_parallax_config = T15 F6 fixture: layer mask disables band 0 (scenes/locked_clouds.asm)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0, 0, 0, 0
+    dc.l    0, 0, 0
+    dc.l    OJZ_Sec3_Strip_Checkpoints
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec3_Tiles_S4LZ
@@ -96,12 +104,14 @@ OJZ_Sec3:
     align 2
 
 OJZ_Sec4:
-    dc.l    OJZ_Sec4_Strips_A
+    dc.l    OJZ_Sec4_Strips_S4LZ
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0, 0, 0, 0
+    dc.l    0, 0, 0
+    dc.l    OJZ_Sec4_Strip_Checkpoints
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec4_Tiles_S4LZ
@@ -110,12 +120,14 @@ OJZ_Sec4:
     align 2
 
 OJZ_Sec5:
-    dc.l    OJZ_Sec5_Strips_A
+    dc.l    OJZ_Sec5_Strips_S4LZ
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0, 0, 0, 0
+    dc.l    0, 0, 0
+    dc.l    OJZ_Sec5_Strip_Checkpoints
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec5_Tiles_S4LZ
@@ -124,12 +136,14 @@ OJZ_Sec5:
     align 2
 
 OJZ_Sec6:
-    dc.l    OJZ_Sec6_Strips_A
+    dc.l    OJZ_Sec6_Strips_S4LZ
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0, 0, 0, 0
+    dc.l    0, 0, 0
+    dc.l    OJZ_Sec6_Strip_Checkpoints
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec6_Tiles_S4LZ
@@ -138,12 +152,14 @@ OJZ_Sec6:
     align 2
 
 OJZ_Sec7:
-    dc.l    OJZ_Sec7_Strips_A
+    dc.l    OJZ_Sec7_Strips_S4LZ
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0, 0, 0, 0
+    dc.l    0, 0, 0
+    dc.l    OJZ_Sec7_Strip_Checkpoints
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec7_Tiles_S4LZ
@@ -152,12 +168,14 @@ OJZ_Sec7:
     align 2
 
 OJZ_Sec8:
-    dc.l    OJZ_Sec8_Strips_A
+    dc.l    OJZ_Sec8_Strips_S4LZ
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0, 0, 0, 0
+    dc.l    0, 0, 0
+    dc.l    OJZ_Sec8_Strip_Checkpoints
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec8_Tiles_S4LZ
@@ -166,33 +184,51 @@ OJZ_Sec8:
     align 2
 
 ; -----------------------------------------------
-; Generated strip data (binary includes from build tool)
+; Generated strip data — S4LZ compressed + checkpoints (§4.7)
 ; -----------------------------------------------
-OJZ_Sec0_Strips_A: BINCLUDE "data/generated/ojz/act1/sec0_strips_a.bin"
+OJZ_Sec0_Strips_S4LZ: BINCLUDE "data/generated/ojz/act1/sec0_strips.s4lz"
+    align 2
+OJZ_Sec0_Strip_Checkpoints: BINCLUDE "data/generated/ojz/act1/sec0_strip_checkpoints.bin"
     align 2
 
-OJZ_Sec1_Strips_A: BINCLUDE "data/generated/ojz/act1/sec1_strips_a.bin"
+OJZ_Sec1_Strips_S4LZ: BINCLUDE "data/generated/ojz/act1/sec1_strips.s4lz"
+    align 2
+OJZ_Sec1_Strip_Checkpoints: BINCLUDE "data/generated/ojz/act1/sec1_strip_checkpoints.bin"
     align 2
 
-OJZ_Sec2_Strips_A: BINCLUDE "data/generated/ojz/act1/sec2_strips_a.bin"
+OJZ_Sec2_Strips_S4LZ: BINCLUDE "data/generated/ojz/act1/sec2_strips.s4lz"
+    align 2
+OJZ_Sec2_Strip_Checkpoints: BINCLUDE "data/generated/ojz/act1/sec2_strip_checkpoints.bin"
     align 2
 
-OJZ_Sec3_Strips_A: BINCLUDE "data/generated/ojz/act1/sec3_strips_a.bin"
+OJZ_Sec3_Strips_S4LZ: BINCLUDE "data/generated/ojz/act1/sec3_strips.s4lz"
+    align 2
+OJZ_Sec3_Strip_Checkpoints: BINCLUDE "data/generated/ojz/act1/sec3_strip_checkpoints.bin"
     align 2
 
-OJZ_Sec4_Strips_A: BINCLUDE "data/generated/ojz/act1/sec4_strips_a.bin"
+OJZ_Sec4_Strips_S4LZ: BINCLUDE "data/generated/ojz/act1/sec4_strips.s4lz"
+    align 2
+OJZ_Sec4_Strip_Checkpoints: BINCLUDE "data/generated/ojz/act1/sec4_strip_checkpoints.bin"
     align 2
 
-OJZ_Sec5_Strips_A: BINCLUDE "data/generated/ojz/act1/sec5_strips_a.bin"
+OJZ_Sec5_Strips_S4LZ: BINCLUDE "data/generated/ojz/act1/sec5_strips.s4lz"
+    align 2
+OJZ_Sec5_Strip_Checkpoints: BINCLUDE "data/generated/ojz/act1/sec5_strip_checkpoints.bin"
     align 2
 
-OJZ_Sec6_Strips_A: BINCLUDE "data/generated/ojz/act1/sec6_strips_a.bin"
+OJZ_Sec6_Strips_S4LZ: BINCLUDE "data/generated/ojz/act1/sec6_strips.s4lz"
+    align 2
+OJZ_Sec6_Strip_Checkpoints: BINCLUDE "data/generated/ojz/act1/sec6_strip_checkpoints.bin"
     align 2
 
-OJZ_Sec7_Strips_A: BINCLUDE "data/generated/ojz/act1/sec7_strips_a.bin"
+OJZ_Sec7_Strips_S4LZ: BINCLUDE "data/generated/ojz/act1/sec7_strips.s4lz"
+    align 2
+OJZ_Sec7_Strip_Checkpoints: BINCLUDE "data/generated/ojz/act1/sec7_strip_checkpoints.bin"
     align 2
 
-OJZ_Sec8_Strips_A: BINCLUDE "data/generated/ojz/act1/sec8_strips_a.bin"
+OJZ_Sec8_Strips_S4LZ: BINCLUDE "data/generated/ojz/act1/sec8_strips.s4lz"
+    align 2
+OJZ_Sec8_Strip_Checkpoints: BINCLUDE "data/generated/ojz/act1/sec8_strip_checkpoints.bin"
     align 2
 
 OJZ_Palette: BINCLUDE "data/generated/ojz/act1/ojz_palette.bin"

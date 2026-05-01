@@ -162,9 +162,71 @@ def _find_best_match_fast(data: bytes, pos: int, data_len: int,
 # Compressor
 # ---------------------------------------------------------------------------
 
-def compress(data: bytes, tile_delta: bool = False) -> bytes:
+def _compress_segmented(data: bytes, checkpoint_interval: int,
+                        max_match_words: int) -> tuple[bytes, list[int]]:
+    """Compress with independent segments for checkpoint seeking.
+
+    Each segment is compressed independently so backward references
+    never cross segment boundaries. This guarantees that seeking to
+    any checkpoint and decompressing produces correct, aligned output.
+    """
+    data_len = len(data)
+    header = struct.pack(">HBB", data_len, 0, 0)
+
+    if data_len == 0:
+        return header + bytes([TOKEN_END, 0]), [0]
+
+    segments = []
+    for i in range(0, data_len, checkpoint_interval):
+        segments.append(data[i:i + checkpoint_interval])
+
+    token_streams = []
+    for seg in segments:
+        seg_compressed, _ = compress(seg, tile_delta=False,
+                                     checkpoint_interval=0,
+                                     max_match_words=max_match_words)
+        # Strip 4-byte header and 2-byte EOS+pad
+        raw_tokens = seg_compressed[4:-2]
+        token_streams.append(raw_tokens)
+
+    checkpoints = [0]
+    running = 0
+    for i in range(len(token_streams) - 1):
+        running += len(token_streams[i])
+        checkpoints.append(running)
+
+    result = bytearray(header)
+    for ts in token_streams:
+        result.extend(ts)
+    result.append(TOKEN_END)
+    result.append(0)
+
+    return bytes(result), checkpoints
+
+
+def compress(data: bytes, tile_delta: bool = False,
+             checkpoint_interval: int = 0,
+             max_match_words: int = 0) -> tuple[bytes, list[int]]:
     """Compress data using S4LZ format.
-    Returns the complete compressed stream including header."""
+
+    Args:
+        data: Input data to compress
+        tile_delta: Apply tile-delta XOR preprocessing
+        checkpoint_interval: If > 0, compress in independent segments so
+            that seeking to any checkpoint produces correct output (no
+            cross-segment backward references). Returns list of byte
+            offsets from stream start (past header).
+        max_match_words: If > 0, cap single-match token length. Limits
+            streaming decompressor overshoot to max_match_words*2 bytes.
+
+    Returns:
+        (compressed_bytes, checkpoints) where checkpoints is a list of
+        byte offsets into the compressed stream at each interval boundary.
+        First checkpoint is always 0 (stream start).
+    """
+    if checkpoint_interval > 0:
+        return _compress_segmented(data, checkpoint_interval, max_match_words)
+
     original_data = data
 
     # Apply tile-delta preprocessing if requested
@@ -178,8 +240,7 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
     header = struct.pack(">HBB", data_len, flags, 0)
 
     if data_len == 0:
-        # Empty data: just header + end token
-        return header + bytes([TOKEN_END])
+        return header + bytes([TOKEN_END]), [0]
 
     # Ensure data is word-aligned for processing
     work_data = data
@@ -205,7 +266,8 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
     # Phase 1: find best match at each word position
     match_at = [None] * num_words  # (byte_offset, word_length) or None
     for i in range(num_words):
-        offset, length = _find_best_match_fast(work_data, i * 2, data_len, hash_table)
+        offset, length = _find_best_match_fast(work_data, i * 2, data_len,
+                                               hash_table)
         if length >= MIN_MATCH_WORDS:
             match_at[i] = (offset, length)
 
@@ -228,6 +290,8 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
         # Option 2: match — try all sublengths of best match
         if match_at[i] is not None:
             m_offset, max_len = match_at[i]
+            if max_match_words > 0:
+                max_len = min(max_len, max_match_words)
             for m_len in range(MIN_MATCH_WORDS, max_len + 1):
                 dest = i + m_len
                 if dest > num_words:
@@ -270,6 +334,9 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
 
     # Encode sequences into the compressed stream
     out = bytearray(header)
+    checkpoints = [0]
+    cumulative_output = 0
+    next_checkpoint = checkpoint_interval if checkpoint_interval > 0 else 0
 
     for lits, match_offset, match_words in sequences:
         lit_count = len(lits)
@@ -298,11 +365,20 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
             if match_nibble == 15:
                 out.extend(struct.pack(">H", match_count))
 
+        # Track decompressed output for checkpoints
+        seq_output = (lit_count + match_count) * 2
+        cumulative_output += seq_output
+        if next_checkpoint > 0:
+            while cumulative_output >= next_checkpoint:
+                compressed_offset = len(out) - len(header)
+                checkpoints.append(compressed_offset)
+                next_checkpoint += checkpoint_interval
+
     # End-of-stream + pad
     out.append(TOKEN_END)
     out.append(0)
 
-    return bytes(out)
+    return bytes(out), checkpoints
 
 # ---------------------------------------------------------------------------
 # Decompressor
@@ -383,10 +459,19 @@ def cmd_compress(args):
     with open(args.input, "rb") as f:
         data = f.read()
 
-    compressed = compress(data, tile_delta=args.tile_delta)
+    ckpt_interval = getattr(args, 'checkpoint_interval', 0) or 0
+    compressed, checkpoints = compress(data, tile_delta=args.tile_delta,
+                                       checkpoint_interval=ckpt_interval)
 
     with open(args.output, "wb") as f:
         f.write(compressed)
+
+    if ckpt_interval > 0:
+        ckpt_path = args.output.replace('.s4lz', '_checkpoints.bin')
+        with open(ckpt_path, 'wb') as f:
+            for offset in checkpoints:
+                f.write(struct.pack(">H", offset))
+        print(f"Checkpoints ({len(checkpoints)}): {ckpt_path}")
 
     ratio = len(compressed) / len(data) if len(data) > 0 else 0.0
     print(f"Compressed: {len(data)} -> {len(compressed)} bytes "
@@ -416,7 +501,7 @@ def cmd_verify(args):
     with open(args.input, "rb") as f:
         original = f.read()
 
-    compressed = compress(original, tile_delta=args.tile_delta)
+    compressed, _ = compress(original, tile_delta=args.tile_delta)
     decompressed = decompress(compressed)
 
     if decompressed == original:
@@ -446,7 +531,7 @@ def cmd_verify(args):
 def _run_test(name: str, data: bytes, tile_delta: bool = False) -> bool:
     """Run a single compress-decompress round-trip test."""
     try:
-        compressed = compress(data, tile_delta=tile_delta)
+        compressed, _ = compress(data, tile_delta=tile_delta)
         decompressed = decompress(compressed)
 
         if decompressed != data:
@@ -504,7 +589,7 @@ def cmd_test(_args=None):
 
     # Test 4: Data with known patterns — verify compression ratio < 1.0
     pattern_data = (bytes([0x00, 0x11, 0x22, 0x33]) * 64)  # 256 bytes, highly repetitive
-    compressed_pattern = compress(pattern_data)
+    compressed_pattern, _ = compress(pattern_data)
     ratio = len(compressed_pattern) / len(pattern_data)
     is_compressed = ratio < 1.0
     result4 = _run_test("4. Known pattern (256B)", pattern_data)
@@ -589,6 +674,8 @@ def main():
     p_compress = subparsers.add_parser("compress", help="Compress a file")
     p_compress.add_argument("--tile-delta", action="store_true",
                             help="Enable tile-delta XOR preprocessing")
+    p_compress.add_argument("--checkpoint-interval", type=int, default=0,
+                            help="Record checkpoint offsets every N bytes of output")
     p_compress.add_argument("input", help="Input file")
     p_compress.add_argument("output", help="Output file")
 

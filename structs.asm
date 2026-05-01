@@ -100,11 +100,25 @@ SST endstruct
         endif
 
 ; -----------------------------------------------
-; Section Definition (§4) — 64 bytes, ROM table
+; StreamState — S4LZ streaming decompressor bookmark (§4.7)
+; -----------------------------------------------
+StreamState struct
+ss_src          ds.l 1      ; $00 — current ROM position in compressed stream
+ss_output_pos   ds.l 1      ; $04 — cumulative bytes decompressed from stream start
+ss_xor_prev     ds.w 1      ; $08 — tile-delta XOR state (0 for strip streams)
+ss_pending      ds.w 1      ; $0A — overshoot bytes from previous call (linear buffer)
+StreamState endstruct       ; = $0C (12 bytes)
+
+    if StreamState_len <> $0C
+      error "StreamState struct is \{StreamState_len} bytes, expected $0C"
+    endif
+
+; -----------------------------------------------
+; Section Definition (§4) — 72 bytes, ROM table
 ; All fields: 0 = keep current / no change
 ; -----------------------------------------------
 Sec struct
-sec_strips_a        ds.l 1          ; $00 — plane A nametable strip array ptr (ROM)
+sec_strips_s4lz     ds.l 1          ; $00 — S4LZ compressed strip stream ptr (ROM; §4.7)
 sec_objects         ds.l 1          ; $04 — compact 4-byte object entries
 sec_rings           ds.l 1          ; $08 — flat X-sorted ring entries (dc.w X, Y; dc.l 0 terminated)
 sec_plc             ds.l 1          ; $0C — S4LZ art PLC list
@@ -115,9 +129,9 @@ sec_bg_layout       ds.l 1          ; $1C — plane B layout pointer (NULL = use
 sec_type_table      ds.l 1          ; $20 — type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
 sec_pal_cycle       ds.l 1          ; $24 — palette cycling script (Phase 4)
 sec_sound_bank      ds.l 1          ; $28 — DAC sample bank pointer
-sec_pcfg_pad_2C     ds.l 1          ; $2C — RESERVED (was sec_deform_table; folded into parallax_config)
+sec_strip_checkpoints ds.l 1        ; $2C — strip checkpoint table ptr (ROM; 4 × word; §4.7)
 sec_anim_blocks     ds.l 1          ; $30 — animated tile script (Phase 4)
-sec_collision       ds.l 1          ; $34 — flat 128×128 collision map
+sec_collision_s4lz  ds.l 1          ; $34 — reserved (collision embedded in strip data; §4.7)
 sec_flags           ds.w 1          ; $38 — SF_* bitmask
 sec_music           ds.w 1          ; $3A — music track (0 = keep current)
 sec_pcfg_pad_3C     ds.b 1          ; $3C — RESERVED (was sec_layer_mask; in parallax_config)
