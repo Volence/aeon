@@ -73,26 +73,17 @@ Section_FillInitial:
 
 ; -----------------------------------------------
 ; Section_GetSlotDef — get Sec* for a given slot index
-; In:  d0.w = slot index (0 or 1 for Phase 1)
+; In:  d0.w = slot index (0–3)
 ;      a2   = act descriptor pointer
 ; Out: a0   = Sec struct pointer in ROM
-; Clobbers: d0–d1, a0–a1
+; Clobbers: d0–d3, a0
 ; -----------------------------------------------
 Section_GetSlotDef:
         add.w   d0, d0                             ; slot_index × 2 bytes
         lea     (Slot_Section_Map).w, a0
-        move.b  (a0, d0.w), d1                     ; d1.b = sec_x for this slot
-        movea.l Act_sec_grid_ptr(a2), a1
-        ; sec_x × Sec_len ($48 = 72): compute as sec_x*64 + sec_x*8
-        moveq   #0, d0
-        move.b  d1, d0
-        move.w  d0, d2
-        lsl.w   #6, d0                             ; sec_x × 64
-        lsl.w   #3, d2                             ; sec_x × 8
-        add.w   d2, d0                             ; sec_x × 72 = Sec_len
-        adda.w  d0, a1                             ; a1 → Sec struct for this section
-        movea.l a1, a0
-        rts
+        move.b  (a0, d0.w), d2                     ; d2.b = sec_x for this slot
+        move.b  1(a0, d0.w), d3                    ; d3.b = sec_y for this slot
+        bra.w   Section_GetSecPtrXY
 
 .slot0: moveq   #SLOT_LEFT, d0
         bra.w   Section_GetSlotDef
@@ -102,22 +93,45 @@ Section_GetSlotDef:
 
 ; -----------------------------------------------
 ; Section_GetSecPtrXY — Sec ptr lookup by grid coordinates (§4.2).
-; In:  d2.b = sec_x, d3.b = sec_y (unused — 1-row grid only), a2 = Act ptr
+; In:  d2.b = sec_x, d3.b = sec_y, a2 = Act ptr
 ; Out: a0 = Sec ptr; Z clear if found, Z set if out of range (a0 = 0)
 ; Clobbers: d0, d1
-; Note: Phase 1 single-row layout (grid_h = 1). Multi-row deferred.
 ; -----------------------------------------------
 Section_GetSecPtrXY:
         cmp.b   Act_grid_w+1(a2), d2
         bcc.s   .out_of_range                       ; sec_x >= grid_w (unsigned)
+        cmp.b   Act_grid_h+1(a2), d3
+        bcc.s   .out_of_range                       ; sec_y >= grid_h (unsigned)
+
+        ; flat_id = sec_y * grid_w + sec_x (init-only path)
         moveq   #0, d0
-        move.b  d2, d0
+        move.b  d3, d0                              ; d0 = sec_y
+        beq.s   .gxy_add_x
+        move.w  d2, -(sp)                           ; save sec_x input
+        move.w  Act_grid_w(a2), d1                  ; d1 = grid_w
+        move.w  d0, d2                              ; d2 = sec_y counter
+        moveq   #0, d0                              ; d0 = accumulator
+        subq.w  #1, d2
+.gxy_mul:
+        add.w   d1, d0
+        dbf     d2, .gxy_mul
+        move.w  (sp)+, d2                           ; restore sec_x
+.gxy_add_x:
+        moveq   #0, d1
+        move.b  d2, d1
+        add.w   d1, d0                              ; d0 = flat section index
+
+        ; d0 × Sec_len ($48 = 72 = 64 + 8)
         movea.l Act_sec_grid_ptr(a2), a0
         move.w  d0, d1
-        lsl.w   #6, d0                              ; sec_x × 64
-        lsl.w   #3, d1                              ; sec_x × 8
-        add.w   d1, d0                              ; sec_x × 72 = Sec_len
+        lsl.w   #6, d0                              ; flat × 64
+        lsl.w   #3, d1                              ; flat × 8
+        add.w   d1, d0                              ; flat × 72
         adda.w  d0, a0
+
+        tst.l   (a0)
+        beq.s   .out_of_range
+
         moveq   #1, d0                              ; Z clear (success)
         rts
 .out_of_range:
@@ -141,6 +155,12 @@ Section_Check:
         cmpi.w  #SECTION_FWD_THRESHOLD, d0
         beq.s   .guard_hold
         cmpi.w  #SECTION_BWD_THRESHOLD, d0
+        beq.s   .guard_hold
+        move.l  (Player_1+SST_y_pos).w, d0
+        swap    d0
+        cmpi.w  #SECTION_DOWN_THRESHOLD, d0
+        beq.s   .guard_hold
+        cmpi.w  #SECTION_UP_THRESHOLD, d0
         beq.s   .guard_hold
         clr.b   (Section_Teleport_Guard).w
 .guard_hold:
@@ -194,36 +214,41 @@ Section_Check:
         bset    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
 
 .threshold_check:
-        ; -- preload_{fwd,bwd} above clobber d0 (build a Sec offset). Reload
-        ;    Player_1.x_pos high word so the threshold compares aren't reading
-        ;    stale register state from the preload path. (§4.2: keyed off
-        ;    player position, not camera — see .check entry comment.) --
         move.l  (Player_1+SST_x_pos).w, d0
         swap    d0
         cmpi.w  #SECTION_FWD_THRESHOLD, d0
         bge.w   .fwd_check
         cmpi.w  #SECTION_BWD_THRESHOLD, d0
         ble.w   .bwd_check
+
+        ; --- vertical threshold check ---
+        move.l  (Player_1+SST_y_pos).w, d0
+        swap    d0
+        cmpi.w  #SECTION_DOWN_THRESHOLD, d0
+        bge.s   .down_check
+        cmpi.w  #SECTION_UP_THRESHOLD, d0
+        ble.s   .up_check
+        rts
+
+.down_check:
+        ; TODO: Section_TeleportDown (2D grid phase 2)
+        rts
+
+.up_check:
+        ; TODO: Section_TeleportUp (2D grid phase 2)
         rts
 
 .preload_fwd:
         ; Section to forward = current slot 1's sec_x + 1 (clamped to grid_w).
         movea.l (Current_Act_Ptr).w, a2
-        moveq   #0, d6
-        move.b  (Slot_Section_Map+2).w, d6         ; slot 1 sec_x (and section_id since 1-row)
-        addq.b  #1, d6
-        cmp.b   Act_grid_w+1(a2), d6
+        move.b  (Slot_Section_Map+2).w, d2         ; slot 1 sec_x
+        addq.b  #1, d2
+        cmp.b   Act_grid_w+1(a2), d2
         bge.s   .preload_skip
-        ; Compute Sec ptr for section_id d6.w
-        movea.l Act_sec_grid_ptr(a2), a4
-        moveq   #0, d0
-        move.b  d6, d0
-        move.w  d0, d1
-        lsl.w   #6, d0                             ; sec × 64
-        lsl.w   #3, d1                             ; sec × 8
-        add.w   d1, d0                             ; sec × 72 = Sec_len
-        adda.w  d0, a4                             ; a4 = Sec ptr
-        movea.l a4, a0                             ; a0 = Sec ptr (Section_StreamArtGroup convention)
+        move.b  (Slot_Section_Map+3).w, d3         ; slot 1 sec_y
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .preload_skip
+        movea.l a0, a4
         bra.w   Section_StreamArtGroup
 .preload_skip:
         rts
@@ -231,21 +256,14 @@ Section_Check:
 .preload_bwd:
         ; Section to backward = current slot 0's sec_x - 1 (clamped to 0).
         movea.l (Current_Act_Ptr).w, a2
-        moveq   #0, d6
-        move.b  (Slot_Section_Map).w, d6           ; slot 0 sec_x
-        tst.b   d6
-        beq.s   .preload_skip                       ; already at section 0 → no BWD neighbour
-        subq.b  #1, d6
-        ; Compute Sec ptr for section_id d6.w
-        movea.l Act_sec_grid_ptr(a2), a4
-        moveq   #0, d0
-        move.b  d6, d0
-        move.w  d0, d1
-        lsl.w   #6, d0
-        lsl.w   #3, d1
-        add.w   d1, d0
-        adda.w  d0, a4
-        movea.l a4, a0
+        move.b  (Slot_Section_Map).w, d2           ; slot 0 sec_x
+        tst.b   d2
+        beq.s   .preload_skip
+        subq.b  #1, d2
+        move.b  (Slot_Section_Map+1).w, d3         ; slot 0 sec_y
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .preload_skip
+        movea.l a0, a4
         bra.w   Section_StreamArtGroup
 
 ; -----------------------------------------------
@@ -546,9 +564,9 @@ Section_RedrawPlanes:
         ; check cache range BEFORE setting VDP address — skip entirely
         ; on miss so off-screen columns retain old nametable content
         ; instead of flashing black/zero tiles
-        cmp.w   (Strip_Cache_Left_Col).w, d7
+        cmp.w   (Cache_Left_Col).w, d7
         blt.s   .pla_next
-        cmp.w   (Strip_Cache_Head_Col).w, d7
+        cmp.w   (Cache_Head_Col).w, d7
         bgt.s   .pla_next
 
         ; convert world col → plane col
@@ -568,14 +586,25 @@ Section_RedrawPlanes:
         vdpCommReg d4, VRAM, WRITE, 1
         move.l  d4, (a5)
 
-        ; read from strip cache
+        ; read from tile cache — stride copy (one column across rows)
         move.w  d7, d0
-        bsr.w   Strip_Cache_GetColumn           ; a0 = strip data
-        movea.l a0, a1
-        moveq   #STRIP_TILE_HEIGHT/2-1, d4
+        sub.w   (Cache_Left_Col).w, d0
+        add.w   d0, d0                         ; byte offset = col × 2
+        lea     (Tile_Cache_Nametable).l, a1
+        adda.w  d0, a1                         ; a1 = cache[row=0][col]
+        moveq   #TILE_CACHE_ROWS/2-1, d4
 .pla_copy:
-        move.l  (a1)+, (a6)
+        move.w  (a1), d0
+        swap    d0
+        move.w  TILE_CACHE_STRIDE*2(a1), d0
+        move.l  d0, (a6)
+        lea     TILE_CACHE_STRIDE*2*2(a1), a1
         dbf     d4, .pla_copy
+        ; zero-fill remaining rows (64 - 60 = 4 rows = 2 longwords)
+        moveq   #0, d0
+    rept (PLANE_V_CELLS - TILE_CACHE_ROWS) / 2
+        move.l  d0, (a6)
+    endr
 
 .pla_next:
         addq.w  #1, d3
@@ -609,12 +638,12 @@ Section_RedrawPlanes:
         ; -- return tracker bounds in d5/d7 for caller --
         ; Clamp to cache range so Section_UpdateColumns streams any
         ; columns we skipped (outside cache at redraw time).
-        move.w  (Strip_Cache_Left_Col).w, d0
+        move.w  (Cache_Left_Col).w, d0
         cmp.w   d0, d5
         bge.s   .track_left_ok
         move.w  d0, d5
 .track_left_ok:
-        move.w  (Strip_Cache_Head_Col).w, d7
+        move.w  (Cache_Head_Col).w, d7
         rts
 
 ; -----------------------------------------------
@@ -660,7 +689,7 @@ Section_UpdateColumns:
         move.w  d0, d7
 .right_clamp_ok:
         ; clamp to cache bounds
-        move.w  (Strip_Cache_Head_Col).w, d0
+        move.w  (Cache_Head_Col).w, d0
         cmp.w   d0, d7
         ble.s   .right_cache_ok
         move.w  d0, d7
@@ -670,7 +699,7 @@ Section_UpdateColumns:
 .right_loop:
         cmp.w   d7, d5
         bge.w   .right_done
-        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + STRIP_TILE_HEIGHT*2), (Plane_Buffer_Ptr).w
+        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + PLANE_V_CELLS*2), (Plane_Buffer_Ptr).w
         bhi.w   .right_done
         addq.w  #1, d5
 
@@ -703,7 +732,7 @@ Section_UpdateColumns:
         move.w  d0, d7                          ; d7 = left_needed world col
 
         ; clamp to cache and act bounds
-        move.w  (Strip_Cache_Left_Col).w, d0
+        move.w  (Cache_Left_Col).w, d0
         cmp.w   d0, d7
         bge.s   .left_cache_ok
         move.w  d0, d7
@@ -713,7 +742,7 @@ Section_UpdateColumns:
 .left_loop:
         cmp.w   d7, d5
         ble.w   .left_done
-        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + STRIP_TILE_HEIGHT*2), (Plane_Buffer_Ptr).w
+        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + PLANE_V_CELLS*2), (Plane_Buffer_Ptr).w
         bhi.w   .left_done
         subq.w  #1, d5
 
