@@ -63,12 +63,21 @@ Section_Init:
 Section_FillInitial:
         move.l  (Camera_X).w, d0
         swap    d0
-        lsr.w   #3, d0                          ; d0 = engine tile col of camera left
-        bsr.w   Engine_To_World_Col             ; d0 = world col
+        lsr.w   #3, d0
+        bsr.w   Engine_To_World_Col
         subq.w  #1, d0
         move.w  d0, (Section_Right_Col_Written).w
         addq.w  #1, d0
         move.w  d0, (Section_Left_Col_Written).w
+
+        move.l  (Camera_Y).w, d0
+        swap    d0
+        lsr.w   #3, d0
+        bsr.w   Engine_To_World_Row
+        subq.w  #1, d0
+        move.w  d0, (Section_Bottom_Row_Written).w
+        addq.w  #1, d0
+        move.w  d0, (Section_Top_Row_Written).w
         rts
 
 ; -----------------------------------------------
@@ -214,6 +223,29 @@ Section_Check:
         bset    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
 
 .threshold_check:
+        ; -- vertical preload triggers --
+        move.l  (Player_1+SST_y_pos).w, d0
+        swap    d0
+        cmpi.w  #SECTION_DOWN_PRELOAD, d0
+        bge.s   .down_preload_check
+        cmpi.w  #SECTION_UP_PRELOAD, d0
+        ble.s   .up_preload_check
+        bra.s   .h_threshold
+
+.down_preload_check:
+        btst    #SPF_DOWN_PRELOADED, (Section_Preload_Flags).w
+        bne.s   .h_threshold
+        bsr.w   .preload_down
+        bset    #SPF_DOWN_PRELOADED, (Section_Preload_Flags).w
+        bra.s   .h_threshold
+
+.up_preload_check:
+        btst    #SPF_UP_PRELOADED, (Section_Preload_Flags).w
+        bne.s   .h_threshold
+        bsr.w   .preload_up
+        bset    #SPF_UP_PRELOADED, (Section_Preload_Flags).w
+
+.h_threshold:
         move.l  (Player_1+SST_x_pos).w, d0
         swap    d0
         cmpi.w  #SECTION_FWD_THRESHOLD, d0
@@ -231,12 +263,19 @@ Section_Check:
         rts
 
 .down_check:
-        ; TODO: Section_TeleportDown (2D grid phase 2)
-        rts
+        ; skip DOWN if both slots already at bottom row
+        movea.l (Current_Act_Ptr).w, a0
+        move.b  (Slot_Section_Map+1).w, d0          ; slot 0 sec_y
+        addq.b  #1, d0
+        cmp.b   Act_grid_h+1(a0), d0
+        bge.s   .skip
+        bra.w   Section_TeleportDown
 
 .up_check:
-        ; TODO: Section_TeleportUp (2D grid phase 2)
-        rts
+        ; skip UP if both slots already at top row (sec_y = 0)
+        tst.b   (Slot_Section_Map+1).w
+        beq.s   .skip
+        bra.w   Section_TeleportUp
 
 .preload_fwd:
         ; Section to forward = current slot 1's sec_x + 1 (clamped to grid_w).
@@ -254,7 +293,6 @@ Section_Check:
         rts
 
 .preload_bwd:
-        ; Section to backward = current slot 0's sec_x - 1 (clamped to 0).
         movea.l (Current_Act_Ptr).w, a2
         move.b  (Slot_Section_Map).w, d2           ; slot 0 sec_x
         tst.b   d2
@@ -263,6 +301,32 @@ Section_Check:
         move.b  (Slot_Section_Map+1).w, d3         ; slot 0 sec_y
         bsr.w   Section_GetSecPtrXY
         beq.s   .preload_skip
+        movea.l a0, a4
+        bra.w   Section_StreamArtGroup
+
+.preload_down:
+        movea.l (Current_Act_Ptr).w, a2
+        move.b  (Slot_Section_Map).w, d2           ; slot 0 sec_x
+        move.b  (Slot_Section_Map+1).w, d3         ; slot 0 sec_y
+        addq.b  #1, d3
+        cmp.b   Act_grid_h+1(a2), d3
+        bge.s   .preload_v_skip
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .preload_v_skip
+        movea.l a0, a4
+        bra.w   Section_StreamArtGroup
+.preload_v_skip:
+        rts
+
+.preload_up:
+        movea.l (Current_Act_Ptr).w, a2
+        move.b  (Slot_Section_Map).w, d2           ; slot 0 sec_x
+        move.b  (Slot_Section_Map+1).w, d3         ; slot 0 sec_y
+        tst.b   d3
+        beq.s   .preload_v_skip
+        subq.b  #1, d3
+        bsr.w   Section_GetSecPtrXY
+        beq.s   .preload_v_skip
         movea.l a0, a4
         bra.w   Section_StreamArtGroup
 
@@ -482,6 +546,94 @@ Section_TeleportBwd:
         rts
 
 ; -----------------------------------------------
+; Section_TeleportDown — downward teleport
+; Both slots advance sec_y by 1. Camera_Y and Player_1.y_pos shift up
+; by SECTION_SHIFT so they remain in the upper portion of the new pair.
+; Clobbers: d0–d3, d6, a0–a2, a4
+; -----------------------------------------------
+Section_TeleportDown:
+        move.l  (Camera_Y).w, d0
+        subi.l  #SECTION_SHIFT<<16, d0
+        move.l  d0, (Camera_Y).w
+        subi.l  #SECTION_SHIFT<<16, (Player_1+SST_y_pos).w
+
+        lea     (Slot_Section_Map).w, a0
+        addq.b  #1, 1(a0)                          ; slot 0 sec_y += 1
+        addq.b  #1, 3(a0)                          ; slot 1 sec_y += 1
+
+        st      (Section_Teleport_Guard).w
+        clr.b   (Section_Preload_Flags).w
+
+        ; reinit tile cache for new vertical position
+        bsr.w   TileCache_Reinit
+
+        st      (Section_Plane_Dirty).w
+
+        ; parallax snap
+        move.b  #1, (Parallax_Snap_Pending).w
+        clr.l   (Parallax_Target_Config).w
+        clr.b   (Parallax_Transition_Frames).w
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef
+        movea.l Sec_sec_parallax_config(a0), a0
+        cmpa.w  #0, a0
+        bne.s   .down_parallax_set
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+        cmpa.w  #0, a0
+        beq.s   .down_parallax_done
+.down_parallax_set:
+        move.l  a0, (Parallax_Current_Config).w
+.down_parallax_done:
+        rts
+
+; -----------------------------------------------
+; Section_TeleportUp — upward teleport
+; Both slots retreat sec_y by 1. Camera_Y and Player_1.y_pos shift down
+; by SECTION_SHIFT so they remain in the lower portion of the new pair.
+; Clobbers: d0–d3, d6, a0–a2, a4
+; -----------------------------------------------
+Section_TeleportUp:
+        move.l  (Camera_Y).w, d0
+        addi.l  #SECTION_SHIFT<<16, d0
+        move.l  d0, (Camera_Y).w
+        addi.l  #SECTION_SHIFT<<16, (Player_1+SST_y_pos).w
+
+        lea     (Slot_Section_Map).w, a0
+        tst.b   1(a0)
+        beq.s   .up_at_top
+        subq.b  #1, 1(a0)                          ; slot 0 sec_y -= 1
+        subq.b  #1, 3(a0)                          ; slot 1 sec_y -= 1
+.up_at_top:
+
+        st      (Section_Teleport_Guard).w
+        clr.b   (Section_Preload_Flags).w
+
+        bsr.w   TileCache_Reinit
+
+        st      (Section_Plane_Dirty).w
+
+        ; parallax snap
+        move.b  #1, (Parallax_Snap_Pending).w
+        clr.l   (Parallax_Target_Config).w
+        clr.b   (Parallax_Transition_Frames).w
+        moveq   #SLOT_LEFT, d0
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSlotDef
+        movea.l Sec_sec_parallax_config(a0), a0
+        cmpa.w  #0, a0
+        bne.s   .up_parallax_set
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+        cmpa.w  #0, a0
+        beq.s   .up_parallax_done
+.up_parallax_set:
+        move.l  a0, (Parallax_Current_Config).w
+.up_parallax_done:
+        rts
+
+; -----------------------------------------------
 ; Section_QueueNewSlot1Cols — queue slot 1 tile columns (nametable cols 32–63)
 ; In:  a1 = act descriptor pointer
 ; Clobbers: d0–d5, a0–a2
@@ -662,6 +814,8 @@ Section_UpdateColumns:
         bsr.w   Section_RedrawPlanes
         move.w  d7, (Section_Right_Col_Written).w
         move.w  d5, (Section_Left_Col_Written).w
+        move.w  (Cache_Top_Row).w, (Section_Top_Row_Written).w
+        move.w  (Cache_Bottom_Row).w, (Section_Bottom_Row_Written).w
         rts
 .not_dirty:
         movem.l d2-d7/a0-a3, -(sp)
@@ -765,6 +919,80 @@ Section_UpdateColumns:
         bge.s   .right_clamp_skip2
         move.w  d3, (Section_Right_Col_Written).w
 .right_clamp_skip2:
+
+        ; -------- bottom side (vertical row streaming) --------
+        move.l  (Camera_Y).w, d6
+        swap    d6
+        move.w  d6, d7
+        addi.w  #231, d7                           ; 224 + 7
+        lsr.w   #3, d7
+        move.w  d7, d0
+        bsr.w   Engine_To_World_Row
+        move.w  d0, d7                             ; d7 = bottom_needed world row
+
+        ; clamp to cache bounds
+        move.w  (Cache_Bottom_Row).w, d0
+        cmp.w   d0, d7
+        ble.s   .bot_cache_ok
+        move.w  d0, d7
+.bot_cache_ok:
+
+        move.w  (Section_Bottom_Row_Written).w, d5
+.bot_loop:
+        cmp.w   d7, d5
+        bge.s   .bot_done
+        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + PLANE_H_CELLS*2), (Plane_Buffer_Ptr).w
+        bhi.s   .bot_done
+        addq.w  #1, d5
+
+        ; convert world row → nametable row
+        move.w  d5, d0
+        moveq   #0, d1
+        move.b  (Slot_Section_Map+1).w, d1
+        lsl.w   #8, d1
+        sub.w   d1, d0
+        addi.w  #SLOT_ORIGIN_U/8, d0
+        andi.w  #63, d0                            ; d0 = nametable row (wrapped)
+
+        move.w  d5, d1                             ; d1 = world row
+        bsr.w   Draw_TileRow_FromCache
+        bra.s   .bot_loop
+.bot_done:
+        move.w  d5, (Section_Bottom_Row_Written).w
+
+        ; -------- top side --------
+        lsr.w   #3, d6
+        move.w  d6, d0
+        bsr.w   Engine_To_World_Row
+        move.w  d0, d7                             ; d7 = top_needed world row
+
+        move.w  (Cache_Top_Row).w, d0
+        cmp.w   d0, d7
+        bge.s   .top_cache_ok
+        move.w  d0, d7
+.top_cache_ok:
+
+        move.w  (Section_Top_Row_Written).w, d5
+.top_loop:
+        cmp.w   d7, d5
+        ble.s   .top_done
+        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + PLANE_H_CELLS*2), (Plane_Buffer_Ptr).w
+        bhi.s   .top_done
+        subq.w  #1, d5
+
+        move.w  d5, d0
+        moveq   #0, d1
+        move.b  (Slot_Section_Map+1).w, d1
+        lsl.w   #8, d1
+        sub.w   d1, d0
+        addi.w  #SLOT_ORIGIN_U/8, d0
+        andi.w  #63, d0
+
+        move.w  d5, d1
+        bsr.w   Draw_TileRow_FromCache
+        bra.s   .top_loop
+.top_done:
+        move.w  d5, (Section_Top_Row_Written).w
 
         movem.l (sp)+, d2-d7/a0-a3
         rts

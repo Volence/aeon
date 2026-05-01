@@ -219,9 +219,9 @@ SLOT_ORIGIN_D           = $0A00     ; lower slot engine-space top edge
 ; Preview width covers the edge region visible as camera approaches the
 ; teleport boundary. 24 cols = 192 px = ~3/5 of screen width. Preview is
 ; streaming-integrated: Section_UpdateColumns extends its range into
-; neighbor section strips (Section_Fwd/Bwd_Neighbor_Strips), so preview
-; cols are written by the normal ring-buffer mechanism and only become
-; visible as the camera reaches the boundary.
+; neighbor section data, so preview cols are written by the normal
+; streaming mechanism and only become visible as the camera reaches
+; the boundary.
 PREVIEW_COLS            = 24        ; nametable cols at FWD/BWD edges
 PREVIEW_ROWS            = 24        ; nametable rows at TOP/BOT edges (vertical: stub for now)
 PREVIEW_PIXELS          = PREVIEW_COLS*8    ; 192 px — used for camera clamp offset
