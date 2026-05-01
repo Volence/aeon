@@ -11,9 +11,10 @@
 ; Clobbers: d0-d2, a0
 ; -----------------------------------------------
 Collision_GetType:
+        move.w  d1, d2                         ; save Y before Engine_To_World_Col clobbers d1
         lsr.w   #3, d0                         ; X pixels → tile col
-        move.w  d0, d2
         bsr.w   Engine_To_World_Col            ; d0.w = world tile col
+        move.w  d2, d1                         ; restore Y
 
         cmp.w   (Strip_Cache_Left_Col).w, d0
         blt.s   .cgt_air
@@ -57,11 +58,12 @@ Collision_GetFloorHeight:
         lea     (HeightMaps).l, a1
         move.b  (a1, d0.w), d1                 ; height value (0-16)
 
+        ext.w   d1                             ; d1 = height (0-16)
         move.w  d4, d0
         andi.w  #$F, d0                        ; sub-cell Y (0-15)
-        ext.w   d1
-        sub.w   d1, d0                         ; distance: negative = above floor
-        addq.w  #1, d0                         ; adjust: 0 = touching surface
+        add.w   d0, d1                         ; d1 = height + sub_cell_Y
+        moveq   #16, d0
+        sub.w   d1, d0                         ; d0 = 16 - height - sub_cell_Y
 
         moveq   #0, d1
         move.b  d2, d1
@@ -99,11 +101,12 @@ Collision_GetFloorHeight_Wall:
         lea     (HeightMapsRot).l, a1
         move.b  (a1, d0.w), d1
 
+        ext.w   d1                             ; d1 = width (0-16)
         move.w  d3, d0
-        andi.w  #$F, d0
-        ext.w   d1
-        sub.w   d1, d0
-        addq.w  #1, d0
+        andi.w  #$F, d0                        ; sub-cell X (0-15)
+        add.w   d0, d1                         ; d1 = width + sub_cell_X
+        moveq   #16, d0
+        sub.w   d1, d0                         ; d0 = 16 - width - sub_cell_X
 
         moveq   #0, d1
         move.b  d2, d1
