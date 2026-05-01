@@ -1,7 +1,6 @@
 ; Collision lookup system (§4.7)
-; Reads collision type from strip cache embedded bytes, then indexes
+; Reads collision type from 2D tile cache, then indexes
 ; into height map profiles and angle table for surface detection.
-; Strip format: 128 bytes per column — bytes 0-95 nametable, 96-119 collision.
 
 ; -----------------------------------------------
 ; Collision_GetType — look up collision type for an engine-space position
@@ -11,24 +10,30 @@
 ; Clobbers: d0-d2, a0
 ; -----------------------------------------------
 Collision_GetType:
-        move.w  d1, d2                         ; save Y before Engine_To_World_Col clobbers d1
+        move.w  d1, d2                         ; save Y
         lsr.w   #3, d0                         ; X pixels → tile col
-        bsr.w   Engine_To_World_Col            ; d0.w = world tile col
-        move.w  d2, d1                         ; restore Y
-
-        cmp.w   (Strip_Cache_Left_Col).w, d0
+        bsr.w   Engine_To_World_Col            ; d0.w = world tile col (clobbers d1)
+        cmp.w   (Cache_Left_Col).w, d0
         blt.s   .cgt_air
-        cmp.w   (Strip_Cache_Head_Col).w, d0
+        cmp.w   (Cache_Head_Col).w, d0
         bgt.s   .cgt_air
+        move.w  d0, -(sp)                     ; push world col
 
-        bsr.w   Strip_Cache_GetColumn          ; a0 = 128-byte strip
+        move.w  d2, d0
+        lsr.w   #3, d0                         ; Y pixels → tile row
+        bsr.w   Engine_To_World_Row            ; d0.w = world tile row (clobbers d1)
+        move.w  d0, d1                         ; d1 = world row
+        cmp.w   (Cache_Top_Row).w, d1
+        blt.s   .cgt_air_pop
+        cmp.w   (Cache_Bottom_Row).w, d1
+        bgt.s   .cgt_air_pop
 
-        lsr.w   #4, d1                         ; Y pixels → collision row (16px cells)
-        cmpi.w  #STRIP_COLLISION_ROWS, d1
-        bge.s   .cgt_air
-        move.b  STRIP_COLLISION_OFFSET(a0,d1.w), d0
+        move.w  (sp)+, d0                      ; d0 = world col, d1 = world row
+        bsr.w   Tile_Cache_GetCollision        ; d0.b = collision type
         rts
 
+.cgt_air_pop:
+        addq.l  #2, sp
 .cgt_air:
         moveq   #CTYPE_AIR, d0
         rts

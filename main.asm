@@ -115,6 +115,7 @@ __BUDGET_ENGINE:
     include "engine/objects/load_object.asm"
     include "engine/level/plane_buffer.asm"
     include "engine/level/strip_cache.asm"
+    include "engine/level/tile_cache.asm"
     include "engine/level/collision_lookup.asm"
     include "engine/level/section.asm"
     include "engine/level/camera.asm"

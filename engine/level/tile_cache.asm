@@ -1,20 +1,7 @@
 ; 2D tile cache (replaces §4.7 strip cache)
 ; Linear 2D buffer in lower RAM. Slides in both axes as camera moves.
 ; Block-based decompression: each 16×16 tile block decompressed on demand.
-
-; -----------------------------------------------
-; Engine_To_World_Col — convert engine tile col to world tile col
-; In:  d0.w = engine tile col (e.g., Camera_X / 8)
-; Out: d0.w = world tile col
-; Clobbers: d1
-; -----------------------------------------------
-Engine_To_World_Col:
-        subi.w  #SLOT_ORIGIN_L/8, d0
-        moveq   #0, d1
-        move.b  (Slot_Section_Map).w, d1
-        lsl.w   #8, d1
-        add.w   d1, d0
-        rts
+; Engine_To_World_Col is defined in strip_cache.asm (shared during migration).
 
 ; -----------------------------------------------
 ; Engine_To_World_Row — convert engine tile row to world tile row
@@ -74,7 +61,7 @@ Tile_Cache_GetCollision:
 ; TileCache_DecompressBlock — decompress one 16×16 block into staging buffer
 ; In:  d0.w = sec_x, d1.w = sec_y, d2.w = block_index (0–255)
 ; Out: Block_Stage_Nametable and Block_Stage_Collision filled
-; Clobbers: d0-d4, a0-a3
+; Clobbers: d0-d5, a0-a3
 ; -----------------------------------------------
 TileCache_DecompressBlock:
         move.w  d2, (Block_Stage_ID).w
@@ -84,10 +71,15 @@ TileCache_DecompressBlock:
         movea.l (Current_Act_Ptr).w, a0
         movea.l Act_sec_grid_ptr(a0), a1
 
-        ; sec_id = sec_y * grid_w + sec_x
-        move.w  d1, d3
-        move.w  Act_grid_w(a0), d4
-        mulu.w  d4, d3
+        ; sec_id = sec_y * grid_w + sec_x (add loop, cold path)
+        move.w  Act_grid_w(a0), d4             ; d4 = grid_w
+        moveq   #0, d3                         ; accumulator
+        move.w  d1, d5                         ; d5 = sec_y counter
+        bra.s   .mul_test
+.mul_loop:
+        add.w   d4, d3
+.mul_test:
+        dbf     d5, .mul_loop
         add.w   d0, d3                         ; d3 = flat section id
         ; d3 × Sec_len (72 = 64+8)
         move.w  d3, d4
@@ -306,12 +298,8 @@ TileCache_FillAll:
         movem.l (sp)+, d6/d7
 
         ; copy all 16 columns from staging into cache
-        ; block top-left world tile: world_block_col * 16, world_block_row * 16
         move.w  d6, d4
         lsl.w   #BLOCK_TILE_SHIFT, d4          ; world tile col of block left
-        move.w  2+8(sp), d5                    ; current block row (stack adjusted for pushed d6/d7... no wait, we popped them)
-
-        ; re-read from stack (d6/d7 restored)
         move.w  2(sp), d5                      ; current world block row
         lsl.w   #BLOCK_TILE_SHIFT, d5          ; world tile row of block top
 
@@ -508,7 +496,9 @@ TileCache_FillColumn:
         ; check if staging already has this block
         bsr.w   TileCache_StagedBlockMatch
         beq.s   .fc_have_block
+        movem.l d5/d7, -(sp)
         bsr.w   TileCache_DecompressBlock
+        movem.l (sp)+, d5/d7
 .fc_have_block:
 
         ; intra-block col
@@ -593,7 +583,9 @@ TileCache_FillRow:
 
         bsr.w   TileCache_StagedBlockMatch
         beq.s   .fr_have_block
+        movem.l d5/d7, -(sp)
         bsr.w   TileCache_DecompressBlock
+        movem.l (sp)+, d5/d7
 .fr_have_block:
 
         ; intra-block row
