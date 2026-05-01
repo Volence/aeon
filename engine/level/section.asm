@@ -263,19 +263,20 @@ Section_Check:
         rts
 
 .down_check:
-        ; skip DOWN if both slots already at bottom row
         movea.l (Current_Act_Ptr).w, a0
-        move.b  (Slot_Section_Map+1).w, d0          ; slot 0 sec_y
+        move.b  (Slot_Section_Map+1).w, d0
         addq.b  #1, d0
         cmp.b   Act_grid_h+1(a0), d0
-        bge.s   .skip
+        bge.s   .v_skip
         bra.w   Section_TeleportDown
 
 .up_check:
-        ; skip UP if both slots already at top row (sec_y = 0)
         tst.b   (Slot_Section_Map+1).w
-        beq.s   .skip
+        beq.s   .v_skip
         bra.w   Section_TeleportUp
+
+.v_skip:
+        rts
 
 .preload_fwd:
         ; Section to forward = current slot 1's sec_x + 1 (clamped to grid_w).
