@@ -11,23 +11,22 @@ Plane_Buffer_Reset:
         rts
 
 ; -----------------------------------------------
-; Draw_TileColumn — append one tile column from strip cache to Plane_Buffer
+; Draw_TileColumn — append one tile column from 2D cache to Plane_Buffer
 ; In:  d0.w = target VDP nametable column (0–63)
-;      d1.w = world tile column (strip cache lookup)
+;      d1.w = world tile column
 ; Out: none (silently drops if buffer full)
-; Clobbers: d0–d3, a0–a2
+; Clobbers: d0–d5, a0–a2
 ; -----------------------------------------------
 Draw_TileColumn:
         move.w  (Plane_Buffer_Ptr).w, d2
-        addi.w  #4 + STRIP_TILE_HEIGHT*2, d2
+        addi.w  #4 + PLANE_V_CELLS*2, d2
         cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
         bhi.s   .done
 
-        move.w  d0, -(sp)
-        move.w  d1, d0
-        bsr.w   Strip_Cache_GetColumn
-        movea.l a0, a1
-        move.w  (sp)+, d0
+        cmp.w   (Cache_Left_Col).w, d1
+        blt.s   .done
+        cmp.w   (Cache_Head_Col).w, d1
+        bgt.s   .done
 
         lea     (Plane_Buffer).w, a2
         adda.w  (Plane_Buffer_Ptr).w, a2
@@ -35,16 +34,32 @@ Draw_TileColumn:
         add.w   d0, d0
         addi.w  #VRAM_PLANE_A & $FFFF, d0
         move.w  d0, (a2)+
-        move.w  #$8000 | (STRIP_TILE_HEIGHT/2 - 1), (a2)+
+        move.w  #$8000 | (PLANE_V_CELLS/2 - 1), (a2)+
 
-        moveq   #STRIP_TILE_HEIGHT/2 - 1, d3
-.copy:
-        move.l  (a1)+, (a2)+
-        dbf     d3, .copy
+        ; compute source pointer: cache nametable, column (d1 - Cache_Left_Col)
+        move.w  d1, d0
+        sub.w   (Cache_Left_Col).w, d0
+        add.w   d0, d0                         ; byte offset = col_offset × 2
+        lea     (Tile_Cache_Nametable).l, a0
+        adda.w  d0, a0                         ; a0 = cache[row=0][col]
+
+        moveq   #TILE_CACHE_ROWS/2-1, d5      ; 30 longwords from cache
+.copy_cached:
+        move.w  (a0), d3                       ; row N tile
+        swap    d3
+        move.w  TILE_CACHE_STRIDE*2(a0), d3    ; row N+1 tile
+        move.l  d3, (a2)+                      ; high word (row N) written first
+        lea     TILE_CACHE_STRIDE*2*2(a0), a0  ; advance 2 rows
+        dbf     d5, .copy_cached
+
+        ; zero-fill remaining plane rows (64 - 60 = 4 rows = 2 longwords)
+    rept (PLANE_V_CELLS - TILE_CACHE_ROWS) / 2
+        clr.l   (a2)+
+    endr
 
         move.w  #0, (a2)
         move.w  (Plane_Buffer_Ptr).w, d2
-        addi.w  #4 + STRIP_TILE_HEIGHT*2, d2
+        addi.w  #4 + PLANE_V_CELLS*2, d2
         move.w  d2, (Plane_Buffer_Ptr).w
 .done:
         rts
@@ -98,6 +113,58 @@ Draw_TileRow:
         add.w   d3, d4
         move.w  d4, (Plane_Buffer_Ptr).w
 
+.done:
+        rts
+
+; -----------------------------------------------
+; Draw_TileRow_FromCache — append one tile row from 2D cache to Plane_Buffer
+; In:  d0.w = target VDP nametable row (0–63)
+;      d1.w = world tile row
+; Out: none (silently drops if buffer full)
+; Clobbers: d0–d5, a0–a2
+; -----------------------------------------------
+Draw_TileRow_FromCache:
+        move.w  (Plane_Buffer_Ptr).w, d2
+        addi.w  #4 + PLANE_H_CELLS*2, d2
+        cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
+        bhi.s   .done
+
+        cmp.w   (Cache_Top_Row).w, d1
+        blt.s   .done
+        cmp.w   (Cache_Bottom_Row).w, d1
+        bgt.s   .done
+
+        lea     (Plane_Buffer).w, a2
+        adda.w  (Plane_Buffer_Ptr).w, a2
+
+        ; row header (bit 15 clear = row mode)
+        lsl.w   #7, d0                         ; row × 128 (64 cols × 2 bytes)
+        addi.w  #VRAM_PLANE_A & $FFFF, d0
+        move.w  d0, (a2)+
+        move.w  #PLANE_H_CELLS/2 - 1, (a2)+
+
+        ; compute source: cache nametable row
+        move.w  d1, d0
+        sub.w   (Cache_Top_Row).w, d0
+        ; row × 80 via shift-add
+        move.w  d0, d3
+        lsl.w   #6, d0
+        lsl.w   #4, d3
+        add.w   d3, d0
+        add.w   d0, d0                         ; byte offset (words → bytes)
+        lea     (Tile_Cache_Nametable).l, a0
+        adda.w  d0, a0                         ; a0 = start of cache row
+
+        ; copy 64 tiles as 32 longwords (cache row is 80 cols, only copy first 64)
+        moveq   #PLANE_H_CELLS/2-1, d5
+.copy_row:
+        move.l  (a0)+, (a2)+
+        dbf     d5, .copy_row
+
+        move.w  #0, (a2)
+        move.w  (Plane_Buffer_Ptr).w, d2
+        addi.w  #4 + PLANE_H_CELLS*2, d2
+        move.w  d2, (Plane_Buffer_Ptr).w
 .done:
         rts
 
