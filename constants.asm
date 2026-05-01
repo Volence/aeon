@@ -50,7 +50,7 @@ SYSTEM_STACK            = $FFFFFF00
 ; -----------------------------------------------
 VRAM_PLANE_A            = $C000         ; Byte address (tile $600)
 VRAM_PLANE_B            = $E000         ; Byte address (tile $700)
-VRAM_SPRITE_TABLE       = $D800
+VRAM_SPRITE_TABLE       = $B800         ; Relocated from $D800 to free plane rows 48-63
 VRAM_HSCROLL_TABLE      = $DC00
 VRAM_WINDOW             = $F000
 
@@ -257,15 +257,10 @@ STRIP_BYTE_SIZE         = 128       ; power-of-2 stride: 96 nametable + 24 colli
 STRIP_BYTE_SHIFT        = 7         ; lsl #7 = ×128
 
 ; Multi-region VRAM tile packing (§2 A.2)
-; Region 1: primary art pool $0000-$BFFF (1536 tiles).
-; Region 2: Plane B off-screen rows, $F800-$FFFF (64 tiles).
-;   Safe because OJZ act_descriptor's cam_max_y=128 caps the visible
-;   bottom row at nametable row 44; rows 45+ of Plane B never render.
-;   Row 48 chosen for a 3-row safety margin against future cam_max_y bumps.
-; tools/ojz_strip_gen.py REGION* constants must match.
-REGION1_TILE_CAPACITY   = 1536
-REGION2_VRAM_BASE       = $F800
-REGION2_TILE_CAPACITY   = 64        ; ($10000 - $F800) / 32
+; Region 1: primary art pool $0000-$B7FF (1472 tiles).
+; SAT at $B800 occupies tiles $5C0-$5FF (64 tiles).
+; Region 2 removed — full 64-row plane uses all nametable rows.
+REGION1_TILE_CAPACITY   = 1472      ; was 1536; SAT at $B800 takes tiles $5C0-$5FF
 
 ; Per-section streaming (§2 A.4)
 STREAMING_BUFFER_SIZE   = 4096

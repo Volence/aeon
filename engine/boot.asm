@@ -225,7 +225,7 @@ BootData_VDPRegs:
         dc.b    $30                         ; $02: Plane A nametable at $C000
         dc.b    $3C                         ; $03: Window nametable at $F000
         dc.b    $07                         ; $04: Plane B nametable at $E000
-        dc.b    $6C                         ; $05: Sprite table at $D800
+        dc.b    $5C                         ; $05: Sprite table at $B800
         dc.b    $00                         ; $06: unused
         dc.b    $00                         ; $07: BG color = pal 0, entry 0
         dc.b    $00                         ; $08: unused (SMS compat)

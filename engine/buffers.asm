@@ -65,7 +65,7 @@ BuildStaticDMA:
         move.l  #vdpComm($60, CRAM, DMA), d2
         bsr.w   .build_entry
 
-        ; Sprite table: Sprite_Table_Buffer -> VRAM $D800, 640 bytes
+        ; Sprite table: Sprite_Table_Buffer -> VRAM $B800, 640 bytes
         lea     (Static_Sprite_DMA).w, a0
         move.l  #dmaSource(Sprite_Table_Buffer), d1
         move.w  #dmaLength(640), d3
