@@ -118,7 +118,7 @@ StreamState endstruct       ; = $0C (12 bytes)
 ; All fields: 0 = keep current / no change
 ; -----------------------------------------------
 Sec struct
-sec_strips_s4lz     ds.l 1          ; $00 — S4LZ compressed strip stream ptr (ROM; §4.7)
+sec_block_index     ds.l 1          ; $00 — pointer to 256-entry block index table (ROM; §4.7 2D)
 sec_objects         ds.l 1          ; $04 — compact 4-byte object entries
 sec_rings           ds.l 1          ; $08 — flat X-sorted ring entries (dc.w X, Y; dc.l 0 terminated)
 sec_plc             ds.l 1          ; $0C — S4LZ art PLC list
@@ -129,7 +129,7 @@ sec_bg_layout       ds.l 1          ; $1C — plane B layout pointer (NULL = use
 sec_type_table      ds.l 1          ; $20 — type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
 sec_pal_cycle       ds.l 1          ; $24 — palette cycling script (Phase 4)
 sec_sound_bank      ds.l 1          ; $28 — DAC sample bank pointer
-sec_strip_checkpoints ds.l 1        ; $2C — strip checkpoint table ptr (ROM; 4 × word; §4.7)
+sec_reserved_2C     ds.l 1          ; $2C — reserved (was strip checkpoints; blocks are direct-access)
 sec_anim_blocks     ds.l 1          ; $30 — animated tile script (Phase 4)
 sec_collision_s4lz  ds.l 1          ; $34 — reserved (collision embedded in strip data; §4.7)
 sec_flags           ds.w 1          ; $38 — SF_* bitmask
@@ -146,6 +146,10 @@ Sec endstruct
     if Sec_len <> $48
       error "Sec struct is \{Sec_len} bytes, expected $48"
     endif
+
+; Backward-compat aliases (remove after Task 9 migration)
+Sec_sec_strips_s4lz = Sec_sec_block_index
+Sec_sec_strip_checkpoints = Sec_sec_reserved_2C
 
 ; -----------------------------------------------
 ; Parallax band entry (§4.6) — 10 bytes per band, ROM data

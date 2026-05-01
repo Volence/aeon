@@ -234,11 +234,14 @@ SECTION_BWD_PRELOAD     = $0400     ; camera X → queue backward section art
 SECTION_DEFERRED_FWD_LOAD = $0600   ; camera X → fire deferred Sec_R load (slot 0 midpoint, post-FWD-teleport)
 SECTION_DEFERRED_BWD_LOAD = $0C00   ; camera X → fire deferred Sec_L load (slot 1 quarter, post-BWD-teleport)
 
-; Vertical thresholds (2D-ready, unreachable in 1D)
-SECTION_UP_THRESHOLD    = $7FFF
-SECTION_DOWN_THRESHOLD  = $7FFF
-SECTION_UP_PRELOAD      = $7FFF
-SECTION_DOWN_PRELOAD    = $7FFF
+; Vertical thresholds (2D active)
+SECTION_UP_THRESHOLD    = $0200
+SECTION_DOWN_THRESHOLD  = $1200
+SECTION_UP_PRELOAD      = $0400
+SECTION_DOWN_PRELOAD    = $0E00
+SECTION_DEFERRED_UP_LOAD  = $0C00
+SECTION_DEFERRED_DOWN_LOAD = $0600
+SECTION_TILE_HEIGHT     = SECTION_SIZE/8    ; 256 — tile rows per section
 
 ; Parallax (§4.6)
 MAX_PARALLAX_BANDS         = 8
@@ -277,6 +280,10 @@ SPF_FWD_PRELOADED = 0       ; bit 0: forward neighbour streamed
 SPF_BWD_PRELOADED = 1       ; bit 1: backward neighbour streamed
 SPF_DEFERRED_FWD_LOAD = 2   ; bit 2: deferred slot 1 cold-load pending after FWD teleport (§4.2)
 SPF_DEFERRED_BWD_LOAD = 3   ; bit 3: deferred slot 0 cold-load pending after BWD teleport (§4.2)
+SPF_UP_PRELOADED      = 4   ; bit 4: upward neighbour streamed
+SPF_DOWN_PRELOADED    = 5   ; bit 5: downward neighbour streamed
+SPF_DEFERRED_UP_LOAD  = 6   ; bit 6: deferred vertical slot cold-load
+SPF_DEFERRED_DOWN_LOAD = 7  ; bit 7: deferred vertical slot cold-load
 
 ; Plane buffer
 PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
@@ -292,6 +299,29 @@ STRIP_CACHE_GUARD_SIZE  = 512       ; absorbs S4LZ streaming decompressor oversh
 STRIP_CACHE_MARGIN      = 20        ; lookahead columns each side
 STRIP_CACHE_SLIDE_KEEP  = STRIP_CACHE_MARGIN * 2  ; 40 strips kept left of camera during slide (backward scroll headroom)
 STRIP_CACHE_INIT_COLS   = STRIP_CACHE_COLS - STRIP_CACHE_MARGIN  ; 60 strips at init (room for right margin fill)
+
+; -----------------------------------------------
+; 2D Tile Cache (replaces §4.7 strip cache for vertical support)
+; -----------------------------------------------
+TILE_CACHE_COLS         = 80        ; columns in cache (viewport 40 + margin 20×2)
+TILE_CACHE_ROWS         = 60        ; rows in cache (viewport 28 + margin 16×2)
+TILE_CACHE_STRIDE       = TILE_CACHE_COLS   ; compile-time constant for row stride
+TILE_CACHE_NT_SIZE      = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2  ; 9600 bytes
+TILE_CACHE_COLL_ROWS    = TILE_CACHE_ROWS / 2  ; 30 collision rows (16px cells)
+TILE_CACHE_COLL_SIZE    = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS  ; 2400 bytes
+TILE_CACHE_MARGIN_H     = 20        ; horizontal margin (columns each side)
+TILE_CACHE_MARGIN_V     = 16        ; vertical margin (rows each side)
+
+; Block format (16×16 tile blocks, independently S4LZ-compressed)
+BLOCK_TILE_SIZE         = 16        ; 16×16 tiles per block
+BLOCK_TILE_SHIFT        = 4         ; lsr #4 = ÷ 16
+BLOCK_NT_SIZE           = BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2  ; 512 bytes
+BLOCK_COLL_ROWS         = BLOCK_TILE_SIZE / 2  ; 8 collision rows per block
+BLOCK_COLL_SIZE         = BLOCK_TILE_SIZE * BLOCK_COLL_ROWS  ; 128 bytes
+BLOCK_RAW_SIZE          = BLOCK_NT_SIZE + BLOCK_COLL_SIZE  ; 640 bytes
+BLOCKS_PER_SECTION_AXIS = 16        ; 16 blocks across, 16 blocks down
+BLOCK_INDEX_ENTRIES     = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  ; 256
+BLOCK_INDEX_SIZE        = BLOCK_INDEX_ENTRIES * 4  ; 1024 bytes (ROM)
 
 ; Collision (§4.7) — collision bytes embedded in strip cache, no separate maps
 COLLISION_CELL_SHIFT    = 4         ; pixel → cell (/ 16)
@@ -357,6 +387,8 @@ SLOT_TAG_OFFSET         = SST_sst_custom+$1D
 SLOT_TAG_UNTAGGED       = $FF
 SLOT_TAG_LEFT           = 0
 SLOT_TAG_RIGHT          = 1
+SLOT_TAG_UP             = 2
+SLOT_TAG_DOWN           = 3
 
 ; Entity metadata — stored in SST custom region at spawn time
 ENTITY_SECTION_ID_OFFSET = SST_sst_custom+$1B

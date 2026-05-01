@@ -3,17 +3,20 @@
 ; Upper 32KB ($FFFF8000+) for hot data — .w addressing for speed
 
 ; -----------------------------------------------
-; Lower RAM — strip cache, streaming buffers, collision maps, stream state (§4.7)
+; Lower RAM — 2D tile cache, block staging, streaming buffers (§4.7)
 ; Replaces Decomp_Buffer after level init. LoadArt_S4LZ still
 ; writes here during init (display off, before cache is populated).
 ; -----------------------------------------------
         phase $FFFF0000
 
-; Strip cache — world-space linear buffer with batched slide
-; Wider format: 128 bytes per strip (96 nametable + 24 collision + 8 pad)
-Strip_Cache:            ds.b STRIP_CACHE_PHYS_SIZE  ; 15360 bytes (120 strips × 128)
-Strip_Cache_End:
-                        ds.b STRIP_CACHE_GUARD_SIZE ; 512 bytes — absorbs decompressor overshoot
+; 2D tile cache — world-space sliding window (replaces 1D strip cache)
+Tile_Cache_Nametable:   ds.b TILE_CACHE_NT_SIZE     ; 9600 bytes (80×60×2)
+Tile_Cache_Collision:   ds.b TILE_CACHE_COLL_SIZE    ; 2400 bytes (80×30×1)
+                        ds.b 2                       ; pad to even
+
+; Block staging buffer — holds one decompressed block
+Block_Stage_Nametable:  ds.b BLOCK_NT_SIZE           ; 512 bytes
+Block_Stage_Collision:  ds.b BLOCK_COLL_SIZE         ; 128 bytes
 
 ; Streaming art DMA buffers (§2 A.4)
 STREAMING_BUFFER_A:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes
@@ -25,8 +28,12 @@ S4LZ_Stream_States:     ds.b StreamState_len * 4    ; 48 bytes
 Stream_Checkpoint_Ptrs: ds.l 4                      ; 16 bytes
 
 ; Keep Decomp_Buffer as alias for LoadArt_S4LZ backward compat
-Decomp_Buffer = Strip_Cache
-Decomp_Buffer_End = Strip_Cache_End
+Decomp_Buffer = Tile_Cache_Nametable
+Decomp_Buffer_End = Tile_Cache_Nametable + TILE_CACHE_NT_SIZE
+
+; Backward-compat aliases for strip cache (remove after Task 9 migration)
+Strip_Cache = Tile_Cache_Nametable
+Strip_Cache_End = Tile_Cache_Nametable + TILE_CACHE_NT_SIZE
 
 Lower_RAM_End:
 
@@ -269,13 +276,27 @@ Camera_Pan_Offset:      ds.w 1          ; current extended lookahead pan
                         ds.w 1          ; pad
 
 ; -----------------------------------------------
-; Strip Cache metadata (§4.7 — .w addressable)
+; 2D Tile Cache metadata (§4.7 — .w addressable)
 ; -----------------------------------------------
-Strip_Cache_Head_Col:   ds.w 1          ; world tile col of rightmost valid entry
-Strip_Cache_Write_Pos:  ds.w 1          ; next linear write offset in bytes (0..7679)
-Strip_Cache_Left_Col:   ds.w 1          ; world tile col of leftmost valid entry
-Strip_Cache_Fwd_Stream: ds.b 1          ; section_x of forward decompression stream
-                        ds.b 1          ; pad
+Cache_Left_Col:         ds.w 1          ; world tile col of leftmost valid column
+Cache_Head_Col:         ds.w 1          ; world tile col of rightmost valid column
+Cache_Top_Row:          ds.w 1          ; world tile row of topmost valid row
+Cache_Bottom_Row:       ds.w 1          ; world tile row of bottommost valid row
+
+; Block staging metadata
+Block_Stage_ID:         ds.w 1          ; (block_y << 4) | block_x of staged block
+Block_Stage_Section_X:  ds.b 1          ; sec_x of staged block
+Block_Stage_Section_Y:  ds.b 1          ; sec_y of staged block
+
+; Row streaming state (vertical)
+Section_Top_Row_Written:  ds.w 1
+Section_Bottom_Row_Written: ds.w 1
+
+; Backward-compat aliases for strip cache metadata (remove after Task 9)
+Strip_Cache_Head_Col = Cache_Head_Col
+Strip_Cache_Left_Col = Cache_Left_Col
+Strip_Cache_Write_Pos = Block_Stage_ID     ; repurposed
+Strip_Cache_Fwd_Stream = Block_Stage_Section_X  ; repurposed
 
 ; Section slot state
 ; Slot_Origins: 4 slots × 8 bytes = [origin_x.l][origin_y.l] each
