@@ -1839,33 +1839,36 @@ Example: Oracle Jungle Zone Act 1
 Each section in the 2D grid is fully self-describing — almost its own level:
 
 ```
-; Section definition — 64 bytes per (X, Y) cell:
-    dc.l    sec_strips_a        ; +$00: pre-computed plane A nametable strips (ROM pointer)
+; Section definition — 72 bytes per (X, Y) cell (Sec struct in structs.asm):
+    dc.l    sec_strips_s4lz     ; +$00: S4LZ-compressed nametable strips (ROM pointer, see §4.7)
     dc.l    sec_objects         ; +$04: object layout (compact 4-byte entries, X-sorted, see 4.9)
     dc.l    sec_rings           ; +$08: ring layout (flat X-sorted dc.w pairs, section-local coords, see 4.9)
     dc.l    sec_plc             ; +$0C: art PLC list (S4LZ format)
     dc.l    sec_pal             ; +$10: palette pointer — full 128-byte copy (0 = no change)
-    dc.l    sec_scroll          ; +$14: parallax layer table (0 = keep current)
+    dc.l    sec_parallax_config ; +$14: parallax_config pointer (0 = inherit act default; §4.6)
     dc.l    sec_raster_table    ; +$18: raster command table pointer (0 = keep current, see §7.2)
-    dc.l    sec_bg_layout       ; +$1C: per-section Plane B layout pointer (§2 A.5; NULL = use Act default)
-    dc.l    sec_reserved        ; +$20: reserved for future use
+    dc.l    sec_bg_layout       ; +$1C: per-section Plane B layout pointer (NULL = use Act default; §2 A.5)
+    dc.l    sec_type_table      ; +$20: type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
     dc.l    sec_pal_cycle       ; +$24: palette cycling script (0 = keep current)
     dc.l    sec_sound_bank      ; +$28: DAC sample bank pointer (0 = keep current)
-    dc.l    sec_deform_table    ; +$2C: deformation table pointer (0 = zone default)
-    dc.l    sec_anim_blocks     ; +$30: animated tile PLC list (0 = none)
-    dc.l    sec_collision       ; +$34: per-section collision map pointer (flat byte array, see 4.7)
-    dc.w    sec_flags           ; +$38: bit flags (see below)
+    dc.l    sec_strip_checkpoints ; +$2C: strip checkpoint table (ROM; 4 × word offsets; §4.7)
+    dc.l    sec_anim_blocks     ; +$30: animated tile script (0 = none)
+    dc.l    sec_collision_s4lz  ; +$34: reserved (collision embedded in strip data; §4.7)
+    dc.w    sec_flags           ; +$38: SF_* bitmask (see below)
     dc.w    sec_music           ; +$3A: music change (0 = keep current)
-    dc.b    sec_layer_mask      ; +$3C: parallax layer enable bitmask ($FF = all)
+    dc.b    sec_pcfg_pad_3C     ; +$3C: reserved (parallax config moved to sec_parallax_config)
     dc.b    sec_camera_lookahead; +$3D: camera look-ahead pixels (0 = zone default)
-    dc.b    sec_deform_speed    ; +$3E: deformation increment per frame (1 = normal)
-    dc.b    sec_transition_type ; +$3F: 0 = smooth blend, 1 = instant swap, 2 = fade
-; sec_entry_size = $40 (64 bytes)
+    dc.b    sec_pcfg_pad_3E     ; +$3E: reserved
+    dc.b    sec_pcfg_pad_3F     ; +$3F: reserved
+    dc.l    sec_tile_art_s4lz   ; +$40: per-section S4LZ tile pool ptr (§2 A.3)
+    dc.w    sec_tile_art_vram   ; +$44: VRAM byte dest (color base × 32)
+    dc.w    sec_pad_46          ; +$46: pad
+; Sec_len = $48 (72 bytes)
 
-; sec_flags: has_water | underground | no_y_wrap | preserve_state | has_animated_blocks
+; sec_flags: SF_HAS_WATER | SF_UNDERGROUND | SF_NO_Y_WRAP | SF_PRESERVE_STATE | SF_HAS_ANIMATED_BLOCKS
 ```
 
-Fields default to 0 (keep current state). Each section is effectively its own world — unique terrain art, unique background motion, unique palette cycling, unique physics, unique music, unique collision map, all from data alone. No Genesis game has this level of per-area control within a single level.
+Fields default to 0 (keep current state). Each section is effectively its own world — unique terrain art, unique background motion, unique palette cycling, unique physics, unique music, unique parallax, all from data alone. No Genesis game has this level of per-area control within a single level.
 
 **Palette format:** `sec_pal` points to a full 128-byte palette copy (all 4 palette lines × 16 colors × 2 bytes). No delta format, no compression — raw CRAM data, instant load on section transition. Palette cross-fading (7.1) interpolates between the outgoing and incoming 128-byte copies over ~16 frames.
 
@@ -1965,14 +1968,16 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 
 **Foundation:** S.C.E.'s `HScroll_Deform` deformation script, extended with shift-add factor encoding (novel), per-band amplitude/phase split (novel), and section-boundary lerp transitions (novel).
 
-### 4.7 Level Collision — Per-Section Collision Map + Dual Sensors
+### 4.7 Level Collision — Strip-Embedded Collision + Dual Sensors
 
 **Collision is embedded in strip data.** Each strip column in the cache is 128 bytes: 96 bytes of nametable words (48 rows × 2 bytes) followed by 24 collision type bytes (one per 16×16 cell, covering 48 tile rows at 2 rows per cell) and 8 bytes of padding. The power-of-2 stride (128) enables single-shift addressing (`lsl #7`).
 
 **Runtime collision lookup** reads directly from the strip cache — no separate collision maps, no per-section decompression, no slot rotation at teleport. The strip cache already has the data:
 ```asm
 ; Collision lookup from strip cache
-; d0 = world tile col, d1 = Y pixel position (section-local)
+; d0.w = engine X pixels, d1.w = Y pixels
+    lsr.w   #3, d0                      ; X pixels → tile col
+    bsr.w   Engine_To_World_Col         ; d0.w = world tile col
     bsr.w   Strip_Cache_GetColumn       ; a0 = 128-byte strip
     lsr.w   #4, d1                      ; Y → collision row (0-23)
     move.b  STRIP_COLLISION_OFFSET(a0,d1.w), d0  ; collision type byte
@@ -1980,14 +1985,15 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 
 **Collision type byte:** Indexes into height maps and angle arrays. The byte IS the collision ID — no further indirection. Embedded in the strip data by the build tool (S.C.E./S3K-style: collision is a property of placement, not a separate data structure).
 
+**Floor distance formula** (S.C.E. convention): `distance = 16 - height - sub_cell_Y`, where `sub_cell_Y = Y_pixels & $F` and `height` is the height map value (0-16) at `(collision_type × 16) + (X_pixels & $F)`. Negative distance = embedded in solid (snap up), zero = on surface, positive = gap below foot.
+
 **Dual-sensor system** (unchanged from S.C.E./S3K):
 - **Two floor sensors** (left/right foot) positioned at `x_pos ± width_pixels/2, y_pos + height_pixels/2`
 - **Height maps** in ROM: `HeightMaps` (vertical collision) + `HeightMapsRot` (wall sensors)
 - **Angle arrays:** Pre-computed terrain angles indexed by collision ID
 - **Height map indexing:** `(collision_type × 16) + (x_pixel & 0xF)` — single-cycle lookup
-- **Dual-layer:** Foreground collision checked first, background checked if flag set
 
-**Build tool embeds collision in strips:** The build tool generates 128-byte strip columns — 96 bytes of nametable words plus 24 collision bytes derived from tile→collision assignments. The collision bytes are compressed alongside the nametable data in a single S4LZ stream, decompressed on-demand by the strip cache.
+**Build tool embeds collision in strips:** The build tool generates 128-byte strip columns — 96 bytes of nametable words plus 24 collision bytes derived from tile placement. Currently uses VDP priority bit (bit 15) to distinguish ground (priority=1 → type 1, solid) from sky (priority=0 → type 0, air). Future: proper tile→collision LUT for slopes and varied terrain types.
 
 **Why embedded over separate maps:** S.C.E./S3K embed collision indices directly in their block mapping words. Our strip format adapts this by appending collision bytes to each strip column. Benefits: no separate per-section collision files, no collision map RAM slots (saves 12 KB), no collision decompression at init/preload/teleport, collision is inherently tied to position (same visual tile can have different collision in different placements). The 24 bytes of collision data per strip (plus 8 pad) increase raw strip size by 33% but compress nearly free (mostly runs of 0s and 1s).
 
@@ -2016,7 +2022,7 @@ The section system touches nearly every other engine system. These cascades are 
 - Art pre-allocation via `AllocVRAM` (2.2) still applies: section preload allocates art before objects spawn
 
 **Section + Parallax (4.6):**
-- Each section's `sec_scroll` pointer loads a new layer table on teleport
+- Each section's `sec_parallax_config` pointer loads a new parallax config on teleport
 - Different sections in the same zone can have different parallax (outdoor → cave → underwater)
 - Layer enable mask disables unused layers per section (saves cycles + DMA)
 - Parallax transition smoothing interpolates scroll factors over 8-16 frames at boundaries
