@@ -24,16 +24,9 @@ STREAMING_BUFFER_B:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes
 
 ; Stream states — 4 streaming decompressor bookmarks
 S4LZ_Stream_States:     ds.b StreamState_len * 4    ; 48 bytes
-; Checkpoint ROM pointers — cached at stream init
-Stream_Checkpoint_Ptrs: ds.l 4                      ; 16 bytes
-
 ; Keep Decomp_Buffer as alias for LoadArt_S4LZ backward compat
 Decomp_Buffer = Tile_Cache_Nametable
 Decomp_Buffer_End = Tile_Cache_Nametable + TILE_CACHE_NT_SIZE
-
-; Backward-compat aliases for strip cache (remove after Task 9 migration)
-Strip_Cache = Tile_Cache_Nametable
-Strip_Cache_End = Tile_Cache_Nametable + TILE_CACHE_NT_SIZE
 
 Lower_RAM_End:
 
@@ -292,12 +285,6 @@ Block_Stage_Section_Y:  ds.b 1          ; sec_y of staged block
 Section_Top_Row_Written:  ds.w 1
 Section_Bottom_Row_Written: ds.w 1
 
-; Backward-compat aliases for strip cache metadata (remove after Task 9)
-Strip_Cache_Head_Col = Cache_Head_Col
-Strip_Cache_Left_Col = Cache_Left_Col
-Strip_Cache_Write_Pos = Block_Stage_ID     ; repurposed
-Strip_Cache_Fwd_Stream = Block_Stage_Section_X  ; repurposed
-
 ; Section slot state
 ; Slot_Origins: 4 slots × 8 bytes = [origin_x.l][origin_y.l] each
 Slot_Origins:           ds.b 32
@@ -323,10 +310,10 @@ Streaming_Active_Buffer: ds.b 1         ; 0 = next stream uses A; 1 = next uses 
 Section_Right_Col_Written: ds.w 1
 Section_Left_Col_Written:  ds.w 1
 
-; §4.2 preview: cached neighbor section strip pointers for streaming-integrated preview.
+; §4.2 preview: cached neighbor section data pointers.
 ; Set at teleport/init; NULL if no neighbor exists (act boundary).
-Section_Fwd_Neighbor_Strips: ds.l 1       ; next section's Sec_sec_strips_s4lz
-Section_Bwd_Neighbor_Strips: ds.l 1       ; prev section's Sec_sec_strips_s4lz
+Section_Fwd_Neighbor_Data: ds.l 1
+Section_Bwd_Neighbor_Data: ds.l 1
 
 ; Dynamic tile override (16 entries × 6 bytes: col.w, row.w, new_tile.w)
 Tile_Override_Table:    ds.b 96

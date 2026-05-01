@@ -277,7 +277,7 @@ Section_Check:
 ; .deferred_bwd_load: mirror for BWD-teleport, fires at $0C00.
 ; -----------------------------------------------
 .deferred_fwd_load:
-        clr.l   (Section_Bwd_Neighbor_Strips).w     ; old art about to be overwritten
+        clr.l   (Section_Bwd_Neighbor_Data).w     ; old art about to be overwritten
         moveq   #SLOT_RIGHT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 1
@@ -287,7 +287,7 @@ Section_Check:
         bra.w   Section_StreamArtGroup
 
 .deferred_bwd_load:
-        clr.l   (Section_Fwd_Neighbor_Strips).w     ; old art about to be overwritten
+        clr.l   (Section_Fwd_Neighbor_Data).w     ; old art about to be overwritten
         moveq   #SLOT_LEFT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 0

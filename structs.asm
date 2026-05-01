@@ -147,10 +147,6 @@ Sec endstruct
       error "Sec struct is \{Sec_len} bytes, expected $48"
     endif
 
-; Backward-compat aliases (remove after Task 9 migration)
-Sec_sec_strips_s4lz = Sec_sec_block_index
-Sec_sec_strip_checkpoints = Sec_sec_reserved_2C
-
 ; -----------------------------------------------
 ; Parallax band entry (§4.6) — 10 bytes per band, ROM data
 ; -----------------------------------------------

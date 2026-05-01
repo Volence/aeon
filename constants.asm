@@ -248,14 +248,6 @@ MAX_PARALLAX_BANDS         = 8
 PARALLAX_TRANS_DEFAULT     = 16     ; default boundary lerp duration (frames)
 PARALLAX_LERP_SHIFT        = 4      ; >>4 ≈ 16-frame convergence to ~95% — gentler slide on factor changes
 
-; Nametable strips (§4.7 — wider format with embedded collision)
-STRIP_TILE_HEIGHT       = 48        ; rows per strip (0–47; row 48+ = sprite table)
-STRIP_NAMETABLE_SIZE    = STRIP_TILE_HEIGHT*2   ; 96 bytes (48 nametable words)
-STRIP_COLLISION_OFFSET  = STRIP_NAMETABLE_SIZE  ; collision bytes start at byte 96
-STRIP_COLLISION_ROWS    = STRIP_TILE_HEIGHT/2   ; 24 collision cells (16px each)
-STRIP_BYTE_SIZE         = 128       ; power-of-2 stride: 96 nametable + 24 collision + 8 pad
-STRIP_BYTE_SHIFT        = 7         ; lsl #7 = ×128
-
 ; Multi-region VRAM tile packing (§2 A.2)
 ; Region 1: primary art pool $0000-$B7FF (1472 tiles).
 ; SAT at $B800 occupies tiles $5C0-$5FF (64 tiles).
@@ -284,19 +276,7 @@ SPF_DEFERRED_DOWN_LOAD = 7  ; bit 7: deferred vertical slot cold-load
 PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
 
 ; -----------------------------------------------
-; Strip Cache (§4.7) — linear buffer with batched slide
-; -----------------------------------------------
-STRIP_CACHE_COLS        = 80        ; logical window (viewport 40 + margin 20×2)
-STRIP_CACHE_SIZE        = STRIP_CACHE_COLS * STRIP_BYTE_SIZE  ; 80 × 128 = 10240 bytes
-STRIP_CACHE_PHYS_COLS   = 120       ; physical buffer capacity (40 extra for slide batching)
-STRIP_CACHE_PHYS_SIZE   = STRIP_CACHE_PHYS_COLS * STRIP_BYTE_SIZE  ; 120 × 128 = 15360 bytes
-STRIP_CACHE_GUARD_SIZE  = 512       ; absorbs S4LZ streaming decompressor overshoot
-STRIP_CACHE_MARGIN      = 20        ; lookahead columns each side
-STRIP_CACHE_SLIDE_KEEP  = STRIP_CACHE_MARGIN * 2  ; 40 strips kept left of camera during slide (backward scroll headroom)
-STRIP_CACHE_INIT_COLS   = STRIP_CACHE_COLS - STRIP_CACHE_MARGIN  ; 60 strips at init (room for right margin fill)
-
-; -----------------------------------------------
-; 2D Tile Cache (replaces §4.7 strip cache for vertical support)
+; 2D Tile Cache (§4.7)
 ; -----------------------------------------------
 TILE_CACHE_COLS         = 80        ; columns in cache (viewport 40 + margin 20×2)
 TILE_CACHE_ROWS         = 60        ; rows in cache (viewport 28 + margin 16×2)
@@ -330,10 +310,6 @@ ANGLE_TABLE_SIZE        = 256       ; one byte per collision type
 ; Collision types
 CTYPE_AIR               = 0
 CTYPE_FLAT_SOLID        = 1
-
-; S4LZ streaming checkpoints
-STRIPS_PER_CHECKPOINT   = 64        ; checkpoint every 64 strips
-CHECKPOINT_INTERVAL     = STRIPS_PER_CHECKPOINT * STRIP_BYTE_SIZE  ; 8192 bytes
 
 ; Camera
 CAM_LOOKAHEAD_THRESHOLD = $0600     ; ground speed for pan enable

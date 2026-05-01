@@ -1,7 +1,20 @@
-; 2D tile cache (replaces §4.7 strip cache)
+; 2D tile cache (§4.7)
 ; Linear 2D buffer in lower RAM. Slides in both axes as camera moves.
 ; Block-based decompression: each 16×16 tile block decompressed on demand.
-; Engine_To_World_Col is defined in strip_cache.asm (shared during migration).
+
+; -----------------------------------------------
+; Engine_To_World_Col — convert engine tile col to world tile col
+; In:  d0.w = engine tile col (e.g., Camera_X / 8)
+; Out: d0.w = world tile col
+; Clobbers: d1
+; -----------------------------------------------
+Engine_To_World_Col:
+        subi.w  #SLOT_ORIGIN_L/8, d0
+        moveq   #0, d1
+        move.b  (Slot_Section_Map).w, d1
+        lsl.w   #8, d1
+        add.w   d1, d0
+        rts
 
 ; -----------------------------------------------
 ; Engine_To_World_Row — convert engine tile row to world tile row
