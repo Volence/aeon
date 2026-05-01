@@ -953,19 +953,17 @@ WIDE_STRIP_SIZE = STRIP_TILE_HEIGHT * 2 + COLLISION_ROWS_PER_STRIP + STRIP_COLLI
 def generate_collision_bytes(strip_words: list[int]) -> bytes:
     """Generate 24 collision bytes for one strip column.
 
-    Stub: scan from the bottom of the column upward.  Mark cells solid
-    while they contain non-zero nametable words, forming a continuous
-    ground surface from the bottom.  Stop marking once we hit an air
-    cell — everything above is air (sky/clouds stay passable).
+    Stub: mark a cell solid only if its nametable words have the VDP
+    priority bit set (bit 15).  In OJZ, sky/cloud tiles use priority 0
+    while ground/terrain tiles use priority 1 — this cleanly separates
+    walkable ground from background scenery.
     """
     collision = bytearray(COLLISION_ROWS_PER_STRIP)
-    for cell in reversed(range(COLLISION_ROWS_PER_STRIP)):
+    for cell in range(COLLISION_ROWS_PER_STRIP):
         top_word = strip_words[cell * 2]
         bot_word = strip_words[cell * 2 + 1] if cell * 2 + 1 < len(strip_words) else 0
-        if top_word != 0 or bot_word != 0:
+        if (top_word & 0x8000) or (bot_word & 0x8000):
             collision[cell] = 1
-        else:
-            break
     return bytes(collision)
 
 
