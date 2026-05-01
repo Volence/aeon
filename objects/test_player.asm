@@ -188,12 +188,23 @@ TestPlayer_Main:
         jsr     ObjectMove
 
         ; --- Floor collision via strip cache ---
+        ; Skip when rising — only check when falling or grounded.
+        ; Stub collision marks sky tiles as solid, so checking while
+        ; rising would snap the player into sky cells.
+        btst    #ST_IN_AIR, SST_status(a0)
+        beq.s   .do_floor
+        tst.w   SST_y_vel(a0)
+        bmi.s   .no_floor
+.do_floor:
         movem.l a0, -(sp)
         jsr     Collision_FloorSensors
         movem.l (sp)+, a0
+        tst.b   d2
+        beq.s   .no_floor                      ; air tile — no surface
         tst.w   d0
         bgt.s   .no_floor
-        ; On or below floor — snap up
+        cmpi.w  #-16, d0
+        blt.s   .no_floor                      ; too deep — ignore
         ext.l   d0
         lsl.l   #8, d0
         lsl.l   #8, d0                         ; distance → 16.16

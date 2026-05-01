@@ -953,14 +953,19 @@ WIDE_STRIP_SIZE = STRIP_TILE_HEIGHT * 2 + COLLISION_ROWS_PER_STRIP + STRIP_COLLI
 def generate_collision_bytes(strip_words: list[int]) -> bytes:
     """Generate 24 collision bytes for one strip column.
 
-    Stub: each 16×16 cell (2 tile rows) is solid (1) if either nametable
-    word is non-zero, air (0) otherwise.
+    Stub: scan from the bottom of the column upward.  Mark cells solid
+    while they contain non-zero nametable words, forming a continuous
+    ground surface from the bottom.  Stop marking once we hit an air
+    cell — everything above is air (sky/clouds stay passable).
     """
     collision = bytearray(COLLISION_ROWS_PER_STRIP)
-    for cell in range(COLLISION_ROWS_PER_STRIP):
+    for cell in reversed(range(COLLISION_ROWS_PER_STRIP)):
         top_word = strip_words[cell * 2]
         bot_word = strip_words[cell * 2 + 1] if cell * 2 + 1 < len(strip_words) else 0
-        collision[cell] = 1 if (top_word != 0 or bot_word != 0) else 0
+        if top_word != 0 or bot_word != 0:
+            collision[cell] = 1
+        else:
+            break
     return bytes(collision)
 
 
