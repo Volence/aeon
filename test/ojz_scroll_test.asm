@@ -39,9 +39,6 @@ GameState_OJZScroll_Init:
         ; -- initialise camera first (Section_FillInitial reads Camera_X) --
         lea     OJZ_Act1_Descriptor, a0
         jsr     Camera_Init
-        ; Start camera Y at 120 so Plane A ground tiles (row 32+, Y=256+)
-        ; are visible on screen and collision is testable.
-        move.l  #120<<16, (Camera_Y).w
 
         ; -- init object system (must precede Player_1 setup and Section_Init) --
         jsr     InitObjectRAM

@@ -13,13 +13,13 @@ OJZ_Act1_Descriptor:
     dc.w    9                       ; grid_w (9 sections wide)
     dc.w    1                       ; grid_h (1 section tall)
     dc.w    $0100                   ; start_local_x: 256px into section 0
-    dc.w    $0060                   ; start_local_y: 96px down from top
+    dc.w    $0100                   ; start_local_y: 256px into section (ground level)
     dc.b    0                       ; start_sec_x = 0
     dc.b    0                       ; start_sec_y = 0
     dc.w    SLOT_ORIGIN_L           ; cam_min_x ($200)
     dc.w    SLOT_ORIGIN_L + $4680   ; cam_max_x (approximate for 9 sections)
-    dc.w    0                       ; cam_min_y — top of filled plane A rows
-    dc.w    320                     ; cam_max_y — full 64-row plane (SAT relocated)
+    dc.w    0                       ; cam_min_y
+    dc.w    SLOT_ORIGIN_U+SECTION_SIZE-224 ; cam_max_y (bottom of section minus screen height)
     dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)
     dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles  (§2 A.5 T1 shared BG tile blob)
     dc.l    ParallaxConfig_OJZ_Default ; act_parallax_config (fallback for sections with NULL config)

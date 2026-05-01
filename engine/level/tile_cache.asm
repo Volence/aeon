@@ -38,6 +38,11 @@ Engine_To_World_Row:
 ; -----------------------------------------------
 Tile_Cache_GetTile:
         sub.w   (Cache_Left_Col).w, d0
+        add.w   (Cache_Origin_Col).w, d0
+        cmpi.w  #TILE_CACHE_COLS, d0
+        blt.s   .col_nowrap
+        subi.w  #TILE_CACHE_COLS, d0
+.col_nowrap:
         sub.w   (Cache_Top_Row).w, d1
         ; d1 * 80 via shift-add (80 = 64 + 16)
         move.w  d1, d2
@@ -58,6 +63,11 @@ Tile_Cache_GetTile:
 ; -----------------------------------------------
 Tile_Cache_GetCollision:
         sub.w   (Cache_Left_Col).w, d0
+        add.w   (Cache_Origin_Col).w, d0
+        cmpi.w  #TILE_CACHE_COLS, d0
+        blt.s   .col_nowrap
+        subi.w  #TILE_CACHE_COLS, d0
+.col_nowrap:
         sub.w   (Cache_Top_Row).w, d1
         lsr.w   #1, d1                         ; tile rows → collision rows
         ; d1 * 80 via shift-add
@@ -154,6 +164,12 @@ TileCache_StagedBlockMatch:
 ; Clobbers: d0-d5, a0-a2
 ; -----------------------------------------------
 TileCache_CopyBlockColumn:
+        ; wrap d1 (logical cache col) to physical column via circular origin
+        add.w   (Cache_Origin_Col).w, d1
+        cmpi.w  #TILE_CACHE_COLS, d1
+        blt.s   .col_nowrap
+        subi.w  #TILE_CACHE_COLS, d1
+.col_nowrap:
         ; source: Block_Stage_Nametable + (row * 16 + col) * 2
         lea     (Block_Stage_Nametable).l, a0
         move.w  d0, d4
@@ -225,6 +241,9 @@ Tile_Cache_Init:
         move.w  d0, (Cache_Left_Col).w
         addi.w  #TILE_CACHE_COLS-1, d0
         move.w  d0, (Cache_Head_Col).w
+        clr.w   (Cache_Origin_Col).w
+        move.w  #$FFFF, (Cache_Fill_Last_Frame).w
+        move.w  #$FFFF, (Cache_Fill_Resume_Row).w
 
         move.l  (Camera_Y).w, d0
         swap    d0
@@ -374,149 +393,214 @@ TileCache_FillAll:
 ; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 Tile_Cache_Fill:
-        ; --- horizontal fill ---
-        ; compute desired right edge (camera right + margin, world coords)
-        move.l  (Camera_X).w, d6
-        swap    d6
-        addi.w  #327, d6                       ; 320 + 7 (screen width + alignment)
-        lsr.w   #3, d6
-        move.w  d6, d0
-        bsr.w   Engine_To_World_Col
-        addi.w  #TILE_CACHE_MARGIN_H, d0
-        move.w  d0, d7                         ; d7 = desired right edge (world col)
+        ; --- frame gate: at most one fill per physical frame ---
+        ; Frame_Counter only increments in VBlank, so all game-loop
+        ; iterations within the same VBlank period see the same value.
+        move.w  (Frame_Counter).w, d0
+        cmp.w   (Cache_Fill_Last_Frame).w, d0
+        beq.w   .fill_return
 
-        move.w  (Cache_Head_Col).w, d5
-        cmp.w   d7, d5
-        bge.s   .h_right_done
-
-        ; fill columns d5+1 .. d7
-.h_right_fill:
-        addq.w  #1, d5
-        cmp.w   d7, d5
-        bgt.s   .h_right_done
-
-        ; determine block for this column
-        movem.l d5/d7, -(sp)
-        bsr.w   TileCache_FillColumn
-        movem.l (sp)+, d5/d7
-        move.w  d5, (Cache_Head_Col).w
-        bra.s   .h_right_fill
-.h_right_done:
-
-        ; --- leftward cache miss check ---
+        ; --- compute desired left edge ---
         move.l  (Camera_X).w, d6
         swap    d6
         lsr.w   #3, d6
         move.w  d6, d0
         bsr.w   Engine_To_World_Col
         subi.w  #TILE_CACHE_MARGIN_H, d0
-        bpl.s   .h_left_clamp_ok
+        bpl.s   .h_left_pos
         moveq   #0, d0
-.h_left_clamp_ok:
-        cmp.w   (Cache_Left_Col).w, d0
-        bge.s   .h_left_done
-        bsr.w   TileCache_Reinit
-        rts
-.h_left_done:
+.h_left_pos:
+        move.w  d0, -(sp)                     ; [sp] = desired_left
 
-        ; --- vertical fill ---
-        ; compute desired bottom edge
-        move.l  (Camera_Y).w, d6
+        ; --- compute desired right edge ---
+        move.l  (Camera_X).w, d6
         swap    d6
-        addi.w  #231, d6                       ; 224 + 7
+        addi.w  #327, d6
         lsr.w   #3, d6
         move.w  d6, d0
-        bsr.w   Engine_To_World_Row
-        addi.w  #TILE_CACHE_MARGIN_V, d0
+        bsr.w   Engine_To_World_Col
+        addi.w  #TILE_CACHE_MARGIN_H, d0
+        move.w  d0, d7                         ; d7 = desired right edge
+
+        ; clamp right so span fits cache
+        move.w  (sp), d0                       ; desired_left
+        addi.w  #TILE_CACHE_COLS-1, d0
+        cmp.w   d0, d7
+        ble.s   .h_clamp_ok
         move.w  d0, d7
+.h_clamp_ok:
 
-        move.w  (Cache_Bottom_Row).w, d5
+        ; --- fill rightward columns (evict 1 from left as needed, max 1/frame) ---
+        move.w  (Cache_Head_Col).w, d5
         cmp.w   d7, d5
-        bge.s   .v_bottom_done
+        bge.s   .h_right_done
 
-.v_bottom_fill:
+        ; cap to 1 new column per frame to spread decompression cost
+        move.w  d5, d0
+        addq.w  #1, d0
+        cmp.w   d0, d7
+        ble.s   .h_cap_ok
+        move.w  d0, d7
+.h_cap_ok:
+
+.h_right_fill:
         addq.w  #1, d5
         cmp.w   d7, d5
-        bgt.s   .v_bottom_done
+        bgt.s   .h_right_done
+
+        ; evict 1 column from left if cache is at capacity
+        move.w  d5, d0
+        sub.w   (Cache_Left_Col).w, d0
+        cmpi.w  #TILE_CACHE_COLS, d0
+        blt.s   .h_no_evict
+        moveq   #1, d0
+        bsr.w   TileCache_HSlide
+.h_no_evict:
 
         movem.l d5/d7, -(sp)
-        bsr.w   TileCache_FillRow
+        bsr.w   TileCache_FillColumn
         movem.l (sp)+, d5/d7
-        move.w  d5, (Cache_Bottom_Row).w
-        bra.s   .v_bottom_fill
-.v_bottom_done:
 
-        ; --- upward cache miss check ---
+        move.w  (Frame_Counter).w, (Cache_Fill_Last_Frame).w
+
+        tst.w   d0
+        bne.s   .h_right_done        ; partial fill — exit, resume next frame
+        move.w  d5, (Cache_Head_Col).w
+        bra.s   .h_right_fill
+.h_right_done:
+
+        ; --- leftward cache miss check (disabled for testing) ---
+        move.w  (sp)+, d0                      ; desired_left (pop to balance stack)
+.h_left_done:
+
+        ; --- compute desired top edge ---
         move.l  (Camera_Y).w, d6
         swap    d6
         lsr.w   #3, d6
         move.w  d6, d0
         bsr.w   Engine_To_World_Row
         subi.w  #TILE_CACHE_MARGIN_V, d0
-        bpl.s   .v_top_clamp_ok
+        bpl.s   .v_top_pos
         moveq   #0, d0
-.v_top_clamp_ok:
-        cmp.w   (Cache_Top_Row).w, d0
-        bge.s   .v_top_done
-        bsr.w   TileCache_Reinit
+.v_top_pos:
+        move.w  d0, -(sp)                     ; [sp] = desired_top
+
+        ; --- compute desired bottom edge ---
+        move.l  (Camera_Y).w, d6
+        swap    d6
+        addi.w  #231, d6
+        lsr.w   #3, d6
+        move.w  d6, d0
+        bsr.w   Engine_To_World_Row
+        addi.w  #TILE_CACHE_MARGIN_V, d0
+        move.w  d0, d7                         ; d7 = desired bottom edge
+
+        ; clamp bottom so span fits cache
+        move.w  (sp), d0                       ; desired_top
+        addi.w  #TILE_CACHE_ROWS-1, d0
+        cmp.w   d0, d7
+        ble.s   .v_clamp_ok
+        move.w  d0, d7
+.v_clamp_ok:
+
+        ; --- fill downward rows (evict 1 from top as needed) ---
+        move.w  (Cache_Bottom_Row).w, d5
+        cmp.w   d7, d5
+        bge.s   .v_bottom_done
+
+        ; cap to 1 new row per frame
+        move.w  d5, d0
+        addq.w  #1, d0
+        cmp.w   d0, d7
+        ble.s   .v_cap_ok
+        move.w  d0, d7
+.v_cap_ok:
+
+.v_bottom_fill:
+        addq.w  #1, d5
+        cmp.w   d7, d5
+        bgt.s   .v_bottom_done
+
+        ; evict 1 row from top if cache is at capacity
+        move.w  d5, d0
+        sub.w   (Cache_Top_Row).w, d0
+        cmpi.w  #TILE_CACHE_ROWS, d0
+        blt.s   .v_no_evict
+        moveq   #1, d0
+        bsr.w   TileCache_VSlide
+.v_no_evict:
+
+        movem.l d5/d7, -(sp)
+        bsr.w   TileCache_FillRow
+        movem.l (sp)+, d5/d7
+
+        move.w  (Frame_Counter).w, (Cache_Fill_Last_Frame).w
+        move.w  d5, (Cache_Bottom_Row).w
+        bra.s   .v_bottom_fill
+.v_bottom_done:
+
+        ; --- upward cache miss check (disabled for testing) ---
+        move.w  (sp)+, d0                      ; desired_top (pop to balance stack)
 .v_top_done:
+.fill_return:
         rts
 
 ; -----------------------------------------------
-; TileCache_FillColumn — fill one world column into cache at Cache_Head_Col+1
+; TileCache_FillColumn — fill one world column into cache (budget-limited)
 ; In:  d5.w = world tile col to fill
-; Out: none
+; Out: d0.w = 0 if column complete, nonzero if partial (resume next frame)
 ; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 TileCache_FillColumn:
-        ; slide if needed: check if Head_Col - Left_Col >= TILE_CACHE_COLS
-        move.w  (Cache_Head_Col).w, d0
-        sub.w   (Cache_Left_Col).w, d0
-        cmpi.w  #TILE_CACHE_COLS-1, d0
-        blt.s   .fc_no_slide
-        ; need to evict left columns
-        moveq   #BLOCK_TILE_SIZE, d0
-        bsr.w   TileCache_HSlide
-.fc_no_slide:
-
-        ; cache col offset for new column
-        move.w  d5, d1
-        sub.w   (Cache_Left_Col).w, d1         ; d1 = cache col offset
-
-        ; iterate over all block rows in the cache's vertical range
+        ; resume from partial fill or start from top
+        move.w  (Cache_Fill_Resume_Row).w, d7
+        cmpi.w  #$FFFF, d7
+        bne.s   .fc_have_start
         move.w  (Cache_Top_Row).w, d7
+.fc_have_start:
+
+        moveq   #3, d4                         ; decompress budget
+
 .fc_block_loop:
-        cmp.w   (Cache_Bottom_Row).w, d7
-        bgt.s   .fc_done
+        move.w  (Cache_Bottom_Row).w, d0
+        subi.w  #BLOCK_TILE_SIZE, d0
+        cmp.w   d0, d7
+        bgt.w   .fc_complete
 
         ; decompose into section + block + intra
         move.w  d5, d0
-        lsr.w   #8, d0                         ; sec_x = world_col / 256
+        lsr.w   #8, d0                         ; sec_x
         move.w  d7, d6
-        lsr.w   #8, d6                         ; sec_y = world_row / 256
+        lsr.w   #8, d6                         ; sec_y
         move.w  d6, d1                         ; d1 = sec_y
 
         move.w  d5, d2
         lsr.w   #BLOCK_TILE_SHIFT, d2
-        andi.w  #$F, d2                        ; block_x within section
+        andi.w  #$F, d2                        ; block_x
         move.w  d7, d3
         lsr.w   #BLOCK_TILE_SHIFT, d3
-        andi.w  #$F, d3                        ; block_y within section
+        andi.w  #$F, d3                        ; block_y
         lsl.w   #4, d3
         add.w   d2, d3
         move.w  d3, d2                         ; d2 = block_index
 
-        ; check if staging already has this block
+        ; check staging cache
         bsr.w   TileCache_StagedBlockMatch
         beq.s   .fc_have_block
-        movem.l d5/d7, -(sp)
+
+        ; need decompress — check budget
+        tst.w   d4
+        beq.s   .fc_budget_out
+        subq.w  #1, d4
+
+        movem.l d4-d5/d7, -(sp)
         bsr.w   TileCache_DecompressBlock
-        movem.l (sp)+, d5/d7
+        movem.l (sp)+, d4-d5/d7
 .fc_have_block:
 
         ; intra-block col
         move.w  d5, d0
-        andi.w  #$F, d0                        ; d0 = intra-block col (0-15)
+        andi.w  #$F, d0
 
         ; cache col offset
         move.w  d5, d1
@@ -524,7 +608,7 @@ TileCache_FillColumn:
 
         ; cache row offset = block_top_row - Cache_Top_Row
         move.w  d7, d2
-        andi.w  #$FFF0, d2                     ; block_top_row (rounded to block boundary)
+        andi.w  #$FFF0, d2
         sub.w   (Cache_Top_Row).w, d2
         bmi.s   .fc_clamp_top
         bra.s   .fc_calc_rows
@@ -532,28 +616,36 @@ TileCache_FillColumn:
         moveq   #0, d2
 .fc_calc_rows:
         moveq   #BLOCK_TILE_SIZE, d3
-        ; clamp rows to cache bounds
+        move.w  d4, -(sp)                     ; save budget (d4 used as temp below)
         move.w  #TILE_CACHE_ROWS, d4
         sub.w   d2, d4
         cmp.w   d4, d3
         ble.s   .fc_rows_ok
         move.w  d4, d3
 .fc_rows_ok:
+        move.w  (sp)+, d4                     ; restore budget
         tst.w   d3
         ble.s   .fc_next_block
 
-        movem.l d5/d7, -(sp)
+        movem.l d4-d5/d7, -(sp)
         bsr.w   TileCache_CopyBlockColumn
-        movem.l (sp)+, d5/d7
+        movem.l (sp)+, d4-d5/d7
 
 .fc_next_block:
-        ; advance to next block row (align to next 16-tile boundary)
         move.w  d7, d0
         andi.w  #$FFF0, d0
         addi.w  #BLOCK_TILE_SIZE, d0
         move.w  d0, d7
-        bra.s   .fc_block_loop
-.fc_done:
+        bra.w   .fc_block_loop
+
+.fc_budget_out:
+        move.w  d7, (Cache_Fill_Resume_Row).w
+        moveq   #1, d0
+        rts
+
+.fc_complete:
+        move.w  #$FFFF, (Cache_Fill_Resume_Row).w
+        moveq   #0, d0
         rts
 
 ; -----------------------------------------------
@@ -563,15 +655,6 @@ TileCache_FillColumn:
 ; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 TileCache_FillRow:
-        ; slide if needed
-        move.w  (Cache_Bottom_Row).w, d0
-        sub.w   (Cache_Top_Row).w, d0
-        cmpi.w  #TILE_CACHE_ROWS-1, d0
-        blt.s   .fr_no_slide
-        moveq   #BLOCK_TILE_SIZE, d0
-        bsr.w   TileCache_VSlide
-.fr_no_slide:
-
         ; iterate over all block cols in the cache's horizontal range
         move.w  (Cache_Left_Col).w, d7
 .fr_block_loop:
@@ -644,49 +727,23 @@ TileCache_FillRow:
         rts
 
 ; -----------------------------------------------
-; TileCache_HSlide — evict stale left columns, shift data left
+; TileCache_HSlide — circular advance: evict left columns by updating origin
 ; In:  d0.w = columns to evict from left side
 ; Out: none
-; Clobbers: d0-d5, a0-a1
+; Clobbers: d0-d1
 ; -----------------------------------------------
 TileCache_HSlide:
         tst.w   d0
-        ble.s   .hslide_done
-        move.w  d0, d1                         ; d1 = evict count
-
-        ; nametable: per-row shift
-        lea     (Tile_Cache_Nametable).l, a0
-        move.w  #TILE_CACHE_ROWS-1, d3
-        move.w  d1, d4
-        add.w   d4, d4                         ; evict bytes per row (words)
-.hslide_nt_row:
-        lea     (a0, d4.w), a1                 ; a1 = src (start + evict_cols*2)
-        move.w  #TILE_CACHE_COLS, d5
-        sub.w   d1, d5                         ; words to copy
-        subq.w  #1, d5
-.hslide_nt_copy:
-        move.w  (a1)+, (a0)+
-        dbf     d5, .hslide_nt_copy
-        ; skip past the gap where evicted cols were in dest
-        adda.w  d4, a0                         ; dest already advanced by copy; add evict gap
-        dbf     d3, .hslide_nt_row
-
-        ; collision: per-row shift (byte-sized, half rows)
-        lea     (Tile_Cache_Collision).l, a0
-        move.w  #TILE_CACHE_COLL_ROWS-1, d3
-.hslide_coll_row:
-        lea     (a0, d1.w), a1                 ; src = dest + evict cols
-        move.w  #TILE_CACHE_COLS, d5
-        sub.w   d1, d5
-        subq.w  #1, d5
-.hslide_coll_copy:
-        move.b  (a1)+, (a0)+
-        dbf     d5, .hslide_coll_copy
-        adda.w  d1, a0
-        dbf     d3, .hslide_coll_row
-
-        add.w   d1, (Cache_Left_Col).w
-.hslide_done:
+        ble.s   .done
+        add.w   d0, (Cache_Left_Col).w
+        move.w  (Cache_Origin_Col).w, d1
+        add.w   d0, d1
+        cmpi.w  #TILE_CACHE_COLS, d1
+        blt.s   .nowrap
+        subi.w  #TILE_CACHE_COLS, d1
+.nowrap:
+        move.w  d1, (Cache_Origin_Col).w
+.done:
         rts
 
 ; -----------------------------------------------
@@ -775,6 +832,8 @@ TileCache_Reinit:
         move.w  d0, (Cache_Left_Col).w
         addi.w  #TILE_CACHE_COLS-1, d0
         move.w  d0, (Cache_Head_Col).w
+        clr.w   (Cache_Origin_Col).w
+        move.w  #$FFFF, (Cache_Fill_Resume_Row).w
 
         move.l  (Camera_Y).w, d0
         swap    d0

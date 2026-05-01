@@ -648,7 +648,9 @@ Section_QueueNewSlot1Cols:
 .qloop1:
         move.w  d6, d0
         move.w  d5, d1
+        movem.w d4-d6, -(sp)
         bsr.w   Draw_TileColumn
+        movem.w (sp)+, d4-d6
         addq.w  #1, d5
         addq.w  #1, d6
         dbf     d4, .qloop1
@@ -668,7 +670,9 @@ Section_QueueNewSlot0Cols:
 .qloop0:
         move.w  d6, d0
         move.w  d5, d1
+        movem.w d4-d6, -(sp)
         bsr.w   Draw_TileColumn
+        movem.w (sp)+, d4-d6
         addq.w  #1, d5
         addq.w  #1, d6
         dbf     d4, .qloop0
@@ -739,9 +743,14 @@ Section_RedrawPlanes:
         vdpCommReg d4, VRAM, WRITE, 1
         move.l  d4, (a5)
 
-        ; read from tile cache — stride copy (one column across rows)
+        ; read from tile cache — stride copy (one column across rows, circular wrap)
         move.w  d7, d0
         sub.w   (Cache_Left_Col).w, d0
+        add.w   (Cache_Origin_Col).w, d0
+        cmpi.w  #TILE_CACHE_COLS, d0
+        blt.s   .col_nowrap
+        subi.w  #TILE_CACHE_COLS, d0
+.col_nowrap:
         add.w   d0, d0                         ; byte offset = col × 2
         lea     (Tile_Cache_Nametable).l, a1
         adda.w  d0, a1                         ; a1 = cache[row=0][col]
@@ -868,7 +877,9 @@ Section_UpdateColumns:
         andi.w  #63, d0                         ; d0 = nametable col
 
         move.w  d5, d1                          ; d1 = world col
+        move.w  d5, -(sp)
         bsr.w   Draw_TileColumn
+        move.w  (sp)+, d5
         bra.w   .right_loop
 .right_done:
         move.w  d5, (Section_Right_Col_Written).w
@@ -910,7 +921,9 @@ Section_UpdateColumns:
         andi.w  #63, d0
 
         move.w  d5, d1
+        move.w  d5, -(sp)
         bsr.w   Draw_TileColumn
+        move.w  (sp)+, d5
         bra.w   .left_loop
 .left_done:
         move.w  d5, (Section_Left_Col_Written).w
@@ -956,7 +969,9 @@ Section_UpdateColumns:
         andi.w  #63, d0                            ; d0 = nametable row (wrapped)
 
         move.w  d5, d1                             ; d1 = world row
+        move.w  d5, -(sp)
         bsr.w   Draw_TileRow_FromCache
+        move.w  (sp)+, d5
         bra.s   .bot_loop
 .bot_done:
         move.w  d5, (Section_Bottom_Row_Written).w
@@ -990,7 +1005,9 @@ Section_UpdateColumns:
         andi.w  #63, d0
 
         move.w  d5, d1
+        move.w  d5, -(sp)
         bsr.w   Draw_TileRow_FromCache
+        move.w  (sp)+, d5
         bra.s   .top_loop
 .top_done:
         move.w  d5, (Section_Top_Row_Written).w

@@ -36,9 +36,14 @@ Draw_TileColumn:
         move.w  d0, (a2)+
         move.w  #$8000 | (PLANE_V_CELLS/2 - 1), (a2)+
 
-        ; compute source pointer: cache nametable, column (d1 - Cache_Left_Col)
+        ; compute source pointer: cache nametable, column (circular wrap)
         move.w  d1, d0
         sub.w   (Cache_Left_Col).w, d0
+        add.w   (Cache_Origin_Col).w, d0
+        cmpi.w  #TILE_CACHE_COLS, d0
+        blt.s   .col_nowrap
+        subi.w  #TILE_CACHE_COLS, d0
+.col_nowrap:
         add.w   d0, d0                         ; byte offset = col_offset × 2
         lea     (Tile_Cache_Nametable).l, a0
         adda.w  d0, a0                         ; a0 = cache[row=0][col]
@@ -127,12 +132,12 @@ Draw_TileRow_FromCache:
         move.w  (Plane_Buffer_Ptr).w, d2
         addi.w  #4 + PLANE_H_CELLS*2, d2
         cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
-        bhi.s   .done
+        bhi.w   .done
 
         cmp.w   (Cache_Top_Row).w, d1
-        blt.s   .done
+        blt.w   .done
         cmp.w   (Cache_Bottom_Row).w, d1
-        bgt.s   .done
+        bgt.w   .done
 
         lea     (Plane_Buffer).w, a2
         adda.w  (Plane_Buffer_Ptr).w, a2
@@ -153,13 +158,44 @@ Draw_TileRow_FromCache:
         add.w   d3, d0
         add.w   d0, d0                         ; byte offset (words → bytes)
         lea     (Tile_Cache_Nametable).l, a0
-        adda.w  d0, a0                         ; a0 = start of cache row
+        adda.w  d0, a0                         ; a0 = start of cache row (physical col 0)
 
-        ; copy 64 tiles as 32 longwords (cache row is 80 cols, only copy first 64)
+        ; advance to Cache_Origin_Col (circular buffer start)
+        move.w  (Cache_Origin_Col).w, d3
+        add.w   d3, d3                         ; byte offset of origin within row
+        adda.w  d3, a0                         ; a0 = physical position of Cache_Left_Col
+
+        ; check if 64 tiles fit without wrapping
+        move.w  #TILE_CACHE_COLS, d3
+        sub.w   (Cache_Origin_Col).w, d3       ; d3 = tiles from origin to end of row
+        cmpi.w  #PLANE_H_CELLS, d3
+        bge.s   .no_split
+
+        ; split copy: d3 tiles from origin side, then (64-d3) from wrap
+        move.w  d3, d5
+        lsr.w   #1, d5
+        subq.w  #1, d5
+.copy_part1:
+        move.l  (a0)+, (a2)+
+        dbf     d5, .copy_part1
+
+        suba.w  #TILE_CACHE_COLS*2, a0         ; wrap to physical col 0
+
+        move.w  #PLANE_H_CELLS, d5
+        sub.w   d3, d5
+        lsr.w   #1, d5
+        subq.w  #1, d5
+.copy_part2:
+        move.l  (a0)+, (a2)+
+        dbf     d5, .copy_part2
+        bra.s   .row_copy_done
+
+.no_split:
         moveq   #PLANE_H_CELLS/2-1, d5
 .copy_row:
         move.l  (a0)+, (a2)+
         dbf     d5, .copy_row
+.row_copy_done:
 
         move.w  #0, (a2)
         move.w  (Plane_Buffer_Ptr).w, d2

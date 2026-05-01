@@ -275,6 +275,9 @@ Cache_Left_Col:         ds.w 1          ; world tile col of leftmost valid colum
 Cache_Head_Col:         ds.w 1          ; world tile col of rightmost valid column
 Cache_Top_Row:          ds.w 1          ; world tile row of topmost valid row
 Cache_Bottom_Row:       ds.w 1          ; world tile row of bottommost valid row
+Cache_Origin_Col:       ds.w 1          ; physical col index where Cache_Left_Col maps (circular)
+Cache_Fill_Last_Frame:  ds.w 1          ; Frame_Counter of last fill (cascade prevention)
+Cache_Fill_Resume_Row:  ds.w 1          ; partial FillColumn resume row ($FFFF = none pending)
 
 ; Block staging metadata
 Block_Stage_ID:         ds.w 1          ; (block_y << 4) | block_x of staged block

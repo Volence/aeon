@@ -1,6 +1,5 @@
-; Camera system (§4 Phase 1)
-; Tracks player with X deadzone and velocity-adaptive width.
-; Y is clamped to 0 (no vertical scroll in Phase 1).
+; Camera system (§4)
+; Tracks player with X deadzone (velocity-adaptive) and Y deadzone (fixed).
 
 CAM_SCREEN_HALF_W   = 160
 CAM_SCREEN_HALF_H   = 112
@@ -120,5 +119,58 @@ Camera_Update:
         move.l  d0, (Camera_X).w
 
 .y_track:
-        ; Phase 1: camera Y fixed at 0 — leave Camera_Y unchanged
+        lea     (Player_1).w, a0
+
+        move.l  SST_y_pos(a0), d0
+        swap    d0                                 ; d0.w = player engine Y
+        move.l  (Camera_Y).w, d1
+        swap    d1                                 ; d1.w = camera Y pixels
+        addi.w  #CAM_SCREEN_HALF_H, d1            ; d1 = camera center Y
+
+        moveq   #32, d2                           ; fixed vertical deadzone
+
+        move.w  d0, d3
+        sub.w   d1, d3                             ; dist = player_y - camera_center
+
+        neg.w   d2
+        cmp.w   d2, d3
+        bge.s   .check_down
+        sub.w   d2, d3
+        bra.s   .apply_y
+
+.check_down:
+        neg.w   d2
+        cmp.w   d2, d3
+        ble.s   .clamp_y
+        sub.w   d2, d3
+
+.apply_y:
+        ext.l   d3
+        lsl.l   #8, d3
+        lsl.l   #8, d3
+        add.l   d3, (Camera_Y).w
+
+.clamp_y:
+        movea.l (Current_Act_Ptr).w, a0
+        move.l  (Camera_Y).w, d0
+        swap    d0
+
+        move.w  Act_cam_min_y(a0), d1
+        cmp.w   d1, d0
+        bge.s   .check_max_y
+        move.w  d1, d0
+        bra.s   .write_y
+
+.check_max_y:
+        move.w  Act_cam_max_y(a0), d1
+        cmp.w   d1, d0
+        ble.s   .y_done
+        move.w  d1, d0
+
+.write_y:
+        swap    d0
+        clr.w   d0
+        move.l  d0, (Camera_Y).w
+
+.y_done:
         rts

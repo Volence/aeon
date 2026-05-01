@@ -92,6 +92,7 @@ Draw_Sprite:
 
         ; Check band overflow — cascade to lower bands if full
         lea     (Sprite_Band_Counts).w, a1
+        moveq   #0, d1
         move.b  (a1,d0.w), d1
         cmpi.b  #SPRITES_PER_BAND, d1
         blo.s   .band_has_room
@@ -196,6 +197,10 @@ Render_Sprites:
         ; Get object SST address (step direction from stack)
         movea.w (a2), a0
         adda.w  (sp), a2                   ; advance by +2 or -2
+
+        ; Guard: skip NULL band entries (safety net for mid-frame deletion)
+        move.w  a0, d0
+        beq.w   .next_object
 
         ; --- Total-piece overflow pre-check (§1.2) ---
         ; Skip whole object if its cached piece count would push us past
