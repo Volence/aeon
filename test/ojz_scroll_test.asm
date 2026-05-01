@@ -92,10 +92,10 @@ GameState_OJZScroll_Init:
         lea     OJZ_Act1_Descriptor, a0
         jsr     Section_Init
 
-        ; -- §4.7: populate strip cache (must run AFTER Camera_Init +
+        ; -- §4.7: populate tile cache (must run AFTER Camera_Init +
         ;    Section_Init so Camera_X, Current_Act_Ptr, and Slot_Section_Map
         ;    are valid) --
-        jsr     Strip_Cache_Init
+        jsr     Tile_Cache_Init
 
         ; -- §4.6 parallax init: pull start section's parallax_config --
         lea     OJZ_Act1_Descriptor, a0
@@ -138,8 +138,8 @@ GameState_OJZScroll_Update:
         ; -- camera follows Player_1 (deadzone + preview-aware clamp) --
         jsr     Camera_Update
 
-        ; -- §4.7: fill strip cache with new strips as camera scrolls --
-        jsr     Strip_Cache_Fill
+        ; -- §4.7: fill tile cache with new blocks as camera scrolls --
+        jsr     Tile_Cache_Fill
 
         ; -- section teleport check (reads Player_1.x_pos via .check entry below) --
         jsr     Section_Check
