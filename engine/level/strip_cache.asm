@@ -20,7 +20,7 @@ Engine_To_World_Col:
 ; -----------------------------------------------
 ; Strip_Cache_GetColumn — get strip data pointer for a world tile col
 ; In:  d0.w = world tile col (must be within valid cache range)
-; Out: a0   = pointer to 96-byte strip in cache
+; Out: a0   = pointer to 128-byte strip in cache
 ; Clobbers: d0-d1
 ; -----------------------------------------------
 Strip_Cache_GetColumn:
