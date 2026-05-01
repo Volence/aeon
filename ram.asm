@@ -10,19 +10,14 @@
         phase $FFFF0000
 
 ; Strip cache — world-space linear buffer with batched slide
-Strip_Cache:            ds.b STRIP_CACHE_PHYS_SIZE  ; 11520 bytes (120 strips physical)
+; Wider format: 128 bytes per strip (96 nametable + 24 collision + 8 pad)
+Strip_Cache:            ds.b STRIP_CACHE_PHYS_SIZE  ; 15360 bytes (120 strips × 128)
 Strip_Cache_End:
                         ds.b STRIP_CACHE_GUARD_SIZE ; 512 bytes — absorbs decompressor overshoot
 
 ; Streaming art DMA buffers (§2 A.4)
 STREAMING_BUFFER_A:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes
 STREAMING_BUFFER_B:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes
-
-; Collision map slots — flat byte arrays, decompressed at preload
-Collision_Map_Slot0:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes
-Collision_Map_Slot1:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes
-Collision_Map_Slot2:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes (reserved for 2D)
-Collision_Map_Slot3:    ds.b COLLISION_MAP_SIZE      ; 3072 bytes (reserved for 2D)
 
 ; Stream states — 4 streaming decompressor bookmarks
 S4LZ_Stream_States:     ds.b StreamState_len * 4    ; 48 bytes

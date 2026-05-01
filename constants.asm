@@ -245,9 +245,13 @@ MAX_PARALLAX_BANDS         = 8
 PARALLAX_TRANS_DEFAULT     = 16     ; default boundary lerp duration (frames)
 PARALLAX_LERP_SHIFT        = 4      ; >>4 ≈ 16-frame convergence to ~95% — gentler slide on factor changes
 
-; Nametable strips
+; Nametable strips (§4.7 — wider format with embedded collision)
 STRIP_TILE_HEIGHT       = 48        ; rows per strip (0–47; row 48+ = sprite table)
-STRIP_BYTE_SIZE         = STRIP_TILE_HEIGHT*2   ; 96 bytes per strip
+STRIP_NAMETABLE_SIZE    = STRIP_TILE_HEIGHT*2   ; 96 bytes (48 nametable words)
+STRIP_COLLISION_OFFSET  = STRIP_NAMETABLE_SIZE  ; collision bytes start at byte 96
+STRIP_COLLISION_ROWS    = STRIP_TILE_HEIGHT/2   ; 24 collision cells (16px each)
+STRIP_BYTE_SIZE         = 128       ; power-of-2 stride: 96 nametable + 24 collision + 8 pad
+STRIP_BYTE_SHIFT        = 7         ; lsl #7 = ×128
 
 ; Multi-region VRAM tile packing (§2 A.2)
 ; Region 1: primary art pool $0000-$BFFF (1536 tiles).
@@ -281,20 +285,16 @@ PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
 ; Strip Cache (§4.7) — linear buffer with batched slide
 ; -----------------------------------------------
 STRIP_CACHE_COLS        = 80        ; logical window (viewport 40 + margin 20×2)
-STRIP_CACHE_SIZE        = STRIP_CACHE_COLS * STRIP_BYTE_SIZE  ; 80 × 96 = 7680 bytes
+STRIP_CACHE_SIZE        = STRIP_CACHE_COLS * STRIP_BYTE_SIZE  ; 80 × 128 = 10240 bytes
 STRIP_CACHE_PHYS_COLS   = 120       ; physical buffer capacity (40 extra for slide batching)
-STRIP_CACHE_PHYS_SIZE   = STRIP_CACHE_PHYS_COLS * STRIP_BYTE_SIZE  ; 120 × 96 = 11520 bytes
+STRIP_CACHE_PHYS_SIZE   = STRIP_CACHE_PHYS_COLS * STRIP_BYTE_SIZE  ; 120 × 128 = 15360 bytes
 STRIP_CACHE_GUARD_SIZE  = 512       ; absorbs S4LZ streaming decompressor overshoot
 STRIP_CACHE_MARGIN      = 20        ; lookahead columns each side
 STRIP_CACHE_SLIDE_KEEP  = STRIP_CACHE_MARGIN * 2  ; 40 strips kept left of camera during slide (backward scroll headroom)
 STRIP_CACHE_INIT_COLS   = STRIP_CACHE_COLS - STRIP_CACHE_MARGIN  ; 60 strips at init (room for right margin fill)
 
-; Collision maps (§4.7)
-COLLISION_MAP_COLS      = 128       ; cells per section (SECTION_SIZE / 16)
-COLLISION_MAP_ROWS      = 24        ; cells per section (384 / 16)
-COLLISION_MAP_SIZE      = COLLISION_MAP_COLS * COLLISION_MAP_ROWS  ; 3072 bytes
+; Collision (§4.7) — collision bytes embedded in strip cache, no separate maps
 COLLISION_CELL_SHIFT    = 4         ; pixel → cell (/ 16)
-COLLISION_ROW_SHIFT     = 7         ; row × 128 via lsl #7
 
 ; Height maps (§4.7)
 NUM_COLLISION_PROFILES  = 256
@@ -308,7 +308,7 @@ CTYPE_FLAT_SOLID        = 1
 
 ; S4LZ streaming checkpoints
 STRIPS_PER_CHECKPOINT   = 64        ; checkpoint every 64 strips
-CHECKPOINT_INTERVAL     = STRIPS_PER_CHECKPOINT * STRIP_BYTE_SIZE  ; 6144 bytes
+CHECKPOINT_INTERVAL     = STRIPS_PER_CHECKPOINT * STRIP_BYTE_SIZE  ; 8192 bytes
 
 ; Camera
 CAM_LOOKAHEAD_THRESHOLD = $0600     ; ground speed for pan enable

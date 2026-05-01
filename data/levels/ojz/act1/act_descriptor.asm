@@ -79,7 +79,7 @@ OJZ_Sec2:
     dc.l    OJZ_Sec2_TypeTable      ; sec_type_table (§4.9)
     dc.l    0, 0
     dc.l    OJZ_Sec2_Strip_Checkpoints
-    dc.l    0, 0
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec2_Tiles_S4LZ
@@ -95,7 +95,7 @@ OJZ_Sec3:
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0
     dc.l    OJZ_Sec3_Strip_Checkpoints
-    dc.l    0, 0
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec3_Tiles_S4LZ
@@ -111,7 +111,7 @@ OJZ_Sec4:
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0
     dc.l    OJZ_Sec4_Strip_Checkpoints
-    dc.l    0, 0
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec4_Tiles_S4LZ
@@ -127,7 +127,7 @@ OJZ_Sec5:
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0
     dc.l    OJZ_Sec5_Strip_Checkpoints
-    dc.l    0, 0
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec5_Tiles_S4LZ
@@ -143,7 +143,7 @@ OJZ_Sec6:
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0
     dc.l    OJZ_Sec6_Strip_Checkpoints
-    dc.l    0, 0
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec6_Tiles_S4LZ
@@ -159,7 +159,7 @@ OJZ_Sec7:
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0
     dc.l    OJZ_Sec7_Strip_Checkpoints
-    dc.l    0, 0
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec7_Tiles_S4LZ
@@ -175,7 +175,7 @@ OJZ_Sec8:
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    0, 0, 0
     dc.l    OJZ_Sec8_Strip_Checkpoints
-    dc.l    0, 0
+    dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
     dc.l    OJZ_Sec8_Tiles_S4LZ

@@ -131,7 +131,7 @@ sec_pal_cycle       ds.l 1          ; $24 — palette cycling script (Phase 4)
 sec_sound_bank      ds.l 1          ; $28 — DAC sample bank pointer
 sec_strip_checkpoints ds.l 1        ; $2C — strip checkpoint table ptr (ROM; 4 × word; §4.7)
 sec_anim_blocks     ds.l 1          ; $30 — animated tile script (Phase 4)
-sec_collision_s4lz  ds.l 1          ; $34 — S4LZ compressed 128×24 collision map (ROM; §4.7)
+sec_collision_s4lz  ds.l 1          ; $34 — reserved (collision embedded in strip data; §4.7)
 sec_flags           ds.w 1          ; $38 — SF_* bitmask
 sec_music           ds.w 1          ; $3A — music track (0 = keep current)
 sec_pcfg_pad_3C     ds.b 1          ; $3C — RESERVED (was sec_layer_mask; in parallax_config)

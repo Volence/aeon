@@ -25,10 +25,7 @@ Engine_To_World_Col:
 ; -----------------------------------------------
 Strip_Cache_GetColumn:
         sub.w   (Strip_Cache_Left_Col).w, d0
-        move.w  d0, d1
-        lsl.w   #6, d0
-        lsl.w   #5, d1
-        add.w   d1, d0
+        lsl.w   #STRIP_BYTE_SHIFT, d0
         lea     (Strip_Cache).l, a0
         adda.w  d0, a0
         rts
@@ -331,12 +328,9 @@ StripCache_Slide:
         sub.w   d0, d1                          ; d1.w = evict_count
         ble.s   .slide_skip                     ; nothing to evict
 
-        ; d2 = evict_bytes = evict_count * 96
+        ; d2 = evict_bytes = evict_count * 128
         move.w  d1, d2
-        move.w  d1, d3
-        lsl.w   #6, d2
-        lsl.w   #5, d3
-        add.w   d3, d2                          ; d2.w = evict_bytes
+        lsl.w   #STRIP_BYTE_SHIFT, d2           ; d2.w = evict_bytes
 
         ; copy_len = Write_Pos + pending - evict_bytes
         move.w  (Strip_Cache_Write_Pos).w, d3
