@@ -69,8 +69,8 @@ Section ($800×$800 = 256×256 tiles)
 
 Each block contains:
 - **Nametable data:** 16×16 = 256 tile words = 512 bytes raw
-- **Collision data:** 8×8 = 64 collision bytes (16px cells, so 16 tiles ÷ 2 = 8 collision rows per block)
-- Total raw per block: 576 bytes, S4LZ-compressed independently
+- **Collision data:** 16 cols × 8 rows = 128 collision bytes (16px cells vertically: 16 tile rows ÷ 2 = 8 collision rows; 1 collision byte per tile column)
+- Total raw per block: 640 bytes, S4LZ-compressed independently
 
 **Why 16×16 blocks:** Matches the 16px collision cell size. Each block compresses well individually (enough data for S4LZ patterns). When the cache edge needs one new column, it decompresses a 16-tile-wide block and gets 15 columns "free" for upcoming frames. Same vertically — one row request yields 15 bonus rows. 256 blocks per section is manageable for the ROM index.
 
@@ -183,7 +183,7 @@ When either axis needs data from a new block, the block is decompressed into a t
 
 ```
 Block_Stage_Nametable:  ds.b 512    ; 16×16 tile words
-Block_Stage_Collision:  ds.b 64     ; 8×8 collision bytes
+Block_Stage_Collision:  ds.b 128    ; 16×8 collision bytes
 Block_Stage_ID:         ds.w 1      ; (block_y << 4) | block_x — current staged block
 Block_Stage_Section:    ds.w 1      ; section_id of staged block (invalidate on teleport)
 ```
@@ -348,10 +348,10 @@ World_To_Block:
 |-----------|-------|-------|
 | Cache_Nametable | 9,600 | 80 × 60 × 2 |
 | Cache_Collision | 2,400 | 80 × 30 × 1 |
-| Block_Stage | 580 | 512 + 64 + 4 metadata |
+| Block_Stage | 644 | 512 + 128 + 4 metadata |
 | Cache tracking vars | 16 | Left/Head/Top/Bottom + stride |
 | S4LZ stream states | 40 | 4 streams × 10 bytes |
-| **Total cache** | **~12,636** | |
+| **Total cache** | **~12,700** | |
 
 Current strip cache: 15,360 bytes. The 2D cache is ~2,700 bytes smaller.
 
