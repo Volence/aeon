@@ -64,16 +64,19 @@ GameState_OJZScroll_Init:
         clr.w   (Player_1+SST_x_vel).w
         clr.w   (Player_1+SST_y_vel).w
 
-        ; -- set up Player_1 as a renderable object so the sprite system
-        ;    and collision detection include it. code_addr = TestStatic_Main
-        ;    (just calls Draw_Sprite); RunObjects executes it each frame. --
-        move.w  #objroutine(TestStatic_Main), (Player_1+SST_code_addr).w
+        ; -- set up Player_1 as TestPlayer (physics + debug toggle).
+        ;    Start in debug mode (yellow square) for free-flight testing. --
+        move.b  #1, (Player_1+_debug_flag).w
+        move.w  #objroutine(TestPlayer_Main), (Player_1+SST_code_addr).w
         move.l  #Map_TestObj, (Player_1+SST_mappings).w
         move.w  #$A0FA, (Player_1+SST_art_tile).w
         move.w  #7, (Player_1+SST_priority).w
         move.b  #1, (Player_1+SST_sprite_piece_count).w
         move.b  #16, (Player_1+SST_width_pixels).w
         move.b  #16, (Player_1+SST_height_pixels).w
+        move.l  #DPLC_Sonic, (Player_1+_dplc_ptr).w
+        move.l  #Art_Sonic, (Player_1+_art_base).w
+        move.l  #Ani_Sonic, (Player_1+SST_anim_table).w
 
         ; -- write 4 marker tiles to VRAM (16×16 sprite = 2×2 tiles).
         ;    Tile 250 ($FA, = byte $1F40) sits between section art and the
@@ -131,34 +134,7 @@ GameState_OJZScroll_Update:
         ; -- initialize sprite system for this frame --
         jsr     InitSpriteSystem
 
-        ; -- player input drives Player_1 motion; Camera_Update follows. --
-        moveq   #0, d0
-        move.b  (Ctrl_1_Held).w, d0
-
-        btst    #3, d0          ; bit 3 = RIGHT
-        beq.s   .check_left
-        addi.l  #6<<16, (Player_1+SST_x_pos).w
-        bra.s   .player_x_done
-
-.check_left:
-        btst    #2, d0          ; bit 2 = LEFT
-        beq.s   .player_x_done
-        subi.l  #6<<16, (Player_1+SST_x_pos).w
-
-.player_x_done:
-        ; -- vertical input: bits 0/1 of Ctrl_1_Held = UP/DOWN --
-        btst    #1, d0          ; bit 1 = DOWN
-        beq.s   .check_up
-        addi.l  #6<<16, (Player_1+SST_y_pos).w
-        bra.s   .player_y_done
-
-.check_up:
-        btst    #0, d0          ; bit 0 = UP
-        beq.s   .player_y_done
-        subi.l  #6<<16, (Player_1+SST_y_pos).w
-
-.player_y_done:
-        ; -- execute all objects (Player_1 runs TestStatic_Main → Draw_Sprite) --
+        ; -- execute all objects (TestPlayer handles its own movement) --
         jsr     RunObjects
 
         ; -- camera follows Player_1 (deadzone + preview-aware clamp) --
