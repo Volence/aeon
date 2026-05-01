@@ -75,6 +75,7 @@ TestPlayer_Main:
         clr.b   SST_mapping_frame(a0)
         move.b  #$FF, SST_prev_anim(a0)
         move.b  #$FF, SST_prev_frame(a0)
+        bset    #ST_IN_AIR, SST_status(a0)
 .no_toggle:
 
         tst.b   _debug_flag(a0)
@@ -213,7 +214,10 @@ TestPlayer_Main:
         add.l   d0, SST_y_pos(a0)
         clr.w   SST_y_vel(a0)
         bclr    #ST_IN_AIR, SST_status(a0)
+        bra.s   .floor_done
 .no_floor:
+        bset    #ST_IN_AIR, SST_status(a0)
+.floor_done:
 
         ; --- Animation selection ---
         btst    #ST_IN_AIR, SST_status(a0)
