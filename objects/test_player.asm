@@ -63,6 +63,7 @@ TestPlayer_Main:
         move.l  #Map_TestObj, SST_mappings(a0)
         move.w  #$A0FA, SST_art_tile(a0)
         move.b  #16, SST_height_pixels(a0)
+        clr.b   SST_mapping_frame(a0)
         clr.w   SST_x_vel(a0)
         clr.w   SST_y_vel(a0)
         bra.s   .no_toggle
@@ -71,6 +72,7 @@ TestPlayer_Main:
         move.l  #Map_Sonic, SST_mappings(a0)
         move.w  #vram_art(VRAM_TEST_SONIC,0,0), SST_art_tile(a0)
         move.b  #32, SST_height_pixels(a0)
+        clr.b   SST_mapping_frame(a0)
         move.b  #$FF, SST_prev_anim(a0)
         move.b  #$FF, SST_prev_frame(a0)
 .no_toggle:

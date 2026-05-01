@@ -39,11 +39,9 @@ GameState_OJZScroll_Init:
         ; -- initialise camera first (Section_FillInitial reads Camera_X) --
         lea     OJZ_Act1_Descriptor, a0
         jsr     Camera_Init
-        ; Camera_Init's start_local_y formula leaves Camera_Y at $1F0 which
-        ; is outside the cam_min_y/cam_max_y range we use for diagnostic
-        ; vertical scroll (0..152). Force Y=0 so we start at top of filled
-        ; plane A and Up/Down moves stay within plane rows 0..47.
-        clr.l   (Camera_Y).w
+        ; Start camera Y at 120 so Plane A ground tiles (row 32+, Y=256+)
+        ; are visible on screen and collision is testable.
+        move.l  #120<<16, (Camera_Y).w
 
         ; -- init object system (must precede Player_1 setup and Section_Init) --
         jsr     InitObjectRAM
