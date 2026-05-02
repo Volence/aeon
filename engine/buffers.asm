@@ -72,14 +72,14 @@ BuildStaticDMA:
         move.l  #vdpComm(VRAM_SPRITE_TABLE, VRAM, DMA), d2
         bsr.w   .build_entry
 
-        ; §4.6 HScroll cell mode: Hscroll_Buffer -> VRAM $DC00, 112 bytes
+        ; §4.6 HScroll cell mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 112 bytes
         lea     (Static_Hscroll_Cell).w, a0
         move.l  #dmaSource(Hscroll_Buffer), d1
         move.w  #dmaLength(112), d3
         move.l  #vdpComm(VRAM_HSCROLL_TABLE, VRAM, DMA), d2
         bsr.w   .build_entry
 
-        ; §4.6 HScroll line mode: Hscroll_Buffer -> VRAM $DC00, 896 bytes
+        ; §4.6 HScroll line mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 896 bytes
         lea     (Static_Hscroll_Line).w, a0
         move.l  #dmaSource(Hscroll_Buffer), d1
         move.w  #dmaLength(896), d3

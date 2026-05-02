@@ -6,20 +6,20 @@
 
 ; -----------------------------------------------
 ; OJZ Act 1 — descriptor and section table
-; 9 sections (sec0–sec8) in a single horizontal row
+; 9 sections (sec0–sec8) in a 3×3 grid (vertical teleport test)
 ; -----------------------------------------------
 OJZ_Act1_Descriptor:
     dc.l    OJZ_Act1_Sections       ; sec_grid_ptr
-    dc.w    9                       ; grid_w (9 sections wide)
-    dc.w    1                       ; grid_h (1 section tall)
+    dc.w    3                       ; grid_w (3 sections wide)
+    dc.w    3                       ; grid_h (3 sections tall)
     dc.w    $0100                   ; start_local_x: 256px into section 0
     dc.w    $0100                   ; start_local_y: 256px into section (ground level)
     dc.b    0                       ; start_sec_x = 0
     dc.b    0                       ; start_sec_y = 0
     dc.w    SLOT_ORIGIN_L           ; cam_min_x ($200)
-    dc.w    SLOT_ORIGIN_L + $4680   ; cam_max_x (approximate for 9 sections)
-    dc.w    0                       ; cam_min_y
-    dc.w    SLOT_ORIGIN_U+SECTION_SIZE-224 ; cam_max_y (bottom of section minus screen height)
+    dc.w    SLOT_ORIGIN_L + $1680   ; cam_max_x (approximate for 3 sections)
+    dc.w    SLOT_ORIGIN_U            ; cam_min_y ($200 — no section above row 0)
+    dc.w    SLOT_ORIGIN_U+SECTION_SHIFT-224 ; cam_max_y (bottom of lower section minus screen height)
     dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)
     dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles  (§2 A.5 T1 shared BG tile blob)
     dc.l    ParallaxConfig_OJZ_Default ; act_parallax_config (fallback for sections with NULL config)
@@ -27,6 +27,9 @@ OJZ_Act1_Descriptor:
 
 ; -----------------------------------------------
 ; Section definition table — 9 entries × $48 bytes (Sec_len)
+; Grid layout (3×3):  Row 0 = Sec0,Sec1,Sec2 (unique art)
+;                     Row 1 = Sec3,Sec4,Sec5 (clone Sec0 art, distinct sky tint)
+;                     Row 2 = Sec6,Sec7,Sec8 (clone Sec0 art, distinct sky tint)
 ; -----------------------------------------------
 OJZ_Act1_Sections:
 
@@ -88,7 +91,7 @@ OJZ_Sec2:
     align 2
 
 OJZ_Sec3:
-    dc.l    OJZ_Sec3_Blocks
+    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 1, col 0)
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    ParallaxConfig_OJZ_LockedClouds, 0  ; sec_parallax_config = T15 F6 fixture: layer mask disables band 0 (scenes/locked_clouds.asm)
@@ -98,13 +101,13 @@ OJZ_Sec3:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec3_Tiles_S4LZ
-    dc.w    OJZ_SEC3_VRAM
+    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
+    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
     dc.w    0
     align 2
 
 OJZ_Sec4:
-    dc.l    OJZ_Sec4_Blocks
+    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 1, col 1)
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
@@ -114,13 +117,13 @@ OJZ_Sec4:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec4_Tiles_S4LZ
-    dc.w    OJZ_SEC4_VRAM
+    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
+    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
     dc.w    0
     align 2
 
 OJZ_Sec5:
-    dc.l    OJZ_Sec5_Blocks
+    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 1, col 2)
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
@@ -130,13 +133,13 @@ OJZ_Sec5:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec5_Tiles_S4LZ
-    dc.w    OJZ_SEC5_VRAM
+    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
+    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
     dc.w    0
     align 2
 
 OJZ_Sec6:
-    dc.l    OJZ_Sec6_Blocks
+    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 2, col 0)
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
@@ -146,13 +149,13 @@ OJZ_Sec6:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec6_Tiles_S4LZ
-    dc.w    OJZ_SEC6_VRAM
+    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
+    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
     dc.w    0
     align 2
 
 OJZ_Sec7:
-    dc.l    OJZ_Sec7_Blocks
+    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 2, col 1)
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
@@ -162,13 +165,13 @@ OJZ_Sec7:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec7_Tiles_S4LZ
-    dc.w    OJZ_SEC7_VRAM
+    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
+    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
     dc.w    0
     align 2
 
 OJZ_Sec8:
-    dc.l    OJZ_Sec8_Blocks
+    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 2, col 2)
     dc.l    0, 0, 0
     dc.l    OJZ_Palette
     dc.l    0, 0
@@ -178,8 +181,8 @@ OJZ_Sec8:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec8_Tiles_S4LZ
-    dc.w    OJZ_SEC8_VRAM
+    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
+    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
     dc.w    0
     align 2
 

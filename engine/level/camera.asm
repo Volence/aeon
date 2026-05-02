@@ -155,6 +155,9 @@ Camera_Update:
         move.l  (Camera_Y).w, d0
         swap    d0
 
+        ; -- dynamic min_y: apply only at top row (no section above) --
+        tst.b   (Slot_Section_Map+1).w
+        bne.s   .check_max_y                         ; sec_y > 0 → section above, skip min_y
         move.w  Act_cam_min_y(a0), d1
         cmp.w   d1, d0
         bge.s   .check_max_y
@@ -162,6 +165,12 @@ Camera_Update:
         bra.s   .write_y
 
 .check_max_y:
+        ; -- dynamic max_y: apply only at bottom row (no section below) --
+        moveq   #0, d2
+        move.b  (Slot_Section_Map+1).w, d2
+        addq.b  #1, d2
+        cmp.b   Act_grid_h+1(a0), d2
+        bcs.s   .y_done                              ; < grid_h → section below, skip max_y
         move.w  Act_cam_max_y(a0), d1
         cmp.w   d1, d0
         ble.s   .y_done

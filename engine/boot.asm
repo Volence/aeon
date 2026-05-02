@@ -233,7 +233,7 @@ BootData_VDPRegs:
         dc.b    $FF                         ; $0A: HInt counter = every 256 lines
         dc.b    $00                         ; $0B: full-screen V/H scroll
         dc.b    $81                         ; $0C: H40 (320px), no interlace
-        dc.b    $37                         ; $0D: HScroll table at $DC00
+        dc.b    $2F                         ; $0D: HScroll table at $BC00
         dc.b    $00                         ; $0E: unused
         dc.b    $02                         ; $0F: auto-increment = 2 (normal word access)
         dc.b    $11                         ; $10: 64x64 scroll planes

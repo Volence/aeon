@@ -469,8 +469,55 @@ Tile_Cache_Fill:
         bra.s   .h_right_fill
 .h_right_done:
 
-        ; --- leftward cache miss check (disabled for testing) ---
-        move.w  (sp)+, d0                      ; desired_left (pop to balance stack)
+        ; --- fill leftward columns (evict 1 from right as needed, max 1/frame) ---
+        move.w  (sp)+, d4                      ; d4 = desired_left
+        move.w  (Cache_Left_Col).w, d5
+        cmp.w   d4, d5
+        ble.s   .h_left_done
+
+        ; don't start leftward fill if rightward fill is pending partial resume
+        cmpi.w  #$FFFF, (Cache_Fill_Resume_Row).w
+        bne.s   .h_left_done
+
+        ; cap to 1 new column per frame
+        move.w  d5, d0
+        subq.w  #1, d0
+        cmp.w   d0, d4
+        bge.s   .h_lcap_ok
+        move.w  d0, d4
+.h_lcap_ok:
+
+.h_left_fill:
+        subq.w  #1, d5
+        cmp.w   d4, d5
+        blt.s   .h_left_done
+
+        ; evict 1 column from right if cache is at capacity
+        move.w  (Cache_Head_Col).w, d0
+        sub.w   d5, d0
+        cmpi.w  #TILE_CACHE_COLS-1, d0
+        blt.s   .h_no_evict_left
+        subq.w  #1, (Cache_Head_Col).w
+.h_no_evict_left:
+
+        ; slide origin left before fill
+        move.w  d5, (Cache_Left_Col).w
+        move.w  (Cache_Origin_Col).w, d0
+        subq.w  #1, d0
+        bpl.s   .h_origin_ok
+        move.w  #TILE_CACHE_COLS-1, d0
+.h_origin_ok:
+        move.w  d0, (Cache_Origin_Col).w
+
+        movem.l d4-d5, -(sp)
+        bsr.w   TileCache_FillColumn
+        movem.l (sp)+, d4-d5
+
+        move.w  (Frame_Counter).w, (Cache_Fill_Last_Frame).w
+
+        tst.w   d0
+        bne.s   .h_left_done                  ; partial fill — exit, resume next frame
+        bra.s   .h_left_fill
 .h_left_done:
 
         ; --- compute desired top edge ---
@@ -539,8 +586,43 @@ Tile_Cache_Fill:
         bra.s   .v_bottom_fill
 .v_bottom_done:
 
-        ; --- upward cache miss check (disabled for testing) ---
-        move.w  (sp)+, d0                      ; desired_top (pop to balance stack)
+        ; --- fill upward rows (evict 1 from bottom as needed) ---
+        move.w  (sp)+, d4                      ; d4 = desired_top
+        move.w  (Cache_Top_Row).w, d5
+        cmp.w   d4, d5
+        ble.s   .v_top_done
+
+        ; cap to 1 new row per frame
+        move.w  d5, d0
+        subq.w  #1, d0
+        cmp.w   d0, d4
+        bge.s   .v_tcap_ok
+        move.w  d0, d4
+.v_tcap_ok:
+
+.v_top_fill:
+        subq.w  #1, d5
+        cmp.w   d4, d5
+        blt.s   .v_top_done
+
+        ; evict 1 row from bottom if cache is at capacity
+        move.w  (Cache_Bottom_Row).w, d0
+        sub.w   d5, d0
+        cmpi.w  #TILE_CACHE_ROWS-1, d0
+        blt.s   .v_no_evict_up
+        moveq   #1, d0
+        bsr.w   TileCache_VSlideUp
+.v_no_evict_up:
+
+        ; decrement Cache_Top_Row BEFORE fill so FillRow sees correct offset
+        move.w  d5, (Cache_Top_Row).w
+
+        movem.l d4-d5, -(sp)
+        bsr.w   TileCache_FillRow
+        movem.l (sp)+, d4-d5
+
+        move.w  (Frame_Counter).w, (Cache_Fill_Last_Frame).w
+        bra.s   .v_top_fill
 .v_top_done:
 .fill_return:
         rts
@@ -655,18 +737,28 @@ TileCache_FillColumn:
 ; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 TileCache_FillRow:
-        ; iterate over all block cols in the cache's horizontal range
+        ; cache row offset (constant for all columns)
+        move.w  d5, d2
+        sub.w   (Cache_Top_Row).w, d2
+        bmi.w   .fr_early_out
+
+        ; pre-compute cache row stride in words — pushed once for entire call
+        move.w  d2, d3
+        lsl.w   #6, d2                         ; * 64
+        lsl.w   #4, d3                         ; * 16
+        add.w   d3, d2                         ; * 80
+        move.w  d2, -(sp)                      ; (sp) = cache_row_offset_words
+
         move.w  (Cache_Left_Col).w, d7
 .fr_block_loop:
         cmp.w   (Cache_Head_Col).w, d7
-        bgt.s   .fr_done
+        bgt.w   .fr_done
 
-        ; decompose into section + block + intra
+        ; decompose d7 into section + block for staging match
         move.w  d7, d0
         lsr.w   #8, d0                         ; sec_x
         move.w  d5, d1
         lsr.w   #8, d1                         ; sec_y
-
         move.w  d7, d2
         lsr.w   #BLOCK_TILE_SHIFT, d2
         andi.w  #$F, d2                        ; block_x
@@ -684,46 +776,66 @@ TileCache_FillRow:
         movem.l (sp)+, d5/d7
 .fr_have_block:
 
-        ; intra-block row
-        move.w  d5, d0
-        andi.w  #$F, d0                        ; d0 = intra-block row (0-15)
+        ; staging source base: Block_Stage_Nametable + (intra_row * 16) * 2
+        move.w  d5, d4
+        andi.w  #$F, d4                        ; intra-block row
+        lsl.w   #5, d4                         ; * 32
+        lea     (Block_Stage_Nametable).l, a0
+        adda.w  d4, a0                         ; a0 = staging row base
 
-        ; for row fill: copy all BLOCK_TILE_SIZE cols of this block into cache
-        ; Rather than a dedicated row copy, reuse column copy for each col in block
-        moveq   #0, d6                         ; intra-block col counter
+        ; first intra-block col for this block
+        move.w  d7, d6
+        andi.w  #$F, d6
+
 .fr_col_loop:
-        move.w  d6, d0                         ; intra-block col
+        cmpi.w  #BLOCK_TILE_SIZE, d6
+        bge.s   .fr_next_block
+
+        ; world col
+        move.w  d7, d1
+        andi.w  #$FFF0, d1
+        add.w   d6, d1                         ; world_col = block_base + intra_col
+        cmp.w   (Cache_Head_Col).w, d1
+        bgt.s   .fr_next_block
 
         ; cache col offset
-        move.w  d7, d1
-        add.w   d6, d1                         ; world col = block_left + intra_col
         sub.w   (Cache_Left_Col).w, d1
         bmi.s   .fr_skip_col
         cmpi.w  #TILE_CACHE_COLS, d1
         bge.s   .fr_skip_col
 
-        ; cache row offset
-        move.w  d5, d2
-        sub.w   (Cache_Top_Row).w, d2
-        bmi.s   .fr_skip_col
+        ; circular column mapping
+        add.w   (Cache_Origin_Col).w, d1
+        cmpi.w  #TILE_CACHE_COLS, d1
+        blt.s   .fr_nowrap
+        subi.w  #TILE_CACHE_COLS, d1
+.fr_nowrap:
 
-        moveq   #1, d3                        ; 1 row only
-        movem.l d5-d7, -(sp)
-        bsr.w   TileCache_CopyBlockColumn
-        movem.l (sp)+, d5-d7
+        ; read source tile from staging buffer
+        move.w  d6, d0
+        add.w   d0, d0                         ; intra_col * 2
+        move.w  (a0, d0.w), d3                 ; d3 = nametable word
+
+        ; dest offset = (cache_row_stride + cache_col) * 2
+        move.w  (sp), d0                       ; cache_row_offset_words
+        add.w   d1, d0                         ; + cache_col
+        add.w   d0, d0                         ; byte offset
+        lea     (Tile_Cache_Nametable).l, a1
+        move.w  d3, (a1, d0.w)                 ; write tile
 
 .fr_skip_col:
         addq.w  #1, d6
-        cmpi.w  #BLOCK_TILE_SIZE, d6
-        blt.s   .fr_col_loop
+        bra.s   .fr_col_loop
 
-        ; advance to next block col
+.fr_next_block:
         move.w  d7, d0
         andi.w  #$FFF0, d0
         addi.w  #BLOCK_TILE_SIZE, d0
         move.w  d0, d7
-        bra.s   .fr_block_loop
+        bra.w   .fr_block_loop
 .fr_done:
+        addq.l  #2, sp                         ; pop cache_row_offset_words
+.fr_early_out:
         rts
 
 ; -----------------------------------------------
@@ -811,6 +923,92 @@ TileCache_VSlide:
 
         add.w   d1, (Cache_Top_Row).w
 .vslide_done:
+        rts
+
+; -----------------------------------------------
+; TileCache_VSlideUp — evict stale bottom rows, shift data down
+; In:  d0.w = tile rows to evict from bottom
+; Out: none
+; Clobbers: d0-d5, a0-a1
+; -----------------------------------------------
+TileCache_VSlideUp:
+        tst.w   d0
+        ble.s   .vsu_done
+        move.w  d0, d1                         ; d1 = evict tile rows
+
+        ; nametable: memmove DOWN (copy backwards to avoid overlap)
+        ; dest end = start + TILE_CACHE_ROWS * 160
+        ; src end  = dest end - evict_rows * 160
+        lea     (Tile_Cache_Nametable).l, a1
+
+        ; compute evict offset = evict_rows * 160
+        move.w  d1, d2
+        move.w  d2, d3
+        lsl.w   #7, d2                         ; * 128
+        lsl.w   #5, d3                         ; * 32
+        add.w   d3, d2                         ; d2 = evict_rows * 160
+
+        ; total size = TILE_CACHE_ROWS * 160
+        move.w  #TILE_CACHE_ROWS, d3
+        move.w  d3, d4
+        lsl.w   #7, d3
+        lsl.w   #5, d4
+        add.w   d4, d3                         ; d3 = total bytes
+
+        ; bytes to copy = total - evict offset
+        move.w  d3, d4
+        sub.w   d2, d4                         ; d4 = bytes to copy
+
+        ; a0 = src end (start + bytes to copy)
+        lea     (a1, d4.w), a0
+        ; a1 = dest end (start + total bytes)
+        lea     (a1, d3.w), a1
+
+        move.w  d4, d3
+        lsr.w   #2, d3                         ; longwords
+        subq.w  #1, d3
+.vsu_nt:
+        move.l  -(a0), -(a1)
+        dbf     d3, .vsu_nt
+
+        ; collision: evict half as many rows (16px cells)
+        move.w  d1, d2
+        lsr.w   #1, d2
+        beq.s   .vsu_skip_coll
+
+        lea     (Tile_Cache_Collision).l, a1
+
+        ; evict offset = coll_evict * 80
+        move.w  d2, d3
+        move.w  d3, d4
+        lsl.w   #6, d3
+        lsl.w   #4, d4
+        add.w   d4, d3                         ; d3 = coll evict offset
+
+        ; total = TILE_CACHE_COLL_ROWS * 80
+        move.w  #TILE_CACHE_COLL_ROWS, d4
+        move.w  d4, d5
+        lsl.w   #6, d4
+        lsl.w   #4, d5
+        add.w   d5, d4                         ; d4 = total bytes
+
+        ; bytes to copy
+        move.w  d4, d5
+        sub.w   d3, d5                         ; d5 = bytes to copy
+
+        lea     (a1, d5.w), a0                 ; src end
+        lea     (a1, d4.w), a1                 ; dest end
+
+        move.w  d5, d3
+        lsr.w   #2, d3
+        subq.w  #1, d3
+.vsu_coll:
+        move.l  -(a0), -(a1)
+        dbf     d3, .vsu_coll
+.vsu_skip_coll:
+
+        sub.w   d1, (Cache_Bottom_Row).w
+.vsu_done:
         rts
 
 ; -----------------------------------------------

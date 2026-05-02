@@ -704,6 +704,15 @@ Section_RedrawPlanes:
         ; -- Plane A: column-major write --
         move.w  #$8F80, (a5)
 
+        ; compute start nametable row from Cache_Top_Row
+        move.w  (Cache_Top_Row).w, d6
+        moveq   #0, d1
+        move.b  (Slot_Section_Map+1).w, d1
+        lsl.w   #8, d1
+        sub.w   d1, d6
+        addi.w  #SLOT_ORIGIN_U/8, d6
+        andi.w  #63, d6                         ; d6 = start_nt_row (preserved)
+
         ; compute start world col
         move.l  (Camera_X).w, d5
         swap    d5
@@ -722,9 +731,9 @@ Section_RedrawPlanes:
         ; on miss so off-screen columns retain old nametable content
         ; instead of flashing black/zero tiles
         cmp.w   (Cache_Left_Col).w, d7
-        blt.s   .pla_next
+        blt.w   .pla_next
         cmp.w   (Cache_Head_Col).w, d7
-        bgt.s   .pla_next
+        bgt.w   .pla_next
 
         ; convert world col → plane col
         move.w  d7, d0
@@ -734,16 +743,10 @@ Section_RedrawPlanes:
         sub.w   d1, d0
         addi.w  #SLOT_ORIGIN_L/8, d0
         andi.w  #63, d0                         ; d0 = plane_col
+        add.w   d0, d0                          ; d0 = col byte offset
+        move.w  d0, -(sp)                       ; save for Part B
 
-        ; set VDP write address
-        moveq   #0, d4
-        move.w  d0, d4
-        add.w   d4, d4
-        addi.l  #VRAM_PLANE_A, d4
-        vdpCommReg d4, VRAM, WRITE, 1
-        move.l  d4, (a5)
-
-        ; read from tile cache — stride copy (one column across rows, circular wrap)
+        ; read from tile cache — compute cache column pointer
         move.w  d7, d0
         sub.w   (Cache_Left_Col).w, d0
         add.w   (Cache_Origin_Col).w, d0
@@ -754,19 +757,80 @@ Section_RedrawPlanes:
         add.w   d0, d0                         ; byte offset = col × 2
         lea     (Tile_Cache_Nametable).l, a1
         adda.w  d0, a1                         ; a1 = cache[row=0][col]
-        moveq   #TILE_CACHE_ROWS/2-1, d4
-.pla_copy:
-        move.w  (a1), d0
-        swap    d0
-        move.w  TILE_CACHE_STRIDE*2(a1), d0
-        move.l  d0, (a6)
-        lea     TILE_CACHE_STRIDE*2*2(a1), a1
-        dbf     d4, .pla_copy
-        ; zero-fill remaining rows (64 - 60 = 4 rows = 2 longwords)
-        moveq   #0, d0
-    rept (PLANE_V_CELLS - TILE_CACHE_ROWS) / 2
-        move.l  d0, (a6)
-    endr
+
+        ; -- Part A: nametable rows start_nt_row to 63 --
+        move.w  (sp), d4                       ; col byte offset
+        move.w  d6, d2
+        lsl.w   #7, d2                         ; start_nt_row × 128
+        add.w   d2, d4
+        moveq   #0, d2
+        move.w  d4, d2
+        addi.l  #VRAM_PLANE_A, d2
+        vdpCommReg d2, VRAM, WRITE, 1
+        move.l  d2, (a5)
+
+        move.w  #64, d2
+        sub.w   d6, d2                         ; d2 = count_A (rows in Part A)
+        moveq   #TILE_CACHE_ROWS, d4
+        cmp.w   d2, d4
+        ble.s   .pA_clamp
+        move.w  d2, d4                         ; d4 = data_A = min(cache_rows, count_A)
+.pA_clamp:
+        move.w  d4, d0
+        subq.w  #1, d0
+        bmi.s   .pA_dskip
+.pA_data:
+        move.w  (a1), (a6)
+        lea     TILE_CACHE_STRIDE*2(a1), a1
+        dbf     d0, .pA_data
+.pA_dskip:
+        move.w  d2, d0
+        sub.w   d4, d0                         ; zero_A = count_A - data_A
+        subq.w  #1, d0
+        bmi.s   .pA_zskip
+.pA_zero:
+        clr.w   (a6)
+        dbf     d0, .pA_zero
+.pA_zskip:
+
+        ; -- Part B: nametable rows 0 to start_nt_row - 1 --
+        tst.w   d6
+        beq.s   .pB_skip
+        moveq   #0, d2
+        move.w  (sp), d2                       ; col byte offset
+        addi.l  #VRAM_PLANE_A, d2
+        vdpCommReg d2, VRAM, WRITE, 1
+        move.l  d2, (a5)
+        move.w  d6, d2                         ; d2 = count_B = start_nt_row
+        move.w  #TILE_CACHE_ROWS, d0
+        sub.w   d4, d0                         ; remaining cache rows
+        ble.s   .pB_allz
+        cmp.w   d2, d0
+        ble.s   .pB_dok
+        move.w  d2, d0
+.pB_dok:
+        move.w  d0, d4
+        subq.w  #1, d0
+.pB_data:
+        move.w  (a1), (a6)
+        lea     TILE_CACHE_STRIDE*2(a1), a1
+        dbf     d0, .pB_data
+        move.w  d2, d0
+        sub.w   d4, d0
+        subq.w  #1, d0
+        bmi.s   .pB_skip
+.pB_zfill:
+        clr.w   (a6)
+        dbf     d0, .pB_zfill
+        bra.s   .pB_skip
+.pB_allz:
+        move.w  d2, d0
+        subq.w  #1, d0
+.pB_az:
+        clr.w   (a6)
+        dbf     d0, .pB_az
+.pB_skip:
+        addq.l  #2, sp                         ; pop col byte offset
 
 .pla_next:
         addq.w  #1, d3
@@ -975,6 +1039,12 @@ Section_UpdateColumns:
         bra.s   .bot_loop
 .bot_done:
         move.w  d5, (Section_Bottom_Row_Written).w
+        move.w  d5, d3
+        subi.w  #63, d3
+        cmp.w   (Section_Top_Row_Written).w, d3
+        ble.s   .top_row_clamp_skip
+        move.w  d3, (Section_Top_Row_Written).w
+.top_row_clamp_skip:
 
         ; -------- top side --------
         lsr.w   #3, d6
@@ -1011,6 +1081,12 @@ Section_UpdateColumns:
         bra.s   .top_loop
 .top_done:
         move.w  d5, (Section_Top_Row_Written).w
+        move.w  d5, d3
+        addi.w  #63, d3
+        cmp.w   (Section_Bottom_Row_Written).w, d3
+        bge.s   .bot_row_clamp_skip
+        move.w  d3, (Section_Bottom_Row_Written).w
+.bot_row_clamp_skip:
 
         movem.l (sp)+, d2-d7/a0-a3
         rts

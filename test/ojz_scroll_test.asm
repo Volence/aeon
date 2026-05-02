@@ -94,6 +94,15 @@ GameState_OJZScroll_Init:
         ;    are valid) --
         jsr     Tile_Cache_Init
 
+        ; -- synchronous plane fill: trigger Section_RedrawPlanes before
+        ;    display on so the nametable is fully populated from frame 1.
+        ;    Without this, Section_UpdateColumns gradually fills over ~3
+        ;    frames, causing a visible snap when starting at non-zero X. --
+        st      (Section_Plane_Dirty).w
+        stopZ80
+        jsr     Section_UpdateColumns
+        startZ80
+
         ; -- §4.6 parallax init: pull start section's parallax_config --
         lea     OJZ_Act1_Descriptor, a0
         movea.l Act_sec_grid_ptr(a0), a1        ; a1 = sec table base
@@ -111,6 +120,10 @@ GameState_OJZScroll_Init:
         movea.l Act_act_parallax_config(a0), a0
 .init_have_config:
         jsr     Parallax_Init
+
+        ; -- prime HScroll/VScroll buffers so the first frame displays
+        ;    with correct scroll offsets (otherwise HScroll=0 for one frame) --
+        jsr     Parallax_Update
 
         ; -- enable display now that VRAM and nametable are populated --
         setVDPReg VDP_Shadow_vdp_mode2, #$74    ; display on, VBlank on, DMA on, M5 on
@@ -155,17 +168,12 @@ GameState_OJZScroll_Update:
         jsr     Render_Sprites
         move.b  #1, (Sprite_Table_Dirty).w
 
-        ; -- §4.6 T14: parallax follows ACTIVE slot, not just slot 0.
-        ;    Compute which slot the camera is currently inside (slot 0 if
-        ;    Camera_X < SLOT_ORIGIN_R, else slot 1) and call
-        ;    Parallax_StartTransition with that slot's parallax_config.
-        ;    StartTransition is idempotent (no-ops if Current or Target
-        ;    already matches) so per-frame calls cost ~1 register read +
-        ;    a comparison branch when nothing has changed. When the user
-        ;    crosses the slot boundary, the smooth lerp begins.
-        ;    Skip when snap is pending — teleport already set the correct config.
-        tst.b   (Parallax_Snap_Pending).w
-        bne.s   .skip_t14
+        ; -- Derive active flat section_id (2D-correct) for T14 + T15 --
+        ; flat_id = sec_y * grid_w + sec_x, computed once and reused.
+        ; Vertical half: if Camera_Y >= SLOT_ORIGIN_U + SECTION_SIZE ($A00),
+        ; the camera is in the lower section of the vertical pair → sec_y += 1.
+        ; (Mirrors horizontal slot detection at SLOT_ORIGIN_R for Camera_X.)
+        movea.l (Current_Act_Ptr).w, a0
         move.l  (Camera_X).w, d0
         swap    d0                              ; d0.w = Camera_X high word
         moveq   #0, d2                          ; assume slot 0
@@ -173,16 +181,41 @@ GameState_OJZScroll_Update:
         blt.s   .slot_resolved
         moveq   #1, d2                          ; X >= $A00 → slot 1
 .slot_resolved:
-        movea.l (Current_Act_Ptr).w, a0
-        movea.l Act_sec_grid_ptr(a0), a1
-        add.w   d2, d2                          ; d2 *= 2 (byte offset in Slot_Section_Map)
+        add.w   d2, d2                          ; d2 = slot * 2 byte offset
         lea     (Slot_Section_Map).w, a3
         moveq   #0, d0
-        move.b  (a3, d2.w), d0                  ; sec_id at active slot
+        move.b  1(a3, d2.w), d0                 ; d0 = sec_y (from slot map)
+        ; vertical half detection: camera in lower section?
+        move.l  (Camera_Y).w, d1
+        swap    d1                              ; d1.w = Camera_Y high word
+        cmpi.w  #SLOT_ORIGIN_U+SECTION_SIZE, d1
+        blt.s   .vert_resolved
+        addq.w  #1, d0                          ; Camera_Y >= $A00 → lower section
+.vert_resolved:
+        tst.w   d0
+        beq.s   .flat_add_x                     ; sec_y=0 → skip multiply
+        move.w  Act_grid_w(a0), d1              ; d1 = grid_w
+        move.w  d0, d3
+        moveq   #0, d0
+        subq.w  #1, d3
+.flat_mul:
+        add.w   d1, d0
+        dbf     d3, .flat_mul
+.flat_add_x:
+        moveq   #0, d1
+        move.b  (a3, d2.w), d1                  ; d1 = sec_x
+        add.w   d1, d0                          ; d0 = flat section_id
+        move.w  d0, d6                          ; save flat_id for T14 + T15
+
+        ; -- §4.6 T14: parallax follows active slot --
+        tst.b   (Parallax_Snap_Pending).w
+        bne.s   .skip_t14
+        movea.l Act_sec_grid_ptr(a0), a1
+        move.w  d6, d0
         move.w  d0, d1
-        lsl.w   #6, d0                          ; sec_id × 64
-        lsl.w   #3, d1                          ; sec_id × 8
-        add.w   d1, d0                          ; sec_id × 72 = Sec_len
+        lsl.w   #6, d0                          ; flat_id × 64
+        lsl.w   #3, d1                          ; flat_id × 8
+        add.w   d1, d0                          ; flat_id × 72 = Sec_len
         adda.w  d0, a1                          ; a1 = active sec entry
         movea.l Sec_sec_parallax_config(a1), a0 ; a0 = active config
         cmpa.w  #0, a0
@@ -194,22 +227,8 @@ GameState_OJZScroll_Update:
 .skip_t14:
 
         ; -- T15 diagnostic: per-section sky-color marker --
-        ; Re-derive active slot section_id, look up a tint color, write to
-        ; CRAM[0] via Palette_Buffer + dirty flag. CRAM[0] is the backdrop
-        ; shown behind transparent BG pixels — visible as the "sky" tint.
-        ; Lets the user see at a glance which section they're in.
-        move.l  (Camera_X).w, d0
-        swap    d0
-        moveq   #0, d2
-        cmpi.w  #SLOT_ORIGIN_R, d0
-        blt.s   .marker_slot_resolved
-        moveq   #1, d2
-.marker_slot_resolved:
-        add.w   d2, d2                          ; d2 = slot * 2 byte offset
-        lea     (Slot_Section_Map).w, a3
-        moveq   #0, d0
-        move.b  (a3, d2.w), d0                  ; d0 = active section_id
-        cmpi.b  #9, d0                          ; clamp to table size (9 OJZ sections)
+        move.w  d6, d0                          ; flat section_id
+        cmpi.b  #9, d0                          ; clamp to grid size (3×3 = 9 sections)
         blo.s   .marker_id_ok
         moveq   #0, d0
 .marker_id_ok:
@@ -272,15 +291,15 @@ GameState_OJZScroll_Update:
 ; backdrop visibly differs per section. T15 diagnostic only.
 ; -----------------------------------------------
 OJZ_SectionMarkerColors:
-        dc.w    $0000           ; Sec0: black (default)
-        dc.w    $000E           ; Sec1: bright red
-        dc.w    $00E0           ; Sec2: bright green
-        dc.w    $0E00           ; Sec3: bright blue
-        dc.w    $00EE           ; Sec4: yellow
-        dc.w    $0E0E           ; Sec5: magenta
-        dc.w    $0EE0           ; Sec6: cyan
-        dc.w    $0888           ; Sec7: gray
-        dc.w    $0EEE           ; Sec8: white
+        dc.w    $000E           ; Sec0 (0,0): bright red
+        dc.w    $00E0           ; Sec1 (1,0): bright green
+        dc.w    $0E00           ; Sec2 (2,0): bright blue
+        dc.w    $00EE           ; Sec3 (0,1): yellow
+        dc.w    $0E0E           ; Sec4 (1,1): magenta
+        dc.w    $0EE0           ; Sec5 (2,1): cyan
+        dc.w    $0EEE           ; Sec6 (0,2): white
+        dc.w    $0888           ; Sec7 (1,2): gray
+        dc.w    $060E           ; Sec8 (2,2): orange
 
 ; -----------------------------------------------
 ; PlayerMarkerTile — 4 × 8×8 tiles, all pixels colour 12 (128 bytes).

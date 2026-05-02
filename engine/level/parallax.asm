@@ -22,20 +22,11 @@ Parallax_Init:
 
         move.l  a0, (Parallax_Current_Config).w
 
-        ; Snap: drive the lerp to convergence so the first visible frame
-        ; shows the correct band scrolls instead of the "race" from 0.
-        ; PARALLAX_LERP_SHIFT=3 → ~32 iterations to zero-error.
-        ; (Pre-fix the snap was unreliable because Parallax_Fill_PerCell
-        ; trampled on Parallax_Current_Scroll_A/B via a buffer overflow
-        ; — bhi vs bhs bug on the last-band check. Now safe.)
-        move.l  d7, -(sp)
-        moveq   #32-1, d7
-.snap_loop:
-        move.l  d7, -(sp)
+        ; Snap all band scrolls to their correct positions on the first
+        ; frame instead of lerping from 0. One Update with Snap_Pending
+        ; writes target_scroll directly to current_scroll for every band.
+        st      (Parallax_Snap_Pending).w
         bsr.w   Parallax_Update
-        move.l  (sp)+, d7
-        dbf     d7, .snap_loop
-        move.l  (sp)+, d7
         rts
 
 ; ----------------------------------------------------------------------
@@ -312,11 +303,15 @@ Parallax_Update:
         asr.w   d2, d0
         add.w   parallax_config_pcfg_v_offset(a0), d0     ; d0 = target_b
 
+        tst.b   (Parallax_Snap_Pending).w
+        bne.s   .v_snap
         move.w  (Parallax_Current_Vscroll_BG).w, d2
         sub.w   d2, d0
         asr.w   #PARALLAX_LERP_SHIFT, d0
         add.w   d0, d2                              ; d2 = new current_vscroll_bg
         bra.s   .v_pack
+.v_snap:
+        move.w  d0, d2
 .v_locked:
         ; locked: BG = vOffset (static, ignores camera + lerp)
         ; FG follows camY (d1 already loaded with camY at function entry).

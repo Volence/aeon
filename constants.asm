@@ -51,7 +51,7 @@ SYSTEM_STACK            = $FFFFFF00
 VRAM_PLANE_A            = $C000         ; Byte address (tile $600)
 VRAM_PLANE_B            = $E000         ; Byte address (tile $700)
 VRAM_SPRITE_TABLE       = $B800         ; Relocated from $D800 to free plane rows 48-63
-VRAM_HSCROLL_TABLE      = $DC00
+VRAM_HSCROLL_TABLE      = $BC00         ; Relocated from $DC00 (was inside Plane A 64×64 nametable)
 VRAM_WINDOW             = $F000
 
 ; Shared BG tile region (§2 A.5 T1/T2)
