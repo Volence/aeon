@@ -94,3 +94,48 @@ OJZ_Sec2_Rings:
         dc.w    $300, $040
         dc.w    $300, $050
         dc.l    0                       ; terminator
+
+; -----------------------------------------------
+; Sec3–Sec8 — empty entity data (editor has no placements yet)
+; -----------------------------------------------
+OJZ_Sec3_TypeTable:
+        dc.b    0, 0
+OJZ_Sec3_Objects:
+        dc.l    0
+OJZ_Sec3_Rings:
+        dc.l    0
+
+OJZ_Sec4_TypeTable:
+        dc.b    0, 0
+OJZ_Sec4_Objects:
+        dc.l    0
+OJZ_Sec4_Rings:
+        dc.l    0
+
+OJZ_Sec5_TypeTable:
+        dc.b    0, 0
+OJZ_Sec5_Objects:
+        dc.l    0
+OJZ_Sec5_Rings:
+        dc.l    0
+
+OJZ_Sec6_TypeTable:
+        dc.b    0, 0
+OJZ_Sec6_Objects:
+        dc.l    0
+OJZ_Sec6_Rings:
+        dc.l    0
+
+OJZ_Sec7_TypeTable:
+        dc.b    0, 0
+OJZ_Sec7_Objects:
+        dc.l    0
+OJZ_Sec7_Rings:
+        dc.l    0
+
+OJZ_Sec8_TypeTable:
+        dc.b    0, 0
+OJZ_Sec8_Objects:
+        dc.l    0
+OJZ_Sec8_Rings:
+        dc.l    0

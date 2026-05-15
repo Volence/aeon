@@ -209,7 +209,7 @@ GS_OBJECT_TEST          = 2
 ; -----------------------------------------------
 
 ; Section coordinate space
-SECTION_SHIFT           = $1000     ; teleport shift (pixels); exact slot width. Anti-oscillation handled by Section_Teleport_Guard (position-based suppression after teleport).
+SECTION_SHIFT           = $1000     ; teleport shift (pixels); 2-slot pair width (both axes). Anti-oscillation handled by Section_Teleport_Guard (position-based suppression after teleport).
 SECTION_SIZE            = $0800     ; slot width/height in engine pixels
 SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
 SLOT_ORIGIN_R           = $0A00     ; right slot engine-space left edge
@@ -234,7 +234,7 @@ SECTION_BWD_PRELOAD     = $0400     ; camera X → queue backward section art
 SECTION_DEFERRED_FWD_LOAD = $0600   ; camera X → fire deferred Sec_R load (slot 0 midpoint, post-FWD-teleport)
 SECTION_DEFERRED_BWD_LOAD = $0C00   ; camera X → fire deferred Sec_L load (slot 1 quarter, post-BWD-teleport)
 
-; Vertical thresholds (2D active)
+; Vertical thresholds (2D active — mirrors horizontal pair layout)
 SECTION_UP_THRESHOLD    = $0200
 SECTION_DOWN_THRESHOLD  = $1200
 SECTION_UP_PRELOAD      = $0400

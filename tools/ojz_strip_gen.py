@@ -17,14 +17,14 @@ Each file contains ALL columns for section N concatenated sequentially:
 col 0 words, then col 1 words, ..., col W-1 words.
 Total size per file: num_columns * STRIP_TILE_HEIGHT * 2 bytes.
 
-Each strip covers STRIP_TILE_HEIGHT=32 rows (nametable rows 0-31 only;
-the sprite table lives at row 48 in the 64x64 Plane A nametable).
+Each strip covers STRIP_TILE_HEIGHT rows of the section nametable.
 Each strip is a column of STRIP_TILE_HEIGHT big-endian nametable words.
 """
 
 import struct
 import sys
 import os
+import json
 import shutil
 
 # Allow running from the s4_engine root (where build.sh lives).
@@ -45,10 +45,20 @@ OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "data", "generated", "ojz", "act1"
 )
 
+EDITOR_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "data", "editor"
+)
+PROJECT_JSON = os.path.join(
+    os.path.dirname(__file__), "..", "project.json"
+)
+CHUNKS_TILES_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "data", "editor", "chunks_tiles.bin"
+)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-STRIP_TILE_HEIGHT = 48  # nametable rows per strip (rows 0-47; sprite table at row 48)
+STRIP_TILE_HEIGHT = 256  # nametable rows per strip (full section height)
 OJZ_TILES_COUNT = 322   # legacy — pre-A.1 raw export count, kept for old test_generate_tile_art
 
 # (HACK_STRIP_CHUNK_ROW_OFFSET hack reverted — didn't help because the
@@ -532,14 +542,121 @@ def build_strips_from_nametable(
     return strips
 
 
+def load_editor_section_nametable(path: str) -> list[list[int]]:
+    """Load a section_*.tiles.bin from the level editor.
+
+    The file is a 256×256 grid of big-endian 16-bit VDP nametable words.
+    Tile indices reference entries in chunks_tiles.bin.
+    Returns all rows as a list-of-rows nametable.
+    """
+    data = open(path, "rb").read()
+    GRID = 256
+    expected = GRID * GRID * 2
+    if len(data) != expected:
+        raise ValueError(
+            f"Expected {expected} bytes for {GRID}×{GRID} nametable, got {len(data)}"
+        )
+    words = struct.unpack(f">{GRID * GRID}H", data)
+    nametable = []
+    for row in range(min(STRIP_TILE_HEIGHT, GRID)):
+        nametable.append(list(words[row * GRID : (row + 1) * GRID]))
+    return nametable
+
+
+def load_editor_tile_art(path: str) -> bytes:
+    """Load raw tile art from the editor's chunks_tiles.bin."""
+    return open(path, "rb").read()
+
+
+def editor_data_available() -> bool:
+    """Check if editor section data exists for OJZ act1."""
+    sec0 = os.path.join(EDITOR_DIR, "ojz", "act1", "section_0.tiles.bin")
+    return os.path.isfile(sec0) and os.path.isfile(CHUNKS_TILES_PATH)
+
+
+def build_editor_reverse_map(
+    old_per_section_strips: dict[str, list[list[int]]],
+    full_blob: bytes,
+    sec_ids_in_order: list[str],
+    grid_w: int,
+    grid_h: int,
+) -> dict[str, dict[int, int]]:
+    """Build a per-section reverse map: remapped_word → original_word.
+
+    Runs the old pipeline's dedupe+remap in memory so we can invert
+    the transformation and normalize editor tiles.bin data (which has
+    VRAM-slot indices from the old pipeline) back to OJZ.bin tile indices.
+    """
+    sorted_indices, raw_tiles = collect_referenced_tiles(
+        old_per_section_strips, full_blob
+    )
+    unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
+    src_to_canon = {
+        src_idx: mapping[i] for i, src_idx in enumerate(sorted_indices)
+    }
+
+    per_section_canon = []
+    for sec_id in sec_ids_in_order:
+        seen: set[int] = set()
+        ordered: list[int] = []
+        for col in old_per_section_strips[sec_id]:
+            for word in col:
+                src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
+                canon_idx, _ = src_to_canon.get(src_idx, (0, 0))
+                if canon_idx not in seen:
+                    seen.add(canon_idx)
+                    ordered.append(canon_idx)
+        per_section_canon.append(ordered)
+
+    edges = tile_dedupe.compute_adjacency(grid_w, grid_h)
+    colors = tile_dedupe.color_sections(len(sec_ids_in_order), edges)
+    color_bases, section_slots = tile_dedupe.assign_section_slots(
+        per_section_canon, colors, region_start=0
+    )
+
+    reverse_maps: dict[str, dict[int, int]] = {}
+    for s_idx, sec_id in enumerate(sec_ids_in_order):
+        slot_map = section_slots[s_idx]
+        rmap: dict[int, int] = {}
+        for col in old_per_section_strips[sec_id]:
+            for original_word in col:
+                src_idx = original_word & tile_dedupe.NAMETABLE_TILE_MASK
+                canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
+                vram_slot = slot_map.get(canon_idx, 0)
+                remapped = tile_dedupe.remap_nametable_word(
+                    original_word, vram_slot, flip_bits
+                )
+                rmap[remapped] = original_word
+        reverse_maps[sec_id] = rmap
+    return reverse_maps
+
+
+def normalize_editor_nametable(
+    nametable: list[list[int]],
+    reverse_map: dict[int, int],
+) -> list[list[int]]:
+    """Replace VRAM-slot nametable words with their original OJZ.bin equivalents.
+
+    Words not found in the reverse map are assumed to already be in OJZ.bin
+    index space (e.g. freshly stamped chunks from the editor).
+    """
+    result = []
+    for row in nametable:
+        new_row = []
+        for word in row:
+            new_row.append(reverse_map.get(word, word))
+        result.append(new_row)
+    return result
+
+
 def write_strips_to_file(strips: list[list[int]], path: str) -> None:
     """Write all column strips concatenated into a single binary file.
 
-    Format per column (128 bytes):
-      - 48 nametable words (96 bytes, big-endian)
-      - 24 collision bytes (stub: non-zero tile → solid)
-      - 8 bytes padding (zero)
-    Total size: len(strips) * 128 bytes.
+    Format per column (WIDE_STRIP_SIZE bytes):
+      - STRIP_TILE_HEIGHT nametable words (big-endian)
+      - COLLISION_ROWS_PER_STRIP collision bytes
+      - STRIP_COLLISION_PAD bytes padding
+    Total size: len(strips) * WIDE_STRIP_SIZE bytes.
     """
     with open(path, "wb") as f:
         for strip in strips:
@@ -556,9 +673,7 @@ def generate_section_strips(
 ) -> list[list[int]]:
     """Generate one strip (list of ints) per layout tile-column.
 
-    Each strip is STRIP_TILE_HEIGHT words = rows 0-31 of the nametable column.
-    A layout row is TILES_PER_CHUNK_COL=16 nametable rows tall, so
-    STRIP_TILE_HEIGHT=32 rows covers exactly 2 layout rows (chunks).
+    Each strip is STRIP_TILE_HEIGHT words covering the full section height.
 
     Returns list[list[int]] — one list per column, each STRIP_TILE_HEIGHT long.
     """
@@ -860,12 +975,12 @@ def test_column_layout_correctness():
 
 
 def test_explicit_truncation():
-    """Test B: strips must be exactly STRIP_TILE_HEIGHT rows (sprite table safety)."""
-    tall = [[c for c in range(8)] for r in range(64)]
+    """Test B: strips must be exactly STRIP_TILE_HEIGHT rows."""
+    tall = [[c for c in range(8)] for r in range(STRIP_TILE_HEIGHT + 10)]
     tall_strips = build_strips_from_nametable(tall, STRIP_TILE_HEIGHT)
     assert all(len(s) == STRIP_TILE_HEIGHT for s in tall_strips), \
-        "Strips must be exactly STRIP_TILE_HEIGHT rows (sprite table safety)"
-    print(f"  PASS: strips truncate at {STRIP_TILE_HEIGHT} (sprite table at row 48 safe)")
+        "Strips must be exactly STRIP_TILE_HEIGHT rows"
+    print(f"  PASS: strips are exactly {STRIP_TILE_HEIGHT} rows")
 
 
 def test_binary_round_trip():
@@ -876,7 +991,7 @@ def test_binary_round_trip():
         tmp = tf.name
     write_strips_to_file(test_strips, tmp)
     data = open(tmp, 'rb').read()
-    assert len(data) == 3 * STRIP_TILE_HEIGHT * 2, f"Size mismatch: {len(data)}"
+    assert len(data) == 3 * WIDE_STRIP_SIZE, f"Size mismatch: {len(data)}"
     first_word = struct.unpack_from('>H', data, 0)[0]
     assert first_word == test_strips[0][0], \
         f"First word: expected {test_strips[0][0]}, got {first_word}"
@@ -951,7 +1066,7 @@ WIDE_STRIP_SIZE = STRIP_TILE_HEIGHT * 2 + COLLISION_ROWS_PER_STRIP + STRIP_COLLI
 
 
 def generate_collision_bytes(strip_words: list[int]) -> bytes:
-    """Generate 24 collision bytes for one strip column.
+    """Generate collision bytes for one strip column.
 
     Stub: mark a cell solid only if its nametable words have the VDP
     priority bit set (bit 15).  In OJZ, sky/cloud tiles use priority 0
@@ -982,55 +1097,82 @@ def generate(force_region1_cap=None):
     os.makedirs(out_dir, exist_ok=True)
 
     src_dir = SONIC_HACK
+    use_editor = editor_data_available()
 
-    print(f"Loading block map: {BLOCK_MAP_PATH}")
-    blocks = load_block_map(BLOCK_MAP_PATH)
-    print(f"  {len(blocks)} blocks loaded")
-
-    print(f"Loading chunk map: {CHUNK_MAP_PATH}")
-    chunks = load_chunk_map(CHUNK_MAP_PATH)
-    print(f"  {len(chunks)} chunks loaded")
-
-    # Find all OJZ section layout files
-    import glob
-    import re
-    pattern = os.path.join(LAYOUT_DIR, "OJZ_1_sec*.bin")
-    def extract_sec_id(path: str) -> int:
-        m = re.search(r'sec([0-9A-Fa-f]+)', os.path.basename(path))
-        if m:
-            try:
-                return int(m.group(1), 16)  # Hexadecimal (handles 0-9, A-F)
-            except ValueError:
-                return int(m.group(1))  # Fallback to decimal
-        return -1
-    section_files = sorted(glob.glob(pattern), key=extract_sec_id)
-
-    if not section_files:
-        print(f"ERROR: No layout files found matching {pattern}")
-        sys.exit(1)
-
-    # ---- Pass 1: build per-section strips, hold in memory ----
-    per_section_strips: dict[str, list[list[int]]] = {}
-    section_meta: dict[str, tuple[int, int]] = {}  # sec_id → (rows, cols)
-    for sec_path in section_files:
-        sec_name = os.path.basename(sec_path).replace(".bin", "")
-        sec_id = sec_name.split("sec")[1]
-
-        layout = load_layout(sec_path)
-        if not layout:
-            print(f"  WARNING: {sec_name} produced empty layout, skipping")
-            continue
-
-        strips = generate_section_strips(layout, chunks, blocks)
-        per_section_strips[sec_id] = strips
-        section_meta[sec_id] = (len(layout), len(layout[0]))
-        print(
-            f"  {sec_name}: {len(layout)} rows × {len(layout[0])} chunks "
-            f"→ {len(strips)} strips"
+    if use_editor:
+        print("=== Using level editor data ===")
+        # Read grid dimensions from project.json
+        with open(PROJECT_JSON, "r") as pf:
+            proj = json.load(pf)
+        ojz_act1 = proj["zones"][0]["acts"][0]
+        editor_grid_w = ojz_act1["gridWidth"]
+        editor_grid_h = ojz_act1["gridHeight"]
+        editor_num_sections = editor_grid_w * editor_grid_h
+        editor_data_path = os.path.join(
+            os.path.dirname(__file__), "..", ojz_act1["dataPath"]
         )
 
+        full_blob = load_editor_tile_art(CHUNKS_TILES_PATH)
+        print(f"  Tile art: {CHUNKS_TILES_PATH} ({len(full_blob)} bytes, {len(full_blob)//32} tiles)")
+
+        per_section_strips: dict[str, list[list[int]]] = {}
+        for sec_idx in range(editor_num_sections):
+            sec_path = os.path.join(editor_data_path, f"section_{sec_idx}.tiles.bin")
+            if not os.path.isfile(sec_path):
+                print(f"  WARNING: {sec_path} not found, skipping")
+                continue
+            nametable = load_editor_section_nametable(sec_path)
+            strips = build_strips_from_nametable(nametable, STRIP_TILE_HEIGHT)
+            per_section_strips[str(sec_idx)] = strips
+            n_cols = len(strips)
+            print(f"  section_{sec_idx}: {len(nametable)} rows × {n_cols} cols → {n_cols} strips")
+    else:
+        print("=== Using sonic_hack reference data (no editor data found) ===")
+        print(f"Loading block map: {BLOCK_MAP_PATH}")
+        blocks = load_block_map(BLOCK_MAP_PATH)
+        print(f"  {len(blocks)} blocks loaded")
+
+        print(f"Loading chunk map: {CHUNK_MAP_PATH}")
+        chunks = load_chunk_map(CHUNK_MAP_PATH)
+        print(f"  {len(chunks)} chunks loaded")
+
+        import glob
+        import re
+        pattern = os.path.join(LAYOUT_DIR, "OJZ_1_sec*.bin")
+        def extract_sec_id(path: str) -> int:
+            m = re.search(r'sec([0-9A-Fa-f]+)', os.path.basename(path))
+            if m:
+                try:
+                    return int(m.group(1), 16)
+                except ValueError:
+                    return int(m.group(1))
+            return -1
+        section_files = sorted(glob.glob(pattern), key=extract_sec_id)
+
+        if not section_files:
+            print(f"ERROR: No layout files found matching {pattern}")
+            sys.exit(1)
+
+        per_section_strips = {}
+        for sec_path in section_files:
+            sec_name = os.path.basename(sec_path).replace(".bin", "")
+            sec_id = sec_name.split("sec")[1]
+
+            layout = load_layout(sec_path)
+            if not layout:
+                print(f"  WARNING: {sec_name} produced empty layout, skipping")
+                continue
+
+            strips = generate_section_strips(layout, chunks, blocks)
+            per_section_strips[sec_id] = strips
+            print(
+                f"  {sec_name}: {len(layout)} rows × {len(layout[0])} chunks "
+                f"→ {len(strips)} strips"
+            )
+
+        full_blob = decompress_full_ojz_art(OJZ_ART_PATH)
+
     # ---- Pass 2: dedupe across all sections ----
-    full_blob = decompress_full_ojz_art(OJZ_ART_PATH)
     sorted_indices, raw_tiles = collect_referenced_tiles(per_section_strips, full_blob)
     unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
 
@@ -1056,10 +1198,13 @@ def generate(force_region1_cap=None):
         per_section_canon_tiles.append(ordered)
 
     # ---- Pass 4: section adjacency + coloring + slot assignment ----
-    grid_w, grid_h = _ojz_grid_dimensions(sec_ids_in_order)
+    if use_editor:
+        grid_w, grid_h = editor_grid_w, editor_grid_h
+    else:
+        grid_w, grid_h = _ojz_grid_dimensions(sec_ids_in_order)
     edges = tile_dedupe.compute_adjacency(grid_w, grid_h)
     colors = tile_dedupe.color_sections(len(sec_ids_in_order), edges)
-    color_bases, section_slots = tile_dedupe.assign_section_slots(
+    color_bases, section_slots, color_union_tiles = tile_dedupe.assign_section_slots(
         per_section_canon_tiles, colors, region_start=0
     )
 
@@ -1082,8 +1227,13 @@ def generate(force_region1_cap=None):
 
         out_a = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
         write_strips_to_file(remapped_strips, out_a)
-        # (§2 A.5: per-section strips_b placeholder removed — Plane B is now
-        # driven by zone_bg.bin (T1) or per-section secN_bg.bin (T2/T3).)
+
+        # Source-space strips for the level editor (OJZ.bin tile indices,
+        # same 128-byte/col format). The editor loads these instead of
+        # strips_a.bin so it never sees VRAM slot assignments.
+        out_src = os.path.join(out_dir, f"sec{sec_id}_strips_source.bin")
+        write_strips_to_file(per_section_strips[sec_id], out_src)
+
         if first_strips is None:
             first_strips = remapped_strips
         total_strips += len(remapped_strips)
@@ -1120,21 +1270,29 @@ def generate(force_region1_cap=None):
         ratio = len(compressed) / len(raw_data) * 100 if raw_data else 0
         print(f"  sec{sec_id} strips: {len(raw_data)} -> {len(compressed)} ({ratio:.1f}%) [128B/col, collision embedded]")
 
-    # ---- Pass 6: emit per-section tile-art blobs ----
+    # ---- Pass 6: emit per-color-group union tile-art blobs ----
+    # All sections in the same color group get the same blob — every tile
+    # used by any section in the group is present at its VRAM slot.
     for s_idx, sec_id in enumerate(sec_ids_in_order):
-        sec_tiles = per_section_canon_tiles[s_idx]
+        c = colors[s_idx]
+        union_tiles = color_union_tiles[c]
         sec_out = os.path.join(out_dir, f"sec{sec_id}_tiles.bin")
         with open(sec_out, "wb") as f:
-            for canon_idx in sec_tiles:
+            for canon_idx in union_tiles:
                 f.write(unique[canon_idx])
 
     # ---- Pass 6b (§2 A.5 T1+T2): emit shared-region BG tile blob + per-variant nametables ----
+    # BG layout always uses sonic_hack data (editor doesn't modify BG yet)
+    bg_blocks = load_block_map(BLOCK_MAP_PATH) if use_editor else blocks
+    bg_chunks = load_chunk_map(CHUNK_MAP_PATH) if use_editor else chunks
+    bg_art_blob = decompress_full_ojz_art(OJZ_ART_PATH) if use_editor else full_blob
+
     ojz_master_layout_path = os.path.join(LAYOUT_DIR, "OJZ_1.bin")
     bg_layout = load_bg_layout(ojz_master_layout_path)
 
     # Zone-wide BG (col_offset=0) — used by act_bg_layout AND any section whose
     # sec_bg_layout is NULL (T1 fallback handled in BG_RedrawForSection).
-    bg_nt_zone = build_bg_nametable_words(bg_layout, chunks, blocks, col_offset=0)
+    bg_nt_zone = build_bg_nametable_words(bg_layout, bg_chunks, bg_blocks, col_offset=0)
 
     # Shared BG tile blob — references only the zone layout's tiles. When real
     # T2/T3 sections are authored, pass [bg_nt_zone, sec1_nt, sec3_nt, ...] so
@@ -1142,7 +1300,7 @@ def generate(force_region1_cap=None):
     bg_tiles_path = os.path.join(out_dir, "bg_tiles.bin")
     bg_src_to_canon, bg_tile_count = emit_bg_tile_blob(
         [bg_nt_zone],
-        full_blob,
+        bg_art_blob,
         bg_tiles_path,
     )
 
@@ -1176,10 +1334,7 @@ def generate(force_region1_cap=None):
     src_min = min(sorted_indices) if sorted_indices else 0
     src_collisions = sum(1 for i in sorted_indices if i >= 1536)
     num_colors = max(colors) + 1 if colors else 0
-    max_simultaneous = sum(
-        max((len(per_section_canon_tiles[s]) for s in range(len(colors)) if colors[s] == c), default=0)
-        for c in range(num_colors)
-    )
+    max_simultaneous = sum(len(color_union_tiles[c]) for c in range(num_colors))
     print(
         f"\n=== OJZ Act 1 — Phase A.3 measurement ===\n"
         f"  Source tile indices referenced: {raw_referenced} "
@@ -1199,8 +1354,7 @@ def generate(force_region1_cap=None):
     shutil.copy(pal_src, pal_dest)
     print(f"Copied palette -> {pal_dest}")
 
-    num_sections_processed = len([1 for f in section_files if os.path.exists(os.path.join(out_dir, f"{os.path.basename(f).replace('OJZ_1_sec', 'sec').replace('.bin', '')}_strips_a.bin"))])
-    print(f"Done. {num_sections_processed} sections, {total_strips} total strips written to {out_dir}")
+    print(f"Done. {len(sec_ids_in_order)} sections, {total_strips} total strips written to {out_dir}")
 
     # Print a brief sanity summary for the first section's first strip
     if first_strips:

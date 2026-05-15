@@ -38,12 +38,12 @@ BLOCK_COLL_SIZE = BLOCK_COLL_COLS * BLOCK_COLL_ROWS  # 128 bytes
 BLOCK_RAW_SIZE = BLOCK_NT_SIZE + BLOCK_COLL_SIZE  # 640 bytes
 
 # Strip format (from ojz_strip_gen.py)
-STRIP_TILE_HEIGHT = 48
-STRIP_NT_BYTES = STRIP_TILE_HEIGHT * 2  # 96
-STRIP_COLL_ROWS = STRIP_TILE_HEIGHT // 2  # 24
-STRIP_COLL_OFFSET = STRIP_NT_BYTES  # 96
+STRIP_TILE_HEIGHT = 256
+STRIP_NT_BYTES = STRIP_TILE_HEIGHT * 2  # 512
+STRIP_COLL_ROWS = STRIP_TILE_HEIGHT // 2  # 128
+STRIP_COLL_OFFSET = STRIP_NT_BYTES  # 512
 STRIP_PAD = 8
-STRIP_BYTE_SIZE = STRIP_NT_BYTES + STRIP_COLL_ROWS + STRIP_PAD  # 128
+STRIP_BYTE_SIZE = STRIP_NT_BYTES + STRIP_COLL_ROWS + STRIP_PAD  # 648
 
 BLOCK_INDEX_SIZE = BLOCKS_PER_SECTION * 4  # 1024 bytes
 
@@ -212,10 +212,10 @@ def test_extract_block():
     actual_word = struct.unpack_from(">H", nt_data, 0)[0]
     assert actual_word == expected_word, f"First word: expected 0x{expected_word:04X}, got 0x{actual_word:04X}"
 
-    # Block (0, 3) should be entirely empty (row 48+ is air)
-    nt_data_empty, coll_data_empty = extract_block(nt, coll, 0, 3)
-    assert all(b == 0 for b in nt_data_empty), "Block at row 3+ should be all air"
-    assert all(b == 0 for b in coll_data_empty), "Block collision at row 3+ should be all zero"
+    # Block (0, 15) should be entirely empty (last block row, typically air)
+    nt_data_empty, coll_data_empty = extract_block(nt, coll, 0, 15)
+    assert all(b == 0 for b in nt_data_empty), "Block at row 15 should be all air"
+    assert all(b == 0 for b in coll_data_empty), "Block collision at row 15 should be all zero"
 
     print("  test_extract_block OK")
 
@@ -259,29 +259,27 @@ def test_generate_roundtrip():
 
 
 def test_empty_blocks():
-    """Verify that blocks beyond row 2 (tile rows 48+) are null in the index."""
+    """Verify that blocks in unused rows are null in the index."""
     output = generate_section_blocks(0)
     index_data = output[:BLOCK_INDEX_SIZE]
 
-    # Blocks at block_y >= 3 (tile row 48+) should be empty
-    for block_y in range(3, BLOCKS_PER_AXIS):
-        for block_x in range(BLOCKS_PER_AXIS):
-            idx = block_y * BLOCKS_PER_AXIS + block_x
-            offset = struct.unpack_from(">I", index_data, idx * 4)[0]
-            assert offset == 0, f"Block ({block_x},{block_y}) should be empty, offset={offset}"
+    # Last block row (15) should be empty for typical OJZ data
+    for block_x in range(BLOCKS_PER_AXIS):
+        idx = 15 * BLOCKS_PER_AXIS + block_x
+        offset = struct.unpack_from(">I", index_data, idx * 4)[0]
+        assert offset == 0, f"Block ({block_x},15) should be empty, offset={offset}"
 
     print("  test_empty_blocks OK")
 
 
 def test_block_count():
-    """Verify non-empty block count is reasonable for strip data with 48 rows."""
+    """Verify non-empty block count is reasonable."""
     output = generate_section_blocks(0)
     index_data = output[:BLOCK_INDEX_SIZE]
     non_empty = sum(1 for i in range(BLOCKS_PER_SECTION)
                     if struct.unpack_from(">I", index_data, i * 4)[0] != 0)
 
-    # 48 rows = 3 block rows × 16 block cols = max 48 non-empty blocks
-    assert non_empty <= 48, f"Expected ≤48 non-empty blocks, got {non_empty}"
+    assert non_empty <= BLOCKS_PER_SECTION, f"Expected ≤{BLOCKS_PER_SECTION} non-empty blocks, got {non_empty}"
     assert non_empty > 0, "Expected at least some non-empty blocks"
     print(f"  test_block_count OK ({non_empty} non-empty blocks)")
 

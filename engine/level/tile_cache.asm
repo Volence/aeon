@@ -430,18 +430,10 @@ Tile_Cache_Fill:
         move.w  d0, d7
 .h_clamp_ok:
 
-        ; --- fill rightward columns (evict 1 from left as needed, max 1/frame) ---
+        ; --- fill rightward columns (evict 1 from left as needed) ---
         move.w  (Cache_Head_Col).w, d5
         cmp.w   d7, d5
         bge.s   .h_right_done
-
-        ; cap to 1 new column per frame to spread decompression cost
-        move.w  d5, d0
-        addq.w  #1, d0
-        cmp.w   d0, d7
-        ble.s   .h_cap_ok
-        move.w  d0, d7
-.h_cap_ok:
 
 .h_right_fill:
         addq.w  #1, d5
@@ -469,7 +461,7 @@ Tile_Cache_Fill:
         bra.s   .h_right_fill
 .h_right_done:
 
-        ; --- fill leftward columns (evict 1 from right as needed, max 1/frame) ---
+        ; --- fill leftward columns (evict 1 from right as needed) ---
         move.w  (sp)+, d4                      ; d4 = desired_left
         move.w  (Cache_Left_Col).w, d5
         cmp.w   d4, d5
@@ -478,14 +470,6 @@ Tile_Cache_Fill:
         ; don't start leftward fill if rightward fill is pending partial resume
         cmpi.w  #$FFFF, (Cache_Fill_Resume_Row).w
         bne.s   .h_left_done
-
-        ; cap to 1 new column per frame
-        move.w  d5, d0
-        subq.w  #1, d0
-        cmp.w   d0, d4
-        bge.s   .h_lcap_ok
-        move.w  d0, d4
-.h_lcap_ok:
 
 .h_left_fill:
         subq.w  #1, d5
@@ -555,14 +539,6 @@ Tile_Cache_Fill:
         cmp.w   d7, d5
         bge.s   .v_bottom_done
 
-        ; cap to 1 new row per frame
-        move.w  d5, d0
-        addq.w  #1, d0
-        cmp.w   d0, d7
-        ble.s   .v_cap_ok
-        move.w  d0, d7
-.v_cap_ok:
-
 .v_bottom_fill:
         addq.w  #1, d5
         cmp.w   d7, d5
@@ -591,14 +567,6 @@ Tile_Cache_Fill:
         move.w  (Cache_Top_Row).w, d5
         cmp.w   d4, d5
         ble.s   .v_top_done
-
-        ; cap to 1 new row per frame
-        move.w  d5, d0
-        subq.w  #1, d0
-        cmp.w   d0, d4
-        bge.s   .v_tcap_ok
-        move.w  d0, d4
-.v_tcap_ok:
 
 .v_top_fill:
         subq.w  #1, d5

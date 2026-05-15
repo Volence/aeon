@@ -206,37 +206,46 @@ def assign_section_slots(
     per_section_tiles: list[list[int]],
     colors: list[int],
     region_start: int = 0,
-) -> tuple[list[int], list[dict[int, int]]]:
+) -> tuple[list[int], list[dict[int, int]], list[list[int]]]:
     """Compute per-section VRAM tile-slot assignment given a coloring.
 
-    Sections in the same color share a VRAM range — their tiles overwrite
-    each other in VRAM as the camera traverses (safe because adjacent
-    sections are guaranteed different colors by `color_sections`).
+    Sections in the same color share a VRAM range AND a union tile blob.
+    Every tile used by any section in the color group gets a stable VRAM
+    slot, so loading the union blob for any section populates all slots.
 
     Returns:
-      color_bases[c]    = VRAM tile-slot start for color c
-      section_slots[s]  = dict mapping canonical_tile_id → VRAM tile slot
+      color_bases[c]         = VRAM tile-slot start for color c
+      section_slots[s]       = dict mapping canonical_tile_id → VRAM tile slot
+      color_union_tiles[c]   = ordered list of canonical tile IDs in color c's union
     """
     if not per_section_tiles:
-        return [], []
+        return [], [], []
 
     num_colors = max(colors) + 1
-    per_color_max = [0] * num_colors
+
+    color_union_tiles: list[list[int]] = [[] for _ in range(num_colors)]
+    color_union_sets: list[set[int]] = [set() for _ in range(num_colors)]
     for s, tiles in enumerate(per_section_tiles):
         c = colors[s]
-        if len(tiles) > per_color_max[c]:
-            per_color_max[c] = len(tiles)
+        for tile_id in tiles:
+            if tile_id not in color_union_sets[c]:
+                color_union_sets[c].add(tile_id)
+                color_union_tiles[c].append(tile_id)
 
     color_bases: list[int] = []
     cursor = region_start
     for c in range(num_colors):
         color_bases.append(cursor)
-        cursor += per_color_max[c]
+        cursor += len(color_union_tiles[c])
+
+    color_slot_maps: list[dict[int, int]] = []
+    for c in range(num_colors):
+        base = color_bases[c]
+        slot_map = {tile_id: base + offset for offset, tile_id in enumerate(color_union_tiles[c])}
+        color_slot_maps.append(slot_map)
 
     section_slots: list[dict[int, int]] = []
-    for s, tiles in enumerate(per_section_tiles):
-        base = color_bases[colors[s]]
-        slot_map = {tile_id: base + offset for offset, tile_id in enumerate(tiles)}
-        section_slots.append(slot_map)
+    for s in range(len(per_section_tiles)):
+        section_slots.append(color_slot_maps[colors[s]])
 
-    return color_bases, section_slots
+    return color_bases, section_slots, color_union_tiles

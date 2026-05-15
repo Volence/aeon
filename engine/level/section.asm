@@ -265,71 +265,28 @@ Section_Check:
 .down_check:
         movea.l (Current_Act_Ptr).w, a0
         move.b  (Slot_Section_Map+1).w, d0
-        addq.b  #1, d0
+        addq.b  #2, d0
         cmp.b   Act_grid_h+1(a0), d0
         bge.s   .v_skip
         bra.w   Section_TeleportDown
 
 .up_check:
-        tst.b   (Slot_Section_Map+1).w
-        beq.s   .v_skip
+        cmpi.b  #2, (Slot_Section_Map+1).w
+        blt.s   .v_skip
         bra.w   Section_TeleportUp
 
 .v_skip:
         rts
 
 .preload_fwd:
-        ; Section to forward = current slot 1's sec_x + 1 (clamped to grid_w).
-        movea.l (Current_Act_Ptr).w, a2
-        move.b  (Slot_Section_Map+2).w, d2         ; slot 1 sec_x
-        addq.b  #1, d2
-        cmp.b   Act_grid_w+1(a2), d2
-        bge.s   .preload_skip
-        move.b  (Slot_Section_Map+3).w, d3         ; slot 1 sec_y
-        bsr.w   Section_GetSecPtrXY
-        beq.s   .preload_skip
-        movea.l a0, a4
-        bra.w   Section_StreamArtGroup
 .preload_skip:
-        rts
-
 .preload_bwd:
-        movea.l (Current_Act_Ptr).w, a2
-        move.b  (Slot_Section_Map).w, d2           ; slot 0 sec_x
-        tst.b   d2
-        beq.s   .preload_skip
-        subq.b  #1, d2
-        move.b  (Slot_Section_Map+1).w, d3         ; slot 0 sec_y
-        bsr.w   Section_GetSecPtrXY
-        beq.s   .preload_skip
-        movea.l a0, a4
-        bra.w   Section_StreamArtGroup
-
 .preload_down:
-        movea.l (Current_Act_Ptr).w, a2
-        move.b  (Slot_Section_Map).w, d2           ; slot 0 sec_x
-        move.b  (Slot_Section_Map+1).w, d3         ; slot 0 sec_y
-        addq.b  #1, d3
-        cmp.b   Act_grid_h+1(a2), d3
-        bge.s   .preload_v_skip
-        bsr.w   Section_GetSecPtrXY
-        beq.s   .preload_v_skip
-        movea.l a0, a4
-        bra.w   Section_StreamArtGroup
+.preload_down_s1:
 .preload_v_skip:
-        rts
-
 .preload_up:
-        movea.l (Current_Act_Ptr).w, a2
-        move.b  (Slot_Section_Map).w, d2           ; slot 0 sec_x
-        move.b  (Slot_Section_Map+1).w, d3         ; slot 0 sec_y
-        tst.b   d3
-        beq.s   .preload_v_skip
-        subq.b  #1, d3
-        bsr.w   Section_GetSecPtrXY
-        beq.s   .preload_v_skip
-        movea.l a0, a4
-        bra.w   Section_StreamArtGroup
+.preload_up_s1:
+        rts
 
 ; -----------------------------------------------
 ; §4.2 deferred cold-load routines — invoked from .check when the deferred
@@ -342,24 +299,8 @@ Section_Check:
 ; .deferred_bwd_load: mirror for BWD-teleport, fires at $0C00.
 ; -----------------------------------------------
 .deferred_fwd_load:
-        clr.l   (Section_Bwd_Neighbor_Data).w     ; old art about to be overwritten
-        moveq   #SLOT_RIGHT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 1
-        moveq   #0, d6
-        move.b  (Slot_Section_Map+2).w, d6          ; slot 1 flat section_id
-        movea.l a0, a4                              ; Section_StreamArtGroup convention
-        bra.w   Section_StreamArtGroup
-
 .deferred_bwd_load:
-        clr.l   (Section_Fwd_Neighbor_Data).w     ; old art about to be overwritten
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for slot 0
-        moveq   #0, d6
-        move.b  (Slot_Section_Map).w, d6            ; slot 0 flat section_id
-        movea.l a0, a4
-        bra.w   Section_StreamArtGroup
+        rts
 
 .bwd_check:
         ; skip BWD if slot 0 already at leftmost section (sec_x = 0)
@@ -417,24 +358,11 @@ Section_TeleportFwd:
         ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
         clr.b   (Section_Preload_Flags).w
 
-        ; -- promote new slot 1 section's state to RESIDENT if already streaming.
-        ;    If SS_IDLE, defer the load to SECTION_DEFERRED_FWD_LOAD ($0600) so
-        ;    slot 1 retains the just-left section's art for BWD preview validity. --
-        moveq   #SLOT_RIGHT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 1
+        ; -- mark new slot 1 section RESIDENT (union blobs = art already in VRAM) --
         moveq   #0, d6
         move.b  (Slot_Section_Map+2).w, d6         ; slot 1 flat section_id
         lea     (Section_Stream_State).w, a1
-        move.b  (a1, d6.w), d0
-        cmpi.b  #SS_IDLE, d0
-        bne.s   .fwd_mark_resident
-        ; -- §4.2 deferred cold-load — slot 1 keeps just-left art; load fires at $0600 --
-        bset    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
-        bra.s   .fwd_redraw_bg
-.fwd_mark_resident:
         move.b  #SS_RESIDENT, (a1, d6.w)
-.fwd_redraw_bg:
         ; -- §4.2: mark plane dirty for next-frame full atomic redraw.
         ;    Section_UpdateColumns picks this up and calls Section_RedrawPlanes,
         ;    rewriting both planes' nametables in one pass (matches sonic_hack
@@ -507,22 +435,11 @@ Section_TeleportBwd:
         ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
         clr.b   (Section_Preload_Flags).w
 
-        ; -- defer slot 0 cold-load to SECTION_DEFERRED_BWD_LOAD ($0C00) so
-        ;    slot 0 retains the just-left section's art for FWD preview validity. --
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = Sec ptr for new slot 0
+        ; -- mark new slot 0 section RESIDENT (union blobs = art already in VRAM) --
         moveq   #0, d6
         move.b  (Slot_Section_Map).w, d6           ; slot 0 flat section_id
         lea     (Section_Stream_State).w, a1
-        move.b  (a1, d6.w), d0
-        cmpi.b  #SS_IDLE, d0
-        bne.s   .bwd_mark_resident
-        bset    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
-        bra.s   .bwd_redraw_bg
-.bwd_mark_resident:
         move.b  #SS_RESIDENT, (a1, d6.w)
-.bwd_redraw_bg:
         ; -- §4.2: mark plane dirty for next-frame full atomic redraw.
         ;    See Section_TeleportFwd's equivalent comment.
         st      (Section_Plane_Dirty).w
@@ -559,8 +476,8 @@ Section_TeleportDown:
         subi.l  #SECTION_SHIFT<<16, (Player_1+SST_y_pos).w
 
         lea     (Slot_Section_Map).w, a0
-        addq.b  #1, 1(a0)                          ; slot 0 sec_y += 1
-        addq.b  #1, 3(a0)                          ; slot 1 sec_y += 1
+        addq.b  #2, 1(a0)                          ; slot 0 sec_y += 2
+        addq.b  #2, 3(a0)                          ; slot 1 sec_y += 2
 
         st      (Section_Teleport_Guard).w
         clr.b   (Section_Preload_Flags).w
@@ -602,10 +519,10 @@ Section_TeleportUp:
         addi.l  #SECTION_SHIFT<<16, (Player_1+SST_y_pos).w
 
         lea     (Slot_Section_Map).w, a0
-        tst.b   1(a0)
-        beq.s   .up_at_top
-        subq.b  #1, 1(a0)                          ; slot 0 sec_y -= 1
-        subq.b  #1, 3(a0)                          ; slot 1 sec_y -= 1
+        cmpi.b  #2, 1(a0)
+        blt.s   .up_at_top
+        subq.b  #2, 1(a0)                          ; slot 0 sec_y -= 2
+        subq.b  #2, 3(a0)                          ; slot 1 sec_y -= 2
 .up_at_top:
 
         st      (Section_Teleport_Guard).w
@@ -922,6 +839,19 @@ Section_UpdateColumns:
         ble.s   .right_cache_ok
         move.w  d0, d7
 .right_cache_ok:
+        ; clamp to VDP plane wrap: max right = visible_left_world + 63
+        move.w  d6, d0
+        lsr.w   #3, d0
+        subi.w  #SLOT_ORIGIN_L/8, d0
+        moveq   #0, d1
+        move.b  (Slot_Section_Map).w, d1
+        lsl.w   #8, d1
+        add.w   d1, d0
+        addi.w  #63, d0
+        cmp.w   d0, d7
+        ble.s   .right_wrap_ok
+        move.w  d0, d7
+.right_wrap_ok:
 
         move.w  (Section_Right_Col_Written).w, d5
 .right_loop:
@@ -967,6 +897,20 @@ Section_UpdateColumns:
         bge.s   .left_cache_ok
         move.w  d0, d7
 .left_cache_ok:
+        ; clamp to VDP plane wrap: min left = visible_right_world - 63
+        move.w  d6, d0
+        addi.w  #327, d0
+        lsr.w   #3, d0
+        subi.w  #SLOT_ORIGIN_L/8, d0
+        moveq   #0, d1
+        move.b  (Slot_Section_Map).w, d1
+        lsl.w   #8, d1
+        add.w   d1, d0
+        subi.w  #63, d0
+        cmp.w   d0, d7
+        bge.s   .left_wrap_ok
+        move.w  d0, d7
+.left_wrap_ok:
 
         move.w  (Section_Left_Col_Written).w, d5
 .left_loop:

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "static",
+    "name": "Static",
+    "codeLabel": "ObjDef_Static",
+    "defaultSubtype": 0,
+    "properties": {}
+  },
+  {
+    "id": "solid",
+    "name": "Solid Block",
+    "codeLabel": "ObjDef_Solid",
+    "defaultSubtype": 0,
+    "properties": {}
+  }
+]

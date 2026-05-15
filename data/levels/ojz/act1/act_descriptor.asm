@@ -19,7 +19,7 @@ OJZ_Act1_Descriptor:
     dc.w    SLOT_ORIGIN_L           ; cam_min_x ($200)
     dc.w    SLOT_ORIGIN_L + $1680   ; cam_max_x (approximate for 3 sections)
     dc.w    SLOT_ORIGIN_U            ; cam_min_y ($200 — no section above row 0)
-    dc.w    SLOT_ORIGIN_U+SECTION_SHIFT-224 ; cam_max_y (bottom of lower section minus screen height)
+    dc.w    SLOT_ORIGIN_U+SECTION_SHIFT-224 ; cam_max_y (bottom of lower slot minus screen height)
     dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)
     dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles  (§2 A.5 T1 shared BG tile blob)
     dc.l    ParallaxConfig_OJZ_Default ; act_parallax_config (fallback for sections with NULL config)
@@ -91,98 +91,116 @@ OJZ_Sec2:
     align 2
 
 OJZ_Sec3:
-    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 1, col 0)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec3_Blocks
+    dc.l    OJZ_Sec3_Objects
+    dc.l    OJZ_Sec3_Rings
+    dc.l    0
     dc.l    OJZ_Palette
-    dc.l    ParallaxConfig_OJZ_LockedClouds, 0  ; sec_parallax_config = T15 F6 fixture: layer mask disables band 0 (scenes/locked_clouds.asm)
+    dc.l    ParallaxConfig_OJZ_LockedClouds, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec3_TypeTable
+    dc.l    0, 0
     dc.l    0                        ; sec_reserved_2C
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
-    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
+    dc.l    OJZ_Sec3_Tiles_S4LZ
+    dc.w    OJZ_SEC3_VRAM
     dc.w    0
     align 2
 
 OJZ_Sec4:
-    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 1, col 1)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec4_Blocks
+    dc.l    OJZ_Sec4_Objects
+    dc.l    OJZ_Sec4_Rings
+    dc.l    0
     dc.l    OJZ_Palette
     dc.l    0, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec4_TypeTable
+    dc.l    0, 0
     dc.l    0                        ; sec_reserved_2C
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
-    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
+    dc.l    OJZ_Sec4_Tiles_S4LZ
+    dc.w    OJZ_SEC4_VRAM
     dc.w    0
     align 2
 
 OJZ_Sec5:
-    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 1, col 2)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec5_Blocks
+    dc.l    OJZ_Sec5_Objects
+    dc.l    OJZ_Sec5_Rings
+    dc.l    0
     dc.l    OJZ_Palette
     dc.l    0, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec5_TypeTable
+    dc.l    0, 0
     dc.l    0                        ; sec_reserved_2C
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
-    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
+    dc.l    OJZ_Sec5_Tiles_S4LZ
+    dc.w    OJZ_SEC5_VRAM
     dc.w    0
     align 2
 
 OJZ_Sec6:
-    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 2, col 0)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec6_Blocks
+    dc.l    OJZ_Sec6_Objects
+    dc.l    OJZ_Sec6_Rings
+    dc.l    0
     dc.l    OJZ_Palette
     dc.l    0, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec6_TypeTable
+    dc.l    0, 0
     dc.l    0                        ; sec_reserved_2C
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
-    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
+    dc.l    OJZ_Sec6_Tiles_S4LZ
+    dc.w    OJZ_SEC6_VRAM
     dc.w    0
     align 2
 
 OJZ_Sec7:
-    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 2, col 1)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec7_Blocks
+    dc.l    OJZ_Sec7_Objects
+    dc.l    OJZ_Sec7_Rings
+    dc.l    0
     dc.l    OJZ_Palette
     dc.l    0, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec7_TypeTable
+    dc.l    0, 0
     dc.l    0                        ; sec_reserved_2C
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
-    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
+    dc.l    OJZ_Sec7_Tiles_S4LZ
+    dc.w    OJZ_SEC7_VRAM
     dc.w    0
     align 2
 
 OJZ_Sec8:
-    dc.l    OJZ_Sec0_Blocks          ; clone Sec0 block data (row 2, col 2)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec8_Blocks
+    dc.l    OJZ_Sec8_Objects
+    dc.l    OJZ_Sec8_Rings
+    dc.l    0
     dc.l    OJZ_Palette
     dc.l    0, 0
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
-    dc.l    0, 0, 0
+    dc.l    OJZ_Sec8_TypeTable
+    dc.l    0, 0
     dc.l    0                        ; sec_reserved_2C
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec0_Tiles_S4LZ      ; clone Sec0 tile art
-    dc.w    OJZ_SEC0_VRAM            ; must match Sec0 (block tile indices are absolute)
+    dc.l    OJZ_Sec8_Tiles_S4LZ
+    dc.w    OJZ_SEC8_VRAM
     dc.w    0
     align 2
 

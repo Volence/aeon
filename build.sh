@@ -50,6 +50,9 @@ for sec_bin in data/generated/ojz/act1/sec*_tiles.bin; do
     fi
 done
 
+echo "Generating OJZ block data..."
+python3 "${TOOLS}/ojz_block_gen.py" generate
+
 if [[ "${NO_LINT:-0}" == "0" ]]; then
     echo "Linting..."
     if ! python3 "${TOOLS}/s4lint.py" "${MAIN_ASM}"; then

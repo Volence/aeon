@@ -19,7 +19,8 @@ DECELERATION            = $80           ; ground horizontal deceleration (brakin
 TOP_SPEED               = $600          ; maximum horizontal velocity
 TERMINAL_VELOCITY       = $1000         ; maximum falling velocity
 AIR_ACCEL               = $18           ; air horizontal acceleration
-DEBUG_FLY_SPEED         = 6             ; pixels per frame in debug mode
+DEBUG_FLY_SPEED         = 16            ; pixels per frame in debug mode
+DEBUG_FLY_SPEED_FAST    = 48            ; pixels per frame when A held
 STUB_FLOOR_Y            = 192           ; pixel Y for stub ground plane (used by object_test_state)
 
 ; -----------------------------------------------
@@ -249,21 +250,27 @@ TestPlayer_Main:
 ; -----------------------------------------------
 TestPlayer_Debug:
         move.b  (Ctrl_1_Held).w, d0
+        moveq   #DEBUG_FLY_SPEED, d1
+        btst    #6, d0                          ; BUTTON_A = turbo
+        beq.s   .dbg_speed_ok
+        moveq   #DEBUG_FLY_SPEED_FAST, d1
+.dbg_speed_ok:
+        swap    d1                              ; d1 = speed<<16
 
         btst    #2, d0                          ; LEFT
         beq.s   .dbg_check_right
-        subi.l  #DEBUG_FLY_SPEED<<16, SST_x_pos(a0)
+        sub.l   d1, SST_x_pos(a0)
 .dbg_check_right:
         btst    #3, d0                          ; RIGHT
         beq.s   .dbg_check_up
-        addi.l  #DEBUG_FLY_SPEED<<16, SST_x_pos(a0)
+        add.l   d1, SST_x_pos(a0)
 .dbg_check_up:
         btst    #0, d0                          ; UP
         beq.s   .dbg_check_down
-        subi.l  #DEBUG_FLY_SPEED<<16, SST_y_pos(a0)
+        sub.l   d1, SST_y_pos(a0)
 .dbg_check_down:
         btst    #1, d0                          ; DOWN
         beq.s   .dbg_draw
-        addi.l  #DEBUG_FLY_SPEED<<16, SST_y_pos(a0)
+        add.l   d1, SST_y_pos(a0)
 .dbg_draw:
         jmp     Draw_Sprite
