@@ -9,7 +9,7 @@
 ; 9 sections (sec0–sec8) in a 3×3 grid (vertical teleport test)
 ; -----------------------------------------------
 ; Build assert: grid_w*grid_h must fit within Section_Stream_State.
-; Literals below must match the grid_w/grid_h dc.w values above.
+; Literals below must match the grid_w/grid_h dc.w values in the descriptor below.
     if 3*3 > MAX_ACT_SECTIONS
       error "OJZ act 1 grid (3x3) exceeds MAX_ACT_SECTIONS"
     endif

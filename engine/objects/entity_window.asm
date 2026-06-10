@@ -873,6 +873,17 @@ EntityWindow_TeleportShiftY:
 ; Resets load indices and reconfigures tracked sections.
 ; -----------------------------------------------
 EntityWindow_RebuildScanState:
+        ; Evict stale bitmask slots FIRST (claim-before-evict broke at
+        ; exactly 9/9 occupancy: both ClaimSlot calls below failed
+        ; silently when a full 3x3 neighborhood preceded a teleport,
+        ; leaving both active sections untracked until the next one)
+        moveq   #SLOT_LEFT, d0
+        bsr.w   Section_SlotFlatID
+        movea.l (Current_Act_Ptr).w, a2
+        moveq   #0, d1
+        move.b  Act_grid_w+1(a2), d1
+        bsr.w   Collected_UpdateCenter
+
         lea     (Entity_Scan_State).w, a3
         moveq   #0, d7
 
@@ -915,12 +926,4 @@ EntityWindow_RebuildScanState:
         addq.w  #1, d7
 
         move.b  d7, (Entity_Window_Active).w
-
-        ; Update collected bitmask center (slot 0 flat id)
-        moveq   #SLOT_LEFT, d0
-        bsr.w   Section_SlotFlatID
-        movea.l (Current_Act_Ptr).w, a2
-        moveq   #0, d1
-        move.b  Act_grid_w+1(a2), d1
-        bsr.w   Collected_UpdateCenter
         rts
