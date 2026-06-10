@@ -363,7 +363,8 @@ RefreshSpritePieceCount:
         move.b  SST_mapping_frame(a0), d2
         add.w   d2, d2                       ; word offset
         move.w  (a1,d2.w), d2                ; offset to frame data
-        move.w  (a1,d2.w), d2                ; first word = piece count
+        ; piece count is at FRAME_PIECE_COUNT (+4), after 4 bbox bytes
+        move.w  FRAME_PIECE_COUNT(a1,d2.w), d2
         move.b  d2, SST_sprite_piece_count(a0)
 .skip:
         rts

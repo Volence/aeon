@@ -383,6 +383,22 @@ OEF_SUBTYPE_MASK        = $FF           ; bits 7-0
 OBJ_ENTRY_SIZE          = 6
 
 ; -----------------------------------------------
+; Mapping frame header (precomputed by the mapping pipeline)
+; -----------------------------------------------
+; Frame data layout:
+;   +0  dc.b x_min, x_max, y_min, y_max   ; signed pixel extents relative to origin
+;   +4  dc.w piece_count
+;   +6  pieces (8 bytes each)
+;
+; x_max/y_max are the far edge (offset + piece size), not the piece origin.
+FRAME_BBOX_X_MIN        = 0         ; signed byte — leftmost piece pixel
+FRAME_BBOX_X_MAX        = 1         ; signed byte — rightmost piece pixel (right EDGE: x_off + width)
+FRAME_BBOX_Y_MIN        = 2         ; signed byte — topmost piece pixel
+FRAME_BBOX_Y_MAX        = 3         ; signed byte — bottommost piece pixel (bottom EDGE: y_off + height)
+FRAME_PIECE_COUNT       = 4         ; word — number of pieces in frame
+FRAME_PIECES            = 6         ; byte offset to first piece datum
+
+; -----------------------------------------------
 ; Test VRAM allocation
 ; -----------------------------------------------
 VRAM_TEST_OBJ           = $0001         ; tile index 1 (8 tiles for test art)

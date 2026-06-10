@@ -5,8 +5,6 @@
 ; -----------------------------------------------
 VDP_SPRITE_Y_OFFSET     = 128           ; VDP adds 128 to sprite Y
 VDP_SPRITE_X_OFFSET     = 128           ; VDP adds 128 to sprite X
-SPRITE_MARGIN_X         = 32            ; off-screen margin for partial sprites
-SPRITE_MARGIN_Y         = 32
 MAX_VDP_SPRITES         = 80
 
 ; Sprite X=0 masking — VDP size code for mask sprites (1×4 cells = 8×32 pixels)
@@ -39,11 +37,12 @@ InitSpriteSystem:
 
 ; -----------------------------------------------
 ; Draw_Sprite — add an object to its priority band's display list
-; Performs on-screen check against camera viewport with margins.
+; Culls against per-frame precomputed bbox (exact piece extents).
 ; Sets/clears RF_ONSCREEN in render_flags.
 ; In:  a0 = SST pointer
 ; Out: none
 ; Clobbers: d0-d3, a1
+; Preserves: a0, d7 (required by RunObjects_Frozen loop)
 ; -----------------------------------------------
 Draw_Sprite:
         ; --- Child-skip guard for multi-sprite parents ---
@@ -53,33 +52,52 @@ Draw_Sprite:
         beq.s   .no_parent
         movea.w d0, a1
         btst    #RF_MULTISPRITE, SST_render_flags(a1)
-        bne.s   .offscreen              ; parent batches — clear ONSCREEN, don't register
+        bne.w   .offscreen              ; parent batches — clear ONSCREEN, don't register
 .no_parent:
 
-        ; Check if object has mappings — skip if null
-        tst.l   SST_mappings(a0)
-        beq.s   .offscreen
+        ; Check if object has mappings — skip if null (must guard before frame resolution)
+        movea.l SST_mappings(a0), a1
+        move.l  a1, d0
+        beq.w   .offscreen
 
         ; --- Check coordinate mode ---
         btst    #RF_COORDMODE, SST_render_flags(a0)
-        bne.s   .screen_coords          ; screen-relative objects are always on-screen
+        bne.w   .screen_coords          ; screen-relative objects are always on-screen
 
-        ; --- World coordinate on-screen check ---
-        ; X check: object_x - camera_x must be in [-MARGIN, SCREEN_WIDTH+MARGIN)
-        move.w  SST_x_pos(a0), d0      ; object X integer (high word of 16.16)
-        move.w  (Camera_X).w, d1       ; camera X integer (high word of 16.16)
-        sub.w   d1, d0                 ; d0 = screen-relative X
-        addi.w  #SPRITE_MARGIN_X, d0   ; shift range to [0, WIDTH+2*MARGIN)
-        cmpi.w  #SCREEN_WIDTH+SPRITE_MARGIN_X*2, d0
-        bhs.s   .offscreen             ; unsigned compare catches negative
+        ; --- Resolve current frame for its precomputed bbox ---
+        moveq   #0, d0
+        move.b  SST_mapping_frame(a0), d0
+        add.w   d0, d0                  ; d0 = frame * 2 (word offset table)
+        move.w  (a1,d0.w), d0          ; d0 = word offset to frame data
+        lea     (a1,d0.w), a1          ; a1 = frame data (bbox at +0)
 
-        ; Y check: object_y - camera_y must be in [-MARGIN, SCREEN_HEIGHT+MARGIN)
-        move.w  SST_y_pos(a0), d0      ; object Y integer
-        move.w  (Camera_Y).w, d1       ; camera Y integer
-        sub.w   d1, d0                 ; d0 = screen-relative Y
-        addi.w  #SPRITE_MARGIN_Y, d0
-        cmpi.w  #SCREEN_HEIGHT+SPRITE_MARGIN_Y*2, d0
-        bhs.s   .offscreen
+        ; --- Exact X cull ---
+        ; screen_x = SST_x_pos - Camera_X (origin screen position)
+        ; Visible if: screen_x + x_min < SCREEN_WIDTH AND screen_x + x_max > 0
+        move.w  SST_x_pos(a0), d0
+        sub.w   (Camera_X).w, d0       ; d0 = screen-relative X origin
+        move.b  FRAME_BBOX_X_MIN(a1), d2
+        ext.w   d2
+        add.w   d0, d2                 ; d2 = screen_x + x_min (left edge)
+        cmpi.w  #SCREEN_WIDTH, d2
+        bge.w   .offscreen             ; left edge at/past right side — invisible
+        move.b  FRAME_BBOX_X_MAX(a1), d2
+        ext.w   d2
+        add.w   d0, d2                 ; d2 = screen_x + x_max (right edge)
+        ble.w   .offscreen             ; right edge at/left of screen — invisible
+
+        ; --- Exact Y cull ---
+        move.w  SST_y_pos(a0), d0
+        sub.w   (Camera_Y).w, d0       ; d0 = screen-relative Y origin
+        move.b  FRAME_BBOX_Y_MIN(a1), d2
+        ext.w   d2
+        add.w   d0, d2                 ; d2 = screen_y + y_min (top edge)
+        cmpi.w  #SCREEN_HEIGHT, d2
+        bge.w   .offscreen             ; top edge at/past bottom — invisible
+        move.b  FRAME_BBOX_Y_MAX(a1), d2
+        ext.w   d2
+        add.w   d0, d2                 ; d2 = screen_y + y_max (bottom edge)
+        ble.w   .offscreen             ; bottom edge at/above screen — invisible
 
 .screen_coords:
         ; --- Object is on-screen ---
@@ -225,11 +243,12 @@ Render_Sprites:
         move.b  SST_mapping_frame(a0), d0  ; d0 = frame index
         add.w   d0, d0                     ; d0 = frame * 2 (word offset table)
         move.w  (a3,d0.w), d0             ; d0 = word offset to frame data
-        lea     (a3,d0.w), a3             ; a3 = pointer to frame data
+        lea     (a3,d0.w), a3             ; a3 = pointer to frame data (bbox at +0)
 
-        ; First word of frame data = piece count
-        move.w  (a3)+, d4                  ; d4 = piece count
+        ; Piece count is at FRAME_PIECE_COUNT (+4), pieces start at FRAME_PIECES (+6)
+        move.w  FRAME_PIECE_COUNT(a3), d4  ; d4 = piece count
         beq.w   .next_object               ; skip if zero pieces
+        lea     FRAME_PIECES(a3), a3       ; a3 = pointer to first piece
 
         ; Compute screen position from world coords
         ; Object render_flags bit 3 = coordinate mode
@@ -301,9 +320,10 @@ Render_Sprites:
         move.b  SST_mapping_frame(a2), d1   ; PARENT's mapping_frame
         add.w   d1, d1
         move.w  (a3,d1.w), d1
-        lea     (a3,d1.w), a3                ; a3 = child's frame data
-        move.w  (a3)+, d4                    ; piece count for this child's frame
+        lea     (a3,d1.w), a3                ; a3 = child's frame data (bbox at +0)
+        move.w  FRAME_PIECE_COUNT(a3), d4    ; piece count at +4
         beq.s   .sibling_advance
+        lea     FRAME_PIECES(a3), a3         ; advance to first piece (+6)
 
         ; Just-in-time overflow pre-check (uses live count, not cache)
         move.w  d5, d1

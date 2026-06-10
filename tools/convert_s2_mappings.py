@@ -15,7 +15,13 @@ S4 piece format (8 bytes):
   word  tile attributes
   word  X offset (signed)
 
-Both formats use: word offset table, then per-frame word piece_count + pieces.
+S4 frame format:
+  +0  dc.b x_min, x_max, y_min, y_max   ; signed bbox extents relative to origin
+  +4  dc.w piece_count
+  +6  pieces (8 bytes each)
+
+x_max/y_max are the far edge (x_off + width_px, y_off + height_px).
+The generator hard-fails if any extent exceeds the signed byte range [-128,127].
 """
 
 import struct
@@ -23,8 +29,52 @@ import sys
 from pathlib import Path
 
 
+def _cell_px(size_byte):
+    """Return (width_px, height_px) for a VDP size code byte."""
+    w = (((size_byte >> 2) & 3) + 1) * 8
+    h = ((size_byte & 3) + 1) * 8
+    return w, h
+
+
+def _compute_bbox(pieces):
+    """Compute (x_min, x_max, y_min, y_max) over all pieces.
+
+    Each piece is (y, size, tile_attrs, x).
+    x_max / y_max are far edges (origin + dimension).
+    Returns (0,0,0,0) for empty frames.
+    Raises ValueError if any extent exceeds signed byte range.
+    """
+    if not pieces:
+        return 0, 0, 0, 0
+
+    x_min = 127
+    x_max = -128
+    y_min = 127
+    y_max = -128
+
+    for y, size, _tile, x in pieces:
+        w, h = _cell_px(size)
+        if x < x_min:
+            x_min = x
+        if x + w > x_max:
+            x_max = x + w
+        if y < y_min:
+            y_min = y
+        if y + h > y_max:
+            y_max = y + h
+
+    for name, val in (('x_min', x_min), ('x_max', x_max),
+                      ('y_min', y_min), ('y_max', y_max)):
+        if val < -128 or val > 127:
+            raise ValueError(
+                f"Bbox {name}={val} exceeds signed byte range [-128,127]; "
+                "split the frame or shrink piece extents."
+            )
+    return x_min, x_max, y_min, y_max
+
+
 def convert_mappings(data):
-    """Convert S2 mapping binary to S4 VDP-order format."""
+    """Convert S2 mapping binary to S4 VDP-order format with bbox headers."""
     first_offset = struct.unpack_from('>H', data, 0)[0]
     frame_count = first_offset // 2
 
@@ -44,13 +94,7 @@ def convert_mappings(data):
             size = data[pos + 1] & 0x0F
             tile_attrs = struct.unpack_from('>H', data, pos + 2)[0]
             x_word = struct.unpack_from('>h', data, pos + 6)[0]
-
-            piece = struct.pack('>h', y_byte)        # Y as signed word
-            piece += struct.pack('BB', size, 0)       # size + pad
-            piece += struct.pack('>H', tile_attrs)    # tile attrs
-            piece += struct.pack('>h', x_word)        # X as signed word
-
-            pieces.append(piece)
+            pieces.append((y_byte, size, tile_attrs, x_word))
             pos += 8
 
         s4_frames.append(pieces)
@@ -60,11 +104,22 @@ def convert_mappings(data):
     new_offsets = []
 
     data_offset = pointer_table_size
-    for pieces in s4_frames:
+    for fi, pieces in enumerate(s4_frames):
         new_offsets.append(data_offset)
-        frame_bytes = struct.pack('>H', len(pieces))
-        for piece in pieces:
+
+        x_min, x_max, y_min, y_max = _compute_bbox(pieces)
+
+        # Frame header: 4 signed bbox bytes + piece count word
+        frame_bytes = struct.pack('bbbb', x_min, x_max, y_min, y_max)
+        frame_bytes += struct.pack('>H', len(pieces))
+
+        for y, size, tile_attrs, x in pieces:
+            piece = struct.pack('>h', y)             # Y as signed word
+            piece += struct.pack('BB', size, 0)       # size + pad
+            piece += struct.pack('>H', tile_attrs)    # tile attrs
+            piece += struct.pack('>h', x)             # X as signed word
             frame_bytes += piece
+
         frame_data_parts.append(frame_bytes)
         data_offset += len(frame_bytes)
 
@@ -93,12 +148,13 @@ def main():
     print(f"Converted {frame_count} frames: {len(data)} → {len(result)} bytes")
     print(f"Written: {out_path}")
 
-    # Verify a few frames
+    # Verify a few frames (now with bbox header at +0, piece count at +4)
     for fi in [1, 2, 3]:
         off = struct.unpack_from('>H', result, fi * 2)[0]
-        pc = struct.unpack_from('>H', result, off)[0]
-        pos = off + 2
-        print(f"\n  Frame {fi}: {pc} pieces")
+        x_min, x_max, y_min, y_max = struct.unpack_from('bbbb', result, off)
+        pc = struct.unpack_from('>H', result, off + 4)[0]
+        pos = off + 6
+        print(f"\n  Frame {fi}: bbox=({x_min},{x_max},{y_min},{y_max}) {pc} pieces")
         for p in range(pc):
             y = struct.unpack_from('>h', result, pos)[0]
             size = result[pos + 2]

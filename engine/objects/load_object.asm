@@ -63,8 +63,9 @@ Load_Object:
         move.l  SST_mappings(a1), d3
         beq.s   .no_piece_count
         movea.l d3, a3
-        move.w  (a3), d3
-        move.w  (a3,d3.w), d3
+        move.w  (a3), d3                    ; offset to frame 0 data
+        ; piece count is at FRAME_PIECE_COUNT (+4), after 4 bbox bytes
+        move.w  FRAME_PIECE_COUNT(a3,d3.w), d3
         move.b  d3, SST_sprite_piece_count(a1)
 .no_piece_count:
         move.l  (sp)+, d4

@@ -18,7 +18,8 @@ PopulateSpawnedPieceCount:
         move.b  SST_mapping_frame(a2), d0
         add.w   d0, d0                  ; word offset
         move.w  (a0,d0.w), d0           ; offset to frame data
-        move.w  (a0,d0.w), d0           ; first word = piece count
+        ; piece count is at FRAME_PIECE_COUNT (+4), after 4 bbox bytes
+        move.w  FRAME_PIECE_COUNT(a0,d0.w), d0
         move.b  d0, SST_sprite_piece_count(a2)
 .skip:
         movem.l (sp)+, d0/a0-a1
