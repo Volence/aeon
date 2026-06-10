@@ -19,6 +19,17 @@ Total size per file: num_columns * STRIP_TILE_HEIGHT * 2 bytes.
 
 Each strip covers STRIP_TILE_HEIGHT rows of the section nametable.
 Each strip is a column of STRIP_TILE_HEIGHT big-endian nametable words.
+
+Strip binary layout (WIDE_STRIP_SIZE bytes per column):
+  Bytes 0 .. STRIP_NT_BYTES-1         : STRIP_TILE_HEIGHT × 2 nametable words (big-endian)
+  Bytes STRIP_NT_BYTES .. +COLL_ROWS-1: COLLISION_ROWS_PER_STRIP collision bytes (path A)
+  Bytes +COLL_ROWS .. +2*COLL_ROWS-1 : COLLISION_ROWS_PER_STRIP collision bytes (path B)
+  Bytes +2*COLL_ROWS .. end           : STRIP_COLLISION_PAD padding bytes (0)
+Total: WIDE_STRIP_SIZE = STRIP_TILE_HEIGHT*2 + 2*COLLISION_ROWS_PER_STRIP + STRIP_COLLISION_PAD
+
+Dual-layer collision (Task 7): each strip now carries TWO collision planes,
+path A followed by path B. OJZ ships path B as a copy of path A until the
+level pipeline authors real secondary collision data.
 """
 
 import struct
@@ -654,7 +665,8 @@ def write_strips_to_file(strips: list[list[int]], path: str) -> None:
 
     Format per column (WIDE_STRIP_SIZE bytes):
       - STRIP_TILE_HEIGHT nametable words (big-endian)
-      - COLLISION_ROWS_PER_STRIP collision bytes
+      - COLLISION_ROWS_PER_STRIP collision bytes (path A)
+      - COLLISION_ROWS_PER_STRIP collision bytes (path B)
       - STRIP_COLLISION_PAD bytes padding
     Total size: len(strips) * WIDE_STRIP_SIZE bytes.
     """
@@ -1060,26 +1072,36 @@ def run_tests():
 # Collision byte generation (§4.7 — embedded in wider strips)
 # ---------------------------------------------------------------------------
 
-COLLISION_ROWS_PER_STRIP = STRIP_TILE_HEIGHT // 2   # 24 collision cells (16px each)
-STRIP_COLLISION_PAD = 8                              # pad to 128 bytes for power-of-2 addressing
-WIDE_STRIP_SIZE = STRIP_TILE_HEIGHT * 2 + COLLISION_ROWS_PER_STRIP + STRIP_COLLISION_PAD  # 128
+COLLISION_ROWS_PER_STRIP = STRIP_TILE_HEIGHT // 2   # 128 collision cells (16px each)
+# Two collision planes (path A + path B) per strip; path B = copy of path A for OJZ.
+STRIP_COLLISION_PAD = 8                              # pad to even power-of-2 alignment
+WIDE_STRIP_SIZE = (STRIP_TILE_HEIGHT * 2
+                   + 2 * COLLISION_ROWS_PER_STRIP
+                   + STRIP_COLLISION_PAD)            # 648 bytes
 
 
 def generate_collision_bytes(strip_words: list[int]) -> bytes:
-    """Generate collision bytes for one strip column.
+    """Generate collision bytes for one strip column — both path A and path B planes.
 
-    Stub: mark a cell solid only if its nametable words have the VDP
-    priority bit set (bit 15).  In OJZ, sky/cloud tiles use priority 0
-    while ground/terrain tiles use priority 1 — this cleanly separates
-    walkable ground from background scenery.
+    Path A: mark a cell solid if its nametable words have the VDP priority
+    bit set (bit 15). In OJZ, sky/cloud tiles use priority 0 while
+    ground/terrain tiles use priority 1.
+
+    Path B (OJZ fallback): copy of path A. Real secondary collision data
+    requires wiring the strip generator to the sonic_hack collision index
+    files — deferred to the level pipeline task.
+
+    Returns: path_A_bytes (COLLISION_ROWS_PER_STRIP) + path_B_bytes (COLLISION_ROWS_PER_STRIP)
     """
-    collision = bytearray(COLLISION_ROWS_PER_STRIP)
+    collision_a = bytearray(COLLISION_ROWS_PER_STRIP)
     for cell in range(COLLISION_ROWS_PER_STRIP):
         top_word = strip_words[cell * 2]
         bot_word = strip_words[cell * 2 + 1] if cell * 2 + 1 < len(strip_words) else 0
         if (top_word & 0x8000) or (bot_word & 0x8000):
-            collision[cell] = 1
-    return bytes(collision)
+            collision_a[cell] = 1
+    # Path B = copy of path A (OJZ fallback — no real secondary data authored yet)
+    collision_b = bytes(collision_a)
+    return bytes(collision_a) + collision_b
 
 
 # ---------------------------------------------------------------------------

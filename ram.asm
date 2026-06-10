@@ -10,14 +10,19 @@
         phase $FFFF0000
 
 ; 2D tile cache — world-space sliding window (replaces 1D strip cache)
-Tile_Cache_Nametable:   ds.b TILE_CACHE_NT_SIZE     ; 9600 bytes (80×60×2)
-Tile_Cache_Collision:   ds.b TILE_CACHE_COLL_SIZE    ; 2400 bytes (80×30×1)
+Tile_Cache_Nametable:   ds.b TILE_CACHE_NT_SIZE                      ; 9600 bytes (80×60×2)
+; Collision: two planes contiguous in memory.
+;   Plane A: Tile_Cache_Collision + 0               (2400 bytes, 80×30)
+;   Plane B: Tile_Cache_Collision + TILE_CACHE_COLL_SIZE  (2400 bytes, 80×30)
+; Tile_Cache_GetCollision selects the plane via the caller's SST_layer value.
+Tile_Cache_Collision:   ds.b TILE_CACHE_COLL_SIZE * TILE_CACHE_COLL_PLANES  ; 4800 bytes
                         ds.b 2                       ; pad to even
 
 ; Block staging cache — recently decompressed blocks (§4.7)
-; BLOCK_STAGE_SLOTS slots of BLOCK_RAW_SIZE each: nametable (512 B) followed
-; by collision (128 B). Keys live in upper RAM (Block_Stage_Keys).
-Block_Stage_Buffers:    ds.b BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS  ; 7680 bytes
+; BLOCK_STAGE_SLOTS slots of BLOCK_RAW_SIZE each:
+;   nametable (512 B) + collision plane A (128 B) + collision plane B (128 B).
+; Keys live in upper RAM (Block_Stage_Keys).
+Block_Stage_Buffers:    ds.b BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS  ; 9216 bytes (12×768)
 
 ; Streaming art DMA buffers (§2 A.4)
 STREAMING_BUFFER_A:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes

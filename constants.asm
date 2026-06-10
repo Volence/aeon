@@ -281,17 +281,20 @@ TILE_CACHE_ROWS         = 60        ; rows in cache (viewport 28 + margin 16×2)
 TILE_CACHE_STRIDE       = TILE_CACHE_COLS   ; compile-time constant for row stride
 TILE_CACHE_NT_SIZE      = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2  ; 9600 bytes
 TILE_CACHE_COLL_ROWS    = TILE_CACHE_ROWS / 2  ; 30 collision rows (16px cells)
-TILE_CACHE_COLL_SIZE    = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS  ; 2400 bytes
+TILE_CACHE_COLL_SIZE    = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS  ; 2400 bytes per plane
+TILE_CACHE_COLL_PLANES  = 2         ; path A (index 0) + path B (index 1)
 TILE_CACHE_MARGIN_H     = 20        ; horizontal margin (columns each side)
 TILE_CACHE_MARGIN_V     = 16        ; vertical margin (rows each side)
 
 ; Block format (16×16 tile blocks, independently S4LZ-compressed)
+; Raw block layout: [512B nametable][128B collision plane A][128B collision plane B]
 BLOCK_TILE_SIZE         = 16        ; 16×16 tiles per block
 BLOCK_TILE_SHIFT        = 4         ; lsr #4 = ÷ 16
 BLOCK_NT_SIZE           = BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2  ; 512 bytes
 BLOCK_COLL_ROWS         = BLOCK_TILE_SIZE / 2  ; 8 collision rows per block
-BLOCK_COLL_SIZE         = BLOCK_TILE_SIZE * BLOCK_COLL_ROWS  ; 128 bytes
-BLOCK_RAW_SIZE          = BLOCK_NT_SIZE + BLOCK_COLL_SIZE  ; 640 bytes
+BLOCK_COLL_PLANE_SIZE   = BLOCK_TILE_SIZE * BLOCK_COLL_ROWS  ; 128 bytes per plane
+BLOCK_COLL_SIZE         = BLOCK_COLL_PLANE_SIZE * TILE_CACHE_COLL_PLANES  ; 256 bytes (A+B)
+BLOCK_RAW_SIZE          = BLOCK_NT_SIZE + BLOCK_COLL_SIZE  ; 768 bytes
 BLOCK_STAGE_SLOTS       = 12        ; staged decompressed blocks (round-robin evict)
                                     ; sized so a column fill (<=5 blocks) + a row fill
                                     ; (<=6 blocks) coexist without thrashing on diagonals

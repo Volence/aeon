@@ -154,12 +154,13 @@ Each section is a **16×16 grid of blocks**. Each block covers **16×16 tiles = 
 - Entry value 0 = empty/air block
 - Index formula: `entry_index = block_y * 16 + block_x`
 
-### Raw block data (640 bytes per block)
+### Raw block data (768 bytes per block)
 
-| Component | Size | Layout |
-|-----------|------|--------|
-| Nametable | 512 bytes | 16 rows × 16 cols × 2 bytes/word. Row-major. |
-| Collision | 128 bytes | 8 rows × 16 cols × 1 byte/cell. Half vertical resolution (16px cells). Row-major. |
+| Component | Byte offset | Size | Layout |
+|-----------|-------------|------|--------|
+| Nametable | 0 | 512 bytes | 16 rows × 16 cols × 2 bytes/word. Row-major. |
+| Collision plane A | 512 | 128 bytes | 8 rows × 16 cols × 1 byte/cell. Half vertical resolution (16px cells). Row-major. Path A (default surface). |
+| Collision plane B | 640 | 128 bytes | 8 rows × 16 cols × 1 byte/cell. Same layout as plane A. Path B (inner loop surface). OJZ ships B = copy of A until real secondary data is authored. |
 
 ### Nametable word format (standard Genesis VDP)
 
@@ -181,16 +182,18 @@ Bytes 0–1023:    256 × dc.l offset (block index table)
 Bytes 1024+:     S4LZ-compressed blocks concatenated
 ```
 
-Each compressed block is S4LZ encoding of 640 raw bytes (512 nametable + 128 collision).
+Each compressed block is S4LZ encoding of 768 raw bytes (512 nametable + 128 collision plane A + 128 collision plane B).
 
 ### Constants
 
 ```
 BLOCK_TILE_SIZE          = 16       ; tiles per block side
 BLOCK_NT_SIZE            = 512      ; nametable bytes per block
-BLOCK_COLL_ROWS          = 8        ; collision rows per block
-BLOCK_COLL_SIZE          = 128      ; collision bytes per block
-BLOCK_RAW_SIZE           = 640      ; 512 + 128
+BLOCK_COLL_ROWS          = 8        ; collision rows per block (per plane)
+BLOCK_COLL_PLANE_SIZE    = 128      ; collision bytes per plane
+BLOCK_COLL_SIZE          = 256      ; total collision bytes per block (2 planes)
+BLOCK_RAW_SIZE           = 768      ; 512 + 128 + 128
+TILE_CACHE_COLL_PLANES   = 2        ; path A + path B
 BLOCKS_PER_SECTION_AXIS  = 16
 BLOCK_INDEX_ENTRIES      = 256      ; 16 × 16
 BLOCK_INDEX_SIZE         = 1024     ; 256 × 4

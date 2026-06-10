@@ -62,9 +62,11 @@ Tile_Cache_GetTile:
 
 ; -----------------------------------------------
 ; Tile_Cache_GetCollision — look up collision byte for a world tile position
-; In:  d0.w = world tile col, d1.w = world tile row
+; In:  d0.w = world tile col, d1.w = world tile row, d3.b = layer (0=path A, 1=path B)
 ; Out: d0.b = collision type byte (0 = air)
 ; Clobbers: d0-d2, a0
+; Note: layer input is in d3 (not d2) so the ×80 shift-add can use d2 as scratch
+;       without clobbering the layer before the plane select.
 ; -----------------------------------------------
 Tile_Cache_GetCollision:
         sub.w   (Cache_Left_Col).w, d0
@@ -88,6 +90,11 @@ Tile_Cache_GetCollision:
         lsl.w   #4, d2
         add.w   d2, d1
         add.w   d0, d1
+        ; layer plane select: layer B shifts byte index into the second plane
+        tst.b   d3
+        beq.s   .layer_a
+        addi.w  #TILE_CACHE_COLL_SIZE, d1      ; plane B starts at +TILE_CACHE_COLL_SIZE
+.layer_a:
         lea     (Tile_Cache_Collision).l, a0
         move.b  (a0, d1.w), d0
         rts
@@ -285,37 +292,65 @@ TileCache_CopyBlockColumn:
 .nt_nowrap:
         dbf     d5, .copy_nt
 
-        ; collision: src = slot base + BLOCK_NT_SIZE + (src_row/2)*16 + col
+        ; collision plane A: src = slot base + BLOCK_NT_SIZE + (src_row/2)*16 + col
         lea     BLOCK_NT_SIZE(a1), a0
         move.w  d4, d5
         lsl.w   #3, d5                         ; (src_row/2) * 16 = src_row * 8
         adda.w  d5, a0
         adda.w  d0, a0                         ; + col (bytes, not words)
 
-        ; dest: Tile_Cache_Collision + (phys_row/2)*80 + cache_col
-        lsr.w   #1, d2                         ; physical collision row
+        ; dest plane A: Tile_Cache_Collision + (phys_row/2)*80 + cache_col
+        lsr.w   #1, d2                         ; d2 = physical collision row (halved)
         move.w  d2, d5
         lsl.w   #2, d5
         add.w   d2, d5
-        lsl.w   #4, d5                         ; collision_row * 80
-        add.w   d1, d5
+        lsl.w   #4, d5                         ; d5 = collision_row * 80
+        add.w   d1, d5                         ; d5 = dest byte offset within plane
         lea     (Tile_Cache_Collision).l, a2
         adda.w  d5, a2
 
-        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a3 ; row-wrap sentinel
-        lsr.w   #1, d3                         ; tile rows → collision rows
+        lsr.w   #1, d3                         ; d3 = collision rows to copy (tile rows / 2)
+        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a3 ; plane A row-wrap sentinel
+        move.w  d3, d2                         ; save count for plane B (d2 no longer needed as phys_row)
         subq.w  #1, d3
-        bmi.s   .done_coll
-.copy_coll:
+        bmi.s   .done_coll_a
+.copy_coll_a:
         move.b  (a0), (a2)
         lea     BLOCK_TILE_SIZE(a0), a0        ; next collision row in block (16 bytes)
         lea     TILE_CACHE_STRIDE(a2), a2      ; next collision row in cache (80 bytes)
         cmpa.l  a3, a2
-        blo.s   .coll_nowrap
-        suba.w  #TILE_CACHE_COLL_SIZE, a2      ; physical collision row 29 → 0
-.coll_nowrap:
-        dbf     d3, .copy_coll
-.done_coll:
+        blo.s   .coll_a_nowrap
+        suba.w  #TILE_CACHE_COLL_SIZE, a2      ; wrap within plane A (row 29 → 0)
+.coll_a_nowrap:
+        dbf     d3, .copy_coll_a
+.done_coll_a:
+
+        ; collision plane B: src = slot base + BLOCK_NT_SIZE + BLOCK_COLL_PLANE_SIZE
+        ;                          + (src_row/2)*16 + col  (same intra offsets as plane A)
+        lea     BLOCK_NT_SIZE+BLOCK_COLL_PLANE_SIZE(a1), a0
+        move.w  d4, d3
+        lsl.w   #3, d3                         ; (src_row/2) * 16 = src_row * 8
+        adda.w  d3, a0
+        adda.w  d0, a0                         ; + col
+
+        ; dest plane B: Tile_Cache_Collision + TILE_CACHE_COLL_SIZE + same byte offset as plane A
+        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a2
+        adda.w  d5, a2                         ; d5 = dest byte offset (coll_row*80 + cache_col)
+        ; plane B sentinel: wrap within plane B only (subtract per-plane size, not total)
+        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE*2).l, a3
+        move.w  d2, d3                         ; restore count from d2
+        subq.w  #1, d3
+        bmi.s   .done_coll_b
+.copy_coll_b:
+        move.b  (a0), (a2)
+        lea     BLOCK_TILE_SIZE(a0), a0        ; next collision row in block (16 bytes)
+        lea     TILE_CACHE_STRIDE(a2), a2      ; next collision row in cache (80 bytes)
+        cmpa.l  a3, a2
+        blo.s   .coll_b_nowrap
+        suba.w  #TILE_CACHE_COLL_SIZE, a2      ; wrap within plane B (plane B row 29 → plane B row 0)
+.coll_b_nowrap:
+        dbf     d3, .copy_coll_b
+.done_coll_b:
         rts
 
 ; -----------------------------------------------
@@ -377,7 +412,7 @@ TileCache_FillAll:
         dbf     d0, .zero_nt
 
         lea     (Tile_Cache_Collision).l, a0
-        move.w  #(TILE_CACHE_COLL_SIZE/4)-1, d0
+        move.w  #(TILE_CACHE_COLL_SIZE*TILE_CACHE_COLL_PLANES/4)-1, d0
 .zero_coll:
         clr.l   (a0)+
         dbf     d0, .zero_coll
@@ -934,13 +969,22 @@ TileCache_FillRow:
         lea     (Tile_Cache_Nametable).l, a1
         move.w  d3, (a1, d0.w)                 ; write tile
 
-        ; collision byte (cell-completing rows only)
+        ; collision planes A and B (cell-completing rows only)
+        ; a3 = plane A collision row base in staging slot
+        ; d6 = intra-block col (0-15), used as byte index within row
         move.w  2(sp), d0
         cmpi.w  #$FFFF, d0
         beq.s   .fr_skip_col
-        add.w   d1, d0                         ; + cache col (byte index)
+        add.w   d1, d0                         ; + cache col → byte index within cache row
+        ; plane A
         lea     (Tile_Cache_Collision).l, a2
         move.b  (a3, d6.w), (a2, d0.w)
+        ; plane B: source = a3 + BLOCK_COLL_PLANE_SIZE + d6
+        ; a1 is free here (was Tile_Cache_Nametable base, done with it for this cell)
+        lea     BLOCK_COLL_PLANE_SIZE(a3), a1  ; plane B row base in staging slot
+        move.b  (a1, d6.w), d3                 ; plane B byte
+        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a2
+        move.b  d3, (a2, d0.w)
 
 .fr_skip_col:
         addq.w  #1, d6
