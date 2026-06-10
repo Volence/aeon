@@ -18,7 +18,7 @@ Plane_Buffer_Reset:
 ; In:  d0.w = target VDP nametable column (0–63)
 ;      d1.w = world tile column
 ; Out: none (silently drops if buffer full)
-; Clobbers: d0–d5, a0–a2
+; Clobbers: d0–d5, a0–a2 (a1 = row-wrap sentinel through both parts)
 ; -----------------------------------------------
 Draw_TileColumn:
         ; worst case: 2 headers (8 bytes) + 64 data words (128 bytes) = 136
@@ -32,7 +32,8 @@ Draw_TileColumn:
         cmp.w   (Cache_Head_Col).w, d1
         bgt.w   .done
 
-        ; compute cache source pointer for cache[row=0][col]
+        ; compute cache source pointer for cache[logical row 0][col]
+        ; = physical row Cache_Origin_Row (circular)
         move.w  d0, -(sp)                     ; save nametable col
         move.w  d1, d0
         sub.w   (Cache_Left_Col).w, d0
@@ -42,8 +43,15 @@ Draw_TileColumn:
         subi.w  #TILE_CACHE_COLS, d0
 .col_nowrap:
         add.w   d0, d0
+        move.w  (Cache_Origin_Row).w, d1
+        move.w  d1, d2
+        lsl.w   #7, d1                         ; × 128
+        lsl.w   #5, d2                         ; × 32
+        add.w   d2, d1                         ; origin_row × 160 (stride bytes)
+        add.w   d1, d0
         lea     (Tile_Cache_Nametable).l, a0
         adda.w  d0, a0                         ; a0 = cache source
+        lea     (Tile_Cache_Nametable+TILE_CACHE_NT_SIZE).l, a1   ; wrap sentinel
         move.w  (sp)+, d0                      ; restore nametable col
 
         add.w   d0, d0                         ; d0 = col byte offset
@@ -77,6 +85,10 @@ Draw_TileColumn:
 .pA_data:
         move.w  (a0), (a2)+
         lea     TILE_CACHE_STRIDE*2(a0), a0
+        cmpa.l  a1, a0
+        blo.s   .pa_nowrap
+        suba.w  #TILE_CACHE_NT_SIZE, a0        ; physical row 59 → 0
+.pa_nowrap:
         dbf     d1, .pA_data
 
         move.w  d5, d1
@@ -115,6 +127,10 @@ Draw_TileColumn:
 .pB_data:
         move.w  (a0), (a2)+
         lea     TILE_CACHE_STRIDE*2(a0), a0
+        cmpa.l  a1, a0
+        blo.s   .pb_nowrap
+        suba.w  #TILE_CACHE_NT_SIZE, a0        ; physical row 59 → 0
+.pb_nowrap:
         dbf     d1, .pB_data
 
         move.w  d5, d1
@@ -175,6 +191,11 @@ Draw_TileRow_FromCache:
         ; compute source: cache nametable row base (physical col 0)
         move.w  d1, d0
         sub.w   (Cache_Top_Row).w, d0
+        add.w   (Cache_Origin_Row).w, d0       ; map to physical row (circular)
+        cmpi.w  #TILE_CACHE_ROWS, d0
+        blt.s   .row_nowrap
+        subi.w  #TILE_CACHE_ROWS, d0
+.row_nowrap:
         ; row × 80 via shift-add
         move.w  d0, d3
         lsl.w   #6, d0

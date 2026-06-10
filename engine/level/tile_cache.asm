@@ -44,6 +44,11 @@ Tile_Cache_GetTile:
         subi.w  #TILE_CACHE_COLS, d0
 .col_nowrap:
         sub.w   (Cache_Top_Row).w, d1
+        add.w   (Cache_Origin_Row).w, d1
+        cmpi.w  #TILE_CACHE_ROWS, d1
+        blt.s   .row_nowrap
+        subi.w  #TILE_CACHE_ROWS, d1
+.row_nowrap:
         ; d1 * 80 via shift-add (80 = 64 + 16)
         move.w  d1, d2
         lsl.w   #6, d1
@@ -70,6 +75,13 @@ Tile_Cache_GetCollision:
 .col_nowrap:
         sub.w   (Cache_Top_Row).w, d1
         lsr.w   #1, d1                         ; tile rows → collision rows
+        move.w  (Cache_Origin_Row).w, d2
+        lsr.w   #1, d2                         ; origin even → exact collision origin
+        add.w   d2, d1
+        cmpi.w  #TILE_CACHE_COLL_ROWS, d1
+        blt.s   .row_nowrap
+        subi.w  #TILE_CACHE_COLL_ROWS, d1
+.row_nowrap:
         ; d1 * 80 via shift-add
         move.w  d1, d2
         lsl.w   #6, d1
@@ -221,9 +233,11 @@ TileCache_DecompressBlock:
 ;      d4.w = source start row within block (0–15, even)
 ;      a1   = staged block base (nametable; collision at +BLOCK_NT_SIZE)
 ; Out: none; a1 preserved
-; Clobbers: d0-d3, d5, a0, a2
+; Clobbers: d0-d3, d5, a0, a2-a3
 ; Note: d2/d3/d4 even is guaranteed because Cache_Top_Row is kept even and
 ;       block tops are multiples of 16 — collision halving stays exact.
+;       Cache_Origin_Row is also kept even, so the physical row keeps the
+;       logical row's parity and physical_row/2 = physical collision row.
 ; -----------------------------------------------
 TileCache_CopyBlockColumn:
         ; wrap d1 (logical cache col) to physical column via circular origin
@@ -232,6 +246,12 @@ TileCache_CopyBlockColumn:
         blt.s   .col_nowrap
         subi.w  #TILE_CACHE_COLS, d1
 .col_nowrap:
+        ; wrap d2 (logical dest row) to physical row via circular origin
+        add.w   (Cache_Origin_Row).w, d2
+        cmpi.w  #TILE_CACHE_ROWS, d2
+        blt.s   .row_nowrap
+        subi.w  #TILE_CACHE_ROWS, d2
+.row_nowrap:
         ; source: slot base + (src_row * 16 + col) * 2
         movea.l a1, a0
         move.w  d4, d5
@@ -241,23 +261,28 @@ TileCache_CopyBlockColumn:
         add.w   d5, d5                         ; col * 2
         adda.w  d5, a0                         ; a0 = first tile word in run
 
-        ; dest: Tile_Cache_Nametable + (dest_row * stride + cache_col) * 2
+        ; dest: Tile_Cache_Nametable + (phys_row * stride + cache_col) * 2
         ; ×80 = ((x<<2)+x)<<4 — single temp
         move.w  d2, d5
         lsl.w   #2, d5
         add.w   d2, d5
-        lsl.w   #4, d5                         ; d5 = dest_row * 80
+        lsl.w   #4, d5                         ; d5 = phys_row * 80
         add.w   d1, d5                         ; + cache_col
         add.w   d5, d5                         ; byte offset
         lea     (Tile_Cache_Nametable).l, a2
         adda.w  d5, a2
 
+        lea     (Tile_Cache_Nametable+TILE_CACHE_NT_SIZE).l, a3   ; row-wrap sentinel
         move.w  d3, d5
         subq.w  #1, d5
 .copy_nt:
         move.w  (a0), (a2)
         lea     BLOCK_TILE_SIZE*2(a0), a0      ; next block row (32 bytes)
         lea     TILE_CACHE_STRIDE*2(a2), a2    ; next cache row (160 bytes)
+        cmpa.l  a3, a2
+        blo.s   .nt_nowrap
+        suba.w  #TILE_CACHE_NT_SIZE, a2        ; physical row 59 → 0
+.nt_nowrap:
         dbf     d5, .copy_nt
 
         ; collision: src = slot base + BLOCK_NT_SIZE + (src_row/2)*16 + col
@@ -267,8 +292,8 @@ TileCache_CopyBlockColumn:
         adda.w  d5, a0
         adda.w  d0, a0                         ; + col (bytes, not words)
 
-        ; dest: Tile_Cache_Collision + (dest_row/2)*80 + cache_col
-        lsr.w   #1, d2                         ; dest collision row
+        ; dest: Tile_Cache_Collision + (phys_row/2)*80 + cache_col
+        lsr.w   #1, d2                         ; physical collision row
         move.w  d2, d5
         lsl.w   #2, d5
         add.w   d2, d5
@@ -277,6 +302,7 @@ TileCache_CopyBlockColumn:
         lea     (Tile_Cache_Collision).l, a2
         adda.w  d5, a2
 
+        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a3 ; row-wrap sentinel
         lsr.w   #1, d3                         ; tile rows → collision rows
         subq.w  #1, d3
         bmi.s   .done_coll
@@ -284,6 +310,10 @@ TileCache_CopyBlockColumn:
         move.b  (a0), (a2)
         lea     BLOCK_TILE_SIZE(a0), a0        ; next collision row in block (16 bytes)
         lea     TILE_CACHE_STRIDE(a2), a2      ; next collision row in cache (80 bytes)
+        cmpa.l  a3, a2
+        blo.s   .coll_nowrap
+        suba.w  #TILE_CACHE_COLL_SIZE, a2      ; physical collision row 29 → 0
+.coll_nowrap:
         dbf     d3, .copy_coll
 .done_coll:
         rts
@@ -309,6 +339,7 @@ Tile_Cache_Init:
         addi.w  #TILE_CACHE_COLS-1, d0
         move.w  d0, (Cache_Head_Col).w
         clr.w   (Cache_Origin_Col).w
+        clr.w   (Cache_Origin_Row).w
         move.w  #$FFFF, (Cache_Fill_Last_Frame).w
         move.w  #$FFFF, (Cache_Fill_Resume_Col).w
 
@@ -667,9 +698,7 @@ Tile_Cache_Fill:
         cmpi.w  #TILE_CACHE_ROWS, d0
         blt.s   .v_no_evict_up
         moveq   #2, d0
-        movem.l d4-d5, -(sp)                   ; VSlideUp clobbers d4/d5; preserve loop target + cursor
-        bsr.w   TileCache_VSlideUp
-        movem.l (sp)+, d4-d5
+        bsr.w   TileCache_VSlideUp             ; O(1) origin retreat — clobbers d0-d1 only
 .v_no_evict_up:
 
         ; decrement Cache_Top_Row BEFORE fill so FillRow sees correct offset
@@ -795,12 +824,22 @@ TileCache_FillRow:
         sub.w   (Cache_Top_Row).w, d2
         bmi.w   .fr_early_out
 
+        ; remember logical row for the cell-parity test, then map to
+        ; physical row via the circular origin (origin even → parity
+        ; is preserved, but offsets must come from the physical row)
+        move.w  d2, d4                         ; d4 = logical row
+        add.w   (Cache_Origin_Row).w, d2
+        cmpi.w  #TILE_CACHE_ROWS, d2
+        blt.s   .fr_row_nowrap
+        subi.w  #TILE_CACHE_ROWS, d2
+.fr_row_nowrap:
+
         ; collision dest row offset (bytes); $FFFF = even row, skip collision
         move.w  #$FFFF, d3
-        btst    #0, d2
+        btst    #0, d4
         beq.s   .fr_no_coll
         move.w  d2, d3
-        lsr.w   #1, d3                         ; collision row
+        lsr.w   #1, d3                         ; physical collision row
         move.w  d3, d4
         lsl.w   #2, d4
         add.w   d3, d4
@@ -939,155 +978,47 @@ TileCache_HSlide:
         rts
 
 ; -----------------------------------------------
-; TileCache_VSlide — evict stale top rows, shift data up
-; In:  d0.w = tile rows to evict from top
+; TileCache_VSlide — evict stale top rows (circular, O(1))
+; Advances Cache_Origin_Row instead of moving data — the recycled
+; physical rows are overwritten by TileCache_FillRow before they can
+; become visible (same validity contract the old memmove had).
+; Replaces the ~87k-cycle memmove (9.4KB NT + 2.3KB collision per
+; 2-row evict) that caused lag during sustained vertical scroll.
+; In:  d0.w = tile rows to evict from top (even)
 ; Out: none
-; Clobbers: d0-d5, a0-a1
+; Clobbers: d0
 ; -----------------------------------------------
 TileCache_VSlide:
         tst.w   d0
         ble.s   .vslide_done
-        move.w  d0, d1                         ; d1 = evict tile rows
-
-        ; nametable: contiguous, simple memmove up
-        lea     (Tile_Cache_Nametable).l, a1   ; a1 = dest (start)
-        ; src = start + evict_rows * stride * 2
-        ; stride * 2 = 160; evict_rows * 160
-        move.w  d1, d2
-        move.w  d2, d3
-        lsl.w   #7, d2                         ; * 128
-        lsl.w   #5, d3                         ; * 32
-        add.w   d3, d2                         ; * 160
-        lea     (a1, d2.w), a0                 ; a0 = source
-
-        ; bytes to copy = (TILE_CACHE_ROWS - evict_rows) * 160
-        move.w  #TILE_CACHE_ROWS, d3
-        sub.w   d1, d3
-        move.w  d3, d4
-        lsl.w   #7, d3
-        lsl.w   #5, d4
-        add.w   d4, d3
-        lsr.w   #2, d3                         ; longwords
-        subq.w  #1, d3
-.vslide_nt:
-        move.l  (a0)+, (a1)+
-        dbf     d3, .vslide_nt
-
-        ; collision: evict half as many rows
-        move.w  d1, d2
-        lsr.w   #1, d2
-        beq.s   .vslide_skip_coll
-
-        lea     (Tile_Cache_Collision).l, a1
-        ; src offset = coll_evict * 80
-        move.w  d2, d3
-        move.w  d3, d4
-        lsl.w   #6, d3
-        lsl.w   #4, d4
-        add.w   d4, d3
-        lea     (a1, d3.w), a0
-
-        ; bytes = (COLL_ROWS - coll_evict) * 80
-        move.w  #TILE_CACHE_COLL_ROWS, d3
-        sub.w   d2, d3
-        move.w  d3, d4
-        lsl.w   #6, d3
-        lsl.w   #4, d4
-        add.w   d4, d3
-        lsr.w   #2, d3
-        subq.w  #1, d3
-.vslide_coll:
-        move.l  (a0)+, (a1)+
-        dbf     d3, .vslide_coll
-.vslide_skip_coll:
-
-        add.w   d1, (Cache_Top_Row).w
+        add.w   d0, (Cache_Top_Row).w
+        add.w   (Cache_Origin_Row).w, d0
+        cmpi.w  #TILE_CACHE_ROWS, d0
+        blt.s   .vslide_nowrap
+        subi.w  #TILE_CACHE_ROWS, d0
+.vslide_nowrap:
+        move.w  d0, (Cache_Origin_Row).w
 .vslide_done:
         rts
 
 ; -----------------------------------------------
-; TileCache_VSlideUp — evict stale bottom rows, shift data down
-; In:  d0.w = tile rows to evict from bottom
+; TileCache_VSlideUp — evict stale bottom rows (circular, O(1))
+; Mirror of TileCache_VSlide: retreats Cache_Origin_Row so new top
+; rows map onto the recycled bottom rows' physical storage.
+; In:  d0.w = tile rows to evict from bottom (even)
 ; Out: none
-; Clobbers: d0-d5, a0-a1
+; Clobbers: d0-d1
 ; -----------------------------------------------
 TileCache_VSlideUp:
         tst.w   d0
         ble.s   .vsu_done
-        move.w  d0, d1                         ; d1 = evict tile rows
-
-        ; nametable: memmove DOWN (copy backwards to avoid overlap)
-        ; dest end = start + TILE_CACHE_ROWS * 160
-        ; src end  = dest end - evict_rows * 160
-        lea     (Tile_Cache_Nametable).l, a1
-
-        ; compute evict offset = evict_rows * 160
-        move.w  d1, d2
-        move.w  d2, d3
-        lsl.w   #7, d2                         ; * 128
-        lsl.w   #5, d3                         ; * 32
-        add.w   d3, d2                         ; d2 = evict_rows * 160
-
-        ; total size = TILE_CACHE_ROWS * 160
-        move.w  #TILE_CACHE_ROWS, d3
-        move.w  d3, d4
-        lsl.w   #7, d3
-        lsl.w   #5, d4
-        add.w   d4, d3                         ; d3 = total bytes
-
-        ; bytes to copy = total - evict offset
-        move.w  d3, d4
-        sub.w   d2, d4                         ; d4 = bytes to copy
-
-        ; a0 = src end (start + bytes to copy)
-        lea     (a1, d4.w), a0
-        ; a1 = dest end (start + total bytes)
-        lea     (a1, d3.w), a1
-
-        move.w  d4, d3
-        lsr.w   #2, d3                         ; longwords
-        subq.w  #1, d3
-.vsu_nt:
-        move.l  -(a0), -(a1)
-        dbf     d3, .vsu_nt
-
-        ; collision: evict half as many rows (16px cells)
-        move.w  d1, d2
-        lsr.w   #1, d2
-        beq.s   .vsu_skip_coll
-
-        lea     (Tile_Cache_Collision).l, a1
-
-        ; evict offset = coll_evict * 80
-        move.w  d2, d3
-        move.w  d3, d4
-        lsl.w   #6, d3
-        lsl.w   #4, d4
-        add.w   d4, d3                         ; d3 = coll evict offset
-
-        ; total = TILE_CACHE_COLL_ROWS * 80
-        move.w  #TILE_CACHE_COLL_ROWS, d4
-        move.w  d4, d5
-        lsl.w   #6, d4
-        lsl.w   #4, d5
-        add.w   d5, d4                         ; d4 = total bytes
-
-        ; bytes to copy
-        move.w  d4, d5
-        sub.w   d3, d5                         ; d5 = bytes to copy
-
-        lea     (a1, d5.w), a0                 ; src end
-        lea     (a1, d4.w), a1                 ; dest end
-
-        move.w  d5, d3
-        lsr.w   #2, d3
-        subq.w  #1, d3
-.vsu_coll:
-        move.l  -(a0), -(a1)
-        dbf     d3, .vsu_coll
-.vsu_skip_coll:
-
-        sub.w   d1, (Cache_Bottom_Row).w
+        sub.w   d0, (Cache_Bottom_Row).w
+        move.w  (Cache_Origin_Row).w, d1
+        sub.w   d0, d1
+        bpl.s   .vsu_nowrap
+        addi.w  #TILE_CACHE_ROWS, d1
+.vsu_nowrap:
+        move.w  d1, (Cache_Origin_Row).w
 .vsu_done:
         rts
 
@@ -1111,6 +1042,7 @@ TileCache_Reinit:
         addi.w  #TILE_CACHE_COLS-1, d0
         move.w  d0, (Cache_Head_Col).w
         clr.w   (Cache_Origin_Col).w
+        clr.w   (Cache_Origin_Row).w
         move.w  #$FFFF, (Cache_Fill_Resume_Col).w
 
         move.l  (Camera_Y).w, d0

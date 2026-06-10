@@ -195,7 +195,15 @@ These items were identified during §3 Phase 0 research but require a full SST f
 
 ## From §4 Phase 1 — Level/World System
 
-### Tile cache vertical slide is a memmove — circular row origin (§4.7)
+### ~~Tile cache vertical slide is a memmove — circular row origin (§4.7)~~ — DONE 2026-06-10
+**Completed:** `Cache_Origin_Row` circular index shipped same day the lag was
+observed live (debug-fly turbo descent = up to 3 memmoves/frame ≈ 260k cycles).
+VSlide/VSlideUp are now O(1); row-walking consumers use an end-of-buffer
+sentinel (~16 cycles/row); single-row consumers remap the index. Origin kept
+even so collision stays cell-aligned. Verified in Exodus: 252-row descent →
+origin 12 (252 mod 60), 216-row ascent → origin 36 ((12−216) mod 60), terrain
+renders clean through 4+ ring wraps in both directions.
+Original entry:
 **Surfaced during:** tile cache fill rewrite 2026-06-10.
 **What:** Columns evict via circular origin (`Cache_Origin_Col`, free), but rows evict by
 shifting the whole buffer: `TileCache_VSlide`/`VSlideUp` move ~9.4 KB nametable + ~2.3 KB

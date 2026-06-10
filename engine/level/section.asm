@@ -623,6 +623,8 @@ Section_RedrawPlanes:
         move.w  d0, d5                          ; d5 = start_world_col
 
         moveq   #0, d3                          ; col counter (0..63)
+        lea     (Tile_Cache_Nametable+TILE_CACHE_NT_SIZE).l, a0   ; row-wrap sentinel
+                                                ; (a0 free until the Plane B pass)
 
 .pla_fill:
         move.w  d5, d7
@@ -656,8 +658,14 @@ Section_RedrawPlanes:
         subi.w  #TILE_CACHE_COLS, d0
 .col_nowrap:
         add.w   d0, d0                         ; byte offset = col × 2
+        move.w  (Cache_Origin_Row).w, d1
+        move.w  d1, d2
+        lsl.w   #7, d1                         ; × 128
+        lsl.w   #5, d2                         ; × 32
+        add.w   d2, d1                         ; origin_row × 160 (stride bytes)
+        add.w   d1, d0
         lea     (Tile_Cache_Nametable).l, a1
-        adda.w  d0, a1                         ; a1 = cache[row=0][col]
+        adda.w  d0, a1                         ; a1 = cache[logical row 0][col]
 
         ; -- Part A: nametable rows start_nt_row to 63 --
         move.w  (sp), d4                       ; col byte offset
@@ -683,6 +691,10 @@ Section_RedrawPlanes:
 .pA_data:
         move.w  (a1), (a6)
         lea     TILE_CACHE_STRIDE*2(a1), a1
+        cmpa.l  a0, a1
+        blo.s   .pa_nowrap
+        suba.w  #TILE_CACHE_NT_SIZE, a1        ; physical row 59 → 0
+.pa_nowrap:
         dbf     d0, .pA_data
 .pA_dskip:
         move.w  d2, d0
@@ -715,6 +727,10 @@ Section_RedrawPlanes:
 .pB_data:
         move.w  (a1), (a6)
         lea     TILE_CACHE_STRIDE*2(a1), a1
+        cmpa.l  a0, a1
+        blo.s   .pb_nowrap
+        suba.w  #TILE_CACHE_NT_SIZE, a1        ; physical row 59 → 0
+.pb_nowrap:
         dbf     d0, .pB_data
         move.w  d2, d0
         sub.w   d4, d0

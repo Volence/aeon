@@ -277,6 +277,7 @@ Cache_Head_Col:         ds.w 1          ; world tile col of rightmost valid colu
 Cache_Top_Row:          ds.w 1          ; world tile row of topmost valid row
 Cache_Bottom_Row:       ds.w 1          ; world tile row of bottommost valid row
 Cache_Origin_Col:       ds.w 1          ; physical col index where Cache_Left_Col maps (circular)
+Cache_Origin_Row:       ds.w 1          ; physical row index where Cache_Top_Row maps (circular; kept even)
 Cache_Fill_Last_Frame:  ds.w 1          ; Frame_Counter of last fill (cascade prevention)
 Cache_Fill_Resume_Col:  ds.w 1          ; partial FillColumn resume column ($FFFF = none pending)
 Cache_Fill_Resume_Row:  ds.w 1          ; partial FillColumn resume row (valid when Resume_Col set)
