@@ -594,7 +594,7 @@ EntityWindow_ScanObjectsRight:
 
 .obj_skip:
         addq.w  #1, d4
-        adda.w  #OBJ_ENTRY_SIZE, a0
+        addq.w  #OBJ_ENTRY_SIZE, a0
         bra.s   .obj_loop
 
 .obj_update_idx:
