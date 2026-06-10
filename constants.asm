@@ -204,12 +204,12 @@ GS_OBJECT_TEST          = 2
 ; -----------------------------------------------
 
 ; Section coordinate space
-SECTION_SHIFT           = $1000     ; teleport shift (pixels); 2-slot pair width (both axes). Anti-oscillation handled by Section_Teleport_Guard (position-based suppression after teleport).
 SECTION_SIZE            = $0800     ; slot width/height in engine pixels
+SECTION_SHIFT           = 2*SECTION_SIZE        ; $1000 — teleport shift (pixels); 2-slot pair width (both axes). Anti-oscillation handled by Section_Teleport_Guard (position-based suppression after teleport).
 SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
-SLOT_ORIGIN_R           = $0A00     ; right slot engine-space left edge
+SLOT_ORIGIN_R           = SLOT_ORIGIN_L+SECTION_SIZE    ; $0A00 — right slot engine-space left edge
 SLOT_ORIGIN_U           = $0200     ; upper slot engine-space top edge
-SLOT_ORIGIN_D           = $0A00     ; lower slot engine-space top edge
+SLOT_ORIGIN_D           = SLOT_ORIGIN_U+SECTION_SIZE    ; $0A00 — lower slot engine-space top edge
 ; -- §4.2 preview-zone (24-col / 24-row edges on plane A + plane B) --
 ; Preview width covers the edge region visible as camera approaches the
 ; teleport boundary. 24 cols = 192 px = ~3/5 of screen width. Preview is
@@ -221,21 +221,21 @@ PREVIEW_COLS            = 24        ; nametable cols at FWD/BWD edges
 PREVIEW_ROWS            = 24        ; nametable rows at TOP/BOT edges (vertical: stub for now)
 PREVIEW_PIXELS          = PREVIEW_COLS*8    ; 192 px — used for camera clamp offset
 SECTION_TILE_WIDTH      = SECTION_SIZE/8    ; 256 — tile cols per section
-SECTION_FWD_THRESHOLD   = $1200     ; camera X → fire forward teleport
-SECTION_BWD_THRESHOLD   = $0200     ; camera X → fire backward teleport
-SECTION_FWD_PRELOAD     = $0E00     ; camera X → queue forward section art
-SECTION_BWD_PRELOAD     = $0400     ; camera X → queue backward section art
+SECTION_FWD_THRESHOLD   = SLOT_ORIGIN_L+SECTION_SHIFT          ; $1200 — camera X → fire forward teleport
+SECTION_BWD_THRESHOLD   = SLOT_ORIGIN_L                        ; $0200 — camera X → fire backward teleport
+SECTION_FWD_PRELOAD     = SLOT_ORIGIN_L+SECTION_SIZE+SECTION_SIZE/2 ; $0E00 — camera X → queue forward section art (slot 1 midpoint)
+SECTION_BWD_PRELOAD     = SLOT_ORIGIN_L+SECTION_SIZE/4         ; $0400 — camera X → queue backward section art (slot 0 quarter)
 ; -- §4.2 deferred cold-load triggers (keep just-left section's art alive across teleport for preview) --
-SECTION_DEFERRED_FWD_LOAD = $0600   ; camera X → fire deferred Sec_R load (slot 0 midpoint, post-FWD-teleport)
-SECTION_DEFERRED_BWD_LOAD = $0C00   ; camera X → fire deferred Sec_L load (slot 1 quarter, post-BWD-teleport)
+SECTION_DEFERRED_FWD_LOAD = SLOT_ORIGIN_L+SECTION_SIZE/2       ; $0600 — camera X → fire deferred Sec_R load (slot 0 midpoint, post-FWD-teleport)
+SECTION_DEFERRED_BWD_LOAD = SLOT_ORIGIN_L+SECTION_SIZE+SECTION_SIZE/4 ; $0C00 — camera X → fire deferred Sec_L load (slot 1 quarter, post-BWD-teleport)
 
 ; Vertical thresholds (2D active — mirrors horizontal pair layout)
-SECTION_UP_THRESHOLD    = $0200
-SECTION_DOWN_THRESHOLD  = $1200
-SECTION_UP_PRELOAD      = $0400
-SECTION_DOWN_PRELOAD    = $0E00
-SECTION_DEFERRED_UP_LOAD  = $0C00
-SECTION_DEFERRED_DOWN_LOAD = $0600
+SECTION_UP_THRESHOLD    = SLOT_ORIGIN_U                        ; $0200
+SECTION_DOWN_THRESHOLD  = SLOT_ORIGIN_U+SECTION_SHIFT          ; $1200
+SECTION_UP_PRELOAD      = SLOT_ORIGIN_U+SECTION_SIZE/4         ; $0400
+SECTION_DOWN_PRELOAD    = SLOT_ORIGIN_U+SECTION_SIZE+SECTION_SIZE/2 ; $0E00
+SECTION_DEFERRED_UP_LOAD  = SLOT_ORIGIN_U+SECTION_SIZE+SECTION_SIZE/4 ; $0C00
+SECTION_DEFERRED_DOWN_LOAD = SLOT_ORIGIN_U+SECTION_SIZE/2      ; $0600
 SECTION_TILE_HEIGHT     = SECTION_SIZE/8    ; 256 — tile rows per section
 
 ; Parallax (§4.6)

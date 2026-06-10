@@ -155,6 +155,68 @@ ODZ_START set *
         endm
 
 ; -----------------------------------------------
+; objentry / objend — guarded object placement list entries.
+; Build-fails on: non-monotonic X (breaks the scan's sorted early-out),
+; coords outside the section, type/subtype overflow, list longer than
+; the killed-bitmask capacity (MAX_LIST_ENTRIES).
+; Usage:
+;   Sec_Objects:
+;       objentry $100, $0B0, 1          ; x, y, type [, subtype] [, oflags]
+;       objentry $600, $0B0, 0
+;       objend
+; oflags = OEF_* bit numbers pre-shifted by the caller, e.g. (1<<OEF_XFLIP)
+; -----------------------------------------------
+OE_PREV_X set 0
+OE_COUNT set 0
+
+objentry macro px,py,ptype,psub,pflags
+    if "px" = ""
+        fatal "objentry: x required"
+    endif
+OE_SUB set 0
+    if "psub" <> ""
+OE_SUB set psub
+    endif
+OE_FLG set 0
+    if "pflags" <> ""
+OE_FLG set pflags
+    endif
+    if (px) < 0
+        fatal "objentry: x \{px} outside section"
+    endif
+    if (px) > SECTION_SIZE-1
+        fatal "objentry: x \{px} outside section"
+    endif
+    if (py) < 0
+        fatal "objentry: y \{py} outside section"
+    endif
+    if (py) > SECTION_SIZE-1
+        fatal "objentry: y \{py} outside section"
+    endif
+    if (ptype) > OEF_TYPE_MASK
+        fatal "objentry: type \{ptype} exceeds 31"
+    endif
+    if OE_SUB > OEF_SUBTYPE_MASK
+        fatal "objentry: subtype exceeds 255"
+    endif
+    if (px) < OE_PREV_X
+        fatal "objentry: X \{px} not >= previous \{OE_PREV_X} — lists must be X-sorted"
+    endif
+OE_PREV_X set px
+OE_COUNT set OE_COUNT+1
+    if OE_COUNT > MAX_LIST_ENTRIES
+        fatal "objentry: list exceeds MAX_LIST_ENTRIES (killed-bitmask capacity)"
+    endif
+        dc.w px, py, OE_FLG|((ptype)<<OEF_TYPE_SHIFT)|OE_SUB
+        endm
+
+objend macro
+        dc.w -1
+OE_PREV_X set 0
+OE_COUNT set 0
+        endm
+
+; -----------------------------------------------
 ; Hardware control macros
 ; -----------------------------------------------
 

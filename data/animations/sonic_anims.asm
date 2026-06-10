@@ -24,3 +24,8 @@ Ani_Sonic_Roll:
         dc.b 9, 10, 11, 12, 13                  ; rolling frames
         dc.b AF_END                             ; loop
         align 2
+
+Ani_Sonic_End:
+    if (Ani_Sonic_End-Ani_Sonic) > $7FFF
+        error "Ani_Sonic exceeds signed word-offset range"
+    endif

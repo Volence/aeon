@@ -8,3 +8,8 @@ Ani_Particle_Flash:
         dc.b 2, 2, 2                            ; frame 2 (8x8 particle) × 3 cycles
         dc.b AF_DELETE                          ; auto-despawn
         align 2
+
+Ani_Particle_End:
+    if (Ani_Particle_End-Ani_Particle) > $7FFF
+        error "Ani_Particle exceeds signed word-offset range"
+    endif

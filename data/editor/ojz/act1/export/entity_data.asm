@@ -1,3 +1,4 @@
+; Exporter output (raw dc.w — documents the wire format). Hand-authored lists should use the objentry/objend macros instead.
 ojz_Sec0_Rings:
     dc.w $0080, $0060
     dc.w $0090, $0060

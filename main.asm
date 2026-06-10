@@ -142,6 +142,10 @@ __BUDGET_OBJBANK:
     include "objects/test_parent.asm"
     include "objects/test_stress_emitter.asm"
 
+    if * > $20000
+      error "Object code bank overflows 64KB by \{*-$20000} bytes"
+    endif
+
 ; -----------------------------------------------
 ; Data (outside object code bank — addressed directly, not via objroutine)
 ; -----------------------------------------------
@@ -187,9 +191,15 @@ AngleTable:
 Map_Sonic:
     BINCLUDE "data/mappings/sonic.bin"
     align 2
+    if (*-Map_Sonic) > $7FFF
+      error "Map_Sonic exceeds signed word-offset range"
+    endif
 DPLC_Sonic:
     BINCLUDE "data/dplc/optimized/sonic.bin"
     align 2
+    if (*-DPLC_Sonic) > $7FFF
+      error "DPLC_Sonic exceeds signed word-offset range"
+    endif
 Art_Sonic:
     BINCLUDE "art/optimized/characters/sonic.bin"
     align 2
