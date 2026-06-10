@@ -365,12 +365,16 @@ RAM_End:
         endif
 
 ; -----------------------------------------------
-; CROSS_RESET_RAM (fixed address near top of RAM)
-; Survives soft reset, cleared only on cold boot
+; CROSS_RESET_RAM — top 256 bytes of RAM ($FFFFFF00-$FFFFFFFF)
+; Survives soft reset, cleared only on cold boot.
+; Lives ABOVE the stack base (SYSTEM_STACK = $FFFFFF00, grows down),
+; so stack pushes can never reach it. Previously sat at $FE00-$FEFF —
+; directly in the stack's path, 252 bytes of depth from corruption,
+; while this top page went unused.
 ; -----------------------------------------------
-CROSS_RESET_RAM:            = $FFFFFE00
-CROSS_RESET_MAGIC_ADDR:     = $FFFFFE00
-CROSS_RESET_MAGIC_END:      = $FFFFFE04
-CROSS_RESET_RAM_END:        = $FFFFFF00
+CROSS_RESET_RAM:            = $FFFFFF00
+CROSS_RESET_MAGIC_ADDR:     = $FFFFFF00
+CROSS_RESET_MAGIC_END:      = $FFFFFF04
+CROSS_RESET_RAM_END:        = $00000000     ; exclusive end (wraps at top of RAM)
 
         dephase
