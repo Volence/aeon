@@ -172,7 +172,7 @@ Draw_TileRow_FromCache:
         move.w  d0, (a2)+
         move.w  #PLANE_H_CELLS/2 - 1, (a2)+
 
-        ; compute source: cache nametable row
+        ; compute source: cache nametable row base (physical col 0)
         move.w  d1, d0
         sub.w   (Cache_Top_Row).w, d0
         ; row × 80 via shift-add
@@ -182,56 +182,51 @@ Draw_TileRow_FromCache:
         add.w   d3, d0
         add.w   d0, d0                         ; byte offset (words → bytes)
         lea     (Tile_Cache_Nametable).l, a0
-        adda.w  d0, a0                         ; a0 = start of cache row (physical col 0)
+        adda.w  d0, a0                         ; a0 = cache row base (physical col 0)
 
-        ; Rearrange cache read so buffer matches nametable column order.
-        ; World col W occupies NT col (W & 63). The row entry writes to
-        ; NT col 0 first, so we start reading from the cache position
-        ; whose world col maps to NT col 0: shift = (64 - start_nt_col) & 63.
-        move.w  (Cache_Left_Col).w, d3
-        andi.w  #63, d3                        ; d3 = start_nt_col
-        move.w  #64, d4
-        sub.w   d3, d4
-        andi.w  #63, d4                        ; d4 = shift from origin to NT col 0
-
-        add.w   (Cache_Origin_Col).w, d4       ; d4 = adjusted physical column
-        cmp.w   #TILE_CACHE_COLS, d4
-        blt.s   .adj_nowrap
-        subi.w  #TILE_CACHE_COLS, d4
-.adj_nowrap:
-        move.w  d4, d3
-        add.w   d3, d3
-        adda.w  d3, a0                         ; a0 = data for NT col 0
-
-        ; check if 64 tiles fit without wrapping in cache row
-        move.w  #TILE_CACHE_COLS, d3
-        sub.w   d4, d3                         ; d3 = tiles from adjusted origin to row end
-        cmpi.w  #PLANE_H_CELLS, d3
-        bge.s   .no_split
-
-        ; split copy: d3 tiles before cache wrap, then (64-d3) after wrap
-        move.w  d3, d5
-        subq.w  #1, d5
-.copy_part1:
-        move.w  (a0)+, (a2)+
-        dbf     d5, .copy_part1
-
-        suba.w  #TILE_CACHE_COLS*2, a0         ; wrap to physical col 0
-
-        move.w  #PLANE_H_CELLS, d5
-        sub.w   d3, d5
-        subq.w  #1, d5
-.copy_part2:
-        move.w  (a0)+, (a2)+
-        dbf     d5, .copy_part2
-        bra.s   .row_copy_done
-
-.no_split:
-        moveq   #PLANE_H_CELLS/2-1, d5
-.copy_row:
-        move.l  (a0)+, (a2)+
-        dbf     d5, .copy_row
-.row_copy_done:
+        ; -- Source window: the 64 world cols the plane currently holds,
+        ;    [R-63, R] with R = Section_Right_Col_Written (cache-clamped).
+        ;    NT col P shows world col W ≡ P (mod 64) — every engine→plane
+        ;    offset is a multiple of 64 — so the source walks W = A, A+1,
+        ;    …, R, then wraps to R-63 … A-1, where A = R & ~63. Cols behind
+        ;    Cache_Left_Col have no cache data; write tile 0 (they sit
+        ;    behind the streamed window, never visible).
+        ;    The cache spans 80 cols — 16 plane cols have two cached
+        ;    candidates (W and W+64). Anchoring to Cache_Left_Col here
+        ;    (pre-2026-06-10 bug) picked the wrap twin 64 cols ahead for
+        ;    visible-left plane cols, painting +512px content on screen. --
+        move.w  (Section_Right_Col_Written).w, d4
+        cmp.w   (Cache_Head_Col).w, d4
+        ble.s   .r_clamp_ok
+        move.w  (Cache_Head_Col).w, d4         ; R = min(R, Cache_Head_Col)
+.r_clamp_ok:
+        move.w  d4, d0
+        andi.w  #$FFC0, d0                     ; d0 = W cursor, starts at A = R & ~63
+        move.w  (Cache_Origin_Col).w, d3
+        sub.w   (Cache_Left_Col).w, d3         ; d3 = Origin - Left (physical adjust)
+        move.w  (Cache_Left_Col).w, d5
+        move.w  #PLANE_H_CELLS-1, d2
+.row_src_loop:
+        cmp.w   d5, d0                         ; W < Cache_Left → no data
+        blt.s   .row_src_zero
+        move.w  d0, d1
+        add.w   d3, d1                         ; physical col = W + (Origin - Left)
+        cmpi.w  #TILE_CACHE_COLS, d1
+        blt.s   .row_src_nowrap
+        subi.w  #TILE_CACHE_COLS, d1
+.row_src_nowrap:
+        add.w   d1, d1
+        move.w  (a0, d1.w), (a2)+
+        bra.s   .row_src_next
+.row_src_zero:
+        clr.w   (a2)+
+.row_src_next:
+        addq.w  #1, d0
+        cmp.w   d4, d0                         ; past R → wrap back one plane width
+        ble.s   .row_src_cont
+        subi.w  #64, d0
+.row_src_cont:
+        dbf     d2, .row_src_loop
 
         move.w  #0, (a2)
         move.w  (Plane_Buffer_Ptr).w, d2
