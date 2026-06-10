@@ -137,7 +137,7 @@ Collision_GetFloorHeight_Wall:
 ; Out: d0.w = floor distance (from closer sensor)
 ;      d1.b = surface angle
 ;      d2.b = collision type
-; Clobbers: d0-d6, a0-a1
+; Clobbers: d0-d7, a0-a1 (d7 exits holding half-height)
 ; -----------------------------------------------
 Collision_FloorSensors:
         moveq   #0, d3

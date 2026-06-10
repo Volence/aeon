@@ -116,5 +116,5 @@ Post-change:
 - `Block_Stage_Buffers`: `12 × 768 = 9216 B` (+1536)
 - **Added**: +3936 B
 
-New total: ~31,956 B starting from $FFFF0000 → ends at ~$FFFF7CE4.
+New total: ~31,956 B starting from $FFFF0000 → ends at ~$FFFF7C72.
 Guard limit is $FFFF8000 → ~$31C bytes slack. Verified by build guard.

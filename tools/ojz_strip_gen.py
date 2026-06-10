@@ -1077,7 +1077,7 @@ COLLISION_ROWS_PER_STRIP = STRIP_TILE_HEIGHT // 2   # 128 collision cells (16px 
 STRIP_COLLISION_PAD = 8                              # pad to even power-of-2 alignment
 WIDE_STRIP_SIZE = (STRIP_TILE_HEIGHT * 2
                    + 2 * COLLISION_ROWS_PER_STRIP
-                   + STRIP_COLLISION_PAD)            # 648 bytes
+                   + STRIP_COLLISION_PAD)            # 776 bytes (512 NT + 2x128 collision planes + 8 pad)
 
 
 def generate_collision_bytes(strip_words: list[int]) -> bytes:
