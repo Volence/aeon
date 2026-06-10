@@ -19,6 +19,9 @@
 ; Animation events (inline, transparent to frame counter):
 ;   $FA (AF_CALLBACK)  — call routine; format: dc.b $FA, target_hi, target_lo, 0
 ;                        (objroutine offset stored big-endian as two BYTES — scripts are unaligned)
+;                        Callback contract: in a0 = SST. May clobber d0-d2, a1-a2.
+;                        Must preserve a0, d3-d7, a3-a6. Must not delete the object —
+;                        the handler keeps writing SST fields after the call returns.
 ;   $F9 (AF_SOUND)     — play sound effect; format: dc.b $F9, sound_id
 ;   $F8 (AF_COLLISION) — set collision type; format: dc.b $F8, collision_type
 ;   $F7 (AF_SET_FIELD) — set SST byte; format: dc.b $F7, sst_offset, value, 0
