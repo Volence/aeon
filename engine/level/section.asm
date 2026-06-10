@@ -95,6 +95,32 @@ Section_GetSlotDef:
         bra.w   Section_GetSecPtrXY
 
 ; -----------------------------------------------
+; Section_SlotFlatID — flat section id for a slot's current section
+; flat_id = sec_y * grid_w + sec_x (indexes Section_Stream_State,
+; collected/killed bitmask slots, and the Sec grid).
+; In:  d0.w = slot index (0–3)
+; Out: d0.w = flat section id
+; Clobbers: d1-d2, a1
+; -----------------------------------------------
+Section_SlotFlatID:
+        add.w   d0, d0
+        lea     (Slot_Section_Map).w, a1
+        moveq   #0, d2
+        move.b  (a1, d0.w), d2                      ; d2 = sec_x
+        moveq   #0, d1
+        move.b  1(a1, d0.w), d1                     ; d1 = sec_y
+        movea.l (Current_Act_Ptr).w, a1
+        moveq   #0, d0
+        subq.w  #1, d1
+        bmi.s   .add_x
+.mul:
+        add.w   Act_grid_w(a1), d0
+        dbf     d1, .mul
+.add_x:
+        add.w   d2, d0
+        rts
+
+; -----------------------------------------------
 ; Section_GetSecPtrXY — Sec ptr lookup by grid coordinates (§4.2).
 ; In:  d2.b = sec_x, d3.b = sec_y, a2 = Act ptr
 ; Out: a0 = Sec ptr; Z clear if found, Z set if out of range (a0 = 0)
@@ -353,10 +379,10 @@ Section_TeleportFwd:
         clr.b   (Section_Preload_Flags).w
 
         ; -- mark new slot 1 section RESIDENT (union blobs = art already in VRAM) --
-        moveq   #0, d6
-        move.b  (Slot_Section_Map+2).w, d6         ; slot 1 flat section_id
+        moveq   #SLOT_RIGHT, d0
+        bsr.w   Section_SlotFlatID                 ; d0 = slot 1 flat section_id
         lea     (Section_Stream_State).w, a1
-        move.b  #SS_RESIDENT, (a1, d6.w)
+        move.b  #SS_RESIDENT, (a1, d0.w)
         ; -- §4.2: mark plane dirty for next-frame full atomic redraw.
         ;    Section_UpdateColumns picks this up and calls Section_RedrawPlanes,
         ;    rewriting both planes' nametables in one pass (matches sonic_hack
@@ -430,10 +456,10 @@ Section_TeleportBwd:
         clr.b   (Section_Preload_Flags).w
 
         ; -- mark new slot 0 section RESIDENT (union blobs = art already in VRAM) --
-        moveq   #0, d6
-        move.b  (Slot_Section_Map).w, d6           ; slot 0 flat section_id
+        moveq   #SLOT_LEFT, d0
+        bsr.w   Section_SlotFlatID                 ; d0 = slot 0 flat section_id
         lea     (Section_Stream_State).w, a1
-        move.b  #SS_RESIDENT, (a1, d6.w)
+        move.b  #SS_RESIDENT, (a1, d0.w)
         ; -- §4.2: mark plane dirty for next-frame full atomic redraw.
         ;    See Section_TeleportFwd's equivalent comment.
         st      (Section_Plane_Dirty).w

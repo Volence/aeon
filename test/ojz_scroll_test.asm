@@ -104,18 +104,17 @@ GameState_OJZScroll_Init:
         startZ80
 
         ; -- §4.6 parallax init: pull start section's parallax_config --
-        lea     OJZ_Act1_Descriptor, a0
-        movea.l Act_sec_grid_ptr(a0), a1        ; a1 = sec table base
-        moveq   #0, d0
-        move.b  Act_start_sec_x(a0), d0         ; flat section_id (sec_y=0 for OJZ)
-        move.w  d0, d1
-        lsl.w   #6, d0                          ; sec_id × 64
-        lsl.w   #3, d1                          ; sec_id × 8
-        add.w   d1, d0                          ; sec_id × 72 = Sec_len
-        adda.w  d0, a1                          ; a1 = start section ptr
-        movea.l Sec_sec_parallax_config(a1), a0 ; a0 = parallax_config* (NULL = act default)
+        ; Section_GetSecPtrXY handles the full grid math (sec_y included);
+        ; runs after Section_Init so Current_Act_Ptr is valid.
+        lea     OJZ_Act1_Descriptor, a2
+        move.b  Act_start_sec_x(a2), d2
+        move.b  Act_start_sec_y(a2), d3
+        jsr     Section_GetSecPtrXY             ; a0 = start Sec ptr (Z set = none)
+        beq.s   .init_use_act_config
+        movea.l Sec_sec_parallax_config(a0), a0 ; a0 = parallax_config* (NULL = act default)
         cmpa.w  #0, a0
         bne.s   .init_have_config
+.init_use_act_config:
         movea.l (Current_Act_Ptr).w, a0
         movea.l Act_act_parallax_config(a0), a0
 .init_have_config:

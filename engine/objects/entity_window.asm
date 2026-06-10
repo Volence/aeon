@@ -299,9 +299,9 @@ EntityWindow_Init:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef      ; a0 = Sec ptr
         movea.l a0, a4                  ; save Sec ptr
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d1
-        move.b  (a0), d1               ; d1.b = section_id
+        moveq   #SLOT_LEFT, d0
+        bsr.w   Section_SlotFlatID      ; d0.w = flat section_id (sec_y*grid_w+sec_x)
+        move.w  d0, d1                  ; d1.b = section_id
         movea.l a4, a0                  ; restore Sec ptr
         move.w  #SLOT_ORIGIN_L, d0     ; origin X
         lea     (a3), a1               ; scan state entry
@@ -318,9 +318,9 @@ EntityWindow_Init:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef
         movea.l a0, a4
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d1
-        move.b  2(a0), d1              ; slot 1 section_id
+        moveq   #SLOT_RIGHT, d0
+        bsr.w   Section_SlotFlatID      ; d0.w = flat section_id
+        move.w  d0, d1
         movea.l a4, a0
         move.w  #SLOT_ORIGIN_R, d0
         lea     (a3), a1
@@ -333,10 +333,9 @@ EntityWindow_Init:
 
         move.b  d7, (Entity_Window_Active).w
 
-        ; Set center section for collected bitmask window
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d0
-        move.b  (a0), d0               ; use slot 0 as center
+        ; Set center section for collected bitmask window (slot 0 flat id)
+        moveq   #SLOT_LEFT, d0
+        bsr.w   Section_SlotFlatID
         movea.l (Current_Act_Ptr).w, a2
         moveq   #0, d1
         move.b  Act_grid_w+1(a2), d1
@@ -879,9 +878,9 @@ EntityWindow_RebuildScanState:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef
         movea.l a0, a4
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d1
-        move.b  (a0), d1
+        moveq   #SLOT_LEFT, d0
+        bsr.w   Section_SlotFlatID      ; d0.w = flat section_id
+        move.w  d0, d1
         movea.l a4, a0
         move.w  #SLOT_ORIGIN_L, d0
         lea     (a3), a1
@@ -898,9 +897,9 @@ EntityWindow_RebuildScanState:
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef
         movea.l a0, a4
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d1
-        move.b  2(a0), d1
+        moveq   #SLOT_RIGHT, d0
+        bsr.w   Section_SlotFlatID      ; d0.w = flat section_id
+        move.w  d0, d1
         movea.l a4, a0
         move.w  #SLOT_ORIGIN_R, d0
         lea     (a3), a1
@@ -914,10 +913,9 @@ EntityWindow_RebuildScanState:
 
         move.b  d7, (Entity_Window_Active).w
 
-        ; Update collected bitmask center
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d0
-        move.b  (a0), d0
+        ; Update collected bitmask center (slot 0 flat id)
+        moveq   #SLOT_LEFT, d0
+        bsr.w   Section_SlotFlatID
         movea.l (Current_Act_Ptr).w, a2
         moveq   #0, d1
         move.b  Act_grid_w+1(a2), d1

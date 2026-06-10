@@ -83,27 +83,39 @@ Level_LoadArt:
         move.l  a4, -(sp)                           ; save caller's a4
         movea.l a0, a4                              ; a4 = act ptr
 
-        ; -- slot 0 = Act_start_sec_x --
+        ; -- flat start id = start_sec_y * grid_w + start_sec_x.
+        ;    Computed from the act descriptor (NOT Section_SlotFlatID):
+        ;    this runs before Section_Init, so Current_Act_Ptr and
+        ;    Slot_Section_Map are not valid yet. --
         moveq   #0, d6
-        move.b  Act_start_sec_x(a4), d6             ; flat section_id (sec_y=0 for OJZ)
-        bsr.w   .compute_sec_ptr                    ; a0 = Sec ptr
-        bsr.w   Section_LoadArt                     ; clobbers a0; a4 preserved
+        move.b  Act_start_sec_y(a4), d6
+        beq.s   .flat_add_x
+        move.w  d6, d0
         moveq   #0, d6
-        move.b  Act_start_sec_x(a4), d6
+        subq.w  #1, d0
+.flat_mul:
+        add.w   Act_grid_w(a4), d6
+        dbf     d0, .flat_mul
+.flat_add_x:
+        moveq   #0, d0
+        move.b  Act_start_sec_x(a4), d0
+        add.w   d0, d6                              ; d6 = flat start section_id
+
+        ; -- slot 0 = start section --
+        bsr.w   .compute_sec_ptr                    ; a0 = Sec ptr (from d6)
+        bsr.w   Section_LoadArt                     ; clobbers a0/d0-d4; d6/a4 preserved
         lea     (Section_Stream_State).w, a1
         move.b  #SS_RESIDENT, (a1, d6.w)
 
-        ; -- slot 1 = Act_start_sec_x + 1 (skip if at grid edge) --
-        moveq   #0, d6
-        move.b  Act_start_sec_x(a4), d6
-        addq.b  #1, d6
-        cmp.b   Act_grid_w+1(a4), d6
+        ; -- slot 1 = start + 1, same row (skip if at grid edge) --
+        moveq   #0, d0
+        move.b  Act_start_sec_x(a4), d0
+        addq.b  #1, d0
+        cmp.b   Act_grid_w+1(a4), d0
         bge.s   .skip_slot1
+        addq.w  #1, d6                              ; right neighbor = flat id + 1
         bsr.w   .compute_sec_ptr                    ; a0 = Sec ptr
         bsr.w   Section_LoadArt
-        moveq   #0, d6
-        move.b  Act_start_sec_x(a4), d6
-        addq.b  #1, d6
         lea     (Section_Stream_State).w, a1
         move.b  #SS_RESIDENT, (a1, d6.w)
 
