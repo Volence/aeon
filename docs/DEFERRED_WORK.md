@@ -195,6 +195,21 @@ These items were identified during §3 Phase 0 research but require a full SST f
 
 ## From §4 Phase 1 — Level/World System
 
+### Path-B collision content — wire the secondary index through the strip generator (§4.7)
+**Surfaced during:** objects-formats-v2 T7 (2026-06-10).
+**What:** Dual-layer collision SHIPPED format-wise (768-byte blocks, two cache planes,
+SST_layer select) but layer B is a byte-copy of layer A. The real data exists:
+`sonic_hack/collision/OJZ secondary 16x16 collision index.bin` (138 bytes, 122 differ
+from primary) — but `tools/ojz_strip_gen.py` derives collision from a VDP-priority-bit
+placeholder, not the index files, so wiring block-ID → secondary index → real path-B
+bytes is level-pipeline work. Also needed then: path-swapper objects that write SST_layer.
+**RAM note:** lower RAM slack is now 910 bytes ($FFFF7C72 → $FFFF8000). One more
+BLOCK_STAGE_SLOTS (+768) fits; nothing ≥1KB does without evicting something.
+**When to revisit:** when the level pipeline replaces the priority-bit collision
+placeholder with real collision data, or when the first loop is authored.
+
+
+
 ### ~~Tile cache vertical slide is a memmove — circular row origin (§4.7)~~ — DONE 2026-06-10
 **Completed:** `Cache_Origin_Row` circular index shipped same day the lag was
 observed live (debug-fly turbo descent = up to 3 memmoves/frame ≈ 260k cycles).

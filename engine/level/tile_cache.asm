@@ -92,9 +92,9 @@ Tile_Cache_GetCollision:
         add.w   d0, d1
         ; layer plane select: layer B shifts byte index into the second plane
         tst.b   d3
-        beq.s   .layer_a
+        beq.s   .plane_selected
         addi.w  #TILE_CACHE_COLL_SIZE, d1      ; plane B starts at +TILE_CACHE_COLL_SIZE
-.layer_a:
+.plane_selected:
         lea     (Tile_Cache_Collision).l, a0
         move.b  (a0, d1.w), d0
         rts
@@ -311,46 +311,25 @@ TileCache_CopyBlockColumn:
 
         lsr.w   #1, d3                         ; d3 = collision rows to copy (tile rows / 2)
         lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a3 ; plane A row-wrap sentinel
-        move.w  d3, d2                         ; save count for plane B (d2 no longer needed as phys_row)
         subq.w  #1, d3
-        bmi.s   .done_coll_a
-.copy_coll_a:
-        move.b  (a0), (a2)
+        bmi.s   .done_coll
+        ; Both planes copied in ONE loop: the fixed displacements reach
+        ; plane B from the plane-A cursors (source +BLOCK_COLL_PLANE_SIZE,
+        ; dest +TILE_CACHE_COLL_SIZE). Plane B's wrap is free — when a2
+        ; wraps within plane A by subtracting TILE_CACHE_COLL_SIZE, the
+        ; +TILE_CACHE_COLL_SIZE displacement still lands on the correct
+        ; plane B row. (T7 review: ~70% cheaper than a second loop.)
+.copy_coll:
+        move.b  (a0), (a2)                                       ; plane A
+        move.b  BLOCK_COLL_PLANE_SIZE(a0), TILE_CACHE_COLL_SIZE(a2) ; plane B
         lea     BLOCK_TILE_SIZE(a0), a0        ; next collision row in block (16 bytes)
         lea     TILE_CACHE_STRIDE(a2), a2      ; next collision row in cache (80 bytes)
         cmpa.l  a3, a2
-        blo.s   .coll_a_nowrap
+        blo.s   .coll_nowrap
         suba.w  #TILE_CACHE_COLL_SIZE, a2      ; wrap within plane A (row 29 → 0)
-.coll_a_nowrap:
-        dbf     d3, .copy_coll_a
-.done_coll_a:
-
-        ; collision plane B: src = slot base + BLOCK_NT_SIZE + BLOCK_COLL_PLANE_SIZE
-        ;                          + (src_row/2)*16 + col  (same intra offsets as plane A)
-        lea     BLOCK_NT_SIZE+BLOCK_COLL_PLANE_SIZE(a1), a0
-        move.w  d4, d3
-        lsl.w   #3, d3                         ; (src_row/2) * 16 = src_row * 8
-        adda.w  d3, a0
-        adda.w  d0, a0                         ; + col
-
-        ; dest plane B: Tile_Cache_Collision + TILE_CACHE_COLL_SIZE + same byte offset as plane A
-        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a2
-        adda.w  d5, a2                         ; d5 = dest byte offset (coll_row*80 + cache_col)
-        ; plane B sentinel: wrap within plane B only (subtract per-plane size, not total)
-        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE*2).l, a3
-        move.w  d2, d3                         ; restore count from d2
-        subq.w  #1, d3
-        bmi.s   .done_coll_b
-.copy_coll_b:
-        move.b  (a0), (a2)
-        lea     BLOCK_TILE_SIZE(a0), a0        ; next collision row in block (16 bytes)
-        lea     TILE_CACHE_STRIDE(a2), a2      ; next collision row in cache (80 bytes)
-        cmpa.l  a3, a2
-        blo.s   .coll_b_nowrap
-        suba.w  #TILE_CACHE_COLL_SIZE, a2      ; wrap within plane B (plane B row 29 → plane B row 0)
-.coll_b_nowrap:
-        dbf     d3, .copy_coll_b
-.done_coll_b:
+.coll_nowrap:
+        dbf     d3, .copy_coll
+.done_coll:
         rts
 
 ; -----------------------------------------------

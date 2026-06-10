@@ -24,8 +24,8 @@ Raw block layout (768 bytes = BLOCK_RAW_SIZE):
 Strip binary layout consumed here (STRIP_BYTE_SIZE bytes per column):
   Bytes 0 .. STRIP_NT_BYTES-1                 : nametable words (big-endian)
   Bytes STRIP_NT_BYTES .. +STRIP_COLL_ROWS-1  : collision plane A bytes
-  Bytes +STRIP_COLL_ROWS .. +2*COLL_ROWS-1   : collision plane B bytes
-  Bytes +2*COLL_ROWS .. end                   : padding
+  Bytes +STRIP_COLL_ROWS .. +2*STRIP_COLL_ROWS-1 : collision plane B bytes
+  Bytes +2*STRIP_COLL_ROWS .. end             : padding
 """
 
 import struct

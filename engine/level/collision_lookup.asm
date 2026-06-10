@@ -1,6 +1,11 @@
 ; Collision lookup system (§4.7)
 ; Reads collision type from 2D tile cache, then indexes
 ; into height map profiles and angle table for surface detection.
+;
+; REGISTER CONVENTION (all sensor entry points): d3.b = collision layer
+; (0 = path A, 1 = path B — read from the querying object's SST_layer).
+; Saved X/Y live in d4/d5. Set d3 before EVERY call — it is not
+; preserved by contract. New sensor wrappers (§5) must follow this.
 
 ; -----------------------------------------------
 ; Collision_GetType — look up collision type for an engine-space position
