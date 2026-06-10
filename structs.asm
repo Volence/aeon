@@ -104,8 +104,8 @@ SST endstruct
         if SST_sst_custom <> $2E
           error "SST template/metadata block moved — sst_custom expected at $2E, got \{SST_sst_custom}"
         endif
-        if SST_len-SST_sst_custom <> 34
-          error "sst_custom size changed — expected 34 bytes, got \{SST_len-SST_sst_custom}"
+        if SST_len-SST_sst_custom <> SST_CUSTOM_SIZE
+          error "sst_custom size out of sync with SST_CUSTOM_SIZE — got \{SST_len-SST_sst_custom}"
         endif
 
 ; -----------------------------------------------
