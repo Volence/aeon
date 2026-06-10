@@ -164,6 +164,9 @@ RF_YFLIP                = 2         ; vertical flip
 RF_COORDMODE            = 3         ; 0 = world coords, 1 = screen coords
 RF_MULTISPRITE          = 4         ; (parent only) batch render via sibling-chain walk
 RF_PRIORITY_SHIFT       = 5         ; bits 5-7 = sprite priority band (0-7)
+RF_PRIORITY_MASK        = $E0       ; runtime priority changes must clear these bits first —
+                                    ; ori.b alone accumulates stale bits (spawn-time ori is
+                                    ; safe: slots are zeroed by DeleteObject/InitObjectRAM)
 
 ; status byte bits (SST_status)
 ; Bits 1-2 aligned with RF_XFLIP/RF_YFLIP for direct propagation.
@@ -365,7 +368,7 @@ COLLECTED_EMPTY_TAG     = $FF           ; slot not owned by any section
 ; Object type tables (read from ROM, no RAM copy)
 MAX_OBJECT_TYPES        = 32
 
-; Slot tag — now a named SST field (SST_slot_tag); identifies which section spawned an object
+; Slot tag — stored in SST_slot_tag; identifies which section spawned an object
 SLOT_TAG_UNTAGGED       = $FF
 SLOT_TAG_LEFT           = 0
 SLOT_TAG_RIGHT          = 1

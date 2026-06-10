@@ -53,7 +53,7 @@ Draw_Sprite:
         beq.s   .no_parent
         movea.w d0, a1
         btst    #RF_MULTISPRITE, SST_render_flags(a1)
-        bne.w   .offscreen              ; parent batches — clear ONSCREEN, don't register
+        bne.s   .offscreen              ; parent batches — clear ONSCREEN, don't register
 .no_parent:
 
         ; Check if object has mappings — skip if null
@@ -85,11 +85,12 @@ Draw_Sprite:
         ; --- Object is on-screen ---
         bset    #RF_ONSCREEN, SST_render_flags(a0)
 
-        ; Get priority band index from render_flags bits 5-7
+        ; Get priority band index from render_flags bits 5-7.
+        ; lsr discards bits 0-4 — no mask needed, and 3 bits can't
+        ; exceed PRIORITY_BANDS-1 by construction.
         moveq   #0, d0
         move.b  SST_render_flags(a0), d0
-        rol.b   #3, d0                 ; priority bits 5-7 → 0-2
-        andi.w  #PRIORITY_BANDS-1, d0
+        lsr.b   #RF_PRIORITY_SHIFT, d0
 
         ; Check band overflow — cascade to lower bands if full
         lea     (Sprite_Band_Counts).w, a1

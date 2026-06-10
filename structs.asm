@@ -107,6 +107,12 @@ SST endstruct
         if SST_len-SST_sst_custom <> SST_CUSTOM_SIZE
           error "sst_custom size out of sync with SST_CUSTOM_SIZE — got \{SST_len-SST_sst_custom}"
         endif
+        if SST_x_vel <> SST_TEMPLATE_START
+          error "template block start moved — got \{SST_x_vel}"
+        endif
+        if SST_anim_timer-SST_x_vel <> SST_TEMPLATE_SIZE
+          error "template copy size out of sync — got \{SST_anim_timer-SST_x_vel}"
+        endif
 
 ; -----------------------------------------------
 ; StreamState — S4LZ streaming decompressor bookmark (§4.7)

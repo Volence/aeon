@@ -56,7 +56,7 @@ $2E sst_custom   34 bytes ($2E-$4F)
 
 Deleted outright: `priority.w` ($16), `respawn_index.b` ($25), `wait_timer.w` ($2A), `anim_callback.l` ($2E) — 9 bytes, all verified dead or relocated 2026-06-10.
 
-Render priority access pattern everywhere: `move.b SST_render_flags(a0),d0` + `rol.b #3,d0` + `andi.w #7,d0` (bits 5-7 → 0-2).
+Render priority access pattern everywhere: `moveq #0,d0` + `move.b SST_render_flags(a0),d0` + `lsr.b #RF_PRIORITY_SHIFT,d0` — lsr discards bits 0-4 so no mask is needed, and 3 bits can't exceed `PRIORITY_BANDS-1` by construction (T2 review upgraded this from the original rol+andi; 4 cycles and 4 bytes cheaper). Runtime priority CHANGES must clear `RF_PRIORITY_MASK` first — `ori.b` is spawn-only.
 
 ## Entity entry format v2 (replaces packed 32-bit entries)
 
@@ -230,6 +230,10 @@ Shared layouts (the `_dplc_ptr`/`_art_base` pair in test_player/test_animated) g
 ### Task 4: ObjDef v2 + burst-copy `Load_Object`
 
 **Research first:** S.C.E. `Load Objects.asm` (the commit the user found — flag placement + `rol` trick), Vectorman's object templates (their init blocks are ROM images — closest prior art for burst-copy spawn), and sonic_hack `Object_Load`. Confirm `movem.l` reg-to-mem ordering (d0 first at lowest address) against AS output once during implementation.
+
+**Folded in from the T2 quality review:**
+- Centralize the untagged init: move `move.b #SLOT_TAG_UNTAGGED, SST_slot_tag(a1)` into `AllocDynamic` (core.asm) so the invariant is structural; delete the seven per-site inits T2 added (six in children.asm, one in Load_Object). `AllocEffect` keeps none (effect slots are never despawn-scanned) — delete the two CreateEffect_* inits too.
+- The `objdef` macro must validate `pri`: `if OD_PRI > 7 / fatal "objdef: priority N exceeds 7"` (lsl.b would silently truncate).
 
 **Files:**
 - Modify: `macros.asm` (the `objdef` macro)
