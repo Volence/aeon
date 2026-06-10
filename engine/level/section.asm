@@ -878,7 +878,11 @@ Section_UpdateColumns:
 .right_done:
         move.w  d5, (Section_Right_Col_Written).w
         move.w  d5, d3
-        subi.w  #63, d3
+        subi.w  #63, d3                         ; left = right - 63 (VDP wrap span)
+        cmp.w   (Cache_Left_Col).w, d3          ; clamp to cache: left = max(., Cache_Left_Col)
+        bge.s   .right_done_cache_ok
+        move.w  (Cache_Left_Col).w, d3
+.right_done_cache_ok:
         cmp.w   (Section_Left_Col_Written).w, d3
         ble.s   .left_clamp_skip
         move.w  d3, (Section_Left_Col_Written).w
@@ -936,7 +940,11 @@ Section_UpdateColumns:
 .left_done:
         move.w  d5, (Section_Left_Col_Written).w
         move.w  d5, d3
-        addi.w  #63, d3
+        addi.w  #63, d3                         ; right = left + 63 (VDP wrap span)
+        cmp.w   (Cache_Head_Col).w, d3          ; clamp to cache: right = min(., Cache_Head_Col)
+        ble.s   .left_done_cache_ok
+        move.w  (Cache_Head_Col).w, d3
+.left_done_cache_ok:
         cmp.w   (Section_Right_Col_Written).w, d3
         bge.s   .right_clamp_skip2
         move.w  d3, (Section_Right_Col_Written).w
@@ -984,7 +992,11 @@ Section_UpdateColumns:
 .bot_done:
         move.w  d5, (Section_Bottom_Row_Written).w
         move.w  d5, d3
-        subi.w  #63, d3
+        subi.w  #63, d3                         ; top = bottom - 63 (VDP wrap span)
+        cmp.w   (Cache_Top_Row).w, d3           ; clamp to cache: top = max(., Cache_Top_Row)
+        bge.s   .bot_done_cache_ok
+        move.w  (Cache_Top_Row).w, d3
+.bot_done_cache_ok:
         cmp.w   (Section_Top_Row_Written).w, d3
         ble.s   .top_row_clamp_skip
         move.w  d3, (Section_Top_Row_Written).w
@@ -1026,7 +1038,11 @@ Section_UpdateColumns:
 .top_done:
         move.w  d5, (Section_Top_Row_Written).w
         move.w  d5, d3
-        addi.w  #63, d3
+        addi.w  #63, d3                         ; bottom = top + 63 (VDP wrap span)
+        cmp.w   (Cache_Bottom_Row).w, d3        ; clamp to cache: bottom = min(., Cache_Bottom_Row)
+        ble.s   .top_done_cache_ok
+        move.w  (Cache_Bottom_Row).w, d3
+.top_done_cache_ok:
         cmp.w   (Section_Bottom_Row_Written).w, d3
         bge.s   .bot_row_clamp_skip
         move.w  d3, (Section_Bottom_Row_Written).w

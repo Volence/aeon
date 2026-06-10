@@ -579,7 +579,9 @@ Tile_Cache_Fill:
         cmpi.w  #TILE_CACHE_ROWS-1, d0
         blt.s   .v_no_evict_up
         moveq   #1, d0
+        movem.l d4-d5, -(sp)                   ; VSlideUp clobbers d4/d5; preserve loop target + cursor
         bsr.w   TileCache_VSlideUp
+        movem.l (sp)+, d4-d5
 .v_no_evict_up:
 
         ; decrement Cache_Top_Row BEFORE fill so FillRow sees correct offset
