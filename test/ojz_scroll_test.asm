@@ -164,8 +164,9 @@ GameState_OJZScroll_Update:
         jsr     RingCollision
 
         ; -- build sprite table from priority bands + ring sprites --
+        ; (Render_Sprites manages Sprite_Table_Dirty itself, including
+        ; the zero-sprite terminator case — no forced dirty needed)
         jsr     Render_Sprites
-        move.b  #1, (Sprite_Table_Dirty).w
 
         ; -- Derive active flat section_id (2D-correct) for T14 + T15 --
         ; flat_id = sec_y * grid_w + sec_x, computed once and reused.

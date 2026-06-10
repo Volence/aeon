@@ -360,18 +360,25 @@ Render_Sprites:
 .done:
         ; Fix up last sprite's link to 0 (end of chain)
         tst.w   d5
-        beq.s   .no_sprites               ; nothing rendered
+        beq.s   .empty_table              ; nothing rendered
         move.b  #0, -5(a4)               ; overwrite last sprite's link byte with 0
-
-.no_sprites:
-        ; Store count
         move.w  d5, (Sprites_Rendered).w
-
-        ; If any sprites rendered, mark SAT dirty
-        tst.w   d5
-        beq.s   .skip_dirty
         move.b  #1, (Sprite_Table_Dirty).w
-.skip_dirty:
+        rts
+
+.empty_table:
+        ; Zero sprites this frame. Without an explicit hidden terminator
+        ; at sprite 0, the previous frame's SAT (full link chain) stays
+        ; in VRAM and its sprites freeze on screen. Edge-triggered: only
+        ; written on the had-sprites → none transition.
+        tst.w   (Sprites_Rendered).w
+        beq.s   .still_empty              ; already terminated last frame
+        moveq   #0, d0
+        move.l  d0, (a4)+                ; Y=0, size=0, link=0 (chain ends)
+        move.l  d0, (a4)                 ; tile=0, X=0
+        move.w  d0, (Sprites_Rendered).w
+        move.b  #1, (Sprite_Table_Dirty).w
+.still_empty:
         rts
 
 .band_limit_pop:
