@@ -208,6 +208,19 @@ split), `Draw_TileRow_FromCache`, `Section_RedrawPlanes`.
 **When to revisit:** once gameplay objects + parallax + DMA load share the frame and
 vertical traversal shows lag, or §4 vertical work touches these routines anyway.
 
+### FG H-deform vs streaming seam (left-edge draw lookahead)
+**Surfaced during:** plane-A scroll lock fix 2026-06-10.
+**What:** Plane A is now hard-locked to the camera, but configs that apply an
+**H-deform wave to plane A** (e.g. SkyHaze's bottom-band FG haze on Sec2) still
+displace FG lines by up to the wave amplitude. A leftward wobble pulls plane
+columns left of the camera window into view — those sit at the plane-wrap seam
+and may hold ahead-content, exposing up to wave-amplitude pixels of seam at the
+screen edge. Mitigation: stream a few extra columns of edge lookahead in
+`Section_UpdateColumns` (≥ max FG deform amplitude in tiles) so the seam sits
+beyond any FG wobble.
+**When to revisit:** before shipping any production config with FG H-deform, or
+if Sec2's haze shows edge artifacts during testing.
+
 ### Strip data still emitted by build tool (dead format)
 **Surfaced during:** dead-code removal 2026-06-10 (engine/level/strip_cache.asm deleted —
 it was already out of the build).
