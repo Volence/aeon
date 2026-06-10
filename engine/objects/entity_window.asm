@@ -57,10 +57,11 @@ Collected_FindSlot:
 ; -----------------------------------------------
 Collected_CheckRing:
         movem.l d0-d1, -(sp)
-        bsr.s   Collected_FindSlot
+        bsr.w   Collected_FindSlot
         movem.l (sp)+, d0-d1
         beq.s   .uncollected
 
+        ifdebug assert.w d1, lo, #MAX_LIST_ENTRIES
         move.w  d1, d2
         lsr.w   #3, d2
         btst    d1, COLLECTED_BITMASK_OFFSET(a0, d2.w)
@@ -80,10 +81,11 @@ Collected_CheckRing:
 ; -----------------------------------------------
 Collected_MarkRing:
         move.b  d2, d0
-        bsr.s   Collected_FindSlot
+        bsr.w   Collected_FindSlot
         beq.s   .done
         moveq   #0, d1
         move.b  d3, d1
+        ifdebug assert.w d1, lo, #MAX_LIST_ENTRIES
         move.w  d1, d0
         lsr.w   #3, d0
         bset    d1, COLLECTED_BITMASK_OFFSET(a0, d0.w)
@@ -104,6 +106,7 @@ Killed_CheckObject:
         movem.l (sp)+, d0-d1
         beq.s   .alive
 
+        ifdebug assert.w d1, lo, #MAX_LIST_ENTRIES
         move.w  d1, d2
         lsr.w   #3, d2
         btst    d1, KILLED_BITMASK_OFFSET(a0, d2.w)
@@ -128,6 +131,7 @@ Killed_MarkObject:
         beq.s   .markdone
         moveq   #0, d2
         move.b  d1, d2
+        ifdebug assert.w d2, lo, #MAX_LIST_ENTRIES
         move.w  d2, d0
         lsr.w   #3, d0
         bset    d2, KILLED_BITMASK_OFFSET(a0, d0.w)
@@ -143,7 +147,7 @@ Killed_MarkObject:
 ; Clobbers: d1, a0
 ; -----------------------------------------------
 Collected_ClaimSlot:
-        bsr.s   Collected_FindSlot
+        bsr.w   Collected_FindSlot
         bne.s   .already_owned
 
         lea     (Ring_Collected_Window).w, a0
@@ -172,7 +176,9 @@ Collected_ClaimSlot:
         rts
 
 ; -----------------------------------------------
-; Collected_UpdateCenter — evict slots outside new 3×3 range
+; Collected_UpdateCenter — evict slots outside new 3×3 range (±1 in each axis)
+; Radius ±1 gives a 3×3 = 9-section keep-neighborhood, matching COLLECTED_WINDOW_SLOTS.
+; Increasing the radius beyond ±1 would overflow the 9 available slots.
 ;
 ; In:  d0.b = new center section_id
 ;      d1.b = grid_w
@@ -219,20 +225,20 @@ Collected_UpdateCenter:
 .div_slot_done:
         ; d1 = slot_x, d0 = slot_y
 
-        ; Check |slot_x - center_x| <= 2
+        ; Check |slot_x - center_x| <= 1
         sub.w   d2, d1
         bpl.s   .sx_pos
         neg.w   d1
 .sx_pos:
-        cmpi.w  #2, d1
+        cmpi.w  #1, d1
         bhi.s   .evict
 
-        ; Check |slot_y - center_y| <= 2
+        ; Check |slot_y - center_y| <= 1
         sub.w   d4, d0
         bpl.s   .sy_pos
         neg.w   d0
 .sy_pos:
-        cmpi.w  #2, d0
+        cmpi.w  #1, d0
         bls.s   .slot_next
 
 .evict:

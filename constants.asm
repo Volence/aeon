@@ -250,6 +250,9 @@ PARALLAX_LERP_SHIFT        = 4      ; >>4 ≈ 16-frame convergence to ~95% — g
 REGION1_TILE_CAPACITY   = 1472      ; was 1536; SAT at $B800 takes tiles $5C0-$5FF
 
 ; Per-section streaming (§2 A.4)
+MAX_ACT_SECTIONS        = 48        ; Section_Stream_State capacity; per-act grids must fit
+                                    ; (flat id = sec_y * grid_w + sec_x; build asserts enforce
+                                    ; grid_w * grid_h <= MAX_ACT_SECTIONS)
 STREAMING_BUFFER_SIZE   = 4096
 
 ; Per-section streaming state values (single byte per section)
@@ -344,12 +347,17 @@ ENTITY_DESPAWN_BUFFER   = $200          ; pixels beyond load buffer to despawn (
 SCREEN_WIDTH            = 320           ; visible screen width in pixels
 SCREEN_HEIGHT           = 224           ; visible screen height in pixels
 
-; 5×5 rolling collected bitmask (±2 sections in each axis)
+; 3×3 rolling collected bitmask (±1 section in each axis)
+; Slot count and eviction radius must agree: 3×3 = 9 slots, radius = ±1.
+; Collected_UpdateCenter evicts any slot where |dx|>1 OR |dy|>1.
 COLLECTED_WINDOW_SLOTS  = 9             ; max tracked sections (9 slots)
 COLLECTED_SLOT_SIZE     = 34            ; 1 tag + 1 pad + 16 ring bitmask + 16 killed bitmask
 COLLECTED_BITMASK_OFFSET = 2            ; ring collected bitmask starts 2 bytes into slot
 KILLED_BITMASK_OFFSET   = 18           ; object killed bitmask starts after ring bitmask
 COLLECTED_EMPTY_TAG     = $FF           ; slot not owned by any section
+MAX_LIST_ENTRIES        = 128           ; collected/killed bitmask capacity per section
+                                        ; (16-byte bitmask; index >= 128 corrupts the next
+                                        ; window slot — enforced by debug asserts + T9 objentry macro)
 
 ; Object type tables (read from ROM, no RAM copy)
 MAX_OBJECT_TYPES        = 32
