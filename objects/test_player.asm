@@ -3,20 +3,22 @@
 
 ; Custom SST field offsets (shared layout with TestAnimated)
     ifndef _dplc_ptr
+; MUST stay byte-identical to the guarded copy in the other DPLC user
+; (test_animated.asm / test_player.asm) — only the first include assembles.
 DplcV struct
 dplc_ptr        ds.l 1                  ; DPLC table pointer (ROM)
 art_base        ds.l 1                  ; uncompressed art base (ROM)
 DplcV endstruct
-        objvars_check DplcV_len
+        objvarsCheck DplcV_len
 _dplc_ptr       = SST_sst_custom+DplcV_dplc_ptr
 _art_base       = SST_sst_custom+DplcV_art_base
     endif
-; Player-only layout: reserves shared DPLC prefix, adds debug_flag at +8
+; Player-only layout: reserves the shared DPLC prefix, then debug_flag
 TPlayerV struct
 dplc_pair       ds.b DplcV_len          ; shared DPLC overlay prefix (see DplcV)
 debug_flag      ds.b 1
 TPlayerV endstruct
-        objvars_check TPlayerV_len
+        objvarsCheck TPlayerV_len
 _debug_flag     = SST_sst_custom+TPlayerV_debug_flag
 
 ; -----------------------------------------------

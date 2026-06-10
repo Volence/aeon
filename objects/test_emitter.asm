@@ -4,7 +4,7 @@
 TEmitterV struct
 timer           ds.w 1                  ; countdown to next spawn
 TEmitterV endstruct
-        objvars_check TEmitterV_len
+        objvarsCheck TEmitterV_len
 _emitter_timer          = SST_sst_custom+TEmitterV_timer
 EMITTER_INTERVAL        = 30                    ; frames between spawns
 

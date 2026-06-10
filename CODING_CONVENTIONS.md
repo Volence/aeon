@@ -428,8 +428,9 @@ This applies to any pair of (data, state) that are both consumed mid-scanline. N
 | AS macros | `camelCase` | `stopZ80`, `setVDPReg`, `queueStaticDMA`, `ifdebug` |
 | Enum values | `ALL_CAPS` with prefix | `STATE_IDLE`, `STATE_RUNNING`, `FLAG_ON_SCREEN` |
 | SST custom overlays | `_lowercase_underscored` | `_dplc_ptr`, `_patrol_left`, `_art_base` |
+| Overlay var structs | `<Object>V` PascalCase | `TEnemyV`, `TPlayerV`, `DplcV` (shared) |
 
-SST custom field overlays use a leading underscore to distinguish them from global labels. Defined as `= SST_sst_custom + offset` at the top of the object file that uses them. When multiple objects share the same custom layout, guard definitions with `ifndef` so include order doesn't matter.
+SST custom field overlays use a leading underscore to distinguish them from global labels. Each object defines a `<Object>V` struct for its layout (assembler computes offsets), follows it with `objvarsCheck <Object>V_len` (build-aborts on sst_custom overflow), and derives the underscore accessors from struct fields: `_patrol_left = SST_sst_custom+TEnemyV_patrol_left`. Raw `= SST_sst_custom + N` arithmetic is banned. When multiple objects share the same custom layout, guard the whole block (struct + check + equates) with `ifndef` in EVERY file that uses it so include order doesn't matter.
 
 ### 4.2 Routine Naming
 

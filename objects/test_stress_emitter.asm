@@ -6,7 +6,7 @@ STRESS_EMITTER_INTERVAL = 8
 TStressEmitterV struct
 timer           ds.w 1                  ; countdown to next spawn
 TStressEmitterV endstruct
-        objvars_check TStressEmitterV_len
+        objvarsCheck TStressEmitterV_len
 _stress_timer           = SST_sst_custom+TStressEmitterV_timer
 
 ; -----------------------------------------------

@@ -194,10 +194,10 @@ Every object that wrote `move.w #N, SST_priority(a0)` now sets bits at init: `or
 
 - [ ] **Step 1:** Add to `macros.asm`:
 ```asm
-; objvars_check — assert a per-object custom struct fits sst_custom
+; objvarsCheck — assert a per-object custom struct fits sst_custom
 ; Usage:  MyV struct ... MyV endstruct
-;         objvars_check MyV_len
-objvars_check macro structlen
+;         objvarsCheck MyV_len
+objvarsCheck macro structlen
     if (structlen) > SST_CUSTOM_SIZE
         fatal "object custom vars overflow sst_custom by \{(structlen)-SST_CUSTOM_SIZE} bytes"
     endif
@@ -216,7 +216,7 @@ patrol_left     ds.w 1
 patrol_right    ds.w 1
 direction       ds.b 1
 TEnemyV endstruct
-        objvars_check TEnemyV_len
+        objvarsCheck TEnemyV_len
 _enemy_patrol_left      = SST_sst_custom+TEnemyV_patrol_left
 _enemy_patrol_right     = SST_sst_custom+TEnemyV_patrol_right
 _enemy_direction        = SST_sst_custom+TEnemyV_direction

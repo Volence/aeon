@@ -8,7 +8,7 @@ patrol_left     ds.w 1
 patrol_right    ds.w 1
 direction       ds.b 1
 TEnemyV endstruct
-        objvars_check TEnemyV_len
+        objvarsCheck TEnemyV_len
 _enemy_patrol_left      = SST_sst_custom+TEnemyV_patrol_left
 _enemy_patrol_right     = SST_sst_custom+TEnemyV_patrol_right
 _enemy_direction        = SST_sst_custom+TEnemyV_direction

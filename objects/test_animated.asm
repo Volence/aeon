@@ -2,11 +2,13 @@
 
 ; Custom SST field offsets (inside sst_custom — shared layout with TestPlayer)
     ifndef _dplc_ptr
+; MUST stay byte-identical to the guarded copy in the other DPLC user
+; (test_animated.asm / test_player.asm) — only the first include assembles.
 DplcV struct
 dplc_ptr        ds.l 1                  ; DPLC table pointer (ROM)
 art_base        ds.l 1                  ; uncompressed art base (ROM)
 DplcV endstruct
-        objvars_check DplcV_len
+        objvarsCheck DplcV_len
 _dplc_ptr       = SST_sst_custom+DplcV_dplc_ptr
 _art_base       = SST_sst_custom+DplcV_art_base
     endif
