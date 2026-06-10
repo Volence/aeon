@@ -513,6 +513,13 @@ EntityWindow_PopulateSectionRings:
 ; -----------------------------------------------
 ; EntityWindow_ScanObjectsRight — load objects entering right edge
 ;
+; Entry format (v2): 6 bytes — dc.w x, y, flags|type|subtype
+;   +0 dc.w  section-local X
+;   +2 dc.w  section-local Y   (engine Y for current 1-row window — §4.9 X-only)
+;   +4 dc.w  flags|type|subtype  (OEF_* bits; flows to Load_Object in d2)
+; Terminated by dc.w -1 (X is section-local, always >= 0 → bmi fires on sentinel).
+; List is X-sorted; bhi exits as soon as X exceeds load edge.
+;
 ; In:  a1 = EntityScanState pointer
 ;      d6.b = slot tag (SLOT_TAG_LEFT or SLOT_TAG_RIGHT)
 ;      d7.w = right edge (Camera_X + SCREEN_WIDTH + ENTITY_LOAD_BUFFER)
@@ -527,20 +534,16 @@ EntityWindow_ScanObjectsRight:
         move.w  EntityScanState_ess_obj_right_idx(a1), d4
         move.w  EntityScanState_ess_origin_x(a1), d3
 
-        ; Advance a0 to current index (4 bytes per ROM entry)
+        ; Advance a0 to current index: d4 × 6 via ×2, ×3, ×6
         move.w  d4, d0
-        lsl.w   #2, d0
+        add.w   d0, d0                  ; d0 = d4 × 2
+        add.w   d4, d0                  ; d0 = d4 × 3
+        add.w   d0, d0                  ; d0 = d4 × 6
         adda.w  d0, a0
 
 .obj_loop:
-        move.l  (a0), d2
-        beq.s   .obj_update_idx         ; terminator
-
-        ; Extract section-local X (bits 29-20)
-        move.l  d2, d0
-        swap    d0
-        lsr.w   #4, d0
-        andi.w  #$3FF, d0               ; 10-bit X
+        move.w  (a0), d0                ; section-local X (or $FFFF sentinel)
+        bmi.s   .obj_update_idx         ; bmi fires on -1 terminator
 
         ; Engine-space X
         add.w   d3, d0
@@ -550,12 +553,12 @@ EntityWindow_ScanObjectsRight:
         bhi.s   .obj_update_idx
 
         ; Check if object was killed in previous visit
-        movem.l d0/d2/a0, -(sp)
+        movem.l d0/a0, -(sp)
         move.b  EntityScanState_ess_section_id(a1), d0
         moveq   #0, d1
         move.w  d4, d1
         bsr.w   Killed_CheckObject
-        movem.l (sp)+, d0/d2/a0
+        movem.l (sp)+, d0/a0
         bne.s   .obj_skip
 
         ; Spawn this object (d5 stashes section_id; a3 saved: Load_Object clobbers it; d4-d7 preserved by Load_Object)
@@ -564,24 +567,18 @@ EntityWindow_ScanObjectsRight:
         moveq   #0, d5
         move.b  EntityScanState_ess_section_id(a1), d5
 
-        ; d0.w = engine X (from extraction above)
-        ; Extract Y (bits 19-10) — shift >8 needs two steps on 68000
-        move.l  (a0), d1
-        lsr.l   #8, d1
-        lsr.l   #2, d1
-        andi.w  #$3FF, d1               ; 10-bit Y
+        ; d0.w = engine X (already computed above)
+        move.w  2(a0), d1               ; section-local Y (engine Y for 1-row window)
+        move.w  4(a0), d2               ; full placement word — Load_Object reads flips from bits 13-14
 
-        ; Extract type index (bits 9-5) and look up ObjDef
-        move.l  (a0), d3
-        lsr.w   #OBJ_ENTRY_TYPE_SHIFT, d3
-        andi.w  #$1F, d3                ; 5-bit type index
+        ; Type extraction: bits 12-8 → d3, then type-table lookup
+        move.w  4(a0), d3
+        lsr.w   #OEF_TYPE_SHIFT, d3
+        andi.w  #OEF_TYPE_MASK, d3
         movea.l EntityScanState_ess_rom_type_tbl_ptr(a1), a2
         lsl.w   #2, d3                  ; type × 4 (longword)
         addq.w  #2, d3                  ; skip count+pad header
         movea.l (a2, d3.w), a1          ; a1 = ObjDef pointer
-
-        ; Extract subtype (bits 4-0) into d2.w; word mask — bits 13-14 must be clear (v2 Load_Object reads them as flips)
-        andi.w  #OBJ_ENTRY_SUBTYPE_MASK, d2
 
         jsr     Load_Object
         bne.s   .obj_spawn_fail
@@ -597,7 +594,7 @@ EntityWindow_ScanObjectsRight:
 
 .obj_skip:
         addq.w  #1, d4
-        addq.w  #4, a0
+        adda.w  #OBJ_ENTRY_SIZE, a0
         bra.s   .obj_loop
 
 .obj_update_idx:

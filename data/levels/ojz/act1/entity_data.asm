@@ -10,14 +10,13 @@ OJZ_Sec0_TypeTable:
         dc.l    ObjDef_Solid            ; type 1 — solid block
 
 ; -----------------------------------------------
-; Sec0 Object Layout
-;   [2-bit reserved][10-bit X][10-bit Y][5-bit type][5-bit subtype]
-;   X-sorted ascending. Terminated by dc.l 0
+; Sec0 Object Layout — v2 format: dc.w x, y, flags|type|subtype
+; X-sorted ascending. Terminated by dc.w -1.
 ; -----------------------------------------------
 OJZ_Sec0_Objects:
         ; Solid block at section-local X=$200, Y=$0B0 (type 1, subtype 0)
-        dc.l    ($200<<OBJ_ENTRY_X_SHIFT)|($0B0<<OBJ_ENTRY_Y_SHIFT)|(1<<OBJ_ENTRY_TYPE_SHIFT)|0
-        dc.l    0                       ; terminator
+        dc.w    $200, $0B0, (1<<OEF_TYPE_SHIFT)|0
+        dc.w    -1                      ; terminator
 
 ; -----------------------------------------------
 ; Sec0 Ring Layout — flat X-sorted (dc.w X, dc.w Y per ring)
@@ -46,8 +45,8 @@ OJZ_Sec1_TypeTable:
 ; -----------------------------------------------
 OJZ_Sec1_Objects:
         ; Solid block at X=$100, Y=$0B0 (type 0, subtype 0)
-        dc.l    ($100<<OBJ_ENTRY_X_SHIFT)|($0B0<<OBJ_ENTRY_Y_SHIFT)|(0<<OBJ_ENTRY_TYPE_SHIFT)|0
-        dc.l    0                       ; terminator
+        dc.w    $100, $0B0, (0<<OEF_TYPE_SHIFT)|0
+        dc.w    -1                      ; terminator
 
 ; -----------------------------------------------
 ; Sec1 Ring Layout — flat X-sorted
@@ -75,10 +74,12 @@ OJZ_Sec2_TypeTable:
 ; -----------------------------------------------
 OJZ_Sec2_Objects:
         ; Solid block at X=$100, Y=$0B0 (type 1)
-        dc.l    ($100<<OBJ_ENTRY_X_SHIFT)|($0B0<<OBJ_ENTRY_Y_SHIFT)|(1<<OBJ_ENTRY_TYPE_SHIFT)|0
+        dc.w    $100, $0B0, (1<<OEF_TYPE_SHIFT)|0
         ; Static object at X=$300, Y=$060 (type 0)
-        dc.l    ($300<<OBJ_ENTRY_X_SHIFT)|($060<<OBJ_ENTRY_Y_SHIFT)|(0<<OBJ_ENTRY_TYPE_SHIFT)|0
-        dc.l    0                       ; terminator
+        dc.w    $300, $060, (0<<OEF_TYPE_SHIFT)|0
+        ; Regression object at X=$600, Y=$0B0 — right-half address inexpressible in old 10-bit format (type 0)
+        dc.w    $600, $0B0, (0<<OEF_TYPE_SHIFT)|0
+        dc.w    -1                      ; terminator
 
 ; -----------------------------------------------
 ; Sec2 Ring Layout — flat X-sorted
@@ -101,41 +102,41 @@ OJZ_Sec2_Rings:
 OJZ_Sec3_TypeTable:
         dc.b    0, 0
 OJZ_Sec3_Objects:
-        dc.l    0
+        dc.w    -1
 OJZ_Sec3_Rings:
         dc.l    0
 
 OJZ_Sec4_TypeTable:
         dc.b    0, 0
 OJZ_Sec4_Objects:
-        dc.l    0
+        dc.w    -1
 OJZ_Sec4_Rings:
         dc.l    0
 
 OJZ_Sec5_TypeTable:
         dc.b    0, 0
 OJZ_Sec5_Objects:
-        dc.l    0
+        dc.w    -1
 OJZ_Sec5_Rings:
         dc.l    0
 
 OJZ_Sec6_TypeTable:
         dc.b    0, 0
 OJZ_Sec6_Objects:
-        dc.l    0
+        dc.w    -1
 OJZ_Sec6_Rings:
         dc.l    0
 
 OJZ_Sec7_TypeTable:
         dc.b    0, 0
 OJZ_Sec7_Objects:
-        dc.l    0
+        dc.w    -1
 OJZ_Sec7_Rings:
         dc.l    0
 
 OJZ_Sec8_TypeTable:
         dc.b    0, 0
 OJZ_Sec8_Objects:
-        dc.l    0
+        dc.w    -1
 OJZ_Sec8_Rings:
         dc.l    0

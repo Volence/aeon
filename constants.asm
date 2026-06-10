@@ -361,11 +361,15 @@ SLOT_TAG_RIGHT          = 1
 SLOT_TAG_UP             = 2
 SLOT_TAG_DOWN           = 3
 
-; Object layout encoding (ROM format, 32-bit entries)
-OBJ_ENTRY_X_SHIFT       = 20           ; bits 29-20
-OBJ_ENTRY_Y_SHIFT       = 10           ; bits 19-10
-OBJ_ENTRY_TYPE_SHIFT    = 5            ; bits 9-5
-OBJ_ENTRY_SUBTYPE_MASK  = $1F          ; bits 4-0
+; Object placement entry (ROM, 6 bytes): dc.w x, y, flags|type|subtype
+; X-sorted ascending; terminated by dc.w -1 (X is section-local, never negative)
+OEF_ANY_Y               = 15            ; spawn regardless of camera Y (§4.9 phase 2)
+OEF_YFLIP               = 14            ; rol.w #4 in Load_Object → RF_YFLIP
+OEF_XFLIP               = 13            ; rol.w #4 in Load_Object → RF_XFLIP
+OEF_TYPE_SHIFT          = 8             ; bits 12-8: type (0-31)
+OEF_TYPE_MASK           = $1F
+OEF_SUBTYPE_MASK        = $FF           ; bits 7-0
+OBJ_ENTRY_SIZE          = 6
 
 ; -----------------------------------------------
 ; Test VRAM allocation

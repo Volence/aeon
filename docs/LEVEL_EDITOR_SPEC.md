@@ -411,21 +411,30 @@ ParallaxConfig_MyScene:
 
 ### 8.1 Object placement (ROM)
 
-Each entry is a 32-bit longword, X-sorted ascending, terminated by `dc.l 0`:
+Each entry is **6 bytes**, X-sorted ascending, terminated by `dc.w -1` (section-local X is always ≥ 0, so a negative first word is unambiguous as the sentinel):
 
 ```
-Bits 29-20: Section-local X (10 bits, 0–1023)
-Bits 19-10: Section-local Y (10 bits, 0–1023)
-Bits  9-5:  Type index into section's type table (5 bits, 0–31)
-Bits  4-0:  Subtype (5 bits, 0–31)
-Bits 31-30: Reserved (0)
++0  dc.w x          ; section-local X (full 16-bit, 0–$7FF for 2048px section)
++2  dc.w y          ; section-local Y (full 16-bit, 0–$7FF)
++4  dc.w flags|type|subtype
+      bit 15    = OEF_ANY_Y   (spawn regardless of camera Y — §4.9 phase 2; ignored by engine until implemented)
+      bit 14    = OEF_YFLIP   (Y-flip; rol.w #4 in Load_Object maps to RF_YFLIP)
+      bit 13    = OEF_XFLIP   (X-flip; rol.w #4 in Load_Object maps to RF_XFLIP)
+      bits 12-8 = type index into section's type table (0–31)
+      bits 7-0  = subtype (0–255)
 ```
 
 ```asm
 OJZ_Sec0_Objects:
-    dc.l ($200<<20)|($0B0<<10)|(1<<5)|0   ; X=$200, Y=$0B0, type 1, subtype 0
-    dc.l 0                                 ; terminator
+    dc.w $200, $0B0, (1<<OEF_TYPE_SHIFT)|0   ; X=$200, Y=$0B0, type 1, subtype 0
+    dc.w -1                                   ; terminator
 ```
+
+**Exporter hard-fail requirements:**
+- x and y must be within section bounds (0–$7FF); error if outside.
+- type index must be < 32 (5 bits); error if outside.
+- subtype must be < 256 (8 bits); error if outside.
+- Lists must be emitted X-sorted ascending.
 
 ### 8.2 Type table (ROM)
 
