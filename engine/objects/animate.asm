@@ -17,7 +17,8 @@
 ;   $FB (AF_DELETE)  — delete the object
 ;
 ; Animation events (inline, transparent to frame counter):
-;   $FA (AF_CALLBACK)  — call pointer in SST_anim_callback; format: dc.b $FA, 0
+;   $FA (AF_CALLBACK)  — call routine; format: dc.b $FA, target_hi, target_lo, 0
+;                        (objroutine offset stored big-endian as two BYTES — scripts are unaligned)
 ;   $F9 (AF_SOUND)     — play sound effect; format: dc.b $F9, sound_id
 ;   $F8 (AF_COLLISION) — set collision type; format: dc.b $F8, collision_type
 ;   $F7 (AF_SET_FIELD) — set SST byte; format: dc.b $F7, sst_offset, value, 0
@@ -142,15 +143,22 @@ AnimateSprite:
 ; --- Animation event handlers ---
 
 .evt_callback:
-        ; dc.b AF_CALLBACK, 0
-        move.l  SST_anim_callback(a0), d0
-        beq.s   .evt_cb_done
+        ; dc.b AF_CALLBACK, target_hi, target_lo, 0  (objroutine offset, byte pair)
+        ; a0 = SST pointer passed to called routine
+        moveq   #0, d0
+        move.b  2(a1,d1.w), d0
+        lsl.w   #8, d0
+        move.b  3(a1,d1.w), d0
+        beq.s   .evt_cb_done            ; offset 0 = no-op safety
+        moveq   #OBJ_CODE_BANK, d2
+        swap    d2
+        move.w  d0, d2
         move.l  a1, -(sp)
-        movea.l d0, a2
+        movea.l d2, a2
         jsr     (a2)
         movea.l (sp)+, a1
 .evt_cb_done:
-        addq.b  #2, SST_anim_frame(a0)
+        addq.b  #4, SST_anim_frame(a0)
         bra.s   .after_event
 
 .evt_sound:
@@ -290,15 +298,22 @@ AnimateSprite_PerFrame:
 ; --- PerFrame animation event handlers ---
 
 .pf_evt_callback:
-        ; dc.b AF_CALLBACK, 0
-        move.l  SST_anim_callback(a0), d0
-        beq.s   .pf_evt_cb_done
+        ; dc.b AF_CALLBACK, target_hi, target_lo, 0  (objroutine offset, byte pair)
+        ; a0 = SST pointer passed to called routine
+        moveq   #0, d0
+        move.b  1(a1,d1.w), d0
+        lsl.w   #8, d0
+        move.b  2(a1,d1.w), d0
+        beq.s   .pf_evt_cb_done         ; offset 0 = no-op safety
+        moveq   #OBJ_CODE_BANK, d2
+        swap    d2
+        move.w  d0, d2
         move.l  a1, -(sp)
-        movea.l d0, a2
+        movea.l d2, a2
         jsr     (a2)
         movea.l (sp)+, a1
 .pf_evt_cb_done:
-        addq.b  #2, SST_anim_frame(a0)
+        addq.b  #4, SST_anim_frame(a0)
         bra.s   .pf_after_event
 
 .pf_evt_sound:
