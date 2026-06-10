@@ -473,6 +473,10 @@ Section_TeleportDown:
         addq.b  #2, 1(a0)                          ; slot 0 sec_y += 2
         addq.b  #2, 3(a0)                          ; slot 1 sec_y += 2
 
+        ; -- §4.9: shift nearby entities' Y, despawn rest, rebuild scan state --
+        move.w  #-SECTION_SHIFT, d0
+        jsr     EntityWindow_TeleportShiftY
+
         st      (Section_Teleport_Guard).w
         clr.b   (Section_Preload_Flags).w
 
@@ -518,6 +522,10 @@ Section_TeleportUp:
         subq.b  #2, 1(a0)                          ; slot 0 sec_y -= 2
         subq.b  #2, 3(a0)                          ; slot 1 sec_y -= 2
 .up_at_top:
+
+        ; -- §4.9: shift nearby entities' Y, despawn rest, rebuild scan state --
+        move.w  #SECTION_SHIFT, d0
+        jsr     EntityWindow_TeleportShiftY
 
         st      (Section_Teleport_Guard).w
         clr.b   (Section_Preload_Flags).w

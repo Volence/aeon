@@ -347,6 +347,7 @@ MAX_TRACKED_SECTIONS    = 4             ; 2 active + 2 preview neighbors
 ENTITY_LOAD_BUFFER      = $180          ; pixels ahead/behind camera to load entities
 ENTITY_DESPAWN_BUFFER   = $200          ; pixels beyond load buffer to despawn (hysteresis)
 SCREEN_WIDTH            = 320           ; visible screen width in pixels
+SCREEN_HEIGHT           = 224           ; visible screen height in pixels
 
 ; 5×5 rolling collected bitmask (±2 sections in each axis)
 COLLECTED_WINDOW_SLOTS  = 9             ; max tracked sections (9 slots)

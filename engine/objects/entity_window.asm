@@ -780,6 +780,91 @@ EntityWindow_TeleportShift:
         rts
 
 ; -----------------------------------------------
+; EntityWindow_TeleportShiftY — vertical-teleport mirror of TeleportShift.
+; Shifts nearby entities' Y by the teleport amount, despawns the rest.
+; Camera_Y/Player_Y just jumped SECTION_SHIFT; entity engine-Y must move
+; with them or every loaded ring/object ends up SECTION_SHIFT pixels off.
+;
+; In:  d0.w = shift amount (+SECTION_SHIFT or -SECTION_SHIFT)
+; Out: none
+; Clobbers: d0-d7, a0-a4
+; -----------------------------------------------
+EntityWindow_TeleportShiftY:
+        move.w  d0, d4                  ; d4 = shift
+
+        ; Keep-range: entities within Camera_Y ± load buffer survive and shift
+        move.w  (Camera_Y).w, d2
+        move.w  d2, d3
+        subi.w  #ENTITY_LOAD_BUFFER, d2
+        addi.w  #SCREEN_HEIGHT+ENTITY_LOAD_BUFFER, d3
+
+        ; --- Shift/despawn rings (backward iteration) ---
+        moveq   #0, d5
+        move.b  (Ring_Count).w, d5
+        beq.s   .rings_done
+        subq.w  #1, d5
+
+.ring_loop:
+        move.w  d5, d0
+        add.w   d0, d0
+        add.w   d5, d0
+        add.w   d0, d0                  ; d0 = index × 6
+        lea     (Ring_Buffer).w, a0
+        move.w  2(a0, d0.w), d1         ; engine_Y
+
+        cmp.w   d2, d1
+        blt.s   .ring_remove
+        cmp.w   d3, d1
+        bgt.s   .ring_remove
+
+        ; In range — shift Y
+        add.w   d4, 2(a0, d0.w)
+        bra.s   .ring_next
+
+.ring_remove:
+        movem.l d2-d5/a0, -(sp)
+        move.w  d5, d0
+        bsr.w   RingBuffer_Remove
+        movem.l (sp)+, d2-d5/a0
+
+.ring_next:
+        dbf     d5, .ring_loop
+
+.rings_done:
+        ; --- Shift/despawn objects ---
+        lea     (Dynamic_Slots).w, a0
+        move.w  #NUM_DYNAMIC-1, d5
+
+.obj_loop:
+        tst.w   SST_code_addr(a0)
+        beq.s   .obj_next
+
+        cmpi.b  #SLOT_TAG_UNTAGGED, SLOT_TAG_OFFSET(a0)
+        beq.s   .obj_next
+
+        move.w  SST_y_pos(a0), d1
+        cmp.w   d2, d1
+        blt.s   .obj_despawn
+        cmp.w   d3, d1
+        bgt.s   .obj_despawn
+
+        add.w   d4, SST_y_pos(a0)
+        bra.s   .obj_next
+
+.obj_despawn:
+        movem.l d2-d5/a0, -(sp)
+        jsr     DeleteObject
+        movem.l (sp)+, d2-d5/a0
+
+.obj_next:
+        lea     SST_len(a0), a0
+        dbf     d5, .obj_loop
+
+        ; Rebuild scan state for new section configuration (sec_y changed)
+        bsr.w   EntityWindow_RebuildScanState
+        rts
+
+; -----------------------------------------------
 ; EntityWindow_RebuildScanState — repopulate scan state from slot map
 ;
 ; Called after teleport updates Slot_Section_Map.

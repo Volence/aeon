@@ -1,9 +1,8 @@
 ; Sprite rendering — priority-banded display list + VDP SAT builder
 
 ; -----------------------------------------------
-; Screen dimensions and sprite coordinate offsets
+; Sprite coordinate offsets (SCREEN_HEIGHT lives in constants.asm)
 ; -----------------------------------------------
-SCREEN_HEIGHT           = 224
 VDP_SPRITE_Y_OFFSET     = 128           ; VDP adds 128 to sprite Y
 VDP_SPRITE_X_OFFSET     = 128           ; VDP adds 128 to sprite X
 SPRITE_MARGIN_X         = 32            ; off-screen margin for partial sprites
