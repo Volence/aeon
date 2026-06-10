@@ -1,119 +1,77 @@
-; Load_Object — data-driven object spawning from type definitions
+; Load_Object — data-driven object spawning from v2 archetype templates
 ;
-; Object definition format (ROM data block):
-;   +0: dc.w  objroutine(Code)     ; code_addr (always present)
-;   +2: dc.b  format_byte, 0       ; ODF_* bit flags + pad
-;   +4: dc.l  mappings             ; sprite mappings pointer (0 = invisible)
-;   +8: dc.w  art_tile             ; TEMPORARY — VRAM tile + palette (replaced by AllocVRAM later)
-;   Then conditional fields in bit order:
-;     ODF_VELOCITY (0):     dc.w x_vel, y_vel
-;     ODF_COLLISION (1):    dc.b width, height, collision_type, pad
-;     ODF_ANIMATION (2):    dc.l anim_table
-;     ODF_SUBTYPE (3):      (no data — copies d2.b to SST_subtype)
-;     ODF_RENDER_FLAGS (4): dc.b render_flags, pad
-;     ODF_PRIORITY (5):     dc.w priority
+; v2 Object definition format (ROM data block, 26 bytes):
+;   +0:  dc.w  objroutine(Code)     ; code_addr
+;   +2:  dc.w  x_vel, y_vel         ; $0A-$0D image
+;   +6:  dc.b  render_flags, collision_resp  ; $0E-$0F image
+;   +8:  dc.l  mappings             ; $10-$13 image
+;   +12: dc.w  art_tile             ; $14-$15 image
+;   +14: dc.b  width, height        ; $16-$17 image
+;   +16: dc.b  anim, subtype        ; $18-$19 image
+;   +18: dc.l  anim_table           ; $1A-$1D image
+;   +22: dc.b  status, angle        ; $1E-$1F image
+;   +24: dc.w  0                    ; $20-$21 pad (re-inited at spawn)
+; Emitted by the objdef macro (macros.asm).
 
 ; -----------------------------------------------
-; Load_Object — spawn one object from a type definition
-;
-; In:  a1 = object definition pointer (ROM)
-;      d0.w = X position (integer, world coords)
-;      d1.w = Y position (integer, world coords)
-;      d2.b = subtype (0 if unused)
+; Load_Object — spawn one object from a v2 archetype template
+; In:  a1 = ObjDef template (ROM, 26 bytes: code_addr.w + SST $0A-$21 image)
+;      d0.w = X position (integer, engine coords)
+;      d1.w = Y position (integer, engine coords)
+;      d2.w = placement word: OEF flips in bits 13-14, subtype in low byte.
+;             Direct spawns pass plain subtype (bits 13-15 clear).
 ; Out: Z set = success, a1 = new SST pointer
 ;      Z clear = allocation failed
-; Clobbers: d0-d3, a1-a3
+; Clobbers: d0-d4, a1-a3
 ; -----------------------------------------------
 Load_Object:
         movem.l d0-d2/a1, -(sp)
         jsr     AllocDynamic
         bne.w   .alloc_fail
-        movea.l a1, a2                  ; a2 = new SST
-        movem.l (sp)+, d0-d2/a1        ; restore X, Y, subtype, definition
-        exg     a1, a2                  ; a1 = SST, a2 = definition
+        movem.l (sp)+, d0-d2/a2        ; a2 = template (saved a1), a1 = new SST
 
-        ; code_addr
+        ; --- burst copy: code_addr word + 24-byte template block ---
         move.w  (a2)+, SST_code_addr(a1)
-        move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a1)
+        lea     SST_x_vel(a1), a3
+        movem.l (a2)+, d3-d4
+        movem.l d3-d4, (a3)            ; $0A-$11
+        movem.l (a2)+, d3-d4
+        movem.l d3-d4, 8(a3)           ; $12-$19
+        movem.l (a2)+, d3-d4
+        movem.l d3-d4, 16(a3)          ; $1A-$21 ($20-$21 re-inited below)
 
-        ; format byte (save in d3 for bit testing)
-        move.b  (a2)+, d3
-        addq.w  #1, a2                  ; skip pad
-
-        ; mappings (always present)
-        move.l  (a2)+, SST_mappings(a1)
-
-        ; art_tile (TEMPORARY — always present until AllocVRAM)
-        move.w  (a2)+, SST_art_tile(a1)
-
-        ; X position → 16.16
+        ; --- per-placement patch ---
         swap    d0
         clr.w   d0
         move.l  d0, SST_x_pos(a1)
-
-        ; Y position → 16.16
         swap    d1
         clr.w   d1
         move.l  d1, SST_y_pos(a1)
+        move.b  d2, SST_subtype(a1)    ; placement subtype (low byte)
+        move.w  d2, d3                 ; placement flips → render_flags + status
+        rol.w   #4, d3                 ; bits 13/14 → RF_XFLIP(1)/RF_YFLIP(2)
+        andi.b  #(1<<RF_XFLIP)|(1<<RF_YFLIP), d3
+        or.b    d3, SST_render_flags(a1)
+        or.b    d3, SST_status(a1)
 
-        ; --- Initial sprite_piece_count (mapping_frame is 0 at spawn) ---
-        ; Reads the first word of the initial frame's data, which is the
-        ; piece count. Used by Render_Sprites for predictive overflow skip.
-        move.l  SST_mappings(a1), d0
-        beq.s   .no_piece_count
-        movea.l d0, a3
-        move.w  (a3), d0                ; word offset to frame[0] data
-        move.w  (a3,d0.w), d0           ; first word of frame = piece count
-        move.b  d0, SST_sprite_piece_count(a1)
-.no_piece_count:
-
-        ; --- conditional fields (test format bits in order) ---
-
-        btst    #ODF_VELOCITY, d3
-        beq.s   .no_velocity
-        move.w  (a2)+, SST_x_vel(a1)
-        move.w  (a2)+, SST_y_vel(a1)
-.no_velocity:
-
-        btst    #ODF_COLLISION, d3
-        beq.s   .no_collision
-        move.b  (a2)+, SST_width_pixels(a1)
-        move.b  (a2)+, SST_height_pixels(a1)
-        move.b  (a2)+, SST_collision_resp(a1)
-        addq.w  #1, a2                  ; skip pad
-.no_collision:
-
-        btst    #ODF_ANIMATION, d3
-        beq.s   .no_animation
-        move.l  (a2)+, SST_anim_table(a1)
-        move.b  #$FF, SST_prev_anim(a1)
+        ; --- runtime init ($20-$24: prev_anim $FF, frame/timer/mapframe 0, prev_frame $FF) ---
+        move.l  #$FF000000, SST_prev_anim(a1)
         move.b  #$FF, SST_prev_frame(a1)
-.no_animation:
 
-        btst    #ODF_SUBTYPE, d3
-        beq.s   .no_subtype
-        move.b  d2, SST_subtype(a1)
-.no_subtype:
-
-        btst    #ODF_RENDER_FLAGS, d3
-        beq.s   .no_render_flags
-        move.b  (a2)+, SST_render_flags(a1)
-        addq.w  #1, a2                  ; skip pad
-.no_render_flags:
-
-        btst    #ODF_PRIORITY, d3
-        beq.s   .no_priority
-        move.w  (a2)+, d0
-        lsl.b   #RF_PRIORITY_SHIFT, d0
-        or.b    d0, SST_render_flags(a1)
-.no_priority:
-
-        moveq   #0, d0                  ; Z set = success
+        ; --- initial sprite_piece_count from mappings frame 0 ---
+        move.l  SST_mappings(a1), d3
+        beq.s   .no_piece_count
+        movea.l d3, a3
+        move.w  (a3), d3
+        move.w  (a3,d3.w), d3
+        move.b  d3, SST_sprite_piece_count(a1)
+.no_piece_count:
+        moveq   #0, d0                 ; Z set = success
         rts
 
 .alloc_fail:
         movem.l (sp)+, d0-d2/a1
-        moveq   #1, d0                  ; Z clear = failed
+        moveq   #1, d0                 ; Z clear = failed
         rts
 
 ; -----------------------------------------------
@@ -122,7 +80,9 @@ Load_Object:
 ; List format (10 bytes per entry, terminated by dc.l 0):
 ;   dc.l  ObjDef_XXX              ; definition pointer (0 = end)
 ;   dc.w  x_pos, y_pos            ; integer world coordinates
-;   dc.w  subtype                  ; word for alignment (only low byte used)
+;   dc.w  subtype                  ; word for alignment (only low byte used;
+;                                  ; bits 13-15 must be clear — v2 Load_Object
+;                                  ; reads bits 13-14 as OEF flip flags)
 ;
 ; In:  a0 = object list pointer (ROM)
 ; Out: none (objects spawned, alloc failures silently skipped)
@@ -135,7 +95,7 @@ Load_ObjectList:
         beq.s   .done                  ; 0 = end of list
         move.w  (a0)+, d0              ; X position
         move.w  (a0)+, d1              ; Y position
-        move.w  (a0)+, d2              ; subtype (low byte)
+        move.w  (a0)+, d2              ; subtype (low byte; bits 13-15 clear in sane list data)
         move.l  a0, -(sp)
         jsr     Load_Object
         movea.l (sp)+, a0

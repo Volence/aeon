@@ -63,6 +63,95 @@ objvarsCheck macro structlen
         endm
 
 ; -----------------------------------------------
+; objdef — emit a v2 archetype template (26 bytes):
+; a verbatim ROM image of SST $00 (code_addr) + $0A-$21 (template block;
+; $20-$21 are pad, overwritten by Load_Object's runtime init).
+; All params optional except code/map. Example:
+;   objdef code=TestEnemy_Init, map=Map_TestObj, art=vram_art(VRAM_TEST_OBJ,0,0), \
+;          zpri=4, xvel=ENEMY_PATROL_SPEED, wdth=16, hght=16, col=COLLISION_HURT
+;
+; Parameter name notes (AS Macro Assembler quirk):
+;   Single-char or common short params are renamed to avoid accidental
+;   substitution into instruction suffixes and global constant names:
+;     w    → wdth    (avoids dc.w becoming dc.<value>)
+;     h    → hght    (avoids substitution in RF_PRIORITY_SHIFT etc.)
+;     pri  → zpri    (avoids substitution into RF_PRIORITY… identifiers)
+;     rf   → rfbits  (avoids substitution into RF_XFLIP/RF_YFLIP/RF_PRIORITY_SHIFT)
+;   Local temporaries use ODZ_ prefix; all names chosen so no param string
+;   appears as a substring of any body identifier.
+; -----------------------------------------------
+objdef macro code,map,art,zpri,xvel,yvel,wdth,hght,col,anims,anim,sub,rfbits,statbits
+    if "code" = ""
+        fatal "objdef: code required"
+    endif
+    if "map" = ""
+        fatal "objdef: map required"
+    endif
+ODZ_TL set 0
+    if "art" <> ""
+ODZ_TL set art
+    endif
+ODZ_PB set 0
+    if "zpri" <> ""
+ODZ_PB set zpri
+    endif
+    if ODZ_PB > 7
+        fatal "objdef: priority exceeds 7"
+    endif
+ODZ_XV set 0
+    if "xvel" <> ""
+ODZ_XV set xvel
+    endif
+ODZ_YV set 0
+    if "yvel" <> ""
+ODZ_YV set yvel
+    endif
+ODZ_WD set 0
+    if "wdth" <> ""
+ODZ_WD set wdth
+    endif
+ODZ_HT set 0
+    if "hght" <> ""
+ODZ_HT set hght
+    endif
+ODZ_RESP set 0
+    if "col" <> ""
+ODZ_RESP set col
+    endif
+ODZ_ATBL set 0
+    if "anims" <> ""
+ODZ_ATBL set anims
+    endif
+ODZ_ANI set 0
+    if "anim" <> ""
+ODZ_ANI set anim
+    endif
+ODZ_SDEF set 0
+    if "sub" <> ""
+ODZ_SDEF set sub
+    endif
+ODZ_RFVAL set 0
+    if "rfbits" <> ""
+ODZ_RFVAL set rfbits
+    endif
+ODZ_BITS set 0
+    if "statbits" <> ""
+ODZ_BITS set statbits
+    endif
+        dc.w objroutine(code)                           ; $00 code_addr
+        dc.w ODZ_XV, ODZ_YV                             ; $0A x_vel, $0C y_vel
+        dc.b ODZ_RFVAL|(ODZ_PB<<RF_PRIORITY_SHIFT)      ; $0E render_flags (priority in bits 5-7)
+        dc.b ODZ_RESP                                   ; $0F collision_resp
+        dc.l map                                        ; $10 mappings
+        dc.w ODZ_TL                                     ; $14 art_tile
+        dc.b ODZ_WD, ODZ_HT                             ; $16 width, $17 height
+        dc.b ODZ_ANI, ODZ_SDEF                          ; $18 anim, $19 subtype default
+        dc.l ODZ_ATBL                                   ; $1A anim_table
+        dc.b ODZ_BITS, 0                                ; $1E status, $1F angle
+        dc.w 0                                          ; $20-$21 pad (copied, then re-inited)
+        endm
+
+; -----------------------------------------------
 ; Hardware control macros
 ; -----------------------------------------------
 

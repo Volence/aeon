@@ -580,8 +580,8 @@ EntityWindow_ScanObjectsRight:
         addq.w  #2, d3                  ; skip count+pad header
         movea.l (a2, d3.w), a1          ; a1 = ObjDef pointer
 
-        ; Extract subtype (bits 4-0) into d2.b
-        andi.b  #OBJ_ENTRY_SUBTYPE_MASK, d2  ; d2 low byte = subtype
+        ; Extract subtype (bits 4-0) into d2.w; word mask — bits 13-14 must be clear (v2 Load_Object reads them as flips)
+        andi.w  #OBJ_ENTRY_SUBTYPE_MASK, d2
 
         jsr     Load_Object
         bne.s   .obj_spawn_fail

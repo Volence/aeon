@@ -46,6 +46,7 @@ InitObjectRAM:
 ; In:  none
 ; Out: a1 = SST address of allocated slot (d0=0/Z set on success)
 ;      d0=1/Z clear if pool exhausted
+;      Slot is tagged SLOT_TAG_UNTAGGED on return.
 ; Clobbers: d0
 ; -----------------------------------------------
 AllocDynamic:
@@ -54,6 +55,7 @@ AllocDynamic:
         movea.w (Dynamic_Free_SP).w, a1
         subq.w  #2, (Dynamic_Free_SP).w
         movea.w -(a1), a1
+        move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a1)
         moveq   #0, d0                  ; Z set = success
         rts
 .full:
