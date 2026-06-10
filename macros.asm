@@ -71,14 +71,13 @@ objvarsCheck macro structlen
 ;          zpri=4, xvel=ENEMY_PATROL_SPEED, wdth=16, hght=16, col=COLLISION_HURT
 ;
 ; Parameter name notes (AS Macro Assembler quirk):
-;   Single-char or common short params are renamed to avoid accidental
-;   substitution into instruction suffixes and global constant names:
-;     w    → wdth    (avoids dc.w becoming dc.<value>)
-;     h    → hght    (avoids substitution in RF_PRIORITY_SHIFT etc.)
-;     pri  → zpri    (avoids substitution into RF_PRIORITY… identifiers)
-;     rf   → rfbits  (avoids substitution into RF_XFLIP/RF_YFLIP/RF_PRIORITY_SHIFT)
-;   Local temporaries use ODZ_ prefix; all names chosen so no param string
-;   appears as a substring of any body identifier.
+;   AS substitutes params token-wise for identifiers, but ALSO into
+;   SIZE-ATTRIBUTE SUFFIXES — a param named `w` turns `dc.w`/`move.w`
+;   into `dc.<value>` (verified empirically against asl 1.42 Bld 212;
+;   whole identifiers like RF_PRIORITY_SHIFT are NOT at risk, nor are
+;   comments). Hence w → wdth and h → hght are REQUIRED; pri → zpri
+;   and rf → rfbits are belt-and-braces. Local temporaries use the
+;   ODZ_ prefix.
 ; -----------------------------------------------
 objdef macro code,map,art,zpri,xvel,yvel,wdth,hght,col,anims,anim,sub,rfbits,statbits
     if "code" = ""
