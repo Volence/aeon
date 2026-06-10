@@ -828,7 +828,7 @@ Phase 1 — During Object Loop          Phase 2 — Render_Sprites
 └─────────────────────────┘           └──────────────────────────┘
 ```
 
-**Phase 1 — Draw_Sprite (during object loop):** Each visible object calls `Draw_Sprite`, which adds the object's RAM address to a priority-band list at `Sprite_Table_Input + priority(a0)`. This is a single pointer store — no sprite data conversion, no bounds checking, no mapping lookup. Objects are automatically sorted by priority when they register.
+**Phase 1 — Draw_Sprite (during object loop):** Each visible object calls `Draw_Sprite`, which resolves the object's current mapping frame, culls exactly against the frame's precomputed bounding box (the 4-byte flip-invariant extent header at the front of each frame — 7.8), and on pass adds the object's RAM address to a priority-band list at `Sprite_Table_Input + priority`. No sprite data conversion happens here — pieces are emitted in Phase 2. Objects are automatically sorted by priority when they register.
 
 **Phase 2 — Render_Sprites (after all objects processed):** Single pass through the priority-sorted lists. For each registered object, reads mappings, applies position offsets and flip flags, writes 8-byte VDP sprite entries to `Sprite_Table`. Sets `Sprite_Table_Dirty` flag when any entries are written.
 
@@ -1462,50 +1462,52 @@ $00  code_addr              ; (word) — object code offset from ObjCodeBase
                             ;          zero = empty slot
 
 ; === Physics ===
-$02  x_pos                  ; (long) — 16.16 subpixel position
-$06  y_pos                  ; (long) — 16.16 subpixel position
-$0A  x_vel                  ; (word) — horizontal velocity
-$0C  y_vel                  ; (word) — vertical velocity
+$02  x_pos                  ; (long) — 16.16 subpixel position [patched at spawn]
+$06  y_pos                  ; (long) — 16.16 subpixel position [patched at spawn]
 
-; === Render / Collision ===
-$0E  render_flags           ; (byte) — display flags, on-screen check
-$0F  collision_response     ; (byte) — collision type dispatch
-$10  mappings               ; (long) — sprite mapping pointer
-$14  art_tile               ; (word) — VRAM tile index (from allocator)
-$16  priority               ; (word) — sprite priority band
-$18  width_pixels           ; (byte) — collision/display width (FULL, not half)
-$19  height_pixels          ; (byte) — collision/display height (FULL, not half)
+; === Template block $0A-$1F — burst-copied verbatim from ObjDef at spawn ===
+$0A  x_vel                  ; (word) — horizontal velocity (8.8 fixed-point)
+$0C  y_vel                  ; (word) — vertical velocity (8.8 fixed-point)
+$0E  render_flags           ; (byte) — bit 0 on-screen, 1 x-flip, 2 y-flip,
+                            ;          3 coord mode, 4 multi-sprite,
+                            ;          bits 5-7 priority band (absorbs old $16 word)
+$0F  collision_resp         ; (byte) — collision type dispatch (0 = none)
+$10  mappings               ; (long) — sprite mapping pointer (ROM)
+$14  art_tile               ; (word) — VRAM tile index + palette + priority
+$16  width_pixels           ; (byte) — collision width (FULL, not half)
+$17  height_pixels          ; (byte) — collision height (FULL, not half)
+$18  anim                   ; (byte) — desired animation ID
+$19  subtype                ; (byte) — object subtype
+$1A  anim_table             ; (long) — animation table pointer (ROM)
+$1E  status                 ; (byte) — player/object status bits (ST_*)
+$1F  angle                  ; (byte) — terrain angle
 
-; === Animation ===
-$1A  anim                   ; (byte) — current animation ID
-$1B  mapping_frame          ; (byte) — current mapping index (moved here for longword alignment)
-$1C  anim_cursor            ; (long) — self-advancing ROM pointer (replaces
-                            ;          anim_frame + anim_frame_duration)
-                            ;          NOTE: was $1B (odd) — Address Error! Fixed to $1C.
-
-; === Identity / Spawn ===
-$20  subtype                ; (byte) — object subtype
-$21  respawn_index          ; (byte) — respawn tracking
-
-; === Links ===
-$22  parent_ptr             ; (word) — parent object address
-$24  sibling_ptr            ; (word) — sibling link (for multi-part objects)
-
-; === Engine ===
-$26  anim_table             ; (long) — animation table pointer
-$2A  wait_timer             ; (word) — Obj_Wait countdown
+; === Runtime block $20+ — initialized individually at spawn ===
+$20  prev_anim              ; (byte) — previous anim ID ($FF at spawn)
+$21  anim_frame             ; (byte) — byte offset within animation script
+$22  anim_timer             ; (byte) — frame duration countdown
+$23  mapping_frame          ; (byte) — current mapping frame index
+$24  prev_frame             ; (byte) — previous mapping_frame ($FF at spawn)
+$25  sprite_piece_count     ; (byte) — current frame's piece count (overflow prediction)
+$26  parent_ptr             ; (word) — parent object RAM address
+$28  sibling_ptr            ; (word) — sibling link (multi-part objects)
+$2A  slot_tag               ; (byte) — entity window slot tag (SLOT_TAG_*; $FF = untagged)
+$2B  entity_section_id      ; (byte) — spawning section's flat id (despawn bookkeeping)
+$2C  entity_list_index      ; (byte) — index in section's ROM object list (killed bitmask)
+$2D  layer                  ; (byte) — collision layer select (0 = path A, 1 = path B)
 
 ; === Custom data — per-object overlays ===
-$2C-$4F  free (36 bytes)    ; Player overlay, boss overlay, or custom
+$2E-$4F  sst_custom (34 bytes) ; Player overlay, boss overlay, or custom
+                               ; (objvarsCheck asserts overlay fits)
 ```
 
 **Dispatch:** Word code_addr at $00 stores an offset from `ObjCodeBase` (a $10000-aligned label). Dispatch reconstructs the full address: `moveq #BANK, d0; swap d0; move.w (a0), d0; movea.l d0, a1; jsr (a1)`. The `objroutine` AS function computes offsets at build time: `objroutine function x, (x)-ObjCodeBase`. `tst.w (a0); beq.s .skip` tests for empty slots. This is the sonic_hack pattern — validated across the full game.
 
-**Animation:** `anim_cursor` replaces separate `anim_frame` and `anim_frame_duration` fields using Alien Soldier's self-advancing ROM pointer technique. The pointer IS the animation state — it walks forward through bytecode data, and loop/branch control codes rewrite it to a target address. Saves 2 bytes vs separate fields and simplifies event code processing.
+**Template block:** The 26-byte ObjDef archetype image (3.7) is a verbatim ROM copy of SST $00 (code_addr) plus $0A-$21 — spawning burst-copies $0A-$21 (24 bytes) with `movem.l`, zero field reordering ($20-$21 land as pad and are immediately re-initialized by the runtime init). Sprite priority lives in render_flags bits 5-7 (`RF_PRIORITY_SHIFT`/`RF_PRIORITY_MASK`) — the old separate priority word at $16 is gone.
 
 **Links:** `sibling_ptr` replaces `child_ptr` — Alien Soldier's research shows dual link fields (parent + sibling) are more useful than parent + child for multi-part boss communication.
 
-**SST size is $50 pending a full field audit** — see DEFERRED_WORK.md. Once animation, collision, and player subsystems are implemented, audit every SST field across all object types. Word offsets for `code_addr` and `mappings` may free enough bytes to shrink the SST. Variable-size effect pools ($20 for lightweight effects) also deferred to that audit.
+**SST size stays $50.** The objects-v2 field audit removed the dead fields (`respawn_index`, `wait_timer`, the separate priority word) and packed the entity-window metadata (`slot_tag`/`entity_section_id`/`entity_list_index`/`layer`) into the freed space, growing `sst_custom` to 34 bytes at $2E. Whether player overlays need more than 34 bytes (variable-size pools, per-pool stride) remains open for the §5 player work — see DEFERRED_WORK.md.
 
 **Slot ranges:**
 - Slots 0-1: Players (Sonic, Tails)
@@ -1613,12 +1615,12 @@ Each handler uses doubled-delta AABB math with the full `width_pixels`/`height_p
 
 S.C.E.'s two-phase approach:
 
-**Phase 1 (during object loop):** Each object calls `Draw_Sprite`, adding its RAM address to a priority-band list. Just a pointer store — no sprite data conversion.
+**Phase 1 (during object loop):** Each object calls `Draw_Sprite`, which resolves the current mapping frame, culls exactly against its precomputed bbox header (7.8), and adds the object's RAM address to a priority-band list. No sprite data conversion.
 
 **Phase 2 (`Render_Sprites`):** Single pass through priority-sorted lists, converting object data to VDP sprite table entries. Handles:
 - **Standard sprites:** `BuildSprites_Classic` — dynamic frame indexing from mapping table
 - **Static sprites:** `BuildSprites_Static` — fixed mapping, no animation
-- **Compound sprites:** `BuildSprites_Compound` — walks child_ptr chain (3.3), one bounds check for parent, all children render under it
+- **Compound sprites:** `BuildSprites_Compound` — walks sibling_ptr chain (3.3), one bounds check for parent, all children render under it
 
 **Multi-sprite batching:** `render_flags.multi_sprite` routes to `Render_Sprites_MultiDraw`. Combined with parent-driven animation (3.7), a multi-part boss is: one AnimateSprite call on parent → one bounds check → all children render. Three systems converge.
 
@@ -1682,33 +1684,34 @@ Objects that currently do "check timer → spawn thing" delete that logic entire
 
 **Multi-sprite animation (from S.C.E.):** `Animate_MultiSprite` drives all children from the parent's animation script. Each child reads the parent's `mapping_frame` and applies its own mapping offset. Multi-part objects animate in sync with one call.
 
-### 3.7 Object Loading — Unified Format with Allocator Integration
+### 3.7 Object Loading — Archetype Templates (objects-v2)
 
-`Load_Object` reads a format byte from each object's data block to determine which fields are present:
+Each object type is a 26-byte ObjDef archetype: a verbatim ROM image of SST $00 (code_addr) plus the $0A-$21 template block, emitted by the `objdef` macro (macros.asm):
 
 ```
-; Format byte bits:
-; 0: velocity       1: collision      2: animation
-; 3: subtype         4: render_flags   5: priority
-; 6: (reserved)     7: has art requirements (triggers AllocVRAM)
+; ObjDef layout (26 bytes — exact SST image, zero field reordering):
+;   +0:  dc.w  objroutine(Code)              ; code_addr
+;   +2:  dc.w  x_vel, y_vel                  ; $0A-$0D image
+;   +6:  dc.b  render_flags, collision_resp  ; $0E-$0F image (priority in RF bits 5-7)
+;   +8:  dc.l  mappings                      ; $10-$13 image
+;   +12: dc.w  art_tile                      ; $14-$15 image
+;   +14: dc.b  width, height                 ; $16-$17 image
+;   +16: dc.b  anim, subtype                 ; $18-$19 image
+;   +18: dc.l  anim_table                    ; $1A-$1D image
+;   +22: dc.b  status, angle                 ; $1E-$1F image
+;   +24: dc.w  0                             ; $20-$21 pad (re-inited at spawn)
 
-; Pre-defined format constants:
-OBJ_FMT_STATIC  = %10000010    ; mappings + collision + art alloc
-OBJ_FMT_MOVING  = %10000011    ; above + velocity
-OBJ_FMT_WEAPON  = %00000111    ; velocity + collision + animation (inherits parent art)
+objdef code=TestEnemy_Init, map=Map_TestObj, art=vram_art(VRAM_TEST_OBJ,0,0), \
+       zpri=4, xvel=ENEMY_PATROL_SPEED, wdth=16, hght=16, col=COLLISION_HURT
 ```
 
-When bit 7 is set, the data block includes art requirements:
-```
-dc.l  art_pointer      ; ROM address of compressed art
-dc.w  art_tile_count   ; tiles needed in VRAM
-dc.b  art_format       ; 0 = S4LZ (streamed), 1 = S4LZ blocking, 2 = uncompressed (DPLC)
-dc.b  0                ; padding
-```
+`Load_Object` spawns in three steps:
 
-`Load_Object` calls `AllocVRAM` — if art is already loaded (allocator returns existing address, bumps refcount), no loading needed. If new, art is queued for S4LZ streaming, instant-loaded via S4LZ blocking, or registered for DPLC per-frame loading (uncompressed sprite art — `art_source` and `dplc_script` pointers set up, tiles DMA'd from ROM each animation frame). The returned VRAM address goes into `art_tile(a1)`.
+1. **Allocate:** `AllocDynamic` pops a free SST address (3.2) and tags the slot `SLOT_TAG_UNTAGGED` ($FF) — the entity window (4.9) re-tags slots it owns.
+2. **Burst copy:** code_addr word, then the 24-byte $0A-$21 block via three `movem.l` pairs — no per-field parsing, no format byte, no conditional paths. The ObjDef layout IS the SST layout.
+3. **Per-placement patch:** X/Y converted to 16.16 and stored; placement subtype overwrites the template default; placement flip bits (OEF bits 13-14) rotate into position with a single `rol.w #4` and OR into both render_flags (RF_XFLIP/RF_YFLIP) and status; runtime block re-initialized (prev_anim/prev_frame = $FF for change detection); `sprite_piece_count` seeded from mapping frame 0's piece count (at +4, after the bbox header — 7.8).
 
-This is where the dynamic VRAM allocator (Section 2.2) meets the object system. Every object type's art requirements live in its data block — single source of truth.
+Art is referenced by `art_tile` directly (build-time VRAM layout); per-frame character art goes through the DPLC pipeline (3.9). Every object type's full spawn state lives in its objdef line — single source of truth, and the macro build-fails on overflow (priority > 7, image size ≠ 26).
 
 ### 3.8 Per-Frame Systems — Design Rationale
 
@@ -1725,7 +1728,7 @@ Comparative analysis across S.C.E. and 5 commercial Genesis engines informed whi
 
 **Dynamic allocator integration with free slot stack (3.2):** The free slot stack provides the allocation primitive for both paths. Level objects spawn via the camera-driven entity window (4.9) — as objects scroll into camera range, their compact 4-byte ROM entries are unpacked, the section's ROM type table is consulted for the ObjDef pointer, and `Load_Object` calls `AllocDynamic` to pop a free SST address. Dynamic objects (boss parts, projectiles, cutscene actors) call `AllocDynamic` directly. Both paths produce objects in the same SST — the execution loop doesn't distinguish them.
 
-**Parent-child links (from Treasure — Gunstar Heroes / Alien Soldier):** The `parent_ptr` ($20) and `child_ptr` ($22) fields in the SST (3.1) enable multi-part boss coordination: child auto-delete when parent dies, sibling chain iteration, inherited art/palette. Validated by 380+ references in Alien Soldier.
+**Parent-child links (from Treasure — Gunstar Heroes / Alien Soldier):** The `parent_ptr` ($26) and `sibling_ptr` ($28) fields in the SST (3.1) enable multi-part boss coordination: child auto-delete when parent dies, sibling chain iteration, inherited art/palette. Validated by 380+ references in Alien Soldier.
 
 ### 3.9 Per-Frame Art Loading (DPLC Pipeline)
 
@@ -1747,7 +1750,7 @@ Free Slot Stack (3.2)
       → Ring scatter pool uses dedicated stack range (slot ranges from 3.1)
 
 Data-Driven Child Creation (3.3)
-  → parent_ptr / child_ptr in SST link objects
+  → parent_ptr / sibling_ptr in SST link objects
     → BuildSprites_Compound walks child chain (3.5)
       → Animate_MultiSprite drives children from parent (3.6)
         → Child_Draw_Sprite auto-deletes orphans
@@ -2131,18 +2134,29 @@ OJZ_Sec0_Rings:
 
 No pattern encoding — rings are pre-expanded at build time. Flat lists eliminate per-frame decode overhead and enable binary/linear scanning with early exit. The X-sorted order means once a ring's engine-space X exceeds the camera's load edge, all subsequent entries are also out of range.
 
-#### 4.9.2 Object Layout — Compact 4-Byte with Per-Section Type Table
+#### 4.9.2 Object Layout — 6-Byte v2 Entries with Per-Section Type Table
 
-Object entries in ROM use section-local coordinates with a local type index, X-sorted ascending, terminated by `dc.l 0`:
+Object entries in ROM use full-resolution section-local coordinates with a local type index, X-sorted ascending, terminated by `dc.w -1`:
 
 ```
-; 32-bit entry: [2-bit reserved][10-bit X][10-bit Y][5-bit type][5-bit subtype]
-;   X, Y:     section-local ($000-$3FF, 10 bits each)
-;   type:     index into this section's type table (5 bits, 0-31)
-;   subtype:  object-specific parameter (5 bits, 0-31)
+; 6-byte entry: dc.w x, y, flags|type|subtype
+;   x.w, y.w:  section-local ($000-$7FF; X bit 15 reserved as terminator)
+;   word 3:    bit 15 = OEF_ANY_Y (spawn regardless of camera Y — phase 2)
+;              bit 14 = OEF_YFLIP, bit 13 = OEF_XFLIP (rol.w #4 → RF bits in Load_Object)
+;              bits 12-8 = type (0-31, OEF_TYPE_SHIFT/OEF_TYPE_MASK)
+;              bits 7-0  = subtype (OEF_SUBTYPE_MASK)
 ```
 
-4 bytes per object (compact — typical Genesis engines use 6 bytes). Each section defines a count-prefixed type table in ROM:
+Hand-authored lists use the `objentry`/`objend` macros (macros.asm), which build-fail on non-monotonic X, out-of-range coordinates, type/subtype overflow, and lists exceeding `MAX_LIST_ENTRIES` (128 — the killed-bitmask capacity):
+
+```
+OJZ_Sec2_Objects:
+    objentry $100, $0B0, 1      ; x, y, type [, subtype] [, oflags]
+    objentry $300, $060, 0
+    objend                      ; emits dc.w -1 terminator, resets guards
+```
+
+Each section defines a count-prefixed type table in ROM:
 
 ```
 OJZ_Sec0_TypeTable:
@@ -2151,7 +2165,7 @@ OJZ_Sec0_TypeTable:
     dc.l    ObjDef_Solid        ; type 1
 ```
 
-Object spawning reads the 4-byte layout entry, indexes the ROM type table for the ObjDef pointer (one indexed `move.l`), and calls `Load_Object`. The 5-bit type index means each section independently uses up to 32 object types with no global ID space.
+Object spawning reads the 6-byte entry, indexes the ROM type table for the ObjDef pointer (one indexed `move.l`), and passes the flags/type/subtype word to `Load_Object`, which patches subtype and rotates the flip bits into render_flags/status. The 5-bit type index means each section independently uses up to 32 object types with no global ID space. `OEF_ANY_Y` is accepted and discarded today — phase 2's Y-culling must honor it.
 
 #### 4.9.3 Entity Window — Camera-Driven Lifecycle
 
@@ -2181,9 +2195,9 @@ For each active section:
      - Check Collected_CheckRing bitmask: skip if already collected
      - Add to unified Ring_Buffer via RingBuffer_Add
   2. ScanObjectsRight: advance obj_right_idx through X-sorted ROM list
-     - Unpack [X|Y|type|subtype] from longword
+     - Read 6-byte entry: x.w, y.w, flags|type|subtype.w
      - Look up ObjDef from section's ROM type table
-     - Call Load_Object, tag spawned object with slot tag
+     - Call Load_Object (patches subtype + flip bits), tag spawned object with slot tag
 
 After all sections:
   3. DespawnRings: backward iterate Ring_Buffer, remove entries outside
@@ -2224,7 +2238,9 @@ Collected_CheckRing(section_id, list_index): test bit (Z set = uncollected)
 Collected_UpdateCenter(center_id, grid_w): evict slots outside 3×3 grid range
 ```
 
-The 3×3 window centered on the player's current section means collection state persists for all adjacent sections. Backtracking within ±1 section preserves collected rings. Moving beyond the 3×3 range evicts distant slots, and revisiting those sections later loads them fresh. The 128-bit bitmask per slot supports up to 128 rings per section.
+The 3×3 window centered on the player's current section means collection state persists for all adjacent sections. Backtracking within ±1 section preserves collected rings. Moving beyond the 3×3 range evicts distant slots, and revisiting those sections later loads them fresh. The 128-bit bitmask per slot supports up to 128 rings per section (build-enforced by `objentry`'s MAX_LIST_ENTRIES cap for object lists).
+
+**Gameplay consequence:** persistence depth is exactly one section of backtrack. A round trip of 2+ sections re-claims evicted slots with fresh bitmasks — collected rings respawn and killed badniks revive. This is the accepted cost of capping the window at 9 slots (162 bytes); classic Sonic behaves the same way for off-screen respawning objects.
 
 #### 4.9.6 Teleport Entity Shift
 
@@ -2701,19 +2717,26 @@ Source: Kabuto hardware notes
 
 Reorder sprite mapping fields to match VDP sprite table entry layout for sequential word copies in `build_sprites`. The traditional Sonic format (`{Y, size, tile, X}` with different bit packing) requires field extraction and rearrangement per piece. The new format matches VDP order directly.
 
-**Format:** 2-byte piece count header + 8 bytes per piece:
+**Format:** 6-byte frame header (bounding box + piece count) + 8 bytes per piece:
 ```
-dc.w  piece_count              ; number of sprite pieces in this frame
-; per piece (8 bytes, VDP sprite table order):
+; frame header (6 bytes):
+dc.b  bbox_x_min               ; +0: signed — leftmost piece pixel
+dc.b  bbox_x_max               ; +1: signed — rightmost piece pixel (right EDGE: x_off + width)
+dc.b  bbox_y_min               ; +2: signed — topmost piece pixel
+dc.b  bbox_y_max               ; +3: signed — bottommost piece pixel (bottom EDGE: y_off + height)
+dc.w  piece_count              ; +4: number of sprite pieces in this frame
+; per piece (8 bytes at +6, VDP sprite table order):
 dc.w  y_offset                 ; signed, relative to object origin
 dc.w  size_template            ; VDP size in high byte, low byte = 0 (link merged at runtime)
 dc.w  tile_offset              ; relative tile index + palette/priority/flip bits
 dc.w  x_offset                 ; signed, relative to object origin
 ```
 
+**Bounding box:** The 4 signed extent bytes are precomputed at build time as the union of all piece rectangles, made flip-invariant (union of the unflipped and flipped extents) so one box is valid for all four flip states. `Draw_Sprite` culls exactly against this box — no fixed ±32 margins, no per-piece checks, asymmetric frames never pop at screen edges.
+
 **Why VDP-order:** Each VDP sprite table entry is 8 bytes: `{Y, size+link, tile+attr, X}`. When the mapping format matches this layout, `build_sprites` can process each piece with sequential word reads from the mapping data and sequential word writes to the sprite table — no field shuffling, no bit extraction. The link byte is the only field merged at runtime (low byte of word 1).
 
-**Termination:** The `piece_count` header eliminates per-piece terminator checks entirely. A sentinel-based approach ($8000 terminator) saves one word of data but costs a `cmpi` per piece — with 60-100 sprite pieces per frame, the count header is faster.
+**Termination:** The `piece_count` header (at +4, after the bbox) eliminates per-piece terminator checks entirely. A sentinel-based approach ($8000 terminator) saves one word of data but costs a `cmpi` per piece — with 60-100 sprite pieces per frame, the count header is faster.
 
 **Savings:** Eliminates field reordering and bit manipulation per sprite piece per frame. With 20+ objects rendering 3-5 pieces each at 60fps, this saves hundreds of instructions per frame — effectively free performance from a data format change.
 

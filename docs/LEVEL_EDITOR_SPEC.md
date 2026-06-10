@@ -417,8 +417,8 @@ ParallaxConfig_MyScene:
 Each entry is **6 bytes**, X-sorted ascending, terminated by `dc.w -1` (section-local X is always ≥ 0, so a negative first word is unambiguous as the sentinel):
 
 ```
-+0  dc.w x          ; section-local X (full 16-bit, 0–$7FF for 2048px section)
-+2  dc.w y          ; section-local Y (full 16-bit, 0–$7FF)
++0  dc.w x          ; section-local X (15-bit usable; bit 15 reserved as list terminator. 0–$7FF for 2048px section)
++2  dc.w y          ; section-local Y (15-bit usable; 0–$7FF)
 +4  dc.w flags|type|subtype
       bit 15    = OEF_ANY_Y   (spawn regardless of camera Y — §4.9 phase 2; ignored by engine until implemented)
       bit 14    = OEF_YFLIP   (Y-flip; rol.w #4 in Load_Object maps to RF_YFLIP)

@@ -136,14 +136,14 @@ enemies, etc. Premature without that signal.
 These items were identified during §3 Phase 0 research but require a full SST field audit before committing.
 
 ### SST Field Audit & Size Re-evaluation (§3)
-**Blocked by:** Implementation of animation, collision, and player subsystems (need real field usage data)
+**Note (2026-06-10):** objects-formats-v2 resolved the dead-field/metadata half of this audit — `respawn_index`, `wait_timer`, and the separate priority word are gone; entity-window metadata (`slot_tag`/`entity_section_id`/`entity_list_index`/`layer`) packed at $2A-$2D; `sst_custom` grew to 34 bytes at $2E. Still open: whether player overlays fit 34 bytes (per-pool stride / variable sizing) — re-evaluate during §5 player work.
+**Blocked by:** Implementation of player subsystem (need real player field pressure)
 **What:** Audit every SST field across all object types (player, badnik, platform, effect, boss, system) once subsystems are implemented. Determine actual field usage per type. Evaluate whether the SST can shrink from $50 to $4C or $48.
 **When ready:** After §3 Phase 3 (animation) and Phase 4 (collision) are implemented — enough subsystems exist to see real field pressure.
 
-### Word code_addr at $00 (§3)
-**Blocked by:** SST field audit (want full picture before committing field sizes)
+### ~~Word code_addr at $00 (§3)~~ — DONE (superseded by objects-v2, 2026-06-10)
+Shipped: SST $00 is a word offset from `ObjCodeBase`, `objroutine()` computes it at build time, and the object bank has a build-time 64KB overflow guard.
 **What:** Use a word offset at $00 instead of longword function pointer (sonic_hack pattern). `objroutine function x,(x)-ObjCodeBase` computes offset from a $10000-aligned code bank. Dispatch: `moveq #BANK, d0; swap d0; move.w (a0), d0; movea.l d0, a1; jsr (a1)`. Saves 2 bytes per SST, 20 cycles per dispatch (~1,320 cycles/frame across 66 slots). Constraint: all object code must fit in one 64KB bank.
-**When ready:** During SST field audit. Requires organizing object code contiguously.
 
 ### Word Mappings Offset (§3)
 **Blocked by:** SST field audit
@@ -155,13 +155,15 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **What:** Thunder Force IV uses $20/$40/$60 per-type pools. A $20 effect SST (explosions, dust, score popups, debris) shares the $00-$19 prefix with the full SST, enabling shared routines (ObjectMove, Draw_Sprite). Saves ~768 bytes at 16 effect slots. Trade-off: separate RunEffects loop, effects can't use routines that access fields past $19 (e.g., AnimateSprite needs anim_table at $28).
 **When ready:** After SST field audit determines which fields effects actually need. May be unnecessary if SST shrinks enough overall.
 
-### Pack collision_resp + width + height for Single-Longword Init (§3)
+### ~~Pack collision_resp + width + height for Single-Longword Init (§3)~~ — SUPERSEDED by objects-v2 (2026-06-10)
+The burst-copy spawn (`movem.l` of the whole $0A-$21 template block) makes per-field init moot — collision_resp/width/height arrive with everything else in one copy.
 **Blocked by:** SST field audit + Load_Object init path performance pressure
 **Source:** TheBlad768's S.C.E. and S1-in-S3 collision refactors (`d1e24ee` / `05512e4`) put `collision_type`, `collision_height`, `collision_width` adjacent so spawn init can do `move.b d0,collision_type(a0); swap d0; move.w d0,collision_height(a0)` — three bytes initialized from one ROM longword. Currently `collision_resp` is at $0F and `width_pixels`/`height_pixels` at $18-$19, so they need separate fetches.
 **What:** Reorder SST so the type byte is adjacent to the width/height pair (or move both into the $0E neighborhood). Lets objdef tables emit `dc.b coltype, colh, colw, pad` and Load_Object init reads them in one `move.l`. Rough estimate: ~10-20 cycles saved per spawn × spawn frequency. Not free — reorder breaks the current $00-$19 "shared-prefix" boundary that we may want for a future $20 effect SST, so these two items must be evaluated together.
 **When ready:** During SST field audit, alongside the effect-pool decision.
 
-### Object Data Macros (`subObjData` family) (§3)
+### ~~Object Data Macros (`subObjData` family) (§3)~~ — DONE (superseded by objects-v2, 2026-06-10)
+Shipped as the `objdef` named-parameter macro (26-byte archetype image) plus `objentry`/`objend` for placement lists — semantic args, build-time validation.
 **Blocked by:** Objdef format finalization (currently still raw `dc.b`/`dc.l` in `data/objdefs/test_objects.asm`)
 **Source:** S.C.E.'s `subObjData frame,coltype,(colh/2),(colw/2)` macro hides the field layout behind a named-parameter call so reordering SST fields doesn't ripple through every object table. Same idea for child priority data, animation script entries, etc.
 **What:** Once the objdef format is stable, wrap the byte/word emission in `function`-and-macro pairs that take semantic args (`coltype`, `colh`, `colw`, `frame`, `priority`, ...) rather than positional bytes. Uses our `function` for any /2 or shift conversion, `struct`/`endstruct` patterns where appropriate. Pure ergonomics — zero runtime cost, but it's the difference between objdef tables that read like data and ones that read like a binary blob.
@@ -268,6 +270,8 @@ the upper sections; breaks when levels place entities below the first section ro
 edges driven by Camera_Y (mirror of the X sliding window).
 **When to revisit:** when a level design places rings/objects in vertically stacked
 sections, or §4.9 phase 2.
+**Note (objects-v2, 2026-06-10):** Entity entries now carry OEF_ANY_Y (bit 15), accepted
+and discarded today — phase 2's Y-culling must honor it.
 
 ### Strip data still emitted by build tool (dead format)
 **Surfaced during:** dead-code removal 2026-06-10 (engine/level/strip_cache.asm deleted —
