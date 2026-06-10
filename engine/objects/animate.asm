@@ -149,6 +149,7 @@ AnimateSprite:
         move.b  2(a1,d1.w), d0
         lsl.w   #8, d0
         move.b  3(a1,d1.w), d0
+        tst.w   d0                      ; Z from the full word — $xx00 offsets are valid targets
         beq.s   .evt_cb_done            ; offset 0 = no-op safety
         moveq   #OBJ_CODE_BANK, d2
         swap    d2
@@ -304,6 +305,7 @@ AnimateSprite_PerFrame:
         move.b  1(a1,d1.w), d0
         lsl.w   #8, d0
         move.b  2(a1,d1.w), d0
+        tst.w   d0                      ; Z from the full word — $xx00 offsets are valid targets
         beq.s   .pf_evt_cb_done         ; offset 0 = no-op safety
         moveq   #OBJ_CODE_BANK, d2
         swap    d2
