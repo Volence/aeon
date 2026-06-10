@@ -195,6 +195,28 @@ These items were identified during §3 Phase 0 research but require a full SST f
 
 ## From §4 Phase 1 — Level/World System
 
+### Tile cache vertical slide is a memmove — circular row origin (§4.7)
+**Surfaced during:** tile cache fill rewrite 2026-06-10.
+**What:** Columns evict via circular origin (`Cache_Origin_Col`, free), but rows evict by
+shifting the whole buffer: `TileCache_VSlide`/`VSlideUp` move ~9.4 KB nametable + ~2.3 KB
+collision per 2-row evict ≈ **~47k cycles (a third of a frame) every 16 px of sustained
+vertical scroll**. Fine in the light test state; will cause lag frames under real object
+load. Fix: add a `Cache_Origin_Row` circular index. Touches every row-indexed consumer —
+`Tile_Cache_GetTile`/`GetCollision`, `TileCache_CopyBlockColumn`, `Draw_TileColumn`
+(column walks would split into two runs at the wrap, mirroring the existing NT 63/0
+split), `Draw_TileRow_FromCache`, `Section_RedrawPlanes`.
+**When to revisit:** once gameplay objects + parallax + DMA load share the frame and
+vertical traversal shows lag, or §4 vertical work touches these routines anyway.
+
+### Strip data still emitted by build tool (dead format)
+**Surfaced during:** dead-code removal 2026-06-10 (engine/level/strip_cache.asm deleted —
+it was already out of the build).
+**What:** The build tool still emits per-section strip data + checkpoints
+(`sec_strips_s4lz`, `sec_strip_checkpoints` — currently "too large for S4LZ, skipping"
+warnings every build) and the Sec struct keeps both pointer fields. The 2D block cache
+replaced strips entirely. Remove the emission, the struct fields, and the build warnings
+next time the build tool / Sec format is touched.
+
 ### Plane A wrap-cycle visible during scroll (§4.2 streaming polish)
 **Surfaced during:** §4.6 polish session 2026-04-28 (after bhi→bhs core fix + Section_Teleport_Guard increase shipped).
 

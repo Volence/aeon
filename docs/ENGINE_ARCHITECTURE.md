@@ -1975,11 +1975,17 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 
 **Collision is embedded in block data.** Each 16×16 block in the tile cache carries its collision type alongside its 2×2 nametable words. The 2D tile cache stores nametable and collision data in separate parallel arrays (80 cols × 60 rows), enabling direct indexed access to either layer.
 
-**2D Tile Cache:** The tile cache is an 80-column × 60-row linear array in RAM, covering the full section width plus preview margins. Two parallel arrays:
-- **Nametable array** (80 × 60 × 2 bytes = 9,600 bytes): VDP nametable words, one per 16×16 cell
-- **Collision array** (80 × 60 × 1 byte = 4,800 bytes): collision type bytes, one per 16×16 cell
+**2D Tile Cache:** The tile cache is an 80-column × 60-row linear array in RAM, covering the viewport plus margins (20 columns each side, 16 rows above/below). Two parallel arrays:
+- **Nametable array** (80 × 60 × 2 bytes = 9,600 bytes): VDP nametable words, one per 8×8 tile
+- **Collision array** (80 × 30 × 1 byte = 2,400 bytes): collision type bytes, one per 16px cell (full tile-column resolution horizontally, 2-tile cells vertically)
 
-The linear layout enables direct 2D indexing: `cache[col + row * 80]`. No ring-buffer rotation, no slot remapping at teleport — the sliding window shifts by adjusting origin offsets.
+The linear layout enables direct 2D indexing: `cache[col + row * 80]`. Columns slide via a circular origin (`Cache_Origin_Col` — eviction is free); rows slide via memmove (`TileCache_VSlide`/`VSlideUp` — see DEFERRED_WORK for the circular-row follow-up). **`Cache_Top_Row` is always even**: init/reinit round down, vertical eviction and upward extension step by 2 tile rows. This keeps 16px collision cells aligned with world block data — an odd top row would skew every collision lookup by half a cell.
+
+**Cache fill (as shipped, 2026-06-10):**
+- **Block staging cache:** decompressed 16×16-tile blocks land in a 12-slot staging cache (`Block_Stage_Buffers`, 640 bytes/slot, keyed by packed sec_x|sec_y|block_index, round-robin evict). Column fills cross 4–5 blocks vertically and row fills cross 6 horizontally; without staging, each block would be re-decompressed up to 16 times as the cache slides across it (~94% redundant work). 12 slots let a column fill and a row fill coexist on diagonal scroll.
+- **Per-frame decompress budget:** `TileCache_FillColumn` draws from a shared frame allowance (`BLOCK_DECOMP_BUDGET` = 6 blocks, reset in `Tile_Cache_Fill`). Steady-state horizontal scroll costs ~0.3 decompresses per column (staging absorbs the rest); a cold block-column burst (≤5) fits in one frame's budget. Row fills are unbudgeted (synchronous) — they ride the staging cache instead.
+- **Keyed partial resume:** a budget-out stores `Cache_Fill_Resume_Col/Row`; the next frame finishes that exact column before extending either edge. Both edges commit their bound *before* filling, so at most one partial is ever outstanding and a budget-out simply ends column work for the frame.
+- **FillRow copies collision too:** the odd row of each 16px cell (cell-completing row, well-defined because Top is even) writes the cell's collision byte alongside the nametable words.
 
 **Runtime collision lookup** reads directly from the tile cache — no separate collision maps, no per-section decompression, no slot rotation at teleport. The tile cache already has the data:
 ```asm
