@@ -154,12 +154,8 @@ Enqueue_Dirty_Buffers:
 .no_spr:
         ; §4.6: enqueue HScroll DMA when a parallax_config is active.
         ; Mode auto-selected: any H-deform table → per-line (896B), else per-cell (112B).
-        ; Pointer validated against ROM range to survive the deferred-work
-        ; intermittent clobber that produces garbage like $FF71FF71.
         move.l  (Parallax_Current_Config).w, d0
         beq.s   .hs_cell                            ; NULL → per-cell default
-        cmpi.l  #$00400000, d0
-        bhs.s   .hs_cell                            ; outside ROM = garbage → per-cell default
         movea.l d0, a1
         move.l  parallax_config_pcfg_deform_table_fg(a1), d0
         or.l    parallax_config_pcfg_deform_table_bg(a1), d0

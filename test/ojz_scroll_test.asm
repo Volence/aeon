@@ -253,8 +253,6 @@ GameState_OJZScroll_Update:
 .mode_have_config:
         cmpa.w  #0, a0
         beq.s   .mode_default
-        cmpi.l  #$00400000, a0
-        bhs.s   .mode_default
         moveq   #%10, d0                     ; per-cell H baseline
         move.l  parallax_config_pcfg_deform_table_fg(a0), d1
         or.l    parallax_config_pcfg_deform_table_bg(a0), d1

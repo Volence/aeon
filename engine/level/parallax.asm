@@ -119,11 +119,9 @@ Vscroll_Write:
         lea     (VDP_CTRL).l, a5
         move.l  #vdpComm(0, VSRAM, WRITE), (a5)
 
-        ; per-column or whole-plane? Validate config ptr first.
+        ; per-column or whole-plane?
         move.l  (Parallax_Current_Config).w, d0
         beq.s   .whole_plane
-        cmpi.l  #$00400000, d0
-        bhs.s   .whole_plane                        ; outside ROM = garbage
         movea.l d0, a0
         move.l  parallax_config_pcfg_v_deform_table_bg(a0), d0
         beq.s   .whole_plane
@@ -175,12 +173,8 @@ Parallax_Update:
 .use_current:
         move.l  (Parallax_Current_Config).w, d0
 .config_resolved:
-        ; Validate config: 0 = inert; otherwise must be in ROM range
-        ; (< $400000 = 4MB). Defensive against the deferred-work intermittent
-        ; clobber that produces garbage like $FF71FF71.
+        ; 0 = inert (no parallax config active)
         beq.w   .no_config
-        cmpi.l  #$00400000, d0
-        bhs.w   .no_config                          ; outside ROM = garbage
         movea.l d0, a0
 
         moveq   #0, d7
@@ -288,10 +282,10 @@ Parallax_Update:
         ; BG: target_b  = ((camY - v_center_y) >> v_factor_bg) + v_offset
         ;     current_vscroll_bg += (target_b - current_vscroll_bg) >> PARALLAX_LERP_SHIFT
         ;
-        ; Lock sentinel: v_factor_bg = 15 → skip lerp, pin BG = 0. Used by
-        ; configs that want the BG plane vertically locked regardless of
-        ; Camera_Y. Workaround for §4.6 deferred Camera_Y intermittent
-        ; clobber; remove once that's root-caused.
+        ; Lock sentinel: v_factor_bg = 15 → skip lerp, pin BG = vOffset.
+        ; For configs that want the BG plane vertically locked regardless
+        ; of Camera_Y (originally a clobber workaround; kept as a feature —
+        ; the clobber was root-caused 2026-06-10: TestPlayer d7 stomp).
         move.l  (Camera_Y).w, d0
         swap    d0                                  ; d0.w = camY (signed pixels)
         move.w  d0, d1                              ; d1.w = camY  (FG vscroll)

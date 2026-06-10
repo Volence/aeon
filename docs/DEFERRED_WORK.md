@@ -345,7 +345,11 @@ try live-stepping — too much state, too much MCP-level uncertainty.
 
 ---
 
-### §4.6 visual artifacts blocked on root-cause of state clobber
+### §4.6 visual artifacts blocked on root-cause of state clobber — RE-TEST (clobber fixed 2026-06-10)
+
+**Update 2026-06-10:** the upstream clobber is root-caused and fixed (TestPlayer
+d7 stomp — see the clobber entry below). All three artifacts need re-testing
+with the corruption gone before any further individual debugging.
 
 **Surfaced during:** §4.6 T12 testing, expanded in T12 polish session 2026-04-27.
 
@@ -506,7 +510,24 @@ The `OJZScroll_Update` per-frame logic writes a section-id-keyed color into `Pal
 
 **Bare-minimum reproduction:** Remove `deformBg=DeformTable_Zero` from `ParallaxConfig_OJZ_Default`, build, load OJZ scroll test, scroll right. FG bricks scroll correctly only on top 28 scanlines; rest of the screen shows plane A column 0 stuck.
 
-### Parallax_Current_Config / Camera_Y intermittent clobber (§4.6) — investigation
+### ~~Parallax_Current_Config / Camera_Y intermittent clobber (§4.6)~~ — ROOT-CAUSED + FIXED 2026-06-10
+**Root cause:** `TestPlayer_Main` read `Ctrl_1_Press` into **d7 — the RunObjects
+loop counter** (object routines must preserve a0/d7). Every press edge extended
+the player slot loop by the press bitmask value: the dispatcher marched up to
+255 slots past `Player_1`, re-running live objects, then executing free-stack
+words and arbitrary RAM as `code_addr` offsets into `ObjCodeBase`. Real object
+routines invoked on garbage "slots" wrote SST fields through a0 at arbitrary
+RAM (the zeroing symptom); level data executing as code produced stray writes
+like `$FF71FF71` (the garbage symptom) or ILLEGAL INSTRUCTION (live crash
+captured in Exodus 2026-06-10: a0=$FFFF9E14 = Dynamic_Free_Stack, d7=1,
+caller RunObjects.always_next, jump target OJZ_SEC2_BLOCKS+$1640).
+**Fix:** press bits moved to d4 (`objects/test_player.asm`); debug builds now
+assert the a0/d7 loop contract after every dispatch (`Debug_AssertObjLoop`,
+`engine/objects/core.asm`). Pointer-validation band-aids removed from
+`Enqueue_Dirty_Buffers`, `Parallax_Update`, `Vscroll_Write`, and the OJZ test
+mode-set-3 force. Re-test the three §4.6 visual artifacts (section below).
+
+Original investigation notes kept for reference:
 **Surfaced during:** §4.6 T12 testing (2026-04-27).
 **Symptom:** During §4.6 T12 v2 debugging, multiple MCP reads showed
 `Parallax_Current_Config = $00000000` and `Camera_Y = 0` even though
