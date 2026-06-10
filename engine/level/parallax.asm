@@ -202,35 +202,35 @@ Parallax_Update:
         moveq   #0, d3                              ; d3 = previous-band current_a (for inheritance)
         moveq   #0, d4                              ; d4 = previous-band current_b
 
-        ; If Parallax_Snap_Pending is set (post-teleport), the band loop
-        ; below writes target_scroll directly to current_scroll instead of
-        ; lerping — avoids the visible "scroll catch-up" when Camera_X
-        ; jumps SECTION_SHIFT pixels at teleport. Flag is cleared at the
-        ; end of the band loop, one-shot per teleport.
+        ; Plane A (factor_a) is HARD-LOCKED to its factor-derived target —
+        ; never lerped. The FG streaming engine draws columns in a
+        ; camera-anchored 64-col window, so any FG scroll offset from the
+        ; camera drags the plane-wrap seam into view at the screen edge
+        ; (an always-on lerp trailed the camera by ~15 × velocity; even a
+        ; 16-frame transition lerp drifts ~240 px at 16 px/frame and then
+        ; visibly snaps). Transition smoothing is a plane B effect.
+        ;
+        ; Plane B (factor_b) lerps ONLY during an active section
+        ; transition (Transition_Frames > 0) — easing between the two
+        ; configs' BG factors. Outside transitions it locks to target.
+        ; Parallax_Snap_Pending (post-teleport) forces the snap path —
+        ; Camera_X just jumped SECTION_SHIFT pixels, no lerp can catch up.
 
 .band_loop:
         btst    d5, d6
         beq.s   .band_disabled
 
-        ; -- factor_a: target into d2, lerp/snap into current --
+        ; -- factor_a: hard-locked, current_a = target every frame --
         bsr.w   Decode_Factor_A                     ; out: d2 = -decode(camX, factor_a)
-        tst.b   (Parallax_Snap_Pending).w
-        bne.s   .snap_a
-        move.w  (a2), d1                            ; current_a
-        sub.w   d1, d2                              ; delta = target - current
-        asr.w   #PARALLAX_LERP_SHIFT, d2
-        add.w   d2, d1                              ; current_a += delta >> shift
-        bra.s   .write_a
-.snap_a:
-        move.w  d2, d1                              ; snap: current_a = target
-.write_a:
-        move.w  d1, (a2)
-        move.w  d1, d3                              ; remember for inheritance
+        move.w  d2, (a2)
+        move.w  d2, d3                              ; remember for inheritance
 
-        ; -- factor_b --
+        ; -- factor_b: lerp during transition, else lock --
         bsr.w   Decode_Factor_B                     ; out: d2 = -decode(camX, factor_b)
         tst.b   (Parallax_Snap_Pending).w
         bne.s   .snap_b
+        tst.b   (Parallax_Transition_Frames).w
+        beq.s   .snap_b                             ; no transition — lock to target
         move.w  (a3), d1
         sub.w   d1, d2
         asr.w   #PARALLAX_LERP_SHIFT, d2
@@ -305,13 +305,17 @@ Parallax_Update:
 
         tst.b   (Parallax_Snap_Pending).w
         bne.s   .v_snap
+        tst.b   (Parallax_Transition_Frames).w
+        beq.s   .v_snap                             ; no transition — lock to target
         move.w  (Parallax_Current_Vscroll_BG).w, d2
         sub.w   d2, d0
         asr.w   #PARALLAX_LERP_SHIFT, d0
         add.w   d0, d2                              ; d2 = new current_vscroll_bg
         bra.s   .v_pack
 .v_snap:
-        move.w  d0, d2
+        move.w  d0, d2                              ; snap: current = target
+        bra.s   .v_pack                             ; (was falling into .v_locked,
+                                                    ;  clobbering the snap with vOffset)
 .v_locked:
         ; locked: BG = vOffset (static, ignores camera + lerp)
         ; FG follows camY (d1 already loaded with camY at function entry).
