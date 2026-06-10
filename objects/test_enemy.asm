@@ -3,9 +3,15 @@
 ; Load_Object from ObjDef_Enemy. This code handles behavior-specific init only.
 
 ; Custom SST fields (overlay on sst_custom)
-_enemy_patrol_left      = SST_sst_custom
-_enemy_patrol_right     = SST_sst_custom+2
-_enemy_direction        = SST_sst_custom+4
+TEnemyV struct
+patrol_left     ds.w 1
+patrol_right    ds.w 1
+direction       ds.b 1
+TEnemyV endstruct
+        objvars_check TEnemyV_len
+_enemy_patrol_left      = SST_sst_custom+TEnemyV_patrol_left
+_enemy_patrol_right     = SST_sst_custom+TEnemyV_patrol_right
+_enemy_direction        = SST_sst_custom+TEnemyV_direction
 
 ENEMY_PATROL_SPEED      = $100
 ENEMY_PATROL_RANGE      = 48

@@ -1,9 +1,14 @@
 ; Test object — animated Sonic walk cycle with DPLC art streaming
 
-; Custom SST field offsets (inside sst_custom)
+; Custom SST field offsets (inside sst_custom — shared layout with TestPlayer)
     ifndef _dplc_ptr
-_dplc_ptr       = SST_sst_custom            ; long — DPLC table pointer (ROM)
-_art_base       = SST_sst_custom+4          ; long — uncompressed art base (ROM)
+DplcV struct
+dplc_ptr        ds.l 1                  ; DPLC table pointer (ROM)
+art_base        ds.l 1                  ; uncompressed art base (ROM)
+DplcV endstruct
+        objvars_check DplcV_len
+_dplc_ptr       = SST_sst_custom+DplcV_dplc_ptr
+_art_base       = SST_sst_custom+DplcV_art_base
     endif
 
 ; -----------------------------------------------

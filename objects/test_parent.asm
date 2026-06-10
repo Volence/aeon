@@ -2,13 +2,25 @@
 ; Demonstrates CreateChild_Normal lifecycle + DeleteChildren cascade.
 ; Now also demos moving-parent-children-follow via stored child offsets.
 
-_parent_life_timer      = SST_sst_custom        ; word — countdown to self-destruct
-_parent_x_dir           = SST_sst_custom + 2    ; byte — 0 = right, 1 = left
+; Parent custom layout
+TParentV struct
+life_timer      ds.w 1                  ; countdown to self-destruct
+x_dir           ds.b 1                  ; 0 = right, 1 = left
+TParentV endstruct
+        objvars_check TParentV_len
+_parent_life_timer      = SST_sst_custom+TParentV_life_timer
+_parent_x_dir           = SST_sst_custom+TParentV_x_dir
 
 ; Child custom layout (same SST_sst_custom region, different fields):
-_child_angle            = SST_sst_custom        ; byte — current orbit angle (0-255)
-_child_phase_offset     = SST_sst_custom + 1    ; byte — initial phase (per-child)
-_child_radius           = SST_sst_custom + 2    ; word — orbit radius in pixels
+TOrbitChildV struct
+angle           ds.b 1                  ; current orbit angle (0-255)
+phase_offset    ds.b 1                  ; initial phase (per-child)
+radius          ds.w 1                  ; orbit radius in pixels
+TOrbitChildV endstruct
+        objvars_check TOrbitChildV_len
+_child_angle            = SST_sst_custom+TOrbitChildV_angle
+_child_phase_offset     = SST_sst_custom+TOrbitChildV_phase_offset
+_child_radius           = SST_sst_custom+TOrbitChildV_radius
 
 PARENT_LIFETIME         = 180                   ; frames before self-destruct (3 seconds)
 PARENT_SPEED            = 1                     ; px/frame swing rate

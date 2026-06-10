@@ -1,7 +1,11 @@
 ; Test emitter — spawns particles at a fixed interval
 ; Placed in the test scene to demonstrate effect pool lifecycle.
 
-_emitter_timer          = SST_sst_custom        ; word — countdown to next spawn
+TEmitterV struct
+timer           ds.w 1                  ; countdown to next spawn
+TEmitterV endstruct
+        objvars_check TEmitterV_len
+_emitter_timer          = SST_sst_custom+TEmitterV_timer
 EMITTER_INTERVAL        = 30                    ; frames between spawns
 
 ; -----------------------------------------------

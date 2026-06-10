@@ -3,10 +3,21 @@
 
 ; Custom SST field offsets (shared layout with TestAnimated)
     ifndef _dplc_ptr
-_dplc_ptr       = SST_sst_custom            ; long — DPLC table pointer (ROM)
-_art_base       = SST_sst_custom+4          ; long — uncompressed art base (ROM)
+DplcV struct
+dplc_ptr        ds.l 1                  ; DPLC table pointer (ROM)
+art_base        ds.l 1                  ; uncompressed art base (ROM)
+DplcV endstruct
+        objvars_check DplcV_len
+_dplc_ptr       = SST_sst_custom+DplcV_dplc_ptr
+_art_base       = SST_sst_custom+DplcV_art_base
     endif
-_debug_flag     = SST_sst_custom+8          ; byte — 1 = debug free-flight mode
+; Player-only layout: reserves shared DPLC prefix, adds debug_flag at +8
+TPlayerV struct
+dplc_pair       ds.b DplcV_len          ; shared DPLC overlay prefix (see DplcV)
+debug_flag      ds.b 1
+TPlayerV endstruct
+        objvars_check TPlayerV_len
+_debug_flag     = SST_sst_custom+TPlayerV_debug_flag
 
 ; -----------------------------------------------
 ; Physics constants (S2/S.C.E. reference values)

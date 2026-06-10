@@ -47,6 +47,19 @@ objroutine  function x, (x)-ObjCodeBase
 ;   Label struct / Label endstruct
 ; Auto-generates Label_len. No custom macros needed.
 
+; objvars_check — assert a per-object custom struct fits sst_custom
+; Usage:  MyV struct
+;           field ds.w 1
+;         MyV endstruct
+;         objvars_check MyV_len
+; Short accessor equates are then derived from the struct:
+;         _field = SST_sst_custom+MyV_field
+objvars_check macro structlen
+    if (structlen) > SST_CUSTOM_SIZE
+        fatal "object custom vars overflow sst_custom by \{(structlen)-SST_CUSTOM_SIZE} bytes"
+    endif
+        endm
+
 ; -----------------------------------------------
 ; Hardware control macros
 ; -----------------------------------------------

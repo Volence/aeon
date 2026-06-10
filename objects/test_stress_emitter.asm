@@ -3,7 +3,11 @@
 
 STRESS_EMITTER_INTERVAL = 8
 
-_stress_timer           = SST_sst_custom
+TStressEmitterV struct
+timer           ds.w 1                  ; countdown to next spawn
+TStressEmitterV endstruct
+        objvars_check TStressEmitterV_len
+_stress_timer           = SST_sst_custom+TStressEmitterV_timer
 
 ; -----------------------------------------------
 ; TestStressEmitter — init
