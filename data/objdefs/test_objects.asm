@@ -12,6 +12,3 @@ ObjDef_Enemy:
 ObjDef_Parent:
         objdef code=TestParent, map=Map_TestObj, art=vram_art(VRAM_TEST_OBJ,0,0), zpri=3
 
-    if (*-ObjDef_Parent) <> 26
-      error "objdef emitted \{*-ObjDef_Parent} bytes, expected 26"
-    endif

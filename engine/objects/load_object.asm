@@ -22,13 +22,14 @@
 ;             Direct spawns pass plain subtype (bits 13-15 clear).
 ; Out: Z set = success, a1 = new SST pointer
 ;      Z clear = allocation failed
-; Clobbers: d0-d4, a1-a3
+; Clobbers: d0-d3, a1-a3
 ; -----------------------------------------------
 Load_Object:
         movem.l d0-d2/a1, -(sp)
         jsr     AllocDynamic
         bne.w   .alloc_fail
         movem.l (sp)+, d0-d2/a2        ; a2 = template (saved a1), a1 = new SST
+        move.l  d4, -(sp)              ; preserve d4 — caller (EntityWindow_ScanObjectsRight) reads it after return
 
         ; --- burst copy: code_addr word + 24-byte template block ---
         move.w  (a2)+, SST_code_addr(a1)
@@ -66,6 +67,7 @@ Load_Object:
         move.w  (a3,d3.w), d3
         move.b  d3, SST_sprite_piece_count(a1)
 .no_piece_count:
+        move.l  (sp)+, d4
         moveq   #0, d0                 ; Z set = success
         rts
 

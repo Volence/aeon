@@ -558,7 +558,7 @@ EntityWindow_ScanObjectsRight:
         movem.l (sp)+, d0/d2/a0
         bne.s   .obj_skip
 
-        ; Spawn this object (d5 stashes section_id; a3 saved: Load_Object clobbers it)
+        ; Spawn this object (d5 stashes section_id; a3 saved: Load_Object clobbers it; d4-d7 preserved by Load_Object)
         movem.l d3-d7/a0-a1/a3, -(sp)
 
         moveq   #0, d5

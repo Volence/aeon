@@ -137,6 +137,7 @@ ODZ_BITS set 0
     if "statbits" <> ""
 ODZ_BITS set statbits
     endif
+ODZ_START set *
         dc.w objroutine(code)                           ; $00 code_addr
         dc.w ODZ_XV, ODZ_YV                             ; $0A x_vel, $0C y_vel
         dc.b ODZ_RFVAL|(ODZ_PB<<RF_PRIORITY_SHIFT)      ; $0E render_flags (priority in bits 5-7)
@@ -148,6 +149,9 @@ ODZ_BITS set statbits
         dc.l ODZ_ATBL                                   ; $1A anim_table
         dc.b ODZ_BITS, 0                                ; $1E status, $1F angle
         dc.w 0                                          ; $20-$21 pad (copied, then re-inited)
+    if (*-ODZ_START) <> 26
+        fatal "objdef emitted \{*-ODZ_START} bytes, expected 26"
+    endif
         endm
 
 ; -----------------------------------------------
