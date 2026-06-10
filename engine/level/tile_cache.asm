@@ -81,15 +81,89 @@ Tile_Cache_GetCollision:
         rts
 
 ; -----------------------------------------------
-; TileCache_DecompressBlock — decompress one 16×16 block into staging buffer
+; BlockStage_PtrTable — ROM table of staging slot base addresses.
+; Parallel to Block_Stage_Keys; slot N's nametable starts here, collision
+; follows at +BLOCK_NT_SIZE.
+; -----------------------------------------------
+BlockStage_PtrTable:
+BLKSTG_I set 0
+        rept BLOCK_STAGE_SLOTS
+        dc.l Block_Stage_Buffers + BLKSTG_I * BLOCK_RAW_SIZE
+BLKSTG_I set BLKSTG_I + 1
+        endm
+
+; -----------------------------------------------
+; TileCache_FindStagedBlock — probe staging cache for a decompressed block
 ; In:  d0.w = sec_x, d1.w = sec_y, d2.w = block_index (0–255)
-; Out: Block_Stage_Nametable and Block_Stage_Collision filled
+; Out: Z set + a1 = slot base (nametable; collision at +BLOCK_NT_SIZE) on hit;
+;      Z clear on miss (a1 trashed). d0–d2 preserved.
+; Clobbers: d3-d4, a1
+; -----------------------------------------------
+TileCache_FindStagedBlock:
+        move.w  d0, d3
+        lsl.w   #8, d3
+        move.b  d1, d3
+        swap    d3
+        move.w  d2, d3                         ; d3.l = key (sec_x|sec_y|block_index)
+        lea     (Block_Stage_Keys).w, a1
+        moveq   #BLOCK_STAGE_SLOTS-1, d4
+.probe:
+        cmp.l   (a1)+, d3
+        dbeq    d4, .probe
+        bne.s   .miss
+        ; slot index × 4 = (a1 - 4) - Block_Stage_Keys
+        move.w  a1, d3
+        subi.w  #(Block_Stage_Keys+4) & $FFFF, d3
+        lea     BlockStage_PtrTable(pc), a1
+        movea.l (a1, d3.w), a1                 ; a1 = slot base
+        moveq   #0, d3                         ; Z set (hit)
+        rts
+.miss:
+        moveq   #1, d3                         ; Z clear (miss)
+        rts
+
+; -----------------------------------------------
+; TileCache_InvalidateStaging — empty all staging slots
+; Clobbers: d0, a0
+; -----------------------------------------------
+TileCache_InvalidateStaging:
+        lea     (Block_Stage_Keys).w, a0
+        moveq   #BLOCK_STAGE_SLOTS-1, d0
+.inv:
+        move.l  #-1, (a0)+
+        dbf     d0, .inv
+        clr.w   (Block_Stage_Next).w
+        rts
+
+; -----------------------------------------------
+; TileCache_DecompressBlock — decompress one 16×16 block into a staging slot
+; Claims the next round-robin slot and records the key, so subsequent
+; TileCache_FindStagedBlock probes hit it.
+; In:  d0.w = sec_x, d1.w = sec_y, d2.w = block_index (0–255)
+; Out: a1 = slot base (nametable; collision at +BLOCK_NT_SIZE)
 ; Clobbers: d0-d5, a0-a3
 ; -----------------------------------------------
 TileCache_DecompressBlock:
-        move.w  d2, (Block_Stage_ID).w
-        move.b  d0, (Block_Stage_Section_X).w
-        move.b  d1, (Block_Stage_Section_Y).w
+        ; claim next round-robin slot, record key
+        move.w  d0, d3
+        lsl.w   #8, d3
+        move.b  d1, d3
+        swap    d3
+        move.w  d2, d3                         ; d3.l = key
+        move.w  (Block_Stage_Next).w, d4
+        move.w  d4, d5
+        addq.w  #1, d5
+        cmpi.w  #BLOCK_STAGE_SLOTS, d5
+        blt.s   .rr_ok
+        moveq   #0, d5
+.rr_ok:
+        move.w  d5, (Block_Stage_Next).w
+        add.w   d4, d4
+        add.w   d4, d4                         ; slot index × 4
+        lea     (Block_Stage_Keys).w, a1
+        move.l  d3, (a1, d4.w)
+        lea     BlockStage_PtrTable(pc), a1
+        movea.l (a1, d4.w), a3                 ; a3 = dest slot base
 
         movea.l (Current_Act_Ptr).w, a0
         movea.l Act_sec_grid_ptr(a0), a1
@@ -123,45 +197,33 @@ TileCache_DecompressBlock:
 
         ; compute absolute ROM address: base + offset
         lea     (a2, d0.l), a0                 ; a0 = compressed block data
-        lea     (Block_Stage_Nametable).l, a1
+        movea.l a3, a1
+        move.l  a3, -(sp)                      ; S4LZ_Decompress clobbers a3, advances a1
         bsr.w   S4LZ_Decompress
+        movea.l (sp)+, a1                      ; a1 = slot base
         rts
 
 .empty_block:
-        lea     (Block_Stage_Nametable).l, a0
+        movea.l a3, a0
         move.w  #(BLOCK_RAW_SIZE/4)-1, d0
 .zero_loop:
         clr.l   (a0)+
         dbf     d0, .zero_loop
+        movea.l a3, a1
         rts
 
 ; -----------------------------------------------
-; TileCache_StagedBlockMatch — check if staging buffer already holds the needed block
-; In:  d0.w = sec_x, d1.w = sec_y, d2.w = block_index
-; Out: Z set if match (staging buffer valid), Z clear if miss
-; Clobbers: d3
-; -----------------------------------------------
-TileCache_StagedBlockMatch:
-        cmp.w   (Block_Stage_ID).w, d2
-        bne.s   .miss
-        cmp.b   (Block_Stage_Section_X).w, d0
-        bne.s   .miss
-        cmp.b   (Block_Stage_Section_Y).w, d1
-        bne.s   .miss
-        moveq   #0, d3                         ; Z set
-        rts
-.miss:
-        moveq   #1, d3                         ; Z clear
-        rts
-
-; -----------------------------------------------
-; TileCache_CopyBlockColumn — copy one column from staging to cache
+; TileCache_CopyBlockColumn — copy a vertical run of one block column into cache
 ; In:  d0.w = intra-block col (0–15)
 ;      d1.w = cache col offset (world_col - Cache_Left_Col)
-;      d2.w = cache row offset (world_row_of_block_top - Cache_Top_Row)
-;      d3.w = rows to copy (already clamped to cache bounds)
-; Out: none
-; Clobbers: d0-d5, a0-a2
+;      d2.w = dest cache row offset (world_row - Cache_Top_Row); even
+;      d3.w = rows to copy (> 0, even)
+;      d4.w = source start row within block (0–15, even)
+;      a1   = staged block base (nametable; collision at +BLOCK_NT_SIZE)
+; Out: none; a1 preserved
+; Clobbers: d0-d3, d5, a0, a2
+; Note: d2/d3/d4 even is guaranteed because Cache_Top_Row is kept even and
+;       block tops are multiples of 16 — collision halving stays exact.
 ; -----------------------------------------------
 TileCache_CopyBlockColumn:
         ; wrap d1 (logical cache col) to physical column via circular origin
@@ -170,54 +232,59 @@ TileCache_CopyBlockColumn:
         blt.s   .col_nowrap
         subi.w  #TILE_CACHE_COLS, d1
 .col_nowrap:
-        ; source: Block_Stage_Nametable + (row * 16 + col) * 2
-        lea     (Block_Stage_Nametable).l, a0
-        move.w  d0, d4
-        add.w   d4, d4                         ; col * 2 (byte offset for first row)
-        adda.w  d4, a0                         ; a0 = first tile word in column
-
-        ; dest: Tile_Cache_Nametable + (cache_row * stride + cache_col) * 2
-        lea     (Tile_Cache_Nametable).l, a1
-        move.w  d2, d4
+        ; source: slot base + (src_row * 16 + col) * 2
+        movea.l a1, a0
         move.w  d4, d5
-        lsl.w   #6, d4
-        lsl.w   #4, d5
-        add.w   d5, d4                         ; d4 = cache_row * 80
-        add.w   d1, d4                         ; + cache_col
-        add.w   d4, d4                         ; byte offset
-        adda.w  d4, a1
+        lsl.w   #5, d5                         ; src_row * 32 bytes
+        adda.w  d5, a0
+        move.w  d0, d5
+        add.w   d5, d5                         ; col * 2
+        adda.w  d5, a0                         ; a0 = first tile word in run
 
-        move.w  d3, d4
-        subq.w  #1, d4
+        ; dest: Tile_Cache_Nametable + (dest_row * stride + cache_col) * 2
+        ; ×80 = ((x<<2)+x)<<4 — single temp
+        move.w  d2, d5
+        lsl.w   #2, d5
+        add.w   d2, d5
+        lsl.w   #4, d5                         ; d5 = dest_row * 80
+        add.w   d1, d5                         ; + cache_col
+        add.w   d5, d5                         ; byte offset
+        lea     (Tile_Cache_Nametable).l, a2
+        adda.w  d5, a2
+
+        move.w  d3, d5
+        subq.w  #1, d5
 .copy_nt:
-        move.w  (a0), (a1)
+        move.w  (a0), (a2)
         lea     BLOCK_TILE_SIZE*2(a0), a0      ; next block row (32 bytes)
-        lea     TILE_CACHE_STRIDE*2(a1), a1    ; next cache row (160 bytes)
-        dbf     d4, .copy_nt
+        lea     TILE_CACHE_STRIDE*2(a2), a2    ; next cache row (160 bytes)
+        dbf     d5, .copy_nt
 
-        ; collision: copy corresponding collision column
-        lea     (Block_Stage_Collision).l, a0
-        adda.w  d0, a0                         ; col offset (bytes, not words)
-
-        lea     (Tile_Cache_Collision).l, a1
-        move.w  d2, d4
-        lsr.w   #1, d4                         ; cache tile row → collision row
+        ; collision: src = slot base + BLOCK_NT_SIZE + (src_row/2)*16 + col
+        lea     BLOCK_NT_SIZE(a1), a0
         move.w  d4, d5
-        lsl.w   #6, d4
-        lsl.w   #4, d5
-        add.w   d5, d4                         ; collision_row * 80
-        add.w   d1, d4
-        adda.w  d4, a1
+        lsl.w   #3, d5                         ; (src_row/2) * 16 = src_row * 8
+        adda.w  d5, a0
+        adda.w  d0, a0                         ; + col (bytes, not words)
 
-        move.w  d3, d4
-        lsr.w   #1, d4                         ; tile rows → collision rows
-        subq.w  #1, d4
+        ; dest: Tile_Cache_Collision + (dest_row/2)*80 + cache_col
+        lsr.w   #1, d2                         ; dest collision row
+        move.w  d2, d5
+        lsl.w   #2, d5
+        add.w   d2, d5
+        lsl.w   #4, d5                         ; collision_row * 80
+        add.w   d1, d5
+        lea     (Tile_Cache_Collision).l, a2
+        adda.w  d5, a2
+
+        lsr.w   #1, d3                         ; tile rows → collision rows
+        subq.w  #1, d3
         bmi.s   .done_coll
 .copy_coll:
-        move.b  (a0), (a1)
+        move.b  (a0), (a2)
         lea     BLOCK_TILE_SIZE(a0), a0        ; next collision row in block (16 bytes)
-        lea     TILE_CACHE_STRIDE(a1), a1      ; next collision row in cache (80 bytes)
-        dbf     d4, .copy_coll
+        lea     TILE_CACHE_STRIDE(a2), a2      ; next collision row in cache (80 bytes)
+        dbf     d3, .copy_coll
 .done_coll:
         rts
 
@@ -243,7 +310,7 @@ Tile_Cache_Init:
         move.w  d0, (Cache_Head_Col).w
         clr.w   (Cache_Origin_Col).w
         move.w  #$FFFF, (Cache_Fill_Last_Frame).w
-        move.w  #$FFFF, (Cache_Fill_Resume_Row).w
+        move.w  #$FFFF, (Cache_Fill_Resume_Col).w
 
         move.l  (Camera_Y).w, d0
         swap    d0
@@ -253,12 +320,12 @@ Tile_Cache_Init:
         bpl.s   .top_ok
         moveq   #0, d0
 .top_ok:
+        andi.w  #$FFFE, d0                     ; keep Cache_Top_Row even (collision cell alignment)
         move.w  d0, (Cache_Top_Row).w
         addi.w  #TILE_CACHE_ROWS-1, d0
         move.w  d0, (Cache_Bottom_Row).w
 
-        ; invalidate block staging
-        move.w  #$FFFF, (Block_Stage_ID).w
+        bsr.w   TileCache_InvalidateStaging
 
         bsr.w   TileCache_FillAll
         rts
@@ -345,23 +412,33 @@ TileCache_FillAll:
         cmpi.w  #TILE_CACHE_COLS, d1
         bge.s   .fill_skip_col
 
-        ; cache row offset = block_top_tile - Cache_Top_Row
+        ; dest row offset = block_top_tile - Cache_Top_Row.
+        ; If the block straddles the cache top, clip dest to row 0 and
+        ; offset the SOURCE by the clipped amount instead.
         move.w  d5, d2
-        sub.w   (Cache_Top_Row).w, d2
-        bmi.s   .fill_skip_col
-
-        moveq   #BLOCK_TILE_SIZE, d3           ; rows to copy
-        ; clamp to remaining cache rows
-        move.w  #TILE_CACHE_ROWS, d7
+        sub.w   (Cache_Top_Row).w, d2          ; signed dest row
+        move.w  d2, d7
+        bpl.s   .fill_no_clip
+        moveq   #0, d2
+.fill_no_clip:
         sub.w   d2, d7
+        neg.w   d7                             ; d7 = source start row (0 if no clip)
+        cmpi.w  #BLOCK_TILE_SIZE, d7
+        bge.s   .fill_skip_col                 ; block entirely above cache
+
+        ; rows = min(TILE_CACHE_ROWS - dest_row, BLOCK_TILE_SIZE - src_start)
+        move.w  #TILE_CACHE_ROWS, d3
+        sub.w   d2, d3
+        ble.s   .fill_skip_col                 ; block entirely below cache
+        neg.w   d7
+        addi.w  #BLOCK_TILE_SIZE, d7           ; d7 = rows available in block
         cmp.w   d7, d3
         ble.s   .fill_rows_ok
         move.w  d7, d3
 .fill_rows_ok:
-        tst.w   d3
-        ble.s   .fill_skip_col
-
         movem.l d0/d4-d6, -(sp)
+        move.w  #BLOCK_TILE_SIZE, d4
+        sub.w   d7, d4                         ; d4 = source start row
         bsr.w   TileCache_CopyBlockColumn
         movem.l (sp)+, d0/d4-d6
 .fill_skip_col:
@@ -372,7 +449,7 @@ TileCache_FillAll:
         ; next block col
         addq.w  #1, d6
         cmp.w   4(sp), d6                     ; compare with end_block_col
-        ble.s   .block_col_loop
+        ble.w   .block_col_loop
 
         ; next block row
         move.w  2(sp), d0
@@ -393,12 +470,40 @@ TileCache_FillAll:
 ; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 Tile_Cache_Fill:
-        ; --- frame gate: at most one fill per physical frame ---
+        ; --- frame gate: at most one fill pass per physical frame ---
         ; Frame_Counter only increments in VBlank, so all game-loop
         ; iterations within the same VBlank period see the same value.
         move.w  (Frame_Counter).w, d0
         cmp.w   (Cache_Fill_Last_Frame).w, d0
         beq.w   .fill_return
+        move.w  d0, (Cache_Fill_Last_Frame).w
+
+        ; --- reset per-frame decompress budget (column fill only) ---
+        move.w  #BLOCK_DECOMP_BUDGET, (Cache_Fill_Budget).w
+
+        ; --- finish any pending partial column before extending further.
+        ;     At most one partial can be outstanding (a partial exhausts the
+        ;     budget, which stops all further column work for the frame). ---
+        move.w  (Cache_Fill_Resume_Col).w, d5
+        cmpi.w  #$FFFF, d5
+        beq.s   .no_pending
+        cmp.w   (Cache_Left_Col).w, d5
+        blt.s   .pending_stale                 ; column evicted since — drop it
+        cmp.w   (Cache_Head_Col).w, d5
+        bgt.s   .pending_stale
+        ; if rows were evicted from the top since, resume from the new top
+        move.w  (Cache_Top_Row).w, d0
+        cmp.w   (Cache_Fill_Resume_Row).w, d0
+        ble.s   .pending_row_ok
+        move.w  d0, (Cache_Fill_Resume_Row).w
+.pending_row_ok:
+        bsr.w   TileCache_FillColumn
+        tst.w   d0
+        bne.w   .v_section                     ; budget out again — vertical still runs
+        bra.s   .no_pending
+.pending_stale:
+        move.w  #$FFFF, (Cache_Fill_Resume_Col).w
+.no_pending:
 
         ; --- compute desired left edge ---
         move.l  (Camera_X).w, d6
@@ -432,13 +537,10 @@ Tile_Cache_Fill:
 
         ; --- fill rightward columns (evict 1 from left as needed) ---
         move.w  (Cache_Head_Col).w, d5
+.h_right_fill:
         cmp.w   d7, d5
         bge.s   .h_right_done
-
-.h_right_fill:
         addq.w  #1, d5
-        cmp.w   d7, d5
-        bgt.s   .h_right_done
 
         ; evict 1 column from left if cache is at capacity
         move.w  d5, d0
@@ -448,43 +550,35 @@ Tile_Cache_Fill:
         moveq   #1, d0
         bsr.w   TileCache_HSlide
 .h_no_evict:
+        move.w  d5, (Cache_Head_Col).w         ; commit before fill (resume is keyed by column)
 
         movem.l d5/d7, -(sp)
         bsr.w   TileCache_FillColumn
         movem.l (sp)+, d5/d7
-
-        move.w  (Frame_Counter).w, (Cache_Fill_Last_Frame).w
-
         tst.w   d0
-        bne.s   .h_right_done        ; partial fill — exit, resume next frame
-        move.w  d5, (Cache_Head_Col).w
-        bra.s   .h_right_fill
+        beq.s   .h_right_fill
+        ; budget out — skip remaining column work, vertical still runs
+        addq.l  #2, sp                         ; pop desired_left
+        bra.w   .v_section
 .h_right_done:
 
         ; --- fill leftward columns (evict 1 from right as needed) ---
         move.w  (sp)+, d4                      ; d4 = desired_left
         move.w  (Cache_Left_Col).w, d5
+.h_left_fill:
         cmp.w   d4, d5
         ble.s   .h_left_done
-
-        ; don't start leftward fill if rightward fill is pending partial resume
-        cmpi.w  #$FFFF, (Cache_Fill_Resume_Row).w
-        bne.s   .h_left_done
-
-.h_left_fill:
         subq.w  #1, d5
-        cmp.w   d4, d5
-        blt.s   .h_left_done
 
         ; evict 1 column from right if cache is at capacity
         move.w  (Cache_Head_Col).w, d0
         sub.w   d5, d0
-        cmpi.w  #TILE_CACHE_COLS-1, d0
+        cmpi.w  #TILE_CACHE_COLS, d0
         blt.s   .h_no_evict_left
         subq.w  #1, (Cache_Head_Col).w
 .h_no_evict_left:
 
-        ; slide origin left before fill
+        ; commit + slide origin left before fill
         move.w  d5, (Cache_Left_Col).w
         move.w  (Cache_Origin_Col).w, d0
         subq.w  #1, d0
@@ -496,15 +590,12 @@ Tile_Cache_Fill:
         movem.l d4-d5, -(sp)
         bsr.w   TileCache_FillColumn
         movem.l (sp)+, d4-d5
-
-        move.w  (Frame_Counter).w, (Cache_Fill_Last_Frame).w
-
         tst.w   d0
-        bne.s   .h_left_done                  ; partial fill — exit, resume next frame
-        bra.s   .h_left_fill
+        beq.s   .h_left_fill
 .h_left_done:
 
-        ; --- compute desired top edge ---
+.v_section:
+        ; --- compute desired top edge (kept even: collision cell alignment) ---
         move.l  (Camera_Y).w, d6
         swap    d6
         lsr.w   #3, d6
@@ -514,6 +605,7 @@ Tile_Cache_Fill:
         bpl.s   .v_top_pos
         moveq   #0, d0
 .v_top_pos:
+        andi.w  #$FFFE, d0
         move.w  d0, -(sp)                     ; [sp] = desired_top
 
         ; --- compute desired bottom edge ---
@@ -534,7 +626,7 @@ Tile_Cache_Fill:
         move.w  d0, d7
 .v_clamp_ok:
 
-        ; --- fill downward rows (evict 1 from top as needed) ---
+        ; --- fill downward rows (evict 2 from top as needed; Top stays even) ---
         move.w  (Cache_Bottom_Row).w, d5
         cmp.w   d7, d5
         bge.s   .v_bottom_done
@@ -544,12 +636,12 @@ Tile_Cache_Fill:
         cmp.w   d7, d5
         bgt.s   .v_bottom_done
 
-        ; evict 1 row from top if cache is at capacity
+        ; evict 2 rows from top if cache is at capacity
         move.w  d5, d0
         sub.w   (Cache_Top_Row).w, d0
         cmpi.w  #TILE_CACHE_ROWS, d0
         blt.s   .v_no_evict
-        moveq   #1, d0
+        moveq   #2, d0
         bsr.w   TileCache_VSlide
 .v_no_evict:
 
@@ -557,28 +649,24 @@ Tile_Cache_Fill:
         bsr.w   TileCache_FillRow
         movem.l (sp)+, d5/d7
 
-        move.w  (Frame_Counter).w, (Cache_Fill_Last_Frame).w
         move.w  d5, (Cache_Bottom_Row).w
         bra.s   .v_bottom_fill
 .v_bottom_done:
 
-        ; --- fill upward rows (evict 1 from bottom as needed) ---
-        move.w  (sp)+, d4                      ; d4 = desired_top
+        ; --- fill upward rows in pairs (evict 2 from bottom as needed) ---
+        move.w  (sp)+, d4                      ; d4 = desired_top (even)
         move.w  (Cache_Top_Row).w, d5
+.v_top_fill:
         cmp.w   d4, d5
         ble.s   .v_top_done
+        subq.w  #2, d5                         ; 2-row step keeps Top even
 
-.v_top_fill:
-        subq.w  #1, d5
-        cmp.w   d4, d5
-        blt.s   .v_top_done
-
-        ; evict 1 row from bottom if cache is at capacity
+        ; evict 2 rows from bottom if cache would exceed capacity
         move.w  (Cache_Bottom_Row).w, d0
         sub.w   d5, d0
-        cmpi.w  #TILE_CACHE_ROWS-1, d0
+        cmpi.w  #TILE_CACHE_ROWS, d0
         blt.s   .v_no_evict_up
-        moveq   #1, d0
+        moveq   #2, d0
         movem.l d4-d5, -(sp)                   ; VSlideUp clobbers d4/d5; preserve loop target + cursor
         bsr.w   TileCache_VSlideUp
         movem.l (sp)+, d4-d5
@@ -588,10 +676,13 @@ Tile_Cache_Fill:
         move.w  d5, (Cache_Top_Row).w
 
         movem.l d4-d5, -(sp)
-        bsr.w   TileCache_FillRow
+        bsr.w   TileCache_FillRow              ; new top row
         movem.l (sp)+, d4-d5
-
-        move.w  (Frame_Counter).w, (Cache_Fill_Last_Frame).w
+        addq.w  #1, d5
+        movem.l d4-d5, -(sp)
+        bsr.w   TileCache_FillRow              ; second row of the pair
+        movem.l (sp)+, d4-d5
+        subq.w  #1, d5
         bra.s   .v_top_fill
 .v_top_done:
 .fill_return:
@@ -599,33 +690,30 @@ Tile_Cache_Fill:
 
 ; -----------------------------------------------
 ; TileCache_FillColumn — fill one world column into cache (budget-limited)
-; In:  d5.w = world tile col to fill
-; Out: d0.w = 0 if column complete, nonzero if partial (resume next frame)
-; Clobbers: d0-d7, a0-a6
+; In:  d5.w = world tile col (must already be within cache bounds)
+; Out: d0.w = 0 if column complete, nonzero if partial.
+;      On partial, resume state (Cache_Fill_Resume_Col/Row) is stored;
+;      Tile_Cache_Fill finishes it first next frame.
+; Uses Cache_Fill_Budget — shared per-frame decompress allowance.
+; Clobbers: d0-d7, a0-a3
 ; -----------------------------------------------
 TileCache_FillColumn:
-        ; resume from partial fill or start from top
-        move.w  (Cache_Fill_Resume_Row).w, d7
-        cmpi.w  #$FFFF, d7
-        bne.s   .fc_have_start
+        ; resume only if a partial is pending for THIS column
         move.w  (Cache_Top_Row).w, d7
-.fc_have_start:
-
-        moveq   #3, d4                         ; decompress budget
+        cmp.w   (Cache_Fill_Resume_Col).w, d5
+        bne.s   .fc_from_top
+        move.w  (Cache_Fill_Resume_Row).w, d7
+.fc_from_top:
 
 .fc_block_loop:
-        move.w  (Cache_Bottom_Row).w, d0
-        subi.w  #BLOCK_TILE_SIZE, d0
-        cmp.w   d0, d7
-        bgt.w   .fc_complete
+        cmp.w   (Cache_Bottom_Row).w, d7
+        bgt.w   .fc_complete                   ; cursor past bottom — done
 
         ; decompose into section + block + intra
         move.w  d5, d0
         lsr.w   #8, d0                         ; sec_x
-        move.w  d7, d6
-        lsr.w   #8, d6                         ; sec_y
-        move.w  d6, d1                         ; d1 = sec_y
-
+        move.w  d7, d1
+        lsr.w   #8, d1                         ; sec_y
         move.w  d5, d2
         lsr.w   #BLOCK_TILE_SHIFT, d2
         andi.w  #$F, d2                        ; block_x
@@ -636,75 +724,70 @@ TileCache_FillColumn:
         add.w   d2, d3
         move.w  d3, d2                         ; d2 = block_index
 
-        ; check staging cache
-        bsr.w   TileCache_StagedBlockMatch
+        ; probe staging cache (a1 = slot base on hit)
+        bsr.w   TileCache_FindStagedBlock
         beq.s   .fc_have_block
 
-        ; need decompress — check budget
-        tst.w   d4
+        ; need decompress — check shared frame budget
+        tst.w   (Cache_Fill_Budget).w
         beq.s   .fc_budget_out
-        subq.w  #1, d4
+        subq.w  #1, (Cache_Fill_Budget).w
 
-        movem.l d4-d5/d7, -(sp)
-        bsr.w   TileCache_DecompressBlock
-        movem.l (sp)+, d4-d5/d7
+        movem.l d5/d7, -(sp)
+        bsr.w   TileCache_DecompressBlock      ; a1 = slot base
+        movem.l (sp)+, d5/d7
 .fc_have_block:
 
-        ; intra-block col
+        ; copy run [d7 .. min(block_bottom, Cache_Bottom_Row)]
         move.w  d5, d0
-        andi.w  #$F, d0
-
-        ; cache col offset
+        andi.w  #$F, d0                        ; intra-block col
         move.w  d5, d1
-        sub.w   (Cache_Left_Col).w, d1
-
-        ; cache row offset = block_top_row - Cache_Top_Row
+        sub.w   (Cache_Left_Col).w, d1         ; cache col offset
         move.w  d7, d2
-        andi.w  #$FFF0, d2
-        sub.w   (Cache_Top_Row).w, d2
-        bmi.s   .fc_clamp_top
-        bra.s   .fc_calc_rows
-.fc_clamp_top:
-        moveq   #0, d2
-.fc_calc_rows:
-        moveq   #BLOCK_TILE_SIZE, d3
-        move.w  d4, -(sp)                     ; save budget (d4 used as temp below)
-        move.w  #TILE_CACHE_ROWS, d4
-        sub.w   d2, d4
-        cmp.w   d4, d3
+        sub.w   (Cache_Top_Row).w, d2          ; dest row offset (even)
+        move.w  d7, d4
+        andi.w  #$F, d4                        ; source start row (even)
+
+        ; rows = min(block_top + 16, Bottom + 1) - cursor
+        move.w  d7, d3
+        andi.w  #$FFF0, d3
+        addi.w  #BLOCK_TILE_SIZE, d3           ; block bottom + 1
+        move.w  (Cache_Bottom_Row).w, d6
+        addq.w  #1, d6
+        cmp.w   d6, d3
         ble.s   .fc_rows_ok
-        move.w  d4, d3
+        move.w  d6, d3
 .fc_rows_ok:
-        move.w  (sp)+, d4                     ; restore budget
-        tst.w   d3
-        ble.s   .fc_next_block
+        sub.w   d7, d3                         ; d3 = rows (> 0, even)
 
-        movem.l d4-d5/d7, -(sp)
+        movem.l d5/d7, -(sp)
         bsr.w   TileCache_CopyBlockColumn
-        movem.l (sp)+, d4-d5/d7
+        movem.l (sp)+, d5/d7
 
-.fc_next_block:
-        move.w  d7, d0
-        andi.w  #$FFF0, d0
-        addi.w  #BLOCK_TILE_SIZE, d0
-        move.w  d0, d7
+        ; advance cursor to next block top
+        andi.w  #$FFF0, d7
+        addi.w  #BLOCK_TILE_SIZE, d7
         bra.w   .fc_block_loop
 
 .fc_budget_out:
+        move.w  d5, (Cache_Fill_Resume_Col).w
         move.w  d7, (Cache_Fill_Resume_Row).w
         moveq   #1, d0
         rts
 
 .fc_complete:
-        move.w  #$FFFF, (Cache_Fill_Resume_Row).w
+        move.w  #$FFFF, (Cache_Fill_Resume_Col).w
         moveq   #0, d0
         rts
 
 ; -----------------------------------------------
-; TileCache_FillRow — fill one world row into cache at Cache_Bottom_Row+1
+; TileCache_FillRow — fill one world row into cache (nametable + collision)
 ; In:  d5.w = world tile row to fill
 ; Out: none
-; Clobbers: d0-d7, a0-a6
+; Clobbers: d0-d7, a0-a3
+; Note: collision is copied only on the odd row of each 16px cell (the row
+;       that completes the cell). Cache_Top_Row is kept even, so cell
+;       boundaries align with world block data.
 ; -----------------------------------------------
 TileCache_FillRow:
         ; cache row offset (constant for all columns)
@@ -712,19 +795,33 @@ TileCache_FillRow:
         sub.w   (Cache_Top_Row).w, d2
         bmi.w   .fr_early_out
 
+        ; collision dest row offset (bytes); $FFFF = even row, skip collision
+        move.w  #$FFFF, d3
+        btst    #0, d2
+        beq.s   .fr_no_coll
+        move.w  d2, d3
+        lsr.w   #1, d3                         ; collision row
+        move.w  d3, d4
+        lsl.w   #2, d4
+        add.w   d3, d4
+        lsl.w   #4, d4                         ; * 80
+        move.w  d4, d3
+.fr_no_coll:
+        move.w  d3, -(sp)                      ; 2(sp) = collision row offset
+
         ; pre-compute cache row stride in words — pushed once for entire call
         move.w  d2, d3
         lsl.w   #6, d2                         ; * 64
         lsl.w   #4, d3                         ; * 16
         add.w   d3, d2                         ; * 80
-        move.w  d2, -(sp)                      ; (sp) = cache_row_offset_words
+        move.w  d2, -(sp)                      ; 0(sp) = cache_row_offset_words
 
         move.w  (Cache_Left_Col).w, d7
 .fr_block_loop:
         cmp.w   (Cache_Head_Col).w, d7
         bgt.w   .fr_done
 
-        ; decompose d7 into section + block for staging match
+        ; decompose d7 into section + block for staging probe
         move.w  d7, d0
         lsr.w   #8, d0                         ; sec_x
         move.w  d5, d1
@@ -739,19 +836,24 @@ TileCache_FillRow:
         add.w   d2, d3
         move.w  d3, d2                         ; d2 = block_index
 
-        bsr.w   TileCache_StagedBlockMatch
+        bsr.w   TileCache_FindStagedBlock      ; a1 = slot base on hit
         beq.s   .fr_have_block
         movem.l d5/d7, -(sp)
-        bsr.w   TileCache_DecompressBlock
+        bsr.w   TileCache_DecompressBlock      ; a1 = slot base
         movem.l (sp)+, d5/d7
 .fr_have_block:
 
-        ; staging source base: Block_Stage_Nametable + (intra_row * 16) * 2
+        ; staging source bases for this row:
+        ;   a0 = nametable row base = slot + intra_row * 32
+        ;   a3 = collision row base = slot + BLOCK_NT_SIZE + (intra_row/2) * 16
         move.w  d5, d4
         andi.w  #$F, d4                        ; intra-block row
+        move.w  d4, d3
         lsl.w   #5, d4                         ; * 32
-        lea     (Block_Stage_Nametable).l, a0
-        adda.w  d4, a0                         ; a0 = staging row base
+        lea     (a1, d4.w), a0
+        lsl.w   #3, d3                         ; (intra_row/2) * 16 = intra_row * 8
+        lea     BLOCK_NT_SIZE(a1), a3
+        adda.w  d3, a3
 
         ; first intra-block col for this block
         move.w  d7, d6
@@ -781,7 +883,7 @@ TileCache_FillRow:
         subi.w  #TILE_CACHE_COLS, d1
 .fr_nowrap:
 
-        ; read source tile from staging buffer
+        ; read source tile from staging slot
         move.w  d6, d0
         add.w   d0, d0                         ; intra_col * 2
         move.w  (a0, d0.w), d3                 ; d3 = nametable word
@@ -792,6 +894,14 @@ TileCache_FillRow:
         add.w   d0, d0                         ; byte offset
         lea     (Tile_Cache_Nametable).l, a1
         move.w  d3, (a1, d0.w)                 ; write tile
+
+        ; collision byte (cell-completing rows only)
+        move.w  2(sp), d0
+        cmpi.w  #$FFFF, d0
+        beq.s   .fr_skip_col
+        add.w   d1, d0                         ; + cache col (byte index)
+        lea     (Tile_Cache_Collision).l, a2
+        move.b  (a3, d6.w), (a2, d0.w)
 
 .fr_skip_col:
         addq.w  #1, d6
@@ -804,7 +914,7 @@ TileCache_FillRow:
         move.w  d0, d7
         bra.w   .fr_block_loop
 .fr_done:
-        addq.l  #2, sp                         ; pop cache_row_offset_words
+        addq.l  #4, sp                         ; pop row offsets
 .fr_early_out:
         rts
 
@@ -1001,7 +1111,7 @@ TileCache_Reinit:
         addi.w  #TILE_CACHE_COLS-1, d0
         move.w  d0, (Cache_Head_Col).w
         clr.w   (Cache_Origin_Col).w
-        move.w  #$FFFF, (Cache_Fill_Resume_Row).w
+        move.w  #$FFFF, (Cache_Fill_Resume_Col).w
 
         move.l  (Camera_Y).w, d0
         swap    d0
@@ -1011,12 +1121,12 @@ TileCache_Reinit:
         bpl.s   .ri_top_ok
         moveq   #0, d0
 .ri_top_ok:
+        andi.w  #$FFFE, d0                     ; keep Cache_Top_Row even (collision cell alignment)
         move.w  d0, (Cache_Top_Row).w
         addi.w  #TILE_CACHE_ROWS-1, d0
         move.w  d0, (Cache_Bottom_Row).w
 
-        ; invalidate staging
-        move.w  #$FFFF, (Block_Stage_ID).w
+        bsr.w   TileCache_InvalidateStaging
 
         ; refill
         bsr.w   TileCache_FillAll

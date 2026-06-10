@@ -294,6 +294,11 @@ BLOCK_NT_SIZE           = BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2  ; 512 bytes
 BLOCK_COLL_ROWS         = BLOCK_TILE_SIZE / 2  ; 8 collision rows per block
 BLOCK_COLL_SIZE         = BLOCK_TILE_SIZE * BLOCK_COLL_ROWS  ; 128 bytes
 BLOCK_RAW_SIZE          = BLOCK_NT_SIZE + BLOCK_COLL_SIZE  ; 640 bytes
+BLOCK_STAGE_SLOTS       = 12        ; staged decompressed blocks (round-robin evict)
+                                    ; sized so a column fill (<=5 blocks) + a row fill
+                                    ; (<=6 blocks) coexist without thrashing on diagonals
+BLOCK_DECOMP_BUDGET     = 6         ; max block decompresses per frame for column fill
+                                    ; (one full cold block-column + 1; row fill unbudgeted)
 BLOCKS_PER_SECTION_AXIS = 16        ; 16 blocks across, 16 blocks down
 BLOCK_INDEX_ENTRIES     = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  ; 256
 BLOCK_INDEX_SIZE        = BLOCK_INDEX_ENTRIES * 4  ; 1024 bytes (ROM)

@@ -14,9 +14,10 @@ Tile_Cache_Nametable:   ds.b TILE_CACHE_NT_SIZE     ; 9600 bytes (80×60×2)
 Tile_Cache_Collision:   ds.b TILE_CACHE_COLL_SIZE    ; 2400 bytes (80×30×1)
                         ds.b 2                       ; pad to even
 
-; Block staging buffer — holds one decompressed block
-Block_Stage_Nametable:  ds.b BLOCK_NT_SIZE           ; 512 bytes
-Block_Stage_Collision:  ds.b BLOCK_COLL_SIZE         ; 128 bytes
+; Block staging cache — recently decompressed blocks (§4.7)
+; BLOCK_STAGE_SLOTS slots of BLOCK_RAW_SIZE each: nametable (512 B) followed
+; by collision (128 B). Keys live in upper RAM (Block_Stage_Keys).
+Block_Stage_Buffers:    ds.b BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS  ; 7680 bytes
 
 ; Streaming art DMA buffers (§2 A.4)
 STREAMING_BUFFER_A:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes
@@ -277,12 +278,14 @@ Cache_Top_Row:          ds.w 1          ; world tile row of topmost valid row
 Cache_Bottom_Row:       ds.w 1          ; world tile row of bottommost valid row
 Cache_Origin_Col:       ds.w 1          ; physical col index where Cache_Left_Col maps (circular)
 Cache_Fill_Last_Frame:  ds.w 1          ; Frame_Counter of last fill (cascade prevention)
-Cache_Fill_Resume_Row:  ds.w 1          ; partial FillColumn resume row ($FFFF = none pending)
+Cache_Fill_Resume_Col:  ds.w 1          ; partial FillColumn resume column ($FFFF = none pending)
+Cache_Fill_Resume_Row:  ds.w 1          ; partial FillColumn resume row (valid when Resume_Col set)
+Cache_Fill_Budget:      ds.w 1          ; per-frame block decompress allowance (column fill)
 
-; Block staging metadata
-Block_Stage_ID:         ds.w 1          ; (block_y << 4) | block_x of staged block
-Block_Stage_Section_X:  ds.b 1          ; sec_x of staged block
-Block_Stage_Section_Y:  ds.b 1          ; sec_y of staged block
+; Block staging metadata — keys parallel to Block_Stage_Buffers slots
+; Key format: sec_x.b | sec_y.b | block_index.w ($FFFFFFFF = empty)
+Block_Stage_Keys:       ds.l BLOCK_STAGE_SLOTS
+Block_Stage_Next:       ds.w 1          ; next round-robin slot to evict
 
 ; Row streaming state (vertical)
 Section_Top_Row_Written:  ds.w 1
