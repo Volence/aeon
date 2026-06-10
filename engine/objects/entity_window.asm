@@ -572,7 +572,7 @@ EntityWindow_ScanObjectsRight:
         move.w  4(a0), d2               ; full placement word — Load_Object reads flips from bits 13-14
 
         ; Type extraction: bits 12-8 → d3, then type-table lookup
-        move.w  4(a0), d3
+        move.w  d2, d3                  ; placement word already in d2
         lsr.w   #OEF_TYPE_SHIFT, d3
         andi.w  #OEF_TYPE_MASK, d3
         movea.l EntityScanState_ess_rom_type_tbl_ptr(a1), a2
