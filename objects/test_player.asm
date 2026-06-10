@@ -54,8 +54,12 @@ TestPlayer:
 ; -----------------------------------------------
 TestPlayer_Main:
         ; --- B press toggles debug free-flight mode ---
-        move.b  (Ctrl_1_Press).w, d7
-        btst    #4, d7                          ; BUTTON_B
+        ; d4 NOT d7: object routines must preserve a0/d7 (RunObjects loop
+        ; contract). A d7.b clobber here overran the player slot loop by
+        ; up to 255 slots — executing free-stack words as code offsets
+        ; (the intermittent RAM-clobber / ILLEGAL INSTRUCTION root cause).
+        move.b  (Ctrl_1_Press).w, d4
+        btst    #4, d4                          ; BUTTON_B
         beq.s   .no_toggle
         tst.b   _debug_flag(a0)
         bne.s   .exit_debug
@@ -87,14 +91,14 @@ TestPlayer_Main:
         move.b  SST_status(a0), d5
         bclr    #ST_ON_OBJECT, SST_status(a0)
 
-        ; --- Read controller ---
+        ; --- Read controller (d4 = press: d7 is the RunObjects counter) ---
         move.b  (Ctrl_1_Held).w, d6
-        move.b  (Ctrl_1_Press).w, d7
+        move.b  (Ctrl_1_Press).w, d4
 
         ; --- Jump check (C only, grounded only) ---
         btst    #ST_IN_AIR, SST_status(a0)
         bne.s   .no_jump_start
-        btst    #5, d7                          ; BUTTON_C
+        btst    #5, d4                          ; BUTTON_C
         beq.s   .no_jump_start
         move.w  #JUMP_VELOCITY, SST_y_vel(a0)
         bset    #ST_IN_AIR, SST_status(a0)

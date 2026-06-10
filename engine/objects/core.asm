@@ -202,6 +202,10 @@ RunObjects:
         beq.s   .always_next
         movea.l d0, a1
         jsr     (a1)
+        ; debug builds: catch object routines violating the a0/d7
+        ; preservation contract at the source (caused the free-stack
+        ; code-dispatch crash + intermittent RAM clobbers, 2026-06-10)
+        ifdebug bsr.w Debug_AssertObjLoop
 .always_next:
         lea     SST_len(a0), a0
         dbf     d7, .always_loop
@@ -237,10 +241,28 @@ RunObjects:
         move.w  (a0), d0
         movea.l d0, a1
         jsr     (a1)
+        ifdebug bsr.w Debug_AssertObjLoop
 .culled_next:
         lea     SST_len(a0), a0
         dbf     d7, .culled_loop
         rts
+
+    ifdef __DEBUG__
+; -----------------------------------------------
+; Debug_AssertObjLoop — verify the RunObjects loop contract after dispatch
+; Object routines must return with a0 = own SST and d7 = loop counter
+; intact. A violation here previously dispatched free-stack words as
+; code offsets (intermittent RAM clobbers / ILLEGAL INSTRUCTION).
+; In:  a0 = slot just dispatched, d7 = loop counter
+; Out: none (raises debugger error on violation)
+; Clobbers: none
+; -----------------------------------------------
+Debug_AssertObjLoop:
+        assert.l a0, hs, #Object_RAM
+        assert.l a0, lo, #Object_RAM_End
+        assert.w d7, lo, #NUM_DYNAMIC
+        rts
+    endif
 
 ; -----------------------------------------------
 ; RunObjects_Frozen — render-only pass (player death, pause)
