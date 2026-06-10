@@ -221,6 +221,19 @@ beyond any FG wobble.
 **When to revisit:** before shipping any production config with FG H-deform, or
 if Sec2's haze shows edge artifacts during testing.
 
+### §4.9 entity window is X-only — no vertical dimension
+**Surfaced during:** vertical-axis audit 2026-06-10 (EntityWindow_TeleportShiftY added
+for teleport consistency, but the underlying system is 1D).
+**What:** `EntityScanState` has `ess_origin_x` but no Y origin; ring/object populate
+uses ROM Y verbatim with no per-pair adjustment; only the slot-mapped (upper) sections
+of each vertical pair are scanned — entities in the lower sections (sec_y+1) are never
+loaded; `EntityWindow_Scan` advances on camera X only. Works while entity data lives in
+the upper sections; breaks when levels place entities below the first section row.
+**Fix shape:** scan state per quadrant section (2×2), Y origin per entry, vertical scan
+edges driven by Camera_Y (mirror of the X sliding window).
+**When to revisit:** when a level design places rings/objects in vertically stacked
+sections, or §4.9 phase 2.
+
 ### Strip data still emitted by build tool (dead format)
 **Surfaced during:** dead-code removal 2026-06-10 (engine/level/strip_cache.asm deleted —
 it was already out of the build).
