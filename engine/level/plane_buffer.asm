@@ -1,5 +1,5 @@
 ; Deferred nametable plane buffer (§4.1)
-; Producer: Draw_TileColumn / Draw_TileRow (game loop)
+; Producers: Draw_TileColumn / Draw_TileRow_FromCache / Draw_BG_TileColumn (game loop)
 ; Consumer: VInt_DrawLevel (VBlank)
 
 ; -----------------------------------------------
@@ -142,58 +142,6 @@ Draw_TileColumn:
 .sz_ok:
         add.w   (Plane_Buffer_Ptr).w, d2
         move.w  d2, (Plane_Buffer_Ptr).w
-.done:
-        rts
-
-; -----------------------------------------------
-; Draw_TileRow — append one tile row to Plane_Buffer
-; In:  d0.w = target VDP nametable row (0–63)
-;      d2.w = number of tiles to write
-;      a1   = ROM pointer to row tile data (d2 consecutive words)
-; Out: none (silently drops if buffer full)
-; Clobbers: d0–d4, a1–a2
-; Note: not called in Phase 1 (no vertical scroll). Exists for Phase 2+.
-; Note: d2 must be even — odd values produce wrong tile count.
-; -----------------------------------------------
-Draw_TileRow:
-        ; -- entry size = 4 + d2*2 bytes --
-        move.w  d2, d3
-        add.w   d3, d3                             ; d3 = d2*2 bytes of data
-        addq.w  #4, d3                             ; +4 header
-        move.w  (Plane_Buffer_Ptr).w, d4
-        add.w   d3, d4
-        cmpi.w  #PLANE_BUFFER_SIZE - 2, d4
-        bhi.s   .done
-
-        ; -- buffer write pointer --
-        lea     (Plane_Buffer).w, a2
-        adda.w  (Plane_Buffer_Ptr).w, a2
-
-        ; -- write header --
-        lsl.w   #7, d0                             ; d0 = row × 128
-        addi.w  #VRAM_PLANE_A & $FFFF, d0
-        move.w  d0, (a2)+                          ; VRAM addr
-        move.w  d2, d0
-        lsr.w   #1, d0
-        subq.w  #1, d0                             ; cnt = words/2 - 1
-        move.w  d0, (a2)+
-
-        ; -- copy row data --
-        move.w  d2, d0
-        lsr.w   #1, d0
-        subq.w  #1, d0
-.copy:
-        move.l  (a1)+, (a2)+
-        dbf     d0, .copy
-
-        ; -- write zero terminator (consumed by VInt_DrawLevel as end-of-buffer) --
-        move.w  #0, (a2)
-
-        ; -- update pointer --
-        move.w  (Plane_Buffer_Ptr).w, d4
-        add.w   d3, d4
-        move.w  d4, (Plane_Buffer_Ptr).w
-
 .done:
         rts
 

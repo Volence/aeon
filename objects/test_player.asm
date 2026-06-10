@@ -191,7 +191,7 @@ TestPlayer_Main:
         ; --- Apply velocity to position ---
         jsr     ObjectMove
 
-        ; --- Floor collision via strip cache ---
+        ; --- Floor collision via tile cache ---
         ; Skip when rising — only check when falling or grounded.
         ; Stub collision marks sky tiles as solid, so checking while
         ; rising would snap the player into sky cells.

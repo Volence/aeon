@@ -94,12 +94,6 @@ Section_GetSlotDef:
         move.b  1(a0, d0.w), d3                    ; d3.b = sec_y for this slot
         bra.w   Section_GetSecPtrXY
 
-.slot0: moveq   #SLOT_LEFT, d0
-        bra.w   Section_GetSlotDef
-
-.slot1: moveq   #SLOT_RIGHT, d0
-        bra.w   Section_GetSlotDef
-
 ; -----------------------------------------------
 ; Section_GetSecPtrXY — Sec ptr lookup by grid coordinates (§4.2).
 ; In:  d2.b = sec_x, d3.b = sec_y, a2 = Act ptr
@@ -549,50 +543,6 @@ Section_TeleportUp:
 .up_parallax_set:
         move.l  a0, (Parallax_Current_Config).w
 .up_parallax_done:
-        rts
-
-; -----------------------------------------------
-; Section_QueueNewSlot1Cols — queue slot 1 tile columns (nametable cols 32–63)
-; In:  a1 = act descriptor pointer
-; Clobbers: d0–d5, a0–a2
-; -----------------------------------------------
-Section_QueueNewSlot1Cols:
-        movea.l a1, a2
-        bsr.w   Section_GetSlotDef.slot1           ; a0 = new slot 1 Sec def
-        moveq   #32-1, d4
-        moveq   #0, d5                             ; section tile col
-        moveq   #32, d6                            ; nametable col
-.qloop1:
-        move.w  d6, d0
-        move.w  d5, d1
-        movem.w d4-d6, -(sp)
-        bsr.w   Draw_TileColumn
-        movem.w (sp)+, d4-d6
-        addq.w  #1, d5
-        addq.w  #1, d6
-        dbf     d4, .qloop1
-        rts
-
-; -----------------------------------------------
-; Section_QueueNewSlot0Cols — queue slot 0 tile columns (nametable cols 0–31)
-; In:  a1 = act descriptor pointer
-; Clobbers: d0–d5, a0–a2
-; -----------------------------------------------
-Section_QueueNewSlot0Cols:
-        movea.l a1, a2
-        bsr.w   Section_GetSlotDef.slot0
-        moveq   #32-1, d4
-        moveq   #0, d5
-        moveq   #0, d6
-.qloop0:
-        move.w  d6, d0
-        move.w  d5, d1
-        movem.w d4-d6, -(sp)
-        bsr.w   Draw_TileColumn
-        movem.w (sp)+, d4-d6
-        addq.w  #1, d5
-        addq.w  #1, d6
-        dbf     d4, .qloop0
         rts
 
 ; -----------------------------------------------

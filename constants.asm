@@ -303,7 +303,7 @@ BLOCKS_PER_SECTION_AXIS = 16        ; 16 blocks across, 16 blocks down
 BLOCK_INDEX_ENTRIES     = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  ; 256
 BLOCK_INDEX_SIZE        = BLOCK_INDEX_ENTRIES * 4  ; 1024 bytes (ROM)
 
-; Collision (§4.7) — collision bytes embedded in strip cache, no separate maps
+; Collision (§4.7) — collision bytes embedded in block data, no separate maps
 COLLISION_CELL_SHIFT    = 4         ; pixel → cell (/ 16)
 
 ; Height maps (§4.7)
