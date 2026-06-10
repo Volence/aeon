@@ -3,7 +3,9 @@
 ; Mapping table: word offsets from table start
 ;
 ; Frame header: dc.b x_min, x_max, y_min, y_max (signed extents), dc.w piece_count
-; Extents are far edges: x_max = x_off + width_px, y_max = y_off + height_px
+; Extents are far edges: x_max = x_off + width_px, y_max = y_off + height_px.
+; Extents are FLIP-INVARIANT (union of flipped/unflipped extents) — see convert_s2_mappings.py.
+; These test frames are all symmetric so values are unchanged by symmetrization.
 
 Map_TestObj:
         dc.w    Map_TestObj_F0 - Map_TestObj    ; frame 0

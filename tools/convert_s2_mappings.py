@@ -21,6 +21,11 @@ S4 frame format:
   +6  pieces (8 bytes each)
 
 x_max/y_max are the far edge (x_off + width_px, y_off + height_px).
+Bbox extents are FLIP-INVARIANT: after computing raw extents the generator
+symmetrizes them (union of unflipped and flipped extents).  Exact for symmetric
+frames; conservative by the asymmetry amount for asymmetric frames — always
+correct under any RF_XFLIP/RF_YFLIP combination, still far tighter than the old
+±32 margin.  See _compute_bbox for details.
 The generator hard-fails if any extent exceeds the signed byte range [-128,127].
 """
 
@@ -36,13 +41,23 @@ def _cell_px(size_byte):
     return w, h
 
 
-def _compute_bbox(pieces):
-    """Compute (x_min, x_max, y_min, y_max) over all pieces.
+def _compute_bbox(pieces, frame_index=None):
+    """Compute flip-invariant (x_min, x_max, y_min, y_max) over all pieces.
 
     Each piece is (y, size, tile_attrs, x).
     x_max / y_max are far edges (origin + dimension).
+
+    After computing raw extents the result is symmetrized so the stored bbox
+    covers the union of the unflipped and flipped extents:
+        x_min, x_max = min(x_min, -x_max), max(x_max, -x_min)
+        y_min, y_max = min(y_min, -y_max), max(y_max, -y_min)
+    This means Draw_Sprite's unflipped bbox test is always correct regardless of
+    the RF_XFLIP / RF_YFLIP state used by Emit_ObjectPieces at render time.
+    Exact for symmetric frames; conservative by the asymmetry amount otherwise.
+
     Returns (0,0,0,0) for empty frames.
-    Raises ValueError if any extent exceeds signed byte range.
+    Raises ValueError (naming the offending frame) if any extent exceeds the
+    signed byte range [-128,127] after symmetrization.
     """
     if not pieces:
         return 0, 0, 0, 0
@@ -63,11 +78,16 @@ def _compute_bbox(pieces):
         if y + h > y_max:
             y_max = y + h
 
+    # Symmetrize for flip-invariance: stored box is union of flipped/unflipped.
+    x_min, x_max = min(x_min, -x_max), max(x_max, -x_min)
+    y_min, y_max = min(y_min, -y_max), max(y_max, -y_min)
+
+    frame_tag = f" (frame {frame_index})" if frame_index is not None else ""
     for name, val in (('x_min', x_min), ('x_max', x_max),
                       ('y_min', y_min), ('y_max', y_max)):
         if val < -128 or val > 127:
             raise ValueError(
-                f"Bbox {name}={val} exceeds signed byte range [-128,127]; "
+                f"Bbox {name}={val}{frame_tag} exceeds signed byte range [-128,127]; "
                 "split the frame or shrink piece extents."
             )
     return x_min, x_max, y_min, y_max
@@ -107,7 +127,7 @@ def convert_mappings(data):
     for fi, pieces in enumerate(s4_frames):
         new_offsets.append(data_offset)
 
-        x_min, x_max, y_min, y_max = _compute_bbox(pieces)
+        x_min, x_max, y_min, y_max = _compute_bbox(pieces, fi)
 
         # Frame header: 4 signed bbox bytes + piece count word
         frame_bytes = struct.pack('bbbb', x_min, x_max, y_min, y_max)

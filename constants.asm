@@ -391,6 +391,7 @@ OBJ_ENTRY_SIZE          = 6
 ;   +6  pieces (8 bytes each)
 ;
 ; x_max/y_max are the far edge (offset + piece size), not the piece origin.
+; Extents are FLIP-INVARIANT — see convert_s2_mappings.py _compute_bbox.
 FRAME_BBOX_X_MIN        = 0         ; signed byte — leftmost piece pixel
 FRAME_BBOX_X_MAX        = 1         ; signed byte — rightmost piece pixel (right EDGE: x_off + width)
 FRAME_BBOX_Y_MIN        = 2         ; signed byte — topmost piece pixel

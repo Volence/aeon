@@ -555,7 +555,7 @@ OBJ_ENTRY_SIZE          = 6
 ```
 (same pattern for DPLC table and each anim table file's end).
 - [ ] **Step 3:** Derive section threshold constants from `SECTION_SIZE` in `constants.asm` (pure refactor, values identical — `SECTION_FWD_THRESHOLD = SLOT_ORIGIN_L+2*SECTION_SIZE` etc.; assert each equals its old literal once, then delete the asserts).
-- [ ] **Step 4:** Sync `ENGINE_ARCHITECTURE.md` (§3 SST table → v2 layout, **§3.7 Object Loading → archetype templates (still documents the deleted ODF format-byte design — T4 review item I2)**, §4.9 entry format, §4.7 collision dual-layer) and close the superseded `DEFERRED_WORK` items (word mappings offset → still open; SST audit → resolved by this plan; pack-collision-fields → superseded; subObjData → superseded by `objdef`).
+- [ ] **Step 4:** Sync `ENGINE_ARCHITECTURE.md` (§3 SST table → v2 layout, **§3.7 Object Loading → archetype templates (still documents the deleted ODF format-byte design — T4 review item I2)**, §4.9 entry format, §4.7 collision dual-layer, **§7.8 mapping frame format → bbox header (T8) and the §3 Draw_Sprite "single pointer store" claim (now resolves the frame + culls exactly)**) and close the superseded `DEFERRED_WORK` items (word mappings offset → still open; SST audit → resolved by this plan; pack-collision-fields → superseded; subObjData → superseded by `objdef`).
 - [ ] **Step 5:** Full build both flavors + final Exodus sweep (boot, scroll right through a teleport, vertical descent, ring collect). Merge: `git checkout master && git merge objects-v2`, push nothing (local), update memory.
 
 ---

@@ -167,6 +167,18 @@ These items were identified during §3 Phase 0 research but require a full SST f
 **What:** Once the objdef format is stable, wrap the byte/word emission in `function`-and-macro pairs that take semantic args (`coltype`, `colh`, `colw`, `frame`, `priority`, ...) rather than positional bytes. Uses our `function` for any /2 or shift conversion, `struct`/`endstruct` patterns where appropriate. Pure ergonomics — zero runtime cost, but it's the difference between objdef tables that read like data and ones that read like a binary blob.
 **When ready:** When more than 2-3 objects exist and the objdef format stops churning.
 
+### SST frame-pointer cache (§3.5)
+**Surfaced during:** objects-formats-v2 T8 review (2026-06-10).
+**What:** Draw_Sprite and Render_Sprites each resolve mapping_frame → frame data
+per object per frame (~46 cycles each). RefreshSpritePieceCount/
+PopulateSpawnedPieceCount already run at every mapping_frame write, so caching
+the resolved frame POINTER in the SST (one long from sst_custom) has a ready
+invalidation contract and saves ~90 cycles per rendered object per frame.
+Caveat: the multisprite sibling walk indexes child mappings with the parent's
+frame and must keep its inline resolve.
+**When to revisit:** when profiling shows object-loop pressure (~20+ on-screen
+objects), alongside the §3 SST field audit.
+
 ---
 
 ## From s4lint — Static Analysis (Phase 1)

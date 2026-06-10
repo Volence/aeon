@@ -62,7 +62,7 @@ Draw_Sprite:
 
         ; --- Check coordinate mode ---
         btst    #RF_COORDMODE, SST_render_flags(a0)
-        bne.w   .screen_coords          ; screen-relative objects are always on-screen
+        bne.s   .screen_coords          ; screen-relative objects are always on-screen
 
         ; --- Resolve current frame for its precomputed bbox ---
         moveq   #0, d0
@@ -80,11 +80,11 @@ Draw_Sprite:
         ext.w   d2
         add.w   d0, d2                 ; d2 = screen_x + x_min (left edge)
         cmpi.w  #SCREEN_WIDTH, d2
-        bge.w   .offscreen             ; left edge at/past right side — invisible
+        bge.s   .offscreen             ; left edge at/past right side — invisible
         move.b  FRAME_BBOX_X_MAX(a1), d2
         ext.w   d2
         add.w   d0, d2                 ; d2 = screen_x + x_max (right edge)
-        ble.w   .offscreen             ; right edge at/left of screen — invisible
+        ble.s   .offscreen             ; right edge at/left of screen — invisible
 
         ; --- Exact Y cull ---
         move.w  SST_y_pos(a0), d0
@@ -93,11 +93,11 @@ Draw_Sprite:
         ext.w   d2
         add.w   d0, d2                 ; d2 = screen_y + y_min (top edge)
         cmpi.w  #SCREEN_HEIGHT, d2
-        bge.w   .offscreen             ; top edge at/past bottom — invisible
+        bge.s   .offscreen             ; top edge at/past bottom — invisible
         move.b  FRAME_BBOX_Y_MAX(a1), d2
         ext.w   d2
         add.w   d0, d2                 ; d2 = screen_y + y_max (bottom edge)
-        ble.w   .offscreen             ; bottom edge at/above screen — invisible
+        ble.s   .offscreen             ; bottom edge at/above screen — invisible
 
 .screen_coords:
         ; --- Object is on-screen ---
