@@ -105,16 +105,16 @@ A ROM image of SST `$00` + `$0A-$21` (word + 24 bytes), emitted by a named-param
 
 - [ ] **Step 1:** Confirm no script uses the event yet: `grep -rn "AF_CALLBACK" data/` → expect no hits (engine-only references).
 
-- [ ] **Step 2:** New script format, documented in the `animate.asm` header:
+- [ ] **Step 2:** New script format, documented in the `animate.asm` header (args directly after the event byte, pad LAST — matches AF_SET_FIELD's convention):
 ```asm
-;   $FA (AF_CALLBACK)  — call routine; format: dc.b $FA, 0, >objroutine(Target), <objroutine(Target)
-;                        (target stored big-endian as two BYTES — scripts are unaligned)
+;   $FA (AF_CALLBACK)  — call routine; format: dc.b $FA, target_hi, target_lo, 0
+;                        (objroutine offset stored big-endian as two BYTES — scripts are unaligned)
 ```
 
-- [ ] **Step 3:** Replace `.evt_callback` (per-anim variant). Args live at `2(a1,d1.w)`/`3(a1,d1.w)`; event consumes 4 bytes:
+- [ ] **Step 3:** Replace `.evt_callback` (per-anim variant). Args live at `2(a1,d1.w)`/`3(a1,d1.w)` (event byte itself is at `1(a1,d1.w)`); event consumes 4 bytes:
 ```asm
 .evt_callback:
-        ; dc.b AF_CALLBACK, 0, target_hi, target_lo  (objroutine offset, byte pair)
+        ; dc.b AF_CALLBACK, target_hi, target_lo, 0  (objroutine offset, byte pair)
         moveq   #0, d0
         move.b  2(a1,d1.w), d0
         lsl.w   #8, d0
