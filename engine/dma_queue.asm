@@ -177,46 +177,53 @@ Process_DMA_Critical:
 ; Process_DMA_Important — drain Important queue with byte budget
 ; In:  none (reads DMA_Budget_Remaining)
 ; Out: none
-; Clobbers: d0-d1, a0-a1, a5
+; Clobbers: d0-d1, a0-a3, a5
 ; -----------------------------------------------
 Process_DMA_Important:
         movea.w (DMA_Important_Slot).w, a1
         lea     (DMA_Important).w, a0
         cmpa.l  a0, a1
         bls.s   .done
-        bsr.s   Drain_Budgeted_Queue
+        lea     (DMA_Important_Slot).w, a2
+        bra.s   Drain_Budgeted_Queue            ; tail call — updates slot var
 .done:
-        move.w  #DMA_Important, (DMA_Important_Slot).w
         rts
 
 ; -----------------------------------------------
 ; Process_DMA_Deferrable — drain Deferrable queue with byte budget
 ; In:  none (reads DMA_Budget_Remaining)
 ; Out: none
-; Clobbers: d0-d1, a0-a1, a5
+; Clobbers: d0-d1, a0-a3, a5
 ; -----------------------------------------------
 Process_DMA_Deferrable:
         movea.w (DMA_Deferrable_Slot).w, a1
         lea     (DMA_Deferrable).w, a0
         cmpa.l  a0, a1
         bls.s   .done
-        bsr.s   Drain_Budgeted_Queue
+        lea     (DMA_Deferrable_Slot).w, a2
+        bra.s   Drain_Budgeted_Queue            ; tail call — updates slot var
 .done:
-        move.w  #DMA_Deferrable, (DMA_Deferrable_Slot).w
         rts
 
 ; -----------------------------------------------
 ; Drain_Budgeted_Queue — shared loop for Important/Deferrable
-; In:  a0 = queue start, a1 = slot pointer (first free)
+; Entries that don't fit this frame's budget are COMPACTED to the
+; queue base and persist to the next frame (consumers like
+; Perform_DPLC and Section_StreamArtGroup queue once and rely on
+; eventual delivery — discarding meant stale art / stuck SS_STREAMING).
+; In:  a0 = queue start, a1 = slot pointer value (first free)
+;      a2 = slot variable address
 ;      DMA_Budget_Remaining must be set
-; Out: none
-; Clobbers: d0-d1, a0, a5
+; Out: slot variable updated (base if fully drained,
+;      base + survivors after compaction, unchanged if nothing drained)
+; Clobbers: d0-d1, a0-a1, a3, a5
 ; -----------------------------------------------
 Drain_Budgeted_Queue:
         lea     (VDP_CTRL).l, a5
+        movea.l a0, a3                          ; a3 = queue base
 .loop:
         move.w  (DMA_Budget_Remaining).w, d0
-        ble.s   .done
+        ble.s   .out_of_budget
         movep.w DMAEntry_SizeH(a0), d1          ; read size in words
         add.w   d1, d1                          ; words -> bytes
         sub.w   d1, (DMA_Budget_Remaining).w
@@ -226,5 +233,19 @@ Drain_Budgeted_Queue:
         move.w  (a0)+, (a5)
         cmpa.l  a0, a1
         bhi.s   .loop
-.done:
+        move.w  a3, (a2)                        ; fully drained — slot = base
+        rts
+
+.out_of_budget:
+        cmpa.l  a0, a3
+        beq.s   .no_drain                       ; nothing sent — slot already correct
+.compact:
+        move.l  (a0)+, (a3)+                    ; src always above dst — safe forward copy
+        move.l  (a0)+, (a3)+
+        move.l  (a0)+, (a3)+
+        move.w  (a0)+, (a3)+
+        cmpa.l  a0, a1
+        bhi.s   .compact
+        move.w  a3, (a2)                        ; slot = base + surviving entries
+.no_drain:
         rts
