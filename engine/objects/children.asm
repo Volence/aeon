@@ -52,6 +52,7 @@ CreateChild_Normal:
         movem.l (sp)+, d3/a0-a1
 
         move.w  d2, SST_code_addr(a2)
+        move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a2)
 
         ; Position = parent + signed byte offset (16.16)
         move.b  (a1)+, d0               ; x_offset signed byte
@@ -116,7 +117,7 @@ CreateChild_Complex:
         move.w  SST_sibling_ptr(a0), d3
 .child_loop:
         move.w  (a1)+, d2
-        beq.s   .done
+        beq.w   .done
 
         movem.l d3/a0-a1, -(sp)
         jsr     AllocDynamic
@@ -125,6 +126,7 @@ CreateChild_Complex:
         movem.l (sp)+, d3/a0-a1
 
         move.w  d2, SST_code_addr(a2)
+        move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a2)
 
         ; Position
         move.b  (a1)+, d0
@@ -196,11 +198,12 @@ CreateChild_FlipAware:
 
         movem.l d3-d4/a0-a1, -(sp)
         jsr     AllocDynamic
-        bne.s   .alloc_fail
+        bne.w   .alloc_fail
         movea.l a1, a2
         movem.l (sp)+, d3-d4/a0-a1
 
         move.w  d2, SST_code_addr(a2)
+        move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a2)
 
         ; X position (negate offset if flipped)
         move.b  (a1)+, d0
@@ -296,6 +299,7 @@ CreateChild_Linked:
         movem.l (sp)+, d1-d5/a0
 
         move.w  d4, SST_code_addr(a2)
+        move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a2)
 
         ; Position from running coordinates on stack
         ; Stack layout: [running_Y][running_X] at sp+0 and sp+4
@@ -398,6 +402,7 @@ CreateEffect_Normal:
         movem.l (sp)+, a0-a1
 
         move.w  d2, SST_code_addr(a2)
+        move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a2)
 
         ; Position = parent + signed byte offset (16.16)
         move.b  (a1)+, d0               ; x_offset signed byte
@@ -460,6 +465,7 @@ CreateEffect_Simple:
         movem.l (sp)+, d2-d3/a0
 
         move.w  d2, SST_code_addr(a2)
+        move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a2)
 
         ; Position = parent position
         move.l  SST_x_pos(a0), SST_x_pos(a2)

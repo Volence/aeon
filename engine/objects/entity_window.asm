@@ -588,9 +588,9 @@ EntityWindow_ScanObjectsRight:
 
         ; Tag spawned object with slot + entity metadata
         ; a1 = new SST pointer from Load_Object
-        move.b  d6, SLOT_TAG_OFFSET(a1)
-        move.b  d5, ENTITY_SECTION_ID_OFFSET(a1)
-        move.b  d4, ENTITY_LIST_INDEX_OFFSET(a1)
+        move.b  d6, SST_slot_tag(a1)
+        move.b  d5, SST_entity_section_id(a1)
+        move.b  d4, SST_entity_list_index(a1)
 
 .obj_spawn_fail:
         movem.l (sp)+, d3-d7/a0-a1/a3
@@ -670,7 +670,7 @@ EntityWindow_DespawnObjects:
         tst.w   SST_code_addr(a0)
         beq.s   .next
 
-        cmpi.b  #SLOT_TAG_UNTAGGED, SLOT_TAG_OFFSET(a0)
+        cmpi.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a0)
         beq.s   .next
 
         move.w  SST_x_pos(a0), d0
@@ -680,7 +680,7 @@ EntityWindow_DespawnObjects:
         ble.s   .next
 
 .check_active:
-        move.b  ENTITY_SECTION_ID_OFFSET(a0), d1
+        move.b  SST_entity_section_id(a0), d1
         cmp.b   (Entity_Scan_State+EntityScanState_ess_section_id).w, d1
         beq.s   .next
         cmp.b   (Entity_Scan_State+EntityScanState_len+EntityScanState_ess_section_id).w, d1
@@ -753,7 +753,7 @@ EntityWindow_TeleportShift:
         tst.w   SST_code_addr(a0)
         beq.s   .obj_next
 
-        cmpi.b  #SLOT_TAG_UNTAGGED, SLOT_TAG_OFFSET(a0)
+        cmpi.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a0)
         beq.s   .obj_next
 
         move.w  SST_x_pos(a0), d1
@@ -838,7 +838,7 @@ EntityWindow_TeleportShiftY:
         tst.w   SST_code_addr(a0)
         beq.s   .obj_next
 
-        cmpi.b  #SLOT_TAG_UNTAGGED, SLOT_TAG_OFFSET(a0)
+        cmpi.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a0)
         beq.s   .obj_next
 
         move.w  SST_y_pos(a0), d1

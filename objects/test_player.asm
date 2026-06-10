@@ -38,7 +38,7 @@ TestPlayer:
         move.b  #1, SST_anim(a0)               ; idle
         move.b  #$FF, SST_prev_anim(a0)
         move.b  #$FF, SST_prev_frame(a0)
-        move.w  #4, SST_priority(a0)
+        ori.b   #4<<RF_PRIORITY_SHIFT, SST_render_flags(a0)
         move.b  #16, SST_width_pixels(a0)
         move.b  #32, SST_height_pixels(a0)
         move.b  #COLLISION_NONE, SST_collision_resp(a0)

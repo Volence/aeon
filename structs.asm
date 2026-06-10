@@ -59,44 +59,53 @@ DMAEntry endstruct
 ; -----------------------------------------------
 ; Sprite Status Table entry (§3.1)
 ; Object system per-slot data structure.
-; Animation block at $1A-$23 grouped for move.l init.
+; Template block $0A-$1F: burst-copied from ObjDef at spawn (Task 4).
+; Runtime block $20+: initialized individually at spawn, mutated each frame.
 ; -----------------------------------------------
 
 SST struct
-code_addr       ds.w 1      ; $00 — object code offset from ObjCodeBase (0 = empty)
-x_pos           ds.l 1      ; $02 — 16.16 subpixel X position
-y_pos           ds.l 1      ; $06 — 16.16 subpixel Y position
+code_addr       ds.w 1      ; $00 — object code offset from ObjCodeBase (0 = empty) [template word]
+x_pos           ds.l 1      ; $02 — 16.16 subpixel X position [patched at spawn]
+y_pos           ds.l 1      ; $06 — 16.16 subpixel Y position [patched at spawn]
+; --- template block $0A-$1F: copied verbatim from ObjDef at spawn (Task 4) ---
 x_vel           ds.w 1      ; $0A — horizontal velocity (8.8 fixed-point)
 y_vel           ds.w 1      ; $0C — vertical velocity (8.8 fixed-point)
-render_flags    ds.b 1      ; $0E — display flags (bit 0 = on-screen, bit 1 = x-flip, bit 2 = y-flip, bit 3 = coordinate mode, bit 7 = delete)
+render_flags    ds.b 1      ; $0E — bit 0 = on-screen, 1 = x-flip, 2 = y-flip, 3 = coordinate mode,
+                            ;       bit 4 = multi-sprite, bits 5-7 = priority band (was word at $16)
 collision_resp  ds.b 1      ; $0F — collision type dispatch (0 = none)
 mappings        ds.l 1      ; $10 — sprite mapping pointer (ROM)
 art_tile        ds.w 1      ; $14 — VRAM tile index + palette + priority
-priority        ds.w 1      ; $16 — sprite priority band (0-7, 0 = back)
-width_pixels    ds.b 1      ; $18 — collision width (full, not half)
-height_pixels   ds.b 1      ; $19 — collision height (full, not half)
-; --- animation block (clr.l $1A + clr.w $1E + move.l $20 inits all) ---
-anim            ds.b 1      ; $1A — desired animation ID
-prev_anim       ds.b 1      ; $1B — previous anim ID (change detection)
-anim_frame      ds.b 1      ; $1C — byte offset within animation script
-anim_timer      ds.b 1      ; $1D — frame duration countdown
-mapping_frame   ds.b 1      ; $1E — current mapping frame index
-prev_frame      ds.b 1      ; $1F — previous mapping_frame (DPLC change detection)
-anim_table      ds.l 1      ; $20 — animation table pointer (ROM)
-; --- end animation block ---
-subtype         ds.b 1      ; $24 — object subtype
-respawn_index   ds.b 1      ; $25 — respawn tracking
+width_pixels    ds.b 1      ; $16 — collision width (full, not half)
+height_pixels   ds.b 1      ; $17 — collision height (full, not half)
+anim            ds.b 1      ; $18 — desired animation ID
+subtype         ds.b 1      ; $19 — object subtype
+anim_table      ds.l 1      ; $1A — animation table pointer (ROM)
+status          ds.b 1      ; $1E — player/object status bits (ST_* constants)
+angle           ds.b 1      ; $1F — terrain angle (player, slope-aligned objects)
+; --- end template; runtime-initialized block follows ---
+prev_anim       ds.b 1      ; $20 — previous anim ID (change detection; $FF at spawn)
+anim_frame      ds.b 1      ; $21 — byte offset within animation script
+anim_timer      ds.b 1      ; $22 — frame duration countdown
+mapping_frame   ds.b 1      ; $23 — current mapping frame index
+prev_frame      ds.b 1      ; $24 — previous mapping_frame (DPLC change detection; $FF at spawn)
+sprite_piece_count ds.b 1   ; $25 — current frame's piece count (overflow prediction)
 parent_ptr      ds.w 1      ; $26 — parent object RAM address
 sibling_ptr     ds.w 1      ; $28 — sibling link (multi-part objects)
-wait_timer      ds.w 1      ; $2A — Obj_Wait countdown
-status          ds.b 1      ; $2C — player/object status bits (ST_* constants)
-sprite_piece_count ds.b 1   ; $2D — current frame's piece count (overflow prediction)
-anim_callback   ds.l 1      ; $2E — callback pointer for AF_CALLBACK animation event
-sst_custom      ds.b 30     ; $32-$4F — per-object custom data overlay
+slot_tag        ds.b 1      ; $2A — entity window slot tag (SLOT_TAG_*; $FF = untagged)
+entity_section_id ds.b 1    ; $2B — spawning section's flat id (despawn bookkeeping)
+entity_list_index ds.b 1    ; $2C — index in section's ROM object list (killed bitmask)
+layer           ds.b 1      ; $2D — collision layer select (0 = path A, 1 = path B)
+sst_custom      ds.b 34     ; $2E-$4F — per-object custom data overlay
 SST endstruct
 
         if SST_len <> $50
           error "SST struct is \{SST_len} bytes, expected $50"
+        endif
+        if SST_sst_custom <> $2E
+          error "SST template/metadata block moved — sst_custom expected at $2E, got \{SST_sst_custom}"
+        endif
+        if SST_len-SST_sst_custom <> 34
+          error "sst_custom size changed — expected 34 bytes, got \{SST_len-SST_sst_custom}"
         endif
 
 ; -----------------------------------------------

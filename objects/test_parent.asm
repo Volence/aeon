@@ -25,7 +25,7 @@ CHILD_ORBIT_RADIUS      = 32                    ; pixels
 ; Clobbers: d0-d2, a1
 ; -----------------------------------------------
 TestChildPart:
-        move.w  #3, SST_priority(a0)
+        ori.b   #3<<RF_PRIORITY_SHIFT, SST_render_flags(a0)
         move.b  #16, SST_width_pixels(a0)
         move.b  #16, SST_height_pixels(a0)
         bset    #RF_COORDMODE, SST_render_flags(a0)
@@ -114,7 +114,7 @@ TestParent:
         move.w  #vram_art(VRAM_TEST_OBJ,0,0), SST_art_tile(a0)
         moveq   #0, d0
         move.b  d0, SST_mapping_frame(a0)       ; frame 0 (color 1 square)
-        move.w  #3, SST_priority(a0)
+        ori.b   #3<<RF_PRIORITY_SHIFT, SST_render_flags(a0)
         move.b  #16, SST_width_pixels(a0)
         move.b  #16, SST_height_pixels(a0)
         bset    #RF_COORDMODE, SST_render_flags(a0)

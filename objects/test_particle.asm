@@ -18,7 +18,7 @@ TestParticle:
         move.b  d0, SST_anim(a0)                ; anim 0: flash
         move.b  #$FF, SST_prev_anim(a0)
         move.b  #$FF, SST_prev_frame(a0)
-        move.w  #6, SST_priority(a0)            ; high priority (in front)
+        ori.b   #6<<RF_PRIORITY_SHIFT, SST_render_flags(a0)
         move.b  #8, SST_width_pixels(a0)
         move.b  #8, SST_height_pixels(a0)
         bset    #RF_COORDMODE, SST_render_flags(a0) ; screen coords (no camera)

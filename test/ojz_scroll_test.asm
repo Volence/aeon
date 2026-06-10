@@ -65,7 +65,7 @@ GameState_OJZScroll_Init:
         move.w  #objroutine(TestPlayer_Main), (Player_1+SST_code_addr).w
         move.l  #Map_TestObj, (Player_1+SST_mappings).w
         move.w  #$A0FA, (Player_1+SST_art_tile).w
-        move.w  #7, (Player_1+SST_priority).w
+        ori.b   #7<<RF_PRIORITY_SHIFT, (Player_1+SST_render_flags).w
         move.b  #1, (Player_1+SST_sprite_piece_count).w
         move.b  #16, (Player_1+SST_width_pixels).w
         move.b  #16, (Player_1+SST_height_pixels).w

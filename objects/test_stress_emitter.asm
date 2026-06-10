@@ -15,7 +15,7 @@ TestStressEmitter:
         move.l  #Map_TestObj, SST_mappings(a0)
         move.w  #vram_art(VRAM_TEST_OBJ,0,0), SST_art_tile(a0)
         move.b  #1, SST_mapping_frame(a0)
-        move.w  #7, SST_priority(a0)
+        ori.b   #7<<RF_PRIORITY_SHIFT, SST_render_flags(a0)
         move.b  #8, SST_width_pixels(a0)
         move.b  #8, SST_height_pixels(a0)
         bset    #RF_COORDMODE, SST_render_flags(a0)

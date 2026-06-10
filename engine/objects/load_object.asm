@@ -34,6 +34,7 @@ Load_Object:
 
         ; code_addr
         move.w  (a2)+, SST_code_addr(a1)
+        move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a1)
 
         ; format byte (save in d3 for bit testing)
         move.b  (a2)+, d3
@@ -102,7 +103,9 @@ Load_Object:
 
         btst    #ODF_PRIORITY, d3
         beq.s   .no_priority
-        move.w  (a2)+, SST_priority(a1)
+        move.w  (a2)+, d0
+        lsl.b   #RF_PRIORITY_SHIFT, d0
+        or.b    d0, SST_render_flags(a1)
 .no_priority:
 
         moveq   #0, d0                  ; Z set = success

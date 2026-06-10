@@ -21,7 +21,7 @@ TestAnimated:
         move.b  #0, SST_anim(a0)
         move.b  #$FF, SST_prev_anim(a0)
         move.b  #$FF, SST_prev_frame(a0)
-        move.w  #4, SST_priority(a0)
+        ori.b   #4<<RF_PRIORITY_SHIFT, SST_render_flags(a0)
         move.w  #objroutine(TestAnimated_Main), SST_code_addr(a0)
 
 ; -----------------------------------------------

@@ -14,7 +14,7 @@ TestEmitter:
         move.l  #Map_TestObj, SST_mappings(a0)
         move.w  #vram_art(VRAM_TEST_OBJ,0,0), SST_art_tile(a0)
         move.b  #1, SST_mapping_frame(a0)       ; frame 1 (color 2 square)
-        move.w  #5, SST_priority(a0)
+        ori.b   #5<<RF_PRIORITY_SHIFT, SST_render_flags(a0)
         move.b  #16, SST_width_pixels(a0)
         move.b  #16, SST_height_pixels(a0)
         bset    #RF_COORDMODE, SST_render_flags(a0)

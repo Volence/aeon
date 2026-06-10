@@ -16,7 +16,7 @@ DespawnSlotObjects:
         tst.w   SST_code_addr(a0)
         beq.s   .next_slot
 
-        cmp.b   SLOT_TAG_OFFSET(a0), d0
+        cmp.b   SST_slot_tag(a0), d0
         bne.s   .next_slot
 
         movem.l d0-d1/a0, -(sp)

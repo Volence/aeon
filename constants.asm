@@ -163,6 +163,7 @@ RF_XFLIP                = 1         ; horizontal flip
 RF_YFLIP                = 2         ; vertical flip
 RF_COORDMODE            = 3         ; 0 = world coords, 1 = screen coords
 RF_MULTISPRITE          = 4         ; (parent only) batch render via sibling-chain walk
+RF_PRIORITY_SHIFT       = 5         ; bits 5-7 = sprite priority band (0-7)
 
 ; status byte bits (SST_status)
 ; Bits 1-2 aligned with RF_XFLIP/RF_YFLIP for direct propagation.
@@ -193,6 +194,11 @@ OBJ_FMT_MINIMAL         = 0                                ; mappings + art_tile
 OBJ_FMT_STATIC          = (1<<ODF_COLLISION)|(1<<ODF_PRIORITY) ; + collision + priority
 OBJ_FMT_MOVING          = OBJ_FMT_STATIC|(1<<ODF_VELOCITY) ; + velocity
 OBJ_FMT_ANIMATED        = OBJ_FMT_STATIC|(1<<ODF_ANIMATION) ; + animation
+
+; SST layout constants (sync with structs.asm)
+SST_CUSTOM_SIZE         = 34        ; bytes in sst_custom ($2E-$4F)
+SST_TEMPLATE_START      = $0A       ; first byte of the ObjDef-copied template block
+SST_TEMPLATE_SIZE       = 24        ; template bytes copied at spawn ($0A-$21; $20-$21 re-inited)
 
 ; Execution culling distances (pixels from camera center)
 CULL_DISTANCE_X         = $300      ; 768px — skip dynamic objects beyond this
@@ -359,17 +365,12 @@ COLLECTED_EMPTY_TAG     = $FF           ; slot not owned by any section
 ; Object type tables (read from ROM, no RAM copy)
 MAX_OBJECT_TYPES        = 32
 
-; Slot tag — stored at fixed SST offset, identifies which section spawned an object
-SLOT_TAG_OFFSET         = SST_sst_custom+$1D
+; Slot tag — now a named SST field (SST_slot_tag); identifies which section spawned an object
 SLOT_TAG_UNTAGGED       = $FF
 SLOT_TAG_LEFT           = 0
 SLOT_TAG_RIGHT          = 1
 SLOT_TAG_UP             = 2
 SLOT_TAG_DOWN           = 3
-
-; Entity metadata — stored in SST custom region at spawn time
-ENTITY_SECTION_ID_OFFSET = SST_sst_custom+$1B
-ENTITY_LIST_INDEX_OFFSET = SST_sst_custom+$1C
 
 ; Object layout encoding (ROM format, 32-bit entries)
 OBJ_ENTRY_X_SHIFT       = 20           ; bits 29-20
