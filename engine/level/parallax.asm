@@ -443,16 +443,23 @@ Decode_Factor_B:
 ; Out: Hscroll_Buffer filled (224 longwords); a0/d7 preserved
 ; Clobbers: d0-d6, a1-a6
 ;
-; Per band:
-;   1. Cache (current_a << 16) | current_b in a stack-saved word pair
-;   2. For each line in [band.top_cell*8, end_line):
-;        - reload base scroll (FG_a, BG_b)
-;        - if FG deform active: sample table, shift, add to FG word
-;        - if BG deform active: sample table, shift, add to BG word
-;        - pack + emit longword
-;   3. Advance to next band
+; Per band, all loop-invariant decisions are hoisted and one of FOUR
+; specialized line loops runs (both/fg/bg deform, or flat copy):
+; the old single loop re-tested table pointers, re-compared shift
+; sentinels, re-read shift counts from ROM, and re-derived the BG
+; phase base EVERY LINE — measured 45.6k cycles/frame (35.6%% of the
+; NTSC budget) at idle, the largest single frame cost in the engine.
 ;
-; Deform-table indices wrap at 256 via byte arithmetic on the index register.
+; Per-band registers inside the line loops:
+;   d0 = packed base scroll (FG<<16 | BG)   — constant per band
+;   d1 = scratch (index / sample / out word)
+;   d2 = BG phase base (Phase_BG + band_phase)
+;   d3 = shift_a (low) / shift_b (high) — swap to switch
+;   d4 = line index    d5 = band end line
+;   d6 = FG phase base (Phase_FG + band_phase)
+;   d7 = bands remaining (countdown; movem-restored at exit)
+;   a5/a6 = FG/BG deform tables
+; Deform-table indices wrap at 256 via andi #$FF.
 ; ----------------------------------------------------------------------
 Parallax_Fill_PerLine:
         movem.l a0/d7, -(sp)                        ; preserve caller's config ptr + band count
@@ -465,91 +472,159 @@ Parallax_Fill_PerLine:
         movea.l parallax_config_pcfg_deform_table_bg(a0), a6  ; NULL = no BG sampling
 
         moveq   #0, d4                              ; current line index (0..223)
-        moveq   #0, d3                              ; band index (0..count-1)
 
 .next_band:
-        ; --- compute end_line for this band ---
-        addq.w  #1, d3                              ; d3 = band_index + 1
-        cmp.w   d7, d3
-        bhs.s   .last_band                          ; d3 >= d7 → this is last band
+        ; --- end_line for this band: next band's top_cell×8, or 224 ---
+        move.w  #224, d5
+        subq.w  #1, d7
+        beq.s   .have_end                           ; last band
         moveq   #0, d5
         move.b  band_entry_band_top_cell+band_entry_len(a1), d5
-        lsl.w   #3, d5                              ; end_line = next.top_cell × 8
-        bra.s   .have_end
-.last_band:
-        move.w  #224, d5                            ; last band ends at line 224
+        lsl.w   #3, d5
 .have_end:
 
-        ; --- per-band setup: phase index = (Phase_xx + band_phase + line) & $FF ---
-        ; Precompute (Phase_xx + band_phase) into d_idx_fg / d_idx_bg.
-        ; Then add line each iteration.
-        moveq   #0, d6                              ; d6.w = FG phase index base
-        cmpa.w  #0, a5
-        beq.s   .skip_fg_idx
-        move.w  (Parallax_Deform_Phase_FG).w, d6
-        add.b   band_entry_band_phase_offset(a1), d6
-.skip_fg_idx:
-
-        ; .line loop
-.line:
-        ; --- start with band's base scroll (in d0 = packed FG_high|BG_low) ---
+        ; --- packed base scroll (constant per band) ---
         move.w  (a2), d0                            ; FG (already negated)
         swap    d0
-        move.w  (a3), d0                            ; BG
+        move.w  (a3), d0                            ; BG → d0 = FG<<16 | BG
 
-        ; --- FG deform sampling ---
+        ; --- hoist channel-active decisions ---
+        ; FG active: table non-NULL AND shift_a != 15
+        moveq   #0, d3
         cmpa.w  #0, a5
-        beq.s   .skip_fg_sample
-        moveq   #15, d2
-        cmp.b   band_entry_band_deform_shift_a(a1), d2
-        beq.s   .skip_fg_sample
-        ; index = (d6 + line) & $FF
+        beq.s   .fg_decided
+        move.b  band_entry_band_deform_shift_a(a1), d3
+        cmpi.b  #15, d3
+        bne.s   .fg_decided
+        moveq   #0, d3                              ; sentinel → inactive marker stays 0...
+        bra.s   .fg_inactive
+.fg_decided:
+        cmpa.w  #0, a5
+        beq.s   .fg_inactive
+        ; FG ACTIVE — d3.w = shift_a; d6 = FG phase base
+        move.w  (Parallax_Deform_Phase_FG).w, d6
+        moveq   #0, d1
+        move.b  band_entry_band_phase_offset(a1), d1
+        add.w   d1, d6
+        ; BG active too?
+        cmpa.w  #0, a6
+        beq.s   .band_fg_only
+        moveq   #15, d1
+        cmp.b   band_entry_band_deform_shift_b(a1), d1
+        beq.s   .band_fg_only
+        ; --- BOTH channels ---
+        swap    d3
+        move.b  band_entry_band_deform_shift_b(a1), d3  ; low byte = shift_b after swap below
+        moveq   #0, d2
+        move.b  band_entry_band_phase_offset(a1), d2
+        add.w   (Parallax_Deform_Phase_BG).w, d2        ; d2 = BG phase base
+        swap    d3                                  ; d3.w = shift_a, hi = shift_b
+        bra.s   .lp_both
+.fg_inactive:
+        ; FG flat — BG active?
+        cmpa.w  #0, a6
+        beq.w   .lp_flat
+        moveq   #15, d1
+        cmp.b   band_entry_band_deform_shift_b(a1), d1
+        beq.w   .lp_flat
+        ; --- BG only ---
+        moveq   #0, d3
+        move.b  band_entry_band_deform_shift_b(a1), d3  ; d3.w = shift_b
+        moveq   #0, d2
+        move.b  band_entry_band_phase_offset(a1), d2
+        add.w   (Parallax_Deform_Phase_BG).w, d2
+        bra.s   .lp_bg
+
+; --- BOTH: FG and BG sampled per line ---
+.lp_both:
+        cmp.w   d5, d4
+        bhs.w   .band_done
+.lb_line:
         move.w  d6, d1
         add.w   d4, d1
         andi.w  #$FF, d1
-        move.b  (a5, d1.w), d2                      ; sample (signed byte)
-        ext.w   d2
-        moveq   #0, d1
-        move.b  band_entry_band_deform_shift_a(a1), d1
-        asr.w   d1, d2                              ; offset = sample >> deform_shift_a
-        ; Add offset to FG word (high half of d0)
+        move.b  (a5,d1.w), d1
+        ext.w   d1
+        asr.w   d3, d1                              ; >> shift_a
         swap    d0
-        add.w   d2, d0
+        add.w   d0, d1                              ; + FG base
         swap    d0
-.skip_fg_sample:
-
-        ; --- BG deform sampling ---
-        cmpa.w  #0, a6
-        beq.s   .skip_bg_sample
-        moveq   #15, d2
-        cmp.b   band_entry_band_deform_shift_b(a1), d2
-        beq.s   .skip_bg_sample
-        ; index = (Phase_BG + band_phase + line) & $FF
-        ; Recompute base each line (BG path doesn't cache, simpler)
-        move.w  (Parallax_Deform_Phase_BG).w, d1
-        add.b   band_entry_band_phase_offset(a1), d1
+        move.w  d1, (a4)+                           ; FG word
+        swap    d3                                  ; → shift_b
+        move.w  d2, d1
         add.w   d4, d1
         andi.w  #$FF, d1
-        move.b  (a6, d1.w), d2
-        ext.w   d2
-        moveq   #0, d1
-        move.b  band_entry_band_deform_shift_b(a1), d1
-        asr.w   d1, d2                              ; offset
-        add.w   d2, d0                              ; add to BG word (low half)
-.skip_bg_sample:
-
-        ; --- emit packed longword ---
-        move.l  d0, (a4)+
+        move.b  (a6,d1.w), d1
+        ext.w   d1
+        asr.w   d3, d1                              ; >> shift_b
+        swap    d3                                  ; → shift_a
+        add.w   d0, d1                              ; + BG base
+        move.w  d1, (a4)+                           ; BG word
         addq.w  #1, d4
         cmp.w   d5, d4
-        blo.w   .line
+        blo.s   .lb_line
+        bra.s   .band_done
 
-        ; advance to next band
-        adda.l  #band_entry_len, a1
+; --- FG only: BG word constant ---
+.band_fg_only:
+        cmp.w   d5, d4
+        bhs.s   .band_done
+.lf_line:
+        move.w  d6, d1
+        add.w   d4, d1
+        andi.w  #$FF, d1
+        move.b  (a5,d1.w), d1
+        ext.w   d1
+        asr.w   d3, d1
+        swap    d0
+        add.w   d0, d1
+        swap    d0
+        move.w  d1, (a4)+                           ; FG word
+        move.w  d0, (a4)+                           ; BG word (constant)
+        addq.w  #1, d4
+        cmp.w   d5, d4
+        blo.s   .lf_line
+        bra.s   .band_done
+
+; --- BG only: FG word constant ---
+.lp_bg:
+        cmp.w   d5, d4
+        bhs.s   .band_done
+        swap    d0                                  ; d0 = BG<<16 | FG for this loop
+.lg_line:
+        move.w  d2, d1
+        add.w   d4, d1
+        andi.w  #$FF, d1
+        move.b  (a6,d1.w), d1
+        ext.w   d1
+        asr.w   d3, d1
+        move.w  d0, (a4)+                           ; FG word (constant, low)
+        swap    d0
+        add.w   d0, d1                              ; + BG base
+        swap    d0
+        move.w  d1, (a4)+                           ; BG word
+        addq.w  #1, d4
+        cmp.w   d5, d4
+        blo.s   .lg_line
+        bra.s   .band_done
+
+; --- FLAT: same longword for every line of the band ---
+.lp_flat:
+        move.w  d5, d1
+        sub.w   d4, d1
+        beq.s   .band_done                          ; empty band
+        move.w  d5, d4                              ; line index jumps to band end
+        subq.w  #1, d1
+.fl_line:
+        move.l  d0, (a4)+
+        dbf     d1, .fl_line
+
+.band_done:
+        lea     band_entry_len(a1), a1
         addq.l  #2, a2
         addq.l  #2, a3
-        cmp.w   d7, d3
-        blo.w   .next_band
+        tst.w   d7
+        bne.w   .next_band
 
         movem.l (sp)+, a0/d7
         rts
