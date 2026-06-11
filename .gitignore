@@ -16,12 +16,19 @@
 !data/mappings/*.bin
 !art/palettes/*.bin
 
+# Vendored salvador (ZX0 packer) — keep sources, ignore build artifacts
+!tools/salvador/**/*.h
+tools/salvador/obj/
+tools/salvador/salvador
+tools/bin/
+
 # MCP config (machine-specific)
 .mcp.json
 
 # ctags symbol index (generated)
 tags
 *.s4lz
+*.zx0
 *.tf
 __pycache__/
 .worktrees/
