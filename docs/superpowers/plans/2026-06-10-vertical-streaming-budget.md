@@ -54,3 +54,29 @@
 - [ ] Commit docs; merge branch to master after review.
 
 **Branch:** `vertical-streaming` off master. The 5 uncommitted user files (editor rings JSONs + export entity_data.asm) must NEVER be staged — use explicit `git add <file>` lists, never `git add -A`.
+
+---
+
+## RESULTS (2026-06-10, measured via DEBUG Lag_Frame_Count, 8×64px protocol)
+
+| Stage | Vertical | Horizontal |
+|---|---|---|
+| Baseline | +15 | +6 |
+| T1 (budget/resume/cap=4) | +15 | +7 |
+| T2+T3 (clamp 32 + prefetch) | +15 | +5 |
+| + Parallax_Fill_PerLine hoist (45.6k→22.6k) | +15 | — |
+| + S2 contract retune (clamp 16, cap 2) | **+4** | +6 |
+
+**Root cause was twofold:** (1) no headroom — Parallax_Fill_PerLine ate 45.6k/frame
+idle (fixed: per-band dispatch, −50.5%); (2) the VBlank handler, not the fill —
+4 rows/frame of plane-buffer payload overflowed the VBlank window into active
+display where VDP access throttles (caught by PC-sampling: CPU stalled in
+Process_DMA_Critical's DMA trigger). S2's 16px-clamp/2-row contract exists for
+exactly this reason. Scope additions vs the original plan: the parallax hoist
+(was "out of scope", measured as the blocker) and the retune.
+
+**Follow-ups (not blocking):** prefetch column cursor (the residual +4 vertical
+= 4 block-row crossings; prefetch currently re-probes only the view-center
+column — walking the 6 visible block columns between crossings should reach
+~+1); horizontal's +6 is the same crossing class. Plane-buffer per-VBlank
+drain budget is the deeper fix if row payloads ever grow again.
