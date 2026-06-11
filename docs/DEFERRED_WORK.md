@@ -692,6 +692,21 @@ non-zero; intermittently they read zero.
 **What:** ZX0 measured ~76 KB/s (5 frames synchronous for a 6.3 KB section blob). Today it runs only at level init (invisible). The §4.2 deferred cold-load design (mid-traversal FWD/BWD section art loads — currently stubbed) would freeze ~5-7 frames if it called `Art_Decompress` on a ZX0 blob synchronously. Before implementing deferred loads: either route them through §9.7 cooperative-multitasking budgeted decode, or keep gameplay-streamed art on the S4LZ tier (wrapper version byte already dispatches per blob — the pipeline can mix tiers freely).
 **When ready:** with §4.2 deferred cold-load implementation.
 
+### Level editor exporter template is stale (dict fields, .zx0, blob aliases)
+**Surfaced during:** compression-two-tier T2/T3 2026-06-11. Editor repo (sonic-level-editor, user-triaged commits only).
+**What:** The editor's act-descriptor exporter (`src/core/export/act-descriptor.ts`) still emits the pre-compression-branch shape: `sec_reserved_2C`/pad instead of `sec_block_dict` ($2C) + `sec_block_dict_len` ($46); `OJZ_SecN_Tiles_S4LZ` labels + `.s4lz` BINCLUDEs instead of `OJZ_SecN_Tiles` + `.zx0`; 18 per-section BINCLUDE lines instead of the two generated blob-alias includes (`sec_tile_blobs.asm`/`sec_block_blobs.asm`). Nothing breaks today (the export dir isn't in the ROM build), but the NEXT editor export would hand the engine a NULL dict pointer for dict-compressed blocks. Also: `tools/ojz_strip_gen.py editor_data_available()` hardcodes `ojz/act1/section_0.tiles.bin` instead of deriving from project.json `dataPath` (same config-derivation treatment as the 2026-06-11 chunk-library move).
+**When ready:** before the next editor level export; engine-side spec is all on master (structs.asm Sec fields, act_descriptor.asm as reference).
+
+### Streaming polish backlog (consolidated pointers)
+**Surfaced during:** vertical-streaming 2026-06-10 (full analysis in that plan's RESULTS + follow-ups).
+**What:** (1) Prefetch column cursor — residual +4 vertical / +6 horizontal lag per 512px is block-row/col crossing decompresses; prefetch re-probes only the view-center column, walking the ~6 visible block columns between crossings should reach ~+1. (2) Per-VBlank plane-buffer drain budget — the deeper fix if row payloads ever grow past 2 rows/frame again. (3) DEBUG_FLY_SPEED_FAST is pinned to base speed by the 16px/f camera clamp (turbo is a no-op).
+**When ready:** any perf-focused session; all measured groundwork is in docs/superpowers/plans/2026-06-10-vertical-streaming-budget.md.
+
+### Real ring/object art at safe VRAM slots
+**Surfaced during:** objects-v2 play-testing 2026-06-10.
+**What:** Test objects render placeholder squares; VRAM_TEST_SONIC-era test art sat inside the FG pool (caused the debug-exit tile corruption, since fixed by relocation). Production ring/monitor/object art needs proper slots in the unified pool via the build-time allocator, replacing the placeholders so play-testing reads like a game.
+**When ready:** after §4.9 phase 2 (vertical entity window) makes entities visible everywhere.
+
 ---
 
 ## From Sound Driver Work (Future)
