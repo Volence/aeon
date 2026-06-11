@@ -153,7 +153,7 @@ sec_pcfg_pad_3C     ds.b 1          ; $3C — RESERVED (was sec_layer_mask; in p
 sec_camera_lookahead ds.b 1         ; $3D — lookahead pixels (0 = zone default)
 sec_pcfg_pad_3E     ds.b 1          ; $3E — RESERVED (was sec_deform_speed)
 sec_pcfg_pad_3F     ds.b 1          ; $3F — RESERVED (was sec_transition_type)
-sec_tile_art_s4lz   ds.l 1          ; $40 — per-section S4LZ tile pool ptr (§2 A.3)
+sec_tile_art        ds.l 1          ; $40 — per-section compressed tile blob ptr (§2 A.3; wrapper version byte selects decoder — ZX0 in production)
 sec_tile_art_vram   ds.w 1          ; $44 — VRAM byte dest (color base × 32)
 sec_block_dict_len  ds.w 1          ; $46 — dict bytes (768×K, K≤3, word-even; 0 = no dict)
 Sec endstruct

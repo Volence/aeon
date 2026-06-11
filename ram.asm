@@ -4,7 +4,7 @@
 
 ; -----------------------------------------------
 ; Lower RAM — 2D tile cache, block staging, streaming buffers (§4.7)
-; Replaces Decomp_Buffer after level init. LoadArt_S4LZ still
+; Replaces Decomp_Buffer after level init. LoadArt_Compressed still
 ; writes here during init (display off, before cache is populated).
 ; -----------------------------------------------
         phase $FFFF0000
@@ -30,7 +30,7 @@ STREAMING_BUFFER_B:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes
 
 ; Stream states — 4 streaming decompressor bookmarks
 S4LZ_Stream_States:     ds.b StreamState_len * 4    ; 48 bytes
-; Keep Decomp_Buffer as alias for LoadArt_S4LZ backward compat
+; Keep Decomp_Buffer as alias for LoadArt_Compressed backward compat
 Decomp_Buffer = Tile_Cache_Nametable
 Decomp_Buffer_End = Tile_Cache_Nametable + TILE_CACHE_NT_SIZE
 

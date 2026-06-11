@@ -310,6 +310,14 @@ BLOCKS_PER_SECTION_AXIS = 16        ; 16 blocks across, 16 blocks down
 BLOCK_INDEX_ENTRIES     = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  ; 256
 BLOCK_INDEX_SIZE        = BLOCK_INDEX_ENTRIES * 4  ; 1024 bytes (ROM)
 
+; Compressed art wrapper — every art blob starts with a 4-byte header:
+; [u16 BE uncompressed size][u8 flags][u8 version]. Loaders peek the size
+; for DMA (0 = empty stub, skip) and dispatch on the version byte.
+ART_HDR_VERSION         = 3         ; byte offset of version within wrapper
+ART_HDR_SIZE            = 4         ; wrapper bytes ahead of the stream
+ART_VER_S4LZ            = 1         ; S4LZ v3 token stream (runtime tier)
+ART_VER_ZX0             = 2         ; ZX0 modern/V2 bitstream (load-time tier)
+
 ; Collision (§4.7) — collision bytes embedded in block data, no separate maps
 COLLISION_CELL_SHIFT    = 4         ; pixel → cell (/ 16)
 

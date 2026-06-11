@@ -1,13 +1,38 @@
 ; Level art loader (§2 Phase 2 A.1/A.2/A.3)
-; Blocking S4LZ → DMA pipeline. A.3 reorganized loading around per-section
-; pools (graph-colored) instead of global region pools.
+; Blocking decompress → DMA pipeline. A.3 reorganized loading around
+; per-section pools (graph-colored) instead of global region pools.
 
 ; -----------------------------------------------
-; LoadArt_S4LZ — decompress an S4LZ stream and queue Critical DMA to VRAM.
+; Art_Decompress — version-dispatched blocking art decompressor.
 ;
-; In:  a0 = source ROM pointer (S4LZ stream, word-aligned)
+; Every compressed art blob starts with the 4-byte wrapper
+; [u16 BE uncompressed size][u8 flags][u8 version]:
+;   version 1 (ART_VER_S4LZ) → S4LZ_Decompress (parses the wrapper itself)
+;   version 2 (ART_VER_ZX0)  → ZX0_Decompress (wrapper skipped here)
+; Callers must skip size-0 blobs BEFORE calling (empty stubs carry no
+; decodable stream).
+;
+; In:  a0 = source ROM pointer (wrapper at start, word-aligned)
+;      a1 = destination buffer
+; Out: a0 = past end of compressed data
+;      a1 = past end of decompressed data (S4LZ: see its odd-size note)
+; Clobbers: d0–d3, a2–a3 (S4LZ path; ZX0 path only d0–d1)
+;           a4/d4 untouched on both paths — callers keep them live
+; -----------------------------------------------
+Art_Decompress:
+        cmpi.b  #ART_VER_ZX0, ART_HDR_VERSION(a0)
+        beq.s   .zx0
+        bra.w   S4LZ_Decompress                     ; v3 reads its own wrapper
+.zx0:
+        addq.l  #ART_HDR_SIZE, a0                   ; ZX0 stream starts past wrapper
+        bra.w   ZX0_Decompress
+
+; -----------------------------------------------
+; LoadArt_Compressed — decompress an art blob and queue Critical DMA to VRAM.
+;
+; In:  a0 = source ROM pointer (wrapped art blob, word-aligned)
 ;      d0.w = VRAM byte destination (tile-slot * 32)
-; Out: a0 = past end of compressed data (returned from S4LZ_Decompress)
+; Out: a0 = past end of compressed data (returned from Art_Decompress)
 ; Clobbers: d0–d3, a0–a3
 ;
 ; Uses Decomp_Buffer (32 KB transient at $FFFF0000). For loads exceeding
@@ -15,7 +40,7 @@
 ; the display blanked off so multiple Critical DMAs can drain across one
 ; extended VBlank.
 ; -----------------------------------------------
-LoadArt_S4LZ:
+LoadArt_Compressed:
         movem.l d4-d6/a4, -(sp)
         move.w  d0, d6                              ; d6.w = VRAM dest
         movea.l a0, a4                              ; a4 = saved source ptr (size peek)
@@ -25,7 +50,7 @@ LoadArt_S4LZ:
         beq.s   .return
 
         lea     (Decomp_Buffer).l, a1               ; a1 = work buffer
-        bsr.w   S4LZ_Decompress                     ; decompress; a0 advances past stream
+        bsr.s   Art_Decompress                      ; decompress; a0 advances past stream
 
         move.l  #Decomp_Buffer, d1                  ; d1 = source (RAM, $FFFF0000)
         moveq   #0, d2
@@ -45,7 +70,7 @@ LoadArt_S4LZ:
 ; Out: none
 ; Clobbers: d0–d4, a0–a4
 ;
-; A.3 behaviour: each section has its own S4LZ blob and VRAM dest.
+; A.3 behaviour: each section has its own compressed art blob and VRAM dest.
 ; Sections in the same color class overlay each other in VRAM as the
 ; camera traverses; the leapfrog system guarantees that the two
 ; currently-resident slots hold ADJACENT sections, which by graph-
@@ -55,10 +80,10 @@ LoadArt_S4LZ:
 Section_LoadArt:
         moveq   #0, d0
         move.w  Sec_sec_tile_art_vram(a0), d0       ; d0.w = VRAM byte dest
-        movea.l Sec_sec_tile_art_s4lz(a0), a0       ; a0 = compressed S4LZ source
+        movea.l Sec_sec_tile_art(a0), a0            ; a0 = compressed art source
         cmpa.w  #0, a0
         beq.s   .skip                               ; null pointer → no art for this section
-        bra.w   LoadArt_S4LZ                        ; tail call
+        bra.w   LoadArt_Compressed                  ; tail call
 .skip:
         rts
 
@@ -78,7 +103,7 @@ Level_LoadArt:
         ; A.4 fix: read section IDs from act descriptor directly, NOT from
         ; Slot_Section_Map. Test state calls Level_LoadArt BEFORE Section_Init,
         ; so Slot_Section_Map is uninitialized at this point.
-        ; LoadArt_S4LZ saves/restores a4 internally, so a4 survives across
+        ; LoadArt_Compressed saves/restores a4 internally, so a4 survives across
         ; nested calls — we use it to keep act ptr.
         move.l  a4, -(sp)                           ; save caller's a4
         movea.l a0, a4                              ; a4 = act ptr
@@ -145,7 +170,7 @@ Level_LoadArt:
 ; Section_StreamArtGroup — preload one section's tile art via Deferrable DMA.
 ;
 ; In:  a0 = Sec struct pointer
-;      a4 = Sec struct pointer (preserved copy; S4LZ_Decompress clobbers a0)
+;      a4 = Sec struct pointer (preserved copy; Art_Decompress clobbers a0)
 ;      d6.w = flat section_id (sec_y * grid_w + sec_x), used to index
 ;             Section_Stream_State
 ; Out: none
@@ -157,7 +182,7 @@ Level_LoadArt:
 ;   SS_STREAMING → no-op (already in-flight)
 ;   SS_RESIDENT  → no-op (already in VRAM)
 ;
-; A.4 model: run-to-completion S4LZ decompress + queued Deferrable DMA.
+; A.4 model: run-to-completion decompress + queued Deferrable DMA.
 ; The queue drains across upcoming VBlanks. By the time camera reaches
 ; the teleport threshold (~85-170 frames after preload), tiles are in VRAM.
 ; -----------------------------------------------
@@ -169,11 +194,11 @@ Section_StreamArtGroup:
         bne.s   .skip                               ; already STREAMING or RESIDENT
 
         ; -- bail if section has no tile art (null pointer) --
-        movea.l Sec_sec_tile_art_s4lz(a0), a2
+        movea.l Sec_sec_tile_art(a0), a2
         cmpa.w  #0, a2
         beq.s   .skip
 
-        ; -- bail if S4LZ uncompressed size is 0 (placeholder blob) --
+        ; -- bail if uncompressed size is 0 (placeholder blob) --
         move.w  (a2), d4                            ; d4.w = uncompressed size
         beq.s   .skip
 
@@ -191,10 +216,10 @@ Section_StreamArtGroup:
         move.b  #0, (Streaming_Active_Buffer).w
 .have_buffer:
 
-        ; -- decompress run-to-completion: a2 = source S4LZ, a3 = dest buffer --
+        ; -- decompress run-to-completion: a2 = source blob, a3 = dest buffer --
         movea.l a2, a0                              ; a0 = source
         movea.l a3, a1                              ; a1 = dest
-        bsr.w   S4LZ_Decompress                     ; clobbers d0-d3, a2-a3 (a3 = dest start — equals the buffer this routine already holds)
+        bsr.w   Art_Decompress                      ; clobbers d0-d3, a2-a3 (a3 = dest start — equals the buffer this routine already holds; ZX0 path leaves a3 alone)
 
         ; -- queue Deferrable DMA: streaming buffer → section's VRAM dest --
         move.l  a3, d1                              ; d1 = source (RAM addr)

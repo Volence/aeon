@@ -33,21 +33,37 @@ if [[ "${PRINT_ERRORS_ONLY}" == "0" ]]; then
     ASFLAGS="${ASFLAGS} -E ${ROM_NAME}.log"
 fi
 
+# Build the vendored salvador (ZX0 packer) once if missing
+if [[ ! -x "${TOOLS}/bin/salvador" ]]; then
+    echo "Building salvador (ZX0 packer)..."
+    make -C "${TOOLS}/salvador" -s
+    mkdir -p "${TOOLS}/bin"
+    cp "${TOOLS}/salvador/salvador" "${TOOLS}/bin/salvador"
+fi
+
 echo "Generating collision data (height maps, angles)..."
 python3 "${TOOLS}/gen_collision_data.py" data/collision
 
 echo "Generating OJZ section data..."
 python3 "${TOOLS}/ojz_strip_gen.py" generate
 
-echo "Compressing OJZ per-section tile blobs with S4LZ..."
+# Per-section tile art → ZX0 (load-time tier). Each .zx0 carries the
+# project's 4-byte wrapper [u16 BE uncompressed size][u8 flags=0][u8 version=2]
+# ahead of the raw salvador (modern/V2) stream — the loader peeks the size
+# for DMA and dispatches the decompressor on the version byte.
+echo "Compressing OJZ per-section tile blobs with ZX0 (salvador)..."
 for sec_bin in data/generated/ojz/act1/sec*_tiles.bin; do
-    sec_s4lz="${sec_bin%.bin}.s4lz"
+    sec_zx0="${sec_bin%.bin}.zx0"
     if [[ -s "$sec_bin" ]]; then
-        python3 "${TOOLS}/s4lz.py" compress --tile-delta "$sec_bin" "$sec_s4lz"
+        "${TOOLS}/bin/salvador" "$sec_bin" "${sec_zx0}.tmp" > /dev/null
+        size=$(stat -c%s "$sec_bin")
+        printf '%b' "$(printf '\\x%02x\\x%02x\\x00\\x02' $((size >> 8)) $((size & 255)))" > "$sec_zx0"
+        cat "${sec_zx0}.tmp" >> "$sec_zx0"
+        rm -f "${sec_zx0}.tmp"
     else
-        # Zero-length section — empty v3 stream (size 0, flags 0,
-        # version 1, EOS word). Loaders skip on size 0 before decoding.
-        printf '\x00\x00\x00\x01\x00\x00' > "$sec_s4lz"
+        # Zero-length section — empty v3 stub (size 0, flags 0, version 1,
+        # EOS word). Loaders skip on size 0 before reading the version byte.
+        printf '\x00\x00\x00\x01\x00\x00' > "$sec_zx0"
     fi
 done
 

@@ -57,7 +57,7 @@ OJZ_Sec0:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0                    ; sec_flags, sec_music
     dc.b    0, 0, 0, 0              ; reserved bytes
-    dc.l    OJZ_Sec0_Tiles_S4LZ     ; sec_tile_art_s4lz (§2 A.3)
+    dc.l    OJZ_Sec0_Tiles     ; sec_tile_art (§2 A.3)
     dc.w    OJZ_SEC0_VRAM           ; sec_tile_art_vram
     dc.w    OJZ_SEC0_BLOCK_DICT_LEN ; sec_block_dict_len
     align 2
@@ -76,7 +76,7 @@ OJZ_Sec1:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec1_Tiles_S4LZ
+    dc.l    OJZ_Sec1_Tiles
     dc.w    OJZ_SEC1_VRAM
     dc.w    OJZ_SEC1_BLOCK_DICT_LEN ; sec_block_dict_len
     align 2
@@ -95,7 +95,7 @@ OJZ_Sec2:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec2_Tiles_S4LZ
+    dc.l    OJZ_Sec2_Tiles
     dc.w    OJZ_SEC2_VRAM
     dc.w    OJZ_SEC2_BLOCK_DICT_LEN ; sec_block_dict_len
     align 2
@@ -114,7 +114,7 @@ OJZ_Sec3:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec3_Tiles_S4LZ
+    dc.l    OJZ_Sec3_Tiles
     dc.w    OJZ_SEC3_VRAM
     dc.w    OJZ_SEC3_BLOCK_DICT_LEN ; sec_block_dict_len
     align 2
@@ -133,7 +133,7 @@ OJZ_Sec4:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec4_Tiles_S4LZ
+    dc.l    OJZ_Sec4_Tiles
     dc.w    OJZ_SEC4_VRAM
     dc.w    OJZ_SEC4_BLOCK_DICT_LEN ; sec_block_dict_len
     align 2
@@ -152,7 +152,7 @@ OJZ_Sec5:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec5_Tiles_S4LZ
+    dc.l    OJZ_Sec5_Tiles
     dc.w    OJZ_SEC5_VRAM
     dc.w    OJZ_SEC5_BLOCK_DICT_LEN ; sec_block_dict_len
     align 2
@@ -171,7 +171,7 @@ OJZ_Sec6:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec6_Tiles_S4LZ
+    dc.l    OJZ_Sec6_Tiles
     dc.w    OJZ_SEC6_VRAM
     dc.w    OJZ_SEC6_BLOCK_DICT_LEN ; sec_block_dict_len
     align 2
@@ -190,7 +190,7 @@ OJZ_Sec7:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec7_Tiles_S4LZ
+    dc.l    OJZ_Sec7_Tiles
     dc.w    OJZ_SEC7_VRAM
     dc.w    OJZ_SEC7_BLOCK_DICT_LEN ; sec_block_dict_len
     align 2
@@ -209,7 +209,7 @@ OJZ_Sec8:
     dc.l    0, 0                    ; sec_anim_blocks, sec_collision_s4lz
     dc.w    0, 0
     dc.b    0, 0, 0, 0
-    dc.l    OJZ_Sec8_Tiles_S4LZ
+    dc.l    OJZ_Sec8_Tiles
     dc.w    OJZ_SEC8_VRAM
     dc.w    OJZ_SEC8_BLOCK_DICT_LEN ; sec_block_dict_len
     align 2
@@ -290,21 +290,21 @@ OJZ_Act1_BG_Tiles:  BINCLUDE "data/generated/ojz/act1/bg_tiles.bin"
     align 2
 
 ; Per-section tile blobs (§2 A.3)
-OJZ_Sec0_Tiles_S4LZ: BINCLUDE "data/generated/ojz/act1/sec0_tiles.s4lz"
+OJZ_Sec0_Tiles: BINCLUDE "data/generated/ojz/act1/sec0_tiles.zx0"
     align 2
-OJZ_Sec1_Tiles_S4LZ: BINCLUDE "data/generated/ojz/act1/sec1_tiles.s4lz"
+OJZ_Sec1_Tiles: BINCLUDE "data/generated/ojz/act1/sec1_tiles.zx0"
     align 2
-OJZ_Sec2_Tiles_S4LZ: BINCLUDE "data/generated/ojz/act1/sec2_tiles.s4lz"
+OJZ_Sec2_Tiles: BINCLUDE "data/generated/ojz/act1/sec2_tiles.zx0"
     align 2
-OJZ_Sec3_Tiles_S4LZ: BINCLUDE "data/generated/ojz/act1/sec3_tiles.s4lz"
+OJZ_Sec3_Tiles: BINCLUDE "data/generated/ojz/act1/sec3_tiles.zx0"
     align 2
-OJZ_Sec4_Tiles_S4LZ: BINCLUDE "data/generated/ojz/act1/sec4_tiles.s4lz"
+OJZ_Sec4_Tiles: BINCLUDE "data/generated/ojz/act1/sec4_tiles.zx0"
     align 2
-OJZ_Sec5_Tiles_S4LZ: BINCLUDE "data/generated/ojz/act1/sec5_tiles.s4lz"
+OJZ_Sec5_Tiles: BINCLUDE "data/generated/ojz/act1/sec5_tiles.zx0"
     align 2
-OJZ_Sec6_Tiles_S4LZ: BINCLUDE "data/generated/ojz/act1/sec6_tiles.s4lz"
+OJZ_Sec6_Tiles: BINCLUDE "data/generated/ojz/act1/sec6_tiles.zx0"
     align 2
-OJZ_Sec7_Tiles_S4LZ: BINCLUDE "data/generated/ojz/act1/sec7_tiles.s4lz"
+OJZ_Sec7_Tiles: BINCLUDE "data/generated/ojz/act1/sec7_tiles.zx0"
     align 2
-OJZ_Sec8_Tiles_S4LZ: BINCLUDE "data/generated/ojz/act1/sec8_tiles.s4lz"
+OJZ_Sec8_Tiles: BINCLUDE "data/generated/ojz/act1/sec8_tiles.zx0"
     align 2
