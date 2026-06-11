@@ -706,6 +706,18 @@ non-zero; intermittently they read zero.
 **What:** Teleports no longer run `Section_RedrawPlanes`, which was what blitted a differing `sec_bg_layout` to Plane B at FWD/BWD teleport (the §2 A.5 T2/T3 tests relied on this). All current production data is T1 (`sec_bg_layout = NULL` everywhere) so nothing is affected today. When a zone first authors per-section BG layouts, the swap needs a non-blocking mechanism — deferred Plane B column/row streaming near the seam (mirroring FG preview cols), not a 3-frame synchronous blit.
 **When ready:** when a zone authors T2/T3 BG data.
 
+## From Vertical Entity Window — Task 6 (2026-06-11)
+
+### Teleport keep-range tests pre-shift coords against the post-rebase camera
+**Surfaced during:** Task 6 mask-migration research 2026-06-11 (pre-existing since §4.9 999fdc5).
+**What:** `EntityWindow_TeleportShift`/`TeleportShiftY` read `Camera_X`/`Camera_Y` AFTER the caller has already rebased them by ±SECTION_SHIFT, but compare entity coordinates that are still pre-shift. The correct pre-shift keep window is `[cam_old − buf, cam_old + screen + buf]` = `[cam_new − d4 − buf, …]`; the code uses `cam_new` directly. Net effect: FWD/DOWN keep far-behind entities and shift them to negative coords (self-heals next despawn pass — section untracked + X/Y out), BWD/UP keep nothing. The intended survivors — entities visible from the just-departed section pair — are despawned instead, so content from the old block pops out at the seam instead of persisting. Fix = subtract d4 from the window base (use the pre-rebase camera).
+**Why not fixed in Task 6:** fixing it alone is WORSE — see next entry.
+
+### No survivor continuity across teleports (per-entry loaded masks can't cover off-window sections)
+**Surfaced during:** Task 6 mask-migration research 2026-06-11.
+**What:** Every teleport moves the tracked 2×2 section block by exactly two sections (X: pair columns ±2; Y: `sec_y ±= 2`), so old/new tracked sets are always disjoint and teleport survivors always belong to sections that just left the window. Their loaded bits are necessarily wiped (their entry now hosts a different section, and there is no mask slot for untracked sections). If the keep-range bug above is fixed so survivors really persist on screen, a quick direction reversal re-tracks their section with no loaded bits → the populate re-adds them → duplicate rings/objects. Entry-to-entry mask migration cannot solve this (nothing overlaps); the real fix is either (a) populate-time dedupe against the live ring buffer / SST `entity_section_id`+`list_index`, or (b) parking masks for recently-untracked sections, 3×3-collected-window style (overlaps with §4.9.4 respawn memory above).
+**When ready:** fix together with the keep-range entry whenever seam entity pop-out is addressed.
+
 ## From Compression Two-Tier (2026-06-11)
 
 ### S4LZ DP literal-extension undercharge

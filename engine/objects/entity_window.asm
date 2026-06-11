@@ -274,10 +274,13 @@ Collected_UpdateCenter:
 ; One ENTITY_LOADED_SLOT_SIZE (32-byte) slot per scan entry:
 ; bytes 0-15 ring bits, 16-31 object bits, bit = list_index (0-127).
 ; Set at spawn, cleared at despawn/removal, cleared wholesale when an
-; entry's section changes (EntityWindow_InitSection), migrated between
-; entries on teleports (Task 6). Spawn paths test the bit first, which
-; makes the X scan, the teleport populate, and the vertical re-scan
-; (EntityWindow_RescanY) mutually idempotent.
+; entry's section changes (EntityWindow_InitSection). Teleports wipe
+; all four entries through that same compare-clear: the 2x2 window
+; block-rotates by TWO sections per teleport, so no tracked section
+; ever survives one (see mapping table above EntityWindow_TeleportShift)
+; and cross-teleport mask migration has nothing to move. Spawn paths
+; test the bit first, which makes the X scan, the teleport populate,
+; and the vertical re-scan (EntityWindow_RescanY) mutually idempotent.
 ; =====================================================
 
     if ENTITY_LOADED_SLOT_SIZE <> 32
@@ -379,8 +382,10 @@ EntityWindow_InitSection:
         ifdebug assert.l a0, ne, #0     ; NULL Sec ptr = caller passed a void/out-of-grid slot
 
         ; Loaded mask is per-entry state about ONE section — clear it when
-        ; this entry's section changes. Same-section re-init (teleport
-        ; migration target) keeps its bits (Task 6 copies them in first).
+        ; this entry's section changes. Same-section re-init preserves the
+        ; bits (defensive: teleports change EVERY entry's section — see the
+        ; mapping table above EntityWindow_TeleportShift — so the teleport
+        ; rebuild always takes the clear path).
         cmp.b   EntityScanState_ess_section_id(a1), d1
         beq.s   .same_section
         moveq   #0, d3
@@ -697,8 +702,10 @@ EntityWindow_ScanRingsRight:
 ; Offers EVERY listed ring to TrySpawnRing (no X edge filter), so
 ; in-band, uncollected, not-yet-loaded rings load across the whole
 ; section width; sets ring_right_idx to the camera-relative position
-; (first ring past right load edge). Teleport-kept rings stay loaded
-; via their bits (same-entry only until Task 6 migrates bits).
+; (first ring past right load edge). Never double-adds a teleport
+; survivor: survivors always belong to sections that just LEFT the
+; tracked window (see table above EntityWindow_TeleportShift), and
+; this populate only walks tracked entries.
 ; Out-of-band rings are NOT added — the vertical re-scan picks them
 ; up when camY reaches them.
 ;
@@ -1202,7 +1209,37 @@ EntityWindow_TeleportShift:
         lea     SST_len(a0), a0
         dbf     d5, .obj_loop
 
-        ; Rebuild scan state for new section configuration
+        ; -----------------------------------------------
+        ; Loaded-mask teleport migration (Task 6) — resolved as a NO-OP.
+        ;
+        ; Verified Slot_Section_Map mappings (section.asm), with the d4
+        ; shift sign each direction passes in:
+        ;
+        ;   dir    d4 sign          slot map before -> after
+        ;   X-FWD  -SECTION_SHIFT   (x,y),(x+1,y) -> (x+2,y),(x+3,y)
+        ;                           [edge: slot1 = SEC_VOID when x+3 >= grid_w]
+        ;   X-BWD  +SECTION_SHIFT   (x,y),(*  ,y) -> (x-2,y),(x-1,y)
+        ;                           [same from the FWD-edge state (x,VOID);
+        ;                            new slot1 = old slot0 MINUS 1, so the
+        ;                            edge "heal" never re-tracks old slot0]
+        ;   Y-DOWN -SECTION_SHIFT   sec_y += 2 on both slots
+        ;   Y-UP   +SECTION_SHIFT   sec_y -= 2 on both slots
+        ;
+        ; The window tracks the 2x2 block {slotL,slotR} x {sec_y,sec_y+1}
+        ; (EntityWindow_BuildEntries). SECTION_SHIFT = 2*SECTION_SIZE, so
+        ; every teleport moves that block by exactly TWO sections along one
+        ; axis: the old and new tracked sets are DISJOINT in all four
+        ; directions, including every grid-edge case. No section keeps (or
+        ; regains) an entry, so there are no surviving (section, entry)
+        ; pairs whose bits could move — there is nothing to migrate.
+        ;
+        ; Mask hygiene is instead guaranteed by the rebuild below:
+        ; EntityWindow_InitSection compare-clears each entry's 32-byte mask
+        ; slot because every entry's section_id changes. Survivor entities
+        ; (kept+shifted above) belong to sections that just left the window;
+        ; their bits are wiped here, which is safe because neither the
+        ; populate nor the per-frame scans walk untracked sections.
+        ; -----------------------------------------------
         bsr.w   EntityWindow_RebuildScanState
         rts
 
@@ -1222,8 +1259,8 @@ EntityWindow_TeleportShiftY:
         ; Keep-range: entities within Camera_Y ± load buffer survive and shift
         move.w  (Camera_Y).w, d2
         move.w  d2, d3
-        subi.w  #ENTITY_LOAD_BUFFER, d2
-        addi.w  #SCREEN_HEIGHT+ENTITY_LOAD_BUFFER, d3
+        subi.w  #ENTITY_LOAD_BUFFER_Y, d2
+        addi.w  #SCREEN_HEIGHT+ENTITY_LOAD_BUFFER_Y, d3
 
         ; --- Shift/despawn rings (backward iteration) ---
         moveq   #0, d5
@@ -1292,7 +1329,10 @@ EntityWindow_TeleportShiftY:
         lea     SST_len(a0), a0
         dbf     d5, .obj_loop
 
-        ; Rebuild scan state for new section configuration (sec_y changed)
+        ; Loaded-mask migration: NO-OP here too — Y teleports move sec_y by
+        ; 2, so rows {r,r+1} -> {r±2,r±3} never overlap. See the mapping
+        ; table in EntityWindow_TeleportShift; the rebuild's compare-clear
+        ; wipes all four entry masks, which is correct.
         bsr.w   EntityWindow_RebuildScanState
         rts
 
