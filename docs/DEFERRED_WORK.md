@@ -684,6 +684,15 @@ non-zero; intermittently they read zero.
 **What:** Teleports no longer run `Section_RedrawPlanes`, which was what blitted a differing `sec_bg_layout` to Plane B at FWD/BWD teleport (the §2 A.5 T2/T3 tests relied on this). All current production data is T1 (`sec_bg_layout = NULL` everywhere) so nothing is affected today. When a zone first authors per-section BG layouts, the swap needs a non-blocking mechanism — deferred Plane B column/row streaming near the seam (mirroring FG preview cols), not a 3-frame synchronous blit.
 **When ready:** when a zone authors T2/T3 BG data.
 
+## From Compression Two-Tier (2026-06-11)
+
+### S4LZ DP literal-extension undercharge
+**Surfaced during:** compression-two-tier review 2026-06-11.
+**What:** The DP cost model doesn't charge the 2-byte lit-count extension word for literal runs ≥ 15 words. Fixing this requires run-length-aware DP state (~16× build time) for a measured ceiling well under 0.5% of the block corpus. Not worth it; recorded so it isn't re-litigated.
+**Status:** Won't fix — cost model undercharge is negligible in practice.
+
+---
+
 ## From Sound Driver Work (Future)
 
 ### Defensive Z80 RAM Upload — Verify-and-Retry

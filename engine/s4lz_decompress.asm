@@ -27,6 +27,11 @@
 ;      a1 = destination (word-aligned RAM buffer)
 ; Out: a0 = past end of compressed data (even — EOS word fully consumed)
 ;      a1 = past end of decompressed data
+;           NOTE: for odd declared sizes the encoder pads to word boundary;
+;           the decoder writes the pad byte, so a1 lands at declared_size+1.
+;           The header size word is authoritative — consumers must use it,
+;           not (a1 − dest_start). Dest buffers must be ≤ 32766 bytes
+;           (suba.w sign-extends; offsets must stay < $8000).
 ; Clobbers: d0-d3, a2-a3
 ; -----------------------------------------------
 S4LZ_Decompress:
@@ -47,7 +52,7 @@ S4LZ_Decompress:
         andi.w  #$0F, d1                        ; d1 = LIT_CNT (0-15)
         beq.s   .no_literals                    ; 0 literals -> skip
         cmpi.w  #15, d1
-        beq.w   .lit_extended                   ; 15 = read count word
+        beq.s   .lit_extended                   ; 15 = read count word
 
     ; --- Unrolled literal copy (1-14 words) ---
         add.w   d1, d1                          ; count * 2 bytes per move.w instruction

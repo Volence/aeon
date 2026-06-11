@@ -38,7 +38,9 @@ import sys
 
 TILE_SIZE = 32          # Genesis tile: 8x8 pixels, 4bpp = 32 bytes
 MIN_MATCH_WORDS = 2     # Minimum match length in words (4 bytes)
-MAX_WINDOW = 65534      # Maximum backwards offset in bytes (16-bit, even)
+MAX_WINDOW = 32766      # Maximum backwards offset in bytes.
+                        # 68000 decoder uses suba.w (sign-extends); offsets must stay < $8000.
+                        # Zero ratio cost — all dest buffers are <= 32 KB.
 MAX_SHORT_OFFSET = 510  # Maximum byte offset encodable in offmark (255 * 2)
 TOKEN_END = 0x00        # End-of-stream marker
 EXTENDED_THRESHOLD = 15 # Nibble value that triggers extension word
@@ -370,6 +372,10 @@ def _decompress_v3(compressed: bytes) -> bytearray:
 
         # End of stream
         if token == TOKEN_END:
+            if offmark != 0:
+                raise ValueError(
+                    f"EOS token at stream pos {pos - 2} has non-zero offmark 0x{offmark:02X} "
+                    f"(EOS word must be $0000)")
             break
 
         lit_count = (token >> 4) & 0x0F

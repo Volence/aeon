@@ -194,7 +194,7 @@ Section_StreamArtGroup:
         ; -- decompress run-to-completion: a2 = source S4LZ, a3 = dest buffer --
         movea.l a2, a0                              ; a0 = source
         movea.l a3, a1                              ; a1 = dest
-        bsr.w   S4LZ_Decompress                     ; clobbers d0-d3, a2
+        bsr.w   S4LZ_Decompress                     ; clobbers d0-d3, a2-a3 (a3 = dest start — equals the buffer this routine already holds)
 
         ; -- queue Deferrable DMA: streaming buffer → section's VRAM dest --
         move.l  a3, d1                              ; d1 = source (RAM addr)
