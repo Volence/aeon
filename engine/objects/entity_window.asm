@@ -118,13 +118,16 @@ Killed_CheckObject:
 
 ; -----------------------------------------------
 ; Killed_MarkObject — mark object as killed in bitmask
+; Also clears the loaded bit — a killed object's SST is gone, so the
+; loaded mask must agree or respawn paths skip the (dead) slot forever.
 ;
 ; In:  d0.b = section_id
 ;      d1.b = list_index
 ; Out: none
-; Clobbers: d0, d2, a0
+; Clobbers: d0-d3, a0
 ; -----------------------------------------------
 Killed_MarkObject:
+        move.b  d0, d3                  ; section_id survives FindSlot for the loaded-bit clear
         move.w  d1, -(sp)
         bsr.w   Collected_FindSlot
         move.w  (sp)+, d1
@@ -135,6 +138,14 @@ Killed_MarkObject:
         move.w  d2, d0
         lsr.w   #3, d0
         bset    d2, KILLED_BITMASK_OFFSET(a0, d0.w)
+
+        move.b  d3, d0                  ; section_id
+        bsr.w   EntityWindow_EntryForSection
+        tst.w   d0
+        bmi.s   .markdone               ; section untracked — no loaded bits
+        move.w  d2, d1                  ; list_index (d2 untouched by EntryForSection)
+        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
+        bsr.w   EntityLoaded_Clear
 .markdone:
         rts
 
@@ -256,6 +267,96 @@ Collected_UpdateCenter:
 .slot_next:
         lea     COLLECTED_SLOT_SIZE(a0), a0
         dbf     d5, .slot_loop
+        rts
+
+; =====================================================
+; Loaded bitmasks — §4.9 phase 2
+; One ENTITY_LOADED_SLOT_SIZE (32-byte) slot per scan entry:
+; bytes 0-15 ring bits, 16-31 object bits, bit = list_index (0-127).
+; Set at spawn, cleared at despawn/removal, cleared wholesale when an
+; entry's section changes (EntityWindow_InitSection), migrated between
+; entries on teleports (Task 6). Spawn paths test the bit first, which
+; makes the X scan, the teleport populate, and the Task-5 vertical
+; re-scan mutually idempotent.
+; =====================================================
+
+    if ENTITY_LOADED_SLOT_SIZE <> 32
+      error "EntityLoaded primitives assume 32-byte slots (lsl #5)"
+    endif
+    if ENTITY_LOADED_OBJ_OFFSET*8 <> MAX_LIST_ENTRIES
+      error "Loaded-mask half-slot does not cover MAX_LIST_ENTRIES bits"
+    endif
+
+; -----------------------------------------------
+; EntityLoaded_Test — test a loaded bit
+; In:  d0.b = entry index (0-3)
+;      d1.w = list_index
+;      d2.w = 0 (rings) or ENTITY_LOADED_OBJ_OFFSET (objects)
+; Out: Z clear = loaded, Z set = not loaded
+; Clobbers: d0, d2, a0
+; -----------------------------------------------
+EntityLoaded_Test:
+        ifdebug assert.w d1, lo, #MAX_LIST_ENTRIES
+        lsl.w   #5, d0                  ; entry × ENTITY_LOADED_SLOT_SIZE
+        add.w   d0, d2
+        lea     (Entity_Loaded_Masks).w, a0
+        adda.w  d2, a0
+        move.w  d1, d0
+        lsr.w   #3, d0                  ; byte offset; btst Dn,mem uses bit# mod 8
+        btst    d1, (a0, d0.w)
+        rts
+
+; -----------------------------------------------
+; EntityLoaded_Set — set a loaded bit (same inputs as Test)
+; Clobbers: d0, d2, a0
+; -----------------------------------------------
+EntityLoaded_Set:
+        ifdebug assert.w d1, lo, #MAX_LIST_ENTRIES
+        lsl.w   #5, d0
+        add.w   d0, d2
+        lea     (Entity_Loaded_Masks).w, a0
+        adda.w  d2, a0
+        move.w  d1, d0
+        lsr.w   #3, d0
+        bset    d1, (a0, d0.w)
+        rts
+
+; -----------------------------------------------
+; EntityLoaded_Clear — clear a loaded bit (same inputs as Test)
+; Clobbers: d0, d2, a0
+; -----------------------------------------------
+EntityLoaded_Clear:
+        ifdebug assert.w d1, lo, #MAX_LIST_ENTRIES
+        lsl.w   #5, d0
+        add.w   d0, d2
+        lea     (Entity_Loaded_Masks).w, a0
+        adda.w  d2, a0
+        move.w  d1, d0
+        lsr.w   #3, d0
+        bclr    d1, (a0, d0.w)
+        rts
+
+; -----------------------------------------------
+; EntityWindow_EntryForSection — map section_id → entry index
+; In:  d0.b = section_id (a real id from a live entity — never SEC_VOID,
+;      so void entries can't false-match)
+; Out: d0.w = entry index 0-3, or -1 if untracked
+; Clobbers: d1, a0
+; -----------------------------------------------
+EntityWindow_EntryForSection:
+        lea     (Entity_Scan_State+EntityScanState_ess_section_id).w, a0
+        moveq   #0, d1
+.efs_loop:
+        cmp.b   (a0), d0
+        beq.s   .efs_found
+        lea     EntityScanState_len(a0), a0
+        addq.w  #1, d1
+        cmpi.w  #MAX_TRACKED_SECTIONS, d1
+        blo.s   .efs_loop
+        moveq   #-1, d0
+        rts
+.efs_found:
+        move.w  d1, d0
         rts
 
 ; =====================================================
@@ -475,7 +576,7 @@ EntityWindow_Scan:
 ; -----------------------------------------------
 EntityWindow_ScanRingsRight:
         move.l  EntityScanState_ess_rom_ring_ptr(a1), d0
-        beq.s   .done
+        beq.w   .done
         movea.l d0, a0
 
         move.w  EntityScanState_ess_ring_right_idx(a1), d4
@@ -509,6 +610,17 @@ EntityWindow_ScanRingsRight:
         movem.l (sp)+, d3-d4/d7/a0-a1
         bne.s   .skip                   ; Z clear = collected, skip
 
+        ; Already in the buffer? (loaded bit — set on add, cleared on remove)
+        movem.l d3-d4/d7/a0-a1, -(sp)
+        moveq   #0, d0
+        move.b  EntityScanState_ess_entry_idx(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1                  ; list_index
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Test
+        movem.l (sp)+, d3-d4/d7/a0-a1
+        bne.s   .skip                   ; loaded → skip
+
         ; Spawn ring into buffer
         movem.l d3-d4/d7/a0-a1, -(sp)
         move.w  (a0), d0
@@ -518,12 +630,20 @@ EntityWindow_ScanRingsRight:
         move.b  EntityScanState_ess_section_id(a1), d2  ; section_id
         move.b  d4, d3                  ; list_index
         bsr.w   RingBuffer_Add
+        bcs.s   .add_failed             ; buffer full — no bit, ring retries later
+        moveq   #0, d0
+        move.b  EntityScanState_ess_entry_idx(a1), d0   ; a1 = scan state (inside saved window)
+        moveq   #0, d1
+        move.b  d3, d1                  ; list_index (RingBuffer_Add's d3 input)
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Set
+.add_failed:
         movem.l (sp)+, d3-d4/d7/a0-a1
 
 .skip:
         addq.w  #1, d4
         addq.w  #4, a0
-        bra.s   .loop
+        bra.w   .loop
 
 .update_idx:
         move.w  d4, EntityScanState_ess_ring_right_idx(a1)
@@ -544,7 +664,7 @@ EntityWindow_ScanRingsRight:
 ; -----------------------------------------------
 EntityWindow_PopulateSectionRings:
         move.l  EntityScanState_ess_rom_ring_ptr(a1), d0
-        beq.s   .pdone
+        beq.w   .pdone
         movea.l d0, a2
         move.w  EntityScanState_ess_origin_x(a1), d3
 
@@ -571,7 +691,7 @@ EntityWindow_PopulateSectionRings:
         moveq   #0, d4
 .ploop:
         move.l  (a0), d1
-        beq.s   .pdone
+        beq.w   .pdone
 
         movem.l d3-d4/a0-a1, -(sp)
         move.b  EntityScanState_ess_section_id(a1), d0
@@ -581,6 +701,17 @@ EntityWindow_PopulateSectionRings:
         movem.l (sp)+, d3-d4/a0-a1
         bne.s   .pskip
 
+        ; Already in the buffer? (loaded bit — teleport-kept rings stay set)
+        movem.l d3-d4/a0-a1, -(sp)
+        moveq   #0, d0
+        move.b  EntityScanState_ess_entry_idx(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1                  ; list_index
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Test
+        movem.l (sp)+, d3-d4/a0-a1
+        bne.s   .pskip                  ; loaded → skip
+
         movem.l d3-d4/a0-a1, -(sp)
         move.w  (a0), d0
         add.w   d3, d0
@@ -589,12 +720,20 @@ EntityWindow_PopulateSectionRings:
         move.b  EntityScanState_ess_section_id(a1), d2
         move.b  d4, d3
         bsr.w   RingBuffer_Add
+        bcs.s   .padd_failed            ; buffer full — no bit, ring retries later
+        moveq   #0, d0
+        move.b  EntityScanState_ess_entry_idx(a1), d0   ; a1 = scan state (inside saved window)
+        moveq   #0, d1
+        move.b  d3, d1                  ; list_index (RingBuffer_Add's d3 input)
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Set
+.padd_failed:
         movem.l (sp)+, d3-d4/a0-a1
 
 .pskip:
         addq.w  #1, d4
         addq.w  #4, a0
-        bra.s   .ploop
+        bra.w   .ploop
 
 .pdone:
         rts
@@ -632,14 +771,14 @@ EntityWindow_ScanObjectsRight:
 
 .obj_loop:
         move.w  (a0), d0                ; section-local X (or $FFFF sentinel)
-        bmi.s   .obj_update_idx         ; bmi fires on -1 terminator
+        bmi.w   .obj_update_idx         ; bmi fires on -1 terminator
 
         ; Engine-space X
         add.w   d3, d0
 
         ; Past right edge? List is X-sorted, stop
         cmp.w   d7, d0
-        bhi.s   .obj_update_idx
+        bhi.w   .obj_update_idx
 
         ; Check if object was killed in previous visit
         movem.l d0/a0, -(sp)
@@ -648,7 +787,18 @@ EntityWindow_ScanObjectsRight:
         move.w  d4, d1
         bsr.w   Killed_CheckObject
         movem.l (sp)+, d0/a0
-        bne.s   .obj_skip
+        bne.w   .obj_skip
+
+        ; Already spawned? (loaded bit — set on spawn, cleared on despawn/kill)
+        movem.l d0/a0, -(sp)
+        moveq   #0, d0
+        move.b  EntityScanState_ess_entry_idx(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1                  ; list_index
+        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
+        bsr.w   EntityLoaded_Test
+        movem.l (sp)+, d0/a0
+        bne.w   .obj_skip               ; loaded → skip
 
         ; Spawn this object (d5 stashes section_id; a3 saved: Load_Object clobbers it; d4-d7 preserved by Load_Object)
         movem.l d3-d7/a0-a1/a3, -(sp)
@@ -679,13 +829,21 @@ EntityWindow_ScanObjectsRight:
         move.b  d5, SST_entity_section_id(a1)
         move.b  d4, SST_entity_list_index(a1)
 
+        ; Mark loaded (d0-d2 dead here; d4/d6 preserved by Load_Object)
+        moveq   #0, d0
+        move.b  d6, d0                  ; entry index
+        moveq   #0, d1
+        move.w  d4, d1                  ; list_index
+        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
+        bsr.w   EntityLoaded_Set
+
 .obj_spawn_fail:
         movem.l (sp)+, d3-d7/a0-a1/a3
 
 .obj_skip:
         addq.w  #1, d4
         addq.w  #OBJ_ENTRY_SIZE, a0
-        bra.s   .obj_loop
+        bra.w   .obj_loop
 
 .obj_update_idx:
         move.w  d4, EntityScanState_ess_obj_right_idx(a1)
@@ -734,6 +892,17 @@ EntityWindow_DespawnRings:
         beq.s   .next
 
 .remove:
+        ; clear the loaded bit before removal (no-op when section untracked)
+        moveq   #0, d3
+        move.b  5(a0, d0.w), d3         ; list_index
+        move.b  4(a0, d0.w), d0         ; section_id
+        bsr.w   EntityWindow_EntryForSection
+        tst.w   d0
+        bmi.s   .bit_done
+        move.w  d3, d1
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Clear
+.bit_done:
         movem.l d5-d7, -(sp)
         move.w  d5, d0
         bsr.w   RingBuffer_Remove
@@ -783,6 +952,18 @@ EntityWindow_DespawnObjects:
 
 .despawn:
         movem.l d5-d7/a0, -(sp)
+        ; clear the loaded bit before the SST vanishes
+        moveq   #0, d3
+        move.b  SST_entity_list_index(a0), d3
+        move.b  SST_entity_section_id(a0), d0
+        bsr.w   EntityWindow_EntryForSection
+        tst.w   d0
+        bmi.s   .bit_done
+        move.w  d3, d1
+        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
+        bsr.w   EntityLoaded_Clear
+.bit_done:
+        movea.l 12(sp), a0              ; SST ptr (a0 slot of the movem frame)
         jsr     DeleteObject
         movem.l (sp)+, d5-d7/a0
 
@@ -832,6 +1013,17 @@ EntityWindow_TeleportShift:
 
 .ring_remove:
         movem.l d2-d5/a0, -(sp)
+        ; clear the loaded bit so the post-teleport populate can re-add
+        moveq   #0, d3
+        move.b  5(a0, d0.w), d3         ; list_index
+        move.b  4(a0, d0.w), d0         ; section_id
+        bsr.w   EntityWindow_EntryForSection
+        tst.w   d0
+        bmi.s   .ring_bit_done
+        move.w  d3, d1
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Clear
+.ring_bit_done:
         move.w  d5, d0
         bsr.w   RingBuffer_Remove
         movem.l (sp)+, d2-d5/a0
@@ -862,6 +1054,18 @@ EntityWindow_TeleportShift:
 
 .obj_despawn:
         movem.l d2-d5/a0, -(sp)
+        ; clear the loaded bit before the SST vanishes
+        moveq   #0, d3
+        move.b  SST_entity_list_index(a0), d3
+        move.b  SST_entity_section_id(a0), d0
+        bsr.w   EntityWindow_EntryForSection
+        tst.w   d0
+        bmi.s   .obj_bit_done
+        move.w  d3, d1
+        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
+        bsr.w   EntityLoaded_Clear
+.obj_bit_done:
+        movea.l 16(sp), a0              ; SST ptr (a0 slot of the movem frame)
         jsr     DeleteObject
         movem.l (sp)+, d2-d5/a0
 
@@ -917,6 +1121,17 @@ EntityWindow_TeleportShiftY:
 
 .ring_remove:
         movem.l d2-d5/a0, -(sp)
+        ; clear the loaded bit so the post-teleport populate can re-add
+        moveq   #0, d3
+        move.b  5(a0, d0.w), d3         ; list_index
+        move.b  4(a0, d0.w), d0         ; section_id
+        bsr.w   EntityWindow_EntryForSection
+        tst.w   d0
+        bmi.s   .ring_bit_done
+        move.w  d3, d1
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Clear
+.ring_bit_done:
         move.w  d5, d0
         bsr.w   RingBuffer_Remove
         movem.l (sp)+, d2-d5/a0
@@ -947,6 +1162,18 @@ EntityWindow_TeleportShiftY:
 
 .obj_despawn:
         movem.l d2-d5/a0, -(sp)
+        ; clear the loaded bit before the SST vanishes
+        moveq   #0, d3
+        move.b  SST_entity_list_index(a0), d3
+        move.b  SST_entity_section_id(a0), d0
+        bsr.w   EntityWindow_EntryForSection
+        tst.w   d0
+        bmi.s   .obj_bit_done
+        move.w  d3, d1
+        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
+        bsr.w   EntityLoaded_Clear
+.obj_bit_done:
+        movea.l 16(sp), a0              ; SST ptr (a0 slot of the movem frame)
         jsr     DeleteObject
         movem.l (sp)+, d2-d5/a0
 
