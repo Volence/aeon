@@ -371,6 +371,20 @@ ENTITY_DESPAWN_BUFFER_Y  = $180         ; Y despawn distance (> load = hysteresi
 ENTITY_LOADED_SLOT_SIZE  = 32           ; per-entry loaded bitmask: 16B rings + 16B objects
 ENTITY_LOADED_OBJ_OFFSET = 16           ; object bits start mid-slot
 ENTITY_RESCAN_COARSE_MASK = $FF80       ; camY coarse-row mask (128px rows) — crossing fires the vertical re-scan
+ENTITY_RESCAN_ROW_SIZE   = ($10000-ENTITY_RESCAN_COARSE_MASK)  ; 128 — derived from the mask
+
+; Load-bearing Y-band invariants (see entity_window.asm Y despawn / re-scan):
+;  - despawn hysteresis must cover a full coarse row, or entities at the band
+;    edge churn (despawn then re-load every crossing)
+;  - the load buffer must cover a full coarse row, or fast vertical travel can
+;    skip a row between re-scans, leaving in-band entities unspawned
+    if (ENTITY_DESPAWN_BUFFER_Y-ENTITY_LOAD_BUFFER_Y) < ENTITY_RESCAN_ROW_SIZE
+      error "Y despawn hysteresis < coarse row size — band-edge entities will churn"
+    endif
+    if ENTITY_LOAD_BUFFER_Y < ENTITY_RESCAN_ROW_SIZE
+      error "ENTITY_LOAD_BUFFER_Y < coarse row size — vertical re-scan can skip entities"
+    endif
+
 SCREEN_WIDTH             = 320          ; visible screen width in pixels
 SCREEN_HEIGHT            = 224          ; visible screen height in pixels
 

@@ -561,7 +561,7 @@ EntityWindow_Scan:
 .no_rescan:
 
         lea     (Entity_Scan_State).w, a3
-        moveq   #0, d6                  ; d6.b = entry index (0-3) → SST_slot_tag
+        moveq   #0, d6                  ; d6.b = entry index (0-3)
 
 .section_loop:
         btst    d6, d5

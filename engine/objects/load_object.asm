@@ -29,7 +29,7 @@ Load_Object:
         jsr     AllocDynamic
         bne.w   .alloc_fail
         movem.l (sp)+, d0-d2/a2        ; a2 = template (saved a1), a1 = new SST
-        move.l  d4, -(sp)              ; preserve d4 — caller (EntityWindow_ScanObjectsRight) reads it after return
+        move.l  d4, -(sp)              ; preserve d4 — caller (EntityWindow_TrySpawnObject) reads it after return
 
         ; --- burst copy: code_addr word + 24-byte template block ---
         move.w  (a2)+, SST_code_addr(a1)
