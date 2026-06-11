@@ -290,6 +290,7 @@ Cache_Fill_Budget:      ds.w 1          ; per-frame block decompress allowance (
 Cache_Fill_RowResume_Row: ds.w 1        ; partial FillRow resume world row ($FFFF = none)
 Cache_Fill_RowResume_Col: ds.w 1        ; partial FillRow resume col cursor
 Cache_Fill_Rows_Left:   ds.w 1          ; rows-this-frame cap countdown (reset to VFILL_ROWS_PER_FRAME)
+Cache_Prev_Cam_Row:     ds.w 1          ; last frame's camera world tile row (prefetch direction)
 
 ; Block staging metadata — keys parallel to Block_Stage_Buffers slots
 ; Key format: sec_x.b | sec_y.b | block_index.w ($FFFFFFFF = empty)

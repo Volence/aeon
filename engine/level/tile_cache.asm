@@ -362,6 +362,7 @@ Tile_Cache_Init:
         swap    d0
         lsr.w   #3, d0                         ; camera tile row (engine)
         bsr.w   Engine_To_World_Row
+        move.w  d0, (Cache_Prev_Cam_Row).w     ; init prefetch baseline
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .top_ok
         moveq   #0, d0
@@ -775,6 +776,83 @@ Tile_Cache_Fill:
         subq.w  #1, d5                         ; restore d5 to even (pair base)
         bra.s   .v_top_fill
 .v_top_done:
+        ; --- leftover-budget prefetch: pre-decompress one block of the NEXT
+        ;     block-row in the scroll direction, flattening the 6-block spike
+        ;     at block-row crossings across the quiet frames between them ---
+        tst.w   (Cache_Fill_Budget).w
+        beq.w   .fill_return                   ; budget spent — no prefetch
+
+        ; compute current camera world tile row
+        move.l  (Camera_Y).w, d0
+        swap    d0
+        lsr.w   #3, d0                         ; engine tile row
+        bsr.w   Engine_To_World_Row            ; d0 = camera world tile row (clobbers d1)
+
+        ; compare with last frame to get scroll direction
+        move.w  (Cache_Prev_Cam_Row).w, d1
+        move.w  d0, (Cache_Prev_Cam_Row).w     ; update for next frame
+        sub.w   d1, d0                         ; d0 = delta (+down / -up / 0)
+        beq.w   .fill_return                   ; not moving vertically — skip
+        bmi.s   .pfx_up
+
+        ; moving DOWN: target = world tile row of the block-row below cache bottom
+        ; = align bottom to block boundary, then add BLOCK_TILE_SIZE
+        move.w  (Cache_Bottom_Row).w, d7
+        andi.w  #~(BLOCK_TILE_SIZE-1), d7      ; align down to block start
+        addi.w  #BLOCK_TILE_SIZE, d7           ; first row of next block below
+        ; guard: sec_y = d7 >> 8 must be < grid_h
+        move.w  d7, d5
+        lsr.w   #8, d5                         ; sec_y
+        movea.l (Current_Act_Ptr).w, a0
+        moveq   #0, d0
+        move.b  Act_grid_h+1(a0), d0           ; grid_h (sections)
+        cmp.w   d0, d5
+        bcc.s   .pfx_skip                      ; sec_y >= grid_h — out of world
+        bra.s   .pfx_go
+
+.pfx_up:
+        ; moving UP: target = world tile row of the block-row above cache top
+        ; = align top to block boundary, then subtract BLOCK_TILE_SIZE
+        move.w  (Cache_Top_Row).w, d7
+        andi.w  #~(BLOCK_TILE_SIZE-1), d7      ; align down to block start (Top is even, may already be aligned)
+        tst.w   d7
+        beq.s   .pfx_skip                      ; top block-row IS world row 0 — nothing above
+        subi.w  #BLOCK_TILE_SIZE, d7           ; first row of block above
+        ; d7 >= 0 guaranteed (just subtracted from a value > 0)
+
+.pfx_go:
+        ; d7 = target world tile row (within a valid block in the act grid)
+        ; block column under camera center X
+        move.l  (Camera_X).w, d6
+        swap    d6
+        addi.w  #160, d6                       ; camera center X (engine pixels)
+        lsr.w   #3, d6                         ; engine tile col
+        move.w  d6, d0
+        bsr.w   Engine_To_World_Col            ; d0 = world tile col (clobbers d1)
+
+        ; decompose (same pattern as FillColumn/FillRow):
+        ; d0 = world tile col,  d7 = world tile row of target block
+        move.w  d0, d6                         ; save world tile col
+        lsr.w   #8, d0                         ; sec_x = world_tile_col >> 8
+        move.w  d7, d1
+        lsr.w   #8, d1                         ; sec_y = world_tile_row >> 8
+        move.w  d6, d2
+        lsr.w   #BLOCK_TILE_SHIFT, d2
+        andi.w  #$F, d2                        ; block_x = (world_tile_col >> 4) & 15
+        move.w  d7, d3
+        lsr.w   #BLOCK_TILE_SHIFT, d3
+        andi.w  #$F, d3                        ; block_y = (world_tile_row >> 4) & 15
+        lsl.w   #4, d3
+        add.w   d2, d3
+        move.w  d3, d2                         ; d2 = block_index
+
+        bsr.w   TileCache_FindStagedBlock      ; Z set + a1 on hit; d0-d2 preserved; clobbers d3-d4,a1
+        beq.s   .pfx_skip                      ; already staged — nothing to do
+
+        subq.w  #1, (Cache_Fill_Budget).w
+        bsr.w   TileCache_DecompressBlock      ; d0=sec_x, d1=sec_y, d2=block_index in; clobbers d0-d5,a0-a3
+
+.pfx_skip:
 .fill_return:
         rts
 
@@ -1150,6 +1228,7 @@ TileCache_Reinit:
         swap    d0
         lsr.w   #3, d0
         bsr.w   Engine_To_World_Row
+        move.w  d0, (Cache_Prev_Cam_Row).w     ; reset prefetch baseline on reinit
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .ri_top_ok
         moveq   #0, d0
