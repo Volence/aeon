@@ -134,7 +134,7 @@ StreamState endstruct       ; = $0C (12 bytes)
 ; -----------------------------------------------
 Sec struct
 sec_block_index     ds.l 1          ; $00 — pointer to 256-entry block index table (ROM; §4.7 2D)
-sec_objects         ds.l 1          ; $04 — compact 4-byte object entries
+sec_objects         ds.l 1          ; $04 — 6-byte object entries (objentry format, dc.w -1 terminated)
 sec_rings           ds.l 1          ; $08 — flat X-sorted ring entries (dc.w X, Y; dc.l 0 terminated)
 sec_plc             ds.l 1          ; $0C — S4LZ art PLC list
 sec_pal             ds.l 1          ; $10 — 128-byte palette (4 lines × 32 bytes)

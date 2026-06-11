@@ -181,6 +181,9 @@ OE_FLG set 0
     if "pflags" <> ""
 OE_FLG set pflags
     endif
+    if (OE_FLG & $1FFF) <> 0
+        fatal "objentry: flags overlap type/subtype bits — pass pre-shifted masks like (1<<OEF_XFLIP)"
+    endif
     if (px) < 0
         fatal "objentry: x \{px} outside section"
     endif

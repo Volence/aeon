@@ -1655,7 +1655,7 @@ Ani_Walk:
 **Animation events (NOVEL):**
 All events consume an even number of bytes (for PerFrame alignment). Events execute inline when encountered and continue reading the next byte — multiple events can chain before a frame.
 ```
-$FA = AF_CALLBACK   (dc.b $FA, 0)                    — call pointer in SST_anim_callback
+$FA = AF_CALLBACK   (dc.b $FA, target_hi, target_lo, 0) — call objroutine offset (big-endian byte pair; scripts are unaligned)
 $F9 = AF_SOUND      (dc.b $F9, sound_id)             — play sound effect (stub until driver)
 $F8 = AF_COLLISION  (dc.b $F8, collision_type)        — set SST_collision_resp
 $F7 = AF_SET_FIELD  (dc.b $F7, sst_offset, value, 0) — set arbitrary SST byte
@@ -1671,7 +1671,7 @@ Ani_BossAttack:
     dc.b  AF_COLLISION, COLLISION_HURT  ; EVENT: become dangerous
     dc.b  2, 2             ; frame 2: 2 ticks (strike)
     dc.b  AF_SOUND, sfx_Impact         ; EVENT: play impact sound
-    dc.b  AF_CALLBACK, 0              ; EVENT: call SST_anim_callback
+    dc.b  AF_CALLBACK, (objroutine(BossFireHook))>>8, (objroutine(BossFireHook))&$FF, 0 ; EVENT: call routine
     dc.b  AF_COLLISION, COLLISION_SOLID ; EVENT: safe again
     dc.b  3, 4             ; frame 3: follow-through
     dc.b  AF_END            ; loop
@@ -1680,7 +1680,7 @@ Ani_BossAttack:
 
 Objects that currently do "check timer → spawn thing" delete that logic entirely. Animation scripts handle all timing. New attack patterns = new data, not new code.
 
-**Animation table in SST:** Stored at `anim_table` ($24), set by `Load_Object` from the data block. `AnimateSprite` reads it internally — no more `lea (Ani_Table).l,a1` before every call. Saves ~60 `lea` instructions per frame across all active objects.
+**Animation table in SST:** Stored at `anim_table` ($1A), set by `Load_Object` from the archetype template. `AnimateSprite` reads it internally — no more `lea (Ani_Table).l,a1` before every call. Saves ~60 `lea` instructions per frame across all active objects.
 
 **Multi-sprite animation (from S.C.E.):** `Animate_MultiSprite` drives all children from the parent's animation script. Each child reads the parent's `mapping_frame` and applies its own mapping offset. Multi-part objects animate in sync with one call.
 
@@ -1726,7 +1726,7 @@ Comparative analysis across S.C.E. and 5 commercial Genesis engines informed whi
 | **TouchResponse** | Type dispatch | Two-pass gather→respond with per-type handlers (3.4). Collision masks for early-exit. Modular file structure per collision type. |
 | **Ring System** | Camera-driven (novel) | Unified 128-entry ring buffer, flat X-sorted ROM lists per section, swap-with-last O(1) removal, 3×3 rolling collected bitmask (4.9). |
 
-**Dynamic allocator integration with free slot stack (3.2):** The free slot stack provides the allocation primitive for both paths. Level objects spawn via the camera-driven entity window (4.9) — as objects scroll into camera range, their compact 4-byte ROM entries are unpacked, the section's ROM type table is consulted for the ObjDef pointer, and `Load_Object` calls `AllocDynamic` to pop a free SST address. Dynamic objects (boss parts, projectiles, cutscene actors) call `AllocDynamic` directly. Both paths produce objects in the same SST — the execution loop doesn't distinguish them.
+**Dynamic allocator integration with free slot stack (3.2):** The free slot stack provides the allocation primitive for both paths. Level objects spawn via the camera-driven entity window (4.9) — as objects scroll into camera range, their compact 6-byte ROM entries are read, the section's ROM type table is consulted for the ObjDef pointer, and `Load_Object` calls `AllocDynamic` to pop a free SST address. Dynamic objects (boss parts, projectiles, cutscene actors) call `AllocDynamic` directly. Both paths produce objects in the same SST — the execution loop doesn't distinguish them.
 
 **Parent-child links (from Treasure — Gunstar Heroes / Alien Soldier):** The `parent_ptr` ($26) and `sibling_ptr` ($28) fields in the SST (3.1) enable multi-part boss coordination: child auto-delete when parent dies, sibling chain iteration, inherited art/palette. Validated by 380+ references in Alien Soldier.
 
@@ -1769,7 +1769,7 @@ Animation Events (3.6)
         → Animation speed scaling links to velocity (one anim, continuous speed)
 
 Load_Object + Allocator (3.7)
-  → Format byte includes art requirements
+  → The archetype template includes art requirements
     → AllocVRAM checks loaded table → refcount bump or new load
       → S4LZ (streamed or blocking) or uncompressed (DPLC) based on format flag
         → art_tile written to SST from allocator return value

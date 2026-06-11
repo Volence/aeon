@@ -449,22 +449,37 @@ OJZ_Sec0_Objects:
     ...
 ```
 
-### 8.3 Object definition (ObjDef, ROM)
+### 8.3 Object definition (ObjDef, ROM) — v2 archetype template
+
+A 26-byte verbatim ROM image of the SST spawn template (code_addr word +
+SST $0A-$21), emitted by the `objdef` macro (macros.asm). No format byte,
+no conditional fields — Load_Object burst-copies it with movem:
 
 ```
-+0:  dc.w objroutine(Code)    ; code offset from ObjCodeBase
-+2:  dc.b format_byte, 0      ; ODF_* flags + pad
-+4:  dc.l mappings             ; sprite mappings pointer
-+8:  dc.w art_tile             ; VRAM tile + palette + priority
-
-Conditional fields follow (in bit order of format_byte):
-  ODF_VELOCITY  (bit 0):  dc.w x_vel, y_vel
-  ODF_COLLISION (bit 1):  dc.b width, height, collision_type, pad
-  ODF_ANIMATION (bit 2):  dc.l anim_table
-  ODF_SUBTYPE   (bit 3):  (no data; copies subtype from caller)
-  ODF_RENDER    (bit 4):  dc.b render_flags, pad
-  ODF_PRIORITY  (bit 5):  dc.w priority
++0:  dc.w objroutine(Code)            ; SST $00 code_addr
++2:  dc.w x_vel, y_vel                ; SST $0A, $0C
++6:  dc.b render_flags|(pri<<5)       ; SST $0E (priority in bits 5-7)
++7:  dc.b collision_resp              ; SST $0F
++8:  dc.l mappings                    ; SST $10
++12: dc.w art_tile                    ; SST $14
++14: dc.b width, height               ; SST $16, $17
++16: dc.b anim, subtype_default       ; SST $18, $19
++18: dc.l anim_table                  ; SST $1A
++22: dc.b status, 0                   ; SST $1E, $1F (angle always 0)
++24: dc.w 0                           ; SST $20-$21 pad (re-inited at spawn)
 ```
+
+Authored via named parameters (all optional except code/map; the macro
+validates pri <= 7 and its own 26-byte emission size):
+
+```asm
+ObjDef_Enemy:
+        objdef code=TestEnemy_Init, map=Map_TestObj, art=vram_art(...), \
+               zpri=4, xvel=ENEMY_PATROL_SPEED, wdth=16, hght=16, col=COLLISION_HURT
+```
+
+Per-placement subtype and flip flags come from the entity entry (§8.1)
+and are patched after the copy — the template's subtype is only a default.
 
 ### 8.4 Ring layout (ROM)
 

@@ -169,6 +169,15 @@ Shipped as the `objdef` named-parameter macro (26-byte archetype image) plus `ob
 **What:** Once the objdef format is stable, wrap the byte/word emission in `function`-and-macro pairs that take semantic args (`coltype`, `colh`, `colw`, `frame`, `priority`, ...) rather than positional bytes. Uses our `function` for any /2 or shift conversion, `struct`/`endstruct` patterns where appropriate. Pure ergonomics — zero runtime cost, but it's the difference between objdef tables that read like data and ones that read like a binary blob.
 **When ready:** When more than 2-3 objects exist and the objdef format stops churning.
 
+### Multisprite children vs parent bbox culling (§3.5)
+**Surfaced during:** objects-formats-v2 final review (2026-06-10).
+**What:** Exact parent-bbox culling governs whole multisprite batches (children
+skip independent registration), so a child extending beyond its parent's own
+frame bbox can pop at the screen edge earlier than under the old ±32 margin.
+No multisprite content exists yet.
+**When to revisit:** first boss/multi-part object — either author parent frames
+whose bbox covers the chain's extent, or have the generator union child extents.
+
 ### SST frame-pointer cache (§3.5)
 **Surfaced during:** objects-formats-v2 T8 review (2026-06-10).
 **What:** Draw_Sprite and Render_Sprites each resolve mapping_frame → frame data
