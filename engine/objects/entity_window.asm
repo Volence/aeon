@@ -276,8 +276,8 @@ Collected_UpdateCenter:
 ; Set at spawn, cleared at despawn/removal, cleared wholesale when an
 ; entry's section changes (EntityWindow_InitSection), migrated between
 ; entries on teleports (Task 6). Spawn paths test the bit first, which
-; makes the X scan, the teleport populate, and the Task-5 vertical
-; re-scan mutually idempotent.
+; makes the X scan, the teleport populate, and the vertical re-scan
+; (EntityWindow_RescanY) mutually idempotent.
 ; =====================================================
 
     if ENTITY_LOADED_SLOT_SIZE <> 32
@@ -526,7 +526,7 @@ EntityWindow_Init:
 
         ; vertical re-scan trigger baseline
         move.w  (Camera_Y).w, d0
-        andi.w  #$FF80, d0
+        andi.w  #ENTITY_RESCAN_COARSE_MASK, d0
         move.w  d0, (Camera_Y_Coarse_Prev).w
 
         ; Run initial scan to load entities in camera range
@@ -546,6 +546,19 @@ EntityWindow_Scan:
         ; Compute window edges
         move.w  (Camera_X).w, d7
         addi.w  #SCREEN_WIDTH+ENTITY_LOAD_BUFFER, d7   ; d7 = right load edge
+
+        ; Vertical re-scan: fires when camY crosses a 128px coarse row.
+        ; ENTITY_LOAD_BUFFER_Y (256px) > row size, so band motion between
+        ; crossings can never skip past an entity unseen.
+        move.w  (Camera_Y).w, d0
+        andi.w  #ENTITY_RESCAN_COARSE_MASK, d0
+        cmp.w   (Camera_Y_Coarse_Prev).w, d0
+        beq.s   .no_rescan
+        move.w  d0, (Camera_Y_Coarse_Prev).w
+        movem.l d5/d7, -(sp)
+        bsr.w   EntityWindow_RescanY
+        movem.l (sp)+, d5/d7
+.no_rescan:
 
         lea     (Entity_Scan_State).w, a3
         moveq   #0, d6                  ; d6.b = entry index (0-3) → SST_slot_tag
@@ -567,7 +580,78 @@ EntityWindow_Scan:
         bra.w   EntityWindow_DespawnObjects
 
 ; -----------------------------------------------
+; EntityWindow_TrySpawnRing — gate one ROM ring entry, add if it passes
+;
+; Gates (cheapest first): Y load band → collected bit → loaded bit.
+; On RingBuffer_Add success, sets the loaded bit. Buffer-full leaves
+; the bit clear — the X ratchet has already passed this ring, so only
+; a later re-scan or teleport populate retries it.
+; X-edge filtering is the WALKERS' job — this helper never reads
+; Camera_X, so the teleport populate can add off-screen-X rings.
+;
+; In:  a0 = ROM ring entry (dc.w local X, dc.w local Y)
+;      a1 = EntityScanState pointer
+;      d4.w = list index
+; Out: none
+; Clobbers: d0-d2 (d3-d7/a0-a6 preserved; d3/d4/a0 saved internally)
+; -----------------------------------------------
+EntityWindow_TrySpawnRing:
+        ; Y load band: camY-LOAD_Y .. camY+SCREEN_HEIGHT+LOAD_Y
+        move.w  2(a0), d1
+        add.w   EntityScanState_ess_origin_y(a1), d1    ; engine Y
+        move.w  (Camera_Y).w, d2
+        subi.w  #ENTITY_LOAD_BUFFER_Y, d2
+        cmp.w   d2, d1
+        blt.s   .out_of_band            ; above band
+        addi.w  #SCREEN_HEIGHT+2*ENTITY_LOAD_BUFFER_Y, d2
+        cmp.w   d2, d1
+        bgt.s   .out_of_band            ; below band
+
+        ; one save window for both checks + the add (subcalls clobber a0)
+        movem.l d3-d4/a0, -(sp)
+
+        ; collected on a previous visit?
+        move.b  EntityScanState_ess_section_id(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1                  ; list_index
+        bsr.w   Collected_CheckRing     ; clobbers d2, a0
+        bne.s   .gated                  ; Z clear = collected
+
+        ; already in the buffer? (loaded bit — set on add, cleared on remove)
+        moveq   #0, d0
+        move.b  EntityScanState_ess_entry_idx(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1                  ; list_index
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Test       ; clobbers d0, d2, a0
+        bne.s   .gated                  ; loaded → skip
+
+        ; spawn ring into buffer
+        movea.l 8(sp), a0               ; ROM entry (a0 slot of movem frame)
+        move.w  (a0), d0
+        add.w   EntityScanState_ess_origin_x(a1), d0    ; engine X
+        move.w  2(a0), d1
+        add.w   EntityScanState_ess_origin_y(a1), d1    ; engine Y
+        move.b  EntityScanState_ess_section_id(a1), d2  ; section_id
+        move.b  d4, d3                  ; list_index
+        bsr.w   RingBuffer_Add          ; clobbers d4, a0
+        bcs.s   .gated                  ; full — no bit; re-scan/populate retries
+        moveq   #0, d0
+        move.b  EntityScanState_ess_entry_idx(a1), d0
+        moveq   #0, d1
+        move.b  d3, d1                  ; list_index (RingBuffer_Add's d3 input)
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Set
+.gated:
+        movem.l (sp)+, d3-d4/a0
+.out_of_band:
+        rts
+
+; -----------------------------------------------
 ; EntityWindow_ScanRingsRight — load rings entering right edge
+;
+; Y-skipped entries still advance the X ratchet (S3K semantics) —
+; the vertical re-scan catches them when the band reaches them.
 ;
 ; In:  a1 = EntityScanState pointer
 ;      d7.w = right edge (Camera_X + SCREEN_WIDTH + ENTITY_LOAD_BUFFER)
@@ -576,7 +660,7 @@ EntityWindow_Scan:
 ; -----------------------------------------------
 EntityWindow_ScanRingsRight:
         move.l  EntityScanState_ess_rom_ring_ptr(a1), d0
-        beq.w   .done
+        beq.s   .done
         movea.l d0, a0
 
         move.w  EntityScanState_ess_ring_right_idx(a1), d4
@@ -588,62 +672,19 @@ EntityWindow_ScanRingsRight:
         adda.w  d0, a0
 
 .loop:
-        move.w  (a0), d0                ; section-local X (or terminator high word)
-        move.w  2(a0), d1               ; section-local Y (or terminator low word)
-        ; Check terminator: dc.l 0 means both words are 0
-        move.l  (a0), d2
-        beq.s   .update_idx             ; terminator
-
-        ; Engine-space X
-        add.w   d3, d0                  ; d0 = engine X
+        move.l  (a0), d0                ; terminator: dc.l 0
+        beq.s   .update_idx
+        move.w  (a0), d0
+        add.w   d3, d0                  ; engine X
 
         ; Past right edge? List is X-sorted, stop
         cmp.w   d7, d0
         bhi.s   .update_idx
 
-        ; Check if already collected
-        movem.l d3-d4/d7/a0-a1, -(sp)
-        move.b  EntityScanState_ess_section_id(a1), d0
-        moveq   #0, d1
-        move.w  d4, d1                  ; list_index
-        bsr.w   Collected_CheckRing
-        movem.l (sp)+, d3-d4/d7/a0-a1
-        bne.s   .skip                   ; Z clear = collected, skip
-
-        ; Already in the buffer? (loaded bit — set on add, cleared on remove)
-        movem.l d3-d4/d7/a0-a1, -(sp)
-        moveq   #0, d0
-        move.b  EntityScanState_ess_entry_idx(a1), d0
-        moveq   #0, d1
-        move.w  d4, d1                  ; list_index
-        moveq   #0, d2                  ; ring bits
-        bsr.w   EntityLoaded_Test
-        movem.l (sp)+, d3-d4/d7/a0-a1
-        bne.s   .skip                   ; loaded → skip
-
-        ; Spawn ring into buffer
-        movem.l d3-d4/d7/a0-a1, -(sp)
-        move.w  (a0), d0
-        add.w   d3, d0                  ; engine X
-        move.w  2(a0), d1
-        add.w   EntityScanState_ess_origin_y(a1), d1    ; section-local Y -> engine Y
-        move.b  EntityScanState_ess_section_id(a1), d2  ; section_id
-        move.b  d4, d3                  ; list_index
-        bsr.w   RingBuffer_Add
-        bcs.s   .add_failed             ; buffer full — no bit, ring retries later
-        moveq   #0, d0
-        move.b  EntityScanState_ess_entry_idx(a1), d0   ; a1 = scan state (inside saved window)
-        moveq   #0, d1
-        move.b  d3, d1                  ; list_index (RingBuffer_Add's d3 input)
-        moveq   #0, d2                  ; ring bits
-        bsr.w   EntityLoaded_Set
-.add_failed:
-        movem.l (sp)+, d3-d4/d7/a0-a1
-
-.skip:
+        bsr.w   EntityWindow_TrySpawnRing
         addq.w  #1, d4
         addq.w  #4, a0
-        bra.w   .loop
+        bra.s   .loop
 
 .update_idx:
         move.w  d4, EntityScanState_ess_ring_right_idx(a1)
@@ -653,10 +694,13 @@ EntityWindow_ScanRingsRight:
 ; -----------------------------------------------
 ; EntityWindow_PopulateSectionRings — full ring populate for teleport
 ;
-; Adds ALL uncollected rings from a section to the buffer and sets
-; ring_right_idx to the camera-relative position (first ring past
-; right load edge). DespawnRings skips active-section rings, so
-; off-screen rings persist until the section becomes inactive.
+; Offers EVERY listed ring to TrySpawnRing (no X edge filter), so
+; in-band, uncollected, not-yet-loaded rings load across the whole
+; section width; sets ring_right_idx to the camera-relative position
+; (first ring past right load edge). Teleport-kept rings stay loaded
+; via their bits (same-entry only until Task 6 migrates bits).
+; Out-of-band rings are NOT added — the vertical re-scan picks them
+; up when camY reaches them.
 ;
 ; In:  a1 = EntityScanState pointer (fully initialized)
 ; Out: ring_right_idx set
@@ -664,7 +708,7 @@ EntityWindow_ScanRingsRight:
 ; -----------------------------------------------
 EntityWindow_PopulateSectionRings:
         move.l  EntityScanState_ess_rom_ring_ptr(a1), d0
-        beq.w   .pdone
+        beq.s   .pdone
         movea.l d0, a2
         move.w  EntityScanState_ess_origin_x(a1), d3
 
@@ -686,77 +730,138 @@ EntityWindow_PopulateSectionRings:
 .pfound:
         move.w  d4, EntityScanState_ess_ring_right_idx(a1)
 
-        ; Pass 2: add all uncollected rings to buffer
+        ; Pass 2: offer every listed ring (band/collected/loaded gates inside)
         movea.l a2, a0
         moveq   #0, d4
 .ploop:
-        move.l  (a0), d1
-        beq.w   .pdone
-
-        movem.l d3-d4/a0-a1, -(sp)
-        move.b  EntityScanState_ess_section_id(a1), d0
-        moveq   #0, d1
-        move.w  d4, d1
-        bsr.w   Collected_CheckRing
-        movem.l (sp)+, d3-d4/a0-a1
-        bne.s   .pskip
-
-        ; Already in the buffer? (loaded bit — teleport-kept rings stay set)
-        movem.l d3-d4/a0-a1, -(sp)
-        moveq   #0, d0
-        move.b  EntityScanState_ess_entry_idx(a1), d0
-        moveq   #0, d1
-        move.w  d4, d1                  ; list_index
-        moveq   #0, d2                  ; ring bits
-        bsr.w   EntityLoaded_Test
-        movem.l (sp)+, d3-d4/a0-a1
-        bne.s   .pskip                  ; loaded → skip
-
-        movem.l d3-d4/a0-a1, -(sp)
-        move.w  (a0), d0
-        add.w   d3, d0
-        move.w  2(a0), d1
-        add.w   EntityScanState_ess_origin_y(a1), d1    ; section-local Y -> engine Y
-        move.b  EntityScanState_ess_section_id(a1), d2
-        move.b  d4, d3
-        bsr.w   RingBuffer_Add
-        bcs.s   .padd_failed            ; buffer full — no bit, ring retries later
-        moveq   #0, d0
-        move.b  EntityScanState_ess_entry_idx(a1), d0   ; a1 = scan state (inside saved window)
-        moveq   #0, d1
-        move.b  d3, d1                  ; list_index (RingBuffer_Add's d3 input)
-        moveq   #0, d2                  ; ring bits
-        bsr.w   EntityLoaded_Set
-.padd_failed:
-        movem.l (sp)+, d3-d4/a0-a1
-
-.pskip:
+        move.l  (a0), d0                ; terminator: dc.l 0
+        beq.s   .pdone
+        bsr.w   EntityWindow_TrySpawnRing
         addq.w  #1, d4
         addq.w  #4, a0
-        bra.w   .ploop
+        bra.s   .ploop
 
 .pdone:
         rts
 
 ; -----------------------------------------------
-; EntityWindow_ScanObjectsRight — load objects entering right edge
+; EntityWindow_TrySpawnObject — gate one ROM object entry, spawn if it passes
 ;
 ; Entry format (v2): 6 bytes — dc.w x, y, flags|type|subtype
 ;   +0 dc.w  section-local X
-;   +2 dc.w  section-local Y   (spawner adds the entry's ess_origin_y)
+;   +2 dc.w  section-local Y   (ess_origin_y added here)
 ;   +4 dc.w  flags|type|subtype  (OEF_* bits; flows to Load_Object in d2)
-; Terminated by dc.w -1 (X is section-local, always >= 0 → bmi fires on sentinel).
-; List is X-sorted; bhi exits as soon as X exceeds load edge.
+; Gates: ANY_Y/Y load band → killed bit → loaded bit. On Load_Object
+; success: SST_slot_tag = entry index | ANY_Y<<7 (never collides with
+; SLOT_TAG_UNTAGGED=$FF), section id + list index stored, loaded bit set.
+; Alloc failure leaves the bit clear — a later re-scan retries.
+; X-edge filtering is the WALKERS' job — no Camera_X reads here.
+;
+; In:  a0 = ROM object entry
+;      a1 = EntityScanState pointer
+;      d4.w = list index
+; Out: none
+; Clobbers: d0-d2, a2 (d3-d7/a0-a1/a3 preserved; d3/d5/a0-a1/a3 saved internally)
+; -----------------------------------------------
+EntityWindow_TrySpawnObject:
+        ; ANY_Y (placement bit 15) skips the Y band check
+        move.w  4(a0), d2               ; placement word
+        bmi.s   .y_ok
+
+        ; Y load band: camY-LOAD_Y .. camY+SCREEN_HEIGHT+LOAD_Y
+        move.w  2(a0), d1
+        add.w   EntityScanState_ess_origin_y(a1), d1    ; engine Y
+        move.w  (Camera_Y).w, d0
+        subi.w  #ENTITY_LOAD_BUFFER_Y, d0
+        cmp.w   d0, d1
+        blt.w   .out_of_band            ; above band
+        addi.w  #SCREEN_HEIGHT+2*ENTITY_LOAD_BUFFER_Y, d0
+        cmp.w   d0, d1
+        bgt.w   .out_of_band            ; below band
+.y_ok:
+        ; one save window for both checks + the spawn
+        ; (frame: d3=0, d5=4, a0=8, a1=12, a3=16; Load_Object clobbers a1-a3)
+        movem.l d3/d5/a0-a1/a3, -(sp)
+
+        ; killed on a previous visit?
+        move.b  EntityScanState_ess_section_id(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1                  ; list_index
+        bsr.w   Killed_CheckObject      ; clobbers d2, a0
+        bne.s   .gated                  ; Z clear = killed
+
+        ; already spawned? (loaded bit — set on spawn, cleared on despawn/kill)
+        moveq   #0, d0
+        move.b  EntityScanState_ess_entry_idx(a1), d0
+        moveq   #0, d1
+        move.w  d4, d1                  ; list_index
+        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
+        bsr.w   EntityLoaded_Test       ; clobbers d0, d2, a0
+        bne.s   .gated                  ; loaded → skip
+
+        ; spawn (d5 stashes section_id — Load_Object preserves d4-d7)
+        movea.l 8(sp), a0               ; ROM entry (a0 slot of movem frame)
+        moveq   #0, d5
+        move.b  EntityScanState_ess_section_id(a1), d5
+
+        move.w  (a0), d0
+        add.w   EntityScanState_ess_origin_x(a1), d0    ; engine X
+        move.w  2(a0), d1
+        add.w   EntityScanState_ess_origin_y(a1), d1    ; engine Y
+        move.w  4(a0), d2               ; full placement word — Load_Object reads flips from bits 13-14
+
+        ; Type extraction: bits 12-8 → d3, then type-table lookup
+        move.w  d2, d3
+        lsr.w   #OEF_TYPE_SHIFT, d3
+        andi.w  #OEF_TYPE_MASK, d3
+        movea.l EntityScanState_ess_rom_type_tbl_ptr(a1), a2
+        lsl.w   #2, d3                  ; type × 4 (longword)
+        addq.w  #2, d3                  ; skip count+pad header
+        movea.l (a2, d3.w), a1          ; a1 = ObjDef pointer
+
+        jsr     Load_Object             ; clobbers d0-d3/a1-a3, preserves d4-d7/a0
+        bne.s   .gated                  ; alloc failed — no bit, re-scan retries
+
+        ; Tag spawned object (a1 = new SST from Load_Object)
+        ; slot_tag = entry index; bit 7 = ANY_Y (placement bit 15)
+        movea.l 12(sp), a2              ; scan state (a1 slot of movem frame)
+        move.b  EntityScanState_ess_entry_idx(a2), d0
+        move.w  4(a0), d3               ; placement word (a0 survived Load_Object)
+        bpl.s   .tag_plain
+        bset    #7, d0
+.tag_plain:
+        move.b  d0, SST_slot_tag(a1)
+        move.b  d5, SST_entity_section_id(a1)
+        move.b  d4, SST_entity_list_index(a1)
+
+        ; mark loaded (entry index WITHOUT the ANY_Y bit — it's a mask base)
+        moveq   #0, d0
+        move.b  EntityScanState_ess_entry_idx(a2), d0
+        moveq   #0, d1
+        move.w  d4, d1                  ; list_index
+        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
+        bsr.w   EntityLoaded_Set
+.gated:
+        movem.l (sp)+, d3/d5/a0-a1/a3
+.out_of_band:
+        rts
+
+; -----------------------------------------------
+; EntityWindow_ScanObjectsRight — load objects entering right edge
+;
+; List is X-sorted; bhi exits as soon as X exceeds load edge. Terminated
+; by dc.w -1 (X is section-local, always >= 0 → bmi fires on sentinel).
+; Y-skipped entries still advance the X ratchet (S3K semantics) —
+; the vertical re-scan catches them when the band reaches them.
 ;
 ; In:  a1 = EntityScanState pointer
-;      d6.b = entry index 0-3 (stored to SST_slot_tag on spawn)
 ;      d7.w = right edge (Camera_X + SCREEN_WIDTH + ENTITY_LOAD_BUFFER)
 ; Out: none
 ; Clobbers: d0-d4, a0, a2
 ; -----------------------------------------------
 EntityWindow_ScanObjectsRight:
         move.l  EntityScanState_ess_rom_obj_ptr(a1), d0
-        beq.w   .obj_done
+        beq.s   .obj_done
         movea.l d0, a0
 
         move.w  EntityScanState_ess_obj_right_idx(a1), d4
@@ -771,79 +876,18 @@ EntityWindow_ScanObjectsRight:
 
 .obj_loop:
         move.w  (a0), d0                ; section-local X (or $FFFF sentinel)
-        bmi.w   .obj_update_idx         ; bmi fires on -1 terminator
+        bmi.s   .obj_update_idx         ; bmi fires on -1 terminator
 
-        ; Engine-space X
-        add.w   d3, d0
+        add.w   d3, d0                  ; engine X
 
         ; Past right edge? List is X-sorted, stop
         cmp.w   d7, d0
-        bhi.w   .obj_update_idx
+        bhi.s   .obj_update_idx
 
-        ; Check if object was killed in previous visit
-        movem.l d0/a0, -(sp)
-        move.b  EntityScanState_ess_section_id(a1), d0
-        moveq   #0, d1
-        move.w  d4, d1
-        bsr.w   Killed_CheckObject
-        movem.l (sp)+, d0/a0
-        bne.w   .obj_skip
-
-        ; Already spawned? (loaded bit — set on spawn, cleared on despawn/kill)
-        movem.l d0/a0, -(sp)
-        moveq   #0, d0
-        move.b  EntityScanState_ess_entry_idx(a1), d0
-        moveq   #0, d1
-        move.w  d4, d1                  ; list_index
-        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
-        bsr.w   EntityLoaded_Test
-        movem.l (sp)+, d0/a0
-        bne.w   .obj_skip               ; loaded → skip
-
-        ; Spawn this object (d5 stashes section_id; a3 saved: Load_Object clobbers it; d4-d7 preserved by Load_Object)
-        movem.l d3-d7/a0-a1/a3, -(sp)
-
-        moveq   #0, d5
-        move.b  EntityScanState_ess_section_id(a1), d5
-
-        ; d0.w = engine X (already computed above)
-        move.w  2(a0), d1
-        add.w   EntityScanState_ess_origin_y(a1), d1    ; section-local Y -> engine Y
-        move.w  4(a0), d2               ; full placement word — Load_Object reads flips from bits 13-14
-
-        ; Type extraction: bits 12-8 → d3, then type-table lookup
-        move.w  d2, d3                  ; placement word already in d2
-        lsr.w   #OEF_TYPE_SHIFT, d3
-        andi.w  #OEF_TYPE_MASK, d3
-        movea.l EntityScanState_ess_rom_type_tbl_ptr(a1), a2
-        lsl.w   #2, d3                  ; type × 4 (longword)
-        addq.w  #2, d3                  ; skip count+pad header
-        movea.l (a2, d3.w), a1          ; a1 = ObjDef pointer
-
-        jsr     Load_Object
-        bne.s   .obj_spawn_fail
-
-        ; Tag spawned object with slot + entity metadata
-        ; a1 = new SST pointer from Load_Object
-        move.b  d6, SST_slot_tag(a1)
-        move.b  d5, SST_entity_section_id(a1)
-        move.b  d4, SST_entity_list_index(a1)
-
-        ; Mark loaded (d0-d2 dead here; d4/d6 preserved by Load_Object)
-        moveq   #0, d0
-        move.b  d6, d0                  ; entry index
-        moveq   #0, d1
-        move.w  d4, d1                  ; list_index
-        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
-        bsr.w   EntityLoaded_Set
-
-.obj_spawn_fail:
-        movem.l (sp)+, d3-d7/a0-a1/a3
-
-.obj_skip:
+        bsr.w   EntityWindow_TrySpawnObject
         addq.w  #1, d4
         addq.w  #OBJ_ENTRY_SIZE, a0
-        bra.w   .obj_loop
+        bra.s   .obj_loop
 
 .obj_update_idx:
         move.w  d4, EntityScanState_ess_obj_right_idx(a1)
@@ -851,14 +895,105 @@ EntityWindow_ScanObjectsRight:
         rts
 
 ; -----------------------------------------------
+; EntityWindow_RescanY — vertical re-scan after a coarse camY change
+;
+; Walks each valid entry's ROM lists from index 0 to the X ratchet
+; (right_idx) — only entities already passed by the X scan — and
+; spawns anything now in band whose loaded bit is clear. Loaded bits
+; make this idempotent; collected/killed still filter.
+; Cost: O(entities in X range) per 128px of vertical travel.
+;
+; In:  none
+; Out: none
+; Clobbers: d0-d6, a0-a3
+; -----------------------------------------------
+EntityWindow_RescanY:
+        move.b  (Entity_Window_Active).w, d5
+        beq.s   .done
+        lea     (Entity_Scan_State).w, a3
+        moveq   #0, d6
+.entry_loop:
+        btst    d6, d5
+        beq.s   .entry_next
+        lea     (a3), a1
+        bsr.w   EntityWindow_RescanRings
+        lea     (a3), a1
+        bsr.w   EntityWindow_RescanObjects
+.entry_next:
+        lea     EntityScanState_len(a3), a3
+        addq.w  #1, d6
+        cmpi.w  #MAX_TRACKED_SECTIONS, d6
+        blo.s   .entry_loop
+.done:
+        rts
+
+; -----------------------------------------------
+; EntityWindow_RescanRings — re-offer rings 0..ring_right_idx-1
+;
+; No X edge test: everything below the ratchet already passed it.
+; Defensive terminator stop guards a ratchet beyond list end.
+;
+; In:  a1 = EntityScanState pointer
+; Out: none
+; Clobbers: d0-d4, a0
+; -----------------------------------------------
+EntityWindow_RescanRings:
+        move.l  EntityScanState_ess_rom_ring_ptr(a1), d0
+        beq.s   .done
+        movea.l d0, a0
+        move.w  EntityScanState_ess_ring_right_idx(a1), d3      ; X ratchet bound
+        beq.s   .done
+        moveq   #0, d4
+.loop:
+        move.l  (a0), d0                ; terminator: dc.l 0
+        beq.s   .done
+        bsr.w   EntityWindow_TrySpawnRing
+        addq.w  #1, d4
+        addq.w  #4, a0
+        cmp.w   d3, d4
+        blo.s   .loop
+.done:
+        rts
+
+; -----------------------------------------------
+; EntityWindow_RescanObjects — re-offer objects 0..obj_right_idx-1
+;
+; In:  a1 = EntityScanState pointer
+; Out: none
+; Clobbers: d0-d4, a0, a2
+; -----------------------------------------------
+EntityWindow_RescanObjects:
+        move.l  EntityScanState_ess_rom_obj_ptr(a1), d0
+        beq.s   .done
+        movea.l d0, a0
+        move.w  EntityScanState_ess_obj_right_idx(a1), d3       ; X ratchet bound
+        beq.s   .done
+        moveq   #0, d4
+.loop:
+        tst.w   (a0)                    ; defensive: -1 sentinel below the ratchet
+        bmi.s   .done
+        bsr.w   EntityWindow_TrySpawnObject
+        addq.w  #1, d4
+        addq.w  #OBJ_ENTRY_SIZE, a0
+        cmp.w   d3, d4
+        blo.s   .loop
+.done:
+        rts
+
+; -----------------------------------------------
 ; EntityWindow_DespawnRings — remove rings outside camera range
 ;
+; X rule (unchanged): out-of-X rings despawn UNLESS their section is
+; an active window entry. Y rule (Task 5): EVERY ring — active section
+; or not — must sit inside the Y despawn band or it goes. The Y band
+; uses ENTITY_DESPAWN_BUFFER_Y (wider than load = hysteresis: a ring
+; between the bands neither loads nor despawns, so no churn).
 ; Iterates backward for safe swap-with-last removal.
 ; -----------------------------------------------
 EntityWindow_DespawnRings:
         moveq   #0, d5
         move.b  (Ring_Count).w, d5
-        beq.s   .done
+        beq.w   .done
         subq.w  #1, d5
 
         move.w  (Camera_X).w, d6
@@ -878,31 +1013,35 @@ EntityWindow_DespawnRings:
         cmp.w   d6, d1
         blt.s   .check_active
         cmp.w   d7, d1
-        ble.s   .next
+        ble.s   .check_y                ; X in window → still Y-gated
 
 .check_active:
         move.b  4(a0, d0.w), d1
         cmp.b   (Entity_Scan_State+EntityScanState_ess_section_id).w, d1
-        beq.s   .next
+        beq.s   .check_y
         cmp.b   (Entity_Scan_State+(EntityScanState_len*1)+EntityScanState_ess_section_id).w, d1
-        beq.s   .next
+        beq.s   .check_y
         cmp.b   (Entity_Scan_State+(EntityScanState_len*2)+EntityScanState_ess_section_id).w, d1
-        beq.s   .next
+        beq.s   .check_y
         cmp.b   (Entity_Scan_State+(EntityScanState_len*3)+EntityScanState_ess_section_id).w, d1
-        beq.s   .next
+        bne.s   .remove                 ; X straggler in a dead section
+
+.check_y:
+        ; Y despawn band: camY-DESPAWN_Y .. camY+SCREEN_HEIGHT+DESPAWN_Y
+        move.w  2(a0, d0.w), d1         ; engine_Y
+        move.w  (Camera_Y).w, d2
+        subi.w  #ENTITY_DESPAWN_BUFFER_Y, d2
+        cmp.w   d2, d1
+        blt.s   .remove                 ; far above
+        addi.w  #SCREEN_HEIGHT+2*ENTITY_DESPAWN_BUFFER_Y, d2
+        cmp.w   d2, d1
+        ble.s   .next                   ; in band → keep
+                                        ; far below → fall into .remove
 
 .remove:
-        ; clear the loaded bit before removal (no-op when section untracked)
-        moveq   #0, d3
-        move.b  5(a0, d0.w), d3         ; list_index
-        move.b  4(a0, d0.w), d0         ; section_id
-        bsr.w   EntityWindow_EntryForSection
-        tst.w   d0
-        bmi.s   .bit_done
-        move.w  d3, d1
-        moveq   #0, d2                  ; ring bits
-        bsr.w   EntityLoaded_Clear
-.bit_done:
+        ; clear the loaded bit before removal (no-op when section
+        ; untracked; Y despawn makes this live for active sections too)
+        clearLoadedRing a0,d0
         movem.l d5-d7, -(sp)
         move.w  d5, d0
         bsr.w   RingBuffer_Remove
@@ -916,6 +1055,9 @@ EntityWindow_DespawnRings:
 
 ; -----------------------------------------------
 ; EntityWindow_DespawnObjects — delete dynamic objects outside range
+;
+; Same X/Y rules as DespawnRings, plus: ANY_Y objects (slot_tag bit 7)
+; are exempt from the Y band — they live as long as X allows.
 ; -----------------------------------------------
 EntityWindow_DespawnObjects:
         move.w  (Camera_X).w, d6
@@ -937,32 +1079,37 @@ EntityWindow_DespawnObjects:
         cmp.w   d6, d0
         blt.s   .check_active
         cmp.w   d7, d0
-        ble.s   .next
+        ble.s   .check_y                ; X in window → still Y-gated
 
 .check_active:
         move.b  SST_entity_section_id(a0), d1
         cmp.b   (Entity_Scan_State+EntityScanState_ess_section_id).w, d1
-        beq.s   .next
+        beq.s   .check_y
         cmp.b   (Entity_Scan_State+(EntityScanState_len*1)+EntityScanState_ess_section_id).w, d1
-        beq.s   .next
+        beq.s   .check_y
         cmp.b   (Entity_Scan_State+(EntityScanState_len*2)+EntityScanState_ess_section_id).w, d1
-        beq.s   .next
+        beq.s   .check_y
         cmp.b   (Entity_Scan_State+(EntityScanState_len*3)+EntityScanState_ess_section_id).w, d1
-        beq.s   .next
+        bne.s   .despawn                ; X straggler in a dead section
+
+.check_y:
+        move.b  SST_slot_tag(a0), d1
+        bmi.s   .next                   ; bit 7 = ANY_Y → never Y-despawned
+        move.w  SST_y_pos(a0), d1
+        move.w  (Camera_Y).w, d2
+        subi.w  #ENTITY_DESPAWN_BUFFER_Y, d2
+        cmp.w   d2, d1
+        blt.s   .despawn                ; far above
+        addi.w  #SCREEN_HEIGHT+2*ENTITY_DESPAWN_BUFFER_Y, d2
+        cmp.w   d2, d1
+        ble.s   .next                   ; in band → keep
+                                        ; far below → fall into .despawn
 
 .despawn:
         movem.l d5-d7/a0, -(sp)
-        ; clear the loaded bit before the SST vanishes
-        moveq   #0, d3
-        move.b  SST_entity_list_index(a0), d3
-        move.b  SST_entity_section_id(a0), d0
-        bsr.w   EntityWindow_EntryForSection
-        tst.w   d0
-        bmi.s   .bit_done
-        move.w  d3, d1
-        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
-        bsr.w   EntityLoaded_Clear
-.bit_done:
+        ; clear the loaded bit before the SST vanishes (Y despawn makes
+        ; this live for active sections too)
+        clearLoadedObj a0
         movea.l 12(sp), a0              ; SST ptr (a0 slot of the movem frame)
         jsr     DeleteObject
         movem.l (sp)+, d5-d7/a0
@@ -1014,16 +1161,7 @@ EntityWindow_TeleportShift:
 .ring_remove:
         movem.l d2-d5/a0, -(sp)
         ; clear the loaded bit so the post-teleport populate can re-add
-        moveq   #0, d3
-        move.b  5(a0, d0.w), d3         ; list_index
-        move.b  4(a0, d0.w), d0         ; section_id
-        bsr.w   EntityWindow_EntryForSection
-        tst.w   d0
-        bmi.s   .ring_bit_done
-        move.w  d3, d1
-        moveq   #0, d2                  ; ring bits
-        bsr.w   EntityLoaded_Clear
-.ring_bit_done:
+        clearLoadedRing a0,d0
         move.w  d5, d0
         bsr.w   RingBuffer_Remove
         movem.l (sp)+, d2-d5/a0
@@ -1055,16 +1193,7 @@ EntityWindow_TeleportShift:
 .obj_despawn:
         movem.l d2-d5/a0, -(sp)
         ; clear the loaded bit before the SST vanishes
-        moveq   #0, d3
-        move.b  SST_entity_list_index(a0), d3
-        move.b  SST_entity_section_id(a0), d0
-        bsr.w   EntityWindow_EntryForSection
-        tst.w   d0
-        bmi.s   .obj_bit_done
-        move.w  d3, d1
-        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
-        bsr.w   EntityLoaded_Clear
-.obj_bit_done:
+        clearLoadedObj a0
         movea.l 16(sp), a0              ; SST ptr (a0 slot of the movem frame)
         jsr     DeleteObject
         movem.l (sp)+, d2-d5/a0
@@ -1122,16 +1251,7 @@ EntityWindow_TeleportShiftY:
 .ring_remove:
         movem.l d2-d5/a0, -(sp)
         ; clear the loaded bit so the post-teleport populate can re-add
-        moveq   #0, d3
-        move.b  5(a0, d0.w), d3         ; list_index
-        move.b  4(a0, d0.w), d0         ; section_id
-        bsr.w   EntityWindow_EntryForSection
-        tst.w   d0
-        bmi.s   .ring_bit_done
-        move.w  d3, d1
-        moveq   #0, d2                  ; ring bits
-        bsr.w   EntityLoaded_Clear
-.ring_bit_done:
+        clearLoadedRing a0,d0
         move.w  d5, d0
         bsr.w   RingBuffer_Remove
         movem.l (sp)+, d2-d5/a0
@@ -1163,16 +1283,7 @@ EntityWindow_TeleportShiftY:
 .obj_despawn:
         movem.l d2-d5/a0, -(sp)
         ; clear the loaded bit before the SST vanishes
-        moveq   #0, d3
-        move.b  SST_entity_list_index(a0), d3
-        move.b  SST_entity_section_id(a0), d0
-        bsr.w   EntityWindow_EntryForSection
-        tst.w   d0
-        bmi.s   .obj_bit_done
-        move.w  d3, d1
-        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
-        bsr.w   EntityLoaded_Clear
-.obj_bit_done:
+        clearLoadedObj a0
         movea.l 16(sp), a0              ; SST ptr (a0 slot of the movem frame)
         jsr     DeleteObject
         movem.l (sp)+, d2-d5/a0
@@ -1208,7 +1319,7 @@ EntityWindow_RebuildScanState:
         ; teleport moved the world under the camera — rebase the
         ; vertical re-scan trigger so the next crossing is real
         move.w  (Camera_Y).w, d0
-        andi.w  #$FF80, d0
+        andi.w  #ENTITY_RESCAN_COARSE_MASK, d0
         move.w  d0, (Camera_Y_Coarse_Prev).w
 
         ; full ring populate for every valid entry (teleport path)

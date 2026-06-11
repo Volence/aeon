@@ -217,7 +217,19 @@ RingCollision:
         ; a0 points to ring entry: +4 = section_id, +5 = list_index
         move.b  4(a0), d2               ; section_id
         move.b  5(a0), d3               ; list_index
-        bsr.w   Collected_MarkRing
+        bsr.w   Collected_MarkRing      ; clobbers d0-d1, a0 — d2/d3 survive
+
+        ; Clear the loaded bit too — keeps ring bits == buffer census.
+        ; (Collected bit already blocks respawn; this is mask hygiene.)
+        move.b  d2, d0                  ; section_id
+        bsr.w   EntityWindow_EntryForSection
+        tst.w   d0
+        bmi.s   .no_loaded_bit          ; section untracked — no loaded bits
+        moveq   #0, d1
+        move.b  d3, d1                  ; list_index
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Clear
+.no_loaded_bit:
 
         addq.w  #1, (Ring_Counter).w
 

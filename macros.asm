@@ -300,6 +300,47 @@ queueStaticDMA macro slotvar, queueend, entryvar
         endm
 
 ; -----------------------------------------------
+; Entity-window loaded-bit clears (§4.9 phase 2)
+; Both no-op when the entity's section is no longer tracked.
+; Fixed internal labels: expand each macro at most once per global-label
+; scope (the two macros use distinct labels, so one of EACH per scope is
+; fine — see EntityWindow_TeleportShift).
+; -----------------------------------------------
+
+; clearLoadedRing — clear a ring's loaded bit from its buffer entry
+; In: bufReg = Ring_Buffer base (address register)
+;     idxReg = entry byte offset, index×6 (data register; overwritten)
+; Clobbers: d0-d3, a0
+clearLoadedRing macro bufReg,idxReg
+        moveq   #0, d3
+        move.b  5(bufReg, idxReg.w), d3 ; list_index
+        move.b  4(bufReg, idxReg.w), d0 ; section_id
+        bsr.w   EntityWindow_EntryForSection
+        tst.w   d0
+        bmi.s   .clr_ring_skip          ; section untracked — no loaded bits
+        move.w  d3, d1
+        moveq   #0, d2                  ; ring bits
+        bsr.w   EntityLoaded_Clear
+.clr_ring_skip:
+        endm
+
+; clearLoadedObj — clear an object's loaded bit from its SST fields
+; In: sstReg = SST pointer (address register; fields read before any call)
+; Clobbers: d0-d3, a0
+clearLoadedObj macro sstReg
+        moveq   #0, d3
+        move.b  SST_entity_list_index(sstReg), d3
+        move.b  SST_entity_section_id(sstReg), d0
+        bsr.w   EntityWindow_EntryForSection
+        tst.w   d0
+        bmi.s   .clr_obj_skip           ; section untracked — no loaded bits
+        move.w  d3, d1
+        moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
+        bsr.w   EntityLoaded_Clear
+.clr_obj_skip:
+        endm
+
+; -----------------------------------------------
 ; Debug subsystem flags (only meaningful when __DEBUG__ is defined)
 ; Use the MD Debugger's ifdebug macro (from debug/debugger.asm) for conditionals.
 ; -----------------------------------------------

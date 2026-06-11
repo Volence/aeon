@@ -370,6 +370,7 @@ ENTITY_LOAD_BUFFER_Y     = $100         ; pixels above/below camera to load enti
 ENTITY_DESPAWN_BUFFER_Y  = $180         ; Y despawn distance (> load = hysteresis)
 ENTITY_LOADED_SLOT_SIZE  = 32           ; per-entry loaded bitmask: 16B rings + 16B objects
 ENTITY_LOADED_OBJ_OFFSET = 16           ; object bits start mid-slot
+ENTITY_RESCAN_COARSE_MASK = $FF80       ; camY coarse-row mask (128px rows) — crossing fires the vertical re-scan
 SCREEN_WIDTH             = 320          ; visible screen width in pixels
 SCREEN_HEIGHT            = 224          ; visible screen height in pixels
 
@@ -391,6 +392,8 @@ MAX_OBJECT_TYPES        = 32
 ; Slot tag — stored in SST_slot_tag; identifies which quadrant entry (0-3) spawned an object
 ; 0 = upper-left (slot L, row r), 1 = upper-right (slot R, row r)
 ; 2 = lower-left (slot L, row r+1), 3 = lower-right (slot R, row r+1)
+; Bit 7 = OEF_ANY_Y placement (Y-despawn exempt). $80|idx never equals
+; SLOT_TAG_UNTAGGED ($FF), so exact-$FF untagged compares stay correct.
 SLOT_TAG_UNTAGGED       = $FF
 SLOT_TAG_LEFT           = 0
 SLOT_TAG_RIGHT          = 1
