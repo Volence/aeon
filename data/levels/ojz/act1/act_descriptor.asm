@@ -216,25 +216,10 @@ OJZ_Sec8:
 
 ; -----------------------------------------------
 ; Generated block data — 16×16 blocks, S4LZ compressed (§4.7 2D)
+; OJZ_Sec{N}_Blocks labels live in the generated include: identical blobs
+; are stored once and duplicate sections alias via equ (content dedup).
 ; -----------------------------------------------
-OJZ_Sec0_Blocks: BINCLUDE "data/generated/ojz/act1/sec0_blocks.bin"
-    align 2
-OJZ_Sec1_Blocks: BINCLUDE "data/generated/ojz/act1/sec1_blocks.bin"
-    align 2
-OJZ_Sec2_Blocks: BINCLUDE "data/generated/ojz/act1/sec2_blocks.bin"
-    align 2
-OJZ_Sec3_Blocks: BINCLUDE "data/generated/ojz/act1/sec3_blocks.bin"
-    align 2
-OJZ_Sec4_Blocks: BINCLUDE "data/generated/ojz/act1/sec4_blocks.bin"
-    align 2
-OJZ_Sec5_Blocks: BINCLUDE "data/generated/ojz/act1/sec5_blocks.bin"
-    align 2
-OJZ_Sec6_Blocks: BINCLUDE "data/generated/ojz/act1/sec6_blocks.bin"
-    align 2
-OJZ_Sec7_Blocks: BINCLUDE "data/generated/ojz/act1/sec7_blocks.bin"
-    align 2
-OJZ_Sec8_Blocks: BINCLUDE "data/generated/ojz/act1/sec8_blocks.bin"
-    align 2
+    include "data/generated/ojz/act1/sec_block_blobs.asm"
 
 OJZ_Palette: BINCLUDE "data/generated/ojz/act1/ojz_palette.bin"
     align 2
@@ -250,21 +235,7 @@ OJZ_Act1_BG_Tiles:  BINCLUDE "data/generated/ojz/act1/bg_tiles.bin"
     align 2
 
 ; Per-section tile blobs (§2 A.3)
-OJZ_Sec0_Tiles: BINCLUDE "data/generated/ojz/act1/sec0_tiles.zx0"
-    align 2
-OJZ_Sec1_Tiles: BINCLUDE "data/generated/ojz/act1/sec1_tiles.zx0"
-    align 2
-OJZ_Sec2_Tiles: BINCLUDE "data/generated/ojz/act1/sec2_tiles.zx0"
-    align 2
-OJZ_Sec3_Tiles: BINCLUDE "data/generated/ojz/act1/sec3_tiles.zx0"
-    align 2
-OJZ_Sec4_Tiles: BINCLUDE "data/generated/ojz/act1/sec4_tiles.zx0"
-    align 2
-OJZ_Sec5_Tiles: BINCLUDE "data/generated/ojz/act1/sec5_tiles.zx0"
-    align 2
-OJZ_Sec6_Tiles: BINCLUDE "data/generated/ojz/act1/sec6_tiles.zx0"
-    align 2
-OJZ_Sec7_Tiles: BINCLUDE "data/generated/ojz/act1/sec7_tiles.zx0"
-    align 2
-OJZ_Sec8_Tiles: BINCLUDE "data/generated/ojz/act1/sec8_tiles.zx0"
-    align 2
+; OJZ_Sec{N}_Tiles labels live in the generated include: color-class union
+; blobs are byte-identical across sections, so duplicates alias via equ
+; (content dedup — OJZ stores 2 blobs for 9 sections).
+    include "data/generated/ojz/act1/sec_tile_blobs.asm"
