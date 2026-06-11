@@ -673,11 +673,11 @@ non-zero; intermittently they read zero.
 
 ## From Teleport-Rebase (2026-06-10)
 
-### CRITICAL: FWD teleport advances slot pair out of a narrow grid → garbage entity scan state
-**Surfaced during:** teleport-rebase verification 2026-06-10 (pre-existing on master — not caused by the rebase change; nothing in that diff touches this path).
-**What:** `Section_TeleportFwd` advances the pair `(0,1) → (2,3)`, but OJZ act1 is now a **3×3 grid** — `sec_x = 3` doesn't exist. The `.fwd_check` guard only verifies `slot1_x + 1 < grid_w` (the new slot 0), not the new slot 1. The old TODO at the slot advance ("clamp d0 to act grid width — Phase 1 safe (OJZ = 9 sections)") dates from when OJZ was a 9-wide strip; the 3×3 reorganization armed it. Observed: walking right past `x=$1200` from spawn → `EntityWindow_TeleportShift` builds a scan state for the out-of-grid section → garbage `ess_rom_ring_ptr` ($69A) → populate loop walks ROM → DEBUG assert `d1 LO #MAX_LIST_ENTRIES` in `Collected_CheckRing` (release build: undefined ring spawns). Reproduce: boot OJZ, write `Player_1.x = $1208`.
-**Fix surface:** out-of-grid slot semantics — clamp slot 1 to the grid edge AND make entity/stream/cache consumers skip out-of-grid sections, or require even `grid_w` in act data (build assert) so pairs always fit. The last column must remain reachable (it becomes slot 0), so refusing the teleport is not an option.
-**When ready:** next §4.2 session; blocks any act with odd grid width.
+### ~~CRITICAL: FWD teleport advances slot pair out of a narrow grid~~ — DONE 2026-06-11
+**Surfaced during:** teleport-rebase verification 2026-06-10 (pre-existing). **Fixed in:** grid-edge branch.
+**What it was:** `Section_TeleportFwd` advanced the pair `(0,1) → (2,3)` but OJZ act1 is a 3×3 grid — sec_x=3 doesn't exist; the entity window built scan state from a garbage Sec pointer → DEBUG assert in `Collected_CheckRing` (release: undefined ring spawns) on walking right past `x=$1200`.
+**Fix shipped:** `SEC_VOID` ($FF) sentinel in slot-1 sec_x past the grid; guards in `Section_Check .fwd_check` (sentinel check before the wrapping addq), TeleportFwd's SS_RESIDENT mark, EntityWindow Init/Rebuild slot-1 blocks (skipped; `Entity_Window_Active`=1; the stale entry's section_id stamped SEC_VOID for the despawn exemption), camera max-x void clamp ($8C0 = slot-0 right edge), `TileCache_DecompressBlock` world-edge guard (out-of-grid blocks decompress blank — also fixed the latent bottom-edge Sec-table overread that vertical fills have had since shipping), prefetch sec_x guard. BWD heals the pair (new slot 1 = old slot 0 − 1). Exodus-verified end to end (warp right → pair (2,$FF), objects spawn, camera pins $8C0, BWD returns (0,1)).
+**Still open (minor, from review):** `Section_Check` clobber header understates; classic-style player X clamp at camera bounds (player can currently walk past the camera into the void region — level data should wall it, but a bounds clamp matching the classics is worth considering with §3 player physics).
 
 ### Per-section BG layout swap at the seam (T2/T3 zones)
 **Surfaced during:** teleport-rebase 2026-06-10.
