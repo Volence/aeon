@@ -383,12 +383,14 @@ Section_TeleportFwd:
         bsr.w   Section_SlotFlatID                 ; d0 = slot 1 flat section_id
         lea     (Section_Stream_State).w, a1
         move.b  #SS_RESIDENT, (a1, d0.w)
-        ; -- §4.2: mark plane dirty for next-frame full atomic redraw.
-        ;    Section_UpdateColumns picks this up and calls Section_RedrawPlanes,
-        ;    rewriting both planes' nametables in one pass (matches sonic_hack
-        ;    Dirty_flag → Draw_All pattern). Replaces the old per-teleport
-        ;    BG_RedrawForSection burst.
-        st      (Section_Plane_Dirty).w
+        ; -- no plane redraw: the teleport is pure coordinate rebasing.
+        ;    Engine_To_World_Col(c) = c - SLOT_ORIGIN_L/8 + sec_x*256; the
+        ;    camera/player shift (-$1000 px = -512 cols) and the slot-map
+        ;    advance (+2 sections = +512 cols) cancel exactly, so all world
+        ;    coordinates are invariant; plane mapping (engine & 63) and
+        ;    scroll (camera & $1FF) shift by multiples of their modulus.
+        ;    Matches S3K/S.C.E. level wrap: nothing is redrawn at the seam
+        ;    (docs/research/teleport-rebase.md). --
 
         ; -- §4.6: force-snap parallax after teleport.
         ;    Camera_X jumped SECTION_SHIFT pixels — band scroll values must
@@ -460,9 +462,8 @@ Section_TeleportBwd:
         bsr.w   Section_SlotFlatID                 ; d0 = slot 0 flat section_id
         lea     (Section_Stream_State).w, a1
         move.b  #SS_RESIDENT, (a1, d0.w)
-        ; -- §4.2: mark plane dirty for next-frame full atomic redraw.
-        ;    See Section_TeleportFwd's equivalent comment.
-        st      (Section_Plane_Dirty).w
+        ; -- no plane redraw: pure rebase, mirror of TeleportFwd (see
+        ;    comment there). --
 
         ; -- §4.6: force-snap parallax (camera lands at $1200 = slot 1 territory). --
         move.b  #1, (Parallax_Snap_Pending).w
@@ -506,10 +507,15 @@ Section_TeleportDown:
         st      (Section_Teleport_Guard).w
         clr.b   (Section_Preload_Flags).w
 
-        ; reinit tile cache for new vertical position
-        bsr.w   TileCache_Reinit
-
-        st      (Section_Plane_Dirty).w
+        ; -- no cache or plane work: the teleport is pure coordinate rebasing.
+        ;    Engine_To_World_Row(r) = r - SLOT_ORIGIN_U/8 + sec_y*256; the
+        ;    camera/player shift (-$1000 px = -512 rows) and sec_y += 2
+        ;    (+512 rows) cancel exactly, so every world coordinate — tile
+        ;    cache bounds, fill-resume slots, staging keys, column/row draw
+        ;    trackers — is invariant. Plane mapping (engine & 63) and scroll
+        ;    (camera & $1FF) shift by multiples of their modulus. Matches
+        ;    S3K/S.C.E. level wrap: nothing is redrawn at the seam
+        ;    (docs/research/teleport-rebase.md). --
 
         ; parallax snap
         move.b  #1, (Parallax_Snap_Pending).w
@@ -537,17 +543,21 @@ Section_TeleportDown:
 ; Clobbers: d0–d3, d6, a0–a2, a4
 ; -----------------------------------------------
 Section_TeleportUp:
+        ; -- guard FIRST: with no slot-map shift the camera/player shift
+        ;    would be a real 4096px position change, not a rebase. The
+        ;    removed TileCache_Reinit used to mask that. Section_Check
+        ;    already refuses sec_y < 2; this is defense in depth. --
+        lea     (Slot_Section_Map).w, a0
+        cmpi.b  #2, 1(a0)
+        blt.s   .up_at_top
+
         move.l  (Camera_Y).w, d0
         addi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_Y).w
         addi.l  #SECTION_SHIFT<<16, (Player_1+SST_y_pos).w
 
-        lea     (Slot_Section_Map).w, a0
-        cmpi.b  #2, 1(a0)
-        blt.s   .up_at_top
         subq.b  #2, 1(a0)                          ; slot 0 sec_y -= 2
         subq.b  #2, 3(a0)                          ; slot 1 sec_y -= 2
-.up_at_top:
 
         ; -- §4.9: shift nearby entities' Y, despawn rest, rebuild scan state --
         move.w  #SECTION_SHIFT, d0
@@ -556,9 +566,8 @@ Section_TeleportUp:
         st      (Section_Teleport_Guard).w
         clr.b   (Section_Preload_Flags).w
 
-        bsr.w   TileCache_Reinit
-
-        st      (Section_Plane_Dirty).w
+        ; -- no cache or plane work: pure rebase, mirror of TeleportDown
+        ;    (see comment there). --
 
         ; parallax snap
         move.b  #1, (Parallax_Snap_Pending).w
@@ -577,6 +586,7 @@ Section_TeleportUp:
 .up_parallax_set:
         move.l  a0, (Parallax_Current_Config).w
 .up_parallax_done:
+.up_at_top:
         rts
 
 ; -----------------------------------------------

@@ -64,8 +64,10 @@ BG_Init:
         movem.l (sp)+, a3
         rts
 
-; §4.2: BG_RedrawForSection deleted. Plane B is now redrawn atomically
-; alongside Plane A via Section_RedrawPlanes (see engine/level/section.asm),
-; triggered by the Section_Plane_Dirty flag set at every teleport. This matches
-; sonic_hack's Dirty_flag → Draw_All pattern: synchronous full-plane rewrite in
-; one frame instead of incremental streaming refill.
+; §4.2: BG_RedrawForSection deleted. Plane B is redrawn atomically alongside
+; Plane A via Section_RedrawPlanes (see engine/level/section.asm), triggered
+; by the Section_Plane_Dirty flag at level init and cache recovery only.
+; Teleports no longer set it: they are pure coordinate rebases — world
+; coordinates, plane mapping (mod 64) and scroll (mod 512) are all invariant
+; under the $1000px shift, so a redraw would write byte-identical content
+; (docs/research/teleport-rebase.md).

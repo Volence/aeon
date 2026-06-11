@@ -310,7 +310,7 @@ Slot_Section_Map:       ds.b 8
 ; Section streaming state
 Section_Preload_Flags:  ds.b 1          ; bits: fwd/bwd/up/dn preloaded
 Section_Teleport_Guard: ds.b 1          ; anti-oscillation flag (cleared when player leaves threshold)
-Section_Plane_Dirty:    ds.b 1          ; §4.2: full plane redraw pending (set at teleport)
+Section_Plane_Dirty:    ds.b 1          ; §4.2: full plane redraw pending (level init + cache recovery; teleports are pure rebases and never set it)
                         ds.b 1          ; pad to even
 
 ; Per-section streaming state (§2 A.4) — one byte per section
