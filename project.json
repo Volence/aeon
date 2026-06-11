@@ -5,7 +5,7 @@
     {
       "id": "ojz",
       "name": "Oracle Jungle Zone",
-      "tileset": "data/generated/ojz/act1/ojz_tiles.bin",
+      "tileset": "data/editor/chunks_tiles.bin",
       "palette": "data/generated/ojz/act1/ojz_palette.bin",
       "acts": [
         {
