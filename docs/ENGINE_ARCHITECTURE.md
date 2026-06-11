@@ -14,7 +14,7 @@ This is the **design bible**. This document describes the engine we're building 
 |---|--------|---------------|
 | 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (Batman — only changed registers written during VBlank), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, deterministic cold/warm boot (CrossResetRAM), region detection with PAL timing constants, 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
-| 2 | Art & Compression Pipeline | S4LZ (custom word-aligned LZ, 700-1100 KB/s) for level/bulk art. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character sprites + VDP tables embedded in off-screen nametable rows**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
+| 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character sprites + VDP tables embedded in off-screen nametable rows**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
 | 4 | Level / World | 2D section grid with signed Y (novel), 2-slot bidirectional leapfrog (novel), block-based 2D tile cache (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), velocity-based preload, per-section everything, diagonal preview loading, **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, **zero-lag teleport (progressive nametable preload + palette crossfade, novel)**, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in block data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)** |
 | 5 | Player / Character | 6-button controller support, per-section terrain physics (novel), air drag apex-only fix (S3K), roll-jump air control fix (S3K), flat acceleration with per-character tuning, angle continuity for loop stability, vector projection on slope landing, state entry/exit hooks, hierarchical state machine evaluation, landing camera lock, spindash charge curve (table-based), slope muls→shift optimization, configurable physics tables, 3-character shared code via Player_Common, shield system unified, **SWAP-based 16.16 fixed point (Treasure)** |
@@ -1063,32 +1063,43 @@ Raster Command Table (§7.2) + Section Streaming
 
 The art pipeline handles getting graphical data from ROM into VRAM — compressed art decompression, VRAM address assignment, section-aware streaming, and background plane support. Every visual element in the game flows through this pipeline.
 
-### 2.1 Compression & Art Formats: S4LZ + Uncompressed/DPLC
+### 2.1 Compression & Art Formats: Two-Tier (S4LZ v3 + ZX0) + Uncompressed/DPLC
 
-**Purpose:** Minimal format set, each optimized for a specific data class. The 68000 has no barrel shifter — every bit extraction costs 14-18 cycles. Byte/word-aligned formats are 4-9x faster per token than bit-stream formats (Kosinski, Nemesis, KosPM). See `docs/research/lz-compression-survey.md` for the full LZ analysis. See `docs/research/tile-format-survey.md` for the UFTC evaluation and decision to use uncompressed sprites.
+**Purpose:** Formats chosen by DECODE-SPEED TIER, with all ratios MEASURED on the real
+(post-dedup) corpus — the original projections assumed pre-dedup redundancy and did not
+survive contact with shipped data (see `docs/research/compression-audit-2026-06-11.md`,
+the audit that produced this design, and `compression-audit-landscape.md` for the
+external survey). All compressed art carries a 4-byte wrapper: [u16 BE uncompressed
+size][u8 flags][u8 version: 1 = S4LZ v3, 2 = ZX0]; `Art_Decompress` dispatches on the
+version byte.
 
-| Tier | Format | Speed | Ratio | Use Case |
+| Tier | Format | Measured speed | Measured ratio | Use Case |
 |------|--------|-------|-------|----------|
-| Bulk/streaming | **S4LZ** (custom) | 700-1,100 KB/s | ~0.45-0.50 | Level tiles, BG art, section preloads |
+| Runtime hot path | **S4LZ v3 + per-section block dictionary** | ~510-640 KB/s | blocks 0.49 (streams), ~0.29 effective with dict | 16×16 block decompression, 6/frame budget |
+| Load-time bulk | **ZX0** (salvador / unzx0_68000) | ~76 KB/s (measured: 5 frames / 6.3 KB) | tile art 0.605 | Section tile art at init; any init-time bulk |
 | Sprite art | **Uncompressed + DPLC** | Bus speed (DMA) | 1.0 | Per-frame character/object art via DMA from ROM |
 | Tilemaps | **Raw** | instant | 1.0 | Menu/level select nametables — direct DMA to VDP |
 
-**S4LZ (bulk — all sequential art loads):**
-- Custom word-aligned LZ format, designed for the 68000
-- **Header:** 4 bytes — 16-bit uncompressed size, 8-bit flags (bit 0 = tile-delta XOR enabled), 8-bit reserved
-- **Token:** single byte, nibble-split — high nibble = literal count in words, low nibble = match count in words. Token $00 = end-of-stream
-- All copies word-aligned: `move.w (a0)+,(a1)+` copies 2 bytes in 12 cycles (same cost as `move.b`, double throughput)
-- Big-endian offsets: native 68000 byte order saves 14 cycles/match vs LZ4's little-endian (no `rol.w #8` needed)
-- 16-bit dictionary window (64KB): zero speed penalty over 8-bit on 68000 — all address math is 16-bit minimum
-- **Two 16-entry jump tables** for dispatch: one for literal count (hi nibble), one for match count (lo nibble). Each table entry is an unrolled copy sequence. ~200-400 bytes ROM total. Full 256-entry table reserved as optimization if profiling demands it
-- **Minimum match:** 2 words (4 bytes) — the natural breakeven point for 3-byte match token overhead (1 token + 2 offset bytes)
-- **Extension mechanism:** when nibble = 15, read one extension byte; count = 15 + byte. If byte = 255, read a 16-bit word for the count. Simpler than LZ4's chained-255 scheme, sufficient for Genesis data sizes
-- **Tile-delta preprocessing** (build-time): XOR each 32-byte tile against the previous before compression. Adjacent tiles differ by few pixels → XOR produces mostly zeros → LZ compresses 5-30% better depending on tile correlation. Runtime undo cost: ~12 cycles/byte (XOR + writeback per word). Header flag allows disabling when delta doesn't help. MEGAPACK (Codemasters) proved tile-aware preprocessing beats generic LZ by ~30%
-- PC-side compressor: optimal parsing (graph-based, like clownlzss) written in Python/C. Runs at build time
-- 68000 decompressor: ~200-400 bytes ROM (two jump tables + main loop)
-- Used for both streaming loads (interruptible, one buffer per frame) and instant loads (blocking, completes in one call). S4LZ is fast enough for both use cases
-- Streaming mode: decompress into ~4KB RAM buffer → DMA to VRAM (Deferrable priority). VBlank bookmark saves decompressor state if interrupted mid-frame
-- See `docs/research/lz-compression-survey.md` for full design validation against LZ4W, Comper, LZSA, FC8, MEGAPACK, and all 7 reference disassemblies
+**S4LZ v3 (runtime word-aligned LZ):**
+- **Header:** the 4-byte wrapper above (flags bit 0 = tile-delta XOR, currently unused — it MEASURED 9 points WORSE on post-dedup tile data and was dropped from the pipeline)
+- **Token word:** [token.b][offmark.b]. Token nibbles: hi = literal words, lo = match words; $00 = EOS (full word consumed). offmark = match_offset/2 for even offsets 2-510 (the byte that v1 wasted as alignment padding); offmark 0 = long form, u16 BE offset word follows the literals. Nibble 15 → u16 count extension (after token word for literals; after the offset position for matches)
+- All copies word-aligned `move.w (a0)+,(a1)+`; matches may overlap (offset ≥ 2), copies ascend
+- **Offsets ≤ 32766** (decoder uses `suba.w`; encoder enforces). Minimum match 2 words
+- **Per-section block dictionary:** the compressor pre-seeds the LZ window with K raw blocks from the same section (K = 0..3 swept per section at build, min total size; OJZ optimum K=1). Dict blocks are stored RAW in the blob and serve double duty as their own storage (index entry bit 31 = raw-direct copy). `S4LZ_DecompressDict` rebases below-buffer match sources into the ROM dict with one compare-branch per match (~16 cycles, both entries pay it; the plain entry's branch never fires on valid streams). Measured: per-block compression recovers whole-stream-class ratios while keeping random access (0.524 → 0.486 streams; ~0.29 effective with dict accounting)
+- Compressor: `tools/s4lz.py` — optimal parse (forward DP, dual match candidates per position: best-overall + best-short-offset). The parse is provably optimal for the cost model; known gap: literal-extension words are uncharged (measured < 0.5% ceiling, DEFERRED_WORK)
+- Decompressor: `engine/s4lz_decompress.asm`, ~300 B, measured ~510-640 KB/s realistic mix. Micro-optimizations (move.l copy tables, extended-loop unroll, 256-entry token jump table → ~770+ KB/s) are documented in the audit and DEFERRED — current block budgets fit (6 blocks/frame ≈ half a frame; vertical scroll protocol unchanged at +4/512px with dicts on)
+
+**ZX0 (load-time bulk):**
+- Einar Saukas' ZX0 v2 format; compressed by vendored salvador (`tools/salvador/`, zlib/CC0/MIT licenses), decoded by vendored unzx0_68000 (`engine/zx0_decompress.asm`, zlib license, adaptation = mnemonic spelling only — algorithm byte-identical to upstream)
+- Measured 0.605 on section tile art vs 0.85 for the best word-aligned S4LZ — bitstream rep-offset + elias-gamma + byte-granular matching, ~zlib-class ratio without entropy tables
+- **~76 KB/s — init/preload tier ONLY.** Used today at level init (5 frames per section blob, invisible). Any future mid-gameplay deferred section load must NOT call it synchronously — that's the §9.7 cooperative-multitasking budgeted-decode design (DEFERRED_WORK)
+- Clobbers d0-d1/a0-a2 only (narrower than S4LZ)
+
+**Pipeline guarantees:**
+- **Golden self-test:** every DEBUG boot decompresses build-time vectors (all v3 token paths, dict rebase, ZX0 via dispatch) on the 68000 and verifies checksum + byte-exact payload against the encoder's output — the asm decoders are continuously proven against the Python/salvador encoders
+- **Content dedup:** identical section blobs (tiles AND blocks) collapse to one ROM copy via generated `equ` aliases (−37.8 KB on OJZ today)
+- **Build guards:** blob size vs wrapper field (64 KB) and vs `Decomp_Buffer` capacity (9,600 B) fail the build, not the console
+- See `docs/research/lz-compression-survey.md` for the original (partially superseded) LZ survey and the audit docs for what replaced it and why
 
 **Uncompressed sprite art + DPLC/DMA (per-frame character/object art):**
 

@@ -84,3 +84,30 @@ cycles in Exodus during T6 and record in the architecture doc.
 - [ ] Commit; merge branch `compression-two-tier` to master after final review.
 
 **Branch:** `compression-two-tier` off master. Subagent-driven (implementer + spec review + code review per task). Each task ends with both build flavors green.
+
+---
+
+## RESULTS (2026-06-11, shipped on this branch, Exodus-verified)
+
+| Data class | Raw (ROM, 9 sections) | Before (master) | After (branch) | Notes |
+|---|---|---|---|---|
+| Section tile art | 67,648 | 65,682 (0.971, s4lz+delta) | 40,952 ZX0 (0.605) → **9,284 stored** after content-dedup | sec1 example: 8,992 → 8,878 → 5,468 |
+| Block data (streams+index) | ~105,000 | ~99,000 (v1 per-block) | 66,542 (v3+dict K=1) → **60,502** after dedup | stream-only ratio ≈ 0.60 incl. index, 0.49 excl. |
+| Strip data (dead) | — | ~39,500 | **0** (deleted with s4lz_stream.asm) | |
+| **Release ROM total** | — | **457,270** | **316,964** | **−140,306 B (−30.7%)** |
+
+Runtime (DEBUG, Lag_Frame_Count protocol): vertical 512px descent **+4** (= pre-branch
+baseline, dict cost absorbed); horizontal **+7** (baseline +6, within run noise); boot,
+teleports, section streaming all pixel-identical to master. ZX0 measured **~76 KB/s**
+(5 frames / 6,336 B section blob) — used only at init today; mid-gameplay deferred loads
+need §9.7 budgeted decode before adopting ZX0 there (DEFERRED_WORK).
+
+Golden self-test: DEBUG boots decompress 3 vectors (v3 paths incl. both-ext/overlap/
+long+short offsets; dict rebase; ZX0 via Art_Decompress dispatch) and verify checksum +
+byte-exact payload against build-time encoder output — the 68000 decoders are now
+proven against the encoders on every DEBUG boot.
+
+Deviation from plan: decoder micro-optimizations (move.l copy tables, extended-loop
+unroll, jump-table dispatch) were NOT implemented — measured headroom made them
+unnecessary for current budgets; recorded in DEFERRED_WORK with the audit's cycle
+analysis for when block budgets grow.

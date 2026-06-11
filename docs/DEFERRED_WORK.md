@@ -682,6 +682,16 @@ non-zero; intermittently they read zero.
 **What:** The DP cost model doesn't charge the 2-byte lit-count extension word for literal runs ≥ 15 words. Fixing this requires run-length-aware DP state (~16× build time) for a measured ceiling well under 0.5% of the block corpus. Not worth it; recorded so it isn't re-litigated.
 **Status:** Won't fix — cost model undercharge is negligible in practice.
 
+### S4LZ decompressor micro-optimizations (audit F4 speed wins)
+**Surfaced during:** compression audit 2026-06-11 (cycle analysis in docs/research/compression-audit-2026-06-11.md).
+**What:** The decoder runs ~510-640 KB/s realistic mix. Three ranked wins were measured but NOT implemented because current budgets fit (6 blocks/frame ≈ half a frame; vertical scroll protocol +4/512px unchanged with dictionaries on): (1) `move.l` in the unrolled copy tables (guard match path for offset ≥ 4) — pure literals 10.2 → 9.2 c/byte; (2) unroll the extended-count `dbf` loops (currently the SLOWEST path per byte despite being the bulk-copy case) — 22 → ~12.5 c/word; (3) 256-entry token jump table (~1.5 KB ROM) — mixed ~13.7 → ~10 c/byte ≈ 770 KB/s.
+**When ready:** when block budgets grow (BLOCK_DECOMP_BUDGET > 6, bigger blocks, or new per-frame consumers) or profiling shows decode pressure.
+
+### ZX0 needs budgeted decode before any mid-gameplay use
+**Surfaced during:** compression-two-tier T6 measurement 2026-06-11.
+**What:** ZX0 measured ~76 KB/s (5 frames synchronous for a 6.3 KB section blob). Today it runs only at level init (invisible). The §4.2 deferred cold-load design (mid-traversal FWD/BWD section art loads — currently stubbed) would freeze ~5-7 frames if it called `Art_Decompress` on a ZX0 blob synchronously. Before implementing deferred loads: either route them through §9.7 cooperative-multitasking budgeted decode, or keep gameplay-streamed art on the S4LZ tier (wrapper version byte already dispatches per blob — the pipeline can mix tiers freely).
+**When ready:** with §4.2 deferred cold-load implementation.
+
 ---
 
 ## From Sound Driver Work (Future)
