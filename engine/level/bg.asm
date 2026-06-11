@@ -4,8 +4,11 @@
 ;                     (slots 1280-1535, $A000-$BFFF), then blits act_bg_layout
 ;                     into Plane B nametable. Both happen once at level load.
 ; T2/T3 (per-section): Section_RedrawPlanes (in section.asm) blits the section's
-;                      sec_bg_layout on teleport, alongside the Plane A redraw.
-;                      NULL sec_bg_layout = act-level T1 fallback.
+;                      sec_bg_layout at level init / cache recovery only.
+;                      NULL sec_bg_layout = act-level T1 fallback. Teleports no
+;                      longer redraw — a per-section BG swap at the seam needs
+;                      the deferred mechanism in DEFERRED_WORK ("Per-section BG
+;                      layout swap at the seam").
 ;
 ; Layout shape: each nametable layout is a raw 64x32 = 4096 bytes.
 ; Tile-blob shape: 2-byte big-endian length header + raw deduped tile bytes

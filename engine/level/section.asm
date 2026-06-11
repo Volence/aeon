@@ -362,7 +362,10 @@ Section_TeleportFwd:
         move.b  2(a0), d0                          ; old slot 1 sec_x
         move.b  3(a0), d1                          ; old slot 1 sec_y
         addq.b  #1, d0                             ; new slot 0 sec_x = old slot 1 + 1
-        ; TODO: clamp d0 to act grid width — Act_grid_w; Phase 1 safe (OJZ = 9 sections)
+        ; TODO: clamp d0 to act grid width — NO LONGER SAFE: OJZ is now a 3×3
+        ;       grid and this advance walks slot 1 out of it (garbage entity
+        ;       scan state). See DEFERRED_WORK "FWD teleport advances slot
+        ;       pair out of a narrow grid".
         move.b  d0, (a0)
         move.b  d1, 1(a0)
         addq.b  #1, d0                             ; new slot 1 sec_x = new slot 0 + 1
@@ -590,10 +593,12 @@ Section_TeleportUp:
         rts
 
 ; -----------------------------------------------
-; Section_RedrawPlanes — camera-aware atomic full-plane rewrite at teleport (§4.2).
+; Section_RedrawPlanes — camera-aware atomic full-plane rewrite (§4.2).
+; Level-init draw + cache-recovery path only (via Section_Plane_Dirty);
+; teleports are pure rebases and never trigger this (~3 frames synchronous).
 ;
-; Models sonic_hack's Dirty_flag → Draw_All pattern. At teleport, the entire
-; visible plane content is rewritten in one synchronous pass via direct VDP
+; Models sonic_hack's Dirty_flag → Draw_All pattern: the entire visible
+; plane content is rewritten in one synchronous pass via direct VDP
 ; pokes. No multi-frame scroll-across.
 ;
 ; Camera-aware: fills 64 plane cols starting at Camera_X/8, sourcing each
@@ -808,7 +813,7 @@ Section_RedrawPlanes:
 ; Clobbers: d0–d7, a0–a3, a5–a6 (a5/a6 only when Plane_Dirty triggers redraw)
 ; -----------------------------------------------
 Section_UpdateColumns:
-        ; -- §4.2: full-plane redraw if dirty (post-teleport atomic transition) --
+        ; -- §4.2: full-plane redraw if dirty (level init + cache recovery only) --
         tst.b   (Section_Plane_Dirty).w
         beq.s   .not_dirty
         clr.b   (Section_Plane_Dirty).w

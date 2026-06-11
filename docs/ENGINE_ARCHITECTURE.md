@@ -2099,7 +2099,7 @@ For sections with the same palette, the fade can be shortened to 2 frames total 
 
 **3. Preview is streaming-integrated (implemented §4.2):**
 
-Preview columns are no longer separate copy operations. The linear-buffer streaming engine (`Section_UpdateColumns`) extends its range by `PREVIEW_COLS` into neighbor section data at each boundary. Neighbor data pointers are cached at teleport/init (`Section_Fwd/Bwd_Neighbor_Data`). Preview content appears naturally as the streaming cursor advances past the section boundary — no teleport-frame layout work, no separate preview pass. The teleport frame does only position math + dirty-flag for `Section_RedrawPlanes`.
+Preview columns are no longer separate copy operations. The linear-buffer streaming engine (`Section_UpdateColumns`) extends its range by `PREVIEW_COLS` into neighbor section data at each boundary. Neighbor data pointers are cached at teleport/init (`Section_Fwd/Bwd_Neighbor_Data`). Preview content appears naturally as the streaming cursor advances past the section boundary — no teleport-frame layout work, no separate preview pass. The teleport frame does only position math, slot-map update, entity-window shift, and the parallax snap — no dirty-flag, no redraw (§4.4 pure rebase, 2026-06-10).
 
 **Result:** The teleport becomes ~1,500 cycles of CPU work (position math) + zero visual glitch (nametable already in VDP + palette crossfade masks any residual). No Genesis game achieves zero-lag section streaming with full section independence (different art, palette, parallax, entities). This is the combination of 6 systems working together: block-based cache data (4.3), camera-driven entity window (4.9), progressive preload, palette crossfade, DMA priority queue (1.1), and velocity-based timing.
 
