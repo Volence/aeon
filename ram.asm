@@ -308,7 +308,7 @@ Section_Plane_Dirty:    ds.b 1          ; §4.2: full plane redraw pending (leve
                         ds.b 1          ; pad to even
 
 ; Per-section streaming state (§2 A.4) — one byte per section
-; (SS_IDLE / SS_STREAMING / SS_RESIDENT). Indexed by flat section_id
+; (SS_IDLE / SS_RESIDENT). Indexed by flat section_id
 ; (sec_y * grid_w + sec_x). Per-act build asserts enforce grid_w*grid_h <= MAX_ACT_SECTIONS.
 Section_Stream_State:   ds.b MAX_ACT_SECTIONS   ; 48 sections max; even-aligned (48 is even)
 
