@@ -333,8 +333,10 @@ Tile_Override_Table:    ds.b 96
 ; Unified ring buffer — 128 entries × 6 bytes (dc.w x, y; dc.b section_id, list_index)
 Ring_Buffer:            ds.b MAX_RING_BUFFER * RING_BUFFER_ENTRY_SIZE  ; 768 bytes
 
-; Ring count (unified)
+; Ring count (unified) + buffer diagnostics (reset by RingBuffer_Clear at level init)
 Ring_Count:             ds.b 1
+Ring_HighWater:         ds.b 1          ; max Ring_Count observed
+Ring_Add_Dropped:       ds.b 1          ; RingBuffer_Add failures (buffer full) — DEBUG-fatal
                         ds.b 1          ; pad
 
 ; Entity scan state — 4 tracked sections × EntityScanState_len bytes
@@ -350,8 +352,6 @@ Entity_Window_Active:   ds.b 1          ; 4-bit entry validity mask (bit n = ent
 Entity_Window_Center_ID: ds.b 1         ; section_id of rolling bitmask center
 Entity_Loaded_Masks:    ds.b MAX_TRACKED_SECTIONS * ENTITY_LOADED_SLOT_SIZE ; 128B — per-entry ring/obj loaded bits (§4.9 ph2)
 Camera_Y_Coarse_Prev:   ds.w 1          ; camY & $FF80 at last vertical re-scan
-Ring_HighWater:         ds.b 1          ; max Ring_Count observed (diagnostics)
-Ring_Add_Dropped:       ds.b 1          ; RingBuffer_Add failures (buffer full)
 
 ; Rolling collected/killed bitmask — 9 slots × 34 bytes
 Ring_Collected_Window:  ds.b COLLECTED_WINDOW_SLOTS * COLLECTED_SLOT_SIZE  ; 306 bytes

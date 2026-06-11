@@ -11,6 +11,8 @@
 ;      d2.b = section_id
 ;      d3.b = list_index (index in section's ROM ring list)
 ; Out: carry clear = success, carry set = buffer full
+; Side effects: updates Ring_HighWater (success path);
+;               increments Ring_Add_Dropped + DEBUG-fatal assert (.full)
 ; Clobbers: d4, a0
 ; -----------------------------------------------
 RingBuffer_Add:
