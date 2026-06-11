@@ -2207,14 +2207,16 @@ EntityScanState struct ($1A bytes):
 
 ```
 For each ACTIVE entry (Entity_Window_Active bit set):
-  1. ScanRingsRight/Left: advance ring indices through X-sorted ROM list
+  1. ScanRingsRight: advance the ring index through the X-sorted ROM list
+     (a right-edge RATCHET — there is no left scan: tracked sections never
+     X-despawn their entities, so leftward camera motion needs no re-load)
      - Convert section-local X/Y to engine space (add ess_origin_x/y)
      - If engine X > camera right load edge: stop (X-sorted early exit)
      - Skip if outside the camera Y band (below)
      - Check Collected_CheckRing bitmask: skip if already collected
      - Check + set the entry's loaded-ring bit: skip if already loaded
      - Add to unified Ring_Buffer via RingBuffer_Add
-  2. ScanObjectsRight/Left: same shape for 6-byte object entries
+  2. ScanObjectsRight: same shape for 6-byte object entries
      - OEF_ANY_Y entries bypass the Y band test
      - Check + set loaded-object bit; Load_Object; tag SST_slot_tag with
        entry index (bit 7 = ANY_Y mirror)
@@ -2246,7 +2248,7 @@ ENTITY_LOAD_BUFFER_Y >= coarse row size (128)
 
 (Consequence of the coarse trigger: the *guaranteed* load margin is `ENTITY_LOAD_BUFFER_Y − 128` past the screen edge, since the last re-scan may have fired up to one coarse row away. Verified on hardware: a ring 240px above the camera stays unloaded until the next crossing — by design.)
 
-**Loaded bitmasks (idempotent spawns):** `Entity_Loaded_Masks` holds 4 entries × 32 bytes (16B ring bits + 16B object bits, indexed by ROM list position). A bit is set at spawn and cleared at despawn. This is what makes every overlapping spawn path safe to re-run: the vertical re-scan, the teleport-rebuild populate, and the left/right X scans can all visit the same ROM entry without double-spawning — the mechanism that originally fixed the §4.9 duplicate-spawn bug now generalizes to every path. `EntityWindow_InitSection` compare-clears an entry's mask slot only when its `section_id` changes, so an unchanged section keeps its bits across rebuilds.
+**Loaded bitmasks (idempotent spawns):** `Entity_Loaded_Masks` holds 4 entries × 32 bytes (16B ring bits + 16B object bits, indexed by ROM list position). A bit is set at spawn and cleared at despawn. This is what makes every overlapping spawn path safe to re-run: the vertical re-scan, the teleport-rebuild populate, and the X-ratchet scans can all visit the same ROM entry without double-spawning — the mechanism that originally fixed the §4.9 duplicate-spawn bug now generalizes to every path. `EntityWindow_InitSection` compare-clears an entry's mask slot only when its `section_id` changes, so an unchanged section keeps its bits across rebuilds.
 
 **Vertical re-scan cost shape:** O(entities already passed by the X ratchet) per 128px camY crossing, across the ≤4 active entries — each candidate is a band compare + btst when already loaded. Trivial on test fixtures; unbudgeted on dense production levels (see DEFERRED_WORK "RescanY burst is unbudgeted").
 
@@ -2303,7 +2305,7 @@ When a teleport fires, `EntityWindow_TeleportShift(±SECTION_SHIFT)` (X) or `Ent
 
 The uniform SECTION_SHIFT applied to all positions preserves distances between entities. A projectile 50 pixels from the player stays 50 pixels away after the shift.
 
-**Loaded-mask migration is a verified no-op.** The window tracks the 2×2 block `{slotL,slotR} × {sec_y, sec_y+1}`, and `SECTION_SHIFT = 2×SECTION_SIZE`, so every teleport moves that block by exactly TWO sections along one axis (from the verified mapping table, duplicated at both rebuild call sites in entity_window.asm):
+**Loaded-mask migration is a verified no-op.** The window tracks the 2×2 block `{slotL,slotR} × {sec_y, sec_y+1}`, and `SECTION_SHIFT = 2×SECTION_SIZE`, so every teleport moves that block by exactly TWO sections along one axis (from the verified mapping table at `EntityWindow_TeleportShift`; `TeleportShiftY` carries a cross-reference):
 
 ```
 dir    d4 sign          slot map before -> after

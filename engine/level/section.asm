@@ -525,7 +525,8 @@ Section_TeleportBwd:
 
 ; -----------------------------------------------
 ; Section_TeleportDown — downward teleport
-; Both slots advance sec_y by 1. Camera_Y and Player_1.y_pos shift up
+; Both slots advance sec_y by 2 (SECTION_SHIFT = 2 sections). Camera_Y and
+; Player_1.y_pos shift up
 ; by SECTION_SHIFT so they remain in the upper portion of the new pair.
 ; Clobbers: d0–d3, d6, a0–a2, a4
 ; -----------------------------------------------
@@ -577,7 +578,8 @@ Section_TeleportDown:
 
 ; -----------------------------------------------
 ; Section_TeleportUp — upward teleport
-; Both slots retreat sec_y by 1. Camera_Y and Player_1.y_pos shift down
+; Both slots retreat sec_y by 2 (SECTION_SHIFT = 2 sections). Camera_Y and
+; Player_1.y_pos shift down
 ; by SECTION_SHIFT so they remain in the lower portion of the new pair.
 ; Clobbers: d0–d3, d6, a0–a2, a4
 ; -----------------------------------------------

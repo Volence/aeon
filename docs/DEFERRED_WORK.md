@@ -770,7 +770,10 @@ is the precedent if budgeting is needed.
 **What:** `DespawnRings`/`DespawnObjects` recompute the loop-invariant Y band bounds
 per entity (~3.5k cycles/frame at a full 128-ring buffer — hoist to registers before
 the loop). `RescanY`'s defensive d7 save around the scan calls can likely be trimmed
-once the RunObjects d7 contract is re-audited.
+once the RunObjects d7 contract is re-audited. Also: `ess_ring_left_idx`/
+`ess_obj_left_idx` are dead struct fields (cleared at init, never read — the X scan
+is a right-edge ratchet; no left scan exists). Removing them shrinks EntityScanState
+$1A → $16 and stops tempting docs into describing phantom left scanners.
 **When to revisit:** alongside any other §4.9 perf work (e.g. the RescanY budget entry
 above) — not worth a dedicated session.
 

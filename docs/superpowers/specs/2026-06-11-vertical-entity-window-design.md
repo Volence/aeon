@@ -118,6 +118,11 @@ SST delete) and its loaded bit clears. ANY_Y objects are exempt from Y despawn
   populates fresh; old-row entities exit via the Y despawn band naturally after
   the camY rebase. Up mirrors. The existing TeleportShiftY/RebuildScanState
   mechanics get a dedicated research pass before this task (subtlest part).
+  > **Superseded by implementation (Task 6, 2026-06-11):** the research pass
+  > found teleports move the window by TWO sections per axis (not one), so
+  > old/new tracked sets are disjoint in every direction — migration is a
+  > verified no-op. See ENGINE_ARCHITECTURE.md §4.9.6 and the mapping table
+  > at `EntityWindow_TeleportShift`.
 - Y teleports recenter the 3×3 collected/killed window via
   `Collected_UpdateCenter` (already 2D-capable — no changes to bitmask windowing).
 
