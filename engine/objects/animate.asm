@@ -9,7 +9,10 @@
 ;   Anim0:      dc.b frame0, dur0, frame1, dur1, ..., control_code
 ;               even
 ;
-; Control codes (negative bytes, $80+):
+; Control codes occupy $F7-$FF; FRAME bytes 0-$F6 are valid mapping
+; frame indices (Sonic's sheet uses up to $DF — an $80+ frame byte is
+; data, not a command; only $F7+ dispatches).
+; Control codes:
 ;   $FF (AF_END)     — loop: restart from first frame
 ;   $FE (AF_BACK)    — jump back N: next byte = rewind count
 ;   $FD (AF_CHANGE)  — switch animation: next byte = new anim ID
@@ -71,7 +74,8 @@ AnimateSprite:
         moveq   #0, d1
         move.b  SST_anim_frame(a0), d1
         move.b  1(a1,d1.w), d0
-        bmi.s   .control_code
+        cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+        bhs.s   .control_code
 .set_frame:
         move.b  d0, SST_mapping_frame(a0)
         bsr.w   RefreshSpritePieceCount
@@ -89,7 +93,8 @@ AnimateSprite:
         move.b  (a1), SST_anim_timer(a0)
         moveq   #0, d1
         move.b  1(a1), d0
-        bmi.s   .control_code
+        cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+        bhs.s   .control_code
         bra.s   .set_frame
 
 ; --- Control code / event dispatch ---
@@ -117,7 +122,8 @@ AnimateSprite:
         clr.b   SST_anim_frame(a0)
         moveq   #0, d1
         move.b  1(a1), d0
-        bmi.w   .control_code
+        cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+        bhs.w   .control_code
         bra.w   .set_frame
 
 .cc_back:
@@ -128,7 +134,8 @@ AnimateSprite:
         moveq   #0, d1
         move.b  SST_anim_frame(a0), d1
         move.b  1(a1,d1.w), d0
-        bmi.w   .control_code
+        cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+        bhs.w   .control_code
         bra.w   .set_frame
 
 .cc_change:
@@ -189,7 +196,8 @@ AnimateSprite:
         moveq   #0, d1
         move.b  SST_anim_frame(a0), d1
         move.b  1(a1,d1.w), d0
-        bmi.w   .control_code
+        cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+        bhs.w   .control_code
         bra.w   .set_frame
 
 ; -----------------------------------------------
@@ -222,7 +230,8 @@ AnimateSprite_PerFrame:
         moveq   #0, d1
         move.b  SST_anim_frame(a0), d1
         move.b  (a1,d1.w), d0
-        bmi.s   .pf_control
+        cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+        bhs.s   .pf_control
 
 .pf_set_frame:
         move.b  d0, SST_mapping_frame(a0)
@@ -241,7 +250,8 @@ AnimateSprite_PerFrame:
 
         moveq   #0, d1
         move.b  (a1), d0
-        bmi.s   .pf_control
+        cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+        bhs.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1), SST_anim_timer(a0)
         bra.w   RefreshSpritePieceCount    ; tail-call
@@ -271,7 +281,8 @@ AnimateSprite_PerFrame:
         clr.b   SST_anim_frame(a0)
         moveq   #0, d1
         move.b  (a1), d0
-        bmi.s   .pf_control
+        cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+        bhs.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1), SST_anim_timer(a0)
         bra.w   RefreshSpritePieceCount    ; tail-call
@@ -285,7 +296,8 @@ AnimateSprite_PerFrame:
         moveq   #0, d1
         move.b  SST_anim_frame(a0), d1
         move.b  (a1,d1.w), d0
-        bmi.s   .pf_control
+        cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+        bhs.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1,d1.w), SST_anim_timer(a0)
         bra.w   RefreshSpritePieceCount    ; tail-call
@@ -345,7 +357,8 @@ AnimateSprite_PerFrame:
         moveq   #0, d1
         move.b  SST_anim_frame(a0), d1
         move.b  (a1,d1.w), d0
-        bmi.w   .pf_control
+        cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+        bhs.w   .pf_control
         bra.w   .pf_set_frame
 
 ; -----------------------------------------------
