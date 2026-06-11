@@ -91,7 +91,7 @@ prev_frame      ds.b 1      ; $24 — previous mapping_frame (DPLC change detect
 sprite_piece_count ds.b 1   ; $25 — current frame's piece count (overflow prediction)
 parent_ptr      ds.w 1      ; $26 — parent object RAM address
 sibling_ptr     ds.w 1      ; $28 — sibling link (multi-part objects)
-slot_tag        ds.b 1      ; $2A — entity window slot tag (SLOT_TAG_*; $FF = untagged)
+slot_tag        ds.b 1      ; $2A — entity window quadrant entry index 0-3 ($FF = untagged)
 entity_section_id ds.b 1    ; $2B — spawning section's flat id (despawn bookkeeping)
 entity_list_index ds.b 1    ; $2C — index in section's ROM object list (killed bitmask)
 layer           ds.b 1      ; $2D — collision layer select (0 = path A, 1 = path B)
@@ -223,7 +223,7 @@ Act endstruct
 
 ; -----------------------------------------------
 ; Per-section entity scan state (§4.9 camera-driven window)
-; One per tracked section (4 max: 2 active + 2 preview neighbors)
+; One per tracked quadrant (4: slot L/R × section rows r/r+1 — §4.9 phase 2)
 ; -----------------------------------------------
 EntityScanState struct
 ess_ring_right_idx   ds.w 1      ; $00 — next unloaded ring index (scanning right)

@@ -4,7 +4,7 @@
 ; -----------------------------------------------
 ; DespawnSlotObjects — delete all dynamic objects with matching slot tag
 ;
-; In:  d0.b = slot tag to match (SLOT_TAG_LEFT or SLOT_TAG_RIGHT)
+; In:  d0.b = quadrant entry index to match (0-3; see SLOT_TAG_* in constants.asm)
 ; Out: none
 ; Clobbers: d0-d1, a0-a1
 ; -----------------------------------------------

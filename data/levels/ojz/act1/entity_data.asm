@@ -99,20 +99,50 @@ OJZ_Sec2_Rings:
         dc.l    0                       ; terminator
 
 ; -----------------------------------------------
-; Sec3–Sec8 — empty entity data (editor has no placements yet)
+; Sec3 — row-1 test data (below Sec0, left column)
 ; -----------------------------------------------
 OJZ_Sec3_TypeTable:
-        dc.b    0, 0
+        dc.b    2, 0
+        dc.l    ObjDef_Static           ; type 0
+        dc.l    ObjDef_Solid            ; type 1
+
 OJZ_Sec3_Objects:
+        ; Solid block low in the section — only reachable by descending
+        objentry $180, $300, 1
+        ; ANY_Y static marker: must spawn whenever X is in range,
+        ; regardless of camera Y (full-height test object)
+        objentry $400, $700, 0, 0, (1<<OEF_ANY_Y)
         objend
+
 OJZ_Sec3_Rings:
+        ; Vertical ladder from near the row-0/row-1 boundary downward —
+        ; exercises band entry/exit during descent
+        dc.w    $100, $020
+        dc.w    $100, $120
+        dc.w    $100, $220
+        dc.w    $100, $320
+        dc.w    $100, $420
+        ; horizontal line deep in the section
+        dc.w    $200, $500
+        dc.w    $220, $500
+        dc.w    $240, $500
         dc.l    0
 
+; -----------------------------------------------
+; Sec4 — row-1 test data (below Sec1, right column)
+; -----------------------------------------------
 OJZ_Sec4_TypeTable:
-        dc.b    0, 0
+        dc.b    1, 0
+        dc.l    ObjDef_Enemy            ; type 0
+
 OJZ_Sec4_Objects:
+        objentry $200, $400, 0
         objend
+
 OJZ_Sec4_Rings:
+        dc.w    $080, $100
+        dc.w    $0A0, $100
+        dc.w    $0C0, $100
         dc.l    0
 
 OJZ_Sec5_TypeTable:

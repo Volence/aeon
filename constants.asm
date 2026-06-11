@@ -388,12 +388,14 @@ MAX_LIST_ENTRIES        = 128           ; collected/killed bitmask capacity per 
 ; Object type tables (read from ROM, no RAM copy)
 MAX_OBJECT_TYPES        = 32
 
-; Slot tag — stored in SST_slot_tag; identifies which section spawned an object
+; Slot tag — stored in SST_slot_tag; identifies which quadrant entry (0-3) spawned an object
+; 0 = upper-left (slot L, row r), 1 = upper-right (slot R, row r)
+; 2 = lower-left (slot L, row r+1), 3 = lower-right (slot R, row r+1)
 SLOT_TAG_UNTAGGED       = $FF
 SLOT_TAG_LEFT           = 0
 SLOT_TAG_RIGHT          = 1
-SLOT_TAG_UP             = 2
-SLOT_TAG_DOWN           = 3
+SLOT_TAG_LOWER_L        = 2             ; lower-left quadrant (was SLOT_TAG_UP)
+SLOT_TAG_LOWER_R        = 3             ; lower-right quadrant (was SLOT_TAG_DOWN)
 
 ; Object placement entry (ROM, 6 bytes): dc.w x, y, flags|type|subtype
 ; X-sorted ascending; terminated by dc.w -1 (X is section-local, never negative)
