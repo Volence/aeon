@@ -194,6 +194,12 @@ Cold_Boot:
         ; Mark cold boot complete (§0.11)
         move.l  #CROSS_RESET_MAGIC, (CROSS_RESET_MAGIC_ADDR).l
 
+    ifdef __DEBUG__
+        ; Golden compression self-test — decompressors vs build encoders.
+        ; Runs before any game state touches Decomp_Buffer.
+        bsr.w   CompressionSelfTest
+    endif
+
         ; Set initial game state
         move.l  #GameState_OJZScroll_Init, (Game_State).w
         move.b  #GS_OJZ_SCROLL_TEST, (Game_State_ID).w
