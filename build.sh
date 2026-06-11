@@ -58,6 +58,7 @@ python3 "${TOOLS}/ojz_strip_gen.py" generate
 # exceeding either limit would corrupt RAM at load time — fail the build.
 DECOMP_BUFFER_CAPACITY=9600     # = TILE_CACHE_NT_SIZE (80*60*2)
 echo "Compressing OJZ per-section tile blobs with ZX0 (salvador)..."
+rm -f data/generated/ojz/act1/sec*_tiles.zx0 data/generated/ojz/act1/sec*_tiles.zx0.tmp
 for sec_bin in data/generated/ojz/act1/sec*_tiles.bin; do
     sec_zx0="${sec_bin%.bin}.zx0"
     if [[ -s "$sec_bin" ]]; then

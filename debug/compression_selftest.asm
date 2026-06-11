@@ -21,13 +21,14 @@
 ; Clobbers: d0-d4, a0-a4
 ; -----------------------------------------------
 CompressionSelfTest:
-        ; --- S4LZ v3, no dictionary ---
+        ; --- S4LZ v3 plain through Art_Decompress dispatch (covers S4LZ branch) ---
         bsr.w   .poison
         lea     (CSelf_S4LZ_Plain).l, a0
         lea     (Decomp_Buffer).l, a1
-        bsr.w   S4LZ_Decompress
+        bsr.w   Art_Decompress
         bsr.w   .checksum
         assert.w d0, eq, #CSELF_PAYLOAD_SUM
+        bsr.w   .byte_compare
 
         ; --- S4LZ v3 + dictionary (window rebase path) ---
         bsr.w   .poison
@@ -38,6 +39,7 @@ CompressionSelfTest:
         bsr.w   S4LZ_DecompressDict
         bsr.w   .checksum
         assert.w d0, eq, #CSELF_PAYLOAD_SUM
+        bsr.w   .byte_compare
 
         ; --- ZX0 through the version-dispatch wrapper (Art_Decompress) ---
         bsr.w   .poison
@@ -46,6 +48,7 @@ CompressionSelfTest:
         bsr.w   Art_Decompress
         bsr.w   .checksum
         assert.w d0, eq, #CSELF_PAYLOAD_SUM
+        bsr.w   .byte_compare
         rts
 
 .poison:
@@ -66,6 +69,23 @@ CompressionSelfTest:
 .sum_loop:
         add.w   (a1)+, d0
         dbf     d1, .sum_loop
+        rts
+
+.byte_compare:
+        ; Word-by-word compare of Decomp_Buffer against CSelf_Expected.
+        ; Counts mismatches in d0.w; asserts d0.w == 0 on exit.
+        ; Clobbers: d0, d1, a0, a1
+        lea     (Decomp_Buffer).l, a0
+        lea     (CSelf_Expected).l, a1
+        move.w  #CSELF_PAYLOAD_SIZE/2-1, d1
+        moveq   #0, d0
+.cmp_loop:
+        cmpm.w  (a0)+, (a1)+
+        beq.s   .cmp_match
+        addq.w  #1, d0
+.cmp_match:
+        dbf     d1, .cmp_loop
+        assert.w d0, eq, #0
         rts
 
 ; Generated vectors + expected constants (BINCLUDEs, DEBUG builds only)

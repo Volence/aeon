@@ -180,6 +180,18 @@ def walk_v3_stream(stream: bytes, dict_len: int = 0) -> dict:
             flags["dict_hit"] = True
         out_len += match_count * 2
 
+    # Ground-truth hard checks: the stream must be fully consumed at EOS
+    # and the decompressed length must match the header's size field.
+    expected_size = struct.unpack_from(">H", stream, 0)[0]
+    if out_len != expected_size:
+        raise SystemExit(
+            f"FAIL: walker out_len={out_len} != header size={expected_size} "
+            f"— decompressed length mismatch; encoder or payload changed")
+    if pos != len(stream):
+        raise SystemExit(
+            f"FAIL: stream not fully consumed at EOS — {len(stream) - pos} "
+            f"trailing bytes beyond expected padding; encoder or walker changed")
+
     return flags
 
 
