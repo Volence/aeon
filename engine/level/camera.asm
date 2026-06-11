@@ -145,6 +145,14 @@ Camera_Update:
         sub.w   d2, d3
 
 .apply_y:
+        cmpi.w  #CAM_MAX_Y_STEP, d3
+        ble.s   .y_step_hi_ok
+        move.w  #CAM_MAX_Y_STEP, d3
+.y_step_hi_ok:
+        cmpi.w  #-CAM_MAX_Y_STEP, d3
+        bge.s   .y_step_lo_ok
+        move.w  #-CAM_MAX_Y_STEP, d3
+.y_step_lo_ok:
         ext.l   d3
         lsl.l   #8, d3
         lsl.l   #8, d3

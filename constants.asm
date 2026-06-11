@@ -324,6 +324,11 @@ CTYPE_FLAT_SOLID        = 1
 CAM_LOOKAHEAD_THRESHOLD = $0600     ; ground speed for pan enable
 CAM_PAN_SPEED           = 2         ; pixels/frame pan rate
 CAM_PAN_LIMIT           = 64        ; max pan pixels
+CAM_MAX_Y_STEP          = 32        ; max camera Y movement px/frame. The streaming
+                                    ; contract rests on this clamp (every reference
+                                    ; engine bounds the CAMERA: S2=16, S3K=24) — must
+                                    ; stay <= VFILL_ROWS_PER_FRAME*8 or fills fall
+                                    ; behind the view. Teleports bypass via Reinit.
 
 ; Section flags (sec_flags word bits)
 SF_HAS_WATER            = 1<<0
