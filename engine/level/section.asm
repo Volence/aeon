@@ -329,9 +329,13 @@ Section_Check:
         bra.w   Section_TeleportBwd
 
 .fwd_check:
-        ; skip FWD if slot 1 already at rightmost section (sec_x + 1 = grid_w)
-        movea.l (Current_Act_Ptr).w, a0
+        ; skip FWD if slot 1 is void (act edge reached on an odd-width grid —
+        ;  the addq below would wrap $FF to 0 and pass the bound) or if slot 1
+        ;  is already the rightmost section (sec_x + 1 = grid_w)
         move.b  (Slot_Section_Map+2).w, d0
+        cmpi.b  #SEC_VOID, d0
+        beq.s   .skip
+        movea.l (Current_Act_Ptr).w, a0
         addq.b  #1, d0
         cmp.b   Act_grid_w+1(a0), d0     ; grid_w is a word; low byte at +1
         bge.s   .skip
@@ -362,13 +366,19 @@ Section_TeleportFwd:
         move.b  2(a0), d0                          ; old slot 1 sec_x
         move.b  3(a0), d1                          ; old slot 1 sec_y
         addq.b  #1, d0                             ; new slot 0 sec_x = old slot 1 + 1
-        ; TODO: clamp d0 to act grid width — NO LONGER SAFE: OJZ is now a 3×3
-        ;       grid and this advance walks slot 1 out of it (garbage entity
-        ;       scan state). See DEFERRED_WORK "FWD teleport advances slot
-        ;       pair out of a narrow grid".
+        ;       (always < grid_w — .fwd_check guarantees a section exists here)
         move.b  d0, (a0)
         move.b  d1, 1(a0)
         addq.b  #1, d0                             ; new slot 1 sec_x = new slot 0 + 1
+        ; -- odd-width grids: the pair advances by 2, so at the act edge the
+        ;    new slot 1 can land past the grid. Mark it SEC_VOID — consumers
+        ;    (Section_Check, camera max-x, entity window, SlotFlatID callers)
+        ;    skip void slots. BWD heals it: new slot 1 = old slot 0 - 1. --
+        movea.l (Current_Act_Ptr).w, a1
+        cmp.b   Act_grid_w+1(a1), d0
+        blo.s   .fwd_slot1_in_grid
+        move.b  #SEC_VOID, d0
+.fwd_slot1_in_grid:
         move.b  d0, 2(a0)
         ; sec_y unchanged
 
@@ -381,11 +391,16 @@ Section_TeleportFwd:
         ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
         clr.b   (Section_Preload_Flags).w
 
-        ; -- mark new slot 1 section RESIDENT (union blobs = art already in VRAM) --
+        ; -- mark new slot 1 section RESIDENT (union blobs = art already in
+        ;    VRAM). Skip when void — SlotFlatID on a void slot would index
+        ;    Section_Stream_State out of range. --
+        cmpi.b  #SEC_VOID, (Slot_Section_Map+2).w
+        beq.s   .fwd_no_resident
         moveq   #SLOT_RIGHT, d0
         bsr.w   Section_SlotFlatID                 ; d0 = slot 1 flat section_id
         lea     (Section_Stream_State).w, a1
         move.b  #SS_RESIDENT, (a1, d0.w)
+.fwd_no_resident:
         ; -- no plane redraw: the teleport is pure coordinate rebasing.
         ;    Engine_To_World_Col(c) = c - SLOT_ORIGIN_L/8 + sec_x*256; the
         ;    camera/player shift (-$1000 px = -512 cols) and the slot-map

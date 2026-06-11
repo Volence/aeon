@@ -101,11 +101,20 @@ Camera_Update:
 .check_max_x:
         ; -- §4.2: dynamic max_x — extend by PREVIEW_PIXELS into FWD preview
         ;    region unless we're at the last pair (no next FWD section).
-        move.w  Act_cam_max_x(a0), d1
-        moveq   #0, d2
+        ;    Void slot 1 (SEC_VOID, act edge on an odd-width grid): the
+        ;    playable area is slot 0 only — clamp at its right edge so the
+        ;    view never shows the out-of-world region. --
         move.b  (Slot_Section_Map+2).w, d2          ; slot 1 sec_x
-        addq.b  #1, d2                              ; next-FWD sec_x = slot 1 + 1
-        cmp.b   Act_grid_w+1(a0), d2
+        cmpi.b  #SEC_VOID, d2
+        bne.s   .max_x_in_grid
+        move.w  #SLOT_ORIGIN_L+SECTION_SIZE-SCREEN_WIDTH, d1
+        bra.s   .have_max
+.max_x_in_grid:
+        move.w  Act_cam_max_x(a0), d1
+        moveq   #0, d3
+        move.b  d2, d3
+        addq.b  #1, d3                              ; next-FWD sec_x = slot 1 + 1
+        cmp.b   Act_grid_w+1(a0), d3
         bcc.s   .have_max                           ; >= grid_w → at last pair, no FWD neighbour
         addi.w  #PREVIEW_PIXELS, d1
 .have_max:

@@ -273,6 +273,7 @@ Collected_UpdateCenter:
 ; Clobbers: none
 ; -----------------------------------------------
 EntityWindow_InitSection:
+        ifdebug assert.l a0, ne, #0     ; NULL Sec ptr = caller passed a void/out-of-grid slot
         move.l  Sec_sec_rings(a0), EntityScanState_ess_rom_ring_ptr(a1)
         move.l  Sec_sec_objects(a0), EntityScanState_ess_rom_obj_ptr(a1)
         move.l  Sec_sec_type_table(a0), EntityScanState_ess_rom_type_tbl_ptr(a1)
@@ -319,7 +320,10 @@ EntityWindow_Init:
         lea     EntityScanState_len(a3), a3
         addq.w  #1, d7
 
-        ; --- Active slot 1 ---
+        ; --- Active slot 1 (skip when void — SEC_VOID slot has no section;
+        ;     d7 stays at 1 so per-frame scans never touch the stale entry) ---
+        cmpi.b  #SEC_VOID, (Slot_Section_Map+2).w
+        beq.s   .init_slot1_void
         moveq   #SLOT_RIGHT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef
@@ -336,6 +340,7 @@ EntityWindow_Init:
         bsr.w   Collected_ClaimSlot
         lea     EntityScanState_len(a3), a3
         addq.w  #1, d7
+.init_slot1_void:
 
         move.b  d7, (Entity_Window_Active).w
 
@@ -911,7 +916,10 @@ EntityWindow_RebuildScanState:
         lea     EntityScanState_len(a3), a3
         addq.w  #1, d7
 
-        ; Slot 1
+        ; Slot 1 (skip when void — SEC_VOID slot has no section; d7 stays
+        ; at 1 so per-frame scans never touch the stale entry)
+        cmpi.b  #SEC_VOID, (Slot_Section_Map+2).w
+        beq.s   .rebuild_slot1_void
         moveq   #SLOT_RIGHT, d0
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSlotDef
@@ -929,6 +937,7 @@ EntityWindow_RebuildScanState:
         bsr.w   EntityWindow_PopulateSectionRings
         lea     EntityScanState_len(a3), a3
         addq.w  #1, d7
+.rebuild_slot1_void:
 
         move.b  d7, (Entity_Window_Active).w
         rts

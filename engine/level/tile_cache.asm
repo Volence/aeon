@@ -187,6 +187,16 @@ TileCache_DecompressBlock:
         movea.l (Current_Act_Ptr).w, a0
         movea.l Act_sec_grid_ptr(a0), a1
 
+        ; -- world-edge guard: the fixed-width cache extends past the act
+        ;    grid at boundaries (and debug-fly wanders anywhere), so out-of-
+        ;    grid requests are legitimate — they decompress as blank blocks
+        ;    (tile 0, collision 0) instead of indexing the Sec table out of
+        ;    range. The key recorded above caches the blank like any block. --
+        cmp.w   Act_grid_w(a0), d0
+        bhs.s   .empty_block
+        cmp.w   Act_grid_h(a0), d1
+        bhs.s   .empty_block
+
         ; sec_id = sec_y * grid_w + sec_x (add loop, cold path)
         move.w  Act_grid_w(a0), d4             ; d4 = grid_w
         moveq   #0, d3                         ; accumulator
@@ -854,6 +864,14 @@ Tile_Cache_Fill:
         ; d0 = world tile col,  d7 = world tile row of target block
         move.w  d0, d6                         ; save world tile col
         lsr.w   #8, d0                         ; sec_x = world_tile_col >> 8
+        ; guard: sec_x must be < grid_w (mirror of the sec_y guard above —
+        ; near the act right edge the center column can sit past the grid;
+        ; the block would decompress blank, wasting the leftover budget)
+        movea.l (Current_Act_Ptr).w, a0
+        moveq   #0, d1
+        move.b  Act_grid_w+1(a0), d1
+        cmp.w   d1, d0
+        bcc.s   .pfx_skip
         move.w  d7, d1
         lsr.w   #8, d1                         ; sec_y = world_tile_row >> 8
         move.w  d6, d2

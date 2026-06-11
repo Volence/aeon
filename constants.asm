@@ -210,6 +210,9 @@ SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
 SLOT_ORIGIN_R           = SLOT_ORIGIN_L+SECTION_SIZE    ; $0A00 — right slot engine-space left edge
 SLOT_ORIGIN_U           = $0200     ; upper slot engine-space top edge
 SLOT_ORIGIN_D           = SLOT_ORIGIN_U+SECTION_SIZE    ; $0A00 — lower slot engine-space top edge
+SEC_VOID                = $FF       ; Slot_Section_Map sec_x sentinel: slot holds no section
+                                    ; (FWD pair-advance at the edge of an odd-width grid).
+                                    ; Consumers must skip the slot; SlotFlatID on it is invalid.
 ; -- §4.2 preview-zone (24-col / 24-row edges on plane A + plane B) --
 ; Preview width covers the edge region visible as camera approaches the
 ; teleport boundary. 24 cols = 192 px = ~3/5 of screen width. Preview is
