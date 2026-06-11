@@ -5,9 +5,10 @@
 ; Sec0 Type Table — 2 types (count prefix + longword array)
 ; -----------------------------------------------
 OJZ_Sec0_TypeTable:
-        dc.b    2, 0                    ; count, pad
+        dc.b    3, 0                    ; count, pad
         dc.l    ObjDef_Static           ; type 0 — static test object
         dc.l    ObjDef_Solid            ; type 1 — solid block
+        dc.l    ObjDef_Enemy            ; type 2 — patrolling enemy (±48px)
 
 ; -----------------------------------------------
 ; Sec0 Object Layout — v2 format via objentry (x, y, type [, sub] [, oflags])
@@ -16,6 +17,7 @@ OJZ_Sec0_TypeTable:
 OJZ_Sec0_Objects:
         ; Solid block at section-local X=$200, Y=$0B0 (type 1, subtype 0)
         objentry $200, $0B0, 1
+        objentry $300, $090, 2          ; patrolling enemy on the ground band
         objend
 
 ; -----------------------------------------------

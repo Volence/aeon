@@ -432,7 +432,10 @@ EntityWindow_ScanRingsRight:
         movem.l d3-d4/d7/a0-a1, -(sp)
         move.w  (a0), d0
         add.w   d3, d0                  ; engine X
-        move.w  2(a0), d1               ; engine Y (section-local = engine for 1-row)
+        move.w  2(a0), d1
+        addi.w  #SLOT_ORIGIN_U, d1      ; section-local Y -> engine Y (world top = $200;
+                                        ; the §4.9 vertical window replaces this constant
+                                        ; with a per-section Y origin — see DEFERRED_WORK)
         move.b  EntityScanState_ess_section_id(a1), d2  ; section_id
         move.b  d4, d3                  ; list_index
         bsr.w   RingBuffer_Add
@@ -503,6 +506,7 @@ EntityWindow_PopulateSectionRings:
         move.w  (a0), d0
         add.w   d3, d0
         move.w  2(a0), d1
+        addi.w  #SLOT_ORIGIN_U, d1      ; section-local Y -> engine Y
         move.b  EntityScanState_ess_section_id(a1), d2
         move.b  d4, d3
         bsr.w   RingBuffer_Add
@@ -521,7 +525,7 @@ EntityWindow_PopulateSectionRings:
 ;
 ; Entry format (v2): 6 bytes — dc.w x, y, flags|type|subtype
 ;   +0 dc.w  section-local X
-;   +2 dc.w  section-local Y   (engine Y for current 1-row window — §4.9 X-only)
+;   +2 dc.w  section-local Y   (spawner adds SLOT_ORIGIN_U; §4.9 X-only window)
 ;   +4 dc.w  flags|type|subtype  (OEF_* bits; flows to Load_Object in d2)
 ; Terminated by dc.w -1 (X is section-local, always >= 0 → bmi fires on sentinel).
 ; List is X-sorted; bhi exits as soon as X exceeds load edge.
@@ -574,7 +578,8 @@ EntityWindow_ScanObjectsRight:
         move.b  EntityScanState_ess_section_id(a1), d5
 
         ; d0.w = engine X (already computed above)
-        move.w  2(a0), d1               ; section-local Y (engine Y for 1-row window)
+        move.w  2(a0), d1
+        addi.w  #SLOT_ORIGIN_U, d1      ; section-local Y -> engine Y ($200 world top)
         move.w  4(a0), d2               ; full placement word — Load_Object reads flips from bits 13-14
 
         ; Type extraction: bits 12-8 → d3, then type-table lookup
