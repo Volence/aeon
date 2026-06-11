@@ -5,7 +5,7 @@
     {
       "id": "ojz",
       "name": "Oracle Jungle Zone",
-      "tileset": "data/editor/chunks_tiles.bin",
+      "tileset": "data/editor/ojz/chunks_tiles.bin",
       "palette": "data/generated/ojz/act1/ojz_palette.bin",
       "acts": [
         {
@@ -24,5 +24,5 @@
     }
   ],
   "objectLibrary": "data/editor/objects.json",
-  "chunkLibrary": "data/editor/chunks.json"
+  "chunkLibrary": "data/editor/ojz/chunks.json"
 }

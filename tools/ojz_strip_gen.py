@@ -61,9 +61,22 @@ EDITOR_DIR = os.path.join(
 PROJECT_JSON = os.path.join(
     os.path.dirname(__file__), "..", "project.json"
 )
-CHUNKS_TILES_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "data", "editor", "chunks_tiles.bin"
-)
+
+
+def _project_tileset_path() -> str:
+    """Resolve the zone tile-art blob path from project.json (source of truth).
+
+    project.json's zones[0].tileset points at the editor chunk-library tile
+    blob (data/editor/<zone>/chunks_tiles.bin), relative to the repo root.
+    """
+    with open(PROJECT_JSON, "r") as f:
+        proj = json.load(f)
+    return os.path.join(
+        os.path.dirname(PROJECT_JSON), proj["zones"][0]["tileset"]
+    )
+
+
+CHUNKS_TILES_PATH = _project_tileset_path()
 
 # ---------------------------------------------------------------------------
 # Constants
