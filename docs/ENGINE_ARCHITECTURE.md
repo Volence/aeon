@@ -2178,14 +2178,16 @@ OJZ_Sec0_TypeTable:
     dc.l    ObjDef_Solid        ; type 1
 ```
 
-Object spawning reads the 6-byte entry, indexes the ROM type table for the ObjDef pointer (one indexed `move.l`), and passes the flags/type/subtype word to `Load_Object`, which patches subtype and rotates the flip bits into render_flags/status. The 5-bit type index means each section independently uses up to 32 object types with no global ID space. `OEF_ANY_Y` is accepted and discarded today — phase 2's Y-culling must honor it.
+Object spawning reads the 6-byte entry, indexes the ROM type table for the ObjDef pointer (one indexed `move.l`), and passes the flags/type/subtype word to `Load_Object`, which patches subtype and rotates the flip bits into render_flags/status. The 5-bit type index means each section independently uses up to 32 object types with no global ID space.
 
-#### 4.9.3 Entity Window — Camera-Driven Lifecycle
+**`OEF_ANY_Y` semantics (shipped with the vertical window):** an ANY_Y object spawns whenever the camera's X window reaches it, regardless of camera Y, and is exempt from Y despawn (X despawn and section-tracking despawn still apply — when its section leaves the 2×2 window the object goes with it, and respawns when the section is re-tracked). The flag persists past spawn time as **bit 7 of `SST_slot_tag`** (low bits = entry index 0-3): the per-frame Y despawner tests that bit instead of re-reading ROM. Use it for vertical-corridor hazards, elevators, and anything whose behavior spans a section's full height.
 
-The entity window tracks per-section scan state via `EntityScanState` structs ($18 bytes each, one per active slot):
+#### 4.9.3 Entity Window — 2×2 Quadrant Camera-Driven Lifecycle
+
+The entity window tracks the **2×2 section quadrant** around the camera: both slot columns (L/R from `Slot_Section_Map`) × two section rows (`sec_y` and `sec_y+1`). `EntityWindow_BuildEntries` derives the four entries purely from `Slot_Section_Map` + the act grid — entry 0 = slot L row r, entry 1 = slot R row r, entry 2 = slot L row r+1, entry 3 = slot R row r+1. Each entry gets an `EntityScanState` ($1A bytes):
 
 ```
-EntityScanState struct ($18 bytes):
+EntityScanState struct ($1A bytes):
     ess_ring_right_idx   ds.w 1      ; next unloaded ring index (right scan)
     ess_ring_left_idx    ds.w 1      ; next unloaded ring index (left scan)
     ess_obj_right_idx    ds.w 1      ; next unloaded object index (right scan)
@@ -2194,31 +2196,59 @@ EntityScanState struct ($18 bytes):
     ess_rom_obj_ptr      ds.l 1      ; pointer to section's ROM object list
     ess_rom_type_tbl_ptr ds.l 1      ; pointer to section's ROM type table
     ess_origin_x         ds.w 1      ; section's engine-space X origin
-    ess_section_id       ds.b 1      ; section grid index
-    ess_pad              ds.b 1
+    ess_section_id       ds.b 1      ; section flat grid id, or SEC_VOID
+    ess_entry_idx        ds.b 1      ; entry index 0-3 (loaded-mask base derives from it)
+    ess_origin_y         ds.w 1      ; section's engine-space Y origin (per-entry — rows differ)
 ```
+
+**Validity mask + SEC_VOID:** entries whose section falls outside the act grid (right edge on odd-width grids, bottom rows when `sec_y+1 ≥ grid_h`) are stamped `ess_section_id = SEC_VOID` ($FF) and their bit cleared in `Entity_Window_Active` (bit n = entry n valid). The void stamp is load-bearing: despawn paths read entry ids unconditionally, and a stale id would keep dead-section survivors alive forever. All scan/populate loops skip inactive entries.
 
 **Per-frame scan (`EntityWindow_Scan`):**
 
 ```
-For each active section:
-  1. ScanRingsRight: advance ring_right_idx through X-sorted ROM list
-     - Convert section-local X to engine X (add origin)
+For each ACTIVE entry (Entity_Window_Active bit set):
+  1. ScanRingsRight/Left: advance ring indices through X-sorted ROM list
+     - Convert section-local X/Y to engine space (add ess_origin_x/y)
      - If engine X > camera right load edge: stop (X-sorted early exit)
+     - Skip if outside the camera Y band (below)
      - Check Collected_CheckRing bitmask: skip if already collected
+     - Check + set the entry's loaded-ring bit: skip if already loaded
      - Add to unified Ring_Buffer via RingBuffer_Add
-  2. ScanObjectsRight: advance obj_right_idx through X-sorted ROM list
-     - Read 6-byte entry: x.w, y.w, flags|type|subtype.w
-     - Look up ObjDef from section's ROM type table
-     - Call Load_Object (patches subtype + flip bits), tag spawned object with slot tag
+  2. ScanObjectsRight/Left: same shape for 6-byte object entries
+     - OEF_ANY_Y entries bypass the Y band test
+     - Check + set loaded-object bit; Load_Object; tag SST_slot_tag with
+       entry index (bit 7 = ANY_Y mirror)
 
-After all sections:
-  3. DespawnRings: backward iterate Ring_Buffer, remove entries outside
-     Camera_X ± ENTITY_DESPAWN_BUFFER via swap-with-last O(1) removal
+Vertical re-scan (EntityWindow_RescanY): when camY & ENTITY_RESCAN_COARSE_MASK
+  changes (one 128px coarse row crossed), re-walk each active entry's ROM lists
+  from index 0 up to the X ratchet (right_idx), spawning entries that the new
+  Y band now covers. Loaded bits make this idempotent — already-loaded
+  entities are one btst+skip.
+
+After all entries:
+  3. DespawnRings: backward iterate Ring_Buffer, remove entries outside the
+     X keep range OR the Y despawn band; clear the loaded-ring bit
+     (clearLoadedRing) before swap-with-last removal
   4. DespawnObjects: scan Dynamic_Slots, delete tagged objects outside range
+     (ANY_Y objects exempt from the Y test); clear loaded-object bit
+     (clearLoadedObj) before DeleteObject
 ```
 
-**Load/despawn hysteresis:** Entities load at `Camera_X ± (SCREEN_WIDTH + ENTITY_LOAD_BUFFER)` ($180 pixels) and despawn at `Camera_X ± (SCREEN_WIDTH + ENTITY_DESPAWN_BUFFER)` ($200 pixels). The $80-pixel gap prevents load/despawn oscillation at screen edges.
+**Y band + hysteresis:** entities load inside `[camY − ENTITY_LOAD_BUFFER_Y, camY + SCREEN_HEIGHT + ENTITY_LOAD_BUFFER_Y]` ($100) and despawn outside `[camY − ENTITY_DESPAWN_BUFFER_Y, camY + SCREEN_HEIGHT + ENTITY_DESPAWN_BUFFER_Y]` ($180). This mirrors the X hysteresis (load $180 / despawn $200 past the screen edge): the gap prevents load/despawn oscillation at band edges. Two build-time guards in constants.asm enforce the band invariants:
+
+```
+(ENTITY_DESPAWN_BUFFER_Y - ENTITY_LOAD_BUFFER_Y) >= coarse row size (128)
+    ; else hysteresis < re-scan granularity -> edge oscillation returns
+ENTITY_LOAD_BUFFER_Y >= coarse row size (128)
+    ; else a re-scan fired up to 127px ago can leave a gap inside the
+    ;   nominal band -> vertical re-scan can skip entities
+```
+
+(Consequence of the coarse trigger: the *guaranteed* load margin is `ENTITY_LOAD_BUFFER_Y − 128` past the screen edge, since the last re-scan may have fired up to one coarse row away. Verified on hardware: a ring 240px above the camera stays unloaded until the next crossing — by design.)
+
+**Loaded bitmasks (idempotent spawns):** `Entity_Loaded_Masks` holds 4 entries × 32 bytes (16B ring bits + 16B object bits, indexed by ROM list position). A bit is set at spawn and cleared at despawn. This is what makes every overlapping spawn path safe to re-run: the vertical re-scan, the teleport-rebuild populate, and the left/right X scans can all visit the same ROM entry without double-spawning — the mechanism that originally fixed the §4.9 duplicate-spawn bug now generalizes to every path. `EntityWindow_InitSection` compare-clears an entry's mask slot only when its `section_id` changes, so an unchanged section keeps its bits across rebuilds.
+
+**Vertical re-scan cost shape:** O(entities already passed by the X ratchet) per 128px camY crossing, across the ≤4 active entries — each candidate is a band compare + btst when already loaded. Trivial on test fixtures; unbudgeted on dense production levels (see DEFERRED_WORK "RescanY burst is unbudgeted").
 
 #### 4.9.4 Unified Ring Buffer
 
@@ -2238,12 +2268,14 @@ Ring_Buffer entry (6 bytes):
 - `DrawRings`: single-pass iteration over Ring_Count entries, 6-byte stride.
 - `RingCollision`: backward iteration (safe with swap-with-last removal). On collect, calls `Collected_MarkRing` then `RingBuffer_Remove`.
 
+**Diagnostics:** `Ring_HighWater` records the max Ring_Count ever observed (capacity headroom check per level); `Ring_Add_Dropped` counts `RingBuffer_Add` failures and is **DEBUG-fatal** — a dropped ring means the 128-entry buffer is undersized for the level's band density, which must be caught in testing, not shipped. Both reset with `RingBuffer_Clear` at level init.
+
 #### 4.9.5 Rolling Collected Bitmask (3×3 Window)
 
-A 9-slot rolling window tracks ring collection state across section revisits. Each slot is 18 bytes: `[tag.b][pad.b][bitmask × 16 bytes]`. Tag = section_id ($00-$FE) or $FF (empty).
+A 9-slot rolling window tracks ring collection + badnik kill state across section revisits. Each slot is 34 bytes: `[tag.b][pad.b][ring bitmask × 16][killed bitmask × 16]`. Tag = section_id ($00-$FE) or $FF (empty).
 
 ```
-Ring_Collected_Window: 9 slots × 18 bytes = 162 bytes
+Ring_Collected_Window: 9 slots × 34 bytes = 306 bytes
 
 Collected_ClaimSlot(section_id): claim empty slot, clear bitmask
 Collected_MarkRing(section_id, list_index): set bit in section's bitmask
@@ -2257,32 +2289,50 @@ The 3×3 window centered on the player's current section means collection state 
 
 #### 4.9.6 Teleport Entity Shift
 
-When teleport fires, `EntityWindow_TeleportShift(±SECTION_SHIFT)` handles the transition:
+When a teleport fires, `EntityWindow_TeleportShift(±SECTION_SHIFT)` (X) or `EntityWindow_TeleportShiftY(±SECTION_SHIFT)` (Y) handles the transition:
 
 ```
-1. Compute keep-range: Camera_X ± ENTITY_LOAD_BUFFER
-2. Shift surviving rings: add shift to engine_X, remove if outside keep-range
-3. Shift surviving objects: add shift to x_pos (16.16), delete if outside range
-4. Despawn all remaining out-of-range entities
-5. Rebuild EntityScanState from updated Slot_Section_Map
-6. Run initial scan to load entities in new camera range
+1. Compute keep-range: Camera ± load buffer (X or Y axis)
+2. Shift surviving rings: add shift to engine coord, remove (and clear
+   loaded bit) if outside keep-range
+3. Shift surviving objects: add shift to x_pos/y_pos (16.16), delete (and
+   clear loaded bit) if outside range
+4. Rebuild EntityScanState entries from the updated Slot_Section_Map
+5. Run populate scan to load entities in the new window
 ```
 
 The uniform SECTION_SHIFT applied to all positions preserves distances between entities. A projectile 50 pixels from the player stays 50 pixels away after the shift.
+
+**Loaded-mask migration is a verified no-op.** The window tracks the 2×2 block `{slotL,slotR} × {sec_y, sec_y+1}`, and `SECTION_SHIFT = 2×SECTION_SIZE`, so every teleport moves that block by exactly TWO sections along one axis (from the verified mapping table, duplicated at both rebuild call sites in entity_window.asm):
+
+```
+dir    d4 sign          slot map before -> after
+X-FWD  -SECTION_SHIFT   (x,y),(x+1,y) -> (x+2,y),(x+3,y)
+                        [edge: slot1 = SEC_VOID when x+3 >= grid_w]
+X-BWD  +SECTION_SHIFT   (x,y),(*  ,y) -> (x-2,y),(x-1,y)
+                        [same from the FWD-edge state (x,VOID);
+                         new slot1 = old slot0 MINUS 1, so the
+                         edge "heal" never re-tracks old slot0]
+Y-DOWN -SECTION_SHIFT   sec_y += 2 on both slots
+Y-UP   +SECTION_SHIFT   sec_y -= 2 on both slots
+```
+
+The old and new tracked sets are **disjoint** in all four directions, including every grid-edge case. No section keeps (or regains) an entry, so there are no surviving (section, entry) pairs whose loaded bits could move — there is nothing to migrate. Mask hygiene comes from the rebuild instead: `EntityWindow_InitSection` compare-clears each entry's 32-byte mask slot because every entry's section_id changes. (The flip side — survivor continuity for sections that just left the window — is a known open item; see DEFERRED_WORK "No survivor continuity across teleports".)
 
 #### 4.9.7 RAM Budget
 
 | Component | Size |
 |---|---|
 | Ring_Buffer (128 entries × 6 bytes) | 768 B |
-| Ring_Count (1 byte) | 1 B |
-| Entity_Window_Active (1 byte) | 1 B |
-| Entity_Scan_State (2 × $18 bytes) | 48 B |
-| Ring_Collected_Window (9 × 18 bytes) | 162 B |
-| Entity_Window_Center_ID (1 byte) | 1 B |
-| **Total** | **~981 B** |
+| Ring_Count + Ring_HighWater + Ring_Add_Dropped + pad | 4 B |
+| Entity_Window_Active + Entity_Window_Center_ID | 2 B |
+| Entity_Scan_State (4 × $1A bytes) | 104 B |
+| Entity_Loaded_Masks (4 × 32 bytes) | 128 B |
+| Camera_Y_Coarse_Prev (re-scan trigger baseline) | 2 B |
+| Ring_Collected_Window (9 × 34 bytes) | 306 B |
+| **Total** | **~1,314 B** |
 
-Smaller than the old dual-buffer system (1,187 B) while supporting more features (camera-driven loading, 3×3 rolling persistence, unified buffer).
+Comparable to the old dual-buffer system (1,187 B) while supporting far more: camera-driven loading on both axes, 2×2 quadrant tracking, idempotent spawns, kill persistence, unified buffer, and buffer diagnostics.
 
 ### 4.10 Cascade Effects
 

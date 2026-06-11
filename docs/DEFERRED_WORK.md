@@ -277,20 +277,24 @@ beyond any FG wobble.
 **When to revisit:** before shipping any production config with FG H-deform, or
 if Sec2's haze shows edge artifacts during testing.
 
-### §4.9 entity window is X-only — no vertical dimension
+### ~~§4.9 entity window is X-only — no vertical dimension~~ — DONE 2026-06-11 (vertical entity window)
 **Surfaced during:** vertical-axis audit 2026-06-10 (EntityWindow_TeleportShiftY added
 for teleport consistency, but the underlying system is 1D).
-**What:** `EntityScanState` has `ess_origin_x` but no Y origin; ring/object populate
-uses ROM Y verbatim with no per-pair adjustment; only the slot-mapped (upper) sections
-of each vertical pair are scanned — entities in the lower sections (sec_y+1) are never
-loaded; `EntityWindow_Scan` advances on camera X only. Works while entity data lives in
-the upper sections; breaks when levels place entities below the first section row.
-**Fix shape:** scan state per quadrant section (2×2), Y origin per entry, vertical scan
-edges driven by Camera_Y (mirror of the X sliding window).
-**When to revisit:** when a level design places rings/objects in vertically stacked
-sections, or §4.9 phase 2.
-**Note (objects-v2, 2026-06-10):** Entity entries now carry OEF_ANY_Y (bit 15), accepted
-and discarded today — phase 2's Y-culling must honor it.
+**What it was:** `EntityScanState` had `ess_origin_x` but no Y origin; ring/object
+populate used ROM Y verbatim; only the slot-mapped (upper) sections of each vertical
+pair were scanned; `EntityWindow_Scan` advanced on camera X only.
+**Fix shipped:** exactly the proposed shape — 2×2 quadrant scan state (4 entries: slot
+L/R × row r/r+1, derived from `Slot_Section_Map` by `EntityWindow_BuildEntries`),
+per-entry `ess_origin_y` + `ess_entry_idx`, `Entity_Window_Active` validity mask with
+SEC_VOID stamping for out-of-grid entries, S3K-style camera-Y spawn band
+(ENTITY_LOAD_BUFFER_Y $100) with despawn hysteresis (ENTITY_DESPAWN_BUFFER_Y $180),
+128px-coarse vertical re-scan (ENTITY_RESCAN_COARSE_MASK), per-entry loaded bitmasks
+making all spawn paths idempotent, ring-buffer high-water + DEBUG-fatal drop diagnostics,
+and build-time guards on the band invariants. Teleport mask migration proven a no-op
+(disjoint 2-section block moves, table in entity_window.asm). **OEF_ANY_Y is now
+honored:** ANY_Y objects spawn on X coverage regardless of camera Y and are exempt
+from Y despawn, with the flag mirrored to `SST_slot_tag` bit 7 at spawn. Full 7-check
+verification matrix passed in Exodus 2026-06-11. See ENGINE_ARCHITECTURE.md §4.9.3/§4.9.6.
 
 ### Plane A wrap-cycle visible during scroll (§4.2 streaming polish)
 **Surfaced during:** §4.6 polish session 2026-04-28 (after bhi→bhs core fix + Section_Teleport_Guard increase shipped).
@@ -709,14 +713,66 @@ non-zero; intermittently they read zero.
 ## From Vertical Entity Window — Task 6 (2026-06-11)
 
 ### Teleport keep-range tests pre-shift coords against the post-rebase camera
+**Blocked by:** "No survivor continuity across teleports" below — the two must ship together (fixing this one alone re-introduces duplicate spawns).
 **Surfaced during:** Task 6 mask-migration research 2026-06-11 (pre-existing since §4.9 999fdc5).
 **What:** `EntityWindow_TeleportShift`/`TeleportShiftY` read `Camera_X`/`Camera_Y` AFTER the caller has already rebased them by ±SECTION_SHIFT, but compare entity coordinates that are still pre-shift. The correct pre-shift keep window is `[cam_old − buf, cam_old + screen + buf]` = `[cam_new − d4 − buf, …]`; the code uses `cam_new` directly. Net effect: FWD/DOWN keep far-behind entities and shift them to negative coords (self-heals next despawn pass — section untracked + X/Y out), BWD/UP keep nothing. The intended survivors — entities visible from the just-departed section pair — are despawned instead, so content from the old block pops out at the seam instead of persisting. Fix = subtract d4 from the window base (use the pre-rebase camera).
+**Note (Task 8 closeout):** the ShiftY keep band was suspected of a factor-of-two
+shortfall vs the spawn band because the literals differ (`+SCREEN_HEIGHT+ENTITY_LOAD_BUFFER_Y`
+vs `+SCREEN_HEIGHT+2*ENTITY_LOAD_BUFFER_Y`). Verified NOT a bug: the spawn band's `2*`
+literal is added to a base that already had `ENTITY_LOAD_BUFFER_Y` subtracted (band
+bottom is rebuilt in the same register as the band top), so both compute the identical
+band `[camY−$100, camY+SCREEN_HEIGHT+$100]`. Recorded so the literal mismatch isn't
+re-litigated; the only real defect here remains the pre-shift/post-rebase coordinate
+mismatch described above.
 **Why not fixed in Task 6:** fixing it alone is WORSE — see next entry.
 
 ### No survivor continuity across teleports (per-entry loaded masks can't cover off-window sections)
+**Blocked by:** coupled to "Teleport keep-range tests pre-shift coords" above — neither is worth shipping without the other.
 **Surfaced during:** Task 6 mask-migration research 2026-06-11.
 **What:** Every teleport moves the tracked 2×2 section block by exactly two sections (X: pair columns ±2; Y: `sec_y ±= 2`), so old/new tracked sets are always disjoint and teleport survivors always belong to sections that just left the window. Their loaded bits are necessarily wiped (their entry now hosts a different section, and there is no mask slot for untracked sections). If the keep-range bug above is fixed so survivors really persist on screen, a quick direction reversal re-tracks their section with no loaded bits → the populate re-adds them → duplicate rings/objects. Entry-to-entry mask migration cannot solve this (nothing overlaps); the real fix is either (a) populate-time dedupe against the live ring buffer / SST `entity_section_id`+`list_index`, or (b) parking masks for recently-untracked sections, 3×3-collected-window style (overlaps with §4.9.4 respawn memory above).
 **When ready:** fix together with the keep-range entry whenever seam entity pop-out is addressed.
+
+## From Vertical Entity Window — Task 8 closeout (2026-06-11)
+
+### X-BWD clamp-to-zero degenerate slot pair
+**Surfaced during:** Task 8 teleport-table review 2026-06-11.
+**What:** From an odd start `sec_x`, `Section_TeleportBwd`'s clamp-to-zero (section.asm
+~:481) can produce BOTH slots tracking section 0 — a two-entries-same-section window
+state that nothing else can create. The teleport disjointness/no-op argument is
+unaffected (the moved block is still disjoint from the old one), but the duplicate-entry
+state itself is untested: two scan states + two loaded-mask slots for one section.
+**When to revisit:** if any act ever starts at an odd `sec_x`. All current acts start
+at `sec_x = 0`.
+
+### SEC_VOID vs flat-id 255 alias
+**Surfaced during:** Task 8 closeout review 2026-06-11.
+**What:** `SEC_VOID = $FF` lives in the same byte namespace as flat section ids, and on
+a 16×16 grid the real bottom-right section has flat id 255 = $FF — a void-sentinel
+alias. Separately, `EntityWindow_BuildEntries`' void path stamps the sentinel but does
+NOT clear the entry's loaded-mask slot (safe today only because `InitSection`'s
+compare-clear wipes it whenever a real section later claims the entry).
+**When to revisit:** if act grids ever approach 16×16 (current max is 3×3), or if any
+new consumer reads `Entity_Loaded_Masks` for void entries.
+
+### RescanY burst is unbudgeted
+**Surfaced during:** Task 8 closeout review 2026-06-11.
+**What:** A 128px coarse-row crossing re-walks all 4 entries' ROM lists from index 0 up
+to each X ratchet in a single frame. Trivial on test fixtures (≤16 entities), but on
+dense production levels (40-50 rings/section × 4 entries, ratchet fully advanced) the
+burst could reach tens of K cycles in one frame — same shape as the tile-cache fill
+bursts that needed N-way staging + a frame budget (2026-06-10).
+**When to revisit:** when real level data lands — watch `Lag_Frame_Count` during fast
+vertical traversal (the profiler misses single-frame bursts). Tile-cache N-way staging
+is the precedent if budgeting is needed.
+
+### Entity despawner micro-opts
+**Surfaced during:** Task 8 closeout review 2026-06-11.
+**What:** `DespawnRings`/`DespawnObjects` recompute the loop-invariant Y band bounds
+per entity (~3.5k cycles/frame at a full 128-ring buffer — hoist to registers before
+the loop). `RescanY`'s defensive d7 save around the scan calls can likely be trimmed
+once the RunObjects d7 contract is re-audited.
+**When to revisit:** alongside any other §4.9 perf work (e.g. the RescanY budget entry
+above) — not worth a dedicated session.
 
 ## From Compression Two-Tier (2026-06-11)
 
@@ -748,7 +804,7 @@ non-zero; intermittently they read zero.
 ### Real ring/object art at safe VRAM slots
 **Surfaced during:** objects-v2 play-testing 2026-06-10.
 **What:** Test objects render placeholder squares; VRAM_TEST_SONIC-era test art sat inside the FG pool (caused the debug-exit tile corruption, since fixed by relocation). Production ring/monitor/object art needs proper slots in the unified pool via the build-time allocator, replacing the placeholders so play-testing reads like a game.
-**When ready:** after §4.9 phase 2 (vertical entity window) makes entities visible everywhere.
+**When ready:** prerequisite satisfied — §4.9 phase 2 (vertical entity window) shipped 2026-06-11; entities now spawn everywhere on both axes. Ready to pick up in any art-focused session.
 
 ---
 
