@@ -20,8 +20,8 @@ Ani_Sonic_Idle:
         align 2
 
 Ani_Sonic_Roll:
-        dc.b 3                                  ; duration: fast spin
-        dc.b 9, 10, 11, 12, 13                  ; rolling frames
+        dc.b 1                                  ; duration: fast spin
+        dc.b $96, $97, $96, $98, $96, $99, $96, $9A ; S2 SonAni_Roll frames
         dc.b AF_END                             ; loop
         align 2
 

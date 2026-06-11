@@ -403,4 +403,9 @@ FRAME_PIECES            = 6         ; byte offset to first piece datum
 ; Test VRAM allocation
 ; -----------------------------------------------
 VRAM_TEST_OBJ           = $0001         ; tile index 1 (8 tiles for test art)
-VRAM_TEST_SONIC         = $0010         ; tile index 16 (up to 25 tiles for Sonic frames)
+VRAM_TEST_SONIC         = $03C0        ; tile 960 — character DPLC region (up to 25 tiles).
+                                        ; MUST stay clear of: FG section pools (tiles 0-~226,
+                                        ; see data/editor vram_bases), marker tile $FA, BG
+                                        ; region (1024+), SAT/HScroll/planes. The old value
+                                        ; $0010 sat inside FG pool A — Sonic DPLC streaming
+                                        ; stomped live level tiles the moment debug mode exited.
