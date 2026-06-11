@@ -88,15 +88,25 @@ enemies, etc. Premature without that signal.
 **Needs:** Live A/B diagnostic with sonic_hack paused at OJZ Act 1 + our build paused at the same screen, comparing specific VRAM tile bytes.
 **Doesn't block:** anything; T1 architecture is solid and BG renders correctly.
 
-### §2 A.x — FG Strips Have Wrong Content in Upper Rows
-**Status:** Discovered while verifying §2.4 T1 fallback. As Camera_X scrolls into sec1+, Plane A's upper rows render dirt/rock chunk content with priority bit set (0xC846, 0xC04C — pal 2, priority high), filling the sky region with brown texture instead of being transparent. Plane A row 0 has all 64 cells filled with these tiles, not just slot 0's half. The BG layer underneath is correct; the FG covers it.
-**Possible causes:** (a) `tools/ojz_strip_gen.py` strip emission samples wrong chunks for upper rows, (b) FG layout source file (OJZ_1.bin FG section) genuinely has those tiles and our build is faithful, (c) section streaming writes tiles to wrong nametable rows.
-**Needs:** Compare sec1's `strips_a.bin` against expected chunks from sonic_hack's OJZ_1.bin FG layout; verify Plane A tile placement matches `Section_FillInitial` / `Section_UpdateColumns` math.
-**Doesn't block:** §2.4 BG work is complete — this is a separate FG path issue. Likely lurking since A.3, surfaced now because users see the BG more clearly.
+### ~~§2 A.x — FG Strips Have Wrong Content in Upper Rows~~ — RESOLVED 2026-06-11 (re-test)
+**Resolution:** Does not reproduce on current master. Live Exodus verification: at camY=0 over sec0/sec1's
+empty top chunks, Plane A row 0 is fully transparent across all 64 cells (blank tile $C6, no priority);
+where dirt IS rendered (camX=$EB0/camY=$290 → sec1 chunk rows 1-2, cols 9-11), the on-screen content
+matches the source layout cell-for-cell (empty sky chunk over 28/$1D ground chunks). Two findings:
+(1) hypothesis (b) was half-right — sec1's layout genuinely has dirt chunk $1D across chunk-row 0
+cols 7-15 (editor data AND sonic_hack OJZ_1_sec1.bin agree), so "brown in the sky" at world Y<128
+in sec1's right half is faithful level data, not a bug; (2) the "all 64 cells filled" misplacement
+was a strip-era streaming artifact — the strip pipeline was deleted and replaced by the 2D block
+tile cache (2026-06-10 rewrite), which renders correctly.
+Original entry (for reference): As Camera_X scrolled into sec1+, Plane A's upper rows rendered
+dirt/rock chunk content with priority set (0xC846, 0xC04C — pal 2), filling the sky region; row 0
+had all 64 cells filled, not just slot 0's half.
 
-### §2 A.x — BG Tiles Render Black via Palette Index 0
-**Status:** OJZ palette line 2 entry 0 = `$0000` (black) — matches sonic_hack source palette exactly. Many BG tiles in OJZ_1.bin's BG layout use palette index 0 for "outline shadow" pixels; in sonic_hack these are normally hidden by Plane A FG covering the grass band. In our engine, Plane A occasionally has transparent gaps (likely related to FG-rows bug above), exposing the BG's intentionally-black-pixel-0 outlines as visible black gaps.
-**Doesn't block:** Cosmetic. Resolves automatically once the FG-rows bug is fixed (FG covers the BG black correctly).
+### ~~§2 A.x — BG Tiles Render Black via Palette Index 0~~ — CLOSED 2026-06-11
+**Resolution:** Was contingent on the FG-rows bug above ("resolves automatically once the FG-rows bug
+is fixed"). With FG rendering verified faithful to source data, remaining black pixel-0 outlines on BG
+tiles only appear where the FG is *supposed* to be transparent — that's the authored art, same as
+sonic_hack. No engine work to do.
 
 
 
@@ -338,7 +348,18 @@ and discarded today — phase 2's Y-culling must honor it.
 **What:** Tile_Override_Table (16 entries × 6 bytes) is allocated in RAM. Needs a writer (object sets col/row/new_tile) and a drain routine (VInt_DrawLevel emits row updates). Used for breakable tiles, activated switches, destroyed terrain.
 **When ready:** When a gameplay object needs to modify level geometry at runtime.
 
-### §4.6 lerp accumulator never converges to per-band targets
+### ~~§4.6 lerp accumulator never converges to per-band targets~~ — RESOLVED 2026-06-11 (re-test)
+**Resolution:** Root cause was the TestPlayer d7 clobber (fixed 2026-06-10) — garbage object dispatch
+was stomping the accumulators between frames, which is why every single-stepped iteration computed
+correctly while stored values were wrong. Re-test on current master: Camera_X=608 stable, active config
+resolves to ParallaxConfig_OJZ_Caves (factors 1/16,1/16,1/8,1/4,1 — NOT the April-era Default config the
+original expectations were computed from), and `Parallax_Current_Scroll_B` reads exactly
+[-38,-38,-76,-152,-608] = 608×factors, pixel-perfect. Entries 5-7 stay 0. Mid-pan spot-check at
+Camera_X=624 under the same config was also exact ([-39,-78,-156,-624]). Note for future debugging:
+the April "expected" values were computed against the wrong config — always derive targets from
+`Parallax_Current_Config`'s actual band table, not from the act's default.
+
+Original investigation notes kept for reference:
 
 **Surfaced during:** §4.6 polish session 2026-04-28 (after MCP debug session).
 
@@ -384,11 +405,20 @@ try live-stepping — too much state, too much MCP-level uncertainty.
 
 ---
 
-### §4.6 visual artifacts blocked on root-cause of state clobber — RE-TEST (clobber fixed 2026-06-10)
+### ~~§4.6 visual artifacts blocked on root-cause of state clobber~~ — RE-TESTED 2026-06-11, ALL THREE RESOLVED
 
-**Update 2026-06-10:** the upstream clobber is root-caused and fixed (TestPlayer
-d7 stomp — see the clobber entry below). All three artifacts need re-testing
-with the corruption gone before any further individual debugging.
+**Re-test 2026-06-11 (current master, live Exodus):**
+1. **3-line race on load / wrong lerp targets** — RESOLVED. Accumulators converge pixel-exact to the
+   active config's per-band targets (see the lerp entry below for full numbers). The April "wrong
+   targets" were measured against the wrong config (Default instead of the per-section Caves).
+2. **FG H-deformed during section transitions** — RESOLVED. FG HScroll words verified uniform at
+   -Camera_X across all 224 lines through: a FWD teleport into Sec2, a BWD teleport back, and two
+   live config switches (Windy↔Caves). The only per-line FG variation found was SkyHaze's *intentional*
+   bottom-band haze on Sec2 (`parallax_combine_split` demo) — by design, not the artifact.
+3. **BG warps while stationary** — RESOLVED. Two screenshots ~20s apart with camera idle at
+   Camera_X=608 are byte-identical PNGs.
+
+All three derived from the TestPlayer d7 stomp (fixed 2026-06-10). No further §4.6 debugging needed.
 
 **Surfaced during:** §4.6 T12 testing, expanded in T12 polish session 2026-04-27.
 
@@ -564,7 +594,8 @@ caller RunObjects.always_next, jump target OJZ_SEC2_BLOCKS+$1640).
 assert the a0/d7 loop contract after every dispatch (`Debug_AssertObjLoop`,
 `engine/objects/core.asm`). Pointer-validation band-aids removed from
 `Enqueue_Dirty_Buffers`, `Parallax_Update`, `Vscroll_Write`, and the OJZ test
-mode-set-3 force. Re-test the three §4.6 visual artifacts (section below).
+mode-set-3 force. Re-test of the three §4.6 visual artifacts done 2026-06-11 —
+all three resolved (see the artifacts entry above).
 
 Original investigation notes kept for reference:
 **Surfaced during:** §4.6 T12 testing (2026-04-27).
