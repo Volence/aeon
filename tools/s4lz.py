@@ -93,12 +93,18 @@ def _build_token(lit_count: int, match_count: int) -> int:
 # ---------------------------------------------------------------------------
 
 def _find_best_matches(data: bytes, pos: int, data_len: int,
-                       hash_table: dict) -> tuple:
+                       hash_table: dict, dict_len: int = 0) -> tuple:
     """Hash-chain match finder returning two candidates:
         ((offset_any, length_any), (offset_short, length_short))
     where the second candidate is the longest match with byte offset
     <= MAX_SHORT_OFFSET (encodable in offmark, costing 0 extra bytes).
-    Either candidate is (0, 0) when no match of MIN_MATCH_WORDS exists."""
+    Either candidate is (0, 0) when no match of MIN_MATCH_WORDS exists.
+
+    When compressing with a prepended dictionary (`data` = dict + payload,
+    dict_len > 0), matches whose source starts inside the dictionary must
+    NOT extend past the dict/payload boundary: the 68000 decoder copies the
+    dict portion from ROM with an ascending pointer, so a straddling match
+    would read past the dictionary into unrelated ROM bytes."""
     best_offset = 0
     best_length = 0
     best_short_offset = 0
@@ -122,13 +128,14 @@ def _find_best_matches(data: bytes, pos: int, data_len: int,
         if dist <= 0:
             continue
 
-        # Count matching words
+        # Count matching words (capped at the dict boundary for dict sources)
+        max_words = (data_len - pos) // 2
+        if scan_pos < dict_len:
+            max_words = min(max_words, (dict_len - scan_pos) // 2)
         match_words = 0
-        while True:
+        while match_words < max_words:
             src_off = scan_pos + match_words * 2
             dst_off = pos + match_words * 2
-            if dst_off + 2 > data_len:
-                break
             if data[src_off] == data[dst_off] and data[src_off + 1] == data[dst_off + 1]:
                 match_words += 1
             else:
@@ -164,15 +171,31 @@ def _match_cost(offset: int, m_len: int, at_end: bool) -> int:
     return cost
 
 
-def compress(data: bytes, tile_delta: bool = False) -> bytes:
-    """Compress data into an S4LZ v3 stream. Returns the compressed bytes."""
+def compress(data: bytes, tile_delta: bool = False,
+             dictionary: bytes = b'') -> bytes:
+    """Compress data into an S4LZ v3 stream. Returns the compressed bytes.
+
+    `dictionary` pre-seeds the LZ window: matches may reach back into it,
+    with offsets measured as distances in the dict+data concatenation. The
+    emitted stream encodes ONLY the data (header size = len(data)); the
+    decoder must be given the same dictionary. Matches never straddle the
+    dict/data boundary (see _find_best_matches)."""
     original_data = data
 
     # Apply tile-delta preprocessing if requested
     if tile_delta:
+        if dictionary:
+            raise ValueError("dictionary is not supported with tile_delta")
         data = tile_delta_encode(data)
 
+    dict_len = len(dictionary)
+    if dict_len % 2 != 0:
+        raise ValueError(f"dictionary length {dict_len} must be word-even")
+
     data_len = len(data)
+    if dict_len + data_len > MAX_WINDOW:
+        raise ValueError(
+            f"dict+data {dict_len + data_len} exceeds window {MAX_WINDOW}")
 
     # Build header
     flags = 1 if tile_delta else 0
@@ -187,9 +210,14 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
         work_data = data + b'\x00'
         data_len = len(work_data)
 
-    # Build hash table for fast matching
+    # The match window is the dictionary prepended to the data; offsets
+    # are distances within this concatenation.
+    work_data = dictionary + work_data
+    concat_len = dict_len + data_len
+
+    # Build hash table for fast matching (dict + data positions)
     hash_table = {}
-    for i in range(0, data_len - 3, 2):
+    for i in range(0, concat_len - 3, 2):
         key = (work_data[i], work_data[i + 1], work_data[i + 2], work_data[i + 3])
         if key not in hash_table:
             hash_table[key] = []
@@ -203,11 +231,14 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
     num_words = data_len // 2
     INF = float('inf')
 
-    # Phase 1: best matches at each word position — (any, short) candidates
+    # Phase 1: best matches at each DATA word position (concat position
+    # dict_len + i*2) — (any, short) candidates
     match_at = [None] * num_words
     for i in range(num_words):
-        best_any, best_short = _find_best_matches(work_data, i * 2, data_len,
-                                                  hash_table)
+        best_any, best_short = _find_best_matches(work_data,
+                                                  dict_len + i * 2,
+                                                  concat_len,
+                                                  hash_table, dict_len)
         cands = []
         if best_any[1] >= MIN_MATCH_WORDS:
             cands.append(best_any)
@@ -258,8 +289,8 @@ def compress(data: bytes, tile_delta: bool = False) -> bytes:
     literal_words = []
     for entry in path:
         if entry[0] == 'lit':
-            pos = entry[1]
-            literal_words.append((work_data[pos * 2], work_data[pos * 2 + 1]))
+            pos = dict_len + entry[1] * 2          # data word -> concat byte pos
+            literal_words.append((work_data[pos], work_data[pos + 1]))
         else:
             _, pos, m_offset, m_length = entry
             sequences.append((list(literal_words), m_offset, m_length))
@@ -360,8 +391,14 @@ def _decompress_v1(compressed: bytes) -> bytearray:
     return output
 
 
-def _decompress_v3(compressed: bytes) -> bytearray:
-    """Decode a v3 token stream (offmark short-offset slot)."""
+def _decompress_v3(compressed: bytes, dictionary: bytes = b'') -> bytearray:
+    """Decode a v3 token stream (offmark short-offset slot).
+
+    `dictionary` mirrors the 68000 dict decoder: match sources reaching
+    below the output start are read from the dictionary tail. A match must
+    lie entirely in the dictionary or entirely in the output — straddling
+    is rejected (the ROM decoder would read garbage past the dict end)."""
+    dict_len = len(dictionary)
     output = bytearray()
     pos = 4  # skip header
 
@@ -409,8 +446,21 @@ def _decompress_v3(compressed: bytes) -> bytearray:
                 pos += 2
             src_start = len(output) - match_offset
             if src_start < 0:
-                raise ValueError(
-                    f"Match offset {match_offset} exceeds output size {len(output)}")
+                # Dictionary hit: rebase into the dict tail (the same
+                # arithmetic the 68000 decoder applies via its rebase
+                # constant: src = dict_end - (output_start - src)).
+                dict_pos = dict_len + src_start
+                if dict_pos < 0:
+                    raise ValueError(
+                        f"Match offset {match_offset} reaches below dict "
+                        f"(output {len(output)}B, dict {dict_len}B)")
+                if src_start + match_count * 2 > 0:
+                    raise ValueError(
+                        f"Match at output {len(output)} straddles the "
+                        f"dict/data boundary (offset {match_offset}, "
+                        f"count {match_count})")
+                output.extend(dictionary[dict_pos:dict_pos + match_count * 2])
+                continue
             # Copy word by word (supports overlapping matches)
             for i in range(match_count):
                 src_pos = src_start + i * 2
@@ -420,9 +470,10 @@ def _decompress_v3(compressed: bytes) -> bytearray:
     return output
 
 
-def decompress(compressed: bytes) -> bytes:
+def decompress(compressed: bytes, dictionary: bytes = b'') -> bytes:
     """Decompress S4LZ data (v1 or v3, dispatched on the version byte).
-    Automatically applies tile-delta decode if the header flag is set."""
+    Automatically applies tile-delta decode if the header flag is set.
+    `dictionary` must match the one used at compression time (v3 only)."""
     if len(compressed) < 4:
         raise ValueError("Compressed data too short for header")
 
@@ -436,9 +487,11 @@ def decompress(compressed: bytes) -> bytes:
         return b""
 
     if version == VERSION_V1:
+        if dictionary:
+            raise ValueError("dictionary is not supported for v1 streams")
         output = _decompress_v1(compressed)
     elif version == VERSION_V3:
-        output = _decompress_v3(compressed)
+        output = _decompress_v3(compressed, dictionary)
     else:
         raise ValueError(f"Unknown S4LZ version byte {version}")
 
@@ -756,6 +809,62 @@ def cmd_test(_args=None):
 
     check(_run_test("19a. Boundary offset 510 round-trip", boundary_data(510)))
     check(_run_test("19b. Boundary offset 512 round-trip", boundary_data(512)))
+
+    # Test 20: dictionary round-trip — data shares word runs with the dict
+    def _run_dict_test(name, payload, dictionary):
+        try:
+            comp = compress(payload, dictionary=dictionary)
+            out = decompress(comp, dictionary=dictionary)
+            if out != payload:
+                print(f"  FAIL {name}: round-trip mismatch")
+                return False
+            print(f"  PASS {name}: {len(payload)} -> {len(comp)} bytes "
+                  f"(dict {len(dictionary)}B)")
+            return True
+        except Exception as e:
+            print(f"  FAIL {name}: exception: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    dict_block = bytes([0x21, 0x43, 0x65, 0x87] * 64)        # 256B of word runs
+    payload_like_dict = bytes([0x21, 0x43, 0x65, 0x87] * 32) # entirely dict content
+    check(_run_dict_test("20. Dict round-trip (payload in dict)",
+                         payload_like_dict, dict_block))
+    comp_with = compress(payload_like_dict, dictionary=dict_block)
+    comp_without = compress(payload_like_dict)
+    if len(comp_with) <= len(comp_without):
+        print(f"  PASS 20b. Dict helps: {len(comp_with)} <= {len(comp_without)}B")
+        check(True)
+    else:
+        print(f"  FAIL 20b. Dict made it bigger: {len(comp_with)} > {len(comp_without)}B")
+        check(False)
+
+    # Test 21: no-dict regression — empty dictionary is byte-identical
+    nodict_data = bytes(rng_data) + identical_tiles
+    if compress(nodict_data) == compress(nodict_data, dictionary=b''):
+        print("  PASS 21. Empty dict is byte-identical to no dict")
+        check(True)
+    else:
+        print("  FAIL 21. Empty dict changed the stream")
+        check(False)
+
+    # Test 22: no-straddle — the tempting match spans the dict/data boundary.
+    # dict ends with P1, data starts with P2, and data later repeats P1+P2.
+    # A straddling source would be illegal; round-trip success proves the
+    # compressor split or avoided it (the dict decoder raises on straddle).
+    p1 = bytes([0x11, 0x22, 0x33, 0x44, 0x55, 0x66])
+    p2 = bytes([0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC])
+    straddle_dict = bytes([0x0F, 0xF0] * 16) + p1                    # dict tail = P1
+    straddle_data = p2 + bytes([0xDE, 0xAD] * 8) + p1 + p2
+    check(_run_dict_test("22. Dict no-straddle boundary", straddle_data,
+                         straddle_dict))
+
+    # Test 23: dict + real-shaped data — multi-block dict, long offsets
+    big_dict = bytes((i * 7) & 0xFF for i in range(1536))            # 2 "blocks"
+    big_payload = big_dict[700:1200] + bytes([0xEE] * 64) + big_dict[:96]
+    check(_run_dict_test("23. Dict long-offset round-trip", big_payload,
+                         big_dict))
 
     print("=" * 60)
     print(f"Results: {passed}/{total} passed, {failed} failed")

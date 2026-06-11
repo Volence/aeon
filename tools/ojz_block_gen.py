@@ -13,8 +13,17 @@ Output: data/generated/ojz/act1/sec{N}_blocks.bin (block index + compressed bloc
 
 Each output file contains:
   - 256 × 4 bytes = 1024-byte block index table
-    (each entry is a byte offset from file start, 0 = empty/air block)
-  - Concatenated S4LZ-compressed blocks
+    (each entry is a byte offset from file start; 0 = empty/air block;
+    bit 31 set = RAW DIRECT — the offset points at an uncompressed 768-byte
+    block inside the dictionary region)
+  - Dictionary region: K raw blocks (768*K bytes), serving double duty as
+    their own storage AND as the LZ window pre-seed for every compressed
+    block in the section (K swept 0..3 per section, minimum total size)
+  - Concatenated S4LZ-compressed blocks (compressed with the dict window)
+
+Also emits data/generated/ojz/act1/sec_block_dicts.asm with per-section
+OJZ_SEC{N}_BLOCK_DICT_LEN constants for the act descriptor (the dict region
+always starts at blob+1024; only its length varies).
 
 Raw block layout (768 bytes = BLOCK_RAW_SIZE):
   Bytes   0–511:  512 bytes nametable (16×16 × 2 bytes, row-major)
@@ -58,6 +67,8 @@ STRIP_PAD = 8
 STRIP_BYTE_SIZE = STRIP_NT_BYTES + 2 * STRIP_COLL_ROWS + STRIP_PAD  # 776 bytes
 
 BLOCK_INDEX_SIZE = BLOCKS_PER_SECTION * 4  # 1024 bytes
+RAW_DIRECT_BIT = 0x80000000  # index entry bit 31: offset -> raw 768B block
+MAX_DICT_BLOCKS = 3          # K sweep upper bound (sec_block_dict_len <= 3*768)
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "data", "generated", "ojz", "act1"
@@ -139,43 +150,97 @@ def extract_block(nametable, collision_a, collision_b, block_x, block_y):
     return bytes(nt_data), extract_coll_plane(collision_a), extract_coll_plane(collision_b)
 
 
-def generate_section_blocks(section_idx):
-    """Generate block index + compressed blocks for one section.
+def select_dict_blocks(raw_blocks):
+    """Rank non-empty blocks by 4-gram (word-pair) frequency coverage.
 
-    Returns bytes: [1024-byte index table] + [compressed blocks...]
-    Each compressed block expands to BLOCK_RAW_SIZE (768) bytes:
+    Returns a list of block indices, best dictionary candidate first.
+    A block's score is the sum, over its distinct 4-grams, of how many
+    blocks in the section contain that gram — the block whose content is
+    shared by the most other blocks scores highest.
+    """
+    blocks = [(i, b) for i, b in enumerate(raw_blocks) if b is not None]
+    grams = {}
+    gram_sets = {}
+    for i, b in blocks:
+        s = set(b[j:j + 4] for j in range(0, len(b) - 3, 2))
+        gram_sets[i] = s
+        for g in s:
+            grams[g] = grams.get(g, 0) + 1
+    scored = sorted(((sum(grams[g] for g in gram_sets[i]), -i) for i, _ in blocks),
+                    reverse=True)
+    return [-neg_i for _, neg_i in scored]
+
+
+def generate_section_blocks(section_idx):
+    """Generate block index + dict region + compressed blocks for one section.
+
+    Returns (blob_bytes, dict_len, stats) where blob_bytes is
+    [1024-byte index table][raw dict blocks][compressed v3 streams],
+    dict_len = bytes of raw dictionary (768 * K), and stats is a dict
+    with 'k' and 'total' (bytes after the index table).
+    Each block expands to BLOCK_RAW_SIZE (768) bytes:
       512B nametable + 128B collision plane A + 128B collision plane B.
     """
     raw_data = load_raw_strips(section_idx)
     nametable, collision_a, collision_b = parse_strips(raw_data)
 
-    compressed_blocks = []
+    raw_blocks = []
     for block_y in range(BLOCKS_PER_AXIS):
         for block_x in range(BLOCKS_PER_AXIS):
             nt_data, coll_a_data, coll_b_data = extract_block(
                 nametable, collision_a, collision_b, block_x, block_y
             )
             raw_block = nt_data + coll_a_data + coll_b_data
-            if all(b == 0 for b in raw_block):
-                compressed_blocks.append(None)
-            else:
-                compressed = s4lz.compress(raw_block, tile_delta=False)
-                compressed_blocks.append(compressed)
+            raw_blocks.append(None if all(b == 0 for b in raw_block)
+                              else raw_block)
+
+    non_empty = [i for i, b in enumerate(raw_blocks) if b is not None]
+    ranking = select_dict_blocks(raw_blocks)
+
+    # Sweep K = 0..MAX_DICT_BLOCKS dictionary blocks; pick minimum total.
+    # Dict blocks are stored raw (768B each, their own storage) and every
+    # other block is compressed with the dict as window pre-seed. The dict
+    # is laid out best-block LAST so the highest-value content sits nearest
+    # the data (smallest offsets -> most short-form matches).
+    best = None  # (total, k, dict_indices, dict_bytes, streams)
+    for k in range(0, min(MAX_DICT_BLOCKS, len(non_empty)) + 1):
+        dict_indices = ranking[:k]
+        dict_bytes = b''.join(raw_blocks[i] for i in reversed(dict_indices))
+        streams = {}
+        total = k * BLOCK_RAW_SIZE
+        for i in non_empty:
+            if i in dict_indices:
+                continue
+            comp = s4lz.compress(raw_blocks[i], dictionary=dict_bytes)
+            streams[i] = comp
+            total += len(comp) + (len(comp) % 2)
+        if best is None or total < best[0]:
+            best = (total, k, dict_indices, dict_bytes, streams)
+
+    total, k, dict_indices, dict_bytes, streams = best
+    dict_len = len(dict_bytes)
+
+    # Dict region position of each dict block (reversed layout, see above)
+    dict_pos = {idx: j for j, idx in enumerate(reversed(dict_indices))}
 
     index_table = bytearray(BLOCK_INDEX_SIZE)
-    block_data = bytearray()
+    block_data = bytearray(dict_bytes)
 
-    for i, block in enumerate(compressed_blocks):
-        if block is None:
+    for i, raw in enumerate(raw_blocks):
+        if raw is None:
             struct.pack_into(">I", index_table, i * 4, 0)
+        elif i in dict_pos:
+            offset = BLOCK_INDEX_SIZE + dict_pos[i] * BLOCK_RAW_SIZE
+            struct.pack_into(">I", index_table, i * 4, RAW_DIRECT_BIT | offset)
         else:
             offset = BLOCK_INDEX_SIZE + len(block_data)
             struct.pack_into(">I", index_table, i * 4, offset)
-            block_data.extend(block)
+            block_data.extend(streams[i])
             if len(block_data) % 2:
                 block_data.append(0)
 
-    return bytes(index_table) + bytes(block_data)
+    stats = {"k": k, "total": total}
+    return bytes(index_table) + bytes(block_data), dict_len, stats
 
 
 def generate_all():
@@ -184,10 +249,12 @@ def generate_all():
 
     total_non_empty = 0
     total_blocks = 0
+    dict_lens = []
 
     for sec_idx in SECTION_IDS:
         print(f"Section {sec_idx}...", end=" ", flush=True)
-        output = generate_section_blocks(sec_idx)
+        output, dict_len, stats = generate_section_blocks(sec_idx)
+        dict_lens.append(dict_len)
 
         index_data = output[:BLOCK_INDEX_SIZE]
         non_empty = sum(1 for i in range(BLOCKS_PER_SECTION)
@@ -198,9 +265,22 @@ def generate_all():
         out_path = os.path.join(OUTPUT_DIR, f"sec{sec_idx}_blocks.bin")
         with open(out_path, "wb") as f:
             f.write(output)
-        print(f"{len(output)} bytes ({non_empty}/{BLOCKS_PER_SECTION} non-empty blocks)")
+        print(f"{len(output)} bytes (K={stats['k']} dict, "
+              f"{non_empty}/{BLOCKS_PER_SECTION} non-empty blocks)")
 
-    print(f"\nDone. {total_non_empty}/{total_blocks} total non-empty blocks across {NUM_SECTIONS} sections.")
+    # Per-section dictionary lengths for the act descriptor (the dict region
+    # always starts at blob + BLOCK_INDEX_SIZE; only the length varies).
+    dicts_path = os.path.join(OUTPUT_DIR, "sec_block_dicts.asm")
+    with open(dicts_path, "w") as f:
+        f.write("; Per-section block dictionary lengths "
+                "(auto-generated by tools/ojz_block_gen.py)\n")
+        f.write("; Dict region = raw blocks at sec{N}_blocks.bin + 1024; "
+                "0 = no dictionary.\n")
+        for sec_idx, dlen in zip(SECTION_IDS, dict_lens):
+            f.write(f"OJZ_SEC{sec_idx}_BLOCK_DICT_LEN = {dlen}\n")
+
+    print(f"\nDone. {total_non_empty}/{total_blocks} total non-empty blocks "
+          f"across {NUM_SECTIONS} sections.")
 
 
 # ---------------------------------------------------------------------------
@@ -248,62 +328,75 @@ def test_extract_block():
     print("  test_extract_block OK")
 
 
+def decode_block(blob, dict_len, block_idx):
+    """Decode one block from a generated blob exactly as the runtime does.
+
+    Returns 768 raw bytes, or None for an empty block."""
+    entry = struct.unpack_from(">I", blob, block_idx * 4)[0]
+    if entry == 0:
+        return None
+    dictionary = blob[BLOCK_INDEX_SIZE:BLOCK_INDEX_SIZE + dict_len]
+    if entry & RAW_DIRECT_BIT:
+        offset = entry & ~RAW_DIRECT_BIT
+        assert offset >= BLOCK_INDEX_SIZE, f"raw offset {offset} inside index"
+        assert offset + BLOCK_RAW_SIZE <= BLOCK_INDEX_SIZE + dict_len, (
+            f"raw block at {offset} escapes the dict region")
+        return blob[offset:offset + BLOCK_RAW_SIZE]
+    return s4lz.decompress(blob[entry:], dictionary=dictionary)
+
+
 def test_generate_roundtrip():
-    """Verify blocks can be decompressed back to original data."""
+    """Verify EVERY block decodes back to its original raw data."""
     raw = load_raw_strips(0)
     nt, coll_a, coll_b = parse_strips(raw)
 
-    # Generate blocks
-    output = generate_section_blocks(0)
-    index_data = output[:BLOCK_INDEX_SIZE]
+    blob, dict_len, stats = generate_section_blocks(0)
+    assert dict_len % 2 == 0, "dict length must be word-even"
+    assert dict_len <= MAX_DICT_BLOCKS * BLOCK_RAW_SIZE
+    assert dict_len % BLOCK_RAW_SIZE == 0, "dict must be whole raw blocks"
 
-    # Decompress block (0,0) and verify
-    block_idx = 0 * BLOCKS_PER_AXIS + 0  # block_y=0, block_x=0
-    offset = struct.unpack_from(">I", index_data, block_idx * 4)[0]
-    assert offset > 0, "Block (0,0) should not be empty"
+    raw_count = 0
+    for block_y in range(BLOCKS_PER_AXIS):
+        for block_x in range(BLOCKS_PER_AXIS):
+            nt_data, coll_a_data, coll_b_data = extract_block(
+                nt, coll_a, coll_b, block_x, block_y)
+            expected = nt_data + coll_a_data + coll_b_data
+            idx = block_y * BLOCKS_PER_AXIS + block_x
+            decoded = decode_block(blob, dict_len, idx)
+            if decoded is None:
+                assert all(b == 0 for b in expected), (
+                    f"Block ({block_x},{block_y}) marked empty but has data")
+                continue
+            entry = struct.unpack_from(">I", blob, idx * 4)[0]
+            if entry & RAW_DIRECT_BIT:
+                raw_count += 1
+            assert len(decoded) == BLOCK_RAW_SIZE, (
+                f"Block ({block_x},{block_y}): {len(decoded)} bytes")
+            assert decoded == expected, (
+                f"Block ({block_x},{block_y}) roundtrip mismatch")
 
-    decompressed = s4lz.decompress(output[offset:])
-    assert len(decompressed) == BLOCK_RAW_SIZE, f"Expected {BLOCK_RAW_SIZE}, got {len(decompressed)}"
+    assert raw_count == dict_len // BLOCK_RAW_SIZE, (
+        f"{raw_count} raw-direct entries vs dict of "
+        f"{dict_len // BLOCK_RAW_SIZE} blocks")
 
-    # First nametable word should match
-    expected = nt[0][0]
-    actual = struct.unpack_from(">H", decompressed, 0)[0]
-    assert actual == expected, f"Roundtrip word 0: expected 0x{expected:04X}, got 0x{actual:04X}"
-
-    # Verify a tile deeper in the block: row 5, col 3
-    expected_deep = nt[5][3]
-    actual_deep = struct.unpack_from(">H", decompressed, (5 * BLOCK_SIZE + 3) * 2)[0]
-    assert actual_deep == expected_deep, (
-        f"Roundtrip (5,3): expected 0x{expected_deep:04X}, got 0x{actual_deep:04X}"
-    )
-
-    # Verify collision plane A: first collision row, col 0
-    coll_a_offset = BLOCK_NT_SIZE
-    expected_coll_a = coll_a[0][0]
-    actual_coll_a = decompressed[coll_a_offset]
-    assert actual_coll_a == expected_coll_a, (
-        f"Collision A (0,0): expected {expected_coll_a}, got {actual_coll_a}"
-    )
-
-    # Verify collision plane B: starts after plane A
-    coll_b_offset = BLOCK_NT_SIZE + BLOCK_COLL_PLANE_SIZE
-    expected_coll_b = coll_b[0][0]
-    actual_coll_b = decompressed[coll_b_offset]
-    assert actual_coll_b == expected_coll_b, (
-        f"Collision B (0,0): expected {expected_coll_b}, got {actual_coll_b}"
-    )
-
-    # OJZ: plane B must equal plane A in the decompressed block
-    plane_a = decompressed[coll_a_offset:coll_a_offset + BLOCK_COLL_PLANE_SIZE]
-    plane_b = decompressed[coll_b_offset:coll_b_offset + BLOCK_COLL_PLANE_SIZE]
+    # Spot-check the (0,0) block content against the source grids
+    decoded = decode_block(blob, dict_len, 0)
+    assert decoded is not None, "Block (0,0) should not be empty"
+    assert struct.unpack_from(">H", decoded, 0)[0] == nt[0][0]
+    assert struct.unpack_from(">H", decoded, (5 * BLOCK_SIZE + 3) * 2)[0] == nt[5][3]
+    assert decoded[BLOCK_NT_SIZE] == coll_a[0][0]
+    assert decoded[BLOCK_NT_SIZE + BLOCK_COLL_PLANE_SIZE] == coll_b[0][0]
+    plane_a = decoded[BLOCK_NT_SIZE:BLOCK_NT_SIZE + BLOCK_COLL_PLANE_SIZE]
+    plane_b = decoded[BLOCK_NT_SIZE + BLOCK_COLL_PLANE_SIZE:
+                      BLOCK_NT_SIZE + 2 * BLOCK_COLL_PLANE_SIZE]
     assert plane_a == plane_b, "OJZ roundtrip: plane B must equal plane A"
 
-    print("  test_generate_roundtrip OK")
+    print(f"  test_generate_roundtrip OK (all blocks verified, K={stats['k']})")
 
 
 def test_empty_blocks():
     """Verify that blocks in unused rows are null in the index."""
-    output = generate_section_blocks(0)
+    output, _, _ = generate_section_blocks(0)
     index_data = output[:BLOCK_INDEX_SIZE]
 
     # Last block row (15) should be empty for typical OJZ data
@@ -317,7 +410,7 @@ def test_empty_blocks():
 
 def test_block_count():
     """Verify non-empty block count is reasonable."""
-    output = generate_section_blocks(0)
+    output, _, _ = generate_section_blocks(0)
     index_data = output[:BLOCK_INDEX_SIZE]
     non_empty = sum(1 for i in range(BLOCKS_PER_SECTION)
                     if struct.unpack_from(">I", index_data, i * 4)[0] != 0)
