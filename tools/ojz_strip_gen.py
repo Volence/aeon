@@ -82,19 +82,8 @@ CHUNKS_TILES_PATH = _project_tileset_path()
 # Constants
 # ---------------------------------------------------------------------------
 STRIP_TILE_HEIGHT = 256  # nametable rows per strip (full section height)
-OJZ_TILES_COUNT = 322   # legacy — pre-A.1 raw export count, kept for old test_generate_tile_art
 
-# (HACK_STRIP_CHUNK_ROW_OFFSET hack reverted — didn't help because the
-# upstream chunk/block table parsing is producing mostly-empty data for
-# what should be ground chunks. Bug is in load_chunk_map / load_block_map
-# / chunk_get_tile_word, not in the strip generator's row sampling.)
-HACK_STRIP_CHUNK_ROW_OFFSET = 0
-
-# Multi-region VRAM packing (§2 A.2) — must match constants.asm
-# REGION2_VRAM_BASE / 32 == REGION2 starting tile slot
 REGION1_TILE_CAPACITY = 1536          # primary art pool $0000-$BFFF
-REGION2_VRAM_BASE     = 0xF800        # Plane B off-screen, row 48+ (per A.2 research)
-REGION2_TILE_CAPACITY = 64            # ($10000 - $F800) / 32 = 64 tiles
 TILES_PER_BLOCK_ROW = 2  # each block is 2 tiles wide × 2 tiles tall
 TILES_PER_BLOCK_COL = 2
 BLOCKS_PER_CHUNK_ROW = 8  # each chunk is 8×8 blocks
@@ -597,81 +586,6 @@ def editor_data_available() -> bool:
     return os.path.isfile(sec0) and os.path.isfile(CHUNKS_TILES_PATH)
 
 
-def build_editor_reverse_map(
-    old_per_section_strips: dict[str, list[list[int]]],
-    full_blob: bytes,
-    sec_ids_in_order: list[str],
-    grid_w: int,
-    grid_h: int,
-) -> dict[str, dict[int, int]]:
-    """Build a per-section reverse map: remapped_word → original_word.
-
-    Runs the old pipeline's dedupe+remap in memory so we can invert
-    the transformation and normalize editor tiles.bin data (which has
-    VRAM-slot indices from the old pipeline) back to OJZ.bin tile indices.
-    """
-    sorted_indices, raw_tiles = collect_referenced_tiles(
-        old_per_section_strips, full_blob
-    )
-    unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
-    src_to_canon = {
-        src_idx: mapping[i] for i, src_idx in enumerate(sorted_indices)
-    }
-
-    per_section_canon = []
-    for sec_id in sec_ids_in_order:
-        seen: set[int] = set()
-        ordered: list[int] = []
-        for col in old_per_section_strips[sec_id]:
-            for word in col:
-                src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
-                canon_idx, _ = src_to_canon.get(src_idx, (0, 0))
-                if canon_idx not in seen:
-                    seen.add(canon_idx)
-                    ordered.append(canon_idx)
-        per_section_canon.append(ordered)
-
-    edges = tile_dedupe.compute_adjacency(grid_w, grid_h)
-    colors = tile_dedupe.color_sections(len(sec_ids_in_order), edges)
-    color_bases, section_slots = tile_dedupe.assign_section_slots(
-        per_section_canon, colors, region_start=0
-    )
-
-    reverse_maps: dict[str, dict[int, int]] = {}
-    for s_idx, sec_id in enumerate(sec_ids_in_order):
-        slot_map = section_slots[s_idx]
-        rmap: dict[int, int] = {}
-        for col in old_per_section_strips[sec_id]:
-            for original_word in col:
-                src_idx = original_word & tile_dedupe.NAMETABLE_TILE_MASK
-                canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
-                vram_slot = slot_map.get(canon_idx, 0)
-                remapped = tile_dedupe.remap_nametable_word(
-                    original_word, vram_slot, flip_bits
-                )
-                rmap[remapped] = original_word
-        reverse_maps[sec_id] = rmap
-    return reverse_maps
-
-
-def normalize_editor_nametable(
-    nametable: list[list[int]],
-    reverse_map: dict[int, int],
-) -> list[list[int]]:
-    """Replace VRAM-slot nametable words with their original OJZ.bin equivalents.
-
-    Words not found in the reverse map are assumed to already be in OJZ.bin
-    index space (e.g. freshly stamped chunks from the editor).
-    """
-    result = []
-    for row in nametable:
-        new_row = []
-        for word in row:
-            new_row.append(reverse_map.get(word, word))
-        result.append(new_row)
-    return result
-
-
 def write_strips_to_file(strips: list[list[int]], path: str) -> None:
     """Write all column strips concatenated into a single binary file.
 
@@ -716,12 +630,9 @@ def generate_section_strips(
     total_tile_cols = width_chunks * TILES_PER_CHUNK_ROW
 
     # Build a flat 2D nametable: nametable[tile_row][tile_col] = word
-    # HACK (§2 A.4): apply HACK_STRIP_CHUNK_ROW_OFFSET to skip empty top
-    # padding so the test viewport shows actual terrain. Remove when a
-    # real start-row mechanism exists.
     nametable = []
     for tile_row in range(strip_rows):
-        chunk_row = (tile_row // TILES_PER_CHUNK_COL) + HACK_STRIP_CHUNK_ROW_OFFSET
+        chunk_row = tile_row // TILES_PER_CHUNK_COL
         sub_tile_row = tile_row % TILES_PER_CHUNK_COL
         row_words = []
         for tile_col in range(total_tile_cols):
@@ -742,33 +653,6 @@ def generate_section_strips(
         nametable.append(row_words)
 
     return build_strips_from_nametable(nametable, STRIP_TILE_HEIGHT)
-
-
-# ---------------------------------------------------------------------------
-# Tile art extractor
-# ---------------------------------------------------------------------------
-
-def generate_tile_art(
-    ojz_bin_path: str,
-    out_path: str,
-    n_tiles: int = OJZ_TILES_COUNT,
-) -> None:
-    """Decompress stream 0 of OJZ.bin and output the first n_tiles raw tiles.
-
-    Each Genesis tile is 32 bytes (8×8 pixels, 4bpp).
-    Stream 0 of OJZ.bin covers the first 891 tiles; tiles 0-321 are all that
-    the 32-row strips reference, so only those are included in the output.
-    """
-    data = open(ojz_bin_path, "rb").read()
-    raw, _ = kos_decompress(data, 0)
-    tile_bytes = n_tiles * 32
-    if len(raw) < tile_bytes:
-        raise ValueError(
-            f"OJZ.bin stream 0 decompressed to {len(raw)} bytes "
-            f"but {tile_bytes} needed for {n_tiles} tiles"
-        )
-    with open(out_path, "wb") as f:
-        f.write(raw[:tile_bytes])
 
 
 # ---------------------------------------------------------------------------
@@ -1023,22 +907,6 @@ def test_binary_round_trip():
     print("  PASS: binary round-trip")
 
 
-def test_generate_tile_art():
-    """Test that generate_tile_art decompresses stream 0 and returns correct tile count."""
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix='.bin', delete=False) as tf:
-        tmp = tf.name
-    generate_tile_art(OJZ_ART_PATH, tmp, OJZ_TILES_COUNT)
-    data = open(tmp, 'rb').read()
-    expected = OJZ_TILES_COUNT * 32
-    assert len(data) == expected, f"Expected {expected} bytes, got {len(data)}"
-    # Tile 0 should be all-zero (sky/transparent tile in OJZ)
-    assert data[:32] == bytes(32), "Tile 0 expected to be all zeros (sky tile)"
-    os.unlink(tmp)
-    print(f"  [OK] generate_tile_art: {OJZ_TILES_COUNT} tiles = {expected} bytes "
-          f"(Kosinski source: {os.path.getsize(OJZ_ART_PATH)} bytes)")
-
-
 def test_full_pipeline_runs():
     """Smoke test the whole generate() pipeline produces a deduped pool."""
     import tempfile
@@ -1075,7 +943,6 @@ def run_tests():
     test_column_layout_correctness()
     test_explicit_truncation()
     test_binary_round_trip()
-    test_generate_tile_art()
     test_full_pipeline_runs()
     print("All tests passed")
 
@@ -1120,13 +987,8 @@ def generate_collision_bytes(strip_words: list[int]) -> bytes:
 # Generator
 # ---------------------------------------------------------------------------
 
-def generate(force_region1_cap=None):
-    """Generate strip data for all OJZ sections.
-
-    `force_region1_cap` (optional, A.2 stress flag): caps region 1 capacity
-    to this value, forcing remaining tiles into region 2. Used for testing
-    the spill code path on data that doesn't naturally exceed 1536 tiles.
-    """
+def generate():
+    """Generate strip data for all OJZ sections."""
     out_dir = os.path.normpath(OUTPUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
 
@@ -1378,27 +1240,15 @@ def generate(force_region1_cap=None):
 # ---------------------------------------------------------------------------
 
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in ("test", "generate"):
-        print(f"Usage: {sys.argv[0]} test|generate [--force-region1-cap=N]")
+    if len(sys.argv) != 2 or sys.argv[1] not in ("test", "generate"):
+        print(f"Usage: {sys.argv[0]} test|generate")
         sys.exit(1)
 
     if sys.argv[1] == "test":
         run_tests()
         return
 
-    # generate
-    force_cap = None
-    for arg in sys.argv[2:]:
-        if arg.startswith("--force-region1-cap="):
-            try:
-                force_cap = int(arg.split("=", 1)[1])
-            except ValueError:
-                print(f"Invalid --force-region1-cap value: {arg}")
-                sys.exit(1)
-        else:
-            print(f"Unknown arg: {arg}")
-            sys.exit(1)
-    generate(force_region1_cap=force_cap)
+    generate()
 
 
 if __name__ == "__main__":

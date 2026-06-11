@@ -130,7 +130,7 @@ def write_strips(path: str, section_index: int) -> None:
 
 def main() -> None:
     os.makedirs(OUT_DIR, exist_ok=True)
-    # Match OJZ_TILES_COUNT in the test to keep DMA sizes valid
+    # 322 tiles — historic OJZ raw-export count the test's DMA sizes were built around
     write_tile_art(os.path.join(OUT_DIR, "ojz_tiles.bin"), n_tiles=322)
     write_palette(os.path.join(OUT_DIR, "ojz_palette.bin"))
     for sec in range(NUM_SECTIONS):
