@@ -346,7 +346,7 @@ Ring_Anim_Frame:        ds.b 1          ; global ring animation counter (0-3)
 Ring_Anim_Timer:        ds.b 1          ; countdown to next animation tick
 
 ; Entity window tracking
-Entity_Window_Active:   ds.b 1          ; number of tracked sections (0-4)
+Entity_Window_Active:   ds.b 1          ; 4-bit entry validity mask (bit n = entry n valid)
 Entity_Window_Center_ID: ds.b 1         ; section_id of rolling bitmask center
 Entity_Loaded_Masks:    ds.b MAX_TRACKED_SECTIONS * ENTITY_LOADED_SLOT_SIZE ; 128B — per-entry ring/obj loaded bits (§4.9 ph2)
 Camera_Y_Coarse_Prev:   ds.w 1          ; camY & $FF80 at last vertical re-scan

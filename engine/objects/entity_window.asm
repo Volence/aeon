@@ -269,21 +269,123 @@ Collected_UpdateCenter:
 ;      a1 = EntityScanState pointer (RAM)
 ;      d0.w = section origin X (engine-space)
 ;      d1.b = section_id
+;      d2.w = section origin Y (engine-space)
+;      d6.b = entry index (0-3)
 ; Out: none
-; Clobbers: none
+; Clobbers: d3, a2 (mask clear)
 ; -----------------------------------------------
 EntityWindow_InitSection:
         ifdebug assert.l a0, ne, #0     ; NULL Sec ptr = caller passed a void/out-of-grid slot
+
+        ; Loaded mask is per-entry state about ONE section — clear it when
+        ; this entry's section changes. Same-section re-init (teleport
+        ; migration target) keeps its bits (Task 6 copies them in first).
+        cmp.b   EntityScanState_ess_section_id(a1), d1
+        beq.s   .same_section
+        moveq   #0, d3
+        move.b  d6, d3
+        lsl.w   #5, d3                  ; entry × ENTITY_LOADED_SLOT_SIZE (32)
+        lea     (Entity_Loaded_Masks).w, a2
+        adda.w  d3, a2
+        moveq   #ENTITY_LOADED_SLOT_SIZE/4-1, d3
+.clear_mask:
+        clr.l   (a2)+
+        dbf     d3, .clear_mask
+.same_section:
+
         move.l  Sec_sec_rings(a0), EntityScanState_ess_rom_ring_ptr(a1)
         move.l  Sec_sec_objects(a0), EntityScanState_ess_rom_obj_ptr(a1)
         move.l  Sec_sec_type_table(a0), EntityScanState_ess_rom_type_tbl_ptr(a1)
         move.w  d0, EntityScanState_ess_origin_x(a1)
+        move.w  d2, EntityScanState_ess_origin_y(a1)
         move.b  d1, EntityScanState_ess_section_id(a1)
-        clr.b   EntityScanState_ess_entry_idx(a1)
+        move.b  d6, EntityScanState_ess_entry_idx(a1)
         clr.w   EntityScanState_ess_ring_right_idx(a1)
         clr.w   EntityScanState_ess_ring_left_idx(a1)
         clr.w   EntityScanState_ess_obj_right_idx(a1)
         clr.w   EntityScanState_ess_obj_left_idx(a1)
+        rts
+
+; -----------------------------------------------
+; EntityWindow_BuildEntries — (re)configure all 4 quadrant entries
+;
+; Quadrants: entry 0 = slot L row r, 1 = slot R row r,
+;            entry 2 = slot L row r+1, 3 = slot R row r+1.
+; Void quadrants (sec_x = SEC_VOID, or row ≥ grid_h via
+; Section_GetSecPtrXY) get SEC_VOID-stamped entries and a clear
+; validity bit. Entity_Window_Active = 4-bit validity mask.
+;
+; In:  none (reads Slot_Section_Map, Current_Act_Ptr)
+; Out: Entity_Window_Active set
+; Clobbers: d0-d7, a0-a5
+; -----------------------------------------------
+EntityWindow_BuildEntries:
+        lea     (Entity_Scan_State).w, a3
+        lea     (Slot_Section_Map).w, a5
+        moveq   #0, d7                  ; d7 = validity mask
+        moveq   #0, d6                  ; d6 = entry index 0-3
+
+.entry_loop:
+        ; slot = entry & 1, row offset = entry >> 1
+        move.w  d6, d0
+        andi.w  #1, d0                  ; d0 = slot (0/1)
+        add.w   d0, d0                  ; slot × 2 (map stride)
+        move.b  (a5, d0.w), d2          ; d2 = sec_x
+        cmpi.b  #SEC_VOID, d2
+        beq.s   .void_entry
+        move.b  1(a5, d0.w), d3         ; d3 = sec_y
+        move.w  d6, d1
+        lsr.w   #1, d1                  ; row offset (0/1)
+        add.b   d1, d3                  ; d3 = sec_y + row offset
+        movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_GetSecPtrXY     ; a0 = Sec ptr, Z set = out of grid
+        beq.s   .void_entry
+
+        bsr.w   Section_FlatIDXY        ; d0.w = flat id (d2/d3/a2 preserved)
+        move.w  d0, d1                  ; d1.b = section_id
+
+        ; origins from entry geometry
+        move.w  d6, d0
+        andi.w  #1, d0
+        beq.s   .x_left
+        move.w  #SLOT_ORIGIN_R, d0
+        bra.s   .x_done
+.x_left:
+        move.w  #SLOT_ORIGIN_L, d0
+.x_done:
+        moveq   #0, d2
+        move.w  #SLOT_ORIGIN_U, d2
+        btst    #1, d6                  ; lower row?
+        beq.s   .y_done
+        move.w  #SLOT_ORIGIN_D, d2
+.y_done:
+
+        lea     (a3), a1
+        bsr.w   EntityWindow_InitSection
+
+        ; claim a collected/killed bitmask slot for this section
+        movem.l d6-d7/a3/a5, -(sp)
+        moveq   #0, d0
+        move.b  EntityScanState_ess_section_id(a1), d0
+        bsr.w   Collected_ClaimSlot
+        movem.l (sp)+, d6-d7/a3/a5
+
+        bset    d6, d7                  ; mark entry valid
+        bra.s   .next_entry
+
+.void_entry:
+        ; stamp SEC_VOID — despawn paths read entry ids unconditionally;
+        ; a stale id would keep dead-section survivors alive forever
+        move.b  #SEC_VOID, EntityScanState_ess_section_id(a3)
+        move.b  d6, EntityScanState_ess_entry_idx(a3)
+
+.next_entry:
+        lea     EntityScanState_len(a3), a3
+        addq.w  #1, d6
+        cmpi.w  #MAX_TRACKED_SECTIONS, d6
+        blo.s   .entry_loop
+
+        move.b  d7, (Entity_Window_Active).w
         rts
 
 ; -----------------------------------------------
@@ -298,65 +400,33 @@ EntityWindow_Init:
         bsr.w   Collected_Init
         clr.b   (Entity_Window_Active).w
 
-        lea     (Entity_Scan_State).w, a3
-        moveq   #0, d7                  ; tracked section count
+        ; cold boot: loaded masks + scan-state section ids are garbage —
+        ; clear everything so InitSection's compare-clear starts clean
+        lea     (Entity_Loaded_Masks).w, a0
+        moveq   #(MAX_TRACKED_SECTIONS*ENTITY_LOADED_SLOT_SIZE)/4-1, d0
+.clear_loaded:
+        clr.l   (a0)+
+        dbf     d0, .clear_loaded
+        lea     (Entity_Scan_State).w, a0
+        move.w  #(MAX_TRACKED_SECTIONS*EntityScanState_len)-1, d0
+.clear_scan:
+        clr.b   (a0)+
+        dbf     d0, .clear_scan
 
-        ; --- Active slot 0 ---
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef      ; a0 = Sec ptr
-        movea.l a0, a4                  ; save Sec ptr
-        moveq   #SLOT_LEFT, d0
-        bsr.w   Section_SlotFlatID      ; d0.w = flat section_id (sec_y*grid_w+sec_x)
-        move.w  d0, d1                  ; d1.b = section_id
-        movea.l a4, a0                  ; restore Sec ptr
-        move.w  #SLOT_ORIGIN_L, d0     ; origin X
-        lea     (a3), a1               ; scan state entry
-        bsr.w   EntityWindow_InitSection
-        ; Claim bitmask slot
-        moveq   #0, d0
-        move.b  EntityScanState_ess_section_id(a1), d0
-        bsr.w   Collected_ClaimSlot
-        lea     EntityScanState_len(a3), a3
-        addq.w  #1, d7
-
-        ; --- Active slot 1 (skip when void — SEC_VOID slot has no section;
-        ;     d7 stays at 1 so per-frame scans never touch the stale entry) ---
-        cmpi.b  #SEC_VOID, (Slot_Section_Map+2).w
-        beq.s   .init_slot1_void
-        moveq   #SLOT_RIGHT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        movea.l a0, a4
-        moveq   #SLOT_RIGHT, d0
-        bsr.w   Section_SlotFlatID      ; d0.w = flat section_id
-        move.w  d0, d1
-        movea.l a4, a0
-        move.w  #SLOT_ORIGIN_R, d0
-        lea     (a3), a1
-        bsr.w   EntityWindow_InitSection
-        moveq   #0, d0
-        move.b  EntityScanState_ess_section_id(a1), d0
-        bsr.w   Collected_ClaimSlot
-        lea     EntityScanState_len(a3), a3
-        addq.w  #1, d7
-        bra.s   .init_slot1_done
-.init_slot1_void:
-        ; stamp the skipped entry's section_id — the despawn paths read
-        ; entry 1's id unconditionally for the active-section exemption;
-        ; a stale id would keep old-section survivors alive forever
-        move.b  #SEC_VOID, (Entity_Scan_State+EntityScanState_len+EntityScanState_ess_section_id).w
-.init_slot1_done:
-
-        move.b  d7, (Entity_Window_Active).w
-
-        ; Set center section for collected bitmask window (slot 0 flat id)
+        ; center the 3×3 collected window on slot 0 BEFORE claiming slots
         moveq   #SLOT_LEFT, d0
         bsr.w   Section_SlotFlatID
         movea.l (Current_Act_Ptr).w, a2
         moveq   #0, d1
         move.b  Act_grid_w+1(a2), d1
         bsr.w   Collected_UpdateCenter
+
+        bsr.w   EntityWindow_BuildEntries
+
+        ; vertical re-scan trigger baseline
+        move.w  (Camera_Y).w, d0
+        andi.w  #$FF80, d0
+        move.w  d0, (Camera_Y_Coarse_Prev).w
 
         ; Run initial scan to load entities in camera range
         bra.w   EntityWindow_Scan
@@ -369,31 +439,31 @@ EntityWindow_Init:
 ; Clobbers: d0-d7, a0-a5
 ; -----------------------------------------------
 EntityWindow_Scan:
-        moveq   #0, d5
         move.b  (Entity_Window_Active).w, d5
         beq.s   .scan_done
-        subq.w  #1, d5
 
         ; Compute window edges
-        move.w  (Camera_X).w, d6
-        move.w  d6, d7
+        move.w  (Camera_X).w, d7
         addi.w  #SCREEN_WIDTH+ENTITY_LOAD_BUFFER, d7   ; d7 = right load edge
 
         lea     (Entity_Scan_State).w, a3
-        moveq   #0, d6                  ; d6.b = slot tag (0=left, 1=right)
+        moveq   #0, d6                  ; d6.b = entry index (0-3) → SST_slot_tag
 
 .section_loop:
+        btst    d6, d5
+        beq.s   .section_next
         lea     (a3), a1
         bsr.w   EntityWindow_ScanRingsRight
         bsr.w   EntityWindow_ScanObjectsRight
+.section_next:
         lea     EntityScanState_len(a3), a3
         addq.b  #1, d6
-        dbf     d5, .section_loop
+        cmpi.b  #MAX_TRACKED_SECTIONS, d6
+        blo.s   .section_loop
 
 .scan_done:
         bsr.w   EntityWindow_DespawnRings
-        bsr.w   EntityWindow_DespawnObjects
-        rts
+        bra.w   EntityWindow_DespawnObjects
 
 ; -----------------------------------------------
 ; EntityWindow_ScanRingsRight — load rings entering right edge
@@ -444,9 +514,7 @@ EntityWindow_ScanRingsRight:
         move.w  (a0), d0
         add.w   d3, d0                  ; engine X
         move.w  2(a0), d1
-        addi.w  #SLOT_ORIGIN_U, d1      ; section-local Y -> engine Y (world top = $200;
-                                        ; the §4.9 vertical window replaces this constant
-                                        ; with a per-section Y origin — see DEFERRED_WORK)
+        add.w   EntityScanState_ess_origin_y(a1), d1    ; section-local Y -> engine Y
         move.b  EntityScanState_ess_section_id(a1), d2  ; section_id
         move.b  d4, d3                  ; list_index
         bsr.w   RingBuffer_Add
@@ -517,7 +585,7 @@ EntityWindow_PopulateSectionRings:
         move.w  (a0), d0
         add.w   d3, d0
         move.w  2(a0), d1
-        addi.w  #SLOT_ORIGIN_U, d1      ; section-local Y -> engine Y
+        add.w   EntityScanState_ess_origin_y(a1), d1    ; section-local Y -> engine Y
         move.b  EntityScanState_ess_section_id(a1), d2
         move.b  d4, d3
         bsr.w   RingBuffer_Add
@@ -536,13 +604,13 @@ EntityWindow_PopulateSectionRings:
 ;
 ; Entry format (v2): 6 bytes — dc.w x, y, flags|type|subtype
 ;   +0 dc.w  section-local X
-;   +2 dc.w  section-local Y   (spawner adds SLOT_ORIGIN_U; §4.9 X-only window)
+;   +2 dc.w  section-local Y   (spawner adds the entry's ess_origin_y)
 ;   +4 dc.w  flags|type|subtype  (OEF_* bits; flows to Load_Object in d2)
 ; Terminated by dc.w -1 (X is section-local, always >= 0 → bmi fires on sentinel).
 ; List is X-sorted; bhi exits as soon as X exceeds load edge.
 ;
 ; In:  a1 = EntityScanState pointer
-;      d6.b = slot tag (SLOT_TAG_LEFT or SLOT_TAG_RIGHT)
+;      d6.b = entry index 0-3 (stored to SST_slot_tag on spawn)
 ;      d7.w = right edge (Camera_X + SCREEN_WIDTH + ENTITY_LOAD_BUFFER)
 ; Out: none
 ; Clobbers: d0-d4, a0, a2
@@ -590,7 +658,7 @@ EntityWindow_ScanObjectsRight:
 
         ; d0.w = engine X (already computed above)
         move.w  2(a0), d1
-        addi.w  #SLOT_ORIGIN_U, d1      ; section-local Y -> engine Y ($200 world top)
+        add.w   EntityScanState_ess_origin_y(a1), d1    ; section-local Y -> engine Y
         move.w  4(a0), d2               ; full placement word — Load_Object reads flips from bits 13-14
 
         ; Type extraction: bits 12-8 → d3, then type-table lookup
@@ -658,7 +726,11 @@ EntityWindow_DespawnRings:
         move.b  4(a0, d0.w), d1
         cmp.b   (Entity_Scan_State+EntityScanState_ess_section_id).w, d1
         beq.s   .next
-        cmp.b   (Entity_Scan_State+EntityScanState_len+EntityScanState_ess_section_id).w, d1
+        cmp.b   (Entity_Scan_State+(EntityScanState_len*1)+EntityScanState_ess_section_id).w, d1
+        beq.s   .next
+        cmp.b   (Entity_Scan_State+(EntityScanState_len*2)+EntityScanState_ess_section_id).w, d1
+        beq.s   .next
+        cmp.b   (Entity_Scan_State+(EntityScanState_len*3)+EntityScanState_ess_section_id).w, d1
         beq.s   .next
 
 .remove:
@@ -702,7 +774,11 @@ EntityWindow_DespawnObjects:
         move.b  SST_entity_section_id(a0), d1
         cmp.b   (Entity_Scan_State+EntityScanState_ess_section_id).w, d1
         beq.s   .next
-        cmp.b   (Entity_Scan_State+EntityScanState_len+EntityScanState_ess_section_id).w, d1
+        cmp.b   (Entity_Scan_State+(EntityScanState_len*1)+EntityScanState_ess_section_id).w, d1
+        beq.s   .next
+        cmp.b   (Entity_Scan_State+(EntityScanState_len*2)+EntityScanState_ess_section_id).w, d1
+        beq.s   .next
+        cmp.b   (Entity_Scan_State+(EntityScanState_len*3)+EntityScanState_ess_section_id).w, d1
         beq.s   .next
 
 .despawn:
@@ -890,9 +966,9 @@ EntityWindow_TeleportShiftY:
 ; -----------------------------------------------
 EntityWindow_RebuildScanState:
         ; Evict stale bitmask slots FIRST (claim-before-evict broke at
-        ; exactly 9/9 occupancy: both ClaimSlot calls below failed
-        ; silently when a full 3x3 neighborhood preceded a teleport,
-        ; leaving both active sections untracked until the next one)
+        ; exactly 9/9 occupancy: ClaimSlot calls failed silently when a
+        ; full 3x3 neighborhood preceded a teleport, leaving the active
+        ; sections untracked until the next one)
         moveq   #SLOT_LEFT, d0
         bsr.w   Section_SlotFlatID
         movea.l (Current_Act_Ptr).w, a2
@@ -900,54 +976,28 @@ EntityWindow_RebuildScanState:
         move.b  Act_grid_w+1(a2), d1
         bsr.w   Collected_UpdateCenter
 
+        bsr.w   EntityWindow_BuildEntries
+
+        ; teleport moved the world under the camera — rebase the
+        ; vertical re-scan trigger so the next crossing is real
+        move.w  (Camera_Y).w, d0
+        andi.w  #$FF80, d0
+        move.w  d0, (Camera_Y_Coarse_Prev).w
+
+        ; full ring populate for every valid entry (teleport path)
         lea     (Entity_Scan_State).w, a3
-        moveq   #0, d7
-
-        ; Slot 0
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        movea.l a0, a4
-        moveq   #SLOT_LEFT, d0
-        bsr.w   Section_SlotFlatID      ; d0.w = flat section_id
-        move.w  d0, d1
-        movea.l a4, a0
-        move.w  #SLOT_ORIGIN_L, d0
+        moveq   #0, d6
+.populate_loop:
+        move.b  (Entity_Window_Active).w, d0
+        btst    d6, d0
+        beq.s   .populate_next
         lea     (a3), a1
-        bsr.w   EntityWindow_InitSection
-        moveq   #0, d0
-        move.b  EntityScanState_ess_section_id(a1), d0
-        bsr.w   Collected_ClaimSlot
+        movem.l d6/a3, -(sp)
         bsr.w   EntityWindow_PopulateSectionRings
+        movem.l (sp)+, d6/a3
+.populate_next:
         lea     EntityScanState_len(a3), a3
-        addq.w  #1, d7
-
-        ; Slot 1 (skip when void — SEC_VOID slot has no section; d7 stays
-        ; at 1 so per-frame scans never touch the stale entry)
-        cmpi.b  #SEC_VOID, (Slot_Section_Map+2).w
-        beq.s   .rebuild_slot1_void
-        moveq   #SLOT_RIGHT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        movea.l a0, a4
-        moveq   #SLOT_RIGHT, d0
-        bsr.w   Section_SlotFlatID      ; d0.w = flat section_id
-        move.w  d0, d1
-        movea.l a4, a0
-        move.w  #SLOT_ORIGIN_R, d0
-        lea     (a3), a1
-        bsr.w   EntityWindow_InitSection
-        moveq   #0, d0
-        move.b  EntityScanState_ess_section_id(a1), d0
-        bsr.w   Collected_ClaimSlot
-        bsr.w   EntityWindow_PopulateSectionRings
-        lea     EntityScanState_len(a3), a3
-        addq.w  #1, d7
-        bra.s   .rebuild_slot1_done
-.rebuild_slot1_void:
-        ; stamp the skipped entry's section_id — see .init_slot1_void
-        move.b  #SEC_VOID, (Entity_Scan_State+EntityScanState_len+EntityScanState_ess_section_id).w
-.rebuild_slot1_done:
-
-        move.b  d7, (Entity_Window_Active).w
+        addq.w  #1, d6
+        cmpi.w  #MAX_TRACKED_SECTIONS, d6
+        blo.s   .populate_loop
         rts

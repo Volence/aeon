@@ -121,6 +121,27 @@ Section_SlotFlatID:
         rts
 
 ; -----------------------------------------------
+; Section_FlatIDXY — flat section id from grid coordinates.
+; In:  d2.b = sec_x, d3.b = sec_y, a2 = Act ptr
+; Out: d0.w = sec_y * grid_w + sec_x
+; Clobbers: d1
+; -----------------------------------------------
+Section_FlatIDXY:
+        moveq   #0, d0
+        moveq   #0, d1
+        move.b  d3, d1
+        subq.w  #1, d1
+        bmi.s   .fxy_add_x
+.fxy_mul:
+        add.w   Act_grid_w(a2), d0
+        dbf     d1, .fxy_mul
+.fxy_add_x:
+        moveq   #0, d1
+        move.b  d2, d1
+        add.w   d1, d0
+        rts
+
+; -----------------------------------------------
 ; Section_GetSecPtrXY — Sec ptr lookup by grid coordinates (§4.2).
 ; In:  d2.b = sec_x, d3.b = sec_y, a2 = Act ptr
 ; Out: a0 = Sec ptr; Z clear if found, Z set if out of range (a0 = 0)
