@@ -340,7 +340,13 @@ EntityWindow_Init:
         bsr.w   Collected_ClaimSlot
         lea     EntityScanState_len(a3), a3
         addq.w  #1, d7
+        bra.s   .init_slot1_done
 .init_slot1_void:
+        ; stamp the skipped entry's section_id — the despawn paths read
+        ; entry 1's id unconditionally for the active-section exemption;
+        ; a stale id would keep old-section survivors alive forever
+        move.b  #SEC_VOID, (Entity_Scan_State+EntityScanState_len+EntityScanState_ess_section_id).w
+.init_slot1_done:
 
         move.b  d7, (Entity_Window_Active).w
 
@@ -937,7 +943,11 @@ EntityWindow_RebuildScanState:
         bsr.w   EntityWindow_PopulateSectionRings
         lea     EntityScanState_len(a3), a3
         addq.w  #1, d7
+        bra.s   .rebuild_slot1_done
 .rebuild_slot1_void:
+        ; stamp the skipped entry's section_id — see .init_slot1_void
+        move.b  #SEC_VOID, (Entity_Scan_State+EntityScanState_len+EntityScanState_ess_section_id).w
+.rebuild_slot1_done:
 
         move.b  d7, (Entity_Window_Active).w
         rts

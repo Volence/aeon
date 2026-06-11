@@ -179,6 +179,11 @@ GameState_OJZScroll_Update:
         moveq   #0, d2                          ; assume slot 0
         cmpi.w  #SLOT_ORIGIN_R, d0
         blt.s   .slot_resolved
+        ; X >= $A00 → slot 1, unless it is void (SEC_VOID at the act edge;
+        ; the camera void clamp at $8C0 makes this unreachable today, but
+        ; don't let that cross-module dependency be the only safety)
+        cmpi.b  #SEC_VOID, (Slot_Section_Map+2).w
+        beq.s   .slot_resolved
         moveq   #1, d2                          ; X >= $A00 → slot 1
 .slot_resolved:
         add.w   d2, d2                          ; d2 = slot * 2 byte offset
