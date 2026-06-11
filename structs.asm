@@ -144,7 +144,7 @@ sec_bg_layout       ds.l 1          ; $1C — plane B layout pointer (NULL = use
 sec_type_table      ds.l 1          ; $20 — type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
 sec_pal_cycle       ds.l 1          ; $24 — palette cycling script (Phase 4)
 sec_sound_bank      ds.l 1          ; $28 — DAC sample bank pointer
-sec_reserved_2C     ds.l 1          ; $2C — reserved (was strip checkpoints; blocks are direct-access)
+sec_block_dict      ds.l 1          ; $2C — ptr to raw block dictionary (block blob + index size; LZ window pre-seed)
 sec_anim_blocks     ds.l 1          ; $30 — animated tile script (Phase 4)
 sec_collision_s4lz  ds.l 1          ; $34 — reserved (collision embedded in strip data; §4.7)
 sec_flags           ds.w 1          ; $38 — SF_* bitmask
@@ -155,7 +155,7 @@ sec_pcfg_pad_3E     ds.b 1          ; $3E — RESERVED (was sec_deform_speed)
 sec_pcfg_pad_3F     ds.b 1          ; $3F — RESERVED (was sec_transition_type)
 sec_tile_art_s4lz   ds.l 1          ; $40 — per-section S4LZ tile pool ptr (§2 A.3)
 sec_tile_art_vram   ds.w 1          ; $44 — VRAM byte dest (color base × 32)
-                    ds.w 1          ; $46 — pad
+sec_block_dict_len  ds.w 1          ; $46 — dict bytes (768×K, K≤3, word-even; 0 = no dict)
 Sec endstruct
 
     if Sec_len <> $48

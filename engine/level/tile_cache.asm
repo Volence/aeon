@@ -158,9 +158,13 @@ TileCache_InvalidateStaging:
 ; TileCache_DecompressBlock — decompress one 16×16 block into a staging slot
 ; Claims the next round-robin slot and records the key, so subsequent
 ; TileCache_FindStagedBlock probes hit it.
+; Index entry forms: 0 = empty (zero-fill); bit 31 set = RAW DIRECT (offset
+; from table base to an uncompressed 768-byte block in the dict region —
+; straight ROM→slot copy); else = S4LZ v3 stream decoded with the section's
+; block dictionary pre-seeding the window (Sec_sec_block_dict/_len).
 ; In:  d0.w = sec_x, d1.w = sec_y, d2.w = block_index (0–255)
 ; Out: a1 = slot base (nametable; collision at +BLOCK_NT_SIZE)
-; Clobbers: d0-d5, a0-a3
+; Clobbers: d0-d7, a0-a4
 ; -----------------------------------------------
 TileCache_DecompressBlock:
         ; claim next round-robin slot, record key
@@ -193,9 +197,9 @@ TileCache_DecompressBlock:
         ;    (tile 0, collision 0) instead of indexing the Sec table out of
         ;    range. The key recorded above caches the blank like any block. --
         cmp.w   Act_grid_w(a0), d0
-        bhs.s   .empty_block
+        bhs.w   .empty_block                   ; (.w: raw-copy path pushes target past .s range)
         cmp.w   Act_grid_h(a0), d1
-        bhs.s   .empty_block
+        bhs.w   .empty_block
 
         ; sec_id = sec_y * grid_w + sec_x (add loop, cold path)
         move.w  Act_grid_w(a0), d4             ; d4 = grid_w
@@ -216,20 +220,43 @@ TileCache_DecompressBlock:
 
         movea.l Sec_sec_block_index(a1), a2    ; a2 = block index table base (ROM)
         move.l  a2, d3
-        beq.s   .empty_block
+        beq.w   .empty_block                   ; (.w: raw-copy path pushes target past .s range)
 
         ; index into block table: block_index × 4
         move.w  d2, d3
         lsl.w   #2, d3
         move.l  (a2, d3.w), d0                 ; d0 = offset from table base (0 = null)
-        beq.s   .empty_block
+        beq.w   .empty_block
+        bmi.s   .raw_direct                    ; bit 31 = raw block in the dict region
 
-        ; compute absolute ROM address: base + offset
+        ; compressed v3 stream — decode with the section dictionary window
         lea     (a2, d0.l), a0                 ; a0 = compressed block data
+        move.w  Sec_sec_block_dict_len(a1), d4 ; d4 = dict bytes (0 = none)
+        movea.l Sec_sec_block_dict(a1), a4     ; a4 = raw dict base (ROM)
         movea.l a3, a1
-        move.l  a3, -(sp)                      ; S4LZ_Decompress clobbers a3, advances a1
-        bsr.w   S4LZ_Decompress
+        move.l  a3, -(sp)                      ; decompress clobbers a3, advances a1
+        bsr.w   S4LZ_DecompressDict
         movea.l (sp)+, a1                      ; a1 = slot base
+        rts
+
+.raw_direct:
+        bclr    #31, d0                        ; d0 = byte offset of the raw block
+        ifdebug assert.l d0, hs, #BLOCK_INDEX_SIZE  ; raw region sits past the index
+        ifdebug move.w  d0, d3
+        ifdebug andi.w  #1, d3
+        ifdebug assert.w d3, eq                ; raw offset must be word-even
+        lea     (a2, d0.l), a0                 ; a0 = raw 768-byte block (ROM)
+        movea.l a3, a1
+        ; straight ROM→slot copy, 24 × 32-byte movem bursts
+        ; (76r + 72w + 8 lea + 10 dbf = 166 c per 32 B ≈ 4.0k c/block —
+        ; cheaper than any decompress of the same block)
+        moveq   #(BLOCK_RAW_SIZE/32)-1, d7
+.raw_copy:
+        movem.l (a0)+, d0-d6/a2
+        movem.l d0-d6/a2, (a1)
+        lea     32(a1), a1
+        dbf     d7, .raw_copy
+        movea.l a3, a1                         ; a1 = slot base
         rts
 
 .empty_block:
@@ -888,7 +915,7 @@ Tile_Cache_Fill:
         beq.s   .pfx_skip                      ; already staged — nothing to do
 
         subq.w  #1, (Cache_Fill_Budget).w
-        bsr.w   TileCache_DecompressBlock      ; d0=sec_x, d1=sec_y, d2=block_index in; clobbers d0-d5,a0-a3
+        bsr.w   TileCache_DecompressBlock      ; d0=sec_x, d1=sec_y, d2=block_index in; clobbers d0-d7,a0-a4
 
 .pfx_skip:
 .fill_return:
@@ -901,7 +928,7 @@ Tile_Cache_Fill:
 ;      On partial, resume state (Cache_Fill_Resume_Col/Row) is stored;
 ;      Tile_Cache_Fill finishes it first next frame.
 ; Uses Cache_Fill_Budget — shared per-frame decompress allowance.
-; Clobbers: d0-d7, a0-a3
+; Clobbers: d0-d7, a0-a4
 ; -----------------------------------------------
 TileCache_FillColumn:
         ; resume only if a partial is pending for THIS column
@@ -992,7 +1019,7 @@ TileCache_FillColumn:
 ; Out: d0.w = 0 complete / 1 budget-out (resume state stored in
 ;             Cache_Fill_RowResume_Row/Col).
 ;      On complete, Cache_Fill_RowResume_Row is set to $FFFF.
-; Clobbers: d0-d7, a0-a3
+; Clobbers: d0-d7, a0-a4
 ; Note: collision is copied only on the odd row of each 16px cell (the row
 ;       that completes the cell). Cache_Top_Row is kept even, so cell
 ;       boundaries align with world block data.

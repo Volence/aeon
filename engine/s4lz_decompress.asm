@@ -33,7 +33,35 @@
 ;           not (a1 − dest_start). Dest buffers must be ≤ 32766 bytes
 ;           (suba.w sign-extends; offsets must stay < $8000).
 ; Clobbers: d0-d3, a2-a3
+;           (a4/d4 untouched — load_art keeps both live across this call)
+;
+; S4LZ_DecompressDict entry: the LZ window is pre-seeded with a ROM
+; dictionary logically prepended to the output. The encoder measures match
+; offsets as distances in the dict+data concatenation, so a match source
+; below the dest start belongs to the dictionary TAIL. One rebase constant,
+; computed once per call, redirects it:
+;       a4 = dict_base + dict_len - dest_start
+;   so  a2' = a2 + a4 = dict_base + dict_len - (dest_start - a2)
+; Trace: a2 one word below dest (offset reaches 2 bytes into the dict) →
+;   a2 = dest_start - 2 → a2' = dict_base + dict_len - 2 = last dict word ✓
+;   a2 = dest_start - dict_len (deepest legal) → a2' = dict_base ✓
+; The encoder never emits matches that straddle the dict/data boundary,
+; so an ascending copy starting in the dict stays inside the dict.
+; Extra In:  a4 = dict base (ROM, word-aligned)
+;            d4.w = dict length in bytes (even, ≤ 3*768; 0 = no dict)
+; Extra clobbers: a4 (becomes the rebase constant). d4 preserved.
+; Cost: +16 cycles per match (cmpa.l + taken branch) on the in-buffer path,
+;       shared with the plain entry — whose branch never fires on valid
+;       no-dict streams (offsets never reach below the dest start), so the
+;       plain entry neither reads nor writes a4/d4.
 ; -----------------------------------------------
+S4LZ_DecompressDict:
+        ifdebug move.w  d4, d0
+        ifdebug andi.w  #1, d0
+        ifdebug assert.w d0, eq                 ; dict length must be word-even
+        adda.w  d4, a4                          ; a4 = dict end (d4 ≤ 2304, positive)
+        suba.l  a1, a4                          ; a4 = rebase (dict_end - dest_start)
+        ; fall through — body below is shared with the no-dict entry
 S4LZ_Decompress:
         movea.l a1, a3                          ; a3 = dest start (for tile-delta)
         move.w  (a0)+, d3                       ; d3.w = uncompressed size
@@ -52,7 +80,7 @@ S4LZ_Decompress:
         andi.w  #$0F, d1                        ; d1 = LIT_CNT (0-15)
         beq.s   .no_literals                    ; 0 literals -> skip
         cmpi.w  #15, d1
-        beq.s   .lit_extended                   ; 15 = read count word
+        beq.w   .lit_extended                   ; 15 = read count word (.w: debug asserts push it past .s range)
 
     ; --- Unrolled literal copy (1-14 words) ---
         add.w   d1, d1                          ; count * 2 bytes per move.w instruction
@@ -94,6 +122,14 @@ S4LZ_Decompress:
 .have_offset:
         movea.l a1, a2
         suba.w  d1, a2                          ; a2 = match source (dest - offset)
+        cmpa.l  a3, a2
+        bhs.s   .src_in_dest                    ; common case: source within output
+        ; dictionary hit — redirect into the dict tail (see header trace)
+        ifdebug move.l  a3, d1                  ; d1 (offset) is dead past suba
+        ifdebug sub.l   a2, d1                  ; bytes below dest start
+        ifdebug assert.w d4, hs, d1             ; must stay within the dict
+        adda.l  a4, a2                          ; a2 = dict_end - (dest_start - a2)
+.src_in_dest:
         cmpi.w  #15, d0
         beq.s   .match_extended                 ; 15 = read count word
 
