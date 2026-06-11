@@ -33,10 +33,17 @@ RingBuffer_Add:
         move.b  d3, (a0)+              ; list_index
 
         addq.b  #1, (Ring_Count).w
+        move.b  (Ring_Count).w, d4
+        cmp.b   (Ring_HighWater).w, d4
+        bls.s   .not_record
+        move.b  d4, (Ring_HighWater).w
+.not_record:
         andi.b  #$FE, ccr              ; clear carry
         rts
 
 .full:
+        addq.b  #1, (Ring_Add_Dropped).w
+        ifdebug assert.b (Ring_Add_Dropped).w, eq, #0  ; drop = content bug, fatal in DEBUG
         ori.b   #1, ccr                ; set carry
         rts
 
@@ -85,6 +92,8 @@ RingBuffer_Remove:
 ; -----------------------------------------------
 RingBuffer_Clear:
         clr.b   (Ring_Count).w
+        clr.b   (Ring_HighWater).w
+        clr.b   (Ring_Add_Dropped).w
         rts
 
 ; -----------------------------------------------

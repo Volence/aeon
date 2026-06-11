@@ -350,6 +350,8 @@ Entity_Window_Active:   ds.b 1          ; 4-bit entry validity mask (bit n = ent
 Entity_Window_Center_ID: ds.b 1         ; section_id of rolling bitmask center
 Entity_Loaded_Masks:    ds.b MAX_TRACKED_SECTIONS * ENTITY_LOADED_SLOT_SIZE ; 128B — per-entry ring/obj loaded bits (§4.9 ph2)
 Camera_Y_Coarse_Prev:   ds.w 1          ; camY & $FF80 at last vertical re-scan
+Ring_HighWater:         ds.b 1          ; max Ring_Count observed (diagnostics)
+Ring_Add_Dropped:       ds.b 1          ; RingBuffer_Add failures (buffer full)
 
 ; Rolling collected/killed bitmask — 9 slots × 34 bytes
 Ring_Collected_Window:  ds.b COLLECTED_WINDOW_SLOTS * COLLECTED_SLOT_SIZE  ; 306 bytes
