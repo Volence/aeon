@@ -439,7 +439,8 @@ Decode_Factor_B:
 
 ; ----------------------------------------------------------------------
 ; Parallax_Fill_PerLine — emit 224 longwords with FG/BG deform sampling
-; In:  a0 = parallax_config*, d7 = band count
+; In:  a0 = parallax_config*, d7 = band count (MUST be >= 1 — countdown loop;
+;      the only caller guards band_count != 0)
 ; Out: Hscroll_Buffer filled (224 longwords); a0/d7 preserved
 ; Clobbers: d0-d6, a1-a6
 ;
@@ -490,16 +491,11 @@ Parallax_Fill_PerLine:
 
         ; --- hoist channel-active decisions ---
         ; FG active: table non-NULL AND shift_a != 15
-        moveq   #0, d3
         cmpa.w  #0, a5
-        beq.s   .fg_decided
+        beq.s   .fg_inactive
+        moveq   #0, d3
         move.b  band_entry_band_deform_shift_a(a1), d3
         cmpi.b  #15, d3
-        bne.s   .fg_decided
-        moveq   #0, d3                              ; sentinel → inactive marker stays 0...
-        bra.s   .fg_inactive
-.fg_decided:
-        cmpa.w  #0, a5
         beq.s   .fg_inactive
         ; FG ACTIVE — d3.w = shift_a; d6 = FG phase base
         move.w  (Parallax_Deform_Phase_FG).w, d6
@@ -612,7 +608,7 @@ Parallax_Fill_PerLine:
 .lp_flat:
         move.w  d5, d1
         sub.w   d4, d1
-        beq.s   .band_done                          ; empty band
+        ble.s   .band_done                          ; empty/malformed band
         move.w  d5, d4                              ; line index jumps to band end
         subq.w  #1, d1
 .fl_line:

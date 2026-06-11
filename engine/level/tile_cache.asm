@@ -525,8 +525,45 @@ Tile_Cache_Fill:
         beq.w   .fill_return
         move.w  d0, (Cache_Fill_Last_Frame).w
 
-        ; --- reset per-frame decompress budget (column fill only) ---
+        ; --- reset per-frame decompress budget + rows-this-frame cap ---
+        ;     BEFORE the preambles: the column-partial bypass path jumps
+        ;     straight to .v_section, which must see a fresh rows cap.
         move.w  #BLOCK_DECOMP_BUDGET, (Cache_Fill_Budget).w
+        move.w  #VFILL_ROWS_PER_FRAME, (Cache_Fill_Rows_Left).w
+
+        ; --- finish any pending partial ROW first (before the column
+        ;     preamble's bypass can reach the v-loops): there is exactly
+        ;     one row-resume slot, and the v-loops overwrite or clear it —
+        ;     a still-occupied slot there orphans a half-filled row with
+        ;     stale tiles AND stale collision (merge review C2a). ---
+        move.w  (Cache_Fill_RowResume_Row).w, d5
+        cmpi.w  #$FFFF, d5
+        beq.s   .no_row_pending
+        cmp.w   (Cache_Top_Row).w, d5
+        blt.s   .row_pending_stale
+        cmp.w   (Cache_Bottom_Row).w, d5
+        bgt.s   .row_pending_stale
+        move.w  d5, -(sp)                      ; FillRow clobbers d5
+        bsr.w   TileCache_FillRow
+        move.w  (sp)+, d5
+        tst.w   d0
+        bne.w   .fill_return                   ; budget out again — done this frame
+        ; If the completed row IS the cache top, it was the first half of an
+        ; up-fill pair whose budget-out orphaned the second half — fill it
+        ; too (Top is always even; no other partial stores a row equal to
+        ; Top; refilling a filled row is idempotent). Merge review C1.
+        cmp.w   (Cache_Top_Row).w, d5
+        bne.s   .no_row_pending
+        addq.w  #1, d5
+        cmp.w   (Cache_Bottom_Row).w, d5
+        bgt.s   .no_row_pending
+        bsr.w   TileCache_FillRow
+        tst.w   d0
+        bne.w   .fill_return
+        bra.s   .no_row_pending
+.row_pending_stale:
+        move.w  #$FFFF, (Cache_Fill_RowResume_Row).w
+.no_row_pending:
 
         ; --- finish any pending partial column before extending further.
         ;     At most one partial can be outstanding (a partial exhausts the
@@ -551,27 +588,6 @@ Tile_Cache_Fill:
 .pending_stale:
         move.w  #$FFFF, (Cache_Fill_Resume_Col).w
 .no_pending:
-
-        ; --- finish any pending partial row before extending edges ---
-        ;     A partial row exhausts the budget; finish it first so new
-        ;     horizontal/vertical fills don't steal the remaining budget.
-        move.w  (Cache_Fill_RowResume_Row).w, d5
-        cmpi.w  #$FFFF, d5
-        beq.s   .no_row_pending
-        cmp.w   (Cache_Top_Row).w, d5
-        blt.s   .row_pending_stale
-        cmp.w   (Cache_Bottom_Row).w, d5
-        bgt.s   .row_pending_stale
-        bsr.w   TileCache_FillRow
-        tst.w   d0
-        beq.s   .no_row_pending                ; completed — fall through to normal processing
-        bra.w   .fill_return                   ; budget out again — done this frame
-.row_pending_stale:
-        move.w  #$FFFF, (Cache_Fill_RowResume_Row).w
-.no_row_pending:
-
-        ; --- reset rows-this-frame cap counter ---
-        move.w  #VFILL_ROWS_PER_FRAME, (Cache_Fill_Rows_Left).w
 
         ; --- compute desired left edge ---
         move.l  (Camera_X).w, d6
@@ -744,6 +760,10 @@ Tile_Cache_Fill:
         ; need 2 rows remaining to start a pair
         cmpi.w  #2, (Cache_Fill_Rows_Left).w
         blt.s   .v_top_done
+        ; a bottom-fill partial leaves budget 0 — starting a pair here would
+        ; clobber its resume slot and orphan the half-filled row (review C2b)
+        tst.w   (Cache_Fill_Budget).w
+        beq.s   .v_top_done
 
         subq.w  #2, d5                         ; 2-row step keeps Top even
 
