@@ -286,7 +286,10 @@ Cache_Origin_Row:       ds.w 1          ; physical row index where Cache_Top_Row
 Cache_Fill_Last_Frame:  ds.w 1          ; Frame_Counter of last fill (cascade prevention)
 Cache_Fill_Resume_Col:  ds.w 1          ; partial FillColumn resume column ($FFFF = none pending)
 Cache_Fill_Resume_Row:  ds.w 1          ; partial FillColumn resume row (valid when Resume_Col set)
-Cache_Fill_Budget:      ds.w 1          ; per-frame block decompress allowance (column fill)
+Cache_Fill_Budget:      ds.w 1          ; per-frame block decompress allowance (shared: columns + rows)
+Cache_Fill_RowResume_Row: ds.w 1        ; partial FillRow resume world row ($FFFF = none)
+Cache_Fill_RowResume_Col: ds.w 1        ; partial FillRow resume col cursor
+Cache_Fill_Rows_Left:   ds.w 1          ; rows-this-frame cap countdown (reset to VFILL_ROWS_PER_FRAME)
 
 ; Block staging metadata — keys parallel to Block_Stage_Buffers slots
 ; Key format: sec_x.b | sec_y.b | block_index.w ($FFFFFFFF = empty)

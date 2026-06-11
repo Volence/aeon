@@ -298,8 +298,11 @@ BLOCK_RAW_SIZE          = BLOCK_NT_SIZE + BLOCK_COLL_SIZE  ; 768 bytes
 BLOCK_STAGE_SLOTS       = 12        ; staged decompressed blocks (round-robin evict)
                                     ; sized so a column fill (<=5 blocks) + a row fill
                                     ; (<=6 blocks) coexist without thrashing on diagonals
-BLOCK_DECOMP_BUDGET     = 6         ; max block decompresses per frame for column fill
-                                    ; (one full cold block-column + 1; row fill unbudgeted)
+BLOCK_DECOMP_BUDGET     = 6         ; max block decompresses per frame (shared: columns + rows)
+VFILL_ROWS_PER_FRAME    = 4         ; rows filled per frame cap. Terminal velocity is
+                                    ; 2 rows/frame (16px); 4 = catch-up headroom. The
+                                    ; camera Y clamp (CAM_MAX_Y_STEP, Task 2) must stay
+                                    ; <= this*8 px or streaming falls behind the view.
 BLOCKS_PER_SECTION_AXIS = 16        ; 16 blocks across, 16 blocks down
 BLOCK_INDEX_ENTRIES     = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  ; 256
 BLOCK_INDEX_SIZE        = BLOCK_INDEX_ENTRIES * 4  ; 1024 bytes (ROM)

@@ -356,6 +356,7 @@ Tile_Cache_Init:
         clr.w   (Cache_Origin_Row).w
         move.w  #$FFFF, (Cache_Fill_Last_Frame).w
         move.w  #$FFFF, (Cache_Fill_Resume_Col).w
+        move.w  #$FFFF, (Cache_Fill_RowResume_Row).w
 
         move.l  (Camera_Y).w, d0
         swap    d0
@@ -550,6 +551,27 @@ Tile_Cache_Fill:
         move.w  #$FFFF, (Cache_Fill_Resume_Col).w
 .no_pending:
 
+        ; --- finish any pending partial row before extending edges ---
+        ;     A partial row exhausts the budget; finish it first so new
+        ;     horizontal/vertical fills don't steal the remaining budget.
+        move.w  (Cache_Fill_RowResume_Row).w, d5
+        cmpi.w  #$FFFF, d5
+        beq.s   .no_row_pending
+        cmp.w   (Cache_Top_Row).w, d5
+        blt.s   .row_pending_stale
+        cmp.w   (Cache_Bottom_Row).w, d5
+        bgt.s   .row_pending_stale
+        bsr.w   TileCache_FillRow
+        tst.w   d0
+        beq.s   .no_row_pending                ; completed — fall through to normal processing
+        bra.w   .fill_return                   ; budget out again — done this frame
+.row_pending_stale:
+        move.w  #$FFFF, (Cache_Fill_RowResume_Row).w
+.no_row_pending:
+
+        ; --- reset rows-this-frame cap counter ---
+        move.w  #VFILL_ROWS_PER_FRAME, (Cache_Fill_Rows_Left).w
+
         ; --- compute desired left edge ---
         move.l  (Camera_X).w, d6
         swap    d6
@@ -672,11 +694,17 @@ Tile_Cache_Fill:
 .v_clamp_ok:
 
         ; --- fill downward rows (evict 2 from top as needed; Top stays even) ---
+        ; rows cap: (Cache_Fill_Rows_Left) counts down; stop when 0.
+        ; commit Cache_Bottom_Row BEFORE fill so the resume preamble can
+        ; safely resume a partial row using the committed tracker.
         move.w  (Cache_Bottom_Row).w, d5
         cmp.w   d7, d5
         bge.s   .v_bottom_done
 
 .v_bottom_fill:
+        tst.w   (Cache_Fill_Rows_Left).w       ; rows cap exhausted?
+        beq.s   .v_bottom_done
+
         addq.w  #1, d5
         cmp.w   d7, d5
         bgt.s   .v_bottom_done
@@ -690,20 +718,32 @@ Tile_Cache_Fill:
         bsr.w   TileCache_VSlide
 .v_no_evict:
 
+        ; commit BEFORE fill (resume is keyed by row)
+        move.w  d5, (Cache_Bottom_Row).w
+
         movem.l d5/d7, -(sp)
         bsr.w   TileCache_FillRow
         movem.l (sp)+, d5/d7
 
-        move.w  d5, (Cache_Bottom_Row).w
+        tst.w   d0
+        bne.s   .v_bottom_done                 ; partial — resume preamble finishes next frame
+        subq.w  #1, (Cache_Fill_Rows_Left).w
         bra.s   .v_bottom_fill
 .v_bottom_done:
 
         ; --- fill upward rows in pairs (evict 2 from bottom as needed) ---
+        ; Only start a pair if rows_left >= 2 AND budget > 0.
+        ; Cache_Top_Row is committed BEFORE fill (per existing precedent at .v_no_evict_up).
+        ; On partial in either half of the pair, exit — resume preamble finishes next frame.
         move.w  (sp)+, d4                      ; d4 = desired_top (even)
         move.w  (Cache_Top_Row).w, d5
 .v_top_fill:
         cmp.w   d4, d5
         ble.s   .v_top_done
+        ; need 2 rows remaining to start a pair
+        cmpi.w  #2, (Cache_Fill_Rows_Left).w
+        blt.s   .v_top_done
+
         subq.w  #2, d5                         ; 2-row step keeps Top even
 
         ; evict 2 rows from bottom if cache would exceed capacity
@@ -715,17 +755,24 @@ Tile_Cache_Fill:
         bsr.w   TileCache_VSlideUp             ; O(1) origin retreat — clobbers d0-d1 only
 .v_no_evict_up:
 
-        ; decrement Cache_Top_Row BEFORE fill so FillRow sees correct offset
+        ; commit Cache_Top_Row BEFORE fills (resume keyed by row)
         move.w  d5, (Cache_Top_Row).w
 
         movem.l d4-d5, -(sp)
-        bsr.w   TileCache_FillRow              ; new top row
+        bsr.w   TileCache_FillRow              ; new top row (d5)
         movem.l (sp)+, d4-d5
+        tst.w   d0
+        bne.s   .v_top_done                    ; partial — exit; resume finishes next frame
+        subq.w  #1, (Cache_Fill_Rows_Left).w
+
         addq.w  #1, d5
         movem.l d4-d5, -(sp)
-        bsr.w   TileCache_FillRow              ; second row of the pair
+        bsr.w   TileCache_FillRow              ; second row of the pair (d5+1)
         movem.l (sp)+, d4-d5
-        subq.w  #1, d5
+        tst.w   d0
+        bne.s   .v_top_done                    ; partial — exit; resume finishes next frame
+        subq.w  #1, (Cache_Fill_Rows_Left).w
+        subq.w  #1, d5                         ; restore d5 to even (pair base)
         bra.s   .v_top_fill
 .v_top_done:
 .fill_return:
@@ -826,7 +873,9 @@ TileCache_FillColumn:
 ; -----------------------------------------------
 ; TileCache_FillRow — fill one world row into cache (nametable + collision)
 ; In:  d5.w = world tile row to fill
-; Out: none
+; Out: d0.w = 0 complete / 1 budget-out (resume state stored in
+;             Cache_Fill_RowResume_Row/Col).
+;      On complete, Cache_Fill_RowResume_Row is set to $FFFF.
 ; Clobbers: d0-d7, a0-a3
 ; Note: collision is copied only on the odd row of each 16px cell (the row
 ;       that completes the cell). Cache_Top_Row is kept even, so cell
@@ -869,7 +918,17 @@ TileCache_FillRow:
         add.w   d3, d2                         ; * 80
         move.w  d2, -(sp)                      ; 0(sp) = cache_row_offset_words
 
+        ; resume: if this is the partially-filled row from last frame,
+        ; restart the column walk from where we left off (not Cache_Left_Col).
+        ; Clamp to Left_Col in case columns were evicted since the partial.
         move.w  (Cache_Left_Col).w, d7
+        cmp.w   (Cache_Fill_RowResume_Row).w, d5
+        bne.s   .fr_from_left
+        move.w  (Cache_Fill_RowResume_Col).w, d7
+        cmp.w   (Cache_Left_Col).w, d7        ; resume col < Left → evicted, use Left
+        bge.s   .fr_from_left
+        move.w  (Cache_Left_Col).w, d7
+.fr_from_left:
 .fr_block_loop:
         cmp.w   (Cache_Head_Col).w, d7
         bgt.w   .fr_done
@@ -891,6 +950,10 @@ TileCache_FillRow:
 
         bsr.w   TileCache_FindStagedBlock      ; a1 = slot base on hit
         beq.s   .fr_have_block
+        ; need decompress — check shared frame budget
+        tst.w   (Cache_Fill_Budget).w
+        beq.w   .fr_budget_out
+        subq.w  #1, (Cache_Fill_Budget).w
         movem.l d5/d7, -(sp)
         bsr.w   TileCache_DecompressBlock      ; a1 = slot base
         movem.l (sp)+, d5/d7
@@ -975,9 +1038,23 @@ TileCache_FillRow:
         addi.w  #BLOCK_TILE_SIZE, d0
         move.w  d0, d7
         bra.w   .fr_block_loop
+
+.fr_budget_out:
+        ; Budget exhausted mid-row. Store resume state and return partial.
+        ; Two words are on the stack (pushed above): pop them before exit.
+        addq.l  #4, sp
+        move.w  d5, (Cache_Fill_RowResume_Row).w
+        move.w  d7, (Cache_Fill_RowResume_Col).w
+        moveq   #1, d0
+        rts
+
 .fr_done:
         addq.l  #4, sp                         ; pop row offsets
+        move.w  #$FFFF, (Cache_Fill_RowResume_Row).w
+        moveq   #0, d0
+        rts
 .fr_early_out:
+        moveq   #0, d0
         rts
 
 ; -----------------------------------------------
@@ -1067,6 +1144,7 @@ TileCache_Reinit:
         clr.w   (Cache_Origin_Col).w
         clr.w   (Cache_Origin_Row).w
         move.w  #$FFFF, (Cache_Fill_Resume_Col).w
+        move.w  #$FFFF, (Cache_Fill_RowResume_Row).w
 
         move.l  (Camera_Y).w, d0
         swap    d0
