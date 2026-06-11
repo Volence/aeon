@@ -1962,7 +1962,7 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 
 **Per-cell vs per-line auto-mode.** `Parallax_Update` checks both H-deform tables. Both NULL → per-cell HScroll (28 entries × 4 bytes = 112-byte DMA), no per-line wave possible. Either non-NULL → per-line HScroll (224 entries × 4 bytes = 896-byte DMA). VDP register `$0B` mode bit set accordingly via shadow + dirty flag during `Parallax_StartTransition`.
 
-**Layer enable mask.** `pcfg_layer_mask` disables individual bands; disabled bands inherit the previous band's scroll (or zero if first band, = locked). Demonstrates the inheritance path — `LAYER_MASK = $1E` locks the cloud band while mountains/hills/ground continue scrolling.
+**Layer enable mask.** `pcfg_layer_mask` disables individual bands; a disabled band's **BG** scroll inherits the previous band's value (or zero if first band, = locked). The **FG** word of a disabled band stays hard-locked to -Camera_X — the inheritance seed is -camX, never zero — because the FG streaming engine draws a camera-anchored 64-col window and any FG scroll offset drags the plane-wrap seam into view (bug found 2026-06-11: zero-seeded FG froze Plane A's top 32 lines under LockedClouds). `LAYER_MASK = $1E` locks the cloud band while mountains/hills/ground continue scrolling.
 
 **RAM footprint:** `Parallax_State` ≈ 126 B in `$FF000000`-range RAM:
 - `Parallax_Deform_Phase_FG/BG/V_BG` (3 × ds.w 1 = 6 B)

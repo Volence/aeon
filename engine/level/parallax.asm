@@ -193,7 +193,11 @@ Parallax_Update:
         moveq   #0, d6
         move.b  parallax_config_pcfg_layer_mask(a0), d6             ; d6 = layer mask
         moveq   #0, d5                              ; d5 = band index
-        moveq   #0, d3                              ; d3 = previous-band current_a (for inheritance)
+        move.w  d0, d3                              ; d3 = previous-band current_a seed = -camX:
+        neg.w   d3                                  ;   a disabled band 0 must still hard-lock the
+                                                    ;   FG to the camera (streaming window — see
+                                                    ;   plane-wrap comment below); only the BG may
+                                                    ;   inherit the locked/previous value
         moveq   #0, d4                              ; d4 = previous-band current_b
 
         ; Plane A (factor_a) is HARD-LOCKED to its factor-derived target —
