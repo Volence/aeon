@@ -51,12 +51,26 @@ python3 "${TOOLS}/ojz_strip_gen.py" generate
 # project's 4-byte wrapper [u16 BE uncompressed size][u8 flags=0][u8 version=2]
 # ahead of the raw salvador (modern/V2) stream — the loader peeks the size
 # for DMA and dispatches the decompressor on the version byte.
+#
+# Size guards: the wrapper's size field is u16 (max 65535), and the runtime
+# decompresses into Decomp_Buffer — a 9,600-byte alias of Tile_Cache_Nametable
+# (ram.asm:34; capacity = TILE_CACHE_NT_SIZE in constants.asm). Any blob
+# exceeding either limit would corrupt RAM at load time — fail the build.
+DECOMP_BUFFER_CAPACITY=9600     # = TILE_CACHE_NT_SIZE (80*60*2)
 echo "Compressing OJZ per-section tile blobs with ZX0 (salvador)..."
 for sec_bin in data/generated/ojz/act1/sec*_tiles.bin; do
     sec_zx0="${sec_bin%.bin}.zx0"
     if [[ -s "$sec_bin" ]]; then
-        "${TOOLS}/bin/salvador" "$sec_bin" "${sec_zx0}.tmp" > /dev/null
         size=$(stat -c%s "$sec_bin")
+        if (( size > 65535 )); then
+            echo "ERROR: ${sec_bin} is ${size} bytes — exceeds the u16 wrapper size field (65535)."
+            exit 1
+        fi
+        if (( size > DECOMP_BUFFER_CAPACITY )); then
+            echo "ERROR: ${sec_bin} is ${size} bytes — exceeds Decomp_Buffer capacity (${DECOMP_BUFFER_CAPACITY})."
+            exit 1
+        fi
+        "${TOOLS}/bin/salvador" "$sec_bin" "${sec_zx0}.tmp" > /dev/null
         printf '%b' "$(printf '\\x%02x\\x%02x\\x00\\x02' $((size >> 8)) $((size & 255)))" > "$sec_zx0"
         cat "${sec_zx0}.tmp" >> "$sec_zx0"
         rm -f "${sec_zx0}.tmp"

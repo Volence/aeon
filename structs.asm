@@ -115,20 +115,6 @@ SST endstruct
         endif
 
 ; -----------------------------------------------
-; StreamState — S4LZ streaming decompressor bookmark (§4.7)
-; -----------------------------------------------
-StreamState struct
-ss_src          ds.l 1      ; $00 — current ROM position in compressed stream
-ss_output_pos   ds.l 1      ; $04 — cumulative bytes decompressed from stream start
-ss_xor_prev     ds.w 1      ; $08 — tile-delta XOR state (0 for strip streams)
-ss_pending      ds.w 1      ; $0A — overshoot bytes from previous call (linear buffer)
-StreamState endstruct       ; = $0C (12 bytes)
-
-    if StreamState_len <> $0C
-      error "StreamState struct is \{StreamState_len} bytes, expected $0C"
-    endif
-
-; -----------------------------------------------
 ; Section Definition (§4) — 72 bytes, ROM table
 ; All fields: 0 = keep current / no change
 ; -----------------------------------------------

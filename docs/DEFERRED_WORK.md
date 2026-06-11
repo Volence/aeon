@@ -282,15 +282,6 @@ sections, or §4.9 phase 2.
 **Note (objects-v2, 2026-06-10):** Entity entries now carry OEF_ANY_Y (bit 15), accepted
 and discarded today — phase 2's Y-culling must honor it.
 
-### Strip data still emitted by build tool (dead format)
-**Surfaced during:** dead-code removal 2026-06-10 (engine/level/strip_cache.asm deleted —
-it was already out of the build).
-**What:** The build tool still emits per-section strip data + checkpoints
-(`sec_strips_s4lz`, `sec_strip_checkpoints` — currently "too large for S4LZ, skipping"
-warnings every build) and the Sec struct keeps both pointer fields. The 2D block cache
-replaced strips entirely. Remove the emission, the struct fields, and the build warnings
-next time the build tool / Sec format is touched.
-
 ### Plane A wrap-cycle visible during scroll (§4.2 streaming polish)
 **Surfaced during:** §4.6 polish session 2026-04-28 (after bhi→bhs core fix + Section_Teleport_Guard increase shipped).
 
@@ -765,6 +756,21 @@ When starting a new planning phase:
 
 ## Done
 
+### Strip data emission + streaming decompressor removed (dead format) — 2026-06-11
+**Completed in:** compression-two-tier Task 5 (dead-code sweep).
+**What:** The 2D block cache replaced column strips entirely; the remaining strip
+artifacts are gone. Deleted: `engine/s4lz_stream.asm` (zero callers) + `StreamState`
+struct + `S4LZ_Stream_States` RAM; `tools/ojz_strip_gen.py` Pass 5b (wide-strip
+`.s4lz` + checkpoint emission); the legacy `OJZ_Sec*_Strips_S4LZ` /
+`OJZ_Sec*_Strip_Checkpoints` BINCLUDEs in the act descriptor (~50 KB ROM); orphan
+generated files (`sec*_collision.s4lz` — no generator, no references;
+`sec*_tiles.s4lz` — replaced by `.zx0`; stale sec9-D leftovers from the 16-section
+era). Raw `sec*_strips_a.bin` emission STAYS — it feeds `ojz_block_gen.py` and the
+editor (`sec*_strips_source.bin`). Also deleted `Section_StreamArtGroup` +
+`STREAMING_BUFFER_A/B` + `Streaming_Active_Buffer` + `SS_STREAMING` (see the A.4
+entry note below). The Sec struct never carried strip pointers by this point — no
+layout change.
+
 ### §2 Phase 2 Layer A.5 T1 — Per-Section Background (Zone-Shared Tier) — 2026-04-26
 **Completed in:** §2 Phase 2 Layer A.5 (T1 only — T2/T3 fixtures deferred, see new entry below)
 **What:** Plane B per-zone background art end-to-end. New shared-region VRAM block at slots 1280-1535 ($A000-$BFFF, 8 KB) reserved for BG tiles permanently — never overwritten by section transitions. Build tool extended: `load_bg_layout` parses OJZ_1.bin's BG section (16 chunk-rows × 128 cols), `build_bg_nametable_words` samples a 64×32 region, `emit_bg_tile_blob` dedupes + emits `bg_tiles.bin` with a 2-byte length header, `emit_zone_bg_layout` rewrites tile-index fields into the shared region (BG_TILE_BASE_SLOT + canon_idx). `chunk_get_tile_word` now honours chunk-entry X/Y flip flags (bits 10/11 per sonic_hack ProcessAndWriteBlock) — a latent bug uncovered during BG visual diff. Engine: new `engine/level/bg.asm` with `BG_Init` (loads BG tile blob to $A000 + blits zone nametable to Plane B at $E000, both blocking VDP DATA-port writes wrapped in stopZ80/startZ80) and `BG_RedrawForSection` (T2/T3-ready, called from teleport handlers; T1 sections with NULL `sec_bg_layout` skip). New struct fields: Sec.sec_bg_layout (replaces dead sec_strips_b placeholder, $1C, longword), Act.act_bg_layout ($16, longword), Act.act_bg_tiles ($1A, longword), Act struct $1A → $1E. Test scaffold loads dual palette: Pal_BGND (SonicAndTails, CRAM line 0) + Pal_OJZ (CRAM lines 1-3) matching sonic_hack's runtime layout.
@@ -774,6 +780,13 @@ When starting a new planning phase:
 **See:** `docs/research/per-section-background.md`, `docs/research/tile-pipeline-measurements.md`.
 
 ### §2 Phase 2 Layer A.4 — Per-Section Deferrable Streaming — 2026-04-26
+**DELETED 2026-06-11 (compression-two-tier Task 5):** `Section_StreamArtGroup` ended up
+with zero callers — the union-blob model (color-class sections share one tile blob, so a
+neighbor's art is already in VRAM; teleports mark sections `SS_RESIDENT` directly) made
+runtime art streaming unnecessary, and the 2D tile cache (§4.7) superseded the preload
+design it served. Removed with it: `STREAMING_BUFFER_A/B` (8 KB RAM),
+`Streaming_Active_Buffer`, `STREAMING_BUFFER_SIZE`, and the `SS_STREAMING` state (value 1
+retired; `SS_IDLE`/`SS_RESIDENT` keep their values). Entry below kept as history.
 **Completed in:** §2 Phase 2 Layer A.4 (structural — visual verification blocked on upstream bug below)
 **What:** `Section_StreamArtGroup` (engine/level/load_art.asm) decompresses + queues Deferrable DMA for an upcoming section. `Section_Check` extended to fire the preload trigger ~1024 px before the FWD teleport threshold (and ~512 px before BWD). Per-section state machine in `Section_Stream_State` (16 bytes RAM): `SS_IDLE` → `SS_STREAMING` → `SS_RESIDENT`. Two streaming buffers (`STREAMING_BUFFER_A`/`B`, 4 KB each, carved from existing `Decomp_Buffer`) handle fast direction reversals via round-robin. `Section_TeleportFwd`/`Bwd` retain blocking `Section_LoadArt` as a fallback for IDLE-state sections. `Level_LoadArt` reads section IDs from the act descriptor (not `Slot_Section_Map`) so it can be called before `Section_Init`.
 **Verified structurally in Exodus:** `Section_Stream_State[0]=[1]=SS_RESIDENT` after Level_LoadArt; forward teleport advanced slot map 0/1 → 1/2 and Section_LoadArt fallback path fired correctly; backward teleport reversed cleanly.

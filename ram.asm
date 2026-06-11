@@ -24,12 +24,6 @@ Tile_Cache_Collision:   ds.b TILE_CACHE_COLL_SIZE * TILE_CACHE_COLL_PLANES  ; 48
 ; Keys live in upper RAM (Block_Stage_Keys).
 Block_Stage_Buffers:    ds.b BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS  ; 9216 bytes (12×768)
 
-; Streaming art DMA buffers (§2 A.4)
-STREAMING_BUFFER_A:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes
-STREAMING_BUFFER_B:     ds.b STREAMING_BUFFER_SIZE  ; 4096 bytes
-
-; Stream states — 4 streaming decompressor bookmarks
-S4LZ_Stream_States:     ds.b StreamState_len * 4    ; 48 bytes
 ; Keep Decomp_Buffer as alias for LoadArt_Compressed backward compat
 Decomp_Buffer = Tile_Cache_Nametable
 Decomp_Buffer_End = Tile_Cache_Nametable + TILE_CACHE_NT_SIZE
@@ -317,8 +311,6 @@ Section_Plane_Dirty:    ds.b 1          ; §4.2: full plane redraw pending (leve
 ; (SS_IDLE / SS_STREAMING / SS_RESIDENT). Indexed by flat section_id
 ; (sec_y * grid_w + sec_x). Per-act build asserts enforce grid_w*grid_h <= MAX_ACT_SECTIONS.
 Section_Stream_State:   ds.b MAX_ACT_SECTIONS   ; 48 sections max; even-aligned (48 is even)
-Streaming_Active_Buffer: ds.b 1         ; 0 = next stream uses A; 1 = next uses B
-                        ds.b 1          ; pad to even
 
 ; Column streaming state — engine tile columns (Camera_X/8 domain)
 ; Right: last tile col written to nametable on the right side of view

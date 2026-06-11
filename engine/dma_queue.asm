@@ -209,8 +209,8 @@ Process_DMA_Deferrable:
 ; Drain_Budgeted_Queue — shared loop for Important/Deferrable
 ; Entries that don't fit this frame's budget are COMPACTED to the
 ; queue base and persist to the next frame (consumers like
-; Perform_DPLC and Section_StreamArtGroup queue once and rely on
-; eventual delivery — discarding meant stale art / stuck SS_STREAMING).
+; Perform_DPLC queue once and rely on eventual delivery —
+; discarding meant stale art).
 ; In:  a0 = queue start, a1 = slot pointer value (first free)
 ;      a2 = slot variable address
 ;      DMA_Budget_Remaining must be set

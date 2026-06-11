@@ -256,11 +256,11 @@ REGION1_TILE_CAPACITY   = 1472      ; was 1536; SAT at $B800 takes tiles $5C0-$5
 MAX_ACT_SECTIONS        = 48        ; Section_Stream_State capacity; per-act grids must fit
                                     ; (flat id = sec_y * grid_w + sec_x; build asserts enforce
                                     ; grid_w * grid_h <= MAX_ACT_SECTIONS)
-STREAMING_BUFFER_SIZE   = 4096
 
 ; Per-section streaming state values (single byte per section)
-SS_IDLE      = 0    ; not loaded, not streaming
-SS_STREAMING = 1    ; decompressed + DMA queued, awaiting drain
+; (value 1 was SS_STREAMING — retired with Section_StreamArtGroup; the
+; union-blob model marks neighbor sections RESIDENT directly)
+SS_IDLE      = 0    ; not loaded
 SS_RESIDENT  = 2    ; in VRAM, valid
 
 ; Section_Preload_Flags bit definitions
