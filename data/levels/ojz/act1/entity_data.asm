@@ -99,13 +99,16 @@ OJZ_Sec2_Rings:
         dc.l    0                       ; terminator
 
 ; -----------------------------------------------
-; Sec3 — row-1 test data (below Sec0, left column)
+; Sec3 Type Table — row-1 test data (below Sec0, left column)
 ; -----------------------------------------------
 OJZ_Sec3_TypeTable:
-        dc.b    2, 0
-        dc.l    ObjDef_Static           ; type 0
-        dc.l    ObjDef_Solid            ; type 1
+        dc.b    2, 0                    ; count, pad
+        dc.l    ObjDef_Static           ; type 0 — static test object
+        dc.l    ObjDef_Solid            ; type 1 — solid block
 
+; -----------------------------------------------
+; Sec3 Object Layout
+; -----------------------------------------------
 OJZ_Sec3_Objects:
         ; Solid block low in the section — only reachable by descending
         objentry $180, $300, 1
@@ -114,6 +117,9 @@ OJZ_Sec3_Objects:
         objentry $400, $700, 0, 0, (1<<OEF_ANY_Y)
         objend
 
+; -----------------------------------------------
+; Sec3 Ring Layout — flat X-sorted (dc.w X, dc.w Y per ring)
+; -----------------------------------------------
 OJZ_Sec3_Rings:
         ; Vertical ladder from near the row-0/row-1 boundary downward —
         ; exercises band entry/exit during descent
@@ -126,24 +132,30 @@ OJZ_Sec3_Rings:
         dc.w    $200, $500
         dc.w    $220, $500
         dc.w    $240, $500
-        dc.l    0
+        dc.l    0                       ; terminator
 
 ; -----------------------------------------------
-; Sec4 — row-1 test data (below Sec1, right column)
+; Sec4 Type Table — row-1 test data (below Sec1, right column)
 ; -----------------------------------------------
 OJZ_Sec4_TypeTable:
-        dc.b    1, 0
-        dc.l    ObjDef_Enemy            ; type 0
+        dc.b    1, 0                    ; count, pad
+        dc.l    ObjDef_Enemy            ; type 0 — patrolling enemy (±48px)
 
+; -----------------------------------------------
+; Sec4 Object Layout
+; -----------------------------------------------
 OJZ_Sec4_Objects:
         objentry $200, $400, 0
         objend
 
+; -----------------------------------------------
+; Sec4 Ring Layout — flat X-sorted
+; -----------------------------------------------
 OJZ_Sec4_Rings:
         dc.w    $080, $100
         dc.w    $0A0, $100
         dc.w    $0C0, $100
-        dc.l    0
+        dc.l    0                       ; terminator
 
 OJZ_Sec5_TypeTable:
         dc.b    0, 0

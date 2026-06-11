@@ -36,7 +36,7 @@ mcp: emulator_write_memory addr=<Player_1+2> bytes=XXXXXXXXYYYYYYYY   ; 16.16 x,
 - Y teleports exist: `Section_TeleportDown/Up` (engine/level/section.asm:506+) advance both slots' sec_y, call `EntityWindow_TeleportShiftY` (section.asm:523, 582).
 - `Section_GetSecPtrXY` (section.asm:~125): in d2.b=sec_x, d3.b=sec_y, a2=Act ptr; out a0=Sec ptr, **Z set if out of range (a0=0)** — handles row ≥ grid_h for free.
 - `SLOT_ORIGIN_U = $0200`, `SLOT_ORIGIN_D = $0A00` (constants.asm:211-212) — lower-row Y origin constant already exists.
-- `SLOT_TAG_LEFT/RIGHT/UP/DOWN = 0/1/2/3`, `SLOT_TAG_UNTAGGED = $FF` (constants.asm:388-392). slot_tag becomes "entry index 0-3"; bit 7 of slot_tag becomes the per-SST ANY_Y flag (an ANY_Y object's tag is $80+idx, never $FF, so the exact `cmpi.b #SLOT_TAG_UNTAGGED` checks stay valid).
+- `SLOT_TAG_LEFT/RIGHT/LOWER_L/LOWER_R = 0/1/2/3` (renamed from UP/DOWN in Task 3), `SLOT_TAG_UNTAGGED = $FF` (constants.asm). slot_tag is "entry index 0-3"; bit 7 of slot_tag becomes the per-SST ANY_Y flag (an ANY_Y object's tag is $80+idx, never $FF, so the exact `cmpi.b #SLOT_TAG_UNTAGGED` checks stay valid).
 - Object placement word bit 15 = `OEF_ANY_Y` (constants.asm:396); `tst.w`/`bmi` tests it for free. `objentry x,y,type[,sub][,flags]` macro (macros.asm:172) takes pre-shifted flag masks: `(1<<OEF_ANY_Y)`.
 - Ring ROM entries: `dc.w x, y`, terminator `dc.l 0`. Object ROM entries: 6 bytes `dc.w x, y, flags|type|sub`, terminator `dc.w -1`.
 - Test data lives in `data/levels/ojz/act1/entity_data.asm`; Sec3-8 (rows 1-2) are empty stubs at lines 104-144. Sections are 2048×2048; OJZ act1 grid is 3×3.
