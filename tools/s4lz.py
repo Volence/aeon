@@ -5,6 +5,22 @@ S4LZ — Sonic 4 Engine compression tool.
 A word-aligned LZ compressor designed for Sega Genesis (68000) decompression.
 Supports tile-delta XOR preprocessing for improved compression of tile art.
 
+Stream format v3 (version byte = 1):
+    Header (4 bytes): [u16 BE uncompressed_size][u8 flags: bit0=tile_delta][u8 version=1]
+    Per sequence, token word = [token.b][offmark.b]:
+        token.b hi nibble = literal word count (15 = u16 BE extension word)
+        token.b lo nibble = match word count   (15 = u16 BE extension word)
+        token.b $00 = end of stream (offmark.b is $00; full word consumed)
+        offmark.b = match_offset/2 for offsets 2..510 (short form, no offset
+                    word); $00 = long form (u16 BE offset word after literals)
+                    or no match at all (match nibble 0)
+    Stream order: token word, [lit ext word], literals,
+                  [offset word — long form only], [match ext word]
+
+v1 streams (version byte = 0) used a $00 pad byte where offmark.b now lives
+and always emitted a u16 offset word. decompress() decodes both versions;
+compress() emits v3 only.
+
 Usage:
     s4lz.py compress [--tile-delta] <input> <output>
     s4lz.py decompress <input> <output>
@@ -15,7 +31,6 @@ Usage:
 import argparse
 import struct
 import sys
-import os
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -24,8 +39,11 @@ import os
 TILE_SIZE = 32          # Genesis tile: 8x8 pixels, 4bpp = 32 bytes
 MIN_MATCH_WORDS = 2     # Minimum match length in words (4 bytes)
 MAX_WINDOW = 65534      # Maximum backwards offset in bytes (16-bit, even)
+MAX_SHORT_OFFSET = 510  # Maximum byte offset encodable in offmark (255 * 2)
 TOKEN_END = 0x00        # End-of-stream marker
 EXTENDED_THRESHOLD = 15 # Nibble value that triggers extension word
+VERSION_V1 = 0          # Legacy: pad byte + always-emitted offset word
+VERSION_V3 = 1          # Token word with offmark short-offset slot
 
 # ---------------------------------------------------------------------------
 # Tile-delta XOR preprocessing
@@ -69,67 +87,32 @@ def _build_token(lit_count: int, match_count: int) -> int:
     return (lit_nibble << 4) | match_nibble
 
 # ---------------------------------------------------------------------------
-# Match finder (brute-force scan within window)
+# Match finder (hash-chain, two candidates per position)
 # ---------------------------------------------------------------------------
 
-def _find_best_match(data: bytes, pos: int, data_len: int) -> tuple:
-    """Find the longest word-aligned match looking backwards from pos.
-    Returns (offset_back, length_in_words) or (0, 0) if no match."""
-    best_offset = 0
-    best_length = 0  # in words
-
-    # Search window: from max lookback to current position, word-aligned
-    min_start = max(0, pos - MAX_WINDOW)
-    # We need at least MIN_MATCH_WORDS words to match
-    min_bytes = MIN_MATCH_WORDS * 2
-
-    if pos + min_bytes > data_len:
-        return (0, 0)
-
-    # Scan backwards through possible match positions (word-aligned)
-    scan_pos = min_start
-    while scan_pos < pos:
-        # Check how many words match
-        match_words = 0
-        while True:
-            src_off = scan_pos + match_words * 2
-            dst_off = pos + match_words * 2
-            if dst_off + 2 > data_len:
-                break
-            if src_off + 2 > pos:
-                # Allow overlapping matches — copy word by word
-                # The source catches up to where we've already written
-                pass
-            if data[src_off] == data[dst_off] and data[src_off + 1] == data[dst_off + 1]:
-                match_words += 1
-            else:
-                break
-
-        if match_words >= MIN_MATCH_WORDS and match_words > best_length:
-            best_length = match_words
-            best_offset = pos - scan_pos  # byte distance backwards
-
-        scan_pos += 2  # word-aligned steps
-
-    return (best_offset, best_length)
-
-
-def _find_best_match_fast(data: bytes, pos: int, data_len: int,
-                          hash_table: dict) -> tuple:
-    """Hash-chain match finder for better performance on large inputs.
-    Returns (offset_back, length_in_words) or (0, 0)."""
+def _find_best_matches(data: bytes, pos: int, data_len: int,
+                       hash_table: dict) -> tuple:
+    """Hash-chain match finder returning two candidates:
+        ((offset_any, length_any), (offset_short, length_short))
+    where the second candidate is the longest match with byte offset
+    <= MAX_SHORT_OFFSET (encodable in offmark, costing 0 extra bytes).
+    Either candidate is (0, 0) when no match of MIN_MATCH_WORDS exists."""
     best_offset = 0
     best_length = 0
+    best_short_offset = 0
+    best_short_length = 0
     min_bytes = MIN_MATCH_WORDS * 2
 
     if pos + min_bytes > data_len:
-        return (0, 0)
+        return ((0, 0), (0, 0))
 
     # Hash on first two words (4 bytes)
     key = (data[pos], data[pos + 1], data[pos + 2], data[pos + 3])
     candidates = hash_table.get(key, [])
 
-    # Check candidates in reverse order (most recent first)
+    # Check candidates in reverse order (most recent = smallest offset first).
+    # Because offsets only grow as we iterate, every short-offset candidate
+    # is examined before the early-exit below can trigger.
     for scan_pos in reversed(candidates):
         dist = pos - scan_pos
         if dist > MAX_WINDOW:
@@ -149,84 +132,38 @@ def _find_best_match_fast(data: bytes, pos: int, data_len: int,
             else:
                 break
 
-        if match_words >= MIN_MATCH_WORDS and match_words > best_length:
-            best_length = match_words
-            best_offset = dist
-            # Good enough heuristic: stop if we found a long match
+        if match_words >= MIN_MATCH_WORDS:
+            if match_words > best_length:
+                best_length = match_words
+                best_offset = dist
+            if dist <= MAX_SHORT_OFFSET and match_words > best_short_length:
+                best_short_length = match_words
+                best_short_offset = dist
+            # Good enough heuristic: stop if we found a long match.
+            # All nearer (short-offset) candidates were already seen.
             if best_length >= 32:
                 break
 
-    return (best_offset, best_length)
+    return ((best_offset, best_length), (best_short_offset, best_short_length))
 
 # ---------------------------------------------------------------------------
 # Compressor
 # ---------------------------------------------------------------------------
 
-def _compress_segmented(data: bytes, checkpoint_interval: int,
-                        max_match_words: int) -> tuple[bytes, list[int]]:
-    """Compress with independent segments for checkpoint seeking.
-
-    Each segment is compressed independently so backward references
-    never cross segment boundaries. This guarantees that seeking to
-    any checkpoint and decompressing produces correct, aligned output.
-    """
-    data_len = len(data)
-    header = struct.pack(">HBB", data_len, 0, 0)
-
-    if data_len == 0:
-        return header + bytes([TOKEN_END, 0]), [0]
-
-    segments = []
-    for i in range(0, data_len, checkpoint_interval):
-        segments.append(data[i:i + checkpoint_interval])
-
-    token_streams = []
-    for seg in segments:
-        seg_compressed, _ = compress(seg, tile_delta=False,
-                                     checkpoint_interval=0,
-                                     max_match_words=max_match_words)
-        # Strip 4-byte header and 2-byte EOS+pad
-        raw_tokens = seg_compressed[4:-2]
-        token_streams.append(raw_tokens)
-
-    checkpoints = [0]
-    running = 0
-    for i in range(len(token_streams) - 1):
-        running += len(token_streams[i])
-        checkpoints.append(running)
-
-    result = bytearray(header)
-    for ts in token_streams:
-        result.extend(ts)
-    result.append(TOKEN_END)
-    result.append(0)
-
-    return bytes(result), checkpoints
+def _match_cost(offset: int, m_len: int, at_end: bool) -> int:
+    """Extra bytes a match adds beyond the words it replaces:
+    long offsets need a u16 offset word, counts >= 15 need an extension
+    word, and any match ends the sequence (next token word, unless at end)."""
+    cost = 0 if offset <= MAX_SHORT_OFFSET else 2
+    if m_len >= EXTENDED_THRESHOLD:
+        cost += 2
+    if not at_end:
+        cost += 2
+    return cost
 
 
-def compress(data: bytes, tile_delta: bool = False,
-             checkpoint_interval: int = 0,
-             max_match_words: int = 0) -> tuple[bytes, list[int]]:
-    """Compress data using S4LZ format.
-
-    Args:
-        data: Input data to compress
-        tile_delta: Apply tile-delta XOR preprocessing
-        checkpoint_interval: If > 0, compress in independent segments so
-            that seeking to any checkpoint produces correct output (no
-            cross-segment backward references). Returns list of byte
-            offsets from stream start (past header).
-        max_match_words: If > 0, cap single-match token length. Limits
-            streaming decompressor overshoot to max_match_words*2 bytes.
-
-    Returns:
-        (compressed_bytes, checkpoints) where checkpoints is a list of
-        byte offsets into the compressed stream at each interval boundary.
-        First checkpoint is always 0 (stream start).
-    """
-    if checkpoint_interval > 0:
-        return _compress_segmented(data, checkpoint_interval, max_match_words)
-
+def compress(data: bytes, tile_delta: bool = False) -> bytes:
+    """Compress data into an S4LZ v3 stream. Returns the compressed bytes."""
     original_data = data
 
     # Apply tile-delta preprocessing if requested
@@ -237,10 +174,10 @@ def compress(data: bytes, tile_delta: bool = False,
 
     # Build header
     flags = 1 if tile_delta else 0
-    header = struct.pack(">HBB", data_len, flags, 0)
+    header = struct.pack(">HBB", data_len, flags, VERSION_V3)
 
     if data_len == 0:
-        return header + bytes([TOKEN_END]), [0]
+        return header + bytes([TOKEN_END, 0])
 
     # Ensure data is word-aligned for processing
     work_data = data
@@ -257,24 +194,29 @@ def compress(data: bytes, tile_delta: bool = False,
         hash_table[key].append(i)
 
     # Optimal parser (forward DP with sequence-aware cost model):
-    # Each match creates a new sequence boundary (costing 2 bytes for the
-    # next token+pad). The DP accounts for this, so matches are only chosen
-    # when they genuinely save bytes after all overhead.
+    # Each match creates a sequence boundary (costing 2 bytes for the next
+    # token word). Short offsets (<= 510) cost 0 extra bytes; long offsets
+    # cost a 2-byte offset word — so a NEARER, possibly shorter match can
+    # beat the longest one. Both candidates feed the DP.
     num_words = data_len // 2
     INF = float('inf')
 
-    # Phase 1: find best match at each word position
-    match_at = [None] * num_words  # (byte_offset, word_length) or None
+    # Phase 1: best matches at each word position — (any, short) candidates
+    match_at = [None] * num_words
     for i in range(num_words):
-        offset, length = _find_best_match_fast(work_data, i * 2, data_len,
-                                               hash_table)
-        if length >= MIN_MATCH_WORDS:
-            match_at[i] = (offset, length)
+        best_any, best_short = _find_best_matches(work_data, i * 2, data_len,
+                                                  hash_table)
+        cands = []
+        if best_any[1] >= MIN_MATCH_WORDS:
+            cands.append(best_any)
+        if best_short[1] >= MIN_MATCH_WORDS and best_short != best_any:
+            cands.append(best_short)
+        if cands:
+            match_at[i] = cands
 
     # Phase 2: forward DP — arrival[i] = min compressed bytes for words[0..i)
-    # Cost includes token+pad overhead for sequence boundaries.
     arrival = [INF] * (num_words + 1)
-    arrival[0] = 2  # first sequence always costs token+pad
+    arrival[0] = 2  # first sequence always costs a token word
     prev = [None] * (num_words + 1)
 
     for i in range(num_words):
@@ -287,26 +229,18 @@ def compress(data: bytes, tile_delta: bool = False,
             arrival[i + 1] = new_cost
             prev[i + 1] = ('lit', i)
 
-        # Option 2: match — try all sublengths of best match
+        # Option 2: match — try all sublengths of each candidate
         if match_at[i] is not None:
-            m_offset, max_len = match_at[i]
-            if max_match_words > 0:
-                max_len = min(max_len, max_match_words)
-            for m_len in range(MIN_MATCH_WORDS, max_len + 1):
-                dest = i + m_len
-                if dest > num_words:
-                    break
-                # Match cost: offset word (2) + extension if >= 15
-                m_cost = 2
-                if m_len >= 15:
-                    m_cost += 2
-                # Match ends current sequence; next sequence needs token+pad
-                if dest < num_words:
-                    m_cost += 2
-                new_cost = arrival[i] + m_cost
-                if new_cost < arrival[dest]:
-                    arrival[dest] = new_cost
-                    prev[dest] = ('match', i, m_offset, m_len)
+            for m_offset, max_len in match_at[i]:
+                for m_len in range(MIN_MATCH_WORDS, max_len + 1):
+                    dest = i + m_len
+                    if dest > num_words:
+                        break
+                    m_cost = _match_cost(m_offset, m_len, dest >= num_words)
+                    new_cost = arrival[i] + m_cost
+                    if new_cost < arrival[dest]:
+                        arrival[dest] = new_cost
+                        prev[dest] = ('match', i, m_offset, m_len)
 
     # Phase 3: trace back to recover optimal parse
     path = []
@@ -334,9 +268,6 @@ def compress(data: bytes, tile_delta: bool = False,
 
     # Encode sequences into the compressed stream
     out = bytearray(header)
-    checkpoints = [0]
-    cumulative_output = 0
-    next_checkpoint = checkpoint_interval if checkpoint_interval > 0 else 0
 
     for lits, match_offset, match_words in sequences:
         lit_count = len(lits)
@@ -346,9 +277,12 @@ def compress(data: bytes, tile_delta: bool = False,
         lit_nibble = (token >> 4) & 0x0F
         match_nibble = token & 0x0F
 
-        # Token + pad byte (word-aligned for 68000)
+        # Token word: token byte + offmark byte
+        short_form = (match_count > 0 and
+                      2 <= match_offset <= MAX_SHORT_OFFSET)
+        offmark = (match_offset >> 1) if short_form else 0
         out.append(token)
-        out.append(0)
+        out.append(offmark)
 
         # Literal count extension (word, when nibble == 15)
         if lit_nibble == 15:
@@ -359,46 +293,25 @@ def compress(data: bytes, tile_delta: bool = False,
             out.append(hi)
             out.append(lo)
 
-        # Match offset + optional count extension
+        # Long-form match offset (after literals), then count extension
         if match_count > 0:
-            out.extend(struct.pack(">H", match_offset))
+            if not short_form:
+                out.extend(struct.pack(">H", match_offset))
             if match_nibble == 15:
                 out.extend(struct.pack(">H", match_count))
 
-        # Track decompressed output for checkpoints
-        seq_output = (lit_count + match_count) * 2
-        cumulative_output += seq_output
-        if next_checkpoint > 0:
-            while cumulative_output >= next_checkpoint:
-                compressed_offset = len(out) - len(header)
-                checkpoints.append(compressed_offset)
-                next_checkpoint += checkpoint_interval
-
-    # End-of-stream + pad
+    # End-of-stream word
     out.append(TOKEN_END)
     out.append(0)
 
-    return bytes(out), checkpoints
+    return bytes(out)
 
 # ---------------------------------------------------------------------------
 # Decompressor
 # ---------------------------------------------------------------------------
 
-def decompress(compressed: bytes) -> bytes:
-    """Decompress S4LZ data. Returns the decompressed bytes.
-    Automatically applies tile-delta decode if the header flag is set."""
-    if len(compressed) < 4:
-        raise ValueError("Compressed data too short for header")
-
-    # Parse header
-    uncompressed_size = struct.unpack(">H", compressed[0:2])[0]
-    flags = compressed[2]
-    _reserved = compressed[3]
-    tile_delta = bool(flags & 1)
-
-    if uncompressed_size == 0:
-        return b""
-
+def _decompress_v1(compressed: bytes) -> bytearray:
+    """Decode a v1 token stream (pad byte, always-emitted offset word)."""
     output = bytearray()
     pos = 4  # skip header
 
@@ -442,6 +355,87 @@ def decompress(compressed: bytes) -> bytes:
                 output.append(output[src_pos])
                 output.append(output[src_pos + 1])
 
+    return output
+
+
+def _decompress_v3(compressed: bytes) -> bytearray:
+    """Decode a v3 token stream (offmark short-offset slot)."""
+    output = bytearray()
+    pos = 4  # skip header
+
+    while pos + 1 < len(compressed):
+        token = compressed[pos]
+        offmark = compressed[pos + 1]
+        pos += 2  # token word
+
+        # End of stream
+        if token == TOKEN_END:
+            break
+
+        lit_count = (token >> 4) & 0x0F
+        match_raw = token & 0x0F
+
+        if match_raw == 0 and offmark != 0:
+            raise ValueError(
+                f"Nonzero offmark 0x{offmark:02X} with no match at stream pos {pos - 2}")
+
+        # Extended literal count (word)
+        if lit_count == 15:
+            lit_count = struct.unpack(">H", compressed[pos:pos + 2])[0]
+            pos += 2
+
+        # Read literal words
+        for _ in range(lit_count):
+            output.append(compressed[pos])
+            output.append(compressed[pos + 1])
+            pos += 2
+
+        # Match: short offset from offmark, or long offset word after literals
+        if match_raw > 0:
+            if offmark != 0:
+                match_offset = offmark * 2
+            else:
+                match_offset = struct.unpack(">H", compressed[pos:pos + 2])[0]
+                pos += 2
+            match_count = match_raw
+            if match_raw == 15:
+                match_count = struct.unpack(">H", compressed[pos:pos + 2])[0]
+                pos += 2
+            src_start = len(output) - match_offset
+            if src_start < 0:
+                raise ValueError(
+                    f"Match offset {match_offset} exceeds output size {len(output)}")
+            # Copy word by word (supports overlapping matches)
+            for i in range(match_count):
+                src_pos = src_start + i * 2
+                output.append(output[src_pos])
+                output.append(output[src_pos + 1])
+
+    return output
+
+
+def decompress(compressed: bytes) -> bytes:
+    """Decompress S4LZ data (v1 or v3, dispatched on the version byte).
+    Automatically applies tile-delta decode if the header flag is set."""
+    if len(compressed) < 4:
+        raise ValueError("Compressed data too short for header")
+
+    # Parse header
+    uncompressed_size = struct.unpack(">H", compressed[0:2])[0]
+    flags = compressed[2]
+    version = compressed[3]
+    tile_delta = bool(flags & 1)
+
+    if uncompressed_size == 0:
+        return b""
+
+    if version == VERSION_V1:
+        output = _decompress_v1(compressed)
+    elif version == VERSION_V3:
+        output = _decompress_v3(compressed)
+    else:
+        raise ValueError(f"Unknown S4LZ version byte {version}")
+
     # Truncate to declared size (handles odd-length original data via padding)
     result = bytes(output[:uncompressed_size])
 
@@ -459,19 +453,10 @@ def cmd_compress(args):
     with open(args.input, "rb") as f:
         data = f.read()
 
-    ckpt_interval = getattr(args, 'checkpoint_interval', 0) or 0
-    compressed, checkpoints = compress(data, tile_delta=args.tile_delta,
-                                       checkpoint_interval=ckpt_interval)
+    compressed = compress(data, tile_delta=args.tile_delta)
 
     with open(args.output, "wb") as f:
         f.write(compressed)
-
-    if ckpt_interval > 0:
-        ckpt_path = args.output.replace('.s4lz', '_checkpoints.bin')
-        with open(ckpt_path, 'wb') as f:
-            for offset in checkpoints:
-                f.write(struct.pack(">H", offset))
-        print(f"Checkpoints ({len(checkpoints)}): {ckpt_path}")
 
     ratio = len(compressed) / len(data) if len(data) > 0 else 0.0
     print(f"Compressed: {len(data)} -> {len(compressed)} bytes "
@@ -501,7 +486,7 @@ def cmd_verify(args):
     with open(args.input, "rb") as f:
         original = f.read()
 
-    compressed, _ = compress(original, tile_delta=args.tile_delta)
+    compressed = compress(original, tile_delta=args.tile_delta)
     decompressed = decompress(compressed)
 
     if decompressed == original:
@@ -531,7 +516,7 @@ def cmd_verify(args):
 def _run_test(name: str, data: bytes, tile_delta: bool = False) -> bool:
     """Run a single compress-decompress round-trip test."""
     try:
-        compressed, _ = compress(data, tile_delta=tile_delta)
+        compressed = compress(data, tile_delta=tile_delta)
         decompressed = decompress(compressed)
 
         if decompressed != data:
@@ -556,6 +541,31 @@ def _run_test(name: str, data: bytes, tile_delta: bool = False) -> bool:
         import traceback
         traceback.print_exc()
         return False
+
+
+def _run_decode_test(name: str, stream: bytes, expected: bytes) -> bool:
+    """Decode a hand-constructed stream and compare against expected output."""
+    try:
+        decoded = decompress(stream)
+        if decoded != expected:
+            print(f"  FAIL {name}: decoded {len(decoded)}B != expected {len(expected)}B")
+            for i in range(min(len(decoded), len(expected))):
+                if decoded[i] != expected[i]:
+                    print(f"    First diff at byte {i}: "
+                          f"expected 0x{expected[i]:02X} got 0x{decoded[i]:02X}")
+                    break
+            return False
+        print(f"  PASS {name}: {len(stream)}B stream -> {len(decoded)}B")
+        return True
+    except Exception as e:
+        print(f"  FAIL {name}: exception: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def _v3_header(size: int, flags: int = 0) -> bytes:
+    return struct.pack(">HBB", size, flags, VERSION_V3)
 
 
 def cmd_test(_args=None):
@@ -589,7 +599,7 @@ def cmd_test(_args=None):
 
     # Test 4: Data with known patterns — verify compression ratio < 1.0
     pattern_data = (bytes([0x00, 0x11, 0x22, 0x33]) * 64)  # 256 bytes, highly repetitive
-    compressed_pattern, _ = compress(pattern_data)
+    compressed_pattern = compress(pattern_data)
     ratio = len(compressed_pattern) / len(pattern_data)
     is_compressed = ratio < 1.0
     result4 = _run_test("4. Known pattern (256B)", pattern_data)
@@ -654,6 +664,93 @@ def cmd_test(_args=None):
             large_tile_data.append((base + i) & 0xFF)
     check(_run_test("12. Tile-delta large (1280B)", bytes(large_tile_data), tile_delta=True))
 
+    # Test 13: v1-decode regression — hand-constructed v1 stream
+    # (version byte 0, pad byte after token, offset word always emitted)
+    v1_stream = bytes([
+        0x00, 0x08,             # uncompressed size = 8
+        0x00, VERSION_V1,       # flags, version
+        0x22, 0x00,             # token: 2 lits, 2-word match + pad byte
+        0xAA, 0xBB, 0xCC, 0xDD, # literal words
+        0x00, 0x04,             # offset word = 4 (always present in v1)
+        0x00, 0x00,             # EOS + pad
+    ])
+    check(_run_decode_test("13. v1-decode regression",
+                           v1_stream, bytes([0xAA, 0xBB, 0xCC, 0xDD,
+                                             0xAA, 0xBB, 0xCC, 0xDD])))
+
+    # Test 14: v3 short offset 2 with overlap (offmark = 1, length > 1 word)
+    v3_overlap = (_v3_header(10) +
+                  bytes([0x14, 0x01,        # 1 lit, 4-word match, offmark 1
+                         0xAB, 0xCD]) +     # literal word
+                  bytes([0x00, 0x00]))      # EOS word
+    check(_run_decode_test("14. v3 short offset 2 (overlap)",
+                           v3_overlap, bytes([0xAB, 0xCD] * 5)))
+
+    # Test 15: v3 short offset boundary 510 (offmark = 255)
+    lits_255 = bytes((i & 0xFF) for i in range(510))   # 255 unique-ish words
+    v3_short_max = (_v3_header(514) +
+                    bytes([0xF2, 0xFF]) +              # lit ext, 2-word match, offmark 255
+                    struct.pack(">H", 255) +           # literal count extension
+                    lits_255 +
+                    bytes([0x00, 0x00]))               # EOS word
+    check(_run_decode_test("15. v3 short offset 510 (offmark 255)",
+                           v3_short_max, lits_255 + lits_255[:4]))
+
+    # Test 16: v3 long offset 512 (offmark = 0, offset word after literals)
+    lits_256 = bytes((i * 3) & 0xFF for i in range(512))  # 256 words
+    v3_long = (_v3_header(516) +
+               bytes([0xF2, 0x00]) +                   # lit ext, 2-word match, long form
+               struct.pack(">H", 256) +                # literal count extension
+               lits_256 +
+               struct.pack(">H", 512) +                # offset word (after literals)
+               bytes([0x00, 0x00]))                    # EOS word
+    check(_run_decode_test("16. v3 long offset 512",
+                           v3_long, lits_256 + lits_256[:4]))
+
+    # Test 17: v3 token with BOTH nibbles extended, short offset
+    # (match ext follows literals directly — no offset word in short form)
+    lits_16 = bytes((0x40 + i) & 0xFF for i in range(32))  # 16 words
+    v3_both_ext = (_v3_header(32 + 40) +
+                   bytes([0xFF, 0x01]) +               # both ext, offmark 1
+                   struct.pack(">H", 16) +             # literal count extension
+                   lits_16 +
+                   struct.pack(">H", 20) +             # match count extension
+                   bytes([0x00, 0x00]))                # EOS word
+    check(_run_decode_test("17. v3 both nibbles extended (short form)",
+                           v3_both_ext, lits_16 + lits_16[-2:] * 20))
+
+    # Test 18: encoder picks short form for near matches — exact stream check
+    # b'\xAA\x55' * 100: optimal parse = 1 lit + 99-word match at offset 2.
+    rep = bytes([0xAA, 0x55]) * 100
+    rep_compressed = compress(rep)
+    expected_rep = (_v3_header(200) +
+                    bytes([0x1F, 0x01,                  # 1 lit, ext match, offmark 1
+                           0xAA, 0x55]) +               # literal word
+                    struct.pack(">H", 99) +             # match count extension
+                    bytes([0x00, 0x00]))                # EOS word
+    if rep_compressed == expected_rep:
+        print(f"  PASS 18. Encoder short-form stream: {len(rep)} -> {len(rep_compressed)}B exact")
+        check(True)
+    else:
+        print(f"  FAIL 18. Encoder short-form stream mismatch:")
+        print(f"    expected {expected_rep.hex()}")
+        print(f"    got      {rep_compressed.hex()}")
+        check(False)
+
+    # Test 19: encoder round-trip on data engineered for boundary offsets
+    # Pattern at 0, unique filler, repeat at distance 510 then 512.
+    def boundary_data(gap_bytes: int) -> bytes:
+        pattern = bytes([0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE])
+        filler = bytearray()
+        i = 0
+        while len(filler) < gap_bytes - len(pattern):
+            filler.extend(struct.pack(">H", 0x8000 + i))
+            i += 1
+        return pattern + bytes(filler[:gap_bytes - len(pattern)]) + pattern
+
+    check(_run_test("19a. Boundary offset 510 round-trip", boundary_data(510)))
+    check(_run_test("19b. Boundary offset 512 round-trip", boundary_data(512)))
+
     print("=" * 60)
     print(f"Results: {passed}/{total} passed, {failed} failed")
     if failed > 0:
@@ -674,8 +771,6 @@ def main():
     p_compress = subparsers.add_parser("compress", help="Compress a file")
     p_compress.add_argument("--tile-delta", action="store_true",
                             help="Enable tile-delta XOR preprocessing")
-    p_compress.add_argument("--checkpoint-interval", type=int, default=0,
-                            help="Record checkpoint offsets every N bytes of output")
     p_compress.add_argument("input", help="Input file")
     p_compress.add_argument("output", help="Output file")
 

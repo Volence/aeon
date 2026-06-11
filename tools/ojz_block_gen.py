@@ -159,7 +159,7 @@ def generate_section_blocks(section_idx):
             if all(b == 0 for b in raw_block):
                 compressed_blocks.append(None)
             else:
-                compressed, _ = s4lz.compress(raw_block, tile_delta=False)
+                compressed = s4lz.compress(raw_block, tile_delta=False)
                 compressed_blocks.append(compressed)
 
     index_table = bytearray(BLOCK_INDEX_SIZE)

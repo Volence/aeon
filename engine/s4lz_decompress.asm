@@ -1,28 +1,31 @@
-; S4LZ decompressor and tile-delta undo
+; S4LZ v3 decompressor and tile-delta undo
 
 ; -----------------------------------------------
-; S4LZ_Decompress — blocking S4LZ stream decompressor
+; S4LZ_Decompress — blocking S4LZ v3 stream decompressor
 ;
-; Word-aligned format — all fields are word-sized or padded.
+; Word-aligned format — every field is word-sized; the stream is read
+; with word fetches only.
 ;
 ; Header (4 bytes):
 ;   $00.w = uncompressed size (BE, bytes)
 ;   $02.b = flags (bit 0 = tile-delta)
-;   $03.b = reserved (0)
+;   $03.b = version (1 = v3; this decoder is v3-only — asserted in debug)
 ;
-; Per sequence (all word-aligned):
-;   Token: byte + pad byte (2 bytes)
-;     High nibble (7-4) = literal word count (0-14, 15 = read next word)
-;     Low nibble  (3-0) = match word count   (0-14, 15 = read next word)
-;     Token $00 = end of stream
-;   If lit nibble == 15: literal count word (2 bytes)
-;   Literal data: count × word
-;   If match nibble > 0: match offset word (2 bytes)
-;   If match nibble == 15: match count word (2 bytes)
+; Per sequence, one token WORD = [token.b][offmark.b]:
+;   token.b high nibble (7-4) = literal word count (0-14, 15 = ext word)
+;   token.b low nibble  (3-0) = match word count   (0-14, 15 = ext word)
+;   token.b $00 = end of stream (offmark.b is $00 too, so EOS word = $0000
+;                 and is consumed whole — a0 ends even, past the stream)
+;   offmark.b = match_offset/2 when the byte offset is 2..510 (short form
+;               — no offset word in the stream); $00 = long form (a u16 BE
+;               offset word follows the literals) or match nibble is 0
+; Stream order per sequence:
+;   token word, [literal count word], literals,
+;   [offset word — long form only], [match count word]
 ;
 ; In:  a0 = source (compressed S4LZ data, word-aligned)
 ;      a1 = destination (word-aligned RAM buffer)
-; Out: a0 = past end of compressed data
+; Out: a0 = past end of compressed data (even — EOS word fully consumed)
 ;      a1 = past end of decompressed data
 ; Clobbers: d0-d3, a2-a3
 ; -----------------------------------------------
@@ -30,19 +33,19 @@ S4LZ_Decompress:
         movea.l a1, a3                          ; a3 = dest start (for tile-delta)
         move.w  (a0)+, d3                       ; d3.w = uncompressed size
         move.b  (a0)+, d2                       ; d2.b = flags
-        addq.l  #1, a0                          ; skip reserved byte
+        ifdebug move.b (a0), d0
+        ifdebug assert.b d0, eq, #1             ; v3 stream required (version byte = 1)
+        addq.l  #1, a0                          ; skip version byte
 
 .token_loop:
-        moveq   #0, d0
-        move.b  (a0)+, d0                       ; read token byte
-        beq.w   .stream_done                    ; token $00 = end of stream
-        addq.l  #1, a0                          ; skip pad byte (word alignment)
+        move.w  (a0)+, d0                       ; d0 = [token.b][offmark.b]
+        beq.w   .stream_done                    ; $0000 = end of stream
 
-    ; --- Extract literal count (high nibble) ---
+    ; --- Extract literal count (token word bits 15-12) ---
         move.w  d0, d1
-        lsr.w   #4, d1                          ; d1 = LIT_CNT (0-15)
+        rol.w   #4, d1                          ; high nibble -> bits 3-0
+        andi.w  #$0F, d1                        ; d1 = LIT_CNT (0-15)
         beq.s   .no_literals                    ; 0 literals -> skip
-
         cmpi.w  #15, d1
         beq.w   .lit_extended                   ; 15 = read count word
 
@@ -68,19 +71,28 @@ S4LZ_Decompress:
 .lit_end:
 
 .no_literals:
-    ; --- Extract match count (low nibble) ---
+    ; --- Decode match offset from offmark (token word low byte) ---
+        moveq   #0, d1
+        move.b  d0, d1                          ; d1 = offmark, zero-extended (unsigned 1-255)
+        beq.s   .offmark_zero
+        add.w   d1, d1                          ; short form: offset = offmark * 2 (2-510)
+        lsr.w   #8, d0
+        andi.w  #$0F, d0                        ; d0 = MATCH_CNT (offmark != 0 guarantees > 0)
+        bra.s   .have_offset
+
+.offmark_zero:
+        lsr.w   #8, d0
         andi.w  #$0F, d0                        ; d0 = MATCH_CNT (0-15)
         beq.s   .token_loop                     ; 0 matches -> next token
+        move.w  (a0)+, d1                       ; long form: offset word (after literals)
 
+.have_offset:
+        movea.l a1, a2
+        suba.w  d1, a2                          ; a2 = match source (dest - offset)
         cmpi.w  #15, d0
         beq.s   .match_extended                 ; 15 = read count word
 
-    ; --- Read match offset and set source ---
-        move.w  (a0)+, d1                       ; d1.w = match offset (bytes)
-        movea.l a1, a2
-        suba.w  d1, a2                          ; a2 = match source (dest - offset)
-
-    ; --- Unrolled match copy (1-14 words) ---
+    ; --- Unrolled match copy (1-14 words, word-ascending for overlap) ---
         add.w   d0, d0
         neg.w   d0
         jmp     .match_end(pc,d0.w)
@@ -100,7 +112,7 @@ S4LZ_Decompress:
         move.w  (a2)+, (a1)+                   ; entry 2
         move.w  (a2)+, (a1)+                   ; entry 1
 .match_end:
-        bra.s   .token_loop
+        bra.w   .token_loop
 
     ; --- Extended literal count ---
 .lit_extended:
@@ -111,16 +123,14 @@ S4LZ_Decompress:
         dbf     d1, .lit_dbf_loop
         bra.w   .no_literals                    ; continue to match portion
 
-    ; --- Extended match count ---
+    ; --- Extended match count (a2 = match source, set in .have_offset) ---
+    ; Short form: this word directly follows the literals.
+    ; Long form: it follows the offset word — matching the encoder order.
 .match_extended:
-        move.w  (a0)+, d1                       ; match offset (word)
-        movea.l a1, a2
-        suba.w  d1, a2                          ; a2 = match source
-
         move.w  (a0)+, d0                       ; match count (word)
         subq.w  #1, d0                          ; adjust for dbf
 .match_dbf_loop:
-        move.w  (a2)+, (a1)+
+        move.w  (a2)+, (a1)+                    ; word-ascending — overlap-safe
         dbf     d0, .match_dbf_loop
         bra.w   .token_loop
 

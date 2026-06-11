@@ -1261,9 +1261,11 @@ def generate(force_region1_cap=None):
         total_strips += len(remapped_strips)
 
     # ---- Pass 5b (§4.7): S4LZ compress wide strips + emit checkpoints ----
-    STRIPS_PER_CHECKPOINT = 64
-    CKPT_INTERVAL = STRIPS_PER_CHECKPOINT * WIDE_STRIP_SIZE
-
+    # NOTE: strip emission is scheduled for deletion (two-tier compression
+    # plan). S4LZ no longer supports segmented checkpoints, so the
+    # checkpoint files are emitted as zero placeholders. The streaming
+    # strip decoder has no callers, so this data is never decoded at
+    # runtime — it only keeps the BINCLUDEs satisfied until removal.
     for sec_id in sec_ids_in_order:
         raw_path = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
         with open(raw_path, 'rb') as f:
@@ -1273,10 +1275,8 @@ def generate(force_region1_cap=None):
             print(f"  sec{sec_id} strips: {len(raw_data)} bytes — too large for S4LZ, skipping")
             continue
 
-        compressed, checkpoints = s4lz.compress(
-            raw_data, tile_delta=False,
-            checkpoint_interval=CKPT_INTERVAL,
-            max_match_words=WIDE_STRIP_SIZE // 2)
+        compressed = s4lz.compress(raw_data, tile_delta=False)
+        checkpoints = [0]
 
         s4lz_path = os.path.join(out_dir, f"sec{sec_id}_strips.s4lz")
         with open(s4lz_path, 'wb') as f:

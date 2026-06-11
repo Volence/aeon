@@ -45,8 +45,9 @@ for sec_bin in data/generated/ojz/act1/sec*_tiles.bin; do
     if [[ -s "$sec_bin" ]]; then
         python3 "${TOOLS}/s4lz.py" compress --tile-delta "$sec_bin" "$sec_s4lz"
     else
-        # Zero-length section — write a 4-byte zero-length S4LZ header.
-        printf '\x00\x00\x00\x00' > "$sec_s4lz"
+        # Zero-length section — empty v3 stream (size 0, flags 0,
+        # version 1, EOS word). Loaders skip on size 0 before decoding.
+        printf '\x00\x00\x00\x01\x00\x00' > "$sec_s4lz"
     fi
 done
 
