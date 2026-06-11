@@ -299,7 +299,7 @@ BLOCK_STAGE_SLOTS       = 12        ; staged decompressed blocks (round-robin ev
                                     ; sized so a column fill (<=5 blocks) + a row fill
                                     ; (<=6 blocks) coexist without thrashing on diagonals
 BLOCK_DECOMP_BUDGET     = 6         ; max block decompresses per frame (shared: columns + rows)
-VFILL_ROWS_PER_FRAME    = 4         ; rows filled per frame cap. Terminal velocity is
+VFILL_ROWS_PER_FRAME    = 2         ; rows filled per frame cap. Terminal velocity is
                                     ; 2 rows/frame (16px); 4 = catch-up headroom. The
                                     ; camera Y clamp (CAM_MAX_Y_STEP, Task 2) must stay
                                     ; <= this*8 px or streaming falls behind the view.
@@ -324,7 +324,7 @@ CTYPE_FLAT_SOLID        = 1
 CAM_LOOKAHEAD_THRESHOLD = $0600     ; ground speed for pan enable
 CAM_PAN_SPEED           = 2         ; pixels/frame pan rate
 CAM_PAN_LIMIT           = 64        ; max pan pixels
-CAM_MAX_Y_STEP          = 32        ; max camera Y movement px/frame. The streaming
+CAM_MAX_Y_STEP          = 16        ; max camera Y movement px/frame. The streaming
                                     ; contract rests on this clamp (every reference
                                     ; engine bounds the CAMERA: S2=16, S3K=24) — must
                                     ; stay <= VFILL_ROWS_PER_FRAME*8 or fills fall

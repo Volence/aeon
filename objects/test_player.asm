@@ -33,7 +33,7 @@ TOP_SPEED               = $600          ; maximum horizontal velocity
 TERMINAL_VELOCITY       = $1000         ; maximum falling velocity
 AIR_ACCEL               = $18           ; air horizontal acceleration
 DEBUG_FLY_SPEED         = 16            ; pixels per frame in debug mode
-DEBUG_FLY_SPEED_FAST    = 32            ; capped to CAM_MAX_Y_STEP — camera can't follow faster
+DEBUG_FLY_SPEED_FAST    = 16            ; capped to CAM_MAX_Y_STEP — camera can't follow faster
 STUB_FLOOR_Y            = 192           ; pixel Y for stub ground plane (used by object_test_state)
 
 ; -----------------------------------------------
