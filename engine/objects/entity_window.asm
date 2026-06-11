@@ -279,7 +279,7 @@ EntityWindow_InitSection:
         move.l  Sec_sec_type_table(a0), EntityScanState_ess_rom_type_tbl_ptr(a1)
         move.w  d0, EntityScanState_ess_origin_x(a1)
         move.b  d1, EntityScanState_ess_section_id(a1)
-        clr.b   EntityScanState_ess_pad(a1)
+        clr.b   EntityScanState_ess_entry_idx(a1)
         clr.w   EntityScanState_ess_ring_right_idx(a1)
         clr.w   EntityScanState_ess_ring_left_idx(a1)
         clr.w   EntityScanState_ess_obj_right_idx(a1)

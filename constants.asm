@@ -366,6 +366,10 @@ RING_ANIM_SPEED         = 8             ; frames per animation tick
 MAX_TRACKED_SECTIONS    = 4             ; 2 active + 2 preview neighbors
 ENTITY_LOAD_BUFFER      = $180          ; pixels ahead/behind camera to load entities
 ENTITY_DESPAWN_BUFFER   = $200          ; pixels beyond load buffer to despawn (hysteresis)
+ENTITY_LOAD_BUFFER_Y    = $100          ; pixels above/below camera to load entities (§4.9 ph2)
+ENTITY_DESPAWN_BUFFER_Y = $180          ; Y despawn distance (> load = hysteresis)
+ENTITY_LOADED_SLOT_SIZE = 32            ; per-entry loaded bitmask: 16B rings + 16B objects
+ENTITY_LOADED_OBJ_OFFSET = 16           ; object bits start mid-slot
 SCREEN_WIDTH            = 320           ; visible screen width in pixels
 SCREEN_HEIGHT           = 224           ; visible screen height in pixels
 
