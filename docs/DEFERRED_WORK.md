@@ -671,6 +671,19 @@ non-zero; intermittently they read zero.
 **What:** When player has magnet shield, uncollected rings within attraction radius accelerate toward the player. Modifies the per-frame ring collision check to also compute distance and apply pull velocity. Only affects buffer rings within range — loss rings (SST objects) would have their own attraction in their object code.
 **When ready:** After shield system exists (§3 player abilities).
 
+## From Teleport-Rebase (2026-06-10)
+
+### CRITICAL: FWD teleport advances slot pair out of a narrow grid → garbage entity scan state
+**Surfaced during:** teleport-rebase verification 2026-06-10 (pre-existing on master — not caused by the rebase change; nothing in that diff touches this path).
+**What:** `Section_TeleportFwd` advances the pair `(0,1) → (2,3)`, but OJZ act1 is now a **3×3 grid** — `sec_x = 3` doesn't exist. The `.fwd_check` guard only verifies `slot1_x + 1 < grid_w` (the new slot 0), not the new slot 1. The old TODO at the slot advance ("clamp d0 to act grid width — Phase 1 safe (OJZ = 9 sections)") dates from when OJZ was a 9-wide strip; the 3×3 reorganization armed it. Observed: walking right past `x=$1200` from spawn → `EntityWindow_TeleportShift` builds a scan state for the out-of-grid section → garbage `ess_rom_ring_ptr` ($69A) → populate loop walks ROM → DEBUG assert `d1 LO #MAX_LIST_ENTRIES` in `Collected_CheckRing` (release build: undefined ring spawns). Reproduce: boot OJZ, write `Player_1.x = $1208`.
+**Fix surface:** out-of-grid slot semantics — clamp slot 1 to the grid edge AND make entity/stream/cache consumers skip out-of-grid sections, or require even `grid_w` in act data (build assert) so pairs always fit. The last column must remain reachable (it becomes slot 0), so refusing the teleport is not an option.
+**When ready:** next §4.2 session; blocks any act with odd grid width.
+
+### Per-section BG layout swap at the seam (T2/T3 zones)
+**Surfaced during:** teleport-rebase 2026-06-10.
+**What:** Teleports no longer run `Section_RedrawPlanes`, which was what blitted a differing `sec_bg_layout` to Plane B at FWD/BWD teleport (the §2 A.5 T2/T3 tests relied on this). All current production data is T1 (`sec_bg_layout = NULL` everywhere) so nothing is affected today. When a zone first authors per-section BG layouts, the swap needs a non-blocking mechanism — deferred Plane B column/row streaming near the seam (mirroring FG preview cols), not a 3-frame synchronous blit.
+**When ready:** when a zone authors T2/T3 BG data.
+
 ## From Sound Driver Work (Future)
 
 ### Defensive Z80 RAM Upload — Verify-and-Retry
