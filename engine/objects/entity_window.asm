@@ -6,7 +6,8 @@
 ; =====================================================
 
 ; -----------------------------------------------
-; Collected_Init — fill all 9 slots with COLLECTED_EMPTY_TAG
+; Collected_Init — fill all 9 slots with COLLECTED_EMPTY_TAG, empty the park
+; Clobbers: d1, a0
 ; -----------------------------------------------
 Collected_Init:
         lea     (Ring_Collected_Window).w, a0
@@ -24,6 +25,15 @@ Collected_Init:
         clr.l   KILLED_BITMASK_OFFSET+12(a0)
         lea     COLLECTED_SLOT_SIZE(a0), a0
         dbf     d1, .loop
+
+        ; park: ids only — mask bytes are never read until a park stamps an id
+        lea     (Ring_Collected_Park).w, a0
+        moveq   #COLLECTED_PARK_SLOTS-1, d1
+.park_loop:
+        move.b  #COLLECTED_EMPTY_TAG, (a0)
+        lea     COLLECTED_PARK_ENTRY_SIZE(a0), a0
+        dbf     d1, .park_loop
+        clr.b   (Collected_Park_Next).w
         rts
 
 ; -----------------------------------------------
@@ -151,11 +161,13 @@ Killed_MarkObject:
 
 ; -----------------------------------------------
 ; Collected_ClaimSlot — claim an empty slot for a section
+; Fresh claims check the respawn park — a re-entering section's
+; collected/killed state is copied back (§4.9.4).
 ;
 ; In:  d0.b = section_id
 ; Out: a0 = slot pointer
 ;      Z clear = success, Z set = no empty slots
-; Clobbers: d1, a0
+; Clobbers: d1, a0-a1
 ; -----------------------------------------------
 Collected_ClaimSlot:
         bsr.w   Collected_FindSlot
@@ -182,14 +194,137 @@ Collected_ClaimSlot:
         clr.l   KILLED_BITMASK_OFFSET+4(a0)
         clr.l   KILLED_BITMASK_OFFSET+8(a0)
         clr.l   KILLED_BITMASK_OFFSET+12(a0)
+        bsr.w   Collected_UnparkSlot    ; .w — ParkSlot + DEBUG assert sit in between
 .already_owned:
         moveq   #1, d1                 ; Z clear = ok
+        rts
+
+; -----------------------------------------------
+; Collected_ParkSlot — save an evicted slot's state in the respawn park
+; Pristine slots (all-zero masks) are NOT parked — restoring nothing
+; equals default state, so parking them would only waste park capacity.
+; Same-id entries are reused; otherwise the rolling index picks the
+; oldest entry (overwrite) and advances. Cold path — bytewise copies
+; because park entries are 33 bytes (unaligned).
+;
+; In:  a0 = window slot being evicted (id byte still stamped)
+; Out: none
+; Clobbers: d0-d1, a1
+; -----------------------------------------------
+Collected_ParkSlot:
+        move.l  COLLECTED_BITMASK_OFFSET(a0), d0
+        or.l    COLLECTED_BITMASK_OFFSET+4(a0), d0
+        or.l    COLLECTED_BITMASK_OFFSET+8(a0), d0
+        or.l    COLLECTED_BITMASK_OFFSET+12(a0), d0
+        or.l    KILLED_BITMASK_OFFSET(a0), d0
+        or.l    KILLED_BITMASK_OFFSET+4(a0), d0
+        or.l    KILLED_BITMASK_OFFSET+8(a0), d0
+        or.l    KILLED_BITMASK_OFFSET+12(a0), d0
+        bne.s   .park
+        rts                             ; pristine — don't consume a park entry
+
+.park:
+        move.b  (a0), d0                ; section id
+        lea     (Ring_Collected_Park).w, a1
+        moveq   #COLLECTED_PARK_SLOTS-1, d1
+.reuse_scan:
+        cmp.b   (a1), d0
+        beq.s   .write                  ; park already holds this id — reuse
+        lea     COLLECTED_PARK_ENTRY_SIZE(a1), a1
+        dbf     d1, .reuse_scan
+
+        ; no existing entry — take the rolling slot and advance the index
+        ; (entry stride is 33 — step a pointer rather than decompose a multiply)
+        lea     (Ring_Collected_Park).w, a1
+        move.b  (Collected_Park_Next).w, d1
+        ext.w   d1
+        subq.w  #1, d1
+        bmi.s   .index_done
+.index_step:
+        lea     COLLECTED_PARK_ENTRY_SIZE(a1), a1
+        dbf     d1, .index_step
+.index_done:
+        addq.b  #1, (Collected_Park_Next).w
+        cmpi.b  #COLLECTED_PARK_SLOTS, (Collected_Park_Next).w
+        blo.s   .write
+        clr.b   (Collected_Park_Next).w
+
+.write:
+        move.b  d0, (a1)+               ; stamp id; a1 → park mask bytes
+        move.l  a0, -(sp)
+        lea     COLLECTED_BITMASK_OFFSET(a0), a0
+        moveq   #COLLECTED_MASK_BYTES-1, d1
+.copy_ring:
+        move.b  (a0)+, (a1)+
+        dbf     d1, .copy_ring
+        movea.l (sp), a0
+        lea     KILLED_BITMASK_OFFSET(a0), a0
+        moveq   #COLLECTED_MASK_BYTES-1, d1
+.copy_killed:
+        move.b  (a0)+, (a1)+
+        dbf     d1, .copy_killed
+        movea.l (sp)+, a0
+
+    ifdef __DEBUG__
+        ; no duplicate section ids in the park (reuse path must have caught them)
+        move.w  d2, -(sp)
+        lea     (Ring_Collected_Park).w, a1
+        moveq   #0, d1                  ; match count
+        moveq   #COLLECTED_PARK_SLOTS-1, d2
+.dup_scan:
+        cmp.b   (a1), d0
+        bne.s   .dup_next
+        addq.b  #1, d1
+.dup_next:
+        lea     COLLECTED_PARK_ENTRY_SIZE(a1), a1
+        dbf     d2, .dup_scan
+        move.w  (sp)+, d2
+        assert.b d1, eq, #1
+    endif
+        rts
+
+; -----------------------------------------------
+; Collected_UnparkSlot — restore parked state into a re-claimed slot
+; On a park hit both masks are copied into the slot and the park entry
+; is freed (id → COLLECTED_EMPTY_TAG). Miss is a no-op.
+;
+; In:  d0.b = section_id
+;      a0   = freshly claimed window slot (masks zeroed)
+; Out: none
+; Clobbers: d1, a1
+; -----------------------------------------------
+Collected_UnparkSlot:
+        lea     (Ring_Collected_Park).w, a1
+        moveq   #COLLECTED_PARK_SLOTS-1, d1
+.scan:
+        cmp.b   (a1), d0
+        beq.s   .hit
+        lea     COLLECTED_PARK_ENTRY_SIZE(a1), a1
+        dbf     d1, .scan
+        rts                             ; not parked — fresh slot stays zeroed
+
+.hit:
+        move.b  #COLLECTED_EMPTY_TAG, (a1)+     ; free the park entry; a1 → masks
+        move.l  a0, -(sp)
+        lea     COLLECTED_BITMASK_OFFSET(a0), a0
+        moveq   #COLLECTED_MASK_BYTES-1, d1
+.copy_ring:
+        move.b  (a1)+, (a0)+
+        dbf     d1, .copy_ring
+        movea.l (sp), a0
+        lea     KILLED_BITMASK_OFFSET(a0), a0
+        moveq   #COLLECTED_MASK_BYTES-1, d1
+.copy_killed:
+        move.b  (a1)+, (a0)+
+        dbf     d1, .copy_killed
+        movea.l (sp)+, a0
         rts
 
 ; -----------------------------------------------
 ; Collected_UpdateCenter — evict slots outside new 3×3 range (±1 in each axis)
 ; Radius ±1 gives a 3×3 = 9-section keep-neighborhood, matching COLLECTED_WINDOW_SLOTS.
 ; Increasing the radius beyond ±1 would overflow the 9 available slots.
+; Evicted slots with any collected/killed bit park in the respawn buffer (§4.9.4).
 ;
 ; In:  d0.b = new center section_id
 ;      d1.b = grid_w
@@ -253,6 +388,7 @@ Collected_UpdateCenter:
         bls.s   .slot_next
 
 .evict:
+        bsr.w   Collected_ParkSlot      ; preserves a0/d2-d5; clobbers d0-d1/a1 (dead here)
         move.b  #COLLECTED_EMPTY_TAG, (a0)
         clr.b   1(a0)
         clr.l   COLLECTED_BITMASK_OFFSET(a0)

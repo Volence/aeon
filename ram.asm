@@ -371,6 +371,12 @@ Camera_Y_Coarse_Prev:   ds.w 1          ; camY & $FF80 at last vertical re-scan
 Ring_Collected_Window:  ds.b COLLECTED_WINDOW_SLOTS * COLLECTED_SLOT_SIZE  ; 306 bytes
                         ds.b 2          ; pad to even
 
+; Respawn park (§4.9.4) — 4 entries × 33 bytes (byte-packed, copied bytewise)
+Ring_Collected_Park:    ds.b COLLECTED_PARK_SLOTS * COLLECTED_PARK_ENTRY_SIZE ; 132 bytes
+                        ds.b (COLLECTED_PARK_SLOTS*COLLECTED_PARK_ENTRY_SIZE)&1 ; pad to even (132 — none needed)
+Collected_Park_Next:    ds.b 1          ; rolling write index (0..COLLECTED_PARK_SLOTS-1)
+                        ds.b 1          ; pad to even
+
 ; Active level pointer
 Current_Act_Ptr:        ds.l 1
 

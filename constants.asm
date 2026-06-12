@@ -400,6 +400,13 @@ COLLECTED_SLOT_SIZE     = 34            ; 1 tag + 1 pad + 16 ring bitmask + 16 k
 COLLECTED_BITMASK_OFFSET = 2            ; ring collected bitmask starts 2 bytes into slot
 KILLED_BITMASK_OFFSET   = 18           ; object killed bitmask starts after ring bitmask
 COLLECTED_EMPTY_TAG     = $FF           ; slot not owned by any section
+COLLECTED_MASK_BYTES    = KILLED_BITMASK_OFFSET-COLLECTED_BITMASK_OFFSET ; 16 — one bitmask (ring or killed)
+
+; Rolling respawn park (§4.9.4) — sections evicted from the 3×3 with any
+; collected/killed bit set park here; restored on re-claim. Oldest rolls off.
+; 9 (window) + 4 (park) = 13 remembered sections — covers a 3×3 act entirely.
+COLLECTED_PARK_SLOTS    = 4             ; park entries (rolling overwrite)
+COLLECTED_PARK_ENTRY_SIZE = 1+2*COLLECTED_MASK_BYTES ; 33 — id byte + collected + killed masks (byte-packed, entries NOT word-aligned)
 MAX_LIST_ENTRIES        = 128           ; collected/killed bitmask capacity per section
                                         ; (16-byte bitmask; index >= 128 corrupts the next
                                         ; window slot — enforced by debug asserts + T9 objentry macro)
