@@ -274,13 +274,13 @@ Collected_UpdateCenter:
 ; One ENTITY_LOADED_SLOT_SIZE (32-byte) slot per scan entry:
 ; bytes 0-15 ring bits, 16-31 object bits, bit = list_index (0-127).
 ; Set at spawn, cleared at despawn/removal, cleared wholesale when an
-; entry's section changes (EntityWindow_InitSection). Teleports wipe
-; all four entries through that same compare-clear: the 2x2 window
-; block-rotates by TWO sections per teleport, so no tracked section
-; ever survives one (see mapping table above EntityWindow_TeleportShift)
-; and cross-teleport mask migration has nothing to move. Spawn paths
-; test the bit first, which makes the X scan, the teleport populate,
-; and the vertical re-scan (EntityWindow_RescanY) mutually idempotent.
+; entry's section changes (EntityWindow_InitSection). Window slides
+; migrate surviving sections' masks to their new entries by identity
+; (EntityWindow_MigrateMasks); teleport rebases keep the tracked
+; section set invariant, so their masks survive slot-to-same-slot.
+; Spawn paths test the bit first, which makes the X scan, the slide
+; populate, and the vertical re-scan (EntityWindow_RescanY) mutually
+; idempotent.
 ; =====================================================
 
     if ENTITY_LOADED_SLOT_SIZE <> 32
@@ -383,9 +383,9 @@ EntityWindow_InitSection:
 
         ; Loaded mask is per-entry state about ONE section — clear it when
         ; this entry's section changes. Same-section re-init preserves the
-        ; bits (defensive: teleports change EVERY entry's section — see the
-        ; mapping table above EntityWindow_TeleportShift — so the teleport
-        ; rebuild always takes the clear path).
+        ; bits — the path teleport rebuilds take (the visibility-derived
+        ; window keeps the section set invariant across a rebase); slides
+        ; clear here, then EntityWindow_MigrateMasks copies survivors in.
         cmp.b   EntityScanState_ess_section_id(a1), d1
         beq.s   .same_section
         moveq   #0, d3
@@ -417,7 +417,8 @@ EntityWindow_InitSection:
 ;
 ; The tracked 2×2 = the sections overlapped by the camera's DESPAWN envelope
 ; (the widest band), so any live windowed entity's section is always tracked.
-; Envelope spans < SECTION_SIZE on both axes → always exactly 2 cols × 2 rows.
+; Envelope spans < SECTION_SIZE on both axes → always exactly 2 cols × 2 rows
+; (screen+2×buffer < SECTION_SIZE on both axes — see constants.asm).
 ;
 ; Out: d2.b = sec_x0 (slot0 sec_x + col0 — may be "negative"/past-grid; the
 ;             grid range check voids such cells downstream)
@@ -475,7 +476,9 @@ EntityWindow_BuildEntries:
         moveq   #0, d6                  ; d6 = entry index 0-3
 
 .entry_loop:
-        ; entry geometry from the stored anchor
+        ; entry geometry from the stored anchor — d2/d3 don't survive the
+        ; loop body (d2 reused for origin_y, InitSection clobbers d3), so
+        ; reload each iteration
         move.b  (Entity_Window_Anchor).w, d2    ; d2 = sec_x0
         move.b  (Entity_Window_Anchor+1).w, d3  ; d3 = sec_y0
         move.w  d6, d0
@@ -607,6 +610,22 @@ EntityWindow_Scan:
         bsr.w   EntityWindow_RescanY
         movem.l (sp)+, d5/d7
 .no_rescan:
+
+        ; window slide: fires when the camera envelope crosses a section
+        ; boundary (≤ once per ~2048px of travel; one axis per frame at the
+        ; 16px/f camera clamp). DeriveWindow clobbers d5 — the validity mask
+        ; is reloaded below on both paths.
+        bsr.w   EntityWindow_DeriveWindow       ; d2/d3 = anchor candidate
+        cmp.b   (Entity_Window_Anchor).w, d2
+        bne.s   .slide
+        cmp.b   (Entity_Window_Anchor+1).w, d3
+        beq.s   .no_slide
+.slide:
+        move.w  d7, -(sp)                       ; right load edge (camera unchanged by slide)
+        bsr.w   EntityWindow_Slide
+        move.w  (sp)+, d7
+.no_slide:
+        move.b  (Entity_Window_Active).w, d5    ; reload — DeriveWindow/Slide clobbered it
 
         lea     (Entity_Scan_State).w, a3
         moveq   #0, d6                  ; d6.b = entry index (0-3)
@@ -740,15 +759,14 @@ EntityWindow_ScanRingsRight:
         rts
 
 ; -----------------------------------------------
-; EntityWindow_PopulateSectionRings — full ring populate for teleport
+; EntityWindow_PopulateSectionRings — full ring populate for one entry
 ;
 ; Offers EVERY listed ring to TrySpawnRing (no X edge filter), so
 ; in-band, uncollected, not-yet-loaded rings load across the whole
 ; section width; sets ring_right_idx to the camera-relative position
-; (first ring past right load edge). Never double-adds a teleport
-; survivor: survivors always belong to sections that just LEFT the
-; tracked window (see table above EntityWindow_TeleportShift), and
-; this populate only walks tracked entries.
+; (first ring past right load edge). Called by the slide path for
+; newly tracked sections only — surviving sections' loaded bits
+; migrate with them, so a re-offer couldn't double-add anyway.
 ; Out-of-band rings are NOT added — the vertical re-scan picks them
 ; up when camY reaches them.
 ;
@@ -1253,6 +1271,11 @@ EntityWindow_TeleportShift:
         dbf     d5, .obj_loop
 
         ; -----------------------------------------------
+        ; STALE (kept until the teleport rewrite deletes this routine): the
+        ; disjoint-sets argument below predates the visibility-derived
+        ; window — the tracked set is now INVARIANT across a rebase, and
+        ; the rebuild migrates masks slot-to-same-slot instead of wiping.
+        ;
         ; Loaded-mask teleport migration (Task 6) — resolved as a NO-OP.
         ;
         ; Verified Slot_Section_Map mappings (section.asm), with the d4
@@ -1380,38 +1403,153 @@ EntityWindow_TeleportShiftY:
         rts
 
 ; -----------------------------------------------
-; EntityWindow_RebuildScanState — repopulate scan state from slot map
+; EntityWindow_MigrateMasks — move loaded masks to sections' new entries
 ;
-; Called after teleport updates Slot_Section_Map.
-; Resets load indices and reconfigures tracked sections.
+; Generic identity match: for each NEW entry, find its section id in the
+; old snapshot; on match copy the old 32-byte mask into the entry's live
+; slot. Sections new to the window keep the compare-clear's zeroed mask.
+; Handles any slide direction — including the (DEBUG-asserted-impossible)
+; diagonal — and the teleport case, where every copy is slot-to-same-slot.
+; Old SEC_VOID snapshot ids can't false-match: new valid ids are real.
+; Cold path (slides/teleports only) — clarity over cycles.
+;
+; In:  a4 = snapshot: 4 bytes old section ids + 4×32 bytes old masks
+; Out: none
+; Clobbers: d0-d3, a0-a1
 ; -----------------------------------------------
-EntityWindow_RebuildScanState:
-        ; Evict stale bitmask slots FIRST (claim-before-evict broke at
-        ; exactly 9/9 occupancy: ClaimSlot calls failed silently when a
-        ; full 3x3 neighborhood preceded a teleport, leaving the active
-        ; sections untracked until the next one)
-        moveq   #SLOT_LEFT, d0
-        bsr.w   Section_SlotFlatID
+EntityWindow_MigrateMasks:
+        moveq   #0, d3                  ; d3 = new entry index
+.new_loop:
+        ; d2.b = new entry d3's section id (entry stride $1A: ×26 = ×16+×8+×2)
+        move.w  d3, d0
+        lsl.w   #4, d0
+        move.w  d3, d1
+        lsl.w   #3, d1
+        add.w   d1, d0
+        move.w  d3, d1
+        add.w   d1, d1
+        add.w   d1, d0
+        lea     (Entity_Scan_State+EntityScanState_ess_section_id).w, a0
+        move.b  (a0, d0.w), d2
+        cmpi.b  #SEC_VOID, d2
+        beq.s   .new_next               ; void entry — nothing to receive
+
+        lea     (a4), a0                ; snapshot section ids
+        moveq   #0, d0                  ; d0 = old entry index
+.old_loop:
+        cmp.b   (a0)+, d2
+        beq.s   .match
+        addq.w  #1, d0
+        cmpi.w  #MAX_TRACKED_SECTIONS, d0
+        blo.s   .old_loop
+        bra.s   .new_next               ; not previously tracked — mask stays zeroed
+
+.match:
+        lea     4(a4), a0               ; snapshot mask block
+        lsl.w   #5, d0                  ; old entry × ENTITY_LOADED_SLOT_SIZE
+        adda.w  d0, a0
+        lea     (Entity_Loaded_Masks).w, a1
+        move.w  d3, d1
+        lsl.w   #5, d1                  ; new entry × ENTITY_LOADED_SLOT_SIZE
+        adda.w  d1, a1
+        moveq   #ENTITY_LOADED_SLOT_SIZE/4-1, d1
+.copy:
+        move.l  (a0)+, (a1)+
+        dbf     d1, .copy
+
+.new_next:
+        addq.w  #1, d3
+        cmpi.w  #MAX_TRACKED_SECTIONS, d3
+        blo.s   .new_loop
+        rts
+
+; -----------------------------------------------
+; EntityWindow_Slide — re-derive the window after the envelope crossed a
+; section boundary (also the teleport rebuild body — see RebuildScanState)
+;
+; Snapshot old ids+masks → recenter collected 3×3 (evict BEFORE BuildEntries
+; claims — claim-before-evict failed silently at 9/9 occupancy, see the bug
+; note carried from the old RebuildScanState) → BuildEntries (compare-clear
+; zeroes genuinely-new sections' masks) → migrate surviving masks by section
+; identity → populate sections that weren't tracked before. Teleport rebases
+; keep the section set invariant: every id is in the snapshot, masks migrate
+; slot-to-same-slot, populate never fires — teleports are populate-free.
+; Cold path (≤ once per ~2048px of travel) — clarity over cycles.
+;
+; In:  none (reads Camera_X/Y, Slot_Section_Map, Current_Act_Ptr)
+; Out: none
+; Clobbers: d0-d7, a0-a4
+; -----------------------------------------------
+EntityWindow_Slide:
+        ; snapshot the old window: 4 section-id bytes + the 128-byte mask block
+        lea     (Entity_Mask_Scratch).w, a0
+        move.b  (Entity_Scan_State+EntityScanState_ess_section_id).w, (a0)+
+        move.b  (Entity_Scan_State+(EntityScanState_len*1)+EntityScanState_ess_section_id).w, (a0)+
+        move.b  (Entity_Scan_State+(EntityScanState_len*2)+EntityScanState_ess_section_id).w, (a0)+
+        move.b  (Entity_Scan_State+(EntityScanState_len*3)+EntityScanState_ess_section_id).w, (a0)+
+        lea     (Entity_Loaded_Masks).w, a1
+        moveq   #(MAX_TRACKED_SECTIONS*ENTITY_LOADED_SLOT_SIZE)/4-1, d0
+.snapshot:
+        move.l  (a1)+, (a0)+
+        dbf     d0, .snapshot
+
+        ; recenter the collected/killed 3×3 on the section containing the
+        ; camera CENTER (DeriveWindow-style math on camX+160 / camY+112 —
+        ; always in-grid, so FlatIDXY needs no range check)
+        move.w  (Camera_X).w, d4
+        subi.w  #SLOT_ORIGIN_L-(SCREEN_WIDTH/2), d4
+        moveq   #SECTION_SIZE_SHIFT, d0
+        asr.w   d0, d4                  ; column of the camera center
+        move.w  (Camera_Y).w, d5
+        subi.w  #SLOT_ORIGIN_U-(SCREEN_HEIGHT/2), d5
+        asr.w   d0, d5                  ; row of the camera center
+        move.b  (Slot_Section_Map).w, d2
+        add.b   d4, d2                  ; sec_x
+        move.b  (Slot_Section_Map+1).w, d3
+        add.b   d5, d3                  ; sec_y
         movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_FlatIDXY        ; d0.w = camera-center flat id
         moveq   #0, d1
         move.b  Act_grid_w+1(a2), d1
         bsr.w   Collected_UpdateCenter
 
+    ifdef __DEBUG__
+        move.w  (Entity_Window_Anchor).w, -(sp) ; old anchor (snapshot holds ids, not the anchor)
+    endif
         bsr.w   EntityWindow_BuildEntries
 
-        ; teleport moved the world under the camera — rebase the
-        ; vertical re-scan trigger so the next crossing is real
-        move.w  (Camera_Y).w, d0
-        andi.w  #ENTITY_RESCAN_COARSE_MASK, d0
-        move.w  d0, (Camera_Y_Coarse_Prev).w
+    ifdef __DEBUG__
+        ; single-axis invariant: at most one anchor byte changes per slide
+        ; (16px/f camera clamp); teleport rebuilds change neither
+        move.w  (sp)+, d0               ; old anchor
+        move.w  (Entity_Window_Anchor).w, d1
+        eor.w   d0, d1                  ; nonzero byte = that axis moved
+        tst.b   d1
+        beq.s   .axis_ok                ; sec_y0 unchanged → at most X slid
+        andi.w  #$FF00, d1              ; sec_y0 slid → sec_x0 must not have
+        assert.w d1, eq
+.axis_ok:
+    endif
 
-        ; full ring populate for every valid entry (teleport path)
+        ; migrate surviving sections' loaded masks to their new entries
+        lea     (Entity_Mask_Scratch).w, a4
+        bsr.w   EntityWindow_MigrateMasks
+
+        ; populate entries whose section was NOT tracked before (band-gated;
+        ; survivors' ids are in the snapshot — incl. every teleport entry)
         lea     (Entity_Scan_State).w, a3
         moveq   #0, d6
 .populate_loop:
         move.b  (Entity_Window_Active).w, d0
         btst    d6, d0
         beq.s   .populate_next
+        move.b  EntityScanState_ess_section_id(a3), d0
+        lea     (Entity_Mask_Scratch).w, a0
+        moveq   #MAX_TRACKED_SECTIONS-1, d1
+.old_id_scan:
+        cmp.b   (a0)+, d0
+        dbeq    d1, .old_id_scan
+        beq.s   .populate_next          ; id survived the slide — nothing new
         lea     (a3), a1
         movem.l d6/a3, -(sp)
         bsr.w   EntityWindow_PopulateSectionRings
@@ -1422,3 +1560,23 @@ EntityWindow_RebuildScanState:
         cmpi.w  #MAX_TRACKED_SECTIONS, d6
         blo.s   .populate_loop
         rts
+
+; -----------------------------------------------
+; EntityWindow_RebuildScanState — teleport-path window re-derivation
+;
+; Called after a teleport rebase updates Camera + Slot_Section_Map. The
+; window is visibility-derived, so the rebase leaves the tracked section
+; set invariant — the shared slide body re-expresses origins, migrates
+; every mask slot-to-same-slot, and (all ids in the snapshot) populates
+; nothing. Only extra work vs a slide: rebase the vertical re-scan
+; trigger so the next coarse crossing is real.
+;
+; In:  none
+; Out: none
+; Clobbers: d0-d7, a0-a4
+; -----------------------------------------------
+EntityWindow_RebuildScanState:
+        move.w  (Camera_Y).w, d0
+        andi.w  #ENTITY_RESCAN_COARSE_MASK, d0
+        move.w  d0, (Camera_Y_Coarse_Prev).w
+        bra.w   EntityWindow_Slide

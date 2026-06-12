@@ -223,7 +223,7 @@ Act endstruct
 
 ; -----------------------------------------------
 ; Per-section entity scan state (§4.9 camera-driven window)
-; One per tracked quadrant (4: slot L/R × section rows r/r+1 — §4.9 phase 2)
+; One per tracked window cell (camera-envelope-derived 2×2 — see EntityWindow_DeriveWindow)
 ; -----------------------------------------------
 EntityScanState struct
 ess_ring_right_idx   ds.w 1      ; $00 — next unloaded ring index (scanning right)

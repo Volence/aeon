@@ -213,7 +213,7 @@ SECTION_SHIFT           = 2*SECTION_SIZE        ; $1000 — teleport shift (pixe
 SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
 SLOT_ORIGIN_R           = SLOT_ORIGIN_L+SECTION_SIZE    ; $0A00 — right slot engine-space left edge
 SLOT_ORIGIN_U           = $0200     ; upper slot engine-space top edge
-SLOT_ORIGIN_D           = SLOT_ORIGIN_U+SECTION_SIZE    ; $0A00 — lower slot engine-space top edge
+SLOT_ORIGIN_D           = SLOT_ORIGIN_U+SECTION_SIZE    ; $0A00 — lower slot engine-space top edge (no direct code use — documentation mirror of SLOT_ORIGIN_R)
 SEC_VOID                = $FF       ; Slot_Section_Map sec_x sentinel: slot holds no section
                                     ; (FWD pair-advance at the edge of an odd-width grid).
                                     ; Consumers must skip the slot; SlotFlatID on it is invalid.
