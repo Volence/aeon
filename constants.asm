@@ -244,6 +244,9 @@ BALL_Y_RADIUS           = 14
 PUSH_RADIUS             = 10        ; constant, never x_radius
 CURL_Y_SHIFT            = 5         ; y_pos += on curl, -= on uncurl
 ; Player states (jump-table byte offsets: index × 2)
+; ORDERING CONSTRAINT: the curled states (JUMP/ROLLJUMP/AIRBALL) must stay
+; the LAST entries — Player_Display's ball-anim test is `>= PSTATE_JUMP`.
+; Append new states BEFORE PSTATE_JUMP and renumber.
 PSTATE_GROUND           = 0
 PSTATE_ROLL             = 2
 PSTATE_SPINDASH         = 4
@@ -252,6 +255,9 @@ PSTATE_JUMP             = 8         ; airborne curled from jump — release cap 
 PSTATE_ROLLJUMP         = 10        ; as JUMP + air control lockout
 PSTATE_AIRBALL          = 12        ; airborne curled, not from jump
 PSTATE_COUNT            = 7         ; state/hook tables assert against this
+        if PSTATE_AIRBALL <> (PSTATE_COUNT-1)*2
+          error "curled states must remain the last PSTATE_* entries (Player_Display ball test)"
+        endif
 ; Player animation ids (Ani_Sonic script-table order — sonic_anims.asm)
 ANIM_WALK               = 0
 ANIM_IDLE               = 1

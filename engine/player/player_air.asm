@@ -25,18 +25,20 @@ AIRF_INPUT_LOCK         = 1     ; air-input block skipped (ROLLJUMP)
 ; Clobbers: d0-d7, a1-a2
 ; -----------------------------------------------
 PState_Air:
+PState_AirBall:                                 ; same flags as AIR today;
+                                                ; restack if they ever diverge
         moveq   #0, d6
         bra.s   PState_AirShared
 PState_RollJump:
         moveq   #(1<<AIRF_RELEASE_CAP)|(1<<AIRF_INPUT_LOCK), d6
         bra.s   PState_AirShared
-PState_AirBall:
-        moveq   #0, d6
-        bra.s   PState_AirShared
 PState_Jump:
         moveq   #1<<AIRF_RELEASE_CAP, d6
         ; fall through
 
+; NOT a dispatch target — enter ONLY via a preamble above that sets the
+; AIRF_* flags in d6. Pointing a state table row here directly would run
+; with whatever d6 holds at dispatch time.
 PState_AirShared:
         ; --- 1. variable jump height: while rising faster than the
         ; release cap with no jump button held, cut to the cap ---

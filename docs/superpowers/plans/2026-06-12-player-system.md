@@ -561,7 +561,7 @@ Player_SetState:
 - Player files are included in the **object code bank** (after `ObjCodeBase`), not after `player_sensors.asm` — `objroutine(Player_Main)` requires the routine inside ObjCodeBase+64KB. Sensors stay in the engine block.
 - Projection is `y_vel = sin(angle)·gsp>>8` with **NO negation** (step 5.3's `−gsp·sin` was wrong for our data): the classic angle convention (down-right slope = +$10) and `data/misc/sine.bin` (sin($10)=+$61) already agree with screen-down-positive Y. Task 7 must keep this.
 - Legacy `Collision_GetFloorHeight`/`Collision_FloorSensors` deleted; `objects/test_player.asm` (still the object_test_state player) migrated to `Player_SensorFloor`.
-- AIR applies gravity **before** the position add (plan/task order); classic applies it after (research §1). Re-evaluate in Task 6 when tuning jump arcs.
+- ~~AIR applies gravity **before** the position add~~ RESOLVED in Task 6: gravity now applied after ObjectMove (classic order, research §1).
 - **Pre-Task-6 file split (2026-06-12):** `player_common.asm` was split — `PState_Ground` + `Ground_Move` moved to `engine/player/player_ground.asm`, `PState_Air` to `engine/player/player_air.asm` (both in the object code bank, included from `main.asm` right after `player_common.asm`; reached only via the offset tables). `player_common.asm` keeps the overlay, `Player_Init`, `Player_RefreshPhysics`, `Player_Main`, `Player_SetState` + hooks, `Player_Display`, debug-fly, plus the `setStandingSize`/`maskOpposingLR` factoring macros and the `PSTATE_COUNT` lockstep asserts on the three state/hook tables.
 
 
@@ -589,7 +589,7 @@ Player_SetState:
   - airborne angle decay toward 0 by 2/frame
   - airborne sensor activation by motion quadrant (`CalcAngle(x_vel,y_vel)` — if `engine/math.asm` lacks an arctan, add `GetArcTan` as a small octant table routine, S2-equivalent precision; check first) → wall probes (snap + `x_vel=0`), ceiling (flat band: bump `y_vel=0`; steep + moving up: reattach `gsp = ±y_vel`), floor when eligible.
 - [x] **Step 6.3:** Landing conversion (research physics-classics §2 "Landing"): motion-quadrant dispatch, then angle bands — flat: `gsp = x_vel`; mid (±$10–$1F): `y_vel >>= 1 (asr)`, `gsp = ±y_vel` by angle sign bit; steep (±$20–$3F): `x_vel = 0`, cap y_vel $FC0, `gsp = ±y_vel`; horizontal-motion floor hits: always `gsp = x_vel`; wall-quadrant hits while moving horizontally: `gsp = y_vel` (wall-run engage). Landing eligibility `dist ≥ −(y_vel>>8 + 8)`. On land: `Player_SetState` per curl state (JUMP/ROLLJUMP/AIRBALL land → GROUND with uncurl in hook, unless down held + speed → ROLL), clear PUSHING.
-- [ ] **Step 6.4:** Build + verify in Exodus: tap vs hold jump heights; jump while running preserves x_vel; ramp areas launch along normal; roll-jump (temporarily reachable via forced test: hold down while landing — roll lands in Task 7, so for now verify JUMP only); jump buffer: press C 1-2 frames before landing → jumps on landing frame (frame-step in Exodus). Commit: `feat(§5): jumping, air physics, landing banding — jump-delay fixed, up-cap removed`
+- [x] **Step 6.4:** (live-verified by orchestrator 2026-06-12: full hold-jump arc launch −$680/apex ~58px/clean landing at y=877; tap jump release-cap −$400 numerically exact, apex 34px; PSTATE_JUMP transitions; jump-on-press-frame) Build + verify in Exodus: tap vs hold jump heights; jump while running preserves x_vel; ramp areas launch along normal; roll-jump (temporarily reachable via forced test: hold down while landing — roll lands in Task 7, so for now verify JUMP only); jump buffer: press C 1-2 frames before landing → jumps on landing frame (frame-step in Exodus). Commit: `feat(§5): jumping, air physics, landing banding — jump-delay fixed, up-cap removed`
   (build-level done: DEBUG + plain builds green, test.sh green — live Exodus pass pending)
 
 **Task 6 implementation notes (2026-06-12):**
@@ -604,6 +604,9 @@ Player_SetState:
 ---
 
 ## Task 7: Slopes — slope factor, quadrant walking, slip
+
+**Carried from Task 6 (MUST land in Task 7/8):** down-held landing → ROLL (curled states landing with down held should enter PSTATE_ROLL directly, not uncurl-for-a-frame; hook points are the `.grounded` paths of Air_FloorLandBanded/Air_FloorLandFlat — see player_air.asm comments). Also fold into Task 7: distToFix macro for the 6× `ext.l/swap/clr.w` idiom; classifier register-copy micro-opt (player_air.asm sign re-reads).
+
 
 **Files:** `engine/player/player_ground.asm` (primarily), `engine/player/player_common.asm` (hooks/quadrant helpers as needed)
 
