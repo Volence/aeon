@@ -131,7 +131,7 @@ Killed_MarkObject:
         move.w  d1, -(sp)
         bsr.w   Collected_FindSlot
         move.w  (sp)+, d1
-        beq.s   .markdone
+        beq.w   .markdone               ; .w — DEBUG assert expansions exceed short range
         moveq   #0, d2
         move.b  d1, d2
         ifdebug assert.w d2, lo, #MAX_LIST_ENTRIES
