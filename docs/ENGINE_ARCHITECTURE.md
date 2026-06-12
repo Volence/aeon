@@ -2480,7 +2480,7 @@ Section transitions smoothly interpolate modifiers via Lerp so physics don't sna
 
 ### 5.3 Physics Improvements
 
-**Air drag — apex-only:** Air drag (`x_vel -= x_vel / 32`) applies only during the apex window (`y_vel` between `-$400` and `0`), not during descent. Preserves horizontal momentum through fall arcs. S3K established this as the correct behavior.
+**Air drag — apex-only:** Air drag (`x_vel -= x_vel / 32`) applies only during the apex window (`y_vel` between `-$400` and `0`), not during descent. Preserves horizontal momentum through fall arcs. (Research correction 2026-06-12: this band exists in S1/S2 as well — it is THE classic behavior, not an S3K fix. See `docs/research/player-physics-classics.md`.)
 
 **Roll-jump air control:** Air acceleration is allowed when jumping from a rolling state. Roll-jumps are fully responsive — no special-case lockout.
 
@@ -2490,7 +2490,7 @@ Section transitions smoothly interpolate modifiers via Lerp so physics don't sna
 
 **Slope physics refinement:** With dual collision sensors from S.C.E. (Section 4.7):
 - Angle continuity checking: reject angle jumps > $20 between frames (prevents loop fallthrough)
-- Full vector projection on landing: `inertia = x_vel * cos(angle) + y_vel * sin(angle)` (preserves full momentum on slopes instead of axis-select)
+- Landing speed conversion: (Research correction 2026-06-12: the oft-cited "S3K vector projection" is a myth — S3K uses the same shallow/steep axis-select banding as S2, verified against both disassemblies. A true vector projection `inertia = x_vel·cos + y_vel·sin` would be NOVEL to this engine; whether to implement it or the proven classic banding is a §5 design decision. See `docs/research/player-physics-classics.md`.)
 - Unroll wall clip fix: check clearance before height adjustment when exiting rolling
 - Steep slope slide: small gravity push when standing still on slopes > ~67°
 - Slope factor `muls.w` → `lsl` optimization: saves ~54 cycles/ground frame
