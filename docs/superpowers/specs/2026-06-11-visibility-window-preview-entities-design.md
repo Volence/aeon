@@ -131,6 +131,24 @@ tracks **the same sections** before and after — only their origins re-express
 - **Section streaming/terrain:** untouched. The slot map, teleport thresholds, preload
   triggers, and tile cache are not modified by this design.
 
+### 5b. Engine convention: no unshifted absolute coordinates in object state
+
+Teleport rebases shift `SST_x_pos`/`SST_y_pos` for every tagged object, but cannot
+know about absolute world coordinates an object stows in its private data
+(`sst_custom`) — a stored patrol anchor, waypoint target, or "return home" position
+would go stale by ±SECTION_SHIFT and the object would lurch toward it after a seam.
+
+**Convention (from this spec onward):** object code must keep positional state either
+(a) relative (offsets from current position, counters, velocities), or (b) re-derivable
+from its ROM placement (section origin + list entry), never as a raw engine-space
+coordinate in `sst_custom`. If a future object genuinely needs an absolute stored
+coordinate, it must register it for teleport shifting (mechanism to be designed when
+the need first arises — likely a per-ObjDef "shift mask" of custom longwords).
+
+The implementation plan's research step audits the existing test objects
+(enemy/particle/emitter/parent chains) for violations; document the convention in
+CODING_CONVENTIONS.md or the object-authoring section of ENGINE_ARCHITECTURE §3.
+
 ### 6. Edge cases
 
 - Grid edges: negative/overflow cols/rows → void entries (existing SEC_VOID machinery).
