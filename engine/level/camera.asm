@@ -29,6 +29,9 @@ Camera_Init:
 
         move.w  #0, (Camera_Pan_Offset).w
         move.w  #$10, (Camera_Deadzone_Base).w
+        clr.b   (Camera_Spindash_Lag).w            ; spindash release writes it
+                                                   ; (§5 Task 8); the camera
+                                                   ; consumes it in Task 10
         rts
 
 ; -----------------------------------------------
@@ -87,10 +90,13 @@ Camera_Update:
 
         ; -- §4.2: dynamic min_x — extend by PREVIEW_PIXELS into BWD preview
         ;    region unless we're at the first pair (Sec(-1) doesn't exist;
-        ;    BWD preview unreachable). Slot_Section_Map[0] = 0 ⇒ first pair.
+        ;    BWD preview unreachable ⇔ the BWD teleport is unavailable).
+        ;    Edge predicate shared via Section_Edge_Flags: Section_Check
+        ;    gates the teleport and Player_LevelBound places the playable
+        ;    bound off the SAME bits. --
         move.w  Act_cam_min_x(a0), d1
-        tst.b   (Slot_Section_Map).w
-        beq.s   .have_min                           ; at first pair → keep act default
+        btst    #SEF_BWD_BLOCKED, (Section_Edge_Flags).w
+        bne.s   .have_min                           ; at first pair → keep act default
         subi.w  #PREVIEW_PIXELS, d1                 ; allow scroll into BWD preview
 .have_min:
         cmp.w   d1, d0
@@ -103,19 +109,17 @@ Camera_Update:
         ;    region unless we're at the last pair (no next FWD section).
         ;    Void slot 1 (SEC_VOID, act edge on an odd-width grid): the
         ;    playable area is slot 0 only — clamp at its right edge so the
-        ;    view never shows the out-of-world region. --
-        move.b  (Slot_Section_Map+2).w, d2          ; slot 1 sec_x
-        cmpi.b  #SEC_VOID, d2
-        bne.s   .max_x_in_grid
+        ;    view never shows the out-of-world region. Same shared
+        ;    Section_Edge_Flags predicate as .have_min above. --
+        move.b  (Section_Edge_Flags).w, d2
+        btst    #SEF_FWD_VOID, d2
+        beq.s   .max_x_in_grid
         move.w  #SLOT_ORIGIN_L+SECTION_SIZE-SCREEN_WIDTH, d1
         bra.s   .have_max
 .max_x_in_grid:
         move.w  Act_cam_max_x(a0), d1
-        moveq   #0, d3
-        move.b  d2, d3
-        addq.b  #1, d3                              ; next-FWD sec_x = slot 1 + 1
-        cmp.b   Act_grid_w+1(a0), d3
-        bcc.s   .have_max                           ; >= grid_w → at last pair, no FWD neighbour
+        btst    #SEF_FWD_BLOCKED, d2
+        bne.s   .have_max                           ; at last pair → no FWD preview
         addi.w  #PREVIEW_PIXELS, d1
 .have_max:
         cmp.w   d1, d0

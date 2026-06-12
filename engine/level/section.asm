@@ -34,6 +34,9 @@ Section_Init:
         ; -- clear teleport guard + preload flags --
         move.w  #0, (Section_Preload_Flags).w
 
+        ; -- act-edge predicate for the fresh slot map --
+        bsr.w   Section_UpdateEdgeFlags
+
         ; -- fill nametable from both slots --
         bsr.w   Section_FillInitial
 
@@ -187,6 +190,49 @@ Section_GetSecPtrXY:
 .out_of_range:
         suba.l  a0, a0                              ; a0 = 0
         moveq   #0, d0                              ; Z set (not found)
+        rts
+
+; -----------------------------------------------
+; Section_UpdateEdgeFlags — recompute Section_Edge_Flags from
+; Slot_Section_Map + the act grid width. THE one act-edge predicate:
+; "is a teleport available at this side of the window?" Three consumers
+; share it so their answers can never diverge:
+;   Section_Check    — gates the FWD/BWD teleports themselves
+;   Player_LevelBound — a playable bound exists exactly where the
+;                       matching teleport is unavailable
+;   Camera_Update    — preview extension exists exactly where the
+;                       matching teleport IS available (and the void
+;                       case clamps to slot 0's right edge)
+; Bit definitions live at SEF_* (constants.asm). Called wherever the
+; slot map's sec_x changes: Section_Init, Section_TeleportFwd/Bwd.
+; Vertical teleports change sec_y only — the X edge state is invariant
+; there. All comparisons are unsigned (blo/bhs); sec_x and grid_w are
+; small positive bytes, so this matches the previous mixed signed/
+; unsigned consumer tests for all real data.
+; In:  none (reads Slot_Section_Map, Current_Act_Ptr)
+; Out: none (writes Section_Edge_Flags)
+; Clobbers: d0-d1, a1
+; -----------------------------------------------
+Section_UpdateEdgeFlags:
+        moveq   #0, d1
+        tst.b   (Slot_Section_Map).w               ; slot 0 sec_x
+        bne.s   .bwd_open
+        ori.b   #1<<SEF_BWD_BLOCKED, d1            ; leftmost section in slot 0
+.bwd_open:
+        move.b  (Slot_Section_Map+2).w, d0         ; slot 1 sec_x
+        cmpi.b  #SEC_VOID, d0
+        bne.s   .fwd_in_grid
+        ; act edge on an odd-width grid: no section in slot 1 at all
+        ori.b   #(1<<SEF_FWD_VOID)|(1<<SEF_FWD_BLOCKED), d1
+        bra.s   .store
+.fwd_in_grid:
+        movea.l (Current_Act_Ptr).w, a1
+        addq.b  #1, d0                             ; next-FWD sec_x
+        cmp.b   Act_grid_w+1(a1), d0               ; grid_w is a word; low byte at +1
+        blo.s   .store                             ; < grid_w → FWD teleport exists
+        ori.b   #1<<SEF_FWD_BLOCKED, d1            ; slot 1 is the last grid column
+.store:
+        move.b  d1, (Section_Edge_Flags).w
         rts
 
 ; -----------------------------------------------
@@ -344,22 +390,23 @@ Section_Check:
         rts
 
 .bwd_check:
-        ; skip BWD if slot 0 already at leftmost section (sec_x = 0)
-        tst.b   (Slot_Section_Map).w
-        beq.s   .skip
+        ; skip BWD at the act's left edge (slot 0 sec_x = 0) — predicate
+        ; precomputed by Section_UpdateEdgeFlags. Player_LevelBound
+        ; mirrors this edge logic via Section_Edge_Flags (a playable
+        ; bound exists exactly where this teleport is skipped); so does
+        ; Camera_Update's BWD preview extension.
+        btst    #SEF_BWD_BLOCKED, (Section_Edge_Flags).w
+        bne.s   .skip
         bra.w   Section_TeleportBwd
 
 .fwd_check:
-        ; skip FWD if slot 1 is void (act edge reached on an odd-width grid —
-        ;  the addq below would wrap $FF to 0 and pass the bound) or if slot 1
-        ;  is already the rightmost section (sec_x + 1 = grid_w)
-        move.b  (Slot_Section_Map+2).w, d0
-        cmpi.b  #SEC_VOID, d0
-        beq.s   .skip
-        movea.l (Current_Act_Ptr).w, a0
-        addq.b  #1, d0
-        cmp.b   Act_grid_w+1(a0), d0     ; grid_w is a word; low byte at +1
-        bge.s   .skip
+        ; skip FWD when unavailable: slot 1 void (act edge on an
+        ; odd-width grid) OR slot 1 already the rightmost section —
+        ; SEF_FWD_BLOCKED covers both (the writer sets it for void too).
+        ; Player_LevelBound and Camera_Update's .check_max_x mirror this
+        ; edge logic via Section_Edge_Flags.
+        btst    #SEF_FWD_BLOCKED, (Section_Edge_Flags).w
+        bne.s   .skip
         bra.w   Section_TeleportFwd
 
 .skip:  rts
@@ -408,6 +455,9 @@ Section_TeleportFwd:
 .fwd_slot1_in_grid:
         move.b  d0, 2(a0)
         ; sec_y unchanged
+
+        ; -- slot map changed: refresh the shared act-edge predicate --
+        bsr.w   Section_UpdateEdgeFlags
 
         ; -- §4.9: shift nearby entities, despawn rest, rebuild scan state --
         move.w  #-SECTION_SHIFT, d0
@@ -496,6 +546,9 @@ Section_TeleportBwd:
 .at_start:
         ; If we branched here, slot map is left as-is (Section_Check should
         ; guard BWD at sec 0 anyway).
+
+        ; -- slot map changed: refresh the shared act-edge predicate --
+        bsr.w   Section_UpdateEdgeFlags
 
         ; -- §4.9: shift nearby entities, despawn rest, rebuild scan state --
         move.w  #SECTION_SHIFT, d0

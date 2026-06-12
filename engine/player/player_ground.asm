@@ -1,7 +1,9 @@
 ; Player grounded states — PState_Ground (slope factor, quadrant-rotated
-; floor adherence, S3K slip) + Player_Jump; ROLL/SPINDASH land here in
-; Task 8 (§5). Player_Jump lives in this file because it is invoked only
-; from grounded states (its tail jumps into the air body in
+; floor adherence, S3K slip), PState_Roll (rolling physics; shares the
+; cap/projection/probe via Ground_Move.cap and the movement tail via
+; Ground_PostMove), + Player_Jump. PState_Spindash lives in sonic.asm
+; (character state). Player_Jump lives in this file because it is
+; invoked only from grounded states (its tail jumps into the air body in
 ; player_air.asm — the bug #4 press-frame fix). Reached only through the
 ; Player_States offset table in player_common.asm; shares its overlay
 ; equates, macros, and the (a4) physics-table convention.
@@ -12,18 +14,47 @@
     if PHYS_SLOPE_WALK <> $20
         error "slope-factor shift form (sin asr 3) assumes PHYS_SLOPE_WALK = $20"
     endif
+    if PHYS_SLOPE_ROLL_DOWN <> $50
+        error "roll slope-factor shift form (5·sin asr 4) assumes PHYS_SLOPE_ROLL_DOWN = $50"
+    endif
+    if PHYS_SLOPE_ROLL_UP <> $14
+        error "roll uphill factor (downhill asr 2) assumes PHYS_SLOPE_ROLL_UP = $14"
+    endif
 
 ; -----------------------------------------------
 ; PState_Ground — standing/running. Classic frame order (research
-; physics-classics §1): jump check → slope factor → input/projection/
-; wall probe (Ground_Move) → integrate → floor pair snap → slip check
-; (fall-through into Player_SlopeRepel).
+; physics-classics §1): spindash check → jump check → slope factor →
+; input/projection/wall probe (Ground_Move) → roll start check →
+; integrate → floor pair snap → slip check (fall-through into
+; Player_SlopeRepel).
 ; In:  a0 = player SST, a4 = Player_Phys
-; Out: none (may transition to PSTATE_AIR)
+; Out: none (may transition to PSTATE_AIR/ROLL/SPINDASH or jump)
 ; Clobbers: d0-d7, a1-a2
 ; -----------------------------------------------
 PState_Ground:
-        ; TODO(Task 8): spindash check goes here (first, classic order)
+        ; --- spindash trigger (classic order: FIRST — a down+jump press
+        ; while near-stationary charges instead of jumping). S2's gate is
+        ; "ducking" (down held at ~rest); we have no duck state, so the
+        ; gate is down held + |gsp| < PHYS_ROLL_START_MIN — the same
+        ; threshold that separates duck from roll in S3K. At rolling
+        ; speed the press falls through to the jump check instead. ---
+        btst    #1, (Ctrl_1_Held).w             ; DOWN held
+        beq.s   .no_spindash
+        tst.b   (Player_JumpBuffer).w
+        beq.s   .no_spindash
+        move.w  _pl_gsp(a0), d0
+        bpl.s   .sd_abs
+        neg.w   d0
+.sd_abs:
+        cmpi.w  #PHYS_ROLL_START_MIN, d0
+        bge.s   .no_spindash
+        clr.b   (Player_JumpBuffer).w           ; consume — this press is rev 0
+        moveq   #PSTATE_SPINDASH, d0
+        bsr.w   Player_SetState                 ; hook curls + zeroes motion/charge
+        jmp     PState_Spindash                 ; run the charge frame now —
+                                                ; the floor pair keeps running
+                                                ; (sonic.asm). TODO: rev sfx
+.no_spindash:
         ; --- jump check (classic order: after spindash, before slope/
         ; input). Player_JumpBuffer covers fresh press AND buffered —
         ; latched on the press edge in Player_Main; consumed only on a
@@ -42,9 +73,8 @@ PState_Ground:
         ; Applied on floor and both wall quadrants; skipped in the
         ; ceiling band: apply only when (angle+$60)&$FF < $C0 unsigned
         ; (band $60-$9F skips). Ground_Move's ±PHYS_GSP_CAP runs after
-        ; this AND after input, so the cap bounds the post-slope sum. ---
-        ; TODO(Task 8): ROLL gets the $50/$14 asymmetric factor (never
-        ; gsp==0-gated) in its own state body
+        ; this AND after input, so the cap bounds the post-slope sum.
+        ; (ROLL applies its own $50/$14 asymmetric factor — PState_Roll.) ---
         move.b  SST_angle(a0), d0
         beq.s   .no_slope                       ; flat: factor 0 (fast path)
         move.b  d0, d1
@@ -71,6 +101,40 @@ PState_Ground:
         add.w   d0, _pl_gsp(a0)
 .no_slope:
         bsr.w   Ground_Move
+        ; --- roll start (the classic Sonic_Roll slot: after Move, before
+        ; integration — this frame already moved with standing semantics,
+        ; exactly like the classics): down held, L/R NOT held (raw bits —
+        ; any sideways intent vetoes the curl), |gsp| ≥ $100 (S3K
+        ; threshold). Forced rolls (S-tunnel objects) are a future object
+        ; contract: they bypass this gate and use PHYS_ROLL_FORCE_MIN
+        ; ($200) when curling at rest — see PState_Roll's keep-roll note.
+        move.b  (Ctrl_1_Held).w, d0
+        btst    #1, d0                          ; DOWN
+        beq.s   Ground_PostMove
+        andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d0
+        bne.s   Ground_PostMove
+        move.w  _pl_gsp(a0), d0
+        bpl.s   .roll_abs
+        neg.w   d0
+.roll_abs:
+        cmpi.w  #PHYS_ROLL_START_MIN, d0
+        blt.s   Ground_PostMove
+        moveq   #PSTATE_ROLL, d0
+        bsr.w   Player_SetState                 ; hook curls (+5px y-shift)
+                                                ; TODO: roll sfx
+        ; fall through — the frame completes below as a roll
+
+; -----------------------------------------------
+; Ground_PostMove — shared grounded movement tail: integrate → floor
+; pair snap → slip check (falls through into Player_SlopeRepel).
+; Entered by falling through from PState_Ground and by PState_Roll's
+; tail branch (and via it the unroll/keep-rolling paths). NOT a
+; subroutine — control returns to Player_Main's dispatch.
+; In:  a0 = player SST (x_vel/y_vel projected by Ground_Move)
+; Out: none (may transition to PSTATE_AIR)
+; Clobbers: d0-d7, a1-a2
+; -----------------------------------------------
+Ground_PostMove:
         jsr     ObjectMove
 
         ; --- floor pair: quadrant-rotated probe, snap along the probe
@@ -118,7 +182,13 @@ PState_Ground:
                                                 ; survives)
         move.b  d1, SST_angle(a0)
 .no_snap:
-        ; fall through — classic order step 9
+        ; fall through — classic order step 9. SEAM GUARD: this
+        ; fall-through is shared by GROUND and ROLL (both reach it via
+        ; Ground_PostMove — roll uses the same slip rules, classic).
+        ; Player_SlopeRepel must stay IMMEDIATELY below, and nothing
+        ; state-specific may be inserted here. SPINDASH deliberately
+        ; never reaches this seam (its floor maintenance lives in
+        ; PState_Spindash — the classics skip SlopeRepel while charging).
 
 ; -----------------------------------------------
 ; Player_SlopeRepel — S3K slip/detach (research physics-classics §7
@@ -177,6 +247,156 @@ Player_SlopeRepel:
         jmp     Player_SetState
 .done:
         rts
+
+; -----------------------------------------------
+; PState_Roll — grounded, curled. Classic Obj01_MdRoll order (research
+; physics-classics §1): jump check (→ ROLLJUMP via Player_Jump) → roll
+; slope factor ($50 downhill / $14 uphill) → roll speed (friction
+; always, $20 fixed brake, NO input accel) → unroll check → shared
+; cap/projection/wall probe (Ground_Move.cap) → shared movement tail
+; (Ground_PostMove: integrate → floor pair → SlopeRepel fall-through —
+; rolling slips and detaches by the same rules as walking).
+; In:  a0 = player SST, a4 = Player_Phys
+; Out: none (may transition to GROUND/ROLLJUMP/AIR)
+; Clobbers: d0-d7, a1-a2
+; -----------------------------------------------
+PState_Roll:
+        ; --- jump check — same gate as PState_Ground. Player_Jump reads
+        ; _pl_state and launches into ROLLJUMP from here (air-control
+        ; lockout); ball radii are KEPT by the hooks — bug #5 fix is
+        ; structural, no size pop on a roll-jump ---
+        tst.b   (Player_JumpBuffer).w
+        beq.s   .no_jump
+        jsr     Player_SensorCeiling            ; d0 = headroom
+        cmpi.w  #6, d0
+        bge.w   Player_Jump                     ; does not return
+.no_jump:
+        ; --- roll slope factor (classic Sonic_RollRepel): $50·sin>>8,
+        ; quartered to $14·sin>>8 when the factor's sign opposes gsp
+        ; (rolling uphill). NEVER gsp==0-gated (research §2) — gsp == 0
+        ; counts as positive, the exact classic sign test. Same ceiling-
+        ; band skip as walking. Shift forms (no muls): 5·sin asr 4 ≡
+        ; ($50·sin)>>8 exactly, one more asr 2 ≡ ($14·sin)>>8 exactly —
+        ; consecutive arithmetic shifts compose; constants asserted at
+        ; file top ---
+        move.b  SST_angle(a0), d0
+        beq.s   .no_slope                       ; flat: factor 0 (fast path)
+        move.b  d0, d1
+        addi.b  #$60, d1
+        cmpi.b  #$C0, d1
+        bhs.s   .no_slope                       ; ceiling band $60-$9F
+        jsr     GetSineCosine                   ; d0.w = sin(angle)·$100
+        move.w  d0, d1
+        asl.w   #2, d0
+        add.w   d1, d0                          ; 5·sin (≤ ±$500 — no overflow)
+        asr.w   #4, d0                          ; downhill factor ($50 form)
+        tst.w   _pl_gsp(a0)
+        bmi.s   .gsp_neg
+        tst.w   d0
+        bpl.s   .slope_apply
+        bra.s   .uphill
+.gsp_neg:
+        tst.w   d0
+        bmi.s   .slope_apply
+.uphill:
+        asr.w   #2, d0                          ; quartered ($14 form)
+.slope_apply:
+        add.w   d0, _pl_gsp(a0)
+.no_slope:
+        ; --- roll speed: NO input accel ever. Opposing direction = $20
+        ; FIXED brake (PHYS_ROLL_DECEL — the classic uses the constant,
+        ; NOT decel/4 of the live stat; research §5), crossing zero under
+        ; the brake kicks ∓$80 like walking. Friction = walk friction/2
+        ; ($6) ALWAYS, even holding forward — read through the phys table
+        ; so future water/shoes modifiers compose ($3 underwater, the
+        ; classic value). Brake + friction stack: $26/frame opposing.
+        ; move_lock freezes the input (brake/facing) only — friction and
+        ; the slope factor still run (S3K, same as walking) ---
+        move.w  _pl_gsp(a0), d0
+        tst.w   _pl_move_lock(a0)
+        bne.s   .friction
+        move.b  (Ctrl_1_Held).w, d2
+        maskOpposingLR d2
+        tst.w   d0
+        beq.s   .friction                       ; no motion — nothing to brake
+        bmi.s   .moving_left
+        btst    #2, d2                          ; LEFT opposes rightward roll
+        bne.s   .brake_left
+        btst    #3, d2                          ; RIGHT with the motion:
+        beq.s   .friction                       ; facing only (classic
+        bclr    #ST_XFLIP, SST_status(a0)       ; Obj01_RollRight)
+        bra.s   .friction
+.brake_left:
+        subi.w  #PHYS_ROLL_DECEL, d0
+        bcc.s   .friction                       ; borrow = crossed zero
+        moveq   #-$80, d0                       ; turnaround kick
+        bra.s   .friction
+.moving_left:
+        btst    #3, d2                          ; RIGHT opposes leftward roll
+        bne.s   .brake_right
+        btst    #2, d2
+        beq.s   .friction
+        bset    #ST_XFLIP, SST_status(a0)       ; facing only (classic)
+        bra.s   .friction
+.brake_right:
+        addi.w  #PHYS_ROLL_DECEL, d0
+        bcc.s   .friction                       ; carry = crossed zero
+        move.w  #$80, d0                        ; (+$80 exceeds moveq range)
+.friction:
+        move.w  PPHYS_FRICTION(a4), d1
+        asr.w   #1, d1                          ; roll friction = friction/2
+        tst.w   d0
+        beq.s   .unroll_check
+        bmi.s   .fric_neg
+        sub.w   d1, d0
+        bcc.s   .unroll_check
+        moveq   #0, d0                          ; crossed zero → stop
+        bra.s   .unroll_check
+.fric_neg:
+        add.w   d1, d0
+        bcc.s   .unroll_check
+        moveq   #0, d0
+
+.unroll_check:
+        ; --- unroll below |gsp| < $80 (S3K). The standing box is 5px
+        ; taller per radius and uncurling lifts the center 5px, so the
+        ; head rises (PLAYER_Y_RADIUS-BALL_Y_RADIUS)+CURL_Y_SHIFT = 10px
+        ; — unrolling under a low ceiling would clip into it (spec §5
+        ; wall-clip class). Verify clearance first; blocked → KEEP
+        ; ROLLING at ±PHYS_KEEP_ROLL_MIN (classic Sonic_KeepRolling's
+        ; forced inertia = ±$400, the roll-tunnel rule reused for the
+        ; blocked-unroll case; sign of gsp, rest counts positive) ---
+        move.w  d0, _pl_gsp(a0)                 ; bank gsp — the ceiling
+                                                ; sensor below clobbers d0
+        move.w  d0, d1
+        bpl.s   .uabs
+        neg.w   d1
+.uabs:
+        cmpi.w  #PHYS_UNROLL_MAX, d1
+        bge.s   .shared_move                    ; d0 = gsp, still rolling
+        jsr     Player_SensorCeiling            ; d0 = head clearance (ball box)
+        cmpi.w  #(PLAYER_Y_RADIUS-BALL_Y_RADIUS)+CURL_Y_SHIFT, d0
+        blt.s   .keep_rolling
+        moveq   #PSTATE_GROUND, d0              ; unroll — the hook restores
+        bsr.w   Player_SetState                 ; standing radii, −5px y-shift
+        move.w  _pl_gsp(a0), d0
+        bra.s   .shared_move                    ; frame completes as GROUND
+                                                ; from the cap (wall probe
+                                                ; picks standing offsets off
+                                                ; the new state)
+.keep_rolling:
+        move.w  #PHYS_KEEP_ROLL_MIN, d0
+        tst.w   _pl_gsp(a0)
+        bpl.s   .shared_move
+        neg.w   d0
+.shared_move:
+        bsr.w   Ground_Move.cap                 ; shared cap → projection →
+                                                ; wall probe (see the entry-
+                                                ; point note at .cap; the
+                                                ; probe raises −5px while
+                                                ; _pl_state == ROLL)
+        bra.w   Ground_PostMove                 ; integrate → floor pair →
+                                                ; SlopeRepel fall-through
 
 ; -----------------------------------------------
 ; Ground_Move — input → ground_speed, projection, ground wall probe
@@ -256,8 +476,14 @@ Ground_Move:
         move.w  d1, d0
 
 .cap:
+        ; ENTRY POINT — PState_Roll bsr's here with d0 = its post-friction
+        ; gsp (also after its unroll/keep-rolling paths). Everything from
+        ; the cap through the wall probe is shared between walking and
+        ; rolling; do not reorder, and any walk-only addition below must
+        ; be gated on _pl_state.
         ; GSp tunneling guard ±$1000, applied after slope factor (added
-        ; to gsp in PState_Ground before this routine) AND after input.
+        ; to gsp in PState_Ground/PState_Roll before this point) AND
+        ; after input.
         ; FEEL DEVIATION coupling (spec §2.1): raising it requires
         ; CAM_MAX_Y_STEP, VFILL_ROWS_PER_FRAME, and sensor reach to rise
         ; together.
@@ -270,6 +496,10 @@ Ground_Move:
         move.w  #-PHYS_GSP_CAP, d0
 .cap_neg_ok:
         move.w  d0, _pl_gsp(a0)
+        move.w  d0, d4                          ; capped gsp rides to the wall
+                                                ; probe in d4 — survives both
+                                                ; projection paths (GetSineCosine
+                                                ; clobbers d0/d1 only)
 
         ; --- inertia → velocity projection ---
         ; angle 0 fast path: x_vel = gsp exactly, y_vel = 0 (skips two
@@ -309,8 +539,8 @@ Ground_Move:
         ; terrain / no pushing on loop tops; exact cardinals stay
         ; enabled (feel-modern §2 "disabled outside −90°..90°,
         ; re-enabled at exact multiples of 90°") ---
-        move.w  _pl_gsp(a0), d4                 ; probe direction sign
-        beq.s   .clear_push
+        tst.w   d4                              ; capped gsp from .cap —
+        beq.s   .clear_push                     ; probe direction sign
         move.b  SST_angle(a0), d1
         move.b  d1, d2
         andi.b  #$3F, d2
@@ -338,15 +568,23 @@ Ground_Move:
         move.w  SST_y_vel(a0), d1
         asr.w   #8, d1
         add.w   SST_y_pos(a0), d1               ; projected engine Y
+        cmpi.b  #PSTATE_ROLL, _pl_state(a0)
+        bne.s   .not_rolling
+        subq.w  #5, d1                          ; rolling: probe raised 5px —
+                                                ; the curl shifted y_pos +5,
+                                                ; so −5 restores the STANDING
+                                                ; center height (SPG/spec §5;
+                                                ; applies at every angle)
+        bra.s   .probe_y_set
+.not_rolling:
         tst.b   SST_angle(a0)
-        bne.s   .no_foot_drop
+        bne.s   .probe_y_set
         addq.w  #8, d1                          ; foot-level probe ONLY at
                                                 ; angle == 0 exactly (SPG:
                                                 ; low steps push instead of
                                                 ; snap-up; slopes/walls use
                                                 ; center height)
-.no_foot_drop:
-        ; TODO(Task 8): rolling raises the probe 5px (−5 vs this +8)
+.probe_y_set:
         move.w  d7, d2                          ; offset PUSH_RADIUS along
         subq.w  #2, d2                          ; the probe direction
         bmi.s   .off_vert                       ; 0/1 = probe along Y
@@ -422,8 +660,8 @@ Ground_Move:
 ; — gsp is NOT zeroed, it's already projected into x_vel/y_vel.
 ; In:  a0 = player SST, a4 = Player_Phys
 ; Out: DOES NOT return to the ground flow — transitions to PSTATE_JUMP
-;      and runs the air body THIS frame, returning to Player_Main's
-;      dispatch.
+;      (PSTATE_ROLLJUMP from a roll) and runs the air body THIS frame,
+;      returning to Player_Main's dispatch.
 ;      bug #4 fix: the classic aborts the press frame with
 ;      `addq.l #4,sp` (no movement until the next frame); we complete
 ;      the frame airborne so movement happens on the press frame.
@@ -455,8 +693,18 @@ Player_Jump:
         sub.w   d2, SST_y_vel(a0)
 .launched:
         clr.b   _pl_stick_convex(a0)
+        ; from a roll → ROLLJUMP (classic lockout: no air control; ball
+        ; radii simply KEPT by the hooks — bug #5 fix is structural).
+        ; SPINDASH never calls here (its body has no jump check).
         moveq   #PSTATE_JUMP, d0
-        ; TODO(Task 8): from PSTATE_ROLL → PSTATE_ROLLJUMP instead
-        bsr.w   Player_SetState
-        ; bug #4 fix: run the full air body on the press frame
+        cmpi.b  #PSTATE_ROLL, _pl_state(a0)
+        bne.s   .from_stand
+        moveq   #PSTATE_ROLLJUMP, d0
+.from_stand:
+        bsr.w   Player_SetState                 ; preserves d0 (hook contract)
+        ; bug #4 fix: run the full air body on the press frame — through
+        ; the state's own preamble so ROLLJUMP locks input on this frame
+        ; too
+        cmpi.w  #PSTATE_ROLLJUMP, d0
+        beq.w   PState_RollJump
         jmp     PState_Jump

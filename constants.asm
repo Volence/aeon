@@ -286,6 +286,18 @@ SLOT_ORIGIN_D           = SLOT_ORIGIN_U+SECTION_SIZE    ; $0A00 — lower slot e
 SEC_VOID                = $FF       ; Slot_Section_Map sec_x sentinel: slot holds no section
                                     ; (FWD pair-advance at the edge of an odd-width grid).
                                     ; Consumers must skip the slot; SlotFlatID on it is invalid.
+
+; Section_Edge_Flags bits — THE one "act edge at this side of the window"
+; predicate. Written ONLY by Section_UpdateEdgeFlags (section.asm), which
+; runs wherever Slot_Section_Map's sec_x changes (Section_Init,
+; Section_TeleportFwd/Bwd; vertical teleports change sec_y only). Read by
+; Section_Check (teleport gates), Player_LevelBound (playable bounds),
+; Camera_Update (preview extension) — keep all three in sync with the
+; writer's definitions below.
+SEF_BWD_BLOCKED         = 0         ; slot 0 sec_x == 0 → no BWD teleport; left edge is a playable bound
+SEF_FWD_BLOCKED         = 1         ; no FWD teleport (slot 1 void OR slot 1 is the last grid column)
+SEF_FWD_VOID            = 2         ; slot 1 == SEC_VOID — playable area ends at slot 0's right edge
+                                    ; (SEF_FWD_VOID implies SEF_FWD_BLOCKED; the writer sets both)
 ; -- §4.2 preview-zone (24-col / 24-row edges on plane A + plane B) --
 ; Preview width covers the edge region visible as camera approaches the
 ; teleport boundary. 24 cols = 192 px = ~3/5 of screen width. Preview is

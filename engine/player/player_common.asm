@@ -78,7 +78,8 @@ setBallSize macro
 ; In: heldReg = data register holding the held-button bits (modified:
 ;     masked to LEFT|RIGHT, zeroed when both are down)
 ; Fixed internal label: expand at most once per global-label scope
-; (current expansions: Ground_Move, PState_AirShared — one each).
+; (current expansions: Ground_Move, PState_Roll, PState_AirShared —
+; one each).
 ; -----------------------------------------------
 maskOpposingLR macro heldReg
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, heldReg
@@ -235,13 +236,20 @@ Player_Main:
 ; Clobbers: d0-d4, a1-a3
 ; -----------------------------------------------
 Player_Display:
-        cmpi.b  #PSTATE_JUMP, _pl_state(a0)
+        ; ball anim = the curled set: the air tail (>= PSTATE_JUMP — the
+        ; constants.asm ordering constraint + assert) plus the two curled
+        ; grounded states tested explicitly (ROLL/SPINDASH sit below the
+        ; tail in the state numbering)
+        move.b  _pl_state(a0), d0
+        cmpi.b  #PSTATE_JUMP, d0
         bhs.s   .anim_ball                      ; JUMP/ROLLJUMP/AIRBALL curled
-        ; grounded states + uncurled AIR: walk/idle by gsp (the classic
-        ; keeps the walk cycle while falling uncurled; gsp holds the
-        ; last ground speed through AIR)
-        ; TODO(Task 8): PSTATE_ROLL wants the ball anim — grounded states
-        ; all read walk/idle until rolling exists
+        cmpi.b  #PSTATE_ROLL, d0
+        beq.s   .anim_ball
+        cmpi.b  #PSTATE_SPINDASH, d0
+        beq.s   .anim_ball                      ; TODO: spindash dust overlay
+        ; GROUND + uncurled AIR: walk/idle by gsp (the classic keeps the
+        ; walk cycle while falling uncurled; gsp holds the last ground
+        ; speed through AIR)
         tst.w   _pl_gsp(a0)
         bne.s   .anim_walk
         move.b  #ANIM_IDLE, SST_anim(a0)
@@ -258,8 +266,10 @@ Player_Display:
 
 Player_States:
         dc.w    PState_Ground-Player_States     ; PSTATE_GROUND
-        dc.w    PState_Ground-Player_States     ; PSTATE_ROLL — TODO(Task 8)
-        dc.w    PState_Ground-Player_States     ; PSTATE_SPINDASH — TODO(Task 8)
+        dc.w    PState_Roll-Player_States       ; PSTATE_ROLL (player_ground.asm)
+        dc.w    PState_Spindash-Player_States   ; PSTATE_SPINDASH (sonic.asm —
+                                                ; character state; cross-file is
+                                                ; fine, same object code bank)
         dc.w    PState_Air-Player_States        ; PSTATE_AIR
         dc.w    PState_Jump-Player_States       ; PSTATE_JUMP
         dc.w    PState_RollJump-Player_States   ; PSTATE_ROLLJUMP
@@ -290,8 +300,8 @@ Player_SetState:
 
 PState_EnterHooks:
         dc.w    PHook_GroundEnter-PState_EnterHooks ; GROUND
-        dc.w    PHook_Null-PState_EnterHooks        ; ROLL — TODO(Task 8): ball radii + curl y-shift
-        dc.w    PHook_Null-PState_EnterHooks        ; SPINDASH — TODO(Task 8)
+        dc.w    PHook_RollEnter-PState_EnterHooks   ; ROLL
+        dc.w    PHook_SpindashEnter-PState_EnterHooks ; SPINDASH
         dc.w    PHook_AirEnter-PState_EnterHooks    ; AIR (uncurled)
         dc.w    PHook_AirBallEnter-PState_EnterHooks ; JUMP
         dc.w    PHook_AirBallEnter-PState_EnterHooks ; ROLLJUMP
@@ -304,7 +314,7 @@ PState_EnterHooks_End:
 PState_ExitHooks:
         dc.w    PHook_Null-PState_ExitHooks         ; GROUND
         dc.w    PHook_Null-PState_ExitHooks         ; ROLL
-        dc.w    PHook_Null-PState_ExitHooks         ; SPINDASH — TODO(Task 8): dust cleanup
+        dc.w    PHook_SpindashExit-PState_ExitHooks ; SPINDASH
         dc.w    PHook_Null-PState_ExitHooks         ; AIR
         dc.w    PHook_Null-PState_ExitHooks         ; JUMP
         dc.w    PHook_Null-PState_ExitHooks         ; ROLLJUMP
@@ -324,7 +334,9 @@ PHook_Null:
 
 PHook_GroundEnter:
         bsr.s   PHook_EnsureStanding            ; uncurl (jump/ball landings;
-                                                ; roll landings are Task 8)
+                                                ; down-held landings go straight
+                                                ; to ROLL via Air_LandState — no
+                                                ; uncurl flicker)
         bclr    #ST_IN_AIR, SST_status(a0)
         rts
 
@@ -338,6 +350,26 @@ PHook_AirBallEnter:                             ; JUMP / ROLLJUMP / AIRBALL
         bset    #ST_IN_AIR, SST_status(a0)
         rts
 
+PHook_RollEnter:                                ; grounded ball — entered from
+        bsr.s   PHook_EnsureBall                ; GROUND (roll start), SPINDASH
+        bclr    #ST_IN_AIR, SST_status(a0)      ; (release), or a curled/down-
+        rts                                     ; held landing (air → cleared)
+
+PHook_SpindashEnter:                            ; entered only from GROUND —
+        bsr.s   PHook_EnsureBall                ; the player is pinned charging
+        bclr    #ST_IN_AIR, SST_status(a0)
+        clr.w   _pl_gsp(a0)
+        clr.w   SST_x_vel(a0)
+        clr.w   SST_y_vel(a0)
+        clr.w   _pl_spindash(a0)                ; the initiating press is rev 0
+        rts                                     ; TODO: dust object + rev sfx
+
+PHook_SpindashExit:
+        clr.w   _pl_spindash(a0)                ; release converts charge→gsp
+        rts                                     ; BEFORE SetState; an aborted
+                                                ; charge (floor crumbled) just
+                                                ; drops it. TODO: dust cleanup
+
 ; bug #5 fix (structural): the collision box lives ONLY here — every
 ; curled state gets ball radii with the symmetric ±CURL_Y_SHIFT
 ; feet-planted shift, so the classic roll-jump 5px size mismatch cannot
@@ -345,7 +377,15 @@ PHook_AirBallEnter:                             ; JUMP / ROLLJUMP / AIRBALL
 ; keyed on the current height byte — idempotent and correct for every
 ; transition path (GROUND→JUMP curls, any curled→GROUND/AIR uncurls,
 ; curled→curled is a no-op).
+;
+; ST_ROLLING is tied to the SAME pair so the "in ball form" bit can
+; never desync from the radii (objects will read it; nothing does yet).
+; It is set/cleared UNCONDITIONALLY — outside the height-keyed guard —
+; because the debug-fly art swap writes a third height (16) outside the
+; state machine: a debug round-trip re-enters via SetState and the hook
+; must repair the bit even when the height byte needs no curl work.
 PHook_EnsureStanding:
+        bclr    #ST_ROLLING, SST_status(a0)
         cmpi.b  #BALL_Y_RADIUS*2+1, SST_height_pixels(a0)
         bne.s   .keep                           ; not curled (incl. debug 16)
         setStandingSize
@@ -354,6 +394,7 @@ PHook_EnsureStanding:
         rts
 
 PHook_EnsureBall:
+        bset    #ST_ROLLING, SST_status(a0)
         cmpi.b  #BALL_Y_RADIUS*2+1, SST_height_pixels(a0)
         beq.s   .keep                           ; already curled
         setBallSize
@@ -424,17 +465,18 @@ PBOUND_BOTTOM_MARGIN = 48
 ; only EXISTS where the matching teleport is unavailable — clamping at
 ; a live teleport edge would hold the player below the threshold
 ; (Section_Check reads Player_1's position AFTER RunObjects) and
-; freeze streaming. So each clamp mirrors Section_Check's skip
-; conditions exactly:
-;   left  — slot 0 holds sec_x 0 (BWD teleport skipped): bound =
+; freeze streaming. Teleport availability is the shared
+; Section_Edge_Flags predicate (one writer: Section_UpdateEdgeFlags;
+; Section_Check's gates and Camera_Update's preview extension read the
+; same bits — the three consumers cannot diverge):
+;   left  — SEF_BWD_BLOCKED (slot 0 holds sec_x 0): bound =
 ;           Act_cam_min_x. Same act field the camera clamps to, minus
 ;           its §4.2 PREVIEW_PIXELS extension, which is camera-only:
 ;           the preview region is render-ahead, not playable ground.
-;   right — FWD teleport skipped, two cases (same split as the
-;           camera's .check_max_x): slot 1 void (act edge on an
+;   right — SEF_FWD_BLOCKED, two cases: SEF_FWD_VOID (act edge on an
 ;           odd-width grid) → bound = slot 0's right edge
-;           (SLOT_ORIGIN_L+SECTION_SIZE); slot 1 is the last grid
-;           column → bound = the window's right edge
+;           (SLOT_ORIGIN_L+SECTION_SIZE); otherwise slot 1 is the last
+;           grid column → bound = the window's right edge
 ;           (SLOT_ORIGIN_L+SECTION_SHIFT). NOT Act_cam_max_x: that
 ;           field is camera-space slop ("approximate" — $1880 for OJZ
 ;           act 1, past the $1200 window, so it never binds) and a
@@ -463,25 +505,25 @@ PBOUND_BOTTOM_MARGIN = 48
 Player_LevelBound:
         movea.l (Current_Act_Ptr).w, a1
         move.w  SST_x_pos(a0), d0               ; integer X (16.16 high word)
+        move.b  (Section_Edge_Flags).w, d2      ; shared act-edge predicate
+                                                ; (Section_UpdateEdgeFlags)
 
         ; --- left bound: only where BWD teleport is unavailable ---
-        tst.b   (Slot_Section_Map).w
-        bne.s   .left_open                      ; slot 0 sec_x > 0 → teleport owns the edge
+        btst    #SEF_BWD_BLOCKED, d2
+        beq.s   .left_open                      ; teleport owns the edge
         move.w  Act_cam_min_x(a1), d1
         addi.w  #PBOUND_LEFT_MARGIN, d1
         cmp.w   d1, d0
         blt.s   .clamp_x
 .left_open:
         ; --- right bound: only where FWD teleport is unavailable ---
-        move.b  (Slot_Section_Map+2).w, d2      ; slot 1 sec_x
-        cmpi.b  #SEC_VOID, d2
-        bne.s   .right_in_grid
+        btst    #SEF_FWD_VOID, d2
+        beq.s   .right_in_grid
         move.w  #SLOT_ORIGIN_L+SECTION_SIZE-PBOUND_RIGHT_MARGIN, d1
         bra.s   .right_test
 .right_in_grid:
-        addq.b  #1, d2                          ; next-FWD sec_x
-        cmp.b   Act_grid_w+1(a1), d2            ; grid_w is a word; low byte at +1
-        bcs.s   .x_done                         ; < grid_w → FWD teleport owns the edge
+        btst    #SEF_FWD_BLOCKED, d2
+        beq.s   .x_done                         ; FWD teleport owns the edge
         move.w  #SLOT_ORIGIN_L+SECTION_SHIFT-PBOUND_RIGHT_MARGIN, d1
 .right_test:
         cmp.w   d1, d0

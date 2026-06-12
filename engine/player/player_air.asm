@@ -292,9 +292,11 @@ Air_FloorLandBanded:
 .steep_capped:
         bsr.s   Air_GspFromYvel
 .grounded:
-        moveq   #PSTATE_GROUND, d0              ; curled states uncurl in
-                                                ; the GROUND enter hook;
-                                                ; roll landings are Task 8
+        bsr.w   Air_LandState                   ; GROUND (curled states
+                                                ; uncurl in its enter hook)
+                                                ; or straight to ROLL on a
+                                                ; down-held landing — no
+                                                ; uncurl flicker
         jmp     Player_SetState
 .no_land:
         rts
@@ -316,7 +318,7 @@ Air_FloorLandFlat:
         bsr.s   Air_TouchFloor
         move.w  SST_x_vel(a0), _pl_gsp(a0)
         clr.w   SST_y_vel(a0)
-        moveq   #PSTATE_GROUND, d0
+        bsr.w   Air_LandState                   ; shared GROUND-vs-ROLL pick
         jmp     Player_SetState
 .no_land:
         rts
@@ -356,6 +358,35 @@ Air_GspFromYvel:
         neg.w   d0
 .store:
         move.w  d0, _pl_gsp(a0)
+        rts
+
+; -----------------------------------------------
+; Air_LandState — pick the landing state (the ONE decision for both
+; landing helpers): down held + L/R clear + |gsp| ≥ PHYS_ROLL_START_MIN
+; → PSTATE_ROLL, else PSTATE_GROUND. Same gate as the grounded roll
+; start (research §5 preconditions), applied to the post-conversion gsp
+; — so a curled landing stays curled (RollEnter's EnsureBall is a no-op)
+; and an uncurled AIR landing curls; the carried-Task-6 uncurl-flicker
+; class is gone.
+; In:  a0 = player SST (_pl_gsp already converted by the caller)
+; Out: d0.w = PSTATE_ROLL / PSTATE_GROUND (feed to Player_SetState)
+; Clobbers: d1
+; -----------------------------------------------
+Air_LandState:
+        moveq   #PSTATE_GROUND, d0
+        move.b  (Ctrl_1_Held).w, d1
+        btst    #1, d1                          ; DOWN
+        beq.s   .done
+        andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
+        bne.s   .done                           ; sideways intent vetoes
+        move.w  _pl_gsp(a0), d1
+        bpl.s   .abs
+        neg.w   d1
+.abs:
+        cmpi.w  #PHYS_ROLL_START_MIN, d1
+        blt.s   .done
+        moveq   #PSTATE_ROLL, d0
+.done:
         rts
 
 ; -----------------------------------------------

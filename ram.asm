@@ -299,7 +299,12 @@ H_scroll_frame_offset:  ds.b 1          ; camera lag depth (0 = no lag)
 Camera_Deadzone_Base:   ds.w 1          ; base deadzone width in pixels
 Camera_Lookahead:       ds.w 1          ; zone-default lookahead pixels
 Camera_Pan_Offset:      ds.w 1          ; current extended lookahead pan
-                        ds.w 1          ; pad
+Camera_Spindash_Lag:    ds.b 1          ; frames the camera holds still after a spindash
+                                        ; release (classic 16-frame lag). WRITTEN by the
+                                        ; spindash release (sonic.asm, §5 Task 8);
+                                        ; Camera_Update consumes/decrements it in Task 10
+                                        ; — until then it just counts down nothing.
+                        ds.b 1          ; pad
 
 ; -----------------------------------------------
 ; 2D Tile Cache metadata (§4.7 — .w addressable)
@@ -338,7 +343,9 @@ Slot_Section_Map:       ds.b 8
 Section_Preload_Flags:  ds.b 1          ; bits: fwd/bwd/up/dn preloaded
 Section_Teleport_Guard: ds.b 1          ; anti-oscillation flag (cleared when player leaves threshold)
 Section_Plane_Dirty:    ds.b 1          ; §4.2: full plane redraw pending (level init + cache recovery; teleports are pure rebases and never set it)
-                        ds.b 1          ; pad to even
+Section_Edge_Flags:     ds.b 1          ; SEF_* bits (constants.asm) — act-edge predicate.
+                                        ; Written ONLY by Section_UpdateEdgeFlags; read by
+                                        ; Section_Check / Player_LevelBound / Camera_Update
 
 ; Per-section streaming state (§2 A.4) — one byte per section
 ; (SS_IDLE / SS_RESIDENT). Indexed by flat section_id
