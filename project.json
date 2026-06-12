@@ -5,7 +5,7 @@
     {
       "id": "ojz",
       "name": "Oracle Jungle Zone",
-      "tileset": "data/editor/ojz/chunks_tiles.bin",
+      "tileset": "data/editor/ojz_tiles.bin",
       "palette": "data/generated/ojz/act1/ojz_palette.bin",
       "acts": [
         {
@@ -15,10 +15,15 @@
           "dataPath": "data/editor/ojz/act1/",
           "stripPath": "data/generated/ojz/act1/",
           "stripPrefix": "sec",
-          "bgLayout": "data/generated/ojz/act1/zone_bg.bin",
-          "bgTiles": "data/generated/ojz/act1/bg_tiles.bin",
+          "bgLayout": "data/editor/ojz_act1_bg.bin",
+          "bgTiles": "data/editor/ojz_act1_bg_tiles.bin",
           "parallax": "data/parallax/ojz_default.asm",
-          "startPosition": { "secX": 0, "secY": 0, "localX": 256, "localY": 256 }
+          "startPosition": {
+            "secX": 0,
+            "secY": 0,
+            "localX": 256,
+            "localY": 256
+          }
         }
       ]
     }

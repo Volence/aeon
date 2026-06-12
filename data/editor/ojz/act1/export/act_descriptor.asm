@@ -14,6 +14,9 @@ ojz_act1_Descriptor:
     dc.l    ojz_act1_BG_Tiles       ; act_bg_tiles
     dc.l    data/parallax/ojz_default.asm    ; act_parallax_config
 
+; NOTE: non-zero sec_bg_layout entries reference editor BG-library
+; binaries (data/editor/ojz_bg_{id}.bin). The build pipeline must
+; BINCLUDE each referenced binary at its ojz_BG_{id} label.
 ojz_act1_Sections:
 ; --- Section 0 (0,0) — flat_id 0 ---
 ojz_Sec0:
@@ -24,7 +27,7 @@ ojz_Sec0:
     dc.l    ojz_Palette  ; sec_pal
     dc.l    0  ; sec_parallax_config
     dc.l    0                         ; sec_raster_table
-    dc.l    0  ; sec_bg_layout
+    dc.l    ojz_BG_deep_forest_v13_1781214524380  ; sec_bg_layout
     dc.l    ojz_Sec0_TypeTable        ; sec_type_table
     dc.l    0                         ; sec_pal_cycle
     dc.l    0                         ; sec_sound_bank
