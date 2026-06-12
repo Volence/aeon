@@ -555,20 +555,21 @@ Player_SetState:
 - [x] **Step 5.3:** GROUND state, flat-ground subset first (no slope factor, angle assumed 0): classic order — (spindash check: stub `rts` for now) → jump check (stub) → input accel/decel/friction on `ground_speed` with the back-out top-speed rule and turnaround kick → projection `x_vel = gsp·cos(angle)>>8, y_vel = −gsp·sin(angle)>>8` via `GetSineCosine` (verify its register contract in `engine/math.asm` before use) → ground wall probe (velocity-projected `Player_SensorWall`, cancel velocity along axis + zero gsp + ST_PUSHING, with the S3K skip for non-cardinal upper-half angles and facing-aware bit) → integration (`ObjectMove`) → floor pair (`Player_SensorFloor`): snap `y_pos += dist` within clamps (−14 fixed up, `min(|gsp·cos|>>8 + 4, 14)` down... grounded snap uses speed along probe axis per SPG), angle update, both-sensors-nothing → `Player_SetState #PSTATE_AIR`.
 - [x] **Step 5.4:** GROUND enter/exit hooks: standing radii, walk/idle anim select by gsp (reuse existing anim ids 0/1/2 from test assets). AIR state minimal: air accel, gravity + fall cap, integration, floor pair when falling → landing (flat subset: `gsp = x_vel`) → `Player_SetState #PSTATE_GROUND`. No jump yet.
 - [x] **Step 5.5:** Swap `ojz_scroll_test.asm` player setup to `Player_Init` (keep starting in debug-fly so streaming testing workflow is unchanged: `_debug_flag` equivalent → start suspended, B drops you into physics).
-- [ ] **Step 5.6:** (code + builds + test.sh green; live Exodus verification pending) Build + Exodus: walk/run on flat sec0 ground, accel curve to $600, friction stop, turnaround kick observable (brief −$80 snap), camera follows, debug-fly round-trips. Check `Player_Quadrant` stays 0 and gsp behaves via RAM watch. Commit: `feat(§5): player skeleton — state machine, flat ground movement, air fall`
+- [x] **Step 5.6:** (live-verified by orchestrator 2026-06-12: fall/landing, accel $C/f, friction, facing, ledge→AIR, gravity $38/f) Build + Exodus: walk/run on flat sec0 ground, accel curve to $600, friction stop, turnaround kick observable (brief −$80 snap), camera follows, debug-fly round-trips. Check `Player_Quadrant` stays 0 and gsp behaves via RAM watch. Commit: `feat(§5): player skeleton — state machine, flat ground movement, air fall`
 
 **Task 5 implementation notes (2026-06-12):**
 - Player files are included in the **object code bank** (after `ObjCodeBase`), not after `player_sensors.asm` — `objroutine(Player_Main)` requires the routine inside ObjCodeBase+64KB. Sensors stay in the engine block.
 - Projection is `y_vel = sin(angle)·gsp>>8` with **NO negation** (step 5.3's `−gsp·sin` was wrong for our data): the classic angle convention (down-right slope = +$10) and `data/misc/sine.bin` (sin($10)=+$61) already agree with screen-down-positive Y. Task 7 must keep this.
 - Legacy `Collision_GetFloorHeight`/`Collision_FloorSensors` deleted; `objects/test_player.asm` (still the object_test_state player) migrated to `Player_SensorFloor`.
 - AIR applies gravity **before** the position add (plan/task order); classic applies it after (research §1). Re-evaluate in Task 6 when tuning jump arcs.
+- **Pre-Task-6 file split (2026-06-12):** `player_common.asm` was split — `PState_Ground` + `Ground_Move` moved to `engine/player/player_ground.asm`, `PState_Air` to `engine/player/player_air.asm` (both in the object code bank, included from `main.asm` right after `player_common.asm`; reached only via the offset tables). `player_common.asm` keeps the overlay, `Player_Init`, `Player_RefreshPhysics`, `Player_Main`, `Player_SetState` + hooks, `Player_Display`, debug-fly, plus the `setStandingSize`/`maskOpposingLR` factoring macros and the `PSTATE_COUNT` lockstep asserts on the three state/hook tables.
 
 
 ---
 
 ## Task 6: Jumping + full air physics + landing banding
 
-**Files:** `engine/player/player_common.asm` (extend), `engine/player/sonic.asm`
+**Files:** `engine/player/player_air.asm` (air body, landing banding), `engine/player/player_common.asm` (jump entry from the grounded states + hooks), `engine/player/sonic.asm`
 
 - [ ] **Step 6.1:** `Player_Jump` (called from GROUND/ROLL states): consume `Player_JumpBuffer` OR fresh press; ceiling headroom probe ≥6px (`Player_SensorCeiling` at angle+$80); perpendicular ADD: `x_vel += cos(angle−$40)·jump>>8`, `y_vel += sin(angle−$40)·jump>>8`; `Player_SetState #PSTATE_JUMP` (from ground) / `#PSTATE_ROLLJUMP` (from roll); clear stick_convex. **Jump-delay fix:** after the state switch, FALL THROUGH into the air state's movement for this same frame (do not `addq.l #4,sp`-abort like S2).
 - [ ] **Step 6.2:** JUMP/AIR/ROLLJUMP/AIRBALL shared air body (one routine, flags per state):
@@ -594,7 +595,7 @@ Player_SetState:
 
 ## Task 7: Slopes — slope factor, quadrant walking, slip
 
-**Files:** `engine/player/player_common.asm` (extend)
+**Files:** `engine/player/player_ground.asm` (primarily), `engine/player/player_common.asm` (hooks/quadrant helpers as needed)
 
 - [ ] **Step 7.1:** Slope factor in GROUND before input (skip in ceiling band `angle+$60 < $C0` rule): `gsp += $20·sin(angle)>>8`, with the S3K standing gate (`gsp==0` → apply only if `|factor| ≥ $D`).
 - [ ] **Step 7.2:** Quadrant-rotated floor sensing (the §1.2 mode table): floor pair probes down/right/up/left per `Player_Quadrant` with snap axis per mode; angle continuity (reject Δ>$20 → cardinal snap, already in pair wrapper); GSp cap ±$1000 applied to gsp after slope factor.
@@ -605,7 +606,7 @@ Player_SetState:
 
 ## Task 8: Rolling + spindash
 
-**Files:** `engine/player/player_common.asm`, `engine/player/sonic.asm`
+**Files:** `engine/player/player_ground.asm`, `engine/player/sonic.asm`
 
 - [ ] **Step 8.1:** ROLL state: start check in GROUND (down held, L/R not held, `|gsp| ≥ $100`); enter hook: ball radii + `y_pos += CURL_Y_SHIFT<<16`, roll anim; roll physics: friction $6 always, decel $20 opposing (stacks), NO input accel, slope factor $50/$14 asymmetric (never gsp==0-gated), unroll `|gsp| < $80` → GROUND (uncurl hook: −5px, with the wall-clearance check from spec §5.3 list), forced-roll honors `PHYS_KEEP_ROLL_MIN`. Jump from roll → ROLLJUMP (ball radii KEPT — bug #5 fix is structural: radii only change in hooks, and ROLLJUMP/JUMP/AIRBALL all use ball radii).
 - [ ] **Step 8.2:** SPINDASH state (sonic.asm contributes the state): trigger down+jump-press in GROUND at |gsp|<... (S2 rule: down held, gsp—use classic: from duck/stand with down); charge `+$200` per jump press capped $800; decay `charge −= charge>>5` per frame; release (down released): `gsp = ±($800 + (charge>>8)·$80)` facing sign → ROLL state; camera: classic spindash lag = freeze camera 16 frames (simple counter the camera reads — match research camera notes).

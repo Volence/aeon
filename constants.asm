@@ -251,6 +251,11 @@ PSTATE_AIR              = 6         ; airborne uncurled — no release cap
 PSTATE_JUMP             = 8         ; airborne curled from jump — release cap active
 PSTATE_ROLLJUMP         = 10        ; as JUMP + air control lockout
 PSTATE_AIRBALL          = 12        ; airborne curled, not from jump
+PSTATE_COUNT            = 7         ; state/hook tables assert against this
+; Player animation ids (Ani_Sonic script-table order — sonic_anims.asm)
+ANIM_WALK               = 0
+ANIM_IDLE               = 1
+ANIM_BALL               = 2         ; roll/jump
 ; Solidity classes (SolidityTable values — generator contract, collision_pipeline.py)
 SOLID_NONE              = 0
 SOLID_TOP               = 1

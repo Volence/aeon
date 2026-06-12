@@ -138,7 +138,12 @@ __BUDGET_OBJBANK:
     ; objroutine(), which needs the routine within ObjCodeBase+64KB.
     ; (player_sensors.asm stays in the engine block above — it has no
     ; code_addr entry points.)
+    ; player_common first — it defines the overlay equates and macros
+    ; the state files use; ground/air are reached only via the offset
+    ; tables, so order among them is otherwise free.
     include "engine/player/player_common.asm"
+    include "engine/player/player_ground.asm"
+    include "engine/player/player_air.asm"
     include "engine/player/sonic.asm"
 
     include "objects/test_static.asm"

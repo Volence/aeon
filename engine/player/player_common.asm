@@ -1,10 +1,11 @@
-; Player frame skeleton — state machine, dispatch, shared movement (§5 Task 5)
+; Player frame skeleton — state machine, dispatch, shared services (§5 Task 5)
 ;
-; Owns the entire player frame: debug-fly escape → physics table (a4) →
+; Owns the player frame: debug-fly escape → physics table (a4) →
 ; quadrant → jump buffer → state dispatch → history rings → display tail.
-; Characters contribute asset/physics data + ability states (sonic.asm) —
-; never forks inside shared routines (spec §3.1 inversion of the
-; sonic_hack split).
+; The state bodies live in player_ground.asm / player_air.asm (reached
+; only via the Player_States offset table below); characters contribute
+; asset/physics data + ability states (sonic.asm) — never forks inside
+; shared routines (spec §3.1 inversion of the sonic_hack split).
 ;
 ; Lives in the object code bank: Player_Main is dispatched through
 ; SST_code_addr via objroutine().
@@ -55,6 +56,33 @@ BUTTON_JUMP_MASK  = BUTTON_A|BUTTON_C
 PLAYER_DEBUG_FLY_SPEED = 16     ; px/frame — matched to CAM_MAX_Y_STEP
 
 ; -----------------------------------------------
+; setStandingSize — write the standing collision box (sizes are 2r+1;
+; sensors halve by lsr → 19/2=9, 39/2=19 — the exact classic radii).
+; Task 7 adds setBallSize + the ±CURL_Y_SHIFT y-shift pair; the
+; enter/exit hooks are the one writer of these fields (spec §3.3).
+; In: a0 = player SST
+; -----------------------------------------------
+setStandingSize macro
+        move.b  #PLAYER_X_RADIUS*2+1, SST_width_pixels(a0)
+        move.b  #PLAYER_Y_RADIUS*2+1, SST_height_pixels(a0)
+        endm
+
+; -----------------------------------------------
+; maskOpposingLR — L+R held together = neither (bug #10).
+; In: heldReg = data register holding the held-button bits (modified:
+;     masked to LEFT|RIGHT, zeroed when both are down)
+; Fixed internal label: expand at most once per global-label scope
+; (current expansions: Ground_Move, PState_Air — one each).
+; -----------------------------------------------
+maskOpposingLR macro heldReg
+        andi.b  #BUTTON_LEFT|BUTTON_RIGHT, heldReg
+        cmpi.b  #BUTTON_LEFT|BUTTON_RIGHT, heldReg
+        bne.s   .lr_masked
+        moveq   #0, heldReg
+.lr_masked:
+        endm
+
+; -----------------------------------------------
 ; Player_Init — set up a player slot as Sonic (called from level state
 ; init; caller writes x_pos/y_pos first). Boots in DEBUG-FLY to preserve
 ; the streaming-test workflow — B drops into physics.
@@ -64,14 +92,11 @@ PLAYER_DEBUG_FLY_SPEED = 16     ; px/frame — matched to CAM_MAX_Y_STEP
 ; -----------------------------------------------
 Player_Init:
         bsr.w   Sonic_InitAssets
-        move.b  #1, SST_anim(a0)                ; idle (Player_Display re-selects per frame)
+        move.b  #ANIM_IDLE, SST_anim(a0)        ; Player_Display re-selects per frame
         move.b  #$FF, SST_prev_anim(a0)
         move.b  #$FF, SST_prev_frame(a0)
         ori.b   #4<<RF_PRIORITY_SHIFT, SST_render_flags(a0)
-        ; sizes are 2r+1; sensors halve by lsr → 19/2=9, 39/2=19 — the
-        ; exact classic standing radii
-        move.b  #PLAYER_X_RADIUS*2+1, SST_width_pixels(a0)
-        move.b  #PLAYER_Y_RADIUS*2+1, SST_height_pixels(a0)
+        setStandingSize
         move.b  #COLLISION_NONE, SST_collision_resp(a0)
         clr.b   SST_status(a0)
         clr.b   SST_angle(a0)
@@ -113,9 +138,12 @@ Player_RefreshPhysics:
 ; Clobbers: d0-d6, a1-a4 (a0/d7 preserved — RunObjects loop contract)
 ; -----------------------------------------------
 Player_Main:
+        ; press bits read ONCE for the frame — d6 survives the debug
+        ; toggle calls (DebugEnter clobbers none, DebugExit d0-d2/a1-a2)
+        ; and feeds both the B-toggle and the jump-buffer latch
+        move.b  (Ctrl_1_Press).w, d6
         ; --- debug-fly toggle (B press) ---
-        move.b  (Ctrl_1_Press).w, d0
-        btst    #4, d0                          ; BUTTON_B
+        btst    #4, d6                          ; BUTTON_B
         beq.s   .no_toggle
         tst.b   _pl_debug(a0)
         bne.s   .toggle_exit
@@ -141,8 +169,7 @@ Player_Main:
 
         ; jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick
         ; down. Maintained here; Task 6's jump check CONSUMES it.
-        move.b  (Ctrl_1_Press).w, d0
-        andi.b  #BUTTON_JUMP_MASK, d0
+        andi.b  #BUTTON_JUMP_MASK, d6
         beq.s   .no_latch
         move.b  #PHYS_JUMP_BUFFER, (Player_JumpBuffer).w
         bra.s   .buffer_done
@@ -192,13 +219,13 @@ Player_Display:
         ; all read walk/idle until rolling exists
         tst.w   _pl_gsp(a0)
         bne.s   .anim_walk
-        move.b  #1, SST_anim(a0)                ; idle
+        move.b  #ANIM_IDLE, SST_anim(a0)
         bra.s   .animate
 .anim_walk:
-        clr.b   SST_anim(a0)                    ; walk
+        clr.b   SST_anim(a0)                    ; ANIM_WALK (= 0)
         bra.s   .animate
 .anim_air:
-        move.b  #2, SST_anim(a0)                ; roll/jump ball
+        move.b  #ANIM_BALL, SST_anim(a0)
 .animate:
         jsr     AnimateSprite
         jmp     Sonic_LoadArt                   ; character dispatch when the
@@ -212,6 +239,10 @@ Player_States:
         dc.w    PState_Air-Player_States        ; PSTATE_JUMP — TODO(Task 6)
         dc.w    PState_Air-Player_States        ; PSTATE_ROLLJUMP — TODO(Task 6)
         dc.w    PState_Air-Player_States        ; PSTATE_AIRBALL — TODO(Task 6)
+Player_States_End:
+    if (Player_States_End-Player_States)/2 <> PSTATE_COUNT
+        error "Player_States table out of sync with PSTATE_*"
+    endif
 
 ; -----------------------------------------------
 ; Player_SetState — THE one transition writer for player_state
@@ -240,6 +271,10 @@ PState_EnterHooks:
         dc.w    PHook_AirEnter-PState_EnterHooks    ; JUMP — TODO(Task 6): ball radii + curl y-shift
         dc.w    PHook_AirEnter-PState_EnterHooks    ; ROLLJUMP — TODO(Task 6)
         dc.w    PHook_AirEnter-PState_EnterHooks    ; AIRBALL — TODO(Task 6)
+PState_EnterHooks_End:
+    if (PState_EnterHooks_End-PState_EnterHooks)/2 <> PSTATE_COUNT
+        error "PState_EnterHooks table out of sync with PSTATE_*"
+    endif
 
 PState_ExitHooks:
         dc.w    PHook_Null-PState_ExitHooks         ; GROUND
@@ -249,6 +284,10 @@ PState_ExitHooks:
         dc.w    PHook_Null-PState_ExitHooks         ; JUMP
         dc.w    PHook_Null-PState_ExitHooks         ; ROLLJUMP
         dc.w    PHook_Null-PState_ExitHooks         ; AIRBALL
+PState_ExitHooks_End:
+    if (PState_ExitHooks_End-PState_ExitHooks)/2 <> PSTATE_COUNT
+        error "PState_ExitHooks table out of sync with PSTATE_*"
+    endif
 
 ; ===== Enter/exit hooks — the ONE writer for width/height, curl
 ; y-shift, collision-mode resets, and anim latches (spec §3.3).
@@ -261,318 +300,12 @@ PHook_Null:
 PHook_GroundEnter:
         ; standing radii (idempotent until curl exists — Task 7 uncurl
         ; restores these + the −CURL_Y_SHIFT y-shift)
-        move.b  #PLAYER_X_RADIUS*2+1, SST_width_pixels(a0)
-        move.b  #PLAYER_Y_RADIUS*2+1, SST_height_pixels(a0)
+        setStandingSize
         bclr    #ST_IN_AIR, SST_status(a0)
         rts
 
 PHook_AirEnter:
         bset    #ST_IN_AIR, SST_status(a0)
-        rts
-
-; -----------------------------------------------
-; PState_Ground — standing/running. FLAT subset: slope factor, quadrant-
-; generalized snap axis, and the S3K wall-probe angle gates are Task 7.
-; In:  a0 = player SST, a4 = Player_Phys
-; Out: none (may transition to PSTATE_AIR)
-; Clobbers: d0-d7, a1-a2
-; -----------------------------------------------
-PState_Ground:
-        ; TODO(Task 8): spindash check goes here (first, classic order)
-        ; TODO(Task 6): jump check goes here (consumes Player_JumpBuffer;
-        ;               jump-delay fix: fall through into air movement)
-        ; TODO(Task 7): slope factor on gsp goes here — BEFORE input,
-        ;               using last frame's angle (classic order)
-        bsr.w   Ground_Move
-        jsr     ObjectMove
-
-        ; --- floor pair: snap / angle update / ledge detach ---
-        jsr     Player_SensorFloor              ; d0 dist, d1 resolved angle
-        cmpi.w  #16, d0
-        bge.s   .airborne                       ; closer sensor ≥16 ⇒ both
-                                                ; found nothing — ran off a ledge
-        ; adaptive snap-down window: min(|gsp|>>8 + 4, 14)
-        move.w  _pl_gsp(a0), d2
-        bpl.s   .speed_pos
-        neg.w   d2
-.speed_pos:
-        lsr.w   #8, d2
-        addq.w  #4, d2
-        cmpi.w  #14, d2
-        bls.s   .window_ok
-        moveq   #14, d2
-.window_ok:
-        cmp.w   d2, d0
-        bgt.s   .airborne                       ; surface beyond snap reach
-        cmpi.w  #-14, d0
-        blt.s   .too_deep                       ; embedded past the fixed
-                                                ; snap-up — classic ignores
-        ; snap along the floor axis (floor mode; Task 7 selects the axis
-        ; by quadrant)
-        ext.l   d0
-        swap    d0
-        clr.w   d0                              ; dist<<16
-        add.l   d0, SST_y_pos(a0)
-        move.b  d1, SST_angle(a0)
-.too_deep:
-        rts
-.airborne:
-        moveq   #PSTATE_AIR, d0                 ; velocities kept — gravity
-        jmp     Player_SetState                 ; takes over next frame
-
-; -----------------------------------------------
-; Ground_Move — input → ground_speed, projection, ground wall probe
-; Classic accel/decel/friction semantics with the S3K back-out top-speed
-; rule and the turnaround kick (research physics-classics §1).
-; In:  a0 = player SST, a4 = Player_Phys
-; Out: none
-; Clobbers: d0-d6, a1
-; -----------------------------------------------
-Ground_Move:
-        move.w  _pl_gsp(a0), d0
-        tst.w   _pl_move_lock(a0)
-        bne.s   .friction                       ; slip/spring input freeze:
-                                                ; friction still runs (S3K);
-                                                ; decrement is Task 7's
-                                                ; SlopeRepel business
-        move.b  (Ctrl_1_Held).w, d2
-        andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d2
-        cmpi.b  #BUTTON_LEFT|BUTTON_RIGHT, d2
-        bne.s   .lr_masked
-        moveq   #0, d2                          ; L+R together = neither (bug #10)
-.lr_masked:
-        btst    #2, d2                          ; LEFT
-        bne.s   .move_left
-        btst    #3, d2                          ; RIGHT
-        bne.s   .move_right
-.friction:
-        move.w  PPHYS_FRICTION(a4), d1
-        tst.w   d0
-        beq.s   .cap
-        bmi.s   .friction_neg
-        sub.w   d1, d0
-        bcc.s   .cap                            ; borrow = crossed zero
-        moveq   #0, d0
-        bra.s   .cap
-.friction_neg:
-        add.w   d1, d0
-        bcc.s   .cap                            ; carry = crossed zero
-        moveq   #0, d0
-        bra.s   .cap
-
-.move_left:
-        tst.w   d0
-        ble.s   .accel_left
-        ; decelerating against rightward motion
-        sub.w   PPHYS_DECEL(a4), d0
-        bcc.s   .cap
-        move.w  #-$80, d0                       ; turnaround kick
-        bra.s   .cap
-.accel_left:
-        bset    #ST_XFLIP, SST_status(a0)
-        move.w  PPHYS_TOP_SPEED(a4), d1
-        neg.w   d1
-        cmp.w   d1, d0
-        ble.s   .cap                            ; at/beyond −top already:
-                                                ; preserve (S3K back-out —
-                                                ; input never curtails
-                                                ; earned overspeed)
-        sub.w   PPHYS_ACCEL(a4), d0
-        cmp.w   d1, d0
-        bge.s   .cap
-        move.w  d1, d0                          ; crossed top this frame → clamp
-        bra.s   .cap
-
-.move_right:
-        tst.w   d0
-        bge.s   .accel_right
-        add.w   PPHYS_DECEL(a4), d0
-        bcc.s   .cap
-        move.w  #$80, d0                        ; turnaround kick
-        bra.s   .cap
-.accel_right:
-        bclr    #ST_XFLIP, SST_status(a0)
-        move.w  PPHYS_TOP_SPEED(a4), d1
-        cmp.w   d1, d0
-        bge.s   .cap                            ; S3K back-out (see .accel_left)
-        add.w   PPHYS_ACCEL(a4), d0
-        cmp.w   d1, d0
-        ble.s   .cap
-        move.w  d1, d0
-
-.cap:
-        ; GSp tunneling guard ±$1000. FEEL DEVIATION coupling (spec §2.1):
-        ; raising it requires CAM_MAX_Y_STEP, VFILL_ROWS_PER_FRAME, and
-        ; sensor reach to rise together.
-        cmpi.w  #PHYS_GSP_CAP, d0
-        ble.s   .cap_pos_ok
-        move.w  #PHYS_GSP_CAP, d0
-.cap_pos_ok:
-        cmpi.w  #-PHYS_GSP_CAP, d0
-        bge.s   .cap_neg_ok
-        move.w  #-PHYS_GSP_CAP, d0
-.cap_neg_ok:
-        move.w  d0, _pl_gsp(a0)
-
-        ; --- inertia → velocity projection ---
-        ; angle 0 fast path: x_vel = gsp exactly, y_vel = 0 (skips two
-        ; muls — the flat common case)
-        tst.b   SST_angle(a0)
-        bne.s   .project_slope
-        move.w  d0, SST_x_vel(a0)
-        clr.w   SST_y_vel(a0)
-        bra.s   .wall_probe
-.project_slope:
-        ; classic Traction: x_vel = cos·gsp>>8, y_vel = sin·gsp>>8 — NO
-        ; negation: the angle convention (down-right slope = +$10) and the
-        ; sine table (sin($10) = +$61) already agree with screen-down-
-        ; positive Y. Verified against data/misc/sine.bin + the sensor
-        ; self-check slope (attr $04, angle $10, heights falling rightward).
-        moveq   #0, d0
-        move.b  SST_angle(a0), d0
-        jsr     GetSineCosine                   ; d0 = sin·$100, d1 = cos·$100
-        ; variable×variable product — no table/shift form exists; one
-        ; player, slope frames only (flat fast path above), classic does
-        ; exactly this in Traction
-        muls.w  _pl_gsp(a0), d1                 ; lint: disable=E002
-        asr.l   #8, d1
-        move.w  d1, SST_x_vel(a0)
-        muls.w  _pl_gsp(a0), d0                 ; lint: disable=E002
-        asr.l   #8, d0
-        move.w  d0, SST_y_vel(a0)
-
-.wall_probe:
-        ; --- ground wall probe at next-frame position ---
-        ; TODO(Task 7): S3K gates — skip when angle is non-cardinal in the
-        ; upper half; quadrant-rotated probe axis; −5px offset rolling.
-        ; Flat-ground-only form below (angle 0, foot-level +8px).
-        move.w  _pl_gsp(a0), d4                 ; direction sign for the probe
-        beq.s   .clear_push
-        move.w  SST_x_vel(a0), d0
-        asr.w   #8, d0
-        add.w   SST_x_pos(a0), d0               ; projected engine X
-        tst.w   d4
-        bmi.s   .probe_left
-        addi.w  #PUSH_RADIUS, d0
-        bra.s   .probe_go
-.probe_left:
-        subi.w  #PUSH_RADIUS, d0
-.probe_go:
-        move.w  SST_y_vel(a0), d1
-        asr.w   #8, d1
-        add.w   SST_y_pos(a0), d1               ; projected engine Y
-        addq.w  #8, d1                          ; flat-ground foot-level offset
-        jsr     Player_SensorWallAt             ; d0 dist (clobbers d0-d6)
-        tst.w   d0
-        bmi.s   .wall_hit
-.clear_push:
-        bclr    #ST_PUSHING, SST_status(a0)
-        rts
-.wall_hit:
-        ; back the blocked distance into x_vel — the player advances
-        ; exactly to the wall face this frame; inertia dies
-        asl.w   #8, d0                          ; dist → 8.8
-        tst.w   _pl_gsp(a0)
-        bmi.s   .hit_left
-        add.w   d0, SST_x_vel(a0)
-        clr.w   _pl_gsp(a0)
-        ; facing-aware push bit (S3K): only when facing the wall
-        btst    #ST_XFLIP, SST_status(a0)
-        bne.s   .clear_push
-        bra.s   .set_push
-.hit_left:
-        sub.w   d0, SST_x_vel(a0)
-        clr.w   _pl_gsp(a0)
-        btst    #ST_XFLIP, SST_status(a0)
-        beq.s   .clear_push
-.set_push:
-        bset    #ST_PUSHING, SST_status(a0)
-        rts
-
-; -----------------------------------------------
-; PState_Air — minimal fall + flat landing. Full air physics (drag,
-; release cap, ceiling/wall probes, landing banding) is Task 6.
-; In:  a0 = player SST, a4 = Player_Phys
-; Out: none (may transition to PSTATE_GROUND)
-; Clobbers: d0-d7, a1-a2
-; -----------------------------------------------
-PState_Air:
-        ; --- air control: x_vel directly — gsp is NOT authoritative
-        ; airborne ---
-        move.b  (Ctrl_1_Held).w, d2
-        andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d2
-        cmpi.b  #BUTTON_LEFT|BUTTON_RIGHT, d2
-        bne.s   .lr_masked
-        moveq   #0, d2                          ; L+R together = neither (bug #10)
-.lr_masked:
-        move.w  SST_x_vel(a0), d0
-        btst    #2, d2                          ; LEFT
-        bne.s   .air_left
-        btst    #3, d2                          ; RIGHT
-        beq.s   .air_input_done
-        bclr    #ST_XFLIP, SST_status(a0)
-        add.w   PPHYS_AIR_ACCEL(a4), d0
-        ; TODO(Task 6): S3K back-out — preserve above-top launch speed;
-        ; plain clamp until then
-        move.w  PPHYS_TOP_SPEED(a4), d1
-        cmp.w   d1, d0
-        ble.s   .air_store
-        move.w  d1, d0
-        bra.s   .air_store
-.air_left:
-        bset    #ST_XFLIP, SST_status(a0)
-        sub.w   PPHYS_AIR_ACCEL(a4), d0
-        move.w  PPHYS_TOP_SPEED(a4), d1
-        neg.w   d1
-        cmp.w   d1, d0
-        bge.s   .air_store
-        move.w  d1, d0
-.air_store:
-        move.w  d0, SST_x_vel(a0)
-.air_input_done:
-        ; TODO(Task 6): air drag (x_vel -= x_vel>>5 while −$400 ≤ y_vel < 0)
-        ; goes here, before gravity
-
-        ; --- gravity + fall cap ---
-        move.w  SST_y_vel(a0), d0
-        add.w   PPHYS_GRAVITY(a4), d0
-        cmpi.w  #PHYS_FALL_CAP, d0
-        ble.s   .fall_capped
-        move.w  #PHYS_FALL_CAP, d0
-.fall_capped:
-        move.w  d0, SST_y_vel(a0)
-
-        jsr     ObjectMove
-
-        ; TODO(Task 6): ceiling + wall air probes (motion-quadrant sensor
-        ; activation) go here, post-move
-
-        ; --- landing (falling only) ---
-        tst.w   SST_y_vel(a0)
-        bmi.s   .no_land
-        jsr     Player_SensorFloor              ; d0 dist, d1 resolved angle
-        tst.w   d0
-        bpl.s   .no_land                        ; must be embedded to land
-        ; eligibility: dist ≥ −(y_vel>>8) − 8 — embed tolerance scales
-        ; with fall speed (spec §6)
-        move.w  SST_y_vel(a0), d2
-        lsr.w   #8, d2
-        addq.w  #8, d2
-        neg.w   d2
-        cmp.w   d2, d0
-        blt.s   .no_land                        ; too deep — keep falling
-        ext.l   d0
-        swap    d0
-        clr.w   d0                              ; dist<<16
-        add.l   d0, SST_y_pos(a0)
-        move.b  d1, SST_angle(a0)
-        ; landing speed conversion — FLAT subset; Task 6 adds the classic
-        ; motion-quadrant + angle-band select
-        move.w  SST_x_vel(a0), _pl_gsp(a0)
-        clr.w   SST_y_vel(a0)
-        moveq   #PSTATE_GROUND, d0
-        jmp     Player_SetState
-.no_land:
         rts
 
 ; -----------------------------------------------
@@ -604,8 +337,7 @@ Player_DebugExit:
         sf      _pl_debug(a0)
         bsr.w   Sonic_InitAssets
         ; standing radii until the AIR frame lands and hooks take over
-        move.b  #PLAYER_X_RADIUS*2+1, SST_width_pixels(a0)
-        move.b  #PLAYER_Y_RADIUS*2+1, SST_height_pixels(a0)
+        setStandingSize
         clr.b   SST_mapping_frame(a0)
         move.b  #$FF, SST_prev_anim(a0)
         move.b  #$FF, SST_prev_frame(a0)
