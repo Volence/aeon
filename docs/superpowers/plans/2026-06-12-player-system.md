@@ -245,25 +245,15 @@ SolidityTable:
 **Files:**
 - Modify: `engine/controllers.asm`, `engine/game_loop.asm`, `ram.asm`, `constants.asm`
 
-- [ ] **Step 3.1:** OR-accumulate press edges (research feel-modern §5). In `Read_Controllers` change both press stores:
+- [ ] **Step 3.1:** VBlank-latched press edges (research feel-modern §5). `Read_Controllers` ORs computed edges into accumulator bytes (`Ctrl_1_Press_Accum`/`Ctrl_2_Press_Accum`, declared next to the Ctrl block in `ram.asm`):
 
 ```asm
-        or.b    d1, (Ctrl_1_Press).w      ; was move.b — accumulate across lag frames
+        or.b    d1, (Ctrl_1_Press_Accum).w  ; accumulate across lag frames
 ```
 
-Consumption: `GameLoop` clears AFTER the state dispatch:
+The non-lag handler (`VInt_Level`) — and ONLY it, never `VInt_Lag` — latches the accumulator into `Ctrl_*_Press` immediately after its `Read_Controllers` call, then clears the accumulator. `GameLoop` does NOT clear anything: consumers read a tick-stable `Ctrl_*_Press` that the next non-lag VBlank replaces wholesale.
 
-```asm
-GameLoop:
-        bsr.w   VSync_Wait
-        movea.l (Game_State).w, a0
-        jsr     (a0)
-        clr.b   (Ctrl_1_Press).w           ; consumed this logic tick
-        clr.b   (Ctrl_2_Press).w
-        bra.s   GameLoop
-```
-
-(Press set during the dispatch itself survives until next tick? No — VBlank fires inside VSync_Wait normally; mid-dispatch VBlank only happens on lag frames, where the OR keeps it. The clear loses at most a press that arrived in the final instructions of a lag frame — same as classic. Document this in a comment.)
+Why a latch instead of an end-of-tick `GameLoop` clear: lag VBlanks fire mid-tick AFTER the player object has already consumed input (RunObjects runs early in the tick; the lag-prone streaming/render work runs after), so an end-of-tick clear wipes the edges those lag frames accumulated — the common lag case loses the press. With the latch, lag frames only OR into the accumulator, so a press landing in ANY lag frame survives into the next tick's latch. Consume-once with zero race: the latch runs in interrupt context while the main loop is parked in `VSync_Wait`.
 
 Also mask opposing D-pad (bug #10) right after each pad read in `Read_Controllers`:
 
@@ -283,6 +273,8 @@ Also mask opposing D-pad (bug #10) right after each pad read in `Read_Controller
 ; -----------------------------------------------
 ; Player physics (§5) — 8.8 fixed point. Reference:
 ; docs/superpowers/specs/2026-06-12-player-system-design.md §6
+; order of these eight must match Player_Phys field order (ram.asm) —
+; block-copied by Player_RefreshPhysics
 ; -----------------------------------------------
 PHYS_ACCEL              = $C
 PHYS_DECEL              = $80
@@ -290,8 +282,8 @@ PHYS_FRICTION           = $C
 PHYS_TOP_SPEED          = $600
 PHYS_GRAVITY            = $38
 PHYS_JUMP_FORCE         = $680
-PHYS_JUMP_RELEASE_CAP   = -$400
 PHYS_AIR_ACCEL          = $18
+PHYS_JUMP_RELEASE_CAP   = -$400
 PHYS_GSP_CAP            = $1000     ; tunneling guard — see FEEL DEVIATION note (spec §2.1)
 PHYS_FALL_CAP           = $1000
 PHYS_SLOPE_WALK         = $20
@@ -361,13 +353,20 @@ Player_JumpBuffer:      ds.b 1      ; frames remaining on buffered jump press
 
 ; Position/stat history rings (Tails follow + trails later; recorded NOW)
 ; MUST be 256-aligned: index wraps via low-byte increment.
-        align 256
+; NOT `align 256` — inside a phase block, align pads the UNPHASED location
+; counter, so the phased address is only aligned by coincidence. Pad
+; explicitly from the phased address (AS needs `(*)`) and assert:
+        ds.b (256-((*)&255))&255    ; pad phased address to 256 boundary
 Player_Pos_Ring:        ds.b 256    ; 64 × (x.w, y.w)
 Player_Stat_Ring:       ds.b 256    ; 64 × (input.w, status.b, pad.b)
 Player_Ring_Index:      ds.w 1      ; byte offset, low-byte wrap
+
+    if Player_Pos_Ring&$FF
+      error "Player_Pos_Ring not 256-aligned — low-byte index wrap breaks"
+    endif
 ```
 
-(If `align` pushes RAM_End past SYSTEM_STACK the build error catches it — current usage has headroom; if tight, move rings before smaller vars to reduce padding waste.)
+(The rings live at the RAM tail, just before `RAM_End`, so the padding wastes nothing in the middle of the layout. If padding pushes RAM_End past SYSTEM_STACK the build error catches it — current usage has headroom.)
 
 - [ ] **Step 3.4:** `./build.sh -pe` passes. Commit: `feat(§5): input edge accumulation, player RAM, physics constants`
 

@@ -203,6 +203,8 @@ GS_OBJECT_TEST          = 2
 ; Player physics (§5) — 8.8 fixed point. Values are the verified
 ; S2/S3K contract; see docs/superpowers/specs/2026-06-12-player-system-design.md §6
 ; and docs/research/player-physics-classics.md (quick-reference card).
+; order of these eight must match Player_Phys field order (ram.asm) —
+; block-copied by Player_RefreshPhysics
 ; -----------------------------------------------
 PHYS_ACCEL              = $C
 PHYS_DECEL              = $80
@@ -210,8 +212,8 @@ PHYS_FRICTION           = $C
 PHYS_TOP_SPEED          = $600
 PHYS_GRAVITY            = $38
 PHYS_JUMP_FORCE         = $680
-PHYS_JUMP_RELEASE_CAP   = -$400
 PHYS_AIR_ACCEL          = $18
+PHYS_JUMP_RELEASE_CAP   = -$400
 PHYS_GSP_CAP            = $1000     ; tunneling guard on GROUND SPEED — FEEL DEVIATION coupling, spec §2.1
 PHYS_FALL_CAP           = $1000
 PHYS_SLOPE_WALK         = $20

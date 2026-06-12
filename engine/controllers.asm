@@ -4,7 +4,7 @@
 ; Read_Controllers — read P1 and P2 joypads (§9.4 simplified)
 ; Called from VBlank handler
 ; In:  none
-; Out: Ctrl_1_Held/Press, Ctrl_2_Held/Press updated
+; Out: Ctrl_1_Held/Press_Accum, Ctrl_2_Held/Press_Accum updated
 ; Clobbers: d0-d1, a0
 ; -----------------------------------------------
 Read_Controllers:
@@ -14,7 +14,7 @@ Read_Controllers:
         move.b  d0, (Ctrl_1_Held).w
         eor.b   d0, d1
         and.b   d0, d1
-        or.b    d1, (Ctrl_1_Press).w        ; accumulate edges across lag frames (§5)
+        or.b    d1, (Ctrl_1_Press_Accum).w  ; accumulate edges across lag frames (§5)
 
         lea.l   (HW_PORT_2_DATA).l, a0
         bsr.s   .read_pad
@@ -22,7 +22,7 @@ Read_Controllers:
         move.b  d0, (Ctrl_2_Held).w
         eor.b   d0, d1
         and.b   d0, d1
-        or.b    d1, (Ctrl_2_Press).w        ; accumulate edges across lag frames (§5)
+        or.b    d1, (Ctrl_2_Press_Accum).w  ; accumulate edges across lag frames (§5)
         rts
 
 ; -----------------------------------------------
@@ -45,6 +45,8 @@ Read_Controllers:
         not.b   d0                          ; invert: 1 = pressed
         ; L+R / U+D guard — worn pads can report both opposing
         ; directions at once (classic bug); if both bits set, clear both
+        ; (clearing both means a held direction re-edges when the blip
+        ; ends — acceptable, by design)
         move.b  d0, d1
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
         cmpi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1

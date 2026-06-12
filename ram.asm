@@ -77,9 +77,11 @@ Frame_Accumulator:      ds.w 1
 ; Controllers
 ; -----------------------------------------------
 Ctrl_1_Held:            ds.b 1
-Ctrl_1_Press:           ds.b 1
+Ctrl_1_Press:           ds.b 1          ; tick-stable: latched by VInt_Level, consumed by game logic
 Ctrl_2_Held:            ds.b 1
 Ctrl_2_Press:           ds.b 1
+Ctrl_1_Press_Accum:     ds.b 1          ; edges OR'd here by EVERY VBlank (incl. lag)
+Ctrl_2_Press_Accum:     ds.b 1          ; latched into Ctrl_*_Press by the non-lag handler
 
 ; -----------------------------------------------
 ; RNG
@@ -265,6 +267,7 @@ Game_Paused:            ds.b 1
 ; Effective physics table — recomputed by Player_RefreshPhysics on
 ; section change / status events, NEVER per-frame. a4 points here
 ; during player movement code (classic register convention).
+; field order must match the first eight PHYS_* constants (constants.asm)
 Player_Phys:
 Phys_accel:             ds.w 1
 Phys_decel:             ds.w 1
@@ -411,7 +414,7 @@ Current_Act_Ptr:        ds.l 1
         ds.b (256-((*)&255))&255    ; pad phased address to 256 boundary
 Player_Pos_Ring:        ds.b 256    ; 64 × (x.w, y.w)
 Player_Stat_Ring:       ds.b 256    ; 64 × (input.w, status.b, pad.b)
-Player_Ring_Index:      ds.w 1      ; byte offset into both rings
+Player_Ring_Index:      ds.w 1      ; byte offset into both rings — word-sized for direct (an,dn.w) index use
 
     if Player_Pos_Ring&$FF
       error "Player_Pos_Ring not 256-aligned — low-byte index wrap breaks"

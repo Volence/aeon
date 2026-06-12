@@ -49,6 +49,15 @@ VInt_Level:
 
         ; --- Non-VDP work ---
         bsr.w   Read_Controllers
+        ; Latch accumulated press edges for the upcoming logic tick.
+        ; Lag VBlanks only OR into the accumulator, so a press landing in
+        ; ANY lag frame survives into the next tick's latch (consume-once,
+        ; zero race: this runs in interrupt context while the main loop is
+        ; parked in VSync_Wait).
+        move.b  (Ctrl_1_Press_Accum).w, (Ctrl_1_Press).w
+        clr.b   (Ctrl_1_Press_Accum).w
+        move.b  (Ctrl_2_Press_Accum).w, (Ctrl_2_Press).w
+        clr.b   (Ctrl_2_Press_Accum).w
         addq.w  #1, (Frame_Counter).w
         move.b  #1, (VBlank_Flag).w
         rts
