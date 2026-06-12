@@ -304,7 +304,8 @@ queueStaticDMA macro slotvar, queueend, entryvar
 ; Both no-op when the entity's section is no longer tracked.
 ; Fixed internal labels: expand each macro at most once per global-label
 ; scope (the two macros use distinct labels, so one of EACH per scope is
-; fine — see EntityWindow_TeleportShift).
+; fine). Current expansions: EntityWindow_DespawnRings (ring),
+; EntityWindow_DespawnObjects (obj) — one each.
 ; -----------------------------------------------
 
 ; clearLoadedRing — clear a ring's loaded bit from its buffer entry

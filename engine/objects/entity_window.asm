@@ -669,10 +669,10 @@ EntityWindow_TrySpawnRing:
         move.w  (Camera_Y).w, d2
         subi.w  #ENTITY_LOAD_BUFFER_Y, d2
         cmp.w   d2, d1
-        blt.s   .out_of_band            ; above band
+        blt.w   .out_of_band            ; above band (.w — DEBUG assert expansion exceeds short range)
         addi.w  #SCREEN_HEIGHT+2*ENTITY_LOAD_BUFFER_Y, d2
         cmp.w   d2, d1
-        bgt.s   .out_of_band            ; below band
+        bgt.w   .out_of_band            ; below band (.w — see above)
 
         ; one save window for both checks + the add (subcalls clobber a0)
         movem.l d3-d4/a0, -(sp)
@@ -682,7 +682,7 @@ EntityWindow_TrySpawnRing:
         moveq   #0, d1
         move.w  d4, d1                  ; list_index
         bsr.w   Collected_CheckRing     ; clobbers d2, a0
-        bne.s   .gated                  ; Z clear = collected
+        bne.w   .gated                  ; Z clear = collected (.w — DEBUG assert expansion exceeds short range)
 
         ; already in the buffer? (loaded bit — set on add, cleared on remove)
         moveq   #0, d0
@@ -691,7 +691,7 @@ EntityWindow_TrySpawnRing:
         move.w  d4, d1                  ; list_index
         moveq   #0, d2                  ; ring bits
         bsr.w   EntityLoaded_Test       ; clobbers d0, d2, a0
-        bne.s   .gated                  ; loaded → skip
+        bne.w   .gated                  ; loaded → skip (.w — see above)
 
         ; spawn ring into buffer
         movea.l 8(sp), a0               ; ROM entry (a0 slot of movem frame)
@@ -701,6 +701,38 @@ EntityWindow_TrySpawnRing:
         add.w   EntityScanState_ess_origin_y(a1), d1    ; engine Y
         move.b  EntityScanState_ess_section_id(a1), d2  ; section_id
         move.b  d4, d3                  ; list_index
+
+    ifdef __DEBUG__
+        ; No-dup invariant (spec §3): teleports never populate and slides
+        ; populate only genuinely-new sections, so a (section_id, list_index)
+        ; pair offered here must never already sit in the live buffer — the
+        ; loaded bit would have gated it. This is the shared add site for the
+        ; X scan, the vertical re-scan AND PopulateSectionRings, so it guards
+        ; every spawn path. d4/a0 are clobberable (RingBuffer_Add clobbers
+        ; both); d5 must survive — push it.
+        move.w  d5, -(sp)
+        moveq   #0, d4
+        move.b  d2, d4
+        lsl.w   #8, d4
+        move.b  d3, d4                  ; d4 = (section_id<<8)|list_index
+        moveq   #0, d5
+        move.b  (Ring_Count).w, d5
+        beq.s   .nodup_ok
+        subq.w  #1, d5
+        lea     (Ring_Buffer).w, a0
+.nodup_scan:
+        cmp.w   4(a0), d4               ; entry key word: sec.b, idx.b at +4
+        beq.s   .nodup_hit
+        addq.w  #RING_BUFFER_ENTRY_SIZE, a0
+        dbf     d5, .nodup_scan
+        bra.s   .nodup_ok
+.nodup_hit:
+        move.w  4(a0), d5               ; register comparand for the assert
+        assert.w d5, ne, d4             ; always fails: duplicate (sec,idx)
+.nodup_ok:
+        move.w  (sp)+, d5
+    endif
+
         bsr.w   RingBuffer_Add          ; clobbers d4, a0
         bcs.s   .gated                  ; full — no bit; re-scan/populate retries
         moveq   #0, d0
@@ -755,6 +787,20 @@ EntityWindow_ScanRingsRight:
 
 .update_idx:
         move.w  d4, EntityScanState_ess_ring_right_idx(a1)
+    ifdef __DEBUG__
+        ; Negative-origin inertness (shared note — ScanObjectsRight asserts the
+        ; same; see spec §6): after a FWD teleport the kept left column
+        ; re-expresses to a negative origin (e.g. -$600), so its entities'
+        ; engine X is negative — huge UNSIGNED, always past the right load
+        ; edge — and the bhi above exits at the first entry. Such an entry is
+        ; intentionally inert for NEW spawns (nothing in it can reach the
+        ; screen without a BWD teleport making the origin positive first), so
+        ; its ratchet must stay 0. d3 = origin_x, d4 = ratchet just written.
+        tst.w   d3
+        bpl.s   .org_ok
+        assert.w d4, eq
+.org_ok:
+    endif
 .done:
         rts
 
@@ -766,7 +812,9 @@ EntityWindow_ScanRingsRight:
 ; section width; sets ring_right_idx to the camera-relative position
 ; (first ring past right load edge). Called by the slide path for
 ; newly tracked sections only — surviving sections' loaded bits
-; migrate with them, so a re-offer couldn't double-add anyway.
+; migrate with them, so a re-offer couldn't double-add anyway (the
+; no-dup invariant is DEBUG-asserted at the shared add site inside
+; EntityWindow_TrySpawnRing).
 ; Out-of-band rings are NOT added — the vertical re-scan picks them
 ; up when camY reaches them.
 ;
@@ -959,6 +1007,14 @@ EntityWindow_ScanObjectsRight:
 
 .obj_update_idx:
         move.w  d4, EntityScanState_ess_obj_right_idx(a1)
+    ifdef __DEBUG__
+        ; negative-origin entries must stay inert — see the shared note at
+        ; EntityWindow_ScanRingsRight's ratchet update
+        tst.w   d3
+        bpl.s   .org_ok
+        assert.w d4, eq
+.org_ok:
+    endif
 .obj_done:
         rts
 
@@ -1188,132 +1244,74 @@ EntityWindow_DespawnObjects:
         rts
 
 ; -----------------------------------------------
-; EntityWindow_TeleportShift — shift nearby entities, despawn rest
+; EntityWindow_TeleportShift — re-express entities after an X teleport rebase
+;
+; A teleport rebase does not change what is visible, and the window is
+; visibility-derived, so the tracked SECTIONS are invariant across the
+; rebase: the slot-map sec_x advance (±2) cancels the camera delta's
+; col0 shift (∓2), leaving the anchor unchanged — DEBUG-asserted below.
+; Entity work therefore reduces to: shift EVERY buffered ring's and
+; slot-tagged object's X by the rebase delta, then rebuild the scan
+; entries (same sections, re-expressed origins; loaded masks survive via
+; InitSection's same-section path + slot-to-same-slot migration). No
+; keep-window, no despawn, no populate — nothing spawns or dies at a seam.
 ;
 ; In:  d0.w = shift amount (+SECTION_SHIFT or -SECTION_SHIFT)
 ; Out: none
-; Clobbers: d0-d7, a0-a1
+; Clobbers: d0-d7, a0-a4
 ; -----------------------------------------------
 EntityWindow_TeleportShift:
         move.w  d0, d4                  ; d4 = shift
 
-        ; Keep-range: entities within Camera_X ± load buffer survive and shift
-        move.w  (Camera_X).w, d2
-        move.w  d2, d3
-        subi.w  #ENTITY_LOAD_BUFFER, d2
-        addi.w  #SCREEN_WIDTH+ENTITY_LOAD_BUFFER, d3
-
-        ; --- Shift/despawn rings (backward iteration) ---
+        ; --- shift all buffered rings ---
         moveq   #0, d5
         move.b  (Ring_Count).w, d5
         beq.s   .rings_done
         subq.w  #1, d5
-
-.ring_loop:
-        move.w  d5, d0
-        add.w   d0, d0
-        add.w   d5, d0
-        add.w   d0, d0                  ; d0 = index × 6
         lea     (Ring_Buffer).w, a0
-        move.w  (a0, d0.w), d1          ; engine_X
-
-        cmp.w   d2, d1
-        blt.s   .ring_remove
-        cmp.w   d3, d1
-        bgt.s   .ring_remove
-
-        ; In range — shift
-        add.w   d4, (a0, d0.w)
-        bra.s   .ring_next
-
-.ring_remove:
-        movem.l d2-d5/a0, -(sp)
-        ; clear the loaded bit so the post-teleport populate can re-add
-        clearLoadedRing a0,d0
-        move.w  d5, d0
-        bsr.w   RingBuffer_Remove
-        movem.l (sp)+, d2-d5/a0
-
-.ring_next:
+.ring_loop:
+        add.w   d4, (a0)                ; engine_X += delta
+        addq.w  #RING_BUFFER_ENTRY_SIZE, a0
         dbf     d5, .ring_loop
-
 .rings_done:
-        ; --- Shift/despawn objects ---
+
+        ; --- shift all slot-tagged objects ---
         lea     (Dynamic_Slots).w, a0
         move.w  #NUM_DYNAMIC-1, d5
-
 .obj_loop:
         tst.w   SST_code_addr(a0)
         beq.s   .obj_next
-
         cmpi.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a0)
         beq.s   .obj_next
-
-        move.w  SST_x_pos(a0), d1
-        cmp.w   d2, d1
-        blt.s   .obj_despawn
-        cmp.w   d3, d1
-        bgt.s   .obj_despawn
-
-        add.w   d4, SST_x_pos(a0)
-        bra.s   .obj_next
-
-.obj_despawn:
-        movem.l d2-d5/a0, -(sp)
-        ; clear the loaded bit before the SST vanishes
-        clearLoadedObj a0
-        movea.l 16(sp), a0              ; SST ptr (a0 slot of the movem frame)
-        jsr     DeleteObject
-        movem.l (sp)+, d2-d5/a0
-
+        add.w   d4, SST_x_pos(a0)       ; integer word of the 16.16 X
 .obj_next:
         lea     SST_len(a0), a0
         dbf     d5, .obj_loop
 
-        ; -----------------------------------------------
-        ; STALE (kept until the teleport rewrite deletes this routine): the
-        ; disjoint-sets argument below predates the visibility-derived
-        ; window — the tracked set is now INVARIANT across a rebase, and
-        ; the rebuild migrates masks slot-to-same-slot instead of wiping.
-        ;
-        ; Loaded-mask teleport migration (Task 6) — resolved as a NO-OP.
-        ;
-        ; Verified Slot_Section_Map mappings (section.asm), with the d4
-        ; shift sign each direction passes in:
-        ;
-        ;   dir    d4 sign          slot map before -> after
-        ;   X-FWD  -SECTION_SHIFT   (x,y),(x+1,y) -> (x+2,y),(x+3,y)
-        ;                           [edge: slot1 = SEC_VOID when x+3 >= grid_w]
-        ;   X-BWD  +SECTION_SHIFT   (x,y),(*  ,y) -> (x-2,y),(x-1,y)
-        ;                           [same from the FWD-edge state (x,VOID);
-        ;                            new slot1 = old slot0 MINUS 1, so the
-        ;                            edge "heal" never re-tracks old slot0]
-        ;   Y-DOWN -SECTION_SHIFT   sec_y += 2 on both slots
-        ;   Y-UP   +SECTION_SHIFT   sec_y -= 2 on both slots
-        ;
-        ; The window tracks the 2x2 block {slotL,slotR} x {sec_y,sec_y+1}
-        ; (EntityWindow_BuildEntries). SECTION_SHIFT = 2*SECTION_SIZE, so
-        ; every teleport moves that block by exactly TWO sections along one
-        ; axis: the old and new tracked sets are DISJOINT in all four
-        ; directions, including every grid-edge case. No section keeps (or
-        ; regains) an entry, so there are no surviving (section, entry)
-        ; pairs whose bits could move — there is nothing to migrate.
-        ;
-        ; Mask hygiene is instead guaranteed by the rebuild below:
-        ; EntityWindow_InitSection compare-clears each entry's 32-byte mask
-        ; slot because every entry's section_id changes. Survivor entities
-        ; (kept+shifted above) belong to sections that just left the window;
-        ; their bits are wiped here, which is safe because neither the
-        ; populate nor the per-frame scans walk untracked sections.
-        ; -----------------------------------------------
+    ifdef __DEBUG__
+        ; anchor stash: RebuildScanState clobbers d0-d7/a0-a4 and
+        ; Entity_Mask_Scratch is FULL inside Slide (4 ids + 128 mask bytes),
+        ; so the stack is the stash — balanced across the bsr.
+        move.w  (Entity_Window_Anchor).w, -(sp)
+    endif
         bsr.w   EntityWindow_RebuildScanState
+    ifdef __DEBUG__
+        ; teleport invariance: the rebase must not move the anchor
+        move.w  (sp)+, d0               ; pre-rebase anchor
+        move.w  (Entity_Window_Anchor).w, d1
+        assert.w d1, eq, d0
+    endif
         rts
 
 ; -----------------------------------------------
-; EntityWindow_TeleportShiftY — vertical-teleport mirror of TeleportShift.
-; Shifts nearby entities' Y by the teleport amount, despawns the rest.
-; Camera_Y/Player_Y just jumped SECTION_SHIFT; entity engine-Y must move
-; with them or every loaded ring/object ends up SECTION_SHIFT pixels off.
+; EntityWindow_TeleportShiftY — re-express entities after a Y teleport rebase
+;
+; Vertical mirror of EntityWindow_TeleportShift (see its header for the
+; invariance argument): slot-map sec_y advance (±2) cancels the camera
+; delta's row0 shift (∓2) — same sections, re-expressed origins. Shifts
+; ring Y (buffer entry +2) and SST_y_pos. RebuildScanState also rebases
+; Camera_Y_Coarse_Prev, so the vertical re-scan trigger doesn't
+; false-fire off the rebased camY.
 ;
 ; In:  d0.w = shift amount (+SECTION_SHIFT or -SECTION_SHIFT)
 ; Out: none
@@ -1322,84 +1320,41 @@ EntityWindow_TeleportShift:
 EntityWindow_TeleportShiftY:
         move.w  d0, d4                  ; d4 = shift
 
-        ; Keep-range: entities within Camera_Y ± load buffer survive and shift
-        move.w  (Camera_Y).w, d2
-        move.w  d2, d3
-        subi.w  #ENTITY_LOAD_BUFFER_Y, d2
-        addi.w  #SCREEN_HEIGHT+ENTITY_LOAD_BUFFER_Y, d3
-
-        ; --- Shift/despawn rings (backward iteration) ---
+        ; --- shift all buffered rings ---
         moveq   #0, d5
         move.b  (Ring_Count).w, d5
         beq.s   .rings_done
         subq.w  #1, d5
-
-.ring_loop:
-        move.w  d5, d0
-        add.w   d0, d0
-        add.w   d5, d0
-        add.w   d0, d0                  ; d0 = index × 6
         lea     (Ring_Buffer).w, a0
-        move.w  2(a0, d0.w), d1         ; engine_Y
-
-        cmp.w   d2, d1
-        blt.s   .ring_remove
-        cmp.w   d3, d1
-        bgt.s   .ring_remove
-
-        ; In range — shift Y
-        add.w   d4, 2(a0, d0.w)
-        bra.s   .ring_next
-
-.ring_remove:
-        movem.l d2-d5/a0, -(sp)
-        ; clear the loaded bit so the post-teleport populate can re-add
-        clearLoadedRing a0,d0
-        move.w  d5, d0
-        bsr.w   RingBuffer_Remove
-        movem.l (sp)+, d2-d5/a0
-
-.ring_next:
+.ring_loop:
+        add.w   d4, 2(a0)               ; engine_Y += delta
+        addq.w  #RING_BUFFER_ENTRY_SIZE, a0
         dbf     d5, .ring_loop
-
 .rings_done:
-        ; --- Shift/despawn objects ---
+
+        ; --- shift all slot-tagged objects ---
         lea     (Dynamic_Slots).w, a0
         move.w  #NUM_DYNAMIC-1, d5
-
 .obj_loop:
         tst.w   SST_code_addr(a0)
         beq.s   .obj_next
-
         cmpi.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a0)
         beq.s   .obj_next
-
-        move.w  SST_y_pos(a0), d1
-        cmp.w   d2, d1
-        blt.s   .obj_despawn
-        cmp.w   d3, d1
-        bgt.s   .obj_despawn
-
-        add.w   d4, SST_y_pos(a0)
-        bra.s   .obj_next
-
-.obj_despawn:
-        movem.l d2-d5/a0, -(sp)
-        ; clear the loaded bit before the SST vanishes
-        clearLoadedObj a0
-        movea.l 16(sp), a0              ; SST ptr (a0 slot of the movem frame)
-        jsr     DeleteObject
-        movem.l (sp)+, d2-d5/a0
-
+        add.w   d4, SST_y_pos(a0)       ; integer word of the 16.16 Y
 .obj_next:
         lea     SST_len(a0), a0
         dbf     d5, .obj_loop
 
-        ; Loaded-mask migration: NO-OP here too — Y teleports move sec_y by
-        ; 2, so rows {r,r+1} -> {r±2,r±3} never overlap. See the mapping
-        ; table in EntityWindow_TeleportShift; the rebuild's compare-clear
-        ; wipes all four entry masks, which is correct.
+    ifdef __DEBUG__
+        ; anchor stash on the stack — see EntityWindow_TeleportShift
+        move.w  (Entity_Window_Anchor).w, -(sp)
+    endif
         bsr.w   EntityWindow_RebuildScanState
+    ifdef __DEBUG__
+        move.w  (sp)+, d0               ; pre-rebase anchor
+        move.w  (Entity_Window_Anchor).w, d1
+        assert.w d1, eq, d0
+    endif
         rts
 
 ; -----------------------------------------------
@@ -1551,9 +1506,7 @@ EntityWindow_Slide:
         dbeq    d1, .old_id_scan
         beq.s   .populate_next          ; id survived the slide — nothing new
         lea     (a3), a1
-        movem.l d6/a3, -(sp)
-        bsr.w   EntityWindow_PopulateSectionRings
-        movem.l (sp)+, d6/a3
+        bsr.w   EntityWindow_PopulateSectionRings       ; clobbers d0-d4/a0/a2 — d6/a3 safe
 .populate_next:
         lea     EntityScanState_len(a3), a3
         addq.w  #1, d6

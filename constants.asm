@@ -367,7 +367,7 @@ RING_ANIM_FRAMES        = 4
 RING_ANIM_SPEED         = 8             ; frames per animation tick
 
 ; Entity window scan
-MAX_TRACKED_SECTIONS     = 4            ; 2×2 quadrant window (slot L/R × row r/r+1)
+MAX_TRACKED_SECTIONS     = 4            ; camera-envelope 2×2 — see EntityWindow_DeriveWindow
 ENTITY_LOAD_BUFFER       = $180         ; pixels ahead/behind camera to load entities
 ENTITY_DESPAWN_BUFFER    = $200         ; pixels beyond load buffer to despawn (hysteresis)
 ENTITY_LOAD_BUFFER_Y     = $100         ; pixels above/below camera to load entities (§4.9 ph2)
