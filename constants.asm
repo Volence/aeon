@@ -200,6 +200,62 @@ MAX_SPAWNS_PER_FRAME    = 8
 GS_OBJECT_TEST          = 2
 
 ; -----------------------------------------------
+; Player physics (§5) — 8.8 fixed point. Values are the verified
+; S2/S3K contract; see docs/superpowers/specs/2026-06-12-player-system-design.md §6
+; and docs/research/player-physics-classics.md (quick-reference card).
+; -----------------------------------------------
+PHYS_ACCEL              = $C
+PHYS_DECEL              = $80
+PHYS_FRICTION           = $C
+PHYS_TOP_SPEED          = $600
+PHYS_GRAVITY            = $38
+PHYS_JUMP_FORCE         = $680
+PHYS_JUMP_RELEASE_CAP   = -$400
+PHYS_AIR_ACCEL          = $18
+PHYS_GSP_CAP            = $1000     ; tunneling guard on GROUND SPEED — FEEL DEVIATION coupling, spec §2.1
+PHYS_FALL_CAP           = $1000
+PHYS_SLOPE_WALK         = $20
+PHYS_SLOPE_ROLL_DOWN    = $50
+PHYS_SLOPE_ROLL_UP      = $14
+PHYS_SLOPE_STAND_MIN    = $D        ; S3K standing slope-factor gate
+PHYS_ROLL_FRICTION      = $6
+PHYS_ROLL_DECEL         = $20
+PHYS_ROLL_START_MIN     = $100      ; S3K threshold
+PHYS_UNROLL_MAX         = $80       ; S3K threshold
+PHYS_ROLL_FORCE_MIN     = $200
+PHYS_KEEP_ROLL_MIN      = $400
+PHYS_SLIP_SPEED         = $280
+PHYS_SLIP_ANGLE         = $18       ; S3K slip threshold
+PHYS_FALL_ANGLE         = $30       ; S3K detach threshold
+PHYS_SLIP_NUDGE         = $80
+PHYS_MOVE_LOCK_TIME     = 30
+PHYS_SKID_MIN           = $400
+PHYS_JUMP_BUFFER        = 2         ; frames — the one modern concession
+SPINDASH_BASE           = $800
+SPINDASH_CHARGE_STEP    = $200
+SPINDASH_CHARGE_MAX     = $800
+; Player collision radii (SPG; sizes are 2r+1)
+PLAYER_X_RADIUS         = 9
+PLAYER_Y_RADIUS         = 19
+BALL_X_RADIUS           = 7
+BALL_Y_RADIUS           = 14
+PUSH_RADIUS             = 10        ; constant, never x_radius
+CURL_Y_SHIFT            = 5         ; y_pos += on curl, -= on uncurl
+; Player states (jump-table byte offsets: index × 2)
+PSTATE_GROUND           = 0
+PSTATE_ROLL             = 2
+PSTATE_SPINDASH         = 4
+PSTATE_AIR              = 6         ; airborne uncurled — no release cap
+PSTATE_JUMP             = 8         ; airborne curled from jump — release cap active
+PSTATE_ROLLJUMP         = 10        ; as JUMP + air control lockout
+PSTATE_AIRBALL          = 12        ; airborne curled, not from jump
+; Solidity classes (SolidityTable values — generator contract, collision_pipeline.py)
+SOLID_NONE              = 0
+SOLID_TOP               = 1
+SOLID_LRB               = 2
+SOLID_ALL               = 3
+
+; -----------------------------------------------
 ; §4 Level / World System
 ; -----------------------------------------------
 

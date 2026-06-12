@@ -19,7 +19,10 @@ for arg in "$@"; do
 done
 
 # Assembler flags
-ASFLAGS="-cpu 68000 -xx -n -q -c -A -L"
+# -U: case-sensitive symbols — required since §5 RAM fields (Phys_accel)
+# and physics constants (PHYS_ACCEL) differ only by case. Verified to
+# produce byte-identical output on the pre-§5 codebase.
+ASFLAGS="-cpu 68000 -xx -n -q -c -A -L -U"
 ASFLAGS="${ASFLAGS} -OLIST ${ROM_NAME}.lst"
 ASFLAGS="${ASFLAGS} -o ${ROM_NAME}.p"
 ASFLAGS="${ASFLAGS} -shareout ${ROM_NAME}.h"

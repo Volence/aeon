@@ -14,7 +14,7 @@ Read_Controllers:
         move.b  d0, (Ctrl_1_Held).w
         eor.b   d0, d1
         and.b   d0, d1
-        move.b  d1, (Ctrl_1_Press).w
+        or.b    d1, (Ctrl_1_Press).w        ; accumulate edges across lag frames (§5)
 
         lea.l   (HW_PORT_2_DATA).l, a0
         bsr.s   .read_pad
@@ -22,7 +22,7 @@ Read_Controllers:
         move.b  d0, (Ctrl_2_Held).w
         eor.b   d0, d1
         and.b   d0, d1
-        move.b  d1, (Ctrl_2_Press).w
+        or.b    d1, (Ctrl_2_Press).w        ; accumulate edges across lag frames (§5)
         rts
 
 ; -----------------------------------------------
@@ -43,4 +43,18 @@ Read_Controllers:
         lsl.b   #2, d1                      ; shift SA to bits 7-6
         or.b    d1, d0                      ; combine: SACBRLDU
         not.b   d0                          ; invert: 1 = pressed
+        ; L+R / U+D guard — worn pads can report both opposing
+        ; directions at once (classic bug); if both bits set, clear both
+        move.b  d0, d1
+        andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
+        cmpi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
+        bne.s   .lr_ok
+        andi.b  #~(BUTTON_LEFT|BUTTON_RIGHT)&$FF, d0
+.lr_ok:
+        move.b  d0, d1
+        andi.b  #BUTTON_UP|BUTTON_DOWN, d1
+        cmpi.b  #BUTTON_UP|BUTTON_DOWN, d1
+        bne.s   .ud_ok
+        andi.b  #~(BUTTON_UP|BUTTON_DOWN)&$FF, d0
+.ud_ok:
         rts
