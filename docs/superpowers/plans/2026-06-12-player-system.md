@@ -29,8 +29,8 @@
 
 **Files:** none (process)
 
-- [ ] **Step 0.1:** Confirm on branch `player-system` in `/home/volence/sonic_hacks/s4_engine` (`git branch --show-current`). All commits for this plan go here. NEVER `git add` the modified `data/editor/**` files (user's level edits, uncommitted by design) — always add files explicitly, never `git add -A`.
-- [ ] **Step 0.2:** Baseline: run `./test.sh` — record pass count. Run `./build.sh -pe` — must succeed before any change.
+- [x] **Step 0.1:** Confirm on branch `player-system` in `/home/volence/sonic_hacks/s4_engine` (`git branch --show-current`). All commits for this plan go here. NEVER `git add` the modified `data/editor/**` files (user's level edits, uncommitted by design) — always add files explicitly, never `git add -A`.
+- [x] **Step 0.2:** Baseline: run `./test.sh` — record pass count. Run `./build.sh -pe` — must succeed before any change.
 
 ---
 
@@ -42,7 +42,7 @@ Builds the bake logic as an importable module with zero file I/O in the core fun
 - Create: `tools/collision_pipeline.py`
 - Modify: `test.sh` (add self-test section after "6. OJZ Strip Generator Self-Tests")
 
-- [ ] **Step 1.1: Write the module with self-tests inline.** Core API (signatures are the contract):
+- [x] **Step 1.1: Write the module with self-tests inline.** Core API (signatures are the contract):
 
 ```python
 #!/usr/bin/env python3
@@ -168,7 +168,7 @@ Plus loader helpers (file I/O kept separate): `load_collision_sources(sonic_hack
   - `collision/Collision array 1.bin` (4096 B profiles)
   - `collision/Curve and resistance mapping.bin` (256 B angles)
 
-- [ ] **Step 1.2: Self-tests** (`python3 tools/collision_pipeline.py test`), covering at minimum:
+- [x] **Step 1.2: Self-tests** (`python3 tools/collision_pipeline.py test`), covering at minimum:
 
 ```python
 def test_flip_x_reverses():        # synthetic ramp 1..16 reversed
@@ -188,8 +188,8 @@ def test_real_data_measurement():  # load real sonic_hack files; assert
 
 The real-data test needs the chunk walk — import `load_chunk_map`/`load_layout` from `ojz_strip_gen` and iterate every `OJZ_1_sec*.bin` layout (paths/constants already defined at the top of `ojz_strip_gen.py` — reuse `SONIC_HACK`, `CHUNK_MAP_PATH`, `LAYOUT_DIR`).
 
-- [ ] **Step 1.3:** Run `python3 tools/collision_pipeline.py test` — all pass, note printed attr count.
-- [ ] **Step 1.4:** Add to `test.sh` after section 6:
+- [x] **Step 1.3:** Run `python3 tools/collision_pipeline.py test` — all pass, note printed attr count.
+- [x] **Step 1.4:** Add to `test.sh` after section 6:
 
 ```bash
 section "6b. Collision Pipeline Self-Tests"
@@ -200,7 +200,7 @@ else
 fi
 ```
 
-- [ ] **Step 1.5:** Run `./test.sh` — all sections pass. Commit: `feat(§5): collision attr-set pipeline — bake placement into one-byte indices`
+- [x] **Step 1.5:** Run `./test.sh` — all sections pass. Commit: `feat(§5): collision attr-set pipeline — bake placement into one-byte indices`
 
 ---
 
@@ -212,7 +212,7 @@ fi
 - Modify: `main.asm:188-190` region (add SolidityTable BINCLUDE)
 - Modify: `build.sh` if `gen_collision_data.py` isn't already invoked there (check; wire so collision tables regenerate before assembly)
 
-- [ ] **Step 2.1:** In `ojz_strip_gen.py`, build per-section collision grids from **sonic_hack data in BOTH modes** (editor mode included — same pattern as Pass 6b BG, which loads sonic_hack chunks/blocks when `use_editor`). New function:
+- [x] **Step 2.1:** In `ojz_strip_gen.py`, build per-section collision grids from **sonic_hack data in BOTH modes** (editor mode included — same pattern as Pass 6b BG, which loads sonic_hack chunks/blocks when `use_editor`). New function:
 
 ```python
 def build_section_collision(layout, chunks, index_a, index_b, profiles, angles, attrset):
@@ -226,17 +226,17 @@ def build_section_collision(layout, chunks, index_a, index_b, profiles, angles, 
 
 `write_strips_to_file(strips, path, coll_a=None, coll_b=None)` — when grids provided, write real bytes instead of `generate_collision_bytes` output; keep the priority-bit fallback ONLY when sonic_hack collision files are missing (warn loudly). `generate()` threads one shared `AttrSet` across all 12 sections, then calls `collision_pipeline.emit_tables(attrset)` writing `data/collision/*.bin` — this REPLACES the stub generator output, and `gen_collision_data.py` becomes a thin CLI wrapper around the same emit (stub path deleted).
 
-- [ ] **Step 2.2:** Self-test additions to `ojz_strip_gen.py` `run_tests()`: `test_section_collision_sec0()` — bake sec0, assert: plane A ≠ plane B somewhere iff sec0 contains any of the 46 differing blocks (compute from indices, don't hardcode); assert all bytes < attr count; assert both 8px columns of block 0 match.
-- [ ] **Step 2.3:** Run `python3 tools/ojz_strip_gen.py test` then `python3 tools/ojz_strip_gen.py generate` — regenerates strips + `data/collision/*.bin`. Then `./build.sh -pe` — ROM builds.
-- [ ] **Step 2.4:** Add `SolidityTable:` BINCLUDE next to `AngleTable` in `main.asm`:
+- [x] **Step 2.2:** Self-test additions to `ojz_strip_gen.py` `run_tests()`: `test_section_collision_sec0()` — bake sec0, assert: plane A ≠ plane B somewhere iff sec0 contains any of the 46 differing blocks (compute from indices, don't hardcode); assert all bytes < attr count; assert both 8px columns of block 0 match.
+- [x] **Step 2.3:** Run `python3 tools/ojz_strip_gen.py test` then `python3 tools/ojz_strip_gen.py generate` — regenerates strips + `data/collision/*.bin`. Then `./build.sh -pe` — ROM builds.
+- [x] **Step 2.4:** Add `SolidityTable:` BINCLUDE next to `AngleTable` in `main.asm`:
 
 ```asm
 SolidityTable:
     BINCLUDE "data/collision/solidity.bin"
 ```
 
-- [ ] **Step 2.5: Live verify (Exodus MCP).** Load `s4.bin`, enter the OJZ state, toggle OUT of debug-fly (B button) and confirm the test player still lands on ground (it uses `Collision_FloorSensors` → now real heights). Walk onto a slope area — player will sink/float oddly into slopes (no angle handling yet — EXPECTED, note it, don't fix here). Verify no crash + flat ground level identical to before.
-- [ ] **Step 2.6:** Sync `ENGINE_ARCHITECTURE.md` §4.7: 8-px columns (not 16), real data note. Commit: `feat(§5): real OJZ collision data through strips + ROM tables — placeholder retired`
+- [x] **Step 2.5: Live verify (Exodus MCP).** Load `s4.bin`, enter the OJZ state, toggle OUT of debug-fly (B button) and confirm the test player still lands on ground (it uses `Collision_FloorSensors` → now real heights). Walk onto a slope area — player will sink/float oddly into slopes (no angle handling yet — EXPECTED, note it, don't fix here). Verify no crash + flat ground level identical to before.
+- [x] **Step 2.6:** Sync `ENGINE_ARCHITECTURE.md` §4.7: 8-px columns (not 16), real data note. Commit: `feat(§5): real OJZ collision data through strips + ROM tables — placeholder retired`
 
 ---
 
@@ -245,7 +245,7 @@ SolidityTable:
 **Files:**
 - Modify: `engine/controllers.asm`, `engine/game_loop.asm`, `ram.asm`, `constants.asm`
 
-- [ ] **Step 3.1:** VBlank-latched press edges (research feel-modern §5). `Read_Controllers` ORs computed edges into accumulator bytes (`Ctrl_1_Press_Accum`/`Ctrl_2_Press_Accum`, declared next to the Ctrl block in `ram.asm`):
+- [x] **Step 3.1:** VBlank-latched press edges (research feel-modern §5). `Read_Controllers` ORs computed edges into accumulator bytes (`Ctrl_1_Press_Accum`/`Ctrl_2_Press_Accum`, declared next to the Ctrl block in `ram.asm`):
 
 ```asm
         or.b    d1, (Ctrl_1_Press_Accum).w  ; accumulate across lag frames
@@ -267,7 +267,7 @@ Also mask opposing D-pad (bug #10) right after each pad read in `Read_Controller
 .lr_ok: ; same pattern for UP|DOWN
 ```
 
-- [ ] **Step 3.2:** `constants.asm` — player constants block (all values from the spec §6 table; named per sonic_hack convention):
+- [x] **Step 3.2:** `constants.asm` — player constants block (all values from the spec §6 table; named per sonic_hack convention):
 
 ```asm
 ; -----------------------------------------------
@@ -328,7 +328,7 @@ SOLID_LRB               = 2
 SOLID_ALL               = 3
 ```
 
-- [ ] **Step 3.3:** `ram.asm` — player globals in upper RAM (after the Camera block is fine), history rings 256-aligned:
+- [x] **Step 3.3:** `ram.asm` — player globals in upper RAM (after the Camera block is fine), history rings 256-aligned:
 
 ```asm
 ; -----------------------------------------------
@@ -368,7 +368,7 @@ Player_Ring_Index:      ds.w 1      ; byte offset, low-byte wrap
 
 (The rings live at the RAM tail, just before `RAM_End`, so the padding wastes nothing in the middle of the layout. If padding pushes RAM_End past SYSTEM_STACK the build error catches it — current usage has headroom.)
 
-- [ ] **Step 3.4:** `./build.sh -pe` passes. Commit: `feat(§5): input edge accumulation, player RAM, physics constants`
+- [x] **Step 3.4:** `./build.sh -pe` passes. Commit: `feat(§5): input edge accumulation, player RAM, physics constants`
 
 ---
 
@@ -392,7 +392,7 @@ Out: d0.w = signed distance (−16..+31; ≥16 ⇒ nothing found),
 Clobbers: d0-d5, a1 (a0 preserved — player SST stays in a0 at call sites)
 ```
 
-- [ ] **Step 4.1:** Write the probe macro, stamped four ways. Skeleton (Down shown complete; the macro parameterizes axis/table/sign — implement per research sensors §1.4 semantics):
+- [x] **Step 4.1:** Write the probe macro, stamped four ways. Skeleton (Down shown complete; the macro parameterizes axis/table/sign — implement per research sensors §1.4 semantics):
 
 ```asm
 ; probe_core dir, table, subreg_mask_coord, step_sign
@@ -441,7 +441,7 @@ Collision_ProbeLeft:   sensor_core LEFT
 
 Each stamped core ends `rts`; total ≈4×120 bytes — ROM is cheap, cycles aren't.
 
-- [ ] **Step 4.2:** Pair + single wrappers (player-facing API; all take a0 = player SST):
+- [x] **Step 4.2:** Pair + single wrappers (player-facing API; all take a0 = player SST):
 
 ```asm
 ; Player_SensorFloor    — A/B pair at (x ± x_rad, y + y_rad), rotated by
@@ -459,8 +459,8 @@ Each stamped core ends `rts`; total ≈4×120 bytes — ROM is cheap, cycles are
 
 Radii read from `SST_width_pixels/height_pixels` — the state hooks keep those equal to 2r+1 values (Task 5), so half = r.
 
-- [ ] **Step 4.3:** DEBUG-build sensor self-check, run once at level init (`ifdef __DEBUG__`): probe 4-6 known sec0 positions (flat ground top, inside ground, air, one slope) and `trap #0`-style assert via the error handler on mismatch. Expected values: generate by adding a `--probe X Y` debug mode to `collision_pipeline.py` that prints the baked attr/height for a coordinate, run it for the chosen points, hardcode the expectations table in the asm with a comment citing the command. (Keeps asm and generator honest against each other.)
-- [ ] **Step 4.4:** `./build.sh -pe` + boot in Exodus, confirm self-check passes (no assert) and test player still lands. Commit: `feat(§5): directional sensor cores with extension, solidity gates, negative heights`
+- [x] **Step 4.3:** DEBUG-build sensor self-check, run once at level init (`ifdef __DEBUG__`): probe 4-6 known sec0 positions (flat ground top, inside ground, air, one slope) and `trap #0`-style assert via the error handler on mismatch. Expected values: generate by adding a `--probe X Y` debug mode to `collision_pipeline.py` that prints the baked attr/height for a coordinate, run it for the chosen points, hardcode the expectations table in the asm with a comment citing the command. (Keeps asm and generator honest against each other.)
+- [x] **Step 4.4:** `./build.sh -pe` + boot in Exodus, confirm self-check passes (no assert) and test player still lands. Commit: `feat(§5): directional sensor cores with extension, solidity gates, negative heights`
 
 ---
 
