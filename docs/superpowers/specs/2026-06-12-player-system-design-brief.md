@@ -40,20 +40,21 @@
    (preserve legit downhill over-top), tunneling guards ($1000 caps),
    roll-jump 5px size bug, wall zips. Keep: angle-range asymmetries (feel).
 
-## Decisions that are YOURS (each is reversible, but sets the feel)
+## Decisions — RESOLVED by the user 2026-06-12
 
-A. **Coyote time** (a few frames of jump grace after leaving a ledge): modern
-   QoL, not in any classic; S3AIR ships similar as opt-in. Adopt / reject /
-   build-flag?
-B. **Jump input buffer** (2-frame): research recommends adopt (imperceptible,
-   pure responsiveness); confirm.
-C. **Roll-jump control**: classic S2/S3K locks air control after a roll-jump;
-   CD/Mania unlock it. Research recommends CD/Mania behavior (and the §5
-   architecture doc already says "no special-case lockout"). Confirm.
-D. **Extended/lead camera** (CD-style look-ahead at speed): ties into our
-   camera system, not just the player. Adopt now / defer to a camera pass?
-E. **Character roster order**: implement Sonic first (plan assumption), with
-   Tails/Knuckles as follow-up plans?
+A. **Coyote time: REJECTED** — classic ledge behavior, no grace frames.
+B. **Jump input buffer: ADOPTED** — 2-frame buffer (responsiveness only, no
+   feel divergence).
+C. **Roll-jump control: CLASSIC LOCKOUT KEPT** — S2/S3K behavior; roll-jumps
+   commit you to your trajectory. NOTE: this overrides the §5 architecture
+   doc's earlier "no special-case lockout" lean — doc updated to match.
+D. **Extended camera: REJECTED** — classic S2/S3K camera only.
+E. **Roster: SONIC FIRST** — Tails (AI + flight) and Knuckles (glide/climb)
+   as separate follow-up plans.
+
+Net direction: **classic-faithful feel** with exactly one modern concession
+(the jump buffer). The §5 brainstorm/spec should treat S2+verified-S3K
+refinements as the contract, not a starting point for modernization.
 
 ## Proposed plan shape (5-7 tasks, pending the brainstorm)
 

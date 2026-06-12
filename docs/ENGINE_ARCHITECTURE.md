@@ -2482,7 +2482,7 @@ Section transitions smoothly interpolate modifiers via Lerp so physics don't sna
 
 **Air drag — apex-only:** Air drag (`x_vel -= x_vel / 32`) applies only during the apex window (`y_vel` between `-$400` and `0`), not during descent. Preserves horizontal momentum through fall arcs. (Research correction 2026-06-12: this band exists in S1/S2 as well — it is THE classic behavior, not an S3K fix. See `docs/research/player-physics-classics.md`.)
 
-**Roll-jump air control:** Air acceleration is allowed when jumping from a rolling state. Roll-jumps are fully responsive — no special-case lockout.
+**Roll-jump air control:** classic S2/S3K lockout KEPT (user decision 2026-06-12, overriding this doc's earlier lean) — jumping from a roll commits you to your trajectory. The full §5 feel contract: classic-faithful with exactly one modern concession, a 2-frame jump input buffer; coyote time and extended camera rejected. See `docs/superpowers/specs/2026-06-12-player-system-design-brief.md`.
 
 **Per-character acceleration tuning:** Flat acceleration model — same increment every frame regardless of current speed. Core to Sonic's tight, predictable feel. Per-character values via configurable physics tables: Sonic accelerates fastest, Knuckles has most friction. Terrain friction applied from per-section physics data (5.2).
 
@@ -2538,7 +2538,7 @@ Character Architecture (5.4)
 
 Physics Polish (5.3)
   → Air drag fix (apex-only) preserves jump momentum
-    → Roll-jump air control fix makes roll-jumps responsive
+    → Roll-jump lockout kept classic (user decision — see §5.3)
       → Vector projection on landing preserves slope momentum
         → Angle continuity prevents loop fallthrough
           → Landing camera lock eliminates jump bounce
