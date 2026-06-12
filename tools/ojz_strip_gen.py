@@ -35,6 +35,7 @@ data/collision/. The old priority-bit placeholder survives only as a fallback
 when the sonic_hack collision sources are missing.
 """
 
+import glob
 import struct
 import sys
 import os
@@ -46,13 +47,31 @@ import shutil
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tile_dedupe
 
+# Shared paths + loaders live in ojz_common (re-exported here so existing
+# importers like test_bg_emit keep working). collision_pipeline also imports
+# ojz_common directly, which is what breaks the old import cycle and lets us
+# import it at module level below.
+from ojz_common import (
+    SONIC_HACK,
+    LAYOUT_DIR,
+    CHUNK_MAP_PATH,
+    BLOCK_MAP_PATH,
+    TILES_PER_BLOCK_ROW,
+    TILES_PER_BLOCK_COL,
+    BLOCKS_PER_CHUNK_ROW,
+    BLOCKS_PER_CHUNK_COL,
+    WORDS_PER_BLOCK,
+    kos_decompress,
+    load_block_map,
+    load_chunk_map,
+    load_layout,
+    load_bg_layout,
+)
+import collision_pipeline
+
 # ---------------------------------------------------------------------------
-# Paths
+# Paths (editor / strip-gen specific — shared ones come from ojz_common)
 # ---------------------------------------------------------------------------
-SONIC_HACK = "/home/volence/sonic_hacks/sonic_hack"
-LAYOUT_DIR = os.path.join(SONIC_HACK, "level/layout")
-CHUNK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/128x128/OJZ.bin")
-BLOCK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/16x16/OJZ.bin")
 OJZ_ART_PATH = os.path.join(SONIC_HACK, "art/kosinski/OJZ.bin")
 
 OUTPUT_DIR = os.path.join(
@@ -95,269 +114,75 @@ CHUNKS_TILES_PATH = _project_tileset_path()
 STRIP_TILE_HEIGHT = 256  # nametable rows per strip (full section height)
 
 REGION1_TILE_CAPACITY = 1536          # primary art pool $0000-$BFFF
-TILES_PER_BLOCK_ROW = 2  # each block is 2 tiles wide × 2 tiles tall
-TILES_PER_BLOCK_COL = 2
-BLOCKS_PER_CHUNK_ROW = 8  # each chunk is 8×8 blocks
-BLOCKS_PER_CHUNK_COL = 8
+# (block/chunk geometry constants imported from ojz_common above)
 TILES_PER_CHUNK_ROW = TILES_PER_BLOCK_ROW * BLOCKS_PER_CHUNK_ROW   # 16
 TILES_PER_CHUNK_COL = TILES_PER_BLOCK_COL * BLOCKS_PER_CHUNK_COL   # 16
 BYTES_PER_CHUNK = BLOCKS_PER_CHUNK_ROW * BLOCKS_PER_CHUNK_COL * 2  # 128
-WORDS_PER_BLOCK = TILES_PER_BLOCK_ROW * TILES_PER_BLOCK_COL        # 4
 
 # Genesis nametable word bit masks
 TILE_INDEX_MASK = 0x07FF   # bits 10-0: tile index (0-2047)
 PALETTE_SHIFT = 13
 PRIORITY_BIT = 0x8000
 
-# ---------------------------------------------------------------------------
-# Kosinski decompressor — direct port of sonic_hack's KosDec
-# (code/engines/kosinski.asm). The earlier homegrown decoder had subtle
-# bit-order / displacement bugs that produced ~5x too much output and
-# ~50% spurious-empty blocks on real OJZ data. The fix is to mirror the
-# asm exactly: LUT bit-reversal of each descriptor byte + add.b reads.
-# ---------------------------------------------------------------------------
-
-# Bit-reversal LUT (KosDec_ByteMap) from kosinski.asm
-_BYTE_MAP = bytes([
-    0x00,0x80,0x40,0xC0,0x20,0xA0,0x60,0xE0,0x10,0x90,0x50,0xD0,0x30,0xB0,0x70,0xF0,
-    0x08,0x88,0x48,0xC8,0x28,0xA8,0x68,0xE8,0x18,0x98,0x58,0xD8,0x38,0xB8,0x78,0xF8,
-    0x04,0x84,0x44,0xC4,0x24,0xA4,0x64,0xE4,0x14,0x94,0x54,0xD4,0x34,0xB4,0x74,0xF4,
-    0x0C,0x8C,0x4C,0xCC,0x2C,0xAC,0x6C,0xEC,0x1C,0x9C,0x5C,0xDC,0x3C,0xBC,0x7C,0xFC,
-    0x02,0x82,0x42,0xC2,0x22,0xA2,0x62,0xE2,0x12,0x92,0x52,0xD2,0x32,0xB2,0x72,0xF2,
-    0x0A,0x8A,0x4A,0xCA,0x2A,0xAA,0x6A,0xEA,0x1A,0x9A,0x5A,0xDA,0x3A,0xBA,0x7A,0xFA,
-    0x06,0x86,0x46,0xC6,0x26,0xA6,0x66,0xE6,0x16,0x96,0x56,0xD6,0x36,0xB6,0x76,0xF6,
-    0x0E,0x8E,0x4E,0xCE,0x2E,0xAE,0x6E,0xEE,0x1E,0x9E,0x5E,0xDE,0x3E,0xBE,0x7E,0xFE,
-    0x01,0x81,0x41,0xC1,0x21,0xA1,0x61,0xE1,0x11,0x91,0x51,0xD1,0x31,0xB1,0x71,0xF1,
-    0x09,0x89,0x49,0xC9,0x29,0xA9,0x69,0xE9,0x19,0x99,0x59,0xD9,0x39,0xB9,0x79,0xF9,
-    0x05,0x85,0x45,0xC5,0x25,0xA5,0x65,0xE5,0x15,0x95,0x55,0xD5,0x35,0xB5,0x75,0xF5,
-    0x0D,0x8D,0x4D,0xCD,0x2D,0xAD,0x6D,0xED,0x1D,0x9D,0x5D,0xDD,0x3D,0xBD,0x7D,0xFD,
-    0x03,0x83,0x43,0xC3,0x23,0xA3,0x63,0xE3,0x13,0x93,0x53,0xD3,0x33,0xB3,0x73,0xF3,
-    0x0B,0x8B,0x4B,0xCB,0x2B,0xAB,0x6B,0xEB,0x1B,0x9B,0x5B,0xDB,0x3B,0xBB,0x7B,0xFB,
-    0x07,0x87,0x47,0xC7,0x27,0xA7,0x67,0xE7,0x17,0x97,0x57,0xD7,0x37,0xB7,0x77,0xF7,
-    0x0F,0x8F,0x4F,0xCF,0x2F,0xAF,0x6F,0xEF,0x1F,0x9F,0x5F,0xDF,0x3F,0xBF,0x7F,0xFF,
-])
-
-
-def kos_decompress(src: bytes, start: int = 0) -> tuple[bytes, int]:
-    """Decompress one Kosinski stream from src[start:]. Returns (data, end_pos).
-
-    Direct port of sonic_hack/code/engines/kosinski.asm KosDec.
-    Models d0/d1/d2/d3 register state from the asm.
-    """
-    pos = start
-    out = bytearray()
-
-    # Initial descriptor pair read (bit-reversed via LUT)
-    d0 = _BYTE_MAP[src[pos]]; pos += 1
-    d1 = _BYTE_MAP[src[pos]]; pos += 1
-    d2 = 7      # bits remaining in current d0
-    d3 = 0      # toggle: 0 = on lo, switch to hi next; -1 = on hi, refill next
-
-    def run_bitstream():
-        """`_Kos_RunBitStream` — refill d0 if exhausted."""
-        nonlocal d0, d1, d2, d3, pos
-        if d2 > 0:
-            d2 -= 1
-            return
-        d2 = 7
-        d0 = d1
-        d3 = (~d3) & 0xFFFF  # not.w
-        if d3 != 0:
-            return  # used hi byte; will refill next
-        # Refill both bytes
-        d0 = _BYTE_MAP[src[pos]] if pos < len(src) else 0
-        pos += 1
-        d1 = _BYTE_MAP[src[pos]] if pos < len(src) else 0
-        pos += 1
-
-    def read_bit() -> int:
-        """`_Kos_ReadBit` — `add.b d0, d0` returns the (post-LUT) MSB."""
-        nonlocal d0
-        carry = (d0 >> 7) & 1
-        d0 = (d0 << 1) & 0xFF
-        return carry
-
-    while True:
-        bit = read_bit()
-        if bit:
-            # Code 1: uncompressed byte
-            run_bitstream()
-            out.append(src[pos]); pos += 1
-            continue
-
-        # Code 0: dictionary ref
-        run_bitstream()
-        bit = read_bit()
-        if bit:
-            # Code 01: long dict ref
-            run_bitstream()
-            d6 = src[pos]; pos += 1   # LLLLLLLL
-            d4 = src[pos]; pos += 1   # HHHHHCCC
-
-            # d5 = displacement word: build from d4<<5 | d6 with sign extension
-            d5w = ((0xFF00 | d4) << 5) & 0xFFFF
-            d5w = (d5w & 0xFF00) | d6
-            d5_signed = d5w - 0x10000 if (d5w & 0x8000) else d5w
-
-            count_bits = d4 & 7
-            if count_bits != 0:
-                n_bytes = count_bits + 2
-            else:
-                if pos >= len(src):
-                    break
-                ext = src[pos]; pos += 1
-                if ext == 0:
-                    break        # end of stream
-                if ext == 1:
-                    continue     # skip, fetch new code
-                n_bytes = ext + 1
-
-            # Copy n_bytes from (output_end + d5_signed) to output_end
-            base = len(out)
-            for i in range(n_bytes):
-                src_idx = base + d5_signed + i
-                out.append(out[src_idx] if 0 <= src_idx < len(out) else 0)
-        else:
-            # Code 00: short dict ref (2..5 bytes)
-            run_bitstream()
-            bit_a = read_bit()
-            run_bitstream()
-            bit_b = read_bit()
-            count = (bit_a << 1) | bit_b
-            n_bytes = count + 2
-
-            run_bitstream()
-            d5_byte = src[pos]; pos += 1
-            d5_signed = d5_byte - 0x100  # always negative (one-byte back-ref)
-
-            base = len(out)
-            for i in range(n_bytes):
-                src_idx = base + d5_signed + i
-                out.append(out[src_idx] if 0 <= src_idx < len(out) else 0)
-
-    return bytes(out), pos
-
-
-# ---------------------------------------------------------------------------
-# Data loaders
-# ---------------------------------------------------------------------------
-
-def load_block_map(path: str) -> list[list[int]]:
-    """Load the 16x16 block map (Kosinski compressed).
-
-    Returns a list of blocks, where each block is 4 nametable words
-    [top-left, top-right, bottom-left, bottom-right].
-    """
-    data = open(path, "rb").read()
-    decoded, _ = kos_decompress(data, 0)
-    # Floor-divide: any trailing partial block (padding bytes) is ignored
-    num_blocks = len(decoded) // (WORDS_PER_BLOCK * 2)
-    blocks = []
-    for i in range(num_blocks):
-        base = i * WORDS_PER_BLOCK * 2
-        words = [
-            struct.unpack_from(">H", decoded, base + j * 2)[0]
-            for j in range(WORDS_PER_BLOCK)
-        ]
-        blocks.append(words)
-    return blocks
-
-
-def load_chunk_map(path: str) -> list[list[int]]:
-    """Load the 128x128 chunk map (Kosinski compressed, two concatenated streams).
-
-    Returns a list of chunks, each chunk being 64 big-endian words
-    (8×8 grid of block entries).
-
-    Each chunk entry word:
-      bits[15:10] = per-chunk flags (xflip/yflip/priority overrides).
-                    NOTE: currently not applied — Phase 1 uses tile-level flags only.
-      bits[9:0]   = block_id (confirmed by sonic_hack scroll_camera.asm andi.w #$3FF)
-    """
-    data = open(path, "rb").read()
-    all_words = []
-    pos = 0
-    while pos < len(data):
-        try:
-            decoded, pos = kos_decompress(data, pos)
-        except (IndexError, KeyError):
-            break
-        if not decoded:
-            break
-        # Each entry is a 2-byte big-endian word
-        n = len(decoded) // 2
-        for i in range(n):
-            all_words.append(struct.unpack_from(">H", decoded, i * 2)[0])
-    # Split into 64-word chunks (8×8 = 64 block entries per chunk)
-    chunk_size = BLOCKS_PER_CHUNK_ROW * BLOCKS_PER_CHUNK_COL  # 64
-    chunks = []
-    for i in range(len(all_words) // chunk_size):
-        base = i * chunk_size
-        chunks.append(all_words[base:base + chunk_size])
-    return chunks
-
-
-def load_layout(path: str) -> list[list[int]]:
-    """Load an OJZ section layout file (Sonic 2 binary layout format).
-
-    Returns fg_rows rows of chunk IDs (list of lists).
-
-    Format:
-        0x0000 magic (0x00FE as big-endian word)
-        0x0002 width  (in chunks)
-        0x0004 fg_rows
-        0x0006 bg_rows
-        0x0008 pointer table (fg_rows × 4 bytes, row offsets — skip)
-        0x0008 + fg_rows*4: FG data (fg_rows × width bytes of chunk IDs)
-        ... BG data follows
-    """
-    data = open(path, "rb").read()
-    if len(data) < 8:
-        return []
-    magic, width, fg_rows, bg_rows = struct.unpack_from(">4H", data, 0)
-    if magic != 0xFE:
-        raise ValueError(f"Bad layout magic: 0x{magic:04X} in {path}")
-    fg_start = 8 + fg_rows * 4  # skip 8-byte header + pointer table
-    rows = []
-    for r in range(fg_rows):
-        row_start = fg_start + r * width
-        rows.append(list(data[row_start:row_start + width]))
-    return rows
-
-
-def load_bg_layout(path: str) -> list[list[int]]:
-    """Load the BG section of an OJZ layout file (§2 A.5 T1 source).
-
-    Returns bg_rows × width chunk IDs.
-
-    Same file as load_layout(), but reads the BG portion that follows the FG
-    data. Sonic 2 layout files store FG and BG separately:
-        ... FG data (fg_rows × width bytes) ...
-        ... BG data (bg_rows × width bytes) — no separate pointer table ...
-    """
-    data = open(path, "rb").read()
-    if len(data) < 8:
-        return []
-    magic, width, fg_rows, bg_rows = struct.unpack_from(">4H", data, 0)
-    if magic != 0xFE:
-        raise ValueError(f"Bad layout magic: 0x{magic:04X} in {path}")
-    bg_start = 8 + fg_rows * 4 + fg_rows * width
-    rows = []
-    for r in range(bg_rows):
-        row_start = bg_start + r * width
-        rows.append(list(data[row_start:row_start + width]))
-    return rows
-
-
 def extract_sec_id(path: str) -> int:
     """Sort key for OJZ_1_sec*.bin layout filenames (sec digits parse as hex)."""
     m = re.search(r'sec([0-9A-Fa-f]+)', os.path.basename(path))
     if m:
-        try:
-            return int(m.group(1), 16)
-        except ValueError:
-            return int(m.group(1))
+        return int(m.group(1), 16)
     return -1
+
+
+def enumerate_collision_layouts() -> list[tuple[str, str]]:
+    """The ONE enumeration of (sec_id, layout_path) pairs the collision walk
+    bakes — used by BOTH generate() Pass 1b and gen_collision_data.real_tables
+    so a standalone gen_collision_data.py run can never produce differently-
+    ordered attr-set indices than the strips carry.
+
+    Editor mode (editor_data_available()): editor section indices
+    0..gridWidth*gridHeight-1 from project.json, skipping sections without a
+    section_{N}.tiles.bin (generate() skips those entirely) and sections
+    without a sonic_hack layout file (they bake to air anyway).
+
+    Mapping (verified 2026-06-12): editor section index N ↔
+    LAYOUT_DIR/OJZ_1_sec{N}.bin with N in DECIMAL. The editor grid is
+    gridWidth×gridHeight from project.json (currently 3×3 = 9 sections,
+    indices 0-8); its 256×256-tile section nametables match the
+    16-chunk-wide × 16-row layout files OJZ_1_sec0..11 (header: width=16,
+    fg_rows=16). The OJZ_1_secA..secD files are LEGACY 32-chunk-wide ×
+    18-row layouts from an earlier section scheme and never correspond to
+    editor sections. For indices 0-9 the hex-vs-decimal filename question
+    is moot (identical); the editor grid would need to exceed 10 sections
+    AND use decimal sec10/sec11 names before it matters — those two files
+    are also 16×16 and decimal-named, so decimal is correct there too.
+
+    Fallback mode (no editor data): the same decimal-named OJZ_1_sec{N}.bin
+    files, sorted by section number. Legacy hex-named secA-D are excluded
+    in BOTH modes.
+    """
+    pairs: list[tuple[str, str]] = []
+    if editor_data_available():
+        with open(PROJECT_JSON, "r") as pf:
+            proj = json.load(pf)
+        ojz_act1 = proj["zones"][0]["acts"][0]
+        num_sections = ojz_act1["gridWidth"] * ojz_act1["gridHeight"]
+        data_path = os.path.join(
+            os.path.dirname(PROJECT_JSON), ojz_act1["dataPath"]
+        )
+        for sec_idx in range(num_sections):
+            tiles_path = os.path.join(data_path, f"section_{sec_idx}.tiles.bin")
+            if not os.path.isfile(tiles_path):
+                continue   # generate() skips sections without editor tiles
+            layout_path = os.path.join(LAYOUT_DIR, f"OJZ_1_sec{sec_idx}.bin")
+            if os.path.isfile(layout_path):
+                pairs.append((str(sec_idx), layout_path))
+    else:
+        pattern = os.path.join(LAYOUT_DIR, "OJZ_1_sec*.bin")
+        for path in sorted(glob.glob(pattern), key=extract_sec_id):
+            m = re.search(r'sec([0-9A-Fa-f]+)\.bin$', os.path.basename(path))
+            if not m or not m.group(1).isdigit():
+                continue   # legacy hex-named secA-D
+            pairs.append((m.group(1), path))
+    return pairs
 
 
 # ---------------------------------------------------------------------------
@@ -629,10 +454,19 @@ def write_strips_to_file(
     kept ONLY for the no-sonic_hack-collision-sources case.
     """
     if coll_a is not None:
-        assert coll_b is not None and len(coll_a) == len(coll_b) == len(strips), (
-            f"collision grid columns ({len(coll_a)}/{len(coll_b) if coll_b else 0}) "
-            f"must match strip count ({len(strips)}) for {path}"
-        )
+        if coll_b is None or len(coll_a) != len(strips) or len(coll_b) != len(strips):
+            raise ValueError(
+                f"collision grid columns ({len(coll_a)}/"
+                f"{len(coll_b) if coll_b is not None else 'None'}) "
+                f"must match strip count ({len(strips)}) for {path}"
+            )
+        for i in range(len(strips)):
+            if (len(coll_a[i]) != COLLISION_ROWS_PER_STRIP
+                    or len(coll_b[i]) != COLLISION_ROWS_PER_STRIP):
+                raise ValueError(
+                    f"collision column {i} has {len(coll_a[i])}/{len(coll_b[i])} "
+                    f"bytes; expected {COLLISION_ROWS_PER_STRIP} for {path}"
+                )
     with open(path, "wb") as f:
         for i, strip in enumerate(strips):
             for word in strip:
@@ -950,7 +784,6 @@ def test_binary_round_trip():
 
 def test_section_collision_sec0():
     """Bake sec0 (fallback-mode data) and validate the real collision grids."""
-    import collision_pipeline
     index_a, index_b, profiles, angles = \
         collision_pipeline.load_collision_sources(SONIC_HACK)
     layout = load_layout(os.path.join(LAYOUT_DIR, "OJZ_1_sec0.bin"))
@@ -1012,6 +845,49 @@ def test_section_collision_sec0():
           f"(matches source)")
 
 
+def test_collision_emit_identity():
+    """gen_collision_data.real_tables() == a generate()-equivalent walk.
+
+    Pins the §5 invariant: BOTH emit paths enumerate sections via
+    enumerate_collision_layouts(), so a standalone gen_collision_data.py run
+    can never rewrite data/collision/ with differently-ordered attr-set
+    indices than the strips carry.
+    """
+    import gen_collision_data
+
+    pairs = enumerate_collision_layouts()
+    assert pairs, "enumerate_collision_layouts returned no sections"
+    for sec_id, layout_path in pairs:
+        assert sec_id.isdigit(), f"legacy hex section leaked in: {sec_id}"
+        assert os.path.basename(layout_path) == f"OJZ_1_sec{sec_id}.bin", \
+            f"sec_id/path mismatch: {sec_id} vs {layout_path}"
+
+    tables, n_entries = gen_collision_data.real_tables()
+
+    # Generate-equivalent walk: same enumeration, same shared attr-set.
+    index_a, index_b, profiles, angles = \
+        collision_pipeline.load_collision_sources(SONIC_HACK)
+    chunks = load_chunk_map(CHUNK_MAP_PATH)
+    attrset = collision_pipeline.AttrSet()
+    for _sec_id, layout_path in pairs:
+        layout = load_layout(layout_path)
+        if not layout:
+            continue
+        build_section_collision(
+            layout, chunks, index_a, index_b, profiles, angles, attrset
+        )
+    expected = collision_pipeline.emit_tables(attrset)
+
+    assert n_entries == len(attrset.entries), (
+        f"attr-set size diverged: real_tables {n_entries} vs "
+        f"generate-equivalent walk {len(attrset.entries)}"
+    )
+    assert tables == expected, \
+        "real_tables() tables diverge from the generate-equivalent walk"
+    print(f"  [OK] test_collision_emit_identity: {len(pairs)} sections, "
+          f"{n_entries} attr-set entries, all four tables identical")
+
+
 def test_full_pipeline_runs():
     """Smoke test the whole generate() pipeline produces a deduped pool."""
     import tempfile
@@ -1057,6 +933,7 @@ def run_tests():
     test_explicit_truncation()
     test_binary_round_trip()
     test_section_collision_sec0()
+    test_collision_emit_identity()
     test_full_pipeline_runs()
     print("All tests passed")
 
@@ -1102,18 +979,18 @@ def _try_load_collision_sources():
 
     Returns (index_a, index_b, profiles, angles) on success. On failure the
     strip generator falls back to the priority-bit placeholder
-    (generate_collision_bytes) and leaves data/collision/ untouched — the
-    gen_collision_data.py stub tables (type 1 = flat full block) match the
-    placeholder's 0/1 bytes.
+    (generate_collision_bytes) and rewrites data/collision/ with the
+    matching STUB tables (collision_pipeline.emit_stub_tables, type 1 =
+    flat full block) so placeholder strip bytes (0/1) are never paired
+    with stale real attr-set tables.
     """
-    import collision_pipeline
     try:
         return collision_pipeline.load_collision_sources(SONIC_HACK)
     except (OSError, ValueError) as exc:
         print("!" * 72)
         print(f"WARNING: sonic_hack collision sources unavailable: {exc}")
         print("WARNING: strips get PRIORITY-BIT PLACEHOLDER collision (0/1),")
-        print("WARNING: and data/collision/ ROM tables are NOT regenerated.")
+        print("WARNING: and data/collision/ ROM tables are rewritten as STUBS.")
         print("!" * 72)
         return None
 
@@ -1150,8 +1027,6 @@ def build_section_collision(
     object of COLLISION_ROWS_PER_STRIP path-A bytes (collision rows top to
     bottom), written verbatim after the column's nametable words.
     """
-    import collision_pipeline
-
     n_cols = (len(layout[0]) if layout else 0) * TILES_PER_CHUNK_ROW
     cache: dict[int, tuple[int, int]] = {}   # chunk-entry word → (a, b)
     coll_a: list[bytes] = []
@@ -1211,7 +1086,6 @@ def generate():
         print(f"  Tile art: {CHUNKS_TILES_PATH} ({len(full_blob)} bytes, {len(full_blob)//32} tiles)")
 
         per_section_strips: dict[str, list[list[int]]] = {}
-        per_section_layouts: dict[str, list[list[int]]] = {}
         for sec_idx in range(editor_num_sections):
             sec_path = os.path.join(editor_data_path, f"section_{sec_idx}.tiles.bin")
             if not os.path.isfile(sec_path):
@@ -1222,33 +1096,6 @@ def generate():
             per_section_strips[str(sec_idx)] = strips
             n_cols = len(strips)
             print(f"  section_{sec_idx}: {len(nametable)} rows × {n_cols} cols → {n_cols} strips")
-
-            # Collision ALWAYS derives from sonic_hack layout data, even in
-            # editor mode (precedent: Pass 6b "BG layout always uses
-            # sonic_hack data"). NOTE: editor FG tile edits therefore do NOT
-            # update collision — editor collision authoring is future work
-            # (deferred per design spec §1).
-            #
-            # Mapping (verified 2026-06-12): editor section index N ↔
-            # LAYOUT_DIR/OJZ_1_sec{N}.bin with N in DECIMAL. The editor grid
-            # is gridWidth×gridHeight from project.json (currently 3×3 = 9
-            # sections, indices 0-8); its 256×256-tile section nametables
-            # match the 16-chunk-wide × 16-row layout files OJZ_1_sec0..11
-            # (header: width=16, fg_rows=16). The OJZ_1_secA..secD files are
-            # LEGACY 32-chunk-wide × 18-row layouts from an earlier section
-            # scheme and never correspond to editor sections. For indices
-            # 0-9 the hex-vs-decimal filename question is moot (identical);
-            # the editor grid would need to exceed 10 sections AND use
-            # decimal sec10/sec11 names before it matters — those two files
-            # are also 16×16 and decimal-named, so decimal is correct there
-            # too.
-            layout_path = os.path.join(LAYOUT_DIR, f"OJZ_1_sec{sec_idx}.bin")
-            if os.path.isfile(layout_path):
-                per_section_layouts[str(sec_idx)] = load_layout(layout_path)
-            else:
-                print(f"  WARNING: no sonic_hack layout {layout_path} — "
-                      f"section_{sec_idx} collision will be empty (air)")
-                per_section_layouts[str(sec_idx)] = []
     else:
         print("=== Using sonic_hack reference data (no editor data found) ===")
         print(f"Loading block map: {BLOCK_MAP_PATH}")
@@ -1259,20 +1106,16 @@ def generate():
         chunks = load_chunk_map(CHUNK_MAP_PATH)
         print(f"  {len(chunks)} chunks loaded")
 
-        import glob
-        pattern = os.path.join(LAYOUT_DIR, "OJZ_1_sec*.bin")
-        section_files = sorted(glob.glob(pattern), key=extract_sec_id)
-
-        if not section_files:
-            print(f"ERROR: No layout files found matching {pattern}")
+        # Same enumeration as the collision walk — decimal-named sections
+        # only (legacy hex secA-D layouts are never generated).
+        section_pairs = enumerate_collision_layouts()
+        if not section_pairs:
+            print(f"ERROR: No OJZ_1_sec*.bin layout files found in {LAYOUT_DIR}")
             sys.exit(1)
 
         per_section_strips = {}
-        per_section_layouts = {}
-        for sec_path in section_files:
+        for sec_id, sec_path in section_pairs:
             sec_name = os.path.basename(sec_path).replace(".bin", "")
-            sec_id = sec_name.split("sec")[1]
-
             layout = load_layout(sec_path)
             if not layout:
                 print(f"  WARNING: {sec_name} produced empty layout, skipping")
@@ -1280,7 +1123,6 @@ def generate():
 
             strips = generate_section_strips(layout, chunks, blocks)
             per_section_strips[sec_id] = strips
-            per_section_layouts[sec_id] = layout
             print(
                 f"  {sec_name}: {len(layout)} rows × {len(layout[0])} chunks "
                 f"→ {len(strips)} strips"
@@ -1289,25 +1131,36 @@ def generate():
         full_blob = decompress_full_ojz_art(OJZ_ART_PATH)
 
     # ---- Pass 1b (§5 Task 2): bake real collision grids from sonic_hack ----
+    # Collision ALWAYS derives from sonic_hack layout data, even in editor
+    # mode (precedent: Pass 6b "BG layout always uses sonic_hack data").
+    # NOTE: editor FG tile edits therefore do NOT update collision — editor
+    # collision authoring is future work (deferred per design spec §1).
+    #
     # ONE shared AttrSet across all sections — the strips' collision bytes
     # are indices into the attr-set tables emitted below, so every section
-    # must intern into the same set.
-    import collision_pipeline
+    # must intern into the same set. The section list comes from
+    # enumerate_collision_layouts(), the SAME enumeration
+    # gen_collision_data.real_tables() walks, so a standalone
+    # gen_collision_data.py run always reproduces these tables.
     per_section_coll: dict[str, tuple[list[bytes], list[bytes]]] = {}
-    attrset = None
+    coll_dir = os.path.normpath(COLLISION_DIR)
     coll_sources = _try_load_collision_sources()
     if coll_sources is not None:
         index_a, index_b, profiles, angles = coll_sources
         attrset = collision_pipeline.AttrSet()
         coll_chunks = load_chunk_map(CHUNK_MAP_PATH) if use_editor else chunks
+        layout_by_sec = dict(enumerate_collision_layouts())
         for sec_id, strips in per_section_strips.items():
-            layout = per_section_layouts.get(sec_id) or []
+            layout_path = layout_by_sec.get(sec_id)
+            layout = load_layout(layout_path) if layout_path else []
             if layout:
                 grids = build_section_collision(
                     layout, coll_chunks, index_a, index_b, profiles, angles,
                     attrset,
                 )
             else:
+                print(f"  WARNING: no sonic_hack layout for section {sec_id} "
+                      f"— collision will be empty (air)")
                 air_col = bytes(COLLISION_ROWS_PER_STRIP)
                 grids = ([air_col] * len(strips), [air_col] * len(strips))
             per_section_coll[sec_id] = grids
@@ -1317,13 +1170,23 @@ def generate():
         # Emit the §4.7 ROM tables from the same attr-set the strips index
         # into — replaces the gen_collision_data.py output written earlier
         # in the build (kept as a baseline for the no-sources fallback).
-        coll_dir = os.path.normpath(COLLISION_DIR)
         os.makedirs(coll_dir, exist_ok=True)
         tables = collision_pipeline.emit_tables(attrset)
         for name in sorted(tables):
             with open(os.path.join(coll_dir, name), "wb") as f:
                 f.write(tables[name])
         print(f"Emitted collision tables ({', '.join(sorted(tables))}) -> {coll_dir}")
+    else:
+        # No sources → strips below get priority-bit placeholder bytes (0/1).
+        # Rewrite data/collision/ with the matching stub tables so the
+        # placeholder is never paired with stale real attr-set tables.
+        os.makedirs(coll_dir, exist_ok=True)
+        tables = collision_pipeline.emit_stub_tables()
+        for name in sorted(tables):
+            with open(os.path.join(coll_dir, name), "wb") as f:
+                f.write(tables[name])
+        print(f"Emitted STUB collision tables ({', '.join(sorted(tables))}) "
+              f"-> {coll_dir}")
 
     # ---- Pass 2: dedupe across all sections ----
     sorted_indices, raw_tiles = collect_referenced_tiles(per_section_strips, full_blob)

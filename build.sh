@@ -41,7 +41,7 @@ if [[ ! -x "${TOOLS}/bin/salvador" ]]; then
     cp "${TOOLS}/salvador/salvador" "${TOOLS}/bin/salvador"
 fi
 
-echo "Generating collision data (height maps, angles)..."
+echo "Generating baseline collision tables (heightmaps, heightmaps_rot, angles, solidity — strip-gen re-emits the authoritative set)..."
 python3 "${TOOLS}/gen_collision_data.py" data/collision
 
 echo "Generating OJZ section data..."

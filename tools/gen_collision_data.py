@@ -4,7 +4,11 @@
 Thin CLI wrapper around the attr-set pipeline: loads the sonic_hack
 collision sources, walks every OJZ section layout × chunk through
 ojz_strip_gen.build_section_collision (the ONE walk implementation, shared
-with the strip generator), and writes the four ROM tables.
+with the strip generator), and writes the four ROM tables. The section list
+comes from ojz_strip_gen.enumerate_collision_layouts() — the SAME
+enumeration generate() Pass 1b bakes — so a standalone run of this script
+always reproduces the tables the strips' collision bytes index into
+(verified by ojz_strip_gen's test_collision_emit_identity).
 
 build.sh runs this BEFORE `ojz_strip_gen.py generate`; the strip generator
 then re-emits the tables from its own walk so they always match the strip
@@ -17,7 +21,6 @@ Usage: python3 tools/gen_collision_data.py [output_dir]
 Default output_dir: data/collision
 """
 
-import glob
 import os
 import sys
 
@@ -27,35 +30,20 @@ import collision_pipeline
 import ojz_strip_gen
 
 
-def stub_tables() -> dict[str, bytes]:
-    """Legacy flat-solid stubs: type 0 = air, type 1 = full block."""
-    heightmaps = bytearray(256 * 16)
-    for i in range(16):
-        heightmaps[1 * 16 + i] = 0x10
-    solidity = bytearray(256)
-    solidity[1] = collision_pipeline.SOL_ALL
-    return {
-        "heightmaps.bin": bytes(heightmaps),
-        # A full 16-high block rotates to itself (all-16 widths)
-        "heightmaps_rot.bin": bytes(heightmaps),
-        "angles.bin": bytes(256),
-        "solidity.bin": bytes(solidity),
-    }
-
-
 def real_tables() -> tuple[dict[str, bytes], int]:
     """Bake every OJZ layout placement into one attr-set; emit the tables."""
     index_a, index_b, profiles, angles = \
         collision_pipeline.load_collision_sources(ojz_strip_gen.SONIC_HACK)
     chunks = ojz_strip_gen.load_chunk_map(ojz_strip_gen.CHUNK_MAP_PATH)
 
-    pattern = os.path.join(ojz_strip_gen.LAYOUT_DIR, "OJZ_1_sec*.bin")
-    layout_files = sorted(glob.glob(pattern), key=ojz_strip_gen.extract_sec_id)
-    if not layout_files:
-        raise FileNotFoundError(f"no OJZ section layouts matching {pattern}")
+    layout_pairs = ojz_strip_gen.enumerate_collision_layouts()
+    if not layout_pairs:
+        raise FileNotFoundError(
+            f"no OJZ section layouts found (LAYOUT_DIR={ojz_strip_gen.LAYOUT_DIR})"
+        )
 
     attrset = collision_pipeline.AttrSet()
-    for path in layout_files:
+    for _sec_id, path in layout_pairs:
         layout = ojz_strip_gen.load_layout(path)
         if not layout:
             continue
@@ -77,7 +65,7 @@ def main():
         print(f"WARNING: sonic_hack collision sources unavailable: {exc}")
         print("WARNING: emitting flat-solid STUB tables (type 1 = full block).")
         print("!" * 72)
-        tables = stub_tables()
+        tables = collision_pipeline.emit_stub_tables()
         desc = "stub fallback"
     for name in sorted(tables):
         with open(os.path.join(out_dir, name), "wb") as f:

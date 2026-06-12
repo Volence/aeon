@@ -25,7 +25,9 @@ import sys
 
 # Allow running from the s4_engine root (where build.sh lives).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ojz_strip_gen import (
+# Shared paths + loaders come from ojz_common (NOT ojz_strip_gen — that would
+# recreate the old collision_pipeline <-> ojz_strip_gen import cycle).
+from ojz_common import (
     SONIC_HACK,
     CHUNK_MAP_PATH,
     LAYOUT_DIR,
@@ -215,6 +217,28 @@ def emit_tables(attrset: AttrSet) -> dict[str, bytes]:
         "heightmaps.bin": bytes(heightmaps),
         "heightmaps_rot.bin": bytes(heightmaps_rot),
         "angles.bin": bytes(angles),
+        "solidity.bin": bytes(solidity),
+    }
+
+
+def emit_stub_tables() -> dict[str, bytes]:
+    """Legacy flat-solid stub tables: type 0 = air, type 1 = full block.
+
+    Emitted when the sonic_hack collision sources are missing — pairs with
+    the strip generator's priority-bit placeholder collision bytes (0 = air,
+    1 = solid). Used by both gen_collision_data.py (baseline emit) and
+    ojz_strip_gen.generate() (fallback branch).
+    """
+    heightmaps = bytearray(MAX_PROFILES * PROFILE_LEN)
+    for i in range(PROFILE_LEN):
+        heightmaps[1 * PROFILE_LEN + i] = 0x10
+    solidity = bytearray(MAX_PROFILES)
+    solidity[1] = SOL_ALL
+    return {
+        "heightmaps.bin": bytes(heightmaps),
+        # A full 16-high block rotates to itself (all-16 widths)
+        "heightmaps_rot.bin": bytes(heightmaps),
+        "angles.bin": bytes(MAX_PROFILES),
         "solidity.bin": bytes(solidity),
     }
 
