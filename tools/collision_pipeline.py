@@ -21,12 +21,10 @@ and stay odd through flips (negation preserves oddness).
 
 import glob
 import os
-import struct
 import sys
 
 # Allow running from the s4_engine root (where build.sh lives).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import ojz_strip_gen
 from ojz_strip_gen import (
     SONIC_HACK,
     CHUNK_MAP_PATH,
@@ -113,6 +111,11 @@ def rotate_profile(heights: bytes) -> bytes:
             w = 0
             while w < PROFILE_LEN and solid[w]:
                 w += 1
+            if any(solid[w:]):
+                raise ValueError(
+                    f"rotate_profile: row {row} has multiple solid runs "
+                    f"(heights={list(heights)})"
+                )
             rotated[row] = w
         elif solid[PROFILE_LEN - 1]:
             # Right-anchored: contiguous run length from the right edge,
@@ -140,6 +143,7 @@ class AttrSet:
     def __init__(self):
         self.entries = [(bytes(PROFILE_LEN), 0x00, SOL_NONE)]   # 0 = air
         self.lookup: dict[tuple[bytes, int, int], int] = {}
+        self.lookup[self.entries[0]] = 0
 
     def intern(self, heights: bytes, angle: int, solidity: int) -> int:
         key = (heights, angle, solidity)
@@ -149,7 +153,8 @@ class AttrSet:
         idx = len(self.entries)
         if idx > 255:
             raise ValueError(
-                f"AttrSet overflow: more than 255 unique solid combos"
+                f"AttrSet overflow: more than 255 unique solid combos "
+                f"(interning entry {idx})"
             )
         self.entries.append(key)
         self.lookup[key] = idx
@@ -232,17 +237,29 @@ def load_collision_sources(sonic_hack_dir: str):
     coll_dir = os.path.join(sonic_hack_dir, "collision")
 
     def _kos_load(name: str) -> bytes:
-        data = open(os.path.join(coll_dir, name), "rb").read()
+        with open(os.path.join(coll_dir, name), "rb") as f:
+            data = f.read()
         decoded, _ = kos_decompress(data, 0)
         return decoded
 
     index_a = _kos_load("OJZ primary 16x16 collision index.bin")
     index_b = _kos_load("OJZ secondary 16x16 collision index.bin")
-    profiles = open(
-        os.path.join(coll_dir, "Collision array 1.bin"), "rb").read()
-    angles = open(
-        os.path.join(coll_dir, "Curve and resistance mapping.bin"),
-        "rb").read()
+    with open(os.path.join(coll_dir, "Collision array 1.bin"), "rb") as f:
+        profiles = f.read()
+    with open(os.path.join(coll_dir, "Curve and resistance mapping.bin"),
+              "rb") as f:
+        angles = f.read()
+
+    # Validate profile bytes: 0..16 (bottom-anchored height) or
+    # 0xF0..0xFF (hanging depth 1..16). Anything else (0x11-0xEF) is
+    # undefined and would silently read as fully solid — fail loudly.
+    for off, h in enumerate(profiles):
+        if not (h <= 16 or h >= 0xF0):
+            raise ValueError(
+                f"load_collision_sources: profile {off // PROFILE_LEN} "
+                f"column {off % PROFILE_LEN} has undefined height byte "
+                f"0x{h:02X}"
+            )
     return index_a, index_b, profiles, angles
 
 
@@ -323,6 +340,15 @@ def test_rotate_ramp():
         assert False, "floating middle span must raise ValueError"
     except ValueError:
         pass
+
+    # Two solid runs in one row (solid at BOTH edges, gap in the middle)
+    # must raise instead of silently truncating to the left run width.
+    two_runs = bytes([16, 16] + [0] * 12 + [16, 16])
+    try:
+        rotate_profile(two_runs)
+        assert False, "two-run row must raise ValueError"
+    except ValueError:
+        pass
     print("  [OK] test_rotate_ramp")
 
 
@@ -330,6 +356,8 @@ def test_attrset_dedup_and_air():
     """Same combo interned once; index 0 is air."""
     s = AttrSet()
     assert s.entries[0] == (bytes(16), 0, 0), "index 0 must be air"
+    assert s.intern(bytes(16), 0, SOL_NONE) == 0, \
+        "interning the air combo must return index 0, not a duplicate"
     h = bytes([16] * 16)
     i1 = s.intern(h, 0x00, SOL_ALL)
     i2 = s.intern(h, 0x00, SOL_ALL)
