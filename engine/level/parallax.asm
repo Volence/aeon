@@ -257,8 +257,108 @@ Parallax_Update:
         ; clear Snap_Pending flag — one-shot, consumed by this Update
         clr.b   (Parallax_Snap_Pending).w
 
+        ; NOTE: Step 5 (Vscroll) runs BEFORE Step 4 (HScroll fill) — the
+        ; band rotation in Step 4a needs this frame's Vscroll_BG.
+        bra.w   Parallax_Step5_Vscroll
+.no_config:
+        rts
+
+Parallax_Step4_Fill:
+
+        ; --- Step 4a: rotate plane-space band tops into screen space ---
+        ; Band tops are authored in Plane B cell rows (0..63). The screen
+        ; shows plane rows starting at Vscroll_BG, so the band list is
+        ; rotated by vshift = (Vscroll_BG mod 512) >> 3 each frame and tops
+        ; are rebased to screen cells, clamped to 28 (the HScroll buffer is
+        ; 224 lines — an unclamped top would overrun it). At vshift = 0 the
+        ; rotation is an identity copy plus the clamp, so legacy
+        ; screen-space configs (vFactorBg=15, vOffset=0) are unchanged.
+        ; The shadow view is built EVERY frame, even at vshift = 0: the
+        ; clamp below is load-bearing — raw plane-space tops (e.g. 40, 48)
+        ; would make the per-line filler emit top*8 > 224 lines and spray
+        ; past Hscroll_Buffer into the DMA queues (frozen-VDP crash class).
+        move.w  (Parallax_Current_Vscroll_BG).w, d0
+        and.w   #$1FF, d0                   ; mod plane height (512 px)
+        lsr.w   #3, d0                      ; d0 = vshift in cells (0..63)
+        ; -- find k = the band containing plane cell vshift --
+        ; (last band whose top <= vshift; tops ascend and band 0 top is 0)
+        lea     parallax_config_len(a0), a1
+        lea     band_entry_len(a1), a4      ; probe = band[1]
+        moveq   #0, d1                      ; d1 = k
+        moveq   #1, d2                      ; probe index
+.find_k:
+        cmp.w   d7, d2
+        bhs.s   .found_k
+        moveq   #0, d3
+        move.b  band_entry_band_top_cell(a4), d3
+        cmp.w   d0, d3
+        bhi.s   .found_k                    ; top > vshift — stop
+        move.w  d2, d1
+        adda.w  #band_entry_len, a4
+        addq.w  #1, d2
+        bra.s   .find_k
+.found_k:
+        ; -- copy all bands starting at k (wrapping) into the shadow view,
+        ;    rebasing tops to screen cells and reordering the scroll words --
+        lea     (Parallax_Shadow_Bands).w, a4
+        lea     (Parallax_Shadow_Scroll_A).w, a5
+        lea     (Parallax_Shadow_Scroll_B).w, a6
+        move.w  d7, d6
+        subq.w  #1, d6                      ; dbf counter
+        move.w  d1, d2                      ; d2 = source band index (starts at k)
+        moveq   #0, d4                      ; first-entry flag
+.copy_band:
+        ; source entry = config bands + d2*band_entry_len (10 bytes)
+        move.w  d2, d3
+        lsl.w   #3, d3
+        move.w  d2, d5
+        add.w   d5, d5
+        add.w   d5, d3                      ; d3 = d2*10
+        lea     parallax_config_len(a0), a1
+        adda.w  d3, a1
+        move.l  (a1)+, (a4)+
+        move.l  (a1)+, (a4)+
+        move.w  (a1)+, (a4)+
+        ; rebase the copied entry's top to screen cells
+        moveq   #0, d3
+        move.b  -band_entry_len(a4), d3
+        sub.w   d0, d3
+        tst.w   d4
+        bne.s   .not_first
+        moveq   #0, d3                      ; band k starts at the screen top
+        moveq   #1, d4
+        bra.s   .write_top
+.not_first:
+        tst.w   d3
+        bgt.s   .clamp_top
+        addi.w  #64, d3                     ; wrapped past the plane bottom
+.clamp_top:
+        cmpi.w  #28, d3
+        ble.s   .write_top
+        moveq   #28, d3                     ; off-screen — zero-length fill
+.write_top:
+        move.b  d3, -band_entry_len(a4)
+        ; reorder the matching scroll words
+        move.w  d2, d3
+        add.w   d3, d3
+        lea     (Parallax_Current_Scroll_A).w, a1
+        move.w  (a1,d3.w), (a5)+
+        lea     (Parallax_Current_Scroll_B).w, a1
+        move.w  (a1,d3.w), (a6)+
+        addq.w  #1, d2
+        cmp.w   d7, d2
+        blo.s   .no_wrap
+        moveq   #0, d2
+.no_wrap:
+        dbf     d6, .copy_band
+        lea     (Parallax_Shadow_Bands).w, a1
+        lea     (Parallax_Shadow_Scroll_A).w, a2
+        lea     (Parallax_Shadow_Scroll_B).w, a3
+.bands_ready:
+
         ; --- Step 4: fill HScroll buffer (mode auto-selected from config) ---
         ;   mode_per_line if either H-deform table is non-NULL.
+        ;   a1/a2/a3 = band array + scroll arrays (config's own or shadow).
         move.l  parallax_config_pcfg_deform_table_fg(a0), d0
         or.l    parallax_config_pcfg_deform_table_bg(a0), d0
         beq.s   .fill_per_cell
@@ -280,7 +380,10 @@ Parallax_Update:
         move.b  #0, (Hscroll_Dirty_Start).w
         move.b  #27, (Hscroll_Dirty_End).w
 .fill_done:
+        rts
 
+; ----------------------------------------------------------------------
+Parallax_Step5_Vscroll:
         ; --- Step 5: compute whole-plane Vscroll (always — used by per-column too) ---
         ; FG: vscroll_a = camY (Plane A follows camera 1:1)
         ; BG: target_b  = ((camY - v_center_y) >> v_factor_bg) + v_offset
@@ -368,9 +471,7 @@ Parallax_Update:
         dbf     d6, .col
 
 .v_done:
-
-.no_config:
-        rts
+        bra.w   Parallax_Step4_Fill         ; Step 4 runs after Vscroll is final
 
 ; ----------------------------------------------------------------------
 ; Decode_Factor_A — return negated Plane A scroll for current band
@@ -469,10 +570,9 @@ Decode_Factor_B:
 Parallax_Fill_PerLine:
         movem.l a0/d7, -(sp)                        ; preserve caller's config ptr + band count
 
+        ; a1/a2/a3 = band array + scroll arrays, set by the caller (Step 4a:
+        ; either the config's own data or the vscroll-rotated shadow view)
         lea     (Hscroll_Buffer).w, a4              ; output ptr
-        lea     parallax_config_len(a0), a1         ; band[0]
-        lea     (Parallax_Current_Scroll_A).w, a2
-        lea     (Parallax_Current_Scroll_B).w, a3
         movea.l parallax_config_pcfg_deform_table_fg(a0), a5  ; NULL = no FG sampling
         movea.l parallax_config_pcfg_deform_table_bg(a0), a6  ; NULL = no BG sampling
 
@@ -639,10 +739,9 @@ Parallax_Fill_PerLine:
 ; Clobbers: d0-d4, a1-a4
 ; ----------------------------------------------------------------------
 Parallax_Fill_PerCell:
+        ; a1/a2/a3 = band array + scroll arrays, set by the caller (Step 4a:
+        ; either the config's own data or the vscroll-rotated shadow view)
         lea     (Hscroll_Buffer).w, a4
-        lea     parallax_config_len(a0), a1         ; a1 = band[0]
-        lea     (Parallax_Current_Scroll_A).w, a2
-        lea     (Parallax_Current_Scroll_B).w, a3
         moveq   #0, d3                              ; d3 = current cell index
         moveq   #0, d2                              ; d2 = band index
 

@@ -17,13 +17,21 @@ DeformTable_Zero:
     endr
 
 ParallaxConfig_OJZ_Default:
-    parallax_section layerMask=$1F, vFactorBg=15, vCenter=0, vOffset=0, \
+    ; Vertical parallax: BG_y = (camY-512)/8 over the full 512px-tall
+    ; wrapping plane. vFactorBg=3 is rebase-proof: the vertical section
+    ; rebase shifts camY by $1000, and $1000>>3 = 512 = exactly one plane
+    ; height — the wrap is seamless, no per-section compensation needed.
+    ; Band tops below are PLANE B cell rows (0..63), converted to screen
+    ; cells per frame by Step 4a in Parallax_Update.
+    parallax_section layerMask=$1F, vFactorBg=3, vCenter=512, vOffset=0, \
                      deformBg=DeformTable_Zero
-        band 0,  FACTOR_1, FACTOR_1_8       ; rows 0-3   clouds
-        band 4,  FACTOR_1, FACTOR_1_4       ; rows 4-9   far mountains
-        band 10, FACTOR_1, FACTOR_3_8       ; rows 10-13 mid mountains
-        band 14, FACTOR_1, FACTOR_1_2       ; rows 14-19 hills
-        band 20, FACTOR_1, FACTOR_1         ; rows 20-27 ground (FG-sync)
+        ; Deep Forest tuning: the colonnade band scrolls at 1/8 line-scroll
+        ; + camera/4 tile animation = 3/8 apparent, keeping the depth stack
+        ; monotonic: 1/16 canopy, 3/8 trunks, 1/2 undergrowth, 5/8 roots, 1 FG.
+        band 0,  FACTOR_1, FACTOR_1_16      ; plane rows 0-7   canopy ceiling
+        band 8,  FACTOR_1, FACTOR_1_8       ; plane rows 8-39  marching colonnade
+        band 40, FACTOR_1, FACTOR_1_2       ; plane rows 40-47 undergrowth + grass
+        band 48, FACTOR_1, FACTOR_5_8       ; plane rows 48-63 roots + the dark below
     parallax_section_end
 
 ; Note: previous T12 fixtures (perspective floor, wave rocking) have been

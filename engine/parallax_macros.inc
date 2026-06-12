@@ -156,8 +156,8 @@ band macro cellY,factA,factB
     if (cellY) < 0
         fatal "parallax band: cellY=\{cellY} negative"
     endif
-    if (cellY) > 27
-        fatal "parallax band: cellY=\{cellY} out of range 0..27"
+    if (cellY) > 63
+        fatal "parallax band: cellY=\{cellY} out of range 0..63 (Plane B cell rows)"
     endif
     if (cellY) <= pscLastCellY
         fatal "parallax band: cellY=\{cellY} not strictly after previous cellY=\{pscLastCellY}"
@@ -186,8 +186,8 @@ parallax_section_end macro
     if pscBandCount = 0
         fatal "parallax: section has no bands"
     endif
-    if pscLastCellY > 27
-        fatal "parallax: last band TOP=\{pscLastCellY} exceeds 27"
+    if pscLastCellY > 63
+        fatal "parallax: last band TOP=\{pscLastCellY} exceeds 63"
     endif
 
     ; patch band_count byte at offset 0 of the section header

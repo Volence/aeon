@@ -10,13 +10,15 @@
 ;                      the deferred mechanism in DEFERRED_WORK ("Per-section BG
 ;                      layout swap at the seam").
 ;
-; Layout shape: each nametable layout is a raw 64x32 = 4096 bytes.
+; Layout shape: each nametable layout is a raw 64x64 = 8192 bytes (full
+; Plane B nametable — the BG is 512px tall for vertical parallax; the
+; injector zero-pads legacy 32-row layouts).
 ; Tile-blob shape: 2-byte big-endian length header + raw deduped tile bytes
 ;   (mirrors S4LZ blob shape so engine can read length without a separate field).
 ; Decision rationale: docs/research/per-section-background.md (Q4 + Q5).
 
 VRAM_PLANE_B_BYTES  = $E000             ; Plane B nametable VRAM byte address
-BG_LAYOUT_SIZE      = 64*32*2           ; 4096 bytes (full Plane B nametable)
+BG_LAYOUT_SIZE      = 64*64*2           ; 8192 bytes (full Plane B nametable)
 
 ; -----------------------------------------------
 ; BG_Init — load shared BG tiles + blit Plane B nametable.
@@ -31,6 +33,12 @@ BG_LAYOUT_SIZE      = 64*32*2           ; 4096 bytes (full Plane B nametable)
 BG_Init:
         movem.l a3, -(sp)
         movea.l a0, a3                  ; a3 = act ptr (preserve)
+        ; Mask interrupts for the blocking VDP copies: a VBlank mid-copy lets
+        ; the VInt handler repoint the VDP address and the remainder of the
+        ; blob sprays to wrong addresses (large BG blobs span >1 frame of
+        ; copy loop). Mirrors Section_RedrawPlanes' guard.
+        move.w  sr, -(sp)
+        move.w  #$2700, sr
 
         ; --- load BG tile blob into shared region at BG_TILE_BASE_VRAM ---
         movea.l Act_act_bg_tiles(a3), a1
@@ -64,6 +72,7 @@ BG_Init:
         dbf     d0, .nt_copy
         startZ80
 .skip_nt:
+        move.w  (sp)+, sr               ; restore interrupt mask
         movem.l (sp)+, a3
         rts
 
