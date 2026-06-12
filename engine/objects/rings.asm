@@ -45,7 +45,12 @@ RingBuffer_Add:
 
 .full:
         addq.b  #1, (Ring_Add_Dropped).w
-        ifdebug assert.b (Ring_Add_Dropped).w, eq, #0  ; drop = content bug, fatal in DEBUG
+    ifdef __DEBUG__
+        ; register comparand — the assert macro's message expansion can't
+        ; take a parenthesised memory operand (assembles to error #1300)
+        move.b  (Ring_Add_Dropped).w, d4        ; d4 = declared clobber
+        assert.b d4, eq, #0                     ; drop = content bug, fatal in DEBUG
+    endif
         ori.b   #1, ccr                ; set carry
         rts
 
