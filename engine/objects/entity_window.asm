@@ -1180,15 +1180,19 @@ EntityWindow_DespawnRings:
 ; -----------------------------------------------
 ; EntityWindow_DespawnObjects — delete dynamic objects outside range
 ;
-; Same X/Y rules as DespawnRings, plus: ANY_Y objects (slot_tag bit 7)
-; are exempt from the Y band — they live as long as X allows.
+; Section-lifetime first, then the Y band: an object whose section left
+; the visibility window despawns regardless of X (under the envelope
+; derivation, every legitimate survivor's section is tracked — the only
+; untracked-section objects are same-frame slide stragglers and ANY_Y
+; escapees). Tracked-section objects are kept by X unconditionally and
+; gated by the Y despawn band; ANY_Y objects (slot_tag bit 7) are exempt
+; from the Y BAND only, never from section lifetime — an untracked
+; section's ANY_Y survivor would otherwise live forever in the X window
+; and duplicate when its section re-enters (its loaded bit died with the
+; entry). The old per-object camera-X window check was vestigial under
+; these rules and is gone.
 ; -----------------------------------------------
 EntityWindow_DespawnObjects:
-        move.w  (Camera_X).w, d6
-        subi.w  #ENTITY_DESPAWN_BUFFER, d6
-        move.w  (Camera_X).w, d7
-        addi.w  #SCREEN_WIDTH+ENTITY_DESPAWN_BUFFER, d7
-
         lea     (Dynamic_Slots).w, a0
         move.w  #NUM_DYNAMIC-1, d5
 
@@ -1199,12 +1203,6 @@ EntityWindow_DespawnObjects:
         cmpi.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a0)
         beq.s   .next
 
-        move.w  SST_x_pos(a0), d0
-        cmp.w   d6, d0
-        blt.s   .check_active
-        cmp.w   d7, d0
-        ble.s   .check_y                ; X in window → still Y-gated
-
 .check_active:
         move.b  SST_entity_section_id(a0), d1
         cmp.b   (Entity_Scan_State+EntityScanState_ess_section_id).w, d1
@@ -1214,11 +1212,11 @@ EntityWindow_DespawnObjects:
         cmp.b   (Entity_Scan_State+(EntityScanState_len*2)+EntityScanState_ess_section_id).w, d1
         beq.s   .check_y
         cmp.b   (Entity_Scan_State+(EntityScanState_len*3)+EntityScanState_ess_section_id).w, d1
-        bne.s   .despawn                ; X straggler in a dead section
+        bne.s   .despawn                ; section untracked → despawn
 
 .check_y:
         move.b  SST_slot_tag(a0), d1
-        bmi.s   .next                   ; bit 7 = ANY_Y → never Y-despawned
+        bmi.s   .next                   ; bit 7 = ANY_Y → exempt from the Y band (section already checked)
         move.w  SST_y_pos(a0), d1
         move.w  (Camera_Y).w, d2
         subi.w  #ENTITY_DESPAWN_BUFFER_Y, d2
