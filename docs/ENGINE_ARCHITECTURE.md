@@ -1823,7 +1823,7 @@ No Genesis game, S.C.E., or commercial engine streams level data in two dimensio
 
 **2-slot block-paired streaming:**
 
-2 slots per axis. Each teleport slides the window by one section: the trailing slot is despawned, the near slot shifts into the trailing position (coordinates adjust by ±SECTION_SHIFT), and the new leading slot loads fresh. The section map advances by 2 (`[Sec0,Sec1] → [Sec2,Sec3]`). Entity state is managed by the camera-driven entity window (4.9) — `EntityWindow_TeleportShift` shifts surviving entities' coordinates and rebuilds scan state from the updated slot map. The 3×3 rolling collected bitmask preserves ring collection state across nearby section revisits.
+2 slots per axis. Each teleport rebases Camera + Player by ±`SECTION_SHIFT` and advances the slot map by ±2 sections. The section map advances by 2 (`[Sec0,Sec1] → [Sec2,Sec3]`). Entity state is managed by the visibility-derived entity window (4.9) — `EntityWindow_TeleportShift` shifts all entity coordinates by the rebase delta and re-expresses entry origins; the tracked section set is invariant across the rebase. The 3×3 rolling collected bitmask preserves ring collection state across nearby section revisits.
 
 2 slots per axis with full bidirectional symmetry — no pinned slots:
 
@@ -2053,11 +2053,10 @@ The section system touches nearly every other engine system. These cascades are 
 - Pool compaction only runs at section boundaries
 
 **Camera-Driven Entity Window (4.9):**
-- Objects and rings load when their section loads into a slot — not viewport-based
-- Objects spawn via `AllocSlot` (3.2) with coordinates from compact 4-byte entries
-- Per-section type table maps 5-bit indices to routine pointers (128-byte RAM lookup)
-- On preload, entities spawn at warped coordinates (+SECTION_SHIFT) for seamless preview
-- On teleport, uniform -SECTION_SHIFT applied to all positions — no rebuild needed
+- Window tracks exactly the 2×2 sections overlapped by the camera's despawn envelope — visibility-derived, not slot-derived
+- Slides (envelope crossing a section boundary) migrate surviving masks by section identity; newly entered sections populate fresh
+- On teleport, entities shift by ±`SECTION_SHIFT`; the tracked section set is invariant (slot-map advance cancels camera delta) — no spawn or despawn at seams
+- Preview is intrinsic: the envelope already reaches sections ahead of the camera before the teleport fires
 - Art pre-allocation via `AllocVRAM` (2.2) still applies: section preload allocates art before objects spawn
 
 **Section + Parallax (4.6):**
@@ -2069,8 +2068,8 @@ The section system touches nearly every other engine system. These cascades are 
 **Animated Terrain Per-Section (NOVEL):**
 Each section can define its own animated tile set via `sec_anim_blocks` — conveyor belts, pulsing lava, swaying grass, shimmering ice. Animation system cycles frames and DMAs current tiles via the DMA queue (Priority 1). On teleport, old tiles stop, new tiles start. Each section becomes visually distinct not just in static art but in dynamic terrain behavior.
 
-**Section State Preservation via Sliding Window:**
-The sliding window teleport preserves entity state for the surviving slot naturally — the ring bitmask and object positions carry over with coordinate adjustment. Collected rings stay collected, destroyed objects stay gone, as long as the section remains in one of the two active slots. Once a section leaves both slots (player has moved ≥2 sections away), its entities reset to ROM defaults on next load — matching classic Sonic behavior where distant areas respawn.
+**Section State Preservation via Visibility Window:**
+The visibility-derived window preserves entity state for surviving sections naturally — mask bits and object positions carry over with coordinate adjustment at every slide and teleport. Collected rings stay collected, destroyed objects stay gone, as long as the section remains in the 2×2 tracked window. Once a section leaves the window, its mask slot is overwritten on next entry; revisiting loads from ROM defaults — matching classic Sonic behavior where distant areas respawn. The 3×3 rolling collected bitmask (4.9.5) extends this to ±1 section of backtrack.
 
 **Zero-Lag Teleport — Progressive Preload + Crossfade Masking (NOVEL):**
 
@@ -2078,7 +2077,7 @@ A naive teleport does all work in a single frame: layout conversion, ring/object
 
 | System | Work it handles | Cycles on teleport frame |
 |---|---|---|
-| Camera-driven entities (4.9) | EntityWindow_TeleportShift: shift/despawn + rebuild scan state | ~200 (shift + scan) |
+| Visibility-derived entities (4.9) | EntityWindow_TeleportShift: coord shift + origin re-expression (no spawn/despawn) | ~200 (shift + scan) |
 | Block-based cache data (4.3) | Layout data ready in tile cache | ~0 (pointer swap) |
 | Progressive preload (below) | Nametable already in VDP | ~0 |
 
@@ -2192,9 +2191,32 @@ Object spawning reads the 6-byte entry, indexes the ROM type table for the ObjDe
 
 **`OEF_ANY_Y` semantics (shipped with the vertical window):** an ANY_Y object spawns whenever the camera's X window reaches it, regardless of camera Y, and is exempt from Y despawn (X despawn and section-tracking despawn still apply — when its section leaves the 2×2 window the object goes with it, and respawns when the section is re-tracked). The flag persists past spawn time as **bit 7 of `SST_slot_tag`** (low bits = entry index 0-3): the per-frame Y despawner tests that bit instead of re-reading ROM. Use it for vertical-corridor hazards, elevators, and anything whose behavior spans a section's full height.
 
-#### 4.9.3 Entity Window — 2×2 Quadrant Camera-Driven Lifecycle
+#### 4.9.3 Entity Window — Visibility-Derived 2×2 Lifecycle
 
-The entity window tracks the **2×2 section quadrant** around the camera: both slot columns (L/R from `Slot_Section_Map`) × two section rows (`sec_y` and `sec_y+1`). `EntityWindow_BuildEntries` derives the four entries purely from `Slot_Section_Map` + the act grid — entry 0 = slot L row r, entry 1 = slot R row r, entry 2 = slot L row r+1, entry 3 = slot R row r+1. Each entry gets an `EntityScanState` ($1A bytes):
+The entity window tracks the **2×2 sections overlapped by the camera's despawn envelope** — not the slot pair. The despawn envelope spans 320+2×$200=1344px (X) and 224+2×$180=976px (Y), both less than `SECTION_SIZE` ($800), so the envelope always overlaps exactly 2 columns × 2 rows regardless of camera position.
+
+**Envelope anchor derivation (`EntityWindow_DeriveWindow`):**
+
+```
+col0 = (camX − SLOT_ORIGIN_L − ENTITY_DESPAWN_BUFFER) asr SECTION_SIZE_SHIFT
+row0 = (camY − SLOT_ORIGIN_U − ENTITY_DESPAWN_BUFFER_Y) asr SECTION_SIZE_SHIFT
+sec_x0 = slot0_sec_x + col0        ; absolute — byte-wrap OK, range check voids
+sec_y0 = slot0_sec_y + row0
+window  : sections (sec_x0+{0,1}, sec_y0+{0,1})    entries 0=UL 1=UR 2=LL 3=LR
+origins : x = SLOT_ORIGIN_L + (col0+{0,1})·SECTION_SIZE   (signed word)
+          y = SLOT_ORIGIN_U + (row0+{0,1})·SECTION_SIZE
+```
+
+`Entity_Window_Anchor` (2 bytes RAM) stores `(sec_x0, sec_y0)` — the slide trigger and teleport-invariance assert both read it.
+
+**Anchor invariance across teleports (worked example):**
+A FWD rebase subtracts `SECTION_SHIFT` ($1000) from `camX`, reducing `col0` by 2, while the slot-map advance adds 2 to `slot0_sec_x`. The two effects cancel: `sec_x0 = (slot0_sec_x+2) + (col0−2)` — identical to before. Sections are invariant; only their engine-space origins re-express.
+
+Example: `camX $11FF`, slot0 sec_x=n → col0=1 → window cols (n+1, n+2), origins ($A00, $1200). Post-FWD: `camX $1FF`, slot0 sec_x=n+2 → col0=−1 → window cols (n+1, n+2), origins (−$600, $200). Same sections.
+
+**The stronger statement:** sections are invariant across rebases; entry↔section assignments change ONLY at slides. The old disjoint-block table at `EntityWindow_TeleportShift` remains arithmetically true but is no longer the primary framing.
+
+`EntityWindow_BuildEntries` calls `DeriveWindow`, stores the anchor, and fills each entry's `EntityScanState` ($1A bytes):
 
 ```
 EntityScanState struct ($1A bytes):
@@ -2258,7 +2280,15 @@ ENTITY_LOAD_BUFFER_Y >= coarse row size (128)
 
 (Consequence of the coarse trigger: the *guaranteed* load margin is `ENTITY_LOAD_BUFFER_Y − 128` past the screen edge, since the last re-scan may have fired up to one coarse row away. Verified on hardware: a ring 240px above the camera stays unloaded until the next crossing — by design.)
 
-**Loaded bitmasks (idempotent spawns):** `Entity_Loaded_Masks` holds 4 entries × 32 bytes (16B ring bits + 16B object bits, indexed by ROM list position). A bit is set at spawn and cleared at despawn. This is what makes every overlapping spawn path safe to re-run: the vertical re-scan, the teleport-rebuild populate, and the X-ratchet scans can all visit the same ROM entry without double-spawning — the mechanism that originally fixed the §4.9 duplicate-spawn bug now generalizes to every path. `EntityWindow_InitSection` compare-clears an entry's mask slot only when its `section_id` changes, so an unchanged section keeps its bits across rebuilds.
+**Loaded bitmasks (idempotent spawns):** `Entity_Loaded_Masks` holds 4 entries × 32 bytes (16B ring bits + 16B object bits, indexed by ROM list position). A bit is set at spawn and cleared at despawn. This is what makes every overlapping spawn path safe to re-run: the vertical re-scan, the teleport rebuild, and the X-ratchet scans can all visit the same ROM entry without double-spawning. `EntityWindow_InitSection` compare-clears an entry's mask slot only when its `section_id` changes, so an unchanged section keeps its bits across rebuilds. The `Entity_Mask_Scratch` buffer (4+128 bytes RAM) holds a snapshot of the old ids+masks before any rebuild so `EntityWindow_MigrateMasks` can copy surviving sections' 32-byte slots to their new entries by section identity. A DEBUG no-dup assert inside `EntityWindow_TrySpawnRing` (the single `RingBuffer_Add` site) detects any double-spawn that would indicate a broken invariant.
+
+**Slides — `EntityWindow_Slide`:** fires when `EntityWindow_DeriveWindow` returns an anchor that differs from `Entity_Window_Anchor`. Called from the per-frame slide check in `EntityWindow_Scan` and also from `EntityWindow_SyncSlide`. Sequence: snapshot old ids+masks into `Entity_Mask_Scratch` → `Collected_UpdateCenter` (evict first — evict-before-claim avoids silent failure at 9/9 occupancy) → `BuildEntries` (compare-clear voids genuinely-new sections' masks) → `MigrateMasks` (section-identity copy) → populate only sections whose id was NOT in the snapshot. A DEBUG assert inside `Slide` verifies at most one anchor byte changes per call (the 16px/f camera clamp prevents diagonal slides on the hot path).
+
+**`EntityWindow_SyncSlide` — pending-slide guard at teleport heads:** teleport thresholds key off the player's position and `Section_Check` runs before `EntityWindow_Scan`, so a fast player can cross a threshold while a camera-envelope slide is still pending. The invariance contract ("a rebase never changes the tracked section set") only holds for a window that is current against the pre-rebase camera. Every teleport handler (`Section_TeleportFwd/Bwd/Down/Up`) calls `EntityWindow_SyncSlide` first — same derive+compare as the per-frame check, a no-op when the window is already current. Found by the invariance assert: BWD fired at camX $168 with anchor still (2,0) — the (1,0) slide was pending.
+
+**Negative-origin entries are intentionally inert for new spawns:** after a FWD teleport the kept left column re-expresses to a negative origin (e.g., −$600). Its entities' engine X is a large unsigned value, always past the right load edge, so the `bhi` early-exit fires at the first list entry and the ratchet stays 0. This is correct — nothing in that column can reach the screen without a BWD teleport making the origin positive first. A DEBUG assert at `ScanRingsRight`'s (and `ScanObjectsRight`'s) ratchet update catches any deviation: if `origin_x` is negative, the written ratchet must be 0. `Section_GetSecPtrXY` uses unsigned compares, so a "negative" byte like $FF ($FF > grid_w for any real grid) also voids the entry cleanly at `BuildEntries` time.
+
+**`OEF_ANY_Y` lifetime rule:** an ANY_Y object spawns on X coverage regardless of camera Y and is exempt from Y despawn. Section-lifetime still governs: when its section leaves the 2×2 window the object despawns with it and respawns when the section is re-tracked. The ANY_Y flag persists past spawn time as **bit 7 of `SST_slot_tag`**; the per-frame Y despawner tests that bit instead of re-reading ROM. Cross-reference: §3.7 object-state convention — no unshifted absolute coordinates in `sst_custom`; positional state must be relative or derivable from ROM placement so teleport rebases (which shift `SST_x_pos`/`SST_y_pos`) remain correct.
 
 **Vertical re-scan cost shape:** O(entities already passed by the X ratchet) per 128px camY crossing, across the ≤4 active entries — each candidate is a band compare + btst when already loaded. Trivial on test fixtures; unbudgeted on dense production levels (see DEFERRED_WORK "RescanY burst is unbudgeted").
 
@@ -2299,37 +2329,34 @@ The 3×3 window centered on the player's current section means collection state 
 
 **Gameplay consequence:** persistence depth is exactly one section of backtrack. A round trip of 2+ sections re-claims evicted slots with fresh bitmasks — collected rings respawn and killed badniks revive. This is the accepted cost of capping the window at 9 slots (162 bytes); classic Sonic behaves the same way for off-screen respawning objects.
 
-#### 4.9.6 Teleport Entity Shift
+#### 4.9.6 Teleport Entity Shift — Re-expression, Not Rebuild
 
 When a teleport fires, `EntityWindow_TeleportShift(±SECTION_SHIFT)` (X) or `EntityWindow_TeleportShiftY(±SECTION_SHIFT)` (Y) handles the transition:
 
 ```
-1. Compute keep-range: Camera ± load buffer (X or Y axis)
-2. Shift surviving rings: add shift to engine coord, remove (and clear
-   loaded bit) if outside keep-range
-3. Shift surviving objects: add shift to x_pos/y_pos (16.16), delete (and
-   clear loaded bit) if outside range
-4. Rebuild EntityScanState entries from the updated Slot_Section_Map
-5. Run populate scan to load entities in the new window
+1. Shift every buffered ring's engine coord (X or Y) by the rebase delta
+2. Shift every slot-tagged object's x_pos/y_pos word by the rebase delta
+3. Call EntityWindow_RebuildScanState — which is a thin wrapper that rebases
+   Camera_Y_Coarse_Prev then falls into EntityWindow_Slide
 ```
 
-The uniform SECTION_SHIFT applied to all positions preserves distances between entities. A projectile 50 pixels from the player stays 50 pixels away after the shift.
+No keep-window, no despawn, no populate. Nothing spawns or dies at a seam. The uniform shift preserves relative positions: a projectile 50 pixels from the player stays 50 pixels away. The rebase is invisible to game entities.
 
-**Loaded-mask migration is a verified no-op.** The window tracks the 2×2 block `{slotL,slotR} × {sec_y, sec_y+1}`, and `SECTION_SHIFT = 2×SECTION_SIZE`, so every teleport moves that block by exactly TWO sections along one axis (from the verified mapping table at `EntityWindow_TeleportShift`; `TeleportShiftY` carries a cross-reference):
+**Why no populate:** `EntityWindow_RebuildScanState` → `EntityWindow_Slide` snapshots the old ids+masks, rebuilds entries, and migrates masks. Because the section set is invariant, every new entry finds its id in the snapshot — `MigrateMasks` copies masks slot-to-same-slot and the populate loop skips all entries (their ids are all in the snapshot). Teleports are populate-free by construction.
+
+**Teleport-invariance assert (DEBUG):** both `TeleportShift` and `TeleportShiftY` stash `Entity_Window_Anchor` on the stack before calling `RebuildScanState` and assert equality on return. If the rebase moved the anchor, the slot-map advance did not cancel the camera delta — something is wrong.
+
+**Historical disjoint-block table** (retained for reference; the anchor-invariance framing above supersedes it as the primary explanation):
 
 ```
-dir    d4 sign          slot map before -> after
-X-FWD  -SECTION_SHIFT   (x,y),(x+1,y) -> (x+2,y),(x+3,y)
-                        [edge: slot1 = SEC_VOID when x+3 >= grid_w]
-X-BWD  +SECTION_SHIFT   (x,y),(*  ,y) -> (x-2,y),(x-1,y)
-                        [same from the FWD-edge state (x,VOID);
-                         new slot1 = old slot0 MINUS 1, so the
-                         edge "heal" never re-tracks old slot0]
-Y-DOWN -SECTION_SHIFT   sec_y += 2 on both slots
-Y-UP   +SECTION_SHIFT   sec_y -= 2 on both slots
+dir    slot map before -> after
+X-FWD  (x,y),(x+1,y)   -> (x+2,y),(x+3,y)  [edge: slot1=SEC_VOID when x+3>=grid_w]
+X-BWD  (x,y),(* ,y)    -> (x-2,y),(x-1,y)
+Y-DOWN sec_y (r,r+1)   -> (r+2,r+3)
+Y-UP   sec_y (r,r+1)   -> (r-2,r-1)
 ```
 
-The old and new tracked sets are **disjoint** in all four directions, including every grid-edge case. No section keeps (or regains) an entry, so there are no surviving (section, entry) pairs whose loaded bits could move — there is nothing to migrate. Mask hygiene comes from the rebuild instead: `EntityWindow_InitSection` compare-clears each entry's 32-byte mask slot because every entry's section_id changes. (The flip side — survivor continuity for sections that just left the window — is a known open item; see DEFERRED_WORK "No survivor continuity across teleports".)
+The old and new slot-tracked sets are disjoint in all directions — a consequence of `SECTION_SHIFT = 2×SECTION_SIZE`. Under the visibility-derived window, the correct statement is that col0/row0 shifts equal and opposite the slot-map advance, so the SECTION-coordinate window is invariant even though the slot-tracked sets are disjoint.
 
 #### 4.9.7 RAM Budget
 
@@ -2338,13 +2365,15 @@ The old and new tracked sets are **disjoint** in all four directions, including 
 | Ring_Buffer (128 entries × 6 bytes) | 768 B |
 | Ring_Count + Ring_HighWater + Ring_Add_Dropped + pad | 4 B |
 | Entity_Window_Active + Entity_Window_Center_ID | 2 B |
+| Entity_Window_Anchor (sec_x0, sec_y0 — slide trigger + invariance) | 2 B |
 | Entity_Scan_State (4 × $1A bytes) | 104 B |
 | Entity_Loaded_Masks (4 × 32 bytes) | 128 B |
+| Entity_Mask_Scratch (4 + 128 bytes — slide/teleport snapshot buffer) | 132 B |
 | Camera_Y_Coarse_Prev (re-scan trigger baseline) | 2 B |
 | Ring_Collected_Window (9 × 34 bytes) | 306 B |
-| **Total** | **~1,314 B** |
+| **Total** | **~1,448 B** |
 
-Comparable to the old dual-buffer system (1,187 B) while supporting far more: camera-driven loading on both axes, 2×2 quadrant tracking, idempotent spawns, kill persistence, unified buffer, and buffer diagnostics.
+Comparable to the old dual-buffer system (1,187 B) while supporting far more: visibility-derived window with preview, camera-driven loading on both axes, 2×2 quadrant tracking, idempotent spawns, slide mask migration, teleport invariance, kill persistence, unified buffer, and buffer diagnostics.
 
 ### 4.10 Cascade Effects
 
@@ -2384,18 +2413,19 @@ Section + Allocator Integration (4.8)
           → Pool compaction at section boundary makes room for new section
 
 Section-Local Entity Management (4.9)
-  → Rings: pattern-encoded ROM → expanded to engine-space buffer at section load
-    → Flat (X,Y) word pairs — no per-frame coordinate translation
-      → Ring collision iterates expanded buffer directly against player position
-  → Objects: compact 4-byte entries → Load_Object with per-section type table lookup
-    → Slot tag tracks which slot spawned each object
-      → Teleport: despawn outgoing slot, shift surviving objects by ±SECTION_SHIFT
-        → Ring buffers copied with X adjustment, bitmasks preserved
-  → State: rolling buffer deferred — sections load fresh on revisit for now
+  → Visibility-derived window: despawn-envelope anchor from camera + slot map
+    → Slides when envelope crosses a section boundary; mask migration by section identity
+      → Teleports: shift all entity coords + re-express origins; section set invariant
+        → Preview intrinsic: envelope tracks ahead sections before teleport fires
+  → Rings: flat X-sorted ROM lists per section; X-ratchet with Y-band gate
+    → Ring collision iterates engine-space buffer against player position
+  → Objects: compact 6-byte v2 entries; per-section type table; ANY_Y spawns X-only
+    → SST_slot_tag: entry index | ANY_Y mirror (bit 7) — lifetime = section in window
+  → State: rolling 3×3 collected bitmask for revisit persistence (4.9.5)
 
 Zero-Lag Teleport (4.8 — 6 systems converging)
   → Pre-computed strips (4.3): pointer swap, no layout conversion
-  → Entity shift (4.9): ±SECTION_SHIFT to surviving positions, despawn+spawn for slot swap
+  → Entity shift (4.9): ±SECTION_SHIFT to all positions; section set invariant; zero spawn/despawn
   → Progressive nametable preload: DMA strips to VDP during 85-frame preload window
     → Half screen already in VDP at teleport time, other half fits one VBlank
   → Palette crossfade: 3-4 frame darken/brighten masks residual nametable update

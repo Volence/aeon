@@ -424,7 +424,7 @@ git commit -m "test(entity-window): seam + corner preview fixtures in sections 2
 1. Seam preview in all three directions (FWD column / DOWN row / corner) — entities appear before seams at correct world positions (Task 5 fixtures + sec4 circle).
 2. Teleport continuity all four directions — Ring_Count + object identity across the rebase frame.
 3. Quick reversals across slides AND teleports — counts stable, DEBUG asserts silent.
-4. Grid edges — envelope clipped at world edges (camX low at boot, X void state (2,VOID) via double-FWD, bottom row), voids correct, no asserts.
+4. Grid edges — envelope clipped at world edges (camX low at boot, X void state (2,VOID) via single FWD (pair advances +2, one FWD reaches it), bottom row), voids correct, no asserts. (corrected post-execution)
 5. §4.9-ph2 regression: band culling at boot, ladder progressive spawn on descent, 10× vertical oscillation idempotency, ANY_Y marker alive + tag, `Ring_Add_Dropped` = 0, `Ring_HighWater` recorded.
 6. The user's authored formations (sec1 triangle, sec4 circle, sec2 square) all reachable and visible in normal play.
 

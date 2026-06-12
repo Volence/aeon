@@ -679,11 +679,8 @@ non-zero; intermittently they read zero.
 **What:** 4-entry rolling buffer (104 bytes) that saves per-section ring bitmask + object bitmask on section unload. On section re-load, search buffer for matching section_id — if found, apply saved bitmasks so collected rings stay collected and destroyed objects stay dead. Evicts oldest entry when full. Maximum distance to see respawned entities: ~$800 pixels.
 **When ready:** After §4.9 components 1-3 ship. The ring bitmask and object slot tag infrastructure must be working first. Pure addition — no changes to existing spawn/despawn paths, just wrapping them with save/restore.
 
-### §4.9.5 Warp-Based Teleport Preview (Entities in Preview Zone)
-**Blocked by:** §4.9 core lifecycle + preview-zone integration testing
-**Surfaced during:** §4.9 design session 2026-04-29.
-**What:** When a section preloads into a slot, its entities spawn at warped coordinates — offset by SECTION_SHIFT in the teleport direction. The preview objects ARE the real objects. At teleport, SECTION_SHIFT subtracted from all objects makes them land at correct engine-space positions. Ring buffer positions adjusted via slot origin shift. No separate preview loading, no duplicate entities.
-**When ready:** After §4.9 core lifecycle is stable. Builds on the §4.2 preview-zone work (merged 2026-04-29). Needs careful integration testing — objects must survive the coordinate shift without visual discontinuity.
+### ~~§4.9.5 Warp-Based Teleport Preview (Entities in Preview Zone)~~ — SHIPPED 2026-06-12
+**Resolution:** Visibility-derived window makes preview intrinsic. The despawn envelope overlaps sections ahead of the camera before any teleport fires — those sections are tracked, their entities are in the buffer. No warp coordinates, no coordinate shift, no integration work. Closed by the visibility-window plan (branch `vertical-entity-window`); see ENGINE_ARCHITECTURE.md §4.9.3.
 
 ### Bouncing "Loss Rings" (Ring Scatter on Damage)
 **Blocked by:** §4.9 ring system + player damage system
@@ -796,25 +793,11 @@ contracts + budget validation.
 
 ## From Vertical Entity Window — Task 6 (2026-06-11)
 
-### Teleport keep-range tests pre-shift coords against the post-rebase camera
-**Blocked by:** "No survivor continuity across teleports" below — the two must ship together (fixing this one alone re-introduces duplicate spawns).
-**Surfaced during:** Task 6 mask-migration research 2026-06-11 (pre-existing since §4.9 999fdc5).
-**What:** `EntityWindow_TeleportShift`/`TeleportShiftY` read `Camera_X`/`Camera_Y` AFTER the caller has already rebased them by ±SECTION_SHIFT, but compare entity coordinates that are still pre-shift. The correct pre-shift keep window is `[cam_old − buf, cam_old + screen + buf]` = `[cam_new − d4 − buf, …]`; the code uses `cam_new` directly. Net effect: FWD/DOWN keep far-behind entities and shift them to negative coords (self-heals next despawn pass — section untracked + X/Y out), BWD/UP keep nothing. The intended survivors — entities visible from the just-departed section pair — are despawned instead, so content from the old block pops out at the seam instead of persisting. Fix = subtract d4 from the window base (use the pre-rebase camera).
-**Note (Task 8 closeout):** the ShiftY keep band was suspected of a factor-of-two
-shortfall vs the spawn band because the literals differ (`+SCREEN_HEIGHT+ENTITY_LOAD_BUFFER_Y`
-vs `+SCREEN_HEIGHT+2*ENTITY_LOAD_BUFFER_Y`). Verified NOT a bug: the spawn band's `2*`
-literal is added to a base that already had `ENTITY_LOAD_BUFFER_Y` subtracted (band
-bottom is rebuilt in the same register as the band top), so both compute the identical
-band `[camY−$100, camY+SCREEN_HEIGHT+$100]`. Recorded so the literal mismatch isn't
-re-litigated; the only real defect here remains the pre-shift/post-rebase coordinate
-mismatch described above.
-**Why not fixed in Task 6:** fixing it alone is WORSE — see next entry.
+### ~~Teleport keep-range tests pre-shift coords against the post-rebase camera~~ — DISSOLVED 2026-06-12
+**Resolution:** The keep-window no longer exists. The visibility-derived window retains all entities across a teleport (shift, no despawn); there is no keep-range test to get wrong. This defect was only relevant under the old TeleportShift keep-window/despawn design, which was deleted in the visibility-window plan.
 
-### No survivor continuity across teleports (per-entry loaded masks can't cover off-window sections)
-**Blocked by:** coupled to "Teleport keep-range tests pre-shift coords" above — neither is worth shipping without the other.
-**Surfaced during:** Task 6 mask-migration research 2026-06-11.
-**What:** Every teleport moves the tracked 2×2 section block by exactly two sections (X: pair columns ±2; Y: `sec_y ±= 2`), so old/new tracked sets are always disjoint and teleport survivors always belong to sections that just left the window. Their loaded bits are necessarily wiped (their entry now hosts a different section, and there is no mask slot for untracked sections). If the keep-range bug above is fixed so survivors really persist on screen, a quick direction reversal re-tracks their section with no loaded bits → the populate re-adds them → duplicate rings/objects. Entry-to-entry mask migration cannot solve this (nothing overlaps); the real fix is either (a) populate-time dedupe against the live ring buffer / SST `entity_section_id`+`list_index`, or (b) parking masks for recently-untracked sections, 3×3-collected-window style (overlaps with §4.9.4 respawn memory above).
-**When ready:** fix together with the keep-range entry whenever seam entity pop-out is addressed.
+### ~~No survivor continuity across teleports (per-entry loaded masks can't cover off-window sections)~~ — DISSOLVED 2026-06-12
+**Resolution:** The keep-window no longer exists. The visibility-derived anchor is invariant across rebases — the same sections are tracked before and after — so there are no "just-left-the-window survivors" to worry about. The duplicate-spawn risk that blocked the keep-range fix is also gone: teleports never populate, so no re-add can occur. Closed by the same design deletion.
 
 ## From Vertical Entity Window — Task 8 closeout (2026-06-11)
 
@@ -860,6 +843,28 @@ is a right-edge ratchet; no left scan exists). Removing them shrinks EntityScanS
 $1A → $16 and stops tempting docs into describing phantom left scanners.
 **When to revisit:** alongside any other §4.9 perf work (e.g. the RescanY budget entry
 above) — not worth a dedicated session.
+
+## From Visibility-Window Plan (2026-06-12)
+
+### Slide populate is X-unfiltered
+**Surfaced during:** visibility-window plan implementation 2026-06-12.
+**What:** `EntityWindow_PopulateSectionRings` (and the object equivalent) offers every entry in the section's ROM list to `TrySpawnRing`/`TrySpawnObject` without an X edge filter. On a rightward slide the newly tracked section can be up to ~$500px beyond the right load edge, so all its in-band rings are added immediately rather than waiting for the ratchet to reach them. Fine at current entity counts; could front-load spawns noticeably on dense production sections.
+**When to revisit:** when production entity density lands — watch `Ring_HighWater` after a slide vs a normal X ratchet advance. Perf backlog family (tile-cache N-way staging is the precedent for budgeted populate).
+
+### Section_TeleportBwd .at_start clamp path lacks a SyncSlide-style guard
+**Surfaced during:** visibility-window plan review 2026-06-12.
+**What:** `Section_TeleportBwd` calls `EntityWindow_SyncSlide` unconditionally before the camera rebase, then may fall through `.at_start` with the slot map left as-is and still call `EntityWindow_TeleportShift`. Today `.at_start` is only reachable when `sec_x == 0` (already at the left edge of the grid — slot map parity guarantee holds). If that invariant ever breaks, the invariance assert would fire: a second SyncSlide call after an unchanged slot map with an already-shifted camera would re-derive the correct anchor, but the assert would see a mismatch. Add an Up-style guard (`cmpi.b #0, (Slot_Section_Map).w / blo.s .at_start_nop` pattern) when this path is next touched.
+**When to revisit:** add the defense when `Section_TeleportBwd` is modified for any reason.
+
+### Section_Check clobber header understates
+**Surfaced during:** grid-edge branch review 2026-06-11 (pre-existing).
+**What:** The `Section_Check` routine header documents a narrow clobber set, but its tail-branches (`bra.w Section_TeleportFwd` etc.) enter handler routines that clobber d0–d7/a0–a4 (`SyncSlide` + `TeleportShift` rebuild paths). Any caller that saves only the documented set around `Section_Check` will see unexpected register corruption. Fix the header when opportunistically passing through.
+**When to revisit:** opportunistically when touching `Section_Check` or any teleport handler.
+
+### Row-2 seam fixtures — DOWN-direction preview only structurally tested
+**Surfaced during:** visibility-window verification 2026-06-12.
+**What:** Vertical slide and DOWN teleport paths are structurally exercised (window derives rows correctly, vertical streaming works), but sections 6–8 (row 2 of the OJZ 3×3 grid) have no ring or object content, so the row-2 seam has no visible entities to confirm preview behavior end to end. The structural path is proven; the content test is deferred.
+**When to revisit:** when row-2 section content is authored for production OJZ or any zone with ≥3 row sections.
 
 ## From Compression Two-Tier (2026-06-11)
 
