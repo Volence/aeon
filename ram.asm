@@ -360,6 +360,9 @@ Ring_Anim_Timer:        ds.b 1          ; countdown to next animation tick
 ; Entity window tracking
 Entity_Window_Active:   ds.b 1          ; 4-bit entry validity mask (bit n = entry n valid)
 Entity_Window_Center_ID: ds.b 1         ; section_id of rolling bitmask center
+Entity_Window_Anchor:   ds.b 2          ; absolute (sec_x0, sec_y0) of entry 0 — slide trigger + teleport invariance
+Entity_Window_OriginX:  ds.w 1          ; column-0 origin base, signed (SLOT_ORIGIN_L + col0*SECTION_SIZE)
+Entity_Window_OriginY:  ds.w 1          ; row-0 origin base, signed (SLOT_ORIGIN_U + row0*SECTION_SIZE)
 Entity_Loaded_Masks:    ds.b MAX_TRACKED_SECTIONS * ENTITY_LOADED_SLOT_SIZE ; 128B — per-entry ring/obj loaded bits (§4.9 ph2)
 Camera_Y_Coarse_Prev:   ds.w 1          ; camY & $FF80 at last vertical re-scan
 

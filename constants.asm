@@ -205,6 +205,10 @@ GS_OBJECT_TEST          = 2
 
 ; Section coordinate space
 SECTION_SIZE            = $0800     ; slot width/height in engine pixels
+SECTION_SIZE_SHIFT      = 11            ; log2(SECTION_SIZE) — derivation shift
+    if SECTION_SIZE <> (1<<SECTION_SIZE_SHIFT)
+      error "SECTION_SIZE_SHIFT out of sync with SECTION_SIZE"
+    endif
 SECTION_SHIFT           = 2*SECTION_SIZE        ; $1000 — teleport shift (pixels); 2-slot pair width (both axes). Anti-oscillation handled by Section_Teleport_Guard (position-based suppression after teleport).
 SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
 SLOT_ORIGIN_R           = SLOT_ORIGIN_L+SECTION_SIZE    ; $0A00 — right slot engine-space left edge

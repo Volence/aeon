@@ -413,68 +413,105 @@ EntityWindow_InitSection:
         rts
 
 ; -----------------------------------------------
-; EntityWindow_BuildEntries — (re)configure all 4 quadrant entries
+; EntityWindow_DeriveWindow — absolute window anchor from the camera envelope
 ;
-; Quadrants: entry 0 = slot L row r, 1 = slot R row r,
-;            entry 2 = slot L row r+1, 3 = slot R row r+1.
-; Void quadrants (sec_x = SEC_VOID, or row ≥ grid_h via
-; Section_GetSecPtrXY) get SEC_VOID-stamped entries and a clear
-; validity bit. Entity_Window_Active = 4-bit validity mask.
+; The tracked 2×2 = the sections overlapped by the camera's DESPAWN envelope
+; (the widest band), so any live windowed entity's section is always tracked.
+; Envelope spans < SECTION_SIZE on both axes → always exactly 2 cols × 2 rows.
 ;
-; In:  none (reads Slot_Section_Map, Current_Act_Ptr)
-; Out: Entity_Window_Active set
-; Clobbers: d0-d7, a0-a5
+; Out: d2.b = sec_x0 (slot0 sec_x + col0 — may be "negative"/past-grid; the
+;             grid range check voids such cells downstream)
+;      d3.b = sec_y0
+;      d4.w = col0 (signed — entry origin derivation needs it)
+;      d5.w = row0 (signed)
+; Clobbers: d0
+; -----------------------------------------------
+EntityWindow_DeriveWindow:
+        move.w  (Camera_X).w, d4
+        subi.w  #SLOT_ORIGIN_L+ENTITY_DESPAWN_BUFFER, d4
+        moveq   #SECTION_SIZE_SHIFT, d0
+        asr.w   d0, d4                  ; d4 = col0 (floor — asr is negative-safe)
+        move.w  (Camera_Y).w, d5
+        subi.w  #SLOT_ORIGIN_U+ENTITY_DESPAWN_BUFFER_Y, d5
+        asr.w   d0, d5                  ; d5 = row0
+        move.b  (Slot_Section_Map).w, d2        ; slot0 sec_x
+        add.b   d4, d2                  ; d2 = sec_x0 (byte wrap OK — range check voids)
+        move.b  (Slot_Section_Map+1).w, d3      ; slot0 sec_y
+        add.b   d5, d3                  ; d3 = sec_y0
+        rts
+
+; -----------------------------------------------
+; EntityWindow_BuildEntries — (re)configure the 4 entries from the camera
+; envelope (visibility-derived window — see spec 2026-06-11).
+;
+; Quadrants: entry 0 = (sec_x0, sec_y0) … entry 3 = (sec_x0+1, sec_y0+1).
+; Stores the absolute anchor in Entity_Window_Anchor (slide trigger +
+; teleport-invariance checks read it) and the signed column-0/row-0 origin
+; bases in Entity_Window_OriginX/Y. Void quadrants ("negative"/past-grid
+; coordinates via Section_GetSecPtrXY's unsigned range check) get
+; SEC_VOID-stamped entries and a clear validity bit.
+;
+; In:  none (reads Camera_X/Y, Slot_Section_Map, Current_Act_Ptr)
+; Out: Entity_Window_Active = validity mask; Entity_Window_Anchor +
+;      Entity_Window_OriginX/Y updated
+; Clobbers: d0-d7, a0-a3
 ; -----------------------------------------------
 EntityWindow_BuildEntries:
+        bsr.w   EntityWindow_DeriveWindow       ; d2/d3 = anchor, d4/d5 = col0/row0
+        move.b  d2, (Entity_Window_Anchor).w
+        move.b  d3, (Entity_Window_Anchor+1).w
+        ; origin bases: SLOT_ORIGIN + col0/row0 × SECTION_SIZE (signed words —
+        ; may be −$600, $200, $A00, $1200)
+        moveq   #SECTION_SIZE_SHIFT, d0
+        asl.w   d0, d4
+        addi.w  #SLOT_ORIGIN_L, d4
+        move.w  d4, (Entity_Window_OriginX).w   ; origin_x of column 0
+        asl.w   d0, d5
+        addi.w  #SLOT_ORIGIN_U, d5
+        move.w  d5, (Entity_Window_OriginY).w   ; origin_y of row 0
+
         lea     (Entity_Scan_State).w, a3
-        lea     (Slot_Section_Map).w, a5
         moveq   #0, d7                  ; d7 = validity mask
         moveq   #0, d6                  ; d6 = entry index 0-3
 
 .entry_loop:
-        ; slot = entry & 1, row offset = entry >> 1
+        ; entry geometry from the stored anchor
+        move.b  (Entity_Window_Anchor).w, d2    ; d2 = sec_x0
+        move.b  (Entity_Window_Anchor+1).w, d3  ; d3 = sec_y0
         move.w  d6, d0
-        andi.w  #1, d0                  ; d0 = slot (0/1)
-        add.w   d0, d0                  ; slot × 2 (map stride)
-        move.b  (a5, d0.w), d2          ; d2 = sec_x
-        cmpi.b  #SEC_VOID, d2
-        beq.s   .void_entry
-        move.b  1(a5, d0.w), d3         ; d3 = sec_y
+        andi.w  #1, d0                  ; d0 = column offset (entry & 1)
+        add.b   d0, d2                  ; d2 = sec_x0 + (entry & 1)
         move.w  d6, d1
-        lsr.w   #1, d1                  ; row offset (0/1)
-        add.b   d1, d3                  ; d3 = sec_y + row offset
+        lsr.w   #1, d1                  ; d1 = row offset (entry >> 1)
+        add.b   d1, d3                  ; d3 = sec_y0 + (entry >> 1)
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_GetSecPtrXY     ; a0 = Sec ptr, Z set = out of grid
-        beq.s   .void_entry
+        beq.s   .void_entry             ; (unsigned check voids "negative" bytes too)
 
         bsr.w   Section_FlatIDXY        ; d0.w = flat id (d2/d3/a2 preserved)
         move.w  d0, d1                  ; d1.b = section_id
 
-        ; origins from entry geometry
-        move.w  d6, d0
-        andi.w  #1, d0
-        beq.s   .x_left
-        move.w  #SLOT_ORIGIN_R, d0
-        bra.s   .x_done
-.x_left:
-        move.w  #SLOT_ORIGIN_L, d0
+        ; origins: column/row base + (entry bit) × SECTION_SIZE
+        move.w  (Entity_Window_OriginX).w, d0
+        btst    #0, d6                  ; right column?
+        beq.s   .x_done
+        addi.w  #SECTION_SIZE, d0
 .x_done:
-        moveq   #0, d2
-        move.w  #SLOT_ORIGIN_U, d2
+        move.w  (Entity_Window_OriginY).w, d2
         btst    #1, d6                  ; lower row?
         beq.s   .y_done
-        move.w  #SLOT_ORIGIN_D, d2
+        addi.w  #SECTION_SIZE, d2
 .y_done:
 
         lea     (a3), a1
         bsr.w   EntityWindow_InitSection
 
         ; claim a collected/killed bitmask slot for this section
-        movem.l d6-d7/a3/a5, -(sp)
+        movem.l d6-d7/a3, -(sp)
         moveq   #0, d0
         move.b  EntityScanState_ess_section_id(a1), d0
         bsr.w   Collected_ClaimSlot
-        movem.l (sp)+, d6-d7/a3/a5
+        movem.l (sp)+, d6-d7/a3
 
         bset    d6, d7                  ; mark entry valid
         bra.s   .next_entry
@@ -497,7 +534,8 @@ EntityWindow_BuildEntries:
 ; -----------------------------------------------
 ; EntityWindow_Init — set up entity window at level start
 ;
-; In:  none (reads Slot_Section_Map, Current_Act_Ptr)
+; In:  none (reads Camera_X/Y, Slot_Section_Map, Current_Act_Ptr —
+;      camera must be positioned before this runs)
 ; Out: none
 ; Clobbers: d0-d7, a0-a5
 ; -----------------------------------------------
@@ -518,6 +556,11 @@ EntityWindow_Init:
 .clear_scan:
         clr.b   (a0)+
         dbf     d0, .clear_scan
+        ; anchor + origin bases: first BuildEntries overwrites them, but an
+        ; explicit clear documents that no pre-derivation state survives boot
+        clr.w   (Entity_Window_Anchor).w
+        clr.w   (Entity_Window_OriginX).w
+        clr.w   (Entity_Window_OriginY).w
 
         ; center the 3×3 collected window on slot 0 BEFORE claiming slots
         moveq   #SLOT_LEFT, d0
