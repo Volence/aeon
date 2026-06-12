@@ -2003,7 +2003,7 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 
 **2D Tile Cache:** The tile cache is an 80-column × 60-row linear array in RAM, covering the viewport plus margins (20 columns each side, 16 rows above/below). Two parallel arrays:
 - **Nametable array** (80 × 60 × 2 bytes = 9,600 bytes): VDP nametable words, one per 8×8 tile
-- **Collision array** (2 planes × 80 × 30 × 1 byte = 4,800 bytes): collision type bytes, one per 16px cell per layer (loop path A at +0, path B at +TILE_CACHE_COLL_SIZE; objects select via `SST_layer`)
+- **Collision array** (2 planes × 80 × 30 × 1 byte = 4,800 bytes): collision type bytes, one per 8px-wide × 16px-tall cell per layer — 80 tile columns × 30 collision rows; the two 8px columns of a 16×16 block carry the same byte (loop path A at +0, path B at +TILE_CACHE_COLL_SIZE; objects select via `SST_layer`)
 
 The linear layout enables direct 2D indexing: `cache[col + row * 80]` with both axes circular. Columns slide via `Cache_Origin_Col`, rows via `Cache_Origin_Row` (added 2026-06-10 — replaced the `TileCache_VSlide`/`VSlideUp` memmoves, which cost ~87k cycles per 2-row evict and lagged hard under sustained vertical scroll). Eviction in both axes is O(1) origin arithmetic; the recycled physical rows are overwritten by `TileCache_FillRow` before they can become visible, same validity contract the memmove had. Physical position = `(logical + origin) mod size`. Consumers that walk rows down a column (`TileCache_CopyBlockColumn`, `Draw_TileColumn`, `Section_RedrawPlanes`) carry an end-of-buffer sentinel in an address register and subtract the buffer size on crossing (~16 cycles per row walked); single-row consumers (`Tile_Cache_GetTile`/`GetCollision`, `TileCache_FillRow`, `Draw_TileRow_FromCache`) just remap the row index. **`Cache_Top_Row` and `Cache_Origin_Row` are always even**: init/reinit round down, vertical eviction and upward extension step by 2 tile rows. This keeps 16px collision cells aligned with world block data — and makes `physical_row / 2` exactly the physical collision row, so the collision array shares the same origin. An odd top row would skew every collision lookup by half a cell.
 
@@ -2017,8 +2017,8 @@ The linear layout enables direct 2D indexing: `cache[col + row * 80]` with both 
 ```asm
 ; Collision lookup from tile cache
 ; d0.w = engine X pixels, d1.w = Y pixels
-    lsr.w   #4, d0                      ; X pixels → tile col (16px cells)
-    lsr.w   #4, d1                      ; Y pixels → tile row (16px cells)
+    lsr.w   #3, d0                      ; X pixels → tile col (8px columns)
+    lsr.w   #3, d1                      ; Y pixels → tile row (GetCollision halves to 16px collision rows)
     bsr.w   Tile_Cache_GetCollision     ; d0.b = collision type byte
 ```
 
@@ -2032,7 +2032,7 @@ The linear layout enables direct 2D indexing: `cache[col + row * 80]` with both 
 - **Angle arrays:** Pre-computed terrain angles indexed by collision ID
 - **Height map indexing:** `(collision_type × 16) + (x_pixel & 0xF)` — single-cycle lookup
 
-**Build tool embeds collision in blocks:** The build tool generates 16×16 blocks with nametable words and collision bytes derived from tile placement. Currently uses VDP priority bit (bit 15) to distinguish ground (priority=1 → type 1, solid) from sky (priority=0 → type 0, air). Future: proper tile→collision LUT for slopes and varied terrain types.
+**Build tool embeds collision in blocks:** The build tool generates 16×16 blocks with nametable words and collision bytes derived from tile placement. As of §5 Task 2 the bytes are REAL attr-set indices: `tools/collision_pipeline.py` bakes sonic_hack's per-placement collision (height profile + xflip/yflip + per-path solidity) into deduplicated one-byte indices (`ojz_strip_gen.build_section_collision`), and the matching ROM tables (`HeightMaps`/`HeightMapsRot`/`AngleTable`/`SolidityTable`, BINCLUDEd from `data/collision/`) are emitted from the same attr-set. The old VDP-priority-bit placeholder (priority=1 → type 1) is retired; it survives only as a fallback when the sonic_hack collision sources are missing. Editor FG tile edits do not yet feed collision — collision derives from the sonic_hack layout files (editor collision authoring is deferred).
 
 **Why embedded over separate maps:** S.C.E./S3K embed collision indices directly in their block mapping words. Our block format adapts this by storing collision bytes alongside nametable words in the tile cache. Benefits: no separate per-section collision files, no collision map RAM slots, no collision decompression at init/preload/teleport, collision is inherently tied to position (same visual tile can have different collision in different placements). The collision array adds ~4.8 KB RAM but eliminates all runtime collision map management.
 

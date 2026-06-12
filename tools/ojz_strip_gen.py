@@ -27,15 +27,19 @@ Strip binary layout (WIDE_STRIP_SIZE bytes per column):
   Bytes +2*COLL_ROWS .. end           : STRIP_COLLISION_PAD padding bytes (0)
 Total: WIDE_STRIP_SIZE = STRIP_TILE_HEIGHT*2 + 2*COLLISION_ROWS_PER_STRIP + STRIP_COLLISION_PAD
 
-Dual-layer collision (Task 7): each strip now carries TWO collision planes,
-path A followed by path B. OJZ ships path B as a copy of path A until the
-level pipeline authors real secondary collision data.
+Dual-layer collision (Task 7 + §5 Task 2): each strip carries TWO collision
+planes, path A followed by path B. Both are REAL attr-set indices baked from
+sonic_hack's per-placement collision data (build_section_collision /
+tools/collision_pipeline.py); the matching ROM tables are emitted to
+data/collision/. The old priority-bit placeholder survives only as a fallback
+when the sonic_hack collision sources are missing.
 """
 
 import struct
 import sys
 import os
 import json
+import re
 import shutil
 
 # Allow running from the s4_engine root (where build.sh lives).
@@ -53,6 +57,13 @@ OJZ_ART_PATH = os.path.join(SONIC_HACK, "art/kosinski/OJZ.bin")
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "data", "generated", "ojz", "act1"
+)
+
+# ROM collision tables (§4.7 BINCLUDEs in main.asm) — emitted by generate()
+# from the §5 collision attr-set so the table indices always match the
+# collision bytes baked into the strips.
+COLLISION_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "data", "collision"
 )
 
 EDITOR_DIR = os.path.join(
@@ -338,6 +349,17 @@ def load_bg_layout(path: str) -> list[list[int]]:
     return rows
 
 
+def extract_sec_id(path: str) -> int:
+    """Sort key for OJZ_1_sec*.bin layout filenames (sec digits parse as hex)."""
+    m = re.search(r'sec([0-9A-Fa-f]+)', os.path.basename(path))
+    if m:
+        try:
+            return int(m.group(1), 16)
+        except ValueError:
+            return int(m.group(1))
+    return -1
+
+
 # ---------------------------------------------------------------------------
 # Strip generation
 # ---------------------------------------------------------------------------
@@ -586,7 +608,12 @@ def editor_data_available() -> bool:
     return os.path.isfile(sec0) and os.path.isfile(CHUNKS_TILES_PATH)
 
 
-def write_strips_to_file(strips: list[list[int]], path: str) -> None:
+def write_strips_to_file(
+    strips: list[list[int]],
+    path: str,
+    coll_a: list[bytes] | None = None,
+    coll_b: list[bytes] | None = None,
+) -> None:
     """Write all column strips concatenated into a single binary file.
 
     Format per column (WIDE_STRIP_SIZE bytes):
@@ -595,12 +622,26 @@ def write_strips_to_file(strips: list[list[int]], path: str) -> None:
       - COLLISION_ROWS_PER_STRIP collision bytes (path B)
       - STRIP_COLLISION_PAD bytes padding
     Total size: len(strips) * WIDE_STRIP_SIZE bytes.
+
+    coll_a/coll_b: real attr-set collision grids from build_section_collision
+    (one COLLISION_ROWS_PER_STRIP-byte entry per column). When omitted, fall
+    back to generate_collision_bytes — the legacy priority-bit placeholder,
+    kept ONLY for the no-sonic_hack-collision-sources case.
     """
+    if coll_a is not None:
+        assert coll_b is not None and len(coll_a) == len(coll_b) == len(strips), (
+            f"collision grid columns ({len(coll_a)}/{len(coll_b) if coll_b else 0}) "
+            f"must match strip count ({len(strips)}) for {path}"
+        )
     with open(path, "wb") as f:
-        for strip in strips:
+        for i, strip in enumerate(strips):
             for word in strip:
                 f.write(struct.pack(">H", word))
-            f.write(generate_collision_bytes(strip))
+            if coll_a is not None:
+                f.write(coll_a[i])
+                f.write(coll_b[i])
+            else:
+                f.write(generate_collision_bytes(strip))
             f.write(b'\x00' * STRIP_COLLISION_PAD)
 
 
@@ -907,13 +948,79 @@ def test_binary_round_trip():
     print("  PASS: binary round-trip")
 
 
+def test_section_collision_sec0():
+    """Bake sec0 (fallback-mode data) and validate the real collision grids."""
+    import collision_pipeline
+    index_a, index_b, profiles, angles = \
+        collision_pipeline.load_collision_sources(SONIC_HACK)
+    layout = load_layout(os.path.join(LAYOUT_DIR, "OJZ_1_sec0.bin"))
+    chunks = load_chunk_map(CHUNK_MAP_PATH)
+
+    attrset = collision_pipeline.AttrSet()
+    coll_a, coll_b = build_section_collision(
+        layout, chunks, index_a, index_b, profiles, angles, attrset
+    )
+
+    n_cols = len(layout[0]) * TILES_PER_CHUNK_ROW
+    assert len(coll_a) == n_cols and len(coll_b) == n_cols, (
+        f"expected {n_cols} columns, got {len(coll_a)}/{len(coll_b)}"
+    )
+    assert all(len(c) == COLLISION_ROWS_PER_STRIP for c in coll_a + coll_b), \
+        "every column must carry COLLISION_ROWS_PER_STRIP bytes"
+
+    # (2) every baked byte indexes into the attr-set
+    n_entries = len(attrset.entries)
+    for col_a, col_b in zip(coll_a, coll_b):
+        assert all(byte < n_entries for byte in col_a), \
+            f"plane A byte >= attr-set size {n_entries}"
+        assert all(byte < n_entries for byte in col_b), \
+            f"plane B byte >= attr-set size {n_entries}"
+
+    # Sanity: sec0 must contain SOME solid collision
+    assert any(any(col) for col in coll_a), "sec0 baked to all-air plane A"
+
+    # (1) plane A ≠ plane B somewhere iff the source data diverges for a
+    # block actually placed within sec0's baked area (computed from the
+    # source, not hardcoded).
+    src_diverges = False
+    scratch = collision_pipeline.AttrSet()
+    covered_rows = COLLISION_ROWS_PER_STRIP // BLOCKS_PER_CHUNK_COL  # 16 chunk rows
+    for chunk_row in range(min(len(layout), covered_rows)):
+        for chunk_col in range(len(layout[chunk_row])):
+            chunk_id = layout[chunk_row][chunk_col]
+            if chunk_id >= len(chunks):
+                continue
+            for word in chunks[chunk_id]:
+                a, b = collision_pipeline.bake_cell(
+                    word, index_a, index_b, profiles, angles, scratch
+                )
+                if a != b:
+                    src_diverges = True
+    grids_diverge = any(ca != cb for ca, cb in zip(coll_a, coll_b))
+    assert grids_diverge == src_diverges, (
+        f"plane divergence mismatch: grids {grids_diverge}, source {src_diverges}"
+    )
+
+    # (3) both 8px tile columns of any block carry identical bytes — pairs
+    # (2i, 2i+1) never straddle a block (or chunk) boundary.
+    for col in range(0, n_cols, 2):
+        assert coll_a[col] == coll_a[col + 1], f"plane A cols {col}/{col+1} differ"
+        assert coll_b[col] == coll_b[col + 1], f"plane B cols {col}/{col+1} differ"
+
+    print(f"  [OK] test_section_collision_sec0: {n_cols} cols, "
+          f"{n_entries} attr-set entries, planes diverge={grids_diverge} "
+          f"(matches source)")
+
+
 def test_full_pipeline_runs():
     """Smoke test the whole generate() pipeline produces a deduped pool."""
     import tempfile
-    global OUTPUT_DIR
+    global OUTPUT_DIR, COLLISION_DIR
     saved = OUTPUT_DIR
+    saved_coll = COLLISION_DIR
     with tempfile.TemporaryDirectory() as td:
         OUTPUT_DIR = td
+        COLLISION_DIR = os.path.join(td, "collision")
         try:
             generate()
             # A.3: per-section blobs (one per OJZ section)
@@ -926,8 +1033,14 @@ def test_full_pipeline_runs():
                 assert size <= REGION1_TILE_CAPACITY * 32
             bases_path = os.path.join(td, "sec_vram_bases.asm")
             assert os.path.exists(bases_path), "sec_vram_bases.asm not written"
+            # §5 Task 2: the four ROM collision tables are emitted alongside
+            for name in ("heightmaps.bin", "heightmaps_rot.bin",
+                         "angles.bin", "solidity.bin"):
+                p = os.path.join(COLLISION_DIR, name)
+                assert os.path.exists(p), f"collision table {name} not written"
         finally:
             OUTPUT_DIR = saved
+            COLLISION_DIR = saved_coll
     print(f"  [OK] test_full_pipeline_runs: deduped pool fits in 1536 tiles")
 
 
@@ -943,6 +1056,7 @@ def run_tests():
     test_column_layout_correctness()
     test_explicit_truncation()
     test_binary_round_trip()
+    test_section_collision_sec0()
     test_full_pipeline_runs()
     print("All tests passed")
 
@@ -960,15 +1074,15 @@ WIDE_STRIP_SIZE = (STRIP_TILE_HEIGHT * 2
 
 
 def generate_collision_bytes(strip_words: list[int]) -> bytes:
-    """Generate collision bytes for one strip column — both path A and path B planes.
+    """LEGACY placeholder collision for one strip column (path A + path B).
 
-    Path A: mark a cell solid if its nametable words have the VDP priority
-    bit set (bit 15). In OJZ, sky/cloud tiles use priority 0 while
-    ground/terrain tiles use priority 1.
+    Only used when the sonic_hack collision sources are missing (see
+    _try_load_collision_sources). The real path is build_section_collision,
+    which bakes per-placement attr-set indices.
 
-    Path B (OJZ fallback): copy of path A. Real secondary collision data
-    requires wiring the strip generator to the sonic_hack collision index
-    files — deferred to the level pipeline task.
+    Path A: mark a cell solid (type 1) if its nametable words have the VDP
+    priority bit set (bit 15). In OJZ, sky/cloud tiles use priority 0 while
+    ground/terrain tiles use priority 1. Path B: copy of path A.
 
     Returns: path_A_bytes (COLLISION_ROWS_PER_STRIP) + path_B_bytes (COLLISION_ROWS_PER_STRIP)
     """
@@ -978,9 +1092,94 @@ def generate_collision_bytes(strip_words: list[int]) -> bytes:
         bot_word = strip_words[cell * 2 + 1] if cell * 2 + 1 < len(strip_words) else 0
         if (top_word & 0x8000) or (bot_word & 0x8000):
             collision_a[cell] = 1
-    # Path B = copy of path A (OJZ fallback — no real secondary data authored yet)
+    # Path B = copy of path A (placeholder has no per-path source data)
     collision_b = bytes(collision_a)
     return bytes(collision_a) + collision_b
+
+
+def _try_load_collision_sources():
+    """Load the sonic_hack collision sources, or None with a LOUD warning.
+
+    Returns (index_a, index_b, profiles, angles) on success. On failure the
+    strip generator falls back to the priority-bit placeholder
+    (generate_collision_bytes) and leaves data/collision/ untouched — the
+    gen_collision_data.py stub tables (type 1 = flat full block) match the
+    placeholder's 0/1 bytes.
+    """
+    import collision_pipeline
+    try:
+        return collision_pipeline.load_collision_sources(SONIC_HACK)
+    except (OSError, ValueError) as exc:
+        print("!" * 72)
+        print(f"WARNING: sonic_hack collision sources unavailable: {exc}")
+        print("WARNING: strips get PRIORITY-BIT PLACEHOLDER collision (0/1),")
+        print("WARNING: and data/collision/ ROM tables are NOT regenerated.")
+        print("!" * 72)
+        return None
+
+
+def build_section_collision(
+    layout: list[list[int]],
+    chunks: list[list[int]],
+    index_a: bytes,
+    index_b: bytes,
+    profiles: bytes,
+    angles: bytes,
+    attrset,
+) -> tuple[list[bytes], list[bytes]]:
+    """Bake one section's real collision grids from sonic_hack data (§5 Task 2).
+
+    Per tile column (8px) × collision row (16px): bake the covering 16×16
+    block placement to (a_byte, b_byte) attr-set indices via
+    collision_pipeline.bake_cell. Section = 16×16 chunks = 256 tile cols ×
+    128 collision rows (columns derived from layout width; rows fixed at
+    COLLISION_ROWS_PER_STRIP — layout rows beyond that are clamped, exactly
+    like the strip nametable clamps at STRIP_TILE_HEIGHT).
+
+    For cell (tile_col, coll_row):
+      chunk_col = tile_col // 16, chunk_row = coll_row // 8,
+      block_col = (tile_col % 16) // 2, block_row = coll_row % 8,
+      word = chunks[chunk_id][block_row*8 + block_col]
+      where chunk_id = layout[chunk_row][chunk_col]
+    (guards: chunk_row/col beyond layout bounds, or chunk_id >= len(chunks)
+    → air, byte 0). BOTH 8px tile columns of one block share the block's
+    baked bytes.
+
+    Returns (coll_a, coll_b), oriented per-COLUMN to match the strips
+    structure write_strips_to_file consumes: coll_a[tile_col] is a bytes
+    object of COLLISION_ROWS_PER_STRIP path-A bytes (collision rows top to
+    bottom), written verbatim after the column's nametable words.
+    """
+    import collision_pipeline
+
+    n_cols = (len(layout[0]) if layout else 0) * TILES_PER_CHUNK_ROW
+    cache: dict[int, tuple[int, int]] = {}   # chunk-entry word → (a, b)
+    coll_a: list[bytes] = []
+    coll_b: list[bytes] = []
+    for tile_col in range(n_cols):
+        col_a = bytearray(COLLISION_ROWS_PER_STRIP)
+        col_b = bytearray(COLLISION_ROWS_PER_STRIP)
+        chunk_col = tile_col // TILES_PER_CHUNK_ROW
+        block_col = (tile_col % TILES_PER_CHUNK_ROW) // TILES_PER_BLOCK_ROW
+        for coll_row in range(COLLISION_ROWS_PER_STRIP):
+            chunk_row = coll_row // BLOCKS_PER_CHUNK_COL
+            block_row = coll_row % BLOCKS_PER_CHUNK_COL
+            if chunk_row >= len(layout) or chunk_col >= len(layout[chunk_row]):
+                continue                     # beyond layout → air
+            chunk_id = layout[chunk_row][chunk_col]
+            if chunk_id >= len(chunks):
+                continue                     # out-of-range chunk → air
+            word = chunks[chunk_id][block_row * BLOCKS_PER_CHUNK_ROW + block_col]
+            baked = cache.get(word)
+            if baked is None:
+                baked = collision_pipeline.bake_cell(
+                    word, index_a, index_b, profiles, angles, attrset
+                )
+                cache[word] = baked
+            col_a[coll_row], col_b[coll_row] = baked
+        coll_a.append(bytes(col_a))
+        coll_b.append(bytes(col_b))
+    return coll_a, coll_b
 
 
 # ---------------------------------------------------------------------------
@@ -1012,6 +1211,7 @@ def generate():
         print(f"  Tile art: {CHUNKS_TILES_PATH} ({len(full_blob)} bytes, {len(full_blob)//32} tiles)")
 
         per_section_strips: dict[str, list[list[int]]] = {}
+        per_section_layouts: dict[str, list[list[int]]] = {}
         for sec_idx in range(editor_num_sections):
             sec_path = os.path.join(editor_data_path, f"section_{sec_idx}.tiles.bin")
             if not os.path.isfile(sec_path):
@@ -1022,6 +1222,33 @@ def generate():
             per_section_strips[str(sec_idx)] = strips
             n_cols = len(strips)
             print(f"  section_{sec_idx}: {len(nametable)} rows × {n_cols} cols → {n_cols} strips")
+
+            # Collision ALWAYS derives from sonic_hack layout data, even in
+            # editor mode (precedent: Pass 6b "BG layout always uses
+            # sonic_hack data"). NOTE: editor FG tile edits therefore do NOT
+            # update collision — editor collision authoring is future work
+            # (deferred per design spec §1).
+            #
+            # Mapping (verified 2026-06-12): editor section index N ↔
+            # LAYOUT_DIR/OJZ_1_sec{N}.bin with N in DECIMAL. The editor grid
+            # is gridWidth×gridHeight from project.json (currently 3×3 = 9
+            # sections, indices 0-8); its 256×256-tile section nametables
+            # match the 16-chunk-wide × 16-row layout files OJZ_1_sec0..11
+            # (header: width=16, fg_rows=16). The OJZ_1_secA..secD files are
+            # LEGACY 32-chunk-wide × 18-row layouts from an earlier section
+            # scheme and never correspond to editor sections. For indices
+            # 0-9 the hex-vs-decimal filename question is moot (identical);
+            # the editor grid would need to exceed 10 sections AND use
+            # decimal sec10/sec11 names before it matters — those two files
+            # are also 16×16 and decimal-named, so decimal is correct there
+            # too.
+            layout_path = os.path.join(LAYOUT_DIR, f"OJZ_1_sec{sec_idx}.bin")
+            if os.path.isfile(layout_path):
+                per_section_layouts[str(sec_idx)] = load_layout(layout_path)
+            else:
+                print(f"  WARNING: no sonic_hack layout {layout_path} — "
+                      f"section_{sec_idx} collision will be empty (air)")
+                per_section_layouts[str(sec_idx)] = []
     else:
         print("=== Using sonic_hack reference data (no editor data found) ===")
         print(f"Loading block map: {BLOCK_MAP_PATH}")
@@ -1033,16 +1260,7 @@ def generate():
         print(f"  {len(chunks)} chunks loaded")
 
         import glob
-        import re
         pattern = os.path.join(LAYOUT_DIR, "OJZ_1_sec*.bin")
-        def extract_sec_id(path: str) -> int:
-            m = re.search(r'sec([0-9A-Fa-f]+)', os.path.basename(path))
-            if m:
-                try:
-                    return int(m.group(1), 16)
-                except ValueError:
-                    return int(m.group(1))
-            return -1
         section_files = sorted(glob.glob(pattern), key=extract_sec_id)
 
         if not section_files:
@@ -1050,6 +1268,7 @@ def generate():
             sys.exit(1)
 
         per_section_strips = {}
+        per_section_layouts = {}
         for sec_path in section_files:
             sec_name = os.path.basename(sec_path).replace(".bin", "")
             sec_id = sec_name.split("sec")[1]
@@ -1061,12 +1280,50 @@ def generate():
 
             strips = generate_section_strips(layout, chunks, blocks)
             per_section_strips[sec_id] = strips
+            per_section_layouts[sec_id] = layout
             print(
                 f"  {sec_name}: {len(layout)} rows × {len(layout[0])} chunks "
                 f"→ {len(strips)} strips"
             )
 
         full_blob = decompress_full_ojz_art(OJZ_ART_PATH)
+
+    # ---- Pass 1b (§5 Task 2): bake real collision grids from sonic_hack ----
+    # ONE shared AttrSet across all sections — the strips' collision bytes
+    # are indices into the attr-set tables emitted below, so every section
+    # must intern into the same set.
+    import collision_pipeline
+    per_section_coll: dict[str, tuple[list[bytes], list[bytes]]] = {}
+    attrset = None
+    coll_sources = _try_load_collision_sources()
+    if coll_sources is not None:
+        index_a, index_b, profiles, angles = coll_sources
+        attrset = collision_pipeline.AttrSet()
+        coll_chunks = load_chunk_map(CHUNK_MAP_PATH) if use_editor else chunks
+        for sec_id, strips in per_section_strips.items():
+            layout = per_section_layouts.get(sec_id) or []
+            if layout:
+                grids = build_section_collision(
+                    layout, coll_chunks, index_a, index_b, profiles, angles,
+                    attrset,
+                )
+            else:
+                air_col = bytes(COLLISION_ROWS_PER_STRIP)
+                grids = ([air_col] * len(strips), [air_col] * len(strips))
+            per_section_coll[sec_id] = grids
+        print(f"Baked collision: {len(per_section_coll)} sections → "
+              f"{len(attrset.entries)} attr-set entries (incl. air)")
+
+        # Emit the §4.7 ROM tables from the same attr-set the strips index
+        # into — replaces the gen_collision_data.py output written earlier
+        # in the build (kept as a baseline for the no-sources fallback).
+        coll_dir = os.path.normpath(COLLISION_DIR)
+        os.makedirs(coll_dir, exist_ok=True)
+        tables = collision_pipeline.emit_tables(attrset)
+        for name in sorted(tables):
+            with open(os.path.join(coll_dir, name), "wb") as f:
+                f.write(tables[name])
+        print(f"Emitted collision tables ({', '.join(sorted(tables))}) -> {coll_dir}")
 
     # ---- Pass 2: dedupe across all sections ----
     sorted_indices, raw_tiles = collect_referenced_tiles(per_section_strips, full_blob)
@@ -1121,14 +1378,21 @@ def generate():
                 )
             remapped_strips.append(remapped_col)
 
+        coll_grids = per_section_coll.get(sec_id)
+        coll_grid_a, coll_grid_b = coll_grids if coll_grids else (None, None)
+
         out_a = os.path.join(out_dir, f"sec{sec_id}_strips_a.bin")
-        write_strips_to_file(remapped_strips, out_a)
+        write_strips_to_file(remapped_strips, out_a, coll_grid_a, coll_grid_b)
 
         # Source-space strips for the level editor (OJZ.bin tile indices,
-        # same 128-byte/col format). The editor loads these instead of
-        # strips_a.bin so it never sees VRAM slot assignments.
+        # same per-col format). The editor loads these instead of
+        # strips_a.bin so it never sees VRAM slot assignments. They get the
+        # SAME real collision bytes — the editor ignores those bytes today,
+        # but the data is identical either way.
         out_src = os.path.join(out_dir, f"sec{sec_id}_strips_source.bin")
-        write_strips_to_file(per_section_strips[sec_id], out_src)
+        write_strips_to_file(
+            per_section_strips[sec_id], out_src, coll_grid_a, coll_grid_b
+        )
 
         if first_strips is None:
             first_strips = remapped_strips

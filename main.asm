@@ -188,6 +188,9 @@ HeightMapsRot:
 AngleTable:
     BINCLUDE "data/collision/angles.bin"
     align 2
+SolidityTable:
+    BINCLUDE "data/collision/solidity.bin"
+    align 2
 
 Map_Sonic:
     BINCLUDE "data/mappings/sonic.bin"
