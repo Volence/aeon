@@ -1724,6 +1724,16 @@ objdef code=TestEnemy_Init, map=Map_TestObj, art=vram_art(VRAM_TEST_OBJ,0,0), \
 
 Art is referenced by `art_tile` directly (build-time VRAM layout); per-frame character art goes through the DPLC pipeline (3.9). Every object type's full spawn state lives in its objdef line — single source of truth, and the macro build-fails on overflow (priority > 7, image size ≠ 26).
 
+**Object-authoring rule: no unshifted absolute coordinates in `sst_custom`.**
+Teleport rebases shift `SST_x_pos`/`SST_y_pos` for every slot-tagged object but
+cannot see absolute world coordinates stored in `sst_custom` (patrol anchors,
+waypoint targets, "return home" positions) — those go stale by ±SECTION_SHIFT
+at a seam and the object lurches. Keep positional state relative (offsets,
+counters, velocities) or re-derivable from the ROM placement. An object that
+genuinely needs a stored absolute coordinate must register it for teleport
+shifting (design the mechanism when the need first arises — likely a per-ObjDef
+shift mask of custom longwords). See `CODING_CONVENTIONS.md` §7.8.
+
 ### 3.8 Per-Frame Systems — Design Rationale
 
 Comparative analysis across S.C.E. and 5 commercial Genesis engines informed which per-frame system patterns to adopt vs. redesign:

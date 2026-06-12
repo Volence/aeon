@@ -685,6 +685,17 @@ Priority order:
 3. `CHK` instruction bounds checking in debug builds (auto-triggers exception)
 4. Never: silent corruption, mystery crashes, "it works if you don't do X"
 
+### 7.8 No Unshifted Absolute Coordinates in Object State
+
+**No unshifted absolute coordinates in object state.** Teleport rebases shift
+`SST_x_pos`/`SST_y_pos` for every slot-tagged object but cannot see absolute
+world coordinates stored in `sst_custom` (patrol anchors, waypoint targets,
+"return home" positions) — those go stale by ±SECTION_SHIFT at a seam and the
+object lurches. Keep positional state relative (offsets, counters, velocities)
+or re-derivable from the ROM placement. An object that genuinely needs a stored
+absolute coordinate must register it for teleport shifting (design the mechanism
+when the need first arises — likely a per-ObjDef shift mask of custom longwords).
+
 ---
 
 ## 8. Performance Measurement
