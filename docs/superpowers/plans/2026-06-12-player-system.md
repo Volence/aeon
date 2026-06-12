@@ -623,6 +623,7 @@ Player_SetState:
 - Ground wall probe is fully quadrant-relative: direction = 8-entry quadrant×gsp-sign table (derived from the projection at the cardinals), position = velocity-projected next-frame center ± PUSH_RADIUS along the probe direction, +8 Y offset ONLY at angle == 0 exactly. S3K gate: probe skipped when angle is a non-cardinal in $41-$BF (exact cardinals stay enabled). Velocity-cancel and the facing-aware push bit generalize per axis; gsp>0 = "facing-right travel" in every quadrant (input→gsp mapping never rotates).
 - `Player_SensorWallDir` (player_sensors.asm) is the 4-direction push probe (d2 = 0/1/2/3 down/up/right/left, preserves d7); `Player_SensorWallAt` is now a 4-instruction shim onto it; the unused SST-position variant `Player_SensorWall` was deleted (its grounded Y-offset semantics are documented at the Ground_Move TODO for Task 8's −5 rolling offset).
 - Snap-down window now uses |speed along the probe axis| (x_vel for quadrants 0/2, y_vel for 1/3) and is bypassed when `_pl_stick_convex` is set (research §7 full-adherence rule; nothing sets the flag yet).
+- Live verification surfaced a plan omission: no task scheduled the classic `Sonic_LevelBound` clamp, and the frame skeleton (Task 5) never carried it — running off the world's left edge at the first pair free-fell into the void with coordinate wrap (the bug-#7 failure class spec §6 says to guard). Fixed post-Task-7 as `Player_LevelBound` in player_common.asm (post-dispatch call in Player_Main; slot-window-aware bounds — see routine header and the Task 10 note).
 - Task 8 must know: PState_Ground falls through into Player_SlopeRepel — append ROLL logic before the fall-through or branch around it deliberately; the ROLL slope factor ($50/$14, never gsp==0-gated) has its TODO at the GROUND slope-factor block; the rolling wall-probe −5px offset TODO sits at `.no_foot_drop` in Ground_Move; roll landings hook at the `.grounded` paths in player_air.asm; `Player_Jump`'s ROLL→ROLLJUMP TODO remains.
 
 ---
@@ -667,6 +668,7 @@ PathSwap_Main:
 
 **Files:** `engine/level/camera.asm`, `engine/player/player_common.asm`
 
+- [x] (landed early, post-Task-7: Player_LevelBound — plan omission found via live void-fall)
 - [ ] **Step 10.1:** Landing lock: camera Y follow skips downward correction while player state ∈ {JUMP, ROLLJUMP} AND player above last grounded camera target, until landing or bottom-deadzone exit (read `_pl_state` from `Player_1` — camera already `lea`s it). Verify no regression to debug-fly camera behavior (debug suspend reports "grounded" semantics — gate on the debug flag).
 - [ ] **Step 10.2:** Spindash camera freeze counter from Task 8 honored here if not already.
 - [ ] **Step 10.3:** Full-feel pass in Exodus against verification matrix items 1-9 (spec §9). Fix what fails; each fix its own commit with the matrix item in the message.

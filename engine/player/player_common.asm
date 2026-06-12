@@ -207,6 +207,10 @@ Player_Main:
         jsr     (a1,d1.w)
         move.w  (sp)+, d7
 
+        bsr.w   Player_LevelBound               ; classic LevelBound, post-
+                                                ; dispatch (placement rationale
+                                                ; at the routine header)
+
         ; --- position history rings (recorded unconditionally — a
         ; "follower active?" branch costs more than the writes) ---
         move.w  (Player_Ring_Index).w, d0
@@ -387,6 +391,123 @@ Player_SnapToSurface:
         rts
 .up:
         sub.l   d0, SST_y_pos(a0)
+        rts
+
+; Classic Sonic_LevelBound margins: the player center may approach the
+; left playable edge to 16px and the right edge to 24px (asymmetric in
+; the originals — kept verbatim). Bottom margin: detection slack below
+; the playable bottom; must exceed the per-frame fall cap
+; (PHYS_FALL_CAP = 16px) so a pending down-teleport (Section_Check runs
+; AFTER RunObjects) can never trip the guard transiently.
+PBOUND_LEFT_MARGIN   = 16
+PBOUND_RIGHT_MARGIN  = 24
+PBOUND_BOTTOM_MARGIN = 48
+    if PBOUND_BOTTOM_MARGIN <= (PHYS_FALL_CAP>>8)
+      error "PBOUND_BOTTOM_MARGIN must exceed the per-frame fall cap"
+    endif
+
+; -----------------------------------------------
+; Player_LevelBound — clamp the player to the act's playable bounds
+; (classic Sonic_LevelBound, adapted to the slot-window coordinates)
+;
+; PLACEMENT: called once from Player_Main right after the state
+; dispatch, before the history rings. The classics run LevelBound
+; inside each movement state; a single post-dispatch call clamps the
+; same end-of-frame position without per-state duplication, and the
+; history rings then record the CLAMPED position. Debug-fly never
+; reaches this (Player_Main branches to Player_DebugMove before the
+; dispatch) — bounds are deliberately SKIPPED in debug-fly, which is
+; for inspecting anywhere, including off-world.
+;
+; Engine X/Y are window coordinates (2 sections per axis from
+; SLOT_ORIGIN_L/_U, rebased by Section_Teleport*). A playable bound
+; only EXISTS where the matching teleport is unavailable — clamping at
+; a live teleport edge would hold the player below the threshold
+; (Section_Check reads Player_1's position AFTER RunObjects) and
+; freeze streaming. So each clamp mirrors Section_Check's skip
+; conditions exactly:
+;   left  — slot 0 holds sec_x 0 (BWD teleport skipped): bound =
+;           Act_cam_min_x. Same act field the camera clamps to, minus
+;           its §4.2 PREVIEW_PIXELS extension, which is camera-only:
+;           the preview region is render-ahead, not playable ground.
+;   right — FWD teleport skipped, two cases (same split as the
+;           camera's .check_max_x): slot 1 void (act edge on an
+;           odd-width grid) → bound = slot 0's right edge
+;           (SLOT_ORIGIN_L+SECTION_SIZE); slot 1 is the last grid
+;           column → bound = the window's right edge
+;           (SLOT_ORIGIN_L+SECTION_SHIFT). NOT Act_cam_max_x: that
+;           field is camera-space slop ("approximate" — $1880 for OJZ
+;           act 1, past the $1200 window, so it never binds) and a
+;           bound past the window edge is the void-walk failure this
+;           routine guards. The window edge IS the act's right
+;           playable bound whenever the last column sits in slot 1.
+;   bottom — playable bottom = Act_cam_max_y + SCREEN_HEIGHT (the act
+;           data's own statement of the bottom edge; the camera stops
+;           one screen above it). Checked UNCONDITIONALLY: when a down
+;           teleport is available the player can only be transiently
+;           below the window bottom by one frame's fall (≤16px <
+;           margin), so a trip always means a real collision/streaming
+;           bug — including "the teleport that should have caught this
+;           never fired".
+;   top   — NO clamp (classic allows above-screen travel).
+;
+; On X clamp: integer x written with subpixel zeroed, x_vel and gsp
+; cleared (classic). On bottom trip: DEBUG builds RaiseError — a
+; player below the world during §5 development is always a bug we
+; want loud; release builds clamp y and zero y_vel as a placeholder
+; until death/respawn exists.
+; In:  a0 = player SST
+; Out: none
+; Clobbers: d0-d2, a1
+; -----------------------------------------------
+Player_LevelBound:
+        movea.l (Current_Act_Ptr).w, a1
+        move.w  SST_x_pos(a0), d0               ; integer X (16.16 high word)
+
+        ; --- left bound: only where BWD teleport is unavailable ---
+        tst.b   (Slot_Section_Map).w
+        bne.s   .left_open                      ; slot 0 sec_x > 0 → teleport owns the edge
+        move.w  Act_cam_min_x(a1), d1
+        addi.w  #PBOUND_LEFT_MARGIN, d1
+        cmp.w   d1, d0
+        blt.s   .clamp_x
+.left_open:
+        ; --- right bound: only where FWD teleport is unavailable ---
+        move.b  (Slot_Section_Map+2).w, d2      ; slot 1 sec_x
+        cmpi.b  #SEC_VOID, d2
+        bne.s   .right_in_grid
+        move.w  #SLOT_ORIGIN_L+SECTION_SIZE-PBOUND_RIGHT_MARGIN, d1
+        bra.s   .right_test
+.right_in_grid:
+        addq.b  #1, d2                          ; next-FWD sec_x
+        cmp.b   Act_grid_w+1(a1), d2            ; grid_w is a word; low byte at +1
+        bcs.s   .x_done                         ; < grid_w → FWD teleport owns the edge
+        move.w  #SLOT_ORIGIN_L+SECTION_SHIFT-PBOUND_RIGHT_MARGIN, d1
+.right_test:
+        cmp.w   d1, d0
+        ble.s   .x_done
+.clamp_x:
+        move.w  d1, SST_x_pos(a0)
+        clr.w   SST_x_pos+2(a0)                 ; subpixel zeroed (classic)
+        clr.w   SST_x_vel(a0)
+        clr.w   _pl_gsp(a0)
+.x_done:
+        ; --- bottom guard (no top clamp) ---
+        move.w  SST_y_pos(a0), d0               ; integer Y
+        move.w  Act_cam_max_y(a1), d1
+        addi.w  #SCREEN_HEIGHT, d1              ; d1 = playable bottom edge
+        move.w  d1, d2
+        addi.w  #PBOUND_BOTTOM_MARGIN, d2
+        cmp.w   d2, d0
+        ble.s   .y_ok
+    ifdef __DEBUG__
+        RaiseError "Player below world: y=%<.w d0> bottom=%<.w d1> (collision/streaming bug)"
+    else
+        move.w  d1, SST_y_pos(a0)               ; placeholder until death/respawn exists
+        clr.w   SST_y_pos+2(a0)
+        clr.w   SST_y_vel(a0)
+    endif
+.y_ok:
         rts
 
 ; -----------------------------------------------
