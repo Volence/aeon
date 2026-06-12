@@ -1,0 +1,451 @@
+#!/usr/bin/env python3
+"""Collision attr-set pipeline (§5 Task 1).
+
+Bakes sonic_hack per-placement collision (profile, xflip, yflip, solidity)
+into one-byte attr-set indices + ROM tables. See
+docs/superpowers/specs/2026-06-12-player-system-design.md §4 and
+docs/research/player-sensors-sce.md §3.3.
+
+Usage:
+    python3 tools/collision_pipeline.py test    # run self-tests
+
+Height semantics (per-column profile byte h):
+    0          empty column
+    1..16      solid height in pixels measured UP from the block bottom
+    0x80..0xFF two's-complement negative: solid hangs DOWN from the block
+               top with depth 256-h
+
+Angles are 256-unit bytes, 0 = flat. Odd values flag "no usable angle"
+and stay odd through flips (negation preserves oddness).
+"""
+
+import glob
+import os
+import struct
+import sys
+
+# Allow running from the s4_engine root (where build.sh lives).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ojz_strip_gen
+from ojz_strip_gen import (
+    SONIC_HACK,
+    CHUNK_MAP_PATH,
+    LAYOUT_DIR,
+    kos_decompress,
+    load_chunk_map,
+    load_layout,
+)
+
+# ---------------------------------------------------------------------------
+# Solidity values (per path, 2 bits in the chunk entry word)
+# ---------------------------------------------------------------------------
+SOL_NONE, SOL_TOP, SOL_LRB, SOL_ALL = 0, 1, 2, 3
+
+BLOCK_ID_MASK = 0x03FF      # bits 9:0 of a chunk entry word
+CHUNK_XFLIP_BIT = 0x0400    # bit 10
+CHUNK_YFLIP_BIT = 0x0800    # bit 11
+PATH_A_SOL_SHIFT = 12       # bits 13:12 (bit12=top, bit13=lrb)
+PATH_B_SOL_SHIFT = 14       # bits 15:14
+
+PROFILE_LEN = 16            # one height byte per 16x16-block column
+MAX_PROFILES = 256          # one byte indexes the attr-set
+
+
+# ---------------------------------------------------------------------------
+# Pure flip / coverage primitives
+# ---------------------------------------------------------------------------
+
+def flip_profile_x(heights: bytes) -> bytes:
+    """xflip: reverse the 16 per-column heights."""
+    return bytes(reversed(heights))
+
+
+def flip_profile_y(heights: bytes) -> bytes:
+    """yflip: solid now hangs from the top edge. 0→0, 16→16 (full stays
+    full), else h → 256-h (two's-complement negative byte = hanging depth)."""
+    return bytes(h if h in (0, 16) else (256 - h) & 0xFF for h in heights)
+
+
+def flip_angle_x(angle: int) -> int:
+    """Negate angle; odd-flag values stay odd (e.g. $FF → $01)."""
+    return (-angle) & 0xFF
+
+
+def flip_angle_y(angle: int) -> int:
+    """Reflect: -(angle+$40)-$40 == -angle-$80."""
+    return (-angle - 0x80) & 0xFF
+
+
+def covers(h: int, row: int) -> bool:
+    """Does signed height byte h cover block row `row` (0 = top)?"""
+    if h == 0:
+        return False
+    if h == 16:
+        return True
+    if h < 0x80:
+        return row >= 16 - h                    # bottom-anchored
+    return row < (256 - h)                      # hanging, depth 256-h
+
+
+def rotate_profile(heights: bytes) -> bytes:
+    """Regenerate the rotated (wall) profile from a vertical profile.
+
+    rotated[row] = solid width at block row `row` (0 = TOP row), measured
+    from the LEFT edge when the row's solid run touches the left edge
+    (positive width = contiguous run length from left); when the run is
+    anchored at the RIGHT edge instead, emit negative width (256-w), per
+    the S2 'Collision array 2' convention. Row all-solid → 16; none → 0.
+    A row whose solid span touches NEITHER edge (floating middle) →
+    raise ValueError (doesn't occur in OJZ data; the real-data self-test
+    proves it).
+    """
+    rotated = bytearray(PROFILE_LEN)
+    for row in range(PROFILE_LEN):
+        solid = [covers(heights[col], row) for col in range(PROFILE_LEN)]
+        if not any(solid):
+            rotated[row] = 0
+            continue
+        if all(solid):
+            rotated[row] = 16
+            continue
+        if solid[0]:
+            # Left-anchored: contiguous run length from the left edge
+            w = 0
+            while w < PROFILE_LEN and solid[w]:
+                w += 1
+            rotated[row] = w
+        elif solid[PROFILE_LEN - 1]:
+            # Right-anchored: contiguous run length from the right edge,
+            # emitted as a negative byte (256-w)
+            w = 0
+            while w < PROFILE_LEN and solid[PROFILE_LEN - 1 - w]:
+                w += 1
+            rotated[row] = (256 - w) & 0xFF
+        else:
+            raise ValueError(
+                f"rotate_profile: row {row} solid span touches neither edge "
+                f"(heights={list(heights)})"
+            )
+    return bytes(rotated)
+
+
+# ---------------------------------------------------------------------------
+# Attr-set: deduplicated (heights, angle, solidity) → one-byte index
+# ---------------------------------------------------------------------------
+
+class AttrSet:
+    """Deduplicated (heights, angle, solidity) → byte index. Index 0
+    reserved for air."""
+
+    def __init__(self):
+        self.entries = [(bytes(PROFILE_LEN), 0x00, SOL_NONE)]   # 0 = air
+        self.lookup: dict[tuple[bytes, int, int], int] = {}
+
+    def intern(self, heights: bytes, angle: int, solidity: int) -> int:
+        key = (heights, angle, solidity)
+        idx = self.lookup.get(key)
+        if idx is not None:
+            return idx
+        idx = len(self.entries)
+        if idx > 255:
+            raise ValueError(
+                f"AttrSet overflow: more than 255 unique solid combos"
+            )
+        self.entries.append(key)
+        self.lookup[key] = idx
+        return idx
+
+
+def bake_cell(block_word: int, index_a: bytes, index_b: bytes,
+              profiles: bytes, angles: bytes,
+              attrset: AttrSet) -> tuple[int, int]:
+    """One 16×16 placement → (path_a_byte, path_b_byte).
+
+    block_word: chunk-entry word (bits 9:0 block id, bit 10 xflip, bit 11
+    yflip, bits 13:12 path-A solidity [bit12=top, bit13=lrb], bits 15:14
+    path-B solidity). Per path: solidity=(word>>shift)&3 with shift 12 (A)
+    or 14 (B); profile_id=index[block_id]; if solidity==0 or profile_id==0
+    → byte 0; else apply xflip then yflip to (heights, angle), intern.
+    """
+    block_id = block_word & BLOCK_ID_MASK
+    xflip = bool(block_word & CHUNK_XFLIP_BIT)
+    yflip = bool(block_word & CHUNK_YFLIP_BIT)
+
+    result = []
+    for shift, index in ((PATH_A_SOL_SHIFT, index_a),
+                         (PATH_B_SOL_SHIFT, index_b)):
+        solidity = (block_word >> shift) & 3
+        profile_id = index[block_id] if block_id < len(index) else 0
+        if solidity == SOL_NONE or profile_id == 0:
+            result.append(0)
+            continue
+        heights = profiles[profile_id * PROFILE_LEN:
+                           (profile_id + 1) * PROFILE_LEN]
+        angle = angles[profile_id]
+        if xflip:
+            heights = flip_profile_x(heights)
+            angle = flip_angle_x(angle)
+        if yflip:
+            heights = flip_profile_y(heights)
+            angle = flip_angle_y(angle)
+        result.append(attrset.intern(heights, angle, solidity))
+    return (result[0], result[1])
+
+
+def emit_tables(attrset: AttrSet) -> dict[str, bytes]:
+    """ROM tables: {'heightmaps.bin': 4096B (256×16), 'heightmaps_rot.bin':
+    4096B (rotate_profile per entry), 'angles.bin': 256B, 'solidity.bin':
+    256B}. Unused slots zero."""
+    heightmaps = bytearray(MAX_PROFILES * PROFILE_LEN)
+    heightmaps_rot = bytearray(MAX_PROFILES * PROFILE_LEN)
+    angles = bytearray(MAX_PROFILES)
+    solidity = bytearray(MAX_PROFILES)
+    for i, (heights, angle, sol) in enumerate(attrset.entries):
+        heightmaps[i * PROFILE_LEN:(i + 1) * PROFILE_LEN] = heights
+        heightmaps_rot[i * PROFILE_LEN:(i + 1) * PROFILE_LEN] = \
+            rotate_profile(heights)
+        angles[i] = angle
+        solidity[i] = sol
+    return {
+        "heightmaps.bin": bytes(heightmaps),
+        "heightmaps_rot.bin": bytes(heightmaps_rot),
+        "angles.bin": bytes(angles),
+        "solidity.bin": bytes(solidity),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Loader helper (file I/O kept separate from the pure functions)
+# ---------------------------------------------------------------------------
+
+def load_collision_sources(sonic_hack_dir: str):
+    """Returns (index_a, index_b, profiles, angles).
+
+    index_a/b: Kosinski-decompressed from
+      '<dir>/collision/OJZ primary 16x16 collision index.bin' and
+      '<dir>/collision/OJZ secondary 16x16 collision index.bin'
+      (both decode to 374 bytes).
+    profiles: raw 4096 bytes from '<dir>/collision/Collision array 1.bin'.
+    angles: raw 256 bytes from
+      '<dir>/collision/Curve and resistance mapping.bin'.
+    """
+    coll_dir = os.path.join(sonic_hack_dir, "collision")
+
+    def _kos_load(name: str) -> bytes:
+        data = open(os.path.join(coll_dir, name), "rb").read()
+        decoded, _ = kos_decompress(data, 0)
+        return decoded
+
+    index_a = _kos_load("OJZ primary 16x16 collision index.bin")
+    index_b = _kos_load("OJZ secondary 16x16 collision index.bin")
+    profiles = open(
+        os.path.join(coll_dir, "Collision array 1.bin"), "rb").read()
+    angles = open(
+        os.path.join(coll_dir, "Curve and resistance mapping.bin"),
+        "rb").read()
+    return index_a, index_b, profiles, angles
+
+
+# ---------------------------------------------------------------------------
+# Self-tests
+# ---------------------------------------------------------------------------
+
+def test_flip_x_reverses():
+    """Synthetic ramp 1..16 reversed by flip_profile_x."""
+    ramp = bytes(range(1, 17))
+    assert flip_profile_x(ramp) == bytes(range(16, 0, -1))
+    # Double flip is identity
+    assert flip_profile_x(flip_profile_x(ramp)) == ramp
+    print("  [OK] test_flip_x_reverses")
+
+
+def test_flip_y_negates():
+    """h=4 → 0xFC; 0 and 16 unchanged."""
+    src = bytes([4, 0, 16, 8])
+    out = flip_profile_y(src + bytes(12))
+    assert out[0] == 0xFC, f"h=4 should yflip to 0xFC, got 0x{out[0]:02X}"
+    assert out[1] == 0, "h=0 must stay 0"
+    assert out[2] == 16, "h=16 must stay 16"
+    assert out[3] == 0xF8, f"h=8 should yflip to 0xF8, got 0x{out[3]:02X}"
+    print("  [OK] test_flip_y_negates")
+
+
+def test_angle_flips():
+    """flip_angle_x(0x20)==0xE0; odd flags stay odd; flip_angle_y(0x20)==0x60."""
+    assert flip_angle_x(0x20) == 0xE0
+    assert flip_angle_x(0xFF) == 0x01, "odd-flag must stay odd through xflip"
+    assert flip_angle_y(0xFF) % 2 == 1, "odd-flag must stay odd through yflip"
+    assert flip_angle_y(0x20) == 0x60
+    assert flip_angle_x(0x00) == 0x00, "flat stays flat through xflip"
+    print("  [OK] test_angle_flips")
+
+
+def test_covers_semantics():
+    """h=4 covers rows 12-15 only; h=0xFC (hanging depth 4) covers rows 0-3."""
+    for row in range(16):
+        assert covers(4, row) == (row >= 12), f"h=4 row {row}"
+        assert covers(0xFC, row) == (row < 4), f"h=0xFC row {row}"
+        assert covers(0, row) is False, f"h=0 row {row}"
+        assert covers(16, row) is True, f"h=16 row {row}"
+    print("  [OK] test_covers_semantics")
+
+
+def test_rotate_flat_full():
+    """All-16 profile → rotated all-16; all-0 → all-0."""
+    assert rotate_profile(bytes([16] * 16)) == bytes([16] * 16)
+    assert rotate_profile(bytes(16)) == bytes(16)
+    print("  [OK] test_rotate_flat_full")
+
+
+def test_rotate_ramp():
+    """Hand-computed asymmetric cases."""
+    # Left half empty, right half full: every row's solid span is
+    # columns 8-15 = right-anchored width 8 → 256-8 = 0xF8.
+    step = bytes([0] * 8 + [16] * 8)
+    assert rotate_profile(step) == bytes([0xF8] * 16)
+
+    # Sloped profile: heights 1..16 left-to-right. Row r is covered by
+    # column c iff c >= 15-r (right-anchored run of width r+1).
+    # Rows 0-14 → 256-(r+1) = 255-r; row 15 all-solid → 16.
+    ramp = bytes(range(1, 17))
+    expected = bytes([255 - r for r in range(15)] + [16])
+    assert rotate_profile(ramp) == expected
+
+    # Mirrored slope (16..1): left-anchored, row r width r+1; row 15 → 16.
+    ramp_l = flip_profile_x(ramp)
+    expected_l = bytes([r + 1 for r in range(15)] + [16])
+    assert rotate_profile(ramp_l) == expected_l
+
+    # Floating middle span must raise
+    floating = bytes([0] * 6 + [4] * 4 + [0] * 6)
+    try:
+        rotate_profile(floating)
+        assert False, "floating middle span must raise ValueError"
+    except ValueError:
+        pass
+    print("  [OK] test_rotate_ramp")
+
+
+def test_attrset_dedup_and_air():
+    """Same combo interned once; index 0 is air."""
+    s = AttrSet()
+    assert s.entries[0] == (bytes(16), 0, 0), "index 0 must be air"
+    h = bytes([16] * 16)
+    i1 = s.intern(h, 0x00, SOL_ALL)
+    i2 = s.intern(h, 0x00, SOL_ALL)
+    assert i1 == i2 == 1, "duplicate combo must dedup to the same index"
+    i3 = s.intern(h, 0x00, SOL_TOP)
+    assert i3 == 2, "different solidity is a distinct entry"
+    i4 = s.intern(h, 0x20, SOL_ALL)
+    assert i4 == 3, "different angle is a distinct entry"
+    assert len(s.entries) == 4
+    print("  [OK] test_attrset_dedup_and_air")
+
+
+def test_bake_cell_solidity_gate():
+    """Solidity 0 → byte 0 even with nonzero profile; paths independent."""
+    # Synthetic sources: block 1 → profile 1 (full block, angle 0)
+    index = bytes([0, 1])
+    profiles = bytes(16) + bytes([16] * 16) + bytes(4096 - 32)
+    angles = bytes(256)
+
+    s = AttrSet()
+    # Both paths solidity 0 → both bytes 0 despite the solid profile
+    a, b = bake_cell(0x0001, index, index, profiles, angles, s)
+    assert (a, b) == (0, 0), f"solidity 0 must gate to air, got ({a},{b})"
+    assert len(s.entries) == 1, "nothing interned for solidity-0 placement"
+
+    # Path A top-solid (bit 12), path B empty
+    a, b = bake_cell(0x0001 | (SOL_TOP << PATH_A_SOL_SHIFT),
+                     index, index, profiles, angles, s)
+    assert a != 0 and b == 0, f"A solid + B empty expected, got ({a},{b})"
+
+    # Path B all-solid (bits 15:14), path A empty
+    a, b = bake_cell(0x0001 | (SOL_ALL << PATH_B_SOL_SHIFT),
+                     index, index, profiles, angles, s)
+    assert a == 0 and b != 0, f"A empty + B solid expected, got ({a},{b})"
+
+    # Profile 0 (air block) gates to 0 even with solidity set
+    a, b = bake_cell(0x0000 | (SOL_ALL << PATH_A_SOL_SHIFT),
+                     index, index, profiles, angles, s)
+    assert (a, b) == (0, 0), "profile 0 must gate to air"
+
+    # block_id beyond the index table must not crash → profile 0 → air
+    a, b = bake_cell(0x03FF | (SOL_ALL << PATH_A_SOL_SHIFT),
+                     index, index, profiles, angles, s)
+    assert (a, b) == (0, 0), "out-of-range block_id must gate to air"
+    print("  [OK] test_bake_cell_solidity_gate")
+
+
+def test_real_data_measurement():
+    """Bake every OJZ placement; measure attr-set size; emit_tables runs."""
+    index_a, index_b, profiles, angles = load_collision_sources(SONIC_HACK)
+    assert len(index_a) == 374, f"index_a: expected 374 bytes, got {len(index_a)}"
+    assert len(index_b) == 374, f"index_b: expected 374 bytes, got {len(index_b)}"
+    assert len(profiles) == 4096, f"profiles: expected 4096, got {len(profiles)}"
+    assert len(angles) == 256, f"angles: expected 256, got {len(angles)}"
+
+    chunks = load_chunk_map(CHUNK_MAP_PATH)
+    layout_files = sorted(glob.glob(os.path.join(LAYOUT_DIR, "OJZ_1_sec*.bin")))
+    assert layout_files, f"no OJZ section layouts under {LAYOUT_DIR}"
+
+    attrset = AttrSet()
+    placements = 0
+    for path in layout_files:
+        layout = load_layout(path)
+        for row in layout:
+            for chunk_id in row:
+                if chunk_id >= len(chunks):
+                    continue  # out-of-range → empty
+                for word in chunks[chunk_id]:
+                    bake_cell(word, index_a, index_b, profiles, angles, attrset)
+                    placements += 1
+
+    count = len(attrset.entries)
+    assert count <= 255, f"attr-set overflow: {count} entries"
+    assert count > 1, "real OJZ data produced no solid combos at all"
+
+    # emit_tables must not raise — proves rotate_profile handles every
+    # real synthesized profile (no floating middle spans in OJZ data).
+    tables = emit_tables(attrset)
+    assert len(tables["heightmaps.bin"]) == 4096
+    assert len(tables["heightmaps_rot.bin"]) == 4096
+    assert len(tables["angles.bin"]) == 256
+    assert len(tables["solidity.bin"]) == 256
+    # Index 0 is air in every table
+    assert tables["heightmaps.bin"][:16] == bytes(16)
+    assert tables["solidity.bin"][0] == 0
+
+    print(f"  [OK] test_real_data_measurement: {len(layout_files)} sections, "
+          f"{placements} placements → {count} attr-set entries "
+          f"(incl. air at index 0)")
+
+
+def run_tests():
+    """Run all self-tests."""
+    print("Running collision_pipeline tests...")
+    test_flip_x_reverses()
+    test_flip_y_negates()
+    test_angle_flips()
+    test_covers_semantics()
+    test_rotate_flat_full()
+    test_rotate_ramp()
+    test_attrset_dedup_and_air()
+    test_bake_cell_solidity_gate()
+    test_real_data_measurement()
+    print("All tests passed")
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] != "test":
+        print(f"Usage: {sys.argv[0]} test")
+        sys.exit(1)
+    run_tests()
+
+
+if __name__ == "__main__":
+    main()

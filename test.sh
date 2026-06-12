@@ -119,6 +119,15 @@ else
 fi
 
 # -----------------------------------------------
+section "6b. Collision Pipeline Self-Tests"
+# -----------------------------------------------
+if python3 "${TOOLS}/collision_pipeline.py" test; then
+    pass_test "Collision pipeline self-tests"
+else
+    fail_test "Collision pipeline self-tests"
+fi
+
+# -----------------------------------------------
 section "7. ROM Build"
 # -----------------------------------------------
 if ./build.sh -pe 2>&1; then
