@@ -138,7 +138,7 @@ FG layout then BG layout offset by `Camera_X/Y_diff` — and keeps the minimum (
 | File (S.C.E.) | Size | Format |
 |---|---|---|
 | `Data/Misc/Floor/Height Maps.bin` (`HeightMaps`) | 4096 B | 256 profiles × 16 bytes; byte = signed height of that 1-px column, 0..16 up from the bottom; negative = solid hanging down from the top edge |
-| `Data/Misc/Floor/Height Maps Rotated.bin` (`HeightMapsRot`) | 4096 B | same, but 16 bytes = rows, value = width from the left; the same 256 profiles pre-rotated 90° at build time so wall sensors never transpose at runtime |
+| `Data/Misc/Floor/Height Maps Rotated.bin` (`HeightMapsRot`) | 4096 B | same, but 16 bytes = rows, value = width from the left **[CORRECTION 2026-06-12:** S.C.E.'s FindWall computes $F−(w+sub) — positive widths are RIGHT-anchored; our generator anchors LEFT (negative = right-anchored), hence the swapped negate pairing in engine/player/player_sensors.asm. Verified against the code during §5 Task 4.]**; the same 256 profiles pre-rotated 90° at build time so wall sensors never transpose at runtime |
 | `Data/Misc/Floor/Angle Map.bin` (`AngleArray`) | 256 B | one angle byte per profile, S3K angle units (256 = full circle, `$00` flat floor, counter-clockwise). **Odd values are a flag**: "no usable angle" — callers `btst #0` and substitute the probe quadrant's cardinal. `$FF` marks full blocks/odd tiles. |
 
 ### 2.2 Per-placement data: solidity lives in the chunk map word

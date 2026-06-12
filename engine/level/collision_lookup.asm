@@ -45,6 +45,7 @@ Collision_GetType:
         moveq   #CTYPE_AIR, d0
         rts
 
+; SUPERSEDED by engine/player/player_sensors.asm probe cores (two-cell extension, solidity gates, negative heights; "nothing" sentinel +32 vs this routine's $7F). Sole remaining caller: objects/test_player.asm — delete both when Task 5 migrates the player. Do not add new callers.
 ; -----------------------------------------------
 ; Collision_GetFloorHeight — floor height at a specific position
 ; In:  d0.w = engine X pixel position
@@ -91,51 +92,7 @@ Collision_GetFloorHeight:
         moveq   #0, d1
         rts
 
-; -----------------------------------------------
-; Collision_GetFloorHeight_Wall — wall sensor height (rotated profiles)
-; In:  d0.w = engine X pixel position
-;      d1.w = Y pixel position
-;      d3.b = layer select (0 = path A, 1 = path B)
-; Out: d0.w = signed wall distance
-;      d1.b = surface angle
-;      d2.b = collision type (0 = air)
-; Clobbers: d0-d5, a0-a1
-; Note: X saved to d4, Y saved to d5 (d3 reserved for layer, same convention as GetFloorHeight).
-; -----------------------------------------------
-Collision_GetFloorHeight_Wall:
-        move.w  d0, d4                         ; save X
-        move.w  d1, d5                         ; save Y
-        bsr.w   Collision_GetType              ; d3.b = layer threaded in
-        move.b  d0, d2
-        tst.b   d0
-        beq.s   .cgw_air
-
-        andi.w  #$FF, d0
-        lsl.w   #4, d0
-        move.w  d5, d1                         ; sub-cell Y for rotated profiles
-        andi.w  #$F, d1
-        add.w   d1, d0
-        lea     (HeightMapsRot).l, a1
-        move.b  (a1, d0.w), d1
-
-        ext.w   d1                             ; d1 = width (0-16)
-        move.w  d4, d0
-        andi.w  #$F, d0                        ; sub-cell X (0-15)
-        add.w   d0, d1                         ; d1 = width + sub_cell_X
-        moveq   #16, d0
-        sub.w   d1, d0                         ; d0 = 16 - width - sub_cell_X
-
-        moveq   #0, d1
-        move.b  d2, d1
-        lea     (AngleTable).l, a1
-        move.b  (a1, d1.w), d1
-        rts
-
-.cgw_air:
-        moveq   #$7F, d0
-        moveq   #0, d1
-        rts
-
+; SUPERSEDED by engine/player/player_sensors.asm probe cores (two-cell extension, solidity gates, negative heights; "nothing" sentinel +32 vs this routine's $7F). Sole remaining caller: objects/test_player.asm — delete both when Task 5 migrates the player. Do not add new callers.
 ; -----------------------------------------------
 ; Collision_FloorSensors — dual floor sensor query
 ; In:  a0 = SST pointer (player object)

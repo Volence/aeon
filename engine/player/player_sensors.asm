@@ -3,10 +3,7 @@
 ; Four specialized probe routines (down/up/right/left) stamped from ONE
 ; macro — direction inversions resolve at assembly time, no runtime mask
 ; plumbing. Each core implements the S.C.E. FindFloor/FindWall two-cell
-; model (docs/research/player-sensors-sce.md §1.4): evaluate the cell at
-; the probe point, then extend exactly ONE cell forward (empty primary)
-; or backward (full/embedded primary). Distance range −16..+31 normally;
-; nothing found = sentinel +32; doubly-full stacks reach −31.
+; model — see docs/research/player-sensors-sce.md §1.4.
 ;
 ; Height semantics follow the generator contract (tools/
 ; collision_pipeline.py): per-column byte h = 0 empty, 1..16 solid from
@@ -68,7 +65,7 @@ pname:
         move.w  d3, -(sp)              ; layer must survive for the extension
         move.w  d0, d4                 ; X (file convention: X in d4)
         move.w  d1, d5                 ; Y (file convention: Y in d5)
-        bsr.w   .cell                  ; d0.w h_eff, d1.b angle, d2.b attr
+        bsr.s   .cell                  ; d0.w h_eff, d1.b angle, d2.b attr
         tst.w   d0
         beq.s   .empty_fwd
         cmpi.w  #16, d0
@@ -87,7 +84,7 @@ pname:
         ; primary empty → evaluate ONE cell forward; dist = dist2 + 16
         move.w  (sp), d3               ; reload layer
         addi.w  #pstep, paxreg
-        bsr.w   .cell
+        bsr.s   .cell
         tst.w   d0
         beq.s   .nothing               ; forward empty too → sentinel
         probeSub paxreg, psubflip, d3  ; ±16 step keeps the low 4 bits
@@ -111,7 +108,7 @@ pname:
         move.w  d2, -(sp)              ; primary attr
         move.w  4(sp), d3              ; reload layer (under the two stashes)
         subi.w  #pstep, paxreg
-        bsr.w   .cell
+        bsr.s   .cell
         tst.b   d2
         bne.s   .back_supplied
         move.w  (sp), d2               ; back cell empty → primary's attr
@@ -421,21 +418,30 @@ PlayerSensors_SelfCheck:
         jsr     (a3)                   ; d0 dist, d1 angle, d2 attr
         move.w  (a2)+, d3              ; expected dist
         cmp.w   d0, d3
-        bne.w   .fail_dist
+        bne.s   .fail_dist
         move.b  (a2)+, d3              ; expected angle
         cmp.b   d1, d3
-        bne.w   .fail_angle
+        bne.s   .fail_angle
         move.b  (a2)+, d3              ; expected attr
         cmp.b   d2, d3
-        bne.w   .fail_attr
+        bne.w   .fail_attr             ; .w: jumps two RaiseError strings — out of short range
         dbf     d7, .loop
         rts
+; d7 is the dbf COUNTDOWN (N−1−i); report the table's 0-based entry order
+; as i = (N−1) − d7, re-reading N−1 from the table's count word. d4 is
+; free here (clobbered by the probe jsr every iteration anyway).
 .fail_dist:
-        RaiseError "PlayerSensors self-check: entry %<.w d7> dist %<.w d0>, expected %<.w d3>"
+        move.w  PlayerSensors_CheckTable(pc), d4
+        sub.w   d7, d4                 ; d4 = ascending 0-based entry index
+        RaiseError "PlayerSensors self-check: entry %<.w d4> dist %<.w d0>, expected %<.w d3>"
 .fail_angle:
-        RaiseError "PlayerSensors self-check: entry %<.w d7> angle %<.b d1>, expected %<.b d3>"
+        move.w  PlayerSensors_CheckTable(pc), d4
+        sub.w   d7, d4
+        RaiseError "PlayerSensors self-check: entry %<.w d4> angle %<.b d1>, expected %<.b d3>"
 .fail_attr:
-        RaiseError "PlayerSensors self-check: entry %<.w d7> attr %<.b d2>, expected %<.b d3>"
+        move.w  PlayerSensors_CheckTable(pc), d4
+        sub.w   d7, d4
+        RaiseError "PlayerSensors self-check: entry %<.w d4> attr %<.b d2>, expected %<.b d3>"
 
 PlayerSensors_CheckDispatch:
         dc.l    Collision_ProbeDown
@@ -449,9 +455,9 @@ SENSCHK_DOWN  = 0
 SENSCHK_UP    = 1
 SENSCHK_RIGHT = 2
 SENSCHK_LEFT  = 3
-senschk macro px, py, player, pmask, pdir, pdist, pangle, pattr
+senschk macro px, py, pllayer, pmask, pdir, pdist, pangle, pattr
         dc.w    px, py
-        dc.b    player, pmask, pdir, 0
+        dc.b    pllayer, pmask, pdir, 0
         dc.w    pdist
         dc.b    pangle, pattr
         endm
