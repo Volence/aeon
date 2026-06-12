@@ -1220,6 +1220,11 @@ def generate():
 
     print(f"Done. {len(sec_ids_in_order)} sections, {total_strips} total strips written to {out_dir}")
 
+    # ---- Pass 8: entity data (rings/objects) from editor JSONs ----
+    # TODO: promote to its own build.sh line once the in-flight build.sh changes land.
+    import ojz_entity_gen
+    ojz_entity_gen.generate()
+
     # Print a brief sanity summary for the first section's first strip
     if first_strips:
         first_strip = first_strips[0]

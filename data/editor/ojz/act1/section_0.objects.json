@@ -4,5 +4,11 @@
     "y": 176,
     "typeId": "solid",
     "subtype": 0
+  },
+  {
+    "x": 768,
+    "y": 144,
+    "typeId": "enemy",
+    "subtype": 0
   }
 ]

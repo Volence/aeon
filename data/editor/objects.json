@@ -12,5 +12,12 @@
     "codeLabel": "ObjDef_Solid",
     "defaultSubtype": 0,
     "properties": {}
+  },
+  {
+    "id": "enemy",
+    "name": "Patrolling Enemy",
+    "codeLabel": "ObjDef_Enemy",
+    "defaultSubtype": 0,
+    "properties": {}
   }
 ]

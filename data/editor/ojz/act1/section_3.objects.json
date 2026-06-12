@@ -1,1 +1,15 @@
-[]
+[
+  {
+    "x": 384,
+    "y": 768,
+    "typeId": "solid",
+    "subtype": 0
+  },
+  {
+    "x": 1024,
+    "y": 1792,
+    "typeId": "static",
+    "subtype": 0,
+    "anyY": true
+  }
+]
