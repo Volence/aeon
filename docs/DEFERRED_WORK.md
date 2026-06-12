@@ -705,10 +705,94 @@ non-zero; intermittently they read zero.
 **Fix shipped:** `SEC_VOID` ($FF) sentinel in slot-1 sec_x past the grid; guards in `Section_Check .fwd_check` (sentinel check before the wrapping addq), TeleportFwd's SS_RESIDENT mark, EntityWindow Init/Rebuild slot-1 blocks (skipped; `Entity_Window_Active`=1; the stale entry's section_id stamped SEC_VOID for the despawn exemption), camera max-x void clamp ($8C0 = slot-0 right edge), `TileCache_DecompressBlock` world-edge guard (out-of-grid blocks decompress blank — also fixed the latent bottom-edge Sec-table overread that vertical fills have had since shipping), prefetch sec_x guard. BWD heals the pair (new slot 1 = old slot 0 − 1). Exodus-verified end to end (warp right → pair (2,$FF), objects spawn, camera pins $8C0, BWD returns (0,1)).
 **Still open (minor, from review):** `Section_Check` clobber header understates; classic-style player X clamp at camera bounds (player can currently walk past the camera into the void region — level data should wall it, but a bounds clamp matching the classics is worth considering with §3 player physics).
 
-### Per-section BG layout swap at the seam (T2/T3 zones)
-**Surfaced during:** teleport-rebase 2026-06-10.
-**What:** Teleports no longer run `Section_RedrawPlanes`, which was what blitted a differing `sec_bg_layout` to Plane B at FWD/BWD teleport (the §2 A.5 T2/T3 tests relied on this). All current production data is T1 (`sec_bg_layout = NULL` everywhere) so nothing is affected today. When a zone first authors per-section BG layouts, the swap needs a non-blocking mechanism — deferred Plane B column/row streaming near the seam (mirroring FG preview cols), not a 3-frame synchronous blit.
-**When ready:** when a zone authors T2/T3 BG data.
+### ~~Per-section BG layout swap at the seam (T2/T3 zones)~~ — SUPERSEDED 2026-06-12
+Superseded by the full BG seam-streaming spec ("From Deep Forest BG Work
+(2026-06-12)" below). The original observation stands: teleports no longer
+run `Section_RedrawPlanes`, all production data is T1, and any per-section
+BG needs a non-blocking streaming mechanism, not a synchronous blit.
+
+## From Deep Forest BG Work (2026-06-12)
+
+### SPEC: Per-section background grid with seam streaming
+**Goal:** each section (or section row/column) gets its own background from
+the editor's per-section BG assignment, and the engine stitches them into
+one continuous world as the player travels — no visible swap, both axes.
+User intent: "section below the forest has the darker firefly one, and the
+tree one above connects to it."
+
+**Why it works (the headroom argument):** Plane B is 64×64 cells (512×512px)
+but the screen shows only 320×224. At the BG's parallax factors the hidden
+margin is enormous in camera terms: vertically, 288 hidden px at camY/8 =
+2304 camera px (more than one 2048px section row) before an off-screen row
+wraps back into view; horizontally, 192 hidden px at camX/8 = 1536 camera px.
+Rows/columns that scroll off one edge are rewritten with the NEXT section's
+BG via QueueDMA_Deferrable long before they re-enter from the other edge —
+the same trick as FG column streaming, applied to Plane B on both axes.
+Bandwidth is trivial: one plane row or column = 128 bytes; a few per frame.
+
+**Components:**
+1. **BG grid data.** Zone data gains a BG-grid table: section (or section
+   row/col band) → {nametable region ptr, tile blob ptr, anim band table
+   ptr, palette line variant}. Editor already has per-section BG assignment
+   (UI exists, engine unwired); injector emits the grid instead of the
+   single zone-wide override.
+2. **Seam tracker + row/col streamer.** Engine-side state: which BG region
+   each plane row/column currently holds, and a per-frame budgeted streamer
+   that rewrites rows/cols in the hidden margin toward the target (derived
+   from camera section position + scroll direction). Mirrors the FG
+   preview-column scheduler. Teleport rebases are coordinate-invariant on
+   the plane (mod 512), same as FG — the streamer keys on world-derived BG
+   scroll, not raw camY.
+3. **Tile budget across the seam.** Both themes' tiles coexist in VRAM while
+   a seam is in transit. Strategy: split the 448-tile BG pool into two
+   half-pools (~224 each, minus shared animated slots); the streamer loads
+   the incoming theme's blob into the inactive half (deferrable DMA, chunked)
+   before its nametable rows reference it. Editor enforces per-theme budget
+   (set_bg validator) and a shared-atlas option for themes that intentionally
+   share tiles (forest ↔ darker forest).
+4. **Animated bands per theme.** BgAnim_Table is per-act today; becomes
+   per-theme, swapped when the seam fully clears the screen (bands reference
+   fixed VRAM slot ranges, so the safe-swap moment = no on-screen rows from
+   the outgoing theme). The table-driven design (driver/rate/dest per band)
+   already supports this — needs a "active table ptr" indirection + handoff.
+5. **Seam contract in the editor.** Two modes per adjacent BG pair:
+   - **connects-to:** the arts' meeting edges are authored to blend (e.g.
+     forest bottom rows = firefly zone top rows). Editor feature: edge
+     preview of A-bottom against B-top (and A-right against B-left), plus
+     a palette-compatibility check.
+   - **disconnected:** transition must be masked. Two sanctioned tricks:
+     (a) FG occlusion — level geometry covers the full screen height while
+     the seam crosses (cave mouth, tunnel, waterfall; classic S3K), with an
+     instant region swap while occluded; (b) palette blackout — fade the BG
+     CRAM line to black over ~16 frames, swap/stream while black, fade up
+     (thematically free for caves; needs the per-section palette mechanism).
+6. **Per-section palette variants** (cheap multiplier, can ship first):
+   same art, darker/tinted CRAM line per section row, lerped at the seam.
+   The harness's per-section sky-tint table is the prototype.
+
+**Constraints / open questions:**
+- Vertical wrap vs themes: the current 512px art wraps seamlessly (camY/8 ×
+  $1000 rebase = exactly one plane height). With per-row themes, the wrap
+  must land on the THEME boundary — keep vFactorBg=3 and make each theme's
+  vertical slice 512px (one full plane per section row) or 256px (two rows
+  per plane); pick during design.
+- Diagonal travel: two seams (X and Y) can be in transit at once; streamer
+  must handle a 2D dirty region, or sequence one axis at a time with the
+  hidden margin as slack.
+- Parallax config per theme: band factors may differ per BG (the Sec3
+  LockedClouds incident shows per-section configs + plane-space bands must
+  agree); fold parallax config into the theme record so it swaps with the
+  art under the same safe-swap rule.
+- Budget the streamer against the existing deferrable consumers (BgAnim
+  banks, DPLC, section streaming) — the queue is shared.
+
+**Suggested build order:** (a) per-section palette variants (standalone
+win), (b) vertical-axis streaming with connects-to seams only (forest →
+firefly section: the motivating case), (c) horizontal axis + disconnected
+transitions (palette blackout first, FG occlusion as level-design tooling),
+(d) per-theme anim-table + parallax-config handoff, (e) editor seam
+contracts + budget validation.
+**When ready:** next major BG work block; (a) any time.
 
 ## From Vertical Entity Window — Task 6 (2026-06-11)
 
