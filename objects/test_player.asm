@@ -217,9 +217,9 @@ TestPlayer_Main:
         tst.w   SST_y_vel(a0)
         bmi.s   .no_floor
 .do_floor:
-        movem.l a0, -(sp)
-        jsr     Collision_FloorSensors
-        movem.l (sp)+, a0
+        move.w  d7, -(sp)                      ; Player_SensorFloor clobbers
+        jsr     Player_SensorFloor             ; d7 (RunObjects counter);
+        move.w  (sp)+, d7                      ; a0 is preserved
         tst.b   d2
         beq.s   .no_floor                      ; air tile — no surface
         tst.w   d0

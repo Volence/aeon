@@ -470,7 +470,7 @@ Radii read from `SST_width_pixels/height_pixels` — the state hooks keep those 
 - Create: `engine/player/player_common.asm`, `engine/player/sonic.asm`
 - Modify: `main.asm` (includes after `engine/player/player_sensors.asm`), `test/ojz_scroll_test.asm` (spawn `Player_Init` instead of TestPlayer for the player slot; keep debug-flag start), `objects/test_player.asm` (no longer the player's brain — leave file; the debug-fly moves INTO player_common as a state-suspend)
 
-- [ ] **Step 5.1:** SST overlay (in `player_common.asm`), per research structure-refs §2.2:
+- [x] **Step 5.1:** SST overlay (in `player_common.asm`), per research structure-refs §2.2:
 
 ```asm
 PlayerV struct
@@ -492,7 +492,7 @@ _pl_state       = SST_sst_custom+PlayerV_player_state
 
 (DPLC pair stays out — `sonic.asm` supplies `lea DPLC_Sonic,a2 / lea Art_Sonic,a3` as immediates, per spec §3.2.)
 
-- [ ] **Step 5.2:** Frame skeleton + dispatch in `player_common.asm`:
+- [x] **Step 5.2:** Frame skeleton + dispatch in `player_common.asm`:
 
 ```asm
 ; Player_Init — set up Player_1 as Sonic (called from level state init)
@@ -552,10 +552,17 @@ Player_SetState:
         jmp     PState_EnterHooks(pc, d1.w)
 ```
 
-- [ ] **Step 5.3:** GROUND state, flat-ground subset first (no slope factor, angle assumed 0): classic order — (spindash check: stub `rts` for now) → jump check (stub) → input accel/decel/friction on `ground_speed` with the back-out top-speed rule and turnaround kick → projection `x_vel = gsp·cos(angle)>>8, y_vel = −gsp·sin(angle)>>8` via `GetSineCosine` (verify its register contract in `engine/math.asm` before use) → ground wall probe (velocity-projected `Player_SensorWall`, cancel velocity along axis + zero gsp + ST_PUSHING, with the S3K skip for non-cardinal upper-half angles and facing-aware bit) → integration (`ObjectMove`) → floor pair (`Player_SensorFloor`): snap `y_pos += dist` within clamps (−14 fixed up, `min(|gsp·cos|>>8 + 4, 14)` down... grounded snap uses speed along probe axis per SPG), angle update, both-sensors-nothing → `Player_SetState #PSTATE_AIR`.
-- [ ] **Step 5.4:** GROUND enter/exit hooks: standing radii, walk/idle anim select by gsp (reuse existing anim ids 0/1/2 from test assets). AIR state minimal: air accel, gravity + fall cap, integration, floor pair when falling → landing (flat subset: `gsp = x_vel`) → `Player_SetState #PSTATE_GROUND`. No jump yet.
-- [ ] **Step 5.5:** Swap `ojz_scroll_test.asm` player setup to `Player_Init` (keep starting in debug-fly so streaming testing workflow is unchanged: `_debug_flag` equivalent → start suspended, B drops you into physics).
-- [ ] **Step 5.6:** Build + Exodus: walk/run on flat sec0 ground, accel curve to $600, friction stop, turnaround kick observable (brief −$80 snap), camera follows, debug-fly round-trips. Check `Player_Quadrant` stays 0 and gsp behaves via RAM watch. Commit: `feat(§5): player skeleton — state machine, flat ground movement, air fall`
+- [x] **Step 5.3:** GROUND state, flat-ground subset first (no slope factor, angle assumed 0): classic order — (spindash check: stub `rts` for now) → jump check (stub) → input accel/decel/friction on `ground_speed` with the back-out top-speed rule and turnaround kick → projection `x_vel = gsp·cos(angle)>>8, y_vel = −gsp·sin(angle)>>8` via `GetSineCosine` (verify its register contract in `engine/math.asm` before use) → ground wall probe (velocity-projected `Player_SensorWall`, cancel velocity along axis + zero gsp + ST_PUSHING, with the S3K skip for non-cardinal upper-half angles and facing-aware bit) → integration (`ObjectMove`) → floor pair (`Player_SensorFloor`): snap `y_pos += dist` within clamps (−14 fixed up, `min(|gsp·cos|>>8 + 4, 14)` down... grounded snap uses speed along probe axis per SPG), angle update, both-sensors-nothing → `Player_SetState #PSTATE_AIR`.
+- [x] **Step 5.4:** GROUND enter/exit hooks: standing radii, walk/idle anim select by gsp (reuse existing anim ids 0/1/2 from test assets). AIR state minimal: air accel, gravity + fall cap, integration, floor pair when falling → landing (flat subset: `gsp = x_vel`) → `Player_SetState #PSTATE_GROUND`. No jump yet.
+- [x] **Step 5.5:** Swap `ojz_scroll_test.asm` player setup to `Player_Init` (keep starting in debug-fly so streaming testing workflow is unchanged: `_debug_flag` equivalent → start suspended, B drops you into physics).
+- [ ] **Step 5.6:** (code + builds + test.sh green; live Exodus verification pending) Build + Exodus: walk/run on flat sec0 ground, accel curve to $600, friction stop, turnaround kick observable (brief −$80 snap), camera follows, debug-fly round-trips. Check `Player_Quadrant` stays 0 and gsp behaves via RAM watch. Commit: `feat(§5): player skeleton — state machine, flat ground movement, air fall`
+
+**Task 5 implementation notes (2026-06-12):**
+- Player files are included in the **object code bank** (after `ObjCodeBase`), not after `player_sensors.asm` — `objroutine(Player_Main)` requires the routine inside ObjCodeBase+64KB. Sensors stay in the engine block.
+- Projection is `y_vel = sin(angle)·gsp>>8` with **NO negation** (step 5.3's `−gsp·sin` was wrong for our data): the classic angle convention (down-right slope = +$10) and `data/misc/sine.bin` (sin($10)=+$61) already agree with screen-down-positive Y. Task 7 must keep this.
+- Legacy `Collision_GetFloorHeight`/`Collision_FloorSensors` deleted; `objects/test_player.asm` (still the object_test_state player) migrated to `Player_SensorFloor`.
+- AIR applies gravity **before** the position add (plan/task order); classic applies it after (research §1). Re-evaluate in Task 6 when tuning jump arcs.
+
 
 ---
 

@@ -134,6 +134,13 @@ ObjCodeBase:
     rts                         ; offset 0 = empty slot safety net
 __BUDGET_OBJBANK:
 
+    ; Player (§5) — in the object bank: Player_Main dispatches via
+    ; objroutine(), which needs the routine within ObjCodeBase+64KB.
+    ; (player_sensors.asm stays in the engine block above — it has no
+    ; code_addr entry points.)
+    include "engine/player/player_common.asm"
+    include "engine/player/sonic.asm"
+
     include "objects/test_static.asm"
     include "objects/test_animated.asm"
     include "objects/test_player.asm"

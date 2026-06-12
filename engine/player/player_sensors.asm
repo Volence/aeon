@@ -220,10 +220,10 @@ Player_SensorPair:
 ;             quadrant cardinal (Player_Quadrant << 6)
 ;      d2.b = attr
 ; Clobbers: d0-d7, a1-a2
-; Note: radii = SST_width/height_pixels >> 1. test_player currently
-;       stores 16/32 → radii 8/16; classic standing radii are 9/19 with
-;       sizes 2r+1 = 19/39. Task 5 owns fixing the stored sizes — the
-;       wrappers just halve whatever is there.
+; Note: radii = SST_width/height_pixels >> 1. The player state hooks
+;       store 2r+1 sizes (standing 19/39 → radii 9/19, the exact classic
+;       values — resolved in Task 5); the wrappers just halve whatever
+;       is there.
 ; -----------------------------------------------
 Player_SensorFloor:
         moveq   #SOLID_TOP, d6         ; floor class: top-only + all pass,

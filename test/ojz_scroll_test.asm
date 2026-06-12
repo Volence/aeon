@@ -66,19 +66,11 @@ GameState_OJZScroll_Init:
         clr.w   (Player_1+SST_x_vel).w
         clr.w   (Player_1+SST_y_vel).w
 
-        ; -- set up Player_1 as TestPlayer (physics + debug toggle).
-        ;    Start in debug mode (yellow square) for free-flight testing. --
-        move.b  #1, (Player_1+_debug_flag).w
-        move.w  #objroutine(TestPlayer_Main), (Player_1+SST_code_addr).w
-        move.l  #Map_TestObj, (Player_1+SST_mappings).w
-        move.w  #$A0FA, (Player_1+SST_art_tile).w
-        ori.b   #7<<RF_PRIORITY_SHIFT, (Player_1+SST_render_flags).w
-        move.b  #1, (Player_1+SST_sprite_piece_count).w
-        move.b  #16, (Player_1+SST_width_pixels).w
-        move.b  #16, (Player_1+SST_height_pixels).w
-        move.l  #DPLC_Sonic, (Player_1+_dplc_ptr).w
-        move.l  #Art_Sonic, (Player_1+_art_base).w
-        move.l  #Ani_Sonic, (Player_1+SST_anim_table).w
+        ; -- set up Player_1 as the §5 player (Sonic). Player_Init boots
+        ;    in debug-fly (yellow square) so the streaming-test workflow
+        ;    is unchanged — B drops into physics. --
+        lea     (Player_1).w, a0
+        jsr     Player_Init
 
         ; -- write 4 marker tiles to VRAM (16×16 sprite = 2×2 tiles).
         ;    Tile 250 ($FA, = byte $1F40) sits between section art and the
@@ -157,7 +149,7 @@ GameState_OJZScroll_Update:
         ; -- initialize sprite system for this frame --
         jsr     InitSpriteSystem
 
-        ; -- execute all objects (TestPlayer handles its own movement) --
+        ; -- execute all objects (Player_Main handles its own movement) --
         jsr     RunObjects
 
         ; -- camera follows Player_1 (deadzone + preview-aware clamp) --
