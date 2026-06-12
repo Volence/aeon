@@ -120,6 +120,7 @@ __BUDGET_ENGINE:
     include "engine/level/parallax.asm"
     include "engine/level/load_art.asm"
     include "engine/level/bg.asm"
+    include "engine/level/bg_anim.asm"
     include "debug/compression_selftest.asm"
 
 ; -----------------------------------------------

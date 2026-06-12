@@ -126,6 +126,7 @@ GameState_OJZScroll_Init:
         movea.l Act_act_parallax_config(a0), a0
 .init_have_config:
         jsr     Parallax_Init
+        jsr     BgAnim_Init
 
         ; -- prime HScroll/VScroll buffers so the first frame displays
         ;    with correct scroll offsets (otherwise HScroll=0 for one frame) --
@@ -293,6 +294,8 @@ GameState_OJZScroll_Update:
 
         ; -- update HScroll buffer + Vscroll (§4.6 parallax) --
         jsr     Parallax_Update
+        ; -- camera-driven BG tile animation (trunk cores) --
+        jsr     BgAnim_Update
         rts
 
 ; -----------------------------------------------

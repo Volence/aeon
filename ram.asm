@@ -146,7 +146,17 @@ Parallax_Transition_Frames:  ds.b 1     ; frames remaining; 0 = stable
 Parallax_Snap_Pending:       ds.b 1     ; 1 = next Update writes target_scroll directly to current (skip lerp)
 Parallax_Pad:                ds.b 2
 Parallax_Vscroll_Column_Buf: ds.b 80    ; 40 VSRAM entries × 2 bytes
+; Per-frame screen-space band view (Step 4a): the config's plane-space band
+; list rotated by Vscroll_BG, tops rebased to screen cells. Fillers consume
+; this (or the config's own arrays when vshift = 0).
+Parallax_Shadow_Bands:       ds.b band_entry_len*MAX_PARALLAX_BANDS
+Parallax_Shadow_Scroll_A:    ds.w MAX_PARALLAX_BANDS
+Parallax_Shadow_Scroll_B:    ds.w MAX_PARALLAX_BANDS
 Parallax_State_End:
+
+; Driver-keyed BG tile-band animation (engine/level/bg_anim.asm)
+BgAnim_LastStep:        ds.w 4          ; per band: last DMA'd step; -1 = none yet
+                                        ; (size must match BGANIM_MAX_BANDS)
 
 ; -----------------------------------------------
 ; Static DMA Entries (§1.5)

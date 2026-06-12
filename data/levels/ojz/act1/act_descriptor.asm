@@ -49,7 +49,7 @@ OJZ_Sec0:
     dc.l    OJZ_Sec0_Rings          ; sec_rings
     dc.l    0                       ; sec_plc
     dc.l    OJZ_Palette             ; sec_pal
-    dc.l    ParallaxConfig_OJZ_Caves, 0    ; sec_parallax_config = T15 F4 fixture: slow-BG cave gradient (scenes/caves.asm)
+    dc.l    0, 0    ; sec_parallax_config = act default (was caves T15 fixture; superseded by Deep Forest BG)
     dc.l    0                       ; sec_bg_layout (NULL = use Act_act_bg_layout, T1)
     dc.l    OJZ_Sec0_TypeTable      ; sec_type_table (§4.9)
     dc.l    0, 0                    ; sec_pal_cycle, sec_sound_bank
@@ -68,7 +68,7 @@ OJZ_Sec1:
     dc.l    OJZ_Sec1_Rings          ; sec_rings
     dc.l    0                       ; sec_plc
     dc.l    OJZ_Palette
-    dc.l    ParallaxConfig_OJZ_Windy, 0  ; sec_parallax_config = windy variant (F3)
+    dc.l    0, 0  ; sec_parallax_config = act default (was windy F3 fixture; superseded by Deep Forest BG)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    OJZ_Sec1_TypeTable      ; sec_type_table (§4.9)
     dc.l    0, 0                    ; sec_pal_cycle, sec_sound_bank
@@ -87,7 +87,7 @@ OJZ_Sec2:
     dc.l    OJZ_Sec2_Rings          ; sec_rings
     dc.l    0
     dc.l    OJZ_Palette
-    dc.l    ParallaxConfig_SkyHaze, 0      ; sec_parallax_config = parallax_combine_split demo (was on Sec0, swapped here)
+    dc.l    0, 0      ; sec_parallax_config = act default (was sky-haze demo; superseded by Deep Forest BG)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    OJZ_Sec2_TypeTable      ; sec_type_table (§4.9)
     dc.l    0, 0
@@ -106,7 +106,8 @@ OJZ_Sec3:
     dc.l    OJZ_Sec3_Rings
     dc.l    0
     dc.l    OJZ_Palette
-    dc.l    ParallaxConfig_OJZ_LockedClouds, 0
+    dc.l    0, 0    ; sec_parallax_config = act default (was LockedClouds fixture — locked
+                    ; vscroll + screen-space bands fought the Deep Forest vertical parallax)
     dc.l    0                       ; sec_bg_layout (NULL = T1 default)
     dc.l    OJZ_Sec3_TypeTable
     dc.l    0, 0
@@ -232,6 +233,10 @@ BGND_Palette: BINCLUDE "art/palettes/SonicAndTails.bin"
 OJZ_Act1_BG_Layout: BINCLUDE "data/generated/ojz/act1/zone_bg.bin"
     align 2
 OJZ_Act1_BG_Tiles:  BINCLUDE "data/generated/ojz/act1/bg_tiles.bin"
+    align 2
+
+; Camera-driven BG tile animation banks (generated; TileCount=0 stub when none)
+    include "data/generated/ojz/act1/bg_anim.asm"
     align 2
 
 ; Per-section tile blobs (§2 A.3)
