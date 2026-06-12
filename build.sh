@@ -47,6 +47,12 @@ python3 "${TOOLS}/gen_collision_data.py" data/collision
 echo "Generating OJZ section data..."
 python3 "${TOOLS}/ojz_strip_gen.py" generate
 
+# Editor-authored BG override (level editor art) — replaces the generated
+# zone BG when data/editor_bg_override.json exists.
+if [[ -f data/editor_bg_override.json ]]; then
+    python3 "${TOOLS}/inject_editor_bg.py"
+fi
+
 # Per-section tile art → ZX0 (load-time tier). Each .zx0 carries the
 # project's 4-byte wrapper [u16 BE uncompressed size][u8 flags=0][u8 version=2]
 # ahead of the raw salvador (modern/V2) stream — the loader peeks the size
