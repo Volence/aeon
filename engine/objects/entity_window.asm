@@ -1531,3 +1531,32 @@ EntityWindow_RebuildScanState:
         andi.w  #ENTITY_RESCAN_COARSE_MASK, d0
         move.w  d0, (Camera_Y_Coarse_Prev).w
         bra.w   EntityWindow_Slide
+
+; -----------------------------------------------
+; EntityWindow_SyncSlide — resolve a pending slide before a teleport rebase
+;
+; Teleport thresholds key off the PLAYER's position and Section_Check runs
+; before EntityWindow_Scan in the frame, so a fast player (or a debug warp)
+; can cross a threshold while the camera envelope's slide is still pending —
+; the camera crossed a section boundary this frame (or lags the player by
+; more than the boundary distance) and the per-frame slide check hasn't run
+; yet. The teleport-invariance contract ("a rebase never changes the tracked
+; section set") only holds for a window that is FRESH against the pre-rebase
+; camera, so every teleport handler calls this FIRST — same derive+compare
+; as EntityWindow_Scan's slide check; a no-op when the window is current.
+; Found by the invariance assert: BWD fired at camX $168 with anchor still
+; (2,0) — the (1,0) slide was pending — pre/post anchors mismatched.
+;
+; In:  none (reads Camera_X/Y, Slot_Section_Map — pre-rebase values)
+; Out: none
+; Clobbers: d0-d7, a0-a4
+; -----------------------------------------------
+EntityWindow_SyncSlide:
+        bsr.w   EntityWindow_DeriveWindow       ; d2/d3 = anchor candidate
+        cmp.b   (Entity_Window_Anchor).w, d2
+        bne.s   .stale
+        cmp.b   (Entity_Window_Anchor+1).w, d3
+        bne.s   .stale
+        rts
+.stale:
+        bra.w   EntityWindow_Slide

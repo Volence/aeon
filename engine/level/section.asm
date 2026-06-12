@@ -367,9 +367,15 @@ Section_Check:
 ; -----------------------------------------------
 ; Section_TeleportFwd — forward (rightward) teleport
 ; Old slot 1 becomes slot 0. Loads next section into slot 1.
-; Clobbers: d0–d3, a0–a1
+; Clobbers: d0–d7, a0–a4 (SyncSlide + TeleportShift rebuild paths)
 ; -----------------------------------------------
 Section_TeleportFwd:
+        ; -- §4.9: a fast player can cross the threshold with the camera's
+        ;    slide still pending (Section_Check runs before EntityWindow_Scan).
+        ;    The rebase-invariance contract needs a window that is fresh
+        ;    against the PRE-rebase camera — sync it first. --
+        jsr     EntityWindow_SyncSlide
+
         move.l  (Camera_X).w, d0
         subi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_X).w
@@ -456,9 +462,13 @@ Section_TeleportFwd:
 ; -----------------------------------------------
 ; Section_TeleportBwd — backward (leftward) teleport
 ; Old slot 0 becomes slot 1. Loads previous section into slot 0.
-; Clobbers: d0–d3, a0–a1
+; Clobbers: d0–d7, a0–a4 (SyncSlide + TeleportShift rebuild paths)
 ; -----------------------------------------------
 Section_TeleportBwd:
+        ; -- §4.9: resolve any pending slide against the pre-rebase camera
+        ;    first (see Section_TeleportFwd) --
+        jsr     EntityWindow_SyncSlide
+
         move.l  (Camera_X).w, d0
         addi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_X).w
@@ -528,9 +538,13 @@ Section_TeleportBwd:
 ; Both slots advance sec_y by 2 (SECTION_SHIFT = 2 sections). Camera_Y and
 ; Player_1.y_pos shift up
 ; by SECTION_SHIFT so they remain in the upper portion of the new pair.
-; Clobbers: d0–d3, d6, a0–a2, a4
+; Clobbers: d0–d7, a0–a4 (SyncSlide + TeleportShiftY rebuild paths)
 ; -----------------------------------------------
 Section_TeleportDown:
+        ; -- §4.9: resolve any pending slide against the pre-rebase camera
+        ;    first (see Section_TeleportFwd) --
+        jsr     EntityWindow_SyncSlide
+
         move.l  (Camera_Y).w, d0
         subi.l  #SECTION_SHIFT<<16, d0
         move.l  d0, (Camera_Y).w
@@ -581,7 +595,7 @@ Section_TeleportDown:
 ; Both slots retreat sec_y by 2 (SECTION_SHIFT = 2 sections). Camera_Y and
 ; Player_1.y_pos shift down
 ; by SECTION_SHIFT so they remain in the lower portion of the new pair.
-; Clobbers: d0–d3, d6, a0–a2, a4
+; Clobbers: d0–d7, a0–a4 (SyncSlide + TeleportShiftY rebuild paths)
 ; -----------------------------------------------
 Section_TeleportUp:
         ; -- guard FIRST: with no slot-map shift the camera/player shift
@@ -591,6 +605,12 @@ Section_TeleportUp:
         lea     (Slot_Section_Map).w, a0
         cmpi.b  #2, 1(a0)
         blt.s   .up_at_top
+
+        ; -- §4.9: resolve any pending slide against the pre-rebase camera
+        ;    first (see Section_TeleportFwd; after the guard so a refused
+        ;    teleport stays a pure no-op) --
+        jsr     EntityWindow_SyncSlide
+        lea     (Slot_Section_Map).w, a0        ; SyncSlide clobbers a0
 
         move.l  (Camera_Y).w, d0
         addi.l  #SECTION_SHIFT<<16, d0
