@@ -110,6 +110,14 @@ GameState_OJZScroll_Init:
         jsr     Section_UpdateColumns
         startZ80
 
+    ifdef __DEBUG__
+        ; -- §5 Task 4: directional sensor self-check against generator-
+        ;    computed expectations. Must run after Tile_Cache_Init (the
+        ;    probes read the filled collision cache). RaiseError on
+        ;    mismatch. --
+        jsr     PlayerSensors_SelfCheck
+    endif
+
         ; -- §4.6 parallax init: pull start section's parallax_config --
         ; Section_GetSecPtrXY handles the full grid math (sec_y included);
         ; runs after Section_Init so Current_Act_Ptr is valid.

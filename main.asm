@@ -115,6 +115,7 @@ __BUDGET_ENGINE:
     include "engine/level/plane_buffer.asm"
     include "engine/level/tile_cache.asm"
     include "engine/level/collision_lookup.asm"
+    include "engine/player/player_sensors.asm"
     include "engine/level/section.asm"
     include "engine/level/camera.asm"
     include "engine/level/parallax.asm"

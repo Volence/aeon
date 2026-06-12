@@ -8,6 +8,12 @@ docs/research/player-sensors-sce.md §3.3.
 
 Usage:
     python3 tools/collision_pipeline.py test    # run self-tests
+    python3 tools/collision_pipeline.py --probe SEC_ID X Y [SEC_ID X Y ...]
+        # print baked attr byte, solidity, height/rotated-height column
+        # bytes and angle for BOTH paths at section-local pixel (X, Y).
+        # Attr indices come from the canonical build walk
+        # (enumerate_collision_layouts × build_section_collision), so they
+        # match the bytes the strips carry and data/collision/*.bin.
 
 Height semantics (per-column profile byte h):
     0          empty column
@@ -288,6 +294,102 @@ def load_collision_sources(sonic_hack_dir: str):
 
 
 # ---------------------------------------------------------------------------
+# Probe mode (§5 Task 4) — query one cell the way the runtime sees it
+# ---------------------------------------------------------------------------
+
+def resolve_cell(layout: list[list[int]], chunks: list[list[int]],
+                 x: int, y: int) -> int | None:
+    """Chunk-entry word covering section-local pixel (x, y), or None when
+    the position falls outside the layout / references an out-of-range
+    chunk (both bake to air). Mirrors build_section_collision's walk:
+    128px chunks, 8×8 blocks of 16px per chunk."""
+    if x < 0 or y < 0:
+        return None
+    chunk_row, chunk_col = y // 128, x // 128
+    if chunk_row >= len(layout) or chunk_col >= len(layout[chunk_row]):
+        return None
+    chunk_id = layout[chunk_row][chunk_col]
+    if chunk_id >= len(chunks):
+        return None
+    block_row, block_col = (y % 128) // 16, (x % 128) // 16
+    return chunks[chunk_id][block_row * 8 + block_col]
+
+
+def build_canonical_attrset():
+    """Replicate the build's attr-set intern order exactly: walk
+    enumerate_collision_layouts() through build_section_collision (the ONE
+    walk implementation, same as generate() Pass 1b / gen_collision_data).
+    Returns (attrset, index_a, index_b, profiles, angles, layouts) where
+    layouts maps sec_id (str) → layout."""
+    # Lazy import: ojz_strip_gen imports this module at top level — a
+    # module-level import here would recreate the old import cycle.
+    import ojz_strip_gen
+
+    index_a, index_b, profiles, angles = load_collision_sources(SONIC_HACK)
+    chunks = load_chunk_map(CHUNK_MAP_PATH)
+    attrset = AttrSet()
+    layouts: dict[str, list[list[int]]] = {}
+    for sec_id, path in ojz_strip_gen.enumerate_collision_layouts():
+        layout = load_layout(path)
+        layouts[sec_id] = layout
+        if layout:
+            ojz_strip_gen.build_section_collision(
+                layout, chunks, index_a, index_b, profiles, angles, attrset
+            )
+    return attrset, index_a, index_b, profiles, angles, layouts, chunks
+
+
+def run_probe(triples: list[tuple[str, int, int]]):
+    """--probe driver: print both paths' attr data for each (sec, x, y)."""
+    (attrset, index_a, index_b, profiles, angles,
+     layouts, chunks) = build_canonical_attrset()
+
+    # Consistency proof: the rebuilt walk must reproduce the on-disk tables,
+    # otherwise the printed attr indices don't match the built ROM.
+    coll_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "..", "data", "collision")
+    tables = emit_tables(attrset)
+    stale = []
+    for name, blob in sorted(tables.items()):
+        path = os.path.join(coll_dir, name)
+        if not os.path.isfile(path):
+            stale.append(f"{name} (missing)")
+            continue
+        with open(path, "rb") as f:
+            if f.read() != blob:
+                stale.append(name)
+    if stale:
+        print(f"WARNING: data/collision out of date vs this walk: "
+              f"{', '.join(stale)} — attr indices below may not match the "
+              f"built ROM. Re-run build.sh.")
+    else:
+        print("data/collision/*.bin match this walk (attr indices valid)")
+
+    for sec_id, x, y in triples:
+        layout = layouts.get(sec_id)
+        if layout is None:
+            print(f"sec {sec_id} ({x},{y}): NO LAYOUT (not in canonical "
+                  f"enumeration)")
+            continue
+        word = resolve_cell(layout, chunks, x, y)
+        sub_x, sub_y = x & 0xF, y & 0xF
+        print(f"sec {sec_id} local ({x},{y})  sub_x={sub_x} sub_y={sub_y}  "
+              f"word={'None' if word is None else f'${word:04X}'}")
+        a, b = (0, 0) if word is None else bake_cell(
+            word, index_a, index_b, profiles, angles, attrset)
+        for path_name, attr in (("A", a), ("B", b)):
+            heights, angle, sol = attrset.entries[attr]
+            rot = rotate_profile(heights)
+            h = heights[sub_x]
+            w = rot[sub_y]
+            hs = h - 256 if h >= 0x80 else h
+            ws = w - 256 if w >= 0x80 else w
+            print(f"  path {path_name}: attr=${attr:02X} sol={sol} "
+                  f"angle=${angle:02X} h[{sub_x}]=${h:02X}({hs:+d}) "
+                  f"rot[{sub_y}]=${w:02X}({ws:+d})")
+
+
+# ---------------------------------------------------------------------------
 # Self-tests
 # ---------------------------------------------------------------------------
 
@@ -429,6 +531,30 @@ def test_bake_cell_solidity_gate():
     print("  [OK] test_bake_cell_solidity_gate")
 
 
+def test_resolve_cell():
+    """--probe's cell resolution: chunk/block decomposition + air guards."""
+    # 2×2 chunk layout; chunk 0 = all words 0, chunk 1 = word index baked
+    # into the value so the picked entry is self-identifying.
+    chunk0 = [0] * 64
+    chunk1 = [0x1000 + i for i in range(64)]
+    layout = [[0, 1], [1, 0]]
+    chunks = [chunk0, chunk1]
+
+    # (0,0) → chunk 0, block (0,0)
+    assert resolve_cell(layout, chunks, 0, 0) == 0
+    # (128+35, 17) → chunk 1 (layout[0][1]), block_row 1, block_col 2 → idx 10
+    assert resolve_cell(layout, chunks, 128 + 35, 17) == 0x100A
+    # (15, 128+127) → chunk 1 (layout[1][0]), block_row 7, block_col 0 → idx 56
+    assert resolve_cell(layout, chunks, 15, 128 + 127) == 0x1038
+    # Out of layout bounds / negative → None
+    assert resolve_cell(layout, chunks, 256, 0) is None
+    assert resolve_cell(layout, chunks, 0, 256) is None
+    assert resolve_cell(layout, chunks, -1, 0) is None
+    # Out-of-range chunk id → None
+    assert resolve_cell([[7]], chunks, 0, 0) is None
+    print("  [OK] test_resolve_cell")
+
+
 def test_real_data_measurement():
     """Bake every OJZ placement; measure attr-set size; emit_tables runs."""
     index_a, index_b, profiles, angles = load_collision_sources(SONIC_HACK)
@@ -484,6 +610,7 @@ def run_tests():
     test_rotate_ramp()
     test_attrset_dedup_and_air()
     test_bake_cell_solidity_gate()
+    test_resolve_cell()
     test_real_data_measurement()
     print("All tests passed")
 
@@ -493,10 +620,19 @@ def run_tests():
 # ---------------------------------------------------------------------------
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] != "test":
-        print(f"Usage: {sys.argv[0]} test")
-        sys.exit(1)
-    run_tests()
+    if len(sys.argv) == 2 and sys.argv[1] == "test":
+        run_tests()
+        return
+    if len(sys.argv) >= 5 and sys.argv[1] == "--probe" \
+            and (len(sys.argv) - 2) % 3 == 0:
+        args = sys.argv[2:]
+        triples = [(args[i], int(args[i + 1], 0), int(args[i + 2], 0))
+                   for i in range(0, len(args), 3)]
+        run_probe(triples)
+        return
+    print(f"Usage: {sys.argv[0]} test")
+    print(f"       {sys.argv[0]} --probe SEC_ID X Y [SEC_ID X Y ...]")
+    sys.exit(1)
 
 
 if __name__ == "__main__":
