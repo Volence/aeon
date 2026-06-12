@@ -251,6 +251,11 @@ TestArt:
         dc.l    $22222222, $22222222, $22222222, $22222222
         dc.l    $22222222, $22222222, $22222222, $22222222
         endr
+; Ring placeholder — 8x8 gold donut (palette 0: index $E = gold, $6 = white
+; sparkle in the sonic.bin line-0 palette). Tile VRAM_RING_PLACEHOLDER
+; (= VRAM_TEST_OBJ+8); DrawRings points every ring sprite at it.
+        dc.l    $00EEEE00, $0E600EE0, $EE0000EE, $EE0000EE
+        dc.l    $EE0000EE, $EE0000EE, $0EE00EE0, $00EEEE00
 TestArt_End:
 
 ; -----------------------------------------------

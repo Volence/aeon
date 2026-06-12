@@ -444,7 +444,12 @@ FRAME_PIECES            = 6         ; byte offset to first piece datum
 ; -----------------------------------------------
 ; Test VRAM allocation
 ; -----------------------------------------------
-VRAM_TEST_OBJ           = $0001         ; tile index 1 (8 tiles for test art)
+VRAM_TEST_OBJ           = $03E0         ; tile 992 — test object art (8 tiles) in the free
+                                        ; gap between the character DPLC region end (985)
+                                        ; and the BG shared region base (1024). The old
+                                        ; value $0001 sat inside the FG level pool: blank
+                                        ; in some art bases, terrain-aliased in others.
+VRAM_RING_PLACEHOLDER   = VRAM_TEST_OBJ+8 ; tile 1000 — 1-tile gold ring (DrawRings)
 VRAM_TEST_SONIC         = $03C0        ; tile 960 — character DPLC region (up to 25 tiles).
                                         ; MUST stay clear of: FG section pools (tiles 0-~226,
                                         ; see data/editor vram_bases), marker tile $FA, BG

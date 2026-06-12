@@ -160,7 +160,7 @@ DrawRings:
         move.b  #$05, (a4)+            ; +2: size 2×2 (16×16 px)
         addq.b  #1, d5
         move.b  d5, (a4)+              ; +3: link (next sprite index)
-        move.w  #VRAM_TEST_OBJ, (a4)+  ; +4: tile attrs (placeholder art)
+        move.w  #VRAM_RING_PLACEHOLDER, (a4)+  ; +4: tile attrs (placeholder ring art)
         subi.w  #8, d2
         addi.w  #VDP_SPRITE_X_OFFSET, d2
         bne.s   .x_ok

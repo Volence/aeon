@@ -36,6 +36,13 @@ GameState_OJZScroll_Init:
         lea     OJZ_Act1_Descriptor, a0
         jsr     Level_LoadArt
 
+        ; -- test object + ring placeholder art (9 tiles at VRAM_TEST_OBJ;
+        ;    the last tile is VRAM_RING_PLACEHOLDER for DrawRings) --
+        move.l  #TestArt, d1
+        move.w  #vram_bytes(VRAM_TEST_OBJ), d2
+        move.w  #TestArt_End-TestArt, d3
+        jsr     QueueDMA_Critical
+
         ; -- initialise camera first (Section_FillInitial reads Camera_X) --
         lea     OJZ_Act1_Descriptor, a0
         jsr     Camera_Init
