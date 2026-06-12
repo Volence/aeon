@@ -571,8 +571,8 @@ Player_SetState:
 
 **Files:** `engine/player/player_air.asm` (air body, landing banding), `engine/player/player_common.asm` (jump entry from the grounded states + hooks), `engine/player/sonic.asm`
 
-- [ ] **Step 6.1:** `Player_Jump` (called from GROUND/ROLL states): consume `Player_JumpBuffer` OR fresh press; ceiling headroom probe ≥6px (`Player_SensorCeiling` at angle+$80); perpendicular ADD: `x_vel += cos(angle−$40)·jump>>8`, `y_vel += sin(angle−$40)·jump>>8`; `Player_SetState #PSTATE_JUMP` (from ground) / `#PSTATE_ROLLJUMP` (from roll); clear stick_convex. **Jump-delay fix:** after the state switch, FALL THROUGH into the air state's movement for this same frame (do not `addq.l #4,sp`-abort like S2).
-- [ ] **Step 6.2:** JUMP/AIR/ROLLJUMP/AIRBALL shared air body (one routine, flags per state):
+- [x] **Step 6.1:** `Player_Jump` (called from GROUND/ROLL states): consume `Player_JumpBuffer` OR fresh press; ceiling headroom probe ≥6px (`Player_SensorCeiling` at angle+$80); perpendicular ADD: `x_vel += cos(angle−$40)·jump>>8`, `y_vel += sin(angle−$40)·jump>>8`; `Player_SetState #PSTATE_JUMP` (from ground) / `#PSTATE_ROLLJUMP` (from roll); clear stick_convex. **Jump-delay fix:** after the state switch, FALL THROUGH into the air state's movement for this same frame (do not `addq.l #4,sp`-abort like S2).
+- [x] **Step 6.2:** JUMP/AIR/ROLLJUMP/AIRBALL shared air body (one routine, flags per state):
   - air accel ($18) with S3K above-top preservation (back-out, not clamp) — SKIPPED ENTIRELY in ROLLJUMP (classic lockout, drag still runs)
   - release cap: JUMP/ROLLJUMP only — `if y_vel < −$400 && !held → y_vel = −$400`
   - air drag exact rule: `if −$400 ≤ y_vel < 0: x_vel −= x_vel asr 5` before gravity
@@ -588,8 +588,18 @@ Player_SetState:
 
   - airborne angle decay toward 0 by 2/frame
   - airborne sensor activation by motion quadrant (`CalcAngle(x_vel,y_vel)` — if `engine/math.asm` lacks an arctan, add `GetArcTan` as a small octant table routine, S2-equivalent precision; check first) → wall probes (snap + `x_vel=0`), ceiling (flat band: bump `y_vel=0`; steep + moving up: reattach `gsp = ±y_vel`), floor when eligible.
-- [ ] **Step 6.3:** Landing conversion (research physics-classics §2 "Landing"): motion-quadrant dispatch, then angle bands — flat: `gsp = x_vel`; mid (±$10–$1F): `y_vel >>= 1 (asr)`, `gsp = ±y_vel` by angle sign bit; steep (±$20–$3F): `x_vel = 0`, cap y_vel $FC0, `gsp = ±y_vel`; horizontal-motion floor hits: always `gsp = x_vel`; wall-quadrant hits while moving horizontally: `gsp = y_vel` (wall-run engage). Landing eligibility `dist ≥ −(y_vel>>8 + 8)`. On land: `Player_SetState` per curl state (JUMP/ROLLJUMP/AIRBALL land → GROUND with uncurl in hook, unless down held + speed → ROLL), clear PUSHING.
+- [x] **Step 6.3:** Landing conversion (research physics-classics §2 "Landing"): motion-quadrant dispatch, then angle bands — flat: `gsp = x_vel`; mid (±$10–$1F): `y_vel >>= 1 (asr)`, `gsp = ±y_vel` by angle sign bit; steep (±$20–$3F): `x_vel = 0`, cap y_vel $FC0, `gsp = ±y_vel`; horizontal-motion floor hits: always `gsp = x_vel`; wall-quadrant hits while moving horizontally: `gsp = y_vel` (wall-run engage). Landing eligibility `dist ≥ −(y_vel>>8 + 8)`. On land: `Player_SetState` per curl state (JUMP/ROLLJUMP/AIRBALL land → GROUND with uncurl in hook, unless down held + speed → ROLL), clear PUSHING.
 - [ ] **Step 6.4:** Build + verify in Exodus: tap vs hold jump heights; jump while running preserves x_vel; ramp areas launch along normal; roll-jump (temporarily reachable via forced test: hold down while landing — roll lands in Task 7, so for now verify JUMP only); jump buffer: press C 1-2 frames before landing → jumps on landing frame (frame-step in Exodus). Commit: `feat(§5): jumping, air physics, landing banding — jump-delay fixed, up-cap removed`
+  (build-level done: DEBUG + plain builds green, test.sh green — live Exodus pass pending)
+
+**Task 6 implementation notes (2026-06-12):**
+- `Player_Jump` lives in `player_ground.asm` (invoked only from grounded states); its tail `jmp PState_Jump` runs the full air body on the press frame (bug #4 fix). PState_Ground does the buffer/headroom gating: headroom failure does NOT consume `Player_JumpBuffer` (classic retry while the buffer lives); consumption is the first instruction of `Player_Jump`.
+- Air-body flags: `d6` bits `AIRF_RELEASE_CAP` (JUMP/ROLLJUMP) and `AIRF_INPUT_LOCK` (ROLLJUMP), set by 2-instruction preambles. d6 is only read in body steps 1-2, all before the first sensor call — no save/restore needed.
+- Motion-class tie rule: `|x_vel| ≤ |y_vel|` → vertical class (ties at exact 45° go vertical, keeping landing authority with the down class). Documented at the classifier.
+- Ceiling reattach band: classic `(angle+$20)&$40` — zero ($60-$9F = flat ceiling) → bump, nonzero → reattach with `gsp = ±y_vel` by angle sign bit (shared `Air_GspFromYvel`, same rule as the landing bands; direction verified for the unnegated-sin convention).
+- Gravity moved AFTER the position add (classic order) — Task 5's deviation resolved. FEEL DEVIATION comment placed at the fall-cap site in `PState_AirShared`.
+- Curl sizing: enter-hook-owns-it — `PHook_EnsureStanding`/`PHook_EnsureBall` keyed on the height byte (idempotent); GROUND and AIR enter-hooks ensure standing, JUMP/ROLLJUMP/AIRBALL share `PHook_AirBallEnter` (ball + `y_pos += 5`). Bug #5 is structural. Caveat: debug-fly entry from a curled state loses the −5 uncurl shift (debug art swap overwrites the height byte) — harmless, debug-only.
+- Task 7 must know: `Player_Jump` has the `TODO(Task 7)` line for ROLL→ROLLJUMP; ST_ROLLING is still never set (decide its fate with the ROLL state); horizontal-class wall hits write `gsp = y_vel` (wall-run engage) — quadrant-rotated grounded sensing should pick that up naturally.
 
 ---
 

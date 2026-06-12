@@ -1,7 +1,9 @@
-; Player grounded states — GROUND today; ROLL/SPINDASH land here in
-; Tasks 7-8 (§5). Reached only through the Player_States offset table in
-; player_common.asm; shares its overlay equates, macros, and the (a4)
-; physics-table convention.
+; Player grounded states — GROUND + Player_Jump today; ROLL/SPINDASH
+; land here in Tasks 7-8 (§5). Player_Jump lives in this file because
+; it is invoked only from grounded states (its tail jumps into the air
+; body in player_air.asm — the bug #4 press-frame fix). Reached only
+; through the Player_States offset table in player_common.asm; shares
+; its overlay equates, macros, and the (a4) physics-table convention.
 ;
 ; Lives in the object code bank, included from main.asm immediately
 ; after player_common.asm.
@@ -15,8 +17,19 @@
 ; -----------------------------------------------
 PState_Ground:
         ; TODO(Task 8): spindash check goes here (first, classic order)
-        ; TODO(Task 6): jump check goes here (consumes Player_JumpBuffer;
-        ;               jump-delay fix: fall through into air movement)
+        ; --- jump check (classic order: after spindash, before slope/
+        ; input). Player_JumpBuffer covers fresh press AND buffered —
+        ; latched on the press edge in Player_Main; consumed only on a
+        ; successful launch, so a headroom rejection leaves it live and
+        ; the classic retry happens next frame while the buffer lasts ---
+        tst.b   (Player_JumpBuffer).w
+        beq.s   .no_jump
+        jsr     Player_SensorCeiling            ; headroom: d0 = clearance
+                                                ; (≥16 sentinel = open sky)
+        cmpi.w  #6, d0
+        bge.w   Player_Jump                     ; classic CalcRoomOverHead
+                                                ; ≥6px rule; does not return
+.no_jump:
         ; TODO(Task 7): slope factor on gsp goes here — BEFORE input,
         ;               using last frame's angle (classic order)
         bsr.w   Ground_Move
@@ -226,3 +239,49 @@ Ground_Move:
 .set_push:
         bset    #ST_PUSHING, SST_status(a0)
         rts
+
+; -----------------------------------------------
+; Player_Jump — launch from a grounded state (headroom already verified
+; by the caller, buffer consumed here). Perpendicular ADD along the
+; surface normal, angle − $40 (research §3): running speed is preserved
+; — gsp is NOT zeroed, it's already projected into x_vel/y_vel.
+; In:  a0 = player SST, a4 = Player_Phys
+; Out: DOES NOT return to the ground flow — transitions to PSTATE_JUMP
+;      and runs the air body THIS frame, returning to Player_Main's
+;      dispatch.
+;      bug #4 fix: the classic aborts the press frame with
+;      `addq.l #4,sp` (no movement until the next frame); we complete
+;      the frame airborne so movement happens on the press frame.
+; Clobbers: d0-d7, a1-a2
+; -----------------------------------------------
+Player_Jump:
+        clr.b   (Player_JumpBuffer).w           ; consume the buffered press
+        move.w  PPHYS_JUMP_FORCE(a4), d2
+        move.b  SST_angle(a0), d0
+        beq.s   .flat
+        subi.b  #$40, d0                        ; surface normal
+        jsr     GetSineCosine                   ; d0 sin·$100, d1 cos·$100
+                                                ; (d2 survives — clobbers
+                                                ; nothing else)
+        ; variable×variable product — one-shot event, classic Sonic_Jump
+        ; does exactly this
+        muls.w  d2, d1                          ; lint: disable=E002
+        asr.l   #8, d1
+        add.w   d1, SST_x_vel(a0)
+        muls.w  d2, d0                          ; lint: disable=E002
+        asr.l   #8, d0
+        add.w   d0, SST_y_vel(a0)
+        bra.s   .launched
+.flat:
+        ; angle 0 fast path: cos(−$40) = 0, sin(−$40) = −$100 →
+        ; x_vel += 0, y_vel −= jump_force (from rest: exactly −$680).
+        ; Same algebra as the muls path under the engine's UNNEGATED
+        ; y_vel = +sin convention (see Ground_Move .project_slope)
+        sub.w   d2, SST_y_vel(a0)
+.launched:
+        clr.b   _pl_stick_convex(a0)
+        moveq   #PSTATE_JUMP, d0
+        ; TODO(Task 7): from PSTATE_ROLL → PSTATE_ROLLJUMP instead
+        bsr.w   Player_SetState
+        ; bug #4 fix: run the full air body on the press frame
+        jmp     PState_Jump

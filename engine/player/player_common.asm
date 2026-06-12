@@ -56,10 +56,11 @@ BUTTON_JUMP_MASK  = BUTTON_A|BUTTON_C
 PLAYER_DEBUG_FLY_SPEED = 16     ; px/frame — matched to CAM_MAX_Y_STEP
 
 ; -----------------------------------------------
-; setStandingSize — write the standing collision box (sizes are 2r+1;
-; sensors halve by lsr → 19/2=9, 39/2=19 — the exact classic radii).
-; Task 7 adds setBallSize + the ±CURL_Y_SHIFT y-shift pair; the
-; enter/exit hooks are the one writer of these fields (spec §3.3).
+; setStandingSize / setBallSize — the two collision boxes (sizes are
+; 2r+1; sensors halve by lsr → standing 9/19, ball 7/14 — the exact
+; classic radii). The enter hooks are the ONE writer of these fields
+; and of the paired ±CURL_Y_SHIFT y-shift (spec §3.3) — see
+; PHook_EnsureStanding/PHook_EnsureBall.
 ; In: a0 = player SST
 ; -----------------------------------------------
 setStandingSize macro
@@ -67,12 +68,17 @@ setStandingSize macro
         move.b  #PLAYER_Y_RADIUS*2+1, SST_height_pixels(a0)
         endm
 
+setBallSize macro
+        move.b  #BALL_X_RADIUS*2+1, SST_width_pixels(a0)
+        move.b  #BALL_Y_RADIUS*2+1, SST_height_pixels(a0)
+        endm
+
 ; -----------------------------------------------
 ; maskOpposingLR — L+R held together = neither (bug #10).
 ; In: heldReg = data register holding the held-button bits (modified:
 ;     masked to LEFT|RIGHT, zeroed when both are down)
 ; Fixed internal label: expand at most once per global-label scope
-; (current expansions: Ground_Move, PState_Air — one each).
+; (current expansions: Ground_Move, PState_AirShared — one each).
 ; -----------------------------------------------
 maskOpposingLR macro heldReg
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, heldReg
@@ -213,8 +219,11 @@ Player_Main:
 ; Clobbers: d0-d4, a1-a3
 ; -----------------------------------------------
 Player_Display:
-        cmpi.b  #PSTATE_AIR, _pl_state(a0)
-        bhs.s   .anim_air                       ; AIR/JUMP/ROLLJUMP/AIRBALL
+        cmpi.b  #PSTATE_JUMP, _pl_state(a0)
+        bhs.s   .anim_ball                      ; JUMP/ROLLJUMP/AIRBALL curled
+        ; grounded states + uncurled AIR: walk/idle by gsp (the classic
+        ; keeps the walk cycle while falling uncurled; gsp holds the
+        ; last ground speed through AIR)
         ; TODO(Task 7): PSTATE_ROLL wants the ball anim — grounded states
         ; all read walk/idle until rolling exists
         tst.w   _pl_gsp(a0)
@@ -224,7 +233,7 @@ Player_Display:
 .anim_walk:
         clr.b   SST_anim(a0)                    ; ANIM_WALK (= 0)
         bra.s   .animate
-.anim_air:
+.anim_ball:
         move.b  #ANIM_BALL, SST_anim(a0)
 .animate:
         jsr     AnimateSprite
@@ -236,9 +245,9 @@ Player_States:
         dc.w    PState_Ground-Player_States     ; PSTATE_ROLL — TODO(Task 7)
         dc.w    PState_Ground-Player_States     ; PSTATE_SPINDASH — TODO(Task 8)
         dc.w    PState_Air-Player_States        ; PSTATE_AIR
-        dc.w    PState_Air-Player_States        ; PSTATE_JUMP — TODO(Task 6)
-        dc.w    PState_Air-Player_States        ; PSTATE_ROLLJUMP — TODO(Task 6)
-        dc.w    PState_Air-Player_States        ; PSTATE_AIRBALL — TODO(Task 6)
+        dc.w    PState_Jump-Player_States       ; PSTATE_JUMP
+        dc.w    PState_RollJump-Player_States   ; PSTATE_ROLLJUMP
+        dc.w    PState_AirBall-Player_States    ; PSTATE_AIRBALL
 Player_States_End:
     if (Player_States_End-Player_States)/2 <> PSTATE_COUNT
         error "Player_States table out of sync with PSTATE_*"
@@ -267,10 +276,10 @@ PState_EnterHooks:
         dc.w    PHook_GroundEnter-PState_EnterHooks ; GROUND
         dc.w    PHook_Null-PState_EnterHooks        ; ROLL — TODO(Task 7): ball radii + curl y-shift
         dc.w    PHook_Null-PState_EnterHooks        ; SPINDASH — TODO(Task 8)
-        dc.w    PHook_AirEnter-PState_EnterHooks    ; AIR
-        dc.w    PHook_AirEnter-PState_EnterHooks    ; JUMP — TODO(Task 6): ball radii + curl y-shift
-        dc.w    PHook_AirEnter-PState_EnterHooks    ; ROLLJUMP — TODO(Task 6)
-        dc.w    PHook_AirEnter-PState_EnterHooks    ; AIRBALL — TODO(Task 6)
+        dc.w    PHook_AirEnter-PState_EnterHooks    ; AIR (uncurled)
+        dc.w    PHook_AirBallEnter-PState_EnterHooks ; JUMP
+        dc.w    PHook_AirBallEnter-PState_EnterHooks ; ROLLJUMP
+        dc.w    PHook_AirBallEnter-PState_EnterHooks ; AIRBALL
 PState_EnterHooks_End:
     if (PState_EnterHooks_End-PState_EnterHooks)/2 <> PSTATE_COUNT
         error "PState_EnterHooks table out of sync with PSTATE_*"
@@ -298,14 +307,42 @@ PHook_Null:
         rts
 
 PHook_GroundEnter:
-        ; standing radii (idempotent until curl exists — Task 7 uncurl
-        ; restores these + the −CURL_Y_SHIFT y-shift)
-        setStandingSize
+        bsr.s   PHook_EnsureStanding            ; uncurl (jump/ball landings;
+                                                ; roll landings are Task 7)
         bclr    #ST_IN_AIR, SST_status(a0)
         rts
 
-PHook_AirEnter:
+PHook_AirEnter:                                 ; uncurled airborne
+        bsr.s   PHook_EnsureStanding
         bset    #ST_IN_AIR, SST_status(a0)
+        rts
+
+PHook_AirBallEnter:                             ; JUMP / ROLLJUMP / AIRBALL
+        bsr.s   PHook_EnsureBall
+        bset    #ST_IN_AIR, SST_status(a0)
+        rts
+
+; bug #5 fix (structural): the collision box lives ONLY here — every
+; curled state gets ball radii with the symmetric ±CURL_Y_SHIFT
+; feet-planted shift, so the classic roll-jump 5px size mismatch cannot
+; exist. Enter-hook-owns-it pattern: each enter hook ENSURES its size,
+; keyed on the current height byte — idempotent and correct for every
+; transition path (GROUND→JUMP curls, any curled→GROUND/AIR uncurls,
+; curled→curled is a no-op).
+PHook_EnsureStanding:
+        cmpi.b  #BALL_Y_RADIUS*2+1, SST_height_pixels(a0)
+        bne.s   .keep                           ; not curled (incl. debug 16)
+        setStandingSize
+        subi.l  #CURL_Y_SHIFT<<16, SST_y_pos(a0)
+.keep:
+        rts
+
+PHook_EnsureBall:
+        cmpi.b  #BALL_Y_RADIUS*2+1, SST_height_pixels(a0)
+        beq.s   .keep                           ; already curled
+        setBallSize
+        addi.l  #CURL_Y_SHIFT<<16, SST_y_pos(a0)
+.keep:
         rts
 
 ; -----------------------------------------------
