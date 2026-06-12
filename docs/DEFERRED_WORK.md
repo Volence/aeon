@@ -798,6 +798,15 @@ above) — not worth a dedicated session.
 **Surfaced during:** compression-two-tier T2/T3 2026-06-11. Editor repo (sonic-level-editor, user-triaged commits only).
 **What:** The editor's act-descriptor exporter (`src/core/export/act-descriptor.ts`) still emits the pre-compression-branch shape: `sec_reserved_2C`/pad instead of `sec_block_dict` ($2C) + `sec_block_dict_len` ($46); `OJZ_SecN_Tiles_S4LZ` labels + `.s4lz` BINCLUDEs instead of `OJZ_SecN_Tiles` + `.zx0`; 18 per-section BINCLUDE lines instead of the two generated blob-alias includes (`sec_tile_blobs.asm`/`sec_block_blobs.asm`). Nothing breaks today (the export dir isn't in the ROM build), but the NEXT editor export would hand the engine a NULL dict pointer for dict-compressed blocks. Also: `tools/ojz_strip_gen.py editor_data_available()` hardcodes `ojz/act1/section_0.tiles.bin` instead of deriving from project.json `dataPath` (same config-derivation treatment as the 2026-06-11 chunk-library move).
 **When ready:** before the next editor level export; engine-side spec is all on master (structs.asm Sec fields, act_descriptor.asm as reference).
+**Update 2026-06-11 (entity exporter):** entities now follow the build-step model —
+`tools/ojz_entity_gen.py` generates entity_data.asm from the editor JSONs (X-sort,
+validation, per-section minimized type tables, ring-buffer pressure analysis).
+Direction decision: editor authors JSON, BUILD generates engine format — the
+act-descriptor exporter above should eventually shrink into the same model rather
+than be fixed in place. Editor-repo follow-up: placement UI checkboxes for the new
+`anyY`/`xflip`/`yflip` object fields (generator already accepts them). Generator
+polish backlog (review minors): friendly errors for malformed JSON/float coords,
+warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 
 ### Streaming polish backlog (consolidated pointers)
 **Surfaced during:** vertical-streaming 2026-06-10 (full analysis in that plan's RESULTS + follow-ups).
