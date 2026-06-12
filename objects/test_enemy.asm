@@ -22,7 +22,7 @@ ENEMY_PATROL_RANGE      = 48            ; pixels each side from spawn centre
 ; TestEnemy_Init — behavior-specific init (called as first-frame code_addr)
 ; In:  a0 = SST pointer (base fields already set by Load_Object)
 ; Out: none
-; Clobbers: d0, a1
+; Clobbers: none
 ; -----------------------------------------------
 TestEnemy_Init:
         move.w  #ENEMY_PATROL_RANGE, _enemy_steps(a0)
@@ -34,7 +34,7 @@ TestEnemy_Init:
 ; TestEnemy_Main — per-frame update
 ; In:  a0 = SST pointer
 ; Out: none
-; Clobbers: d0-d1, a1
+; Clobbers: d0-d3, a1 (Draw_Sprite tail call)
 ; -----------------------------------------------
 TestEnemy_Main:
         jsr     ObjectMoveX
