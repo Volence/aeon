@@ -17,7 +17,7 @@ is bounded RAM, so the fix is a rolling park buffer.
 
 **Park buffer:** `Ring_Collected_Park` — `COLLECTED_PARK_SLOTS = 4` entries of
 33 bytes (1 section-id byte + 16 collected-bitmask bytes + 16 killed-bitmask
-bytes) + pad = 136 bytes RAM. A rolling write index (`Collected_Park_Next`, byte)
+bytes) = 132 bytes + index byte + pad = 134 bytes RAM. A rolling write index (`Collected_Park_Next`, byte)
 selects the slot to overwrite when parking a new section (oldest-first rollover).
 
 **Park on evict:** in `Collected_UpdateCenter`'s evict path, before stamping

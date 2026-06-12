@@ -673,11 +673,18 @@ non-zero; intermittently they read zero.
 
 ## From §4.9 — Section-Local Entity Management
 
-### §4.9.4 Rolling 4-Slot State Tracking (Respawn Memory)
-**Blocked by:** §4.9 core lifecycle (components 1-3) shipping first
-**Surfaced during:** §4.9 design session 2026-04-29.
-**What:** 4-entry rolling buffer (104 bytes) that saves per-section ring bitmask + object bitmask on section unload. On section re-load, search buffer for matching section_id — if found, apply saved bitmasks so collected rings stay collected and destroyed objects stay dead. Evicts oldest entry when full. Maximum distance to see respawned entities: ~$800 pixels.
-**When ready:** After §4.9 components 1-3 ship. The ring bitmask and object slot tag infrastructure must be working first. Pure addition — no changes to existing spawn/despawn paths, just wrapping them with save/restore.
+### ~~§4.9.4 Rolling 4-Slot State Tracking (Respawn Memory)~~ — SHIPPED 2026-06-12
+**Resolution:** `Ring_Collected_Park` (4 × 33 B rolling park, 134 B total) parks a section's
+collected/killed bitmasks when `Collected_UpdateCenter` evicts it from the 3×3 window
+(pristine sections skipped) and restores them in `Collected_ClaimSlot` on re-entry.
+3×3 window + 4 park = 13 remembered sections — covers OJZ's whole act (zero resurrection);
+larger acts degrade classically at long range. Spec: `docs/superpowers/specs/2026-06-12-respawn-memory-design.md`,
+commit 235e200. Follow-ups from review (minor): (1) restore-leg verification read only the
+collected mask — re-verify the killed mask round-trip plus a live no-respawn census when a
+killable object path exists; (2) freed park entries aren't preferentially reused — rolling
+overwrite can evict a live entry while a freed slot idles (effective capacity dips under
+mixed traffic; spec-compliant, revisit if park pressure appears); (3) natural-eviction
+retest needs an act larger than 3×3 — re-run when one exists.
 
 ### ~~§4.9.5 Warp-Based Teleport Preview (Entities in Preview Zone)~~ — SHIPPED 2026-06-12
 **Resolution:** Visibility-derived window makes preview intrinsic. The despawn envelope overlaps sections ahead of the camera before any teleport fires — those sections are tracked, their entities are in the buffer. No warp coordinates, no coordinate shift, no integration work. Closed by the visibility-window plan (branch `vertical-entity-window`); see ENGINE_ARCHITECTURE.md §4.9.3.
