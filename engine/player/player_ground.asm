@@ -1,16 +1,23 @@
-; Player grounded states — GROUND + Player_Jump today; ROLL/SPINDASH
-; land here in Tasks 7-8 (§5). Player_Jump lives in this file because
-; it is invoked only from grounded states (its tail jumps into the air
-; body in player_air.asm — the bug #4 press-frame fix). Reached only
-; through the Player_States offset table in player_common.asm; shares
-; its overlay equates, macros, and the (a4) physics-table convention.
+; Player grounded states — PState_Ground (slope factor, quadrant-rotated
+; floor adherence, S3K slip) + Player_Jump; ROLL/SPINDASH land here in
+; Task 8 (§5). Player_Jump lives in this file because it is invoked only
+; from grounded states (its tail jumps into the air body in
+; player_air.asm — the bug #4 press-frame fix). Reached only through the
+; Player_States offset table in player_common.asm; shares its overlay
+; equates, macros, and the (a4) physics-table convention.
 ;
 ; Lives in the object code bank, included from main.asm immediately
 ; after player_common.asm.
 
+    if PHYS_SLOPE_WALK <> $20
+        error "slope-factor shift form (sin asr 3) assumes PHYS_SLOPE_WALK = $20"
+    endif
+
 ; -----------------------------------------------
-; PState_Ground — standing/running. FLAT subset: slope factor, quadrant-
-; generalized snap axis, and the S3K wall-probe angle gates are Task 7.
+; PState_Ground — standing/running. Classic frame order (research
+; physics-classics §1): jump check → slope factor → input/projection/
+; wall probe (Ground_Move) → integrate → floor pair snap → slip check
+; (fall-through into Player_SlopeRepel).
 ; In:  a0 = player SST, a4 = Player_Phys
 ; Out: none (may transition to PSTATE_AIR)
 ; Clobbers: d0-d7, a1-a2
@@ -30,18 +37,57 @@ PState_Ground:
         bge.w   Player_Jump                     ; classic CalcRoomOverHead
                                                 ; ≥6px rule; does not return
 .no_jump:
-        ; TODO(Task 7): slope factor on gsp goes here — BEFORE input,
-        ;               using last frame's angle (classic order)
+        ; --- slope factor on gsp — BEFORE input, with LAST frame's angle
+        ; (classic Sonic_SlopeResist, research physics-classics §2).
+        ; Applied on floor and both wall quadrants; skipped in the
+        ; ceiling band: apply only when (angle+$60)&$FF < $C0 unsigned
+        ; (band $60-$9F skips). Ground_Move's ±PHYS_GSP_CAP runs after
+        ; this AND after input, so the cap bounds the post-slope sum. ---
+        ; TODO(Task 8): ROLL gets the $50/$14 asymmetric factor (never
+        ; gsp==0-gated) in its own state body
+        move.b  SST_angle(a0), d0
+        beq.s   .no_slope                       ; flat: factor 0 (fast path)
+        move.b  d0, d1
+        addi.b  #$60, d1
+        cmpi.b  #$C0, d1
+        bhs.s   .no_slope                       ; ceiling band $60-$9F
+        jsr     GetSineCosine                   ; d0.w = sin(angle)·$100
+        asr.w   #3, d0                          ; factor = ($20·sin)>>8 ≡
+                                                ; sin asr 3 — exact, no muls
+                                                ; (PHYS_SLOPE_WALK = 2^5,
+                                                ; asserted at file top)
+        tst.w   _pl_gsp(a0)
+        bne.s   .slope_apply
+        ; S3K standing gate: from rest, only slopes steep enough to beat
+        ; the minimum start a slide (|factor| ≥ $D ≈ asin(13/32) ≈ 24°);
+        ; shallower slopes hold the player still — no micro-creep
+        move.w  d0, d1
+        bpl.s   .factor_abs
+        neg.w   d1
+.factor_abs:
+        cmpi.w  #PHYS_SLOPE_STAND_MIN, d1
+        blt.s   .no_slope
+.slope_apply:
+        add.w   d0, _pl_gsp(a0)
+.no_slope:
         bsr.w   Ground_Move
         jsr     ObjectMove
 
-        ; --- floor pair: snap / angle update / ledge detach ---
+        ; --- floor pair: quadrant-rotated probe, snap along the probe
+        ; axis, angle update, ledge detach. Angle continuity: the pair
+        ; wrapper already substitutes the quadrant cardinal on the odd
+        ; flag OR |Δangle| ≥ $20 — that IS the "reject angle jumps > $20
+        ; between frames" loop fall-through guard; nothing more needed
+        ; at this site. ---
         jsr     Player_SensorFloor              ; d0 dist, d1 resolved angle
-        ; adaptive snap-down window: min(|gsp|>>8 + 4, 14)
-        ; TODO(Task 7): window should use speed along the probe axis
-        ; (gsp·cos) per the plan, and the AIR landing snap should fold
-        ; into the same quadrant-axis helper
-        move.w  _pl_gsp(a0), d2
+        ; adaptive snap-down window: min(|speed along probe axis|>>8 + 4,
+        ; 14) — S2+ rule (research feel-modern §2): Y-probe modes
+        ; (quadrant 0/2) use x_vel, X-probe wall modes (1/3) use y_vel
+        move.w  SST_x_vel(a0), d2
+        btst    #0, (Player_Quadrant).w         ; sets Z only — N at
+        beq.s   .axis_sel                       ; .axis_sel is still the
+        move.w  SST_y_vel(a0), d2               ; loaded value's sign on
+.axis_sel:                                      ; both paths
         bpl.s   .speed_pos
         neg.w   d2
 .speed_pos:
@@ -51,26 +97,86 @@ PState_Ground:
         bls.s   .window_ok
         moveq   #14, d2
 .window_ok:
-        cmp.w   d2, d0
-        bgt.s   .airborne                       ; surface beyond snap reach —
-                                                ; covers both-sensors-nothing
-                                                ; (dist ≥16 from the pair)
-                                                ; and a ledge run-off
         cmpi.w  #-14, d0
-        blt.s   .too_deep                       ; embedded past the fixed
+        blt.s   .no_snap                        ; embedded past the fixed
                                                 ; snap-up — classic ignores
-        ; snap along the floor axis (floor mode; Task 7 selects the axis
-        ; by quadrant)
-        ext.l   d0
-        swap    d0
-        clr.w   d0                              ; dist<<16
-        add.l   d0, SST_y_pos(a0)
-        move.b  d1, SST_angle(a0)
-.too_deep:
-        rts
-.airborne:
+        tst.b   _pl_stick_convex(a0)
+        bne.s   .snap                           ; full adherence: snap-down
+                                                ; window bypassed (research
+                                                ; physics-classics §7)
+        cmp.w   d2, d0
+        ble.s   .snap
+        ; surface beyond snap reach — covers both-sensors-nothing (≥16
+        ; sentinel) and a ledge run-off
         moveq   #PSTATE_AIR, d0                 ; velocities kept — gravity
         jmp     Player_SetState                 ; takes over next frame
+.snap:
+        bsr.w   Player_SnapToSurface            ; probe-axis snap per
+                                                ; quadrant (helper mirrors
+                                                ; the sensor case table;
+                                                ; clobbers d0/d2 — d1 angle
+                                                ; survives)
+        move.b  d1, SST_angle(a0)
+.no_snap:
+        ; fall through — classic order step 9
+
+; -----------------------------------------------
+; Player_SlopeRepel — S3K slip/detach (research physics-classics §7
+; "S3K slip rework", feel-modern §1 Slopes). Runs ONLY via the grounded
+; fall-through above. move_lock semantics: the lock ticks down HERE —
+; grounded frames only, frozen while airborne; while nonzero the slip
+; check is skipped entirely this frame (Ground_Move separately skips
+; INPUT — friction and slope factor still run).
+;   band:   slip when angle is ≥ $18 from flat either way —
+;           (angle+$18)&$FF ≥ $30 — AND |gsp| < $280
+;   slip:   gsp ±= $80 shoved downhill, move_lock = 30 (gsp NOT zeroed)
+;   detach: additionally when (angle+$30)&$FF ≥ $60 (≈ |angle| ≥ $30)
+;           → PSTATE_AIR with gsp kept (S3K "slide, don't fall")
+; In:  a0 = player SST
+; Out: none (may transition to PSTATE_AIR)
+; Clobbers: d0-d1 (+ Player_SetState tail clobbers on detach)
+; -----------------------------------------------
+Player_SlopeRepel:
+        move.w  _pl_move_lock(a0), d0
+        beq.s   .lock_idle
+        subq.w  #1, d0
+        move.w  d0, _pl_move_lock(a0)
+        rts
+.lock_idle:
+        tst.b   _pl_stick_convex(a0)
+        bne.s   .done                           ; loop adherence: no slip
+        move.b  SST_angle(a0), d0
+        addi.b  #PHYS_SLIP_ANGLE, d0
+        cmpi.b  #PHYS_SLIP_ANGLE*2, d0
+        blo.s   .done                           ; inside the flat band ±$17
+        move.w  _pl_gsp(a0), d1
+        bpl.s   .speed_abs
+        neg.w   d1
+.speed_abs:
+        cmpi.w  #PHYS_SLIP_SPEED, d1
+        bge.s   .done                           ; fast enough to hold on
+        ; downhill nudge: sign = sign of sin(angle). Under our convention
+        ; positive sin (angle bit 7 clear) = right-descending surface →
+        ; downhill is +gsp; bit 7 set mirrors. sin ≥ 0 exactly on 0-$80,
+        ; and the flat band already excluded |angle| < $18, so bit 7 is
+        ; a faithful sign proxy across the whole slip band
+        move.w  #PHYS_SLIP_NUDGE, d1
+        tst.b   SST_angle(a0)
+        bpl.s   .nudge
+        neg.w   d1
+.nudge:
+        add.w   d1, _pl_gsp(a0)
+        move.w  #PHYS_MOVE_LOCK_TIME, _pl_move_lock(a0)
+        ; moderate band ($18-$2F from flat) slides grounded; detach only
+        ; when steeper
+        move.b  SST_angle(a0), d0
+        addi.b  #PHYS_FALL_ANGLE, d0
+        cmpi.b  #PHYS_FALL_ANGLE*2, d0
+        blo.s   .done
+        moveq   #PSTATE_AIR, d0
+        jmp     Player_SetState
+.done:
+        rts
 
 ; -----------------------------------------------
 ; Ground_Move — input → ground_speed, projection, ground wall probe
@@ -78,15 +184,15 @@ PState_Ground:
 ; rule and the turnaround kick (research physics-classics §1).
 ; In:  a0 = player SST, a4 = Player_Phys
 ; Out: none
-; Clobbers: d0-d6, a1
+; Clobbers: d0-d7, a1
 ; -----------------------------------------------
 Ground_Move:
         move.w  _pl_gsp(a0), d0
         tst.w   _pl_move_lock(a0)
         bne.s   .friction                       ; slip/spring input freeze:
                                                 ; friction still runs (S3K);
-                                                ; decrement is Task 7's
-                                                ; SlopeRepel business
+                                                ; the decrement lives in
+                                                ; Player_SlopeRepel
         move.b  (Ctrl_1_Held).w, d2
         maskOpposingLR d2
         btst    #2, d2                          ; LEFT
@@ -150,9 +256,11 @@ Ground_Move:
         move.w  d1, d0
 
 .cap:
-        ; GSp tunneling guard ±$1000. FEEL DEVIATION coupling (spec §2.1):
-        ; raising it requires CAM_MAX_Y_STEP, VFILL_ROWS_PER_FRAME, and
-        ; sensor reach to rise together.
+        ; GSp tunneling guard ±$1000, applied after slope factor (added
+        ; to gsp in PState_Ground before this routine) AND after input.
+        ; FEEL DEVIATION coupling (spec §2.1): raising it requires
+        ; CAM_MAX_Y_STEP, VFILL_ROWS_PER_FRAME, and sensor reach to rise
+        ; together.
         cmpi.w  #PHYS_GSP_CAP, d0
         ble.s   .cap_pos_ok
         move.w  #PHYS_GSP_CAP, d0
@@ -193,52 +301,119 @@ Ground_Move:
         move.w  d0, SST_y_vel(a0)
 
 .wall_probe:
-        ; --- ground wall probe at next-frame position ---
-        ; TODO(Task 7): S3K gates — skip when angle is non-cardinal in the
-        ; upper half; quadrant-rotated probe axis; −5px offset rolling.
-        ; Flat-ground-only form below (angle 0, foot-level +8px).
-        move.w  _pl_gsp(a0), d4                 ; direction sign for the probe
+        ; --- ground wall probe at the next-frame position, in the
+        ; quadrant-relative "ahead" direction (the quadrant form of the
+        ; classic angle±$40 CalcRoomInFront probe). S3K gates (research
+        ; physics-classics §1): skip when the angle is a NON-cardinal in
+        ; the upper half $41-$BF — no false wall hits on steep curved
+        ; terrain / no pushing on loop tops; exact cardinals stay
+        ; enabled (feel-modern §2 "disabled outside −90°..90°,
+        ; re-enabled at exact multiples of 90°") ---
+        move.w  _pl_gsp(a0), d4                 ; probe direction sign
         beq.s   .clear_push
+        move.b  SST_angle(a0), d1
+        move.b  d1, d2
+        andi.b  #$3F, d2
+        beq.s   .gate_ok                        ; exact cardinal: always probe
+        addi.b  #$40, d1
+        bmi.s   .clear_push                     ; non-cardinal upper half
+.gate_ok:
+        ; "ahead" per quadrant — derived from the projection at the
+        ; cardinals (x_vel = cos·gsp, y_vel = sin·gsp): gsp>0 moves
+        ; right/down/left/up in quadrants 0/1/2/3; gsp<0 mirrors
+        moveq   #0, d2
+        move.b  (Player_Quadrant).w, d2
+        tst.w   d4
+        bpl.s   .dir_fwd
+        addq.w  #4, d2
+.dir_fwd:
+        lea     .dir_table(pc), a1              ; (beyond d8(pc,Xn) reach)
+        move.b  (a1,d2.w), d7                   ; probe-core direction code
+                                                ; (0/1/2/3 = down/up/right/
+                                                ; left) — d7 survives the
+                                                ; sensor call
         move.w  SST_x_vel(a0), d0
         asr.w   #8, d0
         add.w   SST_x_pos(a0), d0               ; projected engine X
-        tst.w   d4
-        bmi.s   .probe_left
-        addi.w  #PUSH_RADIUS, d0
-        bra.s   .probe_go
-.probe_left:
-        subi.w  #PUSH_RADIUS, d0
-.probe_go:
         move.w  SST_y_vel(a0), d1
         asr.w   #8, d1
         add.w   SST_y_pos(a0), d1               ; projected engine Y
-        addq.w  #8, d1                          ; flat-ground foot-level offset
-        jsr     Player_SensorWallAt             ; d0 dist (clobbers d0-d6)
+        tst.b   SST_angle(a0)
+        bne.s   .no_foot_drop
+        addq.w  #8, d1                          ; foot-level probe ONLY at
+                                                ; angle == 0 exactly (SPG:
+                                                ; low steps push instead of
+                                                ; snap-up; slopes/walls use
+                                                ; center height)
+.no_foot_drop:
+        ; TODO(Task 8): rolling raises the probe 5px (−5 vs this +8)
+        move.w  d7, d2                          ; offset PUSH_RADIUS along
+        subq.w  #2, d2                          ; the probe direction
+        bmi.s   .off_vert                       ; 0/1 = probe along Y
+        beq.s   .off_right
+        subi.w  #PUSH_RADIUS, d0                ; 3: left
+        bra.s   .probe_go
+.off_right:
+        addi.w  #PUSH_RADIUS, d0                ; 2: right
+        bra.s   .probe_go
+.off_vert:
+        tst.w   d7
+        bne.s   .off_up
+        addi.w  #PUSH_RADIUS, d1                ; 0: down
+        bra.s   .probe_go
+.off_up:
+        subi.w  #PUSH_RADIUS, d1                ; 1: up
+.probe_go:
+        move.w  d7, d2
+        jsr     Player_SensorWallDir            ; d0 dist (d7 preserved)
         tst.w   d0
         bmi.s   .wall_hit
 .clear_push:
         bclr    #ST_PUSHING, SST_status(a0)
         rts
 .wall_hit:
-        ; back the blocked distance into x_vel — the player advances
-        ; exactly to the wall face this frame; inertia dies
+        ; back the blocked distance into the velocity along the probe
+        ; axis — the player advances exactly to the wall face this
+        ; frame; inertia dies
         asl.w   #8, d0                          ; dist → 8.8
-        tst.w   _pl_gsp(a0)
-        bmi.s   .hit_left
+        move.w  d7, d2
+        subq.w  #2, d2
+        bmi.s   .cancel_vert
+        beq.s   .cancel_right
+        sub.w   d0, SST_x_vel(a0)               ; 3 left: dist<0 → vel rises
+        bra.s   .gsp_kill                       ; toward zero
+.cancel_right:
         add.w   d0, SST_x_vel(a0)
+        bra.s   .gsp_kill
+.cancel_vert:
+        tst.w   d7
+        bne.s   .cancel_up
+        add.w   d0, SST_y_vel(a0)               ; 0 down
+        bra.s   .gsp_kill
+.cancel_up:
+        sub.w   d0, SST_y_vel(a0)               ; 1 up
+.gsp_kill:
+        move.w  _pl_gsp(a0), d1                 ; sign needed below — nonzero
+                                                ; (gated at .wall_probe)
         clr.w   _pl_gsp(a0)
-        ; facing-aware push bit (S3K): only when facing the wall
+        ; facing-aware push bit (S3K): only when facing the wall. Track-
+        ; space rule, quadrant-independent: input→gsp mapping never
+        ; rotates, so gsp>0 is always the "facing right" travel direction
+        tst.w   d1
+        bmi.s   .hit_back
         btst    #ST_XFLIP, SST_status(a0)
-        bne.s   .clear_push
+        bne.s   .clear_push                     ; moving fwd, facing away
         bra.s   .set_push
-.hit_left:
-        sub.w   d0, SST_x_vel(a0)
-        clr.w   _pl_gsp(a0)
+.hit_back:
         btst    #ST_XFLIP, SST_status(a0)
         beq.s   .clear_push
 .set_push:
         bset    #ST_PUSHING, SST_status(a0)
         rts
+.dir_table:
+        dc.b    2, 0, 3, 1                      ; gsp>0: right/down/left/up
+        dc.b    3, 1, 2, 0                      ; gsp<0: mirrored
+        align 2
 
 ; -----------------------------------------------
 ; Player_Jump — launch from a grounded state (headroom already verified
@@ -281,7 +456,7 @@ Player_Jump:
 .launched:
         clr.b   _pl_stick_convex(a0)
         moveq   #PSTATE_JUMP, d0
-        ; TODO(Task 7): from PSTATE_ROLL → PSTATE_ROLLJUMP instead
+        ; TODO(Task 8): from PSTATE_ROLL → PSTATE_ROLLJUMP instead
         bsr.w   Player_SetState
         ; bug #4 fix: run the full air body on the press frame
         jmp     PState_Jump

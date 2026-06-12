@@ -328,40 +328,51 @@ Player_SensorSurface:
         rts
 
 ; -----------------------------------------------
-; Player_SensorWall — single push sensor at x ± PUSH_RADIUS
+; Player_SensorWallAt — push probe left/right at an explicit point (the
+; airborne probes' d4-sign convention). Caller passes the PRE-OFFSET
+; probe point (e.g. x ± PUSH_RADIUS) in d0/d1 plus the direction sign
+; in d4 (< 0 → left, ≥ 0 → right); no SST position fetch, no further
+; offsetting. Thin shim onto Player_SensorWallDir.
+;
+; Player_SensorWallDir — push probe in any of the four directions
+; (quadrant-aware grounded wall check, Task 7).
 ; In:  a0 = player SST
-;      d4.w = probe direction (sign only: < 0 → ProbeLeft at
-;             x − PUSH_RADIUS, >= 0 → ProbeRight at x + PUSH_RADIUS;
-;             pass projected x_vel or facing)
-;      d5.w = Y offset from center (0 airborne, +8 grounded on flat,
-;             −5 rolling — Task 5's business)
+;      d0.w/d1.w = probe point engine X/Y (pre-offset, caller's business
+;             — incl. the grounded +8 at angle==0 / −5 rolling offsets)
+;      d2.w = direction 0/1/2/3 = down/up/right/left (probe-core order)
 ; Out: d0.w dist, d1.b angle (facing cardinal substituted on odd flag),
 ;      d2.b attr
-; Clobbers: d0-d6, a1
-;
-; Player_SensorWallAt: explicit-coordinate variant for velocity-projected
-; probes — caller passes the PRE-OFFSET probe point (e.g. next-frame
-; x ± PUSH_RADIUS) in d0/d1 plus the direction sign in d4; no SST
-; position fetch, no further offsetting.
+; Clobbers: d0-d6, a1 (d7/a0/a2+ preserved — Ground_Move keeps its
+;      direction code in d7 across the call)
 ; -----------------------------------------------
-Player_SensorWall:
-        move.w  SST_x_pos(a0), d0
-        move.w  SST_y_pos(a0), d1
-        add.w   d5, d1
+Player_SensorWallAt:
+        moveq   #2, d2                 ; right
         tst.w   d4
-        bmi.s   .off_left
-        addi.w  #PUSH_RADIUS, d0
-        bra.s   Player_SensorWallAt
-.off_left:
-        subi.w  #PUSH_RADIUS, d0
+        bpl.s   Player_SensorWallDir
+        moveq   #3, d2                 ; left
         ; fall through
 
-Player_SensorWallAt:
+Player_SensorWallDir:
         moveq   #SOLID_LRB, d6         ; wall class: jump-through rejected
         moveq   #0, d3
         move.b  SST_layer(a0), d3
-        tst.w   d4
-        bmi.s   .left
+        add.w   d2, d2
+        move.w  .dir_table(pc,d2.w), d2
+        jmp     .dir_table(pc,d2.w)
+.dir_table:
+        dc.w    .down-.dir_table
+        dc.w    .up-.dir_table
+        dc.w    .right-.dir_table
+        dc.w    .left-.dir_table
+.down:
+        bsr.w   Collision_ProbeDown
+        moveq   #0, d3                 ; floor-facing cardinal
+        bra.s   .resolve
+.up:
+        bsr.w   Collision_ProbeUp
+        move.b  #$80, d3               ; ceiling-facing cardinal
+        bra.s   .resolve
+.right:
         bsr.w   Collision_ProbeRight
         move.b  #$C0, d3               ; right-wall facing cardinal
         bra.s   .resolve

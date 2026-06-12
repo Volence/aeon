@@ -139,25 +139,35 @@ PState_AirShared:
         move.b  d0, SST_angle(a0)
 .angle_done:
 
-        ; --- 6. collision by motion class. |x_vel| vs |y_vel| compare +
-        ; signs ≡ the classic CalcAngle(x_vel,y_vel)−$20 & $C0 quadrant
-        ; for non-boundary vectors (each class spans the ±45° cone
-        ; around its axis). On the exact 45° diagonals (|x| == |y|) the
-        ; classic's octant boundaries split asymmetrically per CalcAngle
-        ; rounding; our tie rule: ties go to the VERTICAL class, so the
-        ; down class keeps landing authority on perfect diagonal
-        ; launches ---
-        move.w  SST_x_vel(a0), d1
+        ; --- 6. collision by motion class. Air sensors NEVER rotate
+        ; with angle (research feel-modern §2) — force quadrant 0 for
+        ; the whole air sensor block: slip-detach (Task 7) goes airborne
+        ; carrying a wall-band angle that decays only 2/frame, and
+        ; without this the floor pair (and the landing snap axis in
+        ; Air_TouchFloor) would probe sideways during those frames.
+        ; Grounded frames recompute the quadrant in Player_Main ---
+        clr.b   (Player_Quadrant).w
+        ; |x_vel| vs |y_vel| compare + signs ≡ the classic
+        ; CalcAngle(x_vel,y_vel)−$20 & $C0 quadrant for non-boundary
+        ; vectors (each class spans the ±45° cone around its axis). On
+        ; the exact 45° diagonals (|x| == |y|) the classic's octant
+        ; boundaries split asymmetrically per CalcAngle rounding; our
+        ; tie rule: ties go to the VERTICAL class, so the down class
+        ; keeps landing authority on perfect diagonal launches.
+        ; Signed copies live in d3/d4 — no velocity re-reads below
+        move.w  SST_x_vel(a0), d3
+        move.w  d3, d1
         bpl.s   .ax_pos
         neg.w   d1
 .ax_pos:
-        move.w  SST_y_vel(a0), d2
+        move.w  SST_y_vel(a0), d4
+        move.w  d4, d2
         bpl.s   .ay_pos
         neg.w   d2
 .ay_pos:
         cmp.w   d2, d1                          ; |x_vel| − |y_vel|
         bls.s   .vertical
-        tst.w   SST_x_vel(a0)
+        tst.w   d3
         bmi.s   .mostly_left
 
         ; --- mostly RIGHT: right wall → ceiling bump → flat-rule floor ---
@@ -181,7 +191,7 @@ PState_AirShared:
         bra.w   Air_FloorLandFlat
 
 .vertical:
-        tst.w   SST_y_vel(a0)
+        tst.w   d4                              ; signed y_vel copy
         bmi.s   .mostly_up
         ; --- mostly DOWN: both walls, then banded floor landing ---
         bsr.w   Air_WallProbeLeft
@@ -199,9 +209,7 @@ PState_AirShared:
         tst.w   d0
         bpl.s   .up_done                        ; clear of the ceiling
         move.b  d1, d3                          ; ceiling angle
-        ext.l   d0
-        swap    d0
-        clr.w   d0                              ; dist<<16
+        distToFix d0
         sub.l   d0, SST_y_pos(a0)               ; up-probe dist < 0 = head
                                                 ; embedded → snap DOWN (the
                                                 ; opposite of the floor snap)
@@ -286,7 +294,7 @@ Air_FloorLandBanded:
 .grounded:
         moveq   #PSTATE_GROUND, d0              ; curled states uncurl in
                                                 ; the GROUND enter hook;
-                                                ; roll landings are Task 7
+                                                ; roll landings are Task 8
         jmp     Player_SetState
 .no_land:
         rts
@@ -317,13 +325,14 @@ Air_FloorLandFlat:
 ; Air_TouchFloor — snap onto the floor surface + landing housekeeping
 ; In:  a0 = player SST, d0.w = floor dist (< 0), d1.b = resolved angle
 ; Out: none
-; Clobbers: d0
+; Clobbers: d0, d2
 ; -----------------------------------------------
 Air_TouchFloor:
-        ext.l   d0
-        swap    d0
-        clr.w   d0                              ; dist<<16
-        add.l   d0, SST_y_pos(a0)
+        ; quadrant invariant (no runtime branch needed): the air body
+        ; forces Player_Quadrant = 0 before its sensor block (air
+        ; sensors never rotate), so the helper's quadrant dispatch is
+        ; always the +Y snap here — classic landings snap on Y
+        bsr.w   Player_SnapToSurface
         move.b  d1, SST_angle(a0)
         bclr    #ST_PUSHING, SST_status(a0)
         rts
@@ -367,9 +376,7 @@ Air_WallProbeRight:
         jsr     Player_SensorWallAt
         tst.w   d0
         bpl.s   .no_hit
-        ext.l   d0
-        swap    d0
-        clr.w   d0                              ; dist<<16
+        distToFix d0
         add.l   d0, SST_x_pos(a0)               ; dist < 0 → pushes left
         clr.w   SST_x_vel(a0)
         moveq   #-1, d4
@@ -386,9 +393,7 @@ Air_WallProbeLeft:
         jsr     Player_SensorWallAt
         tst.w   d0
         bpl.s   .no_hit
-        ext.l   d0
-        swap    d0
-        clr.w   d0                              ; dist<<16 (along −X)
+        distToFix d0                            ; (along −X)
         sub.l   d0, SST_x_pos(a0)               ; dist < 0 → pushes right
         clr.w   SST_x_vel(a0)
         moveq   #-1, d4
@@ -408,9 +413,7 @@ Air_CeilingBump:
         jsr     Player_SensorCeiling
         tst.w   d0
         bpl.s   .clear
-        ext.l   d0
-        swap    d0
-        clr.w   d0                              ; dist<<16
+        distToFix d0
         sub.l   d0, SST_y_pos(a0)               ; embedded → snap DOWN
         tst.w   SST_y_vel(a0)
         bpl.s   .clear

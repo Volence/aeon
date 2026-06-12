@@ -89,6 +89,18 @@ maskOpposingLR macro heldReg
         endm
 
 ; -----------------------------------------------
+; distToFix — widen a signed pixel distance (.w) into a 16.16 delta
+; (dist<<16) for adding to the SST_x_pos/SST_y_pos longwords
+; In:  dreg.w = signed px distance
+; Out: dreg.l = dist<<16
+; -----------------------------------------------
+distToFix macro dreg
+        ext.l   dreg
+        swap    dreg
+        clr.w   dreg
+        endm
+
+; -----------------------------------------------
 ; Player_Init — set up a player slot as Sonic (called from level state
 ; init; caller writes x_pos/y_pos first). Boots in DEBUG-FLY to preserve
 ; the streaming-test workflow — B drops into physics.
@@ -224,7 +236,7 @@ Player_Display:
         ; grounded states + uncurled AIR: walk/idle by gsp (the classic
         ; keeps the walk cycle while falling uncurled; gsp holds the
         ; last ground speed through AIR)
-        ; TODO(Task 7): PSTATE_ROLL wants the ball anim — grounded states
+        ; TODO(Task 8): PSTATE_ROLL wants the ball anim — grounded states
         ; all read walk/idle until rolling exists
         tst.w   _pl_gsp(a0)
         bne.s   .anim_walk
@@ -242,7 +254,7 @@ Player_Display:
 
 Player_States:
         dc.w    PState_Ground-Player_States     ; PSTATE_GROUND
-        dc.w    PState_Ground-Player_States     ; PSTATE_ROLL — TODO(Task 7)
+        dc.w    PState_Ground-Player_States     ; PSTATE_ROLL — TODO(Task 8)
         dc.w    PState_Ground-Player_States     ; PSTATE_SPINDASH — TODO(Task 8)
         dc.w    PState_Air-Player_States        ; PSTATE_AIR
         dc.w    PState_Jump-Player_States       ; PSTATE_JUMP
@@ -274,7 +286,7 @@ Player_SetState:
 
 PState_EnterHooks:
         dc.w    PHook_GroundEnter-PState_EnterHooks ; GROUND
-        dc.w    PHook_Null-PState_EnterHooks        ; ROLL — TODO(Task 7): ball radii + curl y-shift
+        dc.w    PHook_Null-PState_EnterHooks        ; ROLL — TODO(Task 8): ball radii + curl y-shift
         dc.w    PHook_Null-PState_EnterHooks        ; SPINDASH — TODO(Task 8)
         dc.w    PHook_AirEnter-PState_EnterHooks    ; AIR (uncurled)
         dc.w    PHook_AirBallEnter-PState_EnterHooks ; JUMP
@@ -308,7 +320,7 @@ PHook_Null:
 
 PHook_GroundEnter:
         bsr.s   PHook_EnsureStanding            ; uncurl (jump/ball landings;
-                                                ; roll landings are Task 7)
+                                                ; roll landings are Task 8)
         bclr    #ST_IN_AIR, SST_status(a0)
         rts
 
@@ -343,6 +355,38 @@ PHook_EnsureBall:
         setBallSize
         addi.l  #CURL_Y_SHIFT<<16, SST_y_pos(a0)
 .keep:
+        rts
+
+; -----------------------------------------------
+; Player_SnapToSurface — move the player a signed pixel distance along
+; the floor pair's PROBE axis. Mirrors Player_SensorFloor's case table
+; EXACTLY (player_sensors.asm Player_SensorSurface .case_table — probe
+; direction per quadrant), so a pair distance feeds straight back in:
+;   quadrant 0: Collision_ProbeDown  → y_pos += dist
+;   quadrant 1: Collision_ProbeLeft  → x_pos −= dist
+;   quadrant 2: Collision_ProbeUp    → y_pos −= dist
+;   quadrant 3: Collision_ProbeRight → x_pos += dist
+; In:  a0 = player SST, d0.w = signed surface distance (px)
+; Out: none
+; Clobbers: d0, d2
+; -----------------------------------------------
+Player_SnapToSurface:
+        distToFix d0
+        move.b  (Player_Quadrant).w, d2
+        beq.s   .down                           ; floor mode — common case
+        subq.b  #2, d2
+        bmi.s   .left                           ; quadrant 1
+        beq.s   .up                             ; quadrant 2
+        add.l   d0, SST_x_pos(a0)               ; quadrant 3
+        rts
+.down:
+        add.l   d0, SST_y_pos(a0)
+        rts
+.left:
+        sub.l   d0, SST_x_pos(a0)
+        rts
+.up:
+        sub.l   d0, SST_y_pos(a0)
         rts
 
 ; -----------------------------------------------
