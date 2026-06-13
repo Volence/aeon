@@ -694,6 +694,7 @@ PathSwap_Main:
 
 - [ ] **Step 11.1:** ENGINE_ARCHITECTURE §5: flat state machine resolution (hierarchical "evaluate" → rejected), landing banding (fix the cascade "vector projection" line), −$FC0 removal note, per-section physics = plumbing-shipped status.
 - [ ] **Step 11.2:** DEFERRED_WORK: close §3 SST-fit audit (fits, DPLC immediates); add launch-cap coupling note; list §5 deferred items (Sonic art/anim plan, dropdash/instashield, Tails, Knuckles, water rows, balance anims, look up/down, 6-button).
+- [ ] Per-character dispatch-table indirection design note (Tails/Knuckles prerequisite — see Player_States comment)
 - [ ] **Step 11.3:** Save memory progress note. Commit: `docs(§5): architecture + deferred-work closeout for player system`
 
 ---

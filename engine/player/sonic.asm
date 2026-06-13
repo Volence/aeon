@@ -29,10 +29,12 @@ Sonic_LoadArt:
         jmp     Draw_Sprite
 
 ; -----------------------------------------------
-; PState_Spindash — Sonic's spindash charge (a CHARACTER state: the
-; shared Player_States table dispatches here cross-file; Tails/Knuckles
-; later point their own ability rows without touching shared code —
-; spec §3.1). Entered only from PState_Ground's trigger (down +
+; PState_Spindash — Sonic's spindash charge (a CHARACTER state BODY:
+; character-specific state bodies live in character files like this
+; one, but today the dispatch tables are shared and this row is
+; hardwired — per-character dispatch-table indirection is future work
+; for the second character (§11 closeout note); spec §3.1). Entered
+; only from PState_Ground's trigger (down +
 ; jump-press at |gsp| < $100); the enter hook curled the box and zeroed
 ; gsp/velocities/charge.
 ;

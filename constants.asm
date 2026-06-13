@@ -214,6 +214,7 @@ PHYS_GRAVITY            = $38
 PHYS_JUMP_FORCE         = $680
 PHYS_AIR_ACCEL          = $18
 PHYS_JUMP_RELEASE_CAP   = -$400
+PHYS_JUMP_HEADROOM      = 6         ; px — classic CalcRoomOverHead launch gate
 PHYS_GSP_CAP            = $1000     ; tunneling guard on GROUND SPEED — FEEL DEVIATION coupling, spec §2.1
 PHYS_FALL_CAP           = $1000
 PHYS_SLOPE_WALK         = $20

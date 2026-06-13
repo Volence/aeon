@@ -64,7 +64,7 @@ PState_Ground:
         beq.s   .no_jump
         jsr     Player_SensorCeiling            ; headroom: d0 = clearance
                                                 ; (≥16 sentinel = open sky)
-        cmpi.w  #6, d0
+        cmpi.w  #PHYS_JUMP_HEADROOM, d0
         bge.w   Player_Jump                     ; classic CalcRoomOverHead
                                                 ; ≥6px rule; does not return
 .no_jump:
@@ -131,7 +131,7 @@ PState_Ground:
 ; tail branch (and via it the unroll/keep-rolling paths). NOT a
 ; subroutine — control returns to Player_Main's dispatch.
 ; In:  a0 = player SST (x_vel/y_vel projected by Ground_Move)
-; Out: none (may transition to PSTATE_AIR)
+; Out: none (may transition to PSTATE_AIR/AIRBALL via Ground_DetachState)
 ; Clobbers: d0-d7, a1-a2
 ; -----------------------------------------------
 Ground_PostMove:
@@ -171,9 +171,10 @@ Ground_PostMove:
         cmp.w   d2, d0
         ble.s   .snap
         ; surface beyond snap reach — covers both-sensors-nothing (≥16
-        ; sentinel) and a ledge run-off
-        moveq   #PSTATE_AIR, d0                 ; velocities kept — gravity
-        jmp     Player_SetState                 ; takes over next frame
+        ; sentinel) and a ledge run-off. Velocities kept — gravity takes
+        ; over next frame. Roll-aware: a roll-off stays curled (AIRBALL),
+        ; spec §3.3 / verification matrix item 7
+        bra.w   Ground_DetachState              ; does not return
 .snap:
         bsr.w   Player_SnapToSurface            ; probe-axis snap per
                                                 ; quadrant (helper mirrors
@@ -201,9 +202,10 @@ Ground_PostMove:
 ;           (angle+$18)&$FF ≥ $30 — AND |gsp| < $280
 ;   slip:   gsp ±= $80 shoved downhill, move_lock = 30 (gsp NOT zeroed)
 ;   detach: additionally when (angle+$30)&$FF ≥ $60 (≈ |angle| ≥ $30)
-;           → PSTATE_AIR with gsp kept (S3K "slide, don't fall")
+;           → Ground_DetachState (AIR, or AIRBALL from a roll) with gsp
+;           kept (S3K "slide, don't fall")
 ; In:  a0 = player SST
-; Out: none (may transition to PSTATE_AIR)
+; Out: none (may transition to PSTATE_AIR/AIRBALL)
 ; Clobbers: d0-d1 (+ Player_SetState tail clobbers on detach)
 ; -----------------------------------------------
 Player_SlopeRepel:
@@ -243,10 +245,39 @@ Player_SlopeRepel:
         addi.b  #PHYS_FALL_ANGLE, d0
         cmpi.b  #PHYS_FALL_ANGLE*2, d0
         blo.s   .done
-        moveq   #PSTATE_AIR, d0
-        jmp     Player_SetState
+        bra.s   Ground_DetachState              ; roll-aware (gsp kept — S3K
+                                                ; "slide, don't fall")
 .done:
         rts
+
+; -----------------------------------------------
+; Ground_DetachState — the ONE decision for leaving the ground without
+; a jump (mirrors Air_LandState's one-decision pattern, from the other
+; side of the seam): detaching from ROLL stays curled → PSTATE_AIRBALL
+; (spec §3.3 state table — rolled off a ledge keeps ST_ROLLING and the
+; ball box; Task 9's path swap reads ST_ROLLING for curled detection,
+; and uncurling here would skip the clearance check — the wall-clip
+; hazard class); detaching from GROUND → PSTATE_AIR. Keyed on
+; _pl_state, the transition authority, rather than ST_ROLLING — same
+; cost (one byte compare), and it names the exact state this seam can
+; carry. SPINDASH never reaches either call site (its body skips
+; Ground_PostMove/SlopeRepel entirely — see the seam guard above), so
+; GROUND/ROLL is the complete case split. The AIRBALL enter hook
+; (PHook_EnsureBall) is idempotent — curled→curled is a no-op.
+; Called from: Ground_PostMove (run-off / both-sensors-nothing) and
+; Player_SlopeRepel (steep-slope detach).
+; In:  a0 = player SST (_pl_state = PSTATE_GROUND or PSTATE_ROLL)
+; Out: DOES NOT return — tail-jumps Player_SetState with d0 = the
+;      detach state; control returns to Player_Main's dispatch
+; Clobbers: d0 (+ Player_SetState tail clobbers)
+; -----------------------------------------------
+Ground_DetachState:
+        moveq   #PSTATE_AIR, d0
+        cmpi.b  #PSTATE_ROLL, _pl_state(a0)
+        bne.s   .set
+        moveq   #PSTATE_AIRBALL, d0
+.set:
+        jmp     Player_SetState
 
 ; -----------------------------------------------
 ; PState_Roll — grounded, curled. Classic Obj01_MdRoll order (research
@@ -257,7 +288,8 @@ Player_SlopeRepel:
 ; (Ground_PostMove: integrate → floor pair → SlopeRepel fall-through —
 ; rolling slips and detaches by the same rules as walking).
 ; In:  a0 = player SST, a4 = Player_Phys
-; Out: none (may transition to GROUND/ROLLJUMP/AIR)
+; Out: none (may transition to GROUND/ROLLJUMP/AIRBALL — a roll-off or
+;      steep detach stays curled via Ground_DetachState)
 ; Clobbers: d0-d7, a1-a2
 ; -----------------------------------------------
 PState_Roll:
@@ -268,7 +300,7 @@ PState_Roll:
         tst.b   (Player_JumpBuffer).w
         beq.s   .no_jump
         jsr     Player_SensorCeiling            ; d0 = headroom
-        cmpi.w  #6, d0
+        cmpi.w  #PHYS_JUMP_HEADROOM, d0
         bge.w   Player_Jump                     ; does not return
 .no_jump:
         ; --- roll slope factor (classic Sonic_RollRepel): $50·sin>>8,
