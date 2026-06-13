@@ -1110,7 +1110,15 @@ TileCache_FillRow:
         move.w  d4, d3
         lsl.w   #5, d4                         ; * 32
         lea     (a1, d4.w), a0
-        lsl.w   #3, d3                         ; (intra_row/2) * 16 = intra_row * 8
+        ; collision row base = (intra_row/2) * 16. The intra_row*8 shortcut
+        ; (as in TileCache_CopyBlockColumn, where the source row is
+        ; guaranteed EVEN) is wrong here: FillRow copies collision only on
+        ; the ODD (cell-completing) row, and odd*8 lands 8 bytes — 8 tile
+        ; cols, 64px — past the row base. That shifted every row-filled
+        ; collision cell 64px left (§5 loop-arc wall bug: arc toe cells
+        ; read as full-solid $01 → ground wall probe killed gsp).
+        lsr.w   #1, d3                         ; intra collision row
+        lsl.w   #4, d3                         ; * 16 bytes per collision row
         lea     BLOCK_NT_SIZE(a1), a3
         adda.w  d3, a3
 
