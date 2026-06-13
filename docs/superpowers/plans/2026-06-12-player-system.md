@@ -656,7 +656,7 @@ Player_SetState:
 - Create: `objects/path_swap.asm`
 - Modify: `main.asm` (include), `data/editor/objects.json`-equivalent object library (check `tools/ojz_entity_gen.py` header for the library path; add typeId `path_swap` → `ObjDef_PathSwap`), and the OJZ section JSON that contains the loop (find which section has the loop chunks by checking which sections bake path-B differences — Task 2's test prints them)
 
-- [ ] **Step 9.1:** `path_swap.asm` — invisible vertical line, v2 archetype:
+- [x] **Step 9.1:** `path_swap.asm` — invisible vertical line, v2 archetype:
 
 ```asm
 ; subtype bits: 0-3 = half-height in 32px units; 4 = direction sense
@@ -671,8 +671,16 @@ PathSwap_Main:
         ;   direction sense; update prev_side. No draw (render_flags off-screen).
 ```
 
-- [ ] **Step 9.2:** Place two swappers at the OJZ loop (entry/exit feet) in the editor objects JSON for the loop's section; regenerate entities (`python3 tools/ojz_strip_gen.py generate` runs `ojz_entity_gen.generate()`).
+- [x] **Step 9.2:** Place two swappers at the OJZ loop (entry/exit feet) in the editor objects JSON for the loop's section; regenerate entities (`python3 tools/ojz_strip_gen.py generate` runs `ojz_entity_gen.generate()`).
 - [ ] **Step 9.3:** Build + Exodus: roll through the loop both directions — full 360° angle sweep on the watch, layer flips at the swappers, no fallthrough at the top (angle continuity), exit speed sane. This is the §5 marquee verification — record exact reproduction steps in the commit message. Commit: `feat(§5): path-swap object — OJZ loop traversable both directions`
+  (build-level done: DEBUG + plain builds green, test.sh 18/18 — live Exodus pass pending)
+
+**Task 9 implementation notes (2026-06-12):**
+- Subtype grew bit 6 = **grounded-only** (S.C.E. Path Swap has the same gate as its subtype bit 7 / `bpl` check on the status in_air bit) — used on the loop's top-crossing swapper so an airborne player inside the loop can't flip layers. S.C.E. semantics replicated exactly: side tracking is UNCONDITIONAL on crossing (`st`/`clr` of the passed flag happens before the range check); only the layer write is gated by the vertical band (+ grounded bit). S.C.E.'s extra |dx| < $40 proximity gate dropped — spawn re-arm (Init reads the player's current side) and the teleport rebase (shifts object + player X equally) cover its purpose.
+- Line position is read from `SST_x_pos`/`SST_y_pos` each frame, never cached in `sst_custom` (conventions §7.8 — teleport rebases shift SST positions only). `sst_custom` holds only half_height (word) + prev_side (scc byte). Side compare is SIGNED (`sgt`) — engine X is negative for the kept column after a FWD teleport.
+- Re-armable by construction: entity-window despawn deletes the SST + clears the loaded bit WITHOUT the killed bit, so scroll-back respawns it and Init re-arms prev_side. Never `Killed_MarkObject` a swapper.
+- DEBUG builds draw the Map_TestObj marker (`jmp Draw_Sprite` under `ifdef __DEBUG__`); release returns before any draw — invisible.
+- **The baked OJZ loop is NOT a left/right-half split** (the plan's "entry/exit feet" guess). Analysis of the per-strip A/B collision planes (sec1, identical copies in sec 3/5/7; a second loop variant at y≈400-576 and a seam-straddling one at sec0/sec1 y≈528): the ground-level loop at sec1 local (672-864, 784-976), circle center ≈ (768, 872) r≈88: **plane A** = flat bottom passage (y=960 floor through the circle) + bottom-right arc + right wall + full top arc (left wall absent); **plane B** = left wall + exit ramp (angles $30→$10 descending to a basin at y≈976-1008, x≈752-815, which is a HOLE on plane A) + top/upper-right (bottom-right arc absent). So the A→B flip must happen at the loop's TOP crossing, not at the feet. Wired: swapper C at (768, 836) sub $52 (hh 64px → band y 772-900: catches the top pass at player-center y≈803, misses both bottom passes at y≈941+; inverted sense → leftward=B, rightward=A; grounded-only) + swapper R at (880, 1000) sub $13 (hh 96px → band y 904-1096 covers basin exit incl. ceiling-hugging jump exits; inverted sense → rightward exit=A restore, leftward entry=B for the reverse ramp climb). No left-foot swapper: default layer is A, both traversal exits land on A already, and our 2-way sense format would force a harmful direction (rightward=B skips the loop, or leftward=B strands the player on sparse plane B west of the loop).
 
 ---
 

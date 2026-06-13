@@ -155,6 +155,7 @@ __BUDGET_OBJBANK:
     include "objects/test_emitter.asm"
     include "objects/test_parent.asm"
     include "objects/test_stress_emitter.asm"
+    include "objects/path_swap.asm"
 
     if * > $20000
       error "Object code bank overflows 64KB by \{*-$20000} bytes"
