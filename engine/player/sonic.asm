@@ -36,11 +36,15 @@ Sonic_LoadArt:
 ; jump-press at |gsp| < $100); the enter hook curled the box and zeroed
 ; gsp/velocities/charge.
 ;
-; Classic S2 Obj01_Spindash semantics:
+; Classic S2 Obj01_Spindash semantics (order matters — decay FIRST,
+; then rev with the clamp LAST, matching Sonic_ChargingSpindash):
 ;   down released → RELEASE: gsp = ±($800 + (charge>>8)·$80), $800-$C00
-;   jump press    → rev: charge += $200, capped $800
 ;   every frame   → decay: charge -= charge>>5 (asr floors — charge
 ;                   below $20 stops decaying; classic behavior, kept)
+;   jump press    → rev: charge += $200, capped $800
+; So a tap frame stores (old − old>>5) + $200: a single tap from 0
+; stores exactly $200 (→ $900 release) and mashing holds $800 at frame
+; boundaries (→ $C00 release).
 ; While charging the player is PINNED: no input/slope/gravity/wall
 ; probe and no Player_SlopeRepel (the classics skip it — a slip nudge
 ; would corrupt the pinned gsp). Only the floor pair runs (classic
@@ -55,25 +59,27 @@ Sonic_LoadArt:
 PState_Spindash:
         btst    #1, (Ctrl_1_Held).w             ; DOWN still held?
         beq.s   .release
-        ; --- rev: each buffered jump press adds $200, capped $800.
-        ; Consuming Player_JumpBuffer (latched on the press edge) is the
-        ; press test — the trigger consumed the initiating press, so a
-        ; charge frame only sees fresh taps ---
-        tst.b   (Player_JumpBuffer).w
-        beq.s   .no_tap
-        clr.b   (Player_JumpBuffer).w
-        addi.w  #SPINDASH_CHARGE_STEP, _pl_spindash(a0)
-        cmpi.w  #SPINDASH_CHARGE_MAX, _pl_spindash(a0)
-        bls.s   .no_tap
-        move.w  #SPINDASH_CHARGE_MAX, _pl_spindash(a0)
-.no_tap:
-        ; --- decay (runs on tap frames too, classic) ---
+        ; --- decay FIRST (classic order; runs on tap frames too, before
+        ; the rev, so the rev's clamp is the last word) ---
         move.w  _pl_spindash(a0), d0
-        beq.s   .floor
+        beq.s   .rev
         move.w  d0, d1
         asr.w   #5, d1
         sub.w   d1, d0
         move.w  d0, _pl_spindash(a0)
+.rev:
+        ; --- rev: each buffered jump press adds $200, capped $800 (clamp
+        ; last, classic — mashing holds exactly $800 at frame boundaries).
+        ; Consuming Player_JumpBuffer (latched on the press edge) is the
+        ; press test — the trigger consumed the initiating press, so a
+        ; charge frame only sees fresh taps ---
+        tst.b   (Player_JumpBuffer).w
+        beq.s   .floor
+        clr.b   (Player_JumpBuffer).w
+        addi.w  #SPINDASH_CHARGE_STEP, _pl_spindash(a0)
+        cmpi.w  #SPINDASH_CHARGE_MAX, _pl_spindash(a0)
+        bls.s   .floor
+        move.w  #SPINDASH_CHARGE_MAX, _pl_spindash(a0)
 .floor:
         ; --- floor maintenance (the classic AnglePos slot, reduced for
         ; zero speed: snap window = 0>>8 + 4 = 4, fixed −14 snap-up;
