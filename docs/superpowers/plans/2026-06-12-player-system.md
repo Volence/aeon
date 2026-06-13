@@ -672,7 +672,7 @@ PathSwap_Main:
 ```
 
 - [x] **Step 9.2:** Place two swappers at the OJZ loop (entry/exit feet) in the editor objects JSON for the loop's section; regenerate entities (`python3 tools/ojz_strip_gen.py generate` runs `ojz_entity_gen.generate()`).
-- [ ] **Step 9.3:** Build + Exodus: roll through the loop both directions — full 360° angle sweep on the watch, layer flips at the swappers, no fallthrough at the top (angle continuity), exit speed sane. This is the §5 marquee verification — record exact reproduction steps in the commit message. Commit: `feat(§5): path-swap object — OJZ loop traversable both directions`
+- [x] **Step 9.3:** (live-verified 2026-06-12: full 360° loop traversal both swapper flips 0→1 top/1→0 right, angle sweep $FC→$C8→$88→$40→$00, exit gsp $9CE > entry $712, ends layer 0. Root-caused + fixed latent FillRow collision +64px shift (d1637c8) exposed by real data.)  Build + Exodus: roll through the loop both directions — full 360° angle sweep on the watch, layer flips at the swappers, no fallthrough at the top (angle continuity), exit speed sane. This is the §5 marquee verification — record exact reproduction steps in the commit message. Commit: `feat(§5): path-swap object — OJZ loop traversable both directions`
   (build-level done: DEBUG + plain builds green, test.sh 18/18 — live Exodus pass pending)
 
 **Task 9 implementation notes (2026-06-12):**
