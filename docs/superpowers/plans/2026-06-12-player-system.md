@@ -1,5 +1,16 @@
 # §5 Player System Implementation Plan
 
+> **STATUS: PLAN COMPLETE (2026-06-14).** All 11 tasks shipped on branch
+> `player-system` (unmerged). §5 commit range `ff3aee2..HEAD` (design spec →
+> docs closeout). Sonic is playable on OJZ with real collision data, the full
+> sensor layer, ground/air/roll/spindash, the traversable loop (path-swap
+> object), and camera landing lock + spindash freeze. `test.sh` 18/18 green;
+> DEBUG + release builds clean. Deferred follow-up work (art/anim, dropdash,
+> Super, Tails, Knuckles, shields/damage, water + the per-section physics
+> modifier/Lerp system, balance/look anims, 6-button, forced-roll objects,
+> per-character dispatch indirection, cycle profiler) is catalogued in
+> `docs/DEFERRED_WORK.md` §5.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A classic-faithful playable Sonic (S2 values + verified S3K behavior) on OJZ with real collision data, full sensor system, ground/air/roll/spindash states, and camera landing lock.
@@ -709,10 +720,10 @@ PathSwap_Main:
 
 **Files:** `docs/ENGINE_ARCHITECTURE.md` §5/§4.7, `docs/DEFERRED_WORK.md`, this plan (checkboxes), memory
 
-- [ ] **Step 11.1:** ENGINE_ARCHITECTURE §5: flat state machine resolution (hierarchical "evaluate" → rejected), landing banding (fix the cascade "vector projection" line), −$FC0 removal note, per-section physics = plumbing-shipped status.
-- [ ] **Step 11.2:** DEFERRED_WORK: close §3 SST-fit audit (fits, DPLC immediates); add launch-cap coupling note; list §5 deferred items (Sonic art/anim plan, dropdash/instashield, Tails, Knuckles, water rows, balance anims, look up/down, 6-button).
-- [ ] Per-character dispatch-table indirection design note (Tails/Knuckles prerequisite — see Player_States comment)
-- [ ] **Step 11.3:** Save memory progress note. Commit: `docs(§5): architecture + deferred-work closeout for player system`
+- [x] **Step 11.1:** ENGINE_ARCHITECTURE §5: flat state machine resolution (hierarchical "evaluate" → REJECTED in §5.4 + §5.5 cascade), landing banding (§5.3 line + §5.5 cascade corrected off "vector projection" to motion-quadrant axis-select), −$FC0 removal note added (§5.3 FEEL DEVIATION + PHYS_GSP_CAP coupling), per-section physics = plumbing-shipped/modifier-deferred status (§5.2), files map updated to the actual `engine/player/*.asm` ownership (§5.4).
+- [x] **Step 11.2:** DEFERRED_WORK: §3 SST-fit audit CLOSED (PlayerV_len = $D / 13 bytes of 34, verified from `s4.lst`; DPLC immediates, no per-pool stride); launch-cap coupling note added; §5 deferred items listed as a clean section. §4.7 verified (8-px columns already synced in Task 2) + collision-row-base addressing convention + FillRow trap pointer added.
+- [x] Per-character dispatch-table indirection design note — captured in the DEFERRED_WORK §5 deferred-items list as the Tails/Knuckles prerequisite (references the `Player_States` comment).
+- [x] **Step 11.3:** Memory updated (`project_s5_player_system.md` + MEMORY.md index). `./build.sh -pe` clean (no assembled file touched — docs only), `./test.sh` 18/18 green. Commit: `docs(§5): architecture + deferred-work closeout — player system complete`
 
 ---
 

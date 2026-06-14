@@ -29,6 +29,52 @@ badnik + multi-part boss + heavy parallax) starts producing steady-state lag
 frames; until then the lag counter is a sufficient pass/fail budget gate.
 **See:** `docs/superpowers/specs/2026-06-12-player-system-design.md` §9 item 10.
 
+### Removed Up-Velocity Cap — Launch-Cap Coupling (§2.1 FEEL DEVIATION) — 2026-06-12
+**Surfaced during:** §5 Task 6/7 (commit 04b492b region).
+**Status (intentional, shipped):** the classic non-jump airborne up-cap (`y_vel`
+clamped to `-$FC0`) is **removed**. Launches are instead bounded by
+`PHYS_GSP_CAP = $1000` (the SPG-placement ground-speed tunneling guard). The
+`; FEEL DEVIATION` comment lives at the clamp site in
+`engine/player/player_air.asm` (`PState_AirShared`, after the fall-cap).
+**Coupling — do NOT change in isolation:** if launches ever feel truncated, the
+knob is `PHYS_GSP_CAP`, and raising it is a **coupled** change. These must rise
+together or the player will outrun streaming / tunnel through geometry:
+- `CAM_MAX_Y_STEP` (16 px/frame, the camera-follow clamp the fill relies on),
+- `VFILL_ROWS_PER_FRAME` (2 rows/frame — the VBlank-bound streaming contract;
+  >2 overflows VBlank into active display, see §4.7),
+- the 32px sensor reach (swept collision must cover one frame's travel).
+Do not re-add the `-$FC0` cap silently. The separate `$FC0` cap in the
+steep-landing conversion is a different, retained mechanism.
+
+### §5 Deferred Items — Player/Character Follow-Up Work — 2026-06-14
+**Status:** §5 (player-system branch) shipped Sonic-only, physics-first, on OJZ
+with real collision, the full sensor layer, ground/air/roll/spindash, the loop,
+and camera landing lock + spindash freeze. Per spec §1, the following are
+deliberately **deferred to follow-up plans** (not bugs — out of §5 scope):
+- **Sonic art / animation / DPLC** — a real sprite set + animation driver beyond
+  the placeholder test art (§5 used the existing test-player sprite, no anim work).
+- **Dropdash, instashield** — Sonic move-kit extensions.
+- **Super Sonic** — transformation, palette cycle, physics row.
+- **Tails** — CPU AI (4-state machine) + flight physics + position-history-buffer
+  following (the `Player_Pos_Ring`/`Player_Stat_Ring` are already recorded for this).
+- **Knuckles** — gliding, climbing, wall detection.
+- **Per-character dispatch-table indirection** — the prerequisite refactor for
+  Tails/Knuckles (today `Player_States` and `PhysTable_Sonic` are referenced
+  directly; siblings need a character base-pointer). See the `Player_States`
+  comment in `player_common.asm`.
+- **Shields + damage + loss-rings** — shield objects, hit/invuln response, ring
+  scatter (loss-rings is also tracked under §4.9).
+- **Water** — and with it the **per-section physics modifier / Lerp system** (the
+  RefreshPhysics plumbing shipped with an identity modifier; the modifier tables,
+  section references, and boundary Lerp are the deferred half — see
+  `ENGINE_ARCHITECTURE.md` §5.2).
+- **Balance animations** (ledge teeter), **look up / down** (camera lead).
+- **6-button mappings** — X/Y/Z/Mode gameplay actions (detection exists, §5.1).
+- **Forced-roll objects (S-tunnels)** — bypass the roll-start gate, use
+  `PHYS_ROLL_FORCE_MIN` at rest; the `stick_convex` full-adherence flag and the
+  roll-start gate already have the hook comments.
+- **The §8.5 cycle profiler** — unwired (see the Cycle Profiler entry above).
+
 ---
 
 ## From §1 — Core VDP Pipeline
@@ -173,7 +219,8 @@ sonic_hack. No engine work to do.
 These items were identified during §3 Phase 0 research but require a full SST field audit before committing.
 
 ### SST Field Audit & Size Re-evaluation (§3)
-**Note (2026-06-10):** objects-formats-v2 resolved the dead-field/metadata half of this audit — `respawn_index`, `wait_timer`, and the separate priority word are gone; entity-window metadata (`slot_tag`/`entity_section_id`/`entity_list_index`/`layer`) packed at $2A-$2D; `sst_custom` grew to 34 bytes at $2E. Still open: whether player overlays fit 34 bytes (per-pool stride / variable sizing) — re-evaluate during §5 player work.
+**Note (2026-06-10):** objects-formats-v2 resolved the dead-field/metadata half of this audit — `respawn_index`, `wait_timer`, and the separate priority word are gone; entity-window metadata (`slot_tag`/`entity_section_id`/`entity_list_index`/`layer`) packed at $2A-$2D; `sst_custom` grew to 34 bytes at $2E.
+**CLOSED (2026-06-14, §5 player work):** the player overlay fits 34 bytes with room to spare — **`PlayerV_len` = $D (13 bytes)** of the 34 available (`engine/player/player_common.asm`: ground_speed, player_state, status_secondary, move_lock, spindash_charge, flip_angle, air_left, invuln_time, stick_convex, debug_flag; the last five are reserved/debug). The DPLC table and art base are **per-character code immediates** (`lea` in `sonic.asm`), NOT SST fields, so the 9-byte test_player DPLC-in-SST pattern is not carried over. No per-pool stride, no variable SST sizing, no SST growth needed for the player. The general SST-shrink question (below) stays open but is decoupled from the player.
 **Blocked by:** Implementation of player subsystem (need real player field pressure)
 **What:** Audit every SST field across all object types (player, badnik, platform, effect, boss, system) once subsystems are implemented. Determine actual field usage per type. Evaluate whether the SST can shrink from $50 to $4C or $48.
 **When ready:** After §3 Phase 3 (animation) and Phase 4 (collision) are implemented — enough subsystems exist to see real field pressure.

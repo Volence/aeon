@@ -2011,7 +2011,7 @@ The linear layout enables direct 2D indexing: `cache[col + row * 80]` with both 
 - **Block staging cache:** decompressed 16×16-tile blocks land in a 12-slot staging cache (`Block_Stage_Buffers`, 768 bytes/slot — 512 nametable + 2×128 collision planes (path A/B, added 2026-06-10), keyed by packed sec_x|sec_y|block_index, round-robin evict). Column fills cross 4–5 blocks vertically and row fills cross 6 horizontally; without staging, each block would be re-decompressed up to 16 times as the cache slides across it (~94% redundant work). 12 slots let a column fill and a row fill coexist on diagonal scroll.
 - **Per-frame decompress budget:** `TileCache_FillColumn` AND `TileCache_FillRow` draw from a shared frame allowance (`BLOCK_DECOMP_BUDGET` = 6 blocks, reset in `Tile_Cache_Fill`). Steady-state horizontal scroll costs ~0.3 decompresses per column (staging absorbs the rest); a cold block-column burst (≤5) fits in one frame's budget. Rows additionally cap at `VFILL_ROWS_PER_FRAME` = 2 per frame with their own partial-resume (`Cache_Fill_RowResume_Row/Col`), and leftover budget prefetches one block of the next block-row in the scroll direction. **The vertical contract is structural:** `Camera_Update` clamps Y movement to `CAM_MAX_Y_STEP` = 16 px/frame (S2's number — S3K uses 24) so the fill can never fall behind; the binding constraint is the VBLANK window, not CPU: each filled row adds a 64-word plane-buffer entry to the VBlank drain, and >2 rows/frame overflows VBlank into FIFO-throttled active display (measured 2026-06-10: 4 rows/frame cost +15 lag frames per 512px descent; 2 rows/frame costs +4).
 - **Keyed partial resume:** a budget-out stores `Cache_Fill_Resume_Col/Row`; the next frame finishes that exact column before extending either edge. Both edges commit their bound *before* filling, so at most one partial is ever outstanding and a budget-out simply ends column work for the frame.
-- **FillRow copies collision too:** the odd row of each 16px cell (cell-completing row, well-defined because Top is even) writes the cell's collision byte alongside the nametable words.
+- **FillRow copies collision too:** the odd row of each 16px cell (cell-completing row, well-defined because Top is even) writes the cell's collision byte alongside the nametable words. **Collision-row-base addressing convention** (`tile_cache.asm`, the `collSrcRowBase`/`collDstRowOfs` macros): the collision row base within a staged block is `slot + BLOCK_NT_SIZE + (intra_row/2)*BLOCK_COLL_COLS` — the `/2` (parity-safe) is mandatory. The even-only `intra_row*8` shortcut is a TRAP: it lands 64px off on odd intra-rows. This bit a real loop-arc bug (the §5 FillRow fix, d1637c8; macro-hardened in c17132d so future cache/cache-prefetch work can't reintroduce it). The even-row shortcut precondition is exactly that `Cache_Top_Row`/`Cache_Origin_Row` stay even.
 
 **Runtime collision lookup** reads directly from the tile cache — no separate collision maps, no per-section decompression, no slot rotation at teleport. The tile cache already has the data:
 ```asm
@@ -2453,6 +2453,10 @@ Three playable characters (Sonic, Tails, Knuckles) with shared physics via `Play
 
 ### 5.2 Per-Section Terrain Physics (NOVEL)
 
+**Status (§5 shipped 2026-06-14): plumbing SHIPPED, modifier system deferred.** Movement code never reads `PHYS_*` constants directly — it reads an *effective physics table in RAM* (`Player_Phys` in `ram.asm`: accel, decel, friction, top speed, gravity, jump force, air accel, release cap) through the a4-register convention (`lea (Player_Phys).w, a4` at the top of `Player_Main`; handlers use `PPHYS_*` offsets). `Player_RefreshPhysics` recomputes that table and is called on section change / status events, NEVER per-frame. **Day one the modifier is identity** — `Player_RefreshPhysics` is a straight 16-byte copy of `PhysTable_Sonic` (the character base row) into `Player_Phys`, so behavior is pure classic. The modifier/Lerp system itself (per-section terrain multipliers, boundary interpolation) is the deferred half: it slots into `Player_RefreshPhysics` later as one `dc.w` table + a section reference, with zero changes to movement code. See `DEFERRED_WORK.md` §5.
+
+The intended modifier design (deferred):
+
 With the 2D section grid (Section 4.1), different sections can have different physics properties via composable modifier tables:
 
 **Per-character base table:**
@@ -2480,9 +2484,11 @@ Section transitions smoothly interpolate modifiers via Lerp so physics don't sna
 
 ### 5.3 Physics Improvements
 
-**Air drag — apex-only:** Air drag (`x_vel -= x_vel / 32`) applies only during the apex window (`y_vel` between `-$400` and `0`), not during descent. Preserves horizontal momentum through fall arcs. (Research correction 2026-06-12: this band exists in S1/S2 as well — it is THE classic behavior, not an S3K fix. See `docs/research/player-physics-classics.md`.)
+**Air drag — apex-only (shipped):** Air drag (`x_vel -= x_vel asr 5`) applies only during the apex window (`y_vel` between `-$400` and `0`), before gravity, not during descent. Preserves horizontal momentum through fall arcs. (Research correction 2026-06-12: this band exists in S1/S2 as well — it is THE classic behavior, not an S3K fix. See `docs/research/player-physics-classics.md`.) Lives in the shared air body, `engine/player/player_air.asm`.
 
-**Roll-jump air control:** classic S2/S3K lockout KEPT (user decision 2026-06-12, overriding this doc's earlier lean) — jumping from a roll commits you to your trajectory. The full §5 feel contract: classic-faithful with exactly one modern concession, a 2-frame jump input buffer; coyote time and extended camera rejected. See `docs/superpowers/specs/2026-06-12-player-system-design-brief.md`.
+**Removed up-velocity cap (FEEL DEVIATION, shipped):** The classic non-jump airborne up-cap (`y_vel` clamped to `-$FC0` on ramp/slope launches) is **deliberately REMOVED**. Under the `PHYS_GSP_CAP` ground-speed cap of `$1000` (the SPG-placement tunneling guard), the fastest launch already converts to ≤ `$1000` upward, so the `-$FC0` clamp would shave only the top ~1.6% of a max launch while truncating earned ramp launches. The knob if launches ever feel truncated is `PHYS_GSP_CAP` — raising it is a coupled change (`CAM_MAX_Y_STEP`, `VFILL_ROWS_PER_FRAME`, and the 32px sensor reach must rise together). A `; FEEL DEVIATION` comment marks the clamp site in `player_air.asm` (`PState_AirShared`, where the `-$FC0` clamp would have lived); also recorded in `DEFERRED_WORK.md` §5. (The separate `$FC0` cap in the steep-landing conversion is a different, retained mechanism — not this cap.)
+
+**Roll-jump air control (shipped):** classic S2/S3K lockout KEPT (user decision 2026-06-12, overriding this doc's earlier lean) — jumping from a roll commits you to your trajectory (`PSTATE_ROLLJUMP` skips air accel; air drag still runs). The full §5 feel contract is classic-faithful with exactly two modern concessions: a 2-frame jump input buffer (`PHYS_JUMP_BUFFER`, press edges OR-accumulated across lag frames) and the jump-delay fix (the player completes movement on the press frame — `Player_Jump` falls through into the air body instead of S2's abort). Coyote time and extended camera rejected. See `docs/superpowers/specs/2026-06-12-player-system-design.md` §2.
 
 **Per-character acceleration tuning:** Flat acceleration model — same increment every frame regardless of current speed. Core to Sonic's tight, predictable feel. Per-character values via configurable physics tables: Sonic accelerates fastest, Knuckles has most friction. Terrain friction applied from per-section physics data (5.2).
 
@@ -2490,7 +2496,7 @@ Section transitions smoothly interpolate modifiers via Lerp so physics don't sna
 
 **Slope physics refinement:** With dual collision sensors from S.C.E. (Section 4.7):
 - Angle continuity checking: reject angle jumps > $20 between frames (prevents loop fallthrough)
-- Landing speed conversion: (Research correction 2026-06-12: the oft-cited "S3K vector projection" is a myth — S3K uses the same shallow/steep axis-select banding as S2, verified against both disassemblies. A true vector projection `inertia = x_vel·cos + y_vel·sin` would be NOVEL to this engine; whether to implement it or the proven classic banding is a §5 design decision. See `docs/research/player-physics-classics.md`.)
+- Landing speed conversion (shipped): **classic motion-quadrant + angle-band axis-select** (NOT vector projection — the oft-cited "S3K vector projection" is a myth; S3K uses the same banding as S2, verified against both disassemblies, see `docs/research/player-physics-classics.md`). Implemented in `engine/player/player_air.asm`: compute the motion quadrant (`CalcAngle(x_vel,y_vel)`), then band by surface angle — flat ⇒ `gsp = x_vel`; mid band (±$10–$1F) ⇒ `y_vel asr 1`, `gsp = ±y_vel`; steep (±$20–$3F) ⇒ `x_vel = 0`, `gsp = ±y_vel`; horizontal-motion floor hits ⇒ `gsp = x_vel`; wall-quadrant hits while moving horizontally ⇒ `gsp = y_vel` (wall-run engage). Landing eligibility `dist ≥ -(y_vel>>8 + 8)`.
 - Unroll wall clip fix: check clearance before height adjustment when exiting rolling
 - Steep slope slide: small gravity push when standing still on slopes > ~67°
 - Slope factor `muls.w` → `lsl` optimization: saves ~54 cycles/ground frame
@@ -2502,14 +2508,18 @@ Section transitions smoothly interpolate modifiers via Lerp so physics don't sna
 
 ### 5.4 Character Architecture
 
-**Shared code in `Player_Common.asm`:** Ground movement, jumping, rolling, slope resistance, roll repel, water handling, speed table selection, and display logic. Character-specific files only contain unique behavior:
-- **Sonic:** Instashield, dropdash, spindash, Super Sonic transformation
-- **Tails:** Flying physics, CPU AI with 4-state machine (Init, Spawning, Flying, Normal), position history buffer following (reads Sonic's position 16 frames back)
-- **Knuckles:** Gliding, climbing, wall detection (needs audit — 220+ unnamed labels from disassembly)
+**Files as shipped (§5, Sonic only):**
+- `engine/player/player_common.asm` — owns the player frame: the `PlayerV` SST overlay (13 of 34 `sst_custom` bytes used), `Player_Init`, `Player_RefreshPhysics`, `Player_Main` (frame skeleton + state dispatch), `Player_SetState` + the enter/exit hook tables, `Player_Display` tail, `Player_LevelBound`, debug-fly suspend, and shared helpers (`Player_SnapToSurface`, sizing macros, `PSTATE_COUNT` lockstep asserts).
+- `engine/player/player_ground.asm` — grounded state bodies: `PState_Ground`, `PState_Roll`, `PState_Spindash`, the shared `Ground_Move` tail (cap → projection → wall probe → integrate → floor pair → `Player_SlopeRepel`), and `Player_Jump`.
+- `engine/player/player_air.asm` — the one shared air body (`PState_Air`/`PState_Jump`/`PState_RollJump`/`PState_AirBall`, flagged per state via d6), landing banding, `Air_LandState`.
+- `engine/player/player_sensors.asm` — the four macro-stamped directional cores (`Collision_ProbeDown/Up/Right/Left`), the floor/ceiling pair wrappers and wall single-probe (`Player_SensorWallDir`), and a DEBUG boot self-check (`PlayerSensors_SelfCheck` column path + `PlayerSensors_SelfCheck_RowFill` exercising the row-fill collision path) that asserts the asm sensors agree with `collision_pipeline.py`.
+- `engine/player/sonic.asm` — Sonic's physics base row (`PhysTable_Sonic`), state contributions (spindash), spindash data. Tails/Knuckles will add sibling files with zero changes to common.
 
-**State entry/exit hooks:** Each player state gets `State_Enter` and `State_Exit` routines. Transition code calls `OldState_Exit` then `NewState_Enter`. Centralizes all state-setup code (height/width changes, animation resets, collision mode) that's currently scattered across 3+ locations per state. Ensures consistency across all 3 characters.
+Shared movement (accel/decel/friction, jumping, rolling, slope factor/repel, projection, sensing, display) lives in `player_common`/`player_ground`/`player_air`; characters contribute only data + ability states — inverting sonic_hack's failed split that shared helpers while duplicating control flow 3×. Deferred per-character behavior (instashield/dropdash/Super for Sonic, flight+AI for Tails, glide/climb for Knuckles) and the per-character dispatch-table indirection that Tails/Knuckles need are tracked in `DEFERRED_WORK.md` §5.
 
-**Hierarchical state machine (evaluate):** Replace 2-bit status + status3 parallel bits with 1-byte `player_state` + 1-byte `player_substate`. Categories: GROUNDED (7 substates), AIRBORNE (5), ROLLING (2), SPECIAL (5). Same dispatch cost, but adding new states (e.g., wall-run, grinding) doesn't require finding free bits.
+**State entry/exit hooks (shipped):** Every state has an enter and exit hook; ALL transitions route through a single `Player_SetState` (old exit → write state byte → new enter). Hooks are the only writers of height/width (= ball/standing radii), the ±5px curl/uncurl y-shift, `ST_ROLLING`, and anim selects — so the roll-jump 5px size bug (#5) is structurally impossible (radii change only in hooks; JUMP/ROLLJUMP/AIRBALL all use ball radii).
+
+**Flat explicit state machine (RESOLVED — shipped):** The doc's earlier "hierarchical state machine (evaluate)" idea is **REJECTED** in favor of a flat explicit state index + jump table. `player_state` is a single byte holding a `PSTATE_*` jump-table offset (×2); dispatch is `move.w Player_States(pc,d0.w),d1 / jsr Player_States(pc,d1.w)`. The seven mutually-exclusive movement modes get states (`PSTATE_GROUND`, `ROLL`, `SPINDASH`, `AIR`, `JUMP`, `ROLLJUMP`, `AIRBALL`); concurrent conditions stay `ST_*` status bits (facing, pushing, rolling — the line S2 never drew). The classic `status3` pseudo-states dissolve into the index. Survey verdict: explicit index beats flag-derived dispatch and a hierarchy is unneeded at seven states; new states (wall-run, grinding) are one table row each.
 
 **Shield system:** Unified per-shield objects (fire, lightning, bubble, wind) with consistent DPLC loading across all characters. Shields integrate with the VRAM allocator — shield art allocated on pickup, freed on loss.
 
@@ -2522,26 +2532,28 @@ Player / Character Cascades:
   → Extra buttons for debug shortcuts (frame advance, profiler toggle)
     → Character-specific actions available via X/Y/Z in release builds
 
-Per-Section Physics (5.2)
-  → Section definition includes physics modifier table
-    → Section transition interpolates modifiers (Lerp)
-      → Water becomes just another section modifier (not hardcoded special case)
-        → New terrain types = new modifier table, zero code
+Per-Section Physics (5.2)  [plumbing SHIPPED, modifier system deferred]
+  → Effective physics table in RAM (a4 convention), identity modifier day one
+    → Player_RefreshPhysics is the future modifier/Lerp landing site (deferred)
+      → Section definition will include physics modifier table
+        → Water becomes just another section modifier (not hardcoded special case)
+          → New terrain types = new modifier table, zero code
 
-Character Architecture (5.4)
-  → State entry/exit hooks centralize state setup
-    → Hierarchical state machine enables clean new states
-      → Player_Common.asm handles all shared movement/collision
+Character Architecture (5.4)  [Sonic SHIPPED]
+  → State entry/exit hooks centralize state setup (Player_SetState, one writer)
+    → Flat explicit PSTATE_* index + jump table enables clean new states
+      → player_common/_ground/_air handle all shared movement/collision
         → Physics tables separate character identity from movement code
-          → Per-section modifiers compose on top of character tables
+          → Per-section modifiers compose on top of character tables (deferred)
             → New character = new ability code + new physics table + new ability states
 
-Physics Polish (5.3)
+Physics Polish (5.3)  [SHIPPED]
   → Air drag fix (apex-only) preserves jump momentum
     → Roll-jump lockout kept classic (user decision — see §5.3)
-      → Vector projection on landing preserves slope momentum
-        → Angle continuity prevents loop fallthrough
-          → Landing camera lock eliminates jump bounce
+      → Classic motion-quadrant + angle-band axis-select landing (NOT vector projection)
+        → Up-velocity cap (-$FC0) removed; PHYS_GSP_CAP bounds launches (§5.3 FEEL DEVIATION)
+          → Angle continuity prevents loop fallthrough
+            → Landing camera lock + spindash freeze eliminate camera bounce
 ```
 
 ---
