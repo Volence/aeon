@@ -266,7 +266,9 @@ The non-lag handler (`VInt_Level`) — and ONLY it, never `VInt_Lag` — latches
 
 Why a latch instead of an end-of-tick `GameLoop` clear: lag VBlanks fire mid-tick AFTER the player object has already consumed input (RunObjects runs early in the tick; the lag-prone streaming/render work runs after), so an end-of-tick clear wipes the edges those lag frames accumulated — the common lag case loses the press. With the latch, lag frames only OR into the accumulator, so a press landing in ANY lag frame survives into the next tick's latch. Consume-once with zero race: the latch runs in interrupt context while the main loop is parked in `VSync_Wait`.
 
-Also mask opposing D-pad (bug #10) right after each pad read in `Read_Controllers`:
+Also mask opposing D-pad (bug #10). **IMPLEMENTATION DEVIATION:** this was done at the three consumer sites via a `maskOpposingLR` macro (Ground_Move, PState_Air, roll-start) rather than inside `Read_Controllers` as originally written below — masking the raw read would corrupt the held-direction reads that the roll-start veto and debug-fly depend on. Masking at consumption is the correct seam. (Original step text follows for reference.)
+
+Mask opposing D-pad right after each pad read in `Read_Controllers`:
 
 ```asm
         ; L+R / U+D guard (worn pads) — if both bits set, clear both

@@ -129,6 +129,11 @@ PState_Spindash:
 ; Player_RefreshPhysics (the per-CHARACTER base row; section modifiers
 ; compose there later, NEVER per-frame). Field order is bound to the
 ; Player_Phys RAM layout (ram.asm) — the assert below enforces size.
+; SCOPE NOTE: ONLY these 8 fields are section-modifiable. The other
+; physics values (GSp/fall caps, slope factors, roll friction/decel,
+; slip params, spindash + roll thresholds) are direct PHYS_*/SPINDASH_*
+; immediates in the state code — S3K invariants, intentionally NOT in
+; this table; a future per-section modifier would not touch them.
 ; -----------------------------------------------
 PhysTable_Sonic:
         dc.w    PHYS_ACCEL
