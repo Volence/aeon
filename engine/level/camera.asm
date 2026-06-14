@@ -38,7 +38,8 @@ Camera_Init:
 ; Camera_Update — follow Player_1 each frame
 ; In:  none (reads Player_1 SST and Camera_X)
 ; Out: none (updates Camera_X)
-; Clobbers: d0–d3, a0
+; Clobbers: d0–d4, a0   (d4 = spindash-freeze flag, set in the preamble and
+;                        consumed at .y_track — see the reservation note there)
 ; -----------------------------------------------
 Camera_Update:
         ; -- §5 Task 10.2: spindash launch freeze --
@@ -59,6 +60,9 @@ Camera_Update:
         st      d4                                  ; survives to .y_track
         bra.w   .no_move                            ; X-clamp only; .y_track
                                                     ; tests d4 and skips Y follow
+        ; NOTE: d4 is reserved as the freeze flag from here through the
+        ; X-clamp path to .y_track — do not reuse d4 in .no_move/.check_max_x/
+        ; .clamp_x or the Y freeze silently breaks.
 .no_freeze:
         lea     (Player_1).w, a0
 
@@ -182,7 +186,7 @@ Camera_Update:
         ;    Upward scroll (the branch above) is untouched — following a high
         ;    jump up is fine. AIR/AIRBALL (falls, walk-offs, roll-offs) scroll
         ;    normally. Lock lifts automatically on landing (state→GROUND/ROLL)
-        ;    or once the player drops past the bottom dead-zone WHILE STILL in
+        ;    or once the player reaches the bottom screen edge WHILE STILL in
         ;    a jump state: there we DO resume so a long fall after the apex
         ;    isn't left off-screen. Debug-fly forces PSTATE_AIR (not a jump
         ;    state), so it follows as before. (research feel-modern §3; spec §7)
@@ -193,11 +197,11 @@ Camera_Update:
         bne.s   .down_ok
 .land_lock:
         ; player is below focal point in a jump state — d3 still holds the raw
-        ; signed dist (player_y - center). Only lock while WITHIN reach of the
-        ; bottom dead-zone; if the fall has carried the player well past it,
-        ; release so the camera doesn't fall behind a long drop.
-        cmpi.w  #CAM_SCREEN_HALF_H, d3              ; past bottom of screen?
-        bge.s   .down_ok                            ; far below → resume follow
+        ; signed dist (player_y - center). Lock only until the player reaches
+        ; the bottom screen edge (CAM_SCREEN_HALF_H below center); past that a
+        ; long post-apex fall must resume follow so it isn't left off-screen.
+        cmpi.w  #CAM_SCREEN_HALF_H, d3              ; at/over bottom screen edge?
+        bge.s   .down_ok                            ; → resume follow
         bra.w   .clamp_y                            ; locked → hold Y
 .down_ok:
         moveq   #32, d2                             ; restore +deadzone (d2 clobbered)
