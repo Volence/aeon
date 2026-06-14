@@ -342,6 +342,24 @@ clearLoadedObj macro sstReg
         endm
 
 ; -----------------------------------------------
+; collSrcRowBase — staged-block collision-row byte base from an intra-block tile row
+; In:  reg = data register holding the intra-block tile row (0–15), runtime value
+; Out: reg = byte offset of that row's collision data within a plane:
+;            (tile_row / 2) * BLOCK_COLL_COLS
+; The /2 maps a 16px collision cell to its tile-row pair; >>1 first makes this
+; parity-safe for BOTH even and odd tile rows (even>>1<<4 == even*8, the old
+; CopyBlockColumn shortcut — but the shortcut is WRONG for odd rows, which is
+; exactly the FillRow +64px collision-shift bug this macro exists to make
+; unrepresentable). Always use this for staged-block collision-row addressing.
+collSrcRowBase macro reg
+    if BLOCK_COLL_COLS <> 16
+        error "collSrcRowBase assumes BLOCK_COLL_COLS=16 (lsl #4); update the shift"
+    endif
+        lsr.w   #1, reg                  ; tile row -> collision row (16px cell)
+        lsl.w   #4, reg                  ; * BLOCK_COLL_COLS (16 bytes per row)
+        endm
+
+; -----------------------------------------------
 ; Debug subsystem flags (only meaningful when __DEBUG__ is defined)
 ; Use the MD Debugger's ifdebug macro (from debug/debugger.asm) for conditionals.
 ; -----------------------------------------------

@@ -381,7 +381,8 @@ BLOCK_TILE_SIZE         = 16        ; 16×16 tiles per block
 BLOCK_TILE_SHIFT        = 4         ; lsr #4 = ÷ 16
 BLOCK_NT_SIZE           = BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2  ; 512 bytes
 BLOCK_COLL_ROWS         = BLOCK_TILE_SIZE / 2  ; 8 collision rows per block
-BLOCK_COLL_PLANE_SIZE   = BLOCK_TILE_SIZE * BLOCK_COLL_ROWS  ; 128 bytes per plane
+BLOCK_COLL_COLS         = BLOCK_TILE_SIZE      ; 16 collision cells per row (bytes/row)
+BLOCK_COLL_PLANE_SIZE   = BLOCK_COLL_COLS * BLOCK_COLL_ROWS  ; 128 bytes per plane
 BLOCK_COLL_SIZE         = BLOCK_COLL_PLANE_SIZE * TILE_CACHE_COLL_PLANES  ; 256 bytes (A+B)
 BLOCK_RAW_SIZE          = BLOCK_NT_SIZE + BLOCK_COLL_SIZE  ; 768 bytes
 BLOCK_STAGE_SLOTS       = 12        ; staged decompressed blocks (round-robin evict)

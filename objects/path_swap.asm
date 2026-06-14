@@ -43,6 +43,9 @@ _ps_half_height = SST_sst_custom+PathSwapV_half_height
 _ps_prev_side   = SST_sst_custom+PathSwapV_prev_side
 
 ObjDef_PathSwap:
+        ; map=/art= are TEST placeholders only — PathSwap is an invisible
+        ; trigger line (col=COLLISION_NONE, never rendered in release). Real
+        ; objects that reuse this pattern supply their own mappings/art.
         objdef code=PathSwap_Init, map=Map_TestObj, art=vram_art(VRAM_TEST_OBJ,0,0), \
                wdth=4, hght=64, col=COLLISION_NONE
 
@@ -55,6 +58,14 @@ ObjDef_PathSwap:
 ; Clobbers: d0-d2, a1
 ; -----------------------------------------------
 PathSwap_Init:
+    ifdef __DEBUG__
+        ; reserved priority-swap bit is unimplemented — a set bit means stale
+        ; level data or a feature wired up without code (fail loud, §7.7)
+        btst    #PATHSWAP_BIT_PRIO, SST_subtype(a0)
+        beq.s   .prio_unused
+        RaiseError "PathSwap: reserved subtype bit PATHSWAP_BIT_PRIO (5) set but unimplemented"
+.prio_unused:
+    endif
         moveq   #$F, d0
         and.b   SST_subtype(a0), d0
         lsl.w   #5, d0                          ; units of 32px

@@ -330,9 +330,11 @@ TileCache_CopyBlockColumn:
         dbf     d5, .copy_nt
 
         ; collision plane A: src = slot base + BLOCK_NT_SIZE + (src_row/2)*16 + col
+        ; src_row (d4) is even here, but use the parity-safe macro anyway so this
+        ; site cannot drift into the FillRow odd-row trap class (§5).
         lea     BLOCK_NT_SIZE(a1), a0
         move.w  d4, d5
-        lsl.w   #3, d5                         ; (src_row/2) * 16 = src_row * 8
+        collSrcRowBase d5                      ; (src_row/2) * BLOCK_COLL_COLS
         adda.w  d5, a0
         adda.w  d0, a0                         ; + col (bytes, not words)
 
@@ -1110,15 +1112,12 @@ TileCache_FillRow:
         move.w  d4, d3
         lsl.w   #5, d4                         ; * 32
         lea     (a1, d4.w), a0
-        ; collision row base = (intra_row/2) * 16. The intra_row*8 shortcut
-        ; (as in TileCache_CopyBlockColumn, where the source row is
-        ; guaranteed EVEN) is wrong here: FillRow copies collision only on
-        ; the ODD (cell-completing) row, and odd*8 lands 8 bytes — 8 tile
-        ; cols, 64px — past the row base. That shifted every row-filled
-        ; collision cell 64px left (§5 loop-arc wall bug: arc toe cells
-        ; read as full-solid $01 → ground wall probe killed gsp).
-        lsr.w   #1, d3                         ; intra collision row
-        lsl.w   #4, d3                         ; * 16 bytes per collision row
+        ; collision row base = (intra_row/2) * BLOCK_COLL_COLS via the parity-safe
+        ; macro. FillRow copies collision only on the ODD (cell-completing) row,
+        ; so the even-only intra_row*8 shortcut would land 64px off — the §5
+        ; loop-arc wall bug (arc toe cells read as full-solid $01 → ground wall
+        ; probe killed gsp). collSrcRowBase makes that misencoding impossible.
+        collSrcRowBase d3                      ; (intra_row/2) * BLOCK_COLL_COLS
         lea     BLOCK_NT_SIZE(a1), a3
         adda.w  d3, a3
 

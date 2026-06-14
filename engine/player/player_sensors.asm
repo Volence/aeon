@@ -460,6 +460,103 @@ PlayerSensors_CheckDispatch:
         dc.l    Collision_ProbeRight
         dc.l    Collision_ProbeLeft
 
+; -----------------------------------------------
+; PlayerSensors_SelfCheck_RowFill — exercise the ROW fill path, then re-probe.
+;
+; WHY: PlayerSensors_SelfCheck above probes cells that Tile_Cache_Init filled
+; via the COLUMN path (TileCache_CopyBlockColumn). It therefore CANNOT catch a
+; bug in TileCache_FillRow — the vertical-streaming path — which is exactly how
+; the §5 +64px collision-shift bug (FillRow used intra_row*8, valid only on even
+; rows; FillRow copies collision on ODD rows) reached live play unnoticed.
+;
+; This routine force-fills, via TileCache_FillRow, the two ODD world tile rows
+; that COMPLETE the 16px collision cells the check table reads (ground/wall at
+; section-local y=384..415 → world rows 49 and 51 for boot section (0,0)), then
+; re-runs the same table. A row-path collision-addressing regression corrupts
+; those re-filled cells and trips a RaiseError that NAMES the row path.
+;
+; BOOT-SAFETY: both target rows already lie inside the initial cache window
+; [Cache_Top_Row=2 .. Cache_Bottom_Row=61] (camera start_local_y=$100), so
+; FillRow re-fills them IN PLACE with identical data — idempotent. It touches
+; no camera state and no cursor except Cache_Fill_RowResume_Row, which we
+; restore to $FFFF (its post-Init value) afterward. Cache_Fill_Budget is
+; topped up before each call so any evicted staging block re-decompresses
+; (decompress is a pure ROM→slot copy — idempotent). Normal play starts in the
+; exact state Tile_Cache_Init left it. Runs LAST, after the column self-check.
+; In:  none (assumes Tile_Cache_Init + PlayerSensors_SelfCheck have run)
+; Out: none (RaiseError on any mismatch)
+; Clobbers: d0-d7, a1-a3
+; -----------------------------------------------
+SENSCHK_ROW_LO = 49             ; odd world tile row completing cell y=384..399
+SENSCHK_ROW_HI = 51             ; odd world tile row completing cell y=400..415
+PlayerSensors_SelfCheck_RowFill:
+        ; assert both target rows sit inside the current cache window — if a
+        ; future camera-start change moves the window, the in-place exercise
+        ; would silently fill out-of-window (no-op) and stop testing anything.
+        move.w  (Cache_Top_Row).w, d0
+        cmpi.w  #SENSCHK_ROW_LO, d0
+        bls.s   .win_top_ok
+        RaiseError "RowFill self-check: probe row 49 above cache top %<.w d0>"
+.win_top_ok:
+        move.w  (Cache_Bottom_Row).w, d0
+        cmpi.w  #SENSCHK_ROW_HI, d0
+        bhs.s   .win_bot_ok
+        RaiseError "RowFill self-check: probe row 51 below cache bottom %<.w d0>"
+.win_bot_ok:
+        ; force ROW fills of the two cell-completing rows (budget reset per
+        ; call: a single row can span up to ~6 blocks = BLOCK_DECOMP_BUDGET)
+        move.w  #BLOCK_DECOMP_BUDGET, (Cache_Fill_Budget).w
+        move.w  #SENSCHK_ROW_LO, d5
+        bsr.w   TileCache_FillRow
+        move.w  #BLOCK_DECOMP_BUDGET, (Cache_Fill_Budget).w
+        move.w  #SENSCHK_ROW_HI, d5
+        bsr.w   TileCache_FillRow
+        ; restore the row-resume slot to its post-Init idle value
+        move.w  #$FFFF, (Cache_Fill_RowResume_Row).w
+
+        ; re-run the same table; mismatches now indict the ROW path
+        lea     PlayerSensors_CheckTable(pc), a2
+        move.w  (a2)+, d7
+.loop:
+        move.w  (a2)+, d0
+        add.w   (Slot_Origins).w, d0
+        move.w  (a2)+, d1
+        addi.w  #SLOT_ORIGIN_U, d1
+        moveq   #0, d3
+        move.b  (a2)+, d3              ; layer
+        move.b  (a2)+, d6             ; solidity mask
+        moveq   #0, d2
+        move.b  (a2)+, d2             ; direction
+        addq.l  #1, a2               ; pad
+        add.w   d2, d2
+        add.w   d2, d2
+        lea     PlayerSensors_CheckDispatch(pc), a3
+        movea.l (a3, d2.w), a3
+        jsr     (a3)
+        move.w  (a2)+, d3
+        cmp.w   d0, d3
+        bne.s   .fail_dist
+        move.b  (a2)+, d3
+        cmp.b   d1, d3
+        bne.s   .fail_angle
+        move.b  (a2)+, d3
+        cmp.b   d2, d3
+        bne.w   .fail_attr
+        dbf     d7, .loop
+        rts
+.fail_dist:
+        move.w  PlayerSensors_CheckTable(pc), d4
+        sub.w   d7, d4
+        RaiseError "RowFill self-check: entry %<.w d4> dist %<.w d0>, expected %<.w d3>"
+.fail_angle:
+        move.w  PlayerSensors_CheckTable(pc), d4
+        sub.w   d7, d4
+        RaiseError "RowFill self-check: entry %<.w d4> angle %<.b d1>, expected %<.b d3>"
+.fail_attr:
+        move.w  PlayerSensors_CheckTable(pc), d4
+        sub.w   d7, d4
+        RaiseError "RowFill self-check: entry %<.w d4> attr %<.b d2>, expected %<.b d3>"
+
 ; one expectation: x.w, y.w (section-local), layer.b, mask.b, dir.b,
 ; pad.b, dist.w, angle.b, attr.b — 12 bytes
 SENSCHK_DOWN  = 0

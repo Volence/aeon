@@ -108,6 +108,10 @@ GameState_OJZScroll_Init:
         ;    probes read the filled collision cache). RaiseError on
         ;    mismatch. --
         jsr     PlayerSensors_SelfCheck
+        ; §5: exercise the ROW fill path too (column self-check above cannot
+        ; reach TileCache_FillRow). Boot-safe: re-fills in-window rows in
+        ; place, restores cache state. Must run LAST (after the column check).
+        jsr     PlayerSensors_SelfCheck_RowFill
     endif
 
         ; -- §4.6 parallax init: pull start section's parallax_config --
