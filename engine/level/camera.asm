@@ -1,8 +1,12 @@
 ; Camera system (§4)
-; Tracks player with X deadzone (velocity-adaptive) and Y deadzone (fixed).
+; Tracks player with a fixed classic-S3K X deadzone and a fixed Y deadzone.
 
 CAM_SCREEN_HALF_W   = 160
 CAM_SCREEN_HALF_H   = 112
+CAM_MAX_X_STEP      = 16        ; max horizontal scroll px/frame (classic S2/CD;
+                                ; S3K=24, imperceptible at the 6px/f player top
+                                ; speed). Caps spring/teleport position jumps so
+                                ; the camera can't outrun Section_UpdateColumns.
 
 ; -----------------------------------------------
 ; Camera_Init — initialise from act descriptor
@@ -66,38 +70,40 @@ Camera_Update:
 .no_freeze:
         lea     (Player_1).w, a0
 
-        ; -- X tracking with velocity-adaptive deadzone --
+        ; -- X tracking: classic S3K fixed deadzone (screen-x 144..160) --
+        ;    The old code widened the deadzone by |x_vel|>>3, but x_vel is
+        ;    8.8 subpixels — at top speed ($600) that added 1536>>3 = 192px,
+        ;    making the deadzone ~208px (wider than the 160px half-screen), so
+        ;    Sonic ran clean off the screen edge before the camera scrolled.
+        ;    Now matches S2/S3K ScrollHoriz: scroll-RIGHT boundary at dead
+        ;    centre (Sonic centred while advancing), scroll-LEFT boundary
+        ;    Camera_Deadzone_Base px to its left — an asymmetric 16px window.
+        ;    Step capped at CAM_MAX_X_STEP px/frame.
         move.l  SST_x_pos(a0), d0
         swap    d0                                 ; d0.w = player engine X
         move.l  (Camera_X).w, d1
-        swap    d1                                 ; d1.w = camera X pixels
-        addi.w  #CAM_SCREEN_HALF_W, d1            ; d1 = camera center X
+        swap    d1                                 ; d1.w = camera X (screen left edge)
+        addi.w  #CAM_SCREEN_HALF_W, d1            ; d1 = camera centre X (screen 160)
 
-        ; deadzone = base + |x_vel| >> 3
-        move.w  (Camera_Deadzone_Base).w, d2
-        move.w  SST_x_vel(a0), d3
-        bpl.s   .vel_pos
-        neg.w   d3
-.vel_pos:
-        lsr.w   #3, d3
-        add.w   d3, d2
-
-        ; dist = player_x - camera_center
         move.w  d0, d3
-        sub.w   d1, d3
+        sub.w   d1, d3                             ; d3 = dist = screen_x - 160
 
-        ; check left boundary
-        neg.w   d2
+        tst.w   d3
+        bge.s   .x_scroll_right                    ; dist >= 0 → at/past centre → scroll right
+        ; left: hold until the player passes the left boundary (-deadzone)
+        move.w  (Camera_Deadzone_Base).w, d2
+        neg.w   d2                                 ; d2 = -deadzone (left boundary)
         cmp.w   d2, d3
-        bge.s   .check_right
-        sub.w   d2, d3                             ; overshoot amount
+        bge.s   .no_move                           ; -deadzone <= dist < 0 → hold
+        sub.w   d2, d3                             ; overshoot = dist + deadzone (<0)
+        cmpi.w  #-CAM_MAX_X_STEP, d3               ; cap leftward step
+        bge.s   .apply_x
+        move.w  #-CAM_MAX_X_STEP, d3
         bra.s   .apply_x
-
-.check_right:
-        neg.w   d2
-        cmp.w   d2, d3
-        ble.s   .no_move
-        sub.w   d2, d3
+.x_scroll_right:
+        cmpi.w  #CAM_MAX_X_STEP, d3                ; overshoot = dist; cap rightward step
+        ble.s   .apply_x
+        move.w  #CAM_MAX_X_STEP, d3
 
 .apply_x:
         ext.l   d3
