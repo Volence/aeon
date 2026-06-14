@@ -41,6 +41,25 @@ Camera_Init:
 ; Clobbers: d0–d3, a0
 ; -----------------------------------------------
 Camera_Update:
+        ; -- §5 Task 10.2: spindash launch freeze --
+        ;    Camera_Spindash_Lag is set =16 on spindash release (Task 8).
+        ;    While nonzero, hold the camera still (skip BOTH X and Y follow)
+        ;    so the launch doesn't whip-scroll and the charge-frame backward
+        ;    creep can't register. Classic "freeze camera 16 frames" (research
+        ;    feel-modern §3). X is the load-bearing axis (spindash is
+        ;    horizontal); Y is frozen too because the bounds clamps below still
+        ;    run, and a section teleport rebase writes Camera_X/Y directly
+        ;    (outside this follow), so a teleport during the freeze still
+        ;    applies — the freeze only suppresses player-follow, not external
+        ;    position writes. Decrement once per frame.
+        moveq   #0, d4                              ; d4 = "frozen this frame"
+        tst.b   (Camera_Spindash_Lag).w
+        beq.s   .no_freeze
+        subq.b  #1, (Camera_Spindash_Lag).w
+        st      d4                                  ; survives to .y_track
+        bra.w   .no_move                            ; X-clamp only; .y_track
+                                                    ; tests d4 and skips Y follow
+.no_freeze:
         lea     (Player_1).w, a0
 
         ; -- X tracking with velocity-adaptive deadzone --
@@ -132,6 +151,8 @@ Camera_Update:
         move.l  d0, (Camera_X).w
 
 .y_track:
+        tst.b   d4                                  ; spindash freeze active?
+        bne.w   .clamp_y                            ; yes → hold Y, clamp only
         lea     (Player_1).w, a0
 
         move.l  SST_y_pos(a0), d0
@@ -152,7 +173,34 @@ Camera_Update:
         bra.s   .apply_y
 
 .check_down:
-        neg.w   d2
+        ; -- §5 Task 10.1: landing lock --
+        ;    While airborne FROM A JUMP (PSTATE_JUMP / PSTATE_ROLLJUMP — the
+        ;    upward-launched states, classic's jump flag) the camera must NOT
+        ;    scroll down to chase a rising/hanging player. We reach here only
+        ;    in the down-scroll case (player below focal point), so the lock
+        ;    is just: in those states, suppress the down catch-up entirely.
+        ;    Upward scroll (the branch above) is untouched — following a high
+        ;    jump up is fine. AIR/AIRBALL (falls, walk-offs, roll-offs) scroll
+        ;    normally. Lock lifts automatically on landing (state→GROUND/ROLL)
+        ;    or once the player drops past the bottom dead-zone WHILE STILL in
+        ;    a jump state: there we DO resume so a long fall after the apex
+        ;    isn't left off-screen. Debug-fly forces PSTATE_AIR (not a jump
+        ;    state), so it follows as before. (research feel-modern §3; spec §7)
+        move.b  (Player_1+_pl_state).w, d2
+        cmpi.b  #PSTATE_JUMP, d2
+        beq.s   .land_lock
+        cmpi.b  #PSTATE_ROLLJUMP, d2
+        bne.s   .down_ok
+.land_lock:
+        ; player is below focal point in a jump state — d3 still holds the raw
+        ; signed dist (player_y - center). Only lock while WITHIN reach of the
+        ; bottom dead-zone; if the fall has carried the player well past it,
+        ; release so the camera doesn't fall behind a long drop.
+        cmpi.w  #CAM_SCREEN_HALF_H, d3              ; past bottom of screen?
+        bge.s   .down_ok                            ; far below → resume follow
+        bra.w   .clamp_y                            ; locked → hold Y
+.down_ok:
+        moveq   #32, d2                             ; restore +deadzone (d2 clobbered)
         cmp.w   d2, d3
         ble.s   .clamp_y
         sub.w   d2, d3
