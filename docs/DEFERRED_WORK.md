@@ -4,6 +4,33 @@ Tracks work that was identified during design/implementation but deferred becaus
 
 ---
 
+## From §5 — Player System
+
+### Cycle Profiler (§8.5) Not Wired — Frame-Budget Measured via Lag Counter — 2026-06-14
+**Surfaced during:** §5 Task 10.4 frame-budget pass.
+**Status:** The §8.5 raster-bar / lagometer cycle profiler is NOT built. The
+`Prof_*` RAM block (`ram.asm`: `Prof_RunObjects`/`Prof_TouchResponse`/
+`Prof_RenderSprites`/`Prof_FrameTotal` + their `Prof_Peak_*`, DEBUG only) is
+declared but written NOWHERE — confirmed live: all sixteen bytes at
+`Prof_RunObjects` (0xFF89FC) read zero during active gameplay. This matches
+spec §9 item 10's own note ("the §8.5 profiler is not built yet").
+**Measured instead** via the wired `Lag_Frame_Count` (0xFF89F8, incremented in
+`VInt_Lag` whenever the main loop misses VBlank): with the player active on OJZ,
+**steady-state gameplay = 0 lag frames over 120 frames** (full game loop —
+player physics + camera + render — completes within the ~224-line NTSC
+active-display window before VBlank). Spindash launches at $7FA gsp added zero
+lag. The only lag observed (+13 frames over a 250-frame run that crossed
+terrain) was section-streaming art DMA during teleport/preload — amortized
+deferrable DMA by design, not the per-frame player cost. The Task 10 camera
+additions (landing lock + spindash freeze) are a few byte-tests + branches,
+~10-20 cycles/frame, negligible.
+**When to revisit:** Build the real cycle profiler if a future workload (dense
+badnik + multi-part boss + heavy parallax) starts producing steady-state lag
+frames; until then the lag counter is a sufficient pass/fail budget gate.
+**See:** `docs/superpowers/specs/2026-06-12-player-system-design.md` §9 item 10.
+
+---
+
 ## From §1 — Core VDP Pipeline
 
 These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require other systems to exist first.
