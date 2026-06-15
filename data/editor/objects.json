@@ -19,5 +19,12 @@
     "codeLabel": "ObjDef_Enemy",
     "defaultSubtype": 0,
     "properties": {}
+  },
+  {
+    "id": "path_swap",
+    "name": "Path Swap",
+    "codeLabel": "ObjDef_PathSwap",
+    "defaultSubtype": 0,
+    "properties": {}
   }
 ]

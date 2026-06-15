@@ -4,5 +4,17 @@
     "y": 176,
     "typeId": "solid",
     "subtype": 0
+  },
+  {
+    "x": 768,
+    "y": 836,
+    "typeId": "path_swap",
+    "subtype": 82
+  },
+  {
+    "x": 880,
+    "y": 1000,
+    "typeId": "path_swap",
+    "subtype": 19
   }
 ]

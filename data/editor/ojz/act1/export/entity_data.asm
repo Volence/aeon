@@ -78,11 +78,15 @@ ojz_Sec4_Rings:
     dc.w $079D, $0033
     dc.w $07A8, $001A
     dc.w $07A8, $004C
+    dc.w $07AE, $07BB
     dc.w $07C1, $000F
     dc.w $07C1, $0057
+    dc.w $07C6, $07BB
     dc.w $07DA, $001A
     dc.w $07DA, $004C
+    dc.w $07DE, $07BB
     dc.w $07E5, $0033
+    dc.w $07F6, $07BB
     dc.l 0               ; terminator
 
 ojz_Sec4_TypeTable:
@@ -94,6 +98,10 @@ ojz_Sec4_Objects:
 
 ojz_Sec5_Rings:
     dc.w $0037, $005A
+    dc.w $003E, $07B4
+    dc.w $003E, $07CC
+    dc.w $003E, $07E4
+    dc.w $003E, $07FC
     dc.w $004F, $0042
     dc.w $004F, $005A
     dc.w $0067, $005A
@@ -117,6 +125,14 @@ ojz_Sec6_Objects:
     dc.w -1                                 ; terminator
 
 ojz_Sec7_Rings:
+    dc.w $0781, $004C
+    dc.w $078C, $0033
+    dc.w $078C, $0065
+    dc.w $07A5, $0028
+    dc.w $07A5, $0070
+    dc.w $07BE, $0033
+    dc.w $07BE, $0065
+    dc.w $07C9, $004C
     dc.l 0               ; terminator
 
 ojz_Sec7_TypeTable:
@@ -127,6 +143,10 @@ ojz_Sec7_Objects:
     dc.w -1                                 ; terminator
 
 ojz_Sec8_Rings:
+    dc.w $003E, $004D
+    dc.w $0056, $0035
+    dc.w $0056, $004D
+    dc.w $006E, $004D
     dc.l 0               ; terminator
 
 ojz_Sec8_TypeTable:

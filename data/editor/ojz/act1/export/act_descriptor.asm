@@ -27,7 +27,7 @@ ojz_Sec0:
     dc.l    ojz_Palette  ; sec_pal
     dc.l    0  ; sec_parallax_config
     dc.l    0                         ; sec_raster_table
-    dc.l    ojz_BG_deep_forest_v13_1781214524380  ; sec_bg_layout
+    dc.l    ojz_BG_deep_forest_v16_trunks_over_wall_1781232789593  ; sec_bg_layout
     dc.l    ojz_Sec0_TypeTable        ; sec_type_table
     dc.l    0                         ; sec_pal_cycle
     dc.l    0                         ; sec_sound_bank
