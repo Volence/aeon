@@ -40,6 +40,24 @@ PState_Jump:
 ; AIRF_* flags in d6. Pointing a state table row here directly would run
 ; with whatever d6 holds at dispatch time.
 PState_AirShared:
+        ; --- 0. on-object landing: a solid object caught us LAST tick
+        ; (Touch_Solid .solid_top snapped Y, zeroed y_vel, cleared
+        ; ST_IN_AIR, set ST_ON_OBJECT). Treat as a FLAT landing on the
+        ; object top — no slope, no position snap (the object already
+        ; positioned us). Convert by the flat rule (gsp = x_vel), then the
+        ; shared GROUND-vs-ROLL pick. Skips ALL air physics this frame
+        ; (gravity/input/sensors would re-detach us from the object). ---
+        btst    #ST_ON_OBJECT, SST_status(a0)
+        beq.s   .not_on_obj
+        clr.b   SST_angle(a0)                   ; flat object top
+        move.w  SST_x_vel(a0), _pl_gsp(a0)      ; flat conversion (gsp = x_vel)
+        bclr    #ST_PUSHING, SST_status(a0)
+        bsr.w   Air_LandState                   ; d0 = GROUND/ROLL (curled
+                                                ; states uncurl in the enter
+                                                ; hook; down-held → ROLL)
+        jmp     Player_SetState                 ; tail — does NOT fall into
+                                                ; air physics below
+.not_on_obj:
         ; --- 1. variable jump height: while rising faster than the
         ; release cap with no jump button held, cut to the cap ---
         btst    #AIRF_RELEASE_CAP, d6

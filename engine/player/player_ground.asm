@@ -137,6 +137,21 @@ PState_Ground:
 Ground_PostMove:
         jsr     ObjectMove
 
+        ; --- on-object: the player is grounded on a solid object (set by
+        ; LAST tick's TouchResponse, still live this frame — Player_Main
+        ; clears it AFTER dispatch). The object holds our Y/position, so
+        ; skip BOTH the terrain floor pair AND SlopeRepel: a floor pair
+        ; here finds no terrain under us and detaches to AIR (the bug).
+        ; Force angle 0 (flat object top) and return to the dispatch — the
+        ; same exit point SlopeRepel's rts reaches. GROUND and ROLL share
+        ; this tail; ROLL's unroll check runs in PState_Roll BEFORE here,
+        ; so rolling-to-stop on the object still uncurls. ---
+        btst    #ST_ON_OBJECT, SST_status(a0)
+        beq.s   .terrain
+        clr.b   SST_angle(a0)
+        rts
+.terrain:
+
         ; --- floor pair: quadrant-rotated probe, snap along the probe
         ; axis, angle update, ledge detach. Angle continuity: the pair
         ; wrapper already substitutes the quadrant cardinal on the odd
@@ -725,6 +740,11 @@ Player_Jump:
         sub.w   d2, SST_y_vel(a0)
 .launched:
         clr.b   _pl_stick_convex(a0)
+        ; leaving the object: clear on_object NOW so the same-frame air
+        ; body (jmp PState_Jump below) does not see it still set and
+        ; immediately "land" again, cancelling the jump. Touch_Solid won't
+        ; re-set it while rising (.solid_top requires y_vel >= 0).
+        bclr    #ST_ON_OBJECT, SST_status(a0)
         ; from a roll → ROLLJUMP (classic lockout: no air control; ball
         ; radii simply KEPT by the hooks — bug #5 fix is structural).
         ; SPINDASH never calls here (its body has no jump check).

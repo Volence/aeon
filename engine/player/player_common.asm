@@ -208,6 +208,17 @@ Player_Main:
         jsr     (a1,d1.w)
         move.w  (sp)+, d7
 
+        ; --- on-object bit: 1-frame-lagged (TouchResponse runs AFTER this
+        ; frame and SETS it; the states above read the LIVE bit set by
+        ; LAST tick's TouchResponse). Clear it every normal frame so a
+        ; walk-off works: this tick's TouchResponse re-sets it only if the
+        ; player is still standing on the solid. Debug-fly never reaches
+        ; here (it returns via Player_DebugMove before the dispatch), so
+        ; the bit is only ever touched in the physics path. a0 is the
+        ; Player_1 SST throughout (states preserve a0 — RunObjects/display
+        ; contract). ---
+        bclr    #ST_ON_OBJECT, SST_status(a0)
+
         bsr.w   Player_LevelBound               ; classic LevelBound, post-
                                                 ; dispatch (placement rationale
                                                 ; at the routine header)
