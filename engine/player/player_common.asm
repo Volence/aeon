@@ -24,6 +24,9 @@ air_left         ds.b 1      ; reserved (no water yet)
 invuln_time      ds.b 1      ; reserved
 stick_convex     ds.b 1      ; flag: full terrain adherence (objects will set)
 debug_flag       ds.b 1      ; nonzero = debug-fly (suspends state dispatch)
+skid_latch       ds.b 1      ; nonzero = hold the skid pose (display latch)
+getup_timer      ds.b 1      ; >0 = play ANIM_GETUP one-shot, counts down
+look_offset      ds.b 1      ; camera look/duck pan seam — stays 0 this pass
 PlayerV endstruct
         objvarsCheck PlayerV_len
 _pl_gsp          = SST_sst_custom+PlayerV_ground_speed
@@ -36,6 +39,9 @@ _pl_air_left     = SST_sst_custom+PlayerV_air_left
 _pl_invuln       = SST_sst_custom+PlayerV_invuln_time
 _pl_stick_convex = SST_sst_custom+PlayerV_stick_convex
 _pl_debug        = SST_sst_custom+PlayerV_debug_flag
+_pl_skid_latch   = SST_sst_custom+PlayerV_skid_latch
+_pl_getup        = SST_sst_custom+PlayerV_getup_timer
+_pl_look_offset  = SST_sst_custom+PlayerV_look_offset
 
 ; (a4) physics-table offsets — movement code reads physics ONLY through
 ; these, never PHYS_* directly (per-section modifiers compose in
@@ -125,6 +131,9 @@ Player_Init:
         clr.w   _pl_spindash(a0)
         clr.b   _pl_status2(a0)
         clr.b   _pl_stick_convex(a0)
+        clr.b   _pl_skid_latch(a0)
+        clr.b   _pl_getup(a0)
+        clr.b   _pl_look_offset(a0)
         clr.b   _pl_state(a0)                   ; defined start for SetState's exit lookup
         moveq   #PSTATE_AIR, d0                 ; drop to ground on frame 1
         bsr.w   Player_SetState
