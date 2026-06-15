@@ -44,9 +44,24 @@ AF_SOUND            = $F9
 AF_COLLISION        = $F8
 AF_SET_FIELD        = $F7
 
+; Reload SST_anim_timer from the script duration byte at (srcReg), substituting
+; the caller's d3 when the byte is the DUR_DYNAMIC sentinel. srcReg points at
+; the script's byte 0. Clobbers d2.
+reloadAnimTimer macro srcReg, tag
+        move.b  (srcReg), d2
+        cmpi.b  #DUR_DYNAMIC, d2
+        bne.s   .rt_static_tag
+        move.b  d3, d2                  ; dynamic: substitute caller's d3 hold
+.rt_static_tag:
+        move.b  d2, SST_anim_timer(a0)
+        endm
+
 ; -----------------------------------------------
 ; AnimateSprite — per-animation duration
 ; In:  a0 = SST pointer (anim_table must be set)
+;      d3.b = dynamic per-anim hold, used ONLY when a script's duration byte
+;             == DUR_DYNAMIC (speed-scaled anims). Callers without DUR_DYNAMIC
+;             scripts need not set d3.
 ; Out: mapping_frame updated if frame advanced
 ; Clobbers: d0-d2, a1-a2
 ; -----------------------------------------------
@@ -68,7 +83,7 @@ AnimateSprite:
         add.w   d0, d0
         adda.w  (a1,d0.w), a1
 
-        move.b  (a1), SST_anim_timer(a0)
+        reloadAnimTimer a1,adv
         addq.b  #1, SST_anim_frame(a0)
 
         moveq   #0, d1
@@ -90,7 +105,7 @@ AnimateSprite:
         add.w   d0, d0
         adda.w  (a1,d0.w), a1
 
-        move.b  (a1), SST_anim_timer(a0)
+        reloadAnimTimer a1,chg
         moveq   #0, d1
         move.b  1(a1), d0
         cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
