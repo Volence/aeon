@@ -92,6 +92,12 @@ BUTTON_C                = 1<<5          ; $20
 BUTTON_A                = 1<<6          ; $40
 BUTTON_START            = 1<<7          ; $80
 
+; Button BIT NUMBERS (for btst on Ctrl_1_Held/Press), paired with the masks above
+BUTTON_UP_BIT           = 0
+BUTTON_DOWN_BIT         = 1
+BUTTON_LEFT_BIT         = 2
+BUTTON_RIGHT_BIT        = 3
+
 ; -----------------------------------------------
 ; CROSS_RESET_RAM
 ; -----------------------------------------------
