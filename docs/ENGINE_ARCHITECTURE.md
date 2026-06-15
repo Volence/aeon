@@ -17,7 +17,7 @@ This is the **design bible**. This document describes the engine we're building 
 | 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character sprites + VDP tables embedded in off-screen nametable rows**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
 | 4 | Level / World | 2D section grid with signed Y (novel), 2-slot bidirectional leapfrog (novel), block-based 2D tile cache (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), velocity-based preload, per-section everything, diagonal preview loading, **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, **zero-lag teleport (progressive nametable preload + palette crossfade, novel)**, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in block data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)** |
-| 5 | Player / Character | **SHIPPED (§5, branch player-system):** flat explicit PSTATE_* state machine + Player_SetState enter/exit hooks (hierarchical was evaluated and REJECTED), classic motion-quadrant + angle-band landing axis-select (the "vector projection on landing" claim was a verified S3K myth — NOT used), effective-physics-table-in-RAM (a4 convention; per-section *plumbing* shipped with an identity modifier — the modifier/Lerp system itself is deferred), air drag apex-only (classic-wide, not an S3K fix), roll-jump lockout kept classic, 2-frame jump buffer + jump-delay fix (the two modern concessions), −$FC0 up-cap REMOVED (feel deviation, PHYS_GSP_CAP coupling), angle continuity for loop stability, level bounds, spindash charge curve (table-based), slope factor muls→shift, landing camera lock + spindash freeze, 3-character shared-code structure via Player_Common (Sonic-only shipped), **SWAP-based 16.16 fixed point (Treasure)**. **DEFERRED:** 6-button mappings, the per-section physics modifier system, multi-character dispatch, shields. See the §5 body + DEFERRED_WORK.md §5. |
+| 5 | Player / Character | **SHIPPED (§5, branch player-system):** flat explicit PSTATE_* state machine + Player_SetState enter/exit hooks (hierarchical was evaluated and REJECTED), classic motion-quadrant + angle-band landing axis-select (the "vector projection on landing" claim was a verified S3K myth — NOT used), effective-physics-table-in-RAM (a4 convention; per-section *plumbing* shipped with an identity modifier — the modifier/Lerp system itself is deferred), air drag apex-only (classic-wide, not an S3K fix), roll-jump lockout kept classic, 2-frame jump buffer + jump-delay fix (the two modern concessions), −$FC0 up-cap REMOVED (feel deviation, PHYS_GSP_CAP coupling), angle continuity for loop stability, level bounds, spindash charge curve (table-based), slope factor muls→shift, landing camera lock + spindash freeze, 3-character shared-code structure via Player_Common (Sonic-only shipped), **SWAP-based 16.16 fixed point (Treasure)**. **SHIPPED (feat/sonic-animations):** shared ANIM_* id contract (11 ids, build-time assert), Player_Animate read-only classifier (priority-ordered, display-conditions not new state bits), DUR_DYNAMIC speed-scaled timing in AnimateSprite, shared spindash in player_spindash.asm, Player_AtLedgeEdge balance probe, _pl_look_offset zero-seam, DEBUG anim viewer. **DEFERRED:** 6-button mappings, the per-section physics modifier system, multi-character dispatch, shields, dropdash, instashield, get-up trigger, duck/look-up camera pan. See the §5 body + DEFERRED_WORK.md §5. |
 | 6 | Audio | Flamedriver (full Z80 autonomy), Zyrinx log volume + per-algorithm carrier mask, verified Z80 writes, DPCM + 32kHz DAC + DMA protection buffering (24KB survival), YM Timer A sub-frame tempo (NTSC/PAL independent), bank switch optimization (pack per-section, 100+ cycle savings), section-aware sound banking (novel), distance-based attenuation (novel), pseudo-stereo DAC, PSG pause silencing, Ch3 special mode for sound design, **SSG-EG envelope modes (evolving FM tones)**, LFO limitations documented, continuous SFX, music fade state machine, build-time DC offset tool, **multi-channel DAC mixing (2-4 channels, per-channel sample rate)** |
 | 7 | Visual Effects | **Unified raster command table (Batman — stackable per-scanline VDP register changes)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
 | 8 | Tooling & Build | **Authoring pipeline (tile/block/chunk editor stamps → build tool: flatten, deduplicate, graph-color VRAM, generate block data with embedded collision + S4LZ art)**, **level editor tile budget UI (per-section shared/unique counts, per-corner budget view, warning system)**, pre-computed nametable build tool, **debug system architecture (S.C.E. two-phase gating + 10 per-subsystem toggles)**, **MD Debugger v2.6 error handler (backtrace, symbol resolution, console programs)**, **per-module debug assertions (S.C.E. + Vectorman pointer bounds/breadcrumbs/corruption detection + CHK instruction)**, **frame profiler (raster bars + VDP window lagometer + KDebug + lag detection + stack guard + watchdog)**, RAM layout documentation, build system improvements (jump sizing 10-50x speedup, dual build targets, convsym pipeline, assembly pass checking, compile-time validation), Exodus MCP integration, level editor integration |
@@ -2509,13 +2509,55 @@ Section transitions smoothly interpolate modifiers via Lerp so physics don't sna
 ### 5.4 Character Architecture
 
 **Files as shipped (§5, Sonic only):**
-- `engine/player/player_common.asm` — owns the player frame: the `PlayerV` SST overlay (13 of 34 `sst_custom` bytes used), `Player_Init`, `Player_RefreshPhysics`, `Player_Main` (frame skeleton + state dispatch), `Player_SetState` + the enter/exit hook tables, `Player_Display` tail, `Player_LevelBound`, debug-fly suspend, and shared helpers (`Player_SnapToSurface`, sizing macros, `PSTATE_COUNT` lockstep asserts).
-- `engine/player/player_ground.asm` — grounded state bodies: `PState_Ground`, `PState_Roll`, `PState_Spindash`, the shared `Ground_Move` tail (cap → projection → wall probe → integrate → floor pair → `Player_SlopeRepel`), and `Player_Jump`.
+- `engine/player/player_common.asm` — owns the player frame: the `PlayerV` SST overlay (13 of 34 `sst_custom` bytes used), `Player_Init`, `Player_RefreshPhysics`, `Player_Main` (frame skeleton + state dispatch), `Player_SetState` + the enter/exit hook tables, `Player_Display` tail (now just `bsr Player_Animate` / `jsr AnimateSprite` / `jmp Sonic_LoadArt`), `Player_LevelBound`, debug-fly suspend, and shared helpers (`Player_SnapToSurface`, sizing macros, `PSTATE_COUNT` lockstep asserts). Also owns `Player_Animate` (see §5.6).
+- `engine/player/player_ground.asm` — grounded state bodies: `PState_Ground`, `PState_Roll`, the shared `Ground_Move` tail (cap → projection → wall probe → integrate → floor pair → `Player_SlopeRepel`), and `Player_Jump`.
+- `engine/player/player_spindash.asm` — `PState_Spindash` (relocated from `sonic.asm` into shared player code — pure move, logic identical). Resolves ANIM_SPINDASH per-character via the shared `ANIM_*` contract.
 - `engine/player/player_air.asm` — the one shared air body (`PState_Air`/`PState_Jump`/`PState_RollJump`/`PState_AirBall`, flagged per state via d6), landing banding, `Air_LandState`.
-- `engine/player/player_sensors.asm` — the four macro-stamped directional cores (`Collision_ProbeDown/Up/Right/Left`), the floor/ceiling pair wrappers and wall single-probe (`Player_SensorWallDir`), and a DEBUG boot self-check (`PlayerSensors_SelfCheck` column path + `PlayerSensors_SelfCheck_RowFill` exercising the row-fill collision path) that asserts the asm sensors agree with `collision_pipeline.py`.
-- `engine/player/sonic.asm` — Sonic's physics base row (`PhysTable_Sonic`), state contributions (spindash), spindash data. Tails/Knuckles will add sibling files with zero changes to common.
+- `engine/player/player_sensors.asm` — the four macro-stamped directional cores (`Collision_ProbeDown/Up/Right/Left`), the floor/ceiling pair wrappers and wall single-probe (`Player_SensorWallDir`), `Player_AtLedgeEdge` (balance probe — see §5.6), and a DEBUG boot self-check (`PlayerSensors_SelfCheck` column path + `PlayerSensors_SelfCheck_RowFill` exercising the row-fill collision path) that asserts the asm sensors agree with `collision_pipeline.py`.
+- `engine/player/sonic.asm` — Sonic's physics base row (`PhysTable_Sonic`), `Sonic_InitAssets`, `Sonic_LoadArt`. Spindash moved to `player_spindash.asm`. Tails/Knuckles will add sibling files with zero changes to common.
 
 Shared movement (accel/decel/friction, jumping, rolling, slope factor/repel, projection, sensing, display) lives in `player_common`/`player_ground`/`player_air`; characters contribute only data + ability states — inverting sonic_hack's failed split that shared helpers while duplicating control flow 3×. Deferred per-character behavior (instashield/dropdash/Super for Sonic, flight+AI for Tails, glide/climb for Knuckles) and the per-character dispatch-table indirection that Tails/Knuckles need are tracked in `DEFERRED_WORK.md` §5.
+
+### 5.6 Animation Classifier and Speed-Scaled Timing (Shipped — feat/sonic-animations)
+
+**Shared `ANIM_*` id contract** (`constants.asm`): eleven named ids form the cross-character animation contract:
+
+| Id | Constant | Notes |
+|---|---|---|
+| 0 | `ANIM_WALK` | |
+| 1 | `ANIM_RUN` | |
+| 2 | `ANIM_ROLL` / `ANIM_BALL` | alias |
+| 3 | `ANIM_SPINDASH` | |
+| 4 | `ANIM_PUSH` | |
+| 5 | `ANIM_IDLE` | |
+| 6 | `ANIM_BALANCE` | ledge teeter |
+| 7 | `ANIM_LOOKUP` | |
+| 8 | `ANIM_DUCK` | |
+| 9 | `ANIM_SKID` | |
+| 10 | `ANIM_GETUP` | |
+| — | `ANIM_COUNT = 11` | build-time assert: `Ani_Sonic` entry count must equal this |
+
+Each character's `Ani_<char>` table is ordered by these ids. A build-time `assert` keeps `Ani_Sonic`'s entry count == `ANIM_COUNT` so adding a new id without updating the table is a build error.
+
+**`Player_Animate` — character-agnostic read-only classifier** (`player_common.asm`): called from `Player_Display`; classifies the current frame's animation id into `SST_anim` and computes a speed-scaled hold into `d3` without touching any PSTATE or persistent status bits. Priority order (highest to lowest):
+
+1. spindash (`PState_Spindash` active)
+2. ball / roll / jump-ball / airball
+3. skid (see below)
+4. push (wall contact + opposing input)
+5. at rest: getup > duck > lookup > balance > idle
+6. run (|gsp| ≥ `ANIM_RUN_THRESHOLD` = $600)
+7. walk
+
+**Display conditions (not new state bits):** Skid, duck, and look-up are evaluated read-only each frame. Skid uses a one-byte latch (`_pl_skid_latch`) that holds the pose through the brake while opposing input is held and clears on stop or input release — no new `PSTATE`, no new persistent `ST_*` bit. Duck and look-up are computed purely from input + ground-state; their camera-pan effect (`_pl_look_offset`) is a reserved zero-field hook for a future pass (see below).
+
+**Generalized speed-scaled timing** (`engine/objects/animate.asm`): `AnimateSprite` recognizes duration byte `DUR_DYNAMIC` ($FF) as a sentinel. When present, the per-anim hold is taken from register `d3` (via the `reloadAnimTimer` macro) instead of the script byte. The player computes `d3 = max(0, ($800 − |gsp|) >> 8)`; walk/run/roll scripts use `DUR_DYNAMIC`; the walk↔run split is the separate `ANIM_RUN_THRESHOLD` threshold. Generic objects never use the sentinel, so they are unaffected.
+
+**Balance sensor** (`player_sensors.asm`): `Player_AtLedgeEdge` — a single downward floor probe one foot-width toward the facing direction (via `Player_SensorPair` + `Collision_ProbeDown`). Returns no-ground flag used by `Player_Animate` to select `ANIM_BALANCE`. Threshold constant `LEDGE_NO_GROUND` is marked as tunable.
+
+**`_pl_look_offset` seam:** Duck/look-up camera-pan is NOT implemented this pass. A zero-valued field `_pl_look_offset` is reserved in the `PlayerV` SST overlay as a deliberate hook for the future pass that implements it.
+
+**DEBUG anim viewer** (`player_common.asm`, `ifdef __DEBUG__` only): START toggles a frozen viewer sub-mode; Up/Down step through every `ANIM_*` id with a fixed injected gsp so speed-scaled animations animate visibly. Release builds exclude it entirely.
 
 **State entry/exit hooks (shipped):** Every state has an enter and exit hook; ALL transitions route through a single `Player_SetState` (old exit → write state byte → new enter). Hooks are the only writers of height/width (= ball/standing radii), the ±5px curl/uncurl y-shift, `ST_ROLLING`, and anim selects — so the roll-jump 5px size bug (#5) is structurally impossible (radii change only in hooks; JUMP/ROLLJUMP/AIRBALL all use ball radii).
 
@@ -2554,6 +2596,15 @@ Physics Polish (5.3)  [SHIPPED]
         → Up-velocity cap (-$FC0) removed; PHYS_GSP_CAP bounds launches (§5.3 FEEL DEVIATION)
           → Angle continuity prevents loop fallthrough
             → Landing camera lock + spindash freeze eliminate camera bounce
+
+Animation Classifier + Speed-Scaled Timing (5.6)  [SHIPPED — feat/sonic-animations]
+  → Shared ANIM_* contract (ANIM_COUNT=11) with build-time assert per character table
+    → Player_Animate classifies once per frame, read-only (no new PSTATE / ST_* bits)
+      → Skid uses _pl_skid_latch; duck/lookup are pure display conditions
+        → DUR_DYNAMIC sentinel in AnimateSprite routes hold to d3 (generic objects unaffected)
+          → Player_AtLedgeEdge probes one foot-width toward facing → ANIM_BALANCE
+            → _pl_look_offset zero-seam reserved for future duck/look-up camera pan
+              → DEBUG anim viewer (ifdef __DEBUG__): cycle all ANIM_* ids with fixed gsp
 ```
 
 ---

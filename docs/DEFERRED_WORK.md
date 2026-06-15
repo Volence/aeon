@@ -46,13 +46,36 @@ together or the player will outrun streaming / tunnel through geometry:
 Do not re-add the `-$FC0` cap silently. The separate `$FC0` cap in the
 steep-landing conversion is a different, retained mechanism.
 
-### §5 Deferred Items — Player/Character Follow-Up Work — 2026-06-14
+### §5 Deferred Items — Player/Character Follow-Up Work — 2026-06-14 (updated 2026-06-15)
 **Status:** §5 (player-system branch) shipped Sonic-only, physics-first, on OJZ
 with real collision, the full sensor layer, ground/air/roll/spindash, the loop,
-and camera landing lock + spindash freeze. Per spec §1, the following are
-deliberately **deferred to follow-up plans** (not bugs — out of §5 scope):
-- **Sonic art / animation / DPLC** — a real sprite set + animation driver beyond
-  the placeholder test art (§5 used the existing test-player sprite, no anim work).
+and camera landing lock + spindash freeze. feat/sonic-animations added the full
+animation set, speed-scaled timing, and shared spindash. Per spec §1, the
+following are deliberately **deferred to follow-up plans** (not bugs):
+- ~~**Sonic art / animation / DPLC** — a real sprite set + animation driver beyond
+  the placeholder test art.~~ **DONE (feat/sonic-animations):** full ANIM_* contract
+  (11 ids, build-time assert), `Player_Animate` read-only classifier, `DUR_DYNAMIC`
+  speed-scaled timing in `AnimateSprite`, shared spindash in `player_spindash.asm`,
+  `Player_AtLedgeEdge` balance probe, DEBUG anim viewer. Sonic's sprite art DATA is
+  the real CUSTOM Sonic set migrated from sonic_hack (`art/optimized/characters/sonic.bin`,
+  mappings + DPLC; frame-index layout follows the S2 convention, but the pixels are
+  our custom design — NOT stock S2). Still provisional is the VRAM SLOT —
+  `VRAM_TEST_SONIC` is a hand-placed test slot, not yet allocated via the build-time
+  graph-color allocator (separate art-pipeline task).
+- ~~**Spindash shared across all 3 characters** — `PState_Spindash` was in
+  `sonic.asm`, blocking Tails/Knuckles.~~ **DONE (feat/sonic-animations):** relocated
+  to `engine/player/player_spindash.asm`; resolves `ANIM_SPINDASH` per-character via
+  the `ANIM_*` contract. `sonic.asm` now holds only `Sonic_InitAssets`, `Sonic_LoadArt`,
+  `PhysTable_Sonic`.
+- **In-game get-up trigger** — `ANIM_GETUP` (id 10) is defined and viewer-visible
+  but nothing arms it in gameplay. A future pass needs the "just landed after a hurt"
+  state to write `ANIM_GETUP` into the classifier path (or a dedicated PSTATE).
+- **Duck / look-up camera pan** — duck and look-up are display conditions computed
+  each frame (no new PSTATE); the camera-pan half is NOT implemented. The field
+  `_pl_look_offset` is reserved as a zero-valued seam in the `PlayerV` SST overlay
+  for the future pass that wires this up.
+- **Balance threshold tuning** — `LEDGE_NO_GROUND` in `player_sensors.asm` is
+  flagged as tunable; the current value is a first estimate.
 - **Dropdash, instashield** — Sonic move-kit extensions.
 - **Super Sonic** — transformation, palette cycle, physics row.
 - **Tails** — CPU AI (4-state machine) + flight physics + position-history-buffer
@@ -68,7 +91,6 @@ deliberately **deferred to follow-up plans** (not bugs — out of §5 scope):
   RefreshPhysics plumbing shipped with an identity modifier; the modifier tables,
   section references, and boundary Lerp are the deferred half — see
   `ENGINE_ARCHITECTURE.md` §5.2).
-- **Balance animations** (ledge teeter), **look up / down** (camera lead).
 - **6-button mappings** — X/Y/Z/Mode gameplay actions (detection exists, §5.1).
 - **Forced-roll objects (S-tunnels)** — bypass the roll-start gate, use
   `PHYS_ROLL_FORCE_MIN` at rest; the `stick_convex` full-adherence flag and the
