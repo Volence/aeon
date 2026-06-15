@@ -233,10 +233,17 @@ PHYS_FALL_ANGLE         = $30       ; S3K detach threshold
 PHYS_SLIP_NUDGE         = $80
 PHYS_MOVE_LOCK_TIME     = 30
 PHYS_SKID_MIN           = $400
+ANIM_RUN_THRESHOLD      = $600      ; |gsp| at/above which walk -> run anim (S3K)
 PHYS_JUMP_BUFFER        = 2         ; frames — the one modern concession
 SPINDASH_BASE           = $800
 SPINDASH_CHARGE_STEP    = $200
 SPINDASH_CHARGE_MAX     = $800
+; Animation byte-0 duration sentinel: when an animation script's duration
+; byte == DUR_DYNAMIC, AnimateSprite takes the per-anim hold from d3 (caller
+; supplies it). Only player walk/run/roll scripts use this; generic objects
+; never set it, so they never read d3. Value is high so it can't collide with
+; a real frame-hold (real holds are small: idle 30, wait 5, etc.).
+DUR_DYNAMIC             = $FF
 ; Player collision radii (SPG; sizes are 2r+1)
 PLAYER_X_RADIUS         = 9
 PLAYER_Y_RADIUS         = 19
@@ -259,10 +266,23 @@ PSTATE_COUNT            = 7         ; state/hook tables assert against this
         if PSTATE_AIRBALL <> (PSTATE_COUNT-1)*2
           error "curled states must remain the last PSTATE_* entries (Player_Display ball test)"
         endif
-; Player animation ids (Ani_Sonic script-table order — sonic_anims.asm)
+; Player animation ids — SHARED CONTRACT across all characters.
+; Each character's Ani_<char> script table is ordered by these ids
+; (sonic_anims.asm asserts its entry count == ANIM_COUNT). Player_Animate
+; only ever writes these ids; it never knows which character it animates.
 ANIM_WALK               = 0
-ANIM_IDLE               = 1
-ANIM_BALL               = 2         ; roll/jump
+ANIM_RUN                = 1
+ANIM_ROLL               = 2         ; also the air ball (jump/airball)
+ANIM_BALL               = ANIM_ROLL ; explicit alias for air states
+ANIM_SPINDASH           = 3
+ANIM_PUSH               = 4
+ANIM_IDLE               = 5         ; wait/idle (neutral hold -> foot-tap tail)
+ANIM_BALANCE            = 6
+ANIM_LOOKUP             = 7
+ANIM_DUCK               = 8
+ANIM_SKID               = 9
+ANIM_GETUP              = 10
+ANIM_COUNT              = 11        ; sonic_anims.asm asserts entry count == this
 ; Solidity classes (SolidityTable values — generator contract, collision_pipeline.py)
 SOLID_NONE              = 0
 SOLID_TOP               = 1
