@@ -631,3 +631,49 @@ PlayerSensors_CheckTable_End:
           error "PlayerSensors_CheckTable entries are not 12 bytes each"
         endif
     endif ; __DEBUG__
+
+; -----------------------------------------------
+; Player_AtLedgeEdge — true when the leading foot is over a ledge edge, for
+; the idle balance/teeter animation. Probes the floor one foot-width toward
+; the FACING direction (single downward probe via Player_SensorPair). If that
+; probe finds no nearby ground while the body is still supported (caller gates
+; on grounded-at-rest), the player is teetering.
+; In:  a0 = player SST (grounded, at rest — caller gates this)
+; Out: d0 = 0 and Z set (beq) = solidly supported; d0 = 1 and Z clear (bne)
+;      = at an edge. (Z reflects d0 so the caller can branch on beq/bne.)
+; Clobbers: d0-d5, a1-a2
+; -----------------------------------------------
+LEDGE_PROBE_REACH = PLAYER_X_RADIUS+2    ; just past the support foot
+LEDGE_NO_GROUND   = 8                    ; floor dist beyond this = no ground
+                                         ; under the leading foot (TUNE at the
+                                         ; Task 10 visual pass if needed)
+
+Player_AtLedgeEdge:
+        moveq   #0, d3
+        move.b  SST_layer(a0), d3                ; layer select for the probe
+        moveq   #SOLID_TOP, d6                   ; floor class (matches Player_SensorFloor)
+        ; foot Y = y + y_radius
+        moveq   #0, d1
+        move.b  SST_height_pixels(a0), d1
+        lsr.w   #1, d1
+        add.w   SST_y_pos(a0), d1                ; high word = integer px
+        ; probe X = x offset toward facing
+        move.w  SST_x_pos(a0), d0
+        btst    #ST_XFLIP, SST_status(a0)
+        bne.s   .face_left
+        addi.w  #LEDGE_PROBE_REACH, d0           ; facing right
+        bra.s   .single
+.face_left:
+        subi.w  #LEDGE_PROBE_REACH, d0           ; facing left
+.single:
+        move.w  d0, d4                           ; B = A (single-point probe)
+        move.w  d1, d5
+        lea     Collision_ProbeDown(pc), a2
+        bsr.w   Player_SensorPair                ; d0 = floor distance at the foot
+        cmpi.w  #LEDGE_NO_GROUND, d0
+        bgt.s   .at_edge
+        moveq   #0, d0                           ; supported -> Z set
+        rts
+.at_edge:
+        moveq   #1, d0                           ; edge -> Z clear
+        rts
