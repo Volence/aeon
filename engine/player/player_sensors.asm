@@ -226,6 +226,21 @@ Player_SensorPair:
 ;       is there.
 ; -----------------------------------------------
 Player_SensorFloor:
+        ; On a solid object the object IS the floor — Touch_Solid snapped us
+        ; onto its top and holds our position. Report flat & touching (dist 0,
+        ; angle 0, solid) so EVERY grounded floor query behaves as on flat
+        ; ground (spindash charge maintenance, etc.) instead of detaching when
+        ; the terrain probe finds no tile under the object. The single
+        ; chokepoint that makes "standing on a solid = standing on ground"
+        ; hold for all grounded states. Ceiling probes enter at
+        ; Player_SensorSurface (via Player_SensorCeiling) and are unaffected.
+        btst    #ST_ON_OBJECT, SST_status(a0)
+        beq.s   .terrain
+        moveq   #0, d0                 ; dist = touching (Player_SnapToSurface no-op)
+        moveq   #0, d1                 ; angle = flat
+        moveq   #1, d2                 ; nonzero attr = floor present
+        rts
+.terrain:
         moveq   #SOLID_TOP, d6         ; floor class: top-only + all pass,
                                        ; lrb-only (jump-up-through) rejected
         moveq   #0, d7                 ; probe along the quadrant's "down"
