@@ -27,6 +27,7 @@ debug_flag       ds.b 1      ; nonzero = debug-fly (suspends state dispatch)
 skid_latch       ds.b 1      ; nonzero = hold the skid pose (display latch)
 getup_timer      ds.b 1      ; >0 = play ANIM_GETUP one-shot, counts down
 look_offset      ds.b 1      ; camera look/duck pan seam — stays 0 this pass
+viewer_id        ds.b 1      ; DEBUG anim-viewer: forced ANIM_* id (DEBUG only)
 PlayerV endstruct
         objvarsCheck PlayerV_len
 _pl_gsp          = SST_sst_custom+PlayerV_ground_speed
@@ -42,6 +43,7 @@ _pl_debug        = SST_sst_custom+PlayerV_debug_flag
 _pl_skid_latch   = SST_sst_custom+PlayerV_skid_latch
 _pl_getup        = SST_sst_custom+PlayerV_getup_timer
 _pl_look_offset  = SST_sst_custom+PlayerV_look_offset
+_pl_viewer_id    = SST_sst_custom+PlayerV_viewer_id
 
 ; (a4) physics-table offsets — movement code reads physics ONLY through
 ; these, never PHYS_* directly (per-section modifiers compose in
@@ -134,6 +136,7 @@ Player_Init:
         clr.b   _pl_skid_latch(a0)
         clr.b   _pl_getup(a0)
         clr.b   _pl_look_offset(a0)
+        clr.b   _pl_viewer_id(a0)
         clr.b   _pl_state(a0)                   ; defined start for SetState's exit lookup
         moveq   #PSTATE_AIR, d0                 ; drop to ground on frame 1
         bsr.w   Player_SetState
@@ -170,6 +173,11 @@ Player_Main:
         ; toggle calls (DebugEnter clobbers none, DebugExit d0-d2/a1-a2)
         ; and feeds both the B-toggle and the jump-buffer latch
         move.b  (Ctrl_1_Press).w, d6
+    ifdef __DEBUG__
+        bsr.w   Player_ViewerToggle             ; START toggles the anim viewer
+        tst.b   (Anim_Viewer_Active).w
+        bne.w   Player_ViewerUpdate             ; viewer owns the frame (no return)
+    endif
         ; --- debug-fly toggle (B press) ---
         btst    #4, d6                          ; BUTTON_B
         beq.s   .no_toggle
@@ -746,3 +754,56 @@ Player_DebugMove:
         add.l   d1, SST_y_pos(a0)
 .draw:
         jmp     Draw_Sprite
+
+    ifdef __DEBUG__
+; -----------------------------------------------
+; Player_ViewerToggle — START toggles the anim-viewer sub-mode. Entering
+; restores Sonic's real assets and freezes; exiting returns to the boot-
+; default debug-fly. DEBUG only.
+; In:  a0 = player SST.  Clobbers: d0-d2, a1-a2 (d6 preserved)
+; -----------------------------------------------
+Player_ViewerToggle:
+        btst    #7, (Ctrl_1_Press).w            ; START
+        beq.s   .done
+        bchg    #0, (Anim_Viewer_Active).w       ; Z set = bit WAS 0 -> entering
+        beq.s   .enter
+        bra.w   Player_DebugEnter               ; was ON -> now OFF: back to fly
+.enter:
+        sf      _pl_debug(a0)                   ; leave debug-fly
+        bsr.w   Sonic_InitAssets                ; restore Sonic's real art set
+        setStandingSize
+        move.b  #$FF, SST_prev_anim(a0)         ; force anim + DPLC reload
+        move.b  #$FF, SST_prev_frame(a0)
+        clr.w   _pl_gsp(a0)
+        clr.b   _pl_viewer_id(a0)
+.done:
+        rts
+
+; -----------------------------------------------
+; Player_ViewerUpdate — frozen anim preview. Up/Down step the forced id;
+; a fixed gsp drives the speed-scaled anims; runs the display tail. Does not
+; return to Player_Main (tail-jumps the display tail). DEBUG only.
+; In:  a0 = player SST.
+; -----------------------------------------------
+Player_ViewerUpdate:
+        move.b  (Ctrl_1_Press).w, d0
+        btst    #BUTTON_UP_BIT, d0
+        beq.s   .no_up
+        addq.b  #1, _pl_viewer_id(a0)
+        cmpi.b  #ANIM_COUNT, _pl_viewer_id(a0)
+        blo.s   .no_up
+        clr.b   _pl_viewer_id(a0)               ; wrap high -> 0
+.no_up:
+        btst    #BUTTON_DOWN_BIT, d0
+        beq.s   .no_dn
+        subq.b  #1, _pl_viewer_id(a0)
+        bpl.s   .no_dn
+        move.b  #ANIM_COUNT-1, _pl_viewer_id(a0) ; wrap below 0 -> top
+.no_dn:
+        move.w  #$600, _pl_gsp(a0)              ; mid speed -> scaled anims move
+        bsr.w   Player_Animate                  ; computes d3 (gsp nonzero ->
+                                                ; no balance-sensor path)
+        move.b  _pl_viewer_id(a0), SST_anim(a0) ; OVERRIDE the classifier
+        jsr     AnimateSprite
+        jmp     Sonic_LoadArt
+    endif
