@@ -144,6 +144,7 @@ __BUDGET_OBJBANK:
     include "engine/player/player_common.asm"
     include "engine/player/player_ground.asm"
     include "engine/player/player_air.asm"
+    include "engine/player/player_spindash.asm"
     include "engine/player/sonic.asm"
 
     include "objects/test_static.asm"
