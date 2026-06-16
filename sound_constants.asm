@@ -60,3 +60,37 @@ SND_TEMPO_TPF           = 6                       ; design tempo timebase (ticks
 SND_TIMERA_N            = ym_timerA_n(SND_TEMPO_TPF)
 SND_TIMERA_HI           = (SND_TIMERA_N >> 2) & $FF
 SND_TIMERA_LO           = SND_TIMERA_N & 3
+
+; --- 1B: ring buffer (page-aligned, 256 bytes) ---
+SND_RING_BASE           = $1700                  ; Z80 addr; high byte $17 is the page
+SND_RING_PAGE           = $17                     ; high byte for `inc l` wrap + full-check
+SND_RING_LEN            = $100
+
+; --- 1B: 68k->Z80 control (68k writes, Z80 reads) ---
+SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progress (no ROM reads)
+
+; --- 1B: playback/stream state (Z80 RAM, state region) ---
+SND_RING_RD             = SND_STATE_BASE+$06      ; ring read (drain) ptr low byte
+SND_RING_WR             = SND_STATE_BASE+$07      ; ring fill ptr low byte
+SND_ROM_PTR             = SND_STATE_BASE+$08      ; current ROM window ptr (2 bytes)
+SND_ROM_LEN             = SND_STATE_BASE+$0A      ; bytes remaining in sample (2 bytes)
+SND_ROM_BANK            = SND_STATE_BASE+$0C      ; sample's bank id
+SND_CUR_BANK            = SND_STATE_BASE+$0D      ; cached current bank (SetBank no-op check)
+SND_LOOP_OFS            = SND_STATE_BASE+$0E      ; loop restart offset within sample (0 = one-shot)
+SND_PLAY_MODE           = SND_STATE_BASE+$0F      ; 0 = FILL+PLAY, 1 = DRAIN (no ROM reads)
+
+; --- 1B: 8-byte ROM-resident sample descriptor ---
+DacSample struct
+ds_bank         ds.b 1          ; +0  bank id = (addr & $7F8000) >> 15
+ds_rate         ds.b 1          ; +1  per-sample rate delay (pitch); 0 = max
+ds_ptr          ds.w 1          ; +2  Z80-window ptr: (addr & $7FFF) | $8000, little-endian
+ds_length       ds.w 1          ; +4  byte count
+ds_loop_ofs     ds.w 1          ; +6  loop restart offset (0 = one-shot)
+DacSample endstruct
+
+        if DacSample_len <> 8
+          error "DacSample struct is \{DacSample_len} bytes, expected 8"
+        endif
+
+; --- Z80 bank register (as seen from the Z80) ---
+SND_Z80_BANKREG         = $6000
