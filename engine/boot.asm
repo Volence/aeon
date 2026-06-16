@@ -69,7 +69,7 @@ Cold_Boot:
 
         ; Copy Z80 program to Z80 RAM (a5 already points at the included blob)
     ifdef SOUND_DRIVER_ENABLED
-        moveq   #Z80_SOUND_SIZE-1, d1
+        move.w  #Z80_SOUND_SIZE-1, d1       ; word count — blob may exceed moveq range
     else
         moveq   #Z80_IDLE_SIZE-1, d1
     endif

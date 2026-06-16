@@ -22,6 +22,14 @@ SndDrv_Init:
         ld      (ix+0), SND_REG_DAC_ENABLE   ; select reg $2B
         ld      (ix+1), 00h                  ; DAC mode OFF at init
 
+        ; --- start YM Timer A as the scheduler timebase ---
+        ld      (ix+0), SND_REG_TIMER_A_HI   ; reg $24 = Timer A high 8 bits
+        ld      (ix+1), 0C0h                 ; value (research-tuned; controller measures)
+        ld      (ix+0), SND_REG_TIMER_A_LO   ; reg $25 = Timer A low 2 bits
+        ld      (ix+1), 000h
+        ld      (ix+0), SND_REG_TIMER_CTRL   ; reg $27
+        ld      (ix+1), 005h                 ; bit0 Load A | bit2 Enable-A flag
+
         ; clear mailbox + status region
         xor     a
         ld      (SND_MBX_CMD), a
@@ -34,11 +42,11 @@ SndDrv_Init:
         ld      a, SND_ALIVE_MARKER
         ld      (SND_STAT_ALIVE), a
 
-; --- main loop: poll mailbox, latch+ack, dispatch ---
-SndDrv_Main:
+; --- poll mailbox: consume AT MOST one pending command, then ret ---
+SndDrv_PollMailbox:
         ld      a, (SND_MBX_PENDING)
         or      a
-        jr      z, SndDrv_Main           ; nothing pending -> spin
+        ret     z                        ; nothing pending -> done
         ; latch cmd + arg0, clear pending (ack), bump ack counter
         ld      a, (SND_MBX_CMD)
         ld      b, a                     ; b = cmd id
@@ -52,10 +60,23 @@ SndDrv_Main:
         ; dispatch on cmd id
         ld      a, b
         cp      SND_CMD_PING
-        jr      nz, .not_ping
+        ret     nz                       ; unknown cmd -> ack only
         ld      a, c
         ld      (SND_STAT_PING_ECHO), a  ; echo arg0
-.not_ping:
+        ret
+
+; --- main loop: cooperative scheduler (poll between Timer A ticks) ---
+SndDrv_Main:
+        call    SndDrv_PollMailbox       ; background work between ticks
+        ld      a, (ix+0)                ; read YM status ($4000)
+        bit     0, a                     ; Timer A overflow?
+        jr      z, SndDrv_Main           ; not yet -> keep polling
+        ; --- timer tick ---
+        ld      (ix+0), SND_REG_TIMER_CTRL   ; reg $27
+        ld      (ix+1), 015h                 ; bit4 Reset-A flag | reload (Load|Enable)
+        ld      a, (SND_STAT_TICK)
+        inc     a
+        ld      (SND_STAT_TICK), a
         jr      SndDrv_Main
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise
