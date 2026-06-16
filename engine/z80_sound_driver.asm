@@ -38,6 +38,14 @@ SndDrv_Init:
 SndDrv_Main:
         jr      SndDrv_Main
 
+        ; Pad the blob to an EVEN length. The boot loader copies it byte-wise
+        ; then does word/long (a5)+ reads on the data that follows; an odd-length
+        ; blob leaves a5 on an odd address -> 68000 address error at boot.
+        ; Under `phase 0`, `$` is the current blob length.
+        if ($ & 1) <> 0
+          db 0
+        endif
+
         dephase
         restore
 Z80_Sound_End:
