@@ -244,6 +244,7 @@ by no commercial Genesis game.
 
 ## 10. Data Format & MegaDAW Compiler
 
+**Direction (settled here):**
 - A **compact event-list format** (Echo/XGM family) extended for our features: dual
   data streams, portamento/modulation commands, DAC triggers, per-channel pan
   automation, adaptive-FM6 hints, section-bank/fade/ambient metadata.
@@ -251,6 +252,21 @@ by no commercial Genesis game.
 - **MegaDAW becomes the compiler**: authors and emits our event-list format and
   encodes samples (BRR / DPCM / PSG-PCM) and DC-offset biases at build time —
   consistent with the engine's build-time-computation philosophy.
+
+**Design principles (constrain the later spec):**
+- **Runtime format optimized for Z80 playback speed, not authoring convenience** —
+  the two are decoupled. MegaDAW's internal model can be rich; the emitted bytes are
+  whatever the Z80 reads fastest (minimal branching, byte-aligned dispatch).
+- Variable-length events; common events get short opcodes (entropy-coded by
+  frequency, like Echo's `$D0–DF` short delays).
+- Loop/jump/SFX-channel-lock semantics first-class (the reason event lists beat
+  VGM).
+- Self-describing enough that the **build pipeline can validate** it (no sample
+  crosses a bank boundary, every referenced instrument exists, etc.).
+
+**The concrete format is a deferred sub-design** (see §12.7) — opcode table, byte
+layout, dual-stream encoding. It should follow the engine's needs, not lead them;
+locking it before Phases 3–4 risks designing it twice.
 
 ## 11. Explicitly Rejected (debunked in research — do not pursue)
 
@@ -285,6 +301,41 @@ Too large for one plan. Each phase → its own plan → implement → verify (Ex
 - **Phase 6 — MegaDAW compiler.** Event-list format finalization, MegaDAW export
   re-target, sample/DC-offset encoders.
 - **Stretch — Software echo/reverb** (Z80-RAM delay line), if budget remains.
+
+### 12.x Deferred Sub-Designs (each gets its own focused design pass)
+
+**Principle: design the contracts and the layouts up front; let the algorithms
+emerge during implementation.** A thing deserves its own design pass when it is (a)
+an *interface* between components, or (b) an on-disk / in-memory *layout* — because
+those are expensive to change once code depends on them. Algorithms (the mixer
+kernel, the portamento division, the LFSR ambient trigger) can be grown via TDD and
+don't need a spec.
+
+By that test, these are the sub-designs this spec implies — none should be frozen
+now; each has a natural trigger point:
+
+1. **68k↔Z80 command API** (interface) — the full command set the game posts:
+   `PlayMusic`, `PlaySFX`, `PlaySoundLocal(distance,priority)`,
+   `PlaySoundContinuous`/`Stop`, bank-swap, fade triggers; record layouts; the
+   verified-write protocol. *Trigger: start of Phase 1* (everything depends on it).
+2. **Z80 RAM memory map** (layout) — budget the tight 8 KB across read-ahead
+   buffer(s), per-channel structs, mixer state, fade/ambient/SFX state, stack.
+   *Trigger: start of Phase 1.*
+3. **Instrument / patch format** (layout, MegaDAW-coupled) — how FM operator params +
+   SSG-EG + LFO + algorithm + the dual-stream modulation/volume envelopes are stored
+   and loaded; ties to MegaDAW's existing FM editor. *Trigger: Phase 3.*
+4. **Sample pipeline & sample-table format** (layout + build tooling) — BRR/DPCM
+   encoder, build-time DC-offset tool, per-section bank packing + boundary
+   verification, the runtime sample table. *Trigger: Phase 2.*
+5. **Runtime music event-list format** (layout) — the §10 concrete format. *Trigger:
+   before Phase 6 (or a draft just before Phase 3 once FM features are locked).*
+6. **Section-audio integration contract** (interface, existing-engine-coupled) — how
+   `sec_music`/`sec_sound_bank`/preload hook into the section streamer, preload-vs-
+   teleport timing, fade state machine ↔ palette cross-fade coordination. *Trigger:
+   Phase 5, co-designed with the section system.*
+7. **Scheduler cycle-budget policy** (partly spike §13.4) — how the Timer tick
+   divides between mixer and FM halves, and the over-budget fallback. *Trigger: Phase
+   1 plan, informed by the spike.*
 
 ## 13. Spikes Required Before Committing (measure, don't assume)
 
