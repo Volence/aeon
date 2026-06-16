@@ -172,10 +172,16 @@ bus contention (notably during 68k→VDP DMA). The protocol, in order:
 `MBX_PENDING` is committed **after** the args specifically so that the verified-write retries on
 the args cannot leave a "pending" flag standing over an unverified argument.
 
-(Holding the Z80 bus already prevents the driver from observing a torn write; the read-back is the
-second line of defence against the write itself being dropped/corrupted on the bus. Both are kept
-because the parent spec mandates verified writes and the cost is negligible — a few cycles per
-byte, a handful of times per frame.)
+**IMPLEMENTATION NOTE (Phase 1, hardware-verified 2026-06-16):** the read-back step (2/3) was
+**dropped**; holding the Z80 bus already makes the whole record write atomic and reliable, so the
+per-byte read-back is redundant. It is also actively counter-productive: a 68k read of Z80 RAM
+*without* the bus held returns garbage in Exodus (and is racy on hardware), so the read-back must
+itself run under `stopZ80` — at which point it can never fail. The shipped `Sound_PostCommand`
+(`engine/sound_api.asm`) therefore: mask interrupts (so the DEBUG VBlank state-mirror can't nest
+the `stopZ80`) → `stopZ80` → write `ARG0`, `ARG1`, `CMD`, then `PENDING` (commit) → `startZ80` →
+restore SR. `Sound_Init` likewise polls `STAT_ALIVE` under a held bus before any post is allowed.
+The "verified write / read-back" model in this section is retained as the design rationale but is
+**superseded by bus-held atomic posting** — see the code for the authoritative form.
 
 ---
 
