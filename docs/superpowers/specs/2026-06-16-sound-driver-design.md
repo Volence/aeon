@@ -137,6 +137,12 @@ DualPCM model). Highest-payoff quality feature; what separates us from classic S
 
 **YM write-queue:** decouples the mixer from the ~33.6-cycle write limit.
 
+**Busy-poll policy:** the YM busy flag is polled once at driver init, but NOT before
+each write on the DAC-feed / timer-setup paths — loop timing already guarantees
+spacing there (DualPCM/Mega PCM omit it too). FM register-pair writes (Plan 1C) DO
+need a busy-poll (or write-queue gating) before each write; this is where the hazard
+bites. Decided during Phase-1 Foundations hardware bring-up (2026-06-16).
+
 **Compression:**
 - **BRR-style codec** (SNES-derived, 9 bytes / 16 samples, cheap add/shift
   predictor) as primary — better fidelity-per-byte than 4-bit DPCM. *Spike: measure
