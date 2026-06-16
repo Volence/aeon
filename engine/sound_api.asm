@@ -1,67 +1,52 @@
 ; ======================================================================
 ; engine/sound_api.asm — 68k-side sound API (Phase 1)
-; Posts commands into Z80 RAM with read-back-verified writes.
+; Posts commands into Z80 RAM. 68k access to Z80 RAM ($A00000+) is only
+; reliable while the Z80 bus is held (stopZ80) — reads return garbage
+; otherwise. So every transaction stops the Z80, and masks interrupts so
+; the DEBUG VBlank state-mirror (which also stopЗ80s) cannot nest the stop.
 ; See docs/superpowers/specs/2026-06-16-sound-command-api.md.
 ; ======================================================================
 
 ; ----------------------------------------------------------------------
-; Sound_VerifiedWrite — write d0.b to (a0), retry until read-back matches.
-; In:  d0.b = value, a0 = 68k address of a Z80 RAM byte.
-; Out: byte at (a0) == d0.b (verified). Preserves d0/a0.
+; Sound_Init — block until the Z80 driver has finished its own init.
+; The driver clears the mailbox + writes STAT_ALIVE during SndDrv_Init;
+; the 68k must not post until that marker appears, or the driver's init
+; clear races with (and wipes) the posted command. Each probe holds the
+; Z80 bus (the only way the 68k reads Z80 RAM reliably).
+; Clobbers: nothing (SR preserved).
 ; ----------------------------------------------------------------------
-Sound_VerifiedWrite:
-        move.b  d0, (a0)
-        cmp.b   (a0), d0
-        bne.s   Sound_VerifiedWrite
+Sound_Init:
+        move.w  sr, -(sp)
+.wait_alive:
+        move.w  #$2700, sr                  ; mask interrupts (no mirror nesting)
+        stopZ80
+        cmp.b   #SND_ALIVE_MARKER, (SND_Z80_BASE+SND_STAT_ALIVE).l
+        startZ80
+        bne.s   .wait_alive
+        move.w  (sp)+, sr
         rts
 
 ; ----------------------------------------------------------------------
-; Sound_Init — clear the mailbox command + pending bytes (mailbox idle).
-; Clobbers: d0, a0.
-; ----------------------------------------------------------------------
-Sound_Init:
-        lea     (SND_Z80_BASE+SND_MBX_CMD).l, a0
-        moveq   #0, d0
-        bsr.s   Sound_VerifiedWrite
-        lea     (SND_Z80_BASE+SND_MBX_PENDING).l, a0
-        moveq   #0, d0
-        bra.s   Sound_VerifiedWrite      ; tail call (writes + rts)
-
-; ----------------------------------------------------------------------
-; Sound_PostCommand — wait until idle, write args, then commit pending.
-; Write order: ARG0, ARG1, CMD, then PENDING LAST (commit invariant).
-; In:  d0.b = cmd id, d1.b = arg0, d2.b = arg1.
-; Out: command posted. Preserves d0-d2.
+; Sound_PostCommand — atomically post a command record to the mailbox.
+; The Z80 is stopped for the whole record, so args + cmd are in place
+; before PENDING is set — the Z80 can never latch a half-written record.
+; In:  d0.b = cmd id, d1.b = arg0, d2.b = arg1.  Preserves d0-d2.
 ; ----------------------------------------------------------------------
 Sound_PostCommand:
-.wait_idle:
-        tst.b   (SND_Z80_BASE+SND_MBX_PENDING).l
-        bne.s   .wait_idle
-        movem.l d0-d2/a0, -(sp)
-        ; arg0
-        move.b  d1, d0
-        lea     (SND_Z80_BASE+SND_MBX_ARG0).l, a0
-        bsr.s   Sound_VerifiedWrite
-        ; arg1
-        move.b  d2, d0
-        lea     (SND_Z80_BASE+SND_MBX_ARG1).l, a0
-        bsr.s   Sound_VerifiedWrite
-        movem.l (sp)+, d0-d2/a0          ; d0 = cmd id again
-        movem.l d0-d2/a0, -(sp)
-        ; cmd id
-        lea     (SND_Z80_BASE+SND_MBX_CMD).l, a0
-        bsr.s   Sound_VerifiedWrite
-        ; pending commit — LAST
-        moveq   #1, d0
-        lea     (SND_Z80_BASE+SND_MBX_PENDING).l, a0
-        bsr.s   Sound_VerifiedWrite
-        movem.l (sp)+, d0-d2/a0
+        move.w  sr, -(sp)
+        move.w  #$2700, sr                  ; mask interrupts (no mirror nesting)
+        stopZ80
+        move.b  d1, (SND_Z80_BASE+SND_MBX_ARG0).l
+        move.b  d2, (SND_Z80_BASE+SND_MBX_ARG1).l
+        move.b  d0, (SND_Z80_BASE+SND_MBX_CMD).l
+        move.b  #1, (SND_Z80_BASE+SND_MBX_PENDING).l    ; commit (Z80 resumes & sees it)
+        startZ80
+        move.w  (sp)+, sr
         rts
 
 ; ----------------------------------------------------------------------
 ; Sound_Ping — ask the driver to echo d1.b into STAT_PING_ECHO.
-; In:  d1.b = echo token value.
-; Out: ping posted. Preserves d1.
+; In:  d1.b = echo token value.  Preserves d1.
 ; ----------------------------------------------------------------------
 Sound_Ping:
         move.b  #SND_CMD_PING, d0
