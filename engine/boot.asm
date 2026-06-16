@@ -67,8 +67,12 @@ Cold_Boot:
         btst    d0, (a1)                    ; wait for bus grant (d0 = 0 → test bit 0)
         bne.s   .wait_z80
 
-        ; Copy Z80 idle program to Z80 RAM
+        ; Copy Z80 program to Z80 RAM (a5 already points at the included blob)
+    ifdef SOUND_DRIVER_ENABLED
+        moveq   #Z80_SOUND_SIZE-1, d1
+    else
         moveq   #Z80_IDLE_SIZE-1, d1
+    endif
 .load_z80:
         move.b  (a5)+, (a0)+
         dbf     d1, .load_z80
@@ -254,8 +258,12 @@ BootData_VDPRegs:
         ; VRAM DMA fill command
         dc.l    vdpComm(0, VRAM, DMA)
 
-        ; Z80 idle program (assembled Z80 code)
+        ; Z80 program (assembled Z80 code) — sound driver replaces idle when enabled
+    ifdef SOUND_DRIVER_ENABLED
+        include "engine/z80_sound_driver.asm"
+    else
         include "engine/z80_init.asm"
+    endif
         align 2
 
         ; PSG silence values

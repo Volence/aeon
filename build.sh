@@ -32,6 +32,10 @@ if [[ "${DEBUG:-0}" == "1" ]]; then
     ASFLAGS="${ASFLAGS} -D __DEBUG__"
 fi
 
+if [[ "${SOUND_DRIVER_ENABLED:-0}" == "1" ]]; then
+    ASFLAGS="${ASFLAGS} -D SOUND_DRIVER_ENABLED"
+fi
+
 if [[ "${PRINT_ERRORS_ONLY}" == "0" ]]; then
     ASFLAGS="${ASFLAGS} -E ${ROM_NAME}.log"
 fi
