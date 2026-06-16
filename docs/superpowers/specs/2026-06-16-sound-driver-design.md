@@ -3,6 +3,9 @@
 **Date:** 2026-06-16
 **Status:** Design approved, ready for plan decomposition
 **Branch:** `design/sound-driver`
+**Supersedes:** `ENGINE_ARCHITECTURE.md §6 Audio` — that section planned to *bolt features onto
+Flamedriver*. This design replaces Flamedriver with our own driver while preserving **every**
+feature §6 planned. To beat Flamedriver we must include all of §6 *plus* the frontier additions.
 
 ## 1. Purpose & Ambition
 
@@ -10,18 +13,18 @@ The s4_engine writes every subsystem from scratch. Audio is currently the only
 place the architecture planned to import outside code (Flamedriver). This design
 replaces that plan: we build our **own** Z80-autonomous sound driver, fully ours,
 targeting **best-on-the-platform** quality with no compromise — a full DAC
-powerhouse *and* deep FM synthesis.
+powerhouse *and* deep FM synthesis *and* a game-feel integration layer no
+commercial Genesis game shipped.
 
-The central finding from research (see §2) is that **the best-in-the-world
-Genesis driver does not exist yet.** Every existing driver — hobbyist (Mega PCM,
+The central finding from research (§2) is that **the best-in-the-world Genesis
+driver does not exist yet.** Every existing driver — hobbyist (Mega PCM,
 Flamedriver, XGM2, Echo, MDSDRV) and commercial legend (Technosoft's Thunder
 Force IV, Treasure's Gunstar Heroes, Jesper Kyd's Batman & Robin) — nails one
 slice and leaves the rest. No driver has ever shipped the *union*. This engine is
 that union.
 
 MegaDAW becomes the authoring tool / compiler for the driver's data format. We do
-not constrain the design to any existing format (SMPS/VGM); MegaDAW re-targets to
-ours.
+not constrain the design to any existing format (SMPS/VGM); MegaDAW re-targets.
 
 ## 2. Research Basis
 
@@ -31,8 +34,7 @@ written (`docs/research/z80_blobs/z80dasm.py`) and the blobs extracted and
 analyzed:
 
 - **Batman & Robin** (Jesper Kyd) — full reverse-engineering in
-  `docs/research/z80_blobs/batman_driver_analysis.md`. The source of several
-  pillars below.
+  `docs/research/z80_blobs/batman_driver_analysis.md`. Source of several pillars.
 - **Gunstar Heroes / Alien Soldier** (Treasure), **Thunder Force IV** (Technosoft)
   — listings in `docs/research/z80_blobs/*.lst`.
 - Modern/online frontier survey (Mega PCM 2.1, XGM2, Echo, MDSDRV, DualPCM,
@@ -41,218 +43,266 @@ analyzed:
 
 **Key findings that shaped this design:**
 
-1. The legends were **all single-channel DAC** — none mixed. Their edge was
-   encoding (Gunstar's packed-accumulator DPCM), per-sample rate, and
-   architecture, not raw channel count. Multi-channel mixing combined with
-   DMA-survival buffering is genuinely **unexplored territory**.
+1. The legends were **all single-channel DAC** — none mixed. Multi-channel mixing
+   combined with DMA-survival buffering is genuinely **unexplored territory**.
 2. **Batman's architecture** is distinct from every other driver: a
    resumable-coroutine DAC scheduler clocked by YM Timer B, dual per-channel data
-   streams (note + independent modulation/volume), true division-based portamento,
-   and dynamic FM6 reclamation. This is *why* that soundtrack sounds alive.
+   streams, true division-based portamento, dynamic FM6 reclamation, DC-offset
+   removal, log volume. This is *why* that soundtrack sounds alive.
 3. **Mega PCM 2.1** (released 2026-05-10) is the single-channel quality king
    (read-ahead ring buffer survives 24 KB DMA, cycle-exact loops, ~32 kHz,
-   DPCM-HQ) — but it does **no mixing** and is DAC-only.
+   DPCM-HQ) — but does **no mixing** and is DAC-only.
 
 ## 3. Hardware Constraints (the immovable budget)
 
-These bound every decision below and must be respected, not wished away:
-
 - **FM6 and the DAC are mutually exclusive.** YM2612 reg `$2B` bit 7 swaps FM
-  channel 6's output for the 8-bit value written to reg `$2A`. There is no 7th
-  voice. Every "DAC channel," single or mixed, shares this one output.
+  channel 6's output for the byte written to reg `$2A`. No 7th voice. Every "DAC
+  channel," single or mixed, shares this one output.
 - **The Z80 (3.58 MHz) is a single shared budget** for DAC feeding/mixing *and*
   FM/PSG sequencing. Cost scales with DAC channel count × sample rate. Reference
-  point (XGM): ~4 PCM voices @ ~14 kHz ≈ 70% of the Z80. You cannot have a
-  maximal mixer *and* maximal FM simultaneously — something gives.
-- **YM2612 register write speed is capped** (~1 write per ~33.6 Z80 cycles; the
-  internal shift register makes faster/word writes unreliable). A write-queue is
-  mandatory so the mixer never stalls on the chip.
+  (XGM): ~4 PCM voices @ ~14 kHz ≈ 70% of the Z80 (effectively ~6-bit output). You
+  cannot have a maximal mixer *and* maximal FM simultaneously.
+- **YM2612 register write speed is capped** (~1 write / ~33.6 Z80 cycles; faster /
+  word writes unreliable). A write-queue is mandatory.
 - **68k→VDP DMA freezes the bus**, starving any Z80 loop that reads sample bytes
-  from ROM mid-transfer — the classic "scratchy DAC." Must be mitigated by
-  read-ahead buffering (see §5).
-- **Z80 RAM is 8 KB**, bounding buffer sizes and any echo/delay line length.
+  from ROM mid-transfer (the classic "scratchy DAC"). Mitigate via read-ahead
+  buffering (§5).
+- **Z80 bank switch costs 100+ cycles** (9 serial writes to `$6000`) — the #1 Z80
+  perf threat after DAC mixing. Drives the bank-packing optimization (§8).
+- **Z80 RAM is 8 KB**, bounding buffers and any echo/delay line.
 
 ## 4. Architecture
 
 ### 4.1 Z80 Autonomy & 68k Handoff
 
-The entire engine runs on the Z80; the 68k only posts commands. Handoff uses
-Batman's **direct-injection mailbox**: the 68k writes whole command records
-straight into Z80 RAM (channel-start records, DAC trigger blocks) plus an atomic
-"dirty" flag the driver latches and clears each tick. Zero opcode parsing, lowest
-possible latency. (Batman `$16EA`/`$17EA` staging model.)
+Entire engine on the Z80; the 68k only posts commands. Handoff uses Batman's
+**direct-injection mailbox**: the 68k writes whole command records straight into
+Z80 RAM plus an atomic "dirty" flag the driver latches and clears each tick. Zero
+opcode parsing, lowest latency. (Batman `$16EA`/`$17EA` staging model.)
+**Verified writes:** command/data writes use read-back-and-retry
+(`move.b d0,(a1); cmp.b (a1),d0; bne retry`, ~8 cycles each) to prevent silent
+loss under bus contention (Batman/Zyrinx + DEFERRED_WORK).
 
 ### 4.2 Cooperative Scheduler
 
 Backbone is **Batman's resumable-coroutine model**, generalized:
+- A YM **Timer** (sub-frame, NTSC/PAL-independent — §8) is the master tick.
+- Between ticks the DAC engine runs as a near-100%-duty background task feeding
+  reg `$2A`. On timer overflow it **breaks out, services FM/PSG, reloads the
+  timer, and resumes** the DAC mid-stream.
+- FM update is **split across ticks** (Batman runs two halves alternately) to
+  balance load.
 
-- A YM **Timer** (sub-frame, NTSC/PAL-independent — see §7) is the master tick.
-- Between ticks, the DAC engine runs as a near-100%-duty background task feeding
-  reg `$2A`. When the timer overflows, the engine **breaks out, services the
-  FM/PSG sequencer, reloads the timer, and resumes** the DAC mid-stream.
-- The FM update is **split across ticks** (Batman runs two halves on alternating
-  ticks) to balance load.
-
-This keeps the sample stream continuous (smooth, dense percussion/ambience) while
-giving FM a steady sub-frame cadence — distinct from Mega PCM's ISR model and
-XGM2's sample-rate ISR. It is a third architectural model, and the right one for a
-streaming Sonic engine.
+A third architectural model, distinct from Mega PCM's ISR and XGM2's sample-rate
+ISR — the right one for a streaming Sonic engine.
 
 ### 4.3 The Adaptive FM6/DAC Slot (first-class pillar)
 
-FM6 is a **content-adaptive slot**; the engine selects mode automatically from
-what the composer's data contains. This is novel — no existing driver offers all
-three:
+FM6 is a **content-adaptive slot**; the engine selects mode from the composer's
+data. Novel — no existing driver offers all three:
 
 | Composer content | FM6 behavior |
 |---|---|
 | FM6 melody, little/no DAC | Full **6th FM synth voice** |
 | FM6 melody **and** DAC samples | **Time-share** (Batman): synth in gaps, DAC per hit |
-| **No FM6 melody** | **Permanent N-channel DAC mixer** — costs zero melodic voices |
+| **No FM6 melody** | **Permanent N-channel DAC mixer** — zero melodic-voice cost |
 
-- Mode is driven by data, evaluated per song/section.
-- Reclamation is the Batman trick: drop DAC mode (`$2B=$00`) the instant no sample
-  is active, returning FM6 (and its Z80 cycles) to the sequencer.
-- Trade-off, stated honestly: in the time-share mode, each sample briefly
-  interrupts any concurrent FM6 note (imperceptible for short hits; Batman accepts
-  it). In always-on-mixer mode there is no FM6 melody to interrupt, so no conflict.
-- This design *minimizes* the §3 cycle cost: DAC cycles are spent only when
-  samples are actually sounding, unlike a static always-on mixer (XGM) that pays
-  forever.
+- Mode driven by data, evaluated per song/section.
+- Reclamation: drop DAC mode (`$2B=$00`) the instant no sample is active, returning
+  FM6 + its cycles to the sequencer.
+- Honest trade-off: in time-share mode each sample briefly interrupts a concurrent
+  FM6 note (imperceptible for short hits). Always-on-mixer mode has no FM6 melody
+  to interrupt, so no conflict. This design *minimizes* the §3 cycle cost — DAC
+  cycles are spent only when samples actually sound (vs XGM's permanent mixer).
 
-Contrast with classic Sonic/SMPS, which dedicates FM6 to the DAC permanently
-(music effectively gets 5 FM voices + DAC). [Exact stock behavior to be confirmed
-against our Flamedriver source during planning; not load-bearing for this design.]
+Contrast classic Sonic/SMPS, which dedicates FM6 to the DAC permanently (music
+effectively gets 5 FM voices + DAC). [Exact stock behavior to be confirmed against
+Flamedriver source during planning; not load-bearing.]
 
 ## 5. DAC Subsystem
 
 **Quality-adaptive output:**
-- **1 active sample** → highest-class single-stream path: up to ~32 kHz with
-  Kabuto/Mega-PCM-grade jitter control (timing model accounts for ROM-access
-  contention).
+- **1 active sample** → highest-class single-stream: up to ~32 kHz with
+  Kabuto/Mega-PCM-grade jitter control (timing model accounts for ROM contention).
 - **2–N active samples** → software mixer: sum signed bytes, clamp via a
-  precomputed saturation **LUT**, write the single result to reg `$2A`.
-  Per-channel volume and pitch (per-sample `djnz` delay / phase accumulator).
-  Per-channel rate scales down as count rises (the §3 budget).
+  precomputed saturation **LUT**, write the single result to reg `$2A`. Per-channel
+  volume and pitch (per-sample `djnz` delay / phase accumulator); rate scales down
+  as count rises (§3 budget). Per-channel selectable **half-rate** (~6.65 kHz) for
+  bass/ambient samples saves ~50% ROM with no audible loss.
 
-**DMA-survival read-ahead buffer (mandatory):** a Z80-RAM ring buffer pre-filled
-from ROM during safe windows, drained during DMA so the DAC never reads ROM
-mid-transfer. Target: survive Sonic's worst-case per-frame DMA. (Mega PCM 2 /
-DualPCM model.) This is the single highest-payoff quality feature and what
-separates us from every classic SMPS game.
+**DMA-survival read-ahead buffer (mandatory):** Z80-RAM ring buffer pre-filled from
+ROM during safe windows, drained during DMA so the DAC never reads ROM
+mid-transfer. Target: survive Sonic's worst-case per-frame DMA (Mega PCM 2 /
+DualPCM model). Highest-payoff quality feature; what separates us from classic SMPS.
 
-**YM write-queue:** decouples the mixer from the chip's ~33.6-cycle write limit.
+**YM write-queue:** decouples the mixer from the ~33.6-cycle write limit.
 
 **Compression:**
 - **BRR-style codec** (SNES-derived, 9 bytes / 16 samples, cheap add/shift
-  predictor decode) as the primary format — better fidelity-per-byte than 4-bit
-  DPCM. *Spike required:* measure Z80 decode cost at target rate alongside N
-  voices (flagged unproven on Z80 in research).
-- **Gunstar-style packed-accumulator DPCM** as a lighter-weight alternative.
+  predictor) as primary — better fidelity-per-byte than 4-bit DPCM. *Spike: measure
+  Z80 decode cost at rate alongside N voices.*
+- **Gunstar packed-accumulator DPCM** as a lighter alternative (~50% ROM).
 
-**Stereo PCM:** per-sample L/R enable flips (reg `$B6`) for panned/moving samples
-and time-interleaved stereo — almost no Sonic-era driver does real PCM panning.
+**Stereo PCM & panning:** per-sample L/R enable flips (reg `$B6`) for panned/moving
+samples, time-interleaved stereo, and **pseudo-stereo** (alternate L/R per tick for
+width from mono).
 
-**Internal precision:** mix at >8-bit precision and **dither** down to the 8-bit
-DAC to reduce quantization hiss on quiet passages (portable kernel of the Amiga
-14-bit idea).
+**Pitch-shifted SFX reuse:** one ROM sample played at different rates (jump → up for
+mini-hop, down for heavy landing) — ROM savings + variety. One step-multiply/tick
+when pitch ≠ 1.
+
+**Independent DAC volume** separate from FM/PSG levels.
+
+**Internal precision:** mix at >8-bit precision and **dither** down to the 8-bit DAC
+(portable kernel of the Amiga 14-bit idea).
 
 ## 6. FM / PSG Synthesis
 
 **From Batman (the "alive" texture):**
 - **Dual per-channel data streams** — a note stream (arpeggio, portamento targets,
   patch/LFO changes) *and* an independent modulation/volume stream. Held notes
-  evolve without retriggering. This is the structural source of evolving timbre.
+  evolve without retriggering.
 - **True portamento** via a 16÷16 restoring division over a sub-semitone linear
-  pitch table (128-entry) — smooth analog glissando.
-- **Algorithm-aware software TL volume via self-modifying code** — carrier
-  selection costs zero per-frame branching.
+  pitch table (128-entry).
+- **Algorithm-aware software TL volume via self-modifying code** — carrier selection
+  costs zero per-frame branching (pairs with the §7 carrier mask + log curve).
 
-**Depth Batman skipped, layered on top (Flamedriver-class and beyond):**
-- **SSG-EG** (regs `$90–9F`) — evolving/buzzy envelopes.
-- **LFO** (reg `$22`) + per-patch AMS/FMS (`$B4`).
-- **Ch3 special mode / CSM** — operator phase reset for click-free attacks and
-  formant/percussion textures; CH3-as-4-oscillators bonus voice.
-- **Micro-detune unison/chorus** — driver-managed voice pairing/stealing spawns a
-  detuned twin for fat leads/pads.
+**Depth (Flamedriver-class and beyond):**
+- **SSG-EG** (regs `$90–9F`) — evolving/buzzy envelopes (alarms, energy fields, pads).
+- **LFO** (reg `$22`) + per-patch AMS/FMS (`$B4`). Hardware LFO is 8 global rates;
+  per-channel vibrato uses software F-number modulation (modulation envelopes).
+- **Ch3 special mode / CSM** — operator phase reset (click-free attacks, formants)
+  and CH3-as-4-oscillators bonus voice (detuned unison, bells, inharmonic timbres).
+- **Micro-detune unison/chorus** — driver-managed voice pairing spawns a detuned
+  twin for fat leads/pads.
 - **Vibrato / pitch-modulation tables, fast arpeggio chords.**
 
-**PSG (Batman ignored it entirely — we use it fully):**
+**PSG (Batman ignored it — we use it fully):**
 - Noise-channel percussion, per-channel volume envelopes.
-- *Optional* offline-encoded **PSG-as-PCM aux channel** (pcmenc Viterbi approach)
-  — a 4th "PCM-ish" voice that doesn't touch the DAC. *Spike required:* playback
-  cost on the Genesis Z80 is unverified.
+- **PSG pause silencing** — write `$9F,$BF,$DF,$FF` to `$7F11` on pause so tones
+  don't sustain.
+- *Optional* offline-encoded **PSG-as-PCM aux channel** (pcmenc Viterbi) — a 4th
+  "PCM-ish" voice off the DAC. *Spike: Genesis Z80 playback cost unverified.*
 
-**Raw-register escape hatch** (Echo-style `$F8/$F9`-equivalent) so sound designers
-can drive any YM/PSG register directly for one-off effects.
+**Raw-register escape hatch** (Echo-style) so sound designers can drive any YM/PSG
+register directly.
 
-## 7. Tempo & Timing
+## 7. Audio Quality & Correctness Details
 
-YM **Timer-driven sub-frame tempo** (Batman uses Timer B; TF4 uses Timer A). This
-gives finer-than-frame resolution and **NTSC/PAL independence by construction** —
-superior to VBlank-locked tempo. Region differences become a timer reload value,
-not a double-update hack.
+Cross-cutting low-cost wins, several from Batman/Zyrinx:
 
-## 8. Data Format & MegaDAW Compiler
+- **Logarithmic volume curve** — 256-byte LUT mapping linear → perceptual
+  attenuation. Zero runtime cost; the single easiest quality win.
+- **Per-algorithm carrier mask** — 8-byte table giving the carrier-operator bitmask
+  per FM algorithm (algo 0–3 = op4; 4 = ops 2,4; 5–6 = ops 2,3,4; 7 = all). Volume
+  changes touch only carriers, never modulators (preserves timbre). Essential for
+  the log curve to not distort patches.
+- **DC offset removal** — subtract a per-sample precomputed DC bias before reg `$2A`
+  output; eliminates boundary pops/clicks. One subtract/tick. Paired with a
+  **build-time DC-offset tool** that computes the bias per sample.
+- **Frequency-based FM panning** (NOVEL, zero-cost composition convention) — pan FM
+  channels by register: high melody → R, mid → C, bass → L; widens the FM image with
+  no CPU/Z80 cost.
 
-- A **compact event-list format** (Echo/XGM family) extended for our features:
-  dual data streams, portamento/modulation commands, DAC triggers, per-channel
-  pan automation, and the adaptive-FM6 hints.
-- VGM is used only as an *import/authoring* source, never as the runtime format
-  (raw register logs are large and carry no loop/SFX/instrument semantics).
-- **MegaDAW becomes the compiler**: it authors and emits our event-list format and
-  encodes samples (BRR / DPCM / PSG-PCM) at build time — consistent with the
-  engine's build-time-computation philosophy.
+## 8. Tempo, Timing & Z80 Performance
 
-## 9. Explicitly Rejected (debunked in research — do not pursue)
+- **YM Timer sub-frame tempo** (Timer A, regs `$24-$25`, polled) as the timebase
+  instead of VBlank counting → sub-frame precision, NTSC/PAL-independent by
+  construction; **lag frames become irrelevant to music tempo**. (Batman uses Timer
+  B; TF4 Timer A — either works.)
+- **Bank-switch optimization** — pack samples contiguously per-section in ROM;
+  bank-aware sample table skips the switch when the current bank matches; build
+  pipeline verifies no sample crosses a 32 KB boundary. Saves 100+ cycles/switch.
 
-- "5 extra PCM channels via FM TL registers" — write bandwidth too low
-  (community-rejected).
+## 9. Engine Integration & Game-Feel Layer (the part that beats Flamedriver)
+
+These tie audio into section streaming and game state — marked NOVEL in §6, shipped
+by no commercial Genesis game.
+
+- **Section-aware sound banking** — `sec_music` / `sec_sound_bank` in section defs
+  trigger music/sample-set swaps per section (outdoor→nature, cave→drips,
+  boss→percussion). `Section_Preload` pre-loads the next section's bank before
+  teleport (zero gap). **Conditional bank swaps** from game state (boss→heavy perc,
+  water→echo, speed shoes→high-energy).
+- **Music fade state machine** — `IDLE → FADING_OUT → SWITCHING → FADING_IN`
+  (+ `STINGER_PLAY`). Per-section `sec_music_fade_type`: `FADE_CUT` /
+  `FADE_CROSSFADE` (30–60 frame Z80 volume-envelope crossfade) / `FADE_STINGER`.
+  Runs in the main loop alongside palette cross-fade so audio + visual transitions
+  align at teleport.
+- **Distance-based attenuation + priority SFX mixing** —
+  `volume = max − distance×falloff`, made perceptual by the §7 log table. Distant
+  enemies audible before visible (audio foreshadowing); explosions fade with
+  distance. Simultaneous SFX ranked by priority (explosion > enemy > pickup > UI) so
+  a close explosion dominates a distant ring. ~1 subtract + lookup per
+  `PlaySoundLocal`; ~20 cycles 68k for ranking.
+- **Procedural ambient soundscape** (NOVEL) — per-section `sec_ambient_pool`; a Z80
+  LFSR random trigger plays a random low-volume sample every 0.5–3 s, decoupled from
+  music. ~50 bytes Z80. Each section becomes a distinct auditory environment.
+- **Continuous SFX** — looped-while-held sounds (spindash charge, shield buzz, speed
+  shoes) in a dedicated slot (`PlaySoundContinuous`/`StopSoundContinuous`), separate
+  from the one-shot SFX queue.
+
+## 10. Data Format & MegaDAW Compiler
+
+- A **compact event-list format** (Echo/XGM family) extended for our features: dual
+  data streams, portamento/modulation commands, DAC triggers, per-channel pan
+  automation, adaptive-FM6 hints, section-bank/fade/ambient metadata.
+- VGM used only as an *import/authoring* source, never the runtime format.
+- **MegaDAW becomes the compiler**: authors and emits our event-list format and
+  encodes samples (BRR / DPCM / PSG-PCM) and DC-offset biases at build time —
+  consistent with the engine's build-time-computation philosophy.
+
+## 11. Explicitly Rejected (debunked in research — do not pursue)
+
+- "5 extra PCM channels via FM TL registers" — write bandwidth too low.
 - Real-time Z80 sample interpolation — no cycle budget; raise source rate instead.
 - Granular/wavetable software synthesis on Z80 — use real FM (Ch3) instead.
-- 68k-assisted mixing — breaks Z80 autonomy (our explicit goal); fallback only.
+- 68k-assisted DAC mixing — breaks Z80 autonomy (our goal); fallback only.
 - Pier Solar "cart streaming" — myth; it is plain Sega CD Red Book audio.
 
-## 10. Phased Decomposition
+## 12. Phased Decomposition
 
-This is too large for one implementation plan. It decomposes into phases, each
-getting its own plan → implementation → verify → merge cycle. Phasing is chosen so
-every phase produces something audible and verifiable on hardware (Exodus MCP).
+Too large for one plan. Each phase → its own plan → implement → verify (Exodus MCP)
+→ merge. Every phase produces something audible and verifiable.
 
-- **Phase 1 — Foundation.** Z80-autonomous shell, direct-injection mailbox,
-  Timer-driven cooperative scheduler, single-channel DAC (high-quality path) with
-  read-ahead DMA-survival buffer + YM write-queue, minimal FM sequencer (note
-  on/off, basic patch load), basic PSG. Goal: a clean tone + a clean drum sample
-  that does not scratch under DMA. **First plan targets this.**
-- **Phase 2 — DAC powerhouse.** N-channel software mixer, quality-adaptive
-  single↔mix switching, stereo PCM panning, BRR codec (after spike), >8-bit
-  internal mix + dither.
+- **Phase 1 — Foundation.** Z80-autonomous shell, direct-injection mailbox +
+  verified writes, Timer-driven cooperative scheduler, single-channel high-quality
+  DAC + read-ahead DMA-survival buffer + YM write-queue, minimal FM sequencer +
+  basic patch load + **log volume curve + carrier mask + DC-offset removal**, basic
+  PSG + pause silencing. Goal: a clean tone + a drum sample that does not scratch
+  under DMA. **First plan targets this.**
+- **Phase 2 — DAC powerhouse.** N-channel mixer, quality-adaptive single↔mix,
+  stereo/pseudo-stereo PCM, pitch-shifted SFX, half-rate samples, BRR codec (after
+  spike), >8-bit internal mix + dither, bank-switch optimization.
 - **Phase 3 — FM depth.** Dual data streams, true portamento, SSG-EG, LFO, Ch3
-  special, detune-unison, algorithm-aware SW volume, full PSG (+ optional PSG-PCM
-  after spike).
-- **Phase 4 — Adaptive FM6 slot.** Wire the three-mode content-adaptive slot
-  across scheduler + mixer + sequencer.
-- **Phase 5 — MegaDAW compiler.** Event-list format finalization, MegaDAW export
-  re-target, sample encoders.
+  special/CSM, detune-unison, full PSG (+ optional PSG-PCM after spike), frequency
+  FM panning convention, raw-register escape hatch.
+- **Phase 4 — Adaptive FM6 slot.** Wire the three-mode content-adaptive slot across
+  scheduler + mixer + sequencer.
+- **Phase 5 — Engine integration & game-feel.** Section-aware banking, music fade
+  state machine, distance attenuation + priority mixing, procedural ambient
+  soundscape, continuous SFX.
+- **Phase 6 — MegaDAW compiler.** Event-list format finalization, MegaDAW export
+  re-target, sample/DC-offset encoders.
 - **Stretch — Software echo/reverb** (Z80-RAM delay line), if budget remains.
 
-## 11. Spikes Required Before Committing (measure, don't assume)
-
-These were flagged unverified in research and need a cycle-cost measurement
-(Exodus MCP is ideal) before their feature is locked:
+## 13. Spikes Required Before Committing (measure, don't assume)
 
 1. BRR decoder Z80 cost at target rate alongside N voices.
 2. pcmenc PSG-PCM playback cost on the Genesis Z80 specifically.
 3. Software echo tap cost alongside the mixer.
-4. Achievable per-channel rate at 2/3/4 mixed voices given our scheduler overhead.
+4. Achievable per-channel rate at 2/3/4 mixed voices given scheduler overhead.
 
-## 12. Success Criteria
+## 14. Success Criteria
 
 - Fully Z80-autonomous; 68k cost is mailbox writes only.
-- A drum/sample stream that **does not audibly scratch** during worst-case Sonic
-  DMA (the headline quality bar).
+- A drum/sample stream that **does not audibly scratch** during worst-case Sonic DMA.
 - Polyphonic samples (≥2 simultaneous) with per-channel volume/pitch.
 - FM music with audibly evolving timbre (dual streams) and smooth portamento.
 - Region-independent tempo (NTSC/PAL).
 - The adaptive FM6 slot demonstrably switching among its three modes from data.
+- Section-aware banking, fades, distance attenuation, ambient soundscape, and
+  continuous SFX all working against the live section-streaming engine.
 - Every line our own; no imported driver code.
+- **Beats Flamedriver:** includes everything §6 planned to add to Flamedriver, plus
+  the frontier mixer / DMA buffer / BRR / adaptive-FM6 it never had.
