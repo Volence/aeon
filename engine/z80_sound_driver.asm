@@ -34,8 +34,28 @@ SndDrv_Init:
         ld      a, SND_ALIVE_MARKER
         ld      (SND_STAT_ALIVE), a
 
-; --- main loop (Phase 1 shell: nothing yet) ---
+; --- main loop: poll mailbox, latch+ack, dispatch ---
 SndDrv_Main:
+        ld      a, (SND_MBX_PENDING)
+        or      a
+        jr      z, SndDrv_Main           ; nothing pending -> spin
+        ; latch cmd + arg0, clear pending (ack), bump ack counter
+        ld      a, (SND_MBX_CMD)
+        ld      b, a                     ; b = cmd id
+        ld      a, (SND_MBX_ARG0)
+        ld      c, a                     ; c = arg0
+        xor     a
+        ld      (SND_MBX_PENDING), a     ; consume-ack: clear pending
+        ld      a, (SND_STAT_ACK_COUNT)
+        inc     a
+        ld      (SND_STAT_ACK_COUNT), a
+        ; dispatch on cmd id
+        ld      a, b
+        cp      SND_CMD_PING
+        jr      nz, .not_ping
+        ld      a, c
+        ld      (SND_STAT_PING_ECHO), a  ; echo arg0
+.not_ping:
         jr      SndDrv_Main
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise

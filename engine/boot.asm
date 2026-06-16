@@ -204,6 +204,16 @@ Cold_Boot:
         bsr.w   CompressionSelfTest
     endif
 
+    ifdef SOUND_DRIVER_ENABLED
+        ; Sound mailbox idle + (DEBUG) ping handshake. Z80 already has the bus
+        ; and the driver is running; registers are free here (post-boot setup).
+        bsr.w   Sound_Init
+      ifdef __DEBUG__
+        moveq   #$3C, d1                 ; DEBUG: ping with a recognizable value
+        bsr.w   Sound_Ping
+      endif
+    endif
+
         ; Set initial game state
         move.l  #GameState_OJZScroll_Init, (Game_State).w
         move.b  #GS_OJZ_SCROLL_TEST, (Game_State_ID).w
