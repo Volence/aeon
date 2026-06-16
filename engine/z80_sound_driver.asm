@@ -42,7 +42,25 @@ SndDrv_Init:
         ld      a, SND_ALIVE_MARKER
         ld      (SND_STAT_ALIVE), a
 
+; --- main loop: cooperative scheduler (poll between Timer A ticks) ---
+; SndDrv_Init falls through to here. SndDrv_PollMailbox is defined AFTER this
+; infinite loop (not between init and here) so init never falls into a `ret`-
+; terminated routine with no matching `call` (that would return to $0000).
+SndDrv_Main:
+        call    SndDrv_PollMailbox       ; background work between ticks
+        ld      a, (ix+0)                ; read YM status ($4000)
+        bit     0, a                     ; Timer A overflow?
+        jr      z, SndDrv_Main           ; not yet -> keep polling
+        ; --- timer tick ---
+        ld      (ix+0), SND_REG_TIMER_CTRL   ; reg $27
+        ld      (ix+1), 015h                 ; bit4 Reset-A flag | reload (Load|Enable)
+        ld      a, (SND_STAT_TICK)
+        inc     a
+        ld      (SND_STAT_TICK), a
+        jr      SndDrv_Main
+
 ; --- poll mailbox: consume AT MOST one pending command, then ret ---
+; (Reached only via `call` from SndDrv_Main — never by fall-through.)
 SndDrv_PollMailbox:
         ld      a, (SND_MBX_PENDING)
         or      a
@@ -64,20 +82,6 @@ SndDrv_PollMailbox:
         ld      a, c
         ld      (SND_STAT_PING_ECHO), a  ; echo arg0
         ret
-
-; --- main loop: cooperative scheduler (poll between Timer A ticks) ---
-SndDrv_Main:
-        call    SndDrv_PollMailbox       ; background work between ticks
-        ld      a, (ix+0)                ; read YM status ($4000)
-        bit     0, a                     ; Timer A overflow?
-        jr      z, SndDrv_Main           ; not yet -> keep polling
-        ; --- timer tick ---
-        ld      (ix+0), SND_REG_TIMER_CTRL   ; reg $27
-        ld      (ix+1), 015h                 ; bit4 Reset-A flag | reload (Load|Enable)
-        ld      a, (SND_STAT_TICK)
-        inc     a
-        ld      (SND_STAT_TICK), a
-        jr      SndDrv_Main
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise
         ; then does word/long (a5)+ reads on the data that follows; an odd-length
