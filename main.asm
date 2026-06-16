@@ -124,6 +124,11 @@ __BUDGET_ENGINE:
     include "engine/level/bg.asm"
     include "engine/level/bg_anim.asm"
     include "debug/compression_selftest.asm"
+    ifdef __DEBUG__
+      ifdef SOUND_DRIVER_ENABLED
+        include "debug/sound_debug.asm"
+      endif
+    endif
 
 ; -----------------------------------------------
 ; Object code bank

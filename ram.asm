@@ -428,6 +428,16 @@ Player_Ring_Index:      ds.w 1      ; byte offset into both rings — word-sized
       error "Player_Pos_Ring not 256-aligned — low-byte index wrap breaks"
     endif
 
+; -----------------------------------------------
+; Sound driver debug mirror
+; Declared unconditionally (64 bytes, negligible) so the RAM layout is
+; identical between DEBUG and release. Only WRITTEN under __DEBUG__ +
+; SOUND_DRIVER_ENABLED (debug/sound_debug.asm). Lets the Exodus MCP —
+; which can read 68k RAM but not Z80 RAM at $A00000 — observe the driver's
+; mailbox+status by reading this symbol.
+; -----------------------------------------------
+Sound_Dbg_Mirror:       ds.b 64         ; DEBUG: mirror of Z80 $1F00-$1F3F (mailbox+status)
+
 RAM_End:
 
         if RAM_End >= SYSTEM_STACK

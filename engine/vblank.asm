@@ -60,6 +60,15 @@ VInt_Level:
         clr.b   (Ctrl_2_Press_Accum).w
         addq.w  #1, (Frame_Counter).w
         move.b  #1, (VBlank_Flag).w
+
+    ifdef __DEBUG__
+      ifdef SOUND_DRIVER_ENABLED
+        ; Snapshot Z80 mailbox+status into 68k RAM for MCP inspection.
+        ; Does its own stopZ80/startZ80 — placed after the DMA stop window
+        ; (and after Read_Controllers) so d0/a0/a1 are free to clobber.
+        bsr.w   Sound_DebugMirror
+      endif
+    endif
         rts
 
 ; -----------------------------------------------
