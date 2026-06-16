@@ -44,17 +44,18 @@ SndDrv_Init:
         ld      (SND_STAT_ACK_COUNT), a
         ld      (SND_STAT_TICK), a
 
-        ; --- generate a 256-byte sawtooth test sample at SND_TEST_SAMPLE ---
-        ld      hl, SND_TEST_SAMPLE
-        ld      b, 0                     ; 0 -> 256 iterations via djnz
+        ; --- fill the ring with a sawtooth (interim: RAM source until Task 4) ---
+        ld      hl, SND_RING_BASE
+        ld      b, 0                     ; 256 bytes
         xor     a
-.gen_sample:
+.gen_ring:
         ld      (hl), a
         inc     hl
         add     a, 8                     ; sawtooth step
-        djnz    .gen_sample
+        djnz    .gen_ring
         xor     a
-        ld      (SND_STAT_DAC_ACTIVE), a ; DAC-active status = 0
+        ld      (SND_RING_RD), a         ; ring read ptr low byte = 0 -> $1700
+        ld      (SND_STAT_DAC_ACTIVE), a ; start with DAC inactive (play request enables)
 
         ; announce we are alive
         ld      a, SND_ALIVE_MARKER
@@ -66,7 +67,7 @@ SndDrv_Init:
 ; terminated routine with no matching `call` (that would return to $0000).
 SndDrv_Main:
         call    SndDrv_PollMailbox       ; background work between ticks
-        call    SndDrv_FeedDAC           ; feed one DAC byte if a sample is active
+        call    SndDrv_DrainDAC          ; drain one ring byte to the DAC if active
         ld      a, (ix+0)                ; read YM status ($4000)
         bit     0, a                     ; Timer A overflow?
         jr      z, SndDrv_Main           ; not yet -> keep polling
@@ -96,47 +97,35 @@ SndDrv_PollMailbox:
         ld      a, (SND_REQ_SAMPLE)
         or      a
         ret     z                        ; nothing else pending
-        ld      hl, SND_TEST_SAMPLE
-        ld      (SND_PLAY_PTR), hl
-        ld      hl, SND_TEST_SAMPLE_LEN
-        ld      (SND_PLAY_LEN), hl
+        ; sample request -> enable DAC mode, start draining the ring
         ld      (ix+0), SND_REG_DAC_ENABLE   ; reg $2B
-        ld      (ix+1), 80h                  ; DAC mode ON (bit7)
+        ld      (ix+1), 80h                  ; DAC mode ON
         ld      a, 1
-        ld      (SND_PLAY_ACTIVE), a
         ld      (SND_STAT_DAC_ACTIVE), a
         xor     a
-        ld      (SND_REQ_SAMPLE), a      ; clear slot (consumed)
+        ld      (SND_REQ_SAMPLE), a          ; clear slot
         ld      a, (SND_STAT_ACK_COUNT)
         inc     a
         ld      (SND_STAT_ACK_COUNT), a
         ret
 
-; --- feed one DAC byte if a sample is active; loops the sample (test tone) ---
+; --- drain one ring byte to the DAC (cycle-balanced); ring read ptr in RAM ---
 ; (Reached only via `call` from SndDrv_Main — never by fall-through.)
-SndDrv_FeedDAC:
-        ld      a, (SND_PLAY_ACTIVE)
+SndDrv_DrainDAC:
+        ld      a, (SND_STAT_DAC_ACTIVE)
         or      a
-        ret     z                        ; not playing
-        ld      hl, (SND_PLAY_PTR)
-        ld      a, (hl)
-        inc     hl
+        ret     z
+        ld      a, (SND_RING_RD)         ; ring read low byte
+        ld      l, a
+        ld      h, SND_RING_PAGE         ; hl = $17xx
+        ld      a, (hl)                  ; sample byte
         ld      (ix+0), SND_REG_DAC_DATA ; reg $2A
-        ld      (ix+1), a                ; write sample byte
-        ld      (SND_PLAY_PTR), hl
-        ld      b, SND_DAC_RATE          ; per-sample rate delay
-.dac_delay:
-        djnz    .dac_delay
-        ld      hl, (SND_PLAY_LEN)
-        dec     hl
-        ld      (SND_PLAY_LEN), hl
-        ld      a, h
-        or      l
-        ret     nz                       ; more samples remain
-        ld      hl, SND_TEST_SAMPLE      ; exhausted -> loop (continuous test tone)
-        ld      (SND_PLAY_PTR), hl
-        ld      hl, SND_TEST_SAMPLE_LEN
-        ld      (SND_PLAY_LEN), hl
+        ld      (ix+1), a                ; -> DAC
+        inc     l                        ; advance (wraps within page)
+        ld      a, l
+        ld      (SND_RING_RD), a
+        ld      b, SND_DAC_RATE          ; balanced rate delay (controller tunes)
+.rate:  djnz    .rate
         ret
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise
