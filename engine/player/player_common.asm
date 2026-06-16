@@ -24,6 +24,10 @@ air_left         ds.b 1      ; reserved (no water yet)
 invuln_time      ds.b 1      ; reserved
 stick_convex     ds.b 1      ; flag: full terrain adherence (objects will set)
 debug_flag       ds.b 1      ; nonzero = debug-fly (suspends state dispatch)
+skid_latch       ds.b 1      ; nonzero = hold the skid pose (display latch)
+getup_timer      ds.b 1      ; >0 = play ANIM_GETUP one-shot, counts down
+look_offset      ds.b 1      ; camera look/duck pan seam — stays 0 this pass
+viewer_id        ds.b 1      ; DEBUG anim-viewer: forced ANIM_* id (DEBUG only)
 PlayerV endstruct
         objvarsCheck PlayerV_len
 _pl_gsp          = SST_sst_custom+PlayerV_ground_speed
@@ -36,6 +40,10 @@ _pl_air_left     = SST_sst_custom+PlayerV_air_left
 _pl_invuln       = SST_sst_custom+PlayerV_invuln_time
 _pl_stick_convex = SST_sst_custom+PlayerV_stick_convex
 _pl_debug        = SST_sst_custom+PlayerV_debug_flag
+_pl_skid_latch   = SST_sst_custom+PlayerV_skid_latch
+_pl_getup        = SST_sst_custom+PlayerV_getup_timer
+_pl_look_offset  = SST_sst_custom+PlayerV_look_offset
+_pl_viewer_id    = SST_sst_custom+PlayerV_viewer_id
 
 ; (a4) physics-table offsets — movement code reads physics ONLY through
 ; these, never PHYS_* directly (per-section modifiers compose in
@@ -125,6 +133,10 @@ Player_Init:
         clr.w   _pl_spindash(a0)
         clr.b   _pl_status2(a0)
         clr.b   _pl_stick_convex(a0)
+        clr.b   _pl_skid_latch(a0)
+        clr.b   _pl_getup(a0)
+        clr.b   _pl_look_offset(a0)
+        clr.b   _pl_viewer_id(a0)
         clr.b   _pl_state(a0)                   ; defined start for SetState's exit lookup
         moveq   #PSTATE_AIR, d0                 ; drop to ground on frame 1
         bsr.w   Player_SetState
@@ -161,6 +173,11 @@ Player_Main:
         ; toggle calls (DebugEnter clobbers none, DebugExit d0-d2/a1-a2)
         ; and feeds both the B-toggle and the jump-buffer latch
         move.b  (Ctrl_1_Press).w, d6
+    ifdef __DEBUG__
+        bsr.w   Player_ViewerToggle             ; START toggles the anim viewer
+        tst.b   (Anim_Viewer_Active).w
+        bne.w   Player_ViewerUpdate             ; viewer owns the frame (no return)
+    endif
         ; --- debug-fly toggle (B press) ---
         btst    #4, d6                          ; BUTTON_B
         beq.s   .no_toggle
@@ -240,40 +257,151 @@ Player_Main:
         ; fall through to the shared display tail
 
 ; -----------------------------------------------
-; Player_Display — anim select from state + gsp, then the shared tail
-; (AnimateSprite → per-character DPLC immediates → Draw_Sprite)
+; Player_Display — classify the animation, advance it, stream art, draw.
 ; In:  a0 = player SST
-; Out: none
 ; Clobbers: d0-d4, a1-a3
 ; -----------------------------------------------
 Player_Display:
-        ; ball anim = the curled set: the air tail (>= PSTATE_JUMP — the
-        ; constants.asm ordering constraint + assert) plus the two curled
-        ; grounded states tested explicitly (ROLL/SPINDASH sit below the
-        ; tail in the state numbering)
-        move.b  _pl_state(a0), d0
-        cmpi.b  #PSTATE_JUMP, d0
-        bhs.s   .anim_ball                      ; JUMP/ROLLJUMP/AIRBALL curled
-        cmpi.b  #PSTATE_ROLL, d0
-        beq.s   .anim_ball
-        cmpi.b  #PSTATE_SPINDASH, d0
-        beq.s   .anim_ball                      ; TODO: spindash dust overlay
-        ; GROUND + uncurled AIR: walk/idle by gsp (the classic keeps the
-        ; walk cycle while falling uncurled; gsp holds the last ground
-        ; speed through AIR)
-        tst.w   _pl_gsp(a0)
-        bne.s   .anim_walk
-        move.b  #ANIM_IDLE, SST_anim(a0)
-        bra.s   .animate
-.anim_walk:
-        clr.b   SST_anim(a0)                    ; ANIM_WALK (= 0)
-        bra.s   .animate
-.anim_ball:
-        move.b  #ANIM_BALL, SST_anim(a0)
-.animate:
+        bsr.w   Player_Animate                  ; sets SST_anim + d3 (dyn hold)
         jsr     AnimateSprite
-        jmp     Sonic_LoadArt                   ; character dispatch when the
-                                                ; roster exists (Tails/Knux)
+        jmp     Sonic_LoadArt                   ; character dispatch (Tails/Knux
+                                                ; replace via roster later)
+
+; -----------------------------------------------
+; Player_Animate — read-only animation classifier. Reads state/status/input
+; and (at rest) one ledge sensor; writes ONE ANIM_* id to SST_anim and the
+; speed-scaled hold to d3. Mutates only the display transient skid_latch.
+; Priority: spindash > ball > skid > push > (rest: getup > duck > lookup >
+; balance > idle) > run/walk.
+; In:  a0 = player SST
+; Out: SST_anim set; d3.b = dynamic per-anim hold (for DUR_DYNAMIC scripts)
+; Clobbers: d0-d2, d4, a1-a2 (d3 is an output). The balance path additionally
+;           trashes d5-d6 via Player_AtLedgeEdge — caller (Player_Display, a
+;           frame-tail routine) keeps no live d5/d6 across this call.
+; -----------------------------------------------
+Player_Animate:
+        ; speed-scaled hold for DUR_DYNAMIC scripts (walk/run/roll):
+        ; hold = max(0,($800-|gsp|)>>8). Computed up front; only the ball and
+        ; walk/run paths consume d3 and neither clobbers it. The balance path
+        ; clobbers d3 (sensor) but leads to a FIXED-duration anim, so it's moot.
+        move.w  _pl_gsp(a0), d0
+        bpl.s   .abs_ok
+        neg.w   d0
+.abs_ok:
+        move.w  #$800, d4
+        sub.w   d0, d4
+        bpl.s   .hold_ok
+        moveq   #0, d4
+.hold_ok:
+        lsr.w   #8, d4
+        move.b  d4, d3
+
+        move.b  _pl_state(a0), d0
+        ; (1) spindash
+        cmpi.b  #PSTATE_SPINDASH, d0
+        bne.s   .not_spindash
+        move.b  #ANIM_SPINDASH, SST_anim(a0)
+        rts
+.not_spindash:
+        ; (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL >= PSTATE_JUMP)
+        cmpi.b  #PSTATE_JUMP, d0
+        bhs.s   .ball
+        cmpi.b  #PSTATE_ROLL, d0
+        bne.s   .uncurled
+.ball:
+        move.b  #ANIM_ROLL, SST_anim(a0)
+        rts
+.uncurled:
+        ; GROUND or uncurled AIR. Airborne keeps the walk/run cycle; the
+        ; grounded-only conditions are gated below.
+        btst    #ST_IN_AIR, SST_status(a0)
+        bne.w   .walk_or_run
+
+        ; (3) skid — grounded, opposing input held, |gsp| >= PHYS_SKID_MIN.
+        ; Latch holds the pose through the brake WHILE opposing input is held;
+        ; cleared at rest or when the opposing input is released.
+        move.w  _pl_gsp(a0), d1
+        beq.s   .skid_drop                      ; stopped -> clear latch
+        move.b  (Ctrl_1_Held).w, d2
+        tst.w   d1
+        bmi.s   .skid_left
+        btst    #BUTTON_LEFT_BIT, d2            ; moving right: opposing = LEFT
+        beq.s   .skid_drop
+        bra.s   .skid_opposing
+.skid_left:
+        btst    #BUTTON_RIGHT_BIT, d2           ; moving left: opposing = RIGHT
+        beq.s   .skid_drop
+.skid_opposing:
+        tst.b   _pl_skid_latch(a0)
+        bne.s   .skid_show                      ; already latched -> keep
+        move.w  d1, d2
+        bpl.s   .skid_abs
+        neg.w   d2
+.skid_abs:
+        cmpi.w  #PHYS_SKID_MIN, d2
+        blo.s   .not_skid                       ; opposing but too slow to arm
+.skid_show:
+        st      _pl_skid_latch(a0)
+        move.b  #ANIM_SKID, SST_anim(a0)
+        rts
+.skid_drop:
+        clr.b   _pl_skid_latch(a0)
+.not_skid:
+
+        ; (4) push — grounded, ST_PUSHING (facing-aware bit from ground code)
+        btst    #ST_PUSHING, SST_status(a0)
+        beq.s   .not_push
+        move.b  #ANIM_PUSH, SST_anim(a0)
+        rts
+.not_push:
+        ; rest vs moving
+        tst.w   _pl_gsp(a0)
+        bne.s   .walk_or_run
+
+        ; --- at rest ---
+        ; get-up one-shot: mechanism in place; nothing arms _pl_getup in
+        ; gameplay this pass (in-game get-up trigger deferred). The anim
+        ; viewer can still display ANIM_GETUP directly.
+        tst.b   _pl_getup(a0)
+        beq.s   .rest_input
+        subq.b  #1, _pl_getup(a0)
+        move.b  #ANIM_GETUP, SST_anim(a0)
+        rts
+.rest_input:
+        ; (5) duck
+        btst    #BUTTON_DOWN_BIT, (Ctrl_1_Held).w
+        beq.s   .not_duck
+        move.b  #ANIM_DUCK, SST_anim(a0)
+        rts
+.not_duck:
+        ; (6) look up
+        btst    #BUTTON_UP_BIT, (Ctrl_1_Held).w
+        beq.s   .not_lookup
+        move.b  #ANIM_LOOKUP, SST_anim(a0)
+        rts
+.not_lookup:
+        ; (9) balance at a ledge edge — (7)/(8) in the priority table are
+        ; run/walk, handled below in .walk_or_run (the moving branch)
+        jsr     Player_AtLedgeEdge              ; beq = supported
+        beq.s   .idle
+        move.b  #ANIM_BALANCE, SST_anim(a0)
+        rts
+.idle:
+        move.b  #ANIM_IDLE, SST_anim(a0)
+        rts
+
+.walk_or_run:
+        move.w  _pl_gsp(a0), d1
+        bpl.s   .wr_abs
+        neg.w   d1
+.wr_abs:
+        cmpi.w  #ANIM_RUN_THRESHOLD, d1
+        blt.s   .walk
+        move.b  #ANIM_RUN, SST_anim(a0)
+        rts
+.walk:
+        move.b  #ANIM_WALK, SST_anim(a0)
+        rts
 
 Player_States:
         dc.w    PState_Ground-Player_States     ; PSTATE_GROUND
@@ -626,3 +754,56 @@ Player_DebugMove:
         add.l   d1, SST_y_pos(a0)
 .draw:
         jmp     Draw_Sprite
+
+    ifdef __DEBUG__
+; -----------------------------------------------
+; Player_ViewerToggle — START toggles the anim-viewer sub-mode. Entering
+; restores Sonic's real assets and freezes; exiting returns to the boot-
+; default debug-fly. DEBUG only.
+; In:  a0 = player SST.  Clobbers: d0-d2, a1-a2 (d6 preserved)
+; -----------------------------------------------
+Player_ViewerToggle:
+        btst    #7, (Ctrl_1_Press).w            ; START
+        beq.s   .done
+        bchg    #0, (Anim_Viewer_Active).w       ; Z set = bit WAS 0 -> entering
+        beq.s   .enter
+        bra.w   Player_DebugEnter               ; was ON -> now OFF: back to fly
+.enter:
+        sf      _pl_debug(a0)                   ; leave debug-fly
+        bsr.w   Sonic_InitAssets                ; restore Sonic's real art set
+        setStandingSize
+        move.b  #$FF, SST_prev_anim(a0)         ; force anim + DPLC reload
+        move.b  #$FF, SST_prev_frame(a0)
+        clr.w   _pl_gsp(a0)
+        clr.b   _pl_viewer_id(a0)
+.done:
+        rts
+
+; -----------------------------------------------
+; Player_ViewerUpdate — frozen anim preview. Up/Down step the forced id;
+; a fixed gsp drives the speed-scaled anims; runs the display tail. Does not
+; return to Player_Main (tail-jumps the display tail). DEBUG only.
+; In:  a0 = player SST.
+; -----------------------------------------------
+Player_ViewerUpdate:
+        move.b  (Ctrl_1_Press).w, d0
+        btst    #BUTTON_UP_BIT, d0
+        beq.s   .no_up
+        addq.b  #1, _pl_viewer_id(a0)
+        cmpi.b  #ANIM_COUNT, _pl_viewer_id(a0)
+        blo.s   .no_up
+        clr.b   _pl_viewer_id(a0)               ; wrap high -> 0
+.no_up:
+        btst    #BUTTON_DOWN_BIT, d0
+        beq.s   .no_dn
+        subq.b  #1, _pl_viewer_id(a0)
+        bpl.s   .no_dn
+        move.b  #ANIM_COUNT-1, _pl_viewer_id(a0) ; wrap below 0 -> top
+.no_dn:
+        move.w  #$600, _pl_gsp(a0)              ; mid speed -> scaled anims move
+        bsr.w   Player_Animate                  ; computes d3 (gsp nonzero ->
+                                                ; no balance-sensor path)
+        move.b  _pl_viewer_id(a0), SST_anim(a0) ; OVERRIDE the classifier
+        jsr     AnimateSprite
+        jmp     Sonic_LoadArt
+    endif

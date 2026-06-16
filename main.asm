@@ -12,6 +12,7 @@ PAD_TO_POWER_OF_TWO     = 1
 ; Definitions (no ROM output)
 ; -----------------------------------------------
     include "constants.asm"
+    include "sound_constants.asm"
     include "structs.asm"
     include "macros.asm"
     include "engine/parallax_macros.inc"
@@ -123,6 +124,14 @@ __BUDGET_ENGINE:
     include "engine/level/bg.asm"
     include "engine/level/bg_anim.asm"
     include "debug/compression_selftest.asm"
+    ifdef SOUND_DRIVER_ENABLED
+        include "engine/sound_api.asm"
+    endif
+    ifdef __DEBUG__
+      ifdef SOUND_DRIVER_ENABLED
+        include "debug/sound_debug.asm"
+      endif
+    endif
 
 ; -----------------------------------------------
 ; Object code bank
@@ -144,6 +153,7 @@ __BUDGET_OBJBANK:
     include "engine/player/player_common.asm"
     include "engine/player/player_ground.asm"
     include "engine/player/player_air.asm"
+    include "engine/player/player_spindash.asm"
     include "engine/player/sonic.asm"
 
     include "objects/test_static.asm"

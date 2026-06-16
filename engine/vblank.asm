@@ -15,6 +15,11 @@ VBlank_Handler:
 .lag:
         bsr.w   VInt_Lag
 .done:
+    ifdef __DEBUG__
+      ifdef SOUND_DRIVER_ENABLED
+        bsr.w   Sound_DebugMirror       ; always-run snapshot (any game state)
+      endif
+    endif
         moveq   #0, d0
         move.b  d0, (VBlank_Ready).w
         movem.l (sp)+, d0-a6

@@ -193,6 +193,7 @@ Prof_Peak_Render:       ds.w 1          ; peak Render_Sprites
 Prof_Peak_Frame:        ds.w 1          ; peak full frame
 Prof_Dynamic_Used:      ds.w 1          ; dynamic slots in use this frame
 Prof_Effect_Used:       ds.w 1          ; effect slots in use this frame
+Anim_Viewer_Active:     ds.w 1          ; anim-viewer sub-mode flag (0 = off)
     endif
 
 ; -----------------------------------------------
@@ -426,6 +427,16 @@ Player_Ring_Index:      ds.w 1      ; byte offset into both rings — word-sized
     if Player_Pos_Ring&$FF
       error "Player_Pos_Ring not 256-aligned — low-byte index wrap breaks"
     endif
+
+; -----------------------------------------------
+; Sound driver debug mirror
+; Declared unconditionally (64 bytes, negligible) so the RAM layout is
+; identical between DEBUG and release. Only WRITTEN under __DEBUG__ +
+; SOUND_DRIVER_ENABLED (debug/sound_debug.asm). Lets the Exodus MCP —
+; which can read 68k RAM but not Z80 RAM at $A00000 — observe the driver's
+; mailbox+status by reading this symbol.
+; -----------------------------------------------
+Sound_Dbg_Mirror:       ds.b 64         ; DEBUG: mirror of Z80 $1F00-$1F3F (mailbox+status)
 
 RAM_End:
 

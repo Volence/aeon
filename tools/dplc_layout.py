@@ -21,6 +21,24 @@ from pathlib import Path
 
 TILE_SIZE = 32
 
+# A DPLC entry's tile count is a 4-bit field (bits 15-12 = count-1), so a single
+# entry can load at most 16 tiles. A contiguous frame larger than 16 tiles must be
+# emitted as MULTIPLE entries or the count overflows ((20-1)&0xF = 3 -> loads 4
+# tiles -> the rest of the frame renders stale-VRAM garbage). Perform_DPLC loops
+# over a frame's entries, so multiple contiguous chunks load correctly.
+MAX_TILES_PER_ENTRY = 16
+
+
+def split_contiguous_entries(start, count):
+    """Split a single contiguous (start, count) run into <=16-tile DPLC entries."""
+    entries = []
+    while count > 0:
+        chunk = min(count, MAX_TILES_PER_ENTRY)
+        entries.append((start, chunk))
+        start += chunk
+        count -= chunk
+    return entries
+
 
 def parse_dplc(data):
     """Parse S2-format DPLC. Returns list of frames, each frame = [(start, count), ...]."""
@@ -184,7 +202,7 @@ def main():
     new_art_tiles = len(new_art) // TILE_SIZE
     overhead = (len(new_art) - len(art_data)) / len(art_data) * 100 if art_data else 0
 
-    contiguous_frames = [[(start, count)] if count > 0 else [] for start, count in new_frames]
+    contiguous_frames = [split_contiguous_entries(start, count) if count > 0 else [] for start, count in new_frames]
 
     print(f"\nContiguous layout:")
     print(f"  Art: {len(art_data):,} → {len(new_art):,} bytes "
@@ -314,7 +332,7 @@ def cmd_test():
           f"expected 7→4, got {before}→{after}")
 
     # Test 7: optimized DPLC round-trips through write/parse
-    contiguous_frames = [[(start, count)] if count > 0 else [] for start, count in new_frames]
+    contiguous_frames = [split_contiguous_entries(start, count) if count > 0 else [] for start, count in new_frames]
     opt_bytes = write_dplc(contiguous_frames)
     opt_parsed = parse_dplc(opt_bytes)
     check("7. Optimized DPLC write/parse round-trip",

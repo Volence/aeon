@@ -67,8 +67,12 @@ Cold_Boot:
         btst    d0, (a1)                    ; wait for bus grant (d0 = 0 → test bit 0)
         bne.s   .wait_z80
 
-        ; Copy Z80 idle program to Z80 RAM
+        ; Copy Z80 program to Z80 RAM (a5 already points at the included blob)
+    ifdef SOUND_DRIVER_ENABLED
+        move.w  #Z80_SOUND_SIZE-1, d1       ; word count — blob may exceed moveq range
+    else
         moveq   #Z80_IDLE_SIZE-1, d1
+    endif
 .load_z80:
         move.b  (a5)+, (a0)+
         dbf     d1, .load_z80
@@ -200,6 +204,20 @@ Cold_Boot:
         bsr.w   CompressionSelfTest
     endif
 
+    ifdef SOUND_DRIVER_ENABLED
+        ; Sound mailbox idle + (DEBUG) ping handshake. Z80 already has the bus
+        ; and the driver is running; registers are free here (post-boot setup).
+        bsr.w   Sound_Init
+      ifdef __DEBUG__
+        moveq   #$3C, d1                 ; DEBUG: ping with a recognizable value
+        bsr.w   Sound_Ping
+        move.b  #SND_CMD_PLAY_SAMPLE, d0 ; DEBUG: trigger the looping test tone
+        moveq   #0, d1
+        moveq   #0, d2
+        bsr.w   Sound_PostCommand
+      endif
+    endif
+
         ; Set initial game state
         move.l  #GameState_OJZScroll_Init, (Game_State).w
         move.b  #GS_OJZ_SCROLL_TEST, (Game_State_ID).w
@@ -254,8 +272,12 @@ BootData_VDPRegs:
         ; VRAM DMA fill command
         dc.l    vdpComm(0, VRAM, DMA)
 
-        ; Z80 idle program (assembled Z80 code)
+        ; Z80 program (assembled Z80 code) — sound driver replaces idle when enabled
+    ifdef SOUND_DRIVER_ENABLED
+        include "engine/z80_sound_driver.asm"
+    else
         include "engine/z80_init.asm"
+    endif
         align 2
 
         ; PSG silence values
