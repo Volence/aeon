@@ -211,6 +211,10 @@ Cold_Boot:
       ifdef __DEBUG__
         moveq   #$3C, d1                 ; DEBUG: ping with a recognizable value
         bsr.w   Sound_Ping
+        move.b  #SND_CMD_PLAY_SAMPLE, d0 ; DEBUG: trigger the looping test tone
+        moveq   #0, d1
+        moveq   #0, d2
+        bsr.w   Sound_PostCommand
       endif
     endif
 

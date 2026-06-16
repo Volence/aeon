@@ -29,8 +29,13 @@ SND_CMD_PLAY_SAMPLE     = 2
 
 ; --- Playback state (Z80 offsets) ---
 SND_STATE_BASE          = $1600
-SND_TEST_SAMPLE         = $1C00                  ; embedded test sample (Foundations)
+SND_TEST_SAMPLE         = $1C00                  ; runtime-generated test sample (Foundations)
 SND_TEST_SAMPLE_LEN     = 256
+SND_PLAY_ACTIVE         = SND_STATE_BASE+$00     ; 1 = sample playing
+SND_PLAY_PTR            = SND_STATE_BASE+$02      ; current sample read pointer
+SND_PLAY_LEN            = SND_STATE_BASE+$04      ; bytes remaining
+SND_DAC_RATE            = $10                     ; per-sample djnz delay (test tone)
+SND_STAT_DAC_ACTIVE     = SND_STAT_BASE+$04       ; $1F14 -> mirror $FFB216 (DAC active flag)
 
 ; --- YM2612 ports as seen from the Z80 ($4000-$4003) ---
 SND_Z80_YM_A0           = $4000                  ; addr part I / status read

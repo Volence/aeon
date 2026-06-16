@@ -12,12 +12,17 @@
 ; ----------------------------------------------------------------------
 Sound_DebugMirror:
         stopZ80
-        lea     (Z80_RAM+SND_MBX_BASE).l, a0     ; $A01F00 source (Z80 RAM)
         lea     (Sound_Dbg_Mirror).w, a1         ; 68k RAM dest
-        moveq   #64-1, d0
-.copy:
+        lea     (Z80_RAM+SND_MBX_BASE).l, a0     ; [0..47] = $1F00..$1F2F (mailbox+status)
+        moveq   #48-1, d0
+.copy1:
         move.b  (a0)+, (a1)+
-        dbf     d0, .copy
+        dbf     d0, .copy1
+        lea     (Z80_RAM+SND_STATE_BASE).l, a0   ; [48..63] = $1600..$160F (playback state)
+        moveq   #16-1, d0
+.copy2:
+        move.b  (a0)+, (a1)+
+        dbf     d0, .copy2
         startZ80
         rts
       endif

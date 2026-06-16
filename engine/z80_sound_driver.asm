@@ -38,6 +38,18 @@ SndDrv_Init:
         ld      (SND_STAT_ACK_COUNT), a
         ld      (SND_STAT_TICK), a
 
+        ; --- generate a 256-byte sawtooth test sample at SND_TEST_SAMPLE ---
+        ld      hl, SND_TEST_SAMPLE
+        ld      b, 0                     ; 0 -> 256 iterations via djnz
+        xor     a
+.gen_sample:
+        ld      (hl), a
+        inc     hl
+        add     a, 8                     ; sawtooth step
+        djnz    .gen_sample
+        xor     a
+        ld      (SND_STAT_DAC_ACTIVE), a ; DAC-active status = 0
+
         ; announce we are alive
         ld      a, SND_ALIVE_MARKER
         ld      (SND_STAT_ALIVE), a
@@ -48,6 +60,7 @@ SndDrv_Init:
 ; terminated routine with no matching `call` (that would return to $0000).
 SndDrv_Main:
         call    SndDrv_PollMailbox       ; background work between ticks
+        call    SndDrv_FeedDAC           ; feed one DAC byte if a sample is active
         ld      a, (ix+0)                ; read YM status ($4000)
         bit     0, a                     ; Timer A overflow?
         jr      z, SndDrv_Main           ; not yet -> keep polling
@@ -75,12 +88,53 @@ SndDrv_PollMailbox:
         ld      a, (SND_STAT_ACK_COUNT)
         inc     a
         ld      (SND_STAT_ACK_COUNT), a
-        ; dispatch on cmd id
+        ; dispatch on cmd id (b = cmd, c = arg0)
         ld      a, b
         cp      SND_CMD_PING
-        ret     nz                       ; unknown cmd -> ack only
+        jr      nz, .not_ping
         ld      a, c
         ld      (SND_STAT_PING_ECHO), a  ; echo arg0
+        ret
+.not_ping:
+        cp      SND_CMD_PLAY_SAMPLE
+        ret     nz                       ; unknown cmd -> ack only
+        ; start playback: ptr=sample, len=256, DAC mode ON, active=1
+        ld      hl, SND_TEST_SAMPLE
+        ld      (SND_PLAY_PTR), hl
+        ld      hl, SND_TEST_SAMPLE_LEN
+        ld      (SND_PLAY_LEN), hl
+        ld      (ix+0), SND_REG_DAC_ENABLE   ; reg $2B
+        ld      (ix+1), 80h                  ; DAC mode ON (bit7)
+        ld      a, 1
+        ld      (SND_PLAY_ACTIVE), a
+        ld      (SND_STAT_DAC_ACTIVE), a
+        ret
+
+; --- feed one DAC byte if a sample is active; loops the sample (test tone) ---
+; (Reached only via `call` from SndDrv_Main — never by fall-through.)
+SndDrv_FeedDAC:
+        ld      a, (SND_PLAY_ACTIVE)
+        or      a
+        ret     z                        ; not playing
+        ld      hl, (SND_PLAY_PTR)
+        ld      a, (hl)
+        inc     hl
+        ld      (ix+0), SND_REG_DAC_DATA ; reg $2A
+        ld      (ix+1), a                ; write sample byte
+        ld      (SND_PLAY_PTR), hl
+        ld      b, SND_DAC_RATE          ; per-sample rate delay
+.dac_delay:
+        djnz    .dac_delay
+        ld      hl, (SND_PLAY_LEN)
+        dec     hl
+        ld      (SND_PLAY_LEN), hl
+        ld      a, h
+        or      l
+        ret     nz                       ; more samples remain
+        ld      hl, SND_TEST_SAMPLE      ; exhausted -> loop (continuous test tone)
+        ld      (SND_PLAY_PTR), hl
+        ld      hl, SND_TEST_SAMPLE_LEN
+        ld      (SND_PLAY_LEN), hl
         ret
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise

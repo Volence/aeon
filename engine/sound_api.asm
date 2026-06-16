@@ -28,13 +28,24 @@ Sound_Init:
 
 ; ----------------------------------------------------------------------
 ; Sound_PostCommand — atomically post a command record to the mailbox.
-; The Z80 is stopped for the whole record, so args + cmd are in place
+; Waits (bus-held) until the Z80 has consumed any prior command (PENDING==0)
+; so back-to-back posts can't clobber an unconsumed record (atomicity rule).
+; Then writes the record while the Z80 is stopped, so args + cmd are in place
 ; before PENDING is set — the Z80 can never latch a half-written record.
-; In:  d0.b = cmd id, d1.b = arg0, d2.b = arg1.  Preserves d0-d2.
+; In:  d0.b = cmd id, d1.b = arg0, d2.b = arg1.  Preserves d0-d2 (clobbers d3).
 ; ----------------------------------------------------------------------
 Sound_PostCommand:
-        move.w  sr, -(sp)
+        move.w  sr, -(sp)                   ; save caller's SR once
+.wait_idle:
         move.w  #$2700, sr                  ; mask interrupts (no mirror nesting)
+        stopZ80
+        move.b  (SND_Z80_BASE+SND_MBX_PENDING).l, d3   ; sample PENDING (bus held)
+        startZ80                            ; balanced release; retry outside stop
+        move.w  (sp), sr
+        tst.b   d3
+        bne.s   .wait_idle                  ; prior command not yet consumed
+        ; mailbox idle -> post the record atomically
+        move.w  #$2700, sr
         stopZ80
         move.b  d1, (SND_Z80_BASE+SND_MBX_ARG0).l
         move.b  d2, (SND_Z80_BASE+SND_MBX_ARG1).l
