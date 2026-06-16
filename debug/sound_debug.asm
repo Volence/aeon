@@ -13,7 +13,7 @@
 Sound_DebugMirror:
         stopZ80
         lea     (Sound_Dbg_Mirror).w, a1         ; 68k RAM dest
-        lea     (Z80_RAM+SND_MBX_BASE).l, a0     ; [0..47] = $1F00..$1F2F (mailbox+status)
+        lea     (Z80_RAM+SND_REQ_BASE).l, a0     ; [0..47] = $1F00..$1F2F (req slots + status)
         moveq   #48-1, d0
 .copy1:
         move.b  (a0)+, (a1)+

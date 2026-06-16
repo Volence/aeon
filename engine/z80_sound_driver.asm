@@ -10,8 +10,10 @@ Z80_Sound_Start:
 
 ; --- entry ---
 SndDrv_Init:
+        ; Interrupt-free driver: `di` held forever. The 68k does not pulse the Z80
+        ; /INT, and the YM2612 timer overflow is NOT wired to the Z80 interrupt line
+        ; on the Genesis (timers can only be polled) — so no `im`/`ei` is needed.
         di
-        im      1
         ld      sp, 1FFEh                ; stack top (see z80-ram-map sub-design)
 
         ; YM ready: wait for busy flag (bit7 of $4000) to clear, then DAC off
@@ -23,17 +25,21 @@ SndDrv_Init:
         ld      (ix+1), 00h                  ; DAC mode OFF at init
 
         ; --- start YM Timer A as the scheduler timebase ---
-        ld      (ix+0), SND_REG_TIMER_A_HI   ; reg $24 = Timer A high 8 bits
-        ld      (ix+1), 0C0h                 ; value (research-tuned; controller measures)
-        ld      (ix+0), SND_REG_TIMER_A_LO   ; reg $25 = Timer A low 2 bits
-        ld      (ix+1), 000h
+        ; Value computed at build time from SND_TEMPO_TPF (ticks/frame). reg $24 =
+        ; N>>2 (bits 9..2), reg $25 = N&3 (bits 1..0) of the 10-bit Timer A value.
+        ld      (ix+0), SND_REG_TIMER_A_HI   ; reg $24
+        ld      (ix+1), SND_TIMERA_HI
+        ld      (ix+0), SND_REG_TIMER_A_LO   ; reg $25
+        ld      (ix+1), SND_TIMERA_LO
         ld      (ix+0), SND_REG_TIMER_CTRL   ; reg $27
         ld      (ix+1), 005h                 ; bit0 Load A | bit2 Enable-A flag
 
-        ; clear mailbox + status region
+        ; clear request slots + status region
         xor     a
-        ld      (SND_MBX_CMD), a
-        ld      (SND_MBX_PENDING), a
+        ld      (SND_REQ_PING), a
+        ld      (SND_REQ_SAMPLE), a
+        ld      (SND_REQ_MUSIC), a
+        ld      (SND_REQ_SFX), a
         ld      (SND_STAT_PING_ECHO), a
         ld      (SND_STAT_ACK_COUNT), a
         ld      (SND_STAT_TICK), a
@@ -72,33 +78,24 @@ SndDrv_Main:
         ld      (SND_STAT_TICK), a
         jr      SndDrv_Main
 
-; --- poll mailbox: consume AT MOST one pending command, then ret ---
+; --- poll the per-type request slots; act on any nonzero slot, then clear it ---
 ; (Reached only via `call` from SndDrv_Main — never by fall-through.)
 SndDrv_PollMailbox:
-        ld      a, (SND_MBX_PENDING)
+        ; --- ping request? echo the value back ---
+        ld      a, (SND_REQ_PING)
         or      a
-        ret     z                        ; nothing pending -> done
-        ; latch cmd + arg0, clear pending (ack), bump ack counter
-        ld      a, (SND_MBX_CMD)
-        ld      b, a                     ; b = cmd id
-        ld      a, (SND_MBX_ARG0)
-        ld      c, a                     ; c = arg0
+        jr      z, .no_ping
+        ld      (SND_STAT_PING_ECHO), a  ; echo the request value
         xor     a
-        ld      (SND_MBX_PENDING), a     ; consume-ack: clear pending
+        ld      (SND_REQ_PING), a        ; clear slot (consumed)
         ld      a, (SND_STAT_ACK_COUNT)
         inc     a
         ld      (SND_STAT_ACK_COUNT), a
-        ; dispatch on cmd id (b = cmd, c = arg0)
-        ld      a, b
-        cp      SND_CMD_PING
-        jr      nz, .not_ping
-        ld      a, c
-        ld      (SND_STAT_PING_ECHO), a  ; echo arg0
-        ret
-.not_ping:
-        cp      SND_CMD_PLAY_SAMPLE
-        ret     nz                       ; unknown cmd -> ack only
-        ; start playback: ptr=sample, len=256, DAC mode ON, active=1
+.no_ping:
+        ; --- sample request? (Phase 1: any nonzero id -> the test tone) ---
+        ld      a, (SND_REQ_SAMPLE)
+        or      a
+        ret     z                        ; nothing else pending
         ld      hl, SND_TEST_SAMPLE
         ld      (SND_PLAY_PTR), hl
         ld      hl, SND_TEST_SAMPLE_LEN
@@ -108,6 +105,11 @@ SndDrv_PollMailbox:
         ld      a, 1
         ld      (SND_PLAY_ACTIVE), a
         ld      (SND_STAT_DAC_ACTIVE), a
+        xor     a
+        ld      (SND_REQ_SAMPLE), a      ; clear slot (consumed)
+        ld      a, (SND_STAT_ACK_COUNT)
+        inc     a
+        ld      (SND_STAT_ACK_COUNT), a
         ret
 
 ; --- feed one DAC byte if a sample is active; loops the sample (test tone) ---

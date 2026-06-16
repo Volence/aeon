@@ -209,12 +209,10 @@ Cold_Boot:
         ; and the driver is running; registers are free here (post-boot setup).
         bsr.w   Sound_Init
       ifdef __DEBUG__
-        moveq   #$3C, d1                 ; DEBUG: ping with a recognizable value
+        moveq   #$3C, d0                 ; DEBUG: ping with a recognizable value
         bsr.w   Sound_Ping
-        move.b  #SND_CMD_PLAY_SAMPLE, d0 ; DEBUG: trigger the looping test tone
-        moveq   #0, d1
-        moveq   #0, d2
-        bsr.w   Sound_PostCommand
+        moveq   #SND_SAMPLE_TEST, d0     ; DEBUG: trigger the looping test tone
+        bsr.w   Sound_PlaySample
       endif
     endif
 
