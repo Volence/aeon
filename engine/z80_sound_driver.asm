@@ -57,6 +57,30 @@ SndDrv_Init:
         ld      (SND_RING_RD), a         ; ring read ptr low byte = 0 -> $1700
         ld      (SND_STAT_DAC_ACTIVE), a ; start with DAC inactive (play request enables)
 
+        ; --- generate a 1KB source waveform at $1800 (interim RAM source) ---
+        ; A slower ramp than the 256B ring so the waveform spans >ring -> proves
+        ; the producer genuinely streams from a source longer than the ring.
+        ld      hl, 1800h
+        ld      bc, 0400h                ; 1024 bytes
+        xor     a
+.gen_src:
+        ld      (hl), a
+        inc     hl
+        add     a, 2                     ; slower ramp than the 256B ring
+        ld      d, a                     ; preserve ramp value across the bc test
+        dec     bc                       ; advance count (does not set flags)
+        ld      a, b
+        or      c                        ; Z set when bc == 0 (last flag op before jr)
+        ld      a, d                     ; restore ramp value (ld does not touch flags)
+        jr      nz, .gen_src
+        ; init stream pointers: source ptr=$1800, remaining=1024, fill ptr=0
+        ld      hl, 1800h
+        ld      (SND_ROM_PTR), hl
+        ld      hl, 0400h
+        ld      (SND_ROM_LEN), hl
+        xor     a
+        ld      (SND_RING_WR), a
+
         ; announce we are alive
         ld      a, SND_ALIVE_MARKER
         ld      (SND_STAT_ALIVE), a
@@ -68,6 +92,7 @@ SndDrv_Init:
 SndDrv_Main:
         call    SndDrv_PollMailbox       ; background work between ticks
         call    SndDrv_DrainDAC          ; drain one ring byte to the DAC if active
+        call    SndDrv_FillRing          ; top up the ring from the RAM source (2:1)
         ld      a, (ix+0)                ; read YM status ($4000)
         bit     0, a                     ; Timer A overflow?
         jr      z, SndDrv_Main           ; not yet -> keep polling
@@ -126,6 +151,57 @@ SndDrv_DrainDAC:
         ld      (SND_RING_RD), a
         ld      b, SND_DAC_RATE          ; balanced rate delay (controller tunes)
 .rate:  djnz    .rate
+        ret
+
+; --- top up the ring from the RAM source; ~2:1 ahead, never lap read ptr ---
+; (Reached only via `call` from SndDrv_Main — never by fall-through.)
+; Page-aligned ring (MegaPCM trick): RD/WR are low bytes, the high byte is the
+; page, so distance math is a single byte op mod 256. Guard: stop when the free
+; gap (rd - wr) & $FF drops below the guard band, so WR can never lap RD (which
+; would clobber un-drained samples). When WR==RD the gap reads 0 -> we wait for
+; the drain to open a gap (correct: ring is full of the pre-fill at boot).
+SndDrv_FillRing:
+        ld      a, (SND_STAT_DAC_ACTIVE)
+        or      a
+        ret     z                        ; idle -> nothing to stream
+        ld      b, 2                     ; try to add up to 2 bytes (2:1 fill-ahead)
+.fill1:
+        ; ring-full guard: free = (rd - wr) & $FF ; if free <= guard, stop
+        ld      a, (SND_RING_RD)
+        ld      c, a
+        ld      a, (SND_RING_WR)
+        sub     c                        ; a = (wr - rd) & $FF
+        neg                              ; a = (rd - wr) & $FF  = free space mod 256
+        cp      4                        ; guard band (tune)
+        ret     c                        ; free < 4 -> too full -> done
+        ; read one source byte
+        ld      hl, (SND_ROM_PTR)
+        ld      a, (hl)
+        inc     hl
+        ld      (SND_ROM_PTR), hl
+        ; write to ring[wr]
+        push    af
+        ld      a, (SND_RING_WR)
+        ld      l, a
+        ld      h, SND_RING_PAGE
+        pop     af
+        ld      (hl), a
+        ld      a, (SND_RING_WR)
+        inc     a
+        ld      (SND_RING_WR), a
+        ; advance source length; loop source when exhausted
+        ld      hl, (SND_ROM_LEN)
+        dec     hl
+        ld      (SND_ROM_LEN), hl
+        ld      a, h
+        or      l
+        jr      nz, .next
+        ld      hl, 1800h                ; loop source: reset ptr + remaining
+        ld      (SND_ROM_PTR), hl
+        ld      hl, 0400h
+        ld      (SND_ROM_LEN), hl
+.next:
+        djnz    .fill1
         ret
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise
