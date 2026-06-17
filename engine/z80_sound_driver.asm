@@ -49,9 +49,20 @@ SndDrv_Init:
         ld      (ix+0), SND_REG_DAC_ENABLE   ; select reg $2B
         ld      (ix+1), 00h                  ; DAC mode OFF at init
 
-        ; (1B: YM Timer A setup REMOVED — the tempo tick was dropped from the
-        ; loop, and per-frame work now lives in the VBlank ISR. The hardware
-        ; VBlank /INT, not the YM timer, drives the drain.)
+        ; --- YM Timer A PACES the DAC output at a fixed sample rate ---
+        ; The main loop outputs exactly one ring byte per Timer A overflow; the
+        ; variable fill/drain work happens in the slack BEFORE the next tick. So
+        ; the output cadence == the timer (rock-steady pitch) regardless of how
+        ; much fill work a sample did or whether we're filling vs draining — no
+        ; per-sample cycle-balancing needed. N=1020 ($FF/$00) -> ~13.3 kHz, whose
+        ; ~75us period comfortably exceeds the worst-case (2:1 catch-up) fill.
+        ; (Tunable; the TEMP blip authored at 16 kHz plays a touch low here.)
+        ld      (ix+0), SND_REG_TIMER_A_HI   ; reg $24 = N>>2
+        ld      (ix+1), 0FFh
+        ld      (ix+0), SND_REG_TIMER_A_LO   ; reg $25 = N&3
+        ld      (ix+1), 00h
+        ld      (ix+0), SND_REG_TIMER_CTRL   ; reg $27
+        ld      (ix+1), 005h                 ; bit0 Load A | bit2 Enable-A flag
 
         ; clear request slots + status region
         xor     a
@@ -111,8 +122,15 @@ SndDrv_Main:
         ld      a, (SND_STAT_DAC_ACTIVE)
         or      a
         jr      z, SndDrv_Main           ; idle until a sample plays
-        ei                               ; VBlank IRQ may land HERE (between samples)
-        ; --- output one ring byte to the DAC ---
+.wait_tick:
+        ei                               ; VBlank IRQ may land HERE (between ticks)
+        ld      a, (ix+0)                ; YM status
+        bit     0, a                     ; Timer A overflow -> next sample due?
+        jr      z, .wait_tick            ; spin; the slack absorbs fill-cost jitter
+        di                               ; protect output + ROM fill from the IRQ
+        ld      (ix+0), SND_REG_TIMER_CTRL   ; reg $27
+        ld      (ix+1), 015h                 ; reset-A flag | Load | Enable (re-arm tick)
+        ; --- output one ring byte (timing == the tick => constant pitch) ---
         ld      a, (SND_RING_RD)
         ld      l, a
         ld      h, SND_RING_PAGE
@@ -122,11 +140,22 @@ SndDrv_Main:
         inc     l                        ; advance read ptr (wraps within page)
         ld      a, l
         ld      (SND_RING_RD), a
-        di                               ; protect the ROM reads below from the IRQ
-        call    SndDrv_FillOne           ; fill byte 1
-        call    SndDrv_FillOne           ; fill byte 2 (2:1 catch-up; guard no-ops when full)
-        ld      b, SND_DAC_RATE          ; rate delay (controller tunes)
-.rate:  djnz    .rate
+        ; --- in the slack: FILL from ROM, or DRAIN (no ROM) during the DMA window ---
+        ld      a, (SND_PLAY_MODE)
+        or      a
+        jr      nz, .drain
+        ; FILL mode: 2:1 catch-up (di set -> ROM reads protected from the IRQ)
+        call    SndDrv_FillOne
+        call    SndDrv_FillOne
+        jr      SndDrv_Main
+.drain:
+        ; DRAIN mode (set by the VBlank ISR): NO ROM read while the 68k may be
+        ; DMAing. Resume FILL once the 68k acks DMA-done (SND_CTRL_DMA_ACTIVE != 0).
+        ld      a, (SND_CTRL_DMA_ACTIVE)
+        or      a
+        jr      z, SndDrv_Main           ; still DMAing -> stay draining (timer-paced)
+        xor     a
+        ld      (SND_PLAY_MODE), a       ; DMA done -> back to FILL
         jr      SndDrv_Main
 
 ; --- poll the per-type request slots; act on any nonzero slot, then clear it ---
@@ -197,34 +226,14 @@ SndDrv_ISR_Drain:
         push    hl
         push    ix
         ld      ix, SND_Z80_YM_A0        ; ix = $4000 (self-contained; see note)
-        ld      a, (SND_STAT_DAC_ACTIVE)
-        or      a
-        jr      z, .done                 ; nothing playing -> just housekeep + return
+        ; Enter DRAIN mode for the upcoming DMA window: the main loop will keep
+        ; outputting (timer-paced) but stop reading ROM until the 68k acks. The
+        ; Z80 owns the ack reset (no entry race — the 68k only ever SETS it).
+        ld      a, 1
+        ld      (SND_PLAY_MODE), a       ; 1 = DRAIN
         xor     a
-        ld      (SND_CTRL_DMA_ACTIVE), a ; Z80 owns the reset (no entry race with the 68k ack)
-        ld      b, SND_DRAIN_MAX         ; safety cap (< ring lead) — prevents underrun/hang
-.loop:
-        ld      a, (SND_RING_RD)         ; ring read low byte
-        ld      l, a
-        ld      h, SND_RING_PAGE         ; hl = $17xx
-        ld      a, (hl)                  ; ring[rd]
-        ld      (ix+0), SND_REG_DAC_DATA ; reg $2A
-        ld      (ix+1), a                ; -> DAC
-        inc     l                        ; advance (wraps within page)
-        ld      a, l
-        ld      (SND_RING_RD), a
-        push    bc                       ; rate pad ~matching FILL+PLAY per-sample (tune)
-        ld      c, SND_DRAIN_PAD
-.drate: dec     c
-        jr      nz, .drate
-        pop     bc
-        ; --- adaptive exit: did the 68k finish its DMA pipeline this frame? ---
-        ld      a, (SND_CTRL_DMA_ACTIVE)
-        or      a
-        jr      nz, .done                ; acked -> stop draining, resume FILL+PLAY
-        djnz    .loop                    ; else keep draining (until the safety cap)
-.done:
-        call    SndDrv_PollMailbox       ; per-frame housekeeping, OUT of the audio path
+        ld      (SND_CTRL_DMA_ACTIVE), a ; reset the DMA-done ack
+        call    SndDrv_PollMailbox       ; per-frame housekeeping (no ROM read -> DMA-safe)
         pop     ix
         pop     hl
         pop     bc
