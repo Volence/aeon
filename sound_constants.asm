@@ -129,3 +129,85 @@ DacSample endstruct
 
 ; --- Z80 bank register (as seen from the Z80) ---
 SND_Z80_BANKREG         = $6000
+
+; ======================================================================
+; Music format v0 (Sound 1C) — build-time contract shared 68k/Z80/Python.
+; The Python tools (tools/gen_sound_tables.py, tools/song_packer.py) emit
+; data that matches these equates; the Z80 sequencer (Task 2+) consumes it.
+; ======================================================================
+
+; --- Music event-list opcodes (v0) ---
+; $00–$7F : set default duration = value (ticks)   [range-dispatched]
+MEV_REST        = $80    ; rest for default duration (key-off + advance)
+; $81–$DF : note, pitch index = byte-$81           [range-dispatched]
+MEV_NOTE_BASE   = $81    ; pitch 0 = MEV_NOTE_BASE
+MEV_NOTE_MAX    = $DF    ; highest note opcode (pitch index 0..$5E)
+MEV_VOL         = $E0    ; + vv  : set channel volume (linear 0..127)
+MEV_PATCH       = $E1    ; + pp  : set FM patch index
+MEV_DAC         = $E2    ; + ss  : DAC trigger sample id (DAC channel only)
+MEV_NOTE_DUR    = $E3    ; + nn dd : note nn with explicit duration dd
+MEV_LOOP_POINT  = $EE    ; loop-target marker (no operand)
+MEV_JUMP        = $EF    ; jump to loop point
+MEV_END         = $FF    ; end of stream (channel idle)
+; reserved for Phase 3: $E4–$ED, $F0–$FE (unknown opcode = build/validation error)
+
+        ; opcode ranges must not overlap: the top note opcode is below the
+        ; first command opcode, so the range dispatch is unambiguous.
+        if MEV_NOTE_MAX >= MEV_VOL
+          error "MEV_NOTE_MAX (\{MEV_NOTE_MAX}) must be < MEV_VOL (\{MEV_VOL})"
+        endif
+
+; --- Channel-route enum ---
+CHROUTE_FM1 = 0
+CHROUTE_FM2 = 1
+CHROUTE_FM3 = 2
+CHROUTE_FM4 = 3
+CHROUTE_FM5 = 4
+; (FM6 is permanently the DAC in 1C — not a sequencer FM channel)
+CHROUTE_PSG1 = 5
+CHROUTE_PSG2 = 6
+CHROUTE_PSG3 = 7
+CHROUTE_PSGN = 8    ; PSG noise
+CHROUTE_DAC  = 9    ; emits $E2 DAC triggers only
+CHROUTE_COUNT = 10
+
+        if CHROUTE_COUNT <> 10
+          error "CHROUTE_COUNT (\{CHROUTE_COUNT}) must be 10"
+        endif
+
+; --- FmPatch struct (the YM record) ---
+; 4 operators × 6 per-op regs + 2 channel regs = 26 bytes.
+;
+; OPERATOR ORDERING (resolved by research — Task 3 writer must agree):
+; The YM2612 register stride is +4 between operators within a channel, and the
+; on-hardware operator order is S1, S3, S2, S4 — i.e. register offsets +0,+4,
+; +8,+C map to operators S1,S3,S2,S4 respectively. The 4-byte per-op arrays
+; below (fp_dt_mul etc.) are stored in PHYSICAL REGISTER ORDER: array index
+; 0..3 = register offset +0,+4,+8,+C = operators S1,S3,S2,S4. The Task-3
+; register writer emits them in this same order (just add the per-channel base
+; address and stride by +4). carrier_mask_table bit i (i=0..3) likewise selects
+; the operator at offset +i*4, so the mask and these arrays use one index space.
+FmPatch struct
+fp_alg_fb     ds.b 1          ; $B0 value: algorithm (bits0-2) + feedback (bits3-5)
+fp_lr_ams_fms ds.b 1          ; $B4 value: L/R (bits6-7) + AMS (bits4-5) + FMS (bits0-2)
+fp_dt_mul     ds.b 4          ; $30+ : DT/MUL per operator
+fp_tl         ds.b 4          ; $40+ : TL per operator (carrier TL is volume-modulated)
+fp_rs_ar      ds.b 4          ; $50+ : RS/AR per operator
+fp_am_d1r     ds.b 4          ; $60+ : AM/D1R per operator
+fp_d2r        ds.b 4          ; $70+ : D2R per operator
+fp_d1l_rr     ds.b 4          ; $80+ : D1L/RR per operator
+FmPatch endstruct             ; = 2 + 6*4 = 26 bytes
+
+        if FmPatch_len <> 26
+          error "FmPatch struct is \{FmPatch_len} bytes, expected 26"
+        endif
+
+; --- SongHeader layout (emitted by tools/song_packer.py, read by the loader) ---
+; SongHeader:
+;   db  tempo            ; Timer-A period selector (bigger = slower)
+;   db  channel_count
+;   ; per channel: route byte + 2-byte stream pointer (Z80-window-relative)
+;   rept channel_count: db route ; dw stream_ptr ; endm
+;   dw  patch_table_ptr  ; FM patch table for this song
+; (No struct — the per-channel array length is variable. The packer back-patches
+; each stream_ptr to its stream's offset within the packed song blob.)
