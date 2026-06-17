@@ -145,6 +145,29 @@ not as silent quality erosion, so it is catchable and hardware-verifiable.
 3. **Z80 VBlank IRQ timing** — verify on hardware the ISR enters DRAIN before the 68k's first DMA in
    the worst case.
 
+## 7b. Implementation evolution (as-built, 2026-06-17)
+
+The implementation diverged from §4.2/§4.6 in two research- and hardware-driven ways; this
+section is the as-built source of truth:
+
+- **DMA-window signalling → research-refined to the Mega PCM zero-stop model + a 68k DMA-done
+  ack.** The 68k no longer `stopZ80`s around its DMA (gated out in `VInt_Level`/`VInt_Lag` under
+  `SOUND_DRIVER_ENABLED`); the Z80 keeps running. The Z80's hardware VBlank interrupt (RST $38,
+  reserved at Z80 `$0038` via a `rept db 0` gap) flips it into DRAIN mode race-free. The Z80
+  drains until the 68k sets a one-byte **DMA-done ack** (`SND_CTRL_DMA_ACTIVE` at `$1F04`, written
+  bus-held at the end of the VInt DMA pipeline) — so the drain adapts to the *actual* DMA length
+  each frame. The planned standalone `DMA_ACTIVE`-as-entry flag was dropped.
+- **Cycle-balanced playback → replaced by YM Timer-A-paced output.** Rather than hand-balance the
+  FILL and DRAIN loops to equal per-sample cost (fragile), the main loop outputs exactly one ring
+  byte per **Timer A overflow** and does the variable fill/drain work in the slack before the next
+  tick. Output cadence == the timer (constant pitch ~13.3 kHz) regardless of fill cost, fill-vs-
+  drain mode, or DMA load. The VBlank ISR is minimal (flip to DRAIN + reset ack + per-frame
+  mailbox poll). Residual: ~±4–8 µs poll-granularity jitter; a fully poll-free cycle-counted loop
+  is the further refinement if that floor proves audible.
+- **Real sample → clearly-TEMP synthetic raw-PCM blip.** The `sonic_hack` DAC samples are DPCM-
+  compressed (decoding them is deferred content work, user-driven); 1B streams a throwaway clean
+  blip to exercise the engine. Single sample uses build-time constants, not the descriptor table.
+
 ## 8. Decomposition
 
 A single coherent plan, but the natural task order is: ring buffer + cycle-balanced drain (RAM
