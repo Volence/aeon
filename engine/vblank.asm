@@ -17,7 +17,10 @@ VBlank_Handler:
 .done:
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
-        bsr.w   Sound_DebugMirror       ; always-run snapshot (any game state)
+        ifdef SOUND_DBG_MIRROR
+        bsr.w   Sound_DebugMirror       ; Z80-state snapshot (stops Z80 ~190us -> 60Hz tick;
+                                        ; OFF by default so DEBUG audio is clean)
+        endif
       endif
     endif
         moveq   #0, d0

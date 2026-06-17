@@ -42,6 +42,14 @@ if [[ "${SOUND_LOADTEST:-0}" == "1" ]]; then
     ASFLAGS="${ASFLAGS} -D SOUND_LOADTEST"
 fi
 
+# DEBUG-only: mirror Z80 driver state into 68k RAM each frame for MCP inspection.
+# This stops the Z80 ~190us/frame for the copy -> an audible 60Hz tick, so it is
+# OFF by default (clean audio in DEBUG builds). Enable only when inspecting Z80
+# state via the Sound_Dbg_Mirror; expect the tick while it is on.
+if [[ "${SOUND_DBG_MIRROR:-0}" == "1" ]]; then
+    ASFLAGS="${ASFLAGS} -D SOUND_DBG_MIRROR"
+fi
+
 if [[ "${PRINT_ERRORS_ONLY}" == "0" ]]; then
     ASFLAGS="${ASFLAGS} -E ${ROM_NAME}.log"
 fi
