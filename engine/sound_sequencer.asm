@@ -333,19 +333,40 @@ Seq_Trace:
     endif
 
 ; ======================================================================
-; Writer-HOOK stubs (Task 2). Each is `ret`. Tasks 3/4/6 fill these in,
-; branching on (ix+sc_route): Seq_HookNoteOn/Off -> FM key + PSG; SetVol ->
-; log-vol x carrier-mask; SetPatch -> FM patch load; Dac -> 1B DAC trigger.
-; They run with ix = current SeqChannel; the fetch path treats hl/bc/de as
-; clobberable across these calls (it commits the stream ptr first).
+; Writer-HOOK dispatch (Task 3 wires FM; PSG/DAC still `ret` stubs — Tasks 4/6).
+; Each hook gates on the route class (SCF_IS_FM bit in sc_flags): FM routes call
+; the Fm_* writers (engine/sound_fm.asm), non-FM routes fall through to `ret`.
+; They run with ix = current SeqChannel; the fetch path commits the stream ptr
+; BEFORE these calls, so hl/bc/de are clobberable here.
+;
+; NOTE on inputs (the Fm_* writers expect them):
+;   Seq_HookNoteOn  -> Fm_NoteOn   (a = pitch index = sc_note)
+;   Seq_HookNoteOff -> Fm_NoteOff  (ix only)
+;   Seq_HookSetVol  -> Fm_SetVolume(a = linear vol = sc_volume)
+;   Seq_HookSetPatch-> Fm_PatchLoad(hl = FmPatch ptr, derived from sc_patch)
 ; ======================================================================
 Seq_HookNoteOn:
-        ret
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        ret     z                        ; non-FM route -> stub (PSG/DAC: Tasks 4/6)
+        ld      a, (ix+sc_note)          ; a = pitch index
+        jp      Fm_NoteOn
+
 Seq_HookNoteOff:
-        ret
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        ret     z
+        jp      Fm_NoteOff
+
 Seq_HookSetVol:
-        ret
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        ret     z
+        ld      a, (ix+sc_volume)        ; a = linear volume (0..127)
+        jp      Fm_SetVolume
+
 Seq_HookSetPatch:
-        ret
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        ret     z
+        call    Fm_PatchPtr              ; hl = FmPatch ptr for sc_patch
+        jp      Fm_PatchLoad
+
 Seq_HookDac:
-        ret
+        ret                              ; DAC trigger route -> Task 6 (1B DAC)

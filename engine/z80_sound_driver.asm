@@ -529,6 +529,52 @@ SndDrv_SetBank:
 ; ======================================================================
         include "engine/sound_sequencer.asm"
 
+; ======================================================================
+; FM voice writer (Sound 1C, Task 3) — real YM2612 register writes for FM
+; routes. Included INSIDE the phase-0 blob so its labels resolve into Z80 RAM
+; and it reaches the inline tables/patch below with direct Z80 addressing
+; (no $8000-window banking). Comes after the sequencer (whose hooks call it),
+; before the inline tables it reads and the even-pad.
+; ======================================================================
+        include "engine/sound_fm.asm"
+
+; --- Inline Z80-addressable FM tables (GENERATED) ---
+; FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ — read by the FM writer with
+; direct Z80 addressing. Identical VALUES to the 68k ROM tables in
+; data/sound/sound_tables.asm (decision 1: inline for 1C, not banked).
+        include "engine/sound_tables_z80.asm"
+
+; --- Inline FM patch table (Z80-addressable) ---
+; Fm_PatchPtr indexes this by sc_patch (TEMP for 1C — Task 6 switches to the
+; banked 68k ROM FmPatchTable in data/sound/fm_patches.asm). These two records
+; are byte-for-byte copies of the ROM patches (PATCH_BASS=0, PATCH_LEAD=1) — the
+; SAME EHZ SMPS-voice translation, in Z80 db syntax. CLEARLY-TEMP bring-up data.
+; FmPatch_len = 26 bytes per record; field order = the FmPatch struct.
+FmPatchInlineTable:
+; PATCH_BASS (index 0) — EHZ SMPS voice, algorithm 5, feedback 6
+        db      035h                     ; fp_alg_fb
+        db      0C0h                     ; fp_lr_ams_fms (L/R=11)
+        db      000h, 001h, 013h, 001h   ; fp_dt_mul  $30 [S1,S3,S2,S4]
+        db      000h, 000h, 003h, 01Eh   ; fp_tl      $40
+        db      019h, 01Dh, 018h, 01Fh   ; fp_rs_ar   $50
+        db      00Dh, 009h, 006h, 000h   ; fp_am_d1r  $60
+        db      003h, 000h, 002h, 000h   ; fp_d2r     $70
+        db      016h, 006h, 015h, 000h   ; fp_d1l_rr  $80
+; PATCH_LEAD (index 1) — EHZ SMPS voice, algorithm 7, feedback 0 (all carriers)
+        db      007h                     ; fp_alg_fb
+        db      0C0h                     ; fp_lr_ams_fms (L/R=11)
+        db      002h, 000h, 001h, 005h   ; fp_dt_mul  $30 [S1,S3,S2,S4]
+        db      000h, 000h, 000h, 000h   ; fp_tl      $40
+        db      01Fh, 01Fh, 01Fh, 01Fh   ; fp_rs_ar   $50
+        db      00Eh, 00Eh, 00Eh, 00Eh   ; fp_am_d1r  $60
+        db      002h, 002h, 002h, 002h   ; fp_d2r     $70
+        db      054h, 055h, 055h, 055h   ; fp_d1l_rr  $80
+FmPatchInlineTable_End:
+
+        if (FmPatchInlineTable_End-FmPatchInlineTable) <> 2*FmPatch_len
+          fatal "inline FM patch table wrong size"
+        endif
+
     ifdef __DEBUG__
 ; ======================================================================
 ; TASK-2 DRY-RUN TEST STREAMS (DEBUG only; REMOVE/REPLACE when Task 6 lands

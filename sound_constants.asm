@@ -52,8 +52,27 @@ SND_DRAIN_PAD           = SND_DAC_RATE            ; per-drained-sample pad ~matc
 ; --- YM2612 ports as seen from the Z80 ($4000-$4003) ---
 SND_Z80_YM_A0           = $4000                  ; addr part I / status read (reg select)
 SND_Z80_YM_A1           = $4001                  ; data part I — DAC $2A write target (de invariant)
+SND_Z80_YM_A2           = $4002                  ; addr part II (FM ch 4-6 register select)
+SND_Z80_YM_A3           = $4003                  ; data part II
 SND_REG_DAC_DATA        = $2A                    ; YM reg: DAC sample byte (parked in the addr port)
 SND_REG_DAC_ENABLE      = $2B                    ; YM reg: bit7 = DAC mode (written ONCE at init)
+
+; --- YM2612 FM register bases (Task 3 FM voice writer) ---
+; Per-channel regs add the channel-within-part index (0..2): e.g. $A0+ch.
+; Per-operator regs add (op*4)+ch: e.g. $40+(op*4)+ch (op 0..3 = S1,S3,S2,S4).
+SND_REG_KEY_ONOFF       = $28                    ; key on/off (GLOBAL, always via part I)
+SND_REG_FNUM_LO         = $A0                    ; +ch : F-number low 8 bits
+SND_REG_FNUM_HI         = $A4                    ; +ch : block(7..3) | F-number high(2..0) — write FIRST
+SND_REG_ALG_FB          = $B0                    ; +ch : algorithm(0-2) | feedback(3-5)
+SND_REG_LR_AMS_FMS      = $B4                    ; +ch : L/R(6-7) | AMS(4-5) | FMS(0-2)
+SND_REG_OP_DT_MUL       = $30                    ; +(op*4)+ch : detune | multiple
+SND_REG_OP_TL           = $40                    ; +(op*4)+ch : total level (volume-modulated on carriers)
+SND_REG_OP_RS_AR        = $50                    ; +(op*4)+ch : rate scale | attack rate
+SND_REG_OP_AM_D1R       = $60                    ; +(op*4)+ch : AM | first decay rate
+SND_REG_OP_D2R          = $70                    ; +(op*4)+ch : second decay rate
+SND_REG_OP_D1L_RR       = $80                    ; +(op*4)+ch : decay level | release rate
+SND_FM_KEYON_OPMASK     = $F0                    ; key-on byte = $F0 | chsel (all 4 ops on)
+SND_FM_TL_MAX           = $7F                    ; TL is 7-bit; $7F = silent, 0 = loud
 ; Timer A regs — RETAINED as names only; the MegaPCM-2 streaming loop no longer
 ; programs or waits on Timer A (the loop trip-time IS the sample clock, req 9).
 SND_REG_TIMER_A_HI      = $24                    ; Timer A value bits 9..2
@@ -275,6 +294,21 @@ SND_SEQ_CHANNELS   = SND_SEQ_BASE+$08   ; CHROUTE_COUNT * SeqChannel_len
 SND_SEQ_END        = SND_SEQ_CHANNELS + (CHROUTE_COUNT * SeqChannel_len)
 SND_SEQ_TRACE      = $1A00          ; 32-byte trace ring of dispatched opcodes
 SND_SEQ_TRACE_LEN  = 32
+
+; --- FM voice writer scratch (Task 3) ---
+; 4 bytes (part, ch-in-part, log-vol delta, carrier mask) in the free block
+; ABOVE the per-channel array (SND_SEQ_END ~ $1876) and BELOW the trace ring
+; ($1A00). Single-threaded: only Sequencer_Tick (in the VBlank ISR) reaches the
+; FM writer, so static scratch is safe. Placed at $1880 (clear of both).
+SND_FM_SCRATCH     = $1880
+SND_FM_SCRATCH_LEN = 4
+
+    if (SND_FM_SCRATCH < SND_SEQ_END)
+      fatal "FM scratch (\{SND_FM_SCRATCH}) overlaps sequencer channels (\{SND_SEQ_END})"
+    endif
+    if (SND_FM_SCRATCH + SND_FM_SCRATCH_LEN) > SND_SEQ_TRACE
+      fatal "FM scratch runs into the trace ring at \{SND_SEQ_TRACE}"
+    endif
 
     if SND_SEQ_END > SND_REQ_BASE
       fatal "sequencer RAM (\{SND_SEQ_END}) overruns the mailbox at \{SND_REQ_BASE}"
