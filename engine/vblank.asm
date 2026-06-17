@@ -63,6 +63,17 @@ VInt_Level:
         startZ80
     endif
 
+        ; Sound 1B: ack the Z80 that the DMA pipeline is finished — ROM is safe
+        ; to read again. The Z80 ISR drains the ring (NO ROM reads) until it sees
+        ; this byte flip to 1, then resumes FILL+PLAY. This brief bus-held byte
+        ; write is the ONLY 68k stopZ80 in the sound-driver build (vs the old
+        ; full-DMA Z80 freeze); the DMA pipeline above ran with the Z80 free.
+    ifdef SOUND_DRIVER_ENABLED
+        stopZ80
+        move.b  #1, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; ack: DMA done, ROM safe again
+        startZ80
+    endif
+
         ; --- Non-VDP work ---
         bsr.w   Read_Controllers
         ; Latch accumulated press edges for the upcoming logic tick.
@@ -96,6 +107,14 @@ VInt_Lag:
         bsr.w   Vscroll_Write           ; §4.6 — after Critical DMA
 
     ifndef SOUND_DRIVER_ENABLED
+        startZ80
+    endif
+
+        ; Sound 1B: ack the Z80 that the DMA pipeline is finished (see VInt_Level).
+        ; The Z80 ISR drains until it sees this flip to 1, then resumes FILL+PLAY.
+    ifdef SOUND_DRIVER_ENABLED
+        stopZ80
+        move.b  #1, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; ack: DMA done, ROM safe again
         startZ80
     endif
 

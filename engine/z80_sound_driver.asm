@@ -95,9 +95,14 @@ SndDrv_Init:
 
 ; --- main loop: tight FILL+PLAY (1B audio path) ---
 ; SndDrv_Init falls through to here. Each pass: output ONE ring byte to the DAC,
-; then fill ONE ROM byte into the ring (1:1 cadence). `ei` opens a window for the
-; VBlank /INT to land BETWEEN samples (never mid-fill); `di` then protects the
-; banked ROM read in SndDrv_FillOne from being interrupted by a bank switch.
+; then fill TWO ROM bytes into the ring (2:1 catch-up). The FillOne ring-full guard
+; no-ops the 2nd fill once the lead is recovered, so the cadence is 2:1 only while
+; catching up (after the ISR drains the lead) and settles to 1:1 when the ring is
+; full. This recovers the lead the VBlank drain consumes — without it the 1:1 fill
+; could never refill what a long DMA frame drained, slowly starving the ring. `ei`
+; opens a window for the VBlank /INT to land BETWEEN samples (never mid-fill); `di`
+; then protects the banked ROM reads in SndDrv_FillOne from being interrupted by a
+; bank switch.
 ; The mailbox poll and per-frame housekeeping moved OUT of this loop into the
 ; VBlank ISR (SndDrv_ISR_Drain) so the audio path stays a constant cadence.
 ; Helpers (FillOne, PollMailbox, ...) are defined AFTER this loop so init never
@@ -117,8 +122,9 @@ SndDrv_Main:
         inc     l                        ; advance read ptr (wraps within page)
         ld      a, l
         ld      (SND_RING_RD), a
-        di                               ; protect the ROM read below from the IRQ
-        call    SndDrv_FillOne           ; fill 1 ROM byte into the ring
+        di                               ; protect the ROM reads below from the IRQ
+        call    SndDrv_FillOne           ; fill byte 1
+        call    SndDrv_FillOne           ; fill byte 2 (2:1 catch-up; guard no-ops when full)
         ld      b, SND_DAC_RATE          ; rate delay (controller tunes)
 .rate:  djnz    .rate
         jr      SndDrv_Main
@@ -171,9 +177,16 @@ SndDrv_PollMailbox:
 ; handler, so by entering DRAIN here we keep the DAC fed at constant cadence
 ; THROUGH the DMA window WITHOUT touching ROM (a ROM read during 68k->VDP DMA
 ; would stall the Z80 bus and drag the pitch — the bug 1B fixes). The 256-byte
-; ring lead (~16ms @16kHz) hugely exceeds the VBlank/DMA window (~1.3ms), so a
-; fixed SND_DRAIN_SAMPLES window covers it with large margin. After draining we
-; do the per-frame mailbox poll (out of the audio path), then `ei`/`ret`.
+; ring lead (~16ms @16kHz) hugely exceeds the VBlank/DMA window (~1.3ms).
+;
+; ADAPTIVE drain (vs the old fixed SND_DRAIN_SAMPLES window): on entry the ISR
+; resets the ack byte (SND_CTRL_DMA_ACTIVE) to 0, then drains one ring byte per
+; pass UNTIL the 68k flips that byte to 1 ("DMA done, ROM safe"). A safety cap of
+; SND_DRAIN_MAX (< the ring lead) bounds the loop so a missed/late ack can never
+; underrun the ring or hang the ISR. This tracks the ACTUAL DMA length each frame
+; instead of a worst-case constant, so heavy frames stay protected and light
+; frames return promptly. After draining we do the per-frame mailbox poll (out of
+; the audio path), then `ei`/`ret`.
 ;
 ; `ix` invariant: init sets ix=$4000 and only the DAC-write paths + SetBank touch
 ; it; SetBank uses hl, not ix. ix therefore stays $4000. We reload it here anyway
@@ -187,7 +200,9 @@ SndDrv_ISR_Drain:
         ld      a, (SND_STAT_DAC_ACTIVE)
         or      a
         jr      z, .done                 ; nothing playing -> just housekeep + return
-        ld      b, SND_DRAIN_SAMPLES     ; fixed window covering VBlank (controller tunes)
+        xor     a
+        ld      (SND_CTRL_DMA_ACTIVE), a ; Z80 owns the reset (no entry race with the 68k ack)
+        ld      b, SND_DRAIN_MAX         ; safety cap (< ring lead) — prevents underrun/hang
 .loop:
         ld      a, (SND_RING_RD)         ; ring read low byte
         ld      l, a
@@ -199,11 +214,15 @@ SndDrv_ISR_Drain:
         ld      a, l
         ld      (SND_RING_RD), a
         push    bc                       ; rate pad ~matching FILL+PLAY per-sample (tune)
-        ld      c, SND_DAC_RATE
+        ld      c, SND_DRAIN_PAD
 .drate: dec     c
         jr      nz, .drate
         pop     bc
-        djnz    .loop
+        ; --- adaptive exit: did the 68k finish its DMA pipeline this frame? ---
+        ld      a, (SND_CTRL_DMA_ACTIVE)
+        or      a
+        jr      nz, .done                ; acked -> stop draining, resume FILL+PLAY
+        djnz    .loop                    ; else keep draining (until the safety cap)
 .done:
         call    SndDrv_PollMailbox       ; per-frame housekeeping, OUT of the audio path
         pop     ix

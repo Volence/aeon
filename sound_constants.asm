@@ -39,11 +39,15 @@ SND_PLAY_PTR            = SND_STATE_BASE+$02      ; current sample read pointer
 SND_PLAY_LEN            = SND_STATE_BASE+$04      ; bytes remaining
 SND_DAC_RATE            = $10                     ; per-sample djnz delay (test tone)
 
-; --- 1B: VBlank-ISR drain window (samples output with NO ROM read while the 68k
-; runs its VDP/DMA inside VBlank). Fixed count chosen to cover the VBlank/DMA
-; window (~1.3ms) with margin; the 256-byte ring lead (~16ms @16kHz) far exceeds
-; it. Controller tunes against real DMA load. ---
-SND_DRAIN_SAMPLES       = 32
+; --- 1B: VBlank-ISR adaptive drain (samples output with NO ROM read while the
+; 68k runs its VDP/DMA inside VBlank). The ISR drains UNTIL the 68k acks "DMA
+; done" (SND_CTRL_DMA_ACTIVE -> 1), capped by SND_DRAIN_MAX so it can never
+; underrun the ring lead or hang. SND_DRAIN_PAD pads each drained sample to ~match
+; the FILL+PLAY per-sample cycle count so the pitch is identical across the seam.
+; Controller tunes SND_DRAIN_PAD / SND_DRAIN_MAX against real DMA load. ---
+SND_DRAIN_SAMPLES       = 32                      ; (legacy fixed window — unused by 1B adaptive drain)
+SND_DRAIN_MAX           = 192                     ; safety cap (< the 252-byte ring lead) — bounds the adaptive drain
+SND_DRAIN_PAD           = SND_DAC_RATE            ; per-drained-sample pad ~matching FILL+PLAY (controller tunes)
 
 ; --- YM2612 ports as seen from the Z80 ($4000-$4003) ---
 SND_Z80_YM_A0           = $4000                  ; addr part I / status read
