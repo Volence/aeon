@@ -39,6 +39,12 @@ SND_PLAY_PTR            = SND_STATE_BASE+$02      ; current sample read pointer
 SND_PLAY_LEN            = SND_STATE_BASE+$04      ; bytes remaining
 SND_DAC_RATE            = $10                     ; per-sample djnz delay (test tone)
 
+; --- 1B: VBlank-ISR drain window (samples output with NO ROM read while the 68k
+; runs its VDP/DMA inside VBlank). Fixed count chosen to cover the VBlank/DMA
+; window (~1.3ms) with margin; the 256-byte ring lead (~16ms @16kHz) far exceeds
+; it. Controller tunes against real DMA load. ---
+SND_DRAIN_SAMPLES       = 32
+
 ; --- YM2612 ports as seen from the Z80 ($4000-$4003) ---
 SND_Z80_YM_A0           = $4000                  ; addr part I / status read
 SND_REG_DAC_DATA        = $2A                    ; YM reg: DAC sample byte

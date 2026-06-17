@@ -32,8 +32,17 @@ VBlank_Handler:
 ;   controllers -> frame counter -> VBlank flag
 ; -----------------------------------------------
 VInt_Level:
-        ; --- VDP work (Z80 stopped) ---
+        ; --- VDP work ---
+        ; Sound 1B: when the Z80 sound driver is enabled we do NOT stop the Z80
+        ; during the VDP/DMA pipeline. The driver self-protects: the Genesis
+        ; asserts the Z80 /INT at VBlank start, vectoring it (im 1 -> RST 38h)
+        ; into its DRAIN handler, which feeds the DAC from the ring with NO ROM
+        ; reads through this exact window — so its pitch stays constant through
+        ; our 68k->VDP DMA. Freezing the Z80 here is what dragged the pitch.
+        ; The OFF build keeps the original stopZ80/startZ80 fencing.
+    ifndef SOUND_DRIVER_ENABLED
         stopZ80
+    endif
 
         bsr.w   Flush_VDP_Shadow
 
@@ -50,7 +59,9 @@ VInt_Level:
         bsr.w   Process_DMA_Important
         bsr.w   Process_DMA_Deferrable
 
+    ifndef SOUND_DRIVER_ENABLED
         startZ80
+    endif
 
         ; --- Non-VDP work ---
         bsr.w   Read_Controllers
@@ -72,7 +83,11 @@ VInt_Level:
 ; Critical DMA only. Important/Deferrable entries persist.
 ; -----------------------------------------------
 VInt_Lag:
+        ; Sound 1B: see VInt_Level — Z80 not stopped when the sound driver is on
+        ; (it self-protects via its VBlank-IRQ drain). OFF build keeps the fence.
+    ifndef SOUND_DRIVER_ENABLED
         stopZ80
+    endif
 
         bsr.w   Flush_VDP_Shadow
         bsr.w   Enqueue_Dirty_Buffers
@@ -80,7 +95,9 @@ VInt_Lag:
         bsr.w   Process_DMA_Critical
         bsr.w   Vscroll_Write           ; §4.6 — after Critical DMA
 
+    ifndef SOUND_DRIVER_ENABLED
         startZ80
+    endif
 
         bsr.w   Read_Controllers
         addq.w  #1, (Frame_Counter).w

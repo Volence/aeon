@@ -8,12 +8,37 @@ Z80_Sound_Start:
         cpu z80
         phase 0
 
+; --- reset vector + IM1 VBlank vector ---
+; $0000: jump over the vector region into init.
+; $0038: the Genesis hardware asserts the Z80 /INT once per VBlank; with `im 1`
+; the CPU does RST 38h, vectoring here. We can't use a *nested* `phase 38h` block
+; (AS `phase` only relocates label addresses, it does NOT emit the gap bytes, so
+; the vector would land physically right after the jp, not at $0038). Nor does
+; `ds.b` work — it's not a Z80 mnemonic in AS (error #1200). Instead we stay in
+; `phase 0` and zero-fill the gap with a `rept`/`db 0`, which emits real bytes
+; into the blob so the boot loader copies them and $0038 is physically the
+; VBlank handler. ($ under phase 0 == the current blob offset.)
+        jp      SndDrv_Init              ; $0000-$0002
+
+        ; Zero-fill $0003..$0037 with real bytes ($00 = NOP) so the boot loader
+        ; copies them and the vector below physically lands at $0038. (`ds.b` is
+        ; not a Z80 mnemonic in AS — `error #1200`; a `rept` of `db 0` emits the
+        ; gap explicitly. `$` under phase 0 is the current blob offset = 3 here.)
+        rept    38h-$
+          db    0
+        endm
+SndDrv_VBlank:                           ; $0038: RST 38h / IM1 VBlank vector
+        jp      SndDrv_ISR_Drain         ; -> the VBlank drain handler
+
 ; --- entry ---
 SndDrv_Init:
-        ; Interrupt-free driver: `di` held forever. The 68k does not pulse the Z80
-        ; /INT, and the YM2612 timer overflow is NOT wired to the Z80 interrupt line
-        ; on the Genesis (timers can only be polled) — so no `im`/`ei` is needed.
+        ; 1B: the driver now runs WITH interrupts. The Genesis asserts the Z80
+        ; /INT once per VBlank; `im 1` vectors that to RST 38h ($0038) where the
+        ; DRAIN handler protects the DAC through the 68k's VDP/DMA window. `ei`
+        ; is issued only AFTER the ring is primed (below) so no IRQ can land
+        ; before the playback state is consistent.
         di
+        im      1                        ; VBlank /INT -> RST 38h -> $0038
         ld      sp, 1FFEh                ; stack top (see z80-ram-map sub-design)
 
         ; YM ready: wait for busy flag (bit7 of $4000) to clear, then DAC off
@@ -24,15 +49,9 @@ SndDrv_Init:
         ld      (ix+0), SND_REG_DAC_ENABLE   ; select reg $2B
         ld      (ix+1), 00h                  ; DAC mode OFF at init
 
-        ; --- start YM Timer A as the scheduler timebase ---
-        ; Value computed at build time from SND_TEMPO_TPF (ticks/frame). reg $24 =
-        ; N>>2 (bits 9..2), reg $25 = N&3 (bits 1..0) of the 10-bit Timer A value.
-        ld      (ix+0), SND_REG_TIMER_A_HI   ; reg $24
-        ld      (ix+1), SND_TIMERA_HI
-        ld      (ix+0), SND_REG_TIMER_A_LO   ; reg $25
-        ld      (ix+1), SND_TIMERA_LO
-        ld      (ix+0), SND_REG_TIMER_CTRL   ; reg $27
-        ld      (ix+1), 005h                 ; bit0 Load A | bit2 Enable-A flag
+        ; (1B: YM Timer A setup REMOVED — the tempo tick was dropped from the
+        ; loop, and per-frame work now lives in the VBlank ISR. The hardware
+        ; VBlank /INT, not the YM timer, drives the drain.)
 
         ; clear request slots + status region
         xor     a
@@ -71,23 +90,37 @@ SndDrv_Init:
         ld      a, SND_ALIVE_MARKER
         ld      (SND_STAT_ALIVE), a
 
-; --- main loop: cooperative scheduler (poll between Timer A ticks) ---
-; SndDrv_Init falls through to here. SndDrv_PollMailbox is defined AFTER this
-; infinite loop (not between init and here) so init never falls into a `ret`-
-; terminated routine with no matching `call` (that would return to $0000).
+        ei                               ; ring is primed -> allow the VBlank IRQ
+        ; falls into SndDrv_Main
+
+; --- main loop: tight FILL+PLAY (1B audio path) ---
+; SndDrv_Init falls through to here. Each pass: output ONE ring byte to the DAC,
+; then fill ONE ROM byte into the ring (1:1 cadence). `ei` opens a window for the
+; VBlank /INT to land BETWEEN samples (never mid-fill); `di` then protects the
+; banked ROM read in SndDrv_FillOne from being interrupted by a bank switch.
+; The mailbox poll and per-frame housekeeping moved OUT of this loop into the
+; VBlank ISR (SndDrv_ISR_Drain) so the audio path stays a constant cadence.
+; Helpers (FillOne, PollMailbox, ...) are defined AFTER this loop so init never
+; falls into a `ret`-terminated routine with no matching `call`.
 SndDrv_Main:
-        call    SndDrv_PollMailbox       ; background work between ticks
-        call    SndDrv_DrainDAC          ; drain one ring byte to the DAC if active
-        call    SndDrv_FillRing          ; top up the ring from the RAM source (2:1)
-        ld      a, (ix+0)                ; read YM status ($4000)
-        bit     0, a                     ; Timer A overflow?
-        jr      z, SndDrv_Main           ; not yet -> keep polling
-        ; --- timer tick ---
-        ld      (ix+0), SND_REG_TIMER_CTRL   ; reg $27
-        ld      (ix+1), 015h                 ; bit4 Reset-A flag | reload (Load|Enable)
-        ld      a, (SND_STAT_TICK)
-        inc     a
-        ld      (SND_STAT_TICK), a
+        ld      a, (SND_STAT_DAC_ACTIVE)
+        or      a
+        jr      z, SndDrv_Main           ; idle until a sample plays
+        ei                               ; VBlank IRQ may land HERE (between samples)
+        ; --- output one ring byte to the DAC ---
+        ld      a, (SND_RING_RD)
+        ld      l, a
+        ld      h, SND_RING_PAGE
+        ld      a, (hl)                  ; ring[rd]
+        ld      (ix+0), SND_REG_DAC_DATA ; reg $2A
+        ld      (ix+1), a                ; -> DAC
+        inc     l                        ; advance read ptr (wraps within page)
+        ld      a, l
+        ld      (SND_RING_RD), a
+        di                               ; protect the ROM read below from the IRQ
+        call    SndDrv_FillOne           ; fill 1 ROM byte into the ring
+        ld      b, SND_DAC_RATE          ; rate delay (controller tunes)
+.rate:  djnz    .rate
         jr      SndDrv_Main
 
 ; --- poll the per-type request slots; act on any nonzero slot, then clear it ---
@@ -132,39 +165,68 @@ SndDrv_PollMailbox:
         ld      (SND_STAT_ACK_COUNT), a
         ret
 
-; --- drain one ring byte to the DAC (cycle-balanced); ring read ptr in RAM ---
-; (Reached only via `call` from SndDrv_Main — never by fall-through.)
-SndDrv_DrainDAC:
+; --- VBlank ISR: drain the ring (NO ROM reads) through the 68k DMA window ---
+; Entered via RST 38h ($0038 -> jp here) when the Genesis asserts the Z80 /INT
+; at VBlank start. ALL of the engine's VDP/DMA work happens inside the 68k VBlank
+; handler, so by entering DRAIN here we keep the DAC fed at constant cadence
+; THROUGH the DMA window WITHOUT touching ROM (a ROM read during 68k->VDP DMA
+; would stall the Z80 bus and drag the pitch — the bug 1B fixes). The 256-byte
+; ring lead (~16ms @16kHz) hugely exceeds the VBlank/DMA window (~1.3ms), so a
+; fixed SND_DRAIN_SAMPLES window covers it with large margin. After draining we
+; do the per-frame mailbox poll (out of the audio path), then `ei`/`ret`.
+;
+; `ix` invariant: init sets ix=$4000 and only the DAC-write paths + SetBank touch
+; it; SetBank uses hl, not ix. ix therefore stays $4000. We reload it here anyway
+; so the ISR is self-contained and robust against future main-loop edits.
+SndDrv_ISR_Drain:
+        push    af
+        push    bc
+        push    hl
+        push    ix
+        ld      ix, SND_Z80_YM_A0        ; ix = $4000 (self-contained; see note)
         ld      a, (SND_STAT_DAC_ACTIVE)
         or      a
-        ret     z
+        jr      z, .done                 ; nothing playing -> just housekeep + return
+        ld      b, SND_DRAIN_SAMPLES     ; fixed window covering VBlank (controller tunes)
+.loop:
         ld      a, (SND_RING_RD)         ; ring read low byte
         ld      l, a
         ld      h, SND_RING_PAGE         ; hl = $17xx
-        ld      a, (hl)                  ; sample byte
+        ld      a, (hl)                  ; ring[rd]
         ld      (ix+0), SND_REG_DAC_DATA ; reg $2A
         ld      (ix+1), a                ; -> DAC
         inc     l                        ; advance (wraps within page)
         ld      a, l
         ld      (SND_RING_RD), a
-        ld      b, SND_DAC_RATE          ; balanced rate delay (controller tunes)
-.rate:  djnz    .rate
+        push    bc                       ; rate pad ~matching FILL+PLAY per-sample (tune)
+        ld      c, SND_DAC_RATE
+.drate: dec     c
+        jr      nz, .drate
+        pop     bc
+        djnz    .loop
+.done:
+        call    SndDrv_PollMailbox       ; per-frame housekeeping, OUT of the audio path
+        pop     ix
+        pop     hl
+        pop     bc
+        pop     af
+        ei
         ret
 
-; --- top up the ring from the RAM source; ~2:1 ahead, never lap read ptr ---
-; (Reached only via `call` from SndDrv_Main — never by fall-through.)
-; Page-aligned ring (MegaPCM trick): RD/WR are low bytes, the high byte is the
-; page, so distance math is a single byte op mod 256. Guard: stop when the free
-; gap (rd - wr) & $FF drops below the guard band, so WR can never lap RD (which
-; would clobber un-drained samples). When WR==RD the gap reads 0 -> we wait for
-; the drain to open a gap (correct: ring is full of the pre-fill at boot).
-SndDrv_FillRing:
+; --- fill ONE ROM byte into the ring; never lap the read ptr ---
+; (Reached only via `call` from SndDrv_Main, with the IRQ masked — the banked ROM
+; read MUST NOT be interrupted by the VBlank ISR's bank state, hence `di` at the
+; call site.) 1:1 cadence with the per-sample DAC output keeps the ring lead
+; constant. Page-aligned ring (MegaPCM trick): RD/WR are low bytes, the high byte
+; is the page, so distance math is a single byte op mod 256. Guard: stop when the
+; free gap (rd - wr) & $FF drops below the guard band, so WR can never lap RD
+; (which would clobber un-drained samples). When the ring is already full this is
+; a no-op (the drain will open a gap next sample).
+SndDrv_FillOne:
         ld      a, (SND_STAT_DAC_ACTIVE)
         or      a
         ret     z                        ; idle -> nothing to stream
-        ld      b, 2                     ; try to add up to 2 bytes (2:1 fill-ahead)
-.fill1:
-        ; ring-full guard: free = (rd - wr) & $FF ; if free <= guard, stop
+        ; ring-full guard: free = (rd - wr) & $FF ; if free < guard, stop
         ld      a, (SND_RING_RD)
         ld      c, a
         ld      a, (SND_RING_WR)
@@ -193,7 +255,7 @@ SndDrv_FillRing:
         ld      (SND_ROM_LEN), hl
         ld      a, h
         or      l
-        jr      nz, .next
+        ret     nz                       ; bytes remain -> done
         ; sample exhausted -> loop the blip from its banked ROM start. The bank
         ; never changes (one bank covers the whole bank-aligned sample), so no
         ; SetBank is needed here — just reset the window ptr + remaining length.
@@ -201,8 +263,6 @@ SndDrv_FillRing:
         ld      (SND_ROM_PTR), hl
         ld      hl, SND_BLIP_LEN
         ld      (SND_ROM_LEN), hl
-.next:
-        djnz    .fill1
         ret
 
 ; --- select ROM bank in `a` into the Z80 $8000 window; no-op if already current ---
