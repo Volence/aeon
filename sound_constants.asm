@@ -98,7 +98,7 @@ SND_RING_LEAD_PRIME     = 128                     ; $80 lead-in length at sample
 ; any rate-derived math) follows. (S2/S3K pcmLoopCounter pattern.)
 Z80_CLOCK_HZ            = 3579545                  ; NTSC Z80 clock (master/15)
 dac_rate_hz  function cyc, (Z80_CLOCK_HZ / (cyc))
-SND_LOOP_CYC            = 346                      ; balanced FILL/SKIP/DRAIN total (see driver proof)
+SND_LOOP_CYC            = 370                      ; balanced FILL/SKIP/DRAIN total (consumer re-selects $2A each sample)
 SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 10345 Hz (3579545/346, int div)
 
 ; --- 1B: 68k->Z80 control (68k writes, Z80 reads) ---

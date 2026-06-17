@@ -246,6 +246,8 @@ SndDrv_Idle:
         ld      a, (SND_STAT_DAC_ACTIVE)
         or      a
         jp      nz, SndDrv_Sample        ; sample started -> enter streaming loop
+        ld      a, SND_REG_DAC_DATA      ; re-select $2A on the ADDR port ($4000)
+        ld      (SND_Z80_YM_A0), a
         ld      a, 80h
         ld      (de), a                  ; DAC <- $80 (DC center silence)
         ei                               ; VBlank IRQ may land here (between samples)
@@ -261,12 +263,19 @@ SndDrv_Idle:
 SndDrv_Sample:
         di                               ; protect the whole iteration (incl. ROM reads)
 
-        ; --- CONSUMER: output one ring byte to the DAC (RAM ring ONLY) ---
+        ; --- CONSUMER: re-select $2A on the ADDR port, then output one ring byte.
+        ; (Re-selecting every sample is what the proven driver did; the YM2612
+        ; address latch is not relied upon to hold across data-only writes — the
+        ; data was landing on the wrong reg otherwise. Cost is constant in ALL
+        ; three paths, so the balance is preserved.) RAM ring read only — no ROM.
         ld      a, (SND_RING_RD)
         ld      l, a
         ld      h, SND_RING_PAGE
-        ld      a, (hl)                  ; ring[rd]  (RAM — never bus-contended)
-        ld      (de), a                  ; -> YM $2A DATA ($4001)
+        ld      c, (hl)                  ; c = ring[rd] sample (RAM — never contended)
+        ld      a, SND_REG_DAC_DATA      ; $2A
+        ld      (SND_Z80_YM_A0), a       ; select DAC DATA reg on the ADDR port ($4000)
+        ld      a, c
+        ld      (de), a                  ; sample -> YM $2A DATA ($4001)
         inc     l                        ; advance read ptr (wraps within page)
         ld      a, l
         ld      (SND_RING_RD), a
@@ -387,7 +396,15 @@ SndDrv_PollMailbox:
         or      a
         ret     z                        ; nothing else pending
 
-        ; --- SAMPLE START. Does NOT touch $2B (DAC stays enabled from init). ---
+        ; --- SAMPLE START. Re-assert DAC mode ($2B bit7) in case the 68k's YM
+        ; init cleared the once-at-init enable, then re-park the addr port on $2A.
+        ; (One-time per sample TRIGGER, not per loop, so no recurring click.) ---
+        ld      a, SND_REG_DAC_ENABLE
+        ld      (SND_Z80_YM_A0), a       ; $4000 = $2B (select DAC-enable reg)
+        ld      a, 80h
+        ld      (SND_Z80_YM_A1), a       ; $4001 = $80 -> DAC mode ON
+        ld      a, SND_REG_DAC_DATA
+        ld      (SND_Z80_YM_A0), a       ; $4000 = $2A (re-park addr port on DAC DATA)
         ; Point the stream source at the banked sample.
         ld      a, SND_BLIP_BANK
         call    SndDrv_SetBank           ; $6000 latch only (DMA-safe)
