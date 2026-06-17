@@ -5,6 +5,9 @@
 ; FM pitch table : per pitch index, dc.w = ($A4 value << 8) | $A0 value
 ;                  ($A4 = (block<<3)|(fnum>>8), $A0 = fnum&$FF).
 ; PSG divisor    : per pitch index, dc.w = 10-bit tone divisor.
+;                  Low pitches saturate at the 10-bit ceiling ($03FF),
+;                  so the bottom ~2.5 octaves of PSG are not chromatic
+;                  (correct SN76489 hardware behavior).
 ; Log volume LUT : 256 bytes, linear vol 0..127 -> YM TL delta (log).
 ; Carrier mask   : 8 bytes, algo 0..7 -> 4-bit carrier-op mask
 ;                  (bit i = operator at reg offset +i*4 = S1,S3,S2,S4).

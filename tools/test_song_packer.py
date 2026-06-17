@@ -11,6 +11,7 @@ import sys
 import re
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import song_packer
 from song_packer import (
     SongDesc, ChannelDesc,
     SetDur, Rest, Note, Vol, Patch, Dac, NoteDur, LoopPoint, Jump, End,
@@ -185,6 +186,48 @@ class TestEmitAsm(unittest.TestCase):
                     else:
                         vals.append(int(tok, 0))
         self.assertEqual(bytes(vals), pack_song(self.song))
+
+
+class TestConstantsSync(unittest.TestCase):
+    """song_packer hand-mirrors the MEV_* opcode and CHROUTE_* route values from
+    sound_constants.asm. There is no build-time guard against the two drifting,
+    so assert every equate in the .asm matches the Python constant. Fails if
+    someone changes a value on only one side.
+    """
+
+    @staticmethod
+    def _parse_asm_equates():
+        # sound_constants.asm sits at the repo root; tests live in <repo>/tools/.
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        asm_path = os.path.join(repo_root, "sound_constants.asm")
+        mev, chroute = {}, {}
+        # e.g. "MEV_REST        = $80    ; comment"  /  "CHROUTE_FM1 = 0"
+        mev_re = re.compile(r"^\s*(MEV_[A-Z0-9_]+)\s*=\s*\$([0-9A-Fa-f]+)")
+        chr_re = re.compile(r"^\s*(CHROUTE_[A-Z0-9_]+)\s*=\s*(\d+)")
+        with open(asm_path) as f:
+            for line in f:
+                m = mev_re.match(line)
+                if m:
+                    mev[m.group(1)] = int(m.group(2), 16)
+                    continue
+                c = chr_re.match(line)
+                if c:
+                    chroute[c.group(1)] = int(c.group(2), 10)
+        return mev, chroute
+
+    def test_mev_and_chroute_in_sync(self):
+        mev, chroute = self._parse_asm_equates()
+        # Sanity: the parse actually found the equates (guards against a moved
+        # file or a regex that silently matches nothing).
+        self.assertIn("MEV_REST", mev)
+        self.assertIn("CHROUTE_DAC", chroute)
+        for name, asm_val in {**mev, **chroute}.items():
+            py_val = getattr(song_packer, name, None)
+            self.assertIsNotNone(
+                py_val, f"{name} present in sound_constants.asm but not song_packer.py")
+            self.assertEqual(
+                py_val, asm_val,
+                f"{name}: song_packer.py={py_val} != sound_constants.asm={asm_val}")
 
 
 if __name__ == "__main__":

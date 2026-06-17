@@ -92,7 +92,12 @@ def fm_pitch_table() -> list[tuple[int, int]]:
 
 
 def psg_divisor(semitone: int) -> int:
-    """10-bit PSG tone divisor for a pitch index. = round(clock/(32*freq))."""
+    """10-bit PSG tone divisor for a pitch index. = round(clock/(32*freq)).
+
+    The divisor is clamped to the 10-bit ceiling ($03FF), so low PSG pitches
+    saturate: the bottom ~2.5 octaves are not chromatic (correct hardware
+    behavior — the SN76489 has no lower divisor resolution there).
+    """
     freq = _pitch_freq(semitone)
     d = _round_half_up(PSG_SAMPLE_RATE / (freq * 2))
     return max(1, min(0x3FF, d))
@@ -160,6 +165,9 @@ def emit_asm() -> str:
     out.append("; FM pitch table : per pitch index, dc.w = ($A4 value << 8) | $A0 value")
     out.append(";                  ($A4 = (block<<3)|(fnum>>8), $A0 = fnum&$FF).")
     out.append("; PSG divisor    : per pitch index, dc.w = 10-bit tone divisor.")
+    out.append(";                  Low pitches saturate at the 10-bit ceiling ($03FF),")
+    out.append(";                  so the bottom ~2.5 octaves of PSG are not chromatic")
+    out.append(";                  (correct SN76489 hardware behavior).")
     out.append("; Log volume LUT : 256 bytes, linear vol 0..127 -> YM TL delta (log).")
     out.append("; Carrier mask   : 8 bytes, algo 0..7 -> 4-bit carrier-op mask")
     out.append(";                  (bit i = operator at reg offset +i*4 = S1,S3,S2,S4).")
