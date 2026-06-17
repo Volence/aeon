@@ -50,9 +50,12 @@ SND_DRAIN_MAX           = 192                     ; safety cap (< the 252-byte r
 SND_DRAIN_PAD           = SND_DAC_RATE            ; per-drained-sample pad ~matching FILL+PLAY (controller tunes)
 
 ; --- YM2612 ports as seen from the Z80 ($4000-$4003) ---
-SND_Z80_YM_A0           = $4000                  ; addr part I / status read
-SND_REG_DAC_DATA        = $2A                    ; YM reg: DAC sample byte
-SND_REG_DAC_ENABLE      = $2B                    ; YM reg: bit7 = DAC mode
+SND_Z80_YM_A0           = $4000                  ; addr part I / status read (reg select)
+SND_Z80_YM_A1           = $4001                  ; data part I — DAC $2A write target (de invariant)
+SND_REG_DAC_DATA        = $2A                    ; YM reg: DAC sample byte (parked in the addr port)
+SND_REG_DAC_ENABLE      = $2B                    ; YM reg: bit7 = DAC mode (written ONCE at init)
+; Timer A regs — RETAINED as names only; the MegaPCM-2 streaming loop no longer
+; programs or waits on Timer A (the loop trip-time IS the sample clock, req 9).
 SND_REG_TIMER_A_HI      = $24                    ; Timer A value bits 9..2
 SND_REG_TIMER_A_LO      = $25                    ; Timer A value bits 1..0
 SND_REG_TIMER_CTRL      = $27
@@ -75,6 +78,28 @@ SND_TIMERA_LO           = SND_TIMERA_N & 3
 SND_RING_BASE           = $1700                  ; Z80 addr; high byte $17 is the page
 SND_RING_PAGE           = $17                     ; high byte for `inc l` wrap + full-check
 SND_RING_LEN            = $100
+
+; --- MegaPCM-2 streaming loop: read-ahead lead bounds (req 2, req 8) ---
+; SND_RING_LEAD_CAP : lead = (WR-RD)&$FF at/above which the producer takes the
+;   SKIP path (ring full, no ROM read). Kept a few bytes below 256 so the WR
+;   pointer can never lap RD (guard band = 256 - CAP).
+; SND_RING_LEAD_PRIME : lead established at sample start. The lead region is left
+;   as the $80 the ring is pre-filled with, giving a brief click-free DC-center
+;   lead-in (~PRIME samples) while the producer catches up — no ROM read in the
+;   ISR (DMA-safe sample start). PRIME < CAP so the producer keeps filling.
+SND_RING_LEAD_CAP       = 250                     ; ring-full guard (6-byte margin to 256)
+SND_RING_LEAD_PRIME     = 128                     ; $80 lead-in length at sample start
+
+; --- Effective DAC sample rate (build-time, self-documenting; req 9) ---
+; The streaming loop is free-running: the loop trip-time IS the sample clock.
+; Every balanced path (FILL/SKIP/DRAIN) costs SND_LOOP_CYC Z80 cycles, so the
+; output rate = Z80 clock / loop cycles. This recomputes if the loop body
+; changes — bump SND_LOOP_CYC to the new balanced FILL total and the rate (and
+; any rate-derived math) follows. (S2/S3K pcmLoopCounter pattern.)
+Z80_CLOCK_HZ            = 3579545                  ; NTSC Z80 clock (master/15)
+dac_rate_hz  function cyc, (Z80_CLOCK_HZ / (cyc))
+SND_LOOP_CYC            = 346                      ; balanced FILL/SKIP/DRAIN total (see driver proof)
+SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 10345 Hz (3579545/346, int div)
 
 ; --- 1B: 68k->Z80 control (68k writes, Z80 reads) ---
 SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progress (no ROM reads)

@@ -33,13 +33,21 @@ VBlank_Handler:
 ; -----------------------------------------------
 VInt_Level:
         ; --- VDP work ---
-        ; Sound 1B: when the Z80 sound driver is enabled we do NOT stop the Z80
-        ; during the VDP/DMA pipeline. The driver self-protects: the Genesis
-        ; asserts the Z80 /INT at VBlank start, vectoring it (im 1 -> RST 38h)
-        ; into its DRAIN handler, which feeds the DAC from the ring with NO ROM
-        ; reads through this exact window — so its pitch stays constant through
-        ; our 68k->VDP DMA. Freezing the Z80 here is what dragged the pitch.
-        ; The OFF build keeps the original stopZ80/startZ80 fencing.
+        ; Sound (MegaPCM-2 model): when the Z80 sound driver is enabled we do NOT
+        ; stop the Z80 during the VDP/DMA pipeline. Instead we raise a FLAG BRACKET
+        ; around the whole VDP/DMA window: SND_CTRL_DMA_ACTIVE=1 here at the very
+        ; top (before ANY VDP work), cleared =0 after the last DMA below. The Z80
+        ; producer checks this flag every sample and takes its DRAIN path (feeds
+        ; the DAC from the RAM ring with NO ROM read) for as long as the flag is
+        ; set — so a banked ROM read can never land inside a DMA burst and stall
+        ; the Z80 bus (the under-load pitch sag). The brief bus-held byte write is
+        ; the ONLY 68k stopZ80 in the sound build; the DMA pipeline itself runs
+        ; with the Z80 free. The OFF build keeps the original full-DMA Z80 fence.
+    ifdef SOUND_DRIVER_ENABLED
+        stopZ80
+        move.b  #1, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; raise: DMA window open (Z80 -> DRAIN)
+        startZ80
+    endif
     ifndef SOUND_DRIVER_ENABLED
         stopZ80
     endif
@@ -63,14 +71,14 @@ VInt_Level:
         startZ80
     endif
 
-        ; Sound 1B: ack the Z80 that the DMA pipeline is finished — ROM is safe
-        ; to read again. The Z80 ISR drains the ring (NO ROM reads) until it sees
-        ; this byte flip to 1, then resumes FILL+PLAY. This brief bus-held byte
-        ; write is the ONLY 68k stopZ80 in the sound-driver build (vs the old
-        ; full-DMA Z80 freeze); the DMA pipeline above ran with the Z80 free.
+        ; Sound (flag bracket close): the VDP/DMA window is finished — ROM is safe
+        ; to read again. Clear SND_CTRL_DMA_ACTIVE=0 so the Z80 producer leaves its
+        ; DRAIN path and resumes FILL read-ahead. Net: the flag was 1 for the
+        ; whole VDP/DMA window. Brief bus-held write (the only 68k stopZ80 in the
+        ; sound build); the DMA pipeline above ran with the Z80 free.
     ifdef SOUND_DRIVER_ENABLED
         stopZ80
-        move.b  #1, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; ack: DMA done, ROM safe again
+        move.b  #0, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; lower: DMA window closed (Z80 -> FILL)
         startZ80
     endif
 
@@ -94,8 +102,15 @@ VInt_Level:
 ; Critical DMA only. Important/Deferrable entries persist.
 ; -----------------------------------------------
 VInt_Lag:
-        ; Sound 1B: see VInt_Level — Z80 not stopped when the sound driver is on
-        ; (it self-protects via its VBlank-IRQ drain). OFF build keeps the fence.
+        ; Sound (flag bracket): see VInt_Level — raise SND_CTRL_DMA_ACTIVE=1 at the
+        ; very top (before any VDP work) so the Z80 producer takes its DRAIN path
+        ; for the whole VDP/DMA window; cleared =0 after the last DMA below. OFF
+        ; build keeps the original full-DMA Z80 fence.
+    ifdef SOUND_DRIVER_ENABLED
+        stopZ80
+        move.b  #1, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; raise: DMA window open (Z80 -> DRAIN)
+        startZ80
+    endif
     ifndef SOUND_DRIVER_ENABLED
         stopZ80
     endif
@@ -110,11 +125,11 @@ VInt_Lag:
         startZ80
     endif
 
-        ; Sound 1B: ack the Z80 that the DMA pipeline is finished (see VInt_Level).
-        ; The Z80 ISR drains until it sees this flip to 1, then resumes FILL+PLAY.
+        ; Sound (flag bracket close): VDP/DMA window finished — clear the flag so
+        ; the Z80 producer resumes FILL read-ahead (see VInt_Level).
     ifdef SOUND_DRIVER_ENABLED
         stopZ80
-        move.b  #1, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; ack: DMA done, ROM safe again
+        move.b  #0, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; lower: DMA window closed (Z80 -> FILL)
         startZ80
     endif
 
