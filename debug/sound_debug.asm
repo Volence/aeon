@@ -2,6 +2,7 @@
 
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
+        ifdef SOUND_DBG_MIRROR
 ; ----------------------------------------------------------------------
 ; Sound_DebugMirror — copy Z80 mailbox+status ($A01F00..$A01F3F) into
 ; Sound_Dbg_Mirror (68k RAM) so the Exodus MCP can observe driver state.
@@ -25,5 +26,6 @@ Sound_DebugMirror:
         dbf     d0, .copy2
         startZ80
         rts
+        endif
       endif
     endif

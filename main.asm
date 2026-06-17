@@ -233,6 +233,14 @@ Art_Sonic:
     align 2
 
 ; -----------------------------------------------
+; DAC sample data (§1B — ROM-streamed via Z80 bank window)
+; Bank-aligned (align $8000); the Z80 reads it through its $8000 window.
+; -----------------------------------------------
+    ifdef SOUND_DRIVER_ENABLED
+        include "data/sound/dac_samples.asm"
+    endif
+
+; -----------------------------------------------
 ; Test game states
 ; -----------------------------------------------
     include "test/object_test_state.asm"

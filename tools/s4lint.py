@@ -1044,6 +1044,18 @@ def check_e006(ctx: LintContext, token: Token, line_num: int,
     registers and accesses them indirectly.
 
     VDP reads (VDP port as SOURCE operand) are legal without Z80 stopped.
+
+    Sound 1B invariant (engine/vblank.asm VInt_Level / VInt_Lag): the linter
+    does NOT evaluate ``ifdef``/``ifndef`` conditions — it walks every line
+    flat. The ``stopZ80``/``startZ80`` around the VInt VDP/DMA pipeline are
+    wrapped in ``ifndef SOUND_DRIVER_ENABLED``, so the linter still SEES a
+    balanced stop/start pair and E006 stays satisfied for that path. This is
+    intentional and correct: it validates the OFF build's fencing. In the ON
+    (SOUND_DRIVER_ENABLED) build that fencing is gated out on purpose — the Z80
+    sound driver self-disciplines, draining the DAC with no ROM reads on its
+    hardware VBlank IRQ (im 1 -> RST 38h) through the exact 68k DMA window, so
+    it needs no 68k-side stopZ80. The rule is NOT weakened for any other VDP
+    write; only the VInt pipeline carries this documented exemption.
     """
     if "E006" in suppressed:
         return

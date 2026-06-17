@@ -827,8 +827,9 @@ Section_RedrawPlanes:
         sub.w   d4, d0                         ; zero_A = count_A - data_A
         subq.w  #1, d0
         bmi.s   .pA_zskip
+        moveq   #0, d1                         ; zero source (clr.w would RMW-read VDP)
 .pA_zero:
-        clr.w   (a6)
+        move.w  d1, (a6)
         dbf     d0, .pA_zero
 .pA_zskip:
 
@@ -862,15 +863,17 @@ Section_RedrawPlanes:
         sub.w   d4, d0
         subq.w  #1, d0
         bmi.s   .pB_skip
+        moveq   #0, d1                         ; zero source (clr.w would RMW-read VDP)
 .pB_zfill:
-        clr.w   (a6)
+        move.w  d1, (a6)
         dbf     d0, .pB_zfill
         bra.s   .pB_skip
 .pB_allz:
         move.w  d2, d0
         subq.w  #1, d0
+        moveq   #0, d1                         ; zero source (clr.w would RMW-read VDP)
 .pB_az:
-        clr.w   (a6)
+        move.w  d1, (a6)
         dbf     d0, .pB_az
 .pB_skip:
         addq.l  #2, sp                         ; pop col byte offset

@@ -17,7 +17,10 @@ VBlank_Handler:
 .done:
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
-        bsr.w   Sound_DebugMirror       ; always-run snapshot (any game state)
+        ifdef SOUND_DBG_MIRROR
+        bsr.w   Sound_DebugMirror       ; Z80-state snapshot (stops Z80 ~190us -> 60Hz tick;
+                                        ; OFF by default so DEBUG audio is clean)
+        endif
       endif
     endif
         moveq   #0, d0
@@ -32,8 +35,25 @@ VBlank_Handler:
 ;   controllers -> frame counter -> VBlank flag
 ; -----------------------------------------------
 VInt_Level:
-        ; --- VDP work (Z80 stopped) ---
+        ; --- VDP work ---
+        ; Sound (MegaPCM-2 model): when the Z80 sound driver is enabled we do NOT
+        ; stop the Z80 during the VDP/DMA pipeline. Instead we raise a FLAG BRACKET
+        ; around the whole VDP/DMA window: SND_CTRL_DMA_ACTIVE=1 here at the very
+        ; top (before ANY VDP work), cleared =0 after the last DMA below. The Z80
+        ; producer checks this flag every sample and takes its DRAIN path (feeds
+        ; the DAC from the RAM ring with NO ROM read) for as long as the flag is
+        ; set — so a banked ROM read can never land inside a DMA burst and stall
+        ; the Z80 bus (the under-load pitch sag). The brief bus-held byte write is
+        ; the ONLY 68k stopZ80 in the sound build; the DMA pipeline itself runs
+        ; with the Z80 free. The OFF build keeps the original full-DMA Z80 fence.
+    ifdef SOUND_DRIVER_ENABLED
         stopZ80
+        move.b  #1, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; raise: DMA window open (Z80 -> DRAIN)
+        startZ80
+    endif
+    ifndef SOUND_DRIVER_ENABLED
+        stopZ80
+    endif
 
         bsr.w   Flush_VDP_Shadow
 
@@ -50,7 +70,20 @@ VInt_Level:
         bsr.w   Process_DMA_Important
         bsr.w   Process_DMA_Deferrable
 
+    ifndef SOUND_DRIVER_ENABLED
         startZ80
+    endif
+
+        ; Sound (flag bracket close): the VDP/DMA window is finished — ROM is safe
+        ; to read again. Clear SND_CTRL_DMA_ACTIVE=0 so the Z80 producer leaves its
+        ; DRAIN path and resumes FILL read-ahead. Net: the flag was 1 for the
+        ; whole VDP/DMA window. Brief bus-held write (the only 68k stopZ80 in the
+        ; sound build); the DMA pipeline above ran with the Z80 free.
+    ifdef SOUND_DRIVER_ENABLED
+        stopZ80
+        move.b  #0, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; lower: DMA window closed (Z80 -> FILL)
+        startZ80
+    endif
 
         ; --- Non-VDP work ---
         bsr.w   Read_Controllers
@@ -72,7 +105,18 @@ VInt_Level:
 ; Critical DMA only. Important/Deferrable entries persist.
 ; -----------------------------------------------
 VInt_Lag:
+        ; Sound (flag bracket): see VInt_Level — raise SND_CTRL_DMA_ACTIVE=1 at the
+        ; very top (before any VDP work) so the Z80 producer takes its DRAIN path
+        ; for the whole VDP/DMA window; cleared =0 after the last DMA below. OFF
+        ; build keeps the original full-DMA Z80 fence.
+    ifdef SOUND_DRIVER_ENABLED
         stopZ80
+        move.b  #1, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; raise: DMA window open (Z80 -> DRAIN)
+        startZ80
+    endif
+    ifndef SOUND_DRIVER_ENABLED
+        stopZ80
+    endif
 
         bsr.w   Flush_VDP_Shadow
         bsr.w   Enqueue_Dirty_Buffers
@@ -80,7 +124,17 @@ VInt_Lag:
         bsr.w   Process_DMA_Critical
         bsr.w   Vscroll_Write           ; §4.6 — after Critical DMA
 
+    ifndef SOUND_DRIVER_ENABLED
         startZ80
+    endif
+
+        ; Sound (flag bracket close): VDP/DMA window finished — clear the flag so
+        ; the Z80 producer resumes FILL read-ahead (see VInt_Level).
+    ifdef SOUND_DRIVER_ENABLED
+        stopZ80
+        move.b  #0, (SND_Z80_BASE+SND_CTRL_DMA_ACTIVE).l   ; lower: DMA window closed (Z80 -> FILL)
+        startZ80
+    endif
 
         bsr.w   Read_Controllers
         addq.w  #1, (Frame_Counter).w
