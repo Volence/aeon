@@ -44,7 +44,9 @@ Sequencer_Tick:
 .chan_loop:
         bit     0, (ix+sc_flags)         ; SCF_ACTIVE?
         jr      z, .next_chan            ; inactive -> skip this channel
-        call    Sequencer_Channel
+        push    bc                       ; preserve channel-loop counter (b): the
+        call    Sequencer_Channel        ;   .coord path clobbers b via `ld b,0`
+        pop     bc                       ;   and a `call` does NOT preserve b
 .next_chan:
         ld      de, SeqChannel_len       ; size added directly (no multiply)
         add     ix, de
@@ -54,8 +56,9 @@ Sequencer_Tick:
 ; ----------------------------------------------------------------------
 ; Sequencer_Channel — advance ONE active channel (ix = its SeqChannel).
 ; Held notes burn a tick and return; on duration expiry, fetch+dispatch the
-; next opcode(s). Clobbers af,c,de,hl (b is the channel-loop counter — saved
-; by the `call` boundary; ix is preserved by every path here).
+; next opcode(s). Clobbers af,bc,de,hl (b is NOT preserved — the .coord path
+; does `ld b,0`; the caller's channel-loop counter is saved by an explicit
+; push/pop bc around this call. ix is preserved by every path here).
 ; ----------------------------------------------------------------------
 Sequencer_Channel:
         dec     (ix+sc_dur_count)
