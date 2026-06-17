@@ -38,6 +38,8 @@ Strip binary layout consumed here (STRIP_BYTE_SIZE bytes per column):
 """
 
 import hashlib
+import multiprocessing
+import pickle
 import struct
 import sys
 import os
@@ -77,6 +79,59 @@ OUTPUT_DIR = os.path.join(
 
 NUM_SECTIONS = 9
 SECTION_IDS = list(range(NUM_SECTIONS))
+
+# Per-section content-hash cache. The key folds in the raw strip input, BOTH
+# module sources (s4lz.py + this file) and the relevant constants, so the cache
+# invalidates whenever the input data, the compressor, or the generator logic
+# changes. Computed output is byte-identical to a no-cache serial build.
+CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         ".cache", "blockgen")
+_THIS_FILE = os.path.abspath(__file__)
+_S4LZ_FILE = os.path.abspath(s4lz.__file__)
+
+
+def _read_source(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _cache_key(section_idx, raw_data):
+    """SHA-256 over the raw strip bytes + both module sources + constants.
+
+    Hashing both module sources (not just inputs) guarantees the cache
+    invalidates whenever the compressor or generator logic changes.
+    """
+    h = hashlib.sha256()
+    h.update(b"ojz_block_gen.v1\0")
+    h.update(struct.pack(">I", section_idx))
+    h.update(struct.pack(">IIII", BLOCK_SIZE, MAX_DICT_BLOCKS,
+                         BLOCK_RAW_SIZE, BLOCK_INDEX_SIZE))
+    h.update(raw_data)
+    h.update(_read_source(_THIS_FILE))
+    h.update(_read_source(_S4LZ_FILE))
+    return h.hexdigest()
+
+
+def _cache_load(key):
+    """Return the cached (blob_bytes, dict_len, stats) tuple, or None on miss."""
+    path = os.path.join(CACHE_DIR, key)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            return pickle.load(f)
+    except Exception:
+        return None
+
+
+def _cache_store(key, result):
+    """Persist the full (blob_bytes, dict_len, stats) tuple atomically."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    path = os.path.join(CACHE_DIR, key)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "wb") as f:
+        pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp, path)
 
 
 def load_raw_strips(section_idx):
@@ -183,6 +238,14 @@ def generate_section_blocks(section_idx):
       512B nametable + 128B collision plane A + 128B collision plane B.
     """
     raw_data = load_raw_strips(section_idx)
+
+    # Content-hash cache: skip the expensive K-sweep when the inputs and the
+    # generator/compressor sources are unchanged. Hit returns the full tuple.
+    key = _cache_key(section_idx, raw_data)
+    cached = _cache_load(key)
+    if cached is not None:
+        return cached
+
     nametable, collision_a, collision_b = parse_strips(raw_data)
 
     raw_blocks = []
@@ -241,7 +304,9 @@ def generate_section_blocks(section_idx):
                 block_data.append(0)
 
     stats = {"k": k, "total": total}
-    return bytes(index_table) + bytes(block_data), dict_len, stats
+    result = (bytes(index_table) + bytes(block_data), dict_len, stats)
+    _cache_store(key, result)
+    return result
 
 
 def generate_all():
@@ -255,9 +320,16 @@ def generate_all():
     blob_lines = []     # generated include: BINCLUDE or equ alias per section
     dedup_saved = 0
 
-    for sec_idx in SECTION_IDS:
+    # Compress all sections in parallel — generate_section_blocks is pure and
+    # independent per section. Pool.map preserves order, so the downstream dedup
+    # and .asm emission see results in SECTION_IDS order exactly as a serial run.
+    print(f"Compressing {NUM_SECTIONS} sections "
+          f"({multiprocessing.cpu_count()} workers)...", flush=True)
+    with multiprocessing.Pool() as pool:
+        results = pool.map(generate_section_blocks, SECTION_IDS)
+
+    for sec_idx, (output, dict_len, stats) in zip(SECTION_IDS, results):
         print(f"Section {sec_idx}...", end=" ", flush=True)
-        output, dict_len, stats = generate_section_blocks(sec_idx)
         dict_lens.append(dict_len)
 
         index_data = output[:BLOCK_INDEX_SIZE]

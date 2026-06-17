@@ -33,3 +33,6 @@ tags
 __pycache__/
 .worktrees/
 data/generated/
+
+# Build tool caches (content-hash keyed)
+tools/.cache/
