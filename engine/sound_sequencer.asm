@@ -42,7 +42,7 @@ Sequencer_Tick:
         ld      b, a                     ; b = channel count (djnz bound)
         ld      ix, SND_SEQ_CHANNELS     ; ix = first SeqChannel
 .chan_loop:
-        bit     0, (ix+sc_flags)         ; SCF_ACTIVE?
+        bit     SCF_ACTIVE_B, (ix+sc_flags) ; SCF_ACTIVE?
         jr      z, .next_chan            ; inactive -> skip this channel
         push    bc                       ; preserve channel-loop counter (b): the
         call    Sequencer_Channel        ;   .coord path clobbers b via `ld b,0`
@@ -93,7 +93,7 @@ Sequencer_NextOpcode:
         ld      (ix+sc_note), a
         ld      (ix+sc_stream_ptr), l
         ld      (ix+sc_stream_ptr+1), h  ; commit ptr before hooks clobber hl
-        set     1, (ix+sc_flags)         ; SCF_KEYED
+        set     SCF_KEYED_B, (ix+sc_flags) ; SCF_KEYED
         ld      a, (ix+sc_dur_default)
         ld      (ix+sc_dur_count), a     ; reload duration (bare-note default)
     ifdef __DEBUG__
@@ -105,7 +105,7 @@ Sequencer_NextOpcode:
 
 ; --- REST: key-off; reload duration; advance ---
 .rest:
-        res     1, (ix+sc_flags)         ; clear SCF_KEYED
+        res     SCF_KEYED_B, (ix+sc_flags) ; clear SCF_KEYED
         ld      (ix+sc_stream_ptr), l
         ld      (ix+sc_stream_ptr+1), h
         ld      a, (ix+sc_dur_default)
@@ -203,7 +203,7 @@ Seq_Op_NoteDur:
         ld      (ix+sc_dur_count), a     ; explicit duration
         ld      (ix+sc_stream_ptr), l
         ld      (ix+sc_stream_ptr+1), h  ; commit ptr before hooks clobber hl
-        set     1, (ix+sc_flags)         ; SCF_KEYED
+        set     SCF_KEYED_B, (ix+sc_flags) ; SCF_KEYED
     ifdef __DEBUG__
         ld      a, SEQEV_NOTEON
         call    Seq_Trace
@@ -235,7 +235,7 @@ Seq_Op_Jump:
 
 ; $FF MEV_END : clear SCF_ACTIVE, store ptr, stop this channel (no time advance)
 Seq_Op_End:
-        res     0, (ix+sc_flags)         ; clear SCF_ACTIVE
+        res     SCF_ACTIVE_B, (ix+sc_flags) ; clear SCF_ACTIVE
         ld      (ix+sc_stream_ptr), l
         ld      (ix+sc_stream_ptr+1), h
     ifdef __DEBUG__
@@ -244,15 +244,18 @@ Seq_Op_End:
     endif
         ret                              ; channel done
 
-; Reserved/unknown opcodes ($E4-$ED, $F0-$FE). The packer already forbids these;
-; this is defense-in-depth. DEBUG: record the offending opcode, then stop the
-; channel (clear SCF_ACTIVE) so a bad stream can't spin forever.
+; Reserved/UNKNOWN opcodes ($E4-$ED, $F0-$FE). The packer already forbids these;
+; this is defense-in-depth against an unknown opcode only — it stops the channel
+; (clear SCF_ACTIVE) so an unrecognized byte can't be re-dispatched forever.
+; It does NOT catch a non-terminating (all-zero-tick) loop body: that case is
+; prevented at PACK time by song_packer's loop-body validation (a LoopPoint..Jump
+; span must contain a Note/Rest/NoteDur), not by any runtime iteration cap.
 Seq_BadOpcode:
     ifdef __DEBUG__
         ld      a, (hl)                  ; (hl points just past the bad opcode; record
         ld      (SND_SEQ_BADOP), a       ;  the following byte as a coarse marker)
     endif
-        res     0, (ix+sc_flags)         ; clear SCF_ACTIVE
+        res     SCF_ACTIVE_B, (ix+sc_flags) ; clear SCF_ACTIVE
         ld      (ix+sc_stream_ptr), l
         ld      (ix+sc_stream_ptr+1), h
         ret

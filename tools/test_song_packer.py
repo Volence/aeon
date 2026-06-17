@@ -156,6 +156,24 @@ class TestValidation(unittest.TestCase):
                           [LoopPoint(), Dac(1), Rest(), Jump()])])
         self.assertIn(0xE2, blob)
 
+    def test_empty_loop_body_rejected(self):
+        # LoopPoint immediately followed by Jump: the loop body advances no
+        # time, so the Z80 fetch loop would spin forever. Reject at pack time.
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1, [LoopPoint(), Jump()])])
+
+    def test_zero_tick_only_loop_body_rejected(self):
+        # A loop body of only zero-tick events (Vol) still never advances time.
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1,
+                        [LoopPoint(), Vol(10), Jump()])])
+
+    def test_loop_body_with_note_ok(self):
+        # A loop body containing a time-advancing event (Note) is accepted.
+        blob = self._pack([ChannelDesc(CHROUTE_FM1,
+                          [LoopPoint(), Note(0), Jump()])])
+        self.assertIn(0xEF, blob)
+
 
 class TestEmitAsm(unittest.TestCase):
 

@@ -186,13 +186,26 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
     if not (0 <= ch.route < CHROUTE_COUNT):
         raise PackError(f"route {ch.route} out of range")
     saw_loop = False
+    loop_advances_time = False    # any time-advancing event since the LoopPoint
     stream = bytearray()
     for ev in ch.events:
         ev.validate(ch.route)
         if isinstance(ev, LoopPoint):
             saw_loop = True
-        if isinstance(ev, Jump) and not saw_loop:
-            raise PackError("Jump with no preceding LoopPoint")
+            loop_advances_time = False
+        if saw_loop and isinstance(ev, (Note, Rest, NoteDur)):
+            # Note ($81..$DF), Rest ($80), NoteDur ($E3) advance the tick clock;
+            # all other events (SetDur, Vol, Patch, Dac, LoopPoint, Jump) are
+            # zero-tick. A loop body with no time-advancing event would spin the
+            # Z80 fetch loop forever (it never returns to the tick driver).
+            loop_advances_time = True
+        if isinstance(ev, Jump):
+            if not saw_loop:
+                raise PackError("Jump with no preceding LoopPoint")
+            if not loop_advances_time:
+                raise PackError(
+                    "loop body has no time-advancing event "
+                    "(Note/Rest/NoteDur) — would spin the sequencer forever")
         stream += ev.encode()
     if not ch.events:
         raise PackError("empty channel stream")

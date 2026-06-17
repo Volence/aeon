@@ -237,12 +237,25 @@ sc_flags        = SeqChannel_sc_flags
 sc_route        = SeqChannel_sc_route
 sc_loop_ptr     = SeqChannel_sc_loop_ptr
 
-; --- sc_flags bit masks ---
-SCF_ACTIVE      = 1<<0    ; channel is playing its stream
-SCF_KEYED       = 1<<1    ; a note is currently keyed-on
-SCF_IS_FM       = 1<<2    ; route class: FM voice
-SCF_IS_PSG      = 1<<3    ; route class: PSG voice
-SCF_IS_DAC      = 1<<4    ; route class: DAC trigger channel
+; --- sc_flags bit numbers + masks ---
+; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B
+; companions; the SCF_* masks are for 68k-style mask ops (e.g. SCF_ACTIVE|SCF_IS_FM).
+; Single source of truth: each mask is derived from its _B bit number below.
+SCF_ACTIVE_B    = 0       ; channel is playing its stream
+SCF_KEYED_B     = 1       ; a note is currently keyed-on
+SCF_IS_FM_B     = 2       ; route class: FM voice
+SCF_IS_PSG_B    = 3       ; route class: PSG voice
+SCF_IS_DAC_B    = 4       ; route class: DAC trigger channel
+SCF_ACTIVE      = 1<<SCF_ACTIVE_B
+SCF_KEYED       = 1<<SCF_KEYED_B
+SCF_IS_FM       = 1<<SCF_IS_FM_B
+SCF_IS_PSG      = 1<<SCF_IS_PSG_B
+SCF_IS_DAC      = 1<<SCF_IS_DAC_B
+
+        ; the _B bit numbers and the masks must stay tied together.
+        if (SCF_ACTIVE <> 1<<SCF_ACTIVE_B) || (SCF_KEYED <> 1<<SCF_KEYED_B) || (SCF_IS_FM <> 1<<SCF_IS_FM_B) || (SCF_IS_PSG <> 1<<SCF_IS_PSG_B) || (SCF_IS_DAC <> 1<<SCF_IS_DAC_B)
+          error "SCF_* masks and _B bit numbers are out of sync"
+        endif
 
 ; --- Sequencer RAM block (Z80 space) ---
 ; Lives at $1800, ABOVE the 1B DAC ring at $1700. (The plan's illustrative guard
