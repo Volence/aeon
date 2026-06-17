@@ -4,45 +4,45 @@
 Output: data/sound/temp_blip.bin — raw 8-bit UNSIGNED PCM, centered at $80.
 
 This is a THROWAWAY placeholder. Its only job is to exercise the ROM-streaming /
-banking ENGINE with a clean, tonal signal so any engine artifacts (clicks, gaps,
-dropouts, banking glitches) are audible against silence/static. The real sample
-content (the sonic_hack DPCM-compressed DAC samples) is deferred, user-driven
-work — it is NOT decided here.
+banking ENGINE with a clean, tonal signal so any engine artifacts (pitch wobble,
+gaps, dropouts, banking glitches) are audible. The real sample content (the
+sonic_hack DPCM samples) is deferred, user-driven work — NOT decided here.
 
-Signal: a ~440 Hz sine with exponential amplitude decay over ~0.18 s, rendered
-at a 16000 Hz sample rate -> ~2880 bytes. Pure python/math, no dependencies.
-Samples clamp to 0..255.
+Signal: a STEADY (no envelope) sine of an INTEGER number of periods, so looping is
+seamless — the wrap sample[-1] -> sample[0] is the same step as anywhere else in the
+wave, with NO amplitude discontinuity and NO repeated attack. (The previous decaying
+blip restarted with a loud attack every loop = the "attack pop" the user heard.)
+A steady tone is also the right probe for the real goal: verifying the DAC output
+rate is rock-steady (constant pitch) under load. Starts and ends at $80 (DC center).
 """
 import math
 import os
 
-SAMPLE_RATE = 16000          # Hz — playback rate the driver targets
-DURATION    = 0.18           # seconds
-FREQ        = 440.0          # Hz — clean tone (A4)
-DECAY       = 14.0           # exponential amplitude decay rate (1/sec)
-CENTER      = 128            # $80 — unsigned-PCM zero level
-AMPLITUDE   = 120.0          # peak deviation from center (keeps clamp headroom)
+PERIOD_SAMPLES = 16          # samples per sine period (integer -> seamless loop)
+NUM_PERIODS    = 180         # total periods -> length = 16*180 = 2880 samples
+CENTER         = 128         # $80 — unsigned-PCM zero level
+AMPLITUDE      = 100.0       # peak deviation from center (clamp headroom both sides)
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "data", "sound", "temp_blip.bin")
 
 
 def main():
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    length = int(round(SAMPLE_RATE * DURATION))   # ~2880 samples
+    length = PERIOD_SAMPLES * NUM_PERIODS          # exact integer periods
     samples = bytearray()
     for n in range(length):
-        t = n / SAMPLE_RATE
-        env = math.exp(-DECAY * t)
-        value = CENTER + AMPLITUDE * env * math.sin(2.0 * math.pi * FREQ * t)
+        # phase 0 at n=0 -> sample[0] = CENTER ($80); integer periods -> sample
+        # at length wraps back to phase 0, so the loop seam is continuous.
+        value = CENTER + AMPLITUDE * math.sin(2.0 * math.pi * n / PERIOD_SAMPLES)
         b = int(round(value))
-        if b < 0:
-            b = 0
-        elif b > 255:
-            b = 255
+        b = 0 if b < 0 else 255 if b > 255 else b
         samples.append(b)
     with open(OUT, "wb") as f:
         f.write(samples)
+    # report the seam continuity for sanity
+    step_seam = abs(samples[0] - samples[-1])
     print(f"wrote {len(samples)} bytes -> {os.path.normpath(OUT)}")
+    print(f"  start={samples[0]} end={samples[-1]} seam-step={step_seam} (should match mid-wave step)")
 
 
 if __name__ == "__main__":
