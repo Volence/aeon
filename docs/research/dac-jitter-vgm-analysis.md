@@ -64,3 +64,23 @@ shifted with the pad. Two unknowns to resolve next, methodically:
 Next session: count the FillOne fill vs no-op path cycles exactly (emulator step), set the
 pad from that, verify the `$2A` histogram is unimodal, then balance the drain path. Use a
 single continuous capture to remove the suspected two-run artifact.
+
+## UNDER-LOAD measurement (2026-06-17, continuous capture, static vs forced-scroll)
+
+Added a DEBUG `SOUND_LOADTEST` flag (forces +6px/frame camera scroll → continuous tile-
+streaming DMA) to reproduce the user's "pitch drops when you move". Continuous single-run
+VGM captures:
+
+| Condition | DAC rate | Jitter | Notes |
+|---|---|---|---|
+| STATIC (no movement) | 5962 Hz | 23% | per-1s rate 5952–5972 (stable) |
+| LOAD (continuous scroll+DMA) | 5430 Hz | **108%** | rate sags ~9%; per-sample jitter explodes |
+
+LOAD interval distribution: p50=159µs, p90=204µs, p99=907µs, **max=6122µs**;
+**483 gaps >1ms, 27 gaps >5ms**. These multi-ms gaps = the Z80 LOOP STALLING (no $2A
+write for up to 6ms) — i.e. the Z80 is reading ROM during a 68k→VDP DMA and stalling on
+the held cartridge bus. **The DMA-survival (DRAIN) is NOT actually protecting playback
+under real load.** So the fix must address THREE things, not one:
+1. per-sample cycle-balance (the 23% static jitter),
+2. load-independent rate (no sag under contention),
+3. real DMA-window survival (no ROM read during ANY DMA → no multi-ms stalls).

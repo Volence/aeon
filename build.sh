@@ -36,6 +36,12 @@ if [[ "${SOUND_DRIVER_ENABLED:-0}" == "1" ]]; then
     ASFLAGS="${ASFLAGS} -D SOUND_DRIVER_ENABLED"
 fi
 
+# DEBUG-only: force continuous camera scroll (streaming-DMA load) so the DAC
+# rate can be measured under load via VGM. Not a shipping flag.
+if [[ "${SOUND_LOADTEST:-0}" == "1" ]]; then
+    ASFLAGS="${ASFLAGS} -D SOUND_LOADTEST"
+fi
+
 if [[ "${PRINT_ERRORS_ONLY}" == "0" ]]; then
     ASFLAGS="${ASFLAGS} -E ${ROM_NAME}.log"
 fi

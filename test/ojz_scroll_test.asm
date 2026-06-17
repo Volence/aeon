@@ -156,6 +156,15 @@ GameState_OJZScroll_Update:
         ; -- execute all objects (Player_Main handles its own movement) --
         jsr     RunObjects
 
+    ifdef SOUND_LOADTEST
+        ; DEBUG: force continuous rightward scroll to exercise the streaming-DMA
+        ; load (Tile_Cache_Fill / Section_UpdateColumns) for sound-rate VGM
+        ; measurement. +6px/frame in the x_pos integer (high) word.
+        move.l  (Player_1+SST_x_pos).w, d0
+        addi.l  #$00060000, d0
+        move.l  d0, (Player_1+SST_x_pos).w
+    endif
+
         ; -- camera follows Player_1 (deadzone + preview-aware clamp) --
         jsr     Camera_Update
 
