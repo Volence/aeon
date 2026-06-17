@@ -202,6 +202,91 @@ FmPatch endstruct             ; = 2 + 6*4 = 26 bytes
           error "FmPatch struct is \{FmPatch_len} bytes, expected 26"
         endif
 
+; --- SeqChannel struct (per-channel sequencer state; Z80 RAM, indexed by ix) ---
+; DECISION (resolved by research — keep 11 bytes, do NOT pad to 16): (ix+d)
+; indexed access costs the same for any displacement d, and the tick loop
+; iterates channels sequentially with `add ix,de` (de = SeqChannel_len) — the
+; struct size is ADDED directly, never MULTIPLIED by an index, so there is no
+; power-of-2 benefit to padding. (If a future path computes a channel base from
+; an integer index at runtime, revisit; Task 2 never does.)
+SeqChannel struct
+sc_stream_ptr   ds.w 1   ; +0  current read ptr into the channel byte stream
+sc_dur_count    ds.b 1   ; +2  ticks remaining on the current note/rest
+sc_dur_default  ds.b 1   ; +3  default duration for bare notes
+sc_patch        ds.b 1   ; +4  current FM patch index
+sc_volume       ds.b 1   ; +5  current channel volume (linear 0..127)
+sc_note         ds.b 1   ; +6  current pitch index (for key-off / debug)
+sc_flags        ds.b 1   ; +7  bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac
+sc_route        ds.b 1   ; +8  channel route enum (CHROUTE_*) — selects the writer
+sc_loop_ptr     ds.w 1   ; +9  saved loop-point ptr (set by $EE, used by $EF)
+SeqChannel endstruct      ; = 11 bytes
+
+        if SeqChannel_len <> 11
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 11"
+        endif
+
+; Short field-offset accessors (AS struct fields are exposed as
+; SeqChannel_<field>; these `sc_*` aliases keep the Z80 (ix+d) code terse).
+sc_stream_ptr   = SeqChannel_sc_stream_ptr
+sc_dur_count    = SeqChannel_sc_dur_count
+sc_dur_default  = SeqChannel_sc_dur_default
+sc_patch        = SeqChannel_sc_patch
+sc_volume       = SeqChannel_sc_volume
+sc_note         = SeqChannel_sc_note
+sc_flags        = SeqChannel_sc_flags
+sc_route        = SeqChannel_sc_route
+sc_loop_ptr     = SeqChannel_sc_loop_ptr
+
+; --- sc_flags bit masks ---
+SCF_ACTIVE      = 1<<0    ; channel is playing its stream
+SCF_KEYED       = 1<<1    ; a note is currently keyed-on
+SCF_IS_FM       = 1<<2    ; route class: FM voice
+SCF_IS_PSG      = 1<<3    ; route class: PSG voice
+SCF_IS_DAC      = 1<<4    ; route class: DAC trigger channel
+
+; --- Sequencer RAM block (Z80 space) ---
+; Lives at $1800, ABOVE the 1B DAC ring at $1700. (The plan's illustrative guard
+; `if SND_SEQ_END > SND_RING_BASE` is WRONG — the sequencer is above the ring,
+; not below it. The real map: code $0000-$15FF, state $1600-$16FF, DAC ring
+; $1700-$17FF, FREE $1800-$1EFF, mailbox/status $1F00-$1F1F, stack top $1FFE.
+; We place the sequencer region at $1800 and guard its END against the mailbox
+; base SND_REQ_BASE ($1F00), leaving stack headroom.)
+SND_SEQ_BASE       = $1800          ; sequencer state region (free block above the DAC ring)
+SND_SEQ_TEMPO      = SND_SEQ_BASE+$00   ; loaded song tempo (Timer-A selector)
+SND_SEQ_CHCOUNT    = SND_SEQ_BASE+$01   ; active channel count (tick-loop djnz bound)
+SND_SEQ_PATCHTAB   = SND_SEQ_BASE+$02   ; loaded patch table ptr (2)
+SND_SEQ_ACTIVE     = SND_SEQ_BASE+$04   ; 1 = song playing
+SND_SEQ_BADOP      = SND_SEQ_BASE+$05   ; DEBUG: last bad opcode seen (Seq_BadOpcode marker)
+SND_SEQ_TRACE_WR   = SND_SEQ_BASE+$06   ; trace ring write index (0..31)
+SND_SEQ_CHANNELS   = SND_SEQ_BASE+$08   ; CHROUTE_COUNT * SeqChannel_len
+SND_SEQ_END        = SND_SEQ_CHANNELS + (CHROUTE_COUNT * SeqChannel_len)
+SND_SEQ_TRACE      = $1A00          ; 32-byte trace ring of dispatched opcodes
+SND_SEQ_TRACE_LEN  = 32
+
+    if SND_SEQ_END > SND_REQ_BASE
+      fatal "sequencer RAM (\{SND_SEQ_END}) overruns the mailbox at \{SND_REQ_BASE}"
+    endif
+    if (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN) > SND_REQ_BASE
+      fatal "sequencer trace ring overruns the mailbox"
+    endif
+    ; the per-channel array must not run into the trace ring at $1A00.
+    ; CHROUTE_COUNT(10) * SeqChannel_len(11) = 110 bytes -> ends ~$1876, clear.
+    if SND_SEQ_END > SND_SEQ_TRACE
+      fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
+    endif
+
+; --- Trace event_code values (0..15) — the controller decodes the trace ring.
+; Each trace byte is (sc_route << 4) | event_code: high nibble = CHROUTE_*,
+; low nibble = SEQEV_* below. (Route fits in 4 bits: CHROUTE_COUNT = 10 <= 15.)
+SEQEV_NOTEON    = 1     ; note-on (pitch in sc_note)
+SEQEV_NOTEOFF   = 2     ; note-off / rest
+SEQEV_VOL       = 3     ; set channel volume
+SEQEV_PATCH     = 4     ; set FM patch index
+SEQEV_DAC       = 5     ; DAC trigger
+SEQEV_LOOP      = 6     ; loop-point marker ($EE)
+SEQEV_JUMP      = 7     ; jump to loop point ($EF)
+SEQEV_END       = 8     ; end of stream ($FF)
+
 ; --- SongHeader layout (emitted by tools/song_packer.py, read by the loader) ---
 ; SongHeader:
 ;   db  tempo            ; Timer-A period selector (bigger = slower)

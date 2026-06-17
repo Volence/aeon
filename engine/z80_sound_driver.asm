@@ -231,6 +231,53 @@ SndDrv_Init:
         ld      a, SND_ALIVE_MARKER
         ld      (SND_STAT_ALIVE), a
 
+    ifdef __DEBUG__
+        ; ==============================================================
+        ; TASK-2 DRY-RUN PUMP — initialise the sequencer with two test
+        ; channels (FM1-route + PSG1-route) pointing at the inline test
+        ; streams, then arm it. Sequencer_Tick is driven once per VBlank
+        ; from SndDrv_ISR (below). NO Timer-A, NO FM/PSG writes — this is a
+        ; bounded manual pump that Task 5/6 replaces. REMOVE WITH THE STREAMS.
+        ; ==============================================================
+        ; clear the whole sequencer header + channel block ($1800..SND_SEQ_END)
+        ld      hl, SND_SEQ_BASE
+        ld      bc, SND_SEQ_END-SND_SEQ_BASE
+.seq_clr:
+        ld      (hl), 0
+        inc     hl
+        dec     bc
+        ld      a, b
+        or      c
+        jr      nz, .seq_clr
+
+        ; --- channel 0: FM1 route ---
+        ld      ix, SND_SEQ_CHANNELS
+        ld      (ix+sc_stream_ptr), SeqTest_StreamFM & 0FFh
+        ld      (ix+sc_stream_ptr+1), SeqTest_StreamFM >> 8
+        ld      (ix+sc_route), CHROUTE_FM1
+        ld      (ix+sc_flags), SCF_ACTIVE|SCF_IS_FM
+        ld      (ix+sc_volume), 127
+        ld      (ix+sc_dur_count), 1     ; first tick fetches immediately
+
+        ; --- channel 1: PSG1 route ---
+        ld      de, SeqChannel_len
+        add     ix, de
+        ld      (ix+sc_stream_ptr), SeqTest_StreamPSG & 0FFh
+        ld      (ix+sc_stream_ptr+1), SeqTest_StreamPSG >> 8
+        ld      (ix+sc_route), CHROUTE_PSG1
+        ld      (ix+sc_flags), SCF_ACTIVE|SCF_IS_PSG
+        ld      (ix+sc_volume), 127
+        ld      (ix+sc_dur_count), 1     ; first tick fetches immediately
+
+        ld      a, 2
+        ld      (SND_SEQ_CHCOUNT), a     ; 2 test channels
+        xor     a
+        ld      (SND_SEQ_TRACE_WR), a    ; trace ring starts empty
+        ld      (SND_SEQ_BADOP), a
+        inc     a
+        ld      (SND_SEQ_ACTIVE), a      ; arm the sequencer (1)
+    endif
+
         ei                               ; state consistent -> allow the VBlank IRQ
         ; falls into the IDLE loop
 
@@ -366,6 +413,15 @@ SndDrv_ISR:
         push    de
         push    hl
         call    SndDrv_PollMailbox       ; RAM + $6000 latch only -> DMA-safe
+    ifdef __DEBUG__
+        ; TASK-2 DRY-RUN PUMP: advance the sequencer one tick per VBlank so the
+        ; trace ring fills over frames. RAM-only (writer hooks are stubs), so
+        ; DMA-safe. ix is saved/restored to honour the ISR's no-clobber contract.
+        ; (Task 5 replaces this with the Timer-A sub-tick poll.)
+        push    ix
+        call    Sequencer_Tick
+        pop     ix
+    endif
         pop     hl
         pop     de
         pop     bc
@@ -463,6 +519,50 @@ SndDrv_SetBank:
         endr
         ld      (hl), a                  ; 9th write (bit8)
         ret
+
+; ======================================================================
+; Music sequencer core (Sound 1C, Task 2) — opcode interpreter.
+; Included INSIDE the phase-0 blob so its labels (Sequencer_Tick, the jump
+; table, the handlers) resolve into Z80 RAM. Hardware-agnostic; the writer
+; hooks are `ret` stubs this task. (Comes after the helpers, before the
+; even-pad, per the blob layout law.)
+; ======================================================================
+        include "engine/sound_sequencer.asm"
+
+    ifdef __DEBUG__
+; ======================================================================
+; TASK-2 DRY-RUN TEST STREAMS (DEBUG only; REMOVE/REPLACE when Task 6 lands
+; the real ROM-banked Song_Test). These live in the phase-0 blob so they load
+; into Z80 RAM at boot and are directly addressable (no banking, no $8000
+; window) — sc_stream_ptr points straight at these labels.
+;
+; Notes are `db MEV_NOTE_BASE+<pitch>`. The two streams use different routes
+; (FM1 vs PSG1) so the trace's high nibble distinguishes them, and exercise:
+; set-duration, note, rest, vol, patch, loop-point, jump (FM1 -> loops forever)
+; and MEV_END (PSG1 -> goes idle, so the active-flag-clear path is observable).
+; ======================================================================
+SeqTest_StreamFM:
+        db      MEV_PATCH, 1             ; set patch 1            (zero tick)
+        db      MEV_VOL, 100             ; set volume 100         (zero tick)
+        db      4                        ; set default duration = 4 ticks
+        db      MEV_NOTE_BASE+12         ; note pitch 12          (4 ticks)
+        db      MEV_NOTE_BASE+16         ; note pitch 16          (4 ticks)
+        db      MEV_REST                 ; rest                   (4 ticks)
+SeqTest_FM_Loop:
+        db      MEV_LOOP_POINT           ; loop target            (zero tick)
+        db      MEV_NOTE_BASE+19         ; note pitch 19          (4 ticks)
+        db      MEV_NOTE_DUR, 24, 8      ; note 24, explicit dur 8 (8 ticks)
+        db      MEV_VOL, 80              ; set volume 80          (zero tick)
+        db      MEV_JUMP                 ; jump back to loop point (zero tick)
+
+SeqTest_StreamPSG:
+        db      MEV_VOL, 60              ; set volume 60          (zero tick)
+        db      3                        ; set default duration = 3 ticks
+        db      MEV_NOTE_BASE+24         ; note pitch 24          (3 ticks)
+        db      MEV_REST                 ; rest                   (3 ticks)
+        db      MEV_NOTE_BASE+28         ; note pitch 28          (3 ticks)
+        db      MEV_END                  ; end -> channel goes idle
+    endif
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise
         ; then does word/long (a5)+ reads on the data that follows; an odd-length

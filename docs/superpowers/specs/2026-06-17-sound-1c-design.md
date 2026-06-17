@@ -180,6 +180,31 @@ Add to the Z80 RAM map: per-channel sequencer structs (channel_count × ~8 B), t
 header/pointers, and small scratch. Must fit alongside the 1B 256-byte ring + state in the 8 KB
 budget; the §12.2 RAM-map sub-design is updated as part of the plan's first task.
 
+**RESOLVED (Task 2).** The sequencer region lives at **`$1800`**, in the FREE block ABOVE the
+1B DAC ring (`$1700–$17FF`) — NOT below it. (The plan's illustrative guard
+`if SND_SEQ_END > SND_RING_BASE` was wrong; the sequencer is above the ring.) Layout:
+
+| Z80 range | Region | Constant | Notes |
+|---|---|---|---|
+| `$1800–$1807` | Sequencer header | `SND_SEQ_BASE` | `+0` tempo, `+1` chcount, `+2/3` patch-table ptr, `+4` active, `+5` bad-opcode marker (DEBUG), `+6` trace write index, `+7` unused |
+| `$1808–$1875` | Per-channel `SeqChannel` array | `SND_SEQ_CHANNELS` | `CHROUTE_COUNT`(10) × `SeqChannel_len`(11) = 110 B → ends `$1876` |
+| `$1A00–$1A1F` | Trace ring (DEBUG) | `SND_SEQ_TRACE` | 32 bytes, page-aligned; each = `(sc_route<<4) | event_code` |
+
+`SeqChannel` is **11 bytes** (NOT padded to 16): `(ix+d)` indexed access is displacement-cost-
+independent and the tick loop advances by `add ix,SeqChannel_len` (size added, never multiplied
+by an index), so power-of-two padding buys nothing. `SND_SEQ_END` is guarded `< SND_REQ_BASE`
+(`$1F00`, the mailbox base) and `<= SND_SEQ_TRACE` (`$1A00`) at build time. The trace ring's end
+is also guarded `< SND_REQ_BASE`. `$1876–$19FF` and `$1A20–$1EFF` remain free for later tasks.
+
+**Event-code values** (low nibble of each trace byte): `SEQEV_NOTEON=1, SEQEV_NOTEOFF=2,
+SEQEV_VOL=3, SEQEV_PATCH=4, SEQEV_DAC=5, SEQEV_LOOP=6, SEQEV_JUMP=7, SEQEV_END=8`. The high nibble
+is the channel's `CHROUTE_*` route, so the controller can decode which channel fired which event.
+
+**DEBUG mirror (Task 2):** `Sound_Dbg_Mirror` widened 64→128 B. Upper half:
+`[64..71]` sequencer header, `[72..82]` channel 0 (FM1), `[83..93]` channel 1 (PSG1),
+`[94..125]` trace ring. (`SND_SEQ_ACTIVE` → mirror `[68]`, `SND_SEQ_TRACE_WR` → `[70]`, each
+channel `sc_flags` at its base `+7`, `sc_stream_ptr` at `+0/+1`.)
+
 ## 12. Decomposition (task order for the plan)
 
 1. **Format + tables (build-time):** event-list opcode constants, F-number/PSG-divisor table
