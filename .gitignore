@@ -36,3 +36,4 @@ data/generated/
 
 # Build tool caches (content-hash keyed)
 tools/.cache/
+*.wav
