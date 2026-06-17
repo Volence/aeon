@@ -55,31 +55,17 @@ SndDrv_Init:
         djnz    .gen_ring
         xor     a
         ld      (SND_RING_RD), a         ; ring read ptr low byte = 0 -> $1700
+        ld      (SND_RING_WR), a         ; ring fill ptr low byte = 0
         ld      (SND_STAT_DAC_ACTIVE), a ; start with DAC inactive (play request enables)
 
-        ; --- generate a 1KB source waveform at $1800 (interim RAM source) ---
-        ; A slower ramp than the 256B ring so the waveform spans >ring -> proves
-        ; the producer genuinely streams from a source longer than the ring.
-        ld      hl, 1800h
-        ld      bc, 0400h                ; 1024 bytes
-        xor     a
-.gen_src:
-        ld      (hl), a
-        inc     hl
-        add     a, 2                     ; slower ramp than the 256B ring
-        ld      d, a                     ; preserve ramp value across the bc test
-        dec     bc                       ; advance count (does not set flags)
-        ld      a, b
-        or      c                        ; Z set when bc == 0 (last flag op before jr)
-        ld      a, d                     ; restore ramp value (ld does not touch flags)
-        jr      nz, .gen_src
-        ; init stream pointers: source ptr=$1800, remaining=1024, fill ptr=0
-        ld      hl, 1800h
-        ld      (SND_ROM_PTR), hl
-        ld      hl, 0400h
-        ld      (SND_ROM_LEN), hl
-        xor     a
-        ld      (SND_RING_WR), a
+        ; --- stream source: left INACTIVE until a play request ---
+        ; (1B Task 4) The blip streams from banked ROM, not RAM. SND_ROM_PTR /
+        ; SND_ROM_LEN are set up by the SND_REQ_SAMPLE handler from the
+        ; build-time SND_BLIP_* constants. The old $1800 RAM source is gone.
+        ; Force the first SetBank to switch: seed the cache with an impossible
+        ; bank id ($FF) so the cached-no-op check never matches on the first play.
+        ld      a, 0FFh
+        ld      (SND_CUR_BANK), a
 
         ; announce we are alive
         ld      a, SND_ALIVE_MARKER
@@ -122,9 +108,21 @@ SndDrv_PollMailbox:
         ld      a, (SND_REQ_SAMPLE)
         or      a
         ret     z                        ; nothing else pending
-        ; sample request -> enable DAC mode, start draining the ring
+        ; sample request -> enable DAC mode + start the blip from banked ROM
         ld      (ix+0), SND_REG_DAC_ENABLE   ; reg $2B
         ld      (ix+1), 80h                  ; DAC mode ON
+        ; select the blip's ROM bank into the Z80 $8000 window (cached)
+        ld      a, SND_BLIP_BANK
+        call    SndDrv_SetBank
+        ; point the stream source at the banked sample (window addr + length)
+        ld      hl, SND_BLIP_PTR
+        ld      (SND_ROM_PTR), hl
+        ld      hl, SND_BLIP_LEN
+        ld      (SND_ROM_LEN), hl
+        ; reset ring ptrs so the fill starts fresh from the sample
+        xor     a
+        ld      (SND_RING_RD), a
+        ld      (SND_RING_WR), a
         ld      a, 1
         ld      (SND_STAT_DAC_ACTIVE), a
         xor     a
@@ -196,12 +194,34 @@ SndDrv_FillRing:
         ld      a, h
         or      l
         jr      nz, .next
-        ld      hl, 1800h                ; loop source: reset ptr + remaining
+        ; sample exhausted -> loop the blip from its banked ROM start. The bank
+        ; never changes (one bank covers the whole bank-aligned sample), so no
+        ; SetBank is needed here — just reset the window ptr + remaining length.
+        ld      hl, SND_BLIP_PTR         ; loop: reset ptr + remaining
         ld      (SND_ROM_PTR), hl
-        ld      hl, 0400h
+        ld      hl, SND_BLIP_LEN
         ld      (SND_ROM_LEN), hl
 .next:
         djnz    .fill1
+        ret
+
+; --- select ROM bank in `a` into the Z80 $8000 window; no-op if already current ---
+; (Reached only via `call` — never by fall-through.) MegaPCM set-bank trick:
+; the bank latch at $6000 is a 9-bit shift register loaded LSB-first by 9 single-
+; bit writes. We cache the last bank in SND_CUR_BANK and skip the 9 writes when
+; the requested bank already matches (the common per-frame case while a sample
+; plays). `a` is the bank id = (sample_addr & $7F8000) >> 15.
+SndDrv_SetBank:
+        ld      hl, SND_CUR_BANK
+        cp      (hl)
+        ret     z                        ; already current -> no I/O
+        ld      (hl), a                  ; cache the new bank
+        ld      hl, SND_Z80_BANKREG      ; $6000 bank latch
+        rept 8
+        ld      (hl), a                  ; write current LSB
+        rrca                             ; rotate next bit into bit0
+        endr
+        ld      (hl), a                  ; 9th write (bit8)
         ret
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise
