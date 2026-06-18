@@ -12,6 +12,7 @@ format (a song_packer SongDesc). These tests pin the pure mapping functions
 bounded-repeat opcode (no unrolling) wrapped in LoopPoint/Jump.
 """
 
+import json
 import os
 import sys
 import unittest
@@ -23,7 +24,14 @@ from zyrinx_port import (
     zyrinx_note_to_pitch, zyrinx_tempo_to_byte, wait_to_dur,
     OCTAVE_BASE_OFFSET, DURATION_SCALE, ZYRINX_FORMAT_MOVING_TRUCKS,
     flatten_channel, build_songdesc, load_song,
+    translate_voice, OP_REORDER, build_patch_bank,
+    FMPATCH_LEN,
 )
+
+# The global Zyrinx voice bank (Moving Trucks = bank1). The transcoder indexes
+# this with the song's absolute VOICE indices.
+_VOICES_JSON = ("/home/volence/sonic_hacks/The Adventures of Batman and Robin/"
+                "disasm/sound/decoded_full/voices.json")
 
 import song_packer
 from song_packer import (
@@ -231,6 +239,164 @@ class TestBuildSongDesc(unittest.TestCase):
         # Bounded repeat keeps it a few KB; a full unroll would be ~100KB.
         blob = pack_song(self.song)
         self.assertLess(len(blob), 32 * 1024, "song looks unrolled (>32KB)")
+
+
+class TestTranslateVoice(unittest.TestCase):
+    """Zyrinx voices.json entry -> 26-byte FmPatch (our format). The op reorder
+    maps Zyrinx natural [op1,op2,op3,op4] -> our physical [S1,S3,S2,S4] =
+    natural indices [0,2,1,3] (calibrated against the VGM in T5)."""
+
+    def test_op_reorder_constant(self):
+        # [a,b,c,d] -> [a,c,b,d]: natural op1,op2,op3,op4 -> physical S1,S3,S2,S4.
+        self.assertEqual(OP_REORDER, [0, 2, 1, 3])
+        g = [10, 20, 30, 40]
+        self.assertEqual([g[i] for i in OP_REORDER], [10, 30, 20, 40])
+
+    def test_bank1_voice0_byte_exact(self):
+        # voices.json bank1[0]: fb=1, algo=3, ams_fms_pan=240 ($F0, L/R set).
+        v = {
+            "fb": 1, "algo": 3,
+            "dt_mul": [119, 123, 72, 127],
+            "tl":     [103,   0, 112, 105],
+            "ks_ar":  [ 11,   0,  11,  12],
+            "am_d1r": [ 16,  16,  16,  16],
+            "d2r":    [  0,   0,   0,   0],
+            "sl_rr":  [  7,  10,   7,  58],
+            "ams_fms_pan": 240,
+            "ext": [0, 60, 36, 0],
+        }
+        # Hand-computed expected (showing the [0,2,1,3] reorder per group):
+        #   fp_alg_fb     = (1<<3)|3 = 11
+        #   fp_lr_ams_fms = 240 (L/R bits 6-7 already set -> kept as-is)
+        #   dt_mul  [119,123,72,127] -> [119, 72,123,127]
+        #   tl      [103,  0,112,105] -> [103,112,  0,105]
+        #   ks_ar   [ 11,  0, 11, 12] -> [ 11, 11,  0, 12]
+        #   am_d1r  [ 16, 16, 16, 16] -> [ 16, 16, 16, 16]
+        #   d2r     [  0,  0,  0,  0] -> [  0,  0,  0,  0]
+        #   sl_rr   [  7, 10,  7, 58] -> [  7,  7, 10, 58]
+        expected = bytes([
+            11,                     # fp_alg_fb
+            240,                    # fp_lr_ams_fms
+            119, 72, 123, 127,      # fp_dt_mul   ($30)
+            103, 112, 0, 105,       # fp_tl       ($40)
+            11, 11, 0, 12,          # fp_rs_ar    ($50) <- ks_ar
+            16, 16, 16, 16,         # fp_am_d1r   ($60)
+            0, 0, 0, 0,             # fp_d2r      ($70)
+            7, 7, 10, 58,           # fp_d1l_rr   ($80) <- sl_rr
+        ])
+        out = translate_voice(v)
+        self.assertEqual(len(out), 26)
+        self.assertEqual(len(out), FMPATCH_LEN)
+        self.assertEqual(out, expected)
+
+    def test_alg_fb_composition(self):
+        # fp_alg_fb = ((fb&7)<<3) | (algo&7). Masks both fields.
+        v = self._neutral()
+        v["fb"], v["algo"] = 7, 5
+        self.assertEqual(translate_voice(v)[0], (7 << 3) | 5)
+        v["fb"], v["algo"] = 0, 0
+        self.assertEqual(translate_voice(v)[0], 0)
+        # Fields are masked to 3 bits each (overflow bits dropped).
+        v["fb"], v["algo"] = 0xFF, 0xFF
+        self.assertEqual(translate_voice(v)[0], (7 << 3) | 7)
+
+    def test_lr_bits_forced_when_clear(self):
+        # voices.json bank1[108] is all-zero with ams_fms_pan=0 (L/R clear):
+        # force L/R=11 ($C0) so the channel is audible.
+        v = self._neutral()
+        v["ams_fms_pan"] = 0
+        self.assertEqual(translate_voice(v)[1], 0xC0)
+        # Only one L/R bit set is still "not 11" -> forced full.
+        v["ams_fms_pan"] = 0x40       # L only
+        self.assertEqual(translate_voice(v)[1], 0x40 | 0xC0)
+        v["ams_fms_pan"] = 0x80       # R only
+        self.assertEqual(translate_voice(v)[1], 0x80 | 0xC0)
+
+    def test_lr_bits_kept_when_both_set(self):
+        v = self._neutral()
+        v["ams_fms_pan"] = 0xC6       # L/R=11 + FMS bits -> kept verbatim
+        self.assertEqual(translate_voice(v)[1], 0xC6)
+
+    def test_reorder_applied_per_group(self):
+        v = self._neutral()
+        v["dt_mul"] = [1, 2, 3, 4]
+        out = translate_voice(v)
+        # fp_dt_mul is at offset 2..5 -> [1,3,2,4].
+        self.assertEqual(list(out[2:6]), [1, 3, 2, 4])
+
+    def test_ext_dropped(self):
+        # ext[4] is not present in the 26-byte output (length proves it).
+        self.assertEqual(len(translate_voice(self._neutral())), 26)
+
+    @staticmethod
+    def _neutral():
+        return {
+            "fb": 0, "algo": 0,
+            "dt_mul": [0, 0, 0, 0], "tl": [0, 0, 0, 0],
+            "ks_ar": [0, 0, 0, 0], "am_d1r": [0, 0, 0, 0],
+            "d2r": [0, 0, 0, 0], "sl_rr": [0, 0, 0, 0],
+            "ams_fms_pan": 0xC0, "ext": [0, 0, 0, 0],
+        }
+
+
+class TestPatchBank(unittest.TestCase):
+    """The per-song dense patch bank + voice_idx -> local_idx remap. The bank is
+    built from the distinct voice indices the song references, in first-seen
+    order, each translated to a 26-byte FmPatch."""
+
+    def setUp(self):
+        if not os.path.exists(_JSON) or not os.path.exists(_VOICES_JSON):
+            self.skipTest("Moving Trucks / voices JSON not present")
+        self.raw = load_song(_JSON)
+        self.bank_bytes, self.remap, self.count = build_patch_bank(
+            self.raw, _VOICES_JSON)
+
+    def test_bank_is_n_records_of_26(self):
+        self.assertGreater(self.count, 0)
+        self.assertEqual(len(self.bank_bytes), self.count * 26)
+        self.assertEqual(len(self.remap), self.count)
+
+    def test_remap_is_dense_0_to_n(self):
+        # Local indices form a dense 0..N-1 set (no gaps, no dups).
+        self.assertEqual(sorted(self.remap.values()), list(range(self.count)))
+
+    def test_remap_first_seen_order(self):
+        # First-seen voice index maps to local 0, etc. (deterministic order).
+        first_voice = None
+        for ch in self.raw["channels"]:
+            for pat in ch.get("patterns", []):
+                seq = self.raw["sequences"].get(str(pat["seq_idx"]))
+                if not seq:
+                    continue
+                for ev in seq["events"]:
+                    if ev["type"] == "voice":
+                        first_voice = ev["index"]
+                        break
+                if first_voice is not None:
+                    break
+            if first_voice is not None:
+                break
+        self.assertIsNotNone(first_voice)
+        self.assertEqual(self.remap[first_voice], 0)
+
+    def test_each_record_matches_translate_voice(self):
+        with open(_VOICES_JSON) as f:
+            v = json.load(f)["bank1"]
+        for voice_idx, local_idx in self.remap.items():
+            off = local_idx * 26
+            rec = self.bank_bytes[off:off + 26]
+            self.assertEqual(rec, translate_voice(v[voice_idx]),
+                             f"voice {voice_idx} -> local {local_idx}")
+
+    def test_song_uses_local_patch_indices(self):
+        # build_songdesc must emit Patch(local_idx) for the voices, and the local
+        # indices must all be < the bank count.
+        song = build_songdesc(self.raw, voices_json=_VOICES_JSON)
+        patch_vals = [e.patch for c in song.channels for e in c.events
+                      if isinstance(e, Patch)]
+        self.assertTrue(patch_vals, "no Patch events emitted")
+        for p in patch_vals:
+            self.assertTrue(0 <= p < self.count, f"local patch {p} out of bank")
 
 
 if __name__ == "__main__":
