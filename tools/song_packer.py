@@ -251,10 +251,17 @@ class SongDesc:
         self.tempo = tempo
         self.channels = channels
         self.flags = flags          # SH_FLAGS byte (SH_F_* OR'd); 0 = 1C copy/DAC
-        # Phase 3: per-frame tempo accumulator base. Defaults to `tempo` (so a
-        # song that hasn't been re-expressed for the frame model still packs),
-        # but songs should set it explicitly via the frame-rate event-rate math.
-        self.tempo_base = tempo if tempo_base is None else tempo_base
+        # Phase 3: per-frame tempo accumulator base. The per-frame engine does a
+        # single `sub 16` per frame, so it can yield at most one event-tick per
+        # frame and REQUIRES tempo_base >= 16 (a value 1..15 packs but plays at a
+        # wildly wrong rate). Songs should set this explicitly via the
+        # frame-rate event-rate math. When omitted we fall back to the legacy
+        # `tempo` (Timer-A selector) but CLAMP it up to the 16 floor so the
+        # default can never produce a silent mis-tempo — a too-low legacy tempo
+        # plays at the slowest valid rate instead of breaking. pack_song still
+        # hard-validates the final value, so an explicit out-of-range value
+        # raises rather than being silently clamped.
+        self.tempo_base = max(16, tempo) if tempo_base is None else tempo_base
 
 
 # --- Packing --------------------------------------------------------------
@@ -335,8 +342,11 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
 def pack_song(song: SongDesc) -> bytes:
     if not (0 <= song.tempo <= 0xFF):
         raise PackError(f"tempo {song.tempo} out of byte range")
-    if not (0 <= song.tempo_base <= 0xFF):
-        raise PackError(f"tempo_base {song.tempo_base} out of byte range")
+    if not (16 <= song.tempo_base <= 0xFF):
+        raise PackError(
+            f"tempo_base {song.tempo_base} out of range 16..255 (the per-frame "
+            f"tempo accumulator caps at one event-tick/frame; tempo_base<16 "
+            f"mis-plays)")
     if not (0 <= song.flags <= 0xFF):
         raise PackError(f"flags {song.flags} out of byte range")
     if not (1 <= len(song.channels) <= 0xFF):

@@ -82,7 +82,7 @@ SND_FM_TL_MAX           = $7F                    ; TL is 7-bit; $7F = silent, 0 
 ; Timer A regs — the MegaPCM-2 streaming loop is still the SAMPLE clock (loop
 ; trip-time, req 9). Timer A is now the SEQUENCER TICK clock (Sound 1C Task 5):
 ; the DAC loop polls Timer A's overflow flag once per pass (common prefix) and on
-; overflow re-arms + calls Sequencer_Tick. Timer A does NOT drive the DAC rate.
+; overflow re-arms + calls Sequencer_Frame. Timer A does NOT drive the DAC rate.
 SND_REG_TIMER_A_HI      = $24                    ; Timer A value bits 9..2
 SND_REG_TIMER_A_LO      = $25                    ; Timer A value bits 1..0
 SND_REG_TIMER_CTRL      = $27                    ; load/enable/reset Timer A & B
@@ -479,8 +479,9 @@ SND_SEQ_TRACE_LEN  = 32
 ; --- FM voice writer scratch (Task 3) ---
 ; 4 bytes (part, ch-in-part, log-vol delta, carrier mask) in the free block
 ; ABOVE the per-channel array (SND_SEQ_END) and BELOW the trace ring ($1A00).
-; Single-threaded: only Sequencer_Tick (in the VBlank ISR) reaches the FM writer,
-; so static scratch is safe. DERIVED from SND_SEQ_END (was a hardcoded $1880 —
+; Single-threaded: only Sequencer_Frame (driven by the Timer-A poll in the
+; DAC/idle loop) reaches the FM writer, so static scratch is safe. DERIVED from
+; SND_SEQ_END (was a hardcoded $1880 —
 ; the Sound 1D SeqChannel growth pushed SND_SEQ_END to $1894 and collided with
 ; it) so it auto-tracks any future per-channel-struct growth. The build-time
 ; guards below still assert it clears SND_SEQ_END and the trace ring.

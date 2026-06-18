@@ -972,8 +972,10 @@ Snd_LoadSong:
         ld      (ix+sc_dur_count), 1
         ; --- Phase 3 per-channel state ---
         ; tempo accumulator: base from the header (SH_TEMPO_BASE), accum seeded =
-        ; base so the FIRST frame's `sub 16` immediately works toward an event-tick
-        ; (matches the dur_count=1 "fetch on the first tick" intent).
+        ; base so the FIRST frame's `sub 16` starts counting toward an event-tick.
+        ; For tempo_base=16, frame 0 yields accum=0 with NO borrow, so the first
+        ; event-tick lands on frame 1 (~17 ms later), not frame 0 — harmless and
+        ; inaudible (matches the dur_count=1 "fetch on the first tick" intent).
         ld      a, (SND_SEQ_TEMPO_BASE)  ; cached header tempo_base
         ld      (ix+sc_tempo_base), a
         ld      (ix+sc_tempo_accum), a

@@ -94,7 +94,9 @@ class TestHeader(unittest.TestCase):
         # Phase 3 header: flags(+0), tempo(+1), tempo_base(+2), channel_count(+3).
         self.assertEqual(self.blob[0], 0)        # default flags = 0 (1C copy/DAC)
         self.assertEqual(self.blob[1], 6)        # tempo (legacy Timer-A selector)
-        self.assertEqual(self.blob[2], 6)        # tempo_base defaults to tempo
+        # tempo_base default clamps the legacy tempo (6) up to the 16 floor so
+        # the per-frame accumulator never mis-plays (one event-tick/frame cap).
+        self.assertEqual(self.blob[2], 16)
         self.assertEqual(self.blob[3], 2)        # channel count
         # pitchtable_ptr (+4, dw) = 0 (engine default).
         self.assertEqual((self.blob[4] << 8) | self.blob[5], 0)

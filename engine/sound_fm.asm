@@ -10,9 +10,10 @@
 ; The DAC streaming loop holds `de` = $4001 for its whole life and re-selects
 ; reg $2A on $4000 every pass before `ld (de),a`. THEREFORE every YM port write
 ; here uses ABSOLUTE addressing (`ld (4000h),a` style) and NEVER loads a port
-; address into `de` — so de=$4001 is preserved BY CONSTRUCTION. (Sequencer_Tick
-; runs inside the VBlank ISR, which also push/pops de, but we do not rely on
-; that.) As belt-and-suspenders, every multi-write batch re-parks reg $2A on
+; address into `de` — so de=$4001 is preserved BY CONSTRUCTION. (Sequencer_Frame
+; runs from the Timer-A overflow poll in the DAC/idle loop, which also push/pops
+; de, but we do not rely on that.) As belt-and-suspenders, every multi-write
+; batch re-parks reg $2A on
 ; $4000 at the END (Fm_ReparkDac) so a DAC write that races in lands on $2A even
 ; before the consumer re-selects. We NEVER touch $2B (the DAC-enable edge is
 ; owned by init / sample-start — re-toggling it clicks).
@@ -402,8 +403,9 @@ Fm_ChSel:
 
 ; ----------------------------------------------------------------------
 ; FM writer scratch (Z80 RAM in the free sequencer block; single-threaded —
-; only Sequencer_Tick (in the VBlank ISR) reaches the FM writer, so a static
-; scratch is safe). Placed at SND_FM_SCRATCH (see sound_constants.asm).
+; only Sequencer_Frame (driven by the Timer-A poll in the DAC/idle loop) reaches
+; the FM writer, so a static scratch is safe). Placed at SND_FM_SCRATCH (see
+; sound_constants.asm).
 ; ----------------------------------------------------------------------
 Fm_ScratchPart  = SND_FM_SCRATCH+0       ; current part (0/1)
 Fm_ScratchCh    = SND_FM_SCRATCH+1       ; current ch-in-part (0..2)
