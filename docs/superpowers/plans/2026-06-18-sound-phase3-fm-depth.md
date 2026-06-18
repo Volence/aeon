@@ -138,9 +138,9 @@ git commit -m "feat(sound phase3): per-song pitch table + MEV_PITCHENV single-no
 
 **Files:** Modify `engine/sound_sequencer.asm` (`ModUpdate` cursor advance).
 
-- [ ] **Step 1: Cursor advance in `ModUpdate`.** Each frame, for an FM channel with `sc_pt_count>1`: `sc_pt_cursor = (sc_pt_cursor+1) mod sc_pt_count`; look up `sc_points[cursor]` → freq; re-articulate per the re-key rule (Task 5). For `count==1`, cursor stays 0.
-- [ ] **Step 2: Build + verify a trill.** Scratch test: `MEV_PITCHENV count=2` with two indices a semitone apart, held. Build, Exodus VGM: confirm the two `$A4/$A0` values alternate at the frame rate. Expected: alternation visible in the VGM at ~59 Hz cadence.
-- [ ] **Step 3: Commit.**
+- [x] **Step 1: Cursor advance in `ModUpdate`.** `.multipoint` path: each frame, for an FM channel with `sc_pt_count>=2`, advance `sc_pt_cursor` (inc + compare-against-count wrap to 0 — NO divu), key `sc_points[cursor]` via `Fm_NoteFromTable`, set `sc_note`. First point sounds on the arm frame (SCF_REKEY -> render cursor 0 without advancing); subsequent frames advance. Writing every frame is correct (multi-point pitch changes per frame). count==1 path unchanged. `ix` preserved.
+- [x] **Step 2: Build + verify a trill.** Added `SONG_TRILLTEST` (id 3, `data/sound/song_trilltest.py` -> `.asm`): one FM channel with a count=2 whole-step trill [$30,$32] (C<->D) held ~1s + a count=3 major-triad arp [$24,$28,$2B] (C-E-G) held ~1s, looping. DEBUG boot switched to it (SONG_TEST/SONG_PITCHTEST kept in the table). Expected per-frame alternation documented in the .py header. Runtime VGM verification: controller (BlastEm).
+- [x] **Step 3: Commit.**
 ```bash
 git add engine/sound_sequencer.asm
 git commit -m "feat(sound phase3): multi-point pitch envelopes (trills/arps)"

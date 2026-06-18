@@ -101,23 +101,24 @@ Sequencer_Frame:
 ;     note path below is that no-op.
 ;   * Preserves ix (the channel loop relies on it).
 ;
-; THIS TASK (Phase 3 Task 3): the SINGLE-POINT pitch path goes live. An FM channel
-; whose note was set by MEV_PITCHENV (sc_pt_count == 1) keys its pitch from the
-; PER-SONG fnum table via Fm_NoteFromTable, WRITE-ON-CHANGE:
-;   * render iff SCF_REKEY is armed (a MEV_PITCHENV just (re)keyed this channel) —
-;     look up sc_points[0] (idx 0..$83) + sc_transpose, write $A4/$A0 + key on,
-;     set sc_note = sc_points[0] (last-rendered), and CLEAR SCF_REKEY.
-;   * otherwise the note is held -> NO YM writes (a pure cursor check).
-; The "rendered note index differs from sc_note" trigger (the second condition in
-; the plan) is the TASK-4 SEAM: for count==1 the ONLY producer of sc_points is
-; MEV_PITCHENV, which ALWAYS arms SCF_REKEY, so the rekey arm already covers every
-; Task-3 change. Cursor-cycling (count>=2) and an independent mod-stream writing
-; sc_points without re-arming are what make the standalone index-change trigger
-; live; they land at .multipoint (Task 4). Gating Task 3 on SCF_REKEY also keeps
-; the existing SONG_TEST path EXACT: its bare-note FM channels (keyed by
-; Sequencer_Channel's hook, NOT MEV_PITCHENV) never set sc_points and never arm
-; SCF_REKEY, so they never enter the pitch render here — ModUpdate is a no-op for
-; them, as in Task 2.
+; PITCH PATHS (Phase 3 Tasks 3+4): an FM channel whose note was set by
+; MEV_PITCHENV keys its pitch from the PER-SONG fnum table via Fm_NoteFromTable.
+;   * count==1 (Task 3) — SINGLE held note, WRITE-ON-CHANGE: render iff SCF_REKEY
+;     is armed (a MEV_PITCHENV just (re)keyed this channel) — look up sc_points[0]
+;     (idx 0..$83) + sc_transpose, write $A4/$A0 + key on, set sc_note, and CLEAR
+;     SCF_REKEY. Otherwise the note is held -> NO YM writes (a pure cursor check).
+;     The ONLY producer of sc_points here is MEV_PITCHENV, which ALWAYS arms
+;     SCF_REKEY, so the rekey arm covers every count==1 change.
+;   * count>=2 (Task 4, .multipoint) — TRILL/ARP, re-articulated EVERY frame: the
+;     cursor cycles the points (wrap at sc_pt_count) once per ~59 Hz frame and
+;     keys sc_points[cursor] each frame. The first point sounds on the arm frame
+;     (SCF_REKEY -> render cursor 0 without advancing); subsequent frames advance.
+;     Writing every frame is correct — the pitch changes per frame (that's the
+;     trill); the write-on-change rule governs HELD single notes only.
+; Gating count==1 on SCF_REKEY keeps the existing SONG_TEST path EXACT: the loader
+; inits sc_pt_count=1, so a bare-note FM channel takes the count==1 path, but its
+; notes are keyed by Sequencer_Channel's hook (NOT MEV_PITCHENV), so they never arm
+; SCF_REKEY -> ModUpdate is a no-op for them (a single flag test), as in Task 2.
 ;
 ; Voice-step deltas (Task 5), pan/op-bias (Task 6), and portamento (Task 7) are
 ; NOT rendered yet; their seams (sc_patch vs sc_last_patch, sc_porta_incr) are left
@@ -147,13 +148,48 @@ ModUpdate:
         jp      Fm_NoteFromTable         ; look up per-song table + key on (preserves ix)
 
 .multipoint:
-        ; Task 4: cursor-cycle the >=2 pitch points each frame (wrap at sc_pt_count)
-        ; and re-articulate when the rendered point index changes — this is where
-        ; the standalone "rendered note index differs from sc_note" trigger goes
-        ; live. Tasks 5-7 (voice-step delta, pan/op-bias, portamento) also render
-        ; from here / their own seams. No renderer yet -> no-op stub; MUST preserve
-        ; ix (it does).
-        ret
+        ; --- count>=2 trill/arp pitch path (PER-FRAME re-articulation) ---------
+        ; Cursor-cycle the pitch points ONCE PER FRAME (the ~59 Hz frame clock),
+        ; wrapping at sc_pt_count, and re-key sc_points[cursor] every frame. For a
+        ; multi-point note the pitch changes EACH frame — that IS the trill/arp —
+        ; so writing the YM every frame is correct here (the write-on-change rule
+        ; governs HELD single notes only; see the count==1 path above).
+        ;
+        ; FIRST-POINT-ON-ARM: Seq_Op_PitchEnv sets sc_pt_cursor=0 and arms SCF_REKEY.
+        ; On the frame the note arms we render sc_points[0] and consume the arm
+        ; WITHOUT advancing — so the first point sounds on the arm frame. Every
+        ; subsequent frame (REKEY clear) advances the cursor first, then renders.
+        ; This makes the audible sequence points[0], points[1], ... points[n-1],
+        ; points[0], ... at the frame rate.
+        ;
+        ; mod-arithmetic with NO divu: increment the cursor and compare against
+        ; count; on reaching count, wrap to 0 (a counter/compare, per conventions).
+        ld      a, (ix+sc_pt_cursor)
+        bit     SCF_REKEY_B, (ix+sc_flags)
+        jr      nz, .mp_armed            ; armed -> render cursor (==0) as-is, no advance
+        inc     a                        ; advance the cursor
+        cp      (ix+sc_pt_count)
+        jr      c, .mp_store             ; cursor < count -> in range
+        xor     a                        ; cursor == count -> wrap to 0
+.mp_store:
+        ld      (ix+sc_pt_cursor), a
+.mp_armed:
+        res     SCF_REKEY_B, (ix+sc_flags) ; consume any arm (no-op when already clear)
+        ; a = cursor; index sc_points[cursor] (cursor is 0..count-1, count<=5).
+        ld      c, a
+        push    ix
+        pop     hl                       ; hl = SeqChannel base
+        ld      b, 0
+        add     hl, bc                   ; hl = base + cursor
+        ld      a, sc_points
+        add     a, l
+        ld      l, a
+        jr      nc, .mp_nocarry
+        inc     h                        ; carry into high byte (sc_points offset add)
+.mp_nocarry:
+        ld      a, (hl)                  ; a = sc_points[cursor] (absolute fnum idx)
+        ld      (ix+sc_note), a          ; sc_note = last-rendered note index
+        jp      Fm_NoteFromTable         ; look up per-song table + key on (preserves ix)
 
 ; ----------------------------------------------------------------------
 ; Sequencer_Channel — advance ONE active channel (ix = its SeqChannel).

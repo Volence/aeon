@@ -17,11 +17,18 @@ SONG_TEST          = 1
 ; render. Copy-path (FM6=DAC, RAM-buffered), pitchtable_ptr=0 -> engine-default
 ; table. Kept ALONGSIDE SONG_TEST so DEBUG boot can switch back after verifying.
 SONG_PITCHTEST     = 2
-SONG_COUNT         = 2
+; SONG_TRILLTEST (Sound Phase 3 Task 4): a SCRATCH one-FM-channel verification song
+; emitting MULTI-POINT MEV_PITCHENV notes (a count=2 whole-step trill [$30,$32] and
+; a count=3 major-triad arp [$24,$28,$2B]) so the controller can confirm ModUpdate's
+; .multipoint per-frame cursor cycling. Copy-path, pitchtable_ptr=0 (engine default).
+; Kept ALONGSIDE SONG_TEST/SONG_PITCHTEST so DEBUG boot can switch back after verifying.
+SONG_TRILLTEST     = 3
+SONG_COUNT         = 3
 
 SongTable:
         dc.l    Song_Test           ; id 1 (SongTable[id-1])
-        dc.l    Song_PitchTest      ; id 2 — Phase 3 scratch pitch verification
+        dc.l    Song_PitchTest      ; id 2 — Phase 3 Task 3 scratch pitch verification
+        dc.l    Song_TrillTest      ; id 3 — Phase 3 Task 4 scratch trill/arp verification
 SongTable_End:
 
         if (SongTable_End-SongTable)/4 <> SONG_COUNT
@@ -38,6 +45,7 @@ SongTable_End:
 SongPatchTable:
         dc.l    FmPatchTable        ; id 1 Song_Test (copy path — entry unused)
         dc.l    FmPatchTable        ; id 2 Song_PitchTest (copy path — entry unused)
+        dc.l    FmPatchTable        ; id 3 Song_TrillTest (copy path — entry unused)
 SongPatchTable_End:
 
         if (SongPatchTable_End-SongPatchTable)/4 <> SONG_COUNT
@@ -58,6 +66,9 @@ SongPatchTable_End:
         if (Song_PitchTest_End-Song_PitchTest) > SND_SONG_BUF_SIZE
           fatal "Song_PitchTest (\{Song_PitchTest_End-Song_PitchTest} bytes) exceeds SND_SONG_BUF_SIZE (\{SND_SONG_BUF_SIZE})"
         endif
+        if (Song_TrillTest_End-Song_TrillTest) > SND_SONG_BUF_SIZE
+          fatal "Song_TrillTest (\{Song_TrillTest_End-Song_TrillTest} bytes) exceeds SND_SONG_BUF_SIZE (\{SND_SONG_BUF_SIZE})"
+        endif
 
         ; The loader's fixed SND_SONG_BUF_SIZE-byte `ldir` reads from the song's
         ; $8000-window ptr ((addr & $7FFF) | $8000). If that window region sits within
@@ -69,6 +80,9 @@ SongPatchTable_End:
         endif
         if (Song_PitchTest & $7FFF) > ($8000 - SND_SONG_BUF_SIZE)
           fatal "Song_PitchTest window region crosses the $8000-window top: the \{SND_SONG_BUF_SIZE}-byte load ldir would wrap past $FFFF into Z80 RAM. Move Song_PitchTest so (addr & $7FFF) <= \{$8000 - SND_SONG_BUF_SIZE}."
+        endif
+        if (Song_TrillTest & $7FFF) > ($8000 - SND_SONG_BUF_SIZE)
+          fatal "Song_TrillTest window region crosses the $8000-window top: the \{SND_SONG_BUF_SIZE}-byte load ldir would wrap past $FFFF into Z80 RAM. Move Song_TrillTest so (addr & $7FFF) <= \{$8000 - SND_SONG_BUF_SIZE}."
         endif
 
         align 2

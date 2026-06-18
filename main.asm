@@ -249,6 +249,10 @@ Art_Sonic:
         ; MEV_PITCHENV count=1 notes at known fnum-table indices). Kept alongside
         ; Song_Test so DEBUG boot can switch back after the controller verifies.
         include "data/sound/song_pitchtest.asm"
+        ; Phase 3 Task 4 SCRATCH trill/arp-verification song (one FM channel of
+        ; MULTI-POINT MEV_PITCHENV notes: a count=2 whole-step trill + a count=3
+        ; major-triad arp, cursor-cycled per frame by ModUpdate's .multipoint path).
+        include "data/sound/song_trilltest.asm"
         include "data/sound/song_table.asm"
     endif
 
