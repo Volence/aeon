@@ -37,8 +37,11 @@
 ;     2      FM3      I(0)     2          $02
 ;     3      FM4     II(1)     0          $04
 ;     4      FM5     II(1)     1          $05
+;     5      FM6     II(1)     2          $06   (Sound 1D: adaptive FM6 slot)
 ; part = (route>=3); ch-in-part = route - (part?3:0); chsel = (part<<2)|ch.
-; (Note the deliberate $03 gap in chsel — FM6/DAC would be $06, not used here.)
+; (Note the deliberate $03 gap in chsel — FM6 = $06 is the DAC's slot, used by an
+; FM6=FM song with DAC mode OFF. Fm_RoutePart's route-3 split yields ch 2 for
+; route 5 automatically, so NO writer change was needed for FM6.)
 ; ======================================================================
 
 ; ----------------------------------------------------------------------
@@ -80,8 +83,9 @@ Fm_ReparkDac:
 ; ----------------------------------------------------------------------
 ; Fm_RoutePart — derive (b = part, c = ch-in-part) from the channel route.
 ; In:  ix = SeqChannel.  Out: b = part (0/1), c = ch-in-part (0..2).
-; Clobbers: af, bc. Preserves de, hl, ix.  (FM routes are 0..4; non-FM routes
-; never reach here — the hooks gate on SCF_IS_FM first.)
+; Clobbers: af, bc. Preserves de, hl, ix.  (FM routes are 0..5 incl. FM6;
+; non-FM routes never reach here — the hooks gate on SCF_IS_FM first. The
+; `cp 3`/`sub 3` split maps route 5 -> part II, ch 2 = FM6 with no special case.)
 ; ----------------------------------------------------------------------
 Fm_RoutePart:
         ld      a, (ix+sc_route)
@@ -96,7 +100,14 @@ Fm_RoutePart:
 
 ; ----------------------------------------------------------------------
 ; Fm_PatchPtr — compute the FmPatch pointer for sc_patch into hl.
-; In:  ix = SeqChannel (uses sc_patch).  Out: hl = FmPatchInlineTable + patch*26.
+; In:  ix = SeqChannel (uses sc_patch).  Out: hl = (SND_SEQ_PATCHTAB) + patch*26.
+; The base is the LOADED patch-table ptr (SND_SEQ_PATCHTAB), set by Snd_LoadSong:
+; the 1C copy-path sets it to FmPatchInlineTable (Z80 RAM); the Sound 1D stream-
+; path sets it to the song's patch bank window address (read transparently through
+; the $8000 window while the song's bank is held). So FM patch loads work the same
+; whether the bank lives in RAM or the banked ROM window. (Before 1D this label
+; hardcoded FmPatchInlineTable; the dynamic base is functionally identical for the
+; 1C path since the loader sets SND_SEQ_PATCHTAB = FmPatchInlineTable there.)
 ; FmPatch_len = 26. Multiply by shift/add (NO mulu): keep P2 = patch*2 in de,
 ; then accumulate in hl by doubling and adding P2 — the running products are
 ;   *2 (=P2) -> *4 -> *8 -> +P2=*10 -> *20 -> +P2=*22 -> +P2=*24 -> +P2=*26.
@@ -116,7 +127,7 @@ Fm_PatchPtr:
         add     hl, de                   ; hl = patch*20 + patch*2 = patch*22
         add     hl, de                   ; hl = patch*24
         add     hl, de                   ; hl = patch*26  (= patch*FmPatch_len)
-        ld      de, FmPatchInlineTable
+        ld      de, (SND_SEQ_PATCHTAB)   ; base = loaded patch-table ptr (RAM or window)
         add     hl, de                   ; hl = table base + patch*26
         ret
 
@@ -312,6 +323,17 @@ Fm_NoteOn:
         ld      e, (hl)                  ; e = low  byte = $A0 value (fnum low)
         inc     hl
         ld      d, (hl)                  ; d = high byte = $A4 value (block|fnumHi)
+        ; fall into Fm_NoteOnFreq with de = packed (d=$A4 val, e=$A0 val)
+
+; ----------------------------------------------------------------------
+; Fm_NoteOnFreq — key a note at a RAW frequency word (no pitch-table lookup).
+; In: ix = SeqChannel, d = $A4 value ((block<<3)|fnumHi), e = $A0 value (fnum low).
+; Shared tail of Fm_NoteOn; the MEV_NOTE_RAW handler enters HERE with de preset so
+; a VGM-derived song reproduces the original chip pitch exactly. Same write order
+; as Fm_NoteOn ($A4 first, then $A0, then key-on). Sets SCF_KEYED.
+; Clobbers: af, bc, de, hl. Preserves ix.
+; ----------------------------------------------------------------------
+Fm_NoteOnFreq:
         push    de                       ; save the split fnum bytes
 
         call    Fm_RoutePart             ; b = part, c = ch-in-part
@@ -367,7 +389,7 @@ Fm_NoteOff:
 
 ; ----------------------------------------------------------------------
 ; Fm_ChSel — compute the $28 channel-select nibble = (part<<2)|ch-in-part.
-; In: ix = SeqChannel.  Out: a = chsel ($00,$01,$02,$04,$05 for FM1..FM5).
+; In: ix = SeqChannel.  Out: a = chsel ($00,$01,$02,$04,$05,$06 for FM1..FM6).
 ; Clobbers: af, bc. Preserves de, hl, ix.
 ; ----------------------------------------------------------------------
 Fm_ChSel:

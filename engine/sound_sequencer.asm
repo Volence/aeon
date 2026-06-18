@@ -172,7 +172,7 @@ Seq_Op_Vol:
         push    hl                       ; hook clobbers hl; stream ptr stays LIVE here
         call    Seq_HookSetVol           ; -> Fm_SetVolume / Psg_SetVolume per route
         pop     hl
-        jr      Seq_ContinueFetch
+        jp      Seq_ContinueFetch        ; jp (not jr): the 1D repeat handlers pushed this out of jr range
 
 ; $E1 MEV_PATCH + pp : set FM patch index, zero tick
 Seq_Op_Patch:
@@ -188,7 +188,7 @@ Seq_Op_Patch:
         push    hl                       ; hook clobbers hl; stream ptr stays LIVE here
         call    Seq_HookSetPatch         ; FM: Fm_PatchLoad + re-apply vol; PSG/DAC ignore
         pop     hl
-        jr      Seq_ContinueFetch
+        jp      Seq_ContinueFetch        ; jp (not jr): the 1D repeat handlers pushed this out of jr range
 
 ; $E2 MEV_DAC  + ss : DAC trigger (sample id in operand), zero tick.
 ; TIMING CHOICE: $E2 is treated as ZERO-tick — it fires the DAC trigger hook
@@ -207,7 +207,7 @@ Seq_Op_Dac:
         push    hl                       ; hook clobbers hl; stream ptr stays LIVE here
         call    Seq_HookDac              ; -> Snd_StartSample (DAC sample id in sc_note)
         pop     hl
-        jr      Seq_ContinueFetch
+        jp      Seq_ContinueFetch        ; jp (not jr): the 1D repeat handlers pushed this out of jr range
 
 ; $E3 MEV_NOTE_DUR + nn dd : note nn with explicit duration dd (advances time)
 Seq_Op_NoteDur:
@@ -226,6 +226,109 @@ Seq_Op_NoteDur:
     endif
         call    Seq_HookNoteOn           ; -> Fm_NoteOn / Psg_NoteOn / Psg_Noise per route
         ret                              ; time advanced -> done this tick
+
+; $E7 MEV_NOTE_RAW + a4 a0 dd : key an FM note at a RAW frequency word (the exact
+; $A4/$A0 bytes) for duration dd, bypassing FmPitchTableZ. Lets a VGM-derived song
+; reproduce the original chip pitch EXACTLY (sub-C0 bass + microtuning the note
+; table can't reach). FM-only: a non-FM route still consumes the 3 operands and
+; advances time, but does not key (the packer routes NOTE_RAW only to FM channels).
+; Advances time (like NOTE_DUR).
+Seq_Op_NoteRaw:
+        ld      a, (hl)
+        inc     hl                       ; a = $A4 value (block|fnumHi)
+        ld      d, a                     ; d = $A4 (Fm_NoteOnFreq input)
+        ld      (ix+sc_note), a          ; stash $A4 for debug/mirror visibility
+        ld      a, (hl)
+        inc     hl                       ; a = $A0 value (fnum low)
+        ld      e, a                     ; e = $A0 (Fm_NoteOnFreq input)
+        ld      a, (hl)
+        inc     hl                       ; a = duration
+        ld      (ix+sc_dur_count), a     ; explicit duration
+        ld      (ix+sc_stream_ptr), l
+        ld      (ix+sc_stream_ptr+1), h  ; commit ptr before the hook clobbers hl
+        set     SCF_KEYED_B, (ix+sc_flags) ; SCF_KEYED
+    ifdef __DEBUG__
+        ld      a, SEQEV_NOTEON
+        call    Seq_Trace                ; preserves de (the fnum word)
+    endif
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        ret     z                        ; non-FM route -> time advanced, no key
+        ; RETRIGGER the hardware envelope: key OFF then key ON, so every note
+        ; re-attacks. The original B&R driver keys off->on per note (1599 offs /
+        ; 801 ons in the reference VGM); without the key-off a re-keyed channel
+        ; never re-attacks and decays to silence after the first note (the "blips"
+        ; bug). NOTE_RAW-only: the note-index path (1C demo) is unchanged. The
+        ; key-off..key-on are tens of Z80 cycles apart (Fm_NoteOff repark + the
+        ; $A4/$A0 writes inside Fm_NoteOnFreq), ample for the EG to see the edge.
+        push    de                       ; save fnum word across the key-off
+        call    Fm_NoteOff               ; key OFF (clobbers de; preserves hl,ix)
+        pop     de                       ; de = $A4/$A0 again
+        call    Fm_NoteOnFreq            ; key ON at raw freq (preserves ix)
+        ret                              ; time advanced -> done this tick
+
+; $E5 MEV_REPEAT_START (no operand) : save the current (post-opcode) ptr as the
+; body-start the matching $E6 jumps back to. Zero tick. Does NOT touch
+; sc_repeat_count — the count is established when $E6 is first reached (so a
+; fresh body always re-enters with count==0). The transcoder emits FLAT,
+; single-level repeats (NO nesting), so one sc_repeat_ptr/sc_repeat_count per
+; channel suffices; nested REPEAT_START would overwrite the saved ptr (unsupported).
+; Calls NO writer hook -> just manipulates hl + state (like LoopPoint/Jump), so hl
+; stays the live stream ptr.
+; Clobbers: af (DEBUG trace only). Manipulates: hl (kept live). Uses ix.
+Seq_Op_RepeatStart:
+        ld      (ix+sc_repeat_ptr), l
+        ld      (ix+sc_repeat_ptr+1), h  ; save body-start ptr (post-opcode)
+    ifdef __DEBUG__
+        push    hl
+        ld      a, SEQEV_RPT_START
+        call    Seq_Trace
+        pop     hl
+    endif
+        jr      Seq_ContinueFetch        ; zero tick
+
+; $E6 MEV_REPEAT_END + nn : end of a repeatable body. sc_repeat_count is the
+; "reps remaining" state machine (0 = fresh-OR-done):
+;   fresh (count==0)  -> set count = nn (total reps)
+;   dec count
+;   count > 0 (more)  -> reload hl from sc_repeat_ptr (jump to body start), fetch
+;   count == 0 (done) -> fall through PAST the operand (body played nn times),
+;                        leaving count==0 so the NEXT repeat block re-arms fresh.
+; Edge nn=1: fresh->set 1->dec->0->done, body played once, continue past. ✓
+; Edge nn=0: would be malformed (the packer forbids 0); fresh->set 0->dec->255->
+;   loops 255 more passes. Not emitted by the transcoder; not specially handled.
+; Zero tick, calls NO writer hook (hl stays live across the jump-back / fall-through).
+; Clobbers: af, b (b holds nn across the fresh test). b is already a scratch reg in
+; the tick loop — the caller saves the channel counter with push/pop bc around
+; Sequencer_Channel, and the .coord dispatch already does `ld b,0`.
+; Manipulates: hl (jump-back reload OR live past the operand). Uses ix.
+Seq_Op_RepeatEnd:
+        ld      a, (hl)
+        inc     hl                       ; a = nn (operand); hl now PAST the operand
+        ld      b, a                     ; b = nn (preserve across the fresh test)
+    ifdef __DEBUG__
+        push    hl
+        push    bc
+        ld      a, SEQEV_RPT_END
+        call    Seq_Trace                ; (preserves bc,de,hl)
+        pop     bc
+        pop     hl
+    endif
+        ld      a, (ix+sc_repeat_count)
+        or      a
+        jr      nz, .have_count          ; nonzero -> a repeat is in progress
+        ld      a, b                     ; fresh -> seed remaining = nn (total)
+.have_count:
+        dec     a
+        ld      (ix+sc_repeat_count), a  ; store decremented remaining
+        jr      z, .done                 ; reached 0 -> body has played nn times
+        ; more reps remain -> jump back to the saved body start.
+        ld      l, (ix+sc_repeat_ptr)
+        ld      h, (ix+sc_repeat_ptr+1)
+        ; fall through to Seq_ContinueFetch with hl = body start
+.done:
+        ; if .done: hl already points past the operand (count left at 0 -> next
+        ; repeat block re-arms fresh). Either way, resume fetching at hl.
+        jr      Seq_ContinueFetch        ; zero tick
 
 ; $EE MEV_LOOP_POINT : save the current (post-opcode) ptr as the loop target
 Seq_Op_LoopPoint:
@@ -289,10 +392,10 @@ SeqOpcodeTable:
         dw      Seq_Op_Patch             ; $E1 MEV_PATCH
         dw      Seq_Op_Dac               ; $E2 MEV_DAC
         dw      Seq_Op_NoteDur           ; $E3 MEV_NOTE_DUR
-        dw      Seq_BadOpcode            ; $E4 reserved
-        dw      Seq_BadOpcode            ; $E5 reserved
-        dw      Seq_BadOpcode            ; $E6 reserved
-        dw      Seq_BadOpcode            ; $E7 reserved
+        dw      Seq_BadOpcode            ; $E4 reserved (MEV_PAN, T4)
+        dw      Seq_Op_RepeatStart       ; $E5 MEV_REPEAT_START
+        dw      Seq_Op_RepeatEnd         ; $E6 MEV_REPEAT_END
+        dw      Seq_Op_NoteRaw           ; $E7 MEV_NOTE_RAW
         dw      Seq_BadOpcode            ; $E8 reserved
         dw      Seq_BadOpcode            ; $E9 reserved
         dw      Seq_BadOpcode            ; $EA reserved

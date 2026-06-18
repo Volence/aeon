@@ -236,10 +236,32 @@ MEV_VOL         = $E0    ; + vv  : set channel volume (linear 0..127)
 MEV_PATCH       = $E1    ; + pp  : set FM patch index
 MEV_DAC         = $E2    ; + ss  : DAC trigger sample id (DAC channel only)
 MEV_NOTE_DUR    = $E3    ; + nn dd : note nn with explicit duration dd
+; $E4 reserved for MEV_PAN (Sound 1D Task 4 — do NOT define here).
+MEV_NOTE_RAW    = $E7    ; + a4 a0 dd : key a RAW-frequency FM note (exact $A4/$A0
+                         ; bytes) for duration dd, bypassing FmPitchTableZ. Lets a
+                         ; VGM-derived song reproduce the original chip pitch
+                         ; EXACTLY (incl. sub-C0 bass + microtuning the note table
+                         ; can't reach). FM-only (PSG ignores). Sound 1D §5.2.
+; Bounded-repeat opcodes (Sound 1D Task 1): a body wrapped in REPEAT_START..
+; REPEAT_END replays `nn` total times WITHOUT being unrolled in the data. The
+; packer encodes them now; the Z80 sequencer interprets them in a later engine
+; task (a small repeat-counter stack per channel). They let Moving Trucks ship
+; at ~8KB instead of the ~100KB a full unroll would cost.
+MEV_REPEAT_START = $E5   ; (no operand) start of a repeatable body
+MEV_REPEAT_END   = $E6   ; + nn : replay from matching REPEAT_START nn times (1..255)
 MEV_LOOP_POINT  = $EE    ; loop-target marker (no operand)
 MEV_JUMP        = $EF    ; jump to loop point
 MEV_END         = $FF    ; end of stream (channel idle)
-; reserved for Phase 3: $E4–$ED, $F0–$FE (unknown opcode = build/validation error)
+; reserved for Phase 3: $E4 (MEV_PAN, T4), $E8–$ED, $F0–$FE (unknown opcode = build/validation error)
+
+        ; the bounded-repeat opcodes live in the reserved $E4–$ED command block,
+        ; above the note range and clear of MEV_PAN ($E4) / the loop opcodes.
+        if (MEV_REPEAT_START <= MEV_NOTE_MAX) || (MEV_REPEAT_END <= MEV_NOTE_MAX)
+          error "MEV_REPEAT_* must be command opcodes (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_REPEAT_START = MEV_REPEAT_END) || (MEV_REPEAT_START = MEV_LOOP_POINT) || (MEV_REPEAT_END = MEV_LOOP_POINT)
+          error "MEV_REPEAT_* opcode collision"
+        endif
 
         ; opcode ranges must not overlap: the top note opcode is below the
         ; first command opcode, so the range dispatch is unambiguous.
@@ -248,21 +270,38 @@ MEV_END         = $FF    ; end of stream (channel idle)
         endif
 
 ; --- Channel-route enum ---
+; Sound 1D: FM6 is now a routable FM voice (the "adaptive FM6 slot", §5.1). It
+; maps to YM part II, channel-in-part 2, chsel $06 — which falls out NATURALLY
+; from Fm_RoutePart/Fm_ChSel (route>=3 -> part II, ch = route-3; route 5 -> ch 2)
+; with NO writer change, so CHROUTE_FM6 is inserted contiguously after FM5 (= 5)
+; and the PSG/DAC routes shift up by one. FM6 and the DAC are mutually exclusive
+; on the YM2612 (ch6 is shared via $2B bit7): a song declares which role FM6 plays
+; (DAC by default; FM via the SongHeader flags byte — see SH_FLAGS below). The
+; DAC route ($E2 trigger channel) still exists for FM6=DAC songs.
 CHROUTE_FM1 = 0
 CHROUTE_FM2 = 1
 CHROUTE_FM3 = 2
 CHROUTE_FM4 = 3
 CHROUTE_FM5 = 4
-; (FM6 is permanently the DAC in 1C — not a sequencer FM channel)
-CHROUTE_PSG1 = 5
-CHROUTE_PSG2 = 6
-CHROUTE_PSG3 = 7
-CHROUTE_PSGN = 8    ; PSG noise
-CHROUTE_DAC  = 9    ; emits $E2 DAC triggers only
-CHROUTE_COUNT = 10
+CHROUTE_FM6 = 5    ; Sound 1D: 6th FM voice (part II ch2, chsel $06) — DAC-off songs
+CHROUTE_PSG1 = 6
+CHROUTE_PSG2 = 7
+CHROUTE_PSG3 = 8
+CHROUTE_PSGN = 9    ; PSG noise
+CHROUTE_DAC  = 10   ; emits $E2 DAC triggers only
+CHROUTE_COUNT = 11
 
-        if CHROUTE_COUNT <> 10
-          error "CHROUTE_COUNT (\{CHROUTE_COUNT}) must be 10"
+        if CHROUTE_COUNT <> 11
+          error "CHROUTE_COUNT (\{CHROUTE_COUNT}) must be 11"
+        endif
+        ; The route still fits the trace byte's high nibble (route<<4 | event):
+        ; CHROUTE_COUNT-1 = 10 <= 15, no carry-out in Seq_Trace.
+        if (CHROUTE_COUNT-1) > 15
+          error "route no longer fits the trace byte high nibble"
+        endif
+        ; FM6 must resolve to part II ch 2 via Fm_RoutePart's route-3 split.
+        if (CHROUTE_FM6 - 3) <> 2
+          error "CHROUTE_FM6 must map to part II channel-in-part 2"
         endif
 
 ; --- FmPatch struct (the YM record) ---
@@ -309,10 +348,15 @@ sc_note         ds.b 1   ; +6  current pitch index (for key-off / debug)
 sc_flags        ds.b 1   ; +7  bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac
 sc_route        ds.b 1   ; +8  channel route enum (CHROUTE_*) — selects the writer
 sc_loop_ptr     ds.w 1   ; +9  saved loop-point ptr (set by $EE, used by $EF)
-SeqChannel endstruct      ; = 11 bytes
+; --- bounded-repeat state (Sound 1D): one level, NO nesting. The transcoder
+; emits FLAT, single-level REPEAT_START..REPEAT_END bodies, so a single ptr +
+; count per channel is sufficient (nested repeats are UNSUPPORTED by design).
+sc_repeat_ptr   ds.w 1   ; +11 body-start ptr saved by $E5, reloaded by $E6 on jump-back
+sc_repeat_count ds.b 1   ; +13 reps remaining (0 = no active repeat / fresh-OR-done)
+SeqChannel endstruct      ; = 14 bytes
 
-        if SeqChannel_len <> 11
-          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 11"
+        if SeqChannel_len <> 14
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 14"
         endif
 
 ; Short field-offset accessors (AS struct fields are exposed as
@@ -326,6 +370,8 @@ sc_note         = SeqChannel_sc_note
 sc_flags        = SeqChannel_sc_flags
 sc_route        = SeqChannel_sc_route
 sc_loop_ptr     = SeqChannel_sc_loop_ptr
+sc_repeat_ptr   = SeqChannel_sc_repeat_ptr
+sc_repeat_count = SeqChannel_sc_repeat_count
 
 ; --- sc_flags bit numbers + masks ---
 ; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B
@@ -368,10 +414,13 @@ SND_SEQ_TRACE_LEN  = 32
 
 ; --- FM voice writer scratch (Task 3) ---
 ; 4 bytes (part, ch-in-part, log-vol delta, carrier mask) in the free block
-; ABOVE the per-channel array (SND_SEQ_END ~ $1876) and BELOW the trace ring
-; ($1A00). Single-threaded: only Sequencer_Tick (in the VBlank ISR) reaches the
-; FM writer, so static scratch is safe. Placed at $1880 (clear of both).
-SND_FM_SCRATCH     = $1880
+; ABOVE the per-channel array (SND_SEQ_END) and BELOW the trace ring ($1A00).
+; Single-threaded: only Sequencer_Tick (in the VBlank ISR) reaches the FM writer,
+; so static scratch is safe. DERIVED from SND_SEQ_END (was a hardcoded $1880 —
+; the Sound 1D SeqChannel growth pushed SND_SEQ_END to $1894 and collided with
+; it) so it auto-tracks any future per-channel-struct growth. The build-time
+; guards below still assert it clears SND_SEQ_END and the trace ring.
+SND_FM_SCRATCH     = SND_SEQ_END
 SND_FM_SCRATCH_LEN = 4
 
     if (SND_FM_SCRATCH < SND_SEQ_END)
@@ -381,14 +430,19 @@ SND_FM_SCRATCH_LEN = 4
       fatal "FM scratch runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
-; --- Snd_LoadSong scratch (Task 6) ---
-; 1 byte: the DAC bank saved across the song-load bank switch (SndDrv_SetBank
-; overwrites SND_CUR_BANK, so the loader stashes it here and restores after). In
-; the free block just past the FM scratch, below the trace ring.
+; --- Snd_LoadSong scratch (Task 6 + Sound 1D) ---
+; +0 (1 byte): the DAC bank saved across the song-load bank switch (SndDrv_SetBank
+; overwrites SND_CUR_BANK, so the COPY path stashes it here and restores after).
+; +1 (2 bytes, Sound 1D): the song BASE pointer the header/streams are read from —
+; SND_SONG_BUF (Z80 RAM) on the copy path, or the $8000 window ptr on the stream
+; path. The loader's shared header-parse/channel-init reads everything relative to
+; this base, so one routine serves both paths. In the free block just past the FM
+; scratch, below the trace ring.
 Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
+Snd_SongBase       = Snd_SavedDacBank + 1        ; 2 bytes: song base ptr (RAM or window)
 
-    if (Snd_SavedDacBank + 1) > SND_SEQ_TRACE
-      fatal "Snd_SavedDacBank (\{Snd_SavedDacBank}) runs into the trace ring at \{SND_SEQ_TRACE}"
+    if (Snd_SongBase + 2) > SND_SEQ_TRACE
+      fatal "Snd_LoadSong scratch (\{Snd_SongBase}) runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
     if SND_SEQ_END > SND_REQ_BASE
@@ -398,7 +452,7 @@ Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
       fatal "sequencer trace ring overruns the mailbox"
     endif
     ; the per-channel array must not run into the trace ring at $1A00.
-    ; CHROUTE_COUNT(10) * SeqChannel_len(11) = 110 bytes -> ends ~$1876, clear.
+    ; CHROUTE_COUNT(11) * SeqChannel_len(14) = 154 bytes -> $1808+154 = $18A2, clear.
     if SND_SEQ_END > SND_SEQ_TRACE
       fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
     endif
@@ -414,7 +468,18 @@ Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
 SND_MUSIC_PARAM         = $1A20                  ; music-load param block
 SND_MUSIC_PARAM_BANK    = SND_MUSIC_PARAM+$00    ; song bank id (1 byte)
 SND_MUSIC_PARAM_PTR     = SND_MUSIC_PARAM+$01    ; song $8000-window ptr (2 bytes, little-endian)
-SND_MUSIC_PARAM_LEN     = 3
+; Sound 1D: the song's SH_FLAGS byte, forwarded by the 68k (it reads the song's
+; ROM header directly). The Z80 loader needs the FLAGS *before* deciding the
+; copy-to-RAM vs stream-from-ROM path, so it cannot read them from SND_SONG_BUF
+; (which only exists for the copy path). Posted in the same bus hold as bank/ptr.
+SND_MUSIC_PARAM_FLAGS   = SND_MUSIC_PARAM+$03    ; song SH_FLAGS byte (1 byte)
+; Sound 1D: the song's FM-patch-bank $8000-window ptr (2 bytes, little-endian),
+; forwarded by the 68k from the song table's parallel patch-ptr entry. USED ONLY
+; on the stream path (SH_F_STREAM): the patch bank lives in the song's bank, read
+; through the same window. The copy path (1C) ignores it and uses the Z80-RAM
+; inline FmPatchInlineTable. (window ptr = (patch_addr & $7FFF) | $8000.)
+SND_MUSIC_PARAM_PATCHPTR = SND_MUSIC_PARAM+$04   ; song patch-bank window ptr (2 bytes, LE)
+SND_MUSIC_PARAM_LEN     = 6
 
 ; The song RAM buffer: the loader copies a fixed SND_SONG_BUF_SIZE bytes from the
 ; banked window here once at load. Page-aligned ($1B00) so the loader copy + the
@@ -447,9 +512,12 @@ SEQEV_DAC       = 5     ; DAC trigger
 SEQEV_LOOP      = 6     ; loop-point marker ($EE)
 SEQEV_JUMP      = 7     ; jump to loop point ($EF)
 SEQEV_END       = 8     ; end of stream ($FF)
+SEQEV_RPT_START = 9     ; bounded-repeat body start ($E5)
+SEQEV_RPT_END   = 10    ; bounded-repeat body end ($E6) — fires on every pass
 
 ; --- SongHeader layout (emitted by tools/song_packer.py, read by the loader) ---
 ; SongHeader:
+;   db  flags            ; Sound 1D: per-song playback mode (SH_F_* below)
 ;   db  tempo            ; Timer-A reload selector (N = tempo<<2; bigger = faster)
 ;   db  channel_count
 ;   ; per channel: route byte + 2-byte stream pointer (Z80-window-relative)
@@ -459,10 +527,11 @@ SEQEV_END       = 8     ; end of stream ($FF)
 ; each stream_ptr to its stream's offset within the packed song blob.)
 ;
 ; --- SongHeader field offsets (Task 6 loader; from SND_SONG_BUF base) ---
-; Fixed-position fields:
-SH_TEMPO        = 0     ; +0  tempo byte (Timer-A selector)
-SH_CHCOUNT      = 1     ; +1  channel count
-SH_CHANNELS     = 2     ; +2  start of the per-channel array
+; Fixed-position fields (Sound 1D prepends SH_FLAGS at +0):
+SH_FLAGS        = 0     ; +0  per-song playback-mode flags (SH_F_* below)
+SH_TEMPO        = 1     ; +1  tempo byte (Timer-A selector)
+SH_CHCOUNT      = 2     ; +2  channel count
+SH_CHANNELS     = 3     ; +3  start of the per-channel array
 ; Per-channel record (3 bytes): route, stream_ptr (16-bit BIG-ENDIAN offset).
 ; The packer writes stream_ptr as (off>>8),(off&FF) — high byte FIRST. The loader
 ; must read it big-endian (NOT a plain Z80 little-endian 16-bit load).
@@ -472,6 +541,20 @@ SHC_PTR_LO      = 2     ; +2  stream offset low byte
 SHC_LEN         = 3     ; per-channel record length
 ; patch_table_ptr (2 bytes) follows the per-channel array; IGNORED in 1C (patches
 ; stay inline — SND_SEQ_PATCHTAB is set to FmPatchInlineTable by the loader).
+
+; --- SongHeader flags byte (SH_FLAGS, Sound 1D §5.1) ----------------------
+; bit0 SH_F_FM6_FM   : FM6 is a 6th FM SEQUENCER voice (DAC mode OFF, $2B=$00).
+;                      CLEAR -> FM6 is the DAC (1C behavior, DAC mode ON, $2B=$80).
+; bit1 SH_F_STREAM   : the song's streams + patch bank are read DIRECTLY through
+;                      the banked $8000 window (the loader holds the song's bank
+;                      and points sc_stream_ptr at window addresses — NO RAM copy).
+;                      CLEAR -> copy a fixed SND_SONG_BUF_SIZE bytes to RAM (1C).
+; Contract: Moving Trucks = SH_F_FM6_FM|SH_F_STREAM (FM6=FM voice, stream from ROM);
+;           Song_Test / Ode demo = 0 (FM6=DAC, copy-to-RAM — the 1C path, regresses).
+SH_F_FM6_FM_B   = 0
+SH_F_STREAM_B   = 1
+SH_F_FM6_FM     = 1<<SH_F_FM6_FM_B
+SH_F_STREAM     = 1<<SH_F_STREAM_B
 
 ; --- DacSample id -> descriptor table (Task 6 decision 3) ---
 ; The $E2 operand (and SND_REQ_SAMPLE) is a 1-based sample id; the handler looks

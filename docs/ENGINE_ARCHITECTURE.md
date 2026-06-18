@@ -2663,6 +2663,25 @@ soundscapes (the latter is deferred to Phase 5).
   /`Sound_StopMusic` over the 1A mailbox. Build-time Python tools generate the F-number/PSG
   divisor tables, the 256-byte log-volume LUT, and the 8-byte carrier-mask table, and pack the
   hand-authored test song; AS asserts validate every table/struct size.
+- **1D adaptive FM6 slot + faithful song port (B&R "Moving Trucks")** — a song's `SongHeader`
+  flags now declare **FM6's role**: `SH_F_FM6_FM` routes FM6 to the sequencer as a 6th FM voice
+  (DAC mode off) and `SH_F_STREAM` streams the packed song + its per-song `FmPatch` bank directly
+  from a single 32 KB ROM bank (no RAM copy) — the loader holds that bank for the whole DAC-off
+  song. A new opcode **`MEV_NOTE_RAW` ($E7) + a4 a0 dur** keys an FM note at the **exact**
+  `$A4/$A0` frequency word, bypassing `FmPitchTable` (engine: `Fm_NoteOnFreq`, the shared tail of
+  `Fm_NoteOn` entered with the fnum word preset; `Seq_Op_NoteRaw`) — needed to reach pitches the
+  note-index table can't (sub-C0 bass, microtuning). The Moving Trucks demo is **VGM-derived**:
+  `tools/vgm_to_song.py` replays the original game's captured chip-register stream
+  (`song_05.vgm`) through our sequencer — per FM channel, a `MEV_NOTE_RAW` at each key-on (60 Hz
+  quantized durations) with the voice registers snapshotted at key-on into a deduped patch bank.
+  Each note keys **OFF→ON** (`Seq_Op_NoteRaw`) so the YM2612 hardware envelope re-attacks per note,
+  as the original driver does (without it the channel decays to silence after the first note — the
+  "blips" bug). The reference's per-frame fnum/TL rewrites are **redundant constants** (no vibrato,
+  no manual envelope), so the retrigger is the whole story. Verified by **rendered-audio** diff vs
+  `song_05.vgm` (`vgm2wav`): time-sounding 98% (ref 99%), log-spectrum r=0.997 (identical peaks),
+  dynamic-envelope r=0.868, note sequences 100%. Genuinely faithful. (Lesson: verify rendered audio
+  energy/spectrum, not just the key-on register stream.) See
+  `docs/superpowers/specs/2026-06-18-sound-1d-moving-trucks.md`.
 
 **DEFERRED (master-spec §12 Phases 2–6 — each its own plan):** Phase 2 N-channel DAC mixer
 (quality-adaptive single↔mix, stereo/pseudo-stereo PCM, pitch-shifted SFX, half-rate samples,

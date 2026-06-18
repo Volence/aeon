@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """song_packer — build-time music song description -> packed bytes + .asm.
 
-A SongDesc (tempo + list of ChannelDesc) packs to a self-contained blob:
+A SongDesc (flags + tempo + list of ChannelDesc) packs to a self-contained blob:
 
     SongHeader:
+      db  flags            ; Sound 1D per-song playback mode (SH_F_* below)
       db  tempo
       db  channel_count
       ; per channel:
@@ -34,6 +35,14 @@ MEV_VOL = 0xE0
 MEV_PATCH = 0xE1
 MEV_DAC = 0xE2
 MEV_NOTE_DUR = 0xE3
+MEV_NOTE_RAW = 0xE7          # + a4 a0 dd: key a raw-frequency FM note (exact
+                             # $A4/$A0) for duration dd, bypassing the pitch table
+# Bounded-repeat opcodes (Sound 1D Task 1). The sequencer interprets these in a
+# later engine task; for now the packer ENCODES them so a song can wrap a body
+# in a finite repeat instead of unrolling it (Moving Trucks would be ~100KB
+# unrolled vs ~8KB with repeats).
+MEV_REPEAT_START = 0xE5      # no operand: marks the start of a repeatable body
+MEV_REPEAT_END = 0xE6        # + nn: replay from the matching REPEAT_START nn times
 MEV_LOOP_POINT = 0xEE
 MEV_JUMP = 0xEF
 MEV_END = 0xFF
@@ -41,20 +50,29 @@ MEV_END = 0xFF
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
 MAX_DUR = 0x7F                              # SetDur range $00..$7F
 
+# Channel-route enum — MIRROR of sound_constants.asm (Sound 1D inserts FM6 = 5
+# and shifts PSG/DAC up by one). Keep in lockstep with the .asm or the packed
+# route bytes will index the wrong writer on the Z80.
 CHROUTE_FM1 = 0
 CHROUTE_FM2 = 1
 CHROUTE_FM3 = 2
 CHROUTE_FM4 = 3
 CHROUTE_FM5 = 4
-CHROUTE_PSG1 = 5
-CHROUTE_PSG2 = 6
-CHROUTE_PSG3 = 7
-CHROUTE_PSGN = 8
-CHROUTE_DAC = 9
-CHROUTE_COUNT = 10
+CHROUTE_FM6 = 5      # Sound 1D: 6th FM voice (adaptive FM6 slot)
+CHROUTE_PSG1 = 6
+CHROUTE_PSG2 = 7
+CHROUTE_PSG3 = 8
+CHROUTE_PSGN = 9
+CHROUTE_DAC = 10
+CHROUTE_COUNT = 11
 
-_FM_ROUTES = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5}
+_FM_ROUTES = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
+              CHROUTE_FM6}
 _PSG_ROUTES = {CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN}
+
+# SongHeader flags byte (SH_FLAGS) — MIRROR of sound_constants.asm SH_F_*.
+SH_F_FM6_FM = 1 << 0     # FM6 is a 6th FM sequencer voice (DAC mode OFF)
+SH_F_STREAM = 1 << 1     # stream from ROM (no RAM copy); else copy-to-RAM (1C)
 
 
 class PackError(Exception):
@@ -152,6 +170,49 @@ class NoteDur(Event):
             raise PackError(f"NoteDur dur {self.dur} out of range")
 
 
+class NoteRaw(Event):
+    """Key an FM note at a RAW frequency word (the exact $A4/$A0 bytes) for an
+    explicit duration, bypassing the pitch table. Used by VGM-derived songs to
+    reproduce the original chip pitch exactly. Time-advancing. FM-only."""
+    def __init__(self, a4: int, a0: int, dur: int):
+        self.a4 = a4        # $A4 value = (block<<3)|fnumHi
+        self.a0 = a0        # $A0 value = fnum low byte
+        self.dur = dur
+
+    def encode(self) -> bytes:
+        return bytes([MEV_NOTE_RAW, self.a4 & 0xFF, self.a0 & 0xFF,
+                      self.dur & 0xFF])
+
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"NoteRaw on non-FM route {route}")
+        if not (0 <= self.a4 <= 0xFF and 0 <= self.a0 <= 0xFF):
+            raise PackError(f"NoteRaw fnum bytes out of range")
+        if not (1 <= self.dur <= 0xFF):
+            raise PackError(f"NoteRaw dur {self.dur} out of range 1..255")
+
+
+class RepeatStart(Event):
+    """Marks the start of a body that MEV_REPEAT_END replays. No operand."""
+    def encode(self) -> bytes:
+        return bytes([MEV_REPEAT_START])
+
+
+class RepeatEnd(Event):
+    """Replays from the matching RepeatStart `count` total times (1..255).
+    count == 1 plays the body once (no repeat)."""
+    def __init__(self, count: int):
+        self.count = count
+
+    def encode(self) -> bytes:
+        return bytes([MEV_REPEAT_END, self.count & 0xFF])
+
+    def validate(self, route):
+        if not (1 <= self.count <= 255):
+            raise PackError(
+                f"RepeatEnd count {self.count} out of range 1..255")
+
+
 class LoopPoint(Event):
     def encode(self) -> bytes:
         return bytes([MEV_LOOP_POINT])
@@ -176,9 +237,10 @@ class ChannelDesc:
 
 
 class SongDesc:
-    def __init__(self, tempo: int, channels: list):
+    def __init__(self, tempo: int, channels: list, flags: int = 0):
         self.tempo = tempo
         self.channels = channels
+        self.flags = flags          # SH_FLAGS byte (SH_F_* OR'd); 0 = 1C copy/DAC
 
 
 # --- Packing --------------------------------------------------------------
@@ -191,14 +253,21 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
     saw_first_note = False        # first time-advancing event seen yet?
     saw_patch = False             # Patch ($E1) seen in the setup run?
     saw_vol = False               # Vol ($E0) seen in the setup run?
+    repeat_depth = 0              # open RepeatStart count (nesting)
     stream = bytearray()
     for ev in ch.events:
         ev.validate(ch.route)
+        if isinstance(ev, RepeatStart):
+            repeat_depth += 1
+        if isinstance(ev, RepeatEnd):
+            if repeat_depth <= 0:
+                raise PackError("RepeatEnd with no preceding RepeatStart")
+            repeat_depth -= 1
         if isinstance(ev, Patch):
             saw_patch = True
         if isinstance(ev, Vol):
             saw_vol = True
-        if isinstance(ev, (Note, Rest, NoteDur)) and not saw_first_note:
+        if isinstance(ev, (Note, Rest, NoteDur, NoteRaw)) and not saw_first_note:
             # First time-advancing event of the channel: this is the first point
             # the chip is keyed. Each route class must be initialized first or it
             # plays the YM2612/SN76489 power-on garbage register state. The DAC
@@ -224,7 +293,7 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
         if isinstance(ev, LoopPoint):
             saw_loop = True
             loop_advances_time = False
-        if saw_loop and isinstance(ev, (Note, Rest, NoteDur)):
+        if saw_loop and isinstance(ev, (Note, Rest, NoteDur, NoteRaw)):
             # Note ($81..$DF), Rest ($80), NoteDur ($E3) advance the tick clock;
             # all other events (SetDur, Vol, Patch, Dac, LoopPoint, Jump) are
             # zero-tick. A loop body with no time-advancing event would spin the
@@ -238,6 +307,9 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
                     "loop body has no time-advancing event "
                     "(Note/Rest/NoteDur) — would spin the sequencer forever")
         stream += ev.encode()
+    if repeat_depth != 0:
+        raise PackError(
+            f"{repeat_depth} RepeatStart(s) not closed by a RepeatEnd")
     if not ch.events:
         raise PackError("empty channel stream")
     last = ch.events[-1]
@@ -249,13 +321,16 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
 def pack_song(song: SongDesc) -> bytes:
     if not (0 <= song.tempo <= 0xFF):
         raise PackError(f"tempo {song.tempo} out of byte range")
+    if not (0 <= song.flags <= 0xFF):
+        raise PackError(f"flags {song.flags} out of byte range")
     if not (1 <= len(song.channels) <= 0xFF):
         raise PackError("channel_count out of byte range")
 
     streams = [_validate_channel(ch) for ch in song.channels]
 
     n = len(song.channels)
-    header_len = 2 + 3 * n + 2     # tempo, count, (route+dw)*n, dw patch_ptr
+    # flags, tempo, count, (route+dw)*n, dw patch_ptr (Sound 1D prepends flags).
+    header_len = 3 + 3 * n + 2
 
     # Stream offsets relative to blob start.
     offsets = []
@@ -265,6 +340,7 @@ def pack_song(song: SongDesc) -> bytes:
         cur += len(s)
 
     out = bytearray()
+    out.append(song.flags & 0xFF)
     out.append(song.tempo & 0xFF)
     out.append(n & 0xFF)
     for ch, off in zip(song.channels, offsets):
