@@ -54,6 +54,7 @@ CHROUTE_DAC = 9
 CHROUTE_COUNT = 10
 
 _FM_ROUTES = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5}
+_PSG_ROUTES = {CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN}
 
 
 class PackError(Exception):
@@ -187,9 +188,39 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
         raise PackError(f"route {ch.route} out of range")
     saw_loop = False
     loop_advances_time = False    # any time-advancing event since the LoopPoint
+    saw_first_note = False        # first time-advancing event seen yet?
+    saw_patch = False             # Patch ($E1) seen in the setup run?
+    saw_vol = False               # Vol ($E0) seen in the setup run?
     stream = bytearray()
     for ev in ch.events:
         ev.validate(ch.route)
+        if isinstance(ev, Patch):
+            saw_patch = True
+        if isinstance(ev, Vol):
+            saw_vol = True
+        if isinstance(ev, (Note, Rest, NoteDur)) and not saw_first_note:
+            # First time-advancing event of the channel: this is the first point
+            # the chip is keyed. Each route class must be initialized first or it
+            # plays the YM2612/SN76489 power-on garbage register state. The DAC
+            # route only triggers samples ($E2), so it is exempt.
+            #   FM  routes: need BOTH Patch ($E1) AND Vol ($E0) first.
+            #   PSG routes: need Vol ($E0) first (PSG has no patch — $E1 is
+            #               already rejected on non-FM routes).
+            saw_first_note = True
+            if ch.route in _FM_ROUTES:
+                if not saw_patch:
+                    raise PackError(
+                        "FM channel keys a note before a Patch ($E1) — would "
+                        "play the YM2612 power-on garbage voice")
+                if not saw_vol:
+                    raise PackError(
+                        "FM channel keys a note before a Vol ($E0) — would "
+                        "play at undefined volume")
+            elif ch.route in _PSG_ROUTES:
+                if not saw_vol:
+                    raise PackError(
+                        "PSG channel keys a note before a Vol ($E0) — would "
+                        "play at undefined attenuation")
         if isinstance(ev, LoopPoint):
             saw_loop = True
             loop_advances_time = False

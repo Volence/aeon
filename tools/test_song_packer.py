@@ -60,13 +60,14 @@ class TestEventEncoding(unittest.TestCase):
 
 
 def _simple_song():
-    # 2 channels, both well-formed and looping.
+    # 2 channels, both well-formed and looping. Each sends its required setup
+    # (FM: Patch+Vol; PSG: Vol) before its first time-advancing event.
     return SongDesc(tempo=6, channels=[
         ChannelDesc(CHROUTE_FM1, [
-            Patch(0), SetDur(0x10), LoopPoint(), Note(57), Rest(), Jump(),
+            Patch(0), Vol(100), SetDur(0x10), LoopPoint(), Note(57), Rest(), Jump(),
         ]),
         ChannelDesc(CHROUTE_PSG1, [
-            SetDur(0x10), LoopPoint(), Note(57), Jump(),
+            Vol(90), SetDur(0x10), LoopPoint(), Note(57), Jump(),
         ]),
     ])
 
@@ -139,16 +140,21 @@ class TestValidation(unittest.TestCase):
                         [Patch(0), LoopPoint(), Note(0), Jump()])])
 
     def test_jump_without_loop_point(self):
+        # Setup is in place so this isolates the Jump-without-LoopPoint check.
         with self.assertRaises(PackError):
-            self._pack([ChannelDesc(CHROUTE_FM1, [Note(0), Jump()])])
+            self._pack([ChannelDesc(CHROUTE_FM1,
+                        [Patch(0), Vol(64), Note(0), Jump()])])
 
     def test_unterminated_stream(self):
+        # Setup is in place so this isolates the unterminated-stream check.
         with self.assertRaises(PackError):
-            self._pack([ChannelDesc(CHROUTE_FM1, [Note(0), Rest()])])
+            self._pack([ChannelDesc(CHROUTE_FM1,
+                        [Patch(0), Vol(64), Note(0), Rest()])])
 
     def test_end_terminator_ok(self):
         # End() is a valid terminator (one-shot, no loop).
-        blob = self._pack([ChannelDesc(CHROUTE_FM1, [Note(0), End()])])
+        blob = self._pack([ChannelDesc(CHROUTE_FM1,
+                          [Patch(0), Vol(64), Note(0), End()])])
         self.assertEqual(blob[-2:], bytes([0x81, 0xFF]))
 
     def test_dac_route_allows_dac(self):
@@ -171,8 +177,94 @@ class TestValidation(unittest.TestCase):
     def test_loop_body_with_note_ok(self):
         # A loop body containing a time-advancing event (Note) is accepted.
         blob = self._pack([ChannelDesc(CHROUTE_FM1,
-                          [LoopPoint(), Note(0), Jump()])])
+                          [Patch(0), Vol(64), LoopPoint(), Note(0), Jump()])])
         self.assertIn(0xEF, blob)
+
+
+class TestSetupBeforeFirstNote(unittest.TestCase):
+    """A channel's first time-advancing event (Note/Rest/NoteDur) keys a note on
+    the YM2612 / SN76489. If it fires before the channel has been initialized,
+    the chip plays an undefined voice/attenuation (power-on garbage register
+    state). Enforce the setup at pack time (compile-time-validation mandate).
+
+    Per route class:
+      - FM routes (FM1..FM5): BOTH Patch ($E1) AND Vol ($E0) must appear before
+        the first Note/Rest/NoteDur.
+      - PSG routes (PSG1..PSGN): Vol ($E0) must appear before the first note
+        (PSG has no patch concept — $E1 is already rejected on non-FM routes).
+      - DAC route: exempt (only emits $E2 triggers; no patch/vol/notes).
+    Setup-run events (Patch, Vol, SetDur, LoopPoint) may appear in any order
+    before the first time-advancing event.
+    """
+
+    def _pack(self, channels, tempo=6):
+        return pack_song(SongDesc(tempo=tempo, channels=channels))
+
+    # --- FM: must have BOTH Patch and Vol before first note ---
+
+    def test_fm_note_before_any_patch_rejected(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1,
+                        [LoopPoint(), Note(0), Jump()])])
+
+    def test_fm_patch_but_no_vol_before_note_rejected(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1,
+                        [Patch(0), LoopPoint(), Note(0), Jump()])])
+
+    def test_fm_vol_but_no_patch_before_note_rejected(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1,
+                        [Vol(64), LoopPoint(), Note(0), Jump()])])
+
+    def test_fm_patch_then_vol_then_note_accepted(self):
+        blob = self._pack([ChannelDesc(CHROUTE_FM1,
+                          [Patch(0), Vol(64), LoopPoint(), Note(0), Jump()])])
+        self.assertIn(0xEF, blob)
+
+    def test_fm_vol_then_patch_then_note_accepted(self):
+        # Setup order is free — Vol before Patch is fine.
+        blob = self._pack([ChannelDesc(CHROUTE_FM1,
+                          [Vol(64), Patch(0), LoopPoint(), Note(0), Jump()])])
+        self.assertIn(0xEF, blob)
+
+    def test_fm_rest_is_time_advancing_for_setup_check(self):
+        # The "first time-advancing event" includes Rest — keying happens via the
+        # tick driver regardless of whether it's a Note or a Rest.
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1,
+                        [Patch(0), LoopPoint(), Rest(), Note(0), Jump()])])
+
+    def test_fm_notedur_is_time_advancing_for_setup_check(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1,
+                        [Vol(64), LoopPoint(), NoteDur(0, 8), Jump()])])
+
+    # --- PSG: must have Vol before first note (no patch concept) ---
+
+    def test_psg_note_before_any_vol_rejected(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_PSG1,
+                        [LoopPoint(), Note(0), Jump()])])
+
+    def test_psg_vol_then_note_accepted(self):
+        blob = self._pack([ChannelDesc(CHROUTE_PSG1,
+                          [Vol(64), LoopPoint(), Note(0), Jump()])])
+        self.assertIn(0xEF, blob)
+
+    def test_psgn_note_before_any_vol_rejected(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_PSGN,
+                        [LoopPoint(), Note(0), Jump()])])
+
+    # --- DAC: exempt ---
+
+    def test_dac_triggers_only_accepted(self):
+        # DAC channel emits only Dac triggers (+ Rest/loop) and no patch/vol —
+        # it is exempt from the setup-before-first-note rule.
+        blob = self._pack([ChannelDesc(CHROUTE_DAC,
+                          [SetDur(0x20), LoopPoint(), Dac(1), Rest(), Jump()])])
+        self.assertIn(0xE2, blob)
 
 
 class TestEmitAsm(unittest.TestCase):
