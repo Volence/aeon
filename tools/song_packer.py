@@ -34,6 +34,12 @@ MEV_VOL = 0xE0
 MEV_PATCH = 0xE1
 MEV_DAC = 0xE2
 MEV_NOTE_DUR = 0xE3
+# Bounded-repeat opcodes (Sound 1D Task 1). The sequencer interprets these in a
+# later engine task; for now the packer ENCODES them so a song can wrap a body
+# in a finite repeat instead of unrolling it (Moving Trucks would be ~100KB
+# unrolled vs ~8KB with repeats).
+MEV_REPEAT_START = 0xE5      # no operand: marks the start of a repeatable body
+MEV_REPEAT_END = 0xE6        # + nn: replay from the matching REPEAT_START nn times
 MEV_LOOP_POINT = 0xEE
 MEV_JUMP = 0xEF
 MEV_END = 0xFF
@@ -152,6 +158,27 @@ class NoteDur(Event):
             raise PackError(f"NoteDur dur {self.dur} out of range")
 
 
+class RepeatStart(Event):
+    """Marks the start of a body that MEV_REPEAT_END replays. No operand."""
+    def encode(self) -> bytes:
+        return bytes([MEV_REPEAT_START])
+
+
+class RepeatEnd(Event):
+    """Replays from the matching RepeatStart `count` total times (1..255).
+    count == 1 plays the body once (no repeat)."""
+    def __init__(self, count: int):
+        self.count = count
+
+    def encode(self) -> bytes:
+        return bytes([MEV_REPEAT_END, self.count & 0xFF])
+
+    def validate(self, route):
+        if not (1 <= self.count <= 255):
+            raise PackError(
+                f"RepeatEnd count {self.count} out of range 1..255")
+
+
 class LoopPoint(Event):
     def encode(self) -> bytes:
         return bytes([MEV_LOOP_POINT])
@@ -191,9 +218,16 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
     saw_first_note = False        # first time-advancing event seen yet?
     saw_patch = False             # Patch ($E1) seen in the setup run?
     saw_vol = False               # Vol ($E0) seen in the setup run?
+    repeat_depth = 0              # open RepeatStart count (nesting)
     stream = bytearray()
     for ev in ch.events:
         ev.validate(ch.route)
+        if isinstance(ev, RepeatStart):
+            repeat_depth += 1
+        if isinstance(ev, RepeatEnd):
+            if repeat_depth <= 0:
+                raise PackError("RepeatEnd with no preceding RepeatStart")
+            repeat_depth -= 1
         if isinstance(ev, Patch):
             saw_patch = True
         if isinstance(ev, Vol):
@@ -238,6 +272,9 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
                     "loop body has no time-advancing event "
                     "(Note/Rest/NoteDur) — would spin the sequencer forever")
         stream += ev.encode()
+    if repeat_depth != 0:
+        raise PackError(
+            f"{repeat_depth} RepeatStart(s) not closed by a RepeatEnd")
     if not ch.events:
         raise PackError("empty channel stream")
     last = ch.events[-1]

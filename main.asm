@@ -245,6 +245,12 @@ Art_Sonic:
         include "data/sound/sound_tables.asm"
         include "data/sound/fm_patches.asm"
         include "data/sound/song_test.asm"
+        ; Sound 1D: "Moving Trucks" (B&R) transcoded by tools/zyrinx_port.py.
+        ; ~3KB, bounded-repeat (NOT unrolled). Voices stubbed (T2), pan/vol (T4),
+        ; the 6th FM voice deferred to T3's adaptive FM6 slot. Streams from ROM
+        ; in T3 — it does NOT fit the 512-byte SND_SONG_BUF, so it is not
+        ; buffer-asserted in song_table.asm (unlike Song_Test).
+        include "data/sound/song_movingtrucks.asm"
         include "data/sound/song_table.asm"
     endif
 

@@ -15,7 +15,9 @@ import song_packer
 from song_packer import (
     SongDesc, ChannelDesc,
     SetDur, Rest, Note, Vol, Patch, Dac, NoteDur, LoopPoint, Jump, End,
+    RepeatStart, RepeatEnd,
     pack_song, emit_asm, PackError,
+    MEV_REPEAT_START, MEV_REPEAT_END,
 )
 
 # Route constants mirrored from sound_constants.asm (kept in sync by hand;
@@ -48,6 +50,15 @@ class TestEventEncoding(unittest.TestCase):
 
     def test_note_dur(self):
         self.assertEqual(NoteDur(3, 8).encode(), bytes([0xE3, 0x03, 0x08]))
+
+    def test_repeat_start(self):
+        self.assertEqual(RepeatStart().encode(), bytes([MEV_REPEAT_START]))
+        self.assertEqual(MEV_REPEAT_START, 0xE5)
+
+    def test_repeat_end(self):
+        self.assertEqual(RepeatEnd(4).encode(), bytes([MEV_REPEAT_END, 0x04]))
+        self.assertEqual(MEV_REPEAT_END, 0xE6)
+        self.assertEqual(RepeatEnd(255).encode(), bytes([MEV_REPEAT_END, 0xFF]))
 
     def test_loop_point(self):
         self.assertEqual(LoopPoint().encode(), bytes([0xEE]))
@@ -179,6 +190,39 @@ class TestValidation(unittest.TestCase):
         blob = self._pack([ChannelDesc(CHROUTE_FM1,
                           [Patch(0), Vol(64), LoopPoint(), Note(0), Jump()])])
         self.assertIn(0xEF, blob)
+
+    # --- bounded-repeat opcodes (Sound 1D Task 1) ---
+
+    def test_repeat_body_packs(self):
+        # RepeatStart, <body>, RepeatEnd(n) round-trips inside a loop.
+        blob = self._pack([ChannelDesc(CHROUTE_FM1, [
+            Patch(0), Vol(64), LoopPoint(),
+            RepeatStart(), Note(0), RepeatEnd(2), Jump()])])
+        # ...E5 81 E6 02... appears in the stream.
+        self.assertIn(bytes([MEV_REPEAT_START, 0x81, MEV_REPEAT_END, 0x02]),
+                      blob)
+
+    def test_repeat_end_without_start_rejected(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1, [
+                Patch(0), Vol(64), LoopPoint(), Note(0), RepeatEnd(2), Jump()])])
+
+    def test_repeat_start_unclosed_rejected(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1, [
+                Patch(0), Vol(64), LoopPoint(), RepeatStart(), Note(0), Jump()])])
+
+    def test_repeat_count_zero_rejected(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1, [
+                Patch(0), Vol(64), LoopPoint(),
+                RepeatStart(), Note(0), RepeatEnd(0), Jump()])])
+
+    def test_repeat_count_too_high_rejected(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_FM1, [
+                Patch(0), Vol(64), LoopPoint(),
+                RepeatStart(), Note(0), RepeatEnd(256), Jump()])])
 
 
 class TestSetupBeforeFirstNote(unittest.TestCase):

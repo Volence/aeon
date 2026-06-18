@@ -236,10 +236,27 @@ MEV_VOL         = $E0    ; + vv  : set channel volume (linear 0..127)
 MEV_PATCH       = $E1    ; + pp  : set FM patch index
 MEV_DAC         = $E2    ; + ss  : DAC trigger sample id (DAC channel only)
 MEV_NOTE_DUR    = $E3    ; + nn dd : note nn with explicit duration dd
+; $E4 reserved for MEV_PAN (Sound 1D Task 4 — do NOT define here).
+; Bounded-repeat opcodes (Sound 1D Task 1): a body wrapped in REPEAT_START..
+; REPEAT_END replays `nn` total times WITHOUT being unrolled in the data. The
+; packer encodes them now; the Z80 sequencer interprets them in a later engine
+; task (a small repeat-counter stack per channel). They let Moving Trucks ship
+; at ~8KB instead of the ~100KB a full unroll would cost.
+MEV_REPEAT_START = $E5   ; (no operand) start of a repeatable body
+MEV_REPEAT_END   = $E6   ; + nn : replay from matching REPEAT_START nn times (1..255)
 MEV_LOOP_POINT  = $EE    ; loop-target marker (no operand)
 MEV_JUMP        = $EF    ; jump to loop point
 MEV_END         = $FF    ; end of stream (channel idle)
-; reserved for Phase 3: $E4–$ED, $F0–$FE (unknown opcode = build/validation error)
+; reserved for Phase 3: $E4 (MEV_PAN, T4), $E7–$ED, $F0–$FE (unknown opcode = build/validation error)
+
+        ; the bounded-repeat opcodes live in the reserved $E4–$ED command block,
+        ; above the note range and clear of MEV_PAN ($E4) / the loop opcodes.
+        if (MEV_REPEAT_START <= MEV_NOTE_MAX) || (MEV_REPEAT_END <= MEV_NOTE_MAX)
+          error "MEV_REPEAT_* must be command opcodes (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_REPEAT_START = MEV_REPEAT_END) || (MEV_REPEAT_START = MEV_LOOP_POINT) || (MEV_REPEAT_END = MEV_LOOP_POINT)
+          error "MEV_REPEAT_* opcode collision"
+        endif
 
         ; opcode ranges must not overlap: the top note opcode is below the
         ; first command opcode, so the range dispatch is unambiguous.

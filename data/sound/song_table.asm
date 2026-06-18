@@ -11,11 +11,13 @@
 ; data/sound/song_test.py.
 ; ======================================================================
 
-SONG_TEST   = 1
-SONG_COUNT  = 1
+SONG_TEST          = 1
+SONG_MOVINGTRUCKS  = 2          ; Sound 1D: B&R "Moving Trucks" (transcoded)
+SONG_COUNT         = 2
 
 SongTable:
-        dc.l    Song_Test       ; id 1 (SongTable[id-1])
+        dc.l    Song_Test           ; id 1 (SongTable[id-1])
+        dc.l    Song_MovingTrucks   ; id 2
 SongTable_End:
 
         if (SongTable_End-SongTable)/4 <> SONG_COUNT
@@ -29,7 +31,9 @@ SongTable_End:
         endif
 
         ; Task 6: the loader copies a FIXED SND_SONG_BUF_SIZE bytes of the packed
-        ; song into Z80 RAM, so the packed song must fit in that buffer.
+        ; song into Z80 RAM, so a RAM-BUFFERED song must fit in that buffer.
+        ; (Sound 1D Song_MovingTrucks is ~3KB and is NOT buffer-asserted here: it
+        ; streams from ROM in T3, never through the fixed SND_SONG_BUF.)
         if (Song_Test_End-Song_Test) > SND_SONG_BUF_SIZE
           fatal "Song_Test (\{Song_Test_End-Song_Test} bytes) exceeds SND_SONG_BUF_SIZE (\{SND_SONG_BUF_SIZE})"
         endif
