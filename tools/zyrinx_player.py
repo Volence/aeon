@@ -89,7 +89,7 @@ A4_TBL, A0_TBL, BLOCK_TBL, FNUM_TBL, REV_TBL = build_pitch_tables()
 
 
 # ----------------------------------------------------------------------------
-# Engine pitch-table emitter (Sound Phase 3 Task 5).
+# Engine pitch-table emitter (Sound Phase 3 Task 3).
 # Dumps the 132-entry chromatic fnum table (§2.4) to a Z80-syntax .asm the engine
 # blob includes as the per-song / engine-default pitch table. LAYOUT (matches
 # sound_constants.asm PITCHTAB_*): TWO PARALLEL PAGES — the A4 page (132 bytes,

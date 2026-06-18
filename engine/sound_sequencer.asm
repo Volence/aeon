@@ -372,7 +372,10 @@ Seq_Op_NoteRaw:
 ; The packer routes MEV_PITCHENV only to FM channels; a non-FM route would still
 ; set state here but ModUpdate's FM gate means nothing is rendered (harmless). The
 ; re-key RULE is finalized in Task 5; for now an armed count==1 note keys once and
-; holds. Clobbers af, b. Manipulates hl (committed). Uses ix.
+; holds. Clobbers af, bc, de. Commits hl -> sc_stream_ptr (then ret, ending the tick). Uses ix.
+; `count` is trusted from the stream (the packer guarantees 1..5; a 0 would make djnz
+; copy 256 bytes, >5 would overrun sc_points[5]) — packer is the sole guarantor, per the
+; engine's trust-the-packer operand model.
 Seq_Op_PitchEnv:
         ld      a, (hl)
         inc     hl                       ; a = count (1..5); hl past the count byte
