@@ -159,40 +159,28 @@ ModUpdate:
         bit     SCF_REKEY_B, (ix+sc_flags)
         ret     z                        ; not armed -> held note -> NO YM writes
         res     SCF_REKEY_B, (ix+sc_flags) ; consume the (re)key arm
-        ; THE RE-KEY RULE (Task 5, calibrated): MEV_PITCHENV is the only thing that
-        ; reaches here (sole producer of sc_points + sole SCF_REKEY arm) — so the
-        ; render below fires ONLY on a pitch op, never on a voice/timbre op
-        ; (MEV_PATCH/MEV_OPBIAS/MEV_REGDELTA never arm SCF_REKEY). Within that, a
-        ; fresh ATTACK happens ONLY when the rendered index actually CHANGES vs the
-        ; last keyed index (sc_note). A SAME-pitch re-arm while the channel is already
-        ; keyed is a pure HELD no-op — NO $A4/$A0/$28 writes at all (write-on-change:
-        ; the freq is unchanged and the key is already 1, so re-writing them would be
-        ; redundant chip traffic — exactly the per-frame redundancy the cycle-budget
-        ; mandate forbids; we do NOT copy Zyrinx's brute-force re-writes). This makes a
-        ; same-index PITCHENV the engine's natural "WAIT/hold while keyed" (the Zyrinx
-        ; `PITCH_1 $40 ; VOICE ; WAIT 1` voice-step idiom): one attack, then silence on
-        ; the chip's freq/key regs while only MEV_REGDELTA bytes sweep the timbre. This
-        ; is also the calibration the reference player got wrong (it over-keyed
-        ; same-pitch PITCH_1s); suppressing the same-pitch re-key matches the oracle's
-        ; key-on DENSITY (spec §8).
-        ld      a, (ix+sc_points)        ; sc_points[0] = the single pitch point (NEW idx)
-        cp      (ix+sc_note)             ; compare vs the last-keyed index
-        jr      nz, .rekey_change        ; pitch CHANGED -> (re)articulate
-        ; SAME pitch: if already keyed, this is a held WAIT -> NO YM write at all.
-        bit     SCF_KEYED_B, (ix+sc_flags)
-        ret     nz                       ; held + keyed -> pure no-op (write-on-change)
-        ; same pitch but NOT keyed (e.g. re-key after a Rest) -> fall through to key on
-        ; (no key-off needed: the key bit is already 0, so the key-on IS the 0->1 edge).
-        jr      .rekey_on
-.rekey_change:
-        ; PITCH CHANGED -> a fresh attack. RE-KEY STYLE (lever SND_REKEY_OFF_THEN_ON,
-        ; sound_constants): DEFAULT = clean re-key. If the channel is ALREADY keyed we
-        ; key-OFF first so the YM2612 sees a real 0->1 edge and retriggers the EG
-        ; (oracle-faithful; matches the NOTE_RAW path). If it is NOT keyed (fresh note
-        ; from silence/after a Rest), the key-on alone is the 0->1 edge — no key-off.
-        ; SND_REKEY_OFF_THEN_ON=0 skips the key-off entirely (key-on only, no
-        ; retrigger when already keyed) for A/B-ing the attack density vs the oracle.
+        ; THE RE-KEY RULE (corrected vs the oracle): MEV_PITCHENV is the only thing that
+        ; reaches here (sole producer of sc_points + sole SCF_REKEY arm) — so the render
+        ; below fires ONLY on a pitch op, never on a voice/timbre op (MEV_PATCH/MEV_OPBIAS/
+        ; MEV_REGDELTA never arm SCF_REKEY). Every armed re-key RE-ARTICULATES, even when
+        ; the rendered index is UNCHANGED: the real Zyrinx driver re-keys on EVERY pitch
+        ; command (keyon_pending set unconditionally at driver $0519, gated only on that
+        ; flag at $0BB0 — there is NO pitch-equality test), and the packer emits one
+        ; MEV_PITCHENV per genuine sequence re-issue = one per oracle re-attack (incl.
+        ; same-pitch repeats). An earlier "suppress same-pitch re-keys to match oracle
+        ; key-on density" rule was WRONG for real songs: it dropped the dense same-pitch
+        ; re-attacks the oracle KEEPS, collapsing repeat-heavy channels (e.g. Moving
+        ; Trucks ch5 is 89% same-pitch -> played 4% of its notes). Held notes still cost
+        ; nothing: with no new PITCHENV, SCF_REKEY is never armed and the `ret z` above
+        ; writes nothing — so this is per-event-tick traffic, not per-frame.
+        ld      a, (ix+sc_points)        ; sc_points[0] = the single pitch point (idx)
         ld      (ix+sc_note), a          ; sc_note = last-rendered note index (update)
+        ; RE-KEY STYLE (lever SND_REKEY_OFF_THEN_ON, sound_constants): DEFAULT = clean
+        ; re-key. If the channel is ALREADY keyed we key-OFF first so the YM2612 sees a
+        ; real 0->1 edge and retriggers the EG (oracle-faithful; matches the NOTE_RAW
+        ; path). If NOT keyed (fresh note from silence/after a Rest), the key-on alone is
+        ; the 0->1 edge — no key-off. SND_REKEY_OFF_THEN_ON=0 skips the key-off (key-on
+        ; only, no retrigger when already keyed) for A/B-ing attack density vs the oracle.
     if SND_REKEY_OFF_THEN_ON
         bit     SCF_KEYED_B, (ix+sc_flags)
         jr      z, .rekey_on             ; not keyed -> key-on alone gives the edge
