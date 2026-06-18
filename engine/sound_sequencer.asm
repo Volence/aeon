@@ -32,6 +32,15 @@
 ; Task 5 replaces this with the Timer-A sub-tick). Clobbers af,bc,de,hl,ix.
 ; ----------------------------------------------------------------------
 Sequencer_Tick:
+        ; --- TICK OBSERVABILITY (Task 5): increment SND_STAT_TICK on EVERY call.
+        ; Placed at the very top (BEFORE the active check) so the counter reflects
+        ; each Timer-A overflow regardless of song-active state — the controller
+        ; uses its increment RATE to verify the Timer-A tick frequency. Wraps mod
+        ; 256. Clobbers af (Sequencer_Tick already clobbers af). ---
+        ld      a, (SND_STAT_TICK)
+        inc     a
+        ld      (SND_STAT_TICK), a
+
         ld      a, (SND_SEQ_ACTIVE)
         or      a
         ret     z                        ; no song playing -> nothing to do

@@ -73,22 +73,64 @@ SND_REG_OP_D2R          = $70                    ; +(op*4)+ch : second decay rat
 SND_REG_OP_D1L_RR       = $80                    ; +(op*4)+ch : decay level | release rate
 SND_FM_KEYON_OPMASK     = $F0                    ; key-on byte = $F0 | chsel (all 4 ops on)
 SND_FM_TL_MAX           = $7F                    ; TL is 7-bit; $7F = silent, 0 = loud
-; Timer A regs — RETAINED as names only; the MegaPCM-2 streaming loop no longer
-; programs or waits on Timer A (the loop trip-time IS the sample clock, req 9).
+; Timer A regs — the MegaPCM-2 streaming loop is still the SAMPLE clock (loop
+; trip-time, req 9). Timer A is now the SEQUENCER TICK clock (Sound 1C Task 5):
+; the DAC loop polls Timer A's overflow flag once per pass (common prefix) and on
+; overflow re-arms + calls Sequencer_Tick. Timer A does NOT drive the DAC rate.
 SND_REG_TIMER_A_HI      = $24                    ; Timer A value bits 9..2
 SND_REG_TIMER_A_LO      = $25                    ; Timer A value bits 1..0
-SND_REG_TIMER_CTRL      = $27
+SND_REG_TIMER_CTRL      = $27                    ; load/enable/reset Timer A & B
+; Timer A control-byte values written to $27 (Task 5):
+;   LOAD:A (bit0) = start/reload counter from N, ENBL:A (bit2) = let the overflow
+;   raise the status flag (WITHOUT it the poll never sees overflows), RST:A (bit4)
+;   = one-shot strobe that CLEARS the overflow status flag (timer keeps counting).
+SND_TIMERA_CTRL_BIT_LOAD = 0
+SND_TIMERA_CTRL_BIT_ENBL = 2
+SND_TIMERA_CTRL_BIT_RST  = 4
+SND_TIMERA_CTRL_PROGRAM = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)             ; $05 : LOAD:A | ENBL:A
+SND_TIMERA_CTRL_REARM   = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)|(1<<SND_TIMERA_CTRL_BIT_RST) ; $15 : LOAD:A | ENBL:A | RST:A
+SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A overflow
 
-; --- Tempo: build-time YM Timer A programming from a target ticks/frame ---
-; YM Timer A is a 10-bit value N: reg $24 = N>>2 (bits 9..2), reg $25 = N&3 (bits
-; 1..0). Period = 18.773us * (1024 - N) on NTSC (tick base = 144/(master/7)).
-; For T overflows/frame (NTSC frame = 16688us):
-;   N = 1024 - (16688000ns) / (T * 18773ns)
-; A build-time function so the timer value is computed + self-documenting, never
-; a hand-tuned magic literal. (1A audit found $C0 was misread as N=192 vs N=768.)
+        if SND_TIMERA_CTRL_PROGRAM <> $05
+          error "SND_TIMERA_CTRL_PROGRAM must be $05 (LOAD:A|ENBL:A)"
+        endif
+        if SND_TIMERA_CTRL_REARM <> $15
+          error "SND_TIMERA_CTRL_REARM must be $15 (LOAD:A|ENBL:A|RST:A)"
+        endif
+
+; --- Tempo: YM Timer A programming from the song-header tempo byte (Task 5) ---
+; YM Timer A is a 10-bit value N (0..1023): reg $24 = N>>2 (bits 9..2), reg $25 =
+; N&3 (bits 1..0). The counter COUNTS UP and overflows when it passes 1024, so the
+; overflow PERIOD = 18.773us * (1024 - N) on NTSC.
+;
+; DECISION 1 — SongHeader `tempo` byte -> N mapping: tempo is the HIGH 8 bits of N
+; (N = tempo << 2, low 2 bits 0). Then Snd_TimerA_Program writes $24 = tempo (the
+; byte directly), $25 = 0, $27 = $05 — no shift at runtime, the 10-bit value is
+; just the byte placed in the high register. DIRECTION (correcting the spec's
+; wrong "bigger = slower"): N = tempo<<2, period = 18.773us*(1024 - N), so a
+; BIGGER tempo byte => bigger N => SMALLER (1024-N) => SHORTER period => FASTER
+; ticks. tempo $00 = slowest (N=0, ~19.2ms period ~52Hz), tempo $FF = fastest
+; (N=1020, ~75us period ~13.3kHz). Musically useful range is the low-to-mid bytes.
+;
+; Build-time period/rate helpers (self-documenting, never hand-tuned literals;
+; the 1A audit found $C0 had been misread as N=192 vs N=768):
+ym_timerA_n_from_tempo  function tb, ((tb) << 2)                          ; N = tempo<<2
+ym_timerA_period_ns     function tb, ((1024 - ym_timerA_n_from_tempo(tb)) * 18773)
+ym_timerA_hz            function tb, (1000000000 / ym_timerA_period_ns(tb)) ; ticks/sec (int div)
+
+; --- DEBUG dry-run tempo (Task 5 drives Sequencer_Tick from Timer A, replacing
+; the removed per-VBlank ISR pump). DECISION 2: pick a tempo byte giving a
+; musically reasonable tick rate (~150-300 ticks/sec target). tempo $D0 -> N=832,
+; period = (1024-832)*18.773us = 192*18.773us = 3604.4us -> ~277.4 ticks/sec, i.e.
+; ~4.62 ticks per 60Hz frame. The controller verifies SND_STAT_TICK increments at
+; ~277/sec (the byte wraps mod 256, so ~277 increments/sec, full wrap ~0.92s).
+SND_DBG_TEMPO           = $D0                     ; dry-run tempo byte (-> N=832 -> ~277 ticks/sec)
+SND_DBG_TICK_HZ         = ym_timerA_hz(SND_DBG_TEMPO)  ; build-time documented tick rate (~277)
+
+; (legacy ticks/frame timebase machinery — kept for reference; Task 6's real song
+;  loader programs Timer A from the loaded SongHeader tempo byte, not this.)
 ym_timerA_n  function tpf, (1024 - (16688000 / ((tpf) * 18773)))
-SND_TEMPO_TPF           = 6                       ; design tempo timebase (ticks/frame);
-                                                  ;   finalize when music sequencing lands
+SND_TEMPO_TPF           = 6                       ; design tempo timebase (ticks/frame)
 SND_TIMERA_N            = ym_timerA_n(SND_TEMPO_TPF)
 SND_TIMERA_HI           = (SND_TIMERA_N >> 2) & $FF
 SND_TIMERA_LO           = SND_TIMERA_N & 3
@@ -117,8 +159,11 @@ SND_RING_LEAD_PRIME     = 128                     ; $80 lead-in length at sample
 ; any rate-derived math) follows. (S2/S3K pcmLoopCounter pattern.)
 Z80_CLOCK_HZ            = 3579545                  ; NTSC Z80 clock (master/15)
 dac_rate_hz  function cyc, (Z80_CLOCK_HZ / (cyc))
-SND_LOOP_CYC            = 370                      ; balanced FILL/SKIP/DRAIN total (consumer re-selects $2A each sample)
-SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 10345 Hz (3579545/346, int div)
+; 370 = consumer re-selects $2A each sample; +30 = the Task-5 Timer-A overflow
+; poll in the common prefix (ld a,($4000) 13 + and 1 7 + jp nz 10 = K = 30 cyc,
+; added EQUALLY to FILL/SKIP/DRAIN because it lives in the common prefix).
+SND_LOOP_CYC            = 400                      ; balanced FILL/SKIP/DRAIN total (370 + 30-cyc Timer-A poll)
+SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 8948 Hz (3579545/400, int div)
 
 ; --- 1B: 68k->Z80 control (68k writes, Z80 reads) ---
 SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progress (no ROM reads)

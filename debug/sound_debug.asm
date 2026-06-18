@@ -16,6 +16,9 @@ Sound_DebugMirror:
         stopZ80
         lea     (Sound_Dbg_Mirror).w, a1         ; 68k RAM dest
         lea     (Z80_RAM+SND_REQ_BASE).l, a0     ; [0..47] = $1F00..$1F2F (req slots + status)
+        ; This 48-byte copy already covers SND_STAT_TICK ($1F13 -> mirror byte 19),
+        ; the Task-5 scheduler tick counter the controller reads to verify the
+        ; Timer-A overflow rate (~277/sec dry-run). No extra mirror entry needed.
         moveq   #48-1, d0
 .copy1:
         move.b  (a0)+, (a1)+

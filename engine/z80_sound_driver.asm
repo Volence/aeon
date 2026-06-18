@@ -39,7 +39,7 @@ Z80_Sound_Start:
         phase 0
 
 ; ======================================================================
-; CYCLE-BALANCE PROOF — FILL == SKIP == DRAIN == 346 Z80 cycles
+; CYCLE-BALANCE PROOF — FILL == SKIP == DRAIN == 400 Z80 cycles
 ; (T-states per the AS/Zilog table in the task spec. The banked $8000-window
 ;  ROM read adds a bounded ~3.3-cyc bus penalty per byte under normal 68k load
 ;  — that lands ONLY on FILL's two `ld x,(hl)` reads and is inherent to the one
@@ -47,28 +47,49 @@ Z80_Sound_Start:
 ;  instruction-cycle total is balanced exactly; the ROM penalty is noted, not
 ;  padded, because it is non-deterministic and unavoidable on FILL alone.)
 ;
+; HISTORY: the deterministic total grew from the original 346 as the loop body
+; gained constant per-pass cost, BOTH additions in the common prefix (so equal on
+; all three paths — the pads need no rebalance):
+;   (a) +24 : the consumer re-selects $2A on the addr port EVERY sample (the YM
+;             address latch is not relied upon to hold), so the live consumer is
+;             83 cyc, not the original 59.                          (346 -> 370)
+;   (b) +30 : the Task-5 Timer-A overflow poll (K = 30).            (370 -> 400)
+; The SkipPad (183) and DrainPad (204) are UNCHANGED — both additions live in the
+; common prefix, which by construction lands equally on all three paths, so the
+; pad-to-FILL balance is untouched. The poll's overflow handler (rearm + call
+; Sequencer_Tick) fires only on overflow (~277 Hz dry-run, NOT per pass); that one
+; pass is momentarily longer — a bounded micro-perturbation (see BOUNDING below).
+;
 ; --- COMMON PREFIX (run by ALL three paths) -------------------------------
 ;   di                            4
-;   ; -- CONSUMER (RAM ring only, never ROM) --
+;   ; -- CONSUMER (RAM ring only, never ROM; re-selects $2A every sample) --
 ;   ld a,(SND_RING_RD)           13
 ;   ld l,a                        4
 ;   ld h,SND_RING_PAGE            7
-;   ld a,(hl)                     7
+;   ld c,(hl)                     7   ; c = ring[rd] (RAM — never contended)
+;   ld a,SND_REG_DAC_DATA         7   ; $2A
+;   ld (SND_Z80_YM_A0),a         13   ; re-select DAC DATA reg on $4000
+;   ld a,c                        4
 ;   ld (de),a                     7   ; -> YM $2A DATA ($4001)
 ;   inc l                         4
 ;   ld a,l                        4
-;   ld (SND_RING_RD),a           13      [consumer subtotal = 59]
+;   ld (SND_RING_RD),a           13      [consumer subtotal = 83]
 ;   ; -- DISPATCH prefix --
 ;   ld a,(SND_RING_RD)           13
 ;   ld c,a                        4
 ;   ld a,(SND_RING_WR)           13
 ;   sub c                         4   ; a = (WR-RD)&$FF = lead
 ;   ld b,a                        4   ; stash lead
+;   ; -- TIMER-A POLL (Task 5; K = 30) — placed BEFORE the DMA dispatch so ALL
+;   ;    THREE paths (FILL/SKIP/DRAIN) run it -> K is common, no pad rebalance. --
+;   ld a,($4000)                 13   ; YM status: bit0 = Timer A overflow
+;   and SND_TIMERA_OVF_MASK       7   ; isolate overflow bit
+;   jp nz,SndDrv_TimerATick      10   ; overflow -> rearm + tick (10 taken or not)
 ;   ld a,(SND_CTRL_DMA_ACTIVE)   13
 ;   or a                          4
 ;   jp nz,SndDrv_Drain           10   ; DMA active -> DRAIN  (10 taken or not)
-;                                 -----  COMMON PREFIX = 4 + 59 + 65 = 128
-; (the 8 dispatch-prefix instrs above sum to 13+4+13+4+4+13+4+10 = 65)
+;                                 -----  COMMON PREFIX = 4 + 83 + 30 + 65 = 182
+; (poll K = 13+7+10 = 30; dispatch-prefix instrs = 13+4+13+4+4+13+4+10 = 65)
 ;
 ; --- DISPATCH TAIL (run by FILL and SKIP only; DRAIN jumped away) ----------
 ;   ld a,b                        4
@@ -77,7 +98,7 @@ Z80_Sound_Start:
 ;                                 -----  TAIL = 21
 ;
 ; ============================ FILL =======================================
-;   COMMON PREFIX ............... 128
+;   COMMON PREFIX ............... 182
 ;   DISPATCH TAIL ...............  21
 ;   -- producer (2-byte read-ahead) --
 ;   ld hl,(SND_ROM_PTR)          16
@@ -106,10 +127,10 @@ Z80_Sound_Start:
 ;   -- tail --
 ;   ei                            4
 ;   jp SndDrv_Sample             10
-;                                 =====  FILL = 128 + 21 + 183 + 4 + 10 = 346
+;                                 =====  FILL = 182 + 21 + 183 + 4 + 10 = 400
 ;
 ; ============================ SKIP =======================================
-;   COMMON PREFIX ............... 128
+;   COMMON PREFIX ............... 182
 ;   DISPATCH TAIL ...............  21   (then jp nc taken -> SkipPad)
 ;   -- SkipPad (= 183, no ROM read) --
 ;   ld b,13                       7
@@ -120,10 +141,10 @@ Z80_Sound_Start:
 ;                                 -----  SkipPad = 7 + 164 + 12 = 183
 ;   ei                            4
 ;   jp SndDrv_Sample             10
-;                                 =====  SKIP = 128 + 21 + 183 + 4 + 10 = 346
+;                                 =====  SKIP = 182 + 21 + 183 + 4 + 10 = 400
 ;
 ; ============================ DRAIN ======================================
-;   COMMON PREFIX ............... 128   (jp nz taken -> DrainPad; tail NOT run)
+;   COMMON PREFIX ............... 182   (jp nz taken -> DrainPad; tail NOT run)
 ;   -- DrainPad (= 204 = 183 + the 21-cyc tail DRAIN skipped, no ROM read) --
 ;   ld b,15                       7
 ; .loop: djnz .loop            190   (14 taken*13 + 1 not-taken*8)
@@ -131,10 +152,20 @@ Z80_Sound_Start:
 ;                                 -----  DrainPad = 7 + 190 + 7 = 204
 ;   ei                            4
 ;   jp SndDrv_Sample             10
-;                                 =====  DRAIN = 128 + 204 + 4 + 10 = 346
+;                                 =====  DRAIN = 182 + 204 + 4 + 10 = 400
 ;
-; ALL THREE = 346 cyc EXACTLY (0-cyc spread). Effective DAC rate:
-;   dac_rate_hz(346) = 3579545 / 346 = 10345 Hz (int div; see SND_DAC_RATE_HZ).
+; ALL THREE = 400 cyc EXACTLY (0-cyc spread). Effective DAC rate:
+;   dac_rate_hz(400) = 3579545 / 400 = 8948 Hz (int div; see SND_DAC_RATE_HZ).
+;
+; --- BOUNDING the overflow handler (Task 5) --------------------------------
+; On overflow the poll's `jp nz,SndDrv_TimerATick` is taken: re-arm Timer A + run
+; Sequencer_Tick FULLY INLINE (no channel slicing). Worst-case tick (a patch-load
+; ~2300-2600 cyc + the other channels, ~5000 cyc worst case) is ~12.5 sample-times.
+; The ring lead budget is SND_RING_LEAD_CAP (250) samples x SND_LOOP_CYC (400) ~
+; 100,000 cyc, so worst_tick_cyc (~5000) << that (~5%). The ring CANNOT underrun
+; across a tick. (A "service half the channels per overflow" split is held in
+; reserve and is NOT needed for 5 FM + 4 PSG.) The handler runs inside the loop's
+; `di` window and rejoins the dispatch so the pass still ends at EXACTLY ONE `ei`.
 ; ======================================================================
 
 ; --- reset vector + IM1 VBlank vector ---
@@ -286,6 +317,14 @@ SndDrv_Init:
         ld      (SND_SEQ_BADOP), a
         inc     a
         ld      (SND_SEQ_ACTIVE), a      ; arm the sequencer (1)
+
+        ; --- Program Timer A so its overflow drives Sequencer_Tick (Task 5). The
+        ; DAC-loop common-prefix poll re-arms + calls Sequencer_Tick on each
+        ; overflow. Dry-run tempo SND_DBG_TEMPO ($D0 -> N=832 -> ~277 ticks/sec ~
+        ; 4.62 ticks/60Hz-frame); SND_STAT_TICK increments at that rate. Task 6
+        ; programs Timer A from the loaded SongHeader tempo instead. ---
+        ld      a, SND_DBG_TEMPO         ; tempo byte = N>>2
+        call    Snd_TimerA_Program       ; $24/$25/$27 -> load + enable Timer A
     endif
 
         ei                               ; state consistent -> allow the VBlank IRQ
@@ -343,6 +382,18 @@ SndDrv_Sample:
         ld      a, (SND_RING_WR)
         sub     c                        ; a = (WR - RD) & $FF = lead (bytes buffered)
         ld      b, a                     ; stash lead
+        ; --- TIMER-A POLL (Task 5): the sequencer-tick clock. Placed in the COMMON
+        ; PREFIX *before* the DMA dispatch so ALL THREE paths (FILL/SKIP/DRAIN) run
+        ; it -> the K=30 cyc cost is common to every path, no pad rebalance needed.
+        ; Reads YM status off $4000 (the addr port, RAM-mapped I/O, never ROM —
+        ; DMA-safe). On overflow: rearm + Sequencer_Tick, then rejoin at .afterPoll.
+        ; `b` (the stashed lead) is preserved across the handler (Sequencer_Tick
+        ; clobbers b, so SndDrv_TimerATick re-reads the lead before .afterPoll).
+.timerA_poll:
+        ld      a, (SND_Z80_YM_A0)       ; read YM status ($4000): bit0 = Timer A overflow
+        and     SND_TIMERA_OVF_MASK      ; isolate overflow bit
+        jp      nz, SndDrv_TimerATick    ; overflow -> rearm + Sequencer_Tick, then rejoin
+.afterPoll:
         ld      a, (SND_CTRL_DMA_ACTIVE)
         or      a
         jp      nz, SndDrv_Drain         ; 68k DMA in progress -> DRAIN (no ROM read)
@@ -423,15 +474,9 @@ SndDrv_ISR:
         push    de
         push    hl
         call    SndDrv_PollMailbox       ; RAM + $6000 latch only -> DMA-safe
-    ifdef __DEBUG__
-        ; TASK-2 DRY-RUN PUMP: advance the sequencer one tick per VBlank so the
-        ; trace ring fills over frames. RAM-only (writer hooks are stubs), so
-        ; DMA-safe. ix is saved/restored to honour the ISR's no-clobber contract.
-        ; (Task 5 replaces this with the Timer-A sub-tick poll.)
-        push    ix
-        call    Sequencer_Tick
-        pop     ix
-    endif
+        ; (Task 5: the per-VBlank Sequencer_Tick PUMP that lived here is REMOVED.
+        ; Sequencer_Tick is now driven ONLY by the DAC-loop's Timer-A overflow poll
+        ; -> SndDrv_TimerATick. Driving it from both would double-clock the song.)
         pop     hl
         pop     de
         pop     bc
@@ -528,6 +573,81 @@ SndDrv_SetBank:
         rrca                             ; rotate next bit into bit0
         endr
         ld      (hl), a                  ; 9th write (bit8)
+        ret
+
+; ======================================================================
+; SndDrv_TimerATick — the Timer-A overflow handler (Task 5). Reached ONLY from
+; the common-prefix poll's `jp nz` when YM status bit0 (Timer A overflow) is set.
+; Runs INSIDE the streaming loop's `di` window (so Sequencer_Tick is non-reentrant
+; w.r.t. the VBlank ISR — the tick and the ISR can never interleave). Steps:
+;   1. Snd_TimerA_Rearm  — clear the overflow flag (timer keeps counting from N).
+;   2. call Sequencer_Tick — advance the song one tick (FULLY INLINE, no slicing;
+;      see the BOUNDING note in the proof — worst tick << ring lead, no underrun).
+;   3. re-read the lead into `b` (Sequencer_Tick clobbers b) and rejoin .afterPoll
+;      so this pass still runs the DMA/SKIP/FILL dispatch and ends at the ONE `ei`.
+; Re-parks reg $2A on $4000 after the rearm's $27 write (the consumer re-selects
+; $2A every sample anyway, but Snd_TimerA_Rearm already re-parks — defensive).
+; ======================================================================
+SndDrv_TimerATick:
+        call    Snd_TimerA_Rearm         ; $27 = $15 (clear overflow, keep counting), re-park $2A
+        call    Sequencer_Tick           ; advance the song one tick (clobbers af,bc,de,hl,ix)
+        ; Sequencer_Tick clobbered b (and de). Restore the loop invariants the
+        ; dispatch tail needs: de = $4001, and b = the lead (WR-RD)&$FF.
+        ld      de, SND_Z80_YM_A1        ; restore de = $4001 (DAC DATA port invariant)
+        ld      a, (SND_RING_RD)
+        ld      c, a
+        ld      a, (SND_RING_WR)
+        sub     c                        ; a = (WR-RD)&$FF = lead
+        ld      b, a                     ; b = lead (for the FILL/SKIP dispatch)
+        jp      SndDrv_Sample.afterPoll  ; rejoin the common prefix after the poll
+
+; ======================================================================
+; Snd_TimerA_Program — load + enable Timer A from a tempo byte in `a` (Task 5).
+; tempo = the HIGH 8 bits of N (N = tempo<<2, low 2 bits 0). Writes:
+;   $24 = tempo (N>>2, MSB first), $25 = 0 (N&3), $27 = $05 (LOAD:A | ENBL:A).
+; ENBL:A (bit2) is REQUIRED — without it the overflow never raises the status
+; flag and the common-prefix poll can't see ticks. Uses ABSOLUTE addressing
+; ($4000 reg-select / $4001 data) so `de` (the DAC $4001 invariant) is untouched;
+; re-parks reg $2A on $4000 at the end (like the FM writer's Fm_ReparkDac).
+; Clobbers af. Caller's `de`/`ix` preserved.
+; ======================================================================
+Snd_TimerA_Program:
+        ld      c, a                     ; c = tempo byte (= N>>2); preserve across reg selects
+        ; $24 = N>>2 (MSB) — write MSB before LSB.
+        ld      a, SND_REG_TIMER_A_HI    ; $24
+        ld      (SND_Z80_YM_A0), a       ; select $24 on $4000
+        ld      a, c                     ; tempo byte = N>>2
+        ld      (SND_Z80_YM_A1), a       ; $4001 = N bits 9..2
+        ; $25 = N&3 (LSB) = 0 (tempo maps to N = tempo<<2, low 2 bits clear).
+        ld      a, SND_REG_TIMER_A_LO    ; $25
+        ld      (SND_Z80_YM_A0), a       ; select $25 on $4000
+        xor     a
+        ld      (SND_Z80_YM_A1), a       ; $4001 = N bits 1..0 = 0
+        ; $27 = LOAD:A | ENBL:A -> start the counter and let overflow raise the flag.
+        ld      a, SND_REG_TIMER_CTRL    ; $27
+        ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
+        ld      a, SND_TIMERA_CTRL_PROGRAM ; $05 = LOAD:A | ENBL:A
+        ld      (SND_Z80_YM_A1), a       ; $4001 = program Timer A
+        ; re-park reg $2A on the addr port for the DAC consumer.
+        ld      a, SND_REG_DAC_DATA      ; $2A
+        ld      (SND_Z80_YM_A0), a
+        ret
+
+; ======================================================================
+; Snd_TimerA_Rearm — clear the Timer-A overflow status flag, keeping the timer
+; loaded + enabled (Task 5). The 10-bit value N auto-reloads and the counter
+; keeps running; we only strobe RST:A. A SINGLE $27 write of $15
+; (= LOAD:A | ENBL:A | RST:A) does it: RST:A (bit4) is a one-shot strobe that
+; clears the overflow flag without disturbing the count. ABSOLUTE addressing
+; (preserve `de`); re-parks reg $2A on $4000 at the end. Clobbers af.
+; ======================================================================
+Snd_TimerA_Rearm:
+        ld      a, SND_REG_TIMER_CTRL    ; $27
+        ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
+        ld      a, SND_TIMERA_CTRL_REARM ; $15 = LOAD:A | ENBL:A | RST:A (clear overflow flag)
+        ld      (SND_Z80_YM_A1), a       ; $4001 = re-arm Timer A
+        ld      a, SND_REG_DAC_DATA      ; $2A
+        ld      (SND_Z80_YM_A0), a       ; re-park addr port on DAC DATA
         ret
 
 ; ======================================================================
