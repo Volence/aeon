@@ -27,17 +27,25 @@
 ; ======================================================================
 
 ; ----------------------------------------------------------------------
-; Sequencer_Tick — advance every active channel by one tempo tick.
-; Called once per tempo tick by the DAC loop's Timer-A overflow poll (Task 5):
-; the loop polls Timer A's overflow flag, re-arms, and calls here. Clobbers
-; af,bc,de,hl,ix.
+; Sequencer_Frame — the PER-FRAME engine (Phase 3). Runs ONCE per Timer-A
+; overflow at the FIXED ~59.06 Hz frame rate (the DAC/idle-loop poll rearms +
+; calls here). Replaces 1C's "one Timer-A tick = one event" model. For each
+; active channel, in order:
+;   (1) call ModUpdate — render the channel's MODULATION STATE to the YM
+;       (write-on-change; a held single note writes nothing). Stream-agnostic.
+;   (2) advance the per-channel TEMPO ACCUMULATOR (sc_tempo_accum -= 16). On a
+;       borrow (an event-tick is due), reload (accum += tempo_base) and run the
+;       EXISTING per-event-tick logic (Sequencer_Channel: dur_count + opcode
+;       fetch/dispatch). Otherwise no event-tick this frame (a held note still
+;       burns NO command-stream time — only the accumulator advanced).
+; Clobbers af,bc,de,hl,ix.
 ; ----------------------------------------------------------------------
-Sequencer_Tick:
-        ; --- TICK OBSERVABILITY (Task 5): increment SND_STAT_TICK on EVERY call.
-        ; Placed at the very top (BEFORE the active check) so the counter reflects
-        ; each Timer-A overflow regardless of song-active state — the controller
-        ; uses its increment RATE to verify the Timer-A tick frequency. Wraps mod
-        ; 256. Clobbers af (Sequencer_Tick already clobbers af). ---
+Sequencer_Frame:
+        ; --- FRAME OBSERVABILITY: increment SND_STAT_TICK on EVERY call (now once
+        ; per FRAME, the fixed ~59 Hz clock). Placed at the very top (BEFORE the
+        ; active check) so the counter reflects each Timer-A overflow regardless of
+        ; song-active state — the controller uses its rate to verify the frame
+        ; frequency. Wraps mod 256. Clobbers af (Sequencer_Frame already does). ---
         ld      a, (SND_STAT_TICK)
         inc     a
         ld      (SND_STAT_TICK), a
@@ -54,13 +62,85 @@ Sequencer_Tick:
 .chan_loop:
         bit     SCF_ACTIVE_B, (ix+sc_flags) ; SCF_ACTIVE?
         jr      z, .next_chan            ; inactive -> skip this channel
-        push    bc                       ; preserve channel-loop counter (b): the
-        call    Sequencer_Channel        ;   .coord path clobbers b via `ld b,0`
-        pop     bc                       ;   and a `call` does NOT preserve b
+        push    bc                       ; preserve channel-loop counter (b) across
+                                         ;   the calls (which clobber b)
+
+        ; (1) modulation layer — render state -> YM (write-on-change). ix preserved.
+        call    ModUpdate
+
+        ; (2) tempo accumulator: subtract 16 each frame; borrow => event-tick due.
+        ld      a, (ix+sc_tempo_accum)
+        sub     16
+        ld      (ix+sc_tempo_accum), a
+        jr      nc, .chan_done           ; no borrow -> no event-tick this frame
+        ; borrow: reload accumulator (+= tempo_base) and run one event-tick.
+        add     a, (ix+sc_tempo_base)
+        ld      (ix+sc_tempo_accum), a
+        call    Sequencer_Channel        ; existing per-event-tick logic (ix preserved)
+.chan_done:
+        pop     bc
 .next_chan:
         ld      de, SeqChannel_len       ; size added directly (no multiply)
         add     ix, de
         djnz    .chan_loop
+        ret
+
+; ----------------------------------------------------------------------
+; ModUpdate — the MODULATION LAYER (Phase 3). Renders ONE channel's modulation
+; STATE to the YM2612, once per frame. ix = the channel's SeqChannel.
+;
+; CONTRACT (load-bearing — must hold through Tasks 3–7):
+;   * STREAM-AGNOSTIC: ModUpdate ONLY reads channel state (sc_*), it NEVER parses
+;     a command/modulation stream. Adding the second (modulation) stream later
+;     populates the same state via a separate reader — ModUpdate is untouched.
+;     This is the design-for-C seam.
+;   * WRITE-ON-CHANGE: it writes the YM only when the RENDERED value changes. A
+;     held single note writes its freq/key/patch once at onset (via the existing
+;     key-on path) and then NOTHING per frame — NO redundant per-frame re-asserts
+;     (the cycle-budget mandate; tools/cycle_budget_phase3.md). The cheap held-
+;     note path below is that no-op.
+;   * Preserves ix (the channel loop relies on it).
+;
+; THIS TASK (Phase 3 Task 2): ModUpdate is a near-empty STUB. The only path that
+; must be correct now is the cheap HELD-NOTE NO-OP: an FM channel with a plain
+; single note (sc_pt_count <= 1), no portamento glide (sc_porta_incr == 0), and
+; no pending voice change (sc_patch == sc_last_patch) renders NOTHING. The 1C test
+; song's notes are keyed by Sequencer_Channel's existing key-on path (unchanged),
+; so ModUpdate doing nothing for held notes preserves 1C playback exactly. Real
+; per-frame rendering (pitch envelopes, voice-step deltas, pan, op-bias,
+; portamento) lands in Tasks 3–7 along the non-no-op paths.
+;
+; Clobbers: af (only — the stub does no register-heavy work). Preserves bc,de,hl,ix.
+; ----------------------------------------------------------------------
+ModUpdate:
+        ; Non-FM channels (PSG / DAC) have no per-frame FM modulation to render in
+        ; Phase 3a -> no-op. (PSG modulation is out of scope; see spec §1.)
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        ret     z
+
+        ; --- HELD-NOTE NO-OP (the only live path this task) ---
+        ; A plain held FM note re-renders to the SAME YM state every frame, so
+        ; write-on-change => write nothing. The three conditions that make a frame
+        ; a pure hold (no rendered value can have changed):
+        ;   (1) sc_pt_count <= 1   : single pitch point (no trill/arp cursor step)
+        ;   (2) sc_porta_incr == 0 : no portamento glide in flight
+        ;   (3) sc_patch == sc_last_patch : no pending voice change to render
+        ; When all three hold, return immediately — zero YM writes.
+        ld      a, (ix+sc_pt_count)
+        cp      2
+        jr      nc, .modulating          ; pt_count >= 2 -> trill/arp (Task 4)
+        ld      a, (ix+sc_porta_incr)
+        or      (ix+sc_porta_incr+1)
+        jr      nz, .modulating          ; porta_incr != 0 -> glide (Task 7)
+        ld      a, (ix+sc_patch)
+        cp      (ix+sc_last_patch)
+        jr      nz, .modulating          ; patch changed -> voice render (Task 5)
+        ret                              ; pure held note -> NO YM writes
+
+.modulating:
+        ; Tasks 3–7 render the changed modulation here (pitch envelope step, voice
+        ; delta, portamento, pan, op-bias). For Task 2 there is no renderer yet, so
+        ; this is a no-op stub. (It must STILL preserve ix; it does.)
         ret
 
 ; ----------------------------------------------------------------------
@@ -539,7 +619,7 @@ Seq_HookDac:
 ; ======================================================================
 ; Sequencer_StopAll — the StopMusic primitive (wired to the command API in
 ; Task 6). Key-off every FM channel + silence all PSG channels, then clear the
-; active flag so Sequencer_Tick stops walking the streams.
+; active flag so Sequencer_Frame stops walking the streams.
 ;
 ; IMPLEMENTATION (decision 4): direct hardware silencing rather than a per-
 ; channel hook loop — it is unconditional (independent of whatever routes the

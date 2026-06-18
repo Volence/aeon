@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
 """song_packer — build-time music song description -> packed bytes + .asm.
 
-A SongDesc (flags + tempo + list of ChannelDesc) packs to a self-contained blob:
+A SongDesc (flags + tempo + tempo_base + list of ChannelDesc) packs to a
+self-contained blob (Phase 3 C-ready header):
 
     SongHeader:
       db  flags            ; Sound 1D per-song playback mode (SH_F_* below)
-      db  tempo
+      db  tempo            ; LEGACY Timer-A selector (Phase 3: unused)
+      db  tempo_base       ; Phase 3 per-frame tempo accumulator base
       db  channel_count
+      dw  pitchtable_ptr   ; per-song pitch table BE offset (0 = engine default)
       ; per channel:
-      db  route ; dw stream_ptr      (xchannel_count)
+      db  route ; dw cmd_ptr ; dw mod_ptr     (xchannel_count)
       dw  patch_table_ptr
     <stream 0 bytes><stream 1 bytes>...
 
+Each channel descriptor commits a {cmd_ptr, mod_ptr} PAIR (the C-ready stream
+seam): cmd_ptr = the command stream (slot[0], always present), mod_ptr = the
+independent modulation stream (slot[1], 0/NULL for A / single-stream songs).
+Reaching the full dual-stream end state is purely additive — no header change.
+
 Stream pointers are 16-bit BIG-ENDIAN offsets RELATIVE TO THE START OF THE BLOB
-(the SongHeader label). The Task-6 loader adds the song's base address (the
-Z80 $8000-window pointer) to turn them into absolute fetch pointers; emitting
+(the SongHeader label). The loader adds the song's base address (the Z80
+$8000-window pointer) to turn them into absolute fetch pointers; emitting
 relative offsets here keeps pack_song hermetic and testable without a linker.
-patch_table_ptr is left 0 here (the packer doesn't own the FM patch table — the
-song_table/loader wires it; the field exists so the layout is final).
+pitchtable_ptr and patch_table_ptr are left 0 here (the packer doesn't own the
+pitch table or FM patch table — the song_table/loader wires them; the fields
+exist so the layout is final).
 
 emit_asm() writes the whole blob as `dc.b` (even-terminated, labeled) so the
 build can include it and the test can round-trip the exact bytes.
@@ -237,10 +246,15 @@ class ChannelDesc:
 
 
 class SongDesc:
-    def __init__(self, tempo: int, channels: list, flags: int = 0):
+    def __init__(self, tempo: int, channels: list, flags: int = 0,
+                 tempo_base: int = None):
         self.tempo = tempo
         self.channels = channels
         self.flags = flags          # SH_FLAGS byte (SH_F_* OR'd); 0 = 1C copy/DAC
+        # Phase 3: per-frame tempo accumulator base. Defaults to `tempo` (so a
+        # song that hasn't been re-expressed for the frame model still packs),
+        # but songs should set it explicitly via the frame-rate event-rate math.
+        self.tempo_base = tempo if tempo_base is None else tempo_base
 
 
 # --- Packing --------------------------------------------------------------
@@ -321,6 +335,8 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
 def pack_song(song: SongDesc) -> bytes:
     if not (0 <= song.tempo <= 0xFF):
         raise PackError(f"tempo {song.tempo} out of byte range")
+    if not (0 <= song.tempo_base <= 0xFF):
+        raise PackError(f"tempo_base {song.tempo_base} out of byte range")
     if not (0 <= song.flags <= 0xFF):
         raise PackError(f"flags {song.flags} out of byte range")
     if not (1 <= len(song.channels) <= 0xFF):
@@ -329,8 +345,10 @@ def pack_song(song: SongDesc) -> bytes:
     streams = [_validate_channel(ch) for ch in song.channels]
 
     n = len(song.channels)
-    # flags, tempo, count, (route+dw)*n, dw patch_ptr (Sound 1D prepends flags).
-    header_len = 3 + 3 * n + 2
+    # Phase 3 C-ready header:
+    #   flags, tempo, tempo_base, count, dw pitchtable_ptr,
+    #   (route + dw cmd_ptr + dw mod_ptr)*n, dw patch_table_ptr.
+    header_len = 4 + 2 + 5 * n + 2
 
     # Stream offsets relative to blob start.
     offsets = []
@@ -342,11 +360,16 @@ def pack_song(song: SongDesc) -> bytes:
     out = bytearray()
     out.append(song.flags & 0xFF)
     out.append(song.tempo & 0xFF)
+    out.append(song.tempo_base & 0xFF)
     out.append(n & 0xFF)
+    out.append(0x00)                    # pitchtable_ptr hi (0 = engine default)
+    out.append(0x00)                    # pitchtable_ptr lo
     for ch, off in zip(song.channels, offsets):
         out.append(ch.route & 0xFF)
-        out.append((off >> 8) & 0xFF)   # big-endian
+        out.append((off >> 8) & 0xFF)   # cmd_ptr big-endian
         out.append(off & 0xFF)
+        out.append(0x00)                # mod_ptr = 0 / NULL (single-stream A)
+        out.append(0x00)
     out.append(0x00)                    # patch_table_ptr hi (wired by loader)
     out.append(0x00)                    # patch_table_ptr lo
     for s in streams:

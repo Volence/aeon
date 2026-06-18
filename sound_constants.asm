@@ -139,6 +139,28 @@ ym_timerA_n_from_tempo  function tb, ((tb) << 2)                          ; N = 
 ym_timerA_period_ns     function tb, ((1024 - ym_timerA_n_from_tempo(tb)) * 18773)
 ym_timerA_hz            function tb, (1000000000 / ym_timerA_period_ns(tb)) ; ticks/sec (int div)
 
+; --- Phase 3: FIXED per-frame engine rate (Timer-A is now the FRAME clock) -----
+; The Phase-3 engine runs one frame per Timer-A overflow at a FIXED ~59.4 Hz,
+; region-independent. The 10-bit Timer-A reload N is computed at BUILD time from
+; the target rate via a function (never a magic literal): the overflow period is
+; 18.773us * (1024 - N), so N = 1024 - period/18.773us, and the period for `hz`
+; is (1/hz) seconds = 1e9/hz ns. Hence N = 1024 - (1e9 / (hz * 18773)).
+;   SND_FRAME_HZ = 59 -> N = 1024 - (1000000000 / (59*18773))
+;                      = 1024 - (1000000000 / 1107607) = 1024 - 902 = 122,
+;   period = 18.773us * (1024-122) = 16.93 ms -> 59.06 Hz (within ~0.6% of 59.4).
+; This REPLACES the per-song tempo->Timer-A programming (Snd_TimerA_Program);
+; musical tempo is now expressed per-channel via the tempo accumulator (Step 6),
+; not by the Timer-A reload.
+SND_FRAME_HZ            = 59
+timerAReload            function hz, 1024 - (1000000000 / ((hz) * 18773))
+SND_TIMERA_N           = timerAReload(SND_FRAME_HZ)
+
+        ; N must be a valid 10-bit Timer-A value (0..1023) and well clear of the
+        ; extremes; ~122 is expected for 59 Hz.
+        if (SND_TIMERA_N < 0) || (SND_TIMERA_N > 1023)
+          error "SND_TIMERA_N (\{SND_TIMERA_N}) out of the 10-bit Timer-A range 0..1023"
+        endif
+
 ; --- 1B: ring buffer (page-aligned, 256 bytes) ---
 SND_RING_BASE           = $1700                  ; Z80 addr; high byte $17 is the page
 SND_RING_PAGE           = $17                     ; high byte for `inc l` wrap + full-check
@@ -332,39 +354,70 @@ FmPatch endstruct             ; = 2 + 6*4 = 26 bytes
         endif
 
 ; --- SeqChannel struct (per-channel sequencer state; Z80 RAM, indexed by ix) ---
-; DECISION (resolved by research — keep 11 bytes, do NOT pad to 16): (ix+d)
-; indexed access costs the same for any displacement d, and the tick loop
-; iterates channels sequentially with `add ix,de` (de = SeqChannel_len) — the
+; Phase 3 (per-frame engine): the v0/1C COMMAND-STREAM fields (sc_stream_ptr ..
+; sc_repeat_count) are unchanged in MEANING; the struct now appends:
+;   * the C-ready stream seam — sc_mod_ptr (slot[1], the independent modulation
+;     stream; NULL for A / single-stream songs). The header descriptor commits a
+;     {cmd_ptr, mod_ptr} pair NOW so reaching C (a second stream reader writing
+;     the same MODULATION-STATE block) is purely additive — no layout migration.
+;   * the per-frame tempo accumulator (sc_tempo_base / sc_tempo_accum) that gates
+;     musical timing at the fixed ~59.4 Hz frame rate.
+;   * the MODULATION-STATE block (pitch points/cursor, transpose, pan, per-op TL
+;     bias, portamento, last-loaded patch) that ModUpdate renders to the YM —
+;     STREAM-AGNOSTIC: ModUpdate only reads this state, never parses a stream.
+; The real rendering of these fields lands in Tasks 3–7; Task 2 lays out the
+; format + the held-note no-op path of ModUpdate. (ix+d) is a signed-8-bit
+; displacement; the largest field offset (sc_porta_incr, +34) is well within
+; +127, so the terse (ix+sc_*) addressing still applies to every field.
+;
+; The tick loop iterates channels with `add ix,de` (de = SeqChannel_len) — the
 ; struct size is ADDED directly, never MULTIPLIED by an index, so there is no
-; power-of-2 benefit to padding. (If a future path computes a channel base from
-; an integer index at runtime, revisit; Task 2 never does.)
+; power-of-2 benefit to padding; the layout stays packed.
 SeqChannel struct
-sc_stream_ptr   ds.w 1   ; +0  current read ptr into the channel byte stream
-sc_dur_count    ds.b 1   ; +2  ticks remaining on the current note/rest
-sc_dur_default  ds.b 1   ; +3  default duration for bare notes
-sc_patch        ds.b 1   ; +4  current FM patch index
-sc_volume       ds.b 1   ; +5  current channel volume (linear 0..127)
-sc_note         ds.b 1   ; +6  current pitch index (for key-off / debug)
-sc_flags        ds.b 1   ; +7  bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac
-sc_route        ds.b 1   ; +8  channel route enum (CHROUTE_*) — selects the writer
-sc_loop_ptr     ds.w 1   ; +9  saved loop-point ptr (set by $EE, used by $EF)
+sc_stream_ptr   ds.w 1   ; +0  command stream (slot[0]) read ptr (v0/1C semantics)
+sc_mod_ptr      ds.w 1   ; +2  modulation stream (slot[1]) read ptr; 0/NULL for A.
+                         ;     C-ready seam — UNUSED in Phase 3a (single stream).
+sc_dur_count    ds.b 1   ; +4  ticks remaining on the current note/rest
+sc_dur_default  ds.b 1   ; +5  default duration for bare notes
+sc_patch        ds.b 1   ; +6  current (commanded) FM patch index
+sc_last_patch   ds.b 1   ; +7  last patch ModUpdate actually loaded ($FF = force reload)
+sc_volume       ds.b 1   ; +8  current channel volume (linear 0..127)
+sc_note         ds.b 1   ; +9  current pitch index (for key-off / debug)
+sc_flags        ds.b 1   ; +10 bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac
+sc_route        ds.b 1   ; +11 channel route enum (CHROUTE_*) — selects the writer
+sc_loop_ptr     ds.w 1   ; +12 saved loop-point ptr (set by $EE, used by $EF)
 ; --- bounded-repeat state (Sound 1D): one level, NO nesting. The transcoder
 ; emits FLAT, single-level REPEAT_START..REPEAT_END bodies, so a single ptr +
 ; count per channel is sufficient (nested repeats are UNSUPPORTED by design).
-sc_repeat_ptr   ds.w 1   ; +11 body-start ptr saved by $E5, reloaded by $E6 on jump-back
-sc_repeat_count ds.b 1   ; +13 reps remaining (0 = no active repeat / fresh-OR-done)
-SeqChannel endstruct      ; = 14 bytes
+sc_repeat_ptr   ds.w 1   ; +14 body-start ptr saved by $E5, reloaded by $E6 on jump-back
+sc_repeat_count ds.b 1   ; +16 reps remaining (0 = no active repeat / fresh-OR-done)
+; --- per-frame tempo accumulator (Phase 3): tempo_accum -= 16 each frame; on
+; borrow, tempo_accum += tempo_base and the channel consumes an event-tick. ---
+sc_tempo_base   ds.b 1   ; +17 tempo "format code" (event-tick rate vs frame rate)
+sc_tempo_accum  ds.b 1   ; +18 running accumulator (the per-channel musical clock)
+; --- MODULATION-STATE block (Phase 3; rendered by ModUpdate, Tasks 3–7) -------
+sc_pt_count     ds.b 1   ; +19 pitch-envelope point count (1 = plain note, >=2 = trill/arp)
+sc_pt_cursor    ds.b 1   ; +20 pitch-envelope cursor (advanced per frame, wraps at count)
+sc_points       ds.b 5   ; +21 up to 5 pitch point indices (note table indices)
+sc_transpose    ds.b 1   ; +26 signed per-pattern transpose (added then clamped)
+sc_pan          ds.b 1   ; +27 pan state (off/L/R/C) -> $B4 L/R bits
+sc_opbias       ds.b 4   ; +28 per-operator TL bias (added to patch TLs at load)
+sc_porta_accum  ds.w 1   ; +32 portamento Q-fixed accumulator
+sc_porta_incr   ds.w 1   ; +34 portamento per-frame increment (0 = no glide)
+SeqChannel endstruct      ; = 36 bytes
 
-        if SeqChannel_len <> 14
-          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 14"
+        if SeqChannel_len <> 36
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 36"
         endif
 
 ; Short field-offset accessors (AS struct fields are exposed as
 ; SeqChannel_<field>; these `sc_*` aliases keep the Z80 (ix+d) code terse).
 sc_stream_ptr   = SeqChannel_sc_stream_ptr
+sc_mod_ptr      = SeqChannel_sc_mod_ptr
 sc_dur_count    = SeqChannel_sc_dur_count
 sc_dur_default  = SeqChannel_sc_dur_default
 sc_patch        = SeqChannel_sc_patch
+sc_last_patch   = SeqChannel_sc_last_patch
 sc_volume       = SeqChannel_sc_volume
 sc_note         = SeqChannel_sc_note
 sc_flags        = SeqChannel_sc_flags
@@ -372,6 +425,16 @@ sc_route        = SeqChannel_sc_route
 sc_loop_ptr     = SeqChannel_sc_loop_ptr
 sc_repeat_ptr   = SeqChannel_sc_repeat_ptr
 sc_repeat_count = SeqChannel_sc_repeat_count
+sc_tempo_base   = SeqChannel_sc_tempo_base
+sc_tempo_accum  = SeqChannel_sc_tempo_accum
+sc_pt_count     = SeqChannel_sc_pt_count
+sc_pt_cursor    = SeqChannel_sc_pt_cursor
+sc_points       = SeqChannel_sc_points
+sc_transpose    = SeqChannel_sc_transpose
+sc_pan          = SeqChannel_sc_pan
+sc_opbias       = SeqChannel_sc_opbias
+sc_porta_accum  = SeqChannel_sc_porta_accum
+sc_porta_incr   = SeqChannel_sc_porta_incr
 
 ; --- sc_flags bit numbers + masks ---
 ; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B
@@ -401,12 +464,13 @@ SCF_IS_DAC      = 1<<SCF_IS_DAC_B
 ; We place the sequencer region at $1800 and guard its END against the mailbox
 ; base SND_REQ_BASE ($1F00), leaving stack headroom.)
 SND_SEQ_BASE       = $1800          ; sequencer state region (free block above the DAC ring)
-SND_SEQ_TEMPO      = SND_SEQ_BASE+$00   ; loaded song tempo (Timer-A selector)
-SND_SEQ_CHCOUNT    = SND_SEQ_BASE+$01   ; active channel count (tick-loop djnz bound)
+SND_SEQ_TEMPO      = SND_SEQ_BASE+$00   ; loaded song tempo (LEGACY Timer-A selector; unused Phase 3)
+SND_SEQ_CHCOUNT    = SND_SEQ_BASE+$01   ; active channel count (frame-loop djnz bound)
 SND_SEQ_PATCHTAB   = SND_SEQ_BASE+$02   ; loaded patch table ptr (2)
 SND_SEQ_ACTIVE     = SND_SEQ_BASE+$04   ; 1 = song playing
 SND_SEQ_BADOP      = SND_SEQ_BASE+$05   ; DEBUG: last bad opcode seen (Seq_BadOpcode marker)
 SND_SEQ_TRACE_WR   = SND_SEQ_BASE+$06   ; trace ring write index (0..31)
+SND_SEQ_TEMPO_BASE = SND_SEQ_BASE+$07   ; Phase 3: cached song tempo_base (per-frame accumulator base)
 SND_SEQ_CHANNELS   = SND_SEQ_BASE+$08   ; CHROUTE_COUNT * SeqChannel_len
 SND_SEQ_END        = SND_SEQ_CHANNELS + (CHROUTE_COUNT * SeqChannel_len)
 SND_SEQ_TRACE      = $1A00          ; 32-byte trace ring of dispatched opcodes
@@ -440,11 +504,24 @@ SND_FM_SCRATCH_LEN = 4
 ; scratch, below the trace ring.
 Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
 Snd_SongBase       = Snd_SavedDacBank + 1        ; 2 bytes: song base ptr (RAM or window)
+; Phase 3: the loaded song's per-song PITCH TABLE ptr, cached by Snd_LoadSong from
+; the SongHeader's pitchtable_ptr field (0 = engine default). ModUpdate's pitch
+; renderer (Task 3) reads it; cached as an absolute Z80 ptr (base + header offset).
+Snd_PitchTabPtr    = Snd_SongBase + 2            ; 2 bytes: per-song pitch table ptr
 
-    if (Snd_SongBase + 2) > SND_SEQ_TRACE
-      fatal "Snd_LoadSong scratch (\{Snd_SongBase}) runs into the trace ring at \{SND_SEQ_TRACE}"
+    if (Snd_PitchTabPtr + 2) > SND_SEQ_TRACE
+      fatal "Snd_LoadSong scratch (\{Snd_PitchTabPtr}) runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
+    ; Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots)
+    ; must fit between SND_SEQ_BASE ($1800) and the mailbox base ($1F00). The seq
+    ; header is (SND_SEQ_CHANNELS - SND_SEQ_BASE) bytes; the per-channel array is
+    ; CHROUTE_COUNT slots * SeqChannel_len. The SeqChannel growth (14 -> 36 bytes)
+    ; makes this the binding RAM check, so assert it explicitly against $1F00.
+SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
+    if SND_SEQ_BASE + SND_SEQ_HEADER_LEN + CHROUTE_COUNT*SeqChannel_len > SND_REQ_BASE
+      error "seq RAM overflow: \{SND_SEQ_BASE + SND_SEQ_HEADER_LEN + CHROUTE_COUNT*SeqChannel_len} > mailbox \{SND_REQ_BASE}"
+    endif
     if SND_SEQ_END > SND_REQ_BASE
       fatal "sequencer RAM (\{SND_SEQ_END}) overruns the mailbox at \{SND_REQ_BASE}"
     endif
@@ -452,7 +529,8 @@ Snd_SongBase       = Snd_SavedDacBank + 1        ; 2 bytes: song base ptr (RAM o
       fatal "sequencer trace ring overruns the mailbox"
     endif
     ; the per-channel array must not run into the trace ring at $1A00.
-    ; CHROUTE_COUNT(11) * SeqChannel_len(14) = 154 bytes -> $1808+154 = $18A2, clear.
+    ; CHROUTE_COUNT(11) * SeqChannel_len(36, Phase 3) = 396 bytes -> $1808+396 =
+    ; $1994, clear of the trace ring at $1A00.
     if SND_SEQ_END > SND_SEQ_TRACE
       fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
     endif
@@ -516,29 +594,45 @@ SEQEV_RPT_START = 9     ; bounded-repeat body start ($E5)
 SEQEV_RPT_END   = 10    ; bounded-repeat body end ($E6) — fires on every pass
 
 ; --- SongHeader layout (emitted by tools/song_packer.py, read by the loader) ---
+; Phase 3 C-ready header. Each channel descriptor now commits a {cmd_ptr, mod_ptr}
+; PAIR (the C-ready stream seam): cmd_ptr = the command stream (slot[0], always
+; present), mod_ptr = the independent modulation stream (slot[1], 0/NULL for A /
+; single-stream songs). The header also gains a per-frame tempo_base and a per-song
+; pitchtable_ptr (0 = engine default). Reaching the full dual-stream end state is
+; then purely additive (populate mod_ptr + add a reader) — no header migration.
 ; SongHeader:
-;   db  flags            ; Sound 1D: per-song playback mode (SH_F_* below)
-;   db  tempo            ; Timer-A reload selector (N = tempo<<2; bigger = faster)
-;   db  channel_count
-;   ; per channel: route byte + 2-byte stream pointer (Z80-window-relative)
-;   rept channel_count: db route ; dw stream_ptr ; endm
-;   dw  patch_table_ptr  ; FM patch table for this song
+;   db  flags            ; Sound 1D: per-song playback mode (SH_F_* below). +0 — the
+;                        ; 68k forwards THIS byte (sound_api.asm reads header[+0]);
+;                        ; it MUST stay at offset 0.
+;   db  tempo            ; LEGACY Timer-A selector (Phase 3: UNUSED — Timer-A is a
+;                        ; fixed frame clock; kept for layout stability). +1
+;   db  tempo_base       ; Phase 3 per-frame tempo accumulator base. +2
+;   db  channel_count    ; +3
+;   dw  pitchtable_ptr   ; Phase 3 per-song pitch table BE offset (0 = engine default). +4
+;   ; per channel: route + cmd_ptr (BE off) + mod_ptr (BE off, 0 for A)
+;   rept channel_count: db route ; dw cmd_ptr ; dw mod_ptr ; endm
+;   dw  patch_table_ptr  ; FM patch table for this song (IGNORED in 1C copy path)
 ; (No struct — the per-channel array length is variable. The packer back-patches
-; each stream_ptr to its stream's offset within the packed song blob.)
+; each cmd_ptr to its stream's offset within the packed song blob; mod_ptr = 0.)
 ;
-; --- SongHeader field offsets (Task 6 loader; from SND_SONG_BUF base) ---
-; Fixed-position fields (Sound 1D prepends SH_FLAGS at +0):
+; --- SongHeader field offsets (loader; from the song base) ---
+; Fixed-position fields (SH_FLAGS stays at +0 — the 68k forwards it):
 SH_FLAGS        = 0     ; +0  per-song playback-mode flags (SH_F_* below)
-SH_TEMPO        = 1     ; +1  tempo byte (Timer-A selector)
-SH_CHCOUNT      = 2     ; +2  channel count
-SH_CHANNELS     = 3     ; +3  start of the per-channel array
-; Per-channel record (3 bytes): route, stream_ptr (16-bit BIG-ENDIAN offset).
-; The packer writes stream_ptr as (off>>8),(off&FF) — high byte FIRST. The loader
-; must read it big-endian (NOT a plain Z80 little-endian 16-bit load).
+SH_TEMPO        = 1     ; +1  LEGACY Timer-A selector (Phase 3: unused)
+SH_TEMPO_BASE   = 2     ; +2  per-frame tempo accumulator base (Phase 3)
+SH_CHCOUNT      = 3     ; +3  channel count
+SH_PITCHTAB_HI  = 4     ; +4  pitch table offset high byte (big-endian; 0 = default)
+SH_PITCHTAB_LO  = 5     ; +5  pitch table offset low byte
+SH_CHANNELS     = 6     ; +6  start of the per-channel array
+; Per-channel record (5 bytes): route, cmd_ptr (16-bit BE offset), mod_ptr (16-bit
+; BE offset; 0 for single-stream A). The packer writes each ptr as (off>>8),(off&FF)
+; — high byte FIRST — so the loader reads them big-endian (NOT a plain Z80 LE load).
 SHC_ROUTE       = 0     ; +0  route byte
-SHC_PTR_HI      = 1     ; +1  stream offset high byte (big-endian)
-SHC_PTR_LO      = 2     ; +2  stream offset low byte
-SHC_LEN         = 3     ; per-channel record length
+SHC_CMD_HI      = 1     ; +1  command-stream offset high byte (big-endian)
+SHC_CMD_LO      = 2     ; +2  command-stream offset low byte
+SHC_MOD_HI      = 3     ; +3  modulation-stream offset high byte (0 for A)
+SHC_MOD_LO      = 4     ; +4  modulation-stream offset low byte
+SHC_LEN         = 5     ; per-channel record length
 ; patch_table_ptr (2 bytes) follows the per-channel array; IGNORED in 1C (patches
 ; stay inline — SND_SEQ_PATCHTAB is set to FmPatchInlineTable by the loader).
 

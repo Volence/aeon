@@ -91,26 +91,32 @@ class TestHeader(unittest.TestCase):
         self.blob = pack_song(self.song)
 
     def test_flags_tempo_and_count(self):
-        # Sound 1D: SH_FLAGS is the first header byte, then tempo, then count.
+        # Phase 3 header: flags(+0), tempo(+1), tempo_base(+2), channel_count(+3).
         self.assertEqual(self.blob[0], 0)        # default flags = 0 (1C copy/DAC)
-        self.assertEqual(self.blob[1], 6)        # tempo
-        self.assertEqual(self.blob[2], 2)        # channel count
+        self.assertEqual(self.blob[1], 6)        # tempo (legacy Timer-A selector)
+        self.assertEqual(self.blob[2], 6)        # tempo_base defaults to tempo
+        self.assertEqual(self.blob[3], 2)        # channel count
+        # pitchtable_ptr (+4, dw) = 0 (engine default).
+        self.assertEqual((self.blob[4] << 8) | self.blob[5], 0)
 
     def test_channel_routes_and_pointers(self):
-        # Header: flags, tempo, count, then per channel (route, dw stream_ptr),
-        # then dw patch_table_ptr. Pointers are big-endian offsets within blob.
-        off = 3                                  # skip flags, tempo, count
+        # Header: flags, tempo, tempo_base, count, dw pitchtable_ptr, then per
+        # channel (route, dw cmd_ptr, dw mod_ptr), then dw patch_table_ptr.
+        # Pointers are big-endian offsets within the blob.
+        off = 6                                  # skip flags,tempo,tempo_base,count,pitchtab(2)
         ptrs = []
         for ch in self.song.channels:
             self.assertEqual(self.blob[off], ch.route)
             ptr = (self.blob[off + 1] << 8) | self.blob[off + 2]
             ptrs.append(ptr)
-            off += 3
+            # mod_ptr (slot[1]) is 0/NULL for single-stream A.
+            self.assertEqual((self.blob[off + 3] << 8) | self.blob[off + 4], 0)
+            off += 5
         # patch_table_ptr word follows
         off += 2
         # The first stream pointer should point at the first byte after the
         # full header; subsequent ones follow each stream's length.
-        header_len = 3 + 3 * len(self.song.channels) + 2
+        header_len = 4 + 2 + 5 * len(self.song.channels) + 2
         self.assertEqual(ptrs[0], header_len)
         # Stream 0 bytes equal the encoded events; pointer 1 = ptr0 + len(stream0)
         s0 = b"".join(e.encode() for e in self.song.channels[0].events)
@@ -125,9 +131,18 @@ class TestHeader(unittest.TestCase):
                 Patch(0), Vol(100), SetDur(0x10), LoopPoint(), Note(57), Jump()])])
         self.assertEqual(pack_song(song)[0], SH_F_FM6_FM | SH_F_STREAM)
 
+    def test_tempo_base_emitted(self):
+        # tempo_base packs at +2 (distinct from the legacy tempo at +1).
+        song = SongDesc(tempo=6, tempo_base=0x38, channels=[
+            ChannelDesc(CHROUTE_FM1, [
+                Patch(0), Vol(100), SetDur(0x10), LoopPoint(), Note(57), Jump()])])
+        blob = pack_song(song)
+        self.assertEqual(blob[1], 6)
+        self.assertEqual(blob[2], 0x38)
+
     def test_streams_present(self):
         # Concatenated streams appear after the header in order.
-        header_len = 3 + 3 * 2 + 2
+        header_len = 4 + 2 + 5 * 2 + 2
         body = self.blob[header_len:]
         expect = b""
         for ch in self.song.channels:
