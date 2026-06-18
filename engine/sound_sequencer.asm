@@ -159,7 +159,9 @@ Seq_Op_Vol:
         call    Seq_Trace
         pop     hl
     endif
+        push    hl                       ; hook clobbers hl; stream ptr stays LIVE here
         call    Seq_HookSetVol           ; STUB this task
+        pop     hl
         jr      Seq_ContinueFetch
 
 ; $E1 MEV_PATCH + pp : set FM patch index, zero tick
@@ -173,7 +175,9 @@ Seq_Op_Patch:
         call    Seq_Trace
         pop     hl
     endif
+        push    hl                       ; hook clobbers hl; stream ptr stays LIVE here
         call    Seq_HookSetPatch         ; STUB this task
+        pop     hl
         jr      Seq_ContinueFetch
 
 ; $E2 MEV_DAC  + ss : DAC trigger (sample id in operand), zero tick.
@@ -190,7 +194,9 @@ Seq_Op_Dac:
         call    Seq_Trace
         pop     hl
     endif
+        push    hl                       ; hook clobbers hl; stream ptr stays LIVE here
         call    Seq_HookDac              ; STUB this task
+        pop     hl
         jr      Seq_ContinueFetch
 
 ; $E3 MEV_NOTE_DUR + nn dd : note nn with explicit duration dd (advances time)
@@ -336,8 +342,16 @@ Seq_Trace:
 ; Writer-HOOK dispatch (Task 3 wires FM; PSG/DAC still `ret` stubs — Tasks 4/6).
 ; Each hook gates on the route class (SCF_IS_FM bit in sc_flags): FM routes call
 ; the Fm_* writers (engine/sound_fm.asm), non-FM routes fall through to `ret`.
-; They run with ix = current SeqChannel; the fetch path commits the stream ptr
-; BEFORE these calls, so hl/bc/de are clobberable here.
+; They run with ix = current SeqChannel. INVARIANT for hl across these calls:
+;   - TIME-ADVANCING hooks (NoteOn/NoteOff, called from .note/.rest/.notedur):
+;     the handler commits the stream ptr to sc_stream_ptr and then `ret`s, ending
+;     the tick. hl is dead after the hook, so it is freely clobberable there.
+;   - ZERO-TICK hooks (SetVol/SetPatch/Dac, called from Seq_Op_Vol/Patch/Dac):
+;     the handler keeps the stream ptr LIVE in hl and continues the fetch loop
+;     (Seq_ContinueFetch -> .fetch reads ld a,(hl)/inc hl WITHOUT reloading from
+;     sc_stream_ptr). These hooks DO clobber hl (e.g. Fm_PatchPtr/Fm_PatchLoad),
+;     so the zero-tick handlers MUST push/pop hl around the hook call. Any future
+;     hook-calling zero-tick handler must do the same or the stream ptr corrupts.
 ;
 ; NOTE on inputs (the Fm_* writers expect them):
 ;   Seq_HookNoteOn  -> Fm_NoteOn   (a = pitch index = sc_note)
