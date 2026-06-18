@@ -326,10 +326,15 @@ sc_note         ds.b 1   ; +6  current pitch index (for key-off / debug)
 sc_flags        ds.b 1   ; +7  bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac
 sc_route        ds.b 1   ; +8  channel route enum (CHROUTE_*) — selects the writer
 sc_loop_ptr     ds.w 1   ; +9  saved loop-point ptr (set by $EE, used by $EF)
-SeqChannel endstruct      ; = 11 bytes
+; --- bounded-repeat state (Sound 1D): one level, NO nesting. The transcoder
+; emits FLAT, single-level REPEAT_START..REPEAT_END bodies, so a single ptr +
+; count per channel is sufficient (nested repeats are UNSUPPORTED by design).
+sc_repeat_ptr   ds.w 1   ; +11 body-start ptr saved by $E5, reloaded by $E6 on jump-back
+sc_repeat_count ds.b 1   ; +13 reps remaining (0 = no active repeat / fresh-OR-done)
+SeqChannel endstruct      ; = 14 bytes
 
-        if SeqChannel_len <> 11
-          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 11"
+        if SeqChannel_len <> 14
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 14"
         endif
 
 ; Short field-offset accessors (AS struct fields are exposed as
@@ -343,6 +348,8 @@ sc_note         = SeqChannel_sc_note
 sc_flags        = SeqChannel_sc_flags
 sc_route        = SeqChannel_sc_route
 sc_loop_ptr     = SeqChannel_sc_loop_ptr
+sc_repeat_ptr   = SeqChannel_sc_repeat_ptr
+sc_repeat_count = SeqChannel_sc_repeat_count
 
 ; --- sc_flags bit numbers + masks ---
 ; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B
@@ -385,10 +392,13 @@ SND_SEQ_TRACE_LEN  = 32
 
 ; --- FM voice writer scratch (Task 3) ---
 ; 4 bytes (part, ch-in-part, log-vol delta, carrier mask) in the free block
-; ABOVE the per-channel array (SND_SEQ_END ~ $1876) and BELOW the trace ring
-; ($1A00). Single-threaded: only Sequencer_Tick (in the VBlank ISR) reaches the
-; FM writer, so static scratch is safe. Placed at $1880 (clear of both).
-SND_FM_SCRATCH     = $1880
+; ABOVE the per-channel array (SND_SEQ_END) and BELOW the trace ring ($1A00).
+; Single-threaded: only Sequencer_Tick (in the VBlank ISR) reaches the FM writer,
+; so static scratch is safe. DERIVED from SND_SEQ_END (was a hardcoded $1880 —
+; the Sound 1D SeqChannel growth pushed SND_SEQ_END to $1894 and collided with
+; it) so it auto-tracks any future per-channel-struct growth. The build-time
+; guards below still assert it clears SND_SEQ_END and the trace ring.
+SND_FM_SCRATCH     = SND_SEQ_END
 SND_FM_SCRATCH_LEN = 4
 
     if (SND_FM_SCRATCH < SND_SEQ_END)
@@ -415,7 +425,7 @@ Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
       fatal "sequencer trace ring overruns the mailbox"
     endif
     ; the per-channel array must not run into the trace ring at $1A00.
-    ; CHROUTE_COUNT(10) * SeqChannel_len(11) = 110 bytes -> ends ~$1876, clear.
+    ; CHROUTE_COUNT(10) * SeqChannel_len(14) = 140 bytes -> $1808+140 = $1894, clear.
     if SND_SEQ_END > SND_SEQ_TRACE
       fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
     endif
@@ -464,6 +474,8 @@ SEQEV_DAC       = 5     ; DAC trigger
 SEQEV_LOOP      = 6     ; loop-point marker ($EE)
 SEQEV_JUMP      = 7     ; jump to loop point ($EF)
 SEQEV_END       = 8     ; end of stream ($FF)
+SEQEV_RPT_START = 9     ; bounded-repeat body start ($E5)
+SEQEV_RPT_END   = 10    ; bounded-repeat body end ($E6) — fires on every pass
 
 ; --- SongHeader layout (emitted by tools/song_packer.py, read by the loader) ---
 ; SongHeader:

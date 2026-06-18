@@ -436,8 +436,11 @@ Player_Ring_Index:      ds.w 1      ; byte offset into both rings — word-sized
 ; Exodus MCP — which can read 68k RAM but not Z80 RAM at $A00000 — observe the
 ; driver's mailbox+status+sequencer state by reading this symbol.
 ; Widened 64->160 B for Sound 1C (5-channel sequencer window + trace ring).
+; Widened 160->176 B for Sound 1D (SeqChannel grew 11->14 for repeat state):
+; 5 channels * 14 = 70, so header+ch window = 78, and 64 + 78 + 32 (trace) = 174
+; <= 176 (kept EVEN with a 2-byte margin).
 ; -----------------------------------------------
-Sound_Dbg_Mirror:       ds.b 160        ; DEBUG: [0..47] Z80 mailbox/status ($1F00..$1F2F), [48..63] playback state ($1600..$160F), [64..71] seq header, [72..126] 5 SeqChannel slots (FM1/FM2/PSG1/PSGN/DAC, 11 B each), [127..158] trace ring (see debug/sound_debug.asm)
+Sound_Dbg_Mirror:       ds.b 176        ; DEBUG: [0..47] Z80 mailbox/status ($1F00..$1F2F), [48..63] playback state ($1600..$160F), [64..71] seq header, [72..141] 5 SeqChannel slots (FM1/FM2/PSG1/PSGN/DAC, 14 B each), [142..173] trace ring (see debug/sound_debug.asm)
 
 RAM_End:
 
