@@ -163,3 +163,55 @@ the simplest faithful interpretation first.
 - **Note octave base / tempo calibration** — resolved by the reference-VGM pitch/onset match (T1/T5).
 - **Untraced `OP1–4`/`VOL` fidelity** — accepted as verify-driven (T6); may be inaudible.
 - **6→6 channel fit + the ch6 stub** — dropped/merged + logged; the diff confirms no lost content.
+
+---
+
+## REVISION 2 (2026-06-18, autonomous execution) — pivot to VGM-derived score
+
+**What happened during execution.** T1–T3 were built against the decoded song JSON
+(`05_Moving_Trucks.json`, the `zyrinx_port.py` path) and the song *played* — but the VGM-diff
+gate (T5) showed it was **not faithful**: wrong octaves, wrong per-channel content. Root cause
+(systematic debugging):
+
+1. The Zyrinx **per-channel → YM-voice assignment lives in the game's 68K loader**, which was
+   never decoded. The song-JSON `channels[]` split is therefore a *guess*; our `ch_i → FM_i`
+   routing put the wrong material on the wrong voice.
+2. The JSON pattern `repeat`/`wait` semantics produce impossible timings — seq 4 is one note held
+   `wait 31` frames, `repeat 64` ⇒ ~114 s for a single pattern in a 32.6 s song.
+3. Our `FmPitchTable` bottoms out at C0, but the song's bass sits ~8 semitones **below** C0
+   (reference fnum 406/812 @ block 0). A note-index path literally cannot represent it.
+
+**The fix (committed).** The captured chip-register stream (`song_05.vgm`) is unambiguous ground
+truth and its channel index *is* the real YM channel. We replay that performance through **our**
+sequencer:
+- **`MEV_NOTE_RAW` ($E7) + a4 a0 dd** — key an FM note at the exact `$A4/$A0` the chip received,
+  bypassing the pitch table (engine: `Fm_NoteOnFreq` shared tail + `Seq_Op_NoteRaw`; packer:
+  `NoteRaw`). Reproduces pitch bit-exactly incl. sub-C0 bass + microtuning.
+- **`tools/vgm_to_song.py`** — per FM channel, emit `NoteRaw` at each key-on (durations quantized
+  to a 60 Hz Timer-A grid, tempo `$22`), with the voice registers (`$30-$8E,$B0,$B4`) snapshotted
+  at each key-on → a deduped 106-record `FmPatch` bank, plus a leading rest so staggered entrances
+  and synced loops are preserved. `zyrinx_port.py` is superseded for Moving Trucks (kept as
+  reference for the JSON format).
+
+**Verification (T5 gate — PASS at note level).** BlastEm VGM recapture diffed vs `song_05.vgm`:
+per-channel note **sequences match 100%** (cross-correlation), rhythm error ~3 ms, and a single
+global time-shift aligns all dense channels (FM1–4, 82–87% within 40 ms) ⇒ inter-channel sync
+faithful. Mirror: 6 channels active, `BADOP=0`, streams from ROM, DAC off. T3 (adaptive FM6 slot)
+and the FM6=DAC regression hold. **Pan + note-onset volume are captured implicitly** in the
+per-key-on snapshot (the exact reference `$B4` + carrier TL), so T4's static pan/volume goals are
+met at note granularity.
+
+**Remaining deepening (T6 — NOT done; needs a design pass).** The original is *not* note-static:
+the Zyrinx driver generates **per-frame pitch + TL modulation at runtime** from instrument LFO/op
+settings (the song *data* has no `PITCH_2-5` — §2 was right about the data, but the driver adds it
+live). Measured in `song_05.vgm`: **~1722 mid-note fnum retunes and ~7748 TL writes per channel**
+(vibrato/portamento + volume envelopes/tremolo). Our snapshot captures only the value at key-on, so
+the port plays the correct melody/harmony/rhythm/voices but **flatter** than the original. Full
+expressive fidelity needs (a) a retune-without-keyon opcode + a per-frame volume path, and (b) a
+per-frame modulation track — but a naïve capture is ~58k events (won't fit one 32 KB streaming
+bank). This is the real "deepen" step and carries a data-size / format tradeoff worth deciding
+deliberately. Filed for the next session.
+
+**Also noted (optimization, not fidelity):** with FM6=FM the 1B DAC ISR still runs, writing `$2A`=
+`$80` (DC silence) ~29k×/s — wasted Z80 cycles (the sequencer keeps up regardless, `BADOP=0`). A
+"proper" adaptive FM6 slot would fully idle the DAC engine when no song uses it. Deferred.

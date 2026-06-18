@@ -2663,6 +2663,21 @@ soundscapes (the latter is deferred to Phase 5).
   /`Sound_StopMusic` over the 1A mailbox. Build-time Python tools generate the F-number/PSG
   divisor tables, the 256-byte log-volume LUT, and the 8-byte carrier-mask table, and pack the
   hand-authored test song; AS asserts validate every table/struct size.
+- **1D adaptive FM6 slot + faithful song port (B&R "Moving Trucks")** — a song's `SongHeader`
+  flags now declare **FM6's role**: `SH_F_FM6_FM` routes FM6 to the sequencer as a 6th FM voice
+  (DAC mode off) and `SH_F_STREAM` streams the packed song + its per-song `FmPatch` bank directly
+  from a single 32 KB ROM bank (no RAM copy) — the loader holds that bank for the whole DAC-off
+  song. A new opcode **`MEV_NOTE_RAW` ($E7) + a4 a0 dur** keys an FM note at the **exact**
+  `$A4/$A0` frequency word, bypassing `FmPitchTable` (engine: `Fm_NoteOnFreq`, the shared tail of
+  `Fm_NoteOn` entered with the fnum word preset; `Seq_Op_NoteRaw`) — needed to reach pitches the
+  note-index table can't (sub-C0 bass, microtuning). The Moving Trucks demo is **VGM-derived**:
+  `tools/vgm_to_song.py` replays the original game's captured chip-register stream
+  (`song_05.vgm`) through our sequencer — per FM channel, a `MEV_NOTE_RAW` at each key-on (60 Hz
+  quantized durations) with the voice registers snapshotted at key-on into a deduped patch bank.
+  Verified bit-exact at note level by VGM re-diff (100% per-channel note-sequence match). **Not
+  yet reproduced:** the Zyrinx driver's runtime per-frame pitch+TL modulation (vibrato/envelopes,
+  ~1.7k retunes + ~7.7k TL writes per channel) — the next "deepen" step (retune opcode +
+  per-frame modulation track). See `docs/superpowers/specs/2026-06-18-sound-1d-moving-trucks.md`.
 
 **DEFERRED (master-spec §12 Phases 2–6 — each its own plan):** Phase 2 N-channel DAC mixer
 (quality-adaptive single↔mix, stereo/pseudo-stereo PCM, pitch-shifted SFX, half-rate samples,
