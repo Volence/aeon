@@ -23,6 +23,21 @@ FmPitchTableZ:
         dw      3656h, 36B7h, 371Dh, 3789h, 37FCh, 3C3Bh, 3C7Bh
 FmPitchTableZ_End:
 
+PsgDivisorTableZ:
+        dw      03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh
+        dw      03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh
+        dw      03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh
+        dw      03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh
+        dw      03FFh, 03F9h, 03C0h, 038Ah, 0357h, 0327h, 02FAh, 02CFh
+        dw      02A7h, 0281h, 025Dh, 023Bh, 021Bh, 01FCh, 01E0h, 01C5h
+        dw      01ACh, 0194h, 017Dh, 0168h, 0153h, 0140h, 012Eh, 011Dh
+        dw      010Dh, 00FEh, 00F0h, 00E2h, 00D6h, 00CAh, 00BEh, 00B4h
+        dw      00AAh, 00A0h, 0097h, 008Fh, 0087h, 007Fh, 0078h, 0071h
+        dw      006Bh, 0065h, 005Fh, 005Ah, 0055h, 0050h, 004Ch, 0047h
+        dw      0043h, 0040h, 003Ch, 0039h, 0035h, 0032h, 0030h, 002Dh
+        dw      002Ah, 0028h, 0026h, 0024h, 0022h, 0020h, 001Eh
+PsgDivisorTableZ_End:
+
 LogVolumeLutZ:
         db      7Fh, 7Fh, 6Dh, 62h, 5Bh, 55h, 50h, 4Ch, 48h, 45h, 43h, 40h, 3Eh, 3Ch, 3Ah, 38h
         db      36h, 35h, 33h, 32h, 30h, 2Fh, 2Eh, 2Dh, 2Ch, 2Bh, 2Ah, 29h, 28h, 27h, 26h, 25h

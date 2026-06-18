@@ -237,6 +237,10 @@ class TestEmitAsmZ80Matches68k(unittest.TestCase):
         self.assertEqual(self._parse_z80("FmPitchTableZ"),
                          self._parse_68k("FmPitchTable"))
 
+    def test_psg_divisor_table_values_match(self):
+        self.assertEqual(self._parse_z80("PsgDivisorTableZ"),
+                         self._parse_68k("PsgDivisorTable"))
+
     def test_log_volume_lut_values_match(self):
         self.assertEqual(self._parse_z80("LogVolumeLutZ"),
                          self._parse_68k("LogVolumeLut"))

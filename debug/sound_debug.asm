@@ -11,7 +11,7 @@
 ; DEBUG only. Stops the Z80 for the copy, then restarts it.
 ; Clobbers: d0/a0/a1
 ; ----------------------------------------------------------------------
-SEQ_MIRROR_HDRCH = 8 + (2*SeqChannel_len)        ; header + 2 test channels = 30 bytes
+SEQ_MIRROR_HDRCH = 8 + (3*SeqChannel_len)        ; header + 3 test channels = 41 bytes
 Sound_DebugMirror:
         stopZ80
         lea     (Sound_Dbg_Mirror).w, a1         ; 68k RAM dest
@@ -37,12 +37,13 @@ Sound_DebugMirror:
         ;          +0/+1 sc_stream_ptr, +2 sc_dur_count, +3 sc_dur_default,
         ;          +4 sc_patch, +5 sc_volume, +6 sc_note, +7 sc_flags,
         ;          +8 sc_route, +9/+10 sc_loop_ptr.
-        ;          ch0 (FM1) at [72..82], ch1 (PSG1) at [83..93].
-        ;   [94..125] SND_SEQ_TRACE ring (32 bytes); each = (route<<4)|event_code.
-        ; We copy the 8-byte header + the FIRST 2 channel slots (the dry-run test
-        ; channels) = 30 bytes, keeping the whole window inside the 64-byte upper
-        ; half of the 128-byte mirror.
-        lea     (Z80_RAM+SND_SEQ_BASE).l, a0     ; [64..] = $1800.. (header + 2 channels)
+        ;          ch0 (FM1) at [72..82], ch1 (PSG1) at [83..93],
+        ;          ch2 (PSGN) at [94..104].
+        ;   [105..136] SND_SEQ_TRACE ring (32 bytes); each = (route<<4)|event_code.
+        ; We copy the 8-byte header + the FIRST 3 channel slots (the dry-run test
+        ; channels: FM1, PSG1, PSGN) = 41 bytes; with the 32-byte trace the upper
+        ; window spans [64..136] (73 bytes), inside the 160-byte mirror.
+        lea     (Z80_RAM+SND_SEQ_BASE).l, a0     ; [64..] = $1800.. (header + 3 channels)
         moveq   #SEQ_MIRROR_HDRCH-1, d0
 .copy3:
         move.b  (a0)+, (a1)+

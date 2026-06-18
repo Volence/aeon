@@ -236,10 +236,12 @@ def emit_asm_z80() -> str:
     ROM tables in sound_tables.asm; only the syntax (db/dw, Intel-hex literals)
     and the labels (…Z suffix) differ. (Task 6 may switch the writers to the
     banked ROM tables; for 1C these static tables are inline + directly read.)
-    PSG divisor table is NOT emitted here — the PSG writer (Task 4) can add it
-    if/when it needs an inline copy.
+    The PSG divisor table (Task 4) is ALSO emitted here as PsgDivisorTableZ — the
+    PSG voice writer reads it inline with direct Z80 addressing (each entry is a
+    2-byte little-endian 10-bit tone divisor).
     """
     pitch = fm_pitch_table()
+    psg = psg_divisor_table()
     vol = log_volume_lut()
     masks = carrier_mask_table()
 
@@ -257,6 +259,10 @@ def emit_asm_z80() -> str:
     out.append("FmPitchTableZ:")
     out.extend(_emit_dc_z80("w", [w for (w, _f, _b) in pitch], 8))
     out.append("FmPitchTableZ_End:")
+    out.append("")
+    out.append("PsgDivisorTableZ:")
+    out.extend(_emit_dc_z80("w", psg, 8))
+    out.append("PsgDivisorTableZ_End:")
     out.append("")
     out.append("LogVolumeLutZ:")
     out.extend(_emit_dc_z80("b", vol, 16))

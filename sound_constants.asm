@@ -149,6 +149,28 @@ DacSample endstruct
 ; --- Z80 bank register (as seen from the Z80) ---
 SND_Z80_BANKREG         = $6000
 
+; --- SN76489 PSG port (as seen from the Z80) ---
+; The PSG is mapped at $7F11 in the Z80 address space. Writes are single bytes
+; with NO inter-byte delay (latch+data back-to-back, unlike the YM2612) and NO
+; bus contention guard (the Z80 owns the bus; PSG writes never touch $4000-$4003
+; or `de`, so the 1B DAC loop's de=$4001 invariant is untouched by construction).
+SND_Z80_PSG             = $7F11                  ; PSG write port (Z80 view of the VDP PSG port)
+; PSG command-byte bases. Latch byte D7=1 selects a register: D6-D5 = channel
+; (00/01/10 tone1/2/3, 11 noise), D4 = type (0 = tone/freq-low, 1 = vol/noise-ctrl).
+;   tone freq latch  = $80 | (ch<<5)            (ch 0/1/2 -> $80/$A0/$C0)
+;   tone/noise volume = $90 | (ch<<5) | atten   (ch 0/1/2 -> $90/$B0/$D0, noise $F0)
+;   noise control     = $E0 | (mode<<2) | rate
+SND_PSG_TONE_LATCH      = $80                    ; +(ch<<5) : tone freq-low latch (data byte = freq-high)
+SND_PSG_VOL_LATCH       = $90                    ; +(ch<<5)|atten : channel attenuation (atten $0F = silent)
+SND_PSG_NOISE_CTRL      = $E0                    ; |(mode<<2)|rate : noise control byte
+SND_PSG_NOISE_VOL       = $F0                    ; |atten : noise channel attenuation
+SND_PSG_ATTEN_SILENT    = $0F                    ; 4-bit attenuation = silence
+; PSG silence-all: max attenuation on tone1/tone2/tone3/noise ($9F/$BF/$DF/$FF).
+SND_PSG_SILENCE_T1      = $9F
+SND_PSG_SILENCE_T2      = $BF
+SND_PSG_SILENCE_T3      = $DF
+SND_PSG_SILENCE_N       = $FF
+
 ; ======================================================================
 ; Music format v0 (Sound 1C) — build-time contract shared 68k/Z80/Python.
 ; The Python tools (tools/gen_sound_tables.py, tools/song_packer.py) emit

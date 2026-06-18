@@ -259,7 +259,7 @@ SndDrv_Init:
         ld      (ix+sc_volume), 127
         ld      (ix+sc_dur_count), 1     ; first tick fetches immediately
 
-        ; --- channel 1: PSG1 route ---
+        ; --- channel 1: PSG1 route (tone) ---
         ld      de, SeqChannel_len
         add     ix, de
         ld      (ix+sc_stream_ptr), SeqTest_StreamPSG & 0FFh
@@ -269,8 +269,18 @@ SndDrv_Init:
         ld      (ix+sc_volume), 127
         ld      (ix+sc_dur_count), 1     ; first tick fetches immediately
 
-        ld      a, 2
-        ld      (SND_SEQ_CHCOUNT), a     ; 2 test channels
+        ; --- channel 2: PSGN route (noise) ---
+        ld      de, SeqChannel_len
+        add     ix, de
+        ld      (ix+sc_stream_ptr), SeqTest_StreamPSGN & 0FFh
+        ld      (ix+sc_stream_ptr+1), SeqTest_StreamPSGN >> 8
+        ld      (ix+sc_route), CHROUTE_PSGN
+        ld      (ix+sc_flags), SCF_ACTIVE|SCF_IS_PSG
+        ld      (ix+sc_volume), 127
+        ld      (ix+sc_dur_count), 1     ; first tick fetches immediately
+
+        ld      a, 3
+        ld      (SND_SEQ_CHCOUNT), a     ; 3 test channels (FM1 + PSG1 + PSGN)
         xor     a
         ld      (SND_SEQ_TRACE_WR), a    ; trace ring starts empty
         ld      (SND_SEQ_BADOP), a
@@ -538,6 +548,15 @@ SndDrv_SetBank:
 ; ======================================================================
         include "engine/sound_fm.asm"
 
+; ======================================================================
+; PSG voice writer (Sound 1C, Task 4) — real SN76489 register writes for PSG
+; tone + noise routes. Included INSIDE the phase-0 blob so its labels resolve
+; into Z80 RAM and it reaches the inline PsgDivisorTableZ below with direct Z80
+; addressing (no $8000-window banking). Comes after the FM writer, before the
+; inline tables it reads and the even-pad.
+; ======================================================================
+        include "engine/sound_psg.asm"
+
 ; --- Inline Z80-addressable FM tables (GENERATED) ---
 ; FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ — read by the FM writer with
 ; direct Z80 addressing. Identical VALUES to the 68k ROM tables in
@@ -586,12 +605,28 @@ SeqTest_FM_Loop:
         db      MEV_JUMP                 ; jump back to loop point (zero tick)
 
 SeqTest_StreamPSG:
-        db      MEV_VOL, 60              ; set volume 60          (zero tick)
+        db      MEV_VOL, 100             ; set volume 100         (zero tick)
         db      3                        ; set default duration = 3 ticks
-        db      MEV_NOTE_BASE+24         ; note pitch 24          (3 ticks)
+        db      MEV_NOTE_BASE+48         ; note pitch 48 (div $1AC: $8C,$1A) 3t
         db      MEV_REST                 ; rest                   (3 ticks)
-        db      MEV_NOTE_BASE+28         ; note pitch 28          (3 ticks)
+        db      MEV_NOTE_BASE+55         ; note pitch 55 (div $11D: $8D,$11) 3t
         db      MEV_END                  ; end -> channel goes idle
+
+; --- PSGN (noise) dry-run stream. A noise "note"'s low 3 bits pick the SN76489
+; noise mode/rate (decision 2): pitch 5 -> control $E5 (white, clk/1024),
+; pitch 1 -> control $E1 (periodic, clk/512). Note-on then sets the noise volume
+; from sc_volume ($F0|atten); the rest issues $FF (silence). Loops forever so the
+; controller can VGM-capture the $E0-class control bytes on the noise channel.
+SeqTest_StreamPSGN:
+        db      MEV_VOL, 100             ; set volume 100         (zero tick)
+        db      4                        ; set default duration = 4 ticks
+SeqTest_PSGN_Loop:
+        db      MEV_LOOP_POINT           ; loop target            (zero tick)
+        db      MEV_NOTE_BASE+5          ; noise "note" 5 -> ctrl $E5 (4 ticks)
+        db      MEV_REST                 ; rest -> noise vol $FF  (4 ticks)
+        db      MEV_NOTE_BASE+1          ; noise "note" 1 -> ctrl $E1 (4 ticks)
+        db      MEV_REST                 ; rest                   (4 ticks)
+        db      MEV_JUMP                 ; jump back to loop point (zero tick)
     endif
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise

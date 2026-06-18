@@ -339,10 +339,12 @@ Seq_Trace:
     endif
 
 ; ======================================================================
-; Writer-HOOK dispatch (Task 3 wires FM; PSG/DAC still `ret` stubs — Tasks 4/6).
-; Each hook gates on the route class (SCF_IS_FM bit in sc_flags): FM routes call
-; the Fm_* writers (engine/sound_fm.asm), non-FM routes fall through to `ret`.
-; They run with ix = current SeqChannel. INVARIANT for hl across these calls:
+; Writer-HOOK dispatch (Task 3 wired FM; Task 4 wires PSG; DAC still a `ret`
+; stub — Task 6). Each hook gates on the route class bits in sc_flags: FM routes
+; call the Fm_* writers (engine/sound_fm.asm), PSG routes call the Psg_* writers
+; (engine/sound_psg.asm), the DAC route falls through to `ret`.
+; They run with ix = current SeqChannel. EVERY writer (Fm_* AND Psg_*) preserves
+; ix — the channel loop relies on it. INVARIANT for hl across these calls:
 ;   - TIME-ADVANCING hooks (NoteOn/NoteOff, called from .note/.rest/.notedur):
 ;     the handler commits the stream ptr to sc_stream_ptr and then `ret`s, ending
 ;     the tick. hl is dead after the hook, so it is freely clobberable there.
@@ -353,34 +355,96 @@ Seq_Trace:
 ;     so the zero-tick handlers MUST push/pop hl around the hook call. Any future
 ;     hook-calling zero-tick handler must do the same or the stream ptr corrupts.
 ;
-; NOTE on inputs (the Fm_* writers expect them):
-;   Seq_HookNoteOn  -> Fm_NoteOn   (a = pitch index = sc_note)
-;   Seq_HookNoteOff -> Fm_NoteOff  (ix only)
-;   Seq_HookSetVol  -> Fm_SetVolume(a = linear vol = sc_volume)
-;   Seq_HookSetPatch-> Fm_PatchLoad(hl = FmPatch ptr, derived from sc_patch)
+; NOTE on inputs (the writers expect them):
+;   Seq_HookNoteOn  -> Fm_NoteOn / Psg_NoteOn (a = pitch index = sc_note);
+;                      PSGN route -> Psg_Noise (noise control + volume).
+;   Seq_HookNoteOff -> Fm_NoteOff / Psg_NoteOff (ix only)
+;   Seq_HookSetVol  -> Fm_SetVolume / Psg_SetVolume (a = linear vol = sc_volume)
+;   Seq_HookSetPatch-> Fm_PatchLoad (FM only; PSG ignores patch -> ret)
 ; ======================================================================
 Seq_HookNoteOn:
         bit     SCF_IS_FM_B, (ix+sc_flags)
-        ret     z                        ; non-FM route -> stub (PSG/DAC: Tasks 4/6)
+        jr      nz, .fm
+        bit     SCF_IS_PSG_B, (ix+sc_flags)
+        ret     z                        ; non-FM/PSG (DAC) -> stub (Task 6)
+        ld      a, (ix+sc_note)          ; a = pitch index
+        ld      b, a                     ; (preserve pitch across the route test)
+        ld      a, (ix+sc_route)
+        cp      CHROUTE_PSGN
+        ld      a, b                     ; a = pitch index again
+        jp      z, Psg_Noise             ; noise route -> noise control + volume
+        jp      Psg_NoteOn               ; tone route
+.fm:
         ld      a, (ix+sc_note)          ; a = pitch index
         jp      Fm_NoteOn
 
 Seq_HookNoteOff:
         bit     SCF_IS_FM_B, (ix+sc_flags)
+        jp      nz, Fm_NoteOff
+        bit     SCF_IS_PSG_B, (ix+sc_flags)
         ret     z
-        jp      Fm_NoteOff
+        jp      Psg_NoteOff
 
 Seq_HookSetVol:
         bit     SCF_IS_FM_B, (ix+sc_flags)
+        jr      nz, .fm
+        bit     SCF_IS_PSG_B, (ix+sc_flags)
         ret     z
+        ld      a, (ix+sc_volume)        ; a = linear volume (0..127)
+        jp      Psg_SetVolume
+.fm:
         ld      a, (ix+sc_volume)        ; a = linear volume (0..127)
         jp      Fm_SetVolume
 
 Seq_HookSetPatch:
         bit     SCF_IS_FM_B, (ix+sc_flags)
-        ret     z
+        ret     z                        ; PSG/DAC have no patch -> ignore
         call    Fm_PatchPtr              ; hl = FmPatch ptr for sc_patch
         jp      Fm_PatchLoad
 
 Seq_HookDac:
         ret                              ; DAC trigger route -> Task 6 (1B DAC)
+
+; ======================================================================
+; Sequencer_StopAll — the StopMusic primitive (wired to the command API in
+; Task 6). Key-off every FM channel + silence all PSG channels, then clear the
+; active flag so Sequencer_Tick stops walking the streams.
+;
+; IMPLEMENTATION (decision 4): direct hardware silencing rather than a per-
+; channel hook loop — it is unconditional (independent of whatever routes the
+; current song happened to load) and cannot leave a note hanging:
+;   * FM: key-off all six possible FM channels by writing $28 = chsel for chsel
+;     $00,$01,$02,$04,$05,$06 (op-mask 0 = key off). Direct via part I ($4000).
+;   * PSG: Psg_SilenceAll emits $9F/$BF/$DF/$FF (max attenuation, all 4 channels).
+; Then SND_SEQ_ACTIVE = 0. Does NOT touch $2B (DAC enable) — DAC is owned by the
+; 1B loop. Clobbers af, bc, hl. Preserves de (the DAC loop's $4001), ix.
+; ======================================================================
+Sequencer_StopAll:
+        ; --- FM: key-off all six FM channels (op-mask 0) via $28 on part I. ---
+        ld      hl, Seq_FmKeyoffChsels   ; the six chsel nibbles
+        ld      b, 6
+.fm_keyoff:
+        ld      a, SND_REG_KEY_ONOFF     ; $28 (key on/off, always part I)
+        ld      (SND_Z80_YM_A0), a       ; select $28 on $4000
+        nop                              ; inter-write delay (no busy-poll)
+        ld      a, (hl)                  ; chsel (op-mask bits 7..4 = 0 -> key off)
+        ld      (SND_Z80_YM_A1), a       ; $4001 = $28 data
+        inc     hl
+        djnz    .fm_keyoff
+        ; re-park reg $2A on the part-I addr port for the DAC consumer.
+        ld      a, SND_REG_DAC_DATA      ; $2A
+        ld      (SND_Z80_YM_A0), a
+
+        ; --- PSG: max attenuation on all four channels. ---
+        call    Psg_SilenceAll
+
+        ; --- stop the sequencer. ---
+        xor     a
+        ld      (SND_SEQ_ACTIVE), a
+        ret
+
+; The six FM channel-select nibbles ($28 data bytes with op-mask 0 -> key off):
+; FM1/2/3 = $00/$01/$02 (part I), FM4/5/6 = $04/$05/$06 (part II, the +4 part
+; offset). FM6 is the DAC in 1C but harmless to key off (op-mask 0).
+Seq_FmKeyoffChsels:
+        db      00h, 01h, 02h, 04h, 05h, 06h

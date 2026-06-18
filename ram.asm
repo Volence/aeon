@@ -436,7 +436,7 @@ Player_Ring_Index:      ds.w 1      ; byte offset into both rings — word-sized
 ; which can read 68k RAM but not Z80 RAM at $A00000 — observe the driver's
 ; mailbox+status by reading this symbol.
 ; -----------------------------------------------
-Sound_Dbg_Mirror:       ds.b 128        ; DEBUG: [0..63] Z80 mailbox/status+state, [64..127] sequencer window+trace (see debug/sound_debug.asm)
+Sound_Dbg_Mirror:       ds.b 160        ; DEBUG: [0..63] Z80 mailbox/status+state, [64..136] sequencer window (hdr+3 ch)+trace (see debug/sound_debug.asm)
 
 RAM_End:
 
