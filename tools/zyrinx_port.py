@@ -110,8 +110,22 @@ def translate_voice(v: dict) -> bytes:
     out = bytearray((alg_fb, lr_ams_fms))
     for key in _VOICE_GROUP_KEYS:
         g = v[key]
-        out.extend((g[OP_REORDER[0]] & 0xFF, g[OP_REORDER[1]] & 0xFF,
-                    g[OP_REORDER[2]] & 0xFF, g[OP_REORDER[3]] & 0xFF))
+        if key == "tl":
+            # Zyrinx voices store TL as LEVEL (high byte = loud). The driver
+            # converts to the YM2612's ATTENUATION convention (high = quiet)
+            # by inverting before writing: zyrinx_driver.asm $0CF7 computes
+            #   TL_op = clamp7( (0x7F XOR patch_TL[op]) + op_mod_live[op] ).
+            # Our engine's Fm_PatchTlGroup writes (patch_TL + sc_opbias) with a
+            # [0,$7F] clamp and does NOT invert, so we must store the inverted
+            # (YM-native attenuation) base TL here. (0x7F XOR x == 127-x for the
+            # 7-bit TL range; mask to 7 bits — bit7 is unused by the TL reg.)
+            out.extend((0x7F ^ (g[OP_REORDER[0]] & 0x7F),
+                        0x7F ^ (g[OP_REORDER[1]] & 0x7F),
+                        0x7F ^ (g[OP_REORDER[2]] & 0x7F),
+                        0x7F ^ (g[OP_REORDER[3]] & 0x7F)))
+        else:
+            out.extend((g[OP_REORDER[0]] & 0xFF, g[OP_REORDER[1]] & 0xFF,
+                        g[OP_REORDER[2]] & 0xFF, g[OP_REORDER[3]] & 0xFF))
     assert len(out) == FMPATCH_LEN
     return bytes(out)
 
