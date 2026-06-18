@@ -44,6 +44,8 @@ MEV_VOL = 0xE0
 MEV_PATCH = 0xE1
 MEV_DAC = 0xE2
 MEV_NOTE_DUR = 0xE3
+MEV_PAN = 0xE4               # + b4: set channel pan/AMS/FMS (raw YM $B4 byte)
+MEV_OPBIAS = 0xE9            # + op(0..3) + val: per-operator additive TL bias
 MEV_NOTE_RAW = 0xE7          # + a4 a0 dd: key a raw-frequency FM note (exact
                              # $A4/$A0) for duration dd, bypassing the pitch table
 MEV_PITCHENV = 0xE8          # + count + count idx bytes: pitch-envelope note +
@@ -153,6 +155,51 @@ class Patch(Event):
     def validate(self, route):
         if route not in _FM_ROUTES:
             raise PackError(f"Patch on non-FM route {route}")
+
+
+class Pan(Event):
+    """Phase-3 pan: set the channel's pan/AMS/FMS (the raw YM $B4 byte). The
+    YM2612 $B4 layout is bit7 = LEFT-output enable, bit6 = RIGHT-output enable,
+    bits5-4 = AMS, bits2-0 = FMS. So hard-LEFT = $80, hard-RIGHT = $40, both
+    (center) = $C0, silent = $00 (with AMS/FMS = 0). Zero-tick coordination
+    setter; rendered to $B4+chan by ModUpdate write-on-change. FM-only effect.
+    This packer IS the transcoder, so it emits the hardware-correct $B4 byte."""
+    PAN_OFF = 0x00
+    PAN_LEFT = 0x80     # bit7 = Left output enable
+    PAN_RIGHT = 0x40    # bit6 = Right output enable
+    PAN_CENTER = 0xC0   # both
+
+    def __init__(self, b4: int):
+        self.b4 = b4
+
+    def encode(self) -> bytes:
+        return bytes([MEV_PAN, self.b4 & 0xFF])
+
+    def validate(self, route):
+        if not (0 <= self.b4 <= 0xFF):
+            raise PackError(f"Pan b4 {self.b4} out of byte range")
+
+
+class OpBias(Event):
+    """Phase-3 per-operator TL bias: add `val` to operator `op`'s patch TL (the
+    $40-group). op = 0..3 (physical reg offset +0/+4/+8/+C = S1,S3,S2,S4). The
+    bias saturates at $7F (TL is attenuation). Latched at the next patch load /
+    note (the Zyrinx key-on latch), so route an OpBias before a Patch to apply it.
+    Zero-tick. FM-only."""
+    def __init__(self, op: int, val: int):
+        self.op = op
+        self.val = val
+
+    def encode(self) -> bytes:
+        return bytes([MEV_OPBIAS, self.op & 0xFF, self.val & 0xFF])
+
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"OpBias on non-FM route {route}")
+        if not (0 <= self.op <= 3):
+            raise PackError(f"OpBias op {self.op} out of range 0..3")
+        if not (0 <= self.val <= 0xFF):
+            raise PackError(f"OpBias val {self.val} out of byte range")
 
 
 class Dac(Event):

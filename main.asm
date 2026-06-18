@@ -253,6 +253,10 @@ Art_Sonic:
         ; MULTI-POINT MEV_PITCHENV notes: a count=2 whole-step trill + a count=3
         ; major-triad arp, cursor-cycled per frame by ModUpdate's .multipoint path).
         include "data/sound/song_trilltest.asm"
+        ; Phase 3 Task 6 SCRATCH pan/op-bias-verification song (one FM channel: a
+        ; note hard-LEFT, the same note hard-RIGHT, then a recentered note with a
+        ; +$30 modulator op-bias — exercises MEV_PAN write-on-change + MEV_OPBIAS).
+        include "data/sound/song_pantest.asm"
         include "data/sound/song_table.asm"
     endif
 

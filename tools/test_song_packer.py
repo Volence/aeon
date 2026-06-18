@@ -15,9 +15,9 @@ import song_packer
 from song_packer import (
     SongDesc, ChannelDesc,
     SetDur, Rest, Note, Vol, Patch, Dac, NoteDur, LoopPoint, Jump, End,
-    RepeatStart, RepeatEnd,
+    RepeatStart, RepeatEnd, Pan, OpBias,
     pack_song, emit_asm, PackError,
-    MEV_REPEAT_START, MEV_REPEAT_END,
+    MEV_REPEAT_START, MEV_REPEAT_END, MEV_PAN, MEV_OPBIAS,
 )
 
 # Route constants mirrored from sound_constants.asm (kept in sync by hand;
@@ -60,6 +60,18 @@ class TestEventEncoding(unittest.TestCase):
         self.assertEqual(RepeatEnd(4).encode(), bytes([MEV_REPEAT_END, 0x04]))
         self.assertEqual(MEV_REPEAT_END, 0xE6)
         self.assertEqual(RepeatEnd(255).encode(), bytes([MEV_REPEAT_END, 0xFF]))
+
+    def test_pan(self):
+        self.assertEqual(Pan(0x80).encode(), bytes([MEV_PAN, 0x80]))
+        self.assertEqual(MEV_PAN, 0xE4)
+        # hardware-correct $B4 L/R bits: bit7 = Left, bit6 = Right, $C0 = both.
+        self.assertEqual(Pan.PAN_LEFT, 0x80)
+        self.assertEqual(Pan.PAN_RIGHT, 0x40)
+        self.assertEqual(Pan.PAN_CENTER, 0xC0)
+
+    def test_opbias(self):
+        self.assertEqual(OpBias(2, 0x30).encode(), bytes([MEV_OPBIAS, 0x02, 0x30]))
+        self.assertEqual(MEV_OPBIAS, 0xE9)
 
     def test_loop_point(self):
         self.assertEqual(LoopPoint().encode(), bytes([0xEE]))
@@ -176,6 +188,25 @@ class TestValidation(unittest.TestCase):
         with self.assertRaises(PackError):
             self._pack([ChannelDesc(CHROUTE_PSG1,
                         [Patch(0), LoopPoint(), Note(0), Jump()])])
+
+    def test_opbias_on_non_fm_route(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_PSG1,
+                        [Vol(64), LoopPoint(), OpBias(0, 0x10), Note(0), Jump()])])
+
+    def test_opbias_op_out_of_range(self):
+        with self.assertRaises(PackError):
+            OpBias(4, 0x10).validate(CHROUTE_FM1)
+
+    def test_pan_then_opbias_then_patch_packs(self):
+        # A well-formed FM channel using Pan + OpBias (FM-only coordination setters).
+        blob = self._pack([ChannelDesc(CHROUTE_FM1, [
+            Patch(1), Vol(110), SetDur(59), LoopPoint(),
+            Pan(Pan.PAN_LEFT), OpBias(0, 0x30), Patch(1), Note(0), Jump(),
+        ])])
+        # the stream contains the $E4/$E9 opcodes in order.
+        self.assertIn(bytes([MEV_PAN, 0x80]), blob)
+        self.assertIn(bytes([MEV_OPBIAS, 0x00, 0x30]), blob)
 
     def test_jump_without_loop_point(self):
         # Setup is in place so this isolates the Jump-without-LoopPoint check.

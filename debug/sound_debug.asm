@@ -24,6 +24,9 @@
 ;   +6 sc_patch, +7 sc_last_patch, +8 sc_volume, +9 sc_note, +10 sc_flags,
 ;   +11 sc_route, +12/+13 sc_loop_ptr, +14/+15 sc_repeat_ptr, +16 sc_repeat_count,
 ;   +17 sc_tempo_base, +18 sc_tempo_accum, +19 sc_pt_count.
+; (Task 6's sc_pan +27, sc_opbias +28..+31, and sc_last_pan +36 live PAST the
+; 20-byte prefix, so they are not mirrored; the controller verifies the $B4/$40
+; writes via the Exodus YM register stream / the Task-9 oracle diff instead.)
 ; Mirror layout (offsets from Sound_Dbg_Mirror): header [64..71], ch0 [72..91],
 ; ch1 [92..111], ch2 [112..131]; trace ring [132..163]. Upper window = 64 + 8 +
 ; 3*20 + 32 = 164 <= 176.

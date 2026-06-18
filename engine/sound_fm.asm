@@ -172,8 +172,8 @@ Fm_PatchLoad:
         ; FmPatch record in the same order as the register bases below.
         ld      a, SND_REG_OP_DT_MUL     ; $30
         call    Fm_PatchOpGroup
-        ld      a, SND_REG_OP_TL         ; $40
-        call    Fm_PatchOpGroup
+        ld      a, SND_REG_OP_TL         ; $40 (TL group: adds per-op sc_opbias, clamps)
+        call    Fm_PatchTlGroup
         ld      a, SND_REG_OP_RS_AR      ; $50
         call    Fm_PatchOpGroup
         ld      a, SND_REG_OP_AM_D1R     ; $60
@@ -218,6 +218,76 @@ Fm_PatchOpGroup:
         ld      e, a                     ; op offset += 4
         pop     bc
         djnz    .op_loop
+        ret
+
+; --- Fm_PatchTlGroup: write the $40 (TL) register group WITH the per-operator
+; additive TL bias (sc_opbias[op]) applied. For each op 0..3:
+;   eff_TL = clamp7(patch_TL[op] + sc_opbias[op])
+; TL is 7-bit attenuation, so the sum SATURATES at $7F (silent). sc_opbias is a
+; per-note brightness/level bias LATCHED here at patch load (the Zyrinx key-on
+; latch model) — it is NOT re-asserted per frame, so this is the ONLY place it is
+; applied (cost amortized at patch load, not per note/frame). sc_opbias is zeroed
+; by the seq clear, so a song that never emits MEV_OPBIAS gets eff_TL = patch_TL
+; (this group is then byte-identical to Fm_PatchOpGroup for $40 — no regression).
+; In:  a = $40 (register base), hl = ptr to the 4 patch TL bytes (advanced by 4).
+;      ix = SeqChannel (reads sc_opbias[op]); Fm_ScratchCh/Part set by Fm_PatchLoad.
+; The op index 0..3 is tracked in Fm_ScratchOp so the bias byte can be indexed.
+; Clobbers: af, bc, de, hl (hl advanced by 4). Preserves ix. (Internal helper.)
+Fm_PatchTlGroup:
+        ld      d, a                     ; d = $40 base (preserved across ops)
+        ld      e, 0                     ; e = op*4 accumulator (0,4,8,12)
+        xor     a
+        ld      (Fm_ScratchOp), a        ; op index = 0
+        ld      b, 4                     ; 4 operators
+.tl_loop:
+        push    bc                       ; save op counter (Fm_YmWrite uses bc)
+        push    de                       ; save base+offset accumulator
+        ; --- data = clamp7(patch_TL[op] + sc_opbias[op]) ---
+        ld      a, (hl)                  ; patch base TL for this op
+        inc     hl                       ; advance patch ptr
+        push    hl                       ; save patch ptr across the bias index
+        ld      c, a                     ; c = base TL (preserve across the index math)
+        ; hl = &sc_opbias[op] = ix-base + sc_opbias + op
+        push    ix
+        pop     hl                       ; hl = SeqChannel base
+        ld      a, (Fm_ScratchOp)        ; op index 0..3
+        add     a, sc_opbias             ; + sc_opbias field offset
+        add     a, l
+        ld      l, a
+        jr      nc, .nocarry
+        inc     h
+.nocarry:
+        ld      a, c                     ; a = base TL
+        add     a, (hl)                  ; + sc_opbias[op] (signed-ish bias)
+        jr      c, .clamp                ; 8-bit overflow -> saturate silent
+        cp      SND_FM_TL_MAX+1          ; result > $7F ?
+        jr      c, .tl_ok
+.clamp:
+        ld      a, SND_FM_TL_MAX         ; clamp to $7F (silent)
+.tl_ok:
+        ld      c, a                     ; c = effective TL (data)
+        pop     hl                       ; restore patch ptr (already advanced)
+        ; --- reg = $40 + (op*4) + ch ---
+        pop     de                       ; recover d=base, e=op*4 (re-push below)
+        push    de
+        ld      a, d                     ; $40 base
+        add     a, e                     ; + op*4
+        push    hl
+        ld      hl, Fm_ScratchCh
+        add     a, (hl)                  ; + ch-in-part
+        ld      hl, Fm_ScratchPart
+        ld      b, (hl)                  ; b = part
+        pop     hl
+        call    Fm_YmWrite               ; a=reg, c=data, b=part
+        pop     de
+        ld      a, e
+        add     a, 4
+        ld      e, a                     ; op offset += 4
+        ld      a, (Fm_ScratchOp)
+        inc     a
+        ld      (Fm_ScratchOp), a        ; op index += 1
+        pop     bc
+        djnz    .tl_loop
         ret
 
 ; ----------------------------------------------------------------------
@@ -304,6 +374,24 @@ Fm_SetVolume:
         sla     c                        ; walking bit <<= 1 (next op)
         djnz    .op_loop
         jp      Fm_ReparkDac             ; defensive re-park ($2A)
+
+; ----------------------------------------------------------------------
+; Fm_SetPan — write the channel's $B4 (L/R / AMS / FMS) register from sc_pan.
+; In: ix = SeqChannel (uses sc_pan). Reg = $B4 + ch-in-part, part-aware. Called by
+; ModUpdate only when sc_pan changed (write-on-change), so the YM write here is
+; never redundant. NOTE: $B4 is a STEREO-OUTPUT (+ hardware LFO depth) register;
+; the controller confirms the exact $B4 bytes via the Exodus YM register stream /
+; the Task-9 oracle diff.
+; Clobbers: af, bc. Preserves de, hl, ix. (de = the DAC loop's $4001 is untouched —
+; Fm_RoutePart/Fm_YmWrite/Fm_ReparkDac all use absolute YM addressing.)
+; ----------------------------------------------------------------------
+Fm_SetPan:
+        call    Fm_RoutePart             ; b = part, c = ch-in-part (clobbers af,bc)
+        ld      a, c                      ; a = ch-in-part
+        add     a, SND_REG_LR_AMS_FMS     ; reg = $B4 + ch (b still = part)
+        ld      c, (ix+sc_pan)            ; data = sc_pan (the raw $B4 byte)
+        call    Fm_YmWrite                ; a=reg, c=data, b=part
+        jp      Fm_ReparkDac              ; defensive re-park ($2A); preserves ix
 
 ; ----------------------------------------------------------------------
 ; Fm_NoteFromTable — key a note from the PER-SONG fnum (pitch) table.
@@ -474,3 +562,9 @@ Fm_ScratchPart  = SND_FM_SCRATCH+0       ; current part (0/1)
 Fm_ScratchCh    = SND_FM_SCRATCH+1       ; current ch-in-part (0..2)
 Fm_ScratchLog   = SND_FM_SCRATCH+2       ; log-volume delta
 Fm_ScratchMask  = SND_FM_SCRATCH+3       ; carrier mask
+Fm_ScratchOp    = SND_FM_SCRATCH+4       ; Task 6: op index 0..3 (Fm_PatchTlGroup)
+
+        ; the scratch defs must all fit inside SND_FM_SCRATCH_LEN.
+        if (Fm_ScratchOp - SND_FM_SCRATCH) >= SND_FM_SCRATCH_LEN
+          fatal "Fm_Scratch* exceed SND_FM_SCRATCH_LEN (\{SND_FM_SCRATCH_LEN})"
+        endif

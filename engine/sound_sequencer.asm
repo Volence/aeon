@@ -120,7 +120,11 @@ Sequencer_Frame:
 ; notes are keyed by Sequencer_Channel's hook (NOT MEV_PITCHENV), so they never arm
 ; SCF_REKEY -> ModUpdate is a no-op for them (a single flag test), as in Task 2.
 ;
-; Voice-step deltas (Task 5), pan/op-bias (Task 6), and portamento (Task 7) are
+; PAN (Task 6): rendered here, write-on-change — $B4+chan is written only when
+; sc_pan differs from sc_last_pan (a held pan, incl. the no-MEV_PAN default, writes
+; nothing). Per-op TL bias (Task 6) is NOT rendered here — it is latched in
+; Fm_PatchLoad at patch load / note (the Zyrinx key-on latch), so ModUpdate has no
+; per-frame op-bias cost. Voice-step deltas (Task 5) and portamento (Task 7) are
 ; NOT rendered yet; their seams (sc_patch vs sc_last_patch, sc_porta_incr) are left
 ; for those tasks. ModUpdate stays STREAM-AGNOSTIC (reads sc_* state only).
 ;
@@ -131,6 +135,18 @@ ModUpdate:
         ; Phase 3a -> no-op. (PSG modulation is out of scope; see spec §1.)
         bit     SCF_IS_FM_B, (ix+sc_flags)
         ret     z
+
+        ; --- PAN (Task 6): write $B4 ONLY when sc_pan changed since last written.
+        ; Independent of the note/pitch logic below (pan persists across notes), so
+        ; it is rendered first, every frame, write-on-change. A held pan (sc_pan ==
+        ; sc_last_pan) writes nothing — including the no-MEV_PAN default (both 0),
+        ; leaving the patch's own $B4 (set by Fm_PatchLoad) untouched.
+        ld      a, (ix+sc_pan)
+        cp      (ix+sc_last_pan)
+        jr      z, .pan_done             ; unchanged -> no $B4 write
+        ld      (ix+sc_last_pan), a      ; commit the shadow (a = sc_pan)
+        call    Fm_SetPan                ; write $B4+chan = sc_pan (preserves ix)
+.pan_done:
 
         ld      a, (ix+sc_pt_count)
         cp      2
@@ -447,6 +463,63 @@ Seq_Op_PitchEnv:
     endif
         ret                              ; time advanced -> done this tick (ModUpdate renders)
 
+; $E4 MEV_PAN + b4 : set the channel's pan/AMS/FMS state (the raw YM $B4 byte:
+; bits7-6 L/R, bits5-4 AMS, bits2-0 FMS). Coordination SETTER (like Vol/Patch):
+; stores the operand into sc_pan and continues the fetch loop (ZERO TICK). Does
+; NOT write the YM here — ModUpdate renders sc_pan to $B4+chan write-on-change.
+; The transcoder computes the $B4 byte from the Zyrinx pan command; the opcode
+; just carries it. Calls NO writer hook (just stores state, like LoopPoint), so hl
+; stays the live stream ptr across the handler.
+; Clobbers: af (DEBUG trace only). Manipulates: hl (kept live). Uses ix.
+Seq_Op_Pan:
+        ld      a, (hl)
+        inc     hl                       ; consume the $B4 operand byte
+        ld      (ix+sc_pan), a           ; store pan state (rendered by ModUpdate)
+    ifdef __DEBUG__
+        push    hl
+        ld      a, SEQEV_VOL             ; reuse the VOL trace code (no dedicated pan code)
+        call    Seq_Trace
+        pop     hl
+    endif
+        jp      Seq_ContinueFetch        ; zero tick
+
+; $E9 MEV_OPBIAS + op(0..3) + val : set one operator's additive TL bias. Coordination
+; SETTER (zero tick): stores val into sc_opbias[op]. The bias takes effect at the
+; NEXT patch load / note (Fm_PatchLoad adds it to the $40-group TLs) — matching the
+; Zyrinx latch-at-key-on model — so there is NO per-frame re-assert and ModUpdate
+; is untouched. Calls NO writer hook, so hl stays the live stream ptr.
+; `op` is trusted from the stream (the packer guarantees 0..3); a value > 3 would
+; index past sc_opbias[3] into sc_porta_accum — packer is the sole guarantor.
+; Clobbers: af, bc (the op index math). Manipulates: hl (kept live). Uses ix.
+Seq_Op_OpBias:
+        ld      a, (hl)
+        inc     hl                       ; a = op index (0..3)
+        and     3                        ; defensive clamp to 0..3 (no overrun)
+        ld      c, a                     ; c = op index
+        ld      a, (hl)
+        inc     hl                       ; a = bias value
+        ; sc_opbias[op] = val : index the per-op array off the channel base.
+        push    hl                       ; save stream ptr across the pointer math
+        push    ix
+        pop     hl                       ; hl = SeqChannel base
+        ld      b, 0
+        add     hl, bc                   ; hl = base + op
+        push    af                       ; save bias value across the offset add
+        ld      a, sc_opbias
+        add     a, l
+        ld      l, a
+        jr      nc, .nocarry
+        inc     h                        ; carry into high byte
+.nocarry:
+        pop     af                       ; a = bias value
+        ld      (hl), a                  ; sc_opbias[op] = val
+    ifdef __DEBUG__
+        ld      a, SEQEV_PATCH           ; reuse the PATCH trace code (timbre change)
+        call    Seq_Trace
+    endif
+        pop     hl                       ; restore the live stream ptr
+        jp      Seq_ContinueFetch        ; zero tick
+
 ; $E5 MEV_REPEAT_START (no operand) : save the current (post-opcode) ptr as the
 ; body-start the matching $E6 jumps back to. Zero tick. Does NOT touch
 ; sc_repeat_count — the count is established when $E6 is first reached (so a
@@ -573,12 +646,12 @@ SeqOpcodeTable:
         dw      Seq_Op_Patch             ; $E1 MEV_PATCH
         dw      Seq_Op_Dac               ; $E2 MEV_DAC
         dw      Seq_Op_NoteDur           ; $E3 MEV_NOTE_DUR
-        dw      Seq_BadOpcode            ; $E4 reserved (MEV_PAN, T4)
+        dw      Seq_Op_Pan               ; $E4 MEV_PAN
         dw      Seq_Op_RepeatStart       ; $E5 MEV_REPEAT_START
         dw      Seq_Op_RepeatEnd         ; $E6 MEV_REPEAT_END
         dw      Seq_Op_NoteRaw           ; $E7 MEV_NOTE_RAW
         dw      Seq_Op_PitchEnv          ; $E8 MEV_PITCHENV
-        dw      Seq_BadOpcode            ; $E9 reserved
+        dw      Seq_Op_OpBias            ; $E9 MEV_OPBIAS
         dw      Seq_BadOpcode            ; $EA reserved
         dw      Seq_BadOpcode            ; $EB reserved
         dw      Seq_BadOpcode            ; $EC reserved

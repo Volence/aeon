@@ -215,15 +215,16 @@ Cold_Boot:
         ; thirds harmony). Press START in-game to toggle stop/play (game_loop
         ; Debug_MusicToggle).
         ;
-        ; *** CURRENT DEV-VERIFICATION SONG — Sound Phase 3 Task 4 (TEMPORARY):
-        ; SONG_TRILLTEST exercises ModUpdate's .multipoint path. One FM channel
-        ; emits MULTI-POINT MEV_PITCHENV notes whose pitch cursor-cycles ONCE PER
-        ; FRAME (the built-in trill/arp): a count=2 whole-step trill [$30,$32]
-        ; (C<->D, ~1s) then a count=3 major-triad arp [$24,$28,$2B] (C-E-G, ~1s),
-        ; looping. Expected per-frame $A4/$A0 alternation is documented in
-        ; data/sound/song_trilltest.py. (SONG_TEST = id 1 and SONG_PITCHTEST = id 2
-        ; remain in the table for switch-back.) REVERT to SONG_TEST after verifying. ***
-        moveq   #SONG_TRILLTEST, d0
+        ; *** CURRENT DEV-VERIFICATION SONG — Sound Phase 3 Task 6 (TEMPORARY):
+        ; SONG_PANTEST exercises MEV_PAN (write-on-change $B4) + MEV_OPBIAS (per-
+        ; operator TL bias latched in Fm_PatchLoad). One FM channel: a note hard-
+        ; LEFT ($B4=$80, ~1s), the SAME note hard-RIGHT ($B4=$40, ~1s), then a
+        ; recentered ($B4=$C0) note with a +$30 bias on modulator op0 (reg $40 = $68
+        ; vs $38 — an audibly darker timbre), looping. Expected $B4/$40 bytes are
+        ; documented in data/sound/song_pantest.py. (SONG_TEST = id 1, SONG_PITCHTEST
+        ; = 2, SONG_TRILLTEST = 3 remain in the table for switch-back.) REVERT to
+        ; SONG_TEST after verifying. ***
+        moveq   #SONG_PANTEST, d0
         bsr.w   Sound_PlayMusic
         move.b  #1, (Dbg_Music_On).w     ; DEBUG: track play state for the Start-toggle
       endif

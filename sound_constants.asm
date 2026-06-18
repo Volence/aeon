@@ -258,7 +258,15 @@ MEV_VOL         = $E0    ; + vv  : set channel volume (linear 0..127)
 MEV_PATCH       = $E1    ; + pp  : set FM patch index
 MEV_DAC         = $E2    ; + ss  : DAC trigger sample id (DAC channel only)
 MEV_NOTE_DUR    = $E3    ; + nn dd : note nn with explicit duration dd
-; $E4 reserved for MEV_PAN (Sound 1D Task 4 — do NOT define here).
+; --- Phase 3 Task 6: pan + per-operator TL bias --------------------------------
+MEV_PAN         = $E4    ; + b4 : set channel pan/AMS/FMS. The operand is the raw
+                         ; YM $B4 value (bits7-6 L/R, bits5-4 AMS, bits2-0 FMS).
+                         ; The transcoder computes this byte from the Zyrinx
+                         ; $30/$32/$34/$36 (off/R/L/C) pan commands -> L/R bits; the
+                         ; opcode just CARRIES it. Stored in sc_pan, rendered to
+                         ; $B4+chan by ModUpdate (write-on-change). Zero-tick. FM-only
+                         ; effect (non-FM routes store it harmlessly; ModUpdate's FM
+                         ; gate means nothing is written for them).
 MEV_NOTE_RAW    = $E7    ; + a4 a0 dd : key a RAW-frequency FM note (exact $A4/$A0
                          ; bytes) for duration dd, bypassing FmPitchTableZ. Lets a
                          ; VGM-derived song reproduce the original chip pitch
@@ -274,6 +282,17 @@ MEV_NOTE_RAW    = $E7    ; + a4 a0 dd : key a RAW-frequency FM note (exact $A4/$
 ; NOT directly. count==1 = a plain held note (Task 3); count>=2 = a trill/arp
 ; (cursor-cycled by ModUpdate in Task 4). FM-only.
 MEV_PITCHENV    = $E8    ; + count + count idx bytes : pitch-envelope note + key-on
+; --- Phase 3 Task 6: per-operator TL bias (Zyrinx OP1-4 $38-$3E -> IX+9/11/13/15)
+; + op(0..3) + val : add a per-operator additive TL bias to the patch's $40-group.
+; op is the PHYSICAL operator index (0..3 = reg offset +0/+4/+8/+C = S1,S3,S2,S4 —
+; the same index space as FmPatch's per-op arrays). val is added to the patch TL and
+; CLAMPED to 7 bits (0..$7F; TL is attenuation, so it saturates at $7F = silent). Per
+; the RE (/tmp/zyrinx_re_modulation.md §6) the op-mod is a per-note additive TL bias
+; LATCHED at key-on / patch load and re-asserted as a CONSTANT (NOT a swept envelope),
+; so the bias is applied in Fm_PatchLoad when the $40-group is uploaded and takes
+; effect at the NEXT patch load / note — no per-frame cost. Stored in sc_opbias[op].
+; Zero-tick. FM-only (the packer routes it only to FM channels).
+MEV_OPBIAS      = $E9    ; + op(0..3) + val : per-operator additive TL bias
 ; Bounded-repeat opcodes (Sound 1D Task 1): a body wrapped in REPEAT_START..
 ; REPEAT_END replays `nn` total times WITHOUT being unrolled in the data. The
 ; packer encodes them now; the Z80 sequencer interprets them in a later engine
@@ -284,7 +303,30 @@ MEV_REPEAT_END   = $E6   ; + nn : replay from matching REPEAT_START nn times (1.
 MEV_LOOP_POINT  = $EE    ; loop-target marker (no operand)
 MEV_JUMP        = $EF    ; jump to loop point
 MEV_END         = $FF    ; end of stream (channel idle)
-; reserved for Phase 3: $E4 (MEV_PAN, T4), $E8–$ED, $F0–$FE (unknown opcode = build/validation error)
+; reserved for Phase 3: $EA–$ED, $F0–$FE (unknown opcode = build/validation error)
+
+        ; --- MEV_PAN / MEV_OPBIAS range + collision asserts (Task 6) ---
+        ; Both must be command opcodes (> MEV_NOTE_MAX), inside the $E0-$FF
+        ; coordination block, and must not collide with any allocated opcode.
+        if (MEV_PAN <= MEV_NOTE_MAX) || (MEV_OPBIAS <= MEV_NOTE_MAX)
+          error "MEV_PAN/MEV_OPBIAS must be command opcodes (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_PAN < MEV_VOL) || (MEV_PAN > MEV_END) || (MEV_OPBIAS < MEV_VOL) || (MEV_OPBIAS > MEV_END)
+          error "MEV_PAN/MEV_OPBIAS must be inside the $E0-$FF coordination block"
+        endif
+        if MEV_PAN <> $E4
+          error "MEV_PAN (\{MEV_PAN}) must be $E4 (the reserved pan slot)"
+        endif
+        if MEV_OPBIAS <> $E9
+          error "MEV_OPBIAS (\{MEV_OPBIAS}) must be $E9 (the free Phase-3 slot)"
+        endif
+        ; must not collide with any other allocated $E0-$FF opcode.
+        if (MEV_PAN = MEV_VOL) || (MEV_PAN = MEV_PATCH) || (MEV_PAN = MEV_DAC) || (MEV_PAN = MEV_NOTE_DUR) || (MEV_PAN = MEV_REPEAT_START) || (MEV_PAN = MEV_REPEAT_END) || (MEV_PAN = MEV_NOTE_RAW) || (MEV_PAN = MEV_PITCHENV) || (MEV_PAN = MEV_OPBIAS) || (MEV_PAN = MEV_LOOP_POINT) || (MEV_PAN = MEV_JUMP) || (MEV_PAN = MEV_END)
+          error "MEV_PAN (\{MEV_PAN}) collides with an allocated $E0-$FF opcode"
+        endif
+        if (MEV_OPBIAS = MEV_VOL) || (MEV_OPBIAS = MEV_PATCH) || (MEV_OPBIAS = MEV_DAC) || (MEV_OPBIAS = MEV_NOTE_DUR) || (MEV_OPBIAS = MEV_PAN) || (MEV_OPBIAS = MEV_REPEAT_START) || (MEV_OPBIAS = MEV_REPEAT_END) || (MEV_OPBIAS = MEV_NOTE_RAW) || (MEV_OPBIAS = MEV_PITCHENV) || (MEV_OPBIAS = MEV_LOOP_POINT) || (MEV_OPBIAS = MEV_JUMP) || (MEV_OPBIAS = MEV_END)
+          error "MEV_OPBIAS (\{MEV_OPBIAS}) collides with an allocated $E0-$FF opcode"
+        endif
 
         ; the bounded-repeat opcodes live in the reserved $E4–$ED command block,
         ; above the note range and clear of MEV_PAN ($E4) / the loop opcodes.
@@ -415,8 +457,9 @@ FmPatch endstruct             ; = 2 + 6*4 = 26 bytes
 ;     STREAM-AGNOSTIC: ModUpdate only reads this state, never parses a stream.
 ; The real rendering of these fields lands in Tasks 3–7; Task 2 lays out the
 ; format + the held-note no-op path of ModUpdate. (ix+d) is a signed-8-bit
-; displacement; the largest field offset (sc_porta_incr, +34) is well within
-; +127, so the terse (ix+sc_*) addressing still applies to every field.
+; displacement; the largest field offset (sc_last_pan, +36 after the Task-6
+; growth) is well within +127, so the terse (ix+sc_*) addressing still applies to
+; every field.
 ;
 ; The tick loop iterates channels with `add ix,de` (de = SeqChannel_len) — the
 ; struct size is ADDED directly, never MULTIPLIED by an index, so there is no
@@ -452,10 +495,25 @@ sc_pan          ds.b 1   ; +27 pan state (off/L/R/C) -> $B4 L/R bits
 sc_opbias       ds.b 4   ; +28 per-operator TL bias (added to patch TLs at load)
 sc_porta_accum  ds.w 1   ; +32 portamento Q-fixed accumulator
 sc_porta_incr   ds.w 1   ; +34 portamento per-frame increment (0 = no glide)
-SeqChannel endstruct      ; = 36 bytes
+; --- Task 6 write-on-change shadow (ModUpdate tracks the last-WRITTEN pan) ------
+; sc_last_pan: the $B4 value ModUpdate last wrote to the chip. ModUpdate writes
+; $B4 only when sc_pan != sc_last_pan, then copies sc_pan -> sc_last_pan. The seq
+; clear zeroes BOTH sc_pan and sc_last_pan, so a song that never emits MEV_PAN has
+; sc_pan == sc_last_pan == 0 -> ModUpdate writes NOTHING and the patch's own $B4
+; (written by Fm_PatchLoad) stands (held pan = no write). The first MEV_PAN to any
+; nonzero value differs from 0 -> written once, then held.
+; Per-op TL bias has NO shadow: it is applied in Fm_PatchLoad (latched at patch
+; load / note, matching the Zyrinx key-on latch), so ModUpdate never re-asserts it
+; per frame — no write-on-change tracking is needed (zero per-frame cost).
+sc_last_pan     ds.b 1   ; +36 last $B4 ModUpdate wrote (0 = none yet / matches default)
+SeqChannel endstruct      ; = 37 bytes
 
-        if SeqChannel_len <> 36
-          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 36"
+        if SeqChannel_len <> 37
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 37"
+        endif
+        ; the largest field offset must stay within the signed-8-bit (ix+d) range.
+        if SeqChannel_sc_last_pan > 127
+          error "sc_last_pan offset (\{SeqChannel_sc_last_pan}) exceeds the (ix+d) +127 range"
         endif
 
 ; Short field-offset accessors (AS struct fields are exposed as
@@ -483,6 +541,7 @@ sc_pan          = SeqChannel_sc_pan
 sc_opbias       = SeqChannel_sc_opbias
 sc_porta_accum  = SeqChannel_sc_porta_accum
 sc_porta_incr   = SeqChannel_sc_porta_incr
+sc_last_pan     = SeqChannel_sc_last_pan
 
 ; --- sc_flags bit numbers + masks ---
 ; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B
@@ -541,7 +600,7 @@ SND_SEQ_TRACE_LEN  = 32
 ; it) so it auto-tracks any future per-channel-struct growth. The build-time
 ; guards below still assert it clears SND_SEQ_END and the trace ring.
 SND_FM_SCRATCH     = SND_SEQ_END
-SND_FM_SCRATCH_LEN = 4
+SND_FM_SCRATCH_LEN = 5                    ; Part,Ch,Log,Mask + Task-6 Op index
 
     if (SND_FM_SCRATCH < SND_SEQ_END)
       fatal "FM scratch (\{SND_FM_SCRATCH}) overlaps sequencer channels (\{SND_SEQ_END})"
@@ -585,8 +644,8 @@ SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
       fatal "sequencer trace ring overruns the mailbox"
     endif
     ; the per-channel array must not run into the trace ring at $1A00.
-    ; CHROUTE_COUNT(11) * SeqChannel_len(36, Phase 3) = 396 bytes -> $1808+396 =
-    ; $1994, clear of the trace ring at $1A00.
+    ; CHROUTE_COUNT(11) * SeqChannel_len(37, Phase 3 Task 6) = 407 bytes -> $1808+407
+    ; = $19A7, clear of the trace ring at $1A00.
     if SND_SEQ_END > SND_SEQ_TRACE
       fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
     endif
