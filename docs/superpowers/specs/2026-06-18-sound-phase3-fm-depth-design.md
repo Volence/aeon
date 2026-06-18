@@ -57,9 +57,15 @@ Timer-A reload is computed at build time from the target rate via a `function`, 
 literal). Per frame, per active channel, in order:
 
 1. **`ModUpdate` (the modulation layer).** Reads the channel's *modulation state* and writes the
-   YM2612: frequency (`$A4/$A0`), key-on/off (`$28`), patch reload (on voice change), pan
+   YM2612: frequency (`$A4/$A0`), key-on/off (`$28`), register deltas (on voice change), pan
    (`$B4`). This unit is **stream-agnostic** — it only reads state. Voice-stepping, trills/arps,
-   and portamento all happen here, per frame.
+   and portamento all happen here, per frame. **CRITICAL — write-on-change, never redundant
+   re-assert (cycle-budget mandate, see §8):** `ModUpdate` writes the YM *only when the rendered
+   value actually changes* — a held single note writes its freq/key once at onset and then nothing
+   per frame; a voice-step writes only the registers that differ (a build-time-computed minimal
+   delta — often a single operator TL). We do NOT copy Zyrinx's brute-force ~290-writes/s/channel
+   redundancy (the chip state is unchanged on those writes). This keeps the per-frame cost of a
+   held channel ≈ a cursor check.
 2. **Command-stream advance.** A per-channel **tempo accumulator** gates musical timing:
    `tempo_accum -= 16` each frame; on borrow, `tempo_accum += tempo_base` and the channel
    consumes its next command(s) up to the next WAIT. Commands **set modulation state**; they do
@@ -92,9 +98,14 @@ no `ModUpdate` change.**
 2. **Multi-point pitch envelopes (trills/arps).** A note carries 1–5 pitch *points* →
    `points[5]`, `count`, `cursor` in channel state. `ModUpdate` advances the cursor each frame
    (wrap at `count`) and re-articulates. `count=1` = a plain note; `count≥2` = the Zyrinx trill/arp.
-3. **Voice-stepping.** The command stream changes the *current voice index* in state; `ModUpdate`
-   reloads the patch when it changed since last frame and re-asserts carrier TL each frame → the
-   continuous timbre sweep. **Re-key happens on a note / pitch-change, not on a voice change.**
+3. **Voice-stepping.** The command stream changes the voice mid-note; the timbre sweep is rendered
+   as **build-time minimal register deltas**, not full patch reloads. Verified against the real
+   voice data: the rapid lead voice-step (`$9C`→`$A0`) differs by *exactly one byte* — operator
+   S1's TL — so a step is one YM write, encodable via the per-op TL mechanism (feature 5). The
+   transcoder (Task 8) computes each voice change's delta and emits the minimal writes; a full
+   `MEV_PATCH` (26-register load, ~6,500 cyc) is emitted **only at genuine instrument changes**
+   (note onsets — infrequent, staggered), never as the per-frame step. **Re-key happens on a
+   note / pitch-change, not on a voice change.**
 4. **Pan.** Commands set pan state (off/L/R/C); `ModUpdate` writes `$B4` L/R (and AMS/FMS) bits.
 5. **Per-operator TL bias.** Per-op TL offsets in state, added to the patch's operator TLs at
    patch load — the per-note brightness accent.
@@ -141,11 +152,16 @@ our YM stream in Exodus, rendering to audio (`vgm2wav`), and diffing vs `/tmp/mo
 **Regression:** the 1C test song and the 1B DAC must keep working unchanged (the per-frame model
 is a superset; plain channels just hold; the test song's tempo is re-expressed for the frame model).
 
-**The one real risk — cycle budget.** The per-frame FM work (6 voices × patch reloads + the TL
-re-assert) must coexist with the DAC on one Z80. Zyrinx proves it's feasible on the same hardware,
-but our budget must be confirmed. **First implementation step is a cycle-budget spike** (measure a
-worst-case frame: 6 channels voice-stepping + DAC); if over budget, the fallback is the documented
-options (split FM work across the even/odd frame halves like Zyrinx, or throttle re-assert rate).
+**Cycle budget — RESOLVED by the Task-1 spike (`tools/cycle_budget_phase3.md`).** The spike,
+grounded in the real routines, found a *full* per-frame model untenable: a full `Fm_PatchLoad` is
+~6,500 cyc (not the ~720 the plan guessed), and 6 channels reloading in one tick ≈ 55,100 cyc ≈
+55% of the DAC's 100k-cyc underrun budget. **So the design adopts write-on-change + build-time
+minimal register deltas** (§3 / §5.3): held channels write ~nothing per frame, and voice-steps
+write only the changed registers — verified to be *one TL byte* for the dominant rapid sweep, with
+a full reload only at genuine instrument changes (note onsets, staggered). This makes the realistic
+worst tick tiny and fits comfortably. The **even/odd frame split** (process FM ch0–3 on even
+frames, 4–5 + sequencer on odd) remains a documented *headroom lever* if a future measurement shows
+a tick spike — but with write-on-change + deltas it is not expected to be needed for Moving Trucks.
 
 **The one open RE residual — the exact re-key rule.** The reference player overproduced key-ons on
 the two dense voice-stepping channels (ch1/ch4); the precise condition under which the driver
