@@ -624,9 +624,16 @@ SndDrv_SetBank:
         ld      (hl), a                  ; cache the new bank
         ld      hl, SND_Z80_BANKREG      ; $6000 bank latch
         rept 8
-        ld      (hl), a                  ; write current LSB
+        ld      (hl), a                  ; write current LSB (b0..b7), LSB-first
         rrca                             ; rotate next bit into bit0
         endr
+        ; 9th write = bit8 (the latch is 9-bit). `rrca` is an 8-bit rotate, so after
+        ; 8 rotations `a` is back to the ORIGINAL bank — its bit0 is b0, NOT b8.
+        ; Writing `a` here set b8 = bank's b0, which corrupts ODD banks (e.g. bank
+        ; $0D -> latch $10D -> maps off-ROM -> reads $FF). All our banks are < $100,
+        ; so b8 = 0; write 0 explicitly. (Latent until Sound 1D: 1A/1B/1C only ever
+        ; used EVEN banks, where b0=0 happened to give the right b8.)
+        xor     a                        ; b8 = 0 (banks < $100)
         ld      (hl), a                  ; 9th write (bit8)
         ret
 
@@ -781,6 +788,20 @@ Snd_LoadSong:
         ; load fully owns the timer config — the ordering is correct.
         call    Sequencer_StopAll        ; key-off FM + silence PSG + clear active flag
 
+        ; Clear the sequencer header + channel block FIRST (before the per-path setup
+        ; below), so the SND_SEQ_PATCHTAB + base each path writes are NOT zeroed by it.
+        ; (Bug: the clear used to live in .parse_header, AFTER the paths set PATCHTAB,
+        ; so PATCHTAB ended up $0000 -> Fm_PatchPtr read garbage patches from $0000.)
+        ld      hl, SND_SEQ_BASE
+        ld      bc, SND_SEQ_END-SND_SEQ_BASE
+.seq_clr:
+        ld      (hl), 0
+        inc     hl
+        dec     bc
+        ld      a, b
+        or      c
+        jr      nz, .seq_clr
+
         ; --- branch on the streaming flag (forwarded from the song's SH_FLAGS) ---
         ld      a, (SND_MUSIC_PARAM_FLAGS)
         bit     SH_F_STREAM_B, a
@@ -838,21 +859,17 @@ Snd_LoadSong:
         ; fall into .parse_header
 
 ; ---------- SHARED: parse the header + init channels (base in Snd_SongBase) ----
+; (the seq region was already cleared at the top of Snd_LoadSong, BEFORE the
+; per-path setup, so the SND_SEQ_PATCHTAB + Snd_SongBase the paths set survive.)
 .parse_header:
-        ; clear the whole sequencer header + channel block first.
-        ld      hl, SND_SEQ_BASE
-        ld      bc, SND_SEQ_END-SND_SEQ_BASE
-.seq_clr:
-        ld      (hl), 0
-        inc     hl
-        dec     bc
-        ld      a, b
-        or      c
-        jr      nz, .seq_clr
 
         ; channel_count (SH_CHCOUNT) — read via iy = song base (RAM or window).
         ld      iy, (Snd_SongBase)
         ld      a, (iy+SH_CHCOUNT)
+        cp      CHROUTE_COUNT+1          ; defensive guard: a corrupt count clamps to 0
+        jr      c, .cc_ok                ;   (prevents the channel loop walking ix wild)
+        xor     a
+.cc_ok:
         ld      (SND_SEQ_CHCOUNT), a
         ld      c, a                     ; c = channel count (loop bound)
         or      a

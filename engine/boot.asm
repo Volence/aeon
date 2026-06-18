@@ -213,7 +213,7 @@ Cold_Boot:
         bsr.w   Sound_Ping
         ; DEBUG: play the demo song (FM1 lead + FM2 bass + PSG1 thirds harmony),
         ; looping. Press START in-game to toggle stop/play (game_loop Debug_MusicToggle).
-        moveq   #SONG_TEST, d0
+        moveq   #SONG_MOVINGTRUCKS, d0   ; Sound 1D: play the transcoded B&R "Moving Trucks" (FM6=FM, streamed)
         bsr.w   Sound_PlayMusic
         move.b  #1, (Dbg_Music_On).w     ; DEBUG: track play state for the Start-toggle
       endif
