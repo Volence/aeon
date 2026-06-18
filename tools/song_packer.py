@@ -35,6 +35,8 @@ MEV_VOL = 0xE0
 MEV_PATCH = 0xE1
 MEV_DAC = 0xE2
 MEV_NOTE_DUR = 0xE3
+MEV_NOTE_RAW = 0xE7          # + a4 a0 dd: key a raw-frequency FM note (exact
+                             # $A4/$A0) for duration dd, bypassing the pitch table
 # Bounded-repeat opcodes (Sound 1D Task 1). The sequencer interprets these in a
 # later engine task; for now the packer ENCODES them so a song can wrap a body
 # in a finite repeat instead of unrolling it (Moving Trucks would be ~100KB
@@ -168,6 +170,28 @@ class NoteDur(Event):
             raise PackError(f"NoteDur dur {self.dur} out of range")
 
 
+class NoteRaw(Event):
+    """Key an FM note at a RAW frequency word (the exact $A4/$A0 bytes) for an
+    explicit duration, bypassing the pitch table. Used by VGM-derived songs to
+    reproduce the original chip pitch exactly. Time-advancing. FM-only."""
+    def __init__(self, a4: int, a0: int, dur: int):
+        self.a4 = a4        # $A4 value = (block<<3)|fnumHi
+        self.a0 = a0        # $A0 value = fnum low byte
+        self.dur = dur
+
+    def encode(self) -> bytes:
+        return bytes([MEV_NOTE_RAW, self.a4 & 0xFF, self.a0 & 0xFF,
+                      self.dur & 0xFF])
+
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"NoteRaw on non-FM route {route}")
+        if not (0 <= self.a4 <= 0xFF and 0 <= self.a0 <= 0xFF):
+            raise PackError(f"NoteRaw fnum bytes out of range")
+        if not (1 <= self.dur <= 0xFF):
+            raise PackError(f"NoteRaw dur {self.dur} out of range 1..255")
+
+
 class RepeatStart(Event):
     """Marks the start of a body that MEV_REPEAT_END replays. No operand."""
     def encode(self) -> bytes:
@@ -243,7 +267,7 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
             saw_patch = True
         if isinstance(ev, Vol):
             saw_vol = True
-        if isinstance(ev, (Note, Rest, NoteDur)) and not saw_first_note:
+        if isinstance(ev, (Note, Rest, NoteDur, NoteRaw)) and not saw_first_note:
             # First time-advancing event of the channel: this is the first point
             # the chip is keyed. Each route class must be initialized first or it
             # plays the YM2612/SN76489 power-on garbage register state. The DAC
@@ -269,7 +293,7 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
         if isinstance(ev, LoopPoint):
             saw_loop = True
             loop_advances_time = False
-        if saw_loop and isinstance(ev, (Note, Rest, NoteDur)):
+        if saw_loop and isinstance(ev, (Note, Rest, NoteDur, NoteRaw)):
             # Note ($81..$DF), Rest ($80), NoteDur ($E3) advance the tick clock;
             # all other events (SetDur, Vol, Patch, Dac, LoopPoint, Jump) are
             # zero-tick. A loop body with no time-advancing event would spin the

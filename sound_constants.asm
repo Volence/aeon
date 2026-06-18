@@ -237,6 +237,11 @@ MEV_PATCH       = $E1    ; + pp  : set FM patch index
 MEV_DAC         = $E2    ; + ss  : DAC trigger sample id (DAC channel only)
 MEV_NOTE_DUR    = $E3    ; + nn dd : note nn with explicit duration dd
 ; $E4 reserved for MEV_PAN (Sound 1D Task 4 — do NOT define here).
+MEV_NOTE_RAW    = $E7    ; + a4 a0 dd : key a RAW-frequency FM note (exact $A4/$A0
+                         ; bytes) for duration dd, bypassing FmPitchTableZ. Lets a
+                         ; VGM-derived song reproduce the original chip pitch
+                         ; EXACTLY (incl. sub-C0 bass + microtuning the note table
+                         ; can't reach). FM-only (PSG ignores). Sound 1D §5.2.
 ; Bounded-repeat opcodes (Sound 1D Task 1): a body wrapped in REPEAT_START..
 ; REPEAT_END replays `nn` total times WITHOUT being unrolled in the data. The
 ; packer encodes them now; the Z80 sequencer interprets them in a later engine
@@ -247,7 +252,7 @@ MEV_REPEAT_END   = $E6   ; + nn : replay from matching REPEAT_START nn times (1.
 MEV_LOOP_POINT  = $EE    ; loop-target marker (no operand)
 MEV_JUMP        = $EF    ; jump to loop point
 MEV_END         = $FF    ; end of stream (channel idle)
-; reserved for Phase 3: $E4 (MEV_PAN, T4), $E7–$ED, $F0–$FE (unknown opcode = build/validation error)
+; reserved for Phase 3: $E4 (MEV_PAN, T4), $E8–$ED, $F0–$FE (unknown opcode = build/validation error)
 
         ; the bounded-repeat opcodes live in the reserved $E4–$ED command block,
         ; above the note range and clear of MEV_PAN ($E4) / the loop opcodes.

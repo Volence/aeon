@@ -48,7 +48,7 @@ SongPatchTable_End:
 
         ; Task 6: the loader copies a FIXED SND_SONG_BUF_SIZE bytes of the packed
         ; song into Z80 RAM, so a RAM-BUFFERED song must fit in that buffer.
-        ; (Sound 1D Song_MovingTrucks is ~3KB and is NOT buffer-asserted here: it
+        ; (Sound 1D Song_MovingTrucks is ~4.4KB and is NOT buffer-asserted here: it
         ; streams from ROM in T3, never through the fixed SND_SONG_BUF.)
         if (Song_Test_End-Song_Test) > SND_SONG_BUF_SIZE
           fatal "Song_Test (\{Song_Test_End-Song_Test} bytes) exceeds SND_SONG_BUF_SIZE (\{SND_SONG_BUF_SIZE})"
@@ -70,7 +70,7 @@ SongPatchTable_End:
         ; block is Song_MovingTrucks .. MovingTrucks_Patches_End, placed contiguously
         ; after one `align $8000` in main.asm. Assert it does NOT cross a bank
         ; boundary (top byte in the same 32KB bank as the start). Combined size is
-        ; ~4.6KB song + 884B patches ~= 5.5KB << 32KB, so the align guarantees it —
+        ; ~4.4KB song + ~2.7KB patches ~= 7.2KB << 32KB, so the align guarantees it —
         ; this catches any future growth or accidental reordering. The per-channel
         ; stream offsets + the patch-bank window ptr are bank-window-relative
         ; (window_base = (addr & $7FFF) | $8000), which holds iff no boundary cross.

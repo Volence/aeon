@@ -227,6 +227,35 @@ Seq_Op_NoteDur:
         call    Seq_HookNoteOn           ; -> Fm_NoteOn / Psg_NoteOn / Psg_Noise per route
         ret                              ; time advanced -> done this tick
 
+; $E7 MEV_NOTE_RAW + a4 a0 dd : key an FM note at a RAW frequency word (the exact
+; $A4/$A0 bytes) for duration dd, bypassing FmPitchTableZ. Lets a VGM-derived song
+; reproduce the original chip pitch EXACTLY (sub-C0 bass + microtuning the note
+; table can't reach). FM-only: a non-FM route still consumes the 3 operands and
+; advances time, but does not key (the packer routes NOTE_RAW only to FM channels).
+; Advances time (like NOTE_DUR).
+Seq_Op_NoteRaw:
+        ld      a, (hl)
+        inc     hl                       ; a = $A4 value (block|fnumHi)
+        ld      d, a                     ; d = $A4 (Fm_NoteOnFreq input)
+        ld      (ix+sc_note), a          ; stash $A4 for debug/mirror visibility
+        ld      a, (hl)
+        inc     hl                       ; a = $A0 value (fnum low)
+        ld      e, a                     ; e = $A0 (Fm_NoteOnFreq input)
+        ld      a, (hl)
+        inc     hl                       ; a = duration
+        ld      (ix+sc_dur_count), a     ; explicit duration
+        ld      (ix+sc_stream_ptr), l
+        ld      (ix+sc_stream_ptr+1), h  ; commit ptr before the hook clobbers hl
+        set     SCF_KEYED_B, (ix+sc_flags) ; SCF_KEYED
+    ifdef __DEBUG__
+        ld      a, SEQEV_NOTEON
+        call    Seq_Trace                ; preserves de (the fnum word)
+    endif
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        ret     z                        ; non-FM route -> time advanced, no key
+        call    Fm_NoteOnFreq            ; key on at raw freq (de = $A4/$A0); preserves ix
+        ret                              ; time advanced -> done this tick
+
 ; $E5 MEV_REPEAT_START (no operand) : save the current (post-opcode) ptr as the
 ; body-start the matching $E6 jumps back to. Zero tick. Does NOT touch
 ; sc_repeat_count — the count is established when $E6 is first reached (so a
@@ -356,7 +385,7 @@ SeqOpcodeTable:
         dw      Seq_BadOpcode            ; $E4 reserved (MEV_PAN, T4)
         dw      Seq_Op_RepeatStart       ; $E5 MEV_REPEAT_START
         dw      Seq_Op_RepeatEnd         ; $E6 MEV_REPEAT_END
-        dw      Seq_BadOpcode            ; $E7 reserved
+        dw      Seq_Op_NoteRaw           ; $E7 MEV_NOTE_RAW
         dw      Seq_BadOpcode            ; $E8 reserved
         dw      Seq_BadOpcode            ; $E9 reserved
         dw      Seq_BadOpcode            ; $EA reserved

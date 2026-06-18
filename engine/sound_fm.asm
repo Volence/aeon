@@ -323,6 +323,17 @@ Fm_NoteOn:
         ld      e, (hl)                  ; e = low  byte = $A0 value (fnum low)
         inc     hl
         ld      d, (hl)                  ; d = high byte = $A4 value (block|fnumHi)
+        ; fall into Fm_NoteOnFreq with de = packed (d=$A4 val, e=$A0 val)
+
+; ----------------------------------------------------------------------
+; Fm_NoteOnFreq — key a note at a RAW frequency word (no pitch-table lookup).
+; In: ix = SeqChannel, d = $A4 value ((block<<3)|fnumHi), e = $A0 value (fnum low).
+; Shared tail of Fm_NoteOn; the MEV_NOTE_RAW handler enters HERE with de preset so
+; a VGM-derived song reproduces the original chip pitch exactly. Same write order
+; as Fm_NoteOn ($A4 first, then $A0, then key-on). Sets SCF_KEYED.
+; Clobbers: af, bc, de, hl. Preserves ix.
+; ----------------------------------------------------------------------
+Fm_NoteOnFreq:
         push    de                       ; save the split fnum bytes
 
         call    Fm_RoutePart             ; b = part, c = ch-in-part
