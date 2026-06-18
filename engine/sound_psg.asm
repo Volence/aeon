@@ -129,7 +129,7 @@ Psg_NoteOn:
         add     a, a
         add     a, a
         add     a, a
-        add     a, a                     ; a = d << 4 (div bits 9..6 into D5..D4? )
+        add     a, a                     ; a = d << 4 (div bits 9..8 land in D5..D4)
         ld      b, a                     ; b = (d & 3) << 4 -> div bits 5..4 region
         ld      a, e
         srl     a
@@ -149,7 +149,9 @@ Psg_NoteOn:
 ; Psg_NoteOff — silence a PSG channel (tone OR noise) via its attenuation.
 ; In:  ix = SeqChannel.  Clears SCF_KEYED.
 ; Tone:  vol byte = $90 | (ch<<5) | $0F.   Noise: $F0 | $0F = $FF.
-; Clobbers: af, bc. Preserves de, hl, ix.
+; Clobbers: af. Preserves bc, de, hl, ix. (Tone path calls Psg_ChBase, which
+; clobbers af only; the noise path is a single ld a,$FF/store — no tail-call,
+; so unlike Psg_Noise this routine does NOT fold in Psg_SetVolume's bc clobber.)
 ; ----------------------------------------------------------------------
 Psg_NoteOff:
         res     SCF_KEYED_B, (ix+sc_flags)
