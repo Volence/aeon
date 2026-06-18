@@ -7,15 +7,14 @@
 ; then 6 four-byte per-op arrays for regs $30/$40/$50/$60/$70/$80, with array
 ; index 0..3 = PHYSICAL register offset +0/+4/+8/+C = operators S1,S3,S2,S4.
 ;
-; --- CONTENT PROVENANCE (TEMP BRING-UP) ----------------------------------
-; DATA-ONLY translation of two Emerald Hill Zone SMPS voices (S2; the same
-; voice data shipped in sonic_hack's music blobs, here in readable form from
-; the S2 disassembly). The SMPS voice fields are stored op1..op4 (operator-
-; natural order); they are reordered here into our physical-register order
-; [op1,op3,op2,op4] = reg offsets [+0,+4,+8,+C]. The $B4 L/R bits are forced to
-; 11 (both speakers) so the channel is audible (an SMPS voice carries no L/R).
-; These are CLEARLY-TEMP placeholders for FM bring-up — final instrument
-; sourcing is the user's call. No SMPS code was copied; only voice byte values.
+; --- SINGLE SOURCE OF PATCH BYTES ----------------------------------------
+; The raw patch records live in data/sound/fm_patches.inc and are included by
+; BOTH this file (the 68k ROM copy, for Task 6's banked loader) and the inline
+; Z80-blob copy in engine/z80_sound_driver.asm (FmPatchInlineTable, read by the
+; FM writer with direct Z80 addressing). Editing the bytes in ONE place updates
+; both physical copies — no drift trap. The .inc emits each byte through a
+; self-contained `pbyte` macro that picks `dc.b`/`db` for the current CPU.
+; (See the .inc header for WHY a macro is needed + content provenance.)
 ;
 ; CONTRACT: PATCH_COUNT = number of FmPatch records between FmPatchTable and
 ; FmPatchTable_End; the count assert ties them together (Task-3 spec form).
@@ -29,29 +28,7 @@ PATCH_LEAD = 1          ; EHZ voice (alg 7, fb 0 — all carriers, bright)
 PATCH_COUNT = 2
 
 FmPatchTable:
-
-; --- PATCH_BASS (index 0) — EHZ SMPS voice, algorithm 5, feedback 6 -------
-        dc.b    $35                     ; fp_alg_fb     = (fb6<<3)|alg5
-        dc.b    $C0                     ; fp_lr_ams_fms = L/R=11, AMS=0, FMS=0
-        dc.b    $00, $01, $13, $01      ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        dc.b    $00, $00, $03, $1E      ; fp_tl      $40
-        dc.b    $19, $1D, $18, $1F      ; fp_rs_ar   $50
-        dc.b    $0D, $09, $06, $00      ; fp_am_d1r  $60
-        dc.b    $03, $00, $02, $00      ; fp_d2r     $70
-        dc.b    $16, $06, $15, $00      ; fp_d1l_rr  $80
-
-; --- PATCH_LEAD (index 1) — EHZ SMPS voice, algorithm 7, feedback 0 -------
-; Algorithm 7 = all four operators are carriers -> the simplest "always audible"
-; voice (every op outputs directly), ideal for first-light FM verification.
-        dc.b    $07                     ; fp_alg_fb     = (fb0<<3)|alg7
-        dc.b    $C0                     ; fp_lr_ams_fms = L/R=11, AMS=0, FMS=0
-        dc.b    $02, $00, $01, $05      ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        dc.b    $00, $00, $00, $00      ; fp_tl      $40
-        dc.b    $1F, $1F, $1F, $1F      ; fp_rs_ar   $50
-        dc.b    $0E, $0E, $0E, $0E      ; fp_am_d1r  $60
-        dc.b    $02, $02, $02, $02      ; fp_d2r     $70
-        dc.b    $54, $55, $55, $55      ; fp_d1l_rr  $80
-
+        include "data/sound/fm_patches.inc"
 FmPatchTable_End:
 
         if (FmPatchTable_End-FmPatchTable)/FmPatch_len <> PATCH_COUNT

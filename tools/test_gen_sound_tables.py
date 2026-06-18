@@ -19,6 +19,7 @@ from gen_sound_tables import (
     log_volume_lut,
     carrier_mask_table,
     emit_asm,
+    emit_asm_z80,
     NUM_PITCHES,
     A4_PITCH_INDEX,
 )
@@ -184,6 +185,65 @@ class TestEmitAsm(unittest.TestCase):
     def test_carrier_mask_roundtrip(self):
         vals = self._parse_dc("CarrierMaskTable", "b")
         self.assertEqual(vals, carrier_mask_table())
+
+
+class TestEmitAsmZ80Matches68k(unittest.TestCase):
+    """Drift guard: the Z80 inline emit (emit_asm_z80) must carry the SAME
+    numeric table values as the 68k ROM emit (emit_asm). They share the source
+    functions, so this is structurally unlikely to drift, but the codebase
+    values build-time validation — a cheap guard is worth it."""
+
+    def setUp(self):
+        self.asm68k = emit_asm()
+        self.asmz80 = emit_asm_z80()
+
+    def _parse_68k(self, label):
+        # dc.b/dc.w with AS `$` hex literals, between `label:` and `label_End:`.
+        lines = self.asm68k.splitlines()
+        start = next(i for i, l in enumerate(lines) if l.strip().startswith(label + ":"))
+        vals = []
+        for l in lines[start + 1:]:
+            s = l.strip()
+            if s.startswith(label + "_End:"):
+                break
+            m = re.match(r"dc\.[bw]\s+(.*)", s)
+            if m:
+                for tok in m.group(1).split(","):
+                    tok = tok.strip()
+                    if tok:
+                        vals.append(int(tok[1:], 16) if tok.startswith("$") else int(tok, 0))
+        return vals
+
+    def _parse_z80(self, label):
+        # db/dw with Intel-hex literals (e.g. 01Eh, 0A0Bh) between label/label_End.
+        lines = self.asmz80.splitlines()
+        start = next(i for i, l in enumerate(lines) if l.strip().startswith(label + ":"))
+        vals = []
+        for l in lines[start + 1:]:
+            s = l.strip()
+            if s.startswith(label + "_End:"):
+                break
+            m = re.match(r"d[bw]\s+(.*)", s)
+            if m:
+                for tok in m.group(1).split(","):
+                    tok = tok.strip()
+                    if tok.endswith("h") or tok.endswith("H"):
+                        vals.append(int(tok[:-1], 16))
+                    elif tok:
+                        vals.append(int(tok, 0))
+        return vals
+
+    def test_pitch_table_values_match(self):
+        self.assertEqual(self._parse_z80("FmPitchTableZ"),
+                         self._parse_68k("FmPitchTable"))
+
+    def test_log_volume_lut_values_match(self):
+        self.assertEqual(self._parse_z80("LogVolumeLutZ"),
+                         self._parse_68k("LogVolumeLut"))
+
+    def test_carrier_mask_values_match(self):
+        self.assertEqual(self._parse_z80("CarrierMaskTableZ"),
+                         self._parse_68k("CarrierMaskTable"))
 
 
 if __name__ == "__main__":

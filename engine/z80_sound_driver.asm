@@ -546,29 +546,13 @@ SndDrv_SetBank:
 
 ; --- Inline FM patch table (Z80-addressable) ---
 ; Fm_PatchPtr indexes this by sc_patch (TEMP for 1C — Task 6 switches to the
-; banked 68k ROM FmPatchTable in data/sound/fm_patches.asm). These two records
-; are byte-for-byte copies of the ROM patches (PATCH_BASS=0, PATCH_LEAD=1) — the
-; SAME EHZ SMPS-voice translation, in Z80 db syntax. CLEARLY-TEMP bring-up data.
-; FmPatch_len = 26 bytes per record; field order = the FmPatch struct.
+; banked 68k ROM FmPatchTable in data/sound/fm_patches.asm). The patch BYTES are
+; single-sourced from data/sound/fm_patches.inc (the SAME records the 68k ROM
+; FmPatchTable includes), so the inline copy and the ROM copy can never drift.
+; The .inc emits via a `pbyte` macro that selects `db` here (Z80) vs `dc.b` in
+; the 68k ROM. CLEARLY-TEMP bring-up data; FmPatch_len = 26 bytes/record.
 FmPatchInlineTable:
-; PATCH_BASS (index 0) — EHZ SMPS voice, algorithm 5, feedback 6
-        db      035h                     ; fp_alg_fb
-        db      0C0h                     ; fp_lr_ams_fms (L/R=11)
-        db      000h, 001h, 013h, 001h   ; fp_dt_mul  $30 [S1,S3,S2,S4]
-        db      000h, 000h, 003h, 01Eh   ; fp_tl      $40
-        db      019h, 01Dh, 018h, 01Fh   ; fp_rs_ar   $50
-        db      00Dh, 009h, 006h, 000h   ; fp_am_d1r  $60
-        db      003h, 000h, 002h, 000h   ; fp_d2r     $70
-        db      016h, 006h, 015h, 000h   ; fp_d1l_rr  $80
-; PATCH_LEAD (index 1) — EHZ SMPS voice, algorithm 7, feedback 0 (all carriers)
-        db      007h                     ; fp_alg_fb
-        db      0C0h                     ; fp_lr_ams_fms (L/R=11)
-        db      002h, 000h, 001h, 005h   ; fp_dt_mul  $30 [S1,S3,S2,S4]
-        db      000h, 000h, 000h, 000h   ; fp_tl      $40
-        db      01Fh, 01Fh, 01Fh, 01Fh   ; fp_rs_ar   $50
-        db      00Eh, 00Eh, 00Eh, 00Eh   ; fp_am_d1r  $60
-        db      002h, 002h, 002h, 002h   ; fp_d2r     $70
-        db      054h, 055h, 055h, 055h   ; fp_d1l_rr  $80
+        include "data/sound/fm_patches.inc"
 FmPatchInlineTable_End:
 
         if (FmPatchInlineTable_End-FmPatchInlineTable) <> 2*FmPatch_len

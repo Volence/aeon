@@ -97,9 +97,9 @@ Fm_RoutePart:
 ; ----------------------------------------------------------------------
 ; Fm_PatchPtr — compute the FmPatch pointer for sc_patch into hl.
 ; In:  ix = SeqChannel (uses sc_patch).  Out: hl = FmPatchInlineTable + patch*26.
-; FmPatch_len = 26 = 16 + 8 + 2; multiply by shift/add (NO mulu): build patch*2,
-; then (patch*2)*8 + (patch*2)*4 + (patch*2) = patch*(2+8+16)=patch*26... we use
-; idx2 = patch*2 (=hl), then hl = idx2 + idx2*4 + idx2*8 via add-doublings.
+; FmPatch_len = 26. Multiply by shift/add (NO mulu): keep P2 = patch*2 in de,
+; then accumulate in hl by doubling and adding P2 — the running products are
+;   *2 (=P2) -> *4 -> *8 -> +P2=*10 -> *20 -> +P2=*22 -> +P2=*24 -> +P2=*26.
 ; Clobbers: af, de, hl. Preserves bc, ix.
 ; ----------------------------------------------------------------------
 Fm_PatchPtr:
@@ -177,7 +177,8 @@ Fm_PatchLoad:
 ; In:  a = register base ($30/$40/...), hl = ptr to the 4 patch bytes (advanced).
 ;      Fm_ScratchCh = ch-in-part, Fm_ScratchPart = part.
 ; Writes (base + op*4 + ch) = patch[op] for op = 0..3. Advances hl by 4.
-; Clobbers: af, bc, de. Preserves ix. (Internal helper of Fm_PatchLoad.)
+; Clobbers: af, bc, de, hl (hl advanced by 4). Preserves ix. (Internal helper
+; of Fm_PatchLoad.)
 Fm_PatchOpGroup:
         ld      d, a                     ; d = register base (preserved across ops)
         ld      e, 0                     ; e = op*4 accumulator (0,4,8,12)
