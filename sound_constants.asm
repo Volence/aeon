@@ -95,6 +95,13 @@ SND_TIMERA_CTRL_BIT_ENBL = 2
 SND_TIMERA_CTRL_BIT_RST  = 4
 SND_TIMERA_CTRL_PROGRAM = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)             ; $05 : LOAD:A | ENBL:A
 SND_TIMERA_CTRL_REARM   = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)|(1<<SND_TIMERA_CTRL_BIT_RST) ; $15 : LOAD:A | ENBL:A | RST:A
+; DISABLE: strobe RST:A (bit4) to CLEAR the pending overflow status flag WHILE
+; leaving LOAD:A (bit0) and ENBL:A (bit2) CLEAR so the timer stays off. A bare
+; $27=0 disables the counter but does NOT clear an already-pending overflow flag,
+; so the very next DAC/idle-loop poll would still see overflow and RE-ARM the
+; timer (resurrecting it). $10 clears the flag AND keeps the timer disabled, so
+; StopMusic durably stops the ticks.
+SND_TIMERA_CTRL_DISABLE = (1<<SND_TIMERA_CTRL_BIT_RST)                                            ; $10 : RST:A only (clear flag, timer OFF)
 SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A overflow
 
         if SND_TIMERA_CTRL_PROGRAM <> $05
@@ -102,6 +109,9 @@ SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A 
         endif
         if SND_TIMERA_CTRL_REARM <> $15
           error "SND_TIMERA_CTRL_REARM must be $15 (LOAD:A|ENBL:A|RST:A)"
+        endif
+        if SND_TIMERA_CTRL_DISABLE <> $10
+          error "SND_TIMERA_CTRL_DISABLE must be $10 (RST:A only)"
         endif
 
 ; --- Tempo: YM Timer A programming from the song-header tempo byte (Task 5) ---
@@ -120,26 +130,14 @@ SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A 
 ;
 ; Build-time period/rate helpers (self-documenting, never hand-tuned literals;
 ; the 1A audit found $C0 had been misread as N=192 vs N=768):
+; These document the LIVE mapping Snd_TimerA_Program implements at runtime (it
+; writes the tempo byte straight to $24 = N>>2, $25 = 0). They are uncalled in
+; the shipping build (the Task-5 dry-run tempo + the legacy ticks/frame timebase
+; that used to consume them were removed when Task 6 wired the real song loader);
+; AS `function` defs emit no bytes, so they stay purely as self-documenting math.
 ym_timerA_n_from_tempo  function tb, ((tb) << 2)                          ; N = tempo<<2
 ym_timerA_period_ns     function tb, ((1024 - ym_timerA_n_from_tempo(tb)) * 18773)
 ym_timerA_hz            function tb, (1000000000 / ym_timerA_period_ns(tb)) ; ticks/sec (int div)
-
-; --- DEBUG dry-run tempo (Task 5 drives Sequencer_Tick from Timer A, replacing
-; the removed per-VBlank ISR pump). DECISION 2: pick a tempo byte giving a
-; musically reasonable tick rate (~150-300 ticks/sec target). tempo $D0 -> N=832,
-; period = (1024-832)*18.773us = 192*18.773us = 3604.4us -> ~277.4 ticks/sec, i.e.
-; ~4.62 ticks per 60Hz frame. The controller verifies SND_STAT_TICK increments at
-; ~277/sec (the byte wraps mod 256, so ~277 increments/sec, full wrap ~0.92s).
-SND_DBG_TEMPO           = $D0                     ; dry-run tempo byte (-> N=832 -> ~277 ticks/sec)
-SND_DBG_TICK_HZ         = ym_timerA_hz(SND_DBG_TEMPO)  ; build-time documented tick rate (~277)
-
-; (legacy ticks/frame timebase machinery — kept for reference; Task 6's real song
-;  loader programs Timer A from the loaded SongHeader tempo byte, not this.)
-ym_timerA_n  function tpf, (1024 - (16688000 / ((tpf) * 18773)))
-SND_TEMPO_TPF           = 6                       ; design tempo timebase (ticks/frame)
-SND_TIMERA_N            = ym_timerA_n(SND_TEMPO_TPF)
-SND_TIMERA_HI           = (SND_TIMERA_N >> 2) & $FF
-SND_TIMERA_LO           = SND_TIMERA_N & 3
 
 ; --- 1B: ring buffer (page-aligned, 256 bytes) ---
 SND_RING_BASE           = $1700                  ; Z80 addr; high byte $17 is the page
@@ -452,7 +450,7 @@ SEQEV_END       = 8     ; end of stream ($FF)
 
 ; --- SongHeader layout (emitted by tools/song_packer.py, read by the loader) ---
 ; SongHeader:
-;   db  tempo            ; Timer-A period selector (bigger = slower)
+;   db  tempo            ; Timer-A reload selector (N = tempo<<2; bigger = faster)
 ;   db  channel_count
 ;   ; per channel: route byte + 2-byte stream pointer (Z80-window-relative)
 ;   rept channel_count: db route ; dw stream_ptr ; endm

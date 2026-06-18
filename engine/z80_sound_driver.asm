@@ -431,9 +431,14 @@ SndDrv_Drain:
 ; ======================================================================
 ; SndDrv_ISR — minimal VBlank ISR (RST 38h $0038 -> jp here).
 ; Mailbox poll ONLY, then ei/ret. NO draining (the 68k flag bracket handles
-; DMA survival via the producer's DRAIN path). The poll reads Z80-RAM + the
-; $6000 bank latch only — NEVER ROM — so it is DMA-safe even if it fires mid-
-; DMA. Preserves every register it touches (it interrupts the main/idle loop).
+; DMA survival via the producer's DRAIN path). ROM-SAFETY (Task 6 nuance): the
+; ping/sample request paths read Z80-RAM + the $6000 bank latch ONLY — never ROM
+; — so they are DMA-safe even if the ISR fires mid-DMA. The MUSIC-LOAD path is
+; the exception: Snd_LoadSong's `ldir` DOES read ROM through the $8000 window, so
+; it is NOT ROM-free. It is safe instead because the DAC loop is paused while the
+; ISR runs and the ~250-sample ring-lead budget (SND_RING_LEAD_CAP) vastly
+; outlasts the few-hundred-byte song copy — the lead absorbs the load.
+; Preserves every register it touches (it interrupts the main/idle loop).
 ; `de` ($4001) and `ix` are NOT touched here, so they survive untouched.
 ; ======================================================================
 SndDrv_ISR:
@@ -702,16 +707,20 @@ Snd_TimerA_Rearm:
         ret
 
 ; ======================================================================
-; Snd_TimerA_Disable — stop Timer A entirely (Task 6 StopMusic). Writes $27 = 0
-; (no LOAD/ENBL/RST) so the counter stops raising the overflow status flag and
-; the DAC-loop poll sees no more ticks. ABSOLUTE addressing (preserve de);
-; re-parks reg $2A on $4000. Clobbers af.
+; Snd_TimerA_Disable — durably stop Timer A (Task 6 StopMusic). Writes $27 = $10
+; (= SND_TIMERA_CTRL_DISABLE: RST:A bit4 SET to STROBE-CLEAR the pending overflow
+; status flag; LOAD:A bit0 + ENBL:A bit2 CLEAR so the counter stays disabled).
+; A bare $27=0 would leave a STALE overflow flag set: the very next DAC/idle-loop
+; poll (`ld a,($4000)/and 1/jp nz`) would take the overflow branch -> Rearm writes
+; $27=$15 -> the timer is RESURRECTED. $10 clears the flag AND keeps the timer off,
+; so the next poll sees no overflow and the timer stays dead. ABSOLUTE addressing
+; (preserve de); re-parks reg $2A on $4000. Clobbers af.
 ; ======================================================================
 Snd_TimerA_Disable:
         ld      a, SND_REG_TIMER_CTRL    ; $27
         ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
-        xor     a
-        ld      (SND_Z80_YM_A1), a       ; $4001 = 0 -> Timer A off (no overflow flag)
+        ld      a, SND_TIMERA_CTRL_DISABLE ; $10 = RST:A only (clear overflow flag, timer OFF)
+        ld      (SND_Z80_YM_A1), a       ; $4001 = strobe RST:A, leave LOAD/ENBL clear
         ld      a, SND_REG_DAC_DATA      ; $2A
         ld      (SND_Z80_YM_A0), a       ; re-park addr port on DAC DATA
         ret
@@ -739,6 +748,17 @@ Snd_TimerA_Disable:
 ; not used by the streaming loop across iterations.)
 ; ======================================================================
 Snd_LoadSong:
+        ; 0. SILENCE THE PREVIOUS SONG'S HARDWARE before clobbering its RAM state.
+        ; A PlayMusic-while-playing switch (or a coalesced Stop+Play) reaches here
+        ; with FM notes keyed-on and PSG tones sustaining from the OLD song. The
+        ; .seq_clr wipe below loses every SCF_KEYED bit, so without an explicit
+        ; hardware silence those voices would HANG on any physical channel the new
+        ; song doesn't immediately re-key. Sequencer_StopAll is a blanket hardware
+        ; silence: key-off all 6 FM channels via $28 + Psg_SilenceAll + clears
+        ; SND_SEQ_ACTIVE. It uses ABSOLUTE YM addressing (preserves de=$4001) and
+        ; touches NO Timer-A state, so the Snd_TimerA_Program call later in this
+        ; load fully owns the timer config — the ordering is correct.
+        call    Sequencer_StopAll        ; key-off FM + silence PSG + clear active flag
         ; 1. save the DAC bank (so we can restore it after reading the song).
         ld      a, (SND_CUR_BANK)
         ld      (Snd_SavedDacBank), a

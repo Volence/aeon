@@ -4,17 +4,17 @@
 ; Assembled INLINE inside the z80_sound_driver.asm `phase 0` blob (included
 ; after SndDrv_SetBank, before the even-pad). Hardware-AGNOSTIC: it walks the
 ; per-channel byte streams, counts durations, handles loops, and DISPATCHES
-; musical events to writer-hook stubs. In THIS task (2) the hooks are `ret`
-; stubs and the only observable effect is the DEBUG trace ring — Tasks 3/4/6
-; fill the hooks with real FM/PSG/DAC register writes (branching on sc_route)
-; while the DEBUG trace keeps firing independently.
+; musical events to writer hooks. The hooks are now FULLY WIRED (branching on
+; sc_route): FM routes call the Fm_* writers (engine/sound_fm.asm), PSG routes
+; call the Psg_* writers (engine/sound_psg.asm), and the DAC route's $E2 trigger
+; calls Snd_StartSample. Under DEBUG the trace ring fires independently.
 ;
 ; OBSERVABILITY SEAM (design choice, documented per the task):
 ;   Each musical event does TWO independent things:
 ;     (a) under DEBUG, appends a trace record to SND_SEQ_TRACE (MCP-observable)
-;     (b) calls a per-event writer hook (Seq_Hook*) — `ret` stubs this task.
-;   The trace is SEPARATE from the writer hooks so later tasks can wire real
-;   audio into the hooks without touching observability.
+;     (b) calls a per-event writer hook (Seq_Hook*) — now wired to real writers.
+;   The trace is kept SEPARATE from the writer hooks so observability stays
+;   independent of the audio path.
 ;
 ; CHANNEL ITERATION (research: Flamedriver zTrackUpdLoop, s2 zUpdateMusic):
 ;   ix holds the SeqChannel base; fields are (ix+sc_*). Advance to the next
@@ -110,7 +110,7 @@ Sequencer_NextOpcode:
         ld      a, SEQEV_NOTEON
         call    Seq_Trace
     endif
-        call    Seq_HookNoteOn           ; STUB this task (Task 3 wires FM/PSG)
+        call    Seq_HookNoteOn           ; -> Fm_NoteOn / Psg_NoteOn / Psg_Noise per route
         ret                              ; time advanced -> done this tick
 
 ; --- REST: key-off; reload duration; advance ---
@@ -124,7 +124,7 @@ Sequencer_NextOpcode:
         ld      a, SEQEV_NOTEOFF
         call    Seq_Trace
     endif
-        call    Seq_HookNoteOff          ; STUB this task
+        call    Seq_HookNoteOff          ; -> Fm_NoteOff / Psg_NoteOff per route
         ret                              ; time advanced -> done this tick
 
 ; --- SET DEFAULT DURATION ($00..$7F): zero tick, loop back to fetch ---
@@ -170,7 +170,7 @@ Seq_Op_Vol:
         pop     hl
     endif
         push    hl                       ; hook clobbers hl; stream ptr stays LIVE here
-        call    Seq_HookSetVol           ; STUB this task
+        call    Seq_HookSetVol           ; -> Fm_SetVolume / Psg_SetVolume per route
         pop     hl
         jr      Seq_ContinueFetch
 
@@ -186,7 +186,7 @@ Seq_Op_Patch:
         pop     hl
     endif
         push    hl                       ; hook clobbers hl; stream ptr stays LIVE here
-        call    Seq_HookSetPatch         ; STUB this task
+        call    Seq_HookSetPatch         ; FM: Fm_PatchLoad + re-apply vol; PSG/DAC ignore
         pop     hl
         jr      Seq_ContinueFetch
 
@@ -205,7 +205,7 @@ Seq_Op_Dac:
         pop     hl
     endif
         push    hl                       ; hook clobbers hl; stream ptr stays LIVE here
-        call    Seq_HookDac              ; STUB this task
+        call    Seq_HookDac              ; -> Snd_StartSample (DAC sample id in sc_note)
         pop     hl
         jr      Seq_ContinueFetch
 
@@ -224,7 +224,7 @@ Seq_Op_NoteDur:
         ld      a, SEQEV_NOTEON
         call    Seq_Trace
     endif
-        call    Seq_HookNoteOn           ; STUB this task
+        call    Seq_HookNoteOn           ; -> Fm_NoteOn / Psg_NoteOn / Psg_Noise per route
         ret                              ; time advanced -> done this tick
 
 ; $EE MEV_LOOP_POINT : save the current (post-opcode) ptr as the loop target
@@ -349,10 +349,10 @@ Seq_Trace:
     endif
 
 ; ======================================================================
-; Writer-HOOK dispatch (Task 3 wired FM; Task 4 wires PSG; DAC still a `ret`
-; stub — Task 6). Each hook gates on the route class bits in sc_flags: FM routes
-; call the Fm_* writers (engine/sound_fm.asm), PSG routes call the Psg_* writers
-; (engine/sound_psg.asm), the DAC route falls through to `ret`.
+; Writer-HOOK dispatch (FM/PSG/DAC all wired). Each hook gates on the route
+; class bits in sc_flags: FM routes call the Fm_* writers (engine/sound_fm.asm),
+; PSG routes call the Psg_* writers (engine/sound_psg.asm); the DAC route's $E2
+; trigger (Seq_HookDac) calls Snd_StartSample (no route gate — $E2 is DAC-only).
 ; They run with ix = current SeqChannel. EVERY writer (Fm_* AND Psg_*) preserves
 ; ix — the channel loop relies on it. INVARIANT for hl across these calls:
 ;   - TIME-ADVANCING hooks (NoteOn/NoteOff, called from .note/.rest/.notedur):
@@ -410,7 +410,15 @@ Seq_HookSetPatch:
         bit     SCF_IS_FM_B, (ix+sc_flags)
         ret     z                        ; PSG/DAC have no patch -> ignore
         call    Fm_PatchPtr              ; hl = FmPatch ptr for sc_patch
-        jp      Fm_PatchLoad
+        call    Fm_PatchLoad             ; load the voice (preserves ix)
+        ; Fm_PatchLoad wrote the patch's BASE TLs (full per-patch loudness) to the
+        ; carriers, but NOT the channel's current volume — so re-apply sc_volume
+        ; so a patch change preserves the intended loudness instead of jumping to
+        ; patch-base until the next $E0. Fm_SetVolume re-reads the patch base TLs
+        ; and writes base+log to the carriers, OVERWRITING (not stacking on) the TLs
+        ; Fm_PatchLoad just wrote — no double-apply. Both routines preserve ix.
+        ld      a, (ix+sc_volume)        ; a = current channel volume (linear 0..127)
+        jp      Fm_SetVolume             ; re-apply volume to the carriers
 
 ; Seq_HookDac (Task 6) — the DAC route's $E2 trigger. Seq_Op_Dac stashed the
 ; operand (the sample id) in sc_note; look it up in DacSampleTable and start the
