@@ -416,6 +416,84 @@ Fm_SetPan:
         jp      Fm_ReparkDac              ; defensive re-park ($2A); preserves ix
 
 ; ----------------------------------------------------------------------
+; Fm_RegDelta — write ONE per-operator YM2612 register for the current channel,
+; PART-AWARE, resolved from a reg_sel byte (Phase 3 Task 5 voice-stepping).
+; This is the mid-note minimal-register-delta primitive: the timbre of a HELD
+; note is swept by writing only the register(s) that change between voice steps
+; (the dominant Zyrinx lead step is ONE byte — operator S1's TL). It does NOT
+; touch $28 (key) and does NOT re-key — per the re-key rule, only a pitch change
+; (MEV_PITCHENV) re-articulates a note (see Seq_Op_RegDelta).
+;
+; In:  ix = SeqChannel, a = reg_sel = (group_code << REGDELTA_GROUP_SHIFT) | op,
+;      c = value (the register data byte; preserved through the route math).
+; reg_sel -> ym_reg = RegDeltaGroupBase[group_code] + op*4 + ch-in-part (part-aware
+; via Fm_RoutePart). group_code 0..5 = $30/$40/$50/$60/$70/$80; op 0..3 = the
+; physical operator (reg stride +4). group_code is masked to the table size so a
+; bad encoding can never index past RegDeltaGroupBase.
+; Clobbers: af, bc, de, hl. Preserves ix. (de = the DAC loop's $4001 is untouched —
+; Fm_RoutePart/Fm_YmWrite use absolute YM addressing.)
+; ----------------------------------------------------------------------
+Fm_RegDelta:
+        ld      (Fm_ScratchLog), a       ; stash reg_sel  (Fm_ScratchLog is free here)
+        ld      a, c
+        ld      (Fm_ScratchMask), a      ; stash value    (reuse the same free scratch)
+
+        ; route -> part + ch-in-part (the same pattern as Fm_SetPan/Fm_NoteOnFreq).
+        call    Fm_RoutePart             ; b = part, c = ch-in-part (clobbers af,bc)
+        ld      a, c
+        ld      (Fm_ScratchCh), a        ; ch-in-part
+        ld      a, b
+        ld      (Fm_ScratchPart), a      ; part
+
+        ; --- resolve the register from reg_sel: base[group] + op*4 + ch ---
+        ld      a, (Fm_ScratchLog)       ; a = reg_sel
+        and     REGDELTA_OP_MASK         ; a = op (0..3)
+        add     a, a
+        add     a, a                     ; a = op*4 (operator reg stride)
+        ld      e, a                     ; e = op*4 (preserve across the group lookup)
+        ld      a, (Fm_ScratchLog)       ; a = reg_sel again
+        rrca
+        rrca                             ; a = reg_sel >> 2 (group_code in low bits)
+        and     REGDELTA_GROUP_MASK      ; a = group_code field
+        cp      REGDELTA_GROUP_COUNT
+        jr      c, .group_ok
+        xor     a                        ; out-of-range group_code -> group 0 (defensive)
+.group_ok:
+        ld      l, a
+        ld      h, 0
+        ld      bc, RegDeltaGroupBase
+        add     hl, bc                   ; hl = &RegDeltaGroupBase[group_code]
+        ld      a, (hl)                  ; a = group base ($30/$40/.../$80)
+        add     a, e                     ; + op*4
+        ld      hl, Fm_ScratchCh
+        add     a, (hl)                  ; + ch-in-part -> a = the YM register number
+        push    af                       ; save reg across the value/part loads
+        ld      a, (Fm_ScratchMask)
+        ld      c, a                     ; c = value
+        ld      a, (Fm_ScratchPart)
+        ld      b, a                     ; b = part
+        pop     af                       ; a = reg
+        call    Fm_YmWrite               ; a=reg, c=value, b=part (preserves ix)
+        jp      Fm_ReparkDac             ; defensive re-park ($2A); preserves ix
+
+; RegDeltaGroupBase — group_code 0..5 -> the per-operator YM register-group base.
+; Order MATCHES the FmPatch group order + the SND_REG_OP_* equates: 0=$30 DT/MUL,
+; 1=$40 TL, 2=$50 RS/AR, 3=$60 AM/D1R, 4=$70 D2R, 5=$80 D1L/RR. The $40 (TL) group,
+; op0 is the canonical voice-step target (the lead's 1-byte sweep).
+RegDeltaGroupBase:
+        db      SND_REG_OP_DT_MUL        ; group 0 = $30
+        db      SND_REG_OP_TL            ; group 1 = $40 (TL — the lead voice-step)
+        db      SND_REG_OP_RS_AR         ; group 2 = $50
+        db      SND_REG_OP_AM_D1R        ; group 3 = $60
+        db      SND_REG_OP_D2R           ; group 4 = $70
+        db      SND_REG_OP_D1L_RR        ; group 5 = $80
+RegDeltaGroupBase_End:
+
+        if (RegDeltaGroupBase_End - RegDeltaGroupBase) <> REGDELTA_GROUP_COUNT
+          fatal "RegDeltaGroupBase length must be REGDELTA_GROUP_COUNT (\{REGDELTA_GROUP_COUNT})"
+        endif
+
+; ----------------------------------------------------------------------
 ; Fm_NoteFromTable — key a note from the PER-SONG fnum (pitch) table.
 ; In: ix = SeqChannel, a = note index (an ABSOLUTE index 0..PITCHTAB_MAX_IDX into
 ;     the 132-entry chromatic fnum table — NOT the engine's FmPitchTableZ note

@@ -98,14 +98,35 @@ no `ModUpdate` change.**
 2. **Multi-point pitch envelopes (trills/arps).** A note carries 1–5 pitch *points* →
    `points[5]`, `count`, `cursor` in channel state. `ModUpdate` advances the cursor each frame
    (wrap at `count`) and re-articulates. `count=1` = a plain note; `count≥2` = the Zyrinx trill/arp.
-3. **Voice-stepping.** The command stream changes the voice mid-note; the timbre sweep is rendered
-   as **build-time minimal register deltas**, not full patch reloads. Verified against the real
-   voice data: the rapid lead voice-step (`$9C`→`$A0`) differs by *exactly one byte* — operator
-   S1's TL — so a step is one YM write, encodable via the per-op TL mechanism (feature 5). The
-   transcoder (Task 8) computes each voice change's delta and emits the minimal writes; a full
-   `MEV_PATCH` (26-register load, ~6,500 cyc) is emitted **only at genuine instrument changes**
-   (note onsets — infrequent, staggered), never as the per-frame step. **Re-key happens on a
-   note / pitch-change, not on a voice change.**
+3. **Voice-stepping (Task 5, RESOLVED).** The command stream changes the voice mid-note; the
+   timbre sweep is rendered as **build-time minimal register deltas**, not full patch reloads.
+   Verified against the real voice data: the rapid lead voice-step (`$9C`→`$A0`) differs by
+   *exactly one byte* — operator S1's TL — so a step is **one YM write**, emitted as a new opcode
+   **`MEV_REGDELTA` ($EA) + count + count×(reg_sel, value)**. `reg_sel = (group_code<<2)|op`
+   selects a per-operator YM register (group_code 0..5 = `$30/$40/$50/$60/$70/$80`, op 0..3 =
+   S1,S3,S2,S4); the engine resolves it part-aware (`Fm_RoutePart` → `group_base + op*4 + ch`) and
+   writes it IMMEDIATELY (mid-note), zero-tick, **directly** (not via `ModUpdate` — a one-shot
+   delta has no per-frame component, so a direct write is simplest, satisfies write-on-change, and
+   keeps `ModUpdate` strictly state→YM so the design-for-C seam is untouched). The rapid lead sweep
+   is one `MEV_REGDELTA count=1` per step. The transcoder (Task 8) computes each voice change's
+   delta and emits the minimal writes; a full `MEV_PATCH` (26-register load, ~6,500 cyc) is emitted
+   **only at genuine instrument changes** (note onsets — infrequent, staggered), never as the
+   per-frame step.
+
+   **THE RE-KEY RULE (the calibration target, RESOLVED).** A note RE-ARTICULATES **only on a PITCH
+   change** — i.e. exclusively via `MEV_PITCHENV` (which arms `SCF_REKEY` → `ModUpdate` keys it).
+   Voice/timbre changes — `MEV_PATCH`, `MEV_OPBIAS`, `MEV_REGDELTA` — alter the held note's timbre
+   and **never re-key** (none touches `$28` or arms `SCF_REKEY`). Within the pitch path, `ModUpdate`
+   gives a **fresh attack only when the rendered index actually differs from `sc_note`** (the last
+   keyed index): a SAME-pitch re-arm while already keyed is a pure HELD no-op — **no `$A4/$A0/$28`
+   writes at all** (write-on-change; no redundant per-frame chip traffic — this is the calibration
+   the reference player got wrong by over-keying same-pitch `PITCH_1`s, the residual it overproduced
+   in §8). **Re-key STYLE:** default = clean re-key (key-OFF then key-ON, so the YM2612 retriggers
+   the EG on the 0→1 edge — only when already keyed) via the build switch `SND_REKEY_OFF_THEN_ON`
+   (=0 → key-on only, for the controller to A/B the attack density vs the oracle). Verified in
+   Exodus on `SONG_STEPTEST`: the `$40` (op0 TL) register sweeps `$38→$30→$28→$20→$28→$30` while a
+   single held note produces **zero re-attacks** (0 key-on/key-off writes during the sweep, 0
+   redundant `$A4/$A0`).
 4. **Pan.** Commands set pan state (off/L/R/C); `ModUpdate` writes `$B4` L/R (and AMS/FMS) bits.
 5. **Per-operator TL bias.** Per-op TL offsets in state, added to the patch's operator TLs at
    patch load — the per-note brightness accent.
@@ -124,9 +145,11 @@ Opcodes extend the existing `MEV_*` set (no rip-and-replace):
 - **Reuse:** `MEV_PATCH` ($E1) = voice change *without* re-key; `MEV_PAN` ($E4, reserved) = pan;
   `MEV_REPEAT`/`MEV_REPEAT_END` ($E5/$E6) + `MEV_LOOP`/`MEV_JUMP` ($EE/$EF) = the pattern/repeat/
   loopback structure (already shipped); `MEV_NOTE_RAW` ($E7) stays as the raw-register escape hatch.
-- **Add (free opcode space $E8–$ED / $F0–$FE):** `MEV_PITCHENV` (multi-point note: count + 1–5
-  point indices), `MEV_OPBIAS` (per-op TL offsets), `MEV_PORTA` (glide target + duration), and a
-  per-channel tempo set (or carry `tempo_base` in the header + per-pattern override).
+- **Add (free opcode space $E8–$ED / $F0–$FE):** `MEV_PITCHENV` ($E8, multi-point note: count + 1–5
+  point indices), `MEV_OPBIAS` ($E9, per-op TL offsets), `MEV_REGDELTA` ($EA, voice-stepping:
+  count + count×(reg_sel, value) — mid-note minimal per-operator register writes, no re-key),
+  `MEV_PORTA` (glide target + duration), and a per-channel tempo set (or carry `tempo_base` in the
+  header + per-pattern override). Remaining free: $EB–$ED / $F0–$FE.
 - Single-pitch songs (the 1C test song) keep using `$81–$DF` / `NOTE_DUR`; `MEV_PITCHENV` is the
   Zyrinx-style note. Exact byte encodings are finalized in the implementation plan; the packer
   (`tools/song_packer.py`) gains matching event classes with build-time validation.

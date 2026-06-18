@@ -46,6 +46,9 @@ MEV_DAC = 0xE2
 MEV_NOTE_DUR = 0xE3
 MEV_PAN = 0xE4               # + b4: set channel pan/AMS/FMS (raw YM $B4 byte)
 MEV_OPBIAS = 0xE9            # + op(0..3) + val(signed -128..127): per-op additive TL bias (neg=brighten)
+MEV_REGDELTA = 0xEA          # + count + count*(reg_sel, value): mid-note minimal
+                             # register deltas (voice-stepping). reg_sel =
+                             # (group_code<<2)|op; see RegDelta below.
 MEV_NOTE_RAW = 0xE7          # + a4 a0 dd: key a raw-frequency FM note (exact
                              # $A4/$A0) for duration dd, bypassing the pitch table
 MEV_PITCHENV = 0xE8          # + count + count idx bytes: pitch-envelope note +
@@ -281,6 +284,86 @@ class PitchEnv(Event):
             if not (0 <= p <= PITCHENV_MAX_IDX):
                 raise PackError(
                     f"PitchEnv point {p} out of range 0..{PITCHENV_MAX_IDX}")
+
+
+# --- reg_sel encoding (mirror of sound_constants.asm) ---------------------
+# reg_sel = (group_code << REGDELTA_GROUP_SHIFT) | op:
+#   op (bits 1-0)         = physical operator 0..3 (reg offset +0/+4/+8/+C = S1,S3,S2,S4)
+#   group_code (bits 5-2) = index into the per-operator register-group bases:
+#       0=$30 DT/MUL, 1=$40 TL, 2=$50 RS/AR, 3=$60 AM/D1R, 4=$70 D2R, 5=$80 D1L/RR.
+REGDELTA_OP_MASK = 0x03
+REGDELTA_GROUP_SHIFT = 2
+REGDELTA_GROUP_COUNT = 6
+# group_code constants for callers (the TL group op0 = the canonical lead voice-step).
+RD_GROUP_DT_MUL = 0   # $30
+RD_GROUP_TL = 1       # $40 (TL — the rapid lead voice-step)
+RD_GROUP_RS_AR = 2    # $50
+RD_GROUP_AM_D1R = 3   # $60
+RD_GROUP_D2R = 4      # $70
+RD_GROUP_D1L_RR = 5   # $80
+
+
+def reg_sel(group_code: int, op: int) -> int:
+    """Encode a reg_sel byte = (group_code << 2) | op (see the constants above)."""
+    if not (0 <= op <= 3):
+        raise PackError(f"reg_sel op {op} out of range 0..3")
+    if not (0 <= group_code < REGDELTA_GROUP_COUNT):
+        raise PackError(
+            f"reg_sel group_code {group_code} out of range 0..{REGDELTA_GROUP_COUNT-1}")
+    return (group_code << REGDELTA_GROUP_SHIFT) | op
+
+
+class RegDelta(Event):
+    """Phase-3 voice-stepping: write `count` per-operator YM2612 registers
+    IMMEDIATELY (mid-note) for the channel, part-aware. Each entry is a
+    (reg_sel, value) pair where reg_sel = (group_code<<2)|op encodes the
+    per-operator register group + operator (use reg_sel()/the RD_GROUP_* consts).
+
+    This is the MINIMAL-DELTA voice-step: a held note's timbre is swept by writing
+    only the registers that change between voice steps. The Zyrinx rapid lead step
+    differs by ONE byte (operator S1's TL = the $40 group op0), so a rapid step is
+    one RegDelta with a single (reg_sel(RD_GROUP_TL, 0), tl) pair.
+
+    Does NOT re-key (no $28 write, no SCF_REKEY): per the re-key rule only a pitch
+    change (PitchEnv) re-articulates. Zero-tick coordination setter; FM-only.
+
+    `entries` is a list of (reg_sel, value) tuples, or pass the convenience
+    RegDelta.tl(op, tl) classmethod for the common single-TL sweep step."""
+
+    def __init__(self, entries):
+        # accept a single (reg_sel, value) tuple too.
+        if entries and isinstance(entries[0], int):
+            entries = [tuple(entries)]
+        self.entries = [tuple(e) for e in entries]
+
+    @classmethod
+    def tl(cls, op: int, tl: int):
+        """Convenience: one operator-TL write (the canonical voice-step)."""
+        return cls([(reg_sel(RD_GROUP_TL, op), tl)])
+
+    def encode(self) -> bytes:
+        out = [MEV_REGDELTA, len(self.entries) & 0xFF]
+        for rs, val in self.entries:
+            out.append(rs & 0xFF)
+            out.append(val & 0xFF)
+        return bytes(out)
+
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"RegDelta on non-FM route {route}")
+        if not (1 <= len(self.entries) <= 255):
+            raise PackError(
+                f"RegDelta count {len(self.entries)} out of range 1..255")
+        for rs, val in self.entries:
+            if not (0 <= rs <= 0xFF):
+                raise PackError(f"RegDelta reg_sel {rs} out of byte range")
+            group = (rs >> REGDELTA_GROUP_SHIFT) & 0x0F
+            if group >= REGDELTA_GROUP_COUNT:
+                raise PackError(
+                    f"RegDelta reg_sel {rs:#04x} group_code {group} >= "
+                    f"{REGDELTA_GROUP_COUNT} (no such register group)")
+            if not (0 <= val <= 0xFF):
+                raise PackError(f"RegDelta value {val} out of byte range")
 
 
 class RepeatStart(Event):

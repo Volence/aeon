@@ -215,16 +215,18 @@ Cold_Boot:
         ; thirds harmony). Press START in-game to toggle stop/play (game_loop
         ; Debug_MusicToggle).
         ;
-        ; *** CURRENT DEV-VERIFICATION SONG — Sound Phase 3 Task 6 (TEMPORARY):
-        ; SONG_PANTEST exercises MEV_PAN (write-on-change $B4) + MEV_OPBIAS (per-
-        ; operator TL bias latched in Fm_PatchLoad). One FM channel: a note hard-
-        ; LEFT ($B4=$80, ~1s), the SAME note hard-RIGHT ($B4=$40, ~1s), then a
-        ; recentered ($B4=$C0) note with a +$30 bias on modulator op0 (reg $40 = $68
-        ; vs $38 — an audibly darker timbre), looping. Expected $B4/$40 bytes are
-        ; documented in data/sound/song_pantest.py. (SONG_TEST = id 1, SONG_PITCHTEST
-        ; = 2, SONG_TRILLTEST = 3 remain in the table for switch-back.) REVERT to
-        ; SONG_TEST after verifying. ***
-        moveq   #SONG_PANTEST, d0
+        ; *** CURRENT DEV-VERIFICATION SONG — Sound Phase 3 Task 5 (TEMPORARY):
+        ; SONG_STEPTEST exercises MEV_REGDELTA ($EA) VOICE-STEPPING + the RE-KEY RULE.
+        ; One FM channel: a single held note (one MEV_PITCHENV count=1) keyed ONCE,
+        ; then a rapid sweep of single-byte operator-S1 TL writes (the $40 group op0:
+        ; $38,$30,$28,$20,$28,$30, one per ~17 ms event-tick) that re-articulate the
+        ; TIMBRE mid-note WITHOUT re-keying. Expected: reg $40 (FM1 op0) sweeps through
+        ; those values; EXACTLY ONE key-on, no re-attacks during the sweep (the re-key
+        ; rule: re-articulate ONLY on a pitch change — same-index PitchEnvs are held
+        ; no-attacks). Documented in data/sound/song_steptest.py. (SONG_TEST = id 1,
+        ; SONG_PITCHTEST = 2, SONG_TRILLTEST = 3, SONG_PANTEST = 4 remain in the table
+        ; for switch-back.) REVERT to SONG_TEST after verifying. ***
+        moveq   #SONG_STEPTEST, d0
         bsr.w   Sound_PlayMusic
         move.b  #1, (Dbg_Music_On).w     ; DEBUG: track play state for the Start-toggle
       endif

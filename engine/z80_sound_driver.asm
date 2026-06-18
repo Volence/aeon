@@ -984,6 +984,14 @@ Snd_LoadSong:
         ; real patch index, so the first ModUpdate patch render would reload).
         ld      (ix+sc_pt_count), 1
         ld      (ix+sc_last_patch), 0FFh
+        ; sc_note force sentinel ($FF): the Phase-3 re-key rule (ModUpdate count==1)
+        ; gives a FRESH attack only when the rendered index differs from sc_note (the
+        ; last-keyed index); a SAME index is a held no-attack (the WAIT/voice-step
+        ; case). $FF is not a valid fnum-table index (0..$83), so the FIRST
+        ; MEV_PITCHENV on any channel ALWAYS differs -> the first note always attacks
+        ; (no silent-first-note if the song opens on index 0). Mirrors the $FF
+        ; force-reload sentinel used for sc_last_patch above.
+        ld      (ix+sc_note), 0FFh
         ; advance to the next header record + SeqChannel.
         ld      de, SHC_LEN
         add     iy, de

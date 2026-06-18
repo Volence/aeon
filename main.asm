@@ -257,6 +257,11 @@ Art_Sonic:
         ; note hard-LEFT, the same note hard-RIGHT, then a recentered note with a
         ; +$30 modulator op-bias — exercises MEV_PAN write-on-change + MEV_OPBIAS).
         include "data/sound/song_pantest.asm"
+        ; Phase 3 Task 5 SCRATCH voice-stepping-verification song (one FM channel:
+        ; one held note, then a rapid sweep of single-byte operator-S1 TL writes via
+        ; MEV_REGDELTA that re-articulate the TIMBRE mid-note WITHOUT re-keying —
+        ; exercises voice-stepping + the re-key rule (re-key only on a pitch change)).
+        include "data/sound/song_steptest.asm"
         include "data/sound/song_table.asm"
     endif
 

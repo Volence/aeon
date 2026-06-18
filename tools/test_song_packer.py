@@ -15,9 +15,10 @@ import song_packer
 from song_packer import (
     SongDesc, ChannelDesc,
     SetDur, Rest, Note, Vol, Patch, Dac, NoteDur, LoopPoint, Jump, End,
-    RepeatStart, RepeatEnd, Pan, OpBias,
+    RepeatStart, RepeatEnd, Pan, OpBias, RegDelta, reg_sel,
     pack_song, emit_asm, PackError,
-    MEV_REPEAT_START, MEV_REPEAT_END, MEV_PAN, MEV_OPBIAS,
+    MEV_REPEAT_START, MEV_REPEAT_END, MEV_PAN, MEV_OPBIAS, MEV_REGDELTA,
+    RD_GROUP_TL, RD_GROUP_DT_MUL, RD_GROUP_D1L_RR, REGDELTA_GROUP_COUNT,
 )
 
 # Route constants mirrored from sound_constants.asm (kept in sync by hand;
@@ -90,6 +91,53 @@ class TestEventEncoding(unittest.TestCase):
             OpBias(0, 128).validate(CHROUTE_FM1)
         with self.assertRaises(PackError):
             OpBias(0, -129).validate(CHROUTE_FM1)
+
+    def test_reg_sel_encoding(self):
+        # reg_sel = (group_code << 2) | op. TL group op0 = the canonical lead step.
+        self.assertEqual(reg_sel(RD_GROUP_TL, 0), 0x04)   # ($40 group) -> (1<<2)|0
+        self.assertEqual(reg_sel(RD_GROUP_DT_MUL, 0), 0x00)  # ($30 group) op0
+        self.assertEqual(reg_sel(RD_GROUP_TL, 3), 0x07)   # TL group, op3 (carrier S4)
+        self.assertEqual(reg_sel(RD_GROUP_D1L_RR, 2), (5 << 2) | 2)  # $80 group, op2
+        with self.assertRaises(PackError):
+            reg_sel(RD_GROUP_TL, 4)                        # op out of 0..3
+        with self.assertRaises(PackError):
+            reg_sel(REGDELTA_GROUP_COUNT, 0)               # group_code out of range
+
+    def test_regdelta_encode(self):
+        self.assertEqual(MEV_REGDELTA, 0xEA)
+        # single (reg_sel, value): count=1, the lead TL voice-step.
+        self.assertEqual(RegDelta.tl(0, 0x38).encode(),
+                         bytes([MEV_REGDELTA, 0x01, 0x04, 0x38]))
+        # explicit multi-entry: count + count*(reg_sel, value) pairs.
+        self.assertEqual(
+            RegDelta([(0x04, 0x20), (reg_sel(RD_GROUP_DT_MUL, 1), 0x02)]).encode(),
+            bytes([MEV_REGDELTA, 0x02, 0x04, 0x20, 0x01, 0x02]))
+
+    def test_regdelta_on_non_fm_route(self):
+        with self.assertRaises(PackError):
+            RegDelta.tl(0, 0x38).validate(CHROUTE_PSG1)
+
+    def test_regdelta_bad_group_code(self):
+        # a reg_sel whose group_code field exceeds the table must be rejected.
+        bad = (REGDELTA_GROUP_COUNT << 2) | 0
+        with self.assertRaises(PackError):
+            RegDelta([(bad, 0x00)]).validate(CHROUTE_FM1)
+
+    def test_regdelta_zero_tick_in_loop_body_still_needs_a_note(self):
+        # RegDelta is zero-tick: a loop body of ONLY RegDeltas would spin forever,
+        # so the packer must still require a time-advancing event (PitchEnv here).
+        from song_packer import PitchEnv
+        ok = SongDesc(tempo=16, channels=[ChannelDesc(CHROUTE_FM1, [
+            Patch(1), Vol(110), SetDur(1), LoopPoint(),
+            PitchEnv(0x30), RegDelta.tl(0, 0x20), PitchEnv(0x30), Jump(),
+        ])])
+        pack_song(ok)   # must not raise
+        spin = SongDesc(tempo=16, channels=[ChannelDesc(CHROUTE_FM1, [
+            Patch(1), Vol(110), SetDur(1), LoopPoint(),
+            RegDelta.tl(0, 0x20), Jump(),
+        ])])
+        with self.assertRaises(PackError):
+            pack_song(spin)
 
     def test_loop_point(self):
         self.assertEqual(LoopPoint().encode(), bytes([0xEE]))

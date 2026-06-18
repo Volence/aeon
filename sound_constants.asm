@@ -295,6 +295,47 @@ MEV_PITCHENV    = $E8    ; + count + count idx bytes : pitch-envelope note + key
 ; effect at the NEXT patch load / note — no per-frame cost. Stored in sc_opbias[op].
 ; Zero-tick. FM-only (the packer routes it only to FM channels).
 MEV_OPBIAS      = $E9    ; + op(0..3) + val : per-operator additive TL bias
+; --- Phase 3 Task 5: voice-stepping via mid-note minimal register deltas --------
+; $EA + count + count*(reg_sel, value) : write `count` per-operator YM2612 registers
+; IMMEDIATELY (mid-note), for the CURRENT channel, PART-AWARE. This is the
+; voice-stepping primitive: a held note's timbre is swept by writing only the
+; registers that CHANGE between voice steps — verified against the Zyrinx lead
+; voice-step ($9C->$A0) which differs by EXACTLY ONE byte (operator S1's TL, the
+; $40 group op0), so a rapid step = ONE MEV_REGDELTA with count=1. We do NOT do a
+; full ~26-register patch reload per step (that is ~6,500 cyc — untenable per frame;
+; see tools/cycle_budget_phase3.md). A genuine instrument change at a note onset
+; still uses MEV_PATCH (full load); MEV_REGDELTA is the cheap mid-note sweep.
+;
+; reg_sel ENCODING (one byte) = (group_code << 2) | op:
+;   bits 1-0  op        = PHYSICAL operator index 0..3 (reg offset +0/+4/+8/+C =
+;                         S1,S3,S2,S4 — the same op index space as FmPatch's per-op
+;                         arrays and the carrier mask).
+;   bits 5-2  group_code= index 0..5 into RegDeltaGroupBase[] = the per-operator
+;                         register-group base: 0=$30(DT/MUL) 1=$40(TL) 2=$50(RS/AR)
+;                         3=$60(AM/D1R) 4=$70(D2R) 5=$80(D1L/RR). (Matches the
+;                         SND_REG_OP_* bases + the FmPatch group order.)
+;   bits 7-6  reserved (0).
+; The engine resolves ym_reg = RegDeltaGroupBase[group_code] + op*4 + ch-in-part
+; (ch-in-part + part from Fm_RoutePart) and writes `value` via Fm_YmWrite — so the
+; SAME opcode targets FM1..FM6 correctly with no per-channel encoding.
+;
+; APPLIES IMMEDIATELY (a direct YM write when the opcode executes — NOT routed
+; through ModUpdate; see the direct-write rationale in the handler comment), ZERO
+; command-tick (paced by the surrounding WAITs, like the other zero-tick setters),
+; and does NOT touch $28 (key) and does NOT arm SCF_REKEY — it is a pure TIMBRE
+; change of the HELD note (the RE-KEY RULE: re-articulation happens ONLY on a pitch
+; change via MEV_PITCHENV; voice/timbre changes never re-key). FM-only (the packer
+; routes it only to FM channels; a non-FM route consumes the operands but skips the
+; YM write via ModUpdate's/ the handler's FM gate).
+MEV_REGDELTA    = $EA    ; + count + count*(reg_sel, value) : mid-note minimal reg writes
+; --- Phase 3 Task 5: reg_sel field layout + the per-op register-group base table.
+; reg_sel = (group_code << REGDELTA_GROUP_SHIFT) | op. The engine masks `op` with
+; REGDELTA_OP_MASK and shifts out group_code to index RegDeltaGroupBase[] (defined
+; in engine/sound_fm.asm; REGDELTA_GROUP_COUNT entries, the 6 per-op groups).
+REGDELTA_OP_MASK     = $03      ; reg_sel bits 1-0 = op (0..3)
+REGDELTA_GROUP_SHIFT = 2        ; reg_sel >> this = group_code
+REGDELTA_GROUP_MASK  = $0F      ; group_code field width (bits 5-2 after the shift)
+REGDELTA_GROUP_COUNT = 6        ; $30,$40,$50,$60,$70,$80
 ; Bounded-repeat opcodes (Sound 1D Task 1): a body wrapped in REPEAT_START..
 ; REPEAT_END replays `nn` total times WITHOUT being unrolled in the data. The
 ; packer encodes them now; the Z80 sequencer interprets them in a later engine
@@ -305,7 +346,7 @@ MEV_REPEAT_END   = $E6   ; + nn : replay from matching REPEAT_START nn times (1.
 MEV_LOOP_POINT  = $EE    ; loop-target marker (no operand)
 MEV_JUMP        = $EF    ; jump to loop point
 MEV_END         = $FF    ; end of stream (channel idle)
-; reserved for Phase 3: $EA–$ED, $F0–$FE (unknown opcode = build/validation error)
+; reserved for Phase 3: $EB–$ED, $F0–$FE (unknown opcode = build/validation error)
 
         ; --- MEV_PAN / MEV_OPBIAS range + collision asserts (Task 6) ---
         ; Both must be command opcodes (> MEV_NOTE_MAX), inside the $E0-$FF
@@ -357,6 +398,30 @@ MEV_END         = $FF    ; end of stream (channel idle)
         ; not land on it either.
         if MEV_PITCHENV = $E4
           error "MEV_PITCHENV (\{MEV_PITCHENV}) collides with the reserved MEV_PAN ($E4)"
+        endif
+
+        ; --- MEV_REGDELTA ($EA) range + collision asserts (Task 5) ---
+        ; A command opcode (> MEV_NOTE_MAX), inside the $E0-$FF coordination block,
+        ; landing on the free Phase-3 slot $EA, clear of every allocated opcode.
+        if MEV_REGDELTA <= MEV_NOTE_MAX
+          error "MEV_REGDELTA (\{MEV_REGDELTA}) must be a command opcode (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_REGDELTA < MEV_VOL) || (MEV_REGDELTA > MEV_END)
+          error "MEV_REGDELTA (\{MEV_REGDELTA}) must be inside the $E0-$FF coordination block"
+        endif
+        if MEV_REGDELTA <> $EA
+          error "MEV_REGDELTA (\{MEV_REGDELTA}) must be $EA (the free Phase-3 slot)"
+        endif
+        if (MEV_REGDELTA = MEV_VOL) || (MEV_REGDELTA = MEV_PATCH) || (MEV_REGDELTA = MEV_DAC) || (MEV_REGDELTA = MEV_NOTE_DUR) || (MEV_REGDELTA = MEV_PAN) || (MEV_REGDELTA = MEV_REPEAT_START) || (MEV_REGDELTA = MEV_REPEAT_END) || (MEV_REGDELTA = MEV_NOTE_RAW) || (MEV_REGDELTA = MEV_PITCHENV) || (MEV_REGDELTA = MEV_OPBIAS) || (MEV_REGDELTA = MEV_LOOP_POINT) || (MEV_REGDELTA = MEV_JUMP) || (MEV_REGDELTA = MEV_END)
+          error "MEV_REGDELTA (\{MEV_REGDELTA}) collides with an allocated $E0-$FF opcode"
+        endif
+        ; the reg_sel group_code field must hold all REGDELTA_GROUP_COUNT groups
+        ; AND fit beneath the bits the op field uses (no overlap of op vs group).
+        if (REGDELTA_GROUP_COUNT-1) > REGDELTA_GROUP_MASK
+          error "REGDELTA_GROUP_COUNT (\{REGDELTA_GROUP_COUNT}) overflows the reg_sel group_code field"
+        endif
+        if (1<<REGDELTA_GROUP_SHIFT) <> (REGDELTA_OP_MASK+1)
+          error "REGDELTA_GROUP_SHIFT must clear the op field (op uses bits 0..REGDELTA_OP_MASK)"
         endif
 
         ; opcode ranges must not overlap: the top note opcode is below the
@@ -560,6 +625,25 @@ SCF_IS_DAC_B    = 4       ; route class: DAC trigger channel
 ; finalized re-key RULE is Task 5; for Task 3 a count==1 note keys once when armed
 ; (or when the rendered index changes) and then holds (write-on-change).
 SCF_REKEY_B     = 5       ; ModUpdate should (re)key this channel's note next frame
+
+; --- Phase 3 Task 5: the re-key STYLE (calibration lever) ---------------------
+; THE RE-KEY RULE: a note re-articulates ONLY on a PITCH change (via MEV_PITCHENV,
+; which arms SCF_REKEY). Voice/timbre changes (MEV_PATCH/MEV_OPBIAS/MEV_REGDELTA)
+; never re-key. When ModUpdate honors a SCF_REKEY arm on a count==1 single note, it
+; can re-articulate two ways:
+;   1 (DEFAULT) = CLEAN RE-KEY: key-OFF then key-ON. The YM2612 retriggers the
+;       envelope generator on the 0->1 key transition, so the note re-ATTACKS — the
+;       audible, oracle-faithful behavior (Zyrinx keys off->on per articulation; the
+;       NOTE_RAW path already does this). Without the key-off, a same-pitch re-arm
+;       would write $F0|chsel while the key is already 1 (no 0->1 edge -> no
+;       re-attack), and a held voice would decay to silence after the first note.
+;   0           = KEY-ON ONLY: skip the key-off (re-write $A4/$A0 + key-on; the EG
+;       does NOT retrigger if already keyed). Left as a one-line lever so the
+;       controller can A/B the re-key density/attack against the oracle.
+; (count>=2 trills/arps always re-key per frame — they change pitch each frame — so
+; this lever governs only the count==1 re-articulation; the trill path keys-on each
+; new point, which IS a fresh 0->1 edge because the pitch genuinely changed.)
+SND_REKEY_OFF_THEN_ON = 1
 SCF_ACTIVE      = 1<<SCF_ACTIVE_B
 SCF_KEYED       = 1<<SCF_KEYED_B
 SCF_IS_FM       = 1<<SCF_IS_FM_B

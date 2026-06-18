@@ -31,13 +31,24 @@ SONG_TRILLTEST     = 3
 ; pitchtable_ptr=0 -> engine default. Kept ALONGSIDE the other scratch songs so DEBUG
 ; boot can switch back. See data/sound/song_pantest.py for the expected $B4/$40 bytes.
 SONG_PANTEST       = 4
-SONG_COUNT         = 4
+; SONG_STEPTEST (Sound Phase 3 Task 5): a SCRATCH one-FM-channel verification song
+; exercising MEV_REGDELTA ($EA) VOICE-STEPPING + the RE-KEY RULE. One held note (one
+; MEV_PITCHENV count=1) is keyed ONCE, then a rapid sweep of single-byte operator-S1
+; TL writes (the $40 group op0: $38,$30,$28,$20,$28,$30) re-articulates the TIMBRE
+; mid-note WITHOUT re-keying, paced one step per event-tick. Expected: reg $40 (FM1
+; op0) sweeps through those values and EXACTLY ONE key-on (no re-attacks during the
+; sweep — same-index PitchEnvs are held no-attacks per the re-key rule). Copy-path
+; (FM6=DAC, RAM-buffered), pitchtable_ptr=0 -> engine default. Kept ALONGSIDE the
+; other scratch songs so DEBUG boot can switch back. See data/sound/song_steptest.py.
+SONG_STEPTEST      = 5
+SONG_COUNT         = 5
 
 SongTable:
         dc.l    Song_Test           ; id 1 (SongTable[id-1])
         dc.l    Song_PitchTest      ; id 2 — Phase 3 Task 3 scratch pitch verification
         dc.l    Song_TrillTest      ; id 3 — Phase 3 Task 4 scratch trill/arp verification
         dc.l    Song_PanTest        ; id 4 — Phase 3 Task 6 scratch pan/op-bias verification
+        dc.l    Song_StepTest       ; id 5 — Phase 3 Task 5 scratch voice-stepping verification
 SongTable_End:
 
         if (SongTable_End-SongTable)/4 <> SONG_COUNT
@@ -56,6 +67,7 @@ SongPatchTable:
         dc.l    FmPatchTable        ; id 2 Song_PitchTest (copy path — entry unused)
         dc.l    FmPatchTable        ; id 3 Song_TrillTest (copy path — entry unused)
         dc.l    FmPatchTable        ; id 4 Song_PanTest (copy path — entry unused)
+        dc.l    FmPatchTable        ; id 5 Song_StepTest (copy path — entry unused)
 SongPatchTable_End:
 
         if (SongPatchTable_End-SongPatchTable)/4 <> SONG_COUNT
@@ -82,6 +94,9 @@ SongPatchTable_End:
         if (Song_PanTest_End-Song_PanTest) > SND_SONG_BUF_SIZE
           fatal "Song_PanTest (\{Song_PanTest_End-Song_PanTest} bytes) exceeds SND_SONG_BUF_SIZE (\{SND_SONG_BUF_SIZE})"
         endif
+        if (Song_StepTest_End-Song_StepTest) > SND_SONG_BUF_SIZE
+          fatal "Song_StepTest (\{Song_StepTest_End-Song_StepTest} bytes) exceeds SND_SONG_BUF_SIZE (\{SND_SONG_BUF_SIZE})"
+        endif
 
         ; The loader's fixed SND_SONG_BUF_SIZE-byte `ldir` reads from the song's
         ; $8000-window ptr ((addr & $7FFF) | $8000). If that window region sits within
@@ -99,6 +114,9 @@ SongPatchTable_End:
         endif
         if (Song_PanTest & $7FFF) > ($8000 - SND_SONG_BUF_SIZE)
           fatal "Song_PanTest window region crosses the $8000-window top: the \{SND_SONG_BUF_SIZE}-byte load ldir would wrap past $FFFF into Z80 RAM. Move Song_PanTest so (addr & $7FFF) <= \{$8000 - SND_SONG_BUF_SIZE}."
+        endif
+        if (Song_StepTest & $7FFF) > ($8000 - SND_SONG_BUF_SIZE)
+          fatal "Song_StepTest window region crosses the $8000-window top: the \{SND_SONG_BUF_SIZE}-byte load ldir would wrap past $FFFF into Z80 RAM. Move Song_StepTest so (addr & $7FFF) <= \{$8000 - SND_SONG_BUF_SIZE}."
         endif
 
         align 2
