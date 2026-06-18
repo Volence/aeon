@@ -236,6 +236,8 @@ SndDrv_Init:
         ld      (SND_STAT_PING_ECHO), a
         ld      (SND_STAT_ACK_COUNT), a
         ld      (SND_STAT_TICK), a
+        ld      (SND_SEQ_ACTIVE), a      ; sequencer idle until a song loads (Task 6)
+        ld      (SND_SEQ_CHCOUNT), a     ; no channels until a song loads
 
         ; --- PRE-FILL the whole 256-byte ring with $80 (req 7) so the idle and
         ; sample lead-in output is DC-center silence (no click, no garbage). ---
@@ -262,71 +264,12 @@ SndDrv_Init:
         ld      a, SND_ALIVE_MARKER
         ld      (SND_STAT_ALIVE), a
 
-    ifdef __DEBUG__
-        ; ==============================================================
-        ; TASK-5 DRY-RUN — initialise the sequencer with inline test
-        ; channels (FM1 + PSG1 + PSGN routes) pointing at the inline test
-        ; streams, then arm it and program Timer A (below). Sequencer_Tick is
-        ; driven by the Timer-A overflow poll in the DAC loop (NOT the VBlank
-        ; ISR); the real FM/PSG writers are active. Task 6 replaces this with
-        ; a loaded SongHeader. REMOVE WITH THE STREAMS.
-        ; ==============================================================
-        ; clear the whole sequencer header + channel block ($1800..SND_SEQ_END)
-        ld      hl, SND_SEQ_BASE
-        ld      bc, SND_SEQ_END-SND_SEQ_BASE
-.seq_clr:
-        ld      (hl), 0
-        inc     hl
-        dec     bc
-        ld      a, b
-        or      c
-        jr      nz, .seq_clr
-
-        ; --- channel 0: FM1 route ---
-        ld      ix, SND_SEQ_CHANNELS
-        ld      (ix+sc_stream_ptr), SeqTest_StreamFM & 0FFh
-        ld      (ix+sc_stream_ptr+1), SeqTest_StreamFM >> 8
-        ld      (ix+sc_route), CHROUTE_FM1
-        ld      (ix+sc_flags), SCF_ACTIVE|SCF_IS_FM
-        ld      (ix+sc_volume), 127
-        ld      (ix+sc_dur_count), 1     ; first tick fetches immediately
-
-        ; --- channel 1: PSG1 route (tone) ---
-        ld      de, SeqChannel_len
-        add     ix, de
-        ld      (ix+sc_stream_ptr), SeqTest_StreamPSG & 0FFh
-        ld      (ix+sc_stream_ptr+1), SeqTest_StreamPSG >> 8
-        ld      (ix+sc_route), CHROUTE_PSG1
-        ld      (ix+sc_flags), SCF_ACTIVE|SCF_IS_PSG
-        ld      (ix+sc_volume), 127
-        ld      (ix+sc_dur_count), 1     ; first tick fetches immediately
-
-        ; --- channel 2: PSGN route (noise) ---
-        ld      de, SeqChannel_len
-        add     ix, de
-        ld      (ix+sc_stream_ptr), SeqTest_StreamPSGN & 0FFh
-        ld      (ix+sc_stream_ptr+1), SeqTest_StreamPSGN >> 8
-        ld      (ix+sc_route), CHROUTE_PSGN
-        ld      (ix+sc_flags), SCF_ACTIVE|SCF_IS_PSG
-        ld      (ix+sc_volume), 127
-        ld      (ix+sc_dur_count), 1     ; first tick fetches immediately
-
-        ld      a, 3
-        ld      (SND_SEQ_CHCOUNT), a     ; 3 test channels (FM1 + PSG1 + PSGN)
-        xor     a
-        ld      (SND_SEQ_TRACE_WR), a    ; trace ring starts empty
-        ld      (SND_SEQ_BADOP), a
-        inc     a
-        ld      (SND_SEQ_ACTIVE), a      ; arm the sequencer (1)
-
-        ; --- Program Timer A so its overflow drives Sequencer_Tick (Task 5). The
-        ; DAC-loop common-prefix poll re-arms + calls Sequencer_Tick on each
-        ; overflow. Dry-run tempo SND_DBG_TEMPO ($D0 -> N=832 -> ~277 ticks/sec ~
-        ; 4.62 ticks/60Hz-frame); SND_STAT_TICK increments at that rate. Task 6
-        ; programs Timer A from the loaded SongHeader tempo instead. ---
-        ld      a, SND_DBG_TEMPO         ; tempo byte = N>>2
-        call    Snd_TimerA_Program       ; $24/$25/$27 -> load + enable Timer A
-    endif
+        ; The sequencer starts IDLE. Timer A is NOT programmed here (Task 6): the
+        ; song loader (Snd_LoadSong, from a SND_REQ_MUSIC request) clears the
+        ; sequencer state, inits channels from the loaded SongHeader, programs
+        ; Timer A from the header tempo, and arms SND_SEQ_ACTIVE. Until a song is
+        ; loaded, SND_SEQ_ACTIVE = 0 (cleared by the RAM clear at boot) so the
+        ; Timer-A poll's Sequencer_Tick is a no-op even if an overflow fires.
 
         ei                               ; state consistent -> allow the VBlank IRQ
         ; falls into the IDLE loop
@@ -337,18 +280,41 @@ SndDrv_Init:
 ; and start a sample. Feeds $80 (DC center) every pass so the output never
 ; clicks while idle. de=$4001 and reg $2A stay selected, so `ld (de),a`
 ; lands on the DAC. When a sample starts, jumps into the streaming loop.
+;
+; TASK 6: the idle loop MUST ALSO poll Timer A so the SEQUENCER ticks while the
+; DAC is silent. A song whose first DAC trigger is its $E2 can't start the DAC
+; until a tick runs (the tick emits the $E2 -> Snd_StartSample -> DAC_ACTIVE=1).
+; Without an idle-side poll the song would deadlock (no tick -> no $E2 -> no DAC
+; -> never enters the streaming loop -> never polls). The FM/PSG voices also need
+; ticks immediately, before any DAC ever plays. On overflow we rearm + tick, then
+; re-check DAC_ACTIVE (a $E2 may have armed it) to enter the streaming loop.
+; (No cycle balancing here — idle is silence; the tick rate while idle is set by
+; Timer A exactly as in the streaming loop.)
 ; ======================================================================
 SndDrv_Idle:
         di
         ld      a, (SND_STAT_DAC_ACTIVE)
         or      a
         jp      nz, SndDrv_Sample        ; sample started -> enter streaming loop
+        ; --- Timer-A poll (sequencer tick clock while idle) ---
+        ld      a, (SND_Z80_YM_A0)       ; YM status ($4000): bit0 = Timer A overflow
+        and     SND_TIMERA_OVF_MASK
+        call    nz, SndDrv_IdleTick      ; overflow -> rearm + Sequencer_Tick
         ld      a, SND_REG_DAC_DATA      ; re-select $2A on the ADDR port ($4000)
         ld      (SND_Z80_YM_A0), a
         ld      a, 80h
         ld      (de), a                  ; DAC <- $80 (DC center silence)
         ei                               ; VBlank IRQ may land here (between samples)
         jp      SndDrv_Idle
+
+; --- Idle-context Timer-A tick: rearm + advance the song one tick, then restore
+; de=$4001 (Sequencer_Tick clobbers de). Returns to the idle loop, which re-checks
+; DAC_ACTIVE at the top so a $E2-armed sample enters the streaming loop next pass.
+SndDrv_IdleTick:
+        call    Snd_TimerA_Rearm         ; clear overflow, keep counting, re-park $2A
+        call    Sequencer_Tick           ; advance the song (clobbers af,bc,de,hl,ix)
+        ld      de, SND_Z80_YM_A1        ; restore de = $4001 (DAC DATA port invariant)
+        ret
 
 ; ======================================================================
 ; SndDrv_Sample — the free-running, every-path-equal-cost streaming loop.
@@ -503,39 +469,120 @@ SndDrv_PollMailbox:
         inc     a
         ld      (SND_STAT_ACK_COUNT), a
 .no_ping:
-        ; --- sample request? (Phase 1: any nonzero id -> the test blip) ---
+        ; --- music request? (Task 6: 1..$FE play SongTable[id-1], $FF stop) ---
+        ld      a, (SND_REQ_MUSIC)
+        or      a
+        jr      z, .no_music             ; 0 -> nothing pending
+        cp      SND_MUSIC_STOP           ; $FF -> stop
+        jp      z, .music_stop
+        call    Snd_LoadSong             ; 1..$FE -> load + arm the song (clears the slot)
+        jr      .after_music
+.music_stop:
+        call    Sequencer_StopAll        ; key-off FM + silence PSG + clear active flag
+        call    Snd_TimerA_Disable       ; stop Timer A so no more ticks fire
+        xor     a
+        ld      (SND_REQ_MUSIC), a       ; clear slot (consumed)
+        ld      a, (SND_STAT_ACK_COUNT)
+        inc     a
+        ld      (SND_STAT_ACK_COUNT), a
+.after_music:
+.no_music:
+        ; --- sample request? (Task 6: id -> DacSampleTable[id-1] -> Snd_StartSample) ---
         ld      a, (SND_REQ_SAMPLE)
         or      a
         ret     z                        ; nothing else pending
+        call    Snd_DacLookup            ; a = id -> hl = descriptor (or carry set if bad id)
+        jr      c, .sample_done          ; bad id -> ignore (still clear the slot below)
+        call    Snd_StartSample          ; start DAC playback from the descriptor at hl
+.sample_done:
+        xor     a
+        ld      (SND_REQ_SAMPLE), a      ; clear slot
+        ld      a, (SND_STAT_ACK_COUNT)
+        inc     a
+        ld      (SND_STAT_ACK_COUNT), a
+        ret
 
-        ; --- SAMPLE START. Re-assert DAC mode ($2B bit7) in case the 68k's YM
-        ; init cleared the once-at-init enable, then re-park the addr port on $2A.
-        ; (One-time per sample TRIGGER, not per loop, so no recurring click.) ---
+; ======================================================================
+; Snd_DacLookup — map a 1-based DAC sample id (in `a`) to its descriptor ptr.
+; Out: hl = &DacSampleTable[id-1], carry CLEAR on success; carry SET (id 0 or
+; id > DAC_SAMPLE_COUNT) on a bad id (hl undefined). Clobbers af, bc, hl, de.
+; ======================================================================
+Snd_DacLookup:
+        or      a
+        scf
+        ret     z                        ; id 0 -> bad (carry set)
+        cp      DAC_SAMPLE_COUNT+1       ; carry SET iff id <= COUNT (valid)
+        jr      c, .valid
+        scf                              ; id > COUNT -> bad (carry set)
+        ret
+.valid:
+        dec     a                        ; index = id-1
+        ; hl = DacSampleTable + index*DacSample_len (8). index*8 = index<<3.
+        ld      l, a
+        ld      h, 0
+        add     hl, hl
+        add     hl, hl
+        add     hl, hl                   ; hl = index*8
+        ld      de, DacSampleTable
+        add     hl, de                   ; hl = &DacSampleTable[index]
+        or      a                        ; clear carry (success)
+        ret
+
+; ======================================================================
+; Snd_StartSample — start DAC playback from a DacSample descriptor at `hl`
+; (Task 6 refactor of the 1B SND_REQ_SAMPLE body). Reads bank/ptr/len from the
+; 8-byte descriptor (ds_bank +0, ds_ptr +2, ds_length +4), re-asserts DAC mode
+; WITHOUT toggling the $2B edge (no click), banks the sample in, resets the ring
+; RD=0 + re-primes the $80 lead + WR=LEAD_PRIME, and sets SND_STAT_DAC_ACTIVE=1.
+;
+; TWO CALL CONTEXTS:
+;   (a) mailbox SND_REQ_SAMPLE — runs in the VBlank ISR (DAC paused), de saved.
+;   (b) sequencer $E2 (Seq_HookDac) — runs in SndDrv_TimerATick, inside the DAC
+;       loop's `di` window (DAC NOT paused, but between samples).
+; It touches ONLY RAM + the $6000 latch + the $2B/$2A YM regs — it reads NO ROM
+; (banking is just the $6000 latch). It re-parks reg $2A on $4000 and restores
+; de=$4001 at the END so both contexts leave the DAC consumer's invariants intact.
+; Clobbers af, bc, de, hl. Preserves ix (the sequencer channel loop relies on it).
+; ======================================================================
+Snd_StartSample:
+        push    ix                       ; preserve the sequencer channel ptr
+        push    hl                       ; descriptor ptr (we re-read fields below)
+        ; --- Re-assert DAC mode ($2B bit7) WITHOUT toggling the edge, then re-park
+        ; $2A. (One-time per trigger, not per loop -> no recurring click.) ---
         ld      a, SND_REG_DAC_ENABLE
         ld      (SND_Z80_YM_A0), a       ; $4000 = $2B (select DAC-enable reg)
         ld      a, 80h
         ld      (SND_Z80_YM_A1), a       ; $4001 = $80 -> DAC mode ON
         ld      a, SND_REG_DAC_DATA
         ld      (SND_Z80_YM_A0), a       ; $4000 = $2A (re-park addr port on DAC DATA)
-        ; Point the stream source at the banked sample.
-        ld      a, SND_BLIP_BANK
+        pop     hl                       ; hl = descriptor base
+        ; --- bank + stream pointers from the descriptor (ds_* offsets) ---
+        ld      a, (hl)                  ; ds_bank (+0)
         call    SndDrv_SetBank           ; $6000 latch only (DMA-safe)
-        ld      hl, SND_BLIP_PTR
-        ld      (SND_ROM_PTR), hl
-        ld      hl, SND_BLIP_LEN
-        ld      (SND_ROM_LEN), hl
+        push    hl
+        ld      de, DacSample_ds_ptr     ; +2
+        add     hl, de
+        ld      e, (hl)
+        inc     hl
+        ld      d, (hl)                  ; de = ds_ptr (window ptr)
+        ld      (SND_ROM_PTR), de
+        pop     hl
+        push    hl
+        ld      de, DacSample_ds_length  ; +4
+        add     hl, de
+        ld      e, (hl)
+        inc     hl
+        ld      d, (hl)                  ; de = ds_length
+        ld      (SND_ROM_LEN), de
+        pop     hl
 
         ; Reset ring pointers + prime the lead. To avoid a start underrun WITHOUT
-        ; reading ROM in the ISR (which could land mid-DMA), we set WR ahead of RD
-        ; by SND_RING_LEAD_PRIME and leave those lead bytes at the $80 the ring was
-        ; pre-filled with. The consumer therefore plays a brief $80 DC-center
-        ; lead-in (~SND_RING_LEAD_PRIME samples) while the FILL producer (2:1
-        ; catch-up) overwrites the ring ahead of RD with real sample data — a
-        ; click-free lead-in, no ROM read here. (Documented choice, req 8.)
+        ; reading ROM (which could land mid-DMA in the ISR context), we set WR
+        ; ahead of RD by SND_RING_LEAD_PRIME and leave those lead bytes at the $80
+        ; the ring was pre-filled with — a click-free DC-center lead-in while the
+        ; FILL producer (2:1 catch-up) overwrites the ring with real sample data.
         xor     a
         ld      (SND_RING_RD), a         ; RD = 0
-        ; re-stamp the lead region with $80 so the lead-in is clean even after a
-        ; prior sample left non-$80 bytes there. RAM-only loop (DMA-safe).
         ld      hl, SND_RING_BASE        ; ring page base
         ld      b, SND_RING_LEAD_PRIME
         ld      a, 80h
@@ -548,11 +595,12 @@ SndDrv_PollMailbox:
 
         ld      a, 1
         ld      (SND_STAT_DAC_ACTIVE), a ; arm streaming (idle loop jumps in)
-        xor     a
-        ld      (SND_REQ_SAMPLE), a      ; clear slot
-        ld      a, (SND_STAT_ACK_COUNT)
-        inc     a
-        ld      (SND_STAT_ACK_COUNT), a
+        ; --- restore the DAC consumer's invariants for BOTH call contexts:
+        ; re-park reg $2A on $4000, and de = $4001 (the streaming-loop DATA port).
+        ld      a, SND_REG_DAC_DATA
+        ld      (SND_Z80_YM_A0), a       ; re-park $2A on the addr port
+        ld      de, SND_Z80_YM_A1        ; de = $4001 (DAC DATA port invariant)
+        pop     ix
         ret
 
 ; ======================================================================
@@ -653,6 +701,156 @@ Snd_TimerA_Rearm:
         ret
 
 ; ======================================================================
+; Snd_TimerA_Disable — stop Timer A entirely (Task 6 StopMusic). Writes $27 = 0
+; (no LOAD/ENBL/RST) so the counter stops raising the overflow status flag and
+; the DAC-loop poll sees no more ticks. ABSOLUTE addressing (preserve de);
+; re-parks reg $2A on $4000. Clobbers af.
+; ======================================================================
+Snd_TimerA_Disable:
+        ld      a, SND_REG_TIMER_CTRL    ; $27
+        ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
+        xor     a
+        ld      (SND_Z80_YM_A1), a       ; $4001 = 0 -> Timer A off (no overflow flag)
+        ld      a, SND_REG_DAC_DATA      ; $2A
+        ld      (SND_Z80_YM_A0), a       ; re-park addr port on DAC DATA
+        ret
+
+; ======================================================================
+; Snd_LoadSong — load + arm the song the 68k posted (Task 6). REACHED ONLY from
+; SndDrv_PollMailbox in the VBlank ISR, so the DAC streaming loop is PAUSED (it
+; runs only at the loop's single `ei`, between samples) — the bank switch below
+; cannot corrupt an in-flight DAC FILL (none runs while paused), and the ~100k-cyc
+; ring lead vastly outlasts this ~few-hundred-byte copy. (Banking decision A.)
+;
+; Steps (see the task's Snd_LoadSong recipe):
+;   1. Save the DAC bank (SND_CUR_BANK) — SndDrv_SetBank overwrites the cache.
+;   2. SetBank to the song bank (from SND_MUSIC_PARAM_BANK).
+;   3. Copy a FIXED SND_SONG_BUF_SIZE bytes from the $8000-window ptr
+;      (SND_MUSIC_PARAM_PTR) into SND_SONG_BUF (Z80 RAM) — streams self-terminate,
+;      so copying a little past the song is harmless.
+;   4. Restore the DAC bank (re-latches $6000).
+;   5. Parse the header FROM SND_SONG_BUF (now Z80-addressable) and init channels.
+;   6. Program Timer A from the header tempo; arm; clear SND_REQ_MUSIC.
+; Clobbers af,bc,de,hl,ix. (Runs in the ISR, which saved af/bc/de/hl; ix is not
+; used by the streaming loop across iterations.)
+; ======================================================================
+Snd_LoadSong:
+        ; 1. save the DAC bank (so we can restore it after reading the song).
+        ld      a, (SND_CUR_BANK)
+        ld      (Snd_SavedDacBank), a
+        ; 2. SetBank to the song's bank.
+        ld      a, (SND_MUSIC_PARAM_BANK)
+        call    SndDrv_SetBank           ; $6000 latch only
+        ; 3. copy SND_SONG_BUF_SIZE bytes window-ptr -> SND_SONG_BUF (ldir).
+        ld      hl, (SND_MUSIC_PARAM_PTR) ; source = $8000-window ptr (little-endian in RAM)
+        ld      de, SND_SONG_BUF          ; dest = Z80 RAM song buffer
+        ld      bc, SND_SONG_BUF_SIZE
+        ldir
+        ; 4. restore the DAC bank (re-latches $6000; mismatch vs the cached song
+        ;    bank forces the 9 writes).
+        ld      a, (Snd_SavedDacBank)
+        call    SndDrv_SetBank
+
+        ; --- 5. parse the header from SND_SONG_BUF (no banking now) + init channels.
+        ; clear the whole sequencer header + channel block first.
+        ld      hl, SND_SEQ_BASE
+        ld      bc, SND_SEQ_END-SND_SEQ_BASE
+.seq_clr:
+        ld      (hl), 0
+        inc     hl
+        dec     bc
+        ld      a, b
+        or      c
+        jr      nz, .seq_clr
+
+        ; tempo (SH_TEMPO) + channel_count (SH_CHCOUNT)
+        ld      a, (SND_SONG_BUF+SH_CHCOUNT)
+        ld      (SND_SEQ_CHCOUNT), a
+        ld      c, a                     ; c = channel count (loop bound)
+        or      a
+        jp      z, .arm                  ; 0 channels -> nothing to init (still arm)
+
+        ; iterate the per-channel header records, filling each SeqChannel.
+        ; iy = header record ptr (3 bytes each); ix = SeqChannel ptr.
+        ld      ix, SND_SEQ_CHANNELS
+        ld      iy, SND_SONG_BUF+SH_CHANNELS
+.chan_init:
+        push    bc                       ; preserve channel counter
+        ; route byte.
+        ld      a, (iy+SHC_ROUTE)
+        ld      (ix+sc_route), a
+        ; stream_ptr: BIG-ENDIAN 16-bit OFFSET in the header -> add SND_SONG_BUF base.
+        ld      h, (iy+SHC_PTR_HI)       ; high byte first (big-endian)
+        ld      l, (iy+SHC_PTR_LO)
+        ld      de, SND_SONG_BUF
+        add     hl, de                   ; hl = RAM address of this channel's stream
+        ld      (ix+sc_stream_ptr), l
+        ld      (ix+sc_stream_ptr+1), h
+        ; flags: ACTIVE + route-class bit (FM / PSG / DAC) from the route value.
+        ld      a, (iy+SHC_ROUTE)
+        call    Snd_RouteClassFlags      ; a = SCF_ACTIVE | class bit (for this route)
+        ld      (ix+sc_flags), a
+        ; sensible default volume + first-tick-fetches-immediately.
+        ld      (ix+sc_volume), 100
+        ld      (ix+sc_dur_count), 1
+        ; advance to the next header record + SeqChannel.
+        ld      de, SHC_LEN
+        add     iy, de
+        ld      de, SeqChannel_len
+        add     ix, de
+        pop     bc
+        dec     c
+        jr      nz, .chan_init
+
+.arm:
+        ; patches stay INLINE in 1C (decision 6): point SND_SEQ_PATCHTAB at the
+        ; inline table; the header's patch_table_ptr is IGNORED.
+        ld      hl, FmPatchInlineTable
+        ld      (SND_SEQ_PATCHTAB), hl
+        ; DEBUG trace/visibility housekeeping.
+        xor     a
+        ld      (SND_SEQ_TRACE_WR), a
+        ld      (SND_SEQ_BADOP), a
+        ; tempo -> Timer A (the song's tick clock).
+        ld      a, (SND_SONG_BUF+SH_TEMPO)
+        ld      (SND_SEQ_TEMPO), a
+        call    Snd_TimerA_Program
+        ; arm the sequencer.
+        ld      a, 1
+        ld      (SND_SEQ_ACTIVE), a
+        ; clear the request slot (consumed) + bump the ack count.
+        xor     a
+        ld      (SND_REQ_MUSIC), a
+        ld      a, (SND_STAT_ACK_COUNT)
+        inc     a
+        ld      (SND_STAT_ACK_COUNT), a
+        ret
+
+; ======================================================================
+; Snd_RouteClassFlags — map a route byte (in `a`) to its sc_flags init value:
+; SCF_ACTIVE | (SCF_IS_FM for FM1..FM5 / SCF_IS_PSG for PSG1..PSGN / SCF_IS_DAC
+; for the DAC route). Clobbers af. (CHROUTE order: FM1..FM5 = 0..4, PSG1..PSGN =
+; 5..8, DAC = 9.)
+; ======================================================================
+Snd_RouteClassFlags:
+        cp      CHROUTE_PSG1             ; < PSG1 (5) -> FM route
+        jr      c, .fm
+        cp      CHROUTE_DAC              ; < DAC (9) -> PSG route (5..8)
+        jr      c, .psg
+        ld      a, SCF_ACTIVE|SCF_IS_DAC
+        ret
+.fm:
+        ld      a, SCF_ACTIVE|SCF_IS_FM
+        ret
+.psg:
+        ld      a, SCF_ACTIVE|SCF_IS_PSG
+        ret
+
+; Saved DAC bank across the song-load bank switch (1 byte, in the free state region
+; below the trace ring is full; reuse a single byte just past the FM scratch).
+Snd_SavedDacBank        = SND_FM_SCRATCH+SND_FM_SCRATCH_LEN
+
+; ======================================================================
 ; Music sequencer core (Sound 1C, Task 2) — opcode interpreter.
 ; Included INSIDE the phase-0 blob so its labels (Sequencer_Tick, the jump
 ; table, the handlers) resolve into Z80 RAM. Hardware-agnostic; the writer
@@ -700,56 +898,25 @@ FmPatchInlineTable_End:
           fatal "inline FM patch table wrong size"
         endif
 
-    ifdef __DEBUG__
-; ======================================================================
-; TASK-2 DRY-RUN TEST STREAMS (DEBUG only; REMOVE/REPLACE when Task 6 lands
-; the real ROM-banked Song_Test). These live in the phase-0 blob so they load
-; into Z80 RAM at boot and are directly addressable (no banking, no $8000
-; window) — sc_stream_ptr points straight at these labels.
-;
-; Notes are `db MEV_NOTE_BASE+<pitch>`. The two streams use different routes
-; (FM1 vs PSG1) so the trace's high nibble distinguishes them, and exercise:
-; set-duration, note, rest, vol, patch, loop-point, jump (FM1 -> loops forever)
-; and MEV_END (PSG1 -> goes idle, so the active-flag-clear path is observable).
-; ======================================================================
-SeqTest_StreamFM:
-        db      MEV_PATCH, 1             ; set patch 1            (zero tick)
-        db      MEV_VOL, 100             ; set volume 100         (zero tick)
-        db      4                        ; set default duration = 4 ticks
-        db      MEV_NOTE_BASE+12         ; note pitch 12          (4 ticks)
-        db      MEV_NOTE_BASE+16         ; note pitch 16          (4 ticks)
-        db      MEV_REST                 ; rest                   (4 ticks)
-SeqTest_FM_Loop:
-        db      MEV_LOOP_POINT           ; loop target            (zero tick)
-        db      MEV_NOTE_BASE+19         ; note pitch 19          (4 ticks)
-        db      MEV_NOTE_DUR, 24, 8      ; note 24, explicit dur 8 (8 ticks)
-        db      MEV_VOL, 80              ; set volume 80          (zero tick)
-        db      MEV_JUMP                 ; jump back to loop point (zero tick)
+; --- Inline DAC sample descriptor table (Task 6 decision 3) ---
+; Maps a 1-based sample id to an 8-byte DacSample record (see the struct in
+; sound_constants.asm). For 1C, id 1 = the temp_blip; its bank/ptr/len are the
+; build-time SND_BLIP_* constants (from data/sound/dac_samples.asm), so an INLINE
+; descriptor in the Z80 blob needs no banking to read. rate/loop_ofs are 0 (the
+; 1B FILL loop drives the rate via the loop trip-time, and re-triggers each $E2 —
+; the FILL-exhaust restart still uses SND_BLIP_PTR/LEN, matching id 1).
+DacSampleTable:
+        ; id 1 = temp_blip
+        db      SND_BLIP_BANK            ; ds_bank
+        db      0                        ; ds_rate (unused — loop trip-time is the clock)
+        dw      SND_BLIP_PTR             ; ds_ptr (little-endian dw)
+        dw      SND_BLIP_LEN             ; ds_length
+        dw      0                        ; ds_loop_ofs (0 = one-shot; FILL restart uses SND_BLIP_*)
+DacSampleTable_End:
 
-SeqTest_StreamPSG:
-        db      MEV_VOL, 100             ; set volume 100         (zero tick)
-        db      3                        ; set default duration = 3 ticks
-        db      MEV_NOTE_BASE+48         ; note pitch 48 (div $1AC: $8C,$1A) 3t
-        db      MEV_REST                 ; rest                   (3 ticks)
-        db      MEV_NOTE_BASE+55         ; note pitch 55 (div $11D: $8D,$11) 3t
-        db      MEV_END                  ; end -> channel goes idle
-
-; --- PSGN (noise) dry-run stream. A noise "note"'s low 3 bits pick the SN76489
-; noise mode/rate (decision 2): pitch 5 -> control $E5 (white, clk/1024),
-; pitch 1 -> control $E1 (periodic, clk/512). Note-on then sets the noise volume
-; from sc_volume ($F0|atten); the rest issues $FF (silence). Loops forever so the
-; controller can VGM-capture the $E0-class control bytes on the noise channel.
-SeqTest_StreamPSGN:
-        db      MEV_VOL, 100             ; set volume 100         (zero tick)
-        db      4                        ; set default duration = 4 ticks
-SeqTest_PSGN_Loop:
-        db      MEV_LOOP_POINT           ; loop target            (zero tick)
-        db      MEV_NOTE_BASE+5          ; noise "note" 5 -> ctrl $E5 (4 ticks)
-        db      MEV_REST                 ; rest -> noise vol $FF  (4 ticks)
-        db      MEV_NOTE_BASE+1          ; noise "note" 1 -> ctrl $E1 (4 ticks)
-        db      MEV_REST                 ; rest                   (4 ticks)
-        db      MEV_JUMP                 ; jump back to loop point (zero tick)
-    endif
+        if (DacSampleTable_End-DacSampleTable) <> DAC_SAMPLE_COUNT*DacSample_len
+          fatal "DacSampleTable wrong size for DAC_SAMPLE_COUNT"
+        endif
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise
         ; then does word/long (a5)+ reads on the data that follows; an odd-length

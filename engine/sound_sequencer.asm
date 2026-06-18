@@ -411,8 +411,18 @@ Seq_HookSetPatch:
         call    Fm_PatchPtr              ; hl = FmPatch ptr for sc_patch
         jp      Fm_PatchLoad
 
+; Seq_HookDac (Task 6) — the DAC route's $E2 trigger. Seq_Op_Dac stashed the
+; operand (the sample id) in sc_note; look it up in DacSampleTable and start the
+; 1B DAC sample path. Snd_StartSample touches only RAM + the $6000 latch + $2B/$2A
+; (no ROM read) and re-parks $2A + restores de=$4001 — safe inside the Timer-A
+; tick (DAC not paused but between samples). Called only for the $E2 opcode, so no
+; route gate is needed here. Preserves ix; the zero-tick Seq_Op_Dac handler
+; push/pops hl around this call, so the clobbered hl is fine.
 Seq_HookDac:
-        ret                              ; DAC trigger route -> Task 6 (1B DAC)
+        ld      a, (ix+sc_note)          ; a = DAC sample id (the $E2 operand)
+        call    Snd_DacLookup            ; a=id -> hl=descriptor (carry set if bad)
+        ret     c                        ; bad id -> ignore the trigger
+        jp      Snd_StartSample          ; start DAC playback from the descriptor
 
 ; ======================================================================
 ; Sequencer_StopAll — the StopMusic primitive (wired to the command API in

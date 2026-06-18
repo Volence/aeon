@@ -14,8 +14,14 @@ SND_Z80_BASE            = Z80_RAM                ; $A00000 (from constants.asm)
 SND_REQ_BASE            = $1F00
 SND_REQ_PING            = SND_REQ_BASE+$00       ; debug: echo this value (0 = idle)
 SND_REQ_SAMPLE          = SND_REQ_BASE+$01       ; DAC sample id (0 = idle)
-SND_REQ_MUSIC           = SND_REQ_BASE+$02       ; reserved (Phase 1C)
+; SND_REQ_MUSIC encoding (Task 6): 0 = idle/nothing pending; 1..$FE = play
+; SongTable[id-1]; $FF = STOP (a reserved sentinel — 0 cannot mean stop because
+; 0 is the "no request" value in the latest-wins slot). The 68k posts the song
+; id (or $FF) here AFTER posting the SND_MUSIC_PARAM block, under the SAME bus
+; hold, so the Z80 never reads a half-updated param block.
+SND_REQ_MUSIC           = SND_REQ_BASE+$02       ; music command (0 idle / 1..$FE play / $FF stop)
 SND_REQ_SFX             = SND_REQ_BASE+$03       ; reserved (Phase 1C)
+SND_MUSIC_STOP          = $FF                    ; SND_REQ_MUSIC stop sentinel
 
 ; --- Status / ack region (Z80 writes, 68k reads) ---
 SND_STAT_BASE           = $1F10
@@ -389,6 +395,39 @@ SND_FM_SCRATCH_LEN = 4
       fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
     endif
 
+; --- Music-load param block (Task 6 decision 2) + song RAM buffer (decision 1).
+; The 68k pre-derives the song's bank + $8000-window ptr (same addressing as a
+; DacSample) and posts them here (under the same bus hold as the SND_REQ_MUSIC
+; trigger). The Z80 SND_REQ_MUSIC handler reads them, banks the song in, and
+; copies a FIXED SND_SONG_BUF_SIZE bytes into SND_SONG_BUF (Z80 RAM) so the
+; sequencer streams are RAM-resident (no $8000-window banking during playback —
+; the 1B DAC owns the bank). The trace ring is $1A00..$1A1F (32 B), so the param
+; block lives just above it at $1A20.
+SND_MUSIC_PARAM         = $1A20                  ; music-load param block
+SND_MUSIC_PARAM_BANK    = SND_MUSIC_PARAM+$00    ; song bank id (1 byte)
+SND_MUSIC_PARAM_PTR     = SND_MUSIC_PARAM+$01    ; song $8000-window ptr (2 bytes, little-endian)
+SND_MUSIC_PARAM_LEN     = 3
+
+; The song RAM buffer: the loader copies a fixed SND_SONG_BUF_SIZE bytes from the
+; banked window here once at load. Page-aligned ($1B00) so the loader copy + the
+; sequencer's hl stream walk stay in one page family (no special alignment need,
+; but keeps the map tidy). 512 bytes — generously covers the bring-up song; the
+; streams self-terminate ($FF/$EF) so copying a little past the song into adjacent
+; ROM is harmless (never interpreted). Song_Test's packed size is build-asserted
+; <= SND_SONG_BUF_SIZE in data/sound/song_table.asm.
+SND_SONG_BUF            = $1B00
+SND_SONG_BUF_SIZE       = $200                   ; 512 bytes ($1B00..$1CFF)
+
+    if (SND_MUSIC_PARAM + SND_MUSIC_PARAM_LEN) > SND_SONG_BUF
+      fatal "music param block (\{SND_MUSIC_PARAM}) runs into the song buffer at \{SND_SONG_BUF}"
+    endif
+    if SND_MUSIC_PARAM < (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN)
+      fatal "music param block (\{SND_MUSIC_PARAM}) overlaps the trace ring at \{SND_SEQ_TRACE}"
+    endif
+    if (SND_SONG_BUF + SND_SONG_BUF_SIZE) > SND_REQ_BASE
+      fatal "song buffer (\{SND_SONG_BUF}+\{SND_SONG_BUF_SIZE}) overruns the mailbox at \{SND_REQ_BASE}"
+    endif
+
 ; --- Trace event_code values (0..15) — the controller decodes the trace ring.
 ; Each trace byte is (sc_route << 4) | event_code: high nibble = CHROUTE_*,
 ; low nibble = SEQEV_* below. (Route fits in 4 bits: CHROUTE_COUNT = 10 <= 15.)
@@ -410,3 +449,26 @@ SEQEV_END       = 8     ; end of stream ($FF)
 ;   dw  patch_table_ptr  ; FM patch table for this song
 ; (No struct — the per-channel array length is variable. The packer back-patches
 ; each stream_ptr to its stream's offset within the packed song blob.)
+;
+; --- SongHeader field offsets (Task 6 loader; from SND_SONG_BUF base) ---
+; Fixed-position fields:
+SH_TEMPO        = 0     ; +0  tempo byte (Timer-A selector)
+SH_CHCOUNT      = 1     ; +1  channel count
+SH_CHANNELS     = 2     ; +2  start of the per-channel array
+; Per-channel record (3 bytes): route, stream_ptr (16-bit BIG-ENDIAN offset).
+; The packer writes stream_ptr as (off>>8),(off&FF) — high byte FIRST. The loader
+; must read it big-endian (NOT a plain Z80 little-endian 16-bit load).
+SHC_ROUTE       = 0     ; +0  route byte
+SHC_PTR_HI      = 1     ; +1  stream offset high byte (big-endian)
+SHC_PTR_LO      = 2     ; +2  stream offset low byte
+SHC_LEN         = 3     ; per-channel record length
+; patch_table_ptr (2 bytes) follows the per-channel array; IGNORED in 1C (patches
+; stay inline — SND_SEQ_PATCHTAB is set to FmPatchInlineTable by the loader).
+
+; --- DacSample id -> descriptor table (Task 6 decision 3) ---
+; The $E2 operand (and SND_REQ_SAMPLE) is a 1-based sample id; the handler looks
+; up DacSampleTable[id-1] (each DacSample_len = 8 bytes). For 1C, id 1 = the temp
+; blip; the table is an INLINE descriptor in the Z80 blob (the blip's bank/ptr/len
+; are build-time constants — no banking needed to read it). DAC_SAMPLE_COUNT is
+; asserted against the table size in the blob.
+DAC_SAMPLE_COUNT = 1

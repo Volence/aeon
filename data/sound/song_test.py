@@ -26,7 +26,10 @@ A4, C5, E5, A5 = 57, 60, 64, 69
 
 
 def build_song() -> SongDesc:
-    return SongDesc(tempo=6, channels=[
+    # tempo byte = N>>2 (N = tempo<<2). Bigger = faster (period = 18.773us*(1024-N)).
+    # 0xC0 -> N=768 -> period (1024-768)*18.773us = 4806us -> ~208 ticks/sec, a
+    # musically reasonable rate for this bring-up song (durations 0x08..0x20 ticks).
+    return SongDesc(tempo=0xC0, channels=[
         # FM1 — patch 0, melody loop.
         ChannelDesc(CHROUTE_FM1, [
             Patch(0), Vol(100), SetDur(0x10),

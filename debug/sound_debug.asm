@@ -11,7 +11,14 @@
 ; DEBUG only. Stops the Z80 for the copy, then restarts it.
 ; Clobbers: d0/a0/a1
 ; ----------------------------------------------------------------------
-SEQ_MIRROR_HDRCH = 8 + (3*SeqChannel_len)        ; header + 3 test channels = 41 bytes
+; Task 6: the real test song has 5 channels (FM1, FM2, PSG1, PSGN, DAC), so widen
+; the mirror's header+channel window from 3 to 5 channels. header(8) + 5*11(55) =
+; 63 bytes. Total mirror upper window = 48 (req+status) + 16 (playback) + 63
+; (header+5ch) + 32 (trace) = 159 <= 160. Channel slots in the mirror (offset from
+; Sound_Dbg_Mirror): ch0 FM1 [72..82], ch1 FM2 [83..93], ch2 PSG1 [94..104],
+; ch3 PSGN [105..115], ch4 DAC [116..126]; trace ring [127..158].
+SEQ_MIRROR_CHANNELS = 5
+SEQ_MIRROR_HDRCH = 8 + (SEQ_MIRROR_CHANNELS*SeqChannel_len)   ; header + 5 channels = 63 bytes
 Sound_DebugMirror:
         stopZ80
         lea     (Sound_Dbg_Mirror).w, a1         ; 68k RAM dest
@@ -40,12 +47,16 @@ Sound_DebugMirror:
         ;          +0/+1 sc_stream_ptr, +2 sc_dur_count, +3 sc_dur_default,
         ;          +4 sc_patch, +5 sc_volume, +6 sc_note, +7 sc_flags,
         ;          +8 sc_route, +9/+10 sc_loop_ptr.
-        ;          ch0 (FM1) at [72..82], ch1 (PSG1) at [83..93],
-        ;          ch2 (PSGN) at [94..104].
-        ;   [105..136] SND_SEQ_TRACE ring (32 bytes); each = (route<<4)|event_code.
-        ; We copy the 8-byte header + the FIRST 3 channel slots (the dry-run test
-        ; channels: FM1, PSG1, PSGN) = 41 bytes; with the 32-byte trace the upper
-        ; window spans [64..136] (73 bytes), inside the 160-byte mirror.
+        ;          ch0 (FM1) [72..82], ch1 (FM2) [83..93], ch2 (PSG1) [94..104],
+        ;          ch3 (PSGN) [105..115], ch4 (DAC) [116..126].
+        ;   [127..158] SND_SEQ_TRACE ring (32 bytes); each = (route<<4)|event_code.
+        ; We copy the 8-byte header + the FIRST 5 channel slots (the test song's
+        ; FM1/FM2/PSG1/PSGN/DAC) = 63 bytes; with the 32-byte trace the upper
+        ; window spans [64..158] (95 bytes), inside the 160-byte mirror.
+        ; Fit guard: 64 + (header+5ch) + trace <= 160.
+        if (64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN) > 160
+          fatal "sound debug mirror window (\{64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN}) exceeds Sound_Dbg_Mirror (160 bytes)"
+        endif
         lea     (Z80_RAM+SND_SEQ_BASE).l, a0     ; [64..] = $1800.. (header + 3 channels)
         moveq   #SEQ_MIRROR_HDRCH-1, d0
 .copy3:

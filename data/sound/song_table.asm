@@ -22,4 +22,16 @@ SongTable_End:
           error "song table length \{(SongTable_End-SongTable)/4} != SONG_COUNT"
         endif
 
+        ; Task 6: song ids are 1..$FE in SND_REQ_MUSIC ($FF = stop sentinel), so
+        ; the real song count must stay below $FF.
+        if SONG_COUNT >= $FF
+          error "SONG_COUNT (\{SONG_COUNT}) must be < $FF ($FF is the stop sentinel)"
+        endif
+
+        ; Task 6: the loader copies a FIXED SND_SONG_BUF_SIZE bytes of the packed
+        ; song into Z80 RAM, so the packed song must fit in that buffer.
+        if (Song_Test_End-Song_Test) > SND_SONG_BUF_SIZE
+          fatal "Song_Test (\{Song_Test_End-Song_Test} bytes) exceeds SND_SONG_BUF_SIZE (\{SND_SONG_BUF_SIZE})"
+        endif
+
         align 2
