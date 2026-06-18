@@ -1014,11 +1014,74 @@ warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 
 ## From Sound Driver Work (Future)
 
+> **Driver note:** the engine ships a **from-scratch custom Z80-autonomous sound driver**
+> (2026-06-16 master sound spec), NOT an imported Flamedriver. Plans **1A** (foundations),
+> **1B** (DMA-survival DAC), and **1C** (FM+PSG sequencer) are SHIPPED. The Phase 2–6 backlog
+> (FM depth, N-channel DAC mixer, adaptive FM6, section-aware banking/fades, MegaDAW export) is
+> tracked at the bottom of this section. References to "Flamedriver upload" below are historical.
+
+### Multi-sample DAC loop-restart hardcodes the blip descriptor (latent bug, Plan 1C)
+**Surfaced during:** Sound 1C pre-merge audit (2026-06-17).
+**Status:** Benign in 1C (single DAC sample); **must fix before adding a 2nd DAC sample.**
+**What:** The FILL-exhaust restart in `engine/z80_sound_driver.asm` (the rare "sample
+exhausted → loop the blip" branch, ~line 399) hardcodes `SND_BLIP_PTR` / `SND_BLIP_LEN`:
+```z80
+        ld      hl, SND_BLIP_PTR
+        ld      (SND_ROM_PTR), hl
+        ld      hl, SND_BLIP_LEN
+        ld      (SND_ROM_LEN), hl
+```
+instead of re-reading the **active `DacSample` descriptor's** loop fields (loop ptr / loop
+len). In 1C there is exactly one DAC sample (the blip), so the constants and the active
+sample agree and the restart is correct. The moment a second DAC sample (e.g. a real drum)
+is added, an exhausted non-blip sample would incorrectly restart into the blip's bytes.
+**When to fix:** when the DAC gains a 2nd sample (Phase 2 N-channel mixer, or any new drum):
+have the exhaust branch reload `SND_ROM_PTR`/`SND_ROM_LEN` from the currently-playing
+descriptor's loop fields (the `SND_LOOP_OFS` / per-sample loop machinery already exists in
+`SND_STATE_BASE`), not from the fixed `SND_BLIP_*` constants.
+
+### Dead-but-drift-guarded 68k ROM table/patch copies (Plan 1C)
+**Surfaced during:** Sound 1C pre-merge audit (2026-06-17).
+**Status:** Harmless in 1C; candidate for trimming in a later phase.
+**What:** The FM writer / sequencer read **inline Z80 copies** of the sound tables and FM
+patches (`engine/sound_tables_z80.asm` and `data/sound/fm_patches.inc`, both included into
+the `phase 0` Z80 blob). The **68k ROM copies** — `data/sound/sound_tables.asm` and
+`data/sound/fm_patches.asm` (the latter `include`s the same `fm_patches.inc`) — are emitted
+into ROM (via `main.asm`) but **not read by any 1C code path** (decision: inline for 1C, not
+banked). They exist for a future banked-ROM loader. They are **drift-guarded**: the patch
+bytes are single-sourced through `data/sound/fm_patches.inc` (a `pbyte` macro picks `dc.b`/`db`
+per CPU), and `gen_sound_tables.py`'s generator + its pytest keep the table copies in sync, so
+the dead copies cannot silently diverge.
+**When to fix:** a later phase that either (a) adopts a banked-ROM song/patch loader (then the
+68k copies become live), or (b) decides inline-only is permanent (then drop the unread 68k
+`.asm` copies + their `main.asm` includes to reclaim ROM). No urgency — drift-guarded, small.
+
+### Phase 2–6 sound backlog (master sound spec §12)
+**Surfaced during:** Sound 1C pre-merge audit (2026-06-17), per the 1C design §2 "explicitly deferred."
+**What (each its own plan, per master spec §12):**
+- **Phase 2 — DAC powerhouse:** N-channel DAC mixer (quality-adaptive single↔mix), stereo/pseudo-
+  stereo PCM, pitch-shifted SFX, half-rate samples, BRR codec (after spike), bank-switch optimization.
+- **Phase 3 — FM depth:** dual per-channel data streams, true (division-based) portamento, SSG-EG,
+  LFO, Ch3 special/CSM, detune-unison, full PSG envelopes, raw-register escape hatch.
+- **Phase 4 — Adaptive FM6/DAC slot:** the three content-adaptive modes (full 6th FM voice /
+  Batman time-share / permanent N-channel DAC mixer). 1C keeps FM6 permanently the DAC (simple model).
+- **Phase 5 — Engine integration & game-feel:** section-aware sound banking, music fade state machine,
+  distance attenuation + priority SFX mixing, procedural ambient soundscape, continuous SFX. (These are
+  ENGINE_ARCHITECTURE §6.4–6.7, all DEFERRED.)
+- **Phase 6 — MegaDAW compiler:** event-list format finalization, MegaDAW export retarget,
+  sample/DC-offset encoders. (1C hand-authors the test song; MegaDAW integration + real song-sourcing
+  are downstream/user-driven — the engine defines the format contract first.)
+**Blocked by:** sequenced after 1C merges to master; each phase is audible + Exodus-verifiable.
+**See:** `docs/superpowers/specs/2026-06-16-sound-driver-design.md` §12; `docs/superpowers/specs/2026-06-17-sound-1c-design.md` §2.
+
 ### Defensive Z80 RAM Upload — Verify-and-Retry
 **Surfaced during:** Ristar disassembly deep-dive (2026-04-27). Source:
 `ristar_disasm/code/disasm.asm` lines 8330–8350 (`$641A` upload routine);
 analysis in `ristar_disasm/ANALYSIS.md` § "Sound architecture (CONFIRMED)".
-**Blocked by:** Flamedriver design / sound driver implementation.
+**Blocked by:** N/A for 1C — the from-scratch driver is **assembled inline into the ROM**
+(`engine/z80_sound_driver.asm`, `phase 0` blob), so there is no runtime 68k→Z80 byte-by-byte
+*driver upload* to wrap. This pattern applies only if a future phase streams driver/data bytes
+into Z80 RAM at runtime (it does not today).
 **What:** Ristar's Z80 RAM upload routine writes each byte, **reads it
 back to verify**, retries up to 16 times on mismatch before giving up.
 Most Genesis games trust the write; Ristar's team apparently saw
@@ -1041,9 +1104,10 @@ upload_loop:
     dbra    d0, upload_loop
 ```
 
-**When ready:** When we implement Flamedriver upload (`engine/z80_init.asm`
-or wherever the driver-bytes copy lives). Wrap each Z80 byte write with
-the read-back-verify retry loop. ~30 extra lines of asm.
+**When ready:** Only if a future phase adds a **runtime** 68k→Z80 RAM byte-copy
+(e.g. streaming song/sample data into Z80 RAM, rather than the current inline-in-ROM
+driver). Wrap each Z80 byte write with the read-back-verify retry loop. ~30 extra lines
+of asm. Not applicable to the inline-assembled 1A/1B/1C driver.
 **Why bother:** Cheap insurance against a real-but-rare bug class. Most
 runs will hit `.ok` on the first try; the retry only fires when the bus
 is contended (probably never on most hardware revisions, but the cost is

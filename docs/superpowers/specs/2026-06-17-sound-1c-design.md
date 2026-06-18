@@ -116,9 +116,16 @@ This is the classic SMPS tick loop, kept deliberately small. Note-on for FM = §
 **Patch (instrument) format** — a ~25–29 byte ROM record holding the YM2612 per-channel FM
 registers: algorithm+feedback (`$B0`), L/R+AMS/FMS (`$B4`), and the four operators' `DT/MUL`
 (`$30`), `TL` (`$40`), `RS/AR` (`$50`), `AM/D1R` (`$60`), `D2R` (`$70`), `D1L/RR` (`$80`).
-`Patch_Load(channel, patch_ptr)` writes them via the YM write-discipline (busy-poll before each
-register-pair write — the FM hazard the master spec §5 flags; the DAC `$2A` path does not need
-it, FM does).
+`Patch_Load(channel, patch_ptr)` writes them via the YM write-discipline.
+
+> **SHIPPED decision (FM writer spacing — `engine/sound_fm.asm`):** the FM register writer
+> **does NOT busy-poll** the YM status bit before each write. It instead uses **fixed `nop` +
+> operator-loop spacing** to supply the inter-write delay the YM2612 needs for regs ≥ `$30`.
+> Rationale (validated against Flamedriver / plutiedev): the YM busy flag is **unreliable**, and
+> fixed spacing keeps the DAC's `$4000`/reg-`$2A` parking invariant intact for DAC coexistence
+> (a busy-poll loop on `$4000` would fight the free-running 1B DAC's port parking). This closes
+> the §13 "YM busy-poll cost" risk — there is no per-write poll cost; the cost is the deterministic
+> fixed spacing, accounted for in the bounded per-tick budget.
 
 **Note-on:** look up pitch → F-number+block, write `$A4+ch`/`$A0+ch`, then key-on (`$28`,
 operator mask = all on). **Note-off / rest:** key-off (`$28`, mask = 0).
@@ -191,10 +198,16 @@ read slightly past the song into adjacent ROM — harmless, since streams self-t
 ## 9. 68k↔Z80 command API
 
 Extends the 1A per-type mailbox slots:
-- `SND_REQ_MUSIC` (already reserved at `$1F02`): the 68k posts a **song id**; the Z80 mailbox
-  poll loads the song header, points each channel's `stream_ptr`, loads initial patches, starts
-  the sequencer. `0` = stop (silence FM key-offs + PSG pause-silence).
-- 68k helper `Sound_PlayMusic(d0=song_id)` / `Sound_StopMusic` (bus-held post, per 1A).
+- `SND_REQ_MUSIC` (already reserved at `$1F02`): the 68k posts a **command byte**; the Z80 mailbox
+  poll decodes it. **SHIPPED encoding (the contract — see `sound_constants.asm` + `engine/sound_api.asm`):**
+  - `0` = **idle / no request** — the "nothing pending" value of the latest-wins single-byte slot.
+    Because the slot is latest-wins (no separate pending flag — 1A), the handler treats `0` as
+    "no command posted," so **`0` CANNOT mean stop** in this model.
+  - `1..$FE` = **play** `SongTable[id-1]` — load the song header, point each channel's
+    `stream_ptr`, init `SeqChannel` state, program Timer-A, start the sequencer.
+  - `$FF` = **stop** (`SND_MUSIC_STOP`) — `Sequencer_StopAll`: FM key-offs + PSG pause-silence +
+    `SND_SEQ_ACTIVE=0` + Timer-A disabled. (The 1B DAC keeps running — DAC is owned by 1B.)
+- 68k helper `Sound_PlayMusic(d0=song id 1..$FE)` / `Sound_StopMusic` (posts `$FF`; bus-held post, per 1A).
 - Song id → `SongHeader` ptr via a ROM **song table** (bank-aware, reusing 1B's `SetBank`).
 
 ## 10. Verification
@@ -234,10 +247,21 @@ is also guarded `< SND_REQ_BASE`. `$1876–$19FF` and `$1A20–$1EFF` remain fre
 SEQEV_VOL=3, SEQEV_PATCH=4, SEQEV_DAC=5, SEQEV_LOOP=6, SEQEV_JUMP=7, SEQEV_END=8`. The high nibble
 is the channel's `CHROUTE_*` route, so the controller can decode which channel fired which event.
 
-**DEBUG mirror (Task 2):** `Sound_Dbg_Mirror` widened 64→128 B. Upper half:
-`[64..71]` sequencer header, `[72..82]` channel 0 (FM1), `[83..93]` channel 1 (PSG1),
-`[94..125]` trace ring. (`SND_SEQ_ACTIVE` → mirror `[68]`, `SND_SEQ_TRACE_WR` → `[70]`, each
-channel `sc_flags` at its base `+7`, `sc_stream_ptr` at `+0/+1`.)
+**DEBUG mirror (SHIPPED — `ram.asm` `Sound_Dbg_Mirror` = 160 B; copy in `debug/sound_debug.asm`).**
+The mirror is **160 bytes**, not 128, and copies **5 channels** (the real test song has FM1, FM2,
+PSG1, PSGN, DAC — Task 6 widened the channel window from 3 to 5). Layout (offsets from
+`Sound_Dbg_Mirror`):
+- `[0..47]` — Z80 mailbox + status (`$1F00..$1F2F`); `SND_STAT_TICK` → `[19]`.
+- `[48..63]` — playback state (`$1600..$160F`).
+- `[64..71]` — sequencer header: `[64]` tempo, `[65]` chcount, `[66..67]` patch-table ptr,
+  `[68]` `SND_SEQ_ACTIVE`, `[69]` `SND_SEQ_BADOP`, `[70]` `SND_SEQ_TRACE_WR`, `[71]` unused.
+- `[72..126]` — **5 channel slots**, 11 B each (`SeqChannel`): `[72..82]` ch0 **FM1**,
+  `[83..93]` ch1 **FM2**, `[94..104]` ch2 **PSG1**, `[105..115]` ch3 **PSGN**, `[116..126]` ch4 **DAC**.
+  Per slot: `+0/+1` `sc_stream_ptr`, `+2` `sc_dur_count`, `+3` `sc_dur_default`, `+4` `sc_patch`,
+  `+5` `sc_volume`, `+6` `sc_note`, `+7` `sc_flags`, `+8` `sc_route`, `+9/+10` `sc_loop_ptr`.
+- `[127..158]` — `SND_SEQ_TRACE` ring (32 bytes); each = `(sc_route<<4) | event_code`.
+
+A build `fatal` guard (`debug/sound_debug.asm`) asserts `64 + (header + 5 channels) + trace <= 160`.
 
 ## 12. Decomposition (task order for the plan)
 
@@ -261,8 +285,10 @@ build + Exodus-verify + commit.
 
 - **Sub-tick service vs DAC cadence** (§8) — the integration risk; validate at task 5 with VGM
   before building the full song on top.
-- **YM busy-poll cost** inside the bounded tick — confirm the FM register-pair writes + busy-poll
-  fit the per-tick budget without overrunning the next DAC sample badly.
+- ~~**YM busy-poll cost** inside the bounded tick~~ — **CLOSED (shipped).** The FM writer uses
+  **fixed `nop` + operator-loop spacing, not a busy-poll** (§6), so there is no poll cost; the
+  deterministic fixed spacing fits the bounded per-tick budget and preserves the DAC `$2A`/`$4000`
+  parking invariant. (The busy flag was rejected as unreliable, per Flamedriver/plutiedev.)
 - **F-number table accuracy** — verify pitch against a reference (a known note's measured
   frequency) so the whole tuning isn't off.
 - v0 format is deliberately minimal; we accept it will gain opcodes in Phase 3 (designed for it).

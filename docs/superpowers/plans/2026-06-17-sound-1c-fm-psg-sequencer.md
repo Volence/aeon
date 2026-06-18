@@ -1,5 +1,7 @@
 # Sound Plan 1C — Minimal FM + PSG Music Sequencer
 
+> **STATUS: COMPLETE — all 6 tasks implemented, verified in Exodus, merge-pending on `feat/sound-1c` (2026-06-17).** The full multi-channel test song (FM1/FM2 + PSG tone/noise + DAC drums) plays and loops cleanly; `PlayMusic`/`StopMusic` work; Timer-A tick scheduler coexists with the free-running 1B DAC. Task checkboxes below are marked `[x]`. Doc-sync note: the FM writer ships with **fixed `nop` spacing, not a YM busy-poll** (see the 1C design §6); the stop command is **`$FF` (`SND_MUSIC_STOP`)**, not `0` (`0` = idle in the latest-wins slot — see design §9); the DEBUG mirror is **160 B / 5 channels** (design §11). Sequencer Z80 RAM at `$1800` (state), `$1A00` (trace), `$1A20` (music param), `$1B00–$1CFF` (`SND_SONG_BUF`).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to implement this plan task-by-task. A fresh subagent per task; the controller drives the Exodus MCP verification between tasks. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Hear a short multi-channel song play and loop cleanly — a few FM melodic voices (FM1–FM5) + PSG tone/noise + DAC drums (reusing the 1B DAC) — driven by a hand-authored test song in a compact event-list format. This validates the *entire* music pipeline (format → sequencer → FM/PSG hardware → coexistence with the continuous DAC) on the smallest footprint.
@@ -67,10 +69,10 @@ Everything that can be computed on the build PC. No Z80 code yet. Real TDD for t
 
 **Files:** Create `tools/gen_sound_tables.py`, `tools/test_gen_sound_tables.py`, `tools/song_packer.py`, `tools/test_song_packer.py`, `data/sound/song_test.py`, generated `data/sound/sound_tables.asm` + `data/sound/song_test.asm`; Modify `sound_constants.asm`, `main.asm`.
 
-- [ ] **Step 1 — Research (SMPS format + YM/PSG pitch math).**
+- [x] **Step 1 — Research (SMPS format + YM/PSG pitch math).**
   Dispatch a research subagent. Confirm against: s2disasm `s2.sounddriver.asm` (SMPS coordination-flag table + the `cfXxx` opcode dispatch, note→frequency `SMPS_FreqTbl`, the duration model), skdisasm `Sound/Z80 Sound Driver.asm` (the S3K event/flag set, PSG handling, the per-channel `TrackSz` state layout), S.C.E. `Sound/Flamedriver.asm` (its coordination-flag jump table + note table), Batman & Robin sound. Online: plutiedev YM2612 (F-number = `freq * 2^(20-block) / master_clock`, the 11-bit F-num + 3-bit block split; equal-tempered semitone ratio `2^(1/12)`), plutiedev SN76489 (10-bit divisor = `clock / (32 * freq)`, latch/data byte format, attenuation 4-bit, noise control). Produce: the exact F-num/block formula + a reference value (e.g. A4=440 Hz → expected F-num+block, so the table can be checked against a known note), the PSG divisor formula, and the SMPS opcode-dispatch pattern we'll mirror. 4–6 line note.
 
-- [ ] **Step 2 — Lock the opcode + struct + header contracts in `sound_constants.asm`.**
+- [x] **Step 2 — Lock the opcode + struct + header contracts in `sound_constants.asm`.**
   Append a "Music format v0" block. **Opcode constants (spec §4 table — these values are the contract):**
   ```asm
   ; --- Music event-list opcodes (v0) ---
@@ -131,7 +133,7 @@ Everything that can be computed on the build PC. No Z80 code yet. Real TDD for t
   ```
   Add asserts: table sizes (Step 3), `CHROUTE_COUNT` matches the enum, opcode ranges don't overlap (`MEV_NOTE_MAX < MEV_VOL`).
 
-- [ ] **Step 3 — TDD: `gen_sound_tables.py` (write `test_gen_sound_tables.py` FIRST).**
+- [x] **Step 3 — TDD: `gen_sound_tables.py` (write `test_gen_sound_tables.py` FIRST).**
   Tool signatures (pure functions):
   ```python
   def fnum_block(semitone: int) -> tuple[int, int]:   # -> (fnum 11-bit, block 3-bit)
@@ -162,7 +164,7 @@ Everything that can be computed on the build PC. No Z80 code yet. Real TDD for t
       endif
   ```
 
-- [ ] **Step 4 — TDD: `song_packer.py` (write `test_song_packer.py` FIRST).**
+- [x] **Step 4 — TDD: `song_packer.py` (write `test_song_packer.py` FIRST).**
   Tool signature:
   ```python
   def pack_song(song: SongDesc) -> bytes        # raw header+streams bytes
@@ -176,13 +178,13 @@ Everything that can be computed on the build PC. No Z80 code yet. Real TDD for t
   - Validation rejects: a note pitch > `0x5E`; a duration value > `0x7F` in `SetDur`; `$E2` on a non-DAC route; `$E1` on a non-FM route; a `Jump` with no preceding `LoopPoint`; a stream not terminated by `End`/`Jump`.
   - `emit_asm` produces a buildable `.asm` (labeled, `even`-terminated) that the test parses back to the same bytes.
 
-- [ ] **Step 5 — Author the test song source `data/sound/song_test.py` + generate `song_test.asm`.**
+- [x] **Step 5 — Author the test song source `data/sound/song_test.py` + generate `song_test.asm`.**
   Hand-author a minimal but representative song: at least 2 FM channels (each `Patch`→`SetDur`→a few `Note`/`Rest`→`LoopPoint`→…→`Jump`), 1 PSG tone channel, 1 PSG noise channel, and 1 DAC channel emitting a couple of `Dac(sample_id)` triggers, all looping. Keep it short (a couple of bars). Run the packer to emit `data/sound/song_test.asm` (label `Song_Test`, header + streams + a small per-song FM patch table pointer). The song is the integration target for Tasks 5–6; here it just has to pack and build.
 
-- [ ] **Step 6 — Wire into the ROM data area + build asserts.**
+- [x] **Step 6 — Wire into the ROM data area + build asserts.**
   In `main.asm`, under `SOUND_DRIVER_ENABLED`, `include` `data/sound/sound_tables.asm`, `data/sound/fm_patches.asm` (created Task 3 — add the include now, stub the file with an empty table + `even` so it builds), `data/sound/song_test.asm`, and `data/sound/song_table.asm` (created Task 6 — likewise stub now or defer the include to Task 6; pick one and note it). Place them in the ROM data block (not inside the Z80 `phase 0` blob). Build all three configs `-pe` → exit 0; the table-size asserts pass.
 
-- [ ] **Step 7 — Run the Python suite + commit.**
+- [x] **Step 7 — Run the Python suite + commit.**
   ```bash
   python3 -m pytest tools/test_gen_sound_tables.py tools/test_song_packer.py -q
   SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh -pe   # + the other two configs
@@ -201,10 +203,10 @@ The opcode interpreter, driven first by a **stub writer** that logs to a Z80 RAM
 
 **Files:** Modify `sound_constants.asm` (RAM layout + trace buffer), Create `engine/sound_sequencer.asm`, Modify `engine/z80_sound_driver.asm` (include it; DEBUG dry-run hook), Modify `debug/sound_debug.asm` (mirror the trace + channel state).
 
-- [ ] **Step 1 — Research (SMPS tick loop + per-track state).**
+- [x] **Step 1 — Research (SMPS tick loop + per-track state).**
   Research subagent: from s2disasm/skdisasm, extract the SMPS per-track state block (`TrackSz`: stream ptr, duration timeout, saved duration, current note, volume, the active/rest flags) and the main tick (`TempoWait`/`Track_Run`): decrement the duration timeout, on expiry fetch+dispatch the next opcode(s), reload the timeout. Confirm the jump-table dispatch for the coordination-flag range (how SMPS turns a `$Ex` byte into a handler address) and how it handles the note-vs-flag range split. From S.C.E. Flamedriver: its equivalent. Produce the minimal tick-loop skeleton + the per-channel struct field order best for Z80 indexed (`ix`/`iy`) access. 4–5 lines.
 
-- [ ] **Step 2 — `SeqChannel` struct + sequencer RAM layout (`sound_constants.asm`).**
+- [x] **Step 2 — `SeqChannel` struct + sequencer RAM layout (`sound_constants.asm`).**
   ```asm
   SeqChannel struct
   sc_stream_ptr   ds.w 1   ; +0  current read ptr into the channel byte stream
@@ -238,7 +240,7 @@ The opcode interpreter, driven first by a **stub writer** that logs to a Z80 RAM
   ```
   *(Confirm the exact base addresses against the live z80-ram-map sub-design; the values above are illustrative — the implementer must place them in real free space and let the `fatal` guard prove no overlap. Update spec §12.2 RAM-map.)*
 
-- [ ] **Step 3 — `engine/sound_sequencer.asm`: the tick loop + dispatch.**
+- [x] **Step 3 — `engine/sound_sequencer.asm`: the tick loop + dispatch.**
   Structure (Z80; hardware-agnostic — calls out to writer hooks that are *stubs* this task):
   - `Sequencer_Tick`: `ld a,(SND_SEQ_ACTIVE) / or a / ret z`. Then loop over channels: `ld ix,SND_SEQ_CHANNELS`, `ld b,(SND_SEQ_CHCOUNT)`; per channel — if `sc_flags` bit0 (active) clear, skip; else `Sequencer_Channel`; `lea`-equivalent advance `ix += SeqChannel_len` (Z80: `ld de,SeqChannel_len / add ix,de`); `djnz`.
   - `Sequencer_Channel`: decrement `(ix+sc_dur_count)`; `jr nz, .still_holding` (held note → no work). On expiry, fall into `Sequencer_NextOpcode`.
@@ -247,15 +249,15 @@ The opcode interpreter, driven first by a **stub writer** that logs to a Z80 RAM
   - **The writer hooks this task are STUBS** that append `(route<<4)|event_code` to the `SND_SEQ_TRACE` ring and bump `SND_SEQ_TRACE_WR`. No YM/PSG writes. This isolates the interpreter.
   Add `include "engine/sound_sequencer.asm"` inside the Z80 blob in `engine/z80_sound_driver.asm` (after the main loop / helpers, before the even-pad). Keep it inside `phase 0` so labels resolve into the blob.
 
-- [ ] **Step 4 — DEBUG dry-run driver + widen the mirror.**
+- [x] **Step 4 — DEBUG dry-run driver + widen the mirror.**
   In `engine/z80_sound_driver.asm` (DEBUG only), add a one-shot dry-run: in `SndDrv_Init` under a `SOUND_SEQ_DRYRUN`-style guard, load `Song_Test` into the sequencer state (set per-channel `sc_stream_ptr` from the header, `sc_flags` active+route, `SND_SEQ_ACTIVE=1`) and call `Sequencer_Tick` a fixed number of times from a counter in the ISR (or step it from the idle loop), so the trace fills. (No Timer-A yet — Task 5. Here the dry-run is a bounded manual pump.)
   In `debug/sound_debug.asm`, add a third mirror copy: `SND_SEQ_BASE..` (the per-channel `sc_*` state + `SND_SEQ_TRACE` ring) into a free part of the 64-byte `Sound_Dbg_Mirror`, or **widen `Sound_Dbg_Mirror` in `ram.asm`** to e.g. 128 bytes and copy the sequencer window into mirror[64..]. Document the new offsets.
 
-- [ ] **Step 5 — Build + Exodus dry-run verification (NOT pytest).**
+- [x] **Step 5 — Build + Exodus dry-run verification (NOT pytest).**
   Build: `SOUND_DRIVER_ENABLED=1 DEBUG=1 SOUND_DBG_MIRROR=1 ./build.sh -pe` (+ the non-mirror DEBUG and release configs) → exit 0; RAM-overflow `fatal` does not trip.
   Exodus (controller): `emulator_reload_rom`, reset, resume a few frames, `emulator_read_memory` the mirror. **Expected observation:** the `SND_SEQ_TRACE` ring contains the exact opcode sequence the test song's streams should dispatch (e.g. for an FM channel: patch-set, then a run of note events at the authored cadence, then the loop wrap back to the loop-point), and each channel's `sc_dur_count`/`sc_stream_ptr` advance consistently and **wrap at the loop point** rather than running off the end. A channel that hit `$FF` shows its active flag cleared. **Concrete pass:** the trace's note count per loop iteration matches the song's authored note count, and the stream pointer returns to the post-`$EE` address on `$EF`.
 
-- [ ] **Step 6 — Commit.**
+- [x] **Step 6 — Commit.**
   ```bash
   git add sound_constants.asm engine/sound_sequencer.asm engine/z80_sound_driver.asm \
           debug/sound_debug.asm ram.asm
@@ -270,10 +272,10 @@ Replace the FM stub hooks with real YM2612 writes: patch load (busy-poll discipl
 
 **Files:** Create `engine/sound_fm.asm`, Create `data/sound/fm_patches.asm` (fill the Task-1 stub), Modify `engine/sound_sequencer.asm` (call the FM writer for FM routes), Modify `engine/z80_sound_driver.asm` (include).
 
-- [ ] **Step 1 — Research (YM write discipline + key-on + F-num).**
+- [x] **Step 1 — Research (YM write discipline + key-on + F-num).**
   Research subagent: from s2disasm/skdisasm/Flamedriver — the YM register-pair write helper (select reg on the part-I/part-II address port, **busy-poll bit7 of `$4000` before each write**, then write data; part I = `$4000/$4001` for ch1-3, part II = `$4002/$4003` for ch4-6); the key-on/off write to reg `$28` (`<op-mask:4><0:1><channel:3>`, where channel encodes part+index, e.g. ch4 = `$04|...`); the F-number write order (`$A4+n` high byte/block first, then `$A0+n` low byte); how TL (`$40+`) maps to volume and which operators are carriers per algorithm. plutiedev YM2612 page for the part-I/part-II addressing and the busy-flag timing. Confirm whether the 1B DAC path's `de=$4001` invariant survives FM writes to `$4002/$4003` (FM4–6 use part II) — the FM writer must restore/re-park `de` and reg `$2A` so the DAC loop's invariant holds. **This is the coexistence subtlety** — document it explicitly.
 
-- [ ] **Step 2 — `data/sound/fm_patches.asm`: real patch records.**
+- [x] **Step 2 — `data/sound/fm_patches.asm`: real patch records.**
   Define the patch table (`FmPatch` records) + a patch-index enum (`PATCH_BASS=0`, `PATCH_LEAD=1`, …) the test song references. Migrate a few simple patches' register values from `sonic_hack` SMPS voice data (data-only reuse per project policy — translate the SMPS voice byte layout into our `FmPatch` field order; do NOT copy code). Add a count assert:
   ```asm
       if (FmPatchTable_End-FmPatchTable)/FmPatch_len <> PATCH_COUNT
@@ -281,7 +283,7 @@ Replace the FM stub hooks with real YM2612 writes: patch load (busy-poll discipl
       endif
   ```
 
-- [ ] **Step 3 — `engine/sound_fm.asm`: the writers.**
+- [x] **Step 3 — `engine/sound_fm.asm`: the writers.**
   Z80 routines (each documents clobbers; leaf where possible):
   - `Fm_YmWrite` — `In: a=reg, c=data, b=part(0=I/1=II)`. Busy-poll `$4000` bit7; select reg on `$4000` (part I) or `$4002` (part II); write data to `$4001`/`$4003`. **Then re-park the DAC invariant** (re-select `$2A` on `$4000`, leave `de=$4001`) per Step-1's coexistence note — or document that the caller batches and re-parks once at the end.
   - `Fm_PatchLoad` — `In: ix=SeqChannel (gives route→FM channel index), hl=FmPatch ptr`. Map route→(part, channel-in-part, reg base offset). Write `fp_alg_fb`→`$B0+ch`, `fp_lr_ams_fms`→`$B4+ch`, then the 4 operators × 6 per-op regs (`$30/$40/$50/$60/$70/$80` + `ch` + op-stride `*4`) via `Fm_YmWrite`. Store the patch's algorithm (for the carrier mask) into the channel state. **One-time per patch change** (busy-poll cost is amortized, not per-tick-per-note).
@@ -290,14 +292,14 @@ Replace the FM stub hooks with real YM2612 writes: patch load (busy-poll discipl
   - `Fm_NoteOff` — key-off `$28` = `chsel` (op_mask=0). Clear keyed flag.
   Add `include "engine/sound_fm.asm"` to the Z80 blob.
 
-- [ ] **Step 4 — Route FM events from the sequencer to the FM writer.**
+- [x] **Step 4 — Route FM events from the sequencer to the FM writer.**
   In `engine/sound_sequencer.asm`, replace the FM-route stub hooks: note → `Fm_NoteOn`, rest/key-off → `Fm_NoteOff`, vol → `Fm_SetVolume`, patch → `Fm_PatchLoad`. Gate by `sc_flags` is_fm / route in `CHROUTE_FM1..FM5`. PSG/DAC routes still stub (Tasks 4/6). **Keep the trace stub firing too** (so MCP can still see dispatch) under DEBUG.
 
-- [ ] **Step 5 — Build + Exodus/VGM verification.**
+- [x] **Step 5 — Build + Exodus/VGM verification.**
   Build all configs `-pe` → exit 0. Drive the dry-run (or a minimal "play one FM channel" DEBUG path) so one FM channel runs.
   Exodus (controller): capture a VGM (`emulator_vgm_start` → run ~60 frames → `emulator_vgm_stop`). **Expected in the VGM stream:** YM writes to `$B0` (algorithm/fb) and the operator regs at patch-load time; then a cadence of `$A4`/`$A0` (F-number) writes each followed by a `$28` key-on, with `$28` key-off at note ends — at the song's tick cadence. Spot-check one note's F-num bytes against `FmPitchTable[pitch]` (the Task-1 reference value). Confirm the DAC `$2A` writes still appear interleaved (coexistence intact). **User confirms one audible, in-tune FM voice.** Also verify via `emulator_get_channel_states` that an FM channel is keyed.
 
-- [ ] **Step 6 — Commit.**
+- [x] **Step 6 — Commit.**
   ```bash
   git add engine/sound_fm.asm data/sound/fm_patches.asm engine/sound_sequencer.asm \
           engine/z80_sound_driver.asm sound_constants.asm
@@ -312,10 +314,10 @@ PSG tone (3 channels) + noise audible from the same sequencer; pause silencing.
 
 **Files:** Create `engine/sound_psg.asm`, Modify `engine/sound_sequencer.asm` (PSG routes), Modify `engine/z80_sound_driver.asm` (include).
 
-- [ ] **Step 1 — Research (SN76489 from the Z80).**
+- [x] **Step 1 — Research (SN76489 from the Z80).**
   Research subagent: from skdisasm (S3K has full PSG) + S.C.E. + plutiedev SN76489 — the Z80 PSG port (`$7F11` from the Z80; confirm vs our `SND_Z80_*` equates — the PSG is written through the Z80's `$7F11` mirror, not the YM ports), the latch+data format (tone: `1 cc 0 dddd` latch low-4-bits, then `0 dddddddd` data high-6-bits; volume: `1 cc 1 vvvv` attenuation; noise: `1 11 0 0sff` control, `1 11 1 vvvv` attenuation), the 10-bit divisor split across latch/data bytes, and the noise-mode bits (periodic vs white, shift-rate / tone-3-tracking). Produce the exact byte sequences for tone note-on, volume, and noise.
 
-- [ ] **Step 2 — `engine/sound_psg.asm`: the writers.**
+- [x] **Step 2 — `engine/sound_psg.asm`: the writers.**
   Z80 routines (write to the PSG port — `$7F11` per research):
   - `Psg_NoteOn` — `In: ix=channel (PSG1..3), a=pitch index`. `PsgDivisorTable[pitch]` → 10-bit divisor; emit latch byte `$80 | (ch<<5) | (div & $0F)` then data byte `(div >> 4) & $3F`.
   - `Psg_NoteOff` — set the channel's attenuation to silence (`$9F`-style with the channel's volume-latch bits): `$90 | (ch<<5) | $0F`.
@@ -324,14 +326,14 @@ PSG tone (3 channels) + noise audible from the same sequencer; pause silencing.
   - `Psg_SilenceAll` — emit `$9F, $BF, $DF, $FF` (the four PSG silence latches; same bytes the boot table already uses) for `StopMusic`.
   Add `include "engine/sound_psg.asm"` to the Z80 blob.
 
-- [ ] **Step 3 — Route PSG events.**
+- [x] **Step 3 — Route PSG events.**
   In `engine/sound_sequencer.asm`, wire PSG routes (`CHROUTE_PSG1..PSGN`): note → `Psg_NoteOn`/`Psg_Noise`, rest → `Psg_NoteOff`, vol → `Psg_SetVolume`. **Pause silencing:** add a `Sequencer_SilencePsg`/`Sequencer_StopAll` entry that calls `Psg_SilenceAll` + FM key-offs (used by `StopMusic` in Task 6).
 
-- [ ] **Step 4 — Build + Exodus/VGM verification.**
+- [x] **Step 4 — Build + Exodus/VGM verification.**
   Build all configs `-pe` → exit 0. Run the test song's PSG channels (dry-run/DEBUG pump).
   Exodus: VGM capture. **Expected:** PSG latch/data byte pairs at the song's cadence on the PSG tone channels, noise control bytes on the noise channel, and on a `StopMusic`/silence path the four `$9F/$BF/$DF/$FF` silence bytes. `emulator_get_channel_states` shows PSG channels active. **User confirms audible PSG tone + noise**, and that silencing stops them cleanly (no sustained tone).
 
-- [ ] **Step 5 — Commit.**
+- [x] **Step 5 — Commit.**
   ```bash
   git add engine/sound_psg.asm engine/sound_sequencer.asm engine/z80_sound_driver.asm sound_constants.asm
   git commit -m "feat(sound 1c): PSG voice writer (tone+noise) + pause silencing"
@@ -345,26 +347,26 @@ Program YM Timer-A so one overflow = one tick (tempo from the song header). The 
 
 **Files:** Modify `engine/z80_sound_driver.asm` (Timer-A program + per-pass poll + bounded `Sequencer_Tick` call), Modify `sound_constants.asm` (Timer-A control values, tempo finalization), Modify `debug/sound_debug.asm` (tick counter observability).
 
-- [ ] **Step 1 — Research (Timer-A as tick source + cycle budget).**
+- [x] **Step 1 — Research (Timer-A as tick source + cycle budget).**
   Research subagent: from plutiedev YM2612 (Timer-A: regs `$24`/`$25` = 10-bit N, `$27` = Timer control — load/enable Timer-A bit + the overflow-flag bit; reading `$4000` returns the status with Timer-A overflow in a status bit; you **re-arm by writing `$27` to reset the overflow flag**). From SMPS/Flamedriver: how the driver uses Timer-A (or the VBlank) as its tempo base and how it bounds per-tick work. Confirm the exact `$27` bits to (a) load+enable Timer-A and (b) clear the overflow flag, and the status-port bit to test. **Critically:** budget the added per-DAC-pass cost — reading `$4000` status + `bit` test + `jp` must be a *constant* small cost on every pass (it cannot be on the FILL path only, or the cycle balance breaks). Determine where in the balanced loop the poll fits and how many cycles it adds to all three paths equally. Produce the poll snippet + the re-arm sequence + the cycle delta to add to `SND_LOOP_CYC`.
 
-- [ ] **Step 2 — Program Timer-A from the song tempo.**
+- [x] **Step 2 — Program Timer-A from the song tempo.**
   In `sound_constants.asm`, finalize the tempo/Timer-A equates (the `ym_timerA_n(tpf)` function already exists; re-enable `SND_REG_TIMER_A_HI/LO/CTRL` use). On song start (the loader, Task 6 — here add the routine), write `$24`=`tempo>>2`, `$25`=`tempo&3` (the song-header tempo byte is the Timer-A selector), `$27`= load+enable Timer-A. Add `Snd_TimerA_Program` (Z80) and `Snd_TimerA_Rearm` (write `$27` to reset the overflow flag + keep enabled).
 
-- [ ] **Step 3 — Per-pass Timer-A poll in the DAC loop.**
+- [x] **Step 3 — Per-pass Timer-A poll in the DAC loop.**
   In `SndDrv_Sample` (and the idle loop), add — at the spot the research identified, with **equal cost on FILL/SKIP/DRAIN** — a read of `$4000` status, test the Timer-A overflow bit; if set: `Snd_TimerA_Rearm` + `call Sequencer_Tick`. **Update the cycle-balance proof comment** at the top of the file: the poll adds a constant `K` cycles to every path; bump `SND_LOOP_CYC` accordingly so `SND_DAC_RATE_HZ` reflects the new rate. The `Sequencer_Tick` call only fires on overflow (a few hundred Hz), not every pass — but it **must be bounded**: if a full tick (all channels, worst case a patch-load) exceeds the safe budget between DAC samples, **split the work across ticks** (service half the FM channels per tick — spec §8 / master spec §4.2): add a per-tick channel cursor in sequencer state so each overflow services a bounded slice. Document the chosen bound and how the DAC sample that absorbs a tick is momentarily longer (the bounded micro-perturbation).
 
-- [ ] **Step 4 — Tick observability.**
+- [x] **Step 4 — Tick observability.**
   Increment `SND_STAT_TICK` (already reserved) in `Sequencer_Tick`. Mirror it (already in the `$1F00..$1F2F` window → mirror[3]). Optionally mirror the per-tick channel cursor.
 
-- [ ] **Step 5 — Build + the critical VGM cadence verification.**
+- [x] **Step 5 — Build + the critical VGM cadence verification.**
   Build all configs `-pe` → exit 0; the updated `SND_LOOP_CYC`/rate asserts hold.
   Exodus (controller — **this is the gating verification for the whole plan**):
   - `emulator_reload_rom`, reset, resume, start a song (or the dry-run pumped by the real Timer-A now).
   - `emulator_read_memory` mirror[3] (`SND_STAT_TICK`): it increments at the **expected tick rate** (Timer-A N from the song tempo → ticks/sec; over N frames the counter delta matches `ticks_per_frame * frames`). This proves the tempo math.
   - **VGM capture while music + DAC run together.** Parse the `$2A` DAC write intervals into a histogram (the 1B method). **Expected/pass:** the `$2A` cadence stays within an acceptable band — the periodic tick-rate perturbation (one slightly-longer DAC sample per tick) is bounded and small; there is **no** sustained gap or runaway drift. Compare the histogram to the 1B baseline (music off): the mean interval is ~unchanged, with a small periodic tail at the tick rate. If the cadence degrades (audible warble / dropout), the `Sequencer_Tick` slice is too big → tighten the split in Step 3 and re-verify. **User confirms the DAC stays clean while a tick runs.**
 
-- [ ] **Step 6 — Commit.**
+- [x] **Step 6 — Commit.**
   ```bash
   git add engine/z80_sound_driver.asm sound_constants.asm debug/sound_debug.asm
   git commit -m "feat(sound 1c): Timer-A tick scheduler in the DAC loop (cadence-verified)"
@@ -378,10 +380,10 @@ Wire the 68k command API, route `$E2` DAC triggers to the 1B sample path, add th
 
 **Files:** Modify `engine/sound_api.asm` (68k helpers), Modify `engine/z80_sound_driver.asm` (`SND_REQ_MUSIC` handler + song loader + `$E2`→DAC route), Create `data/sound/song_table.asm`, Modify `main.asm` (include the song table).
 
-- [ ] **Step 1 — Research (command handling + DAC re-trigger mid-music).**
+- [x] **Step 1 — Research (command handling + DAC re-trigger mid-music).**
   Research subagent: from Flamedriver/SMPS — how a "play music id" command loads a song (header parse, per-channel init, patch preload, start tempo) and how "stop" silences cleanly; how the driver mixes a DAC drum trigger *while FM/PSG music plays* (in 1C: FM6 stays the DAC, the music's DAC channel just posts to the existing 1B sample path). Confirm the 1B sample-start path (`SndDrv_PollMailbox`'s `SND_REQ_SAMPLE` branch) can be **re-entered for a new sample id mid-music** without clicking (it re-arms `$2B`, re-points the ROM ptr, re-primes the ring). Produce the loader sequence + the `$E2`→1B-DAC-path call.
 
-- [ ] **Step 2 — Song table (bank-aware) `data/sound/song_table.asm`.**
+- [x] **Step 2 — Song table (bank-aware) `data/sound/song_table.asm`.**
   ```asm
   SONG_TEST = 1
   SONG_COUNT = 1
@@ -395,11 +397,11 @@ Wire the 68k command API, route `$E2` DAC triggers to the 1B sample path, add th
   *(Songs live in ROM; if a song's bytes sit above the Z80 `$8000` window they must be reachable via `SndDrv_SetBank` like DAC samples. For the test song, keep it bank-aligned/within reach and document the addressing — header+streams are read by the Z80, so they need a Z80-window pointer + bank, same pattern as `DacSample`. Confirm whether the test song can live in the always-mapped low region or needs banking.)*
   Include from `main.asm` under `SOUND_DRIVER_ENABLED`.
 
-- [ ] **Step 3 — Z80 `SND_REQ_MUSIC` handler + song loader.**
+- [x] **Step 3 — Z80 `SND_REQ_MUSIC` handler + song loader.**
   In `SndDrv_PollMailbox`, add: `ld a,(SND_REQ_MUSIC) / or a / jr z,.no_music`. If nonzero: if `0`-was-the-special-stop is handled by id 0 → call `Sequencer_StopAll` (FM key-offs + `Psg_SilenceAll` + `SND_SEQ_ACTIVE=0` + disable Timer-A). Else id≥1 → `Snd_LoadSong`: look up `SongTable[id-1]`, `SetBank` if needed, parse the `SongHeader` (tempo, channel_count, per-channel route+stream_ptr → init each `SeqChannel`: ptr, route, flags active, default vol), store `SND_SEQ_PATCHTAB`, preload each FM channel's initial patch (optional — patches also set via `$E1` in-stream), `Snd_TimerA_Program tempo`, `SND_SEQ_ACTIVE=1`. Clear the slot. Bump `SND_STAT_ACK_COUNT`.
   **Route `$E2` to the 1B DAC path:** in the sequencer's DAC-route handler for `$E2`, instead of the stub, post into the 1B sample-start path (call the shared sample-start routine with the operand sample id — refactor 1B's `SND_REQ_SAMPLE` body into a callable `Snd_StartSample` if not already, so both the mailbox and the sequencer can invoke it). FM6/DAC stays the 1B channel.
 
-- [ ] **Step 4 — 68k API helpers `engine/sound_api.asm`.**
+- [x] **Step 4 — 68k API helpers `engine/sound_api.asm`.**
   ```asm
   ; Sound_PlayMusic — start (or switch to) a song. In: d0.b = song id (nonzero).
   Sound_PlayMusic:
@@ -413,10 +415,10 @@ Wire the 68k command API, route `$E2` DAC triggers to the 1B sample path, add th
   ```
   *(0 = stop is the spec's convention; the Z80 handler treats `SND_REQ_MUSIC`=0-after-nonzero as "no request" normally — so encode stop as a distinct sentinel if 0 can't mean "stop" in the latest-wins slot model. Resolve: use id 0 reserved = stop only if the handler special-cases a separate stop flag, else use a `SND_REQ_MUSIC_STOP` value like `$FF`. Decide in Step 1's research and keep `sound_constants.asm` authoritative.)*
 
-- [ ] **Step 5 — DEBUG boot hook to play the full song.**
+- [x] **Step 5 — DEBUG boot hook to play the full song.**
   In `engine/boot.asm` DEBUG path (next to the existing `Sound_PlaySample`), add `moveq #SONG_TEST,d0 / bsr.w Sound_PlayMusic` so the full song plays at boot. Remove/guard the Task-2 dry-run pump (the real Timer-A drives the sequencer now).
 
-- [ ] **Step 6 — Build + full-song Exodus/VGM verification.**
+- [x] **Step 6 — Build + full-song Exodus/VGM verification.**
   Build all configs `-pe` → exit 0.
   Exodus (controller): `emulator_reload_rom`, reset, resume. **Expected:**
   - VGM capture shows **all three layers together**: FM `$A0–$B6`+`$28` (FM1–FM5 melodic), PSG latch/data (tone+noise), and DAC `$2A` (the drum samples re-triggered by `$E2` at the authored beats).
@@ -425,7 +427,7 @@ Wire the 68k command API, route `$E2` DAC triggers to the 1B sample path, add th
   - **User confirms: the full multi-channel test song plays and loops cleanly** — FM melody + PSG + drums, no dropout, in tune, the loop seam is clean.
   - `Sound_StopMusic` (drive a stop) silences FM + PSG cleanly (VGM shows key-offs + the four PSG silence bytes; Timer-A disabled).
 
-- [ ] **Step 7 — Commit + merge.**
+- [x] **Step 7 — Commit + merge.**
   ```bash
   git add engine/sound_api.asm engine/z80_sound_driver.asm data/sound/song_table.asm \
           engine/boot.asm main.asm sound_constants.asm

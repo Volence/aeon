@@ -18,7 +18,7 @@ This is the **design bible**. This document describes the engine we're building 
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
 | 4 | Level / World | 2D section grid with signed Y (novel), 2-slot bidirectional leapfrog (novel), block-based 2D tile cache (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), velocity-based preload, per-section everything, diagonal preview loading, **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, **zero-lag teleport (progressive nametable preload + palette crossfade, novel)**, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in block data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)** |
 | 5 | Player / Character | **SHIPPED (§5, branch player-system):** flat explicit PSTATE_* state machine + Player_SetState enter/exit hooks (hierarchical was evaluated and REJECTED), classic motion-quadrant + angle-band landing axis-select (the "vector projection on landing" claim was a verified S3K myth — NOT used), effective-physics-table-in-RAM (a4 convention; per-section *plumbing* shipped with an identity modifier — the modifier/Lerp system itself is deferred), air drag apex-only (classic-wide, not an S3K fix), roll-jump lockout kept classic, 2-frame jump buffer + jump-delay fix (the two modern concessions), −$FC0 up-cap REMOVED (feel deviation, PHYS_GSP_CAP coupling), angle continuity for loop stability, level bounds, spindash charge curve (table-based), slope factor muls→shift, landing camera lock + spindash freeze, 3-character shared-code structure via Player_Common (Sonic-only shipped), **SWAP-based 16.16 fixed point (Treasure)**. **SHIPPED (feat/sonic-animations):** shared ANIM_* id contract (11 ids, build-time assert), Player_Animate read-only classifier (priority-ordered, display-conditions not new state bits), DUR_DYNAMIC speed-scaled timing in AnimateSprite, shared spindash in player_spindash.asm, Player_AtLedgeEdge balance probe, _pl_look_offset zero-seam, DEBUG anim viewer. **DEFERRED:** 6-button mappings, the per-section physics modifier system, multi-character dispatch, shields, dropdash, instashield, get-up trigger, duck/look-up camera pan. See the §5 body + DEFERRED_WORK.md §5. |
-| 6 | Audio | Flamedriver (full Z80 autonomy), Zyrinx log volume + per-algorithm carrier mask, verified Z80 writes, DPCM + 32kHz DAC + DMA protection buffering (24KB survival), YM Timer A sub-frame tempo (NTSC/PAL independent), bank switch optimization (pack per-section, 100+ cycle savings), section-aware sound banking (novel), distance-based attenuation (novel), pseudo-stereo DAC, PSG pause silencing, Ch3 special mode for sound design, **SSG-EG envelope modes (evolving FM tones)**, LFO limitations documented, continuous SFX, music fade state machine, build-time DC offset tool, **multi-channel DAC mixing (2-4 channels, per-channel sample rate)** |
+| 6 | Audio | **From-scratch custom Z80-autonomous driver** (NOT Flamedriver — the import plan was superseded by the 2026-06-16 master sound spec). **SHIPPED (Plans 1A/1B/1C):** Z80 shell + mailbox + Timer-A scheduler primitives (1A), DMA-survival single-channel DAC (1B, MegaPCM-2 free-running every-path-equal-cost streaming loop), FM/PSG music sequencer (1C — event-list song format v0, per-channel stream interpreters, FM voice writer with log-volume LUT + per-algorithm carrier mask, PSG tone/noise + pause silence, Timer-A one-overflow-per-tick scheduler, DAC drums via the 1B path, PlayMusic/StopMusic). **DEFERRED (master-spec Phases 2-6):** N-channel DAC mixer + BRR + stereo PCM (Ph2), FM depth — dual streams, portamento, SSG-EG, LFO, Ch3 special (Ph3), adaptive FM6/DAC slot (Ph4), section-aware banking + fades + distance attenuation + ambient (Ph5), MegaDAW compiler/export (Ph6). See §6 body + the 2026-06-16 master sound spec. |
 | 7 | Visual Effects | **Unified raster command table (Batman — stackable per-scanline VDP register changes)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
 | 8 | Tooling & Build | **Authoring pipeline (tile/block/chunk editor stamps → build tool: flatten, deduplicate, graph-color VRAM, generate block data with embedded collision + S4LZ art)**, **level editor tile budget UI (per-section shared/unique counts, per-corner budget view, warning system)**, pre-computed nametable build tool, **debug system architecture (S.C.E. two-phase gating + 10 per-subsystem toggles)**, **MD Debugger v2.6 error handler (backtrace, symbol resolution, console programs)**, **per-module debug assertions (S.C.E. + Vectorman pointer bounds/breadcrumbs/corruption detection + CHK instruction)**, **frame profiler (raster bars + VDP window lagometer + KDebug + lag detection + stack guard + watchdog)**, RAM layout documentation, build system improvements (jump sizing 10-50x speedup, dual build targets, convsym pipeline, assembly pass checking, compile-time validation), Exodus MCP integration, level editor integration |
 | 9 | Cross-Cutting Systems | Level database (unified descriptors, S.C.E. levartptrs evolution), object communication (Treasure parent-child links + S.C.E. trigger array + boss event buffer), error handler with stack guard (Batman high-byte vector IDs + watchdog), 6-button controller (rapid TH cycling protocol + detection), **soft-reset persistence (CrossResetRAM cold/warm boot detection)**, SRAM save system (Sonic 3 dual-copy checksums), **cooperative multitasking (NOVEL — supervisor/user mode context switching, background S4LZ decompression)**, **ROM banking awareness (SSF2 mapper, conditional on ROM >4MB)**, **128KB VRAM mode (investigated, Kabuto byte-wide DMA)**, **PC-relative addressing audit (Batman leads with 986 refs)**, **clearRAM performance variants (3 S.C.E. macros + MOVEM bulk clear)**, **game state machine (function pointer dispatch, 11 states)**, **text/font rendering (96-char ASCII, DrawString/DrawHex/DrawDecimal)**, **screen/menu system (lifecycle init/update, title cards, credits)** |
@@ -333,7 +333,14 @@ The `setVDPReg` macro is the only sanctioned write path for **persistent** frame
         move.w  #$0000, (a1)            ; Release bus — Z80 has control
 ```
 
-**Z80 idle program** (runs after init, before Flamedriver loads):
+> **Note (sound driver superseded):** the "Flamedriver" references in this subsection are
+> historical. The shipped driver is the **from-scratch custom Z80-autonomous driver** (§6 /
+> 2026-06-16 master sound spec), and it is **assembled inline into the ROM** under
+> `SOUND_DRIVER_ENABLED` (`engine/z80_sound_driver.asm`, `phase 0` blob), not streamed over the
+> idle program at title-screen init. The idle-program pattern below remains the pre-driver boot
+> placeholder.
+
+**Z80 idle program** (runs after init, before the sound driver is active):
 
 ```z80
 ; Clear all Z80 RAM via LDIR, set IM 1, loop forever
@@ -2611,18 +2618,75 @@ Animation Classifier + Speed-Scaled Timing (5.6)  [SHIPPED — feat/sonic-animat
 
 ## 6. Audio System
 
-Full Z80 autonomy via Flamedriver — the 68K has zero sound processing overhead beyond a byte write per command. Audio quality enhanced with techniques stolen from Batman's Zyrinx driver and MegaPCM 2.0, integrated with the section streaming system for dynamic per-section soundscapes.
+> **SUPERSEDED PLAN — read this first.** This engine does **NOT** import Flamedriver.
+> Audio was the one subsystem the early architecture planned to bring in from outside
+> (Flamedriver + SMPS2ASM); the **2026-06-16 master sound spec**
+> (`docs/superpowers/specs/2026-06-16-sound-driver-design.md`) replaced that with a
+> **from-scratch, fully-owned Z80-autonomous driver** targeting best-on-platform quality
+> (a full DAC powerhouse + deep FM synthesis + a game-feel layer no commercial Genesis game
+> shipped). Plans **1A** (foundations), **1B** (DMA-survival DAC), and **1C**
+> (`docs/superpowers/specs/2026-06-17-sound-1c-design.md` — FM+PSG music sequencer) have
+> **built** the foundation. The authoring tool is **MegaDAW**, not SMPS2ASM. The technique
+> subsections below (6.2–6.8) are the **phased roadmap** the master spec §12 lays out — most
+> are DEFERRED to Phases 2–6, not yet built. References to "Flamedriver," "SMPS," "S3K SMPS
+> format," and "SMPS2ASM" in the subsections below are **historical/aspirational** and are
+> retained only as the technique provenance; the shipped driver is our own code, our own data
+> format. The master sound spec + the 1C design are the authorities.
 
-### 6.1 Flamedriver — Full Z80 Autonomy
+The 68K has zero sound processing overhead beyond a byte write per command (the
+68k↔Z80 mailbox). Audio quality borrows techniques from Batman's Zyrinx driver and
+MegaPCM 2.x, integrated with the section streaming system for dynamic per-section
+soundscapes (the latter is deferred to Phase 5).
 
-**Why Flamedriver over alternatives:**
-- **Batman Zyrinx driver:** Excellent quality but runs 16KB of DAC mixing on the 68K — the opposite of what we want
-- **Clone Driver v2 + MegaPCM 2.0:** Good community option, but 68K still runs SMPS sequencing every frame
-- **Flamedriver:** Everything on Z80. 68K sends `PlayMusic` and never thinks about sound again. Every freed cycle goes to DMA, objects, or section streaming.
+### 6.1 Custom Z80-Autonomous Driver — Full Z80 Autonomy
 
-S3K SMPS format provides FM3 special mode (effectively 6 FM channels vs 5), better modulation, S3K PSG envelope support. Music composed/converted via SMPS2ASM toolchain.
+**SHIPPED (Plans 1A / 1B / 1C — `feat/sound-1c`):**
+- **1A Foundations** — Z80 shell (`phase 0` blob, even-padded), the 68k↔Z80 per-type
+  mailbox + status/ack region (`$1F00..$1F3F`), and the Timer-A scheduler primitives.
+  Z80 RAM map: `docs/superpowers/specs/2026-06-16-sound-z80-ram-map.md`.
+- **1B DMA-survival single-channel DAC** — a free-running, every-path-equal-cost streaming
+  loop (MegaPCM-2 model): a 256-byte page-aligned read-ahead ring (`$1700`), FILL/SKIP/DRAIN
+  paths balanced to a constant per-pass cycle cost so DAC pitch never warbles, and a 68k DMA
+  flag that switches the producer to a no-ROM-read DRAIN path for the duration of a DMA burst
+  (no bus-stall sag). DAC owns the `$6000` bank latch and reg `$2A`.
+- **1C FM + PSG music sequencer** — a runtime **event-list song format (v0)**: per-channel
+  SMPS-family byte streams + a `SongHeader` (tempo selector, channel routing, stream pointers,
+  patch-table ptr). A Z80 **sequencer core** (`Sequencer_Tick`) walks per-channel
+  `SeqChannel` state via a jump-table opcode dispatch, advanced once per tempo tick. An **FM
+  voice writer** (note→F-number/key-on, patch load, log-volume LUT × per-algorithm carrier
+  mask). A **PSG voice writer** (3 tone + 1 noise, attenuation, pause-silence). **Scheduler
+  integration:** YM **Timer-A** is programmed so one overflow = one sequencer tick
+  (sub-frame, NTSC/PAL-independent); the free-running 1B DAC loop polls the Timer-A overflow
+  flag once per pass (equal cost on all three paths) and calls `Sequencer_Tick` on overflow,
+  bounded/splittable so the DAC never starves. **DAC drums** route the song's `$E2` triggers
+  to the 1B sample path; FM6 stays the DAC channel in 1C. 68k API: `Sound_PlayMusic`
+  /`Sound_StopMusic` over the 1A mailbox. Build-time Python tools generate the F-number/PSG
+  divisor tables, the 256-byte log-volume LUT, and the 8-byte carrier-mask table, and pack the
+  hand-authored test song; AS asserts validate every table/struct size.
 
-### 6.2 DAC Enhancements (from MegaPCM 2.0, ported to Flamedriver)
+**DEFERRED (master-spec §12 Phases 2–6 — each its own plan):** Phase 2 N-channel DAC mixer
+(quality-adaptive single↔mix, stereo/pseudo-stereo PCM, pitch-shifted SFX, half-rate samples,
+BRR codec); Phase 3 FM depth (dual data streams, true portamento, SSG-EG, LFO, Ch3 special/CSM,
+detune-unison, full PSG envelopes, raw-register escape hatch); Phase 4 the adaptive FM6/DAC slot
+(three content-adaptive modes); Phase 5 engine integration & game-feel (section-aware banking,
+music fade state machine, distance attenuation + priority mixing, procedural ambient, continuous
+SFX); Phase 6 MegaDAW compiler (event-list format finalization, MegaDAW export retarget,
+sample/DC-offset encoders).
+
+**Why a from-scratch driver over importing one:** the central research finding (master spec §2)
+is that no single existing driver — hobbyist (MegaPCM, Flamedriver, XGM2, Echo, MDSDRV) or
+commercial legend (Thunder Force IV, Gunstar Heroes, Batman & Robin) — ships the *union* of a
+DMA-proof DAC powerhouse + deep FM + a game-feel layer. Each nails one slice. Building our own is
+the only way to get the union, keep full Z80 autonomy (the 68k sends a command and never thinks
+about sound again — every freed cycle goes to DMA/objects/streaming), and use MegaDAW as the
+authoring tool without bending the design to SMPS/VGM.
+
+### 6.2 DAC Enhancements (technique provenance: MegaPCM 2.x)
+
+> **ROADMAP, mostly DEFERRED.** The single-channel DMA-survival DAC is **SHIPPED (1B)** —
+> read-ahead buffering and DMA survival are done. The remaining items below (DPCM, multi-channel
+> mixing, per-sample panning, pitch-shifted SFX, DC-offset removal) are the master-spec **Phase 2**
+> "DAC powerhouse" roadmap, not yet built. Implemented in our own driver, not a port of Flamedriver.
 
 All Z80-side, zero 68K cost:
 - **DPCM compression:** Delta-encoded samples use ~50% less ROM. Decode on Z80 during playback.
@@ -2634,13 +2698,18 @@ All Z80-side, zero 68K cost:
 - **Pitch-shifted SFX (from Batman):** Step-based pitch control — same ROM sample played at different rates. Jump sound pitched up for mini-hop, down for heavy landing. Saves ROM, adds variety. One multiply per tick when pitch != 1.0.
 - **DMA protection buffering (from MegaPCM 2.0):** Buffer ~100+ bytes of upcoming sample data in Z80 RAM during active scan. Play from buffer during VBlank/DMA when Z80 bus is stalled. MegaPCM 2.0 survives up to 24 KB of DMA per frame without audio glitches. Critical for section streaming with heavy DMA loads.
 
-**NOTE:** Hold on finalizing DAC features until MegaPCM 2.1 is available (expected April 2026). 2.1 may introduce custom sample compression or other improvements that change the approach.
+**NOTE:** The 1B/1C DAC path shipped on the MegaPCM-2 free-running buffered model (no dependency on a future MegaPCM release). The Phase-2 DAC-powerhouse features above are designed against our own driver; revisit BRR/codec choices at the Phase-2 spike, not gated on an external release.
 
-### 6.3 Zyrinx Techniques (from Batman & Robin)
+### 6.3 Zyrinx Techniques (technique provenance: Batman & Robin)
 
-**Logarithmic volume curve:** 256-byte lookup table mapping linear volume to perceptually correct attenuation. Human hearing is logarithmic — linear volume steps sound wrong. Zero runtime cost (pure lookup). Single easiest audio quality win.
+> **PARTLY SHIPPED.** The **log volume curve** and **per-algorithm carrier mask** are
+> **SHIPPED (1C)** — both are build-generated tables (256-byte LUT, 8-byte mask) applied by the FM
+> voice writer to carrier-operator TL only. The rest (verified Z80 bus writes, pseudo-stereo DAC,
+> frequency-based FM panning) are DEFERRED to later phases.
 
-**Per-algorithm carrier mask:** Volume adjustments via TL must only modify carrier operators (not modulators, which would change timbre). Carrier set varies by algorithm: algo 0-3 = op4 only, algo 4 = ops 2+4, algo 5-6 = ops 2+3+4, algo 7 = all 4. 8-byte lookup table indexed by algorithm gives the carrier bitmask. Essential for the log volume curve to work correctly without distorting instrument patches.
+**Logarithmic volume curve:** 256-byte lookup table mapping linear volume to perceptually correct attenuation. Human hearing is logarithmic — linear volume steps sound wrong. Zero runtime cost (pure lookup). Single easiest audio quality win. **SHIPPED (1C):** `LogVolumeLut`, generated by `tools/gen_sound_tables.py`.
+
+**Per-algorithm carrier mask:** Volume adjustments via TL must only modify carrier operators (not modulators, which would change timbre). Carrier set varies by algorithm: algo 0-3 = op4 only, algo 4 = ops 2+4, algo 5-6 = ops 2+3+4, algo 7 = all 4. 8-byte lookup table indexed by algorithm gives the carrier bitmask. Essential for the log volume curve to work correctly without distorting instrument patches. **SHIPPED (1C):** `CarrierMaskTable`. Note the **FM register writer deliberately uses fixed `nop` + operator-loop spacing, NOT a YM busy-flag poll** (the busy flag is unreliable, and fixed spacing keeps the DAC's `$4000`/`$2A` parking invariant intact for DAC coexistence — see §6.1 / the 1C design §6).
 
 **Verified Z80 bus writes:** Read-back verification on 68K→Z80 command writes: `move.b d0,(a1); cmp.b (a1),d0; bne.b retry`. Prevents silent data loss during bus contention. ~8 extra cycles per verified write.
 
@@ -2648,7 +2717,7 @@ All Z80-side, zero 68K cost:
 
 **Frequency-based FM panning (NOVEL):** A zero-cost composition convention — pan FM channels by frequency range: FM1 (high melody) → right, FM2 (mid) → center, FM3 (bass) → left, PSG distributed. Creates wider perceived stereo image from FM synthesis alone. No CPU cost, no Z80 cost — purely how music is composed in the S3K SMPS format.
 
-### 6.4 Section-Aware Sound Banking (NOVEL)
+### 6.4 Section-Aware Sound Banking (NOVEL) — DEFERRED (Phase 5)
 
 Batman uses static per-level sound banks. We make them per-section and dynamic:
 - `sec_music` and `sec_sound_bank` in section definitions trigger music changes or sample set swaps
@@ -2662,7 +2731,7 @@ Batman uses static per-level sound banks. We make them per-section and dynamic:
 
 No commercial game ties sound banking to level streaming.
 
-### 6.5 Distance-Based Sound Attenuation (NOVEL)
+### 6.5 Distance-Based Sound Attenuation (NOVEL) — DEFERRED (Phase 5)
 
 `PlaySoundLocal` currently plays or doesn't play based on on-screen check. Add distance-based volume:
 ```
@@ -2674,7 +2743,7 @@ Enables: distant enemies audible before visible (audio foreshadowing), explosion
 
 **Priority-based SFX mixing:** When multiple SFX trigger simultaneously, rank by priority (explosion > enemy > pickup > UI). Higher-priority SFX get louder; lower-priority quieter. Combined with distance, creates natural "selective hearing" — a close explosion dominates a distant ring pickup. Cost: ~20 cycles on 68K for ranking, volume adjustment on Z80.
 
-### 6.6 Procedural Ambient Soundscape (NOVEL)
+### 6.6 Procedural Ambient Soundscape (NOVEL) — DEFERRED (Phase 5)
 
 No Genesis game does this. Define an ambient sample pool per section via `sec_ambient_pool`:
 - Forest: bird chirps, leaf rustles, distant water
@@ -2685,19 +2754,19 @@ Z80 firmware includes a LFSR-based random trigger — every 0.5-3 seconds (rando
 
 The game world sounds alive without dedicated ambient tracks. Combined with section-aware banking (6.4) and distance attenuation (6.5), each section becomes a distinct auditory environment.
 
-### 6.7 Continuous SFX (verify in Flamedriver)
+### 6.7 Continuous SFX — DEFERRED (Phase 5)
 
-S.C.E. supports continuous SFX — sounds that loop while a condition is held (spindash charge, shield buzz, speed shoes whoosh). Separate from normal SFX queue (`v_current_contsfx`), allowing seamless looping without re-triggering every frame. If Flamedriver doesn't support this natively, add a `PlaySoundContinuous` / `StopSoundContinuous` 68K-side API managing a dedicated SFX slot with auto-loop.
+S.C.E. supports continuous SFX — sounds that loop while a condition is held (spindash charge, shield buzz, speed shoes whoosh). Separate from the normal SFX queue, allowing seamless looping without re-triggering every frame. The shipped driver does not yet have an SFX queue; this lands with the Phase-5 game-feel layer as a `PlaySoundContinuous` / `StopSoundContinuous` 68K-side API managing a dedicated SFX slot with auto-loop.
 
-### 6.8 Tempo & Timing (from web research)
+### 6.8 Tempo & Timing
 
-**YM Timer A for sub-frame tempo:** Use YM2612 Timer A (10-bit, registers $24-$25) as the Z80 driver's tempo timebase instead of VBlank counting. Timer A gives sub-frame precision independent of NTSC/PAL frame rate differences. Polled (not interrupt-driven on Genesis — hardware limitation). This decouples music timing from game frame rate entirely — lag frames become irrelevant to music tempo.
+**YM Timer A for sub-frame tempo — SHIPPED (1C).** YM2612 Timer A (10-bit, registers $24-$25) is the driver's tempo timebase: the song header's tempo byte programs the Timer-A reload so **one overflow = one sequencer tick**. The free-running DAC loop polls the Timer-A overflow flag once per pass (the master tick is sub-frame and NTSC/PAL-independent — lag frames are irrelevant to music tempo). Polled, not interrupt-driven (Genesis hardware limitation).
 
-**Bank switch optimization:** The Z80 bank register costs 100+ Z80 cycles per switch (9 serial writes to $6000). This is the #1 Z80 performance threat after DAC mixing. Pack samples contiguously per-section in ROM. Bank-aware sample table skips switch if current bank matches. Build pipeline verifies no sample crosses a 32KB boundary.
+**PSG silence on pause — SHIPPED (1C).** `Psg_SilenceAll` writes $9F,$BF,$DF,$FF to the PSG port on `StopMusic` to immediately silence all 4 PSG channels. Without this, tones sustain.
 
-**PSG silence on pause:** Z80 writes $9F,$BF,$DF,$FF to $7F on pause command to immediately silence all 4 PSG channels. Without this, tones sustain during pause.
+**Bank switch optimization — DEFERRED (Phase 2/5).** The Z80 bank register costs 100+ Z80 cycles per switch. Pack samples contiguously per-section in ROM; a bank-aware sample table skips the switch if the current bank matches. (1C sidesteps banking *during* playback entirely by copying the song streams into Z80 RAM at load — see the 1C design §8.1 / the Z80 RAM map; the 1B DAC owns the `$6000` latch.)
 
-**Channel 3 special mode:** Per-operator frequencies for detuned unison, bell/metallic sounds, inharmonic timbres. Flamedriver already supports this via S3K SMPS — ensure SMPS2ASM workflow documents the capability for composers.
+**Channel 3 special mode — DEFERRED (Phase 3).** Per-operator frequencies for detuned unison, bell/metallic sounds, inharmonic timbres. Part of the Phase-3 FM-depth work, authored via MegaDAW (not SMPS2ASM).
 
 **LFO awareness:** Hardware LFO has only 8 fixed global rates (3.82-72.2 Hz) affecting all enabled channels uniformly. For per-channel vibrato, software modulation (direct F-Number manipulation) is required and already handled by SMPS modulation envelopes. Reserve hardware LFO for global tremolo/vibrato where uniform rate is acceptable.
 

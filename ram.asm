@@ -430,13 +430,14 @@ Player_Ring_Index:      ds.w 1      ; byte offset into both rings — word-sized
 
 ; -----------------------------------------------
 ; Sound driver debug mirror
-; Declared unconditionally (64 bytes, negligible) so the RAM layout is
+; Declared unconditionally (160 bytes, negligible) so the RAM layout is
 ; identical between DEBUG and release. Only WRITTEN under __DEBUG__ +
-; SOUND_DRIVER_ENABLED (debug/sound_debug.asm). Lets the Exodus MCP —
-; which can read 68k RAM but not Z80 RAM at $A00000 — observe the driver's
-; mailbox+status by reading this symbol.
+; SOUND_DRIVER_ENABLED + SOUND_DBG_MIRROR (debug/sound_debug.asm). Lets the
+; Exodus MCP — which can read 68k RAM but not Z80 RAM at $A00000 — observe the
+; driver's mailbox+status+sequencer state by reading this symbol.
+; Widened 64->160 B for Sound 1C (5-channel sequencer window + trace ring).
 ; -----------------------------------------------
-Sound_Dbg_Mirror:       ds.b 160        ; DEBUG: [0..63] Z80 mailbox/status+state, [64..158] sequencer window (hdr+5 ch)+trace (see debug/sound_debug.asm)
+Sound_Dbg_Mirror:       ds.b 160        ; DEBUG: [0..47] Z80 mailbox/status ($1F00..$1F2F), [48..63] playback state ($1600..$160F), [64..71] seq header, [72..126] 5 SeqChannel slots (FM1/FM2/PSG1/PSGN/DAC, 11 B each), [127..158] trace ring (see debug/sound_debug.asm)
 
 RAM_End:
 
