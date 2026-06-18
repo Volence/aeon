@@ -265,21 +265,38 @@ MEV_END         = $FF    ; end of stream (channel idle)
         endif
 
 ; --- Channel-route enum ---
+; Sound 1D: FM6 is now a routable FM voice (the "adaptive FM6 slot", §5.1). It
+; maps to YM part II, channel-in-part 2, chsel $06 — which falls out NATURALLY
+; from Fm_RoutePart/Fm_ChSel (route>=3 -> part II, ch = route-3; route 5 -> ch 2)
+; with NO writer change, so CHROUTE_FM6 is inserted contiguously after FM5 (= 5)
+; and the PSG/DAC routes shift up by one. FM6 and the DAC are mutually exclusive
+; on the YM2612 (ch6 is shared via $2B bit7): a song declares which role FM6 plays
+; (DAC by default; FM via the SongHeader flags byte — see SH_FLAGS below). The
+; DAC route ($E2 trigger channel) still exists for FM6=DAC songs.
 CHROUTE_FM1 = 0
 CHROUTE_FM2 = 1
 CHROUTE_FM3 = 2
 CHROUTE_FM4 = 3
 CHROUTE_FM5 = 4
-; (FM6 is permanently the DAC in 1C — not a sequencer FM channel)
-CHROUTE_PSG1 = 5
-CHROUTE_PSG2 = 6
-CHROUTE_PSG3 = 7
-CHROUTE_PSGN = 8    ; PSG noise
-CHROUTE_DAC  = 9    ; emits $E2 DAC triggers only
-CHROUTE_COUNT = 10
+CHROUTE_FM6 = 5    ; Sound 1D: 6th FM voice (part II ch2, chsel $06) — DAC-off songs
+CHROUTE_PSG1 = 6
+CHROUTE_PSG2 = 7
+CHROUTE_PSG3 = 8
+CHROUTE_PSGN = 9    ; PSG noise
+CHROUTE_DAC  = 10   ; emits $E2 DAC triggers only
+CHROUTE_COUNT = 11
 
-        if CHROUTE_COUNT <> 10
-          error "CHROUTE_COUNT (\{CHROUTE_COUNT}) must be 10"
+        if CHROUTE_COUNT <> 11
+          error "CHROUTE_COUNT (\{CHROUTE_COUNT}) must be 11"
+        endif
+        ; The route still fits the trace byte's high nibble (route<<4 | event):
+        ; CHROUTE_COUNT-1 = 10 <= 15, no carry-out in Seq_Trace.
+        if (CHROUTE_COUNT-1) > 15
+          error "route no longer fits the trace byte high nibble"
+        endif
+        ; FM6 must resolve to part II ch 2 via Fm_RoutePart's route-3 split.
+        if (CHROUTE_FM6 - 3) <> 2
+          error "CHROUTE_FM6 must map to part II channel-in-part 2"
         endif
 
 ; --- FmPatch struct (the YM record) ---
@@ -408,14 +425,19 @@ SND_FM_SCRATCH_LEN = 4
       fatal "FM scratch runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
-; --- Snd_LoadSong scratch (Task 6) ---
-; 1 byte: the DAC bank saved across the song-load bank switch (SndDrv_SetBank
-; overwrites SND_CUR_BANK, so the loader stashes it here and restores after). In
-; the free block just past the FM scratch, below the trace ring.
+; --- Snd_LoadSong scratch (Task 6 + Sound 1D) ---
+; +0 (1 byte): the DAC bank saved across the song-load bank switch (SndDrv_SetBank
+; overwrites SND_CUR_BANK, so the COPY path stashes it here and restores after).
+; +1 (2 bytes, Sound 1D): the song BASE pointer the header/streams are read from —
+; SND_SONG_BUF (Z80 RAM) on the copy path, or the $8000 window ptr on the stream
+; path. The loader's shared header-parse/channel-init reads everything relative to
+; this base, so one routine serves both paths. In the free block just past the FM
+; scratch, below the trace ring.
 Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
+Snd_SongBase       = Snd_SavedDacBank + 1        ; 2 bytes: song base ptr (RAM or window)
 
-    if (Snd_SavedDacBank + 1) > SND_SEQ_TRACE
-      fatal "Snd_SavedDacBank (\{Snd_SavedDacBank}) runs into the trace ring at \{SND_SEQ_TRACE}"
+    if (Snd_SongBase + 2) > SND_SEQ_TRACE
+      fatal "Snd_LoadSong scratch (\{Snd_SongBase}) runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
     if SND_SEQ_END > SND_REQ_BASE
@@ -425,7 +447,7 @@ Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
       fatal "sequencer trace ring overruns the mailbox"
     endif
     ; the per-channel array must not run into the trace ring at $1A00.
-    ; CHROUTE_COUNT(10) * SeqChannel_len(14) = 140 bytes -> $1808+140 = $1894, clear.
+    ; CHROUTE_COUNT(11) * SeqChannel_len(14) = 154 bytes -> $1808+154 = $18A2, clear.
     if SND_SEQ_END > SND_SEQ_TRACE
       fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
     endif
@@ -441,7 +463,18 @@ Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
 SND_MUSIC_PARAM         = $1A20                  ; music-load param block
 SND_MUSIC_PARAM_BANK    = SND_MUSIC_PARAM+$00    ; song bank id (1 byte)
 SND_MUSIC_PARAM_PTR     = SND_MUSIC_PARAM+$01    ; song $8000-window ptr (2 bytes, little-endian)
-SND_MUSIC_PARAM_LEN     = 3
+; Sound 1D: the song's SH_FLAGS byte, forwarded by the 68k (it reads the song's
+; ROM header directly). The Z80 loader needs the FLAGS *before* deciding the
+; copy-to-RAM vs stream-from-ROM path, so it cannot read them from SND_SONG_BUF
+; (which only exists for the copy path). Posted in the same bus hold as bank/ptr.
+SND_MUSIC_PARAM_FLAGS   = SND_MUSIC_PARAM+$03    ; song SH_FLAGS byte (1 byte)
+; Sound 1D: the song's FM-patch-bank $8000-window ptr (2 bytes, little-endian),
+; forwarded by the 68k from the song table's parallel patch-ptr entry. USED ONLY
+; on the stream path (SH_F_STREAM): the patch bank lives in the song's bank, read
+; through the same window. The copy path (1C) ignores it and uses the Z80-RAM
+; inline FmPatchInlineTable. (window ptr = (patch_addr & $7FFF) | $8000.)
+SND_MUSIC_PARAM_PATCHPTR = SND_MUSIC_PARAM+$04   ; song patch-bank window ptr (2 bytes, LE)
+SND_MUSIC_PARAM_LEN     = 6
 
 ; The song RAM buffer: the loader copies a fixed SND_SONG_BUF_SIZE bytes from the
 ; banked window here once at load. Page-aligned ($1B00) so the loader copy + the
@@ -479,6 +512,7 @@ SEQEV_RPT_END   = 10    ; bounded-repeat body end ($E6) — fires on every pass
 
 ; --- SongHeader layout (emitted by tools/song_packer.py, read by the loader) ---
 ; SongHeader:
+;   db  flags            ; Sound 1D: per-song playback mode (SH_F_* below)
 ;   db  tempo            ; Timer-A reload selector (N = tempo<<2; bigger = faster)
 ;   db  channel_count
 ;   ; per channel: route byte + 2-byte stream pointer (Z80-window-relative)
@@ -488,10 +522,11 @@ SEQEV_RPT_END   = 10    ; bounded-repeat body end ($E6) — fires on every pass
 ; each stream_ptr to its stream's offset within the packed song blob.)
 ;
 ; --- SongHeader field offsets (Task 6 loader; from SND_SONG_BUF base) ---
-; Fixed-position fields:
-SH_TEMPO        = 0     ; +0  tempo byte (Timer-A selector)
-SH_CHCOUNT      = 1     ; +1  channel count
-SH_CHANNELS     = 2     ; +2  start of the per-channel array
+; Fixed-position fields (Sound 1D prepends SH_FLAGS at +0):
+SH_FLAGS        = 0     ; +0  per-song playback-mode flags (SH_F_* below)
+SH_TEMPO        = 1     ; +1  tempo byte (Timer-A selector)
+SH_CHCOUNT      = 2     ; +2  channel count
+SH_CHANNELS     = 3     ; +3  start of the per-channel array
 ; Per-channel record (3 bytes): route, stream_ptr (16-bit BIG-ENDIAN offset).
 ; The packer writes stream_ptr as (off>>8),(off&FF) — high byte FIRST. The loader
 ; must read it big-endian (NOT a plain Z80 little-endian 16-bit load).
@@ -501,6 +536,20 @@ SHC_PTR_LO      = 2     ; +2  stream offset low byte
 SHC_LEN         = 3     ; per-channel record length
 ; patch_table_ptr (2 bytes) follows the per-channel array; IGNORED in 1C (patches
 ; stay inline — SND_SEQ_PATCHTAB is set to FmPatchInlineTable by the loader).
+
+; --- SongHeader flags byte (SH_FLAGS, Sound 1D §5.1) ----------------------
+; bit0 SH_F_FM6_FM   : FM6 is a 6th FM SEQUENCER voice (DAC mode OFF, $2B=$00).
+;                      CLEAR -> FM6 is the DAC (1C behavior, DAC mode ON, $2B=$80).
+; bit1 SH_F_STREAM   : the song's streams + patch bank are read DIRECTLY through
+;                      the banked $8000 window (the loader holds the song's bank
+;                      and points sc_stream_ptr at window addresses — NO RAM copy).
+;                      CLEAR -> copy a fixed SND_SONG_BUF_SIZE bytes to RAM (1C).
+; Contract: Moving Trucks = SH_F_FM6_FM|SH_F_STREAM (FM6=FM voice, stream from ROM);
+;           Song_Test / Ode demo = 0 (FM6=DAC, copy-to-RAM — the 1C path, regresses).
+SH_F_FM6_FM_B   = 0
+SH_F_STREAM_B   = 1
+SH_F_FM6_FM     = 1<<SH_F_FM6_FM_B
+SH_F_STREAM     = 1<<SH_F_STREAM_B
 
 ; --- DacSample id -> descriptor table (Task 6 decision 3) ---
 ; The $E2 operand (and SND_REQ_SAMPLE) is a 1-based sample id; the handler looks

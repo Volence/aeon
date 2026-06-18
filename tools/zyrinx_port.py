@@ -257,14 +257,16 @@ try:
         SongDesc, ChannelDesc,
         Note, NoteDur, Rest, SetDur, Patch, Vol, LoopPoint, Jump,
         RepeatStart, RepeatEnd,
-        CHROUTE_FM1, CHROUTE_FM5,
+        CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
+        SH_F_FM6_FM, SH_F_STREAM,
     )
 except ImportError:  # pragma: no cover - alternate import path
     from tools.song_packer import (  # type: ignore
         SongDesc, ChannelDesc,
         Note, NoteDur, Rest, SetDur, Patch, Vol, LoopPoint, Jump,
         RepeatStart, RepeatEnd,
-        CHROUTE_FM1, CHROUTE_FM5,
+        CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
+        SH_F_FM6_FM, SH_F_STREAM,
     )
 
 
@@ -406,7 +408,7 @@ def flatten_channel(channel: dict, sequences: dict, route: int,
         or Patch(0) if the channel references no voice.
     """
     events = []
-    is_fm = (CHROUTE_FM1 <= route <= CHROUTE_FM5)
+    is_fm = (CHROUTE_FM1 <= route <= CHROUTE_FM6)
     if is_fm:
         setup_patch = 0
         if voice_remap is not None:
@@ -446,10 +448,11 @@ def flatten_channel(channel: dict, sequences: dict, route: int,
     return events
 
 
-# ch0-4 -> FM1..FM5. ch5 is the 6th FM voice held aside for T3's adaptive FM6.
-# ch6 is a 1-pattern stub (dropped). Indices beyond 4 are not routed in T1.
-_T1_FM_ROUTES = [CHROUTE_FM1, CHROUTE_FM1 + 1, CHROUTE_FM1 + 2,
-                 CHROUTE_FM1 + 3, CHROUTE_FM5]
+# Sound 1D T3: ch0-5 -> FM1..FM6 (all 6 active FM voices). ch5 -> FM6 via the
+# adaptive FM6 slot (CHROUTE_FM6 = 5). ch6 is a 1-pattern stub (dropped). Indices
+# beyond 5 are not routed.
+_FM_ROUTES = [CHROUTE_FM1, CHROUTE_FM1 + 1, CHROUTE_FM1 + 2,
+              CHROUTE_FM1 + 3, CHROUTE_FM5, CHROUTE_FM6]
 
 # The Zyrinx global voice bank (Moving Trucks = bank 1). Default location; the
 # CLI / build pass it explicitly so this is only a fallback for in-tree calls.
@@ -462,13 +465,17 @@ VOICES_JSON_DEFAULT = (
 def build_songdesc(raw: dict, voices_json: str = None) -> SongDesc:
     """Turn the loaded JSON into a packer-accepted SongDesc.
 
-    Routes ch0-4 -> FM1..FM5. ch5 (the 6th FM voice) is DEFERRED to T3 (we have
-    no FM6 route yet). ch6 (the 1-pattern stub) is DROPPED + logged.
+    Routes ch0-5 -> FM1..FM6 (all 6 active FM voices; ch5 -> FM6 via the Sound 1D
+    adaptive FM6 slot). ch6 (the 1-pattern stub) is DROPPED + logged.
 
-    voices_json: path to the Zyrinx voices.json. T2: voice events become
-    Patch(local_idx) into the per-song dense bank (build_patch_bank). If None,
+    The returned SongDesc carries flags = SH_F_FM6_FM | SH_F_STREAM: FM6 is a 6th
+    FM voice (DAC off) and the song streams from ROM (no RAM copy). The loader
+    reads these to take the DAC-off stream path.
+
+    voices_json: path to the Zyrinx voices.json. Voice events become Patch(local
+    _idx) into the per-song dense bank (build_patch_bank). If None,
     VOICES_JSON_DEFAULT is used when present; if the bank cannot be loaded the
-    transcode degrades to the T1 placeholder (Patch(0), voices dropped).
+    transcode degrades to the placeholder (Patch(0), voices dropped).
     """
     if voices_json is None and _os.path.exists(VOICES_JSON_DEFAULT):
         voices_json = VOICES_JSON_DEFAULT
@@ -481,16 +488,16 @@ def build_songdesc(raw: dict, voices_json: str = None) -> SongDesc:
     channels = []
     for i, ch in enumerate(raw["channels"]):
         npat = len(ch.get("patterns", []))
-        if i >= len(_T1_FM_ROUTES):
-            # ch5 = 6th FM voice (FM6, T3); ch6 = trivial stub (drop).
-            reason = ("FM6 — deferred to T3 (adaptive FM6 slot)"
-                      if i == 5 else "trivial stub — dropped")
-            print(f"  [info] ch{i} ({npat} pattern(s)) NOT routed in T1: "
-                  f"{reason}", file=sys.stderr)
+        if i >= len(_FM_ROUTES):
+            # ch6 (and beyond) = trivial stub(s) — dropped.
+            print(f"  [info] ch{i} ({npat} pattern(s)) NOT routed: "
+                  f"trivial stub — dropped", file=sys.stderr)
             continue
-        events = flatten_channel(ch, sequences, _T1_FM_ROUTES[i], voice_remap)
-        channels.append(ChannelDesc(_T1_FM_ROUTES[i], events))
-    return SongDesc(tempo=tempo, channels=channels)
+        events = flatten_channel(ch, sequences, _FM_ROUTES[i], voice_remap)
+        channels.append(ChannelDesc(_FM_ROUTES[i], events))
+    # FM6 = FM voice (DAC off) + stream from ROM (no RAM copy) — Sound 1D §5.1.
+    return SongDesc(tempo=tempo, channels=channels,
+                    flags=SH_F_FM6_FM | SH_F_STREAM)
 
 
 # --- CLI: regenerate the .asm ----------------------------------------------

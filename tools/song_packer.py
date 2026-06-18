@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """song_packer — build-time music song description -> packed bytes + .asm.
 
-A SongDesc (tempo + list of ChannelDesc) packs to a self-contained blob:
+A SongDesc (flags + tempo + list of ChannelDesc) packs to a self-contained blob:
 
     SongHeader:
+      db  flags            ; Sound 1D per-song playback mode (SH_F_* below)
       db  tempo
       db  channel_count
       ; per channel:
@@ -47,20 +48,29 @@ MEV_END = 0xFF
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
 MAX_DUR = 0x7F                              # SetDur range $00..$7F
 
+# Channel-route enum — MIRROR of sound_constants.asm (Sound 1D inserts FM6 = 5
+# and shifts PSG/DAC up by one). Keep in lockstep with the .asm or the packed
+# route bytes will index the wrong writer on the Z80.
 CHROUTE_FM1 = 0
 CHROUTE_FM2 = 1
 CHROUTE_FM3 = 2
 CHROUTE_FM4 = 3
 CHROUTE_FM5 = 4
-CHROUTE_PSG1 = 5
-CHROUTE_PSG2 = 6
-CHROUTE_PSG3 = 7
-CHROUTE_PSGN = 8
-CHROUTE_DAC = 9
-CHROUTE_COUNT = 10
+CHROUTE_FM6 = 5      # Sound 1D: 6th FM voice (adaptive FM6 slot)
+CHROUTE_PSG1 = 6
+CHROUTE_PSG2 = 7
+CHROUTE_PSG3 = 8
+CHROUTE_PSGN = 9
+CHROUTE_DAC = 10
+CHROUTE_COUNT = 11
 
-_FM_ROUTES = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5}
+_FM_ROUTES = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
+              CHROUTE_FM6}
 _PSG_ROUTES = {CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN}
+
+# SongHeader flags byte (SH_FLAGS) — MIRROR of sound_constants.asm SH_F_*.
+SH_F_FM6_FM = 1 << 0     # FM6 is a 6th FM sequencer voice (DAC mode OFF)
+SH_F_STREAM = 1 << 1     # stream from ROM (no RAM copy); else copy-to-RAM (1C)
 
 
 class PackError(Exception):
@@ -203,9 +213,10 @@ class ChannelDesc:
 
 
 class SongDesc:
-    def __init__(self, tempo: int, channels: list):
+    def __init__(self, tempo: int, channels: list, flags: int = 0):
         self.tempo = tempo
         self.channels = channels
+        self.flags = flags          # SH_FLAGS byte (SH_F_* OR'd); 0 = 1C copy/DAC
 
 
 # --- Packing --------------------------------------------------------------
@@ -286,13 +297,16 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
 def pack_song(song: SongDesc) -> bytes:
     if not (0 <= song.tempo <= 0xFF):
         raise PackError(f"tempo {song.tempo} out of byte range")
+    if not (0 <= song.flags <= 0xFF):
+        raise PackError(f"flags {song.flags} out of byte range")
     if not (1 <= len(song.channels) <= 0xFF):
         raise PackError("channel_count out of byte range")
 
     streams = [_validate_channel(ch) for ch in song.channels]
 
     n = len(song.channels)
-    header_len = 2 + 3 * n + 2     # tempo, count, (route+dw)*n, dw patch_ptr
+    # flags, tempo, count, (route+dw)*n, dw patch_ptr (Sound 1D prepends flags).
+    header_len = 3 + 3 * n + 2
 
     # Stream offsets relative to blob start.
     offsets = []
@@ -302,6 +316,7 @@ def pack_song(song: SongDesc) -> bytes:
         cur += len(s)
 
     out = bytearray()
+    out.append(song.flags & 0xFF)
     out.append(song.tempo & 0xFF)
     out.append(n & 0xFF)
     for ch, off in zip(song.channels, offsets):

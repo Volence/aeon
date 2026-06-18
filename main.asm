@@ -246,18 +246,24 @@ Art_Sonic:
         include "data/sound/fm_patches.asm"
         include "data/sound/song_test.asm"
         ; Sound 1D: "Moving Trucks" (B&R) transcoded by tools/zyrinx_port.py.
-        ; ~4.5KB, bounded-repeat (NOT unrolled). T2 translates the Zyrinx voices
-        ; to FmPatch records (MovingTrucks_Patches below) + remaps VOICE events to
-        ; dense local patch indices; pan/vol (T4); the 6th FM voice deferred to
-        ; T3's adaptive FM6 slot. Streams from ROM in T3 — it does NOT fit the
-        ; 512-byte SND_SONG_BUF, so it is not buffer-asserted in song_table.asm.
+        ; ~4.5KB song + 884B patch bank, bounded-repeat (NOT unrolled). T3 streams
+        ; it from ROM with the DAC off (the adaptive FM6 slot): the Z80 sequencer
+        ; reads BOTH the song streams AND the patch bank DIRECTLY through the banked
+        ; $8000 window with ONE SetBank. So the song stream + its patch bank must
+        ; live in ONE 32KB bank, bank-aligned (like dac_samples.asm). align $8000
+        ; snaps to a bank start; the contiguous block (Song + Patches) is asserted
+        ; below in song_table.asm to NOT cross a bank boundary — one bank covers it.
+        align   $8000                          ; bank-align the streaming block (no boundary cross)
+        ; T2 translates the Zyrinx voices to FmPatch records (MovingTrucks_Patches)
+        ; + remaps VOICE events to dense local patch indices; pan/vol (T4); the 6th
+        ; FM voice (ch5 -> FM6) routed in T3's adaptive FM6 slot.
         include "data/sound/song_movingtrucks.asm"
         ; T2: the song's per-song FmPatch bank (34 records * 26 = 884 bytes), read
-        ; by Fm_PatchLoad at SND_SEQ_PATCHTAB + local_idx*26. Emitted via the same
-        ; `pbyte` single-source pattern as fm_patches.inc so it can ALSO be inlined
-        ; in the Z80 blob (the recommended T5 placement — always Z80-addressable,
-        ; no banking). For T2 it lives in the 68k ROM data area; T3/T5 sets
-        ; SND_SEQ_PATCHTAB to MovingTrucks_Patches when the song plays.
+        ; by Fm_PatchLoad at SND_SEQ_PATCHTAB + local_idx*26. Placed CONTIGUOUSLY
+        ; right after the song (no align between) so the whole block stays in the
+        ; one bank-aligned 32KB bank. Emitted via the same `pbyte` single-source
+        ; pattern as fm_patches.inc so it can ALSO be inlined in the Z80 blob.
+        ; The stream-path loader points SND_SEQ_PATCHTAB at this bank's window ptr.
         include "data/sound/movingtrucks_patches.asm"
         include "data/sound/song_table.asm"
     endif

@@ -38,7 +38,8 @@ from song_packer import (
     SongDesc, ChannelDesc, RepeatStart, RepeatEnd,
     Note, NoteDur, Rest, SetDur, Patch, Vol, LoopPoint, Jump,
     pack_song, MAX_PITCH,
-    CHROUTE_FM1, CHROUTE_FM5,
+    CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
+    SH_F_FM6_FM, SH_F_STREAM,
 )
 
 # The decoded source JSON (the transcoder input).
@@ -229,11 +230,16 @@ class TestBuildSongDesc(unittest.TestCase):
         self.assertGreater(len(blob), 0)
 
     def test_six_fm_channels(self):
-        # ch0-5 -> FM1..FM5 + the 6th held aside for T3 (FM6). The stub ch6 is
-        # dropped. So T1 ships 5 routed FM channels (FM1..FM5).
+        # Sound 1D T3: ch0-5 -> FM1..FM6 (all 6 active FM voices; ch5 -> FM6 via
+        # the adaptive FM6 slot). The stub ch6 is dropped. So 6 routed FM channels.
         routes = [c.route for c in self.song.channels]
         self.assertEqual(routes, [CHROUTE_FM1, CHROUTE_FM1 + 1, CHROUTE_FM1 + 2,
-                                  CHROUTE_FM1 + 3, CHROUTE_FM5])
+                                  CHROUTE_FM1 + 3, CHROUTE_FM5, CHROUTE_FM6])
+
+    def test_stream_fm6_flags(self):
+        # The song declares FM6=FM voice + stream-from-ROM, so the loader takes the
+        # DAC-off stream path.
+        self.assertEqual(self.song.flags, SH_F_FM6_FM | SH_F_STREAM)
 
     def test_compact_not_unrolled(self):
         # Bounded repeat keeps it a few KB; a full unroll would be ~100KB.
