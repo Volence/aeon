@@ -109,12 +109,17 @@ _NOTE_ANCHORS = {
 }
 
 
-def _hexrow(vals):
-    return ", ".join("0%02Xh" % (v & 0xFF) for v in vals)
+def _hexrow(vals, directive="db"):
+    if directive == "db":                     # Z80-syntax byte literals
+        return ", ".join("0%02Xh" % (v & 0xFF) for v in vals)
+    return ", ".join("$%02X" % (v & 0xFF) for v in vals)   # 68k dc.b literals
 
 
-def emit_pitchtable_asm(label="MovingTrucks_PitchTable"):
-    """Return the .asm text for the 132-entry two-page (A4 then A0) pitch table."""
+def emit_pitchtable_asm(label="MovingTrucks_PitchTable", directive="db"):
+    """Return the .asm text for the 132-entry two-page (A4 then A0) pitch table.
+
+    directive: "db" (Z80 phase-0 blob context — the engine-default inline copy) or
+    "dc.b" (68k ROM data area — the per-song streaming-block copy)."""
     assert len(A4_TBL) == PITCHTAB_COUNT and len(A0_TBL) == PITCHTAB_COUNT
     lines = []
     lines.append("; " + "=" * 70)
@@ -141,18 +146,20 @@ def emit_pitchtable_asm(label="MovingTrucks_PitchTable"):
     lines.append("%s:" % label)
     lines.append("; --- page 0: A4 (block|fnumHi) bytes, idx $00..$83 ---")
     for i in range(0, PITCHTAB_COUNT, 12):
-        lines.append("        db      " + _hexrow(A4_TBL[i:i + 12]))
+        lines.append("        %-7s " % directive
+                     + _hexrow(A4_TBL[i:i + 12], directive))
     lines.append("; --- page 1: A0 (fnum low) bytes, idx $00..$83 ---")
     for i in range(0, PITCHTAB_COUNT, 12):
-        lines.append("        db      " + _hexrow(A0_TBL[i:i + 12]))
+        lines.append("        %-7s " % directive
+                     + _hexrow(A0_TBL[i:i + 12], directive))
     lines.append("%s_End:" % label)
     lines.append("")
     return "\n".join(lines)
 
 
-def write_pitchtable_asm(out_path, label="MovingTrucks_PitchTable"):
+def write_pitchtable_asm(out_path, label="MovingTrucks_PitchTable", directive="db"):
     with open(out_path, "w") as f:
-        f.write(emit_pitchtable_asm(label))
+        f.write(emit_pitchtable_asm(label, directive))
         f.write("\n")
     return out_path
 
@@ -534,6 +541,536 @@ def simulate(rom, duration_s, glide_as_vol=False):
     return channels
 
 
+# ============================================================================
+# NATIVE SONG EMITTER (Sound Phase 3 Task 8)
+# ============================================================================
+# Walk Moving Trucks' real song data (the per-channel pattern lists -> shared
+# sequences -> command streams parsed above) and translate it, PRESERVING
+# STRUCTURE, into our native sequencer opcode streams (song_packer events). This
+# is a real PORT of the song data — NOT a register replay of the oracle VGM.
+#
+# Structure preserved:
+#   * Each of the 6 channels -> one FM route (FM1..FM6, 1:1; the RE confirms each
+#     channel binds to YM channel == channel index, NOT via the CH-select cmd).
+#   * Each channel = a leading patch/vol setup + LoopPoint + per-pattern bodies +
+#     Jump (the whole 16-pattern list loops, matching loopback=0).
+#   * Each pattern's resolved sequence body is emitted ONCE wrapped in
+#     RepeatStart..RepeatEnd(repeat) (bounded repeat — NOT unrolled).
+#
+# Command translation (per /tmp/zyrinx_re_commands.md §6):
+#   PITCH_n ($00-$08)  -> PitchEnv(count, transposed point indices). The engine
+#       suppresses same-pitch re-attacks, so emitting a PITCHENV per Zyrinx PITCH
+#       reproduces the re-key DENSITY via that suppression (Task-9 calibrates).
+#   VOICE ($18)        -> the build-time MINIMAL-DELTA voice-step: compute the
+#       FmPatch register delta from the previous voice. SMALL delta (<= threshold
+#       changed regs, all expressible as per-op group writes) -> RegDelta; LARGE /
+#       genuine instrument change -> full Patch(local_idx). FIRST voice = Patch.
+#   PAN ($30-$36)      -> Pan(b4) (raw Zyrinx pan value = the $B4 byte the driver
+#       wrote: off/$00, R/$80, L/$40, C/$C0; matches the oracle's $B4 writes).
+#   OP1-4 ($38-$3E)    -> OpBias(physical op, signed val).
+#   WAIT ($80-$FF)     -> SetDur($FF-byte) preceding the group's time-advancing
+#       PitchEnv (the engine paces PitchEnv by sc_dur_default).
+#   LOOP ($1C)         -> the sequence-body terminator (ends the RepeatStart body).
+#   GATE ($1A), PARAM ($14), CH-select ($20-$2E), NOP ($16/$40+) -> no-op (the
+#       gate/param re-key flags don't change which note plays; CH-select is the
+#       $0E5E key-latch quirk, irrelevant to the 1:1 FM routing — see the RE §3.6).
+#   VOL ($0A-$12)      -> dropped (the driver has NO real TL envelope — it is a
+#       static-per-note TL bias; /tmp/zyrinx_re_modulation.md §0/§9. A faithful
+#       port emits no swept TL. The VOL-cmd DURATION is folded out: the following
+#       WAIT carries the hold. Logged.)
+# ----------------------------------------------------------------------------
+
+# Import the packer events + the Zyrinx-voice -> FmPatch translation (T8 reuses
+# zyrinx_port.translate_voice). Support both tools/-on-path and package styles.
+try:
+    from song_packer import (
+        SongDesc, ChannelDesc,
+        SetDur, Rest, Vol, Patch, Pan, OpBias, PitchEnv, RegDelta,
+        RepeatStart, RepeatEnd, LoopPoint, Jump,
+        CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
+        SH_F_FM6_FM, SH_F_STREAM,
+        reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
+        pack_song,
+    )
+    from zyrinx_port import translate_voice, FMPATCH_LEN, emit_patch_bank_asm
+except ImportError:  # pragma: no cover - alternate import path
+    from tools.song_packer import (  # type: ignore
+        SongDesc, ChannelDesc,
+        SetDur, Rest, Vol, Patch, Pan, OpBias, PitchEnv, RegDelta,
+        RepeatStart, RepeatEnd, LoopPoint, Jump,
+        CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
+        SH_F_FM6_FM, SH_F_STREAM,
+        reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
+        pack_song,
+    )
+    from tools.zyrinx_port import (  # type: ignore
+        translate_voice, FMPATCH_LEN, emit_patch_bank_asm)
+
+VOICES_JSON = ("/home/volence/sonic_hacks/The Adventures of Batman and Robin/"
+               "disasm/sound/decoded_full/voices.json")
+
+# ch0..5 -> FM1..FM6 (1:1; ch5 -> FM6 via the adaptive FM6 slot, CHROUTE_FM6 = 5).
+NATIVE_FM_ROUTES = [CHROUTE_FM1, CHROUTE_FM1 + 1, CHROUTE_FM1 + 2,
+                    CHROUTE_FM1 + 3, CHROUTE_FM5, CHROUTE_FM6]
+
+# Voice-step delta threshold: a VOICE change differing in MORE than this many
+# FmPatch register bytes (or in a byte that has no RegDelta encoding, i.e.
+# alg_fb/$B0 or lr_ams_fms/$B4) is a GENUINE instrument change -> full Patch.
+# Calibrated against the data: the bass voice-step ($9C..$A0) differs by exactly 1
+# byte (the S1-TL, $40 group op0) -> RegDelta; the lead swap ($0E vs $A4) differs
+# in ~25 bytes -> Patch. 8 is comfortably between (the task's suggested threshold).
+VOICE_DELTA_THRESHOLD = 8
+
+# Moving Trucks song format code ($38 = 56) = the per-channel tempo_base. The
+# per-frame engine event-tick rate = FODD*16/tempo_base ~= 16.87 Hz, matching the
+# Zyrinx ~17 events/sec. (Tempo overrides per pattern are applied where present.)
+MT_FORMAT_CODE = 0x38
+
+
+def _load_voice_bank():
+    """Load the Zyrinx bank-1 voice list (Moving Trucks references bank 1)."""
+    with open(VOICES_JSON) as f:
+        return json.load(f)["bank1"]
+
+
+def _fmpatch_byte_to_regsel(byte_idx):
+    """Map an FmPatch byte index (2..25) to a RegDelta reg_sel, or None for the
+    two scalar leads (idx 0 = fp_alg_fb/$B0, idx 1 = fp_lr_ams_fms/$B4) which have
+    no per-operator register group (a change there forces a full Patch)."""
+    if byte_idx < 2:
+        return None                         # $B0 / $B4 -> not RegDelta-encodable
+    rel = byte_idx - 2
+    group = rel // 4                        # 0..5 = $30/$40/$50/$60/$70/$80
+    op = rel % 4                            # 0..3 = physical S1,S3,S2,S4
+    if group >= REGDELTA_GROUP_COUNT:
+        return None
+    return reg_sel(group, op)
+
+
+def _voice_step_event(prev_fp, new_fp, new_local_idx):
+    """Decide the voice-step encoding from the previous voice's FmPatch to the new
+    one. Returns (event, kind) where kind is 'patch' or 'regdelta'.
+
+    SMALL delta (<= VOICE_DELTA_THRESHOLD changed regs, ALL RegDelta-encodable)
+    -> RegDelta(only the changed registers). LARGE / non-encodable -> full Patch.
+    prev_fp None (first voice) always -> Patch.
+    """
+    if prev_fp is None:
+        return Patch(new_local_idx), "patch"
+    diffs = [i for i in range(FMPATCH_LEN) if new_fp[i] != prev_fp[i]]
+    if not diffs:
+        return None, "none"                 # identical voice -> nothing to emit
+    pairs = []
+    for i in diffs:
+        rs = _fmpatch_byte_to_regsel(i)
+        if rs is None:                       # $B0/$B4 changed -> must full-reload
+            return Patch(new_local_idx), "patch"
+        pairs.append((rs, new_fp[i]))
+    if len(pairs) > VOICE_DELTA_THRESHOLD:
+        return Patch(new_local_idx), "patch"
+    return RegDelta(pairs), "regdelta"
+
+
+def _zyrinx_op_to_phys(op_natural):
+    """Zyrinx OP1-4 (natural op 0..3) -> our PHYSICAL op index 0..3 (S1,S3,S2,S4).
+    OP1->S1=0, OP2->S2=2, OP3->S3=1, OP4->S4=3 (the OP_REORDER=[0,2,1,3] mapping,
+    self-inverse). See /tmp/zyrinx_re_commands.md §3.4 + zyrinx_port.OP_REORDER."""
+    return (0, 2, 1, 3)[op_natural]
+
+
+def _to_signed(b):
+    return b - 256 if b >= 0x80 else b
+
+
+class _Walker:
+    """Translates ONE resolved Zyrinx sequence body (seq start .. first LOOP) into
+    our v0 events, preserving the per-tick command groups. Carries the per-channel
+    voice state (the previous voice's FmPatch) ACROSS patterns so cross-pattern
+    voice-steps are still minimal deltas.
+
+    bank   = the Zyrinx bank-1 voice list (translate_voice consumes its dicts).
+    remap  = absolute voice idx -> dense local patch idx (build_native_patch_bank).
+    stats  = a per-channel dict the walker tallies opcode counts into.
+    """
+
+    def __init__(self, rom, bank, remap, stats):
+        self.rom = rom
+        self.bank = bank
+        self.remap = remap
+        self.stats = stats
+        self.prev_fp = None            # previous voice's FmPatch (None = no voice yet)
+        self.cur_local = None          # current dense local patch idx
+        self.first_local = None        # the channel's FIRST voice (leading setup)
+        self.porta_dropped = 0         # $0A glide -> plain note count (none in MT)
+
+    def first_voice_local(self):
+        """Local patch idx of the channel's FIRST voice (for the leading setup
+        Patch — the packer wants a Patch before the first keyed note), or 0 if the
+        channel references no voice."""
+        return self.first_local if self.first_local is not None else 0
+
+    def _voice(self, voice_idx, out):
+        """Apply a VOICE change: emit Patch or RegDelta per the minimal-delta rule."""
+        new_fp = translate_voice(self.bank[voice_idx])
+        local = self.remap[voice_idx]
+        ev, kind = _voice_step_event(self.prev_fp, new_fp, local)
+        self.prev_fp = new_fp
+        self.cur_local = local
+        if self.first_local is None:
+            self.first_local = local
+        if ev is None:
+            return
+        out.append(ev)
+        if kind == "patch":
+            self.stats["patch"] += 1
+        else:
+            self.stats["regdelta"] += 1
+
+    def walk_body(self, seq_start, transpose):
+        """Translate one sequence body (seq_start .. first LOOP $1C) into events.
+
+        Per-tick group model (matches the driver's Table-1/Table-2 dispatch):
+        a group is the run of commands up to a WAIT byte. We buffer the group's
+        zero-tick setters (Patch/RegDelta/Pan/OpBias) and the pending PITCH, then
+        on the WAIT emit [setters..., SetDur(ticks), PitchEnv] (the PitchEnv is the
+        single time-advancing event, paced by the SetDur). Same-pitch PitchEnvs are
+        held no-attacks in the engine (the re-key rule) — exactly the Zyrinx idiom.
+        """
+        rom = self.rom
+        out = []
+        p = seq_start
+        # Reset the voice baseline at every body start: a body is wrapped in
+        # RepeatStart..RepeatEnd(repeat) (it replays `repeat` times) and the whole
+        # channel loops, so a body may be re-entered from an UNKNOWN chip-voice
+        # state (its own last voice on repeat, or the previous body's last voice on
+        # the first play / loop-back). Forcing the body's FIRST VOICE to a full
+        # absolute Patch (prev_fp=None) makes each body SELF-CONTAINED — correct
+        # under any entry state — while the voice-STEPS WITHIN the body stay minimal
+        # RegDeltas (the Zyrinx voice-stepping trick stays compact).
+        self.prev_fp = None
+        # group accumulators
+        setters = []            # zero-tick events (Patch/RegDelta/Pan/OpBias)
+        pending_points = None   # transposed PITCH points awaiting a WAIT
+        for _ in range(8192):
+            b = rom[p]
+            if b >= 0x80:
+                # WAIT: $FF - byte event-ticks. Close the current group.
+                ticks = 0xFF - b
+                p += 1
+                out.extend(setters)
+                setters = []
+                if pending_points is not None:
+                    if ticks > 0:
+                        out.append(SetDur(ticks))
+                    out.append(PitchEnv(pending_points))
+                    self.stats["pitchenv"] += 1
+                    pending_points = None
+                else:
+                    # WAIT with no pending note -> a rest for the duration.
+                    if ticks > 0:
+                        out.append(SetDur(ticks))
+                    out.append(Rest())
+                    self.stats["rest"] += 1
+                continue
+            op = b
+            if op <= 0x08:
+                # PITCH_n -> set 1..5 pitch points (note numbers); arm a (re)key.
+                cnt = op // 2 + 1
+                pts = [rom[p + 1 + k] for k in range(cnt)]
+                p += 1 + cnt
+                # apply the per-pattern transpose; clamp to 0..PITCHENV_MAX_IDX.
+                tp = [clamp_note(n, transpose) for n in pts]
+                pending_points = tp
+            elif op in (0x0A, 0x0C, 0x0E, 0x10, 0x12):
+                # VOL envelope SETUP: N levels + 1 duration. No real TL envelope in
+                # the driver (static-per-note) -> dropped; the following WAIT holds.
+                lvls = (op - 0x0A) // 2 + 1
+                p += 1 + lvls + 1
+                self.stats["vol_dropped"] += 1
+            elif op == 0x14:                 # PARAM (key/legato override) -> drop
+                p += 2
+            elif op == 0x16:                 # NOP / buffer sink
+                p += 1
+            elif op == 0x18:                 # VOICE
+                voice_idx = rom[p + 1]
+                p += 2
+                self._voice(voice_idx, setters)
+            elif op == 0x1A:                 # GATE / retrigger flag -> no-op
+                p += 1
+            elif op == 0x1C:                 # LOOP -> body terminator
+                p += 1
+                break
+            elif op == 0x1E:                 # CH-OFF (T2) / NOP (T1) -> drop
+                p += 1
+            elif 0x20 <= op <= 0x2E:         # CH-select -> no-op (1:1 FM routing)
+                p += 1
+            elif op == 0x30:                 # PAN_OFF
+                setters.append(Pan(0x00)); self.stats["pan"] += 1
+                p += 1
+            elif op == 0x32:                 # PAN_R (raw Zyrinx pan value $80)
+                setters.append(Pan(0x80)); self.stats["pan"] += 1
+                p += 1
+            elif op == 0x34:                 # PAN_L (raw Zyrinx pan value $40)
+                setters.append(Pan(0x40)); self.stats["pan"] += 1
+                p += 1
+            elif op == 0x36:                 # PAN_C (raw Zyrinx pan value $C0)
+                setters.append(Pan(0xC0)); self.stats["pan"] += 1
+                p += 1
+            elif op in (0x38, 0x3A, 0x3C, 0x3E):   # OP1-4 modulation (TL bias)
+                raw = rom[p + 1]
+                p += 2
+                phys = _zyrinx_op_to_phys((op - 0x38) // 2)
+                setters.append(OpBias(phys, _to_signed(raw)))
+                self.stats["opbias"] += 1
+            else:                            # $40+ NOP sink
+                p += 1
+        else:
+            raise RuntimeError("runaway sequence walk (no LOOP terminator)")
+        # flush any trailing setters with no closing WAIT (rare; keep them so a
+        # final voice-step isn't lost — they're zero-tick).
+        out.extend(setters)
+        return out
+
+
+def _channel_first_voice(rom, block):
+    """The FIRST voice index a channel references (scan its patterns' sequence
+    bodies to the LOOP), or None if it references no voice."""
+    for entry in block["entries"]:
+        p = seq_addr(rom, entry["seq"])
+        for _ in range(8192):
+            b = rom[p]
+            if b >= 0x80:
+                p += 1
+                continue
+            if b <= 0x08:
+                p += 1 + (b // 2 + 1)
+            elif b in (0x0A, 0x0C, 0x0E, 0x10, 0x12):
+                p += 1 + ((b - 0x0A) // 2 + 1) + 1
+            elif b == 0x14:
+                p += 2
+            elif b == 0x18:
+                return rom[p + 1]
+            elif b in (0x38, 0x3A, 0x3C, 0x3E):
+                p += 2
+            elif b == 0x1C:
+                break
+            else:
+                p += 1
+    return None
+
+
+def collect_native_voices(rom, channels_data):
+    """Distinct voice indices the song references, in FIRST-SEEN order (channel ->
+    pattern -> sequence-event scan, walking bodies to the LOOP). Determines the
+    dense local bank order + the abs-voice -> local-idx remap."""
+    seen = set()
+    order = []
+    for block in channels_data:
+        for entry in block["entries"]:
+            start = seq_addr(rom, entry["seq"])
+            p = start
+            for _ in range(8192):
+                b = rom[p]
+                if b >= 0x80:
+                    p += 1
+                    continue
+                if b <= 0x08:
+                    p += 1 + (b // 2 + 1)
+                elif b in (0x0A, 0x0C, 0x0E, 0x10, 0x12):
+                    p += 1 + ((b - 0x0A) // 2 + 1) + 1
+                elif b == 0x14:
+                    p += 2
+                elif b == 0x18:
+                    vi = rom[p + 1]
+                    if vi not in seen:
+                        seen.add(vi)
+                        order.append(vi)
+                    p += 2
+                elif b in (0x38, 0x3A, 0x3C, 0x3E):
+                    p += 2
+                elif b == 0x1C:
+                    break
+                else:
+                    p += 1
+            else:
+                raise RuntimeError("runaway voice scan (no LOOP terminator)")
+    return order
+
+
+def build_native_patch_bank(rom, channels_data, bank):
+    """Build the per-song dense FmPatch bank + abs-voice -> local-idx remap.
+    Returns (bank_bytes, remap, count)."""
+    order = collect_native_voices(rom, channels_data)
+    remap = {}
+    out = bytearray()
+    for vi in order:
+        remap[vi] = len(remap)
+        out.extend(translate_voice(bank[vi]))
+    return bytes(out), remap, len(remap)
+
+
+def build_native_songdesc(rom, pitchtable_offset=0):
+    """Translate Moving Trucks (real song data) into a packer SongDesc + return the
+    per-channel opcode stats and the patch bank info.
+
+    Returns (song, stats, (bank_bytes, remap, pcount)).
+    pitchtable_offset: BE offset (relative to the song header) of the per-song
+    pitch table within the streaming block; 0 = engine-default table.
+    """
+    bank = _load_voice_bank()
+    channels_data = parse_song(rom)
+    bank_bytes, remap, pcount = build_native_patch_bank(rom, channels_data, bank)
+
+    stats_all = []
+    channels = []
+    for ci, block in enumerate(channels_data):
+        if ci >= len(NATIVE_FM_ROUTES):
+            break
+        route = NATIVE_FM_ROUTES[ci]
+        stats = {"pitchenv": 0, "regdelta": 0, "patch": 0, "pan": 0,
+                 "opbias": 0, "rest": 0, "vol_dropped": 0}
+        walker = _Walker(rom, bank, remap, stats)
+        # The channel's FIRST voice -> the leading-setup Patch (below). We do NOT
+        # prime the walker's prev_fp with it: the body's first VOICE command must
+        # emit a full Patch (computed vs prev_fp=None) so the opening voice is
+        # correctly (re)loaded on EVERY loop iteration — the body is what runs each
+        # loop, the leading setup runs only once before the loop. (The redundant
+        # one-time double-load of the opening voice on the very first play is a
+        # harmless zero-tick Patch.)
+        first_vi = _channel_first_voice(rom, block)
+        if first_vi is not None:
+            walker.first_local = remap[first_vi]
+
+        # --- translate every pattern body (the walker carries voice state across
+        # patterns so cross-pattern voice-steps stay minimal deltas). ---
+        bodies = []
+        tempo_base = MT_FORMAT_CODE
+        for entry in block["entries"]:
+            # per-pattern tempo override (non-zero replaces the base). MT only sets
+            # it on entry 0 (= the song format code); recorded for completeness.
+            if entry["tempo"] != 0:
+                tempo_base = entry["tempo"]
+            body = walker.walk_body(seq_addr(rom, entry["seq"]),
+                                    entry["transpose"])
+            bodies.append((body, entry["repeat"]))
+
+        # --- leading setup: Patch(first voice) + Vol so the packer accepts the FM
+        # channel (the guard wants Patch+Vol before the first keyed note). The
+        # walker's first VOICE inside the body is the SAME voice (Patch), so the
+        # re-key rule / minimal-delta logic stays consistent. ---
+        events = [Patch(walker.first_voice_local() if remap else 0),
+                  Vol(110), LoopPoint()]
+        for body, repeat in bodies:
+            if not body:
+                continue
+            repeat = max(1, min(255, repeat))
+            events.append(RepeatStart())
+            events.extend(body)
+            events.append(RepeatEnd(repeat))
+        events.append(Jump())
+
+        channels.append(ChannelDesc(route, events))
+        stats["porta_dropped"] = walker.porta_dropped
+        stats["route"] = route
+        stats["tempo_base"] = tempo_base
+        stats_all.append(stats)
+
+    # FM6=FM (DAC off) + stream from ROM. tempo_base = the song format code ($38).
+    song = SongDesc(tempo=MT_FORMAT_CODE, tempo_base=MT_FORMAT_CODE,
+                    channels=channels, flags=SH_F_FM6_FM | SH_F_STREAM)
+    song.pitchtable_offset = pitchtable_offset   # carried into pack_song below
+    return song, stats_all, (bank_bytes, remap, pcount)
+
+
+def emit_native_song(rom=None, song_out=None, patches_out=None,
+                     pitchtab_out=None, song_label="Song_MovingTrucks",
+                     patch_label="MovingTrucks_Patches",
+                     pitchtab_label="MovingTrucks_PitchTable_Stream"):
+    """Generate the three native Moving Trucks data files (song / patch bank /
+    streaming pitch table) and return a report dict.
+
+    The streaming block layout (one bank-aligned 32KB bank, set up in main.asm)
+    is [song][pitch table][patch bank], contiguous. The song header's
+    pitchtable_ptr is the BE offset of the pitch table = len(packed song); the
+    loader resolves it to an absolute window ptr (base + offset). The patch bank
+    ptr is wired separately via SongPatchTable (its own window ptr).
+    """
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.normpath(os.path.join(here, ".."))
+    if rom is None:
+        rom = open(ROM_PATH, "rb").read()
+    if song_out is None:
+        song_out = os.path.join(root, "data", "sound", "song_movingtrucks.asm")
+    if patches_out is None:
+        patches_out = os.path.join(root, "data", "sound",
+                                   "movingtrucks_patches.asm")
+    if pitchtab_out is None:
+        pitchtab_out = os.path.join(root, "data", "sound",
+                                    "movingtrucks_pitchtable_stream.asm")
+
+    # First pass: pack with pitchtable_ptr=0 to learn the packed song length (=
+    # the pitch table's offset, since it is placed immediately after the song).
+    song0, _, _ = build_native_songdesc(rom, pitchtable_offset=0)
+    song_len = len(pack_song(song0))
+
+    # Second pass: pack with the real pitch-table offset embedded in the header.
+    song, stats_all, (bank_bytes, remap, pcount) = build_native_songdesc(
+        rom, pitchtable_offset=song_len)
+    blob = pack_song(song, pitchtable_offset=song_len)
+
+    # --- write the song .asm (with the real pitchtable_ptr in the header) ---
+    _write_blob_asm(blob, song_label, song_out)
+
+    # --- write the per-song FmPatch bank (reuse zyrinx_port's emitter) ---
+    with open(patches_out, "w") as f:
+        f.write(emit_patch_bank_asm(bank_bytes, remap, pcount, patch_label))
+
+    # --- write the streaming-block copy of the 132-entry pitch table (distinct
+    # label so it doesn't collide with the engine-default inline copy; dc.b since
+    # it lives in the 68k ROM data area, not the Z80 phase-0 blob). ---
+    write_pitchtable_asm(pitchtab_out, label=pitchtab_label, directive="dc.b")
+
+    return {
+        "song_bytes": len(blob),
+        "song_label": song_label,
+        "patch_count": pcount,
+        "patch_bytes": len(bank_bytes),
+        "pitchtable_bytes": 2 * PITCHTAB_COUNT,
+        "pitchtable_offset": song_len,
+        "channels": stats_all,
+        "song_out": song_out,
+        "patches_out": patches_out,
+        "pitchtab_out": pitchtab_out,
+    }
+
+
+def _write_blob_asm(blob, label, out_path):
+    """Emit a packed song blob as a labeled dc.b block (same shape as
+    song_packer.emit_asm, but for a blob already packed with a pitchtable_ptr)."""
+    lines = []
+    lines.append("; " + "=" * 70)
+    lines.append("; %s.asm — GENERATED by tools/zyrinx_player.py "
+                 "(emit_native_song) — DO NOT EDIT BY HAND." % label)
+    lines.append("; Native port of B&R \"Moving Trucks\" (Zyrinx bank1 song3, real")
+    lines.append("; song data — NOT a register replay). Regenerate:")
+    lines.append(";   python3 tools/zyrinx_player.py --emit-native-song")
+    lines.append("; Stream pointers in the header are 16-bit BE offsets relative to")
+    lines.append("; the %s label (loader adds the base). FM6=FM, streamed." % label)
+    lines.append("; " + "=" * 70)
+    lines.append("")
+    lines.append("%s:" % label)
+    for i in range(0, len(blob), 16):
+        chunk = blob[i:i + 16]
+        lines.append("    dc.b   " + ", ".join("$%02X" % b for b in chunk))
+    lines.append("%s_End:" % label)
+    lines.append("")
+    lines.append("    align 2")
+    with open(out_path, "w") as f:
+        f.write("\n".join(lines))
+        f.write("\n")
+
+
 # ----------------------------------------------------------------------------
 # VGM rendering
 # ----------------------------------------------------------------------------
@@ -652,6 +1189,29 @@ def main():
             here, "..", "data", "sound", "movingtrucks_pitchtable.asm"))
         write_pitchtable_asm(out)
         print("wrote", out)
+        return
+
+    # --emit-native-song (Task 8): walk the REAL Moving Trucks song data and emit
+    # the native packed song + per-song FmPatch bank + streaming pitch table.
+    if "--emit-native-song" in sys.argv:
+        rep = emit_native_song()
+        print("wrote", rep["song_out"], "(%d bytes)" % rep["song_bytes"])
+        print("wrote", rep["patches_out"],
+              "(%d FmPatch records, %d bytes)"
+              % (rep["patch_count"], rep["patch_bytes"]))
+        print("wrote", rep["pitchtab_out"],
+              "(%d bytes, offset %d)"
+              % (rep["pitchtable_bytes"], rep["pitchtable_offset"]))
+        total = (rep["song_bytes"] + rep["pitchtable_bytes"]
+                 + rep["patch_bytes"])
+        print("streaming block total: %d bytes (fits one 32KB bank: %s)"
+              % (total, "YES" if total <= 0x8000 else "NO"))
+        for ci, st in enumerate(rep["channels"]):
+            print("  ch%d -> route %d: PITCHENV=%d REGDELTA=%d PATCH=%d "
+                  "PAN=%d OPBIAS=%d REST=%d (vol_dropped=%d porta=%d)"
+                  % (ci, st["route"], st["pitchenv"], st["regdelta"],
+                     st["patch"], st["pan"], st["opbias"], st["rest"],
+                     st["vol_dropped"], st["porta_dropped"]))
         return
 
     glide_as_vol = "--vol" in sys.argv
