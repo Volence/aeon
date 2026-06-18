@@ -179,6 +179,107 @@ def clamp_note(idx, transpose):
 
 
 # ----------------------------------------------------------------------------
+# §2.7 PITCH-GLIDE trajectory (cmds $0A-$12). RECONSTRUCTED from the driver disasm
+# $029C/$0A99 and validated against the oracle VGM (Moving Trucks). The Zyrinx
+# glide is a per-frame 16-bit fnum slide RE-ARTICULATED per re-key; sampling the
+# gliding accumulator at successive phases produces a chromatic arpeggio that IS
+# the recognizable melody. The native emitter (walk_body) emits this trajectory as
+# a run of MEV_PITCHENV note indices instead of dropping the glide.
+#
+# Two derived tables (the driver's $1300 fnum<<5 and $1400 block<<3):
+#   GLIDE_FNUM16[i] = FNUM_TBL[i] << 5   (16-bit accumulator unit)
+#   GLIDE_BLOCK8[i] = BLOCK_TBL[i] << 3
+# ----------------------------------------------------------------------------
+GLIDE_FNUM16 = [FNUM_TBL[i] << 5 for i in range(0x84)]
+GLIDE_BLOCK8 = [BLOCK_TBL[i] << 3 for i in range(0x84)]
+
+# Block-0 region of the table (idx whose block == 0), sorted by fnum, for the
+# OCTAVE rule below. RESOLVED empirically vs the oracle: the gliding accumulator's
+# fnum (accum>>5) lands in the low-octave fnum band (645..1933); the oracle plays
+# the glide arpeggio at BLOCK 0 (16-49 Hz), NOT at the reconstruction's raw aligned
+# block (1-3) which is an octave (or three) too high. So every glide sample is
+# reverse-mapped to the nearest BLOCK-0 table index. This is the fix for the
+# "octave-too-high, sparse static endpoints" bug — the emitted notes now match the
+# oracle's low-octave chromatic melody.
+_GLIDE_B0 = sorted((FNUM_TBL[i], i) for i in range(0x84) if BLOCK_TBL[i] == 0)
+
+
+def glide_nearest_b0_idx(fnum):
+    """Reverse-map a gliding accumulator fnum (accum>>5) to the nearest BLOCK-0
+    canonical pitch-table index (the sounding-octave rule, see above)."""
+    best = None
+    for f, i in _GLIDE_B0:
+        d = abs(f - fnum)
+        if best is None or d < best[0]:
+            best = (d, i)
+    return best[1]
+
+
+def _glide_slope16(diff, dur):
+    """Signed 16/16 integer divide matching the driver's slope computation."""
+    if dur <= 0:
+        dur = 1
+    return diff // dur if diff >= 0 else -((-diff) // dur)
+
+
+def glide_setup(start_pt, target_pt, transpose, dur_byte, tempo_base):
+    """Reconstruct the $029C glide setup. Returns (accum16, slope16, glide_frames).
+
+    start_pt / target_pt = the static PITCH point and the GLIDE target point (note
+    numbers); transpose = the per-pattern transpose; dur_byte = the glide command's
+    duration operand; tempo_base = the channel tempo (event-tick base).
+
+    glide_frames = (dur_byte * tempo_base) >> 4, min 1.
+    Block alignment ($0A99): if start_block <= target_block -> aligned to the start
+    octave-shifted into the target block; else target shifted into the start block.
+    accum starts at the (aligned) start fnum16; slope = (aligned target - start)/dur.
+    """
+    start = clamp_note(start_pt, transpose)
+    tgt = clamp_note(target_pt, transpose)
+    glide_frames = (dur_byte * tempo_base) >> 4
+    if glide_frames < 1:
+        glide_frames = 1
+    sb = GLIDE_BLOCK8[start]
+    sf = GLIDE_FNUM16[start]
+    tb = GLIDE_BLOCK8[tgt]
+    tf = GLIDE_FNUM16[tgt]
+    if sb <= tb:                      # ascending/equal: align start up into target block
+        asf = sf
+        for _ in range((tb - sb) // 8):
+            asf >>= 1
+        accum = asf & 0xFFFF
+        slope = _glide_slope16(tf - asf, glide_frames)
+    else:                             # descending: align target down into start block
+        af = tf
+        for _ in range((sb - tb) // 8):
+            af >>= 1
+        accum = sf & 0xFFFF
+        slope = _glide_slope16(af - sf, glide_frames)
+    return accum, slope, glide_frames
+
+
+def glide_trajectory_indices(start_pt, target_pt, transpose, dur_byte, tempo_base):
+    """Emit the glide trajectory as a list of BLOCK-0 pitch-table indices, sampled
+    ONCE PER FRAME over the glide duration (the driver re-asserts the gliding fnum
+    every frame). Consecutive identical indices are collapsed. The returned indices
+    walk the chromatic arpeggio the oracle plays — at the correct (low) octave.
+
+    Returns [] for a degenerate glide (no movement / zero duration)."""
+    accum, slope, glide_frames = glide_setup(
+        start_pt, target_pt, transpose, dur_byte, tempo_base)
+    out = []
+    a = accum
+    prev = None
+    for _ in range(glide_frames):
+        a = (a + slope) & 0xFFFF
+        idx = glide_nearest_b0_idx((a >> 5) & 0x7FF)
+        if idx != prev:
+            out.append(idx)
+            prev = idx
+    return out
+
+
+# ----------------------------------------------------------------------------
 # Command operand sizes / classification for the two-table dispatch
 # ----------------------------------------------------------------------------
 # Table-1 (first command of a tick group):
@@ -702,6 +803,7 @@ class _Walker:
         self.cur_local = None          # current dense local patch idx
         self.first_local = None        # the channel's FIRST voice (leading setup)
         self.porta_dropped = 0         # $0A glide -> plain note count (none in MT)
+        self.tempo_base = MT_FORMAT_CODE  # event-tick base (for glide_frames -> ticks)
 
     def first_voice_local(self):
         """Local patch idx of the channel's FIRST voice (for the leading setup
@@ -751,6 +853,10 @@ class _Walker:
         # group accumulators
         setters = []            # zero-tick events (Patch/RegDelta/Pan/OpBias)
         pending_points = None   # transposed PITCH points awaiting a WAIT
+        cur_pt = 0              # current (untransposed) PITCH point — the glide start
+        # A glide command emits its trajectory immediately (a run of single-point
+        # PitchEnv steps) instead of waiting for the WAIT — the WAIT after a glide
+        # then holds the glide's final (target) value.
         for _ in range(8192):
             b = rom[p]
             if b >= 0x80:
@@ -778,15 +884,50 @@ class _Walker:
                 cnt = op // 2 + 1
                 pts = [rom[p + 1 + k] for k in range(cnt)]
                 p += 1 + cnt
+                cur_pt = pts[0]
                 # apply the per-pattern transpose; clamp to 0..PITCHENV_MAX_IDX.
                 tp = [clamp_note(n, transpose) for n in pts]
                 pending_points = tp
             elif op in (0x0A, 0x0C, 0x0E, 0x10, 0x12):
-                # VOL envelope SETUP: N levels + 1 duration. No real TL envelope in
-                # the driver (static-per-note) -> dropped; the following WAIT holds.
+                # PITCH-GLIDE SETUP (cmds $0A-$12): N glide targets + 1 duration.
+                # This is the Zyrinx portamento — the melody. Emit the glide
+                # TRAJECTORY (the chromatic arpeggio the gliding accumulator passes
+                # through, at the correct low octave) as a run of single-point
+                # PitchEnv steps. The first target is the operative one for Moving
+                # Trucks (lvls==1 for every MT glide); extra levels reuse the last.
                 lvls = (op - 0x0A) // 2 + 1
+                args = [rom[p + 1 + k] for k in range(lvls + 1)]
                 p += 1 + lvls + 1
-                self.stats["vol_dropped"] += 1
+                target_pt = args[0]
+                dur_byte = args[-1]
+                # flush any group setters before the glide steps (they are zero-tick
+                # coordination writes that must precede the keyed notes).
+                out.extend(setters)
+                setters = []
+                # if a PITCH was armed in this same group (PITCH then GLIDE), the
+                # glide overrides it as the time-advancing event — drop the pending.
+                pending_points = None
+                traj = glide_trajectory_indices(
+                    cur_pt, target_pt, transpose, dur_byte, self.tempo_base)
+                if traj:
+                    # pace: distribute the glide's event-ticks across the steps.
+                    glide_frames = (dur_byte * self.tempo_base) >> 4
+                    if glide_frames < 1:
+                        glide_frames = 1
+                    glide_ticks = (glide_frames * 16) // max(1, self.tempo_base)
+                    if glide_ticks < 1:
+                        glide_ticks = 1
+                    per = max(1, glide_ticks // len(traj))
+                    for k, idx in enumerate(traj):
+                        out.append(SetDur(per))
+                        out.append(PitchEnv([idx]))
+                        self.stats["pitchenv"] += 1
+                    self.stats["glide_emitted"] = (
+                        self.stats.get("glide_emitted", 0) + 1)
+                else:
+                    self.stats["vol_dropped"] += 1
+                # the glide leaves the channel on its target point.
+                cur_pt = target_pt
             elif op == 0x14:                 # PARAM (key/legato override) -> drop
                 p += 2
             elif op == 0x16:                 # NOP / buffer sink
@@ -928,7 +1069,7 @@ def build_native_songdesc(rom, pitchtable_offset=0):
             break
         route = NATIVE_FM_ROUTES[ci]
         stats = {"pitchenv": 0, "regdelta": 0, "patch": 0, "pan": 0,
-                 "opbias": 0, "rest": 0, "vol_dropped": 0}
+                 "opbias": 0, "rest": 0, "vol_dropped": 0, "glide_emitted": 0}
         walker = _Walker(rom, bank, remap, stats)
         # The channel's FIRST voice -> the leading-setup Patch (below). We do NOT
         # prime the walker's prev_fp with it: the body's first VOICE command must
@@ -950,6 +1091,7 @@ def build_native_songdesc(rom, pitchtable_offset=0):
             # it on entry 0 (= the song format code); recorded for completeness.
             if entry["tempo"] != 0:
                 tempo_base = entry["tempo"]
+            walker.tempo_base = tempo_base    # glide_frames -> ticks pacing
             body = walker.walk_body(seq_addr(rom, entry["seq"]),
                                     entry["transpose"])
             bodies.append((body, entry["repeat"]))
@@ -1208,9 +1350,10 @@ def main():
               % (total, "YES" if total <= 0x8000 else "NO"))
         for ci, st in enumerate(rep["channels"]):
             print("  ch%d -> route %d: PITCHENV=%d REGDELTA=%d PATCH=%d "
-                  "PAN=%d OPBIAS=%d REST=%d (vol_dropped=%d porta=%d)"
+                  "PAN=%d OPBIAS=%d REST=%d (glides=%d vol_dropped=%d porta=%d)"
                   % (ci, st["route"], st["pitchenv"], st["regdelta"],
                      st["patch"], st["pan"], st["opbias"], st["rest"],
+                     st.get("glide_emitted", 0),
                      st["vol_dropped"], st["porta_dropped"]))
         return
 
