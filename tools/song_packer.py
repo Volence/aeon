@@ -45,7 +45,7 @@ MEV_PATCH = 0xE1
 MEV_DAC = 0xE2
 MEV_NOTE_DUR = 0xE3
 MEV_PAN = 0xE4               # + b4: set channel pan/AMS/FMS (raw YM $B4 byte)
-MEV_OPBIAS = 0xE9            # + op(0..3) + val: per-operator additive TL bias
+MEV_OPBIAS = 0xE9            # + op(0..3) + val(signed -128..127): per-op additive TL bias (neg=brighten)
 MEV_NOTE_RAW = 0xE7          # + a4 a0 dd: key a raw-frequency FM note (exact
                              # $A4/$A0) for duration dd, bypassing the pitch table
 MEV_PITCHENV = 0xE8          # + count + count idx bytes: pitch-envelope note +
@@ -181,11 +181,13 @@ class Pan(Event):
 
 
 class OpBias(Event):
-    """Phase-3 per-operator TL bias: add `val` to operator `op`'s patch TL (the
-    $40-group). op = 0..3 (physical reg offset +0/+4/+8/+C = S1,S3,S2,S4). The
-    bias saturates at $7F (TL is attenuation). Latched at the next patch load /
-    note (the Zyrinx key-on latch), so route an OpBias before a Patch to apply it.
-    Zero-tick. FM-only."""
+    """Phase-3 per-operator TL bias: add SIGNED `val` to operator `op`'s patch TL
+    (the $40-group). op = 0..3 (physical reg offset +0/+4/+8/+C = S1,S3,S2,S4).
+    `val` is signed -128..127: NEGATIVE brightens (reduces attenuation), POSITIVE
+    darkens. The engine clamps the sum to [0,$7F] (TL is 7-bit attenuation: $00 =
+    loudest, $7F = silent). Encoded as a two's-complement byte. Latched at the
+    next patch load / note (the Zyrinx key-on latch), so route an OpBias before a
+    Patch to apply it. Zero-tick. FM-only."""
     def __init__(self, op: int, val: int):
         self.op = op
         self.val = val
@@ -198,8 +200,8 @@ class OpBias(Event):
             raise PackError(f"OpBias on non-FM route {route}")
         if not (0 <= self.op <= 3):
             raise PackError(f"OpBias op {self.op} out of range 0..3")
-        if not (0 <= self.val <= 0xFF):
-            raise PackError(f"OpBias val {self.val} out of byte range")
+        if not (-128 <= self.val <= 127):
+            raise PackError(f"OpBias val {self.val} out of signed byte range -128..127")
 
 
 class Dac(Event):

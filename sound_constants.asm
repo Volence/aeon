@@ -285,8 +285,10 @@ MEV_PITCHENV    = $E8    ; + count + count idx bytes : pitch-envelope note + key
 ; --- Phase 3 Task 6: per-operator TL bias (Zyrinx OP1-4 $38-$3E -> IX+9/11/13/15)
 ; + op(0..3) + val : add a per-operator additive TL bias to the patch's $40-group.
 ; op is the PHYSICAL operator index (0..3 = reg offset +0/+4/+8/+C = S1,S3,S2,S4 —
-; the same index space as FmPatch's per-op arrays). val is added to the patch TL and
-; CLAMPED to 7 bits (0..$7F; TL is attenuation, so it saturates at $7F = silent). Per
+; the same index space as FmPatch's per-op arrays). val is a SIGNED byte (-128..127):
+; NEGATIVE brightens (reduces attenuation), POSITIVE darkens. It is added to the patch
+; TL and CLAMPED to 7 bits on BOTH ends (< 0 -> $00 max brightness, > $7F -> $7F silent;
+; TL is attenuation). Per
 ; the RE (/tmp/zyrinx_re_modulation.md §6) the op-mod is a per-note additive TL bias
 ; LATCHED at key-on / patch load and re-asserted as a CONSTANT (NOT a swept envelope),
 ; so the bias is applied in Fm_PatchLoad when the $40-group is uploaded and takes
@@ -492,7 +494,7 @@ sc_pt_cursor    ds.b 1   ; +20 pitch-envelope cursor (advanced per frame, wraps 
 sc_points       ds.b 5   ; +21 up to 5 pitch point indices (note table indices)
 sc_transpose    ds.b 1   ; +26 signed per-pattern transpose (added then clamped)
 sc_pan          ds.b 1   ; +27 pan state (off/L/R/C) -> $B4 L/R bits
-sc_opbias       ds.b 4   ; +28 per-operator TL bias (added to patch TLs at load)
+sc_opbias       ds.b 4   ; +28 per-operator SIGNED TL bias (added to patch TLs at load; neg=brighten)
 sc_porta_accum  ds.w 1   ; +32 portamento Q-fixed accumulator
 sc_porta_incr   ds.w 1   ; +34 portamento per-frame increment (0 = no glide)
 ; --- Task 6 write-on-change shadow (ModUpdate tracks the last-WRITTEN pan) ------

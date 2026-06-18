@@ -26,6 +26,17 @@ can be runtime-verified. The phrase loops:
         Expected reg $40 (FM1, op 0 = reg offset +0 = S1) = $68 after the biased
         patch load (= PATCH_LEAD S1 TL $38 + bias $30), vs $38 with no bias.
 
+  PHASE 4 — NEGATIVE op-bias (~1 s): OpBias(op=0, val=-$10) then Patch(PATCH_LEAD)
+    (re-load) then a held note. A NEGATIVE bias BRIGHTENS — it SUBTRACTS attenuation
+    from operator 0 (S1, a modulator), so the $40-group TL for S1 becomes
+    patch_TL[S1] + (-$10) = $38 - $10 = $28. A louder modulator = MORE FM modulation
+    = an audibly BRIGHTER timbre. This proves the engine's signed clamp brightens
+    (vs the positive bias of PHASE 3 darkening) — per /tmp/zyrinx_re_modulation.md §6
+    the op-mod is a SIGNED additive TL offset.
+        Expected reg $40 (FM1, op 0 = S1) = $28 after the negatively-biased patch
+        load (= PATCH_LEAD S1 TL $38 + bias -$10 = $28), brighter than the $38
+        baseline and the $68 of PHASE 3.
+
 PAN / $B4 NOTES
 ---------------
 YM2612 $B4: bit7 = LEFT-output enable, bit6 = RIGHT-output enable, bits5-4 = AMS,
@@ -77,6 +88,8 @@ NOTE_IDX = 0x30
 # Op-bias: add $30 attenuation to operator 0 (S1, a modulator of the alg-0 voice).
 OPBIAS_OP = 0
 OPBIAS_VAL = 0x30
+# Negative op-bias: SUBTRACT $10 attenuation from S1 (signed; brightens). $38-$10=$28.
+OPBIAS_VAL_NEG = -0x10
 
 
 def build_song() -> SongDesc:
@@ -92,10 +105,14 @@ def build_song() -> SongDesc:
             # PHASE 2 — hard-RIGHT
             Pan(Pan.PAN_RIGHT),                # $B4 -> $40
             PitchEnv(NOTE_IDX),
-            # PHASE 3 — recenter + op-bias timbre shift
+            # PHASE 3 — recenter + POSITIVE op-bias (darken)
             Pan(Pan.PAN_CENTER),               # $B4 -> $C0
             OpBias(OPBIAS_OP, OPBIAS_VAL),     # sc_opbias[0] = $30 (latches at next load)
             Patch(PATCH_LEAD),                 # re-load patch -> applies the bias ($40 = $68)
+            PitchEnv(NOTE_IDX),
+            # PHASE 4 — NEGATIVE op-bias (brighten); signed, $38-$10=$28
+            OpBias(OPBIAS_OP, OPBIAS_VAL_NEG), # sc_opbias[0] = -$10 (two's-comp $F0)
+            Patch(PATCH_LEAD),                 # re-load patch -> applies the bias ($40 = $28)
             PitchEnv(NOTE_IDX),
             Jump(),
         ]),

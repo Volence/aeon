@@ -73,6 +73,24 @@ class TestEventEncoding(unittest.TestCase):
         self.assertEqual(OpBias(2, 0x30).encode(), bytes([MEV_OPBIAS, 0x02, 0x30]))
         self.assertEqual(MEV_OPBIAS, 0xE9)
 
+    def test_opbias_signed_encode(self):
+        # val is signed -128..127, encoded as a two's-complement byte.
+        self.assertEqual(OpBias(0, -16).encode(), bytes([MEV_OPBIAS, 0x00, 0xF0]))
+        self.assertEqual(OpBias(1, -1).encode(),  bytes([MEV_OPBIAS, 0x01, 0xFF]))
+        self.assertEqual(OpBias(2, -128).encode(), bytes([MEV_OPBIAS, 0x02, 0x80]))
+        self.assertEqual(OpBias(3, 127).encode(),  bytes([MEV_OPBIAS, 0x03, 0x7F]))
+
+    def test_opbias_signed_range_valid(self):
+        # boundary values -128 and 127 must validate cleanly on an FM route.
+        OpBias(0, -128).validate(CHROUTE_FM1)
+        OpBias(0, 127).validate(CHROUTE_FM1)
+
+    def test_opbias_val_out_of_range(self):
+        with self.assertRaises(PackError):
+            OpBias(0, 128).validate(CHROUTE_FM1)
+        with self.assertRaises(PackError):
+            OpBias(0, -129).validate(CHROUTE_FM1)
+
     def test_loop_point(self):
         self.assertEqual(LoopPoint().encode(), bytes([0xEE]))
 

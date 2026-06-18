@@ -476,10 +476,8 @@ Seq_Op_Pan:
         inc     hl                       ; consume the $B4 operand byte
         ld      (ix+sc_pan), a           ; store pan state (rendered by ModUpdate)
     ifdef __DEBUG__
-        push    hl
         ld      a, SEQEV_VOL             ; reuse the VOL trace code (no dedicated pan code)
-        call    Seq_Trace
-        pop     hl
+        call    Seq_Trace                ; preserves hl (the live stream ptr)
     endif
         jp      Seq_ContinueFetch        ; zero tick
 

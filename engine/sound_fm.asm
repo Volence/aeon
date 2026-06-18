@@ -222,9 +222,11 @@ Fm_PatchOpGroup:
 
 ; --- Fm_PatchTlGroup: write the $40 (TL) register group WITH the per-operator
 ; additive TL bias (sc_opbias[op]) applied. For each op 0..3:
-;   eff_TL = clamp7(patch_TL[op] + sc_opbias[op])
-; TL is 7-bit attenuation, so the sum SATURATES at $7F (silent). sc_opbias is a
-; per-note brightness/level bias LATCHED here at patch load (the Zyrinx key-on
+;   eff_TL = clamp(patch_TL[op] + sc_opbias[op], 0, $7F)
+; sc_opbias is a SIGNED two's-complement byte (-128..127): NEGATIVE brightens
+; (reduces attenuation), POSITIVE darkens. TL is 7-bit attenuation, so the result
+; is clamped on BOTH ends — < $00 -> $00 (max brightness), > $7F -> $7F (silent).
+; sc_opbias is a per-note brightness/level bias LATCHED here at patch load (the Zyrinx key-on
 ; latch model) — it is NOT re-asserted per frame, so this is the ONLY place it is
 ; applied (cost amortized at patch load, not per note/frame). sc_opbias is zeroed
 ; by the seq clear, so a song that never emits MEV_OPBIAS gets eff_TL = patch_TL
@@ -242,8 +244,13 @@ Fm_PatchTlGroup:
 .tl_loop:
         push    bc                       ; save op counter (Fm_YmWrite uses bc)
         push    de                       ; save base+offset accumulator
-        ; --- data = clamp7(patch_TL[op] + sc_opbias[op]) ---
-        ld      a, (hl)                  ; patch base TL for this op
+        ; --- data = clamp(patch_TL[op] + sc_opbias[op], 0, $7F) ---
+        ; sc_opbias[op] is a SIGNED two's-complement byte (-128..127): negative
+        ; BRIGHTENS (lowers attenuation), positive DARKENS. Done as a signed 16-bit
+        ; add then clamped on BOTH ends — mirrors the proven Fm_NoteFromTable
+        ; pattern: result < $00 -> $00 (max brightness), > $7F -> $7F (silent).
+        ; patch_TL is 0..$7F (positive, high byte 0).
+        ld      a, (hl)                  ; patch base TL for this op (0..$7F)
         inc     hl                       ; advance patch ptr
         push    hl                       ; save patch ptr across the bias index
         ld      c, a                     ; c = base TL (preserve across the index math)
@@ -257,13 +264,28 @@ Fm_PatchTlGroup:
         jr      nc, .nocarry
         inc     h
 .nocarry:
-        ld      a, c                     ; a = base TL
-        add     a, (hl)                  ; + sc_opbias[op] (signed-ish bias)
-        jr      c, .clamp                ; 8-bit overflow -> saturate silent
+        ; de = sign-extended signed bias: a=$FF..hi if bias<0, else $00..hi
+        ld      a, (hl)                  ; a = sc_opbias[op] (signed)
+        ld      e, a
+        add     a, a                     ; CF = sign bit of bias
+        sbc     a, a                     ; a = $FF if bias<0, else $00
+        ld      d, a                     ; de = sign-extended bias (signed 16-bit)
+        ld      l, c                     ; hl = patch base TL (0..$7F, positive)
+        ld      h, 0
+        add     hl, de                   ; hl = patch_TL + signed bias (signed 16-bit)
+        bit     7, h                     ; result negative? (h >= $80)
+        jr      nz, .clamp_lo            ; < 0 -> clamp to $00 (max brightness)
+        ld      a, h
+        or      a
+        jr      nz, .clamp_hi            ; high byte set -> > $7F -> clamp silent
+        ld      a, l
         cp      SND_FM_TL_MAX+1          ; result > $7F ?
-        jr      c, .tl_ok
-.clamp:
+        jr      c, .tl_ok                ; in range 0..$7F
+.clamp_hi:
         ld      a, SND_FM_TL_MAX         ; clamp to $7F (silent)
+        jr      .tl_ok
+.clamp_lo:
+        xor     a                        ; clamp to $00 (max brightness)
 .tl_ok:
         ld      c, a                     ; c = effective TL (data)
         pop     hl                       ; restore patch ptr (already advanced)
