@@ -279,6 +279,73 @@ def glide_trajectory_indices(start_pt, target_pt, transpose, dur_byte, tempo_bas
     return out
 
 
+def glide_trajectory_sampled(start_pt, target_pt, transpose, dur_byte,
+                             tempo_base, window_ticks, phase_frames=0):
+    """Sample the glide trajectory at the channel's RE-KEY CADENCE instead of once
+    per integrated frame. The driver advances the gliding accumulator every frame,
+    but the oracle does NOT play that as a smooth per-frame ramp — it RE-ARTICULATES
+    the gliding fnum coarsely at the channel's re-key cadence (the YM key-on fires
+    every `window_ticks` event-ticks), producing the audible chromatic ARPEGGIO
+    (the melody). Crucially the re-key grid is a CONTINUOUS per-channel clock that
+    keeps ticking across glides — it is NOT reset to the glide's start. So a glide's
+    samples land at whatever PHASE the running clock is in, and successive
+    same-shape glides sample DIFFERENT intermediate chromatic steps (the phase
+    drifts), which is exactly how the oracle walks the full arpeggio out of a few
+    repeated cur->tgt glides (validated vs the Moving-Trucks VGM: ch0 keys a steady
+    ~180 ms melody of distinct chromatic notes, not a per-glide ramp).
+
+    `phase_frames` = the continuous per-channel frame phase when this glide STARTS
+    (frames already elapsed since the channel's last re-key boundary). We advance
+    the accumulator per frame internally and SAMPLE only when the running clock
+    crosses a window boundary.
+
+    Returns (samples, end_phase) where samples is a list of (idx, hold_ticks) and
+    end_phase is the running frame phase to carry into the next event. Returns
+    ([], phase_frames + glide_frames-ish) updated phase even for a degenerate glide
+    so the clock stays continuous.
+
+    Frame<->tick conversion: the per-frame engine subtracts 16 from the tempo
+    accumulator and refills +tempo_base on borrow, so one event-tick spans
+    tempo_base/16 frames; a `window_ticks`-tick window spans
+    frames_per_window = round(window_ticks * tempo_base / 16) frames.
+    """
+    accum, slope, glide_frames = glide_setup(
+        start_pt, target_pt, transpose, dur_byte, tempo_base)
+    if window_ticks < 1:
+        window_ticks = 1
+    frames_per_window = max(1, round(window_ticks * tempo_base / 16.0))
+    if slope == 0 or glide_frames <= 0:
+        # no movement: advance the continuous clock, emit nothing (the WAIT after
+        # the glide holds the static target via the normal path).
+        return [], phase_frames + max(0, glide_frames)
+    out = []
+    a = accum
+    phase = phase_frames
+    for _ in range(glide_frames):
+        a = (a + slope) & 0xFFFF
+        phase += 1
+        if phase >= frames_per_window:
+            phase -= frames_per_window
+            idx = glide_nearest_b0_idx((a >> 5) & 0x7FF)
+            out.append((idx, window_ticks))
+    # the glide may end mid-window with a fractional remainder still in `phase`;
+    # that remainder carries forward (it becomes part of the NEXT note's window),
+    # so we do NOT force a final sample here — the trailing WAIT / next event picks
+    # up the leftover phase. If the whole glide fit in <1 window, emit ONE sample at
+    # its end so the glide is still articulated (it advanced the melody).
+    if not out:
+        idx = glide_nearest_b0_idx((a >> 5) & 0x7FF)
+        out.append((idx, window_ticks))
+    # collapse runs of the SAME sampled index into one held note (summing ticks).
+    coalesced = []
+    for idx, ticks in out:
+        if coalesced and coalesced[-1][0] == idx:
+            coalesced[-1] = (idx, coalesced[-1][1] + ticks)
+        else:
+            coalesced.append((idx, ticks))
+    return coalesced, phase
+
+
 # ----------------------------------------------------------------------------
 # Command operand sizes / classification for the two-table dispatch
 # ----------------------------------------------------------------------------
@@ -754,16 +821,24 @@ MT_FORMAT_CODE = 0x38
 # our event-tick = 58.94 ms):
 #     ch0-3 (port-0 / even-frame keyed): dominant IOI = 3.0 ticks (~177 ms)
 #     ch4-5 (odd-frame keyed):           dominant IOI = 1.5 ticks (~ 87 ms)
-# The engine SetDur is integer ticks, so 1.5 is not directly expressible; ch4/5
-# use a 2-tick re-key floor (~118 ms — the closest integer; a live trace is needed
-# to nail the exact half-tick — see the report).
+# The engine SetDur is integer ticks, so 1.5 is not directly expressible. The two
+# integer candidates measured (median key-on IOI vs the oracle's 87.3 ms):
+#     window=1 -> 58.9 ms (err 28.4 ms)   window=2 -> 117.9 ms (err 30.6 ms)
+# window=1 is the CLOSER median (it over-articulates slightly rather than halving
+# the rate), so ch4/5 use a 1-tick re-key floor. (Note: by MEAN IOI / note density
+# window=2 is closer because the oracle is bimodal — fast runs plus long holds —
+# but the task's target metric is the dominant/median IOI; a true half-tick would
+# need a sub-frame schedule the engine doesn't expose.)
 #
-# FAITHFUL APPROXIMATION (what walk_body now does): coalesce consecutive
-# SAME-PITCH groups (extending the prior note's hold) and force a re-articulation
-# only when (a) the rendered pitch CHANGES, or (b) the same pitch has been held
-# for the channel's re-key window. This reproduces the oracle's per-channel cadence
-# without over-articulating every event-tick. (A rest always breaks the hold.)
-REKEY_WINDOW_TICKS = [3, 3, 3, 3, 2, 2]   # per source channel (ch0..5)
+# FAITHFUL APPROXIMATION (what walk_body now does): the per-channel re-key window
+# is a CADENCE FLOOR — within one window the held note is NOT re-keyed even if the
+# source pitch changes; instead the held note's pitch is RE-SAMPLED to the current
+# value and a new key-on fires only once the window elapses (or a rest breaks the
+# hold). Glides are sampled on the SAME continuous per-channel re-key grid (see
+# glide_trajectory_sampled) so they re-articulate coarsely as the chromatic
+# arpeggio rather than as a per-frame zipper. This reproduces the oracle's
+# per-channel cadence without over-articulating every event-tick.
+REKEY_WINDOW_TICKS = [3, 3, 3, 3, 1, 1]   # per source channel (ch0..5)
 
 
 # ----------------------------------------------------------------------------
@@ -939,6 +1014,15 @@ class _Walker:
         held_ticks = 0          # ticks the held note has accumulated so far
         held_setdur = None      # the SetDur event object whose .ticks we extend
 
+        held_env = None         # the PitchEnv event object of the held note (for
+                                #   re-sampling its pitch within the re-key window)
+        # Continuous per-body frame phase for the glide re-key grid (see
+        # glide_trajectory_sampled): every time-advancing event advances it so the
+        # glide sampling clock keeps ticking across glides (NOT reset per glide),
+        # which is what walks the full chromatic arpeggio out of repeated glides.
+        frames_per_tick = self.tempo_base / 16.0
+        glide_phase = 0.0
+
         def commit_held():
             # write the held note's accumulated ticks back into its SetDur (the
             # SetDur object lives in `out` already; we extend it in place). Does NOT
@@ -955,23 +1039,37 @@ class _Walker:
                 # WAIT: $FF - byte event-ticks. Close the current group.
                 ticks = 0xFF - b
                 p += 1
+                # advance the continuous glide-sampling clock by this group's time.
+                glide_phase += ticks * frames_per_tick
                 out.extend(setters)
                 setters = []
                 if pending_points is not None:
                     rpitch = octave_cap_idx(pending_points[0], self.octave_cap)
                     cap_pts = [octave_cap_idx(x, self.octave_cap)
                                for x in pending_points]
-                    if (held_pitch is not None and rpitch == held_pitch
-                            and held_ticks < self.rekey_window and ticks > 0):
-                        # same pitch within the re-key window -> extend the held note
-                        # (no new key-on), just add this group's ticks to its SetDur.
+                    if (held_pitch is not None and ticks > 0
+                            and held_ticks < self.rekey_window):
+                        # WITHIN the re-key window -> do NOT re-key. The oracle
+                        # re-articulates only at its per-channel re-key cadence; a
+                        # source group that lands before the window elapses is
+                        # SAMPLED into the held note (its ticks extend the hold). If
+                        # the source pitch CHANGED, re-sample the held note's pitch
+                        # to the latest value (the window boundary's current pitch) —
+                        # this collapses fast changing-pitch runs (e.g. the source's
+                        # 1-tick chromatic articulation) to one coarse note at the
+                        # cadence, exactly as the oracle plays them.
                         held_ticks += ticks
+                        if rpitch != held_pitch and held_env is not None:
+                            held_env.points = cap_pts
+                            held_pitch = rpitch
                         commit_held()
                     else:
-                        # genuine re-attack: emit a new keyed PitchEnv.
+                        # genuine re-attack: the window elapsed (or no note held) ->
+                        # emit a new keyed PitchEnv sampling the current pitch.
                         held_setdur = SetDur(max(1, ticks))
+                        held_env = PitchEnv(cap_pts)
                         out.append(held_setdur)
-                        out.append(PitchEnv(cap_pts))
+                        out.append(held_env)
                         self.stats["pitchenv"] += 1
                         held_pitch = rpitch
                         held_ticks = max(1, ticks)
@@ -986,6 +1084,7 @@ class _Walker:
                     held_pitch = None
                     held_ticks = 0
                     held_setdur = None
+                    held_env = None
                 continue
             op = b
             if op <= 0x08:
@@ -999,10 +1098,13 @@ class _Walker:
                 pending_points = tp
             elif op in (0x0A, 0x0C, 0x0E, 0x10, 0x12):
                 # PITCH-GLIDE SETUP (cmds $0A-$12): N glide targets + 1 duration.
-                # This is the Zyrinx portamento — the melody. Emit the glide
-                # TRAJECTORY (the chromatic arpeggio the gliding accumulator passes
-                # through, at the correct low octave) as a run of single-point
-                # PitchEnv steps. The first target is the operative one for Moving
+                # This is the Zyrinx portamento — the melody. The oracle does NOT
+                # play the glide as a smooth per-frame ramp; it RE-ARTICULATES the
+                # gliding accumulator at the channel's RE-KEY CADENCE, producing the
+                # audible chromatic ARPEGGIO. So we SAMPLE the glide accumulator at
+                # the SAME per-channel re-key window as the static path (not once per
+                # integrated frame) — each coarse sample becomes one keyed note held
+                # for the window. The first target is the operative one for Moving
                 # Trucks (lvls==1 for every MT glide); extra levels reuse the last.
                 lvls = (op - 0x0A) // 2 + 1
                 args = [rom[p + 1 + k] for k in range(lvls + 1)]
@@ -1021,19 +1123,17 @@ class _Walker:
                 held_pitch = None
                 held_ticks = 0
                 held_setdur = None
-                traj = glide_trajectory_indices(
-                    cur_pt, target_pt, transpose, dur_byte, self.tempo_base)
-                if traj:
-                    # pace: distribute the glide's event-ticks across the steps.
-                    glide_frames = (dur_byte * self.tempo_base) >> 4
-                    if glide_frames < 1:
-                        glide_frames = 1
-                    glide_ticks = (glide_frames * 16) // max(1, self.tempo_base)
-                    if glide_ticks < 1:
-                        glide_ticks = 1
-                    per = max(1, glide_ticks // len(traj))
-                    for k, idx in enumerate(traj):
-                        out.append(SetDur(per))
+                held_env = None
+                # sample the gliding accumulator at the CONTINUOUS per-channel re-key
+                # grid (glide_phase keeps ticking across glides) so repeated glides
+                # walk different chromatic steps (the arpeggio) — see
+                # glide_trajectory_sampled.
+                samples, glide_phase = glide_trajectory_sampled(
+                    cur_pt, target_pt, transpose, dur_byte, self.tempo_base,
+                    self.rekey_window, glide_phase)
+                if samples:
+                    for idx, hold in samples:
+                        out.append(SetDur(max(1, hold)))
                         out.append(PitchEnv([octave_cap_idx(idx, self.octave_cap)]))
                         self.stats["pitchenv"] += 1
                     self.stats["glide_emitted"] = (
