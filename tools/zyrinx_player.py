@@ -728,6 +728,73 @@ VOICE_DELTA_THRESHOLD = 8
 MT_FORMAT_CODE = 0x38
 
 
+# ----------------------------------------------------------------------------
+# RE-ARTICULATION CADENCE MODEL (Task 1 — the "too fast" fix)
+# ----------------------------------------------------------------------------
+# Our engine re-keys on EVERY MEV_PITCHENV (the same-pitch suppression was removed
+# from the engine — correct, per the driver). So the re-key CADENCE must live in
+# the DATA: walk_body must emit exactly ONE MEV_PITCHENV per real re-attack, NOT
+# one per source PITCH command (Zyrinx repeats the PITCH command every event-tick
+# even when the note is held — repeat-heavy channels are 88-89% same-pitch).
+#
+# The driver's note-state machine ($0B52 NoteState + $0E00 gate/$0CF8 note-off
+# timer) governs WHEN a held note actually re-articulates. The patch tail bytes
+# decoded from voices.json (read at driver $0BF5/$0CAF):
+#     keymask     = patch byte $19 (= voices.json "ams_fms_pan")  -> IY+27
+#     note-off T  = patch byte $1A (= voices.json "ext"[0])       -> IY+26
+#     gate        = patch byte $1B (= voices.json "ext"[1])       -> IY+20
+# For Moving Trucks' STATIC channels (ch1/ch4/ch5) the dominant voices
+# (v156-160, v108, v110, v174) all have note-off-timer = 0 and gate = 0, so those
+# two bytes do NOT directly encode the observed re-key window. Instead the window
+# is an EMERGENT property of the frame schedule: the sequencer (CALL $0317) +
+# output (CALL $01FE) run ONLY on ODD frames (driver $0130), while NoteState/key-on
+# ($0B52) runs for ch0-3 on EVEN frames ($00F6) and for ch4-5 on ODD frames
+# ($0130) — so the two channel banks key at DIFFERENT effective rates. Measured
+# against the ORACLE (vgm_notes.extract, per-channel key-on IOI as a multiple of
+# our event-tick = 58.94 ms):
+#     ch0-3 (port-0 / even-frame keyed): dominant IOI = 3.0 ticks (~177 ms)
+#     ch4-5 (odd-frame keyed):           dominant IOI = 1.5 ticks (~ 87 ms)
+# The engine SetDur is integer ticks, so 1.5 is not directly expressible; ch4/5
+# use a 2-tick re-key floor (~118 ms — the closest integer; a live trace is needed
+# to nail the exact half-tick — see the report).
+#
+# FAITHFUL APPROXIMATION (what walk_body now does): coalesce consecutive
+# SAME-PITCH groups (extending the prior note's hold) and force a re-articulation
+# only when (a) the rendered pitch CHANGES, or (b) the same pitch has been held
+# for the channel's re-key window. This reproduces the oracle's per-channel cadence
+# without over-articulating every event-tick. (A rest always breaks the hold.)
+REKEY_WINDOW_TICKS = [3, 3, 3, 3, 2, 2]   # per source channel (ch0..5)
+
+
+# ----------------------------------------------------------------------------
+# OCTAVE CORRECTION (Task 2 — the "octave-high static channels" fix)
+# ----------------------------------------------------------------------------
+# The oracle NEVER exceeds a small per-channel block ceiling — measured maxblock
+# (>=92% of notes): ch0-5 = block [2, 0, 2, 2, 2, 2]. Identity routing (src ch i ->
+# YM ch i, established earlier) renders the static channels' literal note indices
+# up to block 3-4 — an octave (or two) too high. The driver brings them down; the
+# net effect on the rendered (block,fnum) is a clamp of the sounding block to the
+# channel's ceiling (octave-down by 12 indices until the canonical block fits).
+# Applying this per-channel cap:
+#   * ch4/ch5: (block,fnum) match the oracle EXACTLY (ch4 100% overlap), block<=2.
+#   * ch1 (the deep bass): cap=0 takes it to block 0 (overlap 0% -> 40%), matching
+#     the oracle's all-block-0 bass register. (The residual fnum mismatch on ch1 is
+#     content-level — the oracle's ch1 plays fnums our literal seq-70 indices don't
+#     produce; that needs a live driver trace, see the report.)
+#   * all channels: removes every block 3-4 emission (the "octave-high" bug).
+OCTAVE_BLOCK_CAP = [2, 0, 2, 2, 2, 2]   # per source channel (ch0..5)
+_OCTAVE_CAP_DEFAULT = 2                  # for any channel index past the list
+
+
+def octave_cap_idx(idx, cap=_OCTAVE_CAP_DEFAULT):
+    """Octave-correct a pitch-table index so its rendered block is <= cap. Octave-
+    down by 12 indices (one octave) until the block fits or we run out of low
+    octaves. Returns the corrected index (always a valid 0..0x83 entry)."""
+    while idx >= 12 and BLOCK_TBL[idx] > cap:
+        idx -= 12
+    return idx
+
+
 def _load_voice_bank():
     """Load the Zyrinx bank-1 voice list (Moving Trucks references bank 1)."""
     with open(VOICES_JSON) as f:
@@ -804,6 +871,8 @@ class _Walker:
         self.first_local = None        # the channel's FIRST voice (leading setup)
         self.porta_dropped = 0         # $0A glide -> plain note count (none in MT)
         self.tempo_base = MT_FORMAT_CODE  # event-tick base (for glide_frames -> ticks)
+        self.rekey_window = 3          # per-channel re-key floor (ticks); set per channel
+        self.octave_cap = _OCTAVE_CAP_DEFAULT  # per-channel rendered-block ceiling
 
     def first_voice_local(self):
         """Local patch idx of the channel's FIRST voice (for the leading setup
@@ -833,10 +902,21 @@ class _Walker:
 
         Per-tick group model (matches the driver's Table-1/Table-2 dispatch):
         a group is the run of commands up to a WAIT byte. We buffer the group's
-        zero-tick setters (Patch/RegDelta/Pan/OpBias) and the pending PITCH, then
-        on the WAIT emit [setters..., SetDur(ticks), PitchEnv] (the PitchEnv is the
-        single time-advancing event, paced by the SetDur). Same-pitch PitchEnvs are
-        held no-attacks in the engine (the re-key rule) — exactly the Zyrinx idiom.
+        zero-tick setters (Patch/RegDelta/Pan/OpBias) and the pending PITCH.
+
+        CADENCE COALESCING (Task 1): our engine re-keys on EVERY MEV_PITCHENV, so a
+        held same-pitch run must collapse to ONE keyed note (with the summed hold)
+        instead of one re-key per source PITCH+WAIT group. We carry a "held note"
+        across consecutive groups: a new group whose rendered pitch equals the held
+        note (and whose hold so far is below the channel's re-key window) does NOT
+        emit a new PitchEnv — its ticks are added to the held note's SetDur. A new
+        PitchEnv is emitted only when the pitch CHANGES, the re-key window is
+        reached, or a non-note event (glide / rest) forces a flush. The zero-tick
+        setters (VOICE/OP/PAN) that land mid-hold are emitted in order (they change
+        timbre without re-keying — the engine's MEV_PATCH/OPBIAS/REGDELTA don't
+        touch $28). Coalescing is WITHIN a single body (the long Moving-Trucks
+        sequence bodies hold the 8-note same-pitch runs internally), which keeps
+        every emitted note inside its RepeatStart..RepeatEnd wrapper.
         """
         rom = self.rom
         out = []
@@ -854,6 +934,18 @@ class _Walker:
         setters = []            # zero-tick events (Patch/RegDelta/Pan/OpBias)
         pending_points = None   # transposed PITCH points awaiting a WAIT
         cur_pt = 0              # current (untransposed) PITCH point — the glide start
+        # --- coalescing (held-note) state ---
+        held_pitch = None       # rendered idx of the note currently sounding (None = none)
+        held_ticks = 0          # ticks the held note has accumulated so far
+        held_setdur = None      # the SetDur event object whose .ticks we extend
+
+        def commit_held():
+            # write the held note's accumulated ticks back into its SetDur (the
+            # SetDur object lives in `out` already; we extend it in place). Does NOT
+            # null held_setdur — the same note may keep coalescing further groups.
+            if held_setdur is not None:
+                held_setdur.ticks = held_ticks
+
         # A glide command emits its trajectory immediately (a run of single-point
         # PitchEnv steps) instead of waiting for the WAIT — the WAIT after a glide
         # then holds the glide's final (target) value.
@@ -866,17 +958,34 @@ class _Walker:
                 out.extend(setters)
                 setters = []
                 if pending_points is not None:
-                    if ticks > 0:
-                        out.append(SetDur(ticks))
-                    out.append(PitchEnv(pending_points))
-                    self.stats["pitchenv"] += 1
+                    rpitch = octave_cap_idx(pending_points[0], self.octave_cap)
+                    cap_pts = [octave_cap_idx(x, self.octave_cap)
+                               for x in pending_points]
+                    if (held_pitch is not None and rpitch == held_pitch
+                            and held_ticks < self.rekey_window and ticks > 0):
+                        # same pitch within the re-key window -> extend the held note
+                        # (no new key-on), just add this group's ticks to its SetDur.
+                        held_ticks += ticks
+                        commit_held()
+                    else:
+                        # genuine re-attack: emit a new keyed PitchEnv.
+                        held_setdur = SetDur(max(1, ticks))
+                        out.append(held_setdur)
+                        out.append(PitchEnv(cap_pts))
+                        self.stats["pitchenv"] += 1
+                        held_pitch = rpitch
+                        held_ticks = max(1, ticks)
                     pending_points = None
                 else:
-                    # WAIT with no pending note -> a rest for the duration.
+                    # WAIT with no pending note -> a rest for the duration (key-off,
+                    # breaks any held note).
                     if ticks > 0:
                         out.append(SetDur(ticks))
                     out.append(Rest())
                     self.stats["rest"] += 1
+                    held_pitch = None
+                    held_ticks = 0
+                    held_setdur = None
                 continue
             op = b
             if op <= 0x08:
@@ -907,6 +1016,11 @@ class _Walker:
                 # if a PITCH was armed in this same group (PITCH then GLIDE), the
                 # glide overrides it as the time-advancing event — drop the pending.
                 pending_points = None
+                # a glide is a fresh attack: end any held note (its trajectory steps
+                # are genuine re-keys, NOT coalesced into the prior held pitch).
+                held_pitch = None
+                held_ticks = 0
+                held_setdur = None
                 traj = glide_trajectory_indices(
                     cur_pt, target_pt, transpose, dur_byte, self.tempo_base)
                 if traj:
@@ -920,7 +1034,7 @@ class _Walker:
                     per = max(1, glide_ticks // len(traj))
                     for k, idx in enumerate(traj):
                         out.append(SetDur(per))
-                        out.append(PitchEnv([idx]))
+                        out.append(PitchEnv([octave_cap_idx(idx, self.octave_cap)]))
                         self.stats["pitchenv"] += 1
                     self.stats["glide_emitted"] = (
                         self.stats.get("glide_emitted", 0) + 1)
@@ -1071,6 +1185,17 @@ def build_native_songdesc(rom, pitchtable_offset=0):
         stats = {"pitchenv": 0, "regdelta": 0, "patch": 0, "pan": 0,
                  "opbias": 0, "rest": 0, "vol_dropped": 0, "glide_emitted": 0}
         walker = _Walker(rom, bank, remap, stats)
+        # per-channel re-key window (the cadence-coalescing floor) — see
+        # REKEY_WINDOW_TICKS: port-0/even-frame channels (ch0-3) re-key at ~3 ticks,
+        # odd-frame channels (ch4-5) at ~2 ticks (the closest integer to the oracle's
+        # measured 1.5-tick / ~87 ms re-attack).
+        walker.rekey_window = (REKEY_WINDOW_TICKS[ci]
+                               if ci < len(REKEY_WINDOW_TICKS) else 3)
+        # per-channel rendered-block ceiling (the octave correction) — see
+        # OCTAVE_BLOCK_CAP: ch1 (deep bass) caps at block 0, the rest at block 2,
+        # matching the oracle's per-channel octave.
+        walker.octave_cap = (OCTAVE_BLOCK_CAP[ci]
+                             if ci < len(OCTAVE_BLOCK_CAP) else _OCTAVE_CAP_DEFAULT)
         # The channel's FIRST voice -> the leading-setup Patch (below). We do NOT
         # prime the walker's prev_fp with it: the body's first VOICE command must
         # emit a full Patch (computed vs prev_fp=None) so the opening voice is
