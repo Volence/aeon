@@ -264,11 +264,12 @@ SndDrv_Init:
 
     ifdef __DEBUG__
         ; ==============================================================
-        ; TASK-2 DRY-RUN PUMP — initialise the sequencer with two test
-        ; channels (FM1-route + PSG1-route) pointing at the inline test
-        ; streams, then arm it. Sequencer_Tick is driven once per VBlank
-        ; from SndDrv_ISR (below). NO Timer-A, NO FM/PSG writes — this is a
-        ; bounded manual pump that Task 5/6 replaces. REMOVE WITH THE STREAMS.
+        ; TASK-5 DRY-RUN — initialise the sequencer with inline test
+        ; channels (FM1 + PSG1 + PSGN routes) pointing at the inline test
+        ; streams, then arm it and program Timer A (below). Sequencer_Tick is
+        ; driven by the Timer-A overflow poll in the DAC loop (NOT the VBlank
+        ; ISR); the real FM/PSG writers are active. Task 6 replaces this with
+        ; a loaded SongHeader. REMOVE WITH THE STREAMS.
         ; ==============================================================
         ; clear the whole sequencer header + channel block ($1800..SND_SEQ_END)
         ld      hl, SND_SEQ_BASE
@@ -387,7 +388,7 @@ SndDrv_Sample:
         ; it -> the K=30 cyc cost is common to every path, no pad rebalance needed.
         ; Reads YM status off $4000 (the addr port, RAM-mapped I/O, never ROM —
         ; DMA-safe). On overflow: rearm + Sequencer_Tick, then rejoin at .afterPoll.
-        ; `b` (the stashed lead) is preserved across the handler (Sequencer_Tick
+        ; `b` (the stashed lead) is re-derived after the handler (Sequencer_Tick
         ; clobbers b, so SndDrv_TimerATick re-reads the lead before .afterPoll).
 .timerA_poll:
         ld      a, (SND_Z80_YM_A0)       ; read YM status ($4000): bit0 = Timer A overflow
@@ -609,7 +610,8 @@ SndDrv_TimerATick:
 ; flag and the common-prefix poll can't see ticks. Uses ABSOLUTE addressing
 ; ($4000 reg-select / $4001 data) so `de` (the DAC $4001 invariant) is untouched;
 ; re-parks reg $2A on $4000 at the end (like the FM writer's Fm_ReparkDac).
-; Clobbers af. Caller's `de`/`ix` preserved.
+; Clobbers af, c (c stashes the tempo byte across the reg selects). Caller's
+; `de`/`ix` (and `b`) preserved.
 ; ======================================================================
 Snd_TimerA_Program:
         ld      c, a                     ; c = tempo byte (= N>>2); preserve across reg selects

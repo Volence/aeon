@@ -57,14 +57,15 @@ Per-channel byte streams, **SMPS-family layout** (proven, entropy-efficient, sin
 dispatch). A song in ROM:
 
 **Tempo model (unambiguous):** YM Timer-A is programmed so **one overflow = one sequencer
-"tick."** Note durations are counted in ticks. Tempo = the Timer-A period (the song header
-selects it; bigger period = slower song). Because Timer-A is sub-frame and NTSC/PAL-independent,
+"tick."** Note durations are counted in ticks. The song header tempo byte maps to the Timer-A
+reload N = tempo<<2; period = 18.773µs·(1024−N), so a BIGGER tempo byte → bigger N → SHORTER
+period → FASTER song. Because Timer-A is sub-frame and NTSC/PAL-independent,
 tempo is frame-rate-independent (master spec §8). 1B does **not** use Timer-A (its DAC loop is
 free-running), so Timer-A is free for tempo here.
 
 ```
 SongHeader:
-  db   tempo                ; Timer-A period selector (tempo); bigger = slower
+  db   tempo                ; Timer-A reload selector (N = tempo<<2); bigger = faster
   db   channel_count
   ; per channel: routing byte + stream pointer (2 bytes, Z80 window-relative)
   rept channel_count
