@@ -2674,10 +2674,14 @@ soundscapes (the latter is deferred to Phase 5).
   `tools/vgm_to_song.py` replays the original game's captured chip-register stream
   (`song_05.vgm`) through our sequencer — per FM channel, a `MEV_NOTE_RAW` at each key-on (60 Hz
   quantized durations) with the voice registers snapshotted at key-on into a deduped patch bank.
-  Verified bit-exact at note level by VGM re-diff (100% per-channel note-sequence match). **Not
-  yet reproduced:** the Zyrinx driver's runtime per-frame pitch+TL modulation (vibrato/envelopes,
-  ~1.7k retunes + ~7.7k TL writes per channel) — the next "deepen" step (retune opcode +
-  per-frame modulation track). See `docs/superpowers/specs/2026-06-18-sound-1d-moving-trucks.md`.
+  Each note keys **OFF→ON** (`Seq_Op_NoteRaw`) so the YM2612 hardware envelope re-attacks per note,
+  as the original driver does (without it the channel decays to silence after the first note — the
+  "blips" bug). The reference's per-frame fnum/TL rewrites are **redundant constants** (no vibrato,
+  no manual envelope), so the retrigger is the whole story. Verified by **rendered-audio** diff vs
+  `song_05.vgm` (`vgm2wav`): time-sounding 98% (ref 99%), log-spectrum r=0.997 (identical peaks),
+  dynamic-envelope r=0.868, note sequences 100%. Genuinely faithful. (Lesson: verify rendered audio
+  energy/spectrum, not just the key-on register stream.) See
+  `docs/superpowers/specs/2026-06-18-sound-1d-moving-trucks.md`.
 
 **DEFERRED (master-spec §12 Phases 2–6 — each its own plan):** Phase 2 N-channel DAC mixer
 (quality-adaptive single↔mix, stereo/pseudo-stereo PCM, pitch-shifted SFX, half-rate samples,

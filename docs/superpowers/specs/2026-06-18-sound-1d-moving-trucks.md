@@ -215,3 +215,35 @@ deliberately. Filed for the next session.
 **Also noted (optimization, not fidelity):** with FM6=FM the 1B DAC ISR still runs, writing `$2A`=
 `$80` (DC silence) ~29k×/s — wasted Z80 cycles (the sequencer keeps up regardless, `BADOP=0`). A
 "proper" adaptive FM6 slot would fully idle the DAC engine when no song uses it. Deferred.
+
+---
+
+## REVISION 3 (2026-06-18) — the "blips" bug: per-note envelope retrigger (REVISION 2's deepening was a misdiagnosis)
+
+User listened: "only one instrument every few seconds as a blip, not the full song." REVISION 2's
+"verified faithful" was **verified on the wrong metric** — the VGM key-on register stream, not the
+**audio**. Re-rendered both the captured register stream and the original to PCM (`vgm2wav`) and
+compared energy: ours was *sounding* only **12%** of the time (mean/peak 0.03) vs the reference's
+**99%** (0.24) — exactly the "blips."
+
+**Actual root cause (and REVISION 2's deepening claim was WRONG).** The original B&R driver keys
+**OFF→ON on every note** to retrigger the YM2612 hardware envelope (reference VGM: **1599 key-offs /
+801 key-ons = 2.0**). Our transcoder emitted consecutive `NOTE_RAW` with **no key-off** (ratio 0.04),
+so the envelope attacked only on the first note of a channel; every later note just changed pitch on
+an already-decayed channel → silence. REVISION 2 guessed the song needed per-frame pitch+TL
+*modulation* — but tracing the reference shows the per-frame fnum **and** TL rewrites are **redundant
+(constant values)**: carrier TL holds `$0D`, fnum holds constant within a note. There is **no manual
+volume envelope and no vibrato**; volume shaping is purely the hardware EG retriggered each note. So
+the only missing piece was the retrigger — not a modulation track.
+
+**Fix (committed).** `Seq_Op_NoteRaw` now keys OFF (`Fm_NoteOff`) then ON (`Fm_NoteOnFreq`) per note
+(NOTE_RAW-only; the note-index path / 1C demo is untouched). **Verified by AUDIO this time**
+(`vgm2wav` render of a fresh boot capture vs `song_05.vgm`): time-sounding **12%→98%** (ref 99%),
+mean/peak **0.03→0.22** (ref 0.24), average log-spectrum correlation **r=0.997** with identical
+spectral peaks, circular-aligned dynamic-envelope correlation **r=0.868**, off/on ratio **0.04→1.04**.
+The port is now genuinely faithful — full song, correct notes/octaves/voices/dynamics.
+
+**Process lesson:** for audio, verify the rendered AUDIO (energy/spectrum), never just the register
+key-on stream — a correct note-on stream can still be inaudible. The earlier deferred "deepening"
+(per-frame modulation, proper DAC-off-for-FM6) is moot for fidelity: the modulation doesn't exist;
+the DAC-off cycle waste remains a minor optimization only.
