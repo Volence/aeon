@@ -1077,8 +1077,14 @@ class _Walker:
         for _ in range(8192):
             b = rom[p]
             if b >= 0x80:
-                # WAIT: $FF - byte event-ticks. Close the current group.
-                ticks = 0xFF - b
+                # WAIT: the Zyrinx driver spends (W+1) ticks per WAIT byte — 1 tick to
+                # READ the PITCH/WAIT group plus W=($FF-byte) wait ticks before the next
+                # group is read. walk_body previously used only W, making every group one
+                # tick short: melody (WAIT=3) played at 3 ticks not 4 (~1.3x fast), and
+                # the drum (two WAIT=0 groups = 1+1 ticks) collapsed to 1 tick (2x fast),
+                # re-triggering the percussive algo-5 voice into a "bonk stutter". Add the
+                # read-tick so each group costs (W+1). Close the current group.
+                ticks = (0xFF - b) + 1
                 p += 1
                 # advance the continuous glide-sampling clock by this group's time.
                 glide_phase += ticks * frames_per_tick
