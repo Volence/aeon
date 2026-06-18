@@ -1050,6 +1050,26 @@ class _Walker:
         setters = []            # zero-tick events (Patch/RegDelta/Pan/OpBias)
         pending_points = None   # transposed PITCH points awaiting a WAIT
         cur_pt = 0              # current (untransposed) PITCH point — the glide start
+        # --- GATE/Table-2 timing (bug #1 fix) ---------------------------------
+        # The driver dispatches the FIRST command of a tick-group via Table-1 and
+        # subsequent commands via Table-2. A PITCH reached as a NON-FIRST command of
+        # a group (i.e. preceded by a GATE $1A — the dominant `GATE PITCH ... W`
+        # shape of seqs 113/117/121) is a Table-2 NOTE TRIGGER that TERMINATES the
+        # group early, leaving the group's trailing WAIT to be read as a LEADING
+        # wait by the NEXT group — so that group costs the trigger tick PLUS one
+        # orphaned-WAIT tick = 2 event-ticks, not 1. walk_body reads commands
+        # linearly (it never modelled the Table-2 early terminate), so it
+        # under-counted these notes by exactly one tick: ch0/ch3/ch4/ch5 emitted
+        # SetDur=1 where the real driver holds 2 -> keyed 2x too fast.
+        #
+        # `first_in_group` is True for the command immediately after the previous
+        # group's WAIT (the Table-1 slot). A PITCH that is NOT first-in-group is a
+        # trigger; `pending_is_trigger` carries that to the WAIT-close so it adds
+        # the orphaned tick. A PITCH that IS first-in-group followed by a GATE
+        # (e.g. seq112 `P52 ... GATE ... W` — Table-1 setup + a trailing gate flag)
+        # is NOT a trigger and must NOT get the extra tick.
+        first_in_group = True
+        pending_is_trigger = False
         # --- coalescing (held-note) state ---
         held_pitch = None       # rendered idx of the note currently sounding (None = none)
         held_ticks = 0          # ticks the held note has accumulated so far
@@ -1086,6 +1106,15 @@ class _Walker:
                 # read-tick so each group costs (W+1). Close the current group.
                 ticks = (0xFF - b) + 1
                 p += 1
+                # GATE/Table-2 orphaned-WAIT (bug #1): a PITCH that was a Table-2
+                # trigger (not first-in-group) ended the group early, so THIS WAIT is
+                # a separate leading-wait tick for the next group -> add one EXTRA
+                # hold tick to the trigger note being closed here.
+                if pending_is_trigger and pending_points is not None:
+                    ticks += 1
+                # close the group: the next command starts a fresh group (Table-1).
+                first_in_group = True
+                pending_is_trigger = False
                 # advance the continuous glide-sampling clock by this group's time.
                 glide_phase += ticks * frames_per_tick
                 out.extend(setters)
@@ -1150,6 +1179,11 @@ class _Walker:
                 # apply the per-pattern transpose; clamp to 0..PITCHENV_MAX_IDX.
                 tp = [clamp_note(n, transpose) for n in pts]
                 pending_points = tp
+                # Table-2 trigger? A PITCH that is NOT the first command of its group
+                # (i.e. it followed a GATE/setter in the same group) terminates the
+                # group early in the driver, orphaning its trailing WAIT (bug #1).
+                pending_is_trigger = not first_in_group
+                first_in_group = False
             elif op in (0x0A, 0x0C, 0x0E, 0x10, 0x12):
                 # PITCH-GLIDE SETUP (cmds $0A-$12): N glide targets + 1 duration.
                 # This is the Zyrinx portamento — the melody. The oracle does NOT
@@ -1196,43 +1230,63 @@ class _Walker:
                     self.stats["vol_dropped"] += 1
                 # the glide leaves the channel on its target point.
                 cur_pt = target_pt
+                # a glide is a time-advancing event that ends the group's note slot;
+                # the next command is non-first and no trigger is pending.
+                first_in_group = False
+                pending_is_trigger = False
             elif op == 0x14:                 # PARAM (key/legato override) -> drop
                 p += 2
+                first_in_group = False
             elif op == 0x16:                 # NOP / buffer sink
                 p += 1
+                first_in_group = False
             elif op == 0x18:                 # VOICE
                 voice_idx = rom[p + 1]
                 p += 2
                 self._voice(voice_idx, setters)
-            elif op == 0x1A:                 # GATE / retrigger flag -> no-op
+                first_in_group = False
+            elif op == 0x1A:                 # GATE / retrigger flag
+                # GATE consumes the group's first-command slot (Table-1). A PITCH
+                # that follows it in the same group is therefore a Table-2 trigger
+                # (handled in the PITCH op via first_in_group). GATE itself is a
+                # zero-tick flag here (no note-off; notes sustain — see below).
+                first_in_group = False
                 p += 1
             elif op == 0x1C:                 # LOOP -> body terminator
                 p += 1
                 break
             elif op == 0x1E:                 # CH-OFF (T2) / NOP (T1) -> drop
                 p += 1
+                first_in_group = False
             elif 0x20 <= op <= 0x2E:         # CH-select -> no-op (1:1 FM routing)
                 p += 1
+                first_in_group = False
             elif op == 0x30:                 # PAN_OFF
                 setters.append(Pan(0x00)); self.stats["pan"] += 1
                 p += 1
+                first_in_group = False
             elif op == 0x32:                 # PAN_R (raw Zyrinx pan value $80)
                 setters.append(Pan(0x80)); self.stats["pan"] += 1
                 p += 1
+                first_in_group = False
             elif op == 0x34:                 # PAN_L (raw Zyrinx pan value $40)
                 setters.append(Pan(0x40)); self.stats["pan"] += 1
                 p += 1
+                first_in_group = False
             elif op == 0x36:                 # PAN_C (raw Zyrinx pan value $C0)
                 setters.append(Pan(0xC0)); self.stats["pan"] += 1
                 p += 1
+                first_in_group = False
             elif op in (0x38, 0x3A, 0x3C, 0x3E):   # OP1-4 modulation (TL bias)
                 raw = rom[p + 1]
                 p += 2
                 phys = _zyrinx_op_to_phys((op - 0x38) // 2)
                 setters.append(OpBias(phys, _to_signed(raw)))
                 self.stats["opbias"] += 1
+                first_in_group = False
             else:                            # $40+ NOP sink
                 p += 1
+                first_in_group = False
         else:
             raise RuntimeError("runaway sequence walk (no LOOP terminator)")
         # flush any trailing setters with no closing WAIT (rare; keep them so a
