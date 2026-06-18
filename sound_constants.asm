@@ -264,6 +264,16 @@ MEV_NOTE_RAW    = $E7    ; + a4 a0 dd : key a RAW-frequency FM note (exact $A4/$
                          ; VGM-derived song reproduce the original chip pitch
                          ; EXACTLY (incl. sub-C0 bass + microtuning the note table
                          ; can't reach). FM-only (PSG ignores). Sound 1D §5.2.
+; --- Phase 3: multi-point pitch envelope (Zyrinx-style note) -----------------
+; $E8 + count(1..5) + count note-index bytes : set the channel's pitch-envelope
+; points + key-on. Each note-index byte is an ABSOLUTE index 0..$83 into the
+; per-song fnum table (Snd_PitchTabPtr; engine default when 0). The handler
+; stores the points into sc_points[], sets sc_pt_count=count, sc_pt_cursor=0,
+; sets SCF_KEYED + SCF_REKEY (arms ModUpdate to (re)articulate), and advances
+; time like a bare note (reloads sc_dur_default). It writes the YM via ModUpdate,
+; NOT directly. count==1 = a plain held note (Task 3); count>=2 = a trill/arp
+; (cursor-cycled by ModUpdate in Task 4). FM-only.
+MEV_PITCHENV    = $E8    ; + count + count idx bytes : pitch-envelope note + key-on
 ; Bounded-repeat opcodes (Sound 1D Task 1): a body wrapped in REPEAT_START..
 ; REPEAT_END replays `nn` total times WITHOUT being unrolled in the data. The
 ; packer encodes them now; the Z80 sequencer interprets them in a later engine
@@ -285,10 +295,48 @@ MEV_END         = $FF    ; end of stream (channel idle)
           error "MEV_REPEAT_* opcode collision"
         endif
 
+        ; MEV_PITCHENV ($E8) lives in the free Phase-3 opcode space ($E8-$ED /
+        ; $F0-$FE). It must be a command opcode (> MEV_NOTE_MAX), inside the $E0-$FF
+        ; coordination-flag block, and must NOT collide with any allocated opcode:
+        ; $E0-$E7 (VOL/PATCH/DAC/NOTE_DUR/PAN/REPEAT_*/NOTE_RAW), $EE/$EF (LOOP/JUMP),
+        ; or $FF (END).
+        if MEV_PITCHENV <= MEV_NOTE_MAX
+          error "MEV_PITCHENV (\{MEV_PITCHENV}) must be a command opcode (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_PITCHENV < MEV_VOL) || (MEV_PITCHENV > MEV_END)
+          error "MEV_PITCHENV (\{MEV_PITCHENV}) must be inside the $E0-$FF coordination block"
+        endif
+        if (MEV_PITCHENV = MEV_VOL) || (MEV_PITCHENV = MEV_PATCH) || (MEV_PITCHENV = MEV_DAC) || (MEV_PITCHENV = MEV_NOTE_DUR) || (MEV_PITCHENV = MEV_NOTE_RAW) || (MEV_PITCHENV = MEV_REPEAT_START) || (MEV_PITCHENV = MEV_REPEAT_END) || (MEV_PITCHENV = MEV_LOOP_POINT) || (MEV_PITCHENV = MEV_JUMP) || (MEV_PITCHENV = MEV_END)
+          error "MEV_PITCHENV (\{MEV_PITCHENV}) collides with an allocated $E0-$FF opcode"
+        endif
+        ; $E4 (MEV_PAN, reserved) is the only other $E0-$E7 opcode; PITCHENV must
+        ; not land on it either.
+        if MEV_PITCHENV = $E4
+          error "MEV_PITCHENV (\{MEV_PITCHENV}) collides with the reserved MEV_PAN ($E4)"
+        endif
+
         ; opcode ranges must not overlap: the top note opcode is below the
         ; first command opcode, so the range dispatch is unambiguous.
         if MEV_NOTE_MAX >= MEV_VOL
           error "MEV_NOTE_MAX (\{MEV_NOTE_MAX}) must be < MEV_VOL (\{MEV_VOL})"
+        endif
+
+; --- Phase 3: per-song fnum (pitch) table layout -----------------------------
+; A note-index byte is an ABSOLUTE index 0..PITCHTAB_MAX_IDX into the per-song
+; 132-entry chromatic fnum table (the exact Zyrinx Moving-Trucks table; see
+; /tmp/zyrinx_re_timing_pitch.md §2.4). LAYOUT (chosen): TWO PARALLEL PAGES —
+; the A4 page (PITCHTAB_COUNT bytes, the YM $A4 = (block<<3)|fnumHi values) FIRST,
+; immediately followed by the A0 page (PITCHTAB_COUNT bytes, the YM $A0 = fnum-low
+; values). So for index i: $A4 = page[i], $A0 = page[PITCHTAB_COUNT + i]. This
+; mirrors Zyrinx's native $0F00 (A4) / $1000 (A0) split and makes the lookup two
+; flat indexed byte reads. The engine-default table is MovingTrucks_PitchTable
+; (inline in the Z80 blob, Z80-addressable); a per-song table is referenced via
+; the SongHeader pitchtable_ptr (0 = engine default).
+PITCHTAB_COUNT     = 132                  ; entries per page (idx $00..$83)
+PITCHTAB_MAX_IDX   = PITCHTAB_COUNT-1     ; = $83 (the RE's saturating clamp ceiling)
+
+        if PITCHTAB_MAX_IDX <> $83
+          error "PITCHTAB_MAX_IDX (\{PITCHTAB_MAX_IDX}) must be $83 (132-entry Zyrinx table)"
         endif
 
 ; --- Channel-route enum ---
@@ -445,14 +493,21 @@ SCF_KEYED_B     = 1       ; a note is currently keyed-on
 SCF_IS_FM_B     = 2       ; route class: FM voice
 SCF_IS_PSG_B    = 3       ; route class: PSG voice
 SCF_IS_DAC_B    = 4       ; route class: DAC trigger channel
+; Phase 3: ModUpdate (re)key arming. MEV_PITCHENV sets SCF_REKEY to tell ModUpdate
+; to (re)articulate the note on the NEXT frame even if the rendered note index is
+; unchanged (a same-pitch re-trigger). ModUpdate clears it after it renders. The
+; finalized re-key RULE is Task 5; for Task 3 a count==1 note keys once when armed
+; (or when the rendered index changes) and then holds (write-on-change).
+SCF_REKEY_B     = 5       ; ModUpdate should (re)key this channel's note next frame
 SCF_ACTIVE      = 1<<SCF_ACTIVE_B
 SCF_KEYED       = 1<<SCF_KEYED_B
 SCF_IS_FM       = 1<<SCF_IS_FM_B
 SCF_IS_PSG      = 1<<SCF_IS_PSG_B
 SCF_IS_DAC      = 1<<SCF_IS_DAC_B
+SCF_REKEY       = 1<<SCF_REKEY_B
 
         ; the _B bit numbers and the masks must stay tied together.
-        if (SCF_ACTIVE <> 1<<SCF_ACTIVE_B) || (SCF_KEYED <> 1<<SCF_KEYED_B) || (SCF_IS_FM <> 1<<SCF_IS_FM_B) || (SCF_IS_PSG <> 1<<SCF_IS_PSG_B) || (SCF_IS_DAC <> 1<<SCF_IS_DAC_B)
+        if (SCF_ACTIVE <> 1<<SCF_ACTIVE_B) || (SCF_KEYED <> 1<<SCF_KEYED_B) || (SCF_IS_FM <> 1<<SCF_IS_FM_B) || (SCF_IS_PSG <> 1<<SCF_IS_PSG_B) || (SCF_IS_DAC <> 1<<SCF_IS_DAC_B) || (SCF_REKEY <> 1<<SCF_REKEY_B)
           error "SCF_* masks and _B bit numbers are out of sync"
         endif
 

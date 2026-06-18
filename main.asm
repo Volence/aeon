@@ -245,6 +245,10 @@ Art_Sonic:
         include "data/sound/sound_tables.asm"
         include "data/sound/fm_patches.asm"
         include "data/sound/song_test.asm"
+        ; Phase 3 Task 3 SCRATCH pitch-verification song (one FM channel of
+        ; MEV_PITCHENV count=1 notes at known fnum-table indices). Kept alongside
+        ; Song_Test so DEBUG boot can switch back after the controller verifies.
+        include "data/sound/song_pitchtest.asm"
         include "data/sound/song_table.asm"
     endif
 

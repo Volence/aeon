@@ -306,6 +306,69 @@ Fm_SetVolume:
         jp      Fm_ReparkDac             ; defensive re-park ($2A)
 
 ; ----------------------------------------------------------------------
+; Fm_NoteFromTable — key a note from the PER-SONG fnum (pitch) table.
+; In: ix = SeqChannel, a = note index (an ABSOLUTE index 0..PITCHTAB_MAX_IDX into
+;     the 132-entry chromatic fnum table — NOT the engine's FmPitchTableZ note
+;     numbering). This is the Phase-3 pitch-envelope renderer path used by
+;     ModUpdate; the per-song table is the exact Zyrinx Moving-Trucks fnum table.
+;
+; TABLE: TWO PARALLEL PAGES (sound_constants.asm) — A4 page first (PITCHTAB_COUNT
+; bytes), then the A0 page. So for index i: $A4 = base[i], $A0 = base[COUNT+i].
+; base = Snd_PitchTabPtr (per-song) when nonzero, else MovingTrucks_PitchTable
+; (the inline engine-default table in this blob).
+;
+; PITCH: idx = clamp_0_83(note + sc_transpose), with sc_transpose SIGNED and the
+; result SATURATING to 0..PITCHTAB_MAX_IDX (the RE's $1100/$1200 clamp behavior:
+; below 0 -> 0, above $83 -> $83). The add is done in signed 16-bit so a large
+; negative transpose can't wrap. Then $A4/$A0 are looked up and Fm_NoteOnFreq
+; writes them + keys on.
+; Clobbers: af, bc, de, hl. Preserves ix.
+; ----------------------------------------------------------------------
+Fm_NoteFromTable:
+        ; --- idx = clamp_0_83(note + sc_transpose) (signed) ---
+        ld      l, a
+        ld      h, 0                     ; hl = note index (0..$83, positive)
+        ld      a, (ix+sc_transpose)     ; signed per-pattern transpose
+        ld      e, a
+        add     a, a                     ; CF = sign bit of transpose
+        sbc     a, a                     ; a = $FF if transpose<0, else $00
+        ld      d, a                     ; de = sign-extended transpose
+        add     hl, de                   ; hl = note + transpose (signed 16-bit)
+        bit     7, h                     ; result negative? (h >= $80)
+        jr      z, .nonneg
+        ld      hl, 0                    ; < 0 -> clamp to 0
+        jr      .clamped
+.nonneg:
+        ld      a, h                     ; hl is 0..$102 here
+        or      a
+        jr      nz, .clamp_hi            ; high byte set -> > $83 -> clamp
+        ld      a, l
+        cp      PITCHTAB_MAX_IDX+1
+        jr      c, .clamped              ; l <= $83 -> in range
+.clamp_hi:
+        ld      l, PITCHTAB_MAX_IDX      ; > $83 -> clamp to $83
+.clamped:
+        ld      c, l                     ; c = clamped idx (0..$83); preserved below
+
+        ; --- resolve table base: per-song ptr, else engine default ---
+        ld      hl, (Snd_PitchTabPtr)
+        ld      a, h
+        or      l
+        jr      nz, .have_base
+        ld      hl, MovingTrucks_PitchTable
+.have_base:
+        ; --- $A4 = base[idx] ---
+        ld      b, 0                     ; bc = idx
+        add     hl, bc                   ; hl = &A4page[idx]
+        ld      d, (hl)                  ; d = $A4 value (block|fnumHi)
+        ; --- $A0 = base[PITCHTAB_COUNT + idx] = &A4page[idx] + PITCHTAB_COUNT ---
+        ld      bc, PITCHTAB_COUNT
+        add     hl, bc                   ; hl = &A0page[idx]
+        ld      e, (hl)                  ; e = $A0 value (fnum low)
+        ; de = (d=$A4, e=$A0) -> write freq + key on (preserves ix)
+        jp      Fm_NoteOnFreq
+
+; ----------------------------------------------------------------------
 ; Fm_NoteOn — key a note on the channel.
 ; In: ix = SeqChannel, a = pitch index (0..94).
 ; FmPitchTableZ[pitch] = packed word: HIGH byte = $A4 value ((block<<3)|fnumHi),

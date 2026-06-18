@@ -211,9 +211,17 @@ Cold_Boot:
       ifdef __DEBUG__
         moveq   #$3C, d0                 ; DEBUG: ping with a recognizable value
         bsr.w   Sound_Ping
-        ; DEBUG: play the demo song (FM1 lead + FM2 bass + PSG1 thirds harmony),
-        ; looping. Press START in-game to toggle stop/play (game_loop Debug_MusicToggle).
-        moveq   #SONG_TEST, d0
+        ; DEBUG: play the demo song. NORMALLY SONG_TEST (FM1 lead + FM2 bass + PSG1
+        ; thirds harmony). Press START in-game to toggle stop/play (game_loop
+        ; Debug_MusicToggle).
+        ;
+        ; *** Sound Phase 3 Task 3 (TEMPORARY): switched to SONG_PITCHTEST so the
+        ; controller can runtime-verify the per-song pitch table + the ModUpdate
+        ; single-note path. SONG_PITCHTEST is one FM channel emitting MEV_PITCHENV
+        ; count=1 notes at indices $24/$28/$2B/$30/$3C/$48 (~0.5s each, looping);
+        ; the expected $A4/$A0 per index is documented in data/sound/song_pitchtest.py.
+        ; REVERT to SONG_TEST after verification. ***
+        moveq   #SONG_PITCHTEST, d0
         bsr.w   Sound_PlayMusic
         move.b  #1, (Dbg_Music_On).w     ; DEBUG: track play state for the Start-toggle
       endif

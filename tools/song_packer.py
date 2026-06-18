@@ -46,6 +46,9 @@ MEV_DAC = 0xE2
 MEV_NOTE_DUR = 0xE3
 MEV_NOTE_RAW = 0xE7          # + a4 a0 dd: key a raw-frequency FM note (exact
                              # $A4/$A0) for duration dd, bypassing the pitch table
+MEV_PITCHENV = 0xE8          # + count + count idx bytes: pitch-envelope note +
+                             # key-on (each idx = absolute 0..$83 into the per-song
+                             # fnum table). count==1 = plain note; >=2 = trill/arp.
 # Bounded-repeat opcodes (Sound 1D Task 1). The sequencer interprets these in a
 # later engine task; for now the packer ENCODES them so a song can wrap a body
 # in a finite repeat instead of unrolling it (Moving Trucks would be ~100KB
@@ -201,6 +204,36 @@ class NoteRaw(Event):
             raise PackError(f"NoteRaw dur {self.dur} out of range 1..255")
 
 
+PITCHENV_MAX_IDX = 0x83      # absolute fnum-table index ceiling (132-entry table)
+
+
+class PitchEnv(Event):
+    """Phase-3 pitch-envelope note (Zyrinx-style). Sets 1..5 pitch points (each
+    an ABSOLUTE index 0..$83 into the per-song fnum table) and arms a (re)key;
+    the Z80 renders it via ModUpdate. count==1 = a plain note; count>=2 = a
+    trill/arp (cursor-cycled on the chip). Time-advancing (paced like a bare
+    Note by the channel's default duration / a following WAIT). FM-only."""
+    def __init__(self, points):
+        if isinstance(points, int):
+            points = [points]
+        self.points = list(points)
+
+    def encode(self) -> bytes:
+        return bytes([MEV_PITCHENV, len(self.points) & 0xFF]
+                     + [p & 0xFF for p in self.points])
+
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"PitchEnv on non-FM route {route}")
+        if not (1 <= len(self.points) <= 5):
+            raise PackError(
+                f"PitchEnv point count {len(self.points)} out of range 1..5")
+        for p in self.points:
+            if not (0 <= p <= PITCHENV_MAX_IDX):
+                raise PackError(
+                    f"PitchEnv point {p} out of range 0..{PITCHENV_MAX_IDX}")
+
+
 class RepeatStart(Event):
     """Marks the start of a body that MEV_REPEAT_END replays. No operand."""
     def encode(self) -> bytes:
@@ -288,7 +321,7 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
             saw_patch = True
         if isinstance(ev, Vol):
             saw_vol = True
-        if isinstance(ev, (Note, Rest, NoteDur, NoteRaw)) and not saw_first_note:
+        if isinstance(ev, (Note, Rest, NoteDur, NoteRaw, PitchEnv)) and not saw_first_note:
             # First time-advancing event of the channel: this is the first point
             # the chip is keyed. Each route class must be initialized first or it
             # plays the YM2612/SN76489 power-on garbage register state. The DAC
@@ -314,11 +347,12 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
         if isinstance(ev, LoopPoint):
             saw_loop = True
             loop_advances_time = False
-        if saw_loop and isinstance(ev, (Note, Rest, NoteDur, NoteRaw)):
-            # Note ($81..$DF), Rest ($80), NoteDur ($E3) advance the tick clock;
-            # all other events (SetDur, Vol, Patch, Dac, LoopPoint, Jump) are
-            # zero-tick. A loop body with no time-advancing event would spin the
-            # Z80 fetch loop forever (it never returns to the tick driver).
+        if saw_loop and isinstance(ev, (Note, Rest, NoteDur, NoteRaw, PitchEnv)):
+            # Note ($81..$DF), Rest ($80), NoteDur ($E3), NoteRaw ($E7), and
+            # PitchEnv ($E8) advance the tick clock; all other events (SetDur, Vol,
+            # Patch, Dac, LoopPoint, Jump) are zero-tick. A loop body with no
+            # time-advancing event would spin the Z80 fetch loop forever (it never
+            # returns to the tick driver).
             loop_advances_time = True
         if isinstance(ev, Jump):
             if not saw_loop:

@@ -1073,6 +1073,21 @@ Snd_RouteClassFlags:
 ; data/sound/sound_tables.asm (decision 1: inline for 1C, not banked).
         include "engine/sound_tables_z80.asm"
 
+; --- Phase 3: engine-default per-song PITCH (fnum) table (GENERATED) ---
+; The exact Zyrinx Moving-Trucks 132-entry chromatic fnum table, TWO parallel
+; pages (A4 page then A0 page; see sound_constants.asm PITCHTAB_*). Included
+; INSIDE the phase-0 blob so Fm_NoteFromTable reads it with direct Z80 addressing.
+; It is the ENGINE-DEFAULT table: Fm_NoteFromTable uses Snd_PitchTabPtr when the
+; song header sets a per-song table, else falls back to this label. (A per-song
+; table would be referenced via the header's pitchtable_ptr; the scratch test song
+; sets pitchtable_ptr=0 and so uses THIS default.)
+        include "data/sound/movingtrucks_pitchtable.asm"
+
+        ; the two-page layout the engine indexes MUST match PITCHTAB_COUNT.
+        if (MovingTrucks_PitchTable_End - MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT
+          fatal "MovingTrucks_PitchTable wrong size: \{MovingTrucks_PitchTable_End - MovingTrucks_PitchTable} != \{2*PITCHTAB_COUNT}"
+        endif
+
 ; --- Inline FM patch table (Z80-addressable) ---
 ; Fm_PatchPtr indexes this by sc_patch (TEMP for 1C — Task 6 switches to the
 ; banked 68k ROM FmPatchTable in data/sound/fm_patches.asm). The patch BYTES are
