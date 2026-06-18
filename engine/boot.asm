@@ -211,11 +211,11 @@ Cold_Boot:
       ifdef __DEBUG__
         moveq   #$3C, d0                 ; DEBUG: ping with a recognizable value
         bsr.w   Sound_Ping
-        ; DEBUG: play the full test song (FM1/FM2 + PSG1/PSGN + DAC drums via
-        ; $E2 -> the 1B DAC path), looping. The song's DAC channel now drives the
-        ; drum, so we do NOT also call Sound_PlaySample (avoids double-triggering).
+        ; DEBUG: play the demo song (FM1 lead + FM2 bass + PSG1 thirds harmony),
+        ; looping. Press START in-game to toggle stop/play (game_loop Debug_MusicToggle).
         moveq   #SONG_TEST, d0
         bsr.w   Sound_PlayMusic
+        move.b  #1, (Dbg_Music_On).w     ; DEBUG: track play state for the Start-toggle
       endif
     endif
 

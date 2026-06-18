@@ -193,7 +193,7 @@ Prof_Peak_Render:       ds.w 1          ; peak Render_Sprites
 Prof_Peak_Frame:        ds.w 1          ; peak full frame
 Prof_Dynamic_Used:      ds.w 1          ; dynamic slots in use this frame
 Prof_Effect_Used:       ds.w 1          ; effect slots in use this frame
-Anim_Viewer_Active:     ds.w 1          ; anim-viewer sub-mode flag (0 = off)
+Dbg_Music_On:           ds.w 1          ; DEBUG: 1 = test song playing (Start toggles; low byte only)
     endif
 
 ; -----------------------------------------------
