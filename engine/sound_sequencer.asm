@@ -253,7 +253,17 @@ Seq_Op_NoteRaw:
     endif
         bit     SCF_IS_FM_B, (ix+sc_flags)
         ret     z                        ; non-FM route -> time advanced, no key
-        call    Fm_NoteOnFreq            ; key on at raw freq (de = $A4/$A0); preserves ix
+        ; RETRIGGER the hardware envelope: key OFF then key ON, so every note
+        ; re-attacks. The original B&R driver keys off->on per note (1599 offs /
+        ; 801 ons in the reference VGM); without the key-off a re-keyed channel
+        ; never re-attacks and decays to silence after the first note (the "blips"
+        ; bug). NOTE_RAW-only: the note-index path (1C demo) is unchanged. The
+        ; key-off..key-on are tens of Z80 cycles apart (Fm_NoteOff repark + the
+        ; $A4/$A0 writes inside Fm_NoteOnFreq), ample for the EG to see the edge.
+        push    de                       ; save fnum word across the key-off
+        call    Fm_NoteOff               ; key OFF (clobbers de; preserves hl,ix)
+        pop     de                       ; de = $A4/$A0 again
+        call    Fm_NoteOnFreq            ; key ON at raw freq (preserves ix)
         ret                              ; time advanced -> done this tick
 
 ; $E5 MEV_REPEAT_START (no operand) : save the current (post-opcode) ptr as the
