@@ -34,7 +34,7 @@ Debug_MusicToggle:
         beq.s   .done                   ; START not pressed this frame
         tst.b   (Dbg_Music_On).w
         bne.s   .stop
-        moveq   #SONG_MOVINGTRUCKS, d0  ; was stopped -> play (Sound 1D Moving Trucks)
+        moveq   #SONG_TEST, d0          ; was stopped -> play
         bsr.w   Sound_PlayMusic
         move.b  #1, (Dbg_Music_On).w
         rts
