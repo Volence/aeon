@@ -2,8 +2,8 @@
 """
 Zyrinx "Advanced Z80 Player" REFERENCE PLAYER (The Adventures of Batman & Robin).
 
-Simulates the reverse-engineered Zyrinx sound driver playing song 3
-("Moving Trucks", Bank 1) frame-by-frame and produces:
+Simulates the reverse-engineered Zyrinx sound driver playing "Moving Trucks"
+(music-test 13 = Bank2 song4 @ ROM $1F0BDF) frame-by-frame and produces:
   (a) a rendered VGM  (/tmp/mt_player.vgm)         -- YM2612 register writes with timing
   (b) a per-channel musical-event dump (/tmp/mt_player_events.json) for engine porting
 
@@ -12,7 +12,7 @@ Authoritative spec: /tmp/zyrinx_re_{commands,timing_pitch,layout,modulation}.md
 The driver model (verified against the driver binary, see comments):
   * Song body = 6 consecutive per-channel blocks: [count][loopback][count x 4-byte entries].
   * Pattern entry = [seq_index, transpose(signed), repeat, tempo].
-  * Sequences resolved through the bank-shared seq pointer table @ ROM $1E91E3.
+  * Sequences resolved through the Bank2 seq pointer table @ ROM $1F0F37.
   * Music frame ~59.4 Hz (odd frame). Per channel: IX+33 -= 16/frame; on borrow IX+33 += tempo_base
     and one "event tick" fires. WAIT byte W ($80-$FF) waits ($FF - W) event ticks.
   * Two dispatch tables: Table-1 for the first command after a WAIT, Table-2 for subsequent
@@ -41,8 +41,15 @@ import struct
 import sys
 
 ROM_PATH = "/home/volence/sonic_hacks/The Adventures of Batman and Robin/Adventures of Batman & Robin, The (USA).md"
-SEQ_PTR_TABLE = 0x1E91E3      # 154 x 3-byte [bank, z80_hi, z80_lo]
-SONG3_ADDR = 0x1E886F         # Moving Trucks song body (404 bytes)
+# Moving Trucks = music-test 13 = game-song-index id 13 = B&R Bank2 song4.
+# (The OLD targets — Bank1 song3 $1E886F / seqtbl $1E91E3 / voicetbl $1ECC8C — were
+#  the WRONG song; their PITCH points were in the wrong octave (40/52 etc). Bank2
+#  song4's early PITCH points are 28-34 ($1C-$22), which map DIRECTLY to the oracle's
+#  low-octave melody with no octave correction.)
+SEQ_PTR_TABLE = 0x1F0F37      # Bank2 SEQ table: 154 x 3-byte [bank, z80_hi, z80_lo]
+SONG_ADDR = 0x1F0BDF          # Moving Trucks song body (Bank2 song4; 424 bytes,
+                              # 6 channel blocks, counts 17/17/17/18/17/17)
+VOICE_PTR_TABLE = 0x1F49A8    # Bank2 VOICE table: 248 x 3-byte [bank,hi,lo] -> 30B patch
 N_CHANNELS = 6
 
 FODD = 59.38                  # empirical music-frame (odd-frame) rate, Hz  (doc §1.6)
@@ -359,8 +366,8 @@ def glide_trajectory_sampled(start_pt, target_pt, transpose, dur_byte,
 
 
 def parse_song(rom):
-    """Parse song 3 into 6 channel blocks of pattern entries."""
-    p = SONG3_ADDR
+    """Parse Moving Trucks (Bank2 song4) into 6 channel blocks of pattern entries."""
+    p = SONG_ADDR
     channels = []
     for ch in range(N_CHANNELS):
         count = rom[p]
@@ -796,84 +803,118 @@ MT_FORMAT_CODE = 0x38
 
 
 # ----------------------------------------------------------------------------
-# RE-ARTICULATION CADENCE MODEL (Task 1 — the "too fast" fix)
+# RE-ARTICULATION CADENCE MODEL
 # ----------------------------------------------------------------------------
 # Our engine re-keys on EVERY MEV_PITCHENV (the same-pitch suppression was removed
 # from the engine — correct, per the driver). So the re-key CADENCE must live in
-# the DATA: walk_body must emit exactly ONE MEV_PITCHENV per real re-attack, NOT
-# one per source PITCH command (Zyrinx repeats the PITCH command every event-tick
-# even when the note is held — repeat-heavy channels are 88-89% same-pitch).
+# the DATA: walk_body emits one MEV_PITCHENV per source PITCH-group, paced by that
+# group's WAIT byte (SetDur).
 #
-# The driver's note-state machine ($0B52 NoteState + $0E00 gate/$0CF8 note-off
-# timer) governs WHEN a held note actually re-articulates. The patch tail bytes
-# decoded from voices.json (read at driver $0BF5/$0CAF):
-#     keymask     = patch byte $19 (= voices.json "ams_fms_pan")  -> IY+27
-#     note-off T  = patch byte $1A (= voices.json "ext"[0])       -> IY+26
-#     gate        = patch byte $1B (= voices.json "ext"[1])       -> IY+20
-# For Moving Trucks' STATIC channels (ch1/ch4/ch5) the dominant voices
-# (v156-160, v108, v110, v174) all have note-off-timer = 0 and gate = 0, so those
-# two bytes do NOT directly encode the observed re-key window. Instead the window
-# is an EMERGENT property of the frame schedule: the sequencer (CALL $0317) +
-# output (CALL $01FE) run ONLY on ODD frames (driver $0130), while NoteState/key-on
-# ($0B52) runs for ch0-3 on EVEN frames ($00F6) and for ch4-5 on ODD frames
-# ($0130) — so the two channel banks key at DIFFERENT effective rates. Measured
-# against the ORACLE (vgm_notes.extract, per-channel key-on IOI as a multiple of
-# our event-tick = 58.94 ms):
-#     ch0-3 (port-0 / even-frame keyed): dominant IOI = 3.0 ticks (~177 ms)
-#     ch4-5 (odd-frame keyed):           dominant IOI = 1.5 ticks (~ 87 ms)
-# The engine SetDur is integer ticks, so 1.5 is not directly expressible. The two
-# integer candidates measured (median key-on IOI vs the oracle's 87.3 ms):
-#     window=1 -> 58.9 ms (err 28.4 ms)   window=2 -> 117.9 ms (err 30.6 ms)
-# window=1 is the CLOSER median (it over-articulates slightly rather than halving
-# the rate), so ch4/5 use a 1-tick re-key floor. (Note: by MEAN IOI / note density
-# window=2 is closer because the oracle is bimodal — fast runs plus long holds —
-# but the task's target metric is the dominant/median IOI; a true half-tick would
-# need a sub-frame schedule the engine doesn't expose.)
+# For the CORRECT song (Bank2 song4) the cadence is INTRINSIC to the source WAIT
+# bytes — no artificial re-key window is needed. Measured per-channel WAIT
+# histogram (event-ticks) vs the oracle's measured median key-on IOI:
+#     ch0  WAIT 3 dom (168x)  ->  oracle median 2.95 ticks (~174 ms)  ✓
+#     ch1  WAIT 3/1 (164/162) ->  oracle median 2.99 ticks (~176 ms)  ✓
+#     ch2  WAIT 3 dom (192x)  ->  oracle median 2.95 ticks (~174 ms)  ✓
+#     ch3  WAIT 3/1 (136/112) ->  oracle median 2.94 ticks (~173 ms)  ✓
+#     ch4  WAIT 0/1 dom       ->  oracle median 1.48 ticks (~ 87 ms)  ✓
+#     ch5  WAIT 0/1 dom       ->  oracle median 1.48 ticks (~ 87 ms)  ✓
+# The melody changes pitch nearly every group, so same-pitch coalescing almost
+# never fires; the WAIT bytes alone reproduce the oracle's per-channel cadence.
+# We therefore use a re-key window of 1 tick on ALL channels (= "emit a fresh
+# keyed PitchEnv for every source PITCH-group, paced by its WAIT"); the window
+# only ever coalesces a genuine zero-WAIT mid-tick repeat of the SAME pitch, which
+# is correct (the engine cannot re-key faster than one tick anyway).
 #
-# FAITHFUL APPROXIMATION (what walk_body now does): the per-channel re-key window
-# is a CADENCE FLOOR — within one window the held note is NOT re-keyed even if the
-# source pitch changes; instead the held note's pitch is RE-SAMPLED to the current
-# value and a new key-on fires only once the window elapses (or a rest breaks the
-# hold). Glides are sampled on the SAME continuous per-channel re-key grid (see
-# glide_trajectory_sampled) so they re-articulate coarsely as the chromatic
-# arpeggio rather than as a per-frame zipper. This reproduces the oracle's
-# per-channel cadence without over-articulating every event-tick.
-REKEY_WINDOW_TICKS = [3, 3, 3, 3, 1, 1]   # per source channel (ch0..5)
+# (The OLD Bank1-song3-tuned [3,3,3,3,1,1] window was a wrong-song workaround that
+# forced an artificial 3-tick floor onto a repeat-heavy stream; the correct song
+# does not have that 88-89%-same-pitch repeat structure, so it is removed.)
+REKEY_WINDOW_TICKS = [1, 1, 1, 1, 1, 1]   # per source channel (ch0..5)
 
 
 # ----------------------------------------------------------------------------
-# OCTAVE CORRECTION (Task 2 — the "octave-high static channels" fix)
+# OCTAVE CORRECTION — REMOVED (was a Bank1-song3 wrong-song workaround).
 # ----------------------------------------------------------------------------
-# The oracle NEVER exceeds a small per-channel block ceiling — measured maxblock
-# (>=92% of notes): ch0-5 = block [2, 0, 2, 2, 2, 2]. Identity routing (src ch i ->
-# YM ch i, established earlier) renders the static channels' literal note indices
-# up to block 3-4 — an octave (or two) too high. The driver brings them down; the
-# net effect on the rendered (block,fnum) is a clamp of the sounding block to the
-# channel's ceiling (octave-down by 12 indices until the canonical block fits).
-# Applying this per-channel cap:
-#   * ch4/ch5: (block,fnum) match the oracle EXACTLY (ch4 100% overlap), block<=2.
-#   * ch1 (the deep bass): cap=0 takes it to block 0 (overlap 0% -> 40%), matching
-#     the oracle's all-block-0 bass register. (The residual fnum mismatch on ch1 is
-#     content-level — the oracle's ch1 plays fnums our literal seq-70 indices don't
-#     produce; that needs a live driver trace, see the report.)
-#   * all channels: removes every block 3-4 emission (the "octave-high" bug).
-OCTAVE_BLOCK_CAP = [2, 0, 2, 2, 2, 2]   # per source channel (ch0..5)
-_OCTAVE_CAP_DEFAULT = 2                  # for any channel index past the list
+# The OLD target (Bank1 song3) had PITCH points in the WRONG octave (40/52...),
+# rendering up to block 3-4, so a per-channel OCTAVE_BLOCK_CAP forced them down.
+# The CORRECT song (Bank2 song4) has PITCH points 14-68 whose canonical blocks are
+# already 0-2 — exactly the oracle's measured per-channel band (oracle uses blocks
+# 0/1/2 on EVERY channel; ch1's bass even reaches block 1). So NO octave correction
+# is applied: octave_cap_idx is an identity pass-through. (If a future oracle diff
+# for THIS song proves a per-channel correction is genuinely needed, re-introduce a
+# targeted cap here — but the points map directly today.)
+_OCTAVE_CAP_DEFAULT = None               # None = no cap (identity)
 
 
 def octave_cap_idx(idx, cap=_OCTAVE_CAP_DEFAULT):
-    """Octave-correct a pitch-table index so its rendered block is <= cap. Octave-
-    down by 12 indices (one octave) until the block fits or we run out of low
-    octaves. Returns the corrected index (always a valid 0..0x83 entry)."""
+    """Identity pass-through (octave correction removed for the correct song).
+    `cap` is accepted-and-ignored for call-site compatibility; if a real cap value
+    (int) is ever passed, it octave-downs to that block ceiling — but the default
+    None leaves the directly-mapping Bank2 points untouched."""
+    if cap is None:
+        return idx
     while idx >= 12 and BLOCK_TBL[idx] > cap:
         idx -= 12
     return idx
 
 
-def _load_voice_bank():
-    """Load the Zyrinx bank-1 voice list (Moving Trucks references bank 1)."""
-    with open(VOICES_JSON) as f:
-        return json.load(f)["bank1"]
+def voice_addr(rom, idx):
+    """Resolve Bank2 VOICE-table entry `idx` to an absolute ROM address.
+    Table @ VOICE_PTR_TABLE = 248 x 3-byte [bank, z80_hi, z80_lo]; same
+    z80->ROM resolution as the seq table: (bank<<15)+(z80-0x8000)."""
+    base = VOICE_PTR_TABLE
+    b = rom[base + idx * 3]
+    h = rom[base + idx * 3 + 1]
+    l = rom[base + idx * 3 + 2]
+    z80 = (h << 8) | l
+    return (b << 15) + (z80 - 0x8000)
+
+
+def decode_voice(rom, idx):
+    """Decode a Bank2 30-byte FM patch (resolved via the VOICE pointer table) into
+    the same dict shape voices.json uses (so translate_voice consumes it unchanged).
+
+    Patch byte layout (verified against voices.json bank2 — an exact match):
+      [0]      fb_algo  -> fb = (b>>3)&7, algo = b&7
+      [1..24]  six 4-byte per-operator groups: dt_mul, tl, ks_ar, am_d1r, d2r, sl_rr
+               (operator order = Zyrinx natural op1..op4)
+      [25]     ams_fms_pan
+      [26..29] ext[4]
+    """
+    a = voice_addr(rom, idx)
+    if a < 0 or a + 30 > len(rom):
+        # Pointers past the real voice-table extent (idx >= ~235) resolve into
+        # unrelated ROM / negative addresses. Moving Trucks references only voices
+        # <= 212, so these are never collected into the per-song bank; return a
+        # zeroed placeholder so the FULL-bank build does not crash.
+        return {"fb": 0, "algo": 0, "dt_mul": [0, 0, 0, 0], "tl": [0, 0, 0, 0],
+                "ks_ar": [0, 0, 0, 0], "am_d1r": [0, 0, 0, 0],
+                "d2r": [0, 0, 0, 0], "sl_rr": [0, 0, 0, 0],
+                "ams_fms_pan": 0, "ext": [0, 0, 0, 0]}
+    raw = rom[a:a + 30]
+    g = lambda o: [raw[o], raw[o + 1], raw[o + 2], raw[o + 3]]
+    return {
+        "fb": (raw[0] >> 3) & 7,
+        "algo": raw[0] & 7,
+        "dt_mul": g(1), "tl": g(5), "ks_ar": g(9),
+        "am_d1r": g(13), "d2r": g(17), "sl_rr": g(21),
+        "ams_fms_pan": raw[25],
+        "ext": [raw[26], raw[27], raw[28], raw[29]],
+    }
+
+
+# B&R Bank2 has 248 VOICE-table entries (the JSON's decoded `bank2` list is shorter
+# and is Bank1-era anyway); decode straight from the ROM so the bank is complete and
+# authoritative for THIS song.
+VOICE_BANK_COUNT = 248
+
+
+def _load_voice_bank(rom=None):
+    """Decode the FULL Bank2 voice bank straight from the ROM (Moving Trucks =
+    Bank2 song4). Returns a list of voice dicts indexable by absolute voice idx."""
+    if rom is None:
+        rom = open(ROM_PATH, "rb").read()
+    return [decode_voice(rom, i) for i in range(VOICE_BANK_COUNT)]
 
 
 def _fmpatch_byte_to_regsel(byte_idx):
@@ -1075,16 +1116,23 @@ class _Walker:
                         held_ticks = max(1, ticks)
                     pending_points = None
                 else:
-                    # WAIT with no pending note -> a rest for the duration (key-off,
-                    # breaks any held note).
-                    if ticks > 0:
+                    # WAIT with no pending PITCH. Zyrinx notes SUSTAIN until the next
+                    # PITCH re-keys them — there is NO implicit note-off on a WAIT
+                    # (this song has zero $1E channel-off commands). The dominant
+                    # pattern is `PITCH WAIT1 GATE WAIT1`: the GATE is a no-op here
+                    # (verified — the oracle's key-on count == the PITCH count, NOT
+                    # PITCH+GATE), so the trailing WAIT must EXTEND the held note's
+                    # duration (a 2-tick sustained note), not key-off into a rest.
+                    if held_setdur is not None:
+                        # extend the currently sounding note by these ticks.
+                        held_ticks += ticks
+                        commit_held()
+                    elif ticks > 0:
+                        # no note has ever been keyed on this channel yet (leading
+                        # WAIT before the first PITCH) -> a genuine opening rest.
                         out.append(SetDur(ticks))
-                    out.append(Rest())
-                    self.stats["rest"] += 1
-                    held_pitch = None
-                    held_ticks = 0
-                    held_setdur = None
-                    held_env = None
+                        out.append(Rest())
+                        self.stats["rest"] += 1
                 continue
             op = b
             if op <= 0x08:
@@ -1272,7 +1320,7 @@ def build_native_songdesc(rom, pitchtable_offset=0):
     pitchtable_offset: BE offset (relative to the song header) of the per-song
     pitch table within the streaming block; 0 = engine-default table.
     """
-    bank = _load_voice_bank()
+    bank = _load_voice_bank(rom)
     channels_data = parse_song(rom)
     bank_bytes, remap, pcount = build_native_patch_bank(rom, channels_data, bank)
 
@@ -1291,11 +1339,10 @@ def build_native_songdesc(rom, pitchtable_offset=0):
         # measured 1.5-tick / ~87 ms re-attack).
         walker.rekey_window = (REKEY_WINDOW_TICKS[ci]
                                if ci < len(REKEY_WINDOW_TICKS) else 3)
-        # per-channel rendered-block ceiling (the octave correction) — see
-        # OCTAVE_BLOCK_CAP: ch1 (deep bass) caps at block 0, the rest at block 2,
-        # matching the oracle's per-channel octave.
-        walker.octave_cap = (OCTAVE_BLOCK_CAP[ci]
-                             if ci < len(OCTAVE_BLOCK_CAP) else _OCTAVE_CAP_DEFAULT)
+        # No octave correction for the correct song (Bank2 song4): its PITCH points
+        # already render to the oracle's per-channel block band. octave_cap=None ->
+        # octave_cap_idx is an identity pass-through (see OCTAVE CORRECTION above).
+        walker.octave_cap = _OCTAVE_CAP_DEFAULT
         # The channel's FIRST voice -> the leading-setup Patch (below). We do NOT
         # prime the walker's prev_fp with it: the body's first VOICE command must
         # emit a full Patch (computed vs prev_fp=None) so the opening voice is
@@ -1419,8 +1466,8 @@ def _write_blob_asm(blob, label, out_path):
     lines.append("; " + "=" * 70)
     lines.append("; %s.asm — GENERATED by tools/zyrinx_player.py "
                  "(emit_native_song) — DO NOT EDIT BY HAND." % label)
-    lines.append("; Native port of B&R \"Moving Trucks\" (Zyrinx bank1 song3, real")
-    lines.append("; song data — NOT a register replay). Regenerate:")
+    lines.append("; Native port of B&R \"Moving Trucks\" (Zyrinx Bank2 song4 @ $1F0BDF,")
+    lines.append("; real song data — NOT a register replay). Regenerate:")
     lines.append(";   python3 tools/zyrinx_player.py --emit-native-song")
     lines.append("; Stream pointers in the header are 16-bit BE offsets relative to")
     lines.append("; the %s label (loader adds the base). FM6=FM, streamed." % label)
@@ -1591,7 +1638,7 @@ def main():
 
     # event dump
     dump = {
-        "song": "Moving Trucks (B&R, Bank1 song3)",
+        "song": "Moving Trucks (B&R, Bank2 song4 @ $1F0BDF)",
         "frame_rate_hz": FODD,
         "duration_s": duration_s,
         "interpretation_0A_12": "vol" if glide_as_vol else "portamento",

@@ -275,16 +275,20 @@ class TestTranslateVoice(unittest.TestCase):
         #   fp_alg_fb     = (1<<3)|3 = 11
         #   fp_lr_ams_fms = 240 (L/R bits 6-7 already set -> kept as-is)
         #   dt_mul  [119,123,72,127] -> [119, 72,123,127]
-        #   tl      [103,  0,112,105] -> [103,112,  0,105]
+        #   tl      [103,  0,112,105] -> [103,112,  0,105] -> INVERTED (0x7F^x):
+        #                                                      [ 24, 15,127, 22]
         #   ks_ar   [ 11,  0, 11, 12] -> [ 11, 11,  0, 12]
         #   am_d1r  [ 16, 16, 16, 16] -> [ 16, 16, 16, 16]
         #   d2r     [  0,  0,  0,  0] -> [  0,  0,  0,  0]
         #   sl_rr   [  7, 10,  7, 58] -> [  7,  7, 10, 58]
+        # NOTE: translate_voice inverts TL (0x7F XOR) — Zyrinx stores TL as LEVEL
+        # (high=loud); the YM2612 reg is ATTENUATION (high=quiet). This inversion
+        # is the correct, song-agnostic fix; the $40 row below is the inverted form.
         expected = bytes([
             11,                     # fp_alg_fb
             240,                    # fp_lr_ams_fms
             119, 72, 123, 127,      # fp_dt_mul   ($30)
-            103, 112, 0, 105,       # fp_tl       ($40)
+            24, 15, 127, 22,        # fp_tl       ($40)  = 0x7F ^ [103,112,0,105]
             11, 11, 0, 12,          # fp_rs_ar    ($50) <- ks_ar
             16, 16, 16, 16,         # fp_am_d1r   ($60)
             0, 0, 0, 0,             # fp_d2r      ($70)
