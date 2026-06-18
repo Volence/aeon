@@ -383,6 +383,16 @@ SND_FM_SCRATCH_LEN = 4
       fatal "FM scratch runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
+; --- Snd_LoadSong scratch (Task 6) ---
+; 1 byte: the DAC bank saved across the song-load bank switch (SndDrv_SetBank
+; overwrites SND_CUR_BANK, so the loader stashes it here and restores after). In
+; the free block just past the FM scratch, below the trace ring.
+Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
+
+    if (Snd_SavedDacBank + 1) > SND_SEQ_TRACE
+      fatal "Snd_SavedDacBank (\{Snd_SavedDacBank}) runs into the trace ring at \{SND_SEQ_TRACE}"
+    endif
+
     if SND_SEQ_END > SND_REQ_BASE
       fatal "sequencer RAM (\{SND_SEQ_END}) overruns the mailbox at \{SND_REQ_BASE}"
     endif

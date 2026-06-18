@@ -25,7 +25,7 @@ Sound_DebugMirror:
         lea     (Z80_RAM+SND_REQ_BASE).l, a0     ; [0..47] = $1F00..$1F2F (req slots + status)
         ; This 48-byte copy already covers SND_STAT_TICK ($1F13 -> mirror byte 19),
         ; the Task-5 scheduler tick counter the controller reads to verify the
-        ; Timer-A overflow rate (~277/sec dry-run). No extra mirror entry needed.
+        ; Timer-A overflow rate (tempo $C0 -> ~208/sec). No extra mirror entry needed.
         moveq   #48-1, d0
 .copy1:
         move.b  (a0)+, (a1)+
@@ -57,7 +57,7 @@ Sound_DebugMirror:
         if (64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN) > 160
           fatal "sound debug mirror window (\{64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN}) exceeds Sound_Dbg_Mirror (160 bytes)"
         endif
-        lea     (Z80_RAM+SND_SEQ_BASE).l, a0     ; [64..] = $1800.. (header + 3 channels)
+        lea     (Z80_RAM+SND_SEQ_BASE).l, a0     ; [64..] = $1800.. (header + 5 channels)
         moveq   #SEQ_MIRROR_HDRCH-1, d0
 .copy3:
         move.b  (a0)+, (a1)+

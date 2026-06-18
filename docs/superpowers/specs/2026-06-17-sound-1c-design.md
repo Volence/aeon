@@ -155,6 +155,39 @@ cooperative model):
 FM6 stays the DAC (1B). Sequencer FM writes target FM1–FM5; the DAC channel's stream only ever
 emits `$E2` DAC triggers (routed to the 1B sample path), never FM note-ons.
 
+### 8.1 Song-data banking decision (RESOLVED, Task 6)
+
+**Decision — copy-to-RAM.** At `PlayMusic` time, inside the VBlank-ISR mailbox handler
+(`Snd_LoadSong`, where the free-running DAC loop is paused), the loader saves the DAC bank, banks
+in the song, copies the header + channel streams (a fixed `SND_SONG_BUF_SIZE` = 512 B) into a Z80
+RAM buffer (`SND_SONG_BUF` at `$1B00`), then restores the DAC bank. The sequencer afterward reads
+streams from RAM — **zero banking during playback** — so the free-running 1B DAC keeps its `$6000`
+bank latch uninterrupted. DAC drum samples (`$E2`) re-bank to their own sample bank independently;
+that is fine, because the song streams are already in RAM and never need the bank.
+
+**Why (reference validation).** A full reference sweep found:
+- **Live-read-in-ISR** (S2 / S3K / Flamedriver / sonic_hack) — read the stream straight from ROM
+  in the music ISR. This is exactly what we **reject**: a live ROM read mid-playback would have to
+  bank-switch the `$6000` latch out from under the free-running DAC, glitching it.
+- **Re-bank-per-access live** (Echo / XGM2) — same banking-during-playback hazard.
+- **Music on the 68k** (Ristar) — not applicable; our music is Z80-resident.
+- **Dedicated sound-bank region** (Batman / Zyrinx) — a single fixed all-sound bank; less flexible
+  (the MD has only one Z80 bank latch at `$6000`, so true dual-banking is impossible).
+- **Copy-to-RAM / buffering** — directly precedented by TmEE's shipping driver (per-pattern ~2 KB
+  buffering) and MegaPCM 2 (buffering for clean DAC). This is the model best matched to our
+  constraint: a glitch-free, free-running DAC that owns the bank latch.
+
+**Documented fallback.** If song streams ever exceed the Z80 RAM budget (the 512 B buffer), switch
+to **TmEE-style per-pattern chunked buffering**: refill a smaller buffer periodically, each refill
+performed in a DAC-paused window (same ISR-mailbox safety property), trading a little extra refill
+bookkeeping for a smaller RAM footprint. The safety invariant (no banking while the DAC runs) is
+unchanged.
+
+**Build safety.** The fixed 512 B copy `ldir`s from the song's `$8000`-window pointer; a build
+assert in `data/sound/song_table.asm` forbids placing a song so its window region crosses the
+`$8000`-window top into Z80 RAM (else the source pointer would wrap past `$FFFF`). The copy may
+read slightly past the song into adjacent ROM — harmless, since streams self-terminate.
+
 ## 9. 68k↔Z80 command API
 
 Extends the 1A per-type mailbox slots:

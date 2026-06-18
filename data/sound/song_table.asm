@@ -34,4 +34,14 @@ SongTable_End:
           fatal "Song_Test (\{Song_Test_End-Song_Test} bytes) exceeds SND_SONG_BUF_SIZE (\{SND_SONG_BUF_SIZE})"
         endif
 
+        ; Task 6: the loader's fixed SND_SONG_BUF_SIZE-byte `ldir` reads from the
+        ; song's $8000-window ptr ((addr & $7FFF) | $8000). If that window region
+        ; sits within SND_SONG_BUF_SIZE bytes of $FFFF, the copy's source ptr wraps
+        ; past $FFFF into Z80 RAM ($0000) and copies garbage into the buffer tail.
+        ; Forbid it: the window offset must leave room for the full copy below the
+        ; $8000-window top, i.e. (addr & $7FFF) <= ($8000 - SND_SONG_BUF_SIZE).
+        if (Song_Test & $7FFF) > ($8000 - SND_SONG_BUF_SIZE)
+          fatal "Song_Test window region crosses the $8000-window top: the \{SND_SONG_BUF_SIZE}-byte load ldir would wrap past $FFFF into Z80 RAM. Move Song_Test so (addr & $7FFF) <= \{$8000 - SND_SONG_BUF_SIZE}."
+        endif
+
         align 2

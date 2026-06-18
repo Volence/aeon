@@ -28,8 +28,9 @@
 
 ; ----------------------------------------------------------------------
 ; Sequencer_Tick — advance every active channel by one tempo tick.
-; Call once per tempo tick (Task 2 dry-run: once per VBlank from the ISR;
-; Task 5 replaces this with the Timer-A sub-tick). Clobbers af,bc,de,hl,ix.
+; Called once per tempo tick by the DAC loop's Timer-A overflow poll (Task 5):
+; the loop polls Timer A's overflow flag, re-arms, and calls here. Clobbers
+; af,bc,de,hl,ix.
 ; ----------------------------------------------------------------------
 Sequencer_Tick:
         ; --- TICK OBSERVABILITY (Task 5): increment SND_STAT_TICK on EVERY call.

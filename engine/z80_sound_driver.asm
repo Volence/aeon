@@ -57,7 +57,8 @@ Z80_Sound_Start:
 ; The SkipPad (183) and DrainPad (204) are UNCHANGED — both additions live in the
 ; common prefix, which by construction lands equally on all three paths, so the
 ; pad-to-FILL balance is untouched. The poll's overflow handler (rearm + call
-; Sequencer_Tick) fires only on overflow (~277 Hz dry-run, NOT per pass); that one
+; Sequencer_Tick) fires only on overflow (tempo $C0 -> ~208 Hz for the loaded
+; song, NOT per pass); that one
 ; pass is momentarily longer — a bounded micro-perturbation (see BOUNDING below).
 ;
 ; --- COMMON PREFIX (run by ALL three paths) -------------------------------
@@ -505,7 +506,7 @@ SndDrv_PollMailbox:
 ; ======================================================================
 ; Snd_DacLookup — map a 1-based DAC sample id (in `a`) to its descriptor ptr.
 ; Out: hl = &DacSampleTable[id-1], carry CLEAR on success; carry SET (id 0 or
-; id > DAC_SAMPLE_COUNT) on a bad id (hl undefined). Clobbers af, bc, hl, de.
+; id > DAC_SAMPLE_COUNT) on a bad id (hl undefined). Clobbers af, de, hl.
 ; ======================================================================
 Snd_DacLookup:
         or      a
@@ -726,13 +727,16 @@ Snd_TimerA_Disable:
 ;   1. Save the DAC bank (SND_CUR_BANK) — SndDrv_SetBank overwrites the cache.
 ;   2. SetBank to the song bank (from SND_MUSIC_PARAM_BANK).
 ;   3. Copy a FIXED SND_SONG_BUF_SIZE bytes from the $8000-window ptr
-;      (SND_MUSIC_PARAM_PTR) into SND_SONG_BUF (Z80 RAM) — streams self-terminate,
-;      so copying a little past the song is harmless.
+;      (SND_MUSIC_PARAM_PTR) into SND_SONG_BUF (Z80 RAM). The fixed copy may read
+;      a little past the song's data into adjacent ROM (harmless — the streams
+;      self-terminate, so the tail is never interpreted). The song MUST be placed
+;      so its window region does not cross the $8000-window top into Z80 RAM
+;      ($0000) — enforced by the build assert in data/sound/song_table.asm.
 ;   4. Restore the DAC bank (re-latches $6000).
 ;   5. Parse the header FROM SND_SONG_BUF (now Z80-addressable) and init channels.
 ;   6. Program Timer A from the header tempo; arm; clear SND_REQ_MUSIC.
-; Clobbers af,bc,de,hl,ix. (Runs in the ISR, which saved af/bc/de/hl; ix is not
-; used by the streaming loop across iterations.)
+; Clobbers af,bc,de,hl,ix,iy. (Runs in the ISR, which saved af/bc/de/hl; ix/iy are
+; not used by the streaming loop across iterations.)
 ; ======================================================================
 Snd_LoadSong:
         ; 1. save the DAC bank (so we can restore it after reading the song).
@@ -741,7 +745,11 @@ Snd_LoadSong:
         ; 2. SetBank to the song's bank.
         ld      a, (SND_MUSIC_PARAM_BANK)
         call    SndDrv_SetBank           ; $6000 latch only
-        ; 3. copy SND_SONG_BUF_SIZE bytes window-ptr -> SND_SONG_BUF (ldir).
+        ; 3. copy SND_SONG_BUF_SIZE bytes window-ptr -> SND_SONG_BUF (ldir). The
+        ;    copy may read a little past the song into adjacent ROM (harmless —
+        ;    streams self-terminate). The song's window region must NOT cross
+        ;    $10000 (else ldir's hl would wrap past $FFFF into Z80 RAM and copy
+        ;    garbage); guaranteed by the build assert in song_table.asm.
         ld      hl, (SND_MUSIC_PARAM_PTR) ; source = $8000-window ptr (little-endian in RAM)
         ld      de, SND_SONG_BUF          ; dest = Z80 RAM song buffer
         ld      bc, SND_SONG_BUF_SIZE
@@ -845,10 +853,6 @@ Snd_RouteClassFlags:
 .psg:
         ld      a, SCF_ACTIVE|SCF_IS_PSG
         ret
-
-; Saved DAC bank across the song-load bank switch (1 byte, in the free state region
-; below the trace ring is full; reuse a single byte just past the FM scratch).
-Snd_SavedDacBank        = SND_FM_SCRATCH+SND_FM_SCRATCH_LEN
 
 ; ======================================================================
 ; Music sequencer core (Sound 1C, Task 2) — opcode interpreter.
