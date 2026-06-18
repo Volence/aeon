@@ -10,6 +10,13 @@
 
 **Source spec:** `docs/superpowers/specs/2026-06-18-sound-1d-moving-trucks.md`. **Builds on:** 1C (`docs/superpowers/specs/2026-06-17-sound-1c-design.md`), merged to master.
 
+## REVISION (post-T1-research, 2026-06-18) — size + streaming + repeat opcode
+
+Measured Moving Trucks: 19 unique sequences, 97 pattern entries, repeats 1–81×. Fully unrolling = ~50,900 events (~100 KB) — impossible. Inlined with repeats NOT unrolled = ~3,932 events (~7.9 KB) — fits a 32 KB ROM bank, NOT our ~1 KB free Z80 RAM. Two consequences vs the original plan:
+
+1. **Bounded-repeat opcode (`MEV_REPEAT_START` / `MEV_REPEAT_END nn`)** — the transcoder emits each pattern's sequence body ONCE wrapped in a repeat marker with its repeat count, instead of unrolling. Sequencer gains per-channel repeat state (saved ptr + count) in `SeqChannel` — like `sc_loop_ptr` but counted. This keeps the song ~7.9 KB. (Added as **Task 1b** below; transcoder support in T1, packer support in T1b.)
+2. **DAC-off ROM streaming (no RAM copy)** — because an FM6=FM song runs with the DAC OFF, the bank is free, so the sequencer reads stream pointers DIRECTLY through the banked `$8000` window (set the bank once at load; it's held since nothing else touches it). The 1C `Sequencer_NextOpcode` fetch (`ld a,(hl)`) works unchanged whether `hl` is RAM or the ROM window. So the DAC-off loader does NOT copy to RAM (unlike 1C's small-song path) — it bank-aligns the song, `SetBank(song bank)`, and points each `sc_stream_ptr` at `(song_window_base + per-channel offset)`. The whole song (all channel streams + patch bank) must fit in ONE 32 KB bank (`align $8000`). (Folded into **T3**.) The 1C copy-to-RAM path stays for FM6=DAC songs (DAC holds the bank).
+
 **Decoded-data sources** (all under `/home/volence/sonic_hacks/The Adventures of Batman and Robin/disasm/sound/`):
 - `ZYRINX_FORMAT.md` — the format spec (note/voice/command/tempo layout).
 - `megadaw_export/05_Moving_Trucks.json` — per-channel pattern structure (seq_idx/repeat/pitch_transpose/tempo_delta) + header.
