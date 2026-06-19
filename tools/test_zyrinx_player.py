@@ -240,6 +240,32 @@ class TestChannelVolume(unittest.TestCase):
 
 
 @unittest.skipUnless(os.path.exists(ROM_PATH), "B&R ROM not present")
+class TestNoteFill(unittest.TestCase):
+    """#4 gate articulation: ONLY the FM6 percussion channel gets a per-channel NoteFill
+    (key each hit off early -> staccato gap, matching the B&R reference's ~84% FM6 duty
+    vs our 100% legato). It must sit in the LEADING setup (zero-tick, BEFORE the
+    LoopPoint) so it persists across loops and adds NO ticks to any pattern body (the
+    existing body-tick tests already prove bodies are unchanged). Other channels stay
+    legato (no NoteFill)."""
+
+    def test_only_fm6_gets_notefill_before_loop(self):
+        from zyrinx_player import build_native_songdesc, NATIVE_FM6_NOTEFILL
+        from song_packer import NoteFill, LoopPoint, CHROUTE_FM6
+        with open(ROM_PATH, "rb") as f:
+            rom = f.read()
+        song, _, _ = build_native_songdesc(rom)
+        for c in song.channels:
+            fills = [i for i, e in enumerate(c.events) if isinstance(e, NoteFill)]
+            if c.route == CHROUTE_FM6:
+                self.assertEqual(len(fills), 1, "FM6 needs exactly one NoteFill")
+                self.assertEqual(c.events[fills[0]].master, NATIVE_FM6_NOTEFILL)
+                lp = next(i for i, e in enumerate(c.events) if isinstance(e, LoopPoint))
+                self.assertLess(fills[0], lp, "NoteFill must precede the LoopPoint")
+            else:
+                self.assertFalse(fills, f"route {c.route} must stay legato (no NoteFill)")
+
+
+@unittest.skipUnless(os.path.exists(ROM_PATH), "B&R ROM not present")
 class TestOpBiasBeforePatch(unittest.TestCase):
     """The engine applies the per-operator TL bias (OpBias -> sc_opbias) DURING the
     patch load (Fm_PatchTlGroup: TL = patch_TL + sc_opbias), so any OpBias for a

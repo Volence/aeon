@@ -62,6 +62,7 @@ MEV_REPEAT_START = 0xE5      # no operand: marks the start of a repeatable body
 MEV_REPEAT_END = 0xE6        # + nn: replay from the matching REPEAT_START nn times
 MEV_LOOP_POINT = 0xEE
 MEV_JUMP = 0xEF
+MEV_NOTEFILL = 0xED          # + master: per-channel note-fill (frames keyed from attack; 0=legato)
 MEV_END = 0xFF
 
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
@@ -146,6 +147,24 @@ class Vol(Event):
     def validate(self, route):
         if not (0 <= self.vol <= 127):
             raise PackError(f"Vol {self.vol} out of range 0..127")
+
+
+class NoteFill(Event):
+    """Gate articulation (#4): set the channel's note-fill master — the number of
+    frames a note stays keyed from its attack before an early key-off (a staccato gap
+    until the next attack). 0 = legato/off. Per-channel, persists until changed.
+    Zero-tick; the per-frame countdown + key-off run in the engine (ModUpdate)."""
+    def __init__(self, master: int):
+        self.master = master
+
+    def encode(self) -> bytes:
+        return bytes([MEV_NOTEFILL, self.master & 0xFF])
+
+    def validate(self, route):
+        if not (0 <= self.master <= 255):
+            raise PackError(f"NoteFill {self.master} out of range 0..255")
+        if route not in _FM_ROUTES:
+            raise PackError(f"NoteFill on non-FM route {route}")
 
 
 class Patch(Event):

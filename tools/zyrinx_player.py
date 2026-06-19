@@ -776,7 +776,7 @@ try:
     from song_packer import (
         SongDesc, ChannelDesc,
         SetDur, Rest, Vol, Patch, Pan, OpBias, PitchEnv, RegDelta,
-        RepeatStart, RepeatEnd, LoopPoint, Jump,
+        RepeatStart, RepeatEnd, LoopPoint, Jump, NoteFill,
         CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
         SH_F_FM6_FM, SH_F_STREAM,
         reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
@@ -787,7 +787,7 @@ except ImportError:  # pragma: no cover - alternate import path
     from tools.song_packer import (  # type: ignore
         SongDesc, ChannelDesc,
         SetDur, Rest, Vol, Patch, Pan, OpBias, PitchEnv, RegDelta,
-        RepeatStart, RepeatEnd, LoopPoint, Jump,
+        RepeatStart, RepeatEnd, LoopPoint, Jump, NoteFill,
         CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
         SH_F_FM6_FM, SH_F_STREAM,
         reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
@@ -802,6 +802,13 @@ VOICES_JSON = ("/home/volence/sonic_hacks/The Adventures of Batman and Robin/"
 # ch0..5 -> FM1..FM6 (1:1; ch5 -> FM6 via the adaptive FM6 slot, CHROUTE_FM6 = 5).
 NATIVE_FM_ROUTES = [CHROUTE_FM1, CHROUTE_FM1 + 1, CHROUTE_FM1 + 2,
                     CHROUTE_FM1 + 3, CHROUTE_FM5, CHROUTE_FM6]
+
+# #4 GATE ARTICULATION: the FM6 percussion (bass-drum) note-fill master — # frames a
+# hit stays keyed from attack before an early key-off (a staccato gap), matching the
+# B&R reference's ~84% note duty on FM6 (vs our 100% legato). A typical ch5 hit is
+# ~5 frames (~87ms); ~3 keyed frames leaves a ~1-2 frame (~25ms) gap. 0 = legato/off.
+# TUNABLE BY EAR: smaller = punchier/more detached, larger = more sustained.
+NATIVE_FM6_NOTEFILL = 3
 
 # Voice-step delta threshold: a VOICE change differing in MORE than this many
 # FmPatch register bytes (or in a byte that has no RegDelta encoding, i.e.
@@ -1364,8 +1371,14 @@ def build_native_songdesc(rom, pitchtable_offset=0):
         # commands, so the driver default is max. A lower fixed Vol (was 110) adds
         # LogVolumeLut attenuation to the carriers (110 -> +4) and saps the kick's
         # punch; the oracle's carriers sit at base TL with dynamics from voice-steps.
-        events = [Patch(walker.first_voice_local() if remap else 0),
-                  Vol(127), LoopPoint()]
+        events = [Patch(walker.first_voice_local() if remap else 0), Vol(127)]
+        # #4 GATE ARTICULATION: give the percussion (bass-drum) channel a staccato gap
+        # by keying each hit OFF a few frames after attack (per-channel note-fill master,
+        # set once before the loop point — it persists). Matches the B&R reference's ~84%
+        # FM6 duty vs our 100% legato. Other channels stay legato (no NoteFill).
+        if route == CHROUTE_FM6 and NATIVE_FM6_NOTEFILL > 0:
+            events.append(NoteFill(NATIVE_FM6_NOTEFILL))
+        events.append(LoopPoint())
         for body, repeat in bodies:
             if not body:
                 continue
