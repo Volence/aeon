@@ -1050,26 +1050,31 @@ class _Walker:
         setters = []            # zero-tick events (Patch/RegDelta/Pan/OpBias)
         pending_points = None   # transposed PITCH points awaiting a WAIT
         cur_pt = 0              # current (untransposed) PITCH point — the glide start
-        # --- GATE/Table-2 timing (bug #1 fix) ---------------------------------
+        # --- GATE = NOTE-OFF (the percussive PUNCH / crisp articulation) ------
         # The driver dispatches the FIRST command of a tick-group via Table-1 and
-        # subsequent commands via Table-2. A PITCH reached as a NON-FIRST command of
-        # a group (i.e. preceded by a GATE $1A — the dominant `GATE PITCH ... W`
-        # shape of seqs 113/117/121) is a Table-2 NOTE TRIGGER that TERMINATES the
-        # group early, leaving the group's trailing WAIT to be read as a LEADING
-        # wait by the NEXT group — so that group costs the trigger tick PLUS one
-        # orphaned-WAIT tick = 2 event-ticks, not 1. walk_body reads commands
-        # linearly (it never modelled the Table-2 early terminate), so it
-        # under-counted these notes by exactly one tick: ch0/ch3/ch4/ch5 emitted
-        # SetDur=1 where the real driver holds 2 -> keyed 2x too fast.
+        # subsequent commands via Table-2. The GATE command ($1A) is a NOTE-OFF in
+        # the Table-1 slot: a GATE reached as the FIRST command of a group (i.e.
+        # immediately after the previous group's WAIT) KEYS THE HELD NOTE OFF, and
+        # the WAIT that follows it is a SILENT REST (release gap), NOT a sustain.
+        # Verified against the oracle VGM (Moving Trucks):
+        #   * The gated drum groove (seq117/113/121, shape `...W0 GATE W0 P W0 GATE...`)
+        #     plays each hit KEY-ON ~1 tick, KEY-OFF, ~silence, then re-attacks — the
+        #     oracle shows ch4/ch5 at ~72% ON / 28% OFF (on~63ms / off~24ms) in the
+        #     groove. The release gap IS the punch; without it the kick was a
+        #     sustained drone and every voice blurred.
+        #   * A GATE reached MID-GROUP (Table-2 — it FOLLOWS a PITCH/setter in the
+        #     same tick, no intervening WAIT, e.g. seq22 `P[14] V108 GATE W31` or
+        #     seq112 `P52 ... GATE ... W`) is a NO-OP flag: the note sustains the
+        #     full trailing WAIT (oracle: seq22 holds key-on the entire ~1.45s
+        #     intro hit, no intermediate key-off). So GATE-as-note-off fires ONLY
+        #     when it is first-in-group.
         #
         # `first_in_group` is True for the command immediately after the previous
-        # group's WAIT (the Table-1 slot). A PITCH that is NOT first-in-group is a
-        # trigger; `pending_is_trigger` carries that to the WAIT-close so it adds
-        # the orphaned tick. A PITCH that IS first-in-group followed by a GATE
-        # (e.g. seq112 `P52 ... GATE ... W` — Table-1 setup + a trailing gate flag)
-        # is NOT a trigger and must NOT get the extra tick.
+        # group's WAIT (the Table-1 slot). `gate_is_noteoff` is armed by a GATE that
+        # is first-in-group; the next WAIT then emits a silent Rest (key-off) for its
+        # ticks instead of sustaining the held note.
         first_in_group = True
-        pending_is_trigger = False
+        gate_is_noteoff = False
         # --- coalescing (held-note) state ---
         held_pitch = None       # rendered idx of the note currently sounding (None = none)
         held_ticks = 0          # ticks the held note has accumulated so far
@@ -1099,27 +1104,34 @@ class _Walker:
             if b >= 0x80:
                 # WAIT: the Zyrinx driver spends (W+1) ticks per WAIT byte — 1 tick to
                 # READ the PITCH/WAIT group plus W=($FF-byte) wait ticks before the next
-                # group is read. walk_body previously used only W, making every group one
-                # tick short: melody (WAIT=3) played at 3 ticks not 4 (~1.3x fast), and
-                # the drum (two WAIT=0 groups = 1+1 ticks) collapsed to 1 tick (2x fast),
-                # re-triggering the percussive algo-5 voice into a "bonk stutter". Add the
-                # read-tick so each group costs (W+1). Close the current group.
+                # group is read. (Each command group costs (W+1) event-ticks.)
                 ticks = (0xFF - b) + 1
                 p += 1
-                # GATE/Table-2 orphaned-WAIT (bug #1): a PITCH that was a Table-2
-                # trigger (not first-in-group) ended the group early, so THIS WAIT is
-                # a separate leading-wait tick for the next group -> add one EXTRA
-                # hold tick to the trigger note being closed here.
-                if pending_is_trigger and pending_points is not None:
-                    ticks += 1
-                # close the group: the next command starts a fresh group (Table-1).
+                # snapshot + close the group: the next command starts a fresh group
+                # (Table-1). gate_off applies to THIS WAIT (the rest after the gate).
+                gate_off = gate_is_noteoff
                 first_in_group = True
-                pending_is_trigger = False
+                gate_is_noteoff = False
                 # advance the continuous glide-sampling clock by this group's time.
                 glide_phase += ticks * frames_per_tick
                 out.extend(setters)
                 setters = []
-                if pending_points is not None:
+                if gate_off and pending_points is None:
+                    # GATE-first-in-group closed by this WAIT = NOTE-OFF + SILENT REST.
+                    # Key the held note OFF and idle for `ticks` (the release gap).
+                    # The engine's MEV_REST ($80) does exactly this: clears SCF_KEYED,
+                    # calls Seq_HookNoteOff (-> Fm_NoteOff / Psg_NoteOff), and advances
+                    # sc_dur_default ticks of silence. End the held note (a later PITCH
+                    # re-attacks from silence — a genuine fresh key-on, not a coalesce).
+                    if ticks > 0:
+                        out.append(SetDur(ticks))
+                        out.append(Rest())
+                        self.stats["rest"] += 1
+                    held_pitch = None
+                    held_ticks = 0
+                    held_setdur = None
+                    held_env = None
+                elif pending_points is not None:
                     rpitch = octave_cap_idx(pending_points[0], self.octave_cap)
                     cap_pts = [octave_cap_idx(x, self.octave_cap)
                                for x in pending_points]
@@ -1151,13 +1163,13 @@ class _Walker:
                         held_ticks = max(1, ticks)
                     pending_points = None
                 else:
-                    # WAIT with no pending PITCH. Zyrinx notes SUSTAIN until the next
-                    # PITCH re-keys them — there is NO implicit note-off on a WAIT
-                    # (this song has zero $1E channel-off commands). The dominant
-                    # pattern is `PITCH WAIT1 GATE WAIT1`: the GATE is a no-op here
-                    # (verified — the oracle's key-on count == the PITCH count, NOT
-                    # PITCH+GATE), so the trailing WAIT must EXTEND the held note's
-                    # duration (a 2-tick sustained note), not key-off into a rest.
+                    # WAIT with no pending PITCH and no GATE-note-off. A held note
+                    # SUSTAINS across this WAIT (the melodic re-key path: notes hold
+                    # until the next PITCH re-keys them). A GATE that fired note-off
+                    # is handled in the `gate_off` branch above; a non-first-in-group
+                    # GATE (Table-2 flag, e.g. seq22 `P V108 GATE W31`) leaves
+                    # gate_is_noteoff clear, so its trailing WAIT lands HERE and the
+                    # note correctly sustains the whole hold (oracle-verified).
                     if held_setdur is not None:
                         # extend the currently sounding note by these ticks.
                         held_ticks += ticks
@@ -1179,10 +1191,6 @@ class _Walker:
                 # apply the per-pattern transpose; clamp to 0..PITCHENV_MAX_IDX.
                 tp = [clamp_note(n, transpose) for n in pts]
                 pending_points = tp
-                # Table-2 trigger? A PITCH that is NOT the first command of its group
-                # (i.e. it followed a GATE/setter in the same group) terminates the
-                # group early in the driver, orphaning its trailing WAIT (bug #1).
-                pending_is_trigger = not first_in_group
                 first_in_group = False
             elif op in (0x0A, 0x0C, 0x0E, 0x10, 0x12):
                 # PITCH-GLIDE SETUP (cmds $0A-$12): N glide targets + 1 duration.
@@ -1231,9 +1239,9 @@ class _Walker:
                 # the glide leaves the channel on its target point.
                 cur_pt = target_pt
                 # a glide is a time-advancing event that ends the group's note slot;
-                # the next command is non-first and no trigger is pending.
+                # the next command is non-first.
                 first_in_group = False
-                pending_is_trigger = False
+                gate_is_noteoff = False
             elif op == 0x14:                 # PARAM (key/legato override) -> drop
                 p += 2
                 first_in_group = False
@@ -1245,11 +1253,17 @@ class _Walker:
                 p += 2
                 self._voice(voice_idx, setters)
                 first_in_group = False
-            elif op == 0x1A:                 # GATE / retrigger flag
-                # GATE consumes the group's first-command slot (Table-1). A PITCH
-                # that follows it in the same group is therefore a Table-2 trigger
-                # (handled in the PITCH op via first_in_group). GATE itself is a
-                # zero-tick flag here (no note-off; notes sustain — see below).
+            elif op == 0x1A:                 # GATE = NOTE-OFF (Table-1) / flag (Table-2)
+                # A GATE that is the FIRST command of its group (Table-1 slot,
+                # i.e. immediately after the previous WAIT) is a NOTE-OFF: arm
+                # gate_is_noteoff so the WAIT that closes THIS group emits a silent
+                # Rest (release gap) instead of sustaining the held note. A GATE
+                # reached mid-group (Table-2 — it followed a PITCH/setter with no
+                # intervening WAIT, e.g. seq22 `P V108 GATE W31`) is a no-op flag:
+                # leave gate_is_noteoff clear so the note sustains its full WAIT.
+                # (Oracle-verified — see the block comment at body start.)
+                if first_in_group:
+                    gate_is_noteoff = True
                 first_in_group = False
                 p += 1
             elif op == 0x1C:                 # LOOP -> body terminator
