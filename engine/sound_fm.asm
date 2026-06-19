@@ -364,19 +364,53 @@ Fm_SetVolume:
         ld      a, (Fm_ScratchMask)
         and     c                        ; mask bit set for this op?
         jr      z, .skip_op              ; modulator -> leave TL untouched
-        ; carrier: effective_TL = min($7F, base_TL + log)
-        ld      a, (hl)                  ; base TL for this op
-        push    hl
-        ld      hl, Fm_ScratchLog
-        add     a, (hl)                  ; + log delta (may carry past 8 bits)
-        pop     hl
-        jr      c, .clamp                ; 8-bit overflow -> silent
+        ; carrier: effective_TL = clamp(base_TL + sc_opbias[op] + log, 0, $7F).
+        ; INCLUDE the per-operator bias (signed) so re-applying volume does NOT
+        ; clobber the opbias Fm_PatchLoad wrote — mirrors the driver's key-on
+        ; TL = (0x7F^patch_TL) + op_mod. (Bug: writing base+log alone dropped the
+        ; bias on any carrier operator -> wrong timbre / lost kick punch on alg5+
+        ; voices where a biased operator is a carrier.) op index = e>>2.
+        ld      d, (hl)                  ; d = base TL (0..$7F)
+        ld      a, e
+        rrca
+        rrca
+        and     3                        ; a = op index (e>>2)
+        push    hl                       ; save fp_tl ptr (restored before reg write)
+        ld      l, a
+        ld      h, 0
+        push    ix
+        pop     bc
+        add     hl, bc                   ; hl = SeqChannel base + op
+        ld      bc, sc_opbias
+        add     hl, bc                   ; hl = &sc_opbias[op]
+        ld      a, (hl)                  ; a = sc_opbias[op] (signed)
+        ld      c, a
+        add     a, a
+        sbc     a, a
+        ld      b, a                     ; bc = sign-extended bias (16-bit signed)
+        ld      l, d
+        ld      h, 0                     ; hl = base TL (positive)
+        add     hl, bc                   ; hl = base + bias
+        ld      a, (Fm_ScratchLog)
+        ld      c, a
+        ld      b, 0                     ; bc = log delta (positive)
+        add     hl, bc                   ; hl = base + bias + log (signed 16-bit)
+        bit     7, h                     ; result < 0 ?
+        jr      nz, .clamp_lo            ; -> $00 (max brightness)
+        ld      a, h
+        or      a
+        jr      nz, .clamp               ; high byte set -> > $7F -> silent
+        ld      a, l
         cp      SND_FM_TL_MAX+1          ; result > $7F ?
         jr      c, .tl_ok
 .clamp:
         ld      a, SND_FM_TL_MAX         ; clamp to $7F (silent)
+        jr      .tl_ok
+.clamp_lo:
+        xor     a                        ; clamp to $00 (max brightness)
 .tl_ok:
         ld      c, a                     ; data = effective TL
+        pop     hl                       ; restore fp_tl ptr
         ; reg = $40 + (op*4) + ch
         ld      a, SND_REG_OP_TL
         add     a, e                     ; + op*4
