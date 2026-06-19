@@ -1084,7 +1084,19 @@ class _Walker:
 
         def emit_setters():
             if setters:
-                out.extend(setters)
+                # OpBias MUST precede Patch/RegDelta: the engine applies the per-
+                # operator TL bias (sc_opbias) DURING the patch load (Fm_PatchTlGroup
+                # adds it to the operator TL). A Patch that loads before the bias is
+                # set omits it -> wrong modulator/carrier levels (lost kick punch /
+                # wrong timbre). This mirrors the driver, which computes the key-on
+                # TL = (0x7F^patch_TL)+op_mod AFTER the group's OP commands. Emit all
+                # OpBias first, then the rest (Patch/RegDelta/Pan) in original order.
+                ob = [e for e in setters if isinstance(e, OpBias)]
+                if ob:
+                    out.extend(ob)
+                    out.extend(e for e in setters if not isinstance(e, OpBias))
+                else:
+                    out.extend(setters)
                 setters.clear()
 
         for _group in range(8192):

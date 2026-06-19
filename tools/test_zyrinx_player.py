@@ -239,5 +239,38 @@ class TestChannelVolume(unittest.TestCase):
             self.assertEqual(vols[0], 127, f"ch{ci} leading volume not full")
 
 
+@unittest.skipUnless(os.path.exists(ROM_PATH), "B&R ROM not present")
+class TestOpBiasBeforePatch(unittest.TestCase):
+    """The engine applies the per-operator TL bias (OpBias -> sc_opbias) DURING the
+    patch load (Fm_PatchTlGroup: TL = patch_TL + sc_opbias), so any OpBias for a
+    note must be emitted BEFORE that note's Patch/RegDelta. If a Patch loads first,
+    the note's operator levels omit the bias (wrong modulator/carrier TL -> wrong
+    timbre, lost kick punch). Matches the driver's key-on TL = (0x7F^patch_TL)+op_mod.
+    Invariant: within a group (between time-advancing events), no OpBias follows a
+    Patch/RegDelta."""
+
+    def test_opbias_precedes_patch_in_each_group(self):
+        from zyrinx_player import build_native_songdesc
+        from song_packer import (OpBias, Patch, RegDelta, PitchEnv, Note, Rest,
+                                  NoteDur, NoteRaw, RepeatStart)
+        with open(ROM_PATH, "rb") as f:
+            rom = f.read()
+        song, _, _ = build_native_songdesc(rom)
+        ADV = (PitchEnv, Note, Rest, NoteDur, NoteRaw)
+        for ci, c in enumerate(song.channels):
+            seen_patch = False
+            for e in c.events:
+                # group boundaries: a time-advancing event ends a note's group, and
+                # RepeatStart begins a body (the leading channel Patch lives before
+                # the first RepeatStart and is not part of any note's group).
+                if isinstance(e, ADV) or isinstance(e, RepeatStart):
+                    seen_patch = False
+                elif isinstance(e, (Patch, RegDelta)):
+                    seen_patch = True
+                elif isinstance(e, OpBias) and seen_patch:
+                    self.fail(f"ch{ci}: OpBias(op{e.op},{e.val}) emitted AFTER a "
+                              f"Patch/RegDelta in the same group (bias will be lost)")
+
+
 if __name__ == "__main__":
     unittest.main()
