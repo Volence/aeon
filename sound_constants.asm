@@ -62,6 +62,9 @@ SND_Z80_YM_A2           = $4002                  ; addr part II (FM ch 4-6 regis
 SND_Z80_YM_A3           = $4003                  ; data part II
 SND_REG_DAC_DATA        = $2A                    ; YM reg: DAC sample byte (parked in the addr port)
 SND_REG_DAC_ENABLE      = $2B                    ; YM reg: bit7 = DAC mode (written ONCE at init)
+SND_REG_LFO             = $22                    ; YM reg: GLOBAL low-freq osc — bit3 = enable, bits0-2 = freq.
+                                                 ; Master switch for every channel's AMS(tremolo)/FMS(vibrato)
+                                                 ; depth in $B4. Written ONCE at init ($08 = on, ~3.98Hz).
 
 ; --- YM2612 FM register bases (Task 3 FM voice writer) ---
 ; Per-channel regs add the channel-within-part index (0..2): e.g. $A0+ch.
