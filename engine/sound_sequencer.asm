@@ -148,6 +148,24 @@ ModUpdate:
         call    Fm_SetPan                ; write $B4+chan = sc_pan (preserves ix)
 .pan_done:
 
+        ; --- NOTE-FILL (#4 gate articulation): per-frame countdown; key OFF early when it
+        ; reaches 0, leaving a staccato gap until the next attack. sc_fill_count==0 means
+        ; disabled (sc_fill_master 0) OR already expired -> one test, no cost. Runs BEFORE the
+        ; held-note `ret z` below so a held note can be released MID-duration (the gap). It is
+        ; reloaded from sc_fill_master at every key-on (.rekey_on). Only channels with
+        ; sc_fill_master != 0 (the gated percussion) are affected; every other channel keeps
+        ; sc_fill_master == 0 -> full legato, byte-identical to before this feature.
+        ld      a, (ix+sc_fill_count)
+        or      a
+        jr      z, .notefill_done        ; disabled / expired -> nothing
+        dec     a
+        ld      (ix+sc_fill_count), a
+        jr      nz, .notefill_done       ; not yet 0 -> still keyed
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .notefill_done        ; already off -> idempotent
+        call    Fm_NoteOff               ; reached 0 -> key OFF (clears SCF_KEYED); preserves ix
+.notefill_done:
+
         ld      a, (ix+sc_pt_count)
         cp      2
         jr      nc, .multipoint          ; pt_count >= 2 -> trill/arp (Task 4)
@@ -188,7 +206,11 @@ ModUpdate:
     endif
 .rekey_on:
         ld      a, (ix+sc_points)        ; (re)load sc_points[0] (Fm_NoteOff clobbered a)
-        jp      Fm_NoteFromTable         ; look up per-song table + key on (preserves ix)
+        call    Fm_NoteFromTable         ; look up per-song table + key on (preserves ix)
+        ; reload the note-fill countdown for this fresh attack (master 0 -> stays legato)
+        ld      a, (ix+sc_fill_master)
+        ld      (ix+sc_fill_count), a
+        ret
 
 .multipoint:
         ; --- count>=2 trill/arp pitch path (PER-FRAME re-articulation) ---------
@@ -344,6 +366,15 @@ Seq_Op_Vol:
         call    Seq_HookSetVol           ; -> Fm_SetVolume / Psg_SetVolume per route
         pop     hl
         jp      Seq_ContinueFetch        ; jp (not jr): the 1D repeat handlers pushed this out of jr range
+
+; $ED MEV_NOTEFILL + master : set per-channel note-fill (frames keyed from attack), zero tick.
+; 0 = legato/off. The countdown + early key-off run in ModUpdate (per-frame). State-only, no
+; writer hook -> hl stays the live stream ptr.
+Seq_Op_NoteFill:
+        ld      a, (hl)
+        inc     hl                       ; consume operand (master)
+        ld      (ix+sc_fill_master), a
+        jp      Seq_ContinueFetch
 
 ; $E1 MEV_PATCH + pp : set FM patch index, zero tick
 Seq_Op_Patch:
@@ -761,7 +792,7 @@ SeqOpcodeTable:
         dw      Seq_Op_RegDelta          ; $EA MEV_REGDELTA (voice-stepping)
         dw      Seq_BadOpcode            ; $EB reserved
         dw      Seq_BadOpcode            ; $EC reserved
-        dw      Seq_BadOpcode            ; $ED reserved
+        dw      Seq_Op_NoteFill          ; $ED MEV_NOTEFILL (gate articulation)
         dw      Seq_Op_LoopPoint         ; $EE MEV_LOOP_POINT
         dw      Seq_Op_Jump              ; $EF MEV_JUMP
         dw      Seq_BadOpcode            ; $F0 reserved

@@ -348,6 +348,9 @@ MEV_REPEAT_START = $E5   ; (no operand) start of a repeatable body
 MEV_REPEAT_END   = $E6   ; + nn : replay from matching REPEAT_START nn times (1..255)
 MEV_LOOP_POINT  = $EE    ; loop-target marker (no operand)
 MEV_JUMP        = $EF    ; jump to loop point
+MEV_NOTEFILL    = $ED    ; + master : per-channel note-fill — # frames the note stays keyed
+                         ;   from attack before an early key-off (0 = legato/off). Gate
+                         ;   articulation / staccato (#4). Set per channel; persists.
 MEV_END         = $FF    ; end of stream (channel idle)
 ; reserved for Phase 3: $EB–$ED, $F0–$FE (unknown opcode = build/validation error)
 
@@ -576,10 +579,13 @@ sc_porta_incr   ds.w 1   ; +34 portamento per-frame increment (0 = no glide)
 ; load / note, matching the Zyrinx key-on latch), so ModUpdate never re-asserts it
 ; per frame — no write-on-change tracking is needed (zero per-frame cost).
 sc_last_pan     ds.b 1   ; +36 last $B4 ModUpdate wrote (0 = none yet / matches default)
-SeqChannel endstruct      ; = 37 bytes
+sc_fill_master  ds.b 1   ; +37 note-fill reload: # frames the note stays keyed from attack
+                         ;     (0 = legato/off). Per-channel gate articulation (#4).
+sc_fill_count   ds.b 1   ; +38 live per-frame note-fill countdown (0 = expired or disabled)
+SeqChannel endstruct      ; = 39 bytes
 
-        if SeqChannel_len <> 37
-          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 37"
+        if SeqChannel_len <> 39
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 39"
         endif
         ; the largest field offset must stay within the signed-8-bit (ix+d) range.
         if SeqChannel_sc_last_pan > 127
@@ -612,6 +618,8 @@ sc_opbias       = SeqChannel_sc_opbias
 sc_porta_accum  = SeqChannel_sc_porta_accum
 sc_porta_incr   = SeqChannel_sc_porta_incr
 sc_last_pan     = SeqChannel_sc_last_pan
+sc_fill_master  = SeqChannel_sc_fill_master
+sc_fill_count   = SeqChannel_sc_fill_count
 
 ; --- sc_flags bit numbers + masks ---
 ; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B
