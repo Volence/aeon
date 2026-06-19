@@ -218,5 +218,26 @@ class TestOpBiasReset(unittest.TestCase):
                         f"before first note (cleared ops {sorted(cleared)})")
 
 
+@unittest.skipUnless(os.path.exists(ROM_PATH), "B&R ROM not present")
+class TestChannelVolume(unittest.TestCase):
+    """Moving Trucks emits NO source VOL commands ($0A-$12), so the channel volume
+    must be the driver default = FULL (Vol 127), which adds 0 carrier attenuation
+    (LogVolumeLut[127]=0). The dynamics come from voice-stepping, not a volume
+    envelope. A fixed Vol(110) added +4 attenuation to every carrier (LogVolumeLut
+    [110]=4) -> the kick lost its punch (verified vs the oracle: B&R FM2 carriers
+    sit at base TL 0/1, ours were +4)."""
+
+    def test_leading_volume_is_full(self):
+        from zyrinx_player import build_native_songdesc
+        from song_packer import Vol
+        with open(ROM_PATH, "rb") as f:
+            rom = f.read()
+        song, _, _ = build_native_songdesc(rom)
+        for ci, c in enumerate(song.channels):
+            vols = [e.vol for e in c.events if isinstance(e, Vol)]
+            self.assertTrue(vols, f"ch{ci} has no Vol event")
+            self.assertEqual(vols[0], 127, f"ch{ci} leading volume not full")
+
+
 if __name__ == "__main__":
     unittest.main()

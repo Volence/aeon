@@ -1348,8 +1348,12 @@ def build_native_songdesc(rom, pitchtable_offset=0):
         # channel (the guard wants Patch+Vol before the first keyed note). The
         # walker's first VOICE inside the body is the SAME voice (Patch), so the
         # re-key rule / minimal-delta logic stays consistent. ---
+        # Full volume (no carrier attenuation): Moving Trucks emits no source VOL
+        # commands, so the driver default is max. A lower fixed Vol (was 110) adds
+        # LogVolumeLut attenuation to the carriers (110 -> +4) and saps the kick's
+        # punch; the oracle's carriers sit at base TL with dynamics from voice-steps.
         events = [Patch(walker.first_voice_local() if remap else 0),
-                  Vol(110), LoopPoint()]
+                  Vol(127), LoopPoint()]
         for body, repeat in bodies:
             if not body:
                 continue
