@@ -68,7 +68,14 @@ _LOW = [128, 135, 143, 152, 161, 170, 181, 191, 203, 215, 228, 241,
 
 
 def build_pitch_tables():
-    """Return (A4[], A0[], block[], fnum[]) indexed 0..0x83, plus a reverse (block,fnum)->idx."""
+    """Return (A4[], A0[], block[], fnum[]) indexed 0..0x83, plus a reverse (block,fnum)->idx.
+
+    This hand-transcribed §2.4 table is cross-checked against the oracle: the bass
+    indices ($1C/$28/$34/$40) render to C1/C2/C3/C4 exactly as the oracle writes them.
+    (A ROM table at $1E7000/$1E7100 holds the same fnum value-SET but at indices
+    shifted ~4 semitones -- it is NOT the LUT these source indices use; do not swap
+    to it. The remaining per-channel octave error on the percussion/FM2 voice is NOT
+    in this table.)"""
     a4 = [0] * 0x84
     a0 = [0] * 0x84
     block = [0] * 0x84
@@ -102,18 +109,26 @@ A4_TBL, A0_TBL, BLOCK_TBL, FNUM_TBL, REV_TBL = build_pitch_tables()
 # sound_constants.asm PITCHTAB_*): TWO PARALLEL PAGES — the A4 page (132 bytes,
 # the YM $A4 = (block<<3)|fnumHi values) FIRST, then the A0 page (132 bytes, the
 # YM $A0 = fnum-low values). So index i: $A4 = page[i], $A0 = page[132 + i]. This
-# mirrors Zyrinx's native $0F00 (A4) / $1000 (A0) split. The values are the §2.4
-# dump (hardcoded in build_pitch_tables — no ROM dependency), cross-checked against
-# the oracle (every Moving-Trucks pitch write maps to an exact entry, §2.6).
+# mirrors Zyrinx's native $0F00 (A4) / $1000 (A0) split. The values are read DIRECTLY
+# from the real Zyrinx table in the B&R ROM (build_pitch_tables, PITCHTAB_A4/A0_ADDR),
+# so every Moving-Trucks pitch write maps to the oracle's exact entry.
 # ----------------------------------------------------------------------------
 PITCHTAB_COUNT = 0x84            # 132 entries (idx $00..$83); mirror of PITCHTAB_COUNT
 
-# A few index->note anchors for the .asm comment (and the scratch-song doc).
-_NOTE_ANCHORS = {
-    0x24: "C (block0, fnum1024)", 0x28: "E (block0, fnum1290)",
-    0x2B: "G (block0, fnum1534)", 0x30: "C (block1, fnum1024)",
-    0x3C: "C (block2, fnum1024)", 0x48: "C (block3, fnum1024)",
-}
+# Index->note anchors for the generated .asm comment, computed from the real table.
+def _note_anchors():
+    if not FNUM_TBL:
+        return {}
+    names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    out = {}
+    for idx in (0x2C, 0x34, 0x40, 0x44):     # a few C/landmark indices
+        b = BLOCK_TBL[idx]
+        f = FNUM_TBL[idx]
+        # crude semitone-from-C2(1290) label is enough for a comment
+        out[idx] = "block%d fnum%d" % (b, f)
+    return out
+
+_NOTE_ANCHORS = _note_anchors()
 
 
 def _hexrow(vals, directive="db"):
@@ -197,8 +212,8 @@ def clamp_note(idx, transpose):
 #   GLIDE_FNUM16[i] = FNUM_TBL[i] << 5   (16-bit accumulator unit)
 #   GLIDE_BLOCK8[i] = BLOCK_TBL[i] << 3
 # ----------------------------------------------------------------------------
-GLIDE_FNUM16 = [FNUM_TBL[i] << 5 for i in range(0x84)]
-GLIDE_BLOCK8 = [BLOCK_TBL[i] << 3 for i in range(0x84)]
+GLIDE_FNUM16 = [FNUM_TBL[i] << 5 for i in range(0x84)] if FNUM_TBL else []
+GLIDE_BLOCK8 = [BLOCK_TBL[i] << 3 for i in range(0x84)] if BLOCK_TBL else []
 
 # Block-0 region of the table (idx whose block == 0), sorted by fnum, for the
 # OCTAVE rule below. RESOLVED empirically vs the oracle: the gliding accumulator's
@@ -208,7 +223,7 @@ GLIDE_BLOCK8 = [BLOCK_TBL[i] << 3 for i in range(0x84)]
 # reverse-mapped to the nearest BLOCK-0 table index. This is the fix for the
 # "octave-too-high, sparse static endpoints" bug — the emitted notes now match the
 # oracle's low-octave chromatic melody.
-_GLIDE_B0 = sorted((FNUM_TBL[i], i) for i in range(0x84) if BLOCK_TBL[i] == 0)
+_GLIDE_B0 = sorted((FNUM_TBL[i], i) for i in range(0x84) if BLOCK_TBL[i] == 0) if FNUM_TBL else []
 
 
 def glide_nearest_b0_idx(fnum):
@@ -956,10 +971,11 @@ def _voice_step_event(prev_fp, new_fp, new_local_idx):
 
 
 def _zyrinx_op_to_phys(op_natural):
-    """Zyrinx OP1-4 (natural op 0..3) -> our PHYSICAL op index 0..3 (S1,S3,S2,S4).
-    OP1->S1=0, OP2->S2=2, OP3->S3=1, OP4->S4=3 (the OP_REORDER=[0,2,1,3] mapping,
-    self-inverse). See /tmp/zyrinx_re_commands.md §3.4 + zyrinx_port.OP_REORDER."""
-    return (0, 2, 1, 3)[op_natural]
+    """Zyrinx OP1-4 -> our FmPatch op slot. The ROM voice bytes are already in
+    physical-register order and we no longer reorder them (OP_REORDER=identity), so
+    a Zyrinx OP_n bias targets FmPatch slot n directly. VERIFIED against the live
+    B&R FM2 capture; see zyrinx_port.OP_REORDER."""
+    return (0, 1, 2, 3)[op_natural]
 
 
 def _to_signed(b):
@@ -1025,345 +1041,169 @@ class _Walker:
             self.stats["regdelta"] += 1
 
     def walk_body(self, seq_start, transpose):
-        """Translate one sequence body (seq_start .. first LOOP $1C) into events.
+        """Translate one sequence body (seq_start .. the first LOOP $1C) into our
+        v0 events by FAITHFULLY simulating the Zyrinx driver's per-tick command
+        groups and TWO-TABLE dispatch ($0339 / $03D0 / $0A60).
 
-        Per-tick group model (matches the driver's Table-1/Table-2 dispatch):
-        a group is the run of commands up to a WAIT byte. We buffer the group's
-        zero-tick setters (Patch/RegDelta/Pan/OpBias) and the pending PITCH.
+        A group is read at each event-tick where the WAIT counter is 0. The FIRST
+        command of a group dispatches via Table-1, every SUBSEQUENT command via
+        Table-2, until the group ends. A group ends on:
+          * a WAIT byte W (>=$80): cost = 1 + ($FF - W) event-ticks (the read tick
+            plus the silent wait ticks), OR
+          * a Table-2 NOTE ($00-$08 that is NOT first-in-group): NoteTrigger_$0A60
+            costs exactly 1 event-tick and REWINDS the read pointer (DEC HL) so the
+            note byte is re-read by the NEXT group as a Table-1 PITCH. This "orphan
+            tick" is what spaces the dense fast lines (seq117/113/121) to one key-on
+            per 2 event-ticks, giving every body a 64-tick length so all channels
+            share one 2688-tick loop and stay phase-locked. (Charging every $FF
+            group as an independent 1-tick onset — the old bug — runs those channels
+            ~1.9x too fast and they drift off the grid, off each other.)
 
-        CADENCE COALESCING (Task 1): our engine re-keys on EVERY MEV_PITCHENV, so a
-        held same-pitch run must collapse to ONE keyed note (with the summed hold)
-        instead of one re-key per source PITCH+WAIT group. We carry a "held note"
-        across consecutive groups: a new group whose rendered pitch equals the held
-        note (and whose hold so far is below the channel's re-key window) does NOT
-        emit a new PitchEnv — its ticks are added to the held note's SetDur. A new
-        PitchEnv is emitted only when the pitch CHANGES, the re-key window is
-        reached, or a non-note event (glide / rest) forces a flush. The zero-tick
-        setters (VOICE/OP/PAN) that land mid-hold are emitted in order (they change
-        timbre without re-keying — the engine's MEV_PATCH/OPBIAS/REGDELTA don't
-        touch $28). Coalescing is WITHIN a single body (the long Moving-Trucks
-        sequence bodies hold the 8-note same-pitch runs internally), which keeps
-        every emitted note inside its RepeatStart..RepeatEnd wrapper.
+        Emission: each Table-1 PITCH group emits one keyed note (PitchEnv); its hold
+        is its own tick cost PLUS the trailing NON-onset groups (orphan re-arm /
+        GATE / pure WAIT) up to the next onset, so the note sustains across the
+        orphan tick and the next PITCH re-keys it. Our engine retriggers the FM
+        envelope on every PitchEnv, so the re-key IS the percussive punch the GATE
+        flag asks for — no time-bearing note-off REST is needed (and emitting one,
+        as the old code did, is exactly what stole ticks and desynced the channels).
+        GATE ($1A) is therefore modelled as a ZERO-tick retrigger flag (matching the
+        disassembly's Cmd_Gate_$03A1 and the oracle, which keeps a rock-steady onset
+        grid while every note is articulated). Zero-tick setters (VOICE / PAN / OP)
+        are flushed just before the note they qualify.
         """
         rom = self.rom
         out = []
         p = seq_start
-        # Reset the voice baseline at every body start: a body is wrapped in
-        # RepeatStart..RepeatEnd(repeat) (it replays `repeat` times) and the whole
-        # channel loops, so a body may be re-entered from an UNKNOWN chip-voice
-        # state (its own last voice on repeat, or the previous body's last voice on
-        # the first play / loop-back). Forcing the body's FIRST VOICE to a full
-        # absolute Patch (prev_fp=None) makes each body SELF-CONTAINED — correct
-        # under any entry state — while the voice-STEPS WITHIN the body stay minimal
-        # RegDeltas (the Zyrinx voice-stepping trick stays compact).
+        # Each body is self-contained: force the first VOICE to a full Patch
+        # (prev_fp=None) so the opening voice reloads correctly on every loop
+        # iteration (the body is what replays; the leading setup runs once).
         self.prev_fp = None
-        # group accumulators
-        setters = []            # zero-tick events (Patch/RegDelta/Pan/OpBias)
-        pending_points = None   # transposed PITCH points awaiting a WAIT
-        cur_pt = 0              # current (untransposed) PITCH point — the glide start
-        # --- GATE = NOTE-OFF (the percussive PUNCH / crisp articulation) ------
-        # The driver dispatches the FIRST command of a tick-group via Table-1 and
-        # subsequent commands via Table-2. The GATE command ($1A) is a NOTE-OFF in
-        # the Table-1 slot: a GATE reached as the FIRST command of a group (i.e.
-        # immediately after the previous group's WAIT) KEYS THE HELD NOTE OFF, and
-        # the WAIT that follows it is a SILENT REST (release gap), NOT a sustain.
-        # Verified against the oracle VGM (Moving Trucks):
-        #   * The gated drum groove (seq117/113/121, shape `...W0 GATE W0 P W0 GATE...`)
-        #     plays each hit KEY-ON ~1 tick, KEY-OFF, ~silence, then re-attacks — the
-        #     oracle shows ch4/ch5 at ~72% ON / 28% OFF (on~63ms / off~24ms) in the
-        #     groove. The release gap IS the punch; without it the kick was a
-        #     sustained drone and every voice blurred.
-        #   * A GATE reached MID-GROUP (Table-2 — it FOLLOWS a PITCH/setter in the
-        #     same tick, no intervening WAIT, e.g. seq22 `P[14] V108 GATE W31` or
-        #     seq112 `P52 ... GATE ... W`) is a NO-OP flag: the note sustains the
-        #     full trailing WAIT (oracle: seq22 holds key-on the entire ~1.45s
-        #     intro hit, no intermediate key-off). So GATE-as-note-off fires ONLY
-        #     when it is first-in-group.
-        #
-        # `first_in_group` is True for the command immediately after the previous
-        # group's WAIT (the Table-1 slot). `gate_is_noteoff` is armed by a GATE that
-        # is first-in-group; the next WAIT then emits a silent Rest (key-off) for its
-        # ticks instead of sustaining the held note.
-        first_in_group = True
-        gate_is_noteoff = False
-        # --- coalescing (held-note) state ---
-        held_pitch = None       # rendered idx of the note currently sounding (None = none)
-        held_ticks = 0          # ticks the held note has accumulated so far
-        held_setdur = None      # the SetDur event object whose .ticks we extend
+        cur_setdur = None      # SetDur of the note currently sounding (extended by
+                               #   trailing non-onset groups; None = nothing held)
+        setters = []           # zero-tick events buffered for the next emission
 
-        held_env = None         # the PitchEnv event object of the held note (for
-                                #   re-sampling its pitch within the re-key window)
-        # Continuous per-body frame phase for the glide re-key grid (see
-        # glide_trajectory_sampled): every time-advancing event advances it so the
-        # glide sampling clock keeps ticking across glides (NOT reset per glide),
-        # which is what walks the full chromatic arpeggio out of repeated glides.
-        frames_per_tick = self.tempo_base / 16.0
-        glide_phase = 0.0
-
-        def commit_held():
-            # write the held note's accumulated ticks back into its SetDur (the
-            # SetDur object lives in `out` already; we extend it in place). Does NOT
-            # null held_setdur — the same note may keep coalescing further groups.
-            if held_setdur is not None:
-                held_setdur.ticks = held_ticks
-
-        # A glide command emits its trajectory immediately (a run of single-point
-        # PitchEnv steps) instead of waiting for the WAIT — the WAIT after a glide
-        # then holds the glide's final (target) value.
-        for _ in range(8192):
-            b = rom[p]
-            if b >= 0x80:
-                # WAIT: the Zyrinx driver spends (W+1) ticks per WAIT byte — 1 tick to
-                # READ the PITCH/WAIT group plus W=($FF-byte) wait ticks before the next
-                # group is read. (Each command group costs (W+1) event-ticks.)
-                ticks = (0xFF - b) + 1
-                p += 1
-                # snapshot + close the group: the next command starts a fresh group
-                # (Table-1). gate_off applies to THIS WAIT (the rest after the gate).
-                gate_off = gate_is_noteoff
-                first_in_group = True
-                gate_is_noteoff = False
-                # advance the continuous glide-sampling clock by this group's time.
-                glide_phase += ticks * frames_per_tick
+        def emit_setters():
+            if setters:
                 out.extend(setters)
-                setters = []
-                if gate_off and pending_points is None:
-                    # GATE-first-in-group closed by this WAIT = NOTE-OFF + SILENT REST.
-                    # Key the held note OFF and idle for `ticks` (the release gap).
-                    # The engine's MEV_REST ($80) does exactly this: clears SCF_KEYED,
-                    # calls Seq_HookNoteOff (-> Fm_NoteOff / Psg_NoteOff), and advances
-                    # sc_dur_default ticks of silence. End the held note (a later PITCH
-                    # re-attacks from silence — a genuine fresh key-on, not a coalesce).
-                    if ticks > 0:
-                        out.append(SetDur(ticks))
-                        out.append(Rest())
-                        self.stats["rest"] += 1
-                    held_pitch = None
-                    held_ticks = 0
-                    held_setdur = None
-                    held_env = None
-                elif gate_off and pending_points is not None and self.gate_pitch_noteoff:
-                    # GATE-first-in-group FOLLOWED BY A PITCH in the same group, then
-                    # closed by this WAIT — this is the percussive groove's per-hit
-                    # cell `GATE PITCH W` (e.g. ch5/bass-drum seq71/75: PITCH W |
-                    # GATE PITCH W | GATE PITCH W | ...). The GATE is a NOTE-OFF that
-                    # RELEASES the previous hit (the punch), and the PITCH is the NEXT
-                    # hit's attack. Without honoring the gate here the kick was a
-                    # back-to-back PitchEnv drone (no release gap, no punch); the
-                    # earlier rule only fired when no PITCH followed, so only the very
-                    # first hit of each groove got its punch. ENABLED ONLY on the
-                    # gated percussion channel (self.gate_pitch_noteoff) — the melodic
-                    # channels (ch0-ch4) fall through to the legato coalescing path
-                    # below so their `GATE PITCH W` cells stay un-gated (oracle: their
-                    # off-gap is ~1 ms = sustained), exactly as before this change.
-                    #
-                    # Split the slot into RELEASE (key-off / silent Rest) + ATTACK
-                    # (the pending note keyed on). The off-gap is sub-tick in the
-                    # oracle (~35 ms < our ~59 ms tick); a tick-aligned gate (off 1
-                    # tick, on the remainder, min 1) reproduces the on~1tick/off~gap
-                    # cadence the oracle plays — the note RELEASING is the punch.
-                    # This is a fresh re-attack: it ENDS the held note (no coalesce),
-                    # so it never blurs into the prior hit.
-                    rpitch = octave_cap_idx(pending_points[0], self.octave_cap)
-                    cap_pts = [octave_cap_idx(x, self.octave_cap)
-                               for x in pending_points]
-                    # release: 1 tick of the slot (the gap), capped so a >=2-tick slot
-                    # keeps the rest of the slot for the attack; a 1-tick slot expands
-                    # to a 2-tick on/off cell (the accepted tick-aligned gate).
-                    off_ticks = 1 if ticks >= 2 else ticks
-                    on_ticks = ticks - off_ticks       # >=1 for ticks>=2, else 0
-                    if held_pitch is not None and off_ticks > 0:
-                        # key the PREVIOUS hit off (its SetDur already wrote its hold).
-                        out.append(SetDur(off_ticks))
-                        out.append(Rest())
-                        self.stats["rest"] += 1
-                    # attack: key the new note on for the remaining ticks (min 1).
-                    attack_ticks = max(1, on_ticks)
-                    held_setdur = SetDur(attack_ticks)
-                    held_env = PitchEnv(cap_pts)
-                    out.append(held_setdur)
-                    out.append(held_env)
-                    self.stats["pitchenv"] += 1
-                    held_pitch = rpitch
-                    held_ticks = attack_ticks
-                    pending_points = None
-                elif pending_points is not None:
-                    rpitch = octave_cap_idx(pending_points[0], self.octave_cap)
-                    cap_pts = [octave_cap_idx(x, self.octave_cap)
-                               for x in pending_points]
-                    if (held_pitch is not None and ticks > 0
-                            and held_ticks < self.rekey_window):
-                        # WITHIN the re-key window -> do NOT re-key. The oracle
-                        # re-articulates only at its per-channel re-key cadence; a
-                        # source group that lands before the window elapses is
-                        # SAMPLED into the held note (its ticks extend the hold). If
-                        # the source pitch CHANGED, re-sample the held note's pitch
-                        # to the latest value (the window boundary's current pitch) —
-                        # this collapses fast changing-pitch runs (e.g. the source's
-                        # 1-tick chromatic articulation) to one coarse note at the
-                        # cadence, exactly as the oracle plays them.
-                        held_ticks += ticks
-                        if rpitch != held_pitch and held_env is not None:
-                            held_env.points = cap_pts
-                            held_pitch = rpitch
-                        commit_held()
-                    else:
-                        # genuine re-attack: the window elapsed (or no note held) ->
-                        # emit a new keyed PitchEnv sampling the current pitch.
-                        held_setdur = SetDur(max(1, ticks))
-                        held_env = PitchEnv(cap_pts)
-                        out.append(held_setdur)
-                        out.append(held_env)
-                        self.stats["pitchenv"] += 1
-                        held_pitch = rpitch
-                        held_ticks = max(1, ticks)
-                    pending_points = None
-                else:
-                    # WAIT with no pending PITCH and no GATE-note-off. A held note
-                    # SUSTAINS across this WAIT (the melodic re-key path: notes hold
-                    # until the next PITCH re-keys them). A GATE that fired note-off
-                    # is handled in the `gate_off` branch above; a non-first-in-group
-                    # GATE (Table-2 flag, e.g. seq22 `P V108 GATE W31`) leaves
-                    # gate_is_noteoff clear, so its trailing WAIT lands HERE and the
-                    # note correctly sustains the whole hold (oracle-verified).
-                    if held_setdur is not None:
-                        # extend the currently sounding note by these ticks.
-                        held_ticks += ticks
-                        commit_held()
-                    elif ticks > 0:
-                        # no note has ever been keyed on this channel yet (leading
-                        # WAIT before the first PITCH) -> a genuine opening rest.
-                        out.append(SetDur(ticks))
-                        out.append(Rest())
-                        self.stats["rest"] += 1
-                continue
-            op = b
-            if op <= 0x08:
-                # PITCH_n -> set 1..5 pitch points (note numbers); arm a (re)key.
-                cnt = op // 2 + 1
-                pts = [rom[p + 1 + k] for k in range(cnt)]
-                p += 1 + cnt
-                cur_pt = pts[0]
-                # apply the per-pattern transpose; clamp to 0..PITCHENV_MAX_IDX.
-                tp = [clamp_note(n, transpose) for n in pts]
-                pending_points = tp
-                first_in_group = False
-            elif op in (0x0A, 0x0C, 0x0E, 0x10, 0x12):
-                # PITCH-GLIDE SETUP (cmds $0A-$12): N glide targets + 1 duration.
-                # This is the Zyrinx portamento — the melody. The oracle does NOT
-                # play the glide as a smooth per-frame ramp; it RE-ARTICULATES the
-                # gliding accumulator at the channel's RE-KEY CADENCE, producing the
-                # audible chromatic ARPEGGIO. So we SAMPLE the glide accumulator at
-                # the SAME per-channel re-key window as the static path (not once per
-                # integrated frame) — each coarse sample becomes one keyed note held
-                # for the window. The first target is the operative one for Moving
-                # Trucks (lvls==1 for every MT glide); extra levels reuse the last.
-                lvls = (op - 0x0A) // 2 + 1
-                args = [rom[p + 1 + k] for k in range(lvls + 1)]
-                p += 1 + lvls + 1
-                target_pt = args[0]
-                dur_byte = args[-1]
-                # flush any group setters before the glide steps (they are zero-tick
-                # coordination writes that must precede the keyed notes).
-                out.extend(setters)
-                setters = []
-                # if a PITCH was armed in this same group (PITCH then GLIDE), the
-                # glide overrides it as the time-advancing event — drop the pending.
-                pending_points = None
-                # a glide is a fresh attack: end any held note (its trajectory steps
-                # are genuine re-keys, NOT coalesced into the prior held pitch).
-                held_pitch = None
-                held_ticks = 0
-                held_setdur = None
-                held_env = None
-                # sample the gliding accumulator at the CONTINUOUS per-channel re-key
-                # grid (glide_phase keeps ticking across glides) so repeated glides
-                # walk different chromatic steps (the arpeggio) — see
-                # glide_trajectory_sampled.
-                samples, glide_phase = glide_trajectory_sampled(
-                    cur_pt, target_pt, transpose, dur_byte, self.tempo_base,
-                    self.rekey_window, glide_phase)
-                if samples:
-                    for idx, hold in samples:
-                        out.append(SetDur(max(1, hold)))
-                        out.append(PitchEnv([octave_cap_idx(idx, self.octave_cap)]))
-                        self.stats["pitchenv"] += 1
-                    self.stats["glide_emitted"] = (
-                        self.stats.get("glide_emitted", 0) + 1)
-                else:
-                    self.stats["vol_dropped"] += 1
-                # the glide leaves the channel on its target point.
-                cur_pt = target_pt
-                # a glide is a time-advancing event that ends the group's note slot;
-                # the next command is non-first.
-                first_in_group = False
-                gate_is_noteoff = False
-            elif op == 0x14:                 # PARAM (key/legato override) -> drop
-                p += 2
-                first_in_group = False
-            elif op == 0x16:                 # NOP / buffer sink
-                p += 1
-                first_in_group = False
-            elif op == 0x18:                 # VOICE
-                voice_idx = rom[p + 1]
-                p += 2
-                self._voice(voice_idx, setters)
-                first_in_group = False
-            elif op == 0x1A:                 # GATE = NOTE-OFF (Table-1) / flag (Table-2)
-                # A GATE that is the FIRST command of its group (Table-1 slot,
-                # i.e. immediately after the previous WAIT) is a NOTE-OFF: arm
-                # gate_is_noteoff so the WAIT that closes THIS group emits a silent
-                # Rest (release gap) instead of sustaining the held note. A GATE
-                # reached mid-group (Table-2 — it followed a PITCH/setter with no
-                # intervening WAIT, e.g. seq22 `P V108 GATE W31`) is a no-op flag:
-                # leave gate_is_noteoff clear so the note sustains its full WAIT.
-                # (Oracle-verified — see the block comment at body start.)
-                if first_in_group:
-                    gate_is_noteoff = True
-                first_in_group = False
-                p += 1
-            elif op == 0x1C:                 # LOOP -> body terminator
-                p += 1
+                setters.clear()
+
+        for _group in range(8192):
+            # ---- read ONE command group via the two-table dispatch ----
+            first = True
+            group_is_onset = False     # set by a Table-1 PITCH / GLIDE
+            group_points = None        # transposed pitch points for an onset group
+            gticks = None
+            looped = False
+            for _cmd in range(4096):
+                b = rom[p]
+                if b >= 0x80:                       # WAIT: ends the group
+                    gticks = 1 + (0xFF - b)         # read tick + silent ticks
+                    p += 1
+                    break
+                op = b
+                if (not first) and op <= 0x08:      # Table-2 NOTE = orphan tick
+                    # NoteTrigger_$0A60: cost 1 event-tick, REWIND (do NOT consume);
+                    # the byte is re-read next group as a Table-1 PITCH.
+                    gticks = 1
+                    break
+                if op <= 0x08:                       # Table-1 PITCH setup (arms key-on)
+                    cnt = op // 2 + 1
+                    pts = [rom[p + 1 + k] for k in range(cnt)]
+                    p += 1 + cnt
+                    group_points = [clamp_note(n, transpose) for n in pts]
+                    group_is_onset = True
+                    first = False
+                elif op in (0x0A, 0x0C, 0x0E, 0x10, 0x12):   # GLIDE (unused by MT)
+                    # Moving Trucks references no glides; this is a faithful-enough
+                    # fallback for other songs: key the glide TARGET as a plain note
+                    # (no smooth per-frame ramp). Consumes N targets + 1 duration.
+                    lvls = (op - 0x0A) // 2 + 1
+                    args = [rom[p + 1 + k] for k in range(lvls + 1)]
+                    p += 1 + lvls + 1
+                    group_points = [clamp_note(args[0], transpose)]
+                    group_is_onset = True
+                    self.porta_dropped += 1
+                    first = False
+                elif op == 0x14:                     # PARAM (key/legato override) -> drop
+                    p += 2
+                    first = False
+                elif op == 0x16:                     # NOP / buffer sink
+                    p += 1
+                    first = False
+                elif op == 0x18:                     # VOICE
+                    self._voice(rom[p + 1], setters)
+                    p += 2
+                    first = False
+                elif op == 0x1A:                     # GATE = zero-tick retrigger flag
+                    p += 1
+                    first = False
+                elif op == 0x1C:                     # LOOP -> body terminator
+                    p += 1
+                    looped = True
+                    break
+                elif op == 0x1E:                     # CH-OFF (T2) / NOP (T1) -> drop
+                    p += 1
+                    first = False
+                elif 0x20 <= op <= 0x2E:             # CH-select -> no-op (1:1 routing)
+                    p += 1
+                    first = False
+                elif op == 0x30:                     # PAN_OFF
+                    setters.append(Pan(0x00)); self.stats["pan"] += 1
+                    p += 1
+                    first = False
+                elif op == 0x32:                     # PAN_R (raw Zyrinx pan $80)
+                    setters.append(Pan(0x80)); self.stats["pan"] += 1
+                    p += 1
+                    first = False
+                elif op == 0x34:                     # PAN_L (raw Zyrinx pan $40)
+                    setters.append(Pan(0x40)); self.stats["pan"] += 1
+                    p += 1
+                    first = False
+                elif op == 0x36:                     # PAN_C (raw Zyrinx pan $C0)
+                    setters.append(Pan(0xC0)); self.stats["pan"] += 1
+                    p += 1
+                    first = False
+                elif op in (0x38, 0x3A, 0x3C, 0x3E): # OP1-4 TL bias
+                    raw = rom[p + 1]
+                    p += 2
+                    phys = _zyrinx_op_to_phys((op - 0x38) // 2)
+                    setters.append(OpBias(phys, _to_signed(raw)))
+                    self.stats["opbias"] += 1
+                    first = False
+                else:                                # $40+ NOP sink
+                    p += 1
+                    first = False
+            else:
+                raise RuntimeError("runaway command group (no WAIT/NOTE/LOOP)")
+
+            if looped:
                 break
-            elif op == 0x1E:                 # CH-OFF (T2) / NOP (T1) -> drop
-                p += 1
-                first_in_group = False
-            elif 0x20 <= op <= 0x2E:         # CH-select -> no-op (1:1 FM routing)
-                p += 1
-                first_in_group = False
-            elif op == 0x30:                 # PAN_OFF
-                setters.append(Pan(0x00)); self.stats["pan"] += 1
-                p += 1
-                first_in_group = False
-            elif op == 0x32:                 # PAN_R (raw Zyrinx pan value $80)
-                setters.append(Pan(0x80)); self.stats["pan"] += 1
-                p += 1
-                first_in_group = False
-            elif op == 0x34:                 # PAN_L (raw Zyrinx pan value $40)
-                setters.append(Pan(0x40)); self.stats["pan"] += 1
-                p += 1
-                first_in_group = False
-            elif op == 0x36:                 # PAN_C (raw Zyrinx pan value $C0)
-                setters.append(Pan(0xC0)); self.stats["pan"] += 1
-                p += 1
-                first_in_group = False
-            elif op in (0x38, 0x3A, 0x3C, 0x3E):   # OP1-4 modulation (TL bias)
-                raw = rom[p + 1]
-                p += 2
-                phys = _zyrinx_op_to_phys((op - 0x38) // 2)
-                setters.append(OpBias(phys, _to_signed(raw)))
-                self.stats["opbias"] += 1
-                first_in_group = False
-            else:                            # $40+ NOP sink
-                p += 1
-                first_in_group = False
+
+            # ---- emit the group ----
+            if group_is_onset:
+                emit_setters()
+                cap = [octave_cap_idx(x, self.octave_cap) for x in group_points]
+                cur_setdur = SetDur(gticks)
+                out.append(cur_setdur)
+                out.append(PitchEnv(cap))
+                self.stats["pitchenv"] += 1
+            else:
+                # NON-onset group (orphan re-arm / GATE / pure WAIT): extend the
+                # currently sounding note across these ticks (it holds through the
+                # orphan tick until the next PITCH re-keys it). Setters land mid-note.
+                emit_setters()
+                if cur_setdur is not None:
+                    cur_setdur.ticks += gticks
+                elif gticks > 0:
+                    # leading silence before the first keyed note -> a genuine rest.
+                    out.append(SetDur(gticks))
+                    out.append(Rest())
+                    self.stats["rest"] += 1
         else:
             raise RuntimeError("runaway sequence walk (no LOOP terminator)")
-        # flush any trailing setters with no closing WAIT (rare; keep them so a
-        # final voice-step isn't lost — they're zero-tick).
-        out.extend(setters)
-        return out
 
+        emit_setters()
+        return out
 
 def _channel_first_voice(rom, block):
     """The FIRST voice index a channel references (scan its patterns' sequence
@@ -1515,6 +1355,14 @@ def build_native_songdesc(rom, pitchtable_offset=0):
                 continue
             repeat = max(1, min(255, repeat))
             events.append(RepeatStart())
+            # ChannelReset parity: the Zyrinx driver clears all 4 per-operator TL
+            # biases (op_mod) at EVERY pattern/loop boundary ($044F). Reset them at
+            # each body start so a prior pattern's OpBias cannot leak into this
+            # voice -- e.g. seq123 sets OP1-4=$0F and the following bass (seq114)
+            # only resets OP2, so without this OP1/OP3/OP4 stayed biased and the
+            # bass came back wrong (~12 measures in). Placed INSIDE the RepeatStart
+            # so it re-clears on every repeat iteration, exactly like ChannelReset.
+            events.extend([OpBias(0, 0), OpBias(1, 0), OpBias(2, 0), OpBias(3, 0)])
             events.extend(body)
             events.append(RepeatEnd(repeat))
         events.append(Jump())

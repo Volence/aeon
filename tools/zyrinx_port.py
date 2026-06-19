@@ -73,13 +73,14 @@ _TIMERA_PERIOD_NS = 18773         # 18.773 us per Timer-A count tick (NTSC)
 #   array index 0..3 = PHYSICAL register order [S1,S3,S2,S4].
 FMPATCH_LEN = 26
 
-# Zyrinx voices store operators in NATURAL order op1,op2,op3,op4 (indices
-# 0,1,2,3). Our FmPatch arrays are in PHYSICAL register order S1,S3,S2,S4. The
-# reorder maps natural -> physical: our_group = [g[0], g[2], g[1], g[3]] =
-# natural indices [0,2,1,3]. CALIBRATED against the original VGM's voice-load
-# register writes in T5 — kept as a named constant so T5 can flip it if the VGM
-# shows otherwise.
-OP_REORDER = [0, 2, 1, 3]
+# Zyrinx Bank2 voices are ALREADY stored in YM physical-register order: the
+# driver writes each op group straight to $30/$34/$38/$3C, and our FmPatch arrays
+# map slot k -> the same regs, so NO reorder is needed (identity). VERIFIED against
+# the live B&R "Moving Trucks" register capture (FM2): a [0,2,1,3] reorder swapped
+# operators S2<->S3 and corrupted every voice's timbre. (The old [0,2,1,3] was
+# "calibrated" against the WRONG song, song_05 / bank1 song3 -- see
+# project_mt_correct_source; the correct song is Bank2 song4.)
+OP_REORDER = [0, 1, 2, 3]
 
 # The six per-operator group keys in our FmPatch emit order (regs $30..$80).
 _VOICE_GROUP_KEYS = ("dt_mul", "tl", "ks_ar", "am_d1r", "d2r", "sl_rr")

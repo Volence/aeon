@@ -14,12 +14,10 @@
 ;
 ; Index->note anchors (idx $24..$83 = a clean 6-octave chromatic run,
 ; block = (idx-$24)/12; idx $00..$23 are the sub-octaves, block 0, fnum>>):
-;   idx $24 = C (block0, fnum1024) -> A4=$04 A0=$00
-;   idx $28 = E (block0, fnum1290) -> A4=$05 A0=$0A
-;   idx $2B = G (block0, fnum1534) -> A4=$05 A0=$FE
-;   idx $30 = C (block1, fnum1024) -> A4=$0C A0=$00
-;   idx $3C = C (block2, fnum1024) -> A4=$14 A0=$00
-;   idx $48 = C (block3, fnum1024) -> A4=$1C A0=$00
+;   idx $2C = block0 fnum1625 -> A4=$06 A0=$59
+;   idx $34 = block1 fnum1290 -> A4=$0D A0=$0A
+;   idx $40 = block2 fnum1290 -> A4=$15 A0=$0A
+;   idx $44 = block2 fnum1625 -> A4=$16 A0=$59
 ; ======================================================================
 
 MovingTrucks_PitchTable:
