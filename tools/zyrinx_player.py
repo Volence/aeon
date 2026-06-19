@@ -989,6 +989,17 @@ class _Walker:
         self.tempo_base = MT_FORMAT_CODE  # event-tick base (for glide_frames -> ticks)
         self.rekey_window = 3          # per-channel re-key floor (ticks); set per channel
         self.octave_cap = _OCTAVE_CAP_DEFAULT  # per-channel rendered-block ceiling
+        # GATE-as-note-off scope (Sound 1D bass-drum punch). A first-in-group GATE
+        # ALWAYS releases the held note when it is NOT followed by a PITCH (the bare
+        # `GATE W` cell) — that path is channel-independent and matches every channel
+        # to the oracle. But the dense percussion groove encodes each hit as
+        # `GATE PITCH W` (gate releases the prior hit, pitch attacks the next). Only
+        # the PERCUSSION channel (ch5, the bass drum / FM6) gates THOSE cells in the
+        # oracle (off-gap ~35 ms per hit); the melodic channels (ch0-ch4) play their
+        # `GATE PITCH W` cells LEGATO (the gate there is a re-key flag, not a release
+        # — oracle off-gap ~1 ms). So this per-hit `GATE PITCH` release is enabled
+        # ONLY on the gated (percussion) channel. False => legato (ch0-ch4 unchanged).
+        self.gate_pitch_noteoff = False
 
     def first_voice_local(self):
         """Local patch idx of the channel's FIRST voice (for the leading setup
@@ -1131,6 +1142,51 @@ class _Walker:
                     held_ticks = 0
                     held_setdur = None
                     held_env = None
+                elif gate_off and pending_points is not None and self.gate_pitch_noteoff:
+                    # GATE-first-in-group FOLLOWED BY A PITCH in the same group, then
+                    # closed by this WAIT — this is the percussive groove's per-hit
+                    # cell `GATE PITCH W` (e.g. ch5/bass-drum seq71/75: PITCH W |
+                    # GATE PITCH W | GATE PITCH W | ...). The GATE is a NOTE-OFF that
+                    # RELEASES the previous hit (the punch), and the PITCH is the NEXT
+                    # hit's attack. Without honoring the gate here the kick was a
+                    # back-to-back PitchEnv drone (no release gap, no punch); the
+                    # earlier rule only fired when no PITCH followed, so only the very
+                    # first hit of each groove got its punch. ENABLED ONLY on the
+                    # gated percussion channel (self.gate_pitch_noteoff) — the melodic
+                    # channels (ch0-ch4) fall through to the legato coalescing path
+                    # below so their `GATE PITCH W` cells stay un-gated (oracle: their
+                    # off-gap is ~1 ms = sustained), exactly as before this change.
+                    #
+                    # Split the slot into RELEASE (key-off / silent Rest) + ATTACK
+                    # (the pending note keyed on). The off-gap is sub-tick in the
+                    # oracle (~35 ms < our ~59 ms tick); a tick-aligned gate (off 1
+                    # tick, on the remainder, min 1) reproduces the on~1tick/off~gap
+                    # cadence the oracle plays — the note RELEASING is the punch.
+                    # This is a fresh re-attack: it ENDS the held note (no coalesce),
+                    # so it never blurs into the prior hit.
+                    rpitch = octave_cap_idx(pending_points[0], self.octave_cap)
+                    cap_pts = [octave_cap_idx(x, self.octave_cap)
+                               for x in pending_points]
+                    # release: 1 tick of the slot (the gap), capped so a >=2-tick slot
+                    # keeps the rest of the slot for the attack; a 1-tick slot expands
+                    # to a 2-tick on/off cell (the accepted tick-aligned gate).
+                    off_ticks = 1 if ticks >= 2 else ticks
+                    on_ticks = ticks - off_ticks       # >=1 for ticks>=2, else 0
+                    if held_pitch is not None and off_ticks > 0:
+                        # key the PREVIOUS hit off (its SetDur already wrote its hold).
+                        out.append(SetDur(off_ticks))
+                        out.append(Rest())
+                        self.stats["rest"] += 1
+                    # attack: key the new note on for the remaining ticks (min 1).
+                    attack_ticks = max(1, on_ticks)
+                    held_setdur = SetDur(attack_ticks)
+                    held_env = PitchEnv(cap_pts)
+                    out.append(held_setdur)
+                    out.append(held_env)
+                    self.stats["pitchenv"] += 1
+                    held_pitch = rpitch
+                    held_ticks = attack_ticks
+                    pending_points = None
                 elif pending_points is not None:
                     rpitch = octave_cap_idx(pending_points[0], self.octave_cap)
                     cap_pts = [octave_cap_idx(x, self.octave_cap)
@@ -1413,6 +1469,12 @@ def build_native_songdesc(rom, pitchtable_offset=0):
         # measured 1.5-tick / ~87 ms re-attack).
         walker.rekey_window = (REKEY_WINDOW_TICKS[ci]
                                if ci < len(REKEY_WINDOW_TICKS) else 3)
+        # ch5 is the percussion (bass-drum) channel: honor its dense `GATE PITCH W`
+        # groove cells as per-hit note-offs (the punch). All other channels keep the
+        # melodic legato interpretation (gate-then-pitch = re-key flag, not release).
+        # See _Walker.gate_pitch_noteoff. The bare `GATE W` release path stays on for
+        # every channel (it already matched the oracle).
+        walker.gate_pitch_noteoff = (route == CHROUTE_FM6)
         # No octave correction for the correct song (Bank2 song4): its PITCH points
         # already render to the oracle's per-channel block band. octave_cap=None ->
         # octave_cap_idx is an identity pass-through (see OCTAVE CORRECTION above).
