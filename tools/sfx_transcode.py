@@ -40,7 +40,8 @@ except ImportError:
 
 try:
     from song_packer import (
-        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, ModSet, LoopPoint, Jump,
+        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, ModSet,
+        SpinRev, LoopPoint, Jump,
         RepeatStart, RepeatEnd,
         CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
         CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -50,7 +51,8 @@ try:
     )
 except ImportError:
     from tools.song_packer import (  # type: ignore
-        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, ModSet, LoopPoint, Jump,
+        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, ModSet,
+        SpinRev, LoopPoint, Jump,
         RepeatStart, RepeatEnd,
         CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
         CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -516,11 +518,6 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             else:
                 events.append(Vol(80))
 
-        # spindash state: accumulates per-note transpose for smpsSpindashRev
-        spindash_active = False
-        spindash_accum = 0     # accumulated semitone offset
-        _SPINDASH_STEP = 6     # S3K spindash rev step (approximate; 6 semitones)
-
         # noattack flag: set if smpsNoAttack precedes the next note
         noattack_pending = False
 
@@ -553,7 +550,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
 
         def _process_lines(start_i: int) -> bool:
             """Process lines starting at start_i. Returns True if we hit smpsStop."""
-            nonlocal spindash_active, spindash_accum, noattack_pending
+            nonlocal noattack_pending
             nonlocal cur_dur, voice_idx, loop_label, loop_count, has_loop
             nonlocal jump_target_label, sfx_flags
 
@@ -635,13 +632,13 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                         step  = _parse_int(args[3])
                         events.append(ModSet(wait, speed, change, step))
                     elif macro == 'smpsSpindashRev':
-                        # Enable spindash frequency ramp: each note accumulates a rising pitch.
-                        spindash_active = True
-                        spindash_accum = 0
+                        # Runtime-escalating spindash rev: emit the opcode; the engine
+                        # adds the global rev (re-trigger count) into sc_transpose.
+                        events.append(SpinRev())
                     elif macro == 'smpsResetSpindashRev':
-                        # Disable spindash ramp, reset accumulator.
-                        spindash_active = False
-                        spindash_accum = 0
+                        # The rev RESET is dispatch-folded in the engine (any non-spindash
+                        # SFX zeroes the global), so no stream opcode is emitted here.
+                        pass
                     elif macro == 'smpsPSGform':
                         # Noise mode / PSG form control: $F3,form.  For noise SFX, $E7 form
                         # enables periodic noise (borrowing PSG3 frequency).
@@ -771,7 +768,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
 
         def _process_dcb(content: str):
             """Process a dc.b line's content, handling notes, durations, smpsNoAttack."""
-            nonlocal noattack_pending, cur_dur, spindash_active, spindash_accum
+            nonlocal noattack_pending, cur_dur
 
             tokens = [t.strip() for t in content.split(',') if t.strip()]
             t_idx = 0
@@ -807,9 +804,8 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                 elif S3K_NOTE_BASE <= val <= 0xFF:
                     # Note byte
                     pitch = _smps_note_to_pitch(val, is_psg, transpose)
-                    if spindash_active:
-                        pitch = min(0x5E, pitch + spindash_accum)
-                        spindash_accum += _SPINDASH_STEP
+                    # (spindash rev is now runtime: the SpinRev opcode + the global
+                    #  rev add the transpose at play time; the note stays the bare nC5.)
                     # Check if there's a duration byte following
                     if t_idx < len(tokens):
                         next_tok = tokens[t_idx].strip()
@@ -878,7 +874,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
 
         # Re-process lines with loop-marker injection
         def _process_lines_v2(start_i: int) -> bool:
-            nonlocal spindash_active, spindash_accum, noattack_pending
+            nonlocal noattack_pending
             nonlocal cur_dur, voice_idx, loop_label, loop_count, has_loop
             nonlocal jump_target_label, sfx_flags
 
@@ -980,11 +976,9 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     step  = _parse_int(args[3])
                     events.append(ModSet(wait, speed, change, step))
                 elif macro == 'smpsSpindashRev':
-                    spindash_active = True
-                    spindash_accum = 0
+                    events.append(SpinRev())
                 elif macro == 'smpsResetSpindashRev':
-                    spindash_active = False
-                    spindash_accum = 0
+                    pass                     # rev reset is dispatch-folded (see above)
                 elif macro == 'smpsPSGform':
                     args = _split_args(arg_str)
                     form_val = _parse_int(args[0]) if args else 0

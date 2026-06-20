@@ -502,6 +502,12 @@ PITCHTAB_MAX_IDX   = PITCHTAB_COUNT-1     ; = $83 (the RE's saturating clamp cei
           error "PITCHTAB_MAX_IDX (\{PITCHTAB_MAX_IDX}) must be $83 (132-entry Zyrinx table)"
         endif
 
+; SFX Expressive Fidelity (spec §6): the highest valid FmPitchTableZ index. The
+; chromatic note table holds NUM_PITCHES (95) entries, indices 0..94 = 0..$5E.
+; Fm_NoteOn applies sc_transpose (the spindash rev) to the note index then clamps
+; to this ceiling (the transcoder already clamps SFX notes to $5E).
+FMPITCH_MAX_IDX    = $5E                   ; = 94 (FmPitchTableZ has 95 entries)
+
 ; --- Channel-route enum ---
 ; Sound 1D: FM6 is now a routable FM voice (the "adaptive FM6 slot", §5.1). It
 ; maps to YM part II, channel-in-part 2, chsel $06 — which falls out NATURALLY
@@ -976,8 +982,14 @@ Snd_SongBase       = Snd_SavedDacBank + 1        ; 2 bytes: song base ptr (RAM o
 ; renderer (Task 3) reads it; cached as an absolute Z80 ptr (base + header offset).
 Snd_PitchTabPtr    = Snd_SongBase + 2            ; 2 bytes: per-song pitch table ptr
 
-    if (Snd_PitchTabPtr + 2) > SND_SEQ_TRACE
-      fatal "Snd_LoadSong scratch (\{Snd_PitchTabPtr}) runs into the trace ring at \{SND_SEQ_TRACE}"
+; SFX Expressive Fidelity (spec §6): the GLOBAL spindash rev byte (mirror S3K's
+; zSpindashRev). Added to the spindash SFX channel's sc_transpose each re-trigger
+; (cap $10), incremented per trigger, reset to 0 by any non-spindash SFX. Single
+; byte in the free seq block below the trace ring.
+Snd_SpindashRev    = Snd_PitchTabPtr + 2          ; 1 byte: escalating spindash transposition
+
+    if (Snd_SpindashRev + 1) > SND_SEQ_TRACE
+      fatal "Snd_SpindashRev (\{Snd_SpindashRev}) runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
     ; Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots)

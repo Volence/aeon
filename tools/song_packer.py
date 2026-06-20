@@ -65,6 +65,8 @@ MEV_JUMP = 0xEF
 MEV_NOTEFILL = 0xED          # + master: per-channel note-fill (frames keyed from attack; 0=legato)
 MEV_PSGENV = 0xEB           # + env_id: set the channel's PSG volume-envelope id (1-based; 0=none)
 MEV_MODSET = 0xEC           # + wait speed change step: latch pitch-modulation params (all 0 = off)
+MEV_SPINREV = 0xF0          # (no operand): add the global spindash rev into sc_transpose, cap $10
+MEV_SPINREV_RESET = 0xF1    # (no operand): zero the global spindash rev
 MEV_END = 0xFF
 
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
@@ -247,6 +249,20 @@ class ModSet(Event):
                 raise PackError(f"ModSet {name} {v} out of byte range 0..255")
         if not (-128 <= self.change <= 127):
             raise PackError(f"ModSet change {self.change} out of signed byte range -128..127")
+
+
+class SpinRev(Event):
+    """SFX-fidelity spindash rev (the engine's smpsSpindashRev): add the global rev
+    into this channel's transpose, cap $10, increment the global. Runtime-escalating
+    by re-trigger count (the engine keeps the global byte). Zero-tick, no operand."""
+    def encode(self) -> bytes:
+        return bytes([MEV_SPINREV])
+
+
+# NOTE: there is deliberately NO SpinRevReset event. The spindash rev reset is
+# DISPATCH-FOLDED in the engine (Sfx_BeginSound zeroes Snd_SpindashRev for any
+# non-spindash id), so $F1/MEV_SPINREV_RESET must NEVER appear in a stream — the
+# engine maps $F1 to Seq_BadOpcode. smpsResetSpindashRev transcodes to nothing.
 
 
 class OpBias(Event):

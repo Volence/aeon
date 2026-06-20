@@ -558,6 +558,40 @@ RegDeltaGroupBase_End:
         endif
 
 ; ----------------------------------------------------------------------
+; Fm_TransposeClamp — hl = clamp_0_max(note + signed sc_transpose), h=0.
+; In: a = note index, c = max valid index (inclusive). ix = SeqChannel.
+; Out: hl = clamped index (0..c, h=0). Clobbers af,de,hl. Preserves bc,ix.
+; Shared by Fm_NoteFromTable (max $83) and Fm_NoteOn (max FMPITCH_MAX_IDX). The
+; spindash rev feeds sc_transpose (spec §6); for the common note sc_transpose==0.
+; The add is signed 16-bit so a large negative transpose can't wrap (the RE's
+; saturating clamp: below 0 -> 0, above max -> max).
+; ----------------------------------------------------------------------
+Fm_TransposeClamp:
+        ld      l, a
+        ld      h, 0                     ; hl = note index (positive)
+        ld      a, (ix+sc_transpose)     ; signed per-pattern transpose
+        ld      e, a
+        add     a, a                     ; CF = sign bit of transpose
+        sbc     a, a                     ; a = $FF if transpose<0, else $00
+        ld      d, a                     ; de = sign-extended transpose
+        add     hl, de                   ; hl = note + transpose (signed 16-bit)
+        bit     7, h                     ; result negative?
+        jr      z, .nonneg
+        ld      hl, 0                    ; < 0 -> clamp to 0
+        ret
+.nonneg:
+        ld      a, h                     ; high byte set -> > max -> clamp
+        or      a
+        jr      nz, .clamp_hi
+        ld      a, l
+        cp      c                        ; l vs max
+        ret     z                        ; l == max -> in range (h=0)
+        ret     c                        ; l <  max -> in range (h=0)
+.clamp_hi:
+        ld      l, c                     ; clamp to max
+        ret
+
+; ----------------------------------------------------------------------
 ; Fm_NoteFromTable — key a note from the PER-SONG fnum (pitch) table.
 ; In: ix = SeqChannel, a = note index (an ABSOLUTE index 0..PITCHTAB_MAX_IDX into
 ;     the 132-entry chromatic fnum table — NOT the engine's FmPitchTableZ note
@@ -567,40 +601,16 @@ RegDeltaGroupBase_End:
 ; TABLE: TWO PARALLEL PAGES (sound_constants.asm) — A4 page first (PITCHTAB_COUNT
 ; bytes), then the A0 page. So for index i: $A4 = base[i], $A0 = base[COUNT+i].
 ; base = Snd_PitchTabPtr (per-song) when nonzero, else MovingTrucks_PitchTable
-; (the inline engine-default table in this blob).
-;
-; PITCH: idx = clamp_0_83(note + sc_transpose), with sc_transpose SIGNED and the
-; result SATURATING to 0..PITCHTAB_MAX_IDX (the RE's $1100/$1200 clamp behavior:
-; below 0 -> 0, above $83 -> $83). The add is done in signed 16-bit so a large
-; negative transpose can't wrap. Then $A4/$A0 are looked up and Fm_NoteOnFreq
-; writes them + keys on.
+; (the inline engine-default table). idx = clamp_0_83(note+transpose) via
+; Fm_TransposeClamp; then $A4/$A0 are looked up and Fm_NoteOnFreq keys on.
 ; Clobbers: af, bc, de, hl. Preserves ix.
 ; ----------------------------------------------------------------------
 Fm_NoteFromTable:
         ; --- idx = clamp_0_83(note + sc_transpose) (signed) ---
-        ld      l, a
-        ld      h, 0                     ; hl = note index (0..$83, positive)
-        ld      a, (ix+sc_transpose)     ; signed per-pattern transpose
-        ld      e, a
-        add     a, a                     ; CF = sign bit of transpose
-        sbc     a, a                     ; a = $FF if transpose<0, else $00
-        ld      d, a                     ; de = sign-extended transpose
-        add     hl, de                   ; hl = note + transpose (signed 16-bit)
-        bit     7, h                     ; result negative? (h >= $80)
-        jr      z, .nonneg
-        ld      hl, 0                    ; < 0 -> clamp to 0
-        jr      .clamped
-.nonneg:
-        ld      a, h                     ; hl is 0..$102 here
-        or      a
-        jr      nz, .clamp_hi            ; high byte set -> > $83 -> clamp
-        ld      a, l
-        cp      PITCHTAB_MAX_IDX+1
-        jr      c, .clamped              ; l <= $83 -> in range
-.clamp_hi:
-        ld      l, PITCHTAB_MAX_IDX      ; > $83 -> clamp to $83
-.clamped:
-        ld      c, l                     ; c = clamped idx (0..$83); preserved below
+        ld      c, PITCHTAB_MAX_IDX
+        call    Fm_TransposeClamp        ; hl = clamped idx (0..$83, h=0)
+        ld      b, h
+        ld      c, l                     ; bc = idx (b=0)
 
         ; --- resolve table base: per-song ptr, else engine default ---
         ld      hl, (Snd_PitchTabPtr)
@@ -610,7 +620,6 @@ Fm_NoteFromTable:
         ld      hl, MovingTrucks_PitchTable
 .have_base:
         ; --- $A4 = base[idx] ---
-        ld      b, 0                     ; bc = idx
         add     hl, bc                   ; hl = &A4page[idx]
         ld      d, (hl)                  ; d = $A4 value (block|fnumHi)
         ; --- $A0 = base[PITCHTAB_COUNT + idx] = &A4page[idx] + PITCHTAB_COUNT ---
@@ -630,10 +639,13 @@ Fm_NoteFromTable:
 ; Clobbers: af, bc, de, hl. Preserves ix.
 ; ----------------------------------------------------------------------
 Fm_NoteOn:
-        ; hl = &FmPitchTableZ[pitch] = base + pitch*2
-        ld      l, a
-        ld      h, 0
-        add     hl, hl                   ; pitch*2 (word entries)
+        ; apply the signed sc_transpose (the spindash rev feeds this, spec §6) + clamp to
+        ; FmPitchTableZ's valid range 0..FMPITCH_MAX_IDX. sc_transpose==0 for a
+        ; non-transposed note, so this is a no-op for the common case.
+        ld      c, FMPITCH_MAX_IDX
+        call    Fm_TransposeClamp        ; hl = clamped idx (0..FMPITCH_MAX_IDX, h=0)
+        ; hl = &FmPitchTableZ[idx] = base + idx*2
+        add     hl, hl                   ; idx*2 (word entries)
         ld      de, FmPitchTableZ
         add     hl, de
         ld      e, (hl)                  ; e = low  byte = $A0 value (fnum low)

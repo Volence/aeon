@@ -254,6 +254,7 @@ SndDrv_Init:
         ld      (SND_SEQ_CHCOUNT), a     ; no channels until a song loads
         ; Task 9: clear the SFX queue so CNT starts at 0 (Z80 RAM is undefined at power-on).
         ld      (SND_SFX_QUEUE_CNT), a   ; 0 entries pending
+        ld      (Snd_SpindashRev), a     ; spindash rev escalation starts at 0 (spec §6)
 
         ; --- PRE-FILL the whole 256-byte ring with $80 (req 7) so the idle and
         ; sample lead-in output is DC-center silence (no click, no garbage). ---

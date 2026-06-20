@@ -737,5 +737,92 @@ Sound_AB_Voices:
                         "the first ModSet must precede the first note it modulates")
 
 
+# Spin Dash (AB) FM5 fixture (verbatim from skdisasm SFX/AB - Spin Dash.asm):
+# smpsSpindashRev at the start, bare nC5 note (the rev escalation is RUNTIME, applied
+# by the engine via the global Snd_SpindashRev -> sc_transpose), smpsResetSpindashRev
+# at the end (which the engine handles by the dispatch-fold reset, so no opcode).
+SPINDASH_SRC = """\
+Sound_AB_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_AB_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $01
+\tsmpsHeaderSFXChannel cFM5, Sound_AB_FM5,\t$00, $00
+Sound_AB_FM5:
+\tsmpsSpindashRev
+\tsmpsSetvoice        $00
+\tsmpsModSet          $01, $01, $1A, $01
+\tdc.b\tnC5, $18, smpsNoAttack
+\tsmpsModSet          $00, $00, $00, $00
+\tdc.b\t$02
+\tsmpsResetSpindashRev
+\tsmpsStop
+Sound_AB_Voices:
+\tsmpsVcAlgorithm     $04
+\tsmpsVcFeedback      $06
+\tsmpsVcUnusedBits    $00
+\tsmpsVcDetune        $00, $00, $00, $00
+\tsmpsVcCoarseFreq    $09, $03, $0C, $00
+\tsmpsVcRateScale     $03, $02, $02, $02
+\tsmpsVcAttackRate    $15, $0C, $0F, $1F
+\tsmpsVcAmpMod        $00, $00, $00, $00
+\tsmpsVcDecayRate1    $00, $00, $00, $00
+\tsmpsVcDecayRate2    $00, $00, $00, $00
+\tsmpsVcDecayLevel    $00, $00, $00, $00
+\tsmpsVcReleaseRate   $0F, $0F, $0F, $0F
+\tsmpsVcTotalLevel    $00, $1C, $00, $00
+"""
+
+
+class TestSpindashRev(unittest.TestCase):
+    """SFX Expressive Fidelity Task 6 — runtime spindash rev escalation."""
+
+    def test_spindash_emits_rev_op(self):
+        # FM5 must emit a SpinRev (first event) and keep the bare nC5 note (NOT a
+        # flat-baked-up pitch). The RESET is dispatch-folded -> no SpinRev/Reset opcode.
+        from song_packer import SpinRev
+        desc = transcode_sfx_source(SPINDASH_SRC, 0xAB)
+        ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_FM5)
+        evs = ch['events']
+        spin = next(i for i, e in enumerate(evs) if isinstance(e, SpinRev))
+        first_note = next(i for i, e in enumerate(evs)
+                          if isinstance(e, (Note, NoteDur)))
+        self.assertLess(spin, first_note, "SpinRev must precede the note")
+
+    def test_spindash_note_is_bare_nc5(self):
+        # The note stays the byte-exact nC5 (the rev transpose is applied at RUNTIME by
+        # the engine, not baked into the transcoded pitch). nC5 = $BD -> FM index $3C.
+        desc = transcode_sfx_source(SPINDASH_SRC, 0xAB)
+        ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_FM5)
+        note = next(e for e in ch['events'] if isinstance(e, (Note, NoteDur)))
+        expected = 0xBD - S3K_NOTE_BASE + FM_SFX_OCTAVE_SHIFT   # 0x3C (60)
+        self.assertEqual(note.pitch, expected,
+                         "the spindash note must stay the bare nC5 (no flat rev bake)")
+
+    def test_spinrev_encodes(self):
+        from song_packer import SpinRev, MEV_SPINREV
+        self.assertEqual(SpinRev().encode(), bytes([0xF0]))
+        self.assertEqual(SpinRev().encode(), bytes([MEV_SPINREV]))
+
+    def test_reset_is_dispatch_folded_no_opcode(self):
+        # smpsResetSpindashRev emits NO stream opcode (the engine resets the global rev
+        # via the Sfx_BeginSound dispatch fold on any non-spindash SFX).
+        from song_packer import SpinRev
+        desc = transcode_sfx_source(SPINDASH_SRC, 0xAB)
+        ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_FM5)
+        # exactly one SpinRev, and no encoded $F1 (SPINREV_RESET) anywhere.
+        spinrevs = [e for e in ch['events'] if isinstance(e, SpinRev)]
+        self.assertEqual(len(spinrevs), 1)
+        for e in ch['events']:
+            self.assertNotIn(0xF1, e.encode(),
+                             "no MEV_SPINREV_RESET ($F1) opcode should be emitted")
+
+    def test_no_spindash_step_constant(self):
+        # The old flat-bake machinery is gone (the rev is now runtime, not a transcode
+        # accumulator).
+        self.assertFalse(hasattr(sfx_transcode, '_SPINDASH_STEP'),
+                         "_SPINDASH_STEP (the flat spindash bake) must be removed")
+
+
 if __name__ == '__main__':
     unittest.main()

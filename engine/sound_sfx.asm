@@ -626,6 +626,15 @@ Sfx_QueueEnqueue:
 ; in RAM; the chosen slot/route come back from Sfx_SelectVoice each iteration.
 ; ----------------------------------------------------------------------
 Sfx_BeginSound:
+        ; spindash rev reset (spec §6): any NON-spindash SFX resets the global rev to
+        ; 0 (mirror zPlaySound_Normal). The spindash SFX is the special-cased exception
+        ; that does NOT reset, so its rev keeps rising across re-triggers. Compare the
+        ; raw id (a) against SFXID_SPINDASH BEFORE the range-check subtract.
+        cp      SFXID_SPINDASH
+        jr      z, .keep_rev             ; spindash -> do NOT reset (let it escalate)
+        ld      hl, Snd_SpindashRev
+        ld      (hl), 0                  ; normal SFX -> rev escalation back to 0 (a preserved)
+.keep_rev:
         ; --- id range check (dense table indexed by id - SFX_ID_BASE) ---
         sub     SFX_ID_BASE
         ret     c                        ; id < base -> ignore

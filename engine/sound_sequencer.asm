@@ -689,6 +689,31 @@ Seq_Op_ModSet:
 .modset_done:
         jp      Seq_ContinueFetch
 
+; $F0 MEV_SPINREV (no operand) : port of cfSpindashRev (S3K). Add the GLOBAL rev into
+; this channel's sc_transpose (a shared-prefix field that Fm_NoteOn applies to the note
+; index, so the spindash nC5 rises), cap the transpose at exactly $10, else increment the
+; global. Zero-tick. No operand consumed. We BORROW hl to point at Snd_SpindashRev (so
+; the cap-skip path can `inc (hl)` directly), so we PUSH/POP hl around the handler to
+; keep the live stream ptr intact for Seq_ContinueFetch (the T3/T4 hl-preservation rule).
+; The spindash rev RESET is folded into the SFX-dispatch path (Sfx_BeginSound zeroes
+; Snd_SpindashRev for any NON-spindash SFX) rather than a second stream opcode — the
+; S3K smpsResetSpindashRev at the END of the spindash loop is redundant with that fold
+; (the next non-spindash SFX resets it), and folding saves the $16F0 code budget. So
+; there is no Seq_Op_SpinRevReset handler; $F1 stays Seq_BadOpcode and the transcoder
+; emits nothing for smpsResetSpindashRev.
+Seq_Op_SpinRev:
+        push    hl                       ; save the live stream ptr (we borrow hl for the global)
+        ld      hl, Snd_SpindashRev
+        ld      a, (hl)
+        add     a, (ix+sc_transpose)     ; add the escalating rev into the track transpose
+        ld      (ix+sc_transpose), a
+        cp      010h                     ; transpose hit exactly $10 -> stop rising (S3K cap)
+        jr      z, .spin_done            ; capped -> do NOT climb the global
+        inc     (hl)                     ; otherwise climb the global by one
+.spin_done:
+        pop     hl                       ; restore the stream ptr for Seq_ContinueFetch
+        jp      Seq_ContinueFetch
+
 ; $E1 MEV_PATCH + pp : set FM patch index, zero tick
 Seq_Op_Patch:
         ld      a, (hl)
@@ -892,10 +917,8 @@ Seq_Op_OpBias:
 .nocarry:
         pop     af                       ; a = bias value
         ld      (hl), a                  ; sc_opbias[op] = val
-    ifdef __DEBUG__
-        ld      a, SEQEV_PATCH           ; reuse the PATCH trace code (timbre change)
-        call    Seq_Trace
-    endif
+        ; (no DEBUG trace here: OpBias is a per-op TL micro-event that would flood the
+        ;  32-entry trace ring; the audible note-on / patch change is traced elsewhere.)
         pop     hl                       ; restore the live stream ptr
         jp      Seq_ContinueFetch        ; zero tick
 
@@ -954,14 +977,8 @@ Seq_Op_RegDelta:
         jp      Seq_ContinueFetch        ; zero tick
 .fm:
         ld      b, a                     ; b = count (loop bound)
-    ifdef __DEBUG__
-        push    bc
-        push    hl
-        ld      a, SEQEV_PATCH           ; reuse the PATCH trace code (a timbre change)
-        call    Seq_Trace
-        pop     hl
-        pop     bc
-    endif
+        ; (no DEBUG trace here: RegDelta is a mid-note voice-stepping micro-event that
+        ;  would flood the 32-entry trace ring; the audible note-on is traced elsewhere.)
 .delta_loop:
         ld      a, (hl)
         inc     hl                       ; a = reg_sel
@@ -1113,8 +1130,8 @@ SeqOpcodeTable:
         dw      Seq_Op_NoteFill          ; $ED MEV_NOTEFILL (gate articulation)
         dw      Seq_Op_LoopPoint         ; $EE MEV_LOOP_POINT
         dw      Seq_Op_Jump              ; $EF MEV_JUMP
-        dw      Seq_BadOpcode            ; $F0 reserved
-        dw      Seq_BadOpcode            ; $F1 reserved
+        dw      Seq_Op_SpinRev           ; $F0 MEV_SPINREV
+        dw      Seq_BadOpcode            ; $F1 reserved (SPINREV reset is dispatch-folded)
         dw      Seq_BadOpcode            ; $F2 reserved
         dw      Seq_BadOpcode            ; $F3 reserved
         dw      Seq_BadOpcode            ; $F4 reserved
