@@ -845,22 +845,37 @@ Sfx_Restore:
         push    iy
         pop     ix                       ; ix = music noise channel
         bit     SCF_KEYED_B, (ix+sc_flags)
-        jr      z, .noise_done
+        jr      z, .noise_silence        ; music not keyed -> silence the stolen noise
         ld      a, (ix+sc_note)          ; the held noise note (mode/rate)
         call    Psg_Noise                ; re-emit noise control + volume (preserves ix)
+        jr      .noise_done
+.noise_silence:
+        ; No music noise to restore: the SFX left the noise volume latched audible.
+        ; Silence the noise channel (Psg_NoteOff's noise path writes $FF) so a noise
+        ; SFX over a noise-silent song doesn't hiss forever.
+        call    Psg_NoteOff              ; noise route -> $FF (max attenuation)
 .noise_done:
         pop     ix                       ; ix = SFX slot
         jr      .deactivate
 
 .psg:
-        ; --- PSG TONE: if a note was sounding, re-key it (re-applies tone+volume) ---
+        ; --- PSG TONE: if the music note was sounding, re-key it (re-applies tone+
+        ; volume); if NOT, SILENCE the stolen physical voice. The SFX left its own
+        ; last tone + volume LATCHED on the chip; if no music underlies this PSG
+        ; channel (e.g. Moving Trucks uses 0 PSG channels, so PSG1 is never keyed) the
+        ; re-key branch would do NOTHING and the SFX's last PSG tone would DRONE
+        ; FOREVER. Key the channel off so it goes silent when there's no music to
+        ; restore. (Jump = id $62 = PSG1 over a PSG-silent song is exactly this case.)
         push    ix
         push    iy
         pop     ix                       ; ix = music PSG tone channel
         bit     SCF_KEYED_B, (ix+sc_flags)
-        jr      z, .psg_done
+        jr      z, .psg_silence          ; music not keyed -> silence the stolen voice
         ld      a, (ix+sc_note)
         call    Psg_NoteOn               ; re-key the held tone (preserves ix)
+        jr      .psg_done
+.psg_silence:
+        call    Psg_NoteOff              ; no music here -> silence the PSG channel
 .psg_done:
         pop     ix                       ; ix = SFX slot
         jr      .deactivate
@@ -877,13 +892,20 @@ Sfx_Restore:
         ld      a, (ix+sc_volume)        ; re-apply the music channel's loudness
         call    Fm_SetVolume             ; carrier TLs (+ op-bias) restored
         ; force re-key ONLY if a note was sounding when the voice was stolen.
+        ; If the music was NOT keyed, the SFX may have left the FM voice keyed-ON with
+        ; its own note; re-uploading the patch above does NOT key it off, so the stolen
+        ; FM voice would sustain forever. Key it OFF (the music's next note keys it
+        ; normally) — symmetric with the PSG/noise silence-when-no-music fix.
         bit     SCF_KEYED_B, (ix+sc_flags)
-        jr      z, .fm_done              ; between notes -> clearing override suffices
+        jr      z, .fm_silence           ; between notes -> silence the stolen FM voice
     if SND_REKEY_OFF_THEN_ON
         call    Fm_NoteOff               ; clean 0->1 edge: key OFF first (mirrors ModUpdate)
     endif
         ld      a, (ix+sc_note)          ; the held note index
         call    Fm_NoteFromTable         ; re-key from the per-song fnum table (preserves ix)
+        jr      .fm_done
+.fm_silence:
+        call    Fm_NoteOff               ; no music note -> key the stolen FM voice off
 .fm_done:
         pop     ix                       ; ix = SFX slot
 
