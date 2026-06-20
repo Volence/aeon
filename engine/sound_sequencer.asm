@@ -154,10 +154,18 @@ ModUpdate:
         pop     hl                       ; hl = ix (the channel ptr)
         ld      a, h
         cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
-        ret     c                        ; music PSG -> no env fields, nothing to do
+        ret     c                        ; music PSG -> no env/mod fields, nothing to do
+        ; --- PSG PITCH MODULATION (spec §5): if armed, sweep/vibrato the tone divisor.
+        ; Shares the FM triangle core (Mod_Advance) via Psg_ApplyMod; a non-modulated
+        ; PSG SFX (sc_mod_ctrl==0) pays only this one test. Runs BEFORE the vol-env so
+        ; both layers compose (mod re-latches the divisor; env re-emits the volume).
+        ld      a, (ix+sc_mod_ctrl)
+        or      a
+        call    nz, Psg_ApplyMod         ; advance accum + re-latch tone divisor (no re-key)
+        ; --- PSG VOLUME ENVELOPE (spec §4): advance the contour + re-emit the volume.
         ld      a, (ix+sc_psgenv)
         or      a
-        ret     z                        ; no PSG vol-env -> nothing (held-note fast path)
+        ret     z                        ; no PSG vol-env -> done (mod already handled)
         jp      PsgEnvUpdate             ; advance the contour + emit (tail-call, preserves ix)
 .is_fm:
 
@@ -392,25 +400,32 @@ Mod_ReArm:
         ret
 
 ; ----------------------------------------------------------------------
-; Mod_ApplyVibrato — one frame of continuous pitch modulation (port of
-; zDoModulation, ModulationCtrl==normal). Called from ModUpdate's FM path for an
-; SFX channel with sc_mod_ctrl != 0 (the caller gates BOTH the SFX-channel test and
-; sc_mod_ctrl). Faithful sequence:
+; Mod_Advance — one frame of the pitch-modulation TRIANGLE/ACCUMULATOR (the chip-
+; AGNOSTIC core of zDoModulation, shared by the FM and PSG renderers so the triangle
+; machinery exists exactly once — the $16F0 code ceiling has no room to duplicate it).
+; Runs the faithful sequence and produces the modulated 16-bit word, leaving the chip
+; WRITE to the caller (FM emits $A4/$A0; PSG re-latches the tone divisor). Sequence:
 ;   * count down sc_mod_wait (one-shot delay; when it hits 0, hold it at 1 so the
 ;     modulation fires every frame thereafter)
 ;   * every sc_mod_speed frames: reload sc_mod_speed = sc_mod_speed_raw, then add the
 ;     sign-extended sc_mod_delta to the 16-bit sc_mod_accum
-;   * final freq word = sc_base_freq + sc_mod_accum  (base stored as hi=$A4, lo=$A0)
+;   * final word = sc_base_freq + sc_mod_accum  (FM: hi=$A4,lo=$A0; PSG: hi,lo divisor)
 ;   * every sc_mod_steps applications: reload sc_mod_steps = sc_mod_step_raw (the FULL
 ;     raw count — S3K's iy+3) and NEGATE sc_mod_delta (triangle direction flip)
-;   * write $A4/$A0 ONLY when the freq word changed vs sc_last_freq (write-on-change)
-;   * NEVER key-on — vibrato changes pitch without retriggering the EG.
-; In: ix = FM SFX channel, sc_mod_ctrl != 0. Clobbers af,bc,de,hl. Preserves ix.
+;   * write-on-change vs sc_last_freq: when the word is UNCHANGED (or still in the wait
+;     delay) the caller must emit nothing.
+; In: ix = SFX channel, sc_mod_ctrl != 0. Out: CARRY SET => skip (no chip write this
+; frame). CARRY CLEAR => write needed: hl = modulated word, sc_last_freq updated, and
+; d=hi/e=lo of the word loaded ready for the caller's emit. Clobbers af,bc,de,hl.
+; Preserves ix.
 ; ----------------------------------------------------------------------
-Mod_ApplyVibrato:
+Mod_Advance:
         ; --- wait countdown (one-shot delay, then held at 1) ---
         dec     (ix+sc_mod_wait)
-        ret     nz                       ; still delaying -> no change this frame
+        jr      z, .past_wait            ; reached 0 this frame -> proceed (hold at 1)
+        scf                              ; still delaying -> CARRY set => caller skips
+        ret
+.past_wait:
         inc     (ix+sc_mod_wait)         ; hold wait at 1 so it fires every frame hereafter
 
         ; --- speed gate: only accumulate every sc_mod_speed frames ---
@@ -430,12 +445,12 @@ Mod_ApplyVibrato:
         ld      (ix+sc_mod_accum), l
         ld      (ix+sc_mod_accum+1), h
 .sustain:
-        ; --- final freq = base_freq + accum (16-bit; hi=$A4, lo=$A0) ---
-        ld      h, (ix+sc_base_freq)     ; $A4 value (block|fnumHi) = high byte
-        ld      l, (ix+sc_base_freq+1)   ; $A0 value (fnum low)     = low byte
+        ; --- final word = base_freq + accum (16-bit) ---
+        ld      h, (ix+sc_base_freq)     ; FM: $A4 value / PSG: divisor hi  = high byte
+        ld      l, (ix+sc_base_freq+1)   ; FM: $A0 value / PSG: divisor lo  = low byte
         ld      c, (ix+sc_mod_accum)
         ld      b, (ix+sc_mod_accum+1)   ; bc = signed accum
-        add     hl, bc                   ; hl = modulated freq word
+        add     hl, bc                   ; hl = modulated word
         ; --- triangle reverse: every sc_mod_steps applications flip the delta sign --
         dec     (ix+sc_mod_steps)
         jr      nz, .write
@@ -445,19 +460,36 @@ Mod_ApplyVibrato:
         neg
         ld      (ix+sc_mod_delta), a
 .write:
-        ; --- write-on-change: only emit $A4/$A0 when the freq word changed ---------
+        ; --- write-on-change: signal "skip" (CF set) when the word is unchanged ------
         ld      a, h
         cp      (ix+sc_last_freq)
-        jr      nz, .emit
+        jr      nz, .changed
         ld      a, l
         cp      (ix+sc_last_freq+1)
-        ret     z                        ; unchanged -> no YM write this frame
-.emit:
+        jr      nz, .changed
+        scf                              ; unchanged -> CARRY set => caller writes nothing
+        ret
+.changed:
         ld      (ix+sc_last_freq), h
         ld      (ix+sc_last_freq+1), l
-        ; emit $A4/$A0 ONLY (no key-on). d=$A4 value, e=$A0 value.
-        ld      d, h                     ; d = $A4 value
-        ld      e, l                     ; e = $A0 value
+        ld      d, h                     ; d = word hi (FM $A4 value / PSG divisor hi)
+        ld      e, l                     ; e = word lo (FM $A0 value / PSG divisor lo)
+        or      a                        ; CARRY clear => caller emits (a=l here, nonzero ok)
+        ret
+
+; ----------------------------------------------------------------------
+; Mod_ApplyVibrato — one frame of FM continuous pitch modulation. Thin wrapper over
+; the shared Mod_Advance triangle core (above): if it says "write", emit $A4/$A0 on
+; the HELD note (NO key-on — vibrato changes pitch without retriggering the EG).
+; Called from ModUpdate's FM path for an SFX channel with sc_mod_ctrl != 0 (the
+; caller gates BOTH the SFX-channel test and sc_mod_ctrl). The PSG analogue is
+; Psg_ApplyMod (sound_psg.asm), which shares the same Mod_Advance core.
+; In: ix = FM SFX channel, sc_mod_ctrl != 0. Clobbers af,bc,de,hl. Preserves ix.
+; ----------------------------------------------------------------------
+Mod_ApplyVibrato:
+        call    Mod_Advance              ; advance triangle; CF set => no write this frame
+        ret     c
+        ; d=$A4 value, e=$A0 value (set by Mod_Advance).
         jp      Fm_WriteFreq             ; write $A4 then $A0, NO key-on (preserves ix)
 
 ; ----------------------------------------------------------------------

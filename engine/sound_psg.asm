@@ -161,37 +161,40 @@ Psg_NoteOn:
         ld      e, (hl)                  ; e = divisor low byte
         inc     hl
         ld      d, (hl)                  ; d = divisor high byte (only D1-D0 used)
-        ; de = 10-bit divisor; build the latch + data bytes.
-        push    de                       ; save divisor across Psg_ChBase
-
-        call    Psg_ChBase               ; a = ch<<5 ($00/$20/$40)
-        or      SND_PSG_TONE_LATCH       ; a = $80 | (ch<<5)
-        ld      c, a                     ; c = latch base (no freq nibble yet)
-        pop     de                       ; e = div lo, d = div hi
-        ld      a, e
-        and     0Fh                      ; a = div & $0F (freq low 4 bits)
-        or      c                        ; a = $80 | (ch<<5) | (div & $0F)
-        ld      (SND_Z80_PSG), a         ; latch byte
-
-        ; data byte = (div >> 4) & $3F : take div bits 9..4 (e>>4 | d<<4).
-        ld      a, d
-        add     a, a
-        add     a, a
-        add     a, a
-        add     a, a                     ; a = d << 4 (div bits 9..8 land in D5..D4)
-        ld      b, a                     ; b = (d & 3) << 4 -> div bits 5..4 region
-        ld      a, e
-        srl     a
-        srl     a
-        srl     a
-        srl     a                        ; a = e >> 4 = div bits 7..4
-        or      b                        ; a = ((d<<4)|(e>>4)) = (div >> 4)
-        and     3Fh                      ; data byte is 6 bits
-        ld      (SND_Z80_PSG), a         ; data byte (freq high)
+        ; --- latch the base divisor for PSG pitch modulation (spec §5) ---
+        ; sc_base_freq holds (hi,lo) = (d,e); Psg_ApplyMod sums the vibrato/sweep
+        ; offset onto it each frame. SfxChannel-ONLY (sc_base_freq at +51 is PAST a
+        ; 39-byte music SeqChannel) -> gate on ix >= SND_SFX_BASE so a music PSG note
+        ; never writes adjacent RAM (and stays byte-identical). hl holds the table ptr
+        ; (must survive), so test ix's high byte without disturbing hl.
+        push    hl                       ; preserve the divisor table ptr
+        push    ix
+        pop     hl                       ; hl = ix (the channel ptr)
+        ld      a, h
+        pop     hl                       ; restore the table ptr
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => music channel
+        jr      c, .skip_base_latch      ; music PSG -> no mod fields, don't latch
+        ld      (ix+sc_base_freq), d
+        ld      (ix+sc_base_freq+1), e
+.skip_base_latch:
+        ; de = 10-bit divisor; latch it (shared with Psg_ApplyMod's re-latch).
+        call    Psg_EmitDivisor          ; write latch + data bytes (Clobbers af,bc,de)
 
         ; --- set the channel volume so the note sounds (re-reads sc_volume) ---
         set     SCF_KEYED_B, (ix+sc_flags)
         call    Psg_EnvCursorReset       ; SFX: restart the vol-env contour on this attack (spec §4)
+        ; --- per-note pitch-mod re-arm (spec §5) — SFX channels only -----------------
+        ; Mod_ReArm clears accum + reloads steps for this fresh attack; it reads
+        ; sc_mod_*/sc_base_freq/sc_last_freq (SfxChannel-only, latched above), so GATE
+        ; on the SFX-channel test exactly like the FM key-on does (a music PSG note
+        ; would otherwise read adjacent RAM). No-op when sc_mod_ctrl==0.
+        push    ix
+        pop     hl                       ; hl = ix
+        ld      a, h
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        jr      c, .skip_rearm           ; music PSG -> no mod re-arm (byte-identical)
+        call    Mod_ReArm                ; PSG pitch-mod re-arm (preserves bc/de/hl/ix)
+.skip_rearm:
         ld      a, (ix+sc_volume)
         jp      Psg_SetVolume            ; (preserves ix; ret from there)
 
@@ -216,6 +219,62 @@ Psg_NoteOff:
 .noise:
         ld      a, SND_PSG_SILENCE_N     ; $FF = noise vol, max attenuation
         ld      (SND_Z80_PSG), a
+        ret
+
+; ----------------------------------------------------------------------
+; Psg_ApplyMod — one frame of PSG pitch modulation (spec §5). The PSG analogue of
+; Mod_ApplyVibrato: both call the SHARED Mod_Advance triangle core (sound_sequencer.asm)
+; — the accumulate/speed/steps-reversal/write-on-change logic lives there ONCE (no
+; duplication; the $16F0 ceiling has no room for a second copy). The only difference
+; is the WRITE TARGET: Mod_Advance returns the modulated 16-bit word = sc_base_freq +
+; sc_mod_accum, and here that word is the PSG tone DIVISOR (10 bits used). It is
+; re-latched to the SN76489 tone register WITHOUT re-keying. Faithful to S3K's
+; zDoModulation, which modulates the PSG note's PERIOD word the same way it modulates
+; the FM fnum (the period is the INVERSE of pitch — higher divisor = lower note — and
+; we keep that inversion intact; a downward sweep adds to the divisor). Tone routes
+; only (noise has no divisor — guaranteed by the caller's PSG-tone-route gate; noise
+; channels never set sc_mod_ctrl in the core set).
+; In: ix = PSG TONE channel (SFX), sc_mod_ctrl != 0. Clobbers af,bc,de,hl. Preserves ix.
+; ----------------------------------------------------------------------
+Psg_ApplyMod:
+        call    Mod_Advance              ; advance triangle; CF set => no write this frame
+        ret     c
+        ; de = modulated divisor (d=hi, e=lo). Re-latch via the shared emit helper
+        ; (no re-key — pitch only). Falls into Psg_EmitDivisor (tail), which rets.
+; ----------------------------------------------------------------------
+; Psg_EmitDivisor — write a 10-bit tone DIVISOR to the SN76489 tone register for the
+; current channel (latch + data bytes), WITHOUT keying/volume. Shared by Psg_NoteOn
+; (fresh note) and Psg_ApplyMod (per-frame pitch sweep) so the divisor-split exists
+; once (the $16F0 code ceiling has no room for two copies).
+;   latch byte = $80 | (ch<<5) | (div & $0F);   data byte = (div >> 4) & $3F.
+; In: ix = PSG tone channel, d = div hi, e = div lo. Clobbers af,bc,de. Preserves hl,ix.
+; ----------------------------------------------------------------------
+Psg_EmitDivisor:
+        push    de                       ; save divisor across Psg_ChBase
+        call    Psg_ChBase               ; a = ch<<5 ($00/$20/$40)
+        or      SND_PSG_TONE_LATCH       ; a = $80 | (ch<<5)
+        ld      c, a                     ; c = latch base (no freq nibble yet)
+        pop     de                       ; e = div lo, d = div hi
+        ld      a, e
+        and     0Fh                      ; a = div & $0F (freq low 4 bits)
+        or      c                        ; a = $80 | (ch<<5) | (div & $0F)
+        ld      (SND_Z80_PSG), a         ; latch byte
+
+        ; data byte = (div >> 4) & $3F : div bits 9..4 (e>>4 | d<<4).
+        ld      a, d
+        add     a, a
+        add     a, a
+        add     a, a
+        add     a, a                     ; a = d << 4 (div bits 9..8 land in D5..D4)
+        ld      b, a
+        ld      a, e
+        srl     a
+        srl     a
+        srl     a
+        srl     a                        ; a = e >> 4 = div bits 7..4
+        or      b                        ; a = ((d<<4)|(e>>4)) = (div >> 4)
+        and     3Fh                      ; data byte is 6 bits
+        ld      (SND_Z80_PSG), a         ; data byte (freq high)
         ret
 
 ; ----------------------------------------------------------------------

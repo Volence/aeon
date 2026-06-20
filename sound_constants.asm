@@ -707,8 +707,8 @@ sc_mod_steps    ds.b 1   ; +46 steps until direction reverse (countdown; seeded 
 sc_mod_speed_raw ds.b 1  ; +47 latched speed (reload source for sc_mod_speed)
 sc_mod_step_raw  ds.b 1  ; +48 latched FULL step count (reload source for sc_mod_steps)
 sc_mod_accum    ds.w 1   ; +49 signed 16-bit accumulated freq offset
-sc_base_freq    ds.w 1   ; +51 the unmodulated note's $A4/$A0 word (d=$A4,e=$A0), latched at key-on
-sc_last_freq    ds.w 1   ; +53 last freq word written by Mod_ApplyVibrato (write-on-change shadow)
+sc_base_freq    ds.w 1   ; +51 unmodulated note word, latched at key-on: FM=(d=$A4,e=$A0), PSG=(d=div_hi,e=div_lo)
+sc_last_freq    ds.w 1   ; +53 last modulated freq/divisor written (write-on-change shadow; FM+PSG shared via Mod_Advance)
 ; --- SFX bookkeeping (offsets >= SeqChannel_len + 16 fidelity bytes = +55) ---
 sx_priority     ds.b 1   ; +55 the running SFX's priority (cleared on end; arbitration)
 sx_pad          ds.b 1   ; +56 pad to align sx_patch_base to a word boundary
