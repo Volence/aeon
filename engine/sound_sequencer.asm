@@ -212,7 +212,13 @@ ModUpdate:
     endif
 .rekey_on:
         ld      a, (ix+sc_points)        ; (re)load sc_points[0] (Fm_NoteOff clobbered a)
+        bit     SCF_PITCH_CHROMATIC_B, (ix+sc_flags)
+        jr      z, .rekey_persong        ; clear -> music: per-song fnum table
+        call    Fm_NoteOn                ; SFX: chromatic FmPitchTableZ (same table the note-on used)
+        jr      .rekey_fill
+.rekey_persong:
         call    Fm_NoteFromTable         ; look up per-song table + key on (preserves ix)
+.rekey_fill:
         ; reload the note-fill countdown for this fresh attack (master 0 -> stays legato)
         ld      a, (ix+sc_fill_master)
         ld      (ix+sc_fill_count), a
@@ -260,7 +266,9 @@ ModUpdate:
 .mp_nocarry:
         ld      a, (hl)                  ; a = sc_points[cursor] (absolute fnum idx)
         ld      (ix+sc_note), a          ; sc_note = last-rendered note index
-        jp      Fm_NoteFromTable         ; look up per-song table + key on (preserves ix)
+        bit     SCF_PITCH_CHROMATIC_B, (ix+sc_flags)
+        jp      z, Fm_NoteFromTable      ; clear -> music: per-song table (tail-call, preserves ix)
+        jp      Fm_NoteOn                ; set -> SFX: chromatic table (tail-call, preserves ix)
 
 ; ----------------------------------------------------------------------
 ; Sequencer_Channel — advance ONE active channel (ix = its SeqChannel).

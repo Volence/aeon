@@ -729,9 +729,13 @@ Sfx_BeginSound:
         ; one — substitution/steal may have steered it to a different eligible voice).
         ld      a, (SND_SFX_DISP_ROUTE)
         ld      (ix+sc_route), a
-        ; sc_flags = class bits, minus SCF_ACTIVE (Sfx_Steal arms it last).
+        ; sc_flags = class bits, minus SCF_ACTIVE (Sfx_Steal arms it last), PLUS
+        ; SCF_PITCH_CHROMATIC: SFX notes key via FmPitchTableZ (Fm_NoteOn), so
+        ; ModUpdate's re-key paths must use the chromatic table too (spec §3) — else
+        ; a pitch-env / vibrato re-key reads the per-song table and warbles octaves.
         call    Snd_RouteClassFlags      ; a = SCF_ACTIVE | class bit (FM/PSG/DAC)
         res     SCF_ACTIVE_B, a
+        or      SCF_PITCH_CHROMATIC      ; mark this slot's pitch domain as chromatic
         ld      (ix+sc_flags), a
 
         ; sc_stream_ptr = blob base + cmd offset (BE in the record)

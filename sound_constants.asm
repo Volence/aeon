@@ -693,7 +693,7 @@ sc_patch        ds.b 1   ; +6  current (commanded) FM patch index
 sc_last_patch   ds.b 1   ; +7  last patch ModUpdate actually loaded ($FF = force reload)
 sc_volume       ds.b 1   ; +8  current channel volume (linear 0..127)
 sc_note         ds.b 1   ; +9  current pitch index (for key-off / debug)
-sc_flags        ds.b 1   ; +10 bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac, bit6=sfx_override
+sc_flags        ds.b 1   ; +10 bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac, bit6=sfx_override, bit7=pitch_chromatic
 sc_route        ds.b 1   ; +11 channel route enum (CHROUTE_*) — selects the writer
 sc_loop_ptr     ds.w 1   ; +12 saved loop-point ptr (set by $EE, used by $EF)
 ; --- bounded-repeat state (Sound 1D): one level, NO nesting. The transcoder
@@ -810,8 +810,13 @@ SND_REKEY_OFF_THEN_ON = 1
 ; interpreter keeps advancing its cursor (so the song never desyncs) but every
 ; chip-write site early-returns — an SfxChannel owns this physical voice. Cleared
 ; on SFX restore (which also re-uploads the music patch + re-keys a held note).
-; bit7 stays free.
 SCF_SFX_OVERRIDE_B = 6
+; SFX Expressive Fidelity (spec §3): an SFX channel keys its NOTE-table pitch via
+; the CHROMATIC FmPitchTableZ (Fm_NoteOn). When SET, ModUpdate's re-key paths key
+; via Fm_NoteOn (chromatic) instead of Fm_NoteFromTable (the per-SONG fnum table),
+; so an SFX pitch-env / vibrato re-key reads the SAME table the note-on used. Music
+; channels leave it CLEAR -> Fm_NoteFromTable (per-song), byte-identical. Last bit.
+SCF_PITCH_CHROMATIC_B = 7
 
 SCF_ACTIVE      = 1<<SCF_ACTIVE_B
 SCF_KEYED       = 1<<SCF_KEYED_B
@@ -820,9 +825,10 @@ SCF_IS_PSG      = 1<<SCF_IS_PSG_B
 SCF_IS_DAC      = 1<<SCF_IS_DAC_B
 SCF_REKEY       = 1<<SCF_REKEY_B
 SCF_SFX_OVERRIDE = 1<<SCF_SFX_OVERRIDE_B
+SCF_PITCH_CHROMATIC = 1<<SCF_PITCH_CHROMATIC_B
 
         ; the _B bit numbers and the masks must stay tied together.
-        if (SCF_ACTIVE <> 1<<SCF_ACTIVE_B) || (SCF_KEYED <> 1<<SCF_KEYED_B) || (SCF_IS_FM <> 1<<SCF_IS_FM_B) || (SCF_IS_PSG <> 1<<SCF_IS_PSG_B) || (SCF_IS_DAC <> 1<<SCF_IS_DAC_B) || (SCF_REKEY <> 1<<SCF_REKEY_B) || (SCF_SFX_OVERRIDE <> 1<<SCF_SFX_OVERRIDE_B)
+        if (SCF_ACTIVE <> 1<<SCF_ACTIVE_B) || (SCF_KEYED <> 1<<SCF_KEYED_B) || (SCF_IS_FM <> 1<<SCF_IS_FM_B) || (SCF_IS_PSG <> 1<<SCF_IS_PSG_B) || (SCF_IS_DAC <> 1<<SCF_IS_DAC_B) || (SCF_REKEY <> 1<<SCF_REKEY_B) || (SCF_SFX_OVERRIDE <> 1<<SCF_SFX_OVERRIDE_B) || (SCF_PITCH_CHROMATIC <> 1<<SCF_PITCH_CHROMATIC_B)
           error "SCF_* masks and _B bit numbers are out of sync"
         endif
 
