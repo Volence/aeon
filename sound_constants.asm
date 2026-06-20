@@ -489,6 +489,61 @@ CHROUTE_COUNT = 11
           error "CHROUTE_FM6 must map to part II channel-in-part 2"
         endif
 
+; ======================================================================
+; Phase 5a SFX engine — eligibility, ids, priority, ducking, RAM, structs.
+; ======================================================================
+
+; --- SFX channel eligibility (build-time data, spec §4) -----------------------
+; Each PHYSICAL voice is either NEVER stealable (lead/bass/DAC) or stealable by an
+; SFX. The stealable set sizes the SfxChannel array (3 FM + 3 PSG + noise = 7).
+; FM6 is RESERVED in v1 (it is the DAC, or a music FM voice in DAC-off songs);
+; opening it to SFX later for DAC-off songs is a one-line table edit (design-for-C).
+; The table is indexed by CHROUTE_* and read by SfxDispatch's voice selector +
+; the eligibility/kind asserts. SFXEL_NONE = not stealable; SFXEL_FM/SFXEL_PSG =
+; stealable, with the kind (FM<->FM, PSG<->PSG dynamic substitution). Noise is its
+; own kind (it cannot substitute for a tone PSG and vice versa).
+SFXEL_NONE  = 0     ; never stealable (FM1, FM2, FM6, DAC)
+SFXEL_FM    = 1     ; stealable FM voice (FM3, FM4, FM5)
+SFXEL_PSG   = 2     ; stealable PSG tone voice (PSG1, PSG2, PSG3)
+SFXEL_NOISE = 3     ; stealable PSG noise voice (PSGN)
+
+SFX_VOICE_COUNT = 7 ; FM3,FM4,FM5,PSG1,PSG2,PSG3,PSGN — the stealable set
+
+; --- Symbolic SFX ids (spec §9; ids posted to SND_REQ_SFX, disjoint from song ids)
+; Values are the S3K source filenames so the transcoder's SfxTable index matches
+; (id -> SfxTable[id-1] inside the contiguous SFX-id range; the transcoder densely
+; renumbers, but these names are what gameplay refers to). See SfxIdRemap below.
+SFXID_RING_RIGHT = $33
+SFXID_RING_LEFT  = $34
+SFXID_DEATH      = $35
+SFXID_SKID       = $36
+SFXID_ROLL       = $3C
+SFXID_JUMP       = $62
+SFXID_SPINDASH   = $AB
+SFXID_DASH       = $B6
+SFXID_RINGLOSS   = $B9
+
+; --- Per-SFX priority tiers (authored; S3K has none — spec §6). Higher = wins.
+; Seeded from S2 zSFXPriority for shared sounds: death/hurt > spindash > skid/roll
+; > jump > ring/UI. The transcoder bakes a priority byte into each SfxHeader keyed
+; by id; these tiers are the source of that map (mirrored in tools/sfx_transcode.py).
+SFXPRI_RING     = $20    ; ring/UI — lowest; never ducks (below SFX_DUCK_THRESHOLD)
+SFXPRI_JUMP     = $40
+SFXPRI_ROLL     = $60
+SFXPRI_SKID     = $60
+SFXPRI_SPINDASH = $80
+SFXPRI_DASH     = $80
+SFXPRI_DEATH    = $C0    ; death/ring-loss — highest
+SFXPRI_RINGLOSS = $C0
+
+; --- Ducking (spec §7): a high-priority SFX transiently attenuates the music. A
+; global duck-level byte ramps up on duck-eligible SFX and ramps back over N frames
+; on SFX end. v1: fixed depth + linear ramp, all tunable.
+SFX_DUCK_THRESHOLD = $80     ; SFX priority >= this ducks the music (spindash/dash/death)
+SFX_DUCK_DEPTH     = $18     ; carrier-TL bump (attenuation units; bigger = quieter music)
+SFX_DUCK_PSG_DEPTH = 3       ; PSG linear-volume drop applied while ducked
+SFX_DUCK_RAMP_STEP = 4       ; duck-level change per frame (linear ramp up/down)
+
 ; --- FmPatch struct (the YM record) ---
 ; 4 operators × 6 per-op regs + 2 channel regs = 26 bytes.
 ;
@@ -515,6 +570,97 @@ FmPatch endstruct             ; = 2 + 6*4 = 26 bytes
         if FmPatch_len <> 26
           error "FmPatch struct is \{FmPatch_len} bytes, expected 26"
         endif
+
+; --- SFX blob header (emitted by tools/sfx_transcode.py, prefixes the event-list).
+; An SFX "is a tiny song": the SfxHeader is followed by a pack_song-style channel
+; blob. The header carries the SFX-specific metadata the song format has no field
+; for (preferred route, priority, own-voice ptr, flags). Big-endian ptr offsets,
+; matching the SongHeader convention. design-for-C: SHF_* reserves continuous/loop
+; bits 5b will consume without a format change.
+SfxHeader struct
+sfh_priority    ds.b 1   ; +0  authored priority byte (SFXPRI_*); higher wins
+sfh_flags       ds.b 1   ; +1  SHF_* (continuous / stereo-alt / loop)
+sfh_chcount     ds.b 1   ; +2  number of SFX channels (1 or 2 for the core set)
+sfh_pad         ds.b 1   ; +3  align the per-channel records to even
+; per channel: route(.b) + kind(.b) + cmd_ptr(.w BE off) + voice_ptr(.w BE off)
+SfxHeader endstruct      ; = 4 bytes (fixed prefix; per-channel array follows)
+
+SFXH_PRIORITY = SfxHeader_sfh_priority
+SFXH_FLAGS    = SfxHeader_sfh_flags
+SFXH_CHCOUNT  = SfxHeader_sfh_chcount
+SFXH_CHANNELS = SfxHeader_len          ; per-channel array starts after the prefix
+; per-channel record (6 bytes): route, kind, cmd_ptr(BE), voice_ptr(BE)
+SFXHC_ROUTE   = 0
+SFXHC_KIND    = 1
+SFXHC_CMD_HI  = 2
+SFXHC_CMD_LO  = 3
+SFXHC_VOICE_HI = 4
+SFXHC_VOICE_LO = 5
+SFXHC_LEN     = 6
+
+; --- SfxHeader flags (SHF_*). bits 3-7 reserved for 5b (continuous-loop interp).
+SHF_CONTINUOUS_B = 0     ; held-loop SFX (5b interprets; 5a only honors extend-not-retrigger)
+SHF_STEREO_ALT_B = 1     ; ring-style L/R alternation (resolved 68k-side; informational here)
+SHF_LOOP_B       = 2     ; the blob self-loops (smpsLoop -> MEV_LOOP/JUMP)
+SHF_CONTINUOUS   = 1<<SHF_CONTINUOUS_B
+SHF_STEREO_ALT   = 1<<SHF_STEREO_ALT_B
+SHF_LOOP         = 1<<SHF_LOOP_B
+
+; --- SfxChannel struct (per-active-SFX-voice state; Z80 RAM, indexed by ix). It
+; REUSES the SeqChannel field LAYOUT for the fields ModUpdate/Sequencer_Channel
+; read (so the shared interpreter walks it with the same (ix+sc_*) addressing),
+; then appends the SFX bookkeeping. The shared-prefix fields MUST keep the same
+; offsets as SeqChannel — asserted below. The appended fields use sx_* names.
+SfxChannel struct
+sc_stream_ptr   ds.w 1   ; +0  command stream read ptr (shared with SeqChannel)
+sc_mod_ptr      ds.w 1   ; +2  modulation stream (NULL in 5a)
+sc_dur_count    ds.b 1   ; +4
+sc_dur_default  ds.b 1   ; +5
+sc_patch        ds.b 1   ; +6  SFX's own FM patch index (into its own bank)
+sc_last_patch   ds.b 1   ; +7  ($FF = force reload)
+sc_volume       ds.b 1   ; +8
+sc_note         ds.b 1   ; +9
+sc_flags        ds.b 1   ; +10 SCF_* (ACTIVE/KEYED/IS_FM/IS_PSG; never SFX_OVERRIDE)
+sc_route        ds.b 1   ; +11 the PHYSICAL voice this SFX currently owns (CHROUTE_*)
+sc_loop_ptr     ds.w 1   ; +12
+sc_repeat_ptr   ds.w 1   ; +14
+sc_repeat_count ds.b 1   ; +16
+sc_tempo_base   ds.b 1   ; +17
+sc_tempo_accum  ds.b 1   ; +18
+sc_pt_count     ds.b 1   ; +19
+sc_pt_cursor    ds.b 1   ; +20
+sc_points       ds.b 5   ; +21
+sc_transpose    ds.b 1   ; +26
+sc_pan          ds.b 1   ; +27
+sc_opbias       ds.b 4   ; +28
+sc_porta_accum  ds.w 1   ; +32
+sc_porta_incr   ds.w 1   ; +34
+sc_last_pan     ds.b 1   ; +36
+sc_fill_master  ds.b 1   ; +37
+sc_fill_count   ds.b 1   ; +38 (end of the shared SeqChannel-compatible prefix)
+; --- SFX-only appended state (offsets >= SeqChannel_len) ---
+sx_priority     ds.b 1   ; +39 the running SFX's priority (cleared on end; arbitration)
+sx_pad          ds.b 1   ; +40 pad to align sx_patch_base to a word boundary
+sx_patch_base   ds.w 1   ; +41 the SFX's own FmPatch-bank window ptr (set at steal)
+sx_saved_route  ds.b 1   ; +43 the music route whose SeqChannel we overrode (for restore)
+sx_saved_note   ds.b 1   ; +44 PSG3 tone note saved on a noise steal (periodic-noise coupling)
+sx_kind         ds.b 1   ; +45 SFXEL_* of the owned voice (FM/PSG/NOISE) for restore dispatch
+SfxChannel endstruct     ; = 46 bytes
+
+        if SfxChannel_len <> 46
+          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 46"
+        endif
+        ; largest field offset must stay within the (ix+d) signed-8-bit range.
+        if SfxChannel_sx_kind > 127
+          error "SfxChannel sx_kind offset (\{SfxChannel_sx_kind}) exceeds (ix+d) +127"
+        endif
+
+; sc_* aliases already exist (SeqChannel). Add sx_* aliases for the SFX fields.
+sx_priority     = SfxChannel_sx_priority
+sx_patch_base   = SfxChannel_sx_patch_base
+sx_saved_route  = SfxChannel_sx_saved_route
+sx_saved_note   = SfxChannel_sx_saved_note
+sx_kind         = SfxChannel_sx_kind
 
 ; --- SeqChannel struct (per-channel sequencer state; Z80 RAM, indexed by ix) ---
 ; Phase 3 (per-frame engine): the v0/1C COMMAND-STREAM fields (sc_stream_ptr ..
@@ -547,7 +693,7 @@ sc_patch        ds.b 1   ; +6  current (commanded) FM patch index
 sc_last_patch   ds.b 1   ; +7  last patch ModUpdate actually loaded ($FF = force reload)
 sc_volume       ds.b 1   ; +8  current channel volume (linear 0..127)
 sc_note         ds.b 1   ; +9  current pitch index (for key-off / debug)
-sc_flags        ds.b 1   ; +10 bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac
+sc_flags        ds.b 1   ; +10 bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac, bit6=sfx_override
 sc_route        ds.b 1   ; +11 channel route enum (CHROUTE_*) — selects the writer
 sc_loop_ptr     ds.w 1   ; +12 saved loop-point ptr (set by $EE, used by $EF)
 ; --- bounded-repeat state (Sound 1D): one level, NO nesting. The transcoder
@@ -590,6 +736,11 @@ SeqChannel endstruct      ; = 39 bytes
         ; the largest field offset must stay within the signed-8-bit (ix+d) range.
         if SeqChannel_sc_last_pan > 127
           error "sc_last_pan offset (\{SeqChannel_sc_last_pan}) exceeds the (ix+d) +127 range"
+        endif
+        ; the shared interpreter prefix MUST mirror SeqChannel field offsets so
+        ; ModUpdate/Sequencer_Channel walk an SfxChannel correctly.
+        if (SfxChannel_sc_flags <> SeqChannel_sc_flags) || (SfxChannel_sc_route <> SeqChannel_sc_route) || (SfxChannel_sc_note <> SeqChannel_sc_note) || (SfxChannel_sc_points <> SeqChannel_sc_points) || (SfxChannel_sc_last_pan <> SeqChannel_sc_last_pan)
+          error "SfxChannel shared prefix diverges from SeqChannel field offsets"
         endif
 
 ; Short field-offset accessors (AS struct fields are exposed as
@@ -655,15 +806,23 @@ SCF_REKEY_B     = 5       ; ModUpdate should (re)key this channel's note next fr
 ; this lever governs only the count==1 re-articulation; the trill path keys-on each
 ; new point, which IS a fresh 0->1 edge because the pitch genuinely changed.)
 SND_REKEY_OFF_THEN_ON = 1
+; Phase 5a: SFX channel-steal override. When SET on a music SeqChannel, the music
+; interpreter keeps advancing its cursor (so the song never desyncs) but every
+; chip-write site early-returns — an SfxChannel owns this physical voice. Cleared
+; on SFX restore (which also re-uploads the music patch + re-keys a held note).
+; bit7 stays free.
+SCF_SFX_OVERRIDE_B = 6
+
 SCF_ACTIVE      = 1<<SCF_ACTIVE_B
 SCF_KEYED       = 1<<SCF_KEYED_B
 SCF_IS_FM       = 1<<SCF_IS_FM_B
 SCF_IS_PSG      = 1<<SCF_IS_PSG_B
 SCF_IS_DAC      = 1<<SCF_IS_DAC_B
 SCF_REKEY       = 1<<SCF_REKEY_B
+SCF_SFX_OVERRIDE = 1<<SCF_SFX_OVERRIDE_B
 
         ; the _B bit numbers and the masks must stay tied together.
-        if (SCF_ACTIVE <> 1<<SCF_ACTIVE_B) || (SCF_KEYED <> 1<<SCF_KEYED_B) || (SCF_IS_FM <> 1<<SCF_IS_FM_B) || (SCF_IS_PSG <> 1<<SCF_IS_PSG_B) || (SCF_IS_DAC <> 1<<SCF_IS_DAC_B) || (SCF_REKEY <> 1<<SCF_REKEY_B)
+        if (SCF_ACTIVE <> 1<<SCF_ACTIVE_B) || (SCF_KEYED <> 1<<SCF_KEYED_B) || (SCF_IS_FM <> 1<<SCF_IS_FM_B) || (SCF_IS_PSG <> 1<<SCF_IS_PSG_B) || (SCF_IS_DAC <> 1<<SCF_IS_DAC_B) || (SCF_REKEY <> 1<<SCF_REKEY_B) || (SCF_SFX_OVERRIDE <> 1<<SCF_SFX_OVERRIDE_B)
           error "SCF_* masks and _B bit numbers are out of sync"
         endif
 
@@ -789,6 +948,35 @@ SND_SONG_BUF_SIZE       = $200                   ; 512 bytes ($1B00..$1CFF)
     endif
     if (SND_SONG_BUF + SND_SONG_BUF_SIZE) > SND_REQ_BASE
       fatal "song buffer (\{SND_SONG_BUF}+\{SND_SONG_BUF_SIZE}) overruns the mailbox at \{SND_REQ_BASE}"
+    endif
+
+; --- Phase 5a SFX RAM region (the free $1D00..$1EFF gap, below the mailbox) ----
+; Mirrors the seq-region asserts: guard the END against the mailbox ($1F00) above
+; and against the song-buffer END ($1D00) below so it can't collide with either.
+SND_SFX_BASE       = SND_SONG_BUF + SND_SONG_BUF_SIZE   ; = $1D00 (right after the song buffer)
+SND_SFX_CHANNELS   = SND_SFX_BASE                       ; the 7-slot SfxChannel array
+SND_SFX_CHAN_END   = SND_SFX_CHANNELS + (SFX_VOICE_COUNT * SfxChannel_len)
+; SFX request queue (spec §9): a small priority-gated ring. 3 entries * 2 bytes
+; (id, priority) + head/tail/count. SfxDispatch enqueues; the per-frame drain pops.
+SND_SFX_QUEUE      = SND_SFX_CHAN_END
+SFX_QUEUE_DEPTH    = 3
+SFX_QUEUE_ENTRY    = 2                                  ; id + priority
+SND_SFX_QUEUE_HEAD = SND_SFX_QUEUE + (SFX_QUEUE_DEPTH * SFX_QUEUE_ENTRY)
+SND_SFX_QUEUE_TAIL = SND_SFX_QUEUE_HEAD + 1
+SND_SFX_QUEUE_CNT  = SND_SFX_QUEUE_TAIL + 1
+; Global music duck level (ramped envelope, spec §7) + the active-duck target.
+SND_SFX_DUCK_LEVEL = SND_SFX_QUEUE_CNT + 1              ; current applied duck (0 = none)
+SND_SFX_DUCK_TARGET = SND_SFX_DUCK_LEVEL + 1           ; target (set while a duck-SFX runs)
+SND_SFX_RAM_END    = SND_SFX_DUCK_TARGET + 1
+
+    if SND_SFX_BASE <> $1D00
+      error "SND_SFX_BASE (\{SND_SFX_BASE}) must be $1D00 (right after the song buffer)"
+    endif
+    if SND_SFX_RAM_END > SND_REQ_BASE
+      fatal "SFX RAM (\{SND_SFX_RAM_END}) overruns the mailbox at \{SND_REQ_BASE}"
+    endif
+    if SND_SFX_BASE < (SND_SONG_BUF + SND_SONG_BUF_SIZE)
+      fatal "SFX RAM (\{SND_SFX_BASE}) collides with the song buffer below it"
     endif
 
 ; --- Trace event_code values (0..15) — the controller decodes the trace ring.
