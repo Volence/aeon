@@ -131,6 +131,11 @@ Sequencer_Frame:
 ; Clobbers: af (held-note no-op) or af,bc,de,hl (render path). Preserves ix.
 ; ----------------------------------------------------------------------
 ModUpdate:
+        ; Phase 5a: if an SFX has stolen this physical voice, render NOTHING (no
+        ; $B4/note-fill/re-key writes) — the SfxChannel owns the channel. The music
+        ; cursor still advances in Sequencer_Channel, so the song never desyncs.
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        ret     nz
         ; Non-FM channels (PSG / DAC) have no per-frame FM modulation to render in
         ; Phase 3a -> no-op. (PSG modulation is out of scope; see spec §1.)
         bit     SCF_IS_FM_B, (ix+sc_flags)
@@ -453,6 +458,8 @@ Seq_Op_NoteRaw:
         ld      a, SEQEV_NOTEON
         call    Seq_Trace                ; preserves de (the fnum word)
     endif
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        ret     nz                       ; SFX owns this voice -> advance time, no key
         bit     SCF_IS_FM_B, (ix+sc_flags)
         ret     z                        ; non-FM route -> time advanced, no key
         ; RETRIGGER the hardware envelope: key OFF then key ON, so every note
@@ -624,8 +631,11 @@ Seq_Op_OpBias:
 Seq_Op_RegDelta:
         ld      a, (hl)
         inc     hl                       ; a = count; hl past the count byte
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        jr      nz, .skip_pre            ; SFX owns this voice -> consume operands, no write
         bit     SCF_IS_FM_B, (ix+sc_flags)
         jr      nz, .fm
+.skip_pre:
         ; --- non-FM route: skip 2*count operand bytes, write nothing ---
         add     a, a                     ; bytes to skip = count*2 (reg_sel+value pairs)
         jr      z, .skipped              ; count==0 -> nothing to skip (defensive)
@@ -867,6 +877,8 @@ Seq_Trace:
 ;   Seq_HookSetPatch-> Fm_PatchLoad (FM only; PSG ignores patch -> ret)
 ; ======================================================================
 Seq_HookNoteOn:
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        ret     nz                       ; SFX owns this voice -> emit no chip write
         bit     SCF_IS_FM_B, (ix+sc_flags)
         jr      nz, .fm
         bit     SCF_IS_PSG_B, (ix+sc_flags)
@@ -883,6 +895,8 @@ Seq_HookNoteOn:
         jp      Fm_NoteOn
 
 Seq_HookNoteOff:
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        ret     nz
         bit     SCF_IS_FM_B, (ix+sc_flags)
         jp      nz, Fm_NoteOff
         bit     SCF_IS_PSG_B, (ix+sc_flags)
@@ -890,6 +904,8 @@ Seq_HookNoteOff:
         jp      Psg_NoteOff
 
 Seq_HookSetVol:
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        ret     nz
         bit     SCF_IS_FM_B, (ix+sc_flags)
         jr      nz, .fm
         bit     SCF_IS_PSG_B, (ix+sc_flags)
@@ -901,6 +917,8 @@ Seq_HookSetVol:
         jp      Fm_SetVolume
 
 Seq_HookSetPatch:
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        ret     nz
         bit     SCF_IS_FM_B, (ix+sc_flags)
         ret     z                        ; PSG/DAC have no patch -> ignore
         call    Fm_PatchPtr              ; hl = FmPatch ptr for sc_patch
