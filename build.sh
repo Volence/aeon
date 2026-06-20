@@ -141,6 +141,9 @@ python3 "${TOOLS}/ojz_block_gen.py" generate
 echo "Generating compression self-test vectors..."
 python3 "${TOOLS}/gen_compression_vectors.py"
 
+echo "Transcoding core SFX set (S3K -> SFX blobs)..."
+python3 "${TOOLS}/sfx_transcode.py" generate
+
 if [[ "${NO_LINT:-0}" == "0" ]]; then
     echo "Linting..."
     if ! python3 "${TOOLS}/s4lint.py" "${MAIN_ASM}"; then
