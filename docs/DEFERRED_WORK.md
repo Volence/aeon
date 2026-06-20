@@ -1016,9 +1016,11 @@ warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 
 > **Driver note:** the engine ships a **from-scratch custom Z80-autonomous sound driver**
 > (2026-06-16 master sound spec), NOT an imported Flamedriver. Plans **1A** (foundations),
-> **1B** (DMA-survival DAC), and **1C** (FM+PSG sequencer) are SHIPPED. The Phase 2–6 backlog
-> (FM depth, N-channel DAC mixer, adaptive FM6, section-aware banking/fades, MegaDAW export) is
-> tracked at the bottom of this section. References to "Flamedriver upload" below are historical.
+> **1B** (DMA-survival DAC), **1C** (FM+PSG sequencer), **1D** (Moving Trucks FM infra), and
+> **Phase 3a** (FM depth — per-frame modulation engine + native Moving Trucks port) are SHIPPED
+> (merged to master `c89bea3`, 2026-06-19). The remaining Phase 2 / 3b / 4 / 5 / 6 backlog
+> (N-channel DAC mixer, FM extras, adaptive FM6, section-aware banking/fades + SFX, MegaDAW export)
+> is tracked at the bottom of this section. References to "Flamedriver upload" below are historical.
 
 ### Per-frame pitch / volume envelopes (Phase 3a #2/#3) — DEFERRED, build-on-demand
 **Surfaced during:** Moving Trucks missing-effects investigation (2026-06-19).
@@ -1095,8 +1097,15 @@ the dead copies cannot silently diverge.
 **What (each its own plan, per master spec §12):**
 - **Phase 2 — DAC powerhouse:** N-channel DAC mixer (quality-adaptive single↔mix), stereo/pseudo-
   stereo PCM, pitch-shifted SFX, half-rate samples, BRR codec (after spike), bank-switch optimization.
-- **Phase 3 — FM depth:** dual per-channel data streams, true (division-based) portamento, SSG-EG,
-  LFO, Ch3 special/CSM, detune-unison, full PSG envelopes, raw-register escape hatch.
+- **Phase 3a — FM depth (SHIPPED, merged `c89bea3` 2026-06-19):** per-frame modulation engine,
+  per-song pitch table + pitch envelopes (trills/arps), pan, signed per-op TL bias, voice-stepping
+  via build-time register deltas, hardware LFO ($22=$08), note-fill gate articulation, native Moving
+  Trucks port. **Deferred build-on-demand within 3a:** **Task 7 portamento** (MEV_PORTA — `sc_porta_*`
+  struct fields reserved, not rendered) and the **formal Task 9 verification-harness file**
+  (`tools/phase3_verify.py` was never written; MT fidelity was instead verified ad-hoc by rendered-audio
+  comparison vs the GD3 rip — see memory [[project_mt_resolved]]).
+- **Phase 3b — FM extras (DEFERRED):** dual per-channel data streams, true (division-based) portamento,
+  SSG-EG, broader LFO use, Ch3 special/CSM, detune-unison, full PSG envelopes, raw-register escape hatch.
 - **Phase 4 — Adaptive FM6/DAC slot:** the three content-adaptive modes (full 6th FM voice /
   Batman time-share / permanent N-channel DAC mixer). 1C keeps FM6 permanently the DAC (simple model).
 - **Phase 5 — Engine integration & game-feel:** section-aware sound banking, music fade state machine,
@@ -1105,7 +1114,9 @@ the dead copies cannot silently diverge.
 - **Phase 6 — MegaDAW compiler:** event-list format finalization, MegaDAW export retarget,
   sample/DC-offset encoders. (1C hand-authors the test song; MegaDAW integration + real song-sourcing
   are downstream/user-driven — the engine defines the format contract first.)
-**Blocked by:** sequenced after 1C merges to master; each phase is audible + Exodus-verifiable.
+**Blocked by:** 1C and Phase 3a have merged to master; remaining phases are sequenced next — **Phase 5
+(SFX + game integration) is the current priority** (biggest gap: no SFX path exists, music is debug/boot
+only). Each phase is audible + Exodus-verifiable.
 **See:** `docs/superpowers/specs/2026-06-16-sound-driver-design.md` §12; `docs/superpowers/specs/2026-06-17-sound-1c-design.md` §2.
 
 ### Defensive Z80 RAM Upload — Verify-and-Retry
