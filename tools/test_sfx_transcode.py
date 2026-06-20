@@ -468,20 +468,20 @@ Sound_XX_Voices:
         desc2 = transcode_sfx_source(SKID_SRC, 0x36)
         self.assertIsNotNone(desc2)
 
-    def test_smpsmodset_logged_not_raised(self):
-        """smpsModSet is intentionally lossy (dropped with log) not a build error."""
-        # Roll contains smpsModSet — must succeed
-        import io
-        old_err = sys.stderr
-        sys.stderr = io.StringIO()
-        try:
-            desc = transcode_sfx_source(ROLL_SRC, 0x3C)
-            log = sys.stderr.getvalue()
-        finally:
-            sys.stderr = old_err
-        self.assertIsNotNone(desc)
-        self.assertIn('smpsModSet', log,
-                      "smpsModSet must log a message (not silently drop)")
+    def test_smpsmodset_emits_modset(self):
+        """SFX Expressive Fidelity Task 4: smpsModSet now EMITS MEV_MODSET (the
+        faithful pitch-modulation latch), it is no longer dropped. Roll's FM4 carries
+        smpsModSet $03,$01,$09,$FF then $00,$01,$00,$00 (mod-off)."""
+        from song_packer import ModSet
+        desc = transcode_sfx_source(ROLL_SRC, 0x3C)
+        ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_FM4)
+        mods = [e for e in ch['events'] if isinstance(e, ModSet)]
+        self.assertEqual(len(mods), 2, "Roll FM4 has two smpsModSet ops")
+        self.assertEqual((mods[0].wait, mods[0].speed, mods[0].change, mods[0].step),
+                         (0x03, 0x01, 0x09, 0xFF))
+        # the second is the mod-off cancel
+        self.assertEqual((mods[1].wait, mods[1].speed, mods[1].change, mods[1].step),
+                         (0x00, 0x01, 0x00, 0x00))
 
 
 class TestBlobLayoutMatchesSfxHeader(unittest.TestCase):
@@ -656,6 +656,85 @@ class TestPsgEnv(unittest.TestCase):
     def test_unmapped_stone_errors(self):
         with self.assertRaises(TranscodeError):
             transcode_sfx_source(UNMAPPED_STONE_SRC, 0x99)
+
+
+class TestModSet(unittest.TestCase):
+    """SFX Expressive Fidelity Task 4 — FM pitch modulation (smpsModSet -> MEV_MODSET)."""
+
+    def test_modset_encodes(self):
+        from song_packer import ModSet, MEV_MODSET
+        # change $F8 = -8 must encode back to the byte $F8 (two's complement).
+        self.assertEqual(ModSet(0x02, 0x01, -8, 0x65).encode(),
+                         bytes([0xEC, 0x02, 0x01, 0xF8, 0x65]))
+        self.assertEqual(ModSet(0x01, 0x01, 0x1A, 0x01).encode(),
+                         bytes([MEV_MODSET, 0x01, 0x01, 0x1A, 0x01]))
+
+    def test_modset_off_encodes(self):
+        from song_packer import ModSet
+        # the smpsModSet 0,0,0,0 mod-off idiom.
+        self.assertEqual(ModSet(0, 0, 0, 0).encode(), bytes([0xEC, 0, 0, 0, 0]))
+
+    def test_modset_validate_byte_range(self):
+        from song_packer import ModSet
+        ModSet(0xFF, 0xFF, -128, 0xFF).validate(CHROUTE_FM5)   # extremes OK
+        ModSet(0x00, 0x00, 127, 0x00).validate(CHROUTE_FM5)
+        with self.assertRaises(PackError):
+            ModSet(0x100, 0, 0, 0).validate(CHROUTE_FM5)       # wait out of range
+        with self.assertRaises(PackError):
+            ModSet(0, 0, -200, 0).validate(CHROUTE_FM5)        # change out of signed range
+
+    def test_spindash_emits_modset(self):
+        # Spin Dash (AB) FM5: smpsModSet $01,$01,$1A,$01 then a mod-off $00,$00,$00,$00.
+        from song_packer import ModSet
+        src = """\
+Sound_AB_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_AB_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $01
+\tsmpsHeaderSFXChannel cFM5, Sound_AB_FM5,\t$00, $00
+Sound_AB_FM5:
+\tsmpsSpindashRev
+\tsmpsSetvoice        $00
+\tsmpsModSet          $01, $01, $1A, $01
+\tdc.b\tnC5, $18, smpsNoAttack
+\tsmpsModSet          $00, $00, $00, $00
+\tdc.b\t$02
+\tsmpsStop
+Sound_AB_Voices:
+\tsmpsVcAlgorithm     $04
+\tsmpsVcFeedback      $06
+\tsmpsVcUnusedBits    $00
+\tsmpsVcDetune        $00, $00, $00, $00
+\tsmpsVcCoarseFreq    $09, $03, $0C, $00
+\tsmpsVcRateScale     $03, $02, $02, $02
+\tsmpsVcAttackRate    $15, $0C, $0F, $1F
+\tsmpsVcAmpMod        $00, $00, $00, $00
+\tsmpsVcDecayRate1    $00, $00, $00, $00
+\tsmpsVcDecayRate2    $00, $00, $00, $00
+\tsmpsVcDecayLevel    $00, $00, $00, $00
+\tsmpsVcReleaseRate   $0F, $0F, $0F, $0F
+\tsmpsVcTotalLevel    $00, $1C, $00, $00
+"""
+        desc = transcode_sfx_source(src, 0xAB)
+        ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_FM5)
+        mods = [e for e in ch['events'] if isinstance(e, ModSet)]
+        self.assertEqual(len(mods), 2)
+        self.assertEqual((mods[0].wait, mods[0].speed, mods[0].change, mods[0].step),
+                         (0x01, 0x01, 0x1A, 0x01))
+        self.assertEqual((mods[1].wait, mods[1].speed, mods[1].change, mods[1].step),
+                         (0x00, 0x00, 0x00, 0x00))
+
+    def test_modset_precedes_note(self):
+        # The active ModSet must be latched BEFORE the note it modulates (Roll FM4).
+        from song_packer import ModSet
+        desc = transcode_sfx_source(ROLL_SRC, 0x3C)
+        ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_FM4)
+        evs = ch['events']
+        first_mod = next(i for i, e in enumerate(evs) if isinstance(e, ModSet))
+        first_note = next(i for i, e in enumerate(evs) if isinstance(e, (Note, NoteDur)))
+        self.assertLess(first_mod, first_note,
+                        "the first ModSet must precede the first note it modulates")
 
 
 if __name__ == '__main__':

@@ -40,7 +40,7 @@ except ImportError:
 
 try:
     from song_packer import (
-        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, LoopPoint, Jump,
+        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, ModSet, LoopPoint, Jump,
         RepeatStart, RepeatEnd,
         CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
         CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -50,7 +50,7 @@ try:
     )
 except ImportError:
     from tools.song_packer import (  # type: ignore
-        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, LoopPoint, Jump,
+        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, ModSet, LoopPoint, Jump,
         RepeatStart, RepeatEnd,
         CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
         CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -164,6 +164,14 @@ def _parse_int(tok: str) -> int:
     if tok.startswith('$'):
         return int(tok[1:], 16)
     return int(tok, 0)
+
+
+def _parse_signed_byte(tok: str) -> int:
+    """Parse a byte token as a SIGNED value (-128..127): $F8 -> -8, $1A -> 26.
+    Used for the smpsModSet `change` (per-step pitch delta), which the source writes
+    as a raw byte whose high bit is the sign (S3K's zDoModulation sign-extends it)."""
+    v = _parse_int(tok)
+    return v - 256 if v > 127 else v
 
 
 # sTone_XX token -> 1-based engine PSG vol-env id. The id IS the sTone number
@@ -611,13 +619,21 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                         env_id = _stone_to_env_id(tone_tok)
                         events.append(PsgEnv(env_id))
                     elif macro == 'smpsModSet':
-                        # Intentional lossy mapping: drop for v1 (no per-note pitch-mod envelope).
-                        # The note pitch + duration ARE preserved (smpsModSet is a zero-tick setter).
-                        print(f"  [info] sfx ${sfx_id:02X} ch ${chanid:02X}: smpsModSet dropped "
-                              f"(pitch-modulation envelope not in v1 scope; notes preserved)",
-                              file=sys.stderr)
-                        # consume the 4 operand bytes (wait,speed,change,step) — they're in arg_str
-                        # No event emitted.
+                        # Pitch modulation: emit MEV_MODSET with the raw .asm operands
+                        # (wait, speed, change, step). The engine applies S3K's own
+                        # srl-on-init (Mod_ReArm seeds steps = raw>>1) — do NOT re-encode
+                        # the macro's version-specific *speed step transform here (that is
+                        # the data layer, already implied by the source operands). `change`
+                        # is signed ($F8 -> -8). All-zero = mod off (smpsModSet 0,0,0,0).
+                        args = _split_args(arg_str)
+                        if len(args) < 4:
+                            raise TranscodeError(
+                                f"smpsModSet expects 4 operands, got {args!r}")
+                        wait  = _parse_int(args[0])
+                        speed = _parse_int(args[1])
+                        change = _parse_signed_byte(args[2])
+                        step  = _parse_int(args[3])
+                        events.append(ModSet(wait, speed, change, step))
                     elif macro == 'smpsSpindashRev':
                         # Enable spindash frequency ramp: each note accumulates a rising pitch.
                         spindash_active = True
@@ -949,9 +965,20 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     env_id = _stone_to_env_id(tone_tok)
                     events.append(PsgEnv(env_id))
                 elif macro == 'smpsModSet':
-                    print(f"  [info] sfx ${sfx_id:02X} ch ${chanid:02X}: smpsModSet dropped "
-                          f"(pitch-modulation envelope not in v1 scope; notes preserved)",
-                          file=sys.stderr)
+                    # Pitch modulation: emit MEV_MODSET with the raw .asm operands
+                    # (wait, speed, change, step). The engine applies S3K's own
+                    # srl-on-init (Mod_ReArm seeds steps = raw>>1) — do NOT re-encode
+                    # the macro's version-specific transform here. `change` is signed
+                    # ($F8 -> -8). All-zero = mod off (smpsModSet 0,0,0,0).
+                    args = _split_args(arg_str)
+                    if len(args) < 4:
+                        raise TranscodeError(
+                            f"smpsModSet expects 4 operands, got {args!r}")
+                    wait  = _parse_int(args[0])
+                    speed = _parse_int(args[1])
+                    change = _parse_signed_byte(args[2])
+                    step  = _parse_int(args[3])
+                    events.append(ModSet(wait, speed, change, step))
                 elif macro == 'smpsSpindashRev':
                     spindash_active = True
                     spindash_accum = 0

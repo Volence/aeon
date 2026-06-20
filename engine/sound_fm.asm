@@ -650,14 +650,79 @@ Fm_NoteOn:
 ; Clobbers: af, bc, de, hl. Preserves ix.
 ; ----------------------------------------------------------------------
 Fm_NoteOnFreq:
-        push    de                       ; save the split fnum bytes
+        ; Write $A4 then $A0 (no key-on yet) via the shared Fm_WriteFreq head. It
+        ; re-parks $2A at the end, harmless before the key-on below. de (the fnum word)
+        ; is reloaded after for the base-freq latch.
+        push    de                       ; save the split fnum bytes across the writes
+        call    Fm_WriteFreq             ; $A4 then $A0 (Fm_ScratchPart/Ch set inside)
+        pop     de                       ; e = $A0 val, d = $A4 val (for the latch below)
 
+        ; --- latch the unmodulated note word for the vibrato renderer (spec §5) -----
+        ; The pitch-mod offset is summed onto THIS each frame (d=$A4 high, e=$A0 low).
+        ; sc_base_freq is an SfxChannel-only field (offset +51, PAST a 39-byte music
+        ; SeqChannel), and Fm_NoteOnFreq runs for MUSIC FM too (MT) — so GATE on the
+        ; SFX-channel test: a music note must NOT write here (it would corrupt the next
+        ; channel's RAM). SfxChannels live at/above SND_SFX_BASE ($1D00).
+        push    ix
+        pop     hl                       ; hl = ix
+        ld      a, h
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        jr      c, .keyon                ; music -> no mod fields; straight to key-on
+        ld      (ix+sc_base_freq), d     ; high byte slot = $A4 value
+        ld      (ix+sc_base_freq+1), e   ; low byte slot  = $A0 value
+.keyon:
+        ; --- KEY ON: $28 = $F0 | chsel, ALWAYS via part I ---
+        call    Fm_ChSel                 ; a = chsel = (part<<2)|ch
+        or      SND_FM_KEYON_OPMASK      ; $F0 | chsel (all 4 ops on)
+        ld      c, a                     ; data = key-on byte
+        ld      a, SND_REG_KEY_ONOFF     ; reg = $28
+        ld      b, 0                     ; key on/off is GLOBAL -> part I
+        call    Fm_YmWrite
+
+        set     SCF_KEYED_B, (ix+sc_flags)
+        ; --- per-note pitch-mod re-arm (Task 4) — SFX channels only -----------------
+        ; Mod_ReArm touches sc_mod_*/sc_last_freq (SfxChannel-only). Gate on the same
+        ; SFX-channel test so a MUSIC note (MT) never reads/writes those fields.
+        push    ix
+        pop     hl                       ; hl = ix
+        ld      a, h
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        jr      c, .skip_rearm           ; music -> no mod re-arm (MT byte-identical)
+        call    Mod_ReArm                ; per-note re-arm (no-op if sc_mod_ctrl==0)
+.skip_rearm:
+        jp      Fm_ReparkDac             ; defensive re-park ($2A)
+
+; ----------------------------------------------------------------------
+; Fm_NoteOff — key the channel off (op_mask = 0). Always via part I.
+; In: ix = SeqChannel. Clears SCF_KEYED.
+; Clobbers: af, bc, de. Preserves hl, ix.
+; ----------------------------------------------------------------------
+Fm_NoteOff:
+        call    Fm_ChSel                 ; a = chsel = (part<<2)|ch
+        ld      c, a                     ; data = $28 byte = chsel (op_mask 0 -> key off)
+        ld      a, SND_REG_KEY_ONOFF     ; reg = $28
+        ld      b, 0                     ; GLOBAL -> part I
+        call    Fm_YmWrite
+        res     SCF_KEYED_B, (ix+sc_flags)
+        jp      Fm_ReparkDac             ; defensive re-park ($2A)
+
+; ----------------------------------------------------------------------
+; Fm_WriteFreq — write a raw frequency word to $A4/$A0 WITHOUT keying on (the
+; vibrato/pitch-mod path: change pitch on a HELD note, no EG retrigger). Mirrors
+; Fm_NoteOnFreq's two freq writes ($A4 first, then $A0) minus the $28 key-on and the
+; SCF_KEYED set. Used by Mod_ApplyVibrato (ModUpdate) each frame the modulated freq
+; word changes.
+; In: ix = SeqChannel/SfxChannel, d = $A4 value (block|fnumHi), e = $A0 value (fnum
+; low). Clobbers: af,bc,de,hl. Preserves ix. (de = the DAC loop's $4001 is untouched
+; — Fm_RoutePart/Fm_YmWrite/Fm_ReparkDac all use absolute YM addressing.)
+; ----------------------------------------------------------------------
+Fm_WriteFreq:
+        push    de                       ; save the split fnum bytes across Fm_RoutePart
         call    Fm_RoutePart             ; b = part, c = ch-in-part
         ld      a, c
         ld      (Fm_ScratchCh), a
         ld      a, b
         ld      (Fm_ScratchPart), a
-
         pop     de                       ; e = $A0 val, d = $A4 val
 
         ; --- $A4+ch FIRST (block + fnum high) ---
@@ -677,31 +742,7 @@ Fm_NoteOnFreq:
         add     a, SND_REG_FNUM_LO       ; reg = $A0 + ch
         ld      c, e                     ; data = $A0 value
         call    Fm_YmWrite
-
-        ; --- KEY ON: $28 = $F0 | chsel, ALWAYS via part I ---
-        call    Fm_ChSel                 ; a = chsel = (part<<2)|ch
-        or      SND_FM_KEYON_OPMASK      ; $F0 | chsel (all 4 ops on)
-        ld      c, a                     ; data = key-on byte
-        ld      a, SND_REG_KEY_ONOFF     ; reg = $28
-        ld      b, 0                     ; key on/off is GLOBAL -> part I
-        call    Fm_YmWrite
-
-        set     SCF_KEYED_B, (ix+sc_flags)
-        jp      Fm_ReparkDac             ; defensive re-park ($2A)
-
-; ----------------------------------------------------------------------
-; Fm_NoteOff — key the channel off (op_mask = 0). Always via part I.
-; In: ix = SeqChannel. Clears SCF_KEYED.
-; Clobbers: af, bc, de. Preserves hl, ix.
-; ----------------------------------------------------------------------
-Fm_NoteOff:
-        call    Fm_ChSel                 ; a = chsel = (part<<2)|ch
-        ld      c, a                     ; data = $28 byte = chsel (op_mask 0 -> key off)
-        ld      a, SND_REG_KEY_ONOFF     ; reg = $28
-        ld      b, 0                     ; GLOBAL -> part I
-        call    Fm_YmWrite
-        res     SCF_KEYED_B, (ix+sc_flags)
-        jp      Fm_ReparkDac             ; defensive re-park ($2A)
+        jp      Fm_ReparkDac             ; defensive re-park ($2A); preserves ix
 
 ; ----------------------------------------------------------------------
 ; Fm_ChSel — compute the $28 channel-select nibble = (part<<2)|ch-in-part.

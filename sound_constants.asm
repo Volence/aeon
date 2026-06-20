@@ -37,7 +37,16 @@ SND_ALIVE_MARKER        = $5A
 SND_SAMPLE_TEST         = 1                       ; Foundations test tone
 
 ; --- Playback state (Z80 RAM addresses in the state region) ---
-SND_STATE_BASE          = $1600
+; The driver CODE blob grows up from $0000 and must stay below SND_STATE_BASE (the
+; build asserts Z80_SOUND_SIZE <= SND_STATE_BASE). The playback-state block uses only
+; 16 bytes (+$00..+$0F); historically the base was $1600, leaving the 240 bytes
+; $1610..$16FF between the state block and the page-aligned DAC ring ($1700) DEAD.
+; SFX Expressive Fidelity (Task 4) grew the driver past $1600, so the base is moved
+; UP to $16F0 to reclaim that dead gap as code space: the 16-byte state block now
+; occupies $16F0..$16FF (exactly filling to the DAC ring), and the code may grow to
+; $16EF. The DAC ring + everything above are unchanged. SND_STATE_END_GUARD below
+; asserts the state block never runs into the ring.
+SND_STATE_BASE          = $16F0
 SND_TEST_SAMPLE         = $1C00                  ; runtime-generated test sample
 SND_TEST_SAMPLE_LEN     = 256
 SND_PLAY_ACTIVE         = SND_STATE_BASE+$00     ; 1 = sample playing
@@ -206,6 +215,14 @@ SND_ROM_BANK            = SND_STATE_BASE+$0C      ; sample's bank id
 SND_CUR_BANK            = SND_STATE_BASE+$0D      ; cached current bank (SetBank no-op check)
 SND_LOOP_OFS            = SND_STATE_BASE+$0E      ; loop restart offset within sample (0 = one-shot)
 SND_PLAY_MODE           = SND_STATE_BASE+$0F      ; 0 = FILL+PLAY, 1 = DRAIN (no ROM reads)
+
+        ; The 16-byte playback-state block (SND_STATE_BASE+$00..+$0F) must stay below
+        ; the page-aligned DAC ring at SND_RING_BASE ($1700). With SND_STATE_BASE=$16F0
+        ; it occupies $16F0..$16FF — exactly filling to the ring. Guard it (the SFX-
+        ; fidelity Task-4 code growth pushed the base up to reclaim the old dead gap).
+        if (SND_PLAY_MODE + 1) > SND_RING_BASE
+          fatal "playback-state block (ends \{SND_PLAY_MODE}) runs into the DAC ring at \{SND_RING_BASE}"
+        endif
 
 ; --- 1B: 8-byte ROM-resident sample descriptor ---
 DacSample struct
@@ -680,24 +697,32 @@ sc_mod_ctrl     ds.b 1   ; +42 pitch-mod control (0 = off; nonzero = active)
 sc_mod_wait     ds.b 1   ; +43 frames before modulation starts (one-shot, then held at 1)
 sc_mod_speed    ds.b 1   ; +44 frames between delta applications (countdown)
 sc_mod_delta    ds.b 1   ; +45 signed per-step delta (flips sign each half-period)
-sc_mod_steps    ds.b 1   ; +46 steps until direction reverse (countdown; halved at re-arm)
-sc_mod_accum    ds.w 1   ; +47 signed 16-bit accumulated freq offset
-sc_base_freq    ds.w 1   ; +49 the unmodulated note's $A4/$A0 word (d=$A4,e=$A0), latched at key-on
-sc_last_freq    ds.w 1   ; +51 last freq word written by Mod_ApplyVibrato (write-on-change shadow)
-; --- SFX bookkeeping (offsets >= SeqChannel_len + 14 fidelity bytes = +53) ---
-sx_priority     ds.b 1   ; +53 the running SFX's priority (cleared on end; arbitration)
-sx_pad          ds.b 1   ; +54 pad to align sx_patch_base to a word boundary
-sx_patch_base   ds.w 1   ; +55 the SFX's own FmPatch-bank window ptr (set at steal)
-sx_saved_route  ds.b 1   ; +57 the music route whose SeqChannel we overrode (for restore)
-sx_saved_note   ds.b 1   ; +58 PSG3 tone note saved on a noise steal (periodic-noise coupling)
-sx_kind         ds.b 1   ; +59 SFXEL_* of the owned voice (FM/PSG/NOISE) for restore dispatch
-SfxChannel endstruct     ; = 60 bytes
+sc_mod_steps    ds.b 1   ; +46 steps until direction reverse (countdown; seeded raw/2 at re-arm)
+; --- Task 4 reload sources (S3K zDoModulation reloads from the modulation DATA each
+; half/sub-period, NOT from a RAM countdown). We have no iy->ROM ptr, so latch the
+; raw operands here: sc_mod_speed_raw = the smpsModSet speed (iy+1 reload source);
+; sc_mod_step_raw = the smpsModSet FULL step count (iy+3 reload source). The INITIAL
+; sc_mod_steps is seeded raw/2 (zPrepareModulation srl), but each subsequent reversal
+; reloads the FULL raw step — faithful to S3K's iy+3. ---
+sc_mod_speed_raw ds.b 1  ; +47 latched speed (reload source for sc_mod_speed)
+sc_mod_step_raw  ds.b 1  ; +48 latched FULL step count (reload source for sc_mod_steps)
+sc_mod_accum    ds.w 1   ; +49 signed 16-bit accumulated freq offset
+sc_base_freq    ds.w 1   ; +51 the unmodulated note's $A4/$A0 word (d=$A4,e=$A0), latched at key-on
+sc_last_freq    ds.w 1   ; +53 last freq word written by Mod_ApplyVibrato (write-on-change shadow)
+; --- SFX bookkeeping (offsets >= SeqChannel_len + 16 fidelity bytes = +55) ---
+sx_priority     ds.b 1   ; +55 the running SFX's priority (cleared on end; arbitration)
+sx_pad          ds.b 1   ; +56 pad to align sx_patch_base to a word boundary
+sx_patch_base   ds.w 1   ; +57 the SFX's own FmPatch-bank window ptr (set at steal)
+sx_saved_route  ds.b 1   ; +59 the music route whose SeqChannel we overrode (for restore)
+sx_saved_note   ds.b 1   ; +60 PSG3 tone note saved on a noise steal (periodic-noise coupling)
+sx_kind         ds.b 1   ; +61 SFXEL_* of the owned voice (FM/PSG/NOISE) for restore dispatch
+SfxChannel endstruct     ; = 62 bytes
 
-        if SfxChannel_len <> 60
-          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 60"
+        if SfxChannel_len <> 62
+          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 62"
         endif
         ; largest field offset must stay within the (ix+d) signed-8-bit range.
-        ; sc_last_freq ends at +52 (word at +51), sx_kind is at +59 — both <= 127.
+        ; sc_last_freq ends at +54 (word at +53), sx_kind is at +61 — both <= 127.
         if SfxChannel_sx_kind > 127
           error "SfxChannel sx_kind offset (\{SfxChannel_sx_kind}) exceeds (ix+d) +127"
         endif
@@ -830,6 +855,8 @@ sc_mod_wait     = SfxChannel_sc_mod_wait
 sc_mod_speed    = SfxChannel_sc_mod_speed
 sc_mod_delta    = SfxChannel_sc_mod_delta
 sc_mod_steps    = SfxChannel_sc_mod_steps
+sc_mod_speed_raw = SfxChannel_sc_mod_speed_raw
+sc_mod_step_raw = SfxChannel_sc_mod_step_raw
 sc_mod_accum    = SfxChannel_sc_mod_accum
 sc_base_freq    = SfxChannel_sc_base_freq
 sc_last_freq    = SfxChannel_sc_last_freq
@@ -897,8 +924,9 @@ SCF_PITCH_CHROMATIC = 1<<SCF_PITCH_CHROMATIC_B
 ; --- Sequencer RAM block (Z80 space) ---
 ; Lives at $1800, ABOVE the 1B DAC ring at $1700. (The plan's illustrative guard
 ; `if SND_SEQ_END > SND_RING_BASE` is WRONG — the sequencer is above the ring,
-; not below it. The real map: code $0000-$15FF, state $1600-$16FF, DAC ring
+; not below it. The real map: code $0000-$16EF, state $16F0-$16FF, DAC ring
 ; $1700-$17FF, FREE $1800-$1EFF, mailbox/status $1F00-$1F1F, stack top $1FFE.
+; (state base moved $1600->$16F0 in SFX Task 4 to reclaim the old dead gap as code.)
 ; We place the sequencer region at $1800 and guard its END against the mailbox
 ; base SND_REQ_BASE ($1F00), leaving stack headroom.)
 SND_SEQ_BASE       = $1800          ; sequencer state region (free block above the DAC ring)

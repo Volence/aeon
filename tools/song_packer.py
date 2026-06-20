@@ -64,6 +64,7 @@ MEV_LOOP_POINT = 0xEE
 MEV_JUMP = 0xEF
 MEV_NOTEFILL = 0xED          # + master: per-channel note-fill (frames keyed from attack; 0=legato)
 MEV_PSGENV = 0xEB           # + env_id: set the channel's PSG volume-envelope id (1-based; 0=none)
+MEV_MODSET = 0xEC           # + wait speed change step: latch pitch-modulation params (all 0 = off)
 MEV_END = 0xFF
 
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
@@ -220,6 +221,32 @@ class PsgEnv(Event):
             raise PackError(f"PsgEnv on FM route {route}")
         if not (0 <= self.env_id <= 0xFF):
             raise PackError(f"PsgEnv env_id {self.env_id} out of byte range")
+
+
+class ModSet(Event):
+    """SFX-fidelity pitch modulation (the engine's smpsModSet): latch wait/speed/
+    change/step. The engine re-arms per FM note (accum=0, the step count seeded
+    raw>>1 per S3K's srl, then each reversal reloads the FULL raw step) and renders a
+    continuous additive freq-word vibrato/sweep with NO re-key. All-zero = mod off
+    (the smpsModSet 0,0,0,0 idiom AB/3C use to cancel modulation). `change` (the
+    per-step delta) is a SIGNED byte (-128..127); wait/speed/step are unsigned. FM
+    here (Task 4); PSG modulation reuses the same opcode/state (Task 5)."""
+    def __init__(self, wait: int, speed: int, change: int, step: int):
+        self.wait = wait
+        self.speed = speed
+        self.change = change
+        self.step = step
+
+    def encode(self) -> bytes:
+        return bytes([MEV_MODSET, self.wait & 0xFF, self.speed & 0xFF,
+                      self.change & 0xFF, self.step & 0xFF])
+
+    def validate(self, route):
+        for name, v in (('wait', self.wait), ('speed', self.speed), ('step', self.step)):
+            if not (0 <= v <= 0xFF):
+                raise PackError(f"ModSet {name} {v} out of byte range 0..255")
+        if not (-128 <= self.change <= 127):
+            raise PackError(f"ModSet change {self.change} out of signed byte range -128..127")
 
 
 class OpBias(Event):

@@ -173,6 +173,24 @@ ModUpdate:
         call    Fm_SetPan                ; write $B4+chan = sc_pan (preserves ix)
 .pan_done:
 
+        ; --- PITCH MODULATION (spec §5): continuous additive freq-word vibrato/sweep
+        ; on the HELD note (no key-on). Runs every frame regardless of the re-key state
+        ; below, so it modulates a held FM SFX note. SFX-CHANNEL GATE: sc_mod_ctrl is an
+        ; SfxChannel-only field (offset +42, PAST a 39-byte music SeqChannel). Reading it
+        ; on a music FM channel (MT) would read adjacent RAM -> spurious vibrato + MT RAM
+        ; corruption. SfxChannels live at/above SND_SFX_BASE ($1D00); a high-byte compare
+        ; separates them (CARRY set => ix < $1D00 => music => skip — MT FM stays byte-
+        ; identical). Then gate on sc_mod_ctrl != 0 (a non-modulated SFX pays one test).
+        push    ix
+        pop     hl                       ; hl = ix (the channel ptr)
+        ld      a, h
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        jr      c, .vibrato_done         ; music FM -> no mod fields, skip (byte-identical)
+        ld      a, (ix+sc_mod_ctrl)
+        or      a
+        call    nz, Mod_ApplyVibrato     ; advance + write-on-change $A4/$A0 (no key-on)
+.vibrato_done:
+
         ; --- NOTE-FILL (#4 gate articulation): per-frame countdown; key OFF early when it
         ; reaches 0, leaving a staccato gap until the next attack. sc_fill_count==0 means
         ; disabled (sc_fill_master 0) OR already expired -> one test, no cost. Runs BEFORE the
@@ -337,6 +355,112 @@ PsgEnvUpdate:
         jp      Psg_NoteOff              ; silence this PSG channel (tail-call, preserves ix)
 
 ; ----------------------------------------------------------------------
+; Mod_ReArm — per-note pitch-modulation re-arm (port of zPrepareModulation).
+; Called from the FM key-on tail (Fm_NoteOnFreq), AFTER sc_base_freq is latched and
+; ONLY for an SFX channel (the caller gates ix >= SND_SFX_BASE — sc_mod_* are
+; SfxChannel-only fields). If sc_mod_ctrl is off, returns immediately (one bit-test
+; for a non-modulated SFX note). Else (mirror zPrepareModulation):
+;   * clear the accumulated offset (accum = 0)
+;   * seed sc_mod_steps = raw_step >> 1 (S3K's `srl a` — the FIRST half-period is
+;     half-length; subsequent reversals reload the FULL sc_mod_step_raw, see
+;     Mod_ApplyVibrato — faithful to S3K's iy+3 reload)
+;   * reload sc_mod_speed = sc_mod_speed_raw (fresh countdown)
+;   * prime sc_last_freq = sc_base_freq so the first vibrato render writes only once
+;     the offset actually changes (write-on-change).
+; In: ix = SFX channel (sc_base_freq already latched by the caller). Clobbers af.
+; Preserves bc,de,hl,ix.
+; ----------------------------------------------------------------------
+Mod_ReArm:
+        ld      a, (ix+sc_mod_ctrl)
+        or      a
+        ret     z                        ; mod off -> nothing
+        xor     a
+        ld      (ix+sc_mod_accum), a
+        ld      (ix+sc_mod_accum+1), a   ; accum = 0
+        ; sc_mod_steps = raw_step >> 1 (initial half-period; reversals reload FULL raw).
+        ld      a, (ix+sc_mod_step_raw)
+        srl     a
+        ld      (ix+sc_mod_steps), a
+        ; sc_mod_speed = raw speed (fresh countdown for this note).
+        ld      a, (ix+sc_mod_speed_raw)
+        ld      (ix+sc_mod_speed), a
+        ; prime the write-on-change shadow to the base note (d=$A4, e=$A0).
+        ld      a, (ix+sc_base_freq)
+        ld      (ix+sc_last_freq), a
+        ld      a, (ix+sc_base_freq+1)
+        ld      (ix+sc_last_freq+1), a
+        ret
+
+; ----------------------------------------------------------------------
+; Mod_ApplyVibrato — one frame of continuous pitch modulation (port of
+; zDoModulation, ModulationCtrl==normal). Called from ModUpdate's FM path for an
+; SFX channel with sc_mod_ctrl != 0 (the caller gates BOTH the SFX-channel test and
+; sc_mod_ctrl). Faithful sequence:
+;   * count down sc_mod_wait (one-shot delay; when it hits 0, hold it at 1 so the
+;     modulation fires every frame thereafter)
+;   * every sc_mod_speed frames: reload sc_mod_speed = sc_mod_speed_raw, then add the
+;     sign-extended sc_mod_delta to the 16-bit sc_mod_accum
+;   * final freq word = sc_base_freq + sc_mod_accum  (base stored as hi=$A4, lo=$A0)
+;   * every sc_mod_steps applications: reload sc_mod_steps = sc_mod_step_raw (the FULL
+;     raw count — S3K's iy+3) and NEGATE sc_mod_delta (triangle direction flip)
+;   * write $A4/$A0 ONLY when the freq word changed vs sc_last_freq (write-on-change)
+;   * NEVER key-on — vibrato changes pitch without retriggering the EG.
+; In: ix = FM SFX channel, sc_mod_ctrl != 0. Clobbers af,bc,de,hl. Preserves ix.
+; ----------------------------------------------------------------------
+Mod_ApplyVibrato:
+        ; --- wait countdown (one-shot delay, then held at 1) ---
+        dec     (ix+sc_mod_wait)
+        ret     nz                       ; still delaying -> no change this frame
+        inc     (ix+sc_mod_wait)         ; hold wait at 1 so it fires every frame hereafter
+
+        ; --- speed gate: only accumulate every sc_mod_speed frames ---
+        dec     (ix+sc_mod_speed)
+        jr      nz, .sustain
+        ld      a, (ix+sc_mod_speed_raw) ; reload the speed countdown (iy+1 in S3K)
+        ld      (ix+sc_mod_speed), a
+        ; bc = sign-extended signed delta (CF = sign bit of delta -> $FF/$00 in b).
+        ld      a, (ix+sc_mod_delta)
+        ld      c, a
+        add     a, a                     ; CF = sign bit
+        sbc     a, a                     ; a = $FF if delta<0 else $00
+        ld      b, a                     ; bc = sign-extended delta
+        ld      l, (ix+sc_mod_accum)
+        ld      h, (ix+sc_mod_accum+1)
+        add     hl, bc                   ; accum += delta
+        ld      (ix+sc_mod_accum), l
+        ld      (ix+sc_mod_accum+1), h
+.sustain:
+        ; --- final freq = base_freq + accum (16-bit; hi=$A4, lo=$A0) ---
+        ld      h, (ix+sc_base_freq)     ; $A4 value (block|fnumHi) = high byte
+        ld      l, (ix+sc_base_freq+1)   ; $A0 value (fnum low)     = low byte
+        ld      c, (ix+sc_mod_accum)
+        ld      b, (ix+sc_mod_accum+1)   ; bc = signed accum
+        add     hl, bc                   ; hl = modulated freq word
+        ; --- triangle reverse: every sc_mod_steps applications flip the delta sign --
+        dec     (ix+sc_mod_steps)
+        jr      nz, .write
+        ld      a, (ix+sc_mod_step_raw)  ; reload the FULL raw step count (iy+3 in S3K)
+        ld      (ix+sc_mod_steps), a
+        ld      a, (ix+sc_mod_delta)
+        neg
+        ld      (ix+sc_mod_delta), a
+.write:
+        ; --- write-on-change: only emit $A4/$A0 when the freq word changed ---------
+        ld      a, h
+        cp      (ix+sc_last_freq)
+        jr      nz, .emit
+        ld      a, l
+        cp      (ix+sc_last_freq+1)
+        ret     z                        ; unchanged -> no YM write this frame
+.emit:
+        ld      (ix+sc_last_freq), h
+        ld      (ix+sc_last_freq+1), l
+        ; emit $A4/$A0 ONLY (no key-on). d=$A4 value, e=$A0 value.
+        ld      d, h                     ; d = $A4 value
+        ld      e, l                     ; e = $A0 value
+        jp      Fm_WriteFreq             ; write $A4 then $A0, NO key-on (preserves ix)
+
+; ----------------------------------------------------------------------
 ; Sequencer_Channel — advance ONE active channel (ix = its SeqChannel).
 ; Held notes burn a tick and return; on duration expiry, fetch+dispatch the
 ; next opcode(s). Clobbers af,bc,de,hl (b is NOT preserved — the .coord path
@@ -464,22 +588,73 @@ Seq_Op_NoteFill:
 Seq_Op_PsgEnv:
         ld      a, (hl)
         inc     hl                       ; consume operand first so a music stream stays in sync
+        ld      c, a                     ; stash env id (both a and hl are clobbered by the gate)
         ; SFX-channel gate (defense-in-depth): sc_psgenv* are SfxChannel-only. The transcoder
         ; only emits $EB into SFX streams, but a music SeqChannel (39 bytes) lacks these fields,
-        ; so a write here on a music channel would corrupt the next channel's RAM. Guard it:
-        ; ix < $1D00 (music) ignores the opcode after consuming its operand.
-        push    af                       ; preserve env id across the high-byte test
+        ; so a write here on a music channel would corrupt the next channel's RAM. Guard it,
+        ; PRESERVING hl — Seq_ContinueFetch resumes .fetch from hl (the live stream ptr), so the
+        ; gate must restore it (else the next opcode is read out of the channel struct = derail).
+        push    hl                       ; save stream ptr
         push    ix
-        pop     hl                       ; hl = ix
-        ld      a, h
+        pop     hl
+        ld      a, h                     ; a = ix high byte
+        pop     hl                       ; restore stream ptr (pop does not affect flags)
         cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => music channel
-        jr      nc, .psgenv_apply
-        pop     af                       ; music: balance the stack, ignore the opcode
-        jp      Seq_ContinueFetch
-.psgenv_apply:
-        pop     af                       ; SFX: recover env id
-        ld      (ix+sc_psgenv), a
+        jr      c, .psgenv_done          ; music: ignore the opcode (hl = stream ptr intact)
+        ld      (ix+sc_psgenv), c        ; SFX: set env id
         ld      (ix+sc_psgenv_cur), 0    ; restart the contour from frame 0
+.psgenv_done:
+        jp      Seq_ContinueFetch
+
+; $EC MEV_MODSET + wait speed change step : latch the pitch-modulation params (the
+; engine's smpsModSet). Zero-tick setter. sc_mod_ctrl is set nonzero iff ANY of the
+; 4 params is nonzero (all-zero = mod off — the smpsModSet 0,0,0,0 idiom AB/3C use to
+; cancel modulation). The actual per-note re-arm (accum=0, steps seeded raw/2) happens
+; at the next FM key-on (Mod_ReArm); Mod_ApplyVibrato (ModUpdate) renders it per frame.
+;
+; SFX-CHANNEL GATE: sc_mod_* are SfxChannel-only fields (offset +42.., PAST a 39-byte
+; music SeqChannel). The transcoder only emits $EC into SFX streams, but a music stream
+; must NEVER write these fields (it would corrupt the next channel's RAM). So consume
+; all 4 operands FIRST (keep the stream in sync), then SKIP the writes for a music
+; channel (ix < SND_SFX_BASE => carry set). Mirror of Seq_Op_PsgEnv's gate.
+Seq_Op_ModSet:
+        ; --- read all 4 operands into b,c,d,e (wait/speed/delta/step) ---
+        ld      a, (hl)
+        inc     hl                       ; wait
+        ld      b, a                     ; b = wait
+        ld      a, (hl)
+        inc     hl                       ; speed
+        ld      c, a                     ; c = speed
+        ld      a, (hl)
+        inc     hl                       ; change/delta (signed)
+        ld      d, a                     ; d = delta
+        ld      a, (hl)
+        inc     hl                       ; step (raw count)
+        ld      e, a                     ; e = step
+        ; --- SFX-channel gate: a music stream must not write sc_mod_* ---
+        ; b,c,d,e hold wait/speed/delta/step (untouched by the gate). PRESERVE hl —
+        ; Seq_ContinueFetch resumes .fetch from hl (the live stream ptr), so the gate must
+        ; restore it (else the next opcode is read out of the channel struct = derail).
+        push    hl                       ; save stream ptr
+        push    ix
+        pop     hl
+        ld      a, h                     ; a = ix high byte
+        pop     hl                       ; restore stream ptr (pop does not affect flags)
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => music channel
+        jr      c, .modset_done          ; music: ignore the writes (hl = stream ptr intact)
+        ; ctrl = OR of all 4 params (nonzero => active, all-zero => off).
+        ld      a, b
+        or      c
+        or      d
+        or      e                        ; a = wait|speed|delta|step  (the off test)
+        ld      (ix+sc_mod_wait), b
+        ld      (ix+sc_mod_speed), c
+        ld      (ix+sc_mod_speed_raw), c ; reload source for the speed countdown
+        ld      (ix+sc_mod_delta), d      ; signed change/step delta
+        ld      (ix+sc_mod_steps), e      ; raw step count (seeded raw/2 at re-arm)
+        ld      (ix+sc_mod_step_raw), e   ; reload source for the steps countdown (FULL)
+        ld      (ix+sc_mod_ctrl), a       ; nonzero => active; zero => off
+.modset_done:
         jp      Seq_ContinueFetch
 
 ; $E1 MEV_PATCH + pp : set FM patch index, zero tick
@@ -902,7 +1077,7 @@ SeqOpcodeTable:
         dw      Seq_Op_OpBias            ; $E9 MEV_OPBIAS
         dw      Seq_Op_RegDelta          ; $EA MEV_REGDELTA (voice-stepping)
         dw      Seq_Op_PsgEnv            ; $EB MEV_PSGENV
-        dw      Seq_BadOpcode            ; $EC reserved
+        dw      Seq_Op_ModSet            ; $EC MEV_MODSET
         dw      Seq_Op_NoteFill          ; $ED MEV_NOTEFILL (gate articulation)
         dw      Seq_Op_LoopPoint         ; $EE MEV_LOOP_POINT
         dw      Seq_Op_Jump              ; $EF MEV_JUMP
