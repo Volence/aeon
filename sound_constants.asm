@@ -354,6 +354,14 @@ MEV_NOTEFILL    = $ED    ; + master : per-channel note-fill — # frames the not
 MEV_END         = $FF    ; end of stream (channel idle)
 ; reserved for Phase 3: $EB–$ED, $F0–$FE (unknown opcode = build/validation error)
 
+; --- SFX Expressive Fidelity opcodes (free $EB/$EC/$F0/$F1 slots, spec §7) ------
+; All zero-tick coordination setters. Default-inert: a song/SFX without them is
+; byte-identical (the new state fields are zeroed by the seq/slot wipe).
+MEV_PSGENV        = $EB   ; + env_id : set the channel's PSG volume-envelope id (1-based; 0=none)
+MEV_MODSET        = $EC   ; + wait speed change step : latch the pitch-modulation params (all 0 = mod off)
+MEV_SPINREV       = $F0   ; (no operand) : add the global spindash rev into sc_transpose, cap $10, inc
+MEV_SPINREV_RESET = $F1   ; (no operand) : zero the global spindash rev
+
         ; --- MEV_PAN / MEV_OPBIAS range + collision asserts (Task 6) ---
         ; Both must be command opcodes (> MEV_NOTE_MAX), inside the $E0-$FF
         ; coordination block, and must not collide with any allocated opcode.
@@ -428,6 +436,29 @@ MEV_END         = $FF    ; end of stream (channel idle)
         endif
         if (1<<REGDELTA_GROUP_SHIFT) <> (REGDELTA_OP_MASK+1)
           error "REGDELTA_GROUP_SHIFT must clear the op field (op uses bits 0..REGDELTA_OP_MASK)"
+        endif
+
+        ; --- SFX-fidelity opcode range + collision asserts (spec §7) ---
+        ; Each must be a command opcode (> MEV_NOTE_MAX), inside $E0-$FF, on its
+        ; assigned free slot, and not collide with any allocated opcode.
+        if (MEV_PSGENV <= MEV_NOTE_MAX) || (MEV_MODSET <= MEV_NOTE_MAX) || (MEV_SPINREV <= MEV_NOTE_MAX) || (MEV_SPINREV_RESET <= MEV_NOTE_MAX)
+          error "MEV_PSGENV/MODSET/SPINREV* must be command opcodes (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_PSGENV < MEV_VOL) || (MEV_PSGENV > MEV_END) || (MEV_MODSET < MEV_VOL) || (MEV_MODSET > MEV_END) || (MEV_SPINREV < MEV_VOL) || (MEV_SPINREV > MEV_END) || (MEV_SPINREV_RESET < MEV_VOL) || (MEV_SPINREV_RESET > MEV_END)
+          error "MEV_PSGENV/MODSET/SPINREV* must be inside the $E0-$FF coordination block"
+        endif
+        if (MEV_PSGENV <> $EB) || (MEV_MODSET <> $EC) || (MEV_SPINREV <> $F0) || (MEV_SPINREV_RESET <> $F1)
+          error "MEV_PSGENV/MODSET/SPINREV* must be on their assigned free slots ($EB/$EC/$F0/$F1)"
+        endif
+        ; must not collide with any allocated opcode ($E0-$EA used, $ED NOTEFILL, $EE/$EF loop/jump, $FF end).
+        if (MEV_PSGENV = MEV_VOL) || (MEV_PSGENV = MEV_PATCH) || (MEV_PSGENV = MEV_DAC) || (MEV_PSGENV = MEV_NOTE_DUR) || (MEV_PSGENV = MEV_PAN) || (MEV_PSGENV = MEV_REPEAT_START) || (MEV_PSGENV = MEV_REPEAT_END) || (MEV_PSGENV = MEV_NOTE_RAW) || (MEV_PSGENV = MEV_PITCHENV) || (MEV_PSGENV = MEV_OPBIAS) || (MEV_PSGENV = MEV_REGDELTA) || (MEV_PSGENV = MEV_NOTEFILL) || (MEV_PSGENV = MEV_LOOP_POINT) || (MEV_PSGENV = MEV_JUMP) || (MEV_PSGENV = MEV_END) || (MEV_PSGENV = MEV_MODSET)
+          error "MEV_PSGENV (\{MEV_PSGENV}) collides with an allocated $E0-$FF opcode"
+        endif
+        if (MEV_MODSET = MEV_VOL) || (MEV_MODSET = MEV_PATCH) || (MEV_MODSET = MEV_DAC) || (MEV_MODSET = MEV_NOTE_DUR) || (MEV_MODSET = MEV_PAN) || (MEV_MODSET = MEV_REPEAT_START) || (MEV_MODSET = MEV_REPEAT_END) || (MEV_MODSET = MEV_NOTE_RAW) || (MEV_MODSET = MEV_PITCHENV) || (MEV_MODSET = MEV_OPBIAS) || (MEV_MODSET = MEV_REGDELTA) || (MEV_MODSET = MEV_NOTEFILL) || (MEV_MODSET = MEV_LOOP_POINT) || (MEV_MODSET = MEV_JUMP) || (MEV_MODSET = MEV_END)
+          error "MEV_MODSET (\{MEV_MODSET}) collides with an allocated $E0-$FF opcode"
+        endif
+        if (MEV_SPINREV = MEV_SPINREV_RESET) || (MEV_SPINREV = MEV_END) || (MEV_SPINREV_RESET = MEV_END)
+          error "MEV_SPINREV/SPINREV_RESET opcode collision"
         endif
 
         ; opcode ranges must not overlap: the top note opcode is below the
@@ -638,19 +669,35 @@ sc_porta_incr   ds.w 1   ; +34
 sc_last_pan     ds.b 1   ; +36
 sc_fill_master  ds.b 1   ; +37
 sc_fill_count   ds.b 1   ; +38 (end of the shared SeqChannel-compatible prefix)
-; --- SFX-only appended state (offsets >= SeqChannel_len) ---
-sx_priority     ds.b 1   ; +39 the running SFX's priority (cleared on end; arbitration)
-sx_pad          ds.b 1   ; +40 pad to align sx_patch_base to a word boundary
-sx_patch_base   ds.w 1   ; +41 the SFX's own FmPatch-bank window ptr (set at steal)
-sx_saved_route  ds.b 1   ; +43 the music route whose SeqChannel we overrode (for restore)
-sx_saved_note   ds.b 1   ; +44 PSG3 tone note saved on a noise steal (periodic-noise coupling)
-sx_kind         ds.b 1   ; +45 SFXEL_* of the owned voice (FM/PSG/NOISE) for restore dispatch
-SfxChannel endstruct     ; = 46 bytes
+; --- SFX Expressive Fidelity appended state (SfxChannel-only; renderers gate on ix>=SND_SFX_BASE) ---
+; PSG volume envelope (spec §4): per-frame attenuation contour folded into Psg_SetVolume.
+; Pitch modulation (spec §5): continuous additive freq-word vibrato/sweep, NO re-key.
+; Zeroed at slot init -> default-inert (off). Music SeqChannel lacks these fields entirely.
+sc_psgenv       ds.b 1   ; +39 PSG vol-env id (1-based; 0 = none)
+sc_psgenv_cur   ds.b 1   ; +40 PSG vol-env cursor (frame index into the body)
+sc_psgenv_out   ds.b 1   ; +41 last computed atten delta (write-on-change shadow for Psg_SetVolume)
+sc_mod_ctrl     ds.b 1   ; +42 pitch-mod control (0 = off; nonzero = active)
+sc_mod_wait     ds.b 1   ; +43 frames before modulation starts (one-shot, then held at 1)
+sc_mod_speed    ds.b 1   ; +44 frames between delta applications (countdown)
+sc_mod_delta    ds.b 1   ; +45 signed per-step delta (flips sign each half-period)
+sc_mod_steps    ds.b 1   ; +46 steps until direction reverse (countdown; halved at re-arm)
+sc_mod_accum    ds.w 1   ; +47 signed 16-bit accumulated freq offset
+sc_base_freq    ds.w 1   ; +49 the unmodulated note's $A4/$A0 word (d=$A4,e=$A0), latched at key-on
+sc_last_freq    ds.w 1   ; +51 last freq word written by Mod_ApplyVibrato (write-on-change shadow)
+; --- SFX bookkeeping (offsets >= SeqChannel_len + 14 fidelity bytes = +53) ---
+sx_priority     ds.b 1   ; +53 the running SFX's priority (cleared on end; arbitration)
+sx_pad          ds.b 1   ; +54 pad to align sx_patch_base to a word boundary
+sx_patch_base   ds.w 1   ; +55 the SFX's own FmPatch-bank window ptr (set at steal)
+sx_saved_route  ds.b 1   ; +57 the music route whose SeqChannel we overrode (for restore)
+sx_saved_note   ds.b 1   ; +58 PSG3 tone note saved on a noise steal (periodic-noise coupling)
+sx_kind         ds.b 1   ; +59 SFXEL_* of the owned voice (FM/PSG/NOISE) for restore dispatch
+SfxChannel endstruct     ; = 60 bytes
 
-        if SfxChannel_len <> 46
-          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 46"
+        if SfxChannel_len <> 60
+          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 60"
         endif
         ; largest field offset must stay within the (ix+d) signed-8-bit range.
+        ; sc_last_freq ends at +52 (word at +51), sx_kind is at +59 — both <= 127.
         if SfxChannel_sx_kind > 127
           error "SfxChannel sx_kind offset (\{SfxChannel_sx_kind}) exceeds (ix+d) +127"
         endif
@@ -739,6 +786,8 @@ SeqChannel endstruct      ; = 39 bytes
         endif
         ; the shared interpreter prefix MUST mirror SeqChannel field offsets so
         ; ModUpdate/Sequencer_Channel walk an SfxChannel correctly.
+        ; SfxChannel's first 39 bytes are a byte-for-byte clone of SeqChannel —
+        ; the 14 SFX-fidelity fields (+39..+52) are SfxChannel-only (no mirror here).
         if (SfxChannel_sc_flags <> SeqChannel_sc_flags) || (SfxChannel_sc_route <> SeqChannel_sc_route) || (SfxChannel_sc_note <> SeqChannel_sc_note) || (SfxChannel_sc_points <> SeqChannel_sc_points) || (SfxChannel_sc_last_pan <> SeqChannel_sc_last_pan)
           error "SfxChannel shared prefix diverges from SeqChannel field offsets"
         endif
@@ -771,6 +820,19 @@ sc_porta_incr   = SeqChannel_sc_porta_incr
 sc_last_pan     = SeqChannel_sc_last_pan
 sc_fill_master  = SeqChannel_sc_fill_master
 sc_fill_count   = SeqChannel_sc_fill_count
+; SFX Expressive Fidelity fields (SfxChannel-only; renderers gate on ix>=SND_SFX_BASE).
+; Aliased from SfxChannel_sc_* so (ix+sc_psgenv) etc. work in SFX renderer code.
+sc_psgenv       = SfxChannel_sc_psgenv
+sc_psgenv_cur   = SfxChannel_sc_psgenv_cur
+sc_psgenv_out   = SfxChannel_sc_psgenv_out
+sc_mod_ctrl     = SfxChannel_sc_mod_ctrl
+sc_mod_wait     = SfxChannel_sc_mod_wait
+sc_mod_speed    = SfxChannel_sc_mod_speed
+sc_mod_delta    = SfxChannel_sc_mod_delta
+sc_mod_steps    = SfxChannel_sc_mod_steps
+sc_mod_accum    = SfxChannel_sc_mod_accum
+sc_base_freq    = SfxChannel_sc_base_freq
+sc_last_freq    = SfxChannel_sc_last_freq
 
 ; --- sc_flags bit numbers + masks ---
 ; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B
@@ -893,8 +955,7 @@ Snd_PitchTabPtr    = Snd_SongBase + 2            ; 2 bytes: per-song pitch table
     ; Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots)
     ; must fit between SND_SEQ_BASE ($1800) and the mailbox base ($1F00). The seq
     ; header is (SND_SEQ_CHANNELS - SND_SEQ_BASE) bytes; the per-channel array is
-    ; CHROUTE_COUNT slots * SeqChannel_len. The SeqChannel growth (14 -> 36 bytes)
-    ; makes this the binding RAM check, so assert it explicitly against $1F00.
+    ; CHROUTE_COUNT slots * SeqChannel_len.
 SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
     if SND_SEQ_BASE + SND_SEQ_HEADER_LEN + CHROUTE_COUNT*SeqChannel_len > SND_REQ_BASE
       error "seq RAM overflow: \{SND_SEQ_BASE + SND_SEQ_HEADER_LEN + CHROUTE_COUNT*SeqChannel_len} > mailbox \{SND_REQ_BASE}"
@@ -906,8 +967,8 @@ SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
       fatal "sequencer trace ring overruns the mailbox"
     endif
     ; the per-channel array must not run into the trace ring at $1A00.
-    ; CHROUTE_COUNT(11) * SeqChannel_len(37, Phase 3 Task 6) = 407 bytes -> $1808+407
-    ; = $19A7, clear of the trace ring at $1A00.
+    ; CHROUTE_COUNT(11) * SeqChannel_len(39) = 429 bytes -> $1808+429
+    ; = $19B5, clear of the trace ring at $1A00.
     if SND_SEQ_END > SND_SEQ_TRACE
       fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
     endif
