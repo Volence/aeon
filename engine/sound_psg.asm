@@ -177,6 +177,39 @@ Psg_NoteOff:
 Psg_SetVolume:
         call    Psg_VolToAtten           ; a = 4-bit attenuation (clobbers b)
         ld      c, a                     ; c = attenuation
+
+        ; --- Phase 5a music ducking (spec §7) -------------------------------------
+        ; Fold the GLOBAL music duck level into the PSG attenuation so EVERY music
+        ; volume write ducks automatically (same rationale as Fm_SetVolume). MUSIC
+        ; ONLY: SfxChannels live at/above SND_SFX_BASE ($1D00) and must NOT duck.
+        ; Music SeqChannels are strictly below $1D00, so ix's high byte separates
+        ; them. Clamp the summed attenuation to $0F (silent) so it can't wrap.
+        ; hl is preserved by contract — save it around the ix high-byte test.
+        push    hl
+        push    ix
+        pop     hl                       ; hl = ix (the channel ptr)
+        ld      a, h
+        pop     hl                       ; restore caller's hl (contract)
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        jr      nc, .no_duck             ; SFX channel -> never duck
+        ld      a, (SND_SFX_DUCK_LEVEL)
+        or      a
+        jr      z, .no_duck              ; duck level 0 -> nothing to add
+        ; map the carrier-TL-units duck level to PSG attenuation units. The duck
+        ; level ramps in SFX_DUCK_RAMP_STEP TL units; PSG attenuation is 4-bit
+        ; (>>3 like Psg_VolToAtten). At full SFX_DUCK_DEPTH this yields ~the
+        ; authored SFX_DUCK_PSG_DEPTH drop; scale-then-clamp keeps the ramp smooth.
+        srl     a
+        srl     a
+        srl     a                        ; a = duck level >> 3 (TL units -> atten units)
+        add     a, c                     ; atten + ducked attenuation
+        cp      SND_PSG_ATTEN_SILENT+1   ; clamp to $0F (silent)
+        jr      c, .duck_ok
+        ld      a, SND_PSG_ATTEN_SILENT
+.duck_ok:
+        ld      c, a                     ; ducked attenuation
+.no_duck:
+
         ld      a, (ix+sc_route)
         cp      CHROUTE_PSGN
         jr      z, .noise

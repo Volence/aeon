@@ -80,6 +80,14 @@ SND_SFX_DISP_END   = SND_SFX_DISP_ROUTE + 1
           fatal "SFX dispatch scratch (\{SND_SFX_DISP_END}) overruns the mailbox at \{SND_REQ_BASE}"
         endif
 
+; --- Task 10 ducking invariant: rings must NEVER duck the music (spec §7) -------
+; The duck arms only for SFX whose authored priority >= SFX_DUCK_THRESHOLD. Ring
+; pickup (SFXPRI_RING) must fall strictly below the threshold so collecting rings
+; can't pump the music. Build-assert it here where the duck logic lives.
+        if SFXPRI_RING >= SFX_DUCK_THRESHOLD
+          error "SFXPRI_RING (\{SFXPRI_RING}) must be < SFX_DUCK_THRESHOLD (\{SFX_DUCK_THRESHOLD}) — rings must not duck"
+        endif
+
 ; ======================================================================
 ; Task 9: 3-deep priority-gated SFX queue
 ; ======================================================================
@@ -238,6 +246,7 @@ Sfx_DrainQueue:
 ; ----------------------------------------------------------------------
 Sfx_Frame:
         call    Sfx_DrainQueue           ; Task 9: pop highest-priority pending SFX
+        call    Sfx_DuckRamp             ; Task 10: ramp the music duck level toward target
         ld      b, SFX_VOICE_COUNT       ; b = slot count (djnz bound)
         ld      ix, SND_SFX_CHANNELS     ; ix = first SfxChannel
 .slot_loop:
@@ -266,6 +275,84 @@ Sfx_Frame:
         ld      de, SfxChannel_len       ; size added directly (no multiply)
         add     ix, de
         djnz    .slot_loop
+        ret
+
+; ----------------------------------------------------------------------
+; Sfx_DuckRamp — ramp the global music duck LEVEL toward the duck TARGET by
+; SFX_DUCK_RAMP_STEP each frame (linear, clamped, no overshoot). Called once per
+; frame at the TOP of Sfx_Frame. The duck is FOLDED INTO Fm_SetVolume/Psg_SetVolume
+; (music-only, gated by ix < SND_SFX_BASE), so the music's own note volume events
+; already pick up the current level. This routine only handles HELD notes: on a
+; frame where the level CHANGED, it re-asserts the volume on every active, non-
+; overridden, KEYED music channel so a held note ducks/un-ducks IMMEDIATELY instead
+; of coasting at the old level until its next volume event.
+;
+; WRITE-ON-CHANGE: if level == target (steady state, incl. both 0), do nothing — no
+; ramp step, no chip writes. No multiply.
+; In: nothing. Clobbers af,bc,de,hl,ix,iy. (Re-points ix at music channels; the
+; caller — Sfx_Frame — reloads ix=SND_SFX_CHANNELS right after this returns.)
+; ----------------------------------------------------------------------
+Sfx_DuckRamp:
+        ld      a, (SND_SFX_DUCK_LEVEL)
+        ld      b, a                     ; b = current level
+        ld      a, (SND_SFX_DUCK_TARGET)
+        cp      b
+        ret     z                        ; already at target -> no change, no writes
+        jr      c, .ramp_down            ; target < level -> ramp down (decay)
+
+        ; --- ramp UP: level = min(level + STEP, target). a = target, b = level. ---
+        ld      c, a                     ; c = target (clamp ceiling)
+        ld      a, b
+        add     a, SFX_DUCK_RAMP_STEP    ; level + step (step is small; no 8-bit wrap)
+        cp      c                        ; overshoot target?
+        jr      c, .store                ; level+step < target -> use it
+        ld      a, c                     ; clamp to target (no overshoot)
+        jr      .store
+
+.ramp_down:
+        ; --- ramp DOWN: level = max(level - STEP, target). a = target, b = level. --
+        ld      c, a                     ; c = target (clamp floor)
+        ld      a, b
+        sub     SFX_DUCK_RAMP_STEP       ; level - step
+        jr      c, .clamp_floor          ; underflow past 0 -> floor at target
+        cp      c                        ; undershoot target?
+        jr      nc, .store               ; level-step >= target -> use it
+.clamp_floor:
+        ld      a, c                     ; clamp to target (no undershoot)
+
+.store:
+        ld      (SND_SFX_DUCK_LEVEL), a  ; the level CHANGED this frame (== guarded above)
+
+        ; --- re-assert held music notes at the new duck level ----------------------
+        ; Walk the 11 music SeqChannels. For each ACTIVE, NON-overridden, KEYED FM/PSG
+        ; channel, re-apply sc_volume through the duck-aware writer (which re-folds
+        ; the current SND_SFX_DUCK_LEVEL for ix < SND_SFX_BASE — do NOT add the duck
+        ; again here). Overridden channels are silent (SFX owns them) -> skip.
+        ld      ix, SND_SEQ_CHANNELS
+        ld      b, CHROUTE_COUNT         ; 11 music channels
+.dr_loop:
+        push    bc                       ; preserve the channel counter
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      z, .dr_next
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        jr      nz, .dr_next             ; SFX owns this voice -> no music write
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .dr_next              ; not sounding -> next note keys at the new level
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        jr      z, .dr_psg
+        ld      a, (ix+sc_volume)
+        call    Fm_SetVolume             ; carrier-TL re-asserted WITH the duck (ix kept)
+        jr      .dr_next
+.dr_psg:
+        bit     SCF_IS_PSG_B, (ix+sc_flags)
+        jr      z, .dr_next              ; DAC (or other) -> no PSG volume
+        ld      a, (ix+sc_volume)
+        call    Psg_SetVolume            ; attenuation re-asserted WITH the duck (ix kept)
+.dr_next:
+        pop     bc
+        ld      de, SeqChannel_len
+        add     ix, de
+        djnz    .dr_loop
         ret
 
 ; ----------------------------------------------------------------------
@@ -547,6 +634,19 @@ Sfx_BeginSound:
         xor     a
         ld      (SND_SFX_DISP_IDX), a    ; current channel record index (0-based)
 
+        ; --- Task 10: arm the music duck if this SFX is high-priority (spec §7) ----
+        ; A duck-eligible SFX (priority >= SFX_DUCK_THRESHOLD: spindash/dash/death/
+        ; ring-loss) raises the duck TARGET to SFX_DUCK_DEPTH; Sfx_DuckRamp ramps the
+        ; applied LEVEL toward it. Rings ($20 < threshold) leave the target untouched
+        ; (build-asserted below) so collecting rings never pumps the music. The
+        ; target is cleared on restore once no duck-eligible SFX remains active.
+        ld      a, (SND_SFX_DISP_PRIO)
+        cp      SFX_DUCK_THRESHOLD
+        jr      c, .no_duck_arm          ; below threshold -> do not duck
+        ld      a, SFX_DUCK_DEPTH
+        ld      (SND_SFX_DUCK_TARGET), a
+.no_duck_arm:
+
 .chan_loop:
         ; --- point iy at the current channel record: base + SFXH_CHANNELS + idx*6 -
         ld      iy, (SND_SFX_DISP_BASE)
@@ -786,7 +886,44 @@ Sfx_Restore:
         ; and drop its priority so the next SFX of any priority can claim the slot.
         res     SCF_ACTIVE_B, (ix+sc_flags)
         ld      (ix+sx_priority), 0
+
+        ; --- Task 10: release the music duck iff no duck-eligible SFX remains -------
+        ; This slot's sx_priority is now 0 (cleared above), so it won't self-count.
+        ; Scan the 7 slots for any ACTIVE one with sx_priority >= SFX_DUCK_THRESHOLD;
+        ; if NONE, drop the duck TARGET to 0 so Sfx_DuckRamp ramps the music back up.
+        ; (Walk via iy so the caller's SFX-slot ix on the stack is untouched.)
+        call    Sfx_AnyDuckActive        ; CARRY set => a duck-SFX still runs
+        jr      c, .duck_keep
+        xor     a
+        ld      (SND_SFX_DUCK_TARGET), a ; no duck-eligible SFX left -> ramp back
+.duck_keep:
         pop     ix                       ; restore the caller's SFX-slot ix
+        ret
+
+; ----------------------------------------------------------------------
+; Sfx_AnyDuckActive — scan the 7 SfxChannel slots for any ACTIVE slot whose
+; sx_priority >= SFX_DUCK_THRESHOLD (a duck-eligible SFX still running).
+; Out: CARRY SET if at least one such slot exists, CARRY CLEAR otherwise.
+; Clobbers af, bc, de, iy. Preserves ix, hl. (Walks via iy so an SFX-slot ix on
+; the caller's stack/registers is undisturbed.)
+; ----------------------------------------------------------------------
+Sfx_AnyDuckActive:
+        ld      iy, SND_SFX_CHANNELS
+        ld      b, SFX_VOICE_COUNT
+        ld      de, SfxChannel_len
+.scan:
+        bit     SCF_ACTIVE_B, (iy+sc_flags)
+        jr      z, .scan_next            ; inactive slot -> skip
+        ld      a, (iy+sx_priority)
+        cp      SFX_DUCK_THRESHOLD
+        jr      nc, .found               ; sx_priority >= threshold -> duck still on
+.scan_next:
+        add     iy, de
+        djnz    .scan
+        or      a                        ; CARRY CLEAR -> no duck-eligible SFX active
+        ret
+.found:
+        scf                              ; CARRY SET -> a duck-eligible SFX is active
         ret
 
 ; ----------------------------------------------------------------------

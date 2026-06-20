@@ -330,6 +330,36 @@ Fm_SetVolume:
         ld      a, (hl)
         ld      (Fm_ScratchLog), a       ; stash log delta
 
+        ; --- Phase 5a music ducking (spec §7) -------------------------------------
+        ; Fold the GLOBAL music duck level into the carrier-TL delta so EVERY music
+        ; volume write (note events AND the per-frame re-assert) ducks automatically
+        ; — no separate duck pass can be out-fought by the music's own note volumes.
+        ; MUSIC ONLY: an SfxChannel lives at/above SND_SFX_BASE ($1D00) and must NOT
+        ; duck (ducking the SFX would defeat the cut-through). Music SeqChannels live
+        ; at SND_SEQ_CHANNELS ($1808..) — strictly below $1D00 — so the high byte of
+        ; ix cleanly separates the two (music hi = $18/$19 < $1D; SFX hi = $1D/$1E).
+        ; The per-op carrier loop clamps base+bias+log to [0,$7F], so a saturated
+        ; Fm_ScratchLog can't wrap — but pre-clamp to $7F here for cleanliness.
+        push    ix
+        pop     hl                       ; hl = ix (the channel ptr)
+        ld      a, h
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        jr      nc, .no_duck             ; SFX channel -> never duck (no add)
+        ld      a, (SND_SFX_DUCK_LEVEL)
+        or      a
+        jr      z, .no_duck              ; duck level 0 -> nothing to add
+        ld      hl, Fm_ScratchLog
+        add     a, (hl)                  ; log delta + duck level
+        jr      nc, .duck_ok
+        ld      a, SND_FM_TL_MAX         ; carry out of 8 bits -> clamp to $7F (silent)
+.duck_ok:
+        cp      SND_FM_TL_MAX+1
+        jr      c, .duck_store
+        ld      a, SND_FM_TL_MAX         ; clamp the summed delta to $7F
+.duck_store:
+        ld      (hl), a                  ; ducked carrier-TL delta
+.no_duck:
+
         call    Fm_RoutePart             ; b = part, c = ch-in-part
         ld      a, c
         ld      (Fm_ScratchCh), a
