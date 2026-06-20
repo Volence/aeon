@@ -356,20 +356,39 @@ Sfx_DuckRamp:
         ret
 
 ; ----------------------------------------------------------------------
-; Sfx_MusicChanPtr — resolve a physical route (in `a`, CHROUTE_*) to its MUSIC
-; SeqChannel ptr in iy: SND_SEQ_CHANNELS + route*SeqChannel_len, via an add-loop
-; (NO multiply). In: a = route. Out: iy = &SeqChannel[route]. Clobbers af, bc, iy.
-; Preserves ix, de, hl. (iy is free here — the music loop only uses ix.)
+; Sfx_MusicChanPtr — resolve a physical route (in `a`, CHROUTE_*) to the MUSIC
+; SeqChannel that OWNS it. Music channels are stored in SONG ORDER (index 0..
+; SND_SEQ_CHCOUNT-1) with ARBITRARY sc_route values — there is NO index==route
+; relationship (e.g. Moving Trucks = FM1..FM6 = routes 0..5, zero PSG, so PSG1's
+; route 6 has no music channel at all). Resolving by stride math therefore lands
+; on a stale/zeroed non-channel; we MUST search by sc_route instead.
+;
+; Iterate the SND_SEQ_CHCOUNT active channels from SND_SEQ_CHANNELS (stride
+; SeqChannel_len, NO multiply), comparing each channel's sc_route to the target.
+; In:  a  = target route (CHROUTE_*).
+; Out: CARRY CLEAR + iy = &SeqChannel owning that route, if found;
+;      CARRY SET (iy indeterminate) if no music channel owns it (or CHCOUNT==0).
+; Preserves ix, hl. Clobbers af, bc, de, iy.
 ; ----------------------------------------------------------------------
 Sfx_MusicChanPtr:
-        ld      iy, SND_SEQ_CHANNELS
+        ld      c, a                     ; c = target route (preserved across the scan)
+        ld      a, (SND_SEQ_CHCOUNT)
         or      a
-        ret     z                        ; route 0 -> base, no stride
-        ld      b, a                     ; b = route (iteration count)
+        jr      z, .not_found            ; no channels -> not found (carry set below)
+        ld      b, a                     ; b = channel count (djnz bound)
+        ld      iy, SND_SEQ_CHANNELS     ; iy = first SeqChannel
         ld      de, SeqChannel_len
-.add_loop:
-        add     iy, de                   ; += SeqChannel_len, route times
-        djnz    .add_loop
+.scan:
+        ld      a, (iy+sc_route)
+        cp      c                        ; this channel's route == target?
+        jr      z, .found                ; match -> carry clear (cp equal => carry clear)
+        add     iy, de                   ; advance to next channel (no multiply)
+        djnz    .scan
+.not_found:
+        scf                              ; CARRY SET -> no music owns this route
+        ret
+.found:
+        or      a                        ; CARRY CLEAR -> iy = owning SeqChannel
         ret
 
 ; ----------------------------------------------------------------------
@@ -387,9 +406,14 @@ Sfx_MusicChanPtr:
 ; Clobbers af,bc,de,hl,iy.
 ; ----------------------------------------------------------------------
 Sfx_Steal:
-        ; (1) override the MUSIC SeqChannel that owns this physical route.
+        ; (1) find the MUSIC SeqChannel (if any) that owns this physical route.
+        ; sx_saved_route == this SfxChannel's own physical voice (sc_route). If NO
+        ; music channel owns it (carry set — e.g. PSG1 over a PSG-silent song), there
+        ; is nothing to override or key-off: skip straight to loading the SFX voice +
+        ; arming the slot. The SFX's own note-on then drives the physical voice.
         ld      a, (ix+sx_saved_route)
-        call    Sfx_MusicChanPtr         ; iy = &music SeqChannel (no multiply)
+        call    Sfx_MusicChanPtr         ; carry clear + iy = owning channel; carry set = none
+        jr      c, .no_music_fm_check    ; no music on this voice -> skip override+key-off
         set     SCF_SFX_OVERRIDE_B, (iy+sc_flags)
 
         ; (2)+(3) key-off the physical voice + load the SFX voice. The Fm_*/Psg_*
@@ -405,8 +429,6 @@ Sfx_Steal:
         ; mode (smpsPSGform), so a noise SFX never writes PSG3's $C0 tone register
         ; and PSG3's tone latch needs no restore. Field reserved for 5b periodic-noise
         ; restore if periodic-noise SFX are added later.
-        ld      a, (ix+sx_saved_route)
-        call    Sfx_MusicChanPtr         ; iy = &music noise SeqChannel
         push    ix                       ; save SFX-slot ix
         push    iy
         pop     ix                       ; ix = music noise SeqChannel
@@ -428,6 +450,13 @@ Sfx_Steal:
         pop     ix                       ; ix = music SeqChannel
         call    Fm_NoteOff               ; key off the music FM voice (preserves ix)
         pop     ix
+.no_music_fm_check:
+        ; FM SFX always loads its OWN voice (whether or not music underlay it). For a
+        ; voice with no music underneath (carry-set path) only the FM kind needs the
+        ; patch upload; PSG/noise just arm (their note-on writes tone+volume directly).
+        ld      a, (ix+sx_kind)
+        cp      SFXEL_FM
+        jr      nz, .activate
         ; load the SFX's OWN FM voice (hl = sx_patch_base) into the SFX channel's
         ; physical voice. Fm_PatchLoad reads ix=SfxChannel for the route, hl=ptr.
         ld      l, (ix+sx_patch_base)
@@ -819,9 +848,16 @@ Sfx_RouteKind:
 Sfx_Restore:
         push    ix                       ; save the SFX-slot ix (caller's invariant)
 
-        ; (1) resolve the overridden music SeqChannel (no multiply) into iy.
+        ; (1) find the music SeqChannel (if any) that owns this physical route.
+        ; sx_saved_route == this SfxChannel's own physical voice (sc_route). If NO
+        ; music channel owns it (carry set — e.g. PSG1 over a PSG-silent song), there
+        ; is nothing to un-mute or restore: silence the SFX's OWN physical voice so its
+        ; last note doesn't drone forever, then deactivate. (ix is still the SFX slot,
+        ; whose sc_route IS the physical voice and whose SCF_IS_* are set, so the
+        ; Fm_*/Psg_* writers target the right voice with no ix re-point.)
         ld      a, (ix+sx_saved_route)
-        call    Sfx_MusicChanPtr         ; iy = &music SeqChannel[sx_saved_route]
+        call    Sfx_MusicChanPtr         ; carry clear + iy = owning channel; carry set = none
+        jr      c, .no_music             ; no music on this voice -> silence the SFX's own voice
 
         ; (2) un-mute: clear the override so its chip-write sites fire again.
         res     SCF_SFX_OVERRIDE_B, (iy+sc_flags)
@@ -839,8 +875,7 @@ Sfx_Restore:
         ; If 5b adds periodic-noise SFX, re-add a restore that re-latches only PSG3's
         ; tone DIVISOR (not volume, which belongs to music) and only when PSG3
         ; SCF_KEYED is set.
-        ld      a, (ix+sx_saved_route)
-        call    Sfx_MusicChanPtr         ; iy = &music noise SeqChannel
+        ; iy already = the owning (noise) music channel from the single search above.
         push    ix
         push    iy
         pop     ix                       ; ix = music noise channel
@@ -908,6 +943,25 @@ Sfx_Restore:
         call    Fm_NoteOff               ; no music note -> key the stolen FM voice off
 .fm_done:
         pop     ix                       ; ix = SFX slot
+        jr      .deactivate
+
+.no_music:
+        ; No music channel owns this physical voice (carry set from the search). The
+        ; SFX left its own last note LATCHED on the physical voice; silence it so it
+        ; doesn't drone forever. ix is STILL the SFX slot (never re-pointed on this
+        ; path) — its sc_route IS the physical voice and SCF_IS_* are set, so the
+        ; Fm_*/Psg_* writers target the correct voice directly. Do NOT touch any
+        ; music channel. No extra push/pop: the entry `push ix` is balanced by
+        ; .deactivate's `pop ix`.
+        ld      a, (ix+sx_kind)
+        cp      SFXEL_FM
+        jr      nz, .no_music_psg
+        call    Fm_NoteOff               ; FM SFX voice -> key off (preserves ix)
+        jr      .deactivate
+.no_music_psg:
+        ; PSG tone OR noise: Psg_NoteOff reads ix's sc_route and silences the right
+        ; voice (tone -> $9x|$0F attenuation, noise -> $FF).
+        call    Psg_NoteOff              ; PSG/noise SFX voice -> silence (preserves ix)
 
 .deactivate:
         ; (4) deactivate the SfxChannel (End already cleared SCF_ACTIVE — defensive)
