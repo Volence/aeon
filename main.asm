@@ -313,6 +313,14 @@ Art_Sonic:
         include "data/sound/sfx/sfx_B9.asm"
         include "data/sound/sfx/sfx_B9_patches.asm"
         include "data/sound/sfx/sfx_table.asm"
+        ; The Z80 SFX reader derives a single SFX_BLOB_BANK from the first blob and
+        ; addresses every blob through the $8000 window (low 15 bits). That only holds
+        ; while the whole contiguous SFX block lives in one $8000 ROM page. Sfx_33 is
+        ; the lowest SFX symbol, Sfx_B9_Patches_End the highest — guard that they share
+        ; a page so a future blob set growing across a boundary fails the build, not on HW.
+        if (Sfx_33>>15) <> ((Sfx_B9_Patches_End-1)>>15)
+            fatal "SFX blob set straddles a $8000 bank boundary; SFX_BLOB_BANK invalid (split blobs or add per-blob banking)"
+        endif
     endif
 
 ; -----------------------------------------------
