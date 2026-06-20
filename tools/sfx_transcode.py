@@ -146,7 +146,7 @@ PSG_OCTAVE_FIXUP = 24
 # applied ONLY to FM SFX notes (PSG keeps its own scientific-pitch fixup above).
 # Default = -12 semitones (one octave down) as a starting point; bump to -24 for
 # two octaves.  Set to 0 to restore byte-exact S3K pitch.
-FM_SFX_OCTAVE_SHIFT = -12   # semitones; -12 = one octave down (taste, not faithfulness)
+FM_SFX_OCTAVE_SHIFT = 0   # semitones; -12 = one octave down (taste, not faithfulness)
 
 
 class TranscodeError(Exception):
