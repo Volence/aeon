@@ -503,6 +503,7 @@ SndDrv_PollMailbox:
         jr      .after_music
 .music_stop:
         call    Sequencer_StopAll        ; key-off FM + silence PSG + clear active flag
+        call    Sfx_StopAll              ; Phase 5a: clear overrides + kill SfxChannels + queue/duck
         call    Snd_TimerA_Disable       ; stop Timer A so no more ticks fire
         xor     a
         ld      (SND_REQ_MUSIC), a       ; clear slot (consumed)
@@ -854,6 +855,21 @@ Snd_LoadSong:
         ; touches NO Timer-A state, so the Snd_TimerA_Program call later in this
         ; load fully owns the timer config — the ordering is correct.
         call    Sequencer_StopAll        ; key-off FM + silence PSG + clear active flag
+
+        ; Phase 5a: a PlayMusic-while-an-SFX-runs switch reaches here with an
+        ; SfxChannel still ACTIVE, owning (overriding) a physical voice the new
+        ; song's channels will fight over. The .seq_clr wipe below zeroes every
+        ; SeqChannel (clearing stale override bits), but the SfxChannels themselves
+        ; still hold SCF_ACTIVE + a steal target. Sfx_StopAll deactivates all 7
+        ; SfxChannels, drops their priority, drains the queue, and resets the duck —
+        ; so loading a new song cancels any in-flight SFX (the v1-simple choice; SFX
+        ; are short. Sfx_Reconcile — re-overriding the NEW song's matching channels
+        ; so in-flight SFX survive a music change — is the 5b upgrade). The hardware
+        ; voices those SFX held were just silenced by Sequencer_StopAll above, so no
+        ; voice hangs. Sfx_StopAll touches only RAM (no chip writes; preserves the
+        ; de=$4001 invariant the loader relies on) — it does not fight the per-path
+        ; init that follows.
+        call    Sfx_StopAll              ; cancel in-flight SFX so the new song starts clean
 
         ; Clear the sequencer header + channel block FIRST (before the per-path setup
         ; below), so the SND_SEQ_PATCHTAB + base each path writes are NOT zeroed by it.

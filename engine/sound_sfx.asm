@@ -926,11 +926,36 @@ Sfx_AnyDuckActive:
         scf                              ; CARRY SET -> a duck-eligible SFX is active
         ret
 
+; ======================================================================
+; Phase 5a SFX engine — confirmed edge-case guarantees (Task 12 sweep).
+; Each of these is verified in the code above; this block is the audit trail.
+;
+; (a) PRIORITY CLEARED ON SFX END. Sfx_Restore (.deactivate) writes sx_priority=0
+;     on every ended slot, so the next SFX of ANY priority can claim it — a
+;     finished high-priority SFX never permanently blocks the slot (spec §11).
+;     Sfx_StopAll also zeroes sx_priority on all 7 slots.
+; (b) NOISE/PSG3 COUPLING NOT RESTORED — BY DESIGN. The transcoder DROPS periodic-
+;     noise mode (smpsPSGform, Task 7 fix), so a noise SFX never writes PSG3's $C0
+;     tone register; PSG3's tone latch is never disturbed and needs no restore.
+;     Sfx_Restore's NOISE path therefore re-keys only the music noise channel (when
+;     it was keyed) and deliberately omits any PSG3 tone re-latch (see the comment
+;     at .fm/.psg/noise dispatch). sx_saved_note is reserved-but-unread for the 5b
+;     periodic-noise upgrade.
+; (c) FM6<->DAC MUTUAL EXCLUSION IS MOOT. FM6 is SFXEL_NONE in SfxEligTable, so no
+;     SFX ever steals FM6 — there is no path where an SFX and the DAC contend for
+;     it. (Opening FM6 to SFX for DAC-off songs is a one-byte table edit, 5b.)
+; (d) Sfx_Frame RUNS EVEN WITH NO MUSIC. Sequencer_Frame's two "no song / no
+;     channels" early guards branch to .run_sfx (jp Sfx_Frame), so SFX still own
+;     the chip and drain the queue when the sequencer is idle (Task 6 Step 4).
+; ======================================================================
+
 ; ----------------------------------------------------------------------
 ; Sfx_StopAll — clear all overrides + kill SfxChannels + DRAIN the queue + reset
 ; ducking (duck = 0, target = 0). Task 9 adds the queue drain here so a StopMusic
 ; mid-SFX leaves no stale queue entries that would fire on the next song's first
-; frame.  Clobbers af,bc,de,hl,ix.
+; frame.  Used by StopMusic (.music_stop) AND Snd_LoadSong (PlayMusic-mid-SFX
+; reconciliation, Task 12) so the next song starts with no stale overrides or
+; in-flight SFX. Clobbers af,bc,de,hl,ix.
 ; ----------------------------------------------------------------------
 Sfx_StopAll:
         ; clear SCF_SFX_OVERRIDE on every music SeqChannel.

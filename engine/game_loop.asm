@@ -36,10 +36,37 @@ Debug_MusicToggle:
         ; demand (press A while logging -> capture begins exactly at the song's start).
         move.b  (Ctrl_1_Press).w, d0
         andi.b  #BUTTON_A, d0
-        beq.s   .check_start
+        beq.s   .check_sfx
         moveq   #SONG_MOVINGTRUCKS, d0   ; re-trigger from the top (load silences first)
         bsr.w   Sound_PlayMusic
         move.b  #1, (Dbg_Music_On).w
+        rts
+.check_sfx:
+        ; B button = fire the NEXT test SFX in the cycle (DEBUG SFX-trigger hotkey).
+        ; Edge-detected on Ctrl_1_Press (one fire per fresh press). Dbg_Sfx_Sel cycles
+        ; 0..7 over Dbg_SfxIdTable so every core SFX is drivable for VGM capture +
+        ; the acceptance matrix. B ($10) does not collide with A($40)/START($80).
+        ; RING_RIGHT is fired via Sound_PlayRing so the L/R stereo-alternation path is
+        ; exercised too; all others go straight through Sound_PlaySFX. (Both preserve
+        ; a0 + clobber only d0/SR — safe inside this debug-toggle's d0-d2/a0/a1 budget.)
+        move.b  (Ctrl_1_Press).w, d0
+        andi.b  #BUTTON_B, d0
+        beq.s   .check_start
+        move.w  (Dbg_Sfx_Sel).w, d1      ; current cycle index (0..7)
+        move.w  d1, d2
+        addq.w  #1, d2
+        andi.w  #7, d2                    ; wrap 0..7 (8 ids)
+        move.w  d2, (Dbg_Sfx_Sel).w      ; advance for the next press
+        andi.w  #7, d1                    ; clamp (defensive)
+        cmpi.w  #1, d1                    ; index 1 = RING_RIGHT -> use the ring path
+        beq.s   .sfx_ring
+        moveq   #0, d0
+        lea     Dbg_SfxIdTable(pc), a1
+        move.b  (a1,d1.w), d0            ; d0.b = id from the cycle table
+        bsr.w   Sound_PlaySFX
+        rts
+.sfx_ring:
+        bsr.w   Sound_PlayRing          ; L/R-alternating ring SFX ($33/$34)
         rts
 .check_start:
         move.b  (Ctrl_1_Press).w, d0
@@ -56,5 +83,19 @@ Debug_MusicToggle:
         clr.b   (Dbg_Music_On).w
 .done:
         rts
+
+; DEBUG SFX-trigger cycle (indexed by Dbg_Sfx_Sel, 0..7). Index 1 (RING_RIGHT) is
+; special-cased to Sound_PlayRing in .check_sfx; the byte here is the fallback id.
+; Order: JUMP / RING_RIGHT / SPINDASH / DASH / ROLL / SKID / DEATH / RINGLOSS.
+Dbg_SfxIdTable:
+        dc.b    SFXID_JUMP              ; 0
+        dc.b    SFXID_RING_RIGHT        ; 1 (fired via Sound_PlayRing for L/R alt)
+        dc.b    SFXID_SPINDASH          ; 2
+        dc.b    SFXID_DASH              ; 3
+        dc.b    SFXID_ROLL              ; 4
+        dc.b    SFXID_SKID              ; 5
+        dc.b    SFXID_DEATH             ; 6
+        dc.b    SFXID_RINGLOSS          ; 7
+        align   2
       endif
     endif

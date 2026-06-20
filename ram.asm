@@ -194,6 +194,7 @@ Prof_Peak_Frame:        ds.w 1          ; peak full frame
 Prof_Dynamic_Used:      ds.w 1          ; dynamic slots in use this frame
 Prof_Effect_Used:       ds.w 1          ; effect slots in use this frame
 Dbg_Music_On:           ds.w 1          ; DEBUG: 1 = test song playing (Start toggles; low byte only)
+Dbg_Sfx_Sel:            ds.w 1          ; DEBUG: B-button SFX-trigger cycle index (low byte; 0..7 over the test id table)
     endif
 
 ; -----------------------------------------------
