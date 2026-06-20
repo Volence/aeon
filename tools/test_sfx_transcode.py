@@ -29,6 +29,8 @@ from sfx_transcode import (
     SFXPRI_DEATH, SFXPRI_RINGLOSS, SFXPRI_SPINDASH, SFXPRI_DASH,
     SHF_LOOP,
     _SFX_PRIORITY, _CORE_SFX_IDS, _sfx_label,
+    _smps_note_to_pitch, FM_SFX_OCTAVE_SHIFT, PSG_OCTAVE_FIXUP,
+    S3K_NOTE_BASE,
     CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
     CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
 )
@@ -352,6 +354,40 @@ Sound_XX_Voices:
         with self.assertRaises(TranscodeError) as ctx:
             transcode_sfx_source(src, 0x99)
         self.assertIn('reserved', str(ctx.exception).lower())
+
+
+class TestFmSfxOctaveKnob(unittest.TestCase):
+    """FM_SFX_OCTAVE_SHIFT is a taste knob applied to FM notes only.
+
+    It must lower FM SFX pitch indices by exactly FM_SFX_OCTAVE_SHIFT semitones
+    (default -12 = one octave down) relative to the byte-exact-S3K pitch, and
+    must NOT touch PSG notes (which carry their own PSG_OCTAVE_FIXUP).
+    """
+
+    def test_fm_note_shifted_by_knob(self):
+        # nC5 = $BD; faithful FM index = 0xBD - 0x81 = 0x3C (60).
+        raw = 0xBD
+        faithful = raw - S3K_NOTE_BASE          # 0x3C
+        got = _smps_note_to_pitch(raw, is_psg=False, transpose=0)
+        self.assertEqual(got, faithful + FM_SFX_OCTAVE_SHIFT,
+                         "FM note must be lowered by exactly FM_SFX_OCTAVE_SHIFT")
+
+    def test_fm_note_with_transpose_shifted(self):
+        # Roll: nCs6 = $CA, header transpose +$0C; faithful = 0xCA-0x81+0x0C = 0x55.
+        raw, tr = 0xCA, 0x0C
+        faithful = raw - S3K_NOTE_BASE + tr      # 0x55 (85)
+        got = _smps_note_to_pitch(raw, is_psg=False, transpose=tr)
+        self.assertEqual(got, faithful + FM_SFX_OCTAVE_SHIFT)
+
+    def test_psg_note_not_shifted_by_fm_knob(self):
+        # PSG keeps its scientific +24 fixup and is NOT affected by the FM knob.
+        raw = 0xBD
+        got = _smps_note_to_pitch(raw, is_psg=True, transpose=0)
+        self.assertEqual(got, raw - S3K_NOTE_BASE + PSG_OCTAVE_FIXUP)
+
+    def test_default_is_one_octave_down(self):
+        self.assertEqual(FM_SFX_OCTAVE_SHIFT, -12,
+                         "default taste shift is one octave down")
 
 
 class TestSfxTableComplete(unittest.TestCase):

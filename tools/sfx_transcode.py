@@ -133,6 +133,21 @@ S3K_NOTE_BASE = 0x81    # nC0 = our pitch index 0
 # already encode the S3K-nominal pitch and the +24 fixup is the full correction.
 PSG_OCTAVE_FIXUP = 24
 
+# --- TASTE KNOB: FM SFX octave shift ---------------------------------------
+# This is NOT a faithfulness correction.  Our FM SFX pitch path reproduces real
+# Sonic 3 & Knuckles frequencies EXACTLY (verified: ring/roll/spindash notes
+# match S3K's zGetNextNote + zFMFrequencies + header-transpose math to within
+# rounding, ratio 1.000 / <0.005 octaves).  But S3K's FM SFX are objectively
+# high-pitched — e.g. Roll's nCs6 with its +$0C (one-octave) header transpose
+# lands at block 7 / ~2220 Hz (C#7), and Spindash/Ring sit at ~520-1050 Hz.
+#
+# The user reports they sound "a few octaves too high" by ear, so this knob
+# lowers the FM SFX a clean, whole number of octaves below faithful S3K.  It is
+# applied ONLY to FM SFX notes (PSG keeps its own scientific-pitch fixup above).
+# Default = -12 semitones (one octave down) as a starting point; bump to -24 for
+# two octaves.  Set to 0 to restore byte-exact S3K pitch.
+FM_SFX_OCTAVE_SHIFT = -12   # semitones; -12 = one octave down (taste, not faithfulness)
+
 
 class TranscodeError(Exception):
     """Raised on unrecognised SMPS coord flags or other fatal parse errors."""
@@ -197,7 +212,9 @@ def _note_from_token(tok: str) -> int:
 def _smps_note_to_pitch(raw_byte: int, is_psg: bool, transpose: int = 0) -> int:
     """Convert a raw S3K note byte to our engine pitch index.
 
-    For FM: pitch = raw - S3K_NOTE_BASE + transpose, clamped 0..0x5E.
+    For FM: pitch = raw - S3K_NOTE_BASE + transpose + FM_SFX_OCTAVE_SHIFT,
+    clamped 0..0x5E.  FM_SFX_OCTAVE_SHIFT is a TASTE knob (default one octave
+    down); the raw+transpose part alone reproduces S3K's exact FM SFX pitch.
     For PSG: S3K PSG note-names are 2 octaves below scientific pitch (nC0 in S3K
     sounds like C2 scientifically).  Our PsgDivisorTableZ is scientific-numbered
     (index 0 = true C0), so we add +24 semitones to translate S3K PSG note indices
@@ -208,6 +225,10 @@ def _smps_note_to_pitch(raw_byte: int, is_psg: bool, transpose: int = 0) -> int:
     pitch = raw_byte - S3K_NOTE_BASE + transpose
     if is_psg:
         pitch += PSG_OCTAVE_FIXUP
+    else:
+        # FM SFX taste knob (NOT faithfulness): bring S3K's high FM SFX down a
+        # whole number of octaves.  FM-only; PSG keeps its scientific fixup above.
+        pitch += FM_SFX_OCTAVE_SHIFT
     if pitch < 0:
         pitch = 0
     if pitch > 0x5E:
