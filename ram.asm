@@ -429,6 +429,10 @@ Player_Ring_Index:      ds.w 1      ; byte offset into both rings — word-sized
     endif
 
 ; -----------------------------------------------
+; Sound driver runtime state
+Ring_Sfx_Speaker:       ds.b 1          ; Phase 5a: toggles 0/1 each ring collect; 0→LEFT, 1→RIGHT
+                        ds.b 1          ; pad to even
+
 ; Sound driver debug mirror
 ; Declared unconditionally (160 bytes, negligible) so the RAM layout is
 ; identical between DEBUG and release. Only WRITTEN under __DEBUG__ +

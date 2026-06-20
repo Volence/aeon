@@ -188,8 +188,13 @@ AnimateSprite:
         bra.s   .after_event
 
 .evt_sound:
-        ; dc.b AF_SOUND, sound_id
-        ; Sound ID at 2(a1,d1.w) — consumed but not played (no driver yet)
+        ; dc.b AF_SOUND, sound_id -> play the SFX
+        move.b  2(a1,d1.w), d0
+      ifdef SOUND_DRIVER_ENABLED
+        movem.l a1/d1, -(sp)
+        bsr.w   Sound_PlaySFX
+        movem.l (sp)+, a1/d1
+      endif
         addq.b  #2, SST_anim_frame(a0)
         bra.s   .after_event
 
@@ -349,8 +354,13 @@ AnimateSprite_PerFrame:
         bra.s   .pf_after_event
 
 .pf_evt_sound:
-        ; dc.b AF_SOUND, sound_id
-        ; Sound ID at 1(a1,d1.w) — consumed but not played (no driver yet)
+        ; dc.b AF_SOUND, sound_id -> play the SFX
+        move.b  1(a1,d1.w), d0
+      ifdef SOUND_DRIVER_ENABLED
+        movem.l a1/d1, -(sp)
+        bsr.w   Sound_PlaySFX
+        movem.l (sp)+, a1/d1
+      endif
         addq.b  #2, SST_anim_frame(a0)
         bra.s   .pf_after_event
 

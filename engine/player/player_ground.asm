@@ -121,7 +121,10 @@ PState_Ground:
         blt.s   Ground_PostMove
         moveq   #PSTATE_ROLL, d0
         bsr.w   Player_SetState                 ; hook curls (+5px y-shift)
-                                                ; TODO: roll sfx
+      ifdef SOUND_DRIVER_ENABLED
+        moveq   #SFXID_ROLL, d0
+        jsr     Sound_PlaySFX
+      endif
         ; fall through — the frame completes below as a roll
 
 ; -----------------------------------------------
@@ -716,6 +719,10 @@ Ground_Move:
 ; -----------------------------------------------
 Player_Jump:
         clr.b   (Player_JumpBuffer).w           ; consume the buffered press
+      ifdef SOUND_DRIVER_ENABLED
+        moveq   #SFXID_JUMP, d0
+        jsr     Sound_PlaySFX
+      endif
         move.w  PPHYS_JUMP_FORCE(a4), d2
         move.b  SST_angle(a0), d0
         beq.s   .flat

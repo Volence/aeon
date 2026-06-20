@@ -325,13 +325,18 @@ Player_Animate:
         beq.s   .skid_drop
 .skid_opposing:
         tst.b   _pl_skid_latch(a0)
-        bne.s   .skid_show                      ; already latched -> keep
+        bne.s   .skid_show                      ; already latched -> keep (no new sfx)
         move.w  d1, d2
         bpl.s   .skid_abs
         neg.w   d2
 .skid_abs:
         cmpi.w  #PHYS_SKID_MIN, d2
         blo.s   .not_skid                       ; opposing but too slow to arm
+        ; fresh-arm edge — fire the skid SFX once before latching
+      ifdef SOUND_DRIVER_ENABLED
+        moveq   #SFXID_SKID, d0
+        jsr     Sound_PlaySFX
+      endif
 .skid_show:
         st      _pl_skid_latch(a0)
         move.b  #ANIM_SKID, SST_anim(a0)

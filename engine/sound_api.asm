@@ -122,6 +122,32 @@ Sound_PlayMusic:
         rts
 
 ; ----------------------------------------------------------------------
+; Sound_PlaySFX — request an SFX by id. Posts the id into SND_REQ_SFX; the Z80
+; SfxDispatch handler queues + arbitrates. Ring (SFXID_RING_RIGHT/_LEFT) auto-
+; alternates L/R via a 68k speaker toggle so consecutive ring pickups pan opposite.
+; In:  d0.b = sfx id (nonzero). Clobbers: SR restored; d0 (ring remap), a0.
+; ----------------------------------------------------------------------
+Sound_PlaySFX:
+        lea     (SND_Z80_BASE+SND_REQ_SFX).l, a0
+        bra.w   Sound_PostByte
+
+; ----------------------------------------------------------------------
+; Sound_PlayRing — collect-ring SFX with internal L/R alternation. Toggles
+; Ring_Sfx_Speaker each call, posting SFXID_RING_RIGHT or _LEFT.
+; In: none. Clobbers: d0, a0; SR restored.
+; ----------------------------------------------------------------------
+Sound_PlayRing:
+        move.b  (Ring_Sfx_Speaker).w, d0
+        eori.b  #1, d0
+        move.b  d0, (Ring_Sfx_Speaker).w
+        beq.s   .left
+        moveq   #SFXID_RING_RIGHT, d0
+        bra.s   Sound_PlaySFX
+.left:
+        moveq   #SFXID_RING_LEFT, d0
+        bra.s   Sound_PlaySFX
+
+; ----------------------------------------------------------------------
 ; Sound_StopMusic — stop the song (Task 6). Posts the $FF stop sentinel into
 ; SND_REQ_MUSIC (single bus-held byte, like Sound_PostByte). The Z80 handler
 ; key-offs every FM channel, silences PSG, disables Timer A, and clears the

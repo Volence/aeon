@@ -248,6 +248,9 @@ RingCollision:
 .no_loaded_bit:
 
         addq.w  #1, (Ring_Counter).w
+      ifdef SOUND_DRIVER_ENABLED
+        bsr.w   Sound_PlayRing                  ; L/R-alternating ring SFX ($33/$34)
+      endif
 
         ; Remove from buffer (swap-with-last)
         move.w  d6, d0

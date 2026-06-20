@@ -56,6 +56,10 @@ PState_Spindash:
         beq.s   .floor
         clr.b   (Player_JumpBuffer).w
         addi.w  #SPINDASH_CHARGE_STEP, _pl_spindash(a0)
+      ifdef SOUND_DRIVER_ENABLED
+        move.b  #SFXID_SPINDASH, d0
+        jsr     Sound_PlaySFX
+      endif
         cmpi.w  #SPINDASH_CHARGE_MAX, _pl_spindash(a0)
         bls.s   .floor
         move.w  #SPINDASH_CHARGE_MAX, _pl_spindash(a0)
@@ -93,9 +97,14 @@ PState_Spindash:
         move.b  #16, (Camera_Spindash_Lag).w    ; classic 16-frame camera
                                                 ; freeze — Task 10 wires the
                                                 ; camera consume
-        moveq   #PSTATE_ROLL, d0                ; TODO: release sfx; dust
-                                                ; cleanup lives in the exit
-                                                ; hook when dust exists
+        moveq   #PSTATE_ROLL, d0                ; release sfx; dust cleanup
+                                                ; lives in exit hook when dust
+      ifdef SOUND_DRIVER_ENABLED
+        movem.l d0, -(sp)
+        move.b  #SFXID_DASH, d0
+        jsr     Sound_PlaySFX
+        movem.l (sp)+, d0
+      endif
         bsr.w   Player_SetState
         jmp     PState_Roll                     ; classic: the release frame
                                                 ; runs the full roll movement
