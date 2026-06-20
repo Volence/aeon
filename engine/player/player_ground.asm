@@ -53,7 +53,7 @@ PState_Ground:
         bsr.w   Player_SetState                 ; hook curls + zeroes motion/charge
         jmp     PState_Spindash                 ; run the charge frame now —
                                                 ; the floor pair keeps running
-                                                ; (sonic.asm). TODO: rev sfx
+                                                ; (sonic.asm). Rev SFX fired per-tap in player_spindash.asm
 .no_spindash:
         ; --- jump check (classic order: after spindash, before slope/
         ; input). Player_JumpBuffer covers fresh press AND buffered —

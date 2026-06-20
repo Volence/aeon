@@ -497,7 +497,7 @@ PHook_SpindashEnter:                            ; entered only from GROUND —
         clr.w   SST_x_vel(a0)
         clr.w   SST_y_vel(a0)
         clr.w   _pl_spindash(a0)                ; the initiating press is rev 0
-        rts                                     ; TODO: dust object + rev sfx
+        rts                                     ; TODO: dust object. Rev SFX fired per-tap in player_spindash.asm
 
 PHook_SpindashExit:
         clr.w   _pl_spindash(a0)                ; release converts charge→gsp

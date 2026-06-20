@@ -159,7 +159,7 @@ Sfx_DrainQueue:
 
         ; scan entries 0..CNT-1 for the highest-priority one.
         ; Register allocation: b=djnz-counter (CNT-1), c=best-slot, d=best-priority.
-        ; e = scan cursor (clobbered by Sfx_QueueEntryPtr, so saved in b across call)
+        ; e = scan cursor (clobbered by Sfx_QueueEntryPtr, so push de saves it across call)
         ld      a, (SND_SFX_QUEUE_CNT)
         ld      b, a                     ; b = CNT (djnz counter)
         ld      c, 0                     ; c = best slot index (entry 0 primed)
@@ -634,19 +634,6 @@ Sfx_BeginSound:
         xor     a
         ld      (SND_SFX_DISP_IDX), a    ; current channel record index (0-based)
 
-        ; --- Task 10: arm the music duck if this SFX is high-priority (spec §7) ----
-        ; A duck-eligible SFX (priority >= SFX_DUCK_THRESHOLD: spindash/dash/death/
-        ; ring-loss) raises the duck TARGET to SFX_DUCK_DEPTH; Sfx_DuckRamp ramps the
-        ; applied LEVEL toward it. Rings ($20 < threshold) leave the target untouched
-        ; (build-asserted below) so collecting rings never pumps the music. The
-        ; target is cleared on restore once no duck-eligible SFX remains active.
-        ld      a, (SND_SFX_DISP_PRIO)
-        cp      SFX_DUCK_THRESHOLD
-        jr      c, .no_duck_arm          ; below threshold -> do not duck
-        ld      a, SFX_DUCK_DEPTH
-        ld      (SND_SFX_DUCK_TARGET), a
-.no_duck_arm:
-
 .chan_loop:
         ; --- point iy at the current channel record: base + SFXH_CHANNELS + idx*6 -
         ld      iy, (SND_SFX_DISP_BASE)
@@ -766,6 +753,25 @@ Sfx_BeginSound:
         ld      hl, SND_SFX_DISP_COUNT
         dec     (hl)
         jp      nz, .chan_loop           ; jp (not jr): the loop body exceeds jr range
+
+        ; --- Task 10: arm the music duck if this SFX is high-priority (spec §7) ----
+        ; Done AFTER the channel loop so that any Sfx_Restore calls triggered by a
+        ; steal inside the loop (which zero SND_SFX_DUCK_TARGET if no other duck-
+        ; eligible SFX was active at that moment) cannot un-arm the arm we set here.
+        ; SND_SFX_DISP_PRIO is written once before the loop and only read (never
+        ; written) inside it, so it is still valid here.
+        ;
+        ; A duck-eligible SFX (priority >= SFX_DUCK_THRESHOLD: spindash/dash/death/
+        ; ring-loss) raises the duck TARGET to SFX_DUCK_DEPTH; Sfx_DuckRamp ramps the
+        ; applied LEVEL toward it. Rings ($20 < threshold) leave the target untouched
+        ; (build-asserted below) so collecting rings never pumps the music. The
+        ; target is cleared on restore once no duck-eligible SFX remains active.
+        ld      a, (SND_SFX_DISP_PRIO)
+        cp      SFX_DUCK_THRESHOLD
+        jr      c, .no_duck_arm          ; below threshold -> do not duck
+        ld      a, SFX_DUCK_DEPTH
+        ld      (SND_SFX_DUCK_TARGET), a
+.no_duck_arm:
         ret
 
 ; ----------------------------------------------------------------------
@@ -1109,9 +1115,10 @@ Sfx_SlotPtr:
 ;       kind as c (SfxEligTable[route]==SfxEligTable[c]) -> use the first such slot
 ;       on ITS owned route (dynamic substitution; more SFX sound at once).
 ;   (c) STEAL/DROP: else all same-kind slots are busy. Among the same-kind slots,
-;       find the one with the LOWEST sx_priority; if incoming(e) >= that lowest ->
-;       Sfx_Restore that victim (hands its music voice back) and reuse the slot;
-;       else carry-set DROP. A lower-priority SFX can never cut off a higher one.
+;       find the one with the LOWEST sx_priority; if incoming priority (read from
+;       SND_SFX_DISP_PRIO) >= that lowest -> Sfx_Restore that victim (hands its
+;       music voice back) and reuse the slot; else carry-set DROP. A lower-priority
+;       SFX can never cut off a higher one.
 ; ======================================================================
 Sfx_SelectVoice:
         ; --- the incoming channel's KIND (SfxEligTable[c]) into b (held all tiers).
