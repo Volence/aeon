@@ -148,10 +148,21 @@ Sfx_Steal:
         jr      z, .fm
         cp      SFXEL_PSG
         jr      z, .psg
-        ; --- NOISE: key off the music noise voice (PSG3-coupling save is Task 7) ---
+        ; --- NOISE: save PSG3's coupled tone note, then key off the music noise ---
+        ; Periodic noise borrows PSG3's tone latch (PSG3<->noise coupling). Capture
+        ; PSG3's held note NOW so Sfx_Restore can re-latch PSG3's tone register after
+        ; the SFX (the noise blob may overwrite the shared latch). sx_saved_route is
+        ; the noise route (CHROUTE_PSGN); PSG3 is a SEPARATE music channel.
+        ld      a, CHROUTE_PSG3
+        call    Sfx_MusicChanPtr         ; iy = &music PSG3 SeqChannel (no multiply)
+        ld      a, (iy+sc_note)          ; PSG3's currently-held tone note
+        ld      (ix+sx_saved_note), a    ; stash for restore (PSG3 re-latch)
+        ; re-resolve iy back to the OVERRIDDEN noise SeqChannel (sx_saved_route)
+        ld      a, (ix+sx_saved_route)
+        call    Sfx_MusicChanPtr         ; iy = &music noise SeqChannel
         push    ix                       ; save SFX-slot ix
         push    iy
-        pop     ix                       ; ix = music SeqChannel
+        pop     ix                       ; ix = music noise SeqChannel
         call    Psg_NoteOff              ; silence the music noise voice (preserves ix)
         pop     ix                       ; restore SFX-slot ix
         jr      .activate
@@ -312,13 +323,109 @@ Sfx_RouteKind:
         ret
 
 ; ----------------------------------------------------------------------
-; Sfx_Restore — STUB (Task 7 fills it). On SFX end, hand the physical voice back
-; to the music: clear the override, re-upload the music patch, re-key a held
-; note. For Task 6 this is a no-op, so an SFX plays once and leaves the music
-; muted on that voice (the intended, proven 5a-Task-6 end state).
-; In: ix = the ended SfxChannel. Preserves ix.
+; Sfx_Restore — hand the physical voice back to the music CLEANLY (spec §5).
+; On an SfxChannel's End (Sfx_Frame detects the cleared SCF_ACTIVE), un-mute the
+; overridden music channel, re-derive + re-upload its FM voice (NO register
+; snapshots — everything is recomputed from the music channel's surviving
+; sc_patch/sc_volume/sc_note, which the steal never overwrote), restore the
+; PSG3<->noise coupled latch if a noise voice was borrowed, and FORCE a re-key of
+; the held music note ONLY if it was sounding when stolen (SCF_KEYED set) — so the
+; music resumes instantly with no silence gap rather than coasting mute until the
+; next note event. If the channel was between notes, just clearing the override is
+; enough (the next note keys normally).
+;
+; In:  ix = the ended SfxChannel:
+;        sx_saved_route = the music route to un-mute (CHROUTE_*)
+;        sx_kind        = SFXEL_FM / SFXEL_PSG / SFXEL_NOISE
+;        sx_saved_note  = (noise only) PSG3's tone note captured at steal
+; Out: SCF_SFX_OVERRIDE cleared on the music channel; its voice re-asserted;
+;      held note re-keyed iff it was keyed; the SfxChannel deactivated + priority 0.
+; Preserves ix (push/pop) so Sfx_Frame's `add ix,de` still advances. The Fm_*/Psg_*
+; writers preserve ix internally; we re-point ix at MUSIC channels only inside the
+; push/pop. SND_SEQ_PATCHTAB is read-only (Fm_PatchPtr) — never written.
+; Clobbers af,bc,de,hl,iy.
 ; ----------------------------------------------------------------------
 Sfx_Restore:
+        push    ix                       ; save the SFX-slot ix (caller's invariant)
+
+        ; (1) resolve the overridden music SeqChannel (no multiply) into iy.
+        ld      a, (ix+sx_saved_route)
+        call    Sfx_MusicChanPtr         ; iy = &music SeqChannel[sx_saved_route]
+
+        ; (2) un-mute: clear the override so its chip-write sites fire again.
+        res     SCF_SFX_OVERRIDE_B, (iy+sc_flags)
+
+        ; (3) dispatch by the owned voice kind (read from the SFX slot via ix).
+        ld      a, (ix+sx_kind)
+        cp      SFXEL_FM
+        jr      z, .fm
+        cp      SFXEL_PSG
+        jr      z, .psg
+        ; --- NOISE: re-latch PSG3's borrowed tone register, then re-key noise ---
+        ld      b, (ix+sx_saved_note)    ; b = PSG3's saved tone note (from steal)
+        ld      a, CHROUTE_PSG3
+        call    Sfx_MusicChanPtr         ; iy = &music PSG3 SeqChannel (no multiply)
+        push    ix                       ; (keep SFX slot saved on the stack already;
+        push    iy                       ;  this nested push/pop just re-points ix)
+        pop     ix                       ; ix = music PSG3 channel
+        ld      a, b
+        call    Psg_NoteOn               ; re-latch PSG3 tone + volume (preserves ix)
+        pop     ix                       ; ix = SFX slot again
+        ; re-key the music NOISE channel iff it was keyed when stolen.
+        ld      a, (ix+sx_saved_route)
+        call    Sfx_MusicChanPtr         ; iy = &music noise SeqChannel
+        push    ix
+        push    iy
+        pop     ix                       ; ix = music noise channel
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .noise_done
+        ld      a, (ix+sc_note)          ; the held noise note (mode/rate)
+        call    Psg_Noise                ; re-emit noise control + volume (preserves ix)
+.noise_done:
+        pop     ix                       ; ix = SFX slot
+        jr      .deactivate
+
+.psg:
+        ; --- PSG TONE: if a note was sounding, re-key it (re-applies tone+volume) ---
+        push    ix
+        push    iy
+        pop     ix                       ; ix = music PSG tone channel
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .psg_done
+        ld      a, (ix+sc_note)
+        call    Psg_NoteOn               ; re-key the held tone (preserves ix)
+.psg_done:
+        pop     ix                       ; ix = SFX slot
+        jr      .deactivate
+
+.fm:
+        ; --- FM: re-upload the music voice (the exact Seq_HookSetPatch pair), then
+        ; re-key the held note iff it was sounding when stolen. ix = MUSIC channel
+        ; for all of this so Fm_PatchPtr/Fm_SetVolume read the MUSIC sc_patch/sc_volume.
+        push    ix
+        push    iy
+        pop     ix                       ; ix = music FM channel
+        call    Fm_PatchPtr              ; hl = music FmPatch ptr (SND_SEQ_PATCHTAB, read-only)
+        call    Fm_PatchLoad             ; re-upload the music voice (re-asserts op-bias)
+        ld      a, (ix+sc_volume)        ; re-apply the music channel's loudness
+        call    Fm_SetVolume             ; carrier TLs (+ op-bias) restored
+        ; force re-key ONLY if a note was sounding when the voice was stolen.
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .fm_done              ; between notes -> clearing override suffices
+    if SND_REKEY_OFF_THEN_ON
+        call    Fm_NoteOff               ; clean 0->1 edge: key OFF first (mirrors ModUpdate)
+    endif
+        ld      a, (ix+sc_note)          ; the held note index
+        call    Fm_NoteFromTable         ; re-key from the per-song fnum table (preserves ix)
+.fm_done:
+        pop     ix                       ; ix = SFX slot
+
+.deactivate:
+        ; (4) deactivate the SfxChannel (End already cleared SCF_ACTIVE — defensive)
+        ; and drop its priority so the next SFX of any priority can claim the slot.
+        res     SCF_ACTIVE_B, (ix+sc_flags)
+        ld      (ix+sx_priority), 0
+        pop     ix                       ; restore the caller's SFX-slot ix
         ret
 
 ; ----------------------------------------------------------------------
