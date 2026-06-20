@@ -80,6 +80,152 @@ SND_SFX_DISP_END   = SND_SFX_DISP_ROUTE + 1
           fatal "SFX dispatch scratch (\{SND_SFX_DISP_END}) overruns the mailbox at \{SND_REQ_BASE}"
         endif
 
+; ======================================================================
+; Task 9: 3-deep priority-gated SFX queue
+; ======================================================================
+;
+; OVERVIEW: the mailbox is latest-wins single-byte; consecutive frames could clobber
+; a pending id before Z80 processes it. The queue fixes this: SfxDispatch (the fast
+; mailbox handler, called from SndDrv_PollMailbox) ENQUEUES {id, priority} and
+; returns immediately. Sfx_DrainQueue (called at the TOP of Sfx_Frame each frame)
+; pops the HIGHEST-priority pending entry and runs the real voice-selection + steal
+; via Sfx_BeginSound.
+;
+; QUEUE LAYOUT (3 entries × 2 bytes = 6 bytes, then head/tail/cnt):
+;   SND_SFX_QUEUE + 0 = entry 0: [id_byte, priority_byte]
+;   SND_SFX_QUEUE + 2 = entry 1: [id_byte, priority_byte]
+;   SND_SFX_QUEUE + 4 = entry 2: [id_byte, priority_byte]
+;   SND_SFX_QUEUE_CNT = count of valid entries (0..3)
+;   SND_SFX_QUEUE_HEAD/TAIL: allocated (reserved for 5b if needed); unused by 5a.
+; Entry n is VALID iff n < CNT.  Valid entries are packed into slots 0..CNT-1.
+; Enqueue appends at slot CNT; drain pops the max-priority slot and compacts.
+;
+; OVERFLOW (queue full, CNT == 3): compare incoming priority against the lowest-
+; priority queued entry; if incoming > lowest → overwrite that lowest slot's {id,
+; priority}; else → drop the incoming. This keeps only the most-relevant pending SFX.
+;
+; ENTRY ADDRESSING (no multiply): entry[n].id   = (SND_SFX_QUEUE + n + n)
+;                                  entry[n].prio = (SND_SFX_QUEUE + n + n + 1)
+; n ranges 0..2, so n+n is 0..4 — all within a single `add hl,de` per stride.
+;
+; CONTINUOUS-EXTEND HOOK (5b seam, dormant in 5a): if the blob's SfxHeader has
+; SHF_CONTINUOUS AND a slot is already running that same id, EXTEND it (reset its
+; stream cursor / refresh its hold) rather than queuing another instance — prevents
+; machine-gun re-triggers. All 5a SFX are one-shots (SHF_CONTINUOUS never set), so
+; this path is unreachable and fully dormant.  5b adds an sx_id field to SfxChannel
+; and a "same-id active" scan; this hook label marks the seam.
+; ======================================================================
+
+; ----------------------------------------------------------------------
+; Sfx_QueueEntryPtr — compute hl = address of entry[n].id byte in the queue.
+; entry[n] is at SND_SFX_QUEUE + n*2 = SND_SFX_QUEUE + n + n (no multiply).
+; In: a = n (0..2). Out: hl = &queue_entry[n].id. Clobbers af, hl, de.
+; Callers must not rely on de surviving this call.
+; ----------------------------------------------------------------------
+Sfx_QueueEntryPtr:
+        ld      l, a
+        ld      h, 0
+        add     hl, hl                   ; hl = n*2 (no multiply: add hl,hl)
+        ld      de, SND_SFX_QUEUE
+        add     hl, de                   ; hl = SND_SFX_QUEUE + n*2
+        ret
+
+; ----------------------------------------------------------------------
+; Sfx_DrainQueue — pop the highest-priority entry from the SFX queue and
+; launch it via Sfx_BeginSound.  Called once per frame at the TOP of Sfx_Frame.
+; At most one SFX is begun per frame (bounded latency; highest-priority waiter
+; plays first).
+; In: nothing.  Out: SND_SFX_QUEUE_CNT decremented by 1 if an entry was drained;
+;   Sfx_BeginSound called with the popped id. Clobbers af,bc,de,hl,ix,iy.
+;
+; REGISTER NOTES:
+;   Throughout the scan phase: b=djnz-counter, c=best-slot, d=best-priority.
+;   The slot cursor is kept in e (= SND_SFX_QUEUE_CNT scratch) between iterations.
+;   Sfx_QueueEntryPtr clobbers de — the slot cursor (e) must be pushed/popped around
+;   each call (b=djnz/c=best-slot are also pushed together as bc).
+; ----------------------------------------------------------------------
+Sfx_DrainQueue:
+        ld      a, (SND_SFX_QUEUE_CNT)
+        or      a
+        ret     z                        ; queue empty -> nothing to drain
+
+        ; scan entries 0..CNT-1 for the highest-priority one.
+        ; Register allocation: b=djnz-counter (CNT-1), c=best-slot, d=best-priority.
+        ; e = scan cursor (clobbered by Sfx_QueueEntryPtr, so saved in b across call)
+        ld      a, (SND_SFX_QUEUE_CNT)
+        ld      b, a                     ; b = CNT (djnz counter)
+        ld      c, 0                     ; c = best slot index (entry 0 primed)
+        ; prime best priority = entry[0].priority (direct load, no Sfx_QueueEntryPtr call)
+        ld      hl, SND_SFX_QUEUE + 1    ; &entry[0].priority
+        ld      d, (hl)                  ; d = best priority
+        ; only one entry -> slot 0 wins (no scan needed).
+        dec     b
+        jr      z, .drain_pop
+        ; scan entries 1..CNT-1.
+        ; b = djnz counter (CNT-1, already decremented), c = best slot, d = best priority.
+        ; e = scan cursor (1..CNT-1). Sfx_QueueEntryPtr clobbers de, so push/pop de
+        ; around each call to save (best-priority d, cursor e); bc pushed/popped too.
+        ld      e, 1                     ; e = scan cursor starting at slot 1
+.drain_scan_loop:
+        push    bc                       ; save (djnz-counter b, best-slot c)
+        push    de                       ; save (best-priority d, cursor e) — de clobbered below
+        ld      a, e                     ; a = slot cursor (from saved e)
+        call    Sfx_QueueEntryPtr        ; hl = &entry[a].id; de clobbered
+        inc     hl                       ; hl = &entry[a].priority
+        ld      a, (hl)                  ; a = candidate priority
+        pop     de                       ; restore (d=best-priority, e=cursor)
+        pop     bc                       ; restore (b=djnz-counter, c=best-slot)
+        ; compare candidate(a) vs best(d): if a > d -> new winner
+        cp      d                        ; CARRY set if a < d; Z if equal
+        jr      c, .drain_no_update      ; a < d -> no update
+        jr      z, .drain_no_update      ; tie -> FIFO (earlier slot = lower index wins)
+        ld      d, a                     ; new best priority
+        ld      c, e                     ; new best slot
+.drain_no_update:
+        inc     e                        ; advance cursor
+        djnz    .drain_scan_loop         ; b-- and loop until all CNT-1 extras scanned
+
+.drain_pop:
+        ; c = best slot, d = best priority (d used only for scan; no longer needed).
+        ; Read the popped id from entry[c].id.
+        ld      a, c
+        call    Sfx_QueueEntryPtr        ; hl = &entry[c].id; de clobbered
+        ld      a, (hl)                  ; a = the popped id
+        push    af                       ; preserve the id across the compact
+
+        ; --- COMPACT: shift entries c+1..CNT-1 down one slot. ---------------------
+        ; Number of entries to shift = (CNT-1) - c.
+        ; Use hl as source ptr (entry[c+1]), de as dest ptr (entry[c]).
+        ; Since hl = &entry[c] right now (from QueueEntryPtr above), advance 2 bytes:
+        ld      d, h
+        ld      e, l                     ; de = &entry[c] (dest)
+        inc     hl
+        inc     hl                       ; hl = &entry[c+1] (source)
+        ; shift-count = CNT - 1 - c, in entries (each 2 bytes).
+        ld      a, (SND_SFX_QUEUE_CNT)
+        dec     a                        ; a = CNT-1
+        sub     c                        ; a = (CNT-1) - c = entries to shift
+        ; if a == 0 (c was the last slot), no shifting needed.
+        jr      z, .compact_done
+        ; each entry is 2 bytes; copy a*2 bytes from hl to de.
+        ld      b, a
+        add     a, b                     ; a = b*2 (byte count) without SLA (use add a,a)
+        ld      b, a                     ; b = byte count
+.shift_loop:
+        ld      a, (hl)
+        ld      (de), a
+        inc     hl
+        inc     de
+        djnz    .shift_loop
+.compact_done:
+        ; decrement CNT.
+        ld      hl, SND_SFX_QUEUE_CNT
+        dec     (hl)
+
+        ; call Sfx_BeginSound with the popped id.
+        pop     af                       ; a = the popped id (raw SFX id)
+        jp      Sfx_BeginSound           ; tail-call (clobbers all)
+
 ; ----------------------------------------------------------------------
 ; Sfx_Frame — run all active SfxChannels once per frame, AFTER Sequencer_Frame.
 ; Mirrors Sequencer_Frame's .chan_loop: per ACTIVE slot, ModUpdate (render) then
@@ -91,6 +237,7 @@ SND_SFX_DISP_END   = SND_SFX_DISP_ROUTE + 1
 ; nothing the caller needs except the de re-park it does after this tail-call.
 ; ----------------------------------------------------------------------
 Sfx_Frame:
+        call    Sfx_DrainQueue           ; Task 9: pop highest-priority pending SFX
         ld      b, SFX_VOICE_COUNT       ; b = slot count (djnz bound)
         ld      ix, SND_SFX_CHANNELS     ; ix = first SfxChannel
 .slot_loop:
@@ -205,26 +352,164 @@ Sfx_Steal:
         set     SCF_ACTIVE_B, (ix+sc_flags)
         ret
 
+; ======================================================================
+; SfxDispatch (Task 9) — the FAST mailbox handler: resolve the id, read the
+; SfxHeader for priority + flags, check the continuous-extend seam (5b dormant),
+; then ENQUEUE {id, priority} via Sfx_QueueEnqueue and return immediately.
+; The actual voice-selection + steal runs later in Sfx_DrainQueue (per frame).
+;
+; SfxDispatch is called from SndDrv_PollMailbox after consuming SND_REQ_SFX;
+; it must be fast (the mailbox handler is on the timing-critical Z80 interrupt path).
+; In: a = the raw SFX id posted to SND_REQ_SFX.  Clobbers af,bc,de,hl,ix,iy.
 ; ----------------------------------------------------------------------
-; SfxDispatch — resolve a posted SFX id to its blob, then for EACH of the SFX's
-; channels (chcount) call Sfx_SelectVoice (dynamic-among-eligible + priority steal,
-; Task 8) and, on success, init the chosen SfxChannel slot from that channel's
-; record + Sfx_Steal it. Multi-channel SFX (Dash = FM5+PSG3, Skid = PSG1+PSG2)
-; steal their voices INDEPENDENTLY: each channel runs the full selection ladder, so
-; one channel dropping (no eligible voice / too low priority) doesn't block the rest.
-; In: a = the SFX id posted to SND_REQ_SFX. Clobbers af,bc,de,hl,ix,iy.
+SfxDispatch:
+        ; --- id range check (dense table indexed by id - SFX_ID_BASE) ---
+        push    af                       ; save raw id (needed for enqueue after range/ptr work)
+        sub     SFX_ID_BASE
+        jr      c, .disp_ignore          ; id < base -> ignore
+        cp      SFX_TABLE_LEN
+        jr      nc, .disp_ignore         ; id > max -> ignore
+        ; hl = &SfxBlobWinTab[index] (2-byte entries; index*2 via add)
+        ld      l, a
+        ld      h, 0
+        add     hl, hl                   ; index*2
+        ld      de, SfxBlobWinTab
+        add     hl, de
+        ld      e, (hl)
+        inc     hl
+        ld      d, (hl)                  ; de = blob window ptr (0 = unused id)
+        ld      a, d
+        or      e
+        jr      z, .disp_ignore          ; unused id slot -> ignore
+
+        ; --- bank the SFX blob bank in (build-time constant; in-bank no-op) --------
+        push    de
+        ld      a, SFX_BLOB_BANK
+        call    SndDrv_SetBank
+        pop     de                       ; de = blob window base
+
+        ; --- read SfxHeader: priority + flags (two bytes, no clobber of id) --------
+        push    de
+        pop     iy                       ; iy = blob base for header reads
+        ld      b, (iy+SFXH_PRIORITY)    ; b = incoming SFX priority
+        ld      a, (iy+SFXH_FLAGS)
+
+        ; --- CONTINUOUS-EXTEND HOOK (5b seam, fully dormant in 5a) -----------------
+        ; If SHF_CONTINUOUS is set AND a slot is already running this same id, EXTEND
+        ; it (reset cursor) instead of queuing another instance. All 5a SFX are one-
+        ; shots (SHF_CONTINUOUS never set in any transcoded 5a blob), so this branch
+        ; is unreachable. 5b: add an sx_id field to SfxChannel, scan here, and call
+        ; Sfx_Extend(slot) — the seam is present to avoid a format change later.
+        bit     SHF_CONTINUOUS_B, a
+        jr      z, .disp_enqueue         ; one-shot (or no matching active slot) -> enqueue
+        ; SHF_CONTINUOUS: check if this id is already running (requires sx_id — 5b).
+        ; For 5a: no sx_id field exists, so we cannot find the running slot safely.
+        ; Fall through to enqueue (may retrigger, but no 5a SFX hits this path).
+        ; 5b: insert "scan SfxChannels for sx_id == raw_id; if found call Sfx_Extend; ret"
+
+.disp_enqueue:
+        ; --- enqueue {raw_id, priority} -------------------------------------------
+        ; priority is in b; recover raw id from the stack.
+        pop     af                       ; a = raw id (pushed at entry before range check)
+        call    Sfx_QueueEnqueue         ; enqueue {a=id, b=priority}; registers clobbered
+        ret
+
+.disp_ignore:
+        pop     af                       ; discard the pushed raw id
+        ret
+
+; ----------------------------------------------------------------------
+; Sfx_QueueEnqueue — insert {id, priority} into the 3-slot packed queue.
+; If count < SFX_QUEUE_DEPTH: append at slot[CNT], increment CNT.
+; If count == SFX_QUEUE_DEPTH (full): find the lowest-priority queued entry;
+;   if incoming priority > that lowest -> overwrite {id,prio} in that slot;
+;   else -> drop the incoming.
+; In:  a = raw SFX id (caller guarantees a != 0).
+;      b = incoming priority.
+; Out: nothing. Clobbers af, bc, de, hl. Preserves ix, iy.
+;
+; OVERFLOW IMPLEMENTATION NOTE: SFX_QUEUE_DEPTH == 3 and the 3 entries live at
+; FIXED, KNOWN addresses (SND_SFX_QUEUE+0/1, +2/3, +4/5). We compare priorities
+; directly at those addresses rather than via Sfx_QueueEntryPtr (which clobbers de
+; and would destroy our tracking state). The lowest-priority slot index (0,1,2) and
+; its priority are kept in e and d respectively throughout the overflow path.
+; ----------------------------------------------------------------------
+Sfx_QueueEnqueue:
+        ld      c, a                     ; c = id (save across ptr operations)
+        ld      a, (SND_SFX_QUEUE_CNT)
+        cp      SFX_QUEUE_DEPTH
+        jr      nc, .enq_overflow        ; full -> overflow handling
+
+        ; --- append: write {id,priority} at slot[CNT], increment CNT --------------
+        ; a = CNT (unchanged by cp). Sfx_QueueEntryPtr clobbers de, but we don't
+        ; need de after this call — proceed directly.
+        call    Sfx_QueueEntryPtr        ; hl = &entry[CNT].id
+        ld      (hl), c                  ; entry[CNT].id = incoming id
+        inc     hl
+        ld      (hl), b                  ; entry[CNT].priority = incoming priority
+        ld      hl, SND_SFX_QUEUE_CNT
+        inc     (hl)
+        ret
+
+.enq_overflow:
+        ; queue full. Find the slot with the LOWEST priority among the 3 fixed entries.
+        ; Use direct addressing (no Sfx_QueueEntryPtr) to avoid clobbering de.
+        ; Track: d = lowest priority found, e = index of that slot (0,1,2).
+        ld      hl, SND_SFX_QUEUE + 1    ; &entry[0].priority (offset 1 = SND_SFX_QUEUE+1)
+        ld      d, (hl)                  ; d = entry[0].priority
+        ld      e, 0                     ; e = slot of current lowest (slot 0)
+        ; compare entry[1].priority (at SND_SFX_QUEUE + 3):
+        ld      hl, SND_SFX_QUEUE + 3    ; &entry[1].priority
+        ld      a, (hl)
+        cp      d                        ; a vs d: CARRY set if a < d
+        jr      nc, .enq_try2            ; a >= d -> entry[1] not lower, keep slot 0
+        ld      d, a                     ; entry[1] is lower
+        ld      e, 1                     ; e = slot 1
+.enq_try2:
+        ; compare entry[2].priority (at SND_SFX_QUEUE + 5):
+        ld      hl, SND_SFX_QUEUE + 5    ; &entry[2].priority
+        ld      a, (hl)
+        cp      d                        ; a vs d: CARRY set if a < d
+        jr      nc, .enq_cmp             ; a >= d -> entry[2] not lower
+        ld      d, a                     ; entry[2] is lower
+        ld      e, 2                     ; e = slot 2
+.enq_cmp:
+        ; d = lowest queued priority, e = its slot index.
+        ; Gate: incoming priority (b) must STRICTLY exceed lowest (d) to overwrite.
+        ld      a, b                     ; a = incoming priority
+        cp      d
+        ret     c                        ; a < d -> DROP incoming (no improvement)
+        ret     z                        ; a == d -> DROP (tie; keep the running one)
+        ; incoming > lowest: overwrite entry[e] with {incoming-id, incoming-priority}.
+        ; Compute address = SND_SFX_QUEUE + e*2 (direct: e is 0,1,2; e*2 via add a,a).
+        ld      a, e
+        call    Sfx_QueueEntryPtr        ; hl = &entry[e].id; de clobbered (ok — done)
+        ld      (hl), c                  ; overwrite id
+        inc     hl
+        ld      (hl), b                  ; overwrite priority
+        ret
+
+; ----------------------------------------------------------------------
+; Sfx_BeginSound — resolve a posted SFX id to its blob, then for EACH of the
+; SFX's channels (chcount) call Sfx_SelectVoice (dynamic-among-eligible +
+; priority steal, Task 8) and, on success, init the chosen SfxChannel slot
+; from that channel's record + Sfx_Steal it. Multi-channel SFX (Dash = FM5+PSG3,
+; Skid = PSG1+PSG2) steal their voices INDEPENDENTLY: each channel runs the full
+; selection ladder, so one channel dropping doesn't block the rest.
+; In: a = the raw SFX id (range-unchecked — we re-check here for safety, since
+;   the queue may have been populated before a ROM change or by Sfx_QueueEnqueue).
+; Called from Sfx_DrainQueue via tail-call (jp Sfx_BeginSound). Clobbers all.
 ;
 ; The blob lives in 68k ROM, read via the $8000 window. Bank in the SFX bank and
-; LEAVE it (stream-path model; in-bank with the FM6=FM song under test, so this is
-; a no-op SetBank). The per-channel cmd_ptr/voice_ptr are offsets from the blob
-; base; add them to the blob's window base.
+; LEAVE it (stream-path model). The per-channel cmd_ptr/voice_ptr are offsets from
+; the blob base; add them to the blob's window base.
 ;
 ; Loop state lives in RAM (SND_SFX_DISP_*) rather than registers because each
 ; iteration calls Sfx_SelectVoice/Sfx_Steal, which clobber the full register set
 ; (incl. ix/iy). The blob base + chcount + per-channel cursor survive across calls
 ; in RAM; the chosen slot/route come back from Sfx_SelectVoice each iteration.
 ; ----------------------------------------------------------------------
-SfxDispatch:
+Sfx_BeginSound:
         ; --- id range check (dense table indexed by id - SFX_ID_BASE) ---
         sub     SFX_ID_BASE
         ret     c                        ; id < base -> ignore
@@ -505,10 +790,10 @@ Sfx_Restore:
         ret
 
 ; ----------------------------------------------------------------------
-; Sfx_StopAll — STUB (Task 12 fills it). Clears all overrides + kills SfxChannels
-; + drops the queue + resets ducking. For Task 6, minimal: deactivate the 7
-; SfxChannels and clear every music override so a StopMusic can't leave a voice
-; muted. Clobbers af,bc,de,hl,ix.
+; Sfx_StopAll — clear all overrides + kill SfxChannels + DRAIN the queue + reset
+; ducking (duck = 0, target = 0). Task 9 adds the queue drain here so a StopMusic
+; mid-SFX leaves no stale queue entries that would fire on the next song's first
+; frame.  Clobbers af,bc,de,hl,ix.
 ; ----------------------------------------------------------------------
 Sfx_StopAll:
         ; clear SCF_SFX_OVERRIDE on every music SeqChannel.
@@ -528,6 +813,12 @@ Sfx_StopAll:
         ld      (ix+sx_priority), 0
         add     ix, de
         djnz    .clr_sfx
+        ; Task 9: drain the SFX queue (CNT=0; HEAD/TAIL left as-is — they're unused).
+        xor     a
+        ld      (SND_SFX_QUEUE_CNT), a
+        ; Task 10: reset duck level + target (no duck after StopAll).
+        ld      (SND_SFX_DUCK_LEVEL), a
+        ld      (SND_SFX_DUCK_TARGET), a
         ret
 
 ; ======================================================================
