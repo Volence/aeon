@@ -15,9 +15,10 @@ import song_packer
 from song_packer import (
     SongDesc, ChannelDesc,
     SetDur, Rest, Note, Vol, Patch, Dac, NoteDur, LoopPoint, Jump, End,
-    RepeatStart, RepeatEnd,
+    RepeatStart, RepeatEnd, Pan, OpBias, RegDelta, reg_sel,
     pack_song, emit_asm, PackError,
-    MEV_REPEAT_START, MEV_REPEAT_END,
+    MEV_REPEAT_START, MEV_REPEAT_END, MEV_PAN, MEV_OPBIAS, MEV_REGDELTA,
+    RD_GROUP_TL, RD_GROUP_DT_MUL, RD_GROUP_D1L_RR, REGDELTA_GROUP_COUNT,
 )
 
 # Route constants mirrored from sound_constants.asm (kept in sync by hand;
@@ -61,6 +62,83 @@ class TestEventEncoding(unittest.TestCase):
         self.assertEqual(MEV_REPEAT_END, 0xE6)
         self.assertEqual(RepeatEnd(255).encode(), bytes([MEV_REPEAT_END, 0xFF]))
 
+    def test_pan(self):
+        self.assertEqual(Pan(0x80).encode(), bytes([MEV_PAN, 0x80]))
+        self.assertEqual(MEV_PAN, 0xE4)
+        # hardware-correct $B4 L/R bits: bit7 = Left, bit6 = Right, $C0 = both.
+        self.assertEqual(Pan.PAN_LEFT, 0x80)
+        self.assertEqual(Pan.PAN_RIGHT, 0x40)
+        self.assertEqual(Pan.PAN_CENTER, 0xC0)
+
+    def test_opbias(self):
+        self.assertEqual(OpBias(2, 0x30).encode(), bytes([MEV_OPBIAS, 0x02, 0x30]))
+        self.assertEqual(MEV_OPBIAS, 0xE9)
+
+    def test_opbias_signed_encode(self):
+        # val is signed -128..127, encoded as a two's-complement byte.
+        self.assertEqual(OpBias(0, -16).encode(), bytes([MEV_OPBIAS, 0x00, 0xF0]))
+        self.assertEqual(OpBias(1, -1).encode(),  bytes([MEV_OPBIAS, 0x01, 0xFF]))
+        self.assertEqual(OpBias(2, -128).encode(), bytes([MEV_OPBIAS, 0x02, 0x80]))
+        self.assertEqual(OpBias(3, 127).encode(),  bytes([MEV_OPBIAS, 0x03, 0x7F]))
+
+    def test_opbias_signed_range_valid(self):
+        # boundary values -128 and 127 must validate cleanly on an FM route.
+        OpBias(0, -128).validate(CHROUTE_FM1)
+        OpBias(0, 127).validate(CHROUTE_FM1)
+
+    def test_opbias_val_out_of_range(self):
+        with self.assertRaises(PackError):
+            OpBias(0, 128).validate(CHROUTE_FM1)
+        with self.assertRaises(PackError):
+            OpBias(0, -129).validate(CHROUTE_FM1)
+
+    def test_reg_sel_encoding(self):
+        # reg_sel = (group_code << 2) | op. TL group op0 = the canonical lead step.
+        self.assertEqual(reg_sel(RD_GROUP_TL, 0), 0x04)   # ($40 group) -> (1<<2)|0
+        self.assertEqual(reg_sel(RD_GROUP_DT_MUL, 0), 0x00)  # ($30 group) op0
+        self.assertEqual(reg_sel(RD_GROUP_TL, 3), 0x07)   # TL group, op3 (carrier S4)
+        self.assertEqual(reg_sel(RD_GROUP_D1L_RR, 2), (5 << 2) | 2)  # $80 group, op2
+        with self.assertRaises(PackError):
+            reg_sel(RD_GROUP_TL, 4)                        # op out of 0..3
+        with self.assertRaises(PackError):
+            reg_sel(REGDELTA_GROUP_COUNT, 0)               # group_code out of range
+
+    def test_regdelta_encode(self):
+        self.assertEqual(MEV_REGDELTA, 0xEA)
+        # single (reg_sel, value): count=1, the lead TL voice-step.
+        self.assertEqual(RegDelta.tl(0, 0x38).encode(),
+                         bytes([MEV_REGDELTA, 0x01, 0x04, 0x38]))
+        # explicit multi-entry: count + count*(reg_sel, value) pairs.
+        self.assertEqual(
+            RegDelta([(0x04, 0x20), (reg_sel(RD_GROUP_DT_MUL, 1), 0x02)]).encode(),
+            bytes([MEV_REGDELTA, 0x02, 0x04, 0x20, 0x01, 0x02]))
+
+    def test_regdelta_on_non_fm_route(self):
+        with self.assertRaises(PackError):
+            RegDelta.tl(0, 0x38).validate(CHROUTE_PSG1)
+
+    def test_regdelta_bad_group_code(self):
+        # a reg_sel whose group_code field exceeds the table must be rejected.
+        bad = (REGDELTA_GROUP_COUNT << 2) | 0
+        with self.assertRaises(PackError):
+            RegDelta([(bad, 0x00)]).validate(CHROUTE_FM1)
+
+    def test_regdelta_zero_tick_in_loop_body_still_needs_a_note(self):
+        # RegDelta is zero-tick: a loop body of ONLY RegDeltas would spin forever,
+        # so the packer must still require a time-advancing event (PitchEnv here).
+        from song_packer import PitchEnv
+        ok = SongDesc(tempo=16, channels=[ChannelDesc(CHROUTE_FM1, [
+            Patch(1), Vol(110), SetDur(1), LoopPoint(),
+            PitchEnv(0x30), RegDelta.tl(0, 0x20), PitchEnv(0x30), Jump(),
+        ])])
+        pack_song(ok)   # must not raise
+        spin = SongDesc(tempo=16, channels=[ChannelDesc(CHROUTE_FM1, [
+            Patch(1), Vol(110), SetDur(1), LoopPoint(),
+            RegDelta.tl(0, 0x20), Jump(),
+        ])])
+        with self.assertRaises(PackError):
+            pack_song(spin)
+
     def test_loop_point(self):
         self.assertEqual(LoopPoint().encode(), bytes([0xEE]))
 
@@ -91,26 +169,34 @@ class TestHeader(unittest.TestCase):
         self.blob = pack_song(self.song)
 
     def test_flags_tempo_and_count(self):
-        # Sound 1D: SH_FLAGS is the first header byte, then tempo, then count.
+        # Phase 3 header: flags(+0), tempo(+1), tempo_base(+2), channel_count(+3).
         self.assertEqual(self.blob[0], 0)        # default flags = 0 (1C copy/DAC)
-        self.assertEqual(self.blob[1], 6)        # tempo
-        self.assertEqual(self.blob[2], 2)        # channel count
+        self.assertEqual(self.blob[1], 6)        # tempo (legacy Timer-A selector)
+        # tempo_base default clamps the legacy tempo (6) up to the 16 floor so
+        # the per-frame accumulator never mis-plays (one event-tick/frame cap).
+        self.assertEqual(self.blob[2], 16)
+        self.assertEqual(self.blob[3], 2)        # channel count
+        # pitchtable_ptr (+4, dw) = 0 (engine default).
+        self.assertEqual((self.blob[4] << 8) | self.blob[5], 0)
 
     def test_channel_routes_and_pointers(self):
-        # Header: flags, tempo, count, then per channel (route, dw stream_ptr),
-        # then dw patch_table_ptr. Pointers are big-endian offsets within blob.
-        off = 3                                  # skip flags, tempo, count
+        # Header: flags, tempo, tempo_base, count, dw pitchtable_ptr, then per
+        # channel (route, dw cmd_ptr, dw mod_ptr), then dw patch_table_ptr.
+        # Pointers are big-endian offsets within the blob.
+        off = 6                                  # skip flags,tempo,tempo_base,count,pitchtab(2)
         ptrs = []
         for ch in self.song.channels:
             self.assertEqual(self.blob[off], ch.route)
             ptr = (self.blob[off + 1] << 8) | self.blob[off + 2]
             ptrs.append(ptr)
-            off += 3
+            # mod_ptr (slot[1]) is 0/NULL for single-stream A.
+            self.assertEqual((self.blob[off + 3] << 8) | self.blob[off + 4], 0)
+            off += 5
         # patch_table_ptr word follows
         off += 2
         # The first stream pointer should point at the first byte after the
         # full header; subsequent ones follow each stream's length.
-        header_len = 3 + 3 * len(self.song.channels) + 2
+        header_len = 4 + 2 + 5 * len(self.song.channels) + 2
         self.assertEqual(ptrs[0], header_len)
         # Stream 0 bytes equal the encoded events; pointer 1 = ptr0 + len(stream0)
         s0 = b"".join(e.encode() for e in self.song.channels[0].events)
@@ -125,9 +211,18 @@ class TestHeader(unittest.TestCase):
                 Patch(0), Vol(100), SetDur(0x10), LoopPoint(), Note(57), Jump()])])
         self.assertEqual(pack_song(song)[0], SH_F_FM6_FM | SH_F_STREAM)
 
+    def test_tempo_base_emitted(self):
+        # tempo_base packs at +2 (distinct from the legacy tempo at +1).
+        song = SongDesc(tempo=6, tempo_base=0x38, channels=[
+            ChannelDesc(CHROUTE_FM1, [
+                Patch(0), Vol(100), SetDur(0x10), LoopPoint(), Note(57), Jump()])])
+        blob = pack_song(song)
+        self.assertEqual(blob[1], 6)
+        self.assertEqual(blob[2], 0x38)
+
     def test_streams_present(self):
         # Concatenated streams appear after the header in order.
-        header_len = 3 + 3 * 2 + 2
+        header_len = 4 + 2 + 5 * 2 + 2
         body = self.blob[header_len:]
         expect = b""
         for ch in self.song.channels:
@@ -159,6 +254,25 @@ class TestValidation(unittest.TestCase):
         with self.assertRaises(PackError):
             self._pack([ChannelDesc(CHROUTE_PSG1,
                         [Patch(0), LoopPoint(), Note(0), Jump()])])
+
+    def test_opbias_on_non_fm_route(self):
+        with self.assertRaises(PackError):
+            self._pack([ChannelDesc(CHROUTE_PSG1,
+                        [Vol(64), LoopPoint(), OpBias(0, 0x10), Note(0), Jump()])])
+
+    def test_opbias_op_out_of_range(self):
+        with self.assertRaises(PackError):
+            OpBias(4, 0x10).validate(CHROUTE_FM1)
+
+    def test_pan_then_opbias_then_patch_packs(self):
+        # A well-formed FM channel using Pan + OpBias (FM-only coordination setters).
+        blob = self._pack([ChannelDesc(CHROUTE_FM1, [
+            Patch(1), Vol(110), SetDur(59), LoopPoint(),
+            Pan(Pan.PAN_LEFT), OpBias(0, 0x30), Patch(1), Note(0), Jump(),
+        ])])
+        # the stream contains the $E4/$E9 opcodes in order.
+        self.assertIn(bytes([MEV_PAN, 0x80]), blob)
+        self.assertIn(bytes([MEV_OPBIAS, 0x00, 0x30]), blob)
 
     def test_jump_without_loop_point(self):
         # Setup is in place so this isolates the Jump-without-LoopPoint check.

@@ -211,9 +211,19 @@ Cold_Boot:
       ifdef __DEBUG__
         moveq   #$3C, d0                 ; DEBUG: ping with a recognizable value
         bsr.w   Sound_Ping
-        ; DEBUG: play the demo song (FM1 lead + FM2 bass + PSG1 thirds harmony),
-        ; looping. Press START in-game to toggle stop/play (game_loop Debug_MusicToggle).
-        moveq   #SONG_TEST, d0
+        ; DEBUG: play the demo song. NORMALLY SONG_TEST (FM1 lead + FM2 bass + PSG1
+        ; thirds harmony). Press START in-game to toggle stop/play (game_loop
+        ; Debug_MusicToggle).
+        ;
+        ; *** CURRENT DEV-VERIFICATION SONG — Sound Phase 3 Task 8 (the integration
+        ; payoff): SONG_MOVINGTRUCKS is the NATIVE "Moving Trucks" (B&R) port — a real
+        ; sequencer playback of the song data (NOT a register replay) across all 6 FM
+        ; voices (FM1..FM6, 1:1), streamed from ROM with the DAC off
+        ; (SH_F_FM6_FM|SH_F_STREAM). Emitted by tools/zyrinx_player.py
+        ; --emit-native-song. The scratch verification songs (SONG_TEST = id 1,
+        ; SONG_PITCHTEST = 2, SONG_TRILLTEST = 3, SONG_PANTEST = 4, SONG_STEPTEST = 5)
+        ; remain in the table for switch-back. ***
+        moveq   #SONG_MOVINGTRUCKS, d0
         bsr.w   Sound_PlayMusic
         move.b  #1, (Dbg_Music_On).w     ; DEBUG: track play state for the Start-toggle
       endif

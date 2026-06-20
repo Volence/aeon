@@ -27,17 +27,25 @@
 ; ======================================================================
 
 ; ----------------------------------------------------------------------
-; Sequencer_Tick — advance every active channel by one tempo tick.
-; Called once per tempo tick by the DAC loop's Timer-A overflow poll (Task 5):
-; the loop polls Timer A's overflow flag, re-arms, and calls here. Clobbers
-; af,bc,de,hl,ix.
+; Sequencer_Frame — the PER-FRAME engine (Phase 3). Runs ONCE per Timer-A
+; overflow at the FIXED ~59.06 Hz frame rate (the DAC/idle-loop poll rearms +
+; calls here). Replaces 1C's "one Timer-A tick = one event" model. For each
+; active channel, in order:
+;   (1) call ModUpdate — render the channel's MODULATION STATE to the YM
+;       (write-on-change; a held single note writes nothing). Stream-agnostic.
+;   (2) advance the per-channel TEMPO ACCUMULATOR (sc_tempo_accum -= 16). On a
+;       borrow (an event-tick is due), reload (accum += tempo_base) and run the
+;       EXISTING per-event-tick logic (Sequencer_Channel: dur_count + opcode
+;       fetch/dispatch). Otherwise no event-tick this frame (a held note still
+;       burns NO command-stream time — only the accumulator advanced).
+; Clobbers af,bc,de,hl,ix.
 ; ----------------------------------------------------------------------
-Sequencer_Tick:
-        ; --- TICK OBSERVABILITY (Task 5): increment SND_STAT_TICK on EVERY call.
-        ; Placed at the very top (BEFORE the active check) so the counter reflects
-        ; each Timer-A overflow regardless of song-active state — the controller
-        ; uses its increment RATE to verify the Timer-A tick frequency. Wraps mod
-        ; 256. Clobbers af (Sequencer_Tick already clobbers af). ---
+Sequencer_Frame:
+        ; --- FRAME OBSERVABILITY: increment SND_STAT_TICK on EVERY call (now once
+        ; per FRAME, the fixed ~59 Hz clock). Placed at the very top (BEFORE the
+        ; active check) so the counter reflects each Timer-A overflow regardless of
+        ; song-active state — the controller uses its rate to verify the frame
+        ; frequency. Wraps mod 256. Clobbers af (Sequencer_Frame already does). ---
         ld      a, (SND_STAT_TICK)
         inc     a
         ld      (SND_STAT_TICK), a
@@ -54,14 +62,199 @@ Sequencer_Tick:
 .chan_loop:
         bit     SCF_ACTIVE_B, (ix+sc_flags) ; SCF_ACTIVE?
         jr      z, .next_chan            ; inactive -> skip this channel
-        push    bc                       ; preserve channel-loop counter (b): the
-        call    Sequencer_Channel        ;   .coord path clobbers b via `ld b,0`
-        pop     bc                       ;   and a `call` does NOT preserve b
+        push    bc                       ; preserve channel-loop counter (b) across
+                                         ;   the calls (which clobber b)
+
+        ; (1) modulation layer — render state -> YM (write-on-change). ix preserved.
+        call    ModUpdate
+
+        ; (2) tempo accumulator: subtract 16 each frame; borrow => event-tick due.
+        ld      a, (ix+sc_tempo_accum)
+        sub     16
+        ld      (ix+sc_tempo_accum), a
+        jr      nc, .chan_done           ; no borrow -> no event-tick this frame
+        ; borrow: reload accumulator (+= tempo_base) and run one event-tick.
+        add     a, (ix+sc_tempo_base)
+        ld      (ix+sc_tempo_accum), a
+        call    Sequencer_Channel        ; existing per-event-tick logic (ix preserved)
+.chan_done:
+        pop     bc
 .next_chan:
         ld      de, SeqChannel_len       ; size added directly (no multiply)
         add     ix, de
         djnz    .chan_loop
         ret
+
+; ----------------------------------------------------------------------
+; ModUpdate — the MODULATION LAYER (Phase 3). Renders ONE channel's modulation
+; STATE to the YM2612, once per frame. ix = the channel's SeqChannel.
+;
+; CONTRACT (load-bearing — must hold through Tasks 3–7):
+;   * STREAM-AGNOSTIC: ModUpdate ONLY reads channel state (sc_*), it NEVER parses
+;     a command/modulation stream. Adding the second (modulation) stream later
+;     populates the same state via a separate reader — ModUpdate is untouched.
+;     This is the design-for-C seam.
+;   * WRITE-ON-CHANGE: it writes the YM only when the RENDERED value changes. A
+;     held single note writes its freq/key/patch once at onset (via the existing
+;     key-on path) and then NOTHING per frame — NO redundant per-frame re-asserts
+;     (the cycle-budget mandate; tools/cycle_budget_phase3.md). The cheap held-
+;     note path below is that no-op.
+;   * Preserves ix (the channel loop relies on it).
+;
+; PITCH PATHS (Phase 3 Tasks 3+4): an FM channel whose note was set by
+; MEV_PITCHENV keys its pitch from the PER-SONG fnum table via Fm_NoteFromTable.
+;   * count==1 (Task 3) — SINGLE held note, WRITE-ON-CHANGE: render iff SCF_REKEY
+;     is armed (a MEV_PITCHENV just (re)keyed this channel) — look up sc_points[0]
+;     (idx 0..$83) + sc_transpose, write $A4/$A0 + key on, set sc_note, and CLEAR
+;     SCF_REKEY. Otherwise the note is held -> NO YM writes (a pure cursor check).
+;     The ONLY producer of sc_points here is MEV_PITCHENV, which ALWAYS arms
+;     SCF_REKEY, so the rekey arm covers every count==1 change.
+;   * count>=2 (Task 4, .multipoint) — TRILL/ARP, re-articulated EVERY frame: the
+;     cursor cycles the points (wrap at sc_pt_count) once per ~59 Hz frame and
+;     keys sc_points[cursor] each frame. The first point sounds on the arm frame
+;     (SCF_REKEY -> render cursor 0 without advancing); subsequent frames advance.
+;     Writing every frame is correct — the pitch changes per frame (that's the
+;     trill); the write-on-change rule governs HELD single notes only.
+; Gating count==1 on SCF_REKEY keeps the existing SONG_TEST path EXACT: the loader
+; inits sc_pt_count=1, so a bare-note FM channel takes the count==1 path, but its
+; notes are keyed by Sequencer_Channel's hook (NOT MEV_PITCHENV), so they never arm
+; SCF_REKEY -> ModUpdate is a no-op for them (a single flag test), as in Task 2.
+;
+; PAN (Task 6): rendered here, write-on-change — $B4+chan is written only when
+; sc_pan differs from sc_last_pan (a held pan, incl. the no-MEV_PAN default, writes
+; nothing). Per-op TL bias (Task 6) is NOT rendered here — it is latched in
+; Fm_PatchLoad at patch load / note (the Zyrinx key-on latch), so ModUpdate has no
+; per-frame op-bias cost. Voice-step deltas (Task 5) and portamento (Task 7) are
+; NOT rendered yet; their seams (sc_patch vs sc_last_patch, sc_porta_incr) are left
+; for those tasks. ModUpdate stays STREAM-AGNOSTIC (reads sc_* state only).
+;
+; Clobbers: af (held-note no-op) or af,bc,de,hl (render path). Preserves ix.
+; ----------------------------------------------------------------------
+ModUpdate:
+        ; Non-FM channels (PSG / DAC) have no per-frame FM modulation to render in
+        ; Phase 3a -> no-op. (PSG modulation is out of scope; see spec §1.)
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        ret     z
+
+        ; --- PAN (Task 6): write $B4 ONLY when sc_pan changed since last written.
+        ; Independent of the note/pitch logic below (pan persists across notes), so
+        ; it is rendered first, every frame, write-on-change. A held pan (sc_pan ==
+        ; sc_last_pan) writes nothing — including the no-MEV_PAN default (both 0),
+        ; leaving the patch's own $B4 (set by Fm_PatchLoad) untouched.
+        ld      a, (ix+sc_pan)
+        cp      (ix+sc_last_pan)
+        jr      z, .pan_done             ; unchanged -> no $B4 write
+        ld      (ix+sc_last_pan), a      ; commit the shadow (a = sc_pan)
+        call    Fm_SetPan                ; write $B4+chan = sc_pan (preserves ix)
+.pan_done:
+
+        ; --- NOTE-FILL (#4 gate articulation): per-frame countdown; key OFF early when it
+        ; reaches 0, leaving a staccato gap until the next attack. sc_fill_count==0 means
+        ; disabled (sc_fill_master 0) OR already expired -> one test, no cost. Runs BEFORE the
+        ; held-note `ret z` below so a held note can be released MID-duration (the gap). It is
+        ; reloaded from sc_fill_master at every key-on (.rekey_on). Only channels with
+        ; sc_fill_master != 0 (the gated percussion) are affected; every other channel keeps
+        ; sc_fill_master == 0 -> full legato, byte-identical to before this feature.
+        ld      a, (ix+sc_fill_count)
+        or      a
+        jr      z, .notefill_done        ; disabled / expired -> nothing
+        dec     a
+        ld      (ix+sc_fill_count), a
+        jr      nz, .notefill_done       ; not yet 0 -> still keyed
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .notefill_done        ; already off -> idempotent
+        call    Fm_NoteOff               ; reached 0 -> key OFF (clears SCF_KEYED); preserves ix
+.notefill_done:
+
+        ld      a, (ix+sc_pt_count)
+        cp      2
+        jr      nc, .multipoint          ; pt_count >= 2 -> trill/arp (Task 4)
+
+        ; --- count==1 single-note pitch path (WRITE-ON-CHANGE) ---
+        ; Render only when a MEV_PITCHENV armed a (re)key; else the note holds and
+        ; we write NOTHING (the cycle-budget mandate). A held single note is thus a
+        ; cheap flag test per frame.
+        bit     SCF_REKEY_B, (ix+sc_flags)
+        ret     z                        ; not armed -> held note -> NO YM writes
+        res     SCF_REKEY_B, (ix+sc_flags) ; consume the (re)key arm
+        ; THE RE-KEY RULE (corrected vs the oracle): MEV_PITCHENV is the only thing that
+        ; reaches here (sole producer of sc_points + sole SCF_REKEY arm) — so the render
+        ; below fires ONLY on a pitch op, never on a voice/timbre op (MEV_PATCH/MEV_OPBIAS/
+        ; MEV_REGDELTA never arm SCF_REKEY). Every armed re-key RE-ARTICULATES, even when
+        ; the rendered index is UNCHANGED: the real Zyrinx driver re-keys on EVERY pitch
+        ; command (keyon_pending set unconditionally at driver $0519, gated only on that
+        ; flag at $0BB0 — there is NO pitch-equality test), and the packer emits one
+        ; MEV_PITCHENV per genuine sequence re-issue = one per oracle re-attack (incl.
+        ; same-pitch repeats). An earlier "suppress same-pitch re-keys to match oracle
+        ; key-on density" rule was WRONG for real songs: it dropped the dense same-pitch
+        ; re-attacks the oracle KEEPS, collapsing repeat-heavy channels (e.g. Moving
+        ; Trucks ch5 is 89% same-pitch -> played 4% of its notes). Held notes still cost
+        ; nothing: with no new PITCHENV, SCF_REKEY is never armed and the `ret z` above
+        ; writes nothing — so this is per-event-tick traffic, not per-frame.
+        ld      a, (ix+sc_points)        ; sc_points[0] = the single pitch point (idx)
+        ld      (ix+sc_note), a          ; sc_note = last-rendered note index (update)
+        ; RE-KEY STYLE (lever SND_REKEY_OFF_THEN_ON, sound_constants): DEFAULT = clean
+        ; re-key. If the channel is ALREADY keyed we key-OFF first so the YM2612 sees a
+        ; real 0->1 edge and retriggers the EG (oracle-faithful; matches the NOTE_RAW
+        ; path). If NOT keyed (fresh note from silence/after a Rest), the key-on alone is
+        ; the 0->1 edge — no key-off. SND_REKEY_OFF_THEN_ON=0 skips the key-off (key-on
+        ; only, no retrigger when already keyed) for A/B-ing attack density vs the oracle.
+    if SND_REKEY_OFF_THEN_ON
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .rekey_on             ; not keyed -> key-on alone gives the edge
+        call    Fm_NoteOff               ; keyed -> key OFF first (forces a fresh 0->1 edge)
+    endif
+.rekey_on:
+        ld      a, (ix+sc_points)        ; (re)load sc_points[0] (Fm_NoteOff clobbered a)
+        call    Fm_NoteFromTable         ; look up per-song table + key on (preserves ix)
+        ; reload the note-fill countdown for this fresh attack (master 0 -> stays legato)
+        ld      a, (ix+sc_fill_master)
+        ld      (ix+sc_fill_count), a
+        ret
+
+.multipoint:
+        ; --- count>=2 trill/arp pitch path (PER-FRAME re-articulation) ---------
+        ; Cursor-cycle the pitch points ONCE PER FRAME (the ~59 Hz frame clock),
+        ; wrapping at sc_pt_count, and re-key sc_points[cursor] every frame. For a
+        ; multi-point note the pitch changes EACH frame — that IS the trill/arp —
+        ; so writing the YM every frame is correct here (the write-on-change rule
+        ; governs HELD single notes only; see the count==1 path above).
+        ;
+        ; FIRST-POINT-ON-ARM: Seq_Op_PitchEnv sets sc_pt_cursor=0 and arms SCF_REKEY.
+        ; On the frame the note arms we render sc_points[0] and consume the arm
+        ; WITHOUT advancing — so the first point sounds on the arm frame. Every
+        ; subsequent frame (REKEY clear) advances the cursor first, then renders.
+        ; This makes the audible sequence points[0], points[1], ... points[n-1],
+        ; points[0], ... at the frame rate.
+        ;
+        ; mod-arithmetic with NO divu: increment the cursor and compare against
+        ; count; on reaching count, wrap to 0 (a counter/compare, per conventions).
+        ld      a, (ix+sc_pt_cursor)
+        bit     SCF_REKEY_B, (ix+sc_flags)
+        jr      nz, .mp_armed            ; armed -> render cursor (==0) as-is, no advance
+        inc     a                        ; advance the cursor
+        cp      (ix+sc_pt_count)
+        jr      c, .mp_store             ; cursor < count -> in range
+        xor     a                        ; cursor == count -> wrap to 0
+.mp_store:
+        ld      (ix+sc_pt_cursor), a
+.mp_armed:
+        res     SCF_REKEY_B, (ix+sc_flags) ; consume any arm (no-op when already clear)
+        ; a = cursor; index sc_points[cursor] (cursor is 0..count-1, count<=5).
+        ld      c, a
+        push    ix
+        pop     hl                       ; hl = SeqChannel base
+        ld      b, 0
+        add     hl, bc                   ; hl = base + cursor
+        ld      a, sc_points
+        add     a, l
+        ld      l, a
+        jr      nc, .mp_nocarry
+        inc     h                        ; carry into high byte (sc_points offset add)
+.mp_nocarry:
+        ld      a, (hl)                  ; a = sc_points[cursor] (absolute fnum idx)
+        ld      (ix+sc_note), a          ; sc_note = last-rendered note index
+        jp      Fm_NoteFromTable         ; look up per-song table + key on (preserves ix)
 
 ; ----------------------------------------------------------------------
 ; Sequencer_Channel — advance ONE active channel (ix = its SeqChannel).
@@ -174,6 +367,15 @@ Seq_Op_Vol:
         pop     hl
         jp      Seq_ContinueFetch        ; jp (not jr): the 1D repeat handlers pushed this out of jr range
 
+; $ED MEV_NOTEFILL + master : set per-channel note-fill (frames keyed from attack), zero tick.
+; 0 = legato/off. The countdown + early key-off run in ModUpdate (per-frame). State-only, no
+; writer hook -> hl stays the live stream ptr.
+Seq_Op_NoteFill:
+        ld      a, (hl)
+        inc     hl                       ; consume operand (master)
+        ld      (ix+sc_fill_master), a
+        jp      Seq_ContinueFetch
+
 ; $E1 MEV_PATCH + pp : set FM patch index, zero tick
 Seq_Op_Patch:
         ld      a, (hl)
@@ -265,6 +467,195 @@ Seq_Op_NoteRaw:
         pop     de                       ; de = $A4/$A0 again
         call    Fm_NoteOnFreq            ; key ON at raw freq (preserves ix)
         ret                              ; time advanced -> done this tick
+
+; $E8 MEV_PITCHENV + count + count idx bytes : set the channel's pitch-envelope
+; points and ARM a (re)key. This is a COORDINATION opcode that ALSO advances time
+; (like a note): it sets up the channel's modulation STATE — it does NOT write the
+; YM here. ModUpdate (the per-frame renderer) keys/holds the note write-on-change.
+;   * read count (1..5), store sc_pt_count
+;   * read `count` absolute note-index bytes into sc_points[0..count-1]
+;   * sc_pt_cursor = 0
+;   * set SCF_KEYED (a note is now live) + SCF_REKEY (ModUpdate must (re)articulate
+;     next frame even if the rendered index is unchanged — a same-pitch retrigger)
+;   * reload sc_dur_default (paces the note like a bare Note; a following WAIT/
+;     SetDur sets the hold length) and ADVANCE TIME (commit ptr, ret)
+; The packer routes MEV_PITCHENV only to FM channels; a non-FM route would still
+; set state here but ModUpdate's FM gate means nothing is rendered (harmless).
+;
+; THE RE-KEY RULE (finalized, Task 5): MEV_PITCHENV is the ONLY opcode that
+; re-articulates a note. It arms SCF_REKEY -> ModUpdate (re)keys (default: clean
+; key-off-then-on so the EG retriggers; see SND_REKEY_OFF_THEN_ON). A note thus
+; re-articulates ONLY on a PITCH change. Voice/timbre opcodes — MEV_PATCH,
+; MEV_OPBIAS, MEV_REGDELTA — change the held note's timbre WITHOUT keying (none of
+; them touch $28 or set SCF_REKEY). The transcoder (Task 8) emits MEV_PITCHENV only
+; on an ACTUAL pitch change, so the re-key DENSITY matches the oracle (the residual
+; the reference player overproduced — spec §8). Clobbers af, bc, de. Commits hl ->
+; sc_stream_ptr (then ret, ending the tick). Uses ix.
+; `count` is trusted from the stream (the packer guarantees 1..5; a 0 would make djnz
+; copy 256 bytes, >5 would overrun sc_points[5]) — packer is the sole guarantor, per the
+; engine's trust-the-packer operand model.
+Seq_Op_PitchEnv:
+        ld      a, (hl)
+        inc     hl                       ; a = count (1..5); hl past the count byte
+        ld      (ix+sc_pt_count), a
+        ld      b, a                     ; b = count (loop bound)
+        push    ix
+        pop     de                       ; de = SeqChannel base (so we can index sc_points)
+        ld      a, e
+        add     a, sc_points
+        ld      e, a
+        jr      nc, .no_carry
+        inc     d                        ; carry into high byte (sc_points offset add)
+.no_carry:
+        ; de -> &sc_points[0]; copy `count` operand bytes hl -> de.
+.copy_pts:
+        ld      a, (hl)
+        inc     hl                       ; consume one point byte (absolute index 0..$83)
+        ld      (de), a
+        inc     de
+        djnz    .copy_pts
+        ; cursor 0, arm key + rekey.
+        ld      (ix+sc_pt_cursor), 0
+        set     SCF_KEYED_B, (ix+sc_flags)
+        set     SCF_REKEY_B, (ix+sc_flags)
+        ; pace like a bare note: reload the default duration, commit ptr, advance.
+        ld      a, (ix+sc_dur_default)
+        ld      (ix+sc_dur_count), a
+        ld      (ix+sc_stream_ptr), l
+        ld      (ix+sc_stream_ptr+1), h  ; commit ptr (hl is dead after this opcode)
+    ifdef __DEBUG__
+        ld      a, SEQEV_NOTEON
+        call    Seq_Trace                ; trace as a note-on (the audible effect)
+    endif
+        ret                              ; time advanced -> done this tick (ModUpdate renders)
+
+; $E4 MEV_PAN + b4 : set the channel's pan/AMS/FMS state (the raw YM $B4 byte:
+; bits7-6 L/R, bits5-4 AMS, bits2-0 FMS). Coordination SETTER (like Vol/Patch):
+; stores the operand into sc_pan and continues the fetch loop (ZERO TICK). Does
+; NOT write the YM here — ModUpdate renders sc_pan to $B4+chan write-on-change.
+; The transcoder computes the $B4 byte from the Zyrinx pan command; the opcode
+; just carries it. Calls NO writer hook (just stores state, like LoopPoint), so hl
+; stays the live stream ptr across the handler.
+; Clobbers: af (DEBUG trace only). Manipulates: hl (kept live). Uses ix.
+Seq_Op_Pan:
+        ld      a, (hl)
+        inc     hl                       ; consume the $B4 operand byte
+        ld      (ix+sc_pan), a           ; store pan state (rendered by ModUpdate)
+    ifdef __DEBUG__
+        ld      a, SEQEV_VOL             ; reuse the VOL trace code (no dedicated pan code)
+        call    Seq_Trace                ; preserves hl (the live stream ptr)
+    endif
+        jp      Seq_ContinueFetch        ; zero tick
+
+; $E9 MEV_OPBIAS + op(0..3) + val : set one operator's additive TL bias. Coordination
+; SETTER (zero tick): stores val into sc_opbias[op]. The bias takes effect at the
+; NEXT patch load / note (Fm_PatchLoad adds it to the $40-group TLs) — matching the
+; Zyrinx latch-at-key-on model — so there is NO per-frame re-assert and ModUpdate
+; is untouched. Calls NO writer hook, so hl stays the live stream ptr.
+; `op` is trusted from the stream (the packer guarantees 0..3); a value > 3 would
+; index past sc_opbias[3] into sc_porta_accum — packer is the sole guarantor.
+; Clobbers: af, bc (the op index math). Manipulates: hl (kept live). Uses ix.
+Seq_Op_OpBias:
+        ld      a, (hl)
+        inc     hl                       ; a = op index (0..3)
+        and     3                        ; defensive clamp to 0..3 (no overrun)
+        ld      c, a                     ; c = op index
+        ld      a, (hl)
+        inc     hl                       ; a = bias value
+        ; sc_opbias[op] = val : index the per-op array off the channel base.
+        push    hl                       ; save stream ptr across the pointer math
+        push    ix
+        pop     hl                       ; hl = SeqChannel base
+        ld      b, 0
+        add     hl, bc                   ; hl = base + op
+        push    af                       ; save bias value across the offset add
+        ld      a, sc_opbias
+        add     a, l
+        ld      l, a
+        jr      nc, .nocarry
+        inc     h                        ; carry into high byte
+.nocarry:
+        pop     af                       ; a = bias value
+        ld      (hl), a                  ; sc_opbias[op] = val
+    ifdef __DEBUG__
+        ld      a, SEQEV_PATCH           ; reuse the PATCH trace code (timbre change)
+        call    Seq_Trace
+    endif
+        pop     hl                       ; restore the live stream ptr
+        jp      Seq_ContinueFetch        ; zero tick
+
+; $EA MEV_REGDELTA + count + count*(reg_sel, value) : VOICE-STEPPING — write `count`
+; per-operator YM2612 registers IMMEDIATELY (mid-note) for THIS channel, part-aware.
+; This is the minimal-register-delta primitive: a held note's TIMBRE is swept by
+; writing only the registers that CHANGE between voice steps. The Zyrinx rapid lead
+; step ($9C->$A0) differs by EXACTLY ONE byte (operator S1's TL = $40 group op0), so
+; a rapid step is ONE MEV_REGDELTA with count=1 — NOT a full ~26-register patch
+; reload (that is ~6,500 cyc, untenable per frame; tools/cycle_budget_phase3.md). A
+; genuine instrument change at a note onset still uses MEV_PATCH (full load).
+;
+; --- THE RE-KEY RULE (the calibration target) ---
+; A note RE-ARTICULATES (a fresh key — see the re-key STYLE below) ONLY on a PITCH
+; change, i.e. exclusively via MEV_PITCHENV (which arms SCF_REKEY -> ModUpdate keys
+; the note). Voice/timbre changes — MEV_PATCH, MEV_OPBIAS, and THIS MEV_REGDELTA —
+; alter the HELD note's timbre and NEVER re-key: this handler does NOT write $28
+; (key) and does NOT set SCF_REKEY. So a voice-step sweep over a held note produces
+; EXACTLY ONE key-on (the MEV_PITCHENV that started the note); the sweep is heard as
+; a continuous timbre change with no re-attacks. The transcoder (Task 8) emits
+; MEV_PITCHENV ONLY on an actual pitch change, so the re-key DENSITY matches the
+; oracle (the residual the reference player overproduced — see spec §8).
+;
+; --- DIRECT-WRITE rationale (the design-for-C seam is preserved) ---
+; This handler writes the YM DIRECTLY (Fm_RegDelta) when the opcode executes,
+; rather than setting state for ModUpdate to render. A zero-tick mid-note delta is a
+; one-shot register write with no per-frame component, so a direct write is simpler
+; AND correct (write-on-change is satisfied — the byte is written exactly once, when
+; the step occurs, with no redundant per-frame re-assert). Crucially this keeps
+; ModUpdate strictly state->YM (it never gains a stream-derived register-delta path),
+; so the design-for-C seam (a second modulation stream reader writing the SAME state)
+; is untouched. ModUpdate stays STREAM-AGNOSTIC.
+;
+; Coordination SETTER (ZERO TICK): consumes count + count*(reg_sel,value), writes
+; each, and continues the fetch loop. FM-only — a non-FM route still consumes the
+; operands (so the stream stays aligned) but writes NOTHING (the FM gate). `count`
+; and the operand pairs are trusted from the stream (the packer guarantees count>=1
+; and well-formed reg_sel/value), per the engine's trust-the-packer operand model.
+; Clobbers: af, bc, de, hl. Keeps the stream ptr live in hl across the writes (it is
+; pushed around each Fm_RegDelta, which clobbers hl). Uses ix.
+Seq_Op_RegDelta:
+        ld      a, (hl)
+        inc     hl                       ; a = count; hl past the count byte
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        jr      nz, .fm
+        ; --- non-FM route: skip 2*count operand bytes, write nothing ---
+        add     a, a                     ; bytes to skip = count*2 (reg_sel+value pairs)
+        jr      z, .skipped              ; count==0 -> nothing to skip (defensive)
+        ld      c, a
+        ld      b, 0
+        add     hl, bc                   ; advance hl past the operand pairs
+.skipped:
+        jp      Seq_ContinueFetch        ; zero tick
+.fm:
+        ld      b, a                     ; b = count (loop bound)
+    ifdef __DEBUG__
+        push    bc
+        push    hl
+        ld      a, SEQEV_PATCH           ; reuse the PATCH trace code (a timbre change)
+        call    Seq_Trace
+        pop     hl
+        pop     bc
+    endif
+.delta_loop:
+        ld      a, (hl)
+        inc     hl                       ; a = reg_sel
+        ld      c, (hl)
+        inc     hl                       ; c = value
+        push    bc                       ; save loop count (b) + value (unused after)
+        push    hl                       ; Fm_RegDelta clobbers hl -> keep the stream ptr
+        call    Fm_RegDelta              ; write one resolved YM register (a=reg_sel, c=value)
+        pop     hl
+        pop     bc
+        djnz    .delta_loop
+        jp      Seq_ContinueFetch        ; zero tick
 
 ; $E5 MEV_REPEAT_START (no operand) : save the current (post-opcode) ptr as the
 ; body-start the matching $E6 jumps back to. Zero tick. Does NOT touch
@@ -392,16 +783,16 @@ SeqOpcodeTable:
         dw      Seq_Op_Patch             ; $E1 MEV_PATCH
         dw      Seq_Op_Dac               ; $E2 MEV_DAC
         dw      Seq_Op_NoteDur           ; $E3 MEV_NOTE_DUR
-        dw      Seq_BadOpcode            ; $E4 reserved (MEV_PAN, T4)
+        dw      Seq_Op_Pan               ; $E4 MEV_PAN
         dw      Seq_Op_RepeatStart       ; $E5 MEV_REPEAT_START
         dw      Seq_Op_RepeatEnd         ; $E6 MEV_REPEAT_END
         dw      Seq_Op_NoteRaw           ; $E7 MEV_NOTE_RAW
-        dw      Seq_BadOpcode            ; $E8 reserved
-        dw      Seq_BadOpcode            ; $E9 reserved
-        dw      Seq_BadOpcode            ; $EA reserved
+        dw      Seq_Op_PitchEnv          ; $E8 MEV_PITCHENV
+        dw      Seq_Op_OpBias            ; $E9 MEV_OPBIAS
+        dw      Seq_Op_RegDelta          ; $EA MEV_REGDELTA (voice-stepping)
         dw      Seq_BadOpcode            ; $EB reserved
         dw      Seq_BadOpcode            ; $EC reserved
-        dw      Seq_BadOpcode            ; $ED reserved
+        dw      Seq_Op_NoteFill          ; $ED MEV_NOTEFILL (gate articulation)
         dw      Seq_Op_LoopPoint         ; $EE MEV_LOOP_POINT
         dw      Seq_Op_Jump              ; $EF MEV_JUMP
         dw      Seq_BadOpcode            ; $F0 reserved
@@ -539,7 +930,7 @@ Seq_HookDac:
 ; ======================================================================
 ; Sequencer_StopAll — the StopMusic primitive (wired to the command API in
 ; Task 6). Key-off every FM channel + silence all PSG channels, then clear the
-; active flag so Sequencer_Tick stops walking the streams.
+; active flag so Sequencer_Frame stops walking the streams.
 ;
 ; IMPLEMENTATION (decision 4): direct hardware silencing rather than a per-
 ; channel hook loop — it is unconditional (independent of whatever routes the

@@ -10,9 +10,10 @@
 ; The DAC streaming loop holds `de` = $4001 for its whole life and re-selects
 ; reg $2A on $4000 every pass before `ld (de),a`. THEREFORE every YM port write
 ; here uses ABSOLUTE addressing (`ld (4000h),a` style) and NEVER loads a port
-; address into `de` — so de=$4001 is preserved BY CONSTRUCTION. (Sequencer_Tick
-; runs inside the VBlank ISR, which also push/pops de, but we do not rely on
-; that.) As belt-and-suspenders, every multi-write batch re-parks reg $2A on
+; address into `de` — so de=$4001 is preserved BY CONSTRUCTION. (Sequencer_Frame
+; runs from the Timer-A overflow poll in the DAC/idle loop, which also push/pops
+; de, but we do not rely on that.) As belt-and-suspenders, every multi-write
+; batch re-parks reg $2A on
 ; $4000 at the END (Fm_ReparkDac) so a DAC write that races in lands on $2A even
 ; before the consumer re-selects. We NEVER touch $2B (the DAC-enable edge is
 ; owned by init / sample-start — re-toggling it clicks).
@@ -171,8 +172,8 @@ Fm_PatchLoad:
         ; FmPatch record in the same order as the register bases below.
         ld      a, SND_REG_OP_DT_MUL     ; $30
         call    Fm_PatchOpGroup
-        ld      a, SND_REG_OP_TL         ; $40
-        call    Fm_PatchOpGroup
+        ld      a, SND_REG_OP_TL         ; $40 (TL group: adds per-op sc_opbias, clamps)
+        call    Fm_PatchTlGroup
         ld      a, SND_REG_OP_RS_AR      ; $50
         call    Fm_PatchOpGroup
         ld      a, SND_REG_OP_AM_D1R     ; $60
@@ -217,6 +218,98 @@ Fm_PatchOpGroup:
         ld      e, a                     ; op offset += 4
         pop     bc
         djnz    .op_loop
+        ret
+
+; --- Fm_PatchTlGroup: write the $40 (TL) register group WITH the per-operator
+; additive TL bias (sc_opbias[op]) applied. For each op 0..3:
+;   eff_TL = clamp(patch_TL[op] + sc_opbias[op], 0, $7F)
+; sc_opbias is a SIGNED two's-complement byte (-128..127): NEGATIVE brightens
+; (reduces attenuation), POSITIVE darkens. TL is 7-bit attenuation, so the result
+; is clamped on BOTH ends — < $00 -> $00 (max brightness), > $7F -> $7F (silent).
+; sc_opbias is a per-note brightness/level bias LATCHED here at patch load (the Zyrinx key-on
+; latch model) — it is NOT re-asserted per frame, so this is the ONLY place it is
+; applied (cost amortized at patch load, not per note/frame). sc_opbias is zeroed
+; by the seq clear, so a song that never emits MEV_OPBIAS gets eff_TL = patch_TL
+; (this group is then byte-identical to Fm_PatchOpGroup for $40 — no regression).
+; In:  a = $40 (register base), hl = ptr to the 4 patch TL bytes (advanced by 4).
+;      ix = SeqChannel (reads sc_opbias[op]); Fm_ScratchCh/Part set by Fm_PatchLoad.
+; The op index 0..3 is tracked in Fm_ScratchOp so the bias byte can be indexed.
+; Clobbers: af, bc, de, hl (hl advanced by 4). Preserves ix. (Internal helper.)
+Fm_PatchTlGroup:
+        ld      d, a                     ; d = $40 base (preserved across ops)
+        ld      e, 0                     ; e = op*4 accumulator (0,4,8,12)
+        xor     a
+        ld      (Fm_ScratchOp), a        ; op index = 0
+        ld      b, 4                     ; 4 operators
+.tl_loop:
+        push    bc                       ; save op counter (Fm_YmWrite uses bc)
+        push    de                       ; save base+offset accumulator
+        ; --- data = clamp(patch_TL[op] + sc_opbias[op], 0, $7F) ---
+        ; sc_opbias[op] is a SIGNED two's-complement byte (-128..127): negative
+        ; BRIGHTENS (lowers attenuation), positive DARKENS. Done as a signed 16-bit
+        ; add then clamped on BOTH ends — mirrors the proven Fm_NoteFromTable
+        ; pattern: result < $00 -> $00 (max brightness), > $7F -> $7F (silent).
+        ; patch_TL is 0..$7F (positive, high byte 0).
+        ld      a, (hl)                  ; patch base TL for this op (0..$7F)
+        inc     hl                       ; advance patch ptr
+        push    hl                       ; save patch ptr across the bias index
+        ld      c, a                     ; c = base TL (preserve across the index math)
+        ; hl = &sc_opbias[op] = ix-base + sc_opbias + op
+        push    ix
+        pop     hl                       ; hl = SeqChannel base
+        ld      a, (Fm_ScratchOp)        ; op index 0..3
+        add     a, sc_opbias             ; + sc_opbias field offset
+        add     a, l
+        ld      l, a
+        jr      nc, .nocarry
+        inc     h
+.nocarry:
+        ; de = sign-extended signed bias: a=$FF..hi if bias<0, else $00..hi
+        ld      a, (hl)                  ; a = sc_opbias[op] (signed)
+        ld      e, a
+        add     a, a                     ; CF = sign bit of bias
+        sbc     a, a                     ; a = $FF if bias<0, else $00
+        ld      d, a                     ; de = sign-extended bias (signed 16-bit)
+        ld      l, c                     ; hl = patch base TL (0..$7F, positive)
+        ld      h, 0
+        add     hl, de                   ; hl = patch_TL + signed bias (signed 16-bit)
+        bit     7, h                     ; result negative? (h >= $80)
+        jr      nz, .clamp_lo            ; < 0 -> clamp to $00 (max brightness)
+        ld      a, h
+        or      a
+        jr      nz, .clamp_hi            ; high byte set -> > $7F -> clamp silent
+        ld      a, l
+        cp      SND_FM_TL_MAX+1          ; result > $7F ?
+        jr      c, .tl_ok                ; in range 0..$7F
+.clamp_hi:
+        ld      a, SND_FM_TL_MAX         ; clamp to $7F (silent)
+        jr      .tl_ok
+.clamp_lo:
+        xor     a                        ; clamp to $00 (max brightness)
+.tl_ok:
+        ld      c, a                     ; c = effective TL (data)
+        pop     hl                       ; restore patch ptr (already advanced)
+        ; --- reg = $40 + (op*4) + ch ---
+        pop     de                       ; recover d=base, e=op*4 (re-push below)
+        push    de
+        ld      a, d                     ; $40 base
+        add     a, e                     ; + op*4
+        push    hl
+        ld      hl, Fm_ScratchCh
+        add     a, (hl)                  ; + ch-in-part
+        ld      hl, Fm_ScratchPart
+        ld      b, (hl)                  ; b = part
+        pop     hl
+        call    Fm_YmWrite               ; a=reg, c=data, b=part
+        pop     de
+        ld      a, e
+        add     a, 4
+        ld      e, a                     ; op offset += 4
+        ld      a, (Fm_ScratchOp)
+        inc     a
+        ld      (Fm_ScratchOp), a        ; op index += 1
+        pop     bc
+        djnz    .tl_loop
         ret
 
 ; ----------------------------------------------------------------------
@@ -271,19 +364,53 @@ Fm_SetVolume:
         ld      a, (Fm_ScratchMask)
         and     c                        ; mask bit set for this op?
         jr      z, .skip_op              ; modulator -> leave TL untouched
-        ; carrier: effective_TL = min($7F, base_TL + log)
-        ld      a, (hl)                  ; base TL for this op
-        push    hl
-        ld      hl, Fm_ScratchLog
-        add     a, (hl)                  ; + log delta (may carry past 8 bits)
-        pop     hl
-        jr      c, .clamp                ; 8-bit overflow -> silent
+        ; carrier: effective_TL = clamp(base_TL + sc_opbias[op] + log, 0, $7F).
+        ; INCLUDE the per-operator bias (signed) so re-applying volume does NOT
+        ; clobber the opbias Fm_PatchLoad wrote — mirrors the driver's key-on
+        ; TL = (0x7F^patch_TL) + op_mod. (Bug: writing base+log alone dropped the
+        ; bias on any carrier operator -> wrong timbre / lost kick punch on alg5+
+        ; voices where a biased operator is a carrier.) op index = e>>2.
+        ld      d, (hl)                  ; d = base TL (0..$7F)
+        ld      a, e
+        rrca
+        rrca
+        and     3                        ; a = op index (e>>2)
+        push    hl                       ; save fp_tl ptr (restored before reg write)
+        ld      l, a
+        ld      h, 0
+        push    ix
+        pop     bc
+        add     hl, bc                   ; hl = SeqChannel base + op
+        ld      bc, sc_opbias
+        add     hl, bc                   ; hl = &sc_opbias[op]
+        ld      a, (hl)                  ; a = sc_opbias[op] (signed)
+        ld      c, a
+        add     a, a
+        sbc     a, a
+        ld      b, a                     ; bc = sign-extended bias (16-bit signed)
+        ld      l, d
+        ld      h, 0                     ; hl = base TL (positive)
+        add     hl, bc                   ; hl = base + bias
+        ld      a, (Fm_ScratchLog)
+        ld      c, a
+        ld      b, 0                     ; bc = log delta (positive)
+        add     hl, bc                   ; hl = base + bias + log (signed 16-bit)
+        bit     7, h                     ; result < 0 ?
+        jr      nz, .clamp_lo            ; -> $00 (max brightness)
+        ld      a, h
+        or      a
+        jr      nz, .clamp               ; high byte set -> > $7F -> silent
+        ld      a, l
         cp      SND_FM_TL_MAX+1          ; result > $7F ?
         jr      c, .tl_ok
 .clamp:
         ld      a, SND_FM_TL_MAX         ; clamp to $7F (silent)
+        jr      .tl_ok
+.clamp_lo:
+        xor     a                        ; clamp to $00 (max brightness)
 .tl_ok:
         ld      c, a                     ; data = effective TL
+        pop     hl                       ; restore fp_tl ptr
         ; reg = $40 + (op*4) + ch
         ld      a, SND_REG_OP_TL
         add     a, e                     ; + op*4
@@ -303,6 +430,165 @@ Fm_SetVolume:
         sla     c                        ; walking bit <<= 1 (next op)
         djnz    .op_loop
         jp      Fm_ReparkDac             ; defensive re-park ($2A)
+
+; ----------------------------------------------------------------------
+; Fm_SetPan — write the channel's $B4 (L/R / AMS / FMS) register from sc_pan.
+; In: ix = SeqChannel (uses sc_pan). Reg = $B4 + ch-in-part, part-aware. Called by
+; ModUpdate only when sc_pan changed (write-on-change), so the YM write here is
+; never redundant. NOTE: $B4 is a STEREO-OUTPUT (+ hardware LFO depth) register;
+; the controller confirms the exact $B4 bytes via the Exodus YM register stream /
+; the Task-9 oracle diff.
+; Clobbers: af, bc. Preserves de, hl, ix. (de = the DAC loop's $4001 is untouched —
+; Fm_RoutePart/Fm_YmWrite/Fm_ReparkDac all use absolute YM addressing.)
+; ----------------------------------------------------------------------
+Fm_SetPan:
+        call    Fm_RoutePart             ; b = part, c = ch-in-part (clobbers af,bc)
+        ld      a, c                      ; a = ch-in-part
+        add     a, SND_REG_LR_AMS_FMS     ; reg = $B4 + ch (b still = part)
+        ld      c, (ix+sc_pan)            ; data = sc_pan (the raw $B4 byte)
+        call    Fm_YmWrite                ; a=reg, c=data, b=part
+        jp      Fm_ReparkDac              ; defensive re-park ($2A); preserves ix
+
+; ----------------------------------------------------------------------
+; Fm_RegDelta — write ONE per-operator YM2612 register for the current channel,
+; PART-AWARE, resolved from a reg_sel byte (Phase 3 Task 5 voice-stepping).
+; This is the mid-note minimal-register-delta primitive: the timbre of a HELD
+; note is swept by writing only the register(s) that change between voice steps
+; (the dominant Zyrinx lead step is ONE byte — operator S1's TL). It does NOT
+; touch $28 (key) and does NOT re-key — per the re-key rule, only a pitch change
+; (MEV_PITCHENV) re-articulates a note (see Seq_Op_RegDelta).
+;
+; In:  ix = SeqChannel, a = reg_sel = (group_code << REGDELTA_GROUP_SHIFT) | op,
+;      c = value (the register data byte; preserved through the route math).
+; reg_sel -> ym_reg = RegDeltaGroupBase[group_code] + op*4 + ch-in-part (part-aware
+; via Fm_RoutePart). group_code 0..5 = $30/$40/$50/$60/$70/$80; op 0..3 = the
+; physical operator (reg stride +4). group_code is masked to the table size so a
+; bad encoding can never index past RegDeltaGroupBase.
+; Clobbers: af, bc, de, hl. Preserves ix. (de = the DAC loop's $4001 is untouched —
+; Fm_RoutePart/Fm_YmWrite use absolute YM addressing.)
+; ----------------------------------------------------------------------
+Fm_RegDelta:
+        ld      (Fm_ScratchLog), a       ; stash reg_sel  (Fm_ScratchLog is free here)
+        ld      a, c
+        ld      (Fm_ScratchMask), a      ; stash value    (reuse the same free scratch)
+
+        ; route -> part + ch-in-part (the same pattern as Fm_SetPan/Fm_NoteOnFreq).
+        call    Fm_RoutePart             ; b = part, c = ch-in-part (clobbers af,bc)
+        ld      a, c
+        ld      (Fm_ScratchCh), a        ; ch-in-part
+        ld      a, b
+        ld      (Fm_ScratchPart), a      ; part
+
+        ; --- resolve the register from reg_sel: base[group] + op*4 + ch ---
+        ld      a, (Fm_ScratchLog)       ; a = reg_sel
+        and     REGDELTA_OP_MASK         ; a = op (0..3)
+        add     a, a
+        add     a, a                     ; a = op*4 (operator reg stride)
+        ld      e, a                     ; e = op*4 (preserve across the group lookup)
+        ld      a, (Fm_ScratchLog)       ; a = reg_sel again
+        rrca
+        rrca                             ; a = reg_sel >> 2 (group_code in low bits)
+        and     REGDELTA_GROUP_MASK      ; a = group_code field
+        cp      REGDELTA_GROUP_COUNT
+        jr      c, .group_ok
+        xor     a                        ; out-of-range group_code -> group 0 (defensive)
+.group_ok:
+        ld      l, a
+        ld      h, 0
+        ld      bc, RegDeltaGroupBase
+        add     hl, bc                   ; hl = &RegDeltaGroupBase[group_code]
+        ld      a, (hl)                  ; a = group base ($30/$40/.../$80)
+        add     a, e                     ; + op*4
+        ld      hl, Fm_ScratchCh
+        add     a, (hl)                  ; + ch-in-part -> a = the YM register number
+        push    af                       ; save reg across the value/part loads
+        ld      a, (Fm_ScratchMask)
+        ld      c, a                     ; c = value
+        ld      a, (Fm_ScratchPart)
+        ld      b, a                     ; b = part
+        pop     af                       ; a = reg
+        call    Fm_YmWrite               ; a=reg, c=value, b=part (preserves ix)
+        jp      Fm_ReparkDac             ; defensive re-park ($2A); preserves ix
+
+; RegDeltaGroupBase — group_code 0..5 -> the per-operator YM register-group base.
+; Order MATCHES the FmPatch group order + the SND_REG_OP_* equates: 0=$30 DT/MUL,
+; 1=$40 TL, 2=$50 RS/AR, 3=$60 AM/D1R, 4=$70 D2R, 5=$80 D1L/RR. The $40 (TL) group,
+; op0 is the canonical voice-step target (the lead's 1-byte sweep).
+RegDeltaGroupBase:
+        db      SND_REG_OP_DT_MUL        ; group 0 = $30
+        db      SND_REG_OP_TL            ; group 1 = $40 (TL — the lead voice-step)
+        db      SND_REG_OP_RS_AR         ; group 2 = $50
+        db      SND_REG_OP_AM_D1R        ; group 3 = $60
+        db      SND_REG_OP_D2R           ; group 4 = $70
+        db      SND_REG_OP_D1L_RR        ; group 5 = $80
+RegDeltaGroupBase_End:
+
+        if (RegDeltaGroupBase_End - RegDeltaGroupBase) <> REGDELTA_GROUP_COUNT
+          fatal "RegDeltaGroupBase length must be REGDELTA_GROUP_COUNT (\{REGDELTA_GROUP_COUNT})"
+        endif
+
+; ----------------------------------------------------------------------
+; Fm_NoteFromTable — key a note from the PER-SONG fnum (pitch) table.
+; In: ix = SeqChannel, a = note index (an ABSOLUTE index 0..PITCHTAB_MAX_IDX into
+;     the 132-entry chromatic fnum table — NOT the engine's FmPitchTableZ note
+;     numbering). This is the Phase-3 pitch-envelope renderer path used by
+;     ModUpdate; the per-song table is the exact Zyrinx Moving-Trucks fnum table.
+;
+; TABLE: TWO PARALLEL PAGES (sound_constants.asm) — A4 page first (PITCHTAB_COUNT
+; bytes), then the A0 page. So for index i: $A4 = base[i], $A0 = base[COUNT+i].
+; base = Snd_PitchTabPtr (per-song) when nonzero, else MovingTrucks_PitchTable
+; (the inline engine-default table in this blob).
+;
+; PITCH: idx = clamp_0_83(note + sc_transpose), with sc_transpose SIGNED and the
+; result SATURATING to 0..PITCHTAB_MAX_IDX (the RE's $1100/$1200 clamp behavior:
+; below 0 -> 0, above $83 -> $83). The add is done in signed 16-bit so a large
+; negative transpose can't wrap. Then $A4/$A0 are looked up and Fm_NoteOnFreq
+; writes them + keys on.
+; Clobbers: af, bc, de, hl. Preserves ix.
+; ----------------------------------------------------------------------
+Fm_NoteFromTable:
+        ; --- idx = clamp_0_83(note + sc_transpose) (signed) ---
+        ld      l, a
+        ld      h, 0                     ; hl = note index (0..$83, positive)
+        ld      a, (ix+sc_transpose)     ; signed per-pattern transpose
+        ld      e, a
+        add     a, a                     ; CF = sign bit of transpose
+        sbc     a, a                     ; a = $FF if transpose<0, else $00
+        ld      d, a                     ; de = sign-extended transpose
+        add     hl, de                   ; hl = note + transpose (signed 16-bit)
+        bit     7, h                     ; result negative? (h >= $80)
+        jr      z, .nonneg
+        ld      hl, 0                    ; < 0 -> clamp to 0
+        jr      .clamped
+.nonneg:
+        ld      a, h                     ; hl is 0..$102 here
+        or      a
+        jr      nz, .clamp_hi            ; high byte set -> > $83 -> clamp
+        ld      a, l
+        cp      PITCHTAB_MAX_IDX+1
+        jr      c, .clamped              ; l <= $83 -> in range
+.clamp_hi:
+        ld      l, PITCHTAB_MAX_IDX      ; > $83 -> clamp to $83
+.clamped:
+        ld      c, l                     ; c = clamped idx (0..$83); preserved below
+
+        ; --- resolve table base: per-song ptr, else engine default ---
+        ld      hl, (Snd_PitchTabPtr)
+        ld      a, h
+        or      l
+        jr      nz, .have_base
+        ld      hl, MovingTrucks_PitchTable
+.have_base:
+        ; --- $A4 = base[idx] ---
+        ld      b, 0                     ; bc = idx
+        add     hl, bc                   ; hl = &A4page[idx]
+        ld      d, (hl)                  ; d = $A4 value (block|fnumHi)
+        ; --- $A0 = base[PITCHTAB_COUNT + idx] = &A4page[idx] + PITCHTAB_COUNT ---
+        ld      bc, PITCHTAB_COUNT
+        add     hl, bc                   ; hl = &A0page[idx]
+        ld      e, (hl)                  ; e = $A0 value (fnum low)
+        ; de = (d=$A4, e=$A0) -> write freq + key on (preserves ix)
+        jp      Fm_NoteOnFreq
 
 ; ----------------------------------------------------------------------
 ; Fm_NoteOn — key a note on the channel.
@@ -402,10 +688,17 @@ Fm_ChSel:
 
 ; ----------------------------------------------------------------------
 ; FM writer scratch (Z80 RAM in the free sequencer block; single-threaded —
-; only Sequencer_Tick (in the VBlank ISR) reaches the FM writer, so a static
-; scratch is safe). Placed at SND_FM_SCRATCH (see sound_constants.asm).
+; only Sequencer_Frame (driven by the Timer-A poll in the DAC/idle loop) reaches
+; the FM writer, so a static scratch is safe). Placed at SND_FM_SCRATCH (see
+; sound_constants.asm).
 ; ----------------------------------------------------------------------
 Fm_ScratchPart  = SND_FM_SCRATCH+0       ; current part (0/1)
 Fm_ScratchCh    = SND_FM_SCRATCH+1       ; current ch-in-part (0..2)
 Fm_ScratchLog   = SND_FM_SCRATCH+2       ; log-volume delta
 Fm_ScratchMask  = SND_FM_SCRATCH+3       ; carrier mask
+Fm_ScratchOp    = SND_FM_SCRATCH+4       ; Task 6: op index 0..3 (Fm_PatchTlGroup)
+
+        ; the scratch defs must all fit inside SND_FM_SCRATCH_LEN.
+        if (Fm_ScratchOp - SND_FM_SCRATCH) >= SND_FM_SCRATCH_LEN
+          fatal "Fm_Scratch* exceed SND_FM_SCRATCH_LEN (\{SND_FM_SCRATCH_LEN})"
+        endif

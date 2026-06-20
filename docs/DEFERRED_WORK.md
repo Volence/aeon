@@ -1020,6 +1020,40 @@ warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 > (FM depth, N-channel DAC mixer, adaptive FM6, section-aware banking/fades, MegaDAW export) is
 > tracked at the bottom of this section. References to "Flamedriver upload" below are historical.
 
+### Per-frame pitch / volume envelopes (Phase 3a #2/#3) — DEFERRED, build-on-demand
+**Surfaced during:** Moving Trucks missing-effects investigation (2026-06-19).
+**Decision: do NOT build for MT; build only when a song's data actually uses them.**
+**What:** A `ModUpdate` per-frame pitch-envelope processor (continuous intra-note pitch shape on
+plain count==1 notes) and a per-frame volume-envelope/TL processor. A VGM census first *looked*
+like MT needed these (oracle wrote freq ~16×/note, TL ~33×/note). **Re-measurement proved that was
+an artifact:** the Zyrinx driver re-asserts every register every frame (60Hz full-state refresh) —
+**97% of its freq writes and 99% of its TL writes are redundant re-writes of UNCHANGED values.**
+Normalized to actual value *changes* per note, ours ≈ oracle (freq 0.92 vs 0.93/note; TL 0.43 vs
+0.50/note). Our write-on-change engine already produces the same chip state. Building these now and
+applying them to MT would ADD modulation MT doesn't have = over-modulation = WORSE. They remain
+legitimate **general** capabilities (many FM tunes use real sweeps/swells) and the modulation layer
+(`ModUpdate`, the design-for-C seam) is already architected to host them — so adding them later is a
+clean drop-in. **When to build:** when a ported/authored song's command data actually requests
+intra-note pitch/volume movement. Tool: `tools/vgm_intranote.py` (intra-note change census) +
+`tools/vgm_modulation_diff.py`. LESSON: register write-COUNT is a misleading proxy; measure value
+CHANGES. See memory [[project_mt_correct_source]].
+
+### GATE articulation ($1A) — transcoder drops it (Phase 3a #4)
+**Surfaced during:** same investigation. **Status:** deferred; only worth doing if percussion
+phrasing audibly differs from B&R. **What:** MT uses 340 GATE commands (note-shortening, mostly
+ch5/ch3/ch4 percussion). `tools/zyrinx_player.py` currently drops them (the gate-as-note-off model
+b4137be/63bfd62 was REVERTED by 78fdfaf), and the engine has no sub-duration note-length field to
+receive one. **When to build:** if the user reports percussion still lacks staccato/punch vs the
+oracle. Needs BOTH a transcoder re-emit and an engine note-fill/gate-time field — and coordinate
+with the reverted commits to avoid repeating whatever broke them.
+
+### opbias-on-carriers fix (commit 05eca4a) — KEPT, carrier path not yet song-verified
+**Status:** shipped + kept (correct latent-bug fix). `Fm_SetVolume` now writes carrier
+TL = clamp(base + sc_opbias[op] + log), consistent with `Fm_PatchTlGroup`. **Caveat:** MT does not
+exercise carrier opbias (FM2 carrier opbias=0), so it's verified by code audit + "doesn't break MT",
+not by a song that uses it. **TODO when convenient:** add a synthetic alg5–7 test voice with a
+carrier bias and capture-verify the $4x output, to bulletproof the untested path.
+
 ### Multi-sample DAC loop-restart hardcodes the blip descriptor (latent bug, Plan 1C)
 **Surfaced during:** Sound 1C pre-merge audit (2026-06-17).
 **Status:** Benign in 1C (single DAC sample); **must fix before adding a 2nd DAC sample.**

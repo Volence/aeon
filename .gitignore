@@ -37,3 +37,7 @@ data/generated/
 # Build tool caches (content-hash keyed)
 tools/.cache/
 *.wav
+
+# Scratch VGM register captures (root-level only). Intentional reference
+# captures live under docs/research/reference_captures/ and stay tracked.
+/*.vgm

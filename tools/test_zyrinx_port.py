@@ -253,10 +253,14 @@ class TestTranslateVoice(unittest.TestCase):
     natural indices [0,2,1,3] (calibrated against the VGM in T5)."""
 
     def test_op_reorder_constant(self):
-        # [a,b,c,d] -> [a,c,b,d]: natural op1,op2,op3,op4 -> physical S1,S3,S2,S4.
-        self.assertEqual(OP_REORDER, [0, 2, 1, 3])
+        # The Bank2 ROM voices are ALREADY stored in YM physical-register order
+        # (the driver writes them straight to $30/$34/$38/$3C), so translate_voice
+        # must NOT reorder. Verified against the live B&R FM2 register capture: a
+        # [0,2,1,3] reorder swapped operators S2<->S3 and made every voice's timbre
+        # wrong. (The old reorder was calibrated against the WRONG song, song_05.)
+        self.assertEqual(OP_REORDER, [0, 1, 2, 3])
         g = [10, 20, 30, 40]
-        self.assertEqual([g[i] for i in OP_REORDER], [10, 30, 20, 40])
+        self.assertEqual([g[i] for i in OP_REORDER], [10, 20, 30, 40])
 
     def test_bank1_voice0_byte_exact(self):
         # voices.json bank1[0]: fb=1, algo=3, ams_fms_pan=240 ($F0, L/R set).
@@ -271,24 +275,29 @@ class TestTranslateVoice(unittest.TestCase):
             "ams_fms_pan": 240,
             "ext": [0, 60, 36, 0],
         }
-        # Hand-computed expected (showing the [0,2,1,3] reorder per group):
+        # Hand-computed expected (NO reorder -- ROM voices are already in physical
+        # order, so each op group passes straight through; verified vs the live
+        # B&R FM2 register capture):
         #   fp_alg_fb     = (1<<3)|3 = 11
         #   fp_lr_ams_fms = 240 (L/R bits 6-7 already set -> kept as-is)
-        #   dt_mul  [119,123,72,127] -> [119, 72,123,127]
-        #   tl      [103,  0,112,105] -> [103,112,  0,105]
-        #   ks_ar   [ 11,  0, 11, 12] -> [ 11, 11,  0, 12]
+        #   dt_mul  [119,123,72,127] -> [119,123, 72,127]
+        #   tl      [103,  0,112,105] -> INVERTED (0x7F^x): [ 24,127, 15, 22]
+        #   ks_ar   [ 11,  0, 11, 12] -> [ 11,  0, 11, 12]
         #   am_d1r  [ 16, 16, 16, 16] -> [ 16, 16, 16, 16]
         #   d2r     [  0,  0,  0,  0] -> [  0,  0,  0,  0]
-        #   sl_rr   [  7, 10,  7, 58] -> [  7,  7, 10, 58]
+        #   sl_rr   [  7, 10,  7, 58] -> [  7, 10,  7, 58]
+        # NOTE: translate_voice inverts TL (0x7F XOR) — Zyrinx stores TL as LEVEL
+        # (high=loud); the YM2612 reg is ATTENUATION (high=quiet). This inversion
+        # is the correct, song-agnostic fix; the $40 row below is the inverted form.
         expected = bytes([
             11,                     # fp_alg_fb
             240,                    # fp_lr_ams_fms
-            119, 72, 123, 127,      # fp_dt_mul   ($30)
-            103, 112, 0, 105,       # fp_tl       ($40)
-            11, 11, 0, 12,          # fp_rs_ar    ($50) <- ks_ar
+            119, 123, 72, 127,      # fp_dt_mul   ($30) straight-through
+            24, 127, 15, 22,        # fp_tl       ($40)  = 0x7F ^ [103,0,112,105]
+            11, 0, 11, 12,          # fp_rs_ar    ($50) <- ks_ar
             16, 16, 16, 16,         # fp_am_d1r   ($60)
             0, 0, 0, 0,             # fp_d2r      ($70)
-            7, 7, 10, 58,           # fp_d1l_rr   ($80) <- sl_rr
+            7, 10, 7, 58,           # fp_d1l_rr   ($80) <- sl_rr
         ])
         out = translate_voice(v)
         self.assertEqual(len(out), 26)
@@ -327,8 +336,8 @@ class TestTranslateVoice(unittest.TestCase):
         v = self._neutral()
         v["dt_mul"] = [1, 2, 3, 4]
         out = translate_voice(v)
-        # fp_dt_mul is at offset 2..5 -> [1,3,2,4].
-        self.assertEqual(list(out[2:6]), [1, 3, 2, 4])
+        # No reorder: ROM voices are already in physical order -> straight through.
+        self.assertEqual(list(out[2:6]), [1, 2, 3, 4])
 
     def test_ext_dropped(self):
         # ext[4] is not present in the 26-byte output (length proves it).

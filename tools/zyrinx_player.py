@@ -2,8 +2,8 @@
 """
 Zyrinx "Advanced Z80 Player" REFERENCE PLAYER (The Adventures of Batman & Robin).
 
-Simulates the reverse-engineered Zyrinx sound driver playing song 3
-("Moving Trucks", Bank 1) frame-by-frame and produces:
+Simulates the reverse-engineered Zyrinx sound driver playing "Moving Trucks"
+(music-test 13 = Bank2 song4 @ ROM $1F0BDF) frame-by-frame and produces:
   (a) a rendered VGM  (/tmp/mt_player.vgm)         -- YM2612 register writes with timing
   (b) a per-channel musical-event dump (/tmp/mt_player_events.json) for engine porting
 
@@ -12,7 +12,7 @@ Authoritative spec: /tmp/zyrinx_re_{commands,timing_pitch,layout,modulation}.md
 The driver model (verified against the driver binary, see comments):
   * Song body = 6 consecutive per-channel blocks: [count][loopback][count x 4-byte entries].
   * Pattern entry = [seq_index, transpose(signed), repeat, tempo].
-  * Sequences resolved through the bank-shared seq pointer table @ ROM $1E91E3.
+  * Sequences resolved through the Bank2 seq pointer table @ ROM $1F0F37.
   * Music frame ~59.4 Hz (odd frame). Per channel: IX+33 -= 16/frame; on borrow IX+33 += tempo_base
     and one "event tick" fires. WAIT byte W ($80-$FF) waits ($FF - W) event ticks.
   * Two dispatch tables: Table-1 for the first command after a WAIT, Table-2 for subsequent
@@ -41,8 +41,15 @@ import struct
 import sys
 
 ROM_PATH = "/home/volence/sonic_hacks/The Adventures of Batman and Robin/Adventures of Batman & Robin, The (USA).md"
-SEQ_PTR_TABLE = 0x1E91E3      # 154 x 3-byte [bank, z80_hi, z80_lo]
-SONG3_ADDR = 0x1E886F         # Moving Trucks song body (404 bytes)
+# Moving Trucks = music-test 13 = game-song-index id 13 = B&R Bank2 song4.
+# (The OLD targets — Bank1 song3 $1E886F / seqtbl $1E91E3 / voicetbl $1ECC8C — were
+#  the WRONG song; their PITCH points were in the wrong octave (40/52 etc). Bank2
+#  song4's early PITCH points are 28-34 ($1C-$22), which map DIRECTLY to the oracle's
+#  low-octave melody with no octave correction.)
+SEQ_PTR_TABLE = 0x1F0F37      # Bank2 SEQ table: 154 x 3-byte [bank, z80_hi, z80_lo]
+SONG_ADDR = 0x1F0BDF          # Moving Trucks song body (Bank2 song4; 424 bytes,
+                              # 6 channel blocks, counts 17/17/17/18/17/17)
+VOICE_PTR_TABLE = 0x1F49A8    # Bank2 VOICE table: 248 x 3-byte [bank,hi,lo] -> 30B patch
 N_CHANNELS = 6
 
 FODD = 59.38                  # empirical music-frame (odd-frame) rate, Hz  (doc §1.6)
@@ -61,7 +68,14 @@ _LOW = [128, 135, 143, 152, 161, 170, 181, 191, 203, 215, 228, 241,
 
 
 def build_pitch_tables():
-    """Return (A4[], A0[], block[], fnum[]) indexed 0..0x83, plus a reverse (block,fnum)->idx."""
+    """Return (A4[], A0[], block[], fnum[]) indexed 0..0x83, plus a reverse (block,fnum)->idx.
+
+    This hand-transcribed §2.4 table is cross-checked against the oracle: the bass
+    indices ($1C/$28/$34/$40) render to C1/C2/C3/C4 exactly as the oracle writes them.
+    (A ROM table at $1E7000/$1E7100 holds the same fnum value-SET but at indices
+    shifted ~4 semitones -- it is NOT the LUT these source indices use; do not swap
+    to it. The remaining per-channel octave error on the percussion/FM2 voice is NOT
+    in this table.)"""
     a4 = [0] * 0x84
     a0 = [0] * 0x84
     block = [0] * 0x84
@@ -88,6 +102,90 @@ def build_pitch_tables():
 A4_TBL, A0_TBL, BLOCK_TBL, FNUM_TBL, REV_TBL = build_pitch_tables()
 
 
+# ----------------------------------------------------------------------------
+# Engine pitch-table emitter (Sound Phase 3 Task 3).
+# Dumps the 132-entry chromatic fnum table (§2.4) to a Z80-syntax .asm the engine
+# blob includes as the per-song / engine-default pitch table. LAYOUT (matches
+# sound_constants.asm PITCHTAB_*): TWO PARALLEL PAGES — the A4 page (132 bytes,
+# the YM $A4 = (block<<3)|fnumHi values) FIRST, then the A0 page (132 bytes, the
+# YM $A0 = fnum-low values). So index i: $A4 = page[i], $A0 = page[132 + i]. This
+# mirrors Zyrinx's native $0F00 (A4) / $1000 (A0) split. The values are read DIRECTLY
+# from the real Zyrinx table in the B&R ROM (build_pitch_tables, PITCHTAB_A4/A0_ADDR),
+# so every Moving-Trucks pitch write maps to the oracle's exact entry.
+# ----------------------------------------------------------------------------
+PITCHTAB_COUNT = 0x84            # 132 entries (idx $00..$83); mirror of PITCHTAB_COUNT
+
+# Index->note anchors for the generated .asm comment, computed from the real table.
+def _note_anchors():
+    if not FNUM_TBL:
+        return {}
+    names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    out = {}
+    for idx in (0x2C, 0x34, 0x40, 0x44):     # a few C/landmark indices
+        b = BLOCK_TBL[idx]
+        f = FNUM_TBL[idx]
+        # crude semitone-from-C2(1290) label is enough for a comment
+        out[idx] = "block%d fnum%d" % (b, f)
+    return out
+
+_NOTE_ANCHORS = _note_anchors()
+
+
+def _hexrow(vals, directive="db"):
+    if directive == "db":                     # Z80-syntax byte literals
+        return ", ".join("0%02Xh" % (v & 0xFF) for v in vals)
+    return ", ".join("$%02X" % (v & 0xFF) for v in vals)   # 68k dc.b literals
+
+
+def emit_pitchtable_asm(label="MovingTrucks_PitchTable", directive="db"):
+    """Return the .asm text for the 132-entry two-page (A4 then A0) pitch table.
+
+    directive: "db" (Z80 phase-0 blob context — the engine-default inline copy) or
+    "dc.b" (68k ROM data area — the per-song streaming-block copy)."""
+    assert len(A4_TBL) == PITCHTAB_COUNT and len(A0_TBL) == PITCHTAB_COUNT
+    lines = []
+    lines.append("; " + "=" * 70)
+    lines.append("; data/sound/movingtrucks_pitchtable.asm — GENERATED by")
+    lines.append("; tools/zyrinx_player.py (emit_pitchtable_asm) — DO NOT EDIT BY HAND.")
+    lines.append("; Regenerate: python3 tools/zyrinx_player.py --emit-pitchtable")
+    lines.append(";")
+    lines.append("; The exact Zyrinx \"Moving Trucks\" 132-entry chromatic fnum table")
+    lines.append("; (/tmp/zyrinx_re_timing_pitch.md §2.4). Z80-syntax, included INSIDE the")
+    lines.append("; phase-0 Z80 blob so Fm_NoteFromTable reads it with direct addressing.")
+    lines.append(";")
+    lines.append("; LAYOUT (sound_constants.asm PITCHTAB_*): TWO PARALLEL PAGES.")
+    lines.append(";   page 0  = A4 bytes (YM $A4 = (block<<3)|fnumHi), %d entries" % PITCHTAB_COUNT)
+    lines.append(";   page 1  = A0 bytes (YM $A0 = fnum low),          %d entries" % PITCHTAB_COUNT)
+    lines.append(";   For note index i (0..$83):  $A4 = base[i], $A0 = base[%d + i]." % PITCHTAB_COUNT)
+    lines.append(";")
+    lines.append("; Index->note anchors (idx $24..$83 = a clean 6-octave chromatic run,")
+    lines.append("; block = (idx-$24)/12; idx $00..$23 are the sub-octaves, block 0, fnum>>):")
+    for idx in sorted(_NOTE_ANCHORS):
+        lines.append(";   idx $%02X = %s -> A4=$%02X A0=$%02X"
+                     % (idx, _NOTE_ANCHORS[idx], A4_TBL[idx], A0_TBL[idx]))
+    lines.append("; " + "=" * 70)
+    lines.append("")
+    lines.append("%s:" % label)
+    lines.append("; --- page 0: A4 (block|fnumHi) bytes, idx $00..$83 ---")
+    for i in range(0, PITCHTAB_COUNT, 12):
+        lines.append("        %-7s " % directive
+                     + _hexrow(A4_TBL[i:i + 12], directive))
+    lines.append("; --- page 1: A0 (fnum low) bytes, idx $00..$83 ---")
+    for i in range(0, PITCHTAB_COUNT, 12):
+        lines.append("        %-7s " % directive
+                     + _hexrow(A0_TBL[i:i + 12], directive))
+    lines.append("%s_End:" % label)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_pitchtable_asm(out_path, label="MovingTrucks_PitchTable", directive="db"):
+    with open(out_path, "w") as f:
+        f.write(emit_pitchtable_asm(label, directive))
+        f.write("\n")
+    return out_path
+
+
 def clamp_note(idx, transpose):
     """idx = clamp(note + transpose) into legal 0..0x83 range.
 
@@ -103,6 +201,174 @@ def clamp_note(idx, transpose):
 
 
 # ----------------------------------------------------------------------------
+# §2.7 PITCH-GLIDE trajectory (cmds $0A-$12). RECONSTRUCTED from the driver disasm
+# $029C/$0A99 and validated against the oracle VGM (Moving Trucks). The Zyrinx
+# glide is a per-frame 16-bit fnum slide RE-ARTICULATED per re-key; sampling the
+# gliding accumulator at successive phases produces a chromatic arpeggio that IS
+# the recognizable melody. The native emitter (walk_body) emits this trajectory as
+# a run of MEV_PITCHENV note indices instead of dropping the glide.
+#
+# Two derived tables (the driver's $1300 fnum<<5 and $1400 block<<3):
+#   GLIDE_FNUM16[i] = FNUM_TBL[i] << 5   (16-bit accumulator unit)
+#   GLIDE_BLOCK8[i] = BLOCK_TBL[i] << 3
+# ----------------------------------------------------------------------------
+GLIDE_FNUM16 = [FNUM_TBL[i] << 5 for i in range(0x84)] if FNUM_TBL else []
+GLIDE_BLOCK8 = [BLOCK_TBL[i] << 3 for i in range(0x84)] if BLOCK_TBL else []
+
+# Block-0 region of the table (idx whose block == 0), sorted by fnum, for the
+# OCTAVE rule below. RESOLVED empirically vs the oracle: the gliding accumulator's
+# fnum (accum>>5) lands in the low-octave fnum band (645..1933); the oracle plays
+# the glide arpeggio at BLOCK 0 (16-49 Hz), NOT at the reconstruction's raw aligned
+# block (1-3) which is an octave (or three) too high. So every glide sample is
+# reverse-mapped to the nearest BLOCK-0 table index. This is the fix for the
+# "octave-too-high, sparse static endpoints" bug — the emitted notes now match the
+# oracle's low-octave chromatic melody.
+_GLIDE_B0 = sorted((FNUM_TBL[i], i) for i in range(0x84) if BLOCK_TBL[i] == 0) if FNUM_TBL else []
+
+
+def glide_nearest_b0_idx(fnum):
+    """Reverse-map a gliding accumulator fnum (accum>>5) to the nearest BLOCK-0
+    canonical pitch-table index (the sounding-octave rule, see above)."""
+    best = None
+    for f, i in _GLIDE_B0:
+        d = abs(f - fnum)
+        if best is None or d < best[0]:
+            best = (d, i)
+    return best[1]
+
+
+def _glide_slope16(diff, dur):
+    """Signed 16/16 integer divide matching the driver's slope computation."""
+    if dur <= 0:
+        dur = 1
+    return diff // dur if diff >= 0 else -((-diff) // dur)
+
+
+def glide_setup(start_pt, target_pt, transpose, dur_byte, tempo_base):
+    """Reconstruct the $029C glide setup. Returns (accum16, slope16, glide_frames).
+
+    start_pt / target_pt = the static PITCH point and the GLIDE target point (note
+    numbers); transpose = the per-pattern transpose; dur_byte = the glide command's
+    duration operand; tempo_base = the channel tempo (event-tick base).
+
+    glide_frames = (dur_byte * tempo_base) >> 4, min 1.
+    Block alignment ($0A99): if start_block <= target_block -> aligned to the start
+    octave-shifted into the target block; else target shifted into the start block.
+    accum starts at the (aligned) start fnum16; slope = (aligned target - start)/dur.
+    """
+    start = clamp_note(start_pt, transpose)
+    tgt = clamp_note(target_pt, transpose)
+    glide_frames = (dur_byte * tempo_base) >> 4
+    if glide_frames < 1:
+        glide_frames = 1
+    sb = GLIDE_BLOCK8[start]
+    sf = GLIDE_FNUM16[start]
+    tb = GLIDE_BLOCK8[tgt]
+    tf = GLIDE_FNUM16[tgt]
+    if sb <= tb:                      # ascending/equal: align start up into target block
+        asf = sf
+        for _ in range((tb - sb) // 8):
+            asf >>= 1
+        accum = asf & 0xFFFF
+        slope = _glide_slope16(tf - asf, glide_frames)
+    else:                             # descending: align target down into start block
+        af = tf
+        for _ in range((sb - tb) // 8):
+            af >>= 1
+        accum = sf & 0xFFFF
+        slope = _glide_slope16(af - sf, glide_frames)
+    return accum, slope, glide_frames
+
+
+def glide_trajectory_indices(start_pt, target_pt, transpose, dur_byte, tempo_base):
+    """Emit the glide trajectory as a list of BLOCK-0 pitch-table indices, sampled
+    ONCE PER FRAME over the glide duration (the driver re-asserts the gliding fnum
+    every frame). Consecutive identical indices are collapsed. The returned indices
+    walk the chromatic arpeggio the oracle plays — at the correct (low) octave.
+
+    Returns [] for a degenerate glide (no movement / zero duration)."""
+    accum, slope, glide_frames = glide_setup(
+        start_pt, target_pt, transpose, dur_byte, tempo_base)
+    out = []
+    a = accum
+    prev = None
+    for _ in range(glide_frames):
+        a = (a + slope) & 0xFFFF
+        idx = glide_nearest_b0_idx((a >> 5) & 0x7FF)
+        if idx != prev:
+            out.append(idx)
+            prev = idx
+    return out
+
+
+def glide_trajectory_sampled(start_pt, target_pt, transpose, dur_byte,
+                             tempo_base, window_ticks, phase_frames=0):
+    """Sample the glide trajectory at the channel's RE-KEY CADENCE instead of once
+    per integrated frame. The driver advances the gliding accumulator every frame,
+    but the oracle does NOT play that as a smooth per-frame ramp — it RE-ARTICULATES
+    the gliding fnum coarsely at the channel's re-key cadence (the YM key-on fires
+    every `window_ticks` event-ticks), producing the audible chromatic ARPEGGIO
+    (the melody). Crucially the re-key grid is a CONTINUOUS per-channel clock that
+    keeps ticking across glides — it is NOT reset to the glide's start. So a glide's
+    samples land at whatever PHASE the running clock is in, and successive
+    same-shape glides sample DIFFERENT intermediate chromatic steps (the phase
+    drifts), which is exactly how the oracle walks the full arpeggio out of a few
+    repeated cur->tgt glides (validated vs the Moving-Trucks VGM: ch0 keys a steady
+    ~180 ms melody of distinct chromatic notes, not a per-glide ramp).
+
+    `phase_frames` = the continuous per-channel frame phase when this glide STARTS
+    (frames already elapsed since the channel's last re-key boundary). We advance
+    the accumulator per frame internally and SAMPLE only when the running clock
+    crosses a window boundary.
+
+    Returns (samples, end_phase) where samples is a list of (idx, hold_ticks) and
+    end_phase is the running frame phase to carry into the next event. Returns
+    ([], phase_frames + glide_frames-ish) updated phase even for a degenerate glide
+    so the clock stays continuous.
+
+    Frame<->tick conversion: the per-frame engine subtracts 16 from the tempo
+    accumulator and refills +tempo_base on borrow, so one event-tick spans
+    tempo_base/16 frames; a `window_ticks`-tick window spans
+    frames_per_window = round(window_ticks * tempo_base / 16) frames.
+    """
+    accum, slope, glide_frames = glide_setup(
+        start_pt, target_pt, transpose, dur_byte, tempo_base)
+    if window_ticks < 1:
+        window_ticks = 1
+    frames_per_window = max(1, round(window_ticks * tempo_base / 16.0))
+    if slope == 0 or glide_frames <= 0:
+        # no movement: advance the continuous clock, emit nothing (the WAIT after
+        # the glide holds the static target via the normal path).
+        return [], phase_frames + max(0, glide_frames)
+    out = []
+    a = accum
+    phase = phase_frames
+    for _ in range(glide_frames):
+        a = (a + slope) & 0xFFFF
+        phase += 1
+        if phase >= frames_per_window:
+            phase -= frames_per_window
+            idx = glide_nearest_b0_idx((a >> 5) & 0x7FF)
+            out.append((idx, window_ticks))
+    # the glide may end mid-window with a fractional remainder still in `phase`;
+    # that remainder carries forward (it becomes part of the NEXT note's window),
+    # so we do NOT force a final sample here — the trailing WAIT / next event picks
+    # up the leftover phase. If the whole glide fit in <1 window, emit ONE sample at
+    # its end so the glide is still articulated (it advanced the melody).
+    if not out:
+        idx = glide_nearest_b0_idx((a >> 5) & 0x7FF)
+        out.append((idx, window_ticks))
+    # collapse runs of the SAME sampled index into one held note (summing ticks).
+    coalesced = []
+    for idx, ticks in out:
+        if coalesced and coalesced[-1][0] == idx:
+            coalesced[-1] = (idx, coalesced[-1][1] + ticks)
+        else:
+            coalesced.append((idx, ticks))
+    return coalesced, phase
+
+
+# ----------------------------------------------------------------------------
 # Command operand sizes / classification for the two-table dispatch
 # ----------------------------------------------------------------------------
 # Table-1 (first command of a tick group):
@@ -115,8 +381,8 @@ def clamp_note(idx, transpose):
 
 
 def parse_song(rom):
-    """Parse song 3 into 6 channel blocks of pattern entries."""
-    p = SONG3_ADDR
+    """Parse Moving Trucks (Bank2 song4) into 6 channel blocks of pattern entries."""
+    p = SONG_ADDR
     channels = []
     for ch in range(N_CHANNELS):
         count = rom[p]
@@ -465,6 +731,773 @@ def simulate(rom, duration_s, glide_as_vol=False):
     return channels
 
 
+# ============================================================================
+# NATIVE SONG EMITTER (Sound Phase 3 Task 8)
+# ============================================================================
+# Walk Moving Trucks' real song data (the per-channel pattern lists -> shared
+# sequences -> command streams parsed above) and translate it, PRESERVING
+# STRUCTURE, into our native sequencer opcode streams (song_packer events). This
+# is a real PORT of the song data — NOT a register replay of the oracle VGM.
+#
+# Structure preserved:
+#   * Each of the 6 channels -> one FM route (FM1..FM6, 1:1; the RE confirms each
+#     channel binds to YM channel == channel index, NOT via the CH-select cmd).
+#   * Each channel = a leading patch/vol setup + LoopPoint + per-pattern bodies +
+#     Jump (the whole 16-pattern list loops, matching loopback=0).
+#   * Each pattern's resolved sequence body is emitted ONCE wrapped in
+#     RepeatStart..RepeatEnd(repeat) (bounded repeat — NOT unrolled).
+#
+# Command translation (per /tmp/zyrinx_re_commands.md §6):
+#   PITCH_n ($00-$08)  -> PitchEnv(count, transposed point indices). The engine
+#       suppresses same-pitch re-attacks, so emitting a PITCHENV per Zyrinx PITCH
+#       reproduces the re-key DENSITY via that suppression (Task-9 calibrates).
+#   VOICE ($18)        -> the build-time MINIMAL-DELTA voice-step: compute the
+#       FmPatch register delta from the previous voice. SMALL delta (<= threshold
+#       changed regs, all expressible as per-op group writes) -> RegDelta; LARGE /
+#       genuine instrument change -> full Patch(local_idx). FIRST voice = Patch.
+#   PAN ($30-$36)      -> Pan(b4) (raw Zyrinx pan value = the $B4 byte the driver
+#       wrote: off/$00, R/$80, L/$40, C/$C0; matches the oracle's $B4 writes).
+#   OP1-4 ($38-$3E)    -> OpBias(physical op, signed val).
+#   WAIT ($80-$FF)     -> SetDur($FF-byte) preceding the group's time-advancing
+#       PitchEnv (the engine paces PitchEnv by sc_dur_default).
+#   LOOP ($1C)         -> the sequence-body terminator (ends the RepeatStart body).
+#   GATE ($1A), PARAM ($14), CH-select ($20-$2E), NOP ($16/$40+) -> no-op (the
+#       gate/param re-key flags don't change which note plays; CH-select is the
+#       $0E5E key-latch quirk, irrelevant to the 1:1 FM routing — see the RE §3.6).
+#   VOL ($0A-$12)      -> dropped (the driver has NO real TL envelope — it is a
+#       static-per-note TL bias; /tmp/zyrinx_re_modulation.md §0/§9. A faithful
+#       port emits no swept TL. The VOL-cmd DURATION is folded out: the following
+#       WAIT carries the hold. Logged.)
+# ----------------------------------------------------------------------------
+
+# Import the packer events + the Zyrinx-voice -> FmPatch translation (T8 reuses
+# zyrinx_port.translate_voice). Support both tools/-on-path and package styles.
+try:
+    from song_packer import (
+        SongDesc, ChannelDesc,
+        SetDur, Rest, Vol, Patch, Pan, OpBias, PitchEnv, RegDelta,
+        RepeatStart, RepeatEnd, LoopPoint, Jump, NoteFill,
+        CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
+        SH_F_FM6_FM, SH_F_STREAM,
+        reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
+        pack_song,
+    )
+    from zyrinx_port import translate_voice, FMPATCH_LEN, emit_patch_bank_asm
+except ImportError:  # pragma: no cover - alternate import path
+    from tools.song_packer import (  # type: ignore
+        SongDesc, ChannelDesc,
+        SetDur, Rest, Vol, Patch, Pan, OpBias, PitchEnv, RegDelta,
+        RepeatStart, RepeatEnd, LoopPoint, Jump, NoteFill,
+        CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
+        SH_F_FM6_FM, SH_F_STREAM,
+        reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
+        pack_song,
+    )
+    from tools.zyrinx_port import (  # type: ignore
+        translate_voice, FMPATCH_LEN, emit_patch_bank_asm)
+
+VOICES_JSON = ("/home/volence/sonic_hacks/The Adventures of Batman and Robin/"
+               "disasm/sound/decoded_full/voices.json")
+
+# ch0..5 -> FM1..FM6 (1:1; ch5 -> FM6 via the adaptive FM6 slot, CHROUTE_FM6 = 5).
+NATIVE_FM_ROUTES = [CHROUTE_FM1, CHROUTE_FM1 + 1, CHROUTE_FM1 + 2,
+                    CHROUTE_FM1 + 3, CHROUTE_FM5, CHROUTE_FM6]
+
+# #4 GATE ARTICULATION: the FM6 percussion (bass-drum) note-fill master — # frames a
+# hit stays keyed from attack before an early key-off (a staccato gap), matching the
+# B&R reference's ~84% note duty on FM6 (vs our 100% legato). A typical ch5 hit is
+# ~5 frames (~87ms); ~3 keyed frames leaves a ~1-2 frame (~25ms) gap. 0 = legato/off.
+# TUNABLE BY EAR: smaller = punchier/more detached, larger = more sustained.
+NATIVE_FM6_NOTEFILL = 3
+
+# Voice-step delta threshold: a VOICE change differing in MORE than this many
+# FmPatch register bytes (or in a byte that has no RegDelta encoding, i.e.
+# alg_fb/$B0 or lr_ams_fms/$B4) is a GENUINE instrument change -> full Patch.
+# Calibrated against the data: the bass voice-step ($9C..$A0) differs by exactly 1
+# byte (the S1-TL, $40 group op0) -> RegDelta; the lead swap ($0E vs $A4) differs
+# in ~25 bytes -> Patch. 8 is comfortably between (the task's suggested threshold).
+VOICE_DELTA_THRESHOLD = 8
+
+# Moving Trucks song format code ($38 = 56) = the per-channel tempo_base. The
+# per-frame engine event-tick rate = FODD*16/tempo_base ~= 16.87 Hz, matching the
+# Zyrinx ~17 events/sec. (Tempo overrides per pattern are applied where present.)
+MT_FORMAT_CODE = 0x38
+
+
+# ----------------------------------------------------------------------------
+# RE-ARTICULATION CADENCE MODEL
+# ----------------------------------------------------------------------------
+# Our engine re-keys on EVERY MEV_PITCHENV (the same-pitch suppression was removed
+# from the engine — correct, per the driver). So the re-key CADENCE must live in
+# the DATA: walk_body emits one MEV_PITCHENV per source PITCH-group, paced by that
+# group's WAIT byte (SetDur).
+#
+# For the CORRECT song (Bank2 song4) the cadence is INTRINSIC to the source WAIT
+# bytes — no artificial re-key window is needed. Measured per-channel WAIT
+# histogram (event-ticks) vs the oracle's measured median key-on IOI:
+#     ch0  WAIT 3 dom (168x)  ->  oracle median 2.95 ticks (~174 ms)  ✓
+#     ch1  WAIT 3/1 (164/162) ->  oracle median 2.99 ticks (~176 ms)  ✓
+#     ch2  WAIT 3 dom (192x)  ->  oracle median 2.95 ticks (~174 ms)  ✓
+#     ch3  WAIT 3/1 (136/112) ->  oracle median 2.94 ticks (~173 ms)  ✓
+#     ch4  WAIT 0/1 dom       ->  oracle median 1.48 ticks (~ 87 ms)  ✓
+#     ch5  WAIT 0/1 dom       ->  oracle median 1.48 ticks (~ 87 ms)  ✓
+# The melody changes pitch nearly every group, so same-pitch coalescing almost
+# never fires; the WAIT bytes alone reproduce the oracle's per-channel cadence.
+# We therefore use a re-key window of 1 tick on ALL channels (= "emit a fresh
+# keyed PitchEnv for every source PITCH-group, paced by its WAIT"); the window
+# only ever coalesces a genuine zero-WAIT mid-tick repeat of the SAME pitch, which
+# is correct (the engine cannot re-key faster than one tick anyway).
+#
+# (The OLD Bank1-song3-tuned [3,3,3,3,1,1] window was a wrong-song workaround that
+# forced an artificial 3-tick floor onto a repeat-heavy stream; the correct song
+# does not have that 88-89%-same-pitch repeat structure, so it is removed.)
+REKEY_WINDOW_TICKS = [1, 1, 1, 1, 1, 1]   # per source channel (ch0..5)
+
+
+# ----------------------------------------------------------------------------
+# OCTAVE CORRECTION — REMOVED (was a Bank1-song3 wrong-song workaround).
+# ----------------------------------------------------------------------------
+# The OLD target (Bank1 song3) had PITCH points in the WRONG octave (40/52...),
+# rendering up to block 3-4, so a per-channel OCTAVE_BLOCK_CAP forced them down.
+# The CORRECT song (Bank2 song4) has PITCH points 14-68 whose canonical blocks are
+# already 0-2 — exactly the oracle's measured per-channel band (oracle uses blocks
+# 0/1/2 on EVERY channel; ch1's bass even reaches block 1). So NO octave correction
+# is applied: octave_cap_idx is an identity pass-through. (If a future oracle diff
+# for THIS song proves a per-channel correction is genuinely needed, re-introduce a
+# targeted cap here — but the points map directly today.)
+_OCTAVE_CAP_DEFAULT = None               # None = no cap (identity)
+
+
+def octave_cap_idx(idx, cap=_OCTAVE_CAP_DEFAULT):
+    """Identity pass-through (octave correction removed for the correct song).
+    `cap` is accepted-and-ignored for call-site compatibility; if a real cap value
+    (int) is ever passed, it octave-downs to that block ceiling — but the default
+    None leaves the directly-mapping Bank2 points untouched."""
+    if cap is None:
+        return idx
+    while idx >= 12 and BLOCK_TBL[idx] > cap:
+        idx -= 12
+    return idx
+
+
+def voice_addr(rom, idx):
+    """Resolve Bank2 VOICE-table entry `idx` to an absolute ROM address.
+    Table @ VOICE_PTR_TABLE = 248 x 3-byte [bank, z80_hi, z80_lo]; same
+    z80->ROM resolution as the seq table: (bank<<15)+(z80-0x8000)."""
+    base = VOICE_PTR_TABLE
+    b = rom[base + idx * 3]
+    h = rom[base + idx * 3 + 1]
+    l = rom[base + idx * 3 + 2]
+    z80 = (h << 8) | l
+    return (b << 15) + (z80 - 0x8000)
+
+
+def decode_voice(rom, idx):
+    """Decode a Bank2 30-byte FM patch (resolved via the VOICE pointer table) into
+    the same dict shape voices.json uses (so translate_voice consumes it unchanged).
+
+    Patch byte layout (verified against voices.json bank2 — an exact match):
+      [0]      fb_algo  -> fb = (b>>3)&7, algo = b&7
+      [1..24]  six 4-byte per-operator groups: dt_mul, tl, ks_ar, am_d1r, d2r, sl_rr
+               (operator order = Zyrinx natural op1..op4)
+      [25]     ams_fms_pan
+      [26..29] ext[4]
+    """
+    a = voice_addr(rom, idx)
+    if a < 0 or a + 30 > len(rom):
+        # Pointers past the real voice-table extent (idx >= ~235) resolve into
+        # unrelated ROM / negative addresses. Moving Trucks references only voices
+        # <= 212, so these are never collected into the per-song bank; return a
+        # zeroed placeholder so the FULL-bank build does not crash.
+        return {"fb": 0, "algo": 0, "dt_mul": [0, 0, 0, 0], "tl": [0, 0, 0, 0],
+                "ks_ar": [0, 0, 0, 0], "am_d1r": [0, 0, 0, 0],
+                "d2r": [0, 0, 0, 0], "sl_rr": [0, 0, 0, 0],
+                "ams_fms_pan": 0, "ext": [0, 0, 0, 0]}
+    raw = rom[a:a + 30]
+    g = lambda o: [raw[o], raw[o + 1], raw[o + 2], raw[o + 3]]
+    return {
+        "fb": (raw[0] >> 3) & 7,
+        "algo": raw[0] & 7,
+        "dt_mul": g(1), "tl": g(5), "ks_ar": g(9),
+        "am_d1r": g(13), "d2r": g(17), "sl_rr": g(21),
+        "ams_fms_pan": raw[25],
+        "ext": [raw[26], raw[27], raw[28], raw[29]],
+    }
+
+
+# B&R Bank2 has 248 VOICE-table entries (the JSON's decoded `bank2` list is shorter
+# and is Bank1-era anyway); decode straight from the ROM so the bank is complete and
+# authoritative for THIS song.
+VOICE_BANK_COUNT = 248
+
+
+def _load_voice_bank(rom=None):
+    """Decode the FULL Bank2 voice bank straight from the ROM (Moving Trucks =
+    Bank2 song4). Returns a list of voice dicts indexable by absolute voice idx."""
+    if rom is None:
+        rom = open(ROM_PATH, "rb").read()
+    return [decode_voice(rom, i) for i in range(VOICE_BANK_COUNT)]
+
+
+def _fmpatch_byte_to_regsel(byte_idx):
+    """Map an FmPatch byte index (2..25) to a RegDelta reg_sel, or None for the
+    two scalar leads (idx 0 = fp_alg_fb/$B0, idx 1 = fp_lr_ams_fms/$B4) which have
+    no per-operator register group (a change there forces a full Patch)."""
+    if byte_idx < 2:
+        return None                         # $B0 / $B4 -> not RegDelta-encodable
+    rel = byte_idx - 2
+    group = rel // 4                        # 0..5 = $30/$40/$50/$60/$70/$80
+    op = rel % 4                            # 0..3 = physical S1,S3,S2,S4
+    if group >= REGDELTA_GROUP_COUNT:
+        return None
+    return reg_sel(group, op)
+
+
+def _voice_step_event(prev_fp, new_fp, new_local_idx):
+    """Decide the voice-step encoding from the previous voice's FmPatch to the new
+    one. Returns (event, kind) where kind is 'patch' or 'regdelta'.
+
+    SMALL delta (<= VOICE_DELTA_THRESHOLD changed regs, ALL RegDelta-encodable)
+    -> RegDelta(only the changed registers). LARGE / non-encodable -> full Patch.
+    prev_fp None (first voice) always -> Patch.
+    """
+    if prev_fp is None:
+        return Patch(new_local_idx), "patch"
+    diffs = [i for i in range(FMPATCH_LEN) if new_fp[i] != prev_fp[i]]
+    if not diffs:
+        return None, "none"                 # identical voice -> nothing to emit
+    pairs = []
+    for i in diffs:
+        rs = _fmpatch_byte_to_regsel(i)
+        if rs is None:                       # $B0/$B4 changed -> must full-reload
+            return Patch(new_local_idx), "patch"
+        pairs.append((rs, new_fp[i]))
+    if len(pairs) > VOICE_DELTA_THRESHOLD:
+        return Patch(new_local_idx), "patch"
+    return RegDelta(pairs), "regdelta"
+
+
+def _zyrinx_op_to_phys(op_natural):
+    """Zyrinx OP1-4 -> our FmPatch op slot. The ROM voice bytes are already in
+    physical-register order and we no longer reorder them (OP_REORDER=identity), so
+    a Zyrinx OP_n bias targets FmPatch slot n directly. VERIFIED against the live
+    B&R FM2 capture; see zyrinx_port.OP_REORDER."""
+    return (0, 1, 2, 3)[op_natural]
+
+
+def _to_signed(b):
+    return b - 256 if b >= 0x80 else b
+
+
+class _Walker:
+    """Translates ONE resolved Zyrinx sequence body (seq start .. first LOOP) into
+    our v0 events, preserving the per-tick command groups. Carries the per-channel
+    voice state (the previous voice's FmPatch) ACROSS patterns so cross-pattern
+    voice-steps are still minimal deltas.
+
+    bank   = the Zyrinx bank-1 voice list (translate_voice consumes its dicts).
+    remap  = absolute voice idx -> dense local patch idx (build_native_patch_bank).
+    stats  = a per-channel dict the walker tallies opcode counts into.
+    """
+
+    def __init__(self, rom, bank, remap, stats):
+        self.rom = rom
+        self.bank = bank
+        self.remap = remap
+        self.stats = stats
+        self.prev_fp = None            # previous voice's FmPatch (None = no voice yet)
+        self.cur_local = None          # current dense local patch idx
+        self.first_local = None        # the channel's FIRST voice (leading setup)
+        self.porta_dropped = 0         # $0A glide -> plain note count (none in MT)
+        self.tempo_base = MT_FORMAT_CODE  # event-tick base (for glide_frames -> ticks)
+        self.rekey_window = 3          # per-channel re-key floor (ticks); set per channel
+        self.octave_cap = _OCTAVE_CAP_DEFAULT  # per-channel rendered-block ceiling
+        # GATE-as-note-off scope (Sound 1D bass-drum punch). A first-in-group GATE
+        # ALWAYS releases the held note when it is NOT followed by a PITCH (the bare
+        # `GATE W` cell) — that path is channel-independent and matches every channel
+        # to the oracle. But the dense percussion groove encodes each hit as
+        # `GATE PITCH W` (gate releases the prior hit, pitch attacks the next). Only
+        # the PERCUSSION channel (ch5, the bass drum / FM6) gates THOSE cells in the
+        # oracle (off-gap ~35 ms per hit); the melodic channels (ch0-ch4) play their
+        # `GATE PITCH W` cells LEGATO (the gate there is a re-key flag, not a release
+        # — oracle off-gap ~1 ms). So this per-hit `GATE PITCH` release is enabled
+        # ONLY on the gated (percussion) channel. False => legato (ch0-ch4 unchanged).
+        self.gate_pitch_noteoff = False
+
+    def first_voice_local(self):
+        """Local patch idx of the channel's FIRST voice (for the leading setup
+        Patch — the packer wants a Patch before the first keyed note), or 0 if the
+        channel references no voice."""
+        return self.first_local if self.first_local is not None else 0
+
+    def _voice(self, voice_idx, out):
+        """Apply a VOICE change: emit Patch or RegDelta per the minimal-delta rule."""
+        new_fp = translate_voice(self.bank[voice_idx])
+        local = self.remap[voice_idx]
+        ev, kind = _voice_step_event(self.prev_fp, new_fp, local)
+        self.prev_fp = new_fp
+        self.cur_local = local
+        if self.first_local is None:
+            self.first_local = local
+        if ev is None:
+            return
+        out.append(ev)
+        if kind == "patch":
+            self.stats["patch"] += 1
+        else:
+            self.stats["regdelta"] += 1
+
+    def walk_body(self, seq_start, transpose):
+        """Translate one sequence body (seq_start .. the first LOOP $1C) into our
+        v0 events by FAITHFULLY simulating the Zyrinx driver's per-tick command
+        groups and TWO-TABLE dispatch ($0339 / $03D0 / $0A60).
+
+        A group is read at each event-tick where the WAIT counter is 0. The FIRST
+        command of a group dispatches via Table-1, every SUBSEQUENT command via
+        Table-2, until the group ends. A group ends on:
+          * a WAIT byte W (>=$80): cost = 1 + ($FF - W) event-ticks (the read tick
+            plus the silent wait ticks), OR
+          * a Table-2 NOTE ($00-$08 that is NOT first-in-group): NoteTrigger_$0A60
+            costs exactly 1 event-tick and REWINDS the read pointer (DEC HL) so the
+            note byte is re-read by the NEXT group as a Table-1 PITCH. This "orphan
+            tick" is what spaces the dense fast lines (seq117/113/121) to one key-on
+            per 2 event-ticks, giving every body a 64-tick length so all channels
+            share one 2688-tick loop and stay phase-locked. (Charging every $FF
+            group as an independent 1-tick onset — the old bug — runs those channels
+            ~1.9x too fast and they drift off the grid, off each other.)
+
+        Emission: each Table-1 PITCH group emits one keyed note (PitchEnv); its hold
+        is its own tick cost PLUS the trailing NON-onset groups (orphan re-arm /
+        GATE / pure WAIT) up to the next onset, so the note sustains across the
+        orphan tick and the next PITCH re-keys it. Our engine retriggers the FM
+        envelope on every PitchEnv, so the re-key IS the percussive punch the GATE
+        flag asks for — no time-bearing note-off REST is needed (and emitting one,
+        as the old code did, is exactly what stole ticks and desynced the channels).
+        GATE ($1A) is therefore modelled as a ZERO-tick retrigger flag (matching the
+        disassembly's Cmd_Gate_$03A1 and the oracle, which keeps a rock-steady onset
+        grid while every note is articulated). Zero-tick setters (VOICE / PAN / OP)
+        are flushed just before the note they qualify.
+        """
+        rom = self.rom
+        out = []
+        p = seq_start
+        # Each body is self-contained: force the first VOICE to a full Patch
+        # (prev_fp=None) so the opening voice reloads correctly on every loop
+        # iteration (the body is what replays; the leading setup runs once).
+        self.prev_fp = None
+        cur_setdur = None      # SetDur of the note currently sounding (extended by
+                               #   trailing non-onset groups; None = nothing held)
+        setters = []           # zero-tick events buffered for the next emission
+
+        def emit_setters():
+            if setters:
+                # OpBias MUST precede Patch/RegDelta: the engine applies the per-
+                # operator TL bias (sc_opbias) DURING the patch load (Fm_PatchTlGroup
+                # adds it to the operator TL). A Patch that loads before the bias is
+                # set omits it -> wrong modulator/carrier levels (lost kick punch /
+                # wrong timbre). This mirrors the driver, which computes the key-on
+                # TL = (0x7F^patch_TL)+op_mod AFTER the group's OP commands. Emit all
+                # OpBias first, then the rest (Patch/RegDelta/Pan) in original order.
+                ob = [e for e in setters if isinstance(e, OpBias)]
+                if ob:
+                    out.extend(ob)
+                    out.extend(e for e in setters if not isinstance(e, OpBias))
+                else:
+                    out.extend(setters)
+                setters.clear()
+
+        for _group in range(8192):
+            # ---- read ONE command group via the two-table dispatch ----
+            first = True
+            group_is_onset = False     # set by a Table-1 PITCH / GLIDE
+            group_points = None        # transposed pitch points for an onset group
+            gticks = None
+            looped = False
+            for _cmd in range(4096):
+                b = rom[p]
+                if b >= 0x80:                       # WAIT: ends the group
+                    gticks = 1 + (0xFF - b)         # read tick + silent ticks
+                    p += 1
+                    break
+                op = b
+                if (not first) and op <= 0x08:      # Table-2 NOTE = orphan tick
+                    # NoteTrigger_$0A60: cost 1 event-tick, REWIND (do NOT consume);
+                    # the byte is re-read next group as a Table-1 PITCH.
+                    gticks = 1
+                    break
+                if op <= 0x08:                       # Table-1 PITCH setup (arms key-on)
+                    cnt = op // 2 + 1
+                    pts = [rom[p + 1 + k] for k in range(cnt)]
+                    p += 1 + cnt
+                    group_points = [clamp_note(n, transpose) for n in pts]
+                    group_is_onset = True
+                    first = False
+                elif op in (0x0A, 0x0C, 0x0E, 0x10, 0x12):   # GLIDE (unused by MT)
+                    # Moving Trucks references no glides; this is a faithful-enough
+                    # fallback for other songs: key the glide TARGET as a plain note
+                    # (no smooth per-frame ramp). Consumes N targets + 1 duration.
+                    lvls = (op - 0x0A) // 2 + 1
+                    args = [rom[p + 1 + k] for k in range(lvls + 1)]
+                    p += 1 + lvls + 1
+                    group_points = [clamp_note(args[0], transpose)]
+                    group_is_onset = True
+                    self.porta_dropped += 1
+                    first = False
+                elif op == 0x14:                     # PARAM (key/legato override) -> drop
+                    p += 2
+                    first = False
+                elif op == 0x16:                     # NOP / buffer sink
+                    p += 1
+                    first = False
+                elif op == 0x18:                     # VOICE
+                    self._voice(rom[p + 1], setters)
+                    p += 2
+                    first = False
+                elif op == 0x1A:                     # GATE = zero-tick retrigger flag
+                    p += 1
+                    first = False
+                elif op == 0x1C:                     # LOOP -> body terminator
+                    p += 1
+                    looped = True
+                    break
+                elif op == 0x1E:                     # CH-OFF (T2) / NOP (T1) -> drop
+                    p += 1
+                    first = False
+                elif 0x20 <= op <= 0x2E:             # CH-select -> no-op (1:1 routing)
+                    p += 1
+                    first = False
+                elif op == 0x30:                     # PAN_OFF
+                    setters.append(Pan(0x00)); self.stats["pan"] += 1
+                    p += 1
+                    first = False
+                elif op == 0x32:                     # PAN_R (raw Zyrinx pan $80)
+                    setters.append(Pan(0x80)); self.stats["pan"] += 1
+                    p += 1
+                    first = False
+                elif op == 0x34:                     # PAN_L (raw Zyrinx pan $40)
+                    setters.append(Pan(0x40)); self.stats["pan"] += 1
+                    p += 1
+                    first = False
+                elif op == 0x36:                     # PAN_C (raw Zyrinx pan $C0)
+                    setters.append(Pan(0xC0)); self.stats["pan"] += 1
+                    p += 1
+                    first = False
+                elif op in (0x38, 0x3A, 0x3C, 0x3E): # OP1-4 TL bias
+                    raw = rom[p + 1]
+                    p += 2
+                    phys = _zyrinx_op_to_phys((op - 0x38) // 2)
+                    setters.append(OpBias(phys, _to_signed(raw)))
+                    self.stats["opbias"] += 1
+                    first = False
+                else:                                # $40+ NOP sink
+                    p += 1
+                    first = False
+            else:
+                raise RuntimeError("runaway command group (no WAIT/NOTE/LOOP)")
+
+            if looped:
+                break
+
+            # ---- emit the group ----
+            if group_is_onset:
+                emit_setters()
+                cap = [octave_cap_idx(x, self.octave_cap) for x in group_points]
+                cur_setdur = SetDur(gticks)
+                out.append(cur_setdur)
+                out.append(PitchEnv(cap))
+                self.stats["pitchenv"] += 1
+            else:
+                # NON-onset group (orphan re-arm / GATE / pure WAIT): extend the
+                # currently sounding note across these ticks (it holds through the
+                # orphan tick until the next PITCH re-keys it). Setters land mid-note.
+                emit_setters()
+                if cur_setdur is not None:
+                    cur_setdur.ticks += gticks
+                elif gticks > 0:
+                    # leading silence before the first keyed note -> a genuine rest.
+                    out.append(SetDur(gticks))
+                    out.append(Rest())
+                    self.stats["rest"] += 1
+        else:
+            raise RuntimeError("runaway sequence walk (no LOOP terminator)")
+
+        emit_setters()
+        return out
+
+def _channel_first_voice(rom, block):
+    """The FIRST voice index a channel references (scan its patterns' sequence
+    bodies to the LOOP), or None if it references no voice."""
+    for entry in block["entries"]:
+        p = seq_addr(rom, entry["seq"])
+        for _ in range(8192):
+            b = rom[p]
+            if b >= 0x80:
+                p += 1
+                continue
+            if b <= 0x08:
+                p += 1 + (b // 2 + 1)
+            elif b in (0x0A, 0x0C, 0x0E, 0x10, 0x12):
+                p += 1 + ((b - 0x0A) // 2 + 1) + 1
+            elif b == 0x14:
+                p += 2
+            elif b == 0x18:
+                return rom[p + 1]
+            elif b in (0x38, 0x3A, 0x3C, 0x3E):
+                p += 2
+            elif b == 0x1C:
+                break
+            else:
+                p += 1
+    return None
+
+
+def collect_native_voices(rom, channels_data):
+    """Distinct voice indices the song references, in FIRST-SEEN order (channel ->
+    pattern -> sequence-event scan, walking bodies to the LOOP). Determines the
+    dense local bank order + the abs-voice -> local-idx remap."""
+    seen = set()
+    order = []
+    for block in channels_data:
+        for entry in block["entries"]:
+            start = seq_addr(rom, entry["seq"])
+            p = start
+            for _ in range(8192):
+                b = rom[p]
+                if b >= 0x80:
+                    p += 1
+                    continue
+                if b <= 0x08:
+                    p += 1 + (b // 2 + 1)
+                elif b in (0x0A, 0x0C, 0x0E, 0x10, 0x12):
+                    p += 1 + ((b - 0x0A) // 2 + 1) + 1
+                elif b == 0x14:
+                    p += 2
+                elif b == 0x18:
+                    vi = rom[p + 1]
+                    if vi not in seen:
+                        seen.add(vi)
+                        order.append(vi)
+                    p += 2
+                elif b in (0x38, 0x3A, 0x3C, 0x3E):
+                    p += 2
+                elif b == 0x1C:
+                    break
+                else:
+                    p += 1
+            else:
+                raise RuntimeError("runaway voice scan (no LOOP terminator)")
+    return order
+
+
+def build_native_patch_bank(rom, channels_data, bank):
+    """Build the per-song dense FmPatch bank + abs-voice -> local-idx remap.
+    Returns (bank_bytes, remap, count)."""
+    order = collect_native_voices(rom, channels_data)
+    remap = {}
+    out = bytearray()
+    for vi in order:
+        remap[vi] = len(remap)
+        out.extend(translate_voice(bank[vi]))
+    return bytes(out), remap, len(remap)
+
+
+def build_native_songdesc(rom, pitchtable_offset=0):
+    """Translate Moving Trucks (real song data) into a packer SongDesc + return the
+    per-channel opcode stats and the patch bank info.
+
+    Returns (song, stats, (bank_bytes, remap, pcount)).
+    pitchtable_offset: BE offset (relative to the song header) of the per-song
+    pitch table within the streaming block; 0 = engine-default table.
+    """
+    bank = _load_voice_bank(rom)
+    channels_data = parse_song(rom)
+    bank_bytes, remap, pcount = build_native_patch_bank(rom, channels_data, bank)
+
+    stats_all = []
+    channels = []
+    for ci, block in enumerate(channels_data):
+        if ci >= len(NATIVE_FM_ROUTES):
+            break
+        route = NATIVE_FM_ROUTES[ci]
+        stats = {"pitchenv": 0, "regdelta": 0, "patch": 0, "pan": 0,
+                 "opbias": 0, "rest": 0, "vol_dropped": 0, "glide_emitted": 0}
+        walker = _Walker(rom, bank, remap, stats)
+        # per-channel re-key window (the cadence-coalescing floor) — see
+        # REKEY_WINDOW_TICKS: port-0/even-frame channels (ch0-3) re-key at ~3 ticks,
+        # odd-frame channels (ch4-5) at ~2 ticks (the closest integer to the oracle's
+        # measured 1.5-tick / ~87 ms re-attack).
+        walker.rekey_window = (REKEY_WINDOW_TICKS[ci]
+                               if ci < len(REKEY_WINDOW_TICKS) else 3)
+        # ch5 is the percussion (bass-drum) channel: honor its dense `GATE PITCH W`
+        # groove cells as per-hit note-offs (the punch). All other channels keep the
+        # melodic legato interpretation (gate-then-pitch = re-key flag, not release).
+        # See _Walker.gate_pitch_noteoff. The bare `GATE W` release path stays on for
+        # every channel (it already matched the oracle).
+        walker.gate_pitch_noteoff = (route == CHROUTE_FM6)
+        # No octave correction for the correct song (Bank2 song4): its PITCH points
+        # already render to the oracle's per-channel block band. octave_cap=None ->
+        # octave_cap_idx is an identity pass-through (see OCTAVE CORRECTION above).
+        walker.octave_cap = _OCTAVE_CAP_DEFAULT
+        # The channel's FIRST voice -> the leading-setup Patch (below). We do NOT
+        # prime the walker's prev_fp with it: the body's first VOICE command must
+        # emit a full Patch (computed vs prev_fp=None) so the opening voice is
+        # correctly (re)loaded on EVERY loop iteration — the body is what runs each
+        # loop, the leading setup runs only once before the loop. (The redundant
+        # one-time double-load of the opening voice on the very first play is a
+        # harmless zero-tick Patch.)
+        first_vi = _channel_first_voice(rom, block)
+        if first_vi is not None:
+            walker.first_local = remap[first_vi]
+
+        # --- translate every pattern body (the walker carries voice state across
+        # patterns so cross-pattern voice-steps stay minimal deltas). ---
+        bodies = []
+        tempo_base = MT_FORMAT_CODE
+        for entry in block["entries"]:
+            # per-pattern tempo override (non-zero replaces the base). MT only sets
+            # it on entry 0 (= the song format code); recorded for completeness.
+            if entry["tempo"] != 0:
+                tempo_base = entry["tempo"]
+            walker.tempo_base = tempo_base    # glide_frames -> ticks pacing
+            body = walker.walk_body(seq_addr(rom, entry["seq"]),
+                                    entry["transpose"])
+            bodies.append((body, entry["repeat"]))
+
+        # --- leading setup: Patch(first voice) + Vol so the packer accepts the FM
+        # channel (the guard wants Patch+Vol before the first keyed note). The
+        # walker's first VOICE inside the body is the SAME voice (Patch), so the
+        # re-key rule / minimal-delta logic stays consistent. ---
+        # Full volume (no carrier attenuation): Moving Trucks emits no source VOL
+        # commands, so the driver default is max. A lower fixed Vol (was 110) adds
+        # LogVolumeLut attenuation to the carriers (110 -> +4) and saps the kick's
+        # punch; the oracle's carriers sit at base TL with dynamics from voice-steps.
+        events = [Patch(walker.first_voice_local() if remap else 0), Vol(127)]
+        # #4 GATE ARTICULATION: give the percussion (bass-drum) channel a staccato gap
+        # by keying each hit OFF a few frames after attack (per-channel note-fill master,
+        # set once before the loop point — it persists). Matches the B&R reference's ~84%
+        # FM6 duty vs our 100% legato. Other channels stay legato (no NoteFill).
+        if route == CHROUTE_FM6 and NATIVE_FM6_NOTEFILL > 0:
+            events.append(NoteFill(NATIVE_FM6_NOTEFILL))
+        events.append(LoopPoint())
+        for body, repeat in bodies:
+            if not body:
+                continue
+            repeat = max(1, min(255, repeat))
+            events.append(RepeatStart())
+            # ChannelReset parity: the Zyrinx driver clears all 4 per-operator TL
+            # biases (op_mod) at EVERY pattern/loop boundary ($044F). Reset them at
+            # each body start so a prior pattern's OpBias cannot leak into this
+            # voice -- e.g. seq123 sets OP1-4=$0F and the following bass (seq114)
+            # only resets OP2, so without this OP1/OP3/OP4 stayed biased and the
+            # bass came back wrong (~12 measures in). Placed INSIDE the RepeatStart
+            # so it re-clears on every repeat iteration, exactly like ChannelReset.
+            events.extend([OpBias(0, 0), OpBias(1, 0), OpBias(2, 0), OpBias(3, 0)])
+            events.extend(body)
+            events.append(RepeatEnd(repeat))
+        events.append(Jump())
+
+        channels.append(ChannelDesc(route, events))
+        stats["porta_dropped"] = walker.porta_dropped
+        stats["route"] = route
+        stats["tempo_base"] = tempo_base
+        stats_all.append(stats)
+
+    # FM6=FM (DAC off) + stream from ROM. tempo_base = the song format code ($38).
+    song = SongDesc(tempo=MT_FORMAT_CODE, tempo_base=MT_FORMAT_CODE,
+                    channels=channels, flags=SH_F_FM6_FM | SH_F_STREAM)
+    song.pitchtable_offset = pitchtable_offset   # carried into pack_song below
+    return song, stats_all, (bank_bytes, remap, pcount)
+
+
+def emit_native_song(rom=None, song_out=None, patches_out=None,
+                     pitchtab_out=None, song_label="Song_MovingTrucks",
+                     patch_label="MovingTrucks_Patches",
+                     pitchtab_label="MovingTrucks_PitchTable_Stream"):
+    """Generate the three native Moving Trucks data files (song / patch bank /
+    streaming pitch table) and return a report dict.
+
+    The streaming block layout (one bank-aligned 32KB bank, set up in main.asm)
+    is [song][pitch table][patch bank], contiguous. The song header's
+    pitchtable_ptr is the BE offset of the pitch table = len(packed song); the
+    loader resolves it to an absolute window ptr (base + offset). The patch bank
+    ptr is wired separately via SongPatchTable (its own window ptr).
+    """
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.normpath(os.path.join(here, ".."))
+    if rom is None:
+        rom = open(ROM_PATH, "rb").read()
+    if song_out is None:
+        song_out = os.path.join(root, "data", "sound", "song_movingtrucks.asm")
+    if patches_out is None:
+        patches_out = os.path.join(root, "data", "sound",
+                                   "movingtrucks_patches.asm")
+    if pitchtab_out is None:
+        pitchtab_out = os.path.join(root, "data", "sound",
+                                    "movingtrucks_pitchtable_stream.asm")
+
+    # First pass: pack with pitchtable_ptr=0 to learn the packed song length (=
+    # the pitch table's offset, since it is placed immediately after the song).
+    song0, _, _ = build_native_songdesc(rom, pitchtable_offset=0)
+    song_len = len(pack_song(song0))
+
+    # Second pass: pack with the real pitch-table offset embedded in the header.
+    song, stats_all, (bank_bytes, remap, pcount) = build_native_songdesc(
+        rom, pitchtable_offset=song_len)
+    blob = pack_song(song, pitchtable_offset=song_len)
+
+    # --- write the song .asm (with the real pitchtable_ptr in the header) ---
+    _write_blob_asm(blob, song_label, song_out)
+
+    # --- write the per-song FmPatch bank (reuse zyrinx_port's emitter) ---
+    with open(patches_out, "w") as f:
+        f.write(emit_patch_bank_asm(bank_bytes, remap, pcount, patch_label))
+
+    # --- write the streaming-block copy of the 132-entry pitch table (distinct
+    # label so it doesn't collide with the engine-default inline copy; dc.b since
+    # it lives in the 68k ROM data area, not the Z80 phase-0 blob). ---
+    write_pitchtable_asm(pitchtab_out, label=pitchtab_label, directive="dc.b")
+
+    return {
+        "song_bytes": len(blob),
+        "song_label": song_label,
+        "patch_count": pcount,
+        "patch_bytes": len(bank_bytes),
+        "pitchtable_bytes": 2 * PITCHTAB_COUNT,
+        "pitchtable_offset": song_len,
+        "channels": stats_all,
+        "song_out": song_out,
+        "patches_out": patches_out,
+        "pitchtab_out": pitchtab_out,
+    }
+
+
+def _write_blob_asm(blob, label, out_path):
+    """Emit a packed song blob as a labeled dc.b block (same shape as
+    song_packer.emit_asm, but for a blob already packed with a pitchtable_ptr)."""
+    lines = []
+    lines.append("; " + "=" * 70)
+    lines.append("; %s.asm — GENERATED by tools/zyrinx_player.py "
+                 "(emit_native_song) — DO NOT EDIT BY HAND." % label)
+    lines.append("; Native port of B&R \"Moving Trucks\" (Zyrinx Bank2 song4 @ $1F0BDF,")
+    lines.append("; real song data — NOT a register replay). Regenerate:")
+    lines.append(";   python3 tools/zyrinx_player.py --emit-native-song")
+    lines.append("; Stream pointers in the header are 16-bit BE offsets relative to")
+    lines.append("; the %s label (loader adds the base). FM6=FM, streamed." % label)
+    lines.append("; " + "=" * 70)
+    lines.append("")
+    lines.append("%s:" % label)
+    for i in range(0, len(blob), 16):
+        chunk = blob[i:i + 16]
+        lines.append("    dc.b   " + ", ".join("$%02X" % b for b in chunk))
+    lines.append("%s_End:" % label)
+    lines.append("")
+    lines.append("    align 2")
+    with open(out_path, "w") as f:
+        f.write("\n".join(lines))
+        f.write("\n")
+
+
 # ----------------------------------------------------------------------------
 # VGM rendering
 # ----------------------------------------------------------------------------
@@ -574,6 +1607,41 @@ def render_vgm(channels, path, duration_s):
 
 
 def main():
+    # --emit-pitchtable: dump the 132-entry pitch table to the engine data dir
+    # (no ROM needed — the table is the hardcoded §2.4 dump).
+    if "--emit-pitchtable" in sys.argv:
+        import os
+        here = os.path.dirname(os.path.abspath(__file__))
+        out = os.path.normpath(os.path.join(
+            here, "..", "data", "sound", "movingtrucks_pitchtable.asm"))
+        write_pitchtable_asm(out)
+        print("wrote", out)
+        return
+
+    # --emit-native-song (Task 8): walk the REAL Moving Trucks song data and emit
+    # the native packed song + per-song FmPatch bank + streaming pitch table.
+    if "--emit-native-song" in sys.argv:
+        rep = emit_native_song()
+        print("wrote", rep["song_out"], "(%d bytes)" % rep["song_bytes"])
+        print("wrote", rep["patches_out"],
+              "(%d FmPatch records, %d bytes)"
+              % (rep["patch_count"], rep["patch_bytes"]))
+        print("wrote", rep["pitchtab_out"],
+              "(%d bytes, offset %d)"
+              % (rep["pitchtable_bytes"], rep["pitchtable_offset"]))
+        total = (rep["song_bytes"] + rep["pitchtable_bytes"]
+                 + rep["patch_bytes"])
+        print("streaming block total: %d bytes (fits one 32KB bank: %s)"
+              % (total, "YES" if total <= 0x8000 else "NO"))
+        for ci, st in enumerate(rep["channels"]):
+            print("  ch%d -> route %d: PITCHENV=%d REGDELTA=%d PATCH=%d "
+                  "PAN=%d OPBIAS=%d REST=%d (glides=%d vol_dropped=%d porta=%d)"
+                  % (ci, st["route"], st["pitchenv"], st["regdelta"],
+                     st["patch"], st["pan"], st["opbias"], st["rest"],
+                     st.get("glide_emitted", 0),
+                     st["vol_dropped"], st["porta_dropped"]))
+        return
+
     glide_as_vol = "--vol" in sys.argv
     duration_s = 159.0
     rom = open(ROM_PATH, "rb").read()
@@ -583,7 +1651,7 @@ def main():
 
     # event dump
     dump = {
-        "song": "Moving Trucks (B&R, Bank1 song3)",
+        "song": "Moving Trucks (B&R, Bank2 song4 @ $1F0BDF)",
         "frame_rate_hz": FODD,
         "duration_s": duration_s,
         "interpretation_0A_12": "vol" if glide_as_vol else "portamento",

@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
 """song_packer — build-time music song description -> packed bytes + .asm.
 
-A SongDesc (flags + tempo + list of ChannelDesc) packs to a self-contained blob:
+A SongDesc (flags + tempo + tempo_base + list of ChannelDesc) packs to a
+self-contained blob (Phase 3 C-ready header):
 
     SongHeader:
       db  flags            ; Sound 1D per-song playback mode (SH_F_* below)
-      db  tempo
+      db  tempo            ; LEGACY Timer-A selector (Phase 3: unused)
+      db  tempo_base       ; Phase 3 per-frame tempo accumulator base
       db  channel_count
+      dw  pitchtable_ptr   ; per-song pitch table BE offset (0 = engine default)
       ; per channel:
-      db  route ; dw stream_ptr      (xchannel_count)
+      db  route ; dw cmd_ptr ; dw mod_ptr     (xchannel_count)
       dw  patch_table_ptr
     <stream 0 bytes><stream 1 bytes>...
 
+Each channel descriptor commits a {cmd_ptr, mod_ptr} PAIR (the C-ready stream
+seam): cmd_ptr = the command stream (slot[0], always present), mod_ptr = the
+independent modulation stream (slot[1], 0/NULL for A / single-stream songs).
+Reaching the full dual-stream end state is purely additive — no header change.
+
 Stream pointers are 16-bit BIG-ENDIAN offsets RELATIVE TO THE START OF THE BLOB
-(the SongHeader label). The Task-6 loader adds the song's base address (the
-Z80 $8000-window pointer) to turn them into absolute fetch pointers; emitting
+(the SongHeader label). The loader adds the song's base address (the Z80
+$8000-window pointer) to turn them into absolute fetch pointers; emitting
 relative offsets here keeps pack_song hermetic and testable without a linker.
-patch_table_ptr is left 0 here (the packer doesn't own the FM patch table — the
-song_table/loader wires it; the field exists so the layout is final).
+pitchtable_ptr and patch_table_ptr are left 0 here (the packer doesn't own the
+pitch table or FM patch table — the song_table/loader wires them; the fields
+exist so the layout is final).
 
 emit_asm() writes the whole blob as `dc.b` (even-terminated, labeled) so the
 build can include it and the test can round-trip the exact bytes.
@@ -35,8 +44,16 @@ MEV_VOL = 0xE0
 MEV_PATCH = 0xE1
 MEV_DAC = 0xE2
 MEV_NOTE_DUR = 0xE3
+MEV_PAN = 0xE4               # + b4: set channel pan/AMS/FMS (raw YM $B4 byte)
+MEV_OPBIAS = 0xE9            # + op(0..3) + val(signed -128..127): per-op additive TL bias (neg=brighten)
+MEV_REGDELTA = 0xEA          # + count + count*(reg_sel, value): mid-note minimal
+                             # register deltas (voice-stepping). reg_sel =
+                             # (group_code<<2)|op; see RegDelta below.
 MEV_NOTE_RAW = 0xE7          # + a4 a0 dd: key a raw-frequency FM note (exact
                              # $A4/$A0) for duration dd, bypassing the pitch table
+MEV_PITCHENV = 0xE8          # + count + count idx bytes: pitch-envelope note +
+                             # key-on (each idx = absolute 0..$83 into the per-song
+                             # fnum table). count==1 = plain note; >=2 = trill/arp.
 # Bounded-repeat opcodes (Sound 1D Task 1). The sequencer interprets these in a
 # later engine task; for now the packer ENCODES them so a song can wrap a body
 # in a finite repeat instead of unrolling it (Moving Trucks would be ~100KB
@@ -45,6 +62,7 @@ MEV_REPEAT_START = 0xE5      # no operand: marks the start of a repeatable body
 MEV_REPEAT_END = 0xE6        # + nn: replay from the matching REPEAT_START nn times
 MEV_LOOP_POINT = 0xEE
 MEV_JUMP = 0xEF
+MEV_NOTEFILL = 0xED          # + master: per-channel note-fill (frames keyed from attack; 0=legato)
 MEV_END = 0xFF
 
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
@@ -131,6 +149,24 @@ class Vol(Event):
             raise PackError(f"Vol {self.vol} out of range 0..127")
 
 
+class NoteFill(Event):
+    """Gate articulation (#4): set the channel's note-fill master — the number of
+    frames a note stays keyed from its attack before an early key-off (a staccato gap
+    until the next attack). 0 = legato/off. Per-channel, persists until changed.
+    Zero-tick; the per-frame countdown + key-off run in the engine (ModUpdate)."""
+    def __init__(self, master: int):
+        self.master = master
+
+    def encode(self) -> bytes:
+        return bytes([MEV_NOTEFILL, self.master & 0xFF])
+
+    def validate(self, route):
+        if not (0 <= self.master <= 255):
+            raise PackError(f"NoteFill {self.master} out of range 0..255")
+        if route not in _FM_ROUTES:
+            raise PackError(f"NoteFill on non-FM route {route}")
+
+
 class Patch(Event):
     def __init__(self, patch: int):
         self.patch = patch
@@ -141,6 +177,53 @@ class Patch(Event):
     def validate(self, route):
         if route not in _FM_ROUTES:
             raise PackError(f"Patch on non-FM route {route}")
+
+
+class Pan(Event):
+    """Phase-3 pan: set the channel's pan/AMS/FMS (the raw YM $B4 byte). The
+    YM2612 $B4 layout is bit7 = LEFT-output enable, bit6 = RIGHT-output enable,
+    bits5-4 = AMS, bits2-0 = FMS. So hard-LEFT = $80, hard-RIGHT = $40, both
+    (center) = $C0, silent = $00 (with AMS/FMS = 0). Zero-tick coordination
+    setter; rendered to $B4+chan by ModUpdate write-on-change. FM-only effect.
+    This packer IS the transcoder, so it emits the hardware-correct $B4 byte."""
+    PAN_OFF = 0x00
+    PAN_LEFT = 0x80     # bit7 = Left output enable
+    PAN_RIGHT = 0x40    # bit6 = Right output enable
+    PAN_CENTER = 0xC0   # both
+
+    def __init__(self, b4: int):
+        self.b4 = b4
+
+    def encode(self) -> bytes:
+        return bytes([MEV_PAN, self.b4 & 0xFF])
+
+    def validate(self, route):
+        if not (0 <= self.b4 <= 0xFF):
+            raise PackError(f"Pan b4 {self.b4} out of byte range")
+
+
+class OpBias(Event):
+    """Phase-3 per-operator TL bias: add SIGNED `val` to operator `op`'s patch TL
+    (the $40-group). op = 0..3 (physical reg offset +0/+4/+8/+C = S1,S3,S2,S4).
+    `val` is signed -128..127: NEGATIVE brightens (reduces attenuation), POSITIVE
+    darkens. The engine clamps the sum to [0,$7F] (TL is 7-bit attenuation: $00 =
+    loudest, $7F = silent). Encoded as a two's-complement byte. Latched at the
+    next patch load / note (the Zyrinx key-on latch), so route an OpBias before a
+    Patch to apply it. Zero-tick. FM-only."""
+    def __init__(self, op: int, val: int):
+        self.op = op
+        self.val = val
+
+    def encode(self) -> bytes:
+        return bytes([MEV_OPBIAS, self.op & 0xFF, self.val & 0xFF])
+
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"OpBias on non-FM route {route}")
+        if not (0 <= self.op <= 3):
+            raise PackError(f"OpBias op {self.op} out of range 0..3")
+        if not (-128 <= self.val <= 127):
+            raise PackError(f"OpBias val {self.val} out of signed byte range -128..127")
 
 
 class Dac(Event):
@@ -192,6 +275,116 @@ class NoteRaw(Event):
             raise PackError(f"NoteRaw dur {self.dur} out of range 1..255")
 
 
+PITCHENV_MAX_IDX = 0x83      # absolute fnum-table index ceiling (132-entry table)
+
+
+class PitchEnv(Event):
+    """Phase-3 pitch-envelope note (Zyrinx-style). Sets 1..5 pitch points (each
+    an ABSOLUTE index 0..$83 into the per-song fnum table) and arms a (re)key;
+    the Z80 renders it via ModUpdate. count==1 = a plain note; count>=2 = a
+    trill/arp (cursor-cycled on the chip). Time-advancing (paced like a bare
+    Note by the channel's default duration / a following WAIT). FM-only."""
+    def __init__(self, points):
+        if isinstance(points, int):
+            points = [points]
+        self.points = list(points)
+
+    def encode(self) -> bytes:
+        return bytes([MEV_PITCHENV, len(self.points) & 0xFF]
+                     + [p & 0xFF for p in self.points])
+
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"PitchEnv on non-FM route {route}")
+        if not (1 <= len(self.points) <= 5):
+            raise PackError(
+                f"PitchEnv point count {len(self.points)} out of range 1..5")
+        for p in self.points:
+            if not (0 <= p <= PITCHENV_MAX_IDX):
+                raise PackError(
+                    f"PitchEnv point {p} out of range 0..{PITCHENV_MAX_IDX}")
+
+
+# --- reg_sel encoding (mirror of sound_constants.asm) ---------------------
+# reg_sel = (group_code << REGDELTA_GROUP_SHIFT) | op:
+#   op (bits 1-0)         = physical operator 0..3 (reg offset +0/+4/+8/+C = S1,S3,S2,S4)
+#   group_code (bits 5-2) = index into the per-operator register-group bases:
+#       0=$30 DT/MUL, 1=$40 TL, 2=$50 RS/AR, 3=$60 AM/D1R, 4=$70 D2R, 5=$80 D1L/RR.
+REGDELTA_OP_MASK = 0x03
+REGDELTA_GROUP_SHIFT = 2
+REGDELTA_GROUP_COUNT = 6
+# group_code constants for callers (the TL group op0 = the canonical lead voice-step).
+RD_GROUP_DT_MUL = 0   # $30
+RD_GROUP_TL = 1       # $40 (TL — the rapid lead voice-step)
+RD_GROUP_RS_AR = 2    # $50
+RD_GROUP_AM_D1R = 3   # $60
+RD_GROUP_D2R = 4      # $70
+RD_GROUP_D1L_RR = 5   # $80
+
+
+def reg_sel(group_code: int, op: int) -> int:
+    """Encode a reg_sel byte = (group_code << 2) | op (see the constants above)."""
+    if not (0 <= op <= 3):
+        raise PackError(f"reg_sel op {op} out of range 0..3")
+    if not (0 <= group_code < REGDELTA_GROUP_COUNT):
+        raise PackError(
+            f"reg_sel group_code {group_code} out of range 0..{REGDELTA_GROUP_COUNT-1}")
+    return (group_code << REGDELTA_GROUP_SHIFT) | op
+
+
+class RegDelta(Event):
+    """Phase-3 voice-stepping: write `count` per-operator YM2612 registers
+    IMMEDIATELY (mid-note) for the channel, part-aware. Each entry is a
+    (reg_sel, value) pair where reg_sel = (group_code<<2)|op encodes the
+    per-operator register group + operator (use reg_sel()/the RD_GROUP_* consts).
+
+    This is the MINIMAL-DELTA voice-step: a held note's timbre is swept by writing
+    only the registers that change between voice steps. The Zyrinx rapid lead step
+    differs by ONE byte (operator S1's TL = the $40 group op0), so a rapid step is
+    one RegDelta with a single (reg_sel(RD_GROUP_TL, 0), tl) pair.
+
+    Does NOT re-key (no $28 write, no SCF_REKEY): per the re-key rule only a pitch
+    change (PitchEnv) re-articulates. Zero-tick coordination setter; FM-only.
+
+    `entries` is a list of (reg_sel, value) tuples, or pass the convenience
+    RegDelta.tl(op, tl) classmethod for the common single-TL sweep step."""
+
+    def __init__(self, entries):
+        # accept a single (reg_sel, value) tuple too.
+        if entries and isinstance(entries[0], int):
+            entries = [tuple(entries)]
+        self.entries = [tuple(e) for e in entries]
+
+    @classmethod
+    def tl(cls, op: int, tl: int):
+        """Convenience: one operator-TL write (the canonical voice-step)."""
+        return cls([(reg_sel(RD_GROUP_TL, op), tl)])
+
+    def encode(self) -> bytes:
+        out = [MEV_REGDELTA, len(self.entries) & 0xFF]
+        for rs, val in self.entries:
+            out.append(rs & 0xFF)
+            out.append(val & 0xFF)
+        return bytes(out)
+
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"RegDelta on non-FM route {route}")
+        if not (1 <= len(self.entries) <= 255):
+            raise PackError(
+                f"RegDelta count {len(self.entries)} out of range 1..255")
+        for rs, val in self.entries:
+            if not (0 <= rs <= 0xFF):
+                raise PackError(f"RegDelta reg_sel {rs} out of byte range")
+            group = (rs >> REGDELTA_GROUP_SHIFT) & 0x0F
+            if group >= REGDELTA_GROUP_COUNT:
+                raise PackError(
+                    f"RegDelta reg_sel {rs:#04x} group_code {group} >= "
+                    f"{REGDELTA_GROUP_COUNT} (no such register group)")
+            if not (0 <= val <= 0xFF):
+                raise PackError(f"RegDelta value {val} out of byte range")
+
+
 class RepeatStart(Event):
     """Marks the start of a body that MEV_REPEAT_END replays. No operand."""
     def encode(self) -> bytes:
@@ -237,10 +430,22 @@ class ChannelDesc:
 
 
 class SongDesc:
-    def __init__(self, tempo: int, channels: list, flags: int = 0):
+    def __init__(self, tempo: int, channels: list, flags: int = 0,
+                 tempo_base: int = None):
         self.tempo = tempo
         self.channels = channels
         self.flags = flags          # SH_FLAGS byte (SH_F_* OR'd); 0 = 1C copy/DAC
+        # Phase 3: per-frame tempo accumulator base. The per-frame engine does a
+        # single `sub 16` per frame, so it can yield at most one event-tick per
+        # frame and REQUIRES tempo_base >= 16 (a value 1..15 packs but plays at a
+        # wildly wrong rate). Songs should set this explicitly via the
+        # frame-rate event-rate math. When omitted we fall back to the legacy
+        # `tempo` (Timer-A selector) but CLAMP it up to the 16 floor so the
+        # default can never produce a silent mis-tempo — a too-low legacy tempo
+        # plays at the slowest valid rate instead of breaking. pack_song still
+        # hard-validates the final value, so an explicit out-of-range value
+        # raises rather than being silently clamped.
+        self.tempo_base = max(16, tempo) if tempo_base is None else tempo_base
 
 
 # --- Packing --------------------------------------------------------------
@@ -267,7 +472,7 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
             saw_patch = True
         if isinstance(ev, Vol):
             saw_vol = True
-        if isinstance(ev, (Note, Rest, NoteDur, NoteRaw)) and not saw_first_note:
+        if isinstance(ev, (Note, Rest, NoteDur, NoteRaw, PitchEnv)) and not saw_first_note:
             # First time-advancing event of the channel: this is the first point
             # the chip is keyed. Each route class must be initialized first or it
             # plays the YM2612/SN76489 power-on garbage register state. The DAC
@@ -293,11 +498,12 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
         if isinstance(ev, LoopPoint):
             saw_loop = True
             loop_advances_time = False
-        if saw_loop and isinstance(ev, (Note, Rest, NoteDur, NoteRaw)):
-            # Note ($81..$DF), Rest ($80), NoteDur ($E3) advance the tick clock;
-            # all other events (SetDur, Vol, Patch, Dac, LoopPoint, Jump) are
-            # zero-tick. A loop body with no time-advancing event would spin the
-            # Z80 fetch loop forever (it never returns to the tick driver).
+        if saw_loop and isinstance(ev, (Note, Rest, NoteDur, NoteRaw, PitchEnv)):
+            # Note ($81..$DF), Rest ($80), NoteDur ($E3), NoteRaw ($E7), and
+            # PitchEnv ($E8) advance the tick clock; all other events (SetDur, Vol,
+            # Patch, Dac, LoopPoint, Jump) are zero-tick. A loop body with no
+            # time-advancing event would spin the Z80 fetch loop forever (it never
+            # returns to the tick driver).
             loop_advances_time = True
         if isinstance(ev, Jump):
             if not saw_loop:
@@ -318,19 +524,35 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
     return bytes(stream)
 
 
-def pack_song(song: SongDesc) -> bytes:
+def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
+    """Pack a SongDesc to bytes. pitchtable_offset (default 0 = engine default)
+    is the SongHeader pitchtable_ptr field — a 16-bit BE offset, relative to the
+    song header, of the per-song pitch table (for a streaming song that carries
+    its own table in the same bank). The loader resolves it to base+offset; 0
+    leaves the engine-default table in use. The copy-path scratch songs leave it
+    0 (their pitch table is the inline engine default)."""
     if not (0 <= song.tempo <= 0xFF):
         raise PackError(f"tempo {song.tempo} out of byte range")
+    if not (16 <= song.tempo_base <= 0xFF):
+        raise PackError(
+            f"tempo_base {song.tempo_base} out of range 16..255 (the per-frame "
+            f"tempo accumulator caps at one event-tick/frame; tempo_base<16 "
+            f"mis-plays)")
     if not (0 <= song.flags <= 0xFF):
         raise PackError(f"flags {song.flags} out of byte range")
     if not (1 <= len(song.channels) <= 0xFF):
         raise PackError("channel_count out of byte range")
+    if not (0 <= pitchtable_offset <= 0xFFFF):
+        raise PackError(
+            f"pitchtable_offset {pitchtable_offset} out of 16-bit range")
 
     streams = [_validate_channel(ch) for ch in song.channels]
 
     n = len(song.channels)
-    # flags, tempo, count, (route+dw)*n, dw patch_ptr (Sound 1D prepends flags).
-    header_len = 3 + 3 * n + 2
+    # Phase 3 C-ready header:
+    #   flags, tempo, tempo_base, count, dw pitchtable_ptr,
+    #   (route + dw cmd_ptr + dw mod_ptr)*n, dw patch_table_ptr.
+    header_len = 4 + 2 + 5 * n + 2
 
     # Stream offsets relative to blob start.
     offsets = []
@@ -342,11 +564,16 @@ def pack_song(song: SongDesc) -> bytes:
     out = bytearray()
     out.append(song.flags & 0xFF)
     out.append(song.tempo & 0xFF)
+    out.append(song.tempo_base & 0xFF)
     out.append(n & 0xFF)
+    out.append((pitchtable_offset >> 8) & 0xFF)   # pitchtable_ptr hi (BE)
+    out.append(pitchtable_offset & 0xFF)          # pitchtable_ptr lo (0 = default)
     for ch, off in zip(song.channels, offsets):
         out.append(ch.route & 0xFF)
-        out.append((off >> 8) & 0xFF)   # big-endian
+        out.append((off >> 8) & 0xFF)   # cmd_ptr big-endian
         out.append(off & 0xFF)
+        out.append(0x00)                # mod_ptr = 0 / NULL (single-stream A)
+        out.append(0x00)
     out.append(0x00)                    # patch_table_ptr hi (wired by loader)
     out.append(0x00)                    # patch_table_ptr lo
     for s in streams:
@@ -354,8 +581,8 @@ def pack_song(song: SongDesc) -> bytes:
     return bytes(out)
 
 
-def emit_asm(song: SongDesc, label: str) -> str:
-    blob = pack_song(song)
+def emit_asm(song: SongDesc, label: str, pitchtable_offset: int = 0) -> str:
+    blob = pack_song(song, pitchtable_offset=pitchtable_offset)
     lines = []
     lines.append("; ======================================================================")
     lines.append("; %s.asm — GENERATED by tools/song_packer.py — DO NOT EDIT BY HAND." % label)
@@ -373,7 +600,8 @@ def emit_asm(song: SongDesc, label: str) -> str:
     return "\n".join(lines)
 
 
-def write_asm(song: SongDesc, label: str, out_path: str) -> None:
+def write_asm(song: SongDesc, label: str, out_path: str,
+              pitchtable_offset: int = 0) -> None:
     with open(out_path, "w") as f:
-        f.write(emit_asm(song, label))
+        f.write(emit_asm(song, label, pitchtable_offset=pitchtable_offset))
         f.write("\n")

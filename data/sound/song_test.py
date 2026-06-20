@@ -36,9 +36,29 @@ C2, G2 = 24, 31
 
 PATCH_BASS, PATCH_LEAD = 0, 1   # enum in data/sound/fm_patches.inc
 
-# Note lengths in ticks. tempo $80 -> N=512 -> period 18.773us*(1024-512) =
-# 9611us -> ~104 ticks/sec, so a quarter note = 52 ticks = 0.5s = 120 BPM.
-Q, H = 52, 104   # quarter, half (both <= 127, the SetDur/NoteDur max)
+# --- Phase 3 frame-model tempo_base + note durations ----------------------
+# Phase 3 replaces the per-song Timer-A tempo with a FIXED frame clock
+# (SND_FRAME_HZ = 59 -> Timer-A N = 122 -> period 16.93ms -> ~59.06 frames/sec)
+# plus a per-channel tempo accumulator: each frame `tempo_accum -= 16`, and on a
+# BORROW `tempo_accum += tempo_base` and ONE event-tick runs (single tick per
+# frame — the engine does not catch up multiple ticks in one frame). For the
+# accumulator to stay BOUNDED, ticks/frame = 16/tempo_base must be <= 1, i.e.
+# tempo_base >= 16; tempo_base < 16 would demand >1 tick/frame and drift. So:
+#   EVENT-TICK rate = frame_rate * 16 / tempo_base,   with tempo_base >= 16,
+#   and the MAXIMUM event rate is the frame rate itself (tempo_base = 16).
+#
+# The 1C song ran at ~104 event-ticks/sec (Timer-A tempo $80) — ABOVE the 59.06 Hz
+# frame cap, so it cannot be reproduced tick-for-tick. We instead preserve the
+# WALL-CLOCK musical tempo by running the per-channel clock at the FULL frame rate
+# (TEMPO_BASE = 16 -> 59.06 event-ticks/sec, the max) and RESCALING the note
+# durations by the rate ratio 59.06/104.05 = 0.5676:
+#   1C quarter = 52 ticks @ 104.05 Hz = 0.500 s (120 BPM)
+#   P3 quarter = round(52 * 0.5676) = 30 ticks @ 59.06 Hz = 0.508 s (118 BPM)
+#   1C half    = 104 ticks                -> P3 half = 60 ticks @ 59.06 = 1.016 s
+# So the tune plays at the same pitch/rhythm and ~118 BPM (within ~1.5% of the
+# original 120 BPM). Q/H stay <= 127 (the SetDur/NoteDur max).
+TEMPO_BASE = 16
+Q, H = 30, 60   # quarter, half (rescaled for the 59.06 Hz frame clock)
 
 # Ode to Joy A-theme (16 notes): E E F G | G F E D | C C D E | E D D(half).
 MELODY = [E4, E4, F4, G4, G4, F4, E4, D4, C4, C4, D4, E4, E4, D4]   # 14 quarters
@@ -51,7 +71,7 @@ THIRDS = [C4, C4, D4, E4, E4, D4, C4, B3, A3, A3, B3, C4, C4, B3]   # 14 quarter
 
 
 def build_song() -> SongDesc:
-    return SongDesc(tempo=0x80, channels=[
+    return SongDesc(tempo=0x80, tempo_base=TEMPO_BASE, channels=[
         # FM1 — LEAD, the melody.
         ChannelDesc(CHROUTE_FM1, [
             Patch(PATCH_LEAD), Vol(95), SetDur(Q),

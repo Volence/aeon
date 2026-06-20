@@ -57,9 +57,9 @@ Z80_Sound_Start:
 ; The SkipPad (183) and DrainPad (204) are UNCHANGED — both additions live in the
 ; common prefix, which by construction lands equally on all three paths, so the
 ; pad-to-FILL balance is untouched. The poll's overflow handler (rearm + call
-; Sequencer_Tick) fires only on overflow (tempo $C0 -> ~208 Hz for the loaded
-; song, NOT per pass); that one
-; pass is momentarily longer — a bounded micro-perturbation (see BOUNDING below).
+; Sequencer_Frame) fires only on overflow — at the FIXED Phase-3 frame rate
+; (SND_TIMERA_N -> ~59.06 Hz), NOT per pass; that one pass is momentarily longer —
+; a bounded micro-perturbation (see BOUNDING below).
 ;
 ; --- COMMON PREFIX (run by ALL three paths) -------------------------------
 ;   di                            4
@@ -158,15 +158,16 @@ Z80_Sound_Start:
 ; ALL THREE = 400 cyc EXACTLY (0-cyc spread). Effective DAC rate:
 ;   dac_rate_hz(400) = 3579545 / 400 = 8948 Hz (int div; see SND_DAC_RATE_HZ).
 ;
-; --- BOUNDING the overflow handler (Task 5) --------------------------------
+; --- BOUNDING the overflow handler (Phase 3 per-frame engine) --------------
 ; On overflow the poll's `jp nz,SndDrv_TimerATick` is taken: re-arm Timer A + run
-; Sequencer_Tick FULLY INLINE (no channel slicing). Worst-case tick (a patch-load
-; ~2300-2600 cyc + the other channels, ~5000 cyc worst case) is ~12.5 sample-times.
-; The ring lead budget is SND_RING_LEAD_CAP (250) samples x SND_LOOP_CYC (400) ~
-; 100,000 cyc, so worst_tick_cyc (~5000) << that (~5%). The ring CANNOT underrun
-; across a tick. (A "service half the channels per overflow" split is held in
-; reserve and is NOT needed for 5 FM + 4 PSG.) The handler runs inside the loop's
-; `di` window and rejoins the dispatch so the pass still ends at EXACTLY ONE `ei`.
+; Sequencer_Frame FULLY INLINE (no channel slicing). Per active channel it runs
+; ModUpdate (write-on-change — a held note writes ~nothing per frame) + a tempo-
+; accumulator-gated event-tick. The cycle-budget spike (tools/cycle_budget_
+; phase3.md) bounds the worst frame against the ring-lead budget: SND_RING_LEAD_CAP
+; (250) samples x SND_LOOP_CYC (400) ~ 100,000 cyc. Write-on-change keeps the held
+; case tiny; full patch reloads (the dominant cost) are throttled in later tasks.
+; The handler runs inside the loop's `di` window and rejoins the dispatch so the
+; pass still ends at EXACTLY ONE `ei`.
 ; ======================================================================
 
 ; --- reset vector + IM1 VBlank vector ---
@@ -214,6 +215,18 @@ SndDrv_Init:
 .wait_ym:
         bit     7, (hl)
         jr      nz, .wait_ym
+
+        ; --- HARDWARE LFO ENABLE ONCE: $22 = $08 (LFO on, freq 0 ~3.98Hz). The
+        ; YM2612's GLOBAL low-freq oscillator drives every channel's AMS (tremolo)
+        ; and FMS (vibrato) depth bits carried in each patch's $B4 (fp_lr_ams_fms).
+        ; Without this master switch those depth bits are inert -> flat/static
+        ; voices. The Zyrinx/B&R driver runs the LFO at $22=$08; matching it brings
+        ; our held notes alive. Set ONCE (the reg persists; nothing else writes $22)
+        ; and BEFORE the addr port parks on $2A below. ($4000=reg via hl, $4001=data
+        ; via de — same idiom as the DAC enable.)
+        ld      (hl), SND_REG_LFO        ; $4000 = $22 (select LFO reg)
+        ld      a, 08h                   ; LFO enable (bit3) + freq 0 (~3.98 Hz)
+        ld      (de), a                  ; $4001 = $08
 
         ; --- DAC ENABLE ONCE (req 7): $2B = $80 (DAC mode on), then SELECT $2A
         ; once, then PRIME the $2A latch to $80 (DC center). After this the addr
@@ -265,12 +278,14 @@ SndDrv_Init:
         ld      a, SND_ALIVE_MARKER
         ld      (SND_STAT_ALIVE), a
 
-        ; The sequencer starts IDLE. Timer A is NOT programmed here (Task 6): the
-        ; song loader (Snd_LoadSong, from a SND_REQ_MUSIC request) clears the
-        ; sequencer state, inits channels from the loaded SongHeader, programs
-        ; Timer A from the header tempo, and arms SND_SEQ_ACTIVE. Until a song is
-        ; loaded, SND_SEQ_ACTIVE = 0 (cleared by the RAM clear at boot) so the
-        ; Timer-A poll's Sequencer_Tick is a no-op even if an overflow fires.
+        ; --- Phase 3: program Timer A to the FIXED frame rate ONCE, here at init.
+        ; Timer A is now the per-frame engine clock (SND_TIMERA_N -> ~59.06 Hz),
+        ; region-independent, NOT a per-song tempo selector. The DAC/idle-loop
+        ; Timer-A overflow poll fires Sequencer_Frame once per frame. The song
+        ; loader no longer (re)programs Timer A; musical tempo is per-channel via
+        ; the tempo accumulator. SND_SEQ_ACTIVE = 0 until a song loads, so the
+        ; per-frame engine is a no-op (returns early) even though the timer ticks.
+        call    Snd_TimerA_ProgramFixed
 
         ei                               ; state consistent -> allow the VBlank IRQ
         ; falls into the IDLE loop
@@ -300,7 +315,7 @@ SndDrv_Idle:
         ; --- Timer-A poll (sequencer tick clock while idle) ---
         ld      a, (SND_Z80_YM_A0)       ; YM status ($4000): bit0 = Timer A overflow
         and     SND_TIMERA_OVF_MASK
-        call    nz, SndDrv_IdleTick      ; overflow -> rearm + Sequencer_Tick
+        call    nz, SndDrv_IdleTick      ; overflow -> rearm + Sequencer_Frame
         ld      a, SND_REG_DAC_DATA      ; re-select $2A on the ADDR port ($4000)
         ld      (SND_Z80_YM_A0), a
         ld      a, 80h
@@ -308,12 +323,12 @@ SndDrv_Idle:
         ei                               ; VBlank IRQ may land here (between samples)
         jp      SndDrv_Idle
 
-; --- Idle-context Timer-A tick: rearm + advance the song one tick, then restore
-; de=$4001 (Sequencer_Tick clobbers de). Returns to the idle loop, which re-checks
+; --- Idle-context Timer-A frame: rearm + run the per-frame engine, then restore
+; de=$4001 (Sequencer_Frame clobbers de). Returns to the idle loop, which re-checks
 ; DAC_ACTIVE at the top so a $E2-armed sample enters the streaming loop next pass.
 SndDrv_IdleTick:
         call    Snd_TimerA_Rearm         ; clear overflow, keep counting, re-park $2A
-        call    Sequencer_Tick           ; advance the song (clobbers af,bc,de,hl,ix)
+        call    Sequencer_Frame          ; run one per-frame engine pass (clobbers af,bc,de,hl,ix)
         ld      de, SND_Z80_YM_A1        ; restore de = $4001 (DAC DATA port invariant)
         ret
 
@@ -354,13 +369,13 @@ SndDrv_Sample:
         ; PREFIX *before* the DMA dispatch so ALL THREE paths (FILL/SKIP/DRAIN) run
         ; it -> the K=30 cyc cost is common to every path, no pad rebalance needed.
         ; Reads YM status off $4000 (the addr port, RAM-mapped I/O, never ROM —
-        ; DMA-safe). On overflow: rearm + Sequencer_Tick, then rejoin at .afterPoll.
-        ; `b` (the stashed lead) is re-derived after the handler (Sequencer_Tick
+        ; DMA-safe). On overflow: rearm + Sequencer_Frame, then rejoin at .afterPoll.
+        ; `b` (the stashed lead) is re-derived after the handler (Sequencer_Frame
         ; clobbers b, so SndDrv_TimerATick re-reads the lead before .afterPoll).
 .timerA_poll:
         ld      a, (SND_Z80_YM_A0)       ; read YM status ($4000): bit0 = Timer A overflow
         and     SND_TIMERA_OVF_MASK      ; isolate overflow bit
-        jp      nz, SndDrv_TimerATick    ; overflow -> rearm + Sequencer_Tick, then rejoin
+        jp      nz, SndDrv_TimerATick    ; overflow -> rearm + Sequencer_Frame, then rejoin
 .afterPoll:
         ld      a, (SND_CTRL_DMA_ACTIVE)
         or      a
@@ -447,9 +462,10 @@ SndDrv_ISR:
         push    de
         push    hl
         call    SndDrv_PollMailbox       ; RAM + $6000 latch only -> DMA-safe
-        ; (Task 5: the per-VBlank Sequencer_Tick PUMP that lived here is REMOVED.
-        ; Sequencer_Tick is now driven ONLY by the DAC-loop's Timer-A overflow poll
-        ; -> SndDrv_TimerATick. Driving it from both would double-clock the song.)
+        ; (Task 5: the per-VBlank sequencer PUMP that lived here is REMOVED. The
+        ; per-frame engine (Sequencer_Frame) is driven ONLY by the DAC/idle-loop
+        ; Timer-A overflow poll -> SndDrv_TimerATick/SndDrv_IdleTick. Driving it
+        ; from both would double-clock the song.)
         pop     hl
         pop     de
         pop     bc
@@ -638,22 +654,24 @@ SndDrv_SetBank:
         ret
 
 ; ======================================================================
-; SndDrv_TimerATick — the Timer-A overflow handler (Task 5). Reached ONLY from
-; the common-prefix poll's `jp nz` when YM status bit0 (Timer A overflow) is set.
-; Runs INSIDE the streaming loop's `di` window (so Sequencer_Tick is non-reentrant
-; w.r.t. the VBlank ISR — the tick and the ISR can never interleave). Steps:
+; SndDrv_TimerATick — the Timer-A overflow handler (now the PER-FRAME tick, Phase
+; 3). Reached ONLY from the common-prefix poll's `jp nz` when YM status bit0
+; (Timer A overflow) is set — at the FIXED frame rate. Runs INSIDE the streaming
+; loop's `di` window (so Sequencer_Frame is non-reentrant w.r.t. the VBlank ISR —
+; the frame engine and the ISR can never interleave). Steps:
 ;   1. Snd_TimerA_Rearm  — clear the overflow flag (timer keeps counting from N).
-;   2. call Sequencer_Tick — advance the song one tick (FULLY INLINE, no slicing;
-;      see the BOUNDING note in the proof — worst tick << ring lead, no underrun).
-;   3. re-read the lead into `b` (Sequencer_Tick clobbers b) and rejoin .afterPoll
+;   2. call Sequencer_Frame — run one per-frame engine pass (per active channel:
+;      ModUpdate + tempo-accumulator-gated event-tick). FULLY INLINE, no slicing;
+;      see the BOUNDING note in the proof — worst tick << ring lead, no underrun.
+;   3. re-read the lead into `b` (Sequencer_Frame clobbers b) and rejoin .afterPoll
 ;      so this pass still runs the DMA/SKIP/FILL dispatch and ends at the ONE `ei`.
 ; Re-parks reg $2A on $4000 after the rearm's $27 write (the consumer re-selects
 ; $2A every sample anyway, but Snd_TimerA_Rearm already re-parks — defensive).
 ; ======================================================================
 SndDrv_TimerATick:
         call    Snd_TimerA_Rearm         ; $27 = $15 (clear overflow, keep counting), re-park $2A
-        call    Sequencer_Tick           ; advance the song one tick (clobbers af,bc,de,hl,ix)
-        ; Sequencer_Tick clobbered b (and de). Restore the loop invariants the
+        call    Sequencer_Frame          ; run one per-frame engine pass (clobbers af,bc,de,hl,ix)
+        ; Sequencer_Frame clobbered b (and de). Restore the loop invariants the
         ; dispatch tail needs: de = $4001, and b = the lead (WR-RD)&$FF.
         ld      de, SND_Z80_YM_A1        ; restore de = $4001 (DAC DATA port invariant)
         ld      a, (SND_RING_RD)
@@ -687,6 +705,37 @@ Snd_TimerA_Program:
         xor     a
         ld      (SND_Z80_YM_A1), a       ; $4001 = N bits 1..0 = 0
         ; $27 = LOAD:A | ENBL:A -> start the counter and let overflow raise the flag.
+        ld      a, SND_REG_TIMER_CTRL    ; $27
+        ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
+        ld      a, SND_TIMERA_CTRL_PROGRAM ; $05 = LOAD:A | ENBL:A
+        ld      (SND_Z80_YM_A1), a       ; $4001 = program Timer A
+        ; re-park reg $2A on the addr port for the DAC consumer.
+        ld      a, SND_REG_DAC_DATA      ; $2A
+        ld      (SND_Z80_YM_A0), a
+        ret
+
+; ======================================================================
+; Snd_TimerA_ProgramFixed — load + enable Timer A at the FIXED Phase-3 frame
+; rate (SND_TIMERA_N, build-time-computed from SND_FRAME_HZ). Writes the full
+; 10-bit N: $24 = N>>2 (bits 9..2), $25 = N&3 (bits 1..0), $27 = $05
+; (LOAD:A | ENBL:A). Unlike Snd_TimerA_Program (which took a tempo byte and
+; forced $25 = 0), this writes both N bytes from the build-time constant so the
+; frame rate is exact and region-independent. ENBL:A (bit2) is REQUIRED so the
+; overflow raises the status flag the common-prefix poll reads. ABSOLUTE
+; addressing (preserve de = $4001); re-parks reg $2A on $4000. Clobbers af.
+; ======================================================================
+Snd_TimerA_ProgramFixed:
+        ; $24 = N>>2 (MSB) — write MSB before LSB.
+        ld      a, SND_REG_TIMER_A_HI    ; $24
+        ld      (SND_Z80_YM_A0), a       ; select $24 on $4000
+        ld      a, SND_TIMERA_N>>2       ; N bits 9..2 (build-time constant)
+        ld      (SND_Z80_YM_A1), a       ; $4001 = N>>2
+        ; $25 = N&3 (LSB).
+        ld      a, SND_REG_TIMER_A_LO    ; $25
+        ld      (SND_Z80_YM_A0), a       ; select $25 on $4000
+        ld      a, SND_TIMERA_N&3        ; N bits 1..0
+        ld      (SND_Z80_YM_A1), a       ; $4001 = N&3
+        ; $27 = LOAD:A | ENBL:A -> start the counter, let overflow raise the flag.
         ld      a, SND_REG_TIMER_CTRL    ; $27
         ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
         ld      a, SND_TIMERA_CTRL_PROGRAM ; $05 = LOAD:A | ENBL:A
@@ -872,11 +921,29 @@ Snd_LoadSong:
 .cc_ok:
         ld      (SND_SEQ_CHCOUNT), a
         ld      c, a                     ; c = channel count (loop bound)
+
+        ; --- Phase 3: cache the header tempo_base + per-song pitch-table ptr (iy
+        ; still = song base). tempo_base seeds each channel's accumulator below;
+        ; the pitch-table ptr (BE offset; 0 = engine default) is cached for
+        ; ModUpdate's pitch renderer (Task 3) — a 0 offset stays 0 (use default). ---
+        ld      a, (iy+SH_TEMPO_BASE)
+        ld      (SND_SEQ_TEMPO_BASE), a
+        ld      h, (iy+SH_PITCHTAB_HI)   ; BE: high byte first
+        ld      l, (iy+SH_PITCHTAB_LO)
+        ld      a, h
+        or      l
+        jr      z, .pitchtab_default     ; offset 0 -> leave Snd_PitchTabPtr = 0 (default)
+        ld      de, (Snd_SongBase)
+        add     hl, de                   ; absolute ptr = base + offset
+.pitchtab_default:
+        ld      (Snd_PitchTabPtr), hl    ; 0 (default) or base+offset
+        ld      a, c                     ; restore a = channel count (clobbered above)
+
         or      a
         jp      z, .arm                  ; 0 channels -> nothing to init (still arm)
 
         ; iterate the per-channel header records, filling each SeqChannel.
-        ; iy = header record ptr (3 bytes each, starting at base+SH_CHANNELS);
+        ; iy = header record ptr (SHC_LEN bytes each, from base+SH_CHANNELS);
         ; ix = SeqChannel ptr.
         ld      ix, SND_SEQ_CHANNELS
         ld      bc, SH_CHANNELS
@@ -888,13 +955,26 @@ Snd_LoadSong:
         ; route byte.
         ld      a, (iy+SHC_ROUTE)
         ld      (ix+sc_route), a
-        ; stream_ptr: BIG-ENDIAN 16-bit OFFSET in the header -> add the song base.
-        ld      h, (iy+SHC_PTR_HI)       ; high byte first (big-endian)
-        ld      l, (iy+SHC_PTR_LO)
+        ; cmd_ptr (slot[0]): BIG-ENDIAN 16-bit OFFSET in the header -> add the base.
+        ld      h, (iy+SHC_CMD_HI)       ; high byte first (big-endian)
+        ld      l, (iy+SHC_CMD_LO)
         ld      de, (Snd_SongBase)
         add     hl, de                   ; hl = base + offset (RAM or window address)
         ld      (ix+sc_stream_ptr), l
         ld      (ix+sc_stream_ptr+1), h
+        ; mod_ptr (slot[1], C-ready seam): BIG-ENDIAN offset; 0 = NULL (single
+        ; stream A). A 0 offset stays 0 (NULL) — only a nonzero offset is rebased
+        ; to base+offset. Phase 3a never reads it; it is committed for C.
+        ld      h, (iy+SHC_MOD_HI)
+        ld      l, (iy+SHC_MOD_LO)
+        ld      a, h
+        or      l
+        jr      z, .mod_null             ; offset 0 -> leave sc_mod_ptr = NULL (0)
+        ld      de, (Snd_SongBase)
+        add     hl, de
+        ld      (ix+sc_mod_ptr), l
+        ld      (ix+sc_mod_ptr+1), h
+.mod_null:
         ; flags: ACTIVE + route-class bit (FM / PSG / DAC) from the route value.
         ld      a, (iy+SHC_ROUTE)
         call    Snd_RouteClassFlags      ; a = SCF_ACTIVE | class bit (for this route)
@@ -902,6 +982,28 @@ Snd_LoadSong:
         ; sensible default volume + first-tick-fetches-immediately.
         ld      (ix+sc_volume), 100
         ld      (ix+sc_dur_count), 1
+        ; --- Phase 3 per-channel state ---
+        ; tempo accumulator: base from the header (SH_TEMPO_BASE), accum seeded =
+        ; base so the FIRST frame's `sub 16` starts counting toward an event-tick.
+        ; For tempo_base=16, frame 0 yields accum=0 with NO borrow, so the first
+        ; event-tick lands on frame 1 (~17 ms later), not frame 0 — harmless and
+        ; inaudible (matches the dur_count=1 "fetch on the first tick" intent).
+        ld      a, (SND_SEQ_TEMPO_BASE)  ; cached header tempo_base
+        ld      (ix+sc_tempo_base), a
+        ld      (ix+sc_tempo_accum), a
+        ; ModUpdate held-note no-op path needs a known baseline: a single plain
+        ; note (pt_count=1) and a forced first patch load (last_patch=$FF != any
+        ; real patch index, so the first ModUpdate patch render would reload).
+        ld      (ix+sc_pt_count), 1
+        ld      (ix+sc_last_patch), 0FFh
+        ; sc_note force sentinel ($FF): the Phase-3 re-key rule (ModUpdate count==1)
+        ; gives a FRESH attack only when the rendered index differs from sc_note (the
+        ; last-keyed index); a SAME index is a held no-attack (the WAIT/voice-step
+        ; case). $FF is not a valid fnum-table index (0..$83), so the FIRST
+        ; MEV_PITCHENV on any channel ALWAYS differs -> the first note always attacks
+        ; (no silent-first-note if the song opens on index 0). Mirrors the $FF
+        ; force-reload sentinel used for sc_last_patch above.
+        ld      (ix+sc_note), 0FFh
         ; advance to the next header record + SeqChannel.
         ld      de, SHC_LEN
         add     iy, de
@@ -918,11 +1020,14 @@ Snd_LoadSong:
         xor     a
         ld      (SND_SEQ_TRACE_WR), a
         ld      (SND_SEQ_BADOP), a
-        ; tempo -> Timer A (the song's tick clock). Read via the song base.
+        ; Phase 3: Timer A is the FIXED frame clock, programmed ONCE at driver init
+        ; (Snd_TimerA_ProgramFixed); the song loader no longer (re)programs it.
+        ; Musical tempo is per-channel via the tempo accumulator (sc_tempo_base,
+        ; seeded above from the cached SH_TEMPO_BASE). We still cache the legacy
+        ; SH_TEMPO byte into SND_SEQ_TEMPO for visibility (it is otherwise unused).
         ld      iy, (Snd_SongBase)
         ld      a, (iy+SH_TEMPO)
         ld      (SND_SEQ_TEMPO), a
-        call    Snd_TimerA_Program
         ; arm the sequencer.
         ld      a, 1
         ld      (SND_SEQ_ACTIVE), a
@@ -956,10 +1061,10 @@ Snd_RouteClassFlags:
         ret
 
 ; ======================================================================
-; Music sequencer core (Sound 1C, Task 2) — opcode interpreter.
-; Included INSIDE the phase-0 blob so its labels (Sequencer_Tick, the jump
-; table, the handlers) resolve into Z80 RAM. Hardware-agnostic; the writer
-; hooks are `ret` stubs this task. (Comes after the helpers, before the
+; Music sequencer core — opcode interpreter + the Phase-3 per-frame engine.
+; Included INSIDE the phase-0 blob so its labels (Sequencer_Frame, ModUpdate, the
+; jump table, the handlers) resolve into Z80 RAM. Hardware-agnostic; the writer
+; hooks call the Fm_*/Psg_* writers. (Comes after the helpers, before the
 ; even-pad, per the blob layout law.)
 ; ======================================================================
         include "engine/sound_sequencer.asm"
@@ -987,6 +1092,21 @@ Snd_RouteClassFlags:
 ; direct Z80 addressing. Identical VALUES to the 68k ROM tables in
 ; data/sound/sound_tables.asm (decision 1: inline for 1C, not banked).
         include "engine/sound_tables_z80.asm"
+
+; --- Phase 3: engine-default per-song PITCH (fnum) table (GENERATED) ---
+; The exact Zyrinx Moving-Trucks 132-entry chromatic fnum table, TWO parallel
+; pages (A4 page then A0 page; see sound_constants.asm PITCHTAB_*). Included
+; INSIDE the phase-0 blob so Fm_NoteFromTable reads it with direct Z80 addressing.
+; It is the ENGINE-DEFAULT table: Fm_NoteFromTable uses Snd_PitchTabPtr when the
+; song header sets a per-song table, else falls back to this label. (A per-song
+; table would be referenced via the header's pitchtable_ptr; the scratch test song
+; sets pitchtable_ptr=0 and so uses THIS default.)
+        include "data/sound/movingtrucks_pitchtable.asm"
+
+        ; the two-page layout the engine indexes MUST match PITCHTAB_COUNT.
+        if (MovingTrucks_PitchTable_End - MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT
+          fatal "MovingTrucks_PitchTable wrong size: \{MovingTrucks_PitchTable_End - MovingTrucks_PitchTable} != \{2*PITCHTAB_COUNT}"
+        endif
 
 ; --- Inline FM patch table (Z80-addressable) ---
 ; Fm_PatchPtr indexes this by sc_patch (TEMP for 1C — Task 6 switches to the

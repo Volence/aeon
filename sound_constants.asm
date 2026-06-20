@@ -62,6 +62,9 @@ SND_Z80_YM_A2           = $4002                  ; addr part II (FM ch 4-6 regis
 SND_Z80_YM_A3           = $4003                  ; data part II
 SND_REG_DAC_DATA        = $2A                    ; YM reg: DAC sample byte (parked in the addr port)
 SND_REG_DAC_ENABLE      = $2B                    ; YM reg: bit7 = DAC mode (written ONCE at init)
+SND_REG_LFO             = $22                    ; YM reg: GLOBAL low-freq osc — bit3 = enable, bits0-2 = freq.
+                                                 ; Master switch for every channel's AMS(tremolo)/FMS(vibrato)
+                                                 ; depth in $B4. Written ONCE at init ($08 = on, ~3.98Hz).
 
 ; --- YM2612 FM register bases (Task 3 FM voice writer) ---
 ; Per-channel regs add the channel-within-part index (0..2): e.g. $A0+ch.
@@ -82,7 +85,7 @@ SND_FM_TL_MAX           = $7F                    ; TL is 7-bit; $7F = silent, 0 
 ; Timer A regs — the MegaPCM-2 streaming loop is still the SAMPLE clock (loop
 ; trip-time, req 9). Timer A is now the SEQUENCER TICK clock (Sound 1C Task 5):
 ; the DAC loop polls Timer A's overflow flag once per pass (common prefix) and on
-; overflow re-arms + calls Sequencer_Tick. Timer A does NOT drive the DAC rate.
+; overflow re-arms + calls Sequencer_Frame. Timer A does NOT drive the DAC rate.
 SND_REG_TIMER_A_HI      = $24                    ; Timer A value bits 9..2
 SND_REG_TIMER_A_LO      = $25                    ; Timer A value bits 1..0
 SND_REG_TIMER_CTRL      = $27                    ; load/enable/reset Timer A & B
@@ -138,6 +141,28 @@ SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A 
 ym_timerA_n_from_tempo  function tb, ((tb) << 2)                          ; N = tempo<<2
 ym_timerA_period_ns     function tb, ((1024 - ym_timerA_n_from_tempo(tb)) * 18773)
 ym_timerA_hz            function tb, (1000000000 / ym_timerA_period_ns(tb)) ; ticks/sec (int div)
+
+; --- Phase 3: FIXED per-frame engine rate (Timer-A is now the FRAME clock) -----
+; The Phase-3 engine runs one frame per Timer-A overflow at a FIXED ~59.4 Hz,
+; region-independent. The 10-bit Timer-A reload N is computed at BUILD time from
+; the target rate via a function (never a magic literal): the overflow period is
+; 18.773us * (1024 - N), so N = 1024 - period/18.773us, and the period for `hz`
+; is (1/hz) seconds = 1e9/hz ns. Hence N = 1024 - (1e9 / (hz * 18773)).
+;   SND_FRAME_HZ = 59 -> N = 1024 - (1000000000 / (59*18773))
+;                      = 1024 - (1000000000 / 1107607) = 1024 - 902 = 122,
+;   period = 18.773us * (1024-122) = 16.93 ms -> 59.06 Hz (within ~0.6% of 59.4).
+; This REPLACES the per-song tempo->Timer-A programming (Snd_TimerA_Program);
+; musical tempo is now expressed per-channel via the tempo accumulator (Step 6),
+; not by the Timer-A reload.
+SND_FRAME_HZ            = 59
+timerAReload            function hz, 1024 - (1000000000 / ((hz) * 18773))
+SND_TIMERA_N           = timerAReload(SND_FRAME_HZ)
+
+        ; N must be a valid 10-bit Timer-A value (0..1023) and well clear of the
+        ; extremes; ~122 is expected for 59 Hz.
+        if (SND_TIMERA_N < 0) || (SND_TIMERA_N > 1023)
+          error "SND_TIMERA_N (\{SND_TIMERA_N}) out of the 10-bit Timer-A range 0..1023"
+        endif
 
 ; --- 1B: ring buffer (page-aligned, 256 bytes) ---
 SND_RING_BASE           = $1700                  ; Z80 addr; high byte $17 is the page
@@ -236,12 +261,84 @@ MEV_VOL         = $E0    ; + vv  : set channel volume (linear 0..127)
 MEV_PATCH       = $E1    ; + pp  : set FM patch index
 MEV_DAC         = $E2    ; + ss  : DAC trigger sample id (DAC channel only)
 MEV_NOTE_DUR    = $E3    ; + nn dd : note nn with explicit duration dd
-; $E4 reserved for MEV_PAN (Sound 1D Task 4 — do NOT define here).
+; --- Phase 3 Task 6: pan + per-operator TL bias --------------------------------
+MEV_PAN         = $E4    ; + b4 : set channel pan/AMS/FMS. The operand is the raw
+                         ; YM $B4 value (bits7-6 L/R, bits5-4 AMS, bits2-0 FMS).
+                         ; The transcoder computes this byte from the Zyrinx
+                         ; $30/$32/$34/$36 (off/R/L/C) pan commands -> L/R bits; the
+                         ; opcode just CARRIES it. Stored in sc_pan, rendered to
+                         ; $B4+chan by ModUpdate (write-on-change). Zero-tick. FM-only
+                         ; effect (non-FM routes store it harmlessly; ModUpdate's FM
+                         ; gate means nothing is written for them).
 MEV_NOTE_RAW    = $E7    ; + a4 a0 dd : key a RAW-frequency FM note (exact $A4/$A0
                          ; bytes) for duration dd, bypassing FmPitchTableZ. Lets a
                          ; VGM-derived song reproduce the original chip pitch
                          ; EXACTLY (incl. sub-C0 bass + microtuning the note table
                          ; can't reach). FM-only (PSG ignores). Sound 1D §5.2.
+; --- Phase 3: multi-point pitch envelope (Zyrinx-style note) -----------------
+; $E8 + count(1..5) + count note-index bytes : set the channel's pitch-envelope
+; points + key-on. Each note-index byte is an ABSOLUTE index 0..$83 into the
+; per-song fnum table (Snd_PitchTabPtr; engine default when 0). The handler
+; stores the points into sc_points[], sets sc_pt_count=count, sc_pt_cursor=0,
+; sets SCF_KEYED + SCF_REKEY (arms ModUpdate to (re)articulate), and advances
+; time like a bare note (reloads sc_dur_default). It writes the YM via ModUpdate,
+; NOT directly. count==1 = a plain held note (Task 3); count>=2 = a trill/arp
+; (cursor-cycled by ModUpdate in Task 4). FM-only.
+MEV_PITCHENV    = $E8    ; + count + count idx bytes : pitch-envelope note + key-on
+; --- Phase 3 Task 6: per-operator TL bias (Zyrinx OP1-4 $38-$3E -> IX+9/11/13/15)
+; + op(0..3) + val : add a per-operator additive TL bias to the patch's $40-group.
+; op is the PHYSICAL operator index (0..3 = reg offset +0/+4/+8/+C = S1,S3,S2,S4 —
+; the same index space as FmPatch's per-op arrays). val is a SIGNED byte (-128..127):
+; NEGATIVE brightens (reduces attenuation), POSITIVE darkens. It is added to the patch
+; TL and CLAMPED to 7 bits on BOTH ends (< 0 -> $00 max brightness, > $7F -> $7F silent;
+; TL is attenuation). Per
+; the RE (/tmp/zyrinx_re_modulation.md §6) the op-mod is a per-note additive TL bias
+; LATCHED at key-on / patch load and re-asserted as a CONSTANT (NOT a swept envelope),
+; so the bias is applied in Fm_PatchLoad when the $40-group is uploaded and takes
+; effect at the NEXT patch load / note — no per-frame cost. Stored in sc_opbias[op].
+; Zero-tick. FM-only (the packer routes it only to FM channels).
+MEV_OPBIAS      = $E9    ; + op(0..3) + val : per-operator additive TL bias
+; --- Phase 3 Task 5: voice-stepping via mid-note minimal register deltas --------
+; $EA + count + count*(reg_sel, value) : write `count` per-operator YM2612 registers
+; IMMEDIATELY (mid-note), for the CURRENT channel, PART-AWARE. This is the
+; voice-stepping primitive: a held note's timbre is swept by writing only the
+; registers that CHANGE between voice steps — verified against the Zyrinx lead
+; voice-step ($9C->$A0) which differs by EXACTLY ONE byte (operator S1's TL, the
+; $40 group op0), so a rapid step = ONE MEV_REGDELTA with count=1. We do NOT do a
+; full ~26-register patch reload per step (that is ~6,500 cyc — untenable per frame;
+; see tools/cycle_budget_phase3.md). A genuine instrument change at a note onset
+; still uses MEV_PATCH (full load); MEV_REGDELTA is the cheap mid-note sweep.
+;
+; reg_sel ENCODING (one byte) = (group_code << 2) | op:
+;   bits 1-0  op        = PHYSICAL operator index 0..3 (reg offset +0/+4/+8/+C =
+;                         S1,S3,S2,S4 — the same op index space as FmPatch's per-op
+;                         arrays and the carrier mask).
+;   bits 5-2  group_code= index 0..5 into RegDeltaGroupBase[] = the per-operator
+;                         register-group base: 0=$30(DT/MUL) 1=$40(TL) 2=$50(RS/AR)
+;                         3=$60(AM/D1R) 4=$70(D2R) 5=$80(D1L/RR). (Matches the
+;                         SND_REG_OP_* bases + the FmPatch group order.)
+;   bits 7-6  reserved (0).
+; The engine resolves ym_reg = RegDeltaGroupBase[group_code] + op*4 + ch-in-part
+; (ch-in-part + part from Fm_RoutePart) and writes `value` via Fm_YmWrite — so the
+; SAME opcode targets FM1..FM6 correctly with no per-channel encoding.
+;
+; APPLIES IMMEDIATELY (a direct YM write when the opcode executes — NOT routed
+; through ModUpdate; see the direct-write rationale in the handler comment), ZERO
+; command-tick (paced by the surrounding WAITs, like the other zero-tick setters),
+; and does NOT touch $28 (key) and does NOT arm SCF_REKEY — it is a pure TIMBRE
+; change of the HELD note (the RE-KEY RULE: re-articulation happens ONLY on a pitch
+; change via MEV_PITCHENV; voice/timbre changes never re-key). FM-only (the packer
+; routes it only to FM channels; a non-FM route consumes the operands but skips the
+; YM write via ModUpdate's/ the handler's FM gate).
+MEV_REGDELTA    = $EA    ; + count + count*(reg_sel, value) : mid-note minimal reg writes
+; --- Phase 3 Task 5: reg_sel field layout + the per-op register-group base table.
+; reg_sel = (group_code << REGDELTA_GROUP_SHIFT) | op. The engine masks `op` with
+; REGDELTA_OP_MASK and shifts out group_code to index RegDeltaGroupBase[] (defined
+; in engine/sound_fm.asm; REGDELTA_GROUP_COUNT entries, the 6 per-op groups).
+REGDELTA_OP_MASK     = $03      ; reg_sel bits 1-0 = op (0..3)
+REGDELTA_GROUP_SHIFT = 2        ; reg_sel >> this = group_code
+REGDELTA_GROUP_MASK  = $0F      ; group_code field width (bits 5-2 after the shift)
+REGDELTA_GROUP_COUNT = 6        ; $30,$40,$50,$60,$70,$80
 ; Bounded-repeat opcodes (Sound 1D Task 1): a body wrapped in REPEAT_START..
 ; REPEAT_END replays `nn` total times WITHOUT being unrolled in the data. The
 ; packer encodes them now; the Z80 sequencer interprets them in a later engine
@@ -251,8 +348,34 @@ MEV_REPEAT_START = $E5   ; (no operand) start of a repeatable body
 MEV_REPEAT_END   = $E6   ; + nn : replay from matching REPEAT_START nn times (1..255)
 MEV_LOOP_POINT  = $EE    ; loop-target marker (no operand)
 MEV_JUMP        = $EF    ; jump to loop point
+MEV_NOTEFILL    = $ED    ; + master : per-channel note-fill — # frames the note stays keyed
+                         ;   from attack before an early key-off (0 = legato/off). Gate
+                         ;   articulation / staccato (#4). Set per channel; persists.
 MEV_END         = $FF    ; end of stream (channel idle)
-; reserved for Phase 3: $E4 (MEV_PAN, T4), $E8–$ED, $F0–$FE (unknown opcode = build/validation error)
+; reserved for Phase 3: $EB–$ED, $F0–$FE (unknown opcode = build/validation error)
+
+        ; --- MEV_PAN / MEV_OPBIAS range + collision asserts (Task 6) ---
+        ; Both must be command opcodes (> MEV_NOTE_MAX), inside the $E0-$FF
+        ; coordination block, and must not collide with any allocated opcode.
+        if (MEV_PAN <= MEV_NOTE_MAX) || (MEV_OPBIAS <= MEV_NOTE_MAX)
+          error "MEV_PAN/MEV_OPBIAS must be command opcodes (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_PAN < MEV_VOL) || (MEV_PAN > MEV_END) || (MEV_OPBIAS < MEV_VOL) || (MEV_OPBIAS > MEV_END)
+          error "MEV_PAN/MEV_OPBIAS must be inside the $E0-$FF coordination block"
+        endif
+        if MEV_PAN <> $E4
+          error "MEV_PAN (\{MEV_PAN}) must be $E4 (the reserved pan slot)"
+        endif
+        if MEV_OPBIAS <> $E9
+          error "MEV_OPBIAS (\{MEV_OPBIAS}) must be $E9 (the free Phase-3 slot)"
+        endif
+        ; must not collide with any other allocated $E0-$FF opcode.
+        if (MEV_PAN = MEV_VOL) || (MEV_PAN = MEV_PATCH) || (MEV_PAN = MEV_DAC) || (MEV_PAN = MEV_NOTE_DUR) || (MEV_PAN = MEV_REPEAT_START) || (MEV_PAN = MEV_REPEAT_END) || (MEV_PAN = MEV_NOTE_RAW) || (MEV_PAN = MEV_PITCHENV) || (MEV_PAN = MEV_OPBIAS) || (MEV_PAN = MEV_LOOP_POINT) || (MEV_PAN = MEV_JUMP) || (MEV_PAN = MEV_END)
+          error "MEV_PAN (\{MEV_PAN}) collides with an allocated $E0-$FF opcode"
+        endif
+        if (MEV_OPBIAS = MEV_VOL) || (MEV_OPBIAS = MEV_PATCH) || (MEV_OPBIAS = MEV_DAC) || (MEV_OPBIAS = MEV_NOTE_DUR) || (MEV_OPBIAS = MEV_PAN) || (MEV_OPBIAS = MEV_REPEAT_START) || (MEV_OPBIAS = MEV_REPEAT_END) || (MEV_OPBIAS = MEV_NOTE_RAW) || (MEV_OPBIAS = MEV_PITCHENV) || (MEV_OPBIAS = MEV_LOOP_POINT) || (MEV_OPBIAS = MEV_JUMP) || (MEV_OPBIAS = MEV_END)
+          error "MEV_OPBIAS (\{MEV_OPBIAS}) collides with an allocated $E0-$FF opcode"
+        endif
 
         ; the bounded-repeat opcodes live in the reserved $E4–$ED command block,
         ; above the note range and clear of MEV_PAN ($E4) / the loop opcodes.
@@ -263,10 +386,72 @@ MEV_END         = $FF    ; end of stream (channel idle)
           error "MEV_REPEAT_* opcode collision"
         endif
 
+        ; MEV_PITCHENV ($E8) lives in the free Phase-3 opcode space ($E8-$ED /
+        ; $F0-$FE). It must be a command opcode (> MEV_NOTE_MAX), inside the $E0-$FF
+        ; coordination-flag block, and must NOT collide with any allocated opcode:
+        ; $E0-$E7 (VOL/PATCH/DAC/NOTE_DUR/PAN/REPEAT_*/NOTE_RAW), $EE/$EF (LOOP/JUMP),
+        ; or $FF (END).
+        if MEV_PITCHENV <= MEV_NOTE_MAX
+          error "MEV_PITCHENV (\{MEV_PITCHENV}) must be a command opcode (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_PITCHENV < MEV_VOL) || (MEV_PITCHENV > MEV_END)
+          error "MEV_PITCHENV (\{MEV_PITCHENV}) must be inside the $E0-$FF coordination block"
+        endif
+        if (MEV_PITCHENV = MEV_VOL) || (MEV_PITCHENV = MEV_PATCH) || (MEV_PITCHENV = MEV_DAC) || (MEV_PITCHENV = MEV_NOTE_DUR) || (MEV_PITCHENV = MEV_NOTE_RAW) || (MEV_PITCHENV = MEV_REPEAT_START) || (MEV_PITCHENV = MEV_REPEAT_END) || (MEV_PITCHENV = MEV_LOOP_POINT) || (MEV_PITCHENV = MEV_JUMP) || (MEV_PITCHENV = MEV_END)
+          error "MEV_PITCHENV (\{MEV_PITCHENV}) collides with an allocated $E0-$FF opcode"
+        endif
+        ; $E4 (MEV_PAN, reserved) is the only other $E0-$E7 opcode; PITCHENV must
+        ; not land on it either.
+        if MEV_PITCHENV = $E4
+          error "MEV_PITCHENV (\{MEV_PITCHENV}) collides with the reserved MEV_PAN ($E4)"
+        endif
+
+        ; --- MEV_REGDELTA ($EA) range + collision asserts (Task 5) ---
+        ; A command opcode (> MEV_NOTE_MAX), inside the $E0-$FF coordination block,
+        ; landing on the free Phase-3 slot $EA, clear of every allocated opcode.
+        if MEV_REGDELTA <= MEV_NOTE_MAX
+          error "MEV_REGDELTA (\{MEV_REGDELTA}) must be a command opcode (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_REGDELTA < MEV_VOL) || (MEV_REGDELTA > MEV_END)
+          error "MEV_REGDELTA (\{MEV_REGDELTA}) must be inside the $E0-$FF coordination block"
+        endif
+        if MEV_REGDELTA <> $EA
+          error "MEV_REGDELTA (\{MEV_REGDELTA}) must be $EA (the free Phase-3 slot)"
+        endif
+        if (MEV_REGDELTA = MEV_VOL) || (MEV_REGDELTA = MEV_PATCH) || (MEV_REGDELTA = MEV_DAC) || (MEV_REGDELTA = MEV_NOTE_DUR) || (MEV_REGDELTA = MEV_PAN) || (MEV_REGDELTA = MEV_REPEAT_START) || (MEV_REGDELTA = MEV_REPEAT_END) || (MEV_REGDELTA = MEV_NOTE_RAW) || (MEV_REGDELTA = MEV_PITCHENV) || (MEV_REGDELTA = MEV_OPBIAS) || (MEV_REGDELTA = MEV_LOOP_POINT) || (MEV_REGDELTA = MEV_JUMP) || (MEV_REGDELTA = MEV_END)
+          error "MEV_REGDELTA (\{MEV_REGDELTA}) collides with an allocated $E0-$FF opcode"
+        endif
+        ; the reg_sel group_code field must hold all REGDELTA_GROUP_COUNT groups
+        ; AND fit beneath the bits the op field uses (no overlap of op vs group).
+        if (REGDELTA_GROUP_COUNT-1) > REGDELTA_GROUP_MASK
+          error "REGDELTA_GROUP_COUNT (\{REGDELTA_GROUP_COUNT}) overflows the reg_sel group_code field"
+        endif
+        if (1<<REGDELTA_GROUP_SHIFT) <> (REGDELTA_OP_MASK+1)
+          error "REGDELTA_GROUP_SHIFT must clear the op field (op uses bits 0..REGDELTA_OP_MASK)"
+        endif
+
         ; opcode ranges must not overlap: the top note opcode is below the
         ; first command opcode, so the range dispatch is unambiguous.
         if MEV_NOTE_MAX >= MEV_VOL
           error "MEV_NOTE_MAX (\{MEV_NOTE_MAX}) must be < MEV_VOL (\{MEV_VOL})"
+        endif
+
+; --- Phase 3: per-song fnum (pitch) table layout -----------------------------
+; A note-index byte is an ABSOLUTE index 0..PITCHTAB_MAX_IDX into the per-song
+; 132-entry chromatic fnum table (the exact Zyrinx Moving-Trucks table; see
+; /tmp/zyrinx_re_timing_pitch.md §2.4). LAYOUT (chosen): TWO PARALLEL PAGES —
+; the A4 page (PITCHTAB_COUNT bytes, the YM $A4 = (block<<3)|fnumHi values) FIRST,
+; immediately followed by the A0 page (PITCHTAB_COUNT bytes, the YM $A0 = fnum-low
+; values). So for index i: $A4 = page[i], $A0 = page[PITCHTAB_COUNT + i]. This
+; mirrors Zyrinx's native $0F00 (A4) / $1000 (A0) split and makes the lookup two
+; flat indexed byte reads. The engine-default table is MovingTrucks_PitchTable
+; (inline in the Z80 blob, Z80-addressable); a per-song table is referenced via
+; the SongHeader pitchtable_ptr (0 = engine default).
+PITCHTAB_COUNT     = 132                  ; entries per page (idx $00..$83)
+PITCHTAB_MAX_IDX   = PITCHTAB_COUNT-1     ; = $83 (the RE's saturating clamp ceiling)
+
+        if PITCHTAB_MAX_IDX <> $83
+          error "PITCHTAB_MAX_IDX (\{PITCHTAB_MAX_IDX}) must be $83 (132-entry Zyrinx table)"
         endif
 
 ; --- Channel-route enum ---
@@ -332,39 +517,89 @@ FmPatch endstruct             ; = 2 + 6*4 = 26 bytes
         endif
 
 ; --- SeqChannel struct (per-channel sequencer state; Z80 RAM, indexed by ix) ---
-; DECISION (resolved by research — keep 11 bytes, do NOT pad to 16): (ix+d)
-; indexed access costs the same for any displacement d, and the tick loop
-; iterates channels sequentially with `add ix,de` (de = SeqChannel_len) — the
+; Phase 3 (per-frame engine): the v0/1C COMMAND-STREAM fields (sc_stream_ptr ..
+; sc_repeat_count) are unchanged in MEANING; the struct now appends:
+;   * the C-ready stream seam — sc_mod_ptr (slot[1], the independent modulation
+;     stream; NULL for A / single-stream songs). The header descriptor commits a
+;     {cmd_ptr, mod_ptr} pair NOW so reaching C (a second stream reader writing
+;     the same MODULATION-STATE block) is purely additive — no layout migration.
+;   * the per-frame tempo accumulator (sc_tempo_base / sc_tempo_accum) that gates
+;     musical timing at the fixed ~59.4 Hz frame rate.
+;   * the MODULATION-STATE block (pitch points/cursor, transpose, pan, per-op TL
+;     bias, portamento, last-loaded patch) that ModUpdate renders to the YM —
+;     STREAM-AGNOSTIC: ModUpdate only reads this state, never parses a stream.
+; The real rendering of these fields lands in Tasks 3–7; Task 2 lays out the
+; format + the held-note no-op path of ModUpdate. (ix+d) is a signed-8-bit
+; displacement; the largest field offset (sc_last_pan, +36 after the Task-6
+; growth) is well within +127, so the terse (ix+sc_*) addressing still applies to
+; every field.
+;
+; The tick loop iterates channels with `add ix,de` (de = SeqChannel_len) — the
 ; struct size is ADDED directly, never MULTIPLIED by an index, so there is no
-; power-of-2 benefit to padding. (If a future path computes a channel base from
-; an integer index at runtime, revisit; Task 2 never does.)
+; power-of-2 benefit to padding; the layout stays packed.
 SeqChannel struct
-sc_stream_ptr   ds.w 1   ; +0  current read ptr into the channel byte stream
-sc_dur_count    ds.b 1   ; +2  ticks remaining on the current note/rest
-sc_dur_default  ds.b 1   ; +3  default duration for bare notes
-sc_patch        ds.b 1   ; +4  current FM patch index
-sc_volume       ds.b 1   ; +5  current channel volume (linear 0..127)
-sc_note         ds.b 1   ; +6  current pitch index (for key-off / debug)
-sc_flags        ds.b 1   ; +7  bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac
-sc_route        ds.b 1   ; +8  channel route enum (CHROUTE_*) — selects the writer
-sc_loop_ptr     ds.w 1   ; +9  saved loop-point ptr (set by $EE, used by $EF)
+sc_stream_ptr   ds.w 1   ; +0  command stream (slot[0]) read ptr (v0/1C semantics)
+sc_mod_ptr      ds.w 1   ; +2  modulation stream (slot[1]) read ptr; 0/NULL for A.
+                         ;     C-ready seam — UNUSED in Phase 3a (single stream).
+sc_dur_count    ds.b 1   ; +4  ticks remaining on the current note/rest
+sc_dur_default  ds.b 1   ; +5  default duration for bare notes
+sc_patch        ds.b 1   ; +6  current (commanded) FM patch index
+sc_last_patch   ds.b 1   ; +7  last patch ModUpdate actually loaded ($FF = force reload)
+sc_volume       ds.b 1   ; +8  current channel volume (linear 0..127)
+sc_note         ds.b 1   ; +9  current pitch index (for key-off / debug)
+sc_flags        ds.b 1   ; +10 bit0=active, bit1=keyed, bit2=is_fm, bit3=is_psg, bit4=is_dac
+sc_route        ds.b 1   ; +11 channel route enum (CHROUTE_*) — selects the writer
+sc_loop_ptr     ds.w 1   ; +12 saved loop-point ptr (set by $EE, used by $EF)
 ; --- bounded-repeat state (Sound 1D): one level, NO nesting. The transcoder
 ; emits FLAT, single-level REPEAT_START..REPEAT_END bodies, so a single ptr +
 ; count per channel is sufficient (nested repeats are UNSUPPORTED by design).
-sc_repeat_ptr   ds.w 1   ; +11 body-start ptr saved by $E5, reloaded by $E6 on jump-back
-sc_repeat_count ds.b 1   ; +13 reps remaining (0 = no active repeat / fresh-OR-done)
-SeqChannel endstruct      ; = 14 bytes
+sc_repeat_ptr   ds.w 1   ; +14 body-start ptr saved by $E5, reloaded by $E6 on jump-back
+sc_repeat_count ds.b 1   ; +16 reps remaining (0 = no active repeat / fresh-OR-done)
+; --- per-frame tempo accumulator (Phase 3): tempo_accum -= 16 each frame; on
+; borrow, tempo_accum += tempo_base and the channel consumes an event-tick. ---
+sc_tempo_base   ds.b 1   ; +17 tempo "format code" (event-tick rate vs frame rate)
+sc_tempo_accum  ds.b 1   ; +18 running accumulator (the per-channel musical clock)
+; --- MODULATION-STATE block (Phase 3; rendered by ModUpdate, Tasks 3–7) -------
+sc_pt_count     ds.b 1   ; +19 pitch-envelope point count (1 = plain note, >=2 = trill/arp)
+sc_pt_cursor    ds.b 1   ; +20 pitch-envelope cursor (advanced per frame, wraps at count)
+sc_points       ds.b 5   ; +21 up to 5 pitch point indices (note table indices)
+sc_transpose    ds.b 1   ; +26 signed per-pattern transpose (added then clamped)
+sc_pan          ds.b 1   ; +27 pan state (off/L/R/C) -> $B4 L/R bits
+sc_opbias       ds.b 4   ; +28 per-operator SIGNED TL bias (added to patch TLs at load; neg=brighten)
+sc_porta_accum  ds.w 1   ; +32 portamento Q-fixed accumulator
+sc_porta_incr   ds.w 1   ; +34 portamento per-frame increment (0 = no glide)
+; --- Task 6 write-on-change shadow (ModUpdate tracks the last-WRITTEN pan) ------
+; sc_last_pan: the $B4 value ModUpdate last wrote to the chip. ModUpdate writes
+; $B4 only when sc_pan != sc_last_pan, then copies sc_pan -> sc_last_pan. The seq
+; clear zeroes BOTH sc_pan and sc_last_pan, so a song that never emits MEV_PAN has
+; sc_pan == sc_last_pan == 0 -> ModUpdate writes NOTHING and the patch's own $B4
+; (written by Fm_PatchLoad) stands (held pan = no write). The first MEV_PAN to any
+; nonzero value differs from 0 -> written once, then held.
+; Per-op TL bias has NO shadow: it is applied in Fm_PatchLoad (latched at patch
+; load / note, matching the Zyrinx key-on latch), so ModUpdate never re-asserts it
+; per frame — no write-on-change tracking is needed (zero per-frame cost).
+sc_last_pan     ds.b 1   ; +36 last $B4 ModUpdate wrote (0 = none yet / matches default)
+sc_fill_master  ds.b 1   ; +37 note-fill reload: # frames the note stays keyed from attack
+                         ;     (0 = legato/off). Per-channel gate articulation (#4).
+sc_fill_count   ds.b 1   ; +38 live per-frame note-fill countdown (0 = expired or disabled)
+SeqChannel endstruct      ; = 39 bytes
 
-        if SeqChannel_len <> 14
-          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 14"
+        if SeqChannel_len <> 39
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 39"
+        endif
+        ; the largest field offset must stay within the signed-8-bit (ix+d) range.
+        if SeqChannel_sc_last_pan > 127
+          error "sc_last_pan offset (\{SeqChannel_sc_last_pan}) exceeds the (ix+d) +127 range"
         endif
 
 ; Short field-offset accessors (AS struct fields are exposed as
 ; SeqChannel_<field>; these `sc_*` aliases keep the Z80 (ix+d) code terse).
 sc_stream_ptr   = SeqChannel_sc_stream_ptr
+sc_mod_ptr      = SeqChannel_sc_mod_ptr
 sc_dur_count    = SeqChannel_sc_dur_count
 sc_dur_default  = SeqChannel_sc_dur_default
 sc_patch        = SeqChannel_sc_patch
+sc_last_patch   = SeqChannel_sc_last_patch
 sc_volume       = SeqChannel_sc_volume
 sc_note         = SeqChannel_sc_note
 sc_flags        = SeqChannel_sc_flags
@@ -372,6 +607,19 @@ sc_route        = SeqChannel_sc_route
 sc_loop_ptr     = SeqChannel_sc_loop_ptr
 sc_repeat_ptr   = SeqChannel_sc_repeat_ptr
 sc_repeat_count = SeqChannel_sc_repeat_count
+sc_tempo_base   = SeqChannel_sc_tempo_base
+sc_tempo_accum  = SeqChannel_sc_tempo_accum
+sc_pt_count     = SeqChannel_sc_pt_count
+sc_pt_cursor    = SeqChannel_sc_pt_cursor
+sc_points       = SeqChannel_sc_points
+sc_transpose    = SeqChannel_sc_transpose
+sc_pan          = SeqChannel_sc_pan
+sc_opbias       = SeqChannel_sc_opbias
+sc_porta_accum  = SeqChannel_sc_porta_accum
+sc_porta_incr   = SeqChannel_sc_porta_incr
+sc_last_pan     = SeqChannel_sc_last_pan
+sc_fill_master  = SeqChannel_sc_fill_master
+sc_fill_count   = SeqChannel_sc_fill_count
 
 ; --- sc_flags bit numbers + masks ---
 ; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B
@@ -382,14 +630,40 @@ SCF_KEYED_B     = 1       ; a note is currently keyed-on
 SCF_IS_FM_B     = 2       ; route class: FM voice
 SCF_IS_PSG_B    = 3       ; route class: PSG voice
 SCF_IS_DAC_B    = 4       ; route class: DAC trigger channel
+; Phase 3: ModUpdate (re)key arming. MEV_PITCHENV sets SCF_REKEY to tell ModUpdate
+; to (re)articulate the note on the NEXT frame even if the rendered note index is
+; unchanged (a same-pitch re-trigger). ModUpdate clears it after it renders. The
+; finalized re-key RULE is Task 5; for Task 3 a count==1 note keys once when armed
+; (or when the rendered index changes) and then holds (write-on-change).
+SCF_REKEY_B     = 5       ; ModUpdate should (re)key this channel's note next frame
+
+; --- Phase 3 Task 5: the re-key STYLE (calibration lever) ---------------------
+; THE RE-KEY RULE: a note re-articulates ONLY on a PITCH change (via MEV_PITCHENV,
+; which arms SCF_REKEY). Voice/timbre changes (MEV_PATCH/MEV_OPBIAS/MEV_REGDELTA)
+; never re-key. When ModUpdate honors a SCF_REKEY arm on a count==1 single note, it
+; can re-articulate two ways:
+;   1 (DEFAULT) = CLEAN RE-KEY: key-OFF then key-ON. The YM2612 retriggers the
+;       envelope generator on the 0->1 key transition, so the note re-ATTACKS — the
+;       audible, oracle-faithful behavior (Zyrinx keys off->on per articulation; the
+;       NOTE_RAW path already does this). Without the key-off, a same-pitch re-arm
+;       would write $F0|chsel while the key is already 1 (no 0->1 edge -> no
+;       re-attack), and a held voice would decay to silence after the first note.
+;   0           = KEY-ON ONLY: skip the key-off (re-write $A4/$A0 + key-on; the EG
+;       does NOT retrigger if already keyed). Left as a one-line lever so the
+;       controller can A/B the re-key density/attack against the oracle.
+; (count>=2 trills/arps always re-key per frame — they change pitch each frame — so
+; this lever governs only the count==1 re-articulation; the trill path keys-on each
+; new point, which IS a fresh 0->1 edge because the pitch genuinely changed.)
+SND_REKEY_OFF_THEN_ON = 1
 SCF_ACTIVE      = 1<<SCF_ACTIVE_B
 SCF_KEYED       = 1<<SCF_KEYED_B
 SCF_IS_FM       = 1<<SCF_IS_FM_B
 SCF_IS_PSG      = 1<<SCF_IS_PSG_B
 SCF_IS_DAC      = 1<<SCF_IS_DAC_B
+SCF_REKEY       = 1<<SCF_REKEY_B
 
         ; the _B bit numbers and the masks must stay tied together.
-        if (SCF_ACTIVE <> 1<<SCF_ACTIVE_B) || (SCF_KEYED <> 1<<SCF_KEYED_B) || (SCF_IS_FM <> 1<<SCF_IS_FM_B) || (SCF_IS_PSG <> 1<<SCF_IS_PSG_B) || (SCF_IS_DAC <> 1<<SCF_IS_DAC_B)
+        if (SCF_ACTIVE <> 1<<SCF_ACTIVE_B) || (SCF_KEYED <> 1<<SCF_KEYED_B) || (SCF_IS_FM <> 1<<SCF_IS_FM_B) || (SCF_IS_PSG <> 1<<SCF_IS_PSG_B) || (SCF_IS_DAC <> 1<<SCF_IS_DAC_B) || (SCF_REKEY <> 1<<SCF_REKEY_B)
           error "SCF_* masks and _B bit numbers are out of sync"
         endif
 
@@ -401,12 +675,13 @@ SCF_IS_DAC      = 1<<SCF_IS_DAC_B
 ; We place the sequencer region at $1800 and guard its END against the mailbox
 ; base SND_REQ_BASE ($1F00), leaving stack headroom.)
 SND_SEQ_BASE       = $1800          ; sequencer state region (free block above the DAC ring)
-SND_SEQ_TEMPO      = SND_SEQ_BASE+$00   ; loaded song tempo (Timer-A selector)
-SND_SEQ_CHCOUNT    = SND_SEQ_BASE+$01   ; active channel count (tick-loop djnz bound)
+SND_SEQ_TEMPO      = SND_SEQ_BASE+$00   ; loaded song tempo (LEGACY Timer-A selector; unused Phase 3)
+SND_SEQ_CHCOUNT    = SND_SEQ_BASE+$01   ; active channel count (frame-loop djnz bound)
 SND_SEQ_PATCHTAB   = SND_SEQ_BASE+$02   ; loaded patch table ptr (2)
 SND_SEQ_ACTIVE     = SND_SEQ_BASE+$04   ; 1 = song playing
 SND_SEQ_BADOP      = SND_SEQ_BASE+$05   ; DEBUG: last bad opcode seen (Seq_BadOpcode marker)
 SND_SEQ_TRACE_WR   = SND_SEQ_BASE+$06   ; trace ring write index (0..31)
+SND_SEQ_TEMPO_BASE = SND_SEQ_BASE+$07   ; Phase 3: cached song tempo_base (per-frame accumulator base)
 SND_SEQ_CHANNELS   = SND_SEQ_BASE+$08   ; CHROUTE_COUNT * SeqChannel_len
 SND_SEQ_END        = SND_SEQ_CHANNELS + (CHROUTE_COUNT * SeqChannel_len)
 SND_SEQ_TRACE      = $1A00          ; 32-byte trace ring of dispatched opcodes
@@ -415,13 +690,14 @@ SND_SEQ_TRACE_LEN  = 32
 ; --- FM voice writer scratch (Task 3) ---
 ; 4 bytes (part, ch-in-part, log-vol delta, carrier mask) in the free block
 ; ABOVE the per-channel array (SND_SEQ_END) and BELOW the trace ring ($1A00).
-; Single-threaded: only Sequencer_Tick (in the VBlank ISR) reaches the FM writer,
-; so static scratch is safe. DERIVED from SND_SEQ_END (was a hardcoded $1880 —
+; Single-threaded: only Sequencer_Frame (driven by the Timer-A poll in the
+; DAC/idle loop) reaches the FM writer, so static scratch is safe. DERIVED from
+; SND_SEQ_END (was a hardcoded $1880 —
 ; the Sound 1D SeqChannel growth pushed SND_SEQ_END to $1894 and collided with
 ; it) so it auto-tracks any future per-channel-struct growth. The build-time
 ; guards below still assert it clears SND_SEQ_END and the trace ring.
 SND_FM_SCRATCH     = SND_SEQ_END
-SND_FM_SCRATCH_LEN = 4
+SND_FM_SCRATCH_LEN = 5                    ; Part,Ch,Log,Mask + Task-6 Op index
 
     if (SND_FM_SCRATCH < SND_SEQ_END)
       fatal "FM scratch (\{SND_FM_SCRATCH}) overlaps sequencer channels (\{SND_SEQ_END})"
@@ -440,11 +716,24 @@ SND_FM_SCRATCH_LEN = 4
 ; scratch, below the trace ring.
 Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
 Snd_SongBase       = Snd_SavedDacBank + 1        ; 2 bytes: song base ptr (RAM or window)
+; Phase 3: the loaded song's per-song PITCH TABLE ptr, cached by Snd_LoadSong from
+; the SongHeader's pitchtable_ptr field (0 = engine default). ModUpdate's pitch
+; renderer (Task 3) reads it; cached as an absolute Z80 ptr (base + header offset).
+Snd_PitchTabPtr    = Snd_SongBase + 2            ; 2 bytes: per-song pitch table ptr
 
-    if (Snd_SongBase + 2) > SND_SEQ_TRACE
-      fatal "Snd_LoadSong scratch (\{Snd_SongBase}) runs into the trace ring at \{SND_SEQ_TRACE}"
+    if (Snd_PitchTabPtr + 2) > SND_SEQ_TRACE
+      fatal "Snd_LoadSong scratch (\{Snd_PitchTabPtr}) runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
+    ; Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots)
+    ; must fit between SND_SEQ_BASE ($1800) and the mailbox base ($1F00). The seq
+    ; header is (SND_SEQ_CHANNELS - SND_SEQ_BASE) bytes; the per-channel array is
+    ; CHROUTE_COUNT slots * SeqChannel_len. The SeqChannel growth (14 -> 36 bytes)
+    ; makes this the binding RAM check, so assert it explicitly against $1F00.
+SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
+    if SND_SEQ_BASE + SND_SEQ_HEADER_LEN + CHROUTE_COUNT*SeqChannel_len > SND_REQ_BASE
+      error "seq RAM overflow: \{SND_SEQ_BASE + SND_SEQ_HEADER_LEN + CHROUTE_COUNT*SeqChannel_len} > mailbox \{SND_REQ_BASE}"
+    endif
     if SND_SEQ_END > SND_REQ_BASE
       fatal "sequencer RAM (\{SND_SEQ_END}) overruns the mailbox at \{SND_REQ_BASE}"
     endif
@@ -452,7 +741,8 @@ Snd_SongBase       = Snd_SavedDacBank + 1        ; 2 bytes: song base ptr (RAM o
       fatal "sequencer trace ring overruns the mailbox"
     endif
     ; the per-channel array must not run into the trace ring at $1A00.
-    ; CHROUTE_COUNT(11) * SeqChannel_len(14) = 154 bytes -> $1808+154 = $18A2, clear.
+    ; CHROUTE_COUNT(11) * SeqChannel_len(37, Phase 3 Task 6) = 407 bytes -> $1808+407
+    ; = $19A7, clear of the trace ring at $1A00.
     if SND_SEQ_END > SND_SEQ_TRACE
       fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
     endif
@@ -516,29 +806,45 @@ SEQEV_RPT_START = 9     ; bounded-repeat body start ($E5)
 SEQEV_RPT_END   = 10    ; bounded-repeat body end ($E6) — fires on every pass
 
 ; --- SongHeader layout (emitted by tools/song_packer.py, read by the loader) ---
+; Phase 3 C-ready header. Each channel descriptor now commits a {cmd_ptr, mod_ptr}
+; PAIR (the C-ready stream seam): cmd_ptr = the command stream (slot[0], always
+; present), mod_ptr = the independent modulation stream (slot[1], 0/NULL for A /
+; single-stream songs). The header also gains a per-frame tempo_base and a per-song
+; pitchtable_ptr (0 = engine default). Reaching the full dual-stream end state is
+; then purely additive (populate mod_ptr + add a reader) — no header migration.
 ; SongHeader:
-;   db  flags            ; Sound 1D: per-song playback mode (SH_F_* below)
-;   db  tempo            ; Timer-A reload selector (N = tempo<<2; bigger = faster)
-;   db  channel_count
-;   ; per channel: route byte + 2-byte stream pointer (Z80-window-relative)
-;   rept channel_count: db route ; dw stream_ptr ; endm
-;   dw  patch_table_ptr  ; FM patch table for this song
+;   db  flags            ; Sound 1D: per-song playback mode (SH_F_* below). +0 — the
+;                        ; 68k forwards THIS byte (sound_api.asm reads header[+0]);
+;                        ; it MUST stay at offset 0.
+;   db  tempo            ; LEGACY Timer-A selector (Phase 3: UNUSED — Timer-A is a
+;                        ; fixed frame clock; kept for layout stability). +1
+;   db  tempo_base       ; Phase 3 per-frame tempo accumulator base. +2
+;   db  channel_count    ; +3
+;   dw  pitchtable_ptr   ; Phase 3 per-song pitch table BE offset (0 = engine default). +4
+;   ; per channel: route + cmd_ptr (BE off) + mod_ptr (BE off, 0 for A)
+;   rept channel_count: db route ; dw cmd_ptr ; dw mod_ptr ; endm
+;   dw  patch_table_ptr  ; FM patch table for this song (IGNORED in 1C copy path)
 ; (No struct — the per-channel array length is variable. The packer back-patches
-; each stream_ptr to its stream's offset within the packed song blob.)
+; each cmd_ptr to its stream's offset within the packed song blob; mod_ptr = 0.)
 ;
-; --- SongHeader field offsets (Task 6 loader; from SND_SONG_BUF base) ---
-; Fixed-position fields (Sound 1D prepends SH_FLAGS at +0):
+; --- SongHeader field offsets (loader; from the song base) ---
+; Fixed-position fields (SH_FLAGS stays at +0 — the 68k forwards it):
 SH_FLAGS        = 0     ; +0  per-song playback-mode flags (SH_F_* below)
-SH_TEMPO        = 1     ; +1  tempo byte (Timer-A selector)
-SH_CHCOUNT      = 2     ; +2  channel count
-SH_CHANNELS     = 3     ; +3  start of the per-channel array
-; Per-channel record (3 bytes): route, stream_ptr (16-bit BIG-ENDIAN offset).
-; The packer writes stream_ptr as (off>>8),(off&FF) — high byte FIRST. The loader
-; must read it big-endian (NOT a plain Z80 little-endian 16-bit load).
+SH_TEMPO        = 1     ; +1  LEGACY Timer-A selector (Phase 3: unused)
+SH_TEMPO_BASE   = 2     ; +2  per-frame tempo accumulator base (Phase 3)
+SH_CHCOUNT      = 3     ; +3  channel count
+SH_PITCHTAB_HI  = 4     ; +4  pitch table offset high byte (big-endian; 0 = default)
+SH_PITCHTAB_LO  = 5     ; +5  pitch table offset low byte
+SH_CHANNELS     = 6     ; +6  start of the per-channel array
+; Per-channel record (5 bytes): route, cmd_ptr (16-bit BE offset), mod_ptr (16-bit
+; BE offset; 0 for single-stream A). The packer writes each ptr as (off>>8),(off&FF)
+; — high byte FIRST — so the loader reads them big-endian (NOT a plain Z80 LE load).
 SHC_ROUTE       = 0     ; +0  route byte
-SHC_PTR_HI      = 1     ; +1  stream offset high byte (big-endian)
-SHC_PTR_LO      = 2     ; +2  stream offset low byte
-SHC_LEN         = 3     ; per-channel record length
+SHC_CMD_HI      = 1     ; +1  command-stream offset high byte (big-endian)
+SHC_CMD_LO      = 2     ; +2  command-stream offset low byte
+SHC_MOD_HI      = 3     ; +3  modulation-stream offset high byte (0 for A)
+SHC_MOD_LO      = 4     ; +4  modulation-stream offset low byte
+SHC_LEN         = 5     ; per-channel record length
 ; patch_table_ptr (2 bytes) follows the per-channel array; IGNORED in 1C (patches
 ; stay inline — SND_SEQ_PATCHTAB is set to FmPatchInlineTable by the loader).
 
