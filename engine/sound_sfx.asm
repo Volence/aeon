@@ -148,16 +148,11 @@ Sfx_Steal:
         jr      z, .fm
         cp      SFXEL_PSG
         jr      z, .psg
-        ; --- NOISE: save PSG3's coupled tone note, then key off the music noise ---
-        ; Periodic noise borrows PSG3's tone latch (PSG3<->noise coupling). Capture
-        ; PSG3's held note NOW so Sfx_Restore can re-latch PSG3's tone register after
-        ; the SFX (the noise blob may overwrite the shared latch). sx_saved_route is
-        ; the noise route (CHROUTE_PSGN); PSG3 is a SEPARATE music channel.
-        ld      a, CHROUTE_PSG3
-        call    Sfx_MusicChanPtr         ; iy = &music PSG3 SeqChannel (no multiply)
-        ld      a, (iy+sc_note)          ; PSG3's currently-held tone note
-        ld      (ix+sx_saved_note), a    ; stash for restore (PSG3 re-latch)
-        ; re-resolve iy back to the OVERRIDDEN noise SeqChannel (sx_saved_route)
+        ; --- NOISE: key off the music noise voice ---
+        ; sx_saved_note is NOT captured here: our SFX transcoder drops periodic-noise
+        ; mode (smpsPSGform), so a noise SFX never writes PSG3's $C0 tone register
+        ; and PSG3's tone latch needs no restore. Field reserved for 5b periodic-noise
+        ; restore if periodic-noise SFX are added later.
         ld      a, (ix+sx_saved_route)
         call    Sfx_MusicChanPtr         ; iy = &music noise SeqChannel
         push    ix                       ; save SFX-slot ix
@@ -337,7 +332,7 @@ Sfx_RouteKind:
 ; In:  ix = the ended SfxChannel:
 ;        sx_saved_route = the music route to un-mute (CHROUTE_*)
 ;        sx_kind        = SFXEL_FM / SFXEL_PSG / SFXEL_NOISE
-;        sx_saved_note  = (noise only) PSG3's tone note captured at steal
+;        sx_saved_note  = unused in v1 (reserved for 5b periodic-noise restore)
 ; Out: SCF_SFX_OVERRIDE cleared on the music channel; its voice re-asserted;
 ;      held note re-keyed iff it was keyed; the SfxChannel deactivated + priority 0.
 ; Preserves ix (push/pop) so Sfx_Frame's `add ix,de` still advances. The Fm_*/Psg_*
@@ -361,17 +356,13 @@ Sfx_Restore:
         jr      z, .fm
         cp      SFXEL_PSG
         jr      z, .psg
-        ; --- NOISE: re-latch PSG3's borrowed tone register, then re-key noise ---
-        ld      b, (ix+sx_saved_note)    ; b = PSG3's saved tone note (from steal)
-        ld      a, CHROUTE_PSG3
-        call    Sfx_MusicChanPtr         ; iy = &music PSG3 SeqChannel (no multiply)
-        push    ix                       ; (keep SFX slot saved on the stack already;
-        push    iy                       ;  this nested push/pop just re-points ix)
-        pop     ix                       ; ix = music PSG3 channel
-        ld      a, b
-        call    Psg_NoteOn               ; re-latch PSG3 tone + volume (preserves ix)
-        pop     ix                       ; ix = SFX slot again
-        ; re-key the music NOISE channel iff it was keyed when stolen.
+        ; --- NOISE: re-key the music noise channel iff it was keyed when stolen ---
+        ; PSG3 tone re-latch is intentionally omitted: our SFX transcoder drops
+        ; periodic-noise mode (smpsPSGform), so a noise SFX never writes PSG3's $C0
+        ; tone register — PSG3's tone latch is never disturbed and needs no restore.
+        ; If 5b adds periodic-noise SFX, re-add a restore that re-latches only PSG3's
+        ; tone DIVISOR (not volume, which belongs to music) and only when PSG3
+        ; SCF_KEYED is set.
         ld      a, (ix+sx_saved_route)
         call    Sfx_MusicChanPtr         ; iy = &music noise SeqChannel
         push    ix
