@@ -124,11 +124,14 @@ _CORE_SFX_IDS = [0x33, 0x34, 0x35, 0x36, 0x3C, 0x62, 0xAB, 0xB6, 0xB9]
 S3K_NOTE_REST = 0x80
 S3K_NOTE_BASE = 0x81    # nC0 = our pitch index 0
 
-# PSG channels need a 12-semitone delta applied per the S3K driver (psgdelta=12).
-# The S3K SFX sources store PSG notes already converted for the S3K driver
-# (PSGPitchConvert adds psgdelta=12 during assembly).  Our engine pitch table
-# follows the same layout so we subtract 12 to undo the S3K conversion.
-PSG_PITCH_DELTA = 12
+# S3K PSG note-names are 2 octaves below scientific pitch: nC0 in S3K sounds like C2
+# in scientific notation.  Our PsgDivisorTableZ uses scientific numbering (index 0 = true C0).
+# Therefore an S3K PSG note index must be shifted +24 semitones to reproduce S3K's actual
+# audible pitch in our engine.
+# NOTE: PSGPitchConvert in the S3K driver is a no-op branch for smpsHeaderStartSong 3 /
+# SonicDriverVer=4 SFX sources, so there is no psgdelta to undo — the raw note bytes
+# already encode the S3K-nominal pitch and the +24 fixup is the full correction.
+PSG_OCTAVE_FIXUP = 24
 
 
 class TranscodeError(Exception):
@@ -195,13 +198,16 @@ def _smps_note_to_pitch(raw_byte: int, is_psg: bool, transpose: int = 0) -> int:
     """Convert a raw S3K note byte to our engine pitch index.
 
     For FM: pitch = raw - S3K_NOTE_BASE + transpose, clamped 0..0x5E.
-    For PSG: the S3K driver added psgdelta=12 during assembly; we subtract it
-    so our engine's PSG pitch table (which starts at C0, no extra delta) is
-    addressed correctly.
+    For PSG: S3K PSG note-names are 2 octaves below scientific pitch (nC0 in S3K
+    sounds like C2 scientifically).  Our PsgDivisorTableZ is scientific-numbered
+    (index 0 = true C0), so we add +24 semitones to translate S3K PSG note indices
+    to our table's scientific numbering and reproduce S3K's actual audible pitch.
+    PSGPitchConvert is a no-op for smpsHeaderStartSong 3 / SonicDriverVer=4 SFX
+    sources, so there is no psgdelta to undo — +24 is the complete correction.
     """
     pitch = raw_byte - S3K_NOTE_BASE + transpose
     if is_psg:
-        pitch -= PSG_PITCH_DELTA
+        pitch += PSG_OCTAVE_FIXUP
     if pitch < 0:
         pitch = 0
     if pitch > 0x5E:
