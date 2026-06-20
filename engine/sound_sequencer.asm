@@ -52,11 +52,11 @@ Sequencer_Frame:
 
         ld      a, (SND_SEQ_ACTIVE)
         or      a
-        ret     z                        ; no song playing -> nothing to do
+        jr      z, .run_sfx              ; no song -> still run SFX (own the chip)
 
         ld      a, (SND_SEQ_CHCOUNT)
         or      a
-        ret     z                        ; no channels -> nothing to do
+        jr      z, .run_sfx              ; no channels -> still run SFX
         ld      b, a                     ; b = channel count (djnz bound)
         ld      ix, SND_SEQ_CHANNELS     ; ix = first SeqChannel
 .chan_loop:
@@ -83,7 +83,8 @@ Sequencer_Frame:
         ld      de, SeqChannel_len       ; size added directly (no multiply)
         add     ix, de
         djnz    .chan_loop
-        ret
+.run_sfx:
+        jp      Sfx_Frame                ; tail-call: SFX writes land AFTER music
 
 ; ----------------------------------------------------------------------
 ; ModUpdate — the MODULATION LAYER (Phase 3). Renders ONE channel's modulation

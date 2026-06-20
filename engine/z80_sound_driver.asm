@@ -509,6 +509,22 @@ SndDrv_PollMailbox:
         ld      (SND_STAT_ACK_COUNT), a
 .after_music:
 .no_music:
+        ; --- SFX request? (Phase 5a: id -> SfxDispatch steal + per-frame interp) ---
+        ; Inserted BEFORE the SAMPLE block's `ret z` so a frame with only an SFX
+        ; request still dispatches. SfxDispatch reads the SFX blob via the $8000
+        ; window (banks it in, leaves it set) and steals a voice — DAC-paused ISR
+        ; context, same ROM-read safety as Snd_LoadSong (the ring lead absorbs it).
+        ; (Task 11 adds the 68k Sound_PlaySFX + ring stereo-alternation around this.)
+        ld      a, (SND_REQ_SFX)
+        or      a
+        jr      z, .no_sfx
+        call    SfxDispatch              ; resolve blob + init slot 0 + steal voice
+        xor     a
+        ld      (SND_REQ_SFX), a         ; clear slot (consumed)
+        ld      a, (SND_STAT_ACK_COUNT)
+        inc     a
+        ld      (SND_STAT_ACK_COUNT), a
+.no_sfx:
         ; --- sample request? (Task 6: id -> DacSampleTable[id-1] -> Snd_StartSample) ---
         ld      a, (SND_REQ_SAMPLE)
         or      a
@@ -1068,6 +1084,13 @@ Snd_RouteClassFlags:
 ; even-pad, per the blob layout law.)
 ; ======================================================================
         include "engine/sound_sequencer.asm"
+
+; ======================================================================
+; Phase 5a SFX engine — steal/restore + the per-frame SfxChannel interpreter.
+; Included INSIDE the phase-0 blob (after the sequencer whose ModUpdate/
+; Sequencer_Channel it reuses, before the FM/PSG writers it calls).
+; ======================================================================
+        include "engine/sound_sfx.asm"
 
 ; ======================================================================
 ; FM voice writer (Sound 1C, Task 3) — real YM2612 register writes for FM
