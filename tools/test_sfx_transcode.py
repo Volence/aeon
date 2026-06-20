@@ -35,9 +35,10 @@ from sfx_transcode import (
     CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
 )
 from song_packer import (
-    End, Vol, Patch, Pan, Note, NoteDur, Rest, SetDur, RepeatStart, RepeatEnd,
+    End, Vol, Patch, Pan, PsgEnv, Note, NoteDur, Rest, SetDur, RepeatStart, RepeatEnd,
     CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM6, CHROUTE_DAC,
-    MEV_END, MEV_VOL, MEV_PATCH, MEV_PAN,
+    MEV_END, MEV_VOL, MEV_PATCH, MEV_PAN, MEV_PSGENV,
+    PackError,
 )
 
 # ---------------------------------------------------------------------------
@@ -385,9 +386,9 @@ class TestFmSfxOctaveKnob(unittest.TestCase):
         got = _smps_note_to_pitch(raw, is_psg=True, transpose=0)
         self.assertEqual(got, raw - S3K_NOTE_BASE + PSG_OCTAVE_FIXUP)
 
-    def test_default_is_one_octave_down(self):
-        self.assertEqual(FM_SFX_OCTAVE_SHIFT, -12,
-                         "default taste shift is one octave down")
+    def test_default_is_faithful(self):
+        self.assertEqual(FM_SFX_OCTAVE_SHIFT, 0,
+                         "default taste shift is 0 (S3K-faithful); -1 octave broke the ring")
 
 
 class TestSfxTableComplete(unittest.TestCase):
@@ -574,6 +575,87 @@ class TestPriorityValues(unittest.TestCase):
 
     def test_ringloss_priority(self):
         self.assertEqual(self._p(0xB9), 0xC0)
+
+
+# PSG vol-env fixtures (SFX Expressive Fidelity Task 3).
+# Jump (62) uses smpsPSGvoice sTone_0D on PSG1 before its first note.
+JUMP_PSG_SRC = """\
+Sound_62_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_62_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $01
+
+\tsmpsHeaderSFXChannel cPSG1, Sound_62_PSG1,\t$00, $00
+
+; PSG1 Data
+Sound_62_PSG1:
+\tsmpsPSGvoice        sTone_0D
+\tdc.b\tnC5, $08, nRst, $08
+\tsmpsStop
+
+Sound_62_Voices:
+"""
+
+# An unmapped sTone (sTone_07 has no body in PsgVolEnv_Table) must raise.
+UNMAPPED_STONE_SRC = """\
+Sound_XY_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_XY_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $01
+
+\tsmpsHeaderSFXChannel cPSG1, Sound_XY_PSG1, $00, $00
+
+; PSG1 Data
+Sound_XY_PSG1:
+\tsmpsPSGvoice        sTone_07
+\tdc.b\tnC5, $08
+\tsmpsStop
+
+Sound_XY_Voices:
+"""
+
+
+class TestPsgEnv(unittest.TestCase):
+    """SFX Expressive Fidelity Task 3 — PSG volume envelopes."""
+
+    def test_jump_emits_psgenv(self):
+        # The Jump PSG1 channel must emit a PsgEnv(0x0D) BEFORE its first note.
+        desc = transcode_sfx_source(JUMP_PSG_SRC, 0x62)
+        ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_PSG1)
+        evs = ch['events']
+        psgenv_idx = next(i for i, e in enumerate(evs) if isinstance(e, PsgEnv))
+        self.assertEqual(evs[psgenv_idx].env_id, 0x0D)
+        first_note = next(i for i, e in enumerate(evs)
+                          if isinstance(e, (Note, NoteDur)))
+        self.assertLess(psgenv_idx, first_note,
+                        "PsgEnv must precede the first note")
+
+    def test_skid_emits_psgenv(self):
+        # Skid (36) PSG2 also carries smpsPSGvoice sTone_0D (existing fixture).
+        desc = transcode_sfx_source(SKID_SRC, 0x36)
+        ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_PSG2)
+        self.assertTrue(any(isinstance(e, PsgEnv) and e.env_id == 0x0D
+                            for e in ch['events']))
+
+    def test_psgenv_encodes(self):
+        self.assertEqual(PsgEnv(0x0D).encode(), bytes([0xEB, 0x0D]))
+        self.assertEqual(PsgEnv(0x1D).encode(), bytes([MEV_PSGENV, 0x1D]))
+
+    def test_psgenv_rejects_fm(self):
+        from song_packer import CHROUTE_FM3
+        with self.assertRaises(PackError):
+            PsgEnv(0x0D).validate(CHROUTE_FM3)
+
+    def test_psgenv_accepts_psg_and_noise(self):
+        # Must NOT raise on PSG / noise routes.
+        PsgEnv(0x0D).validate(CHROUTE_PSG1)
+        PsgEnv(0x0D).validate(CHROUTE_PSGN)
+
+    def test_unmapped_stone_errors(self):
+        with self.assertRaises(TranscodeError):
+            transcode_sfx_source(UNMAPPED_STONE_SRC, 0x99)
 
 
 if __name__ == '__main__':

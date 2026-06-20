@@ -40,7 +40,7 @@ except ImportError:
 
 try:
     from song_packer import (
-        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, LoopPoint, Jump,
+        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, LoopPoint, Jump,
         RepeatStart, RepeatEnd,
         CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
         CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -50,7 +50,7 @@ try:
     )
 except ImportError:
     from tools.song_packer import (  # type: ignore
-        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, LoopPoint, Jump,
+        End, Note, NoteDur, Rest, SetDur, Patch, Vol, Pan, PsgEnv, LoopPoint, Jump,
         RepeatStart, RepeatEnd,
         CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
         CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -164,6 +164,29 @@ def _parse_int(tok: str) -> int:
     if tok.startswith('$'):
         return int(tok[1:], 16)
     return int(tok, 0)
+
+
+# sTone_XX token -> 1-based engine PSG vol-env id. The id IS the sTone number
+# (the engine's PsgVolEnv_Table holds the S3K-exact VolEnv body for each shipped
+# id). Only the sTones our core corpus references are mapped; an unmapped sTone
+# raises (spec section 8: never silently dropped).
+_STONE_TO_ENV = {
+    'sTone_03': 0x03, 'sTone_0D': 0x0D, 'sTone_0E': 0x0E,
+    'sTone_0F': 0x0F, 'sTone_11': 0x11, 'sTone_1D': 0x1D,
+}
+
+
+def _stone_to_env_id(tok: str) -> int:
+    tok = tok.strip()
+    if tok in _STONE_TO_ENV:
+        return _STONE_TO_ENV[tok]
+    # allow a bare numeric (already an id)
+    try:
+        return _parse_int(tok)
+    except (TranscodeError, ValueError):
+        raise TranscodeError(
+            f"unmapped smpsPSGvoice tone {tok!r} "
+            f"(add it to PsgVolEnv_Table + _STONE_TO_ENV)")
 
 
 def _chan_id_from_token(tok: str) -> int:
@@ -580,14 +603,13 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                         b4 = dir_val | amsfms_val
                         events.append(Pan(b4))
                     elif macro == 'smpsPSGvoice':
-                        # PSG volume envelope index (sTone_XX).  v1: no-op for audible PSG shape.
-                        # Document which sTone was requested (informational).
+                        # PSG volume envelope (sTone_XX). Emit MEV_PSGENV with the
+                        # 1-based engine env id (== the sTone number; the engine table
+                        # holds the S3K-exact VolEnv body for each id we ship).
                         args = _split_args(arg_str)
                         tone_tok = args[0].strip() if args else '0'
-                        print(f"  [info] sfx ${sfx_id:02X} ch ${chanid:02X}: smpsPSGvoice {tone_tok!r} "
-                              f"(PSG envelope tables not in v1 scope; tone index noted)",
-                              file=sys.stderr)
-                        # No event emitted — PSG voice shape comes from note frequency in v1.
+                        env_id = _stone_to_env_id(tone_tok)
+                        events.append(PsgEnv(env_id))
                     elif macro == 'smpsModSet':
                         # Intentional lossy mapping: drop for v1 (no per-note pitch-mod envelope).
                         # The note pitch + duration ARE preserved (smpsModSet is a zero-tick setter).
@@ -919,11 +941,13 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     b4 = dir_val | amsfms_val
                     events.append(Pan(b4))
                 elif macro == 'smpsPSGvoice':
+                    # PSG volume envelope (sTone_XX). This is the pass that BUILDS the
+                    # final event list -> emit MEV_PSGENV here with the 1-based engine
+                    # env id (== the sTone number; engine PsgVolEnv_Table holds the body).
                     args = _split_args(arg_str)
                     tone_tok = args[0].strip() if args else '0'
-                    print(f"  [info] sfx ${sfx_id:02X} ch ${chanid:02X}: smpsPSGvoice {tone_tok!r} "
-                          f"(PSG envelope tables not in v1 scope; tone index noted)",
-                          file=sys.stderr)
+                    env_id = _stone_to_env_id(tone_tok)
+                    events.append(PsgEnv(env_id))
                 elif macro == 'smpsModSet':
                     print(f"  [info] sfx ${sfx_id:02X} ch ${chanid:02X}: smpsModSet dropped "
                           f"(pitch-modulation envelope not in v1 scope; notes preserved)",

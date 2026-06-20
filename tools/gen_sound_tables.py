@@ -272,7 +272,85 @@ def emit_asm_z80() -> str:
     out.extend(_emit_dc_z80("b", masks, 8))
     out.append("CarrierMaskTableZ_End:")
     out.append("")
+    out.extend(_emit_psg_vol_env_z80())
     return "\n".join(out)
+
+
+# --- PSG volume-envelope table (SFX Expressive Fidelity, spec §4) -------------
+# S3K-EXACT VolEnv bodies, copied verbatim from skdisasm/Sound/Z80 Sound Driver.asm.
+# Engine env id is 1-based (matches smpsPSGvoice's sTone_XX); id N -> body VolEnv_(N-1).
+# Byte format: per-frame ATTENUATION deltas (added to the track atten; higher = quieter)
+# + control bytes: $80 = loop cursor to 0; $81 = sustain-hold (hold last delta, do NOT
+# silence); $83 = full rest (key the channel off). Only the sTones our corpus uses are
+# shipped. (S3K's buggy "relative-jump" path for other high-bit bytes is NOT replicated.)
+#
+# id -> (sTone label, S3K VolEnv_(id-1) body bytes). $80/$81/$83 are control bytes.
+_CTL_LOOP = 0x80
+_CTL_SUSTAIN = 0x81
+_CTL_REST = 0x83
+_PSG_VOL_ENVS = [
+    # id    sTone       S3K body  (== VolEnv_(id-1), verbatim)
+    (0x03, "sTone_03", [2, 1, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                        2, 3, 3, 3, 4, 4, 4, 5, _CTL_SUSTAIN]),            # VolEnv_02
+    (0x0D, "sTone_0D", [0, _CTL_SUSTAIN]),                                 # VolEnv_0C
+    (0x0E, "sTone_0E", [2, _CTL_REST]),                                   # VolEnv_0D
+    (0x0F, "sTone_0F", [0, 2, 4, 6, 8, 0x10, _CTL_REST]),                 # VolEnv_0E
+    (0x11, "sTone_11", [1, 1, 1, 0, 0, 0, _CTL_SUSTAIN]),                 # VolEnv_10
+    (0x1D, "sTone_1D", [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3,
+                        4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7,
+                        8, 8, 8, 8, 9, 9, 9, 9, 0x0A, 0x0A, 0x0A, 0x0A,
+                        _CTL_SUSTAIN]),                                    # VolEnv_1C
+]
+
+
+def _z80_byte(v: int) -> str:
+    """Intel-hex byte literal for the Z80 blob (AS needs a 0-prefix if it starts A-F)."""
+    h = "%02X" % (v & 0xFF)
+    return (h + "h") if h[0].isdigit() else ("0" + h + "h")
+
+
+def _emit_psg_vol_env_z80() -> list:
+    """Emit the PSG vol-env id->body map + bodies (Z80 syntax, direct-addressed).
+
+    The reader (PsgVolEnv_Resolve, engine/sound_psg.asm) linearly scans a tiny
+    id-byte array in parallel with a body-pointer array, so only the sparse ids we
+    ship occupy a slot (no 29-wide table). Bodies are S3K-EXACT.
+    """
+    out = []
+    out.append("; --- PSG volume-envelope table (SFX Expressive Fidelity, spec section 4) ------")
+    out.append("; S3K-EXACT VolEnv byte format: per-frame ATTENUATION deltas (added to the track")
+    out.append("; atten; higher = quieter) + control bytes: 80h = loop cursor to 0; 81h = sustain-")
+    out.append("; hold (hold last delta, do NOT silence); 83h = full rest (silence the channel).")
+    out.append("; Engine env id is 1-based (matches smpsPSGvoice's sTone_XX); id N -> body N-1.")
+    out.append("; (S3K's buggy 'relative-jump' path for other high-bit bytes is NOT replicated.)")
+    out.append("PsgVolEnvCtl_Loop    = 80h")
+    out.append("PsgVolEnvCtl_Sustain = 81h")
+    out.append("PsgVolEnvCtl_Rest    = 83h")
+    out.append("")
+    # id->body map: parallel arrays (id byte, body ptr). The reader scans for a match.
+    # Tiny so a linear scan is cheaper than a sparse 29-wide table.
+    ids = ", ".join(_z80_byte(e[0]) for e in _PSG_VOL_ENVS)
+    ptrs = ", ".join("PsgVolEnv_%02X" % e[0] for e in _PSG_VOL_ENVS)
+    out.append("PsgVolEnv_Ids:    db %s" % ids)
+    out.append("PsgVolEnv_Ids_End:")
+    out.append("PsgVolEnv_Ptrs:   dw %s" % ptrs)
+    out.append("PsgVolEnv_Ptrs_End:")
+    out.append("")
+    out.append("PSGVOLENV_COUNT = PsgVolEnv_Ids_End - PsgVolEnv_Ids")
+    out.append("        if (PsgVolEnv_Ptrs_End - PsgVolEnv_Ptrs) <> PSGVOLENV_COUNT*2")
+    out.append('          error "PsgVolEnv_Ptrs entry count mismatch vs PsgVolEnv_Ids"')
+    out.append("        endif")
+    out.append("")
+    for env_id, stone, body in _PSG_VOL_ENVS:
+        label = "PsgVolEnv_%02X" % env_id
+        body_toks = ", ".join(
+            {_CTL_LOOP: "PsgVolEnvCtl_Loop",
+             _CTL_SUSTAIN: "PsgVolEnvCtl_Sustain",
+             _CTL_REST: "PsgVolEnvCtl_Rest"}.get(b, _z80_byte(b))
+            for b in body)
+        out.append("%s:   db %s   ; %s (S3K VolEnv_%02X)" % (label, body_toks, stone, env_id - 1))
+    out.append("")
+    return out
 
 
 def main():

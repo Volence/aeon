@@ -94,6 +94,55 @@ Psg_VolToAtten:
         ret
 
 ; ----------------------------------------------------------------------
+; Psg_EnvCursorReset — restart the PSG vol-env contour (sc_psgenv_cur=0) on a
+; fresh attack, but ONLY for an SFX channel. The sc_psgenv* fields are SfxChannel-
+; only (Task 2 deviation): sc_psgenv_cur is at offset +40, which is PAST a music
+; SeqChannel (39 bytes) but INSIDE SfxChannel (60 bytes). Writing it on a music PSG
+; channel would corrupt the adjacent channel's RAM — so gate on ix >= SND_SFX_BASE
+; ($1D00, the same high-byte test Psg_SetVolume's duck fold uses). Music PSG
+; channels are below $1D00 -> no-op (byte-identical).
+; In: ix = SeqChannel/SfxChannel. Clobbers af. Preserves bc, de, hl, ix.
+; ----------------------------------------------------------------------
+Psg_EnvCursorReset:
+        push    hl                       ; preserve hl (contract)
+        push    ix
+        pop     hl                       ; hl = ix (the channel ptr)
+        ld      a, h
+        pop     hl                       ; restore caller's hl
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => music channel
+        ret     c                        ; music PSG -> no env fields, leave it alone
+        ld      (ix+sc_psgenv_cur), 0    ; SFX: restart the contour from frame 0
+        ret
+
+; ----------------------------------------------------------------------
+; PsgVolEnv_Resolve — map a 1-based PSG vol-env id (a) to its body ptr (hl) via the
+; tiny PsgVolEnv_Ids/PsgVolEnv_Ptrs parallel-array map (engine/sound_tables_z80.asm).
+; Out: carry clear + hl = body base on a match; carry set on an unknown id.
+; In: a = 1-based env id. Clobbers af,bc,de,hl. Preserves ix.
+; ----------------------------------------------------------------------
+PsgVolEnv_Resolve:
+        ld      b, PSGVOLENV_COUNT
+        ld      hl, PsgVolEnv_Ids
+        ld      de, PsgVolEnv_Ptrs
+.scan:
+        cp      (hl)
+        jr      z, .found
+        inc     hl                       ; next id byte
+        inc     de
+        inc     de                       ; next ptr (2 bytes)
+        djnz    .scan
+        scf                              ; not found
+        ret
+.found:
+        ex      de, hl                   ; hl = &ptr entry
+        ld      e, (hl)
+        inc     hl
+        ld      d, (hl)
+        ex      de, hl                   ; hl = body base
+        or      a                        ; carry clear
+        ret
+
+; ----------------------------------------------------------------------
 ; Psg_NoteOn — key a tone note on a PSG tone channel.
 ; In:  ix = SeqChannel (PSG1..3), a = pitch index (0..94).
 ; PsgDivisorTableZ[pitch] = 10-bit divisor (little-endian word). Emit:
@@ -142,6 +191,7 @@ Psg_NoteOn:
 
         ; --- set the channel volume so the note sounds (re-reads sc_volume) ---
         set     SCF_KEYED_B, (ix+sc_flags)
+        call    Psg_EnvCursorReset       ; SFX: restart the vol-env contour on this attack (spec §4)
         ld      a, (ix+sc_volume)
         jp      Psg_SetVolume            ; (preserves ix; ret from there)
 
@@ -177,6 +227,33 @@ Psg_NoteOff:
 Psg_SetVolume:
         call    Psg_VolToAtten           ; a = 4-bit attenuation (clobbers b)
         ld      c, a                     ; c = attenuation
+
+        ; --- PSG volume envelope (spec §4): add the per-frame env atten delta -------
+        ; sc_psgenv_out is the S3K VolEnv delta (attenuation units, higher = quieter),
+        ; computed by PsgEnvUpdate. Add it BEFORE the duck fold (env+duck compose) and
+        ; BEFORE the noise branch (noise SFX get the contour too). SFX ONLY: sc_psgenv_out
+        ; is an SfxChannel-only field (+41) — reading it on a music SeqChannel (39 bytes)
+        ; would read adjacent RAM, so gate on ix >= SND_SFX_BASE ($1D00). Music PSG volume
+        ; is therefore byte-identical (never touches the env path). Underflow guard (S3K
+        ; `bit 4,a`): if the sum sets bit 4 (>= $10) force $0F silent, so a loud-then-quiet
+        ; env can't wrap back to loud. hl preserved by contract -> save around the ix test.
+        push    hl
+        push    ix
+        pop     hl                       ; hl = ix (the channel ptr)
+        ld      a, h
+        pop     hl                       ; restore caller's hl (contract)
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        jr      c, .env_done             ; music PSG -> no env field, skip the fold
+        ld      a, (ix+sc_psgenv_out)
+        or      a
+        jr      z, .env_done             ; no env delta -> skip (no-env SFX fast path)
+        add     a, c                     ; atten + env delta
+        bit     4, a                     ; >= $10 ?
+        jr      z, .env_ok
+        ld      a, SND_PSG_ATTEN_SILENT  ; $0F (silent) clamp
+.env_ok:
+        ld      c, a
+.env_done:
 
         ; --- Phase 5a music ducking (spec §7) -------------------------------------
         ; Fold the GLOBAL music duck level into the PSG attenuation so EVERY music
@@ -236,6 +313,7 @@ Psg_Noise:
         or      SND_PSG_NOISE_CTRL       ; $E0 | (pitch & 7)
         ld      (SND_Z80_PSG), a         ; noise control byte (stays latched)
         set     SCF_KEYED_B, (ix+sc_flags)
+        call    Psg_EnvCursorReset       ; SFX: restart the vol-env contour on this attack (spec §4)
         ld      a, (ix+sc_volume)
         jp      Psg_SetVolume            ; noise volume path (preserves ix; ret)
 

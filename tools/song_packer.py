@@ -63,6 +63,7 @@ MEV_REPEAT_END = 0xE6        # + nn: replay from the matching REPEAT_START nn ti
 MEV_LOOP_POINT = 0xEE
 MEV_JUMP = 0xEF
 MEV_NOTEFILL = 0xED          # + master: per-channel note-fill (frames keyed from attack; 0=legato)
+MEV_PSGENV = 0xEB           # + env_id: set the channel's PSG volume-envelope id (1-based; 0=none)
 MEV_END = 0xFF
 
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
@@ -200,6 +201,25 @@ class Pan(Event):
     def validate(self, route):
         if not (0 <= self.b4 <= 0xFF):
             raise PackError(f"Pan b4 {self.b4} out of byte range")
+
+
+class PsgEnv(Event):
+    """SFX-fidelity PSG volume envelope: set the channel's 1-based env id (0=none).
+    The engine restarts the contour cursor on each attack and folds the per-frame
+    attenuation delta into Psg_SetVolume (S3K VolEnv contour). PSG/noise routes only.
+    Zero-tick coordination setter; the body bytes live in the engine's PsgVolEnv_Table
+    (keyed by id == sTone number). Mirrors the OpBias/Pan emit pattern."""
+    def __init__(self, env_id: int):
+        self.env_id = env_id
+
+    def encode(self) -> bytes:
+        return bytes([MEV_PSGENV, self.env_id & 0xFF])
+
+    def validate(self, route):
+        if route in _FM_ROUTES:
+            raise PackError(f"PsgEnv on FM route {route}")
+        if not (0 <= self.env_id <= 0xFF):
+            raise PackError(f"PsgEnv env_id {self.env_id} out of byte range")
 
 
 class OpBias(Event):
