@@ -125,11 +125,14 @@ Sound_PlayMusic:
 ; Sound_PlaySFX — request an SFX by id. Posts the id into SND_REQ_SFX; the Z80
 ; SfxDispatch handler queues + arbitrates. Ring (SFXID_RING_RIGHT/_LEFT) auto-
 ; alternates L/R via a 68k speaker toggle so consecutive ring pickups pan opposite.
-; In:  d0.b = sfx id (nonzero). Clobbers: SR restored; d0 (ring remap), a0.
+; In:  d0.b = sfx id (nonzero). Clobbers: SR restored; d0 (ring remap). Preserves a0.
 ; ----------------------------------------------------------------------
 Sound_PlaySFX:
+        move.l  a0, -(sp)                   ; preserve caller's a0 (live player/SST ptr at every gameplay seam)
         lea     (SND_Z80_BASE+SND_REQ_SFX).l, a0
-        bra.w   Sound_PostByte
+        bsr.w   Sound_PostByte              ; was bra.w — must call so we can restore a0
+        move.l  (sp)+, a0
+        rts
 
 ; ----------------------------------------------------------------------
 ; Sound_PlayRing — collect-ring SFX with internal L/R alternation. Toggles
