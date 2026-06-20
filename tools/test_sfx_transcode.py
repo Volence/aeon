@@ -301,6 +301,46 @@ class TestRoundtripSkid(unittest.TestCase):
         for ch in self.desc['channels']:
             self.assertNotIn(ch['route'], {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM6, CHROUTE_DAC})
 
+    def test_no_cross_channel_contamination(self):
+        # Skid source lists PSG2 first in the header but lays Sound_36_PSG1
+        # BEFORE Sound_36_PSG2 in the file; PSG1's block is only `dc.b nRst, $01`
+        # with no smpsStop.  The parser must stop PSG1 at the Sound_36_PSG2 label
+        # (channel boundary) and NOT consume PSG2's smpsPSGvoice / nBb3 loop.
+        psg1_ch = next(ch for ch in self.desc['channels']
+                       if ch['route'] == CHROUTE_PSG1)
+        psg2_ch = next(ch for ch in self.desc['channels']
+                       if ch['route'] == CHROUTE_PSG2)
+
+        # PSG1 must NOT contain PSG2's PsgEnv (sTone_0D) — that is PSG2's pattern.
+        psg1_has_psgenv = any(isinstance(e, PsgEnv) for e in psg1_ch['events'])
+        self.assertFalse(psg1_has_psgenv,
+                         "PSG1 wrongly contains a PSG volume envelope (PSG2's data leaked in)")
+
+        # PSG1 must NOT contain the nBb3 note (pitch index of nBb3) — PSG2's note.
+        psg2_pitches = {e.pitch for e in psg2_ch['events']
+                        if isinstance(e, (Note, NoteDur))}
+        psg1_pitches = {e.pitch for e in psg1_ch['events']
+                        if isinstance(e, (Note, NoteDur))}
+        self.assertTrue(psg2_pitches, "PSG2 should have at least one played note")
+        self.assertEqual(psg1_pitches & psg2_pitches, set(),
+                         "PSG1 shares PSG2's note pattern — cross-channel contamination")
+
+        # PSG1's only musical content is a single rest (nRst); it must have NO
+        # played notes at all.
+        self.assertEqual(len(psg1_pitches), 0,
+                         "PSG1 should only contain a rest, no played notes")
+
+        # PSG1's stream must NOT loop (only PSG2 has the smpsLoop).
+        psg1_has_repeat = any(isinstance(e, (RepeatStart, RepeatEnd))
+                              for e in psg1_ch['events'])
+        self.assertFalse(psg1_has_repeat,
+                         "PSG1 wrongly contains a repeat (PSG2's smpsLoop leaked in)")
+
+        # Both channels must still terminate with End (PSG1 via the injected
+        # implicit channel-boundary end).
+        self.assertIsInstance(psg1_ch['events'][-1], End)
+        self.assertIsInstance(psg2_ch['events'][-1], End)
+
 
 class TestNoReservedTarget(unittest.TestCase):
     """For every transcoded SFX (Roll, Skid, Ring), assert no channel route is reserved."""

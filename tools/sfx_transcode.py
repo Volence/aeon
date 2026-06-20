@@ -468,6 +468,16 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
     channels_out = []
     sfx_flags = 0
 
+    # Channel-boundary labels: every smpsHeaderSFXChannel data-pointer label.
+    # A channel's data block ends where the NEXT channel's data label begins
+    # (S3K source layout: channel data blocks are laid out sequentially and a
+    # channel that lacks an explicit smpsStop falls through into the next
+    # channel's label).  We use this set to inject an implicit end at that
+    # boundary so a channel never consumes the following channel's events.
+    # Loop-target labels (Sound_XX_LoopNN / loop-internal labels) are NOT in
+    # this set, so smpsLoop handling is unaffected.
+    _channel_data_labels = {dl for (_cid, dl, _p, _v) in chan_headers}
+
     # We need to handle the special case where the data for a channel lives
     # somewhere else (e.g. Sound_34's smpsJump to Sound_34_Jump00 in Sound_33).
     # We build a per-label content map for cross-label jumps.
@@ -890,6 +900,13 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                 lbl_m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*):\s*$', stripped)
                 if lbl_m:
                     lbl_name = lbl_m.group(1)
+                    # Channel-boundary stop: reaching the data-pointer label of a
+                    # DIFFERENT channel ends this channel's stream (S3K sequential
+                    # layout — a channel with no explicit smpsStop falls through
+                    # into the next channel's data).  Inject an implicit End.
+                    if lbl_name in _channel_data_labels and lbl_name != data_lbl:
+                        events.append(End())
+                        return True
                     if lbl_name in _loop_targets:
                         events.append(_LoopMarker(lbl_name))
                     continue
@@ -904,6 +921,10 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     'smpsLoop', 'smpsJump', 'smpsFMAlterVol', 'smpsNoAttack', 'smpsStop'
                 ):
                     lbl_name = lbl_m2.group(1)
+                    # Channel-boundary stop (label with trailing content form).
+                    if lbl_name in _channel_data_labels and lbl_name != data_lbl:
+                        events.append(End())
+                        return True
                     if lbl_name in _loop_targets:
                         events.append(_LoopMarker(lbl_name))
                     rest_of_line = lbl_m2.group(2).strip()
