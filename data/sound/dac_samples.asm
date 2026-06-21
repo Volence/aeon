@@ -26,3 +26,13 @@ Dac_Temp_Blip_End:
 SND_BLIP_BANK           = (Dac_Temp_Blip & $7F8000) >> 15
 SND_BLIP_PTR            = (Dac_Temp_Blip & $7FFF) | $8000
 SND_BLIP_LEN            = Dac_Temp_Blip_End - Dac_Temp_Blip
+
+        ; DAC sample lengths MUST be even: the FILL producer
+        ; (engine/z80_sound_driver.asm) reads 2 ROM bytes/pass and decrements
+        ; ds_length by 2, testing `h or l == 0` for exhaustion. An ODD length steps
+        ; ...3 -> 1 -> $FFFF and NEVER hits zero, so it reads ~64KB past the sample.
+        ; (Generalize this to every DacSample ds_length when the descriptor table
+        ; grows beyond the single blip — see DEFERRED_WORK "DAC format revision".)
+        if (SND_BLIP_LEN & 1) <> 0
+          fatal "DAC sample length (\{SND_BLIP_LEN}) must be EVEN (FILL decrements by 2, tests ==0)"
+        endif
