@@ -103,6 +103,11 @@ GameState_OJZScroll_Init:
         startZ80
 
     ifdef __DEBUG__
+      ; The self-check's expectations are baked from STOCK boot-section
+      ; collision; build.sh defines OJZ_BOOT_COLLISION_EDITED when section 0 has
+      ; Aurora-authored collision, in which case skip it (it would RaiseError on
+      ; your edits). Everything else in DEBUG stays on.
+      ifndef OJZ_BOOT_COLLISION_EDITED
         ; -- §5 Task 4: directional sensor self-check against generator-
         ;    computed expectations. Must run after Tile_Cache_Init (the
         ;    probes read the filled collision cache). RaiseError on
@@ -112,6 +117,7 @@ GameState_OJZScroll_Init:
         ; reach TileCache_FillRow). Boot-safe: re-fills in-window rows in
         ; place, restores cache state. Must run LAST (after the column check).
         jsr     PlayerSensors_SelfCheck_RowFill
+      endif
     endif
 
         ; -- §4.6 parallax init: pull start section's parallax_config --
