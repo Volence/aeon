@@ -473,7 +473,13 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             stripped = line.strip()
             if stripped.startswith(';') or not stripped:
                 continue
-            m = re.match(r'(smpsVc[A-Za-z]+)\s*(.*)', stripped)
+            # NOTE: [A-Za-z0-9]+ (NOT [A-Za-z]+) — the macro name includes the trailing
+            # digit. With [A-Za-z]+, smpsVcDecayRate1/smpsVcDecayRate2 captured as
+            # "smpsVcDecayRate" (digit dropped), missed apply()'s exact-name match, and
+            # FELL THROUGH -> D1R/D2R (the FM decay envelope) silently ZEROED on every FM
+            # SFX. That gave the ring/dash/ring-loss a no-decay "sustain forever" timbre
+            # (verified wrong vs the real S&K ROM via VGM register capture).
+            m = re.match(r'(smpsVc[A-Za-z0-9]+)\s*(.*)', stripped)
             if m:
                 macro = m.group(1)
                 args = _split_args(m.group(2))

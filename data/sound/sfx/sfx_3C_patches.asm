@@ -24,7 +24,7 @@ Sfx_3C_Patches:
         pbyte     0,   2,  68,   2   ; fp_dt_mul  $30  [S1,S3,S2,S4]
         pbyte    13,  40,   0,   0   ; fp_tl  $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  21   ; fp_rs_ar  $50  [S1,S3,S2,S4]
-        pbyte     0,   0,   0,   0   ; fp_am_d1r  $60  [S1,S3,S2,S4]
+        pbyte     0,   0,  31,   0   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_d2r  $70  [S1,S3,S2,S4]
         pbyte    15,  15,  15,  15   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
 Sfx_3C_Patches_End:

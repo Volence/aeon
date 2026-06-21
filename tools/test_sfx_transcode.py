@@ -923,5 +923,32 @@ class TestFmVoiceOperatorOrder(unittest.TestCase):
         self.assertEqual(list(out[22:26]),[4, 2, 3, 1], "sl_rr reordered (was the unreordered bug)")
 
 
+class TestFmDecayEnvelopeParsed(unittest.TestCase):
+    """Regression guard: the voice-block parser must capture smpsVcDecayRate1/2.
+
+    The dispatch regex was `(smpsVc[A-Za-z]+)` — `[A-Za-z]+` dropped the trailing
+    digit, so `smpsVcDecayRate1`/`smpsVcDecayRate2` were captured as `smpsVcDecayRate`,
+    missed apply()'s exact-name match, fell through to `else: pass`, and D1R/D2R (the
+    FM decay envelope) were silently ZEROED on every FM SFX -> wrong no-decay timbre
+    (verified against the real S&K ROM via VGM register capture). This exercises the
+    regex/parse path that the builder-only operator-order test bypasses.
+    """
+
+    def test_ring_decay_rates_not_zeroed(self):
+        desc = transcode_sfx_source(RING_RIGHT_SRC, 0x33)
+        self.assertEqual(len(desc['voices']), 1)
+        v = desc['voices'][0]
+        # 26-byte FmPatch: [0]alg_fb [1]lr [2:6]dt_mul [6:10]tl [10:14]ks_ar
+        #                  [14:18]am_d1r [18:22]d2r [22:26]sl_rr
+        am_d1r = list(v[14:18])
+        d2r = list(v[18:22])
+        # source D1R [op1..op4]=[$0D,$07,$0A,$07] -> _s3k_op_reorder [op4,op2,op3,op1];
+        # D2R [$0B,$00,$0B,$00] -> reorder. These match the real S&K ROM register dump.
+        self.assertEqual(am_d1r, [0x07, 0x07, 0x0A, 0x0D],
+                         "smpsVcDecayRate1 must be parsed (D1R was zeroed by the [A-Za-z]+ regex)")
+        self.assertEqual(d2r, [0x00, 0x00, 0x0B, 0x0B],
+                         "smpsVcDecayRate2 must be parsed (D2R was zeroed by the [A-Za-z]+ regex)")
+
+
 if __name__ == '__main__':
     unittest.main()

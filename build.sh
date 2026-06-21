@@ -40,7 +40,9 @@ if [[ -f data/editor/ojz/act1/section_0.collattr.bin ]]; then
     ASFLAGS="${ASFLAGS} -D OJZ_BOOT_COLLISION_EDITED"
 fi
 
-if [[ "${SOUND_DRIVER_ENABLED:-0}" == "1" ]]; then
+# Sound engine ON by default now (the driver is the active dev target). Disable
+# explicitly with SOUND_DRIVER_ENABLED=0 ./build.sh for a smaller silent ROM.
+if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
     ASFLAGS="${ASFLAGS} -D SOUND_DRIVER_ENABLED"
 fi
 
