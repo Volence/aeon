@@ -2,6 +2,9 @@
 
 Tracks work that was identified during design/implementation but deferred because dependencies don't exist yet. Check this document at the start of each new system's planning phase — items here may now be unblocked.
 
+> **Open defects** (not deferred features) live in **`docs/BUGS.md`**. See BUG-001: intermittent
+> section-streaming rendering corruption (garbage tiles + red field) — captured live-emulator evidence.
+
 ---
 
 ## From §5 — Player System
