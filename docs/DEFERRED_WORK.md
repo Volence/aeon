@@ -1022,6 +1022,126 @@ warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 > (N-channel DAC mixer, FM extras, adaptive FM6, section-aware banking/fades + SFX, MegaDAW export)
 > is tracked at the bottom of this section. References to "Flamedriver upload" below are historical.
 
+### Sound Engine Deep Audit (2026-06-21) — Full Bug Backlog + Best-in-Class Roadmap
+**Surfaced during:** a 73-agent adversarially-verified correctness audit + a fact-checked frontier
+gap analysis (Zyrinx, XGM/XGM2, Echo, MDSDRV, GEMS, Flamedriver, demoscene/MegaPCM). Branch
+`feat/sound-phase5a-sfx`. Memory: [[project_sound_audit_2026_06_21]], [[project_sfx_pitch_open]].
+**Verdict:** structurally sound — **0 crashes, 0 register/bus-corruption, 0 IRQ bugs**. 40 confirmed
+issues, clustered in SFX + DAC + the build pipeline. We are already best-in-class on DMA-survival
+DAC cadence, the SFX steal/priority/ducking engine, and the static key-on FM-expression layer.
+**Status of Item 1 (IN PROGRESS, branch off this one):** bug B1 (transcoder operator swap) + bug
+A1 (SFX steal silence-gap). Everything else below is the durable backlog so nothing is lost.
+
+#### A. Bugs reachable in normal gameplay (fix soon)
+- **A1 — SFX steal silences the music voice it stole** (`engine/sound_sfx.asm` ~447/895/920/947).
+  Steal's key-off clears `SCF_KEYED` on the music channel; `Sfx_Restore` tests that *same* now-cleared
+  bit to decide whether to re-key the held note, so it never re-keys → music voice dropout on every
+  steal of a sounding FM/PSG note. **Fix:** stash the music channel's KEYED state at steal, branch
+  Restore on the saved bit. (Violates the spec's "no silence gap" criterion.) **→ Item 1.**
+- **A2 — two SFX in one 68k frame → only the last survives** (`engine/sound_api.asm` 130; single-byte
+  `SND_REQ_SFX`, latest-wins; consumed once/VBlank at `z80_sound_driver.asm` 522). Jump+ring, skid+ring,
+  death+ring-loss all drop one SFX, *priority-blind*. The Z80 3-deep queue sits downstream and can't help.
+  **Fix:** Flamedriver two-slot post (`zSFXNumber0/1`) or a small 68k-side pending ring. Audio-only (high/med).
+
+#### B. Build-pipeline / fidelity bugs (the "SFX sounds wrong" root cause)
+- **B1 — transcoder swaps physical operators S2↔S3** (`tools/sfx_transcode.py` ~388). Emits S3K op
+  order straight through, but our engine maps byte-index k→reg base+k*4 = physical `[S1,S3,S2,S4]`;
+  S3K uploads `[S1,S2,S3,S4]`. Every transcoded FM SFX plays with OP2/OP3 transposed → wrong timbre
+  (spindash alg-4 swaps the *modulators* = large). **Likely root of [[project_sfx_pitch_open]].**
+  **Fix:** emit `[src[3],src[1],src[2],src[0]]` (OP_REORDER=[0,2,1,3]) for the S3K-SFX path only. **→ Item 1.**
+- **B2 — by-ear FM octave / spindash-sweep "taste knobs" baked into committed SFX data** (`sfx_transcode.py`
+  151-176; `_FM_SFX_OCTAVE`, `_SPINDASH_MOD_SCALE`). Unconverged WIP; likely *compensating* for B1.
+  **After B1 lands + regen, re-evaluate — they may collapse toward 0/S3K-faithful.** (Paused 2026-06-21.)
+- **B3 — AM-enable bit dropped vs S3K byte** (`sfx_transcode.py` 330-336/390; `_am<<5 & 0x80` always 0).
+  Harmless on YM2612 (bit 5 of $60 is a don't-care) but a byte-fidelity divergence + a trap if a real
+  AM voice is ever transcoded. Doc or preserve the junk bits.
+
+#### C. DAC sample path — correct today by coincidence, breaks the moment real drums land
+*(Do all four as ONE format revision — and fold in the best-in-class DAC work, item E2/E3 below. Partly
+already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor" further down.)*
+- **C1 — one-shot samples never stop** (`z80_sound_driver.asm` 414-423). `DAC_ACTIVE` only ever set,
+  never cleared on exhaustion; FILL-exhaust unconditionally re-loops the blip → any real drum machine-guns.
+- **C2 — `Snd_StartSample` ignores `ds_loop_ofs` + `ds_rate`** (601-619). Descriptor loop-point + per-sample
+  rate inert; multi-sample DAC blocked.
+- **C3 — odd `ds_length` runs away ~64KB** (407-413). FILL `-=2` + `==0` test misses an odd final byte →
+  reads off the end / bank-wrap. **Fix:** build-time assert sample lengths are even.
+- **C4 — no consumer underrun guard** (353-363). Over-long DRAIN replays stale ring bytes as a buzz, no
+  detection. **Fix:** output `$80` (DC center) when `lead==0`.
+
+#### D. Latent correctness (trust-the-packer / new-content surfaces)
+- **D1** PSG pitch-mod has no noise-route gate (`sound_sequencer.asm` 162; `sound_psg.asm` 239) — a noise
+  channel carrying `sc_mod_ctrl!=0` corrupts the noise control register. Gate on tone route + reject in transcoder.
+- **D2** note before any set-duration reloads from a zeroed `sc_dur_default` → 255-tick stuck note
+  (`sound_sequencer.asm` 536; init `sc_dur_default` to 1).
+- **D3** `sc_mod_wait` never restored on note re-arm — 2nd+ modulated note gets zero delay vs S3K
+  `zPrepareModulation` (`sound_sequencer.asm` 381; add `sc_mod_wait_raw`).
+- **D4** `Psg_NoteOn` ignores `sc_transpose` (S3K applies it to PSG too) (`sound_psg.asm` 154).
+- **D5** PSG envelope attack uses a stale `sc_psgenv_out` / lands one frame late vs S3K (`sound_psg.asm`
+  106/184; zero `sc_psgenv_out` at cursor-reset).
+- **D6 (uncertain)** single-level repeat state may carry a stale `sc_repeat_count` across a song loop /
+  mid-flight jump (`sound_sequencer.asm` 1042). Watch; add a packer guard if it bites.
+- **D7** `MEV_REPEAT_END` operand 0 → 255-pass repeat, no runtime clamp (`sound_sequencer.asm` 1022; trust-packer).
+
+#### E. Best-in-class — the honest gaps (cross-driver consensus)
+**DO NOW (high payoff, seam already exists, ~no pigeonhole):**
+- **E-now-1 — continuous/fine pitch + portamento ON MUSIC channels.** Every frontier driver converged
+  on this (Zyrinx fine ladder + restoring-division glide `batman_driver_analysis.md`:186-219; MDSDRV 256
+  steps/semitone; XGM2 freq-delta; Flamedriver pitch-slide w/ octave-rollover). Our `FmPitchTableZ` is
+  strictly chromatic and our continuous-vibrato core (`Mod_Advance`/`sc_base_freq`/`sc_porta_*`) renders
+  **SFX channels only** — music gets none. Promote that machinery into the music `SeqChannel` path + add a
+  fine-pitch representation. Fields `sc_porta_accum/incr` reserved (`sound_constants.asm` 793). *(This is
+  the same as the long-deferred Phase 3a Task 7 portamento + Zyrinx "take-next".)*
+- **E-now-2 — per-frame FM TL volume envelope on music channels** (Flamedriver `zDoFMVolEnv`). We have
+  static `OPBIAS` only. Reuses the existing `Fm_PatchTlGroup` TL-write plumbing. No format change.
+- **E-now-3 — master fade-in/out + global tempo-speedup.** Grep-confirmed we have **neither** (Flamedriver
+  `zDoMusicFadeOut/In`, `zFadeToPrev`, `zTempoSpeedup`). Table-stakes for level start/clear/death/drowning/
+  invincibility/1-up. Cheap (ramp carrier TL toward $7F + a tempo-accumulator scalar w/ save/restore).
+- **E-now-4 — sequencer-driven hardware LFO ($22 rate opcode).** We set `$22=$08` once at init and never
+  sweep it; one free MEV opcode. **Also fix latent doc bug:** comment at `z80_sound_driver.asm` 219/228 says
+  3.98 Hz but `$08` = **3.82 Hz**.
+
+**DESIGN-FOR-IT-NOW, build later (the ONE true pigeonhole + its companions):**
+- **E2 — multi-voice PCM mixing on FM6 DAC** — the single architectural decision that forecloses the
+  frontier. XGM(4ch)/XGM2(3ch)/MDSDRV(2-3ch)/DualPCM(2ch) sum samples in Z80 RAM; our consumer copies one
+  byte, no summing stage, no per-voice volume field (`z80_sound_driver.asm` 353-363; `sound_constants.asm`
+  228-234). **Don't build the mixer now — shape the ring consumer + `DacSample` descriptor for N voices now**
+  (per-voice volume byte + 16.16 mix cursor so per-sample pitch is free later), ship 1 voice, keep the
+  RAM-only equal-cost invariant. This is the "[[feedback_best_of_class_north_star]] design-for-C, build-for-A"
+  call — do it **before authoring real DAC content.**
+- **E3 — round out the DAC format in that SAME revision:** loop point (= C2), priority, pan (via $B6),
+  auto-bankswitch, `ds_rate` pitch, **+ 4-bit DPCM** (re-adopt our own S3K JMan2050 DPCM, `Flamedriver.asm`
+  4321-4442 — halves ROM, producer-side so the 8948 Hz cadence is untouched), and route **sampled SFX** as
+  mixer-voice-2 with ducking. (Skip PCM-on-PSG.) Fold the C1-C4 bug fixes in here.
+- **E4 — independent per-channel modulation/control stream (dual-stream channels)** — Zyrinx's "feels alive"
+  secret + MDSDRV macro-tracks. The seam is **already committed** (`sc_mod_ptr` slot[1], stream-agnostic
+  `ModUpdate`) — best-prepared seam in the driver. *(= Phase 3b "dual per-channel data streams".)*
+- **E5 — SSG-EG per-operator looping ($90-$9E)** — cheap buzzy/metallic/AY timbre family, one reg write at
+  note-on. **Correction:** `MEV_REGDELTA` does **not** currently reach $90 — `RegDeltaGroupBase` is only
+  $30-$80 (6 of 16 groups, `sound_fm.asm` 547). Add a 7th group + a per-op patch byte.
+
+**SKIP / DEFER (and why):**
+- **68k-resident sequencer (MDSDRV model)** — explicitly **skip**; our full-Z80 autonomy is the right call
+  for a 60fps section-streaming platformer with a busy 68k. Borrow MDSDRV's *techniques* onto the Z80, not
+  its CPU placement.
+- **CSM mode** — skip; contends with Timer-A (our ~59 Hz sequencer clock).
+- **CH3 special mode** (someday; niche, complicates FM3 SFX voice arbitration in `sound_sfx.asm`) and
+  **Echo-style adaptive live-inject** (someday; mailbox could grow a direct-event slot — protocol is already
+  reentrant/extensible). Build only when a concrete song/boss needs them.
+
+#### F. Hygiene — doc drift, dead code, RAM budget (recovers ~750 B ROM)
+- **F1** Z80 RAM-map spec (`docs/superpowers/specs/2026-06-16-sound-z80-ram-map.md`) is STALE — the SFX
+  array $1D00-$1EBC overruns the doc's "spare" page; `SND_STATE_BASE` moved $1600→$16F0; sequencer/trace/
+  song/SFX regions undocumented. Reconcile to the live `sound_constants.asm` map + state true headroom.
+- **F2** `ENGINE_ARCHITECTURE.md §6` still lists SFX deferred + AF_SOUND a stub (update on merge to master).
+- **F3** Dead ROM: `dc.l SfxTable` 540 B unused (engine uses its own Z80 `dw` window table); duplicate
+  `sfx_NN_patches` banks ~208 B; dead `Snd_TimerA_Program` (`z80_sound_driver.asm` 715). Purge.
+- **F4** Stale/load-bearing-wrong comments: ISR "ix NOT touched" (it IS, via SfxDispatch — safe by
+  construction, but the *reasoning* would license a future bug); `Sfx_Restore` "ret stub" (it's implemented);
+  PSG header "never clobbers de" (it does; caller restores it); a0-clobber contracts on Sound_StopMusic/
+  PlaySample/Ping/PlayRing (same class just fixed in Sound_PlaySFX — unify to all-preserve-a0).
+- **F5** Z80 blob space TIGHT: ~118 B code headroom, ~67 B to the mailbox. Plan a space recovery (bank
+  FmPitchTableZ/LogVolumeLut/MovingTrucks_PitchTable into a $8000-window read) **before 5b/FM6**.
+
 ### Per-frame pitch / volume envelopes (Phase 3a #2/#3) — DEFERRED, build-on-demand
 **Surfaced during:** Moving Trucks missing-effects investigation (2026-06-19).
 **Decision: do NOT build for MT; build only when a song's data actually uses them.**
