@@ -49,11 +49,20 @@ PState_Ground:
         cmpi.w  #PHYS_ROLL_START_MIN, d0
         bge.s   .no_spindash
         clr.b   (Player_JumpBuffer).w           ; consume — this press is rev 0
+      ifdef SOUND_DRIVER_ENABLED
+        ; The initiating press IS a rev (rev 0) and must play the rev SFX — classic
+        ; spindash makes the sound on the FIRST press. Since we consumed the jump
+        ; buffer above, PState_Spindash's .rev sees it empty and won't fire for this
+        ; press, so play it here. (Subsequent taps fire .rev in player_spindash.asm.)
+        ; Sound_PlaySFX preserves a0/a4; only d0 is clobbered (reloaded below).
+        move.b  #SFXID_SPINDASH, d0
+        jsr     Sound_PlaySFX
+      endif
         moveq   #PSTATE_SPINDASH, d0
         bsr.w   Player_SetState                 ; hook curls + zeroes motion/charge
         jmp     PState_Spindash                 ; run the charge frame now —
                                                 ; the floor pair keeps running
-                                                ; (sonic.asm). Rev SFX fired per-tap in player_spindash.asm
+                                                ; (sonic.asm). Subsequent rev SFX per-tap in player_spindash.asm
 .no_spindash:
         ; --- jump check (classic order: after spindash, before slope/
         ; input). Player_JumpBuffer covers fresh press AND buffered —
