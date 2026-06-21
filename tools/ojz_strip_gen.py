@@ -1052,30 +1052,38 @@ def build_section_collision(
     return coll_a, coll_b
 
 
-def apply_editor_collision_overlay(grids, sec_id, max_index):
-    """Replace the sonic_hack-baked collision grids with Aurora's editor collision
-    when the section has been authored (AUTHORITATIVE / WYSIWYG): each 16px cell
-    becomes exactly what the editor shows — painted cells are solid, erased cells
-    are air. So the in-game collision matches the editor pixel-for-pixel, and
-    erasing actually removes collision. A section with NO editor file (.collattr
-    .bin absent) keeps its engine collision unchanged.
+def load_base_bank():
+    """Load the imported S&K base bank (heightmaps + angles) the bake draws shapes
+    from. Written by tools/import_sk_collision.py to data/collision/base/."""
+    base = os.path.normpath(os.path.join(
+        os.path.dirname(__file__), "..", "data", "collision", "base"))
+    hm = open(os.path.join(base, "heightmaps.bin"), "rb").read()
+    an = open(os.path.join(base, "angles.bin"), "rb").read()
+    return hm, an
 
-    Editor `.collattr.bin` bytes ARE attr-set indices — Aurora seeds its editable
-    plane by cloning the strip collision plane (the same index space as these
-    grids and the four ROM tables) — so this is a pure passthrough; NO re-baking
-    and the shared AttrSet / emitted ROM tables are never touched.
+
+def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, attrset):
+    """Bake Aurora's editor collision into the section's collision grids when the
+    section has been authored (AUTHORITATIVE / WYSIWYG). Each 16px cell of the
+    `.collattr.bin` is a 16-bit BIG-ENDIAN packed cell word (shape | X/Y-flip |
+    per-plane solidity, see collision-cell-word.ts). bake_plane_cell resolves the
+    flip + solidity against the base bank and INTERNS the result into the shared
+    `attrset`, returning the runtime 1-byte attr index — so the in-game collision
+    matches the editor (painted = solid, erased/air = 0) and only the combos
+    actually painted reach the ROM tables. A section with NO editor file keeps its
+    (air) baseline unchanged.
 
     `grids` = (coll_a, coll_b), each a list of per-column bytes(COLLISION_ROWS_
-    PER_STRIP). Editor data is 256×256 (one byte per 8px tile); a 16px collision
-    row samples the top tile row (even rows). Returns the new grids, or the
-    originals unchanged when no editor file exists for the section."""
+    PER_STRIP). Editor data is 256×256 cells (one 16-bit word per 8px tile); a
+    16px collision row samples the top tile row (even rows). Returns the new
+    grids, or the originals unchanged when no editor file exists for the section."""
     coll_a, coll_b = grids
     base = os.path.join(EDITOR_DIR, "ojz", "act1")
     path_a = os.path.join(base, f"section_{sec_id}.collattr.bin")
     if not os.path.isfile(path_a):
         return grids
     W = STRIP_TILE_HEIGHT                       # 256 tiles wide / tall
-    expect = W * W
+    expect = W * W * 2                          # 16-bit words: 2 bytes per cell
     a = open(path_a, "rb").read()
     if len(a) != expect:
         print(f"  WARNING: {path_a} is {len(a)}B, expected {expect}; "
@@ -1086,6 +1094,9 @@ def apply_editor_collision_overlay(grids, sec_id, max_index):
     if b is not None and len(b) != expect:
         b = None                                # malformed path B → mirror A
 
+    def word(buf, o):                           # big-endian (Aurora serializeCollAttr)
+        return (buf[2 * o] << 8) | buf[2 * o + 1]
+
     out_a, out_b = [], []
     nonair = 0
     for col in range(len(coll_a)):
@@ -1094,10 +1105,10 @@ def apply_editor_collision_overlay(grids, sec_id, max_index):
             eb = bytearray(COLLISION_ROWS_PER_STRIP)
             for cr in range(COLLISION_ROWS_PER_STRIP):
                 o = (cr * 2) * W + col           # top tile row of the 16px cell
-                ia = a[o]
-                ib = b[o] if b is not None else ia
-                ea[cr] = ia if ia < max_index else 0
-                eb[cr] = ib if ib < max_index else 0
+                wa = word(a, o)
+                wb = word(b, o) if b is not None else wa
+                ea[cr] = collision_pipeline.bake_plane_cell(wa, base_profiles, base_angles, attrset)
+                eb[cr] = collision_pipeline.bake_plane_cell(wb, base_profiles, base_angles, attrset)
                 if ea[cr]:
                     nonair += 1
             out_a.append(bytes(ea))
@@ -1105,7 +1116,7 @@ def apply_editor_collision_overlay(grids, sec_id, max_index):
         else:                                    # beyond editor width → keep engine
             out_a.append(coll_a[col])
             out_b.append(coll_b[col])
-    print(f"  sec {sec_id}: authoritative editor collision ({nonair} non-air cells)")
+    print(f"  sec {sec_id}: editor collision baked ({nonair} non-air cells)")
     return out_a, out_b
 
 
@@ -1194,28 +1205,40 @@ def generate():
     # enumerate_collision_layouts(), the SAME enumeration
     # gen_collision_data.real_tables() walks, so a standalone
     # gen_collision_data.py run always reproduces these tables.
-    # ---- Collision: FRESH START (imported Sonic & Knuckles set) ----
-    # The collision shapes are the FIXED imported S&K tables in data/collision/
-    # (written by tools/import_sk_collision.py earlier in build.sh; NOT re-emitted
-    # here). Level collision is all AIR except what the editor authored
-    # (.collattr.bin / .collattrb.bin, applied authoritatively below). No
-    # sonic_hack collision walk, no attr-set, no table emit.
+    # ---- Collision: FRESH START + flag-based authoring (S&K base bank) ----
+    # The collision VOCABULARY is the imported S&K base bank (data/collision/base/,
+    # written by import_sk_collision.py). Level collision is all AIR except what the
+    # editor authored. Each authored cell is a 16-bit word (shape | flip | solidity)
+    # that the bake RESOLVES against the base bank and INTERNS into a shared attr-set
+    # (bake_plane_cell). The runtime ROM tables (data/collision/*.bin) are then
+    # emitted from that attr-set — only the combos actually painted reach the ROM.
     air_col = bytes(COLLISION_ROWS_PER_STRIP)
     per_section_coll: dict[str, tuple[list[bytes], list[bytes]]] = {
         sec_id: ([air_col] * len(strips), [air_col] * len(strips))
         for sec_id, strips in per_section_strips.items()
     }
     # ROM strips carry the authoritative editor override; source strips (the
-    # editor's read-only baseline, sec*_strips_source.bin) stay air. Editor
-    # indices reference the imported S&K table (capacity 256).
+    # editor's read-only baseline, sec*_strips_source.bin) stay air.
     per_section_coll_rom = per_section_coll
     if use_editor:
+        base_profiles, base_angles = load_base_bank()
+        attrset = collision_pipeline.AttrSet()      # ONE shared set across all sections
         per_section_coll_rom = {
-            sec_id: apply_editor_collision_overlay(grids, sec_id, 256)
+            sec_id: apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, attrset)
             for sec_id, grids in per_section_coll.items()
         }
-    print(f"Collision: {len(per_section_coll)} sections (air baseline); "
-          f"editor override applied where authored")
+        # Emit the sparse INTERNED runtime tables the ROM uses (overwrites the
+        # default full-bank tables import_sk_collision.py wrote).
+        coll_out = os.path.normpath(os.path.join(
+            os.path.dirname(__file__), "..", "data", "collision"))
+        for name, data in collision_pipeline.emit_tables(attrset).items():
+            with open(os.path.join(coll_out, name), "wb") as f:
+                f.write(data)
+        peak = len(attrset.entries) - 1             # minus air at index 0
+        print(f"Collision: {len(per_section_coll)} sections; editor cells baked → "
+              f"interned {peak}/255 solid attr-set combos; runtime tables → {coll_out}")
+    else:
+        print(f"Collision: {len(per_section_coll)} sections (air baseline, no editor data)")
 
     # ---- Pass 2: dedupe across all sections ----
     sorted_indices, raw_tiles = collect_referenced_tiles(per_section_strips, full_blob)

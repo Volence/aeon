@@ -2,10 +2,20 @@
 """Import Sonic & Knuckles' collision shape set as the s4_engine's collision tables.
 
 Reads S&K's heightmaps + rotated heightmaps + angles from the skdisasm checkout and
-writes data/collision/{heightmaps,heightmaps_rot,angles,solidity}.bin — the engine's
-fixed 256-slot collision vocabulary. Every non-air shape gets solidity 'all' (3);
-classic Sonic heightmaps carry no solidity, so per-shape jump-through variants are a
-future feature. Index 0 (and any all-zero slot) stays air (solidity 0).
+writes the engine's fixed 256-slot collision vocabulary to TWO places:
+
+  data/collision/base/{heightmaps,heightmaps_rot,angles,solidity}.bin
+      The BASE BANK — the stable S&K shape vocabulary Aurora's palette shows and
+      the bake (ojz_strip_gen) draws flipped/solidity variants from. Authoritative.
+
+  data/collision/{heightmaps,heightmaps_rot,angles,solidity}.bin
+      A default copy so the ROM tables exist even without a generate pass.
+      ojz_strip_gen.generate() OVERWRITES these with the sparse INTERNED runtime
+      set (only the shape/flip/solidity combos actually painted reach the ROM).
+
+Every non-air base shape gets solidity 'all' (3); the editor picks per-cell
+solidity (jump-through etc.) and the bake resolves it. Index 0 (and any all-zero
+slot) stays air (solidity 0).
 
     python3 tools/import_sk_collision.py
 """
@@ -23,6 +33,14 @@ def _read(name, expect):
     return d
 
 
+def _write_tables(out_dir, hm, hr, an, sol):
+    os.makedirs(out_dir, exist_ok=True)
+    open(os.path.join(out_dir, "heightmaps.bin"), "wb").write(hm)
+    open(os.path.join(out_dir, "heightmaps_rot.bin"), "wb").write(hr)
+    open(os.path.join(out_dir, "angles.bin"), "wb").write(an)
+    open(os.path.join(out_dir, "solidity.bin"), "wb").write(bytes(sol))
+
+
 def build():
     hm = _read("Height Maps.bin", SHAPES * ROW)
     hr = _read("Height Maps Rotated.bin", SHAPES * ROW)
@@ -31,13 +49,11 @@ def build():
     for i in range(SHAPES):
         shape = hm[i * ROW:(i + 1) * ROW]
         sol[i] = 0 if (i == 0 or not any(shape)) else SOLID_ALL
-    os.makedirs(OUT, exist_ok=True)
-    open(os.path.join(OUT, "heightmaps.bin"), "wb").write(hm)
-    open(os.path.join(OUT, "heightmaps_rot.bin"), "wb").write(hr)
-    open(os.path.join(OUT, "angles.bin"), "wb").write(an)
-    open(os.path.join(OUT, "solidity.bin"), "wb").write(bytes(sol))
+    base_dir = os.path.join(OUT, "base")
+    _write_tables(base_dir, hm, hr, an, sol)     # authoritative base bank (Aurora palette + bake source)
+    _write_tables(OUT, hm, hr, an, sol)          # default runtime tables (overwritten by generate())
     n = sum(1 for i in range(SHAPES) if any(hm[i * ROW:(i + 1) * ROW]))
-    print(f"Imported {n} S&K collision shapes -> {OUT} (all solidity 'all')")
+    print(f"Imported {n} S&K collision shapes -> {base_dir} (base bank) + {OUT} (default; all solidity 'all')")
 
 
 if __name__ == "__main__":

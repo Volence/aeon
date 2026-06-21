@@ -205,6 +205,31 @@ def bake_cell(block_word: int, index_a: bytes, index_b: bytes,
     return (result[0], result[1])
 
 
+def bake_plane_cell(cell_word: int, profiles: bytes, angles: bytes,
+                    attrset: AttrSet) -> int:
+    """One Aurora plane's 16-bit cell word -> interned attr-set byte.
+
+    Aurora paints each of the engine's TWO collision planes independently, so
+    each cell carries its OWN word (vs bake_cell's single word driving both
+    paths). cell_word bits: 9:0 base-bank shape index, bit10 xflip, bit11 yflip,
+    13:12 THIS plane's solidity (bit12=top, bit13=lrb). Air (shape 0) or
+    solidity NONE -> byte 0. Applies xflip then yflip (same order as bake_cell),
+    then interns (heights, angle, solidity) into the shared attr-set."""
+    shape = cell_word & BLOCK_ID_MASK
+    solidity = (cell_word >> PATH_A_SOL_SHIFT) & 3
+    if solidity == SOL_NONE or shape == 0:
+        return 0
+    heights = profiles[shape * PROFILE_LEN:(shape + 1) * PROFILE_LEN]
+    angle = angles[shape] if shape < len(angles) else 0
+    if cell_word & CHUNK_XFLIP_BIT:
+        heights = flip_profile_x(heights)
+        angle = flip_angle_x(angle)
+    if cell_word & CHUNK_YFLIP_BIT:
+        heights = flip_profile_y(heights)
+        angle = flip_angle_y(angle)
+    return attrset.intern(heights, angle, solidity)
+
+
 def emit_tables(attrset: AttrSet) -> dict[str, bytes]:
     """ROM tables: {'heightmaps.bin': 4096B (256×16), 'heightmaps_rot.bin':
     4096B (rotate_profile per entry), 'angles.bin': 256B, 'solidity.bin':
@@ -531,6 +556,37 @@ def test_bake_cell_solidity_gate():
     print("  [OK] test_bake_cell_solidity_gate")
 
 
+def test_bake_plane_cell():
+    """One Aurora 16-bit plane word -> interned attr byte. Per-plane solidity at
+    bits 13:12; X/Y flip applied; air (shape 0 / solidity NONE) -> 0."""
+    # block 1 = a right-ascending ramp (heights 1..16), angle 0x20
+    profiles = bytes(16) + bytes(range(1, 17)) + bytes(4096 - 32)
+    angles = bytes([0, 0x20]) + bytes(254)
+    s = AttrSet()
+
+    # air / no-solidity gate (nothing interned)
+    assert bake_plane_cell(0x0000, profiles, angles, s) == 0
+    assert bake_plane_cell(0x0001, profiles, angles, s) == 0, "solidity NONE -> air"
+    assert len(s.entries) == 1
+
+    # plain solid shape 1
+    i_plain = bake_plane_cell(0x0001 | (SOL_ALL << PATH_A_SOL_SHIFT), profiles, angles, s)
+    assert i_plain == 1
+    assert s.entries[1] == (bytes(range(1, 17)), 0x20, SOL_ALL)
+
+    # x-flip → reversed columns + negated angle, a DISTINCT entry
+    i_xf = bake_plane_cell(0x0001 | CHUNK_XFLIP_BIT | (SOL_ALL << PATH_A_SOL_SHIFT),
+                           profiles, angles, s)
+    assert s.entries[i_xf] == (bytes(reversed(range(1, 17))), flip_angle_x(0x20), SOL_ALL)
+    assert i_xf != i_plain
+
+    # jump-through (top-only) of the same shape: distinct solidity entry
+    i_jt = bake_plane_cell(0x0001 | (SOL_TOP << PATH_A_SOL_SHIFT), profiles, angles, s)
+    assert s.entries[i_jt] == (bytes(range(1, 17)), 0x20, SOL_TOP)
+    assert i_jt not in (i_plain, i_xf)
+    print("  [OK] test_bake_plane_cell")
+
+
 def test_resolve_cell():
     """--probe's cell resolution: chunk/block decomposition + air guards."""
     # 2×2 chunk layout; chunk 0 = all words 0, chunk 1 = word index baked
@@ -610,6 +666,7 @@ def run_tests():
     test_rotate_ramp()
     test_attrset_dedup_and_air()
     test_bake_cell_solidity_gate()
+    test_bake_plane_cell()
     test_resolve_cell()
     test_real_data_measurement()
     print("All tests passed")
