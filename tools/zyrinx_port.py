@@ -90,7 +90,7 @@ _VOICE_GROUP_KEYS = ("dt_mul", "tl", "ks_ar", "am_d1r", "d2r", "sl_rr")
 _LR_MASK = 0xC0
 
 
-def translate_voice(v: dict) -> bytes:
+def translate_voice(v: dict, tl_is_level: bool = True) -> bytes:
     """Translate a parsed Zyrinx voice (voices.json["bank1"][i]) into our 26-byte
     FmPatch record.
 
@@ -98,8 +98,12 @@ def translate_voice(v: dict) -> bytes:
     - fp_lr_ams_fms = ams_fms_pan, but if its L/R bits (6-7) are NOT both set,
       force L/R=11 (| $C0) so the channel is audible.
     - Each of the six op groups (dt_mul, tl, ks_ar, am_d1r, d2r, sl_rr) is
-      reordered from Zyrinx natural [op1,op2,op3,op4] to our physical
-      [S1,S3,S2,S4] via OP_REORDER = [0,2,1,3].
+      reordered via OP_REORDER = [0,1,2,3] (identity — inputs are already in our
+      physical [S1,S3,S2,S4] order).
+    - tl_is_level: Zyrinx voices store TL as LEVEL (high = loud) and need inverting
+      to the YM2612's ATTENUATION convention (default True). S3K smpsVcTotalLevel
+      voices are ALREADY attenuation, so the SFX transcoder passes tl_is_level=False
+      to store TL verbatim (inverting them silenced the loud carriers = wrong timbre).
     - ext[4] is dropped.
     """
     alg_fb = ((v["fb"] & 7) << 3) | (v["algo"] & 7)
@@ -112,18 +116,22 @@ def translate_voice(v: dict) -> bytes:
     for key in _VOICE_GROUP_KEYS:
         g = v[key]
         if key == "tl":
-            # Zyrinx voices store TL as LEVEL (high byte = loud). The driver
-            # converts to the YM2612's ATTENUATION convention (high = quiet)
-            # by inverting before writing: zyrinx_driver.asm $0CF7 computes
-            #   TL_op = clamp7( (0x7F XOR patch_TL[op]) + op_mod_live[op] ).
-            # Our engine's Fm_PatchTlGroup writes (patch_TL + sc_opbias) with a
-            # [0,$7F] clamp and does NOT invert, so we must store the inverted
-            # (YM-native attenuation) base TL here. (0x7F XOR x == 127-x for the
-            # 7-bit TL range; mask to 7 bits — bit7 is unused by the TL reg.)
-            out.extend((0x7F ^ (g[OP_REORDER[0]] & 0x7F),
-                        0x7F ^ (g[OP_REORDER[1]] & 0x7F),
-                        0x7F ^ (g[OP_REORDER[2]] & 0x7F),
-                        0x7F ^ (g[OP_REORDER[3]] & 0x7F)))
+            # YM2612 TL is ATTENUATION (high = quiet); our engine's Fm_PatchTlGroup
+            # writes (patch_TL + sc_opbias) verbatim, no inversion. Two input
+            # conventions feed this:
+            #  - Zyrinx voices store TL as LEVEL (high = loud), so invert here
+            #    (0x7F XOR x == 127-x over the 7-bit TL range). Default.
+            #  - S3K smpsVcTotalLevel voices are ALREADY attenuation -> store
+            #    verbatim (tl_is_level=False). Inverting those silenced the loud
+            #    carriers, which is the FM-SFX "wrong sound" bug.
+            if tl_is_level:
+                out.extend((0x7F ^ (g[OP_REORDER[0]] & 0x7F),
+                            0x7F ^ (g[OP_REORDER[1]] & 0x7F),
+                            0x7F ^ (g[OP_REORDER[2]] & 0x7F),
+                            0x7F ^ (g[OP_REORDER[3]] & 0x7F)))
+            else:
+                out.extend((g[OP_REORDER[0]] & 0x7F, g[OP_REORDER[1]] & 0x7F,
+                            g[OP_REORDER[2]] & 0x7F, g[OP_REORDER[3]] & 0x7F))
         else:
             out.extend((g[OP_REORDER[0]] & 0xFF, g[OP_REORDER[1]] & 0xFF,
                         g[OP_REORDER[2]] & 0xFF, g[OP_REORDER[3]] & 0xFF))

@@ -21,12 +21,12 @@ Sfx_B6_Patches:
 ; --- voice 0 ---
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   192                     ; fp_lr_ams_fms $C0
-        pbyte     9,   3,   0,   0   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte   118, 123, 109, 113   ; fp_tl  $40  [S1,S3,S2,S4]
+        pbyte     9,   0,   3,   0   ; fp_dt_mul  $30  [S1,S3,S2,S4]
+        pbyte     9,  18,   4,  14   ; fp_tl  $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar  $50  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_d2r  $70  [S1,S3,S2,S4]
-        pbyte    47,  79,  47,  31   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte    31,  79,  47,  47   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
 Sfx_B6_Patches_End:
 
         if (Sfx_B6_Patches_End-Sfx_B6_Patches)/FmPatch_len <> Sfx_B6_Patches_Count

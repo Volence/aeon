@@ -148,7 +148,28 @@ PSG_OCTAVE_FIXUP = 24
 # applied ONLY to FM SFX notes (PSG keeps its own scientific-pitch fixup above).
 # Default = -12 semitones (one octave down) as a starting point; bump to -24 for
 # two octaves.  Set to 0 to restore byte-exact S3K pitch.
-FM_SFX_OCTAVE_SHIFT = 0   # semitones; -12 = one octave down (taste, not faithfulness)
+# RESET TO S3K-FAITHFUL (0) to test the operator-order fix (_s3k_op_reorder / audit B1)
+# in ISOLATION: the earlier by-ear octave/sweep taste knobs were tuned to compensate for
+# the buggy FM timbre (operators $34/$38 swapped) and never converged. With the operator
+# bug fixed, regenerate faithful first and A/B vs a real S3K capture before re-introducing
+# any taste shift. The previous by-ear values are recorded in memory project_sfx_pitch_open
+# (ring/$33/$34 = -15, spindash/$AB base = -24, sweep scale = 0.4) for easy re-tuning.
+FM_SFX_OCTAVE_SHIFT = 0     # semitones; 0 = byte-exact S3K pitch. Per-SFX overrides below.
+
+# Per-SFX FM octave override (by-ear taste). Empty = all SFX use the faithful default.
+_FM_SFX_OCTAVE = {}         # e.g. {0x33: -15, 0x34: -15, 0xAB: -24} for the old by-ear taste
+
+
+def _fm_octave_for(sfx_id: int) -> int:
+    """The FM octave taste-shift for one SFX id (per-SFX override, else the default)."""
+    return _FM_SFX_OCTAVE.get(sfx_id, FM_SFX_OCTAVE_SHIFT)
+
+
+# Spindash ($AB) modulation taste-tame. smpsModSet $01,$01,$1A,$01 is a monotonic upward
+# SWEEP (steps halves to 0, so the delta never reverses within the note) that faithfully
+# climbs ~1 octave. Reset to 1.0 (faithful) alongside the octave reset above; lower it
+# (e.g. 0.4) only as a deliberate taste choice after the faithful A/B.
+_SPINDASH_MOD_SCALE = 1.0   # 0..1; 1.0 = S3K-faithful sweep, 0 = no sweep
 
 
 class TranscodeError(Exception):
@@ -242,12 +263,13 @@ def _note_from_token(tok: str) -> int:
     raise TranscodeError(f"Cannot parse note token: {tok!r}")
 
 
-def _smps_note_to_pitch(raw_byte: int, is_psg: bool, transpose: int = 0) -> int:
+def _smps_note_to_pitch(raw_byte: int, is_psg: bool, transpose: int = 0,
+                        fm_octave: int = FM_SFX_OCTAVE_SHIFT) -> int:
     """Convert a raw S3K note byte to our engine pitch index.
 
-    For FM: pitch = raw - S3K_NOTE_BASE + transpose + FM_SFX_OCTAVE_SHIFT,
-    clamped 0..0x5E.  FM_SFX_OCTAVE_SHIFT is a TASTE knob (default one octave
-    down); the raw+transpose part alone reproduces S3K's exact FM SFX pitch.
+    For FM: pitch = raw - S3K_NOTE_BASE + transpose + fm_octave, clamped 0..0x5E.
+    fm_octave is the per-SFX taste knob (see _fm_octave_for); the raw+transpose part
+    alone (fm_octave=0) reproduces S3K's exact FM SFX pitch.
     For PSG: S3K PSG note-names are 2 octaves below scientific pitch (nC0 in S3K
     sounds like C2 scientifically).  Our PsgDivisorTableZ is scientific-numbered
     (index 0 = true C0), so we add +24 semitones to translate S3K PSG note indices
@@ -259,14 +281,33 @@ def _smps_note_to_pitch(raw_byte: int, is_psg: bool, transpose: int = 0) -> int:
     if is_psg:
         pitch += PSG_OCTAVE_FIXUP
     else:
-        # FM SFX taste knob (NOT faithfulness): bring S3K's high FM SFX down a
-        # whole number of octaves.  FM-only; PSG keeps its scientific fixup above.
-        pitch += FM_SFX_OCTAVE_SHIFT
+        # FM SFX taste knob (NOT faithfulness): bring S3K's high FM SFX down.
+        # FM-only; PSG keeps its scientific fixup above.
+        pitch += fm_octave
     if pitch < 0:
         pitch = 0
     if pitch > 0x5E:
         pitch = 0x5E
     return pitch
+
+
+# --- S3K SMPS voice -> s4_engine FmPatch physical-operator reorder -------------
+# S3K's Z80 driver uploads a voice's per-operator bytes via zFMInstrumentOperatorTable
+# (skdisasm "Z80 Sound Driver.asm": $30,$38,$34,$3C ...), i.e. binary byte k goes to
+# the k-th register in the sequence [$30,$38,$34,$3C]. Our engine's Fm_PatchOpGroup
+# (engine/sound_fm.asm) writes array index k -> base + k*4 = the sequence
+# [$30,$34,$38,$3C]. The two register sequences differ in the MIDDLE pair ($38<->$34),
+# so feeding our engine the raw S3K binary lands the $34 and $38 operator values on
+# each other's register (the "wrong FM timbre" SFX bug; audit finding B1/#6). To put
+# the same value on each physical register that S3K does, swap the middle two
+# operators. S3K binary order is [op4,op3,op2,op1] (the smpsVc* else-branch), and the
+# macro ARGS are [op1,op2,op3,op4], so the net macro-args -> FmPatch mapping is
+# [op4,op2,op3,op1]. Applies UNIFORMLY to ALL SIX op groups (the previous code applied
+# a plain reverse [op4,op3,op2,op1] to dt_mul/ks_ar/am_d1r/tl and NO reorder at all to
+# d2r/sl_rr — both wrong).
+def _s3k_op_reorder(vals):
+    """[op1,op2,op3,op4] -> [op4,op2,op3,op1] (S3K binary -> FmPatch physical order)."""
+    return [vals[3], vals[1], vals[2], vals[0]]
 
 
 class _SmpsVoiceBuilder:
@@ -320,45 +361,30 @@ class _SmpsVoiceBuilder:
             for i in range(4):
                 self._d['sl_rr'][i] = (self._d['sl_rr'][i] & 0xF0) | (rr[i] & 0x0F)
         elif macro == 'smpsVcTotalLevel':
-            # smpsVcTotalLevel emits in S3K physical order: op4, op3, op2, op1
-            # (S3K non-S2 order for SMPS Z80: [op4,op3,op2,op1] → our physical [S1,S3,S2,S4])
-            # Actually looking at the S3K macro (SonicDriverVer>=3, SourceDriver>=3):
-            # smpsDcb (vcDT4<<4)+vcCF4, (vcDT3<<4)+vcCF3, (vcDT2<<4)+vcCF2, (vcDT1<<4)+vcCF1
-            # So byte order is [op4, op3, op2, op1] in the binary data.
-            # The macro args are op1,op2,op3,op4 (same as all the other macros).
-            # We need: dt_mul[0]=op1, dt_mul[1]=op3, dt_mul[2]=op2, dt_mul[3]=op4
-            # (because the binary stores [op4,op3,op2,op1] and S3K indices are 1-based).
-            # But for TL, the macro args are also (op1,op2,op3,op4).
-            # In smpsVcTotalLevel, the smpsDcb line writes: TL4,TL3,TL2,TL1
-            # So we store them in [op1..op4] order as provided by the macro args.
-            tl = [_parse_int(a) for a in args[:4]]
-            self._d['tl'] = tl  # args: op1,op2,op3,op4
-            # Finalize dt_mul = (dt<<4)|cf, ks_ar = (rs<<6)|ar, am_d1r
-            # S3K binary order for these groups is also [op4,op3,op2,op1]:
-            # smpsDcb (vcDT4<<4)+vcCF4, (vcDT3<<4)+vcCF3, (vcDT2<<4)+vcCF2, (vcDT1<<4)+vcCF1
-            # So the binary stores data for op4 first; args are [op1,op2,op3,op4].
-            # Our translate_voice() OP_REORDER=[0,1,2,3] = identity (already calibrated
-            # for B&R Bank2 voices in physical register order).
-            # S3K voices in the Z80 binary are stored [op4,op3,op2,op1] for each group.
-            # translate_voice() reads self._d[key][OP_REORDER[0..3]], so we store in
-            # [op4,op3,op2,op1] order (what the Z80 binary would have, same as the
-            # B&R Bank2 that the reorder=identity was calibrated against).
-            # args[0]=op1,args[1]=op2,args[2]=op3,args[3]=op4 → store as [op4,op3,op2,op1]
-            for key, src in [
-                ('dt_mul', [(self._dt[i] << 4) | (self._cf[i] & 0x0F) for i in range(4)]),
-                ('ks_ar',  [(self._rs[i] << 6) | (self._ar[i] & 0x1F) for i in range(4)]),
-                ('am_d1r', [(self._am[i] & 0x80) | (self._d1r[i] & 0x1F) for i in range(4)]),
-            ]:
-                # reorder from macro-arg order [op1,op2,op3,op4] to binary order [op4,op3,op2,op1]
-                self._d[key] = [src[3], src[2], src[1], src[0]]
-            # TL: also reorder args [op1,op2,op3,op4] to binary [op4,op3,op2,op1]
-            self._d['tl'] = [tl[3], tl[2], tl[1], tl[0]]
+            # smpsVcTotalLevel is the LAST sub-macro of a voice; finalize the combined
+            # groups here. Store EVERY per-operator group in MACRO-ARG order
+            # [op1,op2,op3,op4]; build() applies the single S3K->engine physical reorder
+            # (_s3k_op_reorder) uniformly to all six. (dt_mul/ks_ar/am_d1r are combined
+            # from the raw accumulators; tl is taken straight; d2r/sl_rr were already
+            # stored in macro-arg order by their own handlers above.)
+            self._d['tl']     = [_parse_int(a) for a in args[:4]]
+            self._d['dt_mul'] = [(self._dt[i] << 4) | (self._cf[i] & 0x0F) for i in range(4)]
+            self._d['ks_ar']  = [(self._rs[i] << 6) | (self._ar[i] & 0x1F) for i in range(4)]
+            self._d['am_d1r'] = [(self._am[i] & 0x80) | (self._d1r[i] & 0x1F) for i in range(4)]
         else:
             pass  # unknown smpsVc* sub-macro — ignore
 
     def build(self) -> bytes:
-        """Finalize and call translate_voice()."""
-        return translate_voice(self._d)
+        """Finalize and call translate_voice().
+
+        All six per-operator groups are in macro-arg order [op1,op2,op3,op4]; apply the
+        S3K->engine physical-operator reorder (_s3k_op_reorder) uniformly before
+        translating. tl_is_level=False: S3K smpsVcTotalLevel values are already in the
+        YM2612 attenuation convention (high = quiet), so skip the Zyrinx LEVEL->atten
+        inversion (which otherwise silences the loud carriers = wrong FM timbre)."""
+        for key in ('dt_mul', 'tl', 'ks_ar', 'am_d1r', 'd2r', 'sl_rr'):
+            self._d[key] = _s3k_op_reorder(self._d[key])
+        return translate_voice(self._d, tl_is_level=False)
 
 
 def _split_args(arg_str: str) -> list:
@@ -640,6 +666,10 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                         speed = _parse_int(args[1])
                         change = _parse_signed_byte(args[2])
                         step  = _parse_int(args[3])
+                        # Spindash sweep taste-tame (see _SPINDASH_MOD_SCALE): gentler climb.
+                        if sfx_id == 0xAB and change:
+                            change = int(round(change * _SPINDASH_MOD_SCALE)) or (
+                                1 if change > 0 else -1)
                         events.append(ModSet(wait, speed, change, step))
                     elif macro == 'smpsSpindashRev':
                         # Runtime-escalating spindash rev: emit the opcode; the engine
@@ -813,7 +843,8 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     noattack_pending = False
                 elif S3K_NOTE_BASE <= val <= 0xFF:
                     # Note byte
-                    pitch = _smps_note_to_pitch(val, is_psg, transpose)
+                    pitch = _smps_note_to_pitch(val, is_psg, transpose,
+                                                fm_octave=_fm_octave_for(sfx_id))
                     # (spindash rev is now runtime: the SpinRev opcode + the global
                     #  rev add the transpose at play time; the note stays the bare nC5.)
                     # Check if there's a duration byte following
@@ -995,6 +1026,10 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     speed = _parse_int(args[1])
                     change = _parse_signed_byte(args[2])
                     step  = _parse_int(args[3])
+                    # Spindash sweep taste-tame (see _SPINDASH_MOD_SCALE): gentler climb.
+                    if sfx_id == 0xAB and change:
+                        change = int(round(change * _SPINDASH_MOD_SCALE)) or (
+                            1 if change > 0 else -1)
                     events.append(ModSet(wait, speed, change, step))
                 elif macro == 'smpsSpindashRev':
                     events.append(SpinRev())

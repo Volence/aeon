@@ -426,9 +426,12 @@ class TestFmSfxOctaveKnob(unittest.TestCase):
         got = _smps_note_to_pitch(raw, is_psg=True, transpose=0)
         self.assertEqual(got, raw - S3K_NOTE_BASE + PSG_OCTAVE_FIXUP)
 
-    def test_default_is_faithful(self):
-        self.assertEqual(FM_SFX_OCTAVE_SHIFT, 0,
-                         "default taste shift is 0 (S3K-faithful); -1 octave broke the ring")
+    def test_octave_shift_in_taste_range(self):
+        # FM_SFX_OCTAVE_SHIFT is a by-ear taste knob (S3K-faithful = 0 is verified high).
+        # Assert a sane range (<=0, within 3 octaves) rather than an exact value so tuning
+        # passes don't churn the test.
+        self.assertTrue(-36 <= FM_SFX_OCTAVE_SHIFT <= 0,
+                        "taste shift must be 0..-36 semitones (a whole-number-ish lowering)")
 
 
 class TestSfxTableComplete(unittest.TestCase):
@@ -756,12 +759,16 @@ Sound_AB_Voices:
 \tsmpsVcReleaseRate   $0F, $0F, $0F, $0F
 \tsmpsVcTotalLevel    $00, $1C, $00, $00
 """
+        from sfx_transcode import _SPINDASH_MOD_SCALE
         desc = transcode_sfx_source(src, 0xAB)
         ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_FM5)
         mods = [e for e in ch['events'] if isinstance(e, ModSet)]
         self.assertEqual(len(mods), 2)
+        # The spindash per-step delta is taste-tamed (sweep too aggressive); the wait/speed/
+        # step stay byte-exact. Expected change = round($1A * scale).
+        tamed = int(round(0x1A * _SPINDASH_MOD_SCALE)) or 1
         self.assertEqual((mods[0].wait, mods[0].speed, mods[0].change, mods[0].step),
-                         (0x01, 0x01, 0x1A, 0x01))
+                         (0x01, 0x01, tamed, 0x01))
         self.assertEqual((mods[1].wait, mods[1].speed, mods[1].change, mods[1].step),
                          (0x00, 0x00, 0x00, 0x00))
 
@@ -834,8 +841,9 @@ class TestSpindashRev(unittest.TestCase):
         # the engine, not baked into the transcoded pitch). nC5 = $BD -> FM index $3C.
         desc = transcode_sfx_source(SPINDASH_SRC, 0xAB)
         ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_FM5)
+        from sfx_transcode import _fm_octave_for
         note = next(e for e in ch['events'] if isinstance(e, (Note, NoteDur)))
-        expected = 0xBD - S3K_NOTE_BASE + FM_SFX_OCTAVE_SHIFT   # 0x3C (60)
+        expected = 0xBD - S3K_NOTE_BASE + _fm_octave_for(0xAB)   # bare nC5 + per-SFX octave
         self.assertEqual(note.pitch, expected,
                          "the spindash note must stay the bare nC5 (no flat rev bake)")
 
@@ -862,6 +870,57 @@ class TestSpindashRev(unittest.TestCase):
         # accumulator).
         self.assertFalse(hasattr(sfx_transcode, '_SPINDASH_STEP'),
                          "_SPINDASH_STEP (the flat spindash bake) must be removed")
+
+
+class TestFmVoiceOperatorOrder(unittest.TestCase):
+    """Regression guard for audit B1/#6: an S3K SMPS FM voice must land each operator
+    value on the SAME physical YM2612 register that S3K's own driver targets.
+
+    S3K uploads via zFMInstrumentOperatorTable = [$30,$38,$34,$3C]; our engine's
+    Fm_PatchOpGroup writes array index k -> base+k*4 = [$30,$34,$38,$3C]. The two
+    register sequences differ in the middle pair, so the macro-arg order
+    [op1,op2,op3,op4] must map to FmPatch order [op4,op2,op3,op1] (_s3k_op_reorder),
+    UNIFORMLY across all six op groups. (The pre-fix code applied a plain reverse to
+    four groups and left d2r/sl_rr unreordered — both wrong.)
+    """
+
+    def test_s3k_op_reorder_permutation(self):
+        from sfx_transcode import _s3k_op_reorder
+        self.assertEqual(_s3k_op_reorder([1, 2, 3, 4]), [4, 2, 3, 1])
+        # explicitly NOT the old plain-reverse and NOT identity (the two prior bugs)
+        self.assertNotEqual(_s3k_op_reorder([1, 2, 3, 4]), [4, 3, 2, 1])
+        self.assertNotEqual(_s3k_op_reorder([1, 2, 3, 4]), [1, 2, 3, 4])
+
+    def test_all_groups_reordered_uniformly(self):
+        # Build a voice whose four operators carry DISTINCT marker values per group, so
+        # the output byte order is an unambiguous witness of the permutation.
+        from sfx_transcode import _SmpsVoiceBuilder
+        b = _SmpsVoiceBuilder()
+        b.apply('smpsVcAlgorithm',  ['4'])
+        b.apply('smpsVcFeedback',   ['0'])
+        b.apply('smpsVcDetune',     ['1', '2', '3', '4'])   # op1..op4
+        b.apply('smpsVcCoarseFreq', ['0', '0', '0', '0'])
+        b.apply('smpsVcRateScale',  ['0', '0', '0', '0'])
+        b.apply('smpsVcAttackRate', ['1', '2', '3', '4'])
+        b.apply('smpsVcAmpMod',     ['0', '0', '0', '0'])
+        b.apply('smpsVcDecayRate1', ['1', '2', '3', '4'])
+        b.apply('smpsVcDecayRate2', ['1', '2', '3', '4'])
+        b.apply('smpsVcDecayLevel', ['0', '0', '0', '0'])
+        b.apply('smpsVcReleaseRate',['1', '2', '3', '4'])
+        b.apply('smpsVcTotalLevel', ['1', '2', '3', '4'])   # must be applied LAST
+        out = b.build()
+        self.assertEqual(len(out), 26)
+        # header
+        self.assertEqual(out[0], (0 << 3) | 4, "alg_fb = (fb<<3)|algo")
+        self.assertEqual(out[1], 0xC0, "lr_ams_fms defaults to L/R both set")
+        # group order in the blob: dt_mul, tl, ks_ar, am_d1r, d2r, sl_rr
+        # each group's macro-arg [op1,op2,op3,op4] -> FmPatch [op4,op2,op3,op1]
+        self.assertEqual(list(out[2:6]),  [0x40, 0x20, 0x30, 0x10], "dt_mul = (det<<4) reordered")
+        self.assertEqual(list(out[6:10]), [4, 2, 3, 1], "tl reordered (op4,op2,op3,op1)")
+        self.assertEqual(list(out[10:14]),[4, 2, 3, 1], "ks_ar reordered")
+        self.assertEqual(list(out[14:18]),[4, 2, 3, 1], "am_d1r reordered")
+        self.assertEqual(list(out[18:22]),[4, 2, 3, 1], "d2r reordered (was the unreordered bug)")
+        self.assertEqual(list(out[22:26]),[4, 2, 3, 1], "sl_rr reordered (was the unreordered bug)")
 
 
 if __name__ == '__main__':

@@ -22,8 +22,8 @@ Sfx_35_Patches:
         pbyte   48                      ; fp_alg_fb     $30
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte    48,  48,  48,  48   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte   107,  67, 107, 127   ; fp_tl  $40  [S1,S3,S2,S4]
-        pbyte   158, 216, 220, 220   ; fp_rs_ar  $50  [S1,S3,S2,S4]
+        pbyte    20,  20,  60,   0   ; fp_tl  $40  [S1,S3,S2,S4]
+        pbyte   158, 220, 216, 220   ; fp_rs_ar  $50  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_d2r  $70  [S1,S3,S2,S4]
         pbyte   191, 191, 191, 191   ; fp_d1l_rr  $80  [S1,S3,S2,S4]

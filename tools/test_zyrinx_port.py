@@ -339,6 +339,20 @@ class TestTranslateVoice(unittest.TestCase):
         # No reorder: ROM voices are already in physical order -> straight through.
         self.assertEqual(list(out[2:6]), [1, 2, 3, 4])
 
+    def test_tl_inversion_is_skippable_for_sfx(self):
+        # YM2612 TL is ATTENUATION. Zyrinx voices store TL as LEVEL, so the default
+        # inverts (0x7F ^). S3K smpsVcTotalLevel voices are ALREADY attenuation, so
+        # tl_is_level=False stores them verbatim. Regression guard for the FM-SFX
+        # "wrong sound" bug: inverting S3K TL silenced the loud carriers.
+        v = self._neutral()
+        v["tl"] = [0x00, 0x1C, 0x00, 0x00]                  # S3K spindash: loud carriers
+        self.assertEqual(list(translate_voice(v)[6:10]),
+                         [0x7F, 0x63, 0x7F, 0x7F],
+                         "default (Zyrinx LEVEL) path inverts TL")
+        self.assertEqual(list(translate_voice(v, tl_is_level=False)[6:10]),
+                         [0x00, 0x1C, 0x00, 0x00],
+                         "tl_is_level=False keeps S3K attenuation TL verbatim (loud carriers)")
+
     def test_ext_dropped(self):
         # ext[4] is not present in the 26-byte output (length proves it).
         self.assertEqual(len(translate_voice(self._neutral())), 26)
