@@ -161,16 +161,12 @@ ModUpdate:
         ; both layers compose (mod re-latches the divisor; env re-emits the volume).
         ld      a, (ix+sc_mod_ctrl)
         or      a
-        jr      z, .psg_mod_done         ; no PSG pitch-mod armed
-        ; pitch-mod re-latches the TONE divisor; on the noise route ($E0..) that write
-        ; would corrupt the noise CONTROL register. The transcoder already never emits
-        ; MEV_MODSET on a noise track, but gate here too so a future/periodic-noise SFX
-        ; can never glitch the noise mode.
-        ld      a, (ix+sc_route)
-        cp      CHROUTE_PSGN
-        jr      z, .psg_mod_done         ; noise route -> skip tone pitch-mod
-        call    Psg_ApplyMod             ; advance accum + re-latch tone divisor (no re-key)
-.psg_mod_done:
+        call    nz, Psg_ApplyMod         ; advance accum + re-latch tone divisor (no re-key)
+        ; NOTE: the noise-route gate (audit D1) was reverted — the Z80 code blob is at
+        ; its HARD size limit ($16F0) and the gate cost ~9 bytes. The invariant
+        ; "noise tracks never set sc_mod_ctrl" still holds (the transcoder never emits
+        ; MEV_MODSET on a noise track). Re-add as a BUILD-TIME transcoder reject (0 Z80
+        ; bytes) or restore this gate once Z80 space is recovered. See DEFERRED_WORK D1/F5.
         ; --- PSG VOLUME ENVELOPE (spec §4): advance the contour + re-emit the volume.
         ld      a, (ix+sc_psgenv)
         or      a
