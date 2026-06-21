@@ -32,14 +32,6 @@ if [[ "${DEBUG:-0}" == "1" ]]; then
     ASFLAGS="${ASFLAGS} -D __DEBUG__"
 fi
 
-# The DEBUG PlayerSensors self-check probes the boot section (0) against
-# hardcoded expectations baked from the STOCK collision. Once that section has
-# Aurora-authored collision, those expectations no longer hold, so skip just the
-# self-check (the rest of DEBUG stays on). Stock builds keep the check.
-if [[ -f data/editor/ojz/act1/section_0.collattr.bin ]]; then
-    ASFLAGS="${ASFLAGS} -D OJZ_BOOT_COLLISION_EDITED"
-fi
-
 # Sound engine ON by default now (the driver is the active dev target). Disable
 # explicitly with SOUND_DRIVER_ENABLED=0 ./build.sh for a smaller silent ROM.
 if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then

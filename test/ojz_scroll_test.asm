@@ -102,23 +102,11 @@ GameState_OJZScroll_Init:
         jsr     Section_UpdateColumns
         startZ80
 
-    ifdef __DEBUG__
-      ; The self-check's expectations are baked from STOCK boot-section
-      ; collision; build.sh defines OJZ_BOOT_COLLISION_EDITED when section 0 has
-      ; Aurora-authored collision, in which case skip it (it would RaiseError on
-      ; your edits). Everything else in DEBUG stays on.
-      ifndef OJZ_BOOT_COLLISION_EDITED
-        ; -- §5 Task 4: directional sensor self-check against generator-
-        ;    computed expectations. Must run after Tile_Cache_Init (the
-        ;    probes read the filled collision cache). RaiseError on
-        ;    mismatch. --
-        jsr     PlayerSensors_SelfCheck
-        ; §5: exercise the ROW fill path too (column self-check above cannot
-        ; reach TileCache_FillRow). Boot-safe: re-fills in-window rows in
-        ; place, restores cache state. Must run LAST (after the column check).
-        jsr     PlayerSensors_SelfCheck_RowFill
-      endif
-    endif
+        ; (The PlayerSensors self-check is gone: its expectations were hardcoded
+        ; from the STOCK sonic_hack collision, which the engine no longer uses —
+        ; collision is now the imported S&K shape set + editor-authored level
+        ; data, so the check can never be valid. PlayerSensors_SelfCheck[_RowFill]
+        ; remain defined but unused; a follow-up may delete them.)
 
         ; -- §4.6 parallax init: pull start section's parallax_config --
         ; Section_GetSecPtrXY handles the full grid math (sec_y included);

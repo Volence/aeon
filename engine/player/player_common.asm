@@ -677,16 +677,11 @@ Player_LevelBound:
         addi.w  #PBOUND_BOTTOM_MARGIN, d2
         cmp.w   d2, d0
         ble.s   .y_ok
-        ; Below the world. In a STOCK debug build this means a collision/
-        ; streaming bug → assert. With editor-authored collision you may have
-        ; erased the floor on purpose (a pit), so it's expected → clamp like
-        ; release does instead of crashing. build.sh sets OJZ_BOOT_COLLISION_EDITED.
-    ifdef __DEBUG__
-     ifndef OJZ_BOOT_COLLISION_EDITED
-        RaiseError "Player below world: y=%<.w d0> bottom=%<.w d1> (collision/streaming bug)"
-     endif
-    endif
-        move.w  d1, SST_y_pos(a0)               ; clamp to bottom (placeholder until death/respawn)
+        ; Below the world — clamp to the bottom edge. With editor-authored / S&K
+        ; collision the player can fall through air or an unpainted/erased floor
+        ; by design (pits, a WIP level with no ground yet), so this is expected,
+        ; not a bug — just clamp (placeholder until death/respawn exists).
+        move.w  d1, SST_y_pos(a0)
         clr.w   SST_y_pos+2(a0)
         clr.w   SST_y_vel(a0)
 .y_ok:
