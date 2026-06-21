@@ -58,6 +58,18 @@ the previous pitch), restoring the loop body's timing; (b) the AlterVol unroll r
 clamp were verified **faithful — left unchanged**. A defensive packer backstop now rejects any
 `REPEAT_START..REPEAT_END` body with no time-advancing event (the collapse class) for all SFX and music.
 
+### Items 1 + 3 follow-up — re-key buzz + swept-pitch linger — **FIXED 2026-06-21 (hardware-verified)**
+User retest after the fade fix: roll had "a higher pitch noise after", spindash-hold made "a jingle after a
+second", and the spindash-release linger sounded "too high". VGM capture of OUR ROM proved the cause: the
+unrolled tails RE-KEYED the FM envelope every pass (43× roll on `$28`/chsel `$04`, 26× spindash chsel `$05`,
+at 30 Hz) = the jingle; and with the re-key gone the tail would have held at the modSet *swept* pitch
+(spindash fnum `1912`) = the "too high" linger. Fix (the deferred `smpsNoAttack`, now done — see
+DEFERRED_WORK B4): bit 7 of a NoteDur pitch = no-attack; `Seq_Op_NoteDur` skips the note-on hook for a held
+note (4 Z80 bytes, the exact free budget); the transcoder holds all tail passes EXCEPT the first-after-modSet
+(which re-keys to reset the swept pitch to base). **Re-captured & verified:** KEY-ON 43→2 / 26→2, tail holds
+at base fnum (`1364` / `1288`, not swept), TL fade intact (`5→48` / `0→54`). Residual: one transition re-key
+click (S&K holds through with zero) — deferred (needs a modSet accumulator-reset, no Z80 budget today).
+
 ### "A few others" (user can't reliably trigger)
 Most likely further instances of the 1-byte-mailbox collision (A2) — any frame that fires two SFX (e.g.
 ring + skid, jump + ring). Tracked under A2 in DEFERRED_WORK.md; the ring-buffer mailbox resolves the class.

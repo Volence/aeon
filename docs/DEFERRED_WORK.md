@@ -1064,12 +1064,17 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   note" idiom (spindash rev-tail collapsed to zero ticks). Fixed transcoder-side (no Z80 growth — driver has
   4 bytes free): AlterVol-bearing `smpsLoop`s are now UNROLLED with a dB-faithful per-pass fade (invert
   `LogVolumeLutZ`), and a standalone duration byte re-articulates the previous note. Packer backstop added.
-  **STILL DEFERRED — `smpsNoAttack` (the per-pass FM re-key):** honoring it needs a Z80 **no-key-on note
-  path** (a flag/opcode in `Fm_NoteOnFreq` to skip the `$28` key-on), which there is no blob budget for today
-  (`Z80_SOUND_SIZE=$16EC`, `SND_STATE_BASE=$16F0` → 4 bytes free). The restored fade makes the per-pass
-  re-keys quiet, so this is a polish item: reclaim Z80 bytes, add the no-key-on note, then the looped tail
-  becomes a single continuously-held note exactly like S&K. Pairs with a future relative-AlterVol opcode
-  (would replace the unroll's data cost with the faithful per-pass primitive). Re-evaluate by ear first.
+  **`smpsNoAttack` (the per-pass FM re-key) — DONE 2026-06-21** (was the deferred half). VGM capture proved
+  the unrolled tails re-keyed the FM envelope 43×(roll)/26×(spindash) at 30 Hz — the "jingle/higher-pitch"
+  the user heard. Fixed in EXACTLY the 4 free Z80 bytes: bit 7 of a NoteDur's pitch operand is a no-attack
+  flag; `Seq_Op_NoteDur` does `ld d,a / bit 7,d / ret nz` to skip the note-on hook (no `$28` re-attack AND no
+  freq re-write) for a held continuation. The transcoder sets bit 7 on tail passes via `mod_dirty`: the FIRST
+  note after a modSet still re-keys (resets the swept pitch to base), the rest hold. Verified on hardware:
+  KEY-ON 43→2 / 26→2, tail holds at base fnum, TL fade intact. `Z80_SOUND_SIZE` is now EXACTLY `$16F0`
+  (0 bytes free — any further Z80 growth needs a reclaim first). **Tiny residual:** ours re-keys ONCE at the
+  main→tail transition (S&K holds through = 0); a single click when the modulation turns off. Eliminating it
+  needs `Seq_Op_ModSet` to reset the mod accumulator + force a base-freq write (S&K's zPrepareModulation) —
+  more Z80 bytes; deferred until a reclaim. Re-evaluate by ear whether the one transition click is audible.
 
 #### C. DAC sample path — correct today by coincidence, breaks the moment real drums land
 *(Do all four as ONE format revision — and fold in the best-in-class DAC work, item E2/E3 below. Partly

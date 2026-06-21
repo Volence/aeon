@@ -634,6 +634,14 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         # for a standalone SMPS duration byte (the "replay previous note" idiom).
         last_pitch = None
 
+        # A note is a HELD continuation (smpsNoAttack -> bit 7 of the NoteDur pitch,
+        # which the engine reads as "skip the $28 re-attack AND the freq re-write")
+        # ONLY when no modSet has dirtied the pitch since the last attacked note. The
+        # engine resets a modulation sweep's accumulator on a key-on, so the FIRST
+        # note after a modSet must re-key (reset the swept pitch back to base);
+        # subsequent tail passes then hold. mod_dirty tracks that.
+        mod_dirty = False
+
         # voice index (within the SFX's own bank, 0-based)
         voice_idx = 0
 
@@ -877,9 +885,21 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     return e.vol
             return default
 
+        def _emit_notedur(pitch: int, dur: int):
+            """Emit a NoteDur, applying the smpsNoAttack flag (bit 7) when this note is
+            a held continuation (noattack_pending AND the pitch isn't modSet-dirty).
+            An attacked note clears mod_dirty (its key-on resets the swept pitch)."""
+            nonlocal noattack_pending, mod_dirty
+            if noattack_pending and not mod_dirty:
+                pitch |= 0x80                 # held: engine skips the $28 re-attack
+            else:
+                mod_dirty = False             # attacked note resets the modSet sweep
+            events.append(NoteDur(pitch, dur))
+            noattack_pending = False
+
         def _process_dcb(content: str):
             """Process a dc.b line's content, handling notes, durations, smpsNoAttack."""
-            nonlocal noattack_pending, cur_dur, last_pitch
+            nonlocal noattack_pending, cur_dur, last_pitch, mod_dirty
 
             tokens = [t.strip() for t in content.split(',') if t.strip()]
             t_idx = 0
@@ -946,9 +966,8 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                                 # It's a duration byte
                                 cur_dur = dur_val
                                 t_idx += 1
-                                events.append(NoteDur(pitch, dur_val))
                                 last_pitch = pitch
-                                noattack_pending = False
+                                _emit_notedur(pitch, dur_val)
                                 continue
                         except (ValueError, TranscodeError):
                             pass
@@ -966,8 +985,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     # note yet, fall back to just setting the running default.
                     cur_dur = val
                     if last_pitch is not None:
-                        events.append(NoteDur(last_pitch, val))
-                        noattack_pending = False
+                        _emit_notedur(last_pitch, val)
                 elif val >= 0xE0:
                     # Coord flag byte ($E0-$FF) — must be handled; raise if unknown
                     _handle_raw_coord(val)
@@ -1027,7 +1045,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         def _process_lines_v2(start_i: int) -> bool:
             nonlocal noattack_pending
             nonlocal cur_dur, voice_idx, loop_label, loop_count, has_loop
-            nonlocal jump_target_label, sfx_flags, last_pitch
+            nonlocal jump_target_label, sfx_flags, last_pitch, mod_dirty
 
             i = start_i
             while i < len(lines):
@@ -1141,6 +1159,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                         change = int(round(change * _SPINDASH_MOD_SCALE)) or (
                             1 if change > 0 else -1)
                     events.append(ModSet(wait, speed, change, step))
+                    mod_dirty = True             # next note must re-key to reset the sweep
                 elif macro == 'smpsSpindashRev':
                     events.append(SpinRev())
                 elif macro == 'smpsResetSpindashRev':
@@ -1178,6 +1197,11 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                                 if isinstance(e, _AlterVol):
                                     atten = min(0x7F, atten + e.delta)
                                     events.append(Vol(_vol_for_atten(atten)))
+                                elif _pass > 0 and isinstance(e, NoteDur):
+                                    # passes after the first HOLD the note (no $28
+                                    # re-attack); pass 0 keeps the body's own attack
+                                    # flag so it re-keys iff the body note was attacked.
+                                    events.append(NoteDur(e.pitch | 0x80, e.dur))
                                 else:
                                     events.append(e)
                     else:

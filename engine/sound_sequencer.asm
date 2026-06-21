@@ -757,7 +757,8 @@ Seq_Op_Dac:
 ; $E3 MEV_NOTE_DUR + nn dd : note nn with explicit duration dd (advances time)
 Seq_Op_NoteDur:
         ld      a, (hl)
-        inc     hl                       ; a = pitch operand
+        inc     hl                       ; a = pitch operand (bit 7 = no-attack flag)
+        ld      d, a                     ; save raw operand for the no-attack test below
         ld      (ix+sc_note), a
         ld      a, (hl)
         inc     hl                       ; a = duration operand
@@ -765,6 +766,14 @@ Seq_Op_NoteDur:
         ld      (ix+sc_stream_ptr), l
         ld      (ix+sc_stream_ptr+1), h  ; commit ptr before hooks clobber hl
         set     SCF_KEYED_B, (ix+sc_flags) ; SCF_KEYED
+        ; bit 7 = smpsNoAttack: a held continuation (looped fade tail). Skip the
+        ; note-on hook entirely — no $28 re-attack AND no freq re-write — so the note
+        ; rings on while only its Vol (TL) walks down. The transcoder leaves bit 7
+        ; CLEAR on the first note after a modSet so that note still re-keys to reset
+        ; the swept pitch; subsequent tail passes are held. (sc_note keeps the flag:
+        ; only the hook reads it as a pitch index, and the hook is skipped here.)
+        bit     7, d
+        ret     nz                       ; no-attack -> held; duration counts, no re-key
     ifdef __DEBUG__
         ld      a, SEQEV_NOTEON
         call    Seq_Trace
