@@ -310,6 +310,24 @@ def _s3k_op_reorder(vals):
     return [vals[3], vals[1], vals[2], vals[0]]
 
 
+def _check_sfx_voice0(vi):
+    """Validate an SFX smpsSetvoice and signal that NO MEV_PATCH should be emitted.
+
+    An SFX's FM voice is pre-loaded by the engine's Sfx_Steal directly from the SFX
+    blob's own bank (sx_patch_base). A stream MEV_PATCH would re-resolve the patch via
+    the MUSIC patch table (SND_SEQ_PATCHTAB) — the WRONG table — and OVERWRITE the
+    correct voice with garbage (zeros with no song loaded, or a music voice in a DEBUG
+    build), corrupting the SFX timbre. Verified via VGM register capture: the ring
+    uploaded the correct patch, then a zeroed one ~16ms later. All current SFX use a
+    single voice 0 (== the steal's voice), so the opcode is purely redundant — drop it.
+    A non-zero index is a real mid-stream voice change the engine can't resolve from the
+    SFX bank yet — fail loudly rather than silently corrupt."""
+    if vi != 0:
+        raise TranscodeError(
+            f"SFX smpsSetvoice ${vi:02X}: mid-stream voice change is unsupported (the "
+            f"engine plays only the steal-preloaded voice 0; see the SFX patch-corruption fix)")
+
+
 class _SmpsVoiceBuilder:
     """Accumulate smpsVc* macro calls into a voice dict for translate_voice()."""
     def __init__(self):
@@ -625,11 +643,8 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                         return True  # channel stream ended
                     elif macro == 'smpsSetvoice' or macro == 'smpsFMvoice':
                         args = _split_args(arg_str)
-                        # voice index in SFX's own bank (always 0 for v1 — one voice)
-                        # The arg is the voice index within the SFX voice table.
-                        # Since our transcoder collects voices in order, this is always 0.
                         vi = _parse_int(args[0]) if args else 0
-                        events.append(Patch(vi))
+                        _check_sfx_voice0(vi)   # drop the redundant+corrupting MEV_PATCH
                     elif macro == 'smpsPan':
                         args = _split_args(arg_str)
                         # args: direction + amsfms
@@ -994,7 +1009,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     args = _split_args(arg_str)
                     vi = _parse_int(args[0]) if args else 0
                     if is_fm:
-                        events.append(Patch(vi))
+                        _check_sfx_voice0(vi)   # drop the redundant+corrupting MEV_PATCH
                 elif macro == 'smpsPan':
                     args = _split_args(arg_str)
                     dir_tok = args[0].strip() if args else '0'

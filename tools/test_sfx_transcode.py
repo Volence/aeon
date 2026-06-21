@@ -194,11 +194,16 @@ class TestRoundtripRoll(unittest.TestCase):
         self.assertEqual(len(self.desc['voices'][0]), 26,
                          "FmPatch must be exactly 26 bytes")
 
-    def test_events_contain_patch(self):
+    def test_no_patch_event_emitted(self):
+        # SFX must NOT emit MEV_PATCH: the engine's Sfx_Steal pre-loads the SFX's own
+        # voice (sx_patch_base); a stream MEV_PATCH re-resolves via the MUSIC patch
+        # table and OVERWRITES it with garbage, corrupting the SFX timbre. smpsSetvoice
+        # $00 is dropped (the steal already loaded voice 0). Regression guard for the
+        # ring/FM-SFX "wrong timbre" bug found via VGM register capture.
         events = self.desc['channels'][0]['events']
         patch_events = [e for e in events if isinstance(e, Patch)]
-        self.assertGreaterEqual(len(patch_events), 1,
-                                "FM channel must have a Patch (smpsSetvoice) event")
+        self.assertEqual(len(patch_events), 0,
+                         "FM SFX must NOT emit MEV_PATCH (the steal pre-loads the voice)")
 
     def test_events_contain_notes(self):
         events = self.desc['channels'][0]['events']
