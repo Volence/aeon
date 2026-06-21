@@ -593,7 +593,10 @@ SFXPRI_RINGLOSS = $C0
 ; --- Ducking (spec §7): a high-priority SFX transiently attenuates the music. A
 ; global duck-level byte ramps up on duck-eligible SFX and ramps back over N frames
 ; on SFX end. v1: fixed depth + linear ramp, all tunable.
-SFX_DUCK_THRESHOLD = $80     ; SFX priority >= this ducks the music (spindash/dash/death)
+SFX_DUCK_THRESHOLD = $C0     ; SFX priority >= this ducks the music. Was $80, raised to
+                             ; $C0 so ONLY rare/dramatic SFX duck (death/ring-loss = $C0);
+                             ; the frequent gameplay SFX — spindash/dash ($80) — no longer
+                             ; pump the music (esp. the rapid spindash revs). (User pref.)
 SFX_DUCK_DEPTH     = $18     ; carrier-TL bump (attenuation units; bigger = quieter music)
 SFX_DUCK_PSG_DEPTH = 3       ; PSG linear-volume drop applied while ducked
 SFX_DUCK_RAMP_STEP = 4       ; duck-level change per frame (linear ramp up/down)
