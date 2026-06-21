@@ -30,24 +30,33 @@ spindash. **Fix:** `clr.b (Player_JumpBuffer).w` at the spindash launch (player_
 before `jmp PState_Roll`) — drops the stale charge press; a FRESH press after launch still roll-jumps.
 **Verify when emulator reloaded:** spindash + mash jump + release → no airborne jump chirp; the dash plays.
 
-### Item 1 — walk/roll SFX "lasts too long and gets weird at the end" — **OPEN (needs S&K compare)**
-**Ruled out:** re-trigger-per-frame. Roll `$3C` fires ONCE on the ground→roll transition
-(player_ground.asm:134); skid `$36` fires ONCE on the fresh-arm edge then latches `_pl_skid_latch`
-(player_common.asm:336-341). Neither re-fires while held. So the "too long / weird tail" is in the SFX
-**blob itself** — its modulation/duration, NOT the trigger. Roll `$3C` source carries a modulation
-(`smpsModSet $03,$01,$09,$FF`); same class as the known dash `$B6` pitch-sweep residue. **Suspect:** the
-transcoder's modulation/duration handling makes our tail longer / sweep different than S&K (cf. the
-documented spindash modulation step-underflow that produces a monotonic sweep, project_sfx_pitch_open).
-**Next:** capture OURS vs the real S&K ROM for `$3C` and `$36` (the exact method that fixed the ring — build
-`SOUND_DRIVER_ENABLED=1 DEBUG=0`, poke the SFX, VGM-capture, diff $28 key-off timing + modulation regs).
+### Item 1 — roll SFX "lasts too long and gets weird at the end" — **FIXED 2026-06-21**
+**Ruled out** re-trigger-per-frame (roll/skid each fire ONCE). A 73-agent + adversarial-verify root-cause
+pass found the real cause is in the **transcoded blob**: the roll `$3C` tail is a 42-pass `smpsLoop` whose
+body has a per-pass `smpsFMAlterVol $01` (cumulative attenuation → fade to silence). Our engine has no
+relative-AlterVol opcode, so the transcoder COLLAPSED the fade to ONE constant `MEV_VOL` inside a
+`RepeatStart/RepeatEnd` body, which the engine replays identically every pass → the tail held flat at near-
+full volume then HARD-CUT (= "lasts too long / weird at the end"). A secondary divergence: `smpsNoAttack`
+was a transcoder no-op, so each pass re-keys the FM envelope (a stutter). NB the user's "walk" was the roll
+FM tail — skid `$36` is byte-faithful PSG (no AlterVol; verified).
+**Fix (transcoder-only — the Z80 driver has just 4 bytes free, so no new opcode):** `tools/sfx_transcode.py`
+now UNROLLS an AlterVol-bearing `smpsLoop` into per-pass `Vol`+note events, walking the TL attenuation up by
+the S&K per-pass delta and inverting `LogVolumeLutZ` to the `sc_volume` index that renders it — a dB-faithful
+`+1 TL/pass` decay-to-quiet (regression test asserts each pass == +1 attenuation). Roll Vol now fades
+`99→…→20`. **Deferred:** honoring `smpsNoAttack` (suppress the per-pass re-key) needs a Z80 no-key-on note
+path — no room until bytes are reclaimed; the restored fade makes the re-key quiet, so re-evaluate by ear.
 
-### Item 3 — "rev spindash a lot → weird sounds" — **OPEN (needs S&K compare)**
-Each rev re-fires `$AB` with an escalating global transpose (`Snd_SpindashRev` via MEV_SPINREV, capped
-`$10` = ~E6). Two compounding suspects: (a) the climbing pitch nears/at the cap is genuinely very high —
-may be partly faithful (classic spindash pitch rises) but the cap or step may overshoot S&K; (b) rapid
-re-fires churn the 1-byte mailbox and can collide with the dash on release. **Next:** capture our rev
-sequence vs S&K's; confirm whether the transpose ceiling and per-rev step match, and whether the "weird"
-is the cap height or a mailbox/queue artifact.
+### Item 3 — "rev spindash a lot → weird sounds" — **FIXED 2026-06-21**
+**Primary cause (confirmed):** the spindash `$AB` loop body is the SMPS bare-duration "replay previous note"
+idiom (`dc.b smpsNoAttack, $02`); the transcoder dropped the standalone duration byte, so the `$AB`
+`RepeatStart/RepeatEnd` body had **zero time-advancing events** → the Z80 ran all 24 reps in one frame and
+fell to END → the rev played only its ~24-frame attack then stopped dead, and every rev tap re-fired that
+truncated, tail-less attack (= "weird"). The same AlterVol-collapse (Item 1) flattened what little tail
+existed. **Fix (transcoder-only):** (a) `_process_dcb` now implements the bare-duration replay (re-articulate
+the previous pitch), restoring the loop body's timing; (b) the AlterVol unroll restores the per-pass fade.
+`$AB` tail now has 24 note re-articulations fading `95→…→16`. The monotonic mod-sweep and `$10` transpose
+clamp were verified **faithful — left unchanged**. A defensive packer backstop now rejects any
+`REPEAT_START..REPEAT_END` body with no time-advancing event (the collapse class) for all SFX and music.
 
 ### "A few others" (user can't reliably trigger)
 Most likely further instances of the 1-byte-mailbox collision (A2) — any frame that fires two SFX (e.g.

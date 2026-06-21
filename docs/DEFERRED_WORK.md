@@ -1058,6 +1058,18 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
 - **B3 — AM-enable bit dropped vs S3K byte** (`sfx_transcode.py` 330-336/390; `_am<<5 & 0x80` always 0).
   Harmless on YM2612 (bit 5 of $60 is a don't-care) but a byte-fidelity divergence + a trap if a real
   AM voice is ever transcoded. Doc or preserve the junk bits.
+- **B4 — looped-SFX fade tail (`smpsFMAlterVol`) + bare-duration replay — FIXED 2026-06-21** (see
+  `docs/BUGS.md` BUG-002 items 1 & 3). The transcoder collapsed S&K's per-pass `smpsFMAlterVol` fade to one
+  constant `MEV_VOL` (roll tail held flat then hard-cut) and dropped the SMPS bare-duration "replay previous
+  note" idiom (spindash rev-tail collapsed to zero ticks). Fixed transcoder-side (no Z80 growth — driver has
+  4 bytes free): AlterVol-bearing `smpsLoop`s are now UNROLLED with a dB-faithful per-pass fade (invert
+  `LogVolumeLutZ`), and a standalone duration byte re-articulates the previous note. Packer backstop added.
+  **STILL DEFERRED — `smpsNoAttack` (the per-pass FM re-key):** honoring it needs a Z80 **no-key-on note
+  path** (a flag/opcode in `Fm_NoteOnFreq` to skip the `$28` key-on), which there is no blob budget for today
+  (`Z80_SOUND_SIZE=$16EC`, `SND_STATE_BASE=$16F0` → 4 bytes free). The restored fade makes the per-pass
+  re-keys quiet, so this is a polish item: reclaim Z80 bytes, add the no-key-on note, then the looped tail
+  becomes a single continuously-held note exactly like S&K. Pairs with a future relative-AlterVol opcode
+  (would replace the unroll's data cost with the faithful per-pass primitive). Re-evaluate by ear first.
 
 #### C. DAC sample path — correct today by coincidence, breaks the moment real drums land
 *(Do all four as ONE format revision — and fold in the best-in-class DAC work, item E2/E3 below. Partly

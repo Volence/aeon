@@ -350,6 +350,38 @@ def _bake_channel_volume(patch, vol):
     return bytes(p)
 
 
+# --- LogVolumeLutZ mirror + inverse (engine/sound_tables_z80.asm) ------------
+# At play time the engine renders sc_volume (0..127, a linear index) through this
+# LUT to a YM2612 TL attenuation. S&K's smpsFMAlterVol fades a looped note by
+# ADDING +N to the TL attenuation on EACH loop pass. To reproduce that fade
+# faithfully through our logarithmic volume model, the AlterVol-loop unroll walks
+# the attenuation up by the per-pass delta and inverts this LUT back to the
+# sc_volume index that renders it. test_sfx_transcode asserts this mirror matches
+# the engine table byte-for-byte (so the two never drift).
+_LOG_VOLUME_LUT = [
+    0x7F,0x7F,0x6D,0x62,0x5B,0x55,0x50,0x4C,0x48,0x45,0x43,0x40,0x3E,0x3C,0x3A,0x38,
+    0x36,0x35,0x33,0x32,0x30,0x2F,0x2E,0x2D,0x2C,0x2B,0x2A,0x29,0x28,0x27,0x26,0x25,
+    0x24,0x23,0x23,0x22,0x21,0x20,0x20,0x1F,0x1E,0x1E,0x1D,0x1C,0x1C,0x1B,0x1B,0x1A,
+    0x1A,0x19,0x18,0x18,0x17,0x17,0x16,0x16,0x15,0x15,0x15,0x14,0x14,0x13,0x13,0x12,
+    0x12,0x12,0x11,0x11,0x10,0x10,0x10,0x0F,0x0F,0x0F,0x0E,0x0E,0x0D,0x0D,0x0D,0x0C,
+    0x0C,0x0C,0x0B,0x0B,0x0B,0x0B,0x0A,0x0A,0x0A,0x09,0x09,0x09,0x08,0x08,0x08,0x08,
+    0x07,0x07,0x07,0x07,0x06,0x06,0x06,0x05,0x05,0x05,0x05,0x04,0x04,0x04,0x04,0x04,
+    0x03,0x03,0x03,0x03,0x02,0x02,0x02,0x02,0x01,0x01,0x01,0x01,0x01,0x00,0x00,0x00,
+]
+
+
+def _vol_for_atten(atten: int) -> int:
+    """Inverse of _LOG_VOLUME_LUT: the sc_volume index (0..127) that renders closest
+    to `atten` TL attenuation. Ties resolve to the LOUDER (higher) index."""
+    atten = max(0, min(0x7F, atten))
+    best_k, best_d = 0, 999
+    for k in range(128):
+        d = abs(_LOG_VOLUME_LUT[k] - atten)
+        if d < best_d or (d == best_d and k > best_k):
+            best_d, best_k = d, k
+    return best_k
+
+
 class _SmpsVoiceBuilder:
     """Accumulate smpsVc* macro calls into a voice dict for translate_voice()."""
     def __init__(self):
@@ -598,6 +630,10 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         # current duration default (set by bare duration bytes)
         cur_dur = 1
 
+        # last note pitch emitted on this channel — used to re-articulate the note
+        # for a standalone SMPS duration byte (the "replay previous note" idiom).
+        last_pitch = None
+
         # voice index (within the SFX's own bank, 0-based)
         voice_idx = 0
 
@@ -843,7 +879,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
 
         def _process_dcb(content: str):
             """Process a dc.b line's content, handling notes, durations, smpsNoAttack."""
-            nonlocal noattack_pending, cur_dur
+            nonlocal noattack_pending, cur_dur, last_pitch
 
             tokens = [t.strip() for t in content.split(',') if t.strip()]
             t_idx = 0
@@ -872,8 +908,24 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     continue
 
                 if val == S3K_NOTE_REST:
-                    # Rest
-                    events.append(SetDur(min(cur_dur, 0x7F)))
+                    # Rest — may carry its own explicit duration byte (nRst, $03),
+                    # exactly like a note. Consume it so it does NOT fall through to
+                    # the standalone-duration (replay-previous-note) branch below,
+                    # which would wrongly re-articulate the last note as a rest.
+                    rest_dur = cur_dur
+                    if t_idx < len(tokens):
+                        next_tok = tokens[t_idx].strip()
+                        if ';' in next_tok:
+                            next_tok = next_tok[:next_tok.index(';')].strip()
+                        try:
+                            dv = _parse_int(next_tok)
+                            if 0x01 <= dv <= 0x7F:
+                                rest_dur = dv
+                                cur_dur = dv
+                                t_idx += 1
+                        except (ValueError, TranscodeError):
+                            pass
+                    events.append(SetDur(min(rest_dur, 0x7F)))
                     events.append(Rest())
                     noattack_pending = False
                 elif S3K_NOTE_BASE <= val <= 0xFF:
@@ -895,17 +947,27 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                                 cur_dur = dur_val
                                 t_idx += 1
                                 events.append(NoteDur(pitch, dur_val))
+                                last_pitch = pitch
                                 noattack_pending = False
                                 continue
                         except (ValueError, TranscodeError):
                             pass
                     # No duration follows: use current default
                     events.append(Note(pitch))
+                    last_pitch = pitch
                     noattack_pending = False
                 elif 0x01 <= val <= 0x7F:
-                    # Duration byte (standalone tempo modifier)
+                    # Standalone duration byte. In SMPS this is the "replay the
+                    # previous note for N ticks" idiom (S&K's zStoreDuration keeps the
+                    # prior Freq and re-articulates) — NOT merely a default setter.
+                    # Re-emit the last note so the tick clock advances; without this a
+                    # loop body whose ONLY timing was a bare-duration replay collapses
+                    # to zero ticks (the spindash-rev tail-loss bug). With no prior
+                    # note yet, fall back to just setting the running default.
                     cur_dur = val
-                    # This sets the current default duration for the next note
+                    if last_pitch is not None:
+                        events.append(NoteDur(last_pitch, val))
+                        noattack_pending = False
                 elif val >= 0xE0:
                     # Coord flag byte ($E0-$FF) — must be handled; raise if unknown
                     _handle_raw_coord(val)
@@ -933,6 +995,19 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         # Monkey-patch a LoopMarker class accessible in _insert_repeat_start
         _LoopMarker = _LoopMarkerObj
 
+        # Pseudo-event: a per-pass smpsFMAlterVol delta (a TL-attenuation add). The
+        # smpsLoop handler resolves these by unrolling the loop and walking the
+        # attenuation per pass (a faithful fade); a stray one outside a loop is
+        # finalized to a single absolute Vol. Must never reach packing.
+        class _AlterVolObj:
+            def __init__(self, delta):
+                self.delta = delta
+            def encode(self):
+                raise TranscodeError("internal: unresolved _AlterVol reached packing")
+            def validate(self, route):
+                pass
+        _AlterVol = _AlterVolObj
+
         # Re-define _process_lines to emit loop markers when passing labels
         # that appear as smpsLoop targets.  We do a pre-scan to find loop targets.
         _loop_targets = set()
@@ -952,7 +1027,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         def _process_lines_v2(start_i: int) -> bool:
             nonlocal noattack_pending
             nonlocal cur_dur, voice_idx, loop_label, loop_count, has_loop
-            nonlocal jump_target_label, sfx_flags
+            nonlocal jump_target_label, sfx_flags, last_pitch
 
             i = start_i
             while i < len(lines):
@@ -1078,10 +1153,36 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                           file=sys.stderr)
                 elif macro == 'smpsLoop':
                     args = _split_args(arg_str)
-                    loops = _parse_int(args[1]) if len(args) > 1 else 1
+                    loops = max(1, min(255, _parse_int(args[1]) if len(args) > 1 else 1))
                     lbl = args[2].strip() if len(args) > 2 else ''
-                    _insert_repeat_start(events, lbl)
-                    events.append(RepeatEnd(max(1, min(255, loops))))
+                    # Locate the loop-body span: the _LoopMarker for lbl .. end.
+                    marker_idx = None
+                    for idx in range(len(events) - 1, -1, -1):
+                        if isinstance(events[idx], _LoopMarker) and events[idx].label == lbl:
+                            marker_idx = idx
+                            break
+                    body = events[marker_idx + 1:] if marker_idx is not None else []
+                    if marker_idx is not None and any(isinstance(e, _AlterVol) for e in body):
+                        # FAITHFUL UNROLL. The engine's RepeatStart/RepeatEnd replays
+                        # identical bytes, so a per-pass smpsFMAlterVol fade cannot be
+                        # expressed as a back-patched loop. Unroll N passes, walking the
+                        # TL attenuation up by the per-pass delta (S&K cfChangeVolume)
+                        # and inverting LogVolumeLut to the sc_volume index that renders
+                        # it — a dB-faithful decay-to-quiet tail. (Without this the tail
+                        # plays at one frozen volume and hard-cuts: bug #1/#3 "weird end".)
+                        del events[marker_idx:]            # drop marker + body; re-emit
+                        base_vol = _find_last_vol(events, default=100 if is_fm else 80)
+                        atten = _LOG_VOLUME_LUT[max(0, min(127, base_vol))]
+                        for _pass in range(loops):
+                            for e in body:
+                                if isinstance(e, _AlterVol):
+                                    atten = min(0x7F, atten + e.delta)
+                                    events.append(Vol(_vol_for_atten(atten)))
+                                else:
+                                    events.append(e)
+                    else:
+                        _insert_repeat_start(events, lbl)
+                        events.append(RepeatEnd(loops))
                     has_loop = True
                     sfx_flags |= SHF_LOOP
                 elif macro == 'smpsJump':
@@ -1103,9 +1204,10 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                         delta = _parse_int(args[0])
                     else:
                         delta = 0
-                    cur_vol = _find_last_vol(events, default=100 if is_fm else 80)
-                    new_vol = max(0, min(127, cur_vol - delta))
-                    events.append(Vol(new_vol))
+                    # Emit a per-pass delta pseudo-event; the smpsLoop unroll resolves
+                    # it to a faithful per-pass fade (or it's finalized to one Vol if
+                    # it turns out not to be inside a loop).
+                    events.append(_AlterVol(delta))
                 elif macro == 'smpsNoAttack':
                     noattack_pending = True
                 elif macro in ('smpsHeaderStartSong', 'smpsHeaderVoice',
@@ -1121,6 +1223,23 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             return False
 
         _process_lines_v2(start_line + 1)
+
+        # Finalize any _AlterVol that was NOT consumed by a loop unroll (a one-shot
+        # smpsFMAlterVol outside a loop): collapse it to a single absolute Vol, the
+        # pre-fix behavior (correct for a non-looped relative change).
+        if any(isinstance(e, _AlterVol) for e in events):
+            resolved = []
+            last_vol = 100 if is_fm else 80
+            for e in events:
+                if isinstance(e, Vol):
+                    last_vol = e.vol
+                    resolved.append(e)
+                elif isinstance(e, _AlterVol):
+                    last_vol = max(0, min(127, last_vol - e.delta))
+                    resolved.append(Vol(last_vol))
+                else:
+                    resolved.append(e)
+            events[:] = resolved
 
         # Remove any remaining _LoopMarker sentinels (they should have been
         # replaced by _insert_repeat_start, but defensive cleanup).
@@ -1162,6 +1281,29 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
 # SFX blob packer (mirrors pack_song but emits SfxHeader + per-channel records)
 # ---------------------------------------------------------------------------
 
+def _validate_sfx_repeat(events, sfx_id=0):
+    """Reject a REPEAT_START..REPEAT_END span containing no time-advancing event
+    (Note/Rest/NoteDur). The Z80 replays such a body in a single fetch frame, so the
+    loop collapses to zero ticks — the spindash-rev tail-loss class. Backstop for ALL
+    SFX (pack_sfx does its own encoding and never sees the music _validate_channel)."""
+    stack = []                                   # per open RepeatStart: saw a tick event
+    _TIME_ADV = ('Note', 'Rest', 'NoteDur', 'NoteRaw', 'PitchEnv')
+    for e in events:
+        cn = type(e).__name__
+        if cn == 'RepeatStart':
+            stack.append(False)
+        elif cn in _TIME_ADV and stack:
+            stack = [True] * len(stack)
+        elif cn == 'RepeatEnd':
+            if not stack:
+                raise TranscodeError(f"sfx ${sfx_id:02X}: RepeatEnd without RepeatStart")
+            if not stack.pop():
+                raise TranscodeError(
+                    f"sfx ${sfx_id:02X}: a REPEAT_START..REPEAT_END body has no "
+                    f"time-advancing event (Note/Rest/NoteDur) — the Z80 would replay "
+                    f"it in a single frame (loop collapse)")
+
+
 def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
     """Pack an SFX descriptor to bytes.
 
@@ -1193,6 +1335,7 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
     # Pack each channel's event stream
     streams = []
     for ch in channels:
+        _validate_sfx_repeat(ch['events'], sfx_desc.get('id', 0))
         s = b''.join(e.encode() for e in ch['events'])
         streams.append(s)
 

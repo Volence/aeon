@@ -30,6 +30,7 @@ from sfx_transcode import (
     SHF_LOOP,
     _SFX_PRIORITY, _CORE_SFX_IDS, _sfx_label,
     _smps_note_to_pitch, FM_SFX_OCTAVE_SHIFT, PSG_OCTAVE_FIXUP,
+    _LOG_VOLUME_LUT, _vol_for_atten, _validate_sfx_repeat,
     S3K_NOTE_BASE,
     CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
     CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -967,6 +968,184 @@ class TestFmDecayEnvelopeParsed(unittest.TestCase):
         fm_ch = next(c for c in desc['channels'] if c['route'] in (CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5))
         self.assertEqual([e for e in fm_ch['events'] if isinstance(e, Vol)], [],
                          "FM SFX must not emit a Vol event (channel-volume is baked into the patch)")
+
+
+# Spindash-rev ($AB): the loop body is the SMPS bare-duration "replay previous note"
+# idiom (dc.b smpsNoAttack, $02) + a per-pass smpsFMAlterVol fade.
+SPINDASH_SRC = """\
+Sound_AB_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_AB_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $01
+
+\tsmpsHeaderSFXChannel cFM5, Sound_AB_FM5,\t$00, $00
+
+Sound_AB_FM5:
+\tsmpsSpindashRev
+\tsmpsSetvoice        $00
+\tsmpsModSet          $01, $01, $1A, $01
+\tdc.b\tnC5, $18
+\tsmpsNoAttack
+\tsmpsModSet          $00, $00, $00, $00
+\tdc.b\t$02
+
+Sound_AB_Loop00:
+\tdc.b\tsmpsNoAttack, $02
+\tsmpsFMAlterVol      $02
+\tsmpsLoop            $00, $18, Sound_AB_Loop00
+\tsmpsResetSpindashRev
+\tsmpsStop
+
+Sound_AB_Voices:
+\tsmpsVcAlgorithm     $04
+\tsmpsVcFeedback      $07
+\tsmpsVcUnusedBits    $00
+\tsmpsVcDetune        $00, $00, $00, $00
+\tsmpsVcCoarseFreq    $03, $0C, $09, $00
+\tsmpsVcRateScale     $00, $00, $00, $00
+\tsmpsVcAttackRate    $1F, $1F, $1F, $1F
+\tsmpsVcAmpMod        $00, $00, $00, $00
+\tsmpsVcDecayRate1    $00, $00, $00, $00
+\tsmpsVcDecayRate2    $00, $00, $00, $00
+\tsmpsVcDecayLevel    $00, $00, $00, $00
+\tsmpsVcReleaseRate   $0F, $0F, $0F, $0F
+\tsmpsVcTotalLevel    $00, $1C, $00, $00
+"""
+
+
+class TestLogVolumeLut(unittest.TestCase):
+    """The transcoder's LogVolumeLutZ mirror must match the engine table, and the
+    inverse must round-trip — the faithful AlterVol fade depends on both."""
+
+    def test_lut_length_and_bounds(self):
+        self.assertEqual(len(_LOG_VOLUME_LUT), 128)
+        self.assertEqual(_LOG_VOLUME_LUT[0], 0x7F)   # index 0 = silent
+        self.assertEqual(_LOG_VOLUME_LUT[127], 0x00)  # index 127 = loudest
+        # monotonic non-increasing (louder index -> lower attenuation)
+        self.assertTrue(all(_LOG_VOLUME_LUT[i] >= _LOG_VOLUME_LUT[i + 1]
+                            for i in range(127)))
+
+    def test_lut_matches_engine_table(self):
+        """Parse engine/sound_tables_z80.asm LogVolumeLutZ and assert byte-equality —
+        catches any future drift between the engine table and the transcoder mirror."""
+        eng = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           'engine', 'sound_tables_z80.asm')
+        with open(eng) as f:
+            text = f.read()
+        start = text.index('LogVolumeLutZ:')
+        end = text.index('LogVolumeLutZ_End:')
+        body = text[start:end]
+        vals = []
+        for line in body.splitlines():
+            line = line.strip()
+            if not line.startswith('db'):
+                continue
+            for tok in line[2:].split(','):
+                tok = tok.strip()
+                if tok.endswith('h'):
+                    vals.append(int(tok[:-1], 16))
+        self.assertEqual(vals[:128], _LOG_VOLUME_LUT,
+                         "transcoder _LOG_VOLUME_LUT drifted from engine LogVolumeLutZ")
+
+    def test_vol_for_atten_inverse(self):
+        self.assertEqual(_vol_for_atten(0x00), 127)   # zero attenuation -> loudest
+        self.assertEqual(_vol_for_atten(0x07), 99)    # ties resolve to loudest index
+        # round-trip: inverting an exact LUT attenuation lands on an index with that value
+        for k in (20, 50, 80, 99, 110):
+            self.assertEqual(_LOG_VOLUME_LUT[_vol_for_atten(_LOG_VOLUME_LUT[k])],
+                             _LOG_VOLUME_LUT[k])
+
+
+class TestRollFadeTail(unittest.TestCase):
+    """Roll ($3C): the 42-pass smpsFMAlterVol fade must be UNROLLED into per-pass
+    decreasing Vol events (not a frozen Vol in a RepeatStart/End), so the tail decays
+    to quiet instead of holding flat and hard-cutting (bug #1)."""
+
+    def setUp(self):
+        self.ch = transcode_sfx_source(ROLL_SRC, 0x3C)['channels'][0]
+        self.ev = self.ch['events']
+
+    def test_no_repeat_block(self):
+        # fully unrolled — no back-patched repeat survives for an AlterVol loop
+        self.assertEqual([e for e in self.ev if isinstance(e, (RepeatStart, RepeatEnd))], [],
+                         "AlterVol loop must be unrolled, not left as RepeatStart/End")
+
+    def test_tail_has_42_passes(self):
+        # 1 main note + 42 unrolled loop notes
+        notes = [e for e in self.ev if isinstance(e, NoteDur)]
+        self.assertEqual(len(notes), 43)
+
+    def test_tail_volume_fades_monotonically(self):
+        vols = [e.vol for e in self.ev if isinstance(e, Vol)]
+        self.assertEqual(len(vols), 42, "one Vol per unrolled pass")
+        self.assertTrue(all(vols[i] >= vols[i + 1] for i in range(len(vols) - 1)),
+                        "fade must be monotonically non-increasing")
+        self.assertGreater(vols[0], vols[-1] + 40,
+                           "fade must span a wide range (loud -> quiet)")
+
+    def test_fade_is_db_faithful(self):
+        # S&K smpsFMAlterVol $01 == +1 TL attenuation per pass. Our per-pass Vol must
+        # render +1 attenuation each step (via LogVolumeLut), i.e. consecutive passes
+        # differ by exactly 1 attenuation unit.
+        vols = [e.vol for e in self.ev if isinstance(e, Vol)]
+        attens = [_LOG_VOLUME_LUT[v] for v in vols]
+        steps = [attens[i + 1] - attens[i] for i in range(len(attens) - 1)]
+        self.assertTrue(all(s == 1 for s in steps),
+                        f"each pass must add +1 TL attenuation (S&K $01); got {steps}")
+
+
+class TestSpindashTailNotCollapsed(unittest.TestCase):
+    """Spindash-rev ($AB): the bare-duration 'replay previous note' idiom must emit a
+    real note so the loop body advances time (not a zero-tick collapse, bug #3), AND
+    the per-pass fade must be unrolled."""
+
+    def setUp(self):
+        self.ev = transcode_sfx_source(SPINDASH_SRC, 0xAB)['channels'][0]['events']
+
+    def test_loop_body_has_time_advancing_notes(self):
+        notes = [e for e in self.ev if isinstance(e, NoteDur)]
+        # main(24t) + dc.b $02 replay + 24 loop-pass replays
+        self.assertGreaterEqual(len(notes), 25,
+                                "the bare-duration replay must re-articulate the note "
+                                "each pass (no zero-tick loop-body collapse)")
+
+    def test_no_repeat_block(self):
+        self.assertEqual([e for e in self.ev if isinstance(e, (RepeatStart, RepeatEnd))], [])
+
+    def test_tail_fades(self):
+        vols = [e.vol for e in self.ev if isinstance(e, Vol)]
+        self.assertEqual(len(vols), 24)
+        self.assertTrue(all(vols[i] >= vols[i + 1] for i in range(len(vols) - 1)))
+
+    def test_bare_duration_replays_last_pitch(self):
+        # every loop-body note is the same pitch as the main note (nC5 replay)
+        notes = [e for e in self.ev if isinstance(e, NoteDur)]
+        main_pitch = notes[0].pitch
+        self.assertTrue(all(n.pitch == main_pitch for n in notes),
+                        "bare-duration replay must re-use the previous note's pitch")
+
+
+class TestRepeatBodyBackstop(unittest.TestCase):
+    """A REPEAT_START..REPEAT_END span with no time-advancing event would collapse in
+    one Z80 frame; the SFX packer must reject it."""
+
+    def test_empty_repeat_body_rejected(self):
+        events = [Vol(80), RepeatStart(), Vol(60), RepeatEnd(8), End()]
+        with self.assertRaises(TranscodeError):
+            _validate_sfx_repeat(events, 0x99)
+
+    def test_repeat_body_with_note_accepted(self):
+        events = [Vol(80), RepeatStart(), NoteDur(0x46, 1), RepeatEnd(8), End()]
+        _validate_sfx_repeat(events, 0x99)   # must not raise
+
+    def test_skid_keeps_compact_repeat(self):
+        # Skid ($36) has no AlterVol, so its PSG loop must STAY a compact
+        # RepeatStart/End (a real note inside) — NOT unrolled.
+        chans = transcode_sfx_source(SKID_SRC, 0x36)['channels']
+        psg2 = chans[0]['events']
+        self.assertTrue(any(isinstance(e, RepeatStart) for e in psg2),
+                        "skid's note-bearing loop should stay a compact repeat")
 
 
 if __name__ == '__main__':

@@ -522,15 +522,24 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
     saw_patch = False             # Patch ($E1) seen in the setup run?
     saw_vol = False               # Vol ($E0) seen in the setup run?
     repeat_depth = 0              # open RepeatStart count (nesting)
+    repeat_time_stack = []        # per open RepeatStart: saw a time-advancing event
     stream = bytearray()
     for ev in ch.events:
         ev.validate(ch.route)
         if isinstance(ev, RepeatStart):
             repeat_depth += 1
+            repeat_time_stack.append(False)
         if isinstance(ev, RepeatEnd):
             if repeat_depth <= 0:
                 raise PackError("RepeatEnd with no preceding RepeatStart")
             repeat_depth -= 1
+            if not repeat_time_stack.pop():
+                raise PackError(
+                    "RepeatStart..RepeatEnd body has no time-advancing event "
+                    "(Note/Rest/NoteDur) — the Z80 would replay it in a single "
+                    "frame (loop collapse)")
+        if isinstance(ev, (Note, Rest, NoteDur, NoteRaw, PitchEnv)) and repeat_time_stack:
+            repeat_time_stack = [True] * len(repeat_time_stack)
         if isinstance(ev, Patch):
             saw_patch = True
         if isinstance(ev, Vol):
