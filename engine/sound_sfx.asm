@@ -240,7 +240,8 @@ Sfx_DrainQueue:
 ; the tempo-gated Sequencer_Channel (advance the SFX cursor — the SHARED interp).
 ; On a slot's stream End, Sequencer_Channel's MEV_END handler clears SCF_ACTIVE
 ; (verified in sound_sequencer.asm Seq_Op_End) — detect that and hand the voice
-; back via Sfx_Restore (a `ret` stub in 5a Task 6; Task 7 fills it).
+; back via Sfx_Restore (un-mute the override, re-upload the music voice, re-key the
+; held note iff it's keyed, and deactivate the slot).
 ; In: nothing. Clobbers af,bc,de,hl,ix (same as Sequencer_Frame). Preserves
 ; nothing the caller needs except the de re-park it does after this tail-call.
 ; ----------------------------------------------------------------------

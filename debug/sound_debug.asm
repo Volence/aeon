@@ -47,7 +47,7 @@ Sound_DebugMirror:
 .copy1:
         move.b  (a0)+, (a1)+
         dbf     d0, .copy1
-        lea     (Z80_RAM+SND_STATE_BASE).l, a0   ; [48..63] = $1600..$160F (playback state)
+        lea     (Z80_RAM+SND_STATE_BASE).l, a0   ; [48..63] = $16F0..$16FF (playback state)
         moveq   #16-1, d0
 .copy2:
         move.b  (a0)+, (a1)+

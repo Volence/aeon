@@ -456,8 +456,12 @@ SndDrv_Drain:
 ; it is NOT ROM-free. It is safe instead because the DAC loop is paused while the
 ; ISR runs and the ~250-sample ring-lead budget (SND_RING_LEAD_CAP) vastly
 ; outlasts the few-hundred-byte song copy — the lead absorbs the load.
-; Preserves every register it touches (it interrupts the main/idle loop).
-; `de` ($4001) and `ix` are NOT touched here, so they survive untouched.
+; Preserves af/bc/de/hl via push/pop (it interrupts the main/idle loop). It does
+; NOT save ix/iy, and SndDrv_PollMailbox DOES clobber them (SfxDispatch/Snd_LoadSong
+; use ix for channel state) — that is SAFE only because the main/idle/sample loops
+; hold NO live registers across their single `ei` (they document "Live registers
+; across iterations: NONE"). de=$4001 survives via the push/pop below, not by being
+; untouched. INVARIANT: future loop code must never keep a live ix/iy across `ei`.
 ; ======================================================================
 SndDrv_ISR:
         push    af
@@ -702,44 +706,12 @@ SndDrv_TimerATick:
         jp      SndDrv_Sample.afterPoll  ; rejoin the common prefix after the poll
 
 ; ======================================================================
-; Snd_TimerA_Program — load + enable Timer A from a tempo byte in `a` (Task 5).
-; tempo = the HIGH 8 bits of N (N = tempo<<2, low 2 bits 0). Writes:
-;   $24 = tempo (N>>2, MSB first), $25 = 0 (N&3), $27 = $05 (LOAD:A | ENBL:A).
-; ENBL:A (bit2) is REQUIRED — without it the overflow never raises the status
-; flag and the common-prefix poll can't see ticks. Uses ABSOLUTE addressing
-; ($4000 reg-select / $4001 data) so `de` (the DAC $4001 invariant) is untouched;
-; re-parks reg $2A on $4000 at the end (like the FM writer's Fm_ReparkDac).
-; Clobbers af, c (c stashes the tempo byte across the reg selects). Caller's
-; `de`/`ix` (and `b`) preserved.
-; ======================================================================
-Snd_TimerA_Program:
-        ld      c, a                     ; c = tempo byte (= N>>2); preserve across reg selects
-        ; $24 = N>>2 (MSB) — write MSB before LSB.
-        ld      a, SND_REG_TIMER_A_HI    ; $24
-        ld      (SND_Z80_YM_A0), a       ; select $24 on $4000
-        ld      a, c                     ; tempo byte = N>>2
-        ld      (SND_Z80_YM_A1), a       ; $4001 = N bits 9..2
-        ; $25 = N&3 (LSB) = 0 (tempo maps to N = tempo<<2, low 2 bits clear).
-        ld      a, SND_REG_TIMER_A_LO    ; $25
-        ld      (SND_Z80_YM_A0), a       ; select $25 on $4000
-        xor     a
-        ld      (SND_Z80_YM_A1), a       ; $4001 = N bits 1..0 = 0
-        ; $27 = LOAD:A | ENBL:A -> start the counter and let overflow raise the flag.
-        ld      a, SND_REG_TIMER_CTRL    ; $27
-        ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
-        ld      a, SND_TIMERA_CTRL_PROGRAM ; $05 = LOAD:A | ENBL:A
-        ld      (SND_Z80_YM_A1), a       ; $4001 = program Timer A
-        ; re-park reg $2A on the addr port for the DAC consumer.
-        ld      a, SND_REG_DAC_DATA      ; $2A
-        ld      (SND_Z80_YM_A0), a
-        ret
-
-; ======================================================================
 ; Snd_TimerA_ProgramFixed — load + enable Timer A at the FIXED Phase-3 frame
 ; rate (SND_TIMERA_N, build-time-computed from SND_FRAME_HZ). Writes the full
 ; 10-bit N: $24 = N>>2 (bits 9..2), $25 = N&3 (bits 1..0), $27 = $05
-; (LOAD:A | ENBL:A). Unlike Snd_TimerA_Program (which took a tempo byte and
-; forced $25 = 0), this writes both N bytes from the build-time constant so the
+; (LOAD:A | ENBL:A). Phase 3 replaced per-song tempo-byte Timer-A programming
+; with this fixed-rate program (musical tempo is now per-channel via the tempo
+; accumulator), so it writes both N bytes from the build-time constant and the
 ; frame rate is exact and region-independent. ENBL:A (bit2) is REQUIRED so the
 ; overflow raises the status flag the common-prefix poll reads. ABSOLUTE
 ; addressing (preserve de = $4001); re-parks reg $2A on $4000. Clobbers af.
@@ -853,8 +825,8 @@ Snd_LoadSong:
         ; song doesn't immediately re-key. Sequencer_StopAll is a blanket hardware
         ; silence: key-off all 6 FM channels via $28 + Psg_SilenceAll + clears
         ; SND_SEQ_ACTIVE. It uses ABSOLUTE YM addressing (preserves de=$4001) and
-        ; touches NO Timer-A state, so the Snd_TimerA_Program call later in this
-        ; load fully owns the timer config — the ordering is correct.
+        ; touches NO Timer-A state, so the fixed-rate Timer-A program (armed once at
+        ; init) keeps owning the timer config — the ordering is correct.
         call    Sequencer_StopAll        ; key-off FM + silence PSG + clear active flag
 
         ; Phase 5a: a PlayMusic-while-an-SFX-runs switch reaches here with an

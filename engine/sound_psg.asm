@@ -13,9 +13,12 @@
 ; `ld (SND_Z80_PSG),a`. Unlike the YM2612:
 ;   * NO inter-byte delay — latch + data bytes are written back-to-back.
 ;   * NO busy-poll, NO bus-contention guard — the Z80 owns the PSG; nothing else
-;     writes it. PSG writes touch NEITHER $4000-$4003 NOR `de`, so the DAC loop's
-;     de=$4001 invariant (and its parked-$2A address latch) are preserved BY
-;     CONSTRUCTION. No Fm_ReparkDac is needed here.
+;     writes it. PSG writes touch NO YM port ($4000-$4003), so they never disturb
+;     the parked-$2A address latch and need no Fm_ReparkDac. They DO clobber `de`,
+;     however (Psg_NoteOn/Psg_EmitDivisor load the divisor-table base into de): the
+;     DAC loop's de=$4001 invariant is re-established by the Timer-A tick CALLER
+;     (SndDrv_IdleTick reloads de; Snd_TimerA_Rearm re-parks $2A), NOT by PSG code
+;     preserving de.
 ;
 ; --- CHANNEL-INDEX DERIVATION (route -> hardware ch / command bytes) -------
 ;   route  CHROUTE_  hw ch  tone latch  vol latch   used bytes
