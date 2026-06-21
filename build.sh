@@ -72,8 +72,8 @@ if [[ ! -x "${TOOLS}/bin/salvador" ]]; then
     cp "${TOOLS}/salvador/salvador" "${TOOLS}/bin/salvador"
 fi
 
-echo "Generating baseline collision tables (heightmaps, heightmaps_rot, angles, solidity — strip-gen re-emits the authoritative set)..."
-python3 "${TOOLS}/gen_collision_data.py" data/collision
+echo "Importing Sonic & Knuckles collision shape set (fixed 252-shape vocabulary)..."
+python3 "${TOOLS}/import_sk_collision.py"
 
 echo "Generating OJZ section data..."
 python3 "${TOOLS}/ojz_strip_gen.py" generate
