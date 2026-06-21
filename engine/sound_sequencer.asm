@@ -150,10 +150,7 @@ ModUpdate:
         jr      nz, .is_fm
         bit     SCF_IS_PSG_B, (ix+sc_flags)
         ret     z                        ; DAC or other non-PSG -> nothing
-        push    ix                       ; ix high byte separates SFX ($1D00+) from music
-        pop     hl                       ; hl = ix (the channel ptr)
-        ld      a, h
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        call    Snd_ChanClass            ; CARRY set => MUSIC channel
         ret     c                        ; music PSG -> no env/mod fields, nothing to do
         ; --- PSG PITCH MODULATION (spec §5): if armed, sweep/vibrato the tone divisor.
         ; Shares the FM triangle core (Mod_Advance) via Psg_ApplyMod; a non-modulated
@@ -194,10 +191,7 @@ ModUpdate:
         ; corruption. SfxChannels live at/above SND_SFX_BASE ($1D00); a high-byte compare
         ; separates them (CARRY set => ix < $1D00 => music => skip — MT FM stays byte-
         ; identical). Then gate on sc_mod_ctrl != 0 (a non-modulated SFX pays one test).
-        push    ix
-        pop     hl                       ; hl = ix (the channel ptr)
-        ld      a, h
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        call    Snd_ChanClass            ; CARRY set => MUSIC channel
         jr      c, .vibrato_done         ; music FM -> no mod fields, skip (byte-identical)
         ld      a, (ix+sc_mod_ctrl)
         or      a

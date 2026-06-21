@@ -70,6 +70,24 @@ note (4 Z80 bytes, the exact free budget); the transcoder holds all tail passes 
 at base fnum (`1364` / `1288`, not swept), TL fade intact (`5→48` / `0→54`). Residual: one transition re-key
 click (S&K holds through with zero) — deferred (needs a modSet accumulator-reset, no Z80 budget today).
 
+### Items 1 + 3 follow-up #2 — "distorted jingle for a bit" — **FIXED 2026-06-21 (RENDERED-audio verified)**
+After the held-tail fix the user still heard "a distorted jungle [jingle] after them for a bit." The `$28`
+re-key count was a PROXY; rendering the capture to WAV (vgm2wav) showed the truth: the roll RMS only faded
+`1.00→0.68` then **plateaued**, and the spindash barely faded — yet one carrier's TL walked a full 32 dB.
+Root cause: for alg-4 voices there are TWO carriers (S2+S4); only ONE faded. `Fm_SetVolume` reads the
+algorithm/carrier-mask + base TLs via `Fm_PatchPtr`, which resolves `sc_patch` into the MUSIC patch table
+`SND_SEQ_PATCHTAB` — but SFX channels load their voice from `sx_patch_base` and never set `sc_patch`, so
+EVERY SFX volume write used a stale/empty patch's algorithm → wrong carrier mask → faded the wrong/one
+carrier. Latent until now because one-shot SFX have constant volume; the fade fix exposed it. **Fix:**
+`Fm_PatchPtr` returns `sx_patch_base` for SFX channels (`engine/sound_fm.asm`); `Sfx_Restore` passes the
+MUSIC channel so its path is unaffected. The Z80 was at its $16F0 ceiling, so the bytes were reclaimed by
+merging the two SFX gates in `Fm_NoteOnFreq` + factoring the 12-site `push ix/pop hl/ld a,h/cp` channel-class
+test into `Snd_ChanClass` (5 sites converted; `Z80_SOUND_SIZE` now `$16EE`, 2 free). **Rendered-audio
+verified:** both carriers (`$48`+`$4C` roll, `$49`+`$4D` spindash) now fade `5→53` / `0→54`, and the audio
+RMS decays to `0.02` (fades to silence) — no plateau, no distortion. The roll/spindash tails are now a clean
+held note fading smoothly to silence (S&K-faithful). LESSON: the `$28` count was a proxy; only the rendered
+WAV envelope revealed the un-faded carrier.
+
 ### "A few others" (user can't reliably trigger)
 Most likely further instances of the 1-byte-mailbox collision (A2) — any frame that fires two SFX (e.g.
 ring + skid, jump + ring). Tracked under A2 in DEFERRED_WORK.md; the ring-buffer mailbox resolves the class.

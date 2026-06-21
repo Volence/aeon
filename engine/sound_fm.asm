@@ -114,7 +114,32 @@ Fm_RoutePart:
 ;   *2 (=P2) -> *4 -> *8 -> +P2=*10 -> *20 -> +P2=*22 -> +P2=*24 -> +P2=*26.
 ; Clobbers: af, de, hl. Preserves bc, ix.
 ; ----------------------------------------------------------------------
+; ----------------------------------------------------------------------
+; Snd_ChanClass — channel-class test, factored from the 12-site inline pattern to
+; reclaim Z80 code space (the driver is at its $16F0 ceiling). CARRY SET => ix is a
+; MUSIC channel (ix < SND_SFX_BASE $1D00); CARRY CLEAR => SFX channel (>= $1D00).
+; Out: hl = ix (callers may reuse). Clobbers af. Preserves bc,de,ix.
+; ----------------------------------------------------------------------
+Snd_ChanClass:
+        push    ix
+        pop     hl                       ; hl = ix
+        ld      a, h
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        ret
+
 Fm_PatchPtr:
+        ; SFX channels load their voice from sx_patch_base (a window ptr), NOT the
+        ; music sc_patch index into SND_SEQ_PATCHTAB. Return it directly so callers
+        ; (Fm_SetVolume) read the SFX's OWN algorithm + base TLs — else the carrier
+        ; mask comes from a stale/empty music patch and the volume fade hits the wrong
+        ; carrier (only one of two carriers fades -> the FM tail distorts). Sfx_Restore
+        ; calls this with ix = the MUSIC channel, so that path keeps the music branch.
+        call    Snd_ChanClass            ; CARRY clear => ix >= $1D00 => SFX channel
+        jr      c, .music
+        ld      l, (ix+sx_patch_base)
+        ld      h, (ix+sx_patch_base+1)  ; hl = SFX FmPatch window ptr
+        ret
+.music:
         ld      a, (ix+sc_patch)
         ld      l, a
         ld      h, 0                     ; hl = patch
@@ -340,10 +365,7 @@ Fm_SetVolume:
         ; ix cleanly separates the two (music hi = $18/$19 < $1D; SFX hi = $1D/$1E).
         ; The per-op carrier loop clamps base+bias+log to [0,$7F], so a saturated
         ; Fm_ScratchLog can't wrap — but pre-clamp to $7F here for cleanliness.
-        push    ix
-        pop     hl                       ; hl = ix (the channel ptr)
-        ld      a, h
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        call    Snd_ChanClass            ; CARRY set => MUSIC channel (hl = ix)
         jr      nc, .no_duck             ; SFX channel -> never duck (no add)
         ld      a, (SND_SFX_DUCK_LEVEL)
         or      a
@@ -669,19 +691,19 @@ Fm_NoteOnFreq:
         call    Fm_WriteFreq             ; $A4 then $A0 (Fm_ScratchPart/Ch set inside)
         pop     de                       ; e = $A0 val, d = $A4 val (for the latch below)
 
-        ; --- latch the unmodulated note word for the vibrato renderer (spec §5) -----
-        ; The pitch-mod offset is summed onto THIS each frame (d=$A4 high, e=$A0 low).
-        ; sc_base_freq is an SfxChannel-only field (offset +51, PAST a 39-byte music
-        ; SeqChannel), and Fm_NoteOnFreq runs for MUSIC FM too (MT) — so GATE on the
-        ; SFX-channel test: a music note must NOT write here (it would corrupt the next
-        ; channel's RAM). SfxChannels live at/above SND_SFX_BASE ($1D00).
-        push    ix
-        pop     hl                       ; hl = ix
-        ld      a, h
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        ; --- SFX-only: latch the unmodulated note word for the vibrato renderer
+        ; (spec §5; the pitch-mod offset is summed onto d=$A4/e=$A0 each frame) AND
+        ; per-note pitch-mod re-arm (Task 4). MERGED under ONE SFX-channel gate (was
+        ; two): both touch SfxChannel-only fields, and Mod_ReArm only clobbers af +
+        ; reads sc_base_freq (not the chip), so running it here — before the key-on
+        ; instead of after — is equivalent and reclaims the second ix>=$1D00 test.
+        ; A MUSIC FM note (MT) must NOT write these (offset +51, past the 39-byte music
+        ; SeqChannel -> would corrupt the next channel's RAM). SFX live at/above $1D00.
+        call    Snd_ChanClass            ; CARRY set => MUSIC channel (hl = ix)
         jr      c, .keyon                ; music -> no mod fields; straight to key-on
         ld      (ix+sc_base_freq), d     ; high byte slot = $A4 value
         ld      (ix+sc_base_freq+1), e   ; low byte slot  = $A0 value
+        call    Mod_ReArm                ; per-note re-arm (no-op if sc_mod_ctrl==0)
 .keyon:
         ; --- KEY ON: $28 = $F0 | chsel, ALWAYS via part I ---
         call    Fm_ChSel                 ; a = chsel = (part<<2)|ch
@@ -690,18 +712,7 @@ Fm_NoteOnFreq:
         ld      a, SND_REG_KEY_ONOFF     ; reg = $28
         ld      b, 0                     ; key on/off is GLOBAL -> part I
         call    Fm_YmWrite
-
         set     SCF_KEYED_B, (ix+sc_flags)
-        ; --- per-note pitch-mod re-arm (Task 4) — SFX channels only -----------------
-        ; Mod_ReArm touches sc_mod_*/sc_last_freq (SfxChannel-only). Gate on the same
-        ; SFX-channel test so a MUSIC note (MT) never reads/writes those fields.
-        push    ix
-        pop     hl                       ; hl = ix
-        ld      a, h
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
-        jr      c, .skip_rearm           ; music -> no mod re-arm (MT byte-identical)
-        call    Mod_ReArm                ; per-note re-arm (no-op if sc_mod_ctrl==0)
-.skip_rearm:
         jp      Fm_ReparkDac             ; defensive re-park ($2A)
 
 ; ----------------------------------------------------------------------
