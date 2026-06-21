@@ -432,7 +432,7 @@ Sfx_Steal:
         push    ix                       ; save SFX-slot ix
         push    iy
         pop     ix                       ; ix = music noise SeqChannel
-        call    Psg_NoteOff              ; silence the music noise voice (preserves ix)
+        call    Sfx_MusicKeyOffKeepKeyed ; key off the chip; preserve logical SCF_KEYED
         pop     ix                       ; restore SFX-slot ix
         jr      .activate
 
@@ -440,7 +440,7 @@ Sfx_Steal:
         push    ix
         push    iy
         pop     ix                       ; ix = music SeqChannel
-        call    Psg_NoteOff              ; key off the music PSG tone (preserves ix)
+        call    Sfx_MusicKeyOffKeepKeyed ; key off the chip; preserve logical SCF_KEYED
         pop     ix
         jr      .activate
 
@@ -448,7 +448,7 @@ Sfx_Steal:
         push    ix
         push    iy
         pop     ix                       ; ix = music SeqChannel
-        call    Fm_NoteOff               ; key off the music FM voice (preserves ix)
+        call    Sfx_MusicKeyOffKeepKeyed ; key off the chip; preserve logical SCF_KEYED
         pop     ix
 .no_music_fm_check:
         ; FM SFX always loads its OWN voice (whether or not music underlay it). For a
@@ -466,6 +466,39 @@ Sfx_Steal:
 .activate:
         ; (4) the SfxChannel is now armed — Sfx_Frame will run it next frame.
         set     SCF_ACTIVE_B, (ix+sc_flags)
+        ret
+
+; ----------------------------------------------------------------------
+; Sfx_MusicKeyOffKeepKeyed — silence the music voice on the chip during a steal
+; WITHOUT corrupting its logical SCF_KEYED. That bit is the sequencer's LIVE
+; note-state tracking: the note/rest handlers set/clear it BEFORE the SFX-override
+; gate (sound_sequencer.asm note path sets it, .rest clears it), so it keeps
+; tracking the song even while overridden. Sfx_Restore reads it to decide whether
+; to re-key the held note on SFX end. Fm_NoteOff / Psg_NoteOff do `res SCF_KEYED`
+; as a side effect of their hardware key-off — so a naive steal would clear it and,
+; for a SHORT SFX (no intervening music note-on to re-set it), Restore would read 0
+; and leave the still-held music note silent for the rest of its duration (the
+; "silence gap"). Here we snapshot the bit, do the chip key-off, then re-assert it
+; iff it was set — so the steal silences the hardware but leaves the live keyed-
+; state intact for Restore to honour.
+;
+; In:  ix = the MUSIC SeqChannel (its sc_route/SCF_IS_* select the kind).
+; Out: physical voice keyed off; SCF_KEYED restored to its pre-call value.
+; Clobbers: af,bc,de,hl. Preserves ix (Fm_*/Psg_NoteOff preserve it).
+; ----------------------------------------------------------------------
+Sfx_MusicKeyOffKeepKeyed:
+        bit     SCF_KEYED_B, (ix+sc_flags) ; snapshot live keyed-state (Z = was NOT keyed)
+        push    af                         ; save Z across the key-off (NoteOff clobbers af)
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        jr      z, .psg
+        call    Fm_NoteOff                 ; FM hardware key-off (also res SCF_KEYED)
+        jr      .reassert
+.psg:
+        call    Psg_NoteOff                ; PSG/noise hardware key-off (also res SCF_KEYED)
+.reassert:
+        pop     af                         ; recover the snapshot
+        ret     z                          ; was not keyed -> leave SCF_KEYED clear
+        set     SCF_KEYED_B, (ix+sc_flags) ; re-assert the live keyed-state for Sfx_Restore
         ret
 
 ; ======================================================================
@@ -842,10 +875,14 @@ Sfx_RouteKind:
 ; snapshots — everything is recomputed from the music channel's surviving
 ; sc_patch/sc_volume/sc_note, which the steal never overwrote), restore the
 ; PSG3<->noise coupled latch if a noise voice was borrowed, and FORCE a re-key of
-; the held music note ONLY if it was sounding when stolen (SCF_KEYED set) — so the
-; music resumes instantly with no silence gap rather than coasting mute until the
-; next note event. If the channel was between notes, just clearing the override is
-; enough (the next note keys normally).
+; the held music note ONLY if it is currently keyed (SCF_KEYED set). The steal
+; preserves the music channel's LIVE SCF_KEYED (see Sfx_MusicKeyOffKeepKeyed), and
+; the sequencer keeps tracking it under override, so this reflects the song's
+; current note — a short SFX resumes the still-held note instantly with no silence
+; gap; a long SFX that outlived the note correctly stays silent until the next one.
+; (Was buggy: the steal used to clear SCF_KEYED, so a short SFX never re-keyed.)
+; If the channel was between notes, just clearing the override is enough (the next
+; note keys normally).
 ;
 ; In:  ix = the ended SfxChannel:
 ;        sx_saved_route = the music route to un-mute (CHROUTE_*)
