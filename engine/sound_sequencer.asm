@@ -161,7 +161,16 @@ ModUpdate:
         ; both layers compose (mod re-latches the divisor; env re-emits the volume).
         ld      a, (ix+sc_mod_ctrl)
         or      a
-        call    nz, Psg_ApplyMod         ; advance accum + re-latch tone divisor (no re-key)
+        jr      z, .psg_mod_done         ; no PSG pitch-mod armed
+        ; pitch-mod re-latches the TONE divisor; on the noise route ($E0..) that write
+        ; would corrupt the noise CONTROL register. The transcoder already never emits
+        ; MEV_MODSET on a noise track, but gate here too so a future/periodic-noise SFX
+        ; can never glitch the noise mode.
+        ld      a, (ix+sc_route)
+        cp      CHROUTE_PSGN
+        jr      z, .psg_mod_done         ; noise route -> skip tone pitch-mod
+        call    Psg_ApplyMod             ; advance accum + re-latch tone divisor (no re-key)
+.psg_mod_done:
         ; --- PSG VOLUME ENVELOPE (spec §4): advance the contour + re-emit the volume.
         ld      a, (ix+sc_psgenv)
         or      a
