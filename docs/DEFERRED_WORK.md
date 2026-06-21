@@ -1075,6 +1075,16 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   main→tail transition (S&K holds through = 0); a single click when the modulation turns off. Eliminating it
   needs `Seq_Op_ModSet` to reset the mod accumulator + force a base-freq write (S&K's zPrepareModulation) —
   more Z80 bytes; deferred until a reclaim. Re-evaluate by ear whether the one transition click is audible.
+- **B5 — `smpsPSGform $E7` tone-FREQUENCY-TRACKED noise sweep** (refinement; the fixed-rate fix is done — see
+  `docs/BUGS.md` BUG-003). The dash `$B6` (and any `smpsPSGform $E7` SFX) is now correctly rerouted to the
+  NOISE channel, but plays a FIXED white-noise rate (`$E6`, clk/2048). S&K's `$E7` is white noise whose shift
+  rate TRACKS PSG3's tone frequency — so as the channel's tone sweeps (its `smpsModSet`), the noise pitch
+  descends (a "pshhew"). Reproducing it needs the engine to drive PSG3's frequency register as the noise clock
+  + apply the modulation to it, with the audio on the noise channel — either (a) a `Psg_Noise` `$E7` path that
+  writes PSG3's freq from the note+mod, or (b) the transcoder splitting the source channel into a silenced
+  tone-clock (PSG3) + a noise channel (the engine + hardware then sync via the `$E7` track bit). Option (b) is
+  engine-change-free but adds a 3rd SFX channel + needs the clock pinned to PSG3 (no voice substitution). The
+  fixed-rate noise is the right character; the descending sweep is the nuance. Re-evaluate by ear.
 
 #### C. DAC sample path — correct today by coincidence, breaks the moment real drums land
 *(Do all four as ONE format revision — and fold in the best-in-class DAC work, item E2/E3 below. Partly

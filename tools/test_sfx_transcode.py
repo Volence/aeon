@@ -1161,6 +1161,54 @@ class TestNoAttackHeldTail(unittest.TestCase):
                     self.assertFalse(e.pitch & 0x80, "skid notes must all attack")
 
 
+# A PSG tone channel that switches to noise via smpsPSGform must be played on the
+# NOISE channel (not as an audible tone) — the dash $B6's release "pshhh".
+PSGFORM_SRC = """\
+Sound_FF_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_FF_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $01
+
+\tsmpsHeaderSFXChannel cPSG3, Sound_FF_PSG3,\t$00, $00
+
+Sound_FF_PSG3:
+\tsmpsPSGvoice        sTone_1D
+\tdc.b\tnRst, $06
+\tsmpsModSet          $01, $02, $05, $FF
+\tsmpsPSGform         $E7
+\tdc.b\tnE6, $4F
+\tsmpsStop
+
+Sound_FF_Voices:
+"""
+
+
+class TestPsgFormNoise(unittest.TestCase):
+    """A cPSG3 channel with smpsPSGform (noise mode) must be rerouted to the NOISE
+    channel so it plays as noise, not an audible descending tone (the dash "duh")."""
+
+    def setUp(self):
+        from song_packer import CHROUTE_PSGN
+        self.CHROUTE_PSGN = CHROUTE_PSGN
+        self.ch = transcode_sfx_source(PSGFORM_SRC, 0xFF)['channels'][0]
+
+    def test_rerouted_to_noise(self):
+        self.assertEqual(self.ch['route'], self.CHROUTE_PSGN,
+                         "smpsPSGform channel must route to PSGN (noise), not PSG3 (tone)")
+        self.assertEqual(self.ch['kind'], SFXEL_NOISE)
+
+    def test_note_is_noise_mode_not_tone(self):
+        # the engine reads NoteDur pitch low-3 as the SN76489 noise mode; bit 2 set =
+        # white noise. Tone modulation must be dropped (no ModSet on a noise channel).
+        from song_packer import ModSet
+        nd = [e for e in self.ch['events'] if isinstance(e, NoteDur)]
+        self.assertEqual(len(nd), 1)
+        self.assertEqual(nd[0].pitch & 0x04, 0x04, "noise note must select WHITE noise")
+        self.assertEqual([e for e in self.ch['events'] if isinstance(e, ModSet)], [],
+                         "noise channel has no tone freq -> modSet must be dropped")
+
+
 class TestRepeatBodyBackstop(unittest.TestCase):
     """A REPEAT_START..REPEAT_END span with no time-advancing event would collapse in
     one Z80 frame; the SFX packer must reject it."""

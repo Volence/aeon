@@ -88,6 +88,21 @@ RMS decays to `0.02` (fades to silence) — no plateau, no distortion. The roll/
 held note fading smoothly to silence (S&K-faithful). LESSON: the `$28` count was a proxy; only the rendered
 WAV envelope revealed the un-faded carrier.
 
+### BUG-003 — dash `$B6` "duh" = PSG noise rendered as a TONE — **FIXED 2026-06-21**
+After the FM tails were clean the user heard a "duh..." after the spindash (the *release* fires the dash
+`$B6`). The dash's PSG3 channel uses `smpsPSGform $E7` (noise mode) — its release is meant to be **white
+noise**. But the transcoder routed it as `CHROUTE_PSG3`/`SFXEL_PSG` (a TONE voice) and dropped the
+`smpsPSGform` opcode ("handled via sx_kind" — but sx_kind was *tone*), so the engine played an audible
+descending TONE on PSG ch2 = the "duh." (Pre-existing; unrelated to the FM work — exposed once the FM was
+clean.) **Fix (transcoder):** pre-scan a PSG channel for `smpsPSGform`; if present, reroute it to
+`CHROUTE_PSGN`/`SFXEL_NOISE` and emit a fixed white-noise mode note (`$E6`, clk/2048), dropping the
+tone-only modulation. **Verified on hardware:** the dash now writes the noise control `$E6` + ch3 noise
+volume fading `5→15`, ZERO ch2 tone writes; rendered audio spectral-flatness `0.667` = broadband noise (was
+tonal), fading to silence. **Refinement deferred (DEFERRED_WORK B5):** S&K's `$E7` is white noise *tracking
+PSG3's swept tone frequency* (a descending-pitch "pshhew"); reproducing that needs the engine to drive PSG3's
+frequency as the noise clock (or a tone-clock + noise channel split). The fixed-rate noise is the right
+*character*; the pitch sweep is the remaining nuance.
+
 ### "A few others" (user can't reliably trigger)
 Most likely further instances of the 1-byte-mailbox collision (A2) — any frame that fires two SFX (e.g.
 ring + skid, jump + ring). Tracked under A2 in DEFERRED_WORK.md; the ring-buffer mailbox resolves the class.

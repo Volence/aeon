@@ -597,6 +597,30 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                 f"sfx ${sfx_id:02X}: unknown S3K channel id ${chanid:02X}")
         route, kind = route_info
 
+        # A PSG TONE channel that switches to NOISE mode (smpsPSGform) must be played
+        # on the NOISE channel, not as the audible descending TONE the tone path
+        # produced (the dash "duh"). Pre-scan this channel's data for smpsPSGform and,
+        # if present, reroute to PSGN/NOISE. v1 approximation: a FIXED white-noise rate
+        # ($E6 = white clk/2048, the closest fixed rate to the source's tone-tracked
+        # pitch); the faithful tone-frequency-TRACKED sweep ($E7) is a documented
+        # refinement (needs the engine to drive PSG3's freq as the noise clock).
+        noise_form = None
+        if route in (CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3):
+            _boundary = {h[1] for h in chan_headers}
+            if voices_label:
+                _boundary.add(voices_label)
+            _dl = label_lines.get(data_lbl, -1)
+            for _ln in (lines[_dl + 1:] if _dl >= 0 else []):
+                _s = _ln.strip()
+                if _s.startswith('smpsStop'):
+                    break
+                if _s.endswith(':') and _s[:-1].strip() in _boundary and _s[:-1].strip() != data_lbl:
+                    break
+                if _s.startswith('smpsPSGform'):
+                    route, kind = CHROUTE_PSGN, SFXEL_NOISE
+                    noise_form = 0x06   # $E6: white noise, fixed clk/2048
+                    break
+
         if route in _RESERVED_ROUTES:
             raise TranscodeError(
                 f"sfx ${sfx_id:02X}: channel ${chanid:02X} maps to reserved route "
@@ -890,6 +914,13 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             a held continuation (noattack_pending AND the pitch isn't modSet-dirty).
             An attacked note clears mod_dirty (its key-on resets the swept pitch)."""
             nonlocal noattack_pending, mod_dirty
+            if noise_form is not None:
+                # Noise channel: the engine reads the NOTE's low 3 bits as the SN76489
+                # noise mode (control = $E0|(pitch&7)); the source tone pitch and the
+                # no-attack flag don't apply. Emit the fixed noise mode.
+                events.append(NoteDur(noise_form, dur))
+                noattack_pending = False
+                return
             if noattack_pending and not mod_dirty:
                 pitch |= 0x80                 # held: engine skips the $28 re-attack
             else:
@@ -1141,6 +1172,8 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     env_id = _stone_to_env_id(tone_tok)
                     events.append(PsgEnv(env_id))
                 elif macro == 'smpsModSet':
+                    if noise_form is not None:
+                        continue            # noise channel: no tone freq to modulate
                     # Pitch modulation: emit MEV_MODSET with the raw .asm operands
                     # (wait, speed, change, step). The engine applies S3K's own
                     # srl-on-init (Mod_ReArm seeds steps = raw>>1) — do NOT re-encode
