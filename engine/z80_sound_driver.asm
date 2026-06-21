@@ -1017,6 +1017,11 @@ Snd_LoadSong:
         ; sensible default volume + first-tick-fetches-immediately.
         ld      (ix+sc_volume), 100
         ld      (ix+sc_dur_count), 1
+        ; sc_dur_default seeds to 1 (not the zeroed 0): a channel that issues a note
+        ; BEFORE any set-default-duration ($00-$7F) opcode reloads sc_dur_count from
+        ; this. At 0 the next `dec (ix+sc_dur_count)` wraps 0->255 = a multi-second
+        ; stuck note. 1 = "advance every tick" until the stream sets a real default.
+        ld      (ix+sc_dur_default), 1
         ; --- Phase 3 per-channel state ---
         ; tempo accumulator: base from the header (SH_TEMPO_BASE), accum seeded =
         ; base so the FIRST frame's `sub 16` starts counting toward an event-tick.
