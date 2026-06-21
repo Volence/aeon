@@ -328,6 +328,28 @@ def _check_sfx_voice0(vi):
             f"engine plays only the steal-preloaded voice 0; see the SFX patch-corruption fix)")
 
 
+# --- SFX channel-volume bake -------------------------------------------------
+# S&K adds each SFX channel's volume LINEARLY to its CARRIER operators' TL at key-on.
+# Our engine's Fm_SetVolume runs volume through a LOG curve (LogVolumeLutZ) that
+# flattens near-max values to ~0 attenuation, so the channel-volume was lost and SFX
+# carriers played ~4 dB brighter than S&K (verified via VGM register capture vs the
+# real S&K ROM: ring carriers $00 where S&K has $05). We bake it into the patch
+# (0 Z80 bytes). CARRIER mask mirrors the engine's CarrierMaskTableZ exactly
+# (db 08,08,08,08,0C,0E,0E,0F): bit i = TL byte i (op offset i*4, physical [S1,S3,S2,S4]).
+_CARRIER_MASK = (0x08, 0x08, 0x08, 0x08, 0x0C, 0x0E, 0x0E, 0x0F)
+
+
+def _bake_channel_volume(patch, vol):
+    """Add the SFX channel-volume to a 26-byte FmPatch's CARRIER TLs (clamped $7F).
+    Patch layout: [0]alg_fb [1]lr [2:6]dt_mul [6:10]tl ...; alg = fp_alg_fb & 7."""
+    p = bytearray(patch)
+    mask = _CARRIER_MASK[p[0] & 7]
+    for i in range(4):                       # TL group = bytes [6:10]
+        if mask & (1 << i):
+            p[6 + i] = min(0x7F, p[6 + i] + vol)
+    return bytes(p)
+
+
 class _SmpsVoiceBuilder:
     """Accumulate smpsVc* macro calls into a voice dict for translate_voice()."""
     def __init__(self):
@@ -553,30 +575,22 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
 
         events = []
 
-        # Initial volume (from header vol field) — $00 means "no initial vol"
-        # (the volume is set by an initial PSG voice envelope for PSG, or by
-        # the voice TL for FM).  For simplicity: emit Vol only if non-zero.
-        if vol_raw != 0:
-            # SMPS vol is an attenuation/raw byte; map to our 0-127 scale.
-            # S3K PSG: vol is SN76489 attenuation (0=loud, $F=silent + more).
-            # S3K FM: vol is a TL addition (higher = quieter).
-            # For our engine: Vol(0..127) where 0=silent,127=loud follows our
-            # driver convention.  The SMPS vol field is an initial volume modifier;
-            # map: fm_vol = max(0, 100 - vol_raw); psg_vol = max(0, 100 - vol_raw*7).
-            # This is approximate — the exact mapping depends on SFX-specific
-            # voice parameters.  For v1 the FM voice TL carries the real loudness.
-            if is_fm:
-                fm_vol = max(0, min(127, 127 - vol_raw))
-                events.append(Vol(fm_vol))
-            else:
-                psg_vol = max(0, min(127, 127 - vol_raw * 7))
-                events.append(Vol(psg_vol))
+        # SFX channel-volume (the smpsHeaderSFXChannel vol field).
+        # FM: bake it LINEARLY into the voice's CARRIER TLs (what S&K does at key-on)
+        # and emit NO Vol event — the engine's Fm_SetVolume runs volume through a LOG
+        # curve that flattens near-max values to ~0 attenuation, so a Vol event would
+        # LOSE the channel-volume and the carriers would play ~4 dB too bright vs S&K.
+        # The steal loads voice 0; each SFX has a single FM channel/voice. PSG keeps
+        # its own Vol path (separate volume model).
+        if is_fm:
+            if vol_raw and voices:
+                voices[0] = _bake_channel_volume(voices[0], vol_raw)
+        elif vol_raw != 0:
+            # S3K PSG vol is SN76489 attenuation (0=loud, $F=silent); approximate map.
+            psg_vol = max(0, min(127, 127 - vol_raw * 7))
+            events.append(Vol(psg_vol))
         else:
-            # Default volume: 100 for FM (mid), 80 for PSG
-            if is_fm:
-                events.append(Vol(100))
-            else:
-                events.append(Vol(80))
+            events.append(Vol(80))   # PSG default
 
         # noattack flag: set if smpsNoAttack precedes the next note
         noattack_pending = False

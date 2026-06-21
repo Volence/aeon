@@ -954,6 +954,20 @@ class TestFmDecayEnvelopeParsed(unittest.TestCase):
         self.assertEqual(d2r, [0x00, 0x00, 0x0B, 0x0B],
                          "smpsVcDecayRate2 must be parsed (D2R was zeroed by the [A-Za-z]+ regex)")
 
+    def test_ring_channel_volume_baked_into_carriers(self):
+        # The SFX channel-volume (RING_RIGHT_SRC header vol = $05) is baked LINEARLY
+        # into the CARRIER TLs (alg 4 carriers = TL bytes [2],[3] per CarrierMaskTableZ
+        # $0C), matching S&K's key-on volume. Our engine's log-volume curve would
+        # otherwise flatten it to ~0 (carriers ~4 dB too bright). Verified vs the real
+        # S&K ROM: ring TL = 23 23 05 05. NO Vol event is emitted for FM (it's in the patch).
+        desc = transcode_sfx_source(RING_RIGHT_SRC, 0x33)
+        tl = list(desc['voices'][0][6:10])   # [S1,S3,S2,S4]
+        self.assertEqual(tl, [0x23, 0x23, 0x05, 0x05],
+                         "ring carriers (bytes 2,3) must carry the baked $05 channel-volume")
+        fm_ch = next(c for c in desc['channels'] if c['route'] in (CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5))
+        self.assertEqual([e for e in fm_ch['events'] if isinstance(e, Vol)], [],
+                         "FM SFX must not emit a Vol event (channel-volume is baked into the patch)")
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -22,7 +22,7 @@ Sfx_B9_Patches:
         pbyte   4                       ; fp_alg_fb     $04
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte    55, 119, 114,  73   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    35,  35,   0,   0   ; fp_tl  $40  [S1,S3,S2,S4]
+        pbyte    35,  35,  13,  13   ; fp_tl  $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar  $50  [S1,S3,S2,S4]
         pbyte     7,   7,  10,  13   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  11,  11   ; fp_d2r  $70  [S1,S3,S2,S4]

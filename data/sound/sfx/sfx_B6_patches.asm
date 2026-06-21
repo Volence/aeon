@@ -22,7 +22,7 @@ Sfx_B6_Patches:
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte     9,   0,   3,   0   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     9,  18,   4,  14   ; fp_tl  $40  [S1,S3,S2,S4]
+        pbyte     9,  24,  10,  20   ; fp_tl  $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar  $50  [S1,S3,S2,S4]
         pbyte    16,  12,  12,  12   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    11,  16,  31,   5   ; fp_d2r  $70  [S1,S3,S2,S4]
