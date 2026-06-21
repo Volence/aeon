@@ -105,6 +105,14 @@ PState_Spindash:
         jsr     Sound_PlaySFX
         movem.l (sp)+, d0
       endif
+        ; Drop any jump press buffered during the charge mash. The release
+        ; frame runs .release (never .rev), so a jump press landing in the
+        ; buffer window at release is NOT consumed — PState_Roll's jump-check
+        ; (below) would then fire a spurious roll-jump: the jump SFX plays
+        ; "in the air" right after launch AND collides with the dash SFX in
+        ; the 1-byte mailbox (the quick-spindash "no follow-up noise"). A
+        ; FRESH press after the launch still roll-jumps normally.
+        clr.b   (Player_JumpBuffer).w
         bsr.w   Player_SetState
         jmp     PState_Roll                     ; classic: the release frame
                                                 ; runs the full roll movement

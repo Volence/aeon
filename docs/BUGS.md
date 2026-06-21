@@ -5,6 +5,56 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## BUG-002 — SFX gameplay-integration cluster (spurious triggers, wrong duration, rev churn)
+
+**Status:** PARTLY FIXED (see each item). **Severity:** medium (audible wrongness, no crash).
+**Reported:** 2026-06-21 by the user from live play: "when you walk and roll the SFX lasts too long and
+gets weird at the end; spindash press-once-and-release-quick does no follow-up noises; rev a lot → weird
+sounds; sometimes random things trigger sounds when they shouldn't — e.g. Sonic in the air triggers the
+jump noise without jumping; a few others I can't reliably trigger."
+
+### Common systemic thread — the 1-byte SFX mailbox (deferred A2)
+The 68k posts SFX to a SINGLE byte (`SND_REQ_SFX` $1F03). **Two SFX in one frame → the second clobbers the
+first → one is dropped.** This is the deferred A2 item (DEFERRED_WORK.md). Several symptoms below are this
+collision surfacing in real play. A small ring-buffer mailbox (A2) is the systemic fix; the per-bug fixes
+below remove specific collisions at the source.
+
+### Item 4 + Item 2 — spurious roll-jump SFX after a spindash launch — **FIXED 2026-06-21**
+**Root cause (data-flow traced, not guessed):** charge-mashing JUMP latches `Player_JumpBuffer`; `.rev`
+consumes it each rev, BUT the release frame runs `.release` (never `.rev`), so a jump press landing in the
+buffer window at the moment of release is never consumed. `.release` → `jmp PState_Roll`, and `PState_Roll`
+(player_ground.asm:327) fires `Player_Jump` on any set buffer → (4) the jump SFX `$62` plays "in the air"
+right after the launch + the player roll-jumps without an intentional press; AND (2) that same frame the dash
+`$B6` and the spurious jump `$62` both hit the 1-byte mailbox → one drops → "no follow-up noise" on a quick
+spindash. **Fix:** `clr.b (Player_JumpBuffer).w` at the spindash launch (player_spindash.asm `.launch`,
+before `jmp PState_Roll`) — drops the stale charge press; a FRESH press after launch still roll-jumps.
+**Verify when emulator reloaded:** spindash + mash jump + release → no airborne jump chirp; the dash plays.
+
+### Item 1 — walk/roll SFX "lasts too long and gets weird at the end" — **OPEN (needs S&K compare)**
+**Ruled out:** re-trigger-per-frame. Roll `$3C` fires ONCE on the ground→roll transition
+(player_ground.asm:134); skid `$36` fires ONCE on the fresh-arm edge then latches `_pl_skid_latch`
+(player_common.asm:336-341). Neither re-fires while held. So the "too long / weird tail" is in the SFX
+**blob itself** — its modulation/duration, NOT the trigger. Roll `$3C` source carries a modulation
+(`smpsModSet $03,$01,$09,$FF`); same class as the known dash `$B6` pitch-sweep residue. **Suspect:** the
+transcoder's modulation/duration handling makes our tail longer / sweep different than S&K (cf. the
+documented spindash modulation step-underflow that produces a monotonic sweep, project_sfx_pitch_open).
+**Next:** capture OURS vs the real S&K ROM for `$3C` and `$36` (the exact method that fixed the ring — build
+`SOUND_DRIVER_ENABLED=1 DEBUG=0`, poke the SFX, VGM-capture, diff $28 key-off timing + modulation regs).
+
+### Item 3 — "rev spindash a lot → weird sounds" — **OPEN (needs S&K compare)**
+Each rev re-fires `$AB` with an escalating global transpose (`Snd_SpindashRev` via MEV_SPINREV, capped
+`$10` = ~E6). Two compounding suspects: (a) the climbing pitch nears/at the cap is genuinely very high —
+may be partly faithful (classic spindash pitch rises) but the cap or step may overshoot S&K; (b) rapid
+re-fires churn the 1-byte mailbox and can collide with the dash on release. **Next:** capture our rev
+sequence vs S&K's; confirm whether the transpose ceiling and per-rev step match, and whether the "weird"
+is the cap height or a mailbox/queue artifact.
+
+### "A few others" (user can't reliably trigger)
+Most likely further instances of the 1-byte-mailbox collision (A2) — any frame that fires two SFX (e.g.
+ring + skid, jump + ring). Tracked under A2 in DEFERRED_WORK.md; the ring-buffer mailbox resolves the class.
+
+---
+
 ## BUG-001 — Section-streaming rendering corruption (background → garbage tiles + red field)
 
 **Status:** OPEN. **Severity:** high (game becomes unplayable in that area). **Reproducibility:** INTERMITTENT
