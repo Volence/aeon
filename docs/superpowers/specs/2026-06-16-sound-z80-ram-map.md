@@ -9,6 +9,18 @@
 
 The Z80 sees 8 KB of RAM as **Z80-space `$0000–$1FFF`** (mapped at 68k bus address `$A00000–$A01FFF`). This doc budgets all 8 KB so later Phase-1/1B tasks place code and data without collision, and reserves room *now* for the Plan 1B read-ahead buffer so nothing has to move later.
 
+> **⚠️ STALE FOR `$1B00–$1EFF` (banner added 2026-06-21).** This is the **Phase-1
+> snapshot**; the **live** Z80 RAM map is **`sound_constants.asm`** (the single source of
+> truth, self-asserting at build time via the `SND_*_END > SND_REQ_BASE` fatals). Since
+> Phase 1 the map grew: `SND_STATE_BASE` moved `$1600`→`$16F0` (SFX-fidelity Task 4
+> reclaimed the old gap as code space), and the `$1B00–$1EFF` range — shown here as
+> free/`Z80_SPARE` — now holds the **1C/1D song buffer** (`$1B00–$1CFF`) and the
+> **Phase-5a SFX engine RAM** (`$1D00–$1EBC`: 7×`SfxChannel` + queue + duck + dispatch
+> scratch). Only **~67 bytes** (`$1EBD–$1F00`) remain below the mailbox. **Do NOT place
+> new Z80 state from this doc's tables** — read the live offsets and overflow asserts in
+> `sound_constants.asm`. (See `docs/DEFERRED_WORK.md` audit entry F1 for the full
+> reconciliation TODO.)
+
 ---
 
 ## 1. Research findings
