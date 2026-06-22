@@ -433,6 +433,15 @@ Player_Ring_Index:      ds.w 1      ; byte offset into both rings — word-sized
 ; Sound driver runtime state
 Ring_Sfx_Speaker:       ds.b 1          ; Phase 5a: toggles 0/1 each ring collect; 0→LEFT, 1→RIGHT
                         ds.b 1          ; pad to even
+; A2 fix: 68k-side pending-SFX ring. Sound_PlaySFX enqueues here; Sound_DrainSfxRing
+; (game_loop, post-VSync) posts ONE id/frame into the single-byte SND_REQ_SFX mailbox
+; once the Z80 has cleared it, so two SFX requested in one 68k frame are delivered over
+; two frames (both reach the Z80 priority queue) instead of the 2nd clobbering the 1st.
+; Empty == (Rd == Wr); cleared to 0 by boot.asm's 64KB Work-RAM clear (frame-1 = empty).
+Sfx_Ring_Buf:           ds.b SFX_RING_DEPTH   ; pending SFX ids (raw, as posted today)
+Sfx_Ring_Wr:            ds.b 1                 ; write cursor (0..SFX_RING_MASK)
+Sfx_Ring_Rd:            ds.b 1                 ; read cursor  (0..SFX_RING_MASK)
+                        ; SFX_RING_DEPTH(8)+2 = 10 bytes, even — no pad needed
 
 ; Sound driver debug mirror
 ; Declared unconditionally (160 bytes, negligible) so the RAM layout is

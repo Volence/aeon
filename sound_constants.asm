@@ -577,6 +577,15 @@ SFXID_SPINDASH   = $AB
 SFXID_DASH       = $B6
 SFXID_RINGLOSS   = $B9
 
+; --- 68k-side pending-SFX ring (audit A2 fix). The 68k posts SFX into a single Z80
+; mailbox byte (SND_REQ_SFX); two SFX requested in ONE 68k frame used to clobber each
+; other (the 2nd won, the 1st was lost, priority-blind). Sound_PlaySFX now ENQUEUES
+; into this 68k-RAM ring (ram.asm) and Sound_DrainSfxRing (game_loop, post-VSync) posts
+; ONE id/frame into the mailbox when the Z80 has cleared it — so both reach the Z80's
+; downstream 3-deep priority queue. Power-of-two depth -> &-mask wrap, no compare.
+SFX_RING_DEPTH   = 8                 ; pending-SFX ring slots (68k RAM; plenty)
+SFX_RING_MASK    = SFX_RING_DEPTH-1  ; cursor wrap mask ($07)
+
 ; --- Per-SFX priority tiers (authored; S3K has none — spec §6). Higher = wins.
 ; Seeded from S2 zSFXPriority for shared sounds: death/hurt > spindash > skid/roll
 ; > jump > ring/UI. The transcoder bakes a priority byte into each SfxHeader keyed

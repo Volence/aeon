@@ -6,6 +6,9 @@
 ; -----------------------------------------------
 GameLoop:
         bsr.w   VSync_Wait
+    ifdef SOUND_DRIVER_ENABLED
+        bsr.w   Sound_DrainSfxRing      ; A2: drain ONE pending SFX/frame into the mailbox
+    endif                               ; (release sound builds need this too, not just DEBUG)
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
         bsr.w   Debug_MusicToggle       ; START toggles the demo song (stop/play)

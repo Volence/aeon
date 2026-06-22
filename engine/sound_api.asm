@@ -122,16 +122,71 @@ Sound_PlayMusic:
         rts
 
 ; ----------------------------------------------------------------------
-; Sound_PlaySFX — request an SFX by id. Posts the id into SND_REQ_SFX; the Z80
-; SfxDispatch handler queues + arbitrates. Ring (SFXID_RING_RIGHT/_LEFT) auto-
-; alternates L/R via a 68k speaker toggle so consecutive ring pickups pan opposite.
-; In:  d0.b = sfx id (nonzero). Clobbers: SR restored; d0 (ring remap). Preserves a0.
+; Sound_PlaySFX — request an SFX by id. ENQUEUES it into the 68k-side Sfx_Ring_Buf;
+; Sound_DrainSfxRing (GameLoop, post-VSync) drains ONE id/frame into the SND_REQ_SFX
+; mailbox. AUDIT A2 FIX: posting straight to the single mailbox byte meant a 2nd SFX
+; requested in the SAME 68k frame clobbered the 1st before the Z80 (once/VBlank)
+; consumed it — one was silently DROPPED, priority-blind. The ring + per-frame drain
+; deliver BOTH to the Z80's downstream 3-deep priority queue (over 2 frames). A same-id
+; dedup vs the most-recent pending entry suppresses a same-frame double-fire (keyed on
+; EXACT id, so the L/R ring pair $33/$34 is never collapsed). This touches ONLY 68k
+; RAM (no Z80 bus hold at call time -> less bus contention than the old direct post).
+; In:  d0.b = sfx id (nonzero). Clobbers: d0 only. Preserves a0/a1/d1-d7/SR.
 ; ----------------------------------------------------------------------
 Sound_PlaySFX:
-        move.l  a0, -(sp)                   ; preserve caller's a0 (live player/SST ptr at every gameplay seam)
-        lea     (SND_Z80_BASE+SND_REQ_SFX).l, a0
-        bsr.w   Sound_PostByte              ; was bra.w — must call so we can restore a0
-        move.l  (sp)+, a0
+        tst.b   d0                          ; defensive: id 0 = nothing to queue
+        beq.s   .ps_ret
+        movem.l d1/a0, -(sp)                ; preserve d1 + caller's a0 (keep the d0-only contract)
+        lea     (Sfx_Ring_Buf).w, a0        ; a0 = ring base
+        move.b  (Sfx_Ring_Wr).w, d1         ; d1 = Wr
+        cmp.b   (Sfx_Ring_Rd).w, d1         ; Wr == Rd -> ring empty -> no last entry, skip dedup
+        beq.s   .ps_checkfull
+        ; --- same-id dedup vs the most-recent pending slot (Wr-1)&MASK ---
+        subq.b  #1, d1
+        and.b   #SFX_RING_MASK, d1          ; d1 = last index
+        cmp.b   (a0,d1.w), d0
+        beq.s   .ps_drop                    ; same id already pending -> skip (no double-fire)
+        move.b  (Sfx_Ring_Wr).w, d1         ; reload d1 = Wr
+.ps_checkfull:
+        lea     (a0,d1.w), a0               ; a0 = &Sfx_Ring_Buf[Wr]  (capture BEFORE Wr is bumped)
+        addq.b  #1, d1
+        and.b   #SFX_RING_MASK, d1          ; d1 = nextWr
+        cmp.b   (Sfx_Ring_Rd).w, d1         ; nextWr == Rd -> ring full -> drop (>7 same-frame: never)
+        beq.s   .ps_drop
+        move.b  d0, (a0)                    ; Sfx_Ring_Buf[Wr] = id  (data BEFORE pointer)
+        move.b  d1, (Sfx_Ring_Wr).w         ; commit Wr = nextWr
+.ps_drop:
+        movem.l (sp)+, d1/a0
+.ps_ret:
+        rts
+
+; ----------------------------------------------------------------------
+; Sound_DrainSfxRing — post the next pending SFX id (Sfx_Ring_Buf) into SND_REQ_SFX,
+; AT MOST ONE per frame, ONLY when the Z80 has cleared the previous (mailbox reads 0).
+; Called once/frame from GameLoop right after VSync. The mailbox read-of-0 and the
+; post are done inside ONE stopZ80/startZ80 bus hold (SR-masked, exactly like
+; Sound_PostByte) so the Z80's once/VBlank consume cannot land between them. Empty ring
+; is a fast no-op. Clobbers: d0/d1/a0; SR restored.
+; ----------------------------------------------------------------------
+Sound_DrainSfxRing:
+        move.b  (Sfx_Ring_Rd).w, d0
+        cmp.b   (Sfx_Ring_Wr).w, d0
+        beq.s   .dr_ret                     ; Rd == Wr -> ring empty -> nothing to drain
+        move.w  sr, -(sp)
+        move.w  #$2700, sr                  ; mask ints (no mirror-stopZ80 nesting), like Sound_PostByte
+        stopZ80
+        tst.b   (SND_Z80_BASE+SND_REQ_SFX).l   ; mailbox still holds a pending id?
+        bne.s   .dr_done                    ; yes -> Z80 not consumed; leave Rd, just release the bus
+        lea     (Sfx_Ring_Buf).w, a0
+        move.b  (a0,d0.w), d1               ; d1 = next pending id (d0 = Rd)
+        move.b  d1, (SND_Z80_BASE+SND_REQ_SFX).l   ; post it — still inside the same bus hold
+        addq.b  #1, d0
+        and.b   #SFX_RING_MASK, d0
+        move.b  d0, (Sfx_Ring_Rd).w         ; advance Rd (slot consumed)
+.dr_done:                                   ; ONE startZ80, reached z80-stopped from both paths
+        startZ80
+        move.w  (sp)+, sr
+.dr_ret:
         rts
 
 ; ----------------------------------------------------------------------
@@ -145,10 +200,10 @@ Sound_PlayRing:
         move.b  d0, (Ring_Sfx_Speaker).w
         beq.s   .left
         moveq   #SFXID_RING_RIGHT, d0
-        bra.s   Sound_PlaySFX
+        bra.w   Sound_PlaySFX
 .left:
         moveq   #SFXID_RING_LEFT, d0
-        bra.s   Sound_PlaySFX
+        bra.w   Sound_PlaySFX
 
 ; ----------------------------------------------------------------------
 ; Sound_StopMusic — stop the song (Task 6). Posts the $FF stop sentinel into
