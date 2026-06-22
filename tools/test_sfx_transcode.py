@@ -1129,29 +1129,28 @@ class TestSpindashTailNotCollapsed(unittest.TestCase):
 
 class TestNoAttackHeldTail(unittest.TestCase):
     """smpsNoAttack -> bit 7 of the NoteDur pitch tells the engine to HOLD the note
-    (skip the $28 re-attack). To avoid 30 Hz re-key buzz, the looped fade tail must be
-    held — but the FIRST note after a modSet must still re-key (bit 7 clear) so the
-    swept pitch is reset to base before the tail holds."""
+    (skip the $28 re-attack). The whole looped fade tail holds — ONLY the main note
+    attacks (one key-on total). Seq_Op_ModSet re-writes the base freq (no key-on) when
+    a sweep modSet turns off, so the tail no longer needs a re-key to reset the swept
+    pitch (which removes the faint 'second attack' at the main->tail seam)."""
 
-    def test_roll_tail_is_held_after_first(self):
+    def test_roll_tail_all_held_after_main(self):
         ev = transcode_sfx_source(ROLL_SRC, 0x3C)['channels'][0]['events']
         nd = [e for e in ev if isinstance(e, NoteDur)]
         attacked = [i for i, e in enumerate(nd) if not (e.pitch & 0x80)]
-        # exactly two attacks: the main note (0) and the first tail pass (1) which
-        # resets the freq after the modSet-off; the rest of the 42-pass tail holds.
-        self.assertEqual(attacked, [0, 1],
-                         f"roll should attack only main+first-tail; got {attacked}")
-        self.assertTrue(all(e.pitch & 0x80 for e in nd[2:]),
-                        "all roll tail passes after the first must be held")
+        # exactly ONE attack: the main note (0); the entire 42-pass tail holds.
+        self.assertEqual(attacked, [0],
+                         f"roll should attack only the main note; got {attacked}")
+        self.assertTrue(all(e.pitch & 0x80 for e in nd[1:]),
+                        "all roll tail passes must be held")
 
-    def test_spindash_tail_all_held_after_replay(self):
+    def test_spindash_tail_all_held_after_main(self):
         ev = transcode_sfx_source(SPINDASH_SRC, 0xAB)['channels'][0]['events']
         nd = [e for e in ev if isinstance(e, NoteDur)]
         attacked = [i for i, e in enumerate(nd) if not (e.pitch & 0x80)]
-        # main note (0) + the dc.b $02 replay (1) re-key to reset the swept pitch;
-        # the 24 loop passes all hold.
-        self.assertEqual(attacked, [0, 1],
-                         f"spindash should attack only main+replay; got {attacked}")
+        # ONE attack: the main note (0); the dc.b $02 replay + 24 loop passes all hold.
+        self.assertEqual(attacked, [0],
+                         f"spindash should attack only the main note; got {attacked}")
 
     def test_skid_notes_all_attack(self):
         # Skid ($36) has no smpsNoAttack -> no held notes (bit 7 never set).

@@ -1070,11 +1070,14 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   flag; `Seq_Op_NoteDur` does `ld d,a / bit 7,d / ret nz` to skip the note-on hook (no `$28` re-attack AND no
   freq re-write) for a held continuation. The transcoder sets bit 7 on tail passes via `mod_dirty`: the FIRST
   note after a modSet still re-keys (resets the swept pitch to base), the rest hold. Verified on hardware:
-  KEY-ON 43→2 / 26→2, tail holds at base fnum, TL fade intact. `Z80_SOUND_SIZE` is now EXACTLY `$16F0`
-  (0 bytes free — any further Z80 growth needs a reclaim first). **Tiny residual:** ours re-keys ONCE at the
-  main→tail transition (S&K holds through = 0); a single click when the modulation turns off. Eliminating it
-  needs `Seq_Op_ModSet` to reset the mod accumulator + force a base-freq write (S&K's zPrepareModulation) —
-  more Z80 bytes; deferred until a reclaim. Re-evaluate by ear whether the one transition click is audible.
+  KEY-ON 43→2 / 26→2, tail holds at base fnum, TL fade intact. **Transition re-key (the last residual) —
+  FIXED 2026-06-22** (see `docs/BUGS.md` Items 1+3 follow-up #3): `Seq_Op_ModSet` now re-writes `sc_base_freq`
+  via `Fm_WriteFreq` (held-note pitch change, no `$28`) for SFX FM channels, so the modSet-off snaps the tail
+  to base with no re-key; the transcoder holds ALL tail passes. +18 Z80 bytes reclaimed by folding 6 more
+  channel-class tests into `Snd_ChanClass` (`Z80_SOUND_SIZE` `$16EE`, 2 free). Verified: roll/spindash
+  KEY-ON 2→1, fades intact, skid/ring/jump/dash no regression. The looped FM SFX tails are now S&K-faithful
+  (one key-on, smooth fade to silence). `Snd_ChanClass` has converted 11 of 12 inline channel-class sites;
+  the 1 remaining + future reclaim is there if needed.
 - **B5 — `smpsPSGform $E7` tone-FREQUENCY-TRACKED noise sweep** (refinement; the fixed-rate fix is done — see
   `docs/BUGS.md` BUG-003). The dash `$B6` (and any `smpsPSGform $E7` SFX) is now correctly rerouted to the
   NOISE channel, but plays a FIXED white-noise rate (`$E6`, clk/2048). S&K's `$E7` is white noise whose shift

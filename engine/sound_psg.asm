@@ -107,12 +107,9 @@ Psg_VolToAtten:
 ; In: ix = SeqChannel/SfxChannel. Clobbers af. Preserves bc, de, hl, ix.
 ; ----------------------------------------------------------------------
 Psg_EnvCursorReset:
-        push    hl                       ; preserve hl (contract)
-        push    ix
-        pop     hl                       ; hl = ix (the channel ptr)
-        ld      a, h
+        push    hl                       ; preserve hl (contract; Snd_ChanClass clobbers hl)
+        call    Snd_ChanClass            ; CARRY set => ix < $1D00 => music channel
         pop     hl                       ; restore caller's hl
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => music channel
         ret     c                        ; music PSG -> no env fields, leave it alone
         ld      (ix+sc_psgenv_cur), 0    ; SFX: restart the contour from frame 0
         ret
@@ -170,12 +167,9 @@ Psg_NoteOn:
         ; 39-byte music SeqChannel) -> gate on ix >= SND_SFX_BASE so a music PSG note
         ; never writes adjacent RAM (and stays byte-identical). hl holds the table ptr
         ; (must survive), so test ix's high byte without disturbing hl.
-        push    hl                       ; preserve the divisor table ptr
-        push    ix
-        pop     hl                       ; hl = ix (the channel ptr)
-        ld      a, h
+        push    hl                       ; preserve the divisor table ptr (Snd_ChanClass clobbers hl)
+        call    Snd_ChanClass            ; CARRY set => ix < $1D00 => music channel
         pop     hl                       ; restore the table ptr
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => music channel
         jr      c, .skip_base_latch      ; music PSG -> no mod fields, don't latch
         ld      (ix+sc_base_freq), d
         ld      (ix+sc_base_freq+1), e
@@ -191,10 +185,7 @@ Psg_NoteOn:
         ; sc_mod_*/sc_base_freq/sc_last_freq (SfxChannel-only, latched above), so GATE
         ; on the SFX-channel test exactly like the FM key-on does (a music PSG note
         ; would otherwise read adjacent RAM). No-op when sc_mod_ctrl==0.
-        push    ix
-        pop     hl                       ; hl = ix
-        ld      a, h
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        call    Snd_ChanClass            ; CARRY set => ix < $1D00 => MUSIC channel
         jr      c, .skip_rearm           ; music PSG -> no mod re-arm (byte-identical)
         call    Mod_ReArm                ; PSG pitch-mod re-arm (preserves bc/de/hl/ix)
 .skip_rearm:
@@ -299,12 +290,9 @@ Psg_SetVolume:
         ; is therefore byte-identical (never touches the env path). Underflow guard (S3K
         ; `bit 4,a`): if the sum sets bit 4 (>= $10) force $0F silent, so a loud-then-quiet
         ; env can't wrap back to loud. hl preserved by contract -> save around the ix test.
-        push    hl
-        push    ix
-        pop     hl                       ; hl = ix (the channel ptr)
-        ld      a, h
+        push    hl                       ; (Snd_ChanClass clobbers hl)
+        call    Snd_ChanClass            ; CARRY set => ix < $1D00 => MUSIC channel
         pop     hl                       ; restore caller's hl (contract)
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
         jr      c, .env_done             ; music PSG -> no env field, skip the fold
         ld      a, (ix+sc_psgenv_out)
         or      a
@@ -324,12 +312,9 @@ Psg_SetVolume:
         ; Music SeqChannels are strictly below $1D00, so ix's high byte separates
         ; them. Clamp the summed attenuation to $0F (silent) so it can't wrap.
         ; hl is preserved by contract — save it around the ix high-byte test.
-        push    hl
-        push    ix
-        pop     hl                       ; hl = ix (the channel ptr)
-        ld      a, h
+        push    hl                       ; (Snd_ChanClass clobbers hl)
+        call    Snd_ChanClass            ; CARRY set => ix < $1D00 => MUSIC channel
         pop     hl                       ; restore caller's hl (contract)
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
         jr      nc, .no_duck             ; SFX channel -> never duck
         ld      a, (SND_SFX_DUCK_LEVEL)
         or      a

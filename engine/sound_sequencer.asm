@@ -666,12 +666,9 @@ Seq_Op_ModSet:
         ; b,c,d,e hold wait/speed/delta/step (untouched by the gate). PRESERVE hl —
         ; Seq_ContinueFetch resumes .fetch from hl (the live stream ptr), so the gate must
         ; restore it (else the next opcode is read out of the channel struct = derail).
-        push    hl                       ; save stream ptr
-        push    ix
-        pop     hl
-        ld      a, h                     ; a = ix high byte
+        push    hl                       ; save stream ptr (Snd_ChanClass clobbers hl)
+        call    Snd_ChanClass            ; CARRY set => ix < $1D00 => music channel
         pop     hl                       ; restore stream ptr (pop does not affect flags)
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => music channel
         jr      c, .modset_done          ; music: ignore the writes (hl = stream ptr intact)
         ; ctrl = OR of all 4 params (nonzero => active, all-zero => off).
         ld      a, b
@@ -685,6 +682,20 @@ Seq_Op_ModSet:
         ld      (ix+sc_mod_steps), e      ; raw step count (seeded raw/2 at re-arm)
         ld      (ix+sc_mod_step_raw), e   ; reload source for the steps countdown (FULL)
         ld      (ix+sc_mod_ctrl), a       ; nonzero => active; zero => off
+        ; SFX FM: re-write the UNMODULATED base note to the chip with NO key-on, so a
+        ; held tail (smpsNoAttack) snaps back to base pitch when a sweep modSet turns
+        ; off — Fm_WriteFreq changes a HELD note's pitch with no EG retrigger, so the
+        ; tail needs no re-key (kills the faint "second attack" at the main->tail seam).
+        ; Before the first note the channel is keyed-off/silent so this stale-freq write
+        ; is inaudible and the main note's key-on overwrites it that same frame.
+        ld      a, (ix+sc_route)
+        cp      CHROUTE_PSG1             ; FM routes (<6) only; PSG/noise skip
+        jr      nc, .modset_done
+        push    hl                       ; Fm_WriteFreq clobbers hl (the live stream ptr)
+        ld      d, (ix+sc_base_freq)
+        ld      e, (ix+sc_base_freq+1)
+        call    Fm_WriteFreq             ; $A4/$A0 = base note, no $28 key-on
+        pop     hl
 .modset_done:
         jp      Seq_ContinueFetch
 

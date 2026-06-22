@@ -67,8 +67,20 @@ at 30 Hz) = the jingle; and with the re-key gone the tail would have held at the
 DEFERRED_WORK B4): bit 7 of a NoteDur pitch = no-attack; `Seq_Op_NoteDur` skips the note-on hook for a held
 note (4 Z80 bytes, the exact free budget); the transcoder holds all tail passes EXCEPT the first-after-modSet
 (which re-keys to reset the swept pitch to base). **Re-captured & verified:** KEY-ON 43→2 / 26→2, tail holds
-at base fnum (`1364` / `1288`, not swept), TL fade intact (`5→48` / `0→54`). Residual: one transition re-key
-click (S&K holds through with zero) — deferred (needs a modSet accumulator-reset, no Z80 budget today).
+at base fnum (`1364` / `1288`, not swept), TL fade intact (`5→48` / `0→54`).
+
+### Items 1 + 3 follow-up #3 — transition re-key click ("second faint spin") — **FIXED 2026-06-22**
+The held-tail fix left ONE re-key at the main→tail seam (43→**2**): the main note sweeps up via its modSet,
+then the first tail note re-keyed to reset the swept pitch to base — a faint "second attack" the user heard
+as "a second more faint spin noise" on the momentum roll. **Fix:** `Seq_Op_ModSet` now, for an SFX FM channel
+(route `< CHROUTE_PSG1`), re-writes the unmodulated `sc_base_freq` via **`Fm_WriteFreq`** — which changes a
+HELD note's `$A4/$A0` with NO `$28` key-on (the vibrato path) — so when the sweep modSet turns off the tail
+snaps to base with no re-key; the transcoder then holds ALL tail passes (dropped `_emit_notedur`'s
+first-after-modSet exception). The +18 Z80 bytes were reclaimed by folding 6 more inline channel-class tests
+into `Snd_ChanClass` (`Z80_SOUND_SIZE` back to `$16EE`, 2 free). **Verified on hardware:** roll & spindash
+KEY-ON **2→1**, fades still `5→53`/`0→54`, tails held at base — and a regression sweep confirmed skid/ring/
+jump/dash all still sound (no fallout from the PSG-path conversions). The roll/spindash tails are now a single
+clean attack fading smoothly to silence — fully S&K-faithful (one key-on, like S&K).
 
 ### Items 1 + 3 follow-up #2 — "distorted jingle for a bit" — **FIXED 2026-06-21 (RENDERED-audio verified)**
 After the held-tail fix the user still heard "a distorted jungle [jingle] after them for a bit." The `$28`

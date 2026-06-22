@@ -910,9 +910,11 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             return default
 
         def _emit_notedur(pitch: int, dur: int):
-            """Emit a NoteDur, applying the smpsNoAttack flag (bit 7) when this note is
-            a held continuation (noattack_pending AND the pitch isn't modSet-dirty).
-            An attacked note clears mod_dirty (its key-on resets the swept pitch)."""
+            """Emit a NoteDur, applying the smpsNoAttack flag (bit 7) for a held
+            continuation. ALL tail passes hold (one key-on total): Seq_Op_ModSet now
+            re-writes the base freq (no key-on) when a sweep modSet turns off, so the
+            first note after a modSet no longer needs to re-key to reset the pitch —
+            which removes the faint 'second attack' at the main->tail seam."""
             nonlocal noattack_pending, mod_dirty
             if noise_form is not None:
                 # Noise channel: the engine reads the NOTE's low 3 bits as the SN76489
@@ -921,10 +923,9 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                 events.append(NoteDur(noise_form, dur))
                 noattack_pending = False
                 return
-            if noattack_pending and not mod_dirty:
+            if noattack_pending:
                 pitch |= 0x80                 # held: engine skips the $28 re-attack
-            else:
-                mod_dirty = False             # attacked note resets the modSet sweep
+            mod_dirty = False                 # (kept for the modSet handler's state)
             events.append(NoteDur(pitch, dur))
             noattack_pending = False
 
