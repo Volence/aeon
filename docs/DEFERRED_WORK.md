@@ -7,6 +7,32 @@ Tracks work that was identified during design/implementation but deferred becaus
 
 ---
 
+## ⛔ CURRENT BUILD BLOCKER — OJZ section-0 tile-budget overflow — 2026-06-22
+
+**The build fails** (`SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh`) at the art-budget
+check: `sec0_tiles.bin is 19296 bytes — exceeds Decomp_Buffer capacity (9600)`.
+This blocks **all** runtime work — no bootable ROM. Surfaced as "OJZ layout edits
+weren't showing in game."
+
+**Root cause is engine-side, not bad level data.** Whole level = 612 distinct tiles
+in a 1,536-tile FG VRAM pool (60% empty); user's "shouldn't need so many tiles"
+intuition was correct. The per-section streaming + DSATUR color-grouping pipeline
+duplicates tiles across two VRAM regions and forces section 0's 603-tile blob
+through a 300-tile (`9,600 B`) RAM staging buffer (`Decomp_Buffer`).
+
+**Recommended fix (engine + build tool):** whole-level shared tileset loaded once
+(the Sonic 2 model) when total distinct tiles ≤ VRAM capacity — skip color-grouping,
+emit one shared tileset, decompress in N≤300-tile passes at level init. Full analysis
++ numbers + the alternative (multi-pass per-section decompress) in
+**`docs/research/2026-06-22-tile-budget-deep-dive.md`**.
+
+**⚠ Touches `tools/ojz_strip_gen.py`** — which the auto-commit daemon watches (commits
+edits as the user ~60s after change). Coordinate with the user before editing it;
+don't edit it autonomously. Needs the user's go-ahead on approach (shared-tileset vs
+multi-pass) before implementation.
+
+---
+
 ## From §5 — Player System
 
 ### Cycle Profiler (§8.5) Not Wired — Frame-Budget Measured via Lag Counter — 2026-06-14
@@ -1045,6 +1071,11 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   `SND_REQ_SFX`, latest-wins; consumed once/VBlank at `z80_sound_driver.asm` 522). Jump+ring, skid+ring,
   death+ring-loss all drop one SFX, *priority-blind*. The Z80 3-deep queue sits downstream and can't help.
   **Fix:** Flamedriver two-slot post (`zSFXNumber0/1`) or a small 68k-side pending ring. Audio-only (high/med).
+  **IMPLEMENTED (af09e83, 8-deep 68k-side ring):** `Sound_PlaySFX` enqueues; `Sound_DrainSfxRing`
+  (GameLoop, post-VSync) posts ONE id/frame into the mailbox once the Z80 has cleared it. Lint clean,
+  full ROM assembles. **Runtime hardware-verification PENDING** — blocked by the OJZ section-0 tile-budget
+  build failure below (no bootable ROM). Verify once that's resolved: jump+ring / skid+ring / death+ring-loss
+  in one frame both reach the chip. Logic hand-traced (enqueue/drain/dedup edge cases) in the interim.
 
 #### B. Build-pipeline / fidelity bugs (the "SFX sounds wrong" root cause)
 - **B1 — transcoder swaps physical operators S2↔S3** (`tools/sfx_transcode.py` ~388). Emits S3K op
