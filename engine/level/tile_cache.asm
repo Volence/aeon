@@ -367,7 +367,7 @@ TileCache_CopyBlockColumn:
 ; -----------------------------------------------
 ; Tile_Cache_Init — populate cache for initial viewport + margins
 ; Called at level init (display off).
-; In:  none (reads Camera_X, Camera_Y, Slot_Section_Map, Current_Act_Ptr)
+; In:  none (reads Camera_X, Camera_Y, Current_Act_Ptr)
 ; Out: none
 ; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
@@ -1268,9 +1268,7 @@ TileCache_VSlideUp:
 ; -----------------------------------------------
 ; TileCache_Reinit — full cache re-center + refill (recovery path)
 ; Costs ~10 frames synchronously (full FillAll) — recovery only, never
-; on a hot path. Teleports no longer call this: they are pure coordinate
-; rebases under which all cache state is world-invariant (see
-; Section_TeleportDown). Currently no callers; retained as the documented
+; on a hot path. Currently no callers; retained as the documented
 ; recovery mechanism for future cache-miss / debug-warp handling.
 ; In:  none
 ; Out: none

@@ -412,8 +412,7 @@ Collected_UpdateCenter:
 ; Set at spawn, cleared at despawn/removal, cleared wholesale when an
 ; entry's section changes (EntityWindow_InitSection). Window slides
 ; migrate surviving sections' masks to their new entries by identity
-; (EntityWindow_MigrateMasks); teleport rebases keep the tracked
-; section set invariant, so their masks survive slot-to-same-slot.
+; (EntityWindow_MigrateMasks).
 ; Spawn paths test the bit first, which makes the X scan, the slide
 ; populate, and the vertical re-scan (EntityWindow_RescanY) mutually
 ; idempotent.
@@ -519,9 +518,8 @@ EntityWindow_InitSection:
 
         ; Loaded mask is per-entry state about ONE section — clear it when
         ; this entry's section changes. Same-section re-init preserves the
-        ; bits — the path teleport rebuilds take (the visibility-derived
-        ; window keeps the section set invariant across a rebase); slides
-        ; clear here, then EntityWindow_MigrateMasks copies survivors in.
+        ; bits; on a slide the entry's section changes, so this clears here
+        ; and EntityWindow_MigrateMasks copies survivors in.
         cmp.b   EntityScanState_ess_section_id(a1), d1
         beq.s   .same_section
         moveq   #0, d3
@@ -557,7 +555,7 @@ EntityWindow_InitSection:
 ; (screen+2×buffer < SECTION_SIZE on both axes — see constants.asm).
 ;
 ; Continuous-scroll: Camera_X/Y are WORLD px, so the anchor section is derived
-; straight from the world camera — no Slot_Section_Map base + SLOT_ORIGIN bias.
+; straight from the world camera.
 ;   sec_x0 = (Camera_X − ENTITY_DESPAWN_BUFFER) >> SECTION_SIZE_SHIFT
 ; asr floors toward −1 near the world origin (intentional); the unsigned grid
 ; range check in Section_GetSecPtrXY voids the resulting "negative" cell.
@@ -586,8 +584,8 @@ EntityWindow_DeriveWindow:
 ; envelope (visibility-derived window — see spec 2026-06-11).
 ;
 ; Quadrants: entry 0 = (sec_x0, sec_y0) … entry 3 = (sec_x0+1, sec_y0+1).
-; Stores the absolute anchor in Entity_Window_Anchor (slide trigger +
-; teleport-invariance checks read it) and the column-0/row-0 WORLD origin
+; Stores the absolute anchor in Entity_Window_Anchor (the slide trigger
+; reads it) and the column-0/row-0 WORLD origin
 ; bases in Entity_Window_OriginX/Y. Void quadrants ("negative"/past-grid
 ; coordinates via Section_GetSecPtrXY's unsigned range check) get
 ; SEC_VOID-stamped entries and a clear validity bit.
@@ -703,10 +701,20 @@ EntityWindow_Init:
         clr.w   (Entity_Window_OriginX).w
         clr.w   (Entity_Window_OriginY).w
 
-        ; center the 3×3 collected window on slot 0 BEFORE claiming slots
-        moveq   #SLOT_LEFT, d0
-        bsr.w   Section_SlotFlatID
+        ; center the 3×3 collected window on the section under the camera
+        ; center BEFORE claiming slots (continuous-scroll: derive straight
+        ; from the world camera — same camX+160 / camY+112 math as the
+        ; per-slide recenter in EntityWindow_Slide; always in-grid at init,
+        ; so FlatIDXY needs no range check)
+        move.w  (Camera_X).w, d2        ; world X px
+        addi.w  #SCREEN_WIDTH/2, d2
+        moveq   #SECTION_SIZE_SHIFT, d0
+        asr.w   d0, d2                  ; d2 = sec_x of the camera center
+        move.w  (Camera_Y).w, d3        ; world Y px
+        addi.w  #SCREEN_HEIGHT/2, d3
+        asr.w   d0, d3                  ; d3 = sec_y of the camera center
         movea.l (Current_Act_Ptr).w, a2
+        bsr.w   Section_FlatIDXY        ; d0.w = camera-center flat id
         moveq   #0, d1
         move.b  Act_grid_w+1(a2), d1
         bsr.w   Collected_UpdateCenter
@@ -790,9 +798,9 @@ EntityWindow_Scan:
 ; Gates (cheapest first): Y load band → collected bit → loaded bit.
 ; On RingBuffer_Add success, sets the loaded bit. Buffer-full leaves
 ; the bit clear — the X ratchet has already passed this ring, so only
-; a later re-scan or teleport populate retries it.
+; a later re-scan or slide populate retries it.
 ; X-edge filtering is the WALKERS' job — this helper never reads
-; Camera_X, so the teleport populate can add off-screen-X rings.
+; Camera_X, so the slide populate can add off-screen-X rings.
 ;
 ; In:  a0 = ROM ring entry (dc.w local X, dc.w local Y)
 ;      a1 = EntityScanState pointer
@@ -841,8 +849,8 @@ EntityWindow_TrySpawnRing:
         move.b  d4, d3                  ; list_index
 
     ifdef __DEBUG__
-        ; No-dup invariant (spec §3): teleports never populate and slides
-        ; populate only genuinely-new sections, so a (section_id, list_index)
+        ; No-dup invariant (spec §3): slides populate only genuinely-new
+        ; sections, so a (section_id, list_index)
         ; pair offered here must never already sit in the live buffer — the
         ; loaded bit would have gated it. This is the shared add site for the
         ; X scan, the vertical re-scan AND PopulateSectionRings, so it guards
@@ -925,20 +933,6 @@ EntityWindow_ScanRingsRight:
 
 .update_idx:
         move.w  d4, EntityScanState_ess_ring_right_idx(a1)
-    ifdef __DEBUG__
-        ; Negative-origin inertness (shared note — ScanObjectsRight asserts the
-        ; same; see spec §6): after a FWD teleport the kept left column
-        ; re-expresses to a negative origin (e.g. -$600), so its entities'
-        ; engine X is negative — huge UNSIGNED, always past the right load
-        ; edge — and the bhi above exits at the first entry. Such an entry is
-        ; intentionally inert for NEW spawns (nothing in it can reach the
-        ; screen without a BWD teleport making the origin positive first), so
-        ; its ratchet must stay 0. d3 = origin_x, d4 = ratchet just written.
-        tst.w   d3
-        bpl.s   .org_ok
-        assert.w d4, eq
-.org_ok:
-    endif
 .done:
         rts
 
@@ -1145,14 +1139,6 @@ EntityWindow_ScanObjectsRight:
 
 .obj_update_idx:
         move.w  d4, EntityScanState_ess_obj_right_idx(a1)
-    ifdef __DEBUG__
-        ; negative-origin entries must stay inert — see the shared note at
-        ; EntityWindow_ScanRingsRight's ratchet update
-        tst.w   d3
-        bpl.s   .org_ok
-        assert.w d4, eq
-.org_ok:
-    endif
 .obj_done:
         rts
 
@@ -1380,129 +1366,14 @@ EntityWindow_DespawnObjects:
         rts
 
 ; -----------------------------------------------
-; EntityWindow_TeleportShift — re-express entities after an X teleport rebase
-;
-; A teleport rebase does not change what is visible, and the window is
-; visibility-derived, so the tracked SECTIONS are invariant across the
-; rebase: the slot-map sec_x advance (±2) cancels the camera delta's
-; col0 shift (∓2), leaving the anchor unchanged — DEBUG-asserted below.
-; Entity work therefore reduces to: shift EVERY buffered ring's and
-; slot-tagged object's X by the rebase delta, then rebuild the scan
-; entries (same sections, re-expressed origins; loaded masks survive via
-; InitSection's same-section path + slot-to-same-slot migration). No
-; keep-window, no despawn, no populate — nothing spawns or dies at a seam.
-;
-; In:  d0.w = shift amount (+SECTION_SHIFT or -SECTION_SHIFT)
-; Out: none
-; Clobbers: d0-d7, a0-a4
-; -----------------------------------------------
-EntityWindow_TeleportShift:
-        move.w  d0, d4                  ; d4 = shift
-
-        ; --- shift all buffered rings ---
-        moveq   #0, d5
-        move.b  (Ring_Count).w, d5
-        beq.s   .rings_done
-        subq.w  #1, d5
-        lea     (Ring_Buffer).w, a0
-.ring_loop:
-        add.w   d4, (a0)                ; engine_X += delta
-        addq.w  #RING_BUFFER_ENTRY_SIZE, a0
-        dbf     d5, .ring_loop
-.rings_done:
-
-        ; --- shift all slot-tagged objects ---
-        lea     (Dynamic_Slots).w, a0
-        move.w  #NUM_DYNAMIC-1, d5
-.obj_loop:
-        tst.w   SST_code_addr(a0)
-        beq.s   .obj_next
-        cmpi.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a0)
-        beq.s   .obj_next
-        add.w   d4, SST_x_pos(a0)       ; integer word of the 16.16 X
-.obj_next:
-        lea     SST_len(a0), a0
-        dbf     d5, .obj_loop
-
-    ifdef __DEBUG__
-        ; anchor stash: RebuildScanState clobbers d0-d7/a0-a4 and
-        ; Entity_Mask_Scratch is FULL inside Slide (4 ids + 128 mask bytes),
-        ; so the stack is the stash — balanced across the bsr.
-        move.w  (Entity_Window_Anchor).w, -(sp)
-    endif
-        bsr.w   EntityWindow_RebuildScanState
-    ifdef __DEBUG__
-        ; teleport invariance: the rebase must not move the anchor
-        move.w  (sp)+, d0               ; pre-rebase anchor
-        move.w  (Entity_Window_Anchor).w, d1
-        assert.w d1, eq, d0
-    endif
-        rts
-
-; -----------------------------------------------
-; EntityWindow_TeleportShiftY — re-express entities after a Y teleport rebase
-;
-; Vertical mirror of EntityWindow_TeleportShift (see its header for the
-; invariance argument): slot-map sec_y advance (±2) cancels the camera
-; delta's row0 shift (∓2) — same sections, re-expressed origins. Shifts
-; ring Y (buffer entry +2) and SST_y_pos. RebuildScanState also rebases
-; Camera_Y_Coarse_Prev, so the vertical re-scan trigger doesn't
-; false-fire off the rebased camY.
-;
-; In:  d0.w = shift amount (+SECTION_SHIFT or -SECTION_SHIFT)
-; Out: none
-; Clobbers: d0-d7, a0-a4
-; -----------------------------------------------
-EntityWindow_TeleportShiftY:
-        move.w  d0, d4                  ; d4 = shift
-
-        ; --- shift all buffered rings ---
-        moveq   #0, d5
-        move.b  (Ring_Count).w, d5
-        beq.s   .rings_done
-        subq.w  #1, d5
-        lea     (Ring_Buffer).w, a0
-.ring_loop:
-        add.w   d4, 2(a0)               ; engine_Y += delta
-        addq.w  #RING_BUFFER_ENTRY_SIZE, a0
-        dbf     d5, .ring_loop
-.rings_done:
-
-        ; --- shift all slot-tagged objects ---
-        lea     (Dynamic_Slots).w, a0
-        move.w  #NUM_DYNAMIC-1, d5
-.obj_loop:
-        tst.w   SST_code_addr(a0)
-        beq.s   .obj_next
-        cmpi.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a0)
-        beq.s   .obj_next
-        add.w   d4, SST_y_pos(a0)       ; integer word of the 16.16 Y
-.obj_next:
-        lea     SST_len(a0), a0
-        dbf     d5, .obj_loop
-
-    ifdef __DEBUG__
-        ; anchor stash on the stack — see EntityWindow_TeleportShift
-        move.w  (Entity_Window_Anchor).w, -(sp)
-    endif
-        bsr.w   EntityWindow_RebuildScanState
-    ifdef __DEBUG__
-        move.w  (sp)+, d0               ; pre-rebase anchor
-        move.w  (Entity_Window_Anchor).w, d1
-        assert.w d1, eq, d0
-    endif
-        rts
-
-; -----------------------------------------------
 ; EntityWindow_MigrateMasks — move loaded masks to sections' new entries
 ;
 ; Generic identity match: for each NEW entry, find its section id in the
 ; old snapshot; on match copy the old 32-byte mask into the entry's live
 ; slot. Sections new to the window keep the compare-clear's zeroed mask.
 ; Handles any slide direction — including the (DEBUG-asserted-impossible)
-; diagonal — and the teleport case, where every copy is slot-to-same-slot.
-; Old SEC_VOID snapshot ids can't false-match: new valid ids are real.
-; Cold path (slides/teleports only) — clarity over cycles.
+; diagonal. Old SEC_VOID snapshot ids can't false-match: new valid ids are real.
+; Cold path (slides only) — clarity over cycles.
 ;
 ; In:  a4 = snapshot: 4 bytes old section ids + 4×32 bytes old masks
 ; Out: none
@@ -1556,15 +1427,12 @@ EntityWindow_MigrateMasks:
 
 ; -----------------------------------------------
 ; EntityWindow_Slide — re-derive the window after the envelope crossed a
-; section boundary (also the teleport rebuild body — see RebuildScanState)
+; section boundary
 ;
 ; Snapshot old ids+masks → recenter collected 3×3 (evict BEFORE BuildEntries
-; claims — claim-before-evict failed silently at 9/9 occupancy, see the bug
-; note carried from the old RebuildScanState) → BuildEntries (compare-clear
-; zeroes genuinely-new sections' masks) → migrate surviving masks by section
-; identity → populate sections that weren't tracked before. Teleport rebases
-; keep the section set invariant: every id is in the snapshot, masks migrate
-; slot-to-same-slot, populate never fires — teleports are populate-free.
+; claims — claim-before-evict failed silently at 9/9 occupancy) → BuildEntries
+; (compare-clear zeroes genuinely-new sections' masks) → migrate surviving
+; masks by section identity → populate sections that weren't tracked before.
 ; Cold path (≤ once per ~2048px of travel) — clarity over cycles.
 ;
 ; In:  none (reads Camera_X/Y, Current_Act_Ptr)
@@ -1609,7 +1477,7 @@ EntityWindow_Slide:
 
     ifdef __DEBUG__
         ; single-axis invariant: at most one anchor byte changes per slide
-        ; (16px/f camera clamp); teleport rebuilds change neither
+        ; (16px/f camera clamp)
         move.w  (sp)+, d0               ; old anchor
         move.w  (Entity_Window_Anchor).w, d1
         eor.w   d0, d1                  ; nonzero byte = that axis moved
@@ -1625,7 +1493,7 @@ EntityWindow_Slide:
         bsr.w   EntityWindow_MigrateMasks
 
         ; populate entries whose section was NOT tracked before (band-gated;
-        ; survivors' ids are in the snapshot — incl. every teleport entry)
+        ; survivors' ids are in the snapshot)
         lea     (Entity_Scan_State).w, a3
         moveq   #0, d6
 .populate_loop:
@@ -1648,51 +1516,3 @@ EntityWindow_Slide:
         blo.s   .populate_loop
         rts
 
-; -----------------------------------------------
-; EntityWindow_RebuildScanState — teleport-path window re-derivation
-;
-; Called after a teleport rebase updates Camera + Slot_Section_Map. The
-; window is visibility-derived, so the rebase leaves the tracked section
-; set invariant — the shared slide body re-expresses origins, migrates
-; every mask slot-to-same-slot, and (all ids in the snapshot) populates
-; nothing. Only extra work vs a slide: rebase the vertical re-scan
-; trigger so the next coarse crossing is real.
-;
-; In:  none
-; Out: none
-; Clobbers: d0-d7, a0-a4
-; -----------------------------------------------
-EntityWindow_RebuildScanState:
-        move.w  (Camera_Y).w, d0
-        andi.w  #ENTITY_RESCAN_COARSE_MASK, d0
-        move.w  d0, (Camera_Y_Coarse_Prev).w
-        bra.w   EntityWindow_Slide
-
-; -----------------------------------------------
-; EntityWindow_SyncSlide — resolve a pending slide before a teleport rebase
-;
-; Teleport thresholds key off the PLAYER's position and Section_Check runs
-; before EntityWindow_Scan in the frame, so a fast player (or a debug warp)
-; can cross a threshold while the camera envelope's slide is still pending —
-; the camera crossed a section boundary this frame (or lags the player by
-; more than the boundary distance) and the per-frame slide check hasn't run
-; yet. The teleport-invariance contract ("a rebase never changes the tracked
-; section set") only holds for a window that is FRESH against the pre-rebase
-; camera, so every teleport handler calls this FIRST — same derive+compare
-; as EntityWindow_Scan's slide check; a no-op when the window is current.
-; Found by the invariance assert: BWD fired at camX $168 with anchor still
-; (2,0) — the (1,0) slide was pending — pre/post anchors mismatched.
-;
-; In:  none (reads Camera_X/Y — pre-rebase values)
-; Out: none
-; Clobbers: d0-d7, a0-a4
-; -----------------------------------------------
-EntityWindow_SyncSlide:
-        bsr.w   EntityWindow_DeriveWindow       ; d2/d3 = anchor candidate
-        cmp.b   (Entity_Window_Anchor).w, d2
-        bne.s   .stale
-        cmp.b   (Entity_Window_Anchor+1).w, d3
-        bne.s   .stale
-        rts
-.stale:
-        bra.w   EntityWindow_Slide

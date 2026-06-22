@@ -29,8 +29,7 @@ OJZ_Act1_Descriptor:
     dc.w    $0100                   ; start_local_y: 256px into section (ground level)
     dc.b    0                       ; start_sec_x = 0
     dc.b    0                       ; start_sec_y = 0
-    dc.w    SLOT_ORIGIN_L           ; cam_min_x ($200)
-    dc.w    SLOT_ORIGIN_L + $1680   ; cam_max_x (approximate for 3 sections)
+    ; (cam_min_x/cam_max_x removed: X clamp is grid-derived — see Act struct)
     dc.w    0                       ; cam_min_y (world top of level; continuous-scroll Phase 1)
     dc.w    2*SECTION_SIZE-224       ; cam_max_y (conservative 2-section vertical range, render-safe; Phase 2 lifts this)
     dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)

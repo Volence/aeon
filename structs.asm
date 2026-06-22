@@ -209,19 +209,19 @@ start_local_x       ds.w 1          ; $08 — player start X within section (0�
 start_local_y       ds.w 1          ; $0A — player start Y within section
 start_sec_x         ds.b 1          ; $0C — starting section X index
 start_sec_y         ds.b 1          ; $0D — starting section Y index
-cam_min_x           ds.w 1          ; $0E — camera X lower bound (pixels)
-cam_max_x           ds.w 1          ; $10 — camera X upper bound (pixels)
-cam_min_y           ds.w 1          ; $12 — camera Y lower bound (pixels)
-cam_max_y           ds.w 1          ; $14 — camera Y upper bound (pixels)
-act_bg_layout       ds.l 1          ; $16 — zone-wide Plane B layout pointer (T1 default)
-act_bg_tiles        ds.l 1          ; $1A — zone-wide Plane B tile blob (raw, loaded into shared BG region)
-act_parallax_config ds.l 1          ; $1E — default parallax config (fallback when section's is NULL)
-act_art_pool_table  ds.l 1          ; $22 — ptr to page-address table (OJZ_Act_Pool_PageTable; Act Art Streaming Phase 1)
-act_art_pool_pages  ds.w 1          ; $26 — number of pool pages (OJZ_ACT_POOL_PAGES)
+; (cam_min_x/cam_max_x removed: the continuous-scroll X clamp is grid-derived
+;  — level_width = grid_w << SECTION_SIZE_SHIFT — so no act-supplied X bounds.)
+cam_min_y           ds.w 1          ; $0E — camera Y lower bound (pixels)
+cam_max_y           ds.w 1          ; $10 — camera Y upper bound (pixels)
+act_bg_layout       ds.l 1          ; $12 — zone-wide Plane B layout pointer (T1 default)
+act_bg_tiles        ds.l 1          ; $16 — zone-wide Plane B tile blob (raw, loaded into shared BG region)
+act_parallax_config ds.l 1          ; $1A — default parallax config (fallback when section's is NULL)
+act_art_pool_table  ds.l 1          ; $1E — ptr to page-address table (OJZ_Act_Pool_PageTable; Act Art Streaming Phase 1)
+act_art_pool_pages  ds.w 1          ; $22 — number of pool pages (OJZ_ACT_POOL_PAGES)
 Act endstruct
 
-    if Act_len <> $28
-      error "Act struct is \{Act_len} bytes, expected $28"
+    if Act_len <> $24
+      error "Act struct is \{Act_len} bytes, expected $24"
     endif
 
 ; -----------------------------------------------

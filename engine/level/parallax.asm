@@ -211,8 +211,8 @@ Parallax_Update:
         ; Plane B (factor_b) lerps ONLY during an active section
         ; transition (Transition_Frames > 0) — easing between the two
         ; configs' BG factors. Outside transitions it locks to target.
-        ; Parallax_Snap_Pending (post-teleport) forces the snap path —
-        ; Camera_X just jumped SECTION_SHIFT pixels, no lerp can catch up.
+        ; Parallax_Snap_Pending forces the snap path when the camera jumps
+        ; (no smooth lerp can catch up).
 
 .band_loop:
         btst    d5, d6

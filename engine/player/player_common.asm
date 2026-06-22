@@ -573,8 +573,8 @@ Player_SnapToSurface:
 ; left playable edge to 16px and the right edge to 24px (asymmetric in
 ; the originals — kept verbatim). Bottom margin: detection slack below
 ; the playable bottom; must exceed the per-frame fall cap
-; (PHYS_FALL_CAP = 16px) so a pending down-teleport (Section_Check runs
-; AFTER RunObjects) can never trip the guard transiently.
+; (PHYS_FALL_CAP = 16px) so a single frame's fall can never overshoot
+; the guard transiently.
 PBOUND_LEFT_MARGIN   = 16
 PBOUND_RIGHT_MARGIN  = 24
 PBOUND_BOTTOM_MARGIN = 48
@@ -584,7 +584,7 @@ PBOUND_BOTTOM_MARGIN = 48
 
 ; -----------------------------------------------
 ; Player_LevelBound — clamp the player to the act's playable bounds
-; (classic Sonic_LevelBound, adapted to the slot-window coordinates)
+; (classic Sonic_LevelBound, adapted to world coordinates)
 ;
 ; PLACEMENT: called once from Player_Main right after the state
 ; dispatch, before the history rings. The classics run LevelBound
@@ -608,10 +608,10 @@ PBOUND_BOTTOM_MARGIN = 48
 ;   top   — NO clamp (classic allows above-screen travel).
 ;
 ; On X clamp: integer x written with subpixel zeroed, x_vel and gsp
-; cleared (classic). On bottom trip: DEBUG builds RaiseError — a
-; player below the world during §5 development is always a bug we
-; want loud; release builds clamp y and zero y_vel as a placeholder
-; until death/respawn exists.
+; cleared (classic). On bottom trip: y is clamped to the playable bottom
+; edge and y_vel zeroed (a placeholder until death/respawn exists) — with
+; editor-authored / S&K collision a fall through air or an erased floor is
+; by design (pits, WIP levels), not a bug.
 ; In:  a0 = player SST
 ; Out: none
 ; Clobbers: d0-d2, a1

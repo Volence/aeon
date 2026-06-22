@@ -92,8 +92,7 @@ GameState_OJZScroll_Init:
         jsr     Section_Init
 
         ; -- §4.7: populate tile cache (must run AFTER Camera_Init +
-        ;    Section_Init so Camera_X, Current_Act_Ptr, and Slot_Section_Map
-        ;    are valid) --
+        ;    Section_Init so Camera_X and Current_Act_Ptr are valid) --
         jsr     Tile_Cache_Init
 
         ; -- synchronous plane fill: trigger Section_RedrawPlanes before
@@ -108,8 +107,8 @@ GameState_OJZScroll_Init:
         ; (The PlayerSensors self-check is gone: its expectations were hardcoded
         ; from the STOCK sonic_hack collision, which the engine no longer uses —
         ; collision is now the imported S&K shape set + editor-authored level
-        ; data, so the check can never be valid. PlayerSensors_SelfCheck[_RowFill]
-        ; remain defined but unused; a follow-up may delete them.)
+        ; data, so the check can never be valid. The dead PlayerSensors_SelfCheck
+        ; + _RowFill routines were deleted in the leapfrog teardown.)
 
         ; -- §4.6 parallax init: pull start section's parallax_config --
         ; Section_GetSecPtrXY handles the full grid math (sec_y included);
@@ -190,47 +189,22 @@ GameState_OJZScroll_Update:
 
         ; -- Derive active flat section_id (2D-correct) for T14 + T15 --
         ; flat_id = sec_y * grid_w + sec_x, computed once and reused.
-        ; Vertical half: if Camera_Y >= SLOT_ORIGIN_U + SECTION_SIZE ($A00),
-        ; the camera is in the lower section of the vertical pair → sec_y += 1.
-        ; (Mirrors horizontal slot detection at SLOT_ORIGIN_R for Camera_X.)
+        ; Continuous-scroll: Camera_X/Y are WORLD px, so the active section is
+        ; the one under the camera CENTER — derive it straight from the world
+        ; camera (camX+160 / camY+112 >> SECTION_SIZE_SHIFT), no slot map or
+        ; SLOT_ORIGIN bias. Always in-grid (camera is clamped to the act), so
+        ; Section_FlatIDXY needs no range check.
         movea.l (Current_Act_Ptr).w, a0
-        move.l  (Camera_X).w, d0
-        swap    d0                              ; d0.w = Camera_X high word
-        moveq   #0, d2                          ; assume slot 0
-        cmpi.w  #SLOT_ORIGIN_R, d0
-        blt.s   .slot_resolved
-        ; X >= $A00 → slot 1, unless it is void (SEC_VOID at the act edge;
-        ; the camera void clamp at $8C0 makes this unreachable today, but
-        ; don't let that cross-module dependency be the only safety)
-        cmpi.b  #SEC_VOID, (Slot_Section_Map+2).w
-        beq.s   .slot_resolved
-        moveq   #1, d2                          ; X >= $A00 → slot 1
-.slot_resolved:
-        add.w   d2, d2                          ; d2 = slot * 2 byte offset
-        lea     (Slot_Section_Map).w, a3
-        moveq   #0, d0
-        move.b  1(a3, d2.w), d0                 ; d0 = sec_y (from slot map)
-        ; vertical half detection: camera in lower section?
-        move.l  (Camera_Y).w, d1
-        swap    d1                              ; d1.w = Camera_Y high word
-        cmpi.w  #SLOT_ORIGIN_U+SECTION_SIZE, d1
-        blt.s   .vert_resolved
-        addq.w  #1, d0                          ; Camera_Y >= $A00 → lower section
-.vert_resolved:
-        tst.w   d0
-        beq.s   .flat_add_x                     ; sec_y=0 → skip multiply
-        move.w  Act_grid_w(a0), d1              ; d1 = grid_w
-        move.w  d0, d3
-        moveq   #0, d0
-        subq.w  #1, d3
-.flat_mul:
-        add.w   d1, d0
-        dbf     d3, .flat_mul
-.flat_add_x:
-        moveq   #0, d1
-        move.b  (a3, d2.w), d1                  ; d1 = sec_x
-        add.w   d1, d0                          ; d0 = flat section_id
-        move.w  d0, d6                          ; save flat_id for T14 + T15
+        move.w  (Camera_X).w, d2               ; world X px
+        addi.w  #SCREEN_WIDTH/2, d2
+        moveq   #SECTION_SIZE_SHIFT, d0
+        asr.w   d0, d2                         ; d2 = sec_x of the camera center
+        move.w  (Camera_Y).w, d3              ; world Y px
+        addi.w  #SCREEN_HEIGHT/2, d3
+        asr.w   d0, d3                         ; d3 = sec_y of the camera center
+        movea.l a0, a2                         ; Section_FlatIDXY wants act ptr in a2
+        jsr     Section_FlatIDXY               ; d0.w = flat section_id (cross-module: jsr, not bsr.w)
+        move.w  d0, d6                         ; save flat_id for T14 + T15
 
         ; -- §4.6 T14: parallax follows active slot --
         tst.b   (Parallax_Snap_Pending).w

@@ -1,64 +1,31 @@
-; Section streaming engine (§4 Phase 1)
-; Bidirectional leapfrog with 2 horizontal slots.
-; Slot origins are FIXED. Section index selects which data is in each slot.
-
-SLOT_LEFT   = 0
-SLOT_RIGHT  = 1
+; Section streaming engine (§4)
+; Continuous-scroll: the camera, player, and all entities live in WORLD
+; coordinates and the level scrolls live with no section rebases. World ==
+; engine throughout; the nametable is a 64-cell ring the world wraps through.
 
 ; -----------------------------------------------
-; Section_Init — set up slots from act descriptor, fill nametable
-; In:  a0 = act descriptor pointer (Act_Desc struct)
+; Section_Init — record the act, fill nametable, init the entity window
+; In:  a0 = act descriptor pointer (Act struct)
 ; Out: none
 ; Clobbers: d0–d5, a0–a3
 ; -----------------------------------------------
 Section_Init:
         move.l  a0, (Current_Act_Ptr).w
 
-        ; -- set fixed slot origins --
-        ; Slot_Origins layout: [origin_x.l][origin_y.l] × 4 slots
-        lea     (Slot_Origins).w, a1
-        move.l  #SLOT_ORIGIN_L<<16, (a1)+          ; slot 0 x (16.16)
-        move.l  #0, (a1)+                          ; slot 0 y
-        move.l  #SLOT_ORIGIN_R<<16, (a1)+          ; slot 1 x
-        move.l  #0, (a1)+                          ; slot 1 y
-
-        ; -- initialise section map from act descriptor --
-        lea     (Slot_Section_Map).w, a2
-        move.b  Act_start_sec_x(a0), (a2)+         ; slot 0 sec_x
-        move.b  Act_start_sec_y(a0), (a2)+         ; slot 0 sec_y
-        move.b  Act_start_sec_x(a0), d0
-        addq.b  #1, d0
-        move.b  d0, (a2)+                          ; slot 1 sec_x = start + 1
-        move.b  Act_start_sec_y(a0), (a2)+         ; slot 1 sec_y = same row
-
-        ; -- clear teleport guard + preload flags --
-        move.w  #0, (Section_Preload_Flags).w
-
-        ; -- act-edge predicate for the fresh slot map --
-        bsr.w   Section_UpdateEdgeFlags
-
-        ; -- fill nametable from both slots --
+        ; -- set up column/row trackers; first frame streams the plane --
         bsr.w   Section_FillInitial
 
         ; -- §4.9: camera-driven entity window init --
         jsr     EntityWindow_Init
+        rts
 
- ; -----------------------------------------------
+; -----------------------------------------------
 ; Section_FillInitial — set up trackers; let Section_UpdateColumns
-; fill plane on first frame (matches post-teleport behavior).
+; fill plane on first frame.
 ;
-; Previously pre-filled plane cols 0..63 with section cols 0..63
-; (linear order). This caused a visual artifact: when user scrolled
-; right past Cam_X = 689, streaming overwrote plane col 0 with
-; section col 64. Plane col 0 then visible at screen LEFT at Cam_X
-; = 1024 with section col 64 — content "appearing from left."
-;
-; New behavior: trackers set as if Section_TeleportFwd just fired.
-; Section_UpdateColumns on first frame streams the visible window
-; in scroll-direction order (= same as post-teleport behavior, which
-; doesn't show the artifact). User sees plane fill from screen-left
-; outward over ~3 frames as Plane_Buffer drains, then steady-state
-; matches Section_UpdateColumns' streaming pattern.
+; Trackers are seeded one column/row tight on each side of the camera so
+; Section_UpdateColumns streams the visible window outward in scroll-
+; direction order on the first frames (avoids a left-edge content pop).
 ;
 ; Out: Section_Right_Col_Written, Section_Left_Col_Written initialised
 ; Clobbers: none
@@ -81,46 +48,6 @@ Section_FillInitial:
         move.w  d0, (Section_Bottom_Row_Written).w
         addq.w  #1, d0
         move.w  d0, (Section_Top_Row_Written).w
-        rts
-
-; -----------------------------------------------
-; Section_GetSlotDef — get Sec* for a given slot index
-; In:  d0.w = slot index (0–3)
-;      a2   = act descriptor pointer
-; Out: a0   = Sec struct pointer in ROM
-; Clobbers: d0–d3, a0
-; -----------------------------------------------
-Section_GetSlotDef:
-        add.w   d0, d0                             ; slot_index × 2 bytes
-        lea     (Slot_Section_Map).w, a0
-        move.b  (a0, d0.w), d2                     ; d2.b = sec_x for this slot
-        move.b  1(a0, d0.w), d3                    ; d3.b = sec_y for this slot
-        bra.w   Section_GetSecPtrXY
-
-; -----------------------------------------------
-; Section_SlotFlatID — flat section id for a slot's current section
-; flat_id = sec_y * grid_w + sec_x (indexes Section_Stream_State,
-; collected/killed bitmask slots, and the Sec grid).
-; In:  d0.w = slot index (0–3)
-; Out: d0.w = flat section id
-; Clobbers: d1-d2, a1
-; -----------------------------------------------
-Section_SlotFlatID:
-        add.w   d0, d0
-        lea     (Slot_Section_Map).w, a1
-        moveq   #0, d2
-        move.b  (a1, d0.w), d2                      ; d2 = sec_x
-        moveq   #0, d1
-        move.b  1(a1, d0.w), d1                     ; d1 = sec_y
-        movea.l (Current_Act_Ptr).w, a1
-        moveq   #0, d0
-        subq.w  #1, d1
-        bmi.s   .add_x
-.mul:
-        add.w   Act_grid_w(a1), d0
-        dbf     d1, .mul
-.add_x:
-        add.w   d2, d0
         rts
 
 ; -----------------------------------------------
@@ -196,498 +123,6 @@ Section_GetSecPtrXY:
         rts
 
 ; -----------------------------------------------
-; Section_UpdateEdgeFlags — recompute Section_Edge_Flags from
-; Slot_Section_Map + the act grid width. THE one act-edge predicate:
-; "is a teleport available at this side of the window?" Three consumers
-; share it so their answers can never diverge:
-;   Section_Check    — gates the FWD/BWD teleports themselves
-;   Player_LevelBound — a playable bound exists exactly where the
-;                       matching teleport is unavailable
-;   Camera_Update    — preview extension exists exactly where the
-;                       matching teleport IS available (and the void
-;                       case clamps to slot 0's right edge)
-; Bit definitions live at SEF_* (constants.asm). Called wherever the
-; slot map's sec_x changes: Section_Init, Section_TeleportFwd/Bwd.
-; Vertical teleports change sec_y only — the X edge state is invariant
-; there. All comparisons are unsigned (blo/bhs); sec_x and grid_w are
-; small positive bytes, so this matches the previous mixed signed/
-; unsigned consumer tests for all real data.
-; In:  none (reads Slot_Section_Map, Current_Act_Ptr)
-; Out: none (writes Section_Edge_Flags)
-; Clobbers: d0-d1, a1
-; -----------------------------------------------
-Section_UpdateEdgeFlags:
-        moveq   #0, d1
-        tst.b   (Slot_Section_Map).w               ; slot 0 sec_x
-        bne.s   .bwd_open
-        ori.b   #1<<SEF_BWD_BLOCKED, d1            ; leftmost section in slot 0
-.bwd_open:
-        move.b  (Slot_Section_Map+2).w, d0         ; slot 1 sec_x
-        cmpi.b  #SEC_VOID, d0
-        bne.s   .fwd_in_grid
-        ; act edge on an odd-width grid: no section in slot 1 at all
-        ori.b   #(1<<SEF_FWD_VOID)|(1<<SEF_FWD_BLOCKED), d1
-        bra.s   .store
-.fwd_in_grid:
-        movea.l (Current_Act_Ptr).w, a1
-        addq.b  #1, d0                             ; next-FWD sec_x
-        cmp.b   Act_grid_w+1(a1), d0               ; grid_w is a word; low byte at +1
-        blo.s   .store                             ; < grid_w → FWD teleport exists
-        ori.b   #1<<SEF_FWD_BLOCKED, d1            ; slot 1 is the last grid column
-.store:
-        move.b  d1, (Section_Edge_Flags).w
-        rts
-
-; -----------------------------------------------
-; Section_Check — per-frame teleport threshold check (horizontal)
-; Call from game loop each frame.
-; In:  none
-; Out: none
-; Clobbers: d0, a0
-; -----------------------------------------------
-Section_Check:
-        tst.b   (Section_Teleport_Guard).w
-        beq.s   .check
-        ; Guard active — hold only while player sits exactly on a threshold
-        move.l  (Player_1+SST_x_pos).w, d0
-        swap    d0
-        cmpi.w  #SECTION_FWD_THRESHOLD, d0
-        beq.s   .guard_hold
-        cmpi.w  #SECTION_BWD_THRESHOLD, d0
-        beq.s   .guard_hold
-        move.l  (Player_1+SST_y_pos).w, d0
-        swap    d0
-        cmpi.w  #SECTION_DOWN_THRESHOLD, d0
-        beq.s   .guard_hold
-        cmpi.w  #SECTION_UP_THRESHOLD, d0
-        beq.s   .guard_hold
-        clr.b   (Section_Teleport_Guard).w
-.guard_hold:
-        rts
-
-.check:
-        ; -- §4.2: thresholds keyed off Player_1's x_pos (not Camera_X) so
-        ;    teleport fires when the CHARACTER crosses the boundary, not when
-        ;    the camera does. Camera lags player by deadzone; if we used
-        ;    camera_x, teleport would fire ~16 px after the player visually
-        ;    crossed the line. --
-        move.l  (Player_1+SST_x_pos).w, d0
-        swap    d0                                 ; d0.w = player engine X
-
-        ; -- §4.2 deferred cold-loads — fire when camera passes mid-traversal
-        ;    threshold of new pair's first section. Independent of camera
-        ;    direction; gated by both range and pending flag. --
-        ; -- Act Art Streaming Phase 1: tile art is now wholly resident for the
-        ;    life of the act, so the §4.2 deferred cold-loads and §2 A.4
-        ;    preloads are no-ops. The flag bookkeeping is retained as harmless
-        ;    state but no longer triggers any art load. --
-        btst    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
-        beq.s   .skip_deferred_fwd
-        cmpi.w  #SECTION_DEFERRED_FWD_LOAD, d0
-        blt.s   .skip_deferred_fwd
-        bclr    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
-.skip_deferred_fwd:
-        btst    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
-        beq.s   .skip_deferred_bwd
-        cmpi.w  #SECTION_DEFERRED_BWD_LOAD, d0
-        bgt.s   .skip_deferred_bwd
-        bclr    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
-.skip_deferred_bwd:
-
-        ; -- preload triggers (§2 A.4) — fire BEFORE teleport thresholds --
-        cmpi.w  #SECTION_FWD_PRELOAD, d0
-        bge.s   .fwd_preload_check
-        cmpi.w  #SECTION_BWD_PRELOAD, d0
-        ble.s   .bwd_preload_check
-        bra.s   .threshold_check
-
-.fwd_preload_check:
-        btst    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
-        bne.s   .threshold_check
-        bset    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
-        bra.s   .threshold_check
-
-.bwd_preload_check:
-        btst    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
-        bne.s   .threshold_check
-        bset    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
-
-.threshold_check:
-        ; -- vertical preload triggers --
-        move.l  (Player_1+SST_y_pos).w, d0
-        swap    d0
-        cmpi.w  #SECTION_DOWN_PRELOAD, d0
-        bge.s   .down_preload_check
-        cmpi.w  #SECTION_UP_PRELOAD, d0
-        ble.s   .up_preload_check
-        bra.s   .h_threshold
-
-.down_preload_check:
-        btst    #SPF_DOWN_PRELOADED, (Section_Preload_Flags).w
-        bne.s   .h_threshold
-        bset    #SPF_DOWN_PRELOADED, (Section_Preload_Flags).w
-        bra.s   .h_threshold
-
-.up_preload_check:
-        btst    #SPF_UP_PRELOADED, (Section_Preload_Flags).w
-        bne.s   .h_threshold
-        bset    #SPF_UP_PRELOADED, (Section_Preload_Flags).w
-
-.h_threshold:
-        move.l  (Player_1+SST_x_pos).w, d0
-        swap    d0
-        cmpi.w  #SECTION_FWD_THRESHOLD, d0
-        bge.w   .fwd_check
-        cmpi.w  #SECTION_BWD_THRESHOLD, d0
-        ble.w   .bwd_check
-
-        ; --- vertical threshold check ---
-        move.l  (Player_1+SST_y_pos).w, d0
-        swap    d0
-        cmpi.w  #SECTION_DOWN_THRESHOLD, d0
-        bge.s   .down_check
-        cmpi.w  #SECTION_UP_THRESHOLD, d0
-        ble.s   .up_check
-        rts
-
-.down_check:
-        movea.l (Current_Act_Ptr).w, a0
-        move.b  (Slot_Section_Map+1).w, d0
-        addq.b  #2, d0
-        cmp.b   Act_grid_h+1(a0), d0
-        bge.s   .v_skip
-        bra.w   Section_TeleportDown
-
-.up_check:
-        cmpi.b  #2, (Slot_Section_Map+1).w
-        blt.s   .v_skip
-        bra.w   Section_TeleportUp
-
-.v_skip:
-        rts
-
-; -----------------------------------------------
-; (Act Art Streaming Phase 1) The §2 A.4 preload stubs and the §4.2 deferred
-; cold-load stubs were removed here: tile art is now wholly resident for the
-; life of the act, so there is nothing to preload or defer-load on traversal.
-; The preload/deferred flags above remain as harmless state with no effect.
-; -----------------------------------------------
-
-.bwd_check:
-        ; skip BWD at the act's left edge (slot 0 sec_x = 0) — predicate
-        ; precomputed by Section_UpdateEdgeFlags. Player_LevelBound
-        ; mirrors this edge logic via Section_Edge_Flags (a playable
-        ; bound exists exactly where this teleport is skipped); so does
-        ; Camera_Update's BWD preview extension.
-        btst    #SEF_BWD_BLOCKED, (Section_Edge_Flags).w
-        bne.s   .skip
-        bra.w   Section_TeleportBwd
-
-.fwd_check:
-        ; skip FWD when unavailable: slot 1 void (act edge on an
-        ; odd-width grid) OR slot 1 already the rightmost section —
-        ; SEF_FWD_BLOCKED covers both (the writer sets it for void too).
-        ; Player_LevelBound and Camera_Update's .check_max_x mirror this
-        ; edge logic via Section_Edge_Flags.
-        btst    #SEF_FWD_BLOCKED, (Section_Edge_Flags).w
-        bne.s   .skip
-        bra.w   Section_TeleportFwd
-
-.skip:  rts
-
-; -----------------------------------------------
-; Section_TeleportFwd — forward (rightward) teleport
-; Old slot 1 becomes slot 0. Loads next section into slot 1.
-; Clobbers: d0–d7, a0–a4 (SyncSlide + TeleportShift rebuild paths)
-; -----------------------------------------------
-Section_TeleportFwd:
-        ; -- §4.9: a fast player can cross the threshold with the camera's
-        ;    slide still pending (Section_Check runs before EntityWindow_Scan).
-        ;    The rebase-invariance contract needs a window that is fresh
-        ;    against the PRE-rebase camera — sync it first. --
-        jsr     EntityWindow_SyncSlide
-
-        move.l  (Camera_X).w, d0
-        subi.l  #SECTION_SHIFT<<16, d0
-        move.l  d0, (Camera_X).w
-
-        ; -- §4.2: player teleports with camera. Without this shift Player_1
-        ;    stays at its old world X while camera rewinds, putting the
-        ;    player off-screen. Same SECTION_SHIFT applies. --
-        subi.l  #SECTION_SHIFT<<16, (Player_1+SST_x_pos).w
-
-        ; -- block-style rotation: advance pair index by 1 = both slots advance
-        ;    by 2 sections. New slot 0 takes the section that was preloaded
-        ;    into slot 0 during slot 1 traversal (= old slot 1 + 1). New
-        ;    slot 1 = the section after that. --
-        lea     (Slot_Section_Map).w, a0
-        move.b  2(a0), d0                          ; old slot 1 sec_x
-        move.b  3(a0), d1                          ; old slot 1 sec_y
-        addq.b  #1, d0                             ; new slot 0 sec_x = old slot 1 + 1
-        ;       (always < grid_w — .fwd_check guarantees a section exists here)
-        move.b  d0, (a0)
-        move.b  d1, 1(a0)
-        addq.b  #1, d0                             ; new slot 1 sec_x = new slot 0 + 1
-        ; -- odd-width grids: the pair advances by 2, so at the act edge the
-        ;    new slot 1 can land past the grid. Mark it SEC_VOID — consumers
-        ;    (Section_Check, camera max-x, entity window, SlotFlatID callers)
-        ;    skip void slots. BWD heals it: new slot 1 = old slot 0 - 1. --
-        movea.l (Current_Act_Ptr).w, a1
-        cmp.b   Act_grid_w+1(a1), d0
-        blo.s   .fwd_slot1_in_grid
-        move.b  #SEC_VOID, d0
-.fwd_slot1_in_grid:
-        move.b  d0, 2(a0)
-        ; sec_y unchanged
-
-        ; -- slot map changed: refresh the shared act-edge predicate --
-        bsr.w   Section_UpdateEdgeFlags
-
-        ; -- §4.9: shift nearby entities, despawn rest, rebuild scan state --
-        move.w  #-SECTION_SHIFT, d0
-        jsr     EntityWindow_TeleportShift
-
-        st      (Section_Teleport_Guard).w
-
-        ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
-        clr.b   (Section_Preload_Flags).w
-
-        ; -- mark new slot 1 section RESIDENT (union blobs = art already in
-        ;    VRAM). Skip when void — SlotFlatID on a void slot would index
-        ;    Section_Stream_State out of range. --
-        cmpi.b  #SEC_VOID, (Slot_Section_Map+2).w
-        beq.s   .fwd_no_resident
-        moveq   #SLOT_RIGHT, d0
-        bsr.w   Section_SlotFlatID                 ; d0 = slot 1 flat section_id
-        lea     (Section_Stream_State).w, a1
-        move.b  #SS_RESIDENT, (a1, d0.w)
-.fwd_no_resident:
-        ; -- no plane redraw: the teleport is pure coordinate rebasing.
-        ;    Engine_To_World_Col(c) = c - SLOT_ORIGIN_L/8 + sec_x*256; the
-        ;    camera/player shift (-$1000 px = -512 cols) and the slot-map
-        ;    advance (+2 sections = +512 cols) cancel exactly, so all world
-        ;    coordinates are invariant; plane mapping (engine & 63) and
-        ;    scroll (camera & $1FF) shift by multiples of their modulus.
-        ;    Matches S3K/S.C.E. level wrap: nothing is redrawn at the seam
-        ;    (docs/research/teleport-rebase.md). --
-
-        ; -- §4.6: force-snap parallax after teleport.
-        ;    Camera_X jumped SECTION_SHIFT pixels — band scroll values must
-        ;    snap to match. If the section has a config, force it as Current.
-        ;    If NULL, fall back to act_parallax_config. --
-        move.b  #1, (Parallax_Snap_Pending).w
-        clr.l   (Parallax_Target_Config).w
-        clr.b   (Parallax_Transition_Frames).w
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = new slot 0 sec ptr
-        movea.l Sec_sec_parallax_config(a0), a0
-        cmpa.w  #0, a0
-        bne.s   .fwd_parallax_set
-        movea.l (Current_Act_Ptr).w, a0
-        movea.l Act_act_parallax_config(a0), a0
-        cmpa.w  #0, a0
-        beq.s   .fwd_parallax_done
-.fwd_parallax_set:
-        move.l  a0, (Parallax_Current_Config).w
-.fwd_parallax_done:
-        rts
-
-; -----------------------------------------------
-; Section_TeleportBwd — backward (leftward) teleport
-; Old slot 0 becomes slot 1. Loads previous section into slot 0.
-; Clobbers: d0–d7, a0–a4 (SyncSlide + TeleportShift rebuild paths)
-; -----------------------------------------------
-Section_TeleportBwd:
-        ; -- §4.9: resolve any pending slide against the pre-rebase camera
-        ;    first (see Section_TeleportFwd) --
-        jsr     EntityWindow_SyncSlide
-
-        move.l  (Camera_X).w, d0
-        addi.l  #SECTION_SHIFT<<16, d0
-        move.l  d0, (Camera_X).w
-
-        ; -- §4.2: player teleports with camera (mirror of FWD). --
-        addi.l  #SECTION_SHIFT<<16, (Player_1+SST_x_pos).w
-
-        ; -- block-style rotation: retreat pair index by 1 = both slots
-        ;    retreat by 2 sections. New slot 1 takes the section that was
-        ;    preloaded during slot 0 traversal (= old slot 0 - 1). New slot
-        ;    0 = the section before that. Clamp to 0 if at act start. --
-        lea     (Slot_Section_Map).w, a0
-        move.b  (a0), d0                           ; old slot 0 sec_x
-        move.b  1(a0), d1                          ; old slot 0 sec_y
-        tst.b   d0
-        beq.s   .at_start                          ; can't go below sec 0
-        subq.b  #1, d0                             ; new slot 1 sec_x = old slot 0 - 1
-        move.b  d0, 2(a0)
-        move.b  d1, 3(a0)
-        tst.b   d0
-        beq.s   .clamp_zero
-        subq.b  #1, d0                             ; new slot 0 sec_x = new slot 1 - 1
-.clamp_zero:
-        move.b  d0, (a0)                           ; new slot 0
-.at_start:
-        ; If we branched here, slot map is left as-is (Section_Check should
-        ; guard BWD at sec 0 anyway).
-
-        ; -- slot map changed: refresh the shared act-edge predicate --
-        bsr.w   Section_UpdateEdgeFlags
-
-        ; -- §4.9: shift nearby entities, despawn rest, rebuild scan state --
-        move.w  #SECTION_SHIFT, d0
-        jsr     EntityWindow_TeleportShift
-
-        st      (Section_Teleport_Guard).w
-
-        ; -- A.4 + §4.2: reset all preload/deferred flags for the new pair --
-        clr.b   (Section_Preload_Flags).w
-
-        ; -- mark new slot 0 section RESIDENT (union blobs = art already in VRAM) --
-        moveq   #SLOT_LEFT, d0
-        bsr.w   Section_SlotFlatID                 ; d0 = slot 0 flat section_id
-        lea     (Section_Stream_State).w, a1
-        move.b  #SS_RESIDENT, (a1, d0.w)
-        ; -- no plane redraw: pure rebase, mirror of TeleportFwd (see
-        ;    comment there). --
-
-        ; -- §4.6: force-snap parallax (camera lands at $1200 = slot 1 territory). --
-        move.b  #1, (Parallax_Snap_Pending).w
-        clr.l   (Parallax_Target_Config).w
-        clr.b   (Parallax_Transition_Frames).w
-        moveq   #SLOT_RIGHT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = new slot 1 sec ptr
-        movea.l Sec_sec_parallax_config(a0), a0
-        cmpa.w  #0, a0
-        bne.s   .bwd_parallax_set
-        movea.l (Current_Act_Ptr).w, a0
-        movea.l Act_act_parallax_config(a0), a0
-        cmpa.w  #0, a0
-        beq.s   .bwd_parallax_done
-.bwd_parallax_set:
-        move.l  a0, (Parallax_Current_Config).w
-.bwd_parallax_done:
-        rts
-
-; -----------------------------------------------
-; Section_TeleportDown — downward teleport
-; Both slots advance sec_y by 2 (SECTION_SHIFT = 2 sections). Camera_Y and
-; Player_1.y_pos shift up
-; by SECTION_SHIFT so they remain in the upper portion of the new pair.
-; Clobbers: d0–d7, a0–a4 (SyncSlide + TeleportShiftY rebuild paths)
-; -----------------------------------------------
-Section_TeleportDown:
-        ; -- §4.9: resolve any pending slide against the pre-rebase camera
-        ;    first (see Section_TeleportFwd) --
-        jsr     EntityWindow_SyncSlide
-
-        move.l  (Camera_Y).w, d0
-        subi.l  #SECTION_SHIFT<<16, d0
-        move.l  d0, (Camera_Y).w
-        subi.l  #SECTION_SHIFT<<16, (Player_1+SST_y_pos).w
-
-        lea     (Slot_Section_Map).w, a0
-        addq.b  #2, 1(a0)                          ; slot 0 sec_y += 2
-        addq.b  #2, 3(a0)                          ; slot 1 sec_y += 2
-
-        ; -- §4.9: shift nearby entities' Y, despawn rest, rebuild scan state --
-        move.w  #-SECTION_SHIFT, d0
-        jsr     EntityWindow_TeleportShiftY
-
-        st      (Section_Teleport_Guard).w
-        clr.b   (Section_Preload_Flags).w
-
-        ; -- no cache or plane work: the teleport is pure coordinate rebasing.
-        ;    Engine_To_World_Row(r) = r - SLOT_ORIGIN_U/8 + sec_y*256; the
-        ;    camera/player shift (-$1000 px = -512 rows) and sec_y += 2
-        ;    (+512 rows) cancel exactly, so every world coordinate — tile
-        ;    cache bounds, fill-resume slots, staging keys, column/row draw
-        ;    trackers — is invariant. Plane mapping (engine & 63) and scroll
-        ;    (camera & $1FF) shift by multiples of their modulus. Matches
-        ;    S3K/S.C.E. level wrap: nothing is redrawn at the seam
-        ;    (docs/research/teleport-rebase.md). --
-
-        ; parallax snap
-        move.b  #1, (Parallax_Snap_Pending).w
-        clr.l   (Parallax_Target_Config).w
-        clr.b   (Parallax_Transition_Frames).w
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        movea.l Sec_sec_parallax_config(a0), a0
-        cmpa.w  #0, a0
-        bne.s   .down_parallax_set
-        movea.l (Current_Act_Ptr).w, a0
-        movea.l Act_act_parallax_config(a0), a0
-        cmpa.w  #0, a0
-        beq.s   .down_parallax_done
-.down_parallax_set:
-        move.l  a0, (Parallax_Current_Config).w
-.down_parallax_done:
-        rts
-
-; -----------------------------------------------
-; Section_TeleportUp — upward teleport
-; Both slots retreat sec_y by 2 (SECTION_SHIFT = 2 sections). Camera_Y and
-; Player_1.y_pos shift down
-; by SECTION_SHIFT so they remain in the lower portion of the new pair.
-; Clobbers: d0–d7, a0–a4 (SyncSlide + TeleportShiftY rebuild paths)
-; -----------------------------------------------
-Section_TeleportUp:
-        ; -- guard FIRST: with no slot-map shift the camera/player shift
-        ;    would be a real 4096px position change, not a rebase. The
-        ;    removed TileCache_Reinit used to mask that. Section_Check
-        ;    already refuses sec_y < 2; this is defense in depth. --
-        lea     (Slot_Section_Map).w, a0
-        cmpi.b  #2, 1(a0)
-        blt.s   .up_at_top
-
-        ; -- §4.9: resolve any pending slide against the pre-rebase camera
-        ;    first (see Section_TeleportFwd; after the guard so a refused
-        ;    teleport stays a pure no-op) --
-        jsr     EntityWindow_SyncSlide
-        lea     (Slot_Section_Map).w, a0        ; SyncSlide clobbers a0
-
-        move.l  (Camera_Y).w, d0
-        addi.l  #SECTION_SHIFT<<16, d0
-        move.l  d0, (Camera_Y).w
-        addi.l  #SECTION_SHIFT<<16, (Player_1+SST_y_pos).w
-
-        subq.b  #2, 1(a0)                          ; slot 0 sec_y -= 2
-        subq.b  #2, 3(a0)                          ; slot 1 sec_y -= 2
-
-        ; -- §4.9: shift nearby entities' Y, despawn rest, rebuild scan state --
-        move.w  #SECTION_SHIFT, d0
-        jsr     EntityWindow_TeleportShiftY
-
-        st      (Section_Teleport_Guard).w
-        clr.b   (Section_Preload_Flags).w
-
-        ; -- no cache or plane work: pure rebase, mirror of TeleportDown
-        ;    (see comment there). --
-
-        ; parallax snap
-        move.b  #1, (Parallax_Snap_Pending).w
-        clr.l   (Parallax_Target_Config).w
-        clr.b   (Parallax_Transition_Frames).w
-        moveq   #SLOT_LEFT, d0
-        movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef
-        movea.l Sec_sec_parallax_config(a0), a0
-        cmpa.w  #0, a0
-        bne.s   .up_parallax_set
-        movea.l (Current_Act_Ptr).w, a0
-        movea.l Act_act_parallax_config(a0), a0
-        cmpa.w  #0, a0
-        beq.s   .up_parallax_done
-.up_parallax_set:
-        move.l  a0, (Parallax_Current_Config).w
-.up_parallax_done:
-.up_at_top:
-        rts
-
-; -----------------------------------------------
 ; Section_RedrawPlanes — camera-aware atomic full-plane rewrite (§4.2).
 ; Level-init draw + cache-recovery path only (via Section_Plane_Dirty);
 ; teleports are pure rebases and never trigger this (~3 frames synchronous).
@@ -701,8 +136,8 @@ Section_TeleportUp:
 ; world_col & 63 (continuous-scroll: world == engine, the plane is a
 ; 64-cell ring the world wraps through).
 ;
-; In:  none (reads Camera_X, Cache_*, Current_Act_Ptr; Plane B reads
-;      Slot_Section_Map via Section_GetSlotDef for the BG layout ptr)
+; In:  none (reads Camera_X, Cache_*, Current_Act_Ptr; Plane B derives the
+;      on-screen section from the world camera for the BG layout ptr)
 ; Out: d5.w = start_world_col (for tracker reset by caller)
 ;      d7.w = start_world_col + 63 (for tracker reset by caller)
 ; Clobbers: d0–d7, a0–a4, a5–a6
@@ -856,12 +291,22 @@ Section_RedrawPlanes:
         blt.w   .pla_fill
 
         ; -- Plane B: row-major linear write (BG layout is act-wide, not position-dependent) --
-        moveq   #SLOT_LEFT, d0
+        ; Continuous-scroll: derive the on-screen section straight from the
+        ; world camera (sec_x = Camera_X >> SECTION_SIZE_SHIFT, sec_y likewise).
+        ; At level init the camera sits in the start section, so this returns the
+        ; start section's BG — identical to the old slot-0 lookup.
         movea.l (Current_Act_Ptr).w, a2
-        bsr.w   Section_GetSlotDef                  ; a0 = slot 0 Sec ptr
+        move.w  (Camera_X).w, d2                    ; world X px (16.16 high word)
+        moveq   #SECTION_SIZE_SHIFT, d0
+        asr.w   d0, d2                              ; d2.w = sec_x
+        move.w  (Camera_Y).w, d3                    ; world Y px
+        asr.w   d0, d3                              ; d3.w = sec_y
+        bsr.w   Section_GetSecPtrXY                 ; a0 = on-screen Sec ptr (Z set = none)
+        beq.s   .plb_use_act_layout
         movea.l Sec_sec_bg_layout(a0), a1
         cmpa.w  #0, a1
         bne.s   .plb_have_layout
+.plb_use_act_layout:
         movea.l Act_act_bg_layout(a2), a1           ; T1 fallback to act-level BG
         cmpa.w  #0, a1
         beq.s   .plb_done
@@ -1120,36 +565,4 @@ Section_UpdateColumns:
 .bot_row_clamp_skip:
 
         movem.l (sp)+, d2-d7/a0-a3
-        rts
-
-; -----------------------------------------------
-; Section_EngineToWorld — convert engine X + slot to world X
-; In:  d0.w = engine X (pixel)
-;      d1.b = slot index (0 or 1)
-; Out: d0.l = world X = (sec_x × SECTION_SIZE) + (engine_x - SLOT_ORIGIN_L)
-; Clobbers: d0–d2
-; -----------------------------------------------
-Section_EngineToWorld:
-        add.w   d1, d1                             ; slot_index × 2
-        lea     (Slot_Section_Map).w, a0
-        moveq   #0, d2
-        move.b  (a0, d1.w), d2                     ; d2.b = sec_x for this slot
-        lsl.l   #8, d2                             ; d2 = sec_x × $800 (SECTION_SIZE)
-        lsl.l   #3, d2                             ; (11-bit shift split: 8+3)
-        subi.w  #SLOT_ORIGIN_L, d0                 ; d0 = engine_x - $200
-        ext.l   d0
-        add.l   d2, d0                             ; d0 = world_x
-        rts
-
-; -----------------------------------------------
-; Section_WorldToEngine — convert section-local X to engine X
-; In:  d1.w = section-local X (0–$7FF)
-; Out: d0.w = engine X = SLOT_ORIGIN_L + local_x
-; Clobbers: d0
-; Note: d0.b (section_x) not used in Phase 1 — target always placed in slot 0.
-;       Pass section_x in d0 for Phase 2+ compatibility.
-; -----------------------------------------------
-Section_WorldToEngine:
-        move.w  d1, d0
-        addi.w  #SLOT_ORIGIN_L, d0
         rts

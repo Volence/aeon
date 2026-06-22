@@ -218,8 +218,8 @@ Camera_Update:
 .clamp_y:
         ; -- continuous-scroll Y clamp: camera-derived sec_y, conservative
         ;    Act_cam_min_y/max_y bounds kept for Phase 1 (only the top/bottom
-        ;    grid rows are bounded; interior rows scroll freely). sec_y is now
-        ;    derived from Camera_Y itself, not Slot_Section_Map+1. --
+        ;    grid rows are bounded; interior rows scroll freely). sec_y is
+        ;    derived from Camera_Y itself. --
         movea.l (Current_Act_Ptr).w, a0
         move.l  (Camera_Y).w, d0
         swap    d0

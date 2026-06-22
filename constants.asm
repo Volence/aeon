@@ -304,57 +304,16 @@ SOLID_ALL               = 3
 ; -----------------------------------------------
 
 ; Section coordinate space
-SECTION_SIZE            = $0800     ; slot width/height in engine pixels
+SECTION_SIZE            = $0800     ; section width/height in world pixels
 SECTION_SIZE_SHIFT      = 11            ; log2(SECTION_SIZE) — derivation shift
     if SECTION_SIZE <> (1<<SECTION_SIZE_SHIFT)
       error "SECTION_SIZE_SHIFT out of sync with SECTION_SIZE"
     endif
-SECTION_SHIFT           = 2*SECTION_SIZE        ; $1000 — teleport shift (pixels); 2-slot pair width (both axes). Anti-oscillation handled by Section_Teleport_Guard (position-based suppression after teleport).
-SLOT_ORIGIN_L           = $0200     ; left slot engine-space left edge
-SLOT_ORIGIN_R           = SLOT_ORIGIN_L+SECTION_SIZE    ; $0A00 — right slot engine-space left edge
-SLOT_ORIGIN_U           = $0200     ; upper slot engine-space top edge
-SLOT_ORIGIN_D           = SLOT_ORIGIN_U+SECTION_SIZE    ; $0A00 — lower slot engine-space top edge (no direct code use — documentation mirror of SLOT_ORIGIN_R)
-SEC_VOID                = $FF       ; Slot_Section_Map sec_x sentinel: slot holds no section
-                                    ; (FWD pair-advance at the edge of an odd-width grid).
-                                    ; Consumers must skip the slot; SlotFlatID on it is invalid.
-
-; Section_Edge_Flags bits — THE one "act edge at this side of the window"
-; predicate. Written ONLY by Section_UpdateEdgeFlags (section.asm), which
-; runs wherever Slot_Section_Map's sec_x changes (Section_Init,
-; Section_TeleportFwd/Bwd; vertical teleports change sec_y only). Read by
-; Section_Check (teleport gates), Player_LevelBound (playable bounds),
-; Camera_Update (preview extension) — keep all three in sync with the
-; writer's definitions below.
-SEF_BWD_BLOCKED         = 0         ; slot 0 sec_x == 0 → no BWD teleport; left edge is a playable bound
-SEF_FWD_BLOCKED         = 1         ; no FWD teleport (slot 1 void OR slot 1 is the last grid column)
-SEF_FWD_VOID            = 2         ; slot 1 == SEC_VOID — playable area ends at slot 0's right edge
-                                    ; (SEF_FWD_VOID implies SEF_FWD_BLOCKED; the writer sets both)
-; -- §4.2 preview-zone (24-col / 24-row edges on plane A + plane B) --
-; Preview width covers the edge region visible as camera approaches the
-; teleport boundary. 24 cols = 192 px = ~3/5 of screen width. Preview is
-; streaming-integrated: Section_UpdateColumns extends its range into
-; neighbor section data, so preview cols are written by the normal
-; streaming mechanism and only become visible as the camera reaches
-; the boundary.
-PREVIEW_COLS            = 24        ; nametable cols at FWD/BWD edges
-PREVIEW_ROWS            = 24        ; nametable rows at TOP/BOT edges (vertical: stub for now)
-PREVIEW_PIXELS          = PREVIEW_COLS*8    ; 192 px — used for camera clamp offset
+SEC_VOID                = $FF       ; sec_x sentinel: grid cell holds no section.
+                                    ; A window quadrant whose derived grid coords
+                                    ; fall outside the act is stamped SEC_VOID and
+                                    ; skipped by the entity scan/despawn paths.
 SECTION_TILE_WIDTH      = SECTION_SIZE/8    ; 256 — tile cols per section
-SECTION_FWD_THRESHOLD   = SLOT_ORIGIN_L+SECTION_SHIFT          ; $1200 — camera X → fire forward teleport
-SECTION_BWD_THRESHOLD   = SLOT_ORIGIN_L                        ; $0200 — camera X → fire backward teleport
-SECTION_FWD_PRELOAD     = SLOT_ORIGIN_L+SECTION_SIZE+SECTION_SIZE/2 ; $0E00 — camera X → queue forward section art (slot 1 midpoint)
-SECTION_BWD_PRELOAD     = SLOT_ORIGIN_L+SECTION_SIZE/4         ; $0400 — camera X → queue backward section art (slot 0 quarter)
-; -- §4.2 deferred cold-load triggers (keep just-left section's art alive across teleport for preview) --
-SECTION_DEFERRED_FWD_LOAD = SLOT_ORIGIN_L+SECTION_SIZE/2       ; $0600 — camera X → fire deferred Sec_R load (slot 0 midpoint, post-FWD-teleport)
-SECTION_DEFERRED_BWD_LOAD = SLOT_ORIGIN_L+SECTION_SIZE+SECTION_SIZE/4 ; $0C00 — camera X → fire deferred Sec_L load (slot 1 quarter, post-BWD-teleport)
-
-; Vertical thresholds (2D active — mirrors horizontal pair layout)
-SECTION_UP_THRESHOLD    = SLOT_ORIGIN_U                        ; $0200
-SECTION_DOWN_THRESHOLD  = SLOT_ORIGIN_U+SECTION_SHIFT          ; $1200
-SECTION_UP_PRELOAD      = SLOT_ORIGIN_U+SECTION_SIZE/4         ; $0400
-SECTION_DOWN_PRELOAD    = SLOT_ORIGIN_U+SECTION_SIZE+SECTION_SIZE/2 ; $0E00
-SECTION_DEFERRED_UP_LOAD  = SLOT_ORIGIN_U+SECTION_SIZE+SECTION_SIZE/4 ; $0C00
-SECTION_DEFERRED_DOWN_LOAD = SLOT_ORIGIN_U+SECTION_SIZE/2      ; $0600
 SECTION_TILE_HEIGHT     = SECTION_SIZE/8    ; 256 — tile rows per section
 
 ; Parallax (§4.6)
@@ -378,16 +337,6 @@ MAX_ACT_SECTIONS        = 48        ; Section_Stream_State capacity; per-act gri
 ; union-blob model marks neighbor sections RESIDENT directly)
 SS_IDLE      = 0    ; not loaded
 SS_RESIDENT  = 2    ; in VRAM, valid
-
-; Section_Preload_Flags bit definitions
-SPF_FWD_PRELOADED = 0       ; bit 0: forward neighbour streamed
-SPF_BWD_PRELOADED = 1       ; bit 1: backward neighbour streamed
-SPF_DEFERRED_FWD_LOAD = 2   ; bit 2: deferred slot 1 cold-load pending after FWD teleport (§4.2)
-SPF_DEFERRED_BWD_LOAD = 3   ; bit 3: deferred slot 0 cold-load pending after BWD teleport (§4.2)
-SPF_UP_PRELOADED      = 4   ; bit 4: upward neighbour streamed
-SPF_DOWN_PRELOADED    = 5   ; bit 5: downward neighbour streamed
-SPF_DEFERRED_UP_LOAD  = 6   ; bit 6: deferred vertical slot cold-load
-SPF_DEFERRED_DOWN_LOAD = 7  ; bit 7: deferred vertical slot cold-load
 
 ; Plane buffer
 PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)

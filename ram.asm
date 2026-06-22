@@ -341,19 +341,9 @@ Block_Stage_Next:       ds.w 1          ; next round-robin slot to evict
 Section_Top_Row_Written:  ds.w 1
 Section_Bottom_Row_Written: ds.w 1
 
-; Section slot state
-; Slot_Origins: 4 slots × 8 bytes = [origin_x.l][origin_y.l] each
-Slot_Origins:           ds.b 32
-; Slot_Section_Map: 4 slots × 2 bytes = [section_x.b][section_y.b] each
-Slot_Section_Map:       ds.b 8
-
 ; Section streaming state
-Section_Preload_Flags:  ds.b 1          ; bits: fwd/bwd/up/dn preloaded
-Section_Teleport_Guard: ds.b 1          ; anti-oscillation flag (cleared when player leaves threshold)
-Section_Plane_Dirty:    ds.b 1          ; §4.2: full plane redraw pending (level init + cache recovery; teleports are pure rebases and never set it)
-Section_Edge_Flags:     ds.b 1          ; SEF_* bits (constants.asm) — act-edge predicate.
-                                        ; Written ONLY by Section_UpdateEdgeFlags; read by
-                                        ; Section_Check / Player_LevelBound / Camera_Update
+Section_Plane_Dirty:    ds.b 1          ; full plane redraw pending (level init + cache recovery)
+                        ds.b 1          ; pad — keep Section_Stream_State even-aligned
 
 ; Per-section streaming state (§2 A.4) — one byte per section
 ; (SS_IDLE / SS_RESIDENT). Indexed by flat section_id
@@ -399,8 +389,8 @@ Ring_Anim_Timer:        ds.b 1          ; countdown to next animation tick
 Entity_Window_Active:   ds.b 1          ; 4-bit entry validity mask (bit n = entry n valid)
 Entity_Window_Center_ID: ds.b 1         ; section_id of rolling bitmask center
 Entity_Window_Anchor:   ds.b 2          ; absolute (sec_x0, sec_y0) of entry 0 — slide trigger + teleport invariance
-Entity_Window_OriginX:  ds.w 1          ; column-0 origin base, signed (SLOT_ORIGIN_L + col0*SECTION_SIZE)
-Entity_Window_OriginY:  ds.w 1          ; row-0 origin base, signed (SLOT_ORIGIN_U + row0*SECTION_SIZE)
+Entity_Window_OriginX:  ds.w 1          ; column-0 origin base, world px (sec_x0 * SECTION_SIZE)
+Entity_Window_OriginY:  ds.w 1          ; row-0 origin base, world px (sec_y0 * SECTION_SIZE)
 Entity_Loaded_Masks:    ds.b MAX_TRACKED_SECTIONS * ENTITY_LOADED_SLOT_SIZE ; 128B — per-entry ring/obj loaded bits (§4.9 ph2)
 Entity_Mask_Scratch:    ds.b 4+MAX_TRACKED_SECTIONS*ENTITY_LOADED_SLOT_SIZE ; 132B (even) — slide snapshot: 4 old section ids + 4×32B old masks (EntityWindow_Slide)
 Camera_Y_Coarse_Prev:   ds.w 1          ; camY & $FF80 at last vertical re-scan
