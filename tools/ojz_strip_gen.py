@@ -113,7 +113,8 @@ CHUNKS_TILES_PATH = _project_tileset_path()
 # ---------------------------------------------------------------------------
 STRIP_TILE_HEIGHT = 256  # nametable rows per strip (full section height)
 
-REGION1_TILE_CAPACITY = 1536          # primary art pool $0000-$BFFF
+REGION1_TILE_CAPACITY = 1472          # primary art pool $0000-$B7FF
+ART_POOL_PAGE_TILES = 256             # tiles per independently-decodable act art page
 # (block/chunk geometry constants imported from ojz_common above)
 TILES_PER_CHUNK_ROW = TILES_PER_BLOCK_ROW * BLOCKS_PER_CHUNK_ROW   # 16
 TILES_PER_CHUNK_COL = TILES_PER_BLOCK_COL * BLOCKS_PER_CHUNK_COL   # 16
@@ -899,22 +900,23 @@ def test_full_pipeline_runs():
         COLLISION_DIR = os.path.join(td, "collision")
         try:
             generate()
-            # A.3: per-section blobs (one per OJZ section)
+            # Global act art pool: one set of independently-decodable pages.
             import glob
-            sec_files = sorted(glob.glob(os.path.join(td, "sec*_tiles.bin")))
-            assert len(sec_files) > 0, "no per-section tile blobs written"
-            for f in sec_files:
+            page_files = sorted(glob.glob(os.path.join(td, "act_pool_page*.bin")))
+            assert len(page_files) > 0, "no act art pool pages written"
+            for f in page_files:
                 size = os.path.getsize(f)
                 assert size % 32 == 0, f"{f} size {size} not a multiple of 32"
-                assert size <= REGION1_TILE_CAPACITY * 32
-            bases_path = os.path.join(td, "sec_vram_bases.asm")
-            assert os.path.exists(bases_path), "sec_vram_bases.asm not written"
+                assert size <= ART_POOL_PAGE_TILES * 32, \
+                    f"{f} exceeds one page ({ART_POOL_PAGE_TILES} tiles)"
+            manifest_path = os.path.join(td, "ojz_act_pool_manifest.asm")
+            assert os.path.exists(manifest_path), "ojz_act_pool_manifest.asm not written"
             # (Collision tables are no longer emitted by generate() — they're the
             # fixed imported S&K set written by tools/import_sk_collision.py.)
         finally:
             OUTPUT_DIR = saved
             COLLISION_DIR = saved_coll
-    print(f"  [OK] test_full_pipeline_runs: deduped pool fits in 1536 tiles")
+    print(f"  [OK] test_full_pipeline_runs: act art pool fits in {REGION1_TILE_CAPACITY} tiles")
 
 
 def run_tests():
@@ -1265,29 +1267,25 @@ def generate():
                     ordered.append(canon_idx)
         per_section_canon_tiles.append(ordered)
 
-    # ---- Pass 4: section adjacency + coloring + slot assignment ----
-    if use_editor:
-        grid_w, grid_h = editor_grid_w, editor_grid_h
-    else:
-        grid_w, grid_h = _ojz_grid_dimensions(sec_ids_in_order)
-    edges = tile_dedupe.compute_adjacency(grid_w, grid_h)
-    colors = tile_dedupe.color_sections(len(sec_ids_in_order), edges)
-    color_bases, section_slots, color_union_tiles = tile_dedupe.assign_section_slots(
-        per_section_canon_tiles, colors, region_start=0
-    )
+    # ---- Pass 4: global act art pool — spatially ordered, no per-section partition ----
+    from tile_dedupe import order_pool_spatially, split_pool_into_pages
+    pool_order = order_pool_spatially(per_section_canon_tiles)   # canon IDs in pool order
+    assert len(pool_order) <= REGION1_TILE_CAPACITY, (
+        f"act art pool {len(pool_order)} tiles > VRAM capacity {REGION1_TILE_CAPACITY}")
+    canon_to_pool = {cid: idx for idx, cid in enumerate(pool_order)}  # canon ID -> pool index (== VRAM slot)
+    pages = split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
 
     # ---- Pass 5: rewrite each section's strips using its own slot map ----
     total_strips = 0
     first_strips = None
     for s_idx, sec_id in enumerate(sec_ids_in_order):
-        slot_map = section_slots[s_idx]
         remapped_strips = []
         for col in per_section_strips[sec_id]:
             remapped_col = []
             for word in col:
                 src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
                 canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
-                vram_slot = slot_map.get(canon_idx, 0)
+                vram_slot = canon_to_pool[canon_idx]
                 remapped_col.append(
                     tile_dedupe.remap_nametable_word(word, vram_slot, flip_bits)
                 )
@@ -1316,16 +1314,13 @@ def generate():
             first_strips = remapped_strips
         total_strips += len(remapped_strips)
 
-    # ---- Pass 6: emit per-color-group union tile-art blobs ----
-    # All sections in the same color group get the same blob — every tile
-    # used by any section in the group is present at its VRAM slot.
-    for s_idx, sec_id in enumerate(sec_ids_in_order):
-        c = colors[s_idx]
-        union_tiles = color_union_tiles[c]
-        sec_out = os.path.join(out_dir, f"sec{sec_id}_tiles.bin")
-        with open(sec_out, "wb") as f:
-            for canon_idx in union_tiles:
-                f.write(unique[canon_idx])
+    # ---- Pass 6: emit the single act art pool as independently-decodable pages ----
+    for page_idx, page in enumerate(pages):
+        page_out = os.path.join(out_dir, f"act_pool_page{page_idx}.bin")
+        with open(page_out, "wb") as f:
+            for canon_idx in page:
+                f.write(unique[canon_idx])          # 32 raw bytes per tile
+    pool_pages = len(pages)
 
     # ---- Pass 6b (§2 A.5 T1+T2): emit shared-region BG tile blob + per-variant nametables ----
     # BG layout always uses sonic_hack data (editor doesn't modify BG yet)
@@ -1363,14 +1358,16 @@ def generate():
             f"BG tile count {bg_tile_count} exceeds shared region capacity {BG_TILE_CAPACITY_PY}"
         )
 
-    # ---- Pass 7: emit per-section VRAM-base constants for the act descriptor ----
-    bases_path = os.path.join(out_dir, "sec_vram_bases.asm")
-    with open(bases_path, "w") as f:
-        f.write("; Auto-generated by tools/ojz_strip_gen.py — DO NOT EDIT\n")
-        f.write("; Per-section VRAM byte destinations (color_base × 32 bytes/tile)\n")
-        for s_idx, sec_id in enumerate(sec_ids_in_order):
-            base_slot = color_bases[colors[s_idx]]
-            f.write(f"OJZ_SEC{sec_id.upper()}_VRAM = {base_slot} * 32\n")
+    # ---- Pass 7: act art pool manifest (page count + per-page tile count -> VRAM slot base) ----
+    manifest_path = os.path.join(out_dir, "ojz_act_pool_manifest.asm")
+    with open(manifest_path, "w") as f:
+        f.write("; Auto-generated by tools/ojz_strip_gen.py — act art pool manifest\n")
+        f.write(f"OJZ_ACT_POOL_PAGES = {len(pages)}\n")
+        f.write(f"OJZ_ACT_POOL_TILES = {len(pool_order)}\n")
+        for page_idx, page in enumerate(pages):
+            base = page_idx * ART_POOL_PAGE_TILES
+            f.write(f"OJZ_ACT_POOL_PAGE{page_idx}_SLOT = {base}\n")
+            f.write(f"OJZ_ACT_POOL_PAGE{page_idx}_TILES = {len(page)}\n")
 
     # ---- A.3 measurement ----
     raw_referenced = len(sorted_indices)
@@ -1378,20 +1375,17 @@ def generate():
     pct = (1.0 - deduped / raw_referenced) * 100 if raw_referenced else 0.0
     src_max = max(sorted_indices) if sorted_indices else 0
     src_min = min(sorted_indices) if sorted_indices else 0
-    src_collisions = sum(1 for i in sorted_indices if i >= 1536)
-    num_colors = max(colors) + 1 if colors else 0
-    max_simultaneous = sum(len(color_union_tiles[c]) for c in range(num_colors))
+    pool_tiles = len(pool_order)
     print(
-        f"\n=== OJZ Act 1 — Phase A.3 measurement ===\n"
+        f"\n=== OJZ Act 1 — global art pool measurement ===\n"
         f"  Source tile indices referenced: {raw_referenced} "
         f"(min={src_min}, max={src_max})\n"
-        f"  Source indices ≥1536 (nametable collision risk): {src_collisions}\n"
         f"  Deduped (with flip canonicalization): {deduped} "
         f"({pct:.1f}% reduction)\n"
-        f"  Section adjacency: {grid_w}×{grid_h} grid, {len(edges)} edges\n"
-        f"  Chromatic number: {num_colors} (DSATUR greedy)\n"
-        f"  Max simultaneously-resident: {max_simultaneous} tiles\n"
-        f"  Color bases: {color_bases}\n"
+        f"  Act art pool: {pool_tiles} distinct tiles "
+        f"(capacity {REGION1_TILE_CAPACITY})\n"
+        f"  Pages: {pool_pages} × {ART_POOL_PAGE_TILES} tiles "
+        f"({', '.join(str(len(p)) for p in pages)} tiles each)\n"
     )
 
     # Copy palette file
