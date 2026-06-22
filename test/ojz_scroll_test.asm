@@ -168,8 +168,10 @@ GameState_OJZScroll_Update:
         ; -- §4.7: fill tile cache with new blocks as camera scrolls --
         jsr     Tile_Cache_Fill
 
-        ; -- section teleport check (reads Player_1.x_pos via .check entry below) --
-        jsr     Section_Check
+        ; -- continuous scroll: no per-frame teleport check. Camera/player/
+        ;    section streaming run in WORLD space; the level scrolls live with
+        ;    no section rebases. (Section_Check + teleport machinery removed in
+        ;    a later task.)
 
         ; -- §4.9: camera-driven entity scan (load/despawn rings + objects) --
         jsr     EntityWindow_Scan
