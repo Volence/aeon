@@ -696,12 +696,13 @@ Section_TeleportUp:
 ; plane content is rewritten in one synchronous pass via direct VDP
 ; pokes. No multi-frame scroll-across.
 ;
-; Camera-aware: fills 64 plane cols starting at Camera_X/8, sourcing each
-; world col from the correct region (BWD neighbor → slot 0 → slot 1 → FWD
-; neighbor → tile-0 fill). This handles both FWD teleport (camera≈$0200)
-; and BWD teleport (camera≈$1200) correctly.
+; Camera-aware: fills 64 plane cols starting at Camera_X/8 (world col),
+; reading each col straight from the tile cache. Nametable cell =
+; world_col & 63 (continuous-scroll: world == engine, the plane is a
+; 64-cell ring the world wraps through).
 ;
-; In:  none (reads Camera_X, Slot_Section_Map, Current_Act_Ptr, neighbor ptrs)
+; In:  none (reads Camera_X, Cache_*, Current_Act_Ptr; Plane B reads
+;      Slot_Section_Map via Section_GetSlotDef for the BG layout ptr)
 ; Out: d5.w = start_world_col (for tracker reset by caller)
 ;      d7.w = start_world_col + 63 (for tracker reset by caller)
 ; Clobbers: d0–d7, a0–a4, a5–a6
@@ -715,22 +716,14 @@ Section_RedrawPlanes:
         ; -- Plane A: column-major write --
         move.w  #$8F80, (a5)
 
-        ; compute start nametable row from Cache_Top_Row
+        ; compute start nametable row from Cache_Top_Row (world_row & 63)
         move.w  (Cache_Top_Row).w, d6
-        moveq   #0, d1
-        move.b  (Slot_Section_Map+1).w, d1
-        lsl.w   #8, d1
-        sub.w   d1, d6
-        addi.w  #SLOT_ORIGIN_U/8, d6
         andi.w  #63, d6                         ; d6 = start_nt_row (preserved)
 
-        ; compute start world col
+        ; compute start world col = Camera_X >> 3
         move.l  (Camera_X).w, d5
         swap    d5
-        lsr.w   #3, d5                          ; d5 = engine start tile col
-        move.w  d5, d0
-        bsr.w   Engine_To_World_Col             ; d0 = world start col
-        move.w  d0, d5                          ; d5 = start_world_col
+        lsr.w   #3, d5                          ; d5 = start_world_col
 
         moveq   #0, d3                          ; col counter (0..63)
         lea     (Tile_Cache_Nametable+TILE_CACHE_NT_SIZE).l, a0   ; row-wrap sentinel
@@ -748,14 +741,9 @@ Section_RedrawPlanes:
         cmp.w   (Cache_Head_Col).w, d7
         bgt.w   .pla_next
 
-        ; convert world col → plane col
+        ; convert world col → plane col (world_col & 63)
         move.w  d7, d0
-        moveq   #0, d1
-        move.b  (Slot_Section_Map).w, d1
-        lsl.w   #8, d1
-        sub.w   d1, d0
-        addi.w  #SLOT_ORIGIN_L/8, d0
-        andi.w  #63, d0                         ; d0 = plane_col
+        andi.w  #63, d0                         ; d0 = plane_col = world_col & 63
         add.w   d0, d0                          ; d0 = col byte offset
         move.w  d0, -(sp)                       ; save for Part B
 
@@ -954,13 +942,8 @@ Section_UpdateColumns:
 .right_cache_ok:
         ; clamp to VDP plane wrap: max right = visible_left_world + 63
         move.w  d6, d0
-        lsr.w   #3, d0
-        subi.w  #SLOT_ORIGIN_L/8, d0
-        moveq   #0, d1
-        move.b  (Slot_Section_Map).w, d1
-        lsl.w   #8, d1
-        add.w   d1, d0
-        addi.w  #63, d0
+        lsr.w   #3, d0                          ; camera tile col (world)
+        addi.w  #63, d0                         ; max right = visible_left + 63 VDP cells
         cmp.w   d0, d7
         ble.s   .right_wrap_ok
         move.w  d0, d7
@@ -974,14 +957,9 @@ Section_UpdateColumns:
         bhi.w   .right_done
         addq.w  #1, d5
 
-        ; convert world col → engine col for nametable position
+        ; convert world col → nametable position (world_col & 63)
         move.w  d5, d0
-        moveq   #0, d1
-        move.b  (Slot_Section_Map).w, d1
-        lsl.w   #8, d1
-        sub.w   d1, d0
-        addi.w  #SLOT_ORIGIN_L/8, d0           ; d0 = engine tile col
-        andi.w  #63, d0                         ; d0 = nametable col
+        andi.w  #63, d0                         ; d0 = nametable col = world_col & 63
 
         move.w  d5, d1                          ; d1 = world col
         move.w  d5, -(sp)
@@ -1016,14 +994,9 @@ Section_UpdateColumns:
 .left_cache_ok:
         ; clamp to VDP plane wrap: min left = visible_right_world - 63
         move.w  d6, d0
-        addi.w  #327, d0
+        addi.w  #327, d0                        ; visible_right_px = Camera_X + screen−1
         lsr.w   #3, d0
-        subi.w  #SLOT_ORIGIN_L/8, d0
-        moveq   #0, d1
-        move.b  (Slot_Section_Map).w, d1
-        lsl.w   #8, d1
-        add.w   d1, d0
-        subi.w  #63, d0
+        subi.w  #63, d0                         ; min left = visible_right − 63 VDP cells
         cmp.w   d0, d7
         bge.s   .left_wrap_ok
         move.w  d0, d7
@@ -1038,12 +1011,7 @@ Section_UpdateColumns:
         subq.w  #1, d5
 
         move.w  d5, d0
-        moveq   #0, d1
-        move.b  (Slot_Section_Map).w, d1
-        lsl.w   #8, d1
-        sub.w   d1, d0
-        addi.w  #SLOT_ORIGIN_L/8, d0
-        andi.w  #63, d0
+        andi.w  #63, d0                         ; nametable col = world_col & 63
 
         move.w  d5, d1
         move.w  d5, -(sp)
@@ -1088,14 +1056,9 @@ Section_UpdateColumns:
         bhi.s   .bot_done
         addq.w  #1, d5
 
-        ; convert world row → nametable row
+        ; convert world row → nametable row (world_row & 63)
         move.w  d5, d0
-        moveq   #0, d1
-        move.b  (Slot_Section_Map+1).w, d1
-        lsl.w   #8, d1
-        sub.w   d1, d0
-        addi.w  #SLOT_ORIGIN_U/8, d0
-        andi.w  #63, d0                            ; d0 = nametable row (wrapped)
+        andi.w  #63, d0                            ; d0 = nametable row = world_row & 63
 
         move.w  d5, d1                             ; d1 = world row
         move.w  d5, -(sp)
@@ -1136,12 +1099,7 @@ Section_UpdateColumns:
         subq.w  #1, d5
 
         move.w  d5, d0
-        moveq   #0, d1
-        move.b  (Slot_Section_Map+1).w, d1
-        lsl.w   #8, d1
-        sub.w   d1, d0
-        addi.w  #SLOT_ORIGIN_U/8, d0
-        andi.w  #63, d0
+        andi.w  #63, d0                            ; nametable row = world_row & 63
 
         move.w  d5, d1
         move.w  d5, -(sp)

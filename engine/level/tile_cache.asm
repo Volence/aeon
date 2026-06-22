@@ -6,7 +6,7 @@
 ; Engine_To_World_Col — convert engine tile col to world tile col
 ; In:  d0.w = engine tile col (e.g., Camera_X / 8)
 ; Out: d0.w = world tile col
-; Clobbers: d1
+; Clobbers: none
 ; -----------------------------------------------
 Engine_To_World_Col:
         rts                                 ; world == engine (continuous-scroll); pass-through
@@ -15,7 +15,7 @@ Engine_To_World_Col:
 ; Engine_To_World_Row — convert engine tile row to world tile row
 ; In:  d0.w = engine tile row (e.g., Camera_Y / 8)
 ; Out: d0.w = world tile row
-; Clobbers: d1
+; Clobbers: none
 ; -----------------------------------------------
 Engine_To_World_Row:
         rts                                 ; world == engine (continuous-scroll); pass-through

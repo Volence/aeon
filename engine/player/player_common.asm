@@ -595,37 +595,16 @@ PBOUND_BOTTOM_MARGIN = 48
 ; dispatch) — bounds are deliberately SKIPPED in debug-fly, which is
 ; for inspecting anywhere, including off-world.
 ;
-; Engine X/Y are window coordinates (2 sections per axis from
-; SLOT_ORIGIN_L/_U, rebased by Section_Teleport*). A playable bound
-; only EXISTS where the matching teleport is unavailable — clamping at
-; a live teleport edge would hold the player below the threshold
-; (Section_Check reads Player_1's position AFTER RunObjects) and
-; freeze streaming. Teleport availability is the shared
-; Section_Edge_Flags predicate (one writer: Section_UpdateEdgeFlags;
-; Section_Check's gates and Camera_Update's preview extension read the
-; same bits — the three consumers cannot diverge):
-;   left  — SEF_BWD_BLOCKED (slot 0 holds sec_x 0): bound =
-;           Act_cam_min_x. Same act field the camera clamps to, minus
-;           its §4.2 PREVIEW_PIXELS extension, which is camera-only:
-;           the preview region is render-ahead, not playable ground.
-;   right — SEF_FWD_BLOCKED, two cases: SEF_FWD_VOID (act edge on an
-;           odd-width grid) → bound = slot 0's right edge
-;           (SLOT_ORIGIN_L+SECTION_SIZE); otherwise slot 1 is the last
-;           grid column → bound = the window's right edge
-;           (SLOT_ORIGIN_L+SECTION_SHIFT). NOT Act_cam_max_x: that
-;           field is camera-space slop ("approximate" — $1880 for OJZ
-;           act 1, past the $1200 window, so it never binds) and a
-;           bound past the window edge is the void-walk failure this
-;           routine guards. The window edge IS the act's right
-;           playable bound whenever the last column sits in slot 1.
-;   bottom — playable bottom = Act_cam_max_y + SCREEN_HEIGHT (the act
-;           data's own statement of the bottom edge; the camera stops
-;           one screen above it). Checked UNCONDITIONALLY: when a down
-;           teleport is available the player can only be transiently
-;           below the window bottom by one frame's fall (≤16px <
-;           margin), so a trip always means a real collision/streaming
-;           bug — including "the teleport that should have caught this
-;           never fired".
+; Continuous-scroll: X/Y are world coordinates spanning the whole act,
+; so the bounds are the act's world extents directly (no teleport-edge
+; conditioning — the camera spans the level and there are no window
+; seams to clamp around):
+;   left  — world origin: bound = PBOUND_LEFT_MARGIN (x ≥ 0 + margin).
+;   right — level_width − PBOUND_RIGHT_MARGIN, where
+;           level_width = grid_w << SECTION_SIZE_SHIFT (px).
+;   bottom — playable bottom = (grid_h << SECTION_SIZE_SHIFT) −
+;           SCREEN_HEIGHT (the camera stops one screen above the world
+;           floor). Phase 1 conservative clamp.
 ;   top   — NO clamp (classic allows above-screen travel).
 ;
 ; On X clamp: integer x written with subpixel zeroed, x_vel and gsp
@@ -640,27 +619,18 @@ PBOUND_BOTTOM_MARGIN = 48
 Player_LevelBound:
         movea.l (Current_Act_Ptr).w, a1
         move.w  SST_x_pos(a0), d0               ; integer X (16.16 high word)
-        move.b  (Section_Edge_Flags).w, d2      ; shared act-edge predicate
-                                                ; (Section_UpdateEdgeFlags)
 
-        ; --- left bound: only where BWD teleport is unavailable ---
-        btst    #SEF_BWD_BLOCKED, d2
-        beq.s   .left_open                      ; teleport owns the edge
-        move.w  Act_cam_min_x(a1), d1
-        addi.w  #PBOUND_LEFT_MARGIN, d1
+        ; --- left bound: world [0, level_width) ---
+        move.w  #PBOUND_LEFT_MARGIN, d1
         cmp.w   d1, d0
         blt.s   .clamp_x
-.left_open:
-        ; --- right bound: only where FWD teleport is unavailable ---
-        btst    #SEF_FWD_VOID, d2
-        beq.s   .right_in_grid
-        move.w  #SLOT_ORIGIN_L+SECTION_SIZE-PBOUND_RIGHT_MARGIN, d1
-        bra.s   .right_test
-.right_in_grid:
-        btst    #SEF_FWD_BLOCKED, d2
-        beq.s   .x_done                         ; FWD teleport owns the edge
-        move.w  #SLOT_ORIGIN_L+SECTION_SHIFT-PBOUND_RIGHT_MARGIN, d1
-.right_test:
+        ; --- right bound: world level_width − margin ---
+        ;     level_width = grid_w << SECTION_SIZE_SHIFT (split 8+3 for AS).
+        moveq   #0, d1
+        move.w  Act_grid_w(a1), d1
+        lsl.l   #8, d1
+        lsl.l   #3, d1                          ; grid_w × 2048 = level_width (px)
+        subi.w  #PBOUND_RIGHT_MARGIN, d1
         cmp.w   d1, d0
         ble.s   .x_done
 .clamp_x:
@@ -670,9 +640,14 @@ Player_LevelBound:
         clr.w   _pl_gsp(a0)
 .x_done:
         ; --- bottom guard (no top clamp) ---
+        ;     playable bottom = (grid_h << SECTION_SIZE_SHIFT) − SCREEN_HEIGHT
+        ;     (camera stops one screen above the world floor; split 8+3 for AS).
         move.w  SST_y_pos(a0), d0               ; integer Y
-        move.w  Act_cam_max_y(a1), d1
-        addi.w  #SCREEN_HEIGHT, d1              ; d1 = playable bottom edge
+        moveq   #0, d1
+        move.w  Act_grid_h(a1), d1
+        lsl.l   #8, d1
+        lsl.l   #3, d1
+        subi.w  #SCREEN_HEIGHT, d1              ; d1 = playable bottom edge (world)
         move.w  d1, d2
         addi.w  #PBOUND_BOTTOM_MARGIN, d2
         cmp.w   d2, d0

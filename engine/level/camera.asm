@@ -72,8 +72,8 @@ Camera_Update:
         bra.w   .no_move                            ; X-clamp only; .y_track
                                                     ; tests d4 and skips Y follow
         ; NOTE: d4 is reserved as the freeze flag from here through the
-        ; X-clamp path to .y_track — do not reuse d4 in .no_move/.check_max_x/
-        ; .clamp_x or the Y freeze silently breaks.
+        ; X-clamp path to .y_track — do not reuse d4 between here and
+        ; .y_track or the Y freeze silently breaks.
 .no_freeze:
         lea     (Player_1).w, a0
 
