@@ -82,6 +82,31 @@ def dedupe_tiles(tiles: list[bytes]) -> tuple[list[bytes], list[tuple[int, int]]
 
 
 # ---------------------------------------------------------------------------
+# Global spatial pool ordering + page splitting
+# ---------------------------------------------------------------------------
+
+def order_pool_spatially(per_section_canon_tiles: list[list[int]]) -> list[int]:
+    """Global pool order = first-occurrence across sections (traversal order),
+    deduped. Sections are visited in flat grid order, tiles in nametable order,
+    so spatially-near tiles get near pool indices."""
+    order = []
+    seen = set()
+    for section_tiles in per_section_canon_tiles:
+        for cid in section_tiles:
+            if cid not in seen:
+                seen.add(cid)
+                order.append(cid)
+    return order
+
+
+def split_pool_into_pages(pool_order: list[int], page_tiles: int) -> list[list[int]]:
+    """Split the ordered pool into contiguous pages of <= page_tiles each.
+    Each page is independently decompressible and loads to slots
+    [page_index*page_tiles .. +len)."""
+    return [pool_order[i:i + page_tiles] for i in range(0, len(pool_order), page_tiles)]
+
+
+# ---------------------------------------------------------------------------
 # Nametable strip remap
 # ---------------------------------------------------------------------------
 
@@ -141,111 +166,3 @@ def pack_regions(
         slots.append(regions[region_idx][0] + region_used)
         region_used += 1
     return slots
-
-
-# ---------------------------------------------------------------------------
-# Section adjacency graph + DSATUR coloring + per-section slot assignment (§2 A.3)
-# ---------------------------------------------------------------------------
-
-def compute_adjacency(grid_w: int, grid_h: int) -> list[tuple[int, int]]:
-    """4-neighbor adjacency on a grid_w × grid_h section grid.
-
-    Section IDs are flat row-major: id = sec_y * grid_w + sec_x.
-    Returns sorted list of (a, b) tuples with a < b.
-
-    Diagonals are excluded — the leapfrog slot system never holds two
-    diagonally-adjacent sections simultaneously.
-    """
-    edges: list[tuple[int, int]] = []
-    for y in range(grid_h):
-        for x in range(grid_w):
-            sid = y * grid_w + x
-            if x + 1 < grid_w:
-                edges.append((sid, sid + 1))
-            if y + 1 < grid_h:
-                edges.append((sid, sid + grid_w))
-    return sorted(edges)
-
-
-def color_sections(num_sections: int, edges: list[tuple[int, int]]) -> list[int]:
-    """DSATUR greedy graph coloring (Brélaz 1979).
-
-    Returns a list of length num_sections where colors[s] is the color
-    (0-indexed) assigned to section s. Adjacent sections are guaranteed
-    different colors. Provably optimal on bipartite, cycle, and wheel
-    graphs (which covers all reasonable Sonic act adjacency shapes).
-    """
-    neighbors: dict[int, set[int]] = {i: set() for i in range(num_sections)}
-    for a, b in edges:
-        neighbors[a].add(b)
-        neighbors[b].add(a)
-
-    colors: list[int] = [-1] * num_sections
-    while True:
-        uncolored = [s for s in range(num_sections) if colors[s] == -1]
-        if not uncolored:
-            break
-
-        def sat(s: int) -> int:
-            return len({colors[n] for n in neighbors[s] if colors[n] != -1})
-
-        chosen = max(
-            uncolored,
-            key=lambda s: (sat(s), len(neighbors[s]), -s),
-        )
-        forbidden = {colors[n] for n in neighbors[chosen] if colors[n] != -1}
-        c = 0
-        while c in forbidden:
-            c += 1
-        colors[chosen] = c
-
-    return colors
-
-
-def assign_section_slots(
-    per_section_tiles: list[list[int]],
-    colors: list[int],
-    region_start: int = 0,
-) -> tuple[list[int], list[dict[int, int]], list[list[int]]]:
-    """Compute per-section VRAM tile-slot assignment given a coloring.
-
-    Sections in the same color share a VRAM range AND a union tile blob.
-    Every tile used by any section in the color group gets a stable VRAM
-    slot, so loading the union blob for any section populates all slots.
-
-    Returns:
-      color_bases[c]         = VRAM tile-slot start for color c
-      section_slots[s]       = dict mapping canonical_tile_id → VRAM tile slot
-      color_union_tiles[c]   = ordered list of canonical tile IDs in color c's union
-    """
-    if not per_section_tiles:
-        return [], [], []
-
-    num_colors = max(colors) + 1
-
-    color_union_tiles: list[list[int]] = [[] for _ in range(num_colors)]
-    color_union_sets: list[set[int]] = [set() for _ in range(num_colors)]
-    for s, tiles in enumerate(per_section_tiles):
-        c = colors[s]
-        for tile_id in tiles:
-            if tile_id not in color_union_sets[c]:
-                color_union_sets[c].add(tile_id)
-                color_union_tiles[c].append(tile_id)
-
-    color_bases: list[int] = []
-    cursor = region_start
-    for c in range(num_colors):
-        color_bases.append(cursor)
-        cursor += len(color_union_tiles[c])
-
-    color_slot_maps: list[dict[int, int]] = []
-    for c in range(num_colors):
-        base = color_bases[c]
-        slot_map = {tile_id: base + offset for offset, tile_id in enumerate(color_union_tiles[c])}
-        color_slot_maps.append(slot_map)
-
-    section_slots: list[dict[int, int]] = []
-    for s in range(len(per_section_tiles)):
-        section_slots.append(color_slot_maps[colors[s]])
-
-    return color_bases, section_slots, color_union_tiles
