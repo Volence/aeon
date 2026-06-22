@@ -22,11 +22,76 @@ Parallax_Init:
 
         move.l  a0, (Parallax_Current_Config).w
 
+        ; Seed the previous-section trackers to a sentinel (the .zero loop
+        ; above just cleared them to 0,0, a valid grid coord). $FF,$FF can
+        ; never match a real section, so the first Parallax_CheckBoundary
+        ; re-selects the start section's config — a no-op against the config
+        ; this Init already chose, but it primes Prev_Sec_X/Y correctly.
+        move.b  #$FF, (Parallax_Prev_Sec_X).w
+        move.b  #$FF, (Parallax_Prev_Sec_Y).w
+
         ; Snap all band scrolls to their correct positions on the first
         ; frame instead of lerping from 0. One Update with Snap_Pending
         ; writes target_scroll directly to current_scroll for every band.
         st      (Parallax_Snap_Pending).w
         bsr.w   Parallax_Update
+        rts
+
+; ----------------------------------------------------------------------
+; Parallax_CheckBoundary — per-section parallax: re-select config on a
+; section-boundary crossing.
+;
+; Continuous-scroll replacement for the deleted teleport-driven snap. The
+; camera scrolls live in world space, so there is no teleport to hang the
+; config switch on; instead we watch the section under the camera CENTRE
+; (matching the active-section semantic used for the diagnostic tint) and
+; act the frame it changes. On a crossing we look up the new section's
+; Sec_sec_parallax_config (Act_act_parallax_config when NULL) and hand it
+; to Parallax_StartTransition, which decides snap vs. lerp from the new
+; config's pcfg_transition flag and no-ops when the config is unchanged.
+;
+; Edge-triggered: the per-frame cost off a boundary is two shifts and a
+; byte compare. Out-of-grid sections (Section_GetSecPtrXY Z set) are left
+; alone — the camera is clamped in-grid, but the guard keeps this robust.
+;
+; In:  none (reads Camera_X/Y, Current_Act_Ptr, Parallax_Prev_Sec_X/Y)
+; Out: config switched + transition staged iff a crossing changed it.
+; Clobbers: d0-d3, a0, a2
+; ----------------------------------------------------------------------
+Parallax_CheckBoundary:
+        ; -- section under the camera centre (camX+160 / camY+112) --
+        move.w  (Camera_X).w, d2                    ; world X px (high word)
+        addi.w  #SCREEN_WIDTH/2, d2
+        moveq   #SECTION_SIZE_SHIFT, d0
+        asr.w   d0, d2                              ; d2 = cur_sec_x
+        move.w  (Camera_Y).w, d3                    ; world Y px
+        addi.w  #SCREEN_HEIGHT/2, d3
+        asr.w   d0, d3                              ; d3 = cur_sec_y
+
+        ; -- crossing? compare against last frame's section --
+        cmp.b   (Parallax_Prev_Sec_X).w, d2
+        bne.s   .crossed
+        cmp.b   (Parallax_Prev_Sec_Y).w, d3
+        beq.s   .no_crossing
+.crossed:
+        ; -- look up the new section (a2 = act ptr) --
+        movea.l (Current_Act_Ptr).w, a2
+        jsr     Section_GetSecPtrXY                 ; a0 = Sec ptr (Z set = out of grid)
+        beq.s   .no_crossing                        ; out of grid — keep current config
+
+        ; commit the new section coords only once we have a valid section
+        move.b  d2, (Parallax_Prev_Sec_X).w
+        move.b  d3, (Parallax_Prev_Sec_Y).w
+
+        ; -- resolve config: section's own, else act default --
+        movea.l Sec_sec_parallax_config(a0), a0
+        cmpa.w  #0, a0
+        bne.s   .have_config
+        movea.l (Current_Act_Ptr).w, a0
+        movea.l Act_act_parallax_config(a0), a0
+.have_config:
+        bra.w   Parallax_StartTransition            ; snap/lerp + mode shadow; no-op if unchanged
+.no_crossing:
         rts
 
 ; ----------------------------------------------------------------------

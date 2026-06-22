@@ -152,7 +152,13 @@ Parallax_Current_Config:     ds.l 1     ; ptr to active parallax_config
 Parallax_Target_Config:      ds.l 1     ; ptr to incoming during transition
 Parallax_Transition_Frames:  ds.b 1     ; frames remaining; 0 = stable
 Parallax_Snap_Pending:       ds.b 1     ; 1 = next Update writes target_scroll directly to current (skip lerp)
-Parallax_Pad:                ds.b 2
+; Per-section parallax: section grid coords under the camera centre on the
+; previous frame. A change in either is a section-boundary crossing, which
+; re-selects the active config (Sec_sec_parallax_config, Act fallback) via
+; Parallax_CheckBoundary. Seeded to $FF in Parallax_Init so the first frame
+; always re-selects (a no-op against the config init already chose).
+Parallax_Prev_Sec_X:         ds.b 1     ; (was Parallax_Pad, byte 0)
+Parallax_Prev_Sec_Y:         ds.b 1     ; (was Parallax_Pad, byte 1)
 Parallax_Vscroll_Column_Buf: ds.b 80    ; 40 VSRAM entries × 2 bytes
 ; Per-frame screen-space band view (Step 4a): the config's plane-space band
 ; list rotated by Vscroll_BG, tops rebased to screen cells. Fillers consume

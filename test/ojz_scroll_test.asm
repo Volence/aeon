@@ -206,24 +206,12 @@ GameState_OJZScroll_Update:
         jsr     Section_FlatIDXY               ; d0.w = flat section_id (cross-module: jsr, not bsr.w)
         move.w  d0, d6                         ; save flat_id for T14 + T15
 
-        ; -- §4.6 T14: parallax follows active slot --
-        tst.b   (Parallax_Snap_Pending).w
-        bne.s   .skip_t14
-        movea.l Act_sec_grid_ptr(a0), a1
-        move.w  d6, d0
-        move.w  d0, d1
-        lsl.w   #6, d0                          ; flat_id × 64
-        lsl.w   #3, d1                          ; flat_id × 8
-        add.w   d1, d0                          ; flat_id × 72 = Sec_len
-        adda.w  d0, a1                          ; a1 = active sec entry
-        movea.l Sec_sec_parallax_config(a1), a0 ; a0 = active config
-        cmpa.w  #0, a0
-        bne.s   .t14_have_config
-        movea.l (Current_Act_Ptr).w, a0
-        movea.l Act_act_parallax_config(a0), a0
-.t14_have_config:
-        jsr     Parallax_StartTransition
-.skip_t14:
+        ; -- per-section parallax: re-select the config on a section-boundary
+        ;    crossing. Edge-triggered inside Parallax_CheckBoundary (watches
+        ;    the section under the camera centre, same as flat_id above), it
+        ;    replaces the deleted teleport-driven snap and the old per-frame
+        ;    StartTransition call. --
+        jsr     Parallax_CheckBoundary
 
         ; -- T15 diagnostic: per-section sky-color marker --
         move.w  d6, d0                          ; flat section_id
