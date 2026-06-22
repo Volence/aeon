@@ -9,12 +9,7 @@
 ; Clobbers: d1
 ; -----------------------------------------------
 Engine_To_World_Col:
-        subi.w  #SLOT_ORIGIN_L/8, d0
-        moveq   #0, d1
-        move.b  (Slot_Section_Map).w, d1
-        lsl.w   #8, d1
-        add.w   d1, d0
-        rts
+        rts                                 ; world == engine (continuous-scroll); pass-through
 
 ; -----------------------------------------------
 ; Engine_To_World_Row — convert engine tile row to world tile row
@@ -23,12 +18,7 @@ Engine_To_World_Col:
 ; Clobbers: d1
 ; -----------------------------------------------
 Engine_To_World_Row:
-        subi.w  #SLOT_ORIGIN_U/8, d0
-        moveq   #0, d1
-        move.b  (Slot_Section_Map+1).w, d1
-        lsl.w   #8, d1
-        add.w   d1, d0
-        rts
+        rts                                 ; world == engine (continuous-scroll); pass-through
 
 ; -----------------------------------------------
 ; Tile_Cache_GetTile — look up nametable word for a world tile position

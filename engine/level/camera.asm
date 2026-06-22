@@ -15,17 +15,24 @@ CAM_MAX_X_STEP      = 16        ; max horizontal scroll px/frame (classic S2/CD;
 ; Clobbers: d0, a0
 ; -----------------------------------------------
 Camera_Init:
-        ; Camera_X/Y are 16.16 fixed-point
-        ; start X = SLOT_ORIGIN_L + start_local_x - CAM_SCREEN_HALF_W
-        move.w  Act_start_local_x(a0), d0
-        addi.w  #SLOT_ORIGIN_L, d0
+        ; Camera_X/Y are 16.16 fixed-point, WORLD coordinates (continuous-scroll).
+        ; start X = (start_sec_x << SECTION_SIZE_SHIFT) + start_local_x - CAM_SCREEN_HALF_W
+        moveq   #0, d0
+        move.b  Act_start_sec_x(a0), d0
+        lsl.l   #8, d0                             ; sec_x << 11 (SECTION_SIZE_SHIFT,
+        lsl.l   #3, d0                             ; split 8+3: max shift is 8/op)
+        add.w   Act_start_local_x(a0), d0          ; section world origin (px) + local
         subi.w  #CAM_SCREEN_HALF_W, d0
         swap    d0
         clr.w   d0
         move.l  d0, (Camera_X).w
 
-        move.w  Act_start_local_y(a0), d0
-        addi.w  #SLOT_ORIGIN_U, d0
+        ; start Y = (start_sec_y << SECTION_SIZE_SHIFT) + start_local_y - CAM_SCREEN_HALF_H
+        moveq   #0, d0
+        move.b  Act_start_sec_y(a0), d0
+        lsl.l   #8, d0                             ; sec_y << 11 (SECTION_SIZE_SHIFT,
+        lsl.l   #3, d0                             ; split 8+3: max shift is 8/op)
+        add.w   Act_start_local_y(a0), d0          ; section world origin (px) + local
         subi.w  #CAM_SCREEN_HALF_H, d0
         swap    d0
         clr.w   d0
@@ -112,49 +119,28 @@ Camera_Update:
         add.l   d3, (Camera_X).w
 
 .no_move:
-        ; clamp to act bounds (always run regardless of deadzone)
+        ; -- continuous-scroll X clamp: [0, level_width − SCREEN_WIDTH] --
+        ;    level_width = grid_w << SECTION_SIZE_SHIFT. No more Section_Edge_Flags
+        ;    / PREVIEW_PIXELS branches — the world camera spans the whole act.
+        ;    .no_move (entered from the deadzone-hold path and the spindash
+        ;    freeze) and .clamp_x are kept as targets; the old .check_max_x /
+        ;    .have_min / .have_max labels are gone (only this block referenced
+        ;    them). Control still falls through into .y_track below.
         movea.l (Current_Act_Ptr).w, a0
         move.l  (Camera_X).w, d0
         swap    d0
-
-        ; -- §4.2: dynamic min_x — extend by PREVIEW_PIXELS into BWD preview
-        ;    region unless we're at the first pair (Sec(-1) doesn't exist;
-        ;    BWD preview unreachable ⇔ the BWD teleport is unavailable).
-        ;    Edge predicate shared via Section_Edge_Flags: Section_Check
-        ;    gates the teleport and Player_LevelBound places the playable
-        ;    bound off the SAME bits. --
-        move.w  Act_cam_min_x(a0), d1
-        btst    #SEF_BWD_BLOCKED, (Section_Edge_Flags).w
-        bne.s   .have_min                           ; at first pair → keep act default
-        subi.w  #PREVIEW_PIXELS, d1                 ; allow scroll into BWD preview
-.have_min:
+        tst.w   d0
+        bge.s   .min_ok
+        moveq   #0, d0
+.min_ok:
+        moveq   #0, d1
+        move.w  Act_grid_w(a0), d1
+        lsl.l   #8, d1                              ; grid_w << 11 = level_width (px)
+        lsl.l   #3, d1                              ; (SECTION_SIZE_SHIFT, split 8+3)
+        subi.w  #SCREEN_WIDTH, d1
         cmp.w   d1, d0
-        bge.s   .check_max_x
+        ble.s   .clamp_x
         move.w  d1, d0
-        bra.s   .clamp_x
-
-.check_max_x:
-        ; -- §4.2: dynamic max_x — extend by PREVIEW_PIXELS into FWD preview
-        ;    region unless we're at the last pair (no next FWD section).
-        ;    Void slot 1 (SEC_VOID, act edge on an odd-width grid): the
-        ;    playable area is slot 0 only — clamp at its right edge so the
-        ;    view never shows the out-of-world region. Same shared
-        ;    Section_Edge_Flags predicate as .have_min above. --
-        move.b  (Section_Edge_Flags).w, d2
-        btst    #SEF_FWD_VOID, d2
-        beq.s   .max_x_in_grid
-        move.w  #SLOT_ORIGIN_L+SECTION_SIZE-SCREEN_WIDTH, d1
-        bra.s   .have_max
-.max_x_in_grid:
-        move.w  Act_cam_max_x(a0), d1
-        btst    #SEF_FWD_BLOCKED, d2
-        bne.s   .have_max                           ; at last pair → no FWD preview
-        addi.w  #PREVIEW_PIXELS, d1
-.have_max:
-        cmp.w   d1, d0
-        ble.s   .y_track
-        move.w  d1, d0
-
 .clamp_x:
         swap    d0
         clr.w   d0
@@ -230,35 +216,35 @@ Camera_Update:
         add.l   d3, (Camera_Y).w
 
 .clamp_y:
+        ; -- continuous-scroll Y clamp: camera-derived sec_y, conservative
+        ;    Act_cam_min_y/max_y bounds kept for Phase 1 (only the top/bottom
+        ;    grid rows are bounded; interior rows scroll freely). sec_y is now
+        ;    derived from Camera_Y itself, not Slot_Section_Map+1. --
         movea.l (Current_Act_Ptr).w, a0
         move.l  (Camera_Y).w, d0
         swap    d0
-
-        ; -- dynamic min_y: apply only at top row (no section above) --
-        tst.b   (Slot_Section_Map+1).w
-        bne.s   .check_max_y                         ; sec_y > 0 → section above, skip min_y
+        moveq   #0, d2
+        move.w  d0, d2
+        lsr.l   #8, d2                              ; Camera_Y px >> 11 = sec_y
+        lsr.l   #3, d2                              ; (SECTION_SIZE_SHIFT, split 8+3)
+        tst.w   d2
+        bne.s   .check_max_y
         move.w  Act_cam_min_y(a0), d1
         cmp.w   d1, d0
         bge.s   .check_max_y
         move.w  d1, d0
         bra.s   .write_y
-
 .check_max_y:
-        ; -- dynamic max_y: apply only at bottom row (no section below) --
-        moveq   #0, d2
-        move.b  (Slot_Section_Map+1).w, d2
-        addq.b  #1, d2
-        cmp.b   Act_grid_h+1(a0), d2
-        bcs.s   .y_done                              ; < grid_h → section below, skip max_y
+        addq.w  #1, d2
+        cmp.w   Act_grid_h(a0), d2
+        bcs.s   .y_done
         move.w  Act_cam_max_y(a0), d1
         cmp.w   d1, d0
         ble.s   .y_done
         move.w  d1, d0
-
 .write_y:
         swap    d0
         clr.w   d0
         move.l  d0, (Camera_Y).w
-
 .y_done:
         rts

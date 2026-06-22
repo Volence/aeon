@@ -52,7 +52,10 @@ GameState_OJZScroll_Init:
 
         ; -- initialise Player_1 at camera-center position so Camera_Update's
         ;    deadzone tracking begins at rest (no jolt on first frame).
-        ;    Player_1.x_pos = Camera_X + CAM_SCREEN_HALF_W; same for Y. --
+        ;    Player_1.x_pos = Camera_X + CAM_SCREEN_HALF_W; same for Y.
+        ;    Camera_X/Y are now WORLD coords (continuous-scroll, Task 2), and
+        ;    the spawn derives purely from Camera_X — no SLOT_ORIGIN bias — so
+        ;    it is already world-correct; no change needed here. --
         move.w  (Camera_X).w, d0                ; high word of camera_x (16.16 → integer pixels)
         addi.w  #CAM_SCREEN_HALF_W, d0
         swap    d0
