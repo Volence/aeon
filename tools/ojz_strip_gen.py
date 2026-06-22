@@ -9,7 +9,8 @@ Usage:
     python3 tools/ojz_strip_gen.py generate  # generate strip data files
 
 Output: data/generated/ojz/act1/sec{N}_strips_a.bin for each OJZ section.
-        data/generated/ojz/act1/sec{N}_tiles.bin (per-section tile blob, §2 A.3).
+        data/generated/ojz/act1/act_pool_page{N}.bin (global deduped act art pool, paged).
+        data/generated/ojz/act1/ojz_act_pool_manifest.asm (page count + per-page VRAM slot base).
         data/generated/ojz/act1/zone_bg.bin (zone-wide Plane B nametable, §2 A.5 T1).
         data/generated/ojz/act1/ojz_palette.bin (copied from sonic_hack).
 
@@ -556,16 +557,6 @@ def decompress_full_ojz_art(path: str) -> bytes:
     return bytes(out)
 
 
-def _ojz_grid_dimensions(sec_ids: list[str]) -> tuple[int, int]:
-    """Read OJZ act layout grid dimensions.
-
-    OJZ act 1 uses a flat horizontal layout. For now hard-coded to
-    (len(sec_ids), 1). Future acts with 2D grids should parse the
-    descriptor or pass dims explicitly.
-    """
-    return (len(sec_ids), 1)
-
-
 def collect_referenced_tiles(
     all_section_strips: dict,  # sec_id → list[list[int]]
     full_tile_blob: bytes,
@@ -916,7 +907,7 @@ def test_full_pipeline_runs():
         finally:
             OUTPUT_DIR = saved
             COLLISION_DIR = saved_coll
-    print(f"  [OK] test_full_pipeline_runs: act art pool fits in {REGION1_TILE_CAPACITY} tiles")
+    print("  [OK] test_full_pipeline_runs: all act art pool pages fit one page each")
 
 
 def run_tests():
@@ -1268,14 +1259,13 @@ def generate():
         per_section_canon_tiles.append(ordered)
 
     # ---- Pass 4: global act art pool — spatially ordered, no per-section partition ----
-    from tile_dedupe import order_pool_spatially, split_pool_into_pages
-    pool_order = order_pool_spatially(per_section_canon_tiles)   # canon IDs in pool order
+    pool_order = tile_dedupe.order_pool_spatially(per_section_canon_tiles)   # canon IDs in pool order
     assert len(pool_order) <= REGION1_TILE_CAPACITY, (
         f"act art pool {len(pool_order)} tiles > VRAM capacity {REGION1_TILE_CAPACITY}")
     canon_to_pool = {cid: idx for idx, cid in enumerate(pool_order)}  # canon ID -> pool index (== VRAM slot)
-    pages = split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
+    pages = tile_dedupe.split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
 
-    # ---- Pass 5: rewrite each section's strips using its own slot map ----
+    # ---- Pass 5: rewrite each section's strips against the global pool slot map ----
     total_strips = 0
     first_strips = None
     for s_idx, sec_id in enumerate(sec_ids_in_order):
