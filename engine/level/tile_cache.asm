@@ -211,11 +211,14 @@ TileCache_DecompressBlock:
 .mul_test:
         dbf     d5, .mul_loop
         add.w   d0, d3                         ; d3 = flat section id
-        ; d3 × Sec_len (72 = 64+8)
+        ; d3 × Sec_len ($42 = 66 = 64 + 2)
+        if Sec_len <> 66
+          error "tile_cache Sec stride (lsl #6 + lsl #1 = ×66) assumes Sec_len=66 — update the shifts"
+        endif
         move.w  d3, d4
-        lsl.w   #6, d3
-        lsl.w   #3, d4
-        add.w   d4, d3
+        lsl.w   #6, d3                         ; flat × 64
+        lsl.w   #1, d4                         ; flat × 2
+        add.w   d4, d3                         ; flat × 66
         adda.w  d3, a1                         ; a1 = Sec struct pointer
 
         movea.l Sec_sec_block_index(a1), a2    ; a2 = block index table base (ROM)

@@ -174,12 +174,15 @@ Section_GetSecPtrXY:
         move.b  d2, d1
         add.w   d1, d0                              ; d0 = flat section index
 
-        ; d0 × Sec_len ($48 = 72 = 64 + 8)
+        ; d0 × Sec_len ($42 = 66 = 64 + 2)
+        if Sec_len <> 66
+          error "Section_GetSecPtrXY stride (lsl #6 + lsl #1 = ×66) assumes Sec_len=66 — update the shifts"
+        endif
         movea.l Act_sec_grid_ptr(a2), a0
         move.w  d0, d1
         lsl.w   #6, d0                              ; flat × 64
-        lsl.w   #3, d1                              ; flat × 8
-        add.w   d1, d0                              ; flat × 72
+        lsl.w   #1, d1                              ; flat × 2
+        add.w   d1, d0                              ; flat × 66
         adda.w  d0, a0
 
         tst.l   (a0)
