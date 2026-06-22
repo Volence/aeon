@@ -124,7 +124,11 @@ DMA_BUDGET_PAL          = 15000         ; usable DMA bytes per PAL VBlank
 ; Decompression (§2)
 ; -----------------------------------------------
 TILE_SIZE               = 32            ; bytes per 8x8 4bpp tile
-DECOMP_BUFFER_SIZE      = 32768         ; 32KB decompression work buffer
+
+; Act art pool (Act Art Streaming Phase 1) — paged global tileset.
+; One page = 256 tiles; matches the build tool + ojz_strip_gen page slots.
+ART_POOL_PAGE_TILES     = 256                       ; tiles per pool page (matches build tool + ojz_strip_gen)
+ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES*32    ; 8192 — one decompressed pool page
 
 ; -----------------------------------------------
 ; Object System (§3)

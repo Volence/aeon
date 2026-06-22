@@ -3,9 +3,9 @@
 ; Upper 32KB ($FFFF8000+) for hot data — .w addressing for speed
 
 ; -----------------------------------------------
-; Lower RAM — 2D tile cache, block staging, streaming buffers (§4.7)
-; Replaces Decomp_Buffer after level init. LoadArt_Compressed still
-; writes here during init (display off, before cache is populated).
+; Lower RAM — 2D tile cache, block staging, streaming buffers (§4.7).
+; Art_Staging_Buffer (below) reuses the tile-cache nametable RAM during
+; display-off level init to stage decompressed art pages before DMA.
 ; -----------------------------------------------
         phase $FFFF0000
 
@@ -24,9 +24,15 @@ Tile_Cache_Collision:   ds.b TILE_CACHE_COLL_SIZE * TILE_CACHE_COLL_PLANES  ; 48
 ; Keys live in upper RAM (Block_Stage_Keys).
 Block_Stage_Buffers:    ds.b BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS  ; 9216 bytes (12×768)
 
-; Keep Decomp_Buffer as alias for LoadArt_Compressed backward compat
-Decomp_Buffer = Tile_Cache_Nametable
-Decomp_Buffer_End = Tile_Cache_Nametable + TILE_CACHE_NT_SIZE
+; Art staging — decompress one art-pool page here at level init (display off),
+; then DMA it to VRAM. Reuses the tile-cache nametable RAM, which is NOT yet
+; populated during display-off level init. INIT-ONLY; never used after the
+; cache goes live.
+Art_Staging_Buffer = Tile_Cache_Nametable
+
+        if ART_STAGING_BUFFER_SIZE > TILE_CACHE_NT_SIZE
+          error "Art staging buffer (\{ART_STAGING_BUFFER_SIZE}) exceeds tile-cache RAM"
+        endif
 
 Lower_RAM_End:
 

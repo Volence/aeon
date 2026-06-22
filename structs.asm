@@ -139,13 +139,14 @@ sec_pcfg_pad_3C     ds.b 1          ; $3C — RESERVED (was sec_layer_mask; in p
 sec_camera_lookahead ds.b 1         ; $3D — lookahead pixels (0 = zone default)
 sec_pcfg_pad_3E     ds.b 1          ; $3E — RESERVED (was sec_deform_speed)
 sec_pcfg_pad_3F     ds.b 1          ; $3F — RESERVED (was sec_transition_type)
-sec_tile_art        ds.l 1          ; $40 — per-section compressed tile blob ptr (§2 A.3; wrapper version byte selects decoder — ZX0 in production)
-sec_tile_art_vram   ds.w 1          ; $44 — VRAM byte dest (color base × 32)
-sec_block_dict_len  ds.w 1          ; $46 — dict bytes (768×K, K≤3, word-even; 0 = no dict)
+; sec_tile_art / sec_tile_art_vram removed (Act Art Streaming Phase 1):
+; per-section art replaced by the act-wide paged art pool carried on the Act
+; descriptor (act_art_pool_table / act_art_pool_pages).
+sec_block_dict_len  ds.w 1          ; $40 — dict bytes (768×K, K≤3, word-even; 0 = no dict)
 Sec endstruct
 
-    if Sec_len <> $48
-      error "Sec struct is \{Sec_len} bytes, expected $48"
+    if Sec_len <> $42
+      error "Sec struct is \{Sec_len} bytes, expected $42"
     endif
 
 ; -----------------------------------------------
@@ -197,7 +198,7 @@ parallax_config endstruct
     endif
 
 ; -----------------------------------------------
-; Act Descriptor (§4) — 28 bytes ($1C), ROM table
+; Act Descriptor (§4) — 40 bytes ($28), ROM table
 ; Fields prefixed with Act_ to match access pattern Act_fieldname(reg).
 ; -----------------------------------------------
 Act struct
@@ -215,10 +216,12 @@ cam_max_y           ds.w 1          ; $14 — camera Y upper bound (pixels)
 act_bg_layout       ds.l 1          ; $16 — zone-wide Plane B layout pointer (T1 default)
 act_bg_tiles        ds.l 1          ; $1A — zone-wide Plane B tile blob (raw, loaded into shared BG region)
 act_parallax_config ds.l 1          ; $1E — default parallax config (fallback when section's is NULL)
+act_art_pool_table  ds.l 1          ; $22 — ptr to page-address table (OJZ_Act_Pool_PageTable; Act Art Streaming Phase 1)
+act_art_pool_pages  ds.w 1          ; $26 — number of pool pages (OJZ_ACT_POOL_PAGES)
 Act endstruct
 
-    if Act_len <> $22
-      error "Act struct is \{Act_len} bytes, expected $22"
+    if Act_len <> $28
+      error "Act struct is \{Act_len} bytes, expected $28"
     endif
 
 ; -----------------------------------------------
