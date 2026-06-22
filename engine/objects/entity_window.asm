@@ -549,32 +549,36 @@ EntityWindow_InitSection:
         rts
 
 ; -----------------------------------------------
-; EntityWindow_DeriveWindow — absolute window anchor from the camera envelope
+; EntityWindow_DeriveWindow — absolute window anchor from the WORLD camera
 ;
 ; The tracked 2×2 = the sections overlapped by the camera's DESPAWN envelope
 ; (the widest band), so any live windowed entity's section is always tracked.
 ; Envelope spans < SECTION_SIZE on both axes → always exactly 2 cols × 2 rows
 ; (screen+2×buffer < SECTION_SIZE on both axes — see constants.asm).
 ;
-; Out: d2.b = sec_x0 (slot0 sec_x + col0 — may be "negative"/past-grid; the
-;             grid range check voids such cells downstream)
+; Continuous-scroll: Camera_X/Y are WORLD px, so the anchor section is derived
+; straight from the world camera — no Slot_Section_Map base + SLOT_ORIGIN bias.
+;   sec_x0 = (Camera_X − ENTITY_DESPAWN_BUFFER) >> SECTION_SIZE_SHIFT
+; asr floors toward −1 near the world origin (intentional); the unsigned grid
+; range check in Section_GetSecPtrXY voids the resulting "negative" cell.
+;
+; Out: d2.b = sec_x0 (may be "negative"/past-grid; the grid range check voids
+;             such cells downstream)
 ;      d3.b = sec_y0
-;      d4.w = col0 (signed — entry origin derivation needs it)
-;      d5.w = row0 (signed)
+;      d4.w = sec_x0 (word copy — entry origin derivation needs it)
+;      d5.w = sec_y0 (word)
 ; Clobbers: d0
 ; -----------------------------------------------
 EntityWindow_DeriveWindow:
-        move.w  (Camera_X).w, d4
-        subi.w  #SLOT_ORIGIN_L+ENTITY_DESPAWN_BUFFER, d4
+        move.w  (Camera_X).w, d4        ; world X px (16.16 high word)
+        subi.w  #ENTITY_DESPAWN_BUFFER, d4
         moveq   #SECTION_SIZE_SHIFT, d0
-        asr.w   d0, d4                  ; d4 = col0 (floor — asr is negative-safe)
-        move.w  (Camera_Y).w, d5
-        subi.w  #SLOT_ORIGIN_U+ENTITY_DESPAWN_BUFFER_Y, d5
-        asr.w   d0, d5                  ; d5 = row0
-        move.b  (Slot_Section_Map).w, d2        ; slot0 sec_x
-        add.b   d4, d2                  ; d2 = sec_x0 (byte wrap OK — range check voids)
-        move.b  (Slot_Section_Map+1).w, d3      ; slot0 sec_y
-        add.b   d5, d3                  ; d3 = sec_y0
+        asr.w   d0, d4                  ; d4 = sec_x0 (floor — asr is negative-safe)
+        move.w  (Camera_Y).w, d5        ; world Y px
+        subi.w  #ENTITY_DESPAWN_BUFFER_Y, d5
+        asr.w   d0, d5                  ; d5 = sec_y0
+        move.w  d4, d2                  ; d2.b = sec_x0 (byte wrap OK — range check voids)
+        move.w  d5, d3                  ; d3.b = sec_y0
         rts
 
 ; -----------------------------------------------
@@ -583,29 +587,27 @@ EntityWindow_DeriveWindow:
 ;
 ; Quadrants: entry 0 = (sec_x0, sec_y0) … entry 3 = (sec_x0+1, sec_y0+1).
 ; Stores the absolute anchor in Entity_Window_Anchor (slide trigger +
-; teleport-invariance checks read it) and the signed column-0/row-0 origin
+; teleport-invariance checks read it) and the column-0/row-0 WORLD origin
 ; bases in Entity_Window_OriginX/Y. Void quadrants ("negative"/past-grid
 ; coordinates via Section_GetSecPtrXY's unsigned range check) get
 ; SEC_VOID-stamped entries and a clear validity bit.
 ;
-; In:  none (reads Camera_X/Y, Slot_Section_Map, Current_Act_Ptr)
+; In:  none (reads Camera_X/Y, Current_Act_Ptr)
 ; Out: Entity_Window_Active = validity mask; Entity_Window_Anchor +
 ;      Entity_Window_OriginX/Y updated
 ; Clobbers: d0-d7, a0-a3
 ; -----------------------------------------------
 EntityWindow_BuildEntries:
-        bsr.w   EntityWindow_DeriveWindow       ; d2/d3 = anchor, d4/d5 = col0/row0
+        bsr.w   EntityWindow_DeriveWindow       ; d2/d3 = anchor, d4/d5 = sec_x0/sec_y0
         move.b  d2, (Entity_Window_Anchor).w
         move.b  d3, (Entity_Window_Anchor+1).w
-        ; origin bases: SLOT_ORIGIN + col0/row0 × SECTION_SIZE (signed words —
-        ; may be −$600, $200, $A00, $1200)
+        ; origin bases: sec_x0/sec_y0 × SECTION_SIZE = world px of column-0/row-0
+        ; section left/top edge (signed words; "negative" cols are voided)
         moveq   #SECTION_SIZE_SHIFT, d0
         asl.w   d0, d4
-        addi.w  #SLOT_ORIGIN_L, d4
-        move.w  d4, (Entity_Window_OriginX).w   ; origin_x of column 0
+        move.w  d4, (Entity_Window_OriginX).w   ; origin_x of column 0 (world px)
         asl.w   d0, d5
-        addi.w  #SLOT_ORIGIN_U, d5
-        move.w  d5, (Entity_Window_OriginY).w   ; origin_y of row 0
+        move.w  d5, (Entity_Window_OriginY).w   ; origin_y of row 0 (world px)
 
         lea     (Entity_Scan_State).w, a3
         moveq   #0, d7                  ; d7 = validity mask
@@ -673,7 +675,7 @@ EntityWindow_BuildEntries:
 ; -----------------------------------------------
 ; EntityWindow_Init — set up entity window at level start
 ;
-; In:  none (reads Camera_X/Y, Slot_Section_Map, Current_Act_Ptr —
+; In:  none (reads Camera_X/Y, Current_Act_Ptr —
 ;      camera must be positioned before this runs)
 ; Out: none
 ; Clobbers: d0-d7, a0-a5
@@ -1565,7 +1567,7 @@ EntityWindow_MigrateMasks:
 ; slot-to-same-slot, populate never fires — teleports are populate-free.
 ; Cold path (≤ once per ~2048px of travel) — clarity over cycles.
 ;
-; In:  none (reads Camera_X/Y, Slot_Section_Map, Current_Act_Ptr)
+; In:  none (reads Camera_X/Y, Current_Act_Ptr)
 ; Out: none
 ; Clobbers: d0-d7, a0-a4
 ; -----------------------------------------------
@@ -1583,19 +1585,17 @@ EntityWindow_Slide:
         dbf     d0, .snapshot
 
         ; recenter the collected/killed 3×3 on the section containing the
-        ; camera CENTER (DeriveWindow-style math on camX+160 / camY+112 —
+        ; camera CENTER (DeriveWindow-style world math on camX+160 / camY+112 —
         ; always in-grid, so FlatIDXY needs no range check)
-        move.w  (Camera_X).w, d4
-        subi.w  #SLOT_ORIGIN_L-(SCREEN_WIDTH/2), d4
+        move.w  (Camera_X).w, d4        ; world X px
+        addi.w  #SCREEN_WIDTH/2, d4
         moveq   #SECTION_SIZE_SHIFT, d0
-        asr.w   d0, d4                  ; column of the camera center
-        move.w  (Camera_Y).w, d5
-        subi.w  #SLOT_ORIGIN_U-(SCREEN_HEIGHT/2), d5
-        asr.w   d0, d5                  ; row of the camera center
-        move.b  (Slot_Section_Map).w, d2
-        add.b   d4, d2                  ; sec_x
-        move.b  (Slot_Section_Map+1).w, d3
-        add.b   d5, d3                  ; sec_y
+        asr.w   d0, d4                  ; d2 = sec_x of the camera center
+        move.w  (Camera_Y).w, d5        ; world Y px
+        addi.w  #SCREEN_HEIGHT/2, d5
+        asr.w   d0, d5                  ; d3 = sec_y of the camera center
+        move.w  d4, d2                  ; sec_x
+        move.w  d5, d3                  ; sec_y
         movea.l (Current_Act_Ptr).w, a2
         bsr.w   Section_FlatIDXY        ; d0.w = camera-center flat id
         moveq   #0, d1
@@ -1683,7 +1683,7 @@ EntityWindow_RebuildScanState:
 ; Found by the invariance assert: BWD fired at camX $168 with anchor still
 ; (2,0) — the (1,0) slide was pending — pre/post anchors mismatched.
 ;
-; In:  none (reads Camera_X/Y, Slot_Section_Map — pre-rebase values)
+; In:  none (reads Camera_X/Y — pre-rebase values)
 ; Out: none
 ; Clobbers: d0-d7, a0-a4
 ; -----------------------------------------------
