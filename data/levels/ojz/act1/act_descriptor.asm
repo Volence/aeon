@@ -31,8 +31,8 @@ OJZ_Act1_Descriptor:
     dc.b    0                       ; start_sec_y = 0
     dc.w    SLOT_ORIGIN_L           ; cam_min_x ($200)
     dc.w    SLOT_ORIGIN_L + $1680   ; cam_max_x (approximate for 3 sections)
-    dc.w    SLOT_ORIGIN_U            ; cam_min_y ($200 — no section above row 0)
-    dc.w    SLOT_ORIGIN_U+SECTION_SHIFT-224 ; cam_max_y (bottom of lower slot minus screen height)
+    dc.w    0                       ; cam_min_y (world top of level; continuous-scroll Phase 1)
+    dc.w    2*SECTION_SIZE-224       ; cam_max_y (conservative 2-section vertical range, render-safe; Phase 2 lifts this)
     dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)
     dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles  (§2 A.5 T1 shared BG tile blob)
     dc.l    ParallaxConfig_OJZ_Default ; act_parallax_config (fallback for sections with NULL config)
