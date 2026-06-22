@@ -1,6 +1,7 @@
-; Level art loader (§2 Phase 2 A.1/A.2/A.3)
-; Blocking decompress → DMA pipeline. A.3 reorganized loading around
-; per-section pools (graph-colored) instead of global region pools.
+; Level art loader (§2 Phase 2 A.1/A.2 → Act Art Streaming Phase 1)
+; Blocking decompress → DMA pipeline. Act Art Streaming Phase 1 replaced the
+; per-section pools with a single act-wide paged art pool that is fully
+; resident in VRAM for the life of the act (loaded once at init).
 
 ; -----------------------------------------------
 ; Art_Decompress — version-dispatched blocking art decompressor.
@@ -28,141 +29,64 @@ Art_Decompress:
         bra.w   ZX0_Decompress
 
 ; -----------------------------------------------
-; LoadArt_Compressed — decompress an art blob and queue Critical DMA to VRAM.
+; Level_LoadArt — load the WHOLE act art pool to VRAM, then init BG.
 ;
-; In:  a0 = source ROM pointer (wrapped art blob, word-aligned)
-;      d0.w = VRAM byte destination (tile-slot * 32)
-; Out: a0 = past end of compressed data (returned from Art_Decompress)
-; Clobbers: d0–d3, a0–a3
+; In:  a0 = act descriptor pointer
+; Out: none
+; Clobbers: d0–d7, a0–a3 (a4–a6 preserved by callee discipline below)
 ;
-; Uses Decomp_Buffer (9,600-byte alias of Tile_Cache_Nametable at
-; $FFFF0000 — free only during init, before the tile cache is
-; populated). For loads exceeding one VBlank's DMA budget, the caller
-; is responsible for running with the display blanked off so multiple
-; Critical DMAs can drain across one extended VBlank.
+; Act Art Streaming Phase 1: the act ships one paged art pool. Each page
+; is a wrapped ZX0/S4LZ blob of up to ART_POOL_PAGE_TILES (256) tiles. We
+; decompress each page into Art_Staging_Buffer (8192 B, the init-only view
+; over the tile-cache RAM — free before the tile cache is populated) and
+; queue a Critical DMA to its fixed VRAM slot (page_index * 8192 bytes =
+; page_index << 13). The whole pool is then resident for the life of the
+; act, so section streaming/teleport never reloads tile art.
+;
+; Runs at init with the display blanked OFF (caller's responsibility) so
+; the multi-page Critical DMAs drain across the extended VBlank.
+;
+; Loop-live registers chosen to survive BOTH callees:
+;   Art_Decompress    clobbers d0–d3, a2–a3 (a4/d4 preserved)
+;   QueueDMA_Critical clobbers d0–d4, a1–a2
+;   VSync_Wait        clobbers d0
+; → a4 (act ptr), a5 (page table cursor), a6 (VRAM dest), d6 (page count-1)
+;   are all untouched across the calls.
 ; -----------------------------------------------
-LoadArt_Compressed:
-        movem.l d4-d6/a4, -(sp)
-        move.w  d0, d6                              ; d6.w = VRAM dest
-        movea.l a0, a4                              ; a4 = saved source ptr (size peek)
-        move.w  (a4), d4                            ; d4.w = uncompressed size (BE)
+Level_LoadArt:
+        movem.l d6/a4-a6, -(sp)
+        movea.l a0, a4                              ; a4 = act ptr (preserved)
 
-        ; -- skip the entire decompress + DMA if size is zero (placeholder blob) --
-        beq.s   .return
+        move.w  Act_act_art_pool_pages(a4), d6      ; d6.w = page count
+        beq.s   .done                               ; empty pool → nothing to load
+        subq.w  #1, d6                              ; d6 = count-1 (dbf counter)
 
-        lea     (Decomp_Buffer).l, a1               ; a1 = work buffer
-        bsr.s   Art_Decompress                      ; decompress; a0 advances past stream
+        movea.l Act_act_art_pool_table(a4), a5      ; a5 = page-address table cursor
+        suba.l  a6, a6                              ; a6 = VRAM byte dest, starts at 0
 
-        move.l  #Decomp_Buffer, d1                  ; d1 = source (RAM, $FFFF0000)
+.page_loop:
+        movea.l (a5)+, a0                           ; a0 = next page wrapper addr
+        move.w  (a0), d4                            ; d4.w = uncompressed size (BE)
+        beq.s   .next                               ; size 0 → skip (empty page stub)
+
+        lea     (Art_Staging_Buffer).l, a1          ; a1 = decompress scratch
+        bsr.w   Art_Decompress                      ; a4/d4 preserved across this
+
+        move.l  #Art_Staging_Buffer, d1             ; d1 = DMA source (RAM)
         moveq   #0, d2
-        move.w  d6, d2                              ; d2.w = VRAM dest
+        move.w  a6, d2                              ; d2.w = VRAM byte dest
         move.w  d4, d3                              ; d3.w = byte length
         bsr.w   QueueDMA_Critical
         bsr.w   VSync_Wait
 
-.return:
-        movem.l (sp)+, d4-d6/a4
-        rts
+.next:
+        lea     (ART_POOL_PAGE_TILES*32)(a6), a6    ; advance VRAM dest one page (8192 B)
+        dbf     d6, .page_loop
 
-; -----------------------------------------------
-; Section_LoadArt — load one section's tile art group.
-;
-; In:  a0 = Sec struct pointer
-; Out: none
-; Clobbers: d0–d4, a0–a4
-;
-; A.3 behaviour: each section has its own compressed art blob and VRAM dest.
-; Sections in the same color class overlay each other in VRAM as the
-; camera traverses; the leapfrog system guarantees that the two
-; currently-resident slots hold ADJACENT sections, which by graph-
-; coloring construction are in DIFFERENT colors → DIFFERENT VRAM ranges,
-; so both render correctly simultaneously.
-; -----------------------------------------------
-Section_LoadArt:
-        moveq   #0, d0
-        move.w  Sec_sec_tile_art_vram(a0), d0       ; d0.w = VRAM byte dest
-        movea.l Sec_sec_tile_art(a0), a0            ; a0 = compressed art source
-        cmpa.w  #0, a0
-        beq.s   .skip                               ; null pointer → no art for this section
-        bra.w   LoadArt_Compressed                  ; tail call
-.skip:
-        rts
-
-; -----------------------------------------------
-; Level_LoadArt — load tile art for both initial slot sections.
-;
-; In:  a0 = act descriptor pointer
-; Out: none
-; Clobbers: d0–d4, a0–a4
-;
-; A.3 behaviour: walks the slot section map and calls Section_LoadArt
-; for each slot's currently-assigned section. At Section_Init time, both
-; slots hold the starting section + its right neighbor (per leapfrog
-; convention).
-; -----------------------------------------------
-Level_LoadArt:
-        ; A.4 fix: read section IDs from act descriptor directly, NOT from
-        ; Slot_Section_Map. Test state calls Level_LoadArt BEFORE Section_Init,
-        ; so Slot_Section_Map is uninitialized at this point.
-        ; LoadArt_Compressed saves/restores a4 internally, so a4 survives across
-        ; nested calls — we use it to keep act ptr.
-        move.l  a4, -(sp)                           ; save caller's a4
-        movea.l a0, a4                              ; a4 = act ptr
-
-        ; -- flat start id = start_sec_y * grid_w + start_sec_x.
-        ;    Computed from the act descriptor (NOT Section_SlotFlatID):
-        ;    this runs before Section_Init, so Current_Act_Ptr and
-        ;    Slot_Section_Map are not valid yet. --
-        moveq   #0, d6
-        move.b  Act_start_sec_y(a4), d6
-        beq.s   .flat_add_x
-        move.w  d6, d0
-        moveq   #0, d6
-        subq.w  #1, d0
-.flat_mul:
-        add.w   Act_grid_w(a4), d6
-        dbf     d0, .flat_mul
-.flat_add_x:
-        moveq   #0, d0
-        move.b  Act_start_sec_x(a4), d0
-        add.w   d0, d6                              ; d6 = flat start section_id
-
-        ; -- slot 0 = start section --
-        bsr.w   .compute_sec_ptr                    ; a0 = Sec ptr (from d6)
-        bsr.w   Section_LoadArt                     ; clobbers a0/d0-d4; d6/a4 preserved
-        lea     (Section_Stream_State).w, a1
-        move.b  #SS_RESIDENT, (a1, d6.w)
-
-        ; -- slot 1 = start + 1, same row (skip if at grid edge) --
-        moveq   #0, d0
-        move.b  Act_start_sec_x(a4), d0
-        addq.b  #1, d0
-        cmp.b   Act_grid_w+1(a4), d0
-        bge.s   .skip_slot1
-        addq.w  #1, d6                              ; right neighbor = flat id + 1
-        bsr.w   .compute_sec_ptr                    ; a0 = Sec ptr
-        bsr.w   Section_LoadArt
-        lea     (Section_Stream_State).w, a1
-        move.b  #SS_RESIDENT, (a1, d6.w)
-
-.skip_slot1:
+.done:
         ; -- §2 A.5: blit zone-wide BG to Plane B nametable (T1) --
         movea.l a4, a0                              ; a0 = act ptr
         bsr.w   BG_Init
 
-        movea.l (sp)+, a4                           ; restore caller's a4
-        rts
-
-.compute_sec_ptr:
-        ; In:  d6.w = flat section_id, a4 = act ptr
-        ; Out: a0 = Sec ptr for that section
-        ; Clobbers: d0-d1, a0
-        movea.l Act_sec_grid_ptr(a4), a0
-        moveq   #0, d0
-        move.b  d6, d0
-        move.w  d0, d1
-        lsl.w   #6, d0                              ; sec × 64
-        lsl.w   #3, d1                              ; sec × 8
-        add.w   d1, d0                              ; sec × 72 = Sec_len
-        adda.w  d0, a0
+        movem.l (sp)+, d6/a4-a6
         rts

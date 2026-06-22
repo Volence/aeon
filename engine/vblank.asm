@@ -157,7 +157,7 @@ VSync_Wait:
         ; (e.g., S4LZ_Decompress) can leave the flag set from a previous
         ; lag-frame VBlank. Without this clear, VSync_Wait returns
         ; immediately and the queued Critical DMA never drains before the
-        ; CALLER overwrites the source buffer (Decomp_Buffer).
+        ; CALLER overwrites the source buffer (Art_Staging_Buffer).
         moveq   #0, d0
         move.b  d0, (VBlank_Flag).w
         move.b  #1, (VBlank_Ready).w

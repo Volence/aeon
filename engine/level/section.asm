@@ -274,18 +274,20 @@ Section_Check:
         ; -- §4.2 deferred cold-loads — fire when camera passes mid-traversal
         ;    threshold of new pair's first section. Independent of camera
         ;    direction; gated by both range and pending flag. --
+        ; -- Act Art Streaming Phase 1: tile art is now wholly resident for the
+        ;    life of the act, so the §4.2 deferred cold-loads and §2 A.4
+        ;    preloads are no-ops. The flag bookkeeping is retained as harmless
+        ;    state but no longer triggers any art load. --
         btst    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
         beq.s   .skip_deferred_fwd
         cmpi.w  #SECTION_DEFERRED_FWD_LOAD, d0
         blt.s   .skip_deferred_fwd
-        bsr.w   .deferred_fwd_load
         bclr    #SPF_DEFERRED_FWD_LOAD, (Section_Preload_Flags).w
 .skip_deferred_fwd:
         btst    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
         beq.s   .skip_deferred_bwd
         cmpi.w  #SECTION_DEFERRED_BWD_LOAD, d0
         bgt.s   .skip_deferred_bwd
-        bsr.w   .deferred_bwd_load
         bclr    #SPF_DEFERRED_BWD_LOAD, (Section_Preload_Flags).w
 .skip_deferred_bwd:
 
@@ -299,14 +301,12 @@ Section_Check:
 .fwd_preload_check:
         btst    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
         bne.s   .threshold_check
-        bsr.w   .preload_fwd
         bset    #SPF_FWD_PRELOADED, (Section_Preload_Flags).w
         bra.s   .threshold_check
 
 .bwd_preload_check:
         btst    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
         bne.s   .threshold_check
-        bsr.w   .preload_bwd
         bset    #SPF_BWD_PRELOADED, (Section_Preload_Flags).w
 
 .threshold_check:
@@ -322,14 +322,12 @@ Section_Check:
 .down_preload_check:
         btst    #SPF_DOWN_PRELOADED, (Section_Preload_Flags).w
         bne.s   .h_threshold
-        bsr.w   .preload_down
         bset    #SPF_DOWN_PRELOADED, (Section_Preload_Flags).w
         bra.s   .h_threshold
 
 .up_preload_check:
         btst    #SPF_UP_PRELOADED, (Section_Preload_Flags).w
         bne.s   .h_threshold
-        bsr.w   .preload_up
         bset    #SPF_UP_PRELOADED, (Section_Preload_Flags).w
 
 .h_threshold:
@@ -365,29 +363,12 @@ Section_Check:
 .v_skip:
         rts
 
-.preload_fwd:
-.preload_skip:
-.preload_bwd:
-.preload_down:
-.preload_down_s1:
-.preload_v_skip:
-.preload_up:
-.preload_up_s1:
-        rts
-
 ; -----------------------------------------------
-; §4.2 deferred cold-load routines — invoked from .check when the deferred
-; flag is set AND camera has reached the mid-traversal threshold.
-;
-; .deferred_fwd_load: fires at SECTION_DEFERRED_FWD_LOAD ($0600) post-FWD-teleport.
-;                     Streams slot 1's section into VRAM. By this point camera
-;                     has moved past the BWD-preview-visible window.
-;
-; .deferred_bwd_load: mirror for BWD-teleport, fires at $0C00.
+; (Act Art Streaming Phase 1) The §2 A.4 preload stubs and the §4.2 deferred
+; cold-load stubs were removed here: tile art is now wholly resident for the
+; life of the act, so there is nothing to preload or defer-load on traversal.
+; The preload/deferred flags above remain as harmless state with no effect.
 ; -----------------------------------------------
-.deferred_fwd_load:
-.deferred_bwd_load:
-        rts
 
 .bwd_check:
         ; skip BWD at the act's left edge (slot 0 sec_x = 0) — predicate

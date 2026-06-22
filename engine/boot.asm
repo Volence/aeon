@@ -200,7 +200,7 @@ Cold_Boot:
 
     ifdef __DEBUG__
         ; Golden compression self-test — decompressors vs build encoders.
-        ; Runs before any game state touches Decomp_Buffer.
+        ; Runs before any game state touches Art_Staging_Buffer.
         bsr.w   CompressionSelfTest
     endif
 
