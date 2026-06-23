@@ -38,12 +38,6 @@ if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
     ASFLAGS="${ASFLAGS} -D SOUND_DRIVER_ENABLED"
 fi
 
-# DEBUG-only: force continuous camera scroll (streaming-DMA load) so the DAC
-# rate can be measured under load via VGM. Not a shipping flag.
-if [[ "${SOUND_LOADTEST:-0}" == "1" ]]; then
-    ASFLAGS="${ASFLAGS} -D SOUND_LOADTEST"
-fi
-
 # DEBUG-only: mirror Z80 driver state into 68k RAM each frame for MCP inspection.
 # This stops the Z80 ~190us/frame for the copy -> an audible 60Hz tick, so it is
 # OFF by default (clean audio in DEBUG builds). Enable only when inspecting Z80
