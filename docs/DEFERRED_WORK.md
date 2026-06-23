@@ -38,6 +38,41 @@ multi-pass) before implementation.
 
 ---
 
+## ✅ RESOLVED — Engine Phase 3 cleanup — 2026-06-23
+
+Behavior-preserving cleanup (branch `cleanup/engine-phase3`). A 114-agent
+verified-clean audit confirmed the leapfrog teardown left no dead code paths;
+the engine's "orphan" constants are intentional design surface (hardware-register
+sets, flag/enum layouts, DEFERRED_WORK-tracked scaffolding), not cruft. Shipped:
+- Removed the `SOUND_LOADTEST` debug scaffold (asm block + `build.sh` flag).
+- `BG_TILE_CAPACITY` 512→448 reconciled (see the entry below).
+- Removed two true vestiges: the `ANIM_BALL` alias and the dead `Sprite_Link_Next`
+  write + RAM field.
+- Whole-engine comment hygiene (non-sound): stripped historical/lying/task-tag
+  comments, kept load-bearing rationale; binary-neutral (ROM byte-identical).
+- `ENGINE_ARCHITECTURE.md` reconciled to the shipped paged-dedup pipeline
+  (no graph-coloring/DSATUR/`LoadSectionTiles`/per-section art swap; ZX0 act pool;
+  §4.2 `Sec` struct corrected to the real 66-byte / `$42` layout); §7 marked PLANNED.
+- `CLAUDE.md` pipeline description corrected (graph-color → dedup + spatial paging).
+
+### DEFERRED — Phase 3 follow-ups (not done this pass)
+- **Sound-subsystem comment lineage (~151 tags).** `sound_*.asm`,
+  `z80_sound_driver.asm`, `sound_constants.asm`, `main.asm`, `game_loop.asm` carry
+  dense `(Task N)`/`(Phase N)`/`(Sound 1X)` build-lineage in comments. Deferred to a
+  dedicated pass — large, judgment-heavy, on a subsystem not otherwise being
+  modified, and many tags sit on otherwise-good descriptions.
+- **`CLAUDE.md` "What This Engine Is" residual staleness.** L105 still says
+  single-tier "S4LZ compression (level/bulk art)" — it is two-tier now (ZX0 act-pool
+  pages + S4LZ runtime block stream). L106 says "Flamedriver sound driver" — the
+  shipped driver is the custom sequencer (`engine/sound_*.asm` + the Z80 driver),
+  not Flamedriver. Both need a user-confirmed edit (project-law file).
+- **`ENGINE_ARCHITECTURE.md` §8.1b "Level Editor Tile Budget UI."** Its per-corner /
+  4-way-corner-adjacency budget model is the old graph-coloring premise; under the
+  global-dedup resident pool the relevant metric is a single global tile cap, not
+  per-corner adjacency. Rewrite when the editor budget UI is revisited.
+
+---
+
 ## From §5 — Player System
 
 ### Cycle Profiler (§8.5) Not Wired — Frame-Budget Measured via Lag Counter — 2026-06-14
@@ -161,9 +196,9 @@ Safe wins are small AND mostly DON'T help diagonal: an HScroll-DMA dirty-gate is
 - **The real cause is band-boundary precision.** A BG parallax band's on-screen boundary = `band_top_plane_row*8 − BG_vertical_scroll`. With smooth per-pixel vertical parallax (`vFactorBg`), those boundaries land at ARBITRARY screen lines (measured the per-line table putting one at **line 22**). Per-cell mode can only change scroll at 8-px cell-rows (lines 0,8,16,24…), so it rounds line 22 → 16/24, misaligning each band by up to 7 px → the FG/BG **tears at every band boundary during scroll** (user-confirmed at Cam `$02D0,$019D`; reproduced in free-fly).
 **What:** Nothing — per-line (`DeformTable_Zero`) is mandatory for smooth banded vertical parallax and stays. The only way to use per-cell would be to give up smooth vertical scroll (chunky 8-px-stepped vscroll), which is not worth ~20%. Do NOT re-attempt the per-cell switch. Lesson: a settled/at-rest frame HIDES scroll-time tearing — verify under continuous motion ([[feedback_verify_during_motion]]), and read the actual VDP register before theorizing about propagation.
 
-### BG_TILE_CAPACITY reconciliation (512 → 448) + BG_Init guard (§2 A.5) — 2026-06-23
+### ✅ RESOLVED — BG_TILE_CAPACITY reconciliation (512 → 448) + BG_Init guard (§2 A.5) — 2026-06-23
 **Surfaced during:** continuous-scroll Phase 2 Task 5 doc-sync (PRE-EXISTING cross-tool inconsistency the SAT relocation left behind).
-**Status:** The SAT was relocated to $B800, making it the BG region's hard ceiling — usable BG space is $8000-$B7FF = **448 tiles**, not the nominal 512 ($8000-$BFFF, which now overlaps the SAT). The value is inconsistent across the pipeline: `tools/inject_editor_bg.py` already uses 448 (correct), but `constants.asm BG_TILE_CAPACITY` and `tools/ojz_strip_gen.py BG_TILE_CAPACITY_PY` still say 512. **PARTIALLY ADDRESSED 2026-06-23 (commit 0aab611):** `engine/level/bg.asm` `BG_Init` now CLAMPS the blob copy to `BG_TILE_REGION_BYTES` ($8000-$B7FF), so it can no longer spray into the SAT (the runtime last-line guard). OJZ is safe today (340 tiles ≤ 448). REMAINING: reconcile the build-time gate value 512→448 in `constants.asm` (cosmetic — engine doesn't read it) and in `tools/ojz_strip_gen.py` (the real generation gate — **daemon-watched, needs the user**), so a too-large blob fails at GENERATION rather than being silently runtime-clamped.
+**Status:** The SAT was relocated to $B800, making it the BG region's hard ceiling — usable BG space is $8000-$B7FF = **448 tiles**, not the nominal 512 ($8000-$BFFF, which now overlaps the SAT). The value is inconsistent across the pipeline: `tools/inject_editor_bg.py` already uses 448 (correct), but `constants.asm BG_TILE_CAPACITY` and `tools/ojz_strip_gen.py BG_TILE_CAPACITY_PY` still say 512. **PARTIALLY ADDRESSED 2026-06-23 (commit 0aab611):** `engine/level/bg.asm` `BG_Init` now CLAMPS the blob copy to `BG_TILE_REGION_BYTES` ($8000-$B7FF), so it can no longer spray into the SAT (the runtime last-line guard). OJZ is safe today (340 tiles ≤ 448). **RESOLVED 2026-06-23 (Engine Phase 3 Task 2):** both `constants.asm BG_TILE_CAPACITY` and `tools/ojz_strip_gen.py BG_TILE_CAPACITY_PY` now gate at 448; the full build passes at the tightened gate. A too-large BG blob now fails at generation (the `ojz_strip_gen.py` assert) instead of being silently runtime-clamped.
 **What:** Reconcile the gate to 448 in `constants.asm` AND `tools/ojz_strip_gen.py` (the latter is auto-commit-daemon-watched — coordinate with the user, do NOT hand-edit autonomously). Add a runtime/build guard in `BG_Init` (or an AS assert) that the BG blob ≤ `VRAM_SPRITE_TABLE - BG_TILE_BASE_VRAM`, so a future >448-tile blob fails loudly instead of silently spraying into the SAT.
 
 ### Editor-export Act descriptor format drift (§8 tooling) — 2026-06-23
