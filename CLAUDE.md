@@ -102,6 +102,6 @@ A section-streaming Sonic engine with:
 - 64×64 scroll planes for vertical transitions and VSRAM effects
 - Per-section collision maps (shift-based lookup, no multiply)
 - VDP-order sprite mappings (zero field reordering)
-- S4LZ compression (level/bulk art), uncompressed sprite art + improved DPLC/DMA. Enigma/Nemesis/Kosinski/UFTC all removed
-- Flamedriver sound driver (full Z80 autonomy)
+- Two-tier compression — ZX0 for the act art-pool pages (load-time tile art), S4LZ v3 for the runtime block stream (per-section block dictionaries); uncompressed sprite art + improved DPLC/DMA. Enigma/Nemesis/Kosinski/UFTC all removed
+- From-scratch custom Z80-autonomous sound driver — FM/PSG music sequencer + DMA-survival DAC drums (Flamedriver-informed, not Flamedriver)
 - Build tool pipeline: editor stamps → flatten → deduplicate → spatial-order → page → generate

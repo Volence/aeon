@@ -65,7 +65,8 @@ sets, flag/enum layouts, DEFERRED_WORK-tracked scaffolding), not cruft. Shipped:
   single-tier "S4LZ compression (level/bulk art)" — it is two-tier now (ZX0 act-pool
   pages + S4LZ runtime block stream). L106 says "Flamedriver sound driver" — the
   shipped driver is the custom sequencer (`engine/sound_*.asm` + the Z80 driver),
-  not Flamedriver. Both need a user-confirmed edit (project-law file).
+  not Flamedriver. **RESOLVED 2026-06-23** — both fixed (L105 → two-tier ZX0 + S4LZ;
+  L106 → from-scratch custom Z80-autonomous driver).
 - **`ENGINE_ARCHITECTURE.md` §8.1b "Level Editor Tile Budget UI."** Its per-corner /
   4-way-corner-adjacency budget model is the old graph-coloring premise; under the
   global-dedup resident pool the relevant metric is a single global tile cap, not
