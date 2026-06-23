@@ -399,6 +399,14 @@ CAM_MAX_Y_STEP          = 16        ; max camera Y movement px/frame. The stream
                                     ; engine bounds the CAMERA: S2=16, S3K=24) — must
                                     ; stay <= VFILL_ROWS_PER_FRAME*8 or fills fall
                                     ; behind the view. Teleports bypass via Reinit.
+                                    ; KEEP 16 (continuous-scroll Phase 2 Task 7,
+                                    ; 2026-06-23): the on-device diagonal stress runs
+                                    ; ~76% lag at sustained MAX diagonal — column-fill
+                                    ; and row-fill share BLOCK_DECOMP_BUDGET, so the
+                                    ; zero-slack contract (sized single-axis) has NO
+                                    ; headroom to raise to 24; doing so worsens the
+                                    ; diagonal lag. Revisit with the diagonal-budget
+                                    ; work tracked in DEFERRED_WORK (§4.7/§1.1).
 
 ; -----------------------------------------------
 ; Vertical edge modes (per-act Act_edge_mode; continuous-scroll Phase 2 §10)
