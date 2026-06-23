@@ -132,6 +132,16 @@ following are deliberately **deferred to follow-up plans** (not bugs):
 
 These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require other systems to exist first.
 
+### Plane_Buffer "complete" guard — eliminate sustained-lag stutter (§1.3 / §4.1) — 2026-06-23
+**Surfaced during:** continuous-scroll Phase 2 Task 6 gate (the diagonal-corruption fix, commit `b96c861`).
+**Status:** A lag-frame race (VInt_Lag draining a half-written Plane_Buffer → torn entries → Plane B corruption) was fixed by NOT draining the plane buffer on lag frames — it defers to the next complete frame (VInt_Level). Correct + ships clean, but the deeper gap remains: `VInt_DrawLevel` trusts `Plane_Buffer_Ptr != 0` as "ready" when it only means "non-empty."
+**What:** Add a `Plane_Buffer_Complete` flag set by the main loop AFTER `Section_UpdateColumns` finishes appending, and gate the drain on it in BOTH handlers. Then lag frames could safely drain a *completed* buffer (eliminating the sustained-max-lag plane stutter) without reintroducing the mid-fill tear. Mirror the dirty-FLAG-after-complete-write pattern the palette/sprite/HScroll buffers already use. (Hardening: a DEBUG assert documenting "dirty flag set only after a complete write" would protect future producers.)
+
+### Diagonal streaming budget — ~76% lag at sustained MAX diagonal (§4.7 / §1.1) — 2026-06-23
+**Surfaced during:** continuous-scroll Phase 2 Task 6 diagonal stress (PRE-EXISTING — master shows the same lag).
+**Status:** Sustained MAX diagonal scroll (both axes at CAM_MAX=16px/frame) runs ~76% lag frames (genuine fill cost, not corruption — that's fixed). Profiler: Tile_Cache_Fill ~25% (FillRow+FillColumn+Decompress) + HInt ~24% + Process_DMA_Deferrable ~18% + parallax ~14%. The zero-slack contract `CAM_MAX_Y_STEP == VFILL_ROWS_PER_FRAME*8` was sized for SINGLE-axis motion; diagonal runs BOTH column-fill and row-fill against the shared `BLOCK_DECOMP_BUDGET=6`, roughly halving the effective per-axis budget.
+**What:** Options to evaluate (tile-cache-internals, out of Phase 2 scope per spec §1): raise `BLOCK_DECOMP_BUDGET` for the diagonal case; split the budget per-axis; spread row/column fills across frames; or accept the frame-rate dip during this extreme input (rare in real gameplay). Gates Task 7's `CAM_MAX_Y_STEP` decision — diagonal already saturates, so raising CAM_MAX_Y_STEP 16→24 is NOT safe.
+
 ### Static Sub-Sprite Array — Render-Path Optimization (§1.2 / §3.5)
 **Surfaced during:** §1.2 multi-sprite implementation Task 8 research (2026-04-27).
 **Status:** Implementation shipped with sibling-chain walk per spec; the static-array
