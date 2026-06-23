@@ -60,7 +60,7 @@ Sections retain distinct parallax configs. The old per-section parallax snap fir
 ## 6. Phasing
 
 1. **Phase 1 — Horizontal continuous.** Store world coords (X), no-op the conversion fns, migrate the camera X clamp + `Player_LevelBound` X + `Section_UpdateColumns` X clamps + init seeds + world-origin underflow, delete the horizontal teleport/slot machinery, wire per-section parallax snap on X-boundary crossing. **Verify free-flowing horizontal traversal + no seam.** (Y stays clamped as-is this phase.)
-2. **Phase 2 — Vertical continuous.** Extend to Y. **Resolve the vertical render-safety concern first:** the camera has never reached the bottom row (`cam_max_y` clamped to 2 sections) and `parallax.asm` notes the Y clamp doubles as a guard against "visible garbage beyond plane row 47." Phase 2 investigates + fixes the plane vertical-fill/SAT-adjacency so full-height scroll renders cleanly, then migrates the Y clamp + vertical entity/streaming. Verify the camera reaches the bottom row cleanly.
+2. **Phase 2 — Vertical continuous + edge modes.** Extend to Y. **Render-safety concern RESOLVED by research (2026-06-22): no rework needed** — the "garbage beyond plane row 47" was a *stale comment*, not a real constraint (plane is already 64×64; the SAT was relocated `$D800→$B800` to free rows 48-63; the render path already wraps `world_row & 63`). The garbage on lifting the clamp "as-is" is pure cache under-fill of rows never driven; the streaming is already world-row-based + unbounded. So Phase 2 is unlock + verify: lift the Y clamp to grid-derived full-height, add a configurable per-act vertical **edge_mode**, and run a diagonal/sustained-down on-device verification pass. See §10.
 3. **Phase 3 — Cleanup.** Inline-and-delete the conversion pass-throughs; remove any remaining dead state; rewrite `ENGINE_ARCHITECTURE.md` to describe continuous-scroll as the traversal model.
 4. **Phase 4 — Floating-origin rebase (future; only when a level needs >16 sections per axis).** The unbounded-level path. Not built until a level actually exceeds the 16-bit coordinate ceiling. Designed up front (§9) so the coordinate layer doesn't preclude it.
 
@@ -110,3 +110,34 @@ It is invisible because everything moves by the same delta in one frame — ever
 **Companion limit to lift at the same time.** `section_id` is currently one byte (`sec_y*grid_w+sec_x`) → max 256 sections total (independent of the coordinate ceiling, and above today's `MAX_ACT_SECTIONS=48`). Widen `section_id` to a word when a level approaches 256 sections; if section_ids are ever allowed to repeat across rebase epochs, fold an epoch into the respawn key.
 
 **Cost:** one RAM counter, a per-frame threshold compare, a rare entity-walk (tens of entities, a few hundred cycles, once per ~8 sections of travel), and `+World_Section_Base` at the handful of section-lookup sites.
+
+---
+
+## 10. Phase 2 — vertical continuous scroll + edge modes
+
+**Status:** user-approved 2026-06-22; the next phase after the Phase-1 horizontal merge.
+
+### Render-safety: resolved (no structural rework)
+Research (2026-06-22) root-caused the "garbage beyond plane row 47" guard as a **stale comment**, not a hardware/layout constraint:
+- Plane A is **already 64×64** (`boot.asm` reg `$10=$11`; `PLANE_V_CELLS=64`) — all 64 rows valid.
+- **No VRAM overlap:** the SAT was relocated `$D800→$B800` *"specifically to free plane rows 48-63"* (`constants.asm:53`); `constants.asm:327` — *"Region 2 removed — full 64-row plane uses all nametable rows."* SAT/HScroll sit below `$C000`; Plane A `$C000-$DFFF` owns all 64 rows.
+- The render path **already wraps `world_row & 63`** (`section.asm`, `plane_buffer.asm`) — identical to the verified horizontal `world_col & 63`.
+
+The garbage on lifting `cam_max_y` "as-is" is **cache under-fill**: the world-row-based vertical fill (already unbounded by section count) has simply never been *driven* below ~2 sections, so unstreamed rows hold boot/sprite leftovers. Lifting the clamp lets it stream those rows on demand, exactly like horizontal.
+
+### The change (unlock + verify)
+Phase 1 already did the hard parts (continuous `Camera_Y`, world-row cache fill with up/down eviction + cross-frame resume, ring-wrap plane writes, world-derived entity window, `Player_LevelBound` already computing `grid_h*SECTION_SIZE − SCREEN_HEIGHT`). Phase 2:
+1. **Lift the Y clamp, grid-derived** (symmetric with the X clamp): the camera Y clamp computes `[0, grid_h*SECTION_SIZE − SCREEN_HEIGHT]` from `grid_h` at runtime, and the descriptor's `cam_min_y`/`cam_max_y` fields are **deleted** (fully symmetric — no act-supplied camera bounds). Default behavior at the bottom = clamp.
+2. **Remove the stale render-safety comment** (`parallax.asm:488-492`) and sync the `ENGINE_ARCHITECTURE.md` VRAM diagram (rows 48-63 are normal nametable rows; SAT at `$B800`).
+3. **Verify** on-device (the real work): full-height + diagonal + sustained-down scroll renders clean (VRAM dump of rows 48-63 = valid data, not zeros); the **zero-slack streaming contract holds** (`CAM_MAX_Y_STEP=16 ≤ VFILL_ROWS_PER_FRAME×8=16`) under diagonal motion where H column-fill and V row-fill share `BLOCK_DECOMP_BUDGET=6` — watch `Lag_Frame_Count` (the profiler hides bursts); bottom-boundary prefetch honors `SEC_VOID`; collision-cell parity (`Cache_Top_Row` even) holds across boundary crossings.
+
+### Vertical edge modes (per-act `edge_mode`, extensible to per-section)
+The vertical edge behavior is configurable, not a fixed clamp:
+- **`EDGE_CLAMP`** (default) — camera + player stop at `grid_h*SECTION_SIZE − SCREEN_HEIGHT`. OJZ Act 1 ships this (so verification is the clean full-height scroll).
+- **`EDGE_WRAP_V`** (the fall-forever trick) — crossing the bottom wraps `Y` by `level_height` (preserving X); the top wraps to the bottom. Feasible and clean: `level_height = grid_h*SECTION_SIZE` is an exact multiple of the 512px plane height, so the wrap is **plane-aligned** (visible cells identical across the wrap → no redraw, seamless). `sec_y = (Y mod level_height) >> SECTION_SIZE_SHIFT` cycles correctly; section-keyed respawn repeats per loop (correct — same content); the level author tile-matches the top↔bottom seam. **Mechanism = the same atomic "shift the live set" as the floating-origin rebase (§9)**, applied modulo at the level edge instead of one-way at the coordinate ceiling — so it shares that machinery (camera + player + active objects + active rings + cache cursors shifted by `±level_height` in one frame, or re-derive).
+- **`EDGE_KILL`** (death pit) — bottom kills the player. **Deferred stub** (no death system yet): the `edge_mode` dispatch + a death-pending hook are in place now (falls through to clamp meanwhile), wired to the real death system when it exists. Architected from the start, not faked.
+
+Phase 2 implements `EDGE_CLAMP` + `EDGE_WRAP_V`; `EDGE_KILL` is the deferred hook.
+
+### Deferred (tracked — revisit after the Phase 2 stress test)
+`CAM_MAX_Y_STEP` is currently 16 px/frame (zero-slack against the 2-rows/frame fill). S3K allows ~24. After the on-device stress test shows the diagonal VBlank-budget headroom, revisit raising `CAM_MAX_Y_STEP` + `VFILL_ROWS_PER_FRAME` together (e.g. 24/3) for a snappier vertical camera. **Do not forget this step.**
