@@ -7,11 +7,16 @@ Tracks work that was identified during design/implementation but deferred becaus
 
 ---
 
-## ⛔ CURRENT BUILD BLOCKER — OJZ section-0 tile-budget overflow — 2026-06-22
+## ✅ RESOLVED — OJZ section-0 tile-budget overflow — 2026-06-22
 
-**The build fails** (`SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh`) at the art-budget
+**RESOLVED 2026-06-22** via the globally-deduped paged act art pool (OJZ_ACT_POOL_TILES,
+page loader), merged to master. The build succeeds and boots — every continuous-scroll
+phase since (including Phase 2's on-device oracle verification) has run a bootable ROM.
+Historical record retained below.
+
+**Original report — The build failed** (`SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh`) at the art-budget
 check: `sec0_tiles.bin is 19296 bytes — exceeds Decomp_Buffer capacity (9600)`.
-This blocks **all** runtime work — no bootable ROM. Surfaced as "OJZ layout edits
+This blocked **all** runtime work — no bootable ROM. Surfaced as "OJZ layout edits
 weren't showing in game."
 
 **Root cause is engine-side, not bad level data.** Whole level = 612 distinct tiles
@@ -141,6 +146,16 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 **Surfaced during:** continuous-scroll Phase 2 Task 6 diagonal stress (PRE-EXISTING — master shows the same lag).
 **Status:** Sustained MAX diagonal scroll (both axes at CAM_MAX=16px/frame) runs ~76% lag frames (genuine fill cost, not corruption — that's fixed). Profiler: Tile_Cache_Fill ~25% (FillRow+FillColumn+Decompress) + HInt ~24% + Process_DMA_Deferrable ~18% + parallax ~14%. The zero-slack contract `CAM_MAX_Y_STEP == VFILL_ROWS_PER_FRAME*8` was sized for SINGLE-axis motion; diagonal runs BOTH column-fill and row-fill against the shared `BLOCK_DECOMP_BUDGET=6`, roughly halving the effective per-axis budget.
 **What:** Options to evaluate (tile-cache-internals, out of Phase 2 scope per spec §1): raise `BLOCK_DECOMP_BUDGET` for the diagonal case; split the budget per-axis; spread row/column fills across frames; or accept the frame-rate dip during this extreme input (rare in real gameplay). Gates Task 7's `CAM_MAX_Y_STEP` decision — diagonal already saturates, so raising CAM_MAX_Y_STEP 16→24 is NOT safe.
+
+### BG_TILE_CAPACITY reconciliation (512 → 448) + BG_Init guard (§2 A.5) — 2026-06-23
+**Surfaced during:** continuous-scroll Phase 2 Task 5 doc-sync (PRE-EXISTING cross-tool inconsistency the SAT relocation left behind).
+**Status:** The SAT was relocated to $B800, making it the BG region's hard ceiling — usable BG space is $8000-$B7FF = **448 tiles**, not the nominal 512 ($8000-$BFFF, which now overlaps the SAT). The value is inconsistent across the pipeline: `tools/inject_editor_bg.py` already uses 448 (correct), but `constants.asm BG_TILE_CAPACITY` and `tools/ojz_strip_gen.py BG_TILE_CAPACITY_PY` still say 512. The engine doesn't read the constant; `engine/level/bg.asm` `BG_Init` does an UNBOUNDED blob copy with NO capacity guard. OJZ is safe today (340 tiles ≤ 448), so this is latent, not a live bug.
+**What:** Reconcile the gate to 448 in `constants.asm` AND `tools/ojz_strip_gen.py` (the latter is auto-commit-daemon-watched — coordinate with the user, do NOT hand-edit autonomously). Add a runtime/build guard in `BG_Init` (or an AS assert) that the BG blob ≤ `VRAM_SPRITE_TABLE - BG_TILE_BASE_VRAM`, so a future >448-tile blob fails loudly instead of silently spraying into the SAT.
+
+### Editor-export Act descriptor format drift (§8 tooling) — 2026-06-23
+**Surfaced during:** continuous-scroll Phase 2 final review.
+**Status:** `data/editor/ojz/act1/export/act_descriptor.asm` is git-tracked but NOT in the build include graph (`main.asm:198` includes only `data/levels/ojz/act1/act_descriptor.asm`, which IS correct), and it would not even assemble as-is (e.g. a path where a symbol is expected). So it is no build/runtime risk. But it still emits the OLD Act layout: the removed `cam_min_x/max_x/min_y/max_y` 4-word camera block, no `edge_mode` byte/pad, and pre-paging art fields — mismatched to the current `Act_len=$22`. This dir is auto-commit-daemon-watched (do NOT hand-edit autonomously).
+**What:** Update the editor EXPORTER tool to emit the current Act format (no cam bounds, `edge_mode` + pad, `act_art_pool_table`/`pages`) so a future regeneration can never reintroduce the obsolete layout into the build. Coordinate with the user (daemon-watched path). Optional belt-and-suspenders: add an AS assert at the `OJZ_Act1_Descriptor` site that the emitted descriptor size equals `Act_len`, so ANY drifting descriptor (hand-written or exported) fails the build instead of silently mis-parsing.
 
 ### Static Sub-Sprite Array — Render-Path Optimization (§1.2 / §3.5)
 **Surfaced during:** §1.2 multi-sprite implementation Task 8 research (2026-04-27).

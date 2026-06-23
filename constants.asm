@@ -68,7 +68,13 @@ VRAM_WINDOW             = $F000
 ; reserved for future T2/T3 zones.
 BG_TILE_BASE_VRAM       = $8000         ; Byte address (slot 1024)
 BG_TILE_BASE_SLOT       = BG_TILE_BASE_VRAM/32   ; 1024 — for nametable index remap
-BG_TILE_CAPACITY        = 512           ; tiles ($8000..$BFFF = 16 KB)
+BG_TILE_CAPACITY        = 512           ; STALE pre-SAT nominal ($8000..$BFFF = 16 KB).
+                                        ; The SAT now sits at $B800, so usable BG is only
+                                        ; $8000..$B7FF = 448 tiles. Engine code doesn't read
+                                        ; this; only build tools gate on it (ojz_strip_gen.py
+                                        ; mirrors 512 — daemon-watched; inject_editor_bg.py
+                                        ; already uses 448). Reconcile to 448 + add a BG_Init
+                                        ; capacity guard — tracked in DEFERRED_WORK.
 
 ; Plane size
 PLANE_H_CELLS           = 64
