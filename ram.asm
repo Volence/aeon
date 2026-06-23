@@ -298,6 +298,9 @@ Player_JumpBuffer:      ds.b 1      ; frames remaining on buffered jump press
 Player_Death_Pending:   ds.b 1      ; EDGE_KILL hook: set when the player crosses a
                                     ; kill-edge; the death system (when it exists)
                                     ; consumes it. Boot-cleared with all Work-RAM.
+                        ds.b 1      ; pad — keep the following ds.w/ds.l fields
+                                    ; even-aligned (AS does not auto-align; an odd
+                                    ; count here address-errors Plane_Buffer_Ptr)
 
 ; -----------------------------------------------
 ; Level System (§4 Phase 1)
