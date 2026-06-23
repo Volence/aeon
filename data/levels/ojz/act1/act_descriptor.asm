@@ -29,9 +29,9 @@ OJZ_Act1_Descriptor:
     dc.w    $0100                   ; start_local_y: 256px into section (ground level)
     dc.b    0                       ; start_sec_x = 0
     dc.b    0                       ; start_sec_y = 0
-    ; (cam_min_x/cam_max_x removed: X clamp is grid-derived — see Act struct)
-    dc.w    0                       ; cam_min_y (world top of level; continuous-scroll Phase 1)
-    dc.w    2*SECTION_SIZE-224       ; cam_max_y (conservative 2-section vertical range, render-safe; Phase 2 lifts this)
+    ; (cam_min_x/cam_max_x + cam_min_y/cam_max_y removed: both clamps are
+    ;  grid-derived now — level_width/height = grid << SECTION_SIZE_SHIFT —
+    ;  see Act struct and .clamp_x/.clamp_y in camera.asm)
     dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)
     dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles  (§2 A.5 T1 shared BG tile blob)
     dc.l    ParallaxConfig_OJZ_Default ; act_parallax_config (fallback for sections with NULL config)

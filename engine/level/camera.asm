@@ -217,35 +217,28 @@ Camera_Update:
         add.l   d3, (Camera_Y).w
 
 .clamp_y:
-        ; -- continuous-scroll Y clamp: camera-derived sec_y, conservative
-        ;    Act_cam_min_y/max_y bounds kept for Phase 1 (only the top/bottom
-        ;    grid rows are bounded; interior rows scroll freely). sec_y is
-        ;    derived from Camera_Y itself. --
+        ; -- continuous-scroll Y clamp: [0, level_height − SCREEN_HEIGHT] --
+        ;    level_height = grid_h << SECTION_SIZE_SHIFT. Grid-derived, fully
+        ;    symmetric with .clamp_x — no act-supplied camera bounds. External
+        ;    entry (spindash freeze, .land_lock, fall-through from
+        ;    .y_step_lo_ok); must keep the .clamp_y label and the trailing rts.
         movea.l (Current_Act_Ptr).w, a0
         move.l  (Camera_Y).w, d0
         swap    d0
-        moveq   #0, d2
-        move.w  d0, d2
-        lsr.l   #8, d2                              ; Camera_Y px >> 11 = sec_y
-        lsr.l   #3, d2                              ; (SECTION_SIZE_SHIFT, split 8+3)
-        tst.w   d2
-        bne.s   .check_max_y
-        move.w  Act_cam_min_y(a0), d1
+        tst.w   d0
+        bge.s   .y_min_ok
+        moveq   #0, d0
+.y_min_ok:
+        moveq   #0, d1
+        move.w  Act_grid_h(a0), d1
+        lsl.l   #8, d1                              ; grid_h << 11 = level_height (px)
+        lsl.l   #3, d1                              ; (SECTION_SIZE_SHIFT, split 8+3)
+        subi.w  #SCREEN_HEIGHT, d1
         cmp.w   d1, d0
-        bge.s   .check_max_y
+        ble.s   .y_write
         move.w  d1, d0
-        bra.s   .write_y
-.check_max_y:
-        addq.w  #1, d2
-        cmp.w   Act_grid_h(a0), d2
-        bcs.s   .y_done
-        move.w  Act_cam_max_y(a0), d1
-        cmp.w   d1, d0
-        ble.s   .y_done
-        move.w  d1, d0
-.write_y:
+.y_write:
         swap    d0
         clr.w   d0
         move.l  d0, (Camera_Y).w
-.y_done:
         rts
