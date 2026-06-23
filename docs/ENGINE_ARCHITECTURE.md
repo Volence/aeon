@@ -14,9 +14,9 @@ This is the **design bible**. This document describes the engine we're building 
 |---|--------|---------------|
 | 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (Batman — only changed registers written during VBlank), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, deterministic cold/warm boot (CrossResetRAM), region detection with PAL timing constants, 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
-| 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character sprites + VDP tables embedded in off-screen nametable rows**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
+| 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character DPLC art in the pool ($3C0) + SAT/HScroll in a sub-Plane-A region ($5C0-$5FF) — off-screen-row embedding retired so both 64-row planes stream freely**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
-| 4 | Level / World | 2D section grid with signed Y (novel), **continuous world-space camera over a 64×64 wrapping VDP plane (classic S2/S3K — no slots, no teleport, no rebase)**, edge streaming into the wrapping plane (always-on "see into the next section"), block-based 2D tile cache (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), per-section everything (snapped on section-boundary crossing), **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, **section-local entity ROM data (positions relative to section, respawn/kill memory keyed by section_id — coordinate-invariant)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in block data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)**, floating-origin rebase as the future unbounded-level path (coarse/invisible/atomic — replaces the deleted leapfrog) |
+| 4 | Level / World | 2D section grid with signed Y (novel), **continuous world-space camera over a 64×64 wrapping VDP plane (classic S2/S3K — no slots, no teleport, no rebase)**, full-height vertical streaming with a grid-derived camera clamp, **per-act vertical `edge_mode` (CLAMP shipped / WRAP_V + KILL deferred hooks)**, edge streaming into the wrapping plane (always-on "see into the next section"), block-based 2D tile cache (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), per-section everything (snapped on section-boundary crossing), **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, **section-local entity ROM data (positions relative to section, respawn/kill memory keyed by section_id — coordinate-invariant)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in block data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)**, floating-origin rebase as the future unbounded-level path (coarse/invisible/atomic — replaces the deleted leapfrog) |
 | 5 | Player / Character | **SHIPPED (§5, branch player-system):** flat explicit PSTATE_* state machine + Player_SetState enter/exit hooks (hierarchical was evaluated and REJECTED), classic motion-quadrant + angle-band landing axis-select (the "vector projection on landing" claim was a verified S3K myth — NOT used), effective-physics-table-in-RAM (a4 convention; per-section *plumbing* shipped with an identity modifier — the modifier/Lerp system itself is deferred), air drag apex-only (classic-wide, not an S3K fix), roll-jump lockout kept classic, 2-frame jump buffer + jump-delay fix (the two modern concessions), −$FC0 up-cap REMOVED (feel deviation, PHYS_GSP_CAP coupling), angle continuity for loop stability, level bounds, spindash charge curve (table-based), slope factor muls→shift, landing camera lock + spindash freeze, 3-character shared-code structure via Player_Common (Sonic-only shipped), **SWAP-based 16.16 fixed point (Treasure)**. **SHIPPED (feat/sonic-animations):** shared ANIM_* id contract (11 ids, build-time assert), Player_Animate read-only classifier (priority-ordered, display-conditions not new state bits), DUR_DYNAMIC speed-scaled timing in AnimateSprite, shared spindash in player_spindash.asm, Player_AtLedgeEdge balance probe, _pl_look_offset zero-seam, DEBUG anim viewer. **DEFERRED:** 6-button mappings, the per-section physics modifier system, multi-character dispatch, shields, dropdash, instashield, get-up trigger, duck/look-up camera pan. See the §5 body + DEFERRED_WORK.md §5. |
 | 6 | Audio | **From-scratch custom Z80-autonomous driver** (NOT Flamedriver — the import plan was superseded by the 2026-06-16 master sound spec). **SHIPPED (Plans 1A/1B/1C/1D + Phase 3a):** Z80 shell + mailbox + Timer-A scheduler primitives (1A), DMA-survival single-channel DAC (1B, MegaPCM-2 free-running every-path-equal-cost streaming loop), FM/PSG music sequencer (1C — event-list song format v0, per-channel stream interpreters, FM voice writer with log-volume LUT + per-algorithm carrier mask, PSG tone/noise + pause silence, Timer-A one-overflow-per-tick scheduler, DAC drums via the 1B path, PlayMusic/StopMusic). **Phase 3a FM depth + 1D Moving Trucks (merged `c89bea3`, 2026-06-19):** per-frame modulation engine (write-on-change ModUpdate at ~59.4Hz, per-channel tempo accumulator over a fixed Timer-A clock), per-song pitch table + pitch envelopes (trills/arps), pan, signed per-op TL bias, voice-stepping via build-time register deltas, hardware LFO ($22=$08), note-fill gate articulation, and a faithful native-sequencer port of B&R 'Moving Trucks'. **DEFERRED (master-spec Phases 2/3b/4/5/6):** N-channel DAC mixer + BRR + stereo PCM (Ph2), remaining FM extras — dual streams, true portamento, SSG-EG, broader LFO, Ch3 special (Ph3b), adaptive FM6/DAC slot (Ph4), section-aware banking + fades + distance attenuation + ambient + **SFX** (Ph5 — current priority), MegaDAW compiler/export (Ph6). See §6 body + the 2026-06-16 master sound spec. |
 | 7 | Visual Effects | **Unified raster command table (Batman — stackable per-scanline VDP register changes)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
@@ -170,8 +170,10 @@ EntryPoint:
 ;
 ; With 64×64 planes, each nametable is 64×64×2 = 8,192 bytes = $2000.
 ; Plane A: $C000-$DFFF. Plane B: $E000-$FFFF. They fill VRAM exactly.
-; Sprite table at $B800 overlaps Plane A nametable — $B800-$BA7F (640 bytes)
-; are sprite entries occupying "off-screen" nametable cells (no visual conflict).
+; Sprite attr table ($B800) + HScroll table ($BC00) sit in tiles $5C0-$5FF,
+; BELOW Plane A — relocated from the old $D800/$DC00 (which were INSIDE Plane A's
+; $C000-$DFFF nametable). With them moved out, all 64 Plane A rows (incl. rows
+; 48-63) are normal nametable rows the vertical streaming uses — no SAT overlap.
 ```
 
 **Compile-time validation of register table:**
@@ -1214,24 +1216,27 @@ UFTC was originally planned for random-access sprite decompression, but measured
 
 ### 2.3 VRAM Layout — Unified Pool + 64×64 Scroll Planes
 
-**Purpose:** Maximize available art tiles through a single unified pool, with 64×64 scroll planes for vertical buffering and visual effects. Character sprites and VDP tables embed in off-screen nametable rows — no dedicated VRAM regions needed.
+**Purpose:** Maximize available art tiles through a single unified pool, with 64×64 scroll planes for vertical buffering and visual effects. Character DPLC art lives in the pool (tile `$3C0`, DMA'd per frame); the sprite attr + HScroll tables sit in their own region (`$5C0-$5FF`, below Plane A) — so both scroll planes keep all 64 rows free for vertical streaming (no off-screen-row embedding, no "Region 2").
 
 ```
 VRAM (64KB = 2048 tiles)
 ┌───────────────┬─────────────────────────────────────────────────────┐
-│ $000-$5BF     │ UNIFIED ART POOL (1,472 tiles)                     │
+│ $000-$5BF     │ UNIFIED ART POOL (1,472 tiles)                      │
 │ (1472 tiles)  │   Level tiles — build-time assigned per section     │
 │               │   Object tiles — runtime allocator (2.2)            │
 │               │   Permanent tiles — HUD, rings, monitors (alloc once)│
+│               │   Character DPLC art — DMA'd per frame (tile $3C0)   │
 ├───────────────┼─────────────────────────────────────────────────────┤
-│ $600-$6FF     │ PLANE A NAMETABLE (256 tiles = 8KB, 64×64)         │
-│ (256 tiles)   │   Visible area: ~40×28 tiles (1,120 entries)       │
-│               │   Off-screen rows: character sprites + VDP tables   │
-│               │   (sprite attr table, HScroll table embedded here)  │
+│ $5C0-$5FF     │ SPRITE ATTR TABLE ($B800) + HSCROLL ($BC00)         │
+│ (64 tiles)    │   Relocated below Plane A (was $D800/$DC00, inside   │
+│               │   Plane A) to free its full 64 rows for streaming   │
 ├───────────────┼─────────────────────────────────────────────────────┤
-│ $700-$7FF     │ PLANE B NAMETABLE (256 tiles = 8KB, 64×64)         │
-│ (256 tiles)   │   Visible area: ~40×28 tiles                       │
-│               │   Off-screen rows 48-63: §2 A.2 region 2 (64 tiles) │
+│ $600-$6FF     │ PLANE A NAMETABLE (256 tiles = 8KB, 64×64)          │
+│ (256 tiles)   │   All 64 rows are normal nametable — the vertical    │
+│               │   tile-cache fills every row (rows 48-63 included)   │
+├───────────────┼─────────────────────────────────────────────────────┤
+│ $700-$7FF     │ PLANE B NAMETABLE (256 tiles = 8KB, 64×64)          │
+│ (256 tiles)   │   All 64 rows — BG parallax (no "Region 2")          │
 └───────────────┴─────────────────────────────────────────────────────┘
 
 VDP byte addresses: $000×32=$0000 ... $600×32=$C000 ... $700×32=$E000
@@ -1255,11 +1260,11 @@ Our 4×3 section grid has true vertical transitions — vertical scrolling is a 
 
 With 64×32, fast vertical scrolling constantly hammers nametable updates with only 4 rows of buffer. With 64×64, 36 rows of buffer absorbs even the fastest vertical movement. The extended VSRAM range enables per-column vertical deformation effects that make levels look dramatically more alive.
 
-**Validated by:** Vectorman (BlueSky) commercially ships with dynamic 64×32 ↔ 64×64 switching — the only known commercial Genesis game to use 64×64 scroll planes. S.C.E. validates off-screen nametable embedding by storing sprite art at $680+ between nametable regions. Batman & Robin and S3K use 64×32 because their levels are primarily horizontal — our vertical section grid justifies the larger planes.
+**Validated by:** Vectorman (BlueSky) commercially ships with dynamic 64×32 ↔ 64×64 switching — the only known commercial Genesis game to use 64×64 scroll planes. Batman & Robin and S3K use 64×32 because their levels are primarily horizontal — our vertical section grid justifies the larger planes.
 
-**Off-screen nametable embedding:** With 64×64 planes, each nametable has 4,096 entries but only ~1,120 are visible (40×28). The remaining ~2,976 entries occupy VRAM that the VDP reads as nametable data for off-screen positions — the resulting tile lookups are never rendered. This VRAM can store arbitrary data (character sprite tiles, VDP tables) without visual artifacts. Character sprites are DMA'd to off-screen row addresses within Plane A's nametable each frame.
+**Why character art + VDP tables are NOT embedded in off-screen rows (superseded design):** an earlier plan parked the SAT/HScroll tables and character art in Plane A's "off-screen" nametable rows — a trick that only holds when scrolling is horizontal-only. Vertical streaming makes *every* row reachable on-screen (the camera spans the full act height), so there are no permanently-off-screen rows to hide data in. Instead: the sprite attr table ($B800) + HScroll table ($BC00) were relocated to their own region below Plane A (tiles $5C0-$5FF, was $D800/$DC00 *inside* Plane A's $C000-$DFFF), and character DPLC art lives in the unified pool (tile $3C0). Both planes keep all 64 rows free for streaming.
 
-**Character sprite budget:** Up to 128 tiles for the current animation frame, DMA'd every frame. If strictly one character at a time (no AI follower), this can shrink to 64 tiles. The tiles occupy off-screen nametable space that would otherwise be wasted — zero cost against the art pool.
+**Character sprite budget:** Up to 128 tiles for the current animation frame, DMA'd every frame into the pool's character DPLC window (tile $3C0). If strictly one character at a time (no AI follower), this can shrink to 64 tiles.
 
 **Build-time tile graph coloring (NOVEL):** The build tool analyzes all sections in the zone and constructs an adjacency graph (which sections can be simultaneously visible — up to 4 at any corner of the 2D grid). Non-adjacent sections can reuse the same VRAM tile indices, like register allocation in a compiler. Shared tiles (used by multiple sections) get permanent VRAM indices. Unique tiles get reusable indices freed when their section scrolls off-screen, overwritten by the next section's tiles.
 
@@ -1273,7 +1278,7 @@ Result: most section transitions require zero tile DMA — the whole act's art i
 
 **Auto-calculated addresses:** Permanent-category objects (HUD, rings, monitors, springs, etc.) are defined sequentially in `VRAM_Layout.asm` with tile counts. The assembler computes addresses automatically — adding/removing an object shifts everything after it. Compile-time overflow check ensures permanent allocations don't exceed the pool budget.
 
-**Cross-references:** §2.2 (allocator). Vectorman: 64×64 plane validation. S.C.E.: off-screen nametable embedding. Batman: raw nametable data in ROM.
+**Cross-references:** §2.2 (allocator). Vectorman: 64×64 plane validation. Batman: raw nametable data in ROM.
 
 ### 2.4 Per-Section Background Support
 
@@ -1308,13 +1313,16 @@ T1 ships with the shared region populated from `act_bg_tiles` (zone-wide pointer
 
 **VRAM map summary (post-§2 A.5):**
 ```
-$0000-$0E1F  color-0 section's FG tile pool (113 tiles for OJZ; per-section, swapped)
-$0E20-$1EBF  color-1 section's FG tile pool (113 tiles for OJZ; per-section, swapped)
-...          (free for FG growth as zones get bigger; up to slot 1279)
-$A000-$BFFF  shared BG tile region (256 tiles max; fixed, loaded once)
-$C000-$CFFF  Plane A nametable
-$E000-$EFFF  Plane B nametable
-$F800-$FFFF  region-2 spill (A.2; off-screen Plane B rows)
+$0000-$B7FF  UNIFIED ART POOL (tiles $000-$5BF, 1,472 tiles). Resident: loaded
+             once at level load, graph-colored so the whole act fits — continuous
+             scroll never swaps section art (§2.3).
+               · FG section tile art (per-section, graph-colored indices)
+               · shared BG tile region (base $8000 / tile $400; T1/T2, loaded once)
+               · character DPLC window ($7800 / tile $3C0, DMA'd per frame)
+               · permanent tiles — HUD, rings, monitors
+$B800-$BFFF  SAT ($B800) + HScroll ($BC00) — tiles $5C0-$5FF, below Plane A
+$C000-$DFFF  Plane A nametable (64×64; all 64 rows stream)
+$E000-$FFFF  Plane B nametable (64×64; all 64 rows — no "Region 2" spill)
 ```
 
 ### 2.5 Art Loading Flow

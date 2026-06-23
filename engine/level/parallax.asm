@@ -485,11 +485,11 @@ Parallax_Step5_Vscroll:
 .v_locked:
         ; locked: BG = vOffset (static, ignores camera + lerp)
         ; FG follows camY (d1 already loaded with camY at function entry).
-        ; The earlier override that pinned FG=0 was a workaround for OJZ
-        ; Phase 1 X-only-scroll — now that vertical camera input is wired
-        ; for diagnostic, FG_V_scroll = camY exposes plane rows beyond row
-        ; 47 (sprite table region) as visible garbage. Clamp Camera_Y in
-        ; the act descriptor's cam_max_y to keep within filled rows.
+        ; FG_V_scroll = camY scrolls the full 64-row Plane A: the SAT was
+        ; relocated $D800->$B800 to free rows 48-63, and the tile cache fills
+        ; all 64 rows, so there is no "row-47 garbage" (that note described the
+        ; pre-relocation layout). Camera_Y is grid-clamped (Phase 2:
+        ; [0, grid_h*SECTION_SIZE - SCREEN_HEIGHT]); the old cam_max_y is gone.
         move.w  parallax_config_pcfg_v_offset(a0), d2
 .v_pack:
         move.w  d2, (Parallax_Current_Vscroll_BG).w
