@@ -456,8 +456,7 @@ Parallax_Step5_Vscroll:
         ;
         ; Lock sentinel: v_factor_bg = 15 → skip lerp, pin BG = vOffset.
         ; For configs that want the BG plane vertically locked regardless
-        ; of Camera_Y (originally a clobber workaround; kept as a feature —
-        ; the clobber was root-caused 2026-06-10: TestPlayer d7 stomp).
+        ; of Camera_Y. v_factor_bg = 15 is an intentional feature.
         move.l  (Camera_Y).w, d0
         swap    d0                                  ; d0.w = camY (signed pixels)
         move.w  d0, d1                              ; d1.w = camY  (FG vscroll)
@@ -480,16 +479,12 @@ Parallax_Step5_Vscroll:
         bra.s   .v_pack
 .v_snap:
         move.w  d0, d2                              ; snap: current = target
-        bra.s   .v_pack                             ; (was falling into .v_locked,
-                                                    ;  clobbering the snap with vOffset)
+        bra.s   .v_pack
 .v_locked:
         ; locked: BG = vOffset (static, ignores camera + lerp)
         ; FG follows camY (d1 already loaded with camY at function entry).
-        ; FG_V_scroll = camY scrolls the full 64-row Plane A: the SAT was
-        ; relocated $D800->$B800 to free rows 48-63, and the tile cache fills
-        ; all 64 rows, so there is no "row-47 garbage" (that note described the
-        ; pre-relocation layout). Camera_Y is grid-clamped (Phase 2:
-        ; [0, grid_h*SECTION_SIZE - SCREEN_HEIGHT]); the old cam_max_y is gone.
+        ; FG_V_scroll = camY scrolls the full 64-row Plane A. Camera_Y is
+        ; grid-clamped to [0, grid_h*SECTION_SIZE - SCREEN_HEIGHT].
         move.w  parallax_config_pcfg_v_offset(a0), d2
 .v_pack:
         move.w  d2, (Parallax_Current_Vscroll_BG).w
@@ -615,11 +610,7 @@ Decode_Factor_B:
 ; Clobbers: d0-d6, a1-a6
 ;
 ; Per band, all loop-invariant decisions are hoisted and one of FOUR
-; specialized line loops runs (both/fg/bg deform, or flat copy):
-; the old single loop re-tested table pointers, re-compared shift
-; sentinels, re-read shift counts from ROM, and re-derived the BG
-; phase base EVERY LINE — measured 45.6k cycles/frame (35.6%% of the
-; NTSC budget) at idle, the largest single frame cost in the engine.
+; specialized line loops runs (both/fg/bg deform, or flat copy).
 ;
 ; Per-band registers inside the line loops:
 ;   d0 = packed base scroll (FG<<16 | BG)   — constant per band

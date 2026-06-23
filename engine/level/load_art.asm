@@ -1,7 +1,7 @@
-; Level art loader (§2 Phase 2 A.1/A.2 → Act Art Streaming Phase 1)
-; Blocking decompress → DMA pipeline. Act Art Streaming Phase 1 replaced the
-; per-section pools with a single act-wide paged art pool that is fully
-; resident in VRAM for the life of the act (loaded once at init).
+; Level art loader
+; Blocking decompress → DMA pipeline. The act uses a single act-wide paged
+; art pool that is fully resident in VRAM for the life of the act (loaded
+; once at init).
 
 ; -----------------------------------------------
 ; Art_Decompress — version-dispatched blocking art decompressor.
@@ -23,7 +23,7 @@
 Art_Decompress:
         cmpi.b  #ART_VER_ZX0, ART_HDR_VERSION(a0)
         beq.s   .zx0
-        bra.w   S4LZ_Decompress                     ; v3 reads its own wrapper
+        bra.w   S4LZ_Decompress                     ; S4LZ_Decompress reads its own wrapper
 .zx0:
         addq.l  #ART_HDR_SIZE, a0                   ; ZX0 stream starts past wrapper
         bra.w   ZX0_Decompress

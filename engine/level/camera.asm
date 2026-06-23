@@ -79,11 +79,7 @@ Camera_Update:
         lea     (Player_1).w, a0
 
         ; -- X tracking: classic S3K fixed deadzone (screen-x 144..160) --
-        ;    The old code widened the deadzone by |x_vel|>>3, but x_vel is
-        ;    8.8 subpixels — at top speed ($600) that added 1536>>3 = 192px,
-        ;    making the deadzone ~208px (wider than the 160px half-screen), so
-        ;    Sonic ran clean off the screen edge before the camera scrolled.
-        ;    Now matches S2/S3K ScrollHoriz: scroll-RIGHT boundary at dead
+        ;    Matches S2/S3K ScrollHoriz: scroll-RIGHT boundary at dead
         ;    centre (Sonic centred while advancing), scroll-LEFT boundary
         ;    Camera_Deadzone_Base px to its left — an asymmetric 16px window.
         ;    Step capped at CAM_MAX_X_STEP px/frame.
@@ -124,9 +120,8 @@ Camera_Update:
         ;    level_width = grid_w << SECTION_SIZE_SHIFT. No more Section_Edge_Flags
         ;    / PREVIEW_PIXELS branches — the world camera spans the whole act.
         ;    .no_move (entered from the deadzone-hold path and the spindash
-        ;    freeze) and .clamp_x are kept as targets; the old .check_max_x /
-        ;    .have_min / .have_max labels are gone (only this block referenced
-        ;    them). Control still falls through into .y_track below.
+        ;    freeze) and .clamp_x are branch targets; control falls through
+        ;    into .y_track below.
         movea.l (Current_Act_Ptr).w, a0
         move.l  (Camera_X).w, d0
         swap    d0

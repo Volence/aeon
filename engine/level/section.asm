@@ -81,7 +81,7 @@ Section_GetSecPtrXY:
         cmp.b   Act_grid_h+1(a2), d3
         bcc.s   .out_of_range                       ; sec_y >= grid_h (unsigned)
 
-        ; flat_id = sec_y * grid_w + sec_x (init-only path)
+        ; flat_id = sec_y * grid_w + sec_x (repeated-add, no multiply)
         moveq   #0, d0
         move.b  d3, d0                              ; d0 = sec_y
         beq.s   .gxy_add_x

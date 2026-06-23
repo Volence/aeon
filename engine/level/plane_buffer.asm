@@ -1,5 +1,5 @@
 ; Deferred nametable plane buffer (§4.1)
-; Producers: Draw_TileColumn / Draw_TileRow_FromCache / Draw_BG_TileColumn (game loop)
+; Producers: Draw_TileColumn / Draw_TileRow_FromCache (game loop)
 ; Consumer: VInt_DrawLevel (VBlank)
 
 ; -----------------------------------------------
@@ -213,9 +213,9 @@ Draw_TileRow_FromCache:
         ;    Cache_Left_Col have no cache data; write tile 0 (they sit
         ;    behind the streamed window, never visible).
         ;    The cache spans 80 cols — 16 plane cols have two cached
-        ;    candidates (W and W+64). Anchoring to Cache_Left_Col here
-        ;    (pre-2026-06-10 bug) picked the wrap twin 64 cols ahead for
-        ;    visible-left plane cols, painting +512px content on screen. --
+        ;    candidates (W and W+64); anchor R to Section_Right_Col_Written
+        ;    (cache-clamped to Cache_Head_Col) so the visible-left plane
+        ;    cols pick the correct twin, not the wrap twin 64 cols ahead.
         move.w  (Section_Right_Col_Written).w, d4
         cmp.w   (Cache_Head_Col).w, d4
         ble.s   .r_clamp_ok
