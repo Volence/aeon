@@ -32,7 +32,6 @@ InitSpriteSystem:
 
         ; Reset counters
         move.w  d0, (Sprites_Rendered).w
-        move.w  d0, (Sprite_Link_Next).w
         rts
 
 ; -----------------------------------------------

@@ -286,7 +286,6 @@ PSTATE_COUNT            = 7         ; state/hook tables assert against this
 ANIM_WALK               = 0
 ANIM_RUN                = 1
 ANIM_ROLL               = 2         ; also the air ball (jump/airball)
-ANIM_BALL               = ANIM_ROLL ; explicit alias for air states
 ANIM_SPINDASH           = 3
 ANIM_PUSH               = 4
 ANIM_IDLE               = 5         ; wait/idle (neutral hold -> foot-tap tail)

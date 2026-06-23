@@ -241,9 +241,6 @@ Sprite_Bands:           ds.w SPRITES_PER_BAND * PRIORITY_BANDS
 Sprite_Band_Counts:     ds.b PRIORITY_BANDS
                                         ; PRIORITY_BANDS=8, already even — no pad needed
 
-; Sprite link counter (next VDP sprite index to assign)
-Sprite_Link_Next:       ds.w 1
-
 ; Total sprites rendered this frame
 Sprites_Rendered:       ds.w 1
 
