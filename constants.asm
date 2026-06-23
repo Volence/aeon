@@ -497,8 +497,8 @@ MAX_OBJECT_TYPES        = 32
 SLOT_TAG_UNTAGGED       = $FF
 SLOT_TAG_LEFT           = 0
 SLOT_TAG_RIGHT          = 1
-SLOT_TAG_LOWER_L        = 2             ; lower-left quadrant (was SLOT_TAG_UP)
-SLOT_TAG_LOWER_R        = 3             ; lower-right quadrant (was SLOT_TAG_DOWN)
+SLOT_TAG_LOWER_L        = 2             ; lower-left quadrant
+SLOT_TAG_LOWER_R        = 3             ; lower-right quadrant
 
 ; Object placement entry (ROM, 6 bytes): dc.w x, y, flags|type|subtype
 ; X-sorted ascending; terminated by dc.w -1 (X is section-local, never negative)
@@ -532,13 +532,9 @@ FRAME_PIECES            = 6         ; byte offset to first piece datum
 ; -----------------------------------------------
 VRAM_TEST_OBJ           = $03E0         ; tile 992 — test object art (8 tiles) in the free
                                         ; gap between the character DPLC region end (985)
-                                        ; and the BG shared region base (1024). The old
-                                        ; value $0001 sat inside the FG level pool: blank
-                                        ; in some art bases, terrain-aliased in others.
+                                        ; and the BG shared region base (1024).
 VRAM_RING_PLACEHOLDER   = VRAM_TEST_OBJ+8 ; tile 1000 — 1-tile gold ring (DrawRings)
 VRAM_TEST_SONIC         = $03C0        ; tile 960 — character DPLC region (up to 25 tiles).
                                         ; MUST stay clear of: FG section pools (tiles 0-~226,
                                         ; see data/editor vram_bases), marker tile $FA, BG
-                                        ; region (1024+), SAT/HScroll/planes. The old value
-                                        ; $0010 sat inside FG pool A — Sonic DPLC streaming
-                                        ; stomped live level tiles the moment debug mode exited.
+                                        ; region (1024+), SAT/HScroll/planes.

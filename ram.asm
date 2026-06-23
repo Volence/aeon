@@ -157,8 +157,8 @@ Parallax_Snap_Pending:       ds.b 1     ; 1 = next Update writes target_scroll d
 ; re-selects the active config (Sec_sec_parallax_config, Act fallback) via
 ; Parallax_CheckBoundary. Seeded to $FF in Parallax_Init so the first frame
 ; always re-selects (a no-op against the config init already chose).
-Parallax_Prev_Sec_X:         ds.b 1     ; (was Parallax_Pad, byte 0)
-Parallax_Prev_Sec_Y:         ds.b 1     ; (was Parallax_Pad, byte 1)
+Parallax_Prev_Sec_X:         ds.b 1
+Parallax_Prev_Sec_Y:         ds.b 1
 Parallax_Vscroll_Column_Buf: ds.b 80    ; 40 VSRAM entries × 2 bytes
 ; Per-frame screen-space band view (Step 4a): the config's plane-space band
 ; list rotated by Vscroll_BG, tops rebased to screen cells. Fillers consume
@@ -317,10 +317,9 @@ Camera_Deadzone_Base:   ds.w 1          ; base deadzone width in pixels
 Camera_Lookahead:       ds.w 1          ; zone-default lookahead pixels
 Camera_Pan_Offset:      ds.w 1          ; current extended lookahead pan
 Camera_Spindash_Lag:    ds.b 1          ; frames the camera holds still after a spindash
-                                        ; release (classic 16-frame lag). WRITTEN by the
-                                        ; spindash release (sonic.asm, §5 Task 8);
-                                        ; Camera_Update consumes/decrements it in Task 10
-                                        ; — until then it just counts down nothing.
+                                        ; release (classic 16-frame lag). Set to 16 by the
+                                        ; spindash release; Camera_Update tests it each
+                                        ; frame to suppress camera movement, then decrements.
                         ds.b 1          ; pad
 
 ; -----------------------------------------------
@@ -470,9 +469,7 @@ RAM_End:
 ; CROSS_RESET_RAM — top 256 bytes of RAM ($FFFFFF00-$FFFFFFFF)
 ; Survives soft reset, cleared only on cold boot.
 ; Lives ABOVE the stack base (SYSTEM_STACK = $FFFFFF00, grows down),
-; so stack pushes can never reach it. Previously sat at $FE00-$FEFF —
-; directly in the stack's path, 252 bytes of depth from corruption,
-; while this top page went unused.
+; so stack pushes can never reach it.
 ; -----------------------------------------------
 CROSS_RESET_RAM:            = $FFFFFF00
 CROSS_RESET_MAGIC_ADDR:     = $FFFFFF00

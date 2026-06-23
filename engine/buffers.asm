@@ -26,8 +26,8 @@ Init_SpriteTable:
         rts
 
 ; -----------------------------------------------
-; BuildStaticDMA — pre-compute the 5 static DMA entries
-; (4 palette lines + 1 sprite table)
+; BuildStaticDMA — pre-compute the 7 static DMA entries
+; (4 palette lines + 1 sprite table + 2 HScroll entries)
 ; Called once at boot after Init_DMA_Queue.
 ; In:  none
 ; Out: none

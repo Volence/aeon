@@ -19,9 +19,7 @@ Warm_Boot:
         btst    #1, d0
         bne.s   .wait_dma
 
-        ; Check CROSS_RESET_RAM magic (warm boot detection)
-        ; When game state worth preserving exists, branch here on valid magic
-        ; For now, fall through to cold boot regardless
+        ; Fall through to cold boot.
 
 ; -----------------------------------------------
 ; Cold_Boot — full hardware initialization
@@ -211,18 +209,12 @@ Cold_Boot:
       ifdef __DEBUG__
         moveq   #$3C, d0                 ; DEBUG: ping with a recognizable value
         bsr.w   Sound_Ping
-        ; DEBUG: play the demo song. NORMALLY SONG_TEST (FM1 lead + FM2 bass + PSG1
-        ; thirds harmony). Press START in-game to toggle stop/play (game_loop
-        ; Debug_MusicToggle).
-        ;
-        ; *** CURRENT DEV-VERIFICATION SONG — Sound Phase 3 Task 8 (the integration
-        ; payoff): SONG_MOVINGTRUCKS is the NATIVE "Moving Trucks" (B&R) port — a real
-        ; sequencer playback of the song data (NOT a register replay) across all 6 FM
-        ; voices (FM1..FM6, 1:1), streamed from ROM with the DAC off
-        ; (SH_F_FM6_FM|SH_F_STREAM). Emitted by tools/zyrinx_player.py
-        ; --emit-native-song. The scratch verification songs (SONG_TEST = id 1,
-        ; SONG_PITCHTEST = 2, SONG_TRILLTEST = 3, SONG_PANTEST = 4, SONG_STEPTEST = 5)
-        ; remain in the table for switch-back. ***
+        ; DEBUG: SONG_MOVINGTRUCKS plays the sequencer-driven "Moving Trucks"
+        ; port across all 6 FM voices (FM1..FM6, 1:1), streamed from ROM with the
+        ; DAC off (SH_F_FM6_FM|SH_F_STREAM). Alternate test songs remain available
+        ; in the table: SONG_TEST=1, SONG_PITCHTEST=2, SONG_TRILLTEST=3,
+        ; SONG_PANTEST=4, SONG_STEPTEST=5. Press START in-game to toggle
+        ; play/stop (game_loop Debug_MusicToggle).
         moveq   #SONG_MOVINGTRUCKS, d0
         bsr.w   Sound_PlayMusic
         move.b  #1, (Dbg_Music_On).w     ; DEBUG: track play state for the Start-toggle

@@ -104,12 +104,6 @@ GameState_OJZScroll_Init:
         jsr     Section_UpdateColumns
         startZ80
 
-        ; (The PlayerSensors self-check is gone: its expectations were hardcoded
-        ; from the STOCK sonic_hack collision, which the engine no longer uses —
-        ; collision is now the imported S&K shape set + editor-authored level
-        ; data, so the check can never be valid. The dead PlayerSensors_SelfCheck
-        ; + _RowFill routines were deleted in the leapfrog teardown.)
-
         ; -- §4.6 parallax init: pull start section's parallax_config --
         ; Section_GetSecPtrXY handles the full grid math (sec_y included);
         ; runs after Section_Init so Current_Act_Ptr is valid.
@@ -160,8 +154,7 @@ GameState_OJZScroll_Update:
 
         ; -- continuous scroll: no per-frame teleport check. Camera/player/
         ;    section streaming run in WORLD space; the level scrolls live with
-        ;    no section rebases. (Section_Check + teleport machinery removed in
-        ;    a later task.)
+        ;    no section rebases. --
 
         ; -- §4.9: camera-driven entity scan (load/despawn rings + objects) --
         jsr     EntityWindow_Scan
@@ -199,9 +192,7 @@ GameState_OJZScroll_Update:
 
         ; -- per-section parallax: re-select the config on a section-boundary
         ;    crossing. Edge-triggered inside Parallax_CheckBoundary (watches
-        ;    the section under the camera centre, same as flat_id above), it
-        ;    replaces the deleted teleport-driven snap and the old per-frame
-        ;    StartTransition call. --
+        ;    the section under the camera centre, same as flat_id above). --
         jsr     Parallax_CheckBoundary
 
         ; -- T15 diagnostic: per-section sky-color marker --
