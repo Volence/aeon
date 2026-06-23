@@ -102,7 +102,10 @@ VInt_Level:
 
 ; -----------------------------------------------
 ; VInt_Lag — minimal handler (lag frames)
-; Critical DMA only. Important/Deferrable entries persist.
+; Critical DMA only. Important/Deferrable entries persist. The Plane_Buffer
+; drain (VInt_DrawLevel) is deliberately NOT run here — on a lag frame the main
+; loop is still mid-fill (VBlank_Ready=0) and the buffer is half-written; it
+; drains on the next complete frame (VInt_Level). See note below.
 ; -----------------------------------------------
 VInt_Lag:
         ; Sound (flag bracket): see VInt_Level — raise SND_CTRL_DMA_ACTIVE=1 at the
@@ -120,7 +123,17 @@ VInt_Lag:
 
         bsr.w   Flush_VDP_Shadow
         bsr.w   Enqueue_Dirty_Buffers
-        bsr.w   VInt_DrawLevel
+        ; Do NOT drain Plane_Buffer here. On a lag frame the main loop has not
+        ; finished (VBlank_Ready=0) and is still appending to Plane_Buffer inside
+        ; Section_UpdateColumns. VInt_DrawLevel drains on Plane_Buffer_Ptr!=0 with
+        ; no "complete" guard, so draining now reads TORN entries — a half-written
+        ; entry's addr field is garbage, so the drain writes to a garbage VDP dest
+        ; (nametable corruption, e.g. Plane B fills with ROM/cache bytes) and then
+        ; resets Plane_Buffer_Ptr=0 under the main loop's feet, cascading into more
+        ; lag and more torn drains. The dirty palette/sprite/HScroll buffers above
+        ; ARE safe: they are dirty-FLAG gated (the flag is set only after a complete
+        ; write), unlike the Ptr-gated plane buffer. The plane drain defers to the
+        ; next complete frame (VInt_Level, VBlank_Ready=1).
         bsr.w   Process_DMA_Critical
         bsr.w   Vscroll_Write           ; §4.6 — after Critical DMA
 
