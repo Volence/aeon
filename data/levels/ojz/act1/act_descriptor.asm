@@ -20,6 +20,15 @@
     if 3*3 > MAX_ACT_SECTIONS
       error "OJZ act 1 grid (3x3) exceeds MAX_ACT_SECTIONS"
     endif
+; Build assert: the camera/player clamps (camera.asm .clamp_x/.clamp_y,
+; Player_LevelBound) compute each axis extent as grid<<SECTION_SIZE_SHIFT and
+; clamp in WORD width — so an axis extent must fit $FFFF (~16 sections at
+; SECTION_SIZE 2048). A taller/wider act would silently WRAP the clamp (the
+; camera scrolling past a wrapped bound) rather than fail. Catch it at build.
+; (Literal grid below; matches the grid_w/grid_h dc.w values.)
+    if (3 << SECTION_SIZE_SHIFT) > $FFFF
+      error "OJZ act 1 axis extent (grid 3 << SECTION_SIZE_SHIFT) exceeds $FFFF — word-width clamp math would wrap; widen the clamp ops before growing past ~16 sections"
+    endif
 
 OJZ_Act1_Descriptor:
     dc.l    OJZ_Act1_Sections       ; sec_grid_ptr
