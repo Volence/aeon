@@ -198,7 +198,7 @@ parallax_config endstruct
     endif
 
 ; -----------------------------------------------
-; Act Descriptor (§4) — 32 bytes ($20), ROM table
+; Act Descriptor (§4) — 34 bytes ($22), ROM table
 ; Fields prefixed with Act_ to match access pattern Act_fieldname(reg).
 ; -----------------------------------------------
 Act struct
@@ -218,10 +218,12 @@ act_bg_tiles        ds.l 1          ; $12 — zone-wide Plane B tile blob (raw, 
 act_parallax_config ds.l 1          ; $16 — default parallax config (fallback when section's is NULL)
 act_art_pool_table  ds.l 1          ; $1A — ptr to page-address table (OJZ_Act_Pool_PageTable; Act Art Streaming Phase 1)
 act_art_pool_pages  ds.w 1          ; $1E — number of pool pages (OJZ_ACT_POOL_PAGES)
+edge_mode           ds.b 1          ; $20 — vertical edge behavior (EDGE_CLAMP/WRAP_V/KILL; §10)
+                    ds.b 1          ; $21 — reserved (pad to word; future per-section edge flags)
 Act endstruct
 
-    if Act_len <> $20
-      error "Act struct is \{Act_len} bytes, expected $20"
+    if Act_len <> $22
+      error "Act struct is \{Act_len} bytes, expected $22"
     endif
 
 ; -----------------------------------------------

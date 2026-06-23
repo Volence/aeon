@@ -37,6 +37,8 @@ OJZ_Act1_Descriptor:
     dc.l    ParallaxConfig_OJZ_Default ; act_parallax_config (fallback for sections with NULL config)
     dc.l    OJZ_Act_Pool_PageTable  ; act_art_pool_table (Act Art Streaming Phase 1)
     dc.w    OJZ_ACT_POOL_PAGES      ; act_art_pool_pages
+    dc.b    EDGE_CLAMP              ; edge_mode (Phase 2 §10; OJZ ships CLAMP)
+    dc.b    0                      ; reserved (pad)
     align 2
 
 ; -----------------------------------------------

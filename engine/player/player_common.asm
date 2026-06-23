@@ -651,16 +651,30 @@ Player_LevelBound:
         move.w  d1, d2
         addi.w  #PBOUND_BOTTOM_MARGIN, d2
         cmp.w   d2, d0
-        ble.s   .y_ok
-        ; Below the world — clamp to the bottom edge. With editor-authored / S&K
-        ; collision the player can fall through air or an unpainted/erased floor
-        ; by design (pits, a WIP level with no ground yet), so this is expected,
-        ; not a bug — just clamp (placeholder until death/respawn exists).
-        move.w  d1, SST_y_pos(a0)
+        ble.s   .y_ok                           ; above the bottom guard → done
+        ; --- player tripped the bottom edge: dispatch on the act's edge_mode ---
+        move.b  Act_edge_mode(a1), d2
+        cmpi.b  #EDGE_WRAP_V, d2
+        beq.s   .edge_wrap
+        cmpi.b  #EDGE_KILL, d2
+        beq.s   .edge_kill
+        ; EDGE_CLAMP (default) — clamp to the bottom edge (unchanged behavior).
+        ; With editor-authored / S&K collision the player can fall through air or
+        ; an unpainted/erased floor by design (pits, a WIP level with no ground
+        ; yet), so this is expected, not a bug — just clamp (placeholder until
+        ; death/respawn exists).
+.edge_clamp:
+        move.w  d1, SST_y_pos(a0)               ; d1 still = playable bottom edge
         clr.w   SST_y_pos+2(a0)
         clr.w   SST_y_vel(a0)
 .y_ok:
         rts
+.edge_wrap:
+        ; EDGE_WRAP_V — vertical wrap (Task 3: Edge_WrapV). Stub: clamp for now.
+        bra.s   .edge_clamp
+.edge_kill:
+        ; EDGE_KILL — death pit (Task 4: death-pending hook). Stub: clamp for now.
+        bra.s   .edge_clamp
 
 ; -----------------------------------------------
 ; Debug-fly — suspends the state machine (the obj_control escape hatch).

@@ -400,6 +400,16 @@ CAM_MAX_Y_STEP          = 16        ; max camera Y movement px/frame. The stream
                                     ; stay <= VFILL_ROWS_PER_FRAME*8 or fills fall
                                     ; behind the view. Teleports bypass via Reinit.
 
+; -----------------------------------------------
+; Vertical edge modes (per-act Act_edge_mode; continuous-scroll Phase 2 §10)
+;   CLAMP  — camera + player stop at the world floor (default)
+;   WRAP_V — fall-forever: crossing the bottom wraps Y by level_height (Task 3)
+;   KILL   — death pit (deferred hook; Task 4 — clamps until a death system exists)
+; -----------------------------------------------
+EDGE_CLAMP   = 0
+EDGE_WRAP_V  = 1
+EDGE_KILL    = 2
+
 ; Section flags (sec_flags word bits)
 SF_HAS_WATER            = 1<<0
 SF_UNDERGROUND          = 1<<1
