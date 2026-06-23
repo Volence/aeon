@@ -11,6 +11,13 @@
 ; been intermittently leaving $0B at $03 (per-line) even when shadow says
 ; $02; rather than chase that, we sidestep by always producing a per-line
 ; buffer. With sample = 0 there is no visual deform.
+;
+; LOAD-BEARING — re-confirmed live 2026-06-23. Dropping this to NULL (per-cell,
+; the ~20%/frame HScroll saving) renders fine AT REST but breaks Plane A (FG)
+; HScroll DURING SCROLL: the register sticks at $03 while the buffer is per-cell,
+; so the FG draws strips at wrong horizontal offsets over the art instead of
+; streaming continuously. The $0B bug is LIVE, not stale. Do NOT remove this
+; without first fixing the $0B shadow→register propagation (see DEFERRED_WORK).
 DeformTable_Zero:
     rept 256
         dc.b 0
