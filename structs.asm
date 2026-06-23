@@ -213,11 +213,11 @@ start_sec_y         ds.b 1          ; $0D — starting section Y index
 ;  — level_width = grid_w << SECTION_SIZE_SHIFT — so no act-supplied X bounds.
 ;  cam_min_y/cam_max_y likewise removed: the Y clamp is grid-derived too —
 ;  level_height = grid_h << SECTION_SIZE_SHIFT — see .clamp_y in camera.asm.)
-act_bg_layout       ds.l 1          ; zone-wide Plane B layout pointer (T1 default)
-act_bg_tiles        ds.l 1          ; $16 — zone-wide Plane B tile blob (raw, loaded into shared BG region)
-act_parallax_config ds.l 1          ; $1A — default parallax config (fallback when section's is NULL)
-act_art_pool_table  ds.l 1          ; $1E — ptr to page-address table (OJZ_Act_Pool_PageTable; Act Art Streaming Phase 1)
-act_art_pool_pages  ds.w 1          ; $22 — number of pool pages (OJZ_ACT_POOL_PAGES)
+act_bg_layout       ds.l 1          ; $0E — zone-wide Plane B layout pointer (T1 default)
+act_bg_tiles        ds.l 1          ; $12 — zone-wide Plane B tile blob (raw, loaded into shared BG region)
+act_parallax_config ds.l 1          ; $16 — default parallax config (fallback when section's is NULL)
+act_art_pool_table  ds.l 1          ; $1A — ptr to page-address table (OJZ_Act_Pool_PageTable; Act Art Streaming Phase 1)
+act_art_pool_pages  ds.w 1          ; $1E — number of pool pages (OJZ_ACT_POOL_PAGES)
 Act endstruct
 
     if Act_len <> $20
