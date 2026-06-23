@@ -62,6 +62,7 @@ Sections retain distinct parallax configs. The old per-section parallax snap fir
 1. **Phase 1 — Horizontal continuous.** Store world coords (X), no-op the conversion fns, migrate the camera X clamp + `Player_LevelBound` X + `Section_UpdateColumns` X clamps + init seeds + world-origin underflow, delete the horizontal teleport/slot machinery, wire per-section parallax snap on X-boundary crossing. **Verify free-flowing horizontal traversal + no seam.** (Y stays clamped as-is this phase.)
 2. **Phase 2 — Vertical continuous.** Extend to Y. **Resolve the vertical render-safety concern first:** the camera has never reached the bottom row (`cam_max_y` clamped to 2 sections) and `parallax.asm` notes the Y clamp doubles as a guard against "visible garbage beyond plane row 47." Phase 2 investigates + fixes the plane vertical-fill/SAT-adjacency so full-height scroll renders cleanly, then migrates the Y clamp + vertical entity/streaming. Verify the camera reaches the bottom row cleanly.
 3. **Phase 3 — Cleanup.** Inline-and-delete the conversion pass-throughs; remove any remaining dead state; rewrite `ENGINE_ARCHITECTURE.md` to describe continuous-scroll as the traversal model.
+4. **Phase 4 — Floating-origin rebase (future; only when a level needs >16 sections per axis).** The unbounded-level path. Not built until a level actually exceeds the 16-bit coordinate ceiling. Designed up front (§9) so the coordinate layer doesn't preclude it.
 
 ---
 
@@ -78,3 +79,34 @@ Sections retain distinct parallax configs. The old per-section parallax snap fir
 ## 8. Provenance note
 
 This completes the teardown of the **leapfrog** — an assistant-authored, never-user-decided bet (see `leapfrog-provenance-audit`) — in favor of the classic continuous-scroll model the reference research validated. It is the user-reviewed replacement of the traversal/coordinate model. The art pool (Phase 1) and this traversal change together deliver the free-flowing level that is the completion bar for the OJZ work; the same continuous-scroll model is the foundation the future >VRAM art-streaming end-state builds on.
+
+---
+
+## 9. Floating-origin rebase (future — the unbounded-level path)
+
+**Status:** user-approved as a later phase (Phase 4); built only when a level exceeds the coordinate ceiling. Documented now so the coordinate layer is designed not to preclude it.
+
+**The ceiling it removes.** World positions are 16.16 (pixel value in the 16-bit upper word). Several coordinate ops are signed (deadzone follow, `asr` section-derive, the despawn/load compares), so the practical ceiling is the sign bit at `$8000` = **~16 sections per axis** (`16 × SECTION_SIZE`). Past that, the signed despawn/load comparisons wrap and produce false despawn / missed load *before* any visual glitch — so the rebase trigger fires on the camera approaching `$8000`, not on a render symptom. (Unsigned-hardening the coordinate ops first would raise the ceiling to ~32 sections; floating-origin is what makes it effectively unbounded.)
+
+**The model — floating-point for world space.** Split the absolute position into a coarse base + a fine live coordinate, and renormalize periodically so the fine part never overflows:
+```
+absolute position = World_Section_Base × SECTION_SIZE  +  Camera_X (live 16-bit)
+```
+The whole engine keeps running in the fine coordinate exactly as today. `World_Section_Base` (a new RAM counter, the one piece of state this adds) records how many sections we have renormalized past.
+
+**The rebase (atomic, one frame, rendering quiesced).** Trigger when `Camera_X` crosses a threshold below the ceiling (e.g. `REBASE_THRESHOLD = $6000`). Choose `REBASE_DELTA` as a whole number of sections (e.g. `8 × SECTION_SIZE = $4000`; a multiple of `SECTION_SIZE` is automatically a multiple of the 512px plane width, so the wrapped nametable lines up and **no plane redraw** is needed). Then, in one step, subtract `REBASE_DELTA` from every piece of **live world-space state** (the audit's shift-list) and add `REBASE_DELTA / SECTION_SIZE` to `World_Section_Base`:
+- `Camera_X`, `Player_1.x_pos`
+- every active object `x_pos` (walk Object_RAM / Dynamic_Slots)
+- every active ring `engine_X` (walk Ring_Buffer)
+- the tile-cache world cursors (`Cache_Left_Col`/`Cache_Head_Col`/streaming cursors), shifted by `REBASE_DELTA/8` tiles (keep the cache even-row/circular invariants — `REBASE_DELTA` is a multiple of the section size, so parity is preserved)
+- the entity-window origins/scan-state: easiest to **re-run `BuildEntries`** after shifting the camera so they recompute from the shifted camera rather than being bumped by hand.
+
+It is invisible because everything moves by the same delta in one frame — every relative relationship (camera↔player↔entities↔plane) is unchanged; the screen is pixel-for-pixel identical. It is a pure coordinate renumber, not a content transition, so there is **no preview zone and no per-section object/ring preload-or-handoff** (those leapfrog mechanisms stay deleted — continuous streaming + the entity window already cover "see ahead" and "spawn ahead").
+
+**What it does NOT touch (verified by the section-local entity audit, 2026-06-22).** The static per-section `sec_objects`/`sec_rings` ROM data is section-local (positions relative to the section, `0..SECTION_SIZE-1`, build-enforced) — never shifted, never overflows at any level size. Respawn/collected/killed memory is keyed by absolute `section_id` (`sec_y*grid_w + sec_x`) + list-index — coordinate-invariant, so it survives a rebase untouched. The **only** data-lookup change is adding `World_Section_Base` where a (local) coordinate is mapped to an absolute section for ROM lookup: `absolute_section = World_Section_Base + (Camera_X >> SECTION_SIZE_SHIFT)`.
+
+**vs. the leapfrog.** Same good idea (keep the working coordinate bounded), done coarsely (every ~8 sections, not every boundary), uniformly (one shift of the live set, no slots, no per-section art swap), and invisibly (atomic, plane-aligned — no seam). Bookkeeping is one counter + `+World_Section_Base` at the section-lookup sites, vs. the leapfrog's slot map + thresholds + edge flags + preview zone.
+
+**Companion limit to lift at the same time.** `section_id` is currently one byte (`sec_y*grid_w+sec_x`) → max 256 sections total (independent of the coordinate ceiling, and above today's `MAX_ACT_SECTIONS=48`). Widen `section_id` to a word when a level approaches 256 sections; if section_ids are ever allowed to repeat across rebase epochs, fold an epoch into the respawn key.
+
+**Cost:** one RAM counter, a per-frame threshold compare, a rare entity-walk (tens of entities, a few hundred cycles, once per ~8 sections of travel), and `+World_Section_Base` at the handful of section-lookup sites.
