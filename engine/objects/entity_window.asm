@@ -578,9 +578,9 @@ EntityWindow_DeriveWindow:
         move.w  (Camera_Y).w, d5        ; section 255 (NOT voided) and tripping the single-
         subi.w  #ENTITY_DESPAWN_BUFFER_Y, d5 ; axis slide assert. Clamp to section 0, mirroring
         asr.w   d0, d5                  ; the tile cache's Cache_Left_Col/Top_Row clamp
-        bpl.s   .y0_ok                  ; (tile_cache.asm) — the bounded leapfrog camera
-        moveq   #0, d5                  ; (min $200 = the buffer) never reached here, so the
-.y0_ok:                                 ; world-camera migration (f043657) missed this clamp.
+        bpl.s   .y0_ok                  ; (tile_cache.asm).
+        moveq   #0, d5
+.y0_ok:                                 ; clamp to section 0 to prevent -1 from being misinterpreted as section 255
         move.w  d4, d2                  ; d2.b = sec_x0 (clamped to [0, grid))
         move.w  d5, d3                  ; d3.b = sec_y0 (clamped)
         rts
@@ -1237,8 +1237,8 @@ EntityWindow_RescanObjects:
 ; -----------------------------------------------
 ; EntityWindow_DespawnRings — remove rings outside camera range
 ;
-; X rule (unchanged): out-of-X rings despawn UNLESS their section is
-; an active window entry. Y rule (Task 5): EVERY ring — active section
+; X rule: rings despawn when out-of-X UNLESS their section is
+; an active window entry. Y rule: EVERY ring — active section
 ; or not — must sit inside the Y despawn band or it goes. The Y band
 ; uses ENTITY_DESPAWN_BUFFER_Y (wider than load = hysteresis: a ring
 ; between the bands neither loads nor despawns, so no churn).
@@ -1319,8 +1319,7 @@ EntityWindow_DespawnRings:
 ; from the Y BAND only, never from section lifetime — an untracked
 ; section's ANY_Y survivor would otherwise live forever in the X window
 ; and duplicate when its section re-enters (its loaded bit died with the
-; entry). The old per-object camera-X window check was vestigial under
-; these rules and is gone.
+; entry).
 ; -----------------------------------------------
 EntityWindow_DespawnObjects:
         lea     (Dynamic_Slots).w, a0

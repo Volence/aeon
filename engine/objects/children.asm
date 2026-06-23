@@ -41,7 +41,7 @@ PopulateSpawnedPieceCount:
 ; Clobbers: d0-d3, a1-a2
 ; -----------------------------------------------
 CreateChild_Normal:
-        move.w  SST_sibling_ptr(a0), d3 ; d3 = chain tail (0 if no children yet)
+        move.w  SST_sibling_ptr(a0), d3 ; d3 = current chain head (newest child, 0 if no children yet)
 .child_loop:
         move.w  (a1)+, d2               ; d2 = child code_addr
         beq.s   .done                   ; 0 = end of table

@@ -205,8 +205,7 @@ RunObjects:
         movea.l d0, a1
         jsr     (a1)
         ; debug builds: catch object routines violating the a0/d7
-        ; preservation contract at the source (caused the free-stack
-        ; code-dispatch crash + intermittent RAM clobbers, 2026-06-10)
+        ; preservation contract at the source
         ifdebug bsr.w Debug_AssertObjLoop
 .always_next:
         lea     SST_len(a0), a0
@@ -253,8 +252,8 @@ RunObjects:
 ; -----------------------------------------------
 ; Debug_AssertObjLoop — verify the RunObjects loop contract after dispatch
 ; Object routines must return with a0 = own SST and d7 = loop counter
-; intact. A violation here previously dispatched free-stack words as
-; code offsets (intermittent RAM clobbers / ILLEGAL INSTRUCTION).
+; intact. A violation here means object routines clobbered a0/d7,
+; causing free-stack words to dispatch as code offsets.
 ; In:  a0 = slot just dispatched, d7 = loop counter
 ; Out: none (raises debugger error on violation)
 ; Clobbers: none

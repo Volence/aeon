@@ -132,7 +132,7 @@ Touch_Touch:
 ; Touch_Hurt — damage the player (stub)
 ; In:  a2 = player SST, a3 = target SST, d0-d3 = overlap data
 ; Out: none
-; Clobbers: none (currently)
+; Clobbers: none
 ; -----------------------------------------------
 Touch_Hurt:
         rts

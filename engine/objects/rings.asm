@@ -65,7 +65,7 @@ RingBuffer_Remove:
         moveq   #0, d1
         move.b  (Ring_Count).w, d1
         subq.b  #1, d1
-        bmi.s   .done                   ; count was 0
+        bmi.s   .done                   ; count is zero (becomes -1 after decrement)
 
         move.b  d1, (Ring_Count).w      ; decrement count
 
