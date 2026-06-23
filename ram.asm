@@ -295,6 +295,9 @@ Player_Phys_End:
 
 Player_Quadrant:        ds.b 1      ; (angle+$20)>>6 — derived once per frame
 Player_JumpBuffer:      ds.b 1      ; frames remaining on buffered jump press
+Player_Death_Pending:   ds.b 1      ; EDGE_KILL hook: set when the player crosses a
+                                    ; kill-edge; the death system (when it exists)
+                                    ; consumes it. Boot-cleared with all Work-RAM.
 
 ; -----------------------------------------------
 ; Level System (§4 Phase 1)

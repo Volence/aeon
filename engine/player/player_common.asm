@@ -681,8 +681,13 @@ Player_LevelBound:
         ; shift-list: spec §10 (continuous-scroll-traversal-design). Until built: clamp.
         bra.s   .edge_clamp
 .edge_kill:
-        ; EDGE_KILL — death pit (Task 4: death-pending hook). Stub: clamp for now.
-        bra.s   .edge_clamp
+        ; EDGE_KILL — death pit. No death/respawn system exists yet, so this records
+        ; intent and clamps meanwhile (the player can't fall into void with nothing
+        ; to catch them). When the death system exists it consumes Player_Death_Pending
+        ; and owns the kill/respawn; this stays the single trigger point. Architected
+        ; from the start, not faked.
+        st      (Player_Death_Pending).w        ; set the death-pending flag ($FF)
+        bra.s   .edge_clamp                     ; clamp until the death system exists
 
 ; -----------------------------------------------
 ; Debug-fly — suspends the state machine (the obj_control escape hatch).
