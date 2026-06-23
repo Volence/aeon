@@ -5,8 +5,9 @@ CAM_SCREEN_HALF_W   = 160
 CAM_SCREEN_HALF_H   = 112
 CAM_MAX_X_STEP      = 16        ; max horizontal scroll px/frame (classic S2/CD;
                                 ; S3K=24, imperceptible at the 6px/f player top
-                                ; speed). Caps spring/teleport position jumps so
-                                ; the camera can't outrun Section_UpdateColumns.
+                                ; speed). Caps large player position jumps (e.g.
+                                ; springs) so the camera can't outrun
+                                ; Section_UpdateColumns.
 
 ; -----------------------------------------------
 ; Camera_Init — initialise from act descriptor
@@ -60,10 +61,10 @@ Camera_Update:
         ;    creep can't register. Classic "freeze camera 16 frames" (research
         ;    feel-modern §3). X is the load-bearing axis (spindash is
         ;    horizontal); Y is frozen too because the bounds clamps below still
-        ;    run, and a section teleport rebase writes Camera_X/Y directly
-        ;    (outside this follow), so a teleport during the freeze still
-        ;    applies — the freeze only suppresses player-follow, not external
-        ;    position writes. Decrement once per frame.
+        ;    run. The freeze only suppresses player-follow, not external
+        ;    position writes (continuous-scroll: there are no section teleport
+        ;    rebases — the camera tracks the player in world space). Decrement
+        ;    once per frame.
         moveq   #0, d4                              ; d4 = "frozen this frame"
         tst.b   (Camera_Spindash_Lag).w
         beq.s   .no_freeze

@@ -349,14 +349,9 @@ Section_Bottom_Row_Written: ds.w 1
 
 ; Section streaming state
 Section_Plane_Dirty:    ds.b 1          ; full plane redraw pending (level init + cache recovery)
-                        ds.b 1          ; pad — keep Section_Stream_State even-aligned
+                        ds.b 1          ; pad to even (Section_Plane_Dirty is 1 odd byte)
 
-; Per-section streaming state (§2 A.4) — one byte per section
-; (SS_IDLE / SS_RESIDENT). Indexed by flat section_id
-; (sec_y * grid_w + sec_x). Per-act build asserts enforce grid_w*grid_h <= MAX_ACT_SECTIONS.
-Section_Stream_State:   ds.b MAX_ACT_SECTIONS   ; 48 sections max; even-aligned (48 is even)
-
-; Column streaming state — engine tile columns (Camera_X/8 domain)
+; Column streaming state — world tile columns (Camera_X/8 domain)
 ; Right: last tile col written to nametable on the right side of view
 ; Left:  last tile col written to nametable on the left side of view
 Section_Right_Col_Written: ds.w 1

@@ -1,24 +1,8 @@
 ; 2D tile cache (§4.7)
 ; Linear 2D buffer in lower RAM. Slides in both axes as camera moves.
 ; Block-based decompression: each 16×16 tile block decompressed on demand.
-
-; -----------------------------------------------
-; Engine_To_World_Col — convert engine tile col to world tile col
-; In:  d0.w = engine tile col (e.g., Camera_X / 8)
-; Out: d0.w = world tile col
-; Clobbers: none
-; -----------------------------------------------
-Engine_To_World_Col:
-        rts                                 ; world == engine (continuous-scroll); pass-through
-
-; -----------------------------------------------
-; Engine_To_World_Row — convert engine tile row to world tile row
-; In:  d0.w = engine tile row (e.g., Camera_Y / 8)
-; Out: d0.w = world tile row
-; Clobbers: none
-; -----------------------------------------------
-Engine_To_World_Row:
-        rts                                 ; world == engine (continuous-scroll); pass-through
+; Continuous-scroll: camera, player, and entities live in WORLD coordinates,
+; so a camera tile coord (Camera_X/8, Camera_Y/8) IS already a world tile coord.
 
 ; -----------------------------------------------
 ; Tile_Cache_GetTile — look up nametable word for a world tile position
@@ -375,8 +359,7 @@ Tile_Cache_Init:
         ; compute world tile bounds for initial fill
         move.l  (Camera_X).w, d0
         swap    d0
-        lsr.w   #3, d0                         ; camera tile col (engine)
-        bsr.w   Engine_To_World_Col
+        lsr.w   #3, d0                         ; camera world tile col
         subi.w  #TILE_CACHE_MARGIN_H, d0
         bpl.s   .left_ok
         moveq   #0, d0
@@ -392,8 +375,7 @@ Tile_Cache_Init:
 
         move.l  (Camera_Y).w, d0
         swap    d0
-        lsr.w   #3, d0                         ; camera tile row (engine)
-        bsr.w   Engine_To_World_Row
+        lsr.w   #3, d0                         ; camera world tile row
         move.w  d0, (Cache_Prev_Cam_Row).w     ; init prefetch baseline
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .top_ok
@@ -625,8 +607,7 @@ Tile_Cache_Fill:
         move.l  (Camera_X).w, d6
         swap    d6
         lsr.w   #3, d6
-        move.w  d6, d0
-        bsr.w   Engine_To_World_Col
+        move.w  d6, d0                         ; d0 = world tile col
         subi.w  #TILE_CACHE_MARGIN_H, d0
         bpl.s   .h_left_pos
         moveq   #0, d0
@@ -638,8 +619,7 @@ Tile_Cache_Fill:
         swap    d6
         addi.w  #327, d6
         lsr.w   #3, d6
-        move.w  d6, d0
-        bsr.w   Engine_To_World_Col
+        move.w  d6, d0                         ; d0 = world tile col
         addi.w  #TILE_CACHE_MARGIN_H, d0
         move.w  d0, d7                         ; d7 = desired right edge
 
@@ -715,8 +695,7 @@ Tile_Cache_Fill:
         move.l  (Camera_Y).w, d6
         swap    d6
         lsr.w   #3, d6
-        move.w  d6, d0
-        bsr.w   Engine_To_World_Row
+        move.w  d6, d0                         ; d0 = world tile row
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .v_top_pos
         moveq   #0, d0
@@ -729,8 +708,7 @@ Tile_Cache_Fill:
         swap    d6
         addi.w  #231, d6
         lsr.w   #3, d6
-        move.w  d6, d0
-        bsr.w   Engine_To_World_Row
+        move.w  d6, d0                         ; d0 = world tile row
         addi.w  #TILE_CACHE_MARGIN_V, d0
         move.w  d0, d7                         ; d7 = desired bottom edge
 
@@ -837,8 +815,7 @@ Tile_Cache_Fill:
         ; compute current camera world tile row
         move.l  (Camera_Y).w, d0
         swap    d0
-        lsr.w   #3, d0                         ; engine tile row
-        bsr.w   Engine_To_World_Row            ; d0 = camera world tile row (clobbers d1)
+        lsr.w   #3, d0                         ; d0 = camera world tile row
 
         ; compare with last frame to get scroll direction
         move.w  (Cache_Prev_Cam_Row).w, d1
@@ -877,10 +854,9 @@ Tile_Cache_Fill:
         ; block column under camera center X
         move.l  (Camera_X).w, d6
         swap    d6
-        addi.w  #160, d6                       ; camera center X (engine pixels)
-        lsr.w   #3, d6                         ; engine tile col
+        addi.w  #160, d6                       ; camera center X (world pixels)
+        lsr.w   #3, d6                         ; d0 = camera center world tile col
         move.w  d6, d0
-        bsr.w   Engine_To_World_Col            ; d0 = world tile col (clobbers d1)
 
         ; decompose (same pattern as FillColumn/FillRow):
         ; d0 = world tile col,  d7 = world tile row of target block
@@ -1278,8 +1254,7 @@ TileCache_Reinit:
         ; recompute cache bounds centered on camera
         move.l  (Camera_X).w, d0
         swap    d0
-        lsr.w   #3, d0
-        bsr.w   Engine_To_World_Col
+        lsr.w   #3, d0                         ; camera world tile col
         subi.w  #TILE_CACHE_MARGIN_H, d0
         bpl.s   .ri_left_ok
         moveq   #0, d0
@@ -1294,8 +1269,7 @@ TileCache_Reinit:
 
         move.l  (Camera_Y).w, d0
         swap    d0
-        lsr.w   #3, d0
-        bsr.w   Engine_To_World_Row
+        lsr.w   #3, d0                         ; camera world tile row
         move.w  d0, (Cache_Prev_Cam_Row).w     ; reset prefetch baseline on reinit
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .ri_top_ok

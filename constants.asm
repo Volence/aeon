@@ -327,16 +327,9 @@ PARALLAX_LERP_SHIFT        = 4      ; >>4 ≈ 16-frame convergence to ~95% — g
 ; Region 2 removed — full 64-row plane uses all nametable rows.
 REGION1_TILE_CAPACITY   = 1472      ; was 1536; SAT at $B800 takes tiles $5C0-$5FF
 
-; Per-section streaming (§2 A.4)
-MAX_ACT_SECTIONS        = 48        ; Section_Stream_State capacity; per-act grids must fit
-                                    ; (flat id = sec_y * grid_w + sec_x; build asserts enforce
-                                    ; grid_w * grid_h <= MAX_ACT_SECTIONS)
-
-; Per-section streaming state values (single byte per section)
-; (value 1 was SS_STREAMING — retired with Section_StreamArtGroup; the
-; union-blob model marks neighbor sections RESIDENT directly)
-SS_IDLE      = 0    ; not loaded
-SS_RESIDENT  = 2    ; in VRAM, valid
+; Per-act section grid cap. Flat section id = sec_y * grid_w + sec_x;
+; per-act build asserts enforce grid_w * grid_h <= MAX_ACT_SECTIONS.
+MAX_ACT_SECTIONS        = 48
 
 ; Plane buffer
 PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)

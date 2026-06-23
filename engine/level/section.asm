@@ -7,7 +7,7 @@
 ; Section_Init — record the act, fill nametable, init the entity window
 ; In:  a0 = act descriptor pointer (Act struct)
 ; Out: none
-; Clobbers: d0–d5, a0–a3
+; Clobbers: d0–d7, a0–a5   (transitive via EntityWindow_Init)
 ; -----------------------------------------------
 Section_Init:
         move.l  a0, (Current_Act_Ptr).w
@@ -33,8 +33,7 @@ Section_Init:
 Section_FillInitial:
         move.l  (Camera_X).w, d0
         swap    d0
-        lsr.w   #3, d0
-        bsr.w   Engine_To_World_Col
+        lsr.w   #3, d0                              ; d0 = camera world tile col
         subq.w  #1, d0
         move.w  d0, (Section_Right_Col_Written).w
         addq.w  #1, d0
@@ -42,8 +41,7 @@ Section_FillInitial:
 
         move.l  (Camera_Y).w, d0
         swap    d0
-        lsr.w   #3, d0
-        bsr.w   Engine_To_World_Row
+        lsr.w   #3, d0                              ; d0 = camera world tile row
         subq.w  #1, d0
         move.w  d0, (Section_Bottom_Row_Written).w
         addq.w  #1, d0
@@ -125,7 +123,8 @@ Section_GetSecPtrXY:
 ; -----------------------------------------------
 ; Section_RedrawPlanes — camera-aware atomic full-plane rewrite (§4.2).
 ; Level-init draw + cache-recovery path only (via Section_Plane_Dirty);
-; teleports are pure rebases and never trigger this (~3 frames synchronous).
+; continuous-scroll streams the plane incrementally, so this never fires
+; mid-traversal (~3 frames synchronous when it does run).
 ;
 ; Models sonic_hack's Dirty_flag → Draw_All pattern: the entire visible
 ; plane content is rewritten in one synchronous pass via direct VDP
@@ -294,7 +293,7 @@ Section_RedrawPlanes:
         ; Continuous-scroll: derive the on-screen section straight from the
         ; world camera (sec_x = Camera_X >> SECTION_SIZE_SHIFT, sec_y likewise).
         ; At level init the camera sits in the start section, so this returns the
-        ; start section's BG — identical to the old slot-0 lookup.
+        ; start section's BG.
         movea.l (Current_Act_Ptr).w, a2
         move.w  (Camera_X).w, d2                    ; world X px (16.16 high word)
         moveq   #SECTION_SIZE_SHIFT, d0
@@ -363,11 +362,7 @@ Section_UpdateColumns:
         ; -------- right side --------
         move.w  d6, d7
         addi.w  #327, d7
-        lsr.w   #3, d7                          ; d7 = right_needed engine tile col
-
-        move.w  d7, d0
-        bsr.w   Engine_To_World_Col
-        move.w  d0, d7                          ; d7 = right_needed world col
+        lsr.w   #3, d7                          ; d7 = right_needed world col
 
         ; clamp to act boundary
         movea.l (Current_Act_Ptr).w, a0
@@ -426,10 +421,7 @@ Section_UpdateColumns:
 
         ; -------- left side --------
         move.w  d6, d7
-        lsr.w   #3, d7                          ; d7 = left edge engine tile col
-        move.w  d7, d0
-        bsr.w   Engine_To_World_Col
-        move.w  d0, d7                          ; d7 = left_needed world col
+        lsr.w   #3, d7                          ; d7 = left_needed world col
 
         ; clamp to cache and act bounds
         move.w  (Cache_Left_Col).w, d0
@@ -481,10 +473,7 @@ Section_UpdateColumns:
         swap    d6
         move.w  d6, d7
         addi.w  #231, d7                           ; 224 + 7
-        lsr.w   #3, d7
-        move.w  d7, d0
-        bsr.w   Engine_To_World_Row
-        move.w  d0, d7                             ; d7 = bottom_needed world row
+        lsr.w   #3, d7                             ; d7 = bottom_needed world row
 
         ; clamp to cache bounds
         move.w  (Cache_Bottom_Row).w, d0
@@ -525,9 +514,7 @@ Section_UpdateColumns:
 
         ; -------- top side --------
         lsr.w   #3, d6
-        move.w  d6, d0
-        bsr.w   Engine_To_World_Row
-        move.w  d0, d7                             ; d7 = top_needed world row
+        move.w  d6, d7                             ; d7 = top_needed world row
 
         move.w  (Cache_Top_Row).w, d0
         cmp.w   d0, d7

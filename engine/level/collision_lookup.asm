@@ -8,17 +8,16 @@
 ; preserved by contract. New sensor wrappers (§5) must follow this.
 
 ; -----------------------------------------------
-; Collision_GetType — look up collision type for an engine-space position
-; In:  d0.w = engine X pixel position (slot space, same domain as x_pos)
-;      d1.w = Y pixel position
+; Collision_GetType — look up collision type for a world-space position
+; In:  d0.w = world X pixel position (same domain as x_pos)
+;      d1.w = world Y pixel position
 ;      d3.b = layer select (0 = path A, 1 = path B)
 ; Out: d0.b = collision type byte (0 = air)
 ; Clobbers: d0-d3, a0
 ; -----------------------------------------------
 Collision_GetType:
         move.w  d1, d2                         ; save Y
-        lsr.w   #3, d0                         ; X pixels → tile col
-        bsr.w   Engine_To_World_Col            ; d0.w = world tile col (clobbers d1)
+        lsr.w   #3, d0                         ; X pixels → world tile col
         cmp.w   (Cache_Left_Col).w, d0
         blt.s   .cgt_air
         cmp.w   (Cache_Head_Col).w, d0
@@ -26,8 +25,7 @@ Collision_GetType:
         move.w  d0, -(sp)                     ; push world col
 
         move.w  d2, d0
-        lsr.w   #3, d0                         ; Y pixels → tile row
-        bsr.w   Engine_To_World_Row            ; d0.w = world tile row (clobbers d1)
+        lsr.w   #3, d0                         ; Y pixels → world tile row
         move.w  d0, d1                         ; d1 = world row
         cmp.w   (Cache_Top_Row).w, d1
         blt.s   .cgt_air_pop

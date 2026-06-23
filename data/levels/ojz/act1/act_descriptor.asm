@@ -13,9 +13,9 @@
 
 ; -----------------------------------------------
 ; OJZ Act 1 — descriptor and section table
-; 9 sections (sec0–sec8) in a 3×3 grid (vertical teleport test)
+; 9 sections (sec0–sec8) in a 3×3 grid
 ; -----------------------------------------------
-; Build assert: grid_w*grid_h must fit within Section_Stream_State.
+; Build assert: grid_w*grid_h must fit within MAX_ACT_SECTIONS.
 ; Literals below must match the grid_w/grid_h dc.w values in the descriptor below.
     if 3*3 > MAX_ACT_SECTIONS
       error "OJZ act 1 grid (3x3) exceeds MAX_ACT_SECTIONS"
