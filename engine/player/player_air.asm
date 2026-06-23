@@ -234,7 +234,7 @@ PState_AirShared:
         ; flat-ceiling band → head bump; steeper ceiling slope while
         ; moving mostly up → reattach grounded. Band test is the classic
         ; (angle+$20)&$40: zero for angles $60-$9F — the flat-ceiling
-        ; range of the feel-modern §1 landing table (91°-225°, hex
+        ; range of the feel-modern §1 landing table (135°-225°, hex
         ; $60-$A0); nonzero = steep ceiling slope ($20-$5F / $A0-$DF)
         move.b  d3, d0
         addi.b  #$20, d0

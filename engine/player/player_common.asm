@@ -670,8 +670,8 @@ Player_LevelBound:
 .y_ok:
         rts
 .edge_wrap:
-        ; EDGE_WRAP_V — vertical "fall-forever" wrap. DEFERRED (no level needs it
-        ; yet; OJZ ships CLAMP). A correct wrap is NOT a player-side clamp swap: it
+        ; EDGE_WRAP_V — vertical "fall-forever" wrap (not implemented; current
+        ; build uses EDGE_CLAMP). A correct wrap is NOT a player-side clamp swap: it
         ; is an atomic live-set shift by ±level_height (Camera_Y + Player y_pos +
         ; every active object y_pos + every active ring engine_Y + the tile-cache
         ; world-row cursors, then re-derive the entity window) — AND it requires the

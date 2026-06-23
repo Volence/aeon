@@ -95,10 +95,8 @@ PState_Spindash:
 .launch:
         move.w  d0, _pl_gsp(a0)
         move.b  #16, (Camera_Spindash_Lag).w    ; classic 16-frame camera
-                                                ; freeze — Task 10 wires the
-                                                ; camera consume
-        moveq   #PSTATE_ROLL, d0                ; release sfx; dust cleanup
-                                                ; lives in exit hook when dust
+                                                ; freeze
+        moveq   #PSTATE_ROLL, d0
       ifdef SOUND_DRIVER_ENABLED
         movem.l d0, -(sp)
         move.b  #SFXID_DASH, d0

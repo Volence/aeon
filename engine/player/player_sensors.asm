@@ -250,8 +250,8 @@ Player_SensorFloor:
 ; Player_SensorCeiling — C/D pair (floor pair mirrored to the head side)
 ; Same contract as Player_SensorFloor, but the angle policy is S.C.E.'s
 ; ceiling rule (loc_F7E2): substitute the facing cardinal ONLY on the odd
-; flag — an even slanted-ceiling angle passes through untouched (Task 5's
-; ceiling re-attach needs it).
+; flag — an even slanted-ceiling angle passes through untouched, which
+; ceiling re-attach requires.
 ; -----------------------------------------------
 Player_SensorCeiling:
         moveq   #SOLID_LRB, d6         ; ceiling class: top-only rejected
@@ -400,13 +400,6 @@ Player_SensorWallDir:
         move.b  d3, d1
 .keep:
         rts
-
-; (The PlayerSensors collision self-check + its check table were removed
-; here: their expectations were hardcoded from the STOCK sonic_hack
-; collision and from the deleted slot-window coordinate system
-; (Slot_Section_Map / Slot_Origins / SLOT_ORIGIN_*), neither of which the
-; engine uses any more. The check had already been pulled from the boot
-; path; this deletes the now-dead, unreferenced code.)
 
 ; -----------------------------------------------
 ; Player_AtLedgeEdge — true when the leading foot is over a ledge edge, for
