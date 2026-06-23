@@ -245,7 +245,7 @@ def chunk_get_tile_word(
 PLANE_B_W = 64       # Plane B cells horizontally
 PLANE_B_H = 32       # Plane B cells vertically (= 4 chunk-rows-worth, but we only show 2)
 BG_TILE_BASE_SLOT_PY = 1024   # mirrors constants.asm BG_TILE_BASE_SLOT
-BG_TILE_CAPACITY_PY  = 512    # mirrors constants.asm BG_TILE_CAPACITY
+BG_TILE_CAPACITY_PY  = 448    # mirrors constants.asm BG_TILE_CAPACITY (usable $8000..$B7FF, SAT at $B800)
 
 
 def build_bg_nametable_words(
