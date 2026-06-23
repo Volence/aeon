@@ -86,7 +86,7 @@ When researching how to implement a system, check these in order:
 - **Event-driven architecture** (interrupt dispatch tables, state machines with entry/exit hooks)
 - **Async I/O patterns** (DMA-parallel work, double buffering)
 - **Compile-time validation** (catch errors at build time, not on hardware)
-- **Graph algorithms for resource allocation** (VRAM graph coloring)
+- **Graph algorithms for resource allocation**
 - Any modern pattern that makes the hardware faster, code cleaner, or builds more reliable
 
 ## Testing
@@ -98,10 +98,10 @@ When researching how to implement a system, check these in order:
 ## What This Engine Is
 
 A section-streaming Sonic engine with:
-- Unified VRAM art pool ($000-$5FF) with build-time graph coloring
+- Unified VRAM art pool — globally-deduped, spatially-ordered, paged act tileset (fully resident, loaded once at init)
 - 64×64 scroll planes for vertical transitions and VSRAM effects
 - Per-section collision maps (shift-based lookup, no multiply)
 - VDP-order sprite mappings (zero field reordering)
 - S4LZ compression (level/bulk art), uncompressed sprite art + improved DPLC/DMA. Enigma/Nemesis/Kosinski/UFTC all removed
 - Flamedriver sound driver (full Z80 autonomy)
-- Build tool pipeline: editor stamps → flatten → deduplicate → graph-color → generate
+- Build tool pipeline: editor stamps → flatten → deduplicate → spatial-order → page → generate
