@@ -39,13 +39,9 @@ SND_SAMPLE_TEST         = 1                       ; Foundations test tone
 ; --- Playback state (Z80 RAM addresses in the state region) ---
 ; The driver CODE blob grows up from $0000 and must stay below SND_STATE_BASE (the
 ; build asserts Z80_SOUND_SIZE <= SND_STATE_BASE). The playback-state block uses only
-; 16 bytes (+$00..+$0F); historically the base was $1600, leaving the 240 bytes
-; $1610..$16FF between the state block and the page-aligned DAC ring ($1700) DEAD.
-; SFX Expressive Fidelity (Task 4) grew the driver past $1600, so the base is moved
-; UP to $16F0 to reclaim that dead gap as code space: the 16-byte state block now
-; occupies $16F0..$16FF (exactly filling to the DAC ring), and the code may grow to
-; $16EF. The DAC ring + everything above are unchanged. SND_STATE_END_GUARD below
-; asserts the state block never runs into the ring.
+; 16 bytes (+$00..+$0F): the state block occupies $16F0..$16FF (exactly filling up to
+; the page-aligned DAC ring at $1700), so the code may grow up to $16EF. SND_STATE_END_GUARD
+; below asserts the state block never runs into the ring.
 SND_STATE_BASE          = $16F0
 SND_TEST_SAMPLE         = $1C00                  ; runtime-generated test sample
 SND_TEST_SAMPLE_LEN     = 256
@@ -144,9 +140,8 @@ SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A 
 ; the 1A audit found $C0 had been misread as N=192 vs N=768):
 ; These document the LIVE mapping Snd_TimerA_Program implements at runtime (it
 ; writes the tempo byte straight to $24 = N>>2, $25 = 0). They are uncalled in
-; the shipping build (the Task-5 dry-run tempo + the legacy ticks/frame timebase
-; that used to consume them were removed when Task 6 wired the real song loader);
-; AS `function` defs emit no bytes, so they stay purely as self-documenting math.
+; the shipping build; AS `function` defs emit no bytes, so they stay purely as
+; self-documenting math.
 ym_timerA_n_from_tempo  function tb, ((tb) << 2)                          ; N = tempo<<2
 ym_timerA_period_ns     function tb, ((1024 - ym_timerA_n_from_tempo(tb)) * 18773)
 ym_timerA_hz            function tb, (1000000000 / ym_timerA_period_ns(tb)) ; ticks/sec (int div)
@@ -577,9 +572,9 @@ SFXID_SPINDASH   = $AB
 SFXID_DASH       = $B6
 SFXID_RINGLOSS   = $B9
 
-; --- 68k-side pending-SFX ring (audit A2 fix). The 68k posts SFX into a single Z80
-; mailbox byte (SND_REQ_SFX); two SFX requested in ONE 68k frame used to clobber each
-; other (the 2nd won, the 1st was lost, priority-blind). Sound_PlaySFX now ENQUEUES
+; --- 68k-side pending-SFX ring. The 68k posts SFX into a single Z80
+; mailbox byte (SND_REQ_SFX); the ring allows multiple SFX requests in a single 68k
+; frame without loss. Sound_PlaySFX ENQUEUES
 ; into this 68k-RAM ring (ram.asm) and Sound_DrainSfxRing (game_loop, post-VSync) posts
 ; ONE id/frame into the mailbox when the Z80 has cleared it — so both reach the Z80's
 ; downstream 3-deep priority queue. Power-of-two depth -> &-mask wrap, no compare.
@@ -944,7 +939,6 @@ SCF_PITCH_CHROMATIC = 1<<SCF_PITCH_CHROMATIC_B
 ; `if SND_SEQ_END > SND_RING_BASE` is WRONG — the sequencer is above the ring,
 ; not below it. The real map: code $0000-$16EF, state $16F0-$16FF, DAC ring
 ; $1700-$17FF, FREE $1800-$1EFF, mailbox/status $1F00-$1F1F, stack top $1FFE.
-; (state base moved $1600->$16F0 in SFX Task 4 to reclaim the old dead gap as code.)
 ; We place the sequencer region at $1800 and guard its END against the mailbox
 ; base SND_REQ_BASE ($1F00), leaving stack headroom.)
 SND_SEQ_BASE       = $1800          ; sequencer state region (free block above the DAC ring)
@@ -965,9 +959,7 @@ SND_SEQ_TRACE_LEN  = 32
 ; ABOVE the per-channel array (SND_SEQ_END) and BELOW the trace ring ($1A00).
 ; Single-threaded: only Sequencer_Frame (driven by the Timer-A poll in the
 ; DAC/idle loop) reaches the FM writer, so static scratch is safe. DERIVED from
-; SND_SEQ_END (was a hardcoded $1880 —
-; the Sound 1D SeqChannel growth pushed SND_SEQ_END to $1894 and collided with
-; it) so it auto-tracks any future per-channel-struct growth. The build-time
+; SND_SEQ_END so it auto-tracks any future per-channel-struct growth. The build-time
 ; guards below still assert it clears SND_SEQ_END and the trace ring.
 SND_FM_SCRATCH     = SND_SEQ_END
 SND_FM_SCRATCH_LEN = 5                    ; Part,Ch,Log,Mask + Task-6 Op index

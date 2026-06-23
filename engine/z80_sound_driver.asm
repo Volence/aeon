@@ -469,10 +469,9 @@ SndDrv_ISR:
         push    de
         push    hl
         call    SndDrv_PollMailbox       ; RAM + $6000 latch only -> DMA-safe
-        ; (Task 5: the per-VBlank sequencer PUMP that lived here is REMOVED. The
-        ; per-frame engine (Sequencer_Frame) is driven ONLY by the DAC/idle-loop
-        ; Timer-A overflow poll -> SndDrv_TimerATick/SndDrv_IdleTick. Driving it
-        ; from both would double-clock the song.)
+        ; The per-frame engine (Sequencer_Frame) is driven ONLY by the DAC/idle-loop
+        ; Timer-A overflow poll -> SndDrv_TimerATick/SndDrv_IdleTick (not from here).
+        ; Driving it from both would double-clock the song.
         pop     hl
         pop     de
         pop     bc

@@ -106,9 +106,7 @@ Fm_RoutePart:
 ; the 1C copy-path sets it to FmPatchInlineTable (Z80 RAM); the Sound 1D stream-
 ; path sets it to the song's patch bank window address (read transparently through
 ; the $8000 window while the song's bank is held). So FM patch loads work the same
-; whether the bank lives in RAM or the banked ROM window. (Before 1D this label
-; hardcoded FmPatchInlineTable; the dynamic base is functionally identical for the
-; 1C path since the loader sets SND_SEQ_PATCHTAB = FmPatchInlineTable there.)
+; whether the bank lives in RAM or the banked ROM window.
 ; FmPatch_len = 26. Multiply by shift/add (NO mulu): keep P2 = patch*2 in de,
 ; then accumulate in hl by doubling and adding P2 — the running products are
 ;   *2 (=P2) -> *4 -> *8 -> +P2=*10 -> *20 -> +P2=*22 -> +P2=*24 -> +P2=*26.

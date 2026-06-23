@@ -881,7 +881,6 @@ Sfx_RouteKind:
 ; the sequencer keeps tracking it under override, so this reflects the song's
 ; current note — a short SFX resumes the still-held note instantly with no silence
 ; gap; a long SFX that outlived the note correctly stays silent until the next one.
-; (Was buggy: the steal used to clear SCF_KEYED, so a short SFX never re-keyed.)
 ; If the channel was between notes, just clearing the override is enough (the next
 ; note keys normally).
 ;

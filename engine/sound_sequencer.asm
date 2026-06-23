@@ -235,10 +235,7 @@ ModUpdate:
         ; command (keyon_pending set unconditionally at driver $0519, gated only on that
         ; flag at $0BB0 — there is NO pitch-equality test), and the packer emits one
         ; MEV_PITCHENV per genuine sequence re-issue = one per oracle re-attack (incl.
-        ; same-pitch repeats). An earlier "suppress same-pitch re-keys to match oracle
-        ; key-on density" rule was WRONG for real songs: it dropped the dense same-pitch
-        ; re-attacks the oracle KEEPS, collapsing repeat-heavy channels (e.g. Moving
-        ; Trucks ch5 is 89% same-pitch -> played 4% of its notes). Held notes still cost
+        ; same-pitch repeats). Held notes still cost
         ; nothing: with no new PITCHENV, SCF_REKEY is never armed and the `ret z` above
         ; writes nothing — so this is per-event-tick traffic, not per-frame.
         ld      a, (ix+sc_points)        ; sc_points[0] = the single pitch point (idx)
