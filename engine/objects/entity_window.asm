@@ -571,12 +571,18 @@ EntityWindow_DeriveWindow:
         move.w  (Camera_X).w, d4        ; world X px (16.16 high word)
         subi.w  #ENTITY_DESPAWN_BUFFER, d4
         moveq   #SECTION_SIZE_SHIFT, d0
-        asr.w   d0, d4                  ; d4 = sec_x0 (floor — asr is negative-safe)
-        move.w  (Camera_Y).w, d5        ; world Y px
-        subi.w  #ENTITY_DESPAWN_BUFFER_Y, d5
-        asr.w   d0, d5                  ; d5 = sec_y0
-        move.w  d4, d2                  ; d2.b = sec_x0 (byte wrap OK — range check voids)
-        move.w  d5, d3                  ; d3.b = sec_y0
+        asr.w   d0, d4                  ; d4 = sec_x0 (floor)
+        bpl.s   .x0_ok                  ; world-origin underflow: camera within
+        moveq   #0, d4                  ; ENTITY_DESPAWN_BUFFER of the LEFT edge → the
+.x0_ok:                                 ; anchor would be -1 ($FF as a byte), mis-parsed as
+        move.w  (Camera_Y).w, d5        ; section 255 (NOT voided) and tripping the single-
+        subi.w  #ENTITY_DESPAWN_BUFFER_Y, d5 ; axis slide assert. Clamp to section 0, mirroring
+        asr.w   d0, d5                  ; the tile cache's Cache_Left_Col/Top_Row clamp
+        bpl.s   .y0_ok                  ; (tile_cache.asm) — the bounded leapfrog camera
+        moveq   #0, d5                  ; (min $200 = the buffer) never reached here, so the
+.y0_ok:                                 ; world-camera migration (f043657) missed this clamp.
+        move.w  d4, d2                  ; d2.b = sec_x0 (clamped to [0, grid))
+        move.w  d5, d3                  ; d3.b = sec_y0 (clamped)
         rts
 
 ; -----------------------------------------------
