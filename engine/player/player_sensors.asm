@@ -1,4 +1,4 @@
-; Directional sensor probe cores + player sensor wrappers (§5 Task 4)
+; Directional sensor probe cores + player sensor wrappers (§5)
 ;
 ; Four specialized probe routines (down/up/right/left) stamped from ONE
 ; macro — direction inversions resolve at assembly time, no runtime mask
@@ -14,8 +14,8 @@
 ; with sub-coordinate ^$F + height negation), BUT the horizontal pairing
 ; is SWAPPED relative to S.C.E.: their rotated array anchors positive
 ; widths at the right edge, ours at the left, so ProbeRight negates and
-; ProbeLeft is plain (verified geometrically against OJZ slope profiles
-; — see Task 4 report). Negative-height accept rule replicated from
+; ProbeLeft is plain (verified geometrically against OJZ slope
+; profiles). Negative-height accept rule replicated from
 ; S.C.E. Find Floor.asm's bmi branch: inside the hanging run
 ; (sub + h < 0) → treat as full (back-probe); outside → treat as air
 ; (forward-probe).
@@ -222,7 +222,7 @@ Player_SensorPair:
 ; Clobbers: d0-d7, a1-a2
 ; Note: radii = SST_width/height_pixels >> 1. The player state hooks
 ;       store 2r+1 sizes (standing 19/39 → radii 9/19, the exact classic
-;       values — resolved in Task 5); the wrappers just halve whatever
+;       values); the wrappers just halve whatever
 ;       is there.
 ; -----------------------------------------------
 Player_SensorFloor:
@@ -350,7 +350,7 @@ Player_SensorSurface:
 ; offsetting. Thin shim onto Player_SensorWallDir.
 ;
 ; Player_SensorWallDir — push probe in any of the four directions
-; (quadrant-aware grounded wall check, Task 7).
+; (quadrant-aware grounded wall check).
 ; In:  a0 = player SST
 ;      d0.w/d1.w = probe point engine X/Y (pre-offset, caller's business
 ;             — incl. the grounded +8 at angle==0 / −5 rolling offsets)
@@ -415,7 +415,7 @@ Player_SensorWallDir:
 LEDGE_PROBE_REACH = PLAYER_X_RADIUS+2    ; just past the support foot
 LEDGE_NO_GROUND   = 8                    ; floor dist beyond this = no ground
                                          ; under the leading foot (TUNE at the
-                                         ; Task 10 visual pass if needed)
+                                         ; visual pass if needed)
 
 Player_AtLedgeEdge:
         moveq   #0, d3

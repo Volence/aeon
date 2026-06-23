@@ -59,7 +59,7 @@ DMAEntry endstruct
 ; -----------------------------------------------
 ; Sprite Status Table entry (§3.1)
 ; Object system per-slot data structure.
-; Template block $0A-$1F: burst-copied from ObjDef at spawn (Task 4).
+; Template block $0A-$1F: burst-copied from ObjDef at spawn.
 ; Runtime block $20+: initialized individually at spawn, mutated each frame.
 ; -----------------------------------------------
 
@@ -67,7 +67,7 @@ SST struct
 code_addr       ds.w 1      ; $00 — object code offset from ObjCodeBase (0 = empty) [template word]
 x_pos           ds.l 1      ; $02 — 16.16 subpixel X position [patched at spawn]
 y_pos           ds.l 1      ; $06 — 16.16 subpixel Y position [patched at spawn]
-; --- template block $0A-$1F: copied verbatim from ObjDef at spawn (Task 4) ---
+; --- template block $0A-$1F: copied verbatim from ObjDef at spawn ---
 x_vel           ds.w 1      ; $0A — horizontal velocity (8.8 fixed-point)
 y_vel           ds.w 1      ; $0C — vertical velocity (8.8 fixed-point)
 render_flags    ds.b 1      ; $0E — bit 0 = on-screen, 1 = x-flip, 2 = y-flip, 3 = coordinate mode,
@@ -128,10 +128,10 @@ sec_parallax_config ds.l 1          ; $14 — ROM ptr to parallax_config (0 = in
 sec_raster_table    ds.l 1          ; $18 — raster command table (§7.2)
 sec_bg_layout       ds.l 1          ; $1C — plane B layout pointer (NULL = use Act_act_bg_layout, T1)
 sec_type_table      ds.l 1          ; $20 — type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
-sec_pal_cycle       ds.l 1          ; $24 — palette cycling script (Phase 4)
+sec_pal_cycle       ds.l 1          ; $24 — palette cycling script
 sec_sound_bank      ds.l 1          ; $28 — DAC sample bank pointer
 sec_block_dict      ds.l 1          ; $2C — ptr to raw block dictionary (block blob + index size; LZ window pre-seed)
-sec_anim_blocks     ds.l 1          ; $30 — animated tile script (Phase 4)
+sec_anim_blocks     ds.l 1          ; $30 — animated tile script
 sec_collision_s4lz  ds.l 1          ; $34 — reserved (collision embedded in strip data; §4.7)
 sec_flags           ds.w 1          ; $38 — SF_* bitmask
 sec_music           ds.w 1          ; $3A — music track (0 = keep current)
@@ -139,7 +139,7 @@ sec_pcfg_pad_3C     ds.b 1          ; $3C — RESERVED (was sec_layer_mask; in p
 sec_camera_lookahead ds.b 1         ; $3D — lookahead pixels (0 = zone default)
 sec_pcfg_pad_3E     ds.b 1          ; $3E — RESERVED (was sec_deform_speed)
 sec_pcfg_pad_3F     ds.b 1          ; $3F — RESERVED (was sec_transition_type)
-; sec_tile_art / sec_tile_art_vram removed (Act Art Streaming Phase 1):
+; sec_tile_art / sec_tile_art_vram removed:
 ; per-section art replaced by the act-wide paged art pool carried on the Act
 ; descriptor (act_art_pool_table / act_art_pool_pages).
 sec_block_dict_len  ds.w 1          ; $40 — dict bytes (768×K, K≤3, word-even; 0 = no dict)
@@ -216,7 +216,7 @@ start_sec_y         ds.b 1          ; $0D — starting section Y index
 act_bg_layout       ds.l 1          ; $0E — zone-wide Plane B layout pointer (T1 default)
 act_bg_tiles        ds.l 1          ; $12 — zone-wide Plane B tile blob (raw, loaded into shared BG region)
 act_parallax_config ds.l 1          ; $16 — default parallax config (fallback when section's is NULL)
-act_art_pool_table  ds.l 1          ; $1A — ptr to page-address table (OJZ_Act_Pool_PageTable; Act Art Streaming Phase 1)
+act_art_pool_table  ds.l 1          ; $1A — ptr to page-address table (OJZ_Act_Pool_PageTable)
 act_art_pool_pages  ds.w 1          ; $1E — number of pool pages (OJZ_ACT_POOL_PAGES)
 edge_mode           ds.b 1          ; $20 — vertical edge behavior (EDGE_CLAMP/WRAP_V/KILL; §10)
                     ds.b 1          ; $21 — reserved (pad to word; future per-section edge flags)

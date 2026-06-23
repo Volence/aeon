@@ -128,7 +128,7 @@ DMA_BUDGET_PAL          = 15000         ; usable DMA bytes per PAL VBlank
 ; -----------------------------------------------
 TILE_SIZE               = 32            ; bytes per 8x8 4bpp tile
 
-; Act art pool (Act Art Streaming Phase 1) — paged global tileset.
+; Act art pool — paged global tileset.
 ; One page = 256 tiles; matches the build tool + ojz_strip_gen page slots.
 ART_POOL_PAGE_TILES     = 256                       ; tiles per pool page (matches build tool + ojz_strip_gen)
 ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES*32    ; 8192 — one decompressed pool page
@@ -365,7 +365,7 @@ BLOCK_STAGE_SLOTS       = 12        ; staged decompressed blocks (round-robin ev
 BLOCK_DECOMP_BUDGET     = 6         ; max block decompresses per frame (shared: columns + rows)
 VFILL_ROWS_PER_FRAME    = 2         ; rows filled per frame cap. Terminal velocity is
                                     ; 2 rows/frame (16px); 4 = catch-up headroom. The
-                                    ; camera Y clamp (CAM_MAX_Y_STEP, Task 2) must stay
+                                    ; camera Y clamp (CAM_MAX_Y_STEP) must stay
                                     ; <= this*8 px or streaming falls behind the view.
 BLOCKS_PER_SECTION_AXIS = 16        ; 16 blocks across, 16 blocks down
 BLOCK_INDEX_ENTRIES     = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  ; 256
@@ -401,8 +401,7 @@ CAM_MAX_Y_STEP          = 16        ; max camera Y movement px/frame. The stream
                                     ; engine bounds the CAMERA: S2=16, S3K=24) — must
                                     ; stay <= VFILL_ROWS_PER_FRAME*8 or fills fall
                                     ; behind the view. Teleports bypass via Reinit.
-                                    ; KEEP 16 (continuous-scroll Phase 2 Task 7,
-                                    ; 2026-06-23): the on-device diagonal stress runs
+                                    ; KEEP 16: the on-device diagonal stress runs
                                     ; ~76% lag at sustained MAX diagonal — column-fill
                                     ; and row-fill share BLOCK_DECOMP_BUDGET, so the
                                     ; zero-slack contract (sized single-axis) has NO
@@ -411,10 +410,10 @@ CAM_MAX_Y_STEP          = 16        ; max camera Y movement px/frame. The stream
                                     ; work tracked in DEFERRED_WORK (§4.7/§1.1).
 
 ; -----------------------------------------------
-; Vertical edge modes (per-act Act_edge_mode; continuous-scroll Phase 2 §10)
+; Vertical edge modes (per-act Act_edge_mode; §10)
 ;   CLAMP  — camera + player stop at the world floor (default)
-;   WRAP_V — fall-forever: crossing the bottom wraps Y by level_height (Task 3)
-;   KILL   — death pit (deferred hook; Task 4 — clamps until a death system exists)
+;   WRAP_V — fall-forever: crossing the bottom wraps Y by level_height
+;   KILL   — death pit (deferred hook — clamps until a death system exists)
 ; -----------------------------------------------
 EDGE_CLAMP   = 0
 EDGE_WRAP_V  = 1

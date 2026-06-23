@@ -6,7 +6,7 @@
 ; boundary should visibly lerp the BG scroll factors over 16 frames.
 ;
 ; v-anchor uses the lock sentinel (vFactorBg=15) like the other configs:
-; OJZ Phase 1 starts Camera_Y near $01F0. With non-lock vFactorBg, FG plane V-scroll
+; OJZ starts Camera_Y near $01F0. With non-lock vFactorBg, FG plane V-scroll
 ; would equal camY, which on plane A rolls over into the sprite-table-
 ; overlapped rows at $D800 → garbage tiles render as a pink bar at the top
 ; of screen. Lock keeps FG V-scroll = 0 → plane row 0 (cloud area) at top.

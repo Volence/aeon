@@ -41,9 +41,8 @@ Camera_Init:
 
         move.w  #0, (Camera_Pan_Offset).w
         move.w  #$10, (Camera_Deadzone_Base).w
-        clr.b   (Camera_Spindash_Lag).w            ; spindash release writes it
-                                                   ; (§5 Task 8); the camera
-                                                   ; consumes it in Task 10
+        clr.b   (Camera_Spindash_Lag).w            ; spindash release writes it;
+                                                   ; Camera_Update consumes it
         rts
 
 ; -----------------------------------------------
@@ -54,8 +53,8 @@ Camera_Init:
 ;                        consumed at .y_track — see the reservation note there)
 ; -----------------------------------------------
 Camera_Update:
-        ; -- §5 Task 10.2: spindash launch freeze --
-        ;    Camera_Spindash_Lag is set =16 on spindash release (Task 8).
+        ; -- spindash launch freeze --
+        ;    Camera_Spindash_Lag is set =16 on spindash release.
         ;    While nonzero, hold the camera still (skip BOTH X and Y follow)
         ;    so the launch doesn't whip-scroll and the charge-frame backward
         ;    creep can't register. Classic "freeze camera 16 frames" (research
@@ -165,7 +164,7 @@ Camera_Update:
         bra.s   .apply_y
 
 .check_down:
-        ; -- §5 Task 10.1: landing lock --
+        ; -- landing lock --
         ;    While airborne FROM A JUMP (PSTATE_JUMP / PSTATE_ROLLJUMP — the
         ;    upward-launched states, classic's jump flag) the camera must NOT
         ;    scroll down to chase a rising/hanging player. We reach here only

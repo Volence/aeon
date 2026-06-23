@@ -1,4 +1,4 @@
-; OJZ horizontal scroll test state (§4 Phase 1, §2 A.1 wired)
+; OJZ horizontal scroll test state (§4, §2 A.1 wired)
 ; Drives camera directly via controller input (no player physics).
 ; Left/right pad: 6px/frame camera movement.
 ; Section teleport fires automatically at X thresholds.
@@ -53,7 +53,7 @@ GameState_OJZScroll_Init:
         ; -- initialise Player_1 at camera-center position so Camera_Update's
         ;    deadzone tracking begins at rest (no jolt on first frame).
         ;    Player_1.x_pos = Camera_X + CAM_SCREEN_HALF_W; same for Y.
-        ;    Camera_X/Y are now WORLD coords (continuous-scroll, Task 2), and
+        ;    Camera_X/Y are now WORLD coords (continuous-scroll), and
         ;    the spawn derives purely from Camera_X — no SLOT_ORIGIN bias — so
         ;    it is already world-correct; no change needed here. --
         move.w  (Camera_X).w, d0                ; high word of camera_x (16.16 → integer pixels)

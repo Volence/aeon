@@ -8,7 +8,7 @@
 ; Zero-deform table — forces the PER-LINE HScroll pipeline (mode_set_3=$03,
 ; 224-line fill, 896-byte HScroll DMA). REQUIRED, not a perf accident.
 ;
-; Why per-line is mandatory (verified 2026-06-23 on hardware via VDP-register
+; Why per-line is mandatory (verified on hardware via VDP-register
 ; read): a BG parallax band's on-screen boundary is (band_top_plane_row*8 − BG
 ; vertical scroll). With smooth per-pixel vertical parallax (vFactorBg), those
 ; boundaries land at ARBITRARY screen lines (measured one at line 22). Per-cell

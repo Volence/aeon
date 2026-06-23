@@ -12,7 +12,7 @@
 ;
 ; Layout shape: each nametable layout is a raw 64x64 = 8192 bytes (full
 ; Plane B nametable — the BG is 512px tall for vertical parallax; the
-; injector zero-pads legacy 32-row layouts).
+; injector zero-pads 32-row layouts).
 ; Tile-blob shape: 2-byte big-endian length header + raw deduped tile bytes
 ;   (mirrors S4LZ blob shape so engine can read length without a separate field).
 ; Decision rationale: docs/research/per-section-background.md (Q4 + Q5).

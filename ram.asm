@@ -300,7 +300,7 @@ Player_Death_Pending:   ds.b 1      ; EDGE_KILL hook: set when the player crosse
                                     ; count here address-errors Plane_Buffer_Ptr)
 
 ; -----------------------------------------------
-; Level System (§4 Phase 1)
+; Level System (§4)
 ; -----------------------------------------------
 
 ; Deferred plane write buffer — game loop appends, VBlank drains
@@ -430,7 +430,7 @@ Player_Ring_Index:      ds.w 1      ; byte offset into both rings — word-sized
 
 ; -----------------------------------------------
 ; Sound driver runtime state
-Ring_Sfx_Speaker:       ds.b 1          ; Phase 5a: toggles 0/1 each ring collect; 0→LEFT, 1→RIGHT
+Ring_Sfx_Speaker:       ds.b 1          ; toggles 0/1 each ring collect; 0→LEFT, 1→RIGHT
                         ds.b 1          ; pad to even
 ; A2 fix: 68k-side pending-SFX ring. Sound_PlaySFX enqueues here; Sound_DrainSfxRing
 ; (game_loop, post-VSync) posts ONE id/frame into the single-byte SND_REQ_SFX mailbox
@@ -448,10 +448,9 @@ Sfx_Ring_Rd:            ds.b 1                 ; read cursor  (0..SFX_RING_MASK)
 ; SOUND_DRIVER_ENABLED + SOUND_DBG_MIRROR (debug/sound_debug.asm). Lets the
 ; Exodus MCP — which can read 68k RAM but not Z80 RAM at $A00000 — observe the
 ; driver's mailbox+status+sequencer state by reading this symbol.
-; Widened 64->160 B for Sound 1C (5-channel sequencer window + trace ring).
-; Widened 160->176 B for Sound 1D (SeqChannel grew 11->14 for repeat state):
-; 5 channels * 14 = 70, so header+ch window = 78, and 64 + 78 + 32 (trace) = 174
-; <= 176 (kept EVEN with a 2-byte margin).
+; Sized for the 5-channel sequencer window + trace ring. SeqChannel is 14 B
+; (includes repeat state): 5 channels * 14 = 70, so header+ch window = 78, and
+; 64 + 78 + 32 (trace) = 174 <= 176 (kept EVEN with a 2-byte margin).
 ; -----------------------------------------------
 Sound_Dbg_Mirror:       ds.b 176        ; DEBUG: [0..47] Z80 mailbox/status ($1F00..$1F2F), [48..63] playback state ($1600..$160F), [64..71] seq header, [72..141] 5 SeqChannel slots (FM1/FM2/PSG1/PSGN/DAC, 14 B each), [142..173] trace ring (see debug/sound_debug.asm)
 

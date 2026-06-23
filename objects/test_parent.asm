@@ -130,7 +130,7 @@ TestParent:
         move.b  #16, SST_width_pixels(a0)
         move.b  #16, SST_height_pixels(a0)
         bset    #RF_COORDMODE, SST_render_flags(a0)
-        bset    #RF_MULTISPRITE, SST_render_flags(a0)   ; Task 8: batched render
+        bset    #RF_MULTISPRITE, SST_render_flags(a0)   ; batched render
         move.w  #PARENT_LIFETIME, _parent_life_timer(a0)
 
         ; Spawn 3 children around parent

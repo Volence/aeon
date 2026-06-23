@@ -35,7 +35,7 @@ Art_Decompress:
 ; Out: none
 ; Clobbers: d0–d7, a0–a3 (a4–a6 preserved by callee discipline below)
 ;
-; Act Art Streaming Phase 1: the act ships one paged art pool. Each page
+; The act ships one paged art pool. Each page
 ; is a wrapped ZX0/S4LZ blob of up to ART_POOL_PAGE_TILES (256) tiles. We
 ; decompress each page into Art_Staging_Buffer (8192 B, the init-only view
 ; over the tile-cache RAM — free before the tile cache is populated) and

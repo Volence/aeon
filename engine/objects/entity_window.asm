@@ -406,7 +406,7 @@ Collected_UpdateCenter:
         rts
 
 ; =====================================================
-; Loaded bitmasks — §4.9 phase 2
+; Loaded bitmasks — §4.9
 ; One ENTITY_LOADED_SLOT_SIZE (32-byte) slot per scan entry:
 ; bytes 0-15 ring bits, 16-31 object bits, bit = list_index (0-127).
 ; Set at spawn, cleared at despawn/removal, cleared wholesale when an

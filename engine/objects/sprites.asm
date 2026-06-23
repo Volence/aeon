@@ -424,7 +424,7 @@ CellOffsets_XFlip:
 ; -----------------------------------------------
 ; Emit_ObjectPieces — emit one object's mapping pieces to the SAT buffer
 ; Reusable across single-object render path and multi-sprite sibling walk
-; (Task 8). Four flip variants kept inline (zero JSR per piece).
+; Four flip variants kept inline (zero JSR per piece).
 ;
 ; In:  a3 = pointer to first piece data (after piece-count word)
 ;      a4 = SAT buffer write pointer

@@ -1,5 +1,5 @@
 ; Player airborne states — AIR/JUMP/ROLLJUMP/AIRBALL share one body
-; (§5 Task 6); tiny preambles set the two behavior bits. Reached only
+; (§5); tiny preambles set the two behavior bits. Reached only
 ; through the Player_States offset table in player_common.asm; shares
 ; its overlay equates, macros, and the (a4) physics-table convention.
 ;
@@ -126,8 +126,7 @@ PState_AirShared:
 .no_drag:
 
         ; --- 4. integrate, THEN gravity (classic order, research §4:
-        ; old y_vel moves you this frame, gravity sets up the next —
-        ; resolves Task 5's noted gravity-first deviation) ---
+        ; old y_vel moves you this frame, gravity sets up the next) ---
         jsr     ObjectMove
         move.w  SST_y_vel(a0), d0
         add.w   PPHYS_GRAVITY(a4), d0
@@ -159,7 +158,7 @@ PState_AirShared:
 
         ; --- 6. collision by motion class. Air sensors NEVER rotate
         ; with angle (research feel-modern §2) — force quadrant 0 for
-        ; the whole air sensor block: slip-detach (Task 7) goes airborne
+        ; the whole air sensor block: slip-detach goes airborne
         ; carrying a wall-band angle that decays only 2/frame, and
         ; without this the floor pair (and the landing snap axis in
         ; Air_TouchFloor) would probe sideways during those frames.

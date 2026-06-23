@@ -44,9 +44,9 @@ OJZ_Act1_Descriptor:
     dc.l    OJZ_Act1_BG_Layout      ; act_bg_layout (§2 A.5 T1 zone-wide BG nametable)
     dc.l    OJZ_Act1_BG_Tiles       ; act_bg_tiles  (§2 A.5 T1 shared BG tile blob)
     dc.l    ParallaxConfig_OJZ_Default ; act_parallax_config (fallback for sections with NULL config)
-    dc.l    OJZ_Act_Pool_PageTable  ; act_art_pool_table (Act Art Streaming Phase 1)
+    dc.l    OJZ_Act_Pool_PageTable  ; act_art_pool_table
     dc.w    OJZ_ACT_POOL_PAGES      ; act_art_pool_pages
-    dc.b    EDGE_CLAMP              ; edge_mode (Phase 2 §10; OJZ ships CLAMP)
+    dc.b    EDGE_CLAMP              ; edge_mode (§10; OJZ ships CLAMP)
     dc.b    0                       ; reserved (pad)
     ; Guard: the emitted descriptor must be exactly Act_len bytes (* = end-of-data
     ; location counter). Catches any future field add/remove/reorder that drifts the
@@ -242,6 +242,6 @@ OJZ_Act1_BG_Tiles:  BINCLUDE "data/generated/ojz/act1/bg_tiles.bin"
     include "data/generated/ojz/act1/bg_anim.asm"
     align 2
 
-; Per-section tile blobs removed (Act Art Streaming Phase 1): the act-wide
+; Per-section tile blobs removed: the act-wide
 ; paged art pool (OJZ_Act_Pool_Page* / OJZ_Act_Pool_PageTable) is now included
 ; at the top of this file via ojz_act_pool.asm.

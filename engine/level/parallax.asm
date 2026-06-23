@@ -336,7 +336,7 @@ Parallax_Step4_Fill:
         ; rotated by vshift = (Vscroll_BG mod 512) >> 3 each frame and tops
         ; are rebased to screen cells, clamped to 28 (the HScroll buffer is
         ; 224 lines — an unclamped top would overrun it). At vshift = 0 the
-        ; rotation is an identity copy plus the clamp, so legacy
+        ; rotation is an identity copy plus the clamp, so
         ; screen-space configs (vFactorBg=15, vOffset=0) are unchanged.
         ; The shadow view is built EVERY frame, even at vshift = 0: the
         ; clamp below is load-bearing — raw plane-space tops (e.g. 40, 48)

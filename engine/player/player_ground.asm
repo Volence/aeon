@@ -282,7 +282,7 @@ Player_SlopeRepel:
 ; a jump (mirrors Air_LandState's one-decision pattern, from the other
 ; side of the seam): detaching from ROLL stays curled → PSTATE_AIRBALL
 ; (spec §3.3 state table — rolled off a ledge keeps ST_ROLLING and the
-; ball box; Task 9's path swap reads ST_ROLLING for curled detection,
+; ball box; the path swap reads ST_ROLLING for curled detection,
 ; and uncurling here would skip the clearance check — the wall-clip
 ; hazard class); detaching from GROUND → PSTATE_AIR. Keyed on
 ; _pl_state, the transition authority, rather than ST_ROLLING — same

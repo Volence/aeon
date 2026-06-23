@@ -1,4 +1,4 @@
-; Player frame skeleton — state machine, dispatch, shared services (§5 Task 5)
+; Player frame skeleton — state machine, dispatch, shared services (§5)
 ;
 ; Owns the player frame: debug-fly escape → physics table (a4) →
 ; quadrant → jump buffer → state dispatch → history rings → display tail.
@@ -17,8 +17,8 @@ PlayerV struct
 ground_speed     ds.w 1      ; inertia — single source of truth on ground
 player_state     ds.b 1      ; PSTATE_* (jump-table byte offset)
 status_secondary ds.b 1      ; reserved condition bits (speedshoes etc.) — 0 for now
-move_lock        ds.w 1      ; input-freeze frames (slip/spring channel; Task 7 consumes)
-spindash_charge  ds.w 1      ; Task 8
+move_lock        ds.w 1      ; input-freeze frames (slip/spring channel; consumed by the ground-input lock)
+spindash_charge  ds.w 1      ; spindash rev accumulator (release converts charge→gsp)
 flip_angle       ds.b 1      ; reserved (visual rotation)
 air_left         ds.b 1      ; reserved (no water yet)
 invuln_time      ds.b 1      ; reserved
@@ -196,7 +196,7 @@ Player_Main:
         move.b  d0, (Player_Quadrant).w
 
         ; jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick
-        ; down. Maintained here; Task 6's jump check CONSUMES it.
+        ; down. Maintained here; the ground-state jump check CONSUMES it.
         andi.b  #BUTTON_JUMP_MASK, d6
         beq.s   .no_latch
         move.b  #PHYS_JUMP_BUFFER, (Player_JumpBuffer).w
@@ -604,7 +604,7 @@ PBOUND_BOTTOM_MARGIN = 48
 ;           level_width = grid_w << SECTION_SIZE_SHIFT (px).
 ;   bottom — playable bottom = (grid_h << SECTION_SIZE_SHIFT) −
 ;           SCREEN_HEIGHT (the camera stops one screen above the world
-;           floor). Phase 1 conservative clamp.
+;           floor). Conservative clamp.
 ;   top   — NO clamp (classic allows above-screen travel).
 ;
 ; On X clamp: integer x written with subpixel zeroed, x_vel and gsp
