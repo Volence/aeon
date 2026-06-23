@@ -670,7 +670,15 @@ Player_LevelBound:
 .y_ok:
         rts
 .edge_wrap:
-        ; EDGE_WRAP_V — vertical wrap (Task 3: Edge_WrapV). Stub: clamp for now.
+        ; EDGE_WRAP_V — vertical "fall-forever" wrap. DEFERRED (no level needs it
+        ; yet; OJZ ships CLAMP). A correct wrap is NOT a player-side clamp swap: it
+        ; is an atomic live-set shift by ±level_height (Camera_Y + Player y_pos +
+        ; every active object y_pos + every active ring engine_Y + the tile-cache
+        ; world-row cursors, then re-derive the entity window) — AND it requires the
+        ; camera Y clamp (camera.asm .clamp_y) to become edge-mode-aware, with the
+        ; wrap triggered on Camera_Y >= level_height (NOT the player) so every world
+        ; coordinate stays >= 0 and the section lookup needs no mod. Full design +
+        ; shift-list: spec §10 (continuous-scroll-traversal-design). Until built: clamp.
         bra.s   .edge_clamp
 .edge_kill:
         ; EDGE_KILL — death pit (Task 4: death-pending hook). Stub: clamp for now.
