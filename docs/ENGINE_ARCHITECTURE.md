@@ -14,13 +14,13 @@ This is the **design bible**. This document describes the engine we're building 
 |---|--------|---------------|
 | 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (Batman — only changed registers written during VBlank), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, deterministic cold/warm boot (CrossResetRAM), region detection with PAL timing constants, 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
-| 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character DPLC art in the pool ($3C0) + SAT/HScroll in a sub-Plane-A region ($5C0-$5FF) — off-screen-row embedding retired so both 64-row planes stream freely**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
+| 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. The FG act art pool ships as ZX0 pages; S4LZ remains the runtime block-stream format. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile deduplication + spatial pool ordering + paging** (globally-deduped, spatially-ordered, paged act art pool — no per-section allocation), **character DPLC art in the pool ($3C0) + SAT/HScroll in a sub-Plane-A region ($5C0-$5FF) — off-screen-row embedding retired so both 64-row planes stream freely**. Whole-act paged art pool (fully resident, loaded once at init — no per-section art swap), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
 | 4 | Level / World | 2D section grid with signed Y (novel), **continuous world-space camera over a 64×64 wrapping VDP plane (classic S2/S3K — no slots, no teleport, no rebase)**, full-height vertical streaming with a grid-derived camera clamp, **per-act vertical `edge_mode` (CLAMP shipped / WRAP_V + KILL deferred hooks)**, edge streaming into the wrapping plane (always-on "see into the next section"), block-based 2D tile cache (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), per-section everything (snapped on section-boundary crossing), **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, **section-local entity ROM data (positions relative to section, respawn/kill memory keyed by section_id — coordinate-invariant)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in block data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)**, floating-origin rebase as the future unbounded-level path (coarse/invisible/atomic — replaces the deleted leapfrog) |
 | 5 | Player / Character | **SHIPPED (§5, branch player-system):** flat explicit PSTATE_* state machine + Player_SetState enter/exit hooks (hierarchical was evaluated and REJECTED), classic motion-quadrant + angle-band landing axis-select (the "vector projection on landing" claim was a verified S3K myth — NOT used), effective-physics-table-in-RAM (a4 convention; per-section *plumbing* shipped with an identity modifier — the modifier/Lerp system itself is deferred), air drag apex-only (classic-wide, not an S3K fix), roll-jump lockout kept classic, 2-frame jump buffer + jump-delay fix (the two modern concessions), −$FC0 up-cap REMOVED (feel deviation, PHYS_GSP_CAP coupling), angle continuity for loop stability, level bounds, spindash charge curve (table-based), slope factor muls→shift, landing camera lock + spindash freeze, 3-character shared-code structure via Player_Common (Sonic-only shipped), **SWAP-based 16.16 fixed point (Treasure)**. **SHIPPED (feat/sonic-animations):** shared ANIM_* id contract (11 ids, build-time assert), Player_Animate read-only classifier (priority-ordered, display-conditions not new state bits), DUR_DYNAMIC speed-scaled timing in AnimateSprite, shared spindash in player_spindash.asm, Player_AtLedgeEdge balance probe, _pl_look_offset zero-seam, DEBUG anim viewer. **DEFERRED:** 6-button mappings, the per-section physics modifier system, multi-character dispatch, shields, dropdash, instashield, get-up trigger, duck/look-up camera pan. See the §5 body + DEFERRED_WORK.md §5. |
-| 6 | Audio | **From-scratch custom Z80-autonomous driver** (NOT Flamedriver — the import plan was superseded by the 2026-06-16 master sound spec). **SHIPPED (Plans 1A/1B/1C/1D + Phase 3a):** Z80 shell + mailbox + Timer-A scheduler primitives (1A), DMA-survival single-channel DAC (1B, MegaPCM-2 free-running every-path-equal-cost streaming loop), FM/PSG music sequencer (1C — event-list song format v0, per-channel stream interpreters, FM voice writer with log-volume LUT + per-algorithm carrier mask, PSG tone/noise + pause silence, Timer-A one-overflow-per-tick scheduler, DAC drums via the 1B path, PlayMusic/StopMusic). **Phase 3a FM depth + 1D Moving Trucks (merged `c89bea3`, 2026-06-19):** per-frame modulation engine (write-on-change ModUpdate at ~59.4Hz, per-channel tempo accumulator over a fixed Timer-A clock), per-song pitch table + pitch envelopes (trills/arps), pan, signed per-op TL bias, voice-stepping via build-time register deltas, hardware LFO ($22=$08), note-fill gate articulation, and a faithful native-sequencer port of B&R 'Moving Trucks'. **DEFERRED (master-spec Phases 2/3b/4/5/6):** N-channel DAC mixer + BRR + stereo PCM (Ph2), remaining FM extras — dual streams, true portamento, SSG-EG, broader LFO, Ch3 special (Ph3b), adaptive FM6/DAC slot (Ph4), section-aware banking + fades + distance attenuation + ambient + **SFX** (Ph5 — current priority), MegaDAW compiler/export (Ph6). See §6 body + the 2026-06-16 master sound spec. |
+| 6 | Audio | **From-scratch custom Z80-autonomous driver** (NOT Flamedriver — the import plan was superseded by the 2026-06-16 master sound spec). **SHIPPED (Plans 1A/1B/1C/1D + Phase 3a):** Z80 shell + mailbox + Timer-A scheduler primitives (1A), DMA-survival single-channel DAC (1B, MegaPCM-2 free-running every-path-equal-cost streaming loop), FM/PSG music sequencer (1C — event-list song format v0, per-channel stream interpreters, FM voice writer with log-volume LUT + per-algorithm carrier mask, PSG tone/noise + pause silence, Timer-A one-overflow-per-tick scheduler, DAC drums via the 1B path, PlayMusic/StopMusic). **Phase 3a FM depth + 1D Moving Trucks (merged `c89bea3`, 2026-06-19):** per-frame modulation engine (write-on-change ModUpdate at ~59.06 Hz, per-channel tempo accumulator over a fixed Timer-A clock), per-song pitch table + pitch envelopes (trills/arps), pan, signed per-op TL bias, voice-stepping via build-time register deltas, hardware LFO ($22=$08), note-fill gate articulation, and a faithful native-sequencer port of B&R 'Moving Trucks'. **DEFERRED (master-spec Phases 2/3b/4/5/6):** N-channel DAC mixer + BRR + stereo PCM (Ph2), remaining FM extras — dual streams, true portamento, SSG-EG, broader LFO, Ch3 special (Ph3b), adaptive FM6/DAC slot (Ph4), section-aware banking + fades + distance attenuation + ambient + **SFX** (Ph5 — current priority), MegaDAW compiler/export (Ph6). See §6 body + the 2026-06-16 master sound spec. |
 | 7 | Visual Effects | **Unified raster command table (Batman — stackable per-scanline VDP register changes)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
-| 8 | Tooling & Build | **Authoring pipeline (tile/block/chunk editor stamps → build tool: flatten, deduplicate, graph-color VRAM, generate block data with embedded collision + S4LZ art)**, **level editor tile budget UI (per-section shared/unique counts, per-corner budget view, warning system)**, pre-computed nametable build tool, **debug system architecture (S.C.E. two-phase gating + 10 per-subsystem toggles)**, **MD Debugger v2.6 error handler (backtrace, symbol resolution, console programs)**, **per-module debug assertions (S.C.E. + Vectorman pointer bounds/breadcrumbs/corruption detection + CHK instruction)**, **frame profiler (raster bars + VDP window lagometer + KDebug + lag detection + stack guard + watchdog)**, RAM layout documentation, build system improvements (jump sizing 10-50x speedup, dual build targets, convsym pipeline, assembly pass checking, compile-time validation), Exodus MCP integration, level editor integration |
+| 8 | Tooling & Build | **Authoring pipeline (tile/block/chunk editor stamps → build tool: flatten, deduplicate, spatially-order and page the global act art pool, generate block data with embedded collision + S4LZ art)**, **level editor tile budget UI (per-section shared/unique counts, per-corner budget view, warning system)**, pre-computed nametable build tool, **debug system architecture (S.C.E. two-phase gating + 10 per-subsystem toggles)**, **MD Debugger v2.6 error handler (backtrace, symbol resolution, console programs)**, **per-module debug assertions (S.C.E. + Vectorman pointer bounds/breadcrumbs/corruption detection + CHK instruction)**, **frame profiler (raster bars + VDP window lagometer + KDebug + lag detection + stack guard + watchdog)**, RAM layout documentation, build system improvements (jump sizing 10-50x speedup, dual build targets, convsym pipeline, assembly pass checking, compile-time validation), Exodus MCP integration, level editor integration |
 | 9 | Cross-Cutting Systems | Level database (unified descriptors, S.C.E. levartptrs evolution), object communication (Treasure parent-child links + S.C.E. trigger array + boss event buffer), error handler with stack guard (Batman high-byte vector IDs + watchdog), 6-button controller (rapid TH cycling protocol + detection), **soft-reset persistence (CrossResetRAM cold/warm boot detection)**, SRAM save system (Sonic 3 dual-copy checksums), **cooperative multitasking (NOVEL — supervisor/user mode context switching, background S4LZ decompression)**, **ROM banking awareness (SSF2 mapper, conditional on ROM >4MB)**, **128KB VRAM mode (investigated, Kabuto byte-wide DMA)**, **PC-relative addressing audit (Batman leads with 986 refs)**, **clearRAM performance variants (3 S.C.E. macros + MOVEM bulk clear)**, **game state machine (function pointer dispatch, 11 states)**, **text/font rendering (96-char ASCII, DrawString/DrawHex/DrawDecimal)**, **screen/menu system (lifecycle init/update, title cards, credits)** |
 
 ---
@@ -1085,7 +1085,7 @@ version byte.
 | Tier | Format | Measured speed | Measured ratio | Use Case |
 |------|--------|-------|-------|----------|
 | Runtime hot path | **S4LZ v3 + per-section block dictionary** | ~510-640 KB/s | blocks 0.49 (streams), ~0.29 effective with dict | 16×16 block decompression, 6/frame budget |
-| Load-time bulk | **ZX0** (salvador / unzx0_68000) | ~76 KB/s (measured: 5 frames / 6.3 KB) | tile art 0.605 | Section tile art at init; any init-time bulk |
+| Load-time bulk | **ZX0** (salvador / unzx0_68000) | ~76 KB/s (measured: 5 frames / 6.3 KB) | tile art 0.605 | Act FG art pool pages at init; any init-time bulk |
 | Sprite art | **Uncompressed + DPLC** | Bus speed (DMA) | 1.0 | Per-frame character/object art via DMA from ROM |
 | Tilemaps | **Raw** | instant | 1.0 | Menu/level select nametables — direct DMA to VDP |
 
@@ -1101,7 +1101,7 @@ version byte.
 **ZX0 (load-time bulk):**
 - Einar Saukas' ZX0 v2 format; compressed by vendored salvador (`tools/salvador/`, zlib/CC0/MIT licenses), decoded by vendored unzx0_68000 (`engine/zx0_decompress.asm`, zlib license, adaptation = mnemonic spelling only — algorithm byte-identical to upstream)
 - Measured 0.605 on section tile art vs 0.85 for the best word-aligned S4LZ — bitstream rep-offset + elias-gamma + byte-granular matching, ~zlib-class ratio without entropy tables
-- **~76 KB/s — init/preload tier ONLY.** Used today at level init (5 frames per section blob, invisible). Any future mid-gameplay deferred section load must NOT call it synchronously — that's the §9.7 cooperative-multitasking budgeted-decode design (DEFERRED_WORK)
+- **~76 KB/s — init/preload tier ONLY.** Used today at level init (the act FG art pool pages decompress here, ~5 frames per page, display blanked). Any future mid-gameplay deferred art load must NOT call it synchronously — that's the §9.7 cooperative-multitasking budgeted-decode design (DEFERRED_WORK)
 - Clobbers d0-d1/a0-a2 only (narrower than S4LZ)
 
 **Pipeline guarantees:**
@@ -1147,7 +1147,7 @@ UFTC was originally planned for random-access sprite decompression, but measured
 - **vs Comper:** S4LZ is faster (word-aligned with unrolled tables vs Comper's simpler loop) AND compresses better (64KB dictionary + tile-delta vs Comper's 512-byte window at ~0.65-0.75 ratio)
 - **vs LZ4W (SGDK):** S4LZ improves on LZ4W's design — big-endian offsets (14 cycles/match saved vs LZ4's little-endian), much larger dictionary (64KB vs 512 bytes), tile-delta preprocessing for better ratio
 - **vs Nemesis:** S4LZ is ~8-14x faster than Nemesis for sequential loads, with comparable or better ratio via tile-delta
-- **vs Raw/uncompressed (Batman):** Sonic needs 10+ zones — uncompressed level art would exceed 4MB ROM. Per-section tile art with S4LZ compression keeps ROM manageable while decompressing faster than any bit-stream format
+- **vs Raw/uncompressed (Batman):** Sonic needs 10+ zones — uncompressed level art would exceed 4MB ROM. The compressed paged act art pool (ZX0 at load time, S4LZ for the runtime block stream) keeps ROM manageable while decompressing fast
 
 **Why uncompressed + DPLC over UFTC:**
 - Zero CPU overhead for per-frame sprite loading (DMA runs on VDP clock)
@@ -1158,61 +1158,19 @@ UFTC was originally planned for random-access sprite decompression, but measured
 
 **Cross-references:** See `docs/research/lz-compression-survey.md` for LZ format survey. See `docs/research/tile-format-survey.md` for UFTC evaluation. See `docs/research/dplc-improvements.md` for DPLC improvement design.
 
-### 2.2 Dynamic VRAM Allocator (NOVEL)
+### 2.2 VRAM Tile Assignment — Static, Build-Time
 
-**Purpose:** Assign VRAM tile addresses to objects at runtime with section-aware lifecycle management. No Genesis game — commercial or community — has ever done dynamic VRAM allocation. This is the most architecturally ambitious VRAM system on the platform.
+**Purpose:** Assign VRAM tile addresses with no runtime bookkeeping. Tile addresses are fixed at build time, so the engine never tracks "what's in VRAM" at runtime.
 
-**Architecture:**
-```
-┌──────────────────────────────────────────────────────────┐
-│              DYNAMIC VRAM ALLOCATOR                       │
-├──────────────────────────────────────────────────────────┤
-│ State (in RAM, ~100 bytes):                              │
-│   VRAM_Alloc_Cursor  — next free tile in unified pool    │
-│   VRAM_Loaded_Table  — what's currently in VRAM          │
-│     per entry: type_id, vram_addr, tile_count, refcount  │
-│   VRAM_Loaded_Count  — number of loaded entries          │
-├──────────────────────────────────────────────────────────┤
-│ API:                                                     │
-│   AllocVRAM(type_id) → vram_addr                         │
-│     1. Scan loaded table — already in VRAM? bump refcount│
-│     2. Not loaded: read tile_count from art metadata│
-│     3. Bump cursor, register in loaded table             │
-│     4. Check format: S4LZ → queue stream (Deferrable)    │
-│                      S4LZ blocking → instant decompress   │
-│                      Uncompressed → set art_source for DPLC│
-│     5. Return VRAM address                               │
-│                                                          │
-│   FreeVRAM(type_id)                                      │
-│     Decrement refcount. Art stays in VRAM (lazy reclaim). │
-│     Available for free re-use if same type re-spawns.    │
-│                                                          │
-│   Section_ResetVRAM()                                    │
-│     Keep entries with refcount > 0 (shared objects).     │
-│     Compact survivors, reset cursor. Reclaim dead art.   │
-├──────────────────────────────────────────────────────────┤
-│ Pool: unified $000-$5FF (1,536 tiles). Level tiles,      │
-│       object tiles, permanent tiles all share one pool.  │
-│ Design: bump allocator (O(1) alloc), lazy reclaim,       │
-│         zero fragmentation during section lifetime,      │
-│         compaction only on section transition             │
-└──────────────────────────────────────────────────────────┘
-```
+**How it works:**
+- **Act FG art** occupies a single globally-deduped, spatially-ordered, paged pool that is loaded once at level init (§2.3, §2.5) and stays resident in VRAM for the life of the act. Section nametables reference fixed global pool indices computed by the build tool — there is no per-section VRAM allocation and no per-section art swap.
+- **Object/permanent art** (HUD, rings, monitors, characters) uses VRAM addresses baked into archetype templates via the `vram_art()` macro at build time. The address is a static immediate; objects spawn with it directly (§3.9). No allocation step runs when an object spawns.
 
-**Object init integration:** When `Load_Object` spawns an object, it calls `AllocVRAM(type_id)`. The allocator scans the loaded table (~20 cycles if found, ~50 if new allocation needed). Most spawns find art already loaded — refcount bumps and returns immediately. First spawn of a new type triggers S4LZ streaming, S4LZ instant decompression (blocking call for small art sets), or sets up the art_source pointer for DPLC-based per-frame loading (uncompressed sprite art).
+Because every tile address is decided at build time and the whole act's art is resident, there is no fragmentation, no refcounting, and no compaction to manage. Tile overflow is caught at build time: the build tool dedupes the pool and asserts it fits the FG VRAM capacity (`REGION1_TILE_CAPACITY` = 1,472 tiles), so the console never sees an overflow.
 
-**Art caching via refcounting:** Shared objects (springs, monitors, rings) accumulate high refcounts across sections. On section transition, `FreeVRAM` decrements but art stays in VRAM. `Section_ResetVRAM` only reclaims entries with refcount = 0. This means backtracking through previously visited sections has near-zero art loading cost — the art is still there.
+**Future enhancement (DEFERRED_WORK):** A dynamic per-object VRAM allocator with refcount-based caching and lazy reclaim — for levels whose art exceeds the resident pool, or for on-demand boss/effect art. This would add `AllocVRAM`/`FreeVRAM`-style lifecycle on top of the same residency cache. It is not part of the shipped engine; today's model is static assignment plus a fully-resident act pool.
 
-**Why dynamic allocation over static/epoch approaches:**
-- **Boss phase transitions:** Phase 2 art loads on demand via S4LZ blocking, phase 1 art freed. No need to pre-reserve VRAM for all phases.
-- **Cross-section projectiles:** A projectile moving from section A to section B keeps its art via refcount — no special handling.
-- **Debug spawns:** Spawn any object type anywhere — the allocator loads its art automatically.
-- **Instant iteration:** Change level layouts, test immediately. No build pipeline dependency.
-- **Lazy reclaim = free caching:** Freed art stays in VRAM until pool needs space. Eliminates redundant decompression.
-
-**Debug safety:** In debug builds, `AllocVRAM` asserts on pool overflow — the crash screen (§8.3) shows "VRAM POOL OVERFLOW in Section(X,Y)" with full context (which objects are loaded, current cursor, refcounts).
-
-**Cross-references:** §2.1 (S4LZ + uncompressed/DPLC formats), §2.3 (VRAM layout), §4.8 (predictive pre-allocation)
+**Cross-references:** §2.1 (S4LZ + ZX0 + uncompressed/DPLC formats), §2.3 (VRAM layout), §2.5 (art loading flow), §3.9 (static object art).
 
 ### 2.3 VRAM Layout — Unified Pool + 64×64 Scroll Planes
 
@@ -1222,9 +1180,9 @@ UFTC was originally planned for random-access sprite decompression, but measured
 VRAM (64KB = 2048 tiles)
 ┌───────────────┬─────────────────────────────────────────────────────┐
 │ $000-$5BF     │ UNIFIED ART POOL (1,472 tiles)                      │
-│ (1472 tiles)  │   Level tiles — build-time assigned per section     │
-│               │   Object tiles — runtime allocator (2.2)            │
-│               │   Permanent tiles — HUD, rings, monitors (alloc once)│
+│ (1472 tiles)  │   Act FG tiles — paged pool, build-time pool indices │
+│               │   Object tiles — static vram_art() addresses (2.2)  │
+│               │   Permanent tiles — HUD, rings, monitors            │
 │               │   Character DPLC art — DMA'd per frame (tile $3C0)   │
 ├───────────────┼─────────────────────────────────────────────────────┤
 │ $5C0-$5FF     │ SPRITE ATTR TABLE ($B800) + HSCROLL ($BC00)         │
@@ -1245,7 +1203,7 @@ Plane A nametable base: VDP reg $02 → $C000
 Plane B nametable base: VDP reg $04 → $E000
 ```
 
-**Why unified pool:** Fragmented VRAM layouts (separate regions for level art, permanent objects, zone pools) waste tiles at region boundaries — a region with 5 free tiles and a neighbor with 0 free tiles can't share. The unified pool makes all 1,472 tiles available to the allocator. Tile overflow is impossible by construction — the allocator assigns tiles anywhere in $000-$5BF.
+**Why unified pool:** Fragmented VRAM layouts (separate regions for level art, permanent objects, zone pools) waste tiles at region boundaries — a region with 5 free tiles and a neighbor with 0 free tiles can't share. The unified pool makes all 1,472 tiles available to the build tool. Tile overflow is caught at build time — the deduped act pool plus permanent allocations must fit $000-$5BF, asserted by the build.
 
 **Why 64×64 scroll planes ($9011):**
 
@@ -1266,19 +1224,19 @@ With 64×32, fast vertical scrolling constantly hammers nametable updates with o
 
 **Character sprite budget:** Up to 128 tiles for the current animation frame, DMA'd every frame into the pool's character DPLC window (tile $3C0). If strictly one character at a time (no AI follower), this can shrink to 64 tiles.
 
-**Build-time tile graph coloring (NOVEL):** The build tool analyzes all sections in the zone and constructs an adjacency graph (which sections can be simultaneously visible — up to 4 at any corner of the 2D grid). Non-adjacent sections can reuse the same VRAM tile indices, like register allocation in a compiler. Shared tiles (used by multiple sections) get permanent VRAM indices. Unique tiles get reusable indices freed when their section scrolls off-screen, overwritten by the next section's tiles.
+**Build-time tile deduplication + spatial ordering + paging:** The build tool deduplicates tiles globally across all sections of the act using canonical forms (so a tile and its H/V flips collapse to one entry), then orders the unique tiles spatially — by first occurrence in grid-traversal order, so tiles that are spatially near each other land at nearby pool indices for cache locality (`tools/tile_dedupe.py`: `dedupe_tiles` + `order_pool_spatially`). The deduped, spatially-ordered pool is split into fixed-size pages (`ART_POOL_PAGE_TILES` = 256 tiles each, `split_pool_into_pages`), and each tile receives a permanent global pool index. Section nametables reference these fixed indices directly.
 
-Result: most section transitions require zero tile DMA — the whole act's art is resident and nametable entries already point to the correct, graph-colored tile indices. No commercial Genesis game does build-time VRAM tile allocation with graph coloring — this is novel but grounded in proven compiler algorithms.
+Result: section transitions require zero tile DMA — the whole act's art is resident, and nametable entries already point to the correct, fixed pool indices. There is no graph coloring and no per-section index reuse: every unique tile in the act has one permanent address, and the pool fits VRAM because global deduplication shrinks the act's total tile footprint.
 
 **Section VRAM lifecycle:**
-1. **Build time:** Graph coloring assigns VRAM indices. Shared tiles get permanent indices; unique tiles get reusable indices.
-2. **Level load:** Permanent tiles (HUD, rings) and initial section tiles loaded via S4LZ.
-3. **Resident model (current):** The whole act's tile art fits the VRAM pool, so every section's tiles are loaded once at level load and stay resident — continuous scrolling never swaps section art. Graph coloring still earns its keep: it shrinks the act's total VRAM footprint so the whole act fits the pool in the first place, by letting non-simultaneously-visible sections share indices.
-4. **Future >VRAM levels (deferred, not the leapfrog):** when an act's art exceeds the pool, a windowed art-residency streamer streams a section's unique tiles to their graph-colored addresses at the leading edge as the camera approaches — Deferrable DMA spread across the many frames the continuous camera takes to cross, with no conflict because the coloring guarantees non-overlapping assignments for simultaneously visible sections. Section exit marks unique tile addresses reclaimable (lazy reclaim — short backtracks reuse cached art without re-decompression). This builds on the continuous-scroll model; it does not reintroduce slots or teleports.
+1. **Build time:** Global deduplication (canonical form) + spatial ordering assign each unique tile a permanent global pool index; the pool is split into 256-tile pages.
+2. **Level load:** `Level_LoadArt` decompresses every page (ZX0/S4LZ) and DMAs it to its fixed VRAM slot; permanent tiles (HUD, rings) load alongside.
+3. **Resident model:** The whole act's tile art fits the VRAM pool, so every section's tiles are loaded once at level load and stay resident — continuous scrolling and teleports never swap section art. The footprint fits because global deduplication ensures each unique tile appears once in the pool regardless of how many sections use it.
+4. **Future >VRAM levels (deferred, DEFERRED_WORK):** when an act's art exceeds the pool, a windowed art-residency streamer would stream a section's unique tiles at the leading edge as the camera approaches (Deferrable DMA spread across the many frames the continuous camera takes to cross), marking departed sections' unique tiles reclaimable (lazy reclaim — short backtracks reuse cached art). This builds on the continuous-scroll resident model; it does not reintroduce slots or teleports.
 
 **Auto-calculated addresses:** Permanent-category objects (HUD, rings, monitors, springs, etc.) are defined sequentially in `VRAM_Layout.asm` with tile counts. The assembler computes addresses automatically — adding/removing an object shifts everything after it. Compile-time overflow check ensures permanent allocations don't exceed the pool budget.
 
-**Cross-references:** §2.2 (allocator). Vectorman: 64×64 plane validation. Batman: raw nametable data in ROM.
+**Cross-references:** §2.2 (static VRAM assignment), §2.5 (art loading flow). Vectorman: 64×64 plane validation. Batman: raw nametable data in ROM.
 
 ### 2.4 Per-Section Background Support
 
@@ -1294,29 +1252,29 @@ The Genesis VDP has completely separate planes — Plane A and Plane B have inde
 | 2. Per-section layout | Different BG arrangement | Shared BG tile region (zone-wide, fixed) | 256 slots reserved | Visual variety with existing BG art |
 | 3. Per-section art+layout | Different BG tiles+layout | Section's A.3 art group | Pool tiles | Unique BG (mountain skyline, etc.) |
 
-**Shared BG tile region (T1/T2):** A fixed VRAM range — base slot 1024, byte address $8000 — is reserved for BG-only tile art. The relocated SAT at $B800 is the hard ceiling, so usable BG space is $8000-$B7FF = **448 tiles** (14 KB); OJZ Act 1 uses 340. NOTE: `BG_TILE_CAPACITY = 512` in constants.asm is a stale pre-SAT-relocation nominal (the engine doesn't use it; only the build tools gate on it — and `tools/inject_editor_bg.py` already uses the correct 448 while `tools/ojz_strip_gen.py` still mirrors 512). Reconciling the gate to 448 + adding a BG_Init capacity guard is tracked in DEFERRED_WORK. Loaded **once** at level init alongside the initial FG section pools and **never** overwritten by section transitions. This solves the architectural mismatch with A.3's per-section graph-colored FG pool: BG tiles must remain at consistent VRAM slots across all section transitions for the BG nametable's tile-index references to stay valid.
+**Shared BG tile region (T1/T2):** A fixed VRAM range — base slot 1024, byte address $8000 (`BG_TILE_BASE_VRAM`) — is reserved for BG-only tile art. The relocated SAT at $B800 is the hard ceiling, so usable BG space is $8000-$B7FF = **448 tiles** (14 KB), `BG_TILE_CAPACITY` in constants.asm; OJZ Act 1 uses ~340. The engine doesn't read this constant; only the build tools gate on it (`tools/ojz_strip_gen.py`, `tools/inject_editor_bg.py`). Loaded **once** at level init and **never** overwritten by section transitions. BG tiles must remain at consistent VRAM slots across all section transitions for the BG nametable's tile-index references to stay valid — the same residency guarantee the FG act pool relies on.
 
-T1 ships with the shared region populated from `act_bg_tiles` (zone-wide pointer). T2 reuses the same region — only the per-section nametable changes. T3 sidesteps the region entirely and lives in the section's A.3 art group (per-section, swapped on transition), giving each T3 section unique BG tile art at the cost of additional FG-pool budget pressure.
+T1 ships with the shared region populated from `act_bg_tiles` (zone-wide pointer). T2 reuses the same region — only the per-section nametable changes. T3 folds its unique BG tile art into the section's contribution to the global act art pool, so each T3 section gets unique BG tile art at the cost of additional pool budget pressure.
 
 **Section entry integration (post-§2 A.5):**
 - `act_bg_layout` (Act struct, longword at $16) — zone-wide BG nametable pointer; drawn once at level load by `BG_Init`.
-- `act_bg_tiles` (Act struct, longword at $1A) — zone-wide BG tile blob pointer; loaded once at level load into VRAM $A000 by `BG_Init`.
+- `act_bg_tiles` (Act struct, longword at $1A) — zone-wide BG tile blob pointer; loaded once at level load into the shared BG region at `BG_TILE_BASE_VRAM` ($8000) by `BG_Init`.
 - `sec_bg_layout` (Sec struct, longword at $1C) — per-section BG nametable pointer (NULL = use Act default). Drawn once by `Section_RedrawPlanes` at level init. Continuous scrolling never rebases or redraws Plane B during play (§4.1/§4.4); a per-section BG *swap* on a boundary crossing needs a future deferred mechanism (stream the new 64×32 BG nametable into the wrapping plane at the leading edge) if a zone ever authors differing per-section BG layouts.
 
-**Storage shape:** Each layout is a **raw 64×32 nametable** (4096 bytes uncompressed). BG tile blob is raw uncompressed tiles (32 B per tile, ≤ 256 tiles per zone). No `sec_bg_plc_off` field — T3 BG tile art folds into the section's existing A.3 art group (`sec_tile_art`). T3 BG tiles ride the unified per-section blob loaded by `Section_LoadArt` — no parallel streaming code for T3. (A.4's `Section_StreamArtGroup` was deleted 2026-06-11: the union-blob model leaves neighbor art already resident, so runtime art streaming had zero callers.)
+**Storage shape:** Each layout is a **raw 64×32 nametable** (4096 bytes uncompressed). BG tile blob is raw uncompressed tiles (32 B per tile, ≤ 448 tiles per zone). No `sec_bg_plc_off` field — T3 BG tile art folds into the section's contribution to the global act art pool. T3 BG tiles are therefore part of the same paged pool that `Level_LoadArt` loads once at level init — there is no separate per-section BG load path, and the whole pool (FG + any T3 BG tiles) is already resident before play begins.
 
 **Tier detection (build-time):** `sec_bg_layout=NULL` → T1; `sec_bg_layout≠NULL` and BG tile refs ⊆ shared BG region → T2; `sec_bg_layout≠NULL` with section-specific BG-only tiles → T3.
 
-**Engine cost:** T1 = one 4 KB nametable blit + one BG-tile-blob DMA at level init, zero per-frame. T2 = same load cost; a differing per-section BG layout would cost one 4 KB nametable blit when the camera crosses into that section (~0.6 ms blocking via VDP DATA port) — the deferred per-section BG swap above. T3 = nametable blit + tile streaming via A.4. Deferrable-DMA optimisation tracked in DEFERRED_WORK.
+**Engine cost:** T1 = one 4 KB nametable blit + one BG-tile-blob DMA at level init, zero per-frame. T2 = same load cost; a differing per-section BG layout would cost one 4 KB nametable blit when the camera crosses into that section (~0.6 ms blocking via VDP DATA port) — the deferred per-section BG swap above. T3 = nametable blit at init; its BG tiles ride the resident act art pool, so there is no per-section tile load. Deferrable-DMA optimisation tracked in DEFERRED_WORK.
 
-**Allocator integration:** T3 BG tiles are part of the section's existing tile-art group, so the allocator treats them identically to FG tiles. Debug assertions catch pool overflow if FG + BG combined exceeds the section's color-graph slot budget. Shared BG tile region (T1/T2) is allocator-owned but treated as a single permanent allocation — never freed.
+**Pool integration:** T3 BG tiles are part of the section's contribution to the global act art pool, so the build tool dedupes and pages them identically to FG tiles. The build asserts FG + BG combined fits the FG VRAM capacity (`REGION1_TILE_CAPACITY`); overflow fails the build, not the console. The shared BG tile region (T1/T2) is a single permanent allocation at $8000 — loaded once, never freed.
 
 **VRAM map summary (post-§2 A.5):**
 ```
 $0000-$B7FF  UNIFIED ART POOL (tiles $000-$5BF, 1,472 tiles). Resident: loaded
-             once at level load, graph-colored so the whole act fits — continuous
-             scroll never swaps section art (§2.3).
-               · FG section tile art (per-section, graph-colored indices)
+             once at level load as a globally-deduped, paged act pool — the whole
+             act fits, so continuous scroll never swaps section art (§2.3).
+               · FG act tile art (paged pool, fixed global pool indices)
                · shared BG tile region (base $8000 / tile $400; T1/T2, loaded once)
                · character DPLC window ($7800 / tile $3C0, DMA'd per frame)
                · permanent tiles — HUD, rings, monitors
@@ -1329,15 +1287,14 @@ $E000-$FFFF  Plane B nametable (64×64; all 64 rows — no "Region 2" spill)
 
 **Level load (blocking):**
 ```
-LoadSectionTiles
-  → S4LZ decompress current section's FG tile art → VRAM $000+
-    (tile-delta preprocessing reversed during decompression)
-  → S4LZ decompress block data → 2D tile cache
-    (no chunk/block tables — section grid handles layout directly)
-LoadArt (S4LZ blocking, synchronous)
-  → Decompress permanent art (HUD, rings, etc.) → VRAM permanent region
-  → AllocVRAM for each zone object type → bump allocator + queue S4LZ
-  → ProcessDMAQueue flush after each entry
+Level_LoadArt(act descriptor)              ; engine/level/load_art.asm
+  → For each page of the act's paged art pool (one page = ART_POOL_PAGE_TILES = 256 tiles):
+      → Art_Decompress the wrapped ZX0/S4LZ page → Art_Staging_Buffer (8 KB, init-only)
+      → QueueDMA_Critical: staging buffer → fixed VRAM slot (page_index << 13)
+      → VSync_Wait so the Critical DMA drains during the blanked VBlank
+  → BG_Init: blit the zone-wide BG to Plane B (T1; §2.4)
+The whole act art pool is resident in VRAM for the life of the act. Section
+streaming and teleport never reload tile art — there is no per-section art swap.
 ```
 
 **Section transition (continuous scroll — current, resident art):**
@@ -1345,34 +1302,35 @@ LoadArt (S4LZ blocking, synchronous)
 Camera scrolls toward a section boundary
   → Edge streamer (4.7) fills the leading section's nametable + collision
     into the wrapping plane — every moving frame, no boundary burst
-  → Object art is already resident (whole-act VRAM pool, graph-colored);
-    objects spawn at the camera edge (4.9) with art_tile from the loaded table
+  → Object art is already resident (whole-act VRAM pool, paged at init);
+    objects spawn at the camera edge (4.9) with their static art_tile
   → Camera crosses (Camera >> SECTION_SIZE_SHIFT) changes:
       → parallax config snap/lerp, palette cross-fade, music swap
   → No art swap, no preload window, no Section_Enter event — the camera
     just keeps moving; the section is "entered" purely by world position
 ```
 
-**Section transition (future >VRAM levels — deferred windowed streamer, not the leapfrog):**
+**Section transition (future >VRAM levels — DEFERRED windowed streamer):**
 ```
 As the camera approaches a section whose unique tiles are not resident
-  → AllocVRAM for the section's new types (refcount-bump if already cached)
-  → S4LZ-stream those tiles to their graph-colored VRAM addresses,
-    Deferrable priority, spread across the many frames the continuous
-    camera takes to cross — non-conflicting by construction
-  → FreeVRAM (lazy) the departed section's unique types as it scrolls off
+  → reserve those tiles' fixed pool addresses (already cached → reuse)
+  → decompress + stream them to their pool addresses, Deferrable priority,
+    spread across the many frames the continuous camera takes to cross
+  → lazily mark the departed section's unique tiles reclaimable as it scrolls off
 ```
+This is the §2.2 deferred dynamic-allocator design — not part of the shipped
+engine, which keeps the whole act pool resident.
 
-**Emergency spawn (mid-gameplay):**
+**Emergency spawn (mid-gameplay — DEFERRED, needs the §2.2 allocator):**
 ```
 Boss spawns new enemy type not in section layout
-  → AllocVRAM(new_type_id)
-  → Art metadata says S4LZ_BLOCKING + 12 tiles
-  → Instant S4LZ decompress to allocated VRAM address
+  → reserve a pool address for the new type
+  → S4LZ-blocking decompress 12 tiles to that address (<0.5 ms)
   → Object spawns with valid art_tile same frame
-  → No streaming delay, no pre-planning needed
-  (S4LZ at 700-1100 KB/s: 12 tiles = 384 bytes decompressed in <0.5ms)
+  (S4LZ at ~510-640 KB/s: 12 tiles = 384 bytes decompressed in well under a frame)
 ```
+Today, all object art is resident from level init (§2.2), so on-demand art
+loading is not needed; this is the path a future >VRAM level would use.
 
 **Sprite art via DPLC/DMA (per-frame):**
 ```
@@ -1381,91 +1339,89 @@ AnimateSprite
   → Perform_DPLC: read DPLC table for this animation frame
     → DPLC entry: tile_count + tile_start → ROM source address
     → Build-time contiguous layout: 1 DMA entry per frame change
-  → Queue DMA from ROM directly to allocated VRAM address
+  → Queue DMA from ROM directly to the object's static VRAM address
     (Important priority for characters, Deferrable for objects)
   → DPLC Lookahead (§1.6): if anim_timer <= 1, peek next frame's DPLC
     → Pre-queue as Important DMA → art ready before animation advances
   → Zero CPU decompression cost — DMA runs on VDP clock
 ```
 
-**Per-section tile art — RAM footprint:**
+**Art-pool load — RAM footprint:**
 ```
-S4LZ decomp buffer: ~$1000 (4,096 bytes)
+Art_Staging_Buffer: $2000 (8,192 bytes) — one decompressed pool page
+  (256 tiles × 32 bytes). Init-only: an alias over the tile-cache RAM,
+  free before the cache is populated. Reused page-by-page during the
+  display-off level load; not held after init.
 
 No chunk tables, block tables, level layout arrays, or UFTC tile buffers in RAM.
-All tile data streams from ROM via S4LZ on demand.
+The act art pool is resident in VRAM after init; nothing re-decompresses to RAM during play.
 Sprite art DMA'd directly from ROM — no RAM buffer needed.
 ```
 
 ### 2.6 Data Format Summary
 
-The engine uses one compression format (S4LZ), one random-access format (uncompressed + DPLC), and raw tilemaps. No other decompressors exist in the codebase.
+The engine uses two compression formats (ZX0 for load-time bulk, S4LZ for the runtime block stream — both dispatched by `Art_Decompress` on the wrapper version byte), one random-access format (uncompressed + DPLC), and raw tilemaps. No other decompressors exist in the codebase.
 
 | Data Class | Format | Build Tool | ROM Label Convention |
 |---|---|---|---|
-| Level/bulk art | S4LZ (with tile-delta preprocessing) | `s4lz_compress` (Python/C, optimal parsing) | `ArtS4LZ_*` |
+| Act FG art pool | ZX0 pages (wrapped) | `tools/tile_dedupe.py` (dedupe + spatial order + page) → ZX0 (`salvador`) | `<Zone>_Act_Pool_Page*` (`act_pool_page*.zx0`) |
+| Runtime block stream | S4LZ v3 (+ per-section block dictionary) | `tools/s4lz.py` (optimal parse) | `<Zone>_Sec*_Blocks` (`sec*_blocks.bin`) |
 | Sprite art | Uncompressed + DPLC tables | `dplc_layout` (build-time contiguous rearrangement + entry merging) | `ArtUnc_*` / `DPLC_*` |
 | Tilemaps | Raw (uncompressed VDP nametable words) | Direct export from editor | `Tilemap_*` |
 
-**Art source pipeline:** Original art assets (extracted from Sonic 2/3K or created new) are stored as raw uncompressed tiles in `art/raw/`. Level art is compressed to S4LZ at build time. Sprite art stays uncompressed — the build tool rearranges tiles for contiguous per-frame layout and generates optimized DPLC tables.
+**Art source pipeline:** Original art assets (extracted from Sonic 2/3K or created new) are stored as raw uncompressed tiles. The act FG tiles are globally deduped, spatially ordered, paged, and ZX0-compressed at build time; block data is S4LZ-compressed. Sprite art stays uncompressed — the build tool rearranges tiles for contiguous per-frame layout and generates optimized DPLC tables.
 
-**ROM footprint:** S4LZ decompressor is ~2-5 KB (jump table dominates). DPLC routine (`Perform_DPLC`) is ~0.2 KB. Raw tilemaps need no decompressor. Total decompression/loading code: ~2.5-5.5 KB ROM.
+**ROM footprint:** S4LZ decompressor is ~300 B; the ZX0 decompressor (unzx0_68000) is small as well. DPLC routine (`Perform_DPLC`) is ~0.2 KB. Raw tilemaps need no decompressor.
 
 ### 2.7 Cascade Effects
 
 ```
 Two-Tier Compression (2.1)
-  → S4LZ handles all bulk/level art
-    → Streaming mode: interruptible via cooperative multitasking (§9.7), Deferrable DMA
-    → Blocking mode: instant same-frame decompression for small art
-    → 700-1100 KB/s throughput
-    → Tile-delta preprocessing: 10-25% better compression at build time
-      → Runtime undo: ~8.5 cycles/byte (negligible)
+  → ZX0 pages handle the load-time act FG art pool
+    → Blocking decompress at init (display off), Critical DMA per page
+    → ~zlib-class ratio (0.605 on tile art)
+  → S4LZ v3 handles the runtime block stream
+    → Per-section block dictionary, ~510-640 KB/s, 6 blocks/frame budget
+  → Art_Decompress dispatches both on the wrapper version byte
   → Uncompressed sprite art + DPLC/DMA — zero CPU decode cost
     → Build-time contiguous layout: 1 DMA per animation frame change
     → DMA from ROM on VDP clock — CPU free for game logic
     → DPLC Lookahead (§1.6) pre-loads next frame's art
   → Raw tilemaps for menus — direct DMA from ROM, zero decode cost
 
-Dynamic VRAM Allocator (2.2)
-  → AllocVRAM reads art metadata for tile counts + format
-    → S4LZ format → queue Deferrable DMA stream (streaming)
-    → S4LZ blocking → instant decompress (small/emergency)
-    → Uncompressed → set art_source pointer for DPLC per-frame loading
-  → Refcounting keeps shared art across section transitions
-    → Springs, monitors, rings never re-decompress
-    → Lazy reclaim = free caching for backtracking
-  → Section_ResetVRAM compacts on transition
-    → Zero fragmentation within section lifetime
-  → Debug assertion on overflow → crash screen with full context
+Static VRAM Assignment (2.2)
+  → Act FG tiles get fixed global pool indices at build time
+  → Object/permanent art gets static vram_art() addresses at build time
+    → No runtime allocator, no refcount, no compaction
+  → Build asserts the deduped pool fits FG VRAM capacity (1,472 tiles)
+    → Tile overflow caught at build, never on the console
+  → (DEFERRED: dynamic per-object allocator for >VRAM levels — DEFERRED_WORK)
 
-Per-Section Tile Art (2.5)
-  → Each section can have unique foreground tile graphics
-    → S4LZ compressed with tile-delta in ROM (~4KB buffer in RAM)
-    → DMA'd to VRAM $000+ during section preload (spread across frames)
+Paged Act Art Pool (2.5)
+  → Whole-act FG art is globally deduped, spatially ordered, and paged
+    → ZX0/S4LZ pages decompressed once at init via Art_Staging_Buffer (8 KB)
+    → Critical DMA to fixed VRAM slots (page_index << 13)
+    → Resident for the life of the act — no per-section swap, no preload window
   → No chunk/block tables in RAM
     → Pre-computed block data from build tool, zero runtime conversion
       → Zero per-frame cost for level rendering (tile cache → plane buffer → VDP)
-  → Tile overflow impossible by construction
-    → Unified pool: each section's tiles allocated anywhere in $000-$5FF
-    → Build-time graph coloring prevents conflicts between visible sections
+  → Tile overflow caught at build time
+    → Pool deduped, build asserts pool ≤ FG VRAM capacity ($000-$5BF)
 
-Allocator + Load_Object Integration (3.7)
-  → Load_Object calls AllocVRAM(type_id)
-    → Already loaded? Return addr in ~20 cycles
-    → New type? Allocate + decompress in ~50 cycles + stream time
-      → No hardcoded VRAM constants in object data blocks
-        → Adding new objects = add to layout + art metadata, done
+Object Art Integration (3.7)
+  → Archetype templates carry static vram_art() addresses
+    → No allocation step at spawn, no hardcoded magic in layout data
+      → Adding new objects = add to layout + assign pool/permanent tiles, done
 
-Edge-Driven Allocation (4.8)
-  → Whole-act art resident in the graph-colored pool → no per-section art swap
-    → Objects spawn at the camera edge → AllocVRAM (refcount bump on resident art)
-      → Edge despawn → lazy FreeVRAM, art cached for short backtracks
-        → (Future >VRAM levels: windowed streamer pre-allocs ahead of the camera — 4.11/2.5)
-          → Zero visible loading: section is "entered" by world position, not an event
+Edge-Driven Spawning (4.8)
+  → Whole-act art resident in the paged pool → no per-section art swap
+    → Objects spawn at the camera edge with their static art_tile
+      → Zero visible loading: section is "entered" by world position, not an event
+        → (Future >VRAM levels: deferred windowed streamer — 4.11/2.5/2.2)
 
 Build Pipeline (8.1)
-  → S4LZ compressor (Python/C, optimal parsing)
+  → tile_dedupe: global dedupe + spatial order + page the act art pool → ZX0
+  → s4lz compressor for the runtime block stream (optimal parse)
   → DPLC layout tool (contiguous art rearrangement + entry merging)
     → Raw tilemap export (no encoder needed — direct nametable data)
 ```
@@ -1774,7 +1730,7 @@ Comparative analysis across S.C.E. and 5 commercial Genesis engines informed whi
 
 Two tiers of per-frame art management:
 
-- **Static object art:** Loaded via `AllocVRAM` at spawn (§2.2). Stays resident until section transition or refcount reaches zero. No per-frame processing needed.
+- **Static object art:** VRAM address pre-assigned in the archetype template via the `vram_art()` macro at build time. Resident for the level lifetime (no per-section unloading, no dynamic allocation). No per-frame processing needed.
 - **Animated sprite art:** Per-frame — animation frame changes need different tiles. Generic `Perform_DPLC` routine (works for all objects, not per-character) detects frame changes via per-object `ros_prev_frame` field, reads DPLC table for the new frame, and queues DMA from uncompressed ROM art directly to the object's allocated VRAM address. Build-time contiguous art layout guarantees 1 DMA entry per frame change. Character DPLCs → Important priority (guaranteed delivery). Object DPLCs → Deferrable priority (budget-gated).
 - **DPLC Lookahead (NOVEL — §1.6):** When `anim_timer <= 1`, peek at the next animation frame's DPLC requirements and pre-load as an Important-priority DMA entry. Art arrives before the frame changes — zero-latency animation transitions. No Genesis game does this.
 - **128KB DMA boundary safety:** All DPLC DMA transfers are checked for 128KB ROM boundary crossings. Transfers that would cross a boundary are split into two entries. See §2.1 for details.
@@ -1889,31 +1845,30 @@ Example: Oracle Jungle Zone Act 1
 Each section in the 2D grid is fully self-describing — almost its own level:
 
 ```
-; Section definition — 72 bytes per (X, Y) cell (Sec struct in structs.asm):
+; Section definition — 66 bytes per (X, Y) cell (Sec struct in structs.asm):
     dc.l    sec_block_index      ; +$00: 256-entry block index (ROM pointer, see §4.3/§4.7)
-    dc.l    sec_objects         ; +$04: object layout (compact 4-byte entries, X-sorted, see 4.9)
-    dc.l    sec_rings           ; +$08: ring layout (flat X-sorted dc.w pairs, section-local coords, see 4.9)
-    dc.l    sec_plc             ; +$0C: art PLC list (S4LZ format)
-    dc.l    sec_pal             ; +$10: palette pointer — full 128-byte copy (0 = no change)
-    dc.l    sec_parallax_config ; +$14: parallax_config pointer (0 = inherit act default; §4.6)
-    dc.l    sec_raster_table    ; +$18: raster command table pointer (0 = keep current, see §7.2)
-    dc.l    sec_bg_layout       ; +$1C: per-section Plane B layout pointer (NULL = use Act default; §2 A.5)
-    dc.l    sec_type_table      ; +$20: type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
-    dc.l    sec_pal_cycle       ; +$24: palette cycling script (0 = keep current)
-    dc.l    sec_sound_bank      ; +$28: DAC sample bank pointer (0 = keep current)
-    dc.l    sec_reserved_2C      ; +$2C: reserved
-    dc.l    sec_anim_blocks     ; +$30: animated tile script (0 = none)
-    dc.l    sec_collision_s4lz  ; +$34: reserved (collision embedded in block data; §4.7)
-    dc.w    sec_flags           ; +$38: SF_* bitmask (see below)
-    dc.w    sec_music           ; +$3A: music change (0 = keep current)
-    dc.b    sec_pcfg_pad_3C     ; +$3C: reserved (parallax config moved to sec_parallax_config)
-    dc.b    sec_camera_lookahead; +$3D: camera look-ahead pixels (0 = zone default)
-    dc.b    sec_pcfg_pad_3E     ; +$3E: reserved
-    dc.b    sec_pcfg_pad_3F     ; +$3F: reserved
-    dc.l    sec_tile_art_s4lz   ; +$40: per-section S4LZ tile pool ptr (§2 A.3)
-    dc.w    sec_tile_art_vram   ; +$44: VRAM byte dest (color base × 32)
-    dc.w    sec_pad_46          ; +$46: pad
-; Sec_len = $48 (72 bytes)
+    dc.l    sec_objects          ; +$04: object layout (6-byte objentry entries, X-sorted, see 4.9)
+    dc.l    sec_rings            ; +$08: ring layout (flat X-sorted dc.w pairs, section-local coords, see 4.9)
+    dc.l    sec_plc              ; +$0C: art PLC list (S4LZ format)
+    dc.l    sec_pal              ; +$10: palette pointer — full 128-byte copy (0 = no change)
+    dc.l    sec_parallax_config  ; +$14: parallax_config pointer (0 = inherit act default; §4.6)
+    dc.l    sec_raster_table     ; +$18: raster command table pointer (0 = keep current, see §7.2)
+    dc.l    sec_bg_layout        ; +$1C: per-section Plane B layout pointer (NULL = use Act default; §2 A.5)
+    dc.l    sec_type_table       ; +$20: type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
+    dc.l    sec_pal_cycle        ; +$24: palette cycling script (0 = keep current)
+    dc.l    sec_sound_bank       ; +$28: DAC sample bank pointer (0 = keep current)
+    dc.l    sec_block_dict       ; +$2C: raw block-dictionary ptr (block blob + index size; LZ window pre-seed)
+    dc.l    sec_anim_blocks      ; +$30: animated tile script (0 = none)
+    dc.l    sec_collision_s4lz   ; +$34: reserved (collision embedded in block data; §4.7)
+    dc.w    sec_flags            ; +$38: SF_* bitmask (see below)
+    dc.w    sec_music            ; +$3A: music change (0 = keep current)
+    dc.b    sec_pcfg_pad_3C      ; +$3C: reserved (parallax config moved to sec_parallax_config)
+    dc.b    sec_camera_lookahead ; +$3D: camera look-ahead pixels (0 = zone default)
+    dc.b    sec_pcfg_pad_3E      ; +$3E: reserved
+    dc.b    sec_pcfg_pad_3F      ; +$3F: reserved
+    dc.w    sec_block_dict_len   ; +$40: block-dict bytes (768×K, K≤3, word-even; 0 = no dict)
+; Sec_len = $42 (66 bytes). Per-section tile art removed — art is the act-wide
+; paged pool on the Act descriptor (act_art_pool_table / act_art_pool_pages).
 
 ; sec_flags: SF_HAS_WATER | SF_UNDERGROUND | SF_NO_Y_WRAP | SF_PRESERVE_STATE | SF_HAS_ANIMATED_BLOCKS
 ```
@@ -2083,7 +2038,7 @@ Continuous scrolling makes "streaming" a steady per-frame edge process rather th
 - The block staging cache absorbs cold blocks as the camera crosses block boundaries; on direction reversal the cache simply streams the now-leading edge — no bookmark to reset, no preload to abort
 
 **Section + VRAM Allocator (2.2):**
-- The whole act's tile art is resident in the VRAM art pool (§2 — build-time graph coloring), so there is no per-section art swap and no nametable preload window. Section transitions move only the camera; the tiles the leading section references are already in VRAM
+- The whole act's tile art is resident in the VRAM art pool (loaded once at `Level_LoadArt`; §2 A.3 — build-time global deduplication + spatial ordering + paging), so there is no per-section art swap and no nametable preload window. Section transitions move only the camera; the tiles the leading section references are already in VRAM
 - Object art: `AllocVRAM` allocates as objects spawn at the camera edge (§4.9); `FreeVRAM` decrements refcounts as they despawn — art stays cached for short backtracks. (When a future level exceeds the resident art budget, §4.11's continuous model is the foundation a windowed art-residency streamer builds on — see DEFERRED_WORK; it does not reintroduce slots.)
 
 **Camera-Driven Entity Window (4.9):**
@@ -2354,7 +2309,7 @@ Deferred Plane Buffer (4.4)
         → Per-section raster command tables enable raster-level visual variety
 
 Section + Allocator Integration (4.8)
-  → Whole-act tile art resident in VRAM pool (graph-colored) → no per-section art swap
+  → Whole-act tile art resident in VRAM pool (globally-deduplicated) → no per-section art swap
     → Object art: AllocVRAM at edge spawn, FreeVRAM at edge despawn (refcount cache)
       → Load_Object finds resident art in VRAM (refcount bump, no decompress)
         → Future >VRAM levels: windowed art-residency streamer builds on this model (not slots)
@@ -2470,7 +2425,7 @@ Section transitions smoothly interpolate modifiers via Lerp so physics don't sna
 - Slope factor `muls.w` → `lsl` optimization: saves ~54 cycles/ground frame
 - Fix dead spots, ceiling-sticking bug, smooth angle transitions via interpolation
 
-**Spindash charge curve:** Table-based approach (S.C.E. uses 8 entries from $800 to $F00). More tunable than a formula — designers edit a table, not math.
+**Spindash charge curve:** closed-form — gsp = SPINDASH_BASE ($800) + (charge>>8)·$80, yielding $800–$C00. A single formula instead of S.C.E.'s 8-entry table, for code compactness.
 
 **Landing camera lock:** Don't scroll camera down during jumps until player lands or exits bottom dead zone. Prevents camera bounce on every jump.
 
@@ -2799,6 +2754,8 @@ DAC Enhancements (6.2)
 
 ## 7. Visual Effects System
 
+> **Status: PLANNED design — not yet implemented.** §7 documents the intended visual-effects system. The shipped engine does not yet include these; the `Sec` struct reserves `sec_raster_table`/`sec_pal_cycle`/`sec_anim_blocks` fields for them (and no shipped code reads them yet). Subsections below are design specs for future work.
+
 Palette management, raster effects, hardware-driven lighting, and a lightweight effects engine. The palette system is fully section-aware with computed water palettes (novel). Raster effects are driven by a unified per-scanline command table (§7.2) — Batman & Robin's core raster architecture, enabling stackable VDP register changes per frame. Shadow/Highlight mode provides hardware transparency and lighting at zero CPU cost. Boss and special stage effects use Batman-inspired compound rotation math.
 
 ### 7.1 Palette System
@@ -2873,7 +2830,7 @@ VDP Register $0C enables per-pixel brightness manipulation at **zero CPU cost**:
 - High-priority tiles render at normal brightness
 - Palette line 4 sprite pixels 14/15 become transparent highlight/shadow operators
 
-**Section-aware S/H:** `sec_shadow_highlight` flag in section definition. Sections independently enable/disable S/H. HInt toggles at water line for zoned lighting.
+**Section-aware S/H (planned):** a planned per-section S/H-enable flag (no such field exists in the `Sec` struct today — it would be added with this feature, e.g. as an `SF_*` bit in `sec_flags`). Sections would independently enable/disable S/H, with HInt toggling at the water line for zoned lighting.
 
 **Applications:**
 - Semi-transparent water (Mega Turrican pattern — S/H enabled below water line)
@@ -2991,7 +2948,7 @@ Palette Cross-Fading (7.1)
           → Base + water + cycling + gradient all transition seamlessly
 
 Shadow/Highlight Mode (7.3)
-  → sec_shadow_highlight flag per section
+  → planned per-section S/H-enable flag (no Sec field today; future SF_* bit)
     → HInt toggles S/H at water line for zoned lighting
       → Highlight-operator sprites around player = spotlight in dark sections
         → Combines with computed water palette (shadow below water = auto-darker)
@@ -3048,12 +3005,12 @@ The authoring pipeline decouples the level editor's creative tools from the runt
 **Build tool pipeline (runs as part of `build.sh`):**
 
 1. **Flatten:** Convert each section's layout from chunks/blocks into a flat grid of 8×8 tile references.
-2. **Deduplicate tiles:** Identify identical tiles across sections (including flip variants). Build a master tile set per zone.
-3. **Graph-color VRAM indices (2.3):** Construct section adjacency graph from the 2D grid. Assign VRAM tile indices so non-adjacent sections reuse indices. Shared tiles get permanent indices; unique tiles get reusable indices.
+2. **Deduplicate tiles:** Identify identical tiles across all sections of the act (including flip variants, via canonical form). Build one master tile set per act (`tools/tile_dedupe.py: dedupe_tiles`).
+3. **Spatially order and page the global pool (2.3):** Order the deduped tiles by first occurrence in grid-traversal order (`order_pool_spatially`) so spatially-near tiles land at nearby pool indices, then split the pool into fixed-size pages (256 tiles each, `split_pool_into_pages`). Each tile gets a permanent global pool index; section nametables reference these directly. No adjacency graph or per-section index reuse.
 4. **Generate nametable strips:** Output raw VDP nametable words (tile index + palette + priority + flip bits) per column per section. Stored in ROM, ready for direct DMA to VDP scroll planes.
 5. **Embed collision in strips:** Append 24 collision bytes + 8 padding to each 96-byte nametable column, producing 128-byte wide strips. Collision derived from tile→collision assignments (one type per 16×16 cell).
-6. **Compress tile art:** S4LZ-compress each section's tile art with tile-delta preprocessing. Output per-section compressed art blobs for streaming decompression.
-7. **Report:** Total ROM size per section and per zone. Tile budget usage per section and per corner intersection. Warnings for any corner exceeding budget.
+6. **Compress art and blocks:** ZX0-compress each act art pool page (load-time tier); S4LZ-compress the per-section block stream with its block dictionary (runtime tier). Both carry the 4-byte version wrapper for `Art_Decompress`.
+7. **Report:** Total ROM size per section and per zone. Act art pool tile count vs FG VRAM capacity (`REGION1_TILE_CAPACITY` = 1,472). Build error if the deduped pool exceeds capacity.
 
 **Cross-reference:** Batman & Robin stores level nametable data at `$100000+` in raw VDP format — 16-bit nametable words encoding tile index + palette + flip bits, ready for DMA straight from ROM to VRAM scroll planes. Zero runtime conversion. Our tool does the same thing, but for the section streaming system's per-column strips rather than full-screen pages.
 

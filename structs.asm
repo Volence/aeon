@@ -115,7 +115,7 @@ SST endstruct
         endif
 
 ; -----------------------------------------------
-; Section Definition (§4) — 72 bytes, ROM table
+; Section Definition (§4) — 66 bytes ($42), ROM table
 ; All fields: 0 = keep current / no change
 ; -----------------------------------------------
 Sec struct
