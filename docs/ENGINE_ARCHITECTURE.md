@@ -16,7 +16,7 @@ This is the **design bible**. This document describes the engine we're building 
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
 | 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile graph coloring** (NOVEL — non-adjacent sections reuse VRAM indices, zero-DMA transitions), **character sprites + VDP tables embedded in off-screen nametable rows**. Dynamic VRAM allocator (novel — no Genesis game does this), refcount-based art caching with lazy reclaim, per-section tile art (~22KB RAM saved), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
-| 4 | Level / World | 2D section grid with signed Y (novel), 2-slot bidirectional leapfrog (novel), block-based 2D tile cache (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), velocity-based preload, per-section everything, diagonal preview loading, **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, **zero-lag teleport (progressive nametable preload + palette crossfade, novel)**, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in block data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)** |
+| 4 | Level / World | 2D section grid with signed Y (novel), **continuous world-space camera over a 64×64 wrapping VDP plane (classic S2/S3K — no slots, no teleport, no rebase)**, edge streaming into the wrapping plane (always-on "see into the next section"), block-based 2D tile cache (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), per-section everything (snapped on section-boundary crossing), **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, **section-local entity ROM data (positions relative to section, respawn/kill memory keyed by section_id — coordinate-invariant)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in block data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)**, floating-origin rebase as the future unbounded-level path (coarse/invisible/atomic — replaces the deleted leapfrog) |
 | 5 | Player / Character | **SHIPPED (§5, branch player-system):** flat explicit PSTATE_* state machine + Player_SetState enter/exit hooks (hierarchical was evaluated and REJECTED), classic motion-quadrant + angle-band landing axis-select (the "vector projection on landing" claim was a verified S3K myth — NOT used), effective-physics-table-in-RAM (a4 convention; per-section *plumbing* shipped with an identity modifier — the modifier/Lerp system itself is deferred), air drag apex-only (classic-wide, not an S3K fix), roll-jump lockout kept classic, 2-frame jump buffer + jump-delay fix (the two modern concessions), −$FC0 up-cap REMOVED (feel deviation, PHYS_GSP_CAP coupling), angle continuity for loop stability, level bounds, spindash charge curve (table-based), slope factor muls→shift, landing camera lock + spindash freeze, 3-character shared-code structure via Player_Common (Sonic-only shipped), **SWAP-based 16.16 fixed point (Treasure)**. **SHIPPED (feat/sonic-animations):** shared ANIM_* id contract (11 ids, build-time assert), Player_Animate read-only classifier (priority-ordered, display-conditions not new state bits), DUR_DYNAMIC speed-scaled timing in AnimateSprite, shared spindash in player_spindash.asm, Player_AtLedgeEdge balance probe, _pl_look_offset zero-seam, DEBUG anim viewer. **DEFERRED:** 6-button mappings, the per-section physics modifier system, multi-character dispatch, shields, dropdash, instashield, get-up trigger, duck/look-up camera pan. See the §5 body + DEFERRED_WORK.md §5. |
 | 6 | Audio | **From-scratch custom Z80-autonomous driver** (NOT Flamedriver — the import plan was superseded by the 2026-06-16 master sound spec). **SHIPPED (Plans 1A/1B/1C/1D + Phase 3a):** Z80 shell + mailbox + Timer-A scheduler primitives (1A), DMA-survival single-channel DAC (1B, MegaPCM-2 free-running every-path-equal-cost streaming loop), FM/PSG music sequencer (1C — event-list song format v0, per-channel stream interpreters, FM voice writer with log-volume LUT + per-algorithm carrier mask, PSG tone/noise + pause silence, Timer-A one-overflow-per-tick scheduler, DAC drums via the 1B path, PlayMusic/StopMusic). **Phase 3a FM depth + 1D Moving Trucks (merged `c89bea3`, 2026-06-19):** per-frame modulation engine (write-on-change ModUpdate at ~59.4Hz, per-channel tempo accumulator over a fixed Timer-A clock), per-song pitch table + pitch envelopes (trills/arps), pan, signed per-op TL bias, voice-stepping via build-time register deltas, hardware LFO ($22=$08), note-fill gate articulation, and a faithful native-sequencer port of B&R 'Moving Trucks'. **DEFERRED (master-spec Phases 2/3b/4/5/6):** N-channel DAC mixer + BRR + stereo PCM (Ph2), remaining FM extras — dual streams, true portamento, SSG-EG, broader LFO, Ch3 special (Ph3b), adaptive FM6/DAC slot (Ph4), section-aware banking + fades + distance attenuation + ambient + **SFX** (Ph5 — current priority), MegaDAW compiler/export (Ph6). See §6 body + the 2026-06-16 master sound spec. |
 | 7 | Visual Effects | **Unified raster command table (Batman — stackable per-scanline VDP register changes)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
@@ -1263,13 +1263,13 @@ With 64×32, fast vertical scrolling constantly hammers nametable updates with o
 
 **Build-time tile graph coloring (NOVEL):** The build tool analyzes all sections in the zone and constructs an adjacency graph (which sections can be simultaneously visible — up to 4 at any corner of the 2D grid). Non-adjacent sections can reuse the same VRAM tile indices, like register allocation in a compiler. Shared tiles (used by multiple sections) get permanent VRAM indices. Unique tiles get reusable indices freed when their section scrolls off-screen, overwritten by the next section's tiles.
 
-Result: most section transitions require zero tile DMA. Nametable entries already point to the correct tile indices because they were preloaded to non-conflicting addresses. No commercial Genesis game does build-time VRAM tile allocation with graph coloring — this is novel but grounded in proven compiler algorithms.
+Result: most section transitions require zero tile DMA — the whole act's art is resident and nametable entries already point to the correct, graph-colored tile indices. No commercial Genesis game does build-time VRAM tile allocation with graph coloring — this is novel but grounded in proven compiler algorithms.
 
 **Section VRAM lifecycle:**
 1. **Build time:** Graph coloring assigns VRAM indices. Shared tiles get permanent indices; unique tiles get reusable indices.
 2. **Level load:** Permanent tiles (HUD, rings) and initial section tiles loaded via S4LZ.
-3. **Section preload (~85 frames before boundary):** New section's unique tiles streamed via S4LZ to their assigned VRAM addresses (Deferrable DMA, spread across frames). No conflict with currently visible tiles because the graph coloring guarantees non-overlapping assignments for simultaneously visible sections.
-4. **Section exit:** Unique tile VRAM addresses marked as reclaimable. Art stays cached (lazy reclaim) — backtracking reuses it without re-decompression.
+3. **Resident model (current):** The whole act's tile art fits the VRAM pool, so every section's tiles are loaded once at level load and stay resident — continuous scrolling never swaps section art. Graph coloring still earns its keep: it shrinks the act's total VRAM footprint so the whole act fits the pool in the first place, by letting non-simultaneously-visible sections share indices.
+4. **Future >VRAM levels (deferred, not the leapfrog):** when an act's art exceeds the pool, a windowed art-residency streamer streams a section's unique tiles to their graph-colored addresses at the leading edge as the camera approaches — Deferrable DMA spread across the many frames the continuous camera takes to cross, with no conflict because the coloring guarantees non-overlapping assignments for simultaneously visible sections. Section exit marks unique tile addresses reclaimable (lazy reclaim — short backtracks reuse cached art without re-decompression). This builds on the continuous-scroll model; it does not reintroduce slots or teleports.
 
 **Auto-calculated addresses:** Permanent-category objects (HUD, rings, monitors, springs, etc.) are defined sequentially in `VRAM_Layout.asm` with tile counts. The assembler computes addresses automatically — adding/removing an object shifts everything after it. Compile-time overflow check ensures permanent allocations don't exceed the pool budget.
 
@@ -1296,13 +1296,13 @@ T1 ships with the shared region populated from `act_bg_tiles` (zone-wide pointer
 **Section entry integration (post-§2 A.5):**
 - `act_bg_layout` (Act struct, longword at $16) — zone-wide BG nametable pointer; drawn once at level load by `BG_Init`.
 - `act_bg_tiles` (Act struct, longword at $1A) — zone-wide BG tile blob pointer; loaded once at level load into VRAM $A000 by `BG_Init`.
-- `sec_bg_layout` (Sec struct, longword at $1C) — per-section BG nametable pointer (NULL = use Act default). Drawn by `Section_RedrawPlanes` at level init / cache recovery. Teleports no longer redraw Plane B (pure rebase, §4.4); a per-section BG *swap* at the seam needs a future deferred mechanism if a zone ever authors differing per-section BG layouts.
+- `sec_bg_layout` (Sec struct, longword at $1C) — per-section BG nametable pointer (NULL = use Act default). Drawn once by `Section_RedrawPlanes` at level init. Continuous scrolling never rebases or redraws Plane B during play (§4.1/§4.4); a per-section BG *swap* on a boundary crossing needs a future deferred mechanism (stream the new 64×32 BG nametable into the wrapping plane at the leading edge) if a zone ever authors differing per-section BG layouts.
 
 **Storage shape:** Each layout is a **raw 64×32 nametable** (4096 bytes uncompressed). BG tile blob is raw uncompressed tiles (32 B per tile, ≤ 256 tiles per zone). No `sec_bg_plc_off` field — T3 BG tile art folds into the section's existing A.3 art group (`sec_tile_art`). T3 BG tiles ride the unified per-section blob loaded by `Section_LoadArt` — no parallel streaming code for T3. (A.4's `Section_StreamArtGroup` was deleted 2026-06-11: the union-blob model leaves neighbor art already resident, so runtime art streaming had zero callers.)
 
 **Tier detection (build-time):** `sec_bg_layout=NULL` → T1; `sec_bg_layout≠NULL` and BG tile refs ⊆ shared BG region → T2; `sec_bg_layout≠NULL` with section-specific BG-only tiles → T3.
 
-**Engine cost:** T1 = one 4 KB nametable blit + one BG-tile-blob DMA at level init, zero per-frame. T2 = same load cost; one 4 KB nametable blit on FWD/BWD teleport (~0.6 ms blocking via VDP DATA port). T3 = nametable blit + tile streaming via A.4. Deferrable-DMA optimisation tracked in DEFERRED_WORK.
+**Engine cost:** T1 = one 4 KB nametable blit + one BG-tile-blob DMA at level init, zero per-frame. T2 = same load cost; a differing per-section BG layout would cost one 4 KB nametable blit when the camera crosses into that section (~0.6 ms blocking via VDP DATA port) — the deferred per-section BG swap above. T3 = nametable blit + tile streaming via A.4. Deferrable-DMA optimisation tracked in DEFERRED_WORK.
 
 **Allocator integration:** T3 BG tiles are part of the section's existing tile-art group, so the allocator treats them identically to FG tiles. Debug assertions catch pool overflow if FG + BG combined exceeds the section's color-graph slot budget. Shared BG tile region (T1/T2) is allocator-owned but treated as a single permanent allocation — never freed.
 
@@ -1332,25 +1332,27 @@ LoadArt (S4LZ blocking, synchronous)
   → ProcessDMAQueue flush after each entry
 ```
 
-**Section transition (streaming, non-blocking):**
+**Section transition (continuous scroll — current, resident art):**
 ```
-Section_Preload (~16 frames before boundary)
-  → Scan incoming section's object layout
-  → AllocVRAM for each type:
-      Already loaded (refcount > 0)? → skip, bump refcount
-      New type? → bump cursor, queue S4LZ stream
-  → If incoming section has unique tile art:
-      → S4LZ stream section tiles into ~4KB RAM decompression buffer
-      → DMA to VRAM $000+ region (Deferrable priority, spread across frames)
-  → FreeVRAM for outgoing section's unique types
-  → Palette fade begins (2-axis interpolation)
+Camera scrolls toward a section boundary
+  → Edge streamer (4.7) fills the leading section's nametable + collision
+    into the wrapping plane — every moving frame, no boundary burst
+  → Object art is already resident (whole-act VRAM pool, graph-colored);
+    objects spawn at the camera edge (4.9) with art_tile from the loaded table
+  → Camera crosses (Camera >> SECTION_SIZE_SHIFT) changes:
+      → parallax config snap/lerp, palette cross-fade, music swap
+  → No art swap, no preload window, no Section_Enter event — the camera
+    just keeps moving; the section is "entered" purely by world position
+```
 
-Section_Enter (at boundary)
-  → Section_ResetVRAM: compact unified pool, reclaim dead art
-  → All art already in VRAM (preloaded ~16 frames ago)
-  → Section tile art already DMA'd from preload buffer
-  → Objects spawned with art_tile from allocator's loaded table
-  → Zero visible loading artifacts
+**Section transition (future >VRAM levels — deferred windowed streamer, not the leapfrog):**
+```
+As the camera approaches a section whose unique tiles are not resident
+  → AllocVRAM for the section's new types (refcount-bump if already cached)
+  → S4LZ-stream those tiles to their graph-colored VRAM addresses,
+    Deferrable priority, spread across the many frames the continuous
+    camera takes to cross — non-conflicting by construction
+  → FreeVRAM (lazy) the departed section's unique types as it scrolls off
 ```
 
 **Emergency spawn (mid-gameplay):**
@@ -1447,14 +1449,12 @@ Allocator + Load_Object Integration (3.7)
       → No hardcoded VRAM constants in object data blocks
         → Adding new objects = add to layout + art metadata, done
 
-Predictive Pre-Allocation (4.8)
-  → Section grid knows adjacent sections
-    → Section_Preload scans incoming objects → AllocVRAM for each
-      → Proactive FreeVRAM for outgoing-only types
-        → Pool compaction makes room before new art loads
-      → Section_Preload also streams incoming section tile art
-        → Art + tiles both ready before player crosses boundary
-          → Zero visible loading at section transitions
+Edge-Driven Allocation (4.8)
+  → Whole-act art resident in the graph-colored pool → no per-section art swap
+    → Objects spawn at the camera edge → AllocVRAM (refcount bump on resident art)
+      → Edge despawn → lazy FreeVRAM, art cached for short backtracks
+        → (Future >VRAM levels: windowed streamer pre-allocs ahead of the camera — 4.11/2.5)
+          → Zero visible loading: section is "entered" by world position, not an event
 
 Build Pipeline (8.1)
   → S4LZ compressor (Python/C, optimal parsing)
@@ -1731,15 +1731,19 @@ objdef code=TestEnemy_Init, map=Map_TestObj, art=vram_art(VRAM_TEST_OBJ,0,0), \
 
 Art is referenced by `art_tile` directly (build-time VRAM layout); per-frame character art goes through the DPLC pipeline (3.9). Every object type's full spawn state lives in its objdef line — single source of truth, and the macro build-fails on overflow (priority > 7, image size ≠ 26).
 
-**Object-authoring rule: no unshifted absolute coordinates in `sst_custom`.**
-Teleport rebases shift `SST_x_pos`/`SST_y_pos` for every slot-tagged object but
-cannot see absolute world coordinates stored in `sst_custom` (patrol anchors,
-waypoint targets, "return home" positions) — those go stale by ±SECTION_SHIFT
-at a seam and the object lurches. Keep positional state relative (offsets,
-counters, velocities) or re-derivable from the ROM placement. An object that
-genuinely needs a stored absolute coordinate must register it for teleport
-shifting (design the mechanism when the need first arises — likely a per-ObjDef
-shift mask of custom longwords). See `CODING_CONVENTIONS.md` §7.8.
+**Object-authoring rule: store re-derivable positional state, not raw absolute coordinates in `sst_custom`.**
+In continuous-scroll there is no per-frame coordinate shift — `SST_x_pos`/`SST_y_pos`
+are plain world coordinates that never move under an object. The one event that *does*
+shift the whole live set is the future floating-origin rebase (§4.11): a coarse,
+invisible, atomic subtraction of `REBASE_DELTA` from every live world coordinate. The
+rebase walker shifts `SST_x_pos`/`SST_y_pos` for every active object, but it cannot see
+absolute world coordinates buried in `sst_custom` (patrol anchors, waypoint targets,
+"return home" positions) — those would go stale by `REBASE_DELTA` and the object would
+lurch. Keep positional state relative (offsets, counters, velocities) or re-derivable
+from the ROM placement (which is section-local and rebase-invariant). An object that
+genuinely needs a stored absolute coordinate must register it for the rebase walk
+(design the mechanism when the need first arises — likely a per-ObjDef shift mask of
+custom longwords). See `CODING_CONVENTIONS.md` §7.8.
 
 ### 3.8 Per-Frame Systems — Design Rationale
 
@@ -1815,47 +1819,54 @@ Camera-Driven Entity Integration (4.9 → 3.2 + 3.7)
   → Level objects spawn via camera-driven entity window
     → AllocSlot (3.2) provides SST address, Load_Object (3.7) initializes fields
       → Per-section type table resolves 5-bit index to routine pointer
-        → Warp-based preview: objects live in preview zone before teleport
+        → Edge spawning: objects spawn as the camera scrolls their section into the despawn envelope (no preview zone, no teleport)
 ```
 
 ---
 
 ## 4. Level / World System
 
-The level system is the engine's most unique feature. A 2D section grid with bidirectional streaming enables levels with true vertical depth — jungle canopy → floor → lake → cave. Each section is a 16×16 chunk cell with its own art, palette, parallax, objects, and music. The engine streams sections as the camera moves, loading and unloading content seamlessly. No Genesis game has achieved this level of per-area independence.
+The level system is the engine's most unique feature. A 2D section grid gives levels true vertical depth — jungle canopy → floor → lake → cave. Each section is a 16×16 chunk cell with its own art, palette, parallax, objects, and music. The camera scrolls **continuously** across the whole act in world space; sections are simply fixed world ranges whose data streams into the wrapping VDP plane at the leading edge as the camera approaches. No Genesis game has achieved this level of per-area independence.
 
-### 4.1 2D Section Grid — Bidirectional Streaming (NOVEL)
+> **Design source of truth:** the continuous-scroll traversal model is specified in full in `docs/superpowers/specs/2026-06-22-continuous-scroll-traversal-design.md` (§9 of that spec = the floating-origin rebase; mirrored here as §4.11). The sections below are the architecture-level description; the spec carries the per-file migration detail.
 
-No Genesis game, S.C.E., or commercial engine streams level data in two dimensions. This is the engine's flagship architectural feature.
+### 4.1 2D Section Grid — Continuous World-Space Scrolling
 
-**2-slot block-paired streaming:**
+The engine uses a single continuous world-space camera over a hardware-wrapping VDP plane — the classic Sonic 2 / Sonic 3 & Knuckles / S.C.E. model. There is **no slot system, no teleport, and no per-section coordinate rebase** in normal play. (The 2-slot "leapfrog" that an earlier draft documented was an assistant-authored bet the resident art pool made unnecessary; it has been deleted. The only invisible-rebase mechanism the engine reserves is the coarse floating-origin renumber in §4.11, used only when a level exceeds the 16-bit coordinate ceiling.)
 
-2 slots per axis. Each teleport rebases Camera + Player by ±`SECTION_SHIFT` and advances the slot map by ±2 sections. The section map advances by 2 (`[Sec0,Sec1] → [Sec2,Sec3]`). Entity state is managed by the visibility-derived entity window (4.9) — `EntityWindow_TeleportShift` shifts all entity coordinates by the rebase delta and re-expresses entry origins; the tracked section set is invariant across the rebase. The 3×3 rolling collected bitmask preserves ring collection state across nearby section revisits.
-
-2 slots per axis with full bidirectional symmetry — no pinned slots:
+**Continuous world camera.** `Camera_X/Y` and player positions are 16.16 **world** coordinates running `0 … level extent`. There is no bounded engine space, no `$200`/`SLOT_ORIGIN` bias, and nothing shifts under the player as it scrolls. Sections live at fixed world ranges:
 
 ```
-Horizontal: [Slot L][Slot R]  — leapfrog L↔R in both directions
-Vertical:   [Slot U][Slot D]  — leapfrog U↔D in both directions
-Combined: 2×2 = 4 layout slots
+level_width  = grid_w × SECTION_SIZE      (SECTION_SIZE = $800 = 2048 px)
+level_height = grid_h × SECTION_SIZE
 
-        Slot L       Slot R
-Slot U  [LU]         [RU]     ← upper row
-Slot D  [LD]         [RD]     ← lower row
+sec 0 : world px    0 .. 2047
+sec 1 : world px 2048 .. 4095
+sec 2 : world px 4096 .. 6143   ...
 ```
 
-**Section addressing:** `section(X, Y)` where X is always positive (0 = level start) and Y is signed (0 = starting height, negative = above, positive = below). The camera Y position becomes a signed word — the Y=0 ceiling is removed.
+`Camera_X/Y` clamp to `[0, level_width − SCREEN_W]` / `[0, level_height − SCREEN_H]`, computed live from the grid dimensions — no hardcoded boundaries, and `Player_LevelBound` clamps the player to `[0, level)` in the same world units.
 
-**Leapfrog cycle (same pattern on both axes):**
-1. Camera crosses midpoint of current section → preload next section into the behind slot (offscreen, safe to overwrite)
-2. Preview is streaming-integrated (§4.2 — `PREVIEW_COLS = 24`): the linear-buffer streaming engine extends its range by `PREVIEW_COLS` into neighbor section data at each boundary. Neighbor data pointers cached in `Section_Fwd/Bwd_Neighbor_Data` (set at teleport/init, cleared when deferred cold-load overwrites the art). Preview content only becomes visible when the camera reaches the boundary, by construction — the streaming cursor writes preview cols just as they rotate off the visible right edge and onto the leading edge.
-3. Camera reaches slot edge → teleport: positions shift, slots swap roles, camera wraps. The new pair's second slot is **NOT** cold-loaded inline — the load is deferred to mid-traversal of the new pair's first section (`SECTION_DEFERRED_FWD_LOAD = $0600` going right, `SECTION_DEFERRED_BWD_LOAD = $0C00` going left), keeping the just-left section's art alive for the BWD/FWD preview-visible window.
+**VDP plane wrap (the key mechanism).** Plane A and Plane B are 64×64 cells = 512×512 px. The VDP masks the HScroll/VScroll registers to the plane dimension, so a continuously-growing world scroll position wraps the 64 nametable cells **in hardware** — the same cells are reused as the camera advances, with no coordinate rebase. Nametable cell writes are simply `world_col & 63`; HScroll/VScroll are the world camera position fed straight to the VDP. This is exactly how S2/S3K scroll an arbitrarily long level over a fixed 64-cell plane.
 
-**Diagonal corner handling:** Both axes operate independently. At a corner, up to 3 sections may need preloading (H, V, and diagonal). The diagonal resolves naturally — you teleport on one axis first, then the diagonal cell becomes a normal neighbor. Diagonal preload queued at Priority 2 (deferrable) in the DMA system.
+**Streaming at the leading edge.** The tile cache (§4.7) is a world-space window larger than the screen. As the camera approaches a section boundary, the cache streams the next section's nametable + collision into the wrapping plane at the leading edge, so "seeing into the next section" is always-on and automatic — this is what the old preview zone did by hand, now intrinsic to continuous scrolling. The streaming cursor writes columns/rows just as they rotate onto the leading edge of the visible window; nothing is special about a section boundary. Tile-cache internals (block staging, decompression, the per-frame budget) are unchanged from §4.7.
 
-**Section size: 16×16 chunks (2048×2048 pixels per cell).** Sized for granular diversity — each cell gets its own palette, parallax, art, music. At max speed (~12px/frame), crossing takes ~170 frames with preload at midpoint giving ~85 frames for art streaming.
+**Section → data lookup (the only place sections enter the hot path).** A section index is a pair of shifts off the world position:
 
-**Boundary clamping is data-driven:** When `section(X, Y)` has no neighbor (null in table), the camera clamps. No hardcoded boundaries. Levels can be irregularly shaped:
+```
+sec_x   = world_px_x >> SECTION_SIZE_SHIFT      ; SECTION_SIZE_SHIFT = 11
+sec_y   = world_px_y >> SECTION_SIZE_SHIFT
+flat_id = sec_y × grid_w + sec_x                ; Section_FlatIDXY
+sec_ptr = base + flat_id × Sec_len              ; Section_GetSecPtrXY
+```
+
+`Section_FlatIDXY` / `Section_GetSecPtrXY` are grid-agnostic and unchanged — only the *source* of `sec_x/sec_y` changed (from the deleted slot map to a 2-shift derive off the world camera).
+
+**Section addressing:** `section(X, Y)` where X is always ≥ 0 (0 = level start) and Y indexes grid rows downward (0 = starting band; the grid can extend above the start row for sky/canopy and below for caves/lakes). The vertical Y=0 ceiling of classic Sonic is removed.
+
+**Section size: 16×16 chunks (2048×2048 pixels per cell).** Sized for granular diversity — each cell gets its own palette, parallax, art, music. The continuous camera crosses a 2048-px section at max scroll in ~170 frames; the edge streamer keeps the leading section's nametable/collision filled the whole way (its frame budget is sized for sustained scroll, not a boundary burst — see §4.7).
+
+**Boundary clamping is data-driven:** When `section(X, Y)` has no neighbor (null in table / outside the grid), the camera clamp at the act edge stops there. No hardcoded boundaries. Levels can be irregularly shaped:
 ```
 Example: Oracle Jungle Zone Act 1
               X=0      X=1      X=2      X=3
@@ -1933,11 +1944,11 @@ Producer-consumer pattern: all tile writes are buffered in RAM during the game l
 - **Double-update:** When camera moves >16px/frame, auto-queue two column/row updates
 - **Dual plane:** Separate pointer for Plane A + Plane B simultaneous updates
 
-**Teleports are pure coordinate rebases — no plane redraw, no cache work (2026-06-10).** The camera/player shift (±`SECTION_SHIFT` = ±512 tiles) and the slot-map advance (±2 sections = ±512 tiles in `Engine_To_World_Col/Row`) cancel exactly, so every world coordinate — tile cache bounds, fill-resume slots, staging keys, draw trackers — is invariant; plane mapping (`engine & 63`, 512 ≡ 0 mod 64) and scroll values (`camera & $1FF`, 4096 ≡ 0 mod 512) shift by multiples of their modulus. This matches S3K/S.C.E. level wrap, which redraws nothing at the seam (`docs/research/teleport-rebase.md`). Measured before/after: vertical teleport was a 13-frame synchronous freeze (10 in `TileCache_Reinit`'s FillAll + 3 in `Section_RedrawPlanes`), now 0 frames. What remains on the teleport frame: position shifts, slot-map update, `EntityWindow_TeleportShift(Y)`, parallax snap, guard/preload flags.
+**No seam, no redraw during play.** Continuous scrolling never rebases coordinates, so there is no per-section teleport frame and no synchronous full-screen redraw to hide. The VDP plane wrap (§4.1) reuses the 64 nametable cells in hardware as the world camera advances; the edge streamer (§4.7) keeps the leading cells filled. This matches S3K/S.C.E. level wrap, which redraws nothing at a section boundary (`docs/research/teleport-rebase.md`). Per-frame plane work during scroll is just the edge column/row updates the deferred buffer flushes in VBlank — bounded to ≤64 distinct columns by the fill-window clamp (sourced from `Camera_X>>3`).
 
-**`Section_RedrawPlanes` (§4.2) is now the level-init draw and cache-recovery path only** (triggered by `Section_Plane_Dirty`, set at init and by `TileCache_Reinit`). Full 4096-byte BG nametable + 64-column Plane A written synchronously via direct VDP pokes with interrupts masked (`move.w #$2700, sr` — VBlank's `VInt_DrawLevel` changes the autoincrement register from $80 to $02, which would corrupt remaining column writes mid-loop). `TileCache_Reinit` (~10 frames synchronous) is likewise recovery-only and currently uncalled.
+**`Section_RedrawPlanes` is the level-init draw only** (triggered by `Section_Plane_Dirty`, set once at level init). It writes the full 4096-byte BG nametable + 64-column Plane A synchronously via direct VDP pokes with interrupts masked (`move.w #$2700, sr` — VBlank's `VInt_DrawLevel` changes the autoincrement register from $80 to $02, which would corrupt remaining column writes mid-loop). After init, the camera scrolls freely with only edge streaming; there is no recovery redraw on the normal path.
 
-**Anti-oscillation teleport guard.** `SECTION_SHIFT = $1000` (exact slot width) means a FWD teleport from threshold $1200 lands exactly on the BWD threshold $0200 (and vice versa). `Section_Teleport_Guard` is a position-based flag (not a timer): set on teleport, cleared only when the player moves off both thresholds. Zero dead zone — moving 1 pixel clears the guard, allowing immediate re-teleport on return. Matches sonic_hack's landing-flag pattern.
+**Per-section parallax snap on boundary crossing.** Sections retain distinct parallax configs (§4.6). The snap that an earlier draft fired on teleport now fires on **section-boundary crossing**: the camera detects a change in `(Camera_X >> SECTION_SIZE_SHIFT)` (or Y) frame-to-frame, looks up the entered section's `sec_parallax_config`, and snaps (vs lerps) the parallax bands. `Parallax_Snap_Pending` is sourced from that boundary-crossing check rather than from a teleport handler.
 
 ### 4.5 Camera System (from S.C.E. ExtendedCamera, enhanced)
 
@@ -1949,17 +1960,20 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 
 **Player-state-dependent speed caps (from S.C.E.):** Different Y-scroll behavior based on player state: ±$20 pixel deadzone at $18 pixels/frame when airborne (prevents jitter during jumps), strict following at $06 pixels/frame on ground (tight tracking), forced positions for cutscene moments.
 
-**Position history buffer (from S.C.E.):** `Pos_table` stores last N frames of player X/Y position. Camera can lag N frames behind via `H_scroll_frame_offset`. Enables whip-effect camera follow at high speed, smooth camera recovery after section teleport.
+**Position history buffer (from S.C.E.):** `Pos_table` stores last N frames of player X/Y position. Camera can lag N frames behind via `H_scroll_frame_offset`. Enables whip-effect camera follow at high speed and smooth camera recovery after a forced position move (cutscene, respawn).
 
 **Additional enhancements:**
 - Velocity-proportional vertical tracking (faster player = faster vertical camera)
-- Section streaming integration: camera bounds adjusted for preview zones
 - Dead zone persists for smooth centering
 
-**Preview-aware clamp toggle (§4.2):** `camera_min_x` and `camera_max_x` are dynamically extended by `PREVIEW_PIXELS` (= 192px = 24 tile cols) unless the current pair is at an act boundary:
-- `camera_min_x = $0200` when `Slot_Section_Map[0] = 0` (first pair — no BWD neighbour). Otherwise `$0200 - PREVIEW_PIXELS`, allowing camera to scroll into BWD preview zone.
-- `camera_max_x = Act_cam_max_x` when slot 1 sec_x + 1 ≥ `Act_grid_w` (last pair — no FWD neighbour). Otherwise `Act_cam_max_x + PREVIEW_PIXELS`, allowing camera to scroll into FWD preview zone.
-- Mirrors apply on the Y axis once vertical streaming is implemented.
+**World-space clamp (continuous scroll).** The camera clamps to the act extent in world coordinates, computed live from the grid dimensions — no preview-zone widening, no slot-map reads, no act-edge special case beyond the extent itself:
+```
+camera_min_x = 0
+camera_max_x = level_width  − SCREEN_W        ; level_width  = grid_w × SECTION_SIZE
+camera_min_y = 0
+camera_max_y = level_height − SCREEN_H        ; level_height = grid_h × SECTION_SIZE
+```
+"Seeing into the next section" needs no extended clamp — the edge streamer (§4.7) already fills the leading section's cells into the wrapping plane before the camera reaches them, so the next section is visible the moment it enters the screen without the camera leaving the act. The vertical clamp derives `(Camera_Y >> SECTION_SIZE_SHIFT)` against `0`/`grid_h` rather than reading any slot map.
 
 ### 4.6 Multi-Band Computed Parallax — As Shipped
 
@@ -1975,7 +1989,7 @@ Port S.C.E.'s `ExtendedCamera` with lookahead panning, then extend with novel fe
 
 **Vertical parallax (whole-plane and per-column).** Whole-plane: `pcfg_v_factor_bg` shift + `pcfg_v_center_y` + `pcfg_v_offset` produce `target_b = ((camY - vCenter) >> v_factor_bg) + vOffset`, lerped each frame. Sentinel `v_factor_bg = 15` locks BG vscroll to `vOffset` (camera-Y-independent). Per-column: when `pcfg_v_deform_table_bg` is non-NULL, mode bit 2 enables per-column VSRAM; the pipeline samples 20 column-pairs from the table each frame, shift-scaled by `pcfg_v_deform_shift_bg`, animated by `pcfg_v_deform_speed_bg`.
 
-**Section transition smoothing (16-frame lerp) — plane B only.** `Parallax_StartTransition` stages `Parallax_Target_Config` and sets `Parallax_Transition_Frames = 16` when entering a new section's config. `Parallax_Update` uses Target_Config to compute band targets; the per-band scroll lerp (`>>4`) eases the **plane B** values toward them only while `Transition_Frames > 0` — outside transitions every band locks exactly to its decoded target. **Plane A is never lerped under any circumstance** (fixed 2026-06-10): the FG streaming engine draws columns in a camera-anchored 64-col wrap window, so any FG scroll offset from the camera drags the plane-wrap seam into view at the screen edge. The original always-on lerp trailed the camera by ~15 × velocity (≈240 px at 16 px/frame), painting "content from 512 px ahead" over the visible left edge during rightward scroll. `pcfg_transition = 1` overrides smooth → instant snap (additionally sets `Parallax_Snap_Pending` so plane B values jump to targets without lerp). `Parallax_Snap_Pending` is also set automatically on section teleport (`Section_TeleportFwd/Bwd`) — Camera_X just jumped `SECTION_SHIFT` pixels, no lerp can reasonably catch up.
+**Section transition smoothing (16-frame lerp) — plane B only.** `Parallax_StartTransition` stages `Parallax_Target_Config` and sets `Parallax_Transition_Frames = 16` when entering a new section's config. `Parallax_Update` uses Target_Config to compute band targets; the per-band scroll lerp (`>>4`) eases the **plane B** values toward them only while `Transition_Frames > 0` — outside transitions every band locks exactly to its decoded target. **Plane A is never lerped under any circumstance** (fixed 2026-06-10): the FG streaming engine draws columns in a camera-anchored 64-col wrap window, so any FG scroll offset from the camera drags the plane-wrap seam into view at the screen edge. The original always-on lerp trailed the camera by ~15 × velocity (≈240 px at 16 px/frame), painting "content from 512 px ahead" over the visible left edge during rightward scroll. `pcfg_transition = 1` overrides smooth → instant snap (additionally sets `Parallax_Snap_Pending` so plane B values jump to targets without lerp). `Parallax_Snap_Pending` is also set automatically when the camera crosses a section boundary (a change in `Camera_X/Y >> SECTION_SIZE_SHIFT`) into a section whose config demands an immediate change — the 16-frame lerp still applies for ordinary continuous crossings.
 
 **Per-cell vs per-line auto-mode.** `Parallax_Update` checks both H-deform tables. Both NULL → per-cell HScroll (28 entries × 4 bytes = 112-byte DMA), no per-line wave possible. Either non-NULL → per-line HScroll (224 entries × 4 bytes = 896-byte DMA). VDP register `$0B` mode bit set accordingly via shadow + dirty flag during `Parallax_StartTransition`.
 
@@ -2020,7 +2034,7 @@ The linear layout enables direct 2D indexing: `cache[col + row * 80]` with both 
 - **Keyed partial resume:** a budget-out stores `Cache_Fill_Resume_Col/Row`; the next frame finishes that exact column before extending either edge. Both edges commit their bound *before* filling, so at most one partial is ever outstanding and a budget-out simply ends column work for the frame.
 - **FillRow copies collision too:** the odd row of each 16px cell (cell-completing row, well-defined because Top is even) writes the cell's collision byte alongside the nametable words. **Collision-row-base addressing convention** (`tile_cache.asm`, the `collSrcRowBase`/`collDstRowOfs` macros): the collision row base within a staged block is `slot + BLOCK_NT_SIZE + (intra_row/2)*BLOCK_COLL_COLS` — the `/2` (parity-safe) is mandatory. The even-only `intra_row*8` shortcut is a TRAP: it lands 64px off on odd intra-rows. This bit a real loop-arc bug (the §5 FillRow fix, d1637c8; macro-hardened in c17132d so future cache/cache-prefetch work can't reintroduce it). The even-row shortcut precondition is exactly that `Cache_Top_Row`/`Cache_Origin_Row` stay even.
 
-**Runtime collision lookup** reads directly from the tile cache — no separate collision maps, no per-section decompression, no slot rotation at teleport. The tile cache already has the data:
+**Runtime collision lookup** reads directly from the tile cache in world coordinates — no separate collision maps, no per-section decompression, no coordinate translation. The tile cache already has the data:
 ```asm
 ; Collision lookup from tile cache
 ; d0.w = engine X pixels, d1.w = Y pixels
@@ -2041,111 +2055,48 @@ The linear layout enables direct 2D indexing: `cache[col + row * 80]` with both 
 
 **Build tool embeds collision in blocks:** The build tool generates 16×16 blocks with nametable words and collision bytes derived from tile placement. As of §5 Task 2 the bytes are REAL attr-set indices: `tools/collision_pipeline.py` bakes sonic_hack's per-placement collision (height profile + xflip/yflip + per-path solidity) into deduplicated one-byte indices (`ojz_strip_gen.build_section_collision`), and the matching ROM tables (`HeightMaps`/`HeightMapsRot`/`AngleTable`/`SolidityTable`, BINCLUDEd from `data/collision/`) are emitted from the same attr-set. The old VDP-priority-bit placeholder (priority=1 → type 1) is retired; it survives only as a fallback when the sonic_hack collision sources are missing. Editor FG tile edits do not yet feed collision — collision derives from the sonic_hack layout files (editor collision authoring is deferred).
 
-**Why embedded over separate maps:** S.C.E./S3K embed collision indices directly in their block mapping words. Our block format adapts this by storing collision bytes alongside nametable words in the tile cache. Benefits: no separate per-section collision files, no collision map RAM slots, no collision decompression at init/preload/teleport, collision is inherently tied to position (same visual tile can have different collision in different placements). The collision array adds ~4.8 KB RAM but eliminates all runtime collision map management.
+**Why embedded over separate maps:** S.C.E./S3K embed collision indices directly in their block mapping words. Our block format adapts this by storing collision bytes alongside nametable words in the tile cache. Benefits: no separate per-section collision files, no collision map RAM, no separate collision decompression step (collision streams alongside nametable data at the edge), collision is inherently tied to position (same visual tile can have different collision in different placements). The collision array adds ~4.8 KB RAM but eliminates all runtime collision map management.
 
 ### 4.8 Section Streaming Integration
 
-The section system touches nearly every other engine system. These cascades are defined as integration points:
+Continuous scrolling makes "streaming" a steady per-frame edge process rather than a per-section event. The section system still touches nearly every other engine system; these are the integration points, all keyed off the world camera:
 
-**Section + DMA Queue:**
-- `Section_PreloadArt` queues S4LZ streams into the Priority 2 (deferrable) queue
-- **Two-tier priority:** object art → Priority 1 (important, immediate), background tiles → Priority 2 (deferrable, spread over frames)
-- Art streaming starts ~85 frames before teleport — multiple frames to spread the work
-- The 32-slot DMA queue absorbs section preload alongside normal per-frame transfers
-- **Preload abort:** If player reverses direction, cancel current S4LZ stream (reset bookmark) and start new direction's preload
+**Section + tile cache + DMA Queue (the edge streamer):**
+- The tile cache (§4.7) streams the leading section's nametable + collision into the wrapping plane as the camera advances — every moving frame, not in bursts at a boundary
+- Edge column/row writes accumulate in the deferred plane buffer (§4.4) and flush via the DMA queue in VBlank
+- **Two-tier priority:** object art → Priority 1 (important, immediate); the per-frame edge nametable/collision fill is bounded by the tile cache's own 6-block / 2-row budget (§4.7), so it never needs to be queued ahead — there is no "preload phase" to schedule
+- The block staging cache absorbs cold blocks as the camera crosses block boundaries; on direction reversal the cache simply streams the now-leading edge — no bookmark to reset, no preload to abort
 
 **Section + VRAM Allocator (2.2):**
-- On section preload, `AllocVRAM` pre-allocates art for incoming objects
-- On section exit, `FreeVRAM` decrements refcounts — art stays cached for backtracking
-- Pool compaction only runs at section boundaries
+- The whole act's tile art is resident in the VRAM art pool (§2 — build-time graph coloring), so there is no per-section art swap and no nametable preload window. Section transitions move only the camera; the tiles the leading section references are already in VRAM
+- Object art: `AllocVRAM` allocates as objects spawn at the camera edge (§4.9); `FreeVRAM` decrements refcounts as they despawn — art stays cached for short backtracks. (When a future level exceeds the resident art budget, §4.11's continuous model is the foundation a windowed art-residency streamer builds on — see DEFERRED_WORK; it does not reintroduce slots.)
 
 **Camera-Driven Entity Window (4.9):**
-- Window tracks exactly the 2×2 sections overlapped by the camera's despawn envelope — visibility-derived, not slot-derived
-- Slides (envelope crossing a section boundary) migrate surviving masks by section identity; newly entered sections populate fresh
-- On teleport, entities shift by ±`SECTION_SHIFT`; the tracked section set is invariant (slot-map advance cancels camera delta) — no spawn or despawn at seams
-- Preview is intrinsic: the envelope already reaches sections ahead of the camera before the teleport fires
-- Art pre-allocation via `AllocVRAM` (2.2) still applies: section preload allocates art before objects spawn
+- The window tracks exactly the 2×2 sections overlapped by the camera's despawn envelope — visibility-derived, anchored on `(Camera >> SECTION_SIZE_SHIFT)`
+- Slides (the envelope crossing a section boundary) migrate surviving masks by section identity; newly entered sections populate from their section-local ROM lists
+- "Seeing ahead" is intrinsic: the envelope reaches into the section ahead of the camera as it scrolls, so entities spawn before they reach the screen — no teleport, no separate preview pass
+- Section-local ROM entity data (positions relative to the section, §4.9.1/4.9.2) and section_id-keyed respawn/kill memory (§4.9.5) are coordinate-invariant — large levels and the future floating-origin rebase never touch the static section data
 
 **Section + Parallax (4.6):**
-- Each section's `sec_parallax_config` pointer loads a new parallax config on teleport
+- Each section's `sec_parallax_config` loads a new config when the camera crosses into the section (a change in `Camera >> SECTION_SIZE_SHIFT`); the 16-frame lerp eases ordinary crossings, `pcfg_transition`/`Parallax_Snap_Pending` forces an instant snap when the config demands it
 - Different sections in the same zone can have different parallax (outdoor → cave → underwater)
 - Layer enable mask disables unused layers per section (saves cycles + DMA)
-- Parallax transition smoothing interpolates scroll factors over 8-16 frames at boundaries
 
 **Animated Terrain Per-Section (NOVEL):**
-Each section can define its own animated tile set via `sec_anim_blocks` — conveyor belts, pulsing lava, swaying grass, shimmering ice. Animation system cycles frames and DMAs current tiles via the DMA queue (Priority 1). On teleport, old tiles stop, new tiles start. Each section becomes visually distinct not just in static art but in dynamic terrain behavior.
+Each section can define its own animated tile set via `sec_anim_blocks` — conveyor belts, pulsing lava, swaying grass, shimmering ice. The animation system cycles frames and DMAs current tiles via the DMA queue (Priority 1). When the camera crosses a section boundary, the entered section's animated set starts and the exited one's stops. Each section becomes visually distinct not just in static art but in dynamic terrain behavior.
 
 **Section State Preservation via Visibility Window:**
-The visibility-derived window preserves entity state for surviving sections naturally — mask bits and object positions carry over with coordinate adjustment at every slide and teleport. Collected rings stay collected, destroyed objects stay gone, as long as the section remains in the 2×2 tracked window. Once a section leaves the window, its mask slot is overwritten on next entry; revisiting loads from ROM defaults — matching classic Sonic behavior where distant areas respawn. The 3×3 rolling collected bitmask (4.9.5) extends this to ±1 section of backtrack.
-
-**Zero-Lag Teleport — Progressive Preload + Crossfade Masking (NOVEL):**
-
-A naive teleport does all work in a single frame: layout conversion, ring/object rebuild, full-screen nametable DMA. This engine distributes that work across systems so the teleport frame itself is near-free:
-
-| System | Work it handles | Cycles on teleport frame |
-|---|---|---|
-| Visibility-derived entities (4.9) | EntityWindow_TeleportShift: coord shift + origin re-expression (no spawn/despawn) | ~200 (shift + scan) |
-| Block-based cache data (4.3) | Layout data ready in tile cache | ~0 (pointer swap) |
-| Progressive preload (below) | Nametable already in VDP | ~0 |
-
-What remains on the teleport frame: position shifts (~800 cycles), pointer updates (~100 cycles), ring origin warp (~20 cycles), palette (~200 cycles). Total: **~1,500 cycles** — 1% of the frame budget.
-
-The remaining problem is the nametable DMA: the VDP still has old nametable tiles, and the full visible area (~2,240 bytes Plane A + Plane B) needs updating from ROM. Two techniques eliminate this as a visual hitch:
-
-**1. Progressive nametable preload during the preload window:**
-
-The preload phase runs ~85 frames before the teleport. During this window, the preloaded slot's nametable data is DMA'd to VDP progressively at 1-2 columns per frame as Priority 2 (deferrable) entries:
-
-```
-; During preload phase (each frame):
-preload_col = preload_col + 1
-if preload_col < SECTION_WIDTH
-    DMA pre-computed cache data for column preload_col → VDP nametable
-    (Priority 2: skipped on lag frames, no impact on gameplay)
-```
-
-At 2 columns/frame, 16 columns (one section width) complete in 8 frames. The preload window is 85 frames — more than enough time, even with lag frames causing Priority 2 skips. By teleport time, the preloaded slot's nametable data is already in the VDP. Only the other slot needs immediate DMA on the teleport frame — ~1,120 bytes, fits trivially in a single VBlank alongside palette and sprite table transfers.
-
-The nametable entries are written to the off-screen columns of the VDP plane (the toroidal nametable has 64 columns but only 40 are visible). The preloaded cache data writes to columns that will become visible after the teleport's position shift. Before the teleport, these columns are off-screen — no visual artifact.
-
-**2. Palette crossfade to mask the remaining half-screen update:**
-
-Even with half the screen preloaded, the other slot's nametable update takes 1 frame. During that frame, a few columns might show stale tiles. A 3-4 frame palette crossfade (darken → teleport → brighten) masks this entirely:
-
-```
-Frame -2: Begin palette darken (50% brightness)
-Frame -1: Full dark (palette all $000 or near-black)
-Frame  0: TELEPORT — position shift, nametable DMA (invisible behind dark palette)
-Frame  1: Begin brighten (50% brightness)
-Frame  2: Full brightness, new palette applied
-```
-
-This serves double duty: it masks the nametable transition AND provides a natural visual cue for the section boundary (especially useful when sections have different palettes). The fade is ~200 cycles/frame (palette lerp), negligible. The darkening starts 2 frames before the teleport, triggered by proximity to the teleport boundary.
-
-For sections with the same palette, the fade can be shortened to 2 frames total (darken on teleport frame, brighten next frame) or skipped entirely if the progressive nametable preload covers the full screen.
-
-**3. Preview is streaming-integrated (implemented §4.2):**
-
-Preview columns are no longer separate copy operations. The linear-buffer streaming engine (`Section_UpdateColumns`) extends its range by `PREVIEW_COLS` into neighbor section data at each boundary. Neighbor data pointers are cached at teleport/init (`Section_Fwd/Bwd_Neighbor_Data`). Preview content appears naturally as the streaming cursor advances past the section boundary — no teleport-frame layout work, no separate preview pass. The teleport frame does only position math, slot-map update, entity-window shift, and the parallax snap — no dirty-flag, no redraw (§4.4 pure rebase, 2026-06-10).
-
-**Result:** The teleport becomes ~1,500 cycles of CPU work (position math) + zero visual glitch (nametable already in VDP + palette crossfade masks any residual). No Genesis game achieves zero-lag section streaming with full section independence (different art, palette, parallax, entities). This is the combination of 6 systems working together: block-based cache data (4.3), camera-driven entity window (4.9), progressive preload, palette crossfade, DMA priority queue (1.1), and velocity-based timing.
+The visibility-derived window preserves entity state for sections inside the 2×2 tracked window naturally — mask bits carry over by section identity at every slide. Collected rings stay collected, destroyed objects stay gone, as long as the section remains tracked. Once a section leaves the window, revisiting loads from ROM defaults — matching classic Sonic behavior where distant areas respawn. The 3×3 rolling collected bitmask (4.9.5), keyed by section_id, extends this to ±1 section of backtrack regardless of where the camera is in world space.
 
 **Transition / Blend Sections (NOVEL):**
-Transition cells in the grid interpolate between adjacent sections' palettes, parallax, and physics over the cell's width. Jungle gradually darkens into cave, water tint deepens as you descend, wind picks up as you climb. Creates seamless geographic flow instead of hard boundaries.
+Transition cells in the grid interpolate between adjacent sections' palettes, parallax, and physics across the cell's width. Jungle gradually darkens into cave, water tint deepens as you descend, wind picks up as you climb. Creates seamless geographic flow instead of hard boundaries — the continuous camera makes the blend a function of world position within the cell rather than a discrete event.
 
-**Streaming During Cutscenes (NOVEL):**
-During boss deaths, story sequences, or triggered animations, the DMA queue has spare capacity (no scrolling). The engine preloads the next section's art via S4LZ streaming as Priority 2. By cutscene end, art is already in VRAM — transition is instant.
-
-**Velocity-Based Preload Timing (NOVEL):**
-Factor player velocity into the preload trigger:
-```
-preload_at = threshold - (x_vel × lead_frames)
-```
-A player at max speed (~$C00 subpixels/frame) gets the preload trigger ~96 pixels earlier = 8 extra frames for S4LZ to decompress. A walking player barely changes. Ensures smooth transitions regardless of speed. No game does adaptive preload timing.
+**Streaming During Cutscenes:**
+During boss deaths, story sequences, or triggered animations the camera is usually still, so the edge streamer is idle and the DMA queue has spare capacity. There is no per-section art preload to run (art is resident); cutscene time is instead free budget for effects and audio work.
 
 ### 4.9 Camera-Driven Entity Management
 
-Entities (rings and objects) load when they scroll into camera range and despawn when they leave. This replaces the earlier teleport-triggered bulk loading. Per-section X-sorted ROM lists with per-section scan pointers enable early-exit scanning — only entities near the camera edge are checked each frame.
+Entities (rings and objects) load when they scroll into camera range and despawn when they leave — a continuous, camera-driven process with no bulk load step. Per-section X-sorted ROM lists with per-section scan pointers enable early-exit scanning — only entities near the camera edge are checked each frame.
 
 **Why separate rings from objects:** Rings are high-volume (40-50 per section), stateless (no behavior code), and need only collision + rendering. Objects are lower-volume (10-20), stateful (SST slots with behavior routines), and diverse. Segregated pools with type-specific fast paths outperform unified processing.
 
@@ -2161,7 +2112,7 @@ OJZ_Sec0_Rings:
     dc.l    0               ; terminator
 ```
 
-No pattern encoding — rings are pre-expanded at build time. Flat lists eliminate per-frame decode overhead and enable binary/linear scanning with early exit. The X-sorted order means once a ring's engine-space X exceeds the camera's load edge, all subsequent entries are also out of range.
+No pattern encoding — rings are pre-expanded at build time. Flat lists eliminate per-frame decode overhead and enable binary/linear scanning with early exit. The X-sorted order means once a ring's world-space X (section origin + section-local X) exceeds the camera's load edge, all subsequent entries are also out of range.
 
 #### 4.9.2 Object Layout — 6-Byte v2 Entries with Per-Section Type Table
 
@@ -2200,28 +2151,21 @@ Object spawning reads the 6-byte entry, indexes the ROM type table for the ObjDe
 
 #### 4.9.3 Entity Window — Visibility-Derived 2×2 Lifecycle
 
-The entity window tracks the **2×2 sections overlapped by the camera's despawn envelope** — not the slot pair. The despawn envelope spans 320+2×$200=1344px (X) and 224+2×$180=976px (Y), both less than `SECTION_SIZE` ($800), so the envelope always overlaps exactly 2 columns × 2 rows regardless of camera position.
+The entity window tracks the **2×2 sections overlapped by the camera's despawn envelope** in world space. The despawn envelope spans 320+2×$200=1344px (X) and 224+2×$180=976px (Y), both less than `SECTION_SIZE` ($800), so the envelope always overlaps exactly 2 columns × 2 rows regardless of camera position.
 
-**Envelope anchor derivation (`EntityWindow_DeriveWindow`):**
+**Envelope anchor derivation (`EntityWindow_DeriveWindow`).** Everything is world-space — the anchor section is a direct shift of the world camera, with no slot map and no origin bias:
 
 ```
-col0 = (camX − SLOT_ORIGIN_L − ENTITY_DESPAWN_BUFFER) asr SECTION_SIZE_SHIFT
-row0 = (camY − SLOT_ORIGIN_U − ENTITY_DESPAWN_BUFFER_Y) asr SECTION_SIZE_SHIFT
-sec_x0 = slot0_sec_x + col0        ; absolute — byte-wrap OK, range check voids
-sec_y0 = slot0_sec_y + row0
+sec_x0 = (camX − ENTITY_DESPAWN_BUFFER)   asr SECTION_SIZE_SHIFT
+sec_y0 = (camY − ENTITY_DESPAWN_BUFFER_Y) asr SECTION_SIZE_SHIFT
 window  : sections (sec_x0+{0,1}, sec_y0+{0,1})    entries 0=UL 1=UR 2=LL 3=LR
-origins : x = SLOT_ORIGIN_L + (col0+{0,1})·SECTION_SIZE   (signed word)
-          y = SLOT_ORIGIN_U + (row0+{0,1})·SECTION_SIZE
+origins : x = (sec_x0+{0,1}) · SECTION_SIZE       ; section's world X origin
+          y = (sec_y0+{0,1}) · SECTION_SIZE       ; section's world Y origin
 ```
 
-`Entity_Window_Anchor` (2 bytes RAM) stores `(sec_x0, sec_y0)` — the slide trigger and teleport-invariance assert both read it.
+`Entity_Window_Anchor` (2 bytes RAM) stores `(sec_x0, sec_y0)` — the slide trigger reads it. A section's world origin (`sec · SECTION_SIZE`) is fixed for the whole act, so an entity's world position = `section_origin + section_local_coord` is computed once at spawn and never re-expressed during play (positions only ever shift in the future floating-origin rebase, §4.11, which moves the whole live set uniformly).
 
-**Anchor invariance across teleports (worked example):**
-A FWD rebase subtracts `SECTION_SHIFT` ($1000) from `camX`, reducing `col0` by 2, while the slot-map advance adds 2 to `slot0_sec_x`. The two effects cancel: `sec_x0 = (slot0_sec_x+2) + (col0−2)` — identical to before. Sections are invariant; only their engine-space origins re-express.
-
-Example: `camX $11FF`, slot0 sec_x=n → col0=1 → window cols (n+1, n+2), origins ($A00, $1200). Post-FWD: `camX $1FF`, slot0 sec_x=n+2 → col0=−1 → window cols (n+1, n+2), origins (−$600, $200). Same sections.
-
-**The stronger statement:** sections are invariant across rebases; entry↔section assignments change ONLY at slides. The old disjoint-block table at `EntityWindow_TeleportShift` remains arithmetically true but is no longer the primary framing.
+Continuous scrolling has no teleport, so the anchor simply tracks the camera: when the camera scrolls one `SECTION_SIZE` forward, `sec_x0` increments by 1 and the window slides one column — a single slide event (§below), not an instantaneous swap of a section pair.
 
 `EntityWindow_BuildEntries` calls `DeriveWindow`, stores the anchor, and fills each entry's `EntityScanState` ($1A bytes):
 
@@ -2234,10 +2178,10 @@ EntityScanState struct ($1A bytes):
     ess_rom_ring_ptr     ds.l 1      ; pointer to section's ROM ring list
     ess_rom_obj_ptr      ds.l 1      ; pointer to section's ROM object list
     ess_rom_type_tbl_ptr ds.l 1      ; pointer to section's ROM type table
-    ess_origin_x         ds.w 1      ; section's engine-space X origin
+    ess_origin_x         ds.w 1      ; section's world-space X origin (sec_x · SECTION_SIZE)
     ess_section_id       ds.b 1      ; section flat grid id, or SEC_VOID
     ess_entry_idx        ds.b 1      ; entry index 0-3 (loaded-mask base derives from it)
-    ess_origin_y         ds.w 1      ; section's engine-space Y origin (per-entry — rows differ)
+    ess_origin_y         ds.w 1      ; section's world-space Y origin (per-entry — rows differ)
 ```
 
 **Validity mask + SEC_VOID:** entries whose section falls outside the act grid (right edge on odd-width grids, bottom rows when `sec_y+1 ≥ grid_h`) are stamped `ess_section_id = SEC_VOID` ($FF) and their bit cleared in `Entity_Window_Active` (bit n = entry n valid). The void stamp is load-bearing: despawn paths read entry ids unconditionally, and a stale id would keep dead-section survivors alive forever. All scan/populate loops skip inactive entries.
@@ -2249,8 +2193,8 @@ For each ACTIVE entry (Entity_Window_Active bit set):
   1. ScanRingsRight: advance the ring index through the X-sorted ROM list
      (a right-edge RATCHET — there is no left scan: tracked sections never
      X-despawn their entities, so leftward camera motion needs no re-load)
-     - Convert section-local X/Y to engine space (add ess_origin_x/y)
-     - If engine X > camera right load edge: stop (X-sorted early exit)
+     - Convert section-local X/Y to world space (add ess_origin_x/y)
+     - If world X > camera right load edge: stop (X-sorted early exit)
      - Skip if outside the camera Y band (below)
      - Check Collected_CheckRing bitmask: skip if already collected
      - Check + set the entry's loaded-ring bit: skip if already loaded
@@ -2287,15 +2231,15 @@ ENTITY_LOAD_BUFFER_Y >= coarse row size (128)
 
 (Consequence of the coarse trigger: the *guaranteed* load margin is `ENTITY_LOAD_BUFFER_Y − 128` past the screen edge, since the last re-scan may have fired up to one coarse row away. Verified on hardware: a ring 240px above the camera stays unloaded until the next crossing — by design.)
 
-**Loaded bitmasks (idempotent spawns):** `Entity_Loaded_Masks` holds 4 entries × 32 bytes (16B ring bits + 16B object bits, indexed by ROM list position). A bit is set at spawn and cleared at despawn. This is what makes every overlapping spawn path safe to re-run: the vertical re-scan, the teleport rebuild, and the X-ratchet scans can all visit the same ROM entry without double-spawning. `EntityWindow_InitSection` compare-clears an entry's mask slot only when its `section_id` changes, so an unchanged section keeps its bits across rebuilds. The `Entity_Mask_Scratch` buffer (4+128 bytes RAM) holds a snapshot of the old ids+masks before any rebuild so `EntityWindow_MigrateMasks` can copy surviving sections' 32-byte slots to their new entries by section identity. A DEBUG no-dup assert inside `EntityWindow_TrySpawnRing` (the single `RingBuffer_Add` site) detects any double-spawn that would indicate a broken invariant.
+**Loaded bitmasks (idempotent spawns):** `Entity_Loaded_Masks` holds 4 entries × 32 bytes (16B ring bits + 16B object bits, indexed by ROM list position). A bit is set at spawn and cleared at despawn. This is what makes every overlapping spawn path safe to re-run: the vertical re-scan, slide rebuilds, and the X-ratchet scans can all visit the same ROM entry without double-spawning. `EntityWindow_InitSection` compare-clears an entry's mask slot only when its `section_id` changes, so an unchanged section keeps its bits across rebuilds. The `Entity_Mask_Scratch` buffer (4+128 bytes RAM) holds a snapshot of the old ids+masks before any rebuild so `EntityWindow_MigrateMasks` can copy surviving sections' 32-byte slots to their new entries by section identity. A DEBUG no-dup assert inside `EntityWindow_TrySpawnRing` (the single `RingBuffer_Add` site) detects any double-spawn that would indicate a broken invariant.
 
 **Slides — `EntityWindow_Slide`:** fires when `EntityWindow_DeriveWindow` returns an anchor that differs from `Entity_Window_Anchor`. Called from the per-frame slide check in `EntityWindow_Scan` and also from `EntityWindow_SyncSlide`. Sequence: snapshot old ids+masks into `Entity_Mask_Scratch` → `Collected_UpdateCenter` (evict first — evict-before-claim avoids silent failure at 9/9 occupancy) → `BuildEntries` (compare-clear voids genuinely-new sections' masks) → `MigrateMasks` (section-identity copy) → populate only sections whose id was NOT in the snapshot. A DEBUG assert inside `Slide` verifies at most one anchor byte changes per call (the 16px/f camera clamp prevents diagonal slides on the hot path).
 
-**`EntityWindow_SyncSlide` — pending-slide guard at teleport heads:** teleport thresholds key off the player's position and `Section_Check` runs before `EntityWindow_Scan`, so a fast player can cross a threshold while a camera-envelope slide is still pending. The invariance contract ("a rebase never changes the tracked section set") only holds for a window that is current against the pre-rebase camera. Every teleport handler (`Section_TeleportFwd/Bwd/Down/Up`) calls `EntityWindow_SyncSlide` first — same derive+compare as the per-frame check, a no-op when the window is already current. Found by the invariance assert: BWD fired at camX $168 with anchor still (2,0) — the (1,0) slide was pending.
+**Slides are camera-paced, never racy.** Continuous scrolling moves the camera by ≤16px/frame (the vertical clamp; X is similarly bounded), so the anchor advances at most one section per slide and `EntityWindow_DeriveWindow`'s per-frame compare always sees the slide before the camera has moved a full section past it. There is no teleport that can outrun the window, so there is no pre-rebase/post-rebase sync to guard — the per-frame slide check in `EntityWindow_Scan` is the only trigger.
 
-**Negative-origin entries are intentionally inert for new spawns:** after a FWD teleport the kept left column re-expresses to a negative origin (e.g., −$600). Its entities' engine X is a large unsigned value, always past the right load edge, so the `bhi` early-exit fires at the first list entry and the ratchet stays 0. This is correct — nothing in that column can reach the screen without a BWD teleport making the origin positive first. A DEBUG assert at `ScanRingsRight`'s (and `ScanObjectsRight`'s) ratchet update catches any deviation: if `origin_x` is negative, the written ratchet must be 0. `Section_GetSecPtrXY` uses unsigned compares, so a "negative" byte like $FF ($FF > grid_w for any real grid) also voids the entry cleanly at `BuildEntries` time.
+**Edge entries void cleanly at the act boundary.** When the anchor sits at the right (or bottom) edge of the grid, the trailing entry's section index falls outside the grid; `Section_GetSecPtrXY` uses unsigned compares, so an out-of-range index voids the entry to `SEC_VOID` at `BuildEntries` time and it never spawns. There are no negative origins to reason about — every tracked section's world origin (`sec · SECTION_SIZE`) is non-negative, and the camera world clamp (§4.5) keeps the camera inside `[0, level)`.
 
-**`OEF_ANY_Y` lifetime rule:** an ANY_Y object spawns on X coverage regardless of camera Y and is exempt from Y despawn. Section-lifetime still governs: when its section leaves the 2×2 window the object despawns with it and respawns when the section is re-tracked. The ANY_Y flag persists past spawn time as **bit 7 of `SST_slot_tag`**; the per-frame Y despawner tests that bit instead of re-reading ROM. Cross-reference: §3.7 object-state convention — no unshifted absolute coordinates in `sst_custom`; positional state must be relative or derivable from ROM placement so teleport rebases (which shift `SST_x_pos`/`SST_y_pos`) remain correct.
+**`OEF_ANY_Y` lifetime rule:** an ANY_Y object spawns on X coverage regardless of camera Y and is exempt from Y despawn. Section-lifetime still governs: when its section leaves the 2×2 window the object despawns with it and respawns when the section is re-tracked. The ANY_Y flag persists past spawn time as **bit 7 of `SST_slot_tag`**; the per-frame Y despawner tests that bit instead of re-reading ROM. Cross-reference: §3.7 object-state convention — keep positional state relative or derivable from ROM placement so the future floating-origin rebase (§4.11, which shifts `SST_x_pos`/`SST_y_pos`) stays correct.
 
 **Vertical re-scan cost shape:** O(entities already passed by the X ratchet) per 128px camY crossing, across the ≤4 active entries — each candidate is a band compare + btst when already loaded. Trivial on test fixtures; unbudgeted on dense production levels (see DEFERRED_WORK "RescanY burst is unbudgeted").
 
@@ -2305,9 +2249,9 @@ A single 128-entry ring buffer replaces the old dual per-slot buffers. Each entr
 
 ```
 Ring_Buffer entry (6 bytes):
-    dc.w    engine_X        ; +0: engine-space X
-    dc.w    engine_Y        ; +2: engine-space Y
-    dc.b    section_id      ; +4: which section owns this ring
+    dc.w    world_X         ; +0: world-space X (collision/draw read it directly)
+    dc.w    world_Y         ; +2: world-space Y
+    dc.b    section_id      ; +4: which section owns this ring (respawn key)
     dc.b    list_index      ; +5: index into section's ROM ring list
 ```
 
@@ -2336,34 +2280,11 @@ The 3×3 window centered on the player's current section means collection state 
 
 **Gameplay consequence:** persistence depth is exactly one section of backtrack. A round trip of 2+ sections re-claims evicted slots with fresh bitmasks — collected rings respawn and killed badniks revive. This is the accepted cost of capping the window at 9 slots (162 bytes); classic Sonic behaves the same way for off-screen respawning objects.
 
-#### 4.9.6 Teleport Entity Shift — Re-expression, Not Rebuild
+#### 4.9.6 Entity Coordinates Are World-Native and Stable
 
-When a teleport fires, `EntityWindow_TeleportShift(±SECTION_SHIFT)` (X) or `EntityWindow_TeleportShiftY(±SECTION_SHIFT)` (Y) handles the transition:
+Because the camera is a continuous world camera, an entity's stored position never has to move under it. A ring's `world_X/Y` is computed once at spawn (`section_origin + section_local`) and is valid for the entire time it is buffered — collision and draw read it directly with no translation. An object's `SST_x_pos/y_pos` is likewise a plain world coordinate. There is no seam, no per-section coordinate re-expression, and nothing spawns or dies because of a coordinate event.
 
-```
-1. Shift every buffered ring's engine coord (X or Y) by the rebase delta
-2. Shift every slot-tagged object's x_pos/y_pos word by the rebase delta
-3. Call EntityWindow_RebuildScanState — which is a thin wrapper that rebases
-   Camera_Y_Coarse_Prev then falls into EntityWindow_Slide
-```
-
-No keep-window, no despawn, no populate. Nothing spawns or dies at a seam. The uniform shift preserves relative positions: a projectile 50 pixels from the player stays 50 pixels away. The rebase is invisible to game entities.
-
-**Why no populate:** `EntityWindow_RebuildScanState` → `EntityWindow_Slide` snapshots the old ids+masks, rebuilds entries, and migrates masks. Because the section set is invariant, every new entry finds its id in the snapshot — `MigrateMasks` copies masks slot-to-same-slot and the populate loop skips all entries (their ids are all in the snapshot). Teleports are populate-free by construction.
-
-**Teleport-invariance assert (DEBUG):** both `TeleportShift` and `TeleportShiftY` stash `Entity_Window_Anchor` on the stack before calling `RebuildScanState` and assert equality on return. If the rebase moved the anchor, the slot-map advance did not cancel the camera delta — something is wrong.
-
-**Historical disjoint-block table** (retained for reference; the anchor-invariance framing above supersedes it as the primary explanation):
-
-```
-dir    slot map before -> after
-X-FWD  (x,y),(x+1,y)   -> (x+2,y),(x+3,y)  [edge: slot1=SEC_VOID when x+3>=grid_w]
-X-BWD  (x,y),(* ,y)    -> (x-2,y),(x-1,y)
-Y-DOWN sec_y (r,r+1)   -> (r+2,r+3)
-Y-UP   sec_y (r,r+1)   -> (r-2,r-1)
-```
-
-The old and new slot-tracked sets are disjoint in all directions — a consequence of `SECTION_SHIFT = 2×SECTION_SIZE`. Under the visibility-derived window, the correct statement is that col0/row0 shifts equal and opposite the slot-map advance, so the SECTION-coordinate window is invariant even though the slot-tracked sets are disjoint.
+The **only** event that shifts entity coordinates is the future floating-origin rebase (§4.11) — a coarse, invisible, atomic subtraction of `REBASE_DELTA` applied uniformly to every live world coordinate (camera, player, every buffered ring's `world_X`, every active object's `x_pos`) plus a re-run of `BuildEntries` so the window recomputes from the shifted camera. Because everything moves by the same delta in one frame, every relative relationship is unchanged and the screen is pixel-for-pixel identical — a pure coordinate renumber, not a content transition. (Section-local ROM data and section_id-keyed respawn/kill memory are coordinate-invariant and are never touched by a rebase — see §4.11.)
 
 #### 4.9.7 RAM Budget
 
@@ -2372,81 +2293,106 @@ The old and new slot-tracked sets are disjoint in all directions — a consequen
 | Ring_Buffer (128 entries × 6 bytes) | 768 B |
 | Ring_Count + Ring_HighWater + Ring_Add_Dropped + pad | 4 B |
 | Entity_Window_Active + Entity_Window_Center_ID | 2 B |
-| Entity_Window_Anchor (sec_x0, sec_y0 — slide trigger + invariance) | 2 B |
+| Entity_Window_Anchor (sec_x0, sec_y0 — slide trigger) | 2 B |
 | Entity_Scan_State (4 × $1A bytes) | 104 B |
 | Entity_Loaded_Masks (4 × 32 bytes) | 128 B |
-| Entity_Mask_Scratch (4 + 128 bytes — slide/teleport snapshot buffer) | 132 B |
+| Entity_Mask_Scratch (4 + 128 bytes — slide snapshot buffer) | 132 B |
 | Camera_Y_Coarse_Prev (re-scan trigger baseline) | 2 B |
 | Ring_Collected_Window (9 × 34 bytes) | 306 B |
 | **Total** | **~1,448 B** |
 
-Comparable to the old dual-buffer system (1,187 B) while supporting far more: visibility-derived window with preview, camera-driven loading on both axes, 2×2 quadrant tracking, idempotent spawns, slide mask migration, teleport invariance, kill persistence, unified buffer, and buffer diagnostics.
+Comparable to the old dual-buffer system (1,187 B) while supporting far more: visibility-derived window with always-on look-ahead, camera-driven loading on both axes, 2×2 quadrant tracking, idempotent spawns, slide mask migration, kill persistence, unified buffer, and buffer diagnostics.
 
 ### 4.10 Cascade Effects
 
 ```
 Level / World System Cascades:
 
-2D Section Grid (4.1)
-  → Camera Y becomes signed word, Y=0 ceiling removed
-    → Vertical leapfrog mirrors horizontal exactly
-      → Corner preload uses Priority 2 DMA for diagonal section
-        → Velocity-based timing (4.8) ensures lead time at all speeds
+Continuous World Camera over Wrapping Plane (4.1)
+  → World coords 0..level extent; no slots, no teleport, no rebase
+    → VDP masks HScroll/VScroll to plane size → 64 cells reused in hardware
+      → Camera Y is a full grid coordinate, Y=0 ceiling removed
+        → sec = world_px >> SECTION_SIZE_SHIFT (the only place sections enter the hot path)
 
-Pre-Computed Nametable Strips (4.3)
+Edge Streaming (4.7 tile cache)
+  → Leading section's nametable + collision stream into the wrapping plane each moving frame
+    → "See into the next section" is always-on, no preview pass
+      → Bounded by the 6-block / 2-row tile-cache budget (no boundary burst)
+        → Diagonal motion shares the budget across column + row fills
+
+Pre-Computed Nametable Blocks (4.3)
   → Build pipeline converts chunks at build time (Batman-proven)
-    → Scroll = DMA strip from ROM to VRAM (zero CPU)
-      → Section_BuildRAMLayout becomes pointer setup, not conversion
+    → Scroll = read block from tile cache, queue plane-buffer entry (zero re-conversion)
+      → Section_BuildRAMLayout decompresses blocks into the world-space cache
         → Override table patches dynamic terrain (breakable floors)
 
 Deferred Plane Buffer (4.4)
   → Game loop never touches VDP during active display
     → VDP has uncontested bus → more VBlank time for DMA
-      → Enables more aggressive art streaming → smoother section transitions
-        → Prerequisite for pre-computed nametable strips (4.3)
+      → Edge-fill columns/rows flush in VBlank; ≤64 distinct cols/frame clamp
+        → Section_RedrawPlanes runs once at level init only — no in-play redraw
 
 8-Layer Parallax (4.6)
-  → Per-section layer table via sec_scroll in section definition
+  → Per-section parallax_config snapped/lerped on section-boundary crossing
     → Deformation tables create animated wave motion from ROM data
       → Layer enable mask disables unused layers per section
-        → Parallax transition smoothing blends scroll factors at boundaries
-          → Per-section raster command tables enable raster-level visual variety
+        → Per-section raster command tables enable raster-level visual variety
 
 Section + Allocator Integration (4.8)
-  → Section preload pre-allocates art for incoming objects
-    → Two-tier priority: object art immediate, background tiles deferrable
-      → Load_Object finds art already in VRAM (refcount bump, no decompress)
-        → Section exit decrements refcounts, art cached for backtracking
-          → Pool compaction at section boundary makes room for new section
+  → Whole-act tile art resident in VRAM pool (graph-colored) → no per-section art swap
+    → Object art: AllocVRAM at edge spawn, FreeVRAM at edge despawn (refcount cache)
+      → Load_Object finds resident art in VRAM (refcount bump, no decompress)
+        → Future >VRAM levels: windowed art-residency streamer builds on this model (not slots)
 
 Section-Local Entity Management (4.9)
-  → Visibility-derived window: despawn-envelope anchor from camera + slot map
-    → Slides when envelope crosses a section boundary; mask migration by section identity
-      → Teleports: shift all entity coords + re-express origins; section set invariant
-        → Preview intrinsic: envelope tracks ahead sections before teleport fires
+  → Visibility-derived window: despawn-envelope anchor = (camera − buffer) >> SECTION_SIZE_SHIFT
+    → Slides when the envelope crosses a section boundary; mask migration by section identity
+      → Look-ahead intrinsic: envelope reaches the ahead section as the camera scrolls
+  → Section-local ROM data: positions relative to section; respawn/kill keyed by section_id (coordinate-invariant)
   → Rings: flat X-sorted ROM lists per section; X-ratchet with Y-band gate
-    → Ring collision iterates engine-space buffer against player position
+    → Ring collision iterates the world-space ring buffer against player position
   → Objects: compact 6-byte v2 entries; per-section type table; ANY_Y spawns X-only
     → SST_slot_tag: entry index | ANY_Y mirror (bit 7) — lifetime = section in window
   → State: rolling 3×3 collected bitmask for revisit persistence (4.9.5)
 
-Zero-Lag Teleport (4.8 — 6 systems converging)
-  → Pre-computed strips (4.3): pointer swap, no layout conversion
-  → Entity shift (4.9): ±SECTION_SHIFT to all positions; section set invariant; zero spawn/despawn
-  → Progressive nametable preload: DMA strips to VDP during 85-frame preload window
-    → Half screen already in VDP at teleport time, other half fits one VBlank
-  → Palette crossfade: 3-4 frame darken/brighten masks residual nametable update
-  → DMA priority queue (1.1): critical transfers always drain, preload is deferrable
-  → Velocity-based timing (4.8): faster player → earlier preload → more prep time
-  → Result: ~1,500 cycles on teleport frame (1% budget), zero visual glitch
-
 Section as Independent World (4.2 + 4.8 + 4.9)
   → Each section defines: layout, art, palette, music, physics, parallax, raster table, deformation, animated tiles, rings, objects, type table
-    → Transition sections blend between adjacent worlds smoothly
+    → Transition sections blend between adjacent worlds as a function of world position
       → Rolling state preservation deferred — fresh load on revisit for now
-        → Streaming during cutscenes eliminates loading pauses
+        → Camera-still cutscenes leave the edge streamer idle (free budget)
           → Result: interconnected worlds, not level chunks
+
+Floating-Origin Rebase (4.11 — future, unbounded levels)
+  → Triggers only when the camera approaches the 16-bit coordinate ceiling (~16 sec/axis)
+    → Coarse (every ~8 sections), uniform (one shift of the live set), invisible (atomic, plane-aligned)
+      → Static section data + section_id respawn memory untouched
+        → Replaces the deleted leapfrog: same idea (bounded working coord), done coarsely + seamlessly
 ```
+
+### 4.11 Floating-Origin Rebase — The Unbounded-Level Path (FUTURE, Phase 4)
+
+This is the engine's only invisible-rebase mechanism, and it is **deferred** — built only when a level actually exceeds the coordinate ceiling. It is the principled replacement for the deleted leapfrog: same goal (keep the working coordinate bounded), done coarsely, uniformly, and seamlessly. Full design in `docs/superpowers/specs/2026-06-22-continuous-scroll-traversal-design.md` §9.
+
+**The ceiling it removes.** World positions are 16.16 (pixel value in the 16-bit upper word). Several coordinate ops are signed (deadzone follow, the `asr` section-derive, the despawn/load compares), so the practical ceiling is the sign bit at `$8000` = **~16 sections per axis** (`16 × SECTION_SIZE`). Past that, the signed despawn/load comparisons wrap and produce false despawn / missed load *before* any visual glitch — so the rebase trigger fires on the camera approaching `$8000`, not on a render symptom. (A separate, independent limit: `section_id` is one byte → max 256 sections total, above today's `MAX_ACT_SECTIONS = 48`; widen it to a word when a level nears 256 sections, and fold a rebase epoch into the respawn key if section_ids are ever allowed to repeat across epochs.)
+
+**The model — floating point for world space.** Split the absolute position into a coarse base plus the fine live coordinate, renormalizing periodically so the fine part never overflows:
+```
+absolute position = World_Section_Base × SECTION_SIZE  +  Camera_X (live 16-bit)
+```
+The whole engine keeps running in the fine coordinate exactly as today. `World_Section_Base` (one new RAM counter — the only state this adds) records how many sections we have renormalized past.
+
+**The rebase (atomic, one frame, rendering quiesced).** Trigger when `Camera_X` crosses a threshold below the ceiling (e.g. `REBASE_THRESHOLD = $6000`). Choose `REBASE_DELTA` as a whole number of sections (e.g. `8 × SECTION_SIZE = $4000`); because a multiple of `SECTION_SIZE` is automatically a multiple of the 512px plane width, the wrapped nametable lines up and **no plane redraw is needed**. Then, in one step, subtract `REBASE_DELTA` from every piece of live world-space state and add `REBASE_DELTA / SECTION_SIZE` to `World_Section_Base`:
+- `Camera_X`, `Player_1.x_pos`
+- every active object `x_pos` (walk Object_RAM / Dynamic_Slots)
+- every buffered ring `world_X` (walk Ring_Buffer)
+- the tile-cache world cursors (`Cache_Left_Col`/`Cache_Head_Col`/streaming cursors), shifted by `REBASE_DELTA/8` tiles — `REBASE_DELTA` is a section multiple, so the cache even-row/circular invariants are preserved
+- the entity-window state: easiest to **re-run `BuildEntries`** after shifting the camera, so it recomputes from the shifted camera rather than being bumped by hand
+
+It is invisible because everything moves by the same delta in one frame — every relative relationship (camera↔player↔entities↔plane) is unchanged and the screen is pixel-for-pixel identical. It is a pure coordinate renumber, not a content transition, so there is **no preview zone and no per-section object/ring handoff** — those leapfrog mechanisms stay deleted; continuous streaming + the entity window already cover "see ahead" and "spawn ahead".
+
+**What it does NOT touch (verified by the section-local entity audit, 2026-06-22).** The static per-section `sec_objects`/`sec_rings` ROM data is section-local (positions relative to the section, `0..SECTION_SIZE-1`, build-enforced) — never shifted, never overflows at any level size. Respawn/collected/killed memory is keyed by absolute `section_id` (`sec_y × grid_w + sec_x`) + list-index — coordinate-invariant, so it survives a rebase untouched. The **only** data-lookup change is adding `World_Section_Base` where a (local) coordinate maps to an absolute section for ROM lookup: `absolute_section = World_Section_Base + (Camera_X >> SECTION_SIZE_SHIFT)`.
+
+**vs. the leapfrog.** Same good idea (keep the working coordinate bounded), done coarsely (every ~8 sections, not every boundary), uniformly (one shift of the live set — no slots, no per-section art swap), and invisibly (atomic, plane-aligned — no seam). Bookkeeping is one counter plus `+World_Section_Base` at the handful of section-lookup sites, versus the leapfrog's slot map + thresholds + edge flags + preview zone. **Cost:** one RAM counter, a per-frame threshold compare, and a rare entity-walk (tens of entities, a few hundred cycles, once per ~8 sections of travel).
 
 ---
 
@@ -2742,7 +2688,7 @@ All Z80-side, zero 68K cost:
 Batman uses static per-level sound banks. We make them per-section and dynamic:
 - `sec_music` and `sec_sound_bank` in section definitions trigger music changes or sample set swaps
 - Different sections use different DAC samples (outdoor → nature, cave → echo/drip, boss → heavy percussion)
-- **Music anticipation:** `Section_Preload` pre-loads the next section's sample bank into Z80 DAC buffer before teleport. Zero gap.
+- **Music anticipation:** as the camera nears a section boundary, the next section's sample bank is pre-loaded into the Z80 DAC buffer so the swap is gap-free when the camera crosses.
 - **Music transition types:** Per-section `sec_music_fade_type` controls how music changes:
   - `FADE_CUT` — instant switch (for dramatic moments)
   - `FADE_CROSSFADE` — 30-60 frame crossfade via Z80 volume envelopes (seamless environmental flow)
@@ -2800,7 +2746,7 @@ The transition types (FADE_CUT, CROSSFADE, STINGER) require an explicit state ma
 - `Music_Fade_Volume`: current fade level ($00-$7F)
 - `Music_Next_ID`: track queued after fade completes
 
-Section_Preload reads `sec_transition_type` and initiates the state machine. Runs in main loop alongside palette cross-fading. By teleport time, music and visual transitions match.
+The boundary-crossing check reads the entered section's `sec_transition_type` and initiates the state machine (or arms it as the camera approaches the boundary). Runs in the main loop alongside palette cross-fading, so music and visual transitions stay matched across the crossing.
 
 ### 6.10 Cascade Effects
 
@@ -2814,7 +2760,7 @@ Flamedriver (6.1) + Tempo/Timing (6.8)
         → PSG silence on pause prevents sustained tones
 
 Section-Aware Banking (6.4) + Bank Optimization (6.8)
-  → Section preload triggers sample bank swap on Z80
+  → Camera-boundary crossing triggers sample bank swap on Z80 (armed as the camera nears the boundary)
     → Music transition type controls fade/cut/stinger
       → Bank switch optimization packs samples per-section (minimize 100+ cycle switches)
         → Conditional bank swaps respond to game state (boss, water, speed shoes)
@@ -2842,7 +2788,7 @@ Palette management, raster effects, hardware-driven lighting, and a lightweight 
 
 ### 7.1 Palette System
 
-**Palette cross-fading:** Section transitions smoothly cross-fade between palettes over ~16 frames using per-component RGB Lerp. Start during preload phase — by teleport, the transition is complete. Eliminates jarring palette snap at section boundaries. ~3840 cycles during the transition window, run in idle time.
+**Palette cross-fading:** Section transitions smoothly cross-fade between palettes over ~16 frames using per-component RGB Lerp. Armed as the camera nears a section boundary and completed across the crossing, so there is no jarring palette snap at the boundary. ~3840 cycles during the transition window, run in idle time.
 
 **Computed water palette (NOVEL):** Instead of maintaining separate water palette data per zone, compute at runtime: `water_color = (base_color >> 1) + blue_bias`. Automatically adapts to palette cycling AND cross-fading — water palette is always derived from current palette, never stale. No Genesis game computes water palettes at runtime.
 
@@ -3023,7 +2969,7 @@ Render objects twice: normal sprites at high priority, reflection sprites at low
 Visual Effects Cascades:
 
 Palette Cross-Fading (7.1)
-  → Section_Preload starts fade, teleport completes it
+  → Boundary-approach arms the fade, the section crossing completes it
     → Computed water palette auto-derives from current fade state
       → Per-section cycling scripts install alongside cross-fade
         → Per-scanline gradient updates from cross-faded palette
@@ -3037,7 +2983,7 @@ Shadow/Highlight Mode (7.3)
 
 Unified Raster Command Table (7.2)
   → Section definition specifies sec_raster_table
-    → Section_Preload installs new command table
+    → Camera-boundary crossing installs the entered section's command table
       → Water palette swap + S/H toggle + gradient + nametable split + VSRAM deform stack in ONE table
         → Build tool compiles high-level effect descriptions into sorted commands
           → Window plane resize, letterboxing, multi-layer Plane B — all just table entries
