@@ -676,7 +676,7 @@ EntityWindow_BuildEntries:
 ; In:  none (reads Camera_X/Y, Current_Act_Ptr —
 ;      camera must be positioned before this runs)
 ; Out: none
-; Clobbers: d0-d7, a0-a5
+; Clobbers: d0-d7, a0-a4
 ; -----------------------------------------------
 EntityWindow_Init:
         bsr.w   RingBuffer_Clear

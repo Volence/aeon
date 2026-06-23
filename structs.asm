@@ -198,7 +198,7 @@ parallax_config endstruct
     endif
 
 ; -----------------------------------------------
-; Act Descriptor (§4) — 40 bytes ($28), ROM table
+; Act Descriptor (§4) — 36 bytes ($24), ROM table
 ; Fields prefixed with Act_ to match access pattern Act_fieldname(reg).
 ; -----------------------------------------------
 Act struct

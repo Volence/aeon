@@ -7,7 +7,7 @@
 ; Section_Init — record the act, fill nametable, init the entity window
 ; In:  a0 = act descriptor pointer (Act struct)
 ; Out: none
-; Clobbers: d0–d7, a0–a5   (transitive via EntityWindow_Init)
+; Clobbers: d0–d7, a0–a4   (transitive via EntityWindow_Init)
 ; -----------------------------------------------
 Section_Init:
         move.l  a0, (Current_Act_Ptr).w
