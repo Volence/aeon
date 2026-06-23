@@ -335,13 +335,6 @@ The `setVDPReg` macro is the only sanctioned write path for **persistent** frame
         move.w  #$0000, (a1)            ; Release bus — Z80 has control
 ```
 
-> **Note (sound driver superseded):** the "Flamedriver" references in this subsection are
-> historical. The shipped driver is the **from-scratch custom Z80-autonomous driver** (§6 /
-> 2026-06-16 master sound spec), and it is **assembled inline into the ROM** under
-> `SOUND_DRIVER_ENABLED` (`engine/z80_sound_driver.asm`, `phase 0` blob), not streamed over the
-> idle program at title-screen init. The idle-program pattern below remains the pre-driver boot
-> placeholder.
-
 **Z80 idle program** (runs after init, before the sound driver is active):
 
 ```z80
@@ -360,10 +353,10 @@ The `setVDPReg` macro is the only sanctioned write path for **persistent** frame
         di                              ; Disable Z80 interrupts
         im      1                       ; Interrupt mode 1
 .idle:
-        jp      .idle                   ; Wait for Flamedriver load
+        jp      .idle                   ; idle until the sound driver loads over it (at boot)
 ```
 
-**Flamedriver loading** happens later, during the game state machine's title screen init. The boot sequence only needs the Z80 idle — loading the full sound driver during boot would waste time before we need sound.
+**Sound-driver loading:** the driver (`engine/z80_sound_driver.asm`) is assembled inline as a `phase 0` Z80 blob and, when `SOUND_DRIVER_ENABLED` is defined, copied into Z80 RAM over this idle program at boot. The idle program is the pre-driver placeholder — nothing is streamed over the bus at title-screen init.
 
 **Critical hardware rule** (from plutiedev): Always stopZ80 before any DMA transfer. If Z80 accesses the 68K bus during DMA (e.g., reading ROM for music data), DMA loads garbage. This is not optional — it corrupts art on real hardware, especially early board revisions.
 
@@ -660,7 +653,7 @@ Power On
   ├── Set SR = $2700 (supervisor mode, all interrupts masked)
   │
   └── Branch to Game_StateInit (state machine entry)
-        └── Load Flamedriver, show logos, transition to title screen
+        └── Show logos, transition to title screen (sound driver already loaded over the Z80 idle at boot)
 ```
 
 ### 0.13 Build-Time Data Generation (AS Features)
@@ -727,7 +720,7 @@ Changes in this section that ripple to other sections:
 | Region detection | §1.1 DMA Queue | PAL gets nearly double DMA budget — adaptive byte count |
 | Controller port init | §9.4 6-Button | Boot sets TH output; VBlank reads using rapid TH cycling |
 | Frame accumulator | §9.7 Cooperative Multitasking | Tick count determines how many logic frames to simulate |
-| Z80 idle program | §6 Audio | Flamedriver loads over idle program when sound system initializes |
+| Z80 idle program | §6 Audio | The sound driver loads over the idle program at boot (when SOUND_DRIVER_ENABLED) |
 | CrossResetRAM | §9.5 Soft-Reset | Boot detects warm/cold, preserves CrossResetRAM region |
 | DMA-parallel init | §1.1 DMA Queue | Validates that DMA fill + CPU work can overlap safely |
 
