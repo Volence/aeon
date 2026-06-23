@@ -39,6 +39,12 @@ OJZ_Act1_Descriptor:
     dc.w    OJZ_ACT_POOL_PAGES      ; act_art_pool_pages
     dc.b    EDGE_CLAMP              ; edge_mode (Phase 2 §10; OJZ ships CLAMP)
     dc.b    0                       ; reserved (pad)
+    ; Guard: the emitted descriptor must be exactly Act_len bytes (* = end-of-data
+    ; location counter). Catches any future field add/remove/reorder that drifts the
+    ; data from the Act struct (a silent mismatch would mis-parse every later field).
+    if (*-OJZ_Act1_Descriptor) <> Act_len
+      error "OJZ Act1 descriptor is \{*-OJZ_Act1_Descriptor} bytes, Act struct is \{Act_len} — descriptor/struct drift"
+    endif
     align 2
 
 ; -----------------------------------------------

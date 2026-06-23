@@ -19,6 +19,10 @@
 
 VRAM_PLANE_B_BYTES  = $E000             ; Plane B nametable VRAM byte address
 BG_LAYOUT_SIZE      = 64*64*2           ; 8192 bytes (full Plane B nametable)
+; The shared BG tile region runs from BG_TILE_BASE_VRAM up to the relocated
+; sprite attr table at $B800 — so $8000..$B7FF = 448 tiles is the hard ceiling
+; (NOT the stale BG_TILE_CAPACITY=512 nominal; see DEFERRED_WORK reconciliation).
+BG_TILE_REGION_BYTES = VRAM_SPRITE_TABLE - BG_TILE_BASE_VRAM   ; $3800 = 14336 B = 448 tiles
 
 ; -----------------------------------------------
 ; BG_Init — load shared BG tiles + blit Plane B nametable.
@@ -46,6 +50,15 @@ BG_Init:
         beq.s   .skip_tiles
         move.w  (a1)+, d1               ; d1.w = tile-bytes length (uncompressed)
         beq.s   .skip_tiles
+        ; Capacity guard (last line of defense): the BG region is bounded above by
+        ; the SAT at $B800. Clamp the copy length to BG_TILE_REGION_BYTES so a blob
+        ; larger than 448 tiles can never spray into the sprite attr table. The build
+        ; tools should keep BG art within budget (inject_editor_bg.py already uses
+        ; 448); this guarantees no SAT corruption even if a generator gate drifts.
+        cmpi.w  #BG_TILE_REGION_BYTES, d1
+        bls.s   .bg_len_ok
+        move.w  #BG_TILE_REGION_BYTES, d1
+.bg_len_ok:
         stopZ80
         move.w  #$8F02, (VDP_CTRL).l
         move.l  #vdpComm(BG_TILE_BASE_VRAM,VRAM,WRITE), (VDP_CTRL).l

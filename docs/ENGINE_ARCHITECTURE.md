@@ -1983,6 +1983,13 @@ camera_max_y = level_height − SCREEN_H        ; level_height = grid_h × SECTI
 ```
 "Seeing into the next section" needs no extended clamp — the edge streamer (§4.7) already fills the leading section's cells into the wrapping plane before the camera reaches them, so the next section is visible the moment it enters the screen without the camera leaving the act. The vertical clamp derives `(Camera_Y >> SECTION_SIZE_SHIFT)` against `0`/`grid_h` rather than reading any slot map.
 
+**Per-act vertical edge behavior (`Act_edge_mode`).** The bottom/top vertical edge is configurable per act, not a fixed clamp (Phase 2 §10):
+- **`EDGE_CLAMP`** (default, OJZ ships this) — camera + player stop at the world floor `level_height − SCREEN_H`, exactly the clamp above.
+- **`EDGE_WRAP_V`** (fall-forever) — crossing the bottom wraps `Y` by `level_height` (plane-aligned → seamless). **Deferred hook** (dispatch + design in place, stubbed to clamp); the real wrap needs the camera clamp to become edge-mode-aware and a camera-triggered atomic live-set shift — full design in the spec §10.
+- **`EDGE_KILL`** (death pit) — sets `Player_Death_Pending` and clamps meanwhile; wired to the death system when it exists. **Deferred hook.**
+
+The dispatch lives in `Player_LevelBound` (bottom guard); `EDGE_CLAMP` is byte-for-byte the original clamp.
+
 ### 4.6 Multi-Band Computed Parallax — As Shipped
 
 **Foundation:** S.C.E.'s `HScroll_Deform` deformation script extended with TF4's per-band model. Replaces per-zone hardcoded scroll routines with a data-driven system that auto-selects mode per section, supports per-band gradients, and lerps smoothly across section boundaries.
