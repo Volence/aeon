@@ -54,7 +54,7 @@ Debug_MusicToggle:
         ; a0 + clobber only d0/SR — safe inside this debug-toggle's d0-d2/a0/a1 budget.)
         move.b  (Ctrl_1_Press).w, d0
         andi.b  #BUTTON_B, d0
-        beq.s   .check_start
+        beq.s   .check_sample
         move.w  (Dbg_Sfx_Sel).w, d1      ; current cycle index (0..7)
         move.w  d1, d2
         addq.w  #1, d2
@@ -70,6 +70,17 @@ Debug_MusicToggle:
         rts
 .sfx_ring:
         bsr.w   Sound_PlayRing          ; L/R-alternating ring SFX ($33/$34)
+        rts
+.check_sample:
+        ; C button = fire a one-shot DAC sample (id 1 = the temp blip) on a fresh
+        ; press. DEBUG-only hotkey to exercise the two-stage one-shot DAC stop
+        ; (DRAINING_TAIL -> DC-center). Edge-detected on Ctrl_1_Press like the rest
+        ; of this block; C ($20) does not collide with A($40)/B($10)/START($80).
+        move.b  (Ctrl_1_Press).w, d0
+        andi.b  #BUTTON_C, d0
+        beq.s   .check_start
+        moveq   #1, d0                   ; sample id 1 (temp blip, one-shot)
+        bsr.w   Sound_PlaySample
         rts
 .check_start:
         move.b  (Ctrl_1_Press).w, d0

@@ -191,9 +191,11 @@ Z80_CLOCK_HZ            = 3579545                  ; NTSC Z80 clock (master/15)
 dac_rate_hz  function cyc, (Z80_CLOCK_HZ / (cyc))
 ; 370 = consumer re-selects $2A each sample; +30 = the Task-5 Timer-A overflow
 ; poll in the common prefix (ld a,($4000) 13 + and 1 7 + jp nz 10 = K = 30 cyc,
-; added EQUALLY to FILL/SKIP/DRAIN because it lives in the common prefix).
-SND_LOOP_CYC            = 400                      ; balanced FILL/SKIP/DRAIN total (370 + 30-cyc Timer-A poll)
-SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 8948 Hz (3579545/400, int div)
+; added EQUALLY to FILL/SKIP/DRAIN because it lives in the common prefix);
+; +30 = the DRAINING_TAIL phase check in the common prefix (ld a,(SND_DAC_PHASE)
+; 13 + cp 2 7 + jp z 10 = 30 cyc), again paid equally by all paths.
+SND_LOOP_CYC            = 430                      ; balanced FILL/SKIP/DRAIN/DRAINING total (370 + 30 Timer-A poll + 30 DRAINING_TAIL check)
+SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 8324 Hz (3579545/430, int div)
 
 ; --- 1B: 68k->Z80 control (68k writes, Z80 reads) ---
 SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progress (no ROM reads)

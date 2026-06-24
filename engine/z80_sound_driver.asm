@@ -39,23 +39,27 @@ Z80_Sound_Start:
         phase 0
 
 ; ======================================================================
-; CYCLE-BALANCE PROOF — FILL == SKIP == DRAIN == 400 Z80 cycles
+; CYCLE-BALANCE PROOF — FILL == SKIP == DRAIN == DRAINING == 430 Z80 cycles
 ; (T-states per the AS/Zilog table in the task spec. The banked $8000-window
 ;  ROM read adds a bounded ~3.3-cyc bus penalty per byte under normal 68k load
 ;  — that lands ONLY on FILL's two `ld x,(hl)` reads and is inherent to the one
-;  path that touches ROM; SKIP/DRAIN never read ROM. The DETERMINISTIC
+;  path that touches ROM; SKIP/DRAIN/DRAINING never read ROM. The DETERMINISTIC
 ;  instruction-cycle total is balanced exactly; the ROM penalty is noted, not
 ;  padded, because it is non-deterministic and unavoidable on FILL alone.)
 ;
 ; HISTORY: the deterministic total grew from the original 346 as the loop body
-; gained constant per-pass cost, BOTH additions in the common prefix (so equal on
-; all three paths — the pads need no rebalance):
+; gained constant per-pass cost, ALL additions in the common prefix (so equal on
+; every path — the pads need no rebalance):
 ;   (a) +24 : the consumer re-selects $2A on the addr port EVERY sample (the YM
 ;             address latch is not relied upon to hold), so the live consumer is
 ;             83 cyc, not the original 59.                          (346 -> 370)
 ;   (b) +30 : the Task-5 Timer-A overflow poll (K = 30).            (370 -> 400)
-; The SkipPad (183) and DrainPad (204) are UNCHANGED — both additions live in the
-; common prefix, which by construction lands equally on all three paths, so the
+;   (c) +30 : the DRAINING_TAIL phase check at .afterPoll (ld a,(SND_DAC_PHASE)
+;             13 + cp 2 7 + jp z 10 = 30) — the FIRST thing in the common prefix
+;             after the poll rejoin, so FILL/SKIP/DRAIN all fall through its
+;             not-taken `jp z`; only PHASE==2 diverges to .draining.  (400 -> 430)
+; The SkipPad (183) and DrainPad (204) are UNCHANGED — every addition lives in the
+; common prefix, which by construction lands equally on all paths, so the
 ; pad-to-FILL balance is untouched. The poll's overflow handler (rearm + call
 ; Sequencer_Frame) fires only on overflow — at the FIXED Phase-3 frame rate
 ; (SND_TIMERA_N -> ~59.06 Hz), NOT per pass; that one pass is momentarily longer —
@@ -86,11 +90,16 @@ Z80_Sound_Start:
 ;   ld a,($4000)                 13   ; YM status: bit0 = Timer A overflow
 ;   and SND_TIMERA_OVF_MASK       7   ; isolate overflow bit
 ;   jp nz,SndDrv_TimerATick      10   ; overflow -> rearm + tick (10 taken or not)
+;   ; -- DRAINING_TAIL phase check (.afterPoll; +30, common to all paths) --
+;   ld a,(SND_DAC_PHASE)         13
+;   cp 2                          7
+;   jp z,.draining               10   ; PHASE==2 -> DRAINING (10 taken or not)
 ;   ld a,(SND_CTRL_DMA_ACTIVE)   13
 ;   or a                          4
 ;   jp nz,SndDrv_Drain           10   ; DMA active -> DRAIN  (10 taken or not)
-;                                 -----  COMMON PREFIX = 4 + 83 + 30 + 65 = 182
-; (poll K = 13+7+10 = 30; dispatch-prefix instrs = 13+4+13+4+4+13+4+10 = 65)
+;                                 -----  COMMON PREFIX = 4 + 83 + 30 + 30 + 65 = 212
+; (poll K = 13+7+10 = 30; phase chk = 13+7+10 = 30;
+;  dispatch-prefix instrs = 13+4+13+4+4+13+4+10 = 65)
 ;
 ; --- DISPATCH TAIL (run by FILL and SKIP only; DRAIN jumped away) ----------
 ;   ld a,b                        4
@@ -99,7 +108,7 @@ Z80_Sound_Start:
 ;                                 -----  TAIL = 21
 ;
 ; ============================ FILL =======================================
-;   COMMON PREFIX ............... 182
+;   COMMON PREFIX ............... 212
 ;   DISPATCH TAIL ...............  21
 ;   -- producer (2-byte read-ahead) --
 ;   ld hl,(SND_ROM_PTR)          16
@@ -128,10 +137,10 @@ Z80_Sound_Start:
 ;   -- tail --
 ;   ei                            4
 ;   jp SndDrv_Sample             10
-;                                 =====  FILL = 182 + 21 + 183 + 4 + 10 = 400
+;                                 =====  FILL = 212 + 21 + 183 + 4 + 10 = 430
 ;
 ; ============================ SKIP =======================================
-;   COMMON PREFIX ............... 182
+;   COMMON PREFIX ............... 212
 ;   DISPATCH TAIL ...............  21   (then jp nc taken -> SkipPad)
 ;   -- SkipPad (= 183, no ROM read) --
 ;   ld b,13                       7
@@ -142,10 +151,10 @@ Z80_Sound_Start:
 ;                                 -----  SkipPad = 7 + 164 + 12 = 183
 ;   ei                            4
 ;   jp SndDrv_Sample             10
-;                                 =====  SKIP = 182 + 21 + 183 + 4 + 10 = 400
+;                                 =====  SKIP = 212 + 21 + 183 + 4 + 10 = 430
 ;
 ; ============================ DRAIN ======================================
-;   COMMON PREFIX ............... 182   (jp nz taken -> DrainPad; tail NOT run)
+;   COMMON PREFIX ............... 212   (jp nz taken -> DrainPad; tail NOT run)
 ;   -- DrainPad (= 204 = 183 + the 21-cyc tail DRAIN skipped, no ROM read) --
 ;   ld b,15                       7
 ; .loop: djnz .loop            190   (14 taken*13 + 1 not-taken*8)
@@ -153,10 +162,32 @@ Z80_Sound_Start:
 ;                                 -----  DrainPad = 7 + 190 + 7 = 204
 ;   ei                            4
 ;   jp SndDrv_Sample             10
-;                                 =====  DRAIN = 182 + 204 + 4 + 10 = 400
+;                                 =====  DRAIN = 212 + 204 + 4 + 10 = 430
+;   (the phase check is in the 212; DRAIN's jp nz fires at the DMA check that
+;    follows it. DrainPad 204 = SkipPad 183 + the 21-cyc tail DRAIN still skips.)
 ;
-; ALL THREE = 400 cyc EXACTLY (0-cyc spread). Effective DAC rate:
-;   dac_rate_hz(400) = 3579545 / 400 = 8948 Hz (int div; see SND_DAC_RATE_HZ).
+; ========================= DRAINING_TAIL =================================
+; PHASE==2: producer exhausted; emit the ring's buffered tail (no ROM read) until
+; lead==0, then DC-center + stop. Diverges at the phase check's `jp z` (TAKEN), so
+; it does NOT run the DMA check (27) + dispatch tail (21) = 48 that FILL/SKIP do —
+; the .draining body is sized to exactly that 48 so the pass still totals 430.
+;   COMMON PREFIX (through phase chk, jp z taken) = 4 + 83 + 38 + 30 + 30 = 185
+;   -- .draining body (no ROM read; replaces the skipped 48) --
+;   ld a,b                        4   ; b = ring lead
+;   or a                          4
+;   jp z,.stop                   10   ; ring drained -> stop (not taken when lead>0)
+;   nop * 5                      20   ; pad to equal the skipped DMA chk(27)+tail(21)
+;   jp SndDrv_Skip               10
+;                                 -----  .draining body = 48  (== 27 + 21)
+;   -- SkipPad (shared with SKIP) --
+;   SkipPad ..................... 183
+;   ei                            4
+;   jp SndDrv_Sample             10
+;                                 =====  DRAINING = 185 + 48 + 183 + 4 + 10 = 430
+; (.stop is a one-shot terminal event, once per sample — NOT cycle-balanced.)
+;
+; ALL FOUR = 430 cyc EXACTLY (0-cyc spread). Effective DAC rate:
+;   dac_rate_hz(430) = 3579545 / 430 = 8324 Hz (int div; see SND_DAC_RATE_HZ).
 ;
 ; --- BOUNDING the overflow handler (Phase 3 per-frame engine) --------------
 ; On overflow the poll's `jp nz,SndDrv_TimerATick` is taken: re-arm Timer A + run
@@ -247,6 +278,7 @@ SndDrv_Init:
         ld      (SND_REQ_MUSIC), a
         ld      (SND_REQ_SFX), a
         ld      (SND_CTRL_DMA_ACTIVE), a ; flag bracket clear (no DMA in progress)
+        ld      (SND_DAC_PHASE), a       ; PHASE = idle (0) — two-stage stop SM
         ld      (SND_STAT_PING_ECHO), a
         ld      (SND_STAT_ACK_COUNT), a
         ld      (SND_STAT_TICK), a
@@ -380,6 +412,13 @@ SndDrv_Sample:
         and     SND_TIMERA_OVF_MASK      ; isolate overflow bit
         jp      nz, SndDrv_TimerATick    ; overflow -> rearm + Sequencer_Frame, then rejoin
 .afterPoll:
+        ; --- DRAINING_TAIL check (common prefix; +30 cyc on ALL paths, balance kept).
+        ; PHASE==2 means the producer exhausted: keep emitting the ring's buffered
+        ; tail (no ROM read) until it drains, then DC-center and stop. (ld 13 + cp 7
+        ; + jp z 10 = 30; not-taken on FILL/SKIP/DRAIN -> the pads need no rebalance.)
+        ld      a, (SND_DAC_PHASE)
+        cp      2
+        jp      z, .draining             ; DRAINING_TAIL: no ROM read, drain the ring
         ld      a, (SND_CTRL_DMA_ACTIVE)
         or      a
         jp      nz, SndDrv_Drain         ; 68k DMA in progress -> DRAIN (no ROM read)
@@ -410,17 +449,54 @@ SndDrv_Sample:
         ld      (SND_ROM_LEN), hl
         ld      a, h
         or      l
-        jp      nz, .fillDone            ; bytes remain (common) -> no restart
-        ; --- sample exhausted (rare, once per sample length): loop the blip.
-        ; NOT cycle-balanced (req 10) — a small one-off spike, no $2B toggle, no
-        ; gap, same continuous stream. Bank never changes (bank-aligned sample).
-        ld      hl, SND_BLIP_PTR
-        ld      (SND_ROM_PTR), hl
-        ld      hl, SND_BLIP_LEN
-        ld      (SND_ROM_LEN), hl
+        jp      nz, .fillDone            ; bytes remain (common) -> normal pass
+        ; --- producer exhausted (SND_ROM_LEN reached 0): enter DRAINING_TAIL. The
+        ; ring still holds the already-buffered tail; the .draining path keeps
+        ; emitting it (no ROM read) until lead==0, then DC-centers + stops. One-shot:
+        ; no blip re-loop, no $2B toggle, no gap. (Raw FILL reads 2/len-=2 -> an even
+        ; sample length hits exactly 0; the temp blip is even.)
+        ld      a, 2
+        ld      (SND_DAC_PHASE), a       ; PHASE = 2 (DRAINING_TAIL)
 .fillDone:
         ei                               ; THE ONLY ei — IRQ lands here, between samples
         jp      SndDrv_Sample
+
+; --- DRAINING_TAIL path (PHASE==2): the producer is exhausted; emit the ring's
+; --- already-buffered tail (NO ROM read) until it drains, then DC-center + stop.
+; --- Reached from the .afterPoll phase check's `jp z`. MUST cost the same as a
+; --- normal SKIP-dispatch pass so the DAC rate never jitters while draining.
+; ---
+; --- CYCLE BALANCE (measured from just after the shared phase check, the point
+; --- both paths diverge — the 30-cyc phase check is common to all paths):
+; ---   normal pass -> SKIP body : DMA chk (ld 13 + or 4 + jp nz 10 = 27, not taken)
+; ---                            + LEAD chk (ld a,b 4 + cp 7 + jp nc 10 = 21, taken)
+; ---                            = 48 cyc.
+; ---   .draining   -> SKIP body : ld a,b 4 + or a 4 + jp z 10 = 18 (not taken)
+; ---                            + PAD + jp 10. 18 + 10 = 28 -> 20 cyc short.
+; --- Pad = 20 cyc = 5*nop(4) so DRAINING == SKIP == FILL == DRAIN exactly. (a,b
+; --- dead after this -> the SKIP body's `ld b,13` overwrites b; pad is reg-safe.)
+.draining:
+        ld      a, b                     ; b = ring lead (re-derived after any tick)
+        or      a
+        jp      z, .stop                 ; ring drained -> stop (last real byte emitted)
+        nop                              ; 4 \
+        nop                              ; 4  |
+        nop                              ; 4  > 20-cyc pad: balance to normal SKIP pass
+        nop                              ; 4  |
+        nop                              ; 4 /
+        jp      SndDrv_Skip              ; balanced no-ROM-read pass (emits next tail byte)
+.stop:
+        ; One-shot terminal event (once per sample; need NOT be cycle-balanced).
+        ; DC-center the DAC, clear DAC_ACTIVE, PHASE=idle, return to the idle loop.
+        ld      a, SND_REG_DAC_DATA      ; re-park $2A on the addr port ($4000)
+        ld      (SND_Z80_YM_A0), a
+        ld      a, 80h
+        ld      (SND_Z80_YM_A1), a       ; $2A = $80 (DC center silence)
+        xor     a
+        ld      (SND_STAT_DAC_ACTIVE), a ; clear active
+        ld      (SND_DAC_PHASE), a       ; PHASE = idle (0)
+        ei
+        jp      SndDrv_Idle              ; back to the idle loop
 
 ; --- SKIP path: ring full. Skip the ROM read; burn EXACTLY 183 cyc so the ---
 ; --- iteration equals FILL. (Pure pad, register-clobber-safe: a,b dead.)   ---
@@ -644,6 +720,7 @@ Snd_StartSample:
 
         ld      a, 1
         ld      (SND_STAT_DAC_ACTIVE), a ; arm streaming (idle loop jumps in)
+        ld      (SND_DAC_PHASE), a       ; PHASE = 1 (playing) — two-stage stop SM
         ; --- restore the DAC consumer's invariants for BOTH call contexts:
         ; re-park reg $2A on $4000, and de = $4001 (the streaming-loop DATA port).
         ld      a, SND_REG_DAC_DATA
@@ -1144,8 +1221,8 @@ FmPatchInlineTable_End:
 ; sound_constants.asm). For 1C, id 1 = the temp_blip; its bank/ptr/len are the
 ; build-time SND_BLIP_* constants (from data/sound/dac_samples.asm), so an INLINE
 ; descriptor in the Z80 blob needs no banking to read. rate/loop_ofs are 0 (the
-; 1B FILL loop drives the rate via the loop trip-time, and re-triggers each $E2 —
-; the FILL-exhaust restart still uses SND_BLIP_PTR/LEN, matching id 1).
+; 1B FILL loop drives the rate via the loop trip-time). One-shot: the producer
+; now exhausts into DRAINING_TAIL (no FILL re-loop), so the sample plays once.
 ; ds_table = 0 (sharp-transient table, index 0 of NUM_DELTA_TABLES).
 DacSampleTable:
         ; id 1 = temp_blip
