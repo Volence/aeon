@@ -220,18 +220,38 @@ read — the FILL producer's `ld c,(hl)`.
 sample bank persists and every channel sequenced after the `$E2` reads sample bytes as
 fnum/patch/table/opcode data — garbage notes. Master is safe today only because no song fires `$E2`.
 
-**Fix — two brackets, both cheap (SetBank is cached):**
+**The full window-read inventory** (every operation that reads the `$8000` window, and the bank it
+needs): (a) the Timer-A frame — song channels read stream/patches/pitch/tables **and** the SFX
+channels (`Sfx_Frame`, run inside `Sequencer_Frame`) read their blobs, all **co-located in the song
+bank** (SFX blobs share the song's bank — verified) → **SONG bank**; (b) the DAC FILL producer →
+**SAMPLE bank**; (c) the ISR `SndDrv_PollMailbox` — `SfxDispatch` reads an SFX blob and `Snd_LoadSong`
+reads a new song, both via the window (and `SfxDispatch` SetBanks and *leaves it set*) → **SONG
+bank**. So the window must hold the song bank for every frame and every ISR blob read, and the sample
+bank for every FILL.
 
-- **B2 (`Snd_StartSample`):** do **not** latch the sample bank. Just `ld (SND_ROM_BANK),a` (stash
-  it) and return. Bracket B1 owns every window latch. (Removes the redundant latch entirely.)
-- **B1 (`Run_SeqFrame_OnSongBank` helper, brackets *both* tick paths):**
-  `SetBank(SND_SONG_BANK)` → `call Sequencer_Frame` → `SetBank(SND_ROM_BANK)`. Used by **both**
-  `SndDrv_TimerATick` (DAC-active path) **and** `SndDrv_IdleTick` (idle path). The idle path needs
-  it too: after a sample exhausts, the window is left on the sample bank; the next idle-tick frame
-  would otherwise read the song streams on the wrong bank. Keep B1 unconditional — the cache makes
-  the all-same-bank idle case free.
+**Fix — four brackets, all cheap (SetBank is cached → no-op when banks coincide):**
 
-**Guarantees:** every sequencer frame runs on the song bank; FILL always runs on the sample bank.
+- **B1 (`Run_SeqFrame_OnSongBank`, brackets *both* tick paths):** `SetBank(SND_SONG_BANK)` →
+  `call Sequencer_Frame` → `SetBank(SND_ROM_BANK)`. Used by **both** `SndDrv_TimerATick` (streaming)
+  **and** `SndDrv_IdleTick` (idle): after a sample exhausts the window is left on the sample bank, so
+  the next idle-tick frame would otherwise read the song streams on the wrong bank. Runs entirely
+  inside the loop's `di` window (no ISR race).
+- **B2 (`Snd_StartSample`):** do **not** latch the sample bank — `Snd_StartSample` reads no sample
+  ROM (it primes the ring with `$80`; the FILL producer reads ROM later). Just `ld (SND_ROM_BANK),a`
+  (stash) and return. Removes the redundant latch that caused the bug.
+- **B3 (`SndDrv_ISR`):** make the ISR **bank-transparent** — save `SND_CUR_BANK` on entry, restore it
+  via `SetBank` on exit (around `SndDrv_PollMailbox`). `SfxDispatch`/`Snd_LoadSong` still SetBank to
+  the song bank internally to read their blobs; B3 guarantees the pre-ISR bank (the **sample** bank
+  during DAC streaming) is restored on exit, so an SFX firing mid-drum can't strand the window on the
+  song bank and corrupt the next FILL. (A music-load resets the song anyway; the next frame's B1 sets
+  the new song bank.)
+- **B4 (`SndDrv_Idle` → streaming entry):** `SetBank(SND_ROM_BANK)` just before `jp SndDrv_Sample`,
+  so a sample armed via the mailbox `SND_REQ_SAMPLE` path (whose `Snd_StartSample` runs in the ISR,
+  bank-transparent under B3) still enters streaming on the sample bank. Cheap cached SetBank; a no-op
+  for the `$E2`-in-frame path (B1-post already latched it).
+
+**Guarantees:** every sequencer frame and every ISR blob read run on the song bank; FILL always runs
+on the sample bank.
 `SND_ROM_BANK` is seeded `= SND_SONG_BANK` at load, so for a **DAC-off song (e.g. MT)** both B1
 `SetBank`s are the song bank — cached no-ops, MT byte-identical. When `song bank == sample bank`,
 both `SetBank`s are cached no-ops. When they differ, the cost is up
@@ -343,7 +363,8 @@ decode). Live Z80 state probes via `emulator_z80_read`: `SND_ROM_PTR/LEN`, `SND_
   cleanly with no tail-garbage byte past the sample (validates the exact-zero exhaust).
 - **L3 shared-bank** — a song that streams from its own bank and fires `$E2`; **the music-channel
   corrcoef after the `$E2` is the gate** (proves brackets B1+B2; garbage-that-looks-audible guard).
-  **MT regression** must stay byte-identical (B1 touches the idle tick path MT uses).
+  **Fire an SFX mid-drum** and confirm both the SFX and the resumed music/drum are correct (proves
+  B3). **MT regression** must stay byte-identical (B1 touches the idle tick path MT uses).
 - **L4 codec A/B** — noise-shaped vs stock JMan2050 on snare `$81`; each vs its same-codec
   reference; noise-shaped ≥ stock on transient sharpness (4-10 kHz spectral centroid).
 - **L5 FM6** — fire `$E2` while FM6 holds a note; FM6 coasts (dedicate) or cleanly keys-off+returns
@@ -369,9 +390,11 @@ decode). Live Z80 state probes via `emulator_z80_read`: `SND_ROM_PTR/LEN`, `SND_
    Prove **L1** + **L4**.
 4. **FM6 dedicate.** Add `$B6=$C0` at start; gate the ch6 key-on while `DAC_ACTIVE` (advance
    bookkeeping); re-key on exhaust. Prove **L5** (dedicate path).
-5. **Shared-bank swap.** Brackets B2 (`Snd_StartSample` stash-only) + B1
-   (`Run_SeqFrame_OnSongBank`, both tick paths); add the both-brackets assert; author a DAC-on test
-   song streaming from its own bank firing `$E2` (tables co-located in its bank). Prove **L3**.
+5. **Shared-bank swap.** Brackets B1 (`Run_SeqFrame_OnSongBank`, both tick paths) + B2
+   (`Snd_StartSample` stash-only) + B3 (`SndDrv_ISR` bank-transparent) + B4 (`SndDrv_Idle` entry
+   latch); add the brackets-present assert; author a DAC-on test song streaming from its own bank
+   firing `$E2` (engine tables + SFX blobs co-located in its bank). Prove **L3** (incl. an SFX fired
+   mid-drum, per B3).
 6. **Raise DAC rate.** Prefix trim (`$2A` re-park on every `$4000`-touch path: ISR, Timer-A frame,
    `SetBank`) + ring re-derivation/widening; target ~18-20 kHz; verify correct-reg + steady cadence
    in Exodus; safe ~8.3 kHz fallback (retain the per-sample re-select). Prove **L6**.
@@ -399,8 +422,9 @@ decode). Live Z80 state probes via `emulator_z80_read`: `SND_ROM_PTR/LEN`, `SND_
 
 ## 9. Files touched (anticipated)
 
-- `engine/z80_sound_driver.asm` — state machine, decode FILL, two-stage exhaust, B1/B2 brackets,
-  `Snd_StartSample`, `SndDrv_TimerATick`/`SndDrv_IdleTick`, `DacSampleTable`, `DecTable`, FM6.
+- `engine/z80_sound_driver.asm` — state machine, decode FILL, two-stage exhaust, B1-B4 brackets,
+  `Snd_StartSample`, `SndDrv_TimerATick`/`SndDrv_IdleTick`, `SndDrv_ISR`, `SndDrv_Idle`,
+  `DacSampleTable`, `DecTable`, FM6.
 - `engine/sound_sequencer.asm` — ch6 voice-writer gate while `DAC_ACTIVE`.
 - `sound_constants.asm` — clean DAC state block, 9-byte `DacSample`, `NUM_DELTA_TABLES`, asserts.
 - `data/sound/dac_samples.asm` + new shared-bank layout in `main.asm` — co-located tables in the
