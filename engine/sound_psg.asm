@@ -122,8 +122,8 @@ Psg_EnvCursorReset:
 ; ----------------------------------------------------------------------
 PsgVolEnv_Resolve:
         ld      b, PSGVOLENV_COUNT
-        ld      hl, PsgVolEnv_Ids
-        ld      de, PsgVolEnv_Ptrs
+        ld      hl, PsgVolEnv_Ids        ; banked table; label = its $8000-window ptr (phase 08000h)
+        ld      de, PsgVolEnv_Ptrs       ; banked ptr array (entries are window ptrs, see below)
 .scan:
         cp      (hl)
         jr      z, .found
@@ -156,7 +156,7 @@ Psg_NoteOn:
         ld      l, a
         ld      h, 0
         add     hl, hl                   ; pitch*2 (word entries)
-        ld      de, PsgDivisorTableZ
+        ld      de, PsgDivisorTableZ     ; banked table; label = its $8000-window ptr (phase 08000h)
         add     hl, de
         ld      e, (hl)                  ; e = divisor low byte
         inc     hl

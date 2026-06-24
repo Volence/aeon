@@ -73,6 +73,10 @@ PsgVolEnvCtl_Rest    = 83h
 
 PsgVolEnv_Ids:    db 03h, 0Dh, 0Eh, 0Fh, 11h, 1Dh
 PsgVolEnv_Ids_End:
+; The bodies now live in the bank-aligned SoundTableBank block (main.asm), emitted
+; under `phase 08000h` so every label here EQUALS its Z80 $8000-window pointer. Each
+; dw therefore stores a window ptr, so the PsgVolEnv_Resolve dereference
+; (ld e,(hl)/inc/ld d,(hl)) reads the body through the window.
 PsgVolEnv_Ptrs:   dw PsgVolEnv_03, PsgVolEnv_0D, PsgVolEnv_0E, PsgVolEnv_0F, PsgVolEnv_11, PsgVolEnv_1D
 PsgVolEnv_Ptrs_End:
 

@@ -348,7 +348,7 @@ Fm_SetVolume:
         ; log attenuation delta from the inline LUT
         ld      l, a
         ld      h, 0
-        ld      de, LogVolumeLutZ
+        ld      de, LogVolumeLutZ        ; banked table; label = its $8000-window ptr (phase 08000h)
         add     hl, de
         ld      a, (hl)
         ld      (Fm_ScratchLog), a       ; stash log delta
@@ -393,7 +393,7 @@ Fm_SetVolume:
         push    hl                       ; save patch base
         ld      l, a
         ld      h, 0
-        ld      de, CarrierMaskTableZ
+        ld      de, CarrierMaskTableZ    ; banked table; label = its $8000-window ptr (phase 08000h)
         add     hl, de
         ld      a, (hl)                  ; a = 4-bit carrier mask
         ld      (Fm_ScratchMask), a
@@ -637,7 +637,7 @@ Fm_NoteFromTable:
         ld      a, h
         or      l
         jr      nz, .have_base
-        ld      hl, MovingTrucks_PitchTable
+        ld      hl, MovingTrucks_PitchTable   ; banked default table; label = its $8000-window ptr
 .have_base:
         ; --- $A4 = base[idx] ---
         add     hl, bc                   ; hl = &A4page[idx]
@@ -666,7 +666,7 @@ Fm_NoteOn:
         call    Fm_TransposeClamp        ; hl = clamped idx (0..FMPITCH_MAX_IDX, h=0)
         ; hl = &FmPitchTableZ[idx] = base + idx*2
         add     hl, hl                   ; idx*2 (word entries)
-        ld      de, FmPitchTableZ
+        ld      de, FmPitchTableZ        ; banked table; label = its $8000-window ptr (phase 08000h)
         add     hl, de
         ld      e, (hl)                  ; e = low  byte = $A0 value (fnum low)
         inc     hl

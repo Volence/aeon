@@ -693,7 +693,18 @@ SndDrv_SetBank:
 ; ======================================================================
 SndDrv_TimerATick:
         call    Snd_TimerA_Rearm         ; $27 = $15 (clear overflow, keep counting), re-park $2A
+        ; F5: point the $8000 window at the engine lookup-table bank for the WHOLE
+        ; Sequencer_Frame (every FM/PSG table read happens in that scope). The COPY
+        ; path keeps the song stream+patch in Z80 RAM, so the window is free here.
+        ; Save the live (DAC) bank, swap, run the frame, restore before the FILL
+        ; resumes. SndDrv_SetBank is cache-gated, so a same-bank restore is a no-op.
+        ld      a, (SND_CUR_BANK)        ; save the live (DAC) bank
+        ld      (Snd_SavedSeqBank), a
+        ld      a, SND_TABLE_BANK        ; point the $8000 window at the table bank
+        call    SndDrv_SetBank
         call    Sequencer_Frame          ; run one per-frame engine pass (clobbers af,bc,de,hl,ix)
+        ld      a, (Snd_SavedSeqBank)    ; restore the DAC bank before the FILL resumes
+        call    SndDrv_SetBank
         ; Sequencer_Frame clobbered b (and de). Restore the loop invariants the
         ; dispatch tail needs: de = $4001, and b = the lead (WR-RD)&$FF.
         ld      de, SND_Z80_YM_A1        ; restore de = $4001 (DAC DATA port invariant)
@@ -1105,26 +1116,17 @@ Snd_RouteClassFlags:
 ; ======================================================================
         include "engine/sound_psg.asm"
 
-; --- Inline Z80-addressable FM tables (GENERATED) ---
-; FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ — read by the FM writer with
-; direct Z80 addressing. Identical VALUES to the 68k ROM tables in
-; data/sound/sound_tables.asm (decision 1: inline for 1C, not banked).
-        include "engine/sound_tables_z80.asm"
-
-; --- Phase 3: engine-default per-song PITCH (fnum) table (GENERATED) ---
-; The exact Zyrinx Moving-Trucks 132-entry chromatic fnum table, TWO parallel
-; pages (A4 page then A0 page; see sound_constants.asm PITCHTAB_*). Included
-; INSIDE the phase-0 blob so Fm_NoteFromTable reads it with direct Z80 addressing.
-; It is the ENGINE-DEFAULT table: Fm_NoteFromTable uses Snd_PitchTabPtr when the
-; song header sets a per-song table, else falls back to this label. (A per-song
-; table would be referenced via the header's pitchtable_ptr; the scratch test song
-; sets pitchtable_ptr=0 and so uses THIS default.)
-        include "data/sound/movingtrucks_pitchtable.asm"
-
-        ; the two-page layout the engine indexes MUST match PITCHTAB_COUNT.
-        if (MovingTrucks_PitchTable_End - MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT
-          fatal "MovingTrucks_PitchTable wrong size: \{MovingTrucks_PitchTable_End - MovingTrucks_PitchTable} != \{2*PITCHTAB_COUNT}"
-        endif
+; --- Engine-default FM/PSG tables + per-song PITCH table (BANKED, F5 recovery) ---
+; FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ / PsgDivisorTableZ /
+; PsgVolEnv_* and the engine-default MovingTrucks_PitchTable USED to be included
+; INSIDE this phase-0 blob. They now live in the bank-aligned SoundTableBank block
+; (main.asm), read through the Z80 $8000 window with ONE bank swap per
+; Sequencer_Frame (see SndDrv_TimerATick). That block is emitted under `phase
+; 08000h`, so every table label EQUALS its $8000-window pointer; the FM/PSG voice
+; writers reference the bare labels directly. This recovered ~998 bytes of code
+; headroom in the blob. (The MovingTrucks_PitchTable two-page size assertion now
+; lives at that bank block in main.asm, where the labels are defined — a blob `if`
+; over those forward-referenced labels can't evaluate in AS's 1st pass.)
 
 ; --- Inline FM patch table (Z80-addressable) ---
 ; Fm_PatchPtr indexes this by sc_patch (TEMP for 1C — Task 6 switches to the
