@@ -48,3 +48,33 @@ def encode_dpcm(samples, table_index=None, seed=0x80):
         if best is None or score > best[2]:
             best = (packed, ti, score)
     return best[0], best[1]                                 # (packed_bytes, table_index)
+
+def _read_wav_u8(path):
+    import wave
+    w = wave.open(path, 'rb')
+    assert w.getsampwidth() == 1 and w.getnchannels() == 1, "expect 8-bit mono wav"
+    n = w.getnframes(); rate = w.getframerate()
+    data = np.frombuffer(w.readframes(n), dtype=np.uint8).astype(np.int32)  # unsigned 8-bit, centered 128
+    w.close()
+    return data, rate
+
+def _resample_linear(samples, src_rate, dst_rate):
+    if dst_rate == src_rate:
+        return samples
+    n_out = max(1, round(len(samples) * dst_rate / src_rate))
+    xs = np.linspace(0, len(samples) - 1, n_out)
+    return np.interp(xs, np.arange(len(samples)), samples).round().astype(np.int32)
+
+if __name__ == "__main__":
+    import sys, argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("wav"); ap.add_argument("dpcm")
+    ap.add_argument("--rate", type=int, default=0, help="resample to this Hz (0 = native, no resample)")
+    ap.add_argument("--table", type=int, default=None, help="force a delta-table index (default: auto-select)")
+    a = ap.parse_args()
+    samples, src_rate = _read_wav_u8(a.wav)
+    if a.rate:
+        samples = _resample_linear(samples, src_rate, a.rate)
+    packed, ti = encode_dpcm(samples, table_index=a.table)
+    open(a.dpcm, "wb").write(packed)
+    print(f"{a.dpcm}: table={ti} samples={len(samples)} dpcm_bytes={len(packed)} src_rate={src_rate}")

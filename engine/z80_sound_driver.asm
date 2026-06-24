@@ -1245,6 +1245,15 @@ DacSampleTable_End:
           fatal "DacSampleTable wrong size for DAC_SAMPLE_COUNT"
         endif
 
+; --- DPCM decode tables (INLINE = Z80-addressable, bank-free; read every FILL via
+; iy). MUST NOT live in the $8000 window (that holds the sample payload during FILL).
+DecTable:
+        include "data/sound/dac_dectable.asm"
+DecTable_End:
+        if (DecTable_End-DecTable) <> NUM_DELTA_TABLES*16
+          fatal "DecTable wrong size for NUM_DELTA_TABLES"
+        endif
+
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise
         ; then does word/long (a5)+ reads on the data that follows; an odd-length
         ; blob leaves a5 on an odd address -> 68000 address error at boot.
