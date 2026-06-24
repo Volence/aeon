@@ -58,18 +58,25 @@ This is the engine side of "DAC-format revision" (DEFERRED_WORK items E2/E3). Bu
   DPCM and BTC (quality losers, ROM-starvation fallbacks only); runtime multi-voice mixing
   (doubles ROM bandwidth, breaks constant-cost — simultaneous drums are done as **offline
   pre-mixed composites** instead). Raw 8-bit PCM is the fidelity *reference*, not the payload.
-- **DAC rate → raise toward ~18-20 kHz, this phase, gated on real-hardware confirmation.** 8948 Hz
-  is the loop trip-time, ~3× below the proven ceiling (Echo 10.6k, XGM2 13.3k, MegaPCM 20-32k,
-  Kabuto/Overdrive 2 stable ~26k). At 8948 Hz, Nyquist ≈4.5 kHz discards the 4-10 kHz band where
-  drum punch lives. **Coupling caveat (load-bearing):** the decoder makes the loop *heavier*
-  (~+30 cyc → ~8.3 kHz), while raising the rate means *trimming the prefix* — and the biggest trim
-  (the per-sample `$2A` re-select) **fixed a real wrong-register bug**, so it is HW-risky.
-  Therefore decode and rate are **built and verified as two separate steps**, and the rate raise
-  is gated on the user's real-hardware confirmation, with the safe ~8.3 kHz as the fallback.
+- **DAC rate → raise toward ~18-20 kHz, this phase, verified in the Exodus/`oracle` emulator.**
+  8948 Hz is the loop trip-time, ~3× below the proven ceiling (Echo 10.6k, XGM2 13.3k, MegaPCM
+  20-32k, Kabuto/Overdrive 2 stable ~26k). At 8948 Hz, Nyquist ≈4.5 kHz discards the 4-10 kHz band
+  where drum punch lives. **Coupling caveat (load-bearing):** the decoder makes the loop *heavier*
+  (~+30 cyc → ~8.3 kHz), while raising the rate means *trimming the prefix*. The biggest trim — the
+  per-sample `$2A` re-select — historically fixed a real wrong-register bug, but that bug was the
+  address latch being clobbered by the ISR / `Sequencer_Frame` (which write `$4000`), **not a
+  hardware quirk**: by documented YM2612 behavior the latch holds across pure data writes (`$4001`).
+  The precise fix is to **re-park `$2A` in every path that touches `$4000`** (ISR, Timer-A frame,
+  `SetBank`) and drop the per-sample re-select. The original bug was observed in Exodus, so Exodus is
+  a valid venue to verify the trim (correct-reg + steady `$2A` cadence + cross-correlation). **No
+  real hardware is available**; real-HW confirmation is a future nicety, not a blocker. **Conservative
+  fallback:** if Exodus shows any wrong-reg behavior, keep the per-sample re-select and accept a more
+  modest rate. Decode and rate are still built and verified as two separate steps.
 
 ### 2.3 Deliberately left open (designed-for, not built in v1)
 
-- FM6 adaptive-vs-dedicate final default (ship dedicate; wire adaptive behind a per-song flag).
+- Both FM6 modes are **built this phase**; the per-song flag selects dedicate vs adaptive (default =
+  dedicate until adaptive is exercised by real content).
 - The exact target rate within ~16-22 kHz (HW-measured in the rate-raise layer).
 - Block-adaptive DDPCM (a 3-bit table selector + 1-bit predictor flag per block, still a single
   constant-cost lookup) — the aspirational ceiling above per-sample table selection; the format
@@ -259,11 +266,14 @@ that step.
 
 After the decoder ships at ~8.3 kHz, raise the loop toward ~18-20 kHz as an independent change:
 
-- **Prefix trim:** drop the per-sample `$2A` re-select (rely on the latch; re-select only after
-  `$4000` is touched by the ISR/SetBank) and amortize the K=30 Timer-A poll across N passes.
-  **HW-RISK:** the re-select fixed a real wrong-register bug ("the data was landing on the wrong
-  reg otherwise") — so this is **re-verified on real hardware** before adoption; the safe ~8.3 kHz
-  is the fallback if HW disagrees.
+- **Prefix trim:** drop the per-sample `$2A` re-select. The latch holds across pure data writes
+  (`$4001`) by documented YM2612 behavior; it was being clobbered by the ISR and `Sequencer_Frame`
+  (which write `$4000`). The precise fix: **re-park `$2A` on exit of every path that touches
+  `$4000`** — the VBlank ISR (`SndDrv_PollMailbox`), the Timer-A frame, and `SndDrv_SetBank` — then
+  the steady-state consumer needs no per-sample re-select. Verify correct-reg in Exodus (the venue
+  that caught the original bug). Optionally also amortize the K=30 Timer-A poll, but **only if it
+  stays cycle-balanced** (a periodic poll would jitter the rate — pad or skip uniformly).
+  **Fallback:** if any wrong-reg shows in Exodus, retain the per-sample re-select and a modest rate.
 - **Re-balance** `SkipPad`/`DrainPad` to the shorter FILL; `SND_LOOP_CYC` and `SND_DAC_RATE_HZ`
   follow.
 - **DMA-survival re-derivation:** the ~250-byte ring lead is a *wall-clock* budget — ~28 ms at
@@ -338,8 +348,9 @@ decode). Live Z80 state probes via `emulator_z80_read`: `SND_ROM_PTR/LEN`, `SND_
   reference; noise-shaped ≥ stock on transient sharpness (4-10 kHz spectral centroid).
 - **L5 FM6** — fire `$E2` while FM6 holds a note; FM6 coasts (dedicate) or cleanly keys-off+returns
   (adaptive) with `$2A` passing through `$80` at both edges.
-- **L6 rate** — `$2A` cadence steady at the new rate; MT regression unchanged; ring-lead survives
-  worst-case DMA at the new rate; **real-hardware confirmation of the `$2A`-latch trim**.
+- **L6 rate** — `$2A` cadence steady at the new rate; **correct-reg verified in Exodus** (the venue
+  that caught the original wrong-reg bug); MT regression unchanged; ring-lead survives worst-case DMA
+  at the new rate. No real hardware available — real-HW confirmation is a future nicety.
 
 ---
 
@@ -361,10 +372,12 @@ decode). Live Z80 state probes via `emulator_z80_read`: `SND_ROM_PTR/LEN`, `SND_
 5. **Shared-bank swap.** Brackets B2 (`Snd_StartSample` stash-only) + B1
    (`Run_SeqFrame_OnSongBank`, both tick paths); add the both-brackets assert; author a DAC-on test
    song streaming from its own bank firing `$E2` (tables co-located in its bank). Prove **L3**.
-6. **Raise DAC rate (HW-gated).** Prefix trim + ring re-derivation/widening; target ~18-20 kHz;
-   real-hardware confirmation of the `$2A`-latch trim; safe ~8.3 kHz fallback. Prove **L6**.
-7. **Adaptive FM6 (per-song flag)** + optional offline pre-mixed composite one-shots (simultaneous
-   kick+snare). Prove **L5** (adaptive path).
+6. **Raise DAC rate.** Prefix trim (`$2A` re-park on every `$4000`-touch path: ISR, Timer-A frame,
+   `SetBank`) + ring re-derivation/widening; target ~18-20 kHz; verify correct-reg + steady cadence
+   in Exodus; safe ~8.3 kHz fallback (retain the per-sample re-select). Prove **L6**.
+7. **Adaptive FM6 (per-song flag).** The Echo-style toggle (key-off + DC-center + `$2B`, re-key on
+   exhaust) behind a per-song flag; **in scope this phase**. (Optional north-star: offline pre-mixed
+   composite one-shots for simultaneous kick+snare.) Prove **L5** (adaptive path).
 
 ---
 
@@ -373,8 +386,10 @@ decode). Live Z80 state probes via `emulator_z80_read`: `SND_ROM_PTR/LEN`, `SND_
 - **Bank-swap correctness is the highest-risk area** ("multi-bank contention is where the bugs
   live"). Mitigated by the explicit B1/B2 brackets, the both-brackets assert, and the
   music-channel-corrcoef gate (not drum-only).
-- **Rate-raise HW risk** (the `$2A`-latch trim fixed a real bug): isolated to Layer 6, gated on
-  real-hardware confirmation, with a clean fallback to ~8.3 kHz.
+- **Rate-raise residual risk** (no real hardware to confirm on): the `$2A`-latch trim relies on
+  documented YM2612 latch-holds behavior and is verified in Exodus (which caught the original
+  wrong-reg bug), but Exodus is not a perfect YM2612 model. Isolated to Layer 6, with a clean
+  fallback to retaining the per-sample re-select at a modest rate.
 - **DMA-survival shrinks with rate:** re-derived in Layer 6; deepen the ring (and widen the pointer
   scheme) if needed.
 - **False-positive verification:** every gate is rendered-audio cross-correlation vs a same-codec
