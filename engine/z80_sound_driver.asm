@@ -681,25 +681,30 @@ Snd_StartSample:
         ld      a, SND_REG_DAC_DATA
         ld      (SND_Z80_YM_A0), a       ; $4000 = $2A (re-park addr port on DAC DATA)
         pop     hl                       ; hl = descriptor base
-        ; --- bank + stream pointers from the descriptor (ds_* offsets) ---
+        ; --- Read ALL descriptor fields BEFORE banking. SndDrv_SetBank CLOBBERS hl
+        ; (it loads hl=SND_CUR_BANK, then hl=$6000); calling it first and then re-
+        ; using hl as the descriptor base reads ds_ptr/ds_length off the $6000 bank-
+        ; register region (floating garbage) -> runaway sample. (Latent since 1B: the
+        ; sample-load path was never verified end-to-end until the DAC drum phase.) ---
         ld      a, (hl)                  ; ds_bank (+0)
-        call    SndDrv_SetBank           ; $6000 latch only (DMA-safe)
+        ld      (SND_ROM_BANK), a        ; stash the sample bank (banked in below)
         push    hl
-        ld      de, DacSample_ds_ptr     ; +2
+        ld      de, DacSample_ds_ptr     ; +3
         add     hl, de
         ld      e, (hl)
         inc     hl
         ld      d, (hl)                  ; de = ds_ptr (window ptr)
         ld      (SND_ROM_PTR), de
         pop     hl
-        push    hl
-        ld      de, DacSample_ds_length  ; +4
+        ld      de, DacSample_ds_length  ; +5
         add     hl, de
         ld      e, (hl)
         inc     hl
         ld      d, (hl)                  ; de = ds_length
         ld      (SND_ROM_LEN), de
-        pop     hl
+        ; bank the sample in now that hl (descriptor base) is no longer needed.
+        ld      a, (SND_ROM_BANK)
+        call    SndDrv_SetBank           ; $6000 latch only (DMA-safe)
 
         ; Reset ring pointers + prime the lead. To avoid a start underrun WITHOUT
         ; reading ROM (which could land mid-DMA in the ISR context), we set WR
@@ -736,6 +741,8 @@ Snd_StartSample:
 ; writes. We cache the last bank in SND_CUR_BANK and skip the 9 writes when the
 ; requested bank already matches. `a` = (sample_addr & $7F8000) >> 15. Touches
 ; the $6000 latch only — NEVER ROM — so it is DMA-safe.
+; CLOBBERS af AND hl (hl ends at SND_CUR_BANK on the cached-no-op path, or $6000
+; otherwise) — callers MUST NOT rely on hl surviving this call.
 ; ======================================================================
 SndDrv_SetBank:
         ld      hl, SND_CUR_BANK
