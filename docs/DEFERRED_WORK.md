@@ -1118,6 +1118,24 @@ warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 
 ## From Sound Driver Work (Future)
 
+### Music-expression Task 0 (Z80 code recovery) — follow-ups — 2026-06-24
+Task 0 recovered Z80 code headroom (2 → ~1016 B) by **co-locating** the engine lookup tables
+at the start of Moving Trucks' streamed ROM bank (window `$8000`), read with the song bank
+already in the window — no swap. SFX is covered (its blobs share MT's bank). Verified: MT
+renders == pre-banking baseline. Merged on `feat/sound-task0-recovery`. Two follow-ups:
+- **Bank-D (DAC) co-location hook — for the first real COPY / FM6=DAC-drum song.** COPY songs
+  run with the **DAC sample bank** in the window during their frame, which lacks the tables.
+  When a real drum song is authored, emit a **label-free data-only copy** of the engine tables
+  at the DAC sample bank start (`main.asm`, after `dac_samples.asm`'s `align $8000`) — needs a
+  small generator tweak (`gen_sound_tables.py` + `zyrinx_player.py` to emit a data-only twin,
+  since the labels are defined once in MT's bank). The Phase-3 scratch COPY test songs (id 1–5)
+  were dropped, so nothing needs this today. The banking model (tables at bank-start in whatever
+  bank the window holds) is the general rule; this is just the COPY instance.
+- **Dead 68k table copies.** With the scratch COPY songs gone, `data/sound/fm_patches.asm`
+  (`FmPatchTable`) and `data/sound/sound_tables.asm` (the 68k duplicate of the Z80 tables) are
+  now **wholly unreferenced** (the runtime uses the Z80 copies). Candidate for removal — left in
+  this pass to keep Task 0 scoped to recovery.
+
 > **Driver note:** the engine ships a **from-scratch custom Z80-autonomous sound driver**
 > (2026-06-16 master sound spec), NOT an imported Flamedriver. Plans **1A** (foundations),
 > **1B** (DMA-survival DAC), **1C** (FM+PSG sequencer), **1D** (Moving Trucks FM infra), and

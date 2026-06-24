@@ -245,25 +245,37 @@ FM vol-env "for free" via the shared `sc_env` slot (SFX already had `sc_psgenv` 
 becomes the unified `sc_env`; SfxChannel grows correspondingly; verify it stays < `$1F00`).
 Exact offset layout finalized in the plan.
 
-### 9.2 Data-region rework (clean, contained)
-The channel array (`$1808`) is capped at the trace ring (`$1A00`), but `$1A20–$1AFF`
-(224 B, between the 32-B trace ring and the song buffer at `$1B00`) is **unused**. Fix:
-make the trace-ring base **track `SND_SEQ_END`** (the way `SND_FM_SCRATCH` already does,
-`sound_constants.asm:964`) so the array grows into that gap. `$1808` + 11×56 (= `$1A20`) +
-~18 B scratch/saved-state + 32-B trace lands ≈ `$1A54`, well under the `$1B00` song buffer
-(~170 B margin). One boundary moves; no page-align juggling. Build asserts updated.
+### 9.2 Data-region rework (clean, contained) — ✅ DONE
+The channel array (`$1808`) is capped at the trace ring (`$1A00`). Made the trace-ring base
+**track the end of the seq-RAM block** (`SND_SEQ_TRACE = (Snd_SpindashRev + 1 + $FF) & $FF00`)
+so a future per-channel struct growth slides the trace ring up into the currently-unused
+`$1A20–$1AFF` gap automatically. **Critical:** the DEBUG trace writer builds the ring address
+as `ld h,SND_SEQ_TRACE>>8 / ld l,wr`, so the ring MUST stay **page-aligned** — the formula
+rounds up to the next `$100` boundary (with current sizes it lands back on `$1A00`, fully
+behavior-preserving). Asserts added: ring page-aligned, and `ring + len ≤ SND_SONG_BUF`.
 
-### 9.3 Code-space recovery (audit F5)
-The Z80 code blob is tight (~118 B headroom to `$16F0`, audit 2026-06-21; DEBUG less). The
-new code (~hundreds of bytes) needs room. Bank the big hot inline tables (`LogVolumeLutZ`
-256 B, `FmPitchTableZ` ~264 B, per-song pitch table, `PsgDivisorTableZ` ~190 B ≈ 700–900 B)
-into a ROM **`$8000` window**, read via **one bank swap per `Sequencer_Frame`** (save DAC
-bank → process all channels' table reads → restore — *not* per-note, so cheap; all banked
-tables grouped in one ROM bank). Frees ~700–900 B — ample. This was already a roadmap
-prerequisite "before 5b/FM6," pulled forward here.
+### 9.3 Code-space recovery (F5) — ✅ DONE via **CO-LOCATION** (not a swap)
+**Measured (DEBUG): only 2 bytes free** to `$16F0` — F5 was mandatory. The original plan
+(separate table bank + one bank-swap per `Sequencer_Frame`) **failed**: Moving Trucks is a
+**STREAM-path song** (FM6=FM) — it reads its stream/patch/pitch *through the `$8000` window
+every frame*, so the window can't also hold a separate table bank (proved: corrupted→silent).
+**The window can't be COPY-assumed.**
 
-> **Build first, confirm headroom:** the ~118 B is the audit's number; re-measure
-> `Z80_SOUND_SIZE` on current master before sizing the recovery.
+**What shipped instead — co-location:** the engine lookup tables (`FmPitchTableZ`,
+`PsgDivisorTableZ`, `LogVolumeLutZ`, `CarrierMaskTableZ`, `PsgVolEnv_*`, engine-default
+`MovingTrucks_PitchTable`) are emitted at the **START of MT's own streamed bank** (window
+`$8000`, under `cpu z80 / phase 08000h` so the labels equal their window pointers). During
+MT's frame the window is already on MT's bank, so table reads + stream/patch/pitch reads all
+hit the same bank — **no swap, zero runtime cost**. SFX is covered for free (its blobs share
+MT's bank). **Result: headroom 2 → ~1016 B.** Verified: MT renders == pre-banking baseline
+within capture variance (same-rom control r=0.992; MT-vs-baseline r=0.996).
+
+> **Banking model (the general rule):** put the engine tables at bank-start in whatever bank
+> the window holds during a frame. STREAM songs + their SFX → done (one shared bank). COPY /
+> FM6=DAC-drum songs run with the DAC sample bank in the window — they need a label-free
+> data-only copy of the tables emitted at the DAC bank start too. **Deferred** (no COPY songs
+> exist — the Phase-3 scratch COPY test songs were dropped); a one-include hook for the first
+> real DAC-drum song. See DEFERRED_WORK.
 
 ### 9.4 Daemon caution
 `tools/ojz_strip_gen.py` and `data/editor/` are auto-commit-daemon-watched — not touched by
