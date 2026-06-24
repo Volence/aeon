@@ -1176,4 +1176,4 @@ SH_F_STREAM     = 1<<SH_F_STREAM_B
 ; blip; the table is an INLINE descriptor in the Z80 blob (the blip's bank/ptr/len
 ; are build-time constants — no banking needed to read it). DAC_SAMPLE_COUNT is
 ; asserted against the table size in the blob.
-DAC_SAMPLE_COUNT = 1
+DAC_SAMPLE_COUNT = 4

@@ -1239,6 +1239,27 @@ DacSampleTable:
         dw      SND_BLIP_PTR             ; ds_ptr (little-endian dw)
         dw      SND_BLIP_LEN             ; ds_length
         dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
+        ; id 2 = kick
+        db      SND_KICK_BANK            ; ds_bank
+        db      0                        ; ds_rate (reserved)
+        db      0                        ; ds_table (sharp-transient)
+        dw      SND_KICK_PTR             ; ds_ptr
+        dw      SND_KICK_LEN             ; ds_length
+        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
+        ; id 3 = snare
+        db      SND_SNARE_BANK           ; ds_bank
+        db      0                        ; ds_rate (reserved)
+        db      0                        ; ds_table (sharp-transient)
+        dw      SND_SNARE_PTR            ; ds_ptr
+        dw      SND_SNARE_LEN            ; ds_length
+        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
+        ; id 4 = hat
+        db      SND_HAT_BANK             ; ds_bank
+        db      0                        ; ds_rate (reserved)
+        db      0                        ; ds_table (sharp-transient)
+        dw      SND_HAT_PTR              ; ds_ptr
+        dw      SND_HAT_LEN              ; ds_length
+        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
 DacSampleTable_End:
 
         if (DacSampleTable_End-DacSampleTable) <> DAC_SAMPLE_COUNT*DacSample_len

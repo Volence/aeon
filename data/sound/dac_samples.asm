@@ -36,3 +36,39 @@ SND_BLIP_LEN            = Dac_Temp_Blip_End - Dac_Temp_Blip
         if (SND_BLIP_LEN & 1) <> 0
           fatal "DAC sample length (\{SND_BLIP_LEN}) must be EVEN (FILL decrements by 2, tests ==0)"
         endif
+
+; ======================================================================
+; Shared DPCM drum payload bank (Task 2.3)
+; All three drums are packed into one $8000-aligned bank so a single bank
+; id covers the whole region and FILL never re-banks mid-sample.
+; ds_length is the PACKED .dpcm byte count; the decode FILL uses `len -= 1`
+; so odd lengths are valid here (no even-length assert for DPCM samples).
+; ======================================================================
+        align   $8000
+Dac_SharedBank_Start:
+Dac_Kick:
+        BINCLUDE "data/sound/dac/kick.dpcm"
+Dac_Kick_End:
+Dac_Snare:
+        BINCLUDE "data/sound/dac/snare.dpcm"
+Dac_Snare_End:
+Dac_Hat:
+        BINCLUDE "data/sound/dac/hat.dpcm"
+Dac_Hat_End:
+
+        ; No sample may straddle a 32KB window boundary (FILL never re-banks mid-sample).
+        if (Dac_Kick >> 15) <> ((Dac_Hat_End-1) >> 15)
+          fatal "shared DAC bank crosses a 32KB boundary"
+        endif
+
+SND_KICK_BANK   = (Dac_Kick  & $7F8000) >> 15
+SND_KICK_PTR    = (Dac_Kick  & $7FFF) | $8000
+SND_KICK_LEN    = Dac_Kick_End  - Dac_Kick
+
+SND_SNARE_BANK  = (Dac_Snare & $7F8000) >> 15
+SND_SNARE_PTR   = (Dac_Snare & $7FFF) | $8000
+SND_SNARE_LEN   = Dac_Snare_End - Dac_Snare
+
+SND_HAT_BANK    = (Dac_Hat   & $7F8000) >> 15
+SND_HAT_PTR     = (Dac_Hat   & $7FFF) | $8000
+SND_HAT_LEN     = Dac_Hat_End  - Dac_Hat
