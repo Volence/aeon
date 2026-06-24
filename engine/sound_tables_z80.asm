@@ -73,7 +73,7 @@ PsgVolEnvCtl_Rest    = 83h
 
 PsgVolEnv_Ids:    db 03h, 0Dh, 0Eh, 0Fh, 11h, 1Dh
 PsgVolEnv_Ids_End:
-; The bodies now live in the bank-aligned SoundTableBank block (main.asm), emitted
+; The bodies now live at the start of Moving Trucks' streamed bank (main.asm), emitted
 ; under `phase 08000h` so every label here EQUALS its Z80 $8000-window pointer. Each
 ; dw therefore stores a window ptr, so the PsgVolEnv_Resolve dereference
 ; (ld e,(hl)/inc/ld d,(hl)) reads the body through the window.

@@ -129,28 +129,30 @@ SongPatchTable_End:
         ; Song_MovingTrucks is NOT buffer-asserted above: it STREAMS from ROM (T3,
         ; SH_F_STREAM) and never passes through the fixed copy-path SND_SONG_BUF.
 
-        ; --- Sound Phase 3 Task 8: the Moving Trucks STREAMING block (song stream +
-        ; per-song pitch table + FmPatch bank) must fit in ONE 32KB bank so a single
-        ; SetBank covers every sequencer ROM read (the loader holds that one bank for
-        ; the whole DAC-off song). The block is Song_MovingTrucks .. MovingTrucks_-
-        ; Patches_End, placed contiguously after one `align $8000` in main.asm.
-        ; Assert it does NOT cross a 32KB bank boundary (top byte in the same 32KB
-        ; bank as the start). Combined size is ~14.9KB song + 264B pitch table +
-        ; 858B patches ~= 16KB << 32KB, so the align guarantees it — this catches any
-        ; future growth or accidental reordering. The per-channel stream offsets, the
-        ; header pitchtable_ptr offset, and the patch-bank window ptr are all
-        ; bank-window-relative (window_base = (addr & $7FFF) | $8000), which holds
-        ; iff no boundary cross.
-        if (Song_MovingTrucks >> 15) <> ((MovingTrucks_Patches_End-1) >> 15)
-          fatal "Moving Trucks streaming block (song+pitchtable+patches, \{MovingTrucks_Patches_End-Song_MovingTrucks} bytes) crosses a 32KB bank boundary — one SetBank can't cover it. Keep Song_MovingTrucks bank-aligned (align $8000) with the pitch table + patch bank contiguous."
+        ; --- Sound Phase 3 Task 8 + F5 co-location: the Moving Trucks STREAMING block
+        ; must fit in ONE 32KB bank so a single SetBank covers every sequencer ROM read
+        ; (the loader holds that one bank for the whole DAC-off song). The F5 redo puts
+        ; the engine lookup tables at the START of this same bank, so the block now runs
+        ; MovingTrucks_Bank_Start (tables) .. MovingTrucks_Patches_End (song stream +
+        ; per-song pitch table + FmPatch bank), placed contiguously after one
+        ; `align $8000` in main.asm. MT reads tables AND its own stream through the SAME
+        ; banked $8000 window — no swap. Assert it does NOT cross a 32KB bank boundary
+        ; (top byte in the same 32KB bank as the bank start). Combined size is ~1KB
+        ; tables + ~14.9KB song + 264B pitch table + 858B patches ~= 17KB << 32KB, so
+        ; the align guarantees it — this catches any future growth or reordering. The
+        ; table labels, the per-channel stream offsets, the header pitchtable_ptr
+        ; offset, and the patch-bank window ptr are all bank-window-relative
+        ; (window_base = (addr & $7FFF) | $8000), which holds iff no boundary cross.
+        if (MovingTrucks_Bank_Start >> 15) <> ((MovingTrucks_Patches_End-1) >> 15)
+          fatal "Moving Trucks streaming block (tables+song+pitchtable+patches, \{MovingTrucks_Patches_End-MovingTrucks_Bank_Start} bytes) crosses a 32KB bank boundary — one SetBank can't cover it. Keep MovingTrucks_Bank_Start bank-aligned (align $8000) with tables + song + pitch table + patch bank contiguous."
         endif
-        ; The streaming song's whole window region must also stay below the $8000-
+        ; The streaming block's whole window region must also stay below the $8000-
         ; window top (so window_base + any per-channel offset / the pitchtable offset
         ; stays a valid window address, never wrapping past $FFFF). With bank-
         ; alignment (addr & $7FFF)=0 this is automatic, but assert it against future
         ; placement changes.
-        if ((MovingTrucks_Patches_End-1) & $7FFF) < (MovingTrucks_Patches_End-1 - Song_MovingTrucks)
-          fatal "Moving Trucks streaming block extends past the $8000-window top — not bank-aligned? Keep `align $8000` before Song_MovingTrucks."
+        if ((MovingTrucks_Patches_End-1) & $7FFF) < (MovingTrucks_Patches_End-1 - MovingTrucks_Bank_Start)
+          fatal "Moving Trucks streaming block extends past the $8000-window top — not bank-aligned? Keep `align $8000` before MovingTrucks_Bank_Start."
         endif
 
         align 2

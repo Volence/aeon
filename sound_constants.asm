@@ -996,15 +996,8 @@ Snd_PitchTabPtr    = Snd_SongBase + 2            ; 2 bytes: per-song pitch table
 ; byte in the free seq block below the trace ring.
 Snd_SpindashRev    = Snd_PitchTabPtr + 2          ; 1 byte: escalating spindash transposition
 
-; F5: the live (DAC) bank saved across the per-frame engine-table bank swap.
-; SndDrv_TimerATick stashes SND_CUR_BANK here, banks in SND_TABLE_BANK for the
-; whole Sequencer_Frame (all FM/PSG table reads happen in that scope), then
-; restores from here before the DAC FILL resumes. 1 byte at the END of the free
-; seq block (keeps the established Snd_* offsets stable); below the trace ring.
-Snd_SavedSeqBank   = Snd_SpindashRev + 1          ; 1 byte: bank saved across the table swap
-
-    if (Snd_SavedSeqBank + 1) > SND_SEQ_TRACE
-      fatal "Snd_SavedSeqBank (\{Snd_SavedSeqBank}) runs into the trace ring at \{SND_SEQ_TRACE}"
+    if (Snd_SpindashRev + 1) > SND_SEQ_TRACE
+      fatal "Snd_SpindashRev (\{Snd_SpindashRev}) runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
     ; Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots)
