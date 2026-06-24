@@ -1050,8 +1050,8 @@ SND_MUSIC_PARAM_LEN     = 6
 ; sequencer's hl stream walk stay in one page family (no special alignment need,
 ; but keeps the map tidy). 512 bytes — generously covers the bring-up song; the
 ; streams self-terminate ($FF/$EF) so copying a little past the song into adjacent
-; ROM is harmless (never interpreted). Song_Test's packed size is build-asserted
-; <= SND_SONG_BUF_SIZE in data/sound/song_table.asm.
+; ROM is harmless (never interpreted). A copy-path (RAM-buffered) song must fit
+; SND_SONG_BUF_SIZE; the streaming Moving Trucks song never uses this buffer.
 SND_SONG_BUF            = $1B00
 SND_SONG_BUF_SIZE       = $200                   ; 512 bytes ($1B00..$1CFF)
 

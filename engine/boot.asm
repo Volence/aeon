@@ -209,12 +209,11 @@ Cold_Boot:
       ifdef __DEBUG__
         moveq   #$3C, d0                 ; DEBUG: ping with a recognizable value
         bsr.w   Sound_Ping
-        ; DEBUG: SONG_MOVINGTRUCKS plays the sequencer-driven "Moving Trucks"
-        ; port across all 6 FM voices (FM1..FM6, 1:1), streamed from ROM with the
-        ; DAC off (SH_F_FM6_FM|SH_F_STREAM). Alternate test songs remain available
-        ; in the table: SONG_TEST=1, SONG_PITCHTEST=2, SONG_TRILLTEST=3,
-        ; SONG_PANTEST=4, SONG_STEPTEST=5. Press START in-game to toggle
-        ; play/stop (game_loop Debug_MusicToggle).
+        ; DEBUG: SONG_MOVINGTRUCKS (the only song, id 1) plays the sequencer-driven
+        ; "Moving Trucks" port across all 6 FM voices (FM1..FM6, 1:1), streamed from
+        ; ROM with the DAC off (SH_F_FM6_FM|SH_F_STREAM). The Phase-3 scratch test
+        ; songs (id 1-5) have been removed. Press START in-game to toggle play/stop
+        ; (game_loop Debug_MusicToggle).
         moveq   #SONG_MOVINGTRUCKS, d0
         bsr.w   Sound_PlayMusic
         move.b  #1, (Dbg_Music_On).w     ; DEBUG: track play state for the Start-toggle
