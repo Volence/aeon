@@ -951,12 +951,11 @@ SND_SEQ_TRACE_WR   = SND_SEQ_BASE+$06   ; trace ring write index (0..31)
 SND_SEQ_TEMPO_BASE = SND_SEQ_BASE+$07   ; Phase 3: cached song tempo_base (per-frame accumulator base)
 SND_SEQ_CHANNELS   = SND_SEQ_BASE+$08   ; CHROUTE_COUNT * SeqChannel_len
 SND_SEQ_END        = SND_SEQ_CHANNELS + (CHROUTE_COUNT * SeqChannel_len)
-SND_SEQ_TRACE      = $1A00          ; 32-byte trace ring of dispatched opcodes
-SND_SEQ_TRACE_LEN  = 32
+SND_SEQ_TRACE_LEN  = 32             ; 32-byte trace ring of dispatched opcodes
 
 ; --- FM voice writer scratch (Task 3) ---
 ; 4 bytes (part, ch-in-part, log-vol delta, carrier mask) in the free block
-; ABOVE the per-channel array (SND_SEQ_END) and BELOW the trace ring ($1A00).
+; ABOVE the per-channel array (SND_SEQ_END) and BELOW the trace ring.
 ; Single-threaded: only Sequencer_Frame (driven by the Timer-A poll in the
 ; DAC/idle loop) reaches the FM writer, so static scratch is safe. DERIVED from
 ; SND_SEQ_END so it auto-tracks any future per-channel-struct growth. The build-time
@@ -966,9 +965,6 @@ SND_FM_SCRATCH_LEN = 5                    ; Part,Ch,Log,Mask + Task-6 Op index
 
     if (SND_FM_SCRATCH < SND_SEQ_END)
       fatal "FM scratch (\{SND_FM_SCRATCH}) overlaps sequencer channels (\{SND_SEQ_END})"
-    endif
-    if (SND_FM_SCRATCH + SND_FM_SCRATCH_LEN) > SND_SEQ_TRACE
-      fatal "FM scratch runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
 ; --- Snd_LoadSong scratch (Task 6 + Sound 1D) ---
@@ -992,8 +988,25 @@ Snd_PitchTabPtr    = Snd_SongBase + 2            ; 2 bytes: per-song pitch table
 ; byte in the free seq block below the trace ring.
 Snd_SpindashRev    = Snd_PitchTabPtr + 2          ; 1 byte: escalating spindash transposition
 
-    if (Snd_SpindashRev + 1) > SND_SEQ_TRACE
-      fatal "Snd_SpindashRev (\{Snd_SpindashRev}) runs into the trace ring at \{SND_SEQ_TRACE}"
+; --- Sequencer opcode trace ring (DEBUG) -------------------------------------
+; The 32-byte trace ring is anchored to the END of the per-channel/scratch block,
+; NOT a hardcoded $1A00, so any future SeqChannel / Snd_* scratch growth slides it
+; up automatically (into the currently-unused gap before the song buffer) instead
+; of silently colliding. It is rounded UP to the next 256-byte page boundary just
+; past the highest Snd_* cell (Snd_SpindashRev, 1 byte) because the trace writer
+; (engine/sound_sequencer.asm) addresses the ring as h=SND_SEQ_TRACE>>8, l=wr — it
+; REQUIRES the ring to be page-aligned (low byte 0). With current struct sizes the
+; round-up lands at $1A00 (identical to the old hardcoded value, behavior-
+; preserving); a future +64-byte growth past $1A00 would slide it to $1B00, etc.
+; The asserts below keep it page-aligned, clear of the scratch cells, and below
+; the music-param block + song buffer.
+SND_SEQ_TRACE      = (Snd_SpindashRev + 1 + $FF) & $FF00
+
+    if (SND_SEQ_TRACE & $FF) <> 0
+      fatal "trace ring (\{SND_SEQ_TRACE}) must be page-aligned (the writer uses h=SND_SEQ_TRACE>>8, l=wr)"
+    endif
+    if (SND_FM_SCRATCH + SND_FM_SCRATCH_LEN) > SND_SEQ_TRACE
+      fatal "FM scratch runs into the trace ring at \{SND_SEQ_TRACE}"
     endif
 
     ; Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots)
@@ -1010,9 +1023,10 @@ SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
     if (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN) > SND_REQ_BASE
       fatal "sequencer trace ring overruns the mailbox"
     endif
-    ; the per-channel array must not run into the trace ring at $1A00.
-    ; CHROUTE_COUNT(11) * SeqChannel_len(39) = 429 bytes -> $1808+429
-    ; = $19B5, clear of the trace ring at $1A00.
+    ; the per-channel array must not run into the trace ring (now anchored at the
+    ; page boundary past the end of the channel/scratch block, $1A00 with current
+    ; sizes). CHROUTE_COUNT(11) * SeqChannel_len(39) = 429 bytes -> $1808+429 =
+    ; $19B5; the FM scratch + Snd_* cells follow, then the page-aligned trace ring.
     if SND_SEQ_END > SND_SEQ_TRACE
       fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
     endif
@@ -1023,8 +1037,8 @@ SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
 ; trigger). The Z80 SND_REQ_MUSIC handler reads them, banks the song in, and
 ; copies a FIXED SND_SONG_BUF_SIZE bytes into SND_SONG_BUF (Z80 RAM) so the
 ; sequencer streams are RAM-resident (no $8000-window banking during playback —
-; the 1B DAC owns the bank). The trace ring is $1A00..$1A1F (32 B), so the param
-; block lives just above it at $1A20.
+; the 1B DAC owns the bank). The trace ring is $1A00..$1A1F (32 B, page-aligned at
+; the seq-RAM end), so the param block lives just above it at $1A20 (asserted above).
 SND_MUSIC_PARAM         = $1A20                  ; music-load param block
 SND_MUSIC_PARAM_BANK    = SND_MUSIC_PARAM+$00    ; song bank id (1 byte)
 SND_MUSIC_PARAM_PTR     = SND_MUSIC_PARAM+$01    ; song $8000-window ptr (2 bytes, little-endian)
@@ -1056,6 +1070,12 @@ SND_SONG_BUF_SIZE       = $200                   ; 512 bytes ($1B00..$1CFF)
     endif
     if SND_MUSIC_PARAM < (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN)
       fatal "music param block (\{SND_MUSIC_PARAM}) overlaps the trace ring at \{SND_SEQ_TRACE}"
+    endif
+    ; The seq-RAM-end-anchored trace ring must stay below the song buffer (it grows
+    ; up into the free gap as the channel array / Snd_* scratch grow; this catches
+    ; the case where that growth would push the ring past the song buffer).
+    if (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN) > SND_SONG_BUF
+      fatal "trace ring (\{SND_SEQ_TRACE}+\{SND_SEQ_TRACE_LEN}) runs into the song buffer at \{SND_SONG_BUF}"
     endif
     if (SND_SONG_BUF + SND_SONG_BUF_SIZE) > SND_REQ_BASE
       fatal "song buffer (\{SND_SONG_BUF}+\{SND_SONG_BUF_SIZE}) overruns the mailbox at \{SND_REQ_BASE}"
