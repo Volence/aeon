@@ -36,29 +36,26 @@ SND_ALIVE_MARKER        = $5A
 ; --- Sample IDs ---
 SND_SAMPLE_TEST         = 1                       ; Foundations test tone
 
-; --- Playback state (Z80 RAM addresses in the state region) ---
+; --- DAC playback state (Z80 RAM; state region, all reads/writes bank-free) ---
 ; The driver CODE blob grows up from $0000 and must stay below SND_STATE_BASE (the
-; build asserts Z80_SOUND_SIZE <= SND_STATE_BASE). The playback-state block uses only
-; 16 bytes (+$00..+$0F): the state block occupies $16F0..$16FF (exactly filling up to
-; the page-aligned DAC ring at $1700), so the code may grow up to $16EF. SND_STATE_END_GUARD
-; below asserts the state block never runs into the ring.
+; build asserts Z80_SOUND_SIZE <= SND_STATE_BASE). The state block occupies
+; $16F0..$16FD ($0E bytes), staying comfortably below the page-aligned DAC ring
+; at $1700. SND_STATE_END_GUARD below asserts the block never runs into the ring.
+; AS does NOT auto-align ds.w/ds.l — word fields must sit at even absolute offsets.
+; +$07 is an explicit unused pad byte to keep +$08 (SND_ROM_PTR) word-aligned.
 SND_STATE_BASE          = $16F0
-SND_TEST_SAMPLE         = $1C00                  ; runtime-generated test sample
-SND_TEST_SAMPLE_LEN     = 256
-SND_PLAY_ACTIVE         = SND_STATE_BASE+$00     ; 1 = sample playing
-SND_PLAY_PTR            = SND_STATE_BASE+$02      ; current sample read pointer
-SND_PLAY_LEN            = SND_STATE_BASE+$04      ; bytes remaining
-SND_DAC_RATE            = $10                     ; per-sample djnz delay (test tone)
-
-; --- 1B: VBlank-ISR adaptive drain (samples output with NO ROM read while the
-; 68k runs its VDP/DMA inside VBlank). The ISR drains UNTIL the 68k acks "DMA
-; done" (SND_CTRL_DMA_ACTIVE -> 1), capped by SND_DRAIN_MAX so it can never
-; underrun the ring lead or hang. SND_DRAIN_PAD pads each drained sample to ~match
-; the FILL+PLAY per-sample cycle count so the pitch is identical across the seam.
-; Controller tunes SND_DRAIN_PAD / SND_DRAIN_MAX against real DMA load. ---
-SND_DRAIN_SAMPLES       = 32                      ; (legacy fixed window — unused by 1B adaptive drain)
-SND_DRAIN_MAX           = 192                     ; safety cap (< the 252-byte ring lead) — bounds the adaptive drain
-SND_DRAIN_PAD           = SND_DAC_RATE            ; per-drained-sample pad ~matching FILL+PLAY (controller tunes)
+SND_DEC_ACC             = SND_STATE_BASE+$00     ; DPCM running predictor (RAM); seeded $80
+SND_DAC_PHASE           = SND_STATE_BASE+$01     ; 0=idle, 1=playing, 2=draining-tail
+SND_SONG_BANK           = SND_STATE_BASE+$02     ; current song bank (set in Snd_LoadSong)
+SND_ROM_BANK            = SND_STATE_BASE+$03     ; current sample bank (stashed by Snd_StartSample)
+SND_CUR_BANK            = SND_STATE_BASE+$04     ; SetBank cache (no-op check)
+SND_RING_RD             = SND_STATE_BASE+$05     ; ring read ptr low byte
+SND_RING_WR             = SND_STATE_BASE+$06     ; ring write ptr low byte
+                                                 ; +$07 = unused pad (keep words even-aligned)
+SND_ROM_PTR             = SND_STATE_BASE+$08     ; sample window read ptr (2 bytes)
+SND_ROM_LEN             = SND_STATE_BASE+$0A     ; packed bytes remaining (2 bytes)
+SND_DEC_IY              = SND_STATE_BASE+$0C     ; DecTable base for this sample (2 bytes; iy reloaded at FILL top)
+SND_STATE_END           = SND_STATE_BASE+$0E
 
 ; --- YM2612 ports as seen from the Z80 ($4000-$4003) ---
 SND_Z80_YM_A0           = $4000                  ; addr part I / status read (reg select)
@@ -201,22 +198,9 @@ SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 8948 Hz (3579545/400, in
 ; --- 1B: 68k->Z80 control (68k writes, Z80 reads) ---
 SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progress (no ROM reads)
 
-; --- 1B: playback/stream state (Z80 RAM, state region) ---
-SND_RING_RD             = SND_STATE_BASE+$06      ; ring read (drain) ptr low byte
-SND_RING_WR             = SND_STATE_BASE+$07      ; ring fill ptr low byte
-SND_ROM_PTR             = SND_STATE_BASE+$08      ; current ROM window ptr (2 bytes)
-SND_ROM_LEN             = SND_STATE_BASE+$0A      ; bytes remaining in sample (2 bytes)
-SND_ROM_BANK            = SND_STATE_BASE+$0C      ; sample's bank id
-SND_CUR_BANK            = SND_STATE_BASE+$0D      ; cached current bank (SetBank no-op check)
-SND_LOOP_OFS            = SND_STATE_BASE+$0E      ; loop restart offset within sample (0 = one-shot)
-SND_PLAY_MODE           = SND_STATE_BASE+$0F      ; 0 = FILL+PLAY, 1 = DRAIN (no ROM reads)
-
-        ; The 16-byte playback-state block (SND_STATE_BASE+$00..+$0F) must stay below
-        ; the page-aligned DAC ring at SND_RING_BASE ($1700). With SND_STATE_BASE=$16F0
-        ; it occupies $16F0..$16FF — exactly filling to the ring. Guard it (the SFX-
-        ; fidelity Task-4 code growth pushed the base up to reclaim the old dead gap).
-        if (SND_PLAY_MODE + 1) > SND_RING_BASE
-          fatal "playback-state block (ends \{SND_PLAY_MODE}) runs into the DAC ring at \{SND_RING_BASE}"
+        ; The DAC state block must stay below the page-aligned DAC ring at SND_RING_BASE ($1700).
+        if SND_STATE_END > SND_RING_BASE
+          fatal "DAC state block (ends \{SND_STATE_END}) runs into the DAC ring at \{SND_RING_BASE}"
         endif
 
 ; --- 1B: 8-byte ROM-resident sample descriptor ---
