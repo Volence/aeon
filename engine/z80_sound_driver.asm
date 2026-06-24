@@ -551,6 +551,7 @@ SndDrv_PollMailbox:
 ; Snd_DacLookup — map a 1-based DAC sample id (in `a`) to its descriptor ptr.
 ; Out: hl = &DacSampleTable[id-1], carry CLEAR on success; carry SET (id 0 or
 ; id > DAC_SAMPLE_COUNT) on a bad id (hl undefined). Clobbers af, de, hl.
+; (Stride is DacSample_len = 9; index*9 computed as index*8 + index.)
 ; ======================================================================
 Snd_DacLookup:
         or      a
@@ -562,12 +563,15 @@ Snd_DacLookup:
         ret
 .valid:
         dec     a                        ; index = id-1
-        ; hl = DacSampleTable + index*DacSample_len (8). index*8 = index<<3.
+        ; hl = DacSampleTable + index*DacSample_len (9). index*9 = index*8 + index.
         ld      l, a
         ld      h, 0
+        ld      e, l                     ; save index
+        ld      d, h
         add     hl, hl
         add     hl, hl
         add     hl, hl                   ; hl = index*8
+        add     hl, de                   ; hl = index*9
         ld      de, DacSampleTable
         add     hl, de                   ; hl = &DacSampleTable[index]
         or      a                        ; clear carry (success)
@@ -576,7 +580,7 @@ Snd_DacLookup:
 ; ======================================================================
 ; Snd_StartSample — start DAC playback from a DacSample descriptor at `hl`
 ; (Task 6 refactor of the 1B SND_REQ_SAMPLE body). Reads bank/ptr/len from the
-; 8-byte descriptor (ds_bank +0, ds_ptr +2, ds_length +4), re-asserts DAC mode
+; 9-byte descriptor (ds_bank +0, ds_ptr +3, ds_length +5), re-asserts DAC mode
 ; WITHOUT toggling the $2B edge (no click), banks the sample in, resets the ring
 ; RD=0 + re-primes the $80 lead + WR=LEAD_PRIME, and sets SND_STAT_DAC_ACTIVE=1.
 ;
@@ -1136,19 +1140,21 @@ FmPatchInlineTable_End:
         endif
 
 ; --- Inline DAC sample descriptor table (Task 6 decision 3) ---
-; Maps a 1-based sample id to an 8-byte DacSample record (see the struct in
+; Maps a 1-based sample id to a 9-byte DacSample record (see the struct in
 ; sound_constants.asm). For 1C, id 1 = the temp_blip; its bank/ptr/len are the
 ; build-time SND_BLIP_* constants (from data/sound/dac_samples.asm), so an INLINE
 ; descriptor in the Z80 blob needs no banking to read. rate/loop_ofs are 0 (the
 ; 1B FILL loop drives the rate via the loop trip-time, and re-triggers each $E2 —
 ; the FILL-exhaust restart still uses SND_BLIP_PTR/LEN, matching id 1).
+; ds_table = 0 (sharp-transient table, index 0 of NUM_DELTA_TABLES).
 DacSampleTable:
         ; id 1 = temp_blip
         db      SND_BLIP_BANK            ; ds_bank
-        db      0                        ; ds_rate (unused — loop trip-time is the clock)
+        db      0                        ; ds_rate (reserved)
+        db      0                        ; ds_table (DPCM delta-table index; 0 = sharp-transient)
         dw      SND_BLIP_PTR             ; ds_ptr (little-endian dw)
         dw      SND_BLIP_LEN             ; ds_length
-        dw      0                        ; ds_loop_ofs (0 = one-shot; FILL restart uses SND_BLIP_*)
+        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
 DacSampleTable_End:
 
         if (DacSampleTable_End-DacSampleTable) <> DAC_SAMPLE_COUNT*DacSample_len

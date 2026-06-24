@@ -203,17 +203,20 @@ SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progre
           fatal "DAC state block (ends \{SND_STATE_END}) runs into the DAC ring at \{SND_RING_BASE}"
         endif
 
-; --- 1B: 8-byte ROM-resident sample descriptor ---
-DacSample struct
-ds_bank         ds.b 1          ; +0  bank id = (addr & $7F8000) >> 15
-ds_rate         ds.b 1          ; +1  per-sample rate delay (pitch); 0 = max
-ds_ptr          ds.w 1          ; +2  Z80-window ptr: (addr & $7FFF) | $8000, little-endian
-ds_length       ds.w 1          ; +4  byte count
-ds_loop_ofs     ds.w 1          ; +6  loop restart offset (0 = one-shot)
-DacSample endstruct
+; --- 9-byte ROM-resident sample descriptor (Task 0.2: ds_table inserted at +2) ---
+NUM_DELTA_TABLES = 3              ; sharp-transient / body / quiet (grow as the kit needs)
 
-        if DacSample_len <> 8
-          error "DacSample struct is \{DacSample_len} bytes, expected 8"
+DacSample struct
+ds_bank         ds.b 1          ; +0  sample bank id = (addr & $7F8000) >> 15
+ds_rate         ds.b 1          ; +1  RESERVED forward-compat (per-sample rate); v1 ignores it
+ds_table        ds.b 1          ; +2  DPCM delta-table index (0..NUM_DELTA_TABLES-1)
+ds_ptr          ds.w 1          ; +3  Z80-window ptr (addr & $7FFF)|$8000, little-endian
+ds_length       ds.w 1          ; +5  PACKED byte count (nibble pairs); < $8000
+ds_loop_ofs     ds.w 1          ; +7  RESERVED forward-compat (loop restart); v1 = 0, ignored
+DacSample endstruct             ; = 9 bytes
+
+        if DacSample_len <> 9
+          error "DacSample struct is \{DacSample_len} bytes, expected 9"
         endif
 
 ; --- Z80 bank register (as seen from the Z80) ---
