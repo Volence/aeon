@@ -162,6 +162,10 @@ SND_FRAME_HZ            = 59
 timerAReload            function hz, 1024 - (1000000000 / ((hz) * 18773))
 SND_TIMERA_N           = timerAReload(SND_FRAME_HZ)
 
+; --- ROM-address -> Z80 bank/window helpers (build-time; emit no bytes) ---
+snd_bank                function addr, ((addr) & $7F8000) >> 15      ; 9-bit bank id
+snd_win                 function addr, ((addr) & $7FFF) | $8000      ; Z80 $8000-window ptr
+
         ; N must be a valid 10-bit Timer-A value (0..1023) and well clear of the
         ; extremes; ~122 is expected for 59 Hz.
         if (SND_TIMERA_N < 0) || (SND_TIMERA_N > 1023)
