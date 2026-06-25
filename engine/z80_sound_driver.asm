@@ -189,6 +189,7 @@ SndDrv_Init:
         ld      (SND_DAC_PHASE), a       ; PHASE = idle (0) — two-stage stop SM
         ld      (SND_SONG_BANK), a       ; B1 bracket reads this on pre-song idle ticks
         ld      (SND_ROM_BANK), a        ; (Snd_LoadSong sets both to the real song bank)
+        ld      (SND_FM6_ADAPTIVE), a    ; Layer 7: non-adaptive until a song sets it (FM6_CHAN_PTR set/cleared per load)
         ld      (SND_STAT_PING_ECHO), a
         ld      (SND_STAT_ACK_COUNT), a
         ld      (SND_STAT_TICK), a
@@ -401,6 +402,36 @@ SndDrv_Sample:
         ld      (SND_Z80_YM_A0), a
         ld      a, 80h
         ld      (SND_Z80_YM_A1), a       ; $2A = $80 (DC center silence)
+        ; --- Layer 7 adaptive: hand ch6 back to FM6 music. ORDER MATTERS (research
+        ; click-avoidance): $2A is ALREADY centered ($80) above, so disabling the DAC now
+        ; flips ch6 to FM with no DC step. Then re-key FM6's held note so music resumes
+        ; immediately (the trigger keyed it off, so $28=$F6 is a real 0->1 EG edge; ch6's
+        ; $A4/$A0 + patch are already current — the Layer-4 gate kept writing them through
+        ; the drum). Re-key ONLY if FM6 holds a note (SCF_KEYED) — a rest stays silent.
+        ; Gated on SND_FM6_ADAPTIVE (dedicate leaves $2B armed -> FM6 stays DAC-owned). ---
+        ld      a, (SND_FM6_ADAPTIVE)
+        or      a
+        jr      z, .stop_done
+        ld      a, SND_REG_DAC_ENABLE    ; $2B
+        ld      (SND_Z80_YM_A0), a
+        xor     a
+        ld      (SND_Z80_YM_A1), a       ; $2B = $00 -> ch6 returns to FM (output was centered)
+        ld      ix, (SND_FM6_CHAN_PTR)
+        push    ix
+        pop     hl
+        ld      a, h
+        or      l
+        jr      z, .stop_repark          ; no FM6 channel (defensive) -> just re-park $2A
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .stop_repark          ; FM6 resting -> leave it silent
+        ld      a, SND_REG_KEY_ONOFF     ; $28 (key on/off, part I)
+        ld      (SND_Z80_YM_A0), a
+        ld      a, SND_FM_KEYON_OPMASK|6 ; $F0 | chsel(FM6 = $06) = $F6 -> key ON (all ops)
+        ld      (SND_Z80_YM_A1), a       ; real 0->1 edge -> EG re-attacks FM6's held note
+.stop_repark:
+        ld      a, SND_REG_DAC_DATA      ; re-park $2A on $4000 (the FM writes moved the addr port)
+        ld      (SND_Z80_YM_A0), a
+.stop_done:
         xor     a
         ld      (SND_STAT_DAC_ACTIVE), a ; clear active
         ld      (SND_DAC_PHASE), a       ; PHASE = idle (0)
@@ -603,8 +634,25 @@ Snd_DacLookup:
 Snd_StartSample:
         push    ix                       ; preserve the sequencer channel ptr
         push    hl                       ; descriptor ptr (we re-read fields below)
-        ; --- Re-assert DAC mode ($2B bit7) WITHOUT toggling the edge, then re-park
-        ; $2A. (One-time per trigger, not per loop -> no recurring click.) ---
+        ; --- Layer 7 adaptive: key OFF FM6's music note BEFORE the DAC takes ch6, so the
+        ; exhaust re-key ($28=$F6) is a real 0->1 edge that re-attacks FM6's EG (a re-key
+        ; on a still-keyed channel is a chip no-op). Pure chip key-off ($28 part I = chsel
+        ; FM6 $06, op-mask 0); SCF_KEYED is LEFT set — the sequencer's held-note
+        ; bookkeeping + the Layer-4 gate keep it consistent through the drum, and the
+        ; exhaust path reads it to decide whether to re-key. Gated: dedicate songs (and
+        ; the bare $1F01 sample path) have no FM6 music -> SND_FM6_ADAPTIVE = 0 -> skip. ---
+        ld      a, (SND_FM6_ADAPTIVE)
+        or      a
+        jr      z, .ss_no_fm6_keyoff
+        ld      a, SND_REG_KEY_ONOFF     ; $28 (key on/off, part I)
+        ld      (SND_Z80_YM_A0), a
+        ld      a, 6                     ; chsel FM6 = $06, op-mask 0 -> key OFF
+        ld      (SND_Z80_YM_A1), a
+.ss_no_fm6_keyoff:
+        ; --- Re-assert DAC mode ($2B bit7), then re-park $2A. (One-time per trigger, not
+        ; per loop -> no recurring click. Dedicate: a no-edge re-assert of $80. Adaptive:
+        ; the $00->$80 enable edge is click-free — DAC replaces ch6 instantly and the ring
+        ; is primed to $80; the click risk is the RETURN edge, handled at .stop.) ---
         ld      a, SND_REG_DAC_ENABLE
         ld      (SND_Z80_YM_A0), a       ; $4000 = $2B (select DAC-enable reg)
         ld      a, 80h
@@ -1057,6 +1105,15 @@ Snd_LoadSong:
 ; (the seq region was already cleared at the top of Snd_LoadSong, BEFORE the
 ; per-path setup, so the SND_SEQ_PATCHTAB + Snd_SongBase the paths set survive.)
 .parse_header:
+        ; Layer 7: cache the per-song adaptive-FM6 flag + null the FM6 channel ptr (set
+        ; below in .chan_init when CHROUTE_FM6 is found). The DAC trigger/exhaust paths
+        ; branch on these to time-share ch6 between FM6 music and the drum.
+        ld      a, (SND_MUSIC_PARAM_FLAGS)
+        and     SH_F_FM6_ADAPTIVE
+        ld      (SND_FM6_ADAPTIVE), a    ; 0 = dedicate/none, nonzero = time-share
+        xor     a
+        ld      (SND_FM6_CHAN_PTR), a
+        ld      (SND_FM6_CHAN_PTR+1), a  ; null until .chan_init finds the FM6 channel
 
         ; channel_count (SH_CHCOUNT) — read via iy = song base (RAM or window).
         ld      iy, (Snd_SongBase)
@@ -1101,6 +1158,12 @@ Snd_LoadSong:
         ; route byte.
         ld      a, (iy+SHC_ROUTE)
         ld      (ix+sc_route), a
+        ; Layer 7: cache the FM6 SeqChannel ptr (channels are in DECLARATION order, so the
+        ; exhaust re-key needs this to find FM6 scan-free). a still = the route byte.
+        cp      CHROUTE_FM6
+        jr      nz, .not_fm6
+        ld      (SND_FM6_CHAN_PTR), ix
+.not_fm6:
         ; cmd_ptr (slot[0]): BIG-ENDIAN 16-bit OFFSET in the header -> add the base.
         ld      h, (iy+SHC_CMD_HI)       ; high byte first (big-endian)
         ld      l, (iy+SHC_CMD_LO)

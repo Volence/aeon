@@ -38,10 +38,10 @@ SND_SAMPLE_TEST         = 1                       ; Foundations test tone
 
 ; --- DAC playback state (Z80 RAM; state region, all reads/writes bank-free) ---
 ; The driver CODE blob grows up from $0000 and must stay below SND_STATE_BASE (the
-; build asserts Z80_SOUND_SIZE <= SND_STATE_BASE). The block occupies $16F0..$16F9
-; ($0A bytes), comfortably below the page-aligned DAC ring at $1700; SND_STATE_END_GUARD
+; build asserts Z80_SOUND_SIZE <= SND_STATE_BASE). The block occupies $16F0..$16FC
+; ($0D bytes), comfortably below the page-aligned DAC ring at $1700; SND_STATE_END_GUARD
 ; asserts it never runs into the ring. AS does NOT auto-align ds.w/ds.l — the word
-; fields (SND_ROM_PTR/LEN) sit at EVEN absolute offsets ($06/$08). (Layer 6 deleted the
+; fields (SND_ROM_PTR/LEN/FM6_CHAN_PTR) sit at EVEN absolute offsets ($06/$08/$0A). (Layer 6 deleted the
 ; DPCM-only SND_DEC_ACC/SND_DEC_IY — raw 8-bit PCM needs no predictor or DecTable base.)
 SND_STATE_BASE          = $16F0
 SND_DAC_PHASE           = SND_STATE_BASE+$00     ; 0=idle, 1=playing, 2=draining-tail
@@ -52,7 +52,9 @@ SND_RING_RD             = SND_STATE_BASE+$04     ; ring read ptr low byte (c in 
 SND_RING_WR             = SND_STATE_BASE+$05     ; ring write ptr low byte (b in the streaming loop)
 SND_ROM_PTR             = SND_STATE_BASE+$06     ; sample window read ptr (2 bytes; even-aligned)
 SND_ROM_LEN             = SND_STATE_BASE+$08     ; sample bytes remaining (2 bytes; even-aligned)
-SND_STATE_END           = SND_STATE_BASE+$0A
+SND_FM6_CHAN_PTR        = SND_STATE_BASE+$0A     ; (Layer 7) FM6 SeqChannel ptr (2 bytes, even; 0 = none) — cached at song load for the scan-free exhaust re-key
+SND_FM6_ADAPTIVE        = SND_STATE_BASE+$0C     ; (Layer 7) nonzero = FM6 time-shares ch6 with the DAC (SH_F_FM6_ADAPTIVE)
+SND_STATE_END           = SND_STATE_BASE+$0D
 
 ; --- YM2612 ports as seen from the Z80 ($4000-$4003) ---
 SND_Z80_YM_A0           = $4000                  ; addr part I / status read (reg select)
@@ -1162,12 +1164,20 @@ SHC_LEN         = 5     ; per-channel record length
 ;                      the banked $8000 window (the loader holds the song's bank
 ;                      and points sc_stream_ptr at window addresses — NO RAM copy).
 ;                      CLEAR -> copy a fixed SND_SONG_BUF_SIZE bytes to RAM (1C).
+; bit2 SH_F_FM6_ADAPTIVE : Layer 7 — FM6 TIME-SHARES ch6 with the DAC (Echo-style):
+;                      FM6 plays music (DAC OFF) BETWEEN drum hits; each $E2 keys FM6
+;                      off + flips ch6 to DAC ($2B=$80) for the sample, then at exhaust
+;                      flips back ($2B=$00) + re-keys FM6's held note. Requires
+;                      SH_F_FM6_FM. CLEAR -> the Layer-4 "dedicate" (FM6 stays DAC-owned).
 ; Contract: Moving Trucks = SH_F_FM6_FM|SH_F_STREAM (FM6=FM voice, stream from ROM);
+;           Song_DrumTest = SH_F_FM6_FM|SH_F_STREAM|SH_F_FM6_ADAPTIVE (FM6 time-share);
 ;           Song_Test / Ode demo = 0 (FM6=DAC, copy-to-RAM — the 1C path, regresses).
 SH_F_FM6_FM_B   = 0
 SH_F_STREAM_B   = 1
+SH_F_FM6_ADAPTIVE_B = 2
 SH_F_FM6_FM     = 1<<SH_F_FM6_FM_B
 SH_F_STREAM     = 1<<SH_F_STREAM_B
+SH_F_FM6_ADAPTIVE = 1<<SH_F_FM6_ADAPTIVE_B
 
 ; --- DacSample id -> descriptor table (Task 6 decision 3) ---
 ; The $E2 operand (and SND_REQ_SAMPLE) is a 1-based sample id; the handler looks

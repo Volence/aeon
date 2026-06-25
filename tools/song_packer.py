@@ -95,6 +95,7 @@ _PSG_ROUTES = {CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN}
 # SongHeader flags byte (SH_FLAGS) — MIRROR of sound_constants.asm SH_F_*.
 SH_F_FM6_FM = 1 << 0     # FM6 is a 6th FM sequencer voice (DAC mode OFF)
 SH_F_STREAM = 1 << 1     # stream from ROM (no RAM copy); else copy-to-RAM (1C)
+SH_F_FM6_ADAPTIVE = 1 << 2  # Layer 7: FM6 time-shares ch6 with the DAC (music between drum hits); requires SH_F_FM6_FM
 
 
 class PackError(Exception):

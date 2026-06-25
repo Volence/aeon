@@ -17,13 +17,14 @@ the FM6 dedicate gate + the SFX-mid-drum path (B3):
     No second copy of the engine tables (those labels are global — re-including
     would collide), and no per-song pitch/patch data of its own.
 
-  * FM6 = DAC (SH_F_FM6_FM CLEAR). When the DAC channel fires $E2, Snd_StartSample
-    arms the DAC ($2B=$80, $B6=$C0) and SND_STAT_DAC_ACTIVE=1; the Layer-4 gate in
-    Fm_NoteOnFreq then SUPPRESSES the ch6 $28 key-on for the duration of the
-    sample (FM6 coasts), and the FM6 key-ons between hits fire normally. The
-    FM6 channel below keys eighth notes continuously so this gate is exercised
-    every drum (observe the $28 ch6 stream: absent during a sample, present
-    between).
+  * FM6 = ADAPTIVE TIME-SHARE (SH_F_FM6_FM | SH_F_FM6_ADAPTIVE, Layer 7). FM6 plays
+    music (DAC off, $2B=$00) BETWEEN hits. Each $E2: Snd_StartSample keys FM6 off and
+    flips ch6 to the DAC ($2B=$80, $B6=$C0, SND_STAT_DAC_ACTIVE=1); the Layer-4 gate in
+    Fm_NoteOnFreq then SUPPRESSES the ch6 $28 key-on for the sample's duration. At
+    exhaust (.stop) the DAC is disabled ($2B=$00) and FM6's held note is re-keyed so the
+    melody resumes immediately. The FM6 channel below plays an audible motif (observe the
+    $28 ch6 stream: present between hits, absent during a sample, re-attacking right
+    after each exhaust).
 
   * The DAC channel ($E2 kick/snare on the beat) drives the per-frame song<->sample
     bank swap (B1). The FM1/FM2/PSG1 music must stay correct AFTER each $E2 (a
@@ -47,13 +48,13 @@ from song_packer import (  # noqa: E402
     SongDesc, ChannelDesc, write_asm,
     SetDur, Rest, Note, Vol, Patch, Dac, LoopPoint, Jump,
     CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_DAC,
-    SH_F_STREAM,
+    SH_F_STREAM, SH_F_FM6_FM, SH_F_FM6_ADAPTIVE,
 )
 
 # --- pitch indices (index = MIDI - 12) ---
 C3, G3 = 36, 43
 C4, D4, E4, G4 = 48, 50, 52, 55
-C5 = 60
+C5, E5, G5 = 60, 64, 67
 
 # --- DacSampleTable ids (engine/z80_sound_driver.asm DacSampleTable) ---
 KICK, SNARE = 2, 3              # 1=blip, 2=kick, 3=snare, 4=hat
@@ -70,7 +71,8 @@ E, Q, H = 15, 30, 60           # eighth / quarter / half (~0.25 / 0.5 / 1.0 s)
 
 
 def build_song() -> SongDesc:
-    return SongDesc(tempo=0x80, tempo_base=TEMPO_BASE, flags=SH_F_STREAM, channels=[
+    return SongDesc(tempo=0x80, tempo_base=TEMPO_BASE,
+                    flags=SH_F_STREAM | SH_F_FM6_FM | SH_F_FM6_ADAPTIVE, channels=[
         # FM1 — LEAD melody. Proves the bank swap leaves the FM command stream +
         # patch + pitch reads correct AFTER each $E2 (loops a fixed 4-note motif).
         ChannelDesc(CHROUTE_FM1, [
@@ -86,14 +88,17 @@ def build_song() -> SongDesc:
             Note(C3), Note(G3),
             Jump(),
         ]),
-        # FM6 — the dedicated DAC slot's FM voice. Eighth notes so the Layer-4 ch6
-        # key-on gate is exercised every drum: each $28 inside a DAC sample window
-        # is suppressed; those between hits fire. (Inaudible — $2B is armed by
-        # Snd_StartSample at the first $E2 — so the proof is the $28 ch6 stream.)
+        # FM6 — Layer 7 ADAPTIVE time-share voice. FM6 plays an AUDIBLE motif BETWEEN
+        # drum hits (DAC off, $2B=$00); each $E2 keys FM6 off + flips ch6 to the DAC for
+        # the sample, then at exhaust (.stop) flips back ($2B=$00) + re-keys FM6's held
+        # note so the melody resumes immediately. With the long (~1 s) DAC rests below
+        # there are clear FM6-music gaps between hits. Verify: the $28 ch6 key-on stream
+        # is PRESENT between hits, ABSENT during a sample window, and FM6 re-attacks right
+        # after each drum exhausts.
         ChannelDesc(CHROUTE_FM6, [
-            Patch(PATCH_C), Vol(80), SetDur(E),
+            Patch(PATCH_C), Vol(80), SetDur(Q),
             LoopPoint(),
-            Note(C5), Note(C5), Note(C5), Note(C5),
+            Note(C5), Note(E5), Note(G5), Note(E5),
             Jump(),
         ]),
         # PSG1 — harmony. Proves the swap doesn't corrupt the PSG stream either.
