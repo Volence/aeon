@@ -72,15 +72,18 @@ Debug_MusicToggle:
         bsr.w   Sound_PlayRing          ; L/R-alternating ring SFX ($33/$34)
         rts
 .check_sample:
-        ; C button = fire a one-shot DAC sample (id 1 = the temp blip) on a fresh
-        ; press. DEBUG-only hotkey to exercise the two-stage one-shot DAC stop
-        ; (DRAINING_TAIL -> DC-center). Edge-detected on Ctrl_1_Press like the rest
-        ; of this block; C ($20) does not collide with A($40)/B($10)/START($80).
+        ; C button = play the DEBUG STREAM DAC-on drum-test song (id 2) on a fresh
+        ; press. Exercises the DAC-drum phase end-to-end: $E2 kick/snare from the
+        ; shared DAC bank with the per-frame song<->sample bank swap (B1), the Layer-4
+        ; FM6 key-on gate, and FM/PSG music streaming alongside. (Supersedes the old
+        ; one-shot blip hotkey — the song fires real kick/snare via $E2.) Edge-detected
+        ; on Ctrl_1_Press; C ($20) does not collide with A($40)/B($10)/START($80).
         move.b  (Ctrl_1_Press).w, d0
         andi.b  #BUTTON_C, d0
         beq.s   .check_start
-        moveq   #1, d0                   ; sample id 1 (temp blip, one-shot)
-        bsr.w   Sound_PlaySample
+        moveq   #SONG_DRUMTEST, d0       ; DEBUG STREAM DAC-on drum-test song
+        bsr.w   Sound_PlayMusic
+        move.b  #1, (Dbg_Music_On).w     ; keep START's play/stop toggle coherent
         rts
 .check_start:
         move.b  (Ctrl_1_Press).w, d0
