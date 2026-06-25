@@ -39,7 +39,18 @@ Z80_Sound_Start:
         phase 0
 
 ; ======================================================================
-; CYCLE-BALANCE PROOF — FILL == SKIP == DRAIN == DRAINING == 587 Z80 cycles
+; *** HISTORICAL (SUPERSEDED — Layer 6, 2026-06-25) ***
+; The loop below was REWRITTEN to a RAW 8-bit, REGISTER-RESIDENT 1:1 loop: each pass
+; emits ONE ring byte AND fills ONE ROM byte (no SKIP path / pad waste); state lives
+; in registers (de=$4001, h=$17, c=RD, b=WR, ix=ROM ptr, hl'=len) and the loop runs
+; `di` for the whole sample (the VBlank ISR does not fire during streaming). The
+; Timer-A tick spills the regs to RAM around Sequencer_Frame, reloads, and bulk-refills
+; the ring's DMA-stall deficit. Balanced FILL pass = 195 cyc = 18356 Hz (SND_LOOP_CYC).
+; The cycle breakdown BELOW describes the OLD 2:1 DPCM-decode loop (587 cyc) and is kept
+; only as history; see SndDrv_Sample for the live code. (Full proof rewrite + dead-symbol
+; cleanup are a follow-up commit.)
+; ======================================================================
+; CYCLE-BALANCE PROOF (HISTORICAL: old 2:1 DPCM loop) — FILL==SKIP==DRAIN==587 cycles
 ; (T-states per the AS/Zilog table in the task spec, incl. ld iy,(nn)=20,
 ;  ld a,(iy+0)=19, ld (nn),a absolute=13, rrca=4. The banked $8000-window ROM
 ;  read adds a bounded ~3.3-cyc bus penalty under normal 68k load — that lands
@@ -426,165 +437,115 @@ SndDrv_IdleTick:
 ; `de` ($4001) and reg-$2A-selected are invariants maintained outside the loop.
 ; ======================================================================
 SndDrv_Sample:
-        di                               ; protect the whole iteration (incl. ROM reads)
-
-        ; --- CONSUMER: re-select $2A on the ADDR port, then output one ring byte.
-        ; (Re-selecting every sample is what the proven driver did; the YM2612
-        ; address latch is not relied upon to hold across data-only writes — the
-        ; data was landing on the wrong reg otherwise. Cost is constant in ALL
-        ; three paths, so the balance is preserved.) RAM ring read only — no ROM.
+        ; --- ENTRY (from SndDrv_Idle once a sample is armed): load the streaming state
+        ; into REGISTERS, held across every pass. The loop runs `di` for the WHOLE
+        ; sample — the VBlank ISR does not fire during streaming (the long di window
+        ; misses the once-per-frame /INT; the mailbox is serviced by the Timer-A tick
+        ; instead), so the old per-pass `ei` + RAM round-trips were dead weight. With
+        ; state register-resident the per-sample cost drops ~3x (587 -> 195). Register
+        ; map (held all streaming; the Timer-A tick spills->RAM / reloads around
+        ; Sequencer_Frame, which clobbers everything):
+        ;   de = $4001 (DAC data)        h  = SND_RING_PAGE ($17, ring page)
+        ;   c  = ring RD   b = ring WR   ix = ROM window ptr   hl' (shadow) = ROM len
+        ; 1:1 STREAMING: each pass emits ONE ring byte AND fills ONE ROM byte, so the
+        ; lead is constant -> NO SKIP path, no pad waste (that is what lets the rate
+        ; ~3x). DMA-stall recovery (the lead the consumer burns while a 68k DMA blocks
+        ; the producer's ROM read) is the Timer-A tick's bulk-refill, not an in-loop
+        ; 2:1 catch-up. See the balance proof header. ---
+        di
+        ld      de, SND_Z80_YM_A1        ; de = $4001 (DAC data port; held all streaming)
+        ld      h, SND_RING_PAGE         ; h  = $17 (ring page; held all streaming)
         ld      a, (SND_RING_RD)
-        ld      l, a
-        ld      h, SND_RING_PAGE
-        ld      c, (hl)                  ; c = ring[rd] sample (RAM — never contended)
-        ld      a, SND_REG_DAC_DATA      ; $2A
-        ld      (SND_Z80_YM_A0), a       ; select DAC DATA reg on the ADDR port ($4000)
-        ld      a, c
-        ld      (de), a                  ; sample -> YM $2A DATA ($4001)
-        inc     l                        ; advance read ptr (wraps within page)
-        ld      a, l
-        ld      (SND_RING_RD), a
-
-        ; --- DISPATCH: lead = (WR - RD) & $FF, then pick FILL / SKIP / DRAIN ---
-        ld      a, (SND_RING_RD)
-        ld      c, a
+        ld      c, a                     ; c = ring RD
         ld      a, (SND_RING_WR)
-        sub     c                        ; a = (WR - RD) & $FF = lead (bytes buffered)
-        ld      b, a                     ; stash lead
-        ; --- TIMER-A POLL (Task 5): the sequencer-tick clock. Placed in the COMMON
-        ; PREFIX *before* the DMA dispatch so ALL THREE paths (FILL/SKIP/DRAIN) run
-        ; it -> the K=30 cyc cost is common to every path, no pad rebalance needed.
-        ; Reads YM status off $4000 (the addr port, RAM-mapped I/O, never ROM —
-        ; DMA-safe). On overflow: rearm + Sequencer_Frame, then rejoin at .afterPoll.
-        ; `b` (the stashed lead) is re-derived after the handler (Sequencer_Frame
-        ; clobbers b, so SndDrv_TimerATick re-reads the lead before .afterPoll).
-.timerA_poll:
-        ld      a, (SND_Z80_YM_A0)       ; read YM status ($4000): bit0 = Timer A overflow
-        and     SND_TIMERA_OVF_MASK      ; isolate overflow bit
-        jp      nz, SndDrv_TimerATick    ; overflow -> rearm + Sequencer_Frame, then rejoin
+        ld      b, a                     ; b = ring WR
+        ld      ix, (SND_ROM_PTR)        ; ix = ROM window ptr
+        exx
+        ld      hl, (SND_ROM_LEN)        ; hl' = ROM len (shadow set)
+        exx
+
+.loop:
+        ; --- CONSUMER: emit ring[rd] -> $2A ($4001). NO per-sample $2A re-select; the
+        ; addr port stays parked on $2A (re-parked only by the tick / .stop /
+        ; Snd_StartSample — the sole $4000-touching paths). RAM ring read — DMA-safe. ---
+        ld      l, c                     ; l = RD (h = $17)
+        ld      a, (hl)                  ; ring[rd]
+        ld      (de), a                  ; -> YM $2A DATA ($4001)
+        inc     c                        ; RD++
+
+        ; --- TIMER-A poll (the sequencer-tick clock; the only thing that pauses
+        ; streaming, for one Sequencer_Frame + bulk-refill, once per ~59 Hz frame). ---
+        ld      a, (SND_Z80_YM_A0)       ; YM status: bit0 = Timer A overflow
+        and     SND_TIMERA_OVF_MASK
+        jp      nz, SndDrv_TimerATick    ; overflow -> tick (spill/frame/refill/reload), rejoin
 .afterPoll:
-        ; --- DRAINING_TAIL check (common prefix; +30 cyc on ALL paths, balance kept).
-        ; PHASE==2 means the producer exhausted: keep emitting the ring's buffered
-        ; tail (no ROM read) until it drains, then DC-center and stop. (ld 13 + cp 7
-        ; + jp z 10 = 30; not-taken on FILL/SKIP/DRAIN -> the pads need no rebalance.)
+        ; --- DRAINING_TAIL? (PHASE==2: producer exhausted, emit the buffered tail) ---
         ld      a, (SND_DAC_PHASE)
         cp      2
-        jp      z, .draining             ; DRAINING_TAIL: no ROM read, drain the ring
+        jp      z, .draining
+        ; --- 68k DMA in progress? -> DRAIN (consumer keeps emitting from the RAM ring;
+        ; the producer must NOT read ROM while the 68k holds the bus). ---
         ld      a, (SND_CTRL_DMA_ACTIVE)
         or      a
-        jp      nz, SndDrv_Drain         ; 68k DMA in progress -> DRAIN (no ROM read)
-        ld      a, b
-        cp      SND_RING_LEAD_CAP
-        jp      nc, SndDrv_Skip          ; ring full (lead >= cap) -> SKIP (no ROM read)
-        ; fall through to FILL
-
-        ; --- FILL: copy 2 RAW 8-bit PCM bytes from the banked window to the ring
-        ; (the YM2612 DAC is 8-bit, $80 = silence; no decode — drums are raw PCM, the
-        ; DPCM codec was dropped, see the 2026-06-25 spec amendment). 2:1 catch-up
-        ; preserved: 2 bytes in -> 2 bytes out (WR += 2), len -= 2. The loop holds NO
-        ; live regs across its `ei`, so ptr/len/WR are reloaded from RAM. See the
-        ; balance proof header. ---
-        ld      hl, (SND_ROM_PTR)
-        ld      b, (hl)                  ; b = sample byte 1 (banked $8000 window)
-        inc     hl
-        ld      c, (hl)                  ; c = sample byte 2
-        inc     hl
-        ld      (SND_ROM_PTR), hl
-        ; -- write the 2 raw bytes to the ring (WR += 2) --
-        ld      a, (SND_RING_WR)
-        ld      h, SND_RING_PAGE
-        ld      l, a
-        ld      (hl), b                  ; ring[wr]   = byte 1
-        inc     l
-        ld      (hl), c                  ; ring[wr+1] = byte 2
-        inc     l
-        ld      a, l
-        ld      (SND_RING_WR), a
-        ld      hl, (SND_ROM_LEN)
-        dec     hl                       ; len -= 2 (TWO raw bytes consumed)
-        dec     hl
-        ld      (SND_ROM_LEN), hl
+        jp      nz, .drain
+        ; --- FILL one RAW 8-bit byte: ROM(ix) -> ring[wr]; WR++, ROM++, len-- (1:1). ---
+        ld      a, (ix+0)                ; raw 8-bit sample (banked $8000 window)
+        ld      l, b                     ; l = WR
+        ld      (hl), a                  ; ring[wr] = sample
+        inc     b                        ; WR++
+        inc     ix                       ; ROM++
+        exx
+        dec     hl                       ; len-- (shadow)
         ld      a, h
         or      l
-        jp      nz, .fillDone            ; bytes remain (common) -> normal pass
-        ; --- producer exhausted (SND_ROM_LEN reached 0): enter DRAINING_TAIL. The
-        ; ring still holds the already-buffered tail; the .draining path keeps
-        ; emitting it (no ROM read) until lead==0, then DC-centers + stops. One-shot:
-        ; no re-loop, no $2B toggle, no gap. (Raw len is EVEN and decremented by 2 ->
-        ; it hits exactly 0; the even-length assert in dac_samples.asm guards this.)
+        exx
+        jp      z, .exhaust              ; len == 0 -> enter DRAINING_TAIL
+        jp      .loop
+
+.exhaust:
+        ; Producer done: switch to DRAINING_TAIL (emit the buffered lead, no more ROM).
+        ; One-shot per sample — the small extra cost here is not rate-critical.
         ld      a, 2
         ld      (SND_DAC_PHASE), a       ; PHASE = 2 (DRAINING_TAIL)
-.fillDone:
-        ei                               ; THE ONLY ei — IRQ lands here, between samples
-        jp      SndDrv_Sample
+        jp      .loop
 
-; --- DRAINING_TAIL path (PHASE==2): the producer is exhausted; emit the ring's
-; --- already-buffered tail (NO ROM read) until it drains, then DC-center + stop.
-; --- Reached from the .afterPoll phase check's `jp z`. MUST cost the same as a
-; --- normal SKIP-dispatch pass so the DAC rate never jitters while draining.
-; ---
-; --- CYCLE BALANCE (measured from just after the shared phase check, the point
-; --- both paths diverge — the 30-cyc phase check is common to all paths):
-; ---   normal pass -> SKIP body : DMA chk (ld 13 + or 4 + jp nz 10 = 27, not taken)
-; ---                            + LEAD chk (ld a,b 4 + cp 7 + jp nc 10 = 21, taken)
-; ---                            = 48 cyc.
-; ---   .draining   -> SKIP body : ld a,b 4 + or a 4 + jp z 10 = 18 (not taken)
-; ---                            + PAD + jp 10. 18 + 10 = 28 -> 20 cyc short.
-; --- Pad = 20 cyc = 5*nop(4) so DRAINING == SKIP == FILL == DRAIN exactly. (a,b
-; --- dead after this -> the SKIP body's `ld b,13` overwrites b; pad is reg-safe.)
+; --- DRAINING_TAIL (PHASE==2): the producer exhausted; the consumer (loop top) just
+; --- emitted a buffered tail byte. Stop once the lead drains to 0. Register-resident
+; --- (b=WR, c=RD; lead = WR-RD). Padded ~to the FILL pass (194 vs 195) — DRAINING
+; --- runs only for the sample tail (the buffered lead at the very end), so the 1-cyc
+; --- rounding is on those tail passes only and is inaudible. Pad reg-safe (a dead;
+; --- ix/hl' unused while draining). ---
 .draining:
-        ld      a, b                     ; b = ring lead (re-derived after any tick)
-        or      a
-        jp      z, .stop                 ; ring drained -> stop (last real byte emitted)
-        nop                              ; 4 \
-        nop                              ; 4  |
-        nop                              ; 4  > 20-cyc pad: balance to normal SKIP pass
-        nop                              ; 4  |
-        nop                              ; 4 /
-        jp      SndDrv_Skip              ; balanced no-ROM-read pass (emits next tail byte)
+        ld      a, b                     ; WR
+        sub     c                        ; lead = (WR - RD) & $FF
+        jp      z, .stop                 ; lead 0 -> fully drained -> stop
+        rept    21
+          nop
+        endm
+        jp      .loop
+
 .stop:
-        ; One-shot terminal event (once per sample; need NOT be cycle-balanced).
-        ; DC-center the DAC, clear DAC_ACTIVE, PHASE=idle, return to the idle loop.
-        ld      a, SND_REG_DAC_DATA      ; re-park $2A on the addr port ($4000)
+        ; One-shot terminal event (once per sample). DC-center the DAC, clear active,
+        ; PHASE=idle, return to the idle loop (which re-enables interrupts). RD/WR are
+        ; final (lead 0); the next Snd_StartSample re-primes them in RAM.
+        ld      a, SND_REG_DAC_DATA      ; re-park $2A on $4000
         ld      (SND_Z80_YM_A0), a
         ld      a, 80h
         ld      (SND_Z80_YM_A1), a       ; $2A = $80 (DC center silence)
         xor     a
         ld      (SND_STAT_DAC_ACTIVE), a ; clear active
         ld      (SND_DAC_PHASE), a       ; PHASE = idle (0)
-        ei
-        jp      SndDrv_Idle              ; back to the idle loop
+        jp      SndDrv_Idle              ; idle loop re-enables interrupts
 
-; --- SKIP path: ring full. Skip the ROM read; burn EXACTLY 183 cyc so the ---
-; --- iteration equals the RAW FILL producer (183, see the balance proof).   ---
-; --- (Pure pad, register-clobber-safe: a,b dead.) 183 = ld b,13 (7) + djnz  ---
-; --- (12*13 + 8 = 164) + 3 nops (12) = 7 + 164 + 12 = 183.                   ---
-SndDrv_Skip:
-        ld      b, 13                    ; 7
-.skip_pad:
-        djnz    .skip_pad                ; 12*13 + 1*8 = 164    -> 7 + 164 = 171
-        nop                              ; 4
-        nop                              ; 4
-        nop                              ; 4    -> SkipPad = 171 + 12 = 183
-        ei
-        jp      SndDrv_Sample
-
-; --- DRAIN path: 68k DMA in progress. Skip the ROM read (a banked read would ---
-; --- stall the Z80 bus for the whole DMA burst — the under-load sag bug);    ---
-; --- burn EXACTLY 204 cyc (= raw FILL producer 183 + the 21-cyc dispatch     ---
-; --- tail DRAIN skipped) so the iteration equals FILL. (a,b dead -> safe.)   ---
-; --- 204 = ld b,14 (7) + djnz (13*13 + 8 = 177) + 5 nops (20) = 7+177+20.    ---
-SndDrv_Drain:
-        ld      b, 14                    ; 7
-.drain_pad:
-        djnz    .drain_pad               ; 13*13 + 1*8 = 177    -> 7 + 177 = 184
-        nop                              ; 4
-        nop                              ; 4
-        nop                              ; 4
-        nop                              ; 4
-        nop                              ; 4    -> DrainPad = 184 + 20 = 204
-        ei
-        jp      SndDrv_Sample
+; --- DRAIN (68k DMA in progress): the consumer already emitted at the loop top; the
+; --- producer must NOT read ROM while the 68k holds the bus. Pad to the FILL pass
+; --- (195) so the rate never jitters during a DMA; the lead burned here is recovered
+; --- by the Timer-A tick's bulk-refill. Pure nop pad (reg-safe). 76 = 19 nops. ---
+.drain:
+        rept    19
+          nop
+        endm
+        jp      .loop
 
 ; ======================================================================
 ; SndDrv_ISR — minimal VBlank ISR (RST 38h $0038 -> jp here).
@@ -905,41 +866,86 @@ Run_SeqFrame_OnSongBank:
         jp      SndDrv_SetBank           ; window -> sample bank (tail-call; cached no-op if current)
 
 ; ======================================================================
-; SndDrv_TimerATick — the Timer-A overflow handler (now the PER-FRAME tick, Phase
-; 3). Reached ONLY from the common-prefix poll's `jp nz` when YM status bit0
-; (Timer A overflow) is set — at the FIXED frame rate. Runs INSIDE the streaming
-; loop's `di` window (so Sequencer_Frame is non-reentrant w.r.t. the VBlank ISR —
-; the frame engine and the ISR can never interleave). Steps:
-;   1. Snd_TimerA_Rearm  — clear the overflow flag (timer keeps counting from N).
-;   2. call Sequencer_Frame — run one per-frame engine pass (per active channel:
-;      ModUpdate + tempo-accumulator-gated event-tick). FULLY INLINE, no slicing;
-;      see the BOUNDING note in the proof — worst tick << ring lead, no underrun.
-;   3. re-read the lead into `b` (Sequencer_Frame clobbers b) and rejoin .afterPoll
-;      so this pass still runs the DMA/SKIP/FILL dispatch and ends at the ONE `ei`.
-; Re-parks reg $2A on $4000 after the rearm's $27 write (the consumer re-selects
-; $2A every sample anyway, but Snd_TimerA_Rearm already re-parks — defensive).
+; SndDrv_TimerATick — the Timer-A overflow handler (the PER-FRAME tick). Reached
+; ONLY from the hot loop's poll `jp nz` at the FIXED frame rate, inside the loop's
+; `di` window. The hot loop is REGISTER-RESIDENT (1:1), and Sequencer_Frame +
+; PollMailbox clobber EVERYTHING (incl. ix and the shadow set), so this tick:
+;   1. SPILL the live ring/ROM state (b=WR, c=RD, ix=ROM ptr, hl'=len) to RAM — so a
+;      mailbox-retrigger's Snd_StartSample sees + resets the right RAM fields.
+;   2. Snd_TimerA_Rearm (clear overflow) + Run_SeqFrame_OnSongBank (B1) +
+;      Snd_PollMailbox_Banked (the only mid-sample mailbox service — the VBlank ISR
+;      does not fire during streaming).
+;   3. RELOAD the register-resident state (a retrigger may have reset it).
+;   4. BULK-REFILL the ring lead the consumer burned while 68k DMAs blocked the
+;      producer this frame (the 1:1 loop's catch-up, kept OUT of the per-pass hot
+;      path). Small (only the DMA deficit), DMA-deferred, len-bounded.
+;   5. re-park $2A and rejoin .afterPoll (which runs this pass's phase/DMA/FILL).
 ; ======================================================================
 SndDrv_TimerATick:
-        call    Snd_TimerA_Rearm         ; $27 = $15 (clear overflow, keep counting), re-park $2A
+        ; 1. SPILL the register-resident state to RAM (RD already includes this pass's
+        ; consumer inc; the frame/poll/retrigger operate on RAM).
+        ld      a, c
+        ld      (SND_RING_RD), a
+        ld      a, b
+        ld      (SND_RING_WR), a
+        ld      (SND_ROM_PTR), ix
+        exx
+        ld      (SND_ROM_LEN), hl
+        exx
+        ; 2. rearm + per-frame engine (B1) + mailbox service.
+        call    Snd_TimerA_Rearm         ; $27 (clear overflow, keep counting), re-park $2A
         call    Run_SeqFrame_OnSongBank  ; B1: frame on song bank, restore sample bank
-        ; Poll the mailbox HERE — the VBlank IRQ does NOT fire during DAC streaming, so
-        ; this Timer-A frame tick is the only place a new SFX / music command gets
-        ; serviced while a sample plays (without it the mailbox freezes for the whole
-        ; sample). Bank-transparent (leaves the window on the sample bank for the FILL);
-        ; PollMailbox's heavy paths (SFX dispatch / song load) read ROM through the
-        ; window, but the ~250-sample ring lead absorbs the stall — same budget the ISR
-        ; design relies on. Runs inside the loop's di window, so it is non-reentrant
-        ; w.r.t. the (now idle-only) VBlank ISR.
-        call    Snd_PollMailbox_Banked
-        ; Sequencer_Frame + PollMailbox clobbered b (and de). Restore the loop invariants
-        ; the dispatch tail needs: de = $4001, and b = the lead (WR-RD)&$FF.
-        ld      de, SND_Z80_YM_A1        ; restore de = $4001 (DAC DATA port invariant)
+        call    Snd_PollMailbox_Banked   ; mid-sample SFX/music service (bank-transparent)
+        ; 3. RELOAD the register-resident state (StartSample may have re-primed it).
         ld      a, (SND_RING_RD)
         ld      c, a
         ld      a, (SND_RING_WR)
-        sub     c                        ; a = (WR-RD)&$FF = lead
-        ld      b, a                     ; b = lead (for the FILL/SKIP dispatch)
-        jp      SndDrv_Sample.afterPoll  ; rejoin the common prefix after the poll
+        ld      b, a
+        ld      ix, (SND_ROM_PTR)
+        exx
+        ld      hl, (SND_ROM_LEN)
+        exx
+        ld      h, SND_RING_PAGE         ; restore h = $17 (frame clobbered it)
+        ld      de, SND_Z80_YM_A1        ; restore de = $4001
+        ; 4. BULK-REFILL: top the lead up to SND_RING_LEAD_TARGET. Defer if a 68k DMA is
+        ; active now (the lead covers one frame's deferral); stop at sample end. The
+        ; window is on the sample bank (B1 tail); reads via ix.
+        ld      a, (SND_CTRL_DMA_ACTIVE)
+        or      a
+        jr      nz, .refillDone          ; DMA active -> defer
+.refill:
+        ld      a, b
+        sub     c                        ; lead = WR - RD
+        cp      SND_RING_LEAD_TARGET
+        jr      nc, .refillDone          ; lead >= target -> topped up
+        exx
+        ld      a, h
+        or      l                        ; len == 0 (sample exhausted)?
+        exx
+        jr      z, .refillDone
+        ld      a, (ix+0)                ; fill 1 byte: ROM(ix) -> ring[wr]
+        ld      l, b
+        ld      (hl), a
+        inc     b                        ; WR++
+        inc     ix                       ; ROM++
+        exx
+        dec     hl                       ; len--
+        exx
+        jr      .refill
+.refillDone:
+        ; if the refill (or a prior pass) exhausted the sample, enter DRAINING_TAIL so
+        ; .afterPoll routes to .draining instead of FILLing past the sample.
+        exx
+        ld      a, h
+        or      l
+        exx
+        jr      nz, .reparkDac
+        ld      a, 2
+        ld      (SND_DAC_PHASE), a       ; len 0 -> PHASE = DRAINING_TAIL
+.reparkDac:
+        ld      a, SND_REG_DAC_DATA      ; re-park $2A on $4000 (frame/refill moved it)
+        ld      (SND_Z80_YM_A0), a
+        jp      SndDrv_Sample.afterPoll  ; rejoin the hot loop's dispatch
 
 ; ======================================================================
 ; Snd_TimerA_ProgramFixed — load + enable Timer A at the FIXED Phase-3 frame

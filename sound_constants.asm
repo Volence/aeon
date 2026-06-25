@@ -178,8 +178,10 @@ SND_RING_LEN            = $100
 ;   as the $80 the ring is pre-filled with, giving a brief click-free DC-center
 ;   lead-in (~PRIME samples) while the producer catches up — no ROM read in the
 ;   ISR (DMA-safe sample start). PRIME < CAP so the producer keeps filling.
-SND_RING_LEAD_CAP       = 250                     ; ring-full guard (6-byte margin to 256)
+SND_RING_LEAD_CAP       = 250                     ; (legacy 2:1 SKIP threshold; unused by the 1:1 loop)
 SND_RING_LEAD_PRIME     = 128                     ; $80 lead-in length at sample start
+SND_RING_LEAD_TARGET    = 200                     ; Layer-6 1:1: the Timer-A tick's bulk-refill tops the
+                                                  ; lead up to this (DMA-stall margin; PRIME < TARGET < 256)
 
 ; --- Effective DAC sample rate (build-time, self-documenting; req 9) ---
 ; The streaming loop is free-running: the loop trip-time IS the sample clock.
@@ -189,19 +191,16 @@ SND_RING_LEAD_PRIME     = 128                     ; $80 lead-in length at sample
 ; any rate-derived math) follows. (S2/S3K pcmLoopCounter pattern.)
 Z80_CLOCK_HZ            = 3579545                  ; NTSC Z80 clock (master/15)
 dac_rate_hz  function cyc, (Z80_CLOCK_HZ / (cyc))
-; 370 = consumer re-selects $2A each sample; +30 = the Task-5 Timer-A overflow
-; poll in the common prefix (ld a,($4000) 13 + and 1 7 + jp nz 10 = K = 30 cyc,
-; added EQUALLY to FILL/SKIP/DRAIN because it lives in the common prefix);
-; +30 = the DRAINING_TAIL phase check in the common prefix (ld a,(SND_DAC_PHASE)
-; 13 + cp 2 7 + jp z 10 = 30 cyc), again paid equally by all paths;
-; Layer 6 (2026-06-25): the DPCM decode was DROPPED — drums are RAW 8-bit PCM (the
-; shared bank made compression moot; raw is higher-rate + cleaner; see the spec
-; amendment). The FILL producer is back to a raw 2-byte copy (cost 183, was 340 with
-; decode), so SkipPad/DrainPad rebalanced to 183 / 204. This is the intermediate
-; same-structure rate; the register-resident high-rate loop follows. See the full
+; Layer 6 (2026-06-25): RAW 8-bit PCM + a REGISTER-RESIDENT 1:1 loop. The streaming
+; state lives in registers (the VBlank ISR does NOT fire during a sample, so the old
+; per-pass ei + RAM round-trips were dead weight), and each pass emits ONE ring byte
+; AND fills ONE ROM byte (1:1) -> the lead is constant, so there is NO SKIP path / pad
+; waste. DMA-stall catch-up is the Timer-A tick's bulk-refill, off the hot path. The
+; balanced FILL pass = 195 cyc (emit 22 + poll 30 + phase 30 + DMA-chk 27 + fill 44 +
+; len 22 + 2*jp 20); DRAIN pads to 195, DRAINING to ~194 (tail-only). See the full
 ; balance proof in engine/z80_sound_driver.asm.
-SND_LOOP_CYC            = 430                      ; balanced FILL/SKIP/DRAIN/DRAINING total (212 prefix + 21 tail + 183 raw producer + 14 ei/jp)
-SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 8324 Hz (3579545/430, int div)
+SND_LOOP_CYC            = 195                      ; balanced 1:1 FILL pass (emit+poll+phase+DMA+fill+len+2jp)
+SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 18356 Hz (3579545/195, int div)
 
 ; --- 1B: 68k->Z80 control (68k writes, Z80 reads) ---
 SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progress (no ROM reads)
