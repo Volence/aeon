@@ -727,6 +727,15 @@ git commit -m "feat(sound): constant-cost DPCM decode FILL (predictor in RAM) + 
 
 ## Task 4.1: FM6 dedicate-while-active
 
+> **STATUS: DONE + verified (commit a29594c, 2026-06-25).** Also shipped a pre-step
+> "Step 0" (commit ea81f3b): idle `$2A=$80` gated to the Timer-A tick to de-flood the
+> VGM logger. `$B6=$C0` + the ch6 key-on gate (placed at `Fm_NoteOnFreq.keyon` — the
+> single FM key-on chokepoint, more complete than the `sound_sequencer.asm` location
+> here, which misses the ModUpdate re-key). 3-agent review: all approve. Verified in
+> oracle: `$B6=$C0` lands; kick de-wrapped-ring r=1.0 byte-exact; MT not regressed.
+> The FM6 key-on gate's INTEGRATED runtime proof (FM6 music suppressed during a
+> sample) is deferred to Task 5.3 (blocked by the pre-bracket bank conflict).
+
 **Files:**
 - Modify: `engine/z80_sound_driver.asm` (`Snd_StartSample` `$B6=$C0`; the FM6 hand-back at `.stop`)
 - Modify: `engine/sound_sequencer.asm` (gate the ch6 key-on while `SND_STAT_DAC_ACTIVE`)
