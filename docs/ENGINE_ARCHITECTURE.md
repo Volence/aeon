@@ -2592,6 +2592,29 @@ soundscapes (the latter is deferred to Phase 5).
   dynamic-envelope r=0.868, note sequences 100%. Genuinely faithful. (Lesson: verify rendered audio
   energy/spectrum, not just the key-on register stream.) See
   `docs/superpowers/specs/2026-06-18-sound-1d-moving-trucks.md`.
+- **DAC drum playback path (DAC-format revision, 2026-06-25)** — `$E2`-triggered one-shot PCM
+  drums that play once and cleanly stop to DC-center, replacing the looping 1B blip. **Payload =
+  raw 8-bit PCM.** (A noise-shaped 4-bit DPCM codec was built first, then **reversed to raw 8-bit**:
+  the shared DAC bank stores each drum *once*, so compression bought ~nothing for short drums, and
+  the decode was the loop's rate cap. DPCM stays a future option via a reserved `ds_codec` byte —
+  see the 2026-06-25 amendment in the format-revision spec.) **State machine:** IDLE → PLAYING →
+  DRAINING_TAIL → STOPPING (two-stage exhaust so the ring tail plays out, then DC-centers — the
+  clean stop and FM6 return are one mechanism). **Banking:** a shared `$8000`-aligned DAC bank holds
+  the drums; the window swaps per frame via four cached `SetBank` brackets (B1 `Run_SeqFrame_OnSongBank`
+  on both tick paths, B2 `Snd_StartSample` stash-only, B3 ISR bank-transparent, B4 idle→stream
+  latch) — song bank for every sequencer frame + ISR blob read, sample bank for every FILL. **Loop:**
+  a **register-resident 1:1 streaming loop** (state in `de/h/bc/ix` + the shadow set, `di` for the
+  whole sample since the VBlank ISR does not fire during streaming) that emits one ring byte and
+  fills one ROM byte per pass (no SKIP pad) — **195 cyc/pass = ~18.4 kHz** (the streaming/pitch
+  rate; was 6 kHz with the DPCM 2:1 loop). DMA-stall catch-up is the Timer-A tick's bulk-refill
+  (off the hot path); the ring lead (~200 samples ≈ 11 ms) outlasts any real 68k DMA. **FM6 =
+  dedicate-while-active** (`$B6=$C0` force-DAC-stereo at sample start; the ch6 `$28` key-on is gated
+  at the `Fm_NoteOnFreq` chokepoint while a sample plays). The adaptive Echo-style FM6 toggle (FM6
+  plays music *between* hits, behind a per-song flag) is the one remaining layer. **Verification
+  (no real hardware — Exodus/`oracle` only):** byte-exact de-wrapped ring vs the raw sample (r=1.0),
+  the `$2A` cadence at the target rate, the music-channel correctness after a `$E2` (bank-swap gate),
+  the FM6 key-on gate, an SFX fired mid-drum, and MT regression — all green. A DEBUG STREAM drum-test
+  song (id 2, `C` button) drives the integrated proof. See the format-revision spec + plan.
 
 **DEFERRED (master-spec §12 Phases 2–6 — each its own plan):** Phase 2 N-channel DAC mixer
 (quality-adaptive single↔mix, stereo/pseudo-stereo PCM, pitch-shifted SFX, half-rate samples,

@@ -38,24 +38,21 @@ SND_SAMPLE_TEST         = 1                       ; Foundations test tone
 
 ; --- DAC playback state (Z80 RAM; state region, all reads/writes bank-free) ---
 ; The driver CODE blob grows up from $0000 and must stay below SND_STATE_BASE (the
-; build asserts Z80_SOUND_SIZE <= SND_STATE_BASE). The state block occupies
-; $16F0..$16FD ($0E bytes), staying comfortably below the page-aligned DAC ring
-; at $1700. SND_STATE_END_GUARD below asserts the block never runs into the ring.
-; AS does NOT auto-align ds.w/ds.l — word fields must sit at even absolute offsets.
-; +$07 is an explicit unused pad byte to keep +$08 (SND_ROM_PTR) word-aligned.
+; build asserts Z80_SOUND_SIZE <= SND_STATE_BASE). The block occupies $16F0..$16F9
+; ($0A bytes), comfortably below the page-aligned DAC ring at $1700; SND_STATE_END_GUARD
+; asserts it never runs into the ring. AS does NOT auto-align ds.w/ds.l — the word
+; fields (SND_ROM_PTR/LEN) sit at EVEN absolute offsets ($06/$08). (Layer 6 deleted the
+; DPCM-only SND_DEC_ACC/SND_DEC_IY — raw 8-bit PCM needs no predictor or DecTable base.)
 SND_STATE_BASE          = $16F0
-SND_DEC_ACC             = SND_STATE_BASE+$00     ; DPCM running predictor (RAM); seeded $80
-SND_DAC_PHASE           = SND_STATE_BASE+$01     ; 0=idle, 1=playing, 2=draining-tail
-SND_SONG_BANK           = SND_STATE_BASE+$02     ; current song bank (set in Snd_LoadSong)
-SND_ROM_BANK            = SND_STATE_BASE+$03     ; current sample bank (stashed by Snd_StartSample)
-SND_CUR_BANK            = SND_STATE_BASE+$04     ; SetBank cache (no-op check)
-SND_RING_RD             = SND_STATE_BASE+$05     ; ring read ptr low byte
-SND_RING_WR             = SND_STATE_BASE+$06     ; ring write ptr low byte
-                                                 ; +$07 = unused pad (keep words even-aligned)
-SND_ROM_PTR             = SND_STATE_BASE+$08     ; sample window read ptr (2 bytes)
-SND_ROM_LEN             = SND_STATE_BASE+$0A     ; packed bytes remaining (2 bytes)
-SND_DEC_IY              = SND_STATE_BASE+$0C     ; DecTable base for this sample (2 bytes; iy reloaded at FILL top)
-SND_STATE_END           = SND_STATE_BASE+$0E
+SND_DAC_PHASE           = SND_STATE_BASE+$00     ; 0=idle, 1=playing, 2=draining-tail
+SND_SONG_BANK           = SND_STATE_BASE+$01     ; current song bank (set in Snd_LoadSong)
+SND_ROM_BANK            = SND_STATE_BASE+$02     ; current sample bank (stashed by Snd_StartSample)
+SND_CUR_BANK            = SND_STATE_BASE+$03     ; SetBank cache (no-op check)
+SND_RING_RD             = SND_STATE_BASE+$04     ; ring read ptr low byte (c in the streaming loop)
+SND_RING_WR             = SND_STATE_BASE+$05     ; ring write ptr low byte (b in the streaming loop)
+SND_ROM_PTR             = SND_STATE_BASE+$06     ; sample window read ptr (2 bytes; even-aligned)
+SND_ROM_LEN             = SND_STATE_BASE+$08     ; sample bytes remaining (2 bytes; even-aligned)
+SND_STATE_END           = SND_STATE_BASE+$0A
 
 ; --- YM2612 ports as seen from the Z80 ($4000-$4003) ---
 SND_Z80_YM_A0           = $4000                  ; addr part I / status read (reg select)
@@ -170,18 +167,17 @@ SND_RING_BASE           = $1700                  ; Z80 addr; high byte $17 is th
 SND_RING_PAGE           = $17                     ; high byte for `inc l` wrap + full-check
 SND_RING_LEN            = $100
 
-; --- MegaPCM-2 streaming loop: read-ahead lead bounds (req 2, req 8) ---
-; SND_RING_LEAD_CAP : lead = (WR-RD)&$FF at/above which the producer takes the
-;   SKIP path (ring full, no ROM read). Kept a few bytes below 256 so the WR
-;   pointer can never lap RD (guard band = 256 - CAP).
-; SND_RING_LEAD_PRIME : lead established at sample start. The lead region is left
-;   as the $80 the ring is pre-filled with, giving a brief click-free DC-center
-;   lead-in (~PRIME samples) while the producer catches up — no ROM read in the
-;   ISR (DMA-safe sample start). PRIME < CAP so the producer keeps filling.
-SND_RING_LEAD_CAP       = 250                     ; (legacy 2:1 SKIP threshold; unused by the 1:1 loop)
+; --- Register-resident 1:1 streaming loop: ring read-ahead lead bounds ---
+; SND_RING_LEAD_PRIME : lead established at sample start. The lead region is left as
+;   the $80 the ring is pre-filled with, giving a brief click-free DC-center lead-in
+;   (~PRIME samples) while the producer fills real data — no ROM read in the ISR
+;   (DMA-safe sample start).
+; SND_RING_LEAD_TARGET : the Timer-A tick's bulk-refill tops the lead up to this each
+;   frame (the 1:1 loop's DMA-stall catch-up). PRIME <= TARGET < 256 (a guard band to
+;   256 so the WR pointer never laps RD). ~200 samples ≈ 11 ms at 18 kHz — outlasts any
+;   real 68k DMA stall. (The 1:1 loop has NO SKIP path, so no ring-full CAP is needed.)
 SND_RING_LEAD_PRIME     = 128                     ; $80 lead-in length at sample start
-SND_RING_LEAD_TARGET    = 200                     ; Layer-6 1:1: the Timer-A tick's bulk-refill tops the
-                                                  ; lead up to this (DMA-stall margin; PRIME < TARGET < 256)
+SND_RING_LEAD_TARGET    = 200                     ; tick bulk-refill ceiling (DMA-stall margin)
 
 ; --- Effective DAC sample rate (build-time, self-documenting; req 9) ---
 ; The streaming loop is free-running: the loop trip-time IS the sample clock.
