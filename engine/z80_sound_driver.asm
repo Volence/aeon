@@ -752,12 +752,16 @@ SndDrv_TimerATick:
         exx
         ld      h, SND_RING_PAGE         ; restore h = $17 (frame clobbered it)
         ld      de, SND_Z80_YM_A1        ; restore de = $4001
-        ; 4. BULK-REFILL: top the lead up to SND_RING_LEAD_TARGET. Defer if a 68k DMA is
-        ; active now (the lead covers one frame's deferral); stop at sample end. The
-        ; window is on the sample bank (B1 tail); reads via ix.
-        ld      a, (SND_CTRL_DMA_ACTIVE)
-        or      a
-        jr      nz, .refillDone          ; DMA active -> defer
+        ; 4. BULK-REFILL: top the lead up to SND_RING_LEAD_TARGET every frame, then stop
+        ; at sample end. NOTE: this does NOT defer on an active 68k DMA. The 1:1 hot loop
+        ; only restores lead at this tick, so deferring during a DMA lets a sustained-DMA
+        ; frame run drain the lead unrecovered until RD laps WR (a wedge — code-review
+        ; finding). The refill runs inside the Timer-A tick where the DAC is already
+        ; holding (the Sequencer_Frame gap), so a $8000-window ROM read stalling on the
+        ; 68k bus only stretches that hold (benign — NOT the consumer pitch sag the
+        ; hot-loop DRAIN guards); the read still returns correct data. So filling THROUGH
+        ; the DMA recovers the lead every frame and prevents the underrun. The window is
+        ; on the sample bank (B1 tail); reads via ix.
 .refill:
         ld      a, b
         sub     c                        ; lead = WR - RD

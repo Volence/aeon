@@ -27,14 +27,12 @@ SND_BLIP_BANK           = (Dac_Temp_Blip & $7F8000) >> 15
 SND_BLIP_PTR            = (Dac_Temp_Blip & $7FFF) | $8000
 SND_BLIP_LEN            = Dac_Temp_Blip_End - Dac_Temp_Blip
 
-        ; DAC sample lengths MUST be even: the FILL producer
-        ; (engine/z80_sound_driver.asm) reads 2 ROM bytes/pass and decrements
-        ; ds_length by 2, testing `h or l == 0` for exhaustion. An ODD length steps
-        ; ...3 -> 1 -> $FFFF and NEVER hits zero, so it reads ~64KB past the sample.
-        ; (Generalize this to every DacSample ds_length when the descriptor table
-        ; grows beyond the single blip — see DEFERRED_WORK "DAC format revision".)
-        if (SND_BLIP_LEN & 1) <> 0
-          fatal "DAC sample length (\{SND_BLIP_LEN}) must be EVEN (FILL decrements by 2, tests ==0)"
+        ; DAC sample length must be > 0 and fit the $8000 window. The 1:1 FILL reads
+        ; ONE byte/pass and decrements ds_length by 1, exhausting at exactly 0 for ANY
+        ; length (odd or even) — so there is no even-length requirement. A ZERO length
+        ; would run away ~64KB; this catches it at build.
+        if (SND_BLIP_LEN = 0) || (SND_BLIP_LEN >= $8000)
+          fatal "DAC sample length (\{SND_BLIP_LEN}) must be > 0 and < $8000"
         endif
 
 ; ======================================================================
@@ -44,8 +42,9 @@ SND_BLIP_LEN            = Dac_Temp_Blip_End - Dac_Temp_Blip
 ; RAW 8-bit unsigned PCM (the YM2612 DAC is 8-bit, $80 = silence) — the DPCM
 ; codec was dropped for drums (the shared bank made compression moot; raw is
 ; higher-rate + cleaner; see the 2026-06-25 spec amendment). ds_length is the
-; raw byte count = sample count; the FILL copies 2 bytes/pass and exhausts at
-; len==0, so every length MUST be EVEN (asserted below).
+; raw byte count = sample count; the 1:1 FILL reads 1 byte/pass and exhausts at
+; len==0 for ANY length (odd or even) — so no even-length requirement, just
+; 0 < len < $8000 (asserted below).
 ; ======================================================================
         align   $8000
 Dac_SharedBank_Start:
@@ -76,7 +75,8 @@ SND_HAT_BANK    = (Dac_Hat   & $7F8000) >> 15
 SND_HAT_PTR     = (Dac_Hat   & $7FFF) | $8000
 SND_HAT_LEN     = Dac_Hat_End  - Dac_Hat
 
-        ; Raw FILL copies 2 bytes/pass and tests len==0 -> every drum length must be EVEN.
-        if ((SND_KICK_LEN | SND_SNARE_LEN | SND_HAT_LEN) & 1) <> 0
-          fatal "raw DAC drum length must be EVEN (FILL copies 2 bytes/pass, tests ==0)"
+        ; Each drum length must be > 0 and fit the $8000 window (the 1:1 FILL handles
+        ; any length; a zero length would run away, which this catches at build).
+        if (SND_KICK_LEN = 0) || (SND_KICK_LEN >= $8000) || (SND_SNARE_LEN = 0) || (SND_SNARE_LEN >= $8000) || (SND_HAT_LEN = 0) || (SND_HAT_LEN >= $8000)
+          fatal "raw DAC drum length must be > 0 and < $8000"
         endif
