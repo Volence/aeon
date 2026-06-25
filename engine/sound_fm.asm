@@ -703,6 +703,25 @@ Fm_NoteOnFreq:
         ld      (ix+sc_base_freq+1), e   ; low byte slot  = $A0 value
         call    Mod_ReArm                ; per-note re-arm (no-op if sc_mod_ctrl==0)
 .keyon:
+        ; --- FM6 dedicate (Layer 4): while a DAC sample owns ch6 (SND_STAT_DAC_ACTIVE),
+        ; $2B bit7 makes the DAC REPLACE FM6's output — a $28 key-on would only retrigger
+        ; a silenced EG and clutter the chip stream. Skip the chip key-on, but still set
+        ; SCF_KEYED so the sequencer's bookkeeping stays consistent. Dedicate has NO
+        ; exhaust-time re-key: FM6 keys for real only on its NEXT pitch event (a note or
+        ; ModUpdate re-key) AFTER the sample exhausts, by which point the gate is open.
+        ; This is the SINGLE chokepoint for every FM key-on (note-on, ModUpdate re-key,
+        ; NOTE_RAW), so gating here covers them all. (Layer 7's adaptive mode toggles $2B
+        ; and DOES re-key FM6 at exhaust; dedicate leaves $2B armed -> FM6 stays DAC-owned
+        ; for the whole song.) ---
+        ld      a, (ix+sc_route)
+        cp      CHROUTE_FM6
+        jr      nz, .do_keyon            ; not FM6 -> key on normally
+        ld      a, (SND_STAT_DAC_ACTIVE)
+        or      a
+        jr      z, .do_keyon             ; DAC idle -> FM6 keys on normally
+        set     SCF_KEYED_B, (ix+sc_flags)   ; DAC owns ch6: advance bookkeeping, no chip $28
+        jp      Fm_ReparkDac
+.do_keyon:
         ; --- KEY ON: $28 = $F0 | chsel, ALWAYS via part I ---
         call    Fm_ChSel                 ; a = chsel = (part<<2)|ch
         or      SND_FM_KEYON_OPMASK      ; $F0 | chsel (all 4 ops on)

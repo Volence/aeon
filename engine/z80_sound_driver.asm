@@ -748,6 +748,17 @@ Snd_StartSample:
         ld      (SND_Z80_YM_A1), a       ; $4001 = $80 -> DAC mode ON
         ld      a, SND_REG_DAC_DATA
         ld      (SND_Z80_YM_A0), a       ; $4000 = $2A (re-park addr port on DAC DATA)
+        ; --- FM6 dedicate (Layer 4): force DAC stereo on ch6. With $2B bit7 set the
+        ; DAC REPLACES FM6's output, so it inherits FM6's $B6 L/R panning — had the
+        ; song left FM6 muted ($B6 L=R=0) or panned to one side, the DAC would be
+        ; silent/one-sided. Force $B6 = $C0 (L+R on, AMS=FMS=0). FM6 = part II reg
+        ; $B4+2; select on $4002, data on $4003. (The part-II addr port is left on
+        ; $B6 — harmless; every FM writer re-selects its target reg before its data.)
+        ld      a, SND_REG_LR_AMS_FMS+2  ; $B6 (ch6 L/R/AMS/FMS), part II
+        ld      (SND_Z80_YM_A2), a       ; $4002 = reg select (part II)
+        nop                              ; inter-write delay (no busy-poll), as Fm_YmWrite
+        ld      a, 0C0h                  ; L+R on, AMS=FMS=0 -> force DAC stereo
+        ld      (SND_Z80_YM_A3), a       ; $4003 = data
         pop     hl                       ; hl = descriptor base
         ; --- Read ALL descriptor fields BEFORE banking. SndDrv_SetBank CLOBBERS hl
         ; (it loads hl=SND_CUR_BANK, then hl=$6000); calling it first and then re-
