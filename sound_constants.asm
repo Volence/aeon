@@ -206,15 +206,13 @@ SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progre
           fatal "DAC state block (ends \{SND_STATE_END}) runs into the DAC ring at \{SND_RING_BASE}"
         endif
 
-; --- 9-byte ROM-resident sample descriptor (Task 0.2: ds_table inserted at +2) ---
-NUM_DELTA_TABLES = 3              ; sharp-transient / body / quiet (grow as the kit needs)
-
+; --- 9-byte ROM-resident sample descriptor (ds_codec selector at +2) ---
 DacSample struct
 ds_bank         ds.b 1          ; +0  sample bank id = (addr & $7F8000) >> 15
 ds_rate         ds.b 1          ; +1  RESERVED forward-compat (per-sample rate); v1 ignores it
-ds_table        ds.b 1          ; +2  DPCM delta-table index (0..NUM_DELTA_TABLES-1)
+ds_codec        ds.b 1          ; +2  codec selector (0 = raw 8-bit PCM; reserved for a future compressed codec)
 ds_ptr          ds.w 1          ; +3  Z80-window ptr (addr & $7FFF)|$8000, little-endian
-ds_length       ds.w 1          ; +5  PACKED byte count (nibble pairs); < $8000
+ds_length       ds.w 1          ; +5  raw byte count = sample count; < $8000
 ds_loop_ofs     ds.w 1          ; +7  RESERVED forward-compat (loop restart); v1 = 0, ignored
 DacSample endstruct             ; = 9 bytes
 

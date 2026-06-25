@@ -5,33 +5,40 @@
 ; Assembled inline in 68k ROM via `cpu z80 / phase 0`. Loaded into Z80 RAM
 ; over the idle program at boot when SOUND_DRIVER_ENABLED is defined.
 ;
-; DESIGN (replaces the old Timer-A producer/consumer):
-;   * The LOOP TRIP-TIME is the sample clock. There is no YM Timer A. Every
-;     pass through the streaming loop outputs exactly one ring byte to the
-;     YM2612 DAC ($2A data port at $4001) and costs the IDENTICAL number of
-;     Z80 cycles regardless of which of the three playback paths it takes —
-;     so the DAC output rate is rock-steady and load-independent.
+; DESIGN (Layer 6: register-resident 1:1 loop, raw 8-bit PCM):
+;   * The LOOP TRIP-TIME is the sample clock. There is no per-sample YM Timer A
+;     gate. Every pass through the streaming loop outputs exactly one ring byte
+;     to the YM2612 DAC ($2A data port at $4001) and costs the IDENTICAL Z80
+;     cycles regardless of which playback path it takes — so the DAC output
+;     rate is rock-steady and load-independent.
 ;   * CONSUMER (the $2A write) reads the RAM RING ONLY, never ROM. RAM is
 ;     never bus-contended, so the $2A cadence cannot sag when the 68k holds
 ;     the cartridge bus for a VDP DMA. `de` is pre-loaded to $4001 and reg
 ;     $2A is pre-selected once at init, so every `ld (de),a` is a DAC write.
-;   * PRODUCER (read-ahead) copies up to 2 ROM bytes/sample from the banked
-;     $8000 window into the ring (2:1 catch-up so it recovers the lead a DMA
-;     drain consumes), bounded by a lead cap so WR can never lap RD.
+;   * PRODUCER (read-ahead) copies exactly ONE raw 8-bit ROM byte/pass from the
+;     banked $8000 window into the ring (1:1: emit one, fill one), so the lead
+;     is CONSTANT in steady state. There is no SKIP path and no pad waste —
+;     which is what lets the rate run ~3x the old 2:1 DPCM form.
 ;   * THREE EQUAL-COST PATHS, selected with `jp cc` (constant 10 cyc taken or
 ;     not — never `jr cc`, which is 12/7 and would itself be a jitter source):
-;       FILL  — read-ahead 2 ROM bytes (the reference path)
-;       SKIP  — ring full (lead >= cap): no ROM read, padded to equal FILL
-;       DRAIN — 68k DMA in progress (SND_CTRL_DMA_ACTIVE != 0): no ROM read,
-;               padded to equal FILL
+;       FILL          — read-ahead 1 ROM byte (the reference path)
+;       DRAIN         — 68k DMA in progress (SND_CTRL_DMA_ACTIVE != 0): no ROM
+;                       read, padded to equal FILL
+;       DRAINING_TAIL — producer exhausted: emit the buffered tail, padded ~to
+;                       FILL, then stop at lead 0
 ;     Pads are explicit cycle-counted blocks; see the balance proof below.
-;   * EXACTLY ONE `ei` per iteration, immediately before the back-jump, so the
-;     Z80 VBlank IRQ (RST 38h) lands ONLY between samples, never mid-ROM-read.
-;     `di` at the top protects the whole iteration (incl. the ROM reads).
+;   * The loop runs `di` for the WHOLE sample with ALL streaming state held in
+;     registers. The Z80 VBlank IRQ (RST 38h) does NOT fire during streaming —
+;     its once-per-frame /INT never lands in the long di window — so there is no
+;     per-pass `ei` and no per-pass RAM round-trip. The mailbox is serviced by
+;     the Timer-A tick (SndDrv_TimerATick) instead, not the IRQ.
 ;   * DMA SURVIVAL is a 68k FLAG BRACKET: the 68k sets SND_CTRL_DMA_ACTIVE=1 at
 ;     the very top of its VInt handler and clears it =0 after the last DMA. The
-;     producer takes DRAIN while the flag is set — no ISR drain loop, no ack
-;     handshake. The 256-byte ring lead vastly outlasts the VBlank/DMA window.
+;     producer takes DRAIN (emit-only, no ROM read) while the flag is set; the
+;     lead the consumer burns during the DMA is recovered by the Timer-A tick's
+;     bulk-refill, which tops the ring back up to SND_RING_LEAD_TARGET every
+;     frame AND runs THROUGH the DMA, so a sustained DMA cannot starve it. The
+;     ~200-sample ring lead (~11 ms at 18 kHz) vastly outlasts any VBlank/DMA.
 ; ======================================================================
 Z80_Sound_Start:
         save
@@ -277,9 +284,12 @@ SndDrv_IdleTick:
 ; ======================================================================
 ; SndDrv_Sample — the free-running, every-path-equal-cost streaming loop.
 ; ONE straight-line iteration per sample. See the balance proof at the top.
-; Live registers across iterations: NONE — every value is reloaded from RAM
-; at the top of the loop, so the pads and the ISR may clobber any register.
-; `de` ($4001) and reg-$2A-selected are invariants maintained outside the loop.
+; Live registers across iterations: ALL streaming state (de=$4001, h=ring page,
+; c=RD, b=WR, ix=ROM ptr, hl'=ROM len) is held in registers for the whole sample.
+; This is safe WITHOUT per-pass spills because the loop runs `di` end to end and
+; the VBlank ISR does not fire during streaming — only the Timer-A tick
+; (SndDrv_TimerATick) interrupts the loop, and it spills/reloads these registers
+; itself around Sequencer_Frame. `de` ($4001) and reg-$2A-selected are invariants.
 ; ======================================================================
 SndDrv_Sample:
         ; --- ENTRY (from SndDrv_Idle once a sample is armed): load the streaming state
@@ -404,10 +414,13 @@ SndDrv_Sample:
 ; outlasts the few-hundred-byte song copy — the lead absorbs the load.
 ; Preserves af/bc/de/hl via push/pop (it interrupts the main/idle loop). It does
 ; NOT save ix/iy, and SndDrv_PollMailbox DOES clobber them (SfxDispatch/Snd_LoadSong
-; use ix for channel state) — that is SAFE only because the main/idle/sample loops
-; hold NO live registers across their single `ei` (they document "Live registers
-; across iterations: NONE"). de=$4001 survives via the push/pop below, not by being
-; untouched. INVARIANT: future loop code must never keep a live ix/iy across `ei`.
+; use ix for channel state). That is SAFE for two distinct reasons, one per context
+; the ISR can interrupt: (1) the IDLE loop holds NO live ix/iy across its `ei`, so a
+; clobber there is harmless; (2) the SAMPLE loop DOES hold live ix/iy (ROM ptr / len
+; shadow) but it runs `di` end to end, so the VBlank ISR never fires during streaming
+; and cannot clobber them (the Timer-A tick services the mailbox there instead, and it
+; spills/reloads ix/iy itself). de=$4001 survives via the push/pop below, not by being
+; untouched. INVARIANT: idle-context loop code must never keep a live ix/iy across `ei`.
 ; ======================================================================
 SndDrv_ISR:
         push    af
@@ -634,7 +647,7 @@ Snd_StartSample:
         ; reading ROM (which could land mid-DMA in the ISR context), we set WR
         ; ahead of RD by SND_RING_LEAD_PRIME and leave those lead bytes at the $80
         ; the ring was pre-filled with — a click-free DC-center lead-in while the
-        ; FILL producer (2:1 catch-up) overwrites the ring with real sample data.
+        ; FILL producer (1:1) overwrites the ring with real sample data.
         xor     a
         ld      (SND_RING_RD), a         ; RD = 0
         ld      hl, SND_RING_BASE        ; ring page base
@@ -1254,33 +1267,33 @@ FmPatchInlineTable_End:
 ; descriptor in the Z80 blob needs no banking to read. rate/loop_ofs are 0 (the
 ; 1B FILL loop drives the rate via the loop trip-time). One-shot: the producer
 ; now exhausts into DRAINING_TAIL (no FILL re-loop), so the sample plays once.
-; ds_table = 0 (sharp-transient table, index 0 of NUM_DELTA_TABLES).
+; ds_codec = 0 (raw 8-bit PCM; the reserved codec-selector slot).
 DacSampleTable:
         ; id 1 = temp_blip
         db      SND_BLIP_BANK            ; ds_bank
         db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_table (DPCM delta-table index; 0 = sharp-transient)
+        db      0                        ; ds_codec (codec selector; 0 = raw 8-bit PCM)
         dw      SND_BLIP_PTR             ; ds_ptr (little-endian dw)
         dw      SND_BLIP_LEN             ; ds_length
         dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
         ; id 2 = kick
         db      SND_KICK_BANK            ; ds_bank
         db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_table (sharp-transient)
+        db      0                        ; ds_codec (raw 8-bit PCM)
         dw      SND_KICK_PTR             ; ds_ptr
         dw      SND_KICK_LEN             ; ds_length
         dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
         ; id 3 = snare
         db      SND_SNARE_BANK           ; ds_bank
         db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_table (sharp-transient)
+        db      0                        ; ds_codec (raw 8-bit PCM)
         dw      SND_SNARE_PTR            ; ds_ptr
         dw      SND_SNARE_LEN            ; ds_length
         dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
         ; id 4 = hat
         db      SND_HAT_BANK             ; ds_bank
         db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_table (sharp-transient)
+        db      0                        ; ds_codec (raw 8-bit PCM)
         dw      SND_HAT_PTR              ; ds_ptr
         dw      SND_HAT_LEN              ; ds_length
         dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
