@@ -8,6 +8,47 @@
 
 ---
 
+## AMENDMENT (2026-06-25): drum payload codec → raw 8-bit PCM (DPCM reversed)
+
+**Decision (Layer 6 rework, approved by the user):** drum playback switches from the
+4-bit noise-shaped **DPCM** payload (§2.2/§3.4) to **raw 8-bit PCM**, and the DAC rate
+target is **~18-22 kHz**. The DPCM decode FILL + inline `DecTable` are removed (clean —
+no dormant decode path); `ds_table` (+2) becomes a reserved **`ds_codec`** byte
+(`0 = raw 8-bit`; future DPCM codecs select a per-sample loop in `Snd_StartSample`).
+
+**Why (the rationale that overturned §2.2):**
+- **The shared DAC bank made compression moot.** DPCM's only real win was halving ROM.
+  That mattered when drums would have been duplicated *per song* (total = drums × songs).
+  The settled shared-bank design (§2.1) stores each drum **once**, so 4-bit only halves a
+  few KB stored a single time. With the per-sample `ds_bank` (§3.3) a kit can also span
+  multiple `$8000` banks (each drum ≤ 32 KB; a 32 KB bank holds ~1.8 s of raw audio — far
+  longer than any drum), so raw-PCM size is a non-issue.
+- **The decode was the rate cap.** Inline DPCM decode is ~120 cyc/sample; since the loop is
+  jitter-free (every pass costs identically), that sets the ceiling (~6 kHz as built; ~18-20
+  only via a fragile *interleaved* loop). Raw PCM has ~zero decode → a plain register-resident
+  loop reaches ~25-29 kHz, so **18-22 kHz is comfortable with cycle margin** (less fragile,
+  more HW-robust). This is exactly why high-rate Genesis drivers (MegaPCM-2's headline mode)
+  stream raw PCM and reserve DPCM for size.
+- **Raw 8-bit is also cleaner** (~48 dB vs ~30-40 dB for noise-shaped 4-bit) and full-bandwidth
+  at the higher rate. The noise-shaping was a mitigation for 4 bits we no longer take.
+
+**Kept:** the ring, DMA-survival, the B1-B4 bank brackets, the one-shot state machine, the
+Task 5.3 STREAM drum-test song (codec-agnostic — it fires `$E2` ids), the shared-bank layout.
+**Re-derived:** the cycle balance (raw FILL is cheaper; `SND_LOOP_CYC`/pads/rate follow).
+**Re-encoded:** kick/snare/hat as raw 8-bit at the final rate. **DPCM stays a future option**
+for genuinely large/long compressed samples (the `ds_codec` hook).
+
+**Verification posture unchanged** (§6): rendered-audio + de-wrapped-ring (now ring == the raw
+sample bytes, byte-exact), correct-`$2A` in Exodus, MT regression, DMA-survival stress. **No real
+hardware** — the higher rate's silicon behavior can't be confirmed; this is an accepted, recorded
+caveat. **Revert safety:** branch `feat/dac-l6-rate` off tag `dac-drum-pre-l6` (= Task 5.3 HEAD);
+`feat/dac-drum` is the pristine fallback.
+
+Sections §2.2 (codec), §3.4 (decode), §3.5 (decode FILL), §3.8 (rate) and §5 (content/encoder)
+are superseded for drums by this amendment; read them as the rejected-DPCM history.
+
+---
+
 ## 1. Goal (one paragraph)
 
 Build a clean, from-scratch **DAC drum playback path** for the custom Z80-autonomous sound
