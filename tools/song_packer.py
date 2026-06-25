@@ -613,6 +613,15 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
             f"mis-plays)")
     if not (0 <= song.flags <= 0xFF):
         raise PackError(f"flags {song.flags} out of byte range")
+    # Layer 7: adaptive FM6 time-share REQUIRES FM6 to be an FM voice (SH_F_FM6_FM) and
+    # the stream load path (SH_F_STREAM sets $2B=$00 = FM6 plays music at load). Without
+    # FM6_FM the trigger/exhaust would toggle $2B on a song that never plays FM6 music;
+    # without STREAM the copy path leaves $2B=$80 (DAC) and the exhaust's $2B=$00 would
+    # mis-handle it. Catch the malformed combo at pack time, not on hardware.
+    if (song.flags & SH_F_FM6_ADAPTIVE) and not (song.flags & SH_F_FM6_FM):
+        raise PackError("SH_F_FM6_ADAPTIVE requires SH_F_FM6_FM (FM6 must be an FM voice to time-share with the DAC)")
+    if (song.flags & SH_F_FM6_ADAPTIVE) and not (song.flags & SH_F_STREAM):
+        raise PackError("SH_F_FM6_ADAPTIVE requires SH_F_STREAM (the stream load path sets $2B=$00 so FM6 plays music at load)")
     if not (1 <= len(song.channels) <= 0xFF):
         raise PackError("channel_count out of byte range")
     if not (0 <= pitchtable_offset <= 0xFFFF):

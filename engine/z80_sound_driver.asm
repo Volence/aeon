@@ -189,7 +189,9 @@ SndDrv_Init:
         ld      (SND_DAC_PHASE), a       ; PHASE = idle (0) — two-stage stop SM
         ld      (SND_SONG_BANK), a       ; B1 bracket reads this on pre-song idle ticks
         ld      (SND_ROM_BANK), a        ; (Snd_LoadSong sets both to the real song bank)
-        ld      (SND_FM6_ADAPTIVE), a    ; Layer 7: non-adaptive until a song sets it (FM6_CHAN_PTR set/cleared per load)
+        ld      (SND_FM6_ADAPTIVE), a    ; Layer 7: non-adaptive until a song sets it
+        ld      (SND_FM6_CHAN_PTR), a    ; null the FM6 channel ptr (defensive; set per load)
+        ld      (SND_FM6_CHAN_PTR+1), a
         ld      (SND_STAT_PING_ECHO), a
         ld      (SND_STAT_ACK_COUNT), a
         ld      (SND_STAT_TICK), a
@@ -659,17 +661,26 @@ Snd_StartSample:
         ld      (SND_Z80_YM_A1), a       ; $4001 = $80 -> DAC mode ON
         ld      a, SND_REG_DAC_DATA
         ld      (SND_Z80_YM_A0), a       ; $4000 = $2A (re-park addr port on DAC DATA)
-        ; --- FM6 dedicate (Layer 4): force DAC stereo on ch6. With $2B bit7 set the
-        ; DAC REPLACES FM6's output, so it inherits FM6's $B6 L/R panning — had the
-        ; song left FM6 muted ($B6 L=R=0) or panned to one side, the DAC would be
-        ; silent/one-sided. Force $B6 = $C0 (L+R on, AMS=FMS=0). FM6 = part II reg
-        ; $B4+2; select on $4002, data on $4003. (The part-II addr port is left on
-        ; $B6 — harmless; every FM writer re-selects its target reg before its data.)
+        ; --- FM6 force DAC stereo on ch6 = $B6 = $C0. With $2B bit7 set the DAC REPLACES
+        ; FM6's output and inherits FM6's $B6 L/R panning. DEDICATE (Layer 4): the song
+        ; never plays FM6 music, so its $B6 may be muted ($B6 L=R=0) or one-sided -> force
+        ; $C0 (L+R on, AMS=FMS=0) so the DAC is centered + audible. ADAPTIVE (Layer 7):
+        ; FM6 IS a music voice — Fm_PatchLoad already set a real $B6 (its L/R pan + any
+        ; AMS/FMS hardware LFO), and the exhaust does NOT restore $B6, so forcing $C0 here
+        ; would PERMANENTLY clobber that pan/LFO after the first hit. So SKIP the force for
+        ; adaptive: the drum inherits FM6's music pan (the Echo model — leave panning as the
+        ; music set it) and FM6's pan/LFO survive the time-share untouched. FM6 = part II
+        ; reg $B4+2; select on $4002, data on $4003. (The part-II addr port is left on $B6
+        ; — harmless; every FM writer re-selects its target reg before its data.) ---
+        ld      a, (SND_FM6_ADAPTIVE)
+        or      a
+        jr      nz, .ss_skip_b6_force    ; adaptive -> keep FM6's music $B6 (pan/LFO)
         ld      a, SND_REG_LR_AMS_FMS+2  ; $B6 (ch6 L/R/AMS/FMS), part II
         ld      (SND_Z80_YM_A2), a       ; $4002 = reg select (part II)
         nop                              ; inter-write delay (no busy-poll), as Fm_YmWrite
         ld      a, 0C0h                  ; L+R on, AMS=FMS=0 -> force DAC stereo
         ld      (SND_Z80_YM_A3), a       ; $4003 = data
+.ss_skip_b6_force:
         pop     hl                       ; hl = descriptor base
         ; --- Read ALL descriptor fields BEFORE banking. SndDrv_SetBank CLOBBERS hl
         ; (it loads hl=SND_CUR_BANK, then hl=$6000); calling it first and then re-
@@ -1108,12 +1119,12 @@ Snd_LoadSong:
         ; Layer 7: cache the per-song adaptive-FM6 flag + null the FM6 channel ptr (set
         ; below in .chan_init when CHROUTE_FM6 is found). The DAC trigger/exhaust paths
         ; branch on these to time-share ch6 between FM6 music and the drum.
-        ld      a, (SND_MUSIC_PARAM_FLAGS)
-        and     SH_F_FM6_ADAPTIVE
-        ld      (SND_FM6_ADAPTIVE), a    ; 0 = dedicate/none, nonzero = time-share
         xor     a
         ld      (SND_FM6_CHAN_PTR), a
-        ld      (SND_FM6_CHAN_PTR+1), a  ; null until .chan_init finds the FM6 channel
+        ld      (SND_FM6_CHAN_PTR+1), a  ; null FIRST (set in .chan_init when CHROUTE_FM6 is found)
+        ld      a, (SND_MUSIC_PARAM_FLAGS)
+        and     SH_F_FM6_ADAPTIVE
+        ld      (SND_FM6_ADAPTIVE), a    ; THEN arm the gate (0 = dedicate/none, nonzero = time-share)
 
         ; channel_count (SH_CHCOUNT) — read via iy = song base (RAM or window).
         ld      iy, (Snd_SongBase)
