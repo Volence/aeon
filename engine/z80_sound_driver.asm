@@ -379,7 +379,16 @@ SndDrv_Idle:
         di
         ld      a, (SND_STAT_DAC_ACTIVE)
         or      a
-        jp      nz, SndDrv_Sample        ; sample started -> enter streaming loop
+        jr      z, .stay_idle            ; DAC idle -> run the idle body below
+        ; B4: a mailbox/ISR SND_REQ_SAMPLE armed a sample (Snd_StartSample stashed
+        ; SND_ROM_BANK, B2-stash-only). Latch the sample bank on the idle->streaming
+        ; entry so the first FILL reads the right bank. With the DAC-aware B3 this is
+        ; usually already done (the arming ISR latched SND_ROM_BANK on exit), so this is
+        ; a cheap cached-no-op local guarantee. ($E2 triggers are covered by B1's tail.)
+        ld      a, (SND_ROM_BANK)
+        call    SndDrv_SetBank           ; B4: enter streaming on the sample bank
+        jp      SndDrv_Sample            ; sample armed -> enter streaming loop
+.stay_idle:
         ; --- Timer-A poll (sequencer tick clock while idle) ---
         ld      a, (SND_Z80_YM_A0)       ; YM status ($4000): bit0 = Timer A overflow
         and     SND_TIMERA_OVF_MASK
@@ -614,7 +623,34 @@ SndDrv_ISR:
         push    bc
         push    de
         push    hl
-        call    SndDrv_PollMailbox       ; RAM + $6000 latch only -> DMA-safe
+        ; B3: leave the $8000 window banked for whatever the main loop reads next.
+        ; SndDrv_PollMailbox may SetBank (a song load's `ldir` + an SFX-blob dispatch
+        ; bank the window and LEAVE it set; a mailbox SND_REQ_SAMPLE re-stashes
+        ; SND_ROM_BANK). On exit: if a DAC sample is streaming, restore the SAMPLE bank
+        ; SND_ROM_BANK — which a mid-stream cross-bank retrigger may have just changed
+        ; to a NEW bank, so we must NOT blindly restore the pre-ISR bank or the next
+        ; FILL decodes the new sample through the old bank; otherwise (idle/song
+        ; context) restore the pre-ISR bank. Both restores are cached (no-op if
+        ; unchanged). SND_CUR_BANK == the live $6000 latch at entry (SetBank is its sole
+        ; writer); during streaming it already == SND_ROM_BANK, so the streaming branch
+        ; subsumes the simple "restore what it was" for the SFX-mid-sample case too.
+        ; NOTE: mailbox requests currently SERIALIZE behind an active DAC sample (the ISR's
+        ; PollMailbox does not run during streaming — oracle-verified), so the DAC-active
+        ; branch below is correct-by-design-intent but not runtime-exercised today. KEEP
+        ; it: the loop comments assume the ISR CAN fire mid-sample, and a no-restore ISR
+        ; would leak a PollMailbox SetBank into the resumed FILL.
+        ld      a, (SND_CUR_BANK)
+        push    af                       ; save the pre-ISR bank (popped below)
+        call    SndDrv_PollMailbox       ; RAM + $6000 latch only -> DMA-safe (may SetBank)
+        pop     af                       ; a = saved pre-ISR bank
+        ld      c, a                     ; stash it (c restored at the outer pop bc)
+        ld      a, (SND_STAT_DAC_ACTIVE)
+        or      a
+        ld      a, c                     ; default (DAC idle): the pre-ISR bank
+        jr      z, .b3_restore
+        ld      a, (SND_ROM_BANK)        ; DAC streaming: the (possibly new) sample bank
+.b3_restore:
+        call    SndDrv_SetBank           ; B3 (clobbers af,hl — both popped below)
         ; The per-frame engine (Sequencer_Frame) is driven ONLY by the DAC/idle-loop
         ; Timer-A overflow poll -> SndDrv_TimerATick/SndDrv_IdleTick (not from here).
         ; Driving it from both would double-clock the song.
@@ -807,13 +843,15 @@ Snd_StartSample:
         ld      d, (hl)                  ; de = ds_length
         ld      (SND_ROM_LEN), de
         ; B2: stash-only. The sample bank was stashed to SND_ROM_BANK above; do NOT
-        ; SetBank here. Snd_StartSample reads NO sample ROM (it only sets up pointers),
-        ; so the window need not change yet. The bank brackets latch it at the right
-        ; moment: B1 (Run_SeqFrame_OnSongBank) re-latches SND_ROM_BANK after every
-        ; sequencer frame, and B4 (SndDrv_Idle's streaming-entry latch) covers the
-        ; mailbox/ISR trigger path before the first FILL. (B4 lands in Task 5.2 — until
-        ; then a mailbox-triggered sample's first FILL is mis-banked; sequencer-$E2
-        ; triggers already work via B1's tail.)
+        ; SetBank here. Snd_StartSample reads NO sample ROM (only sets up pointers), AND
+        ; in the $E2 context it runs mid-Sequencer_Frame, where the window MUST stay on
+        ; the SONG bank — a SetBank here would corrupt the rest of that frame's song
+        ; reads (which is why this is stash-only, not a SetBank). The brackets latch the
+        ; sample at the right moment instead: B1 (Run_SeqFrame_OnSongBank) re-latches
+        ; SND_ROM_BANK after every sequencer frame (the $E2 path); B3 latches it on ISR
+        ; exit while DAC is active (the mailbox path, incl. a mid-stream cross-bank
+        ; retrigger); B4 re-latches it on the idle->streaming entry (a local backstop —
+        ; usually a cached no-op now that B3 is DAC-aware).
 
         ; Reset ring pointers + prime the lead. To avoid a start underrun WITHOUT
         ; reading ROM (which could land mid-DMA in the ISR context), we set WR
@@ -884,6 +922,9 @@ SndDrv_SetBank:
 ; During a DAC sample the two real switches ($6000 latch only — DMA-safe) cost a
 ; bounded ~200 cyc on the once-per-frame tick, absorbed by the ring lead.
 ; Clobbers af,bc,de,hl,ix (= Sequencer_Frame's set; SetBank's af/hl are a subset).
+; The tail-call does NOT re-park reg $2A or restore de=$4001 — CALLERS must:
+; SndDrv_TimerATick re-loads de + re-derives the lead then rejoins .afterPoll;
+; SndDrv_IdleTick re-loads de; the DAC consumer re-selects $2A every sample.
 ; ======================================================================
 Run_SeqFrame_OnSongBank:
         ld      a, (SND_SONG_BANK)
@@ -1073,12 +1114,25 @@ Snd_LoadSong:
         or      c
         jr      nz, .seq_clr
 
-        ; B1/B2 banking: record this song's bank for the per-frame bracket, and seed
-        ; the sample bank to it so Run_SeqFrame_OnSongBank is two cached no-ops until a
-        ; $E2 arms a DAC sample (which restashes SND_ROM_BANK to the sample's bank).
+        ; B1/B2 banking: record this song's bank for the per-frame bracket. Seed the
+        ; sample bank to it too (so Run_SeqFrame_OnSongBank is two cached no-ops until a
+        ; $E2 arms a sample) — but ONLY when no DAC sample is in flight. A music change
+        ; can land mid-drum (the loader does NOT stop the DAC); clobbering SND_ROM_BANK
+        ; then would make B1's tail yank the window to the new song's bank while the
+        ; dying sample still FILLs from its own bank -> garbage tail. Leaving it lets the
+        ; in-flight sample finish on its real bank (B3 restores it on ISR exit; the new
+        ; song reads via B1's head SetBank(SND_SONG_BANK)); the next $E2 re-stashes it.
+        ; (Currently unreachable: a music load can't land mid-drum because the ISR's
+        ; PollMailbox serializes behind an active sample — kept correct-by-design-intent.)
         ld      a, (SND_MUSIC_PARAM_BANK)
         ld      (SND_SONG_BANK), a
-        ld      (SND_ROM_BANK), a
+        ld      b, a                     ; stash the song bank across the DAC-active test
+        ld      a, (SND_STAT_DAC_ACTIVE)
+        or      a
+        jr      nz, .keep_sample_bank    ; a DAC drum is mid-flight -> keep its own bank
+        ld      a, b
+        ld      (SND_ROM_BANK), a        ; idle -> seed sample bank = song bank (B1 no-op)
+.keep_sample_bank:
 
         ; --- branch on the streaming flag (forwarded from the song's SH_FLAGS) ---
         ld      a, (SND_MUSIC_PARAM_FLAGS)
