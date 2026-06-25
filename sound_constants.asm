@@ -193,9 +193,15 @@ dac_rate_hz  function cyc, (Z80_CLOCK_HZ / (cyc))
 ; poll in the common prefix (ld a,($4000) 13 + and 1 7 + jp nz 10 = K = 30 cyc,
 ; added EQUALLY to FILL/SKIP/DRAIN because it lives in the common prefix);
 ; +30 = the DRAINING_TAIL phase check in the common prefix (ld a,(SND_DAC_PHASE)
-; 13 + cp 2 7 + jp z 10 = 30 cyc), again paid equally by all paths.
-SND_LOOP_CYC            = 430                      ; balanced FILL/SKIP/DRAIN/DRAINING total (370 + 30 Timer-A poll + 30 DRAINING_TAIL check)
-SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 8324 Hz (3579545/430, int div)
+; 13 + cp 2 7 + jp z 10 = 30 cyc), again paid equally by all paths;
+; +157 = Task 3.1 — the FILL producer became a 4-bit DPCM-HQ decode (1 packed
+; byte -> 2 nibbles via the inline DecTable + in-RAM mod-256 predictor -> 2 ring
+; bytes); the producer cost grew 183 -> 340, an INTRINSICALLY constant-cost change
+; (mod-256 wrap `add a,(iy+n)` has no clamp branch; the variable nibble index is
+; reached via SMC, not `jr cc`). SkipPad/DrainPad rebalanced to the new producer
+; (340 / 361). See the full balance proof in engine/z80_sound_driver.asm.
+SND_LOOP_CYC            = 587                      ; balanced FILL/SKIP/DRAIN/DRAINING total (370 + 30 poll + 30 phase chk + 157 DPCM decode)
+SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 6098 Hz (3579545/587, int div)
 
 ; --- 1B: 68k->Z80 control (68k writes, Z80 reads) ---
 SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progress (no ROM reads)

@@ -39,17 +39,16 @@ Z80_Sound_Start:
         phase 0
 
 ; ======================================================================
-; CYCLE-BALANCE PROOF — FILL == SKIP == DRAIN == DRAINING == 430 Z80 cycles
-; (T-states per the AS/Zilog table in the task spec. The banked $8000-window
-;  ROM read adds a bounded ~3.3-cyc bus penalty per byte under normal 68k load
-;  — that lands ONLY on FILL's two `ld x,(hl)` reads and is inherent to the one
+; CYCLE-BALANCE PROOF — FILL == SKIP == DRAIN == DRAINING == 587 Z80 cycles
+; (T-states per the AS/Zilog table in the task spec, incl. ld iy,(nn)=20,
+;  ld a,(iy+0)=19, ld (nn),a absolute=13, rrca=4. The banked $8000-window ROM
+;  read adds a bounded ~3.3-cyc bus penalty under normal 68k load — that lands
+;  ONLY on FILL's single `ld e,(hl)` packed-byte read and is inherent to the one
 ;  path that touches ROM; SKIP/DRAIN/DRAINING never read ROM. The DETERMINISTIC
 ;  instruction-cycle total is balanced exactly; the ROM penalty is noted, not
 ;  padded, because it is non-deterministic and unavoidable on FILL alone.)
 ;
-; HISTORY: the deterministic total grew from the original 346 as the loop body
-; gained constant per-pass cost, ALL additions in the common prefix (so equal on
-; every path — the pads need no rebalance):
+; HISTORY: the deterministic total grew from the original 346:
 ;   (a) +24 : the consumer re-selects $2A on the addr port EVERY sample (the YM
 ;             address latch is not relied upon to hold), so the live consumer is
 ;             83 cyc, not the original 59.                          (346 -> 370)
@@ -58,12 +57,19 @@ Z80_Sound_Start:
 ;             13 + cp 2 7 + jp z 10 = 30) — the FIRST thing in the common prefix
 ;             after the poll rejoin, so FILL/SKIP/DRAIN all fall through its
 ;             not-taken `jp z`; only PHASE==2 diverges to .draining.  (400 -> 430)
-; The SkipPad (183) and DrainPad (204) are UNCHANGED — every addition lives in the
-; common prefix, which by construction lands equally on all paths, so the
-; pad-to-FILL balance is untouched. The poll's overflow handler (rearm + call
-; Sequencer_Frame) fires only on overflow — at the FIXED Phase-3 frame rate
-; (SND_TIMERA_N -> ~59.06 Hz), NOT per pass; that one pass is momentarily longer —
-; a bounded micro-perturbation (see BOUNDING below).
+;   (d) +157: Task 3.1 — the FILL producer became a 4-bit DPCM-HQ decode (read 1
+;             packed byte -> decode 2 nibbles via the inline DecTable + an in-RAM
+;             mod-256 predictor -> 2 ring bytes). The producer cost grew 183 -> 340
+;             (+157), an INTRINSICALLY constant-cost change (the mod-256 wrap
+;             `add a,(iy+n)` has no saturate branch, and the variable nibble index
+;             is reached via SMC, not a `jr cc`). FILL = 430 - 183 + 340 = 587.
+;             The SkipPad/DrainPad were rebalanced to the new producer:
+;             SkipPad 183 -> 340, DrainPad 204 -> 361 (= 340 + the 21-cyc tail).
+;                                                                  (430 -> 587)
+; The poll's overflow handler (rearm + call Sequencer_Frame) fires only on
+; overflow — at the FIXED Phase-3 frame rate (SND_TIMERA_N -> ~59.06 Hz), NOT per
+; pass; that one pass is momentarily longer — a bounded micro-perturbation (see
+; BOUNDING below).
 ;
 ; --- COMMON PREFIX (run by ALL three paths) -------------------------------
 ;   di                            4
@@ -110,13 +116,33 @@ Z80_Sound_Start:
 ; ============================ FILL =======================================
 ;   COMMON PREFIX ............... 212
 ;   DISPATCH TAIL ...............  21
-;   -- producer (2-byte read-ahead) --
+;   -- producer (DPCM-HQ decode: 1 packed byte -> 2 nibbles -> 2 ring bytes) --
+;   ld iy,(SND_DEC_IY)           20   ; DecTable base (iy NOT ISR-safe -> reload)
+;   ld a,(SND_DEC_ACC)           13   ; predictor (RAM -> survives ei/ISR)
+;   ld c,a                        4
 ;   ld hl,(SND_ROM_PTR)          16
-;   ld b,(hl)                     7   (+~3.3 ROM penalty)
-;   inc hl                        6
-;   ld c,(hl)                     7   (+~3.3 ROM penalty)
+;   ld e,(hl)                     7   (+~3.3 ROM penalty — the ONE ROM read)
 ;   inc hl                        6
 ;   ld (SND_ROM_PTR),hl          16
+;   ; nibble 1 (high)
+;   ld a,e                        4
+;   rrca                          4
+;   rrca                          4
+;   rrca                          4
+;   rrca                          4
+;   and 0Fh                       7
+;   ld (.i1+2),a                 13   ; SMC the (iy+n) displacement
+; .i1: ld a,(iy+0)               19
+;   add a,c                       4   ; acc += delta1 (mod 256, no clamp)
+;   ld c,a                        4
+;   ld b,a                        4   ; decoded byte 1
+;   ; nibble 2 (low)
+;   ld a,e                        4
+;   and 0Fh                       7
+;   ld (.i2+2),a                 13
+; .i2: ld a,(iy+0)               19
+;   add a,c                       4   ; acc += delta2 (mod 256)
+;   ld c,a                        4   ; decoded byte 2 (= new acc)
 ;   ld a,(SND_RING_WR)           13
 ;   ld h,SND_RING_PAGE            7
 ;   ld l,a                        4
@@ -126,45 +152,44 @@ Z80_Sound_Start:
 ;   inc l                         4
 ;   ld a,l                        4
 ;   ld (SND_RING_WR),a           13
+;   ld a,c                        4
+;   ld (SND_DEC_ACC),a           13   ; persist predictor
 ;   ld hl,(SND_ROM_LEN)          16
-;   dec hl                        6
-;   dec hl                        6
+;   dec hl                        6   ; len -= 1 (ONE packed byte)
 ;   ld (SND_ROM_LEN),hl          16
 ;   ld a,h                        4
 ;   or l                          4
 ;   jp nz,.fillDone              10   ; bytes remain -> skip restart (common)
-;                                 -----  producer = 183  (+~6.6 ROM penalty)
+;                                 -----  producer = 340  (+~3.3 ROM penalty)
 ;   -- tail --
 ;   ei                            4
 ;   jp SndDrv_Sample             10
-;                                 =====  FILL = 212 + 21 + 183 + 4 + 10 = 430
+;                                 =====  FILL = 212 + 21 + 340 + 4 + 10 = 587
 ;
 ; ============================ SKIP =======================================
 ;   COMMON PREFIX ............... 212
 ;   DISPATCH TAIL ...............  21   (then jp nc taken -> SkipPad)
-;   -- SkipPad (= 183, no ROM read) --
-;   ld b,13                       7
-; .loop: djnz .loop            164   (12 taken*13 + 1 not-taken*8)
-;   nop                           4
-;   nop                           4
-;   nop                           4
-;                                 -----  SkipPad = 7 + 164 + 12 = 183
+;   -- SkipPad (= 340, no ROM read) --
+;   ld b,26                       7
+; .loop: djnz .loop            333   (25 taken*13 + 1 not-taken*8)
+;                                 -----  SkipPad = 7 + 333 = 340
 ;   ei                            4
 ;   jp SndDrv_Sample             10
-;                                 =====  SKIP = 212 + 21 + 183 + 4 + 10 = 430
+;                                 =====  SKIP = 212 + 21 + 340 + 4 + 10 = 587
 ;
 ; ============================ DRAIN ======================================
 ;   COMMON PREFIX ............... 212   (jp nz taken -> DrainPad; tail NOT run)
-;   -- DrainPad (= 204 = 183 + the 21-cyc tail DRAIN skipped, no ROM read) --
-;   ld b,15                       7
-; .loop: djnz .loop            190   (14 taken*13 + 1 not-taken*8)
-;   ld a,0                        7
-;                                 -----  DrainPad = 7 + 190 + 7 = 204
+;   -- DrainPad (= 361 = 340 + the 21-cyc tail DRAIN skipped, no ROM read) --
+;   ld b,27                       7
+; .loop: djnz .loop            346   (26 taken*13 + 1 not-taken*8)
+;   nop                           4
+;   nop                           4
+;                                 -----  DrainPad = 7 + 346 + 8 = 361
 ;   ei                            4
 ;   jp SndDrv_Sample             10
-;                                 =====  DRAIN = 212 + 204 + 4 + 10 = 430
+;                                 =====  DRAIN = 212 + 361 + 4 + 10 = 587
 ;   (the phase check is in the 212; DRAIN's jp nz fires at the DMA check that
-;    follows it. DrainPad 204 = SkipPad 183 + the 21-cyc tail DRAIN still skips.)
+;    follows it. DrainPad 361 = SkipPad 340 + the 21-cyc tail DRAIN still skips.)
 ;
 ; ========================= DRAINING_TAIL =================================
 ; PHASE==2: producer exhausted; emit the ring's buffered tail (no ROM read) until
@@ -180,14 +205,20 @@ Z80_Sound_Start:
 ;   jp SndDrv_Skip               10
 ;                                 -----  .draining body = 48  (== 27 + 21)
 ;   -- SkipPad (shared with SKIP) --
-;   SkipPad ..................... 183
+;   SkipPad ..................... 340
 ;   ei                            4
 ;   jp SndDrv_Sample             10
-;                                 =====  DRAINING = 185 + 48 + 183 + 4 + 10 = 430
+;                                 =====  DRAINING = 185 + 48 + 340 + 4 + 10 = 587
 ; (.stop is a one-shot terminal event, once per sample — NOT cycle-balanced.)
+; (The .draining body's 48-cyc balance is producer-INDEPENDENT — it equals the
+;  DMA-chk 27 + dispatch-tail 21 that FILL/SKIP run and DRAINING skips — so the
+;  +157 producer growth did NOT touch it; only the shared SkipPad changed.)
 ;
-; ALL FOUR = 430 cyc EXACTLY (0-cyc spread). Effective DAC rate:
-;   dac_rate_hz(430) = 3579545 / 430 = 8324 Hz (int div; see SND_DAC_RATE_HZ).
+; ALL FOUR = 587 cyc EXACTLY (0-cyc spread). Effective DAC rate:
+;   dac_rate_hz(587) = 3579545 / 587 = 6098 Hz (int div; see SND_DAC_RATE_HZ).
+;   (Lower than the raw-PCM 8324 Hz: a real inline-table DPCM decode is heavier;
+;    this is the minimal constant-cost form — SMC + iy is the cheapest branchless
+;    table lookup, cheaper than an hl-add index.)
 ;
 ; --- BOUNDING the overflow handler (Phase 3 per-frame engine) --------------
 ; On overflow the poll's `jp nz,SndDrv_TimerATick` is taken: re-arm Timer A + run
@@ -195,7 +226,7 @@ Z80_Sound_Start:
 ; ModUpdate (write-on-change — a held note writes ~nothing per frame) + a tempo-
 ; accumulator-gated event-tick. The cycle-budget spike (tools/cycle_budget_
 ; phase3.md) bounds the worst frame against the ring-lead budget: SND_RING_LEAD_CAP
-; (250) samples x SND_LOOP_CYC (400) ~ 100,000 cyc. Write-on-change keeps the held
+; (250) samples x SND_LOOP_CYC (587) ~ 147,000 cyc. Write-on-change keeps the held
 ; case tiny; full patch reloads (the dominant cost) are throttled in later tasks.
 ; The handler runs inside the loop's `di` window and rejoins the dispatch so the
 ; pass still ends at EXACTLY ONE `ei`.
@@ -427,13 +458,39 @@ SndDrv_Sample:
         jp      nc, SndDrv_Skip          ; ring full (lead >= cap) -> SKIP (no ROM read)
         ; fall through to FILL
 
-        ; --- FILL: read-ahead 2 ROM bytes from the banked window into the ring ---
+        ; --- FILL: read 1 PACKED byte from the banked window, decode its 2 nibbles
+        ; (4-bit DPCM-HQ, S3K mod-256 predictor — NO clamp, branchless = intrinsically
+        ; constant-cost) into 2 ring bytes. acc and the DecTable base live in RAM and
+        ; are reloaded here because the loop holds NO live regs across its `ei` (the
+        ; VBlank ISR clobbers iy via SfxDispatch/Snd_LoadSong). 2:1 catch-up preserved:
+        ; 1 byte in -> 2 bytes out (WR += 2), len -= 1. See the balance proof header. ---
+        ld      iy, (SND_DEC_IY)         ; this sample's DecTable base (iy is NOT ISR-safe)
+        ld      a, (SND_DEC_ACC)         ; running predictor (RAM -> survives ei/ISR)
+        ld      c, a                     ; c = acc
         ld      hl, (SND_ROM_PTR)
-        ld      b, (hl)                  ; ROM byte 1 (banked $8000 window)
-        inc     hl
-        ld      c, (hl)                  ; ROM byte 2
+        ld      e, (hl)                  ; e = packed byte (banked $8000 window)
         inc     hl
         ld      (SND_ROM_PTR), hl
+        ; -- nibble 1 (high): acc += DecTable[ds_table*16 + n1] (mod 256, no clamp) --
+        ld      a, e
+        rrca
+        rrca
+        rrca
+        rrca
+        and     0Fh                      ; a = high nibble (0..15)
+        ld      (.i1+2), a               ; SMC the (iy+n) displacement (blob runs in RAM)
+.i1:    ld      a, (iy+0)                ; a = DecTable delta for n1
+        add     a, c                     ; acc += delta (mod 256, branchless wrap)
+        ld      c, a                     ; c = new acc
+        ld      b, a                     ; b = decoded byte 1
+        ; -- nibble 2 (low) --
+        ld      a, e
+        and     0Fh                      ; a = low nibble (0..15)
+        ld      (.i2+2), a
+.i2:    ld      a, (iy+0)                ; a = DecTable delta for n2
+        add     a, c                     ; acc += delta (mod 256)
+        ld      c, a                     ; c = decoded byte 2 (= new acc)
+        ; -- write the 2 decoded bytes to the ring (WR += 2) --
         ld      a, (SND_RING_WR)
         ld      h, SND_RING_PAGE
         ld      l, a
@@ -443,9 +500,10 @@ SndDrv_Sample:
         inc     l
         ld      a, l
         ld      (SND_RING_WR), a
+        ld      a, c
+        ld      (SND_DEC_ACC), a         ; persist predictor (= last decoded byte)
         ld      hl, (SND_ROM_LEN)
-        dec     hl
-        dec     hl                       ; len -= 2 (we consumed 2 ROM bytes)
+        dec     hl                       ; len -= 1 (ONE packed byte consumed)
         ld      (SND_ROM_LEN), hl
         ld      a, h
         or      l
@@ -453,8 +511,8 @@ SndDrv_Sample:
         ; --- producer exhausted (SND_ROM_LEN reached 0): enter DRAINING_TAIL. The
         ; ring still holds the already-buffered tail; the .draining path keeps
         ; emitting it (no ROM read) until lead==0, then DC-centers + stops. One-shot:
-        ; no blip re-loop, no $2B toggle, no gap. (Raw FILL reads 2/len-=2 -> an even
-        ; sample length hits exactly 0; the temp blip is even.)
+        ; no re-loop, no $2B toggle, no gap. (Decode reads 1/len-=1 -> ANY packed
+        ; length hits exactly 0.)
         ld      a, 2
         ld      (SND_DAC_PHASE), a       ; PHASE = 2 (DRAINING_TAIL)
 .fillDone:
@@ -498,27 +556,28 @@ SndDrv_Sample:
         ei
         jp      SndDrv_Idle              ; back to the idle loop
 
-; --- SKIP path: ring full. Skip the ROM read; burn EXACTLY 183 cyc so the ---
-; --- iteration equals FILL. (Pure pad, register-clobber-safe: a,b dead.)   ---
+; --- SKIP path: ring full. Skip the ROM read; burn EXACTLY 340 cyc so the ---
+; --- iteration equals the decode FILL producer. (Pure pad, register-clobber- ---
+; --- safe: a,b dead.) 340 = the decode producer's deterministic cost; a single ---
+; --- djnz of 26 hits it with zero filler (7 + (25*13 + 8) = 7 + 333 = 340).  ---
 SndDrv_Skip:
-        ld      b, 13                    ; 7
+        ld      b, 26                    ; 7
 .skip_pad:
-        djnz    .skip_pad                ; 12*13 + 1*8 = 164
-        nop                              ; 4
-        nop                              ; 4
-        nop                              ; 4    -> pad = 7+164+12 = 183
+        djnz    .skip_pad                ; 25*13 + 1*8 = 333    -> pad = 7+333 = 340
         ei
         jp      SndDrv_Sample
 
 ; --- DRAIN path: 68k DMA in progress. Skip the ROM read (a banked read would ---
 ; --- stall the Z80 bus for the whole DMA burst — the under-load sag bug);    ---
-; --- burn EXACTLY 204 cyc (= FILL producer 183 + the 21-cyc dispatch tail    ---
-; --- DRAIN skipped) so the iteration equals FILL. (a,b dead -> safe.)        ---
+; --- burn EXACTLY 361 cyc (= decode FILL producer 340 + the 21-cyc dispatch  ---
+; --- tail DRAIN skipped) so the iteration equals FILL. (a,b dead -> safe.)   ---
+; --- 361 = ld b,27 (7) + djnz (26*13 + 8 = 346) + 2 nops (8).                ---
 SndDrv_Drain:
-        ld      b, 15                    ; 7
+        ld      b, 27                    ; 7
 .drain_pad:
-        djnz    .drain_pad               ; 14*13 + 1*8 = 190
-        ld      a, 0                     ; 7    -> pad = 7+190+7 = 204
+        djnz    .drain_pad               ; 26*13 + 1*8 = 346
+        nop                              ; 4
+        nop                              ; 4    -> pad = 7+346+8 = 361
         ei
         jp      SndDrv_Sample
 
@@ -696,6 +755,29 @@ Snd_StartSample:
         ld      d, (hl)                  ; de = ds_ptr (window ptr)
         ld      (SND_ROM_PTR), de
         pop     hl
+        ; --- DPCM decode setup (BEFORE the SetBank, while hl = descriptor base):
+        ; read ds_table (+2), build iy = DecTable + ds_table*16, stash it to RAM,
+        ; and seed the predictor SND_DEC_ACC = $80 (DC center). The FILL producer
+        ; reloads iy + acc from RAM each pass (the VBlank ISR clobbers iy and the
+        ; loop holds no live regs across its `ei`), so both MUST live in RAM. ---
+        push    hl                       ; preserve descriptor base
+        ld      de, DacSample_ds_table   ; +2
+        add     hl, de
+        ld      a, (hl)                  ; a = ds_table (delta-table index)
+        pop     hl                       ; hl = descriptor base again
+        add     a, a
+        add     a, a
+        add     a, a
+        add     a, a                     ; a = ds_table*16 (table stride)
+        push    hl                       ; preserve descriptor base across the ptr math
+        ld      e, a
+        ld      d, 0                     ; de = ds_table*16
+        ld      hl, DecTable
+        add     hl, de                   ; hl = DecTable + ds_table*16
+        ld      (SND_DEC_IY), hl         ; stash this sample's DecTable base (iy reload src)
+        pop     hl                       ; hl = descriptor base
+        ld      a, 80h
+        ld      (SND_DEC_ACC), a         ; seed predictor at DC center
         ld      de, DacSample_ds_length  ; +5
         add     hl, de
         ld      e, (hl)
