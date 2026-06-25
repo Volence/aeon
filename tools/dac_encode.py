@@ -12,9 +12,10 @@
 import numpy as np
 
 def encode_raw8(samples):
-    """Raw 8-bit unsigned PCM, $80 = DC center. Clamp to [0,255]; pad to an EVEN
-    byte count with $80 (the FILL copies 2 bytes/pass and exhausts at len==0, so an
-    odd length would never hit exact zero). Returns bytes."""
+    """Raw 8-bit unsigned PCM, $80 = DC center. Clamp to [0,255]. Returns bytes.
+    The 1:1 FILL loop reads ONE byte/pass and decrements len by 1, exhausting at
+    exactly 0 for ANY length, so there is no even-length requirement; the trailing
+    $80 pad below is a harmless legacy from the old 2:1 form (one DC-center sample)."""
     s = np.clip(np.asarray(samples, dtype=np.int32), 0, 255).astype(np.uint8)
     if len(s) & 1:
         s = np.append(s, np.uint8(0x80))

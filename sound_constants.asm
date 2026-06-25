@@ -1171,7 +1171,7 @@ SH_F_STREAM     = 1<<SH_F_STREAM_B
 
 ; --- DacSample id -> descriptor table (Task 6 decision 3) ---
 ; The $E2 operand (and SND_REQ_SAMPLE) is a 1-based sample id; the handler looks
-; up DacSampleTable[id-1] (each DacSample_len = 8 bytes). For 1C, id 1 = the temp
+; up DacSampleTable[id-1] (each DacSample_len = 9 bytes). For 1C, id 1 = the temp
 ; blip; the table is an INLINE descriptor in the Z80 blob (the blip's bank/ptr/len
 ; are build-time constants — no banking needed to read it). DAC_SAMPLE_COUNT is
 ; asserted against the table size in the blob.

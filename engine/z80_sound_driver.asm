@@ -90,8 +90,9 @@ Z80_Sound_Start:
 ; The ~3.3-cyc banked-ROM bus penalty (above) lands ONLY on FILL's `ld a,(ix+0)`;
 ; DRAIN and DRAINING_TAIL read no ROM, so they never pay it. FILL's true period is
 ; therefore ~195+3.3 cyc while DRAIN/DRAINING run at 195/194 -> during a 68k DMA
-; (DRAIN) or the sample tail (DRAINING) the output pitch runs ~30 cents SHARP vs the
-; FILL steady state (3.3/195 ~= 1.7% ~= 29 cents). It CANNOT be padded out: matching
+; (DRAIN) or the sample tail (DRAINING) the output pitch runs SHARP vs the FILL steady
+; state: DRAIN ~29 cents (3.3/195 ~= 1.7%, = 1200*log2(198.3/195)), DRAINING ~38 cents
+; (194 cyc, tail-only -> inaudible). It CANNOT be padded out: matching
 ; the penalty on DRAIN would require a ROM read, which is exactly what DRAIN must
 ; avoid while the 68k holds the cartridge bus. The effect is silicon-only (Exodus
 ; does not model cartridge-bus contention, so it is invisible there) and transient
@@ -429,10 +430,10 @@ SndDrv_Sample:
 ; NOT save ix/iy, and SndDrv_PollMailbox DOES clobber them (SfxDispatch/Snd_LoadSong
 ; use ix for channel state). That is SAFE for two distinct reasons, one per context
 ; the ISR can interrupt: (1) the IDLE loop holds NO live ix/iy across its `ei`, so a
-; clobber there is harmless; (2) the SAMPLE loop DOES hold live ix/iy (ROM ptr / len
-; shadow) but it runs `di` end to end, so the VBlank ISR never fires during streaming
-; and cannot clobber them (the Timer-A tick services the mailbox there instead, and it
-; spills/reloads ix/iy itself). de=$4001 survives via the push/pop below, not by being
+; clobber there is harmless; (2) the SAMPLE loop DOES hold live ix (ROM ptr) and the
+; hl' shadow (ROM len) but it runs `di` end to end, so the VBlank ISR never fires during
+; streaming and cannot clobber them (the Timer-A tick services the mailbox there instead,
+; and it spills/reloads ix and the hl' shadow itself). de=$4001 survives via the push/pop below, not by being
 ; untouched. INVARIANT: idle-context loop code must never keep a live ix/iy across `ei`.
 ; ======================================================================
 SndDrv_ISR:
@@ -749,7 +750,8 @@ Run_SeqFrame_OnSongBank:
 ;   3. RELOAD the register-resident state (a retrigger may have reset it).
 ;   4. BULK-REFILL the ring lead the consumer burned while 68k DMAs blocked the
 ;      producer this frame (the 1:1 loop's catch-up, kept OUT of the per-pass hot
-;      path). Small (only the DMA deficit), DMA-deferred, len-bounded.
+;      path). Small (only the DMA deficit), len-bounded; runs THROUGH an active DMA
+;      (not deferred — fix B).
 ;   5. re-park $2A and rejoin .afterPoll (which runs this pass's phase/DMA/FILL).
 ; ======================================================================
 SndDrv_TimerATick:
