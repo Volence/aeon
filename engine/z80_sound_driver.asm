@@ -478,39 +478,19 @@ SndDrv_Sample:
         jp      nc, SndDrv_Skip          ; ring full (lead >= cap) -> SKIP (no ROM read)
         ; fall through to FILL
 
-        ; --- FILL: read 1 PACKED byte from the banked window, decode its 2 nibbles
-        ; (4-bit DPCM-HQ, S3K mod-256 predictor — NO clamp, branchless = intrinsically
-        ; constant-cost) into 2 ring bytes. acc and the DecTable base live in RAM and
-        ; are reloaded here because the loop holds NO live regs across its `ei` (the
-        ; VBlank ISR clobbers iy via SfxDispatch/Snd_LoadSong). 2:1 catch-up preserved:
-        ; 1 byte in -> 2 bytes out (WR += 2), len -= 1. See the balance proof header. ---
-        ld      iy, (SND_DEC_IY)         ; this sample's DecTable base (iy is NOT ISR-safe)
-        ld      a, (SND_DEC_ACC)         ; running predictor (RAM -> survives ei/ISR)
-        ld      c, a                     ; c = acc
+        ; --- FILL: copy 2 RAW 8-bit PCM bytes from the banked window to the ring
+        ; (the YM2612 DAC is 8-bit, $80 = silence; no decode — drums are raw PCM, the
+        ; DPCM codec was dropped, see the 2026-06-25 spec amendment). 2:1 catch-up
+        ; preserved: 2 bytes in -> 2 bytes out (WR += 2), len -= 2. The loop holds NO
+        ; live regs across its `ei`, so ptr/len/WR are reloaded from RAM. See the
+        ; balance proof header. ---
         ld      hl, (SND_ROM_PTR)
-        ld      e, (hl)                  ; e = packed byte (banked $8000 window)
+        ld      b, (hl)                  ; b = sample byte 1 (banked $8000 window)
+        inc     hl
+        ld      c, (hl)                  ; c = sample byte 2
         inc     hl
         ld      (SND_ROM_PTR), hl
-        ; -- nibble 1 (high): acc += DecTable[ds_table*16 + n1] (mod 256, no clamp) --
-        ld      a, e
-        rrca
-        rrca
-        rrca
-        rrca
-        and     0Fh                      ; a = high nibble (0..15)
-        ld      (.i1+2), a               ; SMC the (iy+n) displacement (blob runs in RAM)
-.i1:    ld      a, (iy+0)                ; a = DecTable delta for n1
-        add     a, c                     ; acc += delta (mod 256, branchless wrap)
-        ld      c, a                     ; c = new acc
-        ld      b, a                     ; b = decoded byte 1
-        ; -- nibble 2 (low) --
-        ld      a, e
-        and     0Fh                      ; a = low nibble (0..15)
-        ld      (.i2+2), a
-.i2:    ld      a, (iy+0)                ; a = DecTable delta for n2
-        add     a, c                     ; acc += delta (mod 256)
-        ld      c, a                     ; c = decoded byte 2 (= new acc)
-        ; -- write the 2 decoded bytes to the ring (WR += 2) --
+        ; -- write the 2 raw bytes to the ring (WR += 2) --
         ld      a, (SND_RING_WR)
         ld      h, SND_RING_PAGE
         ld      l, a
@@ -520,10 +500,9 @@ SndDrv_Sample:
         inc     l
         ld      a, l
         ld      (SND_RING_WR), a
-        ld      a, c
-        ld      (SND_DEC_ACC), a         ; persist predictor (= last decoded byte)
         ld      hl, (SND_ROM_LEN)
-        dec     hl                       ; len -= 1 (ONE packed byte consumed)
+        dec     hl                       ; len -= 2 (TWO raw bytes consumed)
+        dec     hl
         ld      (SND_ROM_LEN), hl
         ld      a, h
         or      l
@@ -531,8 +510,8 @@ SndDrv_Sample:
         ; --- producer exhausted (SND_ROM_LEN reached 0): enter DRAINING_TAIL. The
         ; ring still holds the already-buffered tail; the .draining path keeps
         ; emitting it (no ROM read) until lead==0, then DC-centers + stops. One-shot:
-        ; no re-loop, no $2B toggle, no gap. (Decode reads 1/len-=1 -> ANY packed
-        ; length hits exactly 0.)
+        ; no re-loop, no $2B toggle, no gap. (Raw len is EVEN and decremented by 2 ->
+        ; it hits exactly 0; the even-length assert in dac_samples.asm guards this.)
         ld      a, 2
         ld      (SND_DAC_PHASE), a       ; PHASE = 2 (DRAINING_TAIL)
 .fillDone:
@@ -576,28 +555,34 @@ SndDrv_Sample:
         ei
         jp      SndDrv_Idle              ; back to the idle loop
 
-; --- SKIP path: ring full. Skip the ROM read; burn EXACTLY 340 cyc so the ---
-; --- iteration equals the decode FILL producer. (Pure pad, register-clobber- ---
-; --- safe: a,b dead.) 340 = the decode producer's deterministic cost; a single ---
-; --- djnz of 26 hits it with zero filler (7 + (25*13 + 8) = 7 + 333 = 340).  ---
+; --- SKIP path: ring full. Skip the ROM read; burn EXACTLY 183 cyc so the ---
+; --- iteration equals the RAW FILL producer (183, see the balance proof).   ---
+; --- (Pure pad, register-clobber-safe: a,b dead.) 183 = ld b,13 (7) + djnz  ---
+; --- (12*13 + 8 = 164) + 3 nops (12) = 7 + 164 + 12 = 183.                   ---
 SndDrv_Skip:
-        ld      b, 26                    ; 7
+        ld      b, 13                    ; 7
 .skip_pad:
-        djnz    .skip_pad                ; 25*13 + 1*8 = 333    -> pad = 7+333 = 340
+        djnz    .skip_pad                ; 12*13 + 1*8 = 164    -> 7 + 164 = 171
+        nop                              ; 4
+        nop                              ; 4
+        nop                              ; 4    -> SkipPad = 171 + 12 = 183
         ei
         jp      SndDrv_Sample
 
 ; --- DRAIN path: 68k DMA in progress. Skip the ROM read (a banked read would ---
 ; --- stall the Z80 bus for the whole DMA burst — the under-load sag bug);    ---
-; --- burn EXACTLY 361 cyc (= decode FILL producer 340 + the 21-cyc dispatch  ---
+; --- burn EXACTLY 204 cyc (= raw FILL producer 183 + the 21-cyc dispatch     ---
 ; --- tail DRAIN skipped) so the iteration equals FILL. (a,b dead -> safe.)   ---
-; --- 361 = ld b,27 (7) + djnz (26*13 + 8 = 346) + 2 nops (8).                ---
+; --- 204 = ld b,14 (7) + djnz (13*13 + 8 = 177) + 5 nops (20) = 7+177+20.    ---
 SndDrv_Drain:
-        ld      b, 27                    ; 7
+        ld      b, 14                    ; 7
 .drain_pad:
-        djnz    .drain_pad               ; 26*13 + 1*8 = 346
+        djnz    .drain_pad               ; 13*13 + 1*8 = 177    -> 7 + 177 = 184
         nop                              ; 4
-        nop                              ; 4    -> pad = 7+346+8 = 361
+        nop                              ; 4
+        nop                              ; 4
+        nop                              ; 4
+        nop                              ; 4    -> DrainPad = 184 + 20 = 204
         ei
         jp      SndDrv_Sample
 
@@ -820,29 +805,8 @@ Snd_StartSample:
         ld      d, (hl)                  ; de = ds_ptr (window ptr)
         ld      (SND_ROM_PTR), de
         pop     hl
-        ; --- DPCM decode setup (BEFORE the SetBank, while hl = descriptor base):
-        ; read ds_table (+2), build iy = DecTable + ds_table*16, stash it to RAM,
-        ; and seed the predictor SND_DEC_ACC = $80 (DC center). The FILL producer
-        ; reloads iy + acc from RAM each pass (the VBlank ISR clobbers iy and the
-        ; loop holds no live regs across its `ei`), so both MUST live in RAM. ---
-        push    hl                       ; preserve descriptor base
-        ld      de, DacSample_ds_table   ; +2
-        add     hl, de
-        ld      a, (hl)                  ; a = ds_table (delta-table index)
-        pop     hl                       ; hl = descriptor base again
-        add     a, a
-        add     a, a
-        add     a, a
-        add     a, a                     ; a = ds_table*16 (table stride)
-        push    hl                       ; preserve descriptor base across the ptr math
-        ld      e, a
-        ld      d, 0                     ; de = ds_table*16
-        ld      hl, DecTable
-        add     hl, de                   ; hl = DecTable + ds_table*16
-        ld      (SND_DEC_IY), hl         ; stash this sample's DecTable base (iy reload src)
-        pop     hl                       ; hl = descriptor base
-        ld      a, 80h
-        ld      (SND_DEC_ACC), a         ; seed predictor at DC center
+        ; --- raw 8-bit PCM: no decode setup (no DecTable, no running predictor). hl is
+        ; still the descriptor base (from the pop above); read ds_length (+5) below. ---
         ld      de, DacSample_ds_length  ; +5
         add     hl, de
         ld      e, (hl)
@@ -1471,14 +1435,10 @@ DacSampleTable_End:
           fatal "DacSampleTable wrong size for DAC_SAMPLE_COUNT"
         endif
 
-; --- DPCM decode tables (INLINE = Z80-addressable, bank-free; read every FILL via
-; iy). MUST NOT live in the $8000 window (that holds the sample payload during FILL).
-DecTable:
-        include "data/sound/dac_dectable.asm"
-DecTable_End:
-        if (DecTable_End-DecTable) <> NUM_DELTA_TABLES*16
-          fatal "DecTable wrong size for NUM_DELTA_TABLES"
-        endif
+; (The DPCM DecTable was removed with the codec — drums are raw 8-bit PCM, no decode.
+; The inline-table / bank-free rationale is moot; the $8000 window holds the raw
+; payload during FILL. DPCM could return for future long samples — see the spec
+; amendment + the reserved ds_codec hook.)
 
         ; Pad the blob to an EVEN length. The boot loader copies it byte-wise
         ; then does word/long (a5)+ reads on the data that follows; an odd-length

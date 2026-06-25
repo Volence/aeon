@@ -1,5 +1,24 @@
-# tools/dac_encode.py  — offline noise-shaped 4-bit DPCM (DPCM-HQ)
+# tools/dac_encode.py  — offline DAC sample encoder.
+#
+# Drums ship as RAW 8-bit PCM (the YM2612 DAC is 8-bit unsigned, $80 = silence):
+# the shared DAC bank made compression moot (drums stored once, not per song) and
+# the decode was the loop's rate cap, so raw is the best-in-class choice for short
+# drums (higher rate, simpler/less-fragile loop, full 8-bit quality). See the
+# 2026-06-25 amendment in docs/superpowers/specs/2026-06-24-dac-drum-format-revision-design.md.
+#
+# The 4-bit noise-shaped DPCM functions below are KEPT as a library (the reserved
+# `ds_codec` hook): a future genuinely-large/long compressed sample can select a
+# DPCM loop per-sample. They are NOT used by the shipped drum path.
 import numpy as np
+
+def encode_raw8(samples):
+    """Raw 8-bit unsigned PCM, $80 = DC center. Clamp to [0,255]; pad to an EVEN
+    byte count with $80 (the FILL copies 2 bytes/pass and exhausts at len==0, so an
+    odd length would never hit exact zero). Returns bytes."""
+    s = np.clip(np.asarray(samples, dtype=np.int32), 0, 255).astype(np.uint8)
+    if len(s) & 1:
+        s = np.append(s, np.uint8(0x80))
+    return s.tobytes()
 
 # starting delta families (sharp-transient / body / quiet). Signed 8-bit, mod-256.
 DELTA_TABLES = [
@@ -66,15 +85,22 @@ def _resample_linear(samples, src_rate, dst_rate):
     return np.interp(xs, np.arange(len(samples)), samples).round().astype(np.int32)
 
 if __name__ == "__main__":
-    import sys, argparse
+    import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("wav"); ap.add_argument("dpcm")
+    ap.add_argument("wav"); ap.add_argument("out")
+    ap.add_argument("--codec", choices=("raw", "dpcm"), default="raw",
+                    help="raw = 8-bit PCM (shipped drum path); dpcm = 4-bit (reserved)")
     ap.add_argument("--rate", type=int, default=0, help="resample to this Hz (0 = native, no resample)")
-    ap.add_argument("--table", type=int, default=None, help="force a delta-table index (default: auto-select)")
+    ap.add_argument("--table", type=int, default=None, help="DPCM delta-table index (dpcm only; default auto)")
     a = ap.parse_args()
     samples, src_rate = _read_wav_u8(a.wav)
     if a.rate:
         samples = _resample_linear(samples, src_rate, a.rate)
-    packed, ti = encode_dpcm(samples, table_index=a.table)
-    open(a.dpcm, "wb").write(packed)
-    print(f"{a.dpcm}: table={ti} samples={len(samples)} dpcm_bytes={len(packed)} src_rate={src_rate}")
+    if a.codec == "raw":
+        data = encode_raw8(samples)
+        open(a.out, "wb").write(data)
+        print(f"{a.out}: codec=raw samples={len(samples)} bytes={len(data)} src_rate={src_rate} dst_rate={a.rate or src_rate}")
+    else:
+        packed, ti = encode_dpcm(samples, table_index=a.table)
+        open(a.out, "wb").write(packed)
+        print(f"{a.out}: codec=dpcm table={ti} samples={len(samples)} bytes={len(packed)} src_rate={src_rate}")
