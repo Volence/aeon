@@ -86,10 +86,23 @@ Z80_Sound_Start:
 ;     + 21*nop(84) + jp(10)                      ----- DRAINING = 194 (1 cyc under FILL;
 ;   tail-only -> inaudible). .stop is a one-shot terminal event (DC-center + idle).
 ;
+; --- INHERENT PITCH ASYMMETRY (silicon-only, accepted) --------------------
+; The ~3.3-cyc banked-ROM bus penalty (above) lands ONLY on FILL's `ld a,(ix+0)`;
+; DRAIN and DRAINING_TAIL read no ROM, so they never pay it. FILL's true period is
+; therefore ~195+3.3 cyc while DRAIN/DRAINING run at 195/194 -> during a 68k DMA
+; (DRAIN) or the sample tail (DRAINING) the output pitch runs ~30 cents SHARP vs the
+; FILL steady state (3.3/195 ~= 1.7% ~= 29 cents). It CANNOT be padded out: matching
+; the penalty on DRAIN would require a ROM read, which is exactly what DRAIN must
+; avoid while the 68k holds the cartridge bus. The effect is silicon-only (Exodus
+; does not model cartridge-bus contention, so it is invisible there) and transient
+; (DRAIN spans only a DMA window, DRAINING only the buffered tail) -> ACCEPTED, not
+; fixed.
+;
 ; --- BOUNDING the Timer-A tick (once per ~59 Hz frame) --------------------
 ; On overflow the poll's `jp nz,SndDrv_TimerATick` is taken: spill regs->RAM, rearm +
 ; Sequencer_Frame (B1) + mailbox poll, reload regs, bulk-refill the ring to
-; SND_RING_LEAD_TARGET (200; DMA-deferred + len-bounded), re-park $2A, rejoin .afterPoll.
+; SND_RING_LEAD_TARGET (200; len-bounded; runs THROUGH an active DMA, not deferred —
+; fix B), re-park $2A, rejoin .afterPoll.
 ; During the tick the DAC holds its last sample (the Sequencer_Frame gap, pre-existing) —
 ; that lengthens wall-clock duration, NOT the streaming/pitch rate. The ~200-sample lead
 ; (~11 ms at 18 kHz) outlasts any real 68k DMA (<3 ms) with margin.
