@@ -310,6 +310,8 @@ SndDrv_Init:
         ld      (SND_REQ_SFX), a
         ld      (SND_CTRL_DMA_ACTIVE), a ; flag bracket clear (no DMA in progress)
         ld      (SND_DAC_PHASE), a       ; PHASE = idle (0) — two-stage stop SM
+        ld      (SND_SONG_BANK), a       ; B1 bracket reads this on pre-song idle ticks
+        ld      (SND_ROM_BANK), a        ; (Snd_LoadSong sets both to the real song bank)
         ld      (SND_STAT_PING_ECHO), a
         ld      (SND_STAT_ACK_COUNT), a
         ld      (SND_STAT_TICK), a
@@ -403,7 +405,7 @@ SndDrv_Idle:
 ; DAC_ACTIVE at the top so a $E2-armed sample enters the streaming loop next pass.
 SndDrv_IdleTick:
         call    Snd_TimerA_Rearm         ; clear overflow, keep counting, re-park $2A
-        call    Sequencer_Frame          ; run one per-frame engine pass (clobbers af,bc,de,hl,ix)
+        call    Run_SeqFrame_OnSongBank  ; B1: frame on song bank, restore sample bank
         ld      de, SND_Z80_YM_A1        ; restore de = $4001 (DAC DATA port invariant)
         ret
 
@@ -804,9 +806,14 @@ Snd_StartSample:
         inc     hl
         ld      d, (hl)                  ; de = ds_length
         ld      (SND_ROM_LEN), de
-        ; bank the sample in now that hl (descriptor base) is no longer needed.
-        ld      a, (SND_ROM_BANK)
-        call    SndDrv_SetBank           ; $6000 latch only (DMA-safe)
+        ; B2: stash-only. The sample bank was stashed to SND_ROM_BANK above; do NOT
+        ; SetBank here. Snd_StartSample reads NO sample ROM (it only sets up pointers),
+        ; so the window need not change yet. The bank brackets latch it at the right
+        ; moment: B1 (Run_SeqFrame_OnSongBank) re-latches SND_ROM_BANK after every
+        ; sequencer frame, and B4 (SndDrv_Idle's streaming-entry latch) covers the
+        ; mailbox/ISR trigger path before the first FILL. (B4 lands in Task 5.2 — until
+        ; then a mailbox-triggered sample's first FILL is mis-banked; sequencer-$E2
+        ; triggers already work via B1's tail.)
 
         ; Reset ring pointers + prime the lead. To avoid a start underrun WITHOUT
         ; reading ROM (which could land mid-DMA in the ISR context), we set WR
@@ -867,6 +874,25 @@ SndDrv_SetBank:
         ret
 
 ; ======================================================================
+; Run_SeqFrame_OnSongBank — B1 bracket. Run one sequencer frame with the $8000
+; window on the SONG bank, then restore it to the SAMPLE bank. The frame engine
+; streams the song through the window (STREAM songs) — or reads RAM (COPY songs,
+; bank irrelevant) — so it MUST see the song bank; the DAC FILL reads the sample
+; payload through the same window, so the bank is restored to SND_ROM_BANK after.
+; Both SetBanks are cached (no-op when already current), so for a DAC-off song
+; (SND_SONG_BANK == SND_ROM_BANK) this is two cached no-ops — no per-frame cost.
+; During a DAC sample the two real switches ($6000 latch only — DMA-safe) cost a
+; bounded ~200 cyc on the once-per-frame tick, absorbed by the ring lead.
+; Clobbers af,bc,de,hl,ix (= Sequencer_Frame's set; SetBank's af/hl are a subset).
+; ======================================================================
+Run_SeqFrame_OnSongBank:
+        ld      a, (SND_SONG_BANK)
+        call    SndDrv_SetBank           ; window -> song bank (cached no-op if current)
+        call    Sequencer_Frame          ; one per-frame engine pass (reads the song stream)
+        ld      a, (SND_ROM_BANK)
+        jp      SndDrv_SetBank           ; window -> sample bank (tail-call; cached no-op if current)
+
+; ======================================================================
 ; SndDrv_TimerATick — the Timer-A overflow handler (now the PER-FRAME tick, Phase
 ; 3). Reached ONLY from the common-prefix poll's `jp nz` when YM status bit0
 ; (Timer A overflow) is set — at the FIXED frame rate. Runs INSIDE the streaming
@@ -883,7 +909,7 @@ SndDrv_SetBank:
 ; ======================================================================
 SndDrv_TimerATick:
         call    Snd_TimerA_Rearm         ; $27 = $15 (clear overflow, keep counting), re-park $2A
-        call    Sequencer_Frame          ; run one per-frame engine pass (clobbers af,bc,de,hl,ix)
+        call    Run_SeqFrame_OnSongBank  ; B1: frame on song bank, restore sample bank
         ; Sequencer_Frame clobbered b (and de). Restore the loop invariants the
         ; dispatch tail needs: de = $4001, and b = the lead (WR-RD)&$FF.
         ld      de, SND_Z80_YM_A1        ; restore de = $4001 (DAC DATA port invariant)
@@ -1046,6 +1072,13 @@ Snd_LoadSong:
         ld      a, b
         or      c
         jr      nz, .seq_clr
+
+        ; B1/B2 banking: record this song's bank for the per-frame bracket, and seed
+        ; the sample bank to it so Run_SeqFrame_OnSongBank is two cached no-ops until a
+        ; $E2 arms a DAC sample (which restashes SND_ROM_BANK to the sample's bank).
+        ld      a, (SND_MUSIC_PARAM_BANK)
+        ld      (SND_SONG_BANK), a
+        ld      (SND_ROM_BANK), a
 
         ; --- branch on the streaming flag (forwarded from the song's SH_FLAGS) ---
         ld      a, (SND_MUSIC_PARAM_FLAGS)
