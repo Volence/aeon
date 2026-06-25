@@ -381,11 +381,20 @@ SndDrv_Idle:
         ; --- Timer-A poll (sequencer tick clock while idle) ---
         ld      a, (SND_Z80_YM_A0)       ; YM status ($4000): bit0 = Timer A overflow
         and     SND_TIMERA_OVF_MASK
-        call    nz, SndDrv_IdleTick      ; overflow -> rearm + Sequencer_Frame
+        jr      z, .idle_settled         ; no tick -> DAC latch already holds $80, $2A parked
+        call    SndDrv_IdleTick          ; overflow -> rearm + Sequencer_Frame
+        ; A tick ran: Sequencer_Frame's FM/PSG writes moved the $4000 addr latch, so
+        ; re-park $2A and re-assert DC center ONCE here. Between ticks the DAC latch
+        ; holds $80 and $2A stays parked, so re-writing $80 every idle spin is pure
+        ; VGM-logger flood (tens of kHz x3 at emu speed) with no audible effect — it
+        ; over-runs the emulator's $2A logger and breaks the cross-correlation verify.
+        ; Gating the write to the ~59 Hz tick keeps DC-center silence and lets the VGM
+        ; capture stay faithful for the rest of the DAC phase.
         ld      a, SND_REG_DAC_DATA      ; re-select $2A on the ADDR port ($4000)
         ld      (SND_Z80_YM_A0), a
         ld      a, 80h
         ld      (de), a                  ; DAC <- $80 (DC center silence)
+.idle_settled:
         ei                               ; VBlank IRQ may land here (between samples)
         jp      SndDrv_Idle
 
