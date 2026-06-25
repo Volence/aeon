@@ -800,6 +800,10 @@ git commit -m "feat(sound): FM6 dedicate-while-active (\$B6=\$C0 stereo, gate ch
 
 ## Task 5.1: Bank brackets B1 + B2
 
+> **STATUS: DONE + verified (commit c9b392a, 2026-06-25).** B1 Run_SeqFrame_OnSongBank
+> from both tick paths; B2 stash-only StartSample; Snd_LoadSong seeds SONG/ROM bank;
+> init zeroes both. MT regression clean (banks $0F, tonal).
+
 **Files:**
 - Modify: `engine/z80_sound_driver.asm` (`Snd_StartSample`, `SndDrv_TimerATick`, `SndDrv_IdleTick`,
   `Snd_LoadSong`)
@@ -858,6 +862,16 @@ git commit -m "feat(sound): bank brackets B1 (frame on song bank) + B2 (StartSam
 ---
 
 ## Task 5.2: Bank brackets B3 + B4
+
+> **STATUS: DONE + verified + reviewed (commit eda6418, 2026-06-25).** B3 made
+> DAC-aware (restore SAMPLE bank when streaming, else pre-ISR bank); B4 idle->stream
+> latch. 3-agent review + focused re-review (all approve) drove 2 fixes: DAC-aware B3
+> (cross-bank mailbox retrigger) + DAC_ACTIVE-guarded SND_ROM_BANK seed (music-load-
+> mid-drum, a Task-5.1 regression). Verified: fresh MT, mailbox kick r=1.0, MT+kick
+> coexist. DISCOVERY: PollMailbox doesn't run during DAC streaming -> those 2 edge
+> cases are currently UNREACHABLE (fixes kept correct-by-design-intent). Also logged
+> 2 pre-existing latent bugs (StopMusic->PlayMusic silence; SFX/mailbox latency
+> during a drum) — out of bank-bracket scope.
 
 **Files:**
 - Modify: `engine/z80_sound_driver.asm` (`SndDrv_ISR`, `SndDrv_Idle`)
