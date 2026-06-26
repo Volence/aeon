@@ -246,3 +246,130 @@ def test_inline_smpsnoattack_does_not_break_walk():
     # the inline $E7 must not be treated as a note; nMaxPSG1 and nC4 are notes
     notes = [e for e in ev if isinstance(e, Note)]
     assert len(notes) == 2
+
+# ── Task 2.3 ─ structural control flow + per-channel state ───────────────────
+
+from song_packer import LoopPoint, Jump, Vol, PsgEnv
+
+def test_call_inlines_body():
+    # smpsCall recursively converts the target block's tokens (stopping at
+    # smpsReturn) with the SAME ConvState, splices them inline.
+    blocks = {"Sub0": ["\tsmpsSetvoice $05", "\tsmpsReturn"]}
+    ev = convert_channel("FM", ["\tsmpsCall Sub0", "\tdc.b nC4, $0C"],
+                         blocks, _cfg(), ConvState())
+    assert isinstance(ev[0], Patch) and ev[0].patch == 0x05
+    assert any(isinstance(e, Note) for e in ev)
+
+def test_loop_unrolls():
+    # smpsLoop replays its body (target label .. loop flag) `count` times.
+    blocks = {"LoopA": ["\tdc.b nC4, $0C", "\tsmpsLoop $00, $03, LoopA"]}
+    ev = convert_channel("FM", [], blocks, _cfg(), ConvState(),
+                         start_label="LoopA")
+    notes = [e for e in ev if isinstance(e, Note)]
+    assert len(notes) == 3        # body (1 note) unrolled x3
+
+def test_loop_nested_unrolls():
+    # Nested loops, structured the way split_blocks actually emits them (one
+    # block per label). The OUTER loop targets the block that contains the INNER
+    # loop, so the outer body = [Outer .. outer smpsLoop), which spans Outer ->
+    # Inner via fall-through and includes the inner loop.
+    #   Outer: 1 note, then fall through to Inner.
+    #   Inner: 1 note + smpsLoop x2 (inner body = that 1 note, replayed once).
+    #   After Inner's loop: smpsLoop x3 back to Outer (outer body replayed twice).
+    # Per outer pass: Outer note (1) + Inner note unrolled x2 (2) = 3 notes.
+    # Outer x3 -> 9 notes.
+    blocks = {
+        "Outer": ["\tdc.b nC4, $0C"],
+        "Inner": ["\tdc.b nC4, $0C", "\tsmpsLoop $01, $02, Inner",
+                  "\tsmpsLoop $00, $03, Outer"],
+    }
+    ev = convert_channel("FM", [], blocks, _cfg(), ConvState(),
+                         start_label="Outer")
+    notes = [e for e in ev if isinstance(e, Note)]
+    assert len(notes) == 9
+
+def test_psg_voice_safe_env():
+    ev = convert_channel("PSG", ["\tsmpsPSGvoice sTone_0C", "\tdc.b nC4, $0C"],
+                         {}, _cfg(), ConvState())
+    assert any(isinstance(e, PsgEnv) and e.env_id == 0 for e in ev)
+
+def test_jump_loopback_terminates():
+    # A channel that jumps back to an earlier label in its own data emits a
+    # LoopPoint (at the target) + a Jump (at the smpsJump) and stops.
+    blocks = {"Main": ["Lp:", "\tdc.b nC4, $0C", "\tsmpsJump Lp"],
+              "Lp":   ["\tdc.b nC4, $0C", "\tsmpsJump Lp"]}
+    ev = convert_channel("FM", [], blocks, _cfg(), ConvState(),
+                         start_label="Main")
+    assert any(isinstance(e, LoopPoint) for e in ev)
+    assert isinstance(ev[-1], Jump)
+    # nothing emitted after the Jump (terminal)
+    assert sum(isinstance(e, Jump) for e in ev) == 1
+
+def test_setnote_sets_transpose():
+    # smpsSetNote val -> transpose = val - $40 ; note pitch reflects it.
+    ev = convert_channel("FM", ["\tsmpsSetNote $42", "\tdc.b nC4, $0C"],
+                         {}, _cfg(), ConvState())
+    # nC4=$B1 -> base index 0x30; transpose = 0x42-0x40 = +2 -> 0x32
+    assert any(isinstance(e, Note) and e.pitch == 0x32 for e in ev)
+
+def test_change_transposition_adds():
+    ev = convert_channel("FM", ["\tsmpsChangeTransposition $02", "\tdc.b nC4, $0C"],
+                         {}, _cfg(), ConvState(transpose=1))
+    # base 0x30 + (1 + 2) = 0x33
+    assert any(isinstance(e, Note) and e.pitch == 0x33 for e in ev)
+
+def test_alter_vol_folds_fm():
+    # smpsAlterVol on FM: running volume +/- delta, emits Vol.
+    ev = convert_channel("FM",
+                         ["\tsmpsSetVol $10", "\tsmpsAlterVol $04"],
+                         {}, _cfg(), ConvState())
+    vols = [e for e in ev if isinstance(e, Vol)]
+    assert len(vols) == 2 and vols[-1].vol != vols[0].vol
+
+def test_call_depth_guard():
+    # Self-recursive call must error rather than blow the stack.
+    blocks = {"R": ["\tsmpsCall R"]}
+    raised = False
+    try:
+        convert_channel("FM", [], blocks, _cfg(), ConvState(), start_label="R")
+    except Exception:
+        raised = True
+    assert raised
+
+# ── Task 2.3 end-to-end: real HCZ2 FM + DAC convert without raising ──────────
+
+def _hcz2_blocks_and_cfg():
+    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    with open(path) as f:
+        lines = f.read().splitlines()
+    cfg = parse_header(lines)
+    blocks = split_blocks(lines)
+    return blocks, cfg
+
+def test_e2e_hcz2_dac_converts():
+    blocks, cfg = _hcz2_blocks_and_cfg()
+    ev = convert_channel("DAC", [], blocks, cfg, ConvState(),
+                         start_label="Snd_HCZ2_DAC")
+    assert ev, "DAC channel produced no events"
+    assert isinstance(ev[-1], (Jump, End))
+    assert any(isinstance(e, Dac) for e in ev)
+
+def test_e2e_hcz2_fm1_converts():
+    blocks, cfg = _hcz2_blocks_and_cfg()
+    fm1 = next(c for c in cfg.channels if c.label == "Snd_HCZ2_FM1")
+    ev = convert_channel("FM", [], blocks, cfg,
+                         ConvState(transpose=fm1.transpose),
+                         start_label="Snd_HCZ2_FM1")
+    assert ev, "FM1 channel produced no events"
+    assert isinstance(ev[-1], (Jump, End))
+    assert any(isinstance(e, Note) for e in ev)
+
+def test_e2e_hcz2_psg3_converts():
+    # PSG3 has the densest control flow: nested smpsLoop + many smpsPSGvoice +
+    # inline smpsNoAttack + a final smpsJump.
+    blocks, cfg = _hcz2_blocks_and_cfg()
+    ev = convert_channel("PSG", [], blocks, cfg, ConvState(),
+                         start_label="Snd_HCZ2_PSG3")
+    assert ev
+    assert isinstance(ev[-1], (Jump, End))
+    assert any(isinstance(e, PsgEnv) for e in ev)

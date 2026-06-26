@@ -5,7 +5,7 @@ sys.path.insert(0, _HERE)
 
 from song_packer import (
     Note, Rest, SetDur, NoteDur, Vol, Patch, Pan, ModSet, PsgEnv, NoteFill,
-    Dac, End, MEV_NOTE_BASE, MAX_DUR,
+    Dac, End, LoopPoint, Jump, MEV_NOTE_BASE, MAX_DUR,
 )
 
 # ---------------------------------------------------------------------------
@@ -92,6 +92,13 @@ def resolve_const(tok: str) -> int:
     for table in (NOTE_BYTES, PAN_BYTES, DAC_IDS, FLAG_BYTES):
         if tok in table:
             return table[tok]
+    # PSG tone/envelope names: sTone_NN -> the hex number NN. The numeric id is
+    # the S3K PSG-envelope index; v1 does not import those envelopes (see
+    # _dispatch_flag smpsPSGvoice), but resolving the constant lets the header
+    # parser and any inline use succeed instead of KeyError-ing.
+    m = re.fullmatch(r"sTone_([0-9A-Fa-f]{1,2})", tok)
+    if m:
+        return int(m.group(1), 16)
     raise KeyError("unknown SMPS constant: %r" % tok)
 
 class ChannelHdr:
@@ -195,13 +202,20 @@ def split_blocks(lines):
 # the actual mapping is in _dispatch_flag. (Header/voice macros are NOT here —
 # they are handled before channel conversion.)
 _FLAG_MNEMONICS = frozenset((
+    # Direct coordination flags -> MEV events (_dispatch_flag).
     "smpsPan", "smpsSetvoice", "smpsFMvoice", "smpsModSet", "smpsModOff",
     "smpsPSGvoice", "smpsNoteFill", "smpsStop", "smpsSetVol",
-    # Hooks (Task 2.3 / 2.4) — recognized so the walk does not break, but
-    # currently warn-skipped by _dispatch_flag:
-    "smpsAlterVol", "smpsPSGAlterVol", "smpsDetune", "smpsAlterNote",
-    "smpsAlterPitch", "smpsCall", "smpsReturn", "smpsLoop", "smpsJump",
-    "smpsSetNote", "smpsChangeTransposition", "smpsNoAttack", "smpsPSGform",
+    # Per-channel state (Task 2.3): transpose + volume folding, all in
+    # _dispatch_flag.
+    "smpsAlterVol", "smpsPSGAlterVol", "smpsSetNote", "smpsChangeTransposition",
+    "smpsAlterPitch",
+    # Structural control flow (Task 2.3): intercepted by the convert_channel
+    # walker BEFORE _dispatch_flag (call-inline / loop-unroll / jump-loopback /
+    # return).
+    "smpsCall", "smpsReturn", "smpsLoop", "smpsJump",
+    # Recognized so the walk never breaks; dropped/approximated v1 fidelity gaps
+    # (warned once in _dispatch_flag): fine pitch detune, PSG waveform select.
+    "smpsDetune", "smpsAlterNote", "smpsNoAttack", "smpsPSGform",
 ))
 
 
@@ -212,23 +226,31 @@ def warn(msg):
 class ConvState:
     """Mutable per-channel conversion state carried across the byte walk.
 
-    transpose : signed semitone displacement folded into every note pitch
-                (the channel header's transpose; Task 2.4 may also fold
-                smpsChangeTransposition into this).
-    volume    : current folded channel volume (Task 2.3 delta folding); None
-                until the first explicit volume.
+    transpose : signed semitone displacement folded into every note pitch (the
+                channel header transpose, plus smpsSetNote / smpsChangeTransposition
+                folding — Task 2.3).
+    volume    : legacy folded-volume slot (kept for back-compat); the live
+                running volume is fm_vol_raw / psg_vol_raw below.
     cur_dur   : the current DEFAULT duration already emitted (the v0 stream's
                 running SetDur value), in v0 ticks. None until first set, so the
                 first note always emits a SetDur.
     tie       : True after an inline smpsNoAttack ($E7) — the next note should be
-                tied / no-attack (Task 2.4 consumes this; recorded here so the
-                walk does not misinterpret the $E7 byte as a note).
+                tied / no-attack (recorded here so the walk does not misinterpret
+                the $E7 byte as a note; the no-attack articulation itself is a v1
+                fidelity gap, the note still sounds).
     """
     def __init__(self, transpose=0, volume=None):
         self.transpose = transpose
         self.volume = volume
         self.cur_dur = None
         self.tie = False
+        # Running SMPS-domain volume (attenuation): seeded by smpsSetVol, mutated
+        # by smpsAlterVol/smpsPSGAlterVol. None until first touched. Kept in the
+        # SMPS domain so deltas compose correctly; mapped to the v0 0..127
+        # loudness only at emit time. FM and PSG track separately because their
+        # SMPS volume domains differ (FM TL-ish attenuation vs PSG 4-bit attn).
+        self.fm_vol_raw = None
+        self.psg_vol_raw = None
 
 
 def _flatten_tokens(lines):
@@ -288,11 +310,57 @@ def _smps_vol_to_v0(kind, val):
     return int(round((15 - (val & 0x0F)) / 15 * 127))
 
 
+# Default SMPS-domain volume seeds for a channel that emits a volume delta before
+# any absolute set. FM attenuation 0 = full; PSG attenuation 0 = loudest.
+_DEFAULT_FM_VOL = 0
+_DEFAULT_PSG_VOL = 0
+
+
+def _alter_vol(kind, want, delta, st, out):
+    """Fold a volume delta (smpsAlterVol / smpsPSGAlterVol). `want` is the
+    channel-kind the flag legitimately applies to ("FM"/"PSG"); on a mismatched
+    channel the flag is a no-op (the driver guards likewise — cfChangePSGVolume
+    returns on non-PSG). The running SMPS-domain volume is clamped to its native
+    attenuation range, then mapped to a v0 0..127 Vol on emit."""
+    if kind != want:
+        return                              # flag inapplicable on this channel
+    if want == "FM":
+        cur = st.fm_vol_raw if st.fm_vol_raw is not None else _DEFAULT_FM_VOL
+        cur = max(0, min(127, cur + delta))   # FM attenuation 0..127
+        st.fm_vol_raw = cur
+        out.append(Vol(_smps_vol_to_v0("FM", cur)))
+    else:
+        cur = st.psg_vol_raw if st.psg_vol_raw is not None else _DEFAULT_PSG_VOL
+        cur = max(0, min(0x0F, cur + delta))  # PSG attenuation 0..15
+        st.psg_vol_raw = cur
+        out.append(Vol(_smps_vol_to_v0("PSG", cur)))
+
+
+_psg_env_warned = False
+_detune_warned = False
+
+
+def _warn_psg_env_once():
+    global _psg_env_warned
+    if not _psg_env_warned:
+        warn("PSG-envelope timbre approximated (v1 maps every sTone -> PsgEnv(0);"
+             " PSG melody preserved, S3K envelope shape not imported)")
+        _psg_env_warned = True
+
+
+def _warn_detune_once():
+    global _detune_warned
+    if not _detune_warned:
+        warn("smpsDetune/smpsAlterNote (fine pitch detune) dropped in v1")
+        _detune_warned = True
+
+
 def _dispatch_flag(kind, mnem, args, st, out, cfg):
-    """Handle one ('flag', mnem, args) coordination-flag token. Appends 0+
-    events to `out`. Volume/transpose folding and call/loop/detune/tie are
-    LATER tasks (2.3/2.4): those mnemonics are recognized but warn-skipped so
-    the walk never breaks."""
+    """Handle one NON-structural ('flag', mnem, args) coordination-flag token.
+    Appends 0+ events to `out` and/or mutates per-channel state (transpose,
+    running volume). Structural flags (smpsCall/Return/Loop/Jump) are handled by
+    the convert_channel walker and never reach here. Unmodeled flags are
+    warn-skipped so the walk never breaks (a documented v1 fidelity gap)."""
     if mnem == "smpsPan":
         if kind == "DAC":
             return                                   # pan is meaningless on DAC
@@ -305,79 +373,275 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
     elif mnem == "smpsModOff":
         out.append(ModSet(0, 0, 0, 0))
     elif mnem == "smpsPSGvoice":
-        out.append(PsgEnv(resolve_const(args[0])))
+        # PSG voice = an S3K PSG volume-envelope index (sTone_NN). v1 does NOT
+        # import those envelope contours, so map every tone to PsgEnv(0) (no
+        # envelope = flat PSG tone). The PSG NOTES/melody are preserved; only the
+        # S3K envelope SHAPE is approximated — a documented v1 fidelity gap.
+        # MEV_PSGENV is 1-based with 0 = none, so 0 is the safe "no env" id; do
+        # NOT index a nonexistent envelope.
+        _warn_psg_env_once()
+        out.append(PsgEnv(0))
     elif mnem == "smpsNoteFill":
         out.append(NoteFill(resolve_const(args[0]) * cfg.divider))
     elif mnem == "smpsStop":
         out.append(End())
     elif mnem == "smpsSetVol":
-        out.append(Vol(_smps_vol_to_v0(kind, resolve_const(args[0]))))
+        # Seed the running SMPS-domain volume so later deltas compose, and emit.
+        raw = resolve_const(args[0])
+        if kind == "FM":
+            st.fm_vol_raw = raw
+        else:
+            st.psg_vol_raw = raw
+        out.append(Vol(_smps_vol_to_v0(kind, raw)))
+    elif mnem == "smpsSetNote":
+        # cfSetKey ($ED): transpose = val - $40 (signed result).
+        st.transpose = _signed8(resolve_const(args[0])) - 0x40
+    elif mnem in ("smpsChangeTransposition", "smpsAlterPitch"):
+        # cfChangeTransposition ($FB): transpose += signed(val).
+        st.transpose += _signed8(resolve_const(args[0]))
+    elif mnem == "smpsAlterVol":
+        # cfChangeVolume ($E6): add signed delta to the running FM attenuation.
+        _alter_vol(kind, "FM", _signed8(resolve_const(args[0])), st, out)
+    elif mnem == "smpsPSGAlterVol":
+        # cfChangePSGVolume ($EC): add signed delta to the running PSG attn.
+        _alter_vol(kind, "PSG", _signed8(resolve_const(args[0])), st, out)
+    elif mnem in ("smpsDetune", "smpsAlterNote"):
+        # cfDetune ($E1): a fine FREQUENCY detune, not a transpose. v1 does not
+        # model sub-semitone detune; drop it (the note pitch is unaffected).
+        # Warned once so the fidelity gap is visible without log spam.
+        _warn_detune_once()
     else:
-        # Hooks for later tasks: smpsAlterVol/smpsPSGAlterVol (2.3),
-        # smpsDetune/smpsAlterNote/smpsAlterPitch/smpsCall/smpsReturn/
-        # smpsLoop/smpsJump/smpsSetNote/smpsChangeTransposition/smpsNoAttack/
-        # smpsPSGform (2.4) — and any other coordination mnemonic.
+        # Remaining unmodeled coordination mnemonics (e.g. smpsPSGform — the PSG
+        # noise/waveform select, a v1 fidelity gap). Structural flags
+        # (smpsCall/Return/Loop/Jump) never reach here: the walker intercepts
+        # them before _dispatch_flag.
         warn("skip flag %s" % mnem)
 
 
-def convert_channel(kind, lines, blocks, cfg, st):
-    """Convert one channel's SMPS source lines into a list of music-format-v0
-    events. `kind` is "FM" | "PSG" | "DAC"; `st` is a ConvState; `cfg` supplies
-    .divider. `blocks` (the label->lines map) is accepted for Task 2.4 call/loop
-    resolution; unused here."""
-    toks = _flatten_tokens(lines)
+MAX_CALL_DEPTH = 8          # guard against recursive/cyclic smpsCall
+MAX_CHANNEL_EVENTS = 20000  # runaway-unroll cap (loop counts blow up)
+
+
+class _UnrollLimit(Exception):
+    """Raised when a channel exceeds MAX_CHANNEL_EVENTS (runaway unroll)."""
+
+
+def convert_channel(kind, lines, blocks, cfg, st, start_label=None):
+    """Convert one channel's SMPS data into a list of music-format-v0 events.
+
+    `kind` is "FM" | "PSG" | "DAC"; `st` is a ConvState; `cfg` supplies .divider.
+    `blocks` is the label->lines map from split_blocks (channel headers AND
+    internal sub-labels). A channel's data spans MULTIPLE blocks: when a block's
+    tokens run out, execution FALLS THROUGH to the next block in source order
+    (this is how HCZ2's DAC chains DAC -> Loop00 -> Loop01 -> ...).
+
+    Two entry modes:
+      * start_label given  -> the structural walker follows blocks (call-inline,
+        loop-unroll, jump-loopback, fall-through). This is the real path.
+      * start_label None   -> a single ad-hoc block of `lines` (used by the unit
+        tests that pass inline source with no surrounding block map); structural
+        flags whose targets live in `blocks` still resolve.
+
+    Returns a flat event list, terminated by Jump (channel loop-back) or End
+    (smpsStop) when one is reached."""
     out = []
-    i = 0
-    n = len(toks)
-    while i < n:
-        tok = toks[i]
-        if tok[0] == "flag":
-            _dispatch_flag(kind, tok[1], tok[2], st, out, cfg)
-            i += 1
-            continue
 
-        # ('byte', b)
-        b = tok[1]
-        if b >= FIRST_COORD_FLAG:                    # inline coordination flag
-            name = _flag_name_for_byte(b)
-            if name == "smpsNoAttack":
-                st.tie = True                        # Task 2.4 will consume it
+    if start_label is None and lines:
+        # Ad-hoc single-block mode: make the inline `lines` a synthetic block so
+        # the same walker handles it (and any structural flag it contains).
+        blocks = dict(blocks)
+        blocks["__inline__"] = list(lines)
+        start_label = "__inline__"
+    elif start_label is None:
+        return out
+
+    # Ordered label list for fall-through ("the next block in source order").
+    order = list(blocks.keys())
+    order_index = {lbl: idx for idx, lbl in enumerate(order)}
+    # Per-block flattened token lists (cached; flatten is pure).
+    tok_cache = {}
+
+    def toks_for(label):
+        if label not in tok_cache:
+            tok_cache[label] = _flatten_tokens(blocks.get(label, []))
+        return tok_cache[label]
+
+    # label -> output index where that label's events begin (for jump-loopback
+    # LoopPoint insertion). Recorded the first time the walker enters a block.
+    label_out_pos = {}
+
+    def emit(ev):
+        out.append(ev)
+        if len(out) > MAX_CHANNEL_EVENTS:
+            raise _UnrollLimit(
+                "channel %r exceeded %d events (runaway unroll?)"
+                % (start_label, MAX_CHANNEL_EVENTS))
+
+    def walk(label, depth, stop_at):
+        """Walk blocks starting at `label`, following fall-through, until a
+        terminator (smpsJump/smpsStop), running off the last block, or reaching
+        the `stop_at` loop position (label, token_index) that bounds an unroll
+        body. Returns one of: 'fell_off', 'returned', 'terminated', 'stopped'.
+
+        depth      : smpsCall nesting (guarded by MAX_CALL_DEPTH).
+        stop_at    : (label, idx) of the smpsLoop flag whose body this is, or
+                     None at top level. The replay must NOT re-trigger that exact
+                     loop flag (that would recurse forever); it stops there."""
+        cur = label
+        while True:
+            if cur not in order_index:
+                # Unknown target (e.g. a forward jump out of the known map) —
+                # cannot continue safely.
+                warn("walk: unknown label %r" % cur)
+                return "fell_off"
+            # Record where this label's events start (first entry only).
+            if cur not in label_out_pos:
+                label_out_pos[cur] = len(out)
+            toks = toks_for(cur)
+            i = 0
+            n = len(toks)
+            while i < n:
+                tok = toks[i]
+
+                # --- structural flags (intercepted before _dispatch_flag) ---
+                if tok[0] == "flag":
+                    mnem, args = tok[1], tok[2]
+
+                    if mnem == "smpsCall":
+                        if depth + 1 > MAX_CALL_DEPTH:
+                            raise RecursionError(
+                                "smpsCall depth > %d at %r (cycle?)"
+                                % (MAX_CALL_DEPTH, args[0]))
+                        walk(args[0], depth + 1, None)  # inline; returns at smpsReturn
+                        i += 1
+                        continue
+
+                    if mnem == "smpsReturn":
+                        return "returned"
+
+                    if mnem == "smpsStop":
+                        emit(End())
+                        return "terminated"
+
+                    if mnem == "smpsLoop":
+                        # If this is the loop flag that bounds the current unroll
+                        # body, stop here (do NOT recurse).
+                        if stop_at == (cur, i):
+                            return "stopped"
+                        # smpsLoop index, loops, loc  -> args = [index, loops, loc]
+                        count = resolve_const(args[1])
+                        target = args[2]
+                        # The in-line pass already played the body ONCE (the
+                        # tokens from `target` up to here). Replay it count-1 more
+                        # times, each bounded by THIS loop's position so it does
+                        # not re-loop.
+                        for _ in range(max(0, count - 1)):
+                            walk(target, depth, (cur, i))
+                        i += 1
+                        continue
+
+                    if mnem == "smpsJump":
+                        target = args[0]
+                        if target in label_out_pos:
+                            # Backward jump: a channel loop-back. Insert a
+                            # LoopPoint at the target's recorded position and a
+                            # terminal Jump, then stop converting this channel.
+                            _insert_loop_point(out, label_out_pos, target)
+                            out.append(Jump())
+                            return "terminated"
+                        # Forward jump (rare): continue inline at the target.
+                        cur = target
+                        break  # restart outer while with new block
+                    # Non-structural flag -> normal MEV dispatch.
+                    _dispatch_flag(kind, mnem, args, st, out, cfg)
+                    i += 1
+                    continue
+
+                # --- data byte (note / rest / sample / bare dur) ---
+                b = tok[1]
+                if b >= FIRST_COORD_FLAG:            # inline coordination flag
+                    name = _flag_name_for_byte(b)
+                    if name == "smpsNoAttack":
+                        st.tie = True
+                    else:
+                        warn("skip inline flag byte $%02X" % b)
+                    i += 1
+                    continue
+
+                if kind == "DAC":
+                    if b >= MEV_NOTE_BASE:           # $81..$DF -> sample
+                        _ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
+                        emit(Dac(b & 0x7F))
+                        i += 1 + consumed
+                    elif b == SMPS_REST:             # $80 -> rest
+                        ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
+                        _emit_with_dur_g(emit, st, ticks, None)
+                        i += 1 + consumed
+                    else:                            # $00..$7F bare duration
+                        st.cur_dur = b * cfg.divider
+                        i += 1
+                    continue
+
+                # FM / PSG route.
+                if b >= MEV_NOTE_BASE:               # $81..$DF -> note
+                    pitch = (b - MEV_NOTE_BASE) + st.transpose
+                    ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
+                    _emit_with_dur_g(emit, st, ticks, pitch)
+                    i += 1 + consumed
+                elif b == SMPS_REST:                 # $80 -> rest
+                    ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
+                    _emit_with_dur_g(emit, st, ticks, None)
+                    i += 1 + consumed
+                else:                                # $00..$7F bare duration
+                    st.cur_dur = b * cfg.divider
+                    i += 1
             else:
-                warn("skip inline flag byte $%02X" % b)
-            i += 1
+                # Ran off the end of this block's tokens: fall through to the
+                # next block in source order (or stop if this is the last).
+                nxt = order_index[cur] + 1
+                if nxt >= len(order):
+                    return "fell_off"
+                cur = order[nxt]
+                continue
+            # (broke out of inner loop via a forward smpsJump: `cur` updated)
             continue
 
-        if kind == "DAC":
-            # DAC route: $81..$DF = a SAMPLE (raw 1-based id; v0-table remap is a
-            # later task), $80 = rest, $00..$7F = a (trailing/standalone) dur.
-            if b >= MEV_NOTE_BASE:                   # $81..$DF -> sample
-                # trailing-duration peek (same model as notes), then emit Dac.
-                dur, consumed = _peek_dur(toks, i + 1, cfg, st)
-                out.append(Dac(b & 0x7F))
-                i += 1 + consumed
-            elif b == SMPS_REST:                     # $80 -> rest
-                ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
-                _emit_with_dur(out, st, None, ticks, pitch=None)
-                i += 1 + consumed
-            else:                                    # $00..$7F bare duration
-                st.cur_dur = b * cfg.divider
-                i += 1
-            continue
-
-        # FM / PSG route.
-        if b >= MEV_NOTE_BASE:                        # $81..$DF -> note
-            pitch = (b - MEV_NOTE_BASE) + st.transpose
-            ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
-            _emit_with_dur(out, st, Note, ticks, pitch=pitch)
-            i += 1 + consumed
-        elif b == SMPS_REST:                          # $80 -> rest
-            ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
-            _emit_with_dur(out, st, None, ticks, pitch=None)
-            i += 1 + consumed
-        else:                                         # $00..$7F bare duration
-            st.cur_dur = b * cfg.divider
-            i += 1
+    try:
+        walk(start_label, 0, None)
+    except _UnrollLimit as e:
+        warn(str(e))
+        raise
     return out
+
+
+def _insert_loop_point(out, label_out_pos, target):
+    """Insert a LoopPoint marker at the recorded output position of `target` and
+    fix up every recorded position at or after it. Idempotent-ish: if a LoopPoint
+    already sits there, do not add another (a channel jumps back to one place)."""
+    pos = label_out_pos[target]
+    if pos < len(out) and isinstance(out[pos], LoopPoint):
+        return
+    out.insert(pos, LoopPoint())
+    for lbl in label_out_pos:
+        if label_out_pos[lbl] >= pos:
+            label_out_pos[lbl] += 1
+
+
+def _emit_with_dur_g(emit, st, ticks, pitch):
+    """_emit_with_dur but driven through the bounded `emit` callback (so the
+    runaway cap counts every event). Mirrors _emit_with_dur's overflow logic."""
+    if ticks > MAX_DUR:
+        if pitch is None:
+            warn("rest duration %d > %d, clamped" % (ticks, MAX_DUR))
+            if st.cur_dur != MAX_DUR:
+                emit(SetDur(MAX_DUR)); st.cur_dur = MAX_DUR
+            emit(Rest())
+        else:
+            emit(NoteDur(pitch, ticks))
+        return
+    if st.cur_dur != ticks:
+        emit(SetDur(ticks)); st.cur_dur = ticks
+    emit(Rest() if pitch is None else Note(pitch))
 
 
 # SMPS byte-class boundaries (mirror of the driver: FirstCoordFlag = $E0, the
