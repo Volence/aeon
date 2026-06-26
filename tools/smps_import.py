@@ -251,6 +251,15 @@ class ConvState:
         # SMPS volume domains differ (FM TL-ish attenuation vs PSG 4-bit attn).
         self.fm_vol_raw = None
         self.psg_vol_raw = None
+        # Tie-merge tracking (Task 2.4 — smpsNoAttack same-pitch merge).
+        # _prev_note_idx : index in `out` of the most recently emitted note event
+        #                  (the Note or NoteDur), or None. Used to replace it in-
+        #                  place when a same-pitch tie arrives.
+        # _prev_pitch    : SMPS pitch index of that note.
+        # _prev_note_dur : the tick duration that note was emitted with.
+        self._prev_note_idx = None
+        self._prev_pitch = None
+        self._prev_note_dur = None
 
 
 def _flatten_tokens(lines):
@@ -410,6 +419,13 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
         # model sub-semitone detune; drop it (the note pitch is unaffected).
         # Warned once so the fidelity gap is visible without log spam.
         _warn_detune_once()
+    elif mnem == "smpsNoAttack":
+        # cfNoAttack ($E7): tie the next note to the previous (no re-attack).
+        # Same-pitch -> merge durations (Task 2.4). Different-pitch -> re-attack
+        # (accepted v1 fidelity gap, warned once below). Setting st.tie here
+        # handles the line-leading macro form; the inline byte form ($E7 inside
+        # a dc.b) is handled directly in the walk (sets st.tie = True there too).
+        st.tie = True
     else:
         # Remaining unmodeled coordination mnemonics (e.g. smpsPSGform — the PSG
         # noise/waveform select, a v1 fidelity gap). Structural flags
@@ -586,10 +602,38 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None):
                 if b >= MEV_NOTE_BASE:               # $81..$DF -> note
                     pitch = (b - MEV_NOTE_BASE) + st.transpose
                     ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
-                    _emit_with_dur_g(emit, st, ticks, pitch)
+                    if st.tie:
+                        st.tie = False
+                        if (st._prev_note_idx is not None
+                                and pitch == st._prev_pitch):
+                            # Same pitch: merge by replacing the previous note
+                            # event with a NoteDur carrying the combined duration.
+                            # Do NOT update st.cur_dur (the merged NoteDur is self-
+                            # contained; the running default must stay undisturbed
+                            # so subsequent bare-Note events keep their duration).
+                            merged = min(0xFF, st._prev_note_dur + ticks)
+                            if st._prev_note_dur + ticks > 0xFF:
+                                warn("tie-merge duration overflow, clamped to $FF")
+                            out[st._prev_note_idx] = NoteDur(pitch, merged)
+                            st._prev_note_dur = merged
+                            # _prev_note_idx stays: another tie could extend again
+                        else:
+                            # Different pitch or no previous note: re-attack
+                            # (accepted v1 fidelity gap — no same-pitch merge).
+                            _emit_with_dur_g(emit, st, ticks, pitch)
+                            st._prev_note_idx = len(out) - 1
+                            st._prev_pitch = pitch
+                            st._prev_note_dur = ticks
+                    else:
+                        _emit_with_dur_g(emit, st, ticks, pitch)
+                        st._prev_note_idx = len(out) - 1
+                        st._prev_pitch = pitch
+                        st._prev_note_dur = ticks
                     i += 1 + consumed
                 elif b == SMPS_REST:                 # $80 -> rest
                     ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
+                    st.tie = False          # a rest breaks any pending tie
+                    st._prev_note_idx = None
                     _emit_with_dur_g(emit, st, ticks, None)
                     i += 1 + consumed
                 else:                                # $00..$7F bare duration

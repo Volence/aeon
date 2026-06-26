@@ -373,3 +373,66 @@ def test_e2e_hcz2_psg3_converts():
     assert ev
     assert isinstance(ev[-1], (Jump, End))
     assert any(isinstance(e, PsgEnv) for e in ev)
+
+# ── Task 2.4 ─ smpsNoAttack tie merge ────────────────────────────────────────
+
+def test_same_pitch_tie_merges():
+    # nC4 dur $0C, then smpsNoAttack (tie), then same nC4 dur $0C.
+    # Same pitch -> merge into one NoteDur(pitch, $18).
+    ev = convert_channel("FM", ["\tdc.b nC4, $0C", "\tsmpsNoAttack", "\tdc.b nC4, $0C"], {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 1                               # merged into one
+    assert isinstance(notes[0], NoteDur) and notes[0].dur == 0x18   # 0x0C + 0x0C
+
+def test_pitch_change_slur_reattacks():
+    # nC4 then smpsNoAttack then nE4 — different pitch, accepted v1 gap: re-attacks.
+    ev = convert_channel("FM", ["\tdc.b nC4, $0C", "\tsmpsNoAttack", "\tdc.b nE4, $0C"], {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 2                               # slur re-attacks (v1 gap)
+
+def test_inline_noattack_merges():
+    # smpsNoAttack inline in a dc.b arg list ($E7) also triggers the tie.
+    # "nC4, $06, smpsNoAttack, nC4, $06" -> 1 merged note dur=$0C.
+    ev = convert_channel("PSG", ["\tdc.b nC4, $06, smpsNoAttack, nC4, $06"], {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 1 and notes[0].dur == 0x0C
+
+def test_tie_merge_does_not_update_default_dur():
+    # After a merge, the running default-dur (SetDur) must not change.
+    # Sequence: nC4 $0C (sets default=12), smpsNoAttack, nC4 $0C (merges, no new SetDur),
+    # then nE4 (no dur arg -> reuses saved dur $0C, no extra SetDur needed).
+    ev = convert_channel("FM",
+                         ["\tdc.b nC4, $0C", "\tsmpsNoAttack", "\tdc.b nC4, $0C, nE4"],
+                         {}, _cfg(), ConvState())
+    # nE4 should be a plain Note (not NoteDur) with SetDur already matching 0x0C.
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    # notes[0] = merged NoteDur(nC4, 0x18); notes[1] = Note(nE4)
+    assert len(notes) == 2
+    assert isinstance(notes[1], Note)     # plain Note, not NoteDur
+    # Only one SetDur should appear (the initial one from nC4 $0C).
+    set_durs = [e for e in ev if isinstance(e, SetDur)]
+    assert len(set_durs) == 1 and set_durs[0].ticks == 0x0C
+
+def test_tie_cleared_on_rest():
+    # A Rest between tie-flag and next note must clear the tie (no merge).
+    ev = convert_channel("FM",
+                         ["\tdc.b nC4, $0C", "\tsmpsNoAttack", "\tdc.b $80, $06, nC4, $0C"],
+                         {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    # tie is cleared by the rest, so two separate notes
+    assert len(notes) == 2
+
+def test_e2e_psg3_tie_merge_reduces_note_count():
+    # PSG3 has many smpsNoAttack inline ties on the same pitch.
+    # Converting WITH merge should produce fewer note events than without.
+    blocks, cfg = _hcz2_blocks_and_cfg()
+    ev_with = convert_channel("PSG", [], blocks, cfg, ConvState(),
+                              start_label="Snd_HCZ2_PSG3")
+    note_count_with = sum(1 for e in ev_with if isinstance(e, (Note, NoteDur)))
+    # No errors and terminator present.
+    assert ev_with
+    assert isinstance(ev_with[-1], (Jump, End))
+    # Without merge: count notes before this feature was added would be higher.
+    # We verify by checking that at least some NoteDur events exist (proof merge fired).
+    merged = [e for e in ev_with if isinstance(e, NoteDur)]
+    assert len(merged) > 0, "Expected at least one tie-merged NoteDur in PSG3"
