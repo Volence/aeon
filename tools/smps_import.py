@@ -816,8 +816,10 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                         ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
                         _emit_with_dur_g(emit, st, ticks, None)
                         i += 1 + consumed
-                    else:                            # $00..$7F bare duration
-                        _set_default_dur(st, b * cfg.divider)
+                    else:                            # $00..$7F standalone dur
+                        # Time-advancing (re-paces the one-shot sample); NOT a
+                        # zero-tick default-set. See _hold_for_dur.
+                        _hold_for_dur(emit, out, st, b * cfg.divider, is_dac=True)
                         i += 1
                     continue
 
@@ -867,8 +869,10 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                     st._prev_note_idx = None
                     _emit_with_dur_g(emit, st, ticks, None)
                     i += 1 + consumed
-                else:                                # $00..$7F bare duration
-                    _set_default_dur(st, b * cfg.divider)
+                else:                                # $00..$7F standalone dur
+                    # Time-advancing: SUSTAIN the held note (tie) for these ticks,
+                    # not a zero-tick default-set. See _hold_for_dur.
+                    _hold_for_dur(emit, out, st, b * cfg.divider, is_dac=False)
                     i += 1
             else:
                 # Ran off the end of this block's tokens: fall through to the
@@ -921,6 +925,39 @@ def _emit_with_dur_g(emit, st, ticks, pitch):
     emit(Rest() if pitch is None else Note(pitch))
 
 
+def _hold_for_dur(emit, out, st, ticks, is_dac):
+    """A duration byte read in NOTE POSITION (not a note's trailing duration) is
+    TIME-ADVANCING in the S3K driver: zGetNextNote->zStoreDuration->
+    zFinishTrackUpdate sets DurationTimeout, holding the current note/sample for
+    `ticks` ticks. The key-on path is NOT taken, so there is no re-attack (the
+    note simply sustains); SavedDuration is also updated for later bare notes.
+
+      * DAC route: the one-shot sample already triggered, so just pace `ticks`
+        more ticks with a (timed) Rest.
+      * FM/PSG with a held note: EXTEND that note by `ticks` (a tie/sustain),
+        merging into a single NoteDur so no spurious re-attack is emitted. On a
+        >$FF overflow, start a fresh re-keyed segment (rare; timing stays exact).
+      * FM/PSG with no held note (channel start / right after a rest): advance
+        time as a Rest of `ticks`.
+
+    Treating this as zero-tick (the old "set default duration") dropped all the
+    tie/standalone-dur time, shortening the DAC + PSG-noise loops so the
+    percussion drifted off-beat from the melody. (HCZ2 root cause.)"""
+    st._saved_dur = ticks
+    st.tie = False
+    if is_dac or st._prev_note_idx is None:
+        _emit_with_dur_g(emit, st, ticks, None)
+        return
+    new_total = st._prev_note_dur + ticks
+    if new_total <= 0xFF:
+        out[st._prev_note_idx] = NoteDur(st._prev_pitch, new_total)
+        st._prev_note_dur = new_total
+    else:
+        _emit_with_dur_g(emit, st, ticks, st._prev_pitch)
+        st._prev_note_idx = len(out) - 1
+        st._prev_note_dur = ticks
+
+
 # SMPS byte-class boundaries (mirror of the driver: FirstCoordFlag = $E0, the
 # note range $81..$DF, rest = $80, durations $00..$7F).
 FIRST_COORD_FLAG = 0xE0
@@ -934,22 +971,6 @@ def _flag_name_for_byte(b):
         if val == b:
             return name
     return None
-
-
-def _set_default_dur(st, ticks):
-    """Standalone bare-duration byte ($00..$7F not consumed as a trailing dur):
-    the driver's zStoreDuration writes it into SavedDuration, which subsequent
-    bare notes reuse (zGetNoteDuration). So it MUST update st._saved_dur — the
-    field _peek_dur reads — not just a display copy. (FIX 1: the old code wrote
-    only st.cur_dur, leaving _saved_dur stale at 0, so a leading "set default
-    duration" byte produced dur-0 notes.)
-
-    st.cur_dur (the running EMITTED-SetDur tracker) is deliberately NOT set here:
-    no note has been emitted yet, so no SetDur is in the stream. Leaving cur_dur
-    alone lets the NEXT note emit the SetDur that actually carries this duration
-    into the v0 stream (setting cur_dur here would suppress that SetDur and the
-    note would play at an undefined duration on the engine)."""
-    st._saved_dur = ticks
 
 
 def _peek_dur(toks, j, cfg, st):

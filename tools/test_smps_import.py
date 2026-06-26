@@ -287,10 +287,15 @@ def test_dac_samples_and_pan_dropped():
     assert not any(isinstance(e,Pan) for e in ev)
 
 def test_inline_smpsnoattack_does_not_break_walk():
+    # nMaxPSG1 $06, then smpsNoAttack + a standalone $06 (a TIE: sustain the held
+    # note +6 ticks, no re-attack), then nC4. The inline $E7 must not be a note,
+    # and the $06 after it must ADVANCE TIME by extending the held note.
     ev = convert_channel("PSG", ["\tdc.b nMaxPSG1, $06, smpsNoAttack, $06, nC4"], {}, _cfg(), ConvState())
-    # the inline $E7 must not be treated as a note; nMaxPSG1 and nC4 are notes
-    notes = [e for e in ev if isinstance(e, Note)]
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
     assert len(notes) == 2
+    # held note extended to 6+6=12 (the tie); nC4 then re-attacks at the reused dur
+    assert isinstance(notes[0], NoteDur) and notes[0].dur == 0x0C
+    assert isinstance(notes[1], Note)
 
 # ── Task 2.3 ─ structural control flow + per-channel state ───────────────────
 
@@ -898,3 +903,64 @@ def test_convert_song_real_hcz2_packs_with_psgn():
     song = convert_song(src, dac_remap=dac_remap, patch_remap=patch_remap)
     assert len(song.channels) == 9
     pack_song(song)   # MUST NOT raise
+
+# ── Standalone duration is TIME-ADVANCING (drums-off-beat root-cause fix) ─────
+# A SMPS duration byte read in NOTE POSITION (not a note's trailing dur) is
+# time-advancing in the S3K driver (zStoreDuration->zFinishTrackUpdate sets
+# DurationTimeout, holding/sustaining the current note). The converter used to
+# drop it (zero-tick "set default"), shortening the DAC + PSG-noise loops so the
+# percussion drifted off-beat. These pin the corrected semantics.
+
+def _loop_body_ticks(events):
+    """Sum the v0 tick duration of a channel's looped body (LoopPoint..Jump),
+    mirroring the engine: SetDur sets the running default (0 tick); Note/Rest
+    advance the default; NoteDur advances its explicit dur; Dac/coord = 0 tick."""
+    from song_packer import (Note, Rest, SetDur, NoteDur, LoopPoint, Jump, End)
+    cur = 0; body = 0; in_loop = False
+    for ev in events:
+        if isinstance(ev, LoopPoint): in_loop = True; continue
+        if isinstance(ev, (Jump, End)): continue
+        if isinstance(ev, SetDur): cur = ev.ticks; continue
+        if isinstance(ev, NoteDur): t = ev.dur
+        elif isinstance(ev, (Note, Rest)): t = cur
+        else: t = 0
+        if in_loop: body += t
+    return body
+
+def test_hcz2_all_channels_equal_loop_period():
+    # The decisive regression: every HCZ2 channel must loop at the SAME tick
+    # period (2688). Before the standalone-dur fix the DAC (2546) and PSG-noise
+    # (2100) channels looped short and drifted ahead of the melody.
+    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    with open(path) as f:
+        src = f.read().splitlines()
+    dac_remap = {1: 6, 2: 7, 3: 8, 4: 9, 5: 10, 6: 5}
+    patch_remap = {0x03: 0, 0x06: 1, 0x0E: 2, 0x15: 3}
+    song = convert_song(src, dac_remap=dac_remap, patch_remap=patch_remap)
+    periods = [_loop_body_ticks(c.events) for c in song.channels]
+    assert len(set(periods)) == 1, \
+        "channels drift: per-channel loop periods differ: %r" % periods
+    assert periods[0] == 2688, "expected 2688-tick loop, got %d" % periods[0]
+
+def test_standalone_dur_after_note_extends_it_fm():
+    # nC4 $0C then a standalone $18 (e.g. after smpsNoAttack): the note SUSTAINS
+    # for 0x0C + 0x18 = 0x24 ticks (no re-attack), not a dropped zero-tick byte.
+    ev = convert_channel("FM",
+        ["\tdc.b nC4, $0C, smpsNoAttack, $18"], {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 1
+    assert isinstance(notes[0], NoteDur) and notes[0].dur == 0x24
+
+def test_standalone_dur_in_dac_advances_time():
+    # DAC: dKick $0C then standalone $06, $0C -> the kick is paced, then +6, +12
+    # more ticks (the sample is one-shot; the durations advance time). Total DAC
+    # ticks must be 0x0C + 0x06 + 0x0C = 0x1E.
+    from song_packer import Dac, Rest, SetDur, NoteDur, Note
+    ev = convert_channel("DAC",
+        ["\tdc.b dKickS3, $0C, $06, $0C"], {}, _cfg(), ConvState())
+    cur = 0; total = 0
+    for e in ev:
+        if isinstance(e, SetDur): cur = e.ticks
+        elif isinstance(e, NoteDur): total += e.dur
+        elif isinstance(e, (Note, Rest)): total += cur
+    assert total == 0x1E, "DAC standalone durs dropped: total=%d" % total
