@@ -34,3 +34,37 @@ def test_resolve_const_numeric():
     assert resolve_const("$18") == 0x18
     assert resolve_const("6") == 6
     assert resolve_const("dKickS3") == 0x86
+
+# ── Task 1.1 ─────────────────────────────────────────────────────────────────
+
+from smps_import import parse_header, SongConfig
+
+HCZ2_HEADER = """
+Snd_HCZ2_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoiceUVB
+\tsmpsHeaderChan      $06, $03
+\tsmpsHeaderTempo     $01, $25
+\tsmpsHeaderDAC       Snd_HCZ2_DAC
+\tsmpsHeaderFM        Snd_HCZ2_FM1, $18, $0F
+\tsmpsHeaderFM        Snd_HCZ2_FM2, $18, $0A
+\tsmpsHeaderFM        Snd_HCZ2_FM3, $18, $13
+\tsmpsHeaderFM        Snd_HCZ2_FM4, $0C, $0F
+\tsmpsHeaderFM        Snd_HCZ2_FM5, $0C, $0C
+\tsmpsHeaderPSG       Snd_HCZ2_PSG1, $F4, $04, $00, sTone_0C
+\tsmpsHeaderPSG       Snd_HCZ2_PSG2, $F4, $04, $00, sTone_0C
+\tsmpsHeaderPSG       Snd_HCZ2_PSG3, $00, $03, $00, sTone_0C
+""".strip().splitlines()
+
+def test_parse_header():
+    cfg = parse_header(HCZ2_HEADER)
+    assert cfg.divider == 0x01
+    assert cfg.tempo_mod == 0x25
+    assert cfg.tempo_base == 256 - 0x25          # 0xDB
+    assert [c.label for c in cfg.channels] == [
+        "Snd_HCZ2_DAC","Snd_HCZ2_FM1","Snd_HCZ2_FM2","Snd_HCZ2_FM3",
+        "Snd_HCZ2_FM4","Snd_HCZ2_FM5","Snd_HCZ2_PSG1","Snd_HCZ2_PSG2","Snd_HCZ2_PSG3"]
+    fm1 = next(c for c in cfg.channels if c.label == "Snd_HCZ2_FM1")
+    assert fm1.kind == "FM" and fm1.voice == 0x0F and fm1.transpose == 0x18
+    dac = cfg.channels[0]
+    assert dac.kind == "DAC"

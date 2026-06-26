@@ -29,6 +29,46 @@ def resolve_const(tok):
             return table[tok]
     raise KeyError("unknown SMPS constant: %r" % tok)
 
+class ChannelHdr:
+    def __init__(self, kind, label, transpose=0, voice=None):
+        self.kind = kind          # "FM" | "PSG" | "DAC"
+        self.label = label
+        self.transpose = transpose
+        self.voice = voice
+
+class SongConfig:
+    def __init__(self):
+        self.divider = 1; self.tempo_mod = 0; self.channels = []
+    @property
+    def tempo_base(self):
+        return max(16, min(255, 256 - self.tempo_mod))
+
+def _signed8(v):
+    return v - 256 if v >= 128 else v
+
+def parse_header(lines):
+    """Parse SMPS2ASM header lines into a SongConfig.
+
+    smpsHeaderTempo macro signature: div, mod
+      args[0] = div  (TempoDivider — per-note duration multiplier, small value e.g. $01)
+      args[1] = mod  (tempo accumulator addend, e.g. $25 -> zCurrentTempo)
+    """
+    cfg = SongConfig()
+    for ln in lines:
+        mnem, args, _ = tokenize_line(ln)
+        if mnem == "smpsHeaderTempo":
+            cfg.divider = resolve_const(args[0])
+            cfg.tempo_mod = resolve_const(args[1])
+        elif mnem == "smpsHeaderDAC":
+            cfg.channels.append(ChannelHdr("DAC", args[0]))
+        elif mnem == "smpsHeaderFM":
+            cfg.channels.append(ChannelHdr("FM", args[0],
+                transpose=_signed8(resolve_const(args[1])), voice=resolve_const(args[2])))
+        elif mnem == "smpsHeaderPSG":
+            cfg.channels.append(ChannelHdr("PSG", args[0],
+                transpose=_signed8(resolve_const(args[1]))))
+    return cfg
+
 def tokenize_line(line):
     """Return (mnemonic_or_None, [args], label_or_None) for one SMPS2ASM source line.
     Strips ';' comments. A line like 'Foo:' yields a label; '\tmacro a, b' yields
