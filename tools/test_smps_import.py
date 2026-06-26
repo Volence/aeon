@@ -364,12 +364,21 @@ def test_change_transposition_adds():
     assert any(isinstance(e, Note) and e.pitch == 0x33 for e in ev)
 
 def test_alter_vol_folds_fm():
-    # smpsAlterVol on FM: running volume +/- delta, emits Vol.
+    # smpsAlterVol on FM: running volume +/- delta in S3K attenuation space,
+    # mapped to v0 loudness via LogVolumeLutZ inverse.
+    # Use smpsSetVol $7F (operand=0x7F -> atten=0 -> loudest, v0=127) followed
+    # by smpsAlterVol $10 (delta=+16 in atten space -> atten=16 -> v0=70).
+    # These produce two distinct Vol events (127 and 70).
     ev = convert_channel("FM",
-                         ["\tsmpsSetVol $10", "\tsmpsAlterVol $04"],
+                         ["\tsmpsSetVol $7F", "\tsmpsAlterVol $10"],
                          {}, _cfg(), ConvState())
     vols = [e for e in ev if isinstance(e, Vol)]
     assert len(vols) == 2 and vols[-1].vol != vols[0].vol
+    # First Vol: operand $7F -> atten=0 -> v0=127 (loudest)
+    assert vols[0].vol == 127
+    # Second Vol: atten=16 -> v0=_fm_atten_to_v0(16)
+    from smps_import import _fm_atten_to_v0
+    assert vols[1].vol == _fm_atten_to_v0(16)
 
 def test_call_depth_guard():
     # Self-recursive call must error rather than blow the stack.
@@ -720,15 +729,52 @@ def test_hcz2_dac_remap_covers_exactly_the_six_drums():
 # the mid-song smpsSetVol OPERAND, which cfSetVolume xor $7F's into loudness
 # (driver:3128) and stays _smps_vol_to_v0.
 
-from smps_import import _smps_header_vol_to_v0
+from smps_import import _smps_header_vol_to_v0, _fm_atten_to_v0, _LOG_VOLUME_LUT
 
-def test_header_vol_fm_inverts_attenuation():
-    # FM header vol is a 7-bit TL attenuation -> invert to loudness.
-    assert _smps_header_vol_to_v0("FM", 0x0F) == 112   # 127 - 15
-    assert _smps_header_vol_to_v0("FM", 0x0A) == 117   # 127 - 10
-    assert _smps_header_vol_to_v0("FM", 0x13) == 108   # 127 - 19
-    assert _smps_header_vol_to_v0("FM", 0x00) == 127   # 0 attn -> loudest
-    assert _smps_header_vol_to_v0("FM", 0x7F) == 0     # max attn -> silent
+# ── LogVolumeLutZ inverse sanity ─────────────────────────────────────────────
+
+def test_log_volume_lut_parsed():
+    # The table is parsed from engine/sound_tables_z80.asm; verify invariants.
+    assert len(_LOG_VOLUME_LUT) >= 128, "LUT must have at least 128 entries"
+    # First 128 entries must be non-increasing (monotone decreasing for loudness index).
+    for i in range(127):
+        assert _LOG_VOLUME_LUT[i] >= _LOG_VOLUME_LUT[i + 1], \
+            "LUT not monotone at index %d: LUT[%d]=%d > LUT[%d]=%d" % (
+                i, i, _LOG_VOLUME_LUT[i], i+1, _LOG_VOLUME_LUT[i+1])
+    # Boundary invariants: LUT[0] = 0x7F (max TL delta = near-silent at v0=0);
+    # last nonzero should be near index 124.
+    assert _LOG_VOLUME_LUT[0] == 0x7F
+
+def test_fm_atten_to_v0_loudest():
+    # atten=0 (no carrier-TL delta) -> loudest v0 index = 127
+    assert _fm_atten_to_v0(0) == 127
+
+def test_fm_atten_to_v0_silent():
+    # atten=0x7F -> v0 near 0 (max-atten; LUT[0]=LUT[1]=0x7F, tie -> larger V=1)
+    assert _fm_atten_to_v0(0x7F) in (0, 1)   # both produce max-atten TL delta
+
+def test_fm_atten_to_v0_known_value():
+    # atten=15 (0x0F) -> compute from LUT: find V minimising |LUT[V]-15|.
+    # The exact value is determined by the parsed table (not hardcoded).
+    v = _fm_atten_to_v0(15)
+    assert abs(_LOG_VOLUME_LUT[v] - 15) <= 1, \
+        "_fm_atten_to_v0(15)=%d -> LUT[%d]=%d not near 15" % (v, v, _LOG_VOLUME_LUT[v])
+    # Sanity: must be in the usable loudness range
+    assert 60 <= v <= 85, "_fm_atten_to_v0(15) out of expected range: %d" % v
+
+def test_header_vol_fm_uses_lut_inverse():
+    # FM header vol is a 7-bit TL attenuation; mapped to v0 via LogVolumeLutZ inverse.
+    # Values are computed from the actual parsed table, NOT linear 127-x.
+    assert _smps_header_vol_to_v0("FM", 0x00) == 127   # 0 attn -> loudest v0 index
+    assert _smps_header_vol_to_v0("FM", 0x0F) == _fm_atten_to_v0(0x0F)   # FM1 HCZ2
+    assert _smps_header_vol_to_v0("FM", 0x0A) == _fm_atten_to_v0(0x0A)   # FM2 HCZ2
+    assert _smps_header_vol_to_v0("FM", 0x13) == _fm_atten_to_v0(0x13)   # FM3 HCZ2
+    assert _smps_header_vol_to_v0("FM", 0x0C) == _fm_atten_to_v0(0x0C)   # FM5 HCZ2
+    # All HCZ2 FM header vols fall in the ~62-88 range (moderate attenuation -> loud)
+    for atten in (0x0F, 0x0A, 0x13, 0x0C):
+        v = _smps_header_vol_to_v0("FM", atten)
+        assert 55 <= v <= 95, \
+            "_smps_header_vol_to_v0(FM, 0x%02X)=%d not in expected range 55-95" % (atten, v)
 
 def test_header_vol_psg_unchanged_from_smps_vol():
     # PSG header vol is the 4-bit SN76489 attenuation; it was ALREADY inverted by
@@ -738,15 +784,20 @@ def test_header_vol_psg_unchanged_from_smps_vol():
     assert _smps_header_vol_to_v0("PSG", 0x04) == _smps_vol_to_v0("PSG", 0x04)
     assert _smps_header_vol_to_v0("PSG", 0x03) == _smps_vol_to_v0("PSG", 0x03)
 
-def test_smps_vol_to_v0_fm_path_unchanged():
-    # The mid-song smpsSetVol path (loudness operand) must NOT change.
+def test_smps_vol_to_v0_fm_path_uses_lut_inverse():
+    # Mid-song smpsSetVol FM path: cfSetVolume xors the operand with $7F before
+    # storing as TL attenuation, so effective atten = operand ^ 0x7F.
+    # _smps_vol_to_v0("FM", operand) must equal _fm_atten_to_v0(operand ^ 0x7F).
     from smps_import import _smps_vol_to_v0
-    assert _smps_vol_to_v0("FM", 0x0F) == 0x0F
-    assert _smps_vol_to_v0("FM", 0x40) == 0x40
+    assert _smps_vol_to_v0("FM", 0x0F) == _fm_atten_to_v0(0x0F ^ 0x7F)
+    assert _smps_vol_to_v0("FM", 0x40) == _fm_atten_to_v0(0x40 ^ 0x7F)
+    # operand=0 -> atten=0x7F (max-atten/silent); operand=0x7F -> atten=0 (loudest)
+    assert _smps_vol_to_v0("FM", 0x7F) == 127   # max-loud operand -> loudest
 
-def test_convert_song_fm_header_vol_is_loud():
-    # END-TO-END: real HCZ2 FM channels must get LOUD header Vols (~108-117),
-    # not the near-silent 10-19 the old (loudness-misread) path produced.
+def test_convert_song_fm_header_vol_in_correct_range():
+    # END-TO-END: real HCZ2 FM channels must get header Vols in the ~62-88 range
+    # (LogVolumeLutZ inverse of S3K TL attenuations 0x0A..0x13), which places FM
+    # volume correctly in the log domain so drums are not buried.
     from song_packer import Vol, Note, NoteDur
     path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
     with open(path) as f:
@@ -755,16 +806,29 @@ def test_convert_song_fm_header_vol_is_loud():
     patch_remap = {0x03: 0, 0x06: 1, 0x0E: 2, 0x15: 3}
     song = convert_song(src, dac_remap=dac_remap, patch_remap=patch_remap)
     fm_routes = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5}
+    # Expected header vols from HCZ2 header attenuation values, via LUT inverse:
+    #   FM1 atten=$0F -> v0=_fm_atten_to_v0(0x0F); FM2 $0A; FM3 $13; FM4 $0F; FM5 $0C
+    expected_vols = {
+        CHROUTE_FM1: _fm_atten_to_v0(0x0F),   # $0F = 15
+        CHROUTE_FM2: _fm_atten_to_v0(0x0A),   # $0A = 10
+        CHROUTE_FM3: _fm_atten_to_v0(0x13),   # $13 = 19
+        CHROUTE_FM4: _fm_atten_to_v0(0x0F),   # $0F = 15
+        CHROUTE_FM5: _fm_atten_to_v0(0x0C),   # $0C = 12
+    }
     for ch in song.channels:
         if ch.route not in fm_routes:
             continue
-        # The Vol that precedes the first keyed event is the header-prepended Vol.
         fti = next((i for i, e in enumerate(ch.events)
                     if isinstance(e, (Note, NoteDur))), len(ch.events))
         head_vols = [e.vol for e in ch.events[:fti] if isinstance(e, Vol)]
         assert head_vols, "FM route %d has no header Vol" % ch.route
-        assert 108 <= head_vols[0] <= 117, \
-            "FM route %d header Vol %d not loud (expected 108-117)" % (ch.route, head_vols[0])
+        exp = expected_vols[ch.route]
+        assert head_vols[0] == exp, \
+            "FM route %d header Vol %d != expected %d (LUT inverse of S3K atten)" % (
+                ch.route, head_vols[0], exp)
+        # All expected values are in the 55-95 range (moderate TL attenuation -> loud)
+        assert 55 <= head_vols[0] <= 95, \
+            "FM route %d header Vol %d outside expected 55-95 range" % (ch.route, head_vols[0])
 
 # ── BUG 2 ─ the PSG noise channel routes to CHROUTE_PSGN as noise hits ────────
 # HCZ2's PSG3 is the noise/hi-hat channel: smpsPSGform $E7 (white-noise control)

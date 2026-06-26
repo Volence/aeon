@@ -347,20 +347,132 @@ def _flatten_tokens(lines):
     return toks
 
 
+# ---------------------------------------------------------------------------
+# LogVolumeLutZ inverse — FM attenuation -> v0 loudness index.
+#
+# The engine's Fm_SetVolume computes:
+#   carrier_TL = patch_base_TL + LogVolumeLutZ[v0_vol]
+# where v0_vol (0..127) is a LOUDNESS index (0=silent, 127=loudest).
+# LogVolumeLutZ[v0_vol] is the TL DELTA (0=max-loud, 0x7F=silent).
+#
+# S3K stores FM volume as carrier-TL attenuation: `atten = patch_TL + Volume`,
+# where Volume is a 7-bit attenuation (0=loud, 0x7F=silent). To map a known
+# S3K attenuation value to the v0 loudness index V, find V that minimises
+# abs(LogVolumeLutZ[V] - atten); on ties pick the LARGER V (louder).
+#
+# The table is PARSED from engine/sound_tables_z80.asm at module load so the
+# converter always tracks the engine's table (never a hardcoded copy).
+
+import re as _re_lut  # noqa: E402 (top-level import for module-init parse)
+
+def _parse_log_volume_lut() -> list:
+    """Parse LogVolumeLutZ from engine/sound_tables_z80.asm.
+
+    Reads all db rows between the LogVolumeLutZ: and LogVolumeLutZ_End: labels,
+    parses NNh / $NN hex tokens into ints, and returns a flat list.  Raises
+    RuntimeError if the label or a parseable row is not found."""
+    asm_path = os.path.join(_HERE, "..", "engine", "sound_tables_z80.asm")
+    asm_path = os.path.normpath(asm_path)
+    try:
+        with open(asm_path) as _f:
+            _lines = _f.read().splitlines()
+    except OSError as _e:
+        raise RuntimeError(
+            "_parse_log_volume_lut: cannot open %s: %s" % (asm_path, _e))
+
+    in_lut = False
+    lut = []
+    for _line in _lines:
+        stripped = _line.strip()
+        if stripped == "LogVolumeLutZ:":
+            in_lut = True
+            continue
+        if stripped == "LogVolumeLutZ_End:":
+            break
+        if not in_lut:
+            continue
+        # Match a db row: "db NNh, NNh, ..." or "db $NN, $NN, ..."
+        m = _re_lut.match(r"\s*db\s+(.*)", _line, _re_lut.IGNORECASE)
+        if not m:
+            continue
+        for tok in m.group(1).split(","):
+            tok = tok.split(";", 1)[0].strip()
+            if not tok:
+                continue
+            # NNh suffix form
+            mh = _re_lut.fullmatch(r"([0-9A-Fa-f]+)[hH]", tok)
+            if mh:
+                lut.append(int(mh.group(1), 16))
+                continue
+            # $NN prefix form
+            if tok.startswith("$"):
+                lut.append(int(tok[1:], 16))
+                continue
+            # decimal
+            if _re_lut.fullmatch(r"\d+", tok):
+                lut.append(int(tok))
+    if not lut:
+        raise RuntimeError(
+            "_parse_log_volume_lut: LogVolumeLutZ not found or empty in %s"
+            % asm_path)
+    return lut
+
+
+# Module-level parsed table (list of int, index = v0_vol 0..len-1).
+_LOG_VOLUME_LUT: list = _parse_log_volume_lut()
+
+# Inverse map: S3K carrier-TL attenuation (0..0x7F) -> best v0 loudness index.
+# _fm_atten_to_v0(atten) returns V in 0..len(_LOG_VOLUME_LUT)-1 that minimises
+# abs(LUT[V] - atten); ties resolved by picking the LARGER V (louder = less atten).
+def _build_atten_inverse(lut: list) -> list:
+    """Build a 128-entry lookup: _ATTEN_TO_V0[atten] = best v0 loudness index.
+
+    Only searches indices 0..127 of the LUT — the valid v0_vol range.  The
+    LUT may be longer (256 entries; indices 128..255 are all 0 in the engine
+    table) but v0_vol is a 0..127 LOUDNESS index, so the inverse is capped."""
+    inv = []
+    search_end = min(128, len(lut))
+    for atten in range(128):
+        best_v = 0
+        best_dist = abs(lut[0] - atten)
+        for v in range(1, search_end):
+            d = abs(lut[v] - atten)
+            if d < best_dist or (d == best_dist and v > best_v):
+                best_dist = d
+                best_v = v
+        inv.append(best_v)
+    return inv
+
+
+_ATTEN_TO_V0: list = _build_atten_inverse(_LOG_VOLUME_LUT)
+
+
+def _fm_atten_to_v0(atten: int) -> int:
+    """Map a 7-bit S3K carrier-TL attenuation to a v0 loudness index (0..127).
+
+    Finds the v0 index V minimising abs(LogVolumeLutZ[V] - atten); ties go to
+    the LARGER V (louder).  Input is clamped to 0..127."""
+    atten = max(0, min(127, atten))
+    return _ATTEN_TO_V0[atten]
+
+
 def _smps_vol_to_v0(kind, val):
     """Map a MID-SONG smpsSetVol OPERAND to a v0 0..127 volume.
-    FM  : cfSetVolume xor $7F's its operand (Z80 Sound Driver.asm:3128) before
-          storing it into zTrack.Volume, so a smpsSetVol operand is already
-          LOUDNESS in the v0 sense; the v0 Vol op takes it directly (clamped to
-          127) and the engine handles FM scaling.
+
+    FM  : cfSetVolume (Z80 Sound Driver.asm:3128) xor $7F's its operand before
+          storing it into zTrack.Volume as a carrier-TL ATTENUATION.  So the
+          effective S3K attenuation is (operand ^ $7F) = (127 - operand).  We
+          map that to the v0 loudness domain via the LogVolumeLutZ inverse:
+            v0_vol = _fm_atten_to_v0((operand & 0x7F) ^ 0x7F)
     PSG : SMPS PSG volume low nibble is 0..15 attenuation (0=loud, 15=silent);
           v0 wants 0..127 LOUDNESS, so invert + scale.
 
     NOTE: This is the MID-SONG operand path. The song HEADER vol byte is a raw
     TL ATTENUATION (no xor $7F) copied straight into zTrack.Volume — use
-    _smps_header_vol_to_v0 for that prepend, not this."""
+    _smps_header_vol_to_v0 for that path instead."""
     if kind == "FM":
-        return min(127, val)
+        # operand → S3K attenuation = operand ^ 0x7F → v0 loudness via LUT inverse
+        return _fm_atten_to_v0((val & 0x7F) ^ 0x7F)
     # PSG / DAC-noise: low nibble is the SN76489 attenuation.
     return int(round((15 - (val & 0x0F)) / 15 * 127))
 
@@ -369,19 +481,19 @@ def _smps_header_vol_to_v0(kind, vol):
     """Map the song-HEADER initial volume byte (smpsHeaderFM/PSG 3rd arg) to a
     v0 0..127 LOUDNESS.
 
-    The header vol byte is a raw TL ATTENUATION (0=loud, high=quiet), copied
-    DIRECTLY into zTrack.Volume at track init (Z80 Sound Driver.asm:1876-1878
-    ldir) — NOT xor $7F'd. v0 Vol is loudness (127=loud), so invert. (Distinct
-    from cfSetVolume's mid-song operand, which the driver xor $7F's into loudness;
-    that path stays _smps_vol_to_v0.)"""
+    FM  : the header vol byte is a raw 7-bit TL ATTENUATION copied DIRECTLY into
+          zTrack.Volume at track init (Z80 Sound Driver.asm:1876-1878 ldir) — NOT
+          xor $7F'd. Map to v0 loudness via the LogVolumeLutZ inverse:
+            v0_vol = _fm_atten_to_v0(vol & 0x7F)
+    PSG : 4-bit SN76489 attenuation -> loudness (unchanged path)."""
     if kind == "PSG":
         return int(round((15 - (vol & 0x0F)) / 15 * 127))   # 4-bit PSG attenuation -> loudness
-    return max(0, min(127, 127 - (vol & 0x7F)))              # 7-bit FM attenuation -> loudness
+    return _fm_atten_to_v0(vol & 0x7F)                       # FM: header IS the attenuation
 
 
 # Default SMPS-domain volume seeds for a channel that emits a volume delta before
-# any absolute set. FM attenuation 0 = full; PSG attenuation 0 = loudest.
-_DEFAULT_FM_VOL = 0
+# any absolute set. FM attenuation 0 = full (= 0 TL delta); PSG attenuation 0 = loudest.
+_DEFAULT_FM_VOL = 0   # S3K attenuation domain: 0 = loudest
 _DEFAULT_PSG_VOL = 0
 
 
@@ -394,10 +506,13 @@ def _alter_vol(kind, want, delta, st, out):
     if kind != want:
         return                              # flag inapplicable on this channel
     if want == "FM":
+        # fm_vol_raw is tracked in S3K attenuation space (0=loud, 127=silent).
+        # The driver's cfChangeVolume adds the signed delta in attenuation space.
         cur = st.fm_vol_raw if st.fm_vol_raw is not None else _DEFAULT_FM_VOL
         cur = max(0, min(127, cur + delta))   # FM attenuation 0..127
         st.fm_vol_raw = cur
-        out.append(Vol(_smps_vol_to_v0("FM", cur)))
+        # Emit via LUT inverse (not _smps_vol_to_v0 which expects an operand).
+        out.append(Vol(_fm_atten_to_v0(cur)))
     else:
         cur = st.psg_vol_raw if st.psg_vol_raw is not None else _DEFAULT_PSG_VOL
         cur = max(0, min(0x0F, cur + delta))  # PSG attenuation 0..15
@@ -465,9 +580,13 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
         out.append(End())
     elif mnem == "smpsSetVol":
         # Seed the running SMPS-domain volume so later deltas compose, and emit.
+        # FM: cfSetVolume xor $7F's the operand -> effective S3K attenuation =
+        #     operand ^ $7F. Store the attenuation so smpsAlterVol deltas
+        #     (which the driver adds in attenuation space) compose correctly.
+        # PSG: operand low nibble IS the SN76489 attenuation; store as-is.
         raw = resolve_const(args[0])
         if kind == "FM":
-            st.fm_vol_raw = raw
+            st.fm_vol_raw = (raw & 0x7F) ^ 0x7F   # operand -> S3K TL attenuation
         else:
             st.psg_vol_raw = raw
         out.append(Vol(_smps_vol_to_v0(kind, raw)))
