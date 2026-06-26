@@ -711,3 +711,126 @@ def test_hcz2_dac_remap_covers_exactly_the_six_drums():
     assert HCZ2_DAC_REMAP[1] == 6   # dSnareS3  -> s3k_snare
     assert HCZ2_DAC_REMAP[2] == 7   # dHighTom  -> s3k_hitom
     assert HCZ2_DAC_REMAP[5] == 10  # dFloorTomS3 -> s3k_floortom
+
+# ── BUG 1 ─ header initial volume is a TL ATTENUATION (invert), not loudness ──
+# The S3K song-header `vol` byte (smpsHeaderFM/PSG 3rd arg) is copied DIRECTLY
+# into zTrack.Volume at track init (Z80 Sound Driver.asm:1876-1878 ldir), and
+# zTrack.Volume is the carrier-TL ATTENUATION (0=loudest, 127=silent). v0 Vol is
+# LOUDNESS (127=loud), so the header vol must be INVERTED. This is distinct from
+# the mid-song smpsSetVol OPERAND, which cfSetVolume xor $7F's into loudness
+# (driver:3128) and stays _smps_vol_to_v0.
+
+from smps_import import _smps_header_vol_to_v0
+
+def test_header_vol_fm_inverts_attenuation():
+    # FM header vol is a 7-bit TL attenuation -> invert to loudness.
+    assert _smps_header_vol_to_v0("FM", 0x0F) == 112   # 127 - 15
+    assert _smps_header_vol_to_v0("FM", 0x0A) == 117   # 127 - 10
+    assert _smps_header_vol_to_v0("FM", 0x13) == 108   # 127 - 19
+    assert _smps_header_vol_to_v0("FM", 0x00) == 127   # 0 attn -> loudest
+    assert _smps_header_vol_to_v0("FM", 0x7F) == 0     # max attn -> silent
+
+def test_header_vol_psg_unchanged_from_smps_vol():
+    # PSG header vol is the 4-bit SN76489 attenuation; it was ALREADY inverted by
+    # _smps_vol_to_v0, so the header variant matches it (no double-invert).
+    from smps_import import _smps_vol_to_v0
+    assert _smps_header_vol_to_v0("PSG", 0x04) == 93   # round((15-4)/15*127)
+    assert _smps_header_vol_to_v0("PSG", 0x04) == _smps_vol_to_v0("PSG", 0x04)
+    assert _smps_header_vol_to_v0("PSG", 0x03) == _smps_vol_to_v0("PSG", 0x03)
+
+def test_smps_vol_to_v0_fm_path_unchanged():
+    # The mid-song smpsSetVol path (loudness operand) must NOT change.
+    from smps_import import _smps_vol_to_v0
+    assert _smps_vol_to_v0("FM", 0x0F) == 0x0F
+    assert _smps_vol_to_v0("FM", 0x40) == 0x40
+
+def test_convert_song_fm_header_vol_is_loud():
+    # END-TO-END: real HCZ2 FM channels must get LOUD header Vols (~108-117),
+    # not the near-silent 10-19 the old (loudness-misread) path produced.
+    from song_packer import Vol, Note, NoteDur
+    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    with open(path) as f:
+        src = f.read().splitlines()
+    dac_remap = {1: 6, 2: 7, 3: 8, 4: 9, 5: 10, 6: 5}
+    patch_remap = {0x03: 0, 0x06: 1, 0x0E: 2, 0x15: 3}
+    song = convert_song(src, dac_remap=dac_remap, patch_remap=patch_remap)
+    fm_routes = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5}
+    for ch in song.channels:
+        if ch.route not in fm_routes:
+            continue
+        # The Vol that precedes the first keyed event is the header-prepended Vol.
+        fti = next((i for i, e in enumerate(ch.events)
+                    if isinstance(e, (Note, NoteDur))), len(ch.events))
+        head_vols = [e.vol for e in ch.events[:fti] if isinstance(e, Vol)]
+        assert head_vols, "FM route %d has no header Vol" % ch.route
+        assert 108 <= head_vols[0] <= 117, \
+            "FM route %d header Vol %d not loud (expected 108-117)" % (ch.route, head_vols[0])
+
+# ── BUG 2 ─ the PSG noise channel routes to CHROUTE_PSGN as noise hits ────────
+# HCZ2's PSG3 is the noise/hi-hat channel: smpsPSGform $E7 (white-noise control)
+# then nMaxPSG1 "notes" as the rhythm. It must route to CHROUTE_PSGN and emit
+# noise hits whose engine control reproduces $E7 (pitch & 7 == 7 = white noise),
+# NOT a tone PSG playing a single fixed high pitch. PSG1/PSG2 stay tone routes.
+
+from song_packer import CHROUTE_PSGN
+
+def test_convert_song_psg_noise_channel_routed_to_psgn():
+    from song_packer import Note, NoteDur
+    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    with open(path) as f:
+        src = f.read().splitlines()
+    dac_remap = {1: 6, 2: 7, 3: 8, 4: 9, 5: 10, 6: 5}
+    patch_remap = {0x03: 0, 0x06: 1, 0x0E: 2, 0x15: 3}
+    song = convert_song(src, dac_remap=dac_remap, patch_remap=patch_remap)
+    routes = [c.route for c in song.channels]
+    # Exactly one PSGN route (the noise channel).
+    assert routes.count(CHROUTE_PSGN) == 1, "expected exactly one PSGN route"
+    # PSG1 and PSG2 remain tone routes (in order), PSG3 is gone (-> PSGN).
+    assert CHROUTE_PSG1 in routes and CHROUTE_PSG2 in routes
+    assert CHROUTE_PSG3 not in routes
+    noise = next(c for c in song.channels if c.route == CHROUTE_PSGN)
+    notes = [e for e in noise.events if isinstance(e, (Note, NoteDur))]
+    assert len(notes) > 1, "noise channel must have >1 hit"
+    # Every noise hit's engine control = $E0 | (pitch & 7); for $E7 that is white
+    # noise, i.e. pitch & 7 == 7.
+    for n in notes:
+        assert (n.pitch & 7) == 7, "noise hit pitch %d -> not white noise" % n.pitch
+
+def test_convert_song_psg_tone_channels_keep_melody():
+    from song_packer import Note, NoteDur
+    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    with open(path) as f:
+        src = f.read().splitlines()
+    dac_remap = {1: 6, 2: 7, 3: 8, 4: 9, 5: 10, 6: 5}
+    patch_remap = {0x03: 0, 0x06: 1, 0x0E: 2, 0x15: 3}
+    song = convert_song(src, dac_remap=dac_remap, patch_remap=patch_remap)
+    for route in (CHROUTE_PSG1, CHROUTE_PSG2):
+        ch = next(c for c in song.channels if c.route == route)
+        notes = [e for e in ch.events if isinstance(e, (Note, NoteDur))]
+        pitches = {n.pitch for n in notes}
+        # Tone PSGs carry the melody: many distinct pitches, NOT a single stuck note.
+        assert len(pitches) > 5, \
+            "tone PSG route %d should be melodic (got %d distinct pitches)" % (route, len(pitches))
+
+def test_psgform_noise_pitch_tracking():
+    # A noise-routed channel rewrites every note's pitch to smpsPSGform & 7.
+    # (Unit-level: drive convert_channel with the noise flag directly.)
+    from song_packer import Note, NoteDur
+    ev = convert_channel("PSG",
+        ["\tsmpsPSGform $E7", "\tdc.b nMaxPSG1, $06, nMaxPSG1, $06"],
+        {}, _cfg(), ConvState(), noise=True)
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert notes, "noise channel produced no hits"
+    for n in notes:
+        assert (n.pitch & 7) == 7   # $E7 & 7 = white noise
+
+def test_convert_song_real_hcz2_packs_with_psgn():
+    # The whole HCZ2 song still packs end-to-end with the noise channel on PSGN.
+    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    with open(path) as f:
+        src = f.read().splitlines()
+    dac_remap = {1: 6, 2: 7, 3: 8, 4: 9, 5: 10, 6: 5}
+    patch_remap = {0x03: 0, 0x06: 1, 0x0E: 2, 0x15: 3}
+    song = convert_song(src, dac_remap=dac_remap, patch_remap=patch_remap)
+    assert len(song.channels) == 9
+    pack_song(song)   # MUST NOT raise

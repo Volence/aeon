@@ -8,7 +8,7 @@ from song_packer import (
     Dac, End, LoopPoint, Jump, MEV_NOTE_BASE, MAX_DUR,
     SongDesc, ChannelDesc, SH_F_STREAM,
     CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
-    CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_DAC,
+    CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN, CHROUTE_DAC,
 )
 
 # ---------------------------------------------------------------------------
@@ -290,12 +290,24 @@ class ConvState:
                 tied / no-attack (recorded here so the walk does not misinterpret
                 the $E7 byte as a note; the no-attack articulation itself is a v1
                 fidelity gap, the note still sounds).
+    noise     : True if this is the PSG noise/hi-hat channel (carries a nonzero
+                smpsPSGform). Notes are emitted as noise hits at noise_pitch
+                (= smpsPSGform & 7) instead of melodic pitches (Bug 2).
+    noise_pitch : current noise-mode pitch (smpsPSGform & 7), default 7 (white).
     """
-    def __init__(self, transpose=0, volume=None):
+    def __init__(self, transpose=0, volume=None, noise=False):
         self.transpose = transpose
         self.volume = volume
         self.cur_dur = None
         self.tie = False
+        # Noise-channel mode (Bug 2): when True this is the PSG noise/hi-hat
+        # channel (it carries a nonzero smpsPSGform). Every note's pitch is
+        # REPLACED with noise_pitch so the engine's Psg_Noise control byte
+        # ($E0 | (pitch & 7)) reproduces the S3K smpsPSGform mode; the S3K note
+        # value (nMaxPSG1 etc.) is irrelevant to noise. noise_pitch defaults to
+        # 7 (white noise) until the first smpsPSGform sets it.
+        self.noise = noise
+        self.noise_pitch = 7
         # Running SMPS-domain volume (attenuation): seeded by smpsSetVol, mutated
         # by smpsAlterVol/smpsPSGAlterVol. None until first touched. Kept in the
         # SMPS domain so deltas compose correctly; mapped to the v0 0..127
@@ -336,15 +348,35 @@ def _flatten_tokens(lines):
 
 
 def _smps_vol_to_v0(kind, val):
-    """Map an SMPS absolute volume operand to a v0 0..127 volume.
-    FM  : SMPS FM volume IS a TL-ish attenuation but the v0 Vol op takes the
-          value directly (clamped to 127); the engine handles FM scaling.
+    """Map a MID-SONG smpsSetVol OPERAND to a v0 0..127 volume.
+    FM  : cfSetVolume xor $7F's its operand (Z80 Sound Driver.asm:3128) before
+          storing it into zTrack.Volume, so a smpsSetVol operand is already
+          LOUDNESS in the v0 sense; the v0 Vol op takes it directly (clamped to
+          127) and the engine handles FM scaling.
     PSG : SMPS PSG volume low nibble is 0..15 attenuation (0=loud, 15=silent);
-          v0 wants 0..127 LOUDNESS, so invert + scale."""
+          v0 wants 0..127 LOUDNESS, so invert + scale.
+
+    NOTE: This is the MID-SONG operand path. The song HEADER vol byte is a raw
+    TL ATTENUATION (no xor $7F) copied straight into zTrack.Volume — use
+    _smps_header_vol_to_v0 for that prepend, not this."""
     if kind == "FM":
         return min(127, val)
     # PSG / DAC-noise: low nibble is the SN76489 attenuation.
     return int(round((15 - (val & 0x0F)) / 15 * 127))
+
+
+def _smps_header_vol_to_v0(kind, vol):
+    """Map the song-HEADER initial volume byte (smpsHeaderFM/PSG 3rd arg) to a
+    v0 0..127 LOUDNESS.
+
+    The header vol byte is a raw TL ATTENUATION (0=loud, high=quiet), copied
+    DIRECTLY into zTrack.Volume at track init (Z80 Sound Driver.asm:1876-1878
+    ldir) — NOT xor $7F'd. v0 Vol is loudness (127=loud), so invert. (Distinct
+    from cfSetVolume's mid-song operand, which the driver xor $7F's into loudness;
+    that path stays _smps_vol_to_v0.)"""
+    if kind == "PSG":
+        return int(round((15 - (vol & 0x0F)) / 15 * 127))   # 4-bit PSG attenuation -> loudness
+    return max(0, min(127, 127 - (vol & 0x7F)))              # 7-bit FM attenuation -> loudness
 
 
 # Default SMPS-domain volume seeds for a channel that emits a volume delta before
@@ -375,6 +407,7 @@ def _alter_vol(kind, want, delta, st, out):
 
 _psg_env_warned = False
 _detune_warned = False
+_psgform_restore_warned = False
 
 
 def _warn_psg_env_once():
@@ -383,6 +416,14 @@ def _warn_psg_env_once():
         warn("PSG-envelope timbre approximated (v1 maps every sTone -> PsgEnv(0);"
              " PSG melody preserved, S3K envelope shape not imported)")
         _psg_env_warned = True
+
+
+def _warn_psgform_restore_once():
+    global _psgform_restore_warned
+    if not _psgform_restore_warned:
+        warn("smpsPSGform 0 (restore-tone) on a noise channel dropped in v1"
+             " (cannot switch noise back to tone mid-channel)")
+        _psgform_restore_warned = True
 
 
 def _warn_detune_once():
@@ -454,6 +495,23 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
         # handles the line-leading macro form; the inline byte form ($E7 inside
         # a dc.b) is handled directly in the walk (sets st.tie = True there too).
         st.tie = True
+    elif mnem == "smpsPSGform":
+        # cfSetPSGNoise: a NONZERO operand selects the SN76489 noise mode/rate
+        # (the channel becomes a noise channel); 0 restores a TONE channel.
+        # On the noise channel (Bug 2), track the noise-mode pitch = operand & 7
+        # so the engine's Psg_Noise control byte ($E0 | (pitch & 7)) reproduces
+        # the S3K mode. On a TONE channel smpsPSGform is a v1 fidelity gap
+        # (warn-skipped) — noise detection happens in convert_song's pre-scan.
+        form = resolve_const(args[0]) if args else 0
+        if st.noise:
+            if form == 0:
+                # Restore-tone mid-channel: v1 cannot switch a noise channel back
+                # to tone. HCZ2 never does this; warn-skip the sub-case.
+                _warn_psgform_restore_once()
+            else:
+                st.noise_pitch = form & 7
+        else:
+            warn("skip flag %s" % mnem)
     else:
         # Remaining unmodeled coordination mnemonics (e.g. smpsPSGform — the PSG
         # noise/waveform select, a v1 fidelity gap). Structural flags
@@ -470,10 +528,14 @@ class _UnrollLimit(Exception):
     """Raised when a channel exceeds MAX_CHANNEL_EVENTS (runaway unroll)."""
 
 
-def convert_channel(kind, lines, blocks, cfg, st, start_label=None):
+def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False):
     """Convert one channel's SMPS data into a list of music-format-v0 events.
 
     `kind` is "FM" | "PSG" | "DAC"; `st` is a ConvState; `cfg` supplies .divider.
+    `noise` True marks this PSG channel as the noise/hi-hat channel (Bug 2): its
+    notes are emitted as noise hits at st.noise_pitch (= smpsPSGform & 7) instead
+    of melodic pitches. Convenience flag mirrored onto st.noise so the walk can
+    branch on it.
     `blocks` is the label->lines map from split_blocks (channel headers AND
     internal sub-labels). A channel's data spans MULTIPLE blocks: when a block's
     tokens run out, execution FALLS THROUGH to the next block in source order
@@ -488,6 +550,8 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None):
 
     Returns a flat event list, terminated by Jump (channel loop-back) or End
     (smpsStop) when one is reached."""
+    if noise:
+        st.noise = True
     out = []
 
     if start_label is None and lines:
@@ -640,7 +704,15 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None):
 
                 # FM / PSG route.
                 if b >= MEV_NOTE_BASE:               # $81..$DF -> note
-                    pitch = (b - MEV_NOTE_BASE) + st.transpose
+                    if st.noise:
+                        # Noise channel (Bug 2): the S3K note value (nMaxPSG1 etc.)
+                        # is irrelevant to the engine's noise pitch — replace it
+                        # with the noise-mode pitch so Psg_Noise's control byte
+                        # ($E0 | (pitch & 7)) reproduces the smpsPSGform mode.
+                        # Transpose does not apply to noise.
+                        pitch = st.noise_pitch
+                    else:
+                        pitch = (b - MEV_NOTE_BASE) + st.transpose
                     ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
                     if st.tie:
                         st.tie = False
@@ -821,13 +893,21 @@ _PSG_ROUTE_ORDER = (CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3)
 _SONG_TEMPO = 0x80
 
 
-def _assign_routes(channels):
+def _assign_routes(channels, noise_labels=frozenset()):
     """Assign a v0 route to each ChannelHdr by kind, in source order. Returns a
     list of (ChannelHdr, route) pairs. Raises if a kind has more channels than
-    the format has routes for it."""
+    the format has routes for it.
+
+    `noise_labels` (Bug 2): the labels of PSG channels detected as NOISE channels
+    (a nonzero smpsPSGform in their reachable data). A noise PSG channel is routed
+    to CHROUTE_PSGN; the remaining PSG channels keep CHROUTE_PSG1/2/3 in source
+    order. (HCZ2: PSG1->PSG1, PSG2->PSG2, PSG3->PSGN.) The route is also tagged on
+    the ChannelHdr (ch._is_noise) so convert_song can flip the converter into
+    noise mode."""
     fm_i = psg_i = 0
     out = []
     for ch in channels:
+        ch._is_noise = False
         if ch.kind == "DAC":
             out.append((ch, CHROUTE_DAC))
         elif ch.kind == "FM":
@@ -836,10 +916,14 @@ def _assign_routes(channels):
                                  "(max %d)" % len(_FM_ROUTE_ORDER))
             out.append((ch, _FM_ROUTE_ORDER[fm_i])); fm_i += 1
         elif ch.kind == "PSG":
-            if psg_i >= len(_PSG_ROUTE_ORDER):
-                raise ValueError("too many PSG channels for the v0 route set "
-                                 "(max %d)" % len(_PSG_ROUTE_ORDER))
-            out.append((ch, _PSG_ROUTE_ORDER[psg_i])); psg_i += 1
+            if ch.label in noise_labels:
+                ch._is_noise = True
+                out.append((ch, CHROUTE_PSGN))
+            else:
+                if psg_i >= len(_PSG_ROUTE_ORDER):
+                    raise ValueError("too many PSG tone channels for the v0 route "
+                                     "set (max %d)" % len(_PSG_ROUTE_ORDER))
+                out.append((ch, _PSG_ROUTE_ORDER[psg_i])); psg_i += 1
         else:
             raise ValueError("unknown channel kind %r" % ch.kind)
     return out
@@ -879,9 +963,10 @@ def _make_packable(ch, route, events):
     ensure it terminates. Returns the finalized event list.
 
       * PREPEND a Vol(v0 volume from the header) when no Vol precedes the first
-        time-advancing event. The header volume (ch.volume) maps via
-        _smps_vol_to_v0; default to 0 (full FM / loudest PSG) if the header
-        omitted it.
+        time-advancing event. The header volume (ch.volume) is a raw TL
+        ATTENUATION (0=loud) and maps via _smps_header_vol_to_v0 (invert ->
+        loudness) — NOT _smps_vol_to_v0 (the mid-song operand path); default to 0
+        (silent header -> loudest after invert) if the header omitted it.
       * FM only: PREPEND a Patch(0) when no Patch precedes the first
         time-advancing event (e.g. HCZ2's FM3 rests $07 ticks BEFORE its first
         smpsSetvoice, so the first keyed event has no patch yet). 0 is the
@@ -906,11 +991,58 @@ def _make_packable(ch, route, events):
             kind = "FM" if route in (CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3,
                                      CHROUTE_FM4, CHROUTE_FM5) else "PSG"
             raw = ch.volume if ch.volume is not None else 0
-            out.insert(0, Vol(_smps_vol_to_v0(kind, raw)))
+            out.insert(0, Vol(_smps_header_vol_to_v0(kind, raw)))
 
     if not out or not isinstance(out[-1], (Jump, End)):
         out.append(End())
     return out
+
+
+def _channel_reaches_noise_form(start_label, blocks):
+    """Pre-scan (Bug 2): does the channel starting at `start_label` reach a
+    smpsPSGform with a NONZERO operand in its data? Such a channel is a PSG NOISE
+    channel (the smpsPSGform selects the SN76489 noise mode/rate) and must route
+    to CHROUTE_PSGN.
+
+    Follows the same reachability the converter walk uses — fall-through to the
+    next block in source order, plus smpsCall / smpsLoop / smpsJump targets —
+    bounded by a visited set so loops/cycles terminate. Returns True on the first
+    nonzero smpsPSGform found."""
+    order = list(blocks.keys())
+    order_index = {lbl: idx for idx, lbl in enumerate(order)}
+    visited = set()
+    stack = [start_label]
+    while stack:
+        cur = stack.pop()
+        if cur in visited or cur not in order_index:
+            continue
+        visited.add(cur)
+        toks = _flatten_tokens(blocks.get(cur, []))
+        terminated = False
+        for tok in toks:
+            if tok[0] != "flag":
+                continue
+            mnem, args = tok[1], tok[2]
+            if mnem == "smpsPSGform":
+                form = resolve_const(args[0]) if args else 0
+                if form != 0:
+                    return True
+            elif mnem in ("smpsCall", "smpsJump"):
+                if args:
+                    stack.append(args[0])
+                if mnem == "smpsJump":
+                    terminated = True       # jump ends this block's fall-through
+            elif mnem == "smpsLoop":
+                if len(args) >= 3:
+                    stack.append(args[2])   # loop target
+            elif mnem in ("smpsStop", "smpsReturn"):
+                terminated = True
+        if not terminated:
+            # Fall through to the next block in source order.
+            nxt = order_index[cur] + 1
+            if nxt < len(order):
+                stack.append(order[nxt])
+    return False
 
 
 def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None):
@@ -932,11 +1064,17 @@ def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None):
     cfg = parse_header(src_lines)
     blocks = split_blocks(src_lines)
 
+    # Bug 2: pre-scan each PSG channel for a nonzero smpsPSGform -> the NOISE
+    # channel. It routes to CHROUTE_PSGN; the other PSG channels stay tone routes.
+    noise_labels = frozenset(
+        ch.label for ch in cfg.channels
+        if ch.kind == "PSG" and _channel_reaches_noise_form(ch.label, blocks))
+
     channels = []
-    for ch, route in _assign_routes(cfg.channels):
-        st = ConvState(transpose=ch.transpose)
+    for ch, route in _assign_routes(cfg.channels, noise_labels):
+        st = ConvState(transpose=ch.transpose, noise=ch._is_noise)
         ev = convert_channel(ch.kind, blocks.get(ch.label, []), blocks, cfg, st,
-                             start_label=ch.label)
+                             start_label=ch.label, noise=ch._is_noise)
         _apply_remaps(ev, dac_remap, patch_remap)
         ev = _make_packable(ch, route, ev)
         channels.append(ChannelDesc(route, ev))
