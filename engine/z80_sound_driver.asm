@@ -1215,6 +1215,7 @@ Snd_LoadSong:
         ld      (ix+sc_psgenv), 0
         ld      (ix+sc_psgenv_cur), 0
         ld      (ix+sc_psgenv_out), 0
+        ld      (ix+sc_noise_mode), 0    ; noise mode unset until MEV_PSGNOISE
         ; --- Phase 3 per-channel state ---
         ; tempo accumulator: base from the header (SH_TEMPO_BASE), accum seeded =
         ; base so the FIRST frame's `sub 16` starts counting toward an event-tick.

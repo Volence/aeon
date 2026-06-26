@@ -363,6 +363,9 @@ MEV_PSGENV        = $EB   ; + env_id : set the channel's PSG volume-envelope id 
 MEV_MODSET        = $EC   ; + wait speed change step : latch the pitch-modulation params (all 0 = mod off)
 MEV_SPINREV       = $F0   ; (no operand) : add the global spindash rev into sc_transpose, cap $10, inc
 MEV_SPINREV_RESET = $F1   ; (no operand) : zero the global spindash rev
+MEV_PSGNOISE      = $F2   ; + ctrl : set the SN76489 noise control byte (mode+rate) +
+                          ; silence ch2 tone volume; zero-tick. Owns the noise mode, so
+                          ; the noise note then carries PITCH for the rate-3 tone-2 clock.
 
         ; --- MEV_PAN / MEV_OPBIAS range + collision asserts (Task 6) ---
         ; Both must be command opcodes (> MEV_NOTE_MAX), inside the $E0-$FF
@@ -813,10 +816,15 @@ sc_fill_count   ds.b 1   ; +38 live per-frame note-fill countdown (0 = expired o
 sc_psgenv       ds.b 1   ; +39 PSG vol-env id (1-based; 0 = none)
 sc_psgenv_cur   ds.b 1   ; +40 PSG vol-env cursor (frame index into the body)
 sc_psgenv_out   ds.b 1   ; +41 last computed atten delta (folded by Psg_SetVolume)
-SeqChannel endstruct      ; = 42 bytes
+sc_noise_mode   ds.b 1   ; +42 SN76489 noise control byte ($E0|mode|rate) latched by
+                         ; MEV_PSGNOISE — music-noise channel only (per-note rate-3 gate
+                         ; + SFX-steal re-arm). SfxChannel's +42 is sc_mod_ctrl: a
+                         ; different struct, never cross-read (music-noise path reads
+                         ; this; the SFX pitch-mod path reads sc_mod_ctrl).
+SeqChannel endstruct      ; = 43 bytes
 
-        if SeqChannel_len <> 42
-          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 42"
+        if SeqChannel_len <> 43
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 43"
         endif
         ; the largest field offset must stay within the signed-8-bit (ix+d) range.
         if SeqChannel_sc_last_pan > 127
@@ -863,6 +871,7 @@ sc_fill_count   = SeqChannel_sc_fill_count
 sc_psgenv       = SeqChannel_sc_psgenv
 sc_psgenv_cur   = SeqChannel_sc_psgenv_cur
 sc_psgenv_out   = SeqChannel_sc_psgenv_out
+sc_noise_mode   = SeqChannel_sc_noise_mode
 ; SFX-only Expressive Fidelity fields (SfxChannel-only; renderers gate on
 ; ix>=SND_SFX_BASE — music SeqChannel does NOT carry these).
 sc_mod_ctrl     = SfxChannel_sc_mod_ctrl
