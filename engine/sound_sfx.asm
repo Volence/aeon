@@ -919,20 +919,25 @@ Sfx_Restore:
         cp      SFXEL_PSG
         jr      z, .psg
         ; --- NOISE: re-key the music noise channel iff it was keyed when stolen ---
-        ; PSG3 tone re-latch is intentionally omitted: our SFX transcoder drops
-        ; periodic-noise mode (smpsPSGform), so a noise SFX never writes PSG3's $C0
-        ; tone register — PSG3's tone latch is never disturbed and needs no restore.
-        ; If 5b adds periodic-noise SFX, re-add a restore that re-latches only PSG3's
-        ; tone DIVISOR (not volume, which belongs to music) and only when PSG3
-        ; SCF_KEYED is set.
         ; iy already = the owning (noise) music channel from the single search above.
         push    ix
         push    iy
         pop     ix                       ; ix = music noise channel
         bit     SCF_KEYED_B, (ix+sc_flags)
         jr      z, .noise_silence        ; music not keyed -> silence the stolen noise
-        ld      a, (ix+sc_note)          ; the held noise note (mode/rate)
-        call    Psg_Noise                ; re-emit noise control + volume (preserves ix)
+        ; ON-CHANGE re-arm: the SFX noise burst wrote its own $E_ control byte (which
+        ; reset the LFSR to the SFX's mode); restore THIS channel's latched noise mode
+        ; (sc_noise_mode, set by MEV_PSGNOISE) + re-silence tone-ch2 so the music hat's
+        ; color returns. Skip if this channel never set a mode (sc_noise_mode == 0).
+        ld      a, (ix+sc_noise_mode)
+        or      a
+        jr      z, .noise_rekey
+        ld      (SND_Z80_PSG), a         ; restore the music noise control byte
+        ld      a, SND_PSG_SILENCE_T3    ; $DF: re-silence tone-ch2 (its freq clocks noise)
+        ld      (SND_Z80_PSG), a
+.noise_rekey:
+        ld      a, (ix+sc_note)          ; the held noise note (music = pitch -> tone-2 clock)
+        call    Psg_Noise                ; re-emit tone-2 clock + noise volume (preserves ix)
         jr      .noise_done
 .noise_silence:
         ; No music noise to restore: the SFX left the noise volume latched audible.
