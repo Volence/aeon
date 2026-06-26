@@ -240,11 +240,21 @@ Psg_EmitDivisor:
         push    de                       ; save divisor across Psg_ChBase
         call    Psg_ChBase               ; a = ch<<5 ($00/$20/$40)
         or      SND_PSG_TONE_LATCH       ; a = $80 | (ch<<5)
-        ld      c, a                     ; c = latch base (no freq nibble yet)
+        ld      c, a                     ; c = tone latch base
         pop     de                       ; e = div lo, d = div hi
+        ; fall into Psg_EmitDivisorTo (c = latch base, de = divisor)
+
+; ----------------------------------------------------------------------
+; Psg_EmitDivisorTo — write a 10-bit divisor (d=hi, e=lo) to the PSG with the latch
+; BASE in c ($80|(ch<<5) for a tone channel; $C0 for the rate-3 noise clock):
+;   latch = c | (div & $0F);   data = (div >> 4) & $3F.
+; Shared by Psg_EmitDivisor (tone), Psg_ApplyMod (pitch sweep) and Psg_EmitNoiseClock
+; so the divisor-split exists once. Clobbers af,b. Preserves c,hl,ix.
+; ----------------------------------------------------------------------
+Psg_EmitDivisorTo:
         ld      a, e
-        and     0Fh                      ; a = div & $0F (freq low 4 bits)
-        or      c                        ; a = $80 | (ch<<5) | (div & $0F)
+        and     0Fh                      ; div & $0F (freq low 4 bits)
+        or      c                        ; latch base | low nibble
         ld      (SND_Z80_PSG), a         ; latch byte
 
         ; data byte = (div >> 4) & $3F : div bits 9..4 (e>>4 | d<<4).
@@ -263,6 +273,30 @@ Psg_EmitDivisor:
         and     3Fh                      ; data byte is 6 bits
         ld      (SND_Z80_PSG), a         ; data byte (freq high)
         ret
+
+; ----------------------------------------------------------------------
+; Psg_EmitNoiseClock — write a note's PSG divisor to tone-2's frequency latch ($C0).
+; In rate-3 noise mode ($x7/$x3) the SN76489 clocks the noise from tone-2's frequency,
+; so this sets the noise pitch/color. Divisor clamped >= 1 (hardware breaks the noise
+; clock at tone-2 frequency 0). Writing $C0 does NOT reset the LFSR.
+; In: a = pitch index 0..94. Clobbers af,bc,de,hl. Preserves ix.
+; ----------------------------------------------------------------------
+Psg_EmitNoiseClock:
+        ld      l, a
+        ld      h, 0
+        add     hl, hl                   ; pitch*2 (word entries)
+        ld      de, PsgDivisorTableZ     ; banked table; label = its $8000-window ptr
+        add     hl, de
+        ld      e, (hl)
+        inc     hl
+        ld      d, (hl)                  ; de = 10-bit divisor
+        ld      a, d
+        or      e
+        jr      nz, .nonzero
+        inc     e                        ; divisor 0 -> 1 (hardware clamp)
+.nonzero:
+        ld      c, 0C0h                  ; tone-2 frequency latch = the rate-3 noise clock
+        jr      Psg_EmitDivisorTo
 
 ; ----------------------------------------------------------------------
 ; Psg_SetVolume — set the channel attenuation from a linear volume.
