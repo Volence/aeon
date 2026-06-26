@@ -626,6 +626,21 @@ Seq_Op_PsgEnv:
         ld      (ix+sc_psgenv_cur), 0    ; restart the contour from frame 0
         jp      Seq_ContinueFetch
 
+; $F2 MEV_PSGNOISE + ctrl : set the SN76489 noise control byte (mode+rate), latch it for
+; the per-note rate-3 gate + SFX-steal re-arm, and silence tone-ch2's VOLUME so ch2 makes
+; no audible tone while its FREQUENCY clocks the noise. Zero-tick. Writing the control
+; register RESETS the LFSR, so this is ON-CHANGE (the opcode), NOT per-note — each hit is
+; re-articulated by the per-note PSG volume envelope instead. Music streams only (the SFX
+; transcoder drops smpsPSGform); a non-noise channel never sees $F2.
+Seq_Op_PsgNoise:
+        ld      a, (hl)
+        inc     hl                       ; consume operand (the $E0-$EF control byte)
+        ld      (ix+sc_noise_mode), a    ; latch for the per-note rate-3 gate + steal re-arm
+        ld      (SND_Z80_PSG), a         ; write the noise control (resets LFSR once)
+        ld      a, SND_PSG_SILENCE_T3    ; $DF = tone-ch2 volume | max attenuation
+        ld      (SND_Z80_PSG), a         ; silence ch2 tone (its frequency still clocks noise)
+        jp      Seq_ContinueFetch
+
 ; $EC MEV_MODSET + wait speed change step : latch the pitch-modulation params (the
 ; engine's smpsModSet). Zero-tick setter. sc_mod_ctrl is set nonzero iff ANY of the
 ; 4 params is nonzero (all-zero = mod off — the smpsModSet 0,0,0,0 idiom AB/3C use to
@@ -1140,7 +1155,7 @@ SeqOpcodeTable:
         dw      Seq_Op_Jump              ; $EF MEV_JUMP
         dw      Seq_Op_SpinRev           ; $F0 MEV_SPINREV
         dw      Seq_BadOpcode            ; $F1 reserved (SPINREV reset is dispatch-folded)
-        dw      Seq_BadOpcode            ; $F2 reserved
+        dw      Seq_Op_PsgNoise          ; $F2 MEV_PSGNOISE
         dw      Seq_BadOpcode            ; $F3 reserved
         dw      Seq_BadOpcode            ; $F4 reserved
         dw      Seq_BadOpcode            ; $F5 reserved
