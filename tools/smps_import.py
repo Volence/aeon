@@ -6,6 +6,9 @@ sys.path.insert(0, _HERE)
 from song_packer import (
     Note, Rest, SetDur, NoteDur, Vol, Patch, Pan, ModSet, PsgEnv, NoteFill,
     Dac, End, LoopPoint, Jump, MEV_NOTE_BASE, MAX_DUR,
+    SongDesc, ChannelDesc, SH_F_STREAM,
+    CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
+    CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_DAC,
 )
 
 # ---------------------------------------------------------------------------
@@ -581,12 +584,20 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None):
 
                 if kind == "DAC":
                     if b >= MEV_NOTE_BASE:           # $81..$DF -> sample
-                        _ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
+                        ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
                         # Dac() carries the RAW S3K 1-based sample id (b & $7F,
                         # e.g. dKickS3=$86 -> $06). convert_song's dac_remap MUST
                         # map this S3K id -> the v0 DacSampleTable id (Phase 5
                         # lays out that table); the raw id is NOT a v0 table index.
                         emit(Dac(b & 0x7F))
+                        # The engine's $E2 MEV_DAC is ZERO-TICK (sound_sequencer
+                        # Seq_Op_Dac: "the DAC channel's note IS the trigger; a
+                        # following SetDur/Rest paces it"). So pace the sample with
+                        # a timed Rest carrying its duration — exactly the
+                        # `$E2 ss $80` shape song_drumtest uses. Without this the
+                        # whole DAC stream would fire in one frame and the loop
+                        # would have no time-advancing event.
+                        _emit_with_dur_g(emit, st, ticks, None)
                         i += 1 + consumed
                     elif b == SMPS_REST:             # $80 -> rest
                         ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
@@ -760,3 +771,146 @@ def tokenize_line(line):
     mnem = parts[0]
     args = [a.strip() for a in parts[1].split(",")] if len(parts) > 1 else []
     return (mnem, args, None)
+
+
+# ---------------------------------------------------------------------------
+# Task 3.1 — convert_song: a whole SMPS song -> a packable SongDesc.
+#
+# Route assignment (by kind, in source order): DAC -> CHROUTE_DAC; the FM
+# channels -> FM1..FM5; the PSG channels -> PSG1..3 (mirror of the v0 route enum
+# in song_packer). HCZ2 has exactly one DAC, five FM, three PSG, so the order
+# tables below are sufficient; a song with more channels of a kind than there are
+# v0 routes raises (the song does not fit the format).
+_FM_ROUTE_ORDER = (CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5)
+_PSG_ROUTE_ORDER = (CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3)
+
+# Song-level playback constants. tempo is the LEGACY Timer-A selector field —
+# unused by the per-frame Phase-3 engine but kept in the header; 0x80 is the
+# conventional mid value used by the streaming songs. The real per-frame pace is
+# tempo_base (= cfg.tempo_base, the 256 - tempo_mod accumulator base).
+_SONG_TEMPO = 0x80
+
+
+def _assign_routes(channels):
+    """Assign a v0 route to each ChannelHdr by kind, in source order. Returns a
+    list of (ChannelHdr, route) pairs. Raises if a kind has more channels than
+    the format has routes for it."""
+    fm_i = psg_i = 0
+    out = []
+    for ch in channels:
+        if ch.kind == "DAC":
+            out.append((ch, CHROUTE_DAC))
+        elif ch.kind == "FM":
+            if fm_i >= len(_FM_ROUTE_ORDER):
+                raise ValueError("too many FM channels for the v0 route set "
+                                 "(max %d)" % len(_FM_ROUTE_ORDER))
+            out.append((ch, _FM_ROUTE_ORDER[fm_i])); fm_i += 1
+        elif ch.kind == "PSG":
+            if psg_i >= len(_PSG_ROUTE_ORDER):
+                raise ValueError("too many PSG channels for the v0 route set "
+                                 "(max %d)" % len(_PSG_ROUTE_ORDER))
+            out.append((ch, _PSG_ROUTE_ORDER[psg_i])); psg_i += 1
+        else:
+            raise ValueError("unknown channel kind %r" % ch.kind)
+    return out
+
+
+def _first_timing_index(events):
+    """Index of the first time-advancing event (Note/Rest/NoteDur) — the point
+    the chip is first keyed and so the point the packer's setup-run check fires.
+    len(events) if the channel never keys (e.g. a pure smpsStop stub)."""
+    for i, ev in enumerate(events):
+        if isinstance(ev, (Note, Rest, NoteDur)):
+            return i
+    return len(events)
+
+
+def _apply_remaps(events, dac_remap, patch_remap):
+    """Rewrite every Dac.sample_id through dac_remap (raw S3K 1-based id -> v0
+    DacSampleTable id) and every Patch.patch through patch_remap (in-body
+    smpsSetvoice id -> v0 patch-table index), IN PLACE. A missing key raises a
+    clear error naming the unmapped id so the caller can extend the remap."""
+    for ev in events:
+        if isinstance(ev, Dac):
+            if ev.sample_id not in dac_remap:
+                raise KeyError("DAC sample id %d (raw S3K id $%02X) not in "
+                               "dac_remap" % (ev.sample_id, ev.sample_id))
+            ev.sample_id = dac_remap[ev.sample_id]
+        elif isinstance(ev, Patch):
+            if ev.patch not in patch_remap:
+                raise KeyError("FM voice id $%02X (in-body smpsSetvoice) not in "
+                               "patch_remap" % ev.patch)
+            ev.patch = patch_remap[ev.patch]
+
+
+def _make_packable(ch, route, events):
+    """Make one converted channel satisfy song_packer._validate_channel's setup
+    requirements (Vol before first note; FM also Patch before first note) and
+    ensure it terminates. Returns the finalized event list.
+
+      * PREPEND a Vol(v0 volume from the header) when no Vol precedes the first
+        time-advancing event. The header volume (ch.volume) maps via
+        _smps_vol_to_v0; default to 0 (full FM / loudest PSG) if the header
+        omitted it.
+      * FM only: PREPEND a Patch(0) when no Patch precedes the first
+        time-advancing event (e.g. HCZ2's FM3 rests $07 ticks BEFORE its first
+        smpsSetvoice, so the first keyed event has no patch yet). 0 is the
+        post-remap default voice index (patch_remap already applied upstream).
+        DAC/PSG never get a Patch ($E1 is rejected on non-FM routes).
+      * APPEND End() when the channel does not already terminate in Jump/End.
+        (HCZ2 channels all terminate in a smpsJump loop-back -> Jump, but a
+        truncated stub may not.)
+    """
+    out = list(events)
+    fti = _first_timing_index(out)
+
+    if route in (CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5):
+        # FM: ensure a Patch precedes the first keyed event.
+        if not any(isinstance(e, Patch) for e in out[:fti]):
+            out.insert(0, Patch(0))
+            fti += 1
+    if route != CHROUTE_DAC:
+        # FM + PSG: ensure a Vol precedes the first keyed event. DAC has no Vol
+        # op and is exempt from the packer's first-note check.
+        if not any(isinstance(e, Vol) for e in out[:fti]):
+            kind = "FM" if route in (CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3,
+                                     CHROUTE_FM4, CHROUTE_FM5) else "PSG"
+            raw = ch.volume if ch.volume is not None else 0
+            out.insert(0, Vol(_smps_vol_to_v0(kind, raw)))
+
+    if not out or not isinstance(out[-1], (Jump, End)):
+        out.append(End())
+    return out
+
+
+def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None):
+    """Convert a whole SMPS (S3K) song source into a packable SongDesc.
+
+    src_lines    : the song's .asm lines (header + all channel blocks).
+    dac_remap    : {raw S3K 1-based DAC id -> v0 DacSampleTable id}. Every Dac
+                   event's sample id is rewritten through this; a missing id
+                   raises.
+    patch_remap  : {in-body smpsSetvoice id -> v0 FM patch-table index}. Every
+                   Patch event is rewritten through this; a missing id raises.
+    pitchtable   : optional per-song pitch table reference, stored on the SongDesc
+                   for the loader (None = engine default).
+
+    Returns a SongDesc(tempo=0x80, tempo_base=cfg.tempo_base, flags=SH_F_STREAM,
+    channels=[...]) ready for pack_song. Each channel is route-assigned by kind,
+    converted via convert_channel, remapped, made packable (Vol/Patch prologue +
+    terminator), and validated by pack_song's _validate_channel at pack time."""
+    cfg = parse_header(src_lines)
+    blocks = split_blocks(src_lines)
+
+    channels = []
+    for ch, route in _assign_routes(cfg.channels):
+        st = ConvState(transpose=ch.transpose)
+        ev = convert_channel(ch.kind, blocks.get(ch.label, []), blocks, cfg, st,
+                             start_label=ch.label)
+        _apply_remaps(ev, dac_remap, patch_remap)
+        ev = _make_packable(ch, route, ev)
+        channels.append(ChannelDesc(route, ev))
+
+    return SongDesc(tempo=_SONG_TEMPO, channels=channels,
+                    flags=SH_F_STREAM, tempo_base=cfg.tempo_base,
+                    pitchtable=pitchtable)

@@ -455,3 +455,99 @@ def test_e2e_psg3_tie_merge_reduces_note_count():
     # We verify by checking that at least some NoteDur events exist (proof merge fired).
     merged = [e for e in ev_with if isinstance(e, NoteDur)]
     assert len(merged) > 0, "Expected at least one tie-merged NoteDur in PSG3"
+
+# ── Task 3.1 ─ convert_song -> packable SongDesc ─────────────────────────────
+
+from smps_import import convert_song
+from song_packer import (SongDesc, ChannelDesc, pack_song, CHROUTE_FM1,
+                         CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
+                         CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_DAC,
+                         SH_F_STREAM)
+
+def test_convert_song_packs():
+    src = HCZ2_HEADER + [
+        "Snd_HCZ2_DAC:", "\tdc.b dKickS3, $06", "\tsmpsStop",
+        "Snd_HCZ2_FM1:", "\tsmpsSetvoice $0F", "\tdc.b nC4, $0C", "\tsmpsStop",
+        "Snd_HCZ2_FM2:", "\tsmpsStop", "Snd_HCZ2_FM3:", "\tsmpsStop",
+        "Snd_HCZ2_FM4:", "\tsmpsStop", "Snd_HCZ2_FM5:", "\tsmpsStop",
+        "Snd_HCZ2_PSG1:", "\tsmpsStop", "Snd_HCZ2_PSG2:", "\tsmpsStop", "Snd_HCZ2_PSG3:", "\tsmpsStop",
+    ]
+    song = convert_song(src, dac_remap={6:2,1:3,2:4,3:5,4:6,5:7}, patch_remap={0x0F:0})
+    assert isinstance(song, SongDesc) and (song.flags & SH_F_STREAM)
+    routes = [c.route for c in song.channels]
+    assert CHROUTE_FM1 in routes and CHROUTE_DAC in routes
+    pack_song(song)   # MUST NOT raise
+
+def test_convert_song_route_assignment_and_tempo():
+    # DAC -> CHROUTE_DAC; FM in order -> FM1..FM5; PSG in order -> PSG1..3.
+    src = HCZ2_HEADER + [
+        "Snd_HCZ2_DAC:", "\tsmpsStop",
+        "Snd_HCZ2_FM1:", "\tsmpsSetvoice $0F", "\tdc.b nC4, $0C", "\tsmpsStop",
+        "Snd_HCZ2_FM2:", "\tsmpsStop", "Snd_HCZ2_FM3:", "\tsmpsStop",
+        "Snd_HCZ2_FM4:", "\tsmpsStop", "Snd_HCZ2_FM5:", "\tsmpsStop",
+        "Snd_HCZ2_PSG1:", "\tsmpsStop", "Snd_HCZ2_PSG2:", "\tsmpsStop", "Snd_HCZ2_PSG3:", "\tsmpsStop",
+    ]
+    song = convert_song(src, dac_remap={6:2,1:3,2:4,3:5,4:6,5:7}, patch_remap={0x0F:0})
+    routes = [c.route for c in song.channels]
+    assert routes == [CHROUTE_DAC, CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3,
+                      CHROUTE_FM4, CHROUTE_FM5, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3]
+    assert song.tempo == 0x80
+    assert song.tempo_base == 256 - 0x25          # cfg.tempo_base
+
+def test_convert_song_prepends_vol_and_patch():
+    from song_packer import Vol, Patch, Note
+    src = HCZ2_HEADER + [
+        "Snd_HCZ2_DAC:", "\tsmpsStop",
+        "Snd_HCZ2_FM1:", "\tsmpsSetvoice $0F", "\tdc.b nC4, $0C", "\tsmpsStop",
+        "Snd_HCZ2_FM2:", "\tsmpsStop", "Snd_HCZ2_FM3:", "\tsmpsStop",
+        "Snd_HCZ2_FM4:", "\tsmpsStop", "Snd_HCZ2_FM5:", "\tsmpsStop",
+        "Snd_HCZ2_PSG1:", "\tsmpsStop", "Snd_HCZ2_PSG2:", "\tsmpsStop", "Snd_HCZ2_PSG3:", "\tsmpsStop",
+    ]
+    song = convert_song(src, dac_remap={6:2,1:3,2:4,3:5,4:6,5:7}, patch_remap={0x0F:0})
+    fm1 = next(c for c in song.channels if c.route == CHROUTE_FM1)
+    # A Vol must precede the first Note; a Patch (remapped 0x0F->0) must too.
+    first_note = next(i for i, e in enumerate(fm1.events) if isinstance(e, Note))
+    assert any(isinstance(e, Vol) for e in fm1.events[:first_note])
+    patches = [e for e in fm1.events[:first_note] if isinstance(e, Patch)]
+    assert patches and patches[0].patch == 0   # remapped 0x0F -> 0
+
+def test_convert_song_unmapped_patch_raises():
+    src = HCZ2_HEADER + [
+        "Snd_HCZ2_DAC:", "\tsmpsStop",
+        "Snd_HCZ2_FM1:", "\tsmpsSetvoice $0F", "\tdc.b nC4, $0C", "\tsmpsStop",
+        "Snd_HCZ2_FM2:", "\tsmpsStop", "Snd_HCZ2_FM3:", "\tsmpsStop",
+        "Snd_HCZ2_FM4:", "\tsmpsStop", "Snd_HCZ2_FM5:", "\tsmpsStop",
+        "Snd_HCZ2_PSG1:", "\tsmpsStop", "Snd_HCZ2_PSG2:", "\tsmpsStop", "Snd_HCZ2_PSG3:", "\tsmpsStop",
+    ]
+    with pytest.raises(Exception, match=r"\$0F|patch_remap"):
+        convert_song(src, dac_remap={6:2,1:3,2:4,3:5,4:6,5:7}, patch_remap={})
+
+def test_convert_song_unmapped_dac_raises():
+    src = HCZ2_HEADER + [
+        "Snd_HCZ2_DAC:", "\tdc.b dKickS3, $06", "\tsmpsStop",
+        "Snd_HCZ2_FM1:", "\tsmpsSetvoice $0F", "\tdc.b nC4, $0C", "\tsmpsStop",
+        "Snd_HCZ2_FM2:", "\tsmpsStop", "Snd_HCZ2_FM3:", "\tsmpsStop",
+        "Snd_HCZ2_FM4:", "\tsmpsStop", "Snd_HCZ2_FM5:", "\tsmpsStop",
+        "Snd_HCZ2_PSG1:", "\tsmpsStop", "Snd_HCZ2_PSG2:", "\tsmpsStop", "Snd_HCZ2_PSG3:", "\tsmpsStop",
+    ]
+    with pytest.raises(Exception, match="6|unmapped"):
+        convert_song(src, dac_remap={}, patch_remap={0x0F:0})
+
+def test_convert_song_real_hcz2_packs():
+    # END-TO-END: read REAL HCZ2.asm, build remaps covering every drum + voice,
+    # convert, and prove the whole song packs.
+    path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    with open(path) as f:
+        src = f.read().splitlines()
+    # The 6 S3K drum ids HCZ2 uses (raw, 1-based): dSnareS3=1, dHighTom=2,
+    # dMidTomS3=3, dLowTomS3=4, dFloorTomS3=5, dKickS3=6 (DAC_IDS & 0x7F).
+    dac_remap = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
+    # Scan the source for every distinct in-body smpsSetvoice id, map each to a
+    # 0-based index.
+    voice_ids = sorted({int(m.group(1), 16) for m in
+        (_re.match(r"\s*smpsSetvoice\s+\$([0-9A-Fa-f]+)", ln) for ln in src) if m})
+    patch_remap = {vid: i for i, vid in enumerate(voice_ids)}
+    song = convert_song(src, dac_remap=dac_remap, patch_remap=patch_remap)
+    assert isinstance(song, SongDesc)
+    assert len(song.channels) == 9     # DAC + 5 FM + 3 PSG
+    pack_song(song)                    # MUST NOT raise — whole song converts + packs

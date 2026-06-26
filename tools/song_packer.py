@@ -495,10 +495,17 @@ class ChannelDesc:
 
 class SongDesc:
     def __init__(self, tempo: int, channels: list, flags: int = 0,
-                 tempo_base: int = None):
+                 tempo_base: int = None, pitchtable=None):
         self.tempo = tempo
         self.channels = channels
         self.flags = flags          # SH_FLAGS byte (SH_F_* OR'd); 0 = 1C copy/DAC
+        # Optional per-song pitch table the song carries in its own bank (a
+        # streaming song with a custom fnum table). The packer does NOT read this
+        # field — pack_song takes the resolved BE pitchtable_offset as a separate
+        # argument — so it is metadata that a caller (e.g. convert_song) attaches
+        # for the song_table/loader to wire up. None = use the engine default
+        # pitch table (the SongHeader pitchtable_ptr stays 0).
+        self.pitchtable = pitchtable
         # Phase 3: per-frame tempo accumulator base. The per-frame engine does a
         # single `sub 16` per frame, so it can yield at most one event-tick per
         # frame and REQUIRES tempo_base >= 16 (a value 1..15 packs but plays at a
