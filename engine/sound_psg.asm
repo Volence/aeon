@@ -40,15 +40,19 @@
 ; subtract can't underflow for vol<=$7F; vol>$7F clamps to atten 0 since the
 ; high bits are masked off by the final `and $0F`).
 ;
-; --- NOISE NOTE MAPPING (decision 2: pitch picks the mode/rate) ------------
-; Our event format sends `note` opcodes to the noise route (CHROUTE_PSGN). A
-; noise "note" is mapped as: control byte = $E0 | (pitch & 7), so the note's low
-; 3 bits choose the SN76489 noise mode+rate (D2 = mode 0 periodic / 1 white;
-; D1-D0 = rate 00 clk/512, 01 clk/1024, 10 clk/2048, 11 track tone-ch3 freq).
-; The control byte stays latched; note-on/off is via the noise VOLUME byte.
-; A noise note-on then sets the noise volume from sc_volume; a rest (note-off)
-; sets the noise volume to silence ($FF). Useful presets a composer can pick:
-;   $E1 periodic mid, $E5 white mid, $E7 white tracking tone-ch3 frequency.
+; --- NOISE NOTE MAPPING (CHROUTE_PSGN) -------------------------------------
+; The SN76489 noise control byte ($E0|mode|rate; D2 = 0 periodic / 1 white;
+; D1-D0 = rate 00 clk/512, 01 clk/1024, 10 clk/2048, 11 = clock from tone-ch2's
+; frequency) selects mode+rate; the LFSR resets only when this byte is WRITTEN, so
+; it is set ON-CHANGE (not per note). MUSIC and SFX encode the noise differently:
+;   MUSIC: MEV_PSGNOISE ($F2) owns the control byte (sets it + caches sc_noise_mode
+;     + silences tone-ch2's tone volume $DF). A noise NOTE then carries a real PITCH:
+;     in rate-3 mode Psg_Noise writes that note's divisor to tone-ch2's frequency
+;     latch ($C0) = the noise clock, so the hat tracks pitch (S3K-faithful). Each hit
+;     is shaped by the per-note PSG volume envelope (the LFSR free-runs).
+;   SFX: the SFX transcoder drops smpsPSGform, so a noise note's low 3 bits ARE the
+;     mode/rate -> control byte = $E0|(note&7) (legacy; fixed rate, no tone-ch2 clock).
+; Both: note-on sets the noise VOLUME from sc_volume; a rest sets it silent ($FF).
 ;
 ; --- ix PRESERVATION (project-critical contract) --------------------------
 ; Every routine here PRESERVES ix (the SeqChannel pointer the channel loop
@@ -371,18 +375,40 @@ Psg_SetVolume:
         ret
 
 ; ----------------------------------------------------------------------
-; Psg_Noise — handle a `note` on the noise route (CHROUTE_PSGN).
-; In:  ix = SeqChannel, a = pitch index. Sets the noise control byte from the
-; pitch's low 3 bits ($E0 | (pitch & 7)) — see decision 2 in the file header —
-; then sets the noise volume from sc_volume so the hit sounds. Sets SCF_KEYED.
-; Clobbers: af, bc. Preserves de, hl, ix.
+; Psg_Noise — handle a `note` on the noise route (CHROUTE_PSGN). Branches on channel
+; class because MUSIC and SFX encode the noise differently:
+;   MUSIC: the note is a real PITCH. The noise control byte was set ON-CHANGE by
+;     MEV_PSGNOISE (cached in sc_noise_mode); here, in rate-3 mode ($x7/$x3), write the
+;     note's divisor to tone-2's frequency latch ($C0) = the noise clock (S3K-faithful
+;     timbre that tracks the note), then set the noise volume. The PSG vol-env shapes
+;     each hit. Preset rates ($E4/$E5/$E6) ignore tone-2, so the $C0 write is skipped.
+;   SFX: legacy — the SFX transcoder drops smpsPSGform, so the note's low 3 bits ARE
+;     the mode/rate; write $E0|(note&7) as the control + set the noise volume.
+; In: ix = SeqChannel, a = note value. Sets SCF_KEYED. Clobbers af,bc,de,hl. Preserves ix.
 ; ----------------------------------------------------------------------
 Psg_Noise:
-        and     7                        ; pitch low 3 bits = mode<<2 | rate
-        or      SND_PSG_NOISE_CTRL       ; $E0 | (pitch & 7)
+        ld      b, a                     ; save note (pitch/mode) — Snd_ChanClass clobbers a
+        call    Snd_ChanClass            ; CARRY set => MUSIC channel (preserves bc)
+        jr      nc, .sfx
+        ; --- MUSIC noise: tone-2 clock (rate-3) + noise volume ---
+        set     SCF_KEYED_B, (ix+sc_flags)
+        call    Psg_EnvCursorReset       ; retrigger the PSG vol-env (per-hit decay); preserves bc
+        ld      a, (ix+sc_noise_mode)
+        and     3                        ; rate bits (11 = clock from tone-2)
+        cp      3
+        jr      nz, .music_vol           ; preset rate -> don't perturb tone-2's frequency
+        ld      a, b                     ; a = pitch
+        call    Psg_EmitNoiseClock       ; write the note's divisor to $C0 (clamped >=1)
+.music_vol:
+        ld      a, (ix+sc_volume)
+        jp      Psg_SetVolume            ; noise volume ($F0) + envelope fold (preserves ix; ret)
+.sfx:
+        ld      a, b                     ; legacy: note low 3 bits = mode<<2 | rate
+        and     7
+        or      SND_PSG_NOISE_CTRL       ; $E0 | (note & 7)
         ld      (SND_Z80_PSG), a         ; noise control byte (stays latched)
         set     SCF_KEYED_B, (ix+sc_flags)
-        call    Psg_EnvCursorReset       ; restart the vol-env contour on this attack (music + SFX, spec §4)
+        call    Psg_EnvCursorReset
         ld      a, (ix+sc_volume)
         jp      Psg_SetVolume            ; noise volume path (preserves ix; ret)
 
