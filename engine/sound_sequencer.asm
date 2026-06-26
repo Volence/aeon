@@ -310,14 +310,14 @@ ModUpdate:
         jp      Fm_NoteOn                ; set -> SFX: chromatic table (tail-call, preserves ix)
 
 ; ----------------------------------------------------------------------
-; PsgEnvUpdate — advance one PSG (or noise) SFX channel's volume-envelope contour
-; by one frame and re-emit the channel volume so the new attenuation delta takes
-; effect. Gated by ModUpdate: entered ONLY for an SFX PSG route with sc_psgenv != 0
-; (so the sc_psgenv* fields, which are SfxChannel-only, are always in-bounds here).
+; PsgEnvUpdate — advance one PSG (or noise) channel's volume-envelope contour by
+; one frame and re-emit the channel volume so the new attenuation delta takes
+; effect. Gated by ModUpdate: entered for a PSG route (music OR SFX) with
+; sc_psgenv != 0 (sc_psgenv* live at +39/+40/+41 on both SeqChannel + SfxChannel).
 ; Body byte semantics (S3K zDoVolEnv-exact): plain value -> store as sc_psgenv_out +
 ; advance cursor; $80 -> cursor=0 and re-read; $81 -> sustain-hold (keep sc_psgenv_out,
 ; no advance, do NOT silence); $83 -> full rest: key the PSG channel off + disable env.
-; In: ix = SfxChannel (PSG/noise route). Clobbers af,bc,de,hl. Preserves ix.
+; In: ix = SeqChannel/SfxChannel (PSG/noise route). Clobbers af,bc,de,hl. Preserves ix.
 ; ----------------------------------------------------------------------
 PsgEnvUpdate:
         ld      a, (ix+sc_psgenv)        ; 1-based env id
@@ -608,28 +608,15 @@ Seq_Op_NoteFill:
 
 ; $EB MEV_PSGENV + env_id : set the channel's PSG volume-envelope id (1-based; 0=none),
 ; reset the cursor to 0. Zero-tick state setter (mirror of Seq_Op_NoteFill). The per-frame
-; contour is rendered by PsgEnvUpdate (ModUpdate) + folded in Psg_SetVolume. The sc_psgenv*
-; fields are SfxChannel-only (Task 2 deviation) — this opcode is only ever emitted into an
-; SFX stream by the transcoder, so ix is always an SfxChannel here (no music collision).
+; contour is rendered by PsgEnvUpdate (ModUpdate) + folded in Psg_SetVolume. sc_psgenv*
+; live at +39/+40 on BOTH music and SFX SeqChannels, so this opcode applies to either with
+; no channel-class gate (a non-PSG channel never sees $EB — the transcoder only emits it on
+; PSG streams — and the write would be in-bounds + inert anyway).
 Seq_Op_PsgEnv:
         ld      a, (hl)
-        inc     hl                       ; consume operand first so a music stream stays in sync
-        ld      c, a                     ; stash env id (both a and hl are clobbered by the gate)
-        ; SFX-channel gate (defense-in-depth): sc_psgenv* are SfxChannel-only. The transcoder
-        ; only emits $EB into SFX streams, but a music SeqChannel (39 bytes) lacks these fields,
-        ; so a write here on a music channel would corrupt the next channel's RAM. Guard it,
-        ; PRESERVING hl — Seq_ContinueFetch resumes .fetch from hl (the live stream ptr), so the
-        ; gate must restore it (else the next opcode is read out of the channel struct = derail).
-        push    hl                       ; save stream ptr
-        push    ix
-        pop     hl
-        ld      a, h                     ; a = ix high byte
-        pop     hl                       ; restore stream ptr (pop does not affect flags)
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => music channel
-        jr      c, .psgenv_done          ; music: ignore the opcode (hl = stream ptr intact)
-        ld      (ix+sc_psgenv), c        ; SFX: set env id
+        inc     hl                       ; consume operand
+        ld      (ix+sc_psgenv), a        ; set env id (music + SFX)
         ld      (ix+sc_psgenv_cur), 0    ; restart the contour from frame 0
-.psgenv_done:
         jp      Seq_ContinueFetch
 
 ; $EC MEV_MODSET + wait speed change step : latch the pitch-modulation params (the
