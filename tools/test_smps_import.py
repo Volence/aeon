@@ -65,7 +65,12 @@ def test_parse_header():
         "Snd_HCZ2_DAC","Snd_HCZ2_FM1","Snd_HCZ2_FM2","Snd_HCZ2_FM3",
         "Snd_HCZ2_FM4","Snd_HCZ2_FM5","Snd_HCZ2_PSG1","Snd_HCZ2_PSG2","Snd_HCZ2_PSG3"]
     fm1 = next(c for c in cfg.channels if c.label == "Snd_HCZ2_FM1")
-    assert fm1.kind == "FM" and fm1.voice == 0x0F and fm1.transpose == 0x18
+    # FIX 2: the 3rd smpsHeaderFM arg is the channel VOLUME, not a voice
+    # (smpsHeaderFM loc,pitch,vol — _smps2asm_inc.asm:332).
+    assert fm1.kind == "FM" and fm1.volume == 0x0F and fm1.transpose == 0x18
+    psg1 = next(c for c in cfg.channels if c.label == "Snd_HCZ2_PSG1")
+    # smpsHeaderPSG loc,pitch,vol,mod,voice: volume=$04, psg_voice=sTone_0C=$0C.
+    assert psg1.kind == "PSG" and psg1.volume == 0x04 and psg1.psg_voice == 0x0C
     dac = cfg.channels[0]
     assert dac.kind == "DAC"
 
@@ -223,6 +228,20 @@ def test_transpose_folds():
 def test_duration_times_divider_overflow_uses_notedur():
     ev = convert_channel("FM", ["\tdc.b nC4, $40"], {}, _cfg(divider=2), ConvState())  # 0x40*2=0x80>0x7F
     assert any(isinstance(e, NoteDur) and e.dur == 0x80 for e in ev)
+
+def test_leading_bare_duration_sets_saved_dur():
+    # FIX 1: a standalone bare-duration byte ($0C, not consumed as a trailing
+    # dur) must set the SMPS SavedDuration so following bare notes reuse it.
+    # Before the fix, _saved_dur stayed 0 and the notes got dur 0.
+    ev = convert_channel("FM", ["\tdc.b $0C, nC4, nE4"], {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 2
+    # The first note must carry a SetDur of 0x0C (not 0), and both notes reuse it.
+    set_durs = [e for e in ev if isinstance(e, SetDur)]
+    assert len(set_durs) == 1 and set_durs[0].ticks == 0x0C
+    # nC4=$B1 -> 0x30, nE4=$B5 -> 0x34, both plain Notes at the 0x0C default.
+    assert all(isinstance(n, Note) for n in notes)
+    assert [n.pitch for n in notes] == [0x30, 0x34]
 
 # ── Task 2.2 ─ coordination-flag -> MEV mapping + DAC route ──────────────────
 

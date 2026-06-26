@@ -102,11 +102,20 @@ def resolve_const(tok: str) -> int:
     raise KeyError("unknown SMPS constant: %r" % tok)
 
 class ChannelHdr:
-    def __init__(self, kind, label, transpose=0, voice=None):
+    def __init__(self, kind, label, transpose=0, volume=None, psg_voice=None):
         self.kind = kind          # "FM" | "PSG" | "DAC"
         self.label = label
         self.transpose = transpose
-        self.voice = voice
+        # `volume` is the channel VOLUME (attenuation) — the 3rd smpsHeader* arg.
+        # VERIFIED against skdisasm/Sound/_smps2asm_inc.asm:332
+        # (smpsHeaderFM macro loc,pitch,vol): the 3rd arg is the channel volume,
+        # NOT a voice index. The FM voice comes from an in-body smpsSetvoice.
+        self.volume = volume
+        # PSG only: the header's 5th arg (smpsHeaderPSG loc,pitch,vol,mod,voice,
+        # _smps2asm_inc.asm:338) is the INITIAL PSG volume-envelope id (sTone).
+        # Captured here for completeness; v1 import does not replay header PSG
+        # envelopes (in-body smpsPSGvoice drives the melody timbre).
+        self.psg_voice = psg_voice
 
 class SongConfig:
     def __init__(self):
@@ -134,17 +143,27 @@ def parse_header(lines):
             cfg.divider = resolve_const(args[0])
             cfg.tempo_mod = resolve_const(args[1])
         elif mnem == "smpsHeaderDAC":
-            cfg.channels.append(ChannelHdr("DAC", args[0]))
+            # smpsHeaderDAC macro loc,pitch,vol — volume present but unused for DAC
+            # (the DAC route only triggers samples; it has no melodic volume op).
+            dac_vol = resolve_const(args[2]) if len(args) >= 3 else None
+            cfg.channels.append(ChannelHdr("DAC", args[0], volume=dac_vol))
         elif mnem == "smpsHeaderFM":
+            # smpsHeaderFM macro loc,pitch,vol — _smps2asm_inc.asm:332.
+            # args[2] is the channel VOLUME (attenuation), not a voice index.
             if len(args) < 3:
                 raise ValueError("smpsHeaderFM needs loc,pitch,vol: %r" % args)
             cfg.channels.append(ChannelHdr("FM", args[0],
-                transpose=_signed8(resolve_const(args[1])), voice=resolve_const(args[2])))
+                transpose=_signed8(resolve_const(args[1])),
+                volume=resolve_const(args[2])))
         elif mnem == "smpsHeaderPSG":
+            # smpsHeaderPSG macro loc,pitch,vol,mod,voice — _smps2asm_inc.asm:338.
+            # args[2] = volume; args[4] (if present) = initial PSG envelope (sTone).
             if len(args) < 3:
                 raise ValueError("smpsHeaderPSG needs loc,pitch,vol: %r" % args)
+            psg_voice = resolve_const(args[4]) if len(args) >= 5 else None
             cfg.channels.append(ChannelHdr("PSG", args[0],
-                transpose=_signed8(resolve_const(args[1]))))
+                transpose=_signed8(resolve_const(args[1])),
+                volume=resolve_const(args[2]), psg_voice=psg_voice))
     return cfg
 
 def split_blocks(lines):
@@ -281,30 +300,6 @@ def _flatten_tokens(lines):
         else:
             warn("skip non-channel mnemonic %s" % mnem)
     return toks
-
-
-def _emit_with_dur(out, st, ev_factory, ticks, pitch=None):
-    """Emit a note/rest with the given v0 tick duration, choosing SetDur+Note
-    vs NoteDur (overflow) per the format-v0 default-duration model.
-
-    ev_factory(pitch) -> Note (when pitch is not None) or Rest (pitch None).
-    """
-    if ticks > MAX_DUR:
-        # Duration overflows the 7-bit SetDur range. NoteDur carries a full
-        # 8-bit duration and does NOT change the running default.
-        if pitch is None:
-            # A rest cannot exceed $7F in v0 (no NoteDur form). Clamp + warn;
-            # real HCZ2 rests never overflow (divider is $01).
-            warn("rest duration %d > %d, clamped" % (ticks, MAX_DUR))
-            if st.cur_dur != MAX_DUR:
-                out.append(SetDur(MAX_DUR)); st.cur_dur = MAX_DUR
-            out.append(Rest())
-        else:
-            out.append(NoteDur(pitch, ticks))
-        return
-    if st.cur_dur != ticks:
-        out.append(SetDur(ticks)); st.cur_dur = ticks
-    out.append(Rest() if pitch is None else Note(pitch))
 
 
 def _smps_vol_to_v0(kind, val):
@@ -587,6 +582,10 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None):
                 if kind == "DAC":
                     if b >= MEV_NOTE_BASE:           # $81..$DF -> sample
                         _ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
+                        # Dac() carries the RAW S3K 1-based sample id (b & $7F,
+                        # e.g. dKickS3=$86 -> $06). convert_song's dac_remap MUST
+                        # map this S3K id -> the v0 DacSampleTable id (Phase 5
+                        # lays out that table); the raw id is NOT a v0 table index.
                         emit(Dac(b & 0x7F))
                         i += 1 + consumed
                     elif b == SMPS_REST:             # $80 -> rest
@@ -594,7 +593,7 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None):
                         _emit_with_dur_g(emit, st, ticks, None)
                         i += 1 + consumed
                     else:                            # $00..$7F bare duration
-                        st.cur_dur = b * cfg.divider
+                        _set_default_dur(st, b * cfg.divider)
                         i += 1
                     continue
 
@@ -637,7 +636,7 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None):
                     _emit_with_dur_g(emit, st, ticks, None)
                     i += 1 + consumed
                 else:                                # $00..$7F bare duration
-                    st.cur_dur = b * cfg.divider
+                    _set_default_dur(st, b * cfg.divider)
                     i += 1
             else:
                 # Ran off the end of this block's tokens: fall through to the
@@ -672,8 +671,10 @@ def _insert_loop_point(out, label_out_pos, target):
 
 
 def _emit_with_dur_g(emit, st, ticks, pitch):
-    """_emit_with_dur but driven through the bounded `emit` callback (so the
-    runaway cap counts every event). Mirrors _emit_with_dur's overflow logic."""
+    """Emit a note/rest with the given v0 tick duration through the bounded
+    `emit` callback (so the runaway cap counts every event), choosing SetDur+Note
+    vs NoteDur (overflow) per the format-v0 default-duration model. `pitch` None
+    emits a Rest; otherwise a Note (or NoteDur on duration overflow)."""
     if ticks > MAX_DUR:
         if pitch is None:
             warn("rest duration %d > %d, clamped" % (ticks, MAX_DUR))
@@ -703,10 +704,26 @@ def _flag_name_for_byte(b):
     return None
 
 
+def _set_default_dur(st, ticks):
+    """Standalone bare-duration byte ($00..$7F not consumed as a trailing dur):
+    the driver's zStoreDuration writes it into SavedDuration, which subsequent
+    bare notes reuse (zGetNoteDuration). So it MUST update st._saved_dur — the
+    field _peek_dur reads — not just a display copy. (FIX 1: the old code wrote
+    only st.cur_dur, leaving _saved_dur stale at 0, so a leading "set default
+    duration" byte produced dur-0 notes.)
+
+    st.cur_dur (the running EMITTED-SetDur tracker) is deliberately NOT set here:
+    no note has been emitted yet, so no SetDur is in the stream. Leaving cur_dur
+    alone lets the NEXT note emit the SetDur that actually carries this duration
+    into the v0 stream (setting cur_dur here would suppress that SetDur and the
+    note would play at an undefined duration on the engine)."""
+    st._saved_dur = ticks
+
+
 def _peek_dur(toks, j, cfg, st):
     """Trailing-duration peek (zGetNoteDuration). Look at token index j; if it is
     a ('byte', b) with b < $80, it is this note/rest's duration: consume it,
-    update the saved default (st.cur_dur is updated by _emit_with_dur, but the
+    update the saved default (st.cur_dur is updated by _emit_with_dur_g, but the
     SMPS SavedDuration is the RAW value*divider here). Returns
     (ticks, consumed) where consumed is 0 or 1.
 
