@@ -137,25 +137,21 @@ ModUpdate:
         ; cursor still advances in Sequencer_Channel, so the song never desyncs.
         bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
         ret     nz
-        ; PSG / DAC channels: the FM modulation below is skipped, but a PSG SFX
-        ; channel with an active PSG vol-env (spec §4) needs its per-frame contour
-        ; advanced. Gate (in order): FM -> the modulation path below; else PSG-route +
-        ; SFX-channel + sc_psgenv != 0 -> PsgEnvUpdate; else no-op (a couple bit-tests).
-        ; The SFX-channel test is MANDATORY: sc_psgenv lives at offset +39, which is
-        ; INSIDE SfxChannel (60 bytes) but PAST a music SeqChannel (39 bytes). Reading
-        ; (ix+sc_psgenv) on a music PSG channel would read adjacent RAM. SfxChannels
-        ; live at/above SND_SFX_BASE ($1D00), music below it -> a high-byte compare
-        ; against $1D separates them (the same gate Psg_SetVolume's duck fold uses).
+        ; PSG route: the FM modulation path below is skipped. Music + SFX PSG channels
+        ; both advance a PSG vol-env (spec §4) via the shared sc_psgenv* fields (now at
+        ; +39..+41 on BOTH structs). Only an SFX PSG channel runs the pitch-MOD path
+        ; (sc_mod_* are SfxChannel-only, +42+) — so SPLIT on channel class: music PSG
+        ; jumps straight to the env path; SFX PSG does mod first, then env.
         bit     SCF_IS_FM_B, (ix+sc_flags)
         jr      nz, .is_fm
         bit     SCF_IS_PSG_B, (ix+sc_flags)
         ret     z                        ; DAC or other non-PSG -> nothing
         call    Snd_ChanClass            ; CARRY set => MUSIC channel
-        ret     c                        ; music PSG -> no env/mod fields, nothing to do
-        ; --- PSG PITCH MODULATION (spec §5): if armed, sweep/vibrato the tone divisor.
-        ; Shares the FM triangle core (Mod_Advance) via Psg_ApplyMod; a non-modulated
-        ; PSG SFX (sc_mod_ctrl==0) pays only this one test. Runs BEFORE the vol-env so
-        ; both layers compose (mod re-latches the divisor; env re-emits the volume).
+        jr      c, .psg_env              ; music PSG -> env only (no mod fields at +42+)
+        ; --- SFX PSG PITCH MODULATION (spec §5): if armed, sweep/vibrato the tone
+        ; divisor. Shares the FM triangle core (Mod_Advance) via Psg_ApplyMod; a
+        ; non-modulated PSG SFX (sc_mod_ctrl==0) pays only this one test. Runs BEFORE
+        ; the vol-env so both compose (mod re-latches the divisor; env re-emits volume).
         ld      a, (ix+sc_mod_ctrl)
         or      a
         call    nz, Psg_ApplyMod         ; advance accum + re-latch tone divisor (no re-key)
@@ -164,10 +160,12 @@ ModUpdate:
         ; "noise tracks never set sc_mod_ctrl" still holds (the transcoder never emits
         ; MEV_MODSET on a noise track). Re-add as a BUILD-TIME transcoder reject (0 Z80
         ; bytes) or restore this gate once Z80 space is recovered. See DEFERRED_WORK D1/F5.
-        ; --- PSG VOLUME ENVELOPE (spec §4): advance the contour + re-emit the volume.
+.psg_env:
+        ; --- PSG VOLUME ENVELOPE (spec §4): advance the contour + re-emit the volume
+        ; (music + SFX; PsgEnvUpdate handles the noise route too — the HCZ2 hi-hat).
         ld      a, (ix+sc_psgenv)
         or      a
-        ret     z                        ; no PSG vol-env -> done (mod already handled)
+        ret     z                        ; no PSG vol-env -> done
         jp      PsgEnvUpdate             ; advance the contour + emit (tail-call, preserves ix)
 .is_fm:
 
