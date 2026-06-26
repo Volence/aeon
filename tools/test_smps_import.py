@@ -554,7 +554,9 @@ def test_convert_song_real_hcz2_packs():
 
 # ── Phase 4 ─ UVB voice import (S3K Universal Voice Bank -> FmPatch) ──────────
 
-from smps_import import smps_voice_to_fmpatch
+from smps_import import (smps_voice_to_fmpatch, parse_uvb_voices,
+                         build_patch_remap, emit_patch_table,
+                         HCZ2_USED_VOICE_IDS)
 from zyrinx_port import FMPATCH_LEN
 
 # Voice $03 (Synth Bass 1) from the S3K UVB, in (macro, [args]) form. The driver
@@ -609,3 +611,63 @@ def test_smps_voice_to_fmpatch_deterministic():
 def test_smps_voice_to_fmpatch_missing_tl_raises():
     with pytest.raises(Exception):
         smps_voice_to_fmpatch(_UVB_VOICE_03[:-1])   # drop smpsVcTotalLevel
+
+# ── Task 4.2 ─ parse_uvb_voices + emit_patch_table ───────────────────────────
+
+def test_build_patch_remap():
+    # HCZ2 ids $03,$06,$0E,$15 -> dense {3:0, 6:1, 14:2, 21:3}.
+    assert build_patch_remap() == {0x03: 0, 0x06: 1, 0x0E: 2, 0x15: 3}
+
+def test_parse_uvb_voices_returns_four_patches():
+    voices = parse_uvb_voices()
+    assert set(voices.keys()) == set(HCZ2_USED_VOICE_IDS)
+    for vid, p in voices.items():
+        assert len(p) == 26, "voice $%02X must be 26 bytes" % vid
+
+def test_parse_uvb_voice_03_matches_known():
+    # Voice $03 parsed from the real driver must equal the hand-built block.
+    voices = parse_uvb_voices()
+    assert voices[0x03] == smps_voice_to_fmpatch(_UVB_VOICE_03)
+
+def test_parse_uvb_voices_algo_feedback_real_instruments():
+    # Sanity: the 4 voices' algo/feedback look like real instruments.
+    # Voice $03 Synth Bass 1 (alg4,fb6=$34); $06 Synth Brass 1 (alg2,fb7=$3A);
+    # $0E Elec Piano (alg2,fb7=$3A); $15 Picked Bass (alg0,fb5=$28).
+    voices = parse_uvb_voices()
+    assert voices[0x03][0] == (4 | (6 << 3))   # $34
+    assert voices[0x06][0] == (2 | (7 << 3))   # $3A
+    assert voices[0x0E][0] == (2 | (7 << 3))   # $3A
+    assert voices[0x15][0] == (0 | (5 << 3))   # $28
+
+def test_emit_patch_table_remap():
+    asm, remap = emit_patch_table()
+    assert remap == {0x03: 0, 0x06: 1, 0x0E: 2, 0x15: 3}
+
+def test_emit_patch_table_four_rows():
+    asm, _ = emit_patch_table()
+    assert "HCZ2_Patches:" in asm
+    assert "HCZ2_Patches_End:" in asm
+    rows = [ln for ln in asm.splitlines() if ln.strip().startswith("dc.b")]
+    assert len(rows) == 4
+    # Each row must encode exactly 26 bytes.
+    for row in rows:
+        body = row.split(";", 1)[0]
+        nbytes = body.count("$")
+        assert nbytes == 26, "row has %d bytes, expected 26: %r" % (nbytes, row)
+
+def test_emit_patch_table_size_assert_present():
+    asm, _ = emit_patch_table()
+    assert "FmPatch_len" in asm and "4*FmPatch_len" in asm
+
+def test_emit_patch_table_deterministic():
+    a1, r1 = emit_patch_table()
+    a2, r2 = emit_patch_table()
+    assert a1 == a2 and r1 == r2
+
+def test_emit_patch_table_rows_in_remap_order():
+    # Row i must comment the S3K id whose remap index is i.
+    asm, remap = emit_patch_table()
+    idx_to_id = {i: vid for vid, i in remap.items()}
+    rows = [ln for ln in asm.splitlines() if ln.strip().startswith("dc.b")]
+    for i, row in enumerate(rows):
+        assert ("S3K voice $%02X" % idx_to_id[i]) in row
