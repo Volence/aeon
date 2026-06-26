@@ -914,3 +914,100 @@ def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None):
     return SongDesc(tempo=_SONG_TEMPO, channels=channels,
                     flags=SH_F_STREAM, tempo_base=cfg.tempo_base,
                     pitchtable=pitchtable)
+
+
+# ===========================================================================
+# Phase 4 — UVB voice import (S3K Universal Voice Bank -> our FmPatch)
+#
+# Task 4.1: smps_voice_to_fmpatch — thin wrapper over the VERIFIED SFX voice
+#           converter. We REUSE sfx_transcode's _SmpsVoiceBuilder (the smpsVc*
+#           accumulator) and translate_voice() unchanged; the battle-tested
+#           _s3k_op_reorder ([op1,op2,op3,op4] -> [op4,op2,op3,op1]) and the
+#           tl_is_level=False (smpsVcTotalLevel is already YM attenuation)
+#           decisions come for free. Crucially we DO NOT call _bake_channel_volume
+#           here: that bake exists only because S&K folds the SFX channel-volume
+#           into the carrier TL at key-on. For HCZ2 MUSIC the sequencer applies
+#           channel volume itself (sc_volume -> carrier TL via the MEV_VOL the
+#           converter emits), so the patch must stay BASE and let the engine layer
+#           volume on top. _SmpsVoiceBuilder.build() already produces the base
+#           patch (it never calls _bake_channel_volume), so this is correct by
+#           construction.
+#
+# Task 4.2: parse_uvb_voices / emit_patch_table — locate the UVB in the S3K Z80
+#           driver, parse its sequential smpsVc* voice blocks (voice id = 0-based
+#           index, confirmed by the per-voice "; Voice NNh" comments), convert
+#           each used voice, and emit the HCZ2_Patches table + the patch_remap.
+# ===========================================================================
+
+# Import the SFX voice-conversion core directly (cleanly importable: module-level
+# class + helper, no import-time CLI side effects). Keeping a single source means
+# the UVB voices go through the EXACT same operator reorder + translate_voice path
+# as the verified SFX voices.
+from sfx_transcode import _SmpsVoiceBuilder, TranscodeError  # noqa: E402
+from zyrinx_port import FMPATCH_LEN                          # noqa: E402
+
+# HCZ2's real in-body smpsSetvoice ids (the 4 distinct UVB voices it plays).
+HCZ2_USED_VOICE_IDS = (0x03, 0x06, 0x0E, 0x15)
+
+# Path to the S3K Z80 driver holding the FM Universal Voice Bank.
+S3K_Z80_DRIVER = "/home/volence/sonic_hacks/skdisasm/Sound/Z80 Sound Driver.asm"
+
+# The UVB label in the S3K Z80 driver (z80_UniVoiceBank:). HCZ2's header is
+# smpsHeaderVoiceUVB, which points the song at this bank.
+_UVB_LABEL = "z80_UniVoiceBank"
+
+# All smpsVc* sub-macros, in the order a voice block emits them. A voice block
+# starts at smpsVcAlgorithm and ends at smpsVcTotalLevel (the last sub-macro).
+_SMPS_VC_MACROS = frozenset((
+    "smpsVcAlgorithm", "smpsVcFeedback", "smpsVcUnusedBits", "smpsVcDetune",
+    "smpsVcCoarseFreq", "smpsVcRateScale", "smpsVcAttackRate", "smpsVcAmpMod",
+    "smpsVcDecayRate1", "smpsVcDecayRate2", "smpsVcDecayLevel",
+    "smpsVcReleaseRate", "smpsVcTotalLevel",
+))
+
+
+def _normalize_vc_token(tok: str) -> str:
+    """Normalize a Z80-driver hex token to the $XX form the SFX parser expects.
+
+    The S3K Z80 driver writes voice bytes as suffix-hex (`04h`, `0FFh`, `1Fh`)
+    while the SFX .asm sources (and sfx_transcode._parse_int) use prefix-hex
+    (`$04`). Convert `NNh` -> `$NN`; pass `$XX` / decimal through untouched."""
+    tok = tok.strip().rstrip(",")
+    m = re.fullmatch(r"([0-9A-Fa-f]+)[hH]", tok)
+    if m:
+        return "$" + m.group(1)
+    return tok
+
+
+def smps_voice_to_fmpatch(voice_macros) -> bytes:
+    """Convert one parsed UVB voice into our 26-byte FmPatch (BASE patch).
+
+    `voice_macros` is a list of (macro_name, [arg_tokens]) pairs covering one
+    voice block (smpsVcAlgorithm .. smpsVcTotalLevel), with arg tokens in either
+    `$XX`, `NNh`, or decimal form. Reuses sfx_transcode's _SmpsVoiceBuilder, so
+    the result is op-reordered (_s3k_op_reorder) and TL-verbatim (tl_is_level=
+    False) identically to the verified SFX path. Channel volume is NOT baked in
+    (music applies volume via the sequencer).
+
+    Returns exactly FMPATCH_LEN (26) bytes laid out per sound_constants.asm
+    FmPatch: fp_alg_fb, fp_lr_ams_fms, fp_dt_mul[4], fp_tl[4], fp_rs_ar[4],
+    fp_am_d1r[4], fp_d2r[4], fp_d1l_rr[4]."""
+    b = _SmpsVoiceBuilder()
+    saw_total_level = False
+    for macro, args in voice_macros:
+        if macro not in _SMPS_VC_MACROS:
+            continue
+        b.apply(macro, [_normalize_vc_token(a) for a in args])
+        if macro == "smpsVcTotalLevel":
+            saw_total_level = True
+    if not saw_total_level:
+        raise TranscodeError(
+            "smps_voice_to_fmpatch: voice block missing smpsVcTotalLevel "
+            "(no terminating TL group)")
+    patch = b.build()
+    assert len(patch) == FMPATCH_LEN, \
+        "FmPatch must be %d bytes, got %d" % (FMPATCH_LEN, len(patch))
+    return patch
+
+
+# Phase 4.2 (parse_uvb_voices / build_patch_remap / emit_patch_table) added next.

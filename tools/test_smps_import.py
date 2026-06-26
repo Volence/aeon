@@ -551,3 +551,61 @@ def test_convert_song_real_hcz2_packs():
     assert isinstance(song, SongDesc)
     assert len(song.channels) == 9     # DAC + 5 FM + 3 PSG
     pack_song(song)                    # MUST NOT raise — whole song converts + packs
+
+# ── Phase 4 ─ UVB voice import (S3K Universal Voice Bank -> FmPatch) ──────────
+
+from smps_import import smps_voice_to_fmpatch
+from zyrinx_port import FMPATCH_LEN
+
+# Voice $03 (Synth Bass 1) from the S3K UVB, in (macro, [args]) form. The driver
+# writes suffix-hex (`04h`); smps_voice_to_fmpatch normalizes it.
+_UVB_VOICE_03 = [
+    ("smpsVcAlgorithm",   ["04h"]),
+    ("smpsVcFeedback",    ["06h"]),
+    ("smpsVcUnusedBits",  ["00h"]),
+    ("smpsVcDetune",      ["03h", "03h", "07h", "07h"]),
+    ("smpsVcCoarseFreq",  ["01h", "01h", "02h", "00h"]),
+    ("smpsVcRateScale",   ["00h", "00h", "00h", "00h"]),
+    ("smpsVcAttackRate",  ["1Fh", "1Fh", "1Fh", "1Fh"]),
+    ("smpsVcAmpMod",      ["00h", "00h", "00h", "00h"]),
+    ("smpsVcDecayRate1",  ["06h", "06h", "06h", "10h"]),
+    ("smpsVcDecayRate2",  ["06h", "06h", "06h", "01h"]),
+    ("smpsVcDecayLevel",  ["01h", "01h", "01h", "03h"]),
+    ("smpsVcReleaseRate", ["0Ah", "05h", "0Ah", "05h"]),
+    ("smpsVcTotalLevel",  ["83h", "18h", "83h", "10h"]),
+]
+
+# ── Task 4.1 ─ smps_voice_to_fmpatch ─────────────────────────────────────────
+
+def test_smps_voice_to_fmpatch_len():
+    assert len(smps_voice_to_fmpatch(_UVB_VOICE_03)) == FMPATCH_LEN == 26
+
+def test_smps_voice_to_fmpatch_alg_fb():
+    # fp_alg_fb = algo | (fb << 3); voice $03 is algo 4, fb 6 -> $34
+    # (matches the driver's own "; 34h" $B0-write comment for Voice 03h).
+    p = smps_voice_to_fmpatch(_UVB_VOICE_03)
+    assert p[0] == (0x04 | (0x06 << 3)) == 0x34
+
+def test_smps_voice_to_fmpatch_op_reorder():
+    # _s3k_op_reorder: [op1,op2,op3,op4] -> [op4,op2,op3,op1]. The dt_mul macro
+    # args combine detune<<4|coarse: [$31,$31,$72,$70] -> reordered [$70,$31,$72,$31].
+    p = smps_voice_to_fmpatch(_UVB_VOICE_03)
+    assert list(p[2:6]) == [0x70, 0x31, 0x72, 0x31]   # fp_dt_mul ($30) group
+
+def test_smps_voice_to_fmpatch_tl_verbatim():
+    # smpsVcTotalLevel is already YM attenuation -> stored verbatim (tl_is_level
+    # False), op-reordered. TL args [$83,$18,$83,$10] -> [$10,$18,$83,$83] masked $7F.
+    p = smps_voice_to_fmpatch(_UVB_VOICE_03)
+    assert list(p[6:10]) == [0x10, 0x18, 0x03, 0x03]   # fp_tl ($40), 0x83&0x7F=0x03
+
+def test_smps_voice_to_fmpatch_default_pan():
+    # fp_lr_ams_fms defaults to $C0 (both L/R on) — _SmpsVoiceBuilder seeds it.
+    p = smps_voice_to_fmpatch(_UVB_VOICE_03)
+    assert p[1] == 0xC0
+
+def test_smps_voice_to_fmpatch_deterministic():
+    assert smps_voice_to_fmpatch(_UVB_VOICE_03) == smps_voice_to_fmpatch(_UVB_VOICE_03)
+
+def test_smps_voice_to_fmpatch_missing_tl_raises():
+    with pytest.raises(Exception):
+        smps_voice_to_fmpatch(_UVB_VOICE_03[:-1])   # drop smpsVcTotalLevel
