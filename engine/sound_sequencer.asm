@@ -353,7 +353,14 @@ PsgEnvUpdate:
         ; attenuation stays applied against the live sc_volume.
         jr      .emit
 .rest:
-        ld      (ix+sc_psgenv), 0        ; disable the env (one-shot rest reached)
+        ; $83 full-rest: silence THIS note's tail (S3K zDoVolEnvFullRest -> zRestTrack).
+        ; Do NOT clear sc_psgenv — the envelope ID must PERSIST so the NEXT note-on
+        ; (which resets sc_psgenv_cur to 0 via Psg_EnvCursorReset) REPLAYS the contour.
+        ; S3K keeps FMVolEnv/PSGVolEnv set and only resets the VolEnv cursor per note
+        ; (zFinishTrackUpdate). Zeroing the id here disabled the envelope for every
+        ; subsequent note in a run -> a flat loud-noise blast (the HCZ2 hi-hat bug).
+        ; The cursor stays parked on the rest byte, so until the next note-on this
+        ; re-silences each frame (matching S3K's per-frame re-rest).
         jp      Psg_NoteOff              ; silence this PSG channel (tail-call, preserves ix)
 
 ; ----------------------------------------------------------------------
