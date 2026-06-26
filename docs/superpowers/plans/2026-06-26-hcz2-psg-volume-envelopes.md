@@ -399,3 +399,13 @@ git commit -m "docs(sound): PSG vol-envelopes serve music channels — HCZ2 hi-h
 - **No placeholders:** every code step shows the actual asm/python. Envelope bytes are verbatim from the named S3K lines.
 - **Type/offset consistency:** `sc_psgenv`/`cur`/`out` at +39/+40/+41 match `SfxChannel`; `PSGVOLENV_COUNT` 6→11; converter `PsgEnv(env_id)` matches the engine's 1-based id lookup; mod fields stay SFX-only (Task 3 split honors this).
 - **Ordering:** engine first (Tasks 1-4, no behavior change), then data (5), then converter (6) flips the behavior on — each task builds green independently.
+
+---
+
+## Execution notes (2026-06-26 — DONE, oracle-verified)
+
+Tasks 1-6 implemented as planned (commits 4c59053, a1ad5ff, 872c2c1, 325977c, 3354094, d4f52fa). Task 7 oracle verification caught a **plan gap: a FOURTH SFX-gate**, `Seq_Op_PsgEnv` (the `$EB` MEV_PSGENV opcode HANDLER, `sound_sequencer.asm:614`), which skipped music channels so `sc_psgenv` stayed 0 — no envelope ran (noise still flat `{3}`). Fix `f291963`: un-gate it (write `sc_psgenv` for any channel; `Seq_Op_ModSet` stays gated — `sc_mod_*` remain SFX-only at +42+). Re-verified: noise atten `{3:735}` flat → `{3,5,6..15}` per-hit decay; FM 702 key-ons + PSG1/2 envelope-shaped, no regression.
+
+**Lesson:** when un-gating a field for a new channel class, grep ALL read+write sites of that field (opcode handlers included), not just the render path. The plan's "3 gates" was really 4.
+
+ARCH §6 body update (PSG vol-envelopes serve music channels, not just SFX) is deferred to the branch-merge step.
