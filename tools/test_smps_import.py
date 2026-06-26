@@ -1,5 +1,5 @@
 # tools/test_smps_import.py
-from smps_import import tokenize_line, NOTE_BYTES, PAN_BYTES, DAC_IDS, resolve_const
+from smps_import import tokenize_line, NOTE_BYTES, PAN_BYTES, DAC_IDS, FLAG_BYTES, resolve_const
 
 def test_tokenize_macro_with_args():
     assert tokenize_line("\tsmpsHeaderFM\tSnd_HCZ2_FM1, $18, $0F  ; comment") == \
@@ -79,3 +79,119 @@ def test_split_blocks():
     blocks = split_blocks(src)
     assert list(blocks.keys()) == ["Snd_HCZ2_FM1", "Snd_HCZ2_FM2"]
     assert blocks["Snd_HCZ2_FM1"] == ["\tsmpsSetvoice $0F", "\tdc.b nC4, $0C"]
+
+# ── Finding #1: enharmonic note names ────────────────────────────────────────
+# All flat/enharmonic aliases from _smps2asm_inc.asm lines 32-47:
+#   Db=Cs, Eb=Ds, Fb=E, F=Es (Es is next after E so nF=nEs), Gb=Fs, Ab=Gs, Bb=As
+#   Cb(N)=B(N-1), Bs(N)=C(N+1)
+# nMaxPSG1=nBb6=nAs6=$D3, nMaxPSG2=nB6=$D4 (SonicDriverVer>=3, lines 58-59)
+# nRst=$80 (line 31)
+
+def test_enharmonic_flat_aliases():
+    # Eb = Ds (one semitone above D)
+    assert NOTE_BYTES["nEb3"] == NOTE_BYTES["nDs3"]
+    assert NOTE_BYTES["nEb4"] == NOTE_BYTES["nDs4"]
+    assert NOTE_BYTES["nBb3"] == NOTE_BYTES["nAs3"]
+    assert NOTE_BYTES["nBb4"] == NOTE_BYTES["nAs4"]
+    assert NOTE_BYTES["nBb5"] == NOTE_BYTES["nAs5"]
+    assert NOTE_BYTES["nDb4"] == NOTE_BYTES["nCs4"]
+    assert NOTE_BYTES["nGb5"] == NOTE_BYTES["nFs5"]
+    assert NOTE_BYTES["nAb4"] == NOTE_BYTES["nGs4"]
+    # Check full octave coverage for a few flats
+    for oct in range(8):
+        assert NOTE_BYTES["nEb%d" % oct] == NOTE_BYTES["nDs%d" % oct]
+        assert NOTE_BYTES["nBb%d" % oct] == NOTE_BYTES["nAs%d" % oct]
+        assert NOTE_BYTES["nGb%d" % oct] == NOTE_BYTES["nFs%d" % oct]
+        assert NOTE_BYTES["nAb%d" % oct] == NOTE_BYTES["nGs%d" % oct]
+        assert NOTE_BYTES["nDb%d" % oct] == NOTE_BYTES["nCs%d" % oct]
+        assert NOTE_BYTES["nFb%d" % oct] == NOTE_BYTES["nE%d" % oct]
+
+def test_enharmonic_sharp_aliases():
+    # Es=F, Bs(N)=C(N+1), Cb(N)=B(N-1)
+    for oct in range(8):
+        assert NOTE_BYTES["nEs%d" % oct] == NOTE_BYTES["nF%d" % oct]
+    for oct in range(7):          # Bs0=C1 ... Bs6=C7
+        assert NOTE_BYTES["nBs%d" % oct] == NOTE_BYTES["nC%d" % (oct+1)]
+    for oct in range(1, 8):       # Cb1=B0 ... Cb7=B6
+        assert NOTE_BYTES["nCb%d" % oct] == NOTE_BYTES["nB%d" % (oct-1)]
+
+def test_nRst():
+    # nRst=$80 — _smps2asm_inc.asm line 31
+    assert resolve_const("nRst") == 0x80
+
+def test_nMaxPSG():
+    # SonicDriverVer>=3: nMaxPSG1=nBb6=$D3, nMaxPSG2=nB6=$D4
+    # _smps2asm_inc.asm lines 58-59
+    assert resolve_const("nMaxPSG1") == 0xD3
+    assert resolve_const("nMaxPSG2") == 0xD4
+
+# ── Finding #2: coordination-flag mnemonics inline in dc.b ───────────────────
+# Exact values from _smps2asm_inc.asm:
+#   smpsNoAttack EQU $E7  (line 457)
+
+def test_flag_bytes_smpsNoAttack():
+    # _smps2asm_inc.asm line 457: smpsNoAttack EQU $E7
+    assert FLAG_BYTES["smpsNoAttack"] == 0xE7
+
+def test_resolve_const_flag():
+    assert resolve_const("smpsNoAttack") == FLAG_BYTES["smpsNoAttack"]
+    assert resolve_const("smpsNoAttack") == 0xE7
+
+# ── Finding #3: split_blocks / tokenize_line style note ──────────────────────
+# (No code assertion — comment added in source. Verified by convention check in docstring.)
+
+# ── Finding #4: parse_header bounds guard ────────────────────────────────────
+
+import pytest
+
+def test_parse_header_fm_too_few_args():
+    lines = ["\tsmpsHeaderFM\tSnd_HCZ2_FM1, $18"]  # missing vol arg
+    with pytest.raises(ValueError, match="smpsHeaderFM"):
+        parse_header(lines)
+
+def test_parse_header_psg_too_few_args():
+    lines = ["\tsmpsHeaderPSG\tSnd_HCZ2_PSG1, $F4"]  # missing vol arg
+    with pytest.raises(ValueError, match="smpsHeaderPSG"):
+        parse_header(lines)
+
+def test_parse_header_tempo_too_few_args():
+    lines = ["\tsmpsHeaderTempo\t$01"]  # missing mod arg
+    with pytest.raises(ValueError, match="smpsHeaderTempo"):
+        parse_header(lines)
+
+# ── Integration: resolve_const covers ALL real HCZ2 n*/smps* dc.b tokens ─────
+
+import re as _re
+
+def test_hcz2_dcb_symbol_coverage():
+    """
+    Read the real HCZ2.asm, extract every dc.b/dc.w arg that looks like a
+    note (n...) or flag (smps...) token, and assert resolve_const does NOT
+    raise for any of them.
+    Skips: raw numbers ($xx / decimal), labels (Snd_*), sTone_* voice names.
+    """
+    hcz2_path = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    with open(hcz2_path) as f:
+        lines = f.readlines()
+
+    failures = []
+    for lineno, line in enumerate(lines, 1):
+        code = line.split(";", 1)[0]
+        mnem_match = _re.match(r"^\s+(\S+)\s", code)
+        if not mnem_match:
+            continue
+        mnem = mnem_match.group(1)
+        if mnem not in ("dc.b", "dc.w"):
+            continue
+        args_str = code[mnem_match.end():]
+        for arg in args_str.split(","):
+            tok = arg.strip()
+            # Only resolve n* and smps* tokens — skip hex, decimal, labels, sTone_*
+            if not (_re.match(r"^n[A-Za-z]", tok) or tok.startswith("smps")):
+                continue
+            try:
+                resolve_const(tok)
+            except KeyError:
+                failures.append("line %d: %r" % (lineno, tok))
+
+    assert not failures, "resolve_const failed on: " + ", ".join(failures)
