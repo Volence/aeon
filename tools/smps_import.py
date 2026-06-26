@@ -4,7 +4,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 from song_packer import (
-    Note, Rest, SetDur, NoteDur, MEV_NOTE_BASE, MAX_DUR,
+    Note, Rest, SetDur, NoteDur, Vol, Patch, Pan, ModSet, PsgEnv, NoteFill,
+    Dac, End, MEV_NOTE_BASE, MAX_DUR,
 )
 
 # ---------------------------------------------------------------------------
@@ -189,14 +190,15 @@ def split_blocks(lines):
 #   (b) INLINE inside dc.b    -> ('byte', b) tokens with b >= $E0 (HCZ2 only ever
 #       has smpsNoAttack/$E7 inline; it is operand-less).
 
-# Coordination-flag macro mnemonics this converter recognizes as line-leading
-# tokens. Membership here decides ('flag',...) vs warn-skip in the flattener.
-# Task 2.1 only walks notes/rests/durations — every flag is warn-skipped in the
-# walk; Task 2.2 maps them to MEV events. (Header/voice macros are NOT here —
+# Coordination-flag macro mnemonics this converter understands as line-leading
+# tokens. Membership here decides ('flag',...) vs warn-skip in the flattener;
+# the actual mapping is in _dispatch_flag. (Header/voice macros are NOT here —
 # they are handled before channel conversion.)
 _FLAG_MNEMONICS = frozenset((
     "smpsPan", "smpsSetvoice", "smpsFMvoice", "smpsModSet", "smpsModOff",
     "smpsPSGvoice", "smpsNoteFill", "smpsStop", "smpsSetVol",
+    # Hooks (Task 2.3 / 2.4) — recognized so the walk does not break, but
+    # currently warn-skipped by _dispatch_flag:
     "smpsAlterVol", "smpsPSGAlterVol", "smpsDetune", "smpsAlterNote",
     "smpsAlterPitch", "smpsCall", "smpsReturn", "smpsLoop", "smpsJump",
     "smpsSetNote", "smpsChangeTransposition", "smpsNoAttack", "smpsPSGform",
@@ -274,14 +276,55 @@ def _emit_with_dur(out, st, ev_factory, ticks, pitch=None):
     out.append(Rest() if pitch is None else Note(pitch))
 
 
+def _smps_vol_to_v0(kind, val):
+    """Map an SMPS absolute volume operand to a v0 0..127 volume.
+    FM  : SMPS FM volume IS a TL-ish attenuation but the v0 Vol op takes the
+          value directly (clamped to 127); the engine handles FM scaling.
+    PSG : SMPS PSG volume low nibble is 0..15 attenuation (0=loud, 15=silent);
+          v0 wants 0..127 LOUDNESS, so invert + scale."""
+    if kind == "FM":
+        return min(127, val)
+    # PSG / DAC-noise: low nibble is the SN76489 attenuation.
+    return int(round((15 - (val & 0x0F)) / 15 * 127))
+
+
+def _dispatch_flag(kind, mnem, args, st, out, cfg):
+    """Handle one ('flag', mnem, args) coordination-flag token. Appends 0+
+    events to `out`. Volume/transpose folding and call/loop/detune/tie are
+    LATER tasks (2.3/2.4): those mnemonics are recognized but warn-skipped so
+    the walk never breaks."""
+    if mnem == "smpsPan":
+        if kind == "DAC":
+            return                                   # pan is meaningless on DAC
+        out.append(Pan(resolve_const(args[0])))
+    elif mnem in ("smpsSetvoice", "smpsFMvoice"):
+        out.append(Patch(resolve_const(args[0])))    # FM patch
+    elif mnem == "smpsModSet":
+        out.append(ModSet(resolve_const(args[0]), resolve_const(args[1]),
+                          _signed8(resolve_const(args[2])), resolve_const(args[3])))
+    elif mnem == "smpsModOff":
+        out.append(ModSet(0, 0, 0, 0))
+    elif mnem == "smpsPSGvoice":
+        out.append(PsgEnv(resolve_const(args[0])))
+    elif mnem == "smpsNoteFill":
+        out.append(NoteFill(resolve_const(args[0]) * cfg.divider))
+    elif mnem == "smpsStop":
+        out.append(End())
+    elif mnem == "smpsSetVol":
+        out.append(Vol(_smps_vol_to_v0(kind, resolve_const(args[0]))))
+    else:
+        # Hooks for later tasks: smpsAlterVol/smpsPSGAlterVol (2.3),
+        # smpsDetune/smpsAlterNote/smpsAlterPitch/smpsCall/smpsReturn/
+        # smpsLoop/smpsJump/smpsSetNote/smpsChangeTransposition/smpsNoAttack/
+        # smpsPSGform (2.4) — and any other coordination mnemonic.
+        warn("skip flag %s" % mnem)
+
+
 def convert_channel(kind, lines, blocks, cfg, st):
     """Convert one channel's SMPS source lines into a list of music-format-v0
     events. `kind` is "FM" | "PSG" | "DAC"; `st` is a ConvState; `cfg` supplies
     .divider. `blocks` (the label->lines map) is accepted for Task 2.4 call/loop
-    resolution; unused here.
-
-    Task 2.1 implements the note/rest/duration walk only. Coordination flags are
-    warn-skipped (Task 2.2 maps them to MEV events)."""
+    resolution; unused here."""
     toks = _flatten_tokens(lines)
     out = []
     i = 0
@@ -289,18 +332,39 @@ def convert_channel(kind, lines, blocks, cfg, st):
     while i < n:
         tok = toks[i]
         if tok[0] == "flag":
-            warn("skip flag %s" % tok[1])            # Task 2.2 dispatches these
+            _dispatch_flag(kind, tok[1], tok[2], st, out, cfg)
             i += 1
             continue
 
         # ('byte', b)
         b = tok[1]
         if b >= FIRST_COORD_FLAG:                    # inline coordination flag
-            warn("skip inline flag byte $%02X" % b)  # Task 2.2 handles these
+            name = _flag_name_for_byte(b)
+            if name == "smpsNoAttack":
+                st.tie = True                        # Task 2.4 will consume it
+            else:
+                warn("skip inline flag byte $%02X" % b)
             i += 1
             continue
 
-        # FM / PSG / DAC note-bearing route (DAC sample classification is 2.2).
+        if kind == "DAC":
+            # DAC route: $81..$DF = a SAMPLE (raw 1-based id; v0-table remap is a
+            # later task), $80 = rest, $00..$7F = a (trailing/standalone) dur.
+            if b >= MEV_NOTE_BASE:                   # $81..$DF -> sample
+                # trailing-duration peek (same model as notes), then emit Dac.
+                dur, consumed = _peek_dur(toks, i + 1, cfg, st)
+                out.append(Dac(b & 0x7F))
+                i += 1 + consumed
+            elif b == SMPS_REST:                     # $80 -> rest
+                ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
+                _emit_with_dur(out, st, None, ticks, pitch=None)
+                i += 1 + consumed
+            else:                                    # $00..$7F bare duration
+                st.cur_dur = b * cfg.divider
+                i += 1
+            continue
+
+        # FM / PSG route.
         if b >= MEV_NOTE_BASE:                        # $81..$DF -> note
             pitch = (b - MEV_NOTE_BASE) + st.transpose
             ticks, consumed = _peek_dur(toks, i + 1, cfg, st)

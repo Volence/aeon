@@ -223,3 +223,26 @@ def test_transpose_folds():
 def test_duration_times_divider_overflow_uses_notedur():
     ev = convert_channel("FM", ["\tdc.b nC4, $40"], {}, _cfg(divider=2), ConvState())  # 0x40*2=0x80>0x7F
     assert any(isinstance(e, NoteDur) and e.dur == 0x80 for e in ev)
+
+# ── Task 2.2 ─ coordination-flag -> MEV mapping + DAC route ──────────────────
+
+from song_packer import Pan, Patch, ModSet, End, Dac
+
+def test_flags_map():
+    ev = convert_channel("FM", ["\tsmpsPan panLeft, $00","\tsmpsSetvoice $0F","\tsmpsModSet $01,$02,$03,$04","\tsmpsStop"], {}, _cfg(), ConvState())
+    assert isinstance(ev[0],Pan) and ev[0].b4==0x80
+    assert isinstance(ev[1],Patch) and ev[1].patch==0x0F
+    assert isinstance(ev[2],ModSet) and (ev[2].wait,ev[2].speed,ev[2].change,ev[2].step)==(1,2,3,4)
+    assert isinstance(ev[3],End)
+
+def test_dac_samples_and_pan_dropped():
+    ev = convert_channel("DAC", ["\tdc.b dKickS3, $06","\tsmpsPan panLeft, $00","\tdc.b dSnareS3, $06"], {}, _cfg(), ConvState())
+    ids = [e.sample_id for e in ev if isinstance(e,Dac)]
+    assert ids == [0x86 & 0x7F, 0x81 & 0x7F]
+    assert not any(isinstance(e,Pan) for e in ev)
+
+def test_inline_smpsnoattack_does_not_break_walk():
+    ev = convert_channel("PSG", ["\tdc.b nMaxPSG1, $06, smpsNoAttack, $06, nC4"], {}, _cfg(), ConvState())
+    # the inline $E7 must not be treated as a note; nMaxPSG1 and nC4 are notes
+    notes = [e for e in ev if isinstance(e, Note)]
+    assert len(notes) == 2
