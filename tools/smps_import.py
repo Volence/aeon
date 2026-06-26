@@ -69,6 +69,22 @@ def parse_header(lines):
                 transpose=_signed8(resolve_const(args[1]))))
     return cfg
 
+def split_blocks(lines):
+    """Return an ordered dict mapping each label to its body lines.
+
+    Lines before the first label are ignored (the header section is handled
+    separately by parse_header). Blank/comment-only lines within a block are
+    also dropped so callers get only actionable content.
+    """
+    blocks, cur = {}, None
+    for ln in lines:
+        _, _, label = tokenize_line(ln)
+        if label is not None:
+            cur = label; blocks[cur] = []
+        elif cur is not None and ln.split(";", 1)[0].strip():
+            blocks[cur].append(ln)
+    return blocks
+
 def tokenize_line(line):
     """Return (mnemonic_or_None, [args], label_or_None) for one SMPS2ASM source line.
     Strips ';' comments. A line like 'Foo:' yields a label; '\tmacro a, b' yields

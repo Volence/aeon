@@ -68,3 +68,14 @@ def test_parse_header():
     assert fm1.kind == "FM" and fm1.voice == 0x0F and fm1.transpose == 0x18
     dac = cfg.channels[0]
     assert dac.kind == "DAC"
+
+# ── Task 1.2 ─────────────────────────────────────────────────────────────────
+
+from smps_import import split_blocks
+
+def test_split_blocks():
+    src = ["Snd_HCZ2_FM1:", "\tsmpsSetvoice $0F", "\tdc.b nC4, $0C",
+           "Snd_HCZ2_FM2:", "\tdc.b nG3"]
+    blocks = split_blocks(src)
+    assert list(blocks.keys()) == ["Snd_HCZ2_FM1", "Snd_HCZ2_FM2"]
+    assert blocks["Snd_HCZ2_FM1"] == ["\tsmpsSetvoice $0F", "\tdc.b nC4, $0C"]
