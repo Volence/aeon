@@ -5,7 +5,7 @@ sys.path.insert(0, _HERE)
 
 from song_packer import (
     Note, Rest, SetDur, NoteDur, Vol, Patch, Pan, ModSet, PsgEnv, NoteFill,
-    Dac, End, LoopPoint, Jump, MEV_NOTE_BASE, MAX_DUR,
+    PsgNoise, Dac, End, LoopPoint, Jump, MEV_NOTE_BASE, MAX_DUR,
     SongDesc, ChannelDesc, SH_F_STREAM,
     CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
     CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN, CHROUTE_DAC,
@@ -291,23 +291,19 @@ class ConvState:
                 the $E7 byte as a note; the no-attack articulation itself is a v1
                 fidelity gap, the note still sounds).
     noise     : True if this is the PSG noise/hi-hat channel (carries a nonzero
-                smpsPSGform). Notes are emitted as noise hits at noise_pitch
-                (= smpsPSGform & 7) instead of melodic pitches (Bug 2).
-    noise_pitch : current noise-mode pitch (smpsPSGform & 7), default 7 (white).
+                smpsPSGform). The smpsPSGform emits MEV_PSGNOISE (the SN76489 control
+                byte); noise NOTES carry their REAL pitch so the engine clocks tone-ch2
+                from it in rate-3 mode (the hat tracks pitch, S3K-faithful).
     """
     def __init__(self, transpose=0, volume=None, noise=False):
         self.transpose = transpose
         self.volume = volume
         self.cur_dur = None
         self.tie = False
-        # Noise-channel mode (Bug 2): when True this is the PSG noise/hi-hat
-        # channel (it carries a nonzero smpsPSGform). Every note's pitch is
-        # REPLACED with noise_pitch so the engine's Psg_Noise control byte
-        # ($E0 | (pitch & 7)) reproduces the S3K smpsPSGform mode; the S3K note
-        # value (nMaxPSG1 etc.) is irrelevant to noise. noise_pitch defaults to
-        # 7 (white noise) until the first smpsPSGform sets it.
+        # Noise-channel mode: when True this is the PSG noise/hi-hat channel (carries a
+        # nonzero smpsPSGform). The smpsPSGform -> MEV_PSGNOISE control byte; noise
+        # notes keep their real pitch (no longer rewritten to the mode bits).
         self.noise = noise
-        self.noise_pitch = 7
         # Running SMPS-domain volume (attenuation): seeded by smpsSetVol, mutated
         # by smpsAlterVol/smpsPSGAlterVol. None until first touched. Kept in the
         # SMPS domain so deltas compose correctly; mapped to the v0 0..127
@@ -641,12 +637,12 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
         # a dc.b) is handled directly in the walk (sets st.tie = True there too).
         st.tie = True
     elif mnem == "smpsPSGform":
-        # cfSetPSGNoise: a NONZERO operand selects the SN76489 noise mode/rate
-        # (the channel becomes a noise channel); 0 restores a TONE channel.
-        # On the noise channel (Bug 2), track the noise-mode pitch = operand & 7
-        # so the engine's Psg_Noise control byte ($E0 | (pitch & 7)) reproduces
-        # the S3K mode. On a TONE channel smpsPSGform is a v1 fidelity gap
-        # (warn-skipped) — noise detection happens in convert_song's pre-scan.
+        # cfSetPSGNoise: a NONZERO operand IS the SN76489 noise control byte
+        # ($E0|mode|rate) — it makes the channel a noise channel; 0 restores a TONE
+        # channel. On the noise channel, emit MEV_PSGNOISE(form): the engine sets the
+        # control on-change + silences tone-ch2, and the rate-3 bits make each noise
+        # NOTE clock tone-ch2 from its real pitch. On a TONE channel smpsPSGform is a
+        # v1 fidelity gap (warn-skipped) — noise detection is convert_song's pre-scan.
         form = resolve_const(args[0]) if args else 0
         if st.noise:
             if form == 0:
@@ -654,7 +650,7 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
                 # to tone. HCZ2 never does this; warn-skip the sub-case.
                 _warn_psgform_restore_once()
             else:
-                st.noise_pitch = form & 7
+                out.append(PsgNoise(form))
         else:
             warn("skip flag %s" % mnem)
     else:
@@ -849,17 +845,11 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                         i += 1
                     continue
 
-                # FM / PSG route.
+                # FM / PSG route (incl. the noise route — a noise note carries a REAL
+                # pitch so the engine clocks tone-ch2 from it in rate-3 mode; the noise
+                # MODE is set separately by the MEV_PSGNOISE from smpsPSGform).
                 if b >= MEV_NOTE_BASE:               # $81..$DF -> note
-                    if st.noise:
-                        # Noise channel (Bug 2): the S3K note value (nMaxPSG1 etc.)
-                        # is irrelevant to the engine's noise pitch — replace it
-                        # with the noise-mode pitch so Psg_Noise's control byte
-                        # ($E0 | (pitch & 7)) reproduces the smpsPSGform mode.
-                        # Transpose does not apply to noise.
-                        pitch = st.noise_pitch
-                    else:
-                        pitch = (b - MEV_NOTE_BASE) + st.transpose
+                    pitch = (b - MEV_NOTE_BASE) + st.transpose
                     ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
                     if st.tie:
                         st.tie = False

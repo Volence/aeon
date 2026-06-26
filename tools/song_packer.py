@@ -67,6 +67,7 @@ MEV_PSGENV = 0xEB           # + env_id: set the channel's PSG volume-envelope id
 MEV_MODSET = 0xEC           # + wait speed change step: latch pitch-modulation params (all 0 = off)
 MEV_SPINREV = 0xF0          # (no operand): add the global spindash rev into sc_transpose, cap $10
 MEV_SPINREV_RESET = 0xF1    # (no operand): zero the global spindash rev
+MEV_PSGNOISE = 0xF2         # + ctrl: set the SN76489 noise control byte ($E0-$EF, mode+rate)
 MEV_END = 0xFF
 
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
@@ -224,6 +225,23 @@ class PsgEnv(Event):
             raise PackError(f"PsgEnv on FM route {route}")
         if not (0 <= self.env_id <= 0xFF):
             raise PackError(f"PsgEnv env_id {self.env_id} out of byte range")
+
+
+class PsgNoise(Event):
+    """Set the SN76489 noise control byte (mode+rate, $E0-$EF). Zero-tick; owns the
+    noise mode so a noise NOTE then carries PITCH for the rate-3 tone-2 clock. Emitted
+    from the song's smpsPSGform. Noise route only."""
+    def __init__(self, ctrl: int):
+        self.ctrl = ctrl
+
+    def encode(self) -> bytes:
+        return bytes([MEV_PSGNOISE, self.ctrl & 0xFF])
+
+    def validate(self, route):
+        if route != CHROUTE_PSGN:
+            raise PackError(f"PsgNoise on non-noise route {route}")
+        if not (0xE0 <= self.ctrl <= 0xEF):
+            raise PackError(f"PsgNoise ctrl {self.ctrl:#x} out of range $E0..$EF")
 
 
 class ModSet(Event):

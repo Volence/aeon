@@ -872,13 +872,16 @@ def test_convert_song_psg_noise_channel_routed_to_psgn():
     # PSG1 and PSG2 remain tone routes (in order), PSG3 is gone (-> PSGN).
     assert CHROUTE_PSG1 in routes and CHROUTE_PSG2 in routes
     assert CHROUTE_PSG3 not in routes
+    from song_packer import PsgNoise
     noise = next(c for c in song.channels if c.route == CHROUTE_PSGN)
+    # The noise channel sets its mode via MEV_PSGNOISE ($E7 = white, rate-3) ...
+    pn = [e for e in noise.events if isinstance(e, PsgNoise)]
+    assert pn and pn[0].ctrl == 0xE7, "noise channel must emit PsgNoise($E7)"
+    # ... and its hits carry the REAL pitch (nMaxPSG1 = index 82) so the engine clocks
+    # tone-ch2 from it (rate-3), NOT the old mode bits.
     notes = [e for e in noise.events if isinstance(e, (Note, NoteDur))]
     assert len(notes) > 1, "noise channel must have >1 hit"
-    # Every noise hit's engine control = $E0 | (pitch & 7); for $E7 that is white
-    # noise, i.e. pitch & 7 == 7.
-    for n in notes:
-        assert (n.pitch & 7) == 7, "noise hit pitch %d -> not white noise" % n.pitch
+    assert any(n.pitch == (0xD3 - 0x81) for n in notes), "noise hits must carry real pitch"
 
 def test_convert_song_psg_tone_channels_keep_melody():
     from song_packer import Note, NoteDur
@@ -896,9 +899,18 @@ def test_convert_song_psg_tone_channels_keep_melody():
         assert len(pitches) > 5, \
             "tone PSG route %d should be melodic (got %d distinct pitches)" % (route, len(pitches))
 
-def test_psgform_noise_pitch_tracking():
-    # A noise-routed channel rewrites every note's pitch to smpsPSGform & 7.
-    # (Unit-level: drive convert_channel with the noise flag directly.)
+def test_smpspsgform_emits_psgnoise():
+    # smpsPSGform $E7 -> PsgNoise($E7) (the SN76489 control byte), NOT a noise_pitch fold.
+    from song_packer import PsgNoise
+    ev = convert_channel("PSG",
+        ["\tsmpsPSGform $E7", "\tdc.b nMaxPSG1, $06"],
+        {}, _cfg(), ConvState(), noise=True)
+    pn = [e for e in ev if isinstance(e, PsgNoise)]
+    assert len(pn) == 1 and pn[0].ctrl == 0xE7
+
+def test_noise_note_carries_real_pitch():
+    # The noise note keeps its REAL pitch (nMaxPSG1 -> index 82) so the engine can clock
+    # tone-2 (rate-3), NOT the old mode bits ($E7 & 7 = 7).
     from song_packer import Note, NoteDur
     ev = convert_channel("PSG",
         ["\tsmpsPSGform $E7", "\tdc.b nMaxPSG1, $06, nMaxPSG1, $06"],
@@ -906,7 +918,7 @@ def test_psgform_noise_pitch_tracking():
     notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
     assert notes, "noise channel produced no hits"
     for n in notes:
-        assert (n.pitch & 7) == 7   # $E7 & 7 = white noise
+        assert n.pitch == (0xD3 - 0x81)   # nMaxPSG1 = $D3 -> index 82 (real pitch)
 
 def test_convert_song_real_hcz2_packs_with_psgn():
     # The whole HCZ2 song still packs end-to-end with the noise channel on PSGN.
