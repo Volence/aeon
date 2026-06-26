@@ -66,8 +66,12 @@ A macro-level SMPS parser that emits a `SongDesc` consumed by the existing `tool
      volume (`smpsSetVol` + `smpsAlterVol`/`smpsPSGAlterVol` deltas) — fold into absolute values.
    - **Map flags** per §5.
 3. **Notes/durations:** SMPS note `$81+i` → `MEV_NOTE` pitch index `i` (+ folded transpose); rest
-   `$80` → `MEV_REST`. Duration = `raw × divider` (HCZ2 divider 1 → pass-through); `tempo_base = 256 −
-   mod = $DB`. Durations > `$7F` emit `NoteDur` (8-bit) instead of `SetDur`+bare-note.
+   `$80` → `MEV_REST`. Duration = `raw × divider` (HCZ2 divider 1 → pass-through).
+   **Tempo conversion:** engine model is `accum -= 16/frame`, tick on borrow → `ticks/frame =
+   16/tempo_base`; SMPS model is `accum += mod/frame`, overflow skips tick → `ticks/frame =
+   (256−mod)/256`. Matching: `tempo_base = 4096/(256−mod)`. For HCZ2 mod=$25=37:
+   `4096/219 ≈ 18.7 → 19` ($13). (The old formula `256−mod=$DB` was ~11.5× too slow.)
+   Durations > `$7F` emit `NoteDur` (8-bit) instead of `SetDur`+bare-note.
 4. **Emit** a `SongDesc` → `song_packer.write_asm` → `data/sound/song_hcz2.asm` (+ a generated
    `HCZ2_Patches` voice table and, if needed, a per-song pitch table).
 

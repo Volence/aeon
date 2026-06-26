@@ -146,7 +146,16 @@ class SongConfig:
         self.divider = 1; self.tempo_mod = 0; self.channels = []
     @property
     def tempo_base(self):
-        return max(16, min(255, 256 - self.tempo_mod))
+        # Engine tempo model: accumulator -= 16/frame; on borrow it re-adds
+        # tempo_base and fires one event-tick.  ticks/frame = 16 / tempo_base.
+        # SMPS model: accumulator += mod/frame; overflow SKIPS a tick.
+        # ticks/frame = (256 - mod) / 256.
+        # Match: 16 / tempo_base = (256 - mod) / 256
+        #  -> tempo_base = 16 * 256 / (256 - mod) = 4096 / (256 - mod).
+        denom = 256 - self.tempo_mod
+        if denom <= 0:
+            denom = 1
+        return max(16, min(255, round(4096 / denom)))
 
 def _signed8(v):
     return v - 256 if v >= 128 else v

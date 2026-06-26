@@ -60,7 +60,7 @@ def test_parse_header():
     cfg = parse_header(HCZ2_HEADER)
     assert cfg.divider == 0x01
     assert cfg.tempo_mod == 0x25
-    assert cfg.tempo_base == 256 - 0x25          # 0xDB
+    assert cfg.tempo_base == 19       # 4096/(256-0x25) = 4096/219 ≈ 18.7 -> 19
     assert [c.label for c in cfg.channels] == [
         "Snd_HCZ2_DAC","Snd_HCZ2_FM1","Snd_HCZ2_FM2","Snd_HCZ2_FM3",
         "Snd_HCZ2_FM4","Snd_HCZ2_FM5","Snd_HCZ2_PSG1","Snd_HCZ2_PSG2","Snd_HCZ2_PSG3"]
@@ -73,6 +73,32 @@ def test_parse_header():
     assert psg1.kind == "PSG" and psg1.volume == 0x04 and psg1.psg_voice == 0x0C
     dac = cfg.channels[0]
     assert dac.kind == "DAC"
+
+# ── Tempo conversion correctness ─────────────────────────────────────────────
+# Engine model: accum -= 16/frame, tick on borrow -> ticks/frame = 16/tempo_base.
+# SMPS model:   accum += mod/frame, overflow skips tick -> ticks/frame = (256-mod)/256.
+# Match:        tempo_base = 4096 / (256 - mod).
+
+def test_tempo_mod_zero_gives_max_rate():
+    # mod=0 -> denominator 256 -> 4096/256 = 16 -> 1 tick/frame (maximum rate).
+    cfg = SongConfig(); cfg.tempo_mod = 0
+    assert cfg.tempo_base == 16
+
+def test_tempo_mod_hcz2():
+    # HCZ2: mod=$25=37 -> 4096/(256-37) = 4096/219 ≈ 18.70 -> 19.
+    cfg = SongConfig(); cfg.tempo_mod = 0x25
+    assert cfg.tempo_base == 19
+
+def test_tempo_mod_high_clamps():
+    # mod=$F0=240 -> 4096/(256-240) = 4096/16 = 256; clamp to 255.
+    cfg = SongConfig(); cfg.tempo_mod = 0xF0
+    assert cfg.tempo_base == 255
+
+def test_tempo_mod_never_below_16():
+    # Even mod=0 the floor is 16 (1 tick/frame exactly = already there).
+    # Try a very small denom via mod=255 -> 4096/1 = 4096, clamp to 255.
+    cfg = SongConfig(); cfg.tempo_mod = 255
+    assert cfg.tempo_base == 255
 
 # ── Task 1.2 ─────────────────────────────────────────────────────────────────
 
@@ -492,7 +518,7 @@ def test_convert_song_route_assignment_and_tempo():
     assert routes == [CHROUTE_DAC, CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3,
                       CHROUTE_FM4, CHROUTE_FM5, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3]
     assert song.tempo == 0x80
-    assert song.tempo_base == 256 - 0x25          # cfg.tempo_base
+    assert song.tempo_base == 19      # 4096/(256-0x25) = 4096/219 ≈ 18.7 -> 19
 
 def test_convert_song_prepends_vol_and_patch():
     from song_packer import Vol, Patch, Note
