@@ -25,17 +25,17 @@ FmPitchTableZ_End:
 
 PsgDivisorTableZ:
         dw      03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh
-        dw      03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh
-        dw      03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh
-        dw      03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh, 03FFh
-        dw      03FFh, 03F9h, 03C0h, 038Ah, 0357h, 0327h, 02FAh, 02CFh
-        dw      02A7h, 0281h, 025Dh, 023Bh, 021Bh, 01FCh, 01E0h, 01C5h
-        dw      01ACh, 0194h, 017Dh, 0168h, 0153h, 0140h, 012Eh, 011Dh
-        dw      010Dh, 00FEh, 00F0h, 00E2h, 00D6h, 00CAh, 00BEh, 00B4h
-        dw      00AAh, 00A0h, 0097h, 008Fh, 0087h, 007Fh, 0078h, 0071h
-        dw      006Bh, 0065h, 005Fh, 005Ah, 0055h, 0050h, 004Ch, 0047h
-        dw      0043h, 0040h, 003Ch, 0039h, 0035h, 0032h, 0030h, 002Dh
-        dw      002Ah, 0028h, 0026h, 0024h, 0022h, 0020h, 001Eh
+        dw      03FFh, 03F7h, 03BEh, 0388h, 0356h, 0326h, 02F9h, 02CEh
+        dw      02A5h, 0280h, 025Ch, 023Ah, 021Ah, 01FBh, 01DFh, 01C4h
+        dw      01ABh, 0193h, 017Dh, 0167h, 0153h, 0140h, 012Eh, 011Dh
+        dw      010Dh, 00FEh, 00EFh, 00E2h, 00D6h, 00C9h, 00BEh, 00B4h
+        dw      00A9h, 00A0h, 0097h, 008Fh, 0087h, 007Fh, 0078h, 0071h
+        dw      006Bh, 0065h, 005Fh, 005Ah, 0055h, 0050h, 004Bh, 0047h
+        dw      0043h, 0040h, 003Ch, 0039h, 0036h, 0033h, 0030h, 002Dh
+        dw      002Bh, 0028h, 0026h, 0024h, 0022h, 0020h, 001Fh, 001Dh
+        dw      001Bh, 001Ah, 0018h, 0017h, 0016h, 0015h, 0013h, 0012h
+        dw      0011h, 0010h, 0001h, 0001h, 0001h, 0001h, 0001h, 0001h
+        dw      0001h, 0001h, 0001h, 0001h, 0001h, 0001h, 0001h
 PsgDivisorTableZ_End:
 
 LogVolumeLutZ:

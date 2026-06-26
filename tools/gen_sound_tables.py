@@ -91,20 +91,37 @@ def fm_pitch_table() -> list[tuple[int, int]]:
     return out
 
 
-def psg_divisor(semitone: int) -> int:
-    """10-bit PSG tone divisor for a pitch index. = round(clock/(32*freq)).
-
-    The divisor is clamped to the 10-bit ceiling ($03FF), so low PSG pitches
-    saturate: the bottom ~2.5 octaves are not chromatic (correct hardware
-    behavior — the SN76489 has no lower divisor resolution there).
-    """
-    freq = _pitch_freq(semitone)
-    d = _round_half_up(PSG_SAMPLE_RATE / (freq * 2))
-    return max(1, min(0x3FF, d))
+# S3K zPSGFrequencies (skdisasm/Sound/Z80 Sound Driver.asm:2809-2815) — the PSG note
+# table that S3K-sourced songs ASSUME. Unlike pure true-ET (which we use for FM), S3K's
+# PSG table is shifted into the PSG's usable range: index 0 = ~109 Hz (the bottom octave
+# is clamped to the $3FF divisor ceiling), and the top two entries are the PSG's MAX
+# frequency — used as the bright hi-hat noise clock (rate-3). S3K's FM and PSG tables are
+# therefore ~2 octaves apart at the same note index, by design. We bake THESE values so
+# every S3K PSG note — both melodic tones AND the rate-3 noise clock (nMaxPSG1 = index 82
+# -> max-freq) — matches S3K bit-for-bit. (Using true-ET here made the PSG lead play ~2
+# octaves too low and the hi-hat clock land on a mid divisor instead of max-freq.)
+_S3K_PSG_FREQS = [
+    109.34,  109.34,  109.34,  109.34,  109.34,  109.34,  109.34,  109.34,  109.34,  110.20,  116.76,  123.73,
+    130.98,  138.78,  146.99,  155.79,  165.22,  174.78,  185.19,  196.24,  207.91,  220.63,  233.52,  247.47,
+    261.96,  277.56,  293.59,  311.58,  329.97,  349.56,  370.39,  392.49,  415.83,  440.39,  468.03,  494.95,
+    522.71,  556.51,  588.73,  621.44,  661.89,  699.12,  740.79,  782.24,  828.59,  880.79,  932.17,  989.91,
+    1045.42, 1107.52, 1177.47, 1242.89, 1316.00, 1398.25, 1491.47, 1575.50, 1669.55, 1747.82, 1864.34, 1962.46,
+    2071.49, 2193.34, 2330.42, 2485.78, 2601.40, 2796.51, 2943.69, 3107.23, 3290.01, 3495.64, 3608.40, 3857.25,
+    4142.98, 4302.32, 4660.85, 4863.50, 5084.56, 5326.69, 5887.39, 6214.47, 6580.02, 6991.28, 223721.56, 223721.56,
+]
 
 
 def psg_divisor_table() -> list[int]:
-    return [psg_divisor(i) for i in range(NUM_PITCHES)]
+    """S3K-exact PSG divisors: min($3FF, round(PSG_Sample_Rate/(2*freq))) over S3K's
+    zPSGFrequencies (same formula + sample rate as S3K -> bit-exact). The SMPS PSG note
+    range tops out at nMaxPSG2 = index 83, so the unused tail (84..94) fills with the
+    PSG max-freq entry (divisor 1)."""
+    tbl = []
+    for i in range(NUM_PITCHES):
+        freq = _S3K_PSG_FREQS[i] if i < len(_S3K_PSG_FREQS) else _S3K_PSG_FREQS[-1]
+        d = _round_half_up(PSG_SAMPLE_RATE / (freq * 2))
+        tbl.append(max(1, min(0x3FF, d)))
+    return tbl
 
 
 def log_volume_lut() -> list[int]:
