@@ -290,8 +290,15 @@ _CTL_SUSTAIN = 0x81
 _CTL_REST = 0x83
 _PSG_VOL_ENVS = [
     # id    sTone       S3K body  (== VolEnv_(id-1), verbatim)
+    (0x01, "sTone_01", [2, _CTL_REST]),                                   # VolEnv_00
+    (0x02, "sTone_02", [0, 2, 4, 6, 8, 0x10, _CTL_REST]),                 # VolEnv_01
     (0x03, "sTone_03", [2, 1, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
                         2, 3, 3, 3, 4, 4, 4, 5, _CTL_SUSTAIN]),            # VolEnv_02
+    (0x08, "sTone_08", [0, 0, 0, 2, 3, 3, 4, 5, 6, 7, 8, 9, 0x0A, 0x0B,
+                        0x0E, 0x0F, _CTL_REST]),                          # VolEnv_07
+    (0x0A, "sTone_0A", [1, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4,
+                        4, 4, 5, 5, _CTL_SUSTAIN]),                       # VolEnv_09
+    (0x0C, "sTone_0C", [0, 0, 1, 1, 3, 3, 4, 5, _CTL_REST]),              # VolEnv_0B
     (0x0D, "sTone_0D", [0, _CTL_SUSTAIN]),                                 # VolEnv_0C
     (0x0E, "sTone_0E", [2, _CTL_REST]),                                   # VolEnv_0D
     (0x0F, "sTone_0F", [0, 2, 4, 6, 8, 0x10, _CTL_REST]),                 # VolEnv_0E

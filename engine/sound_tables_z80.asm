@@ -71,13 +71,9 @@ PsgVolEnvCtl_Loop    = 80h
 PsgVolEnvCtl_Sustain = 81h
 PsgVolEnvCtl_Rest    = 83h
 
-PsgVolEnv_Ids:    db 03h, 0Dh, 0Eh, 0Fh, 11h, 1Dh
+PsgVolEnv_Ids:    db 01h, 02h, 03h, 08h, 0Ah, 0Ch, 0Dh, 0Eh, 0Fh, 11h, 1Dh
 PsgVolEnv_Ids_End:
-; The bodies now live at the start of Moving Trucks' streamed bank (main.asm), emitted
-; under `phase 08000h` so every label here EQUALS its Z80 $8000-window pointer. Each
-; dw therefore stores a window ptr, so the PsgVolEnv_Resolve dereference
-; (ld e,(hl)/inc/ld d,(hl)) reads the body through the window.
-PsgVolEnv_Ptrs:   dw PsgVolEnv_03, PsgVolEnv_0D, PsgVolEnv_0E, PsgVolEnv_0F, PsgVolEnv_11, PsgVolEnv_1D
+PsgVolEnv_Ptrs:   dw PsgVolEnv_01, PsgVolEnv_02, PsgVolEnv_03, PsgVolEnv_08, PsgVolEnv_0A, PsgVolEnv_0C, PsgVolEnv_0D, PsgVolEnv_0E, PsgVolEnv_0F, PsgVolEnv_11, PsgVolEnv_1D
 PsgVolEnv_Ptrs_End:
 
 PSGVOLENV_COUNT = PsgVolEnv_Ids_End - PsgVolEnv_Ids
@@ -85,7 +81,12 @@ PSGVOLENV_COUNT = PsgVolEnv_Ids_End - PsgVolEnv_Ids
           error "PsgVolEnv_Ptrs entry count mismatch vs PsgVolEnv_Ids"
         endif
 
+PsgVolEnv_01:   db 02h, PsgVolEnvCtl_Rest   ; sTone_01 (S3K VolEnv_00)
+PsgVolEnv_02:   db 00h, 02h, 04h, 06h, 08h, 10h, PsgVolEnvCtl_Rest   ; sTone_02 (S3K VolEnv_01)
 PsgVolEnv_03:   db 02h, 01h, 00h, 00h, 01h, 02h, 02h, 02h, 02h, 02h, 02h, 02h, 02h, 02h, 02h, 02h, 02h, 03h, 03h, 03h, 04h, 04h, 04h, 05h, PsgVolEnvCtl_Sustain   ; sTone_03 (S3K VolEnv_02)
+PsgVolEnv_08:   db 00h, 00h, 00h, 02h, 03h, 03h, 04h, 05h, 06h, 07h, 08h, 09h, 0Ah, 0Bh, 0Eh, 0Fh, PsgVolEnvCtl_Rest   ; sTone_08 (S3K VolEnv_07)
+PsgVolEnv_0A:   db 01h, 00h, 00h, 00h, 00h, 01h, 01h, 01h, 02h, 02h, 02h, 03h, 03h, 03h, 03h, 04h, 04h, 04h, 05h, 05h, PsgVolEnvCtl_Sustain   ; sTone_0A (S3K VolEnv_09)
+PsgVolEnv_0C:   db 00h, 00h, 01h, 01h, 03h, 03h, 04h, 05h, PsgVolEnvCtl_Rest   ; sTone_0C (S3K VolEnv_0B)
 PsgVolEnv_0D:   db 00h, PsgVolEnvCtl_Sustain   ; sTone_0D (S3K VolEnv_0C)
 PsgVolEnv_0E:   db 02h, PsgVolEnvCtl_Rest   ; sTone_0E (S3K VolEnv_0D)
 PsgVolEnv_0F:   db 00h, 02h, 04h, 06h, 08h, 10h, PsgVolEnvCtl_Rest   ; sTone_0F (S3K VolEnv_0E)
