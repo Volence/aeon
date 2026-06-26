@@ -27,9 +27,15 @@ GameState_Idle:
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
 ; -----------------------------------------------
-; Debug_MusicToggle — START button toggles the demo song (DEBUG test harness).
-; Edge-detected on Ctrl_1_Press. Also exercises Sound_StopMusic and the
-; song-switch silence path (a fresh PlayMusic). Clobbers: d0-d2/a0/a1.
+; Debug_MusicToggle — DEBUG sound test-harness hotkeys (edge-detected on
+; Ctrl_1_Press). Key map:
+;   A     = restart Moving Trucks from pattern 0 (logger-safe re-trigger)
+;   B     = fire the next test SFX in the cycle (Dbg_Sfx_Sel)
+;   UP    = play HCZ2 (S3K Hydrocity Zone Act 2 import, id 3)
+;   C     = play the DAC-drum-test song (id 2)
+;   START = toggle Moving Trucks play/stop
+; Also exercises Sound_StopMusic and the song-switch silence path (a fresh
+; PlayMusic). Clobbers: d0-d2/a0/a1.
 ; -----------------------------------------------
 Debug_MusicToggle:
         ; A button = RESTART the song from pattern 0 (re-trigger Sound_PlayMusic; NO
@@ -54,7 +60,7 @@ Debug_MusicToggle:
         ; a0 + clobber only d0/SR — safe inside this debug-toggle's d0-d2/a0/a1 budget.)
         move.b  (Ctrl_1_Press).w, d0
         andi.b  #BUTTON_B, d0
-        beq.s   .check_sample
+        beq.s   .check_hcz2
         move.w  (Dbg_Sfx_Sel).w, d1      ; current cycle index (0..7)
         move.w  d1, d2
         addq.w  #1, d2
@@ -70,6 +76,19 @@ Debug_MusicToggle:
         rts
 .sfx_ring:
         bsr.w   Sound_PlayRing          ; L/R-alternating ring SFX ($33/$34)
+        rts
+.check_hcz2:
+        ; UP = play the HCZ2 (S3K Hydrocity Zone Act 2) import song (id 3) on a fresh
+        ; press. The plan/design proposed B for this, but B ($10) is already the SFX-
+        ; cycle hotkey (above), so the dedicated HCZ2 trigger uses UP — a free D-pad
+        ; bit unused by the debug harness and by the idle game state. Edge-detected on
+        ; Ctrl_1_Press; UP ($01) does not collide with A($40)/B($10)/C($20)/START($80).
+        move.b  (Ctrl_1_Press).w, d0
+        andi.b  #BUTTON_UP, d0
+        beq.s   .check_sample
+        moveq   #SONG_HCZ2, d0           ; S3K Hydrocity Zone Act 2 import (Phase 7)
+        bsr.w   Sound_PlayMusic
+        move.b  #1, (Dbg_Music_On).w     ; keep START's play/stop toggle coherent
         rts
 .check_sample:
         ; C button = play the DEBUG STREAM DAC-on drum-test song (id 2) on a fresh
