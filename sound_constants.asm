@@ -688,14 +688,16 @@ sc_porta_accum  ds.w 1   ; +32
 sc_porta_incr   ds.w 1   ; +34
 sc_last_pan     ds.b 1   ; +36
 sc_fill_master  ds.b 1   ; +37
-sc_fill_count   ds.b 1   ; +38 (end of the shared SeqChannel-compatible prefix)
-; --- SFX Expressive Fidelity appended state (SfxChannel-only; renderers gate on ix>=SND_SFX_BASE) ---
-; PSG volume envelope (spec §4): per-frame attenuation contour folded into Psg_SetVolume.
-; Pitch modulation (spec §5): continuous additive freq-word vibrato/sweep, NO re-key.
-; Zeroed at slot init -> default-inert (off). Music SeqChannel lacks these fields entirely.
+sc_fill_count   ds.b 1   ; +38
+; --- PSG volume envelope (spec §4): per-frame attenuation contour folded into
+; Psg_SetVolume. SHARED with the music SeqChannel (same +39/+40/+41 offsets) so
+; both music and SFX PSG channels run it. Zeroed at init -> default-inert. ---
 sc_psgenv       ds.b 1   ; +39 PSG vol-env id (1-based; 0 = none)
 sc_psgenv_cur   ds.b 1   ; +40 PSG vol-env cursor (frame index into the body)
 sc_psgenv_out   ds.b 1   ; +41 last computed atten delta (write-on-change shadow for Psg_SetVolume)
+; --- SFX-only Expressive Fidelity appended state (renderers gate on ix>=SND_SFX_BASE;
+; music SeqChannel ends at +41 and lacks everything from here on). Pitch modulation
+; (spec §5): continuous additive freq-word vibrato/sweep, NO re-key. ---
 sc_mod_ctrl     ds.b 1   ; +42 pitch-mod control (0 = off; nonzero = active)
 sc_mod_wait     ds.b 1   ; +43 frames before modulation starts (one-shot, then held at 1)
 sc_mod_speed    ds.b 1   ; +44 frames between delta applications (countdown)
@@ -803,10 +805,18 @@ sc_last_pan     ds.b 1   ; +36 last $B4 ModUpdate wrote (0 = none yet / matches 
 sc_fill_master  ds.b 1   ; +37 note-fill reload: # frames the note stays keyed from attack
                          ;     (0 = legato/off). Per-channel gate articulation (#4).
 sc_fill_count   ds.b 1   ; +38 live per-frame note-fill countdown (0 = expired or disabled)
-SeqChannel endstruct      ; = 39 bytes
+; --- PSG volume envelope (spec §4): now serves MUSIC PSG channels, not just SFX.
+; These share the exact offsets they occupy in SfxChannel (+39/+40/+41), so the
+; shared (ix+sc_*) prefix addressing stays valid for both structs. Zeroed at
+; song-load init (z80_sound_driver.asm .chan_init); set only by MEV_PSGENV +
+; PsgEnvUpdate. (The pitch-MOD fields sc_mod_* remain SfxChannel-only at +42+.)
+sc_psgenv       ds.b 1   ; +39 PSG vol-env id (1-based; 0 = none)
+sc_psgenv_cur   ds.b 1   ; +40 PSG vol-env cursor (frame index into the body)
+sc_psgenv_out   ds.b 1   ; +41 last computed atten delta (folded by Psg_SetVolume)
+SeqChannel endstruct      ; = 42 bytes
 
-        if SeqChannel_len <> 39
-          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 39"
+        if SeqChannel_len <> 42
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 42"
         endif
         ; the largest field offset must stay within the signed-8-bit (ix+d) range.
         if SeqChannel_sc_last_pan > 127
@@ -848,11 +858,13 @@ sc_porta_incr   = SeqChannel_sc_porta_incr
 sc_last_pan     = SeqChannel_sc_last_pan
 sc_fill_master  = SeqChannel_sc_fill_master
 sc_fill_count   = SeqChannel_sc_fill_count
-; SFX Expressive Fidelity fields (SfxChannel-only; renderers gate on ix>=SND_SFX_BASE).
-; Aliased from SfxChannel_sc_* so (ix+sc_psgenv) etc. work in SFX renderer code.
-sc_psgenv       = SfxChannel_sc_psgenv
-sc_psgenv_cur   = SfxChannel_sc_psgenv_cur
-sc_psgenv_out   = SfxChannel_sc_psgenv_out
+; PSG volume-envelope fields — now SHARED by music SeqChannel + SfxChannel (same
+; +39/+40/+41 offsets), so the bare aliases come from SeqChannel like the rest.
+sc_psgenv       = SeqChannel_sc_psgenv
+sc_psgenv_cur   = SeqChannel_sc_psgenv_cur
+sc_psgenv_out   = SeqChannel_sc_psgenv_out
+; SFX-only Expressive Fidelity fields (SfxChannel-only; renderers gate on
+; ix>=SND_SFX_BASE — music SeqChannel does NOT carry these).
 sc_mod_ctrl     = SfxChannel_sc_mod_ctrl
 sc_mod_wait     = SfxChannel_sc_mod_wait
 sc_mod_speed    = SfxChannel_sc_mod_speed
