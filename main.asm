@@ -301,40 +301,25 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         include "data/sound/song_drumtest.asm"
 
         ; --- HCZ2 (S3K Hydrocity Zone Act 2) import — Phase 7 (id 3) ----------
-        ; A faithful native sequencer playback (NOT a register replay) of the
-        ; original S3K SMPS song, generated from skdisasm by song_hcz2.py. It is a
-        ; STREAM song (SH_F_STREAM, like Moving Trucks): the Z80 sequencer reads its
-        ; command streams AND its FM patch bank DIRECTLY through the banked $8000
-        ; window with ONE SetBank. So the whole HCZ2 block (song + patch bank) lives
-        ; in its OWN bank-aligned 32KB bank, mirroring MT's streaming block but
-        ; SEPARATE. `align $8000` snaps the song start to a bank boundary (window
-        ; $8000); HCZ2_Patches follows CONTIGUOUSLY (no align between) so a single
-        ; SetBank(SONG_HCZ2 bank) covers every HCZ2 sequencer ROM read. The
-        ; no-straddle + window-top guards live in song_table.asm (below), where the
-        ; SongPatchTable entry is — the labels are defined here first so those `if`
-        ; asserts resolve. Defined BEFORE song_table.asm (which references Song_HCZ2
-        ; + HCZ2_Patches in SongTable/SongPatchTable + the bank-fit asserts).
-        ;
-        ; PHASE-8 NOTE (engine-table window): the FM/PSG voice writers read the
-        ; engine tables (FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ /
-        ; PsgDivisorTableZ / PsgVolEnv_* and the default MovingTrucks_PitchTable) as
-        ; bare `phase 08000h` labels — i.e. window-relative, from whatever bank is in
-        ; the $8000 window. Those tables physically live at the START of Moving
-        ; Trucks' bank ONLY. While HCZ2 streams, HCZ2's bank is in the window, so
-        ; those reads land in HCZ2's bank where the tables are NOT present. The song
-        ; + patch reads are correct; the engine-table reads are not. Phase 8 must
-        ; resolve this (e.g. a label-free copy of the engine tables at the start of
-        ; THIS bank under `phase 08000h`, so the bare labels resolve identically in
-        ; both banks — no engine-code change, additive data only). This is a RUNTIME
-        ; (garbage pitch/volume), not an assembler, failure: it will NOT fail the
-        ; Phase-8 build, only the oracle audio check.
-        align   $8000                          ; HCZ2's streamed bank start (window $8000)
+        ; A faithful native sequencer playback (NOT a register replay) of the original
+        ; S3K SMPS song, generated from skdisasm by song_hcz2.py. STREAM song
+        ; (SH_F_STREAM, like Moving Trucks): the Z80 sequencer reads its command streams
+        ; AND its FM patch bank DIRECTLY through the banked $8000 window with ONE SetBank.
+        ; CO-LOCATED in THIS bank (same as Moving Trucks + DrumTest) — NO own `align
+        ; $8000`. WHY: the FM/PSG voice writers read the engine tables (FmPitchTableZ /
+        ; LogVolumeLutZ / CarrierMaskTableZ / PsgDivisorTableZ / PsgVolEnv_* and the
+        ; default MovingTrucks_PitchTable) as bare `phase 08000h` labels = window-
+        ; relative, and those tables physically live ONLY at the start of THIS bank. An
+        ; own HCZ2 bank would window-in a bank WITHOUT them -> garbage pitch/volume. Co-
+        ; locating lets HCZ2 reuse them with zero duplication (pitchtable_ptr=0 ->
+        ; FmPitchTableZ above), exactly as DrumTest does. song_hcz2.asm + its FM patch
+        ; bank (HCZ2_Patches, 4*26=104 B) follow CONTIGUOUSLY so one SetBank covers every
+        ; HCZ2 sequencer ROM read; the whole MT+DrumTest+HCZ2 block must fit ONE 32KB
+        ; bank (the no-straddle + window-top guards in song_table.asm enforce it — if it
+        ; overflows, a label-free engine-table copy in a dedicated HCZ2 bank is the
+        ; fallback). Defined BEFORE song_table.asm (which references Song_HCZ2 +
+        ; HCZ2_Patches in SongTable/SongPatchTable + the bank-fit asserts).
         include "data/sound/song_hcz2.asm"
-        ; The per-song FM patch bank (4 records * 26 = 104 bytes), read by
-        ; Fm_PatchLoad at SND_SEQ_PATCHTAB + local_idx*26. Placed CONTIGUOUSLY after
-        ; the song (no align between) so the whole block stays in the one bank-
-        ; aligned 32KB bank. The stream-path loader points SND_SEQ_PATCHTAB at this
-        ; bank's window ptr (from SongPatchTable[2]).
         include "data/sound/hcz2_patches.asm"
     endif
         include "data/sound/song_table.asm"
