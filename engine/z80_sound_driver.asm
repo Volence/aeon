@@ -1207,6 +1207,14 @@ Snd_LoadSong:
         ; this. At 0 the next `dec (ix+sc_dur_count)` wraps 0->255 = a multi-second
         ; stuck note. 1 = "advance every tick" until the stream sets a real default.
         ld      (ix+sc_dur_default), 1
+        ; PSG vol-env starts disabled (id 0); cursor/out cleared so a no-env PSG
+        ; channel folds a 0 delta (byte-identical to no envelope). Set ONLY by the
+        ; MEV_PSGENV opcode + PsgEnvUpdate. .chan_init sets fields individually (no
+        ; bulk clear), so these MUST be cleared here or a stale env id from a prior
+        ; song/SFX would spuriously shape a music PSG channel.
+        ld      (ix+sc_psgenv), 0
+        ld      (ix+sc_psgenv_cur), 0
+        ld      (ix+sc_psgenv_out), 0
         ; --- Phase 3 per-channel state ---
         ; tempo accumulator: base from the header (SH_TEMPO_BASE), accum seeded =
         ; base so the FIRST frame's `sub 16` starts counting toward an event-tick.
