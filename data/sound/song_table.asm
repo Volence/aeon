@@ -22,7 +22,14 @@ SONG_MOVINGTRUCKS  = 1
 ; SFX-mid-drum (B3). Co-located in Moving Trucks' bank (see main.asm), reusing the
 ; engine-default pitch table + MovingTrucks_Patches.
 SONG_DRUMTEST      = 2
-SONG_COUNT         = 2
+; SONG_HCZ2 (Phase 7): the S3K Hydrocity Zone Act 2 import — a faithful native
+; sequencer playback (NOT a register replay) of the original SMPS song, generated
+; from skdisasm by data/sound/song_hcz2.py. 9 channels (DAC + FM1-5 + PSG1-3),
+; STREAM song (SH_F_STREAM). Its song + FM patch bank form ONE bank-aligned 32KB
+; streaming block in its OWN bank (see main.asm) — like Moving Trucks, but a
+; SEPARATE bank. Uses the engine-default pitch table (pitchtable_ptr=0).
+SONG_HCZ2          = 3
+SONG_COUNT         = 3
     else
 SONG_COUNT         = 1
     endif
@@ -31,6 +38,7 @@ SongTable:
         dc.l    Song_MovingTrucks   ; id 1 — Phase 3 Task 8 native Moving Trucks (streamed)
     ifdef __DEBUG__
         dc.l    Song_DrumTest       ; id 2 — DEBUG STREAM DAC-on drum-test (Task 5.3)
+        dc.l    Song_HCZ2           ; id 3 — S3K Hydrocity Zone Act 2 import (Phase 7)
     endif
 SongTable_End:
 
@@ -46,6 +54,7 @@ SongPatchTable:
         dc.l    MovingTrucks_Patches ; id 1 Song_MovingTrucks (stream path — USED)
     ifdef __DEBUG__
         dc.l    MovingTrucks_Patches ; id 2 Song_DrumTest reuses MT's patch bank (same bank)
+        dc.l    HCZ2_Patches         ; id 3 Song_HCZ2 (stream path — its OWN bank, contiguous w/ song)
     endif
 SongPatchTable_End:
 
@@ -99,6 +108,28 @@ SongPatchTable_End:
         ; this bank above, so no separate pitch/patch fit check is needed.)
         if (MovingTrucks_Bank_Start >> 15) <> ((Song_DrumTest_End-1) >> 15)
           fatal "Song_DrumTest (DEBUG) pushed Moving Trucks' bank past a 32KB boundary (\{Song_DrumTest_End-MovingTrucks_Bank_Start} bytes from the bank start). Shrink the test song or give it its own bank+tables."
+        endif
+
+        ; Song_HCZ2 (Phase 7) STREAMS from ROM (SH_F_STREAM): the Z80 sequencer reads
+        ; its command streams AND its FM patch bank DIRECTLY through the banked $8000
+        ; window with ONE SetBank. So the whole HCZ2 block (song + patch bank) must
+        ; live in ONE 32KB bank, bank-aligned (align $8000 before Song_HCZ2 in
+        ; main.asm, with HCZ2_Patches contiguous after the song). Assert the block
+        ; does NOT cross a 32KB bank boundary (top byte in the same 32KB bank as the
+        ; song start). Combined size is ~6.4KB song + 104B patches << 32KB, so the
+        ; align guarantees it — this catches future growth or reordering. The
+        ; per-channel stream offsets and the patch-bank window ptr are all bank-
+        ; window-relative (window_base = (addr & $7FFF) | $8000), which holds iff no
+        ; boundary cross.
+        if (Song_HCZ2 >> 15) <> ((HCZ2_Patches_End-1) >> 15)
+          fatal "Song_HCZ2 streaming block (song+patches, \{HCZ2_Patches_End-Song_HCZ2} bytes) crosses a 32KB bank boundary — one SetBank can't cover it. Keep Song_HCZ2 bank-aligned (align $8000) with the song + patch bank contiguous."
+        endif
+        ; The block's whole window region must also stay below the $8000-window top
+        ; (so window_base + any per-channel/patch offset stays a valid window
+        ; address, never wrapping past $FFFF). With bank-alignment (addr & $7FFF)=0
+        ; this is automatic, but assert it against future placement changes.
+        if ((HCZ2_Patches_End-1) & $7FFF) < (HCZ2_Patches_End-1 - Song_HCZ2)
+          fatal "Song_HCZ2 streaming block extends past the $8000-window top — not bank-aligned? Keep `align $8000` before Song_HCZ2."
         endif
     endif
 
