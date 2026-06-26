@@ -1,5 +1,5 @@
 # tools/test_smps_import.py
-from smps_import import tokenize_line, NOTE_BYTES, PAN_BYTES, DAC_IDS, FLAG_BYTES, resolve_const
+from smps_import import tokenize_line, NOTE_BYTES, PAN_BYTES, DAC_IDS, FLAG_BYTES, resolve_const, HCZ2_DAC_REMAP
 
 def test_tokenize_macro_with_args():
     assert tokenize_line("\tsmpsHeaderFM\tSnd_HCZ2_FM1, $18, $0F  ; comment") == \
@@ -671,3 +671,17 @@ def test_emit_patch_table_rows_in_remap_order():
     rows = [ln for ln in asm.splitlines() if ln.strip().startswith("dc.b")]
     for i, row in enumerate(rows):
         assert ("S3K voice $%02X" % idx_to_id[i]) in row
+
+def test_hcz2_dac_remap_covers_exactly_the_six_drums():
+    # HCZ2 uses exactly 6 DAC ids ($81..$86 = 1-based 1..6). Dac() carries the
+    # 1-based id (b & 0x7F), so the remap keys must be exactly {1,2,3,4,5,6}.
+    hcz2_one_based = {raw & 0x7F for raw in DAC_IDS.values()}
+    assert hcz2_one_based == {1, 2, 3, 4, 5, 6}
+    assert set(HCZ2_DAC_REMAP.keys()) == hcz2_one_based
+    # Maps to the 6 distinct v0 DacSampleTable ids assigned in Phase 5.
+    assert set(HCZ2_DAC_REMAP.values()) == {5, 6, 7, 8, 9, 10}
+    # Spot-check the documented assignment.
+    assert HCZ2_DAC_REMAP[6] == 5   # dKickS3   -> s3k_kick
+    assert HCZ2_DAC_REMAP[1] == 6   # dSnareS3  -> s3k_snare
+    assert HCZ2_DAC_REMAP[2] == 7   # dHighTom  -> s3k_hitom
+    assert HCZ2_DAC_REMAP[5] == 10  # dFloorTomS3 -> s3k_floortom

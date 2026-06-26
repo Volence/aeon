@@ -1386,6 +1386,49 @@ DacSampleTable:
         dw      SND_HAT_PTR              ; ds_ptr
         dw      SND_HAT_LEN              ; ds_length
         dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
+        ; --- S3K HCZ2 drums (Phase 5; ids match tools/smps_import.py HCZ2_DAC_REMAP) ---
+        ; id 5 = s3k_kick
+        db      SND_S3K_KICK_BANK        ; ds_bank
+        db      0                        ; ds_rate (reserved)
+        db      0                        ; ds_codec (raw 8-bit PCM)
+        dw      SND_S3K_KICK_PTR         ; ds_ptr
+        dw      SND_S3K_KICK_LEN         ; ds_length
+        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
+        ; id 6 = s3k_snare
+        db      SND_S3K_SNARE_BANK       ; ds_bank
+        db      0                        ; ds_rate (reserved)
+        db      0                        ; ds_codec (raw 8-bit PCM)
+        dw      SND_S3K_SNARE_PTR        ; ds_ptr
+        dw      SND_S3K_SNARE_LEN        ; ds_length
+        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
+        ; id 7 = s3k_hitom
+        db      SND_S3K_HITOM_BANK       ; ds_bank
+        db      0                        ; ds_rate (reserved)
+        db      0                        ; ds_codec (raw 8-bit PCM)
+        dw      SND_S3K_HITOM_PTR        ; ds_ptr
+        dw      SND_S3K_HITOM_LEN        ; ds_length
+        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
+        ; id 8 = s3k_midtom
+        db      SND_S3K_MIDTOM_BANK      ; ds_bank
+        db      0                        ; ds_rate (reserved)
+        db      0                        ; ds_codec (raw 8-bit PCM)
+        dw      SND_S3K_MIDTOM_PTR       ; ds_ptr
+        dw      SND_S3K_MIDTOM_LEN       ; ds_length
+        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
+        ; id 9 = s3k_lowtom
+        db      SND_S3K_LOWTOM_BANK      ; ds_bank
+        db      0                        ; ds_rate (reserved)
+        db      0                        ; ds_codec (raw 8-bit PCM)
+        dw      SND_S3K_LOWTOM_PTR       ; ds_ptr
+        dw      SND_S3K_LOWTOM_LEN       ; ds_length
+        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
+        ; id 10 = s3k_floortom
+        db      SND_S3K_FLOORTOM_BANK    ; ds_bank
+        db      0                        ; ds_rate (reserved)
+        db      0                        ; ds_codec (raw 8-bit PCM)
+        dw      SND_S3K_FLOORTOM_PTR     ; ds_ptr
+        dw      SND_S3K_FLOORTOM_LEN     ; ds_length
+        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
 DacSampleTable_End:
 
         if (DacSampleTable_End-DacSampleTable) <> DAC_SAMPLE_COUNT*DacSample_len

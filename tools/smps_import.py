@@ -72,6 +72,27 @@ DAC_IDS = {
 }
 
 # ---------------------------------------------------------------------------
+# HCZ2 DAC remap: raw S3K 1-based DAC id (dXxx & 0x7F) -> v0 DacSampleTable id.
+# Dac() carries the 1-based id (smps_import emits `Dac(b & 0x7F)`); convert_song's
+# dac_remap rewrites it to the engine's DacSampleTable id. The v0 ids are the 6
+# S3K HCZ2 drums appended in Phase 5 (engine/z80_sound_driver.asm DacSampleTable,
+# data/sound/dac_samples.asm): kick=5 snare=6 hitom=7 midtom=8 lowtom=9 floortom=10.
+#   dSnareS3   $81  -> 1-based 1  -> v0 id 6
+#   dHighTom   $82  -> 1-based 2  -> v0 id 7
+#   dMidTomS3  $83  -> 1-based 3  -> v0 id 8
+#   dLowTomS3  $84  -> 1-based 4  -> v0 id 9
+#   dFloorTomS3 $85 -> 1-based 5  -> v0 id 10
+#   dKickS3    $86  -> 1-based 6  -> v0 id 5
+HCZ2_DAC_REMAP = {
+    1: 6,   # dSnareS3   -> s3k_snare
+    2: 7,   # dHighTom   -> s3k_hitom
+    3: 8,   # dMidTomS3  -> s3k_midtom
+    4: 9,   # dLowTomS3  -> s3k_lowtom
+    5: 10,  # dFloorTomS3-> s3k_floortom
+    6: 5,   # dKickS3    -> s3k_kick
+}
+
+# ---------------------------------------------------------------------------
 # Coordination-flag byte values — _smps2asm_inc.asm
 #
 # These constants appear INLINE as dc.b args (e.g. "dc.b nMaxPSG1, $06, smpsNoAttack, $06").
