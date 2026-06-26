@@ -195,3 +195,31 @@ def test_hcz2_dcb_symbol_coverage():
                 failures.append("line %d: %r" % (lineno, tok))
 
     assert not failures, "resolve_const failed on: " + ", ".join(failures)
+
+# ── Task 2.1 ─ notes / rests / durations (CORRECTED note-first model) ─────────
+
+from smps_import import convert_channel, ConvState
+from song_packer import Note, Rest, SetDur, NoteDur
+
+def _cfg(divider=1):
+    c = SongConfig(); c.divider = divider; return c
+
+def test_note_with_trailing_duration():
+    ev = convert_channel("FM", ["\tdc.b nC4, $0C", "\tdc.b $80"], {}, _cfg(), ConvState())
+    # nC4 = $B1 -> index 0x30; dur 0x0C
+    assert isinstance(ev[0], SetDur) and ev[0].ticks == 0x0C
+    assert isinstance(ev[1], Note) and ev[1].pitch == 0x30
+    assert isinstance(ev[-1], Rest)
+
+def test_bare_note_reuses_saved_dur():
+    ev = convert_channel("FM", ["\tdc.b nC4, $0C, nE4"], {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 2 and notes[1].pitch == 0x34   # nE4=$B5 -> 0x34, reuses dur 0x0C (no new SetDur)
+
+def test_transpose_folds():
+    ev = convert_channel("FM", ["\tdc.b nC4, $0C"], {}, _cfg(), ConvState(transpose=2))
+    assert any(isinstance(e, Note) and e.pitch == 0x32 for e in ev)
+
+def test_duration_times_divider_overflow_uses_notedur():
+    ev = convert_channel("FM", ["\tdc.b nC4, $40"], {}, _cfg(divider=2), ConvState())  # 0x40*2=0x80>0x7F
+    assert any(isinstance(e, NoteDur) and e.dur == 0x80 for e in ev)
