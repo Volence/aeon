@@ -338,10 +338,25 @@ def test_loop_nested_unrolls():
     notes = [e for e in ev if isinstance(e, Note)]
     assert len(notes) == 9
 
-def test_psg_voice_safe_env():
+def test_psg_voice_maps_to_imported_env():
+    # sTone_0C is an imported engine envelope -> PsgEnv(0x0C), not the old PsgEnv(0).
     ev = convert_channel("PSG", ["\tsmpsPSGvoice sTone_0C", "\tdc.b nC4, $0C"],
                          {}, _cfg(), ConvState())
-    assert any(isinstance(e, PsgEnv) and e.env_id == 0 for e in ev)
+    assert any(isinstance(e, PsgEnv) and e.env_id == 0x0C for e in ev)
+
+def test_psg_voice_emits_envelope_id():
+    # sTone_08 (HCZ2 hi-hat) -> PsgEnv(8).
+    ev = convert_channel("PSG", ["\tsmpsPSGvoice sTone_08", "\tdc.b nC4, $0C"],
+                         {}, _cfg(), ConvState())
+    envs = [e for e in ev if isinstance(e, PsgEnv)]
+    assert len(envs) == 1 and envs[0].env_id == 0x08
+
+def test_psg_voice_unknown_env_falls_back_to_zero():
+    # An sTone with no imported engine envelope warns + emits PsgEnv(0) (safe).
+    ev = convert_channel("PSG", ["\tsmpsPSGvoice sTone_19", "\tdc.b nC4, $0C"],
+                         {}, _cfg(), ConvState())
+    envs = [e for e in ev if isinstance(e, PsgEnv)]
+    assert len(envs) == 1 and envs[0].env_id == 0
 
 def test_jump_loopback_terminates():
     # A channel that jumps back to an earlier label in its own data emits a

@@ -456,6 +456,38 @@ def _fm_atten_to_v0(atten: int) -> int:
     return _ATTEN_TO_V0[atten]
 
 
+def _parse_psg_env_ids() -> set:
+    """Parse PsgVolEnv_Ids from engine/sound_tables_z80.asm -> {int id}.
+
+    These are the sTone ids that HAVE an imported PSG volume envelope in the
+    engine. smpsPSGvoice maps sTone_NN -> PsgEnv(NN) only for these (else
+    PsgEnv(0) + warn). Parsing the engine file (rather than hardcoding) means the
+    converter auto-tracks the table — exactly like _parse_log_volume_lut."""
+    path = os.path.normpath(os.path.join(_HERE, "..", "engine", "sound_tables_z80.asm"))
+    ids = set()
+    with open(path) as f:
+        for line in f:
+            m = re.match(r"\s*PsgVolEnv_Ids:\s*db\s+(.*)", line)
+            if not m:
+                continue
+            for tok in m.group(1).split(";", 1)[0].split(","):
+                tok = tok.strip()
+                mh = re.fullmatch(r"([0-9A-Fa-f]+)[hH]", tok)
+                if mh:
+                    ids.add(int(mh.group(1), 16))
+                elif tok.startswith("$"):
+                    ids.add(int(tok[1:], 16))
+                elif re.fullmatch(r"\d+", tok):
+                    ids.add(int(tok))
+            break
+    if not ids:
+        raise RuntimeError("_parse_psg_env_ids: PsgVolEnv_Ids not found in %s" % path)
+    return ids
+
+
+_PSG_ENV_IDS = _parse_psg_env_ids()
+
+
 def _smps_vol_to_v0(kind, val):
     """Map a MID-SONG smpsSetVol OPERAND to a v0 0..127 volume.
 
@@ -520,17 +552,8 @@ def _alter_vol(kind, want, delta, st, out):
         out.append(Vol(_smps_vol_to_v0("PSG", cur)))
 
 
-_psg_env_warned = False
 _detune_warned = False
 _psgform_restore_warned = False
-
-
-def _warn_psg_env_once():
-    global _psg_env_warned
-    if not _psg_env_warned:
-        warn("PSG-envelope timbre approximated (v1 maps every sTone -> PsgEnv(0);"
-             " PSG melody preserved, S3K envelope shape not imported)")
-        _psg_env_warned = True
 
 
 def _warn_psgform_restore_once():
@@ -566,14 +589,17 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
     elif mnem == "smpsModOff":
         out.append(ModSet(0, 0, 0, 0))
     elif mnem == "smpsPSGvoice":
-        # PSG voice = an S3K PSG volume-envelope index (sTone_NN). v1 does NOT
-        # import those envelope contours, so map every tone to PsgEnv(0) (no
-        # envelope = flat PSG tone). The PSG NOTES/melody are preserved; only the
-        # S3K envelope SHAPE is approximated — a documented v1 fidelity gap.
-        # MEV_PSGENV is 1-based with 0 = none, so 0 is the safe "no env" id; do
-        # NOT index a nonexistent envelope.
-        _warn_psg_env_once()
-        out.append(PsgEnv(0))
+        # PSG voice = an S3K PSG volume-envelope id (sTone_NN). Map to the engine's
+        # imported PsgEnv(id) so each PSG hit gets its S3K decay contour (the hi-hat
+        # "ts"). If the engine table has no body for this id, fall back to PsgEnv(0)
+        # (flat, no envelope) and warn — so a missing import is loud, not silent.
+        # MEV_PSGENV is 1-based with 0 = none.
+        env_id = resolve_const(args[0])
+        if env_id not in _PSG_ENV_IDS:
+            warn("sTone $%02X has no imported PSG envelope (engine PsgVolEnv_Ids);"
+                 " emitting PsgEnv(0) — add it to gen_sound_tables.py" % env_id)
+            env_id = 0
+        out.append(PsgEnv(env_id))
     elif mnem == "smpsNoteFill":
         out.append(NoteFill(resolve_const(args[0]) * cfg.divider))
     elif mnem == "smpsStop":
