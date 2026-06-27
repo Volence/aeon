@@ -687,10 +687,14 @@ fp_rs_ar      ds.b 4          ; $50+ : RS/AR per operator
 fp_am_d1r     ds.b 4          ; $60+ : AM/D1R per operator
 fp_d2r        ds.b 4          ; $70+ : D2R per operator
 fp_d1l_rr     ds.b 4          ; $80+ : D1L/RR per operator
-FmPatch endstruct             ; = 2 + 6*4 = 26 bytes
+fp_ssg_eg     ds.b 4          ; $90+ : SSG-EG mode per operator (bit3 enable | bits0-2 mode);
+                              ;        $00 = off. Loaded via SND_REG_OP_SSG_EG in Fm_PatchLoad.
+fp_reserved   ds.b 2          ; pad the record to 32 bytes (a power of two) so Fm_PatchPtr
+                              ;        addresses it with five `add hl,hl` shifts (no mulu).
+FmPatch endstruct             ; = 2 + 6*4 + 4 + 2 = 32 bytes
 
-        if FmPatch_len <> 26
-          error "FmPatch struct is \{FmPatch_len} bytes, expected 26"
+        if FmPatch_len <> 32
+          error "FmPatch struct is \{FmPatch_len} bytes, expected 32"
         endif
 
 ; --- SFX blob header (emitted by tools/sfx_transcode.py, prefixes the event-list).

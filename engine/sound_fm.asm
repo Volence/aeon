@@ -107,9 +107,9 @@ Fm_RoutePart:
 ; path sets it to the song's patch bank window address (read transparently through
 ; the $8000 window while the song's bank is held). So FM patch loads work the same
 ; whether the bank lives in RAM or the banked ROM window.
-; FmPatch_len = 26. Multiply by shift/add (NO mulu): keep P2 = patch*2 in de,
-; then accumulate in hl by doubling and adding P2 — the running products are
-;   *2 (=P2) -> *4 -> *8 -> +P2=*10 -> *20 -> +P2=*22 -> +P2=*24 -> +P2=*26.
+; FmPatch_len = 32 (a power of two). Multiply by FIVE `add hl,hl` shifts (NO mulu,
+; NO add-chain): patch -> *2 -> *4 -> *8 -> *16 -> *32. de is no longer needed
+; (the old 26-byte add-chain kept P2=patch*2 in de; 32 is a pure shift).
 ; Clobbers: af, de, hl. Preserves bc, ix.
 ; ----------------------------------------------------------------------
 ; ----------------------------------------------------------------------
@@ -141,18 +141,13 @@ Fm_PatchPtr:
         ld      a, (ix+sc_patch)
         ld      l, a
         ld      h, 0                     ; hl = patch
-        add     hl, hl                   ; hl = patch*2  (call it P2)
-        ld      e, l
-        ld      d, h                     ; de = P2
-        add     hl, hl                   ; hl = P2*2  = patch*4
-        add     hl, hl                   ; hl = P2*4  = patch*8
-        add     hl, de                   ; hl = patch*8 + patch*2 = patch*10
-        add     hl, hl                   ; hl = patch*20
-        add     hl, de                   ; hl = patch*20 + patch*2 = patch*22
-        add     hl, de                   ; hl = patch*24
-        add     hl, de                   ; hl = patch*26  (= patch*FmPatch_len)
+        add     hl, hl                   ; hl = patch*2
+        add     hl, hl                   ; hl = patch*4
+        add     hl, hl                   ; hl = patch*8
+        add     hl, hl                   ; hl = patch*16
+        add     hl, hl                   ; hl = patch*32  (= patch*FmPatch_len)
         ld      de, (SND_SEQ_PATCHTAB)   ; base = loaded patch-table ptr (RAM or window)
-        add     hl, de                   ; hl = table base + patch*26
+        add     hl, de                   ; hl = table base + patch*32
         ret
 
 ; ----------------------------------------------------------------------
