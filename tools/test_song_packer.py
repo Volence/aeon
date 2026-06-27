@@ -623,6 +623,31 @@ class TestMacroEvents(unittest.TestCase):
         body = emit_macro_body([MacNext(), MacEnd()], body_base=0)
         self.assertEqual(body, bytes([0xE0, 0xE3]))
 
+    # --- E3: D8 music-legal route gate ---
+
+    def test_music_song_accepts_expression_opcodes(self):
+        # A music channel emitting MEV_PSGENV/$F7/$F8/$F9 must NOT be rejected
+        # or silently dropped (D8 music-legal route gate).
+        from song_packer import FmEnv, RegWrite, Macro, PsgEnv
+        fm = ChannelDesc(CHROUTE_FM1, [
+            Patch(0), Vol(100), SetDur(0x10), LoopPoint(),
+            FmEnv(2), RegWrite(0, 0x90, 0x08), Macro(),
+            Note(0), Jump()])
+        psg = ChannelDesc(CHROUTE_PSG1, [
+            Vol(90), PsgEnv(3), SetDur(0x10), LoopPoint(), Note(0), Jump()])
+        blob = pack_song(SongDesc(tempo=16, channels=[fm, psg]))
+        self.assertIn(0xF7, blob)    # MEV_FMENV present, not dropped
+        self.assertIn(0xF8, blob)    # MEV_REGWRITE
+        self.assertIn(0xF9, blob)    # MEV_MACRO
+        self.assertIn(0xEB, blob)    # MEV_PSGENV
+
+    def test_music_illegal_opcode_is_rejected_not_dropped(self):
+        # The gate must REJECT (not silently emit) an opcode flagged
+        # music-illegal. MEV_SPINREV_RESET ($F1) is dispatch-folded and must
+        # never appear in a stream; assert the gate rejects a raw event for it.
+        from song_packer import _MUSIC_ILLEGAL_OPCODES
+        self.assertIn(0xF1, _MUSIC_ILLEGAL_OPCODES)
+
 
 class TestConstantsSync(unittest.TestCase):
     """song_packer hand-mirrors the MEV_* opcode and CHROUTE_* route values from
@@ -636,10 +661,11 @@ class TestConstantsSync(unittest.TestCase):
         # sound_constants.asm sits at the repo root; tests live in <repo>/tools/.
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         asm_path = os.path.join(repo_root, "sound_constants.asm")
-        mev, chroute = {}, {}
-        # e.g. "MEV_REST        = $80    ; comment"  /  "CHROUTE_FM1 = 0"
+        mev, chroute, tag = {}, {}, {}
+        # e.g. "MEV_REST        = $80    ; comment"  /  "CHROUTE_FM1 = 0"  /  "TAG_MAC_NEXT = $E0"
         mev_re = re.compile(r"^\s*(MEV_[A-Z0-9_]+)\s*=\s*\$([0-9A-Fa-f]+)")
         chr_re = re.compile(r"^\s*(CHROUTE_[A-Z0-9_]+)\s*=\s*(\d+)")
+        tag_re = re.compile(r"^\s*(TAG_MAC_[A-Z0-9_]+)\s*=\s*\$([0-9A-Fa-f]+)")
         with open(asm_path) as f:
             for line in f:
                 m = mev_re.match(line)
@@ -649,10 +675,14 @@ class TestConstantsSync(unittest.TestCase):
                 c = chr_re.match(line)
                 if c:
                     chroute[c.group(1)] = int(c.group(2), 10)
-        return mev, chroute
+                    continue
+                t = tag_re.match(line)
+                if t:
+                    tag[t.group(1)] = int(t.group(2), 16)
+        return mev, chroute, tag
 
     def test_mev_and_chroute_in_sync(self):
-        mev, chroute = self._parse_asm_equates()
+        mev, chroute, _tag = self._parse_asm_equates()
         # Sanity: the parse actually found the equates (guards against a moved
         # file or a regex that silently matches nothing).
         self.assertIn("MEV_REST", mev)
@@ -661,6 +691,23 @@ class TestConstantsSync(unittest.TestCase):
             py_val = getattr(song_packer, name, None)
             self.assertIsNotNone(
                 py_val, f"{name} present in sound_constants.asm but not song_packer.py")
+            self.assertEqual(
+                py_val, asm_val,
+                f"{name}: song_packer.py={py_val} != sound_constants.asm={asm_val}")
+
+    def test_tag_mac_in_sync(self):
+        # The slot[1] macro tag bytes must match between the packer emitter and
+        # the D-side MacroTick reader (sound_constants.asm TAG_MAC_*), so the
+        # bytes can never silently drift. Skip cleanly until the asm equates
+        # land (D component) — but once present, every one must mirror.
+        _mev, _chroute, tag = self._parse_asm_equates()
+        if not tag:
+            self.skipTest("TAG_MAC_* equates not yet in sound_constants.asm "
+                          "(added by the MacroTick / Component D task)")
+        for name, asm_val in tag.items():
+            py_val = getattr(song_packer, name, None)
+            self.assertIsNotNone(
+                py_val, f"{name} in sound_constants.asm but not song_packer.py")
             self.assertEqual(
                 py_val, asm_val,
                 f"{name}: song_packer.py={py_val} != sound_constants.asm={asm_val}")

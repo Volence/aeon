@@ -98,6 +98,19 @@ _FM_ROUTES = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
               CHROUTE_FM6}
 _PSG_ROUTES = {CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN}
 
+# --- D8 music-legal opcode gate ---------------------------------------
+# song_packer IS the music-song builder, so every opcode it can emit is
+# music-legal BY CONSTRUCTION except the dispatch-folded ones that must never
+# appear in a stream (the engine maps them to Seq_BadOpcode). $F1
+# (MEV_SPINREV_RESET) is reset-by-dispatch (Sfx_BeginSound zeroes the rev), so
+# a raw event encoding it is music-ILLEGAL — reject, never silently emit. The
+# Phase-3 expression opcodes ($F7/$F8/$F9) + MEV_PSGENV ($EB) are explicitly
+# music-LEGAL (this set documents that intent for D8 traceability).
+# MEV_SPINREV_RESET is defined above (~line 69) — referenced here, NOT redefined.
+_MUSIC_ILLEGAL_OPCODES = frozenset({MEV_SPINREV_RESET})
+_MUSIC_LEGAL_EXPRESSION_OPCODES = frozenset({
+    MEV_PSGENV, MEV_FMENV, MEV_REGWRITE, MEV_MACRO})
+
 # SongHeader flags byte (SH_FLAGS) — MIRROR of sound_constants.asm SH_F_*.
 SH_F_FM6_FM = 1 << 0     # FM6 is a 6th FM sequencer voice (DAC mode OFF)
 SH_F_STREAM = 1 << 1     # stream from ROM (no RAM copy); else copy-to-RAM (1C)
