@@ -516,6 +516,18 @@ class TestMacroEvents(unittest.TestCase):
         from song_packer import Macro
         self.assertEqual(Macro().encode(), bytes([0xF9, 0x00, 0x00]))
 
+    def test_macro_on_psg_route_rejected(self):
+        from song_packer import Macro
+        with self.assertRaises(PackError):
+            Macro().validate(CHROUTE_PSG1)
+
+    def test_macro_encode_patched_ptr(self):
+        # the 2-byte BE split must hold for a non-zero (back-patched) offset
+        from song_packer import Macro
+        m = Macro()
+        m.body_offset = 0x0145
+        self.assertEqual(m.encode(), bytes([0xF9, 0x01, 0x45]))
+
 
 class TestConstantsSync(unittest.TestCase):
     """song_packer hand-mirrors the MEV_* opcode and CHROUTE_* route values from

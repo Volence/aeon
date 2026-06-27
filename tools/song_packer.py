@@ -297,6 +297,10 @@ class Macro(Event):
         return bytes([MEV_MACRO, (self.body_offset >> 8) & 0xFF,
                       self.body_offset & 0xFF])
 
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"Macro on non-FM route {route}")
+
 
 class PsgNoise(Event):
     """Set the SN76489 noise control byte (mode+rate, $E0-$EF). Zero-tick; owns the
