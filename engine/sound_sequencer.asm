@@ -190,6 +190,13 @@ ModUpdate:
         or      a
         call    nz, Mod_ApplyVibrato     ; advance + write-on-change $A4/$A0 (no key-on)
 .vibrato_done:
+        ; --- FM TL VOLUME ENVELOPE (spec §4 flagship): advance the carrier-TL contour
+        ; + re-emit volume (folds sc_env_out in Fm_SetVolume). Runs EVERY frame (held
+        ; notes too) so the swell/tremolo evolves across a held note. sc_env==0 -> one
+        ; test then skip (byte-identical to no envelope; MT regression-safe).
+        ld      a, (ix+sc_env)
+        or      a
+        call    nz, FmEnvUpdate          ; advance + re-emit carrier TLs (preserves ix)
 
         ; --- NOTE-FILL (#4 gate articulation): per-frame countdown; key OFF early when it
         ; reaches 0, leaving a staccato gap until the next attack. sc_fill_count==0 means
@@ -357,6 +364,58 @@ PsgEnvUpdate:
         ; The cursor stays parked on the rest byte, so until the next note-on this
         ; re-silences each frame (matching S3K's per-frame re-rest).
         jp      Psg_NoteOff              ; silence this PSG channel (tail-call, preserves ix)
+
+; ----------------------------------------------------------------------
+; FmEnvUpdate — advance one FM channel's carrier-TL volume-envelope contour by one
+; frame and re-emit the channel volume so the new attenuation delta takes effect
+; (folded into Fm_SetVolume's Fm_ScratchLog). The FM mirror of PsgEnvUpdate; the
+; UNIFIED sc_env/sc_env_cur/sc_env_out slot (+39/+40/+41) serves FM (here) xor PSG
+; (PsgEnvUpdate) — a channel is FM xor PSG.
+; Body bytes (mirror PSG, sound_tables_z80.asm): plain value -> sc_env_out + advance;
+; $80 -> loop cursor to 0 + re-read; $81 -> sustain-hold (keep last out, no advance);
+; $83 -> TL-silence the tail (sc_env_out = $7F, park the cursor). NOTE the deliberate
+; deviation from PSG's $83 key-off: FM has its own EG, so a key-off would cut the
+; release tail; a TL-silence preserves it (documented in the plan's Self-review).
+; In: ix = FM channel, sc_env != 0. Clobbers af,bc,de,hl. Preserves ix.
+; ----------------------------------------------------------------------
+FmEnvUpdate:
+        ld      a, (ix+sc_env)           ; 1-based FM env id
+        call    FmVolEnv_Resolve         ; hl = body base; carry set = unknown id -> bail
+        ret     c
+.reread:
+        ld      a, (ix+sc_env_cur)       ; a = cursor
+        ld      e, a
+        ld      d, 0
+        add     hl, de                   ; hl = &body[cursor]
+        ld      a, (hl)                  ; a = body byte
+        cp      FmVolEnvCtl_Loop         ; $80 -> loop cursor to 0
+        jr      z, .loop
+        cp      FmVolEnvCtl_Sustain      ; $81 -> sustain-hold (no advance, keep last out)
+        jr      z, .sustain
+        cp      FmVolEnvCtl_Rest         ; $83 -> TL-silence the tail
+        jr      z, .rest
+        ; --- plain value: store as the carrier-TL atten delta, advance the cursor ---
+        ld      (ix+sc_env_out), a
+        inc     (ix+sc_env_cur)
+.emit:
+        ; re-emit the channel volume so the new sc_env_out delta lands this frame.
+        ld      a, (ix+sc_volume)
+        jp      Fm_SetVolume             ; folds sc_env_out into the carrier TLs; preserves ix
+.loop:
+        ld      (ix+sc_env_cur), 0       ; cursor -> 0
+        ld      a, (ix+sc_env)           ; recompute body base (hl was advanced above)
+        call    FmVolEnv_Resolve
+        ret     c
+        jr      .reread
+.sustain:
+        ; hold last sc_env_out (no advance) — re-emit so the held atten stays applied.
+        jr      .emit
+.rest:
+        ; FM $83 = TL-silence (NOT key-off): sc_env_out = $7F so the carrier TLs go
+        ; silent while the YM EG release continues. The cursor stays parked on the rest
+        ; byte so it re-silences each frame until the next attack resets sc_env_cur.
+        ld      (ix+sc_env_out), SND_FM_TL_MAX
+        jr      .emit
 
 ; ----------------------------------------------------------------------
 ; Mod_ReArm — per-note pitch-modulation re-arm (port of zPrepareModulation).

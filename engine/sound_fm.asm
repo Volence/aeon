@@ -353,6 +353,29 @@ Fm_SetVolume:
         ld      a, (hl)
         ld      (Fm_ScratchLog), a       ; stash log delta
 
+        ; --- FM TL VOLUME ENVELOPE (spec §4 flagship): add the per-frame env
+        ; attenuation delta to the carrier-TL delta (mirror of Psg_SetVolume's env
+        ; fold, sound_psg.asm:317-325). Folded HERE, BEFORE the duck/master-fade fold,
+        ; so env + duck compose. The per-op carrier loop (:412-481) reads Fm_ScratchLog
+        ; as a positive 0..$7F delta (ld b,0 sign-assumption :446), so we clamp to $7F.
+        ; sc_env_out is the unified slot (=sc_psgenv_out, +41); 0 on a no-env channel ->
+        ; the or a/jr z fast path is byte-identical to no envelope (MT regression-safe).
+        ; Reaches CARRIER ops only for free (Fm_ScratchLog only flows to carrier TLs).
+        ld      a, (ix+sc_env_out)
+        or      a
+        jr      z, .env_done
+        ld      hl, Fm_ScratchLog
+        add     a, (hl)                  ; env delta + log delta
+        jr      nc, .env_ok
+        ld      a, SND_FM_TL_MAX         ; carry out of 8 bits -> clamp to $7F (silent)
+.env_ok:
+        cp      SND_FM_TL_MAX+1
+        jr      c, .env_store
+        ld      a, SND_FM_TL_MAX         ; clamp the summed delta to $7F
+.env_store:
+        ld      (hl), a                  ; env-folded carrier-TL delta
+.env_done:
+
         ; --- Phase 5a music ducking (spec §7) -------------------------------------
         ; Fold the GLOBAL music duck level into the carrier-TL delta so EVERY music
         ; volume write (note events AND the per-frame re-assert) ducks automatically
@@ -696,6 +719,7 @@ Fm_NoteOnFreq:
         ld      (ix+sc_base_freq), d     ; high byte slot = $A4 value
         ld      (ix+sc_base_freq+1), e   ; low byte slot  = $A0 value
         call    Mod_ReArm                ; per-note re-arm (no-op if sc_mod_ctrl==0)
+        ld      (ix+sc_env_cur), 0       ; restart the FM vol-env contour on this attack
 .keyon:
         ; --- FM6 dedicate (Layer 4): while a DAC sample owns ch6 (SND_STAT_DAC_ACTIVE),
         ; $2B bit7 makes the DAC REPLACE FM6's output — a $28 key-on would only retrigger
