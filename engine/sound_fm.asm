@@ -200,6 +200,8 @@ Fm_PatchLoad:
         call    Fm_PatchOpGroup
         ld      a, SND_REG_OP_D1L_RR     ; $80
         call    Fm_PatchOpGroup
+        ld      a, SND_REG_OP_SSG_EG     ; $90 (SSG-EG group; hl now points at fp_ssg_eg[0])
+        call    Fm_PatchOpGroup          ; writes $90+ch+op*4 = fp_ssg_eg[op] for op 0..3
 
         jp      Fm_ReparkDac             ; defensive end-of-batch re-park ($2A)
 

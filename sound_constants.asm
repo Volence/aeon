@@ -81,6 +81,7 @@ SND_REG_OP_RS_AR        = $50                    ; +(op*4)+ch : rate scale | att
 SND_REG_OP_AM_D1R       = $60                    ; +(op*4)+ch : AM | first decay rate
 SND_REG_OP_D2R          = $70                    ; +(op*4)+ch : second decay rate
 SND_REG_OP_D1L_RR       = $80                    ; +(op*4)+ch : decay level | release rate
+SND_REG_OP_SSG_EG       = $90                    ; +(op*4)+ch : SSG-EG (bit3 enable | bits0-2 mode); $00 = off
 SND_FM_KEYON_OPMASK     = $F0                    ; key-on byte = $F0 | chsel (all 4 ops on)
 SND_FM_TL_MAX           = $7F                    ; TL is 7-bit; $7F = silent, 0 = loud
 ; Timer A regs — the MegaPCM-2 streaming loop is still the SAMPLE clock (loop
