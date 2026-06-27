@@ -1216,6 +1216,11 @@ Snd_LoadSong:
         ld      (ix+sc_psgenv_cur), 0
         ld      (ix+sc_psgenv_out), 0
         ld      (ix+sc_noise_mode), 0    ; noise mode unset until MEV_PSGNOISE
+        ; pitch-mod block: zero ONLY the gate field — sc_mod_ctrl==0 keeps every Mod_*
+        ; path inert. Without this a stale sc_mod_ctrl from a prior song would spuriously
+        ; enable vibrato once the gates are removed (later task).
+        ld      (ix+sc_mod_ctrl), 0
+        ld      (ix+sc_detune), 0        ; fine-detune neutral (reserved)
         ; --- Phase 3 per-channel state ---
         ; tempo accumulator: base from the header (SH_TEMPO_BASE), accum seeded =
         ; base so the FIRST frame's `sub 16` starts counting toward an event-tick.
@@ -1245,7 +1250,7 @@ Snd_LoadSong:
         add     ix, de
         pop     bc
         dec     c
-        jr      nz, .chan_init
+        jp      nz, .chan_init           ; jr out-ranged when loop body > 127B; jp is safe
 
 .arm:
         ; (SND_SEQ_PATCHTAB was set per-path above: FmPatchInlineTable for the copy

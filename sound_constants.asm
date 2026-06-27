@@ -812,29 +812,47 @@ sc_fill_count   ds.b 1   ; +38 live per-frame note-fill countdown (0 = expired o
 ; These share the exact offsets they occupy in SfxChannel (+39/+40/+41), so the
 ; shared (ix+sc_*) prefix addressing stays valid for both structs. Zeroed at
 ; song-load init (z80_sound_driver.asm .chan_init); set only by MEV_PSGENV +
-; PsgEnvUpdate. (The pitch-MOD fields sc_mod_* remain SfxChannel-only at +42+.)
+; PsgEnvUpdate. (The pitch-MOD block sc_mod_* follows at +42: it is SHARED with
+; SfxChannel at identical offsets — renderer gates still limit it to SFX,
+; removed in a later task.)
 sc_psgenv       ds.b 1   ; +39 PSG vol-env id (1-based; 0 = none)
 sc_psgenv_cur   ds.b 1   ; +40 PSG vol-env cursor (frame index into the body)
 sc_psgenv_out   ds.b 1   ; +41 last computed atten delta (folded by Psg_SetVolume)
-sc_noise_mode   ds.b 1   ; +42 SN76489 noise control byte ($E0|mode|rate) latched by
-                         ; MEV_PSGNOISE — music-noise channel only (per-note rate-3 gate
-                         ; + SFX-steal re-arm). SfxChannel's +42 is sc_mod_ctrl: a
-                         ; different struct, never cross-read (music-noise path reads
-                         ; this; the SFX pitch-mod path reads sc_mod_ctrl).
-SeqChannel endstruct      ; = 43 bytes
+; --- pitch-modulation block (spec §4): SHARED with SfxChannel at the SAME offsets
+;     (+42..+54) so Mod_Advance / Mod_ReArm / Mod_ApplyVibrato / Psg_ApplyMod render
+;     MUSIC and SFX through one code path. Inert until MEV_MODSET arms sc_mod_ctrl. ---
+sc_mod_ctrl     ds.b 1   ; +42 pitch-mod control (0 = off; nonzero = active)
+sc_mod_wait     ds.b 1   ; +43 onset delay (one-shot, then held at 1)
+sc_mod_speed    ds.b 1   ; +44 frames between delta applications (countdown)
+sc_mod_delta    ds.b 1   ; +45 signed per-step delta (flips sign each half-period)
+sc_mod_steps    ds.b 1   ; +46 steps until direction reverse (countdown)
+sc_mod_speed_raw ds.b 1  ; +47 latched speed (reload source for sc_mod_speed)
+sc_mod_step_raw ds.b 1   ; +48 latched FULL step count (reload source for sc_mod_steps)
+sc_mod_accum    ds.w 1   ; +49 signed 16-bit accumulated freq offset
+sc_base_freq    ds.w 1   ; +51 unmodulated note word latched at key-on (FM $A4/$A0; PSG div hi/lo)
+sc_last_freq    ds.w 1   ; +53 last modulated word written (write-on-change shadow)
+; --- music-only fields (diverge AFTER the shared block; SfxChannel uses +55.. for its
+;     sx_* bookkeeping). sc_noise_mode shares offset +55 with SfxChannel's sx_priority,
+;     but is only ever read with a MUSIC ix (all four sites verified). ---
+sc_noise_mode   ds.b 1   ; +55 SN76489 noise control byte ($E0|mode|rate) latched by
+                         ;     MEV_PSGNOISE — music-noise channel only (per-note rate-3
+                         ;     gate + SFX-steal re-arm) (RELOCATED from +42).
+sc_detune       ds.b 1   ; +56 signed fine-pitch offset (RESERVED; renderer is a later phase)
+sc_pad          ds.b 1   ; +57 pad to an even struct length (AS does not auto-align ds.w)
+SeqChannel endstruct      ; = 58 bytes
 
-        if SeqChannel_len <> 43
-          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 43"
+        if SeqChannel_len <> 58
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 58"
         endif
         ; the largest field offset must stay within the signed-8-bit (ix+d) range.
-        if SeqChannel_sc_last_pan > 127
-          error "sc_last_pan offset (\{SeqChannel_sc_last_pan}) exceeds the (ix+d) +127 range"
+        if SeqChannel_sc_detune > 127
+          error "sc_detune offset (\{SeqChannel_sc_detune}) exceeds the (ix+d) +127 range"
         endif
         ; the shared interpreter prefix MUST mirror SeqChannel field offsets so
         ; ModUpdate/Sequencer_Channel walk an SfxChannel correctly.
         ; SfxChannel's first 39 bytes are a byte-for-byte clone of SeqChannel —
         ; the 14 SFX-fidelity fields (+39..+52) are SfxChannel-only (no mirror here).
-        if (SfxChannel_sc_flags <> SeqChannel_sc_flags) || (SfxChannel_sc_route <> SeqChannel_sc_route) || (SfxChannel_sc_note <> SeqChannel_sc_note) || (SfxChannel_sc_points <> SeqChannel_sc_points) || (SfxChannel_sc_last_pan <> SeqChannel_sc_last_pan)
+        if (SfxChannel_sc_flags <> SeqChannel_sc_flags) || (SfxChannel_sc_route <> SeqChannel_sc_route) || (SfxChannel_sc_note <> SeqChannel_sc_note) || (SfxChannel_sc_points <> SeqChannel_sc_points) || (SfxChannel_sc_last_pan <> SeqChannel_sc_last_pan) || (SfxChannel_sc_mod_ctrl <> SeqChannel_sc_mod_ctrl) || (SfxChannel_sc_mod_accum <> SeqChannel_sc_mod_accum) || (SfxChannel_sc_base_freq <> SeqChannel_sc_base_freq) || (SfxChannel_sc_last_freq <> SeqChannel_sc_last_freq)
           error "SfxChannel shared prefix diverges from SeqChannel field offsets"
         endif
 
@@ -871,19 +889,27 @@ sc_fill_count   = SeqChannel_sc_fill_count
 sc_psgenv       = SeqChannel_sc_psgenv
 sc_psgenv_cur   = SeqChannel_sc_psgenv_cur
 sc_psgenv_out   = SeqChannel_sc_psgenv_out
+; Unified vol-env slot (spec §5): FM TL vol-env (later phase) + PSG vol-env share ONE
+; 3-byte slot (a channel is FM xor PSG). Aliases the existing sc_psgenv slot.
+sc_env          = SeqChannel_sc_psgenv
+sc_env_cur      = SeqChannel_sc_psgenv_cur
+sc_env_out      = SeqChannel_sc_psgenv_out
 sc_noise_mode   = SeqChannel_sc_noise_mode
-; SFX-only Expressive Fidelity fields (SfxChannel-only; renderers gate on
-; ix>=SND_SFX_BASE — music SeqChannel does NOT carry these).
-sc_mod_ctrl     = SfxChannel_sc_mod_ctrl
-sc_mod_wait     = SfxChannel_sc_mod_wait
-sc_mod_speed    = SfxChannel_sc_mod_speed
-sc_mod_delta    = SfxChannel_sc_mod_delta
-sc_mod_steps    = SfxChannel_sc_mod_steps
-sc_mod_speed_raw = SfxChannel_sc_mod_speed_raw
-sc_mod_step_raw = SfxChannel_sc_mod_step_raw
-sc_mod_accum    = SfxChannel_sc_mod_accum
-sc_base_freq    = SfxChannel_sc_base_freq
-sc_last_freq    = SfxChannel_sc_last_freq
+; Pitch-mod fields — now live in SeqChannel at the SAME offsets as SfxChannel
+; (asserted above). Aliases repoint from SfxChannel_* to SeqChannel_* since both
+; resolve to the same offset; renderers still gate on ix>=SND_SFX_BASE until the
+; gates are removed in a later task.
+sc_mod_ctrl     = SeqChannel_sc_mod_ctrl
+sc_mod_wait     = SeqChannel_sc_mod_wait
+sc_mod_speed    = SeqChannel_sc_mod_speed
+sc_mod_delta    = SeqChannel_sc_mod_delta
+sc_mod_steps    = SeqChannel_sc_mod_steps
+sc_mod_speed_raw = SeqChannel_sc_mod_speed_raw
+sc_mod_step_raw = SeqChannel_sc_mod_step_raw
+sc_mod_accum    = SeqChannel_sc_mod_accum
+sc_base_freq    = SeqChannel_sc_base_freq
+sc_last_freq    = SeqChannel_sc_last_freq
+sc_detune       = SeqChannel_sc_detune
 
 ; --- sc_flags bit numbers + masks ---
 ; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B
