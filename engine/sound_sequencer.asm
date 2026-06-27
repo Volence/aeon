@@ -1270,7 +1270,9 @@ SeqOpcodeTable:
         dw      Seq_BadOpcode            ; $F4 reserved
         dw      Seq_BadOpcode            ; $F5 reserved
         dw      Seq_BadOpcode            ; $F6 reserved
-        dw      Seq_BadOpcode            ; $F7 reserved
+        dw      Seq_Op_PsgEnv            ; $F7 MEV_FMENV (shared handler: sets the unified
+                                         ;   sc_env slot + resets sc_env_cur; ModUpdate
+                                         ;   picks FmVolEnv vs PsgVolEnv by SCF_IS_FM_B)
         dw      Seq_BadOpcode            ; $F8 reserved
         dw      Seq_BadOpcode            ; $F9 reserved
         dw      Seq_BadOpcode            ; $FA reserved

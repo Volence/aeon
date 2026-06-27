@@ -367,6 +367,13 @@ MEV_PSGNOISE      = $F2   ; + ctrl : set the SN76489 noise control byte (mode+ra
                           ; silence ch2 tone volume; zero-tick. Owns the noise mode, so
                           ; the noise note then carries PITCH for the rate-3 tone-2 clock.
 
+; --- Phase 3 macro spine: FM TL vol-env arm (spec §4 flagship) -----------------
+; $F7-$F9 are owned by Phase 3 ($F3-$F6 stay RESERVED for Phase-2 plans). MEV_FMENV
+; sets the unified sc_env slot (shared with MEV_PSGENV via Seq_Op_PsgEnv); the
+; ModUpdate renderer picks FmVolEnv (FM route) vs PsgVolEnv (PSG route) by SCF_IS_FM_B.
+MEV_FMENV         = $F7   ; + env_id : set the channel's FM TL vol-env id (FM route;
+                          ;   1-based, 0=none; shares sc_env with MEV_PSGENV)
+
         ; --- MEV_PAN / MEV_OPBIAS range + collision asserts (Task 6) ---
         ; Both must be command opcodes (> MEV_NOTE_MAX), inside the $E0-$FF
         ; coordination block, and must not collide with any allocated opcode.
@@ -464,6 +471,24 @@ MEV_PSGNOISE      = $F2   ; + ctrl : set the SN76489 noise control byte (mode+ra
         endif
         if (MEV_SPINREV = MEV_SPINREV_RESET) || (MEV_SPINREV = MEV_END) || (MEV_SPINREV_RESET = MEV_END)
           error "MEV_SPINREV/SPINREV_RESET opcode collision"
+        endif
+
+        ; --- MEV_FMENV ($F7) range + fixed-slot + collision asserts (Phase 3 §4) ---
+        ; A command opcode (> MEV_NOTE_MAX), inside the $E0-$FF coordination block,
+        ; pinned to $F7, and clear of every allocated $E0-$FF opcode AND the
+        ; Phase-2-reserved $F3-$F6 (so a later Phase-2 plan landing $F5/$F6 cannot
+        ; alias us — a duplicate-slot would be a hard error here, not a silent override).
+        if MEV_FMENV <= MEV_NOTE_MAX
+          error "MEV_FMENV (\{MEV_FMENV}) must be a command opcode (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_FMENV < MEV_VOL) || (MEV_FMENV > MEV_END)
+          error "MEV_FMENV (\{MEV_FMENV}) must be inside the $E0-$FF coordination block"
+        endif
+        if MEV_FMENV <> $F7
+          error "MEV_FMENV (\{MEV_FMENV}) must be $F7 (the Phase-3 macro-spine slot)"
+        endif
+        if (MEV_FMENV = MEV_VOL) || (MEV_FMENV = MEV_PATCH) || (MEV_FMENV = MEV_DAC) || (MEV_FMENV = MEV_NOTE_DUR) || (MEV_FMENV = MEV_PAN) || (MEV_FMENV = MEV_REPEAT_START) || (MEV_FMENV = MEV_REPEAT_END) || (MEV_FMENV = MEV_NOTE_RAW) || (MEV_FMENV = MEV_PITCHENV) || (MEV_FMENV = MEV_OPBIAS) || (MEV_FMENV = MEV_REGDELTA) || (MEV_FMENV = MEV_PSGENV) || (MEV_FMENV = MEV_MODSET) || (MEV_FMENV = MEV_NOTEFILL) || (MEV_FMENV = MEV_LOOP_POINT) || (MEV_FMENV = MEV_JUMP) || (MEV_FMENV = MEV_SPINREV) || (MEV_FMENV = MEV_SPINREV_RESET) || (MEV_FMENV = MEV_PSGNOISE) || (MEV_FMENV = MEV_END)
+          error "MEV_FMENV (\{MEV_FMENV}) collides with an allocated $E0-$FF opcode"
         endif
 
         ; opcode ranges must not overlap: the top note opcode is below the
