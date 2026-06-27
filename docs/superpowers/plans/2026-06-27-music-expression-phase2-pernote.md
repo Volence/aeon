@@ -5,7 +5,9 @@
 **Date:** 2026-06-27
 **Branch:** `feat/music-expr-p1` (worktree `/home/volence/sonic_hacks/s4_engine-music-expr`; Phase 1 already merged on this branch)
 **Spec:** `docs/superpowers/specs/2026-06-23-music-expression-engine-design.md` (§3.1 two fold-points, §4 T1 pitch = fine detune + portamento, §5 T2 FM TL vol-env + unified `sc_env` slot)
-**Sibling slice (opcode coordination):** `docs/superpowers/plans/2026-06-27-music-expression-phase2-global.md` assigns `MEV_TEMPO=$F3`, `MEV_LFO=$F4`. **This slice assigns `MEV_PORTA=$F5`, `MEV_DETUNE=$F6`, `MEV_FMENV=$F7`** — disjoint by construction (see Task 0 §6 and the per-opcode fixed-slot asserts).
+**Sibling slice (opcode coordination):** `docs/superpowers/plans/2026-06-27-music-expression-phase2-global.md` assigns `MEV_TEMPO=$F3`, `MEV_LFO=$F4`. **This slice assigns `MEV_PORTA=$F5`, `MEV_DETUNE=$F6`** — disjoint by construction (see Task 0 §6 and the per-opcode fixed-slot asserts).
+
+> **⚠ RE-SCOPED 2026-06-27 — Group C (FM TL volume-envelope, Tasks C1–C4) + `MEV_FMENV=$F7` are SUPERSEDED.** They were absorbed into the Phase 3 macro/automation-spine spec (`docs/superpowers/specs/2026-06-27-music-expr-macro-spine-design.md`), where the FM-TL vol-env is the *volume* macro target's renderer. **Do NOT build Group C from this plan** — `$F7` is now owned by Phase 3; building it on both sides hits the fixed-slot assert (a hard duplicate-symbol break). This plan now delivers **porta ($F5) + detune ($F6) only.** Group C is left below for reference, struck. It was field- and dependency-disjoint from porta/detune (touches only the unified `sc_env` slot, never `sc_porta_*`/`sc_detune`/`Fm_FnumApplyDelta`), so the residual porta+detune work stands unchanged; the ~190 Z80 bytes Group C estimated move to the Phase 3 budget.
 
 ---
 
@@ -702,6 +704,8 @@ Record all of the following (with the exact file:line) in the PR description bef
 ---
 
 # Group C — FM TL Volume-Envelope (mirror the PSG vol-env onto carriers)
+
+> **⚠ SUPERSEDED 2026-06-27 — DO NOT BUILD.** Absorbed into the Phase 3 macro/automation-spine spec (`docs/superpowers/specs/2026-06-27-music-expr-macro-spine-design.md` §4) as the *volume* macro target's renderer. `MEV_FMENV=$F7` is now owned by Phase 3. Tasks C1–C4 below are retained for reference only — building them here AND in Phase 3 collides on the `$F7` fixed-slot assert.
 
 ## Task C1 — `Fm_SetVolume` env fold + `FmEnvUpdate` + ModUpdate wiring + FM env cursor reset (inert; sc_env=0)
 

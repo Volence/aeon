@@ -18,7 +18,7 @@ Phase 3 turns the flat per-channel opcode stream into a **macro/automation engin
 2. **Scope = self-contained + FM swells:** Phase 3 ships a **complete** volume macro on **FM (carrier-TL) and PSG**, building the reserved FM-TL vol-env renderer; reg-automation + `MEV_REGWRITE` + SSG-EG; pitch/pan reserved non-breaking. The other Phase-2 one-offs (porta/detune/tempo/LFO/fade) stay independent and are **not** prerequisites.
 
 ### 0.3 Relationship to the unbuilt Phase-2 plans
-- The FM-TL vol-env (Phase-2-per-note **Group C**) is **moved into this spec** — it is the renderer the *volume* macro target needs, it uses the reserved `sc_env` slot, and building it once here avoids duplicate work. Phase-2-per-note then reduces to porta + detune.
+- The FM-TL vol-env (Phase-2-per-note **Group C**) is **moved into this spec** — it is the renderer the *volume* macro target needs, it uses the reserved `sc_env` slot, and building it once here avoids duplicate work. **This transfer is conditional and must be made real in the per-note plan:** Phase-2-per-note MUST be re-scoped to porta + detune (`$F5`/`$F6`) only — its Group C (Tasks C1–C4), `MEV_FMENV=$F7`, the `FmVolEnv_*` table, and the packer `FmEnv` event are deleted and re-homed here. Group C is field- and dependency-disjoint from porta (`sc_porta_*`) and detune (`sc_detune`) — it touches only the unified `sc_env` slot — so the transfer is clean, but if **both** plans build `$F7` the second to land hits the per-note fixed-slot assert (a hard duplicate-symbol break, not a silent override). *(The per-note plan doc has been struck accordingly — see §0.3 follow-up commit.)*
 - Opcode reservations are honored: `$F3`/`$F4` (tempo/LFO, Phase-2-global) and `$F5`/`$F6` (porta/detune, Phase-2-per-note) are **locked with placeholder asserts**. Phase 3 owns **`$F7` (MEV_FMENV)**, **`$F8` (MEV_REGWRITE)**, **`$F9` (MEV_MACRO)**.
 - Merge discipline (per handoff): stay on `feat/music-expr-p1`; **do not merge to master until the gold-standard S3K HCZ2 audio A/B is done.**
 
@@ -29,7 +29,7 @@ Phase 3 turns the flat per-channel opcode stream into a **macro/automation engin
 All anchors verified against real source on `feat/music-expr-p1` (a 73-agent + direct read pass; the handoff's paraphrases were corrected where wrong — see §1.4).
 
 ### 1.1 The slot[1] seam is real and free
-- `sc_mod_ptr` lives at **struct +2** (2-byte word) on **both** `SfxChannel` and `SeqChannel` (`sound_constants.asm:782`, `:684`; alias `:876`). It is the second per-channel stream cursor.
+- `sc_mod_ptr` lives at **struct +2** (2-byte word) on **both** `SfxChannel` and `SeqChannel` (`sound_constants.asm:684` (SfxChannel), `:782` (SeqChannel); alias `:876`). It is the second per-channel stream cursor.
 - The `SongHeader` commits a per-channel **5-byte record** `{SHC_ROUTE +0, SHC_CMD_HI/LO +1/+2 (slot[0]), SHC_MOD_HI/LO +3/+4 (slot[1])}` (`sound_constants.asm:1184-1189`); fixed 6-byte prefix `SH_FLAGS…SH_CHANNELS=6` (`:1174-1180`).
 - The loader **already parses + rebases** `mod_ptr` (`base+offset`, big-endian; `0 ⇒ NULL`, `jr z,.mod_null` leaves it zero) (`z80_sound_driver.asm:1185-1196`). The seq region is zero-cleared at load (`:1029-1037`).
 - **Nothing reads `sc_mod_ptr` at runtime today**, and the packer **always emits `0x00,0x00`** for it (`song_packer.py:679-683`; `header_len = 4+2+5*n+2`, `:662`) → the loader's store path is currently dead. **Making slot[1] real is purely additive — 0 new RAM for the cursor.**
@@ -46,7 +46,7 @@ All anchors verified against real source on `feat/music-expr-p1` (a 73-agent + d
 - **PAN:** `ModUpdate` compares `sc_pan` vs `sc_last_pan` → `Fm_SetPan` (`$B4`, **FM-only**) (`sound_sequencer.asm:177-191`).
 - **PITCH-offset:** **only** via the `sc_mod_*` triangle — `ModUpdate` calls `Mod_ApplyVibrato`/`Psg_ApplyMod` when `sc_mod_ctrl!=0`; final pitch = `sc_base_freq + sc_mod_accum` (`sound_sequencer.asm:177-191/444-509`). (Music-legal since Phase 1.)
 - **PSG volume:** `sc_psgenv` contour (§1.2).
-- Opcode dispatch is a **32-entry word jump table** `SeqOpcodeTable` indexed by `(opcode-$E0)` after a range ladder (`sound_sequencer.asm:1190-1222`); a new opcode = replace a `dw Seq_BadOpcode` + a fixed-slot collision assert. Zero-tick setter template = `Seq_Op_ModSet` ($EC), `Seq_Op_PsgEnv` ($EB) (`:711-739`).
+- Opcode dispatch is a **32-entry word jump table** `SeqOpcodeTable` indexed by `(opcode-$E0)` after a range ladder (`sound_sequencer.asm:1190-1222`); a new opcode = replace a `dw Seq_BadOpcode` + a fixed-slot collision assert. Zero-tick setter template = `Seq_Op_PsgEnv` ($EB, `:678-710`), `Seq_Op_ModSet` ($EC, `:711-739`).
 - Per-frame order: `Sequencer_Frame` calls `ModUpdate` (renderer, stream-agnostic — "never parses a stream") then tempo-gated `Sequencer_Channel` (slot[0] reader, commits `sc_stream_ptr` back at `:590-591`) (`:62-97`).
 
 ### 1.4 Handoff corrections that shape the design
@@ -55,10 +55,10 @@ All anchors verified against real source on `feat/music-expr-p1` (a 73-agent + d
 3. **The re-park template is `Fm_RegDelta`/`Fm_SetPan`** (`Fm_RoutePart(b=part,c=ch) → Fm_YmWrite(a=reg,c=val,b=part) → jp Fm_ReparkDac`; ports `$4000/1`=part I, `$4002/3`=part II) (`sound_fm.asm:57-100/494-561/79-82`) — **not** the one-time LFO init write (which runs *before* `$2A` is parked and never re-parks).
 4. **`sc_detune` (+56) is reserved with NO renderer** (only zeroed at init). A detune/pitch macro must drive `sc_mod_accum` (keeping `sc_mod_ctrl!=0`), not `sc_detune`.
 5. **The body's `$80/$81/$83` numbers are THIS engine's convention**, not literal SMPS — only the value bytes were imported from S3K VolEnv tables. Treat the grammar as ours to extend.
-6. `PsgEnvUpdate` is in `sound_sequencer.asm` (not `sound_psg.asm`); the opcode table is in `sound_constants.asm`; the FM writer primitives are in `sound_fm.asm`. The Z80 RAM map uses **constant arithmetic + struct/endstruct + if/error**, **not** phase/dephase.
+6. `PsgEnvUpdate` is in `sound_sequencer.asm` (not `sound_psg.asm`); the opcode **definitions + collision asserts** are in `sound_constants.asm` while the **dispatch jump table** (`SeqOpcodeTable`) is in `sound_sequencer.asm:1190`; the FM writer primitives are in `sound_fm.asm`. The Z80 RAM map uses **constant arithmetic + struct/endstruct + if/error**, **not** phase/dephase — **deliberate, not a convention miss**: a `phase`/`dephase` over Z80 RAM would collide with the `phase 0` code-blob relocation, so constant-arithmetic is the correct pattern for this subsystem (CLAUDE.md L25's "phase/dephase for RAM layout" is stale for the Z80 sound driver).
 
 ### 1.5 RAM + budget (Phase-1 baseline)
-- `SeqChannel = 58` bytes (asserted `sound_constants.asm:856-859`); `CHROUTE_COUNT = 11`; `SND_SEQ_CHANNELS = $1808`.
+- `SeqChannel = 58` bytes (asserted `sound_constants.asm:856-860`); `CHROUTE_COUNT = 11`; `SND_SEQ_CHANNELS = $1808`. *(These baselines supersede the seed spec's §9.1 `39→56` projection — the struct landed at 58 with the Phase-1 mod block + `sc_noise_mode` + `sc_detune` + `sc_pad` — and its §10 "`$F1–$FE` = 13 free" count, now reduced by the shipped `$F2 MEV_PSGNOISE`.)*
 - **Struct slack = 2 bytes/channel:** `sc_detune` (+56, reserved) + `sc_pad` (+57). `sc_noise_mode` (+55) overlaps `SfxChannel sx_priority` (+55) — safe only because each is read with the matching `ix`; a slot[1] reader must respect that aliasing.
 - **~73-byte free gap** below `SND_SONG_BUF = $1B00` (the song buffer is **512 B, copy-path songs ONLY** — stream songs never touch it). Everything above `SND_SEQ_END` is derived → auto-tracks struct growth.
 - **Z80 code ceiling `SND_STATE_BASE = $16F0`**, build-asserted (`z80_sound_driver.asm:1469-1474`). Phase-1 baseline `Z80_SOUND_SIZE = $1502` → **494 bytes free** (build-measured).
@@ -84,6 +84,9 @@ All anchors verified against real source on `feat/music-expr-p1` (a 73-agent + d
 - **Release-point grammar (`$82`)** — blocked on the engine having a distinct note-off/release event (it has rest-as-end, no release jump). The format **reserves** `$82` so it is a non-breaking later add (§3.2).
 - **Mid-note SSG-EG via a 7th `RegDelta` group** — reachable via reg-automation / `MEV_REGWRITE` already; the dedicated group is a later micro-opt (§6).
 - **Per-step macro duration / sub-frame rate** — one value/frame is the proven model; a duration prefix is a reserved future grammar extension.
+
+### Closes (DEFERRED_WORK.md traceability)
+On ship this spec closes/advances these cataloged gaps (marking them done in `DEFERRED_WORK.md` is a post-ship follow-up): **E4** (dual-stream / `sc_mod_ptr` slot[1] seam) via §3.4; **E-now-2** (per-frame FM TL vol-env, the Flamedriver `zDoFMVolEnv` analogue) via §4; **E5** (SSG-EG `$90–$9E`) via §6 — the per-op-patch half only, its dedicated 7th-`RegDelta`-group half stays open; **E3 / Phase-3b** (raw-register escape hatch) via §5. **D8** (packer drops music-illegal expression opcodes) is addressed by the §9 route-gate work.
 
 ---
 
@@ -112,6 +115,7 @@ contour body := { value | control }*
 
 - **Encoding is hard-coded per target** (no per-macro flag byte in v1): volume = absolute attenuation delta (proven). A future `ex`-style escape target may add a flag — reserved, not built.
 - The **value range** for control-code safety: a volume body must not emit `$80–$83` as data (matches the shipped PSG envs — their attenuation values stay below `$80`). The packer enforces this (§9).
+- **Corrections vs the seed §3.3 grammar:** `$80 LOOP` is **operand-less** (loops to cursor 0; the seed's `$80 LOOP <to>` operand does not exist in the shipped engine), and `$82 RELEASE` is **reserved/unused** (the engine has rest-as-end, no release jump). Phase 3 matches the shipped `PsgEnvUpdate`, not the stale seed text.
 
 ### 3.3 Named contour slots (the volume flagship)
 A named slot is the existing 3-byte `{id, cursor, out}` model, generalized so the **renderer picks the fold by route**:
@@ -149,7 +153,7 @@ Mirror the shipped PSG env exactly, but write FM **carrier** TLs.
 
 - **State:** the unified `sc_env`/`sc_env_cur`/`sc_env_out` slot (0 new RAM).
 - **Render (`FmEnvUpdate`, new):** advance one body entry/frame; fold `sc_env_out` into the existing carrier-TL delta `Fm_ScratchLog` in `Fm_SetVolume` as a **positive attenuation delta** (exactly like the PSG fold and the duck fold). This preserves the carrier-only selection (`CarrierMaskTableZ`, algorithm-aware) and the `b=0` sign-assumption, and composes additively with the duck (and the master fade, if/when the global slice lands). **Swell-in** = a high→0 contour; **tremolo** = an oscillating contour.
-- **Resolve:** new `FmVolEnv_Ids`/`FmVolEnv_Ptrs` map mirroring `PsgVolEnv_*`, generated by `gen_sound_tables.py` into `sound_tables_z80.asm` (lands in the co-located `$8000`-window bank, **not** the `$16F0` Z80-code budget).
+- **Resolve:** new `FmVolEnv_Ids`/`FmVolEnv_Ptrs` map mirroring `PsgVolEnv_*`, generated by `gen_sound_tables.py` into `sound_tables_z80.asm` (lands in the co-located `$8000`-window bank, **not** the `$16F0` Z80-code budget — note the per-table `phase 0` comments at `sound_tables_z80.asm:5-8` are stale post-F5; the file is included under `phase 08000h` in `main.asm:266-274`).
 - **Composition with FM volume:** because there is no per-frame `Fm_SetVolume` in `ModUpdate` today (§1.4), `FmEnvUpdate` is the path that *introduces* per-frame carrier-TL motion — it calls the carrier-TL fold itself (write-on-change via `sc_env_out`), staying within the cycle budget (only keyed FM channels with `sc_env!=0` pay).
 
 ---
@@ -163,7 +167,7 @@ Mirror the shipped PSG env exactly, but write FM **carrier** TLs.
 ---
 
 ## 6. SSG-EG
-- **Load-time per-op patch byte.** Append a 4-byte `fp_ssg_eg` per-op array to `FmPatch`; **pad the record to 32 bytes (power of two)** so `Fm_PatchPtr` becomes a shift-only `add hl,hl` chain instead of a `mulu`-banned `patch*30` add-chain (+2 ROM bytes/record, smaller+faster hot path). Add `SND_REG_OP_SSG_EG = $90`; add the `$90`-group write in `Fm_PatchLoad`; default `$00` (off) for every existing patch; re-export `fm_patches.inc`, the 68k ROM copy, and `sfx_transcode.py`.
+- **Load-time per-op patch byte** (realizes DEFERRED_WORK **E5**'s per-op-patch half; E5's mid-note dedicated-group half stays deferred — see below). Append a 4-byte `fp_ssg_eg` per-op array to `FmPatch`; **pad the record to 32 bytes (power of two)** so `Fm_PatchPtr` becomes a shift-only `add hl,hl` chain instead of the current `mulu`-banned `patch*26` add-chain (+2 ROM bytes/record, smaller+faster hot path). Add `SND_REG_OP_SSG_EG = $90`; add the `$90`-group write in `Fm_PatchLoad`; default `$00` (off) for every existing patch; re-export `fm_patches.inc`, the 68k ROM copy, `sfx_transcode.py`, **and `zyrinx_port.py`** (it hard-codes a 26-byte record).
 - **Mid-note SSG-EG** is reachable **now** via `MEV_REGWRITE`/reg-automation (write `$90+op`), so the dedicated 7th `RegDelta` group is **deferred** (mask `$0F` already holds 7 — a cheap later add if a song wants voice-step SSG-EG).
 - Provides metallic/buzzy/AY timbres at **zero per-frame cost** (pure hardware once written).
 
@@ -183,7 +187,7 @@ Mirror the shipped PSG env exactly, but write FM **carrier** TLs.
 | volume contour state | unified `sc_env`/`_cur`/`_out` (+39/40/41, reserved) | **0 new** |
 | reg-stream per-frame state (e.g. an "active/disabled" flag) | `sc_pad` (+57) | ≤1 |
 | (left for Phase-2 detune) | `sc_detune` (+56) — **untouched** | — |
-| reserved pitch/pan slots (when live) | small even struct growth into the ~73 B gap below `$1B00` | +3 each |
+| reserved pitch/pan slots (when live) | struct growth into the ~73 B gap below `$1B00`, **rounded to keep `SeqChannel` even** (a bare +3 makes it odd → re-misaligns the existing `ds.w` `sc_mod_accum`/`sc_base_freq`/`sc_last_freq`; add a pad byte or grow slots in even pairs) | +3 → +4 |
 
 - Struct stays **58 / even**. No song-buffer reclaim (that would force copy-path songs onto the stream path — an architectural commitment we are not making here).
 - Any RAM-layout change ⇒ runtime boot-verify (build asserts alone are insufficient; AS does not auto-align `ds.w`).
@@ -191,8 +195,9 @@ Mirror the shipped PSG env exactly, but write FM **carrier** TLs.
 ---
 
 ## 9. Opcode allocation + authoring/tooling
-- **Opcodes:** lock `$F3` (MEV_TEMPO), `$F4` (MEV_LFO), `$F5` (MEV_PORTA), `$F6` (MEV_DETUNE) with placeholder/fixed-slot asserts (reserved for Phase-2). **Phase 3 owns `$F7` MEV_FMENV, `$F8` MEV_REGWRITE, `$F9` MEV_MACRO.** Mirror the existing `MEV_*` collision-assert style (`sound_constants.asm` near `:356-366`). Each handler obeys the hl-preservation rule.
+- **Opcodes:** lock `$F3` (MEV_TEMPO), `$F4` (MEV_LFO), `$F5` (MEV_PORTA), `$F6` (MEV_DETUNE) with placeholder/fixed-slot asserts (reserved for Phase-2). **Phase 3 owns `$F7` MEV_FMENV, `$F8` MEV_REGWRITE, `$F9` MEV_MACRO.** Mirror the existing `MEV_*` collision-assert style (the assert `if` blocks near `sound_constants.asm:370-440`, e.g. the `MEV_PAN` collision assert at `:386` — **not** the opcode-equate block at `:356-366`). Each handler obeys the hl-preservation rule.
 - **`tools/song_packer.py`:** event classes `FmEnv`, `RegWrite`, `Macro` (arm slot[1]); a **macro-body emitter** (value bytes + `$80/$81/$83`, with `$2A/$2B` reg rejection and control-code-as-data validation); **emit the header `mod_ptr`** (currently hard-NULL at `:679-683`) as a back-patched blob offset (same convention as `cmd_ptr`).
+- **Music-legal route gate (DEFERRED_WORK D8):** `$F7 MEV_FMENV` / `$F8 MEV_REGWRITE` / `$F9 MEV_MACRO` (and `MEV_PSGENV`) must be **music-legal** in `song_packer.py`'s route validation. D8's gate is **still unimplemented** — `song_packer.py` has no music-legal/reject-by-route construct today, only `_validate_channel` init-ordering (`:555-610`) — so this phase either implements that gate and whitelists these opcodes, **or** explicitly re-scopes D8. A music song emitting them must NOT silently no-op pre-render.
 - **`tools/gen_sound_tables.py`:** `_emit_fm_vol_env_z80` + `_FM_VOL_ENVS`, wired into `emit_asm_z80` alongside `_PSG_VOL_ENVS` → `FmVolEnv_*` in `sound_tables_z80.asm`.
 - **Daemon-watched, do NOT touch:** `data/editor/**`, `tools/ojz_strip_gen.py`. `song_packer.py`/`smps_import.py`/`gen_sound_tables.py` are fair game.
 
