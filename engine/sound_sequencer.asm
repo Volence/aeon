@@ -139,16 +139,16 @@ ModUpdate:
         ret     nz
         ; PSG route: the FM modulation path below is skipped. Music + SFX PSG channels
         ; both advance a PSG vol-env (spec §4) via the shared sc_psgenv* fields (now at
-        ; +39..+41 on BOTH structs). Only an SFX PSG channel runs the pitch-MOD path
-        ; (sc_mod_* are SfxChannel-only, +42+) — so SPLIT on channel class: music PSG
-        ; jumps straight to the env path; SFX PSG does mod first, then env.
+        ; +39..+41 on BOTH structs). Music + SFX PSG channels also both run the pitch-MOD
+        ; path now (the SFX-only gate was removed in Phase 1; sc_mod_* exist on both
+        ; structs at the same offsets). An un-modulated channel (sc_mod_ctrl==0) — which
+        ; includes every music PSG channel without an active MEV_MODSET, and all noise
+        ; tracks — pays only one test before falling through to the vol-env.
         bit     SCF_IS_FM_B, (ix+sc_flags)
         jr      nz, .is_fm
         bit     SCF_IS_PSG_B, (ix+sc_flags)
         ret     z                        ; DAC or other non-PSG -> nothing
-        call    Snd_ChanClass            ; CARRY set => MUSIC channel
-        jr      c, .psg_env              ; music PSG -> env only (no mod fields at +42+)
-        ; --- SFX PSG PITCH MODULATION (spec §5): if armed, sweep/vibrato the tone
+        ; --- PSG PITCH MODULATION (spec §5): if armed, sweep/vibrato the tone
         ; divisor. Shares the FM triangle core (Mod_Advance) via Psg_ApplyMod; a
         ; non-modulated PSG SFX (sc_mod_ctrl==0) pays only this one test. Runs BEFORE
         ; the vol-env so both compose (mod re-latches the divisor; env re-emits volume).
@@ -183,14 +183,9 @@ ModUpdate:
 
         ; --- PITCH MODULATION (spec §5): continuous additive freq-word vibrato/sweep
         ; on the HELD note (no key-on). Runs every frame regardless of the re-key state
-        ; below, so it modulates a held FM SFX note. SFX-CHANNEL GATE: sc_mod_ctrl is an
-        ; SfxChannel-only field (offset +42, PAST a 39-byte music SeqChannel). Reading it
-        ; on a music FM channel (MT) would read adjacent RAM -> spurious vibrato + MT RAM
-        ; corruption. SfxChannels live at/above SND_SFX_BASE ($1D00); a high-byte compare
-        ; separates them (CARRY set => ix < $1D00 => music => skip — MT FM stays byte-
-        ; identical). Then gate on sc_mod_ctrl != 0 (a non-modulated SFX pays one test).
-        call    Snd_ChanClass            ; CARRY set => MUSIC channel
-        jr      c, .vibrato_done         ; music FM -> no mod fields, skip (byte-identical)
+        ; below — modulates held FM notes on music + SFX channels alike (the SFX-only
+        ; gate was removed in Phase 1; sc_mod_ctrl exists on both structs at the same
+        ; offset). A non-modulated channel (sc_mod_ctrl==0) pays only this one test.
         ld      a, (ix+sc_mod_ctrl)
         or      a
         call    nz, Mod_ApplyVibrato     ; advance + write-on-change $A4/$A0 (no key-on)
