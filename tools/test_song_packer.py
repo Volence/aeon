@@ -601,6 +601,28 @@ class TestMacroEvents(unittest.TestCase):
         operand = (blob[i + 1] << 8) | blob[i + 2]
         self.assertEqual(operand, mod_ptr)
 
+    def test_emit_macro_body_loop_without_mac_next_rejected(self):
+        # A MacLoop with no MacNext in the body span would cause MacroTick to
+        # spin the Z80 forever (hard hang). emit_macro_body must raise PackError.
+        from song_packer import emit_macro_body, MacReg, MacLoop, PackError
+        with self.assertRaises(PackError) as ctx:
+            emit_macro_body([MacReg(0, 0x90, 0x08), MacLoop()], body_base=0)
+        self.assertIn("TAG_MAC_NEXT", str(ctx.exception))
+
+    def test_emit_macro_body_loop_with_mac_next_accepted(self):
+        # A MacLoop preceded by at least one MacNext is valid.
+        from song_packer import emit_macro_body, MacReg, MacNext, MacLoop
+        body = emit_macro_body([MacReg(0, 0x90, 0x08), MacNext(), MacLoop()],
+                               body_base=0x0200)
+        # Should not raise; MacLoop byte present at the end.
+        self.assertEqual(body[-3], 0xE2)  # TAG_MAC_LOOP
+
+    def test_emit_macro_body_mac_next_only_no_loop_accepted(self):
+        # MacEnd terminator with MacNext present: no hang risk, must be accepted.
+        from song_packer import emit_macro_body, MacNext, MacEnd
+        body = emit_macro_body([MacNext(), MacEnd()], body_base=0)
+        self.assertEqual(body, bytes([0xE0, 0xE3]))
+
 
 class TestConstantsSync(unittest.TestCase):
     """song_packer hand-mirrors the MEV_* opcode and CHROUTE_* route values from

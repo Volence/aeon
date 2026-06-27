@@ -371,11 +371,23 @@ def emit_macro_body(events, body_base: int) -> bytes:
     """Pack a slot[1] macro body (a list of MacEvent) to bytes. body_base is the
     blob offset where this body begins (known at body-layout time); it is the
     value a MacLoop encodes for its 2-byte BE loop target. Validates the
-    $2A/$2B reg reject + control-code-as-data via each MacReg.encode()."""
+    $2A/$2B reg reject + control-code-as-data via each MacReg.encode().
+
+    When the body terminates with MacLoop it MUST contain at least one MacNext
+    before the MacLoop. MacroTick executes events until a TAG_MAC_NEXT yield;
+    a loop body with no yield spins the Z80 forever (hard hang)."""
     if not events:
         raise PackError("empty macro body")
     if not isinstance(events[-1], (MacEnd, MacLoop)):
         raise PackError("macro body not terminated by MacEnd or MacLoop")
+    if isinstance(events[-1], MacLoop):
+        # Every event before the terminal MacLoop is the body. Check that at
+        # least one of them is a MacNext (TAG_MAC_NEXT yield). Without a yield
+        # the Z80 MacroTick loop never returns to the tick driver — hard hang.
+        if not any(isinstance(ev, MacNext) for ev in events[:-1]):
+            raise PackError(
+                "macro body loop has no TAG_MAC_NEXT yield — would hang Z80 "
+                "(MacroTick spins until a MacNext/TAG_MAC_NEXT is reached)")
     out = bytearray()
     for ev in events:
         out += ev.encode(body_base)
