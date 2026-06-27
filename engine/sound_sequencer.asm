@@ -750,6 +750,28 @@ Seq_Op_PsgEnv:
         ld      (ix+sc_psgenv_cur), 0    ; restart the contour from frame 0
         jp      Seq_ContinueFetch
 
+; $F9 MEV_MACRO + dw blob_offset (BE) : (re)arm the channel's slot[1] macro stream.
+; sc_mod_ptr = Snd_SongBase + offset; mark active; reset to the body start. Zero-tick
+; state setter (mirror of Seq_Op_PsgEnv) — no writer hook, so hl stays the live
+; slot[0] stream ptr through the handler. The offset is BIG-ENDIAN, rebased to an
+; absolute Z80 address exactly like the loader's mod_ptr parse (z80_sound_driver.asm
+; :1188-1196) and TAG_MAC_LOOP. The packer (Component E) back-patches the offset to a
+; macro-body blob it emits in the same song.
+Seq_Op_Macro:
+        ld      d, (hl)
+        inc     hl                       ; d = offset hi (big-endian)
+        ld      e, (hl)
+        inc     hl                       ; e = offset lo  (hl now past the operand)
+        push    hl                       ; save the live slot[0] stream ptr
+        ld      hl, (Snd_SongBase)
+        add     hl, de                   ; hl = base + offset = absolute body ptr
+        ld      (ix+sc_mod_ptr), l
+        ld      (ix+sc_mod_ptr+1), h     ; arm slot[1] cursor at the body start
+        ld      a, 1
+        ld      (ix+sc_macro_active), a  ; mark active (sc_pad alias)
+        pop     hl                       ; restore the slot[0] stream ptr
+        jp      Seq_ContinueFetch        ; jp (not jr): out of jr range, like the others
+
 ; $F2 MEV_PSGNOISE + ctrl : set the SN76489 noise control byte (mode+rate), latch it for
 ; the per-note rate-3 gate + SFX-steal re-arm, and silence tone-ch2's VOLUME so ch2 makes
 ; no audible tone while its FREQUENCY clocks the noise. Zero-tick. Writing the control
@@ -1408,7 +1430,7 @@ SeqOpcodeTable:
                                          ;   sc_env slot + resets sc_env_cur; ModUpdate
                                          ;   picks FmVolEnv vs PsgVolEnv by SCF_IS_FM_B)
         dw      Seq_Op_RegWrite          ; $F8 MEV_REGWRITE (raw YM2612 register write)
-        dw      Seq_BadOpcode            ; $F9 reserved
+        dw      Seq_Op_Macro             ; $F9 MEV_MACRO (arm slot[1])
         dw      Seq_BadOpcode            ; $FA reserved
         dw      Seq_BadOpcode            ; $FB reserved
         dw      Seq_BadOpcode            ; $FC reserved

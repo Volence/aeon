@@ -404,6 +404,27 @@ TAG_MAC_END     = $E3
           error "TAG_MAC_* must be the contiguous $E0-$E3 macro-stream tags"
         endif
 
+; --- Phase 3 Component D: slot[0] MEV_MACRO ($F9) — (re)arm the channel's slot[1]
+; macro stream. + dw blob_offset (BE) : sc_mod_ptr = Snd_SongBase + offset, mark
+; active, reset. Zero-tick. ($F7=MEV_FMENV, $F8=MEV_REGWRITE are sibling Phase-3
+; opcodes; $F3-$F6 are Phase-2 reservations.)
+MEV_MACRO       = $F9
+        ; MEV_MACRO must be a command opcode (> MEV_NOTE_MAX), inside the $E0-$FF
+        ; coordination block, on its assigned slot $F9, and clear of every allocated
+        ; opcode AND the Phase-2 reservations $F3-$F6.
+        if MEV_MACRO <= MEV_NOTE_MAX
+          error "MEV_MACRO (\{MEV_MACRO}) must be a command opcode (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_MACRO < MEV_VOL) || (MEV_MACRO > MEV_END)
+          error "MEV_MACRO (\{MEV_MACRO}) must be inside the $E0-$FF coordination block"
+        endif
+        if MEV_MACRO <> $F9
+          error "MEV_MACRO (\{MEV_MACRO}) must be $F9 (its assigned Phase-3 slot)"
+        endif
+        if (MEV_MACRO = MEV_VOL) || (MEV_MACRO = MEV_PATCH) || (MEV_MACRO = MEV_DAC) || (MEV_MACRO = MEV_NOTE_DUR) || (MEV_MACRO = MEV_PAN) || (MEV_MACRO = MEV_REPEAT_START) || (MEV_MACRO = MEV_REPEAT_END) || (MEV_MACRO = MEV_NOTE_RAW) || (MEV_MACRO = MEV_PITCHENV) || (MEV_MACRO = MEV_OPBIAS) || (MEV_MACRO = MEV_REGDELTA) || (MEV_MACRO = MEV_PSGENV) || (MEV_MACRO = MEV_MODSET) || (MEV_MACRO = MEV_NOTEFILL) || (MEV_MACRO = MEV_LOOP_POINT) || (MEV_MACRO = MEV_JUMP) || (MEV_MACRO = MEV_SPINREV) || (MEV_MACRO = MEV_SPINREV_RESET) || (MEV_MACRO = MEV_PSGNOISE) || (MEV_MACRO = MEV_END)
+          error "MEV_MACRO (\{MEV_MACRO}) collides with an allocated $E0-$FF opcode"
+        endif
+
         ; --- MEV_PAN / MEV_OPBIAS range + collision asserts (Task 6) ---
         ; Both must be command opcodes (> MEV_NOTE_MAX), inside the $E0-$FF
         ; coordination block, and must not collide with any allocated opcode.
