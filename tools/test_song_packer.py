@@ -644,9 +644,33 @@ class TestMacroEvents(unittest.TestCase):
     def test_music_illegal_opcode_is_rejected_not_dropped(self):
         # The gate must REJECT (not silently emit) an opcode flagged
         # music-illegal. MEV_SPINREV_RESET ($F1) is dispatch-folded and must
-        # never appear in a stream; assert the gate rejects a raw event for it.
-        from song_packer import _MUSIC_ILLEGAL_OPCODES
-        self.assertIn(0xF1, _MUSIC_ILLEGAL_OPCODES)
+        # never appear in a music stream; pack_song must raise PackError.
+        from song_packer import (
+            _MUSIC_ILLEGAL_OPCODES, MEV_SPINREV_RESET, Event,
+        )
+        self.assertIn(MEV_SPINREV_RESET, _MUSIC_ILLEGAL_OPCODES)
+
+        # Synthetic event that encodes to the illegal opcode byte.
+        class IllegalEvent(Event):
+            def encode(self):
+                return bytes([MEV_SPINREV_RESET])
+
+        ch = ChannelDesc(CHROUTE_FM1, [
+            Patch(0), Vol(100), SetDur(0x10), LoopPoint(),
+            Note(0), IllegalEvent(), Jump()])
+        with self.assertRaises(PackError) as ctx:
+            pack_song(SongDesc(tempo=16, channels=[ch]))
+        self.assertIn(hex(MEV_SPINREV_RESET), str(ctx.exception))
+
+    def test_music_legal_expression_not_in_illegal_set(self):
+        # Sanity: the legal expression opcodes ($F7/$F8/$F9/$EB) must NOT be
+        # in _MUSIC_ILLEGAL_OPCODES (they are explicitly music-legal).
+        from song_packer import (
+            _MUSIC_ILLEGAL_OPCODES, _MUSIC_LEGAL_EXPRESSION_OPCODES,
+        )
+        overlap = _MUSIC_LEGAL_EXPRESSION_OPCODES & _MUSIC_ILLEGAL_OPCODES
+        self.assertEqual(overlap, frozenset(),
+                         f"legal expression opcodes found in illegal set: {overlap!r}")
 
 
 class TestConstantsSync(unittest.TestCase):

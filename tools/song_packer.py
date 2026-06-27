@@ -794,7 +794,13 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
                 raise PackError(
                     "loop body has no time-advancing event "
                     "(Note/Rest/NoteDur) — would spin the sequencer forever")
-        stream += ev.encode()
+        enc = ev.encode()
+        if enc and enc[0] in _MUSIC_ILLEGAL_OPCODES:
+            op = enc[0]
+            raise PackError(
+                f"opcode {op:#x} is music-illegal (the engine dispatch-folds/"
+                f"drops it on a music route) — refusing to emit it")
+        stream += enc
     if repeat_depth != 0:
         raise PackError(
             f"{repeat_depth} RepeatStart(s) not closed by a RepeatEnd")
