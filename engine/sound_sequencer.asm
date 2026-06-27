@@ -1125,6 +1125,42 @@ Seq_Op_RegDelta:
         djnz    .delta_loop
         jp      Seq_ContinueFetch        ; zero tick
 
+; $F8 MEV_REGWRITE + part + reg + val : write ONE arbitrary YM2612 register for an
+; EXPLICIT part (0/1), IMMEDIATELY. Zero command-tick. The part is carried by the
+; operand (NOT Fm_RoutePart-derived) — this is the raw register escape hatch for
+; whole-part / global regs. GUARD: reg==$2A (DAC data) and reg==$2B (DAC enable)
+; are SKIPPED (the operands are still consumed) so a song can never clobber the DAC
+; stream or click the enable edge. After the write, Fm_ReparkDac re-selects $2A on
+; the addr port so a racing DAC byte lands on $2A. de=$4001 is preserved BY
+; CONSTRUCTION (Fm_YmWrite/Fm_ReparkDac use absolute YM addressing). hl-rule: load
+; all 3 operands first (hl ends past them = the resume ptr), then push/pop hl around
+; the YM-write pair (defensive, the YmWrite/Repark calls already preserve hl).
+; Clobbers: af, bc. Manipulates: hl (kept live). Uses ix.
+Seq_Op_RegWrite:
+        ld      a, (hl)
+        inc     hl                       ; a = part (0/1); hl past part byte
+        and     1                        ; mask to part bit (Fm_YmWrite tests bit 0)
+        ld      b, a                     ; b = part
+        ld      a, (hl)
+        inc     hl                       ; a = reg; hl past reg byte
+        ld      e, a                     ; e = reg (preserve across the val read)
+        ld      a, (hl)
+        inc     hl                       ; a = val; hl now PAST all 3 operands
+        ld      c, a                     ; c = val
+        ; --- DAC-reg guard: refuse $2A / $2B (skip the write, operands consumed) ---
+        ld      a, e                     ; a = reg
+        cp      SND_REG_DAC_DATA         ; $2A ?
+        jr      z, .skip
+        cp      SND_REG_DAC_ENABLE       ; $2B ?
+        jr      z, .skip
+        ld      a, e                     ; a = reg (Fm_YmWrite wants reg in a)
+        push    hl                       ; defensive: keep the live stream ptr across the write
+        call    Fm_YmWrite               ; a=reg, c=val, b=part (absolute addr; de untouched)
+        call    Fm_ReparkDac             ; re-select $2A on the addr port
+        pop     hl
+.skip:
+        jp      Seq_ContinueFetch        ; zero tick (jp: out of jr range to the tail)
+
 ; $E5 MEV_REPEAT_START (no operand) : save the current (post-opcode) ptr as the
 ; body-start the matching $E6 jumps back to. Zero tick. Does NOT touch
 ; sc_repeat_count — the count is established when $E6 is first reached (so a
@@ -1273,7 +1309,7 @@ SeqOpcodeTable:
         dw      Seq_Op_PsgEnv            ; $F7 MEV_FMENV (shared handler: sets the unified
                                          ;   sc_env slot + resets sc_env_cur; ModUpdate
                                          ;   picks FmVolEnv vs PsgVolEnv by SCF_IS_FM_B)
-        dw      Seq_BadOpcode            ; $F8 reserved
+        dw      Seq_Op_RegWrite          ; $F8 MEV_REGWRITE (raw YM2612 register write)
         dw      Seq_BadOpcode            ; $F9 reserved
         dw      Seq_BadOpcode            ; $FA reserved
         dw      Seq_BadOpcode            ; $FB reserved

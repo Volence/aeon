@@ -373,6 +373,17 @@ MEV_PSGNOISE      = $F2   ; + ctrl : set the SN76489 noise control byte (mode+ra
 ; ModUpdate renderer picks FmVolEnv (FM route) vs PsgVolEnv (PSG route) by SCF_IS_FM_B.
 MEV_FMENV         = $F7   ; + env_id : set the channel's FM TL vol-env id (FM route;
                           ;   1-based, 0=none; shares sc_env with MEV_PSGENV)
+; --- Phase 3 (music-expr): arbitrary YM2612 register write (inline opcode) ----
+; $F8 + part + reg + val : write ONE YM2612 register IMMEDIATELY for an EXPLICIT
+; part (0 = part I addr/data $4000/$4001, 1 = part II $4002/$4003). Unlike
+; MEV_REGDELTA ($EA), the part is carried by the operand (NOT derived from the
+; channel route via Fm_RoutePart) — this is the raw escape hatch the packer uses
+; for whole-part / global registers (e.g. $22 LFO, $27 timer/ch3 mode, $B4 pan on
+; an arbitrary channel). The handler GUARDS reg==$2A and reg==$2B (the DAC data /
+; DAC-enable regs): those writes are SKIPPED so a song can never clobber the DAC
+; stream or click the enable edge. After the write it re-parks $2A on the addr
+; port (Fm_ReparkDac) so a DAC byte racing in lands on $2A. Zero command-tick.
+MEV_REGWRITE    = $F8    ; + part + reg + val : raw YM2612 register write (part-explicit)
 
         ; --- MEV_PAN / MEV_OPBIAS range + collision asserts (Task 6) ---
         ; Both must be command opcodes (> MEV_NOTE_MAX), inside the $E0-$FF
@@ -489,6 +500,24 @@ MEV_FMENV         = $F7   ; + env_id : set the channel's FM TL vol-env id (FM ro
         endif
         if (MEV_FMENV = MEV_VOL) || (MEV_FMENV = MEV_PATCH) || (MEV_FMENV = MEV_DAC) || (MEV_FMENV = MEV_NOTE_DUR) || (MEV_FMENV = MEV_PAN) || (MEV_FMENV = MEV_REPEAT_START) || (MEV_FMENV = MEV_REPEAT_END) || (MEV_FMENV = MEV_NOTE_RAW) || (MEV_FMENV = MEV_PITCHENV) || (MEV_FMENV = MEV_OPBIAS) || (MEV_FMENV = MEV_REGDELTA) || (MEV_FMENV = MEV_PSGENV) || (MEV_FMENV = MEV_MODSET) || (MEV_FMENV = MEV_NOTEFILL) || (MEV_FMENV = MEV_LOOP_POINT) || (MEV_FMENV = MEV_JUMP) || (MEV_FMENV = MEV_SPINREV) || (MEV_FMENV = MEV_SPINREV_RESET) || (MEV_FMENV = MEV_PSGNOISE) || (MEV_FMENV = MEV_END)
           error "MEV_FMENV (\{MEV_FMENV}) collides with an allocated $E0-$FF opcode"
+        endif
+
+        ; --- MEV_REGWRITE ($F8) range + collision asserts (music-expr) ---
+        ; A command opcode (> MEV_NOTE_MAX), inside the $E0-$FF coordination block,
+        ; landing on the fixed slot $F8, clear of every allocated opcode. $F3-$F6 are
+        ; RESERVED for Phase-2 plans, so $F8 must also stay clear of $F7/$F9 (the
+        ; sibling music-expr opcodes MEV_FMENV/MEV_MACRO).
+        if MEV_REGWRITE <= MEV_NOTE_MAX
+          error "MEV_REGWRITE (\{MEV_REGWRITE}) must be a command opcode (> MEV_NOTE_MAX)"
+        endif
+        if (MEV_REGWRITE < MEV_VOL) || (MEV_REGWRITE > MEV_END)
+          error "MEV_REGWRITE (\{MEV_REGWRITE}) must be inside the $E0-$FF coordination block"
+        endif
+        if MEV_REGWRITE <> $F8
+          error "MEV_REGWRITE (\{MEV_REGWRITE}) must be $F8 (the fixed music-expr slot)"
+        endif
+        if (MEV_REGWRITE = MEV_VOL) || (MEV_REGWRITE = MEV_PATCH) || (MEV_REGWRITE = MEV_DAC) || (MEV_REGWRITE = MEV_NOTE_DUR) || (MEV_REGWRITE = MEV_PAN) || (MEV_REGWRITE = MEV_REPEAT_START) || (MEV_REGWRITE = MEV_REPEAT_END) || (MEV_REGWRITE = MEV_NOTE_RAW) || (MEV_REGWRITE = MEV_PITCHENV) || (MEV_REGWRITE = MEV_OPBIAS) || (MEV_REGWRITE = MEV_REGDELTA) || (MEV_REGWRITE = MEV_PSGENV) || (MEV_REGWRITE = MEV_MODSET) || (MEV_REGWRITE = MEV_NOTEFILL) || (MEV_REGWRITE = MEV_LOOP_POINT) || (MEV_REGWRITE = MEV_JUMP) || (MEV_REGWRITE = MEV_SPINREV) || (MEV_REGWRITE = MEV_PSGNOISE) || (MEV_REGWRITE = MEV_END)
+          error "MEV_REGWRITE (\{MEV_REGWRITE}) collides with an allocated $E0-$FF opcode"
         endif
 
         ; opcode ranges must not overlap: the top note opcode is below the
