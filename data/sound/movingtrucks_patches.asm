@@ -41,6 +41,8 @@ MovingTrucks_Patches:
         pbyte   136, 136, 136, 136   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    13,  11,  13,  11   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15,  31,  15,  15   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 1 (Zyrinx voice 198) ---
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
@@ -50,6 +52,8 @@ MovingTrucks_Patches:
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    25,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15,  24,   8,   8   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 2 (Zyrinx voice 151) ---
         pbyte   45                      ; fp_alg_fb     $2D
         pbyte   192                     ; fp_lr_ams_fms $C0
@@ -59,6 +63,8 @@ MovingTrucks_Patches:
         pbyte     8,   0,   1,   0   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    19,  20,  19,  26   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    56,  79,  73,  63   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 3 (Zyrinx voice 199) ---
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
@@ -68,6 +74,8 @@ MovingTrucks_Patches:
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    25,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15,  24,   8,   8   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 4 (Zyrinx voice 200) ---
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
@@ -77,6 +85,8 @@ MovingTrucks_Patches:
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    25,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15,  24,   8,   8   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 5 (Zyrinx voice 201) ---
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
@@ -86,6 +96,8 @@ MovingTrucks_Patches:
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    25,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15,  24,   8,   8   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 6 (Zyrinx voice 202) ---
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
@@ -95,6 +107,8 @@ MovingTrucks_Patches:
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    25,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15,  24,   8,   8   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 7 (Zyrinx voice 203) ---
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
@@ -104,6 +118,8 @@ MovingTrucks_Patches:
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    26,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15,  24,   8,   8   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 8 (Zyrinx voice 194) ---
         pbyte   59                      ; fp_alg_fb     $3B
         pbyte   226                     ; fp_lr_ams_fms $E2
@@ -113,6 +129,8 @@ MovingTrucks_Patches:
         pbyte    21,   2,  17,   4   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     9,   5,   3,   8   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte     2,  83,  67,   3   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 9 (Zyrinx voice 207) ---
         pbyte   53                      ; fp_alg_fb     $35
         pbyte   192                     ; fp_lr_ams_fms $C0
@@ -122,6 +140,8 @@ MovingTrucks_Patches:
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  17,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15, 191,  47,  47   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 10 (Zyrinx voice 208) ---
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   192                     ; fp_lr_ams_fms $C0
@@ -131,6 +151,8 @@ MovingTrucks_Patches:
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  17,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15, 191,  47,  47   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 11 (Zyrinx voice 209) ---
         pbyte   53                      ; fp_alg_fb     $35
         pbyte   192                     ; fp_lr_ams_fms $C0
@@ -140,6 +162,8 @@ MovingTrucks_Patches:
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  17,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15, 191,  47,  47   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 12 (Zyrinx voice 211) ---
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   240                     ; fp_lr_ams_fms $F0
@@ -149,6 +173,8 @@ MovingTrucks_Patches:
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     1,   5,  16,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15, 207,  47,  47   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 13 (Zyrinx voice 212) ---
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   192                     ; fp_lr_ams_fms $C0
@@ -158,6 +184,8 @@ MovingTrucks_Patches:
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  17,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15, 191,  47,  47   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 14 (Zyrinx voice 210) ---
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   192                     ; fp_lr_ams_fms $C0
@@ -167,6 +195,8 @@ MovingTrucks_Patches:
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  17,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15, 191,  47,  47   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 15 (Zyrinx voice 142) ---
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   193                     ; fp_lr_ams_fms $C1
@@ -176,6 +206,8 @@ MovingTrucks_Patches:
         pbyte     9,  14,  11,   5   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    21,  20,  20,  21   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte   105,  25,  73,  73   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 16 (Zyrinx voice 197) ---
         pbyte   60                      ; fp_alg_fb     $3C
         pbyte   192                     ; fp_lr_ams_fms $C0
@@ -185,6 +217,8 @@ MovingTrucks_Patches:
         pbyte    20,  16,  14,  19   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    11,   5,   6,   9   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    95, 175, 159,  15   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 17 (Zyrinx voice 205) ---
         pbyte   40                      ; fp_alg_fb     $28
         pbyte   194                     ; fp_lr_ams_fms $C2
@@ -194,6 +228,8 @@ MovingTrucks_Patches:
         pbyte   136, 136, 136, 136   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    15,  15,  15,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15,  15,  15,  15   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 18 (Zyrinx voice 108) ---
         pbyte   0                       ; fp_alg_fb     $00
         pbyte   192                     ; fp_lr_ams_fms $C0
@@ -203,6 +239,8 @@ MovingTrucks_Patches:
         pbyte     0,   0,   0,   0   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 19 (Zyrinx voice 10) ---
         pbyte   59                      ; fp_alg_fb     $3B
         pbyte   192                     ; fp_lr_ams_fms $C0
@@ -212,6 +250,8 @@ MovingTrucks_Patches:
         pbyte    20,  16,  14,  19   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    11,   5,   5,  10   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    95, 207, 143,  15   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 20 (Zyrinx voice 122) ---
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   229                     ; fp_lr_ams_fms $E5
@@ -221,6 +261,8 @@ MovingTrucks_Patches:
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   6,  14,   6   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte     6,  38,   6,   6   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 21 (Zyrinx voice 120) ---
         pbyte   3                       ; fp_alg_fb     $03
         pbyte   199                     ; fp_lr_ams_fms $C7
@@ -230,6 +272,8 @@ MovingTrucks_Patches:
         pbyte    14,   9,  13,   9   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte   208, 216, 208, 215   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 22 (Zyrinx voice 188) ---
         pbyte   59                      ; fp_alg_fb     $3B
         pbyte   212                     ; fp_lr_ams_fms $D4
@@ -239,6 +283,8 @@ MovingTrucks_Patches:
         pbyte   149,   2,  17,   4   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     9,   5,   3,   8   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte     2,  83,  67,   3   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 23 (Zyrinx voice 123) ---
         pbyte   59                      ; fp_alg_fb     $3B
         pbyte   246                     ; fp_lr_ams_fms $F6
@@ -248,6 +294,8 @@ MovingTrucks_Patches:
         pbyte   149,   2,  17,   4   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     9,   5,   3,   8   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte     2,  83,  67,   3   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 ; --- local 24 (Zyrinx voice 82) ---
         pbyte   54                      ; fp_alg_fb     $36
         pbyte   192                     ; fp_lr_ams_fms $C0
@@ -257,6 +305,8 @@ MovingTrucks_Patches:
         pbyte     3,   3,   3,   3   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_d2r     $70  [S1,S3,S2,S4]
         pbyte    15,  15,  15,  13   ; fp_d1l_rr  $80  [S1,S3,S2,S4]
+        pbyte     0,   0,   0,   0   ; fp_ssg_eg  $90  [S1,S3,S2,S4]
+        pbyte     0,   0                ; fp_reserved (pad to 32)
 MovingTrucks_Patches_End:
 
         if (MovingTrucks_Patches_End-MovingTrucks_Patches)/FmPatch_len <> PATCH_COUNT_MT

@@ -71,7 +71,10 @@ _TIMERA_PERIOD_NS = 18773         # 18.773 us per Timer-A count tick (NTSC)
 #   fp_alg_fb ($B0), fp_lr_ams_fms ($B4), then six 4-byte per-operator arrays for
 #   regs $30/$40/$50/$60/$70/$80 (dt_mul, tl, ks_ar, am_d1r, d2r, sl_rr), with
 #   array index 0..3 = PHYSICAL register order [S1,S3,S2,S4].
-FMPATCH_LEN = 26
+FMPATCH_LEN = 32
+# Record layout: 26 legacy bytes (fp_alg_fb, fp_lr_ams_fms, 6 four-byte per-op
+# groups $30..$80) + a 4-byte fp_ssg_eg group ($90, default $00 = SSG-EG off) +
+# 2 reserved pad bytes = 32 (a power of two; FmPatch struct in sound_constants.asm).
 
 # Zyrinx Bank2 voices are ALREADY stored in YM physical-register order: the
 # driver writes each op group straight to $30/$34/$38/$3C, and our FmPatch arrays
@@ -135,6 +138,9 @@ def translate_voice(v: dict, tl_is_level: bool = True) -> bytes:
         else:
             out.extend((g[OP_REORDER[0]] & 0xFF, g[OP_REORDER[1]] & 0xFF,
                         g[OP_REORDER[2]] & 0xFF, g[OP_REORDER[3]] & 0xFF))
+    # fp_ssg_eg group ($90, 4 ops) defaults to $00 (SSG-EG off) + 2 reserved pad
+    # bytes -> 32-byte record. Zyrinx/S3K voices carry no SSG-EG data, so $00.
+    out.extend((0x00, 0x00, 0x00, 0x00, 0x00, 0x00))
     assert len(out) == FMPATCH_LEN
     return bytes(out)
 
@@ -253,6 +259,11 @@ def emit_patch_bank_asm(bank_bytes: bytes, remap: dict, count: int,
             g = rec[off:off + 4]
             L.append("        pbyte   %3d, %3d, %3d, %3d   ; %s  [S1,S3,S2,S4]"
                      % (g[0], g[1], g[2], g[3], glabel))
+        ssg = rec[26:30]
+        L.append("        pbyte   %3d, %3d, %3d, %3d   ; fp_ssg_eg  $90  [S1,S3,S2,S4]"
+                 % (ssg[0], ssg[1], ssg[2], ssg[3]))
+        L.append("        pbyte   %3d, %3d                ; fp_reserved (pad to 32)"
+                 % (rec[30], rec[31]))
     L.append("%s_End:" % label)
     L.append("")
     L.append("        if (%s_End-%s)/FmPatch_len <> PATCH_COUNT_MT" % (label, label))

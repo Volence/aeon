@@ -192,8 +192,8 @@ class TestRoundtripRoll(unittest.TestCase):
     def test_has_voice(self):
         # Roll has one FM4 voice
         self.assertEqual(len(self.desc['voices']), 1)
-        self.assertEqual(len(self.desc['voices'][0]), 26,
-                         "FmPatch must be exactly 26 bytes")
+        self.assertEqual(len(self.desc['voices'][0]), 32,
+                         "FmPatch must be exactly 32 bytes (incl. SSG-EG group + pad)")
 
     def test_no_patch_event_emitted(self):
         # SFX must NOT emit MEV_PATCH: the engine's Sfx_Steal pre-loads the SFX's own
@@ -915,7 +915,7 @@ class TestFmVoiceOperatorOrder(unittest.TestCase):
         b.apply('smpsVcReleaseRate',['1', '2', '3', '4'])
         b.apply('smpsVcTotalLevel', ['1', '2', '3', '4'])   # must be applied LAST
         out = b.build()
-        self.assertEqual(len(out), 26)
+        self.assertEqual(len(out), 32)
         # header
         self.assertEqual(out[0], (0 << 3) | 4, "alg_fb = (fb<<3)|algo")
         self.assertEqual(out[1], 0xC0, "lr_ams_fms defaults to L/R both set")
@@ -927,6 +927,8 @@ class TestFmVoiceOperatorOrder(unittest.TestCase):
         self.assertEqual(list(out[14:18]),[4, 2, 3, 1], "am_d1r reordered")
         self.assertEqual(list(out[18:22]),[4, 2, 3, 1], "d2r reordered (was the unreordered bug)")
         self.assertEqual(list(out[22:26]),[4, 2, 3, 1], "sl_rr reordered (was the unreordered bug)")
+        self.assertEqual(list(out[26:30]), [0, 0, 0, 0], "fp_ssg_eg default off")
+        self.assertEqual(list(out[30:32]), [0, 0], "fp_reserved pad")
 
 
 class TestFmDecayEnvelopeParsed(unittest.TestCase):

@@ -61,6 +61,8 @@ pbyte   macro                           ; emit data byte(s); CPU-correct directi
         pbyte   10,  10,  10,  10       ; fp_am_d1r  $60  gentle first decay (D1R=$0A)
         pbyte   2,   2,   2,   2        ; fp_d2r     $70  slow sustain decay (D2R=$02)
         pbyte   24,  24,  24,  24       ; fp_d1l_rr  $80  D1L=1,RR=8 ($18) clean release
+        pbyte   0,   0,   0,   0        ; fp_ssg_eg  $90  SSG-EG off (all operators)
+        pbyte   0,   0                  ; fp_reserved      pad to 32 bytes
 
 ; --- PATCH_LEAD (index 1) — soft FM lead, algorithm 0, feedback 2 ---------
 ; Single carrier (S4, MUL 2 for a touch more presence) with moderate series
@@ -73,3 +75,5 @@ pbyte   macro                           ; emit data byte(s); CPU-correct directi
         pbyte   8,   8,   8,   8        ; fp_am_d1r  $60  slow first decay (D1R=$08)
         pbyte   0,   0,   0,   0        ; fp_d2r     $70  no sustain decay (held tone)
         pbyte   10,  10,  10,  10       ; fp_d1l_rr  $80  D1L=0,RR=$0A clean release
+        pbyte   0,   0,   0,   0        ; fp_ssg_eg  $90  SSG-EG off (all operators)
+        pbyte   0,   0                  ; fp_reserved      pad to 32 bytes

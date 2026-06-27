@@ -1443,12 +1443,15 @@ def emit_patch_table(driver_asm_path: str = S3K_Z80_DRIVER,
     for i in range(count):
         vid = idx_to_id[i]
         rec = voices[vid]
+        # Pad to FMPATCH_LEN (32): fp_ssg_eg group ($90, 4 ops) + 2 reserved bytes,
+        # all $00 (SSG-EG off). S3K UVB voices carry no SSG-EG data.
+        rec = bytes(rec) + b"\x00" * (FMPATCH_LEN - len(rec))
         byte_str = ", ".join("$%02X" % x for x in rec)
-        L.append("        dc.b    %s  ; [%d] S3K voice $%02X" % (byte_str, i, vid))
+        L.append("        dc.b    %s  ; [%d] S3K voice $%02X (+SSG-EG/pad $00)" % (byte_str, i, vid))
     L.append("%s_End:" % label)
     L.append("")
     L.append("        if (%s_End-%s) <> %d*FmPatch_len" % (label, label, count))
-    L.append("          error \"%s size mismatch (expected %d voices * 26 bytes)\""
+    L.append("          error \"%s size mismatch (expected %d voices * FmPatch_len bytes)\""
              % (label, count))
     L.append("        endif")
     L.append("")

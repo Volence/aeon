@@ -298,11 +298,15 @@ class TestTranslateVoice(unittest.TestCase):
             16, 16, 16, 16,         # fp_am_d1r   ($60)
             0, 0, 0, 0,             # fp_d2r      ($70)
             7, 10, 7, 58,           # fp_d1l_rr   ($80) <- sl_rr
+            0, 0, 0, 0,             # fp_ssg_eg   ($90) default off
+            0, 0,                   # fp_reserved (pad to 32)
         ])
         out = translate_voice(v)
-        self.assertEqual(len(out), 26)
+        self.assertEqual(len(out), 32)
         self.assertEqual(len(out), FMPATCH_LEN)
         self.assertEqual(out, expected)
+        # SSG-EG group + pad default to $00 (off) for translated voices.
+        self.assertEqual(list(out[26:32]), [0, 0, 0, 0, 0, 0])
 
     def test_alg_fb_composition(self):
         # fp_alg_fb = ((fb&7)<<3) | (algo&7). Masks both fields.
@@ -354,8 +358,8 @@ class TestTranslateVoice(unittest.TestCase):
                          "tl_is_level=False keeps S3K attenuation TL verbatim (loud carriers)")
 
     def test_ext_dropped(self):
-        # ext[4] is not present in the 26-byte output (length proves it).
-        self.assertEqual(len(translate_voice(self._neutral())), 26)
+        # ext[4] is not present in the 32-byte output (length proves it).
+        self.assertEqual(len(translate_voice(self._neutral())), 32)
 
     @staticmethod
     def _neutral():
@@ -380,9 +384,9 @@ class TestPatchBank(unittest.TestCase):
         self.bank_bytes, self.remap, self.count = build_patch_bank(
             self.raw, _VOICES_JSON)
 
-    def test_bank_is_n_records_of_26(self):
+    def test_bank_is_n_records_of_32(self):
         self.assertGreater(self.count, 0)
-        self.assertEqual(len(self.bank_bytes), self.count * 26)
+        self.assertEqual(len(self.bank_bytes), self.count * FMPATCH_LEN)
         self.assertEqual(len(self.remap), self.count)
 
     def test_remap_is_dense_0_to_n(self):
@@ -412,8 +416,8 @@ class TestPatchBank(unittest.TestCase):
         with open(_VOICES_JSON) as f:
             v = json.load(f)["bank1"]
         for voice_idx, local_idx in self.remap.items():
-            off = local_idx * 26
-            rec = self.bank_bytes[off:off + 26]
+            off = local_idx * FMPATCH_LEN
+            rec = self.bank_bytes[off:off + FMPATCH_LEN]
             self.assertEqual(rec, translate_voice(v[voice_idx]),
                              f"voice {voice_idx} -> local {local_idx}")
 

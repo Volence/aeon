@@ -1527,6 +1527,11 @@ def emit_sfx_patches_asm(voices: list, label: str, sfx_id: int) -> str:
             g = rec[off:off + 4]
             lines.append(f"        pbyte   {g[0]:3}, {g[1]:3}, {g[2]:3}, {g[3]:3}"
                          f"   ; {glbl}  {greg}  [S1,S3,S2,S4]")
+        ssg = rec[26:30]
+        lines.append(f"        pbyte   {ssg[0]:3}, {ssg[1]:3}, {ssg[2]:3}, {ssg[3]:3}"
+                     f"   ; fp_ssg_eg  $90  [S1,S3,S2,S4]")
+        lines.append(f"        pbyte   {rec[30]:3}, {rec[31]:3}"
+                     f"                ; fp_reserved (pad to 32)")
     lines.append(f"{patches_label}_End:")
     lines.append("")
     lines.append(f"        if ({patches_label}_End-{patches_label})/FmPatch_len <> {count_const}")
