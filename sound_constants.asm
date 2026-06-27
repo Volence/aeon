@@ -999,26 +999,36 @@ Snd_PitchTabPtr    = Snd_SongBase + 2            ; 2 bytes: per-song pitch table
 ; byte in the free seq block below the trace ring.
 Snd_SpindashRev    = Snd_PitchTabPtr + 2          ; 1 byte: escalating spindash transposition
 
-; --- Sequencer opcode trace ring (DEBUG) -------------------------------------
-; The 32-byte trace ring is anchored to the END of the per-channel/scratch block,
-; NOT a hardcoded $1A00, so any future SeqChannel / Snd_* scratch growth slides it
-; up automatically (into the currently-unused gap before the song buffer) instead
-; of silently colliding. It is rounded UP to the next 256-byte page boundary just
-; past the highest Snd_* cell (Snd_SpindashRev, 1 byte) because the trace writer
-; (engine/sound_sequencer.asm) addresses the ring as h=SND_SEQ_TRACE>>8, l=wr — it
-; REQUIRES the ring to be page-aligned (low byte 0). With current struct sizes the
-; round-up lands at $1A00 (identical to the old hardcoded value, behavior-
-; preserving); a future +64-byte growth past $1A00 would slide it to $1B00, etc.
-; The asserts below keep it page-aligned, clear of the scratch cells, and below
-; the music-param block + song buffer.
-SND_SEQ_TRACE      = (Snd_SpindashRev + 1 + $FF) & $FF00
+; --- Music-load param block — RELOCATED above the Snd_* scratch (was hardcoded $1A20).
+; The end-state grown SeqChannel overruns $1A20, so the block now TRACKS the scratch
+; end and slides up automatically. 68k + debug mirror reference it by symbol.
+; The 68k pre-derives the song's bank + $8000-window ptr (same addressing as a
+; DacSample) and posts them here (under the same bus hold as the SND_REQ_MUSIC
+; trigger). The Z80 SND_REQ_MUSIC handler reads them, banks the song in, and
+; copies a FIXED SND_SONG_BUF_SIZE bytes into SND_SONG_BUF (Z80 RAM) so the
+; sequencer streams are RAM-resident (no $8000-window banking during playback —
+; the 1B DAC owns the bank).
+SND_MUSIC_PARAM          = Snd_SpindashRev + 1
+SND_MUSIC_PARAM_BANK     = SND_MUSIC_PARAM+$00   ; song bank id (1 byte)
+SND_MUSIC_PARAM_PTR      = SND_MUSIC_PARAM+$01   ; song $8000-window ptr (2 bytes, little-endian)
+; Sound 1D: the song's SH_FLAGS byte, forwarded by the 68k (it reads the song's
+; ROM header directly). The Z80 loader needs the FLAGS *before* deciding the
+; copy-to-RAM vs stream-from-ROM path, so it cannot read them from SND_SONG_BUF
+; (which only exists for the copy path). Posted in the same bus hold as bank/ptr.
+SND_MUSIC_PARAM_FLAGS    = SND_MUSIC_PARAM+$03   ; song SH_FLAGS byte (1 byte)
+; Sound 1D: the song's FM-patch-bank $8000-window ptr (2 bytes, little-endian),
+; forwarded by the 68k from the song table's parallel patch-ptr entry. USED ONLY
+; on the stream path (SH_F_STREAM): the patch bank lives in the song's bank, read
+; through the same window. The copy path (1C) ignores it and uses the Z80-RAM
+; inline FmPatchInlineTable. (window ptr = (patch_addr & $7FFF) | $8000.)
+SND_MUSIC_PARAM_PATCHPTR = SND_MUSIC_PARAM+$04   ; song patch-bank window ptr (2 bytes, LE)
+SND_MUSIC_PARAM_LEN      = 6
 
-    if (SND_SEQ_TRACE & $FF) <> 0
-      fatal "trace ring (\{SND_SEQ_TRACE}) must be page-aligned (the writer uses h=SND_SEQ_TRACE>>8, l=wr)"
-    endif
-    if (SND_FM_SCRATCH + SND_FM_SCRATCH_LEN) > SND_SEQ_TRACE
-      fatal "FM scratch runs into the trace ring at \{SND_SEQ_TRACE}"
-    endif
+; --- Sequencer opcode trace ring (DEBUG) — RELOCATED above the music-param block and
+; NO LONGER PAGE-ALIGNED (the grown SeqChannel array will consume the old $1A00 page).
+; Seq_Trace now builds the ring address as base+index (carry-correct 16-bit add).
+; SND_SEQ_TRACE_LEN is defined above near SND_SEQ_END.
+SND_SEQ_TRACE      = SND_MUSIC_PARAM + SND_MUSIC_PARAM_LEN
 
     ; Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots)
     ; must fit between SND_SEQ_BASE ($1800) and the mailbox base ($1F00). The seq
@@ -1028,63 +1038,25 @@ SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
     if SND_SEQ_BASE + SND_SEQ_HEADER_LEN + CHROUTE_COUNT*SeqChannel_len > SND_REQ_BASE
       error "seq RAM overflow: \{SND_SEQ_BASE + SND_SEQ_HEADER_LEN + CHROUTE_COUNT*SeqChannel_len} > mailbox \{SND_REQ_BASE}"
     endif
+    if (SND_FM_SCRATCH + SND_FM_SCRATCH_LEN) > SND_MUSIC_PARAM
+      fatal "FM scratch (\{SND_FM_SCRATCH}) runs into the music param block (\{SND_MUSIC_PARAM})"
+    endif
+    if (SND_MUSIC_PARAM + SND_MUSIC_PARAM_LEN) > SND_SEQ_TRACE
+      fatal "music param block (\{SND_MUSIC_PARAM}) runs into the trace ring (\{SND_SEQ_TRACE})"
+    endif
     if SND_SEQ_END > SND_REQ_BASE
       fatal "sequencer RAM (\{SND_SEQ_END}) overruns the mailbox at \{SND_REQ_BASE}"
     endif
-    if (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN) > SND_REQ_BASE
-      fatal "sequencer trace ring overruns the mailbox"
-    endif
-    ; the per-channel array must not run into the trace ring (now anchored at the
-    ; page boundary past the end of the channel/scratch block, $1A00 with current
-    ; sizes). CHROUTE_COUNT(11) * SeqChannel_len(39) = 429 bytes -> $1808+429 =
-    ; $19B5; the FM scratch + Snd_* cells follow, then the page-aligned trace ring.
-    if SND_SEQ_END > SND_SEQ_TRACE
-      fatal "sequencer channels (\{SND_SEQ_END}) overrun the trace ring at \{SND_SEQ_TRACE}"
-    endif
 
-; --- Music-load param block (Task 6 decision 2) + song RAM buffer (decision 1).
-; The 68k pre-derives the song's bank + $8000-window ptr (same addressing as a
-; DacSample) and posts them here (under the same bus hold as the SND_REQ_MUSIC
-; trigger). The Z80 SND_REQ_MUSIC handler reads them, banks the song in, and
-; copies a FIXED SND_SONG_BUF_SIZE bytes into SND_SONG_BUF (Z80 RAM) so the
-; sequencer streams are RAM-resident (no $8000-window banking during playback —
-; the 1B DAC owns the bank). The trace ring is $1A00..$1A1F (32 B, page-aligned at
-; the seq-RAM end), so the param block lives just above it at $1A20 (asserted above).
-SND_MUSIC_PARAM         = $1A20                  ; music-load param block
-SND_MUSIC_PARAM_BANK    = SND_MUSIC_PARAM+$00    ; song bank id (1 byte)
-SND_MUSIC_PARAM_PTR     = SND_MUSIC_PARAM+$01    ; song $8000-window ptr (2 bytes, little-endian)
-; Sound 1D: the song's SH_FLAGS byte, forwarded by the 68k (it reads the song's
-; ROM header directly). The Z80 loader needs the FLAGS *before* deciding the
-; copy-to-RAM vs stream-from-ROM path, so it cannot read them from SND_SONG_BUF
-; (which only exists for the copy path). Posted in the same bus hold as bank/ptr.
-SND_MUSIC_PARAM_FLAGS   = SND_MUSIC_PARAM+$03    ; song SH_FLAGS byte (1 byte)
-; Sound 1D: the song's FM-patch-bank $8000-window ptr (2 bytes, little-endian),
-; forwarded by the 68k from the song table's parallel patch-ptr entry. USED ONLY
-; on the stream path (SH_F_STREAM): the patch bank lives in the song's bank, read
-; through the same window. The copy path (1C) ignores it and uses the Z80-RAM
-; inline FmPatchInlineTable. (window ptr = (patch_addr & $7FFF) | $8000.)
-SND_MUSIC_PARAM_PATCHPTR = SND_MUSIC_PARAM+$04   ; song patch-bank window ptr (2 bytes, LE)
-SND_MUSIC_PARAM_LEN     = 6
-
-; The song RAM buffer: the loader copies a fixed SND_SONG_BUF_SIZE bytes from the
-; banked window here once at load. Page-aligned ($1B00) so the loader copy + the
-; sequencer's hl stream walk stay in one page family (no special alignment need,
-; but keeps the map tidy). 512 bytes — generously covers the bring-up song; the
-; streams self-terminate ($FF/$EF) so copying a little past the song into adjacent
-; ROM is harmless (never interpreted). A copy-path (RAM-buffered) song must fit
+; --- Song RAM buffer. Page-aligned at $1B00, unchanged.
+; The loader copies a fixed SND_SONG_BUF_SIZE bytes from the banked window here
+; once at load. 512 bytes — generously covers the bring-up song; the streams
+; self-terminate ($FF/$EF) so copying a little past the song into adjacent ROM is
+; harmless (never interpreted). A copy-path (RAM-buffered) song must fit
 ; SND_SONG_BUF_SIZE; the streaming Moving Trucks song never uses this buffer.
 SND_SONG_BUF            = $1B00
 SND_SONG_BUF_SIZE       = $200                   ; 512 bytes ($1B00..$1CFF)
 
-    if (SND_MUSIC_PARAM + SND_MUSIC_PARAM_LEN) > SND_SONG_BUF
-      fatal "music param block (\{SND_MUSIC_PARAM}) runs into the song buffer at \{SND_SONG_BUF}"
-    endif
-    if SND_MUSIC_PARAM < (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN)
-      fatal "music param block (\{SND_MUSIC_PARAM}) overlaps the trace ring at \{SND_SEQ_TRACE}"
-    endif
-    ; The seq-RAM-end-anchored trace ring must stay below the song buffer (it grows
-    ; up into the free gap as the channel array / Snd_* scratch grow; this catches
-    ; the case where that growth would push the ring past the song buffer).
     if (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN) > SND_SONG_BUF
       fatal "trace ring (\{SND_SEQ_TRACE}+\{SND_SEQ_TRACE_LEN}) runs into the song buffer at \{SND_SONG_BUF}"
     endif

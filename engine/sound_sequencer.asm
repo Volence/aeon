@@ -1189,11 +1189,17 @@ Seq_Trace:
         ld      c, a                     ; c = trace byte
         ld      a, (SND_SEQ_TRACE_WR)
         and     SND_SEQ_TRACE_LEN-1      ; defensive wrap (len is a power of two)
+        ld      b, a                     ; save index for the post-increment (b is free; push bc above)
+        ld      hl, SND_SEQ_TRACE        ; ring base (no longer page-aligned)
+        add     a, l
         ld      l, a
-        ld      h, SND_SEQ_TRACE>>8       ; trace ring is page-aligned ($1A00)
-        ld      (hl), c                  ; trace[wr] = byte
+        ld      a, h
+        adc     a, 0
+        ld      h, a                     ; hl = SND_SEQ_TRACE + index (carry-correct)
+        ld      (hl), c                  ; trace[index] = trace byte
+        ld      a, b
         inc     a
-        and     SND_SEQ_TRACE_LEN-1      ; wr = (wr+1) & (LEN-1)
+        and     SND_SEQ_TRACE_LEN-1      ; index = (index+1) & (LEN-1)
         ld      (SND_SEQ_TRACE_WR), a
         pop     bc
         pop     hl
