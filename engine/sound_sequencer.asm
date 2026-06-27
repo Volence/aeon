@@ -1379,8 +1379,8 @@ MacroTick:
         ; TAG_MAC_LOOP + dw blob_offset (BE) : cursor = Snd_SongBase + offset.
         ; Same "BE offset, handler adds base" convention as MEV_MACRO/the loader's
         ; mod_ptr rebase. Re-read in the same frame (no implicit yield) so a body
-        ; that is pure REG..LOOP would spin — the packer guarantees every loop body
-        ; contains a TAG_MAC_NEXT, exactly like slot[0]'s loop-body validation.
+        ; that is pure REG..LOOP would spin forever — the packer (Component E2) MUST
+        ; guarantee every loop body contains a TAG_MAC_NEXT; enforced packer-side, not here.
         ld      d, (hl)
         inc     hl                       ; d = offset hi (big-endian)
         ld      e, (hl)
