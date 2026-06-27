@@ -140,6 +140,35 @@ PsgVolEnv_Resolve:
         ret
 
 ; ----------------------------------------------------------------------
+; FmVolEnv_Resolve — map a 1-based FM vol-env id (a) to its body ptr (hl) via the
+; FmVolEnv_Ids/FmVolEnv_Ptrs parallel arrays (engine/sound_tables_z80.asm, banked
+; $8000 window). The FM mirror of PsgVolEnv_Resolve.
+; Out: carry clear + hl = body base on a match; carry set on an unknown id.
+; In: a = 1-based env id. Clobbers af,bc,de,hl. Preserves ix.
+; ----------------------------------------------------------------------
+FmVolEnv_Resolve:
+        ld      b, FMVOLENV_COUNT
+        ld      hl, FmVolEnv_Ids         ; banked table; label = its $8000-window ptr
+        ld      de, FmVolEnv_Ptrs        ; banked ptr array (entries are window ptrs)
+.scan:
+        cp      (hl)
+        jr      z, .found
+        inc     hl                       ; next id byte
+        inc     de
+        inc     de                       ; next ptr (2 bytes)
+        djnz    .scan
+        scf                              ; not found
+        ret
+.found:
+        ex      de, hl                   ; hl = &ptr entry
+        ld      e, (hl)
+        inc     hl
+        ld      d, (hl)
+        ex      de, hl                   ; hl = body base
+        or      a                        ; carry clear
+        ret
+
+; ----------------------------------------------------------------------
 ; Psg_NoteOn — key a tone note on a PSG tone channel.
 ; In:  ix = SeqChannel (PSG1..3), a = pitch index (0..94).
 ; PsgDivisorTableZ[pitch] = 10-bit divisor (little-endian word). Emit:

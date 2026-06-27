@@ -92,3 +92,25 @@ PsgVolEnv_0E:   db 02h, PsgVolEnvCtl_Rest   ; sTone_0E (S3K VolEnv_0D)
 PsgVolEnv_0F:   db 00h, 02h, 04h, 06h, 08h, 10h, PsgVolEnvCtl_Rest   ; sTone_0F (S3K VolEnv_0E)
 PsgVolEnv_11:   db 01h, 01h, 01h, 00h, 00h, 00h, PsgVolEnvCtl_Sustain   ; sTone_11 (S3K VolEnv_10)
 PsgVolEnv_1D:   db 00h, 00h, 00h, 00h, 01h, 01h, 01h, 01h, 02h, 02h, 02h, 02h, 03h, 03h, 03h, 03h, 04h, 04h, 04h, 04h, 05h, 05h, 05h, 05h, 06h, 06h, 06h, 06h, 07h, 07h, 07h, 07h, 08h, 08h, 08h, 08h, 09h, 09h, 09h, 09h, 0Ah, 0Ah, 0Ah, 0Ah, PsgVolEnvCtl_Sustain   ; sTone_1D (S3K VolEnv_1C)
+
+; --- FM TL volume-envelope table (spec section 4 flagship) -------------------
+; Same format as the PSG vol-env (atten deltas + 80h/81h/83h ctl), but the
+; renderer (FmEnvUpdate) folds the delta into the CARRIER TLs (Fm_SetVolume).
+; FM rest (83h) = TL-silence (the YM EG release continues), not a key-off.
+FmVolEnvCtl_Loop    = 80h
+FmVolEnvCtl_Sustain = 81h
+FmVolEnvCtl_Rest    = 83h
+
+FmVolEnv_Ids:    db 01h, 02h, 03h
+FmVolEnv_Ids_End:
+FmVolEnv_Ptrs:   dw FmVolEnv_01, FmVolEnv_02, FmVolEnv_03
+FmVolEnv_Ptrs_End:
+
+FMVOLENV_COUNT = FmVolEnv_Ids_End - FmVolEnv_Ids
+        if (FmVolEnv_Ptrs_End - FmVolEnv_Ptrs) <> FMVOLENV_COUNT*2
+          error "FmVolEnv_Ptrs entry count mismatch vs FmVolEnv_Ids"
+        endif
+
+FmVolEnv_01:   db 20h, 18h, 12h, 0Ch, 08h, 05h, 02h, 00h, FmVolEnvCtl_Sustain   ; fmEnv_swell
+FmVolEnv_02:   db 00h, 02h, 04h, 06h, 08h, 0Ch, 10h, 18h, FmVolEnvCtl_Sustain   ; fmEnv_decay
+FmVolEnv_03:   db 00h, 02h, 04h, 06h, 04h, 02h, FmVolEnvCtl_Loop   ; fmEnv_trem

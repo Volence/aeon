@@ -290,6 +290,7 @@ def emit_asm_z80() -> str:
     out.append("CarrierMaskTableZ_End:")
     out.append("")
     out.extend(_emit_psg_vol_env_z80())
+    out.extend(_emit_fm_vol_env_z80())
     return "\n".join(out)
 
 
@@ -324,6 +325,24 @@ _PSG_VOL_ENVS = [
                         4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7,
                         8, 8, 8, 8, 9, 9, 9, 9, 0x0A, 0x0A, 0x0A, 0x0A,
                         _CTL_SUSTAIN]),                                    # VolEnv_1C
+]
+
+
+# --- FM TL volume-envelope table (spec §4 flagship; the Flamedriver zDoFMVolEnv
+# analogue) -------------------------------------------------------------------
+# Same byte format as the PSG vol-env: per-frame CARRIER-TL attenuation deltas
+# (higher = quieter) + control bytes $80 loop / $81 sustain-hold / $83 rest
+# (FM rest = TL-silence, not key-off). Engine id is 1-based. These are ENGINE
+# DEFAULTS for authoring (S3K has no FM vol-env to import); add more as songs
+# need them. The renderer (FmEnvUpdate) folds the delta into the CARRIER TLs.
+_FM_VOL_ENVS = [
+    # id    label          body
+    (0x01, "fmEnv_swell",  [0x20, 0x18, 0x12, 0x0C, 0x08, 0x05, 0x02, 0x00,
+                            _CTL_SUSTAIN]),                 # swell-IN: quiet->bright, hold
+    (0x02, "fmEnv_decay",  [0x00, 0x02, 0x04, 0x06, 0x08, 0x0C, 0x10, 0x18,
+                            _CTL_SUSTAIN]),                 # decay: bright->quiet, hold
+    (0x03, "fmEnv_trem",   [0x00, 0x02, 0x04, 0x06, 0x04, 0x02,
+                            _CTL_LOOP]),                    # tremolo: oscillate, loop
 ]
 
 
@@ -373,6 +392,45 @@ def _emit_psg_vol_env_z80() -> list:
              _CTL_REST: "PsgVolEnvCtl_Rest"}.get(b, _z80_byte(b))
             for b in body)
         out.append("%s:   db %s   ; %s (S3K VolEnv_%02X)" % (label, body_toks, stone, env_id - 1))
+    out.append("")
+    return out
+
+
+def _emit_fm_vol_env_z80() -> list:
+    """Emit the FM vol-env id->body map + bodies (Z80 syntax, direct-addressed).
+
+    Mirrors _emit_psg_vol_env_z80: a tiny parallel id-byte / body-ptr array the
+    reader (FmVolEnv_Resolve, engine/sound_psg.asm) linearly scans, plus the
+    bodies. Lands in the co-located $8000-window bank (not the Z80-code budget).
+    """
+    out = []
+    out.append("; --- FM TL volume-envelope table (spec section 4 flagship) -------------------")
+    out.append("; Same format as the PSG vol-env (atten deltas + 80h/81h/83h ctl), but the")
+    out.append("; renderer (FmEnvUpdate) folds the delta into the CARRIER TLs (Fm_SetVolume).")
+    out.append("; FM rest (83h) = TL-silence (the YM EG release continues), not a key-off.")
+    out.append("FmVolEnvCtl_Loop    = 80h")
+    out.append("FmVolEnvCtl_Sustain = 81h")
+    out.append("FmVolEnvCtl_Rest    = 83h")
+    out.append("")
+    ids = ", ".join(_z80_byte(e[0]) for e in _FM_VOL_ENVS)
+    ptrs = ", ".join("FmVolEnv_%02X" % e[0] for e in _FM_VOL_ENVS)
+    out.append("FmVolEnv_Ids:    db %s" % ids)
+    out.append("FmVolEnv_Ids_End:")
+    out.append("FmVolEnv_Ptrs:   dw %s" % ptrs)
+    out.append("FmVolEnv_Ptrs_End:")
+    out.append("")
+    out.append("FMVOLENV_COUNT = FmVolEnv_Ids_End - FmVolEnv_Ids")
+    out.append("        if (FmVolEnv_Ptrs_End - FmVolEnv_Ptrs) <> FMVOLENV_COUNT*2")
+    out.append('          error "FmVolEnv_Ptrs entry count mismatch vs FmVolEnv_Ids"')
+    out.append("        endif")
+    out.append("")
+    for env_id, label, body in _FM_VOL_ENVS:
+        body_toks = ", ".join(
+            {_CTL_LOOP: "FmVolEnvCtl_Loop",
+             _CTL_SUSTAIN: "FmVolEnvCtl_Sustain",
+             _CTL_REST: "FmVolEnvCtl_Rest"}.get(b, _z80_byte(b))
+            for b in body)
+        out.append("FmVolEnv_%02X:   db %s   ; %s" % (env_id, body_toks, label))
     out.append("")
     return out
 

@@ -265,5 +265,46 @@ class TestEmitAsmZ80Matches68k(unittest.TestCase):
                          self._parse_68k("CarrierMaskTable"))
 
 
+class TestFmVolEnvTable(unittest.TestCase):
+    """The FM TL vol-env map mirrors PsgVolEnv_*: parallel id/ptr arrays + bodies,
+    emitted into the banked sound_tables_z80.asm by emit_asm_z80()."""
+
+    def setUp(self):
+        from gen_sound_tables import _FM_VOL_ENVS
+        self.envs = _FM_VOL_ENVS
+        self.asmz80 = emit_asm_z80()
+
+    def test_ids_ptrs_count_match(self):
+        # parallel arrays: one id byte and one body ptr per env.
+        self.assertGreaterEqual(len(self.envs), 1)
+        self.assertTrue(all(0 < e[0] <= 0xFF for e in self.envs),
+                        "FM env ids must be 1-based bytes")
+
+    def test_emit_has_map_and_bodies(self):
+        a = self.asmz80
+        self.assertIn("FmVolEnv_Ids:", a)
+        self.assertIn("FmVolEnv_Ids_End:", a)
+        self.assertIn("FmVolEnv_Ptrs:", a)
+        self.assertIn("FmVolEnv_Ptrs_End:", a)
+        self.assertIn("FMVOLENV_COUNT = FmVolEnv_Ids_End - FmVolEnv_Ids", a)
+        self.assertIn("FmVolEnvCtl_Loop    = 80h", a)
+        self.assertIn("FmVolEnvCtl_Sustain = 81h", a)
+        self.assertIn("FmVolEnvCtl_Rest    = 83h", a)
+        for env_id, _label, _body in self.envs:
+            self.assertIn("FmVolEnv_%02X:" % env_id, a,
+                          "missing body label for id %#x" % env_id)
+
+    def test_emit_count_assert_present(self):
+        # the generated bank must self-check id/ptr parity at assemble time.
+        self.assertIn(
+            'error "FmVolEnv_Ptrs entry count mismatch vs FmVolEnv_Ids"',
+            self.asmz80)
+
+    def test_fm_block_after_psg_block(self):
+        # FM env block is appended AFTER the PSG env block in the same bank.
+        a = self.asmz80
+        self.assertLess(a.index("PsgVolEnv_Ids:"), a.index("FmVolEnv_Ids:"))
+
+
 if __name__ == "__main__":
     unittest.main()
