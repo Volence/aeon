@@ -1238,6 +1238,12 @@ already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor"
 - **D6 (uncertain)** single-level repeat state may carry a stale `sc_repeat_count` across a song loop /
   mid-flight jump (`sound_sequencer.asm` 1042). Watch; add a packer guard if it bites.
 - **D7** `MEV_REPEAT_END` operand 0 → 255-pass repeat, no runtime clamp (`sound_sequencer.asm` 1022; trust-packer).
+- **D8** `song_packer.py` accepts expression opcodes the engine silently DROPS on a music route
+  (e.g. `MEV_MODSET` vibrato — still SFX-only until the expression engine un-gates it; `MEV_PSGENV`
+  is now music-legal as of feat/hcz2-import). Authoring trap: a song emits it, it no-ops, no error.
+  Add a build-time reject/warn keyed to "which opcodes are music-legal today"; relax per opcode as
+  each un-gates. (Audit 2026-06-26.) Also: route PSG note-on through the multipoint `sc_points` arp
+  path (today under `.is_fm` only) for single-channel PSG chords — pairs with D4 (PSG `sc_transpose`).
 
 #### E. Best-in-class — the honest gaps (cross-driver consensus)
 **DO NOW (high payoff, seam already exists, ~no pigeonhole):**
