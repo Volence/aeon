@@ -528,6 +528,79 @@ class TestMacroEvents(unittest.TestCase):
         m.body_offset = 0x0145
         self.assertEqual(m.encode(), bytes([0xF9, 0x01, 0x45]))
 
+    # --- E2: slot[1] macro-body emitter + back-patched header mod_ptr ---
+
+    def test_tag_consts(self):
+        self.assertEqual(song_packer.TAG_MAC_NEXT, 0xE0)
+        self.assertEqual(song_packer.TAG_MAC_REG, 0xE1)
+        self.assertEqual(song_packer.TAG_MAC_LOOP, 0xE2)
+        self.assertEqual(song_packer.TAG_MAC_END, 0xE3)
+
+    def test_emit_macro_body_basic(self):
+        # A reg write, a frame yield, then end.
+        from song_packer import emit_macro_body, MacReg, MacNext, MacEnd
+        body = emit_macro_body([MacReg(0, 0x90, 0x08), MacNext(), MacEnd()],
+                               body_base=0)
+        self.assertEqual(body, bytes([0xE1, 0x00, 0x90, 0x08, 0xE0, 0xE3]))
+
+    def test_emit_macro_body_loop_target_is_be_body_base(self):
+        # TAG_MAC_LOOP carries a 2-byte BE offset = the body's start in the blob.
+        from song_packer import emit_macro_body, MacReg, MacNext, MacLoop
+        body = emit_macro_body([MacReg(0, 0x90, 0x08), MacNext(), MacLoop()],
+                               body_base=0x0140)
+        # ...E0 then E2 01 40 (loop -> body_base 0x0140, big-endian).
+        self.assertEqual(body[-3:], bytes([0xE2, 0x01, 0x40]))
+
+    def test_emit_macro_body_rejects_dac_reg(self):
+        from song_packer import emit_macro_body, MacReg, MacEnd, PackError
+        with self.assertRaises(PackError):
+            emit_macro_body([MacReg(0, 0x2A, 0x00), MacEnd()], body_base=0)
+
+    def test_emit_macro_body_rejects_part(self):
+        from song_packer import emit_macro_body, MacReg, MacEnd
+        with self.assertRaises(PackError):
+            emit_macro_body([MacReg(2, 0x90, 0x00), MacEnd()], body_base=0)
+
+    def test_channel_with_macro_body_emits_nonnull_mod_ptr_and_blob(self):
+        # A channel that carries a macro body: pack_song must (a) emit a
+        # non-NULL header mod_ptr at the channel's +3/+4, pointing at the
+        # body's blob offset, and (b) append the body bytes at that offset.
+        from song_packer import MacReg, MacNext, MacEnd
+        ch = ChannelDesc(CHROUTE_FM1,
+                         [Patch(0), Vol(100), SetDur(0x10),
+                          LoopPoint(), Note(57), Jump()])
+        ch.macro_body = [MacReg(0, 0x90, 0x08), MacNext(), MacEnd()]
+        song = SongDesc(tempo=16, channels=[ch])
+        blob = pack_song(song)
+        # header: flags,tempo,tempo_base,count, dw pitchtab, then ch record at +6.
+        mod_ptr = (blob[6 + 3] << 8) | blob[6 + 4]
+        self.assertNotEqual(mod_ptr, 0)
+        self.assertEqual(blob[mod_ptr:mod_ptr + 6],
+                         bytes([0xE1, 0x00, 0x90, 0x08, 0xE0, 0xE3]))
+
+    def test_channel_without_macro_body_keeps_null_mod_ptr(self):
+        # Regression: a normal channel still emits mod_ptr = 0.
+        song = _simple_song()
+        blob = pack_song(song)
+        self.assertEqual((blob[6 + 3] << 8) | blob[6 + 4], 0)
+
+    def test_macro_event_operand_backpatched_to_body(self):
+        # A slot[0] Macro() event resolves its 2-byte operand to the same blob
+        # offset as the channel's macro body.
+        from song_packer import Macro, MacReg, MacNext, MacEnd
+        ch = ChannelDesc(CHROUTE_FM1,
+                         [Patch(0), Vol(100), SetDur(0x10),
+                          LoopPoint(), Macro(), Note(57), Jump()])
+        ch.macro_body = [MacReg(0, 0x90, 0x08), MacNext(), MacEnd()]
+        song = SongDesc(tempo=16, channels=[ch])
+        blob = pack_song(song)
+        mod_ptr = (blob[6 + 3] << 8) | blob[6 + 4]
+        # find the MEV_MACRO ($F9) byte in the command stream and read its operand.
+        cmd_ptr = (blob[6 + 1] << 8) | blob[6 + 2]
+        i = blob.index(0xF9, cmd_ptr)
+        operand = (blob[i + 1] << 8) | blob[i + 2]
+        self.assertEqual(operand, mod_ptr)
+
 
 class TestConstantsSync(unittest.TestCase):
     """song_packer hand-mirrors the MEV_* opcode and CHROUTE_* route values from

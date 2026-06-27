@@ -302,6 +302,86 @@ class Macro(Event):
             raise PackError(f"Macro on non-FM route {route}")
 
 
+# --- slot[1] macro-stream PRIVATE tag namespace (mirror of sound_constants.asm
+# TAG_MAC_*; the D-side MacroTick reader consumes these EXACT bytes). These are
+# NOT slot[0] MEV opcodes and NOT YM register values — a distinct namespace. ---
+TAG_MAC_NEXT = 0xE0     # yield: advance exactly one frame
+TAG_MAC_REG = 0xE1      # + part(0/1) + reg + val: immediate YM write + repark ($2A/$2B guarded)
+TAG_MAC_LOOP = 0xE2     # + body_base_hi + body_base_lo (BE): cursor = body start (reader adds Snd_SongBase)
+TAG_MAC_END = 0xE3      # disable the stream (mark inert)
+
+
+class MacEvent:
+    """Base slot[1] macro-stream event. encode(body_base) -> bytes."""
+    def encode(self, body_base: int) -> bytes:
+        raise NotImplementedError
+
+
+class MacNext(MacEvent):
+    """Yield: advance exactly one frame."""
+    def encode(self, body_base: int) -> bytes:
+        return bytes([TAG_MAC_NEXT])
+
+
+class MacReg(MacEvent):
+    """Immediate YM2612 register write in the macro stream: part(0/1), reg, val.
+    Refuses reg $2A/$2B (DAC data/enable) and a control-code-valued data byte
+    (a val that collides with a TAG_MAC_* byte would be safe here because tags
+    are operand-position-decoded, but we reject it to match the spec's
+    control-code-as-data guard and keep bodies inspectable)."""
+    def __init__(self, part: int, reg: int, val: int):
+        self.part = part
+        self.reg = reg
+        self.val = val
+
+    def encode(self, body_base: int) -> bytes:
+        if self.part not in (0, 1):
+            raise PackError(f"MacReg part {self.part} must be 0 or 1")
+        if self.reg in (0x2A, 0x2B):
+            raise PackError(
+                f"MacReg reg {self.reg:#x} is a DAC register ($2A/$2B) — refused")
+        if not (0 <= self.reg <= 0xFF):
+            raise PackError(f"MacReg reg {self.reg} out of byte range")
+        if not (0 <= self.val <= 0xFF):
+            raise PackError(f"MacReg val {self.val} out of byte range")
+        if TAG_MAC_NEXT <= self.val <= TAG_MAC_END:
+            raise PackError(
+                f"MacReg val {self.val:#x} collides with a TAG_MAC_* control "
+                f"byte (${TAG_MAC_NEXT:02X}..${TAG_MAC_END:02X}) — reject "
+                f"control-code-valued data")
+        return bytes([TAG_MAC_REG, self.part & 0xFF, self.reg & 0xFF,
+                      self.val & 0xFF])
+
+
+class MacLoop(MacEvent):
+    """Loop to the body start: emits TAG_MAC_LOOP + a 2-byte BIG-ENDIAN
+    body_base offset (where this channel's macro body begins in the blob).
+    The D-side reader adds Snd_SongBase to rebase it."""
+    def encode(self, body_base: int) -> bytes:
+        return bytes([TAG_MAC_LOOP, (body_base >> 8) & 0xFF, body_base & 0xFF])
+
+
+class MacEnd(MacEvent):
+    """Disable the stream (mark inert)."""
+    def encode(self, body_base: int) -> bytes:
+        return bytes([TAG_MAC_END])
+
+
+def emit_macro_body(events, body_base: int) -> bytes:
+    """Pack a slot[1] macro body (a list of MacEvent) to bytes. body_base is the
+    blob offset where this body begins (known at body-layout time); it is the
+    value a MacLoop encodes for its 2-byte BE loop target. Validates the
+    $2A/$2B reg reject + control-code-as-data via each MacReg.encode()."""
+    if not events:
+        raise PackError("empty macro body")
+    if not isinstance(events[-1], (MacEnd, MacLoop)):
+        raise PackError("macro body not terminated by MacEnd or MacLoop")
+    out = bytearray()
+    for ev in events:
+        out += ev.encode(body_base)
+    return bytes(out)
+
+
 class PsgNoise(Event):
     """Set the SN76489 noise control byte (mode+rate, $E0-$EF). Zero-tick; owns the
     noise mode so a noise NOTE then carries PITCH for the rate-3 tone-2 clock. Emitted
@@ -581,9 +661,13 @@ class End(Event):
 # --- Descriptors ----------------------------------------------------------
 
 class ChannelDesc:
-    def __init__(self, route: int, events: list):
+    def __init__(self, route: int, events: list, macro_body=None):
         self.route = route
         self.events = events
+        # Optional slot[1] macro stream (a list of MacEvent). None/[] = NULL
+        # mod_ptr (single-stream). When present, pack_song lays the body out
+        # after the slot[0] command streams and emits a non-NULL header mod_ptr.
+        self.macro_body = macro_body
 
 
 class SongDesc:
@@ -736,12 +820,36 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
     #   (route + dw cmd_ptr + dw mod_ptr)*n, dw patch_table_ptr.
     header_len = 4 + 2 + 5 * n + 2
 
-    # Stream offsets relative to blob start.
+    # Command-stream (slot[0]) offsets relative to blob start.
     offsets = []
     cur = header_len
     for s in streams:
         offsets.append(cur)
         cur += len(s)
+
+    # Macro bodies (slot[1]) lay out AFTER all command streams. Each body's
+    # base offset is known here, so MacLoop targets + the Macro() slot[0]
+    # operand + the header mod_ptr all resolve to it (back-patch).
+    mod_offsets = [0] * n                # 0 = NULL (single-stream channel)
+    macro_bodies = [b""] * n
+    for i, ch in enumerate(song.channels):
+        body_evs = getattr(ch, "macro_body", None)
+        if not body_evs:
+            continue
+        body_base = cur
+        body = emit_macro_body(body_evs, body_base)
+        # Back-patch every Macro() event in this channel's slot[0] stream to
+        # point at this body. (Multiple Macro() arms re-point the same body.)
+        for ev in ch.events:
+            if isinstance(ev, Macro):
+                ev.body_offset = body_base
+        mod_offsets[i] = body_base
+        macro_bodies[i] = body
+        cur += len(body)
+
+    # Re-encode the command streams AFTER back-patching Macro operands (the
+    # first pass above encoded Macro() with body_offset=0).
+    streams = [_validate_channel(ch) for ch in song.channels]
 
     out = bytearray()
     out.append(song.flags & 0xFF)
@@ -750,16 +858,18 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
     out.append(n & 0xFF)
     out.append((pitchtable_offset >> 8) & 0xFF)   # pitchtable_ptr hi (BE)
     out.append(pitchtable_offset & 0xFF)          # pitchtable_ptr lo (0 = default)
-    for ch, off in zip(song.channels, offsets):
+    for ch, off, mod in zip(song.channels, offsets, mod_offsets):
         out.append(ch.route & 0xFF)
         out.append((off >> 8) & 0xFF)   # cmd_ptr big-endian
         out.append(off & 0xFF)
-        out.append(0x00)                # mod_ptr = 0 / NULL (single-stream A)
-        out.append(0x00)
+        out.append((mod >> 8) & 0xFF)   # mod_ptr big-endian (0 = NULL slot[1])
+        out.append(mod & 0xFF)
     out.append(0x00)                    # patch_table_ptr hi (wired by loader)
     out.append(0x00)                    # patch_table_ptr lo
     for s in streams:
         out += s
+    for body in macro_bodies:
+        out += body
     return bytes(out)
 
 
