@@ -666,14 +666,9 @@ Seq_Op_ModSet:
         ld      a, (hl)
         inc     hl                       ; step (raw count)
         ld      e, a                     ; e = step
-        ; --- SFX-channel gate: a music stream must not write sc_mod_* ---
-        ; b,c,d,e hold wait/speed/delta/step (untouched by the gate). PRESERVE hl —
-        ; Seq_ContinueFetch resumes .fetch from hl (the live stream ptr), so the gate must
-        ; restore it (else the next opcode is read out of the channel struct = derail).
-        push    hl                       ; save stream ptr (Snd_ChanClass clobbers hl)
-        call    Snd_ChanClass            ; CARRY set => ix < $1D00 => music channel
-        pop     hl                       ; restore stream ptr (pop does not affect flags)
-        jr      c, .modset_done          ; music: ignore the writes (hl = stream ptr intact)
+        ; --- music + SFX both write sc_mod_* now (the SFX-only gate was removed in
+        ; Phase 1; sc_mod_* exist on both structs at the same offsets). The field
+        ; writes below do not clobber hl, so the live stream ptr stays valid. ---
         ; ctrl = OR of all 4 params (nonzero => active, all-zero => off).
         ld      a, b
         or      c
