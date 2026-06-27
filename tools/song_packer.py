@@ -69,6 +69,11 @@ MEV_SPINREV = 0xF0          # (no operand): add the global spindash rev into sc_
 MEV_SPINREV_RESET = 0xF1    # (no operand): zero the global spindash rev
 MEV_PSGNOISE = 0xF2         # + ctrl: set the SN76489 noise control byte ($E0-$EF, mode+rate)
 MEV_END = 0xFF
+# Phase-3 macro/automation-spine opcodes (mirror of sound_constants.asm;
+# added by Components A/B/D on the asm side). Music-legal (see _validate_channel).
+MEV_FMENV = 0xF7            # + env_id: arm the FM carrier-TL volume envelope (1-based; 0=off)
+MEV_REGWRITE = 0xF8         # + part(0/1) + reg + val: inline raw YM2612 register write
+MEV_MACRO = 0xF9            # + ptr_hi + ptr_lo: (re)arm the slot[1] macro stream at a blob offset
 
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
 MAX_DUR = 0x7F                              # SetDur range $00..$7F
@@ -225,6 +230,72 @@ class PsgEnv(Event):
             raise PackError(f"PsgEnv on FM route {route}")
         if not (0 <= self.env_id <= 0xFF):
             raise PackError(f"PsgEnv env_id {self.env_id} out of byte range")
+
+
+class FmEnv(Event):
+    """Phase-3 FM carrier-TL volume envelope: arm the channel's 1-based env id
+    (0=off). Mirrors PsgEnv but routes to the FM-TL renderer (FmEnvUpdate); the
+    engine resets the contour cursor on each attack and folds sc_env_out into the
+    carrier-TL delta in Fm_SetVolume. FM routes only. Zero-tick. The shared
+    MEV_FMENV dispatch entry points at the same Seq_Op_PsgEnv handler (it sets
+    sc_env + cursor regardless of route); the RENDERER picks FM vs PSG by route."""
+    def __init__(self, env_id: int):
+        self.env_id = env_id
+
+    def encode(self) -> bytes:
+        return bytes([MEV_FMENV, self.env_id & 0xFF])
+
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"FmEnv on non-FM route {route}")
+        if not (0 <= self.env_id <= 0xFF):
+            raise PackError(f"FmEnv env_id {self.env_id} out of byte range")
+
+
+class RegWrite(Event):
+    """Phase-3 inline raw YM2612 register write (slot[0]). Operands in stream
+    order: part (0/1 — the explicit YM part, NOT derived from the channel), reg,
+    val. The engine writes reg->addr port + val->data port for that part, then
+    re-parks $2A. REFUSES reg $2A (DAC data) and $2B (DAC enable): an authored
+    poke to those corrupts/silences the DAC stream. Zero-tick. FM routes only
+    (the writer is the FM part-router)."""
+    def __init__(self, part: int, reg: int, val: int):
+        self.part = part
+        self.reg = reg
+        self.val = val
+
+    def encode(self) -> bytes:
+        return bytes([MEV_REGWRITE, self.part & 0xFF, self.reg & 0xFF,
+                      self.val & 0xFF])
+
+    def validate(self, route):
+        if route not in _FM_ROUTES:
+            raise PackError(f"RegWrite on non-FM route {route}")
+        if self.part not in (0, 1):
+            raise PackError(f"RegWrite part {self.part} must be 0 or 1")
+        if self.reg in (0x2A, 0x2B):
+            raise PackError(
+                f"RegWrite reg {self.reg:#x} is a DAC register ($2A/$2B) — "
+                f"refused (would corrupt the DAC stream)")
+        if not (0 <= self.reg <= 0xFF):
+            raise PackError(f"RegWrite reg {self.reg} out of byte range")
+        if not (0 <= self.val <= 0xFF):
+            raise PackError(f"RegWrite val {self.val} out of byte range")
+
+
+class Macro(Event):
+    """Phase-3 (re)arm the slot[1] macro/automation stream (MacroTick) from
+    slot[0]. Encodes a 2-byte BIG-ENDIAN blob-offset operand pointing at this
+    channel's macro body; the offset is resolved (back-patched) by pack_song
+    once body layout is known. The Z80 handler rebases it (base+offset, same
+    convention as the loader's mod_ptr) into sc_mod_ptr + marks the stream
+    active + resets. The bare event carries a placeholder 0 until packed."""
+    def __init__(self):
+        self.body_offset = 0     # back-patched by pack_song
+
+    def encode(self) -> bytes:
+        return bytes([MEV_MACRO, (self.body_offset >> 8) & 0xFF,
+                      self.body_offset & 0xFF])
 
 
 class PsgNoise(Event):

@@ -466,6 +466,57 @@ class TestEmitAsm(unittest.TestCase):
         self.assertEqual(bytes(vals), pack_song(self.song))
 
 
+class TestMacroEvents(unittest.TestCase):
+
+    def test_new_mev_consts(self):
+        self.assertEqual(song_packer.MEV_FMENV, 0xF7)
+        self.assertEqual(song_packer.MEV_REGWRITE, 0xF8)
+        self.assertEqual(song_packer.MEV_MACRO, 0xF9)
+
+    def test_fmenv_encode(self):
+        from song_packer import FmEnv
+        self.assertEqual(FmEnv(3).encode(), bytes([0xF7, 0x03]))
+
+    def test_fmenv_on_psg_route_rejected(self):
+        from song_packer import FmEnv
+        with self.assertRaises(PackError):
+            FmEnv(3).validate(CHROUTE_PSG1)
+
+    def test_fmenv_id_out_of_range(self):
+        from song_packer import FmEnv
+        with self.assertRaises(PackError):
+            FmEnv(256).validate(CHROUTE_FM1)
+
+    def test_regwrite_encode(self):
+        from song_packer import RegWrite
+        self.assertEqual(RegWrite(0, 0x90, 0x08).encode(),
+                         bytes([0xF8, 0x00, 0x90, 0x08]))
+
+    def test_regwrite_part_range(self):
+        from song_packer import RegWrite
+        with self.assertRaises(PackError):
+            RegWrite(2, 0x90, 0x00).validate(CHROUTE_FM1)
+
+    def test_regwrite_rejects_dac_regs(self):
+        # $2A (DAC data) and $2B (DAC enable) corrupt/silence the DAC stream.
+        from song_packer import RegWrite
+        with self.assertRaises(PackError):
+            RegWrite(0, 0x2A, 0x00).validate(CHROUTE_FM1)
+        with self.assertRaises(PackError):
+            RegWrite(0, 0x2B, 0x80).validate(CHROUTE_FM1)
+
+    def test_regwrite_on_non_fm_route_rejected(self):
+        from song_packer import RegWrite
+        with self.assertRaises(PackError):
+            RegWrite(0, 0x90, 0x00).validate(CHROUTE_PSG1)
+
+    def test_macro_encode_default_ptr(self):
+        # Macro encodes a 2-byte BE blob-offset operand; the offset is
+        # back-patched by pack_song. The bare event encodes a placeholder 0.
+        from song_packer import Macro
+        self.assertEqual(Macro().encode(), bytes([0xF9, 0x00, 0x00]))
+
+
 class TestConstantsSync(unittest.TestCase):
     """song_packer hand-mirrors the MEV_* opcode and CHROUTE_* route values from
     sound_constants.asm. There is no build-time guard against the two drifting,
