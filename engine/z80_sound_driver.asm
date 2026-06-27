@@ -1194,6 +1194,7 @@ Snd_LoadSong:
         add     hl, de
         ld      (ix+sc_mod_ptr), l
         ld      (ix+sc_mod_ptr+1), h
+        ld      (ix+sc_macro_active), 1  ; sc_macro_active mirrors sc_mod_ptr != 0 (header-arm path)
 .mod_null:
         ; flags: ACTIVE + route-class bit (FM / PSG / DAC) from the route value.
         ld      a, (iy+SHC_ROUTE)

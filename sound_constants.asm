@@ -1032,7 +1032,8 @@ sc_pad          = SeqChannel_sc_pad
 ; flag are ONLY ever read with a MUSIC SeqChannel ix (Sequencer_Frame walks
 ; SeqChannels), so the SFX aliasing is never exercised — same discipline as
 ; sc_noise_mode/sx_priority at +55.
-sc_macro_active = SeqChannel_sc_pad
+sc_macro_active = SeqChannel_sc_pad  ; INFORMATIONAL mirror: "a macro stream is armed". The
+        ; AUTHORITATIVE per-frame gate is sc_mod_ptr != 0; gate on that, not this flag.
 
 ; --- sc_flags bit numbers + masks ---
 ; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B

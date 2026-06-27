@@ -404,6 +404,9 @@ FmEnvUpdate:
         cp      FmVolEnvCtl_Rest         ; $83 -> TL-silence the tail
         jr      z, .rest
         ; --- plain value: store as the carrier-TL atten delta, advance the cursor ---
+        ; NOTE: $82 is RESERVED (future RELEASE point) and is NOT yet a control code.
+        ; Until assigned, $82 falls through here: stored as an attenuation byte and
+        ; clamped like any plain value. Do NOT emit $82 in a body expecting it to be inert.
         ld      (ix+sc_env_out), a
         inc     (ix+sc_env_cur)
 .emit:

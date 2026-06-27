@@ -716,7 +716,10 @@ Fm_NoteOnFreq:
         ld      (ix+sc_base_freq), d     ; high byte slot = $A4 value
         ld      (ix+sc_base_freq+1), e   ; low byte slot  = $A0 value
         call    Mod_ReArm                ; per-note re-arm (no-op if sc_mod_ctrl==0)
-        ld      (ix+sc_env_cur), 0       ; restart the FM vol-env contour on this attack
+        ld      (ix+sc_env_cur), 0       ; restart the FM vol-env contour on this attack.
+        ; NOTE: FmEnvUpdate advances the contour every frame sc_env != 0 even before the
+        ; first key-on, so arming MEV_FMENV well before a note wastes contour frames.
+        ; This per-attack reset re-starts the contour on each key-on (correct per-note behavior).
 .keyon:
         ; --- FM6 dedicate (Layer 4): while a DAC sample owns ch6 (SND_STAT_DAC_ACTIVE),
         ; $2B bit7 makes the DAC REPLACE FM6's output — a $28 key-on would only retrigger
