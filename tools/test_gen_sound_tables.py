@@ -14,7 +14,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gen_sound_tables import (
     fnum_block,
     fm_pitch_table,
-    psg_divisor,
     psg_divisor_table,
     log_volume_lut,
     carrier_mask_table,
@@ -89,14 +88,30 @@ class TestFmPitchTable(unittest.TestCase):
 class TestPsgDivisor(unittest.TestCase):
 
     def test_a4_reference(self):
-        # A4 = 440 Hz -> divisor 0xFE (254).
-        self.assertEqual(psg_divisor(A4_PITCH_INDEX), 0xFE)
+        # The PSG table is S3K's zPSGFrequencies (shifted into the PSG's usable
+        # range), NOT true-ET — so 440 Hz (A) lands at index 33, divisor 0xFE.
+        # (The shared true-ET A4_PITCH_INDEX=57 is for the FM table; S3K's PSG
+        # table sits ~2 octaves higher per index by design.)
+        self.assertEqual(psg_divisor_table()[33], 0xFE)
+
+    def test_matches_s3k_zpsgfrequencies(self):
+        # Regression lock for the 2-octave PSG fix. S3K zPSGFrequencies:
+        # bottom octave clamps to $3FF; C5=522 Hz at idx 36 (true-ET would put
+        # C3=130 Hz / $357 there — the bug we fixed); the top two entries are
+        # the PSG max-frequency, used as the bright hi-hat noise clock (nMaxPSG1).
+        tbl = psg_divisor_table()
+        self.assertEqual(tbl[0], 0x3FF)    # clamped bottom octave
+        self.assertEqual(tbl[36], 0x0D6)   # C5 522 Hz (NOT 0x357 = 130 Hz)
+        self.assertEqual(tbl[82], 1)       # max-freq hi-hat clock
+        self.assertEqual(tbl[83], 1)
 
     def test_clamp_range(self):
         for d in psg_divisor_table():
             self.assertTrue(1 <= d <= 0x3FF)
 
     def test_monotonic_decreasing(self):
+        # Non-increasing: the clamped bottom octave is a flat $3FF plateau, the
+        # top two max-freq entries are a flat 1 plateau, strictly decreasing between.
         tbl = psg_divisor_table()
         self.assertEqual(len(tbl), 95)
         self.assertTrue(all(tbl[i] >= tbl[i + 1] for i in range(len(tbl) - 1)))
