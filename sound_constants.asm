@@ -386,6 +386,24 @@ MEV_FMENV         = $F7   ; + env_id : set the channel's FM TL vol-env id (FM ro
 ; port (Fm_ReparkDac) so a DAC byte racing in lands on $2A. Zero command-tick.
 MEV_REGWRITE    = $F8    ; + part + reg + val : raw YM2612 register write (part-explicit)
 
+; --- slot[1] macro-stream PRIVATE tag namespace (Component D) -------------------
+; These are NOT slot[0] MEV_* opcodes and NOT YM register values — they live only
+; inside a macro body walked by MacroTick over sc_mod_ptr. Distinct low bytes,
+; documented here as the single source of truth (Component E's packer emits the
+; identical byte values; the sync guard in E asserts on these symbols).
+;   TAG_MAC_NEXT  : advance exactly one frame (yield to the next MacroTick call)
+;   TAG_MAC_REG   : + part(0/1) + reg + val : immediate YM write (repark $2A; $2A/$2B guarded)
+;   TAG_MAC_LOOP  : + dw blob_offset (BE) : cursor = Snd_SongBase + offset, re-read
+;   TAG_MAC_END   : disable this channel's macro stream (sc_mod_ptr = 0, mark inert)
+TAG_MAC_NEXT    = $E0
+TAG_MAC_REG     = $E1
+TAG_MAC_LOOP    = $E2
+TAG_MAC_END     = $E3
+        ; the four tags must be distinct and contiguous in the $E0-$E3 PRIVATE block.
+        if (TAG_MAC_NEXT <> $E0) || (TAG_MAC_REG <> $E1) || (TAG_MAC_LOOP <> $E2) || (TAG_MAC_END <> $E3)
+          error "TAG_MAC_* must be the contiguous $E0-$E3 macro-stream tags"
+        endif
+
         ; --- MEV_PAN / MEV_OPBIAS range + collision asserts (Task 6) ---
         ; Both must be command opcodes (> MEV_NOTE_MAX), inside the $E0-$FF
         ; coordination block, and must not collide with any allocated opcode.
@@ -983,6 +1001,14 @@ sc_mod_accum    = SeqChannel_sc_mod_accum
 sc_base_freq    = SeqChannel_sc_base_freq
 sc_last_freq    = SeqChannel_sc_last_freq
 sc_detune       = SeqChannel_sc_detune
+sc_pad          = SeqChannel_sc_pad
+; slot[1] macro-stream "active" flag (Component D): reuse the even-alignment pad
+; byte (+57). Nonzero = a MacroTick reg-automation stream is running on this
+; channel. On SfxChannel, +57 is sx_patch_base's LOW byte, but MacroTick + this
+; flag are ONLY ever read with a MUSIC SeqChannel ix (Sequencer_Frame walks
+; SeqChannels), so the SFX aliasing is never exercised — same discipline as
+; sc_noise_mode/sx_priority at +55.
+sc_macro_active = SeqChannel_sc_pad
 
 ; --- sc_flags bit numbers + masks ---
 ; Z80 bit/set/res take a bit INDEX, not a mask, so the sequencer uses the _B

@@ -1279,6 +1279,95 @@ Seq_ContinueFetch:
         jp      Sequencer_NextOpcode.fetch
 
 ; ======================================================================
+; MacroTick — the slot[1] register-automation reader (Component D). Walks
+; sc_mod_ptr executing tag-prefixed events until ONE frame is yielded
+; (TAG_MAC_NEXT), then commits the cursor. Runs once/frame per active music
+; channel, AFTER ModUpdate, BEFORE Sequencer_Channel (the arbitration order:
+; named-slot contours render in ModUpdate -> slot[1] reg-writes here -> slot[0]
+; opcodes in Sequencer_Channel). Gated by the caller on sc_mod_ptr != 0.
+;
+; In:  ix = SeqChannel (a MUSIC channel; the caller only walks SeqChannels).
+; hl = the live cursor (local to this call): loaded from sc_mod_ptr, advanced
+; over each event, committed back to sc_mod_ptr before every return/yield.
+; Fm_YmWrite/Fm_ReparkDac preserve bc,de,hl,ix, so the cursor in hl survives a
+; reg-write. TAG_MAC_END disables the stream (sc_mod_ptr = 0) so the caller's
+; gate skips it next frame.
+; Clobbers: af,bc,de,hl. Preserves ix.
+; ======================================================================
+MacroTick:
+        ld      l, (ix+sc_mod_ptr)
+        ld      h, (ix+sc_mod_ptr+1)     ; hl = macro-stream cursor
+.fetch:
+        ld      a, (hl)
+        inc     hl                       ; consume the tag byte
+        cp      TAG_MAC_NEXT             ; $E0 -> yield one frame
+        jr      z, .next
+        cp      TAG_MAC_REG              ; $E1 -> immediate reg write
+        jr      z, .reg
+        cp      TAG_MAC_LOOP             ; $E2 -> cursor = base + BE offset
+        jr      z, .loop
+        cp      TAG_MAC_END              ; $E3 -> disable the stream
+        jr      z, .end
+        ; unknown tag (defense-in-depth; the packer forbids these) -> disable the
+        ; stream so a stray byte can't be re-walked forever.
+        jr      .end
+
+.next:
+        ; yield: commit the cursor (pointing at the byte AFTER this tag) and return.
+        ; Next frame resumes here. (Mirror the slot[0] commit-before-return at
+        ; Sequencer_NextOpcode :590-591.)
+        ld      (ix+sc_mod_ptr), l
+        ld      (ix+sc_mod_ptr+1), h
+        ret
+
+.reg:
+        ; TAG_MAC_REG + part + reg + val : immediate YM write + repark $2A. Reads
+        ; three operand bytes (advancing hl), then writes via the Component-B
+        ; primitive Fm_YmWrite (a=reg, c=val, b=part) and Fm_ReparkDac. GUARD:
+        ; refuse reg == $2A and reg == $2B (the DAC data/enable regs) — a raw poke
+        ; there would corrupt/silence the DAC stream; skip the write, keep walking.
+        ld      c, (hl)
+        inc     hl                       ; c = part (0/1)
+        ld      b, c                     ; stash part in b (Fm_YmWrite wants part in b)
+        ld      a, (hl)
+        inc     hl                       ; a = reg
+        ld      e, a                     ; e = reg (saved across the guard test)
+        ld      c, (hl)
+        inc     hl                       ; c = val
+        cp      SND_REG_DAC_DATA         ; $2A?
+        jr      z, .reg_skip
+        cp      SND_REG_DAC_ENABLE       ; $2B?
+        jr      z, .reg_skip
+        ld      a, e                     ; a = reg (b=part, c=val already set)
+        call    Fm_YmWrite               ; a=reg, c=val, b=part (preserves bc,de,hl,ix)
+        call    Fm_ReparkDac             ; re-park $2A (preserves bc,de,hl,ix)
+.reg_skip:
+        jr      .fetch                   ; multiple regs per frame: keep walking
+
+.loop:
+        ; TAG_MAC_LOOP + dw blob_offset (BE) : cursor = Snd_SongBase + offset.
+        ; Same "BE offset, handler adds base" convention as MEV_MACRO/the loader's
+        ; mod_ptr rebase. Re-read in the same frame (no implicit yield) so a body
+        ; that is pure REG..LOOP would spin — the packer guarantees every loop body
+        ; contains a TAG_MAC_NEXT, exactly like slot[0]'s loop-body validation.
+        ld      d, (hl)
+        inc     hl                       ; d = offset hi (big-endian)
+        ld      e, (hl)
+        inc     hl                       ; e = offset lo
+        ld      hl, (Snd_SongBase)       ; hl = song base
+        add     hl, de                   ; hl = base + offset = absolute cursor
+        jr      .fetch
+
+.end:
+        ; disable the stream: NULL sc_mod_ptr + clear the active flag so the caller's
+        ; gate skips this channel next frame. (No cursor commit needed — it's inert.)
+        xor     a
+        ld      (ix+sc_mod_ptr), a
+        ld      (ix+sc_mod_ptr+1), a
+        ld      (ix+sc_macro_active), a
+        ret
+
+; ======================================================================
 ; SeqOpcodeTable — dw jump table for opcodes $E0..$FF (32 entries).
 ; Index = opcode - MEV_VOL. Reserved opcodes point at Seq_BadOpcode.
 ; ======================================================================
