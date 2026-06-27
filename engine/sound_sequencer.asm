@@ -68,6 +68,15 @@ Sequencer_Frame:
         ; (1) modulation layer — render state -> YM (write-on-change). ix preserved.
         call    ModUpdate
 
+        ; (1b) slot[1] macro/reg-automation (Component D). ARBITRATION: after the
+        ; named-slot contours (ModUpdate) and BEFORE the slot[0] reader below. Gated
+        ; on sc_mod_ptr != 0 so a single-stream song (every channel NULL — the
+        ; Moving Trucks baseline) pays one word-test per channel and is byte-identical.
+        ; bc is already saved by the push above; ix is preserved by MacroTick.
+        ld      a, (ix+sc_mod_ptr)
+        or      (ix+sc_mod_ptr+1)
+        call    nz, MacroTick
+
         ; (2) tempo accumulator: subtract 16 each frame; borrow => event-tick due.
         ld      a, (ix+sc_tempo_accum)
         sub     16
