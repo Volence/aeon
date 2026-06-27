@@ -689,16 +689,10 @@ Fm_NoteOnFreq:
         call    Fm_WriteFreq             ; $A4 then $A0 (Fm_ScratchPart/Ch set inside)
         pop     de                       ; e = $A0 val, d = $A4 val (for the latch below)
 
-        ; --- SFX-only: latch the unmodulated note word for the vibrato renderer
-        ; (spec §5; the pitch-mod offset is summed onto d=$A4/e=$A0 each frame) AND
-        ; per-note pitch-mod re-arm (Task 4). MERGED under ONE SFX-channel gate (was
-        ; two): both touch SfxChannel-only fields, and Mod_ReArm only clobbers af +
-        ; reads sc_base_freq (not the chip), so running it here — before the key-on
-        ; instead of after — is equivalent and reclaims the second ix>=$1D00 test.
-        ; A MUSIC FM note (MT) must NOT write these (offset +51, past the 39-byte music
-        ; SeqChannel -> would corrupt the next channel's RAM). SFX live at/above $1D00.
-        call    Snd_ChanClass            ; CARRY set => MUSIC channel (hl = ix)
-        jr      c, .keyon                ; music -> no mod fields; straight to key-on
+        ; --- latch the unmodulated note word for the vibrato renderer (spec §5; the
+        ; pitch-mod offset is summed onto d=$A4/e=$A0 each frame) AND per-note pitch-mod
+        ; re-arm (Task 4). Music + SFX FM both latch now (the SFX-only gate was removed
+        ; in Phase 1; sc_base_freq/sc_mod_* exist on both structs at the same offsets).
         ld      (ix+sc_base_freq), d     ; high byte slot = $A4 value
         ld      (ix+sc_base_freq+1), e   ; low byte slot  = $A0 value
         call    Mod_ReArm                ; per-note re-arm (no-op if sc_mod_ctrl==0)

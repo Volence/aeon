@@ -160,14 +160,9 @@ Psg_NoteOn:
         ld      d, (hl)                  ; d = divisor high byte (only D1-D0 used)
         ; --- latch the base divisor for PSG pitch modulation (spec §5) ---
         ; sc_base_freq holds (hi,lo) = (d,e); Psg_ApplyMod sums the vibrato/sweep
-        ; offset onto it each frame. SfxChannel-ONLY (sc_base_freq at +51 is PAST a
-        ; 39-byte music SeqChannel) -> gate on ix >= SND_SFX_BASE so a music PSG note
-        ; never writes adjacent RAM (and stays byte-identical). hl holds the table ptr
-        ; (must survive), so test ix's high byte without disturbing hl.
-        push    hl                       ; preserve the divisor table ptr (Snd_ChanClass clobbers hl)
-        call    Snd_ChanClass            ; CARRY set => ix < $1D00 => music channel
-        pop     hl                       ; restore the table ptr
-        jr      c, .skip_base_latch      ; music PSG -> no mod fields, don't latch
+        ; offset onto it each frame. Music + SFX PSG both latch now (the SFX-only gate
+        ; was removed in Phase 1; sc_base_freq exists on both structs at the same offset).
+        ; hl still holds the divisor table ptr (the stores below do not touch hl).
         ld      (ix+sc_base_freq), d
         ld      (ix+sc_base_freq+1), e
 .skip_base_latch:
@@ -177,13 +172,12 @@ Psg_NoteOn:
         ; --- set the channel volume so the note sounds (re-reads sc_volume) ---
         set     SCF_KEYED_B, (ix+sc_flags)
         call    Psg_EnvCursorReset       ; restart the vol-env contour on this attack (music + SFX, spec §4)
-        ; --- per-note pitch-mod re-arm (spec §5) — SFX channels only -----------------
+        ; --- per-note pitch-mod re-arm (spec §5) — music + SFX PSG -----------------
         ; Mod_ReArm clears accum + reloads steps for this fresh attack; it reads
-        ; sc_mod_*/sc_base_freq/sc_last_freq (SfxChannel-only, latched above), so GATE
-        ; on the SFX-channel test exactly like the FM key-on does (a music PSG note
-        ; would otherwise read adjacent RAM). No-op when sc_mod_ctrl==0.
-        call    Snd_ChanClass            ; CARRY set => ix < $1D00 => MUSIC channel
-        jr      c, .skip_rearm           ; music PSG -> no mod re-arm (byte-identical)
+        ; sc_mod_*/sc_base_freq/sc_last_freq (latched above). Music + SFX both re-arm
+        ; now (the SFX-only gate was removed in Phase 1; all fields exist on both
+        ; structs). No-op when sc_mod_ctrl==0 (every un-modulated channel, including
+        ; all noise tracks, pays only one test).
         call    Mod_ReArm                ; PSG pitch-mod re-arm (preserves bc/de/hl/ix)
 .skip_rearm:
         ld      a, (ix+sc_volume)
