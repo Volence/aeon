@@ -441,12 +441,73 @@ Mod_Advance:
         ld      (ix+sc_mod_accum), l
         ld      (ix+sc_mod_accum+1), h
 .sustain:
-        ; --- final word = base_freq + accum (16-bit) ---
-        ld      h, (ix+sc_base_freq)     ; FM: $A4 value / PSG: divisor hi  = high byte
-        ld      l, (ix+sc_base_freq+1)   ; FM: $A0 value / PSG: divisor lo  = low byte
+        ; --- final word = base + accum. FM applies the BLOCK-BOUNDARY CORRECTION (spec
+        ; §4): split block|fnum, add accum to the 11-bit fnum, renormalize block so the
+        ; modulated pitch crosses octaves seamlessly. PSG has no block: plain 16-bit add
+        ; onto the 10-bit divisor. Mod_Advance is shared, so split on route class. Runs
+        ; only when sc_mod_ctrl!=0 (caller-gated), so normal playback never reaches here.
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        jr      z, .psg_word
+        ; --- FM: hl = 11-bit fnum, b = block (0..7) ---
+        ld      a, (ix+sc_base_freq)     ; $A4 value = (block<<3)|fnumHi3
+        and     007h
+        ld      h, a                     ; fnum bits 10..8
+        ld      l, (ix+sc_base_freq+1)   ; fnum bits 7..0  -> hl = 11-bit fnum
+        ld      a, (ix+sc_base_freq)
+        rrca
+        rrca
+        rrca
+        and     007h
+        ld      b, a                     ; b = block
+        ld      e, (ix+sc_mod_accum)
+        ld      d, (ix+sc_mod_accum+1)
+        add     hl, de                   ; hl = fnum + signed accum
+        ; hi correction: fnum >= FNUM_HI -> fnum>>=1, block++ (block capped at 7)
+        ld      a, b
+        cp      007h
+        jr      z, .fm_lo                ; block already 7 -> cannot raise further
+        ld      a, h
+        cp      FNUM_HI>>8
+        jr      c, .fm_lo                ; fnum hi-byte < HI hi-byte -> below HI
+        jr      nz, .fm_hi_do            ; hi-byte > HI hi-byte -> above HI
+        ld      a, l
+        cp      FNUM_HI&0FFh
+        jr      c, .fm_lo                ; equal hi-byte, lo < HI lo -> below HI
+.fm_hi_do:
+        srl     h
+        rr      l                        ; fnum >>= 1
+        inc     b                        ; block += 1
+        jr      .fm_pack                 ; one step suffices for a per-frame vibrato delta
+.fm_lo:
+        ; lo correction: fnum < FNUM_LO and block > 0 -> fnum<<=1, block--
+        ld      a, b
+        or      a
+        jr      z, .fm_pack              ; block 0 -> keep low fnum (valid lowest pitch)
+        ld      a, h
+        cp      FNUM_LO>>8
+        jr      c, .fm_lo_do             ; fnum hi-byte < LO hi-byte -> below LO
+        jr      nz, .fm_pack             ; hi-byte > LO hi-byte -> at/above LO
+        ld      a, l
+        cp      FNUM_LO&0FFh
+        jr      nc, .fm_pack             ; equal hi-byte, lo >= LO lo -> at/above LO
+.fm_lo_do:
+        add     hl, hl                   ; fnum <<= 1
+        dec     b                        ; block -= 1
+.fm_pack:
+        ld      a, b
+        add     a, a
+        add     a, a
+        add     a, a                     ; block << 3
+        or      h                        ; (block<<3)|fnumHi3 = $A4 value (h is 0..7)
+        ld      h, a                     ; hl = packed word (h=$A4 value, l=$A0 value)
+        jr      .have_word
+.psg_word:
+        ld      h, (ix+sc_base_freq)     ; PSG: divisor hi
+        ld      l, (ix+sc_base_freq+1)   ; PSG: divisor lo
         ld      c, (ix+sc_mod_accum)
         ld      b, (ix+sc_mod_accum+1)   ; bc = signed accum
-        add     hl, bc                   ; hl = modulated word
+        add     hl, bc                   ; hl = modulated divisor
+.have_word:
         ; --- triangle reverse: every sc_mod_steps applications flip the delta sign --
         dec     (ix+sc_mod_steps)
         jr      nz, .write

@@ -496,6 +496,20 @@ PITCHTAB_MAX_IDX   = PITCHTAB_COUNT-1     ; = $83 (the RE's saturating clamp cei
 ; to this ceiling (the transcoder already clamps SFX notes to $5E).
 FMPITCH_MAX_IDX    = $5E                   ; = 94 (FmPitchTableZ has 95 entries)
 
+; --- Block-boundary fnum window for the pitch-modulation octave correction (spec §4).
+; halve-fnum + block++ (or double-fnum + block--) is the SAME chip pitch
+; (freq ∝ fnum·2^block), so normalizing a modulated fnum into [FNUM_LO, FNUM_HI) keeps
+; vibrato/glide continuous across an octave. HI = 2*LO and HI < $0800 so the correction
+; fires BEFORE the 11-bit fnum field overflows into the block bits.
+FNUM_LO = $0284
+FNUM_HI = $0508
+        if FNUM_HI <> FNUM_LO*2
+          error "FNUM_HI must be exactly 2x FNUM_LO (pitch-preserving octave correction)"
+        endif
+        if FNUM_HI >= $0800
+          error "FNUM_HI must be < $0800 so the correction fires before 11-bit fnum overflow"
+        endif
+
 ; --- Channel-route enum ---
 ; Sound 1D: FM6 is now a routable FM voice (the "adaptive FM6 slot", §5.1). It
 ; maps to YM part II, channel-in-part 2, chsel $06 — which falls out NATURALLY
