@@ -1354,7 +1354,7 @@ Snd_RouteClassFlags:
 ; single-sourced from data/sound/fm_patches.inc (the SAME records the 68k ROM
 ; FmPatchTable includes), so the inline copy and the ROM copy can never drift.
 ; The .inc emits via a `pbyte` macro that selects `db` here (Z80) vs `dc.b` in
-; the 68k ROM. CLEARLY-TEMP bring-up data; FmPatch_len = 26 bytes/record.
+; the 68k ROM. CLEARLY-TEMP bring-up data; FmPatch_len = 32 bytes/record.
 FmPatchInlineTable:
         include "data/sound/fm_patches.inc"
 FmPatchInlineTable_End:

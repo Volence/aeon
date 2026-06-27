@@ -340,7 +340,7 @@ _CARRIER_MASK = (0x08, 0x08, 0x08, 0x08, 0x0C, 0x0E, 0x0E, 0x0F)
 
 
 def _bake_channel_volume(patch, vol):
-    """Add the SFX channel-volume to a 26-byte FmPatch's CARRIER TLs (clamped $7F).
+    """Add the SFX channel-volume to a 32-byte FmPatch's CARRIER TLs (clamped $7F).
     Patch layout: [0]alg_fb [1]lr [2:6]dt_mul [6:10]tl ...; alg = fp_alg_fb & 7."""
     p = bytearray(patch)
     mask = _CARRIER_MASK[p[0] & 7]
@@ -483,7 +483,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             },
             ...
         ],
-        'voices': [bytes, ...],  # list of 26-byte FmPatch records (in order seen)
+        'voices': [bytes, ...],  # list of 32-byte FmPatch records (in order seen)
         'flags': int,            # SHF_* accumulated flags
       }
     """

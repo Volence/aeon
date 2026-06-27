@@ -635,7 +635,7 @@ _UVB_VOICE_03 = [
 # ── Task 4.1 ─ smps_voice_to_fmpatch ─────────────────────────────────────────
 
 def test_smps_voice_to_fmpatch_len():
-    assert len(smps_voice_to_fmpatch(_UVB_VOICE_03)) == FMPATCH_LEN == 26
+    assert len(smps_voice_to_fmpatch(_UVB_VOICE_03)) == FMPATCH_LEN
 
 def test_smps_voice_to_fmpatch_alg_fb():
     # fp_alg_fb = algo | (fb << 3); voice $03 is algo 4, fb 6 -> $34
@@ -677,7 +677,7 @@ def test_parse_uvb_voices_returns_four_patches():
     voices = parse_uvb_voices()
     assert set(voices.keys()) == set(HCZ2_USED_VOICE_IDS)
     for vid, p in voices.items():
-        assert len(p) == 26, "voice $%02X must be 26 bytes" % vid
+        assert len(p) == FMPATCH_LEN, "voice $%02X must be %d bytes" % (vid, FMPATCH_LEN)
 
 def test_parse_uvb_voice_03_matches_known():
     # Voice $03 parsed from the real driver must equal the hand-built block.
@@ -704,11 +704,11 @@ def test_emit_patch_table_four_rows():
     assert "HCZ2_Patches_End:" in asm
     rows = [ln for ln in asm.splitlines() if ln.strip().startswith("dc.b")]
     assert len(rows) == 4
-    # Each row must encode exactly 26 bytes.
+    # Each row must encode exactly FMPATCH_LEN bytes.
     for row in rows:
         body = row.split(";", 1)[0]
         nbytes = body.count("$")
-        assert nbytes == 26, "row has %d bytes, expected 26: %r" % (nbytes, row)
+        assert nbytes == FMPATCH_LEN, "row has %d bytes, expected %d: %r" % (nbytes, FMPATCH_LEN, row)
 
 def test_emit_patch_table_size_assert_present():
     asm, _ = emit_patch_table()

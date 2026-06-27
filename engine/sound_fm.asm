@@ -101,7 +101,7 @@ Fm_RoutePart:
 
 ; ----------------------------------------------------------------------
 ; Fm_PatchPtr — compute the FmPatch pointer for sc_patch into hl.
-; In:  ix = SeqChannel (uses sc_patch).  Out: hl = (SND_SEQ_PATCHTAB) + patch*26.
+; In:  ix = SeqChannel (uses sc_patch).  Out: hl = (SND_SEQ_PATCHTAB) + patch*32.
 ; The base is the LOADED patch-table ptr (SND_SEQ_PATCHTAB), set by Snd_LoadSong:
 ; the 1C copy-path sets it to FmPatchInlineTable (Z80 RAM); the Sound 1D stream-
 ; path sets it to the song's patch bank window address (read transparently through

@@ -668,7 +668,7 @@ SFX_DUCK_PSG_DEPTH = 3       ; PSG linear-volume drop applied while ducked
 SFX_DUCK_RAMP_STEP = 4       ; duck-level change per frame (linear ramp up/down)
 
 ; --- FmPatch struct (the YM record) ---
-; 4 operators × 6 per-op regs + 2 channel regs = 26 bytes.
+; 2 channel regs + 6×4 per-op regs + 4 SSG-EG regs + 2 pad = 32 bytes.
 ;
 ; OPERATOR ORDERING (resolved by research — Task 3 writer must agree):
 ; The YM2612 register stride is +4 between operators within a channel, and the
