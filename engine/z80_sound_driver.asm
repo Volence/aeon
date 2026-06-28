@@ -583,6 +583,17 @@ SndDrv_PollMailbox:
         inc     a
         ld      (SND_STAT_ACK_COUNT), a
 .no_sfx:
+        ; --- tempo request? (1..$FE target decrement; $FF restore authored base) ---
+        ld      a, (SND_REQ_TEMPO)
+        or      a
+        jr      z, .no_tempo
+        call    Snd_TempoCommand         ; set SND_TEMPO_TARGET (RAM only; bank-safe here)
+        xor     a
+        ld      (SND_REQ_TEMPO), a
+        ld      a, (SND_STAT_ACK_COUNT)
+        inc     a
+        ld      (SND_STAT_ACK_COUNT), a
+.no_tempo:
         ; --- sample request? (Task 6: id -> DacSampleTable[id-1] -> Snd_StartSample) ---
         ld      a, (SND_REQ_SAMPLE)
         or      a
@@ -596,6 +607,25 @@ SndDrv_PollMailbox:
         ld      a, (SND_STAT_ACK_COUNT)
         inc     a
         ld      (SND_STAT_ACK_COUNT), a
+        ret
+
+; ======================================================================
+; Snd_TempoCommand — a = $FF (restore authored base) or a target decrement
+; (1..$FE). Sets SND_TEMPO_TARGET; Tempo_Ramp glides cur toward it. 0 -> default
+; (never freeze). Clobbers af. RESIDENT: reached from SndDrv_PollMailbox (mailbox /
+; ISR / streaming context — SAMPLE bank in the window), and touches only RAM, so it
+; must NOT live in the $8000 song-bank window.
+; ======================================================================
+Snd_TempoCommand:
+        cp      SND_TEMPO_RESTORE        ; $FF -> restore authored base
+        jr      nz, .have
+        ld      a, (SND_TEMPO_BASE)
+.have:
+        or      a
+        jr      nz, .ok
+        ld      a, SND_TEMPO_DECR_DEFAULT ; 0 -> normal (defensive)
+.ok:
+        ld      (SND_TEMPO_TARGET), a
         ret
 
 ; ======================================================================

@@ -216,3 +216,13 @@ Sound_StopMusic:
         move.b  #SND_MUSIC_STOP, d0          ; $FF (out of moveq's signed range)
         lea     (SND_Z80_BASE+SND_REQ_MUSIC).l, a0
         bra.w   Sound_PostByte
+
+; ----------------------------------------------------------------------
+; Sound_SetTempo — ramp the global music speed to a target. d0.b = target per-frame
+; accumulator decrement (16 = normal; >16 faster, <16 slower), or SND_TEMPO_RESTORE
+; ($FF) to return to the song's authored tempo. The CALLER supplies d0.b (this does
+; NOT set it, like Sound_Ping / Sound_PlaySample); d0 preserved. SR restored.
+; ----------------------------------------------------------------------
+Sound_SetTempo:
+        lea     (SND_Z80_BASE+SND_REQ_TEMPO).l, a0
+        bra.w   Sound_PostByte
