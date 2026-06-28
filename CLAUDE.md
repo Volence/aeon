@@ -12,7 +12,24 @@ All game DATA (art, music, physics values, palette files) will be migrated from 
 ./build.sh          # Build s4.bin ROM
 ```
 
-Assembler: AS Macro Assembler (`asw`). Mixed 68000 + Z80 assembly in a single project.
+Assembler: AS Macro Assembler (`asw`). Mixed 68000 + Z80 assembly in a single project. `build.sh [game]` selects the game (default `sonic4` → `s4.bin`).
+
+## Repository Layout
+
+Aeon draws a hard **engine / game** wall (restructure 2026-06-28):
+
+- `engine/` — the reusable Aeon engine, no Sonic specifics:
+  - `system/` — boot, VDP/Z80 init, DMA queue, IRQs (vblank/hblank), controllers, game loop, math
+  - `compression/` — S4LZ + ZX0 decompressors
+  - `level/` — section streaming, camera, parallax, plane/tile buffers, collision lookup
+  - `objects/` — object system (core, sprites, animate, DPLC, collision, children, load)
+  - `sound/` — Z80 driver + FM/PSG/sequencer/SFX
+  - `debug/` — debugger, error handler, self-tests
+- `games/sonic4/` — the Sonic 4 game built on Aeon: `player/` (all player code incl. `sonic.asm`), `objects/`, `data/` (levels, art, sound, parallax, mappings, collision, editor), and `main.asm` (the ROM image: vector table, header, include order).
+- Repo-root `.asm` defs (`constants.asm`, `structs.asm`, `macros.asm`, `ram.asm`, `sound_constants.asm`) are shared by both and still live at root (engine/game def split deferred — see below).
+- `tools/` build generators · `docs/` design + specs.
+
+**Deferred (its own design pass):** the fully *agnostic* engine — `engine.inc` + a thin game manifest, the engine/game def + RAM split, a parameterized boot, and a `games/demo/` starter — is NOT yet done. `main.asm` is still a Sonic-4 ROM-layout document: the engine vector table shares the org-0 image with the Sonic 4 ROM header, and the engine sound tables are co-located with game song data in one Z80 bank (a hardware constraint). See `docs/superpowers/specs/2026-06-28-aeon-engine-game-restructure-design.md`.
 
 ## Conventions
 

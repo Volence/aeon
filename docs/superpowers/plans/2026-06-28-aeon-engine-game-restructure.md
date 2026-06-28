@@ -1,5 +1,10 @@
 # Aeon engine/game restructure — Implementation Plan
 
+> **STATUS (2026-06-28):** Tasks 0–2 DONE + merged (the directory wall, ROM byte-identical) plus the
+> Task 7 generator/doc/tool cleanup. Tasks 3–6 (boot manifest, def split, RAM split, `games/demo/`)
+> are DEFERRED — they hit ROM-layout/sound-bank coupling that needs its own design pass. See the
+> spec's "Implementation status" section: `docs/superpowers/specs/2026-06-28-aeon-engine-game-restructure-design.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Reorganize the repo into a hard engine/game wall — reusable `engine/` (zero Sonic-isms) plus `games/sonic4/` and a `games/demo/` starter — with no change to engine behavior.

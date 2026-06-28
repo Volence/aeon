@@ -1,7 +1,7 @@
 # Aeon engine/game restructure — design
 
 **Date:** 2026-06-28
-**Status:** Design (approved in brainstorm; pending spec review)
+**Status:** PARTIALLY IMPLEMENTED — directory wall shipped (Tasks 1–2 + tool/doc cleanup); the agnostic-engine half (Tasks 3–6) deferred. See "Implementation status" at the bottom.
 
 ## Motivation
 
@@ -177,3 +177,36 @@ All on a feature branch; merge to `master` when green and Oracle-verified end to
 - `build.sh demo` produces a ROM that boots and renders one test object on Oracle.
 - A new game = copy `games/demo/`, no engine edits.
 - Every migration stage was committed green; final tree merged to `master`.
+
+## Implementation status (2026-06-28)
+
+**SHIPPED — the directory wall** (merged to `master`):
+- Task 1: engine grouped into `engine/{system,compression,sound,debug}/` — ROM byte-identical.
+- Task 2: `player/`, `objects/`, `data/`, `main.asm` moved under `games/sonic4/`; `build.sh [game]`
+  (default `sonic4` → `s4.bin`) — ROM byte-identical. Pulled the Task 7 generator/`project.json`/
+  `.gitignore` repoint forward (the build runs generators that read `data/`, so it was blocking).
+- Cleanup: Python tool engine-asm paths fixed (T1 broke them — `include` sed only touched
+  `.asm`/`.inc`, not Python string paths; both slash and `os.path.join` component forms); 771 tool
+  tests pass. `docs/ENGINE_ARCHITECTURE.md` + `CLAUDE.md` repointed to the new tree.
+
+**DEFERRED — the agnostic-engine half (own design pass):** Tasks 3 (boot boilerplate → engine +
+`engine.inc` + manifest + parameterized boot), 4 (def split), 5 (RAM split), 6 (`games/demo/`).
+
+**Why deferred — finding:** `games/sonic4/main.asm` is not an include list; it is a load-bearing
+**ROM-layout document** where engine and game are fused by hardware, not by choice:
+1. The 68000 vector table (engine) and the Sonic-4 ROM header (game branding) share the `org 0`
+   image — the first $200 bytes are defined together.
+2. The object code bank (`org $10000`) mixes engine bank-placement rules with game objects.
+3. **The sound bank is the blocker:** engine sound tables (`sound_tables_z80`, `sfx_blob_win_tab`,
+   `sound_banked_z80`) are deliberately **co-located with the game's song/SFX data in one 32 KB Z80
+   bank**, read through one `$8000` window with a single `SetBank`. Splitting engine-file from
+   game-file there would window-in a bank *without* the tables → garbage pitch/volume.
+
+So the clean "`engine.inc` + ~30-line manifest" model assumed a structure that does not exist yet.
+Tasks 3 & 6 are real architecture (boot/header/sound-bank seams), and the demo needs a minimal boot
+that the current coupling prevents. Tasks 4–5 are tractable but their payoff (a second game / the
+demo) is gated on Task 3, so doing them alone adds churn without the proof. The agnostic engine
+deserves its own brainstorm that designs around these ROM-layout realities — likely: a game-supplied
+header macro + entry symbol the engine boot jumps to, and an explicit "engine tables live at the
+game's sound-bank head" documented seam (or a per-bank label-free table copy) rather than a naive
+file split.
