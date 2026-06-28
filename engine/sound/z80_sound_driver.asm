@@ -1393,14 +1393,14 @@ Snd_RouteClassFlags:
 ; hooks call the Fm_*/Psg_* writers. (Comes after the helpers, before the
 ; even-pad, per the blob layout law.)
 ; ======================================================================
-        include "engine/sound_sequencer.asm"
+        include "engine/sound/sound_sequencer.asm"
 
 ; ======================================================================
 ; Phase 5a SFX engine — steal/restore + the per-frame SfxChannel interpreter.
 ; Included INSIDE the phase-0 blob (after the sequencer whose ModUpdate/
 ; Sequencer_Channel it reuses, before the FM/PSG writers it calls).
 ; ======================================================================
-        include "engine/sound_sfx.asm"
+        include "engine/sound/sound_sfx.asm"
 
 ; ======================================================================
 ; FM voice writer (Sound 1C, Task 3) — real YM2612 register writes for FM
@@ -1409,7 +1409,7 @@ Snd_RouteClassFlags:
 ; (no $8000-window banking). Comes after the sequencer (whose hooks call it),
 ; before the inline tables it reads and the even-pad.
 ; ======================================================================
-        include "engine/sound_fm.asm"
+        include "engine/sound/sound_fm.asm"
 
 ; ======================================================================
 ; PSG voice writer (Sound 1C, Task 4) — real SN76489 register writes for PSG
@@ -1418,7 +1418,7 @@ Snd_RouteClassFlags:
 ; addressing (no $8000-window banking). Comes after the FM writer, before the
 ; inline tables it reads and the even-pad.
 ; ======================================================================
-        include "engine/sound_psg.asm"
+        include "engine/sound/sound_psg.asm"
 
 ; --- Engine-default FM/PSG tables + per-song PITCH table (CO-LOCATED, F5 redo) ---
 ; FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ / PsgDivisorTableZ /

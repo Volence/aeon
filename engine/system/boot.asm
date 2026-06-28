@@ -276,9 +276,9 @@ BootData_VDPRegs:
 
         ; Z80 program (assembled Z80 code) — sound driver replaces idle when enabled
     ifdef SOUND_DRIVER_ENABLED
-        include "engine/z80_sound_driver.asm"
+        include "engine/sound/z80_sound_driver.asm"
     else
-        include "engine/z80_init.asm"
+        include "engine/system/z80_init.asm"
     endif
         align 2
 

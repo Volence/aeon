@@ -17,7 +17,7 @@ PAD_TO_POWER_OF_TWO     = 1
     include "macros.asm"
     include "engine/parallax_macros.inc"
     include "ram.asm"
-    include "debug/debugger.asm"
+    include "engine/debug/debugger.asm"
 
 ; -----------------------------------------------
 ; ROM image
@@ -93,17 +93,17 @@ Checksum:
 ; Engine code
 ; -----------------------------------------------
 __BUDGET_ENGINE:
-    include "engine/boot.asm"
-    include "engine/vdp_init.asm"
-    include "engine/dma_queue.asm"
-    include "engine/buffers.asm"
-    include "engine/vblank.asm"
-    include "engine/hblank.asm"
-    include "engine/controllers.asm"
-    include "engine/game_loop.asm"
-    include "engine/s4lz_decompress.asm"
-    include "engine/zx0_decompress.asm"
-    include "engine/math.asm"
+    include "engine/system/boot.asm"
+    include "engine/system/vdp_init.asm"
+    include "engine/system/dma_queue.asm"
+    include "engine/system/buffers.asm"
+    include "engine/system/vblank.asm"
+    include "engine/system/hblank.asm"
+    include "engine/system/controllers.asm"
+    include "engine/system/game_loop.asm"
+    include "engine/compression/s4lz_decompress.asm"
+    include "engine/compression/zx0_decompress.asm"
+    include "engine/system/math.asm"
     include "engine/objects/dplc.asm"
     include "engine/objects/core.asm"
     include "engine/objects/sprites.asm"
@@ -123,13 +123,13 @@ __BUDGET_ENGINE:
     include "engine/level/load_art.asm"
     include "engine/level/bg.asm"
     include "engine/level/bg_anim.asm"
-    include "debug/compression_selftest.asm"
+    include "engine/debug/compression_selftest.asm"
     ifdef SOUND_DRIVER_ENABLED
-        include "engine/sound_api.asm"
+        include "engine/sound/sound_api.asm"
     endif
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
-        include "debug/sound_debug.asm"
+        include "engine/debug/sound_debug.asm"
       endif
     endif
 
@@ -266,7 +266,7 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         save
         cpu     z80
         phase   08000h
-        include "engine/sound_tables_z80.asm"
+        include "engine/sound/sound_tables_z80.asm"
         include "data/sound/movingtrucks_pitchtable.asm"
         if (MovingTrucks_PitchTable_End - MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT
           fatal "MovingTrucks_PitchTable wrong size: \{MovingTrucks_PitchTable_End - MovingTrucks_PitchTable} != \{2*PITCHTAB_COUNT}"
@@ -274,12 +274,12 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         ; SfxBlobWinTab — moved here from the resident Z80 blob (Phase-2 budget
         ; recovery, ~270 B). Co-located in this same MT/SFX bank so the two readers
         ; (sound_sfx.asm) read it through the $8000 window after SetBank(SFX_BLOB_BANK).
-        include "engine/sfx_blob_win_tab.asm"
+        include "engine/sound/sfx_blob_win_tab.asm"
         ; Banked in-frame Z80 routines (Phase-2 music expression). Authored in the
         ; window (not the resident blob) so they cost 0 against the $16F0 ceiling;
         ; called only from in-frame code (song bank guaranteed in window). See the
         ; file header for the banking invariants.
-        include "engine/sound_banked_z80.asm"
+        include "engine/sound/sound_banked_z80.asm"
         dephase
         restore
         include "data/sound/song_movingtrucks.asm"
@@ -379,7 +379,7 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
 NullInterrupt:
     rte
 
-    include "debug/error_handler.asm"
+    include "engine/debug/error_handler.asm"
 
 ; -----------------------------------------------
 ; End of ROM
