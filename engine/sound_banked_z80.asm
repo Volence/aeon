@@ -3,18 +3,24 @@
 ;
 ; These routines are emitted in the Moving Trucks / SFX bank (main.asm's
 ; `cpu z80 / phase 08000h` block) — NOT the resident phase-0 blob — so they cost
-; ZERO against the $16F0 resident-code ceiling. They run ONLY inside a sequencer
-; frame (ModUpdate / Sequencer_Frame / the opcode dispatch / a note-on), where
-; Run_SeqFrame_OnSongBank guarantees the song/table bank is in the $8000 window
-; (under `di`, so no ISR re-banks mid-frame); a `call` from resident in-frame code
-; therefore executes the window-resident body correctly. This is the same banking
-; the engine tables already use — every song already co-locates with this bank, so
-; there is no NEW lock-in.
+; ZERO against the $16F0 resident-code ceiling. A `call` from resident in-frame
+; code executes the window-resident body — BUT ONLY from a context where the
+; banked-routine bank is the one actually in the $8000 window. This is the same
+; banking the engine tables already use; every song co-locates with this bank.
 ;
 ; INVARIANTS (must hold for every routine here):
 ;   1. Never reached from a mailbox / ISR / idle-entry context — the SAMPLE bank is
 ;      in the window there, so the body would execute garbage.
 ;   2. Never SetBank while executing (it would unmap its own code from under the PC).
+;   3. ONLY reached from the NOTE-ON / ModUpdate VOICE-WRITE path — the context that
+;      reads FmPitchTableZ/LogVolumeLutZ from this same bank, so the window is
+;      guaranteed to hold it. **NOT the Sequencer_Frame PREAMBLE.** The preamble
+;      runs with SND_SONG_BANK (the song's CURRENT stream bank) in the window, which
+;      for a multi-bank streaming song is NOT this routine bank — a banked `call`
+;      there executes garbage and breaks the whole frame (PROVEN: a banked Tempo_Ramp
+;      called from the preamble silenced playback; moving it RESIDENT fixed it). So
+;      the per-frame ramps (Tempo_Ramp, Fade_Ramp) are RESIDENT; only routines on the
+;      voice-write path (Fm_FnumApplyDelta, Porta_Apply) live here.
 ;
 ; Included under the phase block AFTER the data tables, so its labels resolve to
 ; $8xxx window addresses (contiguous from bank offset 0).

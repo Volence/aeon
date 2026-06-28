@@ -33,7 +33,7 @@
 ; active channel, in order:
 ;   (1) call ModUpdate — render the channel's MODULATION STATE to the YM
 ;       (write-on-change; a held single note writes nothing). Stream-agnostic.
-;   (2) advance the per-channel TEMPO ACCUMULATOR (sc_tempo_accum -= 16). On a
+;   (2) advance the per-channel TEMPO ACCUMULATOR (sc_tempo_accum -= SND_TEMPO_CUR). On a
 ;       borrow (an event-tick is due), reload (accum += tempo_base) and run the
 ;       EXISTING per-event-tick logic (Sequencer_Channel: dur_count + opcode
 ;       fetch/dispatch). Otherwise no event-tick this frame (a held note still
@@ -57,6 +57,8 @@ Sequencer_Frame:
         ld      a, (SND_SEQ_CHCOUNT)
         or      a
         jr      z, .run_sfx              ; no channels -> still run SFX
+        call    Tempo_Ramp               ; ramp the global tempo decrement (resident; preamble-called)
+        ld      a, (SND_SEQ_CHCOUNT)     ; (Tempo_Ramp clobbered a)
         ld      b, a                     ; b = channel count (djnz bound)
         ld      ix, SND_SEQ_CHANNELS     ; ix = first SeqChannel
 .chan_loop:
@@ -77,9 +79,13 @@ Sequencer_Frame:
         or      (ix+sc_mod_ptr+1)
         call    nz, MacroTick
 
-        ; (2) tempo accumulator: subtract 16 each frame; borrow => event-tick due.
+        ; (2) tempo accumulator: subtract the global tempo scalar (SND_TEMPO_CUR;
+        ; 16 = 100% speed, larger = faster) each frame; borrow => event-tick due.
+        ; c is free here (the loop body's push bc/pop bc spans this). No multiply.
+        ld      a, (SND_TEMPO_CUR)       ; global tempo decrement (16 = 100% speed)
+        ld      c, a
         ld      a, (ix+sc_tempo_accum)
-        sub     16
+        sub     c                        ; accum -= global decrement
         ld      (ix+sc_tempo_accum), a
         jr      nc, .chan_done           ; no borrow -> no event-tick this frame
         ; borrow: reload accumulator (+= tempo_base) and run one event-tick.
@@ -94,6 +100,32 @@ Sequencer_Frame:
         djnz    .chan_loop
 .run_sfx:
         jp      Sfx_Frame                ; tail-call: SFX writes land AFTER music
+
+; ----------------------------------------------------------------------
+; Tempo_Ramp — step SND_TEMPO_CUR one unit toward SND_TEMPO_TARGET each frame
+; (small range -> ~0.1-0.3s glide). No multiply. Clobbers af,b. Preserves ix.
+; RESIDENT (not banked): it is called from the Sequencer_Frame PREAMBLE, BEFORE
+; the per-channel voice-write path establishes the song/table bank in the $8000
+; window — so a banked body here would execute whatever bank the window happens to
+; hold at the top of the frame (proven to break playback). The banked routines
+; (Fm_FnumApplyDelta, Porta_Apply) are only ever reached LATER, from the note-on /
+; ModUpdate voice-write context where the bank IS guaranteed. It is tiny (~17 B),
+; so the resident cost is negligible.
+; ----------------------------------------------------------------------
+Tempo_Ramp:
+        ld      a, (SND_TEMPO_TARGET)
+        ld      b, a
+        ld      a, (SND_TEMPO_CUR)
+        cp      b
+        ret     z                        ; at target -> nothing
+        jr      c, .up                   ; cur < target -> speed up
+        dec     a                        ; cur > target -> slow down
+        ld      (SND_TEMPO_CUR), a
+        ret
+.up:
+        inc     a
+        ld      (SND_TEMPO_CUR), a
+        ret
 
 ; ----------------------------------------------------------------------
 ; ModUpdate — the MODULATION LAYER (Phase 3). Renders ONE channel's modulation
