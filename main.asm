@@ -271,6 +271,10 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         if (MovingTrucks_PitchTable_End - MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT
           fatal "MovingTrucks_PitchTable wrong size: \{MovingTrucks_PitchTable_End - MovingTrucks_PitchTable} != \{2*PITCHTAB_COUNT}"
         endif
+        ; SfxBlobWinTab — moved here from the resident Z80 blob (Phase-2 budget
+        ; recovery, ~270 B). Co-located in this same MT/SFX bank so the two readers
+        ; (sound_sfx.asm) read it through the $8000 window after SetBank(SFX_BLOB_BANK).
+        include "engine/sfx_blob_win_tab.asm"
         dephase
         restore
         include "data/sound/song_movingtrucks.asm"

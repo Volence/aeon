@@ -519,11 +519,19 @@ SfxDispatch:
         jr      c, .disp_ignore          ; id < base -> ignore
         cp      SFX_TABLE_LEN
         jr      nc, .disp_ignore         ; id > max -> ignore
+        ; --- bank the SFX/table bank in FIRST: SfxBlobWinTab is now BANKED in this
+        ; same bank (F5 recovery), so the lookup reads it through the $8000 window.
+        ; SetBank touches only the $6000 latch (DMA-safe) and leaves it set (restored
+        ; by the mailbox wrapper). Preserve the index in a across it (clobbers af,hl).
+        push    af                       ; a = index
+        ld      a, SFX_BLOB_BANK
+        call    SndDrv_SetBank
+        pop     af                       ; a = index
         ; hl = &SfxBlobWinTab[index] (2-byte entries; index*2 via add)
         ld      l, a
         ld      h, 0
         add     hl, hl                   ; index*2
-        ld      de, SfxBlobWinTab
+        ld      de, SfxBlobWinTab        ; window addr (read under the SFX bank now)
         add     hl, de
         ld      e, (hl)
         inc     hl
@@ -531,12 +539,6 @@ SfxDispatch:
         ld      a, d
         or      e
         jr      z, .disp_ignore          ; unused id slot -> ignore
-
-        ; --- bank the SFX blob bank in (build-time constant; in-bank no-op) --------
-        push    de
-        ld      a, SFX_BLOB_BANK
-        call    SndDrv_SetBank
-        pop     de                       ; de = blob window base
 
         ; --- read SfxHeader: priority + flags (two bytes, no clobber of id) --------
         push    de
@@ -674,11 +676,18 @@ Sfx_BeginSound:
         ret     c                        ; id < base -> ignore
         cp      SFX_TABLE_LEN
         ret     nc                       ; id > max -> ignore
+        ; --- bank the SFX/table bank in FIRST: SfxBlobWinTab is BANKED in this same
+        ; bank (F5 recovery), so the lookup reads it through the $8000 window. SetBank
+        ; touches only the $6000 latch (DMA-safe). Preserve the index in a (clobbers af,hl).
+        push    af                       ; a = index
+        ld      a, SFX_BLOB_BANK
+        call    SndDrv_SetBank           ; $6000 latch only (DMA-safe); leaves it set
+        pop     af                       ; a = index
         ; hl = &SfxBlobWinTab[index] (2-byte window-ptr entries; index*2 via add)
         ld      l, a
         ld      h, 0
         add     hl, hl                   ; index*2
-        ld      de, SfxBlobWinTab
+        ld      de, SfxBlobWinTab        ; window addr (read under the SFX bank now)
         add     hl, de                   ; hl = &SfxBlobWinTab[index]
         ld      e, (hl)
         inc     hl
@@ -686,12 +695,6 @@ Sfx_BeginSound:
         ld      a, d
         or      e
         ret     z                        ; unused id slot -> ignore
-
-        ; --- bank the SFX blob's bank in (build-time constant; in-bank no-op) ---
-        push    de                       ; save blob window base
-        ld      a, SFX_BLOB_BANK
-        call    SndDrv_SetBank           ; $6000 latch only (DMA-safe); leaves it set
-        pop     de                       ; de = blob window base
 
         ; --- stash the blob base + header fields into the dispatch scratch RAM ----
         ld      (SND_SFX_DISP_BASE), de  ; blob window base (little-endian word)
@@ -1407,55 +1410,9 @@ Sfx_SelectVoice:
         scf                              ; CARRY SET -> dropped (no voice available)
         ret
 
-; ======================================================================
-; SfxBlobWinTab — id -> blob $8000-window ptr (dense, indexed by id-SFX_ID_BASE).
-; Entries are build-time constants from the 68k blob labels (sfx_winptr()). An
-; unused id is 0 (SfxDispatch ignores it). All blobs share ONE bank, asserted ==
-; the Moving Trucks bank below (SfxDispatch banks it in and leaves it set).
-; (This Z80-side table avoids dereferencing the 68k SfxTable, which the Z80 can't
-;  read without per-entry banking. Task 11's 68k Sound_PlaySFX will pre-resolve a
-;  param block; this 5a core resolves in-bank at build time — design-for-C.)
-; ======================================================================
-SfxBlobWinTab:
-        dw      sfx_winptr(Sfx_33)       ; $33 RING_RIGHT
-        dw      sfx_winptr(Sfx_34)       ; $34 RING_LEFT
-        dw      sfx_winptr(Sfx_35)       ; $35 DEATH
-        dw      sfx_winptr(Sfx_36)       ; $36 SKID
-        rept    (SFXID_ROLL - SFXID_SKID - 1)
-        dw      0                        ; $37..$3B unused
-        endm
-        dw      sfx_winptr(Sfx_3C)       ; $3C ROLL
-        rept    (SFXID_JUMP - SFXID_ROLL - 1)
-        dw      0                        ; $3D..$61 unused
-        endm
-        dw      sfx_winptr(Sfx_62)       ; $62 JUMP
-        rept    (SFXID_SPINDASH - SFXID_JUMP - 1)
-        dw      0                        ; $63..$AA unused
-        endm
-        dw      sfx_winptr(Sfx_AB)       ; $AB SPINDASH
-        rept    (SFXID_DASH - SFXID_SPINDASH - 1)
-        dw      0                        ; $AC..$B5 unused
-        endm
-        dw      sfx_winptr(Sfx_B6)       ; $B6 DASH
-        rept    (SFXID_RINGLOSS - SFXID_DASH - 1)
-        dw      0                        ; $B7..$B8 unused
-        endm
-        dw      sfx_winptr(Sfx_B9)       ; $B9 RINGLOSS
-SfxBlobWinTab_End:
-
-        ; the table must hold exactly one window-ptr entry per id in the dense
-        ; [RING_RIGHT..RINGLOSS] range (this span IS SFX_TABLE_LEN, but that equate
-        ; is forward-defined in sfx_table.asm — included AFTER this blob — so it
-        ; can't be first-pass-evaluated here; assert against the SFXID_* equates,
-        ; which ARE known). The local in-blob labels evaluate in the first pass.
-SFX_TABLE_SPAN = SFXID_RINGLOSS - SFXID_RING_RIGHT + 1
-        if (SfxBlobWinTab_End - SfxBlobWinTab) <> (SFX_TABLE_SPAN * 2)
-          error "SfxBlobWinTab length (\{SfxBlobWinTab_End - SfxBlobWinTab}) != span*2 (\{SFX_TABLE_SPAN*2})"
-        endif
-        ; NOTE: every SFX blob (and its inline patch bank) MUST share ONE bank,
-        ; else SfxDispatch's single SetBank can't view them all. That invariant
-        ; is enforced by the build LAYOUT (all sfx_NN.asm blobs are included
-        ; contiguously in main.asm) — it can't be asserted here because the blob
-        ; labels are forward 68k references, not first-pass-evaluable in this
-        ; phased Z80 context. SFX_BLOB_BANK is taken from Sfx_33; the contiguous
-        ; layout guarantees the rest match.
+; SfxBlobWinTab (id -> blob $8000-window ptr) was MOVED out of this resident phase-0
+; blob into the Moving Trucks / SFX bank (main.asm `phase 08000h` block, file
+; engine/sfx_blob_win_tab.asm) on 2026-06-28 to recover ~270 B of Z80 code budget for
+; Music-Expression Phase 2. It is now read through the $8000 window — the two readers
+; below (SfxDispatch, Sfx_BeginSound) SetBank(SFX_BLOB_BANK) BEFORE the lookup. The
+; sfx_winptr() helper + SFX_WIN_* live here still (used at build time by that table).
