@@ -373,34 +373,33 @@ Psg_SetVolume:
         ld      c, a
 .env_done:
 
-        ; --- Phase 5a music ducking (spec §7) -------------------------------------
-        ; Fold the GLOBAL music duck level into the PSG attenuation so EVERY music
-        ; volume write ducks automatically (same rationale as Fm_SetVolume). MUSIC
-        ; ONLY: SfxChannels live at/above SND_SFX_BASE ($1D00) and must NOT duck.
-        ; Music SeqChannels are strictly below $1D00, so ix's high byte separates
-        ; them. Clamp the summed attenuation to $0F (silent) so it can't wrap.
-        ; hl is preserved by contract — save it around the ix high-byte test.
+        ; --- master fade + Phase 5a music ducking fold (music-only) ---------------
+        ; Sum the GLOBAL master-fade scalar (SND_MASTER_FADE) and the SFX duck level
+        ; in carrier-TL units, map to PSG attenuation (>>3), and fold into the
+        ; attenuation so EVERY music volume write fades/ducks automatically (same
+        ; rationale + music-only gate as Fm_SetVolume). Clamp the sum to $0F (silent)
+        ; so it can't wrap. hl is preserved by contract — save it around the test.
+        ; A full fade ($7F TL) >>3 = $0F = silent; fade 0 + duck 0 -> byte-identical.
         push    hl                       ; (Snd_ChanClass clobbers hl)
         call    Snd_ChanClass            ; CARRY set => ix < $1D00 => MUSIC channel
         pop     hl                       ; restore caller's hl (contract)
-        jr      nc, .no_duck             ; SFX channel -> never duck
+        jr      nc, .no_global_atten     ; SFX channel -> never fade/duck
         ld      a, (SND_SFX_DUCK_LEVEL)
+        ld      b, a
+        ld      a, (SND_MASTER_FADE)
+        add     a, b                     ; a = (duck + fade) in carrier-TL units
         or      a
-        jr      z, .no_duck              ; duck level 0 -> nothing to add
-        ; map the carrier-TL-units duck level to PSG attenuation units. The duck
-        ; level ramps in SFX_DUCK_RAMP_STEP TL units; PSG attenuation is 4-bit
-        ; (>>3 like Psg_VolToAtten). At full SFX_DUCK_DEPTH this yields ~the
-        ; authored SFX_DUCK_PSG_DEPTH drop; scale-then-clamp keeps the ramp smooth.
+        jr      z, .no_global_atten      ; nothing to add (no fade, no duck)
         srl     a
         srl     a
-        srl     a                        ; a = duck level >> 3 (TL units -> atten units)
-        add     a, c                     ; atten + ducked attenuation
+        srl     a                        ; TL units -> 4-bit atten units (>>3)
+        add     a, c                     ; atten + global atten
         cp      SND_PSG_ATTEN_SILENT+1   ; clamp to $0F (silent)
-        jr      c, .duck_ok
+        jr      c, .ga_ok
         ld      a, SND_PSG_ATTEN_SILENT
-.duck_ok:
-        ld      c, a                     ; ducked attenuation
-.no_duck:
+.ga_ok:
+        ld      c, a                     ; faded+ducked attenuation
+.no_global_atten:
 
         ld      a, (ix+sc_route)
         cp      CHROUTE_PSGN

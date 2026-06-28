@@ -58,7 +58,8 @@ Sequencer_Frame:
         or      a
         jr      z, .run_sfx              ; no channels -> still run SFX
         call    Tempo_Ramp               ; ramp the global tempo decrement (resident; preamble-called)
-        ld      a, (SND_SEQ_CHCOUNT)     ; (Tempo_Ramp clobbered a)
+        call    Fade_Ramp                ; ramp the master fade; sets SND_FADE_DIRTY on a step
+        ld      a, (SND_SEQ_CHCOUNT)     ; (the ramps clobbered a)
         ld      b, a                     ; b = channel count (djnz bound)
         ld      ix, SND_SEQ_CHANNELS     ; ix = first SeqChannel
 .chan_loop:
@@ -98,6 +99,8 @@ Sequencer_Frame:
         ld      de, SeqChannel_len       ; size added directly (no multiply)
         add     ix, de
         djnz    .chan_loop
+        xor     a
+        ld      (SND_FADE_DIRTY), a      ; consume the fade re-assert flag (channel pass done)
 .run_sfx:
         jp      Sfx_Frame                ; tail-call: SFX writes land AFTER music
 
@@ -125,6 +128,48 @@ Tempo_Ramp:
 .up:
         inc     a
         ld      (SND_TEMPO_CUR), a
+        ret
+
+; ----------------------------------------------------------------------
+; Fade_Ramp — ramp SND_MASTER_FADE toward SND_FADE_TARGET by SND_FADE_STEP, gated by
+; SND_FADE_DELAY_CTR. On a frame where the level CHANGES, set SND_FADE_DIRTY so
+; ModUpdate re-asserts held-note volumes (the scalar is folded in Fm_SetVolume/
+; Psg_SetVolume). Steady state (cur==target) = no step, no dirty. Called once/frame
+; from the Sequencer_Frame preamble before the channel loop. Clobbers af,b. Preserves
+; ix. RESIDENT (preamble-called; see Tempo_Ramp + sound_banked_z80.asm header).
+; ----------------------------------------------------------------------
+Fade_Ramp:
+        ld      a, (SND_FADE_TARGET)
+        ld      b, a                     ; b = target (preserved below)
+        ld      a, (SND_MASTER_FADE)
+        cp      b
+        ret     z                        ; at target -> steady, no work
+        ; fade active: gate the step on the delay counter
+        ld      a, (SND_FADE_DELAY_CTR)
+        dec     a
+        ld      (SND_FADE_DELAY_CTR), a
+        ret     nz                       ; not this frame
+        ld      a, SND_FADE_DELAY
+        ld      (SND_FADE_DELAY_CTR), a  ; reload the step delay
+        ld      a, (SND_MASTER_FADE)
+        cp      b                        ; cur vs target (b)
+        jr      nc, .down                ; cur >= target -> ramp down
+        add     a, SND_FADE_STEP         ; ramp up toward target
+        cp      b
+        jr      c, .store
+        ld      a, b                     ; clamp to target (no overshoot)
+        jr      .store
+.down:
+        sub     SND_FADE_STEP
+        jr      c, .clamp_t              ; underflow past 0 -> clamp to target
+        cp      b
+        jr      nc, .store
+.clamp_t:
+        ld      a, b
+.store:
+        ld      (SND_MASTER_FADE), a
+        ld      a, 1
+        ld      (SND_FADE_DIRTY), a      ; level changed -> ModUpdate re-asserts
         ret
 
 ; ----------------------------------------------------------------------
@@ -178,6 +223,27 @@ ModUpdate:
         ; cursor still advances in Sequencer_Channel, so the song never desyncs.
         bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
         ret     nz
+        ; --- master-fade re-assert: while a fade STEPPED this frame, re-emit this
+        ; channel's volume so HELD notes track the fade (the scalar is folded in
+        ; Fm_SetVolume/Psg_SetVolume). Gated on the global SND_FADE_DIRTY flag (set by
+        ; Fade_Ramp, cleared after the channel loop). Only KEYED FM/PSG; DAC excluded.
+        ; Steady-state cost = one ld/or/jr per channel. ix preserved by both setters.
+        ld      a, (SND_FADE_DIRTY)
+        or      a
+        jr      z, .no_fade_reassert
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .no_fade_reassert     ; silent -> next note keys at the faded level
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        jr      z, .fr_psg
+        ld      a, (ix+sc_volume)
+        call    Fm_SetVolume             ; re-assert carrier TLs at the faded level
+        jr      .no_fade_reassert
+.fr_psg:
+        bit     SCF_IS_PSG_B, (ix+sc_flags)
+        jr      z, .no_fade_reassert     ; DAC/other -> not faded (out of scope)
+        ld      a, (ix+sc_volume)
+        call    Psg_SetVolume            ; re-assert attenuation at the faded level
+.no_fade_reassert:
         ; PSG route: the FM modulation path below is skipped. Music + SFX PSG channels
         ; both advance a PSG vol-env (spec §4) via the shared sc_psgenv* fields (now at
         ; +39..+41 on BOTH structs). Music + SFX PSG channels also both run the pitch-MOD
