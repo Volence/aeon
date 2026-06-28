@@ -387,6 +387,14 @@ MEV_LFO           = $F4   ; + value : write YM2612 $22 (bit3 enable | bits0-2 ra
         if MEV_LFO <> $F4
           error "MEV_LFO (\{MEV_LFO}) must be $F4 (Phase-2 global slice slot)"
         endif
+MEV_DETUNE        = $F6   ; + dd (signed) : set this channel's sc_detune (fine pitch, applied
+                          ; at the next note-on; FM block-corrected, PSG plain divisor add).
+        if (MEV_DETUNE <= MEV_NOTE_MAX) || (MEV_DETUNE < MEV_VOL) || (MEV_DETUNE > MEV_END)
+          error "MEV_DETUNE (\{MEV_DETUNE}) must be a command opcode inside $E0-$FF"
+        endif
+        if MEV_DETUNE <> $F6
+          error "MEV_DETUNE (\{MEV_DETUNE}) must be $F6 (Phase-2 per-note slice slot)"
+        endif
 
 ; --- Phase 3 macro spine: FM TL vol-env arm (spec §4 flagship) -----------------
 ; $F7-$F9 are owned by Phase 3 ($F3-$F6 stay RESERVED for Phase-2 plans). MEV_FMENV

@@ -804,6 +804,15 @@ Seq_Op_Lfo:
         call    Fm_ReparkDac             ; restore the DAC $2A park (DAC-safe)
         jp      Seq_ContinueFetch
 
+; $F6 MEV_DETUNE + dd : set the channel's signed fine-pitch detune (applied at the
+; NEXT note-on by Fm_NoteOnFreq/Psg_NoteOn, folded into sc_base_freq so vibrato/porta
+; inherit it). Zero-tick; state-only -> hl stays the live stream ptr.
+Seq_Op_Detune:
+        ld      a, (hl)
+        inc     hl                       ; consume operand (signed detune)
+        ld      (ix+sc_detune), a
+        jp      Seq_ContinueFetch
+
 ; $EC MEV_MODSET + wait speed change step : latch the pitch-modulation params (the
 ; engine's smpsModSet). Zero-tick setter. sc_mod_ctrl is set nonzero iff ANY of the
 ; 4 params is nonzero (all-zero = mod off — the smpsModSet 0,0,0,0 idiom AB/3C use to
@@ -1442,7 +1451,7 @@ SeqOpcodeTable:
         dw      Seq_BadOpcode            ; $F3 reserved
         dw      Seq_Op_Lfo               ; $F4 MEV_LFO (write $22 LFO, DAC $2A re-parked)
         dw      Seq_BadOpcode            ; $F5 reserved
-        dw      Seq_BadOpcode            ; $F6 reserved
+        dw      Seq_Op_Detune            ; $F6 MEV_DETUNE (set sc_detune; applied at next note-on)
         dw      Seq_Op_PsgEnv            ; $F7 MEV_FMENV (shared handler: sets the unified
                                          ;   sc_env slot + resets sc_env_cur; ModUpdate
                                          ;   picks FmVolEnv vs PsgVolEnv by SCF_IS_FM_B)
