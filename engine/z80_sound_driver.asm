@@ -155,7 +155,7 @@ SndDrv_Init:
         bit     7, (hl)
         jr      nz, .wait_ym
 
-        ; --- HARDWARE LFO ENABLE ONCE: $22 = $08 (LFO on, freq 0 ~3.98Hz). The
+        ; --- HARDWARE LFO ENABLE ONCE: $22 = $08 (LFO on, freq 0 = 3.82 Hz). The
         ; YM2612's GLOBAL low-freq oscillator drives every channel's AMS (tremolo)
         ; and FMS (vibrato) depth bits carried in each patch's $B4 (fp_lr_ams_fms).
         ; Without this master switch those depth bits are inert -> flat/static
@@ -164,7 +164,7 @@ SndDrv_Init:
         ; and BEFORE the addr port parks on $2A below. ($4000=reg via hl, $4001=data
         ; via de — same idiom as the DAC enable.)
         ld      (hl), SND_REG_LFO        ; $4000 = $22 (select LFO reg)
-        ld      a, 08h                   ; LFO enable (bit3) + freq 0 (~3.98 Hz)
+        ld      a, 08h                   ; LFO enable (bit3) + freq 0 (= 3.82 Hz)
         ld      (de), a                  ; $4001 = $08
 
         ; --- DAC ENABLE ONCE (req 7): $2B = $80 (DAC mode on), then SELECT $2A

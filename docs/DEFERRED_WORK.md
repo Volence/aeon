@@ -1201,7 +1201,8 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   channel-class tests into `Snd_ChanClass` (`Z80_SOUND_SIZE` `$16EE`, 2 free). Verified: roll/spindash
   KEY-ON 2→1, fades intact, skid/ring/jump/dash no regression. The looped FM SFX tails are now S&K-faithful
   (one key-on, smooth fade to silence). `Snd_ChanClass` has converted 11 of 12 inline channel-class sites;
-  the 1 remaining + future reclaim is there if needed.
+  the 1 remaining + future reclaim is there if needed. (Historical: that fix left $16EE / 2 free; the later
+  music-expr Task 0 banking + Phase 1/3 features moved the live value to **$1618 / 216 B free** — see F1/F5.)
 - **B5 — `smpsPSGform $E7` tone-FREQUENCY-TRACKED noise sweep** (refinement; the fixed-rate fix is done — see
   `docs/BUGS.md` BUG-003). The dash `$B6` (and any `smpsPSGform $E7` SFX) is now correctly rerouted to the
   NOISE channel, but plays a FIXED white-noise rate (`$E6`, clk/2048). S&K's `$E7` is white noise whose shift
@@ -1238,12 +1239,7 @@ already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor"
 - **D6 (uncertain)** single-level repeat state may carry a stale `sc_repeat_count` across a song loop /
   mid-flight jump (`sound_sequencer.asm` 1042). Watch; add a packer guard if it bites.
 - **D7** `MEV_REPEAT_END` operand 0 → 255-pass repeat, no runtime clamp (`sound_sequencer.asm` 1022; trust-packer).
-- **D8** `song_packer.py` accepts expression opcodes the engine silently DROPS on a music route
-  (e.g. `MEV_MODSET` vibrato — still SFX-only until the expression engine un-gates it; `MEV_PSGENV`
-  is now music-legal as of feat/hcz2-import). Authoring trap: a song emits it, it no-ops, no error.
-  Add a build-time reject/warn keyed to "which opcodes are music-legal today"; relax per opcode as
-  each un-gates. (Audit 2026-06-26.) Also: route PSG note-on through the multipoint `sc_points` arp
-  path (today under `.is_fm` only) for single-channel PSG chords — pairs with D4 (PSG `sc_transpose`).
+- ~~**D8** `song_packer.py` accepts expression opcodes the engine silently DROPS on a music route — add a build-time music-legal opcode gate~~ **DONE 2026-06-27 (music-expr merge)** — the packer now enforces a music-legal opcode gate (commits `60524f9` + `da9bb93`, "D8 review"): it errors at build time on any opcode the music route would silently drop, relaxed per-opcode as each un-gates. `MEV_MODSET` vibrato is now music-legal (Phase-1 un-gate); `MEV_PSGENV` since feat/hcz2-import. **STILL OPEN (separate, not the gate):** route PSG note-on through the multipoint `sc_points` arp path (today under `.is_fm` only) for single-channel PSG chords — pairs with D4 (PSG `sc_transpose`).
 
 #### E. Best-in-class — the honest gaps (cross-driver consensus)
 **DO NOW (high payoff, seam already exists, ~no pigeonhole):**
@@ -1254,14 +1250,16 @@ already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor"
   **SFX channels only** — music gets none. Promote that machinery into the music `SeqChannel` path + add a
   fine-pitch representation. Fields `sc_porta_accum/incr` reserved (`sound_constants.asm` 793). *(This is
   the same as the long-deferred Phase 3a Task 7 portamento + Zyrinx "take-next".)*
-- **E-now-2 — per-frame FM TL volume envelope on music channels** (Flamedriver `zDoFMVolEnv`). We have
-  static `OPBIAS` only. Reuses the existing `Fm_PatchTlGroup` TL-write plumbing. No format change.
+- ~~**E-now-2 — per-frame FM TL volume envelope on music channels**~~ **DONE 2026-06-27 (music-expr merge)** —
+  shipped as `MEV_FMENV` ($F7) + `FmEnvUpdate` (per-frame FM-TL carrier volume envelope), reusing the existing
+  `Fm_PatchTlGroup` TL-write plumbing; no format change. Supersedes the static `OPBIAS`-only state. (Flamedriver `zDoFMVolEnv`.)
 - **E-now-3 — master fade-in/out + global tempo-speedup.** Grep-confirmed we have **neither** (Flamedriver
   `zDoMusicFadeOut/In`, `zFadeToPrev`, `zTempoSpeedup`). Table-stakes for level start/clear/death/drowning/
   invincibility/1-up. Cheap (ramp carrier TL toward $7F + a tempo-accumulator scalar w/ save/restore).
 - **E-now-4 — sequencer-driven hardware LFO ($22 rate opcode).** We set `$22=$08` once at init and never
-  sweep it; one free MEV opcode. **Also fix latent doc bug:** comment at `z80_sound_driver.asm` 219/228 says
-  3.98 Hz but `$08` = **3.82 Hz**.
+  sweep it; one free MEV opcode. *(Thread A global plan builds this as `MEV_LFO`.)* ~~**Also fix latent doc
+  bug:** comment at `z80_sound_driver.asm` says 3.98 Hz but `$08` = 3.82 Hz.~~ **Doc bug FIXED 2026-06-27**
+  (comments at lines 158 & 167 now read 3.82 Hz).
 
 **DESIGN-FOR-IT-NOW, build later (the ONE true pigeonhole + its companions):**
 - **E2 — multi-voice PCM mixing on FM6 DAC** — the single architectural decision that forecloses the
@@ -1275,12 +1273,16 @@ already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor"
   auto-bankswitch, `ds_rate` pitch, **+ 4-bit DPCM** (re-adopt our own S3K JMan2050 DPCM, `Flamedriver.asm`
   4321-4442 — halves ROM, producer-side so the 8948 Hz cadence is untouched), and route **sampled SFX** as
   mixer-voice-2 with ducking. (Skip PCM-on-PSG.) Fold the C1-C4 bug fixes in here.
-- **E4 — independent per-channel modulation/control stream (dual-stream channels)** — Zyrinx's "feels alive"
-  secret + MDSDRV macro-tracks. The seam is **already committed** (`sc_mod_ptr` slot[1], stream-agnostic
-  `ModUpdate`) — best-prepared seam in the driver. *(= Phase 3b "dual per-channel data streams".)*
-- **E5 — SSG-EG per-operator looping ($90-$9E)** — cheap buzzy/metallic/AY timbre family, one reg write at
-  note-on. **Correction:** `MEV_REGDELTA` does **not** currently reach $90 — `RegDeltaGroupBase` is only
-  $30-$80 (6 of 16 groups, `sound_fm.asm` 547). Add a 7th group + a per-op patch byte.
+- ~~**E4 — independent per-channel modulation/control stream (dual-stream channels)**~~ **DONE 2026-06-27 (music-expr merge)** —
+  the committed seam (`sc_mod_ptr` slot[1], stream-agnostic `ModUpdate`) is now LIVE: slot[1] drives a `MacroTick`
+  register-automation stream via `MEV_MACRO` ($F9) — tag grammar `TAG_MAC_*` ($E0–$E3), 2-byte BE loop, `Snd_SongBase`
+  rebase. Zyrinx's "feels alive" secret + MDSDRV macro-tracks. *(was Phase 3b "dual per-channel data streams".)*
+- **E5 — SSG-EG per-operator looping ($90-$9E)** — cheap buzzy/metallic/AY timbre family. **Load-time half
+  DONE 2026-06-27 (music-expr merge):** SSG-EG is now a real per-op patch field — `FmPatch` grew 26→32 bytes
+  (`fp_ssg_eg ds.b 4`), loaded at note-on via `SND_REG_OP_SSG_EG` ($90) in `Fm_PatchLoad`; `$00` default = off, so
+  existing patches are byte-identical. **STILL OPEN — the runtime 7th-RegDelta-group half:** `MEV_REGDELTA` does
+  **not** reach $90 (`RegDeltaGroupBase` is groups 0..5 = $30-$80, `REGDELTA_GROUP_COUNT` = 6, `sound_fm.asm`). Add a
+  7th group to sweep SSG-EG per-frame (one reg write/op).
 
 **SKIP / DEFER (and why):**
 - **68k-resident sequencer (MDSDRV model)** — explicitly **skip**; our full-Z80 autonomy is the right call
@@ -1295,6 +1297,8 @@ already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor"
 - **F1** Z80 RAM-map spec (`docs/superpowers/specs/2026-06-16-sound-z80-ram-map.md`) is STALE — the SFX
   array $1D00-$1EBC overruns the doc's "spare" page; `SND_STATE_BASE` moved $1600→$16F0; sequencer/trace/
   song/SFX regions undocumented. Reconcile to the live `sound_constants.asm` map + state true headroom.
+  (Live headroom as of 2026-06-27: `Z80_SOUND_SIZE` = $1618, ceiling `SND_STATE_BASE` = $16F0 → **216 B free** —
+  supersedes the stale "$16EE / 2 free" quoted in older fix logs.)
 - **F2** `ENGINE_ARCHITECTURE.md §6` still lists SFX deferred + AF_SOUND a stub (update on merge to master).
 - **F3** Dead ROM: `dc.l SfxTable` 540 B unused (engine uses its own Z80 `dw` window table); duplicate
   `sfx_NN_patches` banks ~208 B; dead `Snd_TimerA_Program` (`z80_sound_driver.asm` 715). Purge.
@@ -1302,8 +1306,13 @@ already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor"
   construction, but the *reasoning* would license a future bug); `Sfx_Restore` "ret stub" (it's implemented);
   PSG header "never clobbers de" (it does; caller restores it); a0-clobber contracts on Sound_StopMusic/
   PlaySample/Ping/PlayRing (same class just fixed in Sound_PlaySFX — unify to all-preserve-a0).
-- **F5** Z80 blob space TIGHT: ~118 B code headroom, ~67 B to the mailbox. Plan a space recovery (bank
-  FmPitchTableZ/LogVolumeLut/MovingTrucks_PitchTable into a $8000-window read) **before 5b/FM6**.
+- ~~**F5** Z80 blob space TIGHT: ~118 B code headroom… Plan a space recovery (bank FmPitchTableZ/LogVolumeLut/
+  MovingTrucks_PitchTable into a $8000-window read)~~ **DONE (music-expr Task 0 banking, 2026-06-24):** the engine
+  lookup tables were co-located at the start of Moving Trucks' streamed ROM bank (read with the song bank already
+  in the `$8000` window — no swap), recovering Z80 code headroom from ~2 B → ~1016 B. The Phase 1/3
+  music-expression features then consumed most of that back. **Live as of 2026-06-27: `Z80_SOUND_SIZE` = $1618,
+  ceiling `SND_STATE_BASE` = $16F0 → 216 B free** (verified by build probe). See the "Music-expression Task 0
+  (Z80 code recovery)" entry above.
 
 ### Per-frame pitch / volume envelopes (Phase 3a #2/#3) — DEFERRED, build-on-demand
 **Surfaced during:** Moving Trucks missing-effects investigation (2026-06-19).
@@ -1387,8 +1396,13 @@ the dead copies cannot silently diverge.
   struct fields reserved, not rendered) and the **formal Task 9 verification-harness file**
   (`tools/phase3_verify.py` was never written; MT fidelity was instead verified ad-hoc by rendered-audio
   comparison vs the GD3 rip — see memory [[project_mt_resolved]]).
-- **Phase 3b — FM extras (DEFERRED):** dual per-channel data streams, true (division-based) portamento,
-  SSG-EG, broader LFO use, Ch3 special/CSM, detune-unison, full PSG envelopes, raw-register escape hatch.
+- **Phase 3b — FM extras (PARTLY SHIPPED 2026-06-27, music-expr merge):**
+  ~~dual per-channel data streams~~ DONE (`sc_mod_ptr` slot[1] + `MacroTick` + `MEV_MACRO`, see E4 above);
+  ~~SSG-EG~~ load-time DONE (`FmPatch` $90 group — runtime 7th-RegDelta-group still open, see E5);
+  ~~full PSG envelopes~~ DONE (`Seq_Op_PsgEnv`/`MEV_PSGENV`, music-legal);
+  ~~raw-register escape hatch~~ DONE (`MEV_REGWRITE` $F8, $2A/$2B-guarded).
+  **STILL DEFERRED:** true (division-based) portamento [→ Phase 2 per-note `MEV_PORTA`, being built now],
+  broader sequencer-driven LFO use [→ Phase 2 global `MEV_LFO`], Ch3 special/CSM, detune-unison.
 - **Phase 4 — Adaptive FM6/DAC slot:** the three content-adaptive modes (full 6th FM voice /
   Batman time-share / permanent N-channel DAC mixer). 1C keeps FM6 permanently the DAC (simple model).
 - **Phase 5 — Engine integration & game-feel:** section-aware sound banking, music fade state machine,
@@ -1397,9 +1411,13 @@ the dead copies cannot silently diverge.
 - **Phase 6 — MegaDAW compiler:** event-list format finalization, MegaDAW export retarget,
   sample/DC-offset encoders. (1C hand-authors the test song; MegaDAW integration + real song-sourcing
   are downstream/user-driven — the engine defines the format contract first.)
-**Blocked by:** 1C and Phase 3a have merged to master; remaining phases are sequenced next — **Phase 5
-(SFX + game integration) is the current priority** (biggest gap: no SFX path exists, music is debug/boot
-only). Each phase is audible + Exodus-verifiable.
+**Blocked by:** 1C, Phase 3a, the **SFX engine**, and the **music-expression spine** (Phase 1 + Phase 3) have
+all merged to master. SFX now exists (`Sound_PlaySFX`, steal/priority/ducking) — the "no SFX path" gap is
+**CLOSED**. The current sound priority is **music-expression Phase 2** (per-note portamento/detune + global
+fade/tempo/hardware-LFO). Remaining after that: the DAC format revision (Phase 2 powerhouse — needs user
+sign-off, irreversible), Phase 4 content-adaptive FM6, Phase 5 game-feel integration (section-aware banking,
+fade state machine, distance attenuation, ambient, continuous SFX), Phase 6 MegaDAW. Each phase is audible +
+Exodus-verifiable.
 **See:** `docs/superpowers/specs/2026-06-16-sound-driver-design.md` §12; `docs/superpowers/specs/2026-06-17-sound-1c-design.md` §2.
 
 ### Defensive Z80 RAM Upload — Verify-and-Retry

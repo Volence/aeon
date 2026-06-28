@@ -77,7 +77,8 @@ as "a second more faint spin noise" on the momentum roll. **Fix:** `Seq_Op_ModSe
 HELD note's `$A4/$A0` with NO `$28` key-on (the vibrato path) — so when the sweep modSet turns off the tail
 snaps to base with no re-key; the transcoder then holds ALL tail passes (dropped `_emit_notedur`'s
 first-after-modSet exception). The +18 Z80 bytes were reclaimed by folding 6 more inline channel-class tests
-into `Snd_ChanClass` (`Z80_SOUND_SIZE` back to `$16EE`, 2 free). **Verified on hardware:** roll & spindash
+into `Snd_ChanClass` (`Z80_SOUND_SIZE` back to `$16EE`, 2 free — *at this fix; post music-expr Task 0 banking +
+Phase 1/3 the live value is now $1618 / 216 B free*). **Verified on hardware:** roll & spindash
 KEY-ON **2→1**, fades still `5→53`/`0→54`, tails held at base — and a regression sweep confirmed skid/ring/
 jump/dash all still sound (no fallout from the PSG-path conversions). The roll/spindash tails are now a single
 clean attack fading smoothly to silence — fully S&K-faithful (one key-on, like S&K).
@@ -94,7 +95,8 @@ carrier. Latent until now because one-shot SFX have constant volume; the fade fi
 `Fm_PatchPtr` returns `sx_patch_base` for SFX channels (`engine/sound_fm.asm`); `Sfx_Restore` passes the
 MUSIC channel so its path is unaffected. The Z80 was at its $16F0 ceiling, so the bytes were reclaimed by
 merging the two SFX gates in `Fm_NoteOnFreq` + factoring the 12-site `push ix/pop hl/ld a,h/cp` channel-class
-test into `Snd_ChanClass` (5 sites converted; `Z80_SOUND_SIZE` now `$16EE`, 2 free). **Rendered-audio
+test into `Snd_ChanClass` (5 sites converted; `Z80_SOUND_SIZE` now `$16EE`, 2 free — *at this fix; live value
+post music-expr Task 0 banking + Phase 1/3 is $1618 / 216 B free, see DEFERRED_WORK F1/F5*). **Rendered-audio
 verified:** both carriers (`$48`+`$4C` roll, `$49`+`$4D` spindash) now fade `5→53` / `0→54`, and the audio
 RMS decays to `0.02` (fades to silence) — no plateau, no distortion. The roll/spindash tails are now a clean
 held note fading smoothly to silence (S&K-faithful). LESSON: the `$28` count was a proxy; only the rendered
