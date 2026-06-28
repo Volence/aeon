@@ -185,6 +185,8 @@ SndDrv_Init:
         ld      (SND_REQ_SAMPLE), a
         ld      (SND_REQ_MUSIC), a
         ld      (SND_REQ_SFX), a
+        ld      (SND_REQ_FADE), a        ; Phase 2: master-fade request slot
+        ld      (SND_REQ_TEMPO), a       ; Phase 2: tempo request slot
         ld      (SND_CTRL_DMA_ACTIVE), a ; flag bracket clear (no DMA in progress)
         ld      (SND_DAC_PHASE), a       ; PHASE = idle (0) — two-stage stop SM
         ld      (SND_SONG_BANK), a       ; B1 bracket reads this on pre-song idle ticks
@@ -200,6 +202,15 @@ SndDrv_Init:
         ; Task 9: clear the SFX queue so CNT starts at 0 (Z80 RAM is undefined at power-on).
         ld      (SND_SFX_QUEUE_CNT), a   ; 0 entries pending
         ld      (Snd_SpindashRev), a     ; spindash rev escalation starts at 0 (spec §6)
+        ; Phase 2: fade = full volume (0), idle; tempo = normal-speed default (16).
+        ld      (SND_MASTER_FADE), a
+        ld      (SND_FADE_TARGET), a
+        ld      (SND_FADE_DIRTY), a
+        ld      (SND_FADE_DELAY_CTR), a
+        ld      a, SND_TEMPO_DECR_DEFAULT
+        ld      (SND_TEMPO_CUR), a
+        ld      (SND_TEMPO_TARGET), a
+        ld      (SND_TEMPO_BASE), a
 
         ; --- PRE-FILL the whole 256-byte ring with $80 (req 7) so the idle and
         ; sample lead-in output is DC-center silence (no click, no garbage). ---
@@ -1271,6 +1282,18 @@ Snd_LoadSong:
         ; arm the sequencer.
         ld      a, 1
         ld      (SND_SEQ_ACTIVE), a
+        ; Phase 2: reset global expression state for the new song. Fade -> full
+        ; volume (else a song after a fade-out would play SILENT). Tempo -> normal
+        ; (the song's MEV_TEMPO, if any, overrides on its first tick).
+        xor     a
+        ld      (SND_MASTER_FADE), a
+        ld      (SND_FADE_TARGET), a
+        ld      (SND_FADE_DIRTY), a
+        ld      (SND_FADE_DELAY_CTR), a
+        ld      a, SND_TEMPO_DECR_DEFAULT
+        ld      (SND_TEMPO_CUR), a
+        ld      (SND_TEMPO_TARGET), a
+        ld      (SND_TEMPO_BASE), a
         ; clear the request slot (consumed) + bump the ack count.
         xor     a
         ld      (SND_REQ_MUSIC), a

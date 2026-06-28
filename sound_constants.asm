@@ -21,6 +21,8 @@ SND_REQ_SAMPLE          = SND_REQ_BASE+$01       ; DAC sample id (0 = idle)
 ; hold, so the Z80 never reads a half-updated param block.
 SND_REQ_MUSIC           = SND_REQ_BASE+$02       ; music command (0 idle / 1..$FE play / $FF stop)
 SND_REQ_SFX             = SND_REQ_BASE+$03       ; reserved (Phase 1C)
+SND_REQ_FADE            = SND_REQ_BASE+$05       ; master-fade cmd (0 idle / 1 out / 2 in)
+SND_REQ_TEMPO           = SND_REQ_BASE+$06       ; tempo cmd (0 idle / 1..$FE target / $FF restore)
 SND_MUSIC_STOP          = $FF                    ; SND_REQ_MUSIC stop sentinel
 
 ; --- Status / ack region (Z80 writes, 68k reads) ---
@@ -30,6 +32,14 @@ SND_STAT_PING_ECHO      = SND_STAT_BASE+$01
 SND_STAT_ACK_COUNT      = SND_STAT_BASE+$02      ; +1 per consumed request
 SND_STAT_TICK           = SND_STAT_BASE+$03      ; scheduler tick counter
 SND_STAT_DAC_ACTIVE     = SND_STAT_BASE+$04      ; 1 while a sample plays
+
+        ; SND_REQ_FADE/TEMPO ($1F05/$1F06) must stay below the status block.
+        ; (Asserted here, where SND_STAT_BASE + SND_REQ_TEMPO are both backward
+        ; refs — an inline assert at the slot defs forward-refs SND_STAT_BASE and
+        ; fires spuriously on AS pass 1.)
+        if (SND_REQ_TEMPO >= SND_STAT_BASE)
+          error "SND_REQ_FADE/TEMPO (\{SND_REQ_TEMPO}) collide with the status block at \{SND_STAT_BASE}"
+        endif
 
 SND_ALIVE_MARKER        = $5A
 
@@ -737,6 +747,15 @@ SFX_DUCK_DEPTH     = $18     ; carrier-TL bump (attenuation units; bigger = quie
 SFX_DUCK_PSG_DEPTH = 3       ; PSG linear-volume drop applied while ducked
 SFX_DUCK_RAMP_STEP = 4       ; duck-level change per frame (linear ramp up/down)
 
+; --- Phase 2: master fade + global tempo (music expression engine) ---
+SND_FADE_CMD_OUT       = 1       ; SND_REQ_FADE: ramp the scalar UP to silence
+SND_FADE_CMD_IN        = 2       ; SND_REQ_FADE: snap silent, ramp DOWN to full
+SND_FADE_SILENCE       = SND_FM_TL_MAX   ; $7F = full master-fade attenuation
+SND_FADE_STEP          = 2       ; fade change per applied step (TL units; full fade ~1.06s)
+SND_FADE_DELAY         = 1       ; frames between fade steps (1 = every frame)
+SND_TEMPO_DECR_DEFAULT = 16      ; normal-speed per-frame accumulator decrement (100%)
+SND_TEMPO_RESTORE      = $FF     ; SND_REQ_TEMPO sentinel: ramp back to the authored base
+
 ; --- FmPatch struct (the YM record) ---
 ; 2 channel regs + 6×4 per-op regs + 4 SSG-EG regs + 2 pad = 32 bytes.
 ;
@@ -1208,6 +1227,20 @@ SND_MUSIC_PARAM_LEN      = 6
 ; SND_SEQ_TRACE_LEN is defined above near SND_SEQ_END.
 SND_SEQ_TRACE      = SND_MUSIC_PARAM + SND_MUSIC_PARAM_LEN
 
+; --- Phase 2 global expression state (master fade + global tempo). Free RAM
+; between the trace ring and the song buffer ($1B00). Derived from the ring end so
+; it auto-tracks ring/struct growth; the assert below keeps it under the song
+; buffer. All ds.b -> no even-align need. GLOBAL (not per-channel): one scalar each.
+SND_GLOBAL_EXPR     = SND_SEQ_TRACE + SND_SEQ_TRACE_LEN
+SND_MASTER_FADE     = SND_GLOBAL_EXPR+$00   ; current fade atten (0 full .. $7F silent)
+SND_FADE_TARGET     = SND_GLOBAL_EXPR+$01   ; fade ramp target
+SND_FADE_DELAY_CTR  = SND_GLOBAL_EXPR+$02   ; frames-until-next-step countdown
+SND_FADE_DIRTY      = SND_GLOBAL_EXPR+$03   ; 1 = fade stepped this frame (ModUpdate re-asserts)
+SND_TEMPO_CUR       = SND_GLOBAL_EXPR+$04   ; current per-frame accumulator decrement (16=100%)
+SND_TEMPO_TARGET    = SND_GLOBAL_EXPR+$05   ; tempo ramp target
+SND_TEMPO_BASE      = SND_GLOBAL_EXPR+$06   ; authored base (MEV_TEMPO; restore reference)
+SND_GLOBAL_EXPR_LEN = 7
+
     ; Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots)
     ; must fit between SND_SEQ_BASE ($1800) and the mailbox base ($1F00). The seq
     ; header is (SND_SEQ_CHANNELS - SND_SEQ_BASE) bytes; the per-channel array is
@@ -1235,8 +1268,11 @@ SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
 SND_SONG_BUF            = $1B00
 SND_SONG_BUF_SIZE       = $200                   ; 512 bytes ($1B00..$1CFF)
 
-    if (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN) > SND_SONG_BUF
-      fatal "trace ring (\{SND_SEQ_TRACE}+\{SND_SEQ_TRACE_LEN}) runs into the song buffer at \{SND_SONG_BUF}"
+    if (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN) > SND_GLOBAL_EXPR
+      fatal "trace ring (\{SND_SEQ_TRACE}+\{SND_SEQ_TRACE_LEN}) runs into the Phase-2 globals (\{SND_GLOBAL_EXPR})"
+    endif
+    if (SND_GLOBAL_EXPR + SND_GLOBAL_EXPR_LEN) > SND_SONG_BUF
+      fatal "Phase-2 globals (\{SND_GLOBAL_EXPR}+\{SND_GLOBAL_EXPR_LEN}) run into the song buffer at \{SND_SONG_BUF}"
     endif
     if (SND_SONG_BUF + SND_SONG_BUF_SIZE) > SND_REQ_BASE
       fatal "song buffer (\{SND_SONG_BUF}+\{SND_SONG_BUF_SIZE}) overruns the mailbox at \{SND_REQ_BASE}"
