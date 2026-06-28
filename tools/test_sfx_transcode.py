@@ -1029,10 +1029,10 @@ class TestLogVolumeLut(unittest.TestCase):
                             for i in range(127)))
 
     def test_lut_matches_engine_table(self):
-        """Parse engine/sound_tables_z80.asm LogVolumeLutZ and assert byte-equality —
+        """Parse engine/sound/sound_tables_z80.asm LogVolumeLutZ and assert byte-equality —
         catches any future drift between the engine table and the transcoder mirror."""
         eng = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                           'engine', 'sound_tables_z80.asm')
+                           'engine', 'sound', 'sound_tables_z80.asm')
         with open(eng) as f:
             text = f.read()
         start = text.index('LogVolumeLutZ:')

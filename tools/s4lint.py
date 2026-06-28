@@ -1045,7 +1045,7 @@ def check_e006(ctx: LintContext, token: Token, line_num: int,
 
     VDP reads (VDP port as SOURCE operand) are legal without Z80 stopped.
 
-    Sound 1B invariant (engine/vblank.asm VInt_Level / VInt_Lag): the linter
+    Sound 1B invariant (engine/system/vblank.asm VInt_Level / VInt_Lag): the linter
     does NOT evaluate ``ifdef``/``ifndef`` conditions — it walks every line
     flat. The ``stopZ80``/``startZ80`` around the VInt VDP/DMA pipeline are
     wrapped in ``ifndef SOUND_DRIVER_ENABLED``, so the linter still SEES a

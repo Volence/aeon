@@ -75,7 +75,7 @@ DAC_IDS = {
 # HCZ2 DAC remap: raw S3K 1-based DAC id (dXxx & 0x7F) -> v0 DacSampleTable id.
 # Dac() carries the 1-based id (smps_import emits `Dac(b & 0x7F)`); convert_song's
 # dac_remap rewrites it to the engine's DacSampleTable id. The v0 ids are the 6
-# S3K HCZ2 drums appended in Phase 5 (engine/z80_sound_driver.asm DacSampleTable,
+# S3K HCZ2 drums appended in Phase 5 (engine/sound/z80_sound_driver.asm DacSampleTable,
 # data/sound/dac_samples.asm): kick=5 snare=6 hitom=7 midtom=8 lowtom=9 floortom=10.
 #   dSnareS3   $81  -> 1-based 1  -> v0 id 6
 #   dHighTom   $82  -> 1-based 2  -> v0 id 7
@@ -356,18 +356,18 @@ def _flatten_tokens(lines):
 # S3K attenuation value to the v0 loudness index V, find V that minimises
 # abs(LogVolumeLutZ[V] - atten); on ties pick the LARGER V (louder).
 #
-# The table is PARSED from engine/sound_tables_z80.asm at module load so the
+# The table is PARSED from engine/sound/sound_tables_z80.asm at module load so the
 # converter always tracks the engine's table (never a hardcoded copy).
 
 import re as _re_lut  # noqa: E402 (top-level import for module-init parse)
 
 def _parse_log_volume_lut() -> list:
-    """Parse LogVolumeLutZ from engine/sound_tables_z80.asm.
+    """Parse LogVolumeLutZ from engine/sound/sound_tables_z80.asm.
 
     Reads all db rows between the LogVolumeLutZ: and LogVolumeLutZ_End: labels,
     parses NNh / $NN hex tokens into ints, and returns a flat list.  Raises
     RuntimeError if the label or a parseable row is not found."""
-    asm_path = os.path.join(_HERE, "..", "engine", "sound_tables_z80.asm")
+    asm_path = os.path.join(_HERE, "..", "engine", "sound", "sound_tables_z80.asm")
     asm_path = os.path.normpath(asm_path)
     try:
         with open(asm_path) as _f:
@@ -453,13 +453,13 @@ def _fm_atten_to_v0(atten: int) -> int:
 
 
 def _parse_psg_env_ids() -> set:
-    """Parse PsgVolEnv_Ids from engine/sound_tables_z80.asm -> {int id}.
+    """Parse PsgVolEnv_Ids from engine/sound/sound_tables_z80.asm -> {int id}.
 
     These are the sTone ids that HAVE an imported PSG volume envelope in the
     engine. smpsPSGvoice maps sTone_NN -> PsgEnv(NN) only for these (else
     PsgEnv(0) + warn). Parsing the engine file (rather than hardcoding) means the
     converter auto-tracks the table — exactly like _parse_log_volume_lut."""
-    path = os.path.normpath(os.path.join(_HERE, "..", "engine", "sound_tables_z80.asm"))
+    path = os.path.normpath(os.path.join(_HERE, "..", "engine", "sound", "sound_tables_z80.asm"))
     ids = set()
     with open(path) as f:
         for line in f:

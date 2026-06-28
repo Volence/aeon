@@ -295,7 +295,7 @@ def _smps_note_to_pitch(raw_byte: int, is_psg: bool, transpose: int = 0,
 # S3K's Z80 driver uploads a voice's per-operator bytes via zFMInstrumentOperatorTable
 # (skdisasm "Z80 Sound Driver.asm": $30,$38,$34,$3C ...), i.e. binary byte k goes to
 # the k-th register in the sequence [$30,$38,$34,$3C]. Our engine's Fm_PatchOpGroup
-# (engine/sound_fm.asm) writes array index k -> base + k*4 = the sequence
+# (engine/sound/sound_fm.asm) writes array index k -> base + k*4 = the sequence
 # [$30,$34,$38,$3C]. The two register sequences differ in the MIDDLE pair ($38<->$34),
 # so feeding our engine the raw S3K binary lands the $34 and $38 operator values on
 # each other's register (the "wrong FM timbre" SFX bug; audit finding B1/#6). To put
@@ -350,7 +350,7 @@ def _bake_channel_volume(patch, vol):
     return bytes(p)
 
 
-# --- LogVolumeLutZ mirror + inverse (engine/sound_tables_z80.asm) ------------
+# --- LogVolumeLutZ mirror + inverse (engine/sound/sound_tables_z80.asm) ------------
 # At play time the engine renders sc_volume (0..127, a linear index) through this
 # LUT to a YM2612 TL attenuation. S&K's smpsFMAlterVol fades a looped note by
 # ADDING +N to the TL attenuation on EACH loop pass. To reproduce that fade
