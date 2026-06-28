@@ -707,9 +707,9 @@ via `bsr.w`.
 
 ---
 
-## 8. Current s4_engine Implementation
+## 8. Current aeon Implementation
 
-Source: `/home/volence/sonic_hacks/s4_engine/`
+Source: `/home/volence/sonic_hacks/aeon/`
 
 ### A. Object State Table
 
@@ -834,11 +834,11 @@ ObjectMove:
     add.l   d0, SST_y_pos(a0)
     rts
 ```
-Note: **No `lsl.l #8` shift.** s4_engine uses `ext.l + add.l` directly,
+Note: **No `lsl.l #8` shift.** aeon uses `ext.l + add.l` directly,
 treating velocity as a 16-bit signed integer added to the 16.16 position.
 This means 1 velocity unit = 1/65536 pixel (vs sonic_hack where 1 velocity
 unit = 1/256 pixel after the `lsl.l #8`). Velocity of $100 moves 1 pixel/frame
-in sonic_hack but only 1/256 pixel in s4_engine.
+in sonic_hack but only 1/256 pixel in aeon.
 
 **Gravity**: Not integrated into ObjectMove. Separate `Obj_ApplyGravity` call.
 
@@ -933,7 +933,7 @@ The VDP's sprite cache has important implications:
 | Sonic 2 (stock)   | 64    | Original baseline |
 | sonic_hack        | 80    | Expanded from S2 for more per-type data + expansion fields |
 | S.C.E. (S3K)      | 80    | Same as sonic_hack, S3K lineage |
-| s4_engine         | 80    | Matches sonic_hack/S3K |
+| aeon         | 80    | Matches sonic_hack/S3K |
 | Batman & Robin    | ~90   | Linked-list overhead + script variables + fractional pos |
 | Gunstar/Alien Soldier | 96 | Complex boss state + link pointers |
 
@@ -943,7 +943,7 @@ The VDP's sprite cache has important implications:
 |------------------|----------------------|------------|-------|
 | S.C.E.           | Linear scan          | O(n)       | Cycles scanning empty slots |
 | sonic_hack       | Linear scan          | O(n)       | Same |
-| s4_engine        | **Free stack**       | **O(1)**   | 2 bytes per slot in stack array |
+| aeon        | **Free stack**       | **O(1)**   | 2 bytes per slot in stack array |
 | Batman & Robin   | **Doubly-linked list**| **O(1)**   | 4 bytes per slot for next/prev |
 | Vectorman        | Compact table        | O(1)†      | Must compact on delete |
 | TF4              | Per-pool linear      | O(n/pool)  | Small n per pool |
@@ -956,7 +956,7 @@ The VDP's sprite cache has important implications:
 |------------------|-------------------------|-------------------|
 | S.C.E.           | jsr through longword ptr| ~20 cycles (move.l + movea.l + jsr) |
 | sonic_hack       | Bank + word offset jsr  | ~24 cycles (moveq + swap + move.w + movea.l + jsr) |
-| s4_engine        | Bank + word offset jsr  | ~24 cycles (same as sonic_hack) |
+| aeon        | Bank + word offset jsr  | ~24 cycles (same as sonic_hack) |
 | Batman & Robin   | Threaded bytecode       | ~12 cycles per opcode (movea.w + jmp) |
 | Vectorman        | Two function pointers   | ~40 cycles (2x jsr) |
 | Gunstar          | Index into jump table   | ~22 cycles (move.w + lea + jmp) |
@@ -967,7 +967,7 @@ The VDP's sprite cache has important implications:
 |------------------|----------------------------|------------------|
 | S.C.E.           | 8 bands, $80 bytes each    | Two-phase: queue then render |
 | sonic_hack       | 8 bands, $80 bytes each    | Two-phase (same) |
-| s4_engine        | 8 bands, 16 objs/band      | Two-phase (same concept, cleaner) |
+| aeon        | 8 bands, 16 objs/band      | Two-phase (same concept, cleaner) |
 | Batman & Robin   | Inline during processing   | Direct VDP write |
 | Vectorman        | Implicit (table order)     | Separate render call |
 | Gunstar          | Art tile bits              | Unknown |
@@ -979,16 +979,16 @@ The VDP's sprite cache has important implications:
 |------------------|-----------|-----------|-------------|
 | S.C.E.           | 16.16 (L) | 8.8 (W)  | ext.l + asl.l #8 + add.l |
 | sonic_hack       | 16.16 (L) | 8.8 (W)  | ext.l + lsl.l #8 + add.l |
-| s4_engine        | 16.16 (L) | 16.0 (W) | ext.l + add.l (no shift!) |
+| aeon        | 16.16 (L) | 16.0 (W) | ext.l + add.l (no shift!) |
 | Batman & Robin   | 16+16 (2W)| 16.16 (L)| Direct add (vel already aligned) |
 | Gunstar          | 16.0 (W)  | 16.16 (L)| Unknown alignment |
 
-**Note on s4_engine velocity**: The current implementation adds a sign-extended
+**Note on aeon velocity**: The current implementation adds a sign-extended
 word directly to a longword position. This gives extremely fine-grained velocity
 (1 unit = 1/65536 pixel) but means the range of useful velocities is very
 different from sonic_hack. A velocity of $100 in sonic_hack moves 1 pixel/frame;
-in s4_engine it moves only 1/256 pixel/frame. To move 1 pixel/frame in
-s4_engine, you need velocity = $10000 -- which overflows a word. This is likely
+in aeon it moves only 1/256 pixel/frame. To move 1 pixel/frame in
+aeon, you need velocity = $10000 -- which overflows a word. This is likely
 a design choice that needs verification: either the velocity interpretation is
 intentionally different, or the `asl.l #8` shift was accidentally omitted.
 
@@ -1001,7 +1001,7 @@ intentionally different, or the `asl.l #8` shift was accidentally omitted.
 | Size | Used by | Pro | Con |
 |------|---------|-----|-----|
 | 64   | Stock S2 | Tightest RAM, most slots possible | Not enough custom space for complex bosses |
-| 80   | S3K, sonic_hack, s4_engine, S.C.E. | Good balance -- 36 bytes custom + link fields | Wastes ~16 bytes for simple objects (rings, dust) |
+| 80   | S3K, sonic_hack, aeon, S.C.E. | Good balance -- 36 bytes custom + link fields | Wastes ~16 bytes for simple objects (rings, dust) |
 | 96   | Gunstar, Alien Soldier | Room for dual link pointers + rich boss state | -25% slots vs 80-byte at same RAM budget |
 
 **Current choice (80)**: Well-validated. Every Sonic-family engine uses 80.
@@ -1013,7 +1013,7 @@ at $22/$24. The 36-byte custom region at $2C-$4F provides adequate space.
 | Method | Used by | Pro | Con |
 |--------|---------|-----|-----|
 | Linear scan | S.C.E., sonic_hack | Simple, no extra RAM | O(n) per allocation, ~90 iterations worst case |
-| Free stack | s4_engine | O(1), simple, 2 bytes per slot overhead | Must match pool on deallocation |
+| Free stack | aeon | O(1), simple, 2 bytes per slot overhead | Must match pool on deallocation |
 | Linked list | Batman & Robin | O(1), no pool detection needed | 4+ bytes overhead per slot, complex code |
 
 **Current choice (free stack)**: Good. O(1) with minimal complexity. Pool
@@ -1025,7 +1025,7 @@ store pool_id in one of the custom bytes to avoid address-range comparisons.
 | Method | Used by | Pro | Con |
 |--------|---------|-----|-----|
 | Full 32-bit pointer | S.C.E. | Simplest, fastest (1 fewer instruction) | 4 bytes in SST instead of 2 |
-| Bank + word offset | sonic_hack, s4_engine | 2-byte SST field, 64KB code space | ~4 extra cycles (moveq+swap) |
+| Bank + word offset | sonic_hack, aeon | 2-byte SST field, 64KB code space | ~4 extra cycles (moveq+swap) |
 | Index + jump table | Gunstar | Compact state encoding | State transitions need table updates |
 | Threaded bytecode | Batman & Robin | Tiny script size, yield/resume for free | Complex runtime, hard to debug |
 
@@ -1039,7 +1039,7 @@ and removes the OBJ_CODE_BANK coupling.
 
 | Method | Used by | Pro | Con |
 |--------|---------|-----|-----|
-| Priority bands (8 levels) | S.C.E., sonic_hack, s4_engine | Simple, O(1) insertion, proven | Only 8 priority levels; within-band order depends on insertion order |
+| Priority bands (8 levels) | S.C.E., sonic_hack, aeon | Simple, O(1) insertion, proven | Only 8 priority levels; within-band order depends on insertion order |
 | Sort sprite table by priority bit | SpritesMind approach | Uses VDP priority bit for plane separation | Only 2 priority levels without additional software sorting |
 | Type-segregated pools | TF4 | Zero priority overhead | Inflexible; new types need new pools |
 
@@ -1049,7 +1049,7 @@ S.C.E. uses 31 per band ($80/2 - 1). Consider increasing to 24 or 32.
 
 ### D5. Velocity Integration: ext.l+add.l vs ext.l+asl.l+add.l?
 
-The s4_engine currently uses `ext.l + add.l` (no shift), while sonic_hack
+The aeon currently uses `ext.l + add.l` (no shift), while sonic_hack
 and S.C.E. use `ext.l + lsl.l #8 + add.l` (shift velocity left 8 bits).
 
 | Method | Vel meaning | 1 px/frame vel | Subpixel resolution |
@@ -1080,7 +1080,7 @@ does NOT cull -- all 110 slots execute every frame.
 | Active-flag filtering (Batman & Robin) | Clean per-object control | Requires explicit activation management |
 | Type-based split (Vectorman) | Render skipped via null pointer | Requires separate render pass |
 
-**Current state**: s4_engine has no culling. Adding sonic_hack-style X-culling
+**Current state**: aeon has no culling. Adding sonic_hack-style X-culling
 for the dynamic pool is low-risk and high-reward. Alternatively, Vectorman's
 split update/render approach could be adapted: objects set a "needs render"
 flag; Draw_Sprite only queues objects with the flag.
@@ -1089,11 +1089,11 @@ flag; Draw_Sprite only queues objects with the flag.
 
 | Approach | Used by | Behavior |
 |----------|---------|----------|
-| Drop excess | S.C.E., sonic_hack, s4_engine | Sprites beyond 80 are invisible |
+| Drop excess | S.C.E., sonic_hack, aeon | Sprites beyond 80 are invisible |
 | Round-robin flicker | TF4 | Rotate priority each frame; all sprites visible over 4 frames |
 | Pre-sort by priority | SpritesMind | Ensure critical sprites (player, HUD) always render |
 
-**Current state**: s4_engine drops excess sprites. For a Sonic game, round-
+**Current state**: aeon drops excess sprites. For a Sonic game, round-
 robin flicker is rarely needed (scenes with >80 VDP sprites are unusual).
 But ensuring the player and HUD are always first in the link chain (and
 thus always rendered) is important -- the current front-to-back band
@@ -1104,10 +1104,10 @@ ordering (band 7 first) already achieves this if player/HUD use band 7.
 | Approach | Used by | How it works |
 |----------|---------|--------------|
 | Child sprite offsets in SST | S.C.E., sonic_hack | render_flags.multi_sprite flag; sub-sprite data at SST $18+ |
-| Separate child objects | Treasure, s4_engine | Each piece is its own SST with parent_ptr link |
-| VDP-order mapping pieces | s4_engine | Mapping pieces are 8 bytes matching SAT layout |
+| Separate child objects | Treasure, aeon | Each piece is its own SST with parent_ptr link |
+| VDP-order mapping pieces | aeon | Mapping pieces are 8 bytes matching SAT layout |
 
-s4_engine's VDP-order mapping format eliminates field reordering in the piece
+aeon's VDP-order mapping format eliminates field reordering in the piece
 loop, which is a clear optimization over the 6-byte mapping format used by
 Sonic engines (which requires separate writes to rearrange y, size, link,
 tile, x into VDP order).
@@ -1120,7 +1120,7 @@ tile, x into VDP order).
 | Deferred sweep | sonic_hack | Safe -- no stale references during frame | Extra sweep pass at frame end |
 | Linked-list removal | Batman & Robin | O(1), safe by design | List management overhead |
 
-sonic_hack's deferred deletion is a good pattern. s4_engine should adopt it
+sonic_hack's deferred deletion is a good pattern. aeon should adopt it
 for the dynamic pool. The free-stack push can happen during the sweep.
 
 ---
@@ -1138,17 +1138,17 @@ for the dynamic pool. The free-stack push can happen during the sweep.
    second pointer.
 
 3. **Treasure's link pointers** -- parent/child coordination via fixed SST
-   offset ($58). s4_engine already has parent_ptr + sibling_ptr, matching
+   offset ($58). aeon already has parent_ptr + sibling_ptr, matching
    Alien Soldier's dual-link system.
 
 4. **Thunder Force IV's type-segregated pools with fast bullet inner loop** --
    the bullet processing loop has zero type-checking overhead. Applicable if
-   s4_engine ever needs high bullet counts (boss fights).
+   aeon ever needs high bullet counts (boss fights).
 
 5. **TF4's round-robin sprite flicker** -- ensures all objects remain visible
    across 4-frame windows. Insurance for dense scenes.
 
-6. **s4_engine's VDP-order mappings** -- pieces match SAT layout, eliminating
+6. **aeon's VDP-order mappings** -- pieces match SAT layout, eliminating
    field reordering. This is better than every reference engine's mapping
    format.
 
@@ -1161,9 +1161,9 @@ for the dynamic pool. The free-stack push can happen during the sweep.
    gameplay.
 
 9. **Batman & Robin's O(1) linked-list allocator** -- eliminates the linear
-   scan entirely. s4_engine's free stack achieves the same O(1) performance
+   scan entirely. aeon's free stack achieves the same O(1) performance
    with less complexity.
 
 10. **S.C.E.'s extra render slots** -- `Render_sprite_first_RAM` /
     `Render_sprite_last_RAM` allow injecting render callbacks for systems that
-    don't use the object system (rings, water). Worth considering for s4_engine.
+    don't use the object system (rings, water). Worth considering for aeon.

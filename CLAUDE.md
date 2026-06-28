@@ -65,7 +65,7 @@ When researching how to implement a system, check these in order:
 4. **Gunstar Heroes** (`/home/volence/sonic_hacks/The Adventures of Batman and Robin/gunstar_disasm/`) — multi-sprite objects, Treasure optimization
 5. **Alien Soldier** (`/home/volence/sonic_hacks/The Adventures of Batman and Robin/aliensoldier_disasm/`) — extreme 68000 optimization
 6. **Thunder Force IV** (`/home/volence/sonic_hacks/The Adventures of Batman and Robin/thunderforce4_disasm/`) — scroll effects, layer management
-7. **Ristar** (`/home/volence/sonic_hacks/The Adventures of Batman and Robin/ristar_disasm/`) — Sonic 1-derived platformer (NOT Sonic 3K, despite the team overlap); cinematic per-stage HInt scripting (HBlank → `$FFEA70` RAM), chained-sprite rope rendering (grab arm), event-tagged animation frames, SMPS 68k Type 2 + custom Z80 dual-PCM mixer, Star compression (Kosinski cousin). v1 raw disasm + ANALYSIS.md + MEMORY_MAP.md + labels.txt produced locally via capstone (`scripts/disasm.py`). Cross-references at `s4_engine/docs/research/ristar-techniques.md`.
+7. **Ristar** (`/home/volence/sonic_hacks/The Adventures of Batman and Robin/ristar_disasm/`) — Sonic 1-derived platformer (NOT Sonic 3K, despite the team overlap); cinematic per-stage HInt scripting (HBlank → `$FFEA70` RAM), chained-sprite rope rendering (grab arm), event-tagged animation frames, SMPS 68k Type 2 + custom Z80 dual-PCM mixer, Star compression (Kosinski cousin). v1 raw disasm + ANALYSIS.md + MEMORY_MAP.md + labels.txt produced locally via capstone (`scripts/disasm.py`). Cross-references at `aeon/docs/research/ristar-techniques.md`.
 8. **sonic_hack/** (`/home/volence/sonic_hacks/sonic_hack/`) — original S2 disassembly with our modifications (data source)
 
 ## Online Research & Modern Techniques

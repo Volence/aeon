@@ -63,25 +63,25 @@
 
 - [ ] **Step 1: Create the sibling worktree + branch**
 
-The build references `../skdisasm`, so the worktree MUST be a **sibling** of `s4_engine` (a nested
+The build references `../skdisasm`, so the worktree MUST be a **sibling** of `aeon` (a nested
 `.worktrees/` worktree breaks the build).
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
-git worktree add ../s4_engine-dacdrum -b feat/dac-drum master
+cd /home/volence/sonic_hacks/aeon
+git worktree add ../aeon-dacdrum -b feat/dac-drum master
 ```
 
 - [ ] **Step 2: Symlink the gitignored native toolchain** (this machine builds NATIVE, not Wine)
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-dacdrum
-ln -s ../s4_engine/tools/bin tools/bin
-ln -s ../s4_engine/tools/salvador/salvador tools/salvador/salvador
+cd /home/volence/sonic_hacks/aeon-dacdrum
+ln -s ../aeon/tools/bin tools/bin
+ln -s ../aeon/tools/salvador/salvador tools/salvador/salvador
 ```
 
 - [ ] **Step 3: Baseline build (sound on)**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-dacdrum && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon-dacdrum && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh`
 Expected: exit 0, `s4.log` clean, `s4.bin` ~450 KB. (Establishes the worktree builds before any change.)
 
 - [ ] **Step 4: Capture the MT audio baseline** (regression reference for every later layer)
@@ -100,7 +100,7 @@ Expected: exit 0, `s4.log` clean, `s4.bin` ~450 KB. (Establishes the worktree bu
 
 Run:
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-dacdrum
+cd /home/volence/sonic_hacks/aeon-dacdrum
 grep -rn "SND_PLAY_ACTIVE\|SND_PLAY_PTR\|SND_PLAY_LEN\|SND_TEST_SAMPLE\b\|SND_DAC_RATE\b\|SND_DRAIN_SAMPLES\|SND_DRAIN_MAX\|SND_DRAIN_PAD\|SND_PLAY_MODE\|SND_LOOP_OFS" engine/ sound_constants.asm
 ```
 Expected: matches ONLY in `sound_constants.asm` (definitions), none in `engine/`. If any `engine/`
@@ -490,7 +490,7 @@ resamples to the target rate (start ~8.3 kHz; Layer 6 re-encodes at the final ra
 `.dpcm` + prints the chosen `ds_table`:
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-dacdrum
+cd /home/volence/sonic_hacks/aeon-dacdrum
 python3 tools/dac_encode.py "../skdisasm/Sound/DAC/86.wav" data/sound/dac/kick.dpcm   # kick
 python3 tools/dac_encode.py "../skdisasm/Sound/DAC/81.wav" data/sound/dac/snare.dpcm  # snare
 python3 tools/dac_encode.py "../skdisasm/Sound/DAC/8C.wav" data/sound/dac/hat.dpcm    # hat

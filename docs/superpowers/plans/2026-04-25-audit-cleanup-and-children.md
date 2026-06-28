@@ -6,7 +6,7 @@
 
 **Architecture:** Each task is a focused fix to one subsystem. Tasks 1-4 are cleanup (allocation, sprites, animation, DPLC). Task 5 is new feature (child creation). All tasks produce a working, buildable ROM at each commit.
 
-**Tech Stack:** Motorola 68000 assembly, AS Macro Assembler, existing s4_engine §3 object system
+**Tech Stack:** Motorola 68000 assembly, AS Macro Assembler, existing aeon §3 object system
 
 ---
 

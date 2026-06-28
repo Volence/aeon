@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. The numbered steps are bite-sized; treat each as a checkbox and verify before moving on.
 
 **Date:** 2026-06-26
-**Branch:** `feat/music-expr-p1` (worktree `/home/volence/sonic_hacks/s4_engine-music-expr`, == master)
+**Branch:** `feat/music-expr-p1` (worktree `/home/volence/sonic_hacks/aeon-music-expr`, == master)
 **Spec:** `docs/superpowers/specs/2026-06-23-music-expression-engine-design.md` (§3 spine, §4 T1 pitch, §5 vol-env slot, §9 Task 0)
 
 ---

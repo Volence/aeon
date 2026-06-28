@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL — use `superpowers:subagent-driven-development` (or `superpowers:executing-plans`). Each numbered step is a checkbox: build + verify before moving on. Commit after each task; commit messages end with the `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` trailer.
 
 **Date:** 2026-06-27
-**Branch:** `feat/music-expr-p1` (worktree `/home/volence/sonic_hacks/s4_engine-music-expr`; Phase 1 already merged on this branch)
+**Branch:** `feat/music-expr-p1` (worktree `/home/volence/sonic_hacks/aeon-music-expr`; Phase 1 already merged on this branch)
 **Spec:** `docs/superpowers/specs/2026-06-23-music-expression-engine-design.md` (§3.1 two fold-points, §4 T1 pitch = fine detune + portamento, §5 T2 FM TL vol-env + unified `sc_env` slot)
 **Sibling slice (opcode coordination):** `docs/superpowers/plans/2026-06-27-music-expression-phase2-global.md` assigns `MEV_TEMPO=$F3`, `MEV_LFO=$F4`. **This slice assigns `MEV_PORTA=$F5`, `MEV_DETUNE=$F6`** — disjoint by construction (see Task 0 §6 and the per-opcode fixed-slot asserts).
 
@@ -1020,8 +1020,8 @@ Record all of the following (with the exact file:line) in the PR description bef
 5. **HCZ2 detune A/B vs the S3K oracle is deferred** (the chorus is verified by the constant inter-channel fnum offset + by ear in A3; the full oracle A/B rides with the deferred HCZ2 validation).
 
 ### Critical Files for Implementation
-- /home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_sequencer.asm
-- /home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_fm.asm
-- /home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_psg.asm
-- /home/volence/sonic_hacks/s4_engine-music-expr/sound_constants.asm
-- /home/volence/sonic_hacks/s4_engine-music-expr/tools/gen_sound_tables.py
+- /home/volence/sonic_hacks/aeon-music-expr/engine/sound_sequencer.asm
+- /home/volence/sonic_hacks/aeon-music-expr/engine/sound_fm.asm
+- /home/volence/sonic_hacks/aeon-music-expr/engine/sound_psg.asm
+- /home/volence/sonic_hacks/aeon-music-expr/sound_constants.asm
+- /home/volence/sonic_hacks/aeon-music-expr/tools/gen_sound_tables.py

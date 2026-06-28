@@ -7,7 +7,7 @@ verification method), then this note, then the spec + plan below.
 
 ## State of the world
 
-- **Branch `feat/dac-drum`** in the SIBLING worktree `/home/volence/sonic_hacks/s4_engine-dacdrum`.
+- **Branch `feat/dac-drum`** in the SIBLING worktree `/home/volence/sonic_hacks/aeon-dacdrum`.
   Master untouched. Spec + plan are on master. **Tree is clean; everything below is committed.**
 - **DONE + VERIFIED + COMMITTED so far:**
   - **Layers 0-3** (clean DAC state, two-stage one-shot stop, noise-shaped DPCM-HQ encoder + S3K

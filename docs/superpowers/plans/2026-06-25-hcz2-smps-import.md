@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Play Sonic 3&K's Hydrocity Zone Act 2 in the s4_engine sound driver via a reusable SMPS(S3K)→music-format-v0 converter, with the real S3K drum kit.
+**Goal:** Play Sonic 3&K's Hydrocity Zone Act 2 in the aeon sound driver via a reusable SMPS(S3K)→music-format-v0 converter, with the real S3K drum kit.
 
 **Architecture:** A Python converter (`tools/smps_import.py`) parses skdisasm SMPS2ASM macro source, runs a stateful per-channel pass (inline calls, flatten loops, fold transpose/volume, map coordination flags), and emits a `SongDesc` consumed by the existing `tools/song_packer.py`. HCZ2 uses the existing STREAM + FM6=DAC dedicate path (FM1–5 melody + DAC drums on ch6 + 3 PSG) — no engine code changes. The 6 S3K drums are encoded from their `.wav` sources through `tools/dac_encode.py`.
 
@@ -841,7 +841,7 @@ Default: use the engine-default chromatic `FmPitchTableZ` (no per-song table). O
 - [ ] **Step 1:** Write `data/sound/song_hcz2.py` that calls the converter on `skdisasm/.../HCZ2.asm` with `HCZ2_DAC_REMAP` + the patch remap, and `write_asm(song, "Song_HCZ2", "data/sound/song_hcz2.asm")` + writes `hcz2_patches.asm`.
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-hcz2 && python3 data/sound/song_hcz2.py
+cd /home/volence/sonic_hacks/aeon-hcz2 && python3 data/sound/song_hcz2.py
 ```
 Expected: `song_hcz2.asm` + `hcz2_patches.asm` written; converter prints any warn-skips.
 
@@ -897,7 +897,7 @@ git commit -m "feat(sound): DEBUG B button plays Song_HCZ2"
 - [ ] **Step 1:** Ensure `tools/bin` is an ABSOLUTE symlink to the main checkout's `tools/bin`; copy `tools/salvador/salvador` if needed. Build:
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-hcz2 && \
+cd /home/volence/sonic_hacks/aeon-hcz2 && \
   timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/hcz2_build.log 2>&1; \
   echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/hcz2_build.log | head
 ```

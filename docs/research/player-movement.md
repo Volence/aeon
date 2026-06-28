@@ -269,7 +269,7 @@ The player object has a large state machine for different transformations (ball 
 
 3-button protocol with 6-button detection. Same TH toggle approach. The detection routine (sub_00311E) checks a flag at $f705 bit 6 to determine if the pad is 6-button, then remaps X/Y/Z buttons into the standard button byte at specific bit positions.
 
-**Configurable button mapping**: Gunstar stores button mapping in RAM ($ff20 area) and applies it during the read. This allows the options screen to remap buttons -- a technique worth noting for s4_engine's eventual options menu.
+**Configurable button mapping**: Gunstar stores button mapping in RAM ($ff20 area) and applies it during the read. This allows the options screen to remap buttons -- a technique worth noting for aeon's eventual options menu.
 
 ### Player Movement
 
@@ -425,15 +425,15 @@ The definitive Sonic physics reference. While the wiki itself blocked automated 
 
 ---
 
-## 9. Synthesis and Recommendations for s4_engine Test Player
+## 9. Synthesis and Recommendations for aeon Test Player
 
 ### Controller Reading
 
-**Current state**: s4_engine already has `Read_Controllers` in `engine/controllers.asm` implementing 3-button protocol. Stores `Ctrl_1_Held` and `Ctrl_1_Press`.
+**Current state**: aeon already has `Read_Controllers` in `engine/controllers.asm` implementing 3-button protocol. Stores `Ctrl_1_Held` and `Ctrl_1_Press`.
 
 **6-button extension needed?** Not for Task 11. The test player only needs d-pad + one jump button. However, the eventual game will want 6-button support. **Recommendation**: defer 6-button to a later task. The existing 3-button code is correct and sufficient.
 
-**One concern**: The current controller read does NOT pause the Z80. All references show Z80 being stopped before IO access. The s4_engine code accesses `HW_PORT_1_DATA` directly without stopZ80. This works on most emulators but can cause glitches on hardware. **Note for later**: add Z80 stop/start around controller reading, or move controller reading inside VBlank where Z80 is already stopped.
+**One concern**: The current controller read does NOT pause the Z80. All references show Z80 being stopped before IO access. The aeon code accesses `HW_PORT_1_DATA` directly without stopZ80. This works on most emulators but can cause glitches on hardware. **Note for later**: add Z80 stop/start around controller reading, or move controller reading inside VBlank where Z80 is already stopped.
 
 ### State Machine Approach
 

@@ -256,7 +256,7 @@ Leave the deadzone follow (71-112) and spindash-freeze (48-70) UNCHANGED.
 
 **Files:** none (verification). This is the correctness gate for the Task 1–8 flip.
 
-- [ ] **Step 1: Reload + boot.** oracle `emulator_reload_rom` (`/home/volence/sonic_hacks/s4_engine/s4.bin`) + `emulator_screenshot` → OJZ art renders at the start, no garbage.
+- [ ] **Step 1: Reload + boot.** oracle `emulator_reload_rom` (`/home/volence/sonic_hacks/aeon/s4.bin`) + `emulator_screenshot` → OJZ art renders at the start, no garbage.
 - [ ] **Step 2: Drive horizontal scroll across the old sec1/sec2 seam.** Build with `SOUND_LOADTEST=1` (or drive `Player_1.x_pos` forward via `write_memory`); read `Camera_X` across frames — it must advance **continuously** (no rebase/jump) past 2048, 4096, to near `level_width` (6144). Screenshot mid-traverse: **no seam, no warp, brown→green transition is smooth**, the previous section's tail stays visible on the left (the original bug is gone because there is no teleport).
 - [ ] **Step 3: Collision probe.** At a known section-2 ground position, confirm the player lands/collides correctly (read `Player_1` y on ground) — proves world-coord collision lookup is correct.
 - [ ] **Step 4: VRAM no-tear check.** `emulator_read_vram` of Plane A nametable while scrolling across a boundary — no torn/duplicated columns (the fill-window clamp bounds ≤64 distinct cols).

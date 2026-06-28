@@ -1,5 +1,5 @@
 # AS Macro Assembler (68000) — Universal Ctags configuration
-# Project-local: only applies when ctags is run from s4_engine/
+# Project-local: only applies when ctags is run from aeon/
 
 # Define language; map .asm files exclusively to it (disable built-in Asm)
 --langdef=AS68K

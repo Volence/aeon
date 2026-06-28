@@ -174,7 +174,7 @@ Current_Act_Ptr:        ds.l 1
 - [ ] **Step 4: Build and verify — no new errors**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 ./build.sh -pe 2>&1 | head -30
 ```
 
@@ -183,8 +183,8 @@ Expected: build succeeds. No `RAM overflow` or struct size errors.
 - [ ] **Step 5: Add `.gitignore` entry for generated data**
 
 ```bash
-echo "data/generated/" >> /home/volence/sonic_hacks/s4_engine/.gitignore
-mkdir -p /home/volence/sonic_hacks/s4_engine/data/generated
+echo "data/generated/" >> /home/volence/sonic_hacks/aeon/.gitignore
+mkdir -p /home/volence/sonic_hacks/aeon/data/generated
 ```
 
 - [ ] **Step 6: Commit**
@@ -271,7 +271,7 @@ Update the tool if the format differs from these assumptions.
 ```python
 #!/usr/bin/env python3
 """
-ojz_strip_gen.py — OJZ nametable strip generator for s4_engine §4
+ojz_strip_gen.py — OJZ nametable strip generator for aeon §4
 Reads sonic_hack OJZ source data, outputs strip arrays for each section.
 
 Usage:
@@ -530,7 +530,7 @@ if __name__ == '__main__':
 - [ ] **Step 3: Run self-tests**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 python3 tools/ojz_strip_gen.py test
 ```
 
@@ -1418,7 +1418,7 @@ git commit -m "feat(§4): add Camera_Update and Hscroll_Update (Phase 1 minimal)
 - [ ] **Step 1: Create directory structure**
 
 ```bash
-mkdir -p /home/volence/sonic_hacks/s4_engine/data/levels/ojz/act1
+mkdir -p /home/volence/sonic_hacks/aeon/data/levels/ojz/act1
 ```
 
 - [ ] **Step 2: Create `data/levels/ojz/act1/act_descriptor.asm`**
@@ -1778,7 +1778,7 @@ git commit -m "feat(§4): add OJZ scroll test game state wired to boot"
 - [ ] **Step 1: Full test suite**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 ./test.sh
 ```
 

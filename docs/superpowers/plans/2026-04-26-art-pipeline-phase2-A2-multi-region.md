@@ -96,7 +96,7 @@ Look at any homebrew Genesis project that uses 64×64 planes (Vectorman is the o
 
 Search briefly for "off-screen nametable embedding" or analogous "embed data in unused VRAM region" patterns. NES has similar concepts (CHR-RAM swaps); SNES has VRAM bank tricks. Document anything relevant from outside the Genesis world.
 
-- [ ] **Step 5: Compute the safe region-2 boundary for s4_engine**
+- [ ] **Step 5: Compute the safe region-2 boundary for aeon**
 
 Concrete numbers (Task 1 must establish these in the research doc):
 

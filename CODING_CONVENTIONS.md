@@ -458,7 +458,7 @@ Every label must describe what the code DOES, not where it IS. No `loc_`, `sub_`
 One logical unit per file. A file should contain one routine and its helpers, or one data table and its accessors.
 
 ```
-s4_engine/
+aeon/
   main.asm              ; entry point, includes everything
   constants.asm         ; all ROM constants and enums
   macros.asm            ; all macros and AS functions

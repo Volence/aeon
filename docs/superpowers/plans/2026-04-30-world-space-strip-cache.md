@@ -207,7 +207,7 @@ Strip_Cache_Fwd_Stream: ds.b 1          ; slot index (0-3) of forward decompress
 - [ ] **Step 9: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: clean build. All struct size checks pass. RAM overflow check passes. No runtime change (data not populated yet). The `sec_strips_a` → `sec_strips_s4lz` rename will cause build errors in section.asm, load_art.asm, and plane_buffer.asm — fix all references mechanically (same field, same offset, new name). Similarly rename `sec_collision` → `sec_collision_s4lz` in any references.
@@ -303,7 +303,7 @@ compress_parser.add_argument('--checkpoint-interval', type=int, default=0,
 - [ ] **Step 5: Test checkpoint emission**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 # Compress an existing raw strip file with checkpoints every 6144 bytes (64 strips × 96)
 python3 tools/s4lz.py compress \
     --checkpoint-interval 6144 \
@@ -358,7 +358,7 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Research**
 
-Check build pipelines in modern retro homebrew projects (Xeno Crisis, Tanglewood, Demons of Asteborg) for how they chain asset compression into their build. Check how sonic_hack's build.sh orchestrates Kosinski compression. Look at the existing s4_engine build.sh pipeline (lines 1-100) for the current strip generation + tile compression flow.
+Check build pipelines in modern retro homebrew projects (Xeno Crisis, Tanglewood, Demons of Asteborg) for how they chain asset compression into their build. Check how sonic_hack's build.sh orchestrates Kosinski compression. Look at the existing aeon build.sh pipeline (lines 1-100) for the current strip generation + tile compression flow.
 
 - [ ] **Step 2: Add strip compression to ojz_strip_gen.py**
 
@@ -445,7 +445,7 @@ Note: this means the engine can no longer read raw strips from ROM. Section_Upda
 - [ ] **Step 5: Build and verify data generation**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: build succeeds (assembly passes). ROM contains compressed strip data. Game will show corrupted/missing FG tiles (expected — engine still tries to read raw data from what's now compressed).
@@ -651,7 +651,7 @@ Add after the `s4lz_decompress.asm` include (line 103):
 - [ ] **Step 5: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: clean build. No runtime change (streaming decompressor not called yet).
@@ -916,7 +916,7 @@ Add after the `section.asm` include (line 116):
 - [ ] **Step 6: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: clean build. No runtime change (strip cache not called yet).
@@ -976,7 +976,7 @@ Camera_Update → Strip_Cache_Fill → Section_Check → EntityWindow_Scan → S
 - [ ] **Step 4: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: clean build. The strip cache is now populated and filled each frame, but Section_UpdateColumns still tries to read raw strip data via `Sec_sec_strips_s4lz` (which points to compressed data). The game will show corrupted FG tiles. This is expected — Task 7 completes the switchover.
@@ -1301,7 +1301,7 @@ Keep the RAM variables `Section_Fwd_Neighbor_Strips` and `Section_Bwd_Neighbor_S
 - [ ] **Step 7: Build and test**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: clean build. **This is the critical test milestone.** Load in emulator and verify:
@@ -1447,7 +1447,7 @@ Mirror the stream reinit code in `Section_TeleportBwd` (same pattern as Step 3).
 - [ ] **Step 6: Build and test**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: clean build. Test in emulator:
@@ -1647,7 +1647,7 @@ Mirror for `.deferred_bwd_load` → `Collision_Map_Slot0`.
 - [ ] **Step 7: Build and test**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: clean build. Collision maps generated, compressed, included in ROM, and decompressed to RAM at level init and preload. Verify with Exodus MCP:
@@ -1923,7 +1923,7 @@ python3 tools/gen_collision_data.py data/collision
 - [ ] **Step 7: Build and test**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: clean build. Collision system compiled and linked. Height maps and angle data in ROM.

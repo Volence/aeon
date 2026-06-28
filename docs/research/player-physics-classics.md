@@ -367,7 +367,7 @@ Avoid / known quirks:
 - Core physics is **unmodified stock S2** — S2 slip-detach (45°, Player_Common.asm:138–161),
   S2 air hard clamp (352–369), S2 $80 roll threshold (Sonic.asm:854), unfixed skid-check
   d0 bug (682–693). None of the S3K refinements in §§2,4,5,7 were adopted — adopt them in
-  s4_engine from S3K behavior, not from sonic_hack.
+  aeon from S3K behavior, not from sonic_hack.
 - `Sonic_DoLevelCollision` calls `Sonic_ResetOnFloor` twice on shallow landings
   (Sonic.asm:1308 then 1324) — redundant double reset, don't replicate.
 - Hurt-state physics unchanged: gravity $30, on landing zero all velocity + $78
@@ -375,7 +375,7 @@ Avoid / known quirks:
 
 ---
 
-## Quick reference card (canonical values for s4_engine)
+## Quick reference card (canonical values for aeon)
 
 | Quantity | Value | Notes |
 |---|---|---|

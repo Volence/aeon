@@ -7,7 +7,7 @@ method + the build-bug fix), then the spec + plan below. This note is the crisp 
 
 ## State of the world
 
-- **Branch `feat/dac-drum`** in the SIBLING worktree `/home/volence/sonic_hacks/s4_engine-dacdrum`.
+- **Branch `feat/dac-drum`** in the SIBLING worktree `/home/volence/sonic_hacks/aeon-dacdrum`.
   Master is untouched. Spec + plan are on master.
 - **Layers 0-3 are DONE and VERIFIED.** The DAC drum path builds and the DPCM decode is proven correct.
   - L0 clean DAC RAM state block + 9-byte descriptor.

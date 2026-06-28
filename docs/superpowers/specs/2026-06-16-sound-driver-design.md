@@ -9,7 +9,7 @@ feature §6 planned. To beat Flamedriver we must include all of §6 *plus* the f
 
 ## 1. Purpose & Ambition
 
-The s4_engine writes every subsystem from scratch. Audio is currently the only
+The aeon writes every subsystem from scratch. Audio is currently the only
 place the architecture planned to import outside code (Flamedriver). This design
 replaces that plan: we build our **own** Z80-autonomous sound driver, fully ours,
 targeting **best-on-the-platform** quality with no compromise — a full DAC

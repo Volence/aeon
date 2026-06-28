@@ -315,7 +315,7 @@ Solid blue screen. Stable 60Hz loop (50Hz PAL). Frame counter incrementing. No c
 After all 7 steps, the project contains:
 
 ```
-s4_engine/
+aeon/
   build.sh
   main.asm
   constants.asm

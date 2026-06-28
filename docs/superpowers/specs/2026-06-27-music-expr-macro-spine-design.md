@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-27
 **Status:** Design — pending user review → writing-plans
-**Branch:** `feat/music-expr-p1` (worktree `/home/volence/sonic_hacks/s4_engine-music-expr`; Phase 1 implemented, not merged)
+**Branch:** `feat/music-expr-p1` (worktree `/home/volence/sonic_hacks/aeon-music-expr`; Phase 1 implemented, not merged)
 **Spec lineage:** generalizes the macro spine from `docs/superpowers/specs/2026-06-23-music-expression-engine-design.md` §3.2–§3.3 (§3.3's macro body + §8 add-ons folded in here). Phase-2 plans (`2026-06-27-music-expression-phase2-global.md`, `…-pernote.md`) remain independent; this spec **absorbs the FM-TL vol-env** out of the per-note plan (see §0.3).
 **Scope owner:** engine (mechanism/format/architecture). Content (songs, instrument banks, macro libraries) is downstream/user-driven; this spec defines the format the content targets.
 

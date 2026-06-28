@@ -77,7 +77,7 @@ Exodus VGM → `vgm2wav` (NOT register streams), the DEBUG golden self-test, and
 
 Run:
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 grep -rnE "call[[:space:]]+(Fm_NoteOn|Fm_NoteFromTable|Fm_SetVolume|Psg_NoteOn|PsgVolEnv_Resolve)" engine/*.asm
 ```
 Expected: every caller is reachable only from `Sequencer_Frame`/`ModUpdate`/`Sequencer_Channel`

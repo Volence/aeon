@@ -73,7 +73,7 @@ maps respectively.
 
 **Convention alignment:** S.C.E.'s path A = primary = default; path B =
 secondary = the inner loop surface. This matches our SST `layer` byte:
-`0 = path A` (primary), `1 = path B` (secondary). The s4_engine
+`0 = path A` (primary), `1 = path B` (secondary). The aeon
 per-object layer select avoids S.C.E.'s global pointer switch; instead
 each sensor query carries the layer from the querying object's SST,
 which is correct for multi-player or player + carried object scenarios.

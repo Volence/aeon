@@ -184,11 +184,11 @@ print("PLAYS" if best>0.9 else "NOT the sample (garbage/silent)")
 ## 7. Process / setup
 
 - Use the standard flow: **brainstorming → writing-plans → subagent-driven-development**, in a
-  **git worktree**. The worktree must be a **SIBLING** of `s4_engine` (e.g.
-  `../s4_engine-dacdrum`) — the build references `../skdisasm`, so a nested `.worktrees/` worktree
+  **git worktree**. The worktree must be a **SIBLING** of `aeon` (e.g.
+  `../aeon-dacdrum`) — the build references `../skdisasm`, so a nested `.worktrees/` worktree
   breaks it. After creating it, symlink the gitignored native tools from the main checkout:
-  `ln -s .../s4_engine/tools/bin tools/bin` and
-  `ln -s .../s4_engine/tools/salvador/salvador tools/salvador/salvador`. This machine builds with
+  `ln -s .../aeon/tools/bin tools/bin` and
+  `ln -s .../aeon/tools/salvador/salvador tools/salvador/salvador`. This machine builds with
   the NATIVE toolchain (`tools/bin`), not win32/Wine.
 - The **`oracle` emulator** is the user's live emulator (MCP). Never auto-launch emulators; drive
   the running one via MCP. The DAC sample-rate constant + cycle-balance live in

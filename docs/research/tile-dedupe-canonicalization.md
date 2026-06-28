@@ -21,7 +21,7 @@ The five sibling disassemblies are silent on tile-dedupe specifically because th
 9. **plutiedev.com** — fetched the "Tiles and palettes" and "Tile ID flags" topics. Documents nametable flip bits as a runtime VDP feature (correctness-level reference) but does not discuss build-time flip-aware canonicalization. Tile-dedupe as a build optimization is not covered.
 10. **md.railgun.works** — searched for "tile dedup"; zero results. Wiki has no page on the topic.
 11. **GitHub homebrew (Xeno Crisis, Tanglewood, Demons of Asteborg, Project MD)** — these projects are SGDK consumers, so they inherit `rescomp`'s first-encountered approach. No surveyed project replaces or extends rescomp's tile-equivalence rule.
-12. **`s4_engine/tools/ojz_strip_gen.py`** — read end-to-end, audited specifically for H/V bit preservation.
+12. **`aeon/tools/ojz_strip_gen.py`** — read end-to-end, audited specifically for H/V bit preservation.
 
 **Conclusion from breadth:** Lex-smallest canonicalization is genuinely novel for the Genesis homebrew/disasm world. SGDK's first-encountered is the only published prior art; everyone else either doesn't dedupe at all or uses SGDK as a black box.
 

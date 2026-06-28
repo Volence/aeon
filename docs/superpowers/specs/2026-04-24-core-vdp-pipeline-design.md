@@ -483,7 +483,7 @@ The `vdpCommDelta(planeLoc(64,0,1))` resolves to `$00800000` at assembly time â€
 1. Decompress a piece of art from sonic_hack using `tools/nemdec` and/or `tools/kosdec`
 2. Extract the corresponding palette
 3. Build or extract a nametable mapping
-4. Place raw files in `s4_engine/test/` as binary includes
+4. Place raw files in `aeon/test/` as binary includes
 
 Use the Sonic 2 title screen art â€” large enough to exercise real DMA workloads, recognizable, known palette. Decompress with `nemdec`/`kosdec` from `sonic_hack/tools/`, extract palette from sonic_hack palette data.
 

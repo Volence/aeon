@@ -471,7 +471,7 @@ over arithmetic overlap tests.
 
 Key insight from the forum: collision data should live in ROM, not RAM. Large
 collision maps ($A0 x $500 = 160x1280 tiles) fit in ROM and are accessed directly.
-This aligns with s4_engine's per-section collision map design.
+This aligns with aeon's per-section collision map design.
 
 ### VDP Sprite Link System
 
@@ -560,7 +560,7 @@ benefit from the rigid pool segregation that helps a shmup's bullet patterns.
 
 **Recommendation: Type byte + jump table (from sonic_hack, already designed).**
 
-The existing s4_engine design with `collision_resp` as a pure type byte and a
+The existing aeon design with `collision_resp` as a pure type byte and a
 jump table of handlers is the cleanest approach found across all references:
 - S.C.E. packs type + size into one byte, requiring bit masking and a size lookup
   table. Our approach stores dimensions directly in the SST — no table needed.
@@ -638,7 +638,7 @@ No other reference does anything more sophisticated — it simply works.
 
 ### 9.7 Key Differences from S.C.E. to Preserve
 
-The s4_engine's collision design diverges from S.C.E. in three deliberate ways that
+The aeon's collision design diverges from S.C.E. in three deliberate ways that
 should NOT be reverted:
 
 1. **No size table.** S.C.E.'s `Touch_Sizes` table (57 entries of byte pairs) forces

@@ -2,7 +2,7 @@
 
 ## Overview
 
-A Python-based linter (`tools/s4lint.py`) that catches correctness bugs at build time before the assembler runs. Designed for the s4_engine codebase conventions — not a generic 68000 tool.
+A Python-based linter (`tools/s4lint.py`) that catches correctness bugs at build time before the assembler runs. Designed for the aeon codebase conventions — not a generic 68000 tool.
 
 Phase 1 focuses on correctness checks (things that crash or corrupt). Convention enforcement (naming, style) is deferred to Phase 2.
 

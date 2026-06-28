@@ -50,7 +50,7 @@ Note: the `SfxChannel` struct keeps its own `sc_psgenv*` at +39/+40/+41 — iden
 
 - [ ] **Step 3: Build to confirm RAM still fits**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
+Run: `cd /home/volence/sonic_hacks/aeon-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
 Expected: `EXIT=0`, `Build complete`. (If a `fatal` boundary guard fires, the seq region overflowed — it should not at 42 B; stop and re-check.)
 
 - [ ] **Step 4: Commit**
@@ -82,7 +82,7 @@ After the existing `ld (ix+sc_dur_default), 1` line in `.chan_init`, add:
 
 - [ ] **Step 2: Build green**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
+Run: `cd /home/volence/sonic_hacks/aeon-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
 Expected: `EXIT=0`, `Build complete`.
 
 - [ ] **Step 3: Commit**
@@ -129,7 +129,7 @@ Keep the explanatory comment block above it accurate (music PSG now runs the env
 
 - [ ] **Step 2: Build green**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
+Run: `cd /home/volence/sonic_hacks/aeon-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
 Expected: `EXIT=0`, `Build complete`. (No behavior change yet — no song emits a nonzero music `sc_psgenv` until Task 6.)
 
 - [ ] **Step 3: Commit**
@@ -183,7 +183,7 @@ Replace the gated fold (the `push hl` / `call Snd_ChanClass` / `pop hl` / `jr c,
 
 - [ ] **Step 3: Build green**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
+Run: `cd /home/volence/sonic_hacks/aeon-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
 Expected: `EXIT=0`, `Build complete`.
 
 - [ ] **Step 4: Confirm `Psg_EnvCursorReset` is called on the PSG key-on path only**
@@ -223,7 +223,7 @@ Insert these entries (keep the list sorted by id for readability). Bytes are cop
 
 - [ ] **Step 2: Regenerate the engine table**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-hcz2 && python3 tools/gen_sound_tables.py`
+Run: `cd /home/volence/sonic_hacks/aeon-hcz2 && python3 tools/gen_sound_tables.py`
 Expected: rewrites `engine/sound_tables_z80.asm`. Verify the new ids landed:
 
 Run: `grep -n "PsgVolEnv_Ids:\|PSGVOLENV_COUNT\|PsgVolEnv_01\b" engine/sound_tables_z80.asm | head`
@@ -231,7 +231,7 @@ Expected: `PsgVolEnv_Ids` now lists `01h, 02h, 03h, 08h, 0Ah, 0Ch, 0Dh, 0Eh, 0Fh
 
 - [ ] **Step 3: Build green (table sits at the song-bank start, co-located with HCZ2)**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
+Run: `cd /home/volence/sonic_hacks/aeon-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
 Expected: `EXIT=0`, `Build complete`. (If a bank-fit assert fires, the MT+DrumTest+HCZ2 bank overflowed — unlikely from ~60 envelope bytes; stop and reassess.)
 
 - [ ] **Step 4: Commit**
@@ -279,7 +279,7 @@ def test_psg_voice_safe_env():
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-hcz2/tools && python3 -m pytest test_smps_import.py -q -k "psgvoice or psg_voice_safe_env"`
+Run: `cd /home/volence/sonic_hacks/aeon-hcz2/tools && python3 -m pytest test_smps_import.py -q -k "psgvoice or psg_voice_safe_env"`
 Expected: FAIL (current code emits `PsgEnv(0)`).
 
 - [ ] **Step 3: Add `_parse_psg_env_ids` + rewrite the smpsPSGvoice handler**
@@ -333,19 +333,19 @@ Delete the now-unused `_psg_env_warned` global + `_warn_psg_env_once` (and its c
 
 - [ ] **Step 4: Run to verify the converter tests pass**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-hcz2/tools && python3 -m pytest test_smps_import.py -q`
+Run: `cd /home/volence/sonic_hacks/aeon-hcz2/tools && python3 -m pytest test_smps_import.py -q`
 Expected: PASS (all, including the updated tie/period tests).
 
 - [ ] **Step 5: Regenerate the HCZ2 song**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-hcz2 && python3 data/sound/song_hcz2.py 2>&1 | grep -iv "WARN: sTone" | head`
+Run: `cd /home/volence/sonic_hacks/aeon-hcz2 && python3 data/sound/song_hcz2.py 2>&1 | grep -iv "WARN: sTone" | head`
 Expected: `wrote .../song_hcz2.asm`. Confirm the PSG channels now carry nonzero envs:
 
 Run: `grep -c "EB" data/sound/song_hcz2.asm` (MEV_PSGENV = $EB) — expect many; and no `WARN: sTone $XX has no imported` lines for HCZ2's sTones (01/02/08/0A/0C are all imported).
 
 - [ ] **Step 6: Build green**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
+Run: `cd /home/volence/sonic_hacks/aeon-hcz2 && timeout 360 env SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh > /tmp/env_build.log 2>&1; echo EXIT=$?; grep -iE "error|fatal|Build complete" /tmp/env_build.log | tail`
 Expected: `EXIT=0`, `Build complete`.
 
 - [ ] **Step 7: Commit**
@@ -362,7 +362,7 @@ git commit -m "feat(tools): map smpsPSGvoice sTone_NN -> PsgEnv(NN) (HCZ2 PSG en
 - [ ] **Step 1: Snapshot ROM + listing to /tmp, reload oracle, load symbols**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-hcz2 && cp s4.bin /tmp/hcz2_env.bin && cp s4.lst /tmp/hcz2_env.lst
+cd /home/volence/sonic_hacks/aeon-hcz2 && cp s4.bin /tmp/hcz2_env.bin && cp s4.lst /tmp/hcz2_env.lst
 ```
 Then via MCP: `emulator_reload_rom(/tmp/hcz2_env.bin)`, `emulator_load_symbols(/tmp/hcz2_env.lst)`.
 

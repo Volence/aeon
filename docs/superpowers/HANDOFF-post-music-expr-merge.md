@@ -1,4 +1,4 @@
-# Handoff — Post Music-Expression Merge (what's next for s4_engine)
+# Handoff — Post Music-Expression Merge (what's next for aeon)
 
 **Written:** 2026-06-27, for a fresh agent picking up cold after the music-expression engine landed on master.
 **Your job:** pick up ONE of the prioritized threads in §4 (the user will tell you which "something else" to do), after the small post-merge cleanup in §3. Start by reading the project law (§5).
@@ -49,7 +49,7 @@ Today only a test-harness `GameLoop` exists (function-pointer `Game_State` dispa
 Shields/monitors/springs/badniks `objdef`s with **object-vs-object collision** (only player-vs-object exists today — needs a `CheckObjectPair` helper), real ring/object art in proper VRAM-pool slots (replace placeholder squares), and the deferred **per-section physics modifier/Lerp** (§5.2, a flagship NOVEL feature currently inert — plumbing shipped, multiplier tables + boundary Lerp unbuilt). `data/objdefs/` has only `test_objects.asm`.
 
 ## 5. Project law (read before coding)
-- `CLAUDE.md` (both root + `s4_engine/`) and **`CODING_CONVENTIONS.md`** — sized branches, `struct/endstruct`, `function` for compile-time math, **no `mulu/divu`**, even-align `ds.w`, the hl-preservation rule in opcode handlers. (Z80 sound RAM uses constant-arith + `if/error`, NOT phase/dephase — deliberate, to avoid the `phase 0` collision; CLAUDE.md L25 is stale for that subsystem.)
+- `CLAUDE.md` (both root + `aeon/`) and **`CODING_CONVENTIONS.md`** — sized branches, `struct/endstruct`, `function` for compile-time math, **no `mulu/divu`**, even-align `ds.w`, the hl-preservation rule in opcode handlers. (Z80 sound RAM uses constant-arith + `if/error`, NOT phase/dephase — deliberate, to avoid the `phase 0` collision; CLAUDE.md L25 is stale for that subsystem.)
 - **Sound build:** `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh` — a plain `./build.sh` EXCLUDES all sound. The Z80 blob must be even-sized (odd → boot address-error). Budget gate = the build's `Z80_SOUND_SIZE > SND_STATE_BASE ($16F0)` fatal.
 - **Verification = rendered audio / observable behavior vs the real reference**, never a register proxy. Oracle MCP is the single live emulator (`oracle`); drive it (reload_rom / run_frames / z80_read+write / vgm_start+stop), never auto-launch. VGM captures ≤450 frames. Songs: id 1 = Moving Trucks, id 3 = HCZ2; trigger via `z80_write $1F02 <id>` (`SND_REQ_MUSIC`). Tools: `tools/vgm_intranote.py`, `tools/vgm_onsets.py`, `tools/vgm_modulation_diff.py`.
 - **Daemon-watched, do NOT touch / never `--amend` near:** `data/editor/**`, `tools/ojz_strip_gen.py` (an auto-commit daemon commits editor work to the current branch ~60s after changes — there is editor WIP uncommitted in the main repo right now; that's expected). `git add` EXACT paths only, never `-A`/globs. Commit-message trailer: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.

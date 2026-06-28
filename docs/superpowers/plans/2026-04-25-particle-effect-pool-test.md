@@ -6,7 +6,7 @@
 
 **Architecture:** Effect creation routines mirror the existing `CreateChild_Normal`/`CreateChild_Simple` API but call `AllocEffect` instead of `AllocDynamic`. A test particle object moves with velocity and auto-despawns via `AF_DELETE` when its animation ends. A test emitter spawns particles on a timer using `CreateEffect_Normal`. A test multi-part parent uses `CreateChild_Normal` to spawn children, then self-destructs after a timer to verify `DeleteChildren` cascade.
 
-**Tech Stack:** 68000 assembly, AS Macro Assembler, existing s4_engine object/animation/DPLC systems.
+**Tech Stack:** 68000 assembly, AS Macro Assembler, existing aeon object/animation/DPLC systems.
 
 ---
 

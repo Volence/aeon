@@ -14,8 +14,8 @@
 
 **Verification pattern used throughout** (every task): build, then
 ```
-mcp: emulator_reload_rom path=/home/volence/sonic_hacks/s4_engine/s4.bin
-mcp: emulator_load_symbols path=/home/volence/sonic_hacks/s4_engine/s4.lst
+mcp: emulator_reload_rom path=/home/volence/sonic_hacks/aeon/s4.bin
+mcp: emulator_load_symbols path=/home/volence/sonic_hacks/aeon/s4.lst
 ```
 Drive the camera by writing Player_1 position (x_pos longword at Player_1+2, y_pos at Player_1+6; camera follows at ≤16px/frame, world coords are $200-based on both axes):
 ```

@@ -291,7 +291,7 @@ def _smps_note_to_pitch(raw_byte: int, is_psg: bool, transpose: int = 0,
     return pitch
 
 
-# --- S3K SMPS voice -> s4_engine FmPatch physical-operator reorder -------------
+# --- S3K SMPS voice -> aeon FmPatch physical-operator reorder -------------
 # S3K's Z80 driver uploads a voice's per-operator bytes via zFMInstrumentOperatorTable
 # (skdisasm "Z80 Sound Driver.asm": $30,$38,$34,$3C ...), i.e. binary byte k goes to
 # the k-th register in the sequence [$30,$38,$34,$3C]. Our engine's Fm_PatchOpGroup

@@ -40,7 +40,7 @@
 
 **Files:** none (process)
 
-- [x] **Step 0.1:** Confirm on branch `player-system` in `/home/volence/sonic_hacks/s4_engine` (`git branch --show-current`). All commits for this plan go here. NEVER `git add` the modified `data/editor/**` files (user's level edits, uncommitted by design) — always add files explicitly, never `git add -A`.
+- [x] **Step 0.1:** Confirm on branch `player-system` in `/home/volence/sonic_hacks/aeon` (`git branch --show-current`). All commits for this plan go here. NEVER `git add` the modified `data/editor/**` files (user's level edits, uncommitted by design) — always add files explicitly, never `git add -A`.
 - [x] **Step 0.2:** Baseline: run `./test.sh` — record pass count. Run `./build.sh -pe` — must succeed before any change.
 
 ---

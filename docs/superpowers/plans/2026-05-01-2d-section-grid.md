@@ -226,7 +226,7 @@ if __name__ == "__main__":
 Run the generator on existing OJZ data:
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 python3 tools/ojz_block_gen.py generate
 ```
 
@@ -408,7 +408,7 @@ Section_Bottom_Row_Written: ds.w 1
 - [ ] **Step 4: Verify build compiles**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: Build will FAIL because code still references old names (`Strip_Cache_Left_Col`, `Strip_Cache_GetColumn`, etc.). This is expected — later tasks will update the code references.
@@ -1088,7 +1088,7 @@ TileCache_VSlide:
 - [ ] **Step 7: Verify build compiles (expect errors from old references)**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh 2>&1 | head -30
+cd /home/volence/sonic_hacks/aeon && ./build.sh 2>&1 | head -30
 ```
 
 Expected: The file should assemble without syntax errors. Build will fail from other files referencing old strip cache symbols — that's expected and fixed in later tasks.
@@ -1195,7 +1195,7 @@ The old `STRIP_TILE_HEIGHT = 48` was limited by SAT. Now the plane is 64 rows. U
 - [ ] **Step 6: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 - [ ] **Step 7: Commit**
@@ -1279,7 +1279,7 @@ These functions call `Collision_GetType` and don't directly access the strip cac
 - [ ] **Step 3: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 - [ ] **Step 4: Commit**
@@ -1524,7 +1524,7 @@ Draw_TileRow_FromCache:
 - [ ] **Step 3: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 - [ ] **Step 4: Commit**
@@ -1736,7 +1736,7 @@ Add vertical row streaming alongside horizontal column streaming. After the exis
 - [ ] **Step 7: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 - [ ] **Step 8: Commit**
@@ -1798,7 +1798,7 @@ With the full 64-row plane available, increase `cam_max_y`:
 - [ ] **Step 4: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 - [ ] **Step 5: Commit**
@@ -1844,7 +1844,7 @@ In `ram.asm`, remove the old `Strip_Cache` section (already replaced in Task 2, 
 - [ ] **Step 5: Build clean**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: Clean build with zero errors.
@@ -1915,7 +1915,7 @@ Full cache re-center for when the camera moves beyond the cache in either direct
 - [ ] **Step 4: Build and test**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Test in emulator: scroll in all 4 directions, verify tiles appear smoothly without gaps or flicker.

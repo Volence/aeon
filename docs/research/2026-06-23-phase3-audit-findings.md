@@ -165,8 +165,8 @@
 
 ## Ambiguous orphans — NEEDS DECISION
 
-- `SF_HAS_WATER` @ /home/volence/sonic_hacks/s4_engine/constants.asm:425 — Member of section flags bitmask enum (SF_* set); sec_flags struct field is initialized to 0 in act_descriptor.asm but flag bits never tested in code
-- `SF_NO_Y_WRAP` @ /home/volence/sonic_hacks/s4_engine/constants.asm:427 — Member of section flags bitmask enum (SF_* set); sec_flags struct field is initialized to 0 in act_descriptor.asm but flag bits never tested in code
+- `SF_HAS_WATER` @ /home/volence/sonic_hacks/aeon/constants.asm:425 — Member of section flags bitmask enum (SF_* set); sec_flags struct field is initialized to 0 in act_descriptor.asm but flag bits never tested in code
+- `SF_NO_Y_WRAP` @ /home/volence/sonic_hacks/aeon/constants.asm:427 — Member of section flags bitmask enum (SF_* set); sec_flags struct field is initialized to 0 in act_descriptor.asm but flag bits never tested in code
 
 ## Live orphans (keep — false positives from xref)
 

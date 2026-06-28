@@ -66,7 +66,7 @@ Append findings to `docs/research/sprite-system-§1.2.md` under "Task 1 — Link
 
 - [ ] **Step 2: Edit ENGINE_ARCHITECTURE.md §1.2**
 
-Open `/home/volence/sonic_hacks/s4_engine/docs/ENGINE_ARCHITECTURE.md` and find the §1.2 paragraph beginning "**Link chain pre-initialization:**" (around line 827). Replace with:
+Open `/home/volence/sonic_hacks/aeon/docs/ENGINE_ARCHITECTURE.md` and find the §1.2 paragraph beginning "**Link chain pre-initialization:**" (around line 827). Replace with:
 
 ```
 **Link chain pre-initialization:** `Init_SpriteTable` runs at level load and fills the 80-entry sprite link chain: entry 0 links to 1, 1 to 2, ..., 79 to 0. During gameplay, `Render_Sprites` rewrites the link byte for each emitted piece (sequential 0,1,2,...) and patches the last rendered piece's link to 0 as the chain terminator. The pre-init is correctness insurance for the unused tail of the SAT; per-frame writes are the source of truth. ("Never rebuilt" is genuinely a wash on 68000 — `move.b Dn,(An)+` and `addq.l #1,An` both cost 8 cycles, so skipping the write doesn't save anything once you account for advancing the pointer.) Unused entries still get Y=0 (off-screen) via Init_SpriteTable; Render_Sprites then writes link=0 to the last emitted entry to halt the chain.
@@ -83,7 +83,7 @@ Find the §3.5 bullet "Pre-initialized link chain (80 entries, set at level init
 - [ ] **Step 4: Build to confirm no asm impact**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds (this was a doc-only change; a successful build proves nothing was accidentally modified in asm).
@@ -166,7 +166,7 @@ RF_MULTISPRITE          = 4         ; (parent only) batch render via sibling-cha
 - [ ] **Step 4: Build to confirm SST_len assert holds**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds. The `if SST_len <> $50 ; error "SST struct is..."` guard at structs.asm line 98 verifies layout is unchanged.
@@ -239,7 +239,7 @@ If `mappings` is null (e.g., for objects without sprite data), guard: `tst.l SST
 - [ ] **Step 4: Build**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds.
@@ -324,7 +324,7 @@ If `prev_frame` is already updated elsewhere for DPLC purposes, share the compar
 - [ ] **Step 4: Build**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds.
@@ -400,7 +400,7 @@ This skips the object intact (no torn pieces in SAT). The existing per-piece `cm
 - [ ] **Step 4: Build**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds.
@@ -516,7 +516,7 @@ Delete the four `.pieces_*` blocks from inside Render_Sprites (now in the subrou
 - [ ] **Step 5: Build**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds.
@@ -675,7 +675,7 @@ Open `test/object_test_state.asm` (or the active test state per `test.sh`). Add 
 - [ ] **Step 7: Build**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds.
@@ -838,7 +838,7 @@ Also remove the `bsr.w Draw_Sprite` from `TestMultipart_Child` — children don'
 - [ ] **Step 5: Build**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds.
@@ -913,7 +913,7 @@ Open `test/object_test_state.asm`. Add toggle (build-time flag or a test variant
 - [ ] **Step 4: Build**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds.
@@ -980,7 +980,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 - [ ] **Step 1: Verify branch is clean**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && git status && git log master..HEAD --oneline
+cd /home/volence/sonic_hacks/aeon && git status && git log master..HEAD --oneline
 ```
 
 Confirm: working tree clean, commits 1-9 visible.

@@ -34,7 +34,7 @@
 - `constants.asm` — `BG_TILE_CAPACITY` 512→448 + comment cleanup (Task 2).
 - `tools/ojz_strip_gen.py` — `BG_TILE_CAPACITY_PY` 512→448 (Task 2; daemon-watched).
 - `docs/ENGINE_ARCHITECTURE.md` — §2.5 art-loading flow, §2.7 cascade, §8.5 profiler note, graph-coloring/ZX0 de-staling (Task 6) + audit-confirmed fixes.
-- `CLAUDE.md` (s4_engine) — pipeline description graph-color→paged-pool (Task 7; user-confirm).
+- `CLAUDE.md` (aeon) — pipeline description graph-color→paged-pool (Task 7; user-confirm).
 - `docs/DEFERRED_WORK.md` — retire `BG_TILE_CAPACITY` deferral; mark Phase 3 done (Task 8).
 
 **Deleted:**
@@ -186,7 +186,7 @@ Produces the findings artifact that drives Tasks 4–6. No source edits in this 
 Run this to list defined symbols with zero references outside their definition line (high-recall candidate list — the audit verifies each):
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 # Collect defined symbols: "Label:" and "NAME = ..." / "NAME equ ..." across engine asm.
 grep -rhoE '^[A-Za-z_][A-Za-z0-9_]*(:| +=| +equ )' engine test ram.asm constants.asm structs.asm --include='*.asm' \
   | sed -E 's/[: ].*$//' | sort -u > /tmp/p3_syms.txt
@@ -209,7 +209,7 @@ Invoke the Workflow tool with this script (pass `args` = `{ candidateOrphans: <t
 ```javascript
 export const meta = {
   name: 'phase3-verified-clean-audit',
-  description: 'Audit s4_engine for dead code, orphaned symbols, stale/lying comments, and ENGINE_ARCHITECTURE.md-vs-code contradictions',
+  description: 'Audit aeon for dead code, orphaned symbols, stale/lying comments, and ENGINE_ARCHITECTURE.md-vs-code contradictions',
   phases: [{ title: 'Code+comment audit' }, { title: 'Verify finding' }, { title: 'Doc-vs-code' }],
 }
 
@@ -246,7 +246,7 @@ const KEEP_RULE = `KEEP rule: load-bearing rationale — comments documenting a 
 const code = await pipeline(
   args.subsystems,
   s => agent(
-    `Read-only audit of subsystem "${s.name}" (files: ${s.globs}) in /home/volence/sonic_hacks/s4_engine. Find: (a) dead_code (routines/data assembled but unreachable, incl. reachable only from other dead code), (b) orphan_symbol from this candidate list (verify each is truly unreferenced — exclude macros, struct-offset fields, labels referenced from build scripts/symbol files): ${JSON.stringify(args.candidateOrphans)}, (c) comment_noise / comment_lying per this rule. ${KEEP_RULE} Cite exact path:line and the verbatim current text. Do not edit anything.`,
+    `Read-only audit of subsystem "${s.name}" (files: ${s.globs}) in /home/volence/sonic_hacks/aeon. Find: (a) dead_code (routines/data assembled but unreachable, incl. reachable only from other dead code), (b) orphan_symbol from this candidate list (verify each is truly unreferenced — exclude macros, struct-offset fields, labels referenced from build scripts/symbol files): ${JSON.stringify(args.candidateOrphans)}, (c) comment_noise / comment_lying per this rule. ${KEEP_RULE} Cite exact path:line and the verbatim current text. Do not edit anything.`,
     { phase: 'Code+comment audit', label: `audit:${s.name}`, schema: FINDINGS }),
   found => parallel(((found && found.items) || []).map(f => () =>
     agent(
@@ -259,7 +259,7 @@ const code = await pipeline(
 const KNOWN = `Known-stale to confirm and report: FG level art is globally-deduped + spatially-ordered + PAGED + fully resident, loaded once by Level_LoadArt — NOT graph-colored (DSATUR deleted from tile_dedupe.py), NO per-section art swap, NO LoadSectionTiles. Act pool pages are ZX0. Staging buffer is Art_Staging_Buffer=8192B, not a ~$1000 per-section buffer.`
 const doc = await parallel(args.archSections.map(sec => () =>
   agent(
-    `Read-only: verify ENGINE_ARCHITECTURE.md section "${sec}" against the SHIPPED code in /home/volence/sonic_hacks/s4_engine. Report every claim that contradicts reality as kind:"doc_contradiction" with path:"docs/ENGINE_ARCHITECTURE.md", the doc line, the current claim, and the corrected claim. ${KNOWN} Do not edit.`,
+    `Read-only: verify ENGINE_ARCHITECTURE.md section "${sec}" against the SHIPPED code in /home/volence/sonic_hacks/aeon. Report every claim that contradicts reality as kind:"doc_contradiction" with path:"docs/ENGINE_ARCHITECTURE.md", the doc line, the current claim, and the corrected claim. ${KNOWN} Do not edit.`,
     { phase: 'Doc-vs-code', label: `doc:${sec}`, schema: FINDINGS })))
 
 const codeItems = code.flat().filter(Boolean)
@@ -460,10 +460,10 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## Task 7: Correct the stale pipeline description in `CLAUDE.md` (user-confirm)
 
-The s4_engine `CLAUDE.md` describes the build as "deduplicate → graph-color → generate" and "Unified VRAM art pool with build-time graph coloring." That graph-coloring is gone. Because `CLAUDE.md` is project law, **confirm with the user before editing.**
+The aeon `CLAUDE.md` describes the build as "deduplicate → graph-color → generate" and "Unified VRAM art pool with build-time graph coloring." That graph-coloring is gone. Because `CLAUDE.md` is project law, **confirm with the user before editing.**
 
 **Files:**
-- Modify: `CLAUDE.md` (the s4_engine one at `/home/volence/sonic_hacks/s4_engine/CLAUDE.md`)
+- Modify: `CLAUDE.md` (the aeon one at `/home/volence/sonic_hacks/aeon/CLAUDE.md`)
 
 - [ ] **Step 1: Locate the stale lines**
 

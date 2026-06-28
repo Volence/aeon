@@ -33,7 +33,7 @@
 
 For this Genesis ROM project, "test" steps are not unit tests. Verification uses:
 
-- **Build:** `./build.sh -pe` from `/home/volence/sonic_hacks/s4_engine` — must succeed (no errors in `s4.log`)
+- **Build:** `./build.sh -pe` from `/home/volence/sonic_hacks/aeon` — must succeed (no errors in `s4.log`)
 - **s4lint:** runs as part of build; warnings/errors block the commit gate
 - **Exodus MCP** (already running on user's machine): inspect VRAM/CRAM/RAM via `mcp__exodus__emulator_read_vram` / `_read_memory` / `_screenshot`. User reloads ROM via `mcp__exodus__emulator_reload_rom`.
 - **Visual frame-step:** scrub across teleport in Exodus, confirm no warp/tear/shuffle visible
@@ -500,7 +500,7 @@ Wait — re-derive: after BWD teleport, plane cols 576-579 in NEW world coords c
 
 - [ ] **Step 7: Build**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh -pe`
 
 Expected: builds clean.
 
@@ -519,7 +519,7 @@ After camera passes `$0600`:
 - [ ] **Step 9: Commit**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 git add constants.asm engine/level/section.asm
 git commit -m "feat(§4.2): defer cold-loads to mid-traversal + BWD preview hooks"
 ```

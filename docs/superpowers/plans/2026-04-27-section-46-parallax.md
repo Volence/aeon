@@ -230,7 +230,7 @@ Confirm the block lands within the existing low-RAM budget (verify by reading `r
 - [ ] **Step 7: Build clean to confirm layouts assert**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds. The `band_entry_len` and `parallax_config_len` asserts confirm exact byte counts; `Sec_len` assert (existing) confirms the section descriptor still totals $48.
@@ -495,7 +495,7 @@ ParallaxConfig_SelfTest:
 Build with self-test enabled:
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && asw -D __PARALLAX_MACRO_SELFTEST__ -P S4.asm 2>&1 | tail -20
+cd /home/volence/sonic_hacks/aeon && asw -D __PARALLAX_MACRO_SELFTEST__ -P S4.asm 2>&1 | tail -20
 ```
 
 Expected: build emits ParallaxConfig_SelfTest at exactly 72 bytes; no errors.
@@ -505,7 +505,7 @@ No fallback needed — the FACTOR_* named-equate form is verified working via th
 - [ ] **Step 6: Run normal build to confirm no regressions**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds; ROM unchanged from Task 1's commit (no functional difference; the selftest is gated by `__PARALLAX_MACRO_SELFTEST__`).
@@ -725,7 +725,7 @@ TestPerspectiveTable_End:
 - [ ] **Step 6: Build with self-test enabled**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && asw -D __PARALLAX_MACRO_SELFTEST__ -P S4.asm 2>&1 | tail -20
+cd /home/volence/sonic_hacks/aeon && asw -D __PARALLAX_MACRO_SELFTEST__ -P S4.asm 2>&1 | tail -20
 ```
 
 Expected: all three tables emit exactly 256 bytes. No errors.
@@ -780,7 +780,7 @@ Targets:
 - **S.C.E.** — when does parallax/scroll state get initialized? Order vs BG load, palette load, plane buffer init?
 - **sonic_hack** — `code/engines/scroll_camera.asm` Init paths.
 - **TF4** — first-frame scroll setup.
-- **s4_engine current** — `engine/level/load_art.asm`, `engine/level/section.asm:Section_Init`. What runs before `BG_Init`? After?
+- **aeon current** — `engine/level/load_art.asm`, `engine/level/section.asm:Section_Init`. What runs before `BG_Init`? After?
 
 Question: should `Parallax_Init` run before or after `BG_Init`? After is cleaner (BG must exist before parallax operates on it). But VDP register $0B + $8C should be set before BG draw — verify by tracing the existing init sequence.
 
@@ -890,7 +890,7 @@ Order: `data/parallax/...` must come AFTER `parallax_macros.inc` (Task 2) and BE
 - [ ] **Step 7: Build and verify in Exodus**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Load `s4.bin` in Exodus. Boot to OJZ. Use MCP:
@@ -1182,7 +1182,7 @@ Open `engine/game_loop.asm`. Find where camera updates run. After all camera + o
 - [ ] **Step 5: Build and verify buffer contents via MCP**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Load in Exodus. Boot to OJZ. Pause emulator with camera at a known position (e.g., scroll right ~512 px so Camera_X = $200). Use MCP:
@@ -1237,7 +1237,7 @@ Connects the buffer to the VDP. Static DMA descriptor for per-cell mode (per-lin
 - [ ] **Step 1: Research — DMA descriptor and queue patterns**
 
 Targets:
-- **s4_engine current** — `engine/buffers.asm:Static_Pal_Line0` etc., `engine/dma_queue.asm:queueStaticDMA`, `Process_DMA_Critical`. How are descriptors structured? How does `queueStaticDMA` work?
+- **aeon current** — `engine/buffers.asm:Static_Pal_Line0` etc., `engine/dma_queue.asm:queueStaticDMA`, `Process_DMA_Critical`. How are descriptors structured? How does `queueStaticDMA` work?
 - **S.C.E.** DMA queue patterns.
 - **CODING_CONVENTIONS.md** — DMA + VBlank rules.
 
@@ -1358,7 +1358,7 @@ Open `S4.asm`. Find and remove the `include "engine/level/hscroll.asm"` line.
 - [ ] **Step 7: Build and verify visually in Exodus**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Load in Exodus. Boot to OJZ. Use the controller to scroll right. **Expected visual: Plane B shows different scroll speeds in horizontal bands.** With the current single-layer OJZ BG art (one Z-flat layout), the bands all look the same artistically, but they SCROLL at different rates — verifiable by:
@@ -1482,7 +1482,7 @@ Open `engine/level/parallax.asm`. After Step 4 (per-cell fill) and before the di
 - [ ] **Step 3: Build and visually verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Load in Exodus. Boot to OJZ. Move camera up/down (if level allows). Plane B should shift vertically at fractional rate.
@@ -1540,7 +1540,7 @@ Adds the per-section parallax_config swap on section transition. **Instant snap 
 - [ ] **Step 1: Research — section transition state-swap patterns**
 
 Targets:
-- **s4_engine current** — `engine/level/section.asm:Section_Check` and the existing teleport paths (`Section_TeleportFwd`, `Section_TeleportBwd`). When does new section state become "active"?
+- **aeon current** — `engine/level/section.asm:Section_Check` and the existing teleport paths (`Section_TeleportFwd`, `Section_TeleportBwd`). When does new section state become "active"?
 - **S.C.E.** `Engine/Core/Sections.asm` (or equivalent) — does it swap parallax-related state per-section?
 - **sonic_hack** — does the per-zone hardcoded approach swap on level boundaries?
 - **CODING_CONVENTIONS.md** — VDP shadow write timing.
@@ -1798,7 +1798,7 @@ Update `Enqueue_Dirty_Buffers` to switch:
 - [ ] **Step 5: Build and verify with the OJZ default (per-cell, no deform)**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Load in Exodus. Boot to OJZ. Verify per-cell mode still works (visible parallax). Default config has no deform tables, so the per-line path isn't exercised yet — Task 11 wires up a deform variant.
@@ -1848,7 +1848,7 @@ Targets:
 - **sonic_hack** — `mappings/128x128/`, the level editor (SonLVL) workflow for BG layouts.
 - **S.C.E.** — BG layout format, tile palette layout, alignment conventions.
 - **plutiedev** — VDP nametable cell format (palette/priority/flip/index).
-- **s4_engine current** — `art/ojz/bg_layout.bin` (current single-band BG), `engine/level/bg.asm:BG_Init`, `engine/level/bg.asm:BG_LAYOUT_SIZE = 64*32*2`.
+- **aeon current** — `art/ojz/bg_layout.bin` (current single-band BG), `engine/level/bg.asm:BG_Init`, `engine/level/bg.asm:BG_LAYOUT_SIZE = 64*32*2`.
 
 Question: do we hand-author bytes, use SonLVL, or write a Python helper? Recommendation: Python helper for v1 — generate from a description like "rows 0-3: tile_pool[sky_tiles] tiled with random variation, rows 4-9: tile_pool[mountain_tiles], ..." Allows quick iteration.
 
@@ -1958,7 +1958,7 @@ ojz_bg_layout_v2:
 - [ ] **Step 5: Build and verify visually**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && python3 tools/gen_ojz_bg_v2.py && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && python3 tools/gen_ojz_bg_v2.py && ./build.sh -pe
 ```
 
 Load in Exodus. Boot to OJZ. Confirm:
@@ -2055,7 +2055,7 @@ In `S4.asm`, add `include "data/parallax/ojz_windy.asm"` after the default confi
 - [ ] **Step 5: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Load in Exodus. Boot to OJZ. Trigger a transition into the windy section. Visible:
@@ -2233,7 +2233,7 @@ ParallaxConfig_OJZ_Floor:
 Wire to OJZ Section 2 (or create one). Build, load in Exodus.
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Trigger the section transition. Expected visual: Plane B shows pseudo-3D floor effect — closer to camera, further columns dip more.
@@ -2332,7 +2332,7 @@ Set OJZ Section 2 (or another section) `sec_parallax_config = ParallaxConfig_OJZ
 - [ ] **Step 4: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Load in Exodus. Trigger transition into the FG-wave section. Visible:
@@ -2456,7 +2456,7 @@ The lerp in Step 3 is already implemented (current_scroll += (target - current) 
 Author OJZ Section 1 with a noticeably-different parallax_config (e.g., ParallaxConfig_OJZ_Caves with all factors 1/16 — much slower BG scroll). Build:
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 In Exodus, scroll across the section boundary at moderate camera speed. Expected visual: Plane B's scroll speed gradually shifts over ~8 frames after the transition triggers, instead of snapping immediately.
@@ -2566,7 +2566,7 @@ Set OJZ Section 3 `sec_parallax_config = ParallaxConfig_OJZ_LayerMask`. Add `inc
 - [ ] **Step 5: Build and verify**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Load in Exodus. F4: scroll across Section 0→1 boundary, observe smooth transition (8 frames).
@@ -2630,7 +2630,7 @@ Use OJZ Section 1 (windy section, per-line mode + H-deform).
 
 ```bash
 # Build with current implementation
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Load in Exodus. Boot to OJZ. Trigger transition into windy section. Set high horizontal scroll velocity (camera moving 8+ px/frame).
@@ -2770,7 +2770,7 @@ Open `docs/DEFERRED_WORK.md`. Add a new section (insert in appropriate location)
 - [ ] **Step 3: Build clean to confirm no asm impact**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon && ./build.sh -pe
 ```
 
 Expected: build succeeds; doc-only changes don't affect ROM.

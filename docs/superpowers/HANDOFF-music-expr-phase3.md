@@ -6,7 +6,7 @@
 ---
 
 ## 0. Read these first (in order)
-1. `s4_engine/CLAUDE.md` + `CODING_CONVENTIONS.md` — the law (sized branches, struct/endstruct, function for compile-time math, no mulu/divu, phase/dephase).
+1. `aeon/CLAUDE.md` + `CODING_CONVENTIONS.md` — the law (sized branches, struct/endstruct, function for compile-time math, no mulu/divu, phase/dephase).
 2. `docs/superpowers/specs/2026-06-23-music-expression-engine-design.md` — **§3.2 (dual-stream / macro spine)** and **§3.3 (generalized macro format)** are the seed of Phase 3. Also §2 scope (SSG-EG + `MEV_REGWRITE` are listed in-scope there).
 3. The two Phase-2 plans (already written, NOT yet implemented) — they show the one-off features the spine will subsume:
    - `docs/superpowers/plans/2026-06-27-music-expression-phase2-global.md` (fade/tempo/LFO)
@@ -15,7 +15,7 @@
 5. The capability audit (engine-wide best-in-class gap analysis) is summarized in memory `project_hcz2_status_and_roadmap` + `project_music_expression_engine`; its recommendation: build the one-off renderers first, THEN the macro spine, then refactor the one-offs into macro *targets*.
 
 ## 1. Current state of the branch (conversation context you won't otherwise have)
-- **Worktree/branch:** `/home/volence/sonic_hacks/s4_engine-music-expr` on `feat/music-expr-p1` (branched from `master`).
+- **Worktree/branch:** `/home/volence/sonic_hacks/aeon-music-expr` on `feat/music-expr-p1` (branched from `master`).
 - **Phase 1 = IMPLEMENTED + verified, NOT merged.** Commits on this branch: RAM reorg (trace ring relocated off the `$1A00` page) → SeqChannel grown 43→**58 bytes** (mod block at the shared SfxChannel offsets +42..+54; `sc_noise_mode`→+55; `sc_detune` reserved at +56) → all 6 SFX-only vibrato gates removed (FM+PSG software vibrato now renders for music) → block-boundary octave correction in `Mod_Advance`. Verified OUR-side in Exodus: vibrato renders (HCZ2 FM channels modulate `last = base ± accum`), Moving Trucks golden unchanged (all `sc_mod_ctrl=0`), no crash. **The gold-standard S3K HCZ2 audio A/B is DEFERRED** (user chose to keep planning instead). Do NOT merge to master until that A/B is done.
 - **Phase 2 = PLANNED only** (the two plan docs above). Not implemented.
 - **master** has the HCZ2 fidelity fixes merged (drums, hi-hat ×3, PSG-octave/bright-hat) from earlier this session — those are separate from this branch's expression work.

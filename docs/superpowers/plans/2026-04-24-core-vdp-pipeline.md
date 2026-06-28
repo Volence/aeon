@@ -86,7 +86,7 @@ DMA_BUDGET_PAL          = 15000         ; usable DMA bytes per PAL VBlank
 
 - [ ] **Step 3: Build to verify struct and constants compile**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean, no errors
 
 - [ ] **Step 4: Commit**
@@ -176,7 +176,7 @@ QueueStaticDMA macro slot_var, queue_end, entry_var
 
 - [ ] **Step 3: Build to verify macros compile**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean
 
 - [ ] **Step 4: Commit**
@@ -269,7 +269,7 @@ RAM_End:
 
 - [ ] **Step 2: Build to verify RAM layout compiles and fits**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean (no "RAM overflow into stack" error)
 
 - [ ] **Step 3: Commit**
@@ -337,7 +337,7 @@ After the `bsr.w VDP_Shadow_Init` call (line 144), add:
 
 - [ ] **Step 4: Build**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean
 
 - [ ] **Step 5: Verify in Exodus**
@@ -440,7 +440,7 @@ QueueDMATransfer:
 
 - [ ] **Step 2: Build to verify**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean
 
 - [ ] **Step 3: Commit**
@@ -567,7 +567,7 @@ Drain_Budgeted_Queue:
 
 - [ ] **Step 3: Build to verify**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean
 
 - [ ] **Step 4: Commit**
@@ -697,7 +697,7 @@ In `engine/boot.asm`, after the `bsr.w Init_DMA_Queue` call (added in Task 4), a
 
 - [ ] **Step 4: Build**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean
 
 - [ ] **Step 5: Verify in Exodus**
@@ -765,7 +765,7 @@ PlaneMapToVRAM:
 
 - [ ] **Step 2: Build to verify**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean
 
 - [ ] **Step 3: Commit**
@@ -966,7 +966,7 @@ The old stubs (`DMA_Queue_Drain_Stub`, `Sprite_Table_Upload_Stub`, `Sound_Update
 
 - [ ] **Step 5: Build**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean
 
 - [ ] **Step 6: Verify in Exodus**
@@ -997,7 +997,7 @@ git commit -m "feat(§1): restructure VBlank — function pointer dispatch, VInt
 - [ ] **Step 1: Create test/ directory**
 
 ```bash
-mkdir -p /home/volence/sonic_hacks/s4_engine/test
+mkdir -p /home/volence/sonic_hacks/aeon/test
 ```
 
 - [ ] **Step 2: Decompress title screen art**
@@ -1005,7 +1005,7 @@ mkdir -p /home/volence/sonic_hacks/s4_engine/test
 ```bash
 /home/volence/sonic_hacks/sonic_hack/tools/nemdec -d \
   "/home/volence/sonic_hacks/sonic_hack/art/nemesis/Main patterns from title screen.bin" \
-  /home/volence/sonic_hacks/s4_engine/test/title_art.bin
+  /home/volence/sonic_hacks/aeon/test/title_art.bin
 ```
 
 Expected: creates `test/title_art.bin` (10752 bytes = 336 tiles)
@@ -1014,7 +1014,7 @@ Expected: creates `test/title_art.bin` (10752 bytes = 336 tiles)
 
 ```bash
 cp "/home/volence/sonic_hacks/sonic_hack/art/palettes/Title screen.bin" \
-   /home/volence/sonic_hacks/s4_engine/test/title_palette.bin
+   /home/volence/sonic_hacks/aeon/test/title_palette.bin
 ```
 
 Expected: creates `test/title_palette.bin` (32 bytes = 1 palette line)
@@ -1138,7 +1138,7 @@ To:
 
 - [ ] **Step 3: Build**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean
 
 - [ ] **Step 4: Full verification in Exodus**
@@ -1208,7 +1208,7 @@ Update any §1 sections that differ from the spec based on implementation decisi
 
 - [ ] **Step 2: Build final verification**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: assembles clean. ROM loads in Exodus and displays title screen art.
 
 - [ ] **Step 3: Commit**

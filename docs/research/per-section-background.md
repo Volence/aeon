@@ -35,7 +35,7 @@ Settles four open questions for A.5 (per-section BG art) by surveying 7 referenc
 - `code/Levels/Layout List.asm:34` — `Level_OJZ1_BG` zone-wide BG pointer
 - `S4.constants.asm:1066, 1578` — `Section_BG_Layout_Ptr` RAM, BG layout RAM addr
 
-**BG model:** **Single zone-wide blob** (e.g., `Level_OJZ1_BG`), shared across all 8 OJZ sections. Per-section variation is **palette only**, not layout/geometry. BG drawn at level load, then per-frame incremental as camera scrolls. Plane B nametable at $6000 in sonic_hack (s4_engine uses $E000 — different VRAM split).
+**BG model:** **Single zone-wide blob** (e.g., `Level_OJZ1_BG`), shared across all 8 OJZ sections. Per-section variation is **palette only**, not layout/geometry. BG drawn at level load, then per-frame incremental as camera scrolls. Plane B nametable at $6000 in sonic_hack (aeon uses $E000 — different VRAM split).
 
 **Takeaway for us:** sonic_hack is the cleanest direct precedent for our T1 design. The "all sections share one BG" pattern is exactly what we ship for OJZ. Where sonic_hack and S.C.E. differ from us: they do per-frame incremental BG redraw because the BG scrolls and reveals content; we plan one-shot redraw at section transition because our T2/T3 BGs are 64×32 nametables that loop horizontally — no reveal needed.
 
@@ -210,7 +210,7 @@ Compression of BG layouts gets added to the deferred-work list in Task 11.
 - Sonic CD precedent: BG art is loaded once per act, not streamed.
 - Thunder Force IV: stage init bundles nametable + tile art in one DMA batch, then the art stays put.
 - sonic_hack: ArtKos_OJZ loads zone tiles flat at level init (no per-section pools), so its BG can reference any tile.
-- s4_engine's per-section A.3 model is a memory-efficiency win, but it forces the question of where BG tiles live. The cleanest answer is a separate fixed region.
+- aeon's per-section A.3 model is a memory-efficiency win, but it forces the question of where BG tiles live. The cleanest answer is a separate fixed region.
 
 **Sizing:** 256 tiles = 8 KB. Empirically the OJZ BG (cloud + grass band, sampled 64 cells × 32 cells from `OJZ_1.bin`'s BG section) deduplicates well below this — actual count populated in measurement doc by Task 6. Future zones with richer BG art may need to expand the region; if so, claim more slots from the (currently unused) middle of slots 226-1279.
 

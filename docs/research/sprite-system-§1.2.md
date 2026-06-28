@@ -73,7 +73,7 @@ The doc claim "links never rebuilt during gameplay" is **technically achievable*
 
 **Findings:**
 
-- **s4_engine** — has change detection in two places: `animate.asm:54` (compares `prev_anim`, not `prev_frame`) and `dplc.asm:22-25` (compares `mapping_frame` vs `prev_frame`, then advances `prev_frame`). AnimateSprite *writes* `mapping_frame` but doesn't touch `prev_frame`. Perform_DPLC is the canonical "frame change" detector but only runs for objects that explicitly call it.
+- **aeon** — has change detection in two places: `animate.asm:54` (compares `prev_anim`, not `prev_frame`) and `dplc.asm:22-25` (compares `mapping_frame` vs `prev_frame`, then advances `prev_frame`). AnimateSprite *writes* `mapping_frame` but doesn't touch `prev_frame`. Perform_DPLC is the canonical "frame change" detector but only runs for objects that explicitly call it.
 - **sonic_hack** — animation update at `display_animate.asm:67-86` does change detection on anim, not frame; uses a separate deferred PLC queue for DPLC.
 - **S.C.E.** — `Animate Sprite.asm:13` does anim-change detection, no piece-count or DPLC side effects (clean engine, leaves DPLC to caller).
 - **Batman & Robin / Vectorman / Gunstar / Alien Soldier / Thunder Force IV** — varied patterns, none exposed a piece-count cache update site distinct from animation.
@@ -102,7 +102,7 @@ Option (b) — separate helper called from each `mapping_frame` write site. Reas
 
 - **S.C.E.** — per-piece dbeq only, no predictive pre-check. Half-rendered objects possible at the cap.
 - **sonic_hack** — hybrid: `cmpi.b #80, d5; blo DrawSprite_Cont` pre-check at start of each piece-emission entry, AND per-piece dbeq fail-safe. Most defensive.
-- **s4_engine** existing — outer `.object_loop` has `cmpi.w #MAX_VDP_SPRITES, d5; bge .band_limit_pop` (already-at-cap), per-piece dbeq inside loop. No PIECE-COUNT-aware pre-check before loop.
+- **aeon** existing — outer `.object_loop` has `cmpi.w #MAX_VDP_SPRITES, d5; bge .band_limit_pop` (already-at-cap), per-piece dbeq inside loop. No PIECE-COUNT-aware pre-check before loop.
 
 **Decision for Task 5:**
 

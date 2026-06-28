@@ -13,7 +13,7 @@ import contextlib
 import tempfile
 import unittest
 
-# Allow running from the s4_engine root
+# Allow running from the aeon root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tools.s4lint import (
     tokenize_line, Token, Diagnostic, LintContext,

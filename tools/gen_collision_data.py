@@ -24,7 +24,7 @@ Default output_dir: data/collision
 import os
 import sys
 
-# Allow running from the s4_engine root (where build.sh lives).
+# Allow running from the aeon root (where build.sh lives).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import collision_pipeline
 import ojz_strip_gen

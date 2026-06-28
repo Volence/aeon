@@ -8,7 +8,7 @@ import os
 import sys
 import unittest
 
-# Allow running from the s4_engine root or the tools dir.
+# Allow running from the aeon root or the tools dir.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from tile_dedupe import (

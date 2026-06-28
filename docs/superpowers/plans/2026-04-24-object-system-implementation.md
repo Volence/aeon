@@ -4,7 +4,7 @@
 
 **Goal:** Build the complete object system — SST, allocation, dispatch, sprite rendering, animation, collision, child creation, particles, and advanced sprite optimizations — with research before each subsystem.
 
-**Architecture:** Word-offset dispatch via `objroutine` function (sonic_hack pattern), O(1) free slot stack allocation, priority-band sprite rendering, self-advancing animation cursor (Alien Soldier), type-dispatched collision, data-driven child creation. All code fresh for s4_engine — no ported routines.
+**Architecture:** Word-offset dispatch via `objroutine` function (sonic_hack pattern), O(1) free slot stack allocation, priority-band sprite rendering, self-advancing animation cursor (Alien Soldier), type-dispatched collision, data-driven child creation. All code fresh for aeon — no ported routines.
 
 **Tech Stack:** AS Macro Assembler, 68000 assembly, Sega Genesis VDP
 

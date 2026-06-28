@@ -2,7 +2,7 @@
 
 Target design document for the Sonic 4 engine. Describes the final-state architecture as a coherent system — what each subsystem does, how it works, why this approach was chosen, and how it interacts with other subsystems.
 
-This is the **design bible**. This document describes the engine we're building from scratch in `s4_engine/`.
+This is the **design bible**. This document describes the engine we're building from scratch in `aeon/`.
 
 **Sources:** S.C.E. (Sonic Clean Engine), Batman & Robin (Clockwork Tortoise), Vectorman (BlueSky), Gunstar Heroes (Treasure), Alien Soldier (Treasure), Thunder Force IV (Technosoft), Flamewing's community tools, SGDK (Stephane-D), Amiga demoscene, modern homebrew (Xeno Crisis, Tanglewood, Demons of Asteborg), Titan Overdrive tech demos, Kabuto hardware research, plutiedev, modern engine design principles.
 

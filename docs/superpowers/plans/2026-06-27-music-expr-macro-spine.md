@@ -6,7 +6,7 @@
 
 **Architecture:** Two writers feed the existing state-driven `ModUpdate` renderer: (1) **named per-target contour slots** (the unified `sc_env` slot, advanced one entry/frame in `ModUpdate`, independent loops) — the flagship FM-TL + PSG volume envelope; and (2) a **tag-prefixed slot[1] `MacroTick` register-automation stream** on the already-free `sc_mod_ptr` seam for the arbitrary-register long tail. Plus `MEV_REGWRITE` (inline raw write, `$2A/$2B`-guarded) and SSG-EG (load-time per-op patch byte). Owns opcodes `$F7`/`$F8`/`$F9`; **0 new per-channel RAM** (cursor = `sc_mod_ptr`, volume state = the reserved `sc_env` slot, reg-stream flag = `sc_pad`).
 
-**Tech Stack:** AS Macroassembler Z80 (assembled inline under `phase 0`), 68000, Python build tools (`song_packer.py`, `gen_sound_tables.py`). Build: `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh`. Worktree: `/home/volence/sonic_hacks/s4_engine-music-expr` (branch `feat/music-expr-p1`). Spec: `docs/superpowers/specs/2026-06-27-music-expr-macro-spine-design.md`.
+**Tech Stack:** AS Macroassembler Z80 (assembled inline under `phase 0`), 68000, Python build tools (`song_packer.py`, `gen_sound_tables.py`). Build: `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh`. Worktree: `/home/volence/sonic_hacks/aeon-music-expr` (branch `feat/music-expr-p1`). Spec: `docs/superpowers/specs/2026-06-27-music-expr-macro-spine-design.md`.
 
 ---
 
@@ -41,8 +41,8 @@ This task adds the FM carrier-TL volume-envelope renderer that mirrors the shipp
 **Dependency note (verified against the struck Group C plan, lines 789, 807):** `FmEnvUpdate` references `FmVolEnv_Resolve` and `FmVolEnvCtl_Loop/Sustain/Rest`, which are DEFINED in Task A2. Therefore **A1 commits its source edits but the first green build is in A2** — do NOT run `./build.sh` at the end of A1 (it will fail to resolve `FmVolEnv_Resolve`/`FmVolEnvCtl_*`). A1's "verify" is purely the textual edits landing; A2 builds the pair together.
 
 **Files**
-- `/home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_fm.asm` — `Fm_SetVolume` env fold (after `ld (Fm_ScratchLog), a` at :354, BEFORE the duck block at :356); `Fm_NoteOnFreq` cursor reset (after `call Mod_ReArm` :698, before `.keyon:` :699).
-- `/home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_sequencer.asm` — `FmEnvUpdate` (after `PsgEnvUpdate`'s `.rest`/`jp Psg_NoteOff` at :359); `ModUpdate` FM-path wiring (after `.vibrato_done:` at :192).
+- `/home/volence/sonic_hacks/aeon-music-expr/engine/sound_fm.asm` — `Fm_SetVolume` env fold (after `ld (Fm_ScratchLog), a` at :354, BEFORE the duck block at :356); `Fm_NoteOnFreq` cursor reset (after `call Mod_ReArm` :698, before `.keyon:` :699).
+- `/home/volence/sonic_hacks/aeon-music-expr/engine/sound_sequencer.asm` — `FmEnvUpdate` (after `PsgEnvUpdate`'s `.rest`/`jp Psg_NoteOff` at :359); `ModUpdate` FM-path wiring (after `.vibrato_done:` at :192).
 
 **Steps**
 
@@ -179,10 +179,10 @@ This task generates the FM vol-env id→body map (mirror of `PsgVolEnv_*`) into 
 **TDD:** write the generator test first (it exercises `emit_asm_z80()`), watch it fail, then implement.
 
 **Files**
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/gen_sound_tables.py` — `_FM_VOL_ENVS` (after `_PSG_VOL_ENVS` at :327) + `_emit_fm_vol_env_z80()` (after `_emit_psg_vol_env_z80` at :377) + wire into `emit_asm_z80()` (after the PSG env append at :292).
-- `/home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_tables_z80.asm` — GENERATED output (do NOT hand-edit; regenerate via `python3 tools/gen_sound_tables.py`).
-- `/home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_psg.asm` — `FmVolEnv_Resolve` (after `PsgVolEnv_Resolve` at :140).
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/test_gen_sound_tables.py` — new `TestFmVolEnvTable` class.
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/gen_sound_tables.py` — `_FM_VOL_ENVS` (after `_PSG_VOL_ENVS` at :327) + `_emit_fm_vol_env_z80()` (after `_emit_psg_vol_env_z80` at :377) + wire into `emit_asm_z80()` (after the PSG env append at :292).
+- `/home/volence/sonic_hacks/aeon-music-expr/engine/sound_tables_z80.asm` — GENERATED output (do NOT hand-edit; regenerate via `python3 tools/gen_sound_tables.py`).
+- `/home/volence/sonic_hacks/aeon-music-expr/engine/sound_psg.asm` — `FmVolEnv_Resolve` (after `PsgVolEnv_Resolve` at :140).
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/test_gen_sound_tables.py` — new `TestFmVolEnvTable` class.
 
 **Steps**
 
@@ -319,7 +319,7 @@ This task generates the FM vol-env id→body map (mirror of `PsgVolEnv_*`) into 
 
 6. [ ] **Regenerate the table file:**
    ```
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 tools/gen_sound_tables.py
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 tools/gen_sound_tables.py
    ```
    Expected output: `wrote .../data/sound/sound_tables.asm` and `wrote .../engine/sound_tables_z80.asm`. Confirm the FM block landed:
    ```
@@ -363,13 +363,13 @@ This task generates the FM vol-env id→body map (mirror of `PsgVolEnv_*`) into 
 
 8. [ ] **Build (first green build of the A1+A2 pair):**
    ```
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
+   cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
    ```
    Expected: build succeeds (`s4.bin` produced, `s4.log` no errors). The generated `if (FmVolEnv_Ptrs_End - FmVolEnv_Ptrs) <> FMVOLENV_COUNT*2` count assert passes; the `Z80_SOUND_SIZE > SND_STATE_BASE` fatal at `z80_sound_driver.asm:1471-1473` does NOT trip.
 
 9. [ ] **Budget check:**
    ```
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary
    ```
    Expected: the Z80 sound size is reported `<= $16F0` ($16F0 = 5872). `FmEnvUpdate` (~50 B) + `FmVolEnv_Resolve` (~25 B) + the `Fm_SetVolume` fold (~25 B) + the `ModUpdate`/`Fm_NoteOnFreq` hooks (~15 B) is ~115 Z80-code bytes; the table is in the co-located bank, not the Z80-code budget. FLAG any overflow rather than working around it.
 
@@ -397,8 +397,8 @@ This task generates the FM vol-env id→body map (mirror of `PsgVolEnv_*`) into 
 This task arms the FM vol-env from a slot[0] stream. `MEV_FMENV` ($F7) sets the unified `sc_env` slot via the SHARED `Seq_Op_PsgEnv` handler (which writes `sc_psgenv`==`sc_env` + `sc_psgenv_cur`==`sc_env_cur` regardless of route); the RENDERER picks `FmVolEnv` vs `PsgVolEnv` by `SCF_IS_FM_B`. No new handler is needed.
 
 **Files**
-- `/home/volence/sonic_hacks/s4_engine-music-expr/sound_constants.asm` — `MEV_FMENV` equate + collision/fixed-slot asserts.
-- `/home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_sequencer.asm` — `SeqOpcodeTable` `$F7` slot (:1214) → `Seq_Op_PsgEnv`.
+- `/home/volence/sonic_hacks/aeon-music-expr/sound_constants.asm` — `MEV_FMENV` equate + collision/fixed-slot asserts.
+- `/home/volence/sonic_hacks/aeon-music-expr/engine/sound_sequencer.asm` — `SeqOpcodeTable` `$F7` slot (:1214) → `Seq_Op_PsgEnv`.
 
 **Steps**
 
@@ -450,13 +450,13 @@ This task arms the FM vol-env from a slot[0] stream. `MEV_FMENV` ($F7) sets the 
 
 4. [ ] **Build:**
    ```
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
+   cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
    ```
    Expected: green. The new `MEV_FMENV` range/fixed-slot/collision asserts all pass; `Z80_SOUND_SIZE <= SND_STATE_BASE` holds (dispatch-slot retarget adds 0 code bytes — it reuses `Seq_Op_PsgEnv`).
 
 5. [ ] **Budget check:**
    ```
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary
    ```
    Expected: Z80 size unchanged from A2 (no new handler), still `<= $16F0`.
 
@@ -487,13 +487,13 @@ This task is the verification gate for Component A. Per the verification divisio
 
 1. [ ] **Full clean build with sound:**
    ```
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
+   cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
    ```
    Expected: green; `s4.bin` produced; `s4.log` free of errors.
 
 2. [ ] **All build-asserts confirmed present (grep the source, not a re-run):**
    ```
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && \
+   cd /home/volence/sonic_hacks/aeon-music-expr && \
      grep -n "FmVolEnv_Ptrs entry count mismatch" engine/sound_tables_z80.asm && \
      grep -n 'MEV_FMENV (\\{MEV_FMENV}) must be \$F7' sound_constants.asm && \
      grep -n "Z80_SOUND_SIZE > SND_STATE_BASE" engine/z80_sound_driver.asm
@@ -502,13 +502,13 @@ This task is the verification gate for Component A. Per the verification divisio
 
 3. [ ] **Python tests green:**
    ```
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py -q
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py -q
    ```
    Expected: all pass (includes the new `TestFmVolEnvTable`).
 
 4. [ ] **Final budget check:**
    ```
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary
    ```
    Expected: Z80 sound size `<= $16F0`. Record the exact reported size in the commit/PR.
 
@@ -542,8 +542,8 @@ This task is the verification gate for Component A. Per the verification divisio
 Add a new music-stream coordination opcode `MEV_REGWRITE = $F8` that writes ONE arbitrary YM2612 register for an EXPLICIT part (operands carry part/reg/val — the part is NOT derived from the channel route), guards the DAC regs `$2A`/`$2B`, and re-parks `$2A` so a racing DAC byte stays clean. Three operands consumed in stream order: `part`(0/1), `reg`, `val`. Zero command-tick (paced by surrounding WAITs, like the other zero-tick setters).
 
 **Files** (real paths — the spec's `code/sound/` prefix is stale; the live tree is `engine/` + repo-root `sound_constants.asm`):
-- `/home/volence/sonic_hacks/s4_engine-music-expr/sound_constants.asm` — opcode equate + collision/range assert block
-- `/home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_sequencer.asm` — `Seq_Op_RegWrite` handler + dispatch-table entry
+- `/home/volence/sonic_hacks/aeon-music-expr/sound_constants.asm` — opcode equate + collision/range assert block
+- `/home/volence/sonic_hacks/aeon-music-expr/engine/sound_sequencer.asm` — `Seq_Op_RegWrite` handler + dispatch-table entry
 
 Steps:
 
@@ -634,7 +634,7 @@ Seq_Op_RegWrite:
 - [ ] **Build** (sound MUST be enabled — a plain `./build.sh` excludes all sound):
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh 2>&1 | tail -20
+cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh 2>&1 | tail -20
 ```
 
 Expected: build completes, `s4.bin` produced, no `error`/`fatal` lines. In particular the new `MEV_REGWRITE` assert block emits nothing (all `if` conditions false), and the Z80 budget assert at `engine/z80_sound_driver.asm:1472-1473` (`Z80_SOUND_SIZE > SND_STATE_BASE` $16F0) does NOT fire — the handler is ~30 bytes, well under headroom for one opcode.
@@ -642,7 +642,7 @@ Expected: build completes, `s4.bin` produced, no `error`/`fatal` lines. In parti
 - [ ] **Confirm the budget headroom explicitly** with the budget tool:
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary 2>&1 | tail -20
+cd /home/volence/sonic_hacks/aeon-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary 2>&1 | tail -20
 ```
 
 Expected: reports `Z80_SOUND_SIZE` <= `SND_STATE_BASE` ($16F0) with non-negative headroom; no overflow/FAIL line.
@@ -650,7 +650,7 @@ Expected: reports `Z80_SOUND_SIZE` <= `SND_STATE_BASE` ($16F0) with non-negative
 - [ ] **Commit** (exact paths only — never `-A`/globs; `data/editor/**` and `tools/ojz_strip_gen.py` are daemon-watched, untouched here):
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-music-expr && git add sound_constants.asm engine/sound_sequencer.asm && git commit -m "feat(sound): MEV_REGWRITE (\$F8) inline raw YM2612 register write
+cd /home/volence/sonic_hacks/aeon-music-expr && git add sound_constants.asm engine/sound_sequencer.asm && git commit -m "feat(sound): MEV_REGWRITE (\$F8) inline raw YM2612 register write
 
 Part-explicit arbitrary YM2612 register write opcode + Seq_Op_RegWrite
 handler: consume part/reg/val, guard \$2A/\$2B (DAC data/enable), write
@@ -671,7 +671,7 @@ Steps:
 - [ ] **Re-confirm the sound build is green** (idempotent re-run; proves B1 still assembles after any sibling-task merges):
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh 2>&1 | tail -8
+cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh 2>&1 | tail -8
 ```
 
 Expected: no `error`/`fatal`; `s4.bin` produced.
@@ -679,7 +679,7 @@ Expected: no `error`/`fatal`; `s4.bin` produced.
 - [ ] **Re-confirm the Z80 budget assert passed** (the only build assert this component can move): the build above did not print the `Z80 sound driver code (... bytes) overruns state region at ...` fatal from `engine/z80_sound_driver.asm:1473`, and:
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary 2>&1 | tail -6
+cd /home/volence/sonic_hacks/aeon-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary 2>&1 | tail -6
 ```
 
 Expected: `Z80_SOUND_SIZE` within `SND_STATE_BASE` ($16F0), non-negative headroom.
@@ -700,8 +700,8 @@ Expected: `Z80_SOUND_SIZE` within `SND_STATE_BASE` ($16F0), non-negative headroo
 **Goal.** Append a 4-byte `fp_ssg_eg` per-operator group plus a 2-byte reserved pad to the `FmPatch` struct so `FmPatch_len` becomes 32 (a power of two), then rewrite `Fm_PatchPtr`'s `patch*26` shift/add chain into a pure `add hl,hl` ×5 (`patch*32`). This is asm-only (struct + one routine); the data files are NOT touched yet, so the build will FAIL its patch-bank size asserts after this task — that is expected and is resolved in C3. **Do C1, C2, C3 as one uninterrupted sequence; only the C3 build is green.** (Grounded: `sound_constants.asm:627-640`, `engine/sound_fm.asm:128-156`. Baseline `Z80_SOUND_SIZE=$1502=5378`, ceiling `SND_STATE_BASE=$16F0=5872`, headroom 494 B; the inline table grows by 2×6=12 B.)
 
 **Files**
-- `/home/volence/sonic_hacks/s4_engine-music-expr/sound_constants.asm` (FmPatch struct + size assert, lines 627-640)
-- `/home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_fm.asm` (Fm_PatchPtr, lines 103-156)
+- `/home/volence/sonic_hacks/aeon-music-expr/sound_constants.asm` (FmPatch struct + size assert, lines 627-640)
+- `/home/volence/sonic_hacks/aeon-music-expr/engine/sound_fm.asm` (Fm_PatchPtr, lines 103-156)
 
 **Steps**
 
@@ -784,8 +784,8 @@ with:
 
 - [ ] 5. Stage and commit. The build is intentionally NOT run here (the data asserts fail until C3); the C2/C3 sequence finishes the change:
 ```
-git -C /home/volence/sonic_hacks/s4_engine-music-expr add sound_constants.asm engine/sound_fm.asm
-git -C /home/volence/sonic_hacks/s4_engine-music-expr commit -m "feat(sound): FmPatch 26->32 (fp_ssg_eg + pad); Fm_PatchPtr pure x32 shift
+git -C /home/volence/sonic_hacks/aeon-music-expr add sound_constants.asm engine/sound_fm.asm
+git -C /home/volence/sonic_hacks/aeon-music-expr commit -m "feat(sound): FmPatch 26->32 (fp_ssg_eg + pad); Fm_PatchPtr pure x32 shift
 
 Append a 4-byte SSG-EG per-operator group + 2 reserved bytes so FmPatch_len is
 a power of two (32). Rewrite Fm_PatchPtr's patch*26 shift/add chain into five
@@ -803,8 +803,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Goal.** Define the YM2612 SSG-EG register base `$90` and upload the patch's `fp_ssg_eg` group as a 6th operator-group write inside `Fm_PatchLoad`, reusing the existing `Fm_PatchOpGroup` helper (it already does `base + op*4 + ch` for 4 operators). Defaulting `$00` in every patch record (C1/C3) means a song that never sets SSG-EG writes `$90+ch+op*4 = $00` = SSG-EG OFF on every operator — a no-op vs hardware reset. (Grounded: `sound_constants.asm:78-83` reg-base block; `engine/sound_fm.asm:166-209` Fm_PatchLoad; `Fm_PatchOpGroup` at :217-244 takes `a=base, hl=ptr to 4 patch bytes` and advances `hl` by 4.) Still asm-only; build still fails the data asserts until C3.
 
 **Files**
-- `/home/volence/sonic_hacks/s4_engine-music-expr/sound_constants.asm` (SND_REG_OP_* block, after line 83)
-- `/home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_fm.asm` (Fm_PatchLoad group sequence, lines 206-209)
+- `/home/volence/sonic_hacks/aeon-music-expr/sound_constants.asm` (SND_REG_OP_* block, after line 83)
+- `/home/volence/sonic_hacks/aeon-music-expr/engine/sound_fm.asm` (Fm_PatchLoad group sequence, lines 206-209)
 
 **Steps**
 
@@ -839,8 +839,8 @@ with:
 
 - [ ] 4. Stage and commit (still no green build — C3 finishes it):
 ```
-git -C /home/volence/sonic_hacks/s4_engine-music-expr add sound_constants.asm engine/sound_fm.asm
-git -C /home/volence/sonic_hacks/s4_engine-music-expr commit -m "feat(sound): SND_REG_OP_SSG_EG=\$90; upload fp_ssg_eg group in Fm_PatchLoad
+git -C /home/volence/sonic_hacks/aeon-music-expr add sound_constants.asm engine/sound_fm.asm
+git -C /home/volence/sonic_hacks/aeon-music-expr commit -m "feat(sound): SND_REG_OP_SSG_EG=\$90; upload fp_ssg_eg group in Fm_PatchLoad
 
 Define the YM2612 SSG-EG register base and add a 6th operator-group write
 (reusing Fm_PatchOpGroup) so the patch's fp_ssg_eg[op] uploads to \$90+ch+op*4.
@@ -860,12 +860,12 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Sequencing note (no missing inputs).** The SFX corpus has a no-arg regenerator (`python3 tools/sfx_transcode.py generate`) and its skdisasm source is present (verified at `/home/volence/sonic_hacks/skdisasm/Sound/SFX`). The MT (`movingtrucks`) and HCZ2 source JSONs are NOT present in this worktree, so their generators cannot be re-run here. Since SSG-EG is `$00` for every existing record, those two checked-in banks are migrated by appending the fixed 6-zero-byte group per record with a small, format-aware one-shot script that this task adds and runs.
 
 **Files**
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/zyrinx_port.py` (`FMPATCH_LEN`, `translate_voice`, `emit_patch_bank_asm`)
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/sfx_transcode.py` (`emit_sfx_patches_asm` per-record loop)
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/smps_import.py` (`emit_hcz2_patches_asm` per-record loop)
-- `/home/volence/sonic_hacks/s4_engine-music-expr/data/sound/fm_patches.inc` (hand source, 2 records)
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/ssg_eg_pad.py` (NEW one-shot migration for MT + HCZ2)
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/test_zyrinx_port.py`, `/home/volence/sonic_hacks/s4_engine-music-expr/tools/test_sfx_transcode.py` (update `26` → `32` length asserts + add zero-tail check)
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/zyrinx_port.py` (`FMPATCH_LEN`, `translate_voice`, `emit_patch_bank_asm`)
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/sfx_transcode.py` (`emit_sfx_patches_asm` per-record loop)
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/smps_import.py` (`emit_hcz2_patches_asm` per-record loop)
+- `/home/volence/sonic_hacks/aeon-music-expr/data/sound/fm_patches.inc` (hand source, 2 records)
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/ssg_eg_pad.py` (NEW one-shot migration for MT + HCZ2)
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/test_zyrinx_port.py`, `/home/volence/sonic_hacks/aeon-music-expr/tools/test_sfx_transcode.py` (update `26` → `32` length asserts + add zero-tail check)
 - Regenerated: `data/sound/sfx/*_patches.asm` (via CLI), `data/sound/movingtrucks_patches.asm`, `data/sound/hcz2_patches.asm` (via the one-shot script)
 
 **Steps**
@@ -1082,13 +1082,13 @@ if __name__ == "__main__":
 
 - [ ] 9. Regenerate the SFX corpus (CLI, skdisasm present) and run the MT/HCZ2 migration. From the worktree root:
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 tools/sfx_transcode.py generate && python3 tools/ssg_eg_pad.py
+cd /home/volence/sonic_hacks/aeon-music-expr && python3 tools/sfx_transcode.py generate && python3 tools/ssg_eg_pad.py
 ```
 Expected: `wrote .../sfx_33_patches.asm` … through `sfx_B9_patches.asm` + `sfx_table.asm`, then `migrated MT + HCZ2 patch banks to 32-byte records (SSG-EG $00).`
 
 - [ ] 10. Sanity-check every checked-in bank is now 32-byte records (deterministic, no build needed):
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 - <<'PY'
+cd /home/volence/sonic_hacks/aeon-music-expr && python3 - <<'PY'
 import re
 def nbytes(path):
     n = 0
@@ -1190,26 +1190,26 @@ and after line 929 (the `out[22:26]` sl_rr assert), append:
 
 - [ ] 13. Run the canonical python tests + the two consumer test files:
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py tools/test_zyrinx_port.py tools/test_sfx_transcode.py -q
+cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py tools/test_zyrinx_port.py tools/test_sfx_transcode.py -q
 ```
 Expected: all pass (baseline was 85 + 129; the slice/length updates keep them green).
 
 - [ ] 14. Build the sound ROM — this is the first GREEN build of the C-series (it proves the C1 struct, C2 register write, and all regenerated banks agree on `FmPatch_len=32`):
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
+cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
 ```
 Expected tail: `Build complete: s4.bin` with NO `FM patch table size`/`patch bank size mismatch`/`HCZ2_Patches size mismatch`/`inline FM patch table wrong size`/`FmPatch struct is … bytes` errors, and NO `Z80 sound driver code … overruns state region` fatal.
 
 - [ ] 15. Confirm the budget after the inline-table growth (the inline FmPatch table grew 52→64 B; headroom was 494 B):
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary 2>&1 | head; grep -i 'Z80_SOUND_SIZE *:' s4.lst | head -1
+cd /home/volence/sonic_hacks/aeon-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary 2>&1 | head; grep -i 'Z80_SOUND_SIZE *:' s4.lst | head -1
 ```
 Expected: `Z80_SOUND_SIZE` value (hex) is ≤ `$16F0` (i.e. ≤ 5872); after C1+C2+C3 it is roughly `$1502 + 12 (inline table) + ~14 (one extra Fm_PatchOpGroup call setup) ≈ $1520`, comfortably under ceiling. If it ever exceeds, that is a hard build fatal (already asserted) — but it will not at this size.
 
 - [ ] 16. Stage exact paths and commit (the build was verified green in step 14):
 ```
-git -C /home/volence/sonic_hacks/s4_engine-music-expr add tools/zyrinx_port.py tools/sfx_transcode.py tools/smps_import.py tools/ssg_eg_pad.py tools/test_zyrinx_port.py tools/test_sfx_transcode.py data/sound/fm_patches.inc data/sound/movingtrucks_patches.asm data/sound/hcz2_patches.asm data/sound/sfx/sfx_33_patches.asm data/sound/sfx/sfx_34_patches.asm data/sound/sfx/sfx_35_patches.asm data/sound/sfx/sfx_36_patches.asm data/sound/sfx/sfx_3C_patches.asm data/sound/sfx/sfx_62_patches.asm data/sound/sfx/sfx_AB_patches.asm data/sound/sfx/sfx_B6_patches.asm data/sound/sfx/sfx_B9_patches.asm
-git -C /home/volence/sonic_hacks/s4_engine-music-expr commit -m "feat(sound): re-export all FmPatch banks to 32-byte records (SSG-EG \$00)
+git -C /home/volence/sonic_hacks/aeon-music-expr add tools/zyrinx_port.py tools/sfx_transcode.py tools/smps_import.py tools/ssg_eg_pad.py tools/test_zyrinx_port.py tools/test_sfx_transcode.py data/sound/fm_patches.inc data/sound/movingtrucks_patches.asm data/sound/hcz2_patches.asm data/sound/sfx/sfx_33_patches.asm data/sound/sfx/sfx_34_patches.asm data/sound/sfx/sfx_35_patches.asm data/sound/sfx/sfx_36_patches.asm data/sound/sfx/sfx_3C_patches.asm data/sound/sfx/sfx_62_patches.asm data/sound/sfx/sfx_AB_patches.asm data/sound/sfx/sfx_B6_patches.asm data/sound/sfx/sfx_B9_patches.asm
+git -C /home/volence/sonic_hacks/aeon-music-expr commit -m "feat(sound): re-export all FmPatch banks to 32-byte records (SSG-EG \$00)
 
 translate_voice + all three patch-bank emitters (zyrinx_port MT, sfx_transcode
 SFX, smps_import HCZ2) now append the 4-byte fp_ssg_eg group + 2 reserved pad
@@ -1232,12 +1232,12 @@ Note: only `*_patches.asm` SFX files change (the `sfx_NN.asm` blobs' voice_ptr o
 **Implementer pre-handoff checks (re-confirm, no new code).**
 - [ ] 1. Re-run the green sound build to confirm the branch tip builds:
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
+cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
 ```
 Expected: `Build complete: s4.bin`, no patch-bank/struct/budget errors.
 - [ ] 2. Confirm `s4.bin` exists and the worktree is clean:
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && ls -la s4.bin && git status --short
+cd /home/volence/sonic_hacks/aeon-music-expr && ls -la s4.bin && git status --short
 ```
 Expected: `s4.bin` present, `git status` empty.
 
@@ -1402,17 +1402,17 @@ MacroTick:
 
 4. [ ] Build green + budget assert. Run:
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh -pe
 ```
 Expected: build completes, `s4.bin` produced, NO `fatal "Z80 sound driver code ... overruns state region"` (the `Z80_SOUND_SIZE <= SND_STATE_BASE ($16F0)` assert at `engine/z80_sound_driver.asm:1472-1474` holds — Phase-1 baseline left ~494 bytes free; this routine is ~70 bytes), and NO `error "TAG_MAC_* must be ..."`. Also run the budget tool:
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary
+cd /home/volence/sonic_hacks/aeon-music-expr && python3 tools/s4budget.py s4.lst s4.bin --summary
 ```
 Expected: Z80 sound region reported under `$16F0` with headroom.
 
 5. [ ] Commit.
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && git add sound_constants.asm engine/sound_sequencer.asm && git commit -m "feat(sound): slot[1] MacroTick reader + TAG_MAC_* tags ($E0-$E3)
+cd /home/volence/sonic_hacks/aeon-music-expr && git add sound_constants.asm engine/sound_sequencer.asm && git commit -m "feat(sound): slot[1] MacroTick reader + TAG_MAC_* tags ($E0-$E3)
 
 Walk sc_mod_ptr executing tag-prefixed reg-automation events (NEXT/REG/LOOP/
 END) until one frame yields, committing the cursor. REG reuses Fm_YmWrite +
@@ -1465,13 +1465,13 @@ Replace it with:
 
 2. [ ] Build green + budget assert.
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh -pe
 ```
 Expected: build completes; `Z80_SOUND_SIZE <= $16F0` assert holds (the call site adds ~9 bytes). No errors.
 
 3. [ ] Commit.
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && git add engine/sound_sequencer.asm && git commit -m "feat(sound): call MacroTick per channel after ModUpdate, before Sequencer_Channel
+cd /home/volence/sonic_hacks/aeon-music-expr && git add engine/sound_sequencer.asm && git commit -m "feat(sound): call MacroTick per channel after ModUpdate, before Sequencer_Channel
 
 Arbitration order: named-slot contours (ModUpdate) -> slot[1] reg-automation
 (MacroTick) -> slot[0] opcodes (Sequencer_Channel). Gated on sc_mod_ptr != 0,
@@ -1563,13 +1563,13 @@ to:
 
 4. [ ] Build green + budget assert.
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh -pe
+cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh -pe
 ```
 Expected: build completes; no `error "MEV_MACRO ... collides"` / `... must be $F9`; `Z80_SOUND_SIZE <= $16F0` holds (~25 bytes added). `s4.bin` produced.
 
 5. [ ] Commit.
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && git add sound_constants.asm engine/sound_sequencer.asm && git commit -m "feat(sound): MEV_MACRO (\$F9) + Seq_Op_Macro — arm slot[1] from the stream
+cd /home/volence/sonic_hacks/aeon-music-expr && git add sound_constants.asm engine/sound_sequencer.asm && git commit -m "feat(sound): MEV_MACRO (\$F9) + Seq_Op_Macro — arm slot[1] from the stream
 
 2-byte BE blob-offset operand rebased via Snd_SongBase (same as the loader's
 mod_ptr parse); sets sc_mod_ptr + sc_macro_active, resets to the body start.
@@ -1593,13 +1593,13 @@ No new engine code. This task is the integration build and the precise statement
 
 1. [ ] Full clean DEBUG sound build.
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
+cd /home/volence/sonic_hacks/aeon-music-expr && SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
 ```
 Expected: build completes, `s4.bin` produced, `s4.log` shows no errors; the `Z80_SOUND_SIZE <= SND_STATE_BASE ($16F0)` assert (`engine/z80_sound_driver.asm:1472`) holds; the TAG_MAC_* and MEV_MACRO fixed-slot asserts pass.
 
 2. [ ] Python suite green (the packer side, owned by E, must agree on the wire format this component reads).
 ```
-cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py -q
+cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py -q
 ```
 Expected: all pass — in particular E's `TAG_MAC_*` byte values (`$E0/$E1/$E2/$E3`) and the BE `MEV_MACRO`/`TAG_MAC_LOOP` offset encoding match this component's asm (the cross-file sync guard).
 
@@ -1618,8 +1618,8 @@ Expected: all pass — in particular E's `TAG_MAC_*` byte values (`$E0/$E1/$E2/$
 ### Task E1: Packer event classes — `FmEnv`/`RegWrite`/`Macro` + three MEV_* consts + `$2A/$2B` reject
 
 **Files**
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/song_packer.py`
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/test_song_packer.py`
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/song_packer.py`
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/test_song_packer.py`
 
 Grounding (verified against live source on `feat/music-expr-p1`):
 - `song_packer.py` MEV_* consts live at lines 40–71; the last one is `MEV_END = 0xFF` (`:71`). `$F7/$F8/$F9` are NOT yet defined anywhere in `song_packer.py` or `sound_constants.asm` (grepped — only `MEV_PSGENV=$EB` and `MEV_PSGNOISE=$F2` use the F-range so far). The A/B/D asm components add the asm equates; this task adds the **Python** mirror as an inert standalone commit so `TestConstantsSync` (`test_song_packer.py:469-508`) stays green regardless of asm-vs-packer landing order (binding resolution (4)).
@@ -1684,7 +1684,7 @@ Steps:
 
 2. [ ] Run the test — it MUST fail (consts + classes absent):
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents -q
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents -q
    ```
    Expected: errors/failures (e.g. `AttributeError: module 'song_packer' has no attribute 'MEV_FMENV'`).
 
@@ -1767,19 +1767,19 @@ Steps:
 
 5. [ ] Run the test — it MUST pass:
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents -q
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents -q
    ```
    Expected: all `TestMacroEvents` tests pass.
 
 6. [ ] Run the full packer + tables suite — all green (TestConstantsSync must still pass: the new Python consts have no asm equate yet, and TestConstantsSync only iterates the **asm** equates, so unmatched Python consts are fine):
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py -q
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py -q
    ```
    Expected: all tests pass (62+ passed).
 
 7. [ ] Commit:
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && git add tools/song_packer.py tools/test_song_packer.py && git commit -m "feat(packer): FmEnv/RegWrite/Macro event classes + \$F7/\$F8/\$F9 consts
+   cd /home/volence/sonic_hacks/aeon-music-expr && git add tools/song_packer.py tools/test_song_packer.py && git commit -m "feat(packer): FmEnv/RegWrite/Macro event classes + \$F7/\$F8/\$F9 consts
 
 Add the three Phase-3 macro-spine MEV_* Python consts (inert, mirror the
 A/B/D asm equates) and their event classes. RegWrite.validate refuses
@@ -1794,8 +1794,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task E2: Macro-body emitter (tag grammar) + back-patched header `mod_ptr` + `MEV_MACRO`/`TAG_MAC_LOOP` offset resolution
 
 **Files**
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/song_packer.py`
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/test_song_packer.py`
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/song_packer.py`
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/test_song_packer.py`
 
 Grounding:
 - `ChannelDesc` is at `song_packer.py:508-511` (`__init__(self, route, events)`).
@@ -1880,7 +1880,7 @@ Steps:
 
 2. [ ] Run the test — it MUST fail (tags/classes/`emit_macro_body`/`macro_body` plumbing absent):
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents -q
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents -q
    ```
    Expected: failures (e.g. `AttributeError: ... 'TAG_MAC_NEXT'`).
 
@@ -2044,19 +2044,19 @@ Steps:
 
 6. [ ] Run the test — it MUST pass:
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents -q
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents -q
    ```
    Expected: all `TestMacroEvents` tests pass.
 
 7. [ ] Run the full suite — all green (the existing `TestHeader` tests read `mod_ptr` at `off+3/+4` and assert 0 for `_simple_song`, which carries no `macro_body`, so they still pass):
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py -q
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py -q
    ```
    Expected: all tests pass.
 
 8. [ ] Commit:
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && git add tools/song_packer.py tools/test_song_packer.py && git commit -m "feat(packer): slot[1] macro-body emitter + back-patched mod_ptr
+   cd /home/volence/sonic_hacks/aeon-music-expr && git add tools/song_packer.py tools/test_song_packer.py && git commit -m "feat(packer): slot[1] macro-body emitter + back-patched mod_ptr
 
 emit_macro_body packs a tag-prefixed slot[1] stream (TAG_MAC_NEXT=\$E0/
 REG=\$E1/LOOP=\$E2/END=\$E3) matching the D-side MacroTick reader.
@@ -2073,8 +2073,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task E3: D8 music-legal route gate + TAG_MAC_* cross-file sync guard
 
 **Files**
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/song_packer.py`
-- `/home/volence/sonic_hacks/s4_engine-music-expr/tools/test_song_packer.py`
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/song_packer.py`
+- `/home/volence/sonic_hacks/aeon-music-expr/tools/test_song_packer.py`
 
 Grounding:
 - `_validate_channel` is at `song_packer.py:542-622`. It calls `ev.validate(ch.route)` per event (`:554`) but has **no** music-legal/reject-by-route construct — only init-ordering (`:567-612`). This is the D8 gap (spec §9). The new expression events validate their own route legality (FM-only for `FmEnv`/`RegWrite`; `Macro` is FM-armed), so they are already accepted on a music (any-route) channel — the gate here is the **explicit whitelist + a per-event allow check** so a future "music-illegal" classification can reject by route without silently dropping. Because `song_packer.py` IS the music-song builder, the gate is: confirm `$F7/$F8/$F9`/`MEV_PSGENV` are NOT rejected on a music channel (and are emitted), and document them music-legal.
@@ -2169,7 +2169,7 @@ Steps:
 
 2. [ ] Run the test — it MUST fail (`_MUSIC_ILLEGAL_OPCODES` absent; the gate not wired):
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents::test_music_illegal_opcode_is_rejected_not_dropped tools/test_song_packer.py::TestMacroEvents::test_music_song_accepts_expression_opcodes -q
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents::test_music_illegal_opcode_is_rejected_not_dropped tools/test_song_packer.py::TestMacroEvents::test_music_song_accepts_expression_opcodes -q
    ```
    Expected: failure (`ImportError`/`AttributeError` for `_MUSIC_ILLEGAL_OPCODES`).
 
@@ -2203,19 +2203,19 @@ Steps:
 
 5. [ ] Run the test — it MUST pass:
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents tools/test_song_packer.py::TestConstantsSync -q
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py::TestMacroEvents tools/test_song_packer.py::TestConstantsSync -q
    ```
    Expected: `test_music_song_accepts_expression_opcodes`, `test_music_illegal_opcode_is_rejected_not_dropped` pass; `test_tag_mac_in_sync` SKIPS (asm equates not landed in this worktree yet) and `test_mev_and_chroute_in_sync` passes.
 
 6. [ ] Run the full suite — all green (skips allowed):
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py -q
+   cd /home/volence/sonic_hacks/aeon-music-expr && python3 -m pytest tools/test_song_packer.py tools/test_gen_sound_tables.py -q
    ```
    Expected: all tests pass or skip (no failures/errors).
 
 7. [ ] Commit:
    ```bash
-   cd /home/volence/sonic_hacks/s4_engine-music-expr && git add tools/song_packer.py tools/test_song_packer.py && git commit -m "feat(packer): D8 music-legal opcode gate + TAG_MAC_* sync guard
+   cd /home/volence/sonic_hacks/aeon-music-expr && git add tools/song_packer.py tools/test_song_packer.py && git commit -m "feat(packer): D8 music-legal opcode gate + TAG_MAC_* sync guard
 
 Add _MUSIC_ILLEGAL_OPCODES (\$F1 dispatch-folded) + _validate_channel
 rejection so a music stream can never silently carry a music-illegal

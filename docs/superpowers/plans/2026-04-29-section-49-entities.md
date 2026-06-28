@@ -128,7 +128,7 @@ Ring_Anim_Timer:        ds.b 1          ; countdown to next frame
 
 - [ ] **Step 4: Build to verify RAM doesn't overflow into stack**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: Build succeeds. The `if RAM_End >= SYSTEM_STACK` assertion at the end of `ram.asm` catches overflow.
 
 - [ ] **Step 5: Commit**
@@ -567,7 +567,7 @@ For TouchResponse, we can use the existing stash-to-address-register trick AROUN
 
 - [ ] **Step 5: Build and test**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: Build succeeds. Behavior unchanged (same collision math, just reorganized).
 
 - [ ] **Step 6: Test in Exodus**
@@ -713,7 +713,7 @@ Add after `include "engine/objects/collision.asm"` (line 109):
 
 - [ ] **Step 4: Build**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: Build succeeds. No behavioral change (stubs only).
 
 - [ ] **Step 5: Commit**
@@ -777,7 +777,7 @@ Ring art: For now, use the same test tile ($FA) as the player marker. Real ring 
 
 - [ ] **Step 3: Build and test**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: Build succeeds.
 
 - [ ] **Step 4: Commit**
@@ -839,7 +839,7 @@ CollectRing:
 
 - [ ] **Step 4: Build and test**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: Build succeeds.
 
 - [ ] **Step 5: Commit**
@@ -939,7 +939,7 @@ Add after the rings.asm include:
 
 - [ ] **Step 4: Build**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: Build succeeds.
 
 - [ ] **Step 5: Commit**
@@ -1081,7 +1081,7 @@ Add the entity_data.asm include in the data section (after `test_objects.asm`):
 
 - [ ] **Step 5: Build**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: Build succeeds. No behavioral change yet — data exists but nothing calls it.
 
 - [ ] **Step 6: Commit**
@@ -1219,7 +1219,7 @@ Update `structs.asm` to rename `sec_reserved` → `sec_type_table`.
 
 - [ ] **Step 7: Build and test**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: Build succeeds.
 
 - [ ] **Step 8: Commit**
@@ -1328,7 +1328,7 @@ Remove the old manual controller movement code, marker sprite write, and PlayerM
 
 - [ ] **Step 4: Build**
 
-Run: `cd /home/volence/sonic_hacks/s4_engine && ./build.sh`
+Run: `cd /home/volence/sonic_hacks/aeon && ./build.sh`
 Expected: Build succeeds.
 
 - [ ] **Step 5: Test in Exodus**

@@ -439,7 +439,7 @@ git commit -m "feat(art): init calls Pool_LoadAll; remove dead preload stubs"
 
 - [ ] **Step 1: Reload the ROM and screenshot**
 
-Use oracle MCP: `emulator_reload_rom` (`/home/volence/sonic_hacks/s4_engine/s4.bin`), then `emulator_screenshot`.
+Use oracle MCP: `emulator_reload_rom` (`/home/volence/sonic_hacks/aeon/s4.bin`), then `emulator_screenshot`.
 Expected: OJZ jungle art renders correctly (canopy, trunks, dirt, grass) — identical to the pre-change scaffold screenshot, i.e. the global pool loaded correctly to the right slots.
 
 - [ ] **Step 2: Confirm scroll + profile (no regression)**

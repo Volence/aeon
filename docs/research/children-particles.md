@@ -312,7 +312,7 @@ Reduces DMA bandwidth for multi-frame sprites.
 
 Despite extensive searching, no Genesis homebrew project documents an animation script bytecode system with embedded spawn/effect commands. The Sonic disassemblies use simple frame-list scripts. This is an area where our engine can innovate.
 
-### Design for s4_engine
+### Design for aeon
 
 Our plan extends existing AF_ codes with $F4-$F9 event range:
 - $F9 = play sound (next byte: sound ID)
@@ -370,7 +370,7 @@ Animation pointers ($48) and data pointers ($4C) set from ROM tables. Dispatch i
 
 Entity allocation → component allocation → component constructors → entity list insertion → entity constructor. Most structured init sequence found. Destructor runs in reverse order.
 
-## 7. Recommendations for s4_engine
+## 7. Recommendations for aeon
 
 ### Child Creation (4 strategies)
 

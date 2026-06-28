@@ -108,7 +108,7 @@ git commit -m "research(§2 A.5): settle BG layout shape, tier-3 art-group shari
 - [ ] **Step 1: Audit usage of `sec_strips_b` to confirm it's dead**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 grep -rn "sec_strips_b\|Sec_sec_strips_b\|Strips_B" engine/ test/ tools/ data/ docs/
 ```
 
@@ -150,7 +150,7 @@ Act endstruct
 - [ ] **Step 5: Build to verify struct size assertions pass**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 ./build.sh -pe
 ```
 
@@ -225,7 +225,7 @@ if __name__ == "__main__":
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 python3 -m unittest tools.test_bg_emit -v
 ```
 
@@ -291,7 +291,7 @@ print(f"Emitted zone BG layout: {zone_bg_path} ({os.path.getsize(zone_bg_path)} 
 - [ ] **Step 6: Run build tool to verify zone_bg.bin appears in generated output**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 python3 tools/ojz_strip_gen.py generate
 ls -l data/generated/ojz/act1/zone_bg.bin
 ```
@@ -370,7 +370,7 @@ Edit `tools/ojz_strip_gen.py` — find the line that emits `sec{N}_strips_b.bin`
 - [ ] **Step 6: Build to verify it links cleanly**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 ./build.sh -pe
 ```
 
@@ -395,7 +395,7 @@ git commit -m "feat(§2 A.5 T1): wire act_bg_layout into OJZ descriptor; drop st
 - [ ] **Step 1: Find where engine files are included**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 grep -rn "engine/level/section.asm\|engine/level/load_art.asm" --include="*.asm"
 ```
 
@@ -1201,7 +1201,7 @@ git commit -m "docs(§2 A.5): finalize tier design, record T1/T2/T3 measurements
 - [ ] **Step 1: Verify all tests pass**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 python3 -m unittest tools.test_tile_dedupe tools.test_bg_emit tools.test_s4lint tools.test_s4budget -v
 ```
 

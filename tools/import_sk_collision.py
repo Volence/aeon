@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import Sonic & Knuckles' collision shape set as the s4_engine's collision tables.
+"""Import Sonic & Knuckles' collision shape set as the aeon's collision tables.
 
 Reads S&K's heightmaps + rotated heightmaps + angles from the skdisasm checkout and
 writes the engine's fixed 256-slot collision vocabulary to TWO places:

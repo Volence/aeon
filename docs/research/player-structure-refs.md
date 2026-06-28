@@ -12,7 +12,7 @@ Sources read for this document:
 - `gunstar_disasm/ANALYSIS.md` (covers Alien Soldier — shared engine)
 - `vectorman_disasm/ANALYSIS.md`, `thunderforce4_disasm/ANALYSIS.md`
 - `disasm/OBJECT_SYSTEM.md` (Batman & Robin)
-- `s4_engine/structs.asm`, `constants.asm`, `objects/test_player.asm`,
+- `aeon/structs.asm`, `constants.asm`, `objects/test_player.asm`,
   `docs/ENGINE_ARCHITECTURE.md` §3/§5, `docs/DEFERRED_WORK.md`
 
 ---

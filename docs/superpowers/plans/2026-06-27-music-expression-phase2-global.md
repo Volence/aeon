@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL — use `superpowers:subagent-driven-development` (or `superpowers:executing-plans`). Each numbered step is a checkbox: build + verify before moving on. Commit after each task; commit messages end with the `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` trailer.
 
 **Date:** 2026-06-27
-**Branch:** `feat/music-expr-p1` (worktree `/home/volence/sonic_hacks/s4_engine-music-expr`; Phase 1 already merged on this branch)
+**Branch:** `feat/music-expr-p1` (worktree `/home/volence/sonic_hacks/aeon-music-expr`; Phase 1 already merged on this branch)
 **Spec:** `docs/superpowers/specs/2026-06-23-music-expression-engine-design.md` (§3.1 two fold-points, §6 T3 hardware LFO, §7 T4 master fade + global tempo)
 **Command-API contract:** `docs/superpowers/specs/2026-06-16-sound-command-api.md` (NOTE: the shipped code uses **discrete per-type `SND_REQ_*` byte slots**, not the `MBX_CMD` jump-table from that doc — Phase 2 follows the shipped model.)
 
@@ -790,8 +790,8 @@ Lays the shared foundation: the global RAM block (fade **and** tempo bytes), the
 ---
 
 ### Critical Files for Implementation
-- /home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_sequencer.asm
-- /home/volence/sonic_hacks/s4_engine-music-expr/sound_constants.asm
-- /home/volence/sonic_hacks/s4_engine-music-expr/engine/z80_sound_driver.asm
-- /home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_fm.asm
-- /home/volence/sonic_hacks/s4_engine-music-expr/engine/sound_psg.asm
+- /home/volence/sonic_hacks/aeon-music-expr/engine/sound_sequencer.asm
+- /home/volence/sonic_hacks/aeon-music-expr/sound_constants.asm
+- /home/volence/sonic_hacks/aeon-music-expr/engine/z80_sound_driver.asm
+- /home/volence/sonic_hacks/aeon-music-expr/engine/sound_fm.asm
+- /home/volence/sonic_hacks/aeon-music-expr/engine/sound_psg.asm

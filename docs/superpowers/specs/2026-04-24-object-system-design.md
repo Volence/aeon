@@ -11,7 +11,7 @@
 
 The object system is the backbone — every gameplay entity runs through it. This spec covers the full build from foundational research through stress-tested optimization, delivered in 8 phases.
 
-All object code is written fresh for s4_engine conventions. Art data (sprites, palettes, DPLC tables) comes from sonic_hack; code never does. Test objects use existing Sonic/Tails sprites for the player-like object and synthetic art (colored rectangles) for enemies, solids, and collision test objects.
+All object code is written fresh for aeon conventions. Art data (sprites, palettes, DPLC tables) comes from sonic_hack; code never does. Test objects use existing Sonic/Tails sprites for the player-like object and synthetic art (colored rectangles) for enemies, solids, and collision test objects.
 
 **Next brainstorming session after §3:** Deferred item catch-up. §3 unlocks several blocked items: Dynamic VRAM Allocator (§2.2), Refcount Art Caching (§2.2), Generic Perform_DPLC SST integration (§2.1/§3.9), DPLC Lookahead (§1.6), Adaptive DMA Byte Budget (§1.1). Review all, decide what to tackle before §4.
 
@@ -323,4 +323,4 @@ Items that §3 identifies but cannot complete:
 
 - **Sonic/Tails sprites** — Already extracted in `art/uncompressed/characters/` and `art/optimized/characters/` with DPLC tables in `data/dplc/`. Used for the player-like test object.
 - **Test object art** — Simple synthetic sprites (colored rectangles, basic shapes) created fresh. Small enough to define inline or as minimal binary files. Purpose: easy to debug visually, no extraction work, disposable.
-- **All object code** — Written from scratch for s4_engine conventions. Reference sonic_hack only for behavioral understanding (what an object does), never for implementation (how it does it).
+- **All object code** — Written from scratch for aeon conventions. Reference sonic_hack only for behavioral understanding (what an object does), never for implementation (how it does it).

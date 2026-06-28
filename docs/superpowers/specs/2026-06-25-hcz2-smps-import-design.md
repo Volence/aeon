@@ -2,11 +2,11 @@
 
 **Date:** 2026-06-25
 **Status:** Approved (brainstorm), pending implementation plan
-**Branch:** `feat/hcz2-import` (worktree `s4_engine-hcz2`, off `master` @ `ac518b6`)
+**Branch:** `feat/hcz2-import` (worktree `aeon-hcz2`, off `master` @ `ac518b6`)
 
 ## 1. Goal
 
-Import **Hydrocity Zone Act 2** (HCZ2) from the Sonic 3 & Knuckles disassembly into the s4_engine
+Import **Hydrocity Zone Act 2** (HCZ2) from the Sonic 3 & Knuckles disassembly into the aeon
 custom sound driver, as the first real-content end-to-end test of the music sequencer + the DAC drum
 path. Build it as a **reusable SMPS(S3K) → music-format-v0 converter**, with HCZ2 as the first
 customer. Fidelity target: **recognizable v1, no engine changes** — cosmetic SMPS features that v0

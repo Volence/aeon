@@ -172,7 +172,7 @@ For 128KB boundary protection specifically (likely needed for §2's larger art t
 - [ ] **Step 3: Re-verify with existing §1 DMA test**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Load `s4.bin` in emulator. Title screen should display identically to before changes.
@@ -328,7 +328,7 @@ if __name__ == "__main__":
 
 Run to verify it fails (functions not yet defined):
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && python3 tools/s4lz.py test
+cd /home/volence/sonic_hacks/aeon && python3 tools/s4lz.py test
 ```
 
 Expected: `NameError: name 'compress' is not defined`
@@ -534,7 +534,7 @@ def main():
 - [ ] **Step 7: Run tests**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 python3 tools/s4lz.py test
 ```
 
@@ -555,7 +555,7 @@ git commit -m "feat(§2): add S4LZ Python tool — compress, decompress, verify 
 - [ ] **Step 1: Verify round-trip on real title screen art**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine
+cd /home/volence/sonic_hacks/aeon
 python3 tools/s4lz.py verify --tile-delta test/title_art.bin
 ```
 
@@ -775,7 +775,7 @@ Add to `main.asm` after the `include "engine/game_loop.asm"` line:
 - [ ] **Step 6: Build to verify assembly**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: builds successfully with no errors.
@@ -888,7 +888,7 @@ Find the line that sets the initial game state (likely `move.l #GameState_DMATes
 - [ ] **Step 4: Build**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Expected: compression step runs, then assembly succeeds.
@@ -1027,7 +1027,7 @@ Key requirement: single tile decompression must not touch any other tile's data.
 - [ ] **Step 4: Run tests on synthetic data**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && python3 tools/tilefmt.py test
+cd /home/volence/sonic_hacks/aeon && python3 tools/tilefmt.py test
 ```
 
 - [ ] **Step 5: Commit**
@@ -1148,7 +1148,7 @@ Add after the S4LZ include:
 - [ ] **Step 3: Build to verify assembly**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 - [ ] **Step 4: Commit**
@@ -1249,7 +1249,7 @@ Change boot to use `GameState_SpriteTest`:
 - [ ] **Step 4: Build and test in emulator**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Load in emulator. A sprite composed of tiles 0-7 from Sonic's sprite sheet should appear on screen. Verify visually against the original art.
@@ -1388,7 +1388,7 @@ Add after tile_decompress include:
 - [ ] **Step 3: Build to verify assembly**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 - [ ] **Step 4: Commit**
@@ -1517,7 +1517,7 @@ RobustTest_ZoneTiles:
 - [ ] **Step 4: Build and test**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Load in emulator. Verify:
@@ -1595,7 +1595,7 @@ Ensure `engine/boot.asm` points to `GameState_RobustTest` (or whichever state we
 - [ ] **Step 5: Final build and verification**
 
 ```bash
-cd /home/volence/sonic_hacks/s4_engine && ./build.sh
+cd /home/volence/sonic_hacks/aeon && ./build.sh
 ```
 
 Load in emulator one final time. Everything should work.

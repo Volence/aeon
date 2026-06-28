@@ -1,6 +1,6 @@
 # salvador (vendored)
 
-ZX0 packer by Emmanuel Marty, vendored for the s4_engine build pipeline.
+ZX0 packer by Emmanuel Marty, vendored for the aeon build pipeline.
 
 - Origin: https://github.com/emmanuel-marty/salvador
 - Version: v1.4.2
