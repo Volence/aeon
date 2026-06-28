@@ -74,6 +74,9 @@ MEV_END = 0xFF
 MEV_FMENV = 0xF7            # + env_id: arm the FM carrier-TL volume envelope (1-based; 0=off)
 MEV_REGWRITE = 0xF8         # + part(0/1) + reg + val: inline raw YM2612 register write
 MEV_MACRO = 0xF9            # + ptr_hi + ptr_lo: (re)arm the slot[1] macro stream at a blob offset
+# Phase-2 per-note + global expression opcodes (mirror of sound_constants.asm).
+MEV_LFO = 0xF4             # + value: write YM2612 $22 (bit3 enable | bits0-2 rate); DAC $2A re-parked
+MEV_DETUNE = 0xF6          # + dd (signed): set the channel's fine-pitch detune (applied at note-on)
 
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
 MAX_DUR = 0x7F                              # SetDur range $00..$7F
@@ -109,7 +112,7 @@ _PSG_ROUTES = {CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN}
 # MEV_SPINREV_RESET is defined above (~line 69) — referenced here, NOT redefined.
 _MUSIC_ILLEGAL_OPCODES = frozenset({MEV_SPINREV_RESET})
 _MUSIC_LEGAL_EXPRESSION_OPCODES = frozenset({
-    MEV_PSGENV, MEV_FMENV, MEV_REGWRITE, MEV_MACRO})
+    MEV_PSGENV, MEV_FMENV, MEV_REGWRITE, MEV_MACRO, MEV_DETUNE, MEV_LFO})
 
 # SongHeader flags byte (SH_FLAGS) — MIRROR of sound_constants.asm SH_F_*.
 SH_F_FM6_FM = 1 << 0     # FM6 is a 6th FM sequencer voice (DAC mode OFF)
@@ -422,6 +425,22 @@ class PsgNoise(Event):
             raise PackError(f"PsgNoise on non-noise route {route}")
         if not (0xE0 <= self.ctrl <= 0xEF):
             raise PackError(f"PsgNoise ctrl {self.ctrl:#x} out of range $E0..$EF")
+
+
+class Detune(Event):
+    """Fine pitch detune: the engine adds the signed sc_detune to the looked-up
+    fnum (FM, block-corrected) / divisor (PSG) at the next note-on, folded into
+    sc_base_freq so vibrato/portamento inherit it. Sub-semitone offset for
+    unison/chorus. FM and PSG. Zero-tick (state-only setter)."""
+    def __init__(self, detune: int):
+        self.detune = detune
+
+    def encode(self) -> bytes:
+        return bytes([MEV_DETUNE, self.detune & 0xFF])
+
+    def validate(self, route):
+        if not (-128 <= self.detune <= 127):
+            raise PackError(f"Detune {self.detune} out of signed byte range -128..127")
 
 
 class ModSet(Event):

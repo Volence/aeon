@@ -5,7 +5,7 @@ sys.path.insert(0, _HERE)
 
 from song_packer import (
     Note, Rest, SetDur, NoteDur, Vol, Patch, Pan, ModSet, PsgEnv, NoteFill,
-    PsgNoise, Dac, End, LoopPoint, Jump, MEV_NOTE_BASE, MAX_DUR,
+    PsgNoise, Detune, Dac, End, LoopPoint, Jump, MEV_NOTE_BASE, MAX_DUR,
     SongDesc, ChannelDesc, SH_F_STREAM,
     CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
     CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN, CHROUTE_DAC,
@@ -265,8 +265,8 @@ _FLAG_MNEMONICS = frozenset((
     # walker BEFORE _dispatch_flag (call-inline / loop-unroll / jump-loopback /
     # return).
     "smpsCall", "smpsReturn", "smpsLoop", "smpsJump",
-    # Recognized so the walk never breaks; dropped/approximated v1 fidelity gaps
-    # (warned once in _dispatch_flag): fine pitch detune, PSG waveform select.
+    # Recognized so the walk never breaks; handled in _dispatch_flag (smpsDetune/
+    # smpsAlterNote -> Detune event; smpsNoAttack -> tie; smpsPSGform -> noise reroute).
     "smpsDetune", "smpsAlterNote", "smpsNoAttack", "smpsPSGform",
 ))
 
@@ -548,7 +548,9 @@ def _alter_vol(kind, want, delta, st, out):
         out.append(Vol(_smps_vol_to_v0("PSG", cur)))
 
 
-_detune_warned = False
+# Clamp |detune| well inside one low-octave block (where fnum steps are smallest) so
+# the engine's single-step Fm_FnumApplyDelta block correction is always sufficient.
+_DETUNE_CLAMP = 0x3F
 _psgform_restore_warned = False
 
 
@@ -558,13 +560,6 @@ def _warn_psgform_restore_once():
         warn("smpsPSGform 0 (restore-tone) on a noise channel dropped in v1"
              " (cannot switch noise back to tone mid-channel)")
         _psgform_restore_warned = True
-
-
-def _warn_detune_once():
-    global _detune_warned
-    if not _detune_warned:
-        warn("smpsDetune/smpsAlterNote (fine pitch detune) dropped in v1")
-        _detune_warned = True
 
 
 def _dispatch_flag(kind, mnem, args, st, out, cfg):
@@ -625,10 +620,14 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
         # cfChangePSGVolume ($EC): add signed delta to the running PSG attn.
         _alter_vol(kind, "PSG", _signed8(resolve_const(args[0])), st, out)
     elif mnem in ("smpsDetune", "smpsAlterNote"):
-        # cfDetune ($E1): a fine FREQUENCY detune, not a transpose. v1 does not
-        # model sub-semitone detune; drop it (the note pitch is unaffected).
-        # Warned once so the fidelity gap is visible without log spam.
-        _warn_detune_once()
+        # cfDetune ($E1): a fine FREQUENCY detune (signed), NOT a transpose. Emit it
+        # as a per-channel sc_detune (the engine folds it into the note-on fnum/divisor,
+        # block-corrected for FM). The S3K cfDetune operand is the same small signed
+        # quantity, passed through clamped to keep |detune| well inside one low-octave
+        # block so the single-step block correction never under-corrects at table extremes.
+        d = _signed8(resolve_const(args[0]))
+        d = max(-_DETUNE_CLAMP, min(_DETUNE_CLAMP, d))
+        out.append(Detune(d))
     elif mnem == "smpsNoAttack":
         # cfNoAttack ($E7): tie the next note to the previous (no re-attack).
         # Same-pitch -> merge durations (Task 2.4). Different-pitch -> re-attack

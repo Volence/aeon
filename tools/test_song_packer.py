@@ -15,9 +15,9 @@ import song_packer
 from song_packer import (
     SongDesc, ChannelDesc,
     SetDur, Rest, Note, Vol, Patch, Dac, NoteDur, LoopPoint, Jump, End,
-    RepeatStart, RepeatEnd, Pan, OpBias, RegDelta, reg_sel,
+    RepeatStart, RepeatEnd, Pan, OpBias, RegDelta, reg_sel, Detune,
     pack_song, emit_asm, PackError,
-    MEV_REPEAT_START, MEV_REPEAT_END, MEV_PAN, MEV_OPBIAS, MEV_REGDELTA,
+    MEV_REPEAT_START, MEV_REPEAT_END, MEV_PAN, MEV_OPBIAS, MEV_REGDELTA, MEV_DETUNE,
     RD_GROUP_TL, RD_GROUP_DT_MUL, RD_GROUP_D1L_RR, REGDELTA_GROUP_COUNT,
 )
 
@@ -91,6 +91,19 @@ class TestEventEncoding(unittest.TestCase):
             OpBias(0, 128).validate(CHROUTE_FM1)
         with self.assertRaises(PackError):
             OpBias(0, -129).validate(CHROUTE_FM1)
+
+    def test_detune_encode(self):
+        self.assertEqual(Detune(0x10).encode(), bytes([MEV_DETUNE, 0x10]))
+        self.assertEqual(Detune(-1).encode(), bytes([MEV_DETUNE, 0xFF]))
+        self.assertEqual(Detune(-128).encode(), bytes([MEV_DETUNE, 0x80]))
+
+    def test_detune_range(self):
+        Detune(-128).validate(CHROUTE_FM1)   # signed-byte boundaries OK (FM + PSG)
+        Detune(127).validate(CHROUTE_PSG1)
+        with self.assertRaises(PackError):
+            Detune(200).validate(CHROUTE_FM1)
+        with self.assertRaises(PackError):
+            Detune(-200).validate(CHROUTE_FM1)
 
     def test_reg_sel_encoding(self):
         # reg_sel = (group_code << 2) | op. TL group op0 = the canonical lead step.

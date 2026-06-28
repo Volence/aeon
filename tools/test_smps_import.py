@@ -271,7 +271,15 @@ def test_leading_bare_duration_sets_saved_dur():
 
 # ── Task 2.2 ─ coordination-flag -> MEV mapping + DAC route ──────────────────
 
-from song_packer import Pan, Patch, ModSet, End, Dac
+from song_packer import Pan, Patch, ModSet, End, Dac, Detune
+
+def test_detune_emits_event():
+    # smpsDetune/smpsAlterNote (cfDetune) now emit a Detune event (was dropped in v1).
+    ev = convert_channel("FM", ["\tsmpsDetune $08", "\tsmpsStop"], {}, _cfg(), ConvState())
+    assert isinstance(ev[0], Detune) and ev[0].detune == 8
+    # a large operand clamps to +-0x3F (keeps the FM single-step block correction valid)
+    ev2 = convert_channel("PSG", ["\tsmpsAlterNote $7F", "\tsmpsStop"], {}, _cfg(), ConvState())
+    assert isinstance(ev2[0], Detune) and ev2[0].detune == 0x3F
 
 def test_flags_map():
     ev = convert_channel("FM", ["\tsmpsPan panLeft, $00","\tsmpsSetvoice $0F","\tsmpsModSet $01,$02,$03,$04","\tsmpsStop"], {}, _cfg(), ConvState())
