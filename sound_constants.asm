@@ -63,7 +63,9 @@ SND_Z80_YM_A2           = $4002                  ; addr part II (FM ch 4-6 regis
 SND_Z80_YM_A3           = $4003                  ; data part II
 SND_REG_DAC_DATA        = $2A                    ; YM reg: DAC sample byte (parked in the addr port)
 SND_REG_DAC_ENABLE      = $2B                    ; YM reg: bit7 = DAC mode (written ONCE at init)
-SND_REG_LFO             = $22                    ; YM reg: GLOBAL low-freq osc — bit3 = enable, bits0-2 = freq.
+SND_REG_LFO             = $22                    ; YM reg: GLOBAL low-freq osc — bit3 = enable, bits0-2 = rate.
+; LFO rate (bits0-2) Hz: 0=3.82, 1=5.33, 2=5.77, 3=6.11, 4=6.60, 5=9.23, 6=46.11, 7=69.22.
+; (Init sets $22=$08 = enable|rate0 = 3.82 Hz. Prior docs said 3.98 Hz — WRONG.)
                                                  ; Master switch for every channel's AMS(tremolo)/FMS(vibrato)
                                                  ; depth in $B4. Written ONCE at init ($08 = on, ~3.98Hz).
 
@@ -367,6 +369,24 @@ MEV_SPINREV_RESET = $F1   ; (no operand) : zero the global spindash rev
 MEV_PSGNOISE      = $F2   ; + ctrl : set the SN76489 noise control byte (mode+rate) +
                           ; silence ch2 tone volume; zero-tick. Owns the noise mode, so
                           ; the noise note then carries PITCH for the rate-3 tone-2 clock.
+
+; --- Phase 2 (music-expr): global + per-note expression opcodes ($F3-$F6) -------
+; $F3-$F6 are the slots the Phase-2 plans reserved (Phase 3 owns $F7-$F9). Each is a
+; zero-tick coordination setter; default-inert (a song without them is byte-identical
+; — the new state fields are zeroed at seq/slot wipe). Each pins its own slot with a
+; fixed-slot assert, so the global ($F3/$F4) and per-note ($F5/$F6) slices are
+; collision-free by construction without a cross-ifdef.
+MEV_LFO           = $F4   ; + value : write YM2612 $22 (bit3 enable | bits0-2 rate). The
+                          ; dedicated semantic LFO opcode (cf. MEV_PAN for $B4) — the
+                          ; handler wraps it in the DAC $2A address-park save/restore.
+                          ; MEV_REGWRITE ($F8) can also reach $22; this is the 2-byte
+                          ; shortcut for the common global-LFO sweep.
+        if (MEV_LFO <= MEV_NOTE_MAX) || (MEV_LFO < MEV_VOL) || (MEV_LFO > MEV_END)
+          error "MEV_LFO (\{MEV_LFO}) must be a command opcode inside $E0-$FF"
+        endif
+        if MEV_LFO <> $F4
+          error "MEV_LFO (\{MEV_LFO}) must be $F4 (Phase-2 global slice slot)"
+        endif
 
 ; --- Phase 3 macro spine: FM TL vol-env arm (spec §4 flagship) -----------------
 ; $F7-$F9 are owned by Phase 3 ($F3-$F6 stay RESERVED for Phase-2 plans). MEV_FMENV

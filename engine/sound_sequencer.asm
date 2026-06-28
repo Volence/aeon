@@ -790,6 +790,20 @@ Seq_Op_PsgNoise:
         ld      (SND_Z80_PSG), a         ; silence ch2 tone (its frequency still clocks noise)
         jp      Seq_ContinueFetch
 
+; $F4 MEV_LFO + value : write YM2612 $22 (bit3 enable | bits0-2 rate). The global LFO
+; drives every channel's $B4 AMS (tremolo) / FMS (vibrato) depth bits (set by MEV_PAN).
+; MUST re-park the DAC $2A addr after the $22 write: the addr port is parked on $2A
+; during playback, so a stray $22 select would misroute the next DAC byte. Fm_YmWrite
+; (part I) + Fm_ReparkDac both preserve hl (the live stream ptr). Zero-tick.
+Seq_Op_Lfo:
+        ld      c, (hl)                  ; c = operand ($22 value: enable|rate)
+        inc     hl                       ; consume operand
+        ld      a, SND_REG_LFO           ; $22
+        ld      b, 0                     ; part I
+        call    Fm_YmWrite               ; $4000=$22, $4001=value (preserves bc/de/hl/ix)
+        call    Fm_ReparkDac             ; restore the DAC $2A park (DAC-safe)
+        jp      Seq_ContinueFetch
+
 ; $EC MEV_MODSET + wait speed change step : latch the pitch-modulation params (the
 ; engine's smpsModSet). Zero-tick setter. sc_mod_ctrl is set nonzero iff ANY of the
 ; 4 params is nonzero (all-zero = mod off — the smpsModSet 0,0,0,0 idiom AB/3C use to
@@ -1426,7 +1440,7 @@ SeqOpcodeTable:
         dw      Seq_BadOpcode            ; $F1 reserved (SPINREV reset is dispatch-folded)
         dw      Seq_Op_PsgNoise          ; $F2 MEV_PSGNOISE
         dw      Seq_BadOpcode            ; $F3 reserved
-        dw      Seq_BadOpcode            ; $F4 reserved
+        dw      Seq_Op_Lfo               ; $F4 MEV_LFO (write $22 LFO, DAC $2A re-parked)
         dw      Seq_BadOpcode            ; $F5 reserved
         dw      Seq_BadOpcode            ; $F6 reserved
         dw      Seq_Op_PsgEnv            ; $F7 MEV_FMENV (shared handler: sets the unified
