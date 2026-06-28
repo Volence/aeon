@@ -122,10 +122,12 @@ its handlers.
 ### 5. `games/demo/`
 Minimal game proving engine agnosticism:
 - `main.asm` = the ~30-line manifest; `config/` = RAM start + minimal constants.
-- Entry GameState boots to a **visible blank canvas** (backdrop color / placeholder tile) with
-  `; TODO: your first object / GameState here` hooks.
-- **No** dependency on the art/section/streaming content pipeline (that's game content).
-- `build.sh demo` is the smoke test that the engine boots without Sonic 4.
+- Entry GameState boots and **spawns one tiny test object** via the engine object system (a single
+  placeholder sprite/mapping), so the demo exercises object spawn + sprite render — not just a static
+  screen. Backdrop color set; `; TODO: your game starts here` hooks alongside the test object.
+- **No** dependency on the art-page / section / streaming / compression *content* pipeline (that's
+  game content) — the placeholder sprite is a minimal uncompressed asset shipped with the demo.
+- `build.sh demo` is the smoke test that the engine boots, spawns, and renders without Sonic 4.
 
 ### 6. Build
 `build.sh [game]` defaults to `sonic4`; assembles `games/<game>/main.asm`. **`ROM_NAME` stays `s4`**
@@ -172,6 +174,6 @@ All on a feature branch; merge to `master` when green and Oracle-verified end to
 ## Success criteria
 - `engine/` contains zero Sonic-specific identifiers, paths, or content.
 - `build.sh` (sonic4) produces `s4.bin`; Sonic 4 boots/renders/sounds identically on Oracle.
-- `build.sh demo` produces a ROM that boots to a blank canvas on Oracle.
+- `build.sh demo` produces a ROM that boots and renders one test object on Oracle.
 - A new game = copy `games/demo/`, no engine edits.
 - Every migration stage was committed green; final tree merged to `master`.
