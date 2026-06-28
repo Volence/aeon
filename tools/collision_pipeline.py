@@ -372,7 +372,7 @@ def run_probe(triples: list[tuple[str, int, int]]):
     # Consistency proof: the rebuilt walk must reproduce the on-disk tables,
     # otherwise the printed attr indices don't match the built ROM.
     coll_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "..", "data", "collision")
+                            "..", "games", "sonic4", "data", "collision")
     tables = emit_tables(attrset)
     stale = []
     for name, blob in sorted(tables.items()):

@@ -1428,12 +1428,12 @@ def emit_native_song(rom=None, song_out=None, patches_out=None,
     if rom is None:
         rom = open(ROM_PATH, "rb").read()
     if song_out is None:
-        song_out = os.path.join(root, "data", "sound", "song_movingtrucks.asm")
+        song_out = os.path.join(root, "games", "sonic4", "data", "sound", "song_movingtrucks.asm")
     if patches_out is None:
-        patches_out = os.path.join(root, "data", "sound",
+        patches_out = os.path.join(root, "games", "sonic4", "data", "sound",
                                    "movingtrucks_patches.asm")
     if pitchtab_out is None:
-        pitchtab_out = os.path.join(root, "data", "sound",
+        pitchtab_out = os.path.join(root, "games", "sonic4", "data", "sound",
                                     "movingtrucks_pitchtable_stream.asm")
 
     # First pass: pack with pitchtable_ptr=0 to learn the packed song length (=
@@ -1613,7 +1613,7 @@ def main():
         import os
         here = os.path.dirname(os.path.abspath(__file__))
         out = os.path.normpath(os.path.join(
-            here, "..", "data", "sound", "movingtrucks_pitchtable.asm"))
+            here, "..", "games", "sonic4", "data", "sound", "movingtrucks_pitchtable.asm"))
         write_pitchtable_asm(out)
         print("wrote", out)
         return

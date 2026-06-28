@@ -1634,7 +1634,7 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None):
     """Transcode all core SFX and write to out_dir."""
     if out_dir is None:
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        out_dir = os.path.join(repo_root, 'data', 'sound', 'sfx')
+        out_dir = os.path.join(repo_root, 'games', 'sonic4', 'data', 'sound', 'sfx')
     if skdisasm_dir is None:
         skdisasm_dir = SKDISASM_SFX_DIR
 

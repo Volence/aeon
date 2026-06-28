@@ -76,18 +76,18 @@ import collision_pipeline
 OJZ_ART_PATH = os.path.join(SONIC_HACK, "art/kosinski/OJZ.bin")
 
 OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "data", "generated", "ojz", "act1"
+    os.path.dirname(__file__), "..", "games", "sonic4", "data", "generated", "ojz", "act1"
 )
 
 # ROM collision tables (§4.7 BINCLUDEs in main.asm) — emitted by generate()
 # from the §5 collision attr-set so the table indices always match the
 # collision bytes baked into the strips.
 COLLISION_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "data", "collision"
+    os.path.dirname(__file__), "..", "games", "sonic4", "data", "collision"
 )
 
 EDITOR_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "data", "editor"
+    os.path.dirname(__file__), "..", "games", "sonic4", "data", "editor"
 )
 PROJECT_JSON = os.path.join(
     os.path.dirname(__file__), "..", "project.json"
@@ -1049,7 +1049,7 @@ def load_base_bank():
     """Load the imported S&K base bank (heightmaps + angles) the bake draws shapes
     from. Written by tools/import_sk_collision.py to data/collision/base/."""
     base = os.path.normpath(os.path.join(
-        os.path.dirname(__file__), "..", "data", "collision", "base"))
+        os.path.dirname(__file__), "..", "games", "sonic4", "data", "collision", "base"))
     hm = open(os.path.join(base, "heightmaps.bin"), "rb").read()
     an = open(os.path.join(base, "angles.bin"), "rb").read()
     return hm, an
@@ -1223,7 +1223,7 @@ def generate():
         # Emit the sparse INTERNED runtime tables the ROM uses (overwrites the
         # default full-bank tables import_sk_collision.py wrote).
         coll_out = os.path.normpath(os.path.join(
-            os.path.dirname(__file__), "..", "data", "collision"))
+            os.path.dirname(__file__), "..", "games", "sonic4", "data", "collision"))
         for name, data in collision_pipeline.emit_tables(attrset).items():
             with open(os.path.join(coll_out, name), "wb") as f:
                 f.write(data)

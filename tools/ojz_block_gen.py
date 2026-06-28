@@ -74,7 +74,7 @@ RAW_DIRECT_BIT = 0x80000000  # index entry bit 31: offset -> raw 768B block
 MAX_DICT_BLOCKS = 3          # K sweep upper bound (sec_block_dict_len <= 3*768)
 
 OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "data", "generated", "ojz", "act1"
+    os.path.dirname(__file__), "..", "games", "sonic4", "data", "generated", "ojz", "act1"
 )
 
 NUM_SECTIONS = 9

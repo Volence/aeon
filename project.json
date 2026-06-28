@@ -5,19 +5,19 @@
     {
       "id": "ojz",
       "name": "Oracle Jungle Zone",
-      "tileset": "data/editor/ojz_tiles.bin",
-      "palette": "data/generated/ojz/act1/ojz_palette.bin",
+      "tileset": "games/sonic4/data/editor/ojz_tiles.bin",
+      "palette": "games/sonic4/data/generated/ojz/act1/ojz_palette.bin",
       "acts": [
         {
           "id": "act1",
           "gridWidth": 3,
           "gridHeight": 3,
-          "dataPath": "data/editor/ojz/act1/",
-          "stripPath": "data/generated/ojz/act1/",
+          "dataPath": "games/sonic4/data/editor/ojz/act1/",
+          "stripPath": "games/sonic4/data/generated/ojz/act1/",
           "stripPrefix": "sec",
-          "bgLayout": "data/editor/ojz_act1_bg.bin",
-          "bgTiles": "data/editor/ojz_act1_bg_tiles.bin",
-          "parallax": "data/parallax/ojz_default.asm",
+          "bgLayout": "games/sonic4/data/editor/ojz_act1_bg.bin",
+          "bgTiles": "games/sonic4/data/editor/ojz_act1_bg_tiles.bin",
+          "parallax": "games/sonic4/data/parallax/ojz_default.asm",
           "startPosition": {
             "secX": 0,
             "secY": 0,
@@ -28,6 +28,6 @@
       ]
     }
   ],
-  "objectLibrary": "data/editor/objects.json",
-  "chunkLibrary": "data/editor/ojz/chunks.json"
+  "objectLibrary": "games/sonic4/data/editor/objects.json",
+  "chunkLibrary": "games/sonic4/data/editor/ojz/chunks.json"
 }

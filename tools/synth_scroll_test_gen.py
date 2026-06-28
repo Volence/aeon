@@ -31,7 +31,7 @@ NUM_TILES = 16
 TILE_BYTES = 32
 
 OUT_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "data", "generated", "ojz", "act1"
+    os.path.dirname(__file__), "..", "games", "sonic4", "data", "generated", "ojz", "act1"
 )
 
 

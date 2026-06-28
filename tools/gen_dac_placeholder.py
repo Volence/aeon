@@ -23,7 +23,7 @@ NUM_PERIODS    = 180         # total periods -> length = 16*180 = 2880 samples
 CENTER         = 128         # $80 — unsigned-PCM zero level
 AMPLITUDE      = 100.0       # peak deviation from center (clamp headroom both sides)
 
-OUT = os.path.join(os.path.dirname(__file__), "..", "data", "sound", "temp_blip.bin")
+OUT = os.path.join(os.path.dirname(__file__), "..", "games", "sonic4", "data", "sound", "temp_blip.bin")
 
 
 def main():

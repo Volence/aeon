@@ -23,7 +23,7 @@ import os
 
 HERE = os.path.dirname(__file__)
 SK = os.path.normpath(os.path.join(HERE, "..", "..", "skdisasm", "Levels", "Misc"))
-OUT = os.path.normpath(os.path.join(HERE, "..", "data", "collision"))
+OUT = os.path.normpath(os.path.join(HERE, "..", "games", "sonic4", "data", "collision"))
 SHAPES, ROW, SOLID_ALL = 256, 16, 3   # s4 solidity: 0 none, 1 top, 2 sides-bottom, 3 all
 
 

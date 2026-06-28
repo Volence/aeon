@@ -89,6 +89,6 @@ CompressionSelfTest:
         rts
 
 ; Generated vectors + expected constants (BINCLUDEs, DEBUG builds only)
-    include "data/generated/test/vectors.asm"
+    include "games/sonic4/data/generated/test/vectors.asm"
 
     endif ; __DEBUG__

@@ -24,4 +24,4 @@ GetSineCosine:
         rts
 
 Sine_Table:
-        BINCLUDE "data/misc/sine.bin"
+        BINCLUDE "games/sonic4/data/misc/sine.bin"

@@ -1,8 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-ROM_NAME="s4"
-MAIN_ASM="main.asm"
+GAME="${1:-sonic4}"
+# sonic4 keeps the historical ROM name s4.bin (game content); other games use their own name.
+if [[ "$GAME" == "sonic4" ]]; then ROM_NAME="s4"; else ROM_NAME="$GAME"; fi
+MAIN_ASM="games/${GAME}/main.asm"
 TOOLS="${TOOLS:-tools}"
 
 export AS_MSGPATH="${TOOLS}"

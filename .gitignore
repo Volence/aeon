@@ -11,9 +11,9 @@
 # Allow sprite art and DPLC data
 !art/uncompressed/**/*.bin
 !art/optimized/**/*.bin
-!data/dplc/*.bin
-!data/dplc/optimized/*.bin
-!data/mappings/*.bin
+!games/sonic4/data/dplc/*.bin
+!games/sonic4/data/dplc/optimized/*.bin
+!games/sonic4/data/mappings/*.bin
 !art/palettes/*.bin
 
 # Vendored salvador (ZX0 packer) — keep sources, ignore build artifacts
@@ -32,7 +32,7 @@ tags
 *.tf
 __pycache__/
 .worktrees/
-data/generated/
+games/sonic4/data/generated/
 
 # Build tool caches (content-hash keyed)
 tools/.cache/

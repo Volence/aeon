@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import s4lz
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-OUTPUT_DIR = os.path.join(ROOT, "data", "generated", "test")
+OUTPUT_DIR = os.path.join(ROOT, "games", "sonic4", "data", "generated", "test")
 SALVADOR = os.path.join(ROOT, "tools", "bin", "salvador")
 
 DICT_LEN = 256          # dictionary bytes for the dict vector (word-even)

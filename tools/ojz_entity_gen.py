@@ -70,8 +70,8 @@ FLAG_KEYS = (
 
 REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 PROJECT_JSON = os.path.join(REPO_ROOT, "project.json")
-OBJECT_LIBRARY_JSON = os.path.join(REPO_ROOT, "data", "editor", "objects.json")
-OUTPUT_PATH = os.path.join(REPO_ROOT, "data", "generated", "ojz", "act1", "entity_data.asm")
+OBJECT_LIBRARY_JSON = os.path.join(REPO_ROOT, "games", "sonic4", "data", "editor", "objects.json")
+OUTPUT_PATH = os.path.join(REPO_ROOT, "games", "sonic4", "data", "generated", "ojz", "act1", "entity_data.asm")
 
 
 # ---------------------------------------------------------------------------

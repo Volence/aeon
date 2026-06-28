@@ -1443,7 +1443,7 @@ Snd_RouteClassFlags:
 ; The .inc emits via a `pbyte` macro that selects `db` here (Z80) vs `dc.b` in
 ; the 68k ROM. CLEARLY-TEMP bring-up data; FmPatch_len = 32 bytes/record.
 FmPatchInlineTable:
-        include "data/sound/fm_patches.inc"
+        include "games/sonic4/data/sound/fm_patches.inc"
 FmPatchInlineTable_End:
 
         if (FmPatchInlineTable_End-FmPatchInlineTable) <> 2*FmPatch_len

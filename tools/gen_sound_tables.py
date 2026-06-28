@@ -437,7 +437,7 @@ def _emit_fm_vol_env_z80() -> list:
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    out_path = os.path.join(here, "..", "data", "sound", "sound_tables.asm")
+    out_path = os.path.join(here, "..", "games", "sonic4", "data", "sound", "sound_tables.asm")
     out_path = os.path.normpath(out_path)
     with open(out_path, "w") as f:
         f.write(emit_asm())

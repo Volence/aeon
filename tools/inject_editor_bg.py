@@ -15,8 +15,8 @@ BG_TILE_BASE_SLOT = 1024
 # constants.asm says 512, but the sprite table ($B800) and HScroll table
 # ($BC00) live in the top of the $8000-$BFFF region — real art ceiling:
 BG_TILE_CAPACITY = 448
-OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'generated', 'ojz', 'act1')
-OVERRIDE = os.path.join(os.path.dirname(__file__), '..', 'data', 'editor_bg_override.json')
+OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'games', 'sonic4', 'data', 'generated', 'ojz', 'act1')
+OVERRIDE = os.path.join(os.path.dirname(__file__), '..', 'games', 'sonic4', 'data', 'editor_bg_override.json')
 
 def main():
     with open(OVERRIDE) as f:
