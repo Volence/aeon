@@ -13,7 +13,7 @@
         ; codebase-standard alignment directive — see `align 2` in main.asm.)
         align   $8000                                     ; align to a bank start (no boundary cross)
 Dac_Temp_Blip:
-        BINCLUDE "data/sound/temp_blip.bin"
+        BINCLUDE "games/sonic4/data/sound/temp_blip.bin"
 Dac_Temp_Blip_End:
 
         if (Dac_Temp_Blip >> 15) <> ((Dac_Temp_Blip_End-1) >> 15)
@@ -50,13 +50,13 @@ SND_BLIP_LEN            = Dac_Temp_Blip_End - Dac_Temp_Blip
         align   $8000
 Dac_SharedBank_Start:
 Dac_Kick:
-        BINCLUDE "data/sound/dac/kick.pcm"
+        BINCLUDE "games/sonic4/data/sound/dac/kick.pcm"
 Dac_Kick_End:
 Dac_Snare:
-        BINCLUDE "data/sound/dac/snare.pcm"
+        BINCLUDE "games/sonic4/data/sound/dac/snare.pcm"
 Dac_Snare_End:
 Dac_Hat:
-        BINCLUDE "data/sound/dac/hat.pcm"
+        BINCLUDE "games/sonic4/data/sound/dac/hat.pcm"
 Dac_Hat_End:
 ; --- S3K HCZ2 drums (Phase 5) — raw 8-bit PCM, pitch baked in at the engine's
 ; fixed ~18356 Hz DAC rate (tools/import_s3k_dac.py). The 4 toms are 82-85.wav at
@@ -64,22 +64,22 @@ Dac_Hat_End:
 ; DAC_82..DAC_85_Setup), so they pitch distinctly. They share this $8000 bank with
 ; the existing kick/snare/hat (9 samples total = 30908 bytes < $8000, fits). ---
 Dac_S3K_Snare:
-        BINCLUDE "data/sound/dac/s3k_snare.pcm"
+        BINCLUDE "games/sonic4/data/sound/dac/s3k_snare.pcm"
 Dac_S3K_Snare_End:
 Dac_S3K_HiTom:
-        BINCLUDE "data/sound/dac/s3k_hitom.pcm"
+        BINCLUDE "games/sonic4/data/sound/dac/s3k_hitom.pcm"
 Dac_S3K_HiTom_End:
 Dac_S3K_MidTom:
-        BINCLUDE "data/sound/dac/s3k_midtom.pcm"
+        BINCLUDE "games/sonic4/data/sound/dac/s3k_midtom.pcm"
 Dac_S3K_MidTom_End:
 Dac_S3K_LowTom:
-        BINCLUDE "data/sound/dac/s3k_lowtom.pcm"
+        BINCLUDE "games/sonic4/data/sound/dac/s3k_lowtom.pcm"
 Dac_S3K_LowTom_End:
 Dac_S3K_FloorTom:
-        BINCLUDE "data/sound/dac/s3k_floortom.pcm"
+        BINCLUDE "games/sonic4/data/sound/dac/s3k_floortom.pcm"
 Dac_S3K_FloorTom_End:
 Dac_S3K_Kick:
-        BINCLUDE "data/sound/dac/s3k_kick.pcm"
+        BINCLUDE "games/sonic4/data/sound/dac/s3k_kick.pcm"
 Dac_S3K_Kick_End:
 
         ; No sample may straddle a 32KB window boundary (FILL never re-banks mid-sample).

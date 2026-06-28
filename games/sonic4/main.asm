@@ -116,7 +116,7 @@ __BUDGET_ENGINE:
     include "engine/level/plane_buffer.asm"
     include "engine/level/tile_cache.asm"
     include "engine/level/collision_lookup.asm"
-    include "engine/player/player_sensors.asm"
+    include "games/sonic4/player/player_sensors.asm"
     include "engine/level/section.asm"
     include "engine/level/camera.asm"
     include "engine/level/parallax.asm"
@@ -150,22 +150,22 @@ __BUDGET_OBJBANK:
     ; player_common first — it defines the overlay equates and macros
     ; the state files use; ground/air are reached only via the offset
     ; tables, so order among them is otherwise free.
-    include "engine/player/player_common.asm"
-    include "engine/player/player_ground.asm"
-    include "engine/player/player_air.asm"
-    include "engine/player/player_spindash.asm"
-    include "engine/player/sonic.asm"
+    include "games/sonic4/player/player_common.asm"
+    include "games/sonic4/player/player_ground.asm"
+    include "games/sonic4/player/player_air.asm"
+    include "games/sonic4/player/player_spindash.asm"
+    include "games/sonic4/player/sonic.asm"
 
-    include "objects/test_static.asm"
-    include "objects/test_animated.asm"
-    include "objects/test_player.asm"
-    include "objects/test_enemy.asm"
-    include "objects/test_solid.asm"
-    include "objects/test_particle.asm"
-    include "objects/test_emitter.asm"
-    include "objects/test_parent.asm"
-    include "objects/test_stress_emitter.asm"
-    include "objects/path_swap.asm"
+    include "games/sonic4/objects/test_static.asm"
+    include "games/sonic4/objects/test_animated.asm"
+    include "games/sonic4/objects/test_player.asm"
+    include "games/sonic4/objects/test_enemy.asm"
+    include "games/sonic4/objects/test_solid.asm"
+    include "games/sonic4/objects/test_particle.asm"
+    include "games/sonic4/objects/test_emitter.asm"
+    include "games/sonic4/objects/test_parent.asm"
+    include "games/sonic4/objects/test_stress_emitter.asm"
+    include "games/sonic4/objects/path_swap.asm"
 
     if * > $20000
       error "Object code bank overflows 64KB by \{*-$20000} bytes"
@@ -175,55 +175,55 @@ __BUDGET_OBJBANK:
 ; Data (outside object code bank — addressed directly, not via objroutine)
 ; -----------------------------------------------
 __BUDGET_DATA:
-    include "data/parallax/ojz_default.asm"
-    include "data/parallax/ojz_windy.asm"
+    include "games/sonic4/data/parallax/ojz_default.asm"
+    include "games/sonic4/data/parallax/ojz_windy.asm"
     ; Reusable parallax effects library — drop new effects under
     ; data/parallax/effects/ and include them here. Each file defines a
     ; deform table + ParallaxConfig_* record that any section can point
     ; at via Sec_sec_parallax_config. Must come AFTER ojz_default.asm
     ; because some effects reference DeformTable_Zero from there.
-    include "data/parallax/effects/shimmer.asm"
-    include "data/parallax/effects/haze.asm"
-    include "data/parallax/effects/rocking.asm"
-    include "data/parallax/effects/perspective.asm"
+    include "games/sonic4/data/parallax/effects/shimmer.asm"
+    include "games/sonic4/data/parallax/effects/haze.asm"
+    include "games/sonic4/data/parallax/effects/rocking.asm"
+    include "games/sonic4/data/parallax/effects/perspective.asm"
     ; Composite scenes — hand-authored configs that stack multiple effects
     ; with custom per-band gradients. Must come AFTER effects/ for the
     ; deform-table references to resolve.
-    include "data/parallax/scenes/windy_haze.asm"
-    include "data/parallax/scenes/sky_haze.asm"
-    include "data/parallax/scenes/caves.asm"
-    include "data/parallax/scenes/locked_clouds.asm"
-    include "data/objdefs/test_objects.asm"
-    include "data/generated/ojz/act1/entity_data.asm"
-    include "data/levels/ojz/act1/act_descriptor.asm"
-    include "data/mappings/test_mappings.asm"
-    include "data/animations/sonic_anims.asm"
-    include "data/animations/particle_anims.asm"
+    include "games/sonic4/data/parallax/scenes/windy_haze.asm"
+    include "games/sonic4/data/parallax/scenes/sky_haze.asm"
+    include "games/sonic4/data/parallax/scenes/caves.asm"
+    include "games/sonic4/data/parallax/scenes/locked_clouds.asm"
+    include "games/sonic4/data/objdefs/test_objects.asm"
+    include "games/sonic4/data/generated/ojz/act1/entity_data.asm"
+    include "games/sonic4/data/levels/ojz/act1/act_descriptor.asm"
+    include "games/sonic4/data/mappings/test_mappings.asm"
+    include "games/sonic4/data/animations/sonic_anims.asm"
+    include "games/sonic4/data/animations/particle_anims.asm"
 
 ; -----------------------------------------------
 ; Collision data (§4.7 — global, shared across all zones)
 ; -----------------------------------------------
 HeightMaps:
-    BINCLUDE "data/collision/heightmaps.bin"
+    BINCLUDE "games/sonic4/data/collision/heightmaps.bin"
     align 2
 HeightMapsRot:
-    BINCLUDE "data/collision/heightmaps_rot.bin"
+    BINCLUDE "games/sonic4/data/collision/heightmaps_rot.bin"
     align 2
 AngleTable:
-    BINCLUDE "data/collision/angles.bin"
+    BINCLUDE "games/sonic4/data/collision/angles.bin"
     align 2
 SolidityTable:
-    BINCLUDE "data/collision/solidity.bin"
+    BINCLUDE "games/sonic4/data/collision/solidity.bin"
     align 2
 
 Map_Sonic:
-    BINCLUDE "data/mappings/sonic.bin"
+    BINCLUDE "games/sonic4/data/mappings/sonic.bin"
     align 2
     if (*-Map_Sonic) > $7FFF
       error "Map_Sonic exceeds signed word-offset range"
     endif
 DPLC_Sonic:
-    BINCLUDE "data/dplc/optimized/sonic.bin"
+    BINCLUDE "games/sonic4/data/dplc/optimized/sonic.bin"
     align 2
     if (*-DPLC_Sonic) > $7FFF
       error "DPLC_Sonic exceeds signed word-offset range"
@@ -237,7 +237,7 @@ Art_Sonic:
 ; Bank-aligned (align $8000); the Z80 reads it through its $8000 window.
 ; -----------------------------------------------
     ifdef SOUND_DRIVER_ENABLED
-        include "data/sound/dac_samples.asm"
+        include "games/sonic4/data/sound/dac_samples.asm"
         ; NOTE: the 68k DUPLICATE sound tables (data/sound/sound_tables.asm =
         ; FmPitchTable/PsgDivisorTable/LogVolumeLut/CarrierMaskTable, and
         ; data/sound/fm_patches.asm = FmPatchTable) were REMOVED. They are never
@@ -267,7 +267,7 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         cpu     z80
         phase   08000h
         include "engine/sound/sound_tables_z80.asm"
-        include "data/sound/movingtrucks_pitchtable.asm"
+        include "games/sonic4/data/sound/movingtrucks_pitchtable.asm"
         if (MovingTrucks_PitchTable_End - MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT
           fatal "MovingTrucks_PitchTable wrong size: \{MovingTrucks_PitchTable_End - MovingTrucks_PitchTable} != \{2*PITCHTAB_COUNT}"
         endif
@@ -282,21 +282,21 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         include "engine/sound/sound_banked_z80.asm"
         dephase
         restore
-        include "data/sound/song_movingtrucks.asm"
+        include "games/sonic4/data/sound/song_movingtrucks.asm"
         ; The per-song pitch table (the 132-entry Zyrinx Moving-Trucks fnum table,
         ; two parallel A4/A0 pages). Placed CONTIGUOUSLY right after the song so the
         ; header's pitchtable_ptr (= the song length) resolves to base+offset inside
         ; the same bank-aligned 32KB block. Distinct label from the engine-default
         ; inline copy in the Z80 blob (no label collision). The loader points
         ; Snd_PitchTabPtr here via the header offset.
-        include "data/sound/movingtrucks_pitchtable_stream.asm"
+        include "games/sonic4/data/sound/movingtrucks_pitchtable_stream.asm"
         ; The per-song FmPatch bank (33 records * 26 = 858 bytes), read by
         ; Fm_PatchLoad at SND_SEQ_PATCHTAB + local_idx*26. Placed CONTIGUOUSLY after
         ; the pitch table (no align between) so the whole block stays in the one
         ; bank-aligned 32KB bank. The stream-path loader points SND_SEQ_PATCHTAB at
         ; this bank's window ptr (from SongPatchTable). Emitted via the `pbyte`
         ; single-source pattern (so it can ALSO be inlined in the Z80 blob).
-        include "data/sound/movingtrucks_patches.asm"
+        include "games/sonic4/data/sound/movingtrucks_patches.asm"
     ifdef __DEBUG__
         ; DEBUG STREAM DAC-on drum-test song (DAC-drum phase Layer 5 Task 5.3, id 2).
         ; Co-located in THIS bank (the only one holding the engine tables, which the
@@ -307,7 +307,7 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         ; bank and the per-frame B1 swap is genuinely exercised. Defined BEFORE
         ; song_table.asm (which references Song_DrumTest). Tiny (< 300 B) — fits the
         ; same bank; the no-straddle guard is in song_table.asm.
-        include "data/sound/song_drumtest.asm"
+        include "games/sonic4/data/sound/song_drumtest.asm"
 
         ; --- HCZ2 (S3K Hydrocity Zone Act 2) import — Phase 7 (id 3) ----------
         ; A faithful native sequencer playback (NOT a register replay) of the original
@@ -328,35 +328,35 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         ; overflows, a label-free engine-table copy in a dedicated HCZ2 bank is the
         ; fallback). Defined BEFORE song_table.asm (which references Song_HCZ2 +
         ; HCZ2_Patches in SongTable/SongPatchTable + the bank-fit asserts).
-        include "data/sound/song_hcz2.asm"
-        include "data/sound/hcz2_patches.asm"
+        include "games/sonic4/data/sound/song_hcz2.asm"
+        include "games/sonic4/data/sound/hcz2_patches.asm"
     endif
-        include "data/sound/song_table.asm"
+        include "games/sonic4/data/sound/song_table.asm"
         ; --- Phase 5a SFX data (generated by tools/sfx_transcode.py) ---
         ; Small FM/PSG blobs (no DAC, no bank-streaming) — plain inline data the
         ; Z80 SFX loader reads via the $8000 window. SfxTable indexes id -> blob.
         ; Each SFX has its own blob + FmPatch bank (independent labels, no sharing).
         ; Include order: blobs + their patch banks before sfx_table.asm (which
         ; references the blob labels). PSG-only SFX have empty patch banks.
-        include "data/sound/sfx/sfx_33.asm"
-        include "data/sound/sfx/sfx_33_patches.asm"
-        include "data/sound/sfx/sfx_34.asm"
-        include "data/sound/sfx/sfx_34_patches.asm"
-        include "data/sound/sfx/sfx_35.asm"
-        include "data/sound/sfx/sfx_35_patches.asm"
-        include "data/sound/sfx/sfx_36.asm"
-        include "data/sound/sfx/sfx_36_patches.asm"
-        include "data/sound/sfx/sfx_3C.asm"
-        include "data/sound/sfx/sfx_3C_patches.asm"
-        include "data/sound/sfx/sfx_62.asm"
-        include "data/sound/sfx/sfx_62_patches.asm"
-        include "data/sound/sfx/sfx_AB.asm"
-        include "data/sound/sfx/sfx_AB_patches.asm"
-        include "data/sound/sfx/sfx_B6.asm"
-        include "data/sound/sfx/sfx_B6_patches.asm"
-        include "data/sound/sfx/sfx_B9.asm"
-        include "data/sound/sfx/sfx_B9_patches.asm"
-        include "data/sound/sfx/sfx_table.asm"
+        include "games/sonic4/data/sound/sfx/sfx_33.asm"
+        include "games/sonic4/data/sound/sfx/sfx_33_patches.asm"
+        include "games/sonic4/data/sound/sfx/sfx_34.asm"
+        include "games/sonic4/data/sound/sfx/sfx_34_patches.asm"
+        include "games/sonic4/data/sound/sfx/sfx_35.asm"
+        include "games/sonic4/data/sound/sfx/sfx_35_patches.asm"
+        include "games/sonic4/data/sound/sfx/sfx_36.asm"
+        include "games/sonic4/data/sound/sfx/sfx_36_patches.asm"
+        include "games/sonic4/data/sound/sfx/sfx_3C.asm"
+        include "games/sonic4/data/sound/sfx/sfx_3C_patches.asm"
+        include "games/sonic4/data/sound/sfx/sfx_62.asm"
+        include "games/sonic4/data/sound/sfx/sfx_62_patches.asm"
+        include "games/sonic4/data/sound/sfx/sfx_AB.asm"
+        include "games/sonic4/data/sound/sfx/sfx_AB_patches.asm"
+        include "games/sonic4/data/sound/sfx/sfx_B6.asm"
+        include "games/sonic4/data/sound/sfx/sfx_B6_patches.asm"
+        include "games/sonic4/data/sound/sfx/sfx_B9.asm"
+        include "games/sonic4/data/sound/sfx/sfx_B9_patches.asm"
+        include "games/sonic4/data/sound/sfx/sfx_table.asm"
         ; The Z80 SFX reader derives a single SFX_BLOB_BANK from the first blob and
         ; addresses every blob through the $8000 window (low 15 bits). That only holds
         ; while the whole contiguous SFX block lives in one $8000 ROM page. Sfx_33 is

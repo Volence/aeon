@@ -28,7 +28,7 @@ PATCH_LEAD = 1          ; EHZ voice (alg 7, fb 0 — all carriers, bright)
 PATCH_COUNT = 2
 
 FmPatchTable:
-        include "data/sound/fm_patches.inc"
+        include "games/sonic4/data/sound/fm_patches.inc"
 FmPatchTable_End:
 
         if (FmPatchTable_End-FmPatchTable)/FmPatch_len <> PATCH_COUNT
