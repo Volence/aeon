@@ -583,6 +583,17 @@ SndDrv_PollMailbox:
         inc     a
         ld      (SND_STAT_ACK_COUNT), a
 .no_sfx:
+        ; --- fade request? (1 = out, 2 = in) ---
+        ld      a, (SND_REQ_FADE)
+        or      a
+        jr      z, .no_fade
+        call    Snd_FadeCommand          ; set target + seed delay ctr (RAM only; bank-safe)
+        xor     a
+        ld      (SND_REQ_FADE), a        ; clear slot (consumed)
+        ld      a, (SND_STAT_ACK_COUNT)
+        inc     a
+        ld      (SND_STAT_ACK_COUNT), a
+.no_fade:
         ; --- tempo request? (1..$FE target decrement; $FF restore authored base) ---
         ld      a, (SND_REQ_TEMPO)
         or      a
@@ -626,6 +637,28 @@ Snd_TempoCommand:
         ld      a, SND_TEMPO_DECR_DEFAULT ; 0 -> normal (defensive)
 .ok:
         ld      (SND_TEMPO_TARGET), a
+        ret
+
+; ======================================================================
+; Snd_FadeCommand — a = SND_FADE_CMD_OUT (1) or SND_FADE_CMD_IN (2). OUT: ramp the
+; scalar UP to silence. IN: snap to silence, ramp DOWN to full. Seeds the step-delay
+; counter so Fade_Ramp steps on the next frame. Clobbers af. RESIDENT (same reason as
+; Snd_TempoCommand: reached from the mailbox/streaming context; RAM only).
+; ======================================================================
+Snd_FadeCommand:
+        cp      SND_FADE_CMD_IN
+        jr      z, .fade_in
+        ld      a, SND_FADE_SILENCE      ; fade out: target = silent
+        ld      (SND_FADE_TARGET), a
+        jr      .seed
+.fade_in:
+        ld      a, SND_FADE_SILENCE
+        ld      (SND_MASTER_FADE), a     ; start silent
+        xor     a
+        ld      (SND_FADE_TARGET), a     ; target = full volume
+.seed:
+        ld      a, SND_FADE_DELAY
+        ld      (SND_FADE_DELAY_CTR), a
         ret
 
 ; ======================================================================

@@ -226,3 +226,22 @@ Sound_StopMusic:
 Sound_SetTempo:
         lea     (SND_Z80_BASE+SND_REQ_TEMPO).l, a0
         bra.w   Sound_PostByte
+
+; ----------------------------------------------------------------------
+; Sound_FadeOut — ramp the music master volume down to silence (~1s). The song keeps
+; playing; the game typically follows with Sound_StopMusic when silent. Music-only
+; (SFX stay full). Clobbers: d0; SR restored.
+; ----------------------------------------------------------------------
+Sound_FadeOut:
+        move.b  #SND_FADE_CMD_OUT, d0
+        lea     (SND_Z80_BASE+SND_REQ_FADE).l, a0
+        bra.w   Sound_PostByte
+
+; ----------------------------------------------------------------------
+; Sound_FadeIn — snap the master volume to silence and ramp it up to full (~1s). Use
+; right after Sound_PlayMusic to fade a song in. Clobbers: d0; SR restored.
+; ----------------------------------------------------------------------
+Sound_FadeIn:
+        move.b  #SND_FADE_CMD_IN, d0
+        lea     (SND_Z80_BASE+SND_REQ_FADE).l, a0
+        bra.w   Sound_PostByte
