@@ -1,29 +1,32 @@
 ; ======================================================================
-; BANKED in-frame Z80 routines (Phase-2 music expression).
+; (LEGACY) banked in-frame Z80 routine — Phase-2 music expression.
 ;
-; These routines are emitted in the Moving Trucks / SFX bank (main.asm's
-; `cpu z80 / phase 08000h` block) — NOT the resident phase-0 blob — so they cost
-; ZERO against the $16F0 resident-code ceiling. A `call` from resident in-frame
-; code executes the window-resident body — BUT ONLY from a context where the
-; banked-routine bank is the one actually in the $8000 window. This is the same
-; banking the engine tables already use; every song co-locates with this bank.
+; Emitted in the Moving Trucks / SFX bank (main.asm's `cpu z80 / phase 08000h`
+; block) so it costs ZERO against the $16F0 resident-code ceiling.
 ;
-; INVARIANTS (must hold for every routine here):
-;   1. Never reached from a mailbox / ISR / idle-entry context — the SAMPLE bank is
-;      in the window there, so the body would execute garbage.
-;   2. Never SetBank while executing (it would unmap its own code from under the PC).
-;   3. ONLY reached from the NOTE-ON / ModUpdate VOICE-WRITE path — the context that
-;      reads FmPitchTableZ/LogVolumeLutZ from this same bank, so the window is
-;      guaranteed to hold it. **NOT the Sequencer_Frame PREAMBLE.** The preamble
-;      runs with SND_SONG_BANK (the song's CURRENT stream bank) in the window, which
-;      for a multi-bank streaming song is NOT this routine bank — a banked `call`
-;      there executes garbage and breaks the whole frame (PROVEN: a banked Tempo_Ramp
-;      called from the preamble silenced playback; moving it RESIDENT fixed it). So
-;      the per-frame ramps (Tempo_Ramp, Fade_Ramp) are RESIDENT; only routines on the
-;      voice-write path (Fm_FnumApplyDelta, Porta_Apply) live here.
+; ⚠ KNOWN-UNSAFE — DO NOT ADD ROUTINES HERE. Banking in-frame CODE is a latent
+; crash hazard, NOT a "proven 0-cost lever" as the recovery doc claimed.
+; Z80 instruction fetches from $8000-$FFFF traverse the 68k bus (cartridge ROM via
+; the bank latch). When such a fetch coincides with 68k bus activity — VRAM
+; DMA-from-ROM and/or the DEBUG VBlank state-mirror's stopZ80/BUSREQ — the fetched
+; OPCODE is corrupted, derailing the instruction stream → wild PC → the Z80 falls
+; into its own init (no 68k watchdog). `di` does NOT help (it masks the Z80 INT
+; line, not 68k-asserted BUSREQ). Banked DATA reads (pitch/volume tables) tolerate
+; this (one-frame glitch), but banked CODE fetches do not. PROVEN 2026-06-28: a
+; banked per-frame Porta_Apply crashed the Z80 with 2+ gliding channels (two live
+; freezes traced the PC running into bank data from inside the banked execution);
+; Tempo_Ramp/Fade_Ramp showed the same and are RESIDENT.
 ;
-; Included under the phase block AFTER the data tables, so its labels resolve to
-; $8xxx window addresses (contiguous from bank offset 0).
+; Fm_FnumApplyDelta below is here for HISTORICAL reasons only (fine-detune shipped
+; before this was understood). It is reached from the FM note-on path (per-note, so
+; the contention-alignment probability is low — it has not crashed in practice), but
+; it carries the same latent hazard and MUST be relocated RESIDENT. That move is
+; bundled with the deferred portamento work (Porta_Apply is also per-frame and was
+; reverted for exactly this reason — see docs/superpowers/plans/porta-b1-WIP.patch
+; and the porta-resume plan; both need ~300 B of resident budget recovered first).
+;
+; INVARIANTS while it stays here: never SetBank while executing; only reached from
+; the note-on voice-write path (the FM bank is in the window there).
 ; ======================================================================
 
 ; ----------------------------------------------------------------------
