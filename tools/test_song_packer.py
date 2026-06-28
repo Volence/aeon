@@ -15,9 +15,9 @@ import song_packer
 from song_packer import (
     SongDesc, ChannelDesc,
     SetDur, Rest, Note, Vol, Patch, Dac, NoteDur, LoopPoint, Jump, End,
-    RepeatStart, RepeatEnd, Pan, OpBias, RegDelta, reg_sel, Detune,
+    RepeatStart, RepeatEnd, Pan, OpBias, RegDelta, reg_sel, Detune, Tempo,
     pack_song, emit_asm, PackError,
-    MEV_REPEAT_START, MEV_REPEAT_END, MEV_PAN, MEV_OPBIAS, MEV_REGDELTA, MEV_DETUNE,
+    MEV_REPEAT_START, MEV_REPEAT_END, MEV_PAN, MEV_OPBIAS, MEV_REGDELTA, MEV_DETUNE, MEV_TEMPO,
     RD_GROUP_TL, RD_GROUP_DT_MUL, RD_GROUP_D1L_RR, REGDELTA_GROUP_COUNT,
 )
 
@@ -104,6 +104,19 @@ class TestEventEncoding(unittest.TestCase):
             Detune(200).validate(CHROUTE_FM1)
         with self.assertRaises(PackError):
             Detune(-200).validate(CHROUTE_FM1)
+
+    def test_tempo_encode(self):
+        self.assertEqual(Tempo(24).encode(), bytes([MEV_TEMPO, 24]))
+        self.assertEqual(Tempo(8).encode(), bytes([MEV_TEMPO, 8]))
+        self.assertEqual(Tempo(16).encode(), bytes([MEV_TEMPO, 16]))   # normal speed
+
+    def test_tempo_range(self):
+        Tempo(0).validate(CHROUTE_FM1)       # 0 OK at pack time (engine clamps -> 16)
+        Tempo(255).validate(CHROUTE_PSG1)
+        with self.assertRaises(PackError):
+            Tempo(256).validate(CHROUTE_FM1)
+        with self.assertRaises(PackError):
+            Tempo(-1).validate(CHROUTE_FM1)
 
     def test_reg_sel_encoding(self):
         # reg_sel = (group_code << 2) | op. TL group op0 = the canonical lead step.

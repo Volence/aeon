@@ -386,6 +386,14 @@ MEV_PSGNOISE      = $F2   ; + ctrl : set the SN76489 noise control byte (mode+ra
 ; — the new state fields are zeroed at seq/slot wipe). Each pins its own slot with a
 ; fixed-slot assert, so the global ($F3/$F4) and per-note ($F5/$F6) slices are
 ; collision-free by construction without a cross-ifdef.
+MEV_TEMPO         = $F3   ; + dd : set the GLOBAL tempo speed scalar (per-frame accumulator
+                          ; decrement; 16 = authored/normal, larger = faster, smaller = slower).
+        if (MEV_TEMPO <= MEV_NOTE_MAX) || (MEV_TEMPO < MEV_VOL) || (MEV_TEMPO > MEV_END)
+          error "MEV_TEMPO (\{MEV_TEMPO}) must be a command opcode inside $E0-$FF"
+        endif
+        if MEV_TEMPO <> $F3
+          error "MEV_TEMPO (\{MEV_TEMPO}) must be $F3 (Phase-2 global slice slot)"
+        endif
 MEV_LFO           = $F4   ; + value : write YM2612 $22 (bit3 enable | bits0-2 rate). The
                           ; dedicated semantic LFO opcode (cf. MEV_PAN for $B4) — the
                           ; handler wraps it in the DAC $2A address-park save/restore.

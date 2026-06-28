@@ -75,6 +75,7 @@ MEV_FMENV = 0xF7            # + env_id: arm the FM carrier-TL volume envelope (1
 MEV_REGWRITE = 0xF8         # + part(0/1) + reg + val: inline raw YM2612 register write
 MEV_MACRO = 0xF9            # + ptr_hi + ptr_lo: (re)arm the slot[1] macro stream at a blob offset
 # Phase-2 per-note + global expression opcodes (mirror of sound_constants.asm).
+MEV_TEMPO = 0xF3           # + dd: set the GLOBAL tempo speed scalar (accumulator decrement; 16 = 100%)
 MEV_LFO = 0xF4             # + value: write YM2612 $22 (bit3 enable | bits0-2 rate); DAC $2A re-parked
 MEV_DETUNE = 0xF6          # + dd (signed): set the channel's fine-pitch detune (applied at note-on)
 
@@ -112,7 +113,7 @@ _PSG_ROUTES = {CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN}
 # MEV_SPINREV_RESET is defined above (~line 69) — referenced here, NOT redefined.
 _MUSIC_ILLEGAL_OPCODES = frozenset({MEV_SPINREV_RESET})
 _MUSIC_LEGAL_EXPRESSION_OPCODES = frozenset({
-    MEV_PSGENV, MEV_FMENV, MEV_REGWRITE, MEV_MACRO, MEV_DETUNE, MEV_LFO})
+    MEV_PSGENV, MEV_FMENV, MEV_REGWRITE, MEV_MACRO, MEV_DETUNE, MEV_LFO, MEV_TEMPO})
 
 # SongHeader flags byte (SH_FLAGS) — MIRROR of sound_constants.asm SH_F_*.
 SH_F_FM6_FM = 1 << 0     # FM6 is a 6th FM sequencer voice (DAC mode OFF)
@@ -441,6 +442,23 @@ class Detune(Event):
     def validate(self, route):
         if not (-128 <= self.detune <= 127):
             raise PackError(f"Detune {self.detune} out of signed byte range -128..127")
+
+
+class Tempo(Event):
+    """Global tempo: set the per-frame sequencer-accumulator decrement scalar
+    (16 = authored/normal speed, larger = faster, smaller = slower). The engine
+    clamps 0 -> 16 so a song can never freeze itself. GLOBAL — affects every channel
+    though it rides one channel's stream; snaps base/cur/target (instant authored
+    change). Zero-tick (state-only setter)."""
+    def __init__(self, decrement: int):
+        self.decrement = decrement
+
+    def encode(self) -> bytes:
+        return bytes([MEV_TEMPO, self.decrement & 0xFF])
+
+    def validate(self, route):
+        if not (0 <= self.decrement <= 255):
+            raise PackError(f"Tempo decrement {self.decrement} out of byte range 0..255")
 
 
 class ModSet(Event):

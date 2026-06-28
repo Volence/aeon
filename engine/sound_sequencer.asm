@@ -845,6 +845,23 @@ Seq_Op_Detune:
         ld      (ix+sc_detune), a
         jp      Seq_ContinueFetch
 
+; $F3 MEV_TEMPO + dd : set the GLOBAL tempo speed scalar (per-frame accumulator
+; decrement; 16 = authored/normal, larger = faster, smaller = slower). Snaps
+; base+cur+target (instant authored change). 0 clamped to default (0 would freeze
+; every accumulator). GLOBAL (affects all channels) though it rides one stream.
+; Zero-tick; no writer hook -> hl stays the live stream ptr.
+Seq_Op_Tempo:
+        ld      a, (hl)
+        inc     hl                       ; consume operand (decrement value)
+        or      a
+        jr      nz, .ok
+        ld      a, SND_TEMPO_DECR_DEFAULT ; 0 -> normal (never freeze)
+.ok:
+        ld      (SND_TEMPO_BASE), a      ; authored base (restore reference)
+        ld      (SND_TEMPO_CUR), a       ; instant snap (no ramp for an authored set)
+        ld      (SND_TEMPO_TARGET), a
+        jp      Seq_ContinueFetch
+
 ; $EC MEV_MODSET + wait speed change step : latch the pitch-modulation params (the
 ; engine's smpsModSet). Zero-tick setter. sc_mod_ctrl is set nonzero iff ANY of the
 ; 4 params is nonzero (all-zero = mod off — the smpsModSet 0,0,0,0 idiom AB/3C use to
@@ -1480,7 +1497,7 @@ SeqOpcodeTable:
         dw      Seq_Op_SpinRev           ; $F0 MEV_SPINREV
         dw      Seq_BadOpcode            ; $F1 reserved (SPINREV reset is dispatch-folded)
         dw      Seq_Op_PsgNoise          ; $F2 MEV_PSGNOISE
-        dw      Seq_BadOpcode            ; $F3 reserved
+        dw      Seq_Op_Tempo             ; $F3 MEV_TEMPO (global tempo scalar)
         dw      Seq_Op_Lfo               ; $F4 MEV_LFO (write $22 LFO, DAC $2A re-parked)
         dw      Seq_BadOpcode            ; $F5 reserved
         dw      Seq_Op_Detune            ; $F6 MEV_DETUNE (set sc_detune; applied at next note-on)
