@@ -187,6 +187,25 @@ Psg_NoteOn:
         ld      e, (hl)                  ; e = divisor low byte
         inc     hl
         ld      d, (hl)                  ; d = divisor high byte (only D1-D0 used)
+        ; --- FINE DETUNE (spec §4): add the sign-extended sc_detune to the looked-up
+        ; tone divisor BEFORE the latch + emit, so vibrato/portamento inherit it. PSG has
+        ; no block — plain 16-bit add. NOTE the sign inversion vs FM: the divisor is the
+        ; PERIOD, so +detune LOWERS PSG pitch (chorus is symmetric — opposite-sign detune
+        ; on two leads beats either way). sc_detune==0 -> byte-identical skip. (hl = stale
+        ; divisor-table ptr, no longer needed; clobber-safe.)
+        ld      a, (ix+sc_detune)
+        or      a
+        jr      z, .no_detune
+        ld      c, a
+        add     a, a
+        sbc     a, a
+        ld      b, a                     ; bc = sign-extended sc_detune
+        ld      h, d
+        ld      l, e
+        add     hl, bc                   ; divisor + detune
+        ld      d, h
+        ld      e, l
+.no_detune:
         ; --- latch the base divisor for PSG pitch modulation (spec §5) ---
         ; sc_base_freq holds (hi,lo) = (d,e); Psg_ApplyMod sums the vibrato/sweep
         ; offset onto it each frame. Music + SFX PSG both latch now (the SFX-only gate

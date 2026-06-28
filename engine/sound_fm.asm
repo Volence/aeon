@@ -702,6 +702,20 @@ Fm_NoteOn:
 ; Clobbers: af, bc, de, hl. Preserves ix.
 ; ----------------------------------------------------------------------
 Fm_NoteOnFreq:
+        ; --- FINE DETUNE (spec §4): add the sign-extended sc_detune to the looked-up
+        ; fnum (block-corrected via the banked Fm_FnumApplyDelta) BEFORE the chip write +
+        ; sc_base_freq latch, so the detune carries into vibrato/portamento (both build on
+        ; sc_base_freq) for free. sc_detune==0 (default / SFX / NOTE_RAW) -> byte-identical
+        ; skip. d=$A4, e=$A0 on entry (from Fm_NoteOn/NoteFromTable/NOTE_RAW); a/bc/hl free.
+        ld      a, (ix+sc_detune)
+        or      a
+        jr      z, .no_detune
+        ld      l, a
+        add     a, a
+        sbc     a, a
+        ld      h, a                     ; hl = sign-extended sc_detune (a became 0 or -1)
+        call    Fm_FnumApplyDelta        ; (banked, in-frame) d/e = detuned, block-normalized
+.no_detune:
         ; Write $A4 then $A0 (no key-on yet) via the shared Fm_WriteFreq head. It
         ; re-parks $2A at the end, harmless before the key-on below. de (the fnum word)
         ; is reloaded after for the base-freq latch.
