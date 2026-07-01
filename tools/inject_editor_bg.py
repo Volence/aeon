@@ -85,7 +85,7 @@ def main():
                 for off in b['bank_offsets']:
                     f.write(f'    dc.l BgAnim_Banks+{off}\n')
             f.write('BgAnim_Banks:\n')
-            f.write('    BINCLUDE "data/generated/ojz/act1/bg_anim_banks.bin"\n')
+            f.write('    BINCLUDE "games/sonic4/data/generated/ojz/act1/bg_anim_banks.bin"\n')
         print(f'[inject_editor_bg] anim: {len(bands)} band(s), {len(banks)} bytes of banks')
     else:
         # no animation: emit a disabled stub so the data include always resolves

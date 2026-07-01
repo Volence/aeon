@@ -353,7 +353,7 @@ def generate_all():
             blob_owner[digest] = sec_idx
             blob_lines.append(
                 f"OJZ_Sec{sec_idx}_Blocks:\n"
-                f"    BINCLUDE \"data/generated/ojz/act1/sec{sec_idx}_blocks.bin\"\n"
+                f"    BINCLUDE \"games/sonic4/data/generated/ojz/act1/sec{sec_idx}_blocks.bin\"\n"
                 f"    align 2")
         else:
             blob_lines.append(
