@@ -1,5 +1,14 @@
 # Sound Engine Quality Review — Consolidated Findings (2026-07-01)
 
+> **STATUS UPDATE (same day):** the fix pass SHIPPED to master (`4f7c563` merge + toolchain commits
+> `ef94cc9..f2448d4`). Oracle-verified: Timer-A/StopMusic revival (T0.1), NOTE_RAW steal/restore pitch
+> (T1.5), tempo 2× speed-up (T1.4), PSG rest-gate wash removal (T1.2), HCZ2 drum re-triggers (T1.1),
+> MT/HCZ2 regressions clean. Content-inert fixes build-verified. NOT fixed (still open): T1.9 vibrato
+> per-note reload (+2 struct bytes, schedule with porta), the Seq_Op_ModSet override gate (budget),
+> B1 block-edge clamps, PSG note-fill, F3 late slot-clear, retrigger policy, frame-clock decision,
+> DAC ratification, the game-feel spec, doc-sync. **Z80 budget after the pass: `$16EA`/`$16F0` — 6
+> bytes free** (the numbers below reflect the pre-fix state).
+
 Five-agent deep review (driver core, sequencer/expression, SFX+integration, Python toolchain,
 architecture) of the sound engine on master (`ed586b4`). Read-only audit; fixes tracked separately.
 Severity: **crash** > **audible-now** > **latent** (correct inputs never hit it) > minor.
