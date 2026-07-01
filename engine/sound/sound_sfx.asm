@@ -991,6 +991,13 @@ Sfx_Restore:
         pop     ix                       ; ix = music FM channel
         call    Fm_PatchPtr              ; hl = music FmPatch ptr (SND_SEQ_PATCHTAB, read-only)
         call    Fm_PatchLoad             ; re-upload the music voice (re-asserts op-bias)
+        ; pan shadow resync: the patch upload just re-derived $B4, so a
+        ; song-commanded MEV_PAN (sc_pan != 0) is lost on the chip while the
+        ; write-on-change shadow still matches -> it would never refire. Zero the
+        ; shadow so ModUpdate re-asserts sc_pan next frame; never-panned channels
+        ; (sc_pan == 0 == shadow) still compare equal and keep the patch default.
+        xor     a
+        ld      (ix+sc_last_pan), a
         ld      a, (ix+sc_volume)        ; re-apply the music channel's loudness
         call    Fm_SetVolume             ; carrier TLs (+ op-bias) restored
         ; force re-key ONLY if a note was sounding when the voice was stolen.
