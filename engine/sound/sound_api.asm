@@ -208,8 +208,9 @@ Sound_PlayRing:
 ; ----------------------------------------------------------------------
 ; Sound_StopMusic — stop the song (Task 6). Posts the $FF stop sentinel into
 ; SND_REQ_MUSIC (single bus-held byte, like Sound_PostByte). The Z80 handler
-; key-offs every FM channel, silences PSG, disables Timer A, and clears the
-; sequencer-active flag. (The 1B DAC keeps running — DAC is owned by 1B.)
+; key-offs every FM channel, silences PSG, and clears the sequencer-active
+; flag. Timer A keeps running — it is the whole-driver frame clock (SFX + DAC
+; refill hang off it). (The 1B DAC keeps running — DAC is owned by 1B.)
 ; Clobbers: d0; SR restored.
 ; ----------------------------------------------------------------------
 Sound_StopMusic:

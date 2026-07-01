@@ -112,13 +112,9 @@ SND_TIMERA_CTRL_BIT_ENBL = 2
 SND_TIMERA_CTRL_BIT_RST  = 4
 SND_TIMERA_CTRL_PROGRAM = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)             ; $05 : LOAD:A | ENBL:A
 SND_TIMERA_CTRL_REARM   = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)|(1<<SND_TIMERA_CTRL_BIT_RST) ; $15 : LOAD:A | ENBL:A | RST:A
-; DISABLE: strobe RST:A (bit4) to CLEAR the pending overflow status flag WHILE
-; leaving LOAD:A (bit0) and ENBL:A (bit2) CLEAR so the timer stays off. A bare
-; $27=0 disables the counter but does NOT clear an already-pending overflow flag,
-; so the very next DAC/idle-loop poll would still see overflow and RE-ARM the
-; timer (resurrecting it). $10 clears the flag AND keeps the timer disabled, so
-; StopMusic durably stops the ticks.
-SND_TIMERA_CTRL_DISABLE = (1<<SND_TIMERA_CTRL_BIT_RST)                                            ; $10 : RST:A only (clear flag, timer OFF)
+; NOTE: Timer A is NEVER disabled at runtime — it is the whole-driver frame
+; clock (sequencer + SFX + DAC refill all hang off its tick). StopMusic leaves
+; it running; an idle tick with SND_SEQ_ACTIVE=0 is a cheap early-out.
 SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A overflow
 
         if SND_TIMERA_CTRL_PROGRAM <> $05
@@ -126,9 +122,6 @@ SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A 
         endif
         if SND_TIMERA_CTRL_REARM <> $15
           error "SND_TIMERA_CTRL_REARM must be $15 (LOAD:A|ENBL:A|RST:A)"
-        endif
-        if SND_TIMERA_CTRL_DISABLE <> $10
-          error "SND_TIMERA_CTRL_DISABLE must be $10 (RST:A only)"
         endif
 
 ; --- Tempo: YM Timer A programming from the song-header tempo byte (Task 5) ---
@@ -425,11 +418,14 @@ MEV_FMENV         = $F7   ; + env_id : set the channel's FM TL vol-env id (FM ro
 ; part (0 = part I addr/data $4000/$4001, 1 = part II $4002/$4003). Unlike
 ; MEV_REGDELTA ($EA), the part is carried by the operand (NOT derived from the
 ; channel route via Fm_RoutePart) — this is the raw escape hatch the packer uses
-; for whole-part / global registers (e.g. $22 LFO, $27 timer/ch3 mode, $B4 pan on
-; an arbitrary channel). The handler GUARDS reg==$2A and reg==$2B (the DAC data /
-; DAC-enable regs): those writes are SKIPPED so a song can never clobber the DAC
-; stream or click the enable edge. After the write it re-parks $2A on the addr
-; port (Fm_ReparkDac) so a DAC byte racing in lands on $2A. Zero command-tick.
+; for whole-part / global registers (e.g. $22 LFO, $B4 pan on an arbitrary
+; channel). The handler GUARDS reg==$2A/$2B (the DAC data / DAC-enable regs) AND
+; reg $24-$27 (the timer block: Timer A is the whole-driver frame clock, so an
+; authored $27 write — including ch3-special mode, which shares the register —
+; would freeze the driver): those writes are SKIPPED so a song can never clobber
+; the DAC stream, click the enable edge, or stop the frame clock. After the write
+; it re-parks $2A on the addr port (Fm_ReparkDac) so a DAC byte racing in lands
+; on $2A. Zero command-tick.
 MEV_REGWRITE    = $F8    ; + part + reg + val : raw YM2612 register write (part-explicit)
 
 ; --- slot[1] macro-stream PRIVATE tag namespace (Component D) -------------------
@@ -438,7 +434,7 @@ MEV_REGWRITE    = $F8    ; + part + reg + val : raw YM2612 register write (part-
 ; documented here as the single source of truth (Component E's packer emits the
 ; identical byte values; the sync guard in E asserts on these symbols).
 ;   TAG_MAC_NEXT  : advance exactly one frame (yield to the next MacroTick call)
-;   TAG_MAC_REG   : + part(0/1) + reg + val : immediate YM write (repark $2A; $2A/$2B guarded)
+;   TAG_MAC_REG   : + part(0/1) + reg + val : immediate YM write (repark $2A; $2A/$2B + $24-$27 guarded)
 ;   TAG_MAC_LOOP  : + dw blob_offset (BE) : cursor = Snd_SongBase + offset, re-read
 ;   TAG_MAC_END   : disable this channel's macro stream (sc_mod_ptr = 0, mark inert)
 TAG_MAC_NEXT    = $E0

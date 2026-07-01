@@ -89,10 +89,21 @@ Sequencer_Frame:
         sub     c                        ; accum -= global decrement
         ld      (ix+sc_tempo_accum), a
         jr      nc, .chan_done           ; no borrow -> no event-tick this frame
-        ; borrow: reload accumulator (+= tempo_base) and run one event-tick.
-        add     a, (ix+sc_tempo_base)
+        ; borrow: absorb it in a LOOP — CUR > tempo_base owes MULTIPLE event-ticks
+        ; per frame (CUR = 2x base must yield 2.0 ticks/frame; a single absorb left
+        ; the accumulator wrapped out of range = burst-then-stall). Each pass adds
+        ; one tempo_base credit and runs one tick; the add's CARRY = accumulator
+        ; back in range = that was the last owed tick. Terminates: packer enforces
+        ; tempo_base >= 16, CUR <= $FE -> at most ~16 passes. Re-calling
+        ; Sequencer_Channel with the same ix is safe (an ended channel's dur_count
+        ; underflows to $FF -> ret nz, no fetch).
+.tick_loop:
+        add     a, (ix+sc_tempo_base)    ; absorb one base credit; carry = in range
         ld      (ix+sc_tempo_accum), a
-        call    Sequencer_Channel        ; existing per-event-tick logic (ix preserved)
+        push    af                       ; a + carry survive the tick (a = accum)
+        call    Sequencer_Channel        ; one event-tick (ix preserved)
+        pop     af
+        jr      nc, .tick_loop           ; still out of range -> another tick owed
 .chan_done:
         pop     bc
 .next_chan:
@@ -107,13 +118,10 @@ Sequencer_Frame:
 ; ----------------------------------------------------------------------
 ; Tempo_Ramp — step SND_TEMPO_CUR one unit toward SND_TEMPO_TARGET each frame
 ; (small range -> ~0.1-0.3s glide). No multiply. Clobbers af,b. Preserves ix.
-; RESIDENT (not banked): it is called from the Sequencer_Frame PREAMBLE, BEFORE
-; the per-channel voice-write path establishes the song/table bank in the $8000
-; window — so a banked body here would execute whatever bank the window happens to
-; hold at the top of the frame (proven to break playback). The banked routines
-; (Fm_FnumApplyDelta, Porta_Apply) are only ever reached LATER, from the note-on /
-; ModUpdate voice-write context where the bank IS guaranteed. It is tiny (~17 B),
-; so the resident cost is negligible.
+; RESIDENT — like ALL in-frame code. Banked in-frame CODE is a proven crash
+; hazard (opcode fetches through the $8000 window corrupt under 68k bus
+; contention -> wild PC -> Z80 self-reinit); only DATA tables may live in the
+; banked window. It is tiny (~17 B), so the resident cost is negligible.
 ; ----------------------------------------------------------------------
 Tempo_Ramp:
         ld      a, (SND_TEMPO_TARGET)
@@ -136,7 +144,7 @@ Tempo_Ramp:
 ; ModUpdate re-asserts held-note volumes (the scalar is folded in Fm_SetVolume/
 ; Psg_SetVolume). Steady state (cur==target) = no step, no dirty. Called once/frame
 ; from the Sequencer_Frame preamble before the channel loop. Clobbers af,b. Preserves
-; ix. RESIDENT (preamble-called; see Tempo_Ramp + sound_banked_z80.asm header).
+; ix. RESIDENT (all in-frame code is — see Tempo_Ramp's banked-window rule).
 ; ----------------------------------------------------------------------
 Fade_Ramp:
         ld      a, (SND_FADE_TARGET)
@@ -273,6 +281,12 @@ ModUpdate:
         ld      a, (ix+sc_psgenv)
         or      a
         ret     z                        ; no PSG vol-env -> done
+        ; KEYED gate (S3K-faithful): a RESTED channel must stay silent — without
+        ; this, a sustain/plain env byte re-emits volume every frame and UN-silences
+        ; the rest (drone). The env id + cursor persist; the next note-on resets the
+        ; cursor (Psg_EnvCursorReset) + sets KEYED, replaying the contour.
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        ret     z                        ; rested -> no env output
         jp      PsgEnvUpdate             ; advance the contour + emit (tail-call, preserves ix)
 .is_fm:
 
@@ -309,7 +323,7 @@ ModUpdate:
         ; reaches 0, leaving a staccato gap until the next attack. sc_fill_count==0 means
         ; disabled (sc_fill_master 0) OR already expired -> one test, no cost. Runs BEFORE the
         ; held-note `ret z` below so a held note can be released MID-duration (the gap). It is
-        ; reloaded from sc_fill_master at every key-on (.rekey_on). Only channels with
+        ; reloaded from sc_fill_master at every FM key-on (Fm_NoteOnFreq). Only channels with
         ; sc_fill_master != 0 (the gated percussion) are affected; every other channel keeps
         ; sc_fill_master == 0 -> full legato, byte-identical to before this feature.
         ld      a, (ix+sc_fill_count)
@@ -359,20 +373,20 @@ ModUpdate:
         call    Fm_NoteOff               ; keyed -> key OFF first (forces a fresh 0->1 edge)
     endif
 .rekey_on:
+        ; (the note-fill countdown reload lives in Fm_NoteOnFreq — the single
+        ; key-on chokepoint — so both branches below pick it up via tail-call)
         ld      a, (ix+sc_points)        ; (re)load sc_points[0] (Fm_NoteOff clobbered a)
         bit     SCF_PITCH_CHROMATIC_B, (ix+sc_flags)
-        jr      z, .rekey_persong        ; clear -> music: per-song fnum table
-        call    Fm_NoteOn                ; SFX: chromatic FmPitchTableZ (same table the note-on used)
-        jr      .rekey_fill
-.rekey_persong:
-        call    Fm_NoteFromTable         ; look up per-song table + key on (preserves ix)
-.rekey_fill:
-        ; reload the note-fill countdown for this fresh attack (master 0 -> stays legato)
-        ld      a, (ix+sc_fill_master)
-        ld      (ix+sc_fill_count), a
-        ret
+        jp      z, Fm_NoteFromTable      ; clear -> music: per-song fnum table (tail-call)
+        jp      Fm_NoteOn                ; SFX: chromatic FmPitchTableZ (tail-call)
 
 .multipoint:
+        ; KEYED gate: a REST keys the channel off (Fm_NoteOff clears SCF_KEYED),
+        ; and the arp below re-keys EVERY frame — without this gate a rest could
+        ; never silence a running arp. Safe for a fresh arm: Seq_Op_PitchEnv sets
+        ; SCF_KEYED alongside SCF_REKEY, so the arm frame always passes.
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        ret     z                        ; rested -> arp stops until the next PITCHENV
         ; --- count>=2 trill/arp pitch path (PER-FRAME re-articulation) ---------
         ; Cursor-cycle the pitch points ONCE PER FRAME (the ~59 Hz frame clock),
         ; wrapping at sc_pt_count, and re-key sc_points[cursor] every frame. For a
@@ -468,8 +482,10 @@ PsgEnvUpdate:
         ; S3K keeps FMVolEnv/PSGVolEnv set and only resets the VolEnv cursor per note
         ; (zFinishTrackUpdate). Zeroing the id here disabled the envelope for every
         ; subsequent note in a run -> a flat loud-noise blast (the HCZ2 hi-hat bug).
-        ; The cursor stays parked on the rest byte, so until the next note-on this
-        ; re-silences each frame (matching S3K's per-frame re-rest).
+        ; The cursor stays parked on the rest byte. Psg_NoteOff clears SCF_KEYED,
+        ; so ModUpdate's KEYED gate stops re-entering this envelope until the next
+        ; note-on — the single key-off below is the whole rest (S3K's per-frame
+        ; re-rest is redundant once the gate holds the silence).
         jp      Psg_NoteOff              ; silence this PSG channel (tail-call, preserves ix)
 
 ; ----------------------------------------------------------------------
@@ -883,9 +899,15 @@ Seq_Op_PsgNoise:
         ld      a, (hl)
         inc     hl                       ; consume operand (the $E0-$EF control byte)
         ld      (ix+sc_noise_mode), a    ; latch for the per-note rate-3 gate + steal re-arm
+        ; OVERRIDE gate: while an SFX owns the noise voice, keep the latch above
+        ; (Sfx_Restore re-arms from it) but skip the chip writes — the control
+        ; write would reset the SFX's LFSR/mode and re-silence tone-2 under it.
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        jr      nz, .noise_latched
         ld      (SND_Z80_PSG), a         ; write the noise control (resets LFSR once)
         ld      a, SND_PSG_SILENCE_T3    ; $DF = tone-ch2 volume | max attenuation
         ld      (SND_Z80_PSG), a         ; silence ch2 tone (its frequency still clocks noise)
+.noise_latched:
         jp      Seq_ContinueFetch
 
 ; $F4 MEV_LFO + value : write YM2612 $22 (bit3 enable | bits0-2 rate). The global LFO
@@ -1092,6 +1114,12 @@ Seq_Op_NoteRaw:
         ld      (ix+sc_stream_ptr), l
         ld      (ix+sc_stream_ptr+1), h  ; commit ptr before the hook clobbers hl
         set     SCF_KEYED_B, (ix+sc_flags) ; SCF_KEYED
+        ; latch the raw freq word BEFORE the override gate: while an SFX owns this
+        ; voice the key below is skipped, but Sfx_Restore re-keys the held note
+        ; from sc_base_freq — without this latch it would re-key a STALE pitch
+        ; (sc_note holds the raw $A4 byte, useless as a table index).
+        ld      (ix+sc_base_freq), d     ; high slot = $A4 value
+        ld      (ix+sc_base_freq+1), e   ; low slot  = $A0 value
     ifdef __DEBUG__
         ld      a, SEQEV_NOTEON
         call    Seq_Trace                ; preserves de (the fnum word)
@@ -1300,9 +1328,10 @@ Seq_Op_RegDelta:
 ; $F8 MEV_REGWRITE + part + reg + val : write ONE arbitrary YM2612 register for an
 ; EXPLICIT part (0/1), IMMEDIATELY. Zero command-tick. The part is carried by the
 ; operand (NOT Fm_RoutePart-derived) — this is the raw register escape hatch for
-; whole-part / global regs. GUARD: reg==$2A (DAC data) and reg==$2B (DAC enable)
-; are SKIPPED (the operands are still consumed) so a song can never clobber the DAC
-; stream or click the enable edge. After the write, Fm_ReparkDac re-selects $2A on
+; whole-part / global regs. GUARD: reg==$2A/$2B (DAC data/enable) and reg $24-$27
+; (the timer block — the whole-driver frame clock) are SKIPPED (the operands are
+; still consumed) so a song can never clobber the DAC stream, click the enable
+; edge, or stop Timer A. After the write, Fm_ReparkDac re-selects $2A on
 ; the addr port so a racing DAC byte lands on $2A. de=$4001 is preserved BY
 ; CONSTRUCTION (Fm_YmWrite/Fm_ReparkDac use absolute YM addressing). hl-rule: load
 ; all 3 operands first (hl ends past them = the resume ptr), then push/pop hl around
@@ -1319,12 +1348,21 @@ Seq_Op_RegWrite:
         ld      a, (hl)
         inc     hl                       ; a = val; hl now PAST all 3 operands
         ld      c, a                     ; c = val
-        ; --- DAC-reg guard: refuse $2A / $2B (skip the write, operands consumed) ---
+        ; --- DAC + timer reg guard: refuse $2A/$2B (a raw poke would corrupt/
+        ; silence the DAC stream) AND $24-$27 (the timer block: Timer A is the
+        ; whole-driver frame clock — an authored $27 write, e.g. the natural ch3-
+        ; special value $40, would stop it = total driver freeze). Skip the write,
+        ; operands still consumed. ---
         ld      a, e                     ; a = reg
         cp      SND_REG_DAC_DATA         ; $2A ?
         jr      z, .skip
         cp      SND_REG_DAC_ENABLE       ; $2B ?
         jr      z, .skip
+        cp      SND_REG_TIMER_A_HI       ; below $24 -> under the timer block
+        jr      c, .write
+        cp      SND_REG_TIMER_CTRL+1     ; $24-$27 -> timer block, refuse
+        jr      c, .skip
+.write:
         ld      a, e                     ; a = reg (Fm_YmWrite wants reg in a)
         push    hl                       ; defensive: keep the live stream ptr across the write
         call    Fm_YmWrite               ; a=reg, c=val, b=part (absolute addr; de untouched)
@@ -1506,10 +1544,20 @@ MacroTick:
         ld      e, a                     ; e = reg (saved across the guard test)
         ld      c, (hl)
         inc     hl                       ; c = val
+        ; OVERRIDE gate: while an SFX owns this voice, keep walking (macro TIME
+        ; must flow so the stream stays in sync) but drop the chip write — else
+        ; the macro's reg pokes land on the stolen channel's SFX voice.
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        jr      nz, .reg_skip
         cp      SND_REG_DAC_DATA         ; $2A?
         jr      z, .reg_skip
         cp      SND_REG_DAC_ENABLE       ; $2B?
         jr      z, .reg_skip
+        cp      SND_REG_TIMER_A_HI       ; below $24 -> under the timer block
+        jr      c, .reg_write
+        cp      SND_REG_TIMER_CTRL+1     ; $24-$27 -> timer block (frame clock), refuse
+        jr      c, .reg_skip
+.reg_write:
         ld      a, e                     ; a = reg (b=part, c=val already set)
         call    Fm_YmWrite               ; a=reg, c=val, b=part (preserves bc,de,hl,ix)
         call    Fm_ReparkDac             ; re-park $2A (preserves bc,de,hl,ix)

@@ -246,6 +246,14 @@ Sfx_DrainQueue:
 ; nothing the caller needs except the de re-park it does after this tail-call.
 ; ----------------------------------------------------------------------
 Sfx_Frame:
+        ; Bank the SFX blob bank in FIRST: the slot loop's stream/env reads go
+        ; through the $8000 window, but the caller (Run_SeqFrame_OnSongBank)
+        ; banked SND_SONG_BANK — which is 0 at cold boot with no song ever
+        ; loaded, so an SFX started before any music would read 68k code at ROM
+        ; $0000-$7FFF as its event stream. Cached no-op whenever the (co-located)
+        ; song bank is already selected. Clobbers af,hl (nothing live at entry).
+        ld      a, SFX_BLOB_BANK
+        call    SndDrv_SetBank
         call    Sfx_DrainQueue           ; Task 9: pop highest-priority pending SFX
         call    Sfx_DuckRamp             ; Task 10: ramp the music duck level toward target
         ld      b, SFX_VOICE_COUNT       ; b = slot count (djnz bound)
@@ -910,7 +918,8 @@ Sfx_Restore:
         ; Fm_*/Psg_* writers target the right voice with no ix re-point.)
         ld      a, (ix+sx_saved_route)
         call    Sfx_MusicChanPtr         ; carry clear + iy = owning channel; carry set = none
-        jr      c, .no_music             ; no music on this voice -> silence the SFX's own voice
+        jp      c, .no_music             ; no music on this voice -> silence the SFX's own voice
+                                         ;   (jp: the raw-rekey branch pushed this past jr range)
 
         ; (2) un-mute: clear the override so its chip-write sites fire again.
         res     SCF_SFX_OVERRIDE_B, (iy+sc_flags)
@@ -982,6 +991,13 @@ Sfx_Restore:
         pop     ix                       ; ix = music FM channel
         call    Fm_PatchPtr              ; hl = music FmPatch ptr (SND_SEQ_PATCHTAB, read-only)
         call    Fm_PatchLoad             ; re-upload the music voice (re-asserts op-bias)
+        ; pan shadow resync: the patch upload just re-derived $B4, so a
+        ; song-commanded MEV_PAN (sc_pan != 0) is lost on the chip while the
+        ; write-on-change shadow still matches -> it would never refire. Zero the
+        ; shadow so ModUpdate re-asserts sc_pan next frame; never-panned channels
+        ; (sc_pan == 0 == shadow) still compare equal and keep the patch default.
+        xor     a
+        ld      (ix+sc_last_pan), a
         ld      a, (ix+sc_volume)        ; re-apply the music channel's loudness
         call    Fm_SetVolume             ; carrier TLs (+ op-bias) restored
         ; force re-key ONLY if a note was sounding when the voice was stolen.
@@ -994,6 +1010,20 @@ Sfx_Restore:
     if SND_REKEY_OFF_THEN_ON
         call    Fm_NoteOff               ; clean 0->1 edge: key OFF first (mirrors ModUpdate)
     endif
+        ; RAW-vs-TABLE re-key: on a stream/NOTE_RAW song (SH_F_STREAM — the SH_FLAGS
+        ; byte the 68k forwarded stays in SND_MUSIC_PARAM_FLAGS until the next
+        ; PlayMusic) sc_note holds the raw $A4 byte, NOT a pitch-table index —
+        ; re-keying it through the table played a wrong note for up to ~130 ms per
+        ; steal. Re-key from sc_base_freq instead (the exact word; Seq_Op_NoteRaw
+        ; latches it even under override, and KEYED implies it is valid).
+        ld      a, (SND_MUSIC_PARAM_FLAGS)
+        bit     SH_F_STREAM_B, a
+        jr      z, .fm_rekey_table
+        ld      d, (ix+sc_base_freq)     ; high slot = $A4 value
+        ld      e, (ix+sc_base_freq+1)   ; low slot  = $A0 value
+        call    Fm_NoteOnFreq            ; re-key at the exact raw pitch (preserves ix)
+        jr      .fm_done
+.fm_rekey_table:
         ld      a, (ix+sc_note)          ; the held note index
         call    Fm_NoteFromTable         ; re-key from the per-song fnum table (preserves ix)
         jr      .fm_done
