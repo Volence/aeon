@@ -7,6 +7,35 @@
 Flamedriver*. This design replaces Flamedriver with our own driver while preserving **every**
 feature §6 planned. To beat Flamedriver we must include all of §6 *plus* the frontier additions.
 
+---
+
+## AMENDMENT (2026-07-01): superseded sections — read before designing against this doc
+
+Later approved specs and the shipped driver overturned several load-bearing sections below.
+The body is retained unedited as the historical design record; **do not design against the
+superseded sections**. Current state-of-truth: `docs/superpowers/2026-07-01-sound-engine-review-findings.md`
++ `docs/superpowers/2026-07-01-sound-specs-review.md`; live constants: `sound_constants.asm`.
+
+- **§4.3 (permanent N-channel-mixer FM6 mode) + §5 (BRR primary codec, N-channel software
+  mixer, >8-bit mix + dither, pitch-shifted PCM SFX, half-rate voices)** — superseded by the
+  **2026-06-24 DAC format-revision spec** (`2026-06-24-dac-drum-format-revision-design.md`) and
+  its 2026-06-25 raw-8-bit amendment: **single voice, raw 8-bit PCM (~18.4 kHz), pre-mixed
+  composites**; `ds_codec`/`ds_rate` descriptor bytes reserve the codec/rate doors. The mixer
+  rejection still needs explicit user ratification (see that spec + ARCH §6.2).
+- **§5 busy-poll policy** ("FM register-pair writes DO need a busy-poll") — superseded by the
+  shipped choice: the FM writer uses **deliberate fixed `nop`/operator-loop spacing, no
+  busy-flag poll** (the flag is unreliable and polling breaks the DAC `$4000`/`$2A` parking
+  invariant). Canonized in ARCH §6.3, with the caveat that a missing busy-wait is the *first
+  suspect* if real hardware ever shows dropped FM writes (Exodus is blind to it).
+- **§6 "true portamento via 16÷16 restoring division"** — superseded by the music-expression
+  spec (`2026-06-23-music-expression-engine-design.md`): **linear-in-fnum** stepping with block
+  correction; execution plan `plans/2026-06-28-portamento-resume.md`.
+- **§14 success criterion "polyphonic samples (2-3 channel mixing)"** — superseded by the DAC
+  single-voice decision above; the criterion is now clean one-shot drums + composites at
+  ~18.4 kHz under DMA.
+
+---
+
 ## 1. Purpose & Ambition
 
 The aeon writes every subsystem from scratch. Audio is currently the only
