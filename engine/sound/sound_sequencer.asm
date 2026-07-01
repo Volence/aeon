@@ -199,12 +199,13 @@ Fade_Ramp:
 ;
 ; PITCH PATHS (Phase 3 Tasks 3+4): an FM channel whose note was set by
 ; MEV_PITCHENV keys its pitch from the PER-SONG fnum table via Fm_NoteFromTable.
-;   * count==1 (Task 3) — SINGLE held note, WRITE-ON-CHANGE: render iff SCF_REKEY
-;     is armed (a MEV_PITCHENV just (re)keyed this channel) — look up sc_points[0]
+;   * count==1 (Task 3) — SINGLE held note, WRITE-ON-CHANGE: tail-branch to
+;     Seq_RekeySingle, which renders iff SCF_REKEY is armed — look up sc_points[0]
 ;     (idx 0..$83) + sc_transpose, write $A4/$A0 + key on, set sc_note, and CLEAR
-;     SCF_REKEY. Otherwise the note is held -> NO YM writes (a pure cursor check).
-;     The ONLY producer of sc_points here is MEV_PITCHENV, which ALWAYS arms
-;     SCF_REKEY, so the rekey arm covers every count==1 change.
+;     SCF_REKEY. Otherwise the note is held -> NO YM writes (a pure flag check).
+;     NORMALLY the arm never reaches this frame path: Seq_Op_PitchEnv keys
+;     count==1 notes at their own EVENT TICK (same tick as the prefix MEV_PATCH);
+;     an arm survives to here only when SFX override deferred the tick-time key.
 ;   * count>=2 (Task 4, .multipoint) — TRILL/ARP, re-articulated EVERY frame: the
 ;     cursor cycles the points (wrap at sc_pt_count) once per ~59 Hz frame and
 ;     keys sc_points[cursor] each frame. The first point sounds on the arm frame
@@ -340,46 +341,13 @@ ModUpdate:
 
         ld      a, (ix+sc_pt_count)
         cp      2
-        jr      nc, .multipoint          ; pt_count >= 2 -> trill/arp (Task 4)
-
-        ; --- count==1 single-note pitch path (WRITE-ON-CHANGE) ---
-        ; Render only when a MEV_PITCHENV armed a (re)key; else the note holds and
-        ; we write NOTHING (the cycle-budget mandate). A held single note is thus a
-        ; cheap flag test per frame.
-        bit     SCF_REKEY_B, (ix+sc_flags)
-        ret     z                        ; not armed -> held note -> NO YM writes
-        res     SCF_REKEY_B, (ix+sc_flags) ; consume the (re)key arm
-        ; THE RE-KEY RULE (corrected vs the oracle): MEV_PITCHENV is the only thing that
-        ; reaches here (sole producer of sc_points + sole SCF_REKEY arm) — so the render
-        ; below fires ONLY on a pitch op, never on a voice/timbre op (MEV_PATCH/MEV_OPBIAS/
-        ; MEV_REGDELTA never arm SCF_REKEY). Every armed re-key RE-ARTICULATES, even when
-        ; the rendered index is UNCHANGED: the real Zyrinx driver re-keys on EVERY pitch
-        ; command (keyon_pending set unconditionally at driver $0519, gated only on that
-        ; flag at $0BB0 — there is NO pitch-equality test), and the packer emits one
-        ; MEV_PITCHENV per genuine sequence re-issue = one per oracle re-attack (incl.
-        ; same-pitch repeats). Held notes still cost
-        ; nothing: with no new PITCHENV, SCF_REKEY is never armed and the `ret z` above
-        ; writes nothing — so this is per-event-tick traffic, not per-frame.
-        ld      a, (ix+sc_points)        ; sc_points[0] = the single pitch point (idx)
-        ld      (ix+sc_note), a          ; sc_note = last-rendered note index (update)
-        ; RE-KEY STYLE (lever SND_REKEY_OFF_THEN_ON, sound_constants): DEFAULT = clean
-        ; re-key. If the channel is ALREADY keyed we key-OFF first so the YM2612 sees a
-        ; real 0->1 edge and retriggers the EG (oracle-faithful; matches the NOTE_RAW
-        ; path). If NOT keyed (fresh note from silence/after a Rest), the key-on alone is
-        ; the 0->1 edge — no key-off. SND_REKEY_OFF_THEN_ON=0 skips the key-off (key-on
-        ; only, no retrigger when already keyed) for A/B-ing attack density vs the oracle.
-    if SND_REKEY_OFF_THEN_ON
-        bit     SCF_KEYED_B, (ix+sc_flags)
-        jr      z, .rekey_on             ; not keyed -> key-on alone gives the edge
-        call    Fm_NoteOff               ; keyed -> key OFF first (forces a fresh 0->1 edge)
-    endif
-.rekey_on:
-        ; (the note-fill countdown reload lives in Fm_NoteOnFreq — the single
-        ; key-on chokepoint — so both branches below pick it up via tail-call)
-        ld      a, (ix+sc_points)        ; (re)load sc_points[0] (Fm_NoteOff clobbered a)
-        bit     SCF_PITCH_CHROMATIC_B, (ix+sc_flags)
-        jp      z, Fm_NoteFromTable      ; clear -> music: per-song fnum table (tail-call)
-        jp      Fm_NoteOn                ; SFX: chromatic FmPitchTableZ (tail-call)
+        ; count==1 -> the shared single-note (re)key path (tail-branch; its
+        ; SCF_REKEY `ret z` is the per-frame held-note no-op). NOTE: with the
+        ; same-tick key in Seq_Op_PitchEnv, an arm normally never survives to
+        ; this frame path — it renders only arms the tick-time key DEFERRED
+        ; (SFX override held the voice at the event tick).
+        jr      c, Seq_RekeySingle
+        ; pt_count >= 2 -> trill/arp (Task 4), falls through:
 
 .multipoint:
         ; KEYED gate: a REST keys the channel off (Fm_NoteOff clears SCF_KEYED),
@@ -428,6 +396,60 @@ ModUpdate:
         inc     h                        ; carry into high byte (sc_points offset add)
 .mp_nocarry:
         ld      a, (hl)                  ; a = sc_points[cursor] (absolute fnum idx)
+        jr      Seq_RekeyRender          ; sc_note update + route dispatch (shared tail)
+
+; ----------------------------------------------------------------------
+; Seq_RekeySingle — render the count==1 single-note (re)key: consume SCF_REKEY
+; and (re)articulate sc_points[0]. TWO callers, both with ix = the channel:
+;   * Seq_Op_PitchEnv's tick-time tail (count==1) — keys the note in the SAME
+;     event tick as its zero-tick prefix writes (MEV_PATCH/OPBIAS/...), so the
+;     chip sees patch -> key-off -> freq -> key-on within ONE tick, matching
+;     the B&R reference (the body-boundary dropout fix).
+;   * ModUpdate's count==1 FM path (per-frame) — the held-note no-op (`ret z`
+;     below) plus the DEFERRED render for an arm the tick-time key skipped
+;     (SFX override owned the voice at the event tick).
+; THE RE-KEY RULE (corrected vs the oracle): MEV_PITCHENV is the only producer
+; of sc_points + the only SCF_REKEY arm — so the render below fires ONLY on a
+; pitch op, never on a voice/timbre op (MEV_PATCH/MEV_OPBIAS/MEV_REGDELTA never
+; arm SCF_REKEY). Every armed re-key RE-ARTICULATES, even when the rendered
+; index is UNCHANGED: the real Zyrinx driver re-keys on EVERY pitch command
+; (keyon_pending set unconditionally at driver $0519, gated only on that flag
+; at $0BB0 — there is NO pitch-equality test), and the packer emits one
+; MEV_PITCHENV per genuine sequence re-issue = one per oracle re-attack (incl.
+; same-pitch repeats). Held notes still cost nothing: with no new PITCHENV,
+; SCF_REKEY is never armed and the `ret z` writes nothing.
+; The SFX-override gate sits BEFORE the arm consumption so a stolen voice
+; emits nothing AND keeps the arm pending (ModUpdate renders it after
+; Sfx_Restore clears the override — exactly the pre-fix deferral). FM-only by
+; packer guarantee (song_packer rejects PitchEnv on non-FM routes at build
+; time, the trust-the-packer operand model). Clobbers af,bc,de,hl. Preserves ix.
+; ----------------------------------------------------------------------
+Seq_RekeySingle:
+        bit     SCF_REKEY_B, (ix+sc_flags)
+        ret     z                        ; not armed -> held note -> NO YM writes
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        ret     nz                       ; stolen -> no chip writes; arm stays pending
+        res     SCF_REKEY_B, (ix+sc_flags) ; consume the (re)key arm (single-shot)
+        ; RE-KEY STYLE (lever SND_REKEY_OFF_THEN_ON, sound_constants): DEFAULT = clean
+        ; re-key. If the channel is ALREADY keyed we key-OFF first so the YM2612 sees a
+        ; real 0->1 edge and retriggers the EG (oracle-faithful; matches the NOTE_RAW
+        ; path). If NOT keyed (fresh note from silence/after a Rest), the key-on alone is
+        ; the 0->1 edge — no key-off. SND_REKEY_OFF_THEN_ON=0 skips the key-off (key-on
+        ; only, no retrigger when already keyed) for A/B-ing attack density vs the oracle.
+    if SND_REKEY_OFF_THEN_ON
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .rekey_on             ; not keyed -> key-on alone gives the edge
+        call    Fm_NoteOff               ; keyed -> key OFF first (forces a fresh 0->1 edge)
+    endif
+.rekey_on:
+        ld      a, (ix+sc_points)        ; sc_points[0] = the single pitch point (idx)
+        ; falls into Seq_RekeyRender (the note-fill countdown reload lives in
+        ; Fm_NoteOnFreq — the single key-on chokepoint — so every route below
+        ; picks it up via tail-call)
+
+; Seq_RekeyRender — shared dispatch tail: a = note index; update sc_note and key
+; via the channel's route. Also the multipoint (trill/arp) per-frame render tail.
+Seq_RekeyRender:
         ld      (ix+sc_note), a          ; sc_note = last-rendered note index
         bit     SCF_PITCH_CHROMATIC_B, (ix+sc_flags)
         jp      z, Fm_NoteFromTable      ; clear -> music: per-song table (tail-call, preserves ix)
@@ -1143,22 +1165,24 @@ Seq_Op_NoteRaw:
         ret                              ; time advanced -> done this tick
 
 ; $E8 MEV_PITCHENV + count + count idx bytes : set the channel's pitch-envelope
-; points and ARM a (re)key. This is a COORDINATION opcode that ALSO advances time
-; (like a note): it sets up the channel's modulation STATE — it does NOT write the
-; YM here. ModUpdate (the per-frame renderer) keys/holds the note write-on-change.
+; points and (re)key. This is a COORDINATION opcode that ALSO advances time
+; (like a note):
 ;   * read count (1..5), store sc_pt_count
 ;   * read `count` absolute note-index bytes into sc_points[0..count-1]
 ;   * sc_pt_cursor = 0
-;   * set SCF_KEYED (a note is now live) + SCF_REKEY (ModUpdate must (re)articulate
-;     next frame even if the rendered index is unchanged — a same-pitch retrigger)
+;   * set SCF_KEYED (a note is now live) + SCF_REKEY (the (re)articulate arm,
+;     fired even if the rendered index is unchanged — a same-pitch retrigger)
 ;   * reload sc_dur_default (paces the note like a bare Note; a following WAIT/
-;     SetDur sets the hold length) and ADVANCE TIME (commit ptr, ret)
-; The packer routes MEV_PITCHENV only to FM channels; a non-FM route would still
-; set state here but ModUpdate's FM gate means nothing is rendered (harmless).
+;     SetDur sets the hold length) and ADVANCE TIME (commit ptr)
+;   * count==1: key the note IN THIS TICK via Seq_RekeySingle (same tick as any
+;     zero-tick prefix MEV_PATCH — the boundary-dropout fix). count>=2: leave the
+;     arm for ModUpdate's per-frame trill/arp renderer (arm-frame first render).
+; The packer routes MEV_PITCHENV only to FM channels (song_packer REJECTS
+; PitchEnv on a non-FM route at build time — Seq_RekeySingle relies on this).
 ;
 ; THE RE-KEY RULE (finalized, Task 5): MEV_PITCHENV is the ONLY opcode that
-; re-articulates a note. It arms SCF_REKEY -> ModUpdate (re)keys (default: clean
-; key-off-then-on so the EG retriggers; see SND_REKEY_OFF_THEN_ON). A note thus
+; re-articulates a note. It arms SCF_REKEY -> Seq_RekeySingle (re)keys (default:
+; clean key-off-then-on so the EG retriggers; see SND_REKEY_OFF_THEN_ON). A note thus
 ; re-articulates ONLY on a PITCH change. Voice/timbre opcodes — MEV_PATCH,
 ; MEV_OPBIAS, MEV_REGDELTA — change the held note's timbre WITHOUT keying (none of
 ; them touch $28 or set SCF_REKEY). The transcoder (Task 8) emits MEV_PITCHENV only
@@ -1201,7 +1225,23 @@ Seq_Op_PitchEnv:
         ld      a, SEQEV_NOTEON
         call    Seq_Trace                ; trace as a note-on (the audible effect)
     endif
-        ret                              ; time advanced -> done this tick (ModUpdate renders)
+        ; SAME-TICK KEY (count==1): key the note NOW, in the event tick that just
+        ; executed its zero-tick prefixes (MEV_PATCH/OPBIAS/...), so the chip sees
+        ; patch -> key-off -> freq -> key-on within ONE tick — like every other
+        ; note opcode (bare note / NOTE_DUR / NOTE_RAW) and like the B&R reference.
+        ; Deferring to next frame's ModUpdate let a still-sounding channel play one
+        ; full frame (~17 ms) through the NEW voice's registers before the re-key —
+        ; the audible body-boundary dropout. Side effect (intended): the paired
+        ; expiry key-off ALSO moves to the event tick, so notes get their full
+        ; authored duration and attacks land one frame earlier than pre-fix.
+        ; Multipoint (count>=2) keeps the deferred arm-frame render — its cursor
+        ; cadence is ModUpdate's per-frame clock, semantics unchanged. hl is dead
+        ; (ptr committed above); Seq_RekeySingle keeps the SFX-override gate, so a
+        ; stolen voice still emits nothing and the arm stays pending for restore.
+        ld      a, (ix+sc_pt_count)
+        dec     a
+        ret     nz                       ; count>=2 -> deferred (ModUpdate renders)
+        jp      Seq_RekeySingle          ; count==1 -> key THIS tick (time advanced)
 
 ; $E4 MEV_PAN + b4 : set the channel's pan/AMS/FMS state (the raw YM $B4 byte:
 ; bits7-6 L/R, bits5-4 AMS, bits2-0 FMS). Coordination SETTER (like Vol/Patch):
