@@ -3,7 +3,7 @@
 
 Authors a SongDesc and emits data/sound/song_test.asm (label Song_Test) via the
 song_packer. Run from the repo root:
-    python3 data/sound/song_test.py
+    python3 games/sonic4/data/sound/song_test.py
 
 This is a *demo* (replacing the original atonal bring-up test pattern): a short,
 recognizable, in-tune tune — the "Ode to Joy" A-theme — arranged for three voices
@@ -21,7 +21,7 @@ import os
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "tools")))
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "..", "..", "tools")))
 
 from song_packer import (  # noqa: E402
     SongDesc, ChannelDesc, write_asm,

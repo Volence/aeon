@@ -13,7 +13,7 @@ BlastEm-rendered FM1 frequency to the table below. Revert the boot to SONG_TEST
 after verification.
 
 Run from the repo root:
-    python3 data/sound/song_pitchtest.py
+    python3 games/sonic4/data/sound/song_pitchtest.py
 
 --- INDEX -> EXPECTED ($A4, $A0) (from /tmp/zyrinx_re_timing_pitch.md §2.4) ------
 The notes span a couple octaves of C-major-ish anchors so the pitch climb is
@@ -35,7 +35,7 @@ import os
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "tools")))
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "..", "..", "tools")))
 
 from song_packer import (  # noqa: E402
     SongDesc, ChannelDesc, write_asm,

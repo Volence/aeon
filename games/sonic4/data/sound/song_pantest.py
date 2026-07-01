@@ -59,14 +59,14 @@ This is a TASK-6 scratch/verification asset (not a real song): the DEBUG boot is
 temporarily pointed at SONG_PANTEST. Revert the boot to SONG_TEST after verification.
 
 Run from the repo root:
-    python3 data/sound/song_pantest.py
+    python3 games/sonic4/data/sound/song_pantest.py
 """
 
 import os
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "tools")))
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "..", "..", "tools")))
 
 from song_packer import (  # noqa: E402
     SongDesc, ChannelDesc, write_asm,

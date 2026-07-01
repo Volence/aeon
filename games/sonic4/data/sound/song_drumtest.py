@@ -3,7 +3,7 @@
 
 Authors Song_DrumTest and emits data/sound/song_drumtest.asm via the song_packer.
 Run from the repo root:
-    python3 data/sound/song_drumtest.py
+    python3 games/sonic4/data/sound/song_drumtest.py
 
 PURPOSE — the integrated proof for the DAC-drum phase's bank brackets (B1-B4) +
 the FM6 dedicate gate + the SFX-mid-drum path (B3):
@@ -42,7 +42,7 @@ import os
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "tools")))
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "..", "..", "tools")))
 
 from song_packer import (  # noqa: E402
     SongDesc, ChannelDesc, write_asm,

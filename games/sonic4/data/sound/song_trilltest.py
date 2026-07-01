@@ -31,14 +31,14 @@ temporarily pointed at SONG_TRILLTEST so the controller can confirm the per-fram
 pitch alternation in BlastEm. Revert the boot to SONG_TEST after verification.
 
 Run from the repo root:
-    python3 data/sound/song_trilltest.py
+    python3 games/sonic4/data/sound/song_trilltest.py
 """
 
 import os
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "tools")))
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "..", "..", "tools")))
 
 from song_packer import (  # noqa: E402
     SongDesc, ChannelDesc, write_asm,

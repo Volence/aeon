@@ -8,7 +8,7 @@ source via the verified SMPS converter (tools/smps_import.py):
   * data/sound/hcz2_patches.asm — HCZ2_Patches (4x26-byte FmPatch records).
 
 Run from the repo root:
-    python3 data/sound/song_hcz2.py
+    python3 games/sonic4/data/sound/song_hcz2.py
 
 WHAT IT IS — a real, faithful sequencer playback of HCZ2 (NOT a register replay):
   * STREAM song (SH_F_STREAM): the command streams + the patch bank are read
@@ -34,7 +34,7 @@ import os
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "tools")))
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "..", "..", "tools")))
 
 from song_packer import write_asm                              # noqa: E402
 from smps_import import (                                       # noqa: E402
