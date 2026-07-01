@@ -1108,6 +1108,12 @@ Seq_Op_NoteRaw:
         ld      (ix+sc_stream_ptr), l
         ld      (ix+sc_stream_ptr+1), h  ; commit ptr before the hook clobbers hl
         set     SCF_KEYED_B, (ix+sc_flags) ; SCF_KEYED
+        ; latch the raw freq word BEFORE the override gate: while an SFX owns this
+        ; voice the key below is skipped, but Sfx_Restore re-keys the held note
+        ; from sc_base_freq — without this latch it would re-key a STALE pitch
+        ; (sc_note holds the raw $A4 byte, useless as a table index).
+        ld      (ix+sc_base_freq), d     ; high slot = $A4 value
+        ld      (ix+sc_base_freq+1), e   ; low slot  = $A0 value
     ifdef __DEBUG__
         ld      a, SEQEV_NOTEON
         call    Seq_Trace                ; preserves de (the fnum word)

@@ -918,7 +918,8 @@ Sfx_Restore:
         ; Fm_*/Psg_* writers target the right voice with no ix re-point.)
         ld      a, (ix+sx_saved_route)
         call    Sfx_MusicChanPtr         ; carry clear + iy = owning channel; carry set = none
-        jr      c, .no_music             ; no music on this voice -> silence the SFX's own voice
+        jp      c, .no_music             ; no music on this voice -> silence the SFX's own voice
+                                         ;   (jp: the raw-rekey branch pushed this past jr range)
 
         ; (2) un-mute: clear the override so its chip-write sites fire again.
         res     SCF_SFX_OVERRIDE_B, (iy+sc_flags)
@@ -1002,6 +1003,20 @@ Sfx_Restore:
     if SND_REKEY_OFF_THEN_ON
         call    Fm_NoteOff               ; clean 0->1 edge: key OFF first (mirrors ModUpdate)
     endif
+        ; RAW-vs-TABLE re-key: on a stream/NOTE_RAW song (SH_F_STREAM — the SH_FLAGS
+        ; byte the 68k forwarded stays in SND_MUSIC_PARAM_FLAGS until the next
+        ; PlayMusic) sc_note holds the raw $A4 byte, NOT a pitch-table index —
+        ; re-keying it through the table played a wrong note for up to ~130 ms per
+        ; steal. Re-key from sc_base_freq instead (the exact word; Seq_Op_NoteRaw
+        ; latches it even under override, and KEYED implies it is valid).
+        ld      a, (SND_MUSIC_PARAM_FLAGS)
+        bit     SH_F_STREAM_B, a
+        jr      z, .fm_rekey_table
+        ld      d, (ix+sc_base_freq)     ; high slot = $A4 value
+        ld      e, (ix+sc_base_freq+1)   ; low slot  = $A0 value
+        call    Fm_NoteOnFreq            ; re-key at the exact raw pitch (preserves ix)
+        jr      .fm_done
+.fm_rekey_table:
         ld      a, (ix+sc_note)          ; the held note index
         call    Fm_NoteFromTable         ; re-key from the per-song fnum table (preserves ix)
         jr      .fm_done
