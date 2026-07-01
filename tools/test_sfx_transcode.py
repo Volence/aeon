@@ -1232,5 +1232,16 @@ class TestRepeatBodyBackstop(unittest.TestCase):
                         "skid's note-bearing loop should stay a compact repeat")
 
 
+class TestUnknownVoiceMacro(unittest.TestCase):
+    def test_unknown_smpsvc_submacro_raises(self):
+        # Unknown smpsVc* sub-macros must raise (mirroring the coord-flag
+        # policy): a silent skip zeroes part of the voice — the exact failure
+        # mode of the historical smpsVcDecayRate regex bug.
+        from sfx_transcode import _SmpsVoiceBuilder, TranscodeError
+        b = _SmpsVoiceBuilder()
+        with self.assertRaisesRegex(TranscodeError, "smpsVcBogus"):
+            b.apply("smpsVcBogus", ["$01"])
+
+
 if __name__ == '__main__':
     unittest.main()

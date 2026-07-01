@@ -16,8 +16,9 @@ Format reference:
 SFX id → priority map mirrors sound_constants.asm SFXPRI_* constants.
 Reserved channels (FM1, FM2, FM6, DAC) may NOT appear; any SFX targeting them
 raises a build error.  Unknown coord-flag bytes ($E0-$FF not in the v1 coverage
-list) raise a build error per spec §8.  smpsModSet is the one intentional lossy
-mapping: dropped with a log line (not a build error).
+list) and unknown smpsVc* voice sub-macros raise a build error per spec §8.
+smpsModSet is transcoded to a ModSet event (the engine's pitch-modulation
+latch) — it is NOT dropped.
 
 Usage:
   python3 tools/sfx_transcode.py [generate]   # emit all core SFX to data/sound/sfx/
@@ -444,7 +445,13 @@ class _SmpsVoiceBuilder:
             self._d['ks_ar']  = [(self._rs[i] << 6) | (self._ar[i] & 0x1F) for i in range(4)]
             self._d['am_d1r'] = [(self._am[i] & 0x80) | (self._d1r[i] & 0x1F) for i in range(4)]
         else:
-            pass  # unknown smpsVc* sub-macro — ignore
+            # Unknown smpsVc* sub-macro: raise (mirrors the unknown-coord-flag
+            # policy). Silently skipping one would zero part of the voice — the
+            # exact failure mode the smpsVcDecayRate1/2 regex bug produced.
+            raise TranscodeError(
+                "unknown smpsVc* sub-macro %r (args %r) — extend "
+                "_SmpsVoiceBuilder.apply if this is a real S3K voice macro"
+                % (macro, args))
 
     def build(self) -> bytes:
         """Finalize and call translate_voice().

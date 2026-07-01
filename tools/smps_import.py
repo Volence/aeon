@@ -663,8 +663,12 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
         # quantity, passed through clamped to keep |detune| well inside one low-octave
         # block so the single-step block correction never under-corrects at table extremes.
         d = _signed8(resolve_const(args[0]))
-        d = max(-_DETUNE_CLAMP, min(_DETUNE_CLAMP, d))
-        out.append(Detune(d))
+        clamped = max(-_DETUNE_CLAMP, min(_DETUNE_CLAMP, d))
+        if clamped != d:
+            warn("smpsDetune %+d exceeds the engine's single-step block "
+                 "correction range; clamped to %+d (audible pitch change)"
+                 % (d, clamped))
+        out.append(Detune(clamped))
     elif mnem == "smpsNoAttack":
         # cfNoAttack ($E7): tie the next note to the previous (no re-attack).
         # Same-pitch -> merge durations (Task 2.4). Different-pitch -> re-attack
@@ -1401,7 +1405,11 @@ def smps_voice_to_fmpatch(voice_macros) -> bytes:
     saw_total_level = False
     for macro, args in voice_macros:
         if macro not in _SMPS_VC_MACROS:
-            continue
+            # Unknown smpsVc* sub-macro: raise (mirrors the coord-flag policy —
+            # silently skipping would zero part of the voice).
+            raise TranscodeError(
+                "unknown smpsVc* sub-macro %r (args %r) in UVB voice block"
+                % (macro, args))
         b.apply(macro, [_normalize_vc_token(a) for a in args])
         if macro == "smpsVcTotalLevel":
             saw_total_level = True

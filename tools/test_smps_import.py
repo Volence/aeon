@@ -281,6 +281,24 @@ def test_detune_emits_event():
     ev2 = convert_channel("PSG", ["\tsmpsAlterNote $7F", "\tsmpsStop"], {}, _cfg(), ConvState())
     assert isinstance(ev2[0], Detune) and ev2[0].detune == 0x3F
 
+def test_detune_clamp_warns(capfd):
+    # An out-of-range detune must both clamp AND warn (silent truncation hid an
+    # audible pitch change).
+    ev = convert_channel("FM", ["\tsmpsDetune $70", "\tsmpsStop"], {}, _cfg(), ConvState())
+    assert isinstance(ev[0], Detune) and ev[0].detune == 0x3F
+    assert "clamped" in capfd.readouterr().err
+    # In-range detune must NOT warn.
+    convert_channel("FM", ["\tsmpsDetune $08", "\tsmpsStop"], {}, _cfg(), ConvState())
+    assert "clamped" not in capfd.readouterr().err
+
+def test_unknown_smpsvc_macro_raises():
+    # Unknown smpsVc* sub-macros raise (coord-flag policy) — a silent skip
+    # would zero part of the voice.
+    from smps_import import smps_voice_to_fmpatch
+    bogus = list(_UVB_VOICE_03) + [("smpsVcBogus", ["01h"])]
+    with pytest.raises(Exception, match="smpsVcBogus"):
+        smps_voice_to_fmpatch(bogus)
+
 def test_flags_map():
     ev = convert_channel("FM", ["\tsmpsPan panLeft, $00","\tsmpsSetvoice $0F","\tsmpsModSet $01,$02,$03,$04","\tsmpsStop"], {}, _cfg(), ConvState())
     assert isinstance(ev[0],Pan) and ev[0].b4==0x80
