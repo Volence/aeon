@@ -1060,6 +1060,35 @@ def test_dac_bare_duration_retriggers_saved_sample():
     # Pacing preserved exactly: $18+$0C+$02+$04+$06 = $30 ticks.
     assert _dac_total_ticks(ev) == 0x30
 
+# ── Duration overflow: split exactly, never clamp/drop time ──────────────────
+
+def test_long_rest_splits_exact_total():
+    # divider=2 forces a rest > $7F: $80 rest with trailing $7F -> 254 ticks.
+    # Must split into SetDur/Rest chunks summing EXACTLY (old code clamped to
+    # one $7F rest, dropping 127 ticks and drifting the channel).
+    ev = convert_channel("FM", ["\tdc.b $80, $7F"], {}, _cfg(divider=2), ConvState())
+    assert _dac_total_ticks(ev) == 0x7F * 2
+    assert all(isinstance(e, (SetDur, Rest)) for e in ev)
+
+def test_long_rest_split_uneven_remainder():
+    # $41 * divider 2 = 130 = 127 + 3: two Rest chunks with distinct SetDurs.
+    ev = convert_channel("FM", ["\tdc.b $80, $41"], {}, _cfg(divider=2), ConvState())
+    assert _dac_total_ticks(ev) == 130
+    assert sum(1 for e in ev if isinstance(e, Rest)) == 2
+
+def test_tie_merge_overflow_continues_instead_of_dropping():
+    # Tie chain exceeding the NoteDur byte: nC4 $7F + smpsNoAttack nC4 $7F at
+    # divider 2 = 254+254 = 508 ticks. The merge can't fit $FF, so the tie
+    # continues as a second keyed segment — total time EXACT (old code clamped
+    # at $FF, silently dropping 253 ticks).
+    ev = convert_channel("FM",
+        ["\tdc.b nC4, $7F", "\tsmpsNoAttack", "\tdc.b nC4, $7F"],
+        {}, _cfg(divider=2), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 2                      # continuation segment
+    assert all(n.pitch == 0x30 for n in notes)
+    assert _dac_total_ticks(ev) == 508
+
 # ── FM/PSG bare standalone duration = RE-ATTACK unless smpsNoAttack ──────────
 # S3K zGetNextNote clears the no-attack bit at entry and calls zKeyOffIfActive
 # on EVERY non-flag byte; the caller then re-keys the held FreqLow/High via

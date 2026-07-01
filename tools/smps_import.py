@@ -899,12 +899,19 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                             # Do NOT update st.cur_dur (the merged NoteDur is self-
                             # contained; the running default must stay undisturbed
                             # so subsequent bare-Note events keep their duration).
-                            merged = min(0xFF, st._prev_note_dur + ticks)
-                            if st._prev_note_dur + ticks > 0xFF:
-                                warn("tie-merge duration overflow, clamped to $FF")
-                            out[st._prev_note_idx] = NoteDur(pitch, merged)
-                            st._prev_note_dur = merged
-                            # _prev_note_idx stays: another tie could extend again
+                            merged = st._prev_note_dur + ticks
+                            if merged <= 0xFF:
+                                out[st._prev_note_idx] = NoteDur(pitch, merged)
+                                st._prev_note_dur = merged
+                                # _prev_note_idx stays: another tie can extend again
+                            else:
+                                # NoteDur is a byte: continue the tie as a fresh
+                                # keyed segment (one extra attack, EXACT timing —
+                                # the old clamp dropped the excess ticks).
+                                _emit_with_dur_g(emit, st, ticks, pitch)
+                                st._prev_note_idx = len(out) - 1
+                                st._prev_pitch = pitch
+                                st._prev_note_dur = ticks
                         else:
                             # Different pitch or no previous note: re-attack
                             # (accepted v1 fidelity gap — no same-pitch merge).
@@ -968,10 +975,16 @@ def _emit_with_dur_g(emit, st, ticks, pitch):
     emits a Rest; otherwise a Note (or NoteDur on duration overflow)."""
     if ticks > MAX_DUR:
         if pitch is None:
-            warn("rest duration %d > %d, clamped" % (ticks, MAX_DUR))
-            if st.cur_dur != MAX_DUR:
-                emit(SetDur(MAX_DUR)); st.cur_dur = MAX_DUR
-            emit(Rest())
+            # Split a long rest into MAX_DUR-sized SetDur/Rest chunks summing to
+            # the EXACT tick count (the old single-Rest clamp dropped time and
+            # drifted the channel against the others).
+            remaining = ticks
+            while remaining > 0:
+                chunk = min(remaining, MAX_DUR)
+                if st.cur_dur != chunk:
+                    emit(SetDur(chunk)); st.cur_dur = chunk
+                emit(Rest())
+                remaining -= chunk
         else:
             emit(NoteDur(pitch, ticks))
         return
