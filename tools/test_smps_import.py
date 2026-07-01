@@ -288,6 +288,13 @@ def test_flags_map():
     assert isinstance(ev[2],ModSet) and (ev[2].wait,ev[2].speed,ev[2].change,ev[2].step)==(1,2,3,4)
     assert isinstance(ev[3],End)
 
+def test_pan_folds_amsfms_arg():
+    # smpsPan macro is `dc.b $E0, direction+amsfms` — the 2nd arg (AMS/FMS bits
+    # 5-4/2-0) rides the SAME $B4 operand byte and must be folded in.
+    ev = convert_channel("FM", ["\tsmpsPan panLeft, $37", "\tsmpsStop"],
+                         {}, _cfg(), ConvState())
+    assert isinstance(ev[0], Pan) and ev[0].b4 == (0x80 | 0x37)
+
 def test_dac_samples_and_pan_dropped():
     ev = convert_channel("DAC", ["\tdc.b dKickS3, $06","\tsmpsPan panLeft, $00","\tdc.b dSnareS3, $06"], {}, _cfg(), ConvState())
     ids = [e.sample_id for e in ev if isinstance(e,Dac)]

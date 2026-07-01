@@ -590,8 +590,22 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
     warn-skipped so the walk never breaks (a documented v1 fidelity gap)."""
     if mnem == "smpsPan":
         if kind == "DAC":
-            return                                   # pan is meaningless on DAC
-        out.append(Pan(resolve_const(args[0])))
+            # TODO(engine): DAC-track pan is REAL on hardware — S3K's DAC track
+            # writes FM6's $B6 (HCZ2 pans its tom fills L/C/R this way). Our
+            # engine has no DAC-pan path yet (FM6/$B6 is owned by the DAC/FM6
+            # adaptive machinery); emitting Pan on CHROUTE_DAC would be
+            # rejected/misrouted. Drop LOUDLY pending an engine decision.
+            warn("DAC-track smpsPan %s DROPPED — DAC pan (FM6 $B6) is "
+                 "unsupported pending an engine decision; drums play center"
+                 % (args,))
+            return
+        # smpsPan macro emits `dc.b $E0, direction+amsfms` — BOTH args ride the
+        # single operand byte (cfPanningAMSFMS ORs it into $B4: bits 7-6 = L/R,
+        # bits 5-4 = AMS, bits 2-0 = FMS). Fold the AMS/FMS arg in.
+        b4 = resolve_const(args[0])
+        if len(args) > 1:
+            b4 |= resolve_const(args[1]) & 0xFF
+        out.append(Pan(b4 & 0xFF))
     elif mnem in ("smpsSetvoice", "smpsFMvoice"):
         out.append(Patch(resolve_const(args[0])))    # FM patch
     elif mnem == "smpsModSet":
