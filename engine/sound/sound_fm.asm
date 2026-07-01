@@ -809,6 +809,13 @@ Fm_NoteOnFreq:
         ld      (ix+sc_base_freq), d     ; high byte slot = $A4 value
         ld      (ix+sc_base_freq+1), e   ; low byte slot  = $A0 value
         call    Mod_ReArm                ; per-note re-arm (no-op if sc_mod_ctrl==0)
+        ; reload the note-fill countdown for this fresh attack (master 0 -> stays
+        ; legato). Done HERE — the single chokepoint every FM key-on funnels
+        ; through (bare note, NOTE_DUR, NOTE_RAW, PITCHENV re-key) — so
+        ; MEV_NOTEFILL articulates imported bare-note streams too, not just the
+        ; PITCHENV re-key path.
+        ld      a, (ix+sc_fill_master)
+        ld      (ix+sc_fill_count), a
         ld      (ix+sc_env_cur), 0       ; restart the FM vol-env contour on this attack.
         ; NOTE: FmEnvUpdate advances the contour every frame sc_env != 0 even before the
         ; first key-on, so arming MEV_FMENV well before a note wastes contour frames.

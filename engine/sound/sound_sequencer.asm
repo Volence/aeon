@@ -312,7 +312,7 @@ ModUpdate:
         ; reaches 0, leaving a staccato gap until the next attack. sc_fill_count==0 means
         ; disabled (sc_fill_master 0) OR already expired -> one test, no cost. Runs BEFORE the
         ; held-note `ret z` below so a held note can be released MID-duration (the gap). It is
-        ; reloaded from sc_fill_master at every key-on (.rekey_on). Only channels with
+        ; reloaded from sc_fill_master at every FM key-on (Fm_NoteOnFreq). Only channels with
         ; sc_fill_master != 0 (the gated percussion) are affected; every other channel keeps
         ; sc_fill_master == 0 -> full legato, byte-identical to before this feature.
         ld      a, (ix+sc_fill_count)
@@ -362,18 +362,12 @@ ModUpdate:
         call    Fm_NoteOff               ; keyed -> key OFF first (forces a fresh 0->1 edge)
     endif
 .rekey_on:
+        ; (the note-fill countdown reload lives in Fm_NoteOnFreq — the single
+        ; key-on chokepoint — so both branches below pick it up via tail-call)
         ld      a, (ix+sc_points)        ; (re)load sc_points[0] (Fm_NoteOff clobbered a)
         bit     SCF_PITCH_CHROMATIC_B, (ix+sc_flags)
-        jr      z, .rekey_persong        ; clear -> music: per-song fnum table
-        call    Fm_NoteOn                ; SFX: chromatic FmPitchTableZ (same table the note-on used)
-        jr      .rekey_fill
-.rekey_persong:
-        call    Fm_NoteFromTable         ; look up per-song table + key on (preserves ix)
-.rekey_fill:
-        ; reload the note-fill countdown for this fresh attack (master 0 -> stays legato)
-        ld      a, (ix+sc_fill_master)
-        ld      (ix+sc_fill_count), a
-        ret
+        jp      z, Fm_NoteFromTable      ; clear -> music: per-song fnum table (tail-call)
+        jp      Fm_NoteOn                ; SFX: chromatic FmPitchTableZ (tail-call)
 
 .multipoint:
         ; --- count>=2 trill/arp pitch path (PER-FRAME re-articulation) ---------
