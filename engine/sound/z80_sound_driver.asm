@@ -743,26 +743,12 @@ Snd_StartSample:
         ld      (SND_Z80_YM_A1), a       ; $4001 = $80 -> DAC mode ON
         ld      a, SND_REG_DAC_DATA
         ld      (SND_Z80_YM_A0), a       ; $4000 = $2A (re-park addr port on DAC DATA)
-        ; --- FM6 force DAC stereo on ch6 = $B6 = $C0. With $2B bit7 set the DAC REPLACES
-        ; FM6's output and inherits FM6's $B6 L/R panning. DEDICATE (Layer 4): the song
-        ; never plays FM6 music, so its $B6 may be muted ($B6 L=R=0) or one-sided -> force
-        ; $C0 (L+R on, AMS=FMS=0) so the DAC is centered + audible. ADAPTIVE (Layer 7):
-        ; FM6 IS a music voice — Fm_PatchLoad already set a real $B6 (its L/R pan + any
-        ; AMS/FMS hardware LFO), and the exhaust does NOT restore $B6, so forcing $C0 here
-        ; would PERMANENTLY clobber that pan/LFO after the first hit. So SKIP the force for
-        ; adaptive: the drum inherits FM6's music pan (the Echo model — leave panning as the
-        ; music set it) and FM6's pan/LFO survive the time-share untouched. FM6 = part II
-        ; reg $B4+2; select on $4002, data on $4003. (The part-II addr port is left on $B6
-        ; — harmless; every FM writer re-selects its target reg before its data.) ---
-        ld      a, (SND_FM6_ADAPTIVE)
-        or      a
-        jr      nz, .ss_skip_b6_force    ; adaptive -> keep FM6's music $B6 (pan/LFO)
-        ld      a, SND_REG_LR_AMS_FMS+2  ; $B6 (ch6 L/R/AMS/FMS), part II
-        ld      (SND_Z80_YM_A2), a       ; $4002 = reg select (part II)
-        nop                              ; inter-write delay (no busy-poll), as Fm_YmWrite
-        ld      a, 0C0h                  ; L+R on, AMS=FMS=0 -> force DAC stereo
-        ld      (SND_Z80_YM_A3), a       ; $4003 = data
-.ss_skip_b6_force:
+        ; --- FM6 $B6 (DAC pan): NOT forced here. The dedicate-mode default ($C0,
+        ; centered) is set ONCE at song load (.parse_header) — forcing it per
+        ; sample-start would stomp any pan the DAC stream authors via
+        ; MEV_REGWRITE (S3K DAC tracks pan their tom fills L/C/R through $B6;
+        ; HCZ2's only stereo element). ADAPTIVE keeps FM6's music $B6 as before
+        ; (the Echo model — the drum inherits the music pan). ---
         pop     hl                       ; hl = descriptor base
         ; --- Read ALL descriptor fields BEFORE banking. SndDrv_SetBank CLOBBERS hl
         ; (it loads hl=SND_CUR_BANK, then hl=$6000); calling it first and then re-
@@ -1188,6 +1174,20 @@ Snd_LoadSong:
         ld      a, (SND_MUSIC_PARAM_FLAGS)
         and     SH_F_FM6_ADAPTIVE
         ld      (SND_FM6_ADAPTIVE), a    ; THEN arm the gate (0 = dedicate/none, nonzero = time-share)
+        ; DEDICATE: seed FM6's $B6 = $C0 ONCE per song load (with $2B armed the DAC
+        ; inherits FM6's L/R). A dedicate song has no FM6 music voice to set $B6, so
+        ; without this seed the DAC could be muted/one-sided from a prior song. Seeded
+        ; HERE (not per sample-start) so the DAC stream's authored MEV_REGWRITE pans
+        ; (S3K tom fills L/C/R) persist. Part-II write ($4002/$4003): does not touch
+        ; the part-I addr latch, so the $2A park is undisturbed. ADAPTIVE skips —
+        ; FM6's music patch owns $B6.
+        jr      nz, .fm6_pan_owned       ; adaptive -> Fm_PatchLoad sets the real $B6
+        ld      a, SND_REG_LR_AMS_FMS+2  ; $B6 (ch6 L/R/AMS/FMS), part II
+        ld      (SND_Z80_YM_A2), a       ; $4002 = reg select (part II)
+        nop                              ; inter-write delay (no busy-poll), as Fm_YmWrite
+        ld      a, 0C0h                  ; L+R on, AMS=FMS=0 -> centered default
+        ld      (SND_Z80_YM_A3), a       ; $4003 = data
+.fm6_pan_owned:
 
         ; channel_count (SH_CHCOUNT) — read via iy = song base (RAM or window).
         ld      iy, (Snd_SongBase)
