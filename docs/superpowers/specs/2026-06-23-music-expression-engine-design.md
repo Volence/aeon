@@ -6,6 +6,28 @@
 
 ---
 
+## AMENDMENT (2026-07-01): shipped-state deltas
+
+Everything in this spec except per-note portamento has SHIPPED (Phases 1/2/3 merged to master).
+Small deltas between the design text and the shipped engine:
+
+- **§3.3 macro grammar** shipped with its own control bytes, not the PSG-env `$80-$83` set:
+  **`TAG_MAC_*` = `$E0` NEXT (yield one frame), `$E1` REG (+part+reg+val), `$E2` LOOP
+  (+2-byte BIG-ENDIAN body-base, `Snd_SongBase`-rebased), `$E3` END** — see
+  `tools/song_packer.py` (`TAG_MAC_*`) and `MacroTick`.
+- **§9.1 SeqChannel sizing:** the music `SeqChannel` end-state is **58 bytes** (build-asserted
+  in `sound_constants.asm`), not the 56 projected here.
+- **§9.3 / the recovery doc's "code-banking technique" is UNSOUND for in-frame CODE:** Z80
+  code fetched through the `$8000` window corrupts under 68k bus contention (DMA/BUSREQ; `di`
+  doesn't help) → wild PC → self-reinit. **Only DATA may be banked**; all in-frame code must be
+  resident (`engine/sound/sound_banked_z80.asm` was deleted when its last routine,
+  `Fm_FnumApplyDelta`, moved resident). §9.3's data co-location itself stands.
+- **Portamento (§4 / T1) costing is superseded** by the turnkey plan
+  `docs/superpowers/plans/2026-06-28-portamento-resume.md` (~323 B resident code + bank the
+  remaining DATA tables); execute that plan, not §9.3's original budget math.
+
+---
+
 ## 1. Overview & intent
 
 This is the **once-and-done music instrument** for Sonic 4. The music *core* (FM+PSG
