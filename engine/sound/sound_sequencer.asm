@@ -1528,6 +1528,11 @@ MacroTick:
         ld      e, a                     ; e = reg (saved across the guard test)
         ld      c, (hl)
         inc     hl                       ; c = val
+        ; OVERRIDE gate: while an SFX owns this voice, keep walking (macro TIME
+        ; must flow so the stream stays in sync) but drop the chip write — else
+        ; the macro's reg pokes land on the stolen channel's SFX voice.
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        jr      nz, .reg_skip
         cp      SND_REG_DAC_DATA         ; $2A?
         jr      z, .reg_skip
         cp      SND_REG_DAC_ENABLE       ; $2B?
