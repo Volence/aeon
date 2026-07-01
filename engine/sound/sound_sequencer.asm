@@ -89,10 +89,21 @@ Sequencer_Frame:
         sub     c                        ; accum -= global decrement
         ld      (ix+sc_tempo_accum), a
         jr      nc, .chan_done           ; no borrow -> no event-tick this frame
-        ; borrow: reload accumulator (+= tempo_base) and run one event-tick.
-        add     a, (ix+sc_tempo_base)
+        ; borrow: absorb it in a LOOP — CUR > tempo_base owes MULTIPLE event-ticks
+        ; per frame (CUR = 2x base must yield 2.0 ticks/frame; a single absorb left
+        ; the accumulator wrapped out of range = burst-then-stall). Each pass adds
+        ; one tempo_base credit and runs one tick; the add's CARRY = accumulator
+        ; back in range = that was the last owed tick. Terminates: packer enforces
+        ; tempo_base >= 16, CUR <= $FE -> at most ~16 passes. Re-calling
+        ; Sequencer_Channel with the same ix is safe (an ended channel's dur_count
+        ; underflows to $FF -> ret nz, no fetch).
+.tick_loop:
+        add     a, (ix+sc_tempo_base)    ; absorb one base credit; carry = in range
         ld      (ix+sc_tempo_accum), a
-        call    Sequencer_Channel        ; existing per-event-tick logic (ix preserved)
+        push    af                       ; a + carry survive the tick (a = accum)
+        call    Sequencer_Channel        ; one event-tick (ix preserved)
+        pop     af
+        jr      nc, .tick_loop           ; still out of range -> another tick owed
 .chan_done:
         pop     bc
 .next_chan:
