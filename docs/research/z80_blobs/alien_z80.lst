@@ -1,0 +1,1986 @@
+0000  F3           di
+0001  F3           di
+0002  F3           di
+0003  31 00 1F     ld sp,$1F00
+0006  3E 01        ld a,$01
+0008  32 2A 1F     ld ($1F2A),a
+000B  DD 2A 00 00  ld ix,($0000)
+000F  DD 2A 00 00  ld ix,($0000)
+0013  21 02 40     ld hl,$4002
+0016  36 B6        ld (hl),$B6
+0018  23           inc hl
+0019  36 00        ld (hl),$00
+001B  DD 2A 00 00  ld ix,($0000)
+001F  DD 2A 00 00  ld ix,($0000)
+0023  21 00 40     ld hl,$4000
+0026  36 28        ld (hl),$28
+0028  23           inc hl
+0029  36 06        ld (hl),$06
+002B  DD 2A 00 00  ld ix,($0000)
+002F  DD 2A 00 00  ld ix,($0000)
+0033  2B           dec hl
+0034  36 2B        ld (hl),$2B
+0036  23           inc hl
+0037  AF           xor a
+0038  77           ld (hl),a
+0039  32 FF 1F     ld ($1FFF),a
+003C  32 FE 1F     ld ($1FFE),a
+003F  32 FD 1F     ld ($1FFD),a
+0042  32 FC 1F     ld ($1FFC),a
+0045  32 FA 1F     ld ($1FFA),a
+0048  32 F9 1F     ld ($1FF9),a
+004B  32 F8 1F     ld ($1FF8),a
+004E  32 86 1F     ld ($1F86),a
+0051  32 A6 1F     ld ($1FA6),a
+0054  32 87 1F     ld ($1F87),a
+0057  32 A7 1F     ld ($1FA7),a
+005A  32 2A 1F     ld ($1F2A),a
+005D  3A FE 1F     ld a,($1FFE)
+0060  B7           or a
+0061  CA 5D 00     jp z,$005D
+0064  32 2A 1F     ld ($1F2A),a
+0067  B7           or a
+0068  FA F0 01     jp m,$01F0
+006B  32 E0 1F     ld ($1FE0),a
+006E  AF           xor a
+006F  32 FE 1F     ld ($1FFE),a
+0072  FD 2A E6 1F  ld iy,($1FE6)
+0076  3A FB 1F     ld a,($1FFB)
+0079  32 FC 1F     ld ($1FFC),a
+007C  3A FD 1F     ld a,($1FFD)
+007F  B7           or a
+0080  FA 88 00     jp m,$0088
+0083  3A F9 1F     ld a,($1FF9)
+0086  18 03        jr $008B
+0088  3A FA 1F     ld a,($1FFA)
+008B  08           ex af,af'
+008C  3A E9 1F     ld a,($1FE9)
+008F  07           rlca
+0090  32 00 60     ld ($6000),a
+0093  06 08        ld b,$08
+0095  3A E8 1F     ld a,($1FE8)
+0098  32 00 60     ld ($6000),a
+009B  0F           rrca
+009C  10 FA        djnz $0098
+009E  AF           xor a
+009F  32 2A 1F     ld ($1F2A),a
+00A2  FD 6E 00     ld l,(iy+0)
+00A5  FD 66 01     ld h,(iy+1)
+00A8  11 00 0C     ld de,$0C00
+00AB  01 80 00     ld bc,$0080
+00AE  3A FF 1F     ld a,($1FFF)
+00B1  B7           or a
+00B2  C2 AE 00     jp nz,$00AE
+00B5  ED A0        ldi
+00B7  ED A0        ldi
+00B9  ED A0        ldi
+00BB  ED A0        ldi
+00BD  EA AE 00     jp pe,$00AE
+00C0  FD 7E 02     ld a,(iy+2)
+00C3  FD 46 03     ld b,(iy+3)
+00C6  D6 80        sub $80
+00C8  D2 CC 00     jp nc,$00CC
+00CB  05           dec b
+00CC  4F           ld c,a
+00CD  D9           exx
+00CE  3E 80        ld a,$80
+00D0  32 2A 1F     ld ($1F2A),a
+00D3  DD 2A 00 00  ld ix,($0000)
+00D7  DD 2A 00 00  ld ix,($0000)
+00DB  08           ex af,af'
+00DC  21 02 40     ld hl,$4002
+00DF  36 B6        ld (hl),$B6
+00E1  23           inc hl
+00E2  77           ld (hl),a
+00E3  DD 2A 00 00  ld ix,($0000)
+00E7  DD 2A 00 00  ld ix,($0000)
+00EB  21 00 40     ld hl,$4000
+00EE  36 28        ld (hl),$28
+00F0  23           inc hl
+00F1  36 06        ld (hl),$06
+00F3  DD 2A 00 00  ld ix,($0000)
+00F7  DD 2A 00 00  ld ix,($0000)
+00FB  2B           dec hl
+00FC  36 2B        ld (hl),$2B
+00FE  23           inc hl
+00FF  36 80        ld (hl),$80
+0101  21 2A 1F     ld hl,$1F2A
+0104  11 00 40     ld de,$4000
+0107  3A E0 1F     ld a,($1FE0)
+010A  4F           ld c,a
+010B  D9           exx
+010C  31 E6 1F     ld sp,$1FE6
+010F  E5           push hl
+0110  21 00 0C     ld hl,$0C00
+0113  22 E2 1F     ld ($1FE2),hl
+0116  3E 80        ld a,$80
+0118  08           ex af,af'
+0119  AF           xor a
+011A  32 2A 1F     ld ($1F2A),a
+011D  C3 7C 01     jp $017C
+0120  2A E2 1F     ld hl,($1FE2)
+0123  54           ld d,h
+0124  7D           ld a,l
+0125  3C           inc a
+0126  32 E2 1F     ld ($1FE2),a
+0129  08           ex af,af'
+012A  6E           ld l,(hl)
+012B  25           dec h
+012C  D9           exx
+012D  72           ld (hl),d
+012E  D9           exx
+012F  86           add a,(hl)
+0130  D9           exx
+0131  EB           ex de,hl
+0132  73           ld (hl),e
+0133  EB           ex de,hl
+0134  32 01 40     ld ($4001),a
+0137  73           ld (hl),e
+0138  00           nop
+0139  41           ld b,c
+013A  10 FE        djnz $013A
+013C  D9           exx
+013D  25           dec h
+013E  86           add a,(hl)
+013F  08           ex af,af'
+0140  BB           cp e
+0141  28 13        jr z,$0156
+0143  FA 5F 01     jp m,$015F
+0146  FD 7E 00     ld a,(iy+0)
+0149  FD 23        inc iy
+014B  00           nop
+014C  00           nop
+014D  FD 23        inc iy
+014F  FD 23        inc iy
+0151  FD 23        inc iy
+0153  C3 6B 01     jp $016B
+0156  3A FF 1F     ld a,($1FFF)
+0159  B7           or a
+015A  28 09        jr z,$0165
+015C  C3 56 01     jp $0156
+015F  3A FF 1F     ld a,($1FFF)
+0162  B7           or a
+0163  20 E6        jr nz,$014B
+0165  E1           pop hl
+0166  ED A0        ldi
+0168  ED A0        ldi
+016A  E5           push hl
+016B  D9           exx
+016C  72           ld (hl),d
+016D  D9           exx
+016E  08           ex af,af'
+016F  D9           exx
+0170  EB           ex de,hl
+0171  73           ld (hl),e
+0172  EB           ex de,hl
+0173  32 01 40     ld ($4001),a
+0176  73           ld (hl),e
+0177  41           ld b,c
+0178  10 FE        djnz $0178
+017A  D9           exx
+017B  08           ex af,af'
+017C  78           ld a,b
+017D  B7           or a
+017E  FA 8F 01     jp m,$018F
+0181  B1           or c
+0182  CA 92 01     jp z,$0192
+0185  3A FE 1F     ld a,($1FFE)
+0188  B7           or a
+0189  CA 20 01     jp z,$0120
+018C  C3 64 00     jp $0064
+018F  00           nop
+0190  FD 23        inc iy
+0192  3E 00        ld a,$00
+0194  00           nop
+0195  00           nop
+0196  7B           ld a,e
+0197  81           add a,c
+0198  5F           ld e,a
+0199  2A E2 1F     ld hl,($1FE2)
+019C  54           ld d,h
+019D  7D           ld a,l
+019E  3C           inc a
+019F  32 E2 1F     ld ($1FE2),a
+01A2  08           ex af,af'
+01A3  6E           ld l,(hl)
+01A4  25           dec h
+01A5  D9           exx
+01A6  72           ld (hl),d
+01A7  D9           exx
+01A8  86           add a,(hl)
+01A9  D9           exx
+01AA  EB           ex de,hl
+01AB  73           ld (hl),e
+01AC  EB           ex de,hl
+01AD  32 01 40     ld ($4001),a
+01B0  73           ld (hl),e
+01B1  00           nop
+01B2  41           ld b,c
+01B3  10 FE        djnz $01B3
+01B5  D9           exx
+01B6  25           dec h
+01B7  86           add a,(hl)
+01B8  08           ex af,af'
+01B9  00           nop
+01BA  00           nop
+01BB  FD 23        inc iy
+01BD  FD 23        inc iy
+01BF  FD 23        inc iy
+01C1  FD 23        inc iy
+01C3  FD 23        inc iy
+01C5  FD 23        inc iy
+01C7  FD 23        inc iy
+01C9  FD 23        inc iy
+01CB  FD 23        inc iy
+01CD  D9           exx
+01CE  72           ld (hl),d
+01CF  D9           exx
+01D0  08           ex af,af'
+01D1  D9           exx
+01D2  EB           ex de,hl
+01D3  73           ld (hl),e
+01D4  EB           ex de,hl
+01D5  32 01 40     ld ($4001),a
+01D8  73           ld (hl),e
+01D9  41           ld b,c
+01DA  10 FE        djnz $01DA
+01DC  D9           exx
+01DD  08           ex af,af'
+01DE  00           nop
+01DF  00           nop
+01E0  FD 23        inc iy
+01E2  BB           cp e
+01E3  CA CE 06     jp z,$06CE
+01E6  3A FE 1F     ld a,($1FFE)
+01E9  B7           or a
+01EA  CA 99 01     jp z,$0199
+01ED  C3 64 00     jp $0064
+01F0  AF           xor a
+01F1  32 FE 1F     ld ($1FFE),a
+01F4  3A FB 1F     ld a,($1FFB)
+01F7  32 FC 1F     ld ($1FFC),a
+01FA  21 02 40     ld hl,$4002
+01FD  36 B6        ld (hl),$B6
+01FF  2C           inc l
+0200  36 C0        ld (hl),$C0
+0202  DD 2A 00 00  ld ix,($0000)
+0206  DD 2A 00 00  ld ix,($0000)
+020A  21 00 40     ld hl,$4000
+020D  36 28        ld (hl),$28
+020F  2C           inc l
+0210  36 06        ld (hl),$06
+0212  2D           dec l
+0213  DD 2A 00 00  ld ix,($0000)
+0217  DD 2A 00 00  ld ix,($0000)
+021B  36 2B        ld (hl),$2B
+021D  2C           inc l
+021E  36 80        ld (hl),$80
+0220  2D           dec l
+0221  21 00 0D     ld hl,$0D00
+0224  22 C2 1F     ld ($1FC2),hl
+0227  22 92 1F     ld ($1F92),hl
+022A  21 00 0C     ld hl,$0C00
+022D  22 C6 1F     ld ($1FC6),hl
+0230  22 B2 1F     ld ($1FB2),hl
+0233  3E 80        ld a,$80
+0235  32 C1 1F     ld ($1FC1),a
+0238  32 C5 1F     ld ($1FC5),a
+023B  AF           xor a
+023C  32 C0 1F     ld ($1FC0),a
+023F  32 C4 1F     ld ($1FC4),a
+0242  32 90 1F     ld ($1F90),a
+0245  32 B0 1F     ld ($1FB0),a
+0248  32 2A 1F     ld ($1F2A),a
+024B  21 2A 1F     ld hl,$1F2A
+024E  11 00 40     ld de,$4000
+0251  01 01 40     ld bc,$4001
+0254  D9           exx
+0255  C3 8E 02     jp $028E
+0258  E1           pop hl
+0259  7D           ld a,l
+025A  08           ex af,af'
+025B  0E 80        ld c,$80
+025D  DD 09        add ix,bc
+025F  FD 09        add iy,bc
+0261  00           nop
+0262  00           nop
+0263  3E 00        ld a,$00
+0265  ED 5B 00 00  ld de,($0000)
+0269  ED 5B 00 00  ld de,($0000)
+026D  C3 B4 02     jp $02B4
+0270  E1           pop hl
+0271  0E 80        ld c,$80
+0273  DD 09        add ix,bc
+0275  FD 09        add iy,bc
+0277  00           nop
+0278  11 00 00     ld de,$0000
+027B  ED 5B 00 00  ld de,($0000)
+027F  ED 5B 00 00  ld de,($0000)
+0283  ED 5B 00 00  ld de,($0000)
+0287  ED 5B 00 00  ld de,($0000)
+028B  C3 D8 02     jp $02D8
+028E  06 00        ld b,$00
+0290  DD 21 00 08  ld ix,$0800
+0294  FD 21 00 08  ld iy,$0800
+0298  31 C0 1F     ld sp,$1FC0
+029B  F1           pop af
+029C  30 BA        jr nc,$0258
+029E  E1           pop hl
+029F  55           ld d,l
+02A0  14           inc d
+02A1  6E           ld l,(hl)
+02A2  26 0B        ld h,$0B
+02A4  86           add a,(hl)
+02A5  4F           ld c,a
+02A6  DD 09        add ix,bc
+02A8  25           dec h
+02A9  86           add a,(hl)
+02AA  4F           ld c,a
+02AB  FD 09        add iy,bc
+02AD  5F           ld e,a
+02AE  ED 53 C1 1F  ld ($1FC1),de
+02B2  7A           ld a,d
+02B3  08           ex af,af'
+02B4  F1           pop af
+02B5  30 B9        jr nc,$0270
+02B7  E1           pop hl
+02B8  55           ld d,l
+02B9  14           inc d
+02BA  6E           ld l,(hl)
+02BB  25           dec h
+02BC  86           add a,(hl)
+02BD  4F           ld c,a
+02BE  DD 09        add ix,bc
+02C0  25           dec h
+02C1  86           add a,(hl)
+02C2  4F           ld c,a
+02C3  FD 09        add iy,bc
+02C5  5F           ld e,a
+02C6  ED 53 C5 1F  ld ($1FC5),de
+02CA  3A B2 1F     ld a,($1FB2)
+02CD  92           sub d
+02CE  28 05        jr z,$02D5
+02D0  00           nop
+02D1  00           nop
+02D2  C3 D8 02     jp $02D8
+02D5  32 C4 1F     ld ($1FC4),a
+02D8  D9           exx
+02D9  72           ld (hl),d
+02DA  DD 7E 00     ld a,(ix+0)
+02DD  EB           ex de,hl
+02DE  73           ld (hl),e
+02DF  EB           ex de,hl
+02E0  02           ld (bc),a
+02E1  73           ld (hl),e
+02E2  D9           exx
+02E3  31 90 1F     ld sp,$1F90
+02E6  F1           pop af
+02E7  D2 DF 03     jp nc,$03DF
+02EA  D1           pop de
+02EB  08           ex af,af'
+02EC  93           sub e
+02ED  C2 FC 02     jp nz,$02FC
+02F0  3A FF 1F     ld a,($1FFF)
+02F3  B7           or a
+02F4  C2 F0 02     jp nz,$02F0
+02F7  3E 00        ld a,$00
+02F9  C3 08 03     jp $0308
+02FC  FE C0        cp $C0
+02FE  DA 95 03     jp c,$0395
+0301  3A FF 1F     ld a,($1FFF)
+0304  B7           or a
+0305  C2 9C 03     jp nz,$039C
+0308  21 00 60     ld hl,$6000
+030B  C1           pop bc
+030C  CB 00        rlc b
+030E  70           ld (hl),b
+030F  79           ld a,c
+0310  77           ld (hl),a
+0311  0F           rrca
+0312  77           ld (hl),a
+0313  0F           rrca
+0314  77           ld (hl),a
+0315  0F           rrca
+0316  77           ld (hl),a
+0317  0F           rrca
+0318  77           ld (hl),a
+0319  0F           rrca
+031A  77           ld (hl),a
+031B  0F           rrca
+031C  77           ld (hl),a
+031D  0F           rrca
+031E  77           ld (hl),a
+031F  E1           pop hl
+0320  C1           pop bc
+0321  ED A0        ldi
+0323  ED A0        ldi
+0325  ED A0        ldi
+0327  ED A0        ldi
+0329  EA 39 03     jp pe,$0339
+032C  7B           ld a,e
+032D  32 92 1F     ld ($1F92),a
+0330  AF           xor a
+0331  32 90 1F     ld ($1F90),a
+0334  3E 00        ld a,$00
+0336  00           nop
+0337  18 0B        jr $0344
+0339  78           ld a,b
+033A  B7           or a
+033B  FA 68 03     jp m,$0368
+033E  C5           push bc
+033F  E5           push hl
+0340  7B           ld a,e
+0341  32 92 1F     ld ($1F92),a
+0344  D9           exx
+0345  72           ld (hl),d
+0346  FD 7E 00     ld a,(iy+0)
+0349  EB           ex de,hl
+034A  73           ld (hl),e
+034B  EB           ex de,hl
+034C  02           ld (bc),a
+034D  73           ld (hl),e
+034E  D9           exx
+034F  3A FE 1F     ld a,($1FFE)
+0352  B7           or a
+0353  CA C9 04     jp z,$04C9
+0356  08           ex af,af'
+0357  AF           xor a
+0358  32 86 1F     ld ($1F86),a
+035B  32 A6 1F     ld ($1FA6),a
+035E  32 87 1F     ld ($1F87),a
+0361  32 A7 1F     ld ($1FA7),a
+0364  08           ex af,af'
+0365  C3 64 00     jp $0064
+0368  7B           ld a,e
+0369  81           add a,c
+036A  32 92 1F     ld ($1F92),a
+036D  AF           xor a
+036E  32 90 1F     ld ($1F90),a
+0371  D9           exx
+0372  72           ld (hl),d
+0373  FD 7E 00     ld a,(iy+0)
+0376  EB           ex de,hl
+0377  73           ld (hl),e
+0378  EB           ex de,hl
+0379  02           ld (bc),a
+037A  73           ld (hl),e
+037B  D9           exx
+037C  3A FE 1F     ld a,($1FFE)
+037F  B7           or a
+0380  CA C9 04     jp z,$04C9
+0383  08           ex af,af'
+0384  AF           xor a
+0385  32 86 1F     ld ($1F86),a
+0388  32 A6 1F     ld ($1FA6),a
+038B  32 87 1F     ld ($1F87),a
+038E  32 A7 1F     ld ($1FA7),a
+0391  08           ex af,af'
+0392  C3 64 00     jp $0064
+0395  3E 01        ld a,$01
+0397  32 C0 1F     ld ($1FC0),a
+039A  3E 00        ld a,$00
+039C  3A 86 1F     ld a,($1F86)
+039F  B7           or a
+03A0  FA AB 03     jp m,$03AB
+03A3  00           nop
+03A4  3E 00        ld a,$00
+03A6  01 00 00     ld bc,$0000
+03A9  18 08        jr $03B3
+03AB  3E 40        ld a,$40
+03AD  32 86 1F     ld ($1F86),a
+03B0  32 90 1F     ld ($1F90),a
+03B3  00           nop
+03B4  ED 4B 00 00  ld bc,($0000)
+03B8  ED 4B 00 00  ld bc,($0000)
+03BC  ED 4B 00 00  ld bc,($0000)
+03C0  ED 4B 00 00  ld bc,($0000)
+03C4  ED 4B 00 00  ld bc,($0000)
+03C8  ED 4B 00 00  ld bc,($0000)
+03CC  ED 4B 00 00  ld bc,($0000)
+03D0  ED 4B 00 00  ld bc,($0000)
+03D4  ED 4B 00 00  ld bc,($0000)
+03D8  ED 4B 00 00  ld bc,($0000)
+03DC  C3 44 03     jp $0344
+03DF  CA 4E 04     jp z,$044E
+03E2  00           nop
+03E3  00           nop
+03E4  00           nop
+03E5  01 00 00     ld bc,$0000
+03E8  ED 4B 00 00  ld bc,($0000)
+03EC  ED 4B 00 00  ld bc,($0000)
+03F0  3A 86 1F     ld a,($1F86)
+03F3  B7           or a
+03F4  FA AB 03     jp m,$03AB
+03F7  C2 0B 04     jp nz,$040B
+03FA  00           nop
+03FB  3E 00        ld a,$00
+03FD  01 00 00     ld bc,$0000
+0400  ED 4B 00 00  ld bc,($0000)
+0404  ED 4B 00 00  ld bc,($0000)
+0408  C3 28 04     jp $0428
+040B  D1           pop de
+040C  08           ex af,af'
+040D  BB           cp e
+040E  CA 1E 04     jp z,$041E
+0411  3E 00        ld a,$00
+0413  ED 4B 00 00  ld bc,($0000)
+0417  ED 4B 00 00  ld bc,($0000)
+041B  C3 2F 04     jp $042F
+041E  AF           xor a
+041F  32 C0 1F     ld ($1FC0),a
+0422  32 86 1F     ld ($1F86),a
+0425  32 87 1F     ld ($1F87),a
+0428  3A A6 1F     ld a,($1FA6)
+042B  B7           or a
+042C  CA CE 06     jp z,$06CE
+042F  00           nop
+0430  00           nop
+0431  00           nop
+0432  3E 00        ld a,$00
+0434  01 00 00     ld bc,$0000
+0437  ED 4B 00 00  ld bc,($0000)
+043B  ED 4B 00 00  ld bc,($0000)
+043F  ED 4B 00 00  ld bc,($0000)
+0443  ED 4B 00 00  ld bc,($0000)
+0447  ED 4B 00 00  ld bc,($0000)
+044B  C3 44 03     jp $0344
+044E  AF           xor a
+044F  32 C0 1F     ld ($1FC0),a
+0452  32 C2 1F     ld ($1FC2),a
+0455  32 92 1F     ld ($1F92),a
+0458  3E 80        ld a,$80
+045A  32 C1 1F     ld ($1FC1),a
+045D  3E 01        ld a,$01
+045F  32 90 1F     ld ($1F90),a
+0462  32 2A 1F     ld ($1F2A),a
+0465  3A FB 1F     ld a,($1FFB)
+0468  32 FC 1F     ld ($1FFC),a
+046B  31 80 1F     ld sp,$1F80
+046E  E1           pop hl
+046F  D1           pop de
+0470  C1           pop bc
+0471  31 9A 1F     ld sp,$1F9A
+0474  C5           push bc
+0475  D5           push de
+0476  E5           push hl
+0477  AF           xor a
+0478  32 2A 1F     ld ($1F2A),a
+047B  00           nop
+047C  ED 4B 00 00  ld bc,($0000)
+0480  ED 4B 00 00  ld bc,($0000)
+0484  ED 4B 00 00  ld bc,($0000)
+0488  ED 4B 00 00  ld bc,($0000)
+048C  ED 4B 00 00  ld bc,($0000)
+0490  C3 44 03     jp $0344
+0493  E1           pop hl
+0494  0E 80        ld c,$80
+0496  DD 09        add ix,bc
+0498  FD 09        add iy,bc
+049A  3E 00        ld a,$00
+049C  11 00 00     ld de,$0000
+049F  ED 5B 00 00  ld de,($0000)
+04A3  ED 5B 00 00  ld de,($0000)
+04A7  ED 5B 00 00  ld de,($0000)
+04AB  ED 5B 00 00  ld de,($0000)
+04AF  C3 FB 04     jp $04FB
+04B2  E1           pop hl
+04B3  7D           ld a,l
+04B4  08           ex af,af'
+04B5  0E 80        ld c,$80
+04B7  DD 09        add ix,bc
+04B9  FD 09        add iy,bc
+04BB  00           nop
+04BC  00           nop
+04BD  00           nop
+04BE  ED 5B 00 00  ld de,($0000)
+04C2  ED 5B 00 00  ld de,($0000)
+04C6  C3 13 05     jp $0513
+04C9  06 00        ld b,$00
+04CB  DD 21 00 08  ld ix,$0800
+04CF  FD 21 00 08  ld iy,$0800
+04D3  31 C0 1F     ld sp,$1FC0
+04D6  F1           pop af
+04D7  30 BA        jr nc,$0493
+04D9  E1           pop hl
+04DA  55           ld d,l
+04DB  14           inc d
+04DC  6E           ld l,(hl)
+04DD  26 0B        ld h,$0B
+04DF  86           add a,(hl)
+04E0  4F           ld c,a
+04E1  DD 09        add ix,bc
+04E3  25           dec h
+04E4  86           add a,(hl)
+04E5  4F           ld c,a
+04E6  FD 09        add iy,bc
+04E8  5F           ld e,a
+04E9  ED 53 C1 1F  ld ($1FC1),de
+04ED  3A 92 1F     ld a,($1F92)
+04F0  92           sub d
+04F1  28 05        jr z,$04F8
+04F3  00           nop
+04F4  00           nop
+04F5  C3 FB 04     jp $04FB
+04F8  32 C0 1F     ld ($1FC0),a
+04FB  F1           pop af
+04FC  30 B4        jr nc,$04B2
+04FE  E1           pop hl
+04FF  55           ld d,l
+0500  14           inc d
+0501  6E           ld l,(hl)
+0502  25           dec h
+0503  86           add a,(hl)
+0504  4F           ld c,a
+0505  DD 09        add ix,bc
+0507  25           dec h
+0508  86           add a,(hl)
+0509  4F           ld c,a
+050A  FD 09        add iy,bc
+050C  5F           ld e,a
+050D  ED 53 C5 1F  ld ($1FC5),de
+0511  7A           ld a,d
+0512  08           ex af,af'
+0513  D9           exx
+0514  72           ld (hl),d
+0515  DD 7E 00     ld a,(ix+0)
+0518  EB           ex de,hl
+0519  73           ld (hl),e
+051A  EB           ex de,hl
+051B  02           ld (bc),a
+051C  73           ld (hl),e
+051D  D9           exx
+051E  31 B0 1F     ld sp,$1FB0
+0521  F1           pop af
+0522  D2 1A 06     jp nc,$061A
+0525  D1           pop de
+0526  08           ex af,af'
+0527  93           sub e
+0528  C2 37 05     jp nz,$0537
+052B  3A FF 1F     ld a,($1FFF)
+052E  B7           or a
+052F  C2 2B 05     jp nz,$052B
+0532  3E 00        ld a,$00
+0534  C3 43 05     jp $0543
+0537  FE C0        cp $C0
+0539  DA D0 05     jp c,$05D0
+053C  3A FF 1F     ld a,($1FFF)
+053F  B7           or a
+0540  C2 D7 05     jp nz,$05D7
+0543  21 00 60     ld hl,$6000
+0546  C1           pop bc
+0547  CB 00        rlc b
+0549  70           ld (hl),b
+054A  79           ld a,c
+054B  77           ld (hl),a
+054C  0F           rrca
+054D  77           ld (hl),a
+054E  0F           rrca
+054F  77           ld (hl),a
+0550  0F           rrca
+0551  77           ld (hl),a
+0552  0F           rrca
+0553  77           ld (hl),a
+0554  0F           rrca
+0555  77           ld (hl),a
+0556  0F           rrca
+0557  77           ld (hl),a
+0558  0F           rrca
+0559  77           ld (hl),a
+055A  E1           pop hl
+055B  C1           pop bc
+055C  ED A0        ldi
+055E  ED A0        ldi
+0560  ED A0        ldi
+0562  ED A0        ldi
+0564  EA 74 05     jp pe,$0574
+0567  7B           ld a,e
+0568  32 B2 1F     ld ($1FB2),a
+056B  AF           xor a
+056C  32 B0 1F     ld ($1FB0),a
+056F  3E 00        ld a,$00
+0571  00           nop
+0572  18 0B        jr $057F
+0574  78           ld a,b
+0575  B7           or a
+0576  FA A3 05     jp m,$05A3
+0579  C5           push bc
+057A  E5           push hl
+057B  7B           ld a,e
+057C  32 B2 1F     ld ($1FB2),a
+057F  D9           exx
+0580  72           ld (hl),d
+0581  FD 7E 00     ld a,(iy+0)
+0584  EB           ex de,hl
+0585  73           ld (hl),e
+0586  EB           ex de,hl
+0587  02           ld (bc),a
+0588  73           ld (hl),e
+0589  D9           exx
+058A  3A FE 1F     ld a,($1FFE)
+058D  B7           or a
+058E  CA 8E 02     jp z,$028E
+0591  08           ex af,af'
+0592  AF           xor a
+0593  32 86 1F     ld ($1F86),a
+0596  32 A6 1F     ld ($1FA6),a
+0599  32 87 1F     ld ($1F87),a
+059C  32 A7 1F     ld ($1FA7),a
+059F  08           ex af,af'
+05A0  C3 64 00     jp $0064
+05A3  7B           ld a,e
+05A4  81           add a,c
+05A5  32 B2 1F     ld ($1FB2),a
+05A8  AF           xor a
+05A9  32 B0 1F     ld ($1FB0),a
+05AC  D9           exx
+05AD  72           ld (hl),d
+05AE  FD 7E 00     ld a,(iy+0)
+05B1  EB           ex de,hl
+05B2  73           ld (hl),e
+05B3  EB           ex de,hl
+05B4  02           ld (bc),a
+05B5  73           ld (hl),e
+05B6  D9           exx
+05B7  3A FE 1F     ld a,($1FFE)
+05BA  B7           or a
+05BB  CA 8E 02     jp z,$028E
+05BE  08           ex af,af'
+05BF  AF           xor a
+05C0  32 86 1F     ld ($1F86),a
+05C3  32 A6 1F     ld ($1FA6),a
+05C6  32 87 1F     ld ($1F87),a
+05C9  32 A7 1F     ld ($1FA7),a
+05CC  08           ex af,af'
+05CD  C3 64 00     jp $0064
+05D0  3E 01        ld a,$01
+05D2  32 C4 1F     ld ($1FC4),a
+05D5  3E 00        ld a,$00
+05D7  3A A6 1F     ld a,($1FA6)
+05DA  B7           or a
+05DB  FA E6 05     jp m,$05E6
+05DE  00           nop
+05DF  3E 00        ld a,$00
+05E1  01 00 00     ld bc,$0000
+05E4  18 08        jr $05EE
+05E6  3E 40        ld a,$40
+05E8  32 A6 1F     ld ($1FA6),a
+05EB  32 B0 1F     ld ($1FB0),a
+05EE  00           nop
+05EF  ED 4B 00 00  ld bc,($0000)
+05F3  ED 4B 00 00  ld bc,($0000)
+05F7  ED 4B 00 00  ld bc,($0000)
+05FB  ED 4B 00 00  ld bc,($0000)
+05FF  ED 4B 00 00  ld bc,($0000)
+0603  ED 4B 00 00  ld bc,($0000)
+0607  ED 4B 00 00  ld bc,($0000)
+060B  ED 4B 00 00  ld bc,($0000)
+060F  ED 4B 00 00  ld bc,($0000)
+0613  ED 4B 00 00  ld bc,($0000)
+0617  C3 7F 05     jp $057F
+061A  CA 89 06     jp z,$0689
+061D  00           nop
+061E  00           nop
+061F  00           nop
+0620  01 00 00     ld bc,$0000
+0623  ED 4B 00 00  ld bc,($0000)
+0627  ED 4B 00 00  ld bc,($0000)
+062B  3A A6 1F     ld a,($1FA6)
+062E  B7           or a
+062F  FA E6 05     jp m,$05E6
+0632  C2 46 06     jp nz,$0646
+0635  00           nop
+0636  3E 00        ld a,$00
+0638  01 00 00     ld bc,$0000
+063B  ED 4B 00 00  ld bc,($0000)
+063F  ED 4B 00 00  ld bc,($0000)
+0643  C3 63 06     jp $0663
+0646  D1           pop de
+0647  08           ex af,af'
+0648  BB           cp e
+0649  CA 59 06     jp z,$0659
+064C  3E 00        ld a,$00
+064E  ED 4B 00 00  ld bc,($0000)
+0652  ED 4B 00 00  ld bc,($0000)
+0656  C3 6A 06     jp $066A
+0659  AF           xor a
+065A  32 C4 1F     ld ($1FC4),a
+065D  32 A6 1F     ld ($1FA6),a
+0660  32 A7 1F     ld ($1FA7),a
+0663  3A 86 1F     ld a,($1F86)
+0666  B7           or a
+0667  CA CE 06     jp z,$06CE
+066A  00           nop
+066B  00           nop
+066C  00           nop
+066D  3E 00        ld a,$00
+066F  01 00 00     ld bc,$0000
+0672  ED 4B 00 00  ld bc,($0000)
+0676  ED 4B 00 00  ld bc,($0000)
+067A  ED 4B 00 00  ld bc,($0000)
+067E  ED 4B 00 00  ld bc,($0000)
+0682  ED 4B 00 00  ld bc,($0000)
+0686  C3 7F 05     jp $057F
+0689  AF           xor a
+068A  32 C4 1F     ld ($1FC4),a
+068D  32 C6 1F     ld ($1FC6),a
+0690  32 B2 1F     ld ($1FB2),a
+0693  3E 80        ld a,$80
+0695  32 C5 1F     ld ($1FC5),a
+0698  3E 01        ld a,$01
+069A  32 B0 1F     ld ($1FB0),a
+069D  32 2A 1F     ld ($1F2A),a
+06A0  3A FB 1F     ld a,($1FFB)
+06A3  32 FC 1F     ld ($1FFC),a
+06A6  31 A0 1F     ld sp,$1FA0
+06A9  E1           pop hl
+06AA  D1           pop de
+06AB  C1           pop bc
+06AC  31 BA 1F     ld sp,$1FBA
+06AF  C5           push bc
+06B0  D5           push de
+06B1  E5           push hl
+06B2  AF           xor a
+06B3  32 2A 1F     ld ($1F2A),a
+06B6  00           nop
+06B7  ED 4B 00 00  ld bc,($0000)
+06BB  ED 4B 00 00  ld bc,($0000)
+06BF  ED 4B 00 00  ld bc,($0000)
+06C3  ED 4B 00 00  ld bc,($0000)
+06C7  ED 4B 00 00  ld bc,($0000)
+06CB  C3 7F 05     jp $057F
+06CE  3E 80        ld a,$80
+06D0  32 2A 1F     ld ($1F2A),a
+06D3  DD 2A 00 00  ld ix,($0000)
+06D7  DD 2A 00 00  ld ix,($0000)
+06DB  21 02 40     ld hl,$4002
+06DE  36 B6        ld (hl),$B6
+06E0  23           inc hl
+06E1  3A F8 1F     ld a,($1FF8)
+06E4  77           ld (hl),a
+06E5  DD 2A 00 00  ld ix,($0000)
+06E9  DD 2A 00 00  ld ix,($0000)
+06ED  21 00 40     ld hl,$4000
+06F0  36 2B        ld (hl),$2B
+06F2  23           inc hl
+06F3  AF           xor a
+06F4  77           ld (hl),a
+06F5  32 FC 1F     ld ($1FFC),a
+06F8  32 FD 1F     ld ($1FFD),a
+06FB  32 2A 1F     ld ($1F2A),a
+06FE  C3 5D 00     jp $005D
+0701  00           nop
+0702  00           nop
+0703  00           nop
+0704  00           nop
+0705  00           nop
+0706  00           nop
+0707  00           nop
+0708  00           nop
+0709  00           nop
+070A  00           nop
+070B  00           nop
+070C  00           nop
+070D  00           nop
+070E  00           nop
+070F  00           nop
+0710  00           nop
+0711  00           nop
+0712  00           nop
+0713  00           nop
+0714  00           nop
+0715  00           nop
+0716  00           nop
+0717  00           nop
+0718  00           nop
+0719  00           nop
+071A  00           nop
+071B  00           nop
+071C  00           nop
+071D  00           nop
+071E  00           nop
+071F  00           nop
+0720  00           nop
+0721  00           nop
+0722  00           nop
+0723  00           nop
+0724  00           nop
+0725  00           nop
+0726  00           nop
+0727  00           nop
+0728  00           nop
+0729  00           nop
+072A  00           nop
+072B  00           nop
+072C  00           nop
+072D  00           nop
+072E  00           nop
+072F  00           nop
+0730  00           nop
+0731  00           nop
+0732  00           nop
+0733  00           nop
+0734  00           nop
+0735  00           nop
+0736  00           nop
+0737  00           nop
+0738  00           nop
+0739  00           nop
+073A  00           nop
+073B  00           nop
+073C  00           nop
+073D  00           nop
+073E  00           nop
+073F  00           nop
+0740  00           nop
+0741  00           nop
+0742  00           nop
+0743  00           nop
+0744  00           nop
+0745  00           nop
+0746  00           nop
+0747  00           nop
+0748  00           nop
+0749  00           nop
+074A  00           nop
+074B  00           nop
+074C  00           nop
+074D  00           nop
+074E  00           nop
+074F  00           nop
+0750  00           nop
+0751  00           nop
+0752  00           nop
+0753  00           nop
+0754  00           nop
+0755  00           nop
+0756  00           nop
+0757  00           nop
+0758  00           nop
+0759  00           nop
+075A  00           nop
+075B  00           nop
+075C  00           nop
+075D  00           nop
+075E  00           nop
+075F  00           nop
+0760  00           nop
+0761  00           nop
+0762  00           nop
+0763  00           nop
+0764  00           nop
+0765  00           nop
+0766  00           nop
+0767  00           nop
+0768  00           nop
+0769  00           nop
+076A  00           nop
+076B  00           nop
+076C  00           nop
+076D  00           nop
+076E  00           nop
+076F  00           nop
+0770  00           nop
+0771  00           nop
+0772  00           nop
+0773  00           nop
+0774  00           nop
+0775  00           nop
+0776  00           nop
+0777  00           nop
+0778  00           nop
+0779  00           nop
+077A  00           nop
+077B  00           nop
+077C  00           nop
+077D  00           nop
+077E  00           nop
+077F  00           nop
+0780  00           nop
+0781  00           nop
+0782  00           nop
+0783  00           nop
+0784  00           nop
+0785  00           nop
+0786  00           nop
+0787  00           nop
+0788  00           nop
+0789  00           nop
+078A  00           nop
+078B  00           nop
+078C  00           nop
+078D  00           nop
+078E  00           nop
+078F  00           nop
+0790  00           nop
+0791  00           nop
+0792  00           nop
+0793  00           nop
+0794  00           nop
+0795  00           nop
+0796  00           nop
+0797  00           nop
+0798  00           nop
+0799  00           nop
+079A  00           nop
+079B  00           nop
+079C  00           nop
+079D  00           nop
+079E  00           nop
+079F  00           nop
+07A0  00           nop
+07A1  00           nop
+07A2  00           nop
+07A3  00           nop
+07A4  00           nop
+07A5  00           nop
+07A6  00           nop
+07A7  00           nop
+07A8  00           nop
+07A9  00           nop
+07AA  00           nop
+07AB  00           nop
+07AC  00           nop
+07AD  00           nop
+07AE  00           nop
+07AF  00           nop
+07B0  00           nop
+07B1  00           nop
+07B2  00           nop
+07B3  00           nop
+07B4  00           nop
+07B5  00           nop
+07B6  00           nop
+07B7  00           nop
+07B8  00           nop
+07B9  00           nop
+07BA  00           nop
+07BB  00           nop
+07BC  00           nop
+07BD  00           nop
+07BE  00           nop
+07BF  00           nop
+07C0  00           nop
+07C1  00           nop
+07C2  00           nop
+07C3  00           nop
+07C4  00           nop
+07C5  00           nop
+07C6  00           nop
+07C7  00           nop
+07C8  00           nop
+07C9  00           nop
+07CA  00           nop
+07CB  00           nop
+07CC  00           nop
+07CD  00           nop
+07CE  00           nop
+07CF  00           nop
+07D0  00           nop
+07D1  00           nop
+07D2  00           nop
+07D3  00           nop
+07D4  00           nop
+07D5  00           nop
+07D6  00           nop
+07D7  00           nop
+07D8  00           nop
+07D9  00           nop
+07DA  00           nop
+07DB  00           nop
+07DC  00           nop
+07DD  00           nop
+07DE  00           nop
+07DF  00           nop
+07E0  00           nop
+07E1  00           nop
+07E2  00           nop
+07E3  00           nop
+07E4  00           nop
+07E5  00           nop
+07E6  00           nop
+07E7  00           nop
+07E8  00           nop
+07E9  00           nop
+07EA  00           nop
+07EB  00           nop
+07EC  00           nop
+07ED  00           nop
+07EE  00           nop
+07EF  00           nop
+07F0  00           nop
+07F1  00           nop
+07F2  00           nop
+07F3  00           nop
+07F4  00           nop
+07F5  00           nop
+07F6  00           nop
+07F7  00           nop
+07F8  00           nop
+07F9  00           nop
+07FA  00           nop
+07FB  00           nop
+07FC  00           nop
+07FD  00           nop
+07FE  00           nop
+07FF  00           nop
+0800  00           nop
+0801  00           nop
+0802  00           nop
+0803  00           nop
+0804  00           nop
+0805  00           nop
+0806  00           nop
+0807  00           nop
+0808  00           nop
+0809  00           nop
+080A  00           nop
+080B  00           nop
+080C  00           nop
+080D  00           nop
+080E  00           nop
+080F  00           nop
+0810  00           nop
+0811  00           nop
+0812  00           nop
+0813  00           nop
+0814  00           nop
+0815  00           nop
+0816  00           nop
+0817  00           nop
+0818  00           nop
+0819  00           nop
+081A  00           nop
+081B  00           nop
+081C  00           nop
+081D  00           nop
+081E  00           nop
+081F  00           nop
+0820  00           nop
+0821  00           nop
+0822  00           nop
+0823  00           nop
+0824  00           nop
+0825  00           nop
+0826  00           nop
+0827  00           nop
+0828  00           nop
+0829  00           nop
+082A  00           nop
+082B  00           nop
+082C  00           nop
+082D  00           nop
+082E  00           nop
+082F  00           nop
+0830  00           nop
+0831  00           nop
+0832  00           nop
+0833  00           nop
+0834  00           nop
+0835  00           nop
+0836  00           nop
+0837  00           nop
+0838  00           nop
+0839  00           nop
+083A  00           nop
+083B  00           nop
+083C  00           nop
+083D  00           nop
+083E  00           nop
+083F  00           nop
+0840  00           nop
+0841  00           nop
+0842  00           nop
+0843  00           nop
+0844  00           nop
+0845  00           nop
+0846  00           nop
+0847  00           nop
+0848  00           nop
+0849  00           nop
+084A  00           nop
+084B  00           nop
+084C  00           nop
+084D  00           nop
+084E  00           nop
+084F  00           nop
+0850  00           nop
+0851  00           nop
+0852  00           nop
+0853  00           nop
+0854  00           nop
+0855  00           nop
+0856  00           nop
+0857  00           nop
+0858  00           nop
+0859  00           nop
+085A  00           nop
+085B  00           nop
+085C  00           nop
+085D  00           nop
+085E  00           nop
+085F  00           nop
+0860  00           nop
+0861  00           nop
+0862  00           nop
+0863  00           nop
+0864  00           nop
+0865  00           nop
+0866  00           nop
+0867  00           nop
+0868  00           nop
+0869  00           nop
+086A  00           nop
+086B  00           nop
+086C  00           nop
+086D  00           nop
+086E  00           nop
+086F  00           nop
+0870  00           nop
+0871  00           nop
+0872  00           nop
+0873  00           nop
+0874  00           nop
+0875  00           nop
+0876  00           nop
+0877  00           nop
+0878  00           nop
+0879  00           nop
+087A  00           nop
+087B  00           nop
+087C  00           nop
+087D  00           nop
+087E  00           nop
+087F  00           nop
+0880  00           nop
+0881  01 02 03     ld bc,$0302
+0884  04           inc b
+0885  05           dec b
+0886  06 07        ld b,$07
+0888  08           ex af,af'
+0889  09           add hl,bc
+088A  0A           ld a,(bc)
+088B  0B           dec bc
+088C  0C           inc c
+088D  0D           dec c
+088E  0E 0F        ld c,$0F
+0890  10 11        djnz $08A3
+0892  12           ld (de),a
+0893  13           inc de
+0894  14           inc d
+0895  15           dec d
+0896  16 17        ld d,$17
+0898  18 19        jr $08B3
+089A  1A           ld a,(de)
+089B  1B           dec de
+089C  1C           inc e
+089D  1D           dec e
+089E  1E 1F        ld e,$1F
+08A0  20 21        jr nz,$08C3
+08A2  22 23 24     ld ($2423),hl
+08A5  25           dec h
+08A6  26 27        ld h,$27
+08A8  28 29        jr z,$08D3
+08AA  2A 2B 2C     ld hl,($2C2B)
+08AD  2D           dec l
+08AE  2E 2F        ld l,$2F
+08B0  30 31        jr nc,$08E3
+08B2  32 33 34     ld ($3433),a
+08B5  35           dec (hl)
+08B6  36 37        ld (hl),$37
+08B8  38 39        jr c,$08F3
+08BA  3A 3B 3C     ld a,($3C3B)
+08BD  3D           dec a
+08BE  3E 3F        ld a,$3F
+08C0  40           ld b,b
+08C1  41           ld b,c
+08C2  42           ld b,d
+08C3  43           ld b,e
+08C4  44           ld b,h
+08C5  45           ld b,l
+08C6  46           ld b,(hl)
+08C7  47           ld b,a
+08C8  48           ld c,b
+08C9  49           ld c,c
+08CA  4A           ld c,d
+08CB  4B           ld c,e
+08CC  4C           ld c,h
+08CD  4D           ld c,l
+08CE  4E           ld c,(hl)
+08CF  4F           ld c,a
+08D0  50           ld d,b
+08D1  51           ld d,c
+08D2  52           ld d,d
+08D3  53           ld d,e
+08D4  54           ld d,h
+08D5  55           ld d,l
+08D6  56           ld d,(hl)
+08D7  57           ld d,a
+08D8  58           ld e,b
+08D9  59           ld e,c
+08DA  5A           ld e,d
+08DB  5B           ld e,e
+08DC  5C           ld e,h
+08DD  5D           ld e,l
+08DE  5E           ld e,(hl)
+08DF  5F           ld e,a
+08E0  60           ld h,b
+08E1  61           ld h,c
+08E2  62           ld h,d
+08E3  63           ld h,e
+08E4  64           ld h,h
+08E5  65           ld h,l
+08E6  66           ld h,(hl)
+08E7  67           ld h,a
+08E8  68           ld l,b
+08E9  69           ld l,c
+08EA  6A           ld l,d
+08EB  6B           ld l,e
+08EC  6C           ld l,h
+08ED  6D           ld l,l
+08EE  6E           ld l,(hl)
+08EF  6F           ld l,a
+08F0  70           ld (hl),b
+08F1  71           ld (hl),c
+08F2  72           ld (hl),d
+08F3  73           ld (hl),e
+08F4  74           ld (hl),h
+08F5  75           ld (hl),l
+08F6  76           halt
+08F7  77           ld (hl),a
+08F8  78           ld a,b
+08F9  79           ld a,c
+08FA  7A           ld a,d
+08FB  7B           ld a,e
+08FC  7C           ld a,h
+08FD  7D           ld a,l
+08FE  7E           ld a,(hl)
+08FF  7F           ld a,a
+0900  80           add a,b
+0901  81           add a,c
+0902  82           add a,d
+0903  83           add a,e
+0904  84           add a,h
+0905  85           add a,l
+0906  86           add a,(hl)
+0907  87           add a,a
+0908  88           adc a,b
+0909  89           adc a,c
+090A  8A           adc a,d
+090B  8B           adc a,e
+090C  8C           adc a,h
+090D  8D           adc a,l
+090E  8E           adc a,(hl)
+090F  8F           adc a,a
+0910  90           sub b
+0911  91           sub c
+0912  92           sub d
+0913  93           sub e
+0914  94           sub h
+0915  95           sub l
+0916  96           sub (hl)
+0917  97           sub a
+0918  98           sbc a,b
+0919  99           sbc a,c
+091A  9A           sbc a,d
+091B  9B           sbc a,e
+091C  9C           sbc a,h
+091D  9D           sbc a,l
+091E  9E           sbc a,(hl)
+091F  9F           sbc a,a
+0920  A0           and b
+0921  A1           and c
+0922  A2           and d
+0923  A3           and e
+0924  A4           and h
+0925  A5           and l
+0926  A6           and (hl)
+0927  A7           and a
+0928  A8           xor b
+0929  A9           xor c
+092A  AA           xor d
+092B  AB           xor e
+092C  AC           xor h
+092D  AD           xor l
+092E  AE           xor (hl)
+092F  AF           xor a
+0930  B0           or b
+0931  B1           or c
+0932  B2           or d
+0933  B3           or e
+0934  B4           or h
+0935  B5           or l
+0936  B6           or (hl)
+0937  B7           or a
+0938  B8           cp b
+0939  B9           cp c
+093A  BA           cp d
+093B  BB           cp e
+093C  BC           cp h
+093D  BD           cp l
+093E  BE           cp (hl)
+093F  BF           cp a
+0940  C0           ret nz
+0941  C1           pop bc
+0942  C2 C3 C4     jp nz,$C4C3
+0945  C5           push bc
+0946  C6 C7        add a,$C7
+0948  C8           ret z
+0949  C9           ret
+094A  CA CB CC     jp z,$CCCB
+094D  CD CE CF     call $CFCE
+0950  D0           ret nc
+0951  D1           pop de
+0952  D2 D3 D4     jp nc,$D4D3
+0955  D5           push de
+0956  D6 D7        sub $D7
+0958  D8           ret c
+0959  D9           exx
+095A  DA DB DC     jp c,$DCDB
+095D  DD DE DF     sbc a,$DF
+0960  E0           ret po
+0961  E1           pop hl
+0962  E2 E3 E4     jp po,$E4E3
+0965  E5           push hl
+0966  E6 E7        and $E7
+0968  E8           ret pe
+0969  E9           jp (hl)
+096A  EA EB EC     jp pe,$ECEB
+096D  ED EE        ed?EE
+096F  EF           rst $28
+0970  F0           ret p
+0971  F1           pop af
+0972  F2 F3 F4     jp p,$F4F3
+0975  F5           push af
+0976  F6 F7        or $F7
+0978  F8           ret m
+0979  F9           ld sp,hl
+097A  FA FB FC     jp m,$FCFB
+097D  FD FE FF     cp $FF
+0980  FF           rst $38
+0981  FF           rst $38
+0982  FF           rst $38
+0983  FF           rst $38
+0984  FF           rst $38
+0985  FF           rst $38
+0986  FF           rst $38
+0987  FF           rst $38
+0988  FF           rst $38
+0989  FF           rst $38
+098A  FF           rst $38
+098B  FF           rst $38
+098C  FF           rst $38
+098D  FF           rst $38
+098E  FF           rst $38
+098F  FF           rst $38
+0990  FF           rst $38
+0991  FF           rst $38
+0992  FF           rst $38
+0993  FF           rst $38
+0994  FF           rst $38
+0995  FF           rst $38
+0996  FF           rst $38
+0997  FF           rst $38
+0998  FF           rst $38
+0999  FF           rst $38
+099A  FF           rst $38
+099B  FF           rst $38
+099C  FF           rst $38
+099D  FF           rst $38
+099E  FF           rst $38
+099F  FF           rst $38
+09A0  FF           rst $38
+09A1  FF           rst $38
+09A2  FF           rst $38
+09A3  FF           rst $38
+09A4  FF           rst $38
+09A5  FF           rst $38
+09A6  FF           rst $38
+09A7  FF           rst $38
+09A8  FF           rst $38
+09A9  FF           rst $38
+09AA  FF           rst $38
+09AB  FF           rst $38
+09AC  FF           rst $38
+09AD  FF           rst $38
+09AE  FF           rst $38
+09AF  FF           rst $38
+09B0  FF           rst $38
+09B1  FF           rst $38
+09B2  FF           rst $38
+09B3  FF           rst $38
+09B4  FF           rst $38
+09B5  FF           rst $38
+09B6  FF           rst $38
+09B7  FF           rst $38
+09B8  FF           rst $38
+09B9  FF           rst $38
+09BA  FF           rst $38
+09BB  FF           rst $38
+09BC  FF           rst $38
+09BD  FF           rst $38
+09BE  FF           rst $38
+09BF  FF           rst $38
+09C0  FF           rst $38
+09C1  FF           rst $38
+09C2  FF           rst $38
+09C3  FF           rst $38
+09C4  FF           rst $38
+09C5  FF           rst $38
+09C6  FF           rst $38
+09C7  FF           rst $38
+09C8  FF           rst $38
+09C9  FF           rst $38
+09CA  FF           rst $38
+09CB  FF           rst $38
+09CC  FF           rst $38
+09CD  FF           rst $38
+09CE  FF           rst $38
+09CF  FF           rst $38
+09D0  FF           rst $38
+09D1  FF           rst $38
+09D2  FF           rst $38
+09D3  FF           rst $38
+09D4  FF           rst $38
+09D5  FF           rst $38
+09D6  FF           rst $38
+09D7  FF           rst $38
+09D8  FF           rst $38
+09D9  FF           rst $38
+09DA  FF           rst $38
+09DB  FF           rst $38
+09DC  FF           rst $38
+09DD  FF           rst $38
+09DE  FF           rst $38
+09DF  FF           rst $38
+09E0  FF           rst $38
+09E1  FF           rst $38
+09E2  FF           rst $38
+09E3  FF           rst $38
+09E4  FF           rst $38
+09E5  FF           rst $38
+09E6  FF           rst $38
+09E7  FF           rst $38
+09E8  FF           rst $38
+09E9  FF           rst $38
+09EA  FF           rst $38
+09EB  FF           rst $38
+09EC  FF           rst $38
+09ED  FF           rst $38
+09EE  FF           rst $38
+09EF  FF           rst $38
+09F0  FF           rst $38
+09F1  FF           rst $38
+09F2  FF           rst $38
+09F3  FF           rst $38
+09F4  FF           rst $38
+09F5  FF           rst $38
+09F6  FF           rst $38
+09F7  FF           rst $38
+09F8  FF           rst $38
+09F9  FF           rst $38
+09FA  FF           rst $38
+09FB  FF           rst $38
+09FC  FF           rst $38
+09FD  FF           rst $38
+09FE  FF           rst $38
+09FF  FF           rst $38
+0A00  00           nop
+0A01  01 02 04     ld bc,$0402
+0A04  08           ex af,af'
+0A05  10 20        djnz $0A27
+0A07  40           ld b,b
+0A08  80           add a,b
+0A09  FF           rst $38
+0A0A  FE FC        cp $FC
+0A0C  F8           ret m
+0A0D  F0           ret p
+0A0E  E0           ret po
+0A0F  C0           ret nz
+0A10  00           nop
+0A11  01 02 04     ld bc,$0402
+0A14  08           ex af,af'
+0A15  10 20        djnz $0A37
+0A17  40           ld b,b
+0A18  80           add a,b
+0A19  FF           rst $38
+0A1A  FE FC        cp $FC
+0A1C  F8           ret m
+0A1D  F0           ret p
+0A1E  E0           ret po
+0A1F  C0           ret nz
+0A20  00           nop
+0A21  01 02 04     ld bc,$0402
+0A24  08           ex af,af'
+0A25  10 20        djnz $0A47
+0A27  40           ld b,b
+0A28  80           add a,b
+0A29  FF           rst $38
+0A2A  FE FC        cp $FC
+0A2C  F8           ret m
+0A2D  F0           ret p
+0A2E  E0           ret po
+0A2F  C0           ret nz
+0A30  00           nop
+0A31  01 02 04     ld bc,$0402
+0A34  08           ex af,af'
+0A35  10 20        djnz $0A57
+0A37  40           ld b,b
+0A38  80           add a,b
+0A39  FF           rst $38
+0A3A  FE FC        cp $FC
+0A3C  F8           ret m
+0A3D  F0           ret p
+0A3E  E0           ret po
+0A3F  C0           ret nz
+0A40  00           nop
+0A41  01 02 04     ld bc,$0402
+0A44  08           ex af,af'
+0A45  10 20        djnz $0A67
+0A47  40           ld b,b
+0A48  80           add a,b
+0A49  FF           rst $38
+0A4A  FE FC        cp $FC
+0A4C  F8           ret m
+0A4D  F0           ret p
+0A4E  E0           ret po
+0A4F  C0           ret nz
+0A50  00           nop
+0A51  01 02 04     ld bc,$0402
+0A54  08           ex af,af'
+0A55  10 20        djnz $0A77
+0A57  40           ld b,b
+0A58  80           add a,b
+0A59  FF           rst $38
+0A5A  FE FC        cp $FC
+0A5C  F8           ret m
+0A5D  F0           ret p
+0A5E  E0           ret po
+0A5F  C0           ret nz
+0A60  00           nop
+0A61  01 02 04     ld bc,$0402
+0A64  08           ex af,af'
+0A65  10 20        djnz $0A87
+0A67  40           ld b,b
+0A68  80           add a,b
+0A69  FF           rst $38
+0A6A  FE FC        cp $FC
+0A6C  F8           ret m
+0A6D  F0           ret p
+0A6E  E0           ret po
+0A6F  C0           ret nz
+0A70  00           nop
+0A71  01 02 04     ld bc,$0402
+0A74  08           ex af,af'
+0A75  10 20        djnz $0A97
+0A77  40           ld b,b
+0A78  80           add a,b
+0A79  FF           rst $38
+0A7A  FE FC        cp $FC
+0A7C  F8           ret m
+0A7D  F0           ret p
+0A7E  E0           ret po
+0A7F  C0           ret nz
+0A80  00           nop
+0A81  01 02 04     ld bc,$0402
+0A84  08           ex af,af'
+0A85  10 20        djnz $0AA7
+0A87  40           ld b,b
+0A88  80           add a,b
+0A89  FF           rst $38
+0A8A  FE FC        cp $FC
+0A8C  F8           ret m
+0A8D  F0           ret p
+0A8E  E0           ret po
+0A8F  C0           ret nz
+0A90  00           nop
+0A91  01 02 04     ld bc,$0402
+0A94  08           ex af,af'
+0A95  10 20        djnz $0AB7
+0A97  40           ld b,b
+0A98  80           add a,b
+0A99  FF           rst $38
+0A9A  FE FC        cp $FC
+0A9C  F8           ret m
+0A9D  F0           ret p
+0A9E  E0           ret po
+0A9F  C0           ret nz
+0AA0  00           nop
+0AA1  01 02 04     ld bc,$0402
+0AA4  08           ex af,af'
+0AA5  10 20        djnz $0AC7
+0AA7  40           ld b,b
+0AA8  80           add a,b
+0AA9  FF           rst $38
+0AAA  FE FC        cp $FC
+0AAC  F8           ret m
+0AAD  F0           ret p
+0AAE  E0           ret po
+0AAF  C0           ret nz
+0AB0  00           nop
+0AB1  01 02 04     ld bc,$0402
+0AB4  08           ex af,af'
+0AB5  10 20        djnz $0AD7
+0AB7  40           ld b,b
+0AB8  80           add a,b
+0AB9  FF           rst $38
+0ABA  FE FC        cp $FC
+0ABC  F8           ret m
+0ABD  F0           ret p
+0ABE  E0           ret po
+0ABF  C0           ret nz
+0AC0  00           nop
+0AC1  01 02 04     ld bc,$0402
+0AC4  08           ex af,af'
+0AC5  10 20        djnz $0AE7
+0AC7  40           ld b,b
+0AC8  80           add a,b
+0AC9  FF           rst $38
+0ACA  FE FC        cp $FC
+0ACC  F8           ret m
+0ACD  F0           ret p
+0ACE  E0           ret po
+0ACF  C0           ret nz
+0AD0  00           nop
+0AD1  01 02 04     ld bc,$0402
+0AD4  08           ex af,af'
+0AD5  10 20        djnz $0AF7
+0AD7  40           ld b,b
+0AD8  80           add a,b
+0AD9  FF           rst $38
+0ADA  FE FC        cp $FC
+0ADC  F8           ret m
+0ADD  F0           ret p
+0ADE  E0           ret po
+0ADF  C0           ret nz
+0AE0  00           nop
+0AE1  01 02 04     ld bc,$0402
+0AE4  08           ex af,af'
+0AE5  10 20        djnz $0B07
+0AE7  40           ld b,b
+0AE8  80           add a,b
+0AE9  FF           rst $38
+0AEA  FE FC        cp $FC
+0AEC  F8           ret m
+0AED  F0           ret p
+0AEE  E0           ret po
+0AEF  C0           ret nz
+0AF0  00           nop
+0AF1  01 02 04     ld bc,$0402
+0AF4  08           ex af,af'
+0AF5  10 20        djnz $0B17
+0AF7  40           ld b,b
+0AF8  80           add a,b
+0AF9  FF           rst $38
+0AFA  FE FC        cp $FC
+0AFC  F8           ret m
+0AFD  F0           ret p
+0AFE  E0           ret po
+0AFF  C0           ret nz
+0B00  00           nop
+0B01  00           nop
+0B02  00           nop
+0B03  00           nop
+0B04  00           nop
+0B05  00           nop
+0B06  00           nop
+0B07  00           nop
+0B08  00           nop
+0B09  00           nop
+0B0A  00           nop
+0B0B  00           nop
+0B0C  00           nop
+0B0D  00           nop
+0B0E  00           nop
+0B0F  00           nop
+0B10  01 01 01     ld bc,$0101
+0B13  01 01 01     ld bc,$0101
+0B16  01 01 01     ld bc,$0101
+0B19  01 01 01     ld bc,$0101
+0B1C  01 01 01     ld bc,$0101
+0B1F  01 02 02     ld bc,$0202
+0B22  02           ld (bc),a
+0B23  02           ld (bc),a
+0B24  02           ld (bc),a
+0B25  02           ld (bc),a
+0B26  02           ld (bc),a
+0B27  02           ld (bc),a
+0B28  02           ld (bc),a
+0B29  02           ld (bc),a
+0B2A  02           ld (bc),a
+0B2B  02           ld (bc),a
+0B2C  02           ld (bc),a
+0B2D  02           ld (bc),a
+0B2E  02           ld (bc),a
+0B2F  02           ld (bc),a
+0B30  04           inc b
+0B31  04           inc b
+0B32  04           inc b
+0B33  04           inc b
+0B34  04           inc b
+0B35  04           inc b
+0B36  04           inc b
+0B37  04           inc b
+0B38  04           inc b
+0B39  04           inc b
+0B3A  04           inc b
+0B3B  04           inc b
+0B3C  04           inc b
+0B3D  04           inc b
+0B3E  04           inc b
+0B3F  04           inc b
+0B40  08           ex af,af'
+0B41  08           ex af,af'
+0B42  08           ex af,af'
+0B43  08           ex af,af'
+0B44  08           ex af,af'
+0B45  08           ex af,af'
+0B46  08           ex af,af'
+0B47  08           ex af,af'
+0B48  08           ex af,af'
+0B49  08           ex af,af'
+0B4A  08           ex af,af'
+0B4B  08           ex af,af'
+0B4C  08           ex af,af'
+0B4D  08           ex af,af'
+0B4E  08           ex af,af'
+0B4F  08           ex af,af'
+0B50  10 10        djnz $0B62
+0B52  10 10        djnz $0B64
+0B54  10 10        djnz $0B66
+0B56  10 10        djnz $0B68
+0B58  10 10        djnz $0B6A
+0B5A  10 10        djnz $0B6C
+0B5C  10 10        djnz $0B6E
+0B5E  10 10        djnz $0B70
+0B60  20 20        jr nz,$0B82
+0B62  20 20        jr nz,$0B84
+0B64  20 20        jr nz,$0B86
+0B66  20 20        jr nz,$0B88
+0B68  20 20        jr nz,$0B8A
+0B6A  20 20        jr nz,$0B8C
+0B6C  20 20        jr nz,$0B8E
+0B6E  20 20        jr nz,$0B90
+0B70  40           ld b,b
+0B71  40           ld b,b
+0B72  40           ld b,b
+0B73  40           ld b,b
+0B74  40           ld b,b
+0B75  40           ld b,b
+0B76  40           ld b,b
+0B77  40           ld b,b
+0B78  40           ld b,b
+0B79  40           ld b,b
+0B7A  40           ld b,b
+0B7B  40           ld b,b
+0B7C  40           ld b,b
+0B7D  40           ld b,b
+0B7E  40           ld b,b
+0B7F  40           ld b,b
+0B80  80           add a,b
+0B81  80           add a,b
+0B82  80           add a,b
+0B83  80           add a,b
+0B84  80           add a,b
+0B85  80           add a,b
+0B86  80           add a,b
+0B87  80           add a,b
+0B88  80           add a,b
+0B89  80           add a,b
+0B8A  80           add a,b
+0B8B  80           add a,b
+0B8C  80           add a,b
+0B8D  80           add a,b
+0B8E  80           add a,b
+0B8F  80           add a,b
+0B90  FF           rst $38
+0B91  FF           rst $38
+0B92  FF           rst $38
+0B93  FF           rst $38
+0B94  FF           rst $38
+0B95  FF           rst $38
+0B96  FF           rst $38
+0B97  FF           rst $38
+0B98  FF           rst $38
+0B99  FF           rst $38
+0B9A  FF           rst $38
+0B9B  FF           rst $38
+0B9C  FF           rst $38
+0B9D  FF           rst $38
+0B9E  FF           rst $38
+0B9F  FF           rst $38
+0BA0  FE FE        cp $FE
+0BA2  FE FE        cp $FE
+0BA4  FE FE        cp $FE
+0BA6  FE FE        cp $FE
+0BA8  FE FE        cp $FE
+0BAA  FE FE        cp $FE
+0BAC  FE FE        cp $FE
+0BAE  FE FE        cp $FE
+0BB0  FC FC FC     call m,$FCFC
+0BB3  FC FC FC     call m,$FCFC
+0BB6  FC FC FC     call m,$FCFC
+0BB9  FC FC FC     call m,$FCFC
+0BBC  FC FC FC     call m,$FCFC
+0BBF  FC F8 F8     call m,$F8F8
+0BC2  F8           ret m
+0BC3  F8           ret m
+0BC4  F8           ret m
+0BC5  F8           ret m
+0BC6  F8           ret m
+0BC7  F8           ret m
+0BC8  F8           ret m
+0BC9  F8           ret m
+0BCA  F8           ret m
+0BCB  F8           ret m
+0BCC  F8           ret m
+0BCD  F8           ret m
+0BCE  F8           ret m
+0BCF  F8           ret m
+0BD0  F0           ret p
+0BD1  F0           ret p
+0BD2  F0           ret p
+0BD3  F0           ret p
+0BD4  F0           ret p
+0BD5  F0           ret p
+0BD6  F0           ret p
+0BD7  F0           ret p
+0BD8  F0           ret p
+0BD9  F0           ret p
+0BDA  F0           ret p
+0BDB  F0           ret p
+0BDC  F0           ret p
+0BDD  F0           ret p
+0BDE  F0           ret p
+0BDF  F0           ret p
+0BE0  E0           ret po
+0BE1  E0           ret po
+0BE2  E0           ret po
+0BE3  E0           ret po
+0BE4  E0           ret po
+0BE5  E0           ret po
+0BE6  E0           ret po
+0BE7  E0           ret po
+0BE8  E0           ret po
+0BE9  E0           ret po
+0BEA  E0           ret po
+0BEB  E0           ret po
+0BEC  E0           ret po
+0BED  E0           ret po
+0BEE  E0           ret po
+0BEF  E0           ret po
+0BF0  C0           ret nz
+0BF1  C0           ret nz
+0BF2  C0           ret nz
+0BF3  C0           ret nz
+0BF4  C0           ret nz
+0BF5  C0           ret nz
+0BF6  C0           ret nz
+0BF7  C0           ret nz
+0BF8  C0           ret nz
+0BF9  C0           ret nz
+0BFA  C0           ret nz
+0BFB  C0           ret nz
+0BFC  C0           ret nz
+0BFD  C0           ret nz
+0BFE  C0           ret nz
+0BFF  C0           ret nz
