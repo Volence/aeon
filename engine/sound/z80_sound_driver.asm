@@ -658,6 +658,10 @@ Snd_FadeCommand:
 .fade_in:
         ld      a, SND_FADE_SILENCE
         ld      (SND_MASTER_FADE), a     ; start silent
+        ld      (SND_FADE_DIRTY), a      ; nonzero -> ModUpdate re-asserts held-note
+                                         ; volumes at the snapped level THIS frame
+                                         ; (else they blip at full volume until the
+                                         ; ramp's first step sets dirty itself)
         xor     a
         ld      (SND_FADE_TARGET), a     ; target = full volume
 .seed:
