@@ -967,7 +967,7 @@ SndDrv_TimerATick:
 
 ; ======================================================================
 ; Snd_TimerA_ProgramFixed — load + enable Timer A at the FIXED Phase-3 frame
-; rate (SND_TIMERA_N, build-time-computed from SND_FRAME_HZ). Writes the full
+; rate (SND_TIMERA_N, build-time-computed from SND_FRAME_MILLIHZ). Writes the full
 ; 10-bit N: $24 = N>>2 (bits 9..2), $25 = N&3 (bits 1..0), $27 = $05
 ; (LOAD:A | ENBL:A). Phase 3 replaced per-song tempo-byte Timer-A programming
 ; with this fixed-rate program (musical tempo is now per-channel via the tempo

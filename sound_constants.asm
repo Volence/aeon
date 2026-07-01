@@ -149,23 +149,26 @@ ym_timerA_period_ns     function tb, ((1024 - ym_timerA_n_from_tempo(tb)) * 1877
 ym_timerA_hz            function tb, (1000000000 / ym_timerA_period_ns(tb)) ; ticks/sec (int div)
 
 ; --- Phase 3: FIXED per-frame engine rate (Timer-A is now the FRAME clock) -----
-; The Phase-3 engine runs one frame per Timer-A overflow at a FIXED ~59.4 Hz,
-; region-independent. The 10-bit Timer-A reload N is computed at BUILD time from
-; the target rate via a function (never a magic literal): the overflow period is
-; 18.773us * (1024 - N), so N = 1024 - period/18.773us, and the period for `hz`
-; is (1/hz) seconds = 1e9/hz ns. Hence N = 1024 - (1e9 / (hz * 18773)).
-;   SND_FRAME_HZ = 59 -> N = 1024 - (1000000000 / (59*18773))
-;                      = 1024 - (1000000000 / 1107607) = 1024 - 902 = 122,
-;   period = 18.773us * (1024-122) = 16.93 ms -> 59.06 Hz (within ~0.6% of 59.4).
+; The Phase-3 engine runs one frame per Timer-A overflow at the NTSC frame rate
+; (59.92 Hz), region-independent (PAL drifts only ~0.9% since Timer-A derives
+; from the YM clock, not VBlank). The 10-bit Timer-A reload N is computed at
+; BUILD time from the target rate via a function (never a magic literal): the
+; overflow period is 18.773us * (1024 - N), so N = 1024 - period/18.773us. The
+; target is expressed in MILLIHERTZ for precision (59.92 Hz = 59920 mHz):
+;   N = 1024 - (1e12 / (mhz * 18773))
+;     = 1024 - (1000000000000 / (59920*18773)) = 1024 - 889 = 135,
+;   period = 18.773us * (1024-135) = 16.689 ms -> 59.92 Hz.
+; (History: this was 59 Hz integer -> N=122 -> 59.06 Hz, which played ALL music
+; ~1.4% slower than its S3K/B&R sources — caught by ear + review 2026-07-01.)
 ; This REPLACES the per-song tempo->Timer-A programming (Snd_TimerA_Program);
 ; musical tempo is now expressed per-channel via the tempo accumulator (Step 6),
 ; not by the Timer-A reload.
-SND_FRAME_HZ            = 59
-timerAReload            function hz, 1024 - (1000000000 / ((hz) * 18773))
-SND_TIMERA_N           = timerAReload(SND_FRAME_HZ)
+SND_FRAME_MILLIHZ       = 59920
+timerAReload            function mhz, 1024 - (1000000000000 / ((mhz) * 18773))
+SND_TIMERA_N           = timerAReload(SND_FRAME_MILLIHZ)
 
         ; N must be a valid 10-bit Timer-A value (0..1023) and well clear of the
-        ; extremes; ~122 is expected for 59 Hz.
+        ; extremes; ~135 is expected for 59.92 Hz.
         if (SND_TIMERA_N < 0) || (SND_TIMERA_N > 1023)
           error "SND_TIMERA_N (\{SND_TIMERA_N}) out of the 10-bit Timer-A range 0..1023"
         endif
