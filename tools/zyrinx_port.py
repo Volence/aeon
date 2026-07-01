@@ -88,6 +88,17 @@ OP_REORDER = [0, 1, 2, 3]
 # The six per-operator group keys in our FmPatch emit order (regs $30..$80).
 _VOICE_GROUP_KEYS = ("dt_mul", "tl", "ks_ar", "am_d1r", "d2r", "sl_rr")
 
+# CARRIER operators per algorithm, as op-slot indices in register order
+# ($30/$34/$38/$3C = index 0..3). Alg 0-3 chain into OP4; alg 4 = two 2-op
+# stacks (carriers OP2, OP4); alg 5/6 = OP1 modulating three carriers;
+# alg 7 = four parallel carriers.
+_CARRIER_OPS = (
+    (3,), (3,), (3,), (3,),
+    (1, 3),
+    (1, 2, 3), (1, 2, 3),
+    (0, 1, 2, 3),
+)
+
 # YM2612 reg-$B4 L/R (panning) bits. If neither is set the channel is silent, so
 # force L/R=11 to make the voice audible.
 _LR_MASK = 0xC0
@@ -123,15 +134,21 @@ def translate_voice(v: dict, tl_is_level: bool = True) -> bytes:
             # writes (patch_TL + sc_opbias) verbatim, no inversion. Two input
             # conventions feed this:
             #  - Zyrinx voices store TL as LEVEL (high = loud), so invert here
-            #    (0x7F XOR x == 127-x over the 7-bit TL range). Default.
+            #    (0x7F XOR x == 127-x over the 7-bit TL range) — plus the driver's
+            #    CARRIER floor: the real B&R driver's carrier-volume path lands at
+            #    128-level (one TL step quieter than the modulators' 127-level).
+            #    Empirically verified against mt_ref.vgm across ALL 21 song voices:
+            #    every carrier op (per _CARRIER_OPS) is exactly +1 vs the plain
+            #    inversion, every modulator op matches exactly. Default.
             #  - S3K smpsVcTotalLevel voices are ALREADY attenuation -> store
             #    verbatim (tl_is_level=False). Inverting those silenced the loud
             #    carriers, which is the FM-SFX "wrong sound" bug.
             if tl_is_level:
-                out.extend((0x7F ^ (g[OP_REORDER[0]] & 0x7F),
-                            0x7F ^ (g[OP_REORDER[1]] & 0x7F),
-                            0x7F ^ (g[OP_REORDER[2]] & 0x7F),
-                            0x7F ^ (g[OP_REORDER[3]] & 0x7F)))
+                carriers = _CARRIER_OPS[v["algo"] & 7]
+                out.extend(
+                    min(0x7F, (0x7F ^ (g[OP_REORDER[i]] & 0x7F))
+                        + (1 if i in carriers else 0))
+                    for i in range(4))
             else:
                 out.extend((g[OP_REORDER[0]] & 0x7F, g[OP_REORDER[1]] & 0x7F,
                             g[OP_REORDER[2]] & 0x7F, g[OP_REORDER[3]] & 0x7F))

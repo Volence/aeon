@@ -289,11 +289,13 @@ class TestTranslateVoice(unittest.TestCase):
         # NOTE: translate_voice inverts TL (0x7F XOR) — Zyrinx stores TL as LEVEL
         # (high=loud); the YM2612 reg is ATTENUATION (high=quiet). This inversion
         # is the correct, song-agnostic fix; the $40 row below is the inverted form.
+        # CARRIER ops additionally get +1 (the B&R driver's carrier-volume floor is
+        # 128-level, verified vs mt_ref.vgm): algo 3 -> carrier = op3 only, 22 -> 23.
         expected = bytes([
             11,                     # fp_alg_fb
             240,                    # fp_lr_ams_fms
             119, 123, 72, 127,      # fp_dt_mul   ($30) straight-through
-            24, 127, 15, 22,        # fp_tl       ($40)  = 0x7F ^ [103,0,112,105]
+            24, 127, 15, 23,        # fp_tl       ($40)  = 0x7F ^ [103,0,112,105], +1 carrier
             11, 0, 11, 12,          # fp_rs_ar    ($50) <- ks_ar
             16, 16, 16, 16,         # fp_am_d1r   ($60)
             0, 0, 0, 0,             # fp_d2r      ($70)

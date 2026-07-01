@@ -36,7 +36,7 @@ MovingTrucks_Patches:
         pbyte   55                      ; fp_alg_fb     $37
         pbyte   194                     ; fp_lr_ams_fms $C2
         pbyte    36,  36,  20, 104   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     4,   1,   3,   0   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte     5,   2,   4,   1   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31, 223, 223, 223   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte   136, 136, 136, 136   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    13,  11,  13,  11   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -47,7 +47,7 @@ MovingTrucks_Patches:
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
         pbyte     0,   2,   2,   6   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     0,   7,   0,   3   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte     0,   7,   0,   4   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    95,  95,  95,  95   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    25,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -58,7 +58,7 @@ MovingTrucks_Patches:
         pbyte   45                      ; fp_alg_fb     $2D
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte     8,  12,   8,  12   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    12,  12,   9,  27   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    12,  13,  10,  28   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    29,  31,  24,  27   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte     8,   0,   1,   0   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    19,  20,  19,  26   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -69,7 +69,7 @@ MovingTrucks_Patches:
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
         pbyte     2,   2,   2,   6   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     0,   8,   0,   3   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte     0,   8,   0,   4   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    95,  95,  95,  95   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    25,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -80,7 +80,7 @@ MovingTrucks_Patches:
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
         pbyte     2,   2,   2,   6   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     0,  10,   0,   3   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte     0,  10,   0,   4   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    95,  95,  95,  95   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    25,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -91,7 +91,7 @@ MovingTrucks_Patches:
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
         pbyte     2,   2,   2,   6   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     0,  11,   0,   3   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte     0,  11,   0,   4   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    95,  95,  95,  95   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    25,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -102,7 +102,7 @@ MovingTrucks_Patches:
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
         pbyte     2,   2,   2,   6   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     0,  13,   0,   3   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte     0,  13,   0,   4   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    95,  95,  95,  95   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    25,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -113,7 +113,7 @@ MovingTrucks_Patches:
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   224                     ; fp_lr_ams_fms $E0
         pbyte     2,   2,   2,   6   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     0,  17,   0,   3   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte     0,  17,   0,   4   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    95,  95,  95,  95   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    26,   0,  29,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -124,7 +124,7 @@ MovingTrucks_Patches:
         pbyte   59                      ; fp_alg_fb     $3B
         pbyte   226                     ; fp_lr_ams_fms $E2
         pbyte     8,   6,   8,  38   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    27,  17,   3,  11   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    27,  17,   3,  12   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    21,   2,  17,   4   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     9,   5,   3,   8   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -135,7 +135,7 @@ MovingTrucks_Patches:
         pbyte   53                      ; fp_alg_fb     $35
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte     2,   0,   0,   0   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    15,   0,   0,   0   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    15,   1,   1,   1   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  17,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -146,7 +146,7 @@ MovingTrucks_Patches:
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte     2,   0,   0,   1   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    15,   0,   0,   0   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    15,   1,   1,   1   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  17,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -157,7 +157,7 @@ MovingTrucks_Patches:
         pbyte   53                      ; fp_alg_fb     $35
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte     2,   0,   0,   2   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    15,   0,   0,   0   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    15,   1,   1,   1   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  17,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -168,7 +168,7 @@ MovingTrucks_Patches:
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   240                     ; fp_lr_ams_fms $F0
         pbyte     0,   0,   0,   4   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    15,   0,   0,   0   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    15,   1,   1,   1   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     1,   5,  16,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -179,7 +179,7 @@ MovingTrucks_Patches:
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte     0,   0,   0,   5   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    15,   0,   0,   0   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    15,   1,   1,   1   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  17,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -190,7 +190,7 @@ MovingTrucks_Patches:
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte     0,   0,   0,   3   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    15,   0,   0,   0   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    15,   1,   1,   1   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte     0,  24,  18,  25   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,  17,  16   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -201,7 +201,7 @@ MovingTrucks_Patches:
         pbyte   61                      ; fp_alg_fb     $3D
         pbyte   193                     ; fp_lr_ams_fms $C1
         pbyte     7,   7,   8,   4   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    13,  97,   7,  17   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    13,  98,   8,  18   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    27,  31,  24,  27   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte     9,  14,  11,   5   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    21,  20,  20,  21   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -212,7 +212,7 @@ MovingTrucks_Patches:
         pbyte   60                      ; fp_alg_fb     $3C
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte     3,   1,   7,   2   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     3,   5,   0,   0   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte     3,   6,   0,   1   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte   223, 223, 223, 223   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    20,  16,  14,  19   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    11,   5,   6,   9   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -223,7 +223,7 @@ MovingTrucks_Patches:
         pbyte   40                      ; fp_alg_fb     $28
         pbyte   194                     ; fp_lr_ams_fms $C2
         pbyte     8,   0,   4,   2   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     3,   0,   0,   0   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte     3,   0,   0,   1   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31, 223, 223, 223   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte   136, 136, 136, 136   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    15,  15,  15,  15   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -245,7 +245,7 @@ MovingTrucks_Patches:
         pbyte   59                      ; fp_alg_fb     $3B
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte     5,   0,   2,   1   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte     9,   7,  22,   3   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte     9,   7,  22,   4   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte   223, 223, 223, 223   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    20,  16,  14,  19   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte    11,   5,   5,  10   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -256,7 +256,7 @@ MovingTrucks_Patches:
         pbyte   56                      ; fp_alg_fb     $38
         pbyte   229                     ; fp_lr_ams_fms $E5
         pbyte    50,  38,  68,  68   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte   127,   6, 127,  17   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte   127,   6, 127,  18   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte   223, 223, 223, 223   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   6,  14,   6   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -267,7 +267,7 @@ MovingTrucks_Patches:
         pbyte   3                       ; fp_alg_fb     $03
         pbyte   199                     ; fp_lr_ams_fms $C7
         pbyte    40,   0,   4,   0   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    55,  27,  27,   7   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    55,  27,  27,   8   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte   159,  31,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte    14,   9,  13,   9   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -278,7 +278,7 @@ MovingTrucks_Patches:
         pbyte   59                      ; fp_alg_fb     $3B
         pbyte   212                     ; fp_lr_ams_fms $D4
         pbyte     8,   4,   8,  36   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    27,  26,  12,  17   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    27,  26,  12,  18   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte   149,   2,  17,   4   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     9,   5,   3,   8   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -289,7 +289,7 @@ MovingTrucks_Patches:
         pbyte   59                      ; fp_alg_fb     $3B
         pbyte   246                     ; fp_lr_ams_fms $F6
         pbyte     8,   4,   8,  36   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    32,  25,  35,  17   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    32,  25,  35,  18   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31,  31,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte   149,   2,  17,   4   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     9,   5,   3,   8   ; fp_d2r     $70  [S1,S3,S2,S4]
@@ -300,7 +300,7 @@ MovingTrucks_Patches:
         pbyte   54                      ; fp_alg_fb     $36
         pbyte   192                     ; fp_lr_ams_fms $C0
         pbyte     4,   4,  51,  69   ; fp_dt_mul  $30  [S1,S3,S2,S4]
-        pbyte    12,  13,  23,  39   ; fp_tl      $40  [S1,S3,S2,S4]
+        pbyte    12,  14,  24,  40   ; fp_tl      $40  [S1,S3,S2,S4]
         pbyte    31, 223,  31,  31   ; fp_rs_ar   $50  [S1,S3,S2,S4]
         pbyte     3,   3,   3,   3   ; fp_am_d1r  $60  [S1,S3,S2,S4]
         pbyte     0,   0,   0,   0   ; fp_d2r     $70  [S1,S3,S2,S4]
