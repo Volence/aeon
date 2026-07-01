@@ -776,7 +776,7 @@ try:
     from song_packer import (
         SongDesc, ChannelDesc,
         SetDur, Rest, Vol, Patch, Pan, OpBias, PitchEnv, RegDelta,
-        RepeatStart, RepeatEnd, LoopPoint, Jump, NoteFill,
+        RepeatStart, RepeatEnd, LoopPoint, Jump, NoteFill, Lfo,
         CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
         SH_F_FM6_FM, SH_F_STREAM,
         reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
@@ -787,7 +787,7 @@ except ImportError:  # pragma: no cover - alternate import path
     from tools.song_packer import (  # type: ignore
         SongDesc, ChannelDesc,
         SetDur, Rest, Vol, Patch, Pan, OpBias, PitchEnv, RegDelta,
-        RepeatStart, RepeatEnd, LoopPoint, Jump, NoteFill,
+        RepeatStart, RepeatEnd, LoopPoint, Jump, NoteFill, Lfo,
         CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
         SH_F_FM6_FM, SH_F_STREAM,
         reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
@@ -1402,6 +1402,13 @@ def build_native_songdesc(rom, pitchtable_offset=0):
         stats["tempo_base"] = tempo_base
         stats_all.append(stats)
 
+    # Global hardware LFO ON at rate 0 (~3.8 Hz): the B&R reference writes
+    # $22=$08 at song start and drives per-channel depth via the voices' $B4
+    # FMS bits (which the Pan/patch path already carries). Without this master
+    # enable the transcoded FMS bits are inert and the song has no vibrato.
+    # Rides channel 0's stream, before its LoopPoint (fires once).
+    channels[0].events.insert(0, Lfo(0x08))
+
     # FM6=FM (DAC off) + stream from ROM. tempo_base = the song format code ($38).
     song = SongDesc(tempo=MT_FORMAT_CODE, tempo_base=MT_FORMAT_CODE,
                     channels=channels, flags=SH_F_FM6_FM | SH_F_STREAM)
@@ -1492,7 +1499,13 @@ def _write_blob_asm(blob, label, out_path):
         lines.append("    dc.b   " + ", ".join("$%02X" % b for b in chunk))
     lines.append("%s_End:" % label)
     lines.append("")
-    lines.append("    align 2")
+    lines.append("; NO align here — the pitch table MUST follow CONTIGUOUSLY: the song")
+    lines.append("; header bakes its offset as the unpadded song length, so a single pad")
+    lines.append("; byte shifts every pitch lookup one byte early (= the whole song plays")
+    lines.append("; a semitone flat; shipped bug, root-caused 2026-07-01). main.asm")
+    lines.append("; asserts the layout against this constant at build time:")
+    lines.append("MT_PITCHTAB_OFFSET equ $%04X    ; = packed song length (header pitchtable_ptr)"
+                 % len(blob))
     with open(out_path, "w") as f:
         f.write("\n".join(lines))
         f.write("\n")

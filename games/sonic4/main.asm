@@ -291,6 +291,15 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         ; inline copy in the Z80 blob (no label collision). The loader points
         ; Snd_PitchTabPtr here via the header offset.
         include "games/sonic4/data/sound/movingtrucks_pitchtable_stream.asm"
+        ; LAYOUT GUARD: the song header bakes the pitch table's offset as the
+        ; packed song length (MT_PITCHTAB_OFFSET, emitted by the generator). Any
+        ; pad byte between the song and the table shifts every pitch lookup one
+        ; byte early = the whole song plays a semitone flat (shipped bug,
+        ; root-caused 2026-07-01 — the blob's trailing `align 2` did exactly
+        ; this whenever the preceding bank content had odd total length).
+        if (MovingTrucks_PitchTable_Stream - Song_MovingTrucks) <> MT_PITCHTAB_OFFSET
+          fatal "MT pitch table not contiguous with the song: offset \{MovingTrucks_PitchTable_Stream - Song_MovingTrucks} != header's \{MT_PITCHTAB_OFFSET} — a pad byte would detune the whole song"
+        endif
         ; The per-song FmPatch bank (33 records * 26 = 858 bytes), read by
         ; Fm_PatchLoad at SND_SEQ_PATCHTAB + local_idx*26. Placed CONTIGUOUSLY after
         ; the pitch table (no align between) so the whole block stays in the one

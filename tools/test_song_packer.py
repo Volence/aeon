@@ -868,3 +868,15 @@ class TestPackerSafetyGates(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_lfo_encodes_and_validates():
+    from song_packer import Lfo, PackError, MEV_LFO
+    assert Lfo(0x08).encode() == bytes([MEV_LFO, 0x08])
+    assert Lfo(0x00).encode() == bytes([MEV_LFO, 0x00])
+    Lfo(0x0F).validate(0)
+    try:
+        Lfo(0x10).validate(0)
+        assert False, "expected PackError"
+    except PackError:
+        pass

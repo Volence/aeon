@@ -454,6 +454,23 @@ class Detune(Event):
             raise PackError(f"Detune {self.detune} out of signed byte range -128..127")
 
 
+class Lfo(Event):
+    """Global hardware LFO: write YM2612 $22 (bit3 = enable, bits 0-2 = rate;
+    0 disables). Per-channel depth rides each voice's $B4 AMS/FMS bits (Pan
+    event / patch) — this is only the master oscillator switch. GLOBAL though
+    it rides one channel's stream. Zero-tick (immediate register write)."""
+    def __init__(self, value: int):
+        self.value = value
+
+    def encode(self) -> bytes:
+        return bytes([MEV_LFO, self.value & 0x0F])
+
+    def validate(self, route):
+        if not (0 <= self.value <= 0x0F):
+            raise PackError(f"Lfo value {self.value:#x} out of range 0..$0F "
+                            f"(bit3 enable | bits0-2 rate)")
+
+
 class Tempo(Event):
     """Global tempo: set the per-frame sequencer-accumulator decrement scalar
     (16 = authored/normal speed, larger = faster, smaller = slower). The engine
