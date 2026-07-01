@@ -1600,14 +1600,6 @@ def _sfx_label(sfx_id: int) -> str:
     return f"Sfx_{sfx_id:02X}"
 
 
-def transcode_sfx_file(src_path: str, sfx_id: int) -> dict:
-    """Load a skdisasm SFX .asm file and return the parsed sfx_desc dict."""
-    with open(src_path, encoding='utf-8', errors='replace') as f:
-        src = f.read()
-    label = _sfx_label(sfx_id)
-    return _parse_sfx_source(src, sfx_id, label)
-
-
 def transcode_sfx_source(src: str, sfx_id: int) -> dict:
     """Parse an SFX .asm source string (for testing without file I/O)."""
     label = _sfx_label(sfx_id)

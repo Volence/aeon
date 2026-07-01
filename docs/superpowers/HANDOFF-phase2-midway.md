@@ -1,3 +1,11 @@
+> **⚠️ SUPERSEDED / CONTAINS A DISPROVEN TECHNIQUE (2026-07-01).** This handoff's
+> "code-banking technique" (in-frame CODE in the $8000 window) was later PROVEN
+> UNSAFE — banked code fetches corrupt under 68k bus contention (wild PC → Z80
+> self-reinit; see f3afca~/f3ac915 and `sound_fm.asm`'s data-only-window rule).
+> `engine/sound_banked_z80.asm` no longer exists (last banked code moved resident
+> 2026-07-01). Budget figures here (216/436 B free) are long stale — the live
+> number is the build's `Z80 sound budget` line. Kept for history only.
+
 # Handoff — Music-Expression Phase 2 (midway: recovery + LFO + detune done)
 
 **Written:** 2026-06-28. Branch `feat/music-expr-phase2` (off `master` `20bcfe0`).

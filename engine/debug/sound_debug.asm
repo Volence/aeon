@@ -16,7 +16,7 @@
 ; mirror is a DEBUG observability window, not a faithful struct copy, so we mirror
 ; a PREFIX of each channel (SEQ_MIRROR_CHBYTES bytes) that captures the controller-
 ; observed liveness fields — through sc_tempo_accum (+18), which proves the
-; per-frame tempo accumulator is advancing. The shipping test song (song_test.py)
+; per-frame tempo accumulator is advancing. The shipping songs (song_*.py)
 ; has 3 channels (FM1, FM2, PSG1), so 3 slots is the window.
 ;
 ; Per-channel mirror prefix (offsets within the 20-byte slot, from SeqChannel +0):

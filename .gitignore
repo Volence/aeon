@@ -41,3 +41,6 @@ tools/.cache/
 # Scratch VGM register captures (root-level only). Intentional reference
 # captures live under docs/research/reference_captures/ and stay tracked.
 /*.vgm
+# reference disassembly blobs + captures are research artifacts, not build output
+!docs/research/z80_blobs/**
+!docs/research/reference_captures/*.vgm

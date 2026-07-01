@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """gen_sound_tables — build-time FM/PSG pitch, volume, and carrier-mask tables.
 
-Emits data/sound/sound_tables.asm (68k ROM data, read by the Z80 sequencer
+Emits engine/sound/sound_tables_z80.asm (Z80-blob data, read by the sequencer
 through its $8000 window in later tasks). Everything here is pure build-PC math;
 the contracts (opcode/struct/header) live in sound_constants.asm.
 
 Run as a module-less script to regenerate the .asm:
-    python3 tools/gen_sound_tables.py            # -> data/sound/sound_tables.asm
+    python3 tools/gen_sound_tables.py            # -> engine/sound/sound_tables_z80.asm
 Tests: python3 -m pytest tools/test_gen_sound_tables.py -q
 
 --- DECISIONS (documented per task DECISIONS-TO-MAKE) ---
@@ -437,12 +437,9 @@ def _emit_fm_vol_env_z80() -> list:
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    out_path = os.path.join(here, "..", "games", "sonic4", "data", "sound", "sound_tables.asm")
-    out_path = os.path.normpath(out_path)
-    with open(out_path, "w") as f:
-        f.write(emit_asm())
-    print("wrote", out_path)
-
+    # (The 68k duplicate sound_tables.asm emission was removed 2026-07-01 — the
+    # 68k copy was never included by the build (see main.asm's removal note);
+    # the Z80-blob copy below is the only consumer.)
     z80_path = os.path.join(here, "..", "engine", "sound", "sound_tables_z80.asm")
     z80_path = os.path.normpath(z80_path)
     with open(z80_path, "w") as f:
