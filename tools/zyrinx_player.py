@@ -776,10 +776,12 @@ try:
     from song_packer import (
         SongDesc, ChannelDesc,
         SetDur, Rest, Vol, Patch, Pan, OpBias, PitchEnv, RegDelta,
+        Note, NoteDur, NoteRaw,
         RepeatStart, RepeatEnd, LoopPoint, Jump, NoteFill, Lfo,
         CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
         SH_F_FM6_FM, SH_F_STREAM,
         reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
+        REGDELTA_GROUP_SHIFT, REGDELTA_OP_MASK,
         pack_song,
     )
     from zyrinx_port import translate_voice, FMPATCH_LEN, emit_patch_bank_asm
@@ -787,10 +789,12 @@ except ImportError:  # pragma: no cover - alternate import path
     from tools.song_packer import (  # type: ignore
         SongDesc, ChannelDesc,
         SetDur, Rest, Vol, Patch, Pan, OpBias, PitchEnv, RegDelta,
+        Note, NoteDur, NoteRaw,
         RepeatStart, RepeatEnd, LoopPoint, Jump, NoteFill, Lfo,
         CHROUTE_FM1, CHROUTE_FM5, CHROUTE_FM6,
         SH_F_FM6_FM, SH_F_STREAM,
         reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
+        REGDELTA_GROUP_SHIFT, REGDELTA_OP_MASK,
         pack_song,
     )
     from tools.zyrinx_port import (  # type: ignore
@@ -1369,13 +1373,214 @@ def build_native_patch_bank(rom, channels_data, bank):
     return bytes(out), remap, len(remap)
 
 
-def build_native_songdesc(rom, pitchtable_offset=0):
+def _analyze_body_entry_states(bodies, recs, lead_fp):
+    """Loop-aware two-pass dataflow over a channel's emitted body list: compute,
+    for every body, the SET of states (voice FmPatch bytes, opbias[4] tuple,
+    NoteFill value) the engine can be in when the body's prefix runs.
+
+    A body's prefix replays in THREE situations, and a prefix event may be
+    suppressed only if it is redundant in ALL of them:
+      * first pass         — entering state = the previous body's exit state
+                             (body 0: the leading setup Patch/Vol, bias/fill at
+                             the engine's channel-reset defaults 0/0);
+      * repeat iterations  — RepeatEnd(count>1) re-enters the SAME body, so the
+                             entering state is the body's OWN exit state;
+      * loop passes        — Jump -> LoopPoint re-enters body 0 with the exit
+                             state of the FINAL body (engine channel state is
+                             NOT reset at the loop seam).
+
+    `bodies` = [(events, repeat)] as emitted (non-empty, repeat clamped);
+    `recs`   = dense local FmPatch records (bank order);
+    `lead_fp` = the FmPatch bytes the leading setup Patch loads.
+
+    Returns (meta, ventry, bentry, fentry): per-body metadata dicts + the three
+    per-body entry-state sets. Exit states are DETERMINISTIC wherever the body
+    itself establishes the state (a VOICE fixes the voice+fill, the prefix-reset
+    invariant fixes untouched opbias ops at 0); bodies that never touch a state
+    pass their entry set through, so the sets are closed by fixpoint iteration.
+    """
+    n = len(bodies)
+    ZERO_BIAS = (0, 0, 0, 0)
+    meta = []
+    for ev, _rep in bodies:
+        first_patch = None            # the body's first voice event (a full Patch:
+                                      #   the walker starts every body at prev_fp=None)
+        state = None                  # running FmPatch bytes through Patch/RegDelta
+        fills = []                    # NoteFill values in emission order
+        bias = [0, 0, 0, 0]           # running bias from the post-prefix baseline 0
+        first_load_bias = None        # bias state AT the opening Patch load
+        load_bias = None              # bias state at the body's LAST patch load
+        for e in ev:
+            if isinstance(e, Patch):
+                if first_patch is None:
+                    first_patch = e
+                    first_load_bias = tuple(bias)
+                load_bias = tuple(bias)
+                state = bytearray(recs[e.patch])
+            elif isinstance(e, RegDelta):
+                for rs, val in e.entries:
+                    group = (rs >> REGDELTA_GROUP_SHIFT) & 0x0F
+                    op = rs & REGDELTA_OP_MASK
+                    state[2 + group * 4 + op] = val & 0xFF
+            elif isinstance(e, NoteFill):
+                fills.append(e.master)
+            elif isinstance(e, OpBias):
+                bias[e.op] = e.val
+        meta.append({
+            "first_patch": first_patch,
+            "first_fp": bytes(recs[first_patch.patch]) if first_patch else None,
+            "last_fp": bytes(state) if state is not None else None,
+            "first_fill": fills[0] if fills else None,
+            "last_fill": fills[-1] if fills else None,
+            # bias at the opening load: the first note group's own OP commands
+            # are flushed BEFORE the Patch, so the load can carry a nonzero bias
+            # even though the body was entered clean — such a Patch is
+            # LOAD-BEARING (it is what applies the bias to the modulator TLs)
+            # and must never be thinned.
+            "first_load_bias": first_load_bias,
+            # exit values: last in-body value per state, else pass-through /
+            # (for bias) the prefix-guaranteed 0 baseline. `load_bias` exit is
+            # unaffected by thinning: the opening Patch is only ever dropped
+            # when its load bias AND every entering load bias are 0, so the
+            # effective latched value stays 0 either way.
+            "bias_exit": tuple(bias),
+            "load_bias_exit": load_bias,
+        })
+
+    ventry = [set() for _ in range(n)]   # entry voice FmPatch bytes
+    bentry = [set() for _ in range(n)]   # entry opbias 4-tuples
+    fentry = [set() for _ in range(n)]   # entry NoteFill values
+    lentry = [set() for _ in range(n)]   # entry bias-at-last-patch-load tuples
+
+    def vexit(k):
+        m = meta[k]
+        return {m["last_fp"]} if m["last_fp"] is not None else set(ventry[k])
+
+    def fexit(k):
+        m = meta[k]
+        return {m["last_fill"]} if m["last_fill"] is not None else set(fentry[k])
+
+    def bexit(k):
+        return {meta[k]["bias_exit"]}
+
+    def lexit(k):
+        m = meta[k]
+        return ({m["load_bias_exit"]} if m["load_bias_exit"] is not None
+                else set(lentry[k]))
+
+    for _round in range(4 * n + 8):      # monotone sets -> guaranteed fixpoint
+        changed = False
+        for k in range(n):
+            v, b, f, l = set(), set(), set(), set()
+            if k == 0:
+                v.add(lead_fp)           # leading setup Patch (first pass)
+                b.add(ZERO_BIAS)         # seq clear zeroes sc_opbias
+                f.add(0)                 # channel-reset default fill = legato
+                l.add(ZERO_BIAS)         # the leading Patch loads with bias 0
+                v |= vexit(n - 1); b |= bexit(n - 1)                     # loop
+                f |= fexit(n - 1); l |= lexit(n - 1)
+            else:
+                v |= vexit(k - 1); b |= bexit(k - 1)
+                f |= fexit(k - 1); l |= lexit(k - 1)
+            if bodies[k][1] > 1:         # repeat iterations re-enter the body
+                v |= vexit(k); b |= bexit(k); f |= fexit(k); l |= lexit(k)
+            if ((v - ventry[k]) or (b - bentry[k]) or (f - fentry[k])
+                    or (l - lentry[k])):
+                changed = True
+                ventry[k] |= v; bentry[k] |= b
+                fentry[k] |= f; lentry[k] |= l
+        if not changed:
+            break
+    else:
+        raise RuntimeError("body entry-state analysis did not converge")
+    return meta, ventry, bentry, fentry, lentry
+
+
+def _thin_body_prefixes(bodies, recs, lead_fp, stats):
+    """Suppress the redundant per-body state-reset prefix (the micro-pause fix).
+
+    The naive emission made EVERY body boundary reload the full state on all
+    channels in one sequencer tick — OpBias(0)x4 + a full ~26-write Patch (the
+    walker's self-contained prev_fp=None) + a NoteFill — ~226 chip writes at
+    the worst boundary (the audible pre-measure-5 stall). Almost all of it is
+    redundant: the state entering the body already matches. Using the entry-state
+    sets from _analyze_body_entry_states:
+
+      * OpBias(op, 0) reset: emitted ONLY for ops where some entering scenario
+        holds a nonzero bias (most bodies never touch OpBias -> no resets).
+      * Patch: the opening full Patch is thinned by the normal minimal-delta
+        rule (_voice_step_event: identical voice -> dropped, small delta ->
+        RegDelta, else kept) ONLY when the load is provably a no-op for the
+        chip in every scenario. The engine latches MEV_OPBIAS and applies it to
+        the modulator TLs only at patch load (Fm_PatchTlGroup), so the Patch
+        must stay whenever it is the load that carries a bias:
+          - a prefix bias reset is emitted (the reload pushes the cleared TLs),
+          - the body's own first note group sets a bias before the Patch
+            (first_load_bias != 0 — the load applies it),
+          - some entering scenario's LAST patch load latched a nonzero bias
+            (the resident modulator TLs differ from the raw voice bytes),
+          - or the entering voice is scenario-dependent / a genuine change.
+      * NoteFill: dropped when every entering scenario already holds the body's
+        opening fill (it persists in the engine).
+
+    In-body events after the opening voice are untouched: the opening voice's
+    post-state is the SAME first_fp in every scenario (loaded, delta'd to, or
+    already resident), so the walker's in-body minimal-delta chain stays valid.
+
+    Mutates the body event lists + `stats` in place; returns the per-body
+    OpBias-reset op lists for emission.
+    """
+    ZERO_BIAS = (0, 0, 0, 0)
+    meta, ventry, bentry, fentry, lentry = _analyze_body_entry_states(
+        bodies, recs, lead_fp)
+    reset_plans = []
+    for k, (ev, _rep) in enumerate(bodies):
+        m = meta[k]
+        reset_ops = sorted({i for bias in bentry[k] for i in range(4)
+                            if bias[i] != 0})
+        reset_plans.append(reset_ops)
+        # NoteFill: the body's FIRST NoteFill is the opening voice's gate
+        # re-emission (cur_fill=None); drop it when already resident.
+        if (m["first_fill"] is not None and len(fentry[k]) == 1
+                and next(iter(fentry[k])) == m["first_fill"]):
+            for i, e in enumerate(ev):
+                if isinstance(e, NoteFill):
+                    del ev[i]
+                    stats["notefill"] -= 1
+                    break
+        # Patch: thin the opening full Patch by the minimal-delta rule, unless
+        # it is bias-load-bearing (see docstring) or the entering voice is
+        # scenario-dependent.
+        if (m["first_patch"] is None or reset_ops or len(ventry[k]) != 1
+                or m["first_load_bias"] != ZERO_BIAS
+                or lentry[k] != {ZERO_BIAS}):
+            continue
+        entry_fp = next(iter(ventry[k]))
+        step, kind = _voice_step_event(entry_fp, m["first_fp"],
+                                       m["first_patch"].patch)
+        if kind == "patch":
+            continue                     # full reload genuinely needed
+        idx = ev.index(m["first_patch"])
+        stats["patch"] -= 1
+        if kind == "none":
+            del ev[idx]                  # voice already resident
+        else:
+            ev[idx] = step               # small delta covers every scenario
+            stats["regdelta"] += 1
+    return reset_plans
+
+
+def build_native_songdesc(rom, pitchtable_offset=0,
+                          suppress_redundant_state=True):
     """Translate Moving Trucks (real song data) into a packer SongDesc + return the
     per-channel opcode stats and the patch bank info.
 
     Returns (song, stats, (bank_bytes, remap, pcount)).
     pitchtable_offset: BE offset (relative to the song header) of the per-song
     pitch table within the streaming block; 0 = engine-default table.
+    suppress_redundant_state: thin the per-body state-reset prefixes to the
+    events that actually change state (_thin_body_prefixes). False = emit the
+    naive self-contained prefixes (kept for the equivalence regression test).
     """
     bank = _load_voice_bank(rom)
     channels_data = parse_song(rom)
@@ -1406,19 +1611,18 @@ def build_native_songdesc(rom, pitchtable_offset=0):
         # already render to the oracle's per-channel block band. octave_cap=None ->
         # octave_cap_idx is an identity pass-through (see OCTAVE CORRECTION above).
         walker.octave_cap = _OCTAVE_CAP_DEFAULT
-        # The channel's FIRST voice -> the leading-setup Patch (below). We do NOT
-        # prime the walker's prev_fp with it: the body's first VOICE command must
-        # emit a full Patch (computed vs prev_fp=None) so the opening voice is
-        # correctly (re)loaded on EVERY loop iteration — the body is what runs each
-        # loop, the leading setup runs only once before the loop. (The redundant
-        # one-time double-load of the opening voice on the very first play is a
-        # harmless zero-tick Patch.)
+        # The channel's FIRST voice -> the leading-setup Patch (below). The walker
+        # itself stays self-contained (every body opens with a full Patch computed
+        # vs prev_fp=None); redundant opening loads are then thinned by the
+        # loop-aware analysis (_thin_body_prefixes), which proves per body that
+        # the entering voice is the same on the first pass, on every repeat
+        # iteration AND across the LoopPoint..Jump seam before dropping one.
         first_vi = _channel_first_voice(rom, block)
         if first_vi is not None:
             walker.first_local = remap[first_vi]
 
-        # --- translate every pattern body (the walker carries voice state across
-        # patterns so cross-pattern voice-steps stay minimal deltas). ---
+        # --- translate every pattern body (each body self-contained; empty bodies
+        # dropped here so the prefix analysis sees exactly the emitted chain). ---
         bodies = []
         tempo_base = MT_FORMAT_CODE
         for entry in block["entries"]:
@@ -1429,36 +1633,48 @@ def build_native_songdesc(rom, pitchtable_offset=0):
             walker.tempo_base = tempo_base    # glide_frames -> ticks pacing
             body = walker.walk_body(seq_addr(rom, entry["seq"]),
                                     entry["transpose"])
-            bodies.append((body, entry["repeat"]))
+            if body:
+                bodies.append((body, max(1, min(255, entry["repeat"]))))
+
+        # --- per-body prefix thinning (the boundary micro-pause fix): the naive
+        # emission made EVERY body boundary reload OpBias(0)x4 + a full ~26-write
+        # Patch + NoteFill on all six channels in ONE sequencer tick (~226 chip
+        # writes at the worst boundary = the audible 25-42 ms stall before
+        # measure 5). ChannelReset parity ($044F clears op_mod every pattern
+        # boundary — e.g. seq123 leaves OP1-4=$0F biased and the following bass
+        # seq114 only resets OP2) is PRESERVED: a reset is emitted exactly where
+        # some entering scenario still holds a nonzero bias, and it then forces
+        # the full Patch so the cleared modulator TLs reach the chip (MEV_OPBIAS
+        # only latches; Fm_PatchTlGroup applies it at patch load). ---
+        recs = [bank_bytes[i * FMPATCH_LEN:(i + 1) * FMPATCH_LEN]
+                for i in range(pcount)]
+        lead_local = walker.first_voice_local() if remap else 0
+        if suppress_redundant_state and recs and bodies:
+            reset_plans = _thin_body_prefixes(bodies, recs,
+                                              bytes(recs[lead_local]), stats)
+        else:
+            reset_plans = [[0, 1, 2, 3]] * len(bodies)
 
         # --- leading setup: Patch(first voice) + Vol so the packer accepts the FM
-        # channel (the guard wants Patch+Vol before the first keyed note). The
-        # walker's first VOICE inside the body is the SAME voice (Patch), so the
-        # re-key rule / minimal-delta logic stays consistent. ---
+        # channel (the guard wants Patch+Vol before the first keyed note); it also
+        # anchors the prefix analysis: body 0's first-pass entering voice IS this
+        # Patch, so the body's (identical) opening reload is provably redundant. ---
         # Full volume (no carrier attenuation): Moving Trucks emits no source VOL
         # commands, so the driver default is max. A lower fixed Vol (was 110) adds
         # LogVolumeLut attenuation to the carriers (110 -> +4) and saps the kick's
         # punch; the oracle's carriers sit at base TL with dynamics from voice-steps.
-        events = [Patch(walker.first_voice_local() if remap else 0), Vol(127)]
+        events = [Patch(lead_local), Vol(127)]
         # (Gate articulation is emitted per voice-change inside the bodies — see
         # NATIVE_GATE_TABLES / _Walker._voice. No blanket per-channel NoteFill here:
         # the old FM6-wide fill leaked onto its held melodic stabs and truncated
         # them; the engine's channel-reset default fill of 0 (legato) is correct
         # until the first VOICE command picks its gate.)
         events.append(LoopPoint())
-        for body, repeat in bodies:
-            if not body:
-                continue
-            repeat = max(1, min(255, repeat))
+        for (body, repeat), reset_ops in zip(bodies, reset_plans):
             events.append(RepeatStart())
-            # ChannelReset parity: the Zyrinx driver clears all 4 per-operator TL
-            # biases (op_mod) at EVERY pattern/loop boundary ($044F). Reset them at
-            # each body start so a prior pattern's OpBias cannot leak into this
-            # voice -- e.g. seq123 sets OP1-4=$0F and the following bass (seq114)
-            # only resets OP2, so without this OP1/OP3/OP4 stayed biased and the
-            # bass came back wrong (~12 measures in). Placed INSIDE the RepeatStart
-            # so it re-clears on every repeat iteration, exactly like ChannelReset.
-            events.extend([OpBias(0, 0), OpBias(1, 0), OpBias(2, 0), OpBias(3, 0)])
+            # OpBias resets stay INSIDE the RepeatStart so a repeat iteration
+            # re-clears its own leftovers, exactly like ChannelReset.
+            events.extend(OpBias(op, 0) for op in reset_ops)
             events.extend(body)
             events.append(RepeatEnd(repeat))
         events.append(Jump())
@@ -1481,6 +1697,89 @@ def build_native_songdesc(rom, pitchtable_offset=0):
                     channels=channels, flags=SH_F_FM6_FM | SH_F_STREAM)
     song.pitchtable_offset = pitchtable_offset   # carried into pack_song below
     return song, stats_all, (bank_bytes, remap, pcount)
+
+
+# ----------------------------------------------------------------------------
+# Boundary-burst metric — per-tick chip-write cost of the packed event stream
+# ----------------------------------------------------------------------------
+# Root cause of the audible pre-measure-5 micro-pause: every pattern-body
+# boundary made ALL SIX channels process their state-reset prefix in ONE
+# sequencer tick (~226 chip writes at the worst boundary), overrunning the
+# 16.7 ms frame by 25-42 ms so every channel's next note keyed late. These
+# helpers replay the SongDesc event streams on the shared event-tick clock and
+# tally the write cost per tick, so the burst profile is a data-level
+# regression check (no emulator needed).
+
+# Approximate chip-write cost per zero-tick event (a full FmPatch load writes
+# ~26 YM registers; OpBias/Vol are cheap latches counted at the instrumented
+# weight; NoteFill is engine-state only).
+_BURST_WRITE_COST = {
+    Patch: 26, Vol: 2, OpBias: 2, Pan: 1, Lfo: 1, NoteFill: 0,
+}
+_BURST_KEYON_COST = 4        # key-off + A4/A0 + key-on
+
+
+def expand_channel_stream(events, loops=2):
+    """Flatten one channel's packed event stream the way the engine plays it:
+    RepeatStart..RepeatEnd(n) bodies replayed n times, then `loops` passes of
+    the LoopPoint..Jump segment appended (pass 1 plays start..Jump). Control
+    markers are dropped; the result is a linear event list."""
+    lp = next((i for i, e in enumerate(events) if isinstance(e, LoopPoint)),
+              len(events))
+    jp = next((i for i, e in enumerate(events) if isinstance(e, Jump)),
+              len(events))
+
+    def expand(seq):
+        out = []
+        stack = []
+        for e in seq:
+            if isinstance(e, RepeatStart):
+                stack.append(len(out))
+            elif isinstance(e, RepeatEnd):
+                start = stack.pop()
+                body = out[start:]               # inner repeats already expanded
+                for _ in range(e.count - 1):
+                    out.extend(body)
+            elif isinstance(e, (LoopPoint, Jump)):
+                pass
+            else:
+                out.append(e)
+        return out
+
+    stream = expand(events[:lp])
+    loop_seg = expand(events[lp:jp])
+    for _ in range(max(1, loops)):
+        stream.extend(loop_seg)
+    return stream
+
+
+def simulate_write_bursts(song, loops=2):
+    """Tally the per-event-tick chip-write cost of a SongDesc across all
+    channels (repeats expanded, `loops` loop passes). Returns {tick: writes}.
+    All MT channels share one global tick clock (the tempo is global), so tick
+    indices align across channels and a body boundary shows up as one spike."""
+    cost = {}
+    for chan in song.channels:
+        t = 0
+        cur = 0
+        for e in expand_channel_stream(chan.events, loops=loops):
+            if isinstance(e, SetDur):
+                cur = e.ticks
+            elif isinstance(e, (PitchEnv, Note)):
+                cost[t] = cost.get(t, 0) + _BURST_KEYON_COST
+                t += cur
+            elif isinstance(e, (NoteDur, NoteRaw)):
+                cost[t] = cost.get(t, 0) + _BURST_KEYON_COST
+                t += e.dur
+            elif isinstance(e, Rest):
+                t += cur
+            else:
+                w = _BURST_WRITE_COST.get(type(e))
+                if w is None:
+                    w = len(e.entries) if isinstance(e, RegDelta) else 0
+                if w:
+                    cost[t] = cost.get(t, 0) + w
+    return cost
 
 
 def emit_native_song(rom=None, song_out=None, patches_out=None,

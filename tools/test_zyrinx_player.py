@@ -185,37 +185,136 @@ class TestPitchTable(unittest.TestCase):
 
 
 @unittest.skipUnless(os.path.exists(ROM_PATH), "B&R ROM not present")
-class TestOpBiasReset(unittest.TestCase):
-    """The Zyrinx driver clears op_mod (the per-operator TL bias) at EVERY
-    ChannelReset = pattern/loop boundary ($044F clears IX+9/11/13/15). Our
-    per-pattern bodies must do the same: each body (right after its RepeatStart)
-    must reset all 4 OpBias operators to 0 BEFORE any note. Otherwise a prior
-    pattern's bias leaks into the next voice -- e.g. seq123 sets OP1-4=$0F (the
-    'higher note' ~12 measures in) and the bass that follows (seq114) only resets
-    OP2, so OP1/OP3/OP4 stay biased and the bass comes back wrong (user-reported)."""
+class TestBodyPrefixThinning(unittest.TestCase):
+    """The body-boundary micro-pause fix (_thin_body_prefixes): the naive emission
+    replayed a full state-reset prefix — OpBias(0)x4 + a full ~26-write Patch +
+    NoteFill — on ALL SIX channels in the single sequencer tick of every pattern
+    boundary (~226 chip writes at the worst one), overrunning the 16.7 ms frame
+    by 25-42 ms so every channel's next note keyed late (the audible pause right
+    before measure 5, ~3.7 s). The thinned emission keeps only the prefix events
+    whose state actually changes.
 
-    def test_each_body_resets_all_opbias(self):
+    Two invariants, BOTH verified against the naive build across TWO loop passes
+    (the loop seam re-enters body 0 with the FINAL body's exit state, and
+    RepeatEnd re-enters a body with its OWN exit state — a prefix may be thinned
+    only if it is redundant in every one of those scenarios):
+
+    1. EQUIVALENCE — at every key-on the musical + engine state is identical:
+       tick, pitch points, duration, active voice bytes, NoteFill, the OpBias
+       state latched at key-on AND at the last patch load (the engine applies
+       biases to modulator TLs only at patch load — Fm_PatchTlGroup — which is
+       why an emitted bias reset always forces the full Patch). This subsumes
+       the old all-4-resets check: ChannelReset parity ($044F clears op_mod at
+       every pattern boundary; e.g. seq123 leaves OP1-4=$0F and the following
+       bass seq114 only resets OP2) holds because the naive build resets
+       everything and the states still match.
+
+    2. BUDGET — no event tick in the whole stream bursts past the write budget,
+       so the boundary stall cannot regress silently."""
+
+    # Per-tick chip-write budget (simulate_write_bursts weights): the thinned
+    # stream's worst mid-song tick measures 208 (genuine simultaneous instrument
+    # changes at a section boundary); 224 adds margin while still failing the
+    # naive emission (236 at the measure-5 boundary, 242-244 at others).
+    WRITE_BUDGET = 224
+    # Tick 0 is exempt up to this: song start pays the 6-channel leading setup
+    # (Patch+Vol) PLUS body 0's loop-guard prefix (~366 writes). Nothing is
+    # sounding yet and all channels start together, so a late first tick is a
+    # uniform start offset, not an audible stall.
+    START_TICK_BUDGET = 400
+
+    @classmethod
+    def setUpClass(cls):
         from zyrinx_player import build_native_songdesc
-        from song_packer import (OpBias, RepeatStart, PitchEnv, Note, Rest,
-                                  NoteDur, NoteRaw)
+        from zyrinx_port import FMPATCH_LEN
         with open(ROM_PATH, "rb") as f:
             rom = f.read()
-        song, _, _ = build_native_songdesc(rom)
-        ADV = (PitchEnv, Note, Rest, NoteDur, NoteRaw)
-        for ci, c in enumerate(song.channels):
-            ev = c.events
-            for i, e in enumerate(ev):
-                if isinstance(e, RepeatStart):
-                    cleared = set()
-                    for e2 in ev[i + 1:]:
-                        if isinstance(e2, ADV):
-                            break
-                        if isinstance(e2, OpBias) and e2.val == 0:
-                            cleared.add(e2.op)
-                    self.assertEqual(
-                        cleared, {0, 1, 2, 3},
-                        f"ch{ci} body at event {i}: opbias not fully reset "
-                        f"before first note (cleared ops {sorted(cleared)})")
+        cls.naive, _, _ = build_native_songdesc(
+            rom, suppress_redundant_state=False)
+        cls.thinned, _, (bank, _, pcount) = build_native_songdesc(rom)
+        cls.recs = [bytes(bank[i * FMPATCH_LEN:(i + 1) * FMPATCH_LEN])
+                    for i in range(pcount)]
+
+    def _keyon_trace(self, song, loops=2):
+        """Per channel: the (tick, pitch points, dur, voice bytes, fill,
+        bias@keyon, bias@last-patch-load, pan, vol) tuple of every key-on across
+        `loops` loop passes of the expanded stream."""
+        from zyrinx_player import expand_channel_stream
+        from song_packer import (SetDur, Rest, Vol, Patch, Pan, OpBias,
+                                 PitchEnv, RegDelta, NoteFill,
+                                 REGDELTA_GROUP_SHIFT, REGDELTA_OP_MASK)
+        traces = []
+        for c in song.channels:
+            tr = []
+            t = 0
+            cur = 0
+            fp = None                      # active voice's FmPatch bytes
+            fill = 0                       # engine channel-reset default
+            bias = [0, 0, 0, 0]
+            bias_at_load = (0, 0, 0, 0)    # sc_opbias when the patch last loaded
+            pan = None
+            vol = None
+            for e in expand_channel_stream(c.events, loops=loops):
+                if isinstance(e, SetDur):
+                    cur = e.ticks
+                elif isinstance(e, Patch):
+                    fp = bytearray(self.recs[e.patch])
+                    bias_at_load = tuple(bias)
+                elif isinstance(e, RegDelta):
+                    for rs, val in e.entries:
+                        group = (rs >> REGDELTA_GROUP_SHIFT) & 0x0F
+                        op = rs & REGDELTA_OP_MASK
+                        fp[2 + group * 4 + op] = val & 0xFF
+                elif isinstance(e, OpBias):
+                    bias[e.op] = e.val
+                elif isinstance(e, NoteFill):
+                    fill = e.master
+                elif isinstance(e, Pan):
+                    pan = e.b4
+                elif isinstance(e, Vol):
+                    vol = e.vol
+                elif isinstance(e, PitchEnv):
+                    tr.append((t, tuple(e.points), cur,
+                               bytes(fp) if fp is not None else None,
+                               fill, tuple(bias), bias_at_load, pan, vol))
+                    t += cur
+                elif isinstance(e, Rest):
+                    t += cur
+            traces.append(tr)
+        return traces
+
+    def test_keyon_state_equivalence_across_loop(self):
+        tn = self._keyon_trace(self.naive)
+        tt = self._keyon_trace(self.thinned)
+        for ci, (a, b) in enumerate(zip(tn, tt)):
+            self.assertEqual(len(a), len(b), f"ch{ci} key-on count changed")
+            for i, (x, y) in enumerate(zip(a, b)):
+                self.assertEqual(x, y, f"ch{ci} key-on {i} state differs "
+                                       f"(naive {x} vs thinned {y})")
+
+    def test_write_burst_budget(self):
+        from zyrinx_player import simulate_write_bursts
+        cost = simulate_write_bursts(self.thinned, loops=2)
+        self.assertLessEqual(cost.get(0, 0), self.START_TICK_BUDGET,
+                             "song-start tick over budget")
+        worst_t, worst = max(((t, w) for t, w in cost.items() if t > 0),
+                             key=lambda kv: kv[1])
+        self.assertLessEqual(
+            worst, self.WRITE_BUDGET,
+            f"tick {worst_t} bursts {worst} chip writes (> "
+            f"{self.WRITE_BUDGET}) — a body-boundary prefix regressed; the "
+            f"naive emission stalled 25-42 ms at such ticks (audible pause)")
+
+    def test_measure5_boundary_thinned(self):
+        # The user-audible boundary: tick 64 (~3.7 s, the intro's 32x2 ticks
+        # ending where FM4's high run starts) burst ~236 writes naive; thinned
+        # it must stay near just-the-keyons + the two GENUINE instrument
+        # changes that enter there.
+        from zyrinx_player import simulate_write_bursts
+        naive = simulate_write_bursts(self.naive, loops=2)
+        thinned = simulate_write_bursts(self.thinned, loops=2)
+        self.assertGreaterEqual(naive.get(64, 0), 200)   # documents the bug
+        self.assertLessEqual(thinned.get(64, 0), 120)    # and the fix
 
 
 @unittest.skipUnless(os.path.exists(ROM_PATH), "B&R ROM not present")
