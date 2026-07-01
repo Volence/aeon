@@ -112,13 +112,9 @@ SND_TIMERA_CTRL_BIT_ENBL = 2
 SND_TIMERA_CTRL_BIT_RST  = 4
 SND_TIMERA_CTRL_PROGRAM = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)             ; $05 : LOAD:A | ENBL:A
 SND_TIMERA_CTRL_REARM   = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)|(1<<SND_TIMERA_CTRL_BIT_RST) ; $15 : LOAD:A | ENBL:A | RST:A
-; DISABLE: strobe RST:A (bit4) to CLEAR the pending overflow status flag WHILE
-; leaving LOAD:A (bit0) and ENBL:A (bit2) CLEAR so the timer stays off. A bare
-; $27=0 disables the counter but does NOT clear an already-pending overflow flag,
-; so the very next DAC/idle-loop poll would still see overflow and RE-ARM the
-; timer (resurrecting it). $10 clears the flag AND keeps the timer disabled, so
-; StopMusic durably stops the ticks.
-SND_TIMERA_CTRL_DISABLE = (1<<SND_TIMERA_CTRL_BIT_RST)                                            ; $10 : RST:A only (clear flag, timer OFF)
+; NOTE: Timer A is NEVER disabled at runtime — it is the whole-driver frame
+; clock (sequencer + SFX + DAC refill all hang off its tick). StopMusic leaves
+; it running; an idle tick with SND_SEQ_ACTIVE=0 is a cheap early-out.
 SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A overflow
 
         if SND_TIMERA_CTRL_PROGRAM <> $05
@@ -126,9 +122,6 @@ SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A 
         endif
         if SND_TIMERA_CTRL_REARM <> $15
           error "SND_TIMERA_CTRL_REARM must be $15 (LOAD:A|ENBL:A|RST:A)"
-        endif
-        if SND_TIMERA_CTRL_DISABLE <> $10
-          error "SND_TIMERA_CTRL_DISABLE must be $10 (RST:A only)"
         endif
 
 ; --- Tempo: YM Timer A programming from the song-header tempo byte (Task 5) ---

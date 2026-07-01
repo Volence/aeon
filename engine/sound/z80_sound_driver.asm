@@ -557,9 +557,13 @@ SndDrv_PollMailbox:
         call    Snd_LoadSong             ; 1..$FE -> load + arm the song (clears the slot)
         jr      .after_music
 .music_stop:
+        ; Timer A stays RUNNING: it is the whole-driver frame clock, not the
+        ; music clock. Sfx_Frame runs only as Sequencer_Frame's tail and a
+        ; mid-flight DAC drum needs its per-frame refill, so disabling the
+        ; timer here would kill all SFX + DAC too. An idle tick with
+        ; SND_SEQ_ACTIVE=0 is a cheap early-out.
         call    Sequencer_StopAll        ; key-off FM + silence PSG + clear active flag
         call    Sfx_StopAll              ; Phase 5a: clear overrides + kill SfxChannels + queue/duck
-        call    Snd_TimerA_Disable       ; stop Timer A so no more ticks fire
         xor     a
         ld      (SND_REQ_MUSIC), a       ; clear slot (consumed)
         ld      a, (SND_STAT_ACK_COUNT)
@@ -1007,25 +1011,6 @@ Snd_TimerA_Rearm:
         ret
 
 ; ======================================================================
-; Snd_TimerA_Disable — durably stop Timer A (Task 6 StopMusic). Writes $27 = $10
-; (= SND_TIMERA_CTRL_DISABLE: RST:A bit4 SET to STROBE-CLEAR the pending overflow
-; status flag; LOAD:A bit0 + ENBL:A bit2 CLEAR so the counter stays disabled).
-; A bare $27=0 would leave a STALE overflow flag set: the very next DAC/idle-loop
-; poll (`ld a,($4000)/and 1/jp nz`) would take the overflow branch -> Rearm writes
-; $27=$15 -> the timer is RESURRECTED. $10 clears the flag AND keeps the timer off,
-; so the next poll sees no overflow and the timer stays dead. ABSOLUTE addressing
-; (preserve de); re-parks reg $2A on $4000. Clobbers af.
-; ======================================================================
-Snd_TimerA_Disable:
-        ld      a, SND_REG_TIMER_CTRL    ; $27
-        ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
-        ld      a, SND_TIMERA_CTRL_DISABLE ; $10 = RST:A only (clear overflow flag, timer OFF)
-        ld      (SND_Z80_YM_A1), a       ; $4001 = strobe RST:A, leave LOAD/ENBL clear
-        ld      a, SND_REG_DAC_DATA      ; $2A
-        ld      (SND_Z80_YM_A0), a       ; re-park addr port on DAC DATA
-        ret
-
-; ======================================================================
 ; Snd_LoadSong — load + arm the song the 68k posted (Task 6 + Sound 1D §5.1).
 ; REACHED ONLY from SndDrv_PollMailbox in the VBlank ISR, so the DAC streaming
 ; loop is PAUSED (it runs only at the loop's single `ei`, between samples) — the
@@ -1334,11 +1319,14 @@ Snd_LoadSong:
         xor     a
         ld      (SND_SEQ_TRACE_WR), a
         ld      (SND_SEQ_BADOP), a
-        ; Phase 3: Timer A is the FIXED frame clock, programmed ONCE at driver init
-        ; (Snd_TimerA_ProgramFixed); the song loader no longer (re)programs it.
+        ; Phase 3: Timer A is the FIXED frame clock, programmed at driver init
+        ; (Snd_TimerA_ProgramFixed). Re-program it here as belt-and-suspenders —
+        ; on a running timer this just reloads the same N (harmless), and it
+        ; revives the frame clock if anything ever left the timer off.
         ; Musical tempo is per-channel via the tempo accumulator (sc_tempo_base,
         ; seeded above from the cached SH_TEMPO_BASE). We still cache the legacy
         ; SH_TEMPO byte into SND_SEQ_TEMPO for visibility (it is otherwise unused).
+        call    Snd_TimerA_ProgramFixed
         ld      iy, (Snd_SongBase)
         ld      a, (iy+SH_TEMPO)
         ld      (SND_SEQ_TEMPO), a
