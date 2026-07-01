@@ -246,6 +246,14 @@ Sfx_DrainQueue:
 ; nothing the caller needs except the de re-park it does after this tail-call.
 ; ----------------------------------------------------------------------
 Sfx_Frame:
+        ; Bank the SFX blob bank in FIRST: the slot loop's stream/env reads go
+        ; through the $8000 window, but the caller (Run_SeqFrame_OnSongBank)
+        ; banked SND_SONG_BANK — which is 0 at cold boot with no song ever
+        ; loaded, so an SFX started before any music would read 68k code at ROM
+        ; $0000-$7FFF as its event stream. Cached no-op whenever the (co-located)
+        ; song bank is already selected. Clobbers af,hl (nothing live at entry).
+        ld      a, SFX_BLOB_BANK
+        call    SndDrv_SetBank
         call    Sfx_DrainQueue           ; Task 9: pop highest-priority pending SFX
         call    Sfx_DuckRamp             ; Task 10: ramp the music duck level toward target
         ld      b, SFX_VOICE_COUNT       ; b = slot count (djnz bound)
