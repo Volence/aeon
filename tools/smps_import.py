@@ -311,6 +311,11 @@ class ConvState:
         # SMPS volume domains differ (FM TL-ish attenuation vs PSG 4-bit attn).
         self.fm_vol_raw = None
         self.psg_vol_raw = None
+        # Pitch of the most recently CONVERTED note. Unlike _prev_note_idx
+        # below (the tie-merge target, cleared by a rest), this survives rests —
+        # mirroring the driver, which keeps zTrack.FreqLow/High across a rest so
+        # a bare duration byte re-keys the pre-rest note.
+        self._last_pitch = None
         # DAC saved-sample tracking (zTrack.SavedDAC). The driver stores EVERY
         # DAC note byte here (a rest stores $80 = cleared); a bare $00-$7F byte
         # in note position re-reads it and RE-TRIGGERS the sample
@@ -857,6 +862,7 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                 # MODE is set separately by the MEV_PSGNOISE from smpsPSGform).
                 if b >= MEV_NOTE_BASE:               # $81..$DF -> note
                     pitch = (b - MEV_NOTE_BASE) + st.transpose
+                    st._last_pitch = pitch    # survives rests (driver keeps Freq)
                     ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
                     if st.tie:
                         st.tie = False
@@ -951,43 +957,63 @@ def _emit_with_dur_g(emit, st, ticks, pitch):
 def _hold_for_dur(emit, out, st, ticks, is_dac):
     """A duration byte read in NOTE POSITION (not a note's trailing duration) is
     TIME-ADVANCING in the S3K driver: zGetNextNote->zStoreDuration->
-    zFinishTrackUpdate sets DurationTimeout, holding the current note/sample for
-    `ticks` ticks. The key-on path is NOT taken, so there is no re-attack (the
-    note simply sustains); SavedDuration is also updated for later bare notes.
+    zFinishTrackUpdate sets DurationTimeout, holding the track for `ticks`
+    ticks; SavedDuration is also updated for later bare notes.
 
+    Articulation (verified against the S3K driver):
       * DAC route: the driver RE-READS SavedDAC and RE-TRIGGERS it
         (zUpdateDACTrack_cont `dec de; ld a,(SavedDAC)` -> queue zDACIndex)
         unless SavedDAC is the $80 rest. So emit a fresh Dac(saved) re-trigger,
         then pace `ticks` with a (timed) Rest. With no saved sample (channel
         start / right after a DAC rest) just pace the time. Pacing these bytes
         as silence-only dropped HCZ2's accelerating snare rolls + 9-hit fill.
-      * FM/PSG with a held note: EXTEND that note by `ticks` (a tie/sustain),
-        merging into a single NoteDur so no spurious re-attack is emitted. On a
-        >$FF overflow, start a fresh re-keyed segment (rare; timing stays exact).
-      * FM/PSG with no held note (channel start / right after a rest): advance
-        time as a Rest of `ticks`.
+      * FM/PSG, tie pending (smpsNoAttack $E7 sets the no-attack bit, which
+        skips zKeyOffIfActive AND zFMNoteOn): EXTEND the held note by `ticks`,
+        merging into a single NoteDur (no re-attack). On a >$FF overflow, start
+        a fresh re-keyed segment (rare; timing stays exact).
+      * FM/PSG, NO tie pending: zGetNextNote CLEARS the no-attack bit at entry,
+        calls zKeyOffIfActive on every non-flag byte, and the caller re-keys
+        the held FreqLow/High via zFMSendFreq+zFMNoteOn — the bare duration is
+        a fresh RE-ATTACK of the previous pitch (which persists across rests;
+        zRestTrack does not clear the frequency). ONLY smpsNoAttack+dur ties.
+      * FM/PSG with no previous note at all: advance time as a Rest of `ticks`.
 
     Treating this as zero-tick (the old "set default duration") dropped all the
     tie/standalone-dur time, shortening the DAC + PSG-noise loops so the
     percussion drifted off-beat from the melody. (HCZ2 root cause.)"""
     st._saved_dur = ticks
+    tie_pending = st.tie
     st.tie = False
     if is_dac:
         if st.saved_dac is not None:
             emit(Dac(st.saved_dac))          # re-trigger the saved sample
         _emit_with_dur_g(emit, st, ticks, None)
         return
-    if st._prev_note_idx is None:
-        _emit_with_dur_g(emit, st, ticks, None)
+    if tie_pending:
+        if st._prev_note_idx is None:
+            # Tie with nothing held (e.g. after a rest): the no-attack bit
+            # suppresses BOTH key-off and key-on, so the channel just stays
+            # silent for `ticks` — pace with a Rest.
+            _emit_with_dur_g(emit, st, ticks, None)
+            return
+        # smpsNoAttack tie: sustain/extend the held note, no re-attack.
+        new_total = st._prev_note_dur + ticks
+        if new_total <= 0xFF:
+            out[st._prev_note_idx] = NoteDur(st._prev_pitch, new_total)
+            st._prev_note_dur = new_total
+        else:
+            _emit_with_dur_g(emit, st, ticks, st._prev_pitch)
+            st._prev_note_idx = len(out) - 1
+            st._prev_note_dur = ticks
         return
-    new_total = st._prev_note_dur + ticks
-    if new_total <= 0xFF:
-        out[st._prev_note_idx] = NoteDur(st._prev_pitch, new_total)
-        st._prev_note_dur = new_total
-    else:
-        _emit_with_dur_g(emit, st, ticks, st._prev_pitch)
+    if st._last_pitch is not None:
+        # No tie: re-articulate the previous pitch (S3K key-off + re-key).
+        _emit_with_dur_g(emit, st, ticks, st._last_pitch)
         st._prev_note_idx = len(out) - 1
+        st._prev_pitch = st._last_pitch
         st._prev_note_dur = ticks
+        return
+    _emit_with_dur_g(emit, st, ticks, None)
 
 
 # SMPS byte-class boundaries (mirror of the driver: FirstCoordFlag = $E0, the

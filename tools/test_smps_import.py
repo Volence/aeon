@@ -1029,6 +1029,53 @@ def test_dac_bare_duration_retriggers_saved_sample():
     # Pacing preserved exactly: $18+$0C+$02+$04+$06 = $30 ticks.
     assert _dac_total_ticks(ev) == 0x30
 
+# ── FM/PSG bare standalone duration = RE-ATTACK unless smpsNoAttack ──────────
+# S3K zGetNextNote clears the no-attack bit at entry and calls zKeyOffIfActive
+# on EVERY non-flag byte; the caller then re-keys the held FreqLow/High via
+# zFMSendFreq+zFMNoteOn. So a bare $00-$7F byte re-articulates the previous
+# note; ONLY smpsNoAttack+dur is a tie. (sfx_transcode already did this.)
+
+def test_standalone_dur_without_noattack_reattacks_fm():
+    # nC4 $0C then a bare $18 with NO smpsNoAttack: two attacks, not a tie.
+    ev = convert_channel("FM", ["\tdc.b nC4, $0C, $18"], {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 2, "bare duration must re-attack (got %d notes)" % len(notes)
+    assert all(n.pitch == 0x30 for n in notes)     # same pitch, re-keyed
+    # Second articulation carries the bare byte's duration ($18).
+    durs = [e.ticks for e in ev if isinstance(e, SetDur)]
+    assert durs == [0x0C, 0x18]
+
+def test_standalone_dur_with_noattack_still_ties():
+    # The smpsNoAttack+dur pair remains a tie (single merged NoteDur) — the
+    # companion path to the re-attack test above.
+    ev = convert_channel("FM", ["\tdc.b nC4, $0C, smpsNoAttack, $18"],
+                         {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 1
+    assert isinstance(notes[0], NoteDur) and notes[0].dur == 0x0C + 0x18
+
+def test_standalone_dur_after_rest_replays_previous_note():
+    # zRestTrack does NOT clear FreqLow/High, and zGetNextNote clears the rest
+    # bit at entry — a bare duration after a rest re-keys the pre-rest pitch.
+    ev = convert_channel("FM", ["\tdc.b nC4, $0C, $80, $0C, $18"],
+                         {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 2
+    assert all(n.pitch == 0x30 for n in notes)
+    rests = [e for e in ev if isinstance(e, Rest)]
+    assert len(rests) == 1                          # the $80 rest
+
+def test_noattack_then_dur_after_rest_stays_silent():
+    # smpsNoAttack suppresses BOTH key-off and key-on; with nothing held (right
+    # after a rest) the bare duration paces silence, not a ghost re-key.
+    ev = convert_channel("FM",
+        ["\tdc.b nC4, $0C, $80, $0C, smpsNoAttack, $18"], {}, _cfg(), ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 1                          # only the original nC4
+    rests = [e for e in ev if isinstance(e, Rest)]
+    assert len(rests) == 2                          # the $80 rest + the $18 pace
+
+
 def test_dac_rest_clears_saved_sample_no_retrigger():
     # A DAC rest stores $80 into SavedDAC (zUpdateDACTrack_cont .got_sample), so
     # a bare duration AFTER a rest paces silence — no ghost re-trigger.
