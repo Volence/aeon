@@ -654,11 +654,15 @@ class TestMacroEvents(unittest.TestCase):
     def test_music_song_accepts_expression_opcodes(self):
         # A music channel emitting MEV_PSGENV/$F7/$F8/$F9 must NOT be rejected
         # or silently dropped (D8 music-legal route gate).
-        from song_packer import FmEnv, RegWrite, Macro, PsgEnv
+        from song_packer import (FmEnv, RegWrite, Macro, PsgEnv, MacReg,
+                                 MacNext, MacEnd)
         fm = ChannelDesc(CHROUTE_FM1, [
             Patch(0), Vol(100), SetDur(0x10), LoopPoint(),
             FmEnv(2), RegWrite(0, 0x90, 0x08), Macro(),
             Note(0), Jump()])
+        # Macro() requires a real macro_body (packing without one is the
+        # offset-0 foot-gun the packer now rejects).
+        fm.macro_body = [MacReg(0, 0x90, 0x08), MacNext(), MacEnd()]
         psg = ChannelDesc(CHROUTE_PSG1, [
             Vol(90), PsgEnv(3), SetDur(0x10), LoopPoint(), Note(0), Jump()])
         blob = pack_song(SongDesc(tempo=16, channels=[fm, psg]))
@@ -761,6 +765,105 @@ class TestConstantsSync(unittest.TestCase):
             self.assertEqual(
                 py_val, asm_val,
                 f"{name}: song_packer.py={py_val} != sound_constants.asm={asm_val}")
+
+
+class TestPackerSafetyGates(unittest.TestCase):
+    """Foot-gun gates: reject at pack time what would hang/corrupt the Z80."""
+
+    @staticmethod
+    def _fm_events(*mid):
+        return [Patch(0), Vol(64), LoopPoint(), *mid, Jump()]
+
+    def _song(self, channels):
+        return SongDesc(tempo=0x80, channels=channels, flags=SH_F_STREAM,
+                        tempo_base=16)
+
+    # ── nested repeats (engine is single-level: one sc_repeat_ptr/count) ──
+
+    def test_nested_repeat_start_rejected(self):
+        ch = ChannelDesc(CHROUTE_FM1, self._fm_events(
+            RepeatStart(), Note(0), RepeatStart(), Note(1), RepeatEnd(2),
+            RepeatEnd(2)))
+        with self.assertRaisesRegex(PackError, "nested RepeatStart"):
+            pack_song(self._song([ch]))
+
+    def test_sequential_repeats_still_pack(self):
+        # Two repeats one after the other are single-level — must stay legal.
+        ch = ChannelDesc(CHROUTE_FM1, self._fm_events(
+            RepeatStart(), Note(0), RepeatEnd(2),
+            RepeatStart(), Note(1), RepeatEnd(3)))
+        pack_song(self._song([ch]))   # must not raise
+
+    # ── macro-body yield validation ──
+
+    def test_mid_body_macloop_rejected(self):
+        # A MID-body MacLoop with no prior MacNext = MacroTick infinite spin;
+        # the old check only inspected the TERMINAL event.
+        from song_packer import emit_macro_body, MacReg, MacNext, MacLoop
+        with self.assertRaisesRegex(PackError, "non-terminal MacLoop"):
+            emit_macro_body(
+                [MacReg(0, 0x90, 0x08), MacLoop(), MacNext(), MacLoop()],
+                body_base=0)
+
+    def test_mid_body_macend_rejected(self):
+        from song_packer import emit_macro_body, MacReg, MacNext, MacEnd
+        with self.assertRaisesRegex(PackError, "non-terminal MacEnd"):
+            emit_macro_body(
+                [MacEnd(), MacReg(0, 0x90, 0x08), MacNext(), MacEnd()],
+                body_base=0)
+
+    # ── Macro() without a macro_body ──
+
+    def test_macro_event_without_body_rejected(self):
+        from song_packer import Macro
+        ch = ChannelDesc(CHROUTE_FM1, self._fm_events(Macro(), Note(0)))
+        # no ch.macro_body: the $F9 operand would pack as offset 0 (the header)
+        with self.assertRaisesRegex(PackError, "no macro_body"):
+            pack_song(self._song([ch]))
+
+    # ── bounds ──
+
+    def test_channel_count_over_route_count_rejected(self):
+        from song_packer import CHROUTE_COUNT
+        chans = [ChannelDesc(CHROUTE_FM1, self._fm_events(Note(0)))
+                 for _ in range(CHROUTE_COUNT + 1)]
+        with self.assertRaisesRegex(PackError, "channel_count"):
+            pack_song(self._song(chans))
+
+    def test_duplicate_routes_rejected(self):
+        chans = [ChannelDesc(CHROUTE_FM1, self._fm_events(Note(0))),
+                 ChannelDesc(CHROUTE_FM1, self._fm_events(Note(1)))]
+        with self.assertRaisesRegex(PackError, "duplicate channel route"):
+            pack_song(self._song(chans))
+
+    def test_blob_over_16bit_offset_range_rejected(self):
+        # >$FFFF total layout would truncate the 16-bit BE stream pointers.
+        big = [Patch(0), Vol(64)] + [NoteDur(0, 1)] * 22000 + [End()]
+        ch = ChannelDesc(CHROUTE_FM1, big)
+        with self.assertRaisesRegex(PackError, r"16-bit pointer range"):
+            pack_song(self._song([ch]))
+
+    def test_copy_path_song_over_512_bytes_warns(self):
+        # Non-STREAM songs are ldir'd into the 512-byte SND_SONG_BUF: warn.
+        import io
+        from contextlib import redirect_stderr
+        big = [Patch(0), Vol(64)] + [NoteDur(0, 1)] * 300 + [End()]
+        ch = ChannelDesc(CHROUTE_FM1, big)
+        song = SongDesc(tempo=0x80, channels=[ch], flags=0, tempo_base=16)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            pack_song(song)           # packs fine — warn only
+        self.assertIn("SND_SONG_BUF_SIZE", buf.getvalue())
+
+    def test_stream_song_over_512_bytes_no_warn(self):
+        import io
+        from contextlib import redirect_stderr
+        big = [Patch(0), Vol(64)] + [NoteDur(0, 1)] * 300 + [End()]
+        ch = ChannelDesc(CHROUTE_FM1, big)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            pack_song(self._song([ch]))
+        self.assertNotIn("SND_SONG_BUF_SIZE", buf.getvalue())
 
 
 if __name__ == "__main__":

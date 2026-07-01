@@ -397,6 +397,16 @@ def emit_macro_body(events, body_base: int) -> bytes:
         raise PackError("empty macro body")
     if not isinstance(events[-1], (MacEnd, MacLoop)):
         raise PackError("macro body not terminated by MacEnd or MacLoop")
+    for i, ev in enumerate(events[:-1]):
+        # A terminator anywhere but the end makes everything after it
+        # unreachable — and a MID-body MacLoop with no prior MacNext would
+        # spin MacroTick forever (the terminal-only yield check below would
+        # never see it). Reject non-terminal terminators outright.
+        if isinstance(ev, (MacLoop, MacEnd)):
+            raise PackError(
+                "non-terminal %s at macro-body index %d — events after it are "
+                "unreachable (MacLoop/MacEnd must be the body's LAST event)"
+                % (type(ev).__name__, i))
     if isinstance(events[-1], MacLoop):
         # Every event before the terminal MacLoop is the body. Check that at
         # least one of them is a MacNext (TAG_MAC_NEXT yield). Without a yield
@@ -774,6 +784,12 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
     for ev in ch.events:
         ev.validate(ch.route)
         if isinstance(ev, RepeatStart):
+            if repeat_depth > 0:
+                raise PackError(
+                    "nested RepeatStart: the engine keeps ONE sc_repeat_ptr/"
+                    "sc_repeat_count per channel (single-level repeats only — "
+                    "sound_sequencer.asm Seq_Op_RepeatStart); a nested body "
+                    "would overwrite the saved pointer and corrupt the loop")
             repeat_depth += 1
             repeat_time_stack.append(False)
         if isinstance(ev, RepeatEnd):
@@ -874,8 +890,17 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
         raise PackError("SH_F_FM6_ADAPTIVE requires SH_F_FM6_FM (FM6 must be an FM voice to time-share with the DAC)")
     if (song.flags & SH_F_FM6_ADAPTIVE) and not (song.flags & SH_F_STREAM):
         raise PackError("SH_F_FM6_ADAPTIVE requires SH_F_STREAM (the stream load path sets $2B=$00 so FM6 plays music at load)")
-    if not (1 <= len(song.channels) <= 0xFF):
-        raise PackError("channel_count out of byte range")
+    if not (1 <= len(song.channels) <= CHROUTE_COUNT):
+        raise PackError(
+            f"channel_count {len(song.channels)} out of range 1..{CHROUTE_COUNT} "
+            f"(the engine has {CHROUTE_COUNT} channel routes; more would load "
+            f"as a corrupt/silent song)")
+    routes = [ch.route for ch in song.channels]
+    if len(set(routes)) != len(routes):
+        dupes = sorted({r for r in routes if routes.count(r) > 1})
+        raise PackError(
+            f"duplicate channel route(s) {dupes} — two streams would fight "
+            f"over one chip channel")
     if not (0 <= pitchtable_offset <= 0xFFFF):
         raise PackError(
             f"pitchtable_offset {pitchtable_offset} out of 16-bit range")
@@ -914,6 +939,32 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
         mod_offsets[i] = body_base
         macro_bodies[i] = body
         cur += len(body)
+
+    # A slot[0] Macro() with NO macro_body would pack its operand as offset 0
+    # (the song header) and MacroTick would execute header bytes as tags.
+    for ch, mod in zip(song.channels, mod_offsets):
+        if mod == 0 and any(isinstance(ev, Macro) for ev in ch.events):
+            raise PackError(
+                f"channel (route {ch.route}) stream contains Macro() but the "
+                f"channel has no macro_body — the $F9 operand would pack as "
+                f"offset 0 and the Z80 would execute the song header")
+
+    # All header/operand pointers are 16-bit BE blob offsets; a blob whose
+    # layout runs past $FFFF would silently truncate them.
+    if cur > 0xFFFF:
+        raise PackError(
+            f"song blob layout is {cur} bytes — stream/body offsets exceed the "
+            f"16-bit pointer range ($FFFF)")
+
+    # Copy-path (non-STREAM) songs are ldir'd into the 512-byte Z80 song
+    # buffer (SND_SONG_BUF_SIZE); a larger blob is silently truncated by the
+    # loader. Warn (not raise): the flag choice is the author's.
+    if not (song.flags & SH_F_STREAM) and cur > 0x200:
+        import sys
+        sys.stderr.write(
+            "song_packer: WARN: non-STREAM (copy-path) song is %d bytes > 512 "
+            "(SND_SONG_BUF_SIZE) — the Z80 loader will truncate it; set "
+            "SH_F_STREAM or shrink the song\n" % cur)
 
     # Re-encode the command streams AFTER back-patching Macro operands (the
     # first pass above encoded Macro() with body_offset=0).
