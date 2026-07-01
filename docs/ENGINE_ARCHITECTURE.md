@@ -2537,11 +2537,16 @@ Animation Classifier + Speed-Scaled Timing (5.6)  [SHIPPED — feat/sonic-animat
 > (`docs/superpowers/specs/2026-06-17-sound-1c-design.md` — FM+PSG music sequencer), and
 > **Phase 3a** (FM depth + native Moving Trucks port, merged `c89bea3` 2026-06-19) have
 > **built** the foundation. The authoring tool is **MegaDAW**, not SMPS2ASM. The technique
-> subsections below (6.2–6.8) are the **phased roadmap** the master spec §12 lays out — most
-> are DEFERRED to Phases 2–6, not yet built. References to "Flamedriver," "SMPS," "S3K SMPS
+> subsections below (6.2–6.8) carry per-subsection status banners — several are DEFERRED to
+> Phases 2–6, not yet built. References to "Flamedriver," "SMPS," "S3K SMPS
 > format," and "SMPS2ASM" in the subsections below are **historical/aspirational** and are
 > retained only as the technique provenance; the shipped driver is our own code, our own data
-> format. The master sound spec + the 1C design are the authorities.
+> format. The master sound spec + the 1C design are the authorities — but the master spec now
+> carries a **2026-07-01 amendment header** listing its superseded sections (BRR/N-channel
+> mixer, busy-poll policy, division portamento, polyphonic-samples criterion). The current
+> sound state-of-truth is the pair of 2026-07-01 review docs
+> (`docs/superpowers/2026-07-01-sound-engine-review-findings.md` +
+> `docs/superpowers/2026-07-01-sound-specs-review.md`).
 
 The 68K has zero sound processing overhead beyond a byte write per command (the
 68k↔Z80 mailbox). Audio quality borrows techniques from Batman's Zyrinx driver and
@@ -2566,7 +2571,9 @@ soundscapes (the latter is deferred to Phase 5).
   voice writer** (note→F-number/key-on, patch load, log-volume LUT × per-algorithm carrier
   mask). A **PSG voice writer** (3 tone + 1 noise, attenuation, pause-silence). **Scheduler
   integration:** YM **Timer-A** is programmed so one overflow = one sequencer tick
-  (sub-frame, NTSC/PAL-independent); the free-running 1B DAC loop polls the Timer-A overflow
+  (sub-frame, NTSC/PAL-independent — since revised: Timer-A is now the FIXED NTSC-rate frame
+  clock, N=136 → ~59.92 Hz, and musical tempo lives in the per-channel tempo accumulator, see
+  §6.8); the free-running 1B DAC loop polls the Timer-A overflow
   flag once per pass (equal cost on all three paths) and calls `Sequencer_Tick` on overflow,
   bounded/splittable so the DAC never starves. **DAC drums** route the song's `$E2` triggers
   to the 1B sample path; FM6 stays the DAC channel in 1C. 68k API: `Sound_PlayMusic`
@@ -2640,11 +2647,27 @@ soundscapes (the latter is deferred to Phase 5).
     opcode gate, `TAG_MAC_*` cross-file sync guard). The whole layer is **inert** when `sc_env`=0 /
     `sc_mod_ptr`=NULL (every shipped song), so HCZ2 / Moving Trucks / SFX render byte-identically.
 
-**DEFERRED (master-spec §12 — each its own plan):** Phase 2 N-channel DAC mixer (quality-adaptive
-single↔mix, stereo/pseudo-stereo PCM, pitch-shifted SFX, half-rate samples, BRR codec) — the DAC
-powerhouse; needs user sign-off, the one irreversible format bet. **Music-expression Phase 2 — the
-current sound priority** (per-note portamento `MEV_PORTA` + fine detune `MEV_DETUNE`; global master
-fade-in/out + tempo ramp + sequencer-driven hardware LFO). Phase 3b residual FM extras (runtime SSG-EG
+- **Music-expression Phase 2 — SHIPPED except portamento (merged to master; 2026-07-01 fix pass
+  verified):** fine detune (`MEV_DETUNE` $F6), sequencer-driven hardware LFO (`MEV_LFO` $F4), the
+  global tempo scalar (`MEV_TEMPO` $F3, per-channel tempo accumulator), and master fade-in/out
+  (`Sound_FadeOut`/`Sound_FadeIn` over `SND_REQ_FADE`) are all live.
+
+**Banked-window physics rule (hard constraint, learned 2026-06-28):** only DATA may live in the Z80
+`$8000` bank window. CODE fetched through the window corrupts under 68k bus contention (DMA/BUSREQ;
+`di` does not help) → wild PC → Z80 self-reinit. ALL in-frame code must be RESIDENT.
+`engine/sound/sound_banked_z80.asm` was deleted (2026-07-01) when its last banked routine,
+`Fm_FnumApplyDelta`, moved resident into `sound_fm.asm`.
+
+**DEFERRED (each its own plan):** **Per-note portamento is the ONLY unshipped music-expression
+piece** — execute the turnkey resume plan (`docs/superpowers/plans/2026-06-28-portamento-resume.md`):
+relocate its ~323 B of in-frame code RESIDENT (per the banked-window rule above), bank remaining DATA
+tables (~200-260 B) to recover the budget, then B2/B3 + soak. The old "Phase 2 N-channel DAC mixer"
+roadmap item is **superseded by the approved DAC-format spec**
+(`docs/superpowers/specs/2026-06-24-dac-drum-format-revision-design.md` + its 2026-06-25 raw-8-bit
+amendment): single voice, raw 8-bit PCM, pre-mixed composites; `ds_codec`/`ds_rate` reserved bytes
+keep the codec/rate doors open — but the mixer *rejection* is the one irreversible format bet and
+**still needs explicit user ratification** before a real drum library is authored (see §6.2).
+Phase 3b residual FM extras (runtime SSG-EG
 7th-RegDelta-group, Ch3 special/CSM, detune-unison — note the dual-stream macro layer, load-time SSG-EG,
 the raw-register escape, the per-frame FM-TL envelope, and PSG envelopes have all SHIPPED, see §6.1 body).
 Phase 4's richer *content-adaptive* FM6/DAC modes (the basic dedicate/adaptive Echo toggle already SHIPPED
@@ -2661,24 +2684,39 @@ the only way to get the union, keep full Z80 autonomy (the 68k sends a command a
 about sound again — every freed cycle goes to DMA/objects/streaming), and use MegaDAW as the
 authoring tool without bending the design to SMPS/VGM.
 
-### 6.2 DAC Enhancements (technique provenance: MegaPCM 2.x)
+### 6.2 DAC — Shipped Shape (single voice, raw 8-bit + composites)
 
-> **ROADMAP, mostly DEFERRED.** The single-channel DMA-survival DAC is **SHIPPED (1B)** —
-> read-ahead buffering and DMA survival are done. The remaining items below (DPCM, multi-channel
-> mixing, per-sample panning, pitch-shifted SFX, DC-offset removal) are the master-spec **Phase 2**
-> "DAC powerhouse" roadmap, not yet built. Implemented in our own driver, not a port of Flamedriver.
+> **REVISED 2026-07-01.** The Phase-2 "DAC powerhouse" roadmap that used to live here (DPCM,
+> multi-channel mixing, pitch-shifted PCM SFX, half-rate voices) is **superseded by the approved
+> DAC-format spec** (`docs/superpowers/specs/2026-06-24-dac-drum-format-revision-design.md` +
+> its 2026-06-25 raw-8-bit amendment). Implemented in our own driver, not a port of Flamedriver.
 
-All Z80-side, zero 68K cost:
-- **DPCM compression:** Delta-encoded samples use ~50% less ROM. Decode on Z80 during playback.
-- **High sample rates:** Up to 32kHz (vs stock 8-11kHz). Noticeably cleaner.
-- **Per-sample panning:** Left/Right/Center via YM2612 register $B6. Enables pseudo-stereo.
-- **Multi-channel DAC mixing:** Mix 2-4 samples simultaneously on Z80. XGM2 achieves 4 channels at 14kHz; MDSDRV does 2-3 at 17.5kHz with per-channel volume. Budget: 2-3 channels at ~16-23 kHz is the sweet spot between quality and Z80 headroom. 4 channels drops to ~14 kHz and eats 70% of Z80 time with effectively 6-bit output. Per-channel selectable half-speed (6.65kHz) for low-frequency samples (bass drums, ambient rumbles) saves ~50% ROM with no audible quality loss.
-- **Independent DAC volume:** Separate from FM/PSG levels.
-- **DC offset removal (from Batman):** Subtract pre-computed DC bias per sample before YM2612 output. Eliminates pops/clicks at sample boundaries. One subtraction per sample tick.
-- **Pitch-shifted SFX (from Batman):** Step-based pitch control — same ROM sample played at different rates. Jump sound pitched up for mini-hop, down for heavy landing. Saves ROM, adds variety. One multiply per tick when pitch != 1.0.
-- **DMA protection buffering (from MegaPCM 2.0):** Buffer ~100+ bytes of upcoming sample data in Z80 RAM during active scan. Play from buffer during VBlank/DMA when Z80 bus is stalled. MegaPCM 2.0 survives up to 24 KB of DMA per frame without audio glitches. Critical for section streaming with heavy DMA loads.
+The shipped shape (all Z80-side, zero 68K cost):
+- **Single voice, raw 8-bit PCM at ~18.4 kHz** (register-resident 1:1 loop — see §6.1) — beats
+  S3K (~10-13 kHz, scratches under DMA), Echo (10.6 kHz), and XGM2 per-voice (13.3 kHz).
+- **Pre-mixed composites** cover music-internal drum overlap. Runtime N-voice mixing was
+  **REJECTED** by the DAC spec §2.2 — the casualty is sampled-SFX/voice-over-drums only.
+- **Reserved doors at zero cost:** the 9-byte sample descriptor carries `ds_codec` (raw 8-bit = 0;
+  a future compressed codec, e.g. DPCM/BRR, slots in without a format break) and `ds_rate`
+  (per-sample rate, v1 ignores it).
+- **Per-sample panning door:** DAC tracks pan via raw FM6 `$B6` writes (`MEV_REGWRITE`); the
+  dedicate-mode `$B6` default is seeded at song load, not forced per sample-start, so authored
+  pan survives (S3K-style tom fills L/C/R work).
+- **DMA protection buffering — SHIPPED (1B):** the page-aligned read-ahead ring + the Timer-A
+  tick's bulk refill; the ~200-sample lead (≈11 ms at 18.4 kHz) outlasts any real 68k DMA burst.
+- **Clean stop:** the drum state machine (IDLE → PLAYING → DRAINING_TAIL → STOPPING) DC-centers
+  the output at exhaust — no boundary pops (the DC-offset concern is handled here, not by a
+  per-sample bias subtraction).
 
-**NOTE:** The 1B/1C DAC path shipped on the MegaPCM-2 free-running buffered model (no dependency on a future MegaPCM release). The Phase-2 DAC-powerhouse features above are designed against our own driver; revisit BRR/codec choices at the Phase-2 spike, not gated on an external release.
+> **OPEN — needs user ratification.** The single-voice/no-runtime-mixer decision is the one
+> irreversible format bet (it forecloses sampled SFX over drums). Ratify it explicitly before a
+> real drum library is authored — and take the cheap insurance at the same time (add `ds_vol` +
+> reserved mix-cursor bytes to the descriptor; ~3 B/descriptor, zero code). See the 2026-07-01
+> spec review §4.1.
+
+Dropped from the roadmap as children of the rejected mixer (per the 2026-07-01 spec review):
+BRR codec, >8-bit mix + dither, pitch-shifted PCM SFX, half-rate voices, independent per-voice
+DAC volume (revisit via `ds_vol` at ratification time).
 
 ### 6.3 Zyrinx Techniques (technique provenance: Batman & Robin)
 
@@ -2689,7 +2727,7 @@ All Z80-side, zero 68K cost:
 
 **Logarithmic volume curve:** 256-byte lookup table mapping linear volume to perceptually correct attenuation. Human hearing is logarithmic — linear volume steps sound wrong. Zero runtime cost (pure lookup). Single easiest audio quality win. **SHIPPED (1C):** `LogVolumeLut`, generated by `tools/gen_sound_tables.py`.
 
-**Per-algorithm carrier mask:** Volume adjustments via TL must only modify carrier operators (not modulators, which would change timbre). Carrier set varies by algorithm: algo 0-3 = op4 only, algo 4 = ops 2+4, algo 5-6 = ops 2+3+4, algo 7 = all 4. 8-byte lookup table indexed by algorithm gives the carrier bitmask. Essential for the log volume curve to work correctly without distorting instrument patches. **SHIPPED (1C):** `CarrierMaskTable`. Note the **FM register writer deliberately uses fixed `nop` + operator-loop spacing, NOT a YM busy-flag poll** (the busy flag is unreliable, and fixed spacing keeps the DAC's `$4000`/`$2A` parking invariant intact for DAC coexistence — see §6.1 / the 1C design §6).
+**Per-algorithm carrier mask:** Volume adjustments via TL must only modify carrier operators (not modulators, which would change timbre). Carrier set varies by algorithm: algo 0-3 = op4 only, algo 4 = ops 2+4, algo 5-6 = ops 2+3+4, algo 7 = all 4. 8-byte lookup table indexed by algorithm gives the carrier bitmask. Essential for the log volume curve to work correctly without distorting instrument patches. **SHIPPED (1C):** `CarrierMaskTable`. Note the **FM register writer deliberately uses fixed `nop` + operator-loop spacing, NOT a YM busy-flag poll** (the busy flag is unreliable, and fixed spacing keeps the DAC's `$4000`/`$2A` parking invariant intact for DAC coexistence — see §6.1 / the 1C design §6). **This is the canonical decision (2026-07-01):** the master spec's §5 "DO busy-poll" advice is superseded by its amendment header. Caveat: Exodus does not model the busy flag, so this is a real-hardware-only risk — if hardware testing ever shows dropped/garbled FM writes, the missing busy-wait is the **first suspect**.
 
 **Verified Z80 bus writes:** Read-back verification on 68K→Z80 command writes: `move.b d0,(a1); cmp.b (a1),d0; bne.b retry`. Prevents silent data loss during bus contention. ~8 extra cycles per verified write.
 
@@ -2740,11 +2778,11 @@ S.C.E. supports continuous SFX — sounds that loop while a condition is held (s
 
 ### 6.8 Tempo & Timing
 
-**YM Timer A for sub-frame tempo — SHIPPED (1C).** YM2612 Timer A (10-bit, registers $24-$25) is the driver's tempo timebase: the song header's tempo byte programs the Timer-A reload so **one overflow = one sequencer tick**. The free-running DAC loop polls the Timer-A overflow flag once per pass (the master tick is sub-frame and NTSC/PAL-independent — lag frames are irrelevant to music tempo). Polled, not interrupt-driven (Genesis hardware limitation).
+**YM Timer A = the fixed NTSC-rate frame clock — SHIPPED (1C, revised 2026-07-01).** YM2612 Timer A (10-bit, registers $24-$25) is the driver's frame clock, programmed once to a FIXED build-time reload: `SND_TIMERA_N` = 136, computed by `timerAReload()` from `SND_FRAME_MILLIHZ` = 59920 (~59.92 Hz, the NTSC frame rate) — **one overflow = one engine frame**. Because Timer-A derives from the YM clock, not VBlank, **PAL drifts only ~0.9% by construction** (vs ~17% for a VBlank-locked driver), and lag frames are irrelevant to music tempo. Musical tempo is NOT the Timer-A reload: it is the per-channel tempo accumulator driven by the `MEV_TEMPO` global scalar (the original 1C per-song tempo→Timer-A programming is gone). The free-running DAC loop polls the Timer-A overflow flag once per pass; polled, not interrupt-driven (Genesis hardware limitation). **Timer A is never disabled:** `StopMusic` leaves the frame clock armed — the old `Snd_TimerA_Disable` path killed the entire driver (sequencer, SFX, DAC refill) and was deleted in the 2026-07-01 fix pass. (History: the reload was tempo-derived, then a fixed ~59.06 Hz — which played all music ~1.4% slow vs its S3K/B&R sources; caught by ear + review 2026-07-01.)
 
 **PSG silence on pause — SHIPPED (1C).** `Psg_SilenceAll` writes $9F,$BF,$DF,$FF to the PSG port on `StopMusic` to immediately silence all 4 PSG channels. Without this, tones sustain.
 
-**Bank switch optimization — DEFERRED (Phase 2/5).** The Z80 bank register costs 100+ Z80 cycles per switch. Pack samples contiguously per-section in ROM; a bank-aware sample table skips the switch if the current bank matches. (1C sidesteps banking *during* playback entirely by copying the song streams into Z80 RAM at load — see the 1C design §8.1 / the Z80 RAM map; the 1B DAC owns the `$6000` latch.)
+**Bank switch optimization — SHIPPED (DAC-drum phase).** The Z80 bank register costs 100+ Z80 cycles per switch (nine `$6000` writes). `SndDrv_SetBank` caches the last selected bank in `SND_CUR_BANK` and **no-ops when the requested bank is already current** — all four per-frame SetBank brackets (sequencer-frame song bank, sample stash, ISR, idle→stream latch) go through the cached path, so a DAC-off song pays zero switches and a drum song pays only the real transitions. Samples share one `$8000`-aligned DAC bank (contiguous packing). The DAC owns the `$6000` latch.
 
 **Channel 3 special mode — DEFERRED (Phase 3).** Per-operator frequencies for detuned unison, bell/metallic sounds, inharmonic timbres. Part of the Phase-3 FM-depth work, authored via MegaDAW (not SMPS2ASM).
 
@@ -2767,9 +2805,9 @@ The boundary-crossing check reads the entered section's `sec_transition_type` an
 ```
 Audio System Cascades (updated with web research):
 
-Flamedriver (6.1) + Tempo/Timing (6.8)
+Custom Z80-autonomous driver (6.1) + Tempo/Timing (6.8)
   → Zero 68K cost — all sound processing on Z80
-    → YM Timer A tempo decouples music from VBlank — lag frames irrelevant
+    → YM Timer A frame clock decouples music from VBlank — lag frames irrelevant, PAL ~0.9%
       → Z80 bus stops minimized to controller reads only
         → PSG silence on pause prevents sustained tones
 
@@ -2786,12 +2824,12 @@ Distance Attenuation (6.5) + Priority Mixing
       → Multiple SFX ranked by priority for natural mixing
         → Audio foreshadowing: enemies audible before visible
 
-DAC Enhancements (6.2)
-  → DMA protection buffering survives 24KB DMA without audio dropout
-    → DPCM saves ~50% ROM on samples
-      → Pitch-shifted SFX reuse samples at different rates
-        → DC offset removal eliminates boundary clicks
-          → Pseudo-stereo + frequency panning creates wide stereo image
+DAC (6.2, shipped shape)
+  → DMA-survival ring buffering: drums play clean through real 68k DMA bursts
+    → Single voice raw 8-bit PCM @ ~18.4 kHz; pre-mixed composites cover overlap
+      → ds_codec/ds_rate reserved bytes keep codec/rate doors open at zero cost
+        → State-machine DC-center stop eliminates boundary clicks
+          → $B6 pan door + frequency panning creates wide stereo image
 ```
 
 ---
