@@ -9,6 +9,15 @@
 
 The Z80 sees 8 KB of RAM as **Z80-space `$0000–$1FFF`** (mapped at 68k bus address `$A00000–$A01FFF`). This doc budgets all 8 KB so later Phase-1/1B tasks place code and data without collision, and reserves room *now* for the Plan 1B read-ahead buffer so nothing has to move later.
 
+> **⚠️ WHOLE DOC STALE (banner added 2026-07-01).** This spec is the Phase-1 historical
+> record only. **The authoritative Z80 RAM map is `sound_constants.asm`** (self-asserting at
+> build time). Every headroom figure ever quoted from this doc's lineage (2 B → 216 B → 138 B)
+> is obsolete: **live as of 2026-07-01, `Z80_SOUND_SIZE` = `$16E6` against the `$16F0` code
+> ceiling (`SND_STATE_BASE`) → 10 bytes free** (see the build's "Z80 sound budget" message /
+> `s4.lst`, and `docs/DEFERRED_WORK.md` F1). The resident-code budget is the binding sound
+> constraint; the portamento resume plan (`plans/2026-06-28-portamento-resume.md`) carries the
+> next recovery step (bank remaining DATA tables — code may NOT be banked, data-only rule).
+
 > **⚠️ STALE FOR `$1B00–$1EFF` (banner added 2026-06-21).** This is the **Phase-1
 > snapshot**; the **live** Z80 RAM map is **`sound_constants.asm`** (the single source of
 > truth, self-asserting at build time via the `SND_*_END > SND_REQ_BASE` fatals). Since
