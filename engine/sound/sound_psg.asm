@@ -109,6 +109,10 @@ Psg_VolToAtten:
 ; ----------------------------------------------------------------------
 Psg_EnvCursorReset:
         ld      (ix+sc_psgenv_cur), 0    ; restart the contour from frame 0
+        ld      (ix+sc_psgenv_out), 0    ; drop the previous note's env tail so the
+                                         ; attack's volume emit (Psg_NoteOn's SetVolume,
+                                         ; right after this) starts clean, not one frame
+                                         ; of the old note's stale attenuation delta
         ret
 
 ; ----------------------------------------------------------------------

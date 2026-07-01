@@ -817,6 +817,10 @@ Fm_NoteOnFreq:
         ld      a, (ix+sc_fill_master)
         ld      (ix+sc_fill_count), a
         ld      (ix+sc_env_cur), 0       ; restart the FM vol-env contour on this attack.
+        ld      (ix+sc_env_out), 0       ; drop the PREVIOUS note's env tail (e.g. a $83
+                                         ; TL-silence parked $7F) so any volume emit before
+                                         ; the next FmEnvUpdate folds a clean attack, not
+                                         ; one frame of the old note's stale attenuation.
         ; NOTE: FmEnvUpdate advances the contour every frame sc_env != 0 even before the
         ; first key-on, so arming MEV_FMENV well before a note wastes contour frames.
         ; This per-attack reset re-starts the contour on each key-on (correct per-note behavior).
