@@ -1162,3 +1162,25 @@ def test_dac_rest_clears_saved_sample_no_retrigger():
     dacs = [e for e in ev if isinstance(e, Dac)]
     assert len(dacs) == 1, "rest must clear SavedDAC (got %d triggers)" % len(dacs)
     assert _dac_total_ticks(ev) == 0x0C + 0x06 + 0x0C
+
+
+def test_dac_pan_emits_b6_regwrite():
+    """S3K DAC-track smpsPan (HCZ2 tom fills L/C/R) -> raw FM6 $B6 write."""
+    from song_packer import RegWrite, PackError, CHROUTE_DAC
+    import smps_import
+    out = []
+    smps_import._dispatch_flag("DAC", "smpsPan", ["panLeft", "$00"], None, out, None)
+    assert len(out) == 1 and isinstance(out[0], RegWrite)
+    assert (out[0].part, out[0].reg) == (1, 0xB6)
+    assert out[0].val == 0x80  # panLeft
+    out[0].validate(CHROUTE_DAC)  # packer accepts the narrow DAC-route door
+
+
+def test_dac_route_regwrite_limited_to_b6():
+    from song_packer import RegWrite, PackError, CHROUTE_DAC
+    RegWrite(1, 0xB6, 0xC0).validate(CHROUTE_DAC)
+    try:
+        RegWrite(0, 0x28, 0xF0).validate(CHROUTE_DAC)
+        assert False, "expected PackError"
+    except PackError:
+        pass

@@ -4,7 +4,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 from song_packer import (
-    Note, Rest, SetDur, NoteDur, Vol, Patch, Pan, ModSet, PsgEnv, NoteFill,
+    Note, Rest, SetDur, NoteDur, Vol, Patch, Pan, ModSet, PsgEnv, NoteFill, RegWrite,
     PsgNoise, Detune, Dac, End, LoopPoint, Jump, MEV_NOTE_BASE, MAX_DUR,
     SongDesc, ChannelDesc, SH_F_STREAM,
     CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
@@ -590,14 +590,15 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
     warn-skipped so the walk never breaks (a documented v1 fidelity gap)."""
     if mnem == "smpsPan":
         if kind == "DAC":
-            # TODO(engine): DAC-track pan is REAL on hardware — S3K's DAC track
-            # writes FM6's $B6 (HCZ2 pans its tom fills L/C/R this way). Our
-            # engine has no DAC-pan path yet (FM6/$B6 is owned by the DAC/FM6
-            # adaptive machinery); emitting Pan on CHROUTE_DAC would be
-            # rejected/misrouted. Drop LOUDLY pending an engine decision.
-            warn("DAC-track smpsPan %s DROPPED — DAC pan (FM6 $B6) is "
-                 "unsupported pending an engine decision; drums play center"
-                 % (args,))
+            # DAC-track pan is REAL on hardware: S3K's DAC track writes FM6's
+            # $B6 (HCZ2 pans its tom fills L/C/R this way — the song's ONLY
+            # stereo element). Emit it as a raw part-1 $B6 write; the packer
+            # allows exactly this register on the DAC route and the Z80
+            # RegWrite handler is route-agnostic (explicit part).
+            b6 = resolve_const(args[0])
+            if len(args) > 1:
+                b6 |= resolve_const(args[1]) & 0xFF
+            out.append(RegWrite(1, 0xB6, b6 & 0xFF))
             return
         # smpsPan macro emits `dc.b $E0, direction+amsfms` — BOTH args ride the
         # single operand byte (cfPanningAMSFMS ORs it into $B4: bits 7-6 = L/R,

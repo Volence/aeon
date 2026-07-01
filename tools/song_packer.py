@@ -286,7 +286,17 @@ class RegWrite(Event):
                       self.val & 0xFF])
 
     def validate(self, route):
-        if route not in _FM_ROUTES:
+        if route == CHROUTE_DAC:
+            # Narrow DAC-route door: FM6's $B6 (part 1) is the DAC output's
+            # pan register — S3K DAC tracks author L/C/R pan this way (HCZ2
+            # tom fills). The Z80 handler is route-agnostic (explicit part),
+            # so only this packer gate stood in the way. Any other register
+            # from a DAC stream stays refused.
+            if (self.part, self.reg) != (1, 0xB6):
+                raise PackError(
+                    f"RegWrite on the DAC route is limited to part 1 reg $B6 "
+                    f"(FM6 pan); got part {self.part} reg {self.reg:#x}")
+        elif route not in _FM_ROUTES:
             raise PackError(f"RegWrite on non-FM route {route}")
         if self.part not in (0, 1):
             raise PackError(f"RegWrite part {self.part} must be 0 or 1")
