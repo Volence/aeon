@@ -803,12 +803,70 @@ VOICES_JSON = ("/home/volence/sonic_hacks/The Adventures of Batman and Robin/"
 NATIVE_FM_ROUTES = [CHROUTE_FM1, CHROUTE_FM1 + 1, CHROUTE_FM1 + 2,
                     CHROUTE_FM1 + 3, CHROUTE_FM5, CHROUTE_FM6]
 
-# #4 GATE ARTICULATION: the FM6 percussion (bass-drum) note-fill master — # frames a
-# hit stays keyed from attack before an early key-off (a staccato gap), matching the
-# B&R reference's ~84% note duty on FM6 (vs our 100% legato). A typical ch5 hit is
-# ~5 frames (~87ms); ~3 keyed frames leaves a ~1-2 frame (~25ms) gap. 0 = legato/off.
-# TUNABLE BY EAR: smaller = punchier/more detached, larger = more sustained.
-NATIVE_FM6_NOTEFILL = 3
+# ----------------------------------------------------------------------------
+# #4 GATE ARTICULATION — per-(channel, voice) gate profile (NoteFill frames)
+# ----------------------------------------------------------------------------
+# The real Zyrinx driver keys notes OFF partway through their slot (gated
+# staccato) where our walker's command model played 100% legato — the "muffled
+# thud" bass and smeared fast runs. The driver's gate mechanic is not modelled
+# by the walker, so the gate lengths are EXTRACTED empirically from the
+# authoritative reference capture (mt_ref.vgm): per (channel, voice) the
+# keyed-frames/slot-frames histogram is stable across the whole song:
+#
+#   voice (B0, DT/MUL $30/$34/$38/$3C)        gate     where
+#   $2D (08,0C,08,0C)  offbeat bass "bonk"    8 of 14  every channel (ch0/1/3/5)
+#   $3C (03,01,07,02)  downbeat bass          8 of 14  ch0 outro ONLY (held full
+#                                                      length on ch1/2/3)
+#   $35/$3D run family (02|00,00,00,00..05)   5 of 7   every channel (ch0/3/4/5)
+#   $28 (08,00,04,02)  pizz/arp groove        5 of 7   ch2/4/5 (LEGATO on ch1,
+#                                                      where its slots are 14)
+#   $3D (07,07,08,04)  comp stab              8 of 14  ch3 verse ONLY (held full
+#                                                      length on ch0/2/4/5)
+#   $36 (04,04,33,45)  ch5 run color          5 of 7   ch5
+#   everything else (incl. the 113-frame held stabs)   legato (fill 0)
+#
+# Emission: _Walker._voice() looks the NEW voice up in this channel's table and
+# emits NoteFill(n) whenever the gate value changes (NoteFill(0) = back to
+# legato). The engine reloads the master into sc_fill_count at every FM key-on
+# and keys off when it expires, so slots SHORTER than the gate stay effectively
+# legato (e.g. a gate-8 voice's 7-frame slots are keyed the full 7 frames) —
+# exactly the reference behavior, so one fill value per (channel, voice) covers
+# every slot length that voice plays.
+#
+# Voice identity = (fp_alg_fb, dt_mul[0:4]) of the translated FmPatch, which
+# equals the VGM-observable fingerprint (reg $B0, regs $30/$34/$38/$3C).
+_VF_BASS_OFFBEAT = (0x2D, (0x08, 0x0C, 0x08, 0x0C))
+_VF_BASS_DOWN    = (0x3C, (0x03, 0x01, 0x07, 0x02))
+_VF_PIZZ         = (0x28, (0x08, 0x00, 0x04, 0x02))
+_VF_STAB         = (0x3D, (0x07, 0x07, 0x08, 0x04))
+_VF_RUN_COLOR    = (0x36, (0x04, 0x04, 0x33, 0x45))
+_VF_RUN_FAMILY = (
+    (0x35, (0x02, 0x00, 0x00, 0x00)),
+    (0x3D, (0x02, 0x00, 0x00, 0x01)),
+    (0x35, (0x02, 0x00, 0x00, 0x02)),
+    (0x3D, (0x00, 0x00, 0x00, 0x03)),
+    (0x3D, (0x00, 0x00, 0x00, 0x04)),
+    (0x3D, (0x00, 0x00, 0x00, 0x05)),
+)
+
+
+def _build_gate_tables():
+    """Per-source-channel { (alg_fb, dt_mul) -> NoteFill frames } (see above)."""
+    tabs = []
+    for _ch in range(6):
+        t = {_VF_BASS_OFFBEAT: 8}
+        for vf in _VF_RUN_FAMILY:
+            t[vf] = 5
+        tabs.append(t)
+    tabs[0][_VF_BASS_DOWN] = 8       # outro walk-down; legato on ch1/2/3
+    for ch in (2, 4, 5):
+        tabs[ch][_VF_PIZZ] = 5       # legato on ch1 (its slots are 14 frames)
+    tabs[3][_VF_STAB] = 8            # ch3 verse; legato on ch0/2/4/5
+    tabs[5][_VF_RUN_COLOR] = 5
+    return tabs
+
+
+NATIVE_GATE_TABLES = _build_gate_tables()
 
 # Voice-step delta threshold: a VOICE change differing in MORE than this many
 # FmPatch register bytes (or in a byte that has no RegDelta encoding, i.e.
@@ -1012,17 +1070,13 @@ class _Walker:
         self.tempo_base = MT_FORMAT_CODE  # event-tick base (for glide_frames -> ticks)
         self.rekey_window = 3          # per-channel re-key floor (ticks); set per channel
         self.octave_cap = _OCTAVE_CAP_DEFAULT  # per-channel rendered-block ceiling
-        # GATE-as-note-off scope (Sound 1D bass-drum punch). A first-in-group GATE
-        # ALWAYS releases the held note when it is NOT followed by a PITCH (the bare
-        # `GATE W` cell) — that path is channel-independent and matches every channel
-        # to the oracle. But the dense percussion groove encodes each hit as
-        # `GATE PITCH W` (gate releases the prior hit, pitch attacks the next). Only
-        # the PERCUSSION channel (ch5, the bass drum / FM6) gates THOSE cells in the
-        # oracle (off-gap ~35 ms per hit); the melodic channels (ch0-ch4) play their
-        # `GATE PITCH W` cells LEGATO (the gate there is a re-key flag, not a release
-        # — oracle off-gap ~1 ms). So this per-hit `GATE PITCH` release is enabled
-        # ONLY on the gated (percussion) channel. False => legato (ch0-ch4 unchanged).
-        self.gate_pitch_noteoff = False
+        # #4 GATE ARTICULATION (see NATIVE_GATE_TABLES): this channel's
+        # { (alg_fb, dt_mul) -> NoteFill frames } map, and the last NoteFill value
+        # emitted. cur_fill=None = unknown (start of a body) so the body's first
+        # VOICE always re-emits its gate — bodies are self-contained (mirroring the
+        # per-body prev_fp reset) and the fill is correct on every loop iteration.
+        self.gate_table = {}
+        self.cur_fill = None
 
     def first_voice_local(self):
         """Local patch idx of the channel's FIRST voice (for the leading setup
@@ -1031,7 +1085,8 @@ class _Walker:
         return self.first_local if self.first_local is not None else 0
 
     def _voice(self, voice_idx, out):
-        """Apply a VOICE change: emit Patch or RegDelta per the minimal-delta rule."""
+        """Apply a VOICE change: emit Patch or RegDelta per the minimal-delta rule,
+        plus the voice's gate (NoteFill) when it differs from the current one."""
         new_fp = translate_voice(self.bank[voice_idx])
         local = self.remap[voice_idx]
         ev, kind = _voice_step_event(self.prev_fp, new_fp, local)
@@ -1039,6 +1094,14 @@ class _Walker:
         self.cur_local = local
         if self.first_local is None:
             self.first_local = local
+        # #4 GATE ARTICULATION: the gate is a property of the (channel, voice)
+        # bucket (NATIVE_GATE_TABLES). Emit NoteFill only on change — it persists
+        # in the engine and is reloaded into sc_fill_count at every key-on.
+        fill = self.gate_table.get((new_fp[0], tuple(new_fp[2:6])), 0)
+        if fill != self.cur_fill:
+            out.append(NoteFill(fill))
+            self.cur_fill = fill
+            self.stats["notefill"] += 1
         if ev is None:
             return
         out.append(ev)
@@ -1084,7 +1147,9 @@ class _Walker:
         # Each body is self-contained: force the first VOICE to a full Patch
         # (prev_fp=None) so the opening voice reloads correctly on every loop
         # iteration (the body is what replays; the leading setup runs once).
+        # cur_fill mirrors that: the body's first VOICE re-emits its NoteFill.
         self.prev_fp = None
+        self.cur_fill = None
         cur_setdur = None      # SetDur of the note currently sounding (extended by
                                #   trailing non-onset groups; None = nothing held)
         setters = []           # zero-tick events buffered for the next emission
@@ -1320,7 +1385,8 @@ def build_native_songdesc(rom, pitchtable_offset=0):
             break
         route = NATIVE_FM_ROUTES[ci]
         stats = {"pitchenv": 0, "regdelta": 0, "patch": 0, "pan": 0,
-                 "opbias": 0, "rest": 0, "vol_dropped": 0, "glide_emitted": 0}
+                 "opbias": 0, "rest": 0, "vol_dropped": 0, "glide_emitted": 0,
+                 "notefill": 0}
         walker = _Walker(rom, bank, remap, stats)
         # per-channel re-key window (the cadence-coalescing floor) — see
         # REKEY_WINDOW_TICKS: port-0/even-frame channels (ch0-3) re-key at ~3 ticks,
@@ -1328,12 +1394,11 @@ def build_native_songdesc(rom, pitchtable_offset=0):
         # measured 1.5-tick / ~87 ms re-attack).
         walker.rekey_window = (REKEY_WINDOW_TICKS[ci]
                                if ci < len(REKEY_WINDOW_TICKS) else 3)
-        # ch5 is the percussion (bass-drum) channel: honor its dense `GATE PITCH W`
-        # groove cells as per-hit note-offs (the punch). All other channels keep the
-        # melodic legato interpretation (gate-then-pitch = re-key flag, not release).
-        # See _Walker.gate_pitch_noteoff. The bare `GATE W` release path stays on for
-        # every channel (it already matched the oracle).
-        walker.gate_pitch_noteoff = (route == CHROUTE_FM6)
+        # #4 GATE ARTICULATION: this source channel's { voice -> NoteFill frames }
+        # map (extracted from mt_ref.vgm — see NATIVE_GATE_TABLES). The walker
+        # emits NoteFill(n)/NoteFill(0) at voice changes where the gate changes.
+        walker.gate_table = (NATIVE_GATE_TABLES[ci]
+                             if ci < len(NATIVE_GATE_TABLES) else {})
         # No octave correction for the correct song (Bank2 song4): its PITCH points
         # already render to the oracle's per-channel block band. octave_cap=None ->
         # octave_cap_idx is an identity pass-through (see OCTAVE CORRECTION above).
@@ -1372,12 +1437,11 @@ def build_native_songdesc(rom, pitchtable_offset=0):
         # LogVolumeLut attenuation to the carriers (110 -> +4) and saps the kick's
         # punch; the oracle's carriers sit at base TL with dynamics from voice-steps.
         events = [Patch(walker.first_voice_local() if remap else 0), Vol(127)]
-        # #4 GATE ARTICULATION: give the percussion (bass-drum) channel a staccato gap
-        # by keying each hit OFF a few frames after attack (per-channel note-fill master,
-        # set once before the loop point — it persists). Matches the B&R reference's ~84%
-        # FM6 duty vs our 100% legato. Other channels stay legato (no NoteFill).
-        if route == CHROUTE_FM6 and NATIVE_FM6_NOTEFILL > 0:
-            events.append(NoteFill(NATIVE_FM6_NOTEFILL))
+        # (Gate articulation is emitted per voice-change inside the bodies — see
+        # NATIVE_GATE_TABLES / _Walker._voice. No blanket per-channel NoteFill here:
+        # the old FM6-wide fill leaked onto its held melodic stabs and truncated
+        # them; the engine's channel-reset default fill of 0 (legato) is correct
+        # until the first VOICE command picks its gate.)
         events.append(LoopPoint())
         for body, repeat in bodies:
             if not body:
@@ -1648,10 +1712,11 @@ def main():
               % (total, "YES" if total <= 0x8000 else "NO"))
         for ci, st in enumerate(rep["channels"]):
             print("  ch%d -> route %d: PITCHENV=%d REGDELTA=%d PATCH=%d "
-                  "PAN=%d OPBIAS=%d REST=%d (glides=%d vol_dropped=%d porta=%d)"
+                  "PAN=%d OPBIAS=%d REST=%d NOTEFILL=%d "
+                  "(glides=%d vol_dropped=%d porta=%d)"
                   % (ci, st["route"], st["pitchenv"], st["regdelta"],
                      st["patch"], st["pan"], st["opbias"], st["rest"],
-                     st.get("glide_emitted", 0),
+                     st.get("notefill", 0), st.get("glide_emitted", 0),
                      st["vol_dropped"], st["porta_dropped"]))
         return
 

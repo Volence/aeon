@@ -241,28 +241,74 @@ class TestChannelVolume(unittest.TestCase):
 
 @unittest.skipUnless(os.path.exists(ROM_PATH), "B&R ROM not present")
 class TestNoteFill(unittest.TestCase):
-    """#4 gate articulation: ONLY the FM6 percussion channel gets a per-channel NoteFill
-    (key each hit off early -> staccato gap, matching the B&R reference's ~84% FM6 duty
-    vs our 100% legato). It must sit in the LEADING setup (zero-tick, BEFORE the
-    LoopPoint) so it persists across loops and adds NO ticks to any pattern body (the
-    existing body-tick tests already prove bodies are unchanged). Other channels stay
-    legato (no NoteFill)."""
+    """#4 gate articulation: NoteFill(n)/NoteFill(0) is emitted at voice changes so
+    that every keyed note plays with the gate the reference (mt_ref.vgm) uses for
+    its (channel, voice) bucket — see zyrinx_player.NATIVE_GATE_TABLES. Replaces
+    the old blanket FM6-wide NoteFill, which leaked onto FM6's held melodic stabs
+    (1.89 s in the reference) and truncated them at 3 frames."""
 
-    def test_only_fm6_gets_notefill_before_loop(self):
-        from zyrinx_player import build_native_songdesc, NATIVE_FM6_NOTEFILL
-        from song_packer import NoteFill, LoopPoint, CHROUTE_FM6
+    @staticmethod
+    def _fingerprint(rec):
+        """FmPatch record -> the gate-table voice identity (alg_fb, dt_mul[4])."""
+        return (rec[0], tuple(rec[2:6]))
+
+    def test_fill_matches_gate_table_at_every_note(self):
+        # Replay each channel's event stream tracking the active voice (Patch /
+        # RegDelta) and the active NoteFill; at every keyed note (PitchEnv) the
+        # active fill must equal the channel's gate-table value for the active
+        # voice. This is the data-level guarantee that the emitted stream plays
+        # the reference's per-(channel, voice) duty profile.
+        from zyrinx_player import build_native_songdesc, NATIVE_GATE_TABLES
+        from zyrinx_port import FMPATCH_LEN
+        from song_packer import NoteFill, Patch, RegDelta, PitchEnv
+        with open(ROM_PATH, "rb") as f:
+            rom = f.read()
+        song, _, (bank_bytes, _remap, pcount) = build_native_songdesc(rom)
+        recs = [bytearray(bank_bytes[i * FMPATCH_LEN:(i + 1) * FMPATCH_LEN])
+                for i in range(pcount)]
+        seen_fills = set()
+        for ci, c in enumerate(song.channels):
+            table = NATIVE_GATE_TABLES[ci]
+            state = None          # active voice's FmPatch bytes (mutable copy)
+            fill = 0              # engine default after channel reset = legato
+            armed = False         # a body VOICE has run (fill is voice-accurate)
+            for e in c.events:
+                if isinstance(e, Patch):
+                    state = bytearray(recs[e.patch])
+                elif isinstance(e, RegDelta) and state is not None:
+                    for rs, val in e.entries:
+                        group, op = rs >> 2, rs & 3
+                        state[2 + group * 4 + op] = val & 0xFF
+                elif isinstance(e, NoteFill):
+                    fill = e.master
+                    seen_fills.add(e.master)
+                    armed = True
+                elif isinstance(e, PitchEnv) and state is not None and armed:
+                    want = table.get(self._fingerprint(state), 0)
+                    self.assertEqual(
+                        fill, want,
+                        "ch%d: note under voice %s plays fill %d, gate table "
+                        "says %d" % (ci, self._fingerprint(state), fill, want))
+        # The profile actually exercises the gates (not vacuously legato):
+        # 8 = bass "bonk" (8 of 14 frames), 5 = fast-run choke (5 of 7 frames),
+        # 0 = explicit return to legato (protects FM6's held melodic stabs).
+        self.assertEqual(seen_fills, {0, 5, 8})
+
+    def test_every_channel_returns_to_legato_somewhere(self):
+        # Each MT channel mixes gated and legato voices, so every stream must
+        # contain BOTH a non-zero NoteFill and a NoteFill(0) (the FM6 melodic
+        # sections in particular must not inherit the percussion gate).
+        from zyrinx_player import build_native_songdesc
+        from song_packer import NoteFill
         with open(ROM_PATH, "rb") as f:
             rom = f.read()
         song, _, _ = build_native_songdesc(rom)
-        for c in song.channels:
-            fills = [i for i, e in enumerate(c.events) if isinstance(e, NoteFill)]
-            if c.route == CHROUTE_FM6:
-                self.assertEqual(len(fills), 1, "FM6 needs exactly one NoteFill")
-                self.assertEqual(c.events[fills[0]].master, NATIVE_FM6_NOTEFILL)
-                lp = next(i for i, e in enumerate(c.events) if isinstance(e, LoopPoint))
-                self.assertLess(fills[0], lp, "NoteFill must precede the LoopPoint")
-            else:
-                self.assertFalse(fills, f"route {c.route} must stay legato (no NoteFill)")
+        for ci, c in enumerate(song.channels):
+            masters = [e.master for e in c.events if isinstance(e, NoteFill)]
+            self.assertTrue(any(m > 0 for m in masters),
+                            "ch%d has no gated voice" % ci)
+            self.assertTrue(any(m == 0 for m in masters),
+                            "ch%d never returns to legato" % ci)
 
 
 @unittest.skipUnless(os.path.exists(ROM_PATH), "B&R ROM not present")
