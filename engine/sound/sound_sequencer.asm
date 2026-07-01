@@ -28,7 +28,7 @@
 
 ; ----------------------------------------------------------------------
 ; Sequencer_Frame — the PER-FRAME engine (Phase 3). Runs ONCE per Timer-A
-; overflow at the FIXED ~59.06 Hz frame rate (the DAC/idle-loop poll rearms +
+; overflow at the FIXED ~59.92 Hz NTSC frame rate (the DAC/idle-loop poll rearms +
 ; calls here). Replaces 1C's "one Timer-A tick = one event" model. For each
 ; active channel, in order:
 ;   (1) call ModUpdate — render the channel's MODULATION STATE to the YM

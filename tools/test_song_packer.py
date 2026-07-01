@@ -880,3 +880,20 @@ def test_lfo_encodes_and_validates():
         assert False, "expected PackError"
     except PackError:
         pass
+
+
+def test_regwrite_and_macreg_reject_timer_block():
+    """Engine guards $24-$27 (Timer A = whole-driver clock); packer rejects up front."""
+    from song_packer import RegWrite, MacReg, PackError, CHROUTE_FM1
+    for reg in (0x24, 0x25, 0x26, 0x27):
+        try:
+            RegWrite(0, reg, 0x40).validate(CHROUTE_FM1)
+            assert False, f"RegWrite ${reg:02X} should be rejected"
+        except PackError:
+            pass
+        try:
+            MacReg(0, reg, 0x40).encode(0)
+            assert False, f"MacReg ${reg:02X} should be rejected"
+        except PackError:
+            pass
+    RegWrite(0, 0x22, 0x08).validate(CHROUTE_FM1)  # LFO still allowed

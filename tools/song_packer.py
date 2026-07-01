@@ -273,9 +273,11 @@ class RegWrite(Event):
     """Phase-3 inline raw YM2612 register write (slot[0]). Operands in stream
     order: part (0/1 — the explicit YM part, NOT derived from the channel), reg,
     val. The engine writes reg->addr port + val->data port for that part, then
-    re-parks $2A. REFUSES reg $2A (DAC data) and $2B (DAC enable): an authored
-    poke to those corrupts/silences the DAC stream. Zero-tick. FM routes only
-    (the writer is the FM part-router)."""
+    re-parks $2A. REFUSES reg $2A/$2B (DAC data/enable: an authored poke
+    corrupts/silences the DAC stream) AND the $24-$27 timer block (Timer A is
+    the whole-driver frame clock; the engine skips such writes, so the packer
+    rejects them up front). Zero-tick. FM routes, plus the narrow DAC-route
+    door (part 1 reg $B6 = DAC pan)."""
     def __init__(self, part: int, reg: int, val: int):
         self.part = part
         self.reg = reg
@@ -304,6 +306,11 @@ class RegWrite(Event):
             raise PackError(
                 f"RegWrite reg {self.reg:#x} is a DAC register ($2A/$2B) — "
                 f"refused (would corrupt the DAC stream)")
+        if 0x24 <= self.reg <= 0x27:
+            raise PackError(
+                f"RegWrite reg {self.reg:#x} is in the YM timer block ($24-$27) — "
+                f"refused (Timer A is the whole-driver frame clock; the engine "
+                f"skips these writes)")
         if not (0 <= self.reg <= 0xFF):
             raise PackError(f"RegWrite reg {self.reg} out of byte range")
         if not (0 <= self.val <= 0xFF):
@@ -367,6 +374,10 @@ class MacReg(MacEvent):
         if self.reg in (0x2A, 0x2B):
             raise PackError(
                 f"MacReg reg {self.reg:#x} is a DAC register ($2A/$2B) — refused")
+        if 0x24 <= self.reg <= 0x27:
+            raise PackError(
+                f"MacReg reg {self.reg:#x} is in the YM timer block ($24-$27) — "
+                f"refused (engine guards these; see MEV_REGWRITE)")
         if not (0 <= self.reg <= 0xFF):
             raise PackError(f"MacReg reg {self.reg} out of byte range")
         if not (0 <= self.val <= 0xFF):

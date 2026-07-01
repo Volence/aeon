@@ -65,7 +65,7 @@ KICK, SNARE = 2, 3              # 1=blip, 2=kick, 3=snare, 4=hat
 PATCH_A, PATCH_B, PATCH_C = 0, 1, 2
 
 # Phase 3 frame-model tempo: TEMPO_BASE=16 runs the per-channel clock at the full
-# ~59.06 Hz frame rate (the max event-tick rate). Durations are in event ticks.
+# ~59.92 Hz frame rate (the max event-tick rate). Durations are in event ticks.
 TEMPO_BASE = 16
 E, Q, H = 15, 30, 60           # eighth / quarter / half (~0.25 / 0.5 / 1.0 s)
 

@@ -238,7 +238,7 @@ SndDrv_Init:
         ld      (SND_STAT_ALIVE), a
 
         ; --- Phase 3: program Timer A to the FIXED frame rate ONCE, here at init.
-        ; Timer A is now the per-frame engine clock (SND_TIMERA_N -> ~59.06 Hz),
+        ; Timer A is now the per-frame engine clock (SND_TIMERA_N -> ~59.92 Hz),
         ; region-independent, NOT a per-song tempo selector. The DAC/idle-loop
         ; Timer-A overflow poll fires Sequencer_Frame once per frame. The song
         ; loader no longer (re)programs Timer A; musical tempo is per-channel via

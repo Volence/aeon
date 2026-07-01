@@ -919,7 +919,7 @@ sx_kind         = SfxChannel_sx_kind
 ;     {cmd_ptr, mod_ptr} pair NOW so reaching C (a second stream reader writing
 ;     the same MODULATION-STATE block) is purely additive — no layout migration.
 ;   * the per-frame tempo accumulator (sc_tempo_base / sc_tempo_accum) that gates
-;     musical timing at the fixed ~59.4 Hz frame rate.
+;     musical timing at the fixed ~59.92 Hz NTSC frame rate.
 ;   * the MODULATION-STATE block (pitch points/cursor, transpose, pan, per-op TL
 ;     bias, portamento, last-loaded patch) that ModUpdate renders to the YM —
 ;     STREAM-AGNOSTIC: ModUpdate only reads this state, never parses a stream.
