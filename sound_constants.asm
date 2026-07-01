@@ -156,8 +156,10 @@ ym_timerA_hz            function tb, (1000000000 / ym_timerA_period_ns(tb)) ; ti
 ; overflow period is 18.773us * (1024 - N), so N = 1024 - period/18.773us. The
 ; target is expressed in MILLIHERTZ for precision (59.92 Hz = 59920 mHz):
 ;   N = 1024 - (1e12 / (mhz * 18773))
-;     = 1024 - (1000000000000 / (59920*18773)) = 1024 - 889 = 135,
-;   period = 18.773us * (1024-135) = 16.689 ms -> 59.92 Hz.
+;     = 1024 - (1000000000000 / (59920*18773)) = 1024 - 888 = 136
+;   (integer division truncates 888.98 -> 888),
+;   period = 18.773us * (1024-136) = 16.670 ms -> ~59.99 Hz nominal (the idle
+;   loop's poll latency lands the measured effective rate slightly lower).
 ; (History: this was 59 Hz integer -> N=122 -> 59.06 Hz, which played ALL music
 ; ~1.4% slower than its S3K/B&R sources — caught by ear + review 2026-07-01.)
 ; This REPLACES the per-song tempo->Timer-A programming (Snd_TimerA_Program);
@@ -168,7 +170,7 @@ timerAReload            function mhz, 1024 - (1000000000000 / ((mhz) * 18773))
 SND_TIMERA_N           = timerAReload(SND_FRAME_MILLIHZ)
 
         ; N must be a valid 10-bit Timer-A value (0..1023) and well clear of the
-        ; extremes; ~135 is expected for 59.92 Hz.
+        ; extremes; 136 is expected for the 59.92 Hz target.
         if (SND_TIMERA_N < 0) || (SND_TIMERA_N > 1023)
           error "SND_TIMERA_N (\{SND_TIMERA_N}) out of the 10-bit Timer-A range 0..1023"
         endif
