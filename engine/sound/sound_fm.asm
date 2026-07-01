@@ -678,6 +678,77 @@ Fm_NoteFromTable:
         jp      Fm_NoteOnFreq
 
 ; ----------------------------------------------------------------------
+; Fm_FnumApplyDelta — add a SIGNED 16-bit delta to the 11-bit fnum of a packed FM
+; word, applying the SAME single-step block-boundary correction as Mod_Advance
+; (spec §4) so the result crosses an octave seamlessly (halve fnum + block++ is the
+; same chip pitch). Shared by fine-detune (note-on, Group A) and portamento
+; (per-frame, Group B) so the block math exists once outside the verified Mod_Advance.
+; RESIDENT — this used to live in the $8000 banked window (sound_banked_z80.asm)
+; and was the last CODE executing from there. Banked in-frame CODE is a proven
+; crash hazard: Z80 opcode fetches from $8000-$FFFF traverse the 68k bus, and 68k
+; contention (VRAM DMA-from-ROM / BUSREQ) corrupts the fetched opcode -> wild PC ->
+; Z80 self-reinit (`di` does not help — it masks INT, not BUSREQ). RULE: only DATA
+; tables may live in the banked window; ALL in-frame code must be resident.
+; In:  d = $A4 value ((block<<3)|fnumHi3), e = $A0 value (fnum low), hl = signed delta.
+; Out: d = $A4 value, e = $A0 value (normalized). Clobbers af,bc,hl. Preserves ix.
+; ----------------------------------------------------------------------
+Fm_FnumApplyDelta:
+        ld      a, d
+        rrca
+        rrca
+        rrca
+        and     007h
+        ld      c, a                     ; c = block (0..7)
+        ld      a, d
+        and     007h                     ; a = fnumHi3
+        ld      b, a
+        ld      a, e
+        ex      de, hl                   ; de = signed delta; (hl free)
+        ld      h, b
+        ld      l, a                     ; hl = 11-bit fnum
+        add     hl, de                   ; hl = fnum + delta
+        ; --- hi correction: fnum >= FNUM_HI and block<7 -> fnum>>=1, block++ --------
+        ld      a, c
+        cp      007h
+        jr      z, .lo
+        ld      a, h
+        cp      FNUM_HI>>8
+        jr      c, .lo
+        jr      nz, .hi_do
+        ld      a, l
+        cp      FNUM_HI&0FFh
+        jr      c, .lo
+.hi_do:
+        srl     h
+        rr      l                        ; fnum >>= 1
+        inc     c                        ; block += 1
+        jr      .pack
+.lo:
+        ; --- lo correction: fnum < FNUM_LO and block>0 -> fnum<<=1, block-- ----------
+        ld      a, c
+        or      a
+        jr      z, .pack
+        ld      a, h
+        cp      FNUM_LO>>8
+        jr      c, .lo_do
+        jr      nz, .pack
+        ld      a, l
+        cp      FNUM_LO&0FFh
+        jr      nc, .pack
+.lo_do:
+        add     hl, hl                   ; fnum <<= 1
+        dec     c                        ; block -= 1
+.pack:
+        ld      a, c
+        add     a, a
+        add     a, a
+        add     a, a                     ; block << 3
+        or      h                        ; (block<<3)|fnumHi3 (h is 0..7)
+        ld      d, a                     ; d = $A4 value
+        ld      e, l                     ; e = $A0 value
+        ret
+
+; ----------------------------------------------------------------------
 ; Fm_NoteOn — key a note on the channel.
 ; In: ix = SeqChannel, a = pitch index (0..94).
 ; FmPitchTableZ[pitch] = packed word: HIGH byte = $A4 value ((block<<3)|fnumHi),
@@ -711,7 +782,7 @@ Fm_NoteOn:
 ; ----------------------------------------------------------------------
 Fm_NoteOnFreq:
         ; --- FINE DETUNE (spec §4): add the sign-extended sc_detune to the looked-up
-        ; fnum (block-corrected via the banked Fm_FnumApplyDelta) BEFORE the chip write +
+        ; fnum (block-corrected via Fm_FnumApplyDelta) BEFORE the chip write +
         ; sc_base_freq latch, so the detune carries into vibrato/portamento (both build on
         ; sc_base_freq) for free. sc_detune==0 (default / SFX / NOTE_RAW) -> byte-identical
         ; skip. d=$A4, e=$A0 on entry (from Fm_NoteOn/NoteFromTable/NOTE_RAW); a/bc/hl free.
@@ -722,7 +793,7 @@ Fm_NoteOnFreq:
         add     a, a
         sbc     a, a
         ld      h, a                     ; hl = sign-extended sc_detune (a became 0 or -1)
-        call    Fm_FnumApplyDelta        ; (banked, in-frame) d/e = detuned, block-normalized
+        call    Fm_FnumApplyDelta        ; d/e = detuned, block-normalized
 .no_detune:
         ; Write $A4 then $A0 (no key-on yet) via the shared Fm_WriteFreq head. It
         ; re-parks $2A at the end, harmless before the key-on below. de (the fnum word)

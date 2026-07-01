@@ -275,11 +275,12 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         ; recovery, ~270 B). Co-located in this same MT/SFX bank so the two readers
         ; (sound_sfx.asm) read it through the $8000 window after SetBank(SFX_BLOB_BANK).
         include "engine/sound/sfx_blob_win_tab.asm"
-        ; Banked in-frame Z80 routines (Phase-2 music expression). Authored in the
-        ; window (not the resident blob) so they cost 0 against the $16F0 ceiling;
-        ; called only from in-frame code (song bank guaranteed in window). See the
-        ; file header for the banking invariants.
-        include "engine/sound/sound_banked_z80.asm"
+        ; NO CODE may be authored in this banked window — only DATA tables.
+        ; Z80 opcode fetches from $8000-$FFFF traverse the 68k bus; 68k contention
+        ; (VRAM DMA-from-ROM / BUSREQ) corrupts the fetched opcode -> wild PC ->
+        ; Z80 self-reinit (`di` masks INT, not BUSREQ). Banked DATA reads tolerate
+        ; contention (worst case a one-frame glitch); banked CODE fetches do not.
+        ; All in-frame code lives in the resident blob ($16F0 ceiling).
         dephase
         restore
         include "games/sonic4/data/sound/song_movingtrucks.asm"

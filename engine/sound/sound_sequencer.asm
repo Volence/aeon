@@ -107,13 +107,10 @@ Sequencer_Frame:
 ; ----------------------------------------------------------------------
 ; Tempo_Ramp — step SND_TEMPO_CUR one unit toward SND_TEMPO_TARGET each frame
 ; (small range -> ~0.1-0.3s glide). No multiply. Clobbers af,b. Preserves ix.
-; RESIDENT (not banked): it is called from the Sequencer_Frame PREAMBLE, BEFORE
-; the per-channel voice-write path establishes the song/table bank in the $8000
-; window — so a banked body here would execute whatever bank the window happens to
-; hold at the top of the frame (proven to break playback). The banked routines
-; (Fm_FnumApplyDelta, Porta_Apply) are only ever reached LATER, from the note-on /
-; ModUpdate voice-write context where the bank IS guaranteed. It is tiny (~17 B),
-; so the resident cost is negligible.
+; RESIDENT — like ALL in-frame code. Banked in-frame CODE is a proven crash
+; hazard (opcode fetches through the $8000 window corrupt under 68k bus
+; contention -> wild PC -> Z80 self-reinit); only DATA tables may live in the
+; banked window. It is tiny (~17 B), so the resident cost is negligible.
 ; ----------------------------------------------------------------------
 Tempo_Ramp:
         ld      a, (SND_TEMPO_TARGET)
@@ -136,7 +133,7 @@ Tempo_Ramp:
 ; ModUpdate re-asserts held-note volumes (the scalar is folded in Fm_SetVolume/
 ; Psg_SetVolume). Steady state (cur==target) = no step, no dirty. Called once/frame
 ; from the Sequencer_Frame preamble before the channel loop. Clobbers af,b. Preserves
-; ix. RESIDENT (preamble-called; see Tempo_Ramp + sound_banked_z80.asm header).
+; ix. RESIDENT (all in-frame code is — see Tempo_Ramp's banked-window rule).
 ; ----------------------------------------------------------------------
 Fade_Ramp:
         ld      a, (SND_FADE_TARGET)
