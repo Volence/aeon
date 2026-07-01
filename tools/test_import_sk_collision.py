@@ -2,7 +2,7 @@ import os, subprocess, sys
 
 HERE = os.path.dirname(__file__)
 SK = os.path.normpath(os.path.join(HERE, "..", "..", "skdisasm", "Levels", "Misc"))
-OUT = os.path.normpath(os.path.join(HERE, "..", "data", "collision"))
+OUT = os.path.normpath(os.path.join(HERE, "..", "games", "sonic4", "data", "collision"))
 
 
 def run():
