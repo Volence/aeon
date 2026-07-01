@@ -495,6 +495,11 @@ def _parse_psg_env_ids() -> set:
 _PSG_ENV_IDS = _parse_psg_env_ids()
 
 
+def _psg_atten_to_v0(atten: int) -> int:
+    """Map a 4-bit SN76489 attenuation (0=loud, 15=silent) to v0 0..127 loudness."""
+    return int(round((15 - (atten & 0x0F)) / 15 * 127))
+
+
 def _smps_vol_to_v0(kind, val):
     """Map a MID-SONG smpsSetVol OPERAND to a v0 0..127 volume.
 
@@ -503,17 +508,19 @@ def _smps_vol_to_v0(kind, val):
           effective S3K attenuation is (operand ^ $7F) = (127 - operand).  We
           map that to the v0 loudness domain via the LogVolumeLutZ inverse:
             v0_vol = _fm_atten_to_v0((operand & 0x7F) ^ 0x7F)
-    PSG : SMPS PSG volume low nibble is 0..15 attenuation (0=loud, 15=silent);
-          v0 wants 0..127 LOUDNESS, so invert + scale.
+    PSG : cfSetVolume's PSG path (driver ~:3113-3126) decodes the operand as
+          `srl a` x3, `xor 0Fh`, `and 0Fh` — the SN76489 attenuation is the
+          operand's BITS 3-6, INVERTED ($78 = max volume, $08 = min; the sign
+          bit and low 3 bits are discarded). NOT the low nibble.
 
     NOTE: This is the MID-SONG operand path. The song HEADER vol byte is a raw
-    TL ATTENUATION (no xor $7F) copied straight into zTrack.Volume — use
-    _smps_header_vol_to_v0 for that path instead."""
+    attenuation (FM: no xor $7F; PSG: the 4-bit value itself) copied straight
+    into zTrack.Volume at track init — use _smps_header_vol_to_v0 for that."""
     if kind == "FM":
         # operand → S3K attenuation = operand ^ 0x7F → v0 loudness via LUT inverse
         return _fm_atten_to_v0((val & 0x7F) ^ 0x7F)
-    # PSG / DAC-noise: low nibble is the SN76489 attenuation.
-    return int(round((15 - (val & 0x0F)) / 15 * 127))
+    # PSG / DAC-noise: attenuation = inverted bits 3-6 of the operand.
+    return _psg_atten_to_v0(((val >> 3) ^ 0x0F) & 0x0F)
 
 
 def _smps_header_vol_to_v0(kind, vol):
@@ -526,8 +533,8 @@ def _smps_header_vol_to_v0(kind, vol):
             v0_vol = _fm_atten_to_v0(vol & 0x7F)
     PSG : 4-bit SN76489 attenuation -> loudness (unchanged path)."""
     if kind == "PSG":
-        return int(round((15 - (vol & 0x0F)) / 15 * 127))   # 4-bit PSG attenuation -> loudness
-    return _fm_atten_to_v0(vol & 0x7F)                       # FM: header IS the attenuation
+        return _psg_atten_to_v0(vol)          # 4-bit PSG attenuation -> loudness
+    return _fm_atten_to_v0(vol & 0x7F)        # FM: header IS the attenuation
 
 
 # Default SMPS-domain volume seeds for a channel that emits a volume delta before
@@ -553,10 +560,12 @@ def _alter_vol(kind, want, delta, st, out):
         # Emit via LUT inverse (not _smps_vol_to_v0 which expects an operand).
         out.append(Vol(_fm_atten_to_v0(cur)))
     else:
+        # psg_vol_raw is the DECODED 4-bit SN76489 attenuation (zTrack.Volume) —
+        # cfChangePSGVolume adds the signed delta in that decoded domain.
         cur = st.psg_vol_raw if st.psg_vol_raw is not None else _DEFAULT_PSG_VOL
         cur = max(0, min(0x0F, cur + delta))  # PSG attenuation 0..15
         st.psg_vol_raw = cur
-        out.append(Vol(_smps_vol_to_v0("PSG", cur)))
+        out.append(Vol(_psg_atten_to_v0(cur)))
 
 
 # Clamp |detune| well inside one low-octave block (where fnum steps are smallest) so
@@ -611,12 +620,15 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
         # FM: cfSetVolume xor $7F's the operand -> effective S3K attenuation =
         #     operand ^ $7F. Store the attenuation so smpsAlterVol deltas
         #     (which the driver adds in attenuation space) compose correctly.
-        # PSG: operand low nibble IS the SN76489 attenuation; store as-is.
+        # PSG: cfSetVolume decodes the operand as `srl x3; xor 0Fh; and 0Fh` —
+        #     the attenuation is the INVERTED bits 3-6. Store the DECODED
+        #     attenuation (= zTrack.Volume) so smpsPSGAlterVol deltas compose
+        #     in the same domain the driver adds them in.
         raw = resolve_const(args[0])
         if kind == "FM":
             st.fm_vol_raw = (raw & 0x7F) ^ 0x7F   # operand -> S3K TL attenuation
         else:
-            st.psg_vol_raw = raw
+            st.psg_vol_raw = ((raw >> 3) ^ 0x0F) & 0x0F  # decoded SN76489 atten
         out.append(Vol(_smps_vol_to_v0(kind, raw)))
     elif mnem == "smpsSetNote":
         # cfSetKey ($ED): transpose = val - $40 (signed result).

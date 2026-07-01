@@ -804,13 +804,37 @@ def test_header_vol_fm_uses_lut_inverse():
         assert 55 <= v <= 95, \
             "_smps_header_vol_to_v0(FM, 0x%02X)=%d not in expected range 55-95" % (atten, v)
 
-def test_header_vol_psg_unchanged_from_smps_vol():
-    # PSG header vol is the 4-bit SN76489 attenuation; it was ALREADY inverted by
-    # _smps_vol_to_v0, so the header variant matches it (no double-invert).
-    from smps_import import _smps_vol_to_v0
+def test_header_vol_psg_is_raw_attenuation():
+    # PSG header vol is the 4-bit SN76489 attenuation copied DIRECTLY into
+    # zTrack.Volume at track init (no operand decode) -> invert to loudness.
+    # DISTINCT from the mid-song smpsSetVol OPERAND, which cfSetVolume decodes
+    # as inverted bits 3-6 (see test_smps_vol_to_v0_psg_bits36_inverted).
     assert _smps_header_vol_to_v0("PSG", 0x04) == 93   # round((15-4)/15*127)
-    assert _smps_header_vol_to_v0("PSG", 0x04) == _smps_vol_to_v0("PSG", 0x04)
-    assert _smps_header_vol_to_v0("PSG", 0x03) == _smps_vol_to_v0("PSG", 0x03)
+    assert _smps_header_vol_to_v0("PSG", 0x00) == 127  # atten 0 = loudest
+    assert _smps_header_vol_to_v0("PSG", 0x0F) == 0    # atten 15 = silent
+
+def test_smps_vol_to_v0_psg_bits36_inverted():
+    # S3K cfSetVolume PSG path (driver ~:3113-3126): `srl a` x3, `xor 0Fh`,
+    # `and 0Fh` — attenuation = INVERTED bits 3-6 of the operand ($78 = max
+    # volume, $08 = min). The low nibble is DISCARDED, not the attenuation.
+    from smps_import import _smps_vol_to_v0
+    assert _smps_vol_to_v0("PSG", 0x78) == 127         # $78 -> atten 0 -> max vol
+    assert _smps_vol_to_v0("PSG", 0x08) == 8           # $08 -> atten 14 -> quietest audible
+    assert _smps_vol_to_v0("PSG", 0x00) == 0           # $00 -> atten 15 -> silent
+    # Mid value: $40 -> (0x40>>3)=8, ^0xF=7 -> atten 7 -> round(8/15*127)=68
+    assert _smps_vol_to_v0("PSG", 0x40) == 68
+    # Low 3 bits are discarded: $78 and $7F decode identically.
+    assert _smps_vol_to_v0("PSG", 0x7F) == _smps_vol_to_v0("PSG", 0x78)
+
+def test_psg_alter_vol_composes_with_decoded_setvol():
+    # smpsSetVol $78 seeds the DECODED attenuation (0); smpsPSGAlterVol +4 then
+    # composes in zTrack.Volume space (cfChangePSGVolume adds the delta to the
+    # decoded value): atten 0+4=4 -> v0 93.
+    ev = convert_channel("PSG",
+        ["\tsmpsSetVol $78", "\tsmpsPSGAlterVol $04", "\tsmpsStop"],
+        {}, _cfg(), ConvState())
+    vols = [e.vol for e in ev if isinstance(e, Vol)]
+    assert vols == [127, 93]
 
 def test_smps_vol_to_v0_fm_path_uses_lut_inverse():
     # Mid-song smpsSetVol FM path: cfSetVolume xors the operand with $7F before
