@@ -815,8 +815,11 @@ NATIVE_FM_ROUTES = [CHROUTE_FM1, CHROUTE_FM1 + 1, CHROUTE_FM1 + 2,
 #
 #   voice (B0, DT/MUL $30/$34/$38/$3C)        gate     where
 #   $2D (08,0C,08,0C)  offbeat bass "bonk"    8 of 14  every channel (ch0/1/3/5)
-#   $3C (03,01,07,02)  downbeat bass          8 of 14  ch0 outro ONLY (held full
-#                                                      length on ch1/2/3)
+#   $3C (03,01,07,02)  downbeat bass          17       ch1/2/3: held FULL on its
+#                                                      14-frame slots (17 > 14 =
+#                                                      legato) but gated 17 of 21
+#                                                      on the long slots;
+#                                             8 of 14  ch0 outro
 #   $35/$3D run family (02|00,00,00,00..05)   5 of 7   every channel (ch0/3/4/5)
 #   $28 (08,00,04,02)  pizz/arp groove        5 of 7   ch2/4/5 (LEGATO on ch1,
 #                                                      where its slots are 14)
@@ -854,11 +857,11 @@ def _build_gate_tables():
     """Per-source-channel { (alg_fb, dt_mul) -> NoteFill frames } (see above)."""
     tabs = []
     for _ch in range(6):
-        t = {_VF_BASS_OFFBEAT: 8}
+        t = {_VF_BASS_OFFBEAT: 8, _VF_BASS_DOWN: 17}
         for vf in _VF_RUN_FAMILY:
             t[vf] = 5
         tabs.append(t)
-    tabs[0][_VF_BASS_DOWN] = 8       # outro walk-down; legato on ch1/2/3
+    tabs[0][_VF_BASS_DOWN] = 8       # ch0 outro walk-down is fully gated
     for ch in (2, 4, 5):
         tabs[ch][_VF_PIZZ] = 5       # legato on ch1 (its slots are 14 frames)
     tabs[3][_VF_STAB] = 8            # ch3 verse; legato on ch0/2/4/5

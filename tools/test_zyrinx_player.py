@@ -291,8 +291,9 @@ class TestNoteFill(unittest.TestCase):
                         "says %d" % (ci, self._fingerprint(state), fill, want))
         # The profile actually exercises the gates (not vacuously legato):
         # 8 = bass "bonk" (8 of 14 frames), 5 = fast-run choke (5 of 7 frames),
-        # 0 = explicit return to legato (protects FM6's held melodic stabs).
-        self.assertEqual(seen_fills, {0, 5, 8})
+        # 17 = downbeat bass (legato on its 14-frame slots, 17 of 21 on the long
+        # ones), 0 = explicit return to legato (protects FM6's held stabs).
+        self.assertEqual(seen_fills, {0, 5, 8, 17})
 
     def test_every_channel_returns_to_legato_somewhere(self):
         # Each MT channel mixes gated and legato voices, so every stream must
