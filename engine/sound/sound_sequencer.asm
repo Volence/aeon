@@ -381,6 +381,12 @@ ModUpdate:
         jp      Fm_NoteOn                ; SFX: chromatic FmPitchTableZ (tail-call)
 
 .multipoint:
+        ; KEYED gate: a REST keys the channel off (Fm_NoteOff clears SCF_KEYED),
+        ; and the arp below re-keys EVERY frame — without this gate a rest could
+        ; never silence a running arp. Safe for a fresh arm: Seq_Op_PitchEnv sets
+        ; SCF_KEYED alongside SCF_REKEY, so the arm frame always passes.
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        ret     z                        ; rested -> arp stops until the next PITCHENV
         ; --- count>=2 trill/arp pitch path (PER-FRAME re-articulation) ---------
         ; Cursor-cycle the pitch points ONCE PER FRAME (the ~59 Hz frame clock),
         ; wrapping at sc_pt_count, and re-key sc_points[cursor] every frame. For a
