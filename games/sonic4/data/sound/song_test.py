@@ -38,7 +38,10 @@ PATCH_BASS, PATCH_LEAD = 0, 1   # enum in data/sound/fm_patches.inc
 
 # --- Phase 3 frame-model tempo_base + note durations ----------------------
 # Phase 3 replaces the per-song Timer-A tempo with a FIXED frame clock
-# (SND_FRAME_HZ = 59 -> Timer-A N = 122 -> period 16.93ms -> ~59.06 frames/sec)
+# (SND_FRAME_MILLIHZ = 59920 -> Timer-A N = 136 -> ~59.92 frames/sec, the NTSC
+# frame rate; was SND_FRAME_HZ = 59 -> N = 122 -> ~59.06 Hz until the 2026-07-01
+# clock fix — the 59.06-based rescale math below predates it, so this test song
+# now runs ~1.4% faster in wall clock)
 # plus a per-channel tempo accumulator: each frame `tempo_accum -= 16`, and on a
 # BORROW `tempo_accum += tempo_base` and ONE event-tick runs (single tick per
 # frame — the engine does not catch up multiple ticks in one frame). For the
