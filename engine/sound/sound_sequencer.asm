@@ -270,6 +270,12 @@ ModUpdate:
         ld      a, (ix+sc_psgenv)
         or      a
         ret     z                        ; no PSG vol-env -> done
+        ; KEYED gate (S3K-faithful): a RESTED channel must stay silent — without
+        ; this, a sustain/plain env byte re-emits volume every frame and UN-silences
+        ; the rest (drone). The env id + cursor persist; the next note-on resets the
+        ; cursor (Psg_EnvCursorReset) + sets KEYED, replaying the contour.
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        ret     z                        ; rested -> no env output
         jp      PsgEnvUpdate             ; advance the contour + emit (tail-call, preserves ix)
 .is_fm:
 
@@ -465,8 +471,10 @@ PsgEnvUpdate:
         ; S3K keeps FMVolEnv/PSGVolEnv set and only resets the VolEnv cursor per note
         ; (zFinishTrackUpdate). Zeroing the id here disabled the envelope for every
         ; subsequent note in a run -> a flat loud-noise blast (the HCZ2 hi-hat bug).
-        ; The cursor stays parked on the rest byte, so until the next note-on this
-        ; re-silences each frame (matching S3K's per-frame re-rest).
+        ; The cursor stays parked on the rest byte. Psg_NoteOff clears SCF_KEYED,
+        ; so ModUpdate's KEYED gate stops re-entering this envelope until the next
+        ; note-on — the single key-off below is the whole rest (S3K's per-frame
+        ; re-rest is redundant once the gate holds the silence).
         jp      Psg_NoteOff              ; silence this PSG channel (tail-call, preserves ix)
 
 ; ----------------------------------------------------------------------
