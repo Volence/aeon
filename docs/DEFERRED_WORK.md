@@ -1118,6 +1118,13 @@ warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 
 ## From Sound Driver Work (Future)
 
+> **STATE-OF-TRUTH (2026-07-01):** the current sound-engine status — what shipped, what's open,
+> and the full drift/bug backlog — is the pair of 2026-07-01 review docs:
+> `docs/superpowers/2026-07-01-sound-engine-review-findings.md` (code review + same-day fix-pass
+> status header) and `docs/superpowers/2026-07-01-sound-specs-review.md` (spec review, gap list,
+> CUT list). Read those before acting on any sound entry below; several entries here are
+> annotated as resolved by later phases.
+
 ### Music-expression Task 0 (Z80 code recovery) — follow-ups — 2026-06-24
 Task 0 recovered Z80 code headroom (2 → ~1016 B) by **co-locating** the engine lookup tables
 at the start of Moving Trucks' streamed ROM bank (window `$8000`), read with the song bank
@@ -1166,9 +1173,10 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   **Fix:** Flamedriver two-slot post (`zSFXNumber0/1`) or a small 68k-side pending ring. Audio-only (high/med).
   **IMPLEMENTED (af09e83, 8-deep 68k-side ring):** `Sound_PlaySFX` enqueues; `Sound_DrainSfxRing`
   (GameLoop, post-VSync) posts ONE id/frame into the mailbox once the Z80 has cleared it. Lint clean,
-  full ROM assembles. **Runtime hardware-verification PENDING** — blocked by the OJZ section-0 tile-budget
-  build failure below (no bootable ROM). Verify once that's resolved: jump+ring / skid+ring / death+ring-loss
-  in one frame both reach the chip. Logic hand-traced (enqueue/drain/dedup edge cases) in the interim.
+  full ROM assembles. The code has long since shipped to master (the OJZ tile-budget build blocker that
+  gated boot testing was resolved 2026-06-22). **The dedicated runtime verification item still stands
+  (2026-07-01):** exercise jump+ring / skid+ring / death+ring-loss in one frame and confirm both SFX
+  reach the chip. Logic hand-traced (enqueue/drain/dedup edge cases) in the interim.
 
 #### B. Build-pipeline / fidelity bugs (the "SFX sounds wrong" root cause)
 - **B1 — transcoder swaps physical operators S2↔S3** (`tools/sfx_transcode.py` ~388). Emits S3K op
@@ -1201,8 +1209,9 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   channel-class tests into `Snd_ChanClass` (`Z80_SOUND_SIZE` `$16EE`, 2 free). Verified: roll/spindash
   KEY-ON 2→1, fades intact, skid/ring/jump/dash no regression. The looped FM SFX tails are now S&K-faithful
   (one key-on, smooth fade to silence). `Snd_ChanClass` has converted 11 of 12 inline channel-class sites;
-  the 1 remaining + future reclaim is there if needed. (Historical: that fix left $16EE / 2 free; the later
-  music-expr Task 0 banking + Phase 1/3 features moved the live value to **$1618 / 216 B free** — see F1/F5.)
+  the 1 remaining + future reclaim is there if needed. (Historical: that fix left $16EE / 2 free; Task 0
+  banking then recovered to $1618 / 216 free, and later phases spent it back — **live 2026-07-01:
+  $16E6 / 10 free**, see F1/F5.)
 - **B5 — `smpsPSGform $E7` tone-FREQUENCY-TRACKED noise sweep** (refinement; the fixed-rate fix is done — see
   `docs/BUGS.md` BUG-003). The dash `$B6` (and any `smpsPSGform $E7` SFX) is now correctly rerouted to the
   NOISE channel, but plays a FIXED white-noise rate (`$E6`, clk/2048). S&K's `$E7` is white noise whose shift
@@ -1213,18 +1222,29 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   tone-clock (PSG3) + a noise channel (the engine + hardware then sync via the `$E7` track bit). Option (b) is
   engine-change-free but adds a 3rd SFX channel + needs the clock pinned to PSG3 (no voice substitution). The
   fixed-rate noise is the right character; the descending sweep is the nuance. Re-evaluate by ear.
+  *(Status check 2026-07-01: STILL OPEN for SFX — `tools/sfx_transcode.py` still emits the fixed `$E6`
+  approximation. Note the MUSIC path has since shipped tone-tracked noise — `MEV_PSGNOISE` clocks rate-3
+  noise from tone-2, S3K-faithful, HCZ2 hi-hats — so the engine mechanism for option (a) now part-exists.)*
 
-#### C. DAC sample path — correct today by coincidence, breaks the moment real drums land
-*(Do all four as ONE format revision — and fold in the best-in-class DAC work, item E2/E3 below. Partly
-already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor" further down.)*
-- **C1 — one-shot samples never stop** (`z80_sound_driver.asm` 414-423). `DAC_ACTIVE` only ever set,
-  never cleared on exhaustion; FILL-exhaust unconditionally re-loops the blip → any real drum machine-guns.
-- **C2 — `Snd_StartSample` ignores `ds_loop_ofs` + `ds_rate`** (601-619). Descriptor loop-point + per-sample
-  rate inert; multi-sample DAC blocked.
-- **C3 — odd `ds_length` runs away ~64KB** (407-413). FILL `-=2` + `==0` test misses an odd final byte →
-  reads off the end / bank-wrap. **Fix:** build-time assert sample lengths are even.
-- **C4 — no consumer underrun guard** (353-363). Over-long DRAIN replays stale ring bytes as a buzz, no
-  detection. **Fix:** output `$80` (DC center) when `lead==0`.
+#### C. DAC sample path — ✅ largely RESOLVED by the DAC-format revision (2026-06-25)
+*(The "ONE format revision" this block asked for SHIPPED as the DAC drum phase — see
+`docs/superpowers/specs/2026-06-24-dac-drum-format-revision-design.md` + its raw-8-bit amendment.
+The multi-sample descriptor table, per-sample banking, and the one-shot state machine replaced the
+1C blip path wholesale.)*
+- ~~**C1 — one-shot samples never stop**~~ **RESOLVED (DAC drum phase, 2026-06-25):** the shipped
+  one-shot state machine (IDLE → PLAYING → DRAINING_TAIL → STOPPING) plays a sample once and cleanly
+  stops to DC center — nothing re-loops. (Historical text: `DAC_ACTIVE` only ever set, never cleared
+  on exhaustion; FILL-exhaust unconditionally re-looped the blip.)
+- ~~**C2 — `Snd_StartSample` ignores `ds_loop_ofs` + `ds_rate`**~~ **SUPERSEDED (DAC drum phase):** in the
+  shipped 9-byte descriptor both fields are *deliberately* RESERVED forward-compat (`sound_constants.asm`,
+  `DacSample`) — one-shots don't loop and v1 has one rate; multi-sample DAC is live via the descriptor table.
+- ~~**C3 — odd `ds_length` runs away ~64KB**~~ **RESOLVED by construction:** the shipped register-resident
+  1:1 loop consumes ONE byte per pass (no `-=2` FILL), so odd lengths terminate exactly
+  (`tools/dac_encode.py` header notes there is no even-length requirement).
+- **C4 — no consumer underrun guard** (old lines 353-363) — **mostly superseded:** the shipped
+  DRAINING_TAIL path stops exactly at `lead==0` and DC-centers (no stale-ring replay at exhaust). The
+  residual corner is a 68k DMA outlasting the ~200-sample ring lead mid-sample — re-evaluate against the
+  shipped loop if a marathon DMA burst is ever added.
 
 #### D. Latent correctness (trust-the-packer / new-content surfaces)
 - **D1** PSG pitch-mod has no noise-route gate (`sound_sequencer.asm` 162; `sound_psg.asm` 239) — a noise
@@ -1249,15 +1269,20 @@ already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor"
   strictly chromatic and our continuous-vibrato core (`Mod_Advance`/`sc_base_freq`/`sc_porta_*`) renders
   **SFX channels only** — music gets none. Promote that machinery into the music `SeqChannel` path + add a
   fine-pitch representation. Fields `sc_porta_accum/incr` reserved (`sound_constants.asm` 793). *(This is
-  the same as the long-deferred Phase 3a Task 7 portamento + Zyrinx "take-next".)*
+  the same as the long-deferred Phase 3a Task 7 portamento + Zyrinx "take-next".)* *(**2026-07-01:** the
+  fine-pitch half SHIPPED — `MEV_DETUNE` + music vibrato/`MEV_MODSET` are live on music channels; the
+  PORTAMENTO half is the last open music-expression item, turnkey via
+  `docs/superpowers/plans/2026-06-28-portamento-resume.md`.)*
 - ~~**E-now-2 — per-frame FM TL volume envelope on music channels**~~ **DONE 2026-06-27 (music-expr merge)** —
   shipped as `MEV_FMENV` ($F7) + `FmEnvUpdate` (per-frame FM-TL carrier volume envelope), reusing the existing
   `Fm_PatchTlGroup` TL-write plumbing; no format change. Supersedes the static `OPBIAS`-only state. (Flamedriver `zDoFMVolEnv`.)
-- **E-now-3 — master fade-in/out + global tempo-speedup.** Grep-confirmed we have **neither** (Flamedriver
-  `zDoMusicFadeOut/In`, `zFadeToPrev`, `zTempoSpeedup`). Table-stakes for level start/clear/death/drowning/
-  invincibility/1-up. Cheap (ramp carrier TL toward $7F + a tempo-accumulator scalar w/ save/restore).
-- **E-now-4 — sequencer-driven hardware LFO ($22 rate opcode).** We set `$22=$08` once at init and never
-  sweep it; one free MEV opcode. *(Thread A global plan builds this as `MEV_LFO`.)* ~~**Also fix latent doc
+- ~~**E-now-3 — master fade-in/out + global tempo-speedup.**~~ **DONE (music-expr Phase 2):** shipped as
+  `Sound_FadeOut`/`Sound_FadeIn` (`SND_REQ_FADE` master TL ramp) + the `MEV_TEMPO` ($F3) global tempo
+  scalar with a per-channel accumulator (the 2026-07-01 fix pass repaired the speed-up borrow math).
+  `zFadeToPrev`-style fade-to-previous/saved-song-state remains unspec'd — part of the game-feel gap
+  (see the 2026-07-01 spec review §3).
+- ~~**E-now-4 — sequencer-driven hardware LFO ($22 rate opcode).**~~ **DONE (music-expr Phase 2):**
+  shipped as `MEV_LFO` ($F4). ~~**Also fix latent doc
   bug:** comment at `z80_sound_driver.asm` says 3.98 Hz but `$08` = 3.82 Hz.~~ **Doc bug FIXED 2026-06-27**
   (comments at lines 158 & 167 now read 3.82 Hz).
 
@@ -1269,10 +1294,20 @@ already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor"
   (per-voice volume byte + 16.16 mix cursor so per-sample pitch is free later), ship 1 voice, keep the
   RAM-only equal-cost invariant. This is the "[[feedback_best_of_class_north_star]] design-for-C, build-for-A"
   call — do it **before authoring real DAC content.**
+  *(**2026-07-01 update:** the DAC format revision decided AGAINST this — the approved spec
+  (`2026-06-24-dac-drum-format-revision-design.md` §2.2) rejects runtime mixing in favor of a single voice
+  + pre-mixed composites, and the shipped descriptor has NO per-voice volume/mix-cursor fields. That
+  rejection is the one irreversible format bet and **still needs user ratification** — the ratification-time
+  ask is the cheap insurance this entry wanted: add `ds_vol` + reserved mix-cursor bytes, ~3 B/descriptor,
+  zero code. See the 2026-07-01 spec review §4.)*
 - **E3 — round out the DAC format in that SAME revision:** loop point (= C2), priority, pan (via $B6),
   auto-bankswitch, `ds_rate` pitch, **+ 4-bit DPCM** (re-adopt our own S3K JMan2050 DPCM, `Flamedriver.asm`
   4321-4442 — halves ROM, producer-side so the 8948 Hz cadence is untouched), and route **sampled SFX** as
   mixer-voice-2 with ducking. (Skip PCM-on-PSG.) Fold the C1-C4 bug fixes in here.
+  *(**2026-07-01 update:** the shipped revision landed the C-block fixes, per-sample banking (`ds_bank`),
+  and the `$B6` pan door, and RESERVED `ds_codec`/`ds_rate` at zero cost — but chose raw 8-bit over DPCM
+  (compression bought ~nothing for once-stored drums and the decode capped the rate; see the spec's
+  2026-06-25 amendment) and forecloses sampled-SFX-over-drums with the single-voice bet above.)*
 - ~~**E4 — independent per-channel modulation/control stream (dual-stream channels)**~~ **DONE 2026-06-27 (music-expr merge)** —
   the committed seam (`sc_mod_ptr` slot[1], stream-agnostic `ModUpdate`) is now LIVE: slot[1] drives a `MacroTick`
   register-automation stream via `MEV_MACRO` ($F9) — tag grammar `TAG_MAC_*` ($E0–$E3), 2-byte BE loop, `Snd_SongBase`
@@ -1297,8 +1332,12 @@ already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor"
 - **F1** Z80 RAM-map spec (`docs/superpowers/specs/2026-06-16-sound-z80-ram-map.md`) is STALE — the SFX
   array $1D00-$1EBC overruns the doc's "spare" page; `SND_STATE_BASE` moved $1600→$16F0; sequencer/trace/
   song/SFX regions undocumented. Reconcile to the live `sound_constants.asm` map + state true headroom.
-  (Live headroom as of 2026-06-27: `Z80_SOUND_SIZE` = $1618, ceiling `SND_STATE_BASE` = $16F0 → **216 B free** —
-  supersedes the stale "$16EE / 2 free" quoted in older fix logs.)
+  (The spec now carries a 2026-07-01 staleness header pointing at `sound_constants.asm` as authoritative.
+  **Live headroom as of 2026-07-01: `Z80_SOUND_SIZE` = $16E6, ceiling `SND_STATE_BASE` = $16F0 →
+  10 bytes free** — the music-expr Phase 2 features (detune/LFO/tempo/fade + `SfxBlobWinTab` banking) and
+  the 2026-07-01 ~30-fix review pass spent the post-Task-0 headroom back down. Supersedes the "$1618 /
+  216 B free" 2026-06-27 figure and every older number. The resident-code budget is the binding sound
+  constraint; the portamento resume plan's data-banking is the next recovery step.)
 - **F2** `ENGINE_ARCHITECTURE.md §6` still lists SFX deferred + AF_SOUND a stub (update on merge to master).
 - **F3** Dead ROM: `dc.l SfxTable` 540 B unused (engine uses its own Z80 `dw` window table); duplicate
   `sfx_NN_patches` banks ~208 B; dead `Snd_TimerA_Program` (`z80_sound_driver.asm` 715). Purge.
@@ -1310,9 +1349,11 @@ already tracked in "Multi-sample DAC loop-restart hardcodes the blip descriptor"
   MovingTrucks_PitchTable into a $8000-window read)~~ **DONE (music-expr Task 0 banking, 2026-06-24):** the engine
   lookup tables were co-located at the start of Moving Trucks' streamed ROM bank (read with the song bank already
   in the `$8000` window — no swap), recovering Z80 code headroom from ~2 B → ~1016 B. The Phase 1/3
-  music-expression features then consumed most of that back. **Live as of 2026-06-27: `Z80_SOUND_SIZE` = $1618,
-  ceiling `SND_STATE_BASE` = $16F0 → 216 B free** (verified by build probe). See the "Music-expression Task 0
-  (Z80 code recovery)" entry above.
+  music-expression features consumed most of that back; music-expr Phase 2 (detune/LFO/tempo/fade) and the
+  2026-07-01 review fix pass took the rest. **Live as of 2026-07-01: `Z80_SOUND_SIZE` = $16E6,
+  ceiling `SND_STATE_BASE` = $16F0 → 10 bytes free** (build message / `s4.lst`). See F1 above for the
+  history of figures, and the portamento resume plan for the next data-banking recovery. See the
+  "Music-expression Task 0 (Z80 code recovery)" entry above.
 
 ### Per-frame pitch / volume envelopes (Phase 3a #2/#3) — DEFERRED, build-on-demand
 **Surfaced during:** Moving Trucks missing-effects investigation (2026-06-19).
@@ -1348,9 +1389,13 @@ exercise carrier opbias (FM2 carrier opbias=0), so it's verified by code audit +
 not by a song that uses it. **TODO when convenient:** add a synthetic alg5–7 test voice with a
 carrier bias and capture-verify the $4x output, to bulletproof the untested path.
 
-### Multi-sample DAC loop-restart hardcodes the blip descriptor (latent bug, Plan 1C)
+### ✅ RESOLVED — Multi-sample DAC loop-restart hardcodes the blip descriptor — by the DAC drum phase (2026-06-25)
 **Surfaced during:** Sound 1C pre-merge audit (2026-06-17).
-**Status:** Benign in 1C (single DAC sample); **must fix before adding a 2nd DAC sample.**
+**Status:** **RESOLVED** — the DAC-format revision replaced the 1C looping-blip path wholesale: samples
+are one-shots driven by the 9-byte `DacSample` descriptor table + the IDLE→PLAYING→DRAINING_TAIL→STOPPING
+state machine; the FILL-exhaust restart branch is gone (`SND_BLIP_*` constants now only populate the
+blip's own descriptor-table entry, like any other sample). Historical text below retained for lineage.
+**Original status:** Benign in 1C (single DAC sample); **must fix before adding a 2nd DAC sample.**
 **What:** The FILL-exhaust restart in `engine/z80_sound_driver.asm` (the rare "sample
 exhausted → loop the blip" branch, ~line 399) hardcodes `SND_BLIP_PTR` / `SND_BLIP_LEN`:
 ```z80
@@ -1387,8 +1432,12 @@ the dead copies cannot silently diverge.
 ### Phase 2–6 sound backlog (master sound spec §12)
 **Surfaced during:** Sound 1C pre-merge audit (2026-06-17), per the 1C design §2 "explicitly deferred."
 **What (each its own plan, per master spec §12):**
-- **Phase 2 — DAC powerhouse:** N-channel DAC mixer (quality-adaptive single↔mix), stereo/pseudo-
-  stereo PCM, pitch-shifted SFX, half-rate samples, BRR codec (after spike), bank-switch optimization.
+- ~~**Phase 2 — DAC powerhouse:** N-channel DAC mixer (quality-adaptive single↔mix), stereo/pseudo-
+  stereo PCM, pitch-shifted SFX, half-rate samples, BRR codec (after spike), bank-switch optimization.~~
+  **SUPERSEDED (2026-06-24/25 DAC format revision + 2026-07-01 amendment header on the master spec):**
+  single voice, raw 8-bit, pre-mixed composites; mixer/BRR/pitch-shifted-PCM/half-rate cut (doors kept
+  via `ds_codec`/`ds_rate`); bank-switch optimization SHIPPED (cached `SndDrv_SetBank`). Mixer rejection
+  pending user ratification — see ARCH §6.2.
 - **Phase 3a — FM depth (SHIPPED, merged `c89bea3` 2026-06-19):** per-frame modulation engine,
   per-song pitch table + pitch envelopes (trills/arps), pan, signed per-op TL bias, voice-stepping
   via build-time register deltas, hardware LFO ($22=$08), note-fill gate articulation, native Moving
