@@ -311,6 +311,12 @@ class ConvState:
         # SMPS volume domains differ (FM TL-ish attenuation vs PSG 4-bit attn).
         self.fm_vol_raw = None
         self.psg_vol_raw = None
+        # DAC saved-sample tracking (zTrack.SavedDAC). The driver stores EVERY
+        # DAC note byte here (a rest stores $80 = cleared); a bare $00-$7F byte
+        # in note position re-reads it and RE-TRIGGERS the sample
+        # (zUpdateDACTrack_cont: `dec de; ld a,(SavedDAC)` -> .got_sample ->
+        # zDACIndex queue) unless it is the rest. None = rest/none saved.
+        self.saved_dac = None
         # Tie-merge tracking (Task 2.4 — smpsNoAttack same-pitch merge).
         # _prev_note_idx : index in `out` of the most recently emitted note event
         #                  (the Note or NoteDur), or None. Used to replace it in-
@@ -824,6 +830,7 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                         # map this S3K id -> the v0 DacSampleTable id (Phase 5
                         # lays out that table); the raw id is NOT a v0 table index.
                         emit(Dac(b & 0x7F))
+                        st.saved_dac = b & 0x7F      # zTrack.SavedDAC
                         # The engine's $E2 MEV_DAC is ZERO-TICK (sound_sequencer
                         # Seq_Op_Dac: "the DAC channel's note IS the trigger; a
                         # following SetDur/Rest paces it"). So pace the sample with
@@ -835,6 +842,7 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                         i += 1 + consumed
                     elif b == SMPS_REST:             # $80 -> rest
                         ticks, consumed = _peek_dur(toks, i + 1, cfg, st)
+                        st.saved_dac = None          # rest overwrites SavedDAC ($80)
                         _emit_with_dur_g(emit, st, ticks, None)
                         i += 1 + consumed
                     else:                            # $00..$7F standalone dur
@@ -947,8 +955,12 @@ def _hold_for_dur(emit, out, st, ticks, is_dac):
     `ticks` ticks. The key-on path is NOT taken, so there is no re-attack (the
     note simply sustains); SavedDuration is also updated for later bare notes.
 
-      * DAC route: the one-shot sample already triggered, so just pace `ticks`
-        more ticks with a (timed) Rest.
+      * DAC route: the driver RE-READS SavedDAC and RE-TRIGGERS it
+        (zUpdateDACTrack_cont `dec de; ld a,(SavedDAC)` -> queue zDACIndex)
+        unless SavedDAC is the $80 rest. So emit a fresh Dac(saved) re-trigger,
+        then pace `ticks` with a (timed) Rest. With no saved sample (channel
+        start / right after a DAC rest) just pace the time. Pacing these bytes
+        as silence-only dropped HCZ2's accelerating snare rolls + 9-hit fill.
       * FM/PSG with a held note: EXTEND that note by `ticks` (a tie/sustain),
         merging into a single NoteDur so no spurious re-attack is emitted. On a
         >$FF overflow, start a fresh re-keyed segment (rare; timing stays exact).
@@ -960,7 +972,12 @@ def _hold_for_dur(emit, out, st, ticks, is_dac):
     percussion drifted off-beat from the melody. (HCZ2 root cause.)"""
     st._saved_dur = ticks
     st.tie = False
-    if is_dac or st._prev_note_idx is None:
+    if is_dac:
+        if st.saved_dac is not None:
+            emit(Dac(st.saved_dac))          # re-trigger the saved sample
+        _emit_with_dur_g(emit, st, ticks, None)
+        return
+    if st._prev_note_idx is None:
         _emit_with_dur_g(emit, st, ticks, None)
         return
     new_total = st._prev_note_dur + ticks

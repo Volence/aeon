@@ -987,9 +987,9 @@ def test_standalone_dur_after_note_extends_it_fm():
     assert isinstance(notes[0], NoteDur) and notes[0].dur == 0x24
 
 def test_standalone_dur_in_dac_advances_time():
-    # DAC: dKick $0C then standalone $06, $0C -> the kick is paced, then +6, +12
-    # more ticks (the sample is one-shot; the durations advance time). Total DAC
-    # ticks must be 0x0C + 0x06 + 0x0C = 0x1E.
+    # DAC: dKick $0C then standalone $06, $0C -> each bare byte RE-TRIGGERS the
+    # saved kick (zUpdateDACTrack_cont) AND advances time. Total DAC ticks must
+    # be 0x0C + 0x06 + 0x0C = 0x1E.
     from song_packer import Dac, Rest, SetDur, NoteDur, Note
     ev = convert_channel("DAC",
         ["\tdc.b dKickS3, $0C, $06, $0C"], {}, _cfg(), ConvState())
@@ -999,3 +999,41 @@ def test_standalone_dur_in_dac_advances_time():
         elif isinstance(e, NoteDur): total += e.dur
         elif isinstance(e, (Note, Rest)): total += cur
     assert total == 0x1E, "DAC standalone durs dropped: total=%d" % total
+    # 1 initial trigger + 2 bare-duration re-triggers.
+    assert sum(1 for e in ev if isinstance(e, Dac)) == 3
+
+# ── DAC bare duration = drum RE-TRIGGER (S3K zUpdateDACTrack_cont) ────────────
+# A $00-$7F byte in NOTE position on the DAC track makes the driver back up,
+# re-read zTrack.SavedDAC and QUEUE IT AGAIN (a fresh drum hit) with that byte
+# as the new duration — unless SavedDAC is the $80 rest. HCZ2's accelerating
+# snare rolls and its 9-hit tom fill are written this way.
+
+def _dac_total_ticks(ev):
+    from song_packer import Rest, SetDur, NoteDur, Note
+    cur = 0; total = 0
+    for e in ev:
+        if isinstance(e, SetDur): cur = e.ticks
+        elif isinstance(e, NoteDur): total += e.dur
+        elif isinstance(e, (Note, Rest)): total += cur
+    return total
+
+def test_dac_bare_duration_retriggers_saved_sample():
+    # HCZ2 snare-roll idiom: dSnareS3 $18, then a bare $0C, then a bare
+    # $02, $04, $06 run — every bare byte re-fires the snare at that pacing.
+    ev = convert_channel("DAC",
+        ["\tdc.b dSnareS3, $18, $0C", "\tdc.b $02, $04, $06"],
+        {}, _cfg(), ConvState())
+    dacs = [e for e in ev if isinstance(e, Dac)]
+    assert len(dacs) == 5, "expected 1 trigger + 4 re-triggers, got %d" % len(dacs)
+    assert all(d.sample_id == (0x81 & 0x7F) for d in dacs)   # all snare
+    # Pacing preserved exactly: $18+$0C+$02+$04+$06 = $30 ticks.
+    assert _dac_total_ticks(ev) == 0x30
+
+def test_dac_rest_clears_saved_sample_no_retrigger():
+    # A DAC rest stores $80 into SavedDAC (zUpdateDACTrack_cont .got_sample), so
+    # a bare duration AFTER a rest paces silence — no ghost re-trigger.
+    ev = convert_channel("DAC",
+        ["\tdc.b dKickS3, $0C, $80, $06, $0C"], {}, _cfg(), ConvState())
+    dacs = [e for e in ev if isinstance(e, Dac)]
+    assert len(dacs) == 1, "rest must clear SavedDAC (got %d triggers)" % len(dacs)
+    assert _dac_total_ticks(ev) == 0x0C + 0x06 + 0x0C
