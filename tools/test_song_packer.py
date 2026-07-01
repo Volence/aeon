@@ -111,12 +111,14 @@ class TestEventEncoding(unittest.TestCase):
         self.assertEqual(Tempo(16).encode(), bytes([MEV_TEMPO, 16]))   # normal speed
 
     def test_tempo_range(self):
-        Tempo(0).validate(CHROUTE_FM1)       # 0 OK at pack time (engine clamps -> 16)
-        Tempo(255).validate(CHROUTE_PSG1)
-        with self.assertRaises(PackError):
-            Tempo(256).validate(CHROUTE_FM1)
-        with self.assertRaises(PackError):
-            Tempo(-1).validate(CHROUTE_FM1)
+        # Authored range is 1..$FE: 0 = engine "default" sentinel, $FF = the
+        # SND_TEMPO_RESTORE mailbox sentinel — both rejected at pack time so the
+        # engine's borrow-loop termination bound stays packer-guaranteed.
+        Tempo(1).validate(CHROUTE_FM1)
+        Tempo(254).validate(CHROUTE_PSG1)
+        for bad in (0, 255, 256, -1):
+            with self.assertRaises(PackError):
+                Tempo(bad).validate(CHROUTE_FM1)
 
     def test_reg_sel_encoding(self):
         # reg_sel = (group_code << 2) | op. TL group op0 = the canonical lead step.

@@ -93,8 +93,9 @@ Sequencer_Frame:
         ; per frame (CUR = 2x base must yield 2.0 ticks/frame; a single absorb left
         ; the accumulator wrapped out of range = burst-then-stall). Each pass adds
         ; one tempo_base credit and runs one tick; the add's CARRY = accumulator
-        ; back in range = that was the last owed tick. Terminates: packer enforces
-        ; tempo_base >= 16, CUR <= $FE -> at most ~16 passes. Re-calling
+        ; back in range = that was the last owed tick. Terminates: the packer
+        ; enforces tempo_base >= 16 AND Tempo operands 1..$FE (and Seq_Op_Tempo
+        ; clamps 0 -> 16 engine-side) -> at most ~16 passes. Re-calling
         ; Sequencer_Channel with the same ix is safe (an ended channel's dur_count
         ; underflows to $FF -> ret nz, no fetch).
 .tick_loop:
@@ -1337,6 +1338,12 @@ Seq_Op_RegDelta:
 ; all 3 operands first (hl ends past them = the resume ptr), then push/pop hl around
 ; the YM-write pair (defensive, the YmWrite/Repark calls already preserve hl).
 ; Clobbers: af, bc. Manipulates: hl (kept live). Uses ix.
+; NOTE (deliberate asymmetry with MacroTick's TAG_MAC_REG gate): this handler is
+; NOT gated on SCF_SFX_OVERRIDE. Every route that can carry an authored REGWRITE
+; today (music FM channels via the packer's FM gate + the DAC route's $B6 pan
+; door) is either never stolen (DAC/FM6 are SFX-ineligible) or the write targets
+; a global reg. If REGWRITE content ever lands on a stealable channel's per-
+; channel regs, add the same 5-byte gate MacroTick.reg carries.
 Seq_Op_RegWrite:
         ld      a, (hl)
         inc     hl                       ; a = part (0/1); hl past part byte

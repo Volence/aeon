@@ -160,8 +160,10 @@ SndDrv_Init:
         ; and FMS (vibrato) depth bits carried in each patch's $B4 (fp_lr_ams_fms).
         ; Without this master switch those depth bits are inert -> flat/static
         ; voices. The Zyrinx/B&R driver runs the LFO at $22=$08; matching it brings
-        ; our held notes alive. Set ONCE (the reg persists; nothing else writes $22)
-        ; and BEFORE the addr port parks on $2A below. ($4000=reg via hl, $4001=data
+        ; our held notes alive. Set here as the boot default (the reg persists);
+        ; songs may retune/disable it via MEV_LFO (Seq_Op_Lfo) — MT re-asserts $08
+        ; at its start for per-song determinism. Written BEFORE the addr port
+        ; parks on $2A below. ($4000=reg via hl, $4001=data
         ; via de — same idiom as the DAC enable.)
         ld      (hl), SND_REG_LFO        ; $4000 = $22 (select LFO reg)
         ld      a, 08h                   ; LFO enable (bit3) + freq 0 (= 3.82 Hz)
@@ -748,7 +750,12 @@ Snd_StartSample:
         ; sample-start would stomp any pan the DAC stream authors via
         ; MEV_REGWRITE (S3K DAC tracks pan their tom fills L/C/R through $B6;
         ; HCZ2's only stereo element). ADAPTIVE keeps FM6's music $B6 as before
-        ; (the Echo model — the drum inherits the music pan). ---
+        ; (the Echo model — the drum inherits the music pan). KNOWN GAP: a
+        ; SND_REQ_SAMPLE posted before the FIRST song load plays with the YM's
+        ; power-on $B6 (L/R=0, silent) — SndDrv_Init doesn't seed $B6 (no bytes;
+        ; budget). Every shipped DAC trigger rides a song, so this is a debug-
+        ; mailbox-only corner; seed $B6 in init when the RAM/ceiling rework
+        ; frees bytes (DEFERRED_WORK). ---
         pop     hl                       ; hl = descriptor base
         ; --- Read ALL descriptor fields BEFORE banking. SndDrv_SetBank CLOBBERS hl
         ; (it loads hl=SND_CUR_BANK, then hl=$6000); calling it first and then re-

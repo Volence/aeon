@@ -1021,7 +1021,9 @@ Sfx_Restore:
         jr      z, .fm_rekey_table
         ld      d, (ix+sc_base_freq)     ; high slot = $A4 value
         ld      e, (ix+sc_base_freq+1)   ; low slot  = $A0 value
-        call    Fm_NoteOnFreq            ; re-key at the exact raw pitch (preserves ix)
+        call    Fm_NoteOnFreqExact       ; re-key at the exact raw pitch (preserves ix).
+        ; Exact entry: sc_base_freq was latched POST-detune, so the plain entry
+        ; would fold sc_detune a second time on a detuned stream channel.
         jr      .fm_done
 .fm_rekey_table:
         ld      a, (ix+sc_note)          ; the held note index

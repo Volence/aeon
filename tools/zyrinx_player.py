@@ -1685,10 +1685,12 @@ def build_native_songdesc(rom, pitchtable_offset=0,
         stats["tempo_base"] = tempo_base
         stats_all.append(stats)
 
-    # Global hardware LFO ON at rate 0 (~3.8 Hz): the B&R reference writes
-    # $22=$08 at song start and drives per-channel depth via the voices' $B4
-    # FMS bits (which the Pan/patch path already carries). Without this master
-    # enable the transcoded FMS bits are inert and the song has no vibrato.
+    # Global hardware LFO: assert $22=$08 (enable, rate 0 ~3.8 Hz) at song
+    # start, as the B&R reference does. SndDrv_Init already enables this at
+    # boot, so on a cold start it's a no-op — the event exists so MT's LFO
+    # state is per-song deterministic: a previously played song's MEV_LFO
+    # (any authored rate/disable) must not leak into this one. Per-channel
+    # depth rides the voices' $B4 FMS bits (Pan/patch path).
     # Rides channel 0's stream, before its LoopPoint (fires once).
     channels[0].events.insert(0, Lfo(0x08))
 
@@ -1845,7 +1847,7 @@ def emit_native_song(rom=None, song_out=None, patches_out=None,
     }
 
 
-def _write_blob_asm(blob, label, out_path):
+def _write_blob_asm(blob, label, out_path, offset_symbol="MT_PITCHTAB_OFFSET"):
     """Emit a packed song blob as a labeled dc.b block (same shape as
     song_packer.emit_asm, but for a blob already packed with a pitchtable_ptr)."""
     lines = []
@@ -1870,8 +1872,8 @@ def _write_blob_asm(blob, label, out_path):
     lines.append("; byte shifts every pitch lookup one byte early (= the whole song plays")
     lines.append("; a semitone flat; shipped bug, root-caused 2026-07-01). main.asm")
     lines.append("; asserts the layout against this constant at build time:")
-    lines.append("MT_PITCHTAB_OFFSET equ $%04X    ; = packed song length (header pitchtable_ptr)"
-                 % len(blob))
+    lines.append("%s equ $%04X    ; = packed song length (header pitchtable_ptr)"
+                 % (offset_symbol, len(blob)))
     with open(out_path, "w") as f:
         f.write("\n".join(lines))
         f.write("\n")

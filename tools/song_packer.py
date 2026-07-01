@@ -35,6 +35,7 @@ Tests: python3 -m pytest tools/test_song_packer.py -q
 """
 
 import os
+import sys
 
 # --- Opcode + route constants (mirror of sound_constants.asm) ---
 MEV_REST = 0x80
@@ -505,8 +506,12 @@ class Tempo(Event):
         return bytes([MEV_TEMPO, self.decrement & 0xFF])
 
     def validate(self, route):
-        if not (0 <= self.decrement <= 255):
-            raise PackError(f"Tempo decrement {self.decrement} out of byte range 0..255")
+        # 1..$FE only: 0 is the engine's "default" sentinel (clamped to 16) and
+        # $FF is the SND_TEMPO_RESTORE mailbox sentinel — neither is a valid
+        # AUTHORED stream operand. Keeping them out here keeps the engine's
+        # borrow-loop termination bound (<= ~16 passes) packer-guaranteed.
+        if not (1 <= self.decrement <= 0xFE):
+            raise PackError(f"Tempo decrement {self.decrement} out of authored range 1..254")
 
 
 class ModSet(Event):
@@ -998,8 +1003,7 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
     # buffer (SND_SONG_BUF_SIZE); a larger blob is silently truncated by the
     # loader. Warn (not raise): the flag choice is the author's.
     if not (song.flags & SH_F_STREAM) and cur > 0x200:
-        import sys
-        sys.stderr.write(
+            sys.stderr.write(
             "song_packer: WARN: non-STREAM (copy-path) song is %d bytes > 512 "
             "(SND_SONG_BUF_SIZE) — the Z80 loader will truncate it; set "
             "SH_F_STREAM or shrink the song\n" % cur)

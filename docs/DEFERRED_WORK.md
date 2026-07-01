@@ -1612,3 +1612,25 @@ retired; `SS_IDLE`/`SS_RESIDENT` keep their values). Entry below kept as history
 ### Build-Time DPLC Tools (§2.1 / §2.6) — 2026-04-24
 **Completed in:** §2 Art & Compression Pipeline
 **What:** `tools/dplc_layout.py` — contiguous art rearrangement (1 DMA entry per frame change) + DPLC entry merging (3.1 → 1.2 entries average). Sprite art extracted to `art/uncompressed/`, optimized art in `art/optimized/`, DPLC tables in `data/dplc/`.
+
+## Sound — small deferred items from the 2026-07-01 review follow-up
+
+### Cold-boot DAC pan seed (init $B6)
+A `SND_REQ_SAMPLE` posted before the FIRST song load plays silent/one-sided (YM
+powers on with $B6 L/R=0; the per-sample-start $C0 force was correctly moved to
+the song loader so authored DAC pans survive, but `SndDrv_Init` doesn't seed
+$B6). Debug-mailbox-only today (every shipped DAC trigger rides a song). Fix =
+~10 B part-II seed in init — schedule with the Z80 RAM/ceiling rework.
+
+### Boundary-tick patch pre-loading (generator)
+Body-prefix thinning (b48b35e) cut the measure-5 burst 236->86 writes and fixed
+the audible stutter, but boundaries with GENUINE multi-channel instrument
+changes still cost ~25-35 ms ticks (per-load cost through the banked window).
+If one ever turns audible: pre-load the new patch during the preceding gate gap
+(the channel is keyed-off there — no audible timbre switch).
+
+### Frame-clock effective-rate tuning
+Timer-A N=136 (nominal ~59.99 Hz) measures ~59.63 Hz effective in Exodus (idle
+poll latency). If a finer match to reference cadence is ever wanted, retune N
+against MEASURED cadence (and re-pin the build assert) rather than nominal math
+— but real hardware latency may differ from Exodus; don't tune to the emulator.

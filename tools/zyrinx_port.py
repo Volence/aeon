@@ -88,10 +88,17 @@ OP_REORDER = [0, 1, 2, 3]
 # The six per-operator group keys in our FmPatch emit order (regs $30..$80).
 _VOICE_GROUP_KEYS = ("dt_mul", "tl", "ks_ar", "am_d1r", "d2r", "sl_rr")
 
-# CARRIER operators per algorithm, as op-slot indices in register order
-# ($30/$34/$38/$3C = index 0..3). Alg 0-3 chain into OP4; alg 4 = two 2-op
-# stacks (carriers OP2, OP4); alg 5/6 = OP1 modulating three carriers;
-# alg 7 = four parallel carriers.
+# "Carrier" op-slots per algorithm FOR THE +1 TL BUMP, as op-slot indices in
+# register order ($30/$34/$38/$3C = index 0..3). This table is EMPIRICAL — it
+# reproduces which slots the B&R driver itself bumps, verified slot-by-slot
+# against mt_ref.vgm (2026-07-01). NOTE the alg-4 entry (1,3) bumps the
+# $34/$3C slots, which by textbook op order (S1,S3,S2,S4 in register order)
+# is OP3+OP4 — NOT the theoretical alg-4 carrier set OP2+OP4 = slots (2,3).
+# The reference capture proves B&R does exactly this (alg-4 $3C bass renders
+# S1=3 S3=6 S2=0 S4=1 in BOTH ref and ours — byte-identical), i.e. the B&R
+# driver carries the classic S2<->S3 register-order quirk in its own
+# carrier-level path. Do NOT "correct" this to (2,3) — fidelity means
+# matching the driver we're porting, quirk included.
 _CARRIER_OPS = (
     (3,), (3,), (3,), (3,),
     (1, 3),

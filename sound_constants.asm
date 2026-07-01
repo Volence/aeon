@@ -174,6 +174,13 @@ SND_TIMERA_N           = timerAReload(SND_FRAME_MILLIHZ)
         if (SND_TIMERA_N < 0) || (SND_TIMERA_N > 1023)
           error "SND_TIMERA_N (\{SND_TIMERA_N}) out of the 10-bit Timer-A range 0..1023"
         endif
+        ; Hard-pin the assembled value: the truncating build-time division makes N
+        ; sensitive to the formula's exact shape (135 vs 136 was a real drift between
+        ; the comment math and the assembled value). Any deliberate retune must
+        ; update this pin alongside the target.
+        if SND_TIMERA_N <> 136
+          error "SND_TIMERA_N (\{SND_TIMERA_N}) != the pinned 136 — frame clock changed; retune deliberately"
+        endif
 
 ; --- 1B: ring buffer (page-aligned, 256 bytes) ---
 SND_RING_BASE           = $1700                  ; Z80 addr; high byte $17 is the page
@@ -1008,7 +1015,7 @@ sc_last_freq    ds.w 1   ; +53 last modulated word written (write-on-change shad
 sc_noise_mode   ds.b 1   ; +55 SN76489 noise control byte ($E0|mode|rate) latched by
                          ;     MEV_PSGNOISE — music-noise channel only (per-note rate-3
                          ;     gate + SFX-steal re-arm) (RELOCATED from +42).
-sc_detune       ds.b 1   ; +56 signed fine-pitch offset (RESERVED; renderer is a later phase)
+sc_detune       ds.b 1   ; +56 signed fine-pitch offset, folded at FM note-on (Fm_NoteOnFreq -> Fm_FnumApplyDelta)
 sc_pad          ds.b 1   ; +57 pad to an even struct length (AS does not auto-align ds.w)
 SeqChannel endstruct      ; = 58 bytes
 
@@ -1318,7 +1325,7 @@ SND_SFX_RAM_END    = SND_SFX_DUCK_TARGET + 1
 
 ; --- Trace event_code values (0..15) — the controller decodes the trace ring.
 ; Each trace byte is (sc_route << 4) | event_code: high nibble = CHROUTE_*,
-; low nibble = SEQEV_* below. (Route fits in 4 bits: CHROUTE_COUNT = 10 <= 15.)
+; low nibble = SEQEV_* below. (Route fits in 4 bits: CHROUTE_COUNT = 11 <= 15.)
 SEQEV_NOTEON    = 1     ; note-on (pitch in sc_note)
 SEQEV_NOTEOFF   = 2     ; note-off / rest
 SEQEV_VOL       = 3     ; set channel volume

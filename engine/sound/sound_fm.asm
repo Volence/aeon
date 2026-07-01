@@ -795,6 +795,12 @@ Fm_NoteOnFreq:
         ld      h, a                     ; hl = sign-extended sc_detune (a became 0 or -1)
         call    Fm_FnumApplyDelta        ; d/e = detuned, block-normalized
 .no_detune:
+; Fm_NoteOnFreqExact — entry that SKIPS the detune fold, for callers whose d/e is
+; an ALREADY-FINAL frequency. Sfx_Restore's raw re-key feeds back sc_base_freq,
+; which was latched POST-detune below — entering at Fm_NoteOnFreq would apply
+; sc_detune a second time (and compound across repeated steals). Zero-cost alias
+; label; the local labels below rescope to it (no cross-scope refs exist).
+Fm_NoteOnFreqExact:
         ; Write $A4 then $A0 (no key-on yet) via the shared Fm_WriteFreq head. It
         ; re-parks $2A at the end, harmless before the key-on below. de (the fnum word)
         ; is reloaded after for the base-freq latch.
