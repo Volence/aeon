@@ -1322,9 +1322,10 @@ Seq_Op_RegDelta:
 ; $F8 MEV_REGWRITE + part + reg + val : write ONE arbitrary YM2612 register for an
 ; EXPLICIT part (0/1), IMMEDIATELY. Zero command-tick. The part is carried by the
 ; operand (NOT Fm_RoutePart-derived) — this is the raw register escape hatch for
-; whole-part / global regs. GUARD: reg==$2A (DAC data) and reg==$2B (DAC enable)
-; are SKIPPED (the operands are still consumed) so a song can never clobber the DAC
-; stream or click the enable edge. After the write, Fm_ReparkDac re-selects $2A on
+; whole-part / global regs. GUARD: reg==$2A/$2B (DAC data/enable) and reg $24-$27
+; (the timer block — the whole-driver frame clock) are SKIPPED (the operands are
+; still consumed) so a song can never clobber the DAC stream, click the enable
+; edge, or stop Timer A. After the write, Fm_ReparkDac re-selects $2A on
 ; the addr port so a racing DAC byte lands on $2A. de=$4001 is preserved BY
 ; CONSTRUCTION (Fm_YmWrite/Fm_ReparkDac use absolute YM addressing). hl-rule: load
 ; all 3 operands first (hl ends past them = the resume ptr), then push/pop hl around
@@ -1341,12 +1342,21 @@ Seq_Op_RegWrite:
         ld      a, (hl)
         inc     hl                       ; a = val; hl now PAST all 3 operands
         ld      c, a                     ; c = val
-        ; --- DAC-reg guard: refuse $2A / $2B (skip the write, operands consumed) ---
+        ; --- DAC + timer reg guard: refuse $2A/$2B (a raw poke would corrupt/
+        ; silence the DAC stream) AND $24-$27 (the timer block: Timer A is the
+        ; whole-driver frame clock — an authored $27 write, e.g. the natural ch3-
+        ; special value $40, would stop it = total driver freeze). Skip the write,
+        ; operands still consumed. ---
         ld      a, e                     ; a = reg
         cp      SND_REG_DAC_DATA         ; $2A ?
         jr      z, .skip
         cp      SND_REG_DAC_ENABLE       ; $2B ?
         jr      z, .skip
+        cp      SND_REG_TIMER_A_HI       ; below $24 -> under the timer block
+        jr      c, .write
+        cp      SND_REG_TIMER_CTRL+1     ; $24-$27 -> timer block, refuse
+        jr      c, .skip
+.write:
         ld      a, e                     ; a = reg (Fm_YmWrite wants reg in a)
         push    hl                       ; defensive: keep the live stream ptr across the write
         call    Fm_YmWrite               ; a=reg, c=val, b=part (absolute addr; de untouched)
@@ -1537,6 +1547,11 @@ MacroTick:
         jr      z, .reg_skip
         cp      SND_REG_DAC_ENABLE       ; $2B?
         jr      z, .reg_skip
+        cp      SND_REG_TIMER_A_HI       ; below $24 -> under the timer block
+        jr      c, .reg_write
+        cp      SND_REG_TIMER_CTRL+1     ; $24-$27 -> timer block (frame clock), refuse
+        jr      c, .reg_skip
+.reg_write:
         ld      a, e                     ; a = reg (b=part, c=val already set)
         call    Fm_YmWrite               ; a=reg, c=val, b=part (preserves bc,de,hl,ix)
         call    Fm_ReparkDac             ; re-park $2A (preserves bc,de,hl,ix)
