@@ -899,9 +899,15 @@ Seq_Op_PsgNoise:
         ld      a, (hl)
         inc     hl                       ; consume operand (the $E0-$EF control byte)
         ld      (ix+sc_noise_mode), a    ; latch for the per-note rate-3 gate + steal re-arm
+        ; OVERRIDE gate: while an SFX owns the noise voice, keep the latch above
+        ; (Sfx_Restore re-arms from it) but skip the chip writes — the control
+        ; write would reset the SFX's LFSR/mode and re-silence tone-2 under it.
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        jr      nz, .noise_latched
         ld      (SND_Z80_PSG), a         ; write the noise control (resets LFSR once)
         ld      a, SND_PSG_SILENCE_T3    ; $DF = tone-ch2 volume | max attenuation
         ld      (SND_Z80_PSG), a         ; silence ch2 tone (its frequency still clocks noise)
+.noise_latched:
         jp      Seq_ContinueFetch
 
 ; $F4 MEV_LFO + value : write YM2612 $22 (bit3 enable | bits0-2 rate). The global LFO
