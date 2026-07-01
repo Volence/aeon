@@ -32,14 +32,17 @@ See [`docs/ENGINE_ARCHITECTURE.md`](docs/ENGINE_ARCHITECTURE.md) for the full de
 ## Build
 
 ```bash
-./build.sh          # assemble s4.bin (uses Wine to run the win32/ toolchain)
-./build.sh -pe      # print errors only
+./build.sh            # assemble s4.bin (default game: sonic4; native tools/asl, no Wine)
+./build.sh <game>     # assemble games/<game>/main.asm (first arg selects the game)
+./build.sh sonic4 -pe # print errors only (the game must be given first, since $1 = game)
 ```
 
-Pipeline: ring-layout conversion → AS Macro Assembler (`asw`) → `p2bin` → symbol fixups →
-header checksum. Output is `s4.bin` (the game ROM) plus `s4.lst` (symbols, fed to `convsym` so
-debuggers resolve names live — addresses are expected to drift between builds and are never
-hardcoded).
+Pipeline: build-tool generators (S&K collision import, OJZ strip/block gen, ZX0 art-pool packing
+via `salvador`, compression vectors, SFX transcode) → `s4lint` → AS Macro Assembler (`tools/asl`) →
+`p2bin` → `convsym` symbol table → `fixheader` checksum. Output is `s4.bin` (the game ROM) plus
+`s4.lst` (symbols, fed to `convsym` so debuggers resolve names live — addresses are expected to drift
+between builds and are never hardcoded). The build is game-parameterized; `sonic4` keeps the historical
+`s4` ROM name, other games use their own.
 
 The Z80 sound driver and DEBUG features are gated behind build flags:
 
@@ -51,12 +54,12 @@ SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh
 
 | Path | Contents |
 |---|---|
-| `main.asm`, `constants.asm`, `macros.asm`, `ram.asm`, `structs.asm` | Top-level assembly + global definitions |
-| `engine/` | Core engine: boot, game loop, level streaming, objects, player, sound |
-| `objects/` | Game object implementations |
-| `data/` | Levels, art, sound, editor-authored section data |
+| `constants.asm`, `macros.asm`, `ram.asm`, `structs.asm`, `sound_constants.asm` | Top-level global definitions |
+| `engine/` | Reusable Aeon engine — `system/`, `compression/`, `level/`, `objects/` (object system), `sound/`, `debug/`. No game specifics. |
+| `games/sonic4/` | The Sonic 4 game built on Aeon: `main.asm`, `player/`, `objects/` (game objects), `data/` |
+| `data/` | Engine-shared data: `collision/`, `generated/` (game data lives under `games/<game>/data/`) |
 | `art/` | Compressed and uncompressed graphics |
-| `tools/` | Python build generators (art paging, compression, collision, sound tables) |
+| `tools/` | Native build tools (`asl`, `p2bin`, `convsym`, `fixheader`) + Python generators (art paging, compression, collision, sound tables) |
 | `docs/` | Architecture, deferred work, research, and design specs |
 | `test/` | In-ROM test scaffolds |
 

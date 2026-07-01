@@ -12,7 +12,7 @@ All game DATA (art, music, physics values, palette files) will be migrated from 
 ./build.sh          # Build s4.bin ROM
 ```
 
-Assembler: AS Macro Assembler (`asw`). Mixed 68000 + Z80 assembly in a single project. `build.sh [game]` selects the game (default `sonic4` → `s4.bin`).
+Assembler: AS Macro Assembler (native `tools/asl`). Mixed 68000 + Z80 assembly in a single project. `build.sh [game]` selects the game (default `sonic4` → `s4.bin`).
 
 ## Repository Layout
 
@@ -108,9 +108,9 @@ When researching how to implement a system, check these in order:
 
 ## Testing
 
-- Build and load in the user's debug emulator (Exodus with MCP)
+- Build and load in the user's debug emulator (Oracle with MCP)
 - Never auto-launch emulators — user handles that
-- Use Exodus MCP tools to inspect VRAM, CRAM, registers, RAM directly
+- Use Oracle MCP tools to inspect VRAM, CRAM, registers, RAM directly
 
 ## What This Engine Is
 
