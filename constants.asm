@@ -323,11 +323,14 @@ MAX_PARALLAX_BANDS         = 8
 PARALLAX_TRANS_DEFAULT     = 16     ; default boundary lerp duration (frames)
 PARALLAX_LERP_SHIFT        = 4      ; >>4 ≈ 16-frame convergence to ~95% — gentler slide on factor changes
 
-; Multi-region VRAM tile packing (§2 A.2)
-; Region 1: primary art pool $0000-$B7FF (1472 tiles).
-; SAT at $B800 occupies tiles $5C0-$5FF (64 tiles).
-; Region 2 removed — full 64-row plane uses all nametable rows.
-REGION1_TILE_CAPACITY   = 1472      ; was 1536; SAT at $B800 takes tiles $5C0-$5FF
+; Act art pool VRAM ceiling — the PHASE-1 shipped layout, not the end-state.
+; The pool loads to tiles 0..N-1; the character DPLC region sits at tile 960
+; (VRAM_TEST_SONIC) and the BG region at 1024 (BG_TILE_BASE_VRAM). 1472
+; ($0000-$B7FF; SAT at $B800 takes tiles $5C0-$5FF) becomes the ceiling only
+; when the art-streaming spec's Phase 3 unifies BG/characters into the
+; residency pool. Mirrored by POOL_TILE_CEILING in ojz_strip_gen.py (build
+; guard); asserted against the generated manifest in the act descriptor.
+POOL_TILE_CEILING       = 960
 
 ; Per-act section grid cap. Flat section id = sec_y * grid_w + sec_x;
 ; per-act build asserts enforce grid_w * grid_h <= MAX_ACT_SECTIONS.
@@ -533,7 +536,11 @@ VRAM_TEST_OBJ           = $03E0         ; tile 992 — test object art (8 tiles)
                                         ; gap between the character DPLC region end (985)
                                         ; and the BG shared region base (1024).
 VRAM_RING_PLACEHOLDER   = VRAM_TEST_OBJ+8 ; tile 1000 — 1-tile gold ring (DrawRings)
+VRAM_TEST_MARKER        = VRAM_RING_PLACEHOLDER+1 ; tile 1001 — debug-fly marker (2×2 = 4 tiles)
+                                        ; in the free gap below the BG region (1024). Must NOT
+                                        ; sit inside the act art pool (every pool slot is
+                                        ; referenced FG art — see POOL_TILE_CEILING).
 VRAM_TEST_SONIC         = $03C0        ; tile 960 — character DPLC region (up to 25 tiles).
-                                        ; MUST stay clear of: FG section pools (tiles 0-~226,
-                                        ; see data/editor vram_bases), marker tile $FA, BG
-                                        ; region (1024+), SAT/HScroll/planes.
+                                        ; MUST stay clear of: the act art pool (tiles
+                                        ; 0..POOL_TILE_CEILING-1), the test-obj/ring/marker
+                                        ; gap (992-1004), BG region (1024+), SAT/HScroll/planes.
