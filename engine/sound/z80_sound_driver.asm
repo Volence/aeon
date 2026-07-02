@@ -1154,7 +1154,7 @@ Snd_LoadSong:
         ld      (SND_Z80_YM_A3), a       ; $4003 = data
 .fm6_pan_owned:
 
-        ; channel_count (SH_CHCOUNT) — read via iy = song base (RAM or window).
+        ; channel_count (SH_CHCOUNT) — read via iy = song base ($8000-window).
         ld      iy, (Snd_SongBase)
         ld      a, (iy+SH_CHCOUNT)
         cp      CHROUTE_COUNT+1          ; defensive guard: a corrupt count clamps to 0
@@ -1207,7 +1207,7 @@ Snd_LoadSong:
         ld      h, (iy+SHC_CMD_HI)       ; high byte first (big-endian)
         ld      l, (iy+SHC_CMD_LO)
         ld      de, (Snd_SongBase)
-        add     hl, de                   ; hl = base + offset (RAM or window address)
+        add     hl, de                   ; hl = base + offset ($8000-window address)
         ld      (ix+sc_stream_ptr), l
         ld      (ix+sc_stream_ptr+1), h
         ; mod_ptr (slot[1], C-ready seam): BIG-ENDIAN offset; 0 = NULL (single

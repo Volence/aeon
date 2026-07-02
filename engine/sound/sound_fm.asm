@@ -146,7 +146,7 @@ Fm_PatchPtr:
         add     hl, hl                   ; hl = patch*8
         add     hl, hl                   ; hl = patch*16
         add     hl, hl                   ; hl = patch*32  (= patch*FmPatch_len)
-        ld      de, (SND_SEQ_PATCHTAB)   ; base = loaded patch-table ptr (RAM or window)
+        ld      de, (SND_SEQ_PATCHTAB)   ; base = loaded patch-table ptr ($8000-window)
         add     hl, de                   ; hl = table base + patch*32
         ret
 
