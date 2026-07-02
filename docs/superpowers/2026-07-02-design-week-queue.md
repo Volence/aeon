@@ -26,7 +26,7 @@ collide with any of this (all sound work stays in its own lane).
 | 6 | **Editor collision authoring** — Aurora stamps carry collision (per-block-placement solidity — the classic-chunk role) + a first-class collision layer; fixes art-reuse dragging collision along | **BANKED** (added 2026-07-02, user-raised) | Cross-tool: Aurora + the daemon-watched generator |
 
 | 7 | **Screens/HUD (§9.13) + Aurora screen authoring** — game-state screens (title/menus/results/game-over), font/text pipeline, HUD; screens are data documents Aurora edits visually (text, selectable menus, art, palette, music cue) and the engine plays | **BANKED** | Unlocks #4's lives/game-over; needs the font pipeline |
-| 8 | **Raster engine + parallax authoring tools** — HInt raster-effect library (water line etc., §4.6 backlog) + Aurora visual band/deform editor with live preview over Aether | queued (added 2026-07-02) | Engine half exists; authoring is hand-written asm today |
+| 8 | **Raster engine + parallax authoring tools** — HInt raster-effect library (water line etc., §4.6 backlog) + Aurora visual band/deform editor with live preview over Aether | **BANKED** | Engine half exists; authoring is hand-written asm today |
 | 9 | **Reusable object behaviors** — composable behavior primitives ("wait until on-screen", patrol, fire-at-player, death-into-explosion) via a lightweight per-object behavior sequencer; Aurora attaches behaviors/params to placed objects | queued (added 2026-07-02) | The force-multiplier for badniks/bosses; architecturally deepest of the three |
 
 **Not in the queue (considered, deferred):** screen/game-state system (§9.13 + HUD)
@@ -78,3 +78,10 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   binding table + widget/action handler tables for tally/title-card; full
   classic screen set; Aurora 4th AppMode + 7 MCP tools last). Design #7 BANKED.
   Next: #8 raster engine + parallax authoring tools.
+- 2026-07-02 — design #8 spec + plan committed (three layers: sparse HInt raster
+  script engine w/ closed op set + RAM trampoline + in-handler $0A re-arm +
+  camera-tracked water line; Batman-derived frame sequencer — deep-dive verified
+  B&R is sequencer + hardcoded raster, the general raster table is OUR novel
+  layer; parallax→JSON migration w/ byte-equal golden; Aurora 5th mode + FIRST
+  Aether client + DEBUG RAM override = real-engine 60fps live preview).
+  Design #8 BANKED. Next: #9 reusable object behaviors.
