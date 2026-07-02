@@ -231,8 +231,8 @@ def fnum_block(semitone: int) -> tuple[int, int]:
 **Files:**
 - Modify: `engine/sound/sound_sequencer.asm` (`FmEnvUpdate` :527-567, `PsgEnvUpdate` :468-512)
 
-- [ ] **Step 1: Research + measure first.** Get a tick-cost baseline: oracle profiler (`emulator_get_profiler`/`emulator_get_profiler_frames`) or the Timer-B gap histogram from `dac_stall.py` on the Task-5 capture — record median/worst tick under HCZ2. (The findings' numbers: ~16k median / ~57k worst; ~1k cyc/channel from unconditional TL rewrites.)
-- [ ] **Step 2: FM gate.** In `FmEnvUpdate` — emit only when `sc_env_out` actually changes:
+- [x] **Step 1: Research + measure first.** Get a tick-cost baseline: oracle profiler (`emulator_get_profiler`/`emulator_get_profiler_frames`) or the Timer-B gap histogram from `dac_stall.py` on the Task-5 capture — record median/worst tick under HCZ2. (The findings' numbers: ~16k median / ~57k worst; ~1k cyc/channel from unconditional TL rewrites.)
+- [x] **Step 2: FM gate.** In `FmEnvUpdate` — emit only when `sc_env_out` actually changes:
 
 ```asm
         ; --- plain value: store as the carrier-TL atten delta, advance the cursor ---
@@ -257,9 +257,9 @@ def fnum_block(semitone: int) -> tuple[int, int]:
 ```
 
   Safety argument to verify in-code before committing: (1) volume changes outside the env (`Seq_Op_Vol` hook) emit directly; (2) master-fade re-assert is ModUpdate's own `SND_FADE_DIRTY` block, independent of this path; (3) key-on resets `sc_env_cur`/`sc_env_out` to 0 (`Fm_NoteOnFreq`:825-826) so a fresh note's first differing env byte emits. If any of the three doesn't hold as described, stop and reconcile.
-- [ ] **Step 3: PSG mirror.** Same three-site gate in `PsgEnvUpdate` (plain value compare vs `sc_psgenv_out`, `.sustain` → `ret`; PSG `.rest` already ends in a single `Psg_NoteOff` + KEYED-gate hold — no per-frame re-emit exists to gate; leave it).
-- [ ] **Step 4: Verify.** Build; HCZ2 rendered A/B vs the Task-7 capture: envelope contours identical (per-hit decay curves on the PSG hi-hat, FM env channels) — write-on-change must be inaudible. Re-measure tick cost (same method as Step 1): expect several k cycles off the median under HCZ2. `dac_stall.py`: drum-hold % already improves. MT unchanged (no envelopes).
-- [ ] **Step 5: Commit.** `perf(sound): envelope TL/attenuation write-on-change — sustained envelopes stop rewriting the chip every frame (spec D.1)`. *(Cached env-body pointer and dispatch micro-opts from the spec are YAGNI-deferred unless Task 9's criteria miss — the gate delivers the dominant saving.)*
+- [x] **Step 3: PSG mirror.** Same three-site gate in `PsgEnvUpdate` (plain value compare vs `sc_psgenv_out`, `.sustain` → `ret`; PSG `.rest` already ends in a single `Psg_NoteOff` + KEYED-gate hold — no per-frame re-emit exists to gate; leave it).
+- [x] **Step 4: Verify.** Build; HCZ2 rendered A/B vs the Task-7 capture: envelope contours identical (per-hit decay curves on the PSG hi-hat, FM env channels) — write-on-change must be inaudible. Re-measure tick cost (same method as Step 1): expect several k cycles off the median under HCZ2. `dac_stall.py`: drum-hold % already improves. MT unchanged (no envelopes).
+- [x] **Step 5: Commit.** `perf(sound): envelope TL/attenuation write-on-change — sustained envelopes stop rewriting the chip every frame (spec D.1)`. *(Cached env-body pointer and dispatch micro-opts from the spec are YAGNI-deferred unless Task 9's criteria miss — the gate delivers the dominant saving.)*
 
 ### Task 9: D.2 + D.3 — Timer-B-paced ring drain at sequencer seams
 
