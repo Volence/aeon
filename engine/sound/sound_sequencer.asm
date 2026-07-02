@@ -526,9 +526,11 @@ PsgEnvUpdate:
 ; actually changes — a sustained/held envelope stops rewriting the chip every frame
 ; (the TL registers latch). Safe because every OTHER volume producer emits directly
 ; and folds the live sc_env_out via Fm_SetVolume (Seq_Op_Vol, the SND_FADE_DIRTY
-; re-assert, patch reload, Sfx_Restore), so chip TL == fold(sc_env_out) at all times
-; EXCEPT the one frame after key-on (Fm_NoteOnFreq resets sc_env_out=0 with no emit;
-; the first body byte that DIFFERS from 0 re-syncs — see the .store_gated note).
+; re-assert, patch reload, Sfx_Restore), so chip TL == fold(sc_env_out) whenever
+; FmEnvUpdate runs, EXCEPT the one frame after key-on (Fm_NoteOnFreq resets
+; sc_env_out=0 with no emit; the first body byte that DIFFERS from 0 re-syncs —
+; see the .store_gated note). Steals are excluded by ModUpdate's override gate;
+; Sfx_Restore re-emits volume before handing the channel back.
 ; In: ix = FM channel, sc_env != 0. Clobbers af,bc,de,hl. Preserves ix.
 ; ----------------------------------------------------------------------
 FmEnvUpdate:
@@ -557,8 +559,9 @@ FmEnvUpdate:
         ; write-on-change gate: emit ONLY when the env output actually changes.
         ; KNOWN 1-FRAME SEAM (accepted by the plan, "first DIFFERING byte emits"):
         ; key-on resets sc_env_out=0 WITHOUT a TL emit, so a body starting at 00h
-        ; (FmVolEnv_02/_03) rides the previous note's latched TL for that single
-        ; frame; the first differing byte (or any direct volume emit) re-syncs.
+        ; (e.g. FmVolEnv_02/_03 as of 2026-07-02) rides the previous note's latched
+        ; TL for one frame per leading 00h byte; the first differing byte (or any
+        ; direct volume emit) re-syncs.
         cp      (ix+sc_env_out)
         ret     z                        ; unchanged output -> no TL rewrite this frame
         ld      (ix+sc_env_out), a
