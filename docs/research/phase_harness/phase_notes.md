@@ -17,3 +17,8 @@
 - T6 quality review minor (pre-existing, for the T12 doc sweep): z80_sound_driver.asm:1290-1292 "once the gates are removed (later task)" — the gates were removed in Phase 1; stale.
 - Parks are NOT reload-only (2026-07-02, T7 session): MT-start (A press) seeds a ~20-25e9 ns park mid-session; draining can RE-SEED bigger when the queued handshake executes (3.4e9 → 76.9e9 thrash observed). UP/B presses park-safe. Deadlocked GUI survives plain pkill → 2 instances contend the socket: use pkill -9 and verify single instance. Root-cause fix (floorTime absolute-time stamping) recommended as next oracle micro-round BEFORE T9 (user sign-off needed).
 - Stale-ROM trap: an implementer's stash-compare build can leave s4.bin from the OLD tree — always rebuild before capturing; the $A4 block-bit histogram diff is a cheap stale-table detector.
+
+## Oracle park/known-stuck ROOT CAUSE FIXED — 2026-07-02 (oracle 04ac467)
+- Root cause: S315_5313::ConvertAccessTimeToMclkCount cast a NEGATIVE access time (legit behind-by-a-slice bookkeeping) to unsigned int → wrapped to ~2^32 mclk ≈ 80s execution time on a VDP control-port access → the 68k park, the handshake-time infection, the watchdog "known-stuck" latch — the whole family.
+- The reload-park DRAIN WORKFLOW IS OBSOLETE: reload → press immediately, no run_frames drain rounds, no fresh-GUI-per-capture. MT-start (A) parks also gone. "known-stuck restart required" gone (it was the watchdog tripping on the multi-minute park walk-back).
+- Still true: capture VGM via realtime free-run only (the run_frames 2x wait-timebase logger interaction is a separate, unfixed cosmetic defect); pkill -9 + single-instance check if a GUI ever does die.

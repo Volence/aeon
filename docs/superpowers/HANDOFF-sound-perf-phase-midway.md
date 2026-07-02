@@ -57,11 +57,13 @@ still-useful drain-hang fix; review before dropping).
   `det_overdue_line_applies` counter through ArbiterDebugState + debug_arbiter). Validated:
   STOP repro passes (alive, SEQ_ACTIVE=0, UP restarts), 9,400-frame music+SFX soak at steady
   cadence, 21k overdue applies healed live.
-- RESIDUAL (bounded stall, NOT a wedge; documented in `phase_harness/phase_notes.md`): every
-  reload_rom seeds a ~70.9e9 ns far-future 68k park (absolute time through the floorTime
-  escape hatch in MDBusArbiter::ClampHandshakeTimeDeterministic). Self-heals one slice per
-  pumped slice; drain workflow in phase_notes. Root-cause clamp/flush at reload = candidate
-  next micro-round. ALSO: VGM logging under run_frames stamps 2x waits — capture realtime only.
+- RESIDUAL → **ROOT-CAUSED AND FIXED 2026-07-02** (`04ac467`): the parks were NOT floorTime
+  absolute-time leakage — ConvertAccessTimeToMclkCount cast a negative access time to
+  unsigned int (~2^32 mclk wrap ≈ 80s exec time on a VDP port access). Reload parks,
+  MT-start parks, AND the "known-stuck, restart required" watchdog latch all gone; the
+  drain workflow is obsolete (reload → press immediately). Full story in
+  `phase_harness/phase_notes.md`. STILL TRUE: VGM capture realtime-only (run_frames 2x
+  wait stamps is a separate unfixed logger defect).
 - Practical wedge recovery (until fixed): reset/reload MAY hang on drain → `pkill -x oracle_gui`
   (NEVER `pkill -f` — it matches your own shell) then relaunch:
   `cd /home/volence/sonic_hacks/oracle/linux-port/build && ORACLE_DETERMINISTIC=1 setsid nohup ./oracle_gui >/tmp/oracle.log 2>&1 </dev/null & disown`
