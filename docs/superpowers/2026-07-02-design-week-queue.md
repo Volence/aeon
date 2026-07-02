@@ -27,7 +27,7 @@ collide with any of this (all sound work stays in its own lane).
 
 | 7 | **Screens/HUD (§9.13) + Aurora screen authoring** — game-state screens (title/menus/results/game-over), font/text pipeline, HUD; screens are data documents Aurora edits visually (text, selectable menus, art, palette, music cue) and the engine plays | **BANKED** | Unlocks #4's lives/game-over; needs the font pipeline |
 | 8 | **Raster engine + parallax authoring tools** — HInt raster-effect library (water line etc., §4.6 backlog) + Aurora visual band/deform editor with live preview over Aether | **BANKED** | Engine half exists; authoring is hand-written asm today |
-| 9 | **Reusable object behaviors** — composable behavior primitives ("wait until on-screen", patrol, fire-at-player, death-into-explosion) via a lightweight per-object behavior sequencer; Aurora attaches behaviors/params to placed objects | queued (added 2026-07-02) | The force-multiplier for badniks/bosses; architecturally deepest of the three |
+| 9 | **Reusable object behaviors** — composable behavior primitives ("wait until on-screen", patrol, fire-at-player, death-into-explosion) via a lightweight per-object behavior sequencer; Aurora attaches behaviors/params to placed objects | **BANKED** | The force-multiplier for badniks/bosses; architecturally deepest of the three |
 
 **Not in the queue (considered, deferred):** screen/game-state system (§9.13 + HUD)
 — conventional enough that design quality is not the bottleneck; water/per-section
@@ -85,3 +85,16 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   layer; parallax→JSON migration w/ byte-equal golden; Aurora 5th mode + FIRST
   Aether client + DEBUG RAM override = real-engine 60fps live preview).
   Design #8 BANKED. Next: #9 reusable object behaviors.
+- 2026-07-02 — design #9 spec + plan committed (two-track move‖act byte-opcode
+  sequencer, PC-is-the-state w/ depth-1 interrupts + armed events; BulletML
+  4-mode aim on new 256-angle atan2/sine module; native escape hatch;
+  badnik-side Touch_Enemy kill/chain-score/explosion/killed-bit owned here;
+  per-placement params = subtype-as-param-bundle-index, zero entity-format
+  break; v1 = skeleton + 3 example badniks [user framing], boss seams designed
+  not built; Aurora properties panel in map mode + 4 MCP tools, stale TS
+  entity exporter retired). Design #9 BANKED.
+- **ALL NINE DESIGNS BANKED — design week COMPLETE.** Every design has an
+  approved spec + cold-executable plan on master. Execution order note:
+  #7 tasks 1-5 unblock #4 fully; #9 depends softly on #4 (Touch_Enemy split)
+  and #7 (BCD helpers); #8 depends softly on #7 (fade engine). All soft deps
+  have tagged fallback seams in their plans.
