@@ -99,6 +99,35 @@ def order_pool_spatially(per_section_canon_tiles: list[list[int]]) -> list[int]:
     return order
 
 
+BLANK_TILE = bytes(TILE_SIZE)
+
+
+def pin_blank_tile_first(pool_order: list[int], canon_tiles: list[bytes]) -> list[int]:
+    """Pin the all-zero (transparent) tile at pool index 0 == VRAM tile 0.
+
+    Empty blocks and sparse plane rows render nametable word $0000 = VRAM
+    tile 0, so whatever art occupies pool slot 0 shows through every air
+    cell. Slot 0 must be blank by construction, not by data coincidence
+    (the blank tile happening to be the first one encountered).
+
+    The blank tile is its own canonical form (all four flips of zero are
+    zero). If the act art contains it, it is moved to the front; otherwise
+    a blank canonical is APPENDED to canon_tiles (mutated in place) and
+    prepended to the pool — costing one pool slot. Relative order of the
+    remaining tiles is preserved (spatial locality unaffected).
+
+    Returns the new pool order.
+    """
+    try:
+        blank_canon = canon_tiles.index(BLANK_TILE)
+    except ValueError:
+        canon_tiles.append(BLANK_TILE)
+        blank_canon = len(canon_tiles) - 1
+        return [blank_canon] + pool_order
+    rest = [cid for cid in pool_order if cid != blank_canon]
+    return [blank_canon] + rest
+
+
 def split_pool_into_pages(pool_order: list[int], page_tiles: int) -> list[list[int]]:
     """Split the ordered pool into contiguous pages of <= page_tiles each.
     Each page is independently decompressible and loads to slots

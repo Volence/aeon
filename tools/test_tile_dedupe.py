@@ -18,7 +18,9 @@ from tile_dedupe import (
     dedupe_tiles,
     remap_nametable_word,
     order_pool_spatially,
+    pin_blank_tile_first,
     split_pool_into_pages,
+    BLANK_TILE,
     NAMETABLE_TILE_MASK,
     NAMETABLE_H_BIT,
     NAMETABLE_V_BIT,
@@ -226,6 +228,42 @@ class TestOrderPoolSpatially(unittest.TestCase):
 
     def test_empty_input(self):
         self.assertEqual(order_pool_spatially([]), [])
+
+
+class TestPinBlankTileFirst(unittest.TestCase):
+    def test_moves_existing_blank_to_front(self):
+        canon = [b"\x11" * 32, BLANK_TILE, b"\x22" * 32]
+        order = pin_blank_tile_first([0, 1, 2], canon)
+        self.assertEqual(order, [1, 0, 2])
+        self.assertEqual(len(canon), 3)
+
+    def test_blank_already_first_is_unchanged(self):
+        canon = [BLANK_TILE, b"\x11" * 32]
+        order = pin_blank_tile_first([0, 1], canon)
+        self.assertEqual(order, [0, 1])
+        self.assertEqual(len(canon), 2)
+
+    def test_appends_blank_when_absent(self):
+        canon = [b"\x11" * 32, b"\x22" * 32]
+        order = pin_blank_tile_first([1, 0], canon)
+        self.assertEqual(order, [2, 1, 0])
+        self.assertEqual(len(canon), 3)
+        self.assertEqual(canon[2], BLANK_TILE)
+
+    def test_preserves_relative_order_of_rest(self):
+        canon = [b"\x11" * 32, b"\x22" * 32, BLANK_TILE, b"\x33" * 32]
+        order = pin_blank_tile_first([3, 0, 2, 1], canon)
+        self.assertEqual(order, [2, 3, 0, 1])
+
+    def test_slot_zero_is_always_blank(self):
+        for canon, pool in (
+            ([BLANK_TILE], [0]),
+            ([b"\x11" * 32], [0]),
+            ([b"\x11" * 32, BLANK_TILE], [0, 1]),
+        ):
+            canon = list(canon)
+            order = pin_blank_tile_first(pool, canon)
+            self.assertEqual(canon[order[0]], BLANK_TILE)
 
 
 class TestSplitPoolIntoPages(unittest.TestCase):

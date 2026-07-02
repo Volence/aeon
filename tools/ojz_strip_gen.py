@@ -114,7 +114,14 @@ CHUNKS_TILES_PATH = _project_tileset_path()
 # ---------------------------------------------------------------------------
 STRIP_TILE_HEIGHT = 256  # nametable rows per strip (full section height)
 
-REGION1_TILE_CAPACITY = 1472          # primary art pool $0000-$B7FF
+# Act art pool VRAM ceiling — the PHASE-1 shipped layout, not the end-state.
+# The pool loads to tiles 0..N-1; the character DPLC region sits at tile 960
+# (VRAM_TEST_SONIC) and the BG region at 1024 (BG_TILE_BASE_VRAM), so a pool
+# past 960 would pass a 1472-tile check and silently DMA over live art at
+# runtime. 1472 ($0000-$B7FF, SAT excluded) becomes the ceiling only when the
+# spec's Phase 3 unifies BG/characters into the residency pool. Mirrors
+# POOL_TILE_CEILING in constants.asm — keep in sync.
+POOL_TILE_CEILING = 960
 ART_POOL_PAGE_TILES = 256             # tiles per independently-decodable act art page
 # (block/chunk geometry constants imported from ojz_common above)
 TILES_PER_CHUNK_ROW = TILES_PER_BLOCK_ROW * BLOCKS_PER_CHUNK_ROW   # 16
@@ -1260,8 +1267,13 @@ def generate():
 
     # ---- Pass 4: global act art pool — spatially ordered, no per-section partition ----
     pool_order = tile_dedupe.order_pool_spatially(per_section_canon_tiles)   # canon IDs in pool order
-    assert len(pool_order) <= REGION1_TILE_CAPACITY, (
-        f"act art pool {len(pool_order)} tiles > VRAM capacity {REGION1_TILE_CAPACITY}")
+    # Pool slot 0 == VRAM tile 0 must be the blank tile — empty blocks and
+    # sparse plane rows render nametable word $0000. May append to `unique`.
+    pool_order = tile_dedupe.pin_blank_tile_first(pool_order, unique)
+    assert unique[pool_order[0]] == tile_dedupe.BLANK_TILE
+    assert len(pool_order) <= POOL_TILE_CEILING, (
+        f"act art pool {len(pool_order)} tiles > VRAM ceiling {POOL_TILE_CEILING} "
+        f"(tile 960 = character DPLC region — see POOL_TILE_CEILING comment)")
     canon_to_pool = {cid: idx for idx, cid in enumerate(pool_order)}  # canon ID -> pool index (== VRAM slot)
     pages = tile_dedupe.split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
 
@@ -1373,7 +1385,7 @@ def generate():
         f"  Deduped (with flip canonicalization): {deduped} "
         f"({pct:.1f}% reduction)\n"
         f"  Act art pool: {pool_tiles} distinct tiles "
-        f"(capacity {REGION1_TILE_CAPACITY})\n"
+        f"(ceiling {POOL_TILE_CEILING})\n"
         f"  Pages: {pool_pages} × {ART_POOL_PAGE_TILES} tiles "
         f"({', '.join(str(len(p)) for p in pages)} tiles each)\n"
     )
