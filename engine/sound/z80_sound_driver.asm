@@ -516,7 +516,9 @@ SndDrv_ISR:
 ; blindly restore the pre-call bank or the next FILL decodes the new sample through the
 ; old window; otherwise (idle/song context) the pre-call bank. Both restores are cached
 ; (no-op if unchanged). SND_CUR_BANK == the live $6000 latch at entry (SetBank is its
-; sole writer). Called from BOTH the VBlank ISR (idle context) and SndDrv_TimerATick
+; only steady-state writer; Snd_LoadSong's self-heal poison and init's $FF seed are
+; both consumed by an immediately-following SetBank in a di context, never observable
+; here). Called from BOTH the VBlank ISR (idle context) and SndDrv_TimerATick
 ; (streaming context — the IRQ doesn't fire during streaming, so the Timer-A tick is
 ; the only mailbox service there). Clobbers af,bc,de,hl,ix (PollMailbox's set).
 ; ======================================================================

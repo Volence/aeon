@@ -128,13 +128,10 @@ SongPatchTable_End:
         if (MovingTrucks_Bank_Start >> 15) <> ((HCZ2_Patches_End-1) >> 15)
           fatal "Song_HCZ2 block (song+patches, ending \{HCZ2_Patches_End-MovingTrucks_Bank_Start} bytes from the bank start) leaves Moving Trucks' 32KB bank — one SetBank can't cover its stream + the engine-table head. Shrink the bank contents or give HCZ2 its own bank WITH an engine-table head twin."
         endif
-        ; The block's whole window region must also stay below the $8000-window top
-        ; (so window_base + any per-channel/patch offset stays a valid window
-        ; address, never wrapping past $FFFF). With bank-alignment (addr & $7FFF)=0
-        ; this is automatic, but assert it against future placement changes.
-        if ((HCZ2_Patches_End-1) & $7FFF) < (HCZ2_Patches_End-1 - Song_HCZ2)
-          fatal "Song_HCZ2 streaming block extends past the $8000-window top — not bank-aligned? Keep `align $8000` before Song_HCZ2."
-        endif
+        ; (Window-top wrap is covered by the bank-anchored assert above: the whole
+        ; block staying inside MovingTrucks' bank bounds every window offset below
+        ; $8000. The old self-anchored duplicate — which could no longer fire once
+        ; HCZ2 lost its own `align $8000` — was removed 2026-07-02.)
     endif
 
         align 2

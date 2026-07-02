@@ -1529,8 +1529,9 @@ silently — and every subsequent song load stayed SILENT permanently, because
 load never reprogrammed the physical latch. The PERSISTENCE half is fixed (Snd_LoadSong now
 poisons `SND_CUR_BANK` with the $FF sentinel before its first SetBank, forcing a full
 physical latch program on every load); the CORRUPTER itself is still unidentified — it may
-even be an emulator artifact rather than real driver state loss. Evidence lives in the
-2026-07-02 session scratchpad (`s3k_ref/ours_baseline.vgm` + the investigation report). The
+even be an emulator artifact rather than real driver state loss. Evidence is preserved in-repo at
+`docs/research/wedge_evidence/` (the capture + README with the full analysis; also covers the
+related deterministic StopMusic cross-wait wedge found the same day). The
 race did NOT reproduce on a deterministic re-run past the loop point — it is
 alignment-dependent. **Hunt plan:** live watchpoint session on $6000-latch writes plus
 `SND_SONG_BANK`/`SND_ROM_BANK`/`SND_CUR_BANK` around a mid-sample DAC retrigger, to catch
