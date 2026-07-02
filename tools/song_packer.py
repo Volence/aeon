@@ -79,6 +79,9 @@ MEV_MACRO = 0xF9            # + ptr_hi + ptr_lo: (re)arm the slot[1] macro strea
 MEV_TEMPO = 0xF3           # + dd: set the GLOBAL tempo speed scalar (accumulator decrement; 16 = 100%)
 MEV_LFO = 0xF4             # + value: write YM2612 $22 (bit3 enable | bits0-2 rate); DAC $2A re-parked
 MEV_DETUNE = 0xF6          # + dd (signed): set the channel's fine-pitch detune (applied at note-on)
+MEV_EXT = 0xFA             # RESERVED extension prefix ($FA + sub-opcode = 256 more
+                           # event kinds, zero format break). No handler, no event
+                           # class — reserving the number is the whole feature.
 
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
 MAX_DUR = 0x7F                              # SetDur range $00..$7F

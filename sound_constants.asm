@@ -466,6 +466,14 @@ TAG_MAC_END     = $E3
 ; active, reset. Zero-tick. ($F7=MEV_FMENV, $F8=MEV_REGWRITE are sibling Phase-3
 ; opcodes; $F3-$F6 are Phase-2 reservations.)
 MEV_MACRO       = $F9
+
+; $FA MEV_EXT — RESERVED extension prefix (NOT implemented; do not assign $FA to
+; anything else). The MEV_* single-byte opcode space is nearly exhausted
+; ($FB-$FE are the only other free slots for the life of the format). When they
+; run out, $FA becomes a prefix: $FA + sub-opcode byte = 256 more event kinds
+; with zero format break. Reserving it now costs nothing; NOT reserving it
+; forecloses the whole format. (2026-07-01 specs review, recommendation #8.)
+MEV_EXT         = $FA    ; RESERVED prefix — no handler, no packer event yet
         ; MEV_MACRO must be a command opcode (> MEV_NOTE_MAX), inside the $E0-$FF
         ; coordination block, on its assigned slot $F9, and clear of every allocated
         ; opcode AND the Phase-2 reservations $F3-$F6.

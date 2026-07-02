@@ -1022,6 +1022,11 @@ Seq_Op_ModSet:
         ld      a, (ix+sc_route)
         cp      CHROUTE_PSG1             ; FM routes (<6) only; PSG/noise skip
         jr      nc, .modset_done
+        ; SFX-override gate: while an SFX owns this voice the music's base-freq
+        ; snap must not land on the SFX's $A4/$A0 (the mod state above is still
+        ; latched; Sfx_Restore re-keys from sc_base_freq so nothing is lost).
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        jr      nz, .modset_done
         push    hl                       ; Fm_WriteFreq clobbers hl (the live stream ptr)
         ld      d, (ix+sc_base_freq)
         ld      e, (ix+sc_base_freq+1)
