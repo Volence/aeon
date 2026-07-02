@@ -303,7 +303,7 @@ SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
         ; (VRAM DMA-from-ROM / BUSREQ) corrupts the fetched opcode -> wild PC ->
         ; Z80 self-reinit (`di` masks INT, not BUSREQ). Banked DATA reads tolerate
         ; contention (worst case a one-frame glitch); banked CODE fetches do not.
-        ; All in-frame code lives in the resident blob ($16F0 ceiling).
+        ; All in-frame code lives in the resident blob (SND_STATE_BASE ceiling).
         dephase
         restore
         include "games/sonic4/data/sound/song_movingtrucks.asm"

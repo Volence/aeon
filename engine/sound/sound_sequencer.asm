@@ -273,7 +273,7 @@ ModUpdate:
         or      a
         call    nz, Psg_ApplyMod         ; advance accum + re-latch tone divisor (no re-key)
         ; NOTE: the noise-route gate (audit D1) was reverted — the Z80 code blob is at
-        ; its HARD size limit ($16F0) and the gate cost ~9 bytes. The invariant
+        ; its HARD size limit (SND_STATE_BASE) and the gate cost ~9 bytes. The invariant
         ; "noise tracks never set sc_mod_ctrl" still holds (the transcoder never emits
         ; MEV_MODSET on a noise track). Re-add as a BUILD-TIME transcoder reject (0 Z80
         ; bytes) or restore this gate once Z80 space is recovered. See DEFERRED_WORK D1/F5.
@@ -606,7 +606,7 @@ Mod_ReArm:
 ; ----------------------------------------------------------------------
 ; Mod_Advance — one frame of the pitch-modulation TRIANGLE/ACCUMULATOR (the chip-
 ; AGNOSTIC core of zDoModulation, shared by the FM and PSG renderers so the triangle
-; machinery exists exactly once — the $16F0 code ceiling has no room to duplicate it).
+; machinery exists exactly once — the SND_STATE_BASE code ceiling has no room to duplicate it).
 ; Runs the faithful sequence and produces the modulated 16-bit word, leaving the chip
 ; WRITE to the caller (FM emits $A4/$A0; PSG re-latches the tone divisor). Sequence:
 ;   * count down sc_mod_wait (one-shot delay; when it hits 0, hold it at 1 so the
@@ -1050,7 +1050,7 @@ Seq_Op_ModSet:
 ; The spindash rev RESET is folded into the SFX-dispatch path (Sfx_BeginSound zeroes
 ; Snd_SpindashRev for any NON-spindash SFX) rather than a second stream opcode — the
 ; S3K smpsResetSpindashRev at the END of the spindash loop is redundant with that fold
-; (the next non-spindash SFX resets it), and folding saves the $16F0 code budget. So
+; (the next non-spindash SFX resets it), and folding saves resident code budget. So
 ; there is no Seq_Op_SpinRevReset handler; $F1 stays Seq_BadOpcode and the transcoder
 ; emits nothing for smpsResetSpindashRev.
 Seq_Op_SpinRev:

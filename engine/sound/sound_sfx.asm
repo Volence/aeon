@@ -6,8 +6,9 @@
 ; and before sound_fm.asm / sound_psg.asm — whose writers it CALLS).
 ;
 ; MODEL (spec §5): a parallel SFX interpreter layered over the music sequencer.
-; A fixed 7-slot SfxChannel array ($1D00) — FM3/4/5 + PSG1/2/3 + noise (the
-; stealable set). Each SfxChannel's 39-byte prefix MIRRORS SeqChannel, so the
+; A fixed 7-slot SfxChannel array (SND_SFX_BASE — page-aligned, derived in
+; sound_constants.asm) — FM3/4/5 + PSG1/2/3 + noise (the
+; stealable set). Each SfxChannel's shared prefix (+0..+56) MIRRORS SeqChannel, so the
 ; SHARED interpreter (ModUpdate + Sequencer_Channel) walks it with ix = the
 ; SfxChannel exactly as it walks a music channel. Sfx_Frame runs AFTER
 ; Sequencer_Frame so SFX hardware writes land last and OWN the stolen voice.

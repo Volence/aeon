@@ -47,7 +47,7 @@ Sound_DebugMirror:
 .copy1:
         move.b  (a0)+, (a1)+
         dbf     d0, .copy1
-        lea     (Z80_RAM+SND_STATE_BASE).l, a0   ; [48..63] = $16F0..$16FF (playback state)
+        lea     (Z80_RAM+SND_STATE_BASE).l, a0   ; [48..63] = $18F0..$18FF (playback state)
         moveq   #16-1, d0
 .copy2:
         move.b  (a0)+, (a1)+
@@ -56,7 +56,7 @@ Sound_DebugMirror:
         ; a1 now points at Sound_Dbg_Mirror+64. Copy the 8-byte sequencer header,
         ; then a SEQ_MIRROR_CHBYTES-byte PREFIX of each of SEQ_MIRROR_CHANNELS
         ; channels (the full 36-byte SeqChannel no longer fits), then the 32-byte
-        ; trace ring at $1A00. Mirror layout (offsets from Sound_Dbg_Mirror):
+        ; trace ring (SND_SEQ_TRACE). Mirror layout (offsets from Sound_Dbg_Mirror):
         ;   [64] SND_SEQ_TEMPO      [65] SND_SEQ_CHCOUNT
         ;   [66..67] SND_SEQ_PATCHTAB
         ;   [68] SND_SEQ_ACTIVE     [69] SND_SEQ_BADOP
@@ -68,14 +68,14 @@ Sound_DebugMirror:
           fatal "sound debug mirror window (\{64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN}) exceeds Sound_Dbg_Mirror (176 bytes)"
         endif
         ; 8-byte sequencer header.
-        lea     (Z80_RAM+SND_SEQ_BASE).l, a0     ; $1800.. (header)
+        lea     (Z80_RAM+SND_SEQ_BASE).l, a0     ; $1A00.. (header)
         moveq   #8-1, d0
 .copy3h:
         move.b  (a0)+, (a1)+
         dbf     d0, .copy3h
         ; per-channel prefixes: copy SEQ_MIRROR_CHBYTES, then skip the rest of the
-        ; Z80 SeqChannel slot. a0 already at SND_SEQ_CHANNELS ($1808) after the
-        ; header copy (the header is exactly the 8 bytes $1800..$1807).
+        ; Z80 SeqChannel slot. a0 already at SND_SEQ_CHANNELS ($1A08) after the
+        ; header copy (the header is exactly the 8 bytes $1A00..$1A07).
         moveq   #SEQ_MIRROR_CHANNELS-1, d1
 .copy3c:
         moveq   #SEQ_MIRROR_CHBYTES-1, d0
@@ -84,7 +84,7 @@ Sound_DebugMirror:
         dbf     d0, .copy3cb
         lea     (SeqChannel_len-SEQ_MIRROR_CHBYTES)(a0), a0   ; skip the unmirrored tail
         dbf     d1, .copy3c
-        lea     (Z80_RAM+SND_SEQ_TRACE).l, a0    ; trace ring ($1A00, 32 B)
+        lea     (Z80_RAM+SND_SEQ_TRACE).l, a0    ; trace ring (32 B, derived addr)
         moveq   #SND_SEQ_TRACE_LEN-1, d0
 .copy4:
         move.b  (a0)+, (a1)+

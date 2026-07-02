@@ -262,7 +262,7 @@ Psg_NoteOff:
 ; Psg_ApplyMod — one frame of PSG pitch modulation (spec §5). The PSG analogue of
 ; Mod_ApplyVibrato: both call the SHARED Mod_Advance triangle core (sound_sequencer.asm)
 ; — the accumulate/speed/steps-reversal/write-on-change logic lives there ONCE (no
-; duplication; the $16F0 ceiling has no room for a second copy). The only difference
+; duplication; the SND_STATE_BASE code ceiling has no room for a second copy). The only difference
 ; is the WRITE TARGET: Mod_Advance returns the modulated 16-bit word = sc_base_freq +
 ; sc_mod_accum, and here that word is the PSG tone DIVISOR (10 bits used). It is
 ; re-latched to the SN76489 tone register WITHOUT re-keying. Faithful to S3K's
@@ -282,7 +282,7 @@ Psg_ApplyMod:
 ; Psg_EmitDivisor — write a 10-bit tone DIVISOR to the SN76489 tone register for the
 ; current channel (latch + data bytes), WITHOUT keying/volume. Shared by Psg_NoteOn
 ; (fresh note) and Psg_ApplyMod (per-frame pitch sweep) so the divisor-split exists
-; once (the $16F0 code ceiling has no room for two copies).
+; once (the SND_STATE_BASE code ceiling has no room for two copies).
 ;   latch byte = $80 | (ch<<5) | (div & $0F);   data byte = (div >> 4) & $3F.
 ; In: ix = PSG tone channel, d = div hi, e = div lo. Clobbers af,bc,de. Preserves hl,ix.
 ; ----------------------------------------------------------------------
@@ -385,7 +385,7 @@ Psg_SetVolume:
         ; so it can't wrap. hl is preserved by contract — save it around the test.
         ; A full fade ($7F TL) >>3 = $0F = silent; fade 0 + duck 0 -> byte-identical.
         push    hl                       ; (Snd_ChanClass clobbers hl)
-        call    Snd_ChanClass            ; CARRY set => ix < $1D00 => MUSIC channel
+        call    Snd_ChanClass            ; CARRY set => ix below the SFX page => MUSIC
         pop     hl                       ; restore caller's hl (contract)
         jr      nc, .no_global_atten     ; SFX channel -> never fade/duck
         ld      a, (SND_SFX_DUCK_LEVEL)

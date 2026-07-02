@@ -56,7 +56,7 @@ Z80_Sound_Start:
 ; the long di window — the mailbox is serviced by the Timer-A tick instead), so the old
 ; per-pass `ei` + RAM round-trips are gone. Register map (held all streaming; the
 ; Timer-A tick spills->RAM / reloads around Sequencer_Frame, which clobbers everything):
-;   de = $4001 (DAC data)   h = SND_RING_PAGE ($17)
+;   de = $4001 (DAC data)   h = SND_RING_PAGE ($19)
 ;   c  = ring RD   b = ring WR   ix = ROM window ptr   hl' (shadow) = ROM len
 ;
 ; 1:1 STREAMING: every pass emits ONE ring byte AND fills ONE raw ROM byte, so the ring
@@ -140,7 +140,7 @@ SndDrv_Init:
         ; flag bracket. `ei` is issued only AFTER the ring is primed (below).
         di
         im      1                        ; VBlank /INT -> RST 38h -> $0038
-        ld      sp, 1FFEh                ; stack top (see z80-ram-map sub-design)
+        ld      sp, SND_STACK_TOP        ; stack top $1FFE (see the z80-ram-map spec)
 
         ; de = $4001 = YM2612 part-I DATA port. Held INVARIANT for the whole
         ; driver lifetime: the steady-state DAC write is `ld (de),a` (7 cyc),
@@ -330,7 +330,7 @@ SndDrv_Sample:
         ; state register-resident the per-sample cost drops ~3x (587 -> 195). Register
         ; map (held all streaming; the Timer-A tick spills->RAM / reloads around
         ; Sequencer_Frame, which clobbers everything):
-        ;   de = $4001 (DAC data)        h  = SND_RING_PAGE ($17, ring page)
+        ;   de = $4001 (DAC data)        h  = SND_RING_PAGE ($19, ring page)
         ;   c  = ring RD   b = ring WR   ix = ROM window ptr   hl' (shadow) = ROM len
         ; 1:1 STREAMING: each pass emits ONE ring byte AND fills ONE ROM byte, so the
         ; lead is constant -> NO SKIP path, no pad waste (that is what lets the rate
@@ -339,7 +339,7 @@ SndDrv_Sample:
         ; 2:1 catch-up. See the balance proof header. ---
         di
         ld      de, SND_Z80_YM_A1        ; de = $4001 (DAC data port; held all streaming)
-        ld      h, SND_RING_PAGE         ; h  = $17 (ring page; held all streaming)
+        ld      h, SND_RING_PAGE         ; h  = $19 (ring page; held all streaming)
         ld      a, (SND_RING_RD)
         ld      c, a                     ; c = ring RD
         ld      a, (SND_RING_WR)
@@ -353,7 +353,7 @@ SndDrv_Sample:
         ; --- CONSUMER: emit ring[rd] -> $2A ($4001). NO per-sample $2A re-select; the
         ; addr port stays parked on $2A (re-parked only by the tick / .stop /
         ; Snd_StartSample — the sole $4000-touching paths). RAM ring read — DMA-safe. ---
-        ld      l, c                     ; l = RD (h = $17)
+        ld      l, c                     ; l = RD (h = $19)
         ld      a, (hl)                  ; ring[rd]
         ld      (de), a                  ; -> YM $2A DATA ($4001)
         inc     c                        ; RD++
@@ -940,7 +940,7 @@ SndDrv_TimerATick:
         exx
         ld      hl, (SND_ROM_LEN)
         exx
-        ld      h, SND_RING_PAGE         ; restore h = $17 (frame clobbered it)
+        ld      h, SND_RING_PAGE         ; restore h = $19 (frame clobbered it)
         ld      de, SND_Z80_YM_A1        ; restore de = $4001
         ; 4. BULK-REFILL: top the lead up to SND_RING_LEAD_TARGET every frame, then stop
         ; at sample end. NOTE: this does NOT defer on an active 68k DMA. The 1:1 hot loop

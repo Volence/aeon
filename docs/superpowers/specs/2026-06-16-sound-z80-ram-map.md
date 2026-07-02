@@ -1,298 +1,129 @@
-# Sub-Design — Z80 RAM Memory Map (Phase 1)
+# Z80 RAM Memory Map — Sound Driver
 
-**Date:** 2026-06-16
-**Status:** Layout approved for Phase 1 — fixes the absolute addresses every later sound task builds on
-**Branch:** `design/sound-driver`
-**Parent spec:** `docs/superpowers/specs/2026-06-16-sound-driver-design.md` (§3 "Z80 RAM is 8 KB", §5 read-ahead buffer, §12.x #2 Z80-RAM-map sub-design)
-**Sibling spec:** `docs/superpowers/specs/2026-06-16-sound-command-api.md` — defines the mailbox/status *offsets* (`MBX_CMD`..`MBX_PENDING`, `STAT_ALIVE`..`STAT_TICK`) and deliberately left the *absolute bases* (`MBX_BASE`, `STAT_BASE`) to **this** doc. This doc fixes those bases.
-**Consumed by:** Task 3 transcribes the addresses/constants below into `sound_constants.asm`. They are exact and self-consistent with the sibling command-API contract.
+**Date:** 2026-06-16 · **Rewritten:** 2026-07-02 (sound performance & budget phase, Task A.3 repack)
+**Status:** LIVE — this rewrite supersedes the stale Phase-1 map (and its two staleness banners) in full.
+The authoritative *values* remain `sound_constants.asm` (self-asserting at build time); this doc is the
+design record of the layout, its invariants, and which build assert guards which seam. If this doc and
+`sound_constants.asm` disagree, the constants file is right and this doc has a bug.
+**Parent spec:** `docs/superpowers/specs/2026-06-16-sound-driver-design.md`
+**History:** the original Phase-1 research/layout (reference-driver survey, `$1600` state block, spare-page
+budget) is in git history of this file; it was fully superseded by the A.3 repack.
 
-The Z80 sees 8 KB of RAM as **Z80-space `$0000–$1FFF`** (mapped at 68k bus address `$A00000–$A01FFF`). This doc budgets all 8 KB so later Phase-1/1B tasks place code and data without collision, and reserves room *now* for the Plan 1B read-ahead buffer so nothing has to move later.
+## 0. Headroom history (resident-code budget)
 
-> **⚠️ WHOLE DOC STALE (banner added 2026-07-01).** This spec is the Phase-1 historical
-> record only. **The authoritative Z80 RAM map is `sound_constants.asm`** (self-asserting at
-> build time). Every headroom figure ever quoted from this doc's lineage (2 B → 216 B → 138 B)
-> is obsolete: **live as of 2026-07-01, `Z80_SOUND_SIZE` = `$16E6` against the `$16F0` code
-> ceiling (`SND_STATE_BASE`) → 10 bytes free** (see the build's "Z80 sound budget" message /
-> `s4.lst`, and `docs/DEFERRED_WORK.md` F1). The resident-code budget is the binding sound
-> constraint; the portamento resume plan (`plans/2026-06-28-portamento-resume.md`) carries the
-> next recovery step (bank remaining DATA tables — code may NOT be banked, data-only rule).
+The resident Z80 code blob is the binding sound constraint. Free-bytes lineage
+(`SND_STATE_BASE − Z80_SOUND_SIZE`, the build's "Z80 sound budget" message):
 
-> **⚠️ STALE FOR `$1B00–$1EFF` (banner added 2026-06-21).** This is the **Phase-1
-> snapshot**; the **live** Z80 RAM map is **`sound_constants.asm`** (the single source of
-> truth, self-asserting at build time via the `SND_*_END > SND_REQ_BASE` fatals). Since
-> Phase 1 the map grew: `SND_STATE_BASE` moved `$1600`→`$16F0` (SFX-fidelity Task 4
-> reclaimed the old gap as code space), and the `$1B00–$1EFF` range — shown here as
-> free/`Z80_SPARE` — now holds the **1C/1D song buffer** (`$1B00–$1CFF`) and the
-> **Phase-5a SFX engine RAM** (`$1D00–$1EBC`: 7×`SfxChannel` + queue + duck + dispatch
-> scratch). Only **~67 bytes** (`$1EBD–$1F00`) remain below the mailbox. **Do NOT place
-> new Z80 state from this doc's tables** — read the live offsets and overflow asserts in
-> `sound_constants.asm`. (See `docs/DEFERRED_WORK.md` audit entry F1 for the full
-> reconciliation TODO.)
-
----
-
-## 1. Research findings
-
-Surveyed how each reference driver lays out its 8 KB Z80 RAM — specifically: where code sits,
-where the stack lives, where the command mailbox / state lives, and how large the DAC
-read-ahead / DMA-survival buffer is. Sources read in full are cited inline.
-
-### Reference comparison — 8 KB Z80 RAM layout
-
-| Driver | Code region | Stack top (SP init) | Mailbox / state location | DAC read-ahead / DMA buffer |
-|---|---|---|---|---|
-| **Batman & Robin** (Jesper Kyd) | `$0000–$1824` (code **and** all data/tables interleaved in one blob: F-num tables `$0F00–$13FF`, vol table `$1400`, 6× channel structs `$1480–$16D3`) | **`$1FFE`** (`ld sp,$1FFE` at init) | DAC live vars `$00EB–$00F5`; DAC request staging `$16E0–$16F4` + flag `$16F4`; 6× channel-start records `$17EA–$1822`; inferred 68k heartbeat readback at `$1810+` | **None.** Cooperative Timer-B coroutine feeds DAC byte-by-byte straight from ROM and is *immune to DMA* because it never waits on the 68k bus — but it has **no buffer**, so it cannot mix and cannot pre-fetch. |
-| **Flamedriver / SMPS** (S.C.E.) | `$0000–$1C19` (driver code; `Size_of_Snd_driver_guess = $1200` headroom budget) | **`$2000`** (top of RAM; `ld sp, z80_stack`, with `z80_stack_top: ds.b $60` → **96-byte** stack) | RAM vars `phase`'d at `zDataStart = $1C1A`: queue bytes `zMusicNumber`/`zSFXNumber0/1`, then 10× music `zTrack` + 7× SFX `zTrack` + 10× save `zTrack` (track structs overlap save area). | **None** (classic single-channel DAC reads ROM directly; scratches under DMA — the problem this engine fixes). |
-| **Gunstar Heroes** (Treasure) | low RAM | **`$1FF4`** (`ld sp,$1FF4`) | SMPS-style queue bytes near top of RAM (`$1FF7`, `$1FFA/B`, `$1FFE`) | None |
-| **Alien Soldier** (Treasure) | low RAM | **`$1FE6`** init (then re-pointed per phase) | queue bytes high in RAM | None |
-| **Thunder Force IV** (Technosoft) | low RAM | **`$2000`** (top) | queue bytes high in RAM | None |
-| **Mega PCM 2.1** (vladikcomper) | code low | top of RAM | single `CommandInput` byte + status-output byte | **256-byte ring buffer, aligned to a 256-byte page** — the load-bearing read-ahead. Page alignment lets the Z80 advance the pointer by **incrementing only the low byte** (free wrap, no compare). Filled in batches (**32 or 30 bytes** per batch depending on mix mode); drained during DMA; a **minimum-fill threshold** (MDSDRV: ~40 bytes) guards against underrun. This is what makes Mega PCM "DMA-proof." |
-| **MDSDRV** (superctr) | code low | top of RAM | command bytes | **Ring buffer up to 256 bytes** (configurable 40–220 used in practice; 100 bytes recommended for 2-ch mix), page-organised, 32/30-byte batch fills, 40-byte underrun threshold; 68k acks DMA via a flag each VBlank. |
-| **DualPCM** (Sonic 1, Natsumi/AuroraField) | code low | top | queue bytes | **Double-buffer (ping-pong)**: two sample buffers; Z80 plays one while the other is refilled — the classic alternative to a ring. |
-
-### What the survey establishes
-
-1. **Code at the bottom, stack at the very top, growing down — universal.** Every driver
-   `org`s code at `$0000` and sets `SP` at or just below `$2000`. Batman `$1FFE`, Gunstar
-   `$1FF4`, Flamedriver/TF4 `$2000`. We adopt **`$1FFE`** (Batman's value; one word below the
-   top so the first `push` lands at `$1FFC`). The sibling/task already specified `$1FFE`.
-
-2. **Mailbox/state lives high, just under the stack — common.** Gunstar (`$1FF7+`), Batman's
-   staging/channel records (`$16E0+`/`$17EA+`), Flamedriver's queue at the top of its var
-   block. Putting the 68k-visible mailbox/status near the top keeps it clear of growing code
-   and gives both blocks fixed, easily-memorised 68k addresses. We place mailbox + status at
-   **`$1F00`** (high RAM), matching the sibling command-API target.
-
-3. **The read-ahead buffer is the one thing the legends lack and Mega PCM nails.** None of
-   the four commercial blobs nor stock Flamedriver buffers the DAC — they read ROM directly
-   and either dodge DMA via a coroutine (Batman) or simply scratch (SMPS). Mega PCM 2 /
-   MDSDRV / DualPCM are the modern answer, and the **256-byte page-aligned ring** is the
-   canonical form: page alignment makes pointer advance a single `inc l`, batches of ~32
-   bytes amortise the fill, and a small minimum-fill threshold prevents underrun during the
-   worst-case 68k→VDP DMA freeze. Our parent spec §5 mandates exactly this. We therefore
-   **reserve a 256-byte-aligned, 256-byte-capacity window now** (Plan 1B), even though
-   Foundations doesn't fill it — so 1B never has to move code or restructure RAM.
-
-4. **8 KB is genuinely tight, so reserve before you need it.** Flamedriver guesses `$1200`
-   for code and *still* guards the fit with a build-time `fatal`; its data block runs right
-   up to `$2000`. We pre-carve the read-ahead window, the per-channel state, and the test
-   sample now, leaving driver code a generous but **bounded** `$0000–$15FF` (5.5 KB) — and
-   assert that bound at build time (§5).
-
-5. **"High RAM" convention.** The region `$1F00–$1FFF` (the top page) is, by community
-   convention and by every reference above, where small 68k-visible records and the stack
-   live. We honour it: status/mailbox at `$1F00–$1F3F`, stack descending from `$1FFE`. The
-   ~`$1F40–$1FFB` gap between the status block and the stack is intentional slack (stack
-   growth headroom + future small flags) and is documented as RESERVED.
-
-**Sources:**
-- `docs/research/z80_blobs/batman_driver_analysis.md` §1 (memory map: code/tables `$0000–$1824`,
-  channel structs `$1480`, DAC staging `$16E0–$16F4`, mailbox `$17EA`), §2 (`ld sp,$1FFE`),
-  §3 (DAC live vars `$00EB–$00F5`), §10 ("immune to 68k DMA stalls… never waits on the 68k").
-- `docs/research/z80_blobs/{gunstar,alien,tf4}_z80.lst` — `ld sp,$1FF4` / `$1FE6` / `$2000`
-  and queue bytes near the top of RAM.
-- S.C.E. Flamedriver `Sound/Flamedriver.asm`: `Size_of_Snd_driver_guess = $1200` (line 26);
-  `zDataStart = $1C1A` + `phase` (line 277–278); `z80_stack_top: ds.b $60` 96-byte stack
-  (line 279); `ld sp, z80_stack` "end of z80 RAM" (line 811); build-time fit guards
-  `if * > $2000 / fatal` (line 4759-ish) and `if $ > z80_stack_top / fatal` (line 4758).
-- Mega PCM 2.1 (vladikcomper) README/Troubleshooting + MDSDRV `doc/dma.md` (superctr):
-  PCM ring buffer **max 256 bytes**, **aligned to a 256-byte page** (advance = low-byte
-  increment), **32/30-byte batch** fills, **~40-byte minimum-fill threshold**, DMA-protection
-  via a 68k VBlank ack flag. https://github.com/vladikcomper/MegaPCM ,
-  https://github.com/superctr/MDSDRV/blob/master/doc/dma.md
-- DualPCM / Sonic-driver survey (Clownacy, "The Sound Drivers of Sonic the Hedgehog";
-  s1disasm DualPCM PR #33) — double-buffer (ping-pong) DAC model, 8 KB RAM constraint,
-  samples stored in ROM banks not in the driver.
-
----
-
-## 2. The 8 KB budget (Z80-space `$0000–$1FFF`)
-
-All regions are **non-overlapping**. Addresses are Z80-space; add `$A00000` for the 68k bus
-address (e.g. mailbox `MBX_BASE` = Z80 `$1F00` = 68k `$A01F00`).
-
-| Z80 range | 68k range | Size | Region | Constant | Phase | Notes |
-|---|---|---|---|---|---|---|
-| `$0000–$15FF` | `$A00000–$A015FF` | 5632 B (5.5 KB) | **Driver code + code-local tables** | `Z80_CODE_BASE = $0000` | 1 | `phase 0`. Holds the scheduler, DAC feed, mailbox poll, FM/PSG sequencer, YM write-queue, and build-time tables (log-vol LUT, carrier mask, F-num tables). End-of-code asserted `< Z80_STATE_BASE` (§5). |
-| `$1600–$16FF` | `$A01600–$A016FF` | 256 B | **Per-channel / playback state** | `Z80_STATE_BASE = $1600` | 1 | Sample ptr, remaining length, rate/pitch, loop ptr/len, active flags, per-channel scheduler scratch, ack/tick mirrors. Sized generously for the Phase-2/3 channel structs (Batman's 6× struct = 618 B lives in *code* space; our live playback state here is far smaller — 256 B is ample for Phase 1's single DAC channel + headroom). |
-| `$1700–$17FF` | `$A01700–$A017FF` | 256 B | **RESERVED — read-ahead ring buffer (Plan 1B)** | `Z80_PCM_BUF_BASE = $1700` `Z80_PCM_BUF_LEN = $0100` | 1B | **256-byte ring, 256-byte-page-aligned** (Mega-PCM/MDSDRV model): `$1700–$17FF` so pointer advance is a single low-byte `inc`. **Unused in Foundations** (the Phase-1 DAC reads ROM directly via Batman's coroutine); reserved now so 1B drops in without moving anything. |
-| `$1800–$19FF` | `$A01800–$A019FF` | 512 B | **Sequencer state (Plan 1C)** | `SND_SEQ_BASE = $1800` | 1C | 8-byte sequencer header (`SND_SEQ_TEMPO`/`CHCOUNT`/`PATCHTAB`/`ACTIVE`/`BADOP`/`TRACE_WR`) + the `SeqChannel` array (`SND_SEQ_CHANNELS` at `$1808`, `CHROUTE_COUNT`(10) × `SeqChannel_len`(11) = 110 B → ends ~`$1876`) + FM-writer scratch (`SND_FM_SCRATCH` `$1880`, 4 B) + `Snd_SavedDacBank` (`$1884`). `SND_SEQ_END` build-guarded `< SND_REQ_BASE` and `< SND_SEQ_TRACE`. |
-| `$1A00–$1A1F` | `$A01A00–$A01A1F` | 32 B | **Sequencer trace ring (DEBUG)** | `SND_SEQ_TRACE = $1A00` `SND_SEQ_TRACE_LEN = 32` | 1C | Page-aligned 32-byte ring of dispatched opcodes; each = `(sc_route<<4) | event_code`. Mirrored to 68k for the MCP (`debug/sound_debug.asm`). |
-| `$1A20–$1A22` | `$A01A20–$A01A22` | 3 B | **Music-load param block (Plan 1C)** | `SND_MUSIC_PARAM = $1A20` `SND_MUSIC_PARAM_LEN = 3` | 1C | The 68k pre-derives the song's bank id (`+0`) + `$8000`-window ptr (`+1/+2`, little-endian) and posts them here under the same bus hold as the `SND_REQ_MUSIC` trigger; the loader (`Snd_LoadSong`) reads them. |
-| `$1B00–$1CFF` | `$A01B00–$A01CFF` | 512 B | **Song RAM buffer (Plan 1C)** | `SND_SONG_BUF = $1B00` `SND_SONG_BUF_SIZE = $200` | 1C | At `PlayMusic` the loader banks in the song and `ldir`s a fixed 512 B (header + channel streams) here, so the sequencer streams are RAM-resident — **zero banking during playback** (the free-running 1B DAC keeps the `$6000` latch). See the 1C design §8.1. Streams self-terminate, so the fixed copy reading slightly past the song is harmless. |
-| `$1D00–$1DFF` | `$A01D00–$A01DFF` | 256 B | **FREE (former test-sample tail)** | — | — | The Foundations embedded test sample (`Z80_TEST_SAMPLE_BASE`, formerly `$1C00–$1DFF`) is **RETIRED** — ROM banking (1B) plays samples straight from ROM, so no sample bytes live in Z80 RAM. 1C reclaimed `$1B00–$1CFF` for the song buffer; `$1D00–$1DFF` is free. |
-| `$1E00–$1EFF` | `$A01E00–$A01EFF` | 256 B | **RESERVED — spare** | `Z80_SPARE_BASE = $1E00` | — | Unallocated headroom between the test sample and the high-RAM record page. Absorbs growth of either neighbour without disturbing the fixed high-RAM addresses below. |
-| `$1F00–$1F0F` | `$A01F00–$A01F0F` | 16 B | **Mailbox record (68k→Z80)** | `MBX_BASE = $1F00` | 1 | Command record from the sibling contract: `MBX_CMD`+$00, `MBX_ARG0`+$01, `MBX_ARG1`+$02, `MBX_PENDING`+$03 (record is 4 B; rest of the 16 B is reserved for the full-API record growth — extra args / second staging record per command-API §1). |
-| `$1F10–$1F3F` | `$A01F10–$A01F3F` | 48 B | **Status / ack region (Z80→68k)** | `STAT_BASE = $1F10` | 1 | Status block from the sibling contract: `STAT_ALIVE`+$00, `STAT_PING_ECHO`+$01, `STAT_ACK_COUNT`+$02, `STAT_TICK`+$03 (block is 4 B; remainder reserved for full-API status growth — per-channel playing flags, fade state, etc.). |
-| `$1F40–$1FFB` | `$A01F40–$A01FFB` | 188 B | **RESERVED — stack growth headroom / misc flags** | `Z80_HIRAM_RESERVE_BASE = $1F40` | — | Intentional slack between the status block and the stack. Stack descends into the top of this; also holds any tiny future high-RAM flags. |
-| `$1FFC–$1FFF` | `$A01FFC–$A01FFF` | 4 B | **Stack (top word)** | `Z80_STACK_TOP = $1FFE` | 1 | `ld sp, $1FFE` at init (Batman's value). Stack **grows downward** from here into the `$1F40–$1FFB` reserve. First `push` writes `$1FFC/$1FFD`. |
-
-### Compact map (for quick reference)
-
-```
-$0000 ┌──────────────────────────────────────┐
-      │ DRIVER CODE  (phase 0)               │  5632 B  Phase 1
-      │   scheduler / DAC feed / mailbox     │
-      │   poll / FM-PSG seq / YM queue /     │
-      │   LUTs (log vol, carrier mask, fnum) │
-$15FF ├──────────────────────────────────────┤  <-- Z80_CODE_END asserted < $1600
-$1600 │ PER-CHANNEL / PLAYBACK STATE         │   256 B  Phase 1
-$1700 ├──────────────────────────────────────┤
-      │ READ-AHEAD RING  (256B, page-aligned)│   256 B  Plan 1B (SHIPPED)
-$1800 ├──────────────────────────────────────┤
-      │ SEQUENCER STATE  (hdr+SeqChannel[]+   │   512 B  Plan 1C (SHIPPED)
-      │   FM scratch)  SND_SEQ_BASE          │
-$1A00 ├──────────────────────────────────────┤
-      │ SEQ TRACE RING (32B) + MUSIC PARAM   │          1C: $1A00 trace,
-      │   ($1A20)                            │              $1A20 param
-$1B00 ├──────────────────────────────────────┤
-      │ SONG RAM BUFFER  SND_SONG_BUF        │   512 B  Plan 1C ($1B00-$1CFF)
-$1D00 ├──────────────────────────────────────┤
-      │ FREE (former test-sample tail)       │   256 B  test sample RETIRED
-$1E00 ├──────────────────────────────────────┤
-      │ SPARE                                 │   256 B  RESERVED
-$1F00 ├──────────────────────────────────────┤
-      │ MAILBOX  MBX_BASE   ($1F00-$1F0F)    │    16 B  Phase 1 (4B used)
-$1F10 │ STATUS   STAT_BASE  ($1F10-$1F3F)    │    48 B  Phase 1 (4B used)
-$1F40 ├──────────────────────────────────────┤
-      │ STACK GROWTH RESERVE / hi-ram flags   │   188 B
-$1FFC │ STACK (grows down from $1FFE)        │     4 B  Z80_STACK_TOP=$1FFE
-$1FFF └──────────────────────────────────────┘
-```
-
----
-
-## 3. Why these bases (rationale, tied to the sibling contract)
-
-- **`MBX_BASE = $1F00`, `STAT_BASE = $1F10`** — fixes the two addresses the sibling command-API
-  doc left open. Both sit in "high RAM" (every reference convention), are 16-byte-aligned for
-  easy 68k address arithmetic, and give the mailbox record room (`$1F00–$1F0F`) to grow into the
-  full-API layout (extra args / a second staging record, command-API §1) **without** colliding
-  with the status block. The status block (`$1F10–$1F3F`, 48 B) likewise has slack for full-API
-  per-channel status. The intra-block offsets (`MBX_CMD`=+$00 … `STAT_TICK`=+$03) come **verbatim**
-  from the sibling contract — this doc only sets the bases.
-
-- **Read-ahead at `$1700`, page-aligned, 256 B** — matches the Mega-PCM/MDSDRV canonical ring
-  exactly so the Plan 1B implementation can use the single-`inc-l` pointer-advance trick. Placing
-  it on a `$xx00` boundary is *required* for that trick, which is the whole reason to fix the
-  address now rather than let it fall wherever code ends.
-
-- **Code bound at `$15FF` (5.5 KB)** — Batman's entire code+tables blob is `$1824` (~6 KB) and
-  Flamedriver budgets `$1200` for code alone. 5.5 KB is comfortably larger than either for the
-  Phase-1 feature set (no full FM depth yet) while still leaving the bottom 2.5 KB for state +
-  buffers + records. The bound is enforced, not hoped for (§5).
-
-- **Embedded test sample at `$1C00` — RETIRED.** Foundations had no ROM banking, so a 512-B sample
-  lived in Z80 RAM at `$1C00`. Plan 1B added ROM banking and plays samples straight from ROM via the
-  free-running DAC loop, so no sample bytes live in Z80 RAM anymore. **Plan 1C reclaimed
-  `$1800–$1CFF`** for sequencer state, the trace ring, the music-load param block, and the
-  `SND_SONG_BUF` song buffer (`$1B00–$1CFF`); see the updated table above. `$1D00–$1DFF` is now free.
-
----
-
-## 4. Constants summary (for `sound_constants.asm`, Task 3)
-
-```
-; --- Z80 RAM regions (Z80-space addresses; 68k = +$A00000) ---
-Z80_CODE_BASE          = $0000   ; driver code (phase 0)
-Z80_CODE_LIMIT         = $1600   ; code MUST end strictly below this (= Z80_STATE_BASE)
-
-Z80_STATE_BASE         = $1600   ; per-channel / playback state
-Z80_STATE_LEN          = $0100   ;   256 bytes
-
-Z80_PCM_BUF_BASE       = $1700   ; read-ahead ring (Plan 1B, SHIPPED) — page-aligned
-Z80_PCM_BUF_LEN        = $0100   ;   256 bytes (one 256-byte page: advance via inc low byte)
-
-; --- Plan 1C sequencer allocation (was Z80_BUF_RESERVE / Z80_TEST_SAMPLE) ---
-; The 1024-B buffer-growth reserve at $1800 and the 512-B test sample at $1C00 are
-; SUPERSEDED. The actual 1C names live in sound_constants.asm:
-SND_SEQ_BASE           = $1800   ; sequencer header + SeqChannel[] + FM scratch (ends ~$1884)
-SND_SEQ_TRACE          = $1A00   ; trace ring, 32 B (DEBUG)
-SND_SEQ_TRACE_LEN      = 32
-SND_MUSIC_PARAM        = $1A20   ; music-load param block, 3 B
-SND_SONG_BUF           = $1B00   ; song RAM buffer ($1B00-$1CFF)
-SND_SONG_BUF_SIZE      = $0200   ;   512 bytes
-;   $1D00-$1DFF free (former test-sample tail; embedded test sample RETIRED w/ 1B banking)
-
-Z80_SPARE_BASE         = $1E00   ; spare (RESERVED)
-Z80_SPARE_LEN          = $0100   ;   256 bytes
-
-; --- High-RAM records (bases for the sibling command-API offsets) ---
-MBX_BASE               = $1F00   ; mailbox record base (MBX_CMD..MBX_PENDING at +$00..+$03)
-STAT_BASE              = $1F10   ; status/ack region base (STAT_ALIVE..STAT_TICK at +$00..+$03)
-
-Z80_HIRAM_RESERVE_BASE = $1F40   ; stack growth headroom / misc hi-ram flags (RESERVED)
-
-; --- Stack ---
-Z80_STACK_TOP          = $1FFE   ; ld sp, Z80_STACK_TOP  (grows downward)
-
-; --- 68k-bus convenience (absolute Genesis addresses) ---
-Z80_RAM_68K_BASE       = $A00000
-MBX_BASE_68K           = Z80_RAM_68K_BASE+MBX_BASE   ; $A01F00
-STAT_BASE_68K          = Z80_RAM_68K_BASE+STAT_BASE  ; $A01F10
-```
-
-(The intra-record offsets `MBX_CMD/ARG0/ARG1/PENDING` and `STAT_ALIVE/PING_ECHO/ACK_COUNT/TICK`,
-plus `STAT_ALIVE_MARKER`/`MBX_PENDING_SET`/command IDs, come from the sibling command-API spec
-§8 — not redefined here. This doc adds only the **bases** and the **region budget**.)
-
----
-
-## 5. Build-time size-assertion strategy
-
-The load-bearing invariant: **driver code must not grow into the state region.** The driver's
-`phase 0` block ends with a size constant, asserted strictly below `Z80_STATE_BASE`. If code
-ever crosses `$1600`, the build fails — mirroring Flamedriver's `if $ > z80_stack_top / fatal`
-guard, but catching collision with *data* (the more likely failure for a growing driver) rather
-than with the stack.
-
-At the **end of the driver's code/table block** (after the last byte the assembler emits inside
-`phase 0`):
-
-```
-; ---- end of driver code (still inside `phase Z80_CODE_BASE`) ----
-Z80_CODE_END:                       ; first free byte after code+tables
-    if Z80_CODE_END > Z80_CODE_LIMIT
-        fatal "Z80 driver code overflows into state region by \{Z80_CODE_END-Z80_CODE_LIMIT}h bytes (limit Z80_CODE_LIMIT=\{Z80_CODE_LIMIT}h)"
-    elseif MOMPASS=1
-        message "Z80 driver code: \{Z80_CODE_END}h used, \{Z80_CODE_LIMIT-Z80_CODE_END}h free before state region"
-    endif
-    dephase                          ; leave phase 0
-```
-
-- `Z80_CODE_LIMIT` (`= $1600`) is defined **equal to** `Z80_STATE_BASE` so the two can never
-  silently diverge — if the state base moves, the code limit moves with it.
-- The check uses `>` (not `>=`): code may fill up to and including `$15FF`; `$1600` is the first
-  byte that belongs to state.
-- `MOMPASS=1` prints the headroom on the first AS pass so the build log always reports remaining
-  free code space (Flamedriver does the same for its pre-stack free space).
-- A **complementary** top-of-RAM guard belongs with the RAM-variable declarations (the state /
-  reserve / record regions): `if <end-of-declarations> > Z80_STACK_TOP : fatal` — the same
-  pattern Flamedriver uses (`if $ > z80_stack_top`). Since every region above is fixed-address
-  and additive, this reduces to asserting `Z80_HIRAM_RESERVE_BASE < Z80_STACK_TOP` and
-  `MBX_BASE/STAT_BASE` non-overlap, which hold by construction; the live guard is the code-growth
-  one above.
-
----
-
-## 6. Deviations from the target layout (with rationale)
-
-The task's target layout is **adopted essentially unchanged**; all deviations are additive
-(filling gaps the target left implicit) — no region in the target was moved or resized in a way
-that breaks it.
-
-| Target (task) | This doc | Reason |
+| Date | Free | Event |
 |---|---|---|
-| `$0000–$15FF` driver code | `$0000–$15FF` (`Z80_CODE_LIMIT=$1600`) | **Same.** |
-| `$1600–$16FF` per-channel state | `$1600–$16FF` (`Z80_STATE_BASE`) | **Same.** |
-| `$1700–$1BFF` RESERVED read-ahead ring | Split: `$1700–$17FF` = the **256-byte page-aligned ring** (`Z80_PCM_BUF_BASE`); `$1800–$1BFF` = buffer-**growth** reserve | **Refinement, not a move.** Research (Mega-PCM/MDSDRV) shows the canonical ring is exactly **256 bytes, page-aligned** so the pointer advances with a single `inc l`. The target's `$1700–$1BFF` (1.25 KB) is *larger* than one ring needs; I pin the actual ring to the page-aligned `$1700` page and keep the rest (`$1800–$1BFF`) as explicit growth reserve for N-voice mixing / a second ping-pong half / echo line. The whole `$1700–$1BFF` span stays reserved for buffering, as the target intended. |
-| `$1C00–$1DFF` embedded test sample | `$1C00–$1DFF` (`Z80_TEST_SAMPLE_BASE`, 512 B) | **Same** address; I note its lifecycle (merges into buffer reserve when banking lands). |
-| `$1F00–$1F0F` mailbox | `$1F00–$1F0F` (`MBX_BASE=$1F00`) | **Same.** Fixes the base the sibling contract left open. |
-| `$1F10–$1F3F` status/ack | `$1F10–$1F3F` (`STAT_BASE=$1F10`) | **Same.** Fixes the base the sibling contract left open. |
-| `$1FFE` stack top | `Z80_STACK_TOP=$1FFE` | **Same** (Batman's value). |
-| (gap `$1E00–$1EFF` not named) | `Z80_SPARE_BASE` RESERVED | New: the target's regions leave `$1E00–$1EFF` and `$1F40–$1FFB` implicit. I name both as RESERVED slack so the build is fully accounted for and growth has somewhere to go without touching fixed addresses. |
-| (assert "code end < state start") | `Z80_CODE_END > Z80_CODE_LIMIT` → `fatal`, with `Z80_CODE_LIMIT ≡ Z80_STATE_BASE` | Implements the target's build-time assertion strategy; ties the limit to the state base so they can't drift. |
+| 2026-06-24 | ~2 B | pre music-expr Task 0 |
+| 2026-06-24 | ~1016 B | Task 0: engine lookup tables banked into the song bank |
+| 2026-06-27 | 216 B | music-expr Phases 1/3 spent the recovery |
+| 2026-06-28 | ~138 B | `SfxBlobWinTab` banked, Phase-2 features landed |
+| 2026-07-01 | 10 B | music-expr Phase 2 complete + quality-review fix pass |
+| 2026-07-02 | 280 B | budget A.1 (copy-path song buffer deleted) + A.2 (`DacSampleTable`/`SeqOpcodeTable` banked) |
+| **2026-07-02** | **792 B** | **A.3: ceiling raised `$16F0` → `$18F0` (+512) by this repack; `Z80_SOUND_SIZE` = `$15D8`** |
 
-**No conflicts** with the sibling command-API contract: this doc only assigns `MBX_BASE`/`STAT_BASE`
-(which that contract explicitly deferred here) and leaves every offset/ID/marker it froze untouched.
+Recovery rule standing since the banked-code crash investigation: **only DATA tables may be banked
+into the `$8000` window; ALL in-frame CODE must stay resident** (banked code fetches corrupt under
+68k bus contention).
+
+## 1. The map (A.3 repack, 2026-07-02)
+
+Z80 addresses; the 68k sees each byte at `$A00000 + addr`. "Derivation" says how the base is
+computed — *pinned* bases are deliberate anchors, everything else chains from its neighbor and
+auto-tracks growth.
+
+| Z80 range | Size | Region | Constant / derivation | Owner |
+|---|---|---|---|---|
+| `$0000–$15D7` | 5592 B live | **Driver code blob** (vectors at `$0000`/`$0038` inside it) | grows up from 0; ceiling = `SND_STATE_BASE` | `z80_sound_driver.asm` + includes |
+| `$15D8–$18EF` | 792 B live | Code headroom (shrinks as code grows) | — | — |
+| `$18F0–$18FC` | 13 B | **DAC playback state** (`SND_DAC_PHASE`…`SND_FM6_ADAPTIVE`; words at even absolute offsets) | `SND_STATE_BASE = $18F0` (pinned; **is** the code ceiling) | DAC streamer / loader |
+| `$18FD–$18FF` | 3 B | slack | — | — |
+| `$1900–$19FF` | 256 B | **DAC read-ahead ring** (one full page; `h = SND_RING_PAGE`, wrap by `inc l`) | `SND_RING_BASE = $1900` (pinned, 256-aligned); `SND_RING_PAGE = base>>8 = $19` | DAC streamer |
+| `$1A00–$1A07` | 8 B | **Sequencer header** (`SND_SEQ_TEMPO`…`SND_SEQ_TEMPO_BASE`) | `SND_SEQ_BASE = $1A00` (pinned) | sequencer |
+| `$1A08–$1C9B` | 660 B | **Music SeqChannels** — `CHROUTE_COUNT` (11) × `SeqChannel_len` (60) | `SND_SEQ_CHANNELS = SND_SEQ_BASE+8`; `SND_SEQ_END = $1C9C` | sequencer |
+| `$1C9C–$1CA0` | 5 B | FM voice-writer scratch | `SND_FM_SCRATCH = SND_SEQ_END` | FM writer |
+| `$1CA1–$1CA5` | 5 B | Loader scratch: `Snd_SongBase` (2) · `Snd_PitchTabPtr` (2) · `Snd_SpindashRev` (1) | chained | loader / SFX |
+| `$1CA6–$1CAB` | 6 B | **Music-load param block** (`SND_MUSIC_PARAM`: bank, ptr, flags, patch ptr) | `= Snd_SpindashRev+1` | 68k writes, Z80 loader reads |
+| `$1CAC–$1CCB` | 32 B | Sequencer opcode **trace ring** (DEBUG; not page-aligned — `Seq_Trace` does a carry-correct 16-bit add) | `SND_SEQ_TRACE = SND_MUSIC_PARAM+6` | sequencer / debug mirror |
+| `$1CCC–$1CD2` | 7 B | **Global expression** (`SND_MASTER_FADE`… `SND_TEMPO_BASE`) | `SND_GLOBAL_EXPR = trace+32` | fade/tempo engine |
+| `$1CD3–$1CFF` | 45 B | Alignment slack = the map's growth headroom (absorbed before `SND_SFX_BASE` moves) | — | — |
+| `$1D00–$1EBF` | 448 B | **SfxChannels** — `SFX_VOICE_COUNT` (7) × `SfxChannel_len` (64) | `SND_SFX_BASE = align256_up(SND_GLOBAL_EXPR+7)` (**derived**, must stay page-aligned) | SFX engine |
+| `$1EC0–$1ECA` | 11 B | SFX queue (3×2) + head/tail/count + duck level/target | chained; `SND_SFX_RAM_END = $1ECB` | SFX engine |
+| `$1ECB–$1ED1` | 7 B | SFX dispatch scratch (`SND_SFX_DISP_*`, defined in `sound_sfx.asm`) | `= SND_SFX_DUCK_TARGET+1` | SFX dispatch |
+| `$1ED2–$1EFF` | 46 B | Free (last movable byte is `$1ED1`) | — | — |
+| `$1F00–$1F06` | 7 B | **Mailbox** (`SND_REQ_*` + `SND_CTRL_DMA_ACTIVE` at `$1F04`) | `SND_REQ_BASE = $1F00` — **FROZEN** | 68k writes, Z80 consumes |
+| `$1F10–$1F14` | 5 B | **Status block** (`SND_STAT_*`) | `SND_STAT_BASE = $1F10` — **FROZEN** | Z80 writes, 68k reads |
+| `$1F15–$1FFD` | 233 B | Stack headroom (grows **down** from the top) | — | — |
+| `$1FFC–$1FFF` | top word | **Stack top** — `ld sp, SND_STACK_TOP` at init; first push lands `$1FFC/$1FFD` | `SND_STACK_TOP = $1FFE` (pinned) | init |
+
+Note the deliberate geometry: the stack sits **above** the frozen mailbox/status block and grows
+down toward it; the movable map grows up toward `$1F00` from below. Nothing may cross `$1F00`.
+
+## 2. Struct sizes (A.3)
+
+- **`SeqChannel` = 60 bytes** (was 58). **`SfxChannel` = 64 bytes** (was 62). Both even.
+- A.3 added two 1-byte fields to BOTH structs, immediately after `sc_mod_step_raw`:
+  `sc_mod_wait_raw` (+49) and `sc_mod_delta_raw` (+50) — raw `smpsModSet` operand latches, the
+  reload sources for the per-note vibrato re-arm task. **Dead space until that task wires them.**
+  `sc_mod_accum`/`sc_base_freq`/`sc_last_freq` shifted +2 (now +51/+53/+55).
+- **Shared-prefix rule:** `SfxChannel` +0..+56 is a byte-for-byte offset clone of `SeqChannel`
+  (through `sc_last_freq`); the structs diverge at +57 (`sc_noise_mode` vs `sx_priority`). The
+  shared interpreter (`ModUpdate`/`Sequencer_Channel`) walks both with the same `(ix+sc_*)`
+  displacements. Guarded by the shared-prefix assert (extended with both new fields).
+- All field offsets must stay ≤ +127 (`(ix+d)` signed displacement) — asserted on the deepest
+  field of each struct (`sc_detune` +58, `sx_kind` +63).
+
+## 3. Layout invariants
+
+1. **Ring is one 256-aligned page.** The streaming loop holds `h = SND_RING_PAGE` for the whole
+   sample and wraps with `inc l`; `SND_RING_PAGE` is derived (`base>>8`), so the pair cannot drift.
+2. **`$1F00+` is FROZEN** (68k contract). `SND_REQ_BASE`/`SND_STAT_BASE` are shared with 68k code
+   (`sound_api.asm`, debug mirror) and cited as raw addresses by oracle debug workflows and docs.
+   The movable map must end at or below `$1F00`; the repack moved *nothing* at/above it.
+3. **`SND_SFX_BASE` is derived but MUST stay 256-aligned**, and every music `SeqChannel` byte must
+   sit strictly below it: `Snd_ChanClass` classifies music-vs-SFX by comparing ix's HIGH BYTE
+   against `SND_SFX_BASE>>8` (one-byte compare, 12 call sites). Alignment + ordering are both
+   asserted; break either and SFX ducking/patch/restore dispatch misclassifies channels.
+4. **The code ceiling IS `SND_STATE_BASE`.** Raising the ceiling again means sliding the whole
+   movable map up — this repack is the template (state → ring → seq → tail all chain; re-derive,
+   re-assert, boot-test).
+5. **Resident-code rule:** in-frame CODE may never be banked; only DATA tables ride the `$8000`
+   window (A.2: `DacSampleTable`, `SeqOpcodeTable`, `SfxBlobWinTab`).
+6. **Even sizes:** the Z80 blob byte count must stay even (the 68k boot copy is word-based), and
+   both channel structs are even so array walks (`add ix,de`) keep parity.
+7. AS does **not** auto-align `ds.w` — the state block keeps its word fields at even absolute
+   offsets by construction; struct pads (`sc_pad`, `sx_pad`) keep the struct lengths even.
+
+## 4. Assert inventory (which build assert guards which seam)
+
+All in `sound_constants.asm` unless noted. Every region pair on the map has a guard:
+
+| Seam / contract | Assert |
+|---|---|
+| code ≤ ceiling | `Z80_SOUND_SIZE > SND_STATE_BASE` → fatal + the "Z80 sound budget" message (`z80_sound_driver.asm`) |
+| state block ≤ ring | `SND_STATE_END > SND_RING_BASE` → fatal |
+| ring 256-aligned | `SND_RING_BASE & $FF ≠ 0` → fatal (page-byte is derived, can't drift) |
+| ring ≤ sequencer | `SND_RING_BASE + SND_RING_LEN > SND_SEQ_BASE` → fatal |
+| seq header+channels ≤ mailbox | `SND_SEQ_BASE + hdr + 11*SeqChannel_len > SND_REQ_BASE` → error; plus `SND_SEQ_END > SND_REQ_BASE` → fatal |
+| FM scratch ≥ seq end | `SND_FM_SCRATCH < SND_SEQ_END` → fatal |
+| scratch ≤ music param | `SND_FM_SCRATCH + 5 > SND_MUSIC_PARAM` → fatal |
+| music param ≤ trace | `SND_MUSIC_PARAM + 6 > SND_SEQ_TRACE` → fatal |
+| trace ≤ global expr | `SND_SEQ_TRACE + 32 > SND_GLOBAL_EXPR` → fatal |
+| global expr ≤ SFX base | `SND_GLOBAL_EXPR + 7 > SND_SFX_BASE` → fatal |
+| SFX base page-aligned (classifier) | `SND_SFX_BASE & $FF ≠ 0` → fatal |
+| music channels below SFX page (classifier) | `SND_SEQ_END > SND_SFX_BASE` → fatal |
+| SFX RAM ≤ mailbox | `SND_SFX_RAM_END > SND_REQ_BASE` → fatal |
+| SFX dispatch scratch ≤ mailbox | `SND_SFX_DISP_END > SND_REQ_BASE` → fatal (`sound_sfx.asm`) |
+| mailbox tail below status | `SND_REQ_TEMPO >= SND_STAT_BASE` → error |
+| stack pin | `SND_STACK_TOP ≠ $1FFE` → error (spec + debug docs cite the raw value) |
+| struct sizes | `SeqChannel_len ≠ 60` / `SfxChannel_len ≠ 64` → error |
+| `(ix+d)` range | `SeqChannel_sc_detune > 127` / `SfxChannel_sx_kind > 127` → error |
+| shared prefix | offset-equality chain over `sc_flags…sc_last_freq` **including `sc_mod_wait_raw`/`sc_mod_delta_raw`** → error |
+| debug mirror fits | `64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN > 176` → fatal (`engine/debug/sound_debug.asm`) |
+| Timer-A frame clock | `SND_TIMERA_N ≠ 136` → error (unrelated to the map but part of the same "pinned by design" family) |
+
+**Coverage rule going forward:** any new Z80 RAM region must chain from its neighbor (no fresh
+pins below `$1F00` except the three anchors `SND_STATE_BASE`/`SND_RING_BASE`/`SND_SEQ_BASE`) and
+add a fatal against the region above it.

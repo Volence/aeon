@@ -3,7 +3,7 @@
 ;
 ; BANKED (Phase-2 Z80 budget recovery, 2026-06-28): this table is co-located in
 ; the Moving Trucks / SFX bank, emitted inside main.asm's `cpu z80 / phase 08000h`
-; block, so it costs ZERO against the resident Z80-code ceiling ($16F0) — it was
+; block, so it costs ZERO against the resident Z80-code ceiling (SND_STATE_BASE) — it was
 ; moved out of the resident phase-0 blob to free room for Music-Expression Phase 2.
 ; Its home bank IS SFX_BLOB_BANK (the SFX blobs share the MT bank), so the two
 ; readers (SfxDispatch + Sfx_BeginSound in sound_sfx.asm) now SetBank(SFX_BLOB_BANK)

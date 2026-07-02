@@ -452,7 +452,7 @@ Sfx_Ring_Rd:            ds.b 1                 ; read cursor  (0..SFX_RING_MASK)
 ; (includes repeat state): 5 channels * 14 = 70, so header+ch window = 78, and
 ; 64 + 78 + 32 (trace) = 174 <= 176 (kept EVEN with a 2-byte margin).
 ; -----------------------------------------------
-Sound_Dbg_Mirror:       ds.b 176        ; DEBUG: [0..47] Z80 mailbox/status ($1F00..$1F2F), [48..63] playback state ($1600..$160F), [64..71] seq header, [72..141] 5 SeqChannel slots (FM1/FM2/PSG1/PSGN/DAC, 14 B each), [142..173] trace ring (see debug/sound_debug.asm)
+Sound_Dbg_Mirror:       ds.b 176        ; DEBUG: [0..47] Z80 mailbox/status ($1F00..$1F2F), [48..63] playback state ($18F0..$18FF), [64..71] seq header, [72..141] 5 SeqChannel slots (FM1/FM2/PSG1/PSGN/DAC, 14 B each), [142..173] trace ring (see debug/sound_debug.asm)
 
 RAM_End:
 

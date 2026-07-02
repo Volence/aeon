@@ -114,15 +114,15 @@ Fm_RoutePart:
 ; ----------------------------------------------------------------------
 ; ----------------------------------------------------------------------
 ; Snd_ChanClass — channel-class test, factored from the 12-site inline pattern to
-; reclaim Z80 code space (the driver is at its $16F0 ceiling). CARRY SET => ix is a
-; MUSIC channel (ix < SND_SFX_BASE $1D00); CARRY CLEAR => SFX channel (>= $1D00).
+; reclaim Z80 code space (the driver is at its SND_STATE_BASE ceiling). CARRY SET => ix is a
+; MUSIC channel (ix below the page-aligned SND_SFX_BASE); CARRY CLEAR => SFX channel.
 ; Out: hl = ix (callers may reuse). Clobbers af. Preserves bc,de,ix.
 ; ----------------------------------------------------------------------
 Snd_ChanClass:
         push    ix
         pop     hl                       ; hl = ix
         ld      a, h
-        cp      SND_SFX_BASE>>8          ; CARRY set => ix < $1D00 => MUSIC channel
+        cp      SND_SFX_BASE>>8          ; CARRY set => ix below the SFX page => MUSIC
         ret
 
 Fm_PatchPtr:
@@ -132,7 +132,7 @@ Fm_PatchPtr:
         ; mask comes from a stale/empty music patch and the volume fade hits the wrong
         ; carrier (only one of two carriers fades -> the FM tail distorts). Sfx_Restore
         ; calls this with ix = the MUSIC channel, so that path keeps the music branch.
-        call    Snd_ChanClass            ; CARRY clear => ix >= $1D00 => SFX channel
+        call    Snd_ChanClass            ; CARRY clear => ix on the SFX page => SFX
         jr      c, .music
         ld      l, (ix+sx_patch_base)
         ld      h, (ix+sx_patch_base+1)  ; hl = SFX FmPatch window ptr
@@ -378,10 +378,10 @@ Fm_SetVolume:
         ; then fold the total into the carrier-TL delta so EVERY music volume write
         ; (note events, AND the per-frame duck/fade re-assert) picks both up — no
         ; separate pass can be out-fought by the music's own note volumes.
-        ; MUSIC ONLY: an SfxChannel lives at/above SND_SFX_BASE ($1D00) and must NOT
+        ; MUSIC ONLY: an SfxChannel lives at/above the page-aligned SND_SFX_BASE and must NOT
         ; fade/duck (that would defeat the SFX cut-through). Music SeqChannels live
-        ; at SND_SEQ_CHANNELS ($1808..) — strictly below $1D00 — so the high byte of
-        ; ix cleanly separates the two (music hi = $18/$19 < $1D; SFX hi = $1D/$1E).
+        ; at SND_SEQ_CHANNELS ($1A08..) — strictly below the SFX page — so the high byte of
+        ; ix cleanly separates the two (asserted at SND_SFX_BASE in sound_constants.asm).
         ; Each operand is 0..$7F (sum has no 8-bit carry for our duck depths); clamp
         ; the sum to $7F, then fold into Fm_ScratchLog (clamp $7F). fade 0 + duck 0 ->
         ; byte-identical no-op (the or a/jr z fast path); MT regression-safe.

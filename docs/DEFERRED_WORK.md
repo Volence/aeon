@@ -1218,8 +1218,8 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   KEY-ON 2→1, fades intact, skid/ring/jump/dash no regression. The looped FM SFX tails are now S&K-faithful
   (one key-on, smooth fade to silence). `Snd_ChanClass` has converted 11 of 12 inline channel-class sites;
   the 1 remaining + future reclaim is there if needed. (Historical: that fix left $16EE / 2 free; Task 0
-  banking then recovered to $1618 / 216 free, and later phases spent it back — **live 2026-07-01:
-  $16E6 / 10 free**, see F1/F5.)
+  banking then recovered to $1618 / 216 free, and later phases spent it back to 10 free (2026-07-01);
+  the 2026-07-02 budget phase recovered to **$15D8 / $18F0 → 792 free** — see F1/F5.)
 - **B5 — `smpsPSGform $E7` tone-FREQUENCY-TRACKED noise sweep** (refinement; the fixed-rate fix is done — see
   `docs/BUGS.md` BUG-003). The dash `$B6` (and any `smpsPSGform $E7` SFX) is now correctly rerouted to the
   NOISE channel, but plays a FIXED white-noise rate (`$E6`, clk/2048). S&K's `$E7` is white noise whose shift
@@ -1337,15 +1337,16 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   reentrant/extensible). Build only when a concrete song/boss needs them.
 
 #### F. Hygiene — doc drift, dead code, RAM budget (recovers ~750 B ROM)
-- **F1** Z80 RAM-map spec (`docs/superpowers/specs/2026-06-16-sound-z80-ram-map.md`) is STALE — the SFX
-  array $1D00-$1EBC overruns the doc's "spare" page; `SND_STATE_BASE` moved $1600→$16F0; sequencer/trace/
-  song/SFX regions undocumented. Reconcile to the live `sound_constants.asm` map + state true headroom.
-  (The spec now carries a 2026-07-01 staleness header pointing at `sound_constants.asm` as authoritative.
-  **Live headroom as of 2026-07-01: `Z80_SOUND_SIZE` = $16E6, ceiling `SND_STATE_BASE` = $16F0 →
-  10 bytes free** — the music-expr Phase 2 features (detune/LFO/tempo/fade + `SfxBlobWinTab` banking) and
-  the 2026-07-01 ~30-fix review pass spent the post-Task-0 headroom back down. Supersedes the "$1618 /
-  216 B free" 2026-06-27 figure and every older number. The resident-code budget is the binding sound
-  constraint; the portamento resume plan's data-banking is the next recovery step.)
+- ~~**F1** Z80 RAM-map spec (`docs/superpowers/specs/2026-06-16-sound-z80-ram-map.md`) is STALE~~
+  **DONE (budget A.3 repack, 2026-07-02):** the spec was REWRITTEN in full as the live design record —
+  new map table (state `$18F0` / ring `$1900` / seq `$1A00` / derived tail / page-aligned derived
+  `SND_SFX_BASE` / frozen `$1F00+` mailbox), layout invariants (incl. the `Snd_ChanClass` page-compare
+  contract), headroom history, and the complete assert inventory. `sound_constants.asm` stays the
+  authoritative values; the spec documents the design + which assert guards which seam.
+  **Live headroom as of 2026-07-02: `Z80_SOUND_SIZE` = $15D8, ceiling `SND_STATE_BASE` = $18F0 →
+  792 bytes free** (A.1 song-buffer delete + A.2 table banking + A.3's +512 ceiling raise). The
+  resident-code budget remains the binding sound constraint; data-banking remains the recovery lever
+  (code may NOT be banked).
 - **F2** `ENGINE_ARCHITECTURE.md §6` still lists SFX deferred + AF_SOUND a stub (update on merge to master).
 - **F3** Dead ROM: `dc.l SfxTable` 540 B unused (engine uses its own Z80 `dw` window table); duplicate
   `sfx_NN_patches` banks ~208 B; dead `Snd_TimerA_Program` (`z80_sound_driver.asm` 715). Purge.
@@ -1358,10 +1359,10 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   lookup tables were co-located at the start of Moving Trucks' streamed ROM bank (read with the song bank already
   in the `$8000` window — no swap), recovering Z80 code headroom from ~2 B → ~1016 B. The Phase 1/3
   music-expression features consumed most of that back; music-expr Phase 2 (detune/LFO/tempo/fade) and the
-  2026-07-01 review fix pass took the rest. **Live as of 2026-07-01: `Z80_SOUND_SIZE` = $16E6,
-  ceiling `SND_STATE_BASE` = $16F0 → 10 bytes free** (build message / `s4.lst`). See F1 above for the
-  history of figures, and the portamento resume plan for the next data-banking recovery. See the
-  "Music-expression Task 0 (Z80 code recovery)" entry above.
+  2026-07-01 review fix pass took the rest. **Live as of 2026-07-02 (budget A.1/A.2/A.3):
+  `Z80_SOUND_SIZE` = $15D8, ceiling `SND_STATE_BASE` = $18F0 → 792 bytes free** (build message /
+  `s4.lst`). See F1 above (now DONE — the rewritten z80-ram-map spec carries the full headroom
+  history), and the "Music-expression Task 0 (Z80 code recovery)" entry above.
 
 ### Per-frame pitch / volume envelopes (Phase 3a #2/#3) — DEFERRED, build-on-demand
 **Surfaced during:** Moving Trucks missing-effects investigation (2026-06-19).

@@ -43,17 +43,34 @@ SND_STAT_DAC_ACTIVE     = SND_STAT_BASE+$04      ; 1 while a sample plays
 
 SND_ALIVE_MARKER        = $5A
 
+; --- Z80 stack (FIXED, above the mailbox/status block) ---
+; Seeded once by SndDrv_Init (`ld sp, SND_STACK_TOP`); grows DOWNWARD from $1FFE
+; toward the status block at $1F10-$1F14, so $1F15..$1FFD (~233 B) is stack
+; headroom — far beyond the driver's worst nesting. One word below the $2000 top
+; so the first push lands at $1FFC/$1FFD (Batman & Robin's value).
+; NOTE: SND_REQ_BASE/SND_STAT_BASE ($1F00/$1F10) are a FROZEN external contract —
+; 68k code shares these constants and debug workflows cite the raw addresses. The
+; movable RAM map (everything below $1F00) must never grow past SND_REQ_BASE.
+SND_STACK_TOP           = $1FFE
+
+        if SND_STACK_TOP <> $1FFE
+          error "SND_STACK_TOP moved — the z80-ram-map spec + debug docs pin $1FFE"
+        endif
+
 ; --- Sample IDs ---
 SND_SAMPLE_TEST         = 1                       ; Foundations test tone
 
 ; --- DAC playback state (Z80 RAM; state region, all reads/writes bank-free) ---
-; The driver CODE blob grows up from $0000 and must stay below SND_STATE_BASE (the
-; build asserts Z80_SOUND_SIZE <= SND_STATE_BASE). The block occupies $16F0..$16FC
-; ($0D bytes), comfortably below the page-aligned DAC ring at $1700; SND_STATE_END_GUARD
-; asserts it never runs into the ring. AS does NOT auto-align ds.w/ds.l — the word
-; fields (SND_ROM_PTR/LEN/FM6_CHAN_PTR) sit at EVEN absolute offsets ($06/$08/$0A). (Layer 6 deleted the
+; SND_STATE_BASE is ALSO the resident-code ceiling: the driver CODE blob grows up
+; from $0000 and must stay below it (the build asserts Z80_SOUND_SIZE <=
+; SND_STATE_BASE). Raised $16F0 -> $18F0 by the A.3 repack (2026-07-02): the whole
+; movable RAM map slid up +512, handing the code blob the recovered space. The
+; block occupies $18F0..$18FC ($0D bytes), just below the page-aligned DAC ring at
+; SND_RING_BASE ($1900); the assert below SND_RING_BASE keeps them apart. AS does
+; NOT auto-align ds.w/ds.l — the word fields (SND_ROM_PTR/LEN/FM6_CHAN_PTR) sit at
+; EVEN absolute offsets ($06/$08/$0A off an even base). (Layer 6 deleted the
 ; DPCM-only SND_DEC_ACC/SND_DEC_IY — raw 8-bit PCM needs no predictor or DecTable base.)
-SND_STATE_BASE          = $16F0
+SND_STATE_BASE          = $18F0
 SND_DAC_PHASE           = SND_STATE_BASE+$00     ; 0=idle, 1=playing, 2=draining-tail
 SND_SONG_BANK           = SND_STATE_BASE+$01     ; current song bank (set in Snd_LoadSong)
 SND_ROM_BANK            = SND_STATE_BASE+$02     ; current sample bank (stashed by Snd_StartSample)
@@ -183,9 +200,15 @@ SND_TIMERA_N           = timerAReload(SND_FRAME_MILLIHZ)
         endif
 
 ; --- 1B: ring buffer (page-aligned, 256 bytes) ---
-SND_RING_BASE           = $1700                  ; Z80 addr; high byte $17 is the page
-SND_RING_PAGE           = $17                     ; high byte for `inc l` wrap + full-check
+; MUST stay 256-aligned: the streaming loop holds h = SND_RING_PAGE for the whole
+; sample and wraps with `inc l` — the ring IS one page. Asserted below.
+SND_RING_BASE           = $1900                  ; Z80 addr; high byte $19 is the page
+SND_RING_PAGE           = SND_RING_BASE>>8        ; high byte for `inc l` wrap + full-check
 SND_RING_LEN            = $100
+
+        if (SND_RING_BASE & $FF) <> 0
+          fatal "DAC ring base (\{SND_RING_BASE}) must be 256-aligned (the loop wraps with inc l)"
+        endif
 
 ; --- Register-resident 1:1 streaming loop: ring read-ahead lead bounds ---
 ; SND_RING_LEAD_PRIME : lead established at sample start. The lead region is left as
@@ -221,7 +244,7 @@ SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 18356 Hz (3579545/195, i
 ; --- 1B: 68k->Z80 control (68k writes, Z80 reads) ---
 SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progress (no ROM reads)
 
-        ; The DAC state block must stay below the page-aligned DAC ring at SND_RING_BASE ($1700).
+        ; The DAC state block must stay below the page-aligned DAC ring at SND_RING_BASE ($1900).
         if SND_STATE_END > SND_RING_BASE
           fatal "DAC state block (ends \{SND_STATE_END}) runs into the DAC ring at \{SND_RING_BASE}"
         endif
@@ -884,9 +907,9 @@ sc_fill_count   ds.b 1   ; +38
 sc_psgenv       ds.b 1   ; +39 PSG vol-env id (1-based; 0 = none)
 sc_psgenv_cur   ds.b 1   ; +40 PSG vol-env cursor (frame index into the body)
 sc_psgenv_out   ds.b 1   ; +41 last computed atten delta (write-on-change shadow for Psg_SetVolume)
-; --- SFX-only Expressive Fidelity appended state (renderers gate on ix>=SND_SFX_BASE;
-; music SeqChannel ends at +41 and lacks everything from here on). Pitch modulation
-; (spec §5): continuous additive freq-word vibrato/sweep, NO re-key. ---
+; --- Pitch-modulation block (spec §5): continuous additive freq-word vibrato/
+; sweep, NO re-key. SHARED with SeqChannel at identical offsets (+42..+56, see
+; the shared-prefix assert) — some renderers still gate on ix>=SND_SFX_BASE. ---
 sc_mod_ctrl     ds.b 1   ; +42 pitch-mod control (0 = off; nonzero = active)
 sc_mod_wait     ds.b 1   ; +43 frames before modulation starts (one-shot, then held at 1)
 sc_mod_speed    ds.b 1   ; +44 frames between delta applications (countdown)
@@ -900,23 +923,28 @@ sc_mod_steps    ds.b 1   ; +46 steps until direction reverse (countdown; seeded 
 ; reloads the FULL raw step — faithful to S3K's iy+3. ---
 sc_mod_speed_raw ds.b 1  ; +47 latched speed (reload source for sc_mod_speed)
 sc_mod_step_raw  ds.b 1  ; +48 latched FULL step count (reload source for sc_mod_steps)
-sc_mod_accum    ds.w 1   ; +49 signed 16-bit accumulated freq offset
-sc_base_freq    ds.w 1   ; +51 unmodulated note word, latched at key-on: FM=(d=$A4,e=$A0), PSG=(d=div_hi,e=div_lo)
-sc_last_freq    ds.w 1   ; +53 last modulated freq/divisor written (write-on-change shadow; FM+PSG shared via Mod_Advance)
-; --- SFX bookkeeping (offsets >= SeqChannel_len + 16 fidelity bytes = +55) ---
-sx_priority     ds.b 1   ; +55 the running SFX's priority (cleared on end; arbitration)
-sx_pad          ds.b 1   ; +56 pad to align sx_patch_base to a word boundary
-sx_patch_base   ds.w 1   ; +57 the SFX's own FmPatch-bank window ptr (set at steal)
-sx_saved_route  ds.b 1   ; +59 the music route whose SeqChannel we overrode (for restore)
-sx_saved_note   ds.b 1   ; +60 PSG3 tone note saved on a noise steal (periodic-noise coupling)
-sx_kind         ds.b 1   ; +61 SFXEL_* of the owned voice (FM/PSG/NOISE) for restore dispatch
-SfxChannel endstruct     ; = 62 bytes
+; --- A.3 growth (2026-07-02, serves the per-note vibrato re-arm task): the last two
+; smpsModSet operands latched raw so a note-on re-arm can reload the FULL mod
+; program without re-reading the stream. DEAD SPACE until that task wires them. ---
+sc_mod_wait_raw ds.b 1   ; +49 latched onset delay (reload source for sc_mod_wait)
+sc_mod_delta_raw ds.b 1  ; +50 latched signed per-step delta (reload source for sc_mod_delta)
+sc_mod_accum    ds.w 1   ; +51 signed 16-bit accumulated freq offset
+sc_base_freq    ds.w 1   ; +53 unmodulated note word, latched at key-on: FM=(d=$A4,e=$A0), PSG=(d=div_hi,e=div_lo)
+sc_last_freq    ds.w 1   ; +55 last modulated freq/divisor written (write-on-change shadow; FM+PSG shared via Mod_Advance)
+; --- SFX bookkeeping (offsets past the shared block; SeqChannel diverges here) ---
+sx_priority     ds.b 1   ; +57 the running SFX's priority (cleared on end; arbitration)
+sx_pad          ds.b 1   ; +58 pad byte (keeps the sx_* tail layout stable)
+sx_patch_base   ds.w 1   ; +59 the SFX's own FmPatch-bank window ptr (set at steal)
+sx_saved_route  ds.b 1   ; +61 the music route whose SeqChannel we overrode (for restore)
+sx_saved_note   ds.b 1   ; +62 PSG3 tone note saved on a noise steal (periodic-noise coupling)
+sx_kind         ds.b 1   ; +63 SFXEL_* of the owned voice (FM/PSG/NOISE) for restore dispatch
+SfxChannel endstruct     ; = 64 bytes
 
-        if SfxChannel_len <> 62
-          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 62"
+        if SfxChannel_len <> 64
+          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 64"
         endif
         ; largest field offset must stay within the (ix+d) signed-8-bit range.
-        ; sc_last_freq ends at +54 (word at +53), sx_kind is at +61 — both <= 127.
+        ; sc_last_freq ends at +56 (word at +55), sx_kind is at +63 — both <= 127.
         if SfxChannel_sx_kind > 127
           error "SfxChannel sx_kind offset (\{SfxChannel_sx_kind}) exceeds (ix+d) +127"
         endif
@@ -1005,7 +1033,7 @@ sc_psgenv       ds.b 1   ; +39 PSG vol-env id (1-based; 0 = none)
 sc_psgenv_cur   ds.b 1   ; +40 PSG vol-env cursor (frame index into the body)
 sc_psgenv_out   ds.b 1   ; +41 last computed atten delta (folded by Psg_SetVolume)
 ; --- pitch-modulation block (spec §4): SHARED with SfxChannel at the SAME offsets
-;     (+42..+54) so Mod_Advance / Mod_ReArm / Mod_ApplyVibrato / Psg_ApplyMod render
+;     (+42..+56) so Mod_Advance / Mod_ReArm / Mod_ApplyVibrato / Psg_ApplyMod render
 ;     MUSIC and SFX through one code path. Inert until MEV_MODSET arms sc_mod_ctrl. ---
 sc_mod_ctrl     ds.b 1   ; +42 pitch-mod control (0 = off; nonzero = active)
 sc_mod_wait     ds.b 1   ; +43 onset delay (one-shot, then held at 1)
@@ -1014,31 +1042,36 @@ sc_mod_delta    ds.b 1   ; +45 signed per-step delta (flips sign each half-perio
 sc_mod_steps    ds.b 1   ; +46 steps until direction reverse (countdown)
 sc_mod_speed_raw ds.b 1  ; +47 latched speed (reload source for sc_mod_speed)
 sc_mod_step_raw ds.b 1   ; +48 latched FULL step count (reload source for sc_mod_steps)
-sc_mod_accum    ds.w 1   ; +49 signed 16-bit accumulated freq offset
-sc_base_freq    ds.w 1   ; +51 unmodulated note word latched at key-on (FM $A4/$A0; PSG div hi/lo)
-sc_last_freq    ds.w 1   ; +53 last modulated word written (write-on-change shadow)
-; --- music-only fields (diverge AFTER the shared block; SfxChannel uses +55.. for its
-;     sx_* bookkeeping). sc_noise_mode shares offset +55 with SfxChannel's sx_priority,
+; --- A.3 growth (2026-07-02): raw wait/delta latches for the per-note vibrato
+; re-arm task. Mirrored in SfxChannel at the same offsets (shared-prefix assert).
+; DEAD SPACE until that task wires them — no code reads or writes them yet. ---
+sc_mod_wait_raw ds.b 1   ; +49 latched onset delay (reload source for sc_mod_wait)
+sc_mod_delta_raw ds.b 1  ; +50 latched signed per-step delta (reload source for sc_mod_delta)
+sc_mod_accum    ds.w 1   ; +51 signed 16-bit accumulated freq offset
+sc_base_freq    ds.w 1   ; +53 unmodulated note word latched at key-on (FM $A4/$A0; PSG div hi/lo)
+sc_last_freq    ds.w 1   ; +55 last modulated word written (write-on-change shadow)
+; --- music-only fields (diverge AFTER the shared block; SfxChannel uses +57.. for its
+;     sx_* bookkeeping). sc_noise_mode shares offset +57 with SfxChannel's sx_priority,
 ;     but is only ever read with a MUSIC ix (all four sites verified). ---
-sc_noise_mode   ds.b 1   ; +55 SN76489 noise control byte ($E0|mode|rate) latched by
+sc_noise_mode   ds.b 1   ; +57 SN76489 noise control byte ($E0|mode|rate) latched by
                          ;     MEV_PSGNOISE — music-noise channel only (per-note rate-3
                          ;     gate + SFX-steal re-arm) (RELOCATED from +42).
-sc_detune       ds.b 1   ; +56 signed fine-pitch offset, folded at FM note-on (Fm_NoteOnFreq -> Fm_FnumApplyDelta)
-sc_pad          ds.b 1   ; +57 pad to an even struct length (AS does not auto-align ds.w)
-SeqChannel endstruct      ; = 58 bytes
+sc_detune       ds.b 1   ; +58 signed fine-pitch offset, folded at FM note-on (Fm_NoteOnFreq -> Fm_FnumApplyDelta)
+sc_pad          ds.b 1   ; +59 pad to an even struct length (AS does not auto-align ds.w)
+SeqChannel endstruct      ; = 60 bytes
 
-        if SeqChannel_len <> 58
-          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 58"
+        if SeqChannel_len <> 60
+          error "SeqChannel struct is \{SeqChannel_len} bytes, expected 60"
         endif
         ; the largest field offset must stay within the signed-8-bit (ix+d) range.
         if SeqChannel_sc_detune > 127
           error "sc_detune offset (\{SeqChannel_sc_detune}) exceeds the (ix+d) +127 range"
         endif
         ; the shared interpreter prefix MUST mirror SeqChannel field offsets so
-        ; ModUpdate/Sequencer_Channel walk an SfxChannel correctly.
-        ; SfxChannel's first 39 bytes are a byte-for-byte clone of SeqChannel —
-        ; the 14 SFX-fidelity fields (+39..+52) are SfxChannel-only (no mirror here).
-        if (SfxChannel_sc_flags <> SeqChannel_sc_flags) || (SfxChannel_sc_route <> SeqChannel_sc_route) || (SfxChannel_sc_note <> SeqChannel_sc_note) || (SfxChannel_sc_points <> SeqChannel_sc_points) || (SfxChannel_sc_last_pan <> SeqChannel_sc_last_pan) || (SfxChannel_sc_mod_ctrl <> SeqChannel_sc_mod_ctrl) || (SfxChannel_sc_mod_accum <> SeqChannel_sc_mod_accum) || (SfxChannel_sc_base_freq <> SeqChannel_sc_base_freq) || (SfxChannel_sc_last_freq <> SeqChannel_sc_last_freq)
+        ; ModUpdate/Sequencer_Channel walk an SfxChannel correctly. The shared
+        ; block runs +0..+56 (through sc_last_freq); the structs diverge at +57
+        ; (sc_noise_mode vs sx_priority).
+        if (SfxChannel_sc_flags <> SeqChannel_sc_flags) || (SfxChannel_sc_route <> SeqChannel_sc_route) || (SfxChannel_sc_note <> SeqChannel_sc_note) || (SfxChannel_sc_points <> SeqChannel_sc_points) || (SfxChannel_sc_last_pan <> SeqChannel_sc_last_pan) || (SfxChannel_sc_mod_ctrl <> SeqChannel_sc_mod_ctrl) || (SfxChannel_sc_mod_wait_raw <> SeqChannel_sc_mod_wait_raw) || (SfxChannel_sc_mod_delta_raw <> SeqChannel_sc_mod_delta_raw) || (SfxChannel_sc_mod_accum <> SeqChannel_sc_mod_accum) || (SfxChannel_sc_base_freq <> SeqChannel_sc_base_freq) || (SfxChannel_sc_last_freq <> SeqChannel_sc_last_freq)
           error "SfxChannel shared prefix diverges from SeqChannel field offsets"
         endif
 
@@ -1092,17 +1125,19 @@ sc_mod_delta    = SeqChannel_sc_mod_delta
 sc_mod_steps    = SeqChannel_sc_mod_steps
 sc_mod_speed_raw = SeqChannel_sc_mod_speed_raw
 sc_mod_step_raw = SeqChannel_sc_mod_step_raw
+sc_mod_wait_raw = SeqChannel_sc_mod_wait_raw
+sc_mod_delta_raw = SeqChannel_sc_mod_delta_raw
 sc_mod_accum    = SeqChannel_sc_mod_accum
 sc_base_freq    = SeqChannel_sc_base_freq
 sc_last_freq    = SeqChannel_sc_last_freq
 sc_detune       = SeqChannel_sc_detune
 sc_pad          = SeqChannel_sc_pad
 ; slot[1] macro-stream "active" flag (Component D): reuse the even-alignment pad
-; byte (+57). Nonzero = a MacroTick reg-automation stream is running on this
-; channel. On SfxChannel, +57 is sx_patch_base's LOW byte, but MacroTick + this
+; byte (+59). Nonzero = a MacroTick reg-automation stream is running on this
+; channel. On SfxChannel, +59 is sx_patch_base's LOW byte, but MacroTick + this
 ; flag are ONLY ever read with a MUSIC SeqChannel ix (Sequencer_Frame walks
 ; SeqChannels), so the SFX aliasing is never exercised — same discipline as
-; sc_noise_mode/sx_priority at +55.
+; sc_noise_mode/sx_priority at +57.
 sc_macro_active = SeqChannel_sc_pad  ; INFORMATIONAL mirror: "a macro stream is armed". The
         ; AUTHORITATIVE per-frame gate is sc_mod_ptr != 0; gate on that, not this flag.
 
@@ -1167,13 +1202,19 @@ SCF_PITCH_CHROMATIC = 1<<SCF_PITCH_CHROMATIC_B
         endif
 
 ; --- Sequencer RAM block (Z80 space) ---
-; Lives at $1800, ABOVE the 1B DAC ring at $1700. (The plan's illustrative guard
-; `if SND_SEQ_END > SND_RING_BASE` is WRONG — the sequencer is above the ring,
-; not below it. The real map: code $0000-$16EF, state $16F0-$16FF, DAC ring
-; $1700-$17FF, FREE $1800-$1EFF, mailbox/status $1F00-$1F1F, stack top $1FFE.
-; We place the sequencer region at $1800 and guard its END against the mailbox
-; base SND_REQ_BASE ($1F00), leaving stack headroom.)
-SND_SEQ_BASE       = $1800          ; sequencer state region (free block above the DAC ring)
+; Directly ABOVE the 1B DAC ring (A.3 repack, 2026-07-02). The full map (spec
+; docs/superpowers/specs/2026-06-16-sound-z80-ram-map.md, rewritten with this
+; repack): code $0000..<SND_STATE_BASE ($18F0 = the ceiling), state $18F0-$18FC,
+; DAC ring $1900-$19FF, sequencer $1A00.., then the derived scratch/param/trace/
+; expression tail, then the page-aligned SFX region, mailbox/status $1F00-$1F14
+; (FROZEN 68k contract), stack top SND_STACK_TOP ($1FFE, grows down). Every seam
+; is asserted at its definition below.
+SND_SEQ_BASE       = $1A00          ; sequencer state region (block above the DAC ring)
+
+        ; the DAC ring must end at/below the sequencer region.
+        if (SND_RING_BASE + SND_RING_LEN) > SND_SEQ_BASE
+          fatal "DAC ring (ends \{SND_RING_BASE + SND_RING_LEN}) runs into the sequencer at \{SND_SEQ_BASE}"
+        endif
 SND_SEQ_TEMPO      = SND_SEQ_BASE+$00   ; loaded song tempo (LEGACY Timer-A selector; unused Phase 3)
 SND_SEQ_CHCOUNT    = SND_SEQ_BASE+$01   ; active channel count (frame-loop djnz bound)
 SND_SEQ_PATCHTAB   = SND_SEQ_BASE+$02   ; loaded patch table ptr (2)
@@ -1239,17 +1280,16 @@ SND_MUSIC_PARAM_FLAGS    = SND_MUSIC_PARAM+$03   ; song SH_FLAGS byte (1 byte)
 SND_MUSIC_PARAM_PATCHPTR = SND_MUSIC_PARAM+$04   ; song patch-bank window ptr (2 bytes, LE)
 SND_MUSIC_PARAM_LEN      = 6
 
-; --- Sequencer opcode trace ring (DEBUG) — RELOCATED above the music-param block and
-; NO LONGER PAGE-ALIGNED (the grown SeqChannel array will consume the old $1A00 page).
-; Seq_Trace now builds the ring address as base+index (carry-correct 16-bit add).
+; --- Sequencer opcode trace ring (DEBUG) — derived, above the music-param block,
+; NOT page-aligned. Seq_Trace builds the ring address as base+index (carry-correct
+; 16-bit add), so no alignment is required.
 ; SND_SEQ_TRACE_LEN is defined above near SND_SEQ_END.
 SND_SEQ_TRACE      = SND_MUSIC_PARAM + SND_MUSIC_PARAM_LEN
 
-; --- Phase 2 global expression state (master fade + global tempo). Free RAM
-; between the trace ring and the SFX region (the copy-path song buffer that used
-; to bound this block at $1B00 is DELETED — $1B00..$1CFF is a free gap until the
-; Task A.3 repack, per the SND_SFX_BASE pin below). Derived from the ring end so
-; it auto-tracks ring/struct growth; the assert below keeps it under
+; --- Phase 2 global expression state (master fade + global tempo). Last block of
+; the derived scratch tail (FM scratch -> Snd_* scratch -> music param -> trace ->
+; here); SND_SFX_BASE page-aligns up from its end. Derived from the trace-ring end
+; so it auto-tracks ring/struct growth; the assert below keeps it under
 ; SND_SFX_BASE. All ds.b -> no even-align need. GLOBAL (not per-channel): one scalar each.
 SND_GLOBAL_EXPR     = SND_SEQ_TRACE + SND_SEQ_TRACE_LEN
 SND_MASTER_FADE     = SND_GLOBAL_EXPR+$00   ; current fade atten (0 full .. $7F silent)
@@ -1262,7 +1302,7 @@ SND_TEMPO_BASE      = SND_GLOBAL_EXPR+$06   ; authored base (MEV_TEMPO; restore 
 SND_GLOBAL_EXPR_LEN = 7
 
     ; Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots)
-    ; must fit between SND_SEQ_BASE ($1800) and the mailbox base ($1F00). The seq
+    ; must fit between SND_SEQ_BASE ($1A00) and the mailbox base ($1F00). The seq
     ; header is (SND_SEQ_CHANNELS - SND_SEQ_BASE) bytes; the per-channel array is
     ; CHROUTE_COUNT slots * SeqChannel_len.
 SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
@@ -1283,13 +1323,16 @@ SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
       fatal "trace ring (\{SND_SEQ_TRACE}+\{SND_SEQ_TRACE_LEN}) runs into the Phase-2 globals (\{SND_GLOBAL_EXPR})"
     endif
 
-; --- Phase 5a SFX RAM region ($1D00..$1EFF, below the mailbox) -----------------
-; PINNED at $1D00 for now: the 512 B copy-path song buffer that used to sit at
-; $1B00..$1CFF is DELETED (budget A.1 — every song streams from ROM), freeing
-; that block, but the RAM map is not repacked yet — the budget phase's repack
-; task re-derives the whole tail in one deliberate pass.
-; Guard the END against the mailbox ($1F00) and the Phase-2 globals below.
-SND_SFX_BASE       = $1D00
+; --- Phase 5a SFX RAM region (below the mailbox) -------------------------------
+; DERIVED (A.3 repack, 2026-07-02): page-aligns UP from the end of the scratch
+; tail above, so it auto-tracks any struct/tail growth. It MUST stay 256-aligned:
+; Snd_ChanClass (sound_fm.asm) classifies music-vs-SFX channels by comparing the
+; HIGH BYTE of ix against SND_SFX_BASE>>8 — every music SeqChannel sits below
+; this page boundary (asserted below) and every SfxChannel slot at/above it, so
+; the one-byte compare is exact. The alignment slack between the scratch tail and
+; this base is the map's growth headroom.
+; Guard the END against the mailbox ($1F00); the Phase-2 globals guard is below.
+SND_SFX_BASE       = (SND_GLOBAL_EXPR + SND_GLOBAL_EXPR_LEN + $FF) & $FF00
 SND_SFX_CHANNELS   = SND_SFX_BASE                       ; the 7-slot SfxChannel array
 SND_SFX_CHAN_END   = SND_SFX_CHANNELS + (SFX_VOICE_COUNT * SfxChannel_len)
 ; SFX request queue (spec §9): a small priority-gated ring. 3 entries * 2 bytes
@@ -1310,6 +1353,14 @@ SND_SFX_RAM_END    = SND_SFX_DUCK_TARGET + 1
     endif
     if (SND_GLOBAL_EXPR + SND_GLOBAL_EXPR_LEN) > SND_SFX_BASE
       fatal "Phase-2 globals (\{SND_GLOBAL_EXPR}+\{SND_GLOBAL_EXPR_LEN}) run into the SFX region at \{SND_SFX_BASE}"
+    endif
+    ; Snd_ChanClass page-compare contract: the SFX base must be 256-aligned and
+    ; every music SeqChannel byte must sit strictly below it.
+    if (SND_SFX_BASE & $FF) <> 0
+      fatal "SND_SFX_BASE (\{SND_SFX_BASE}) must be 256-aligned (Snd_ChanClass compares ix's high byte)"
+    endif
+    if SND_SEQ_END > SND_SFX_BASE
+      fatal "music SeqChannels (end \{SND_SEQ_END}) reach the SFX page at \{SND_SFX_BASE} — Snd_ChanClass would misclassify"
     endif
 
 ; --- Trace event_code values (0..15) — the controller decodes the trace ring.
