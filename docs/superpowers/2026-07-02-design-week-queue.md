@@ -37,3 +37,10 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   (audit amendment #1 superseded by measurement), page-frame residency
   (refcount-pin + LRU), B&R/Vectorman budgets, camera-gate degradation, per-act
   ROM budget gate. Next: user spec review → implementation plan.
+- 2026-07-02 — design #1 implementation plan committed
+  (`plans/2026-07-02-art-streaming-phase2.md`, 12 tasks). Design #1 BANKED.
+- 2026-07-02 — design #2 spec written + approved in dialogue
+  (`specs/2026-07-02-floating-origin-design.md`): atomic rebase ratified (modulo
+  rejected), per-act parallax-aligned delta (fixes §9's false alignment claim),
+  complete audited shift-list, single-owner routine + DEBUG audit, section_id
+  byte→word widening included. Next: user spec review → implementation plan.
