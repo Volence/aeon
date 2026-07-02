@@ -44,3 +44,6 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   rejected), per-act parallax-aligned delta (fixes §9's false alignment claim),
   complete audited shift-list, single-owner routine + DEBUG audit, section_id
   byte→word widening included. Next: user spec review → implementation plan.
+- 2026-07-02 — design #2 spec user-reviewed (TL;DR walkthrough) + implementation
+  plan committed (`plans/2026-07-02-floating-origin.md`, 9 tasks). Design #2 BANKED.
+  Design #3 (character dispatch + Tails/Knuckles) research started.
