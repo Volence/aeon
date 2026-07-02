@@ -282,18 +282,15 @@ Sfx_Frame:
 .slot_done:
         pop     bc
 .next_slot:
-        ; --- Task 9 SEAM POLL (spec D.2, AMENDED per the controller's Step-7
-        ; calibration — see Sequencer_Frame's .tick_loop seam for the full
-        ; rationale): once per SFX slot, active or skipped. Drain only while
-        ; "Timer B overflowed AND Timer A has NOT yet" ($03-masked status ==
-        ; $02) so tick stretch stays bounded under one music period; once A
-        ; fires the sequencer finishes ASAP. (SndDrv_DrainBurst: drain-only,
-        ; no ROM/bank touch — the SFX blob bank stays banked in.) a + flags
-        ; are dead here; the burst preserves the djnz counter (b) + ix. ---
-        ld      a, (SND_Z80_YM_A0)       ; YM status: bit0 = Timer A, bit1 = Timer B
-        and     SND_TIMERB_OVF_MASK|SND_TIMERA_OVF_MASK ; $03: both timer flags
-        cp      SND_TIMERB_OVF_MASK      ; == $02: B fired AND A not yet due
-        call    z, SndDrv_DrainBurst
+        ; --- Task 9 SEAM POLL (spec D.2): once per SFX slot, active or skipped
+        ; (~30 cyc when Timer B hasn't fired). Timer B overflow = the drums froze
+        ; for >= 1 marker period inside this tick -> paced drain burst
+        ; (SndDrv_DrainBurst; drain-only, no ROM/bank touch — the SFX blob bank
+        ; stays banked in). a + flags are dead here; the burst preserves the
+        ; djnz counter (b) + ix. ---
+        ld      a, (SND_Z80_YM_A0)       ; YM status: bit1 = Timer B overflow
+        and     SND_TIMERB_OVF_MASK
+        call    nz, SndDrv_DrainBurst
         ld      de, SfxChannel_len       ; size added directly (no multiply)
         add     ix, de
         djnz    .slot_loop

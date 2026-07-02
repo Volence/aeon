@@ -1050,18 +1050,10 @@ Snd_TimerA_Rearm:
 
 ; ======================================================================
 ; SndDrv_DrainBurst — Timer-B-paced DAC ring drain at sequencer SEAMS (Task 9,
-; spec D.2, as AMENDED by the controller's Step-7 calibration). Called from a
-; Sequencer_Frame / Sfx_Frame seam poll when YM status bit1 (Timer B overflow)
-; is set AND bit0 (Timer A) is NOT: >= 1 Timer-B period (~1.20 ms,
+; spec D.2). Called from a Sequencer_Frame / Sfx_Frame seam poll when YM status
+; bit1 (Timer B overflow) is set: >= 1 Timer-B period (~1.20 ms,
 ; SND_TIMERB_PERIOD_NS) elapsed inside this tick with the DAC frozen (the hot
-; loop is paused for the whole tick, so the drums freeze through heavy ticks)
-; and the tick still has headroom before the next music tick is due. The A gate
-; exists because a burst repays exactly one Timer-B period, so an ungated
-; draining tick stretched ~2x, drained the ring dry and crossed the Timer-A
-; period, eating music ticks (measured ~20% key-on rate drop): once A fires,
-; the seams stop draining and the sequencer finishes ASAP, bounding total tick
-; length under one music period. No in-burst A check — a mid-burst A overflow
-; costs at most one burst (~1.2 ms) of lateness (accepted; cheaper).
+; loop is paused for the whole tick, so the drums freeze through heavy ticks).
 ; Emits up to SND_DRAIN_BURST (22) ring samples to $2A at the TRUE streaming
 ; cadence (195 cyc between $2A writes — the per-iteration balance below), i.e.
 ; the samples the hot loop WOULD have emitted in that period, then Timer B's

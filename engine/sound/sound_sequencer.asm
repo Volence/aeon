@@ -103,38 +103,27 @@ Sequencer_Frame:
         ld      (ix+sc_tempo_accum), a
         push    af                       ; a + carry survive the tick (a = accum)
         call    Sequencer_Channel        ; one event-tick (ix preserved)
-        ; --- Task 9 SEAM POLL (spec D.2, AMENDED per the controller's Step-7
-        ; calibration): drain ONLY while "Timer B overflowed AND Timer A has NOT
-        ; yet" ($03-masked status == $02). A 22-sample burst repays exactly one
-        ; Timer-B period, so the ungated form let a draining tick stretch ~2x,
-        ; drain the ring dry (measured 5-10ms hold explosion) and cross the
-        ; Timer-A period, eating music ticks (~20% key-on rate drop). Once A
-        ; fires, every seam skips the burst and the sequencer finishes ASAP —
-        ; total tick length stays bounded under one music period; monster ticks
-        ; degrade to the pre-T9 hold behavior. This seam catches multi-event
-        ; channels + patch loads (a full patch load is a bounded ~30-write
-        ; burst, so polling AFTER it suffices; an intra-patch-loop poll stays
-        ; gated on the controller's measurement). a + flags are dead here (the
-        ; `pop af` below restores the accumulator + carry); SndDrv_DrainBurst
-        ; preserves everything it touches. ---
-        ld      a, (SND_Z80_YM_A0)       ; YM status: bit0 = Timer A, bit1 = Timer B
-        and     SND_TIMERB_OVF_MASK|SND_TIMERA_OVF_MASK ; $03: both timer flags
-        cp      SND_TIMERB_OVF_MASK      ; == $02: B fired AND A not yet due
-        call    z, SndDrv_DrainBurst
+        ; --- Task 9 SEAM POLL (spec D.2): Timer B overflow = the drums froze for
+        ; >= 1 marker period inside this tick -> paced drain burst. This seam
+        ; catches multi-event channels + patch loads (a full patch load is a
+        ; bounded ~30-write burst, so polling AFTER it suffices; an intra-patch-
+        ; loop poll is gated on the controller's Step 7 measurement). a + flags
+        ; are dead here (the `pop af` below restores the accumulator + carry);
+        ; SndDrv_DrainBurst preserves everything it touches. ---
+        ld      a, (SND_Z80_YM_A0)       ; YM status: bit1 = Timer B overflow
+        and     SND_TIMERB_OVF_MASK
+        call    nz, SndDrv_DrainBurst
         pop     af
         jr      nc, .tick_loop           ; still out of range -> another tick owed
 .chan_done:
         pop     bc
 .next_chan:
-        ; --- Task 9 SEAM POLL (spec D.2, AMENDED — see the .tick_loop seam for
-        ; the rationale): once per channel, active or skipped. Drain only while
-        ; B fired AND A not yet due ($03-masked status == $02) so tick stretch
-        ; stays bounded under one music period. a + flags are dead here (de/ix/
+        ; --- Task 9 SEAM POLL (spec D.2): once per channel, active or skipped
+        ; (~30 cyc when Timer B hasn't fired). a + flags are dead here (de/ix/
         ; djnz-b below don't depend on them; the burst preserves b/ix). ---
-        ld      a, (SND_Z80_YM_A0)       ; YM status: bit0 = Timer A, bit1 = Timer B
-        and     SND_TIMERB_OVF_MASK|SND_TIMERA_OVF_MASK ; $03: both timer flags
-        cp      SND_TIMERB_OVF_MASK      ; == $02: B fired AND A not yet due
-        call    z, SndDrv_DrainBurst
+        ld      a, (SND_Z80_YM_A0)       ; YM status: bit1 = Timer B overflow
+        and     SND_TIMERB_OVF_MASK
+        call    nz, SndDrv_DrainBurst
         ld      de, SeqChannel_len       ; size added directly (no multiply)
         add     ix, de
         djnz    .chan_loop
