@@ -1,0 +1,76 @@
+{
+  "arbiter": {
+    "cart_in_line_state": true,
+    "halt_line_state": false,
+    "line_access_pending": true,
+    "line_buffer_locked": false,
+    "m68k_bus_grant_line_state": true,
+    "m68k_bus_request_line_state": true,
+    "pending_line_changes": [
+      {
+        "access_time": 16975854.356779307,
+        "id": 4,
+        "line": "BR",
+        "state": 0
+      }
+    ],
+    "pending_line_count": 1,
+    "sres_line_state": false,
+    "timeslice_length": 0.0,
+    "timeslice_progress": 0.0,
+    "vres_line_state": false,
+    "wres_line_state": false,
+    "z80_bus_grant_line_state": false,
+    "z80_bus_request_line_state": false,
+    "z80_bus_reset_line_state": false
+  },
+  "deterministic": true,
+  "m68000": {
+    "bg_line_state": true,
+    "br_line_state": true,
+    "execution_reached_end_of_timeslice": true,
+    "force_interrupt": false,
+    "halt_line_state": false,
+    "interrupt_pending_level": 0,
+    "line_access_pending": true,
+    "line_buffer_locked": false,
+    "manual_device_advance_in_progress": false,
+    "pending_line_changes": [
+      {
+        "access_time": 16975854.356779307,
+        "clock_rate_change": false,
+        "id": 2,
+        "line": "BR",
+        "state": 0
+      },
+      {
+        "access_time": 32917637.47976686,
+        "clock_rate_change": false,
+        "id": 5,
+        "line": "IPL",
+        "state": 6
+      }
+    ],
+    "pending_line_count": 2,
+    "reset_line_state": false,
+    "suspend_until_line_state_change": false,
+    "suspend_when_bus_released": false,
+    "timeslice_length": 16706515.0,
+    "timeslice_progress": 16706575.489942512
+  },
+  "running": false,
+  "vdp": {
+    "bus_granted": true,
+    "bus_request_line_state": false,
+    "det_heal_block_runs": 0,
+    "det_heal_br_reissues": 0,
+    "det_heal_inline_runs": 0,
+    "dma_invalid_port_write_cached": false,
+    "dma_transfer_active": false,
+    "execute_timeslice_count": 628,
+    "timeslice_length": 16706515.0,
+    "timeslice_progress": 16706515.0,
+    "worker_thread_active": false,
+    "worker_thread_paused": true
+  }
+}
