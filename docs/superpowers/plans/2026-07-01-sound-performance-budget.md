@@ -263,13 +263,22 @@ def fnum_block(semitone: int) -> tuple[int, int]:
 
 ### Task 9: D.2 + D.3 — Timer-B-paced ring drain at sequencer seams
 
+> **OUTCOME 2026-07-02 (measurement-driven):** D.2 implemented faithfully (`8a43fd3` +
+> Timer-A-gate amendment `1e1f2cc`), measured NET-NEGATIVE in two rounds (holds
+> 24.1%→48.9%/51.1%, tempo −20% in round 1), root-caused as architecturally unsound
+> (1:1 repayment stretches ticks past the Timer-A period; ring lead absorbs DMA stalls,
+> not tick holds), and REVERTED (`d6c11dd`+). Current state = T8's, the measured best:
+> holds 24.1% vs ref's own 21.4%. D.3 measured: both drivers digitally silent between
+> hits → hit-scoped toggling REJECTED. Full record: `phase_harness/t9_verification.md`.
+> Follow-up lever (DEFERRED_WORK at T12): shorten the WORST ticks, not in-tick draining.
+
 **Files:**
 - Modify: `sound_constants.asm` (Timer-B constants near the Timer-A block :168-182)
 - Modify: `engine/sound/z80_sound_driver.asm` (`Snd_TimerA_Rearm` + tick entry; new `SndDrv_DrainBurst`)
 - Modify: `engine/sound/sound_sequencer.asm` (seam polls in `.chan_loop`/`.tick_loop`), `engine/sound/sound_sfx.asm` (slot-seam poll)
 
-- [ ] **Step 1: Research.** (a) plutiedev.com YM2612 timers page + Kabuto notes: Timer B unit = 16× Timer A's base unit; reg $26 = reload N_B, period ∝ (256−N_B); $27 bits: 0=load A, 1=load B, 2=enable A, 3=enable B, 4=reset A, 5=reset B, 6-7=ch3 mode; status bit 0 = A overflow, bit 1 = B overflow. Verify against `Snd_TimerA_ProgramFixed` (z80_sound_driver.asm:961-975, writes $27=$05) and `Snd_TimerA_Rearm` (read it — note its exact $27 value and $2A re-park pattern; every $27 write in this task must preserve the A bits it sets). (b) Reference sweep for the interleave idea: S.C.E./S3K don't interleave (their tick is short — that's Task 8's lesson); Ristar's dual-PCM mixer and GEMS-era drivers pace DAC in software loops — skim `aeon/docs/research/ristar-techniques.md` §sound for prior notes; check SpritesMind for "timer B DAC" prior art. Record findings in the task log; the design below stands unless something contradicts it.
-- [ ] **Step 2: Constants.** In sound_constants.asm beside the Timer-A block:
+- [x] **Step 1: Research.** (a) plutiedev.com YM2612 timers page + Kabuto notes: Timer B unit = 16× Timer A's base unit; reg $26 = reload N_B, period ∝ (256−N_B); $27 bits: 0=load A, 1=load B, 2=enable A, 3=enable B, 4=reset A, 5=reset B, 6-7=ch3 mode; status bit 0 = A overflow, bit 1 = B overflow. Verify against `Snd_TimerA_ProgramFixed` (z80_sound_driver.asm:961-975, writes $27=$05) and `Snd_TimerA_Rearm` (read it — note its exact $27 value and $2A re-park pattern; every $27 write in this task must preserve the A bits it sets). (b) Reference sweep for the interleave idea: S.C.E./S3K don't interleave (their tick is short — that's Task 8's lesson); Ristar's dual-PCM mixer and GEMS-era drivers pace DAC in software loops — skim `aeon/docs/research/ristar-techniques.md` §sound for prior notes; check SpritesMind for "timer B DAC" prior art. Record findings in the task log; the design below stands unless something contradicts it.
+- [x] **Step 2: Constants.** In sound_constants.asm beside the Timer-A block:
 
 ```asm
 ; --- Timer B: the intra-tick elapsed-time marker for the DAC drain bursts (spec D.2).
@@ -288,8 +297,8 @@ SND_DRAIN_BURST         = 25                      ; ~1.35 ms / 54.5 us (calibrat
 ```
 
   Compute the real numbers with `function`-style build-time math off the existing clock constants where they exist (mirror how `timerAReload` derives — read it); the literals above are the fallback with the derivation in comments.
-- [ ] **Step 3: Program + reset Timer B with Timer A.** In `Snd_TimerA_ProgramFixed`: also write `$26 = SND_TIMERB_N` and extend the $27 value to load+enable BOTH timers (`$05` → `$0F`). In `Snd_TimerA_Rearm`: extend its $27 reset value to also reset B's flag at tick entry (reset A|reset B|enable both|load both), so every burst measures elapsed-within-this-tick. Grep for ALL other `$27` writers (`StopMusic` wrote `$27`; the MEV_REGWRITE guard) and make each preserve the B bits — centralize the base value as a constant (`SND_YM27_TIMERS = $0F`) used by every site.
-- [ ] **Step 4: The drain burst routine** (resident, in z80_sound_driver.asm near the tick):
+- [x] **Step 3: Program + reset Timer B with Timer A.** In `Snd_TimerA_ProgramFixed`: also write `$26 = SND_TIMERB_N` and extend the $27 value to load+enable BOTH timers (`$05` → `$0F`). In `Snd_TimerA_Rearm`: extend its $27 reset value to also reset B's flag at tick entry (reset A|reset B|enable both|load both), so every burst measures elapsed-within-this-tick. Grep for ALL other `$27` writers (`StopMusic` wrote `$27`; the MEV_REGWRITE guard) and make each preserve the B bits — centralize the base value as a constant (`SND_YM27_TIMERS = $0F`) used by every site.
+- [x] **Step 4: The drain burst routine** (resident, in z80_sound_driver.asm near the tick):
 
 ```asm
 ; ======================================================================
@@ -356,7 +365,7 @@ SndDrv_DrainBurst:
 ```
 
   The `rept 30` pad count is a STARTING estimate — Step 7 calibrates it by measurement (the hot loop's ~195-cycle discipline is the target; document the final count with a cycle-sum comment like the main loop's). Flag preservation matters at the `.tick_loop` seam — hence the outer `push af`.
-- [ ] **Step 5: Seam polls.** Three sites, each gated to cost ~15 cycles when Timer B hasn't fired:
+- [x] **Step 5: Seam polls.** Three sites, each gated to cost ~15 cycles when Timer B hasn't fired:
 
 ```asm
         ld      a, (SND_Z80_YM_A0)       ; YM status
@@ -365,15 +374,15 @@ SndDrv_DrainBurst:
 ```
 
   (a) `Sequencer_Frame.chan_loop` — at `.next_chan` (sound_sequencer.asm:110), before `add ix, de`; (b) inside `.tick_loop` right after `call Sequencer_Channel` (:105) — catches multi-event channels + patch loads (a full patch load is a bounded ~30-write burst, so the seam AFTER it suffices; per spec, only add an intra-patch-loop poll if Step 7's histogram still shows >5.6 ms gaps); (c) `Sfx_Frame`'s per-slot loop seam (locate the slot-advance point in sound_sfx.asm; same 3 lines). Byte cost: ~10 B × 3 + routine ~70-90 B — within the recovered budget.
-- [ ] **Step 6: The idle-tick path.** `SndDrv_IdleTick` runs the same `Sequencer_Frame` while the DAC is idle — the `SND_DAC_PHASE` gate in the burst routine makes the polls harmless there (call + immediate return, ~40 cyc/seam only on the rare idle+TimerB-set frames). Confirm no other Sequencer_Frame callers exist (grep).
-- [ ] **Step 7: Calibrate + verify (the phase's headline numbers).** Build; capture HCZ2 60+ s:
+- [x] **Step 6: The idle-tick path.** `SndDrv_IdleTick` runs the same `Sequencer_Frame` while the DAC is idle — the `SND_DAC_PHASE` gate in the burst routine makes the polls harmless there (call + immediate return, ~40 cyc/seam only on the rare idle+TimerB-set frames). Confirm no other Sequencer_Frame callers exist (grep).
+- [x] **Step 7: Calibrate + verify (the phase's headline numbers).** Build; capture HCZ2 60+ s:
   - `dac_stall.py`: **drum airtime lost to holds ≤ ~20%** (ref 18.9%; baseline 45-63%); **max gap well under 16.7 ms** — target ≤ ref's 5.6 ms class; no full-frame freezes.
   - `dac_perburst.py`: **tom hit duration within ~10% of ref** (ref 93 ms; baseline 213 ms).
   - Burst cadence correctness: drum PITCH during heavy ticks — render a sustained-drum stretch and compare pitch/spectral centroid during tick-heavy vs quiet frames; a mis-padded burst shows as warble. Adjust the `rept` pad / `SND_DRAIN_BURST` / `SND_TIMERB_N` and re-measure until clean.
   - Ring never dries mid-burst: `dac_stall.py` gap histogram has no `.empty`-shaped cliffs (and optionally assert-log via a debug counter if it does).
   - Regression: MT (FM6=FM stream path — polls fire but `SND_DAC_PHASE`=0 after its `$2B` off), SFX over HCZ2, drumtest C, 3000+ frame soak, boot.
-- [ ] **Step 8: D.3 — evaluate hit-scoped $2B/FM6 duty, then decide.** Measure inter-hit noise floor on rendered audio: ours (always-armed DAC parked at $80 DC) vs ref (keys FM6 off + toggles $2B per hit, 42-72% duty). Expected outcome per spec: parked-$80 is equally silent → REJECT hit-scoped toggling; write the decision + numbers into the task log and the spec's D.3 (one-line amendment). If measurement shows a real floor difference, design the hit-scoped disable as a follow-up item in DEFERRED_WORK rather than bolting it in here.
-- [ ] **Step 9: Commit.** `feat(sound): Timer-B-paced DAC ring drain at sequencer seams — drums keep streaming through the tick (spec D.2)` (+ a separate docs commit if D.3 amends the spec).
+- [x] **Step 8: D.3 — evaluate hit-scoped $2B/FM6 duty, then decide.** Measure inter-hit noise floor on rendered audio: ours (always-armed DAC parked at $80 DC) vs ref (keys FM6 off + toggles $2B per hit, 42-72% duty). Expected outcome per spec: parked-$80 is equally silent → REJECT hit-scoped toggling; write the decision + numbers into the task log and the spec's D.3 (one-line amendment). If measurement shows a real floor difference, design the hit-scoped disable as a follow-up item in DEFERRED_WORK rather than bolting it in here.
+- [x] **Step 9: Commit.** `feat(sound): Timer-B-paced DAC ring drain at sequencer seams — drums keep streaming through the tick (spec D.2)` (+ a separate docs commit if D.3 amends the spec).
 
 ### Task 10: E — Portamento (execute the turnkey plan)
 
