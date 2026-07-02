@@ -560,18 +560,24 @@ FmEnvUpdate:
 
 ; ----------------------------------------------------------------------
 ; Mod_ReArm — per-note pitch-modulation re-arm (port of zPrepareModulation).
-; Called from the FM key-on tail (Fm_NoteOnFreq), AFTER sc_base_freq is latched and
-; ONLY for an SFX channel (the caller gates ix >= SND_SFX_BASE — sc_mod_* are
-; SfxChannel-only fields). If sc_mod_ctrl is off, returns immediately (one bit-test
-; for a non-modulated SFX note). Else (mirror zPrepareModulation):
+; Called from the FM and PSG key-on tails (Fm_NoteOnFreq / the PSG attack path),
+; AFTER sc_base_freq is latched, for MUSIC and SFX channels alike (sc_mod_* exist
+; on both structs at the same offsets since Phase 1). If sc_mod_ctrl is off,
+; returns immediately (one test for a non-modulated note). Else (mirror
+; zPrepareModulation, which re-copies wait/speed/delta from the song data source
+; every note-on — its three `ldi`s — then seeds steps and clears accum):
 ;   * clear the accumulated offset (accum = 0)
 ;   * seed sc_mod_steps = raw_step >> 1 (S3K's `srl a` — the FIRST half-period is
 ;     half-length; subsequent reversals reload the FULL sc_mod_step_raw, see
 ;     Mod_ApplyVibrato — faithful to S3K's iy+3 reload)
 ;   * reload sc_mod_speed = sc_mod_speed_raw (fresh countdown)
+;   * reload sc_mod_wait = sc_mod_wait_raw (S3K ldi #1 — the onset delay is honored
+;     on EVERY note, not just the first note after the modset)
+;   * reload sc_mod_delta = sc_mod_delta_raw (S3K ldi #3 — original SIGN each note;
+;     Mod_Advance's triangle NEG no longer leaks flip-parity across notes)
 ;   * prime sc_last_freq = sc_base_freq so the first vibrato render writes only once
 ;     the offset actually changes (write-on-change).
-; In: ix = SFX channel (sc_base_freq already latched by the caller). Clobbers af.
+; In: ix = channel (sc_base_freq already latched by the caller). Clobbers af.
 ; Preserves bc,de,hl,ix.
 ; ----------------------------------------------------------------------
 Mod_ReArm:
@@ -588,6 +594,12 @@ Mod_ReArm:
         ; sc_mod_speed = raw speed (fresh countdown for this note).
         ld      a, (ix+sc_mod_speed_raw)
         ld      (ix+sc_mod_speed), a
+        ; per-note reloads of the modset sources (spec C.a — zPrepareModulation
+        ; re-copies these from the song data every note-on):
+        ld      a, (ix+sc_mod_wait_raw)  ; delay honored on EVERY note (was: first note ever)
+        ld      (ix+sc_mod_wait), a
+        ld      a, (ix+sc_mod_delta_raw) ; original SIGN each note (flip-parity no longer leaks)
+        ld      (ix+sc_mod_delta), a
         ; prime the write-on-change shadow to the base note (d=$A4, e=$A0).
         ld      a, (ix+sc_base_freq)
         ld      (ix+sc_last_freq), a
@@ -974,14 +986,15 @@ Seq_Op_Tempo:
 ; $EC MEV_MODSET + wait speed change step : latch the pitch-modulation params (the
 ; engine's smpsModSet). Zero-tick setter. sc_mod_ctrl is set nonzero iff ANY of the
 ; 4 params is nonzero (all-zero = mod off — the smpsModSet 0,0,0,0 idiom AB/3C use to
-; cancel modulation). The actual per-note re-arm (accum=0, steps seeded raw/2) happens
-; at the next FM key-on (Mod_ReArm); Mod_ApplyVibrato (ModUpdate) renders it per frame.
-;
-; SFX-CHANNEL GATE: sc_mod_* are SfxChannel-only fields (offset +42.., PAST a 39-byte
-; music SeqChannel). The transcoder only emits $EC into SFX streams, but a music stream
-; must NEVER write these fields (it would corrupt the next channel's RAM). So consume
-; all 4 operands FIRST (keep the stream in sync), then SKIP the writes for a music
-; channel (ix < SND_SFX_BASE => carry set). Mirror of Seq_Op_PsgEnv's gate.
+; cancel modulation). ALL FOUR raw operands are latched as per-note reload sources
+; (wait -> sc_mod_wait_raw, speed -> sc_mod_speed_raw, delta -> sc_mod_delta_raw,
+; step -> sc_mod_step_raw) — the S3K model keeps the modset bytes in ROM and
+; zPrepareModulation re-copies them every note-on; our streams are consumed, so the
+; _raw fields ARE that stable source. The actual per-note re-arm (accum=0, steps
+; seeded raw/2, wait/speed/delta reloaded from the _raw latches) happens at the next
+; key-on (Mod_ReArm); Mod_ApplyVibrato (ModUpdate) renders it per frame. Music + SFX
+; channels both write sc_mod_* (the old SFX-only gate was removed in Phase 1;
+; sc_mod_* exist on both structs at the same offsets).
 Seq_Op_ModSet:
         ; --- read all 4 operands into b,c,d,e (wait/speed/delta/step) ---
         ld      a, (hl)
@@ -1010,6 +1023,12 @@ Seq_Op_ModSet:
         ld      (ix+sc_mod_delta), d      ; signed change/step delta
         ld      (ix+sc_mod_steps), e      ; raw step count (seeded raw/2 at re-arm)
         ld      (ix+sc_mod_step_raw), e   ; reload source for the steps countdown (FULL)
+        ld      (ix+sc_mod_wait_raw), b   ; per-note reload source (S3K ldi #1)
+        ld      (ix+sc_mod_delta_raw), d  ; per-note reload source incl. SIGN (S3K ldi #3)
+        ; wait=0 edge: Mod_Advance (and S3K zDoModulation) dec-first, so a stored 0
+        ; wraps to $FF => a 256-frame onset delay. S3K has the exact same wrap with a
+        ; source wait of 0, so passing the raw byte through IS fidelity — no clamp.
+        ; (The mod-off idiom 0,0,0,0 never reaches Mod_Advance: sc_mod_ctrl = 0.)
         ld      (ix+sc_mod_ctrl), a       ; nonzero => active; zero => off
         ; SFX FM: re-write the UNMODULATED base note to the chip with NO key-on, so a
         ; held tail (smpsNoAttack) snaps back to base pitch when a sweep modSet turns
