@@ -858,7 +858,10 @@ Fm_NoteOnFreqExact:
         ; returns before Seq_HookNoteOn. (S3K zKeyOffIfActive orders off->freq->on;
         ; ours is freq->off->on — the EG edge needs only OFF-before-ON. Fm_NoteOff
         ; clobbers af/bc/de, preserves hl/ix; de is dead here — the fnum word was
-        ; consumed by Fm_WriteFreq + the sc_base_freq latch above.)
+        ; consumed by Fm_WriteFreq + the sc_base_freq latch above.) NOTE: the music
+        ; note paths set SCF_KEYED BEFORE the hook, so a fresh note from silence
+        ; still takes the off (a $28 no-op on an off channel — harmless); the bit
+        ; test earns its keep on Seq_RekeySingle + defensive paths, not here.
         bit     SCF_KEYED_B, (ix+sc_flags)
         call    nz, Fm_NoteOff           ; keyed -> key OFF first (fresh EG edge)
         ; --- KEY ON: $28 = $F0 | chsel, ALWAYS via part I ---
