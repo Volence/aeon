@@ -828,6 +828,12 @@ Sequencer_NextOpcode:
 
 ; --- COORDINATION FLAG ($E0..$FF): jump-table dispatch (32 entries) ---
 ; (research: Flamedriver zHandleCoordFlag + PointerTableOffset)
+; SeqOpcodeTable is BANKED (engine-table head, budget A.2): the label is its
+; $8000-window ptr, read here as plain data. Valid because every caller runs
+; this dispatch with the engine-table bank in the window — music via B1's
+; SetBank(SND_SONG_BANK), SFX via Sfx_Frame's SetBank(SFX_BLOB_BANK) (both
+; == that bank today; asserted at build). The fetched handler address is a
+; RESIDENT blob address (code is never banked).
 .coord:
         sub     MEV_VOL                  ; a = 0..31 (index into SeqOpcodeTable)
         ld      c, a
@@ -1640,44 +1646,15 @@ MacroTick:
         ret
 
 ; ======================================================================
-; SeqOpcodeTable — dw jump table for opcodes $E0..$FF (32 entries).
-; Index = opcode - MEV_VOL. Reserved opcodes point at Seq_BadOpcode.
+; SeqOpcodeTable (the $E0..$FF dw jump table) was MOVED out of this resident
+; phase-0 blob into the engine-table head of the song/SFX bank (main.asm
+; `phase 08000h` block, file engine/sound/seq_opcode_tab.asm) — budget A.2,
+; 2026-07-02, 64 B. The `.coord` dispatch above reads it through the $8000
+; window unchanged (the label = its window ptr); the bank is guaranteed by
+; the calling context (B1's song bank for music, Sfx_Frame's entry
+; SetBank(SFX_BLOB_BANK) for SFX — both == the engine-table bank, asserted
+; in main.asm/song_table.asm). Handlers stay RESIDENT (code is never banked).
 ; ======================================================================
-SeqOpcodeTable:
-        dw      Seq_Op_Vol               ; $E0 MEV_VOL
-        dw      Seq_Op_Patch             ; $E1 MEV_PATCH
-        dw      Seq_Op_Dac               ; $E2 MEV_DAC
-        dw      Seq_Op_NoteDur           ; $E3 MEV_NOTE_DUR
-        dw      Seq_Op_Pan               ; $E4 MEV_PAN
-        dw      Seq_Op_RepeatStart       ; $E5 MEV_REPEAT_START
-        dw      Seq_Op_RepeatEnd         ; $E6 MEV_REPEAT_END
-        dw      Seq_Op_NoteRaw           ; $E7 MEV_NOTE_RAW
-        dw      Seq_Op_PitchEnv          ; $E8 MEV_PITCHENV
-        dw      Seq_Op_OpBias            ; $E9 MEV_OPBIAS
-        dw      Seq_Op_RegDelta          ; $EA MEV_REGDELTA (voice-stepping)
-        dw      Seq_Op_PsgEnv            ; $EB MEV_PSGENV
-        dw      Seq_Op_ModSet            ; $EC MEV_MODSET
-        dw      Seq_Op_NoteFill          ; $ED MEV_NOTEFILL (gate articulation)
-        dw      Seq_Op_LoopPoint         ; $EE MEV_LOOP_POINT
-        dw      Seq_Op_Jump              ; $EF MEV_JUMP
-        dw      Seq_Op_SpinRev           ; $F0 MEV_SPINREV
-        dw      Seq_BadOpcode            ; $F1 reserved (SPINREV reset is dispatch-folded)
-        dw      Seq_Op_PsgNoise          ; $F2 MEV_PSGNOISE
-        dw      Seq_Op_Tempo             ; $F3 MEV_TEMPO (global tempo scalar)
-        dw      Seq_Op_Lfo               ; $F4 MEV_LFO (write $22 LFO, DAC $2A re-parked)
-        dw      Seq_BadOpcode            ; $F5 reserved
-        dw      Seq_Op_Detune            ; $F6 MEV_DETUNE (set sc_detune; applied at next note-on)
-        dw      Seq_Op_PsgEnv            ; $F7 MEV_FMENV (shared handler: sets the unified
-                                         ;   sc_env slot + resets sc_env_cur; ModUpdate
-                                         ;   picks FmVolEnv vs PsgVolEnv by SCF_IS_FM_B)
-        dw      Seq_Op_RegWrite          ; $F8 MEV_REGWRITE (raw YM2612 register write)
-        dw      Seq_Op_Macro             ; $F9 MEV_MACRO (arm slot[1])
-        dw      Seq_BadOpcode            ; $FA reserved
-        dw      Seq_BadOpcode            ; $FB reserved
-        dw      Seq_BadOpcode            ; $FC reserved
-        dw      Seq_BadOpcode            ; $FD reserved
-        dw      Seq_BadOpcode            ; $FE reserved
-        dw      Seq_Op_End               ; $FF MEV_END
 
 ; ======================================================================
 ; Seq_Trace (DEBUG) — append (sc_route<<4)|event_code to the trace ring.
@@ -1797,11 +1774,16 @@ Seq_HookSetPatch:
 
 ; Seq_HookDac (Task 6) — the DAC route's $E2 trigger. Seq_Op_Dac stashed the
 ; operand (the sample id) in sc_note; look it up in DacSampleTable and start the
-; 1B DAC sample path. Snd_StartSample touches only RAM + the $6000 latch + $2B/$2A
-; (no ROM read) and re-parks $2A + restores de=$4001 — safe inside the Timer-A
-; tick (DAC not paused but between samples). Called only for the $E2 opcode, so no
-; route gate is needed here. Preserves ix; the zero-tick Seq_Op_Dac handler
-; push/pops hl around this call, so the clobbered hl is fine.
+; 1B DAC sample path. DacSampleTable is BANKED (engine-table head, budget A.2):
+; Snd_StartSample reads the 9-byte descriptor through the $8000 window — valid
+; HERE with no SetBank because this hook runs mid-Sequencer_Frame with the song
+; bank in the window (B1), which IS the engine-table bank, and Snd_StartSample
+; never rebanks (B2 stash-only), so the frame's remaining song reads stay intact.
+; Beyond the descriptor it touches only RAM + the $6000 latch + $2B/$2A, re-parks
+; $2A + restores de=$4001 — safe inside the Timer-A tick (DAC not paused but
+; between samples). Called only for the $E2 opcode, so no route gate is needed
+; here. Preserves ix; the zero-tick Seq_Op_Dac handler push/pops hl around this
+; call, so the clobbered hl is fine.
 Seq_HookDac:
         ld      a, (ix+sc_note)          ; a = DAC sample id (the $E2 operand)
         call    Snd_DacLookup            ; a=id -> hl=descriptor (carry set if bad)

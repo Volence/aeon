@@ -257,12 +257,29 @@ Art_Sonic:
         ; block is asserted below in song_table.asm to NOT cross a bank boundary.
         align   $8000                          ; MT's streamed bank start (window $8000)
 MovingTrucks_Bank_Start:                        ; real ROM address of the bank start (tables first)
+; The Z80 bank id of the engine-table head bank (THIS bank). Used by the resident
+; driver where a read of the head tables has no ambient bank guarantee (today:
+; SndDrv_PollMailbox's SND_REQ_SAMPLE block before its DacSampleTable descriptor
+; reads). Same derivation as sfx_bankid()/the SND_*_BANK sample constants.
+SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
         ; F5 co-location: the engine lookup tables live at the START of MT's OWN
         ; streamed bank. MT reads its stream/patch/pitch through the $8000 window
         ; every frame, so the tables are read from the SAME bank already in the
         ; window — no separate table bank, no per-frame swap. Emitted under
         ; `cpu z80` + `phase 08000h` so the labels equal their $8000-window ptrs
         ; (little-endian, as the Z80 reads them). The song/pitch/patch follow.
+        ;
+        ; *** REPLICATE-PER-BANK RULE ***
+        ; Every bank the sequencer RUNS A FRAME ON — any bank SND_SONG_BANK or
+        ; SFX_BLOB_BANK can name — MUST carry this engine-table head at its start
+        ; with IDENTICAL layout: the reader labels below are fixed $8000-window
+        ; addresses, so a frame on a bank without the head reads garbage pitch/
+        ; volume/dispatch. TODAY there is exactly ONE such bank (all songs, all
+        ; SFX blobs, and these tables share THIS bank — asserted in song_table.asm
+        ; and below at the SFX blob guard), so no replication exists. A future
+        ; song/SFX set in another bank needs a label-free data-only twin of this
+        ; head emitted at that bank's start (see DEFERRED_WORK "Bank-D DAC
+        ; co-location hook" for the generator approach).
         save
         cpu     z80
         phase   08000h
@@ -275,6 +292,12 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         ; recovery, ~270 B). Co-located in this same MT/SFX bank so the two readers
         ; (sound_sfx.asm) read it through the $8000 window after SetBank(SFX_BLOB_BANK).
         include "engine/sound/sfx_blob_win_tab.asm"
+        ; SeqOpcodeTable + DacSampleTable — moved here from the resident Z80 blob
+        ; (budget A.2, 2026-07-02, ~154 B). Bank-visibility arguments + the
+        ; DacSampleTable placement constraint (readable under the SONG bank, not a
+        ; DAC sample bank) are documented in the files.
+        include "engine/sound/seq_opcode_tab.asm"
+        include "engine/sound/dac_sample_tab.asm"
         ; NO CODE may be authored in this banked window — only DATA tables.
         ; Z80 opcode fetches from $8000-$FFFF traverse the 68k bus; 68k contention
         ; (VRAM DMA-from-ROM / BUSREQ) corrupts the fetched opcode -> wild PC ->
@@ -374,6 +397,14 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
         ; a page so a future blob set growing across a boundary fails the build, not on HW.
         if (Sfx_33>>15) <> ((Sfx_B9_Patches_End-1)>>15)
             fatal "SFX blob set straddles a $8000 bank boundary; SFX_BLOB_BANK invalid (split blobs or add per-blob banking)"
+        endif
+        ; Sfx_Frame runs the SHARED interpreter (Sequencer_Channel dispatch via the
+        ; banked SeqOpcodeTable) and the FM/PSG writers (banked FmPitchTableZ/
+        ; LogVolumeLutZ/...) under its entry SetBank(SFX_BLOB_BANK) — so the SFX
+        ; bank MUST be the engine-table head bank (replicate-per-bank rule above).
+        ; This was previously an unasserted layout fact; make it a build error.
+        if (Sfx_33>>15) <> SND_ENGINE_TABLE_BANK
+            fatal "SFX blobs not co-located with the engine-table bank (Sfx_33 bank \{Sfx_33>>15} != \{SND_ENGINE_TABLE_BANK}) — Sfx_Frame's dispatch/table reads would see the wrong bank"
         endif
     endif
 

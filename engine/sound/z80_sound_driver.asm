@@ -618,6 +618,17 @@ SndDrv_PollMailbox:
         ld      a, (SND_REQ_SAMPLE)
         or      a
         ret     z                        ; nothing else pending
+        ; DacSampleTable is BANKED (engine-table head of the song/SFX bank, budget
+        ; A.2). THIS path has no ambient bank guarantee — the streaming tick polls
+        ; with the SAMPLE bank in the window (B1's tail), a cold-boot ISR with bank
+        ; 0 — so bank the table bank in deterministically before Snd_StartSample's
+        ; descriptor reads. Snd_PollMailbox_Banked's exit re-latches the resumed
+        ; context's bank (B3: SND_ROM_BANK while the DAC streams), so leaving the
+        ; table bank set here is fine. SetBank clobbers af+hl; the id rides in c.
+        ld      c, a                     ; preserve the sample id across SetBank
+        ld      a, SND_ENGINE_TABLE_BANK
+        call    SndDrv_SetBank           ; $6000 latch only (DMA-safe); cached no-op if current
+        ld      a, c                     ; a = sample id again
         call    Snd_DacLookup            ; a = id -> hl = descriptor (or carry set if bad id)
         jr      c, .sample_done          ; bad id -> ignore (still clear the slot below)
         call    Snd_StartSample          ; start DAC playback from the descriptor at hl
@@ -679,6 +690,10 @@ Snd_FadeCommand:
 ; Out: hl = &DacSampleTable[id-1], carry CLEAR on success; carry SET (id 0 or
 ; id > DAC_SAMPLE_COUNT) on a bad id (hl undefined). Clobbers af, de, hl.
 ; (Stride is DacSample_len = 9; index*9 computed as index*8 + index.)
+; DacSampleTable is BANKED (budget A.2): the label resolves to its $8000-window
+; ptr, so hl is a WINDOW address — pure pointer math here (no ROM read), but it
+; is only dereferenceable while the window holds the engine-table bank (the
+; caller's contract; see Snd_StartSample's BANK CONTRACT).
 ; ======================================================================
 Snd_DacLookup:
         or      a
@@ -715,8 +730,14 @@ Snd_DacLookup:
 ;   (a) mailbox SND_REQ_SAMPLE — runs in the VBlank ISR (DAC paused), de saved.
 ;   (b) sequencer $E2 (Seq_HookDac) — runs in SndDrv_TimerATick, inside the DAC
 ;       loop's `di` window (DAC NOT paused, but between samples).
-; It touches ONLY RAM + the $6000 latch + the $2B/$2A YM regs — it reads NO ROM
-; (banking is just the $6000 latch). It re-parks reg $2A on $4000 and restores
+; BANK CONTRACT (budget A.2): the descriptor lives in the BANKED DacSampleTable
+; (engine-table head of the song/SFX bank), so this routine's only ROM reads are
+; the 5 descriptor bytes through the $8000 window — the CALLER must have that
+; bank in the window: (a) does an explicit SetBank(SND_ENGINE_TABLE_BANK) in the
+; mailbox sample block; (b) runs mid-Sequencer_Frame with the song bank (== the
+; engine-table bank) already in. This routine itself NEVER SetBanks (B2 below),
+; and reads no sample payload. Beyond the descriptor it touches ONLY RAM + the
+; $6000 latch + the $2B/$2A YM regs. It re-parks reg $2A on $4000 and restores
 ; de=$4001 at the END so both contexts leave the DAC consumer's invariants intact.
 ; Clobbers af, bc, de, hl. Preserves ix (the sequencer channel loop relies on it).
 ; ======================================================================
@@ -759,7 +780,8 @@ Snd_StartSample:
         ; budget). Every shipped DAC trigger rides a song, so this is a debug-
         ; mailbox-only corner; seed $B6 in init when the RAM/ceiling rework
         ; frees bytes (DEFERRED_WORK). ---
-        pop     hl                       ; hl = descriptor base
+        pop     hl                       ; hl = descriptor base ($8000-window ptr;
+                                         ; the caller's BANK CONTRACT makes it live)
         ; --- Read ALL descriptor fields BEFORE banking. SndDrv_SetBank CLOBBERS hl
         ; (it loads hl=SND_CUR_BANK, then hl=$6000); calling it first and then re-
         ; using hl as the descriptor base reads ds_ptr/ds_length off the $6000 bank-
@@ -784,7 +806,8 @@ Snd_StartSample:
         ld      d, (hl)                  ; de = ds_length
         ld      (SND_ROM_LEN), de
         ; B2: stash-only. The sample bank was stashed to SND_ROM_BANK above; do NOT
-        ; SetBank here. Snd_StartSample reads NO sample ROM (only sets up pointers), AND
+        ; SetBank here. Snd_StartSample reads NO sample PAYLOAD (only the banked
+        ; descriptor above, under the caller's bank, + sets up pointers), AND
         ; in the $E2 context it runs mid-Sequencer_Frame, where the window MUST stay on
         ; the SONG bank — a SetBank here would corrupt the rest of that frame's song
         ; reads (which is why this is stash-only, not a SetBank). The brackets latch the
@@ -795,7 +818,7 @@ Snd_StartSample:
         ; usually a cached no-op now that B3 is DAC-aware).
 
         ; Reset ring pointers + prime the lead. To avoid a start underrun WITHOUT
-        ; reading ROM (which could land mid-DMA in the ISR context), we set WR
+        ; reading sample ROM (which could land mid-DMA in the ISR context), we set WR
         ; ahead of RD by SND_RING_LEAD_PRIME and leave those lead bytes at the $80
         ; the ring was pre-filled with — a click-free DC-center lead-in while the
         ; FILL producer (1:1) overwrites the ring with real sample data.
@@ -1391,91 +1414,13 @@ Snd_RouteClassFlags:
 ; the labels are defined — a blob `if` over those forward-refs can't evaluate in
 ; AS's 1st pass.)
 
-; --- Inline DAC sample descriptor table (Task 6 decision 3) ---
-; Maps a 1-based sample id to a 9-byte DacSample record (see the struct in
-; sound_constants.asm). For 1C, id 1 = the temp_blip; its bank/ptr/len are the
-; build-time SND_BLIP_* constants (from data/sound/dac_samples.asm), so an INLINE
-; descriptor in the Z80 blob needs no banking to read. rate/loop_ofs are 0 (the
-; 1B FILL loop drives the rate via the loop trip-time). One-shot: the producer
-; now exhausts into DRAINING_TAIL (no FILL re-loop), so the sample plays once.
-; ds_codec = 0 (raw 8-bit PCM; the reserved codec-selector slot).
-DacSampleTable:
-        ; id 1 = temp_blip
-        db      SND_BLIP_BANK            ; ds_bank
-        db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_codec (codec selector; 0 = raw 8-bit PCM)
-        dw      SND_BLIP_PTR             ; ds_ptr (little-endian dw)
-        dw      SND_BLIP_LEN             ; ds_length
-        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
-        ; id 2 = kick
-        db      SND_KICK_BANK            ; ds_bank
-        db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_codec (raw 8-bit PCM)
-        dw      SND_KICK_PTR             ; ds_ptr
-        dw      SND_KICK_LEN             ; ds_length
-        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
-        ; id 3 = snare
-        db      SND_SNARE_BANK           ; ds_bank
-        db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_codec (raw 8-bit PCM)
-        dw      SND_SNARE_PTR            ; ds_ptr
-        dw      SND_SNARE_LEN            ; ds_length
-        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
-        ; id 4 = hat
-        db      SND_HAT_BANK             ; ds_bank
-        db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_codec (raw 8-bit PCM)
-        dw      SND_HAT_PTR              ; ds_ptr
-        dw      SND_HAT_LEN              ; ds_length
-        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
-        ; --- S3K HCZ2 drums (Phase 5; ids match tools/smps_import.py HCZ2_DAC_REMAP) ---
-        ; id 5 = s3k_kick
-        db      SND_S3K_KICK_BANK        ; ds_bank
-        db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_codec (raw 8-bit PCM)
-        dw      SND_S3K_KICK_PTR         ; ds_ptr
-        dw      SND_S3K_KICK_LEN         ; ds_length
-        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
-        ; id 6 = s3k_snare
-        db      SND_S3K_SNARE_BANK       ; ds_bank
-        db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_codec (raw 8-bit PCM)
-        dw      SND_S3K_SNARE_PTR        ; ds_ptr
-        dw      SND_S3K_SNARE_LEN        ; ds_length
-        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
-        ; id 7 = s3k_hitom
-        db      SND_S3K_HITOM_BANK       ; ds_bank
-        db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_codec (raw 8-bit PCM)
-        dw      SND_S3K_HITOM_PTR        ; ds_ptr
-        dw      SND_S3K_HITOM_LEN        ; ds_length
-        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
-        ; id 8 = s3k_midtom
-        db      SND_S3K_MIDTOM_BANK      ; ds_bank
-        db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_codec (raw 8-bit PCM)
-        dw      SND_S3K_MIDTOM_PTR       ; ds_ptr
-        dw      SND_S3K_MIDTOM_LEN       ; ds_length
-        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
-        ; id 9 = s3k_lowtom
-        db      SND_S3K_LOWTOM_BANK      ; ds_bank
-        db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_codec (raw 8-bit PCM)
-        dw      SND_S3K_LOWTOM_PTR       ; ds_ptr
-        dw      SND_S3K_LOWTOM_LEN       ; ds_length
-        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
-        ; id 10 = s3k_floortom
-        db      SND_S3K_FLOORTOM_BANK    ; ds_bank
-        db      0                        ; ds_rate (reserved)
-        db      0                        ; ds_codec (raw 8-bit PCM)
-        dw      SND_S3K_FLOORTOM_PTR     ; ds_ptr
-        dw      SND_S3K_FLOORTOM_LEN     ; ds_length
-        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)
-DacSampleTable_End:
-
-        if (DacSampleTable_End-DacSampleTable) <> DAC_SAMPLE_COUNT*DacSample_len
-          fatal "DacSampleTable wrong size for DAC_SAMPLE_COUNT"
-        endif
+; DacSampleTable (id -> 9-byte DacSample descriptor) was MOVED out of this
+; resident phase-0 blob into the engine-table head of the song/SFX bank
+; (main.asm `phase 08000h` block, file engine/sound/dac_sample_tab.asm) —
+; budget A.2, 2026-07-02, 90 B. Readers dereference it through the $8000
+; window: the $E2 path under B1's song bank (== that bank), the mailbox
+; sample path after an explicit SetBank(SND_ENGINE_TABLE_BANK). Placement
+; rationale (why the SONG bank head, not a DAC sample bank) is in the file.
 
 ; (The DPCM DecTable was removed with the codec — drums are raw 8-bit PCM, no decode.
 ; The inline-table / bank-free rationale is moot; the $8000 window holds the raw

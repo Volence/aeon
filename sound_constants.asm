@@ -1400,10 +1400,11 @@ SH_F_FM6_ADAPTIVE = 1<<SH_F_FM6_ADAPTIVE_B
 
 ; --- DacSample id -> descriptor table (Task 6 decision 3) ---
 ; The $E2 operand (and SND_REQ_SAMPLE) is a 1-based sample id; the handler looks
-; up DacSampleTable[id-1] (each DacSample_len = 9 bytes). The table is an INLINE
-; descriptor in the Z80 blob (all bank/ptr/len are build-time constants — no
-; banking needed to read it). DAC_SAMPLE_COUNT is asserted against the table size
-; in the blob. ids: 1=temp_blip 2=kick 3=snare 4=hat, then the 6 S3K HCZ2 drums
+; up DacSampleTable[id-1] (each DacSample_len = 9 bytes). The table is BANKED
+; (budget A.2): it lives at the engine-table head of the song/SFX bank
+; (engine/sound/dac_sample_tab.asm), read through the $8000 window under the
+; reader's bank contract (see Snd_StartSample). DAC_SAMPLE_COUNT is asserted
+; against the table size there. ids: 1=temp_blip 2=kick 3=snare 4=hat, then the 6 S3K HCZ2 drums
 ; (Phase 5): 5=s3k_kick 6=s3k_snare 7=s3k_hitom 8=s3k_midtom 9=s3k_lowtom
 ; 10=s3k_floortom — these ids match tools/smps_import.py HCZ2_DAC_REMAP.
 DAC_SAMPLE_COUNT = 10
