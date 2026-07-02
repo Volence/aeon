@@ -31,3 +31,9 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
 ## Log
 
 - 2026-07-02 — queue approved, design #1 started.
+- 2026-07-02 — design #1 spec written + approved in dialogue
+  (`specs/2026-07-02-art-streaming-phase2-design.md`): supervisor-bookmark
+  resumable decode (ARCH §9.7 user-mode variant rejected), ZX0+raw hybrid pages
+  (audit amendment #1 superseded by measurement), page-frame residency
+  (refcount-pin + LRU), B&R/Vectorman budgets, camera-gate degradation, per-act
+  ROM budget gate. Next: user spec review → implementation plan.
