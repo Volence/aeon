@@ -25,6 +25,10 @@ collide with any of this (all sound work stays in its own lane).
 | 5 | **Engine/game agnostic split** — engine.inc + game manifest, def/RAM split, parameterized boot, `games/demo/` | **BANKED** | Last on purpose: designs 1–4 supply real engine-vs-game placement data |
 | 6 | **Editor collision authoring** — Aurora stamps carry collision (per-block-placement solidity — the classic-chunk role) + a first-class collision layer; fixes art-reuse dragging collision along | **BANKED** (added 2026-07-02, user-raised) | Cross-tool: Aurora + the daemon-watched generator |
 
+| 7 | **Screens/HUD (§9.13) + Aurora screen authoring** — game-state screens (title/menus/results/game-over), font/text pipeline, HUD; screens are data documents Aurora edits visually (text, selectable menus, art, palette, music cue) and the engine plays | queued (added 2026-07-02) | Unlocks #4's lives/game-over; needs the font pipeline |
+| 8 | **Raster engine + parallax authoring tools** — HInt raster-effect library (water line etc., §4.6 backlog) + Aurora visual band/deform editor with live preview over Aether | queued (added 2026-07-02) | Engine half exists; authoring is hand-written asm today |
+| 9 | **Reusable object behaviors** — composable behavior primitives ("wait until on-screen", patrol, fire-at-player, death-into-explosion) via a lightweight per-object behavior sequencer; Aurora attaches behaviors/params to placed objects | queued (added 2026-07-02) | The force-multiplier for badniks/bosses; architecturally deepest of the three |
+
 **Not in the queue (considered, deferred):** screen/game-state system (§9.13 + HUD)
 — conventional enough that design quality is not the bottleneck; water/per-section
 physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
@@ -63,3 +67,7 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   legacy encodings retired, paint_collision MCP tool; aeon side ZERO code changes
   (editor collision already consumed authoritatively — stale-doc claim corrected).
   ALL SIX DESIGNS BANKED.
+- 2026-07-02 — designs #7-9 queued (screens/HUD + Aurora authoring; raster/parallax
+  tools; reusable object behaviors). NEXT SESSION starts here: read this doc + the
+  design-week memory, then run the same per-design cycle (research agents →
+  decisions → spec → plan). All six prior designs are execution-ready.
