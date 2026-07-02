@@ -596,7 +596,7 @@ Mod_ReArm:
         ld      (ix+sc_mod_speed), a
         ; per-note reloads of the modset sources (spec C.a — zPrepareModulation
         ; re-copies these from the song data every note-on):
-        ld      a, (ix+sc_mod_wait_raw)  ; delay honored on EVERY note (was: first note ever)
+        ld      a, (ix+sc_mod_wait_raw)  ; delay honored on EVERY note (was: first note after the modset)
         ld      (ix+sc_mod_wait), a
         ld      a, (ix+sc_mod_delta_raw) ; original SIGN each note (flip-parity no longer leaks)
         ld      (ix+sc_mod_delta), a
@@ -622,13 +622,14 @@ Mod_ReArm:
 ;     raw count — S3K's iy+3) and NEGATE sc_mod_delta (triangle direction flip)
 ;   * write-on-change vs sc_last_freq: when the word is UNCHANGED (or still in the wait
 ;     delay) the caller must emit nothing.
-; In: ix = SFX channel, sc_mod_ctrl != 0. Out: CARRY SET => skip (no chip write this
+; In: ix = channel (music or SFX — one shared code path), sc_mod_ctrl != 0.
+; Out: CARRY SET => skip (no chip write this
 ; frame). CARRY CLEAR => write needed: hl = modulated word, sc_last_freq updated, and
 ; d=hi/e=lo of the word loaded ready for the caller's emit. Clobbers af,bc,de,hl.
 ; Preserves ix.
 ; ----------------------------------------------------------------------
 Mod_Advance:
-        ; --- wait countdown (one-shot delay, then held at 1) ---
+        ; --- wait countdown (per-note onset delay — reloaded by Mod_ReArm at every key-on; held at 1 once elapsed) ---
         dec     (ix+sc_mod_wait)
         jr      z, .past_wait            ; reached 0 this frame -> proceed (hold at 1)
         scf                              ; still delaying -> CARRY set => caller skips
@@ -750,10 +751,10 @@ Mod_Advance:
 ; Mod_ApplyVibrato — one frame of FM continuous pitch modulation. Thin wrapper over
 ; the shared Mod_Advance triangle core (above): if it says "write", emit $A4/$A0 on
 ; the HELD note (NO key-on — vibrato changes pitch without retriggering the EG).
-; Called from ModUpdate's FM path for an SFX channel with sc_mod_ctrl != 0 (the
-; caller gates BOTH the SFX-channel test and sc_mod_ctrl). The PSG analogue is
+; Called from ModUpdate's FM path for any channel with sc_mod_ctrl != 0 (music
+; and SFX render through this one path). The PSG analogue is
 ; Psg_ApplyMod (sound_psg.asm), which shares the same Mod_Advance core.
-; In: ix = FM SFX channel, sc_mod_ctrl != 0. Clobbers af,bc,de,hl. Preserves ix.
+; In: ix = FM channel, sc_mod_ctrl != 0. Clobbers af,bc,de,hl. Preserves ix.
 ; ----------------------------------------------------------------------
 Mod_ApplyVibrato:
         call    Mod_Advance              ; advance triangle; CF set => no write this frame

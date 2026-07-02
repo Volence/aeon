@@ -895,6 +895,9 @@ Sfx_RouteKind:
 ; gap; a long SFX that outlived the note correctly stays silent until the next one.
 ; If the channel was between notes, just clearing the override is enough (the next
 ; note keys normally).
+; The re-key funnels through Fm_NoteOnFreqExact -> Mod_ReArm, so a restored note
+; re-arms modulation like any fresh attack (full onset delay, original delta sign) —
+; coherent with the re-key-retriggers-the-EG model (spec B/C.a, 2026-07-02).
 ;
 ; In:  ix = the ended SfxChannel:
 ;        sx_saved_route = the music route to un-mute (CHROUTE_*)

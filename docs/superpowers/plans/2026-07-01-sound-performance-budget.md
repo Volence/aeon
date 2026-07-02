@@ -144,15 +144,15 @@ SND_SFX_BASE     = $1CA4                 ; 7 * 64 = 448 -> ..$1E63
 **Files:**
 - Modify: `engine/sound/sound_sequencer.asm` (`Seq_Op_ModSet` :987-1015, `Mod_ReArm` :585-604)
 
-- [ ] **Step 1: Research.** Re-read skdisasm `zPrepareModulation` (:1240-1259) — the reference behavior being mirrored: per note, wait/speed/delta re-copied from source, steps = raw>>1, accum = 0, and the whole re-arm SKIPPED for no-attack notes (our parity: `Mod_ReArm` is only reached from `Fm_NoteOnFreq`, which tie notes never enter).
-- [ ] **Step 2: Latch the raw values in `Seq_Op_ModSet`.** After the existing `ld (ix+sc_mod_step_raw), e`:
+- [x] **Step 1: Research.** Re-read skdisasm `zPrepareModulation` (:1240-1259) — the reference behavior being mirrored: per note, wait/speed/delta re-copied from source, steps = raw>>1, accum = 0, and the whole re-arm SKIPPED for no-attack notes (our parity: `Mod_ReArm` is only reached from `Fm_NoteOnFreq`, which tie notes never enter).
+- [x] **Step 2: Latch the raw values in `Seq_Op_ModSet`.** After the existing `ld (ix+sc_mod_step_raw), e`:
 
 ```asm
         ld      (ix+sc_mod_wait_raw), b   ; per-note reload source (S3K ldi #1)
         ld      (ix+sc_mod_delta_raw), d  ; per-note reload source incl. SIGN (S3K ldi #3)
 ```
 
-- [ ] **Step 3: Reload both in `Mod_ReArm`.** After the speed reload (:597-598):
+- [x] **Step 3: Reload both in `Mod_ReArm`.** After the speed reload (:597-598):
 
 ```asm
         ld      a, (ix+sc_mod_wait_raw)  ; delay honored on EVERY note (was: first note ever)
@@ -162,13 +162,13 @@ SND_SFX_BASE     = $1CA4                 ; 7 * 64 = 448 -> ..$1E63
 ```
 
   Update `Mod_ReArm`'s header comment (also fix its stale "SFX-only" line — flagged in the doc-drift list) and `Seq_Op_ModSet`'s.
-- [ ] **Step 4: Edge case — `sc_mod_wait` semantics.** `Mod_Advance` does `dec (wait)` and holds at 1 once elapsed; a modset wait operand of 0 would wrap. Check what the transcoder emits for smpsModSet wait=0 (S3K treats the stored wait the same `dec`-first way — confirm by reading `zDoModulation`:1285). If S3K's own `dec`-first behavior with wait=0 gives 255 delay frames, ours matching it IS fidelity; do nothing beyond a comment. Record the finding.
-- [ ] **Step 5: Build + verify (this IS C.b).** Green build. Capture HCZ2 → `gate_vib.py`/`vib_series.py` note-matched vs `s3k_hcz2_ref.vgm`:
+- [x] **Step 4: Edge case — `sc_mod_wait` semantics.** `Mod_Advance` does `dec (wait)` and holds at 1 once elapsed; a modset wait operand of 0 would wrap. Check what the transcoder emits for smpsModSet wait=0 (S3K treats the stored wait the same `dec`-first way — confirm by reading `zDoModulation`:1285). If S3K's own `dec`-first behavior with wait=0 gives 255 delay frames, ours matching it IS fidelity; do nothing beyond a comment. Record the finding.
+- [x] **Step 5: Build + verify (this IS C.b).** Green build. Capture HCZ2 → `gate_vib.py`/`vib_series.py` note-matched vs `s3k_hcz2_ref.vgm`:
   - flat (unmodulated) frames per melody note = ref's 13-14; short notes never vibrate
   - per-note contour = base → up → (back), phase-locked at every note start (no inverted starts)
   - depth in cents ≈ ref on the MATCHING-encoding channels (FM3 96.7 → ≈47.6; full match on both encoding classes lands after Task 7)
   If depth or contour still deviates beyond the encoding-explained factor: STOP — re-derive from `zDoModulation` before inventing mechanism (per the planning finding).
-- [ ] **Step 6: Regression + commit.** MT A/B unchanged (MT has no MEV_MODSET — one grep of its packed data to confirm, then the capture check). Commit: `feat(sound): per-note vibrato re-arm — wait + delta sign reload every note-on (spec C.a)`.
+- [x] **Step 6: Regression + commit.** MT A/B unchanged (MT has no MEV_MODSET — one grep of its packed data to confirm, then the capture check). Commit: `feat(sound): per-note vibrato re-arm — wait + delta sign reload every note-on (spec C.a)`.
 
 ### Task 7: C.c — Pitch-table renormalization to the canonical S3K band
 

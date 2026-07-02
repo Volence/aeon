@@ -911,9 +911,9 @@ sc_psgenv_out   ds.b 1   ; +41 last computed atten delta (write-on-change shadow
 ; sweep, NO re-key. SHARED with SeqChannel at identical offsets (+42..+56, see
 ; the shared-prefix assert) — some renderers still gate on ix>=SND_SFX_BASE. ---
 sc_mod_ctrl     ds.b 1   ; +42 pitch-mod control (0 = off; nonzero = active)
-sc_mod_wait     ds.b 1   ; +43 frames before modulation starts (one-shot, then held at 1)
+sc_mod_wait     ds.b 1   ; +43 frames before modulation starts (reloaded from sc_mod_wait_raw each key-on; held at 1 after firing within a note)
 sc_mod_speed    ds.b 1   ; +44 frames between delta applications (countdown)
-sc_mod_delta    ds.b 1   ; +45 signed per-step delta (flips sign each half-period)
+sc_mod_delta    ds.b 1   ; +45 signed per-step delta (flips sign each half-period; original sign restored from sc_mod_delta_raw each key-on)
 sc_mod_steps    ds.b 1   ; +46 steps until direction reverse (countdown; seeded raw/2 at re-arm)
 ; --- Task 4 reload sources (S3K zDoModulation reloads from the modulation DATA each
 ; half/sub-period, NOT from a RAM countdown). We have no iy->ROM ptr, so latch the
@@ -923,9 +923,9 @@ sc_mod_steps    ds.b 1   ; +46 steps until direction reverse (countdown; seeded 
 ; reloads the FULL raw step — faithful to S3K's iy+3. ---
 sc_mod_speed_raw ds.b 1  ; +47 latched speed (reload source for sc_mod_speed)
 sc_mod_step_raw  ds.b 1  ; +48 latched FULL step count (reload source for sc_mod_steps)
-; --- A.3 growth (2026-07-02, serves the per-note vibrato re-arm task): the last two
-; smpsModSet operands latched raw so a note-on re-arm can reload the FULL mod
-; program without re-reading the stream. DEAD SPACE until that task wires them. ---
+; --- Per-note vibrato re-arm (wired 2026-07-02): the last two smpsModSet operands
+; latched raw so the note-on re-arm can reload the FULL mod program without
+; re-reading the stream. Seq_Op_ModSet latches; Mod_ReArm reloads at every key-on. ---
 sc_mod_wait_raw ds.b 1   ; +49 latched onset delay (reload source for sc_mod_wait)
 sc_mod_delta_raw ds.b 1  ; +50 latched signed per-step delta (reload source for sc_mod_delta)
 sc_mod_accum    ds.w 1   ; +51 signed 16-bit accumulated freq offset
@@ -1036,15 +1036,15 @@ sc_psgenv_out   ds.b 1   ; +41 last computed atten delta (folded by Psg_SetVolum
 ;     (+42..+56) so Mod_Advance / Mod_ReArm / Mod_ApplyVibrato / Psg_ApplyMod render
 ;     MUSIC and SFX through one code path. Inert until MEV_MODSET arms sc_mod_ctrl. ---
 sc_mod_ctrl     ds.b 1   ; +42 pitch-mod control (0 = off; nonzero = active)
-sc_mod_wait     ds.b 1   ; +43 onset delay (one-shot, then held at 1)
+sc_mod_wait     ds.b 1   ; +43 onset delay (reloaded from sc_mod_wait_raw each key-on; held at 1 after firing within a note)
 sc_mod_speed    ds.b 1   ; +44 frames between delta applications (countdown)
-sc_mod_delta    ds.b 1   ; +45 signed per-step delta (flips sign each half-period)
+sc_mod_delta    ds.b 1   ; +45 signed per-step delta (flips sign each half-period; original sign restored from sc_mod_delta_raw each key-on)
 sc_mod_steps    ds.b 1   ; +46 steps until direction reverse (countdown)
 sc_mod_speed_raw ds.b 1  ; +47 latched speed (reload source for sc_mod_speed)
 sc_mod_step_raw ds.b 1   ; +48 latched FULL step count (reload source for sc_mod_steps)
-; --- A.3 growth (2026-07-02): raw wait/delta latches for the per-note vibrato
-; re-arm task. Mirrored in SfxChannel at the same offsets (shared-prefix assert).
-; DEAD SPACE until that task wires them — no code reads or writes them yet. ---
+; --- Per-note vibrato re-arm (wired 2026-07-02): raw wait/delta latches.
+; Mirrored in SfxChannel at the same offsets (shared-prefix assert).
+; Seq_Op_ModSet latches; Mod_ReArm reloads at every key-on. ---
 sc_mod_wait_raw ds.b 1   ; +49 latched onset delay (reload source for sc_mod_wait)
 sc_mod_delta_raw ds.b 1  ; +50 latched signed per-step delta (reload source for sc_mod_delta)
 sc_mod_accum    ds.w 1   ; +51 signed 16-bit accumulated freq offset
