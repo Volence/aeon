@@ -1228,8 +1228,9 @@ SND_MUSIC_PARAM          = Snd_SpindashRev + 1
 SND_MUSIC_PARAM_BANK     = SND_MUSIC_PARAM+$00   ; song bank id (1 byte)
 SND_MUSIC_PARAM_PTR      = SND_MUSIC_PARAM+$01   ; song $8000-window ptr (2 bytes, little-endian)
 ; Sound 1D: the song's SH_FLAGS byte, forwarded by the 68k (it reads the song's
-; ROM header directly). The Z80 loader reads the FM6-mode bits (SH_F_FM6_*) from
-; it during the header parse. Posted in the same bus hold as bank/ptr.
+; ROM header directly). The Z80 loader reads the adaptive-FM6 bit
+; (SH_F_FM6_ADAPTIVE) from it during the header parse. Posted in the same bus
+; hold as bank/ptr.
 SND_MUSIC_PARAM_FLAGS    = SND_MUSIC_PARAM+$03   ; song SH_FLAGS byte (1 byte)
 ; Sound 1D: the song's FM-patch-bank $8000-window ptr (2 bytes, little-endian),
 ; forwarded by the 68k from the song table's parallel patch-ptr entry. The patch

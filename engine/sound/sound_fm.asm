@@ -29,9 +29,9 @@
 ; Fm_SetVolume re-derives the FmPatch pointer from sc_patch + the LOADED patch-
 ; table ptr (SND_SEQ_PATCHTAB — the song's patch bank, a $8000-window pointer;
 ; see Fm_PatchPtr below) and re-reads algorithm + base TLs on each volume
-; change. Volume changes are infrequent and a window read costs the same as a
-; resident one, so this costs nothing extra and keeps SeqChannel at 11 bytes
-; (no cache fields).
+; change. Volume changes are infrequent, so the window-read overhead (slower
+; than resident RAM — $8000 reads cross the 68k bus) stays negligible and
+; SeqChannel keeps its 11 bytes (no cache fields).
 ;
 ; --- FM CHANNEL MAPPING (route -> part, channel-in-part, chsel) -----------
 ;   route  CHROUTE_  part  ch-in-part  chsel(key-on)

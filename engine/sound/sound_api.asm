@@ -69,7 +69,8 @@ Sound_PlaySample:
 ; DAC paused) banks the song in, streams it from ROM through the banked $8000
 ; window (every song streams — the copy path was deleted, budget A.1), and arms
 ; the sequencer. The flags are forwarded because the Z80 loader reads the
-; FM6-mode bits (SH_F_FM6_*) from the param block during the header parse.
+; adaptive-FM6 bit (SH_F_FM6_ADAPTIVE) from the param block during the header
+; parse (SH_F_FM6_FM is materialized at pack time; never read at runtime).
 ; In:  d0.b = song id (1..SONG_COUNT).
 ; Clobbers: d0/d1/d2/d3/d4/a0/a1; SR restored.
 ; ----------------------------------------------------------------------
