@@ -24,9 +24,16 @@ shared movement core. User-ratified decisions:
 
 **Non-goals:** Sonic-carry (needs object_control/damage plumbing — design #4 hook),
 Super forms, water physics rows (water spec later; glide/climb ignore water by S3K
-design — kept), character-select UI (§9.13; DEBUG hotkey until then), Tails/Knuckles
-final art (engine uses clearly-tagged placeholders; asset sourcing is the user's —
-Tails art/DPLC staged in-repo but mappings MISSING; no Knuckles assets exist).
+design — kept), character-select UI (§9.13; DEBUG hotkey until then).
+
+**Asset sourcing (user decision 2026-07-02): stock S3K Tails + Knuckles from
+skdisasm** (`General/Sprites/Tails/`, `General/Sprites/Knuckles/` — art, mappings,
+DPLCs, anims, palettes, incl. the separate tails-appendage set). The user first
+said S.C.E., but S.C.E. carries zero Tails/Knuckles assets (verified — Sonic-only
+in art too); skdisasm is the actual source. S3K-format mappings/DPLC convert to our
+VDP-order/DPLC formats via a one-time `tools/` conversion (precedent:
+`convert_s2_mappings.py`). The Tails art/DPLC already staged in-repo (from
+sonic_hack) is superseded by this decision unless it proves identical.
 
 ## 2. CharacterDef — a character is data
 
@@ -140,12 +147,12 @@ holds world coords and **joins the rebase shift-list** — registered there).
 - **C1 — Dispatch refactor.** CharacterDef + Character_ID + per-slot globals +
   Camera_Target + P2-bit fix + ability hook (Sonic → rts). GATE: Sonic plays
   pixel-identically (input-script regression vs master).
-- **C2 — Tails playable + appendage.** tails.asm def, flight state, anims
-  (placeholder mappings, tagged), appendage child. DEBUG hotkey selects character
-  at init.
+- **C2 — Tails playable + appendage.** S3K asset conversion (art/mappings/DPLC/
+  anims via the tools converter), tails.asm def, flight state, appendage child.
+  DEBUG hotkey selects character at init.
 - **C3 — CPU Tails.** Input filter + fly-in/follow/respawn machine + AIR fixes;
   P2 slot spawns as follower.
-- **C4 — Knuckles.** knuckles.asm def (placeholder art), glide/slide/climb/ledge.
+- **C4 — Knuckles.** S3K asset conversion, knuckles.asm def, glide/slide/climb/ledge.
 All engine except the per-character data files (design-#5 tagging).
 
 ## 9. Verification
