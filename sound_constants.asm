@@ -933,7 +933,7 @@ sc_base_freq    ds.w 1   ; +53 unmodulated note word, latched at key-on: FM=(d=$
 sc_last_freq    ds.w 1   ; +55 last modulated freq/divisor written (write-on-change shadow; FM+PSG shared via Mod_Advance)
 ; --- SFX bookkeeping (offsets past the shared block; SeqChannel diverges here) ---
 sx_priority     ds.b 1   ; +57 the running SFX's priority (cleared on end; arbitration)
-sx_pad          ds.b 1   ; +58 pad byte (keeps the sx_* tail layout stable)
+sx_pad          ds.b 1   ; +58 pad to an even struct length (SfxChannel_len must stay even)
 sx_patch_base   ds.w 1   ; +59 the SFX's own FmPatch-bank window ptr (set at steal)
 sx_saved_route  ds.b 1   ; +61 the music route whose SeqChannel we overrode (for restore)
 sx_saved_note   ds.b 1   ; +62 PSG3 tone note saved on a noise steal (periodic-noise coupling)

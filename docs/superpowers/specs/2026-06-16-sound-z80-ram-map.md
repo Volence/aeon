@@ -54,9 +54,11 @@ auto-tracks growth.
 | `$1ECB–$1ED1` | 7 B | SFX dispatch scratch (`SND_SFX_DISP_*`, defined in `sound_sfx.asm`) | `= SND_SFX_DUCK_TARGET+1` | SFX dispatch |
 | `$1ED2–$1EFF` | 46 B | Free (last movable byte is `$1ED1`) | — | — |
 | `$1F00–$1F06` | 7 B | **Mailbox** (`SND_REQ_*` + `SND_CTRL_DMA_ACTIVE` at `$1F04`) | `SND_REQ_BASE = $1F00` — **FROZEN** | 68k writes, Z80 consumes |
+| `$1F07–$1F0F` | 9 B | Frozen-region reserve (between mailbox end and status base) | — | — |
 | `$1F10–$1F14` | 5 B | **Status block** (`SND_STAT_*`) | `SND_STAT_BASE = $1F10` — **FROZEN** | Z80 writes, 68k reads |
-| `$1F15–$1FFD` | 233 B | Stack headroom (grows **down** from the top) | — | — |
-| `$1FFC–$1FFF` | top word | **Stack top** — `ld sp, SND_STACK_TOP` at init; first push lands `$1FFC/$1FFD` | `SND_STACK_TOP = $1FFE` (pinned) | init |
+| `$1F15–$1FFB` | 231 B | Stack headroom (grows **down** from the first push) | — | — |
+| `$1FFC–$1FFD` | 2 B | First push word — `ld sp, SND_STACK_TOP` at init; SP pre-decrements | `SND_STACK_TOP = $1FFE` (pinned) | init |
+| `$1FFE–$1FFF` | 2 B | Unused (above the initial SP; never written) | — | — |
 
 Note the deliberate geometry: the stack sits **above** the frozen mailbox/status block and grows
 down toward it; the movable map grows up toward `$1F00` from below. Nothing may cross `$1F00`.
@@ -84,7 +86,7 @@ down toward it; the movable map grows up toward `$1F00` from below. Nothing may 
    The movable map must end at or below `$1F00`; the repack moved *nothing* at/above it.
 3. **`SND_SFX_BASE` is derived but MUST stay 256-aligned**, and every music `SeqChannel` byte must
    sit strictly below it: `Snd_ChanClass` classifies music-vs-SFX by comparing ix's HIGH BYTE
-   against `SND_SFX_BASE>>8` (one-byte compare, 12 call sites). Alignment + ordering are both
+   against `SND_SFX_BASE>>8` (one-byte compare; ALL classification flows through the single compare inside `Snd_ChanClass`). Alignment + ordering are both
    asserted; break either and SFX ducking/patch/restore dispatch misclassifies channels.
 4. **The code ceiling IS `SND_STATE_BASE`.** Raising the ceiling again means sliding the whole
    movable map up — this repack is the template (state → ring → seq → tail all chain; re-derive,

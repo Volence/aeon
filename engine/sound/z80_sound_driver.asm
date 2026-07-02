@@ -1460,7 +1460,7 @@ Z80_Sound_End:
 
 Z80_SOUND_SIZE = Z80_Sound_End - Z80_Sound_Start
 
-        message "Z80 sound budget: \{Z80_SOUND_SIZE} / \{SND_STATE_BASE} bytes (\{SND_STATE_BASE-Z80_SOUND_SIZE} free)"
+        message "Z80 sound budget: $\{Z80_SOUND_SIZE} / $\{SND_STATE_BASE} bytes ($\{SND_STATE_BASE-Z80_SOUND_SIZE} free)"
 
         ; code must not grow into the playback-state region
         if Z80_SOUND_SIZE > SND_STATE_BASE
