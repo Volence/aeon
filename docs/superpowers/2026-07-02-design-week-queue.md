@@ -18,12 +18,12 @@ collide with any of this (all sound work stays in its own lane).
 
 | # | Design | Status | Why this order |
 |---|---|---|---|
-| 1 | **Art-streaming Phase 2 + §9.7 cooperative multitasking** — residency cache / streams-past-VRAM; small ~64-tile S4LZ pages, resumable decode, diagonal-stress degradation gate | IN PROGRESS | Hardest; requirements already bound by the 2026-07-01 loading audit (see DEFERRED_WORK §2 entry) |
-| 2 | **Floating origin (continuous-scroll Phase 4)** — unbounded level coordinates | queued | Its rebase contract constrains every later design; check interaction with #1 |
-| 3 | **Per-character dispatch + Tails/Knuckles architecture** — dispatch-table indirection, Tails flight/AI, Knuckles glide/climb | queued | #4 must be designed against the post-dispatch shape |
-| 4 | **Damage / shields / loss-rings + game-feel** — hit response, invuln, ring scatter, shield objects | queued | Assumes #3's player architecture |
-| 5 | **Engine/game agnostic split** — engine.inc + game manifest, def/RAM split, parameterized boot, `games/demo/` | research done | Last on purpose: designs 1–4 supply real engine-vs-game placement data |
-| 6 | **Editor collision authoring** — Aurora stamps carry collision (per-block-placement solidity — the classic-chunk role) + a first-class collision layer; fixes art-reuse dragging collision along | queued (added 2026-07-02, user-raised) | Cross-tool: Aurora + the daemon-watched generator |
+| 1 | **Art-streaming Phase 2 + §9.7 cooperative multitasking** — residency cache / streams-past-VRAM; small ~64-tile S4LZ pages, resumable decode, diagonal-stress degradation gate | **BANKED** | Hardest; requirements already bound by the 2026-07-01 loading audit (see DEFERRED_WORK §2 entry) |
+| 2 | **Floating origin (continuous-scroll Phase 4)** — unbounded level coordinates | **BANKED** | Its rebase contract constrains every later design; check interaction with #1 |
+| 3 | **Per-character dispatch + Tails/Knuckles architecture** — dispatch-table indirection, Tails flight/AI, Knuckles glide/climb | **BANKED** | #4 must be designed against the post-dispatch shape |
+| 4 | **Damage / shields / loss-rings + game-feel** — hit response, invuln, ring scatter, shield objects | **BANKED** | Assumes #3's player architecture |
+| 5 | **Engine/game agnostic split** — engine.inc + game manifest, def/RAM split, parameterized boot, `games/demo/` | **BANKED** | Last on purpose: designs 1–4 supply real engine-vs-game placement data |
+| 6 | **Editor collision authoring** — Aurora stamps carry collision (per-block-placement solidity — the classic-chunk role) + a first-class collision layer; fixes art-reuse dragging collision along | **BANKED** (added 2026-07-02, user-raised) | Cross-tool: Aurora + the daemon-watched generator |
 
 **Not in the queue (considered, deferred):** screen/game-state system (§9.13 + HUD)
 — conventional enough that design quality is not the bottleneck; water/per-section
