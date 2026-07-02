@@ -47,3 +47,7 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
 - 2026-07-02 — design #2 spec user-reviewed (TL;DR walkthrough) + implementation
   plan committed (`plans/2026-07-02-floating-origin.md`, 9 tasks). Design #2 BANKED.
   Design #3 (character dispatch + Tails/Knuckles) research started.
+- 2026-07-02 — design #3 spec approved + committed (da7e699: CharacterDef + ability
+  hook, CPU-as-input-filter w/ AIR fixes, assets = stock S3K from skdisasm — S.C.E.
+  has none) + implementation plan (12 tasks, C1-C4). Design #3 BANKED. Next: #4
+  damage/shields/loss-rings.
