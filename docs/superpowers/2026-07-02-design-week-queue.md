@@ -22,7 +22,8 @@ collide with any of this (all sound work stays in its own lane).
 | 2 | **Floating origin (continuous-scroll Phase 4)** — unbounded level coordinates | queued | Its rebase contract constrains every later design; check interaction with #1 |
 | 3 | **Per-character dispatch + Tails/Knuckles architecture** — dispatch-table indirection, Tails flight/AI, Knuckles glide/climb | queued | #4 must be designed against the post-dispatch shape |
 | 4 | **Damage / shields / loss-rings + game-feel** — hit response, invuln, ring scatter, shield objects | queued | Assumes #3's player architecture |
-| 5 | **Engine/game agnostic split** — engine.inc + game manifest, def/RAM split, parameterized boot, `games/demo/` | queued | Last on purpose: designs 1–4 supply real engine-vs-game placement data |
+| 5 | **Engine/game agnostic split** — engine.inc + game manifest, def/RAM split, parameterized boot, `games/demo/` | research done | Last on purpose: designs 1–4 supply real engine-vs-game placement data |
+| 6 | **Editor collision authoring** — Aurora stamps carry collision (per-block-placement solidity — the classic-chunk role) + a first-class collision layer; fixes art-reuse dragging collision along | queued (added 2026-07-02, user-raised) | Cross-tool: Aurora + the daemon-watched generator |
 
 **Not in the queue (considered, deferred):** screen/game-state system (§9.13 + HUD)
 — conventional enough that design quality is not the bottleneck; water/per-section
