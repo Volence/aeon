@@ -9,3 +9,8 @@
 - Next: bounded dynamic session — breakpoint Sound_StopMusic, step the wedge onset on both CPUs + VDP status; then fix task.
 - Baseline-capture caveat: Task-1 ours_baseline.vgm was captured WITHOUT any stop → unaffected.
 - Quality review T5 minor #2 (pre-existing, for T12 DEFERRED sweep): Seq_Op_RegWrite guards $2A/$2B/$24-$27 but NOT $28 — an authored REGWRITE to $28 can desync chip key state from SCF_KEYED (which the chokepoint bit-test relies on). ~4-6 B to extend the guard.
+
+## Capture-workflow gotchas — 2026-07-02 (T5 verification session)
+- VGM logging under `run_frames` writes 2x wait timestamps (content/order correct, duration exactly doubled; verified 300-frame probe = 9.99s). Realtime free-run (resume/sleep/pause) logs 1x. ALL captures must be realtime until the ExecuteSystemStep/logger interaction is fixed (oracle-side; not in the sound engine).
+- Every `reload_rom` seeds a ~70.9e9 ns far-future 68k park (absolute emulated time stamped into the arbiter handshake during the reload drain; ClampHandshakeTimeDeterministic's floorTime hatch keeps it unclamped). With oracle 7f88ce7 it self-heals; drain post-reload with run_frames 500-frame loops until m68k timeslice_progress < 2e7 before pressing hotkeys (~8 rounds, ~1 min). Root-cause fix = clamp/flush at reload; candidate follow-up micro-round.
+- HCZ2 no longer stops at t=44.2s on the T5 build — loops cleanly 67/67s. Baseline anomaly #1 not reproducible; re-check provenance at T12.

@@ -17,7 +17,7 @@ emulator MCP tools** (a hung MCP call deadlocked two background agents for 9 hou
 | T2 A.1 COPY-path delete | DONE+reviewed, `0e5f8cc`+3 follow-ups. +132 B. |
 | T3 A.2 bank tables | DONE+reviewed, `8bd307d` + self-heal `dcfd4b4` + fixes `1a166c0`. +146 B. Placement divergence (song-bank head, not "DAC bank") reviewed & endorsed. |
 | T4 A.3 RAM repack | DONE+reviewed (`423e2e2` + `5536d79`). Ceiling $16F0→$18F0, ring page $19, seq $1A00, derived page-aligned SND_SFX_BASE (protects Snd_ChanClass), structs 60/64 with the two Task-6 reload fields. **Soak criterion MET**: 5,700 frames music+SFX+DAC flawless on the new map (game state verified; the stall that ended it was the EMULATOR loop, see §3). Boot + all hotkeys verified. Mark T4 complete. |
-| T5 B rekey chokepoint | Code DONE+both reviews ✅ (`3d8d037` + comment `1355424`, net −10 B). **Capture verification PENDING** (§4 step 2). Latent semantic change: multipoint trills now genuinely re-attack (unreachable by shipped content — spec reviewer verified no count≥2 PITCHENV in any packed song). |
+| T5 B rekey chokepoint | **DONE + capture-verified 2026-07-02** (`3d8d037` + comment `1355424`, net −10 B). Retrigger 100% all melody channels (baseline 0-2%, ref 100%), off/on ratios at ref parity, rendered bed +0.1 dB, MT unchanged, SFX-over-music clean — full numbers in `docs/research/phase_harness/t5_verification.md`. Latent semantic change: multipoint trills now genuinely re-attack (unreachable by shipped content — spec reviewer verified no count≥2 PITCHENV in any packed song). |
 | T6–T12 | Not started. T6 = per-note mod re-arm (the +2 struct fields are already there, dead); planning finding: our Mod_Advance is already instruction-parity with S3K zDoModulation — C.b is VERIFICATION only. |
 | T3.6 (unplanned) | StopMusic wedge → became the oracle saga (§3). Engine EXONERATED. |
 
@@ -50,15 +50,16 @@ still-useful drain-hang fix; review before dropping).
 - FIXED: the original wedge family (bus release stamped past timeslice end → 68k bus-granted
   forever). Stop→restart now WORKS (first time ever). Wedge horizon moved ~60s → ~95s.
   Counters prove ongoing healing (`det_clamped_br_releases` in the debug_arbiter output).
-- OPEN (a micro-round agent was dispatched then user-killed at session end): pending M68000
-  BR→0 with access_time rebased NEGATIVE (−66.9e9 ns ≈ 4003 slices) — an overdue line change
-  that NotifyUpcomingTimeslice (M68000.cpp ~:1167) keeps rebasing instead of applying; stalls
-  the ENTIRE timeslice pump (~95s under load; frame_token freezes, run_frames returns
-  instantly). Deduced fix: apply-or-drop pending changes with rebased time ≤ 0 + a
-  `det_overdue_line_applies` counter. Evidence: arbiter_wedged-style snapshot in §2 files +
-  the exact numbers in this doc. The dispatched-then-killed prompt (reusable) is in this
-  session's transcript; hard rules: timeout every command, NO oracle instances from agents,
-  ~30 min bound.
+- FIXED 2026-07-02 (`7f88ce7`, micro-round completed): the negative-time BR orphan. The
+  killed agent's WIP was finished (overdue sweep at NotifyUpcomingTimeslice + declared/wired
+  `det_overdue_line_applies` counter through ArbiterDebugState + debug_arbiter). Validated:
+  STOP repro passes (alive, SEQ_ACTIVE=0, UP restarts), 9,400-frame music+SFX soak at steady
+  cadence, 21k overdue applies healed live.
+- RESIDUAL (bounded stall, NOT a wedge; documented in `phase_harness/phase_notes.md`): every
+  reload_rom seeds a ~70.9e9 ns far-future 68k park (absolute time through the floorTime
+  escape hatch in MDBusArbiter::ClampHandshakeTimeDeterministic). Self-heals one slice per
+  pumped slice; drain workflow in phase_notes. Root-cause clamp/flush at reload = candidate
+  next micro-round. ALSO: VGM logging under run_frames stamps 2x waits — capture realtime only.
 - Practical wedge recovery (until fixed): reset/reload MAY hang on drain → `pkill -x oracle_gui`
   (NEVER `pkill -f` — it matches your own shell) then relaunch:
   `cd /home/volence/sonic_hacks/oracle/linux-port/build && ORACLE_DETERMINISTIC=1 setsid nohup ./oracle_gui >/tmp/oracle.log 2>&1 </dev/null & disown`
