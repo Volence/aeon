@@ -56,3 +56,10 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   32-ring loss pool, death→respawn + star posts w/ explicit reset contract,
   monitors w/ ghost-bug rules, 4 adopted fixes). Design #4 BANKED. Next: #5
   engine/game split.
+- 2026-07-02 — designs #5 AND #6 specs + plans committed. #5: gameHeader macro +
+  parameterized boot (Game_Entry) + soundBankHead contract + stray inversions +
+  def/RAM splits + games/demo (SGDK-validated seams). #6: Aurora chunks carry
+  dual-plane 16-bit collision, atomic stamp-carry, paint defaults to just-here,
+  legacy encodings retired, paint_collision MCP tool; aeon side ZERO code changes
+  (editor collision already consumed authoritatively — stale-doc claim corrected).
+  ALL SIX DESIGNS BANKED.
