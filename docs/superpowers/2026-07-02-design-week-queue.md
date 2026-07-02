@@ -25,7 +25,7 @@ collide with any of this (all sound work stays in its own lane).
 | 5 | **Engine/game agnostic split** — engine.inc + game manifest, def/RAM split, parameterized boot, `games/demo/` | **BANKED** | Last on purpose: designs 1–4 supply real engine-vs-game placement data |
 | 6 | **Editor collision authoring** — Aurora stamps carry collision (per-block-placement solidity — the classic-chunk role) + a first-class collision layer; fixes art-reuse dragging collision along | **BANKED** (added 2026-07-02, user-raised) | Cross-tool: Aurora + the daemon-watched generator |
 
-| 7 | **Screens/HUD (§9.13) + Aurora screen authoring** — game-state screens (title/menus/results/game-over), font/text pipeline, HUD; screens are data documents Aurora edits visually (text, selectable menus, art, palette, music cue) and the engine plays | queued (added 2026-07-02) | Unlocks #4's lives/game-over; needs the font pipeline |
+| 7 | **Screens/HUD (§9.13) + Aurora screen authoring** — game-state screens (title/menus/results/game-over), font/text pipeline, HUD; screens are data documents Aurora edits visually (text, selectable menus, art, palette, music cue) and the engine plays | **BANKED** | Unlocks #4's lives/game-over; needs the font pipeline |
 | 8 | **Raster engine + parallax authoring tools** — HInt raster-effect library (water line etc., §4.6 backlog) + Aurora visual band/deform editor with live preview over Aether | queued (added 2026-07-02) | Engine half exists; authoring is hand-written asm today |
 | 9 | **Reusable object behaviors** — composable behavior primitives ("wait until on-screen", patrol, fire-at-player, death-into-explosion) via a lightweight per-object behavior sequencer; Aurora attaches behaviors/params to placed objects | queued (added 2026-07-02) | The force-multiplier for badniks/bosses; architecturally deepest of the three |
 
@@ -71,3 +71,10 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   tools; reusable object behaviors). NEXT SESSION starts here: read this doc + the
   design-week memory, then run the same per-design cycle (research agents →
   decisions → spec → plan). All six prior designs are execution-ready.
+- 2026-07-02 — design #7 spec + plan committed (compiled screen documents:
+  Aurora JSON → screens_gen.py w/ build gates → widget tables + prebaked strips
+  → engine interpreter; VInt_Menu w/ VInt_Load folded in, S3K-style sprite HUD
+  w/ BCD + per-field dirty flags, runtime palette fade engine, game seams =
+  binding table + widget/action handler tables for tally/title-card; full
+  classic screen set; Aurora 4th AppMode + 7 MCP tools last). Design #7 BANKED.
+  Next: #8 raster engine + parallax authoring tools.
