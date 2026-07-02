@@ -319,7 +319,7 @@ ModUpdate:
         ; test then skip (byte-identical to no envelope; MT regression-safe).
         ld      a, (ix+sc_env)
         or      a
-        call    nz, FmEnvUpdate          ; advance + re-emit carrier TLs (preserves ix)
+        call    nz, FmEnvUpdate          ; advance + write-on-change carrier TLs (preserves ix)
 
         ; --- NOTE-FILL (#4 gate articulation): per-frame countdown; key OFF early when it
         ; reaches 0, leaving a staccato gap until the next attack. sc_fill_count==0 means
@@ -455,6 +455,12 @@ Seq_RekeyRender:
 ; Body byte semantics (S3K zDoVolEnv-exact): plain value -> store as sc_psgenv_out +
 ; advance cursor; $80 -> cursor=0 and re-read; $81 -> sustain-hold (keep sc_psgenv_out,
 ; no advance, do NOT silence); $83 -> full rest: key the PSG channel off + disable env.
+; WRITE-ON-CHANGE (spec D.1): emit the attenuation ONLY when sc_psgenv_out changes —
+; a sustained envelope stops rewriting the PSG every frame (the atten latch holds).
+; Safe: Psg_NoteOn emits the volume with the freshly reset sc_psgenv_out=0 folded
+; (chip == shadow at every attack), and every other producer (Seq_Op_Vol, the
+; SND_FADE_DIRTY re-assert, Sfx_Restore's re-key) emits directly, folding the live
+; sc_psgenv_out — so chip attenuation == fold(sc_psgenv_out) whenever we skip.
 ; In: ix = SeqChannel/SfxChannel (PSG/noise route). Clobbers af,bc,de,hl. Preserves ix.
 ; ----------------------------------------------------------------------
 PsgEnvUpdate:
@@ -470,12 +476,18 @@ PsgEnvUpdate:
         cp      PsgVolEnvCtl_Loop        ; $80 -> loop cursor to 0
         jr      z, .loop
         cp      PsgVolEnvCtl_Sustain     ; $81 -> sustain-hold (no advance, keep last out)
-        jr      z, .sustain
+        ret     z                        ; held atten is already latched on the chip ->
+                                         ; no per-frame rewrite (write-on-change, spec D.1)
         cp      PsgVolEnvCtl_Rest        ; $83 -> full rest (silence + disable)
         jr      z, .rest
-        ; --- plain value: store as the atten delta, advance the cursor ---
-        ld      (ix+sc_psgenv_out), a
+        ; --- plain value: advance the cursor, store as the atten delta ---
         inc     (ix+sc_psgenv_cur)
+        ; write-on-change gate: emit ONLY when the env output actually changes.
+        ; (Unlike FM, chip == fold(sc_psgenv_out) even across attacks: Psg_NoteOn
+        ; emits the volume right after Psg_EnvCursorReset zeroes the shadow.)
+        cp      (ix+sc_psgenv_out)
+        ret     z                        ; unchanged output -> no attenuation rewrite
+        ld      (ix+sc_psgenv_out), a
 .emit:
         ; re-emit the channel volume so the new sc_psgenv_out delta lands this frame.
         ld      a, (ix+sc_volume)
@@ -486,10 +498,6 @@ PsgEnvUpdate:
         call    PsgVolEnv_Resolve
         ret     c
         jr      .reread
-.sustain:
-        ; hold last sc_psgenv_out (no advance, no silence) — re-emit so the held
-        ; attenuation stays applied against the live sc_volume.
-        jr      .emit
 .rest:
         ; $83 full-rest: silence THIS note's tail (S3K zDoVolEnvFullRest -> zRestTrack).
         ; Do NOT clear sc_psgenv — the envelope ID must PERSIST so the NEXT note-on
@@ -514,6 +522,13 @@ PsgEnvUpdate:
 ; $83 -> TL-silence the tail (sc_env_out = $7F, park the cursor). NOTE the deliberate
 ; deviation from PSG's $83 key-off: FM has its own EG, so a key-off would cut the
 ; release tail; a TL-silence preserves it (documented in the plan's Self-review).
+; WRITE-ON-CHANGE (spec D.1): every path emits the carrier TLs ONLY when sc_env_out
+; actually changes — a sustained/held envelope stops rewriting the chip every frame
+; (the TL registers latch). Safe because every OTHER volume producer emits directly
+; and folds the live sc_env_out via Fm_SetVolume (Seq_Op_Vol, the SND_FADE_DIRTY
+; re-assert, patch reload, Sfx_Restore), so chip TL == fold(sc_env_out) at all times
+; EXCEPT the one frame after key-on (Fm_NoteOnFreq resets sc_env_out=0 with no emit;
+; the first body byte that DIFFERS from 0 re-syncs — see the .store_gated note).
 ; In: ix = FM channel, sc_env != 0. Clobbers af,bc,de,hl. Preserves ix.
 ; ----------------------------------------------------------------------
 FmEnvUpdate:
@@ -529,15 +544,24 @@ FmEnvUpdate:
         cp      FmVolEnvCtl_Loop         ; $80 -> loop cursor to 0
         jr      z, .loop
         cp      FmVolEnvCtl_Sustain      ; $81 -> sustain-hold (no advance, keep last out)
-        jr      z, .sustain
+        ret     z                        ; held atten is already on the chip (TL latches) ->
+                                         ; no per-frame rewrite (write-on-change, spec D.1)
         cp      FmVolEnvCtl_Rest         ; $83 -> TL-silence the tail
         jr      z, .rest
-        ; --- plain value: store as the carrier-TL atten delta, advance the cursor ---
+        ; --- plain value: advance the cursor, store as the carrier-TL atten delta ---
         ; NOTE: $82 is RESERVED (future RELEASE point) and is NOT yet a control code.
         ; Until assigned, $82 falls through here: stored as an attenuation byte and
         ; clamped like any plain value. Do NOT emit $82 in a body expecting it to be inert.
-        ld      (ix+sc_env_out), a
         inc     (ix+sc_env_cur)
+.store_gated:
+        ; write-on-change gate: emit ONLY when the env output actually changes.
+        ; KNOWN 1-FRAME SEAM (accepted by the plan, "first DIFFERING byte emits"):
+        ; key-on resets sc_env_out=0 WITHOUT a TL emit, so a body starting at 00h
+        ; (FmVolEnv_02/_03) rides the previous note's latched TL for that single
+        ; frame; the first differing byte (or any direct volume emit) re-syncs.
+        cp      (ix+sc_env_out)
+        ret     z                        ; unchanged output -> no TL rewrite this frame
+        ld      (ix+sc_env_out), a
 .emit:
         ; re-emit the channel volume so the new sc_env_out delta lands this frame.
         ld      a, (ix+sc_volume)
@@ -548,15 +572,13 @@ FmEnvUpdate:
         call    FmVolEnv_Resolve
         ret     c
         jr      .reread
-.sustain:
-        ; hold last sc_env_out (no advance) — re-emit so the held atten stays applied.
-        jr      .emit
 .rest:
         ; FM $83 = TL-silence (NOT key-off): sc_env_out = $7F so the carrier TLs go
-        ; silent while the YM EG release continues. The cursor stays parked on the rest
-        ; byte so it re-silences each frame until the next attack resets sc_env_cur.
-        ld      (ix+sc_env_out), SND_FM_TL_MAX
-        jr      .emit
+        ; silent while the YM EG release continues. The cursor stays parked on the
+        ; rest byte; the .store_gated compare emits the $7F ONCE, then holds (the
+        ; TL latches — the old per-frame re-silence was pure chip-write waste).
+        ld      a, SND_FM_TL_MAX
+        jr      .store_gated             ; no cursor advance (parked on the rest byte)
 
 ; ----------------------------------------------------------------------
 ; Mod_ReArm — per-note pitch-modulation re-arm (port of zPrepareModulation).
