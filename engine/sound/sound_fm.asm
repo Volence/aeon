@@ -850,6 +850,17 @@ Fm_NoteOnFreqExact:
         set     SCF_KEYED_B, (ix+sc_flags)   ; DAC owns ch6: advance bookkeeping, no chip $28
         jp      Fm_ReparkDac
 .do_keyon:
+        ; --- EG RETRIGGER (spec B): the $28 key-on is edge-triggered; keying an
+        ; already-keyed channel is a chip NO-OP. Key OFF first so EVERY producer
+        ; funneling through this single chokepoint (bare note, NOTE_DUR, NOTE_RAW,
+        ; PITCHENV re-key, SFX steal/restore re-keys) gets a true 0->1 EG edge.
+        ; Held/tie notes (bit-7 no-attack) never reach here — Seq_Op_NoteDur
+        ; returns before Seq_HookNoteOn. (S3K zKeyOffIfActive orders off->freq->on;
+        ; ours is freq->off->on — the EG edge needs only OFF-before-ON. Fm_NoteOff
+        ; clobbers af/bc/de, preserves hl/ix; de is dead here — the fnum word was
+        ; consumed by Fm_WriteFreq + the sc_base_freq latch above.)
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        call    nz, Fm_NoteOff           ; keyed -> key OFF first (fresh EG edge)
         ; --- KEY ON: $28 = $F0 | chsel, ALWAYS via part I ---
         call    Fm_ChSel                 ; a = chsel = (part<<2)|ch
         or      SND_FM_KEYON_OPMASK      ; $F0 | chsel (all 4 ops on)

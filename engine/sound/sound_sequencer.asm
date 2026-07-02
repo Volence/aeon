@@ -430,18 +430,10 @@ Seq_RekeySingle:
         bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
         ret     nz                       ; stolen -> no chip writes; arm stays pending
         res     SCF_REKEY_B, (ix+sc_flags) ; consume the (re)key arm (single-shot)
-        ; RE-KEY STYLE (lever SND_REKEY_OFF_THEN_ON, sound_constants): DEFAULT = clean
-        ; re-key. If the channel is ALREADY keyed we key-OFF first so the YM2612 sees a
-        ; real 0->1 edge and retriggers the EG (oracle-faithful; matches the NOTE_RAW
-        ; path). If NOT keyed (fresh note from silence/after a Rest), the key-on alone is
-        ; the 0->1 edge — no key-off. SND_REKEY_OFF_THEN_ON=0 skips the key-off (key-on
-        ; only, no retrigger when already keyed) for A/B-ing attack density vs the oracle.
-    if SND_REKEY_OFF_THEN_ON
-        bit     SCF_KEYED_B, (ix+sc_flags)
-        jr      z, .rekey_on             ; not keyed -> key-on alone gives the edge
-        call    Fm_NoteOff               ; keyed -> key OFF first (forces a fresh 0->1 edge)
-    endif
-.rekey_on:
+        ; RE-KEY STYLE: clean off-then-on. The key-off-before-key-on lives in the
+        ; single FM key-on chokepoint (Fm_NoteOnFreq.do_keyon, spec B) — an
+        ; already-keyed channel is keyed OFF there so the YM2612 sees a real 0->1
+        ; edge and retriggers the EG (oracle-faithful). Nothing to do here.
         ld      a, (ix+sc_points)        ; sc_points[0] = the single pitch point (idx)
         ; falls into Seq_RekeyRender (the note-fill countdown reload lives in
         ; Fm_NoteOnFreq — the single key-on chokepoint — so every route below
@@ -1162,17 +1154,13 @@ Seq_Op_NoteRaw:
         ret     nz                       ; SFX owns this voice -> advance time, no key
         bit     SCF_IS_FM_B, (ix+sc_flags)
         ret     z                        ; non-FM route -> time advanced, no key
-        ; RETRIGGER the hardware envelope: key OFF then key ON, so every note
-        ; re-attacks. The original B&R driver keys off->on per note (1599 offs /
-        ; 801 ons in the reference VGM); without the key-off a re-keyed channel
-        ; never re-attacks and decays to silence after the first note (the "blips"
-        ; bug). NOTE_RAW-only: the note-index path (1C demo) is unchanged. The
-        ; key-off..key-on are tens of Z80 cycles apart (Fm_NoteOff repark + the
-        ; $A4/$A0 writes inside Fm_NoteOnFreq), ample for the EG to see the edge.
-        push    de                       ; save fnum word across the key-off
-        call    Fm_NoteOff               ; key OFF (clobbers de; preserves hl,ix)
-        pop     de                       ; de = $A4/$A0 again
-        call    Fm_NoteOnFreq            ; key ON at raw freq (preserves ix)
+        ; RETRIGGER: the hardware envelope re-attacks on every note because the FM
+        ; key-on chokepoint (Fm_NoteOnFreq.do_keyon, spec B) keys an already-keyed
+        ; channel OFF before the key-on — a true 0->1 EG edge per note, matching the
+        ; original B&R driver (1599 offs / 801 ons in the reference VGM). The off now
+        ; lands AFTER the $A4/$A0 freq writes instead of before — microseconds apart,
+        ; EG-equivalent (the edge needs only OFF-before-ON; see the chokepoint).
+        call    Fm_NoteOnFreq            ; freq write + key off->on (preserves ix)
         ret                              ; time advanced -> done this tick
 
 ; $E8 MEV_PITCHENV + count + count idx bytes : set the channel's pitch-envelope
@@ -1192,8 +1180,8 @@ Seq_Op_NoteRaw:
 ; PitchEnv on a non-FM route at build time — Seq_RekeySingle relies on this).
 ;
 ; THE RE-KEY RULE (finalized, Task 5): MEV_PITCHENV is the ONLY opcode that
-; re-articulates a note. It arms SCF_REKEY -> Seq_RekeySingle (re)keys (default:
-; clean key-off-then-on so the EG retriggers; see SND_REKEY_OFF_THEN_ON). A note thus
+; re-articulates a note. It arms SCF_REKEY -> Seq_RekeySingle (re)keys (clean
+; key-off-then-on at the FM chokepoint, so the EG retriggers — spec B). A note thus
 ; re-articulates ONLY on a PITCH change. Voice/timbre opcodes — MEV_PATCH,
 ; MEV_OPBIAS, MEV_REGDELTA — change the held note's timbre WITHOUT keying (none of
 ; them touch $28 or set SCF_REKEY). The transcoder (Task 8) emits MEV_PITCHENV only

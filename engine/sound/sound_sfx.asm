@@ -1008,9 +1008,9 @@ Sfx_Restore:
         ; normally) — symmetric with the PSG/noise silence-when-no-music fix.
         bit     SCF_KEYED_B, (ix+sc_flags)
         jr      z, .fm_silence           ; between notes -> silence the stolen FM voice
-    if SND_REKEY_OFF_THEN_ON
-        call    Fm_NoteOff               ; clean 0->1 edge: key OFF first (mirrors ModUpdate)
-    endif
+        ; (No explicit key-off here: the chokepoint below keys an already-keyed
+        ; channel OFF before the key-on — SCF_KEYED is set on this path — so the
+        ; restore re-key gets its clean 0->1 EG edge for free; spec B.)
         ; Re-key from sc_base_freq — the exact unmodulated word latched at key-on
         ; by every FM note path (Fm_NoteOnFreq's tail; KEYED implies it is valid).
         ; sc_note may hold a raw $A4 byte (NOTE_RAW streams), NOT a pitch-table

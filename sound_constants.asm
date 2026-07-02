@@ -1157,24 +1157,13 @@ SCF_IS_DAC_B    = 4       ; route class: DAC trigger channel
 ; (or when the rendered index changes) and then holds (write-on-change).
 SCF_REKEY_B     = 5       ; ModUpdate should (re)key this channel's note next frame
 
-; --- Phase 3 Task 5: the re-key STYLE (calibration lever) ---------------------
-; THE RE-KEY RULE: a note re-articulates ONLY on a PITCH change (via MEV_PITCHENV,
-; which arms SCF_REKEY). Voice/timbre changes (MEV_PATCH/MEV_OPBIAS/MEV_REGDELTA)
-; never re-key. When ModUpdate honors a SCF_REKEY arm on a count==1 single note, it
-; can re-articulate two ways:
-;   1 (DEFAULT) = CLEAN RE-KEY: key-OFF then key-ON. The YM2612 retriggers the
-;       envelope generator on the 0->1 key transition, so the note re-ATTACKS — the
-;       audible, oracle-faithful behavior (Zyrinx keys off->on per articulation; the
-;       NOTE_RAW path already does this). Without the key-off, a same-pitch re-arm
-;       would write $F0|chsel while the key is already 1 (no 0->1 edge -> no
-;       re-attack), and a held voice would decay to silence after the first note.
-;   0           = KEY-ON ONLY: skip the key-off (re-write $A4/$A0 + key-on; the EG
-;       does NOT retrigger if already keyed). Left as a one-line lever so the
-;       controller can A/B the re-key density/attack against the oracle.
-; (count>=2 trills/arps always re-key per frame — they change pitch each frame — so
-; this lever governs only the count==1 re-articulation; the trill path keys-on each
-; new point, which IS a fresh 0->1 edge because the pitch genuinely changed.)
-SND_REKEY_OFF_THEN_ON = 1
+; --- THE RE-KEY RULE (Phase 3 Task 5): a note re-articulates ONLY on a PITCH
+; change (via MEV_PITCHENV, which arms SCF_REKEY). Voice/timbre changes
+; (MEV_PATCH/MEV_OPBIAS/MEV_REGDELTA) never re-key. Off-then-on is UNCONDITIONAL
+; at the single FM key-on chokepoint (Fm_NoteOnFreq.do_keyon, spec B): an
+; already-keyed channel is keyed OFF before the key-on so the YM2612 sees a real
+; 0->1 edge and retriggers the EG — every note re-ATTACKS (the $28 key-on is
+; edge-triggered; keying an already-keyed channel is a chip NO-OP). ---
 ; Phase 5a: SFX channel-steal override. When SET on a music SeqChannel, the music
 ; interpreter keeps advancing its cursor (so the song never desyncs) but every
 ; chip-write site early-returns — an SfxChannel owns this physical voice. Cleared
