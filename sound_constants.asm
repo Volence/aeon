@@ -1245,9 +1245,11 @@ SND_MUSIC_PARAM_LEN      = 6
 SND_SEQ_TRACE      = SND_MUSIC_PARAM + SND_MUSIC_PARAM_LEN
 
 ; --- Phase 2 global expression state (master fade + global tempo). Free RAM
-; between the trace ring and the song buffer ($1B00). Derived from the ring end so
-; it auto-tracks ring/struct growth; the assert below keeps it under the song
-; buffer. All ds.b -> no even-align need. GLOBAL (not per-channel): one scalar each.
+; between the trace ring and the SFX region (the copy-path song buffer that used
+; to bound this block at $1B00 is DELETED — $1B00..$1CFF is a free gap until the
+; Task A.3 repack, per the SND_SFX_BASE pin below). Derived from the ring end so
+; it auto-tracks ring/struct growth; the assert below keeps it under
+; SND_SFX_BASE. All ds.b -> no even-align need. GLOBAL (not per-channel): one scalar each.
 SND_GLOBAL_EXPR     = SND_SEQ_TRACE + SND_SEQ_TRACE_LEN
 SND_MASTER_FADE     = SND_GLOBAL_EXPR+$00   ; current fade atten (0 full .. $7F silent)
 SND_FADE_TARGET     = SND_GLOBAL_EXPR+$01   ; fade ramp target

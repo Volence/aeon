@@ -212,7 +212,7 @@ Fade_Ramp:
 ;     (SCF_REKEY -> render cursor 0 without advancing); subsequent frames advance.
 ;     Writing every frame is correct — the pitch changes per frame (that's the
 ;     trill); the write-on-change rule governs HELD single notes only.
-; Gating count==1 on SCF_REKEY keeps the existing SONG_TEST path EXACT: the loader
+; Gating count==1 on SCF_REKEY keeps the bare-note FM path EXACT: the loader
 ; inits sc_pt_count=1, so a bare-note FM channel takes the count==1 path, but its
 ; notes are keyed by Sequencer_Channel's hook (NOT MEV_PITCHENV), so they never arm
 ; SCF_REKEY -> ModUpdate is a no-op for them (a single flag test), as in Task 2.

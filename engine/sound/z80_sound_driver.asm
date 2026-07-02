@@ -468,10 +468,13 @@ SndDrv_Sample:
 ; DMA survival via the producer's DRAIN path). ROM-SAFETY (Task 6 nuance): the
 ; ping/sample request paths read Z80-RAM + the $6000 bank latch ONLY — never ROM
 ; — so they are DMA-safe even if the ISR fires mid-DMA. The MUSIC-LOAD path is
-; the exception: Snd_LoadSong's `ldir` DOES read ROM through the $8000 window, so
-; it is NOT ROM-free. It is safe instead because the DAC loop is paused while the
+; the exception: Snd_LoadSong's HEADER PARSE DOES read ROM through the $8000
+; window (tempo/chcount/pitch-table fields + the per-channel records, via
+; iy = Snd_SongBase — the patch-table setup only STORES a window pointer; the
+; command streams are read later, per frame, under the B1 bank bracket), so it
+; is NOT ROM-free. It is safe instead because the DAC loop is paused while the
 ; ISR runs and the ~200-sample ring-lead budget (SND_RING_LEAD_TARGET) vastly
-; outlasts the few-hundred-byte song copy — the lead absorbs the load.
+; outlasts the few-dozen-byte header parse — the lead absorbs the load.
 ; Preserves af/bc/de/hl via push/pop (it interrupts the main/idle loop). It does
 ; NOT save ix/iy, and SndDrv_PollMailbox DOES clobber them (SfxDispatch/Snd_LoadSong
 ; use ix for channel state). That is SAFE for two distinct reasons, one per context
@@ -506,8 +509,8 @@ SndDrv_ISR:
 
 ; ======================================================================
 ; Snd_PollMailbox_Banked — run SndDrv_PollMailbox bank-transparently. PollMailbox may
-; SetBank (a song load's `ldir`, an SFX-blob dispatch, and a mailbox sample re-stash
-; all bank the $8000 window). On return, leave the window banked for the caller's
+; SetBank (a song load banking the song in, an SFX-blob dispatch, and a mailbox
+; sample re-stash all bank the $8000 window). On return, leave the window banked for the caller's
 ; resumed context: the SAMPLE bank (SND_ROM_BANK) if a DAC sample is streaming — which
 ; a mid-stream cross-bank retrigger may have just changed to a NEW bank, so we must NOT
 ; blindly restore the pre-call bank or the next FILL decodes the new sample through the

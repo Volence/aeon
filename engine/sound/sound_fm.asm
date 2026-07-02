@@ -26,10 +26,12 @@
 ; $8000-window banking. (Task 6 may switch to the banked 68k ROM tables.)
 ;
 ; --- VOLUME SOURCE (decision 2: RE-READ the patch, no per-channel cache) ---
-; Fm_SetVolume re-derives the FmPatch pointer from sc_patch + the inline patch-
-; table base and re-reads algorithm + base TLs on each volume change. Volume
-; changes are infrequent and the inline patch table is directly addressable, so
-; this costs nothing extra and keeps SeqChannel at 11 bytes (no cache fields).
+; Fm_SetVolume re-derives the FmPatch pointer from sc_patch + the LOADED patch-
+; table ptr (SND_SEQ_PATCHTAB — the song's patch bank, a $8000-window pointer;
+; see Fm_PatchPtr below) and re-reads algorithm + base TLs on each volume
+; change. Volume changes are infrequent and a window read costs the same as a
+; resident one, so this costs nothing extra and keeps SeqChannel at 11 bytes
+; (no cache fields).
 ;
 ; --- FM CHANNEL MAPPING (route -> part, channel-in-part, chsel) -----------
 ;   route  CHROUTE_  part  ch-in-part  chsel(key-on)
