@@ -988,16 +988,13 @@ SndDrv_TimerATick:
 
 ; ======================================================================
 ; Snd_TimerA_ProgramFixed — load + enable Timer A at the FIXED Phase-3 frame
-; rate (SND_TIMERA_N, build-time-computed from SND_FRAME_MILLIHZ) AND Timer B at
-; the drain-burst marker period (SND_TIMERB_N — Task 9, spec D.2). Writes the
-; full 10-bit N_A: $24 = N>>2 (bits 9..2), $25 = N&3 (bits 1..0), then the 8-bit
-; N_B: $26 = SND_TIMERB_N, then $27 = SND_TIMER_CTRL_PROGRAM ($0F = LOAD+ENBL
-; both timers). Phase 3 replaced per-song tempo-byte Timer-A programming with
-; this fixed-rate program (musical tempo is now per-channel via the tempo
-; accumulator), so it writes the N bytes from build-time constants and the
-; frame rate is exact and region-independent. ENBL (A bit2 / B bit3) is REQUIRED
-; so each overflow raises the status flag its poll reads (Timer A: the hot/idle
-; loop's tick poll; Timer B: the sequencer-seam drain polls). ABSOLUTE
+; rate (SND_TIMERA_N, build-time-computed from SND_FRAME_MILLIHZ). Writes the full
+; 10-bit N: $24 = N>>2 (bits 9..2), $25 = N&3 (bits 1..0), $27 = $05
+; (LOAD:A | ENBL:A). Phase 3 replaced per-song tempo-byte Timer-A programming
+; with this fixed-rate program (musical tempo is now per-channel via the tempo
+; accumulator), so it writes both N bytes from the build-time constant and the
+; frame rate is exact and region-independent. ENBL:A (bit2) is REQUIRED so the
+; overflow raises the status flag the common-prefix poll reads. ABSOLUTE
 ; addressing (preserve de = $4001); re-parks reg $2A on $4000. Clobbers af.
 ; ======================================================================
 Snd_TimerA_ProgramFixed:
@@ -1011,142 +1008,31 @@ Snd_TimerA_ProgramFixed:
         ld      (SND_Z80_YM_A0), a       ; select $25 on $4000
         ld      a, SND_TIMERA_N&3        ; N bits 1..0
         ld      (SND_Z80_YM_A1), a       ; $4001 = N&3
-        ; $26 = Timer B reload (the drain-burst elapsed-time marker, Task 9).
-        ld      a, SND_REG_TIMER_B       ; $26
-        ld      (SND_Z80_YM_A0), a       ; select $26 on $4000
-        ld      a, SND_TIMERB_N          ; 8-bit N_B (build-time constant, pinned 252)
-        ld      (SND_Z80_YM_A1), a       ; $4001 = N_B
-        ; $27 = LOAD+ENBL BOTH timers -> start the counters, let overflow raise
-        ; the flags (the shared SND_YM27_TIMERS base — no site drops the other
-        ; timer's bits).
+        ; $27 = LOAD:A | ENBL:A -> start the counter, let overflow raise the flag.
         ld      a, SND_REG_TIMER_CTRL    ; $27
         ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
-        ld      a, SND_TIMER_CTRL_PROGRAM ; $0F = LOAD:A|LOAD:B|ENBL:A|ENBL:B
-        ld      (SND_Z80_YM_A1), a       ; $4001 = program Timers A + B
+        ld      a, SND_TIMERA_CTRL_PROGRAM ; $05 = LOAD:A | ENBL:A
+        ld      (SND_Z80_YM_A1), a       ; $4001 = program Timer A
         ; re-park reg $2A on the addr port for the DAC consumer.
         ld      a, SND_REG_DAC_DATA      ; $2A
         ld      (SND_Z80_YM_A0), a
         ret
 
 ; ======================================================================
-; Snd_TimerA_Rearm — clear BOTH timers' overflow status flags at tick entry,
-; keeping both loaded + enabled (Task 5 Timer A; Task 9 adds Timer B). The
-; reload values auto-reload and the counters keep running; we only strobe the
-; RST bits. A SINGLE $27 write of $3F (= SND_YM27_TIMERS | RST:A | RST:B) does
-; it: the RST strobes clear the overflow flags without disturbing the counts.
-; Clearing RST:B HERE (every tick entry) is what makes Timer B the
-; elapsed-WITHIN-this-tick marker: a seam poll seeing bit1 set means >= 1
-; Timer-B period passed inside this tick with the DAC frozen (spec D.2).
-; ABSOLUTE addressing (preserve `de`); re-parks reg $2A on $4000. Clobbers af.
+; Snd_TimerA_Rearm — clear the Timer-A overflow status flag, keeping the timer
+; loaded + enabled (Task 5). The 10-bit value N auto-reloads and the counter
+; keeps running; we only strobe RST:A. A SINGLE $27 write of $15
+; (= LOAD:A | ENBL:A | RST:A) does it: RST:A (bit4) is a one-shot strobe that
+; clears the overflow flag without disturbing the count. ABSOLUTE addressing
+; (preserve `de`); re-parks reg $2A on $4000 at the end. Clobbers af.
 ; ======================================================================
 Snd_TimerA_Rearm:
         ld      a, SND_REG_TIMER_CTRL    ; $27
         ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
-        ld      a, SND_TIMER_CTRL_REARM  ; $3F = LOAD+ENBL+RST, Timers A and B
-        ld      (SND_Z80_YM_A1), a       ; $4001 = re-arm both timers
+        ld      a, SND_TIMERA_CTRL_REARM ; $15 = LOAD:A | ENBL:A | RST:A (clear overflow flag)
+        ld      (SND_Z80_YM_A1), a       ; $4001 = re-arm Timer A
         ld      a, SND_REG_DAC_DATA      ; $2A
         ld      (SND_Z80_YM_A0), a       ; re-park addr port on DAC DATA
-        ret
-
-; ======================================================================
-; SndDrv_DrainBurst — Timer-B-paced DAC ring drain at sequencer SEAMS (Task 9,
-; spec D.2). Called from a Sequencer_Frame / Sfx_Frame seam poll when YM status
-; bit1 (Timer B overflow) is set: >= 1 Timer-B period (~1.20 ms,
-; SND_TIMERB_PERIOD_NS) elapsed inside this tick with the DAC frozen (the hot
-; loop is paused for the whole tick, so the drums freeze through heavy ticks).
-; Emits up to SND_DRAIN_BURST (22) ring samples to $2A at the TRUE streaming
-; cadence (195 cyc between $2A writes — the per-iteration balance below), i.e.
-; the samples the hot loop WOULD have emitted in that period, then Timer B's
-; flag is cleared. RST:B clears the FLAG only — the counter auto-reloaded at
-; the overflow and keeps counting, so overflows stay anchored to a strict
-; period-P grid: one burst per period on average, no drift accumulation, and
-; burst time counts toward the NEXT period (self-sustaining across a long tick).
-; RAM-state based: the tick spilled the ring regs (SndDrv_TimerATick step 1),
-; so RD/WR live in SND_RING_RD/WR here; RD is written back at exit and the
-; tick's step-3 reload picks it up (the seams all run BEFORE that reload).
-; DRAIN-ONLY: no ROM/bank access — the $8000 window belongs to the song/SFX
-; bank at the seams; the ring is Z80 RAM (DMA-safe). The RD==WR dry check
-; stops at the producer bound (no wrap garbage); the lead burned here is the
-; lead the hot loop would have burned anyway, topped back up by the tick's
-; bulk-refill.
-; Preserves EVERYTHING (af,bc,de,hl; ix/iy untouched) — the seams sit inside
-; live loops (djnz counters; the .tick_loop seam's caller flags are restored by
-; its own `pop af`, but the outer `push af` keeps the .next_chan/.next_slot
-; seams flag-safe too). Leaves the $4000 addr latch parked on $2A (the driver's
-; canonical parked state; every YM writer re-selects its reg before data).
-; ======================================================================
-SndDrv_DrainBurst:
-        push    af
-        ld      a, (SND_DAC_PHASE)
-        or      a
-        jr      z, .none                 ; DAC idle -> no ring to drain (idle-tick
-                                         ; seams are harmless: flag stays set until
-                                         ; the next tick-entry REARM clears it)
-        push    bc
-        push    de
-        push    hl
-        ; Clear Timer B's flag FIRST: the overflow is consumed NOW, so the time
-        ; this burst itself takes accrues toward the NEXT period (the counter
-        ; auto-reloaded at the overflow and keeps counting — RST only clears the
-        ; flag, keeping overflows on a strict period grid). $2F = SND_YM27_TIMERS
-        ; | RST:B — both timers stay loaded+enabled and RST:A is NOT strobed
-        ; (Timer A's pending overflow belongs to the frame clock, not to us).
-        ld      a, SND_REG_TIMER_CTRL    ; $27
-        ld      (SND_Z80_YM_A0), a       ; select $27 on $4000
-        ld      a, SND_YM27_TIMERS|SND_YM27_RESET_B ; $2F: clear B flag, keep counting
-        ld      (SND_Z80_YM_A1), a
-        ; Select $2A once; every emit below is a $4001 data write (hot-loop idiom:
-        ; the addr port stays parked on $2A across the whole burst).
-        ld      a, SND_REG_DAC_DATA      ; $2A
-        ld      (SND_Z80_YM_A0), a
-        ; Ring state from RAM (the tick spilled the live regs at entry):
-        ; c = RD, b = WR (empty stop bound), d = RD+burst (count stop bound,
-        ; mod 256 like the ring), h = ring page.
-        ld      a, (SND_RING_RD)
-        ld      c, a                     ; c = RD
-        add     a, SND_DRAIN_BURST
-        ld      d, a                     ; d = RD + SND_DRAIN_BURST (stop bound)
-        ld      a, (SND_RING_WR)
-        ld      b, a                     ; b = WR
-        ld      h, SND_RING_PAGE         ; h = $19 (256-aligned ring page)
-.burst:
-        ; Per-iteration cycle balance — target SND_LOOP_CYC (195) between
-        ; consecutive $2A writes, matching the hot FILL pass so drum pitch holds
-        ; through the burst. STARTING estimate: the controller's Step 7
-        ; calibrates this pad (with SND_TIMERB_TARGET_NS / SND_DRAIN_BURST) by
-        ; measured drum pitch. Balance proof (T-states, same table as the
-        ; top-of-file hot-loop proof):
-        ;   ld a,c(4) + cp b(4) + jr z nt(7)          = 15   ; ring-dry check
-        ;   ld l,c(4) + ld a,(hl)(7) + ld (nn),a(13)  = 24   ; emit ring[RD] -> $2A
-        ;   inc c(4)                                  =  4   ; RD++ (page wrap free)
-        ;   ld a,c(4) + cp d(4) + jr z nt(7)          = 15   ; burst-count bound
-        ;   or (hl)(7)                                =  7   ; filler (a/flags dead at loop top)
-        ;   30 * nop                                  = 120  ; pad
-        ;   jp .burst(10)                             = 10
-        ;                                     ------- = 195  = SND_LOOP_CYC
-        ld      a, c
-        cp      b                        ; RD == WR -> ring dry, stop (no wrap garbage)
-        jr      z, .store
-        ld      l, c                     ; l = RD (h = ring page)
-        ld      a, (hl)                  ; ring[RD]
-        ld      (SND_Z80_YM_A1), a       ; -> YM $2A DATA ($2A stays selected)
-        inc     c                        ; RD++ (low byte only — 256-aligned page wraps free)
-        ld      a, c
-        cp      d                        ; emitted SND_DRAIN_BURST samples -> stop
-        jr      z, .store
-        or      (hl)                     ; 7-cyc pad filler (a + flags dead at loop top)
-        rept    30                       ; nop pad to the 195-cyc streaming cadence
-          nop                            ; (calibration knob — see the proof above)
-        endm
-        jp      .burst
-.store:
-        ld      a, c
-        ld      (SND_RING_RD), a         ; write RD back (the tick's reload reads it)
-        pop     hl
-        pop     de
-        pop     bc
-.none:
-        pop     af
         ret
 
 ; ======================================================================

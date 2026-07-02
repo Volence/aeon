@@ -103,27 +103,11 @@ Sequencer_Frame:
         ld      (ix+sc_tempo_accum), a
         push    af                       ; a + carry survive the tick (a = accum)
         call    Sequencer_Channel        ; one event-tick (ix preserved)
-        ; --- Task 9 SEAM POLL (spec D.2): Timer B overflow = the drums froze for
-        ; >= 1 marker period inside this tick -> paced drain burst. This seam
-        ; catches multi-event channels + patch loads (a full patch load is a
-        ; bounded ~30-write burst, so polling AFTER it suffices; an intra-patch-
-        ; loop poll is gated on the controller's Step 7 measurement). a + flags
-        ; are dead here (the `pop af` below restores the accumulator + carry);
-        ; SndDrv_DrainBurst preserves everything it touches. ---
-        ld      a, (SND_Z80_YM_A0)       ; YM status: bit1 = Timer B overflow
-        and     SND_TIMERB_OVF_MASK
-        call    nz, SndDrv_DrainBurst
         pop     af
         jr      nc, .tick_loop           ; still out of range -> another tick owed
 .chan_done:
         pop     bc
 .next_chan:
-        ; --- Task 9 SEAM POLL (spec D.2): once per channel, active or skipped
-        ; (~30 cyc when Timer B hasn't fired). a + flags are dead here (de/ix/
-        ; djnz-b below don't depend on them; the burst preserves b/ix). ---
-        ld      a, (SND_Z80_YM_A0)       ; YM status: bit1 = Timer B overflow
-        and     SND_TIMERB_OVF_MASK
-        call    nz, SndDrv_DrainBurst
         ld      de, SeqChannel_len       ; size added directly (no multiply)
         add     ix, de
         djnz    .chan_loop
