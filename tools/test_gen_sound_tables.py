@@ -5,6 +5,7 @@ TDD: these are written before the implementation. Run via:
     python3 -m pytest tools/test_gen_sound_tables.py -q
 """
 
+import math
 import unittest
 import os
 import sys
@@ -21,6 +22,8 @@ from gen_sound_tables import (
     emit_asm_z80,
     NUM_PITCHES,
     A4_PITCH_INDEX,
+    FM_SAMPLE_RATE,
+    _pitch_freq,
 )
 
 
@@ -83,6 +86,31 @@ class TestFmPitchTable(unittest.TestCase):
             a0 = fnum & 0xFF
             self.assertEqual(word, (a4 << 8) | a0, f"pitch {i}")
             self.assertTrue(0 <= word <= 0xFFFF)
+
+    def test_fm_pitch_table_canonical_band(self):
+        """Every entry normalizes fnum into the canonical S3K band [644, 1288)
+        (== engine FNUM_LO/FNUM_HI in sound_constants.asm), except block-7 top
+        notes and block-0 floor notes, which may exceed/undershoot (the band is
+        unreachable by halving there). This is what makes every fnum-denominated
+        delta (modulation, detune, portamento) worth the SAME cents on every
+        note — the engine's block-correction routines assume this band."""
+        for i, (_word, fnum, block) in enumerate(fm_pitch_table()):
+            if block == 7 or (block == 0 and fnum < 0x284):
+                continue
+            self.assertTrue(0x284 <= fnum < 0x508,
+                            f"pitch {i}: fnum {fnum:#x}/block {block} outside "
+                            f"canonical band [644, 1288)")
+
+    def test_fm_pitch_table_frequency_identity(self):
+        """Decoded frequency of every entry stays within 2 cents of equal
+        temperament (renormalizing the band must not move any pitch)."""
+        for i, (_word, fnum, block) in enumerate(fm_pitch_table()):
+            decoded = fnum * (2 ** block) * FM_SAMPLE_RATE / 2 ** 21
+            ideal = _pitch_freq(i)
+            cents = 1200 * math.log2(decoded / ideal)
+            self.assertLessEqual(abs(cents), 2.0,
+                                 f"pitch {i}: decoded {decoded:.2f} Hz is "
+                                 f"{cents:+.2f} cents from ideal {ideal:.2f} Hz")
 
 
 class TestPsgDivisor(unittest.TestCase):

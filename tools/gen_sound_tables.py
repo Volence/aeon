@@ -65,13 +65,21 @@ def _pitch_freq(pitch_index: int) -> float:
 def fnum_block(semitone: int) -> tuple[int, int]:
     """Return (fnum 11-bit, block 3-bit) for a pitch index.
 
-    fnum_raw = round(freq * 2^21 / FM_SAMPLE_RATE); normalize into the 11-bit
-    fnum window (< 0x800) by halving and incrementing block.
+    fnum_raw = freq * 2^21 / FM_SAMPLE_RATE; normalize into the CANONICAL S3K
+    per-octave band [0x284, 0x508) (= engine FNUM_LO/FNUM_HI, sound_constants.asm)
+    by halving while fnum >= 0x508, block saturating at 7. WHY this band and not
+    merely < 0x800: pitch is fnum * 2^block, so a fixed fnum delta (modulation,
+    detune, portamento) is worth 2x fewer cents at 2x the fnum — only a uniform
+    per-octave band gives every note the SAME cents per fnum-delta, and the
+    engine's block-correction routines (Fm_FnumApplyDelta, Mod_Advance) normalize
+    into exactly this band. Block saturates at 7 with top notes riding above the
+    band, as in S3K. The halving condition tests the ROUNDED value so a raw fnum
+    that rounds up to exactly 0x508 (e.g. C1 = 1287.54) still normalizes in-band.
     """
     freq = _pitch_freq(semitone)
     fnum = freq * 2 ** 21 / FM_SAMPLE_RATE
     block = 0
-    while fnum >= 0x800:
+    while _round_half_up(fnum) >= 0x508 and block < 7:   # 0x508 = 1288 = FNUM_HI
         fnum /= 2
         block += 1
     return _round_half_up(fnum), block
