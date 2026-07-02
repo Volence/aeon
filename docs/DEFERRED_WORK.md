@@ -1520,6 +1520,25 @@ debug after the fact.
 **See:** `ristar_disasm/ANALYSIS.md`, `ristar_disasm/code/disasm.asm`
 lines ~8330–8350.
 
+### Bank-latch desync corrupter — unidentified (2026-07-02)
+Captured ONCE on HCZ2 (~44 s in): the Z80's physical $6000 bank latch and the driver's
+`SND_CUR_BANK` cache desynced during a mid-sample DAC retrigger window; every $8000-window
+read then returned $FF forever, so every music channel read $FF = `MEV_END` and ended
+silently — and every subsequent song load stayed SILENT permanently, because
+`SndDrv_SetBank`'s cache short-circuit (`SND_CUR_BANK` == requested → `ret z`) meant the
+load never reprogrammed the physical latch. The PERSISTENCE half is fixed (Snd_LoadSong now
+poisons `SND_CUR_BANK` with the $FF sentinel before its first SetBank, forcing a full
+physical latch program on every load); the CORRUPTER itself is still unidentified — it may
+even be an emulator artifact rather than real driver state loss. Evidence lives in the
+2026-07-02 session scratchpad (`s3k_ref/ours_baseline.vgm` + the investigation report). The
+race did NOT reproduce on a deterministic re-run past the loop point — it is
+alignment-dependent. **Hunt plan:** live watchpoint session on $6000-latch writes plus
+`SND_SONG_BANK`/`SND_ROM_BANK`/`SND_CUR_BANK` around a mid-sample DAC retrigger, to catch
+the latch and cache diverging in the act. **Optional second hardening** (deliberately
+deferred pending the Task-9 cycle budget): a per-frame uncached re-latch at
+`Run_SeqFrame_OnSongBank`'s head, ~8-12 B + ~100-130 cyc/frame, which would bound any
+future desync to a single frame instead of one song.
+
 ## From Build Pipeline — Future Optimizations
 
 ### Pre-Baked Path Tables for Loops / Special Geometry

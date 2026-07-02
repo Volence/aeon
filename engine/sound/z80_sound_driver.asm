@@ -1140,10 +1140,27 @@ Snd_LoadSong:
         ld      (SND_Z80_YM_A0), a       ; re-park addr port on DAC data
         xor     a
         ld      (SND_STAT_DAC_ACTIVE), a ; DAC not streaming (idle loop ticks the song)
+        ; SELF-HEAL (bank-latch desync insurance): SetBank's cached no-op assumes
+        ; SND_CUR_BANK == the physical $6000 latch. If they ever desync (observed
+        ; once on HCZ2 ~44s in: every $8000-window read returned $FF, so every
+        ; channel hit MEV_END and ended silently — and every LATER song load stayed
+        ; silent too, because the cached no-op never repaired the latch), a song
+        ; load is the natural recovery point. Poison the cache with the same
+        ; impossible bank id the driver init seeds ($FF) so the SetBank below
+        ; ALWAYS runs the full 9-write latch program.
+        ; $FF matches no real bank: bank = addr>>15, so even a 4 MB ROM tops out
+        ; at $7F (ours is ~14 banks), and the 9th latch write is a hard 0 regardless
+        ; of `a`. The sentinel never reaches the latch (SetBank caches the REAL bank
+        ; before its latch writes), and nothing reads SND_CUR_BANK between here and
+        ; that SetBank. Cost: one real latch program per load — noise against the
+        ; load itself. (The stop path needs no equivalent: it touches RAM + chip
+        ; registers only, never the $8000 window.)
+        ld      a, 0FFh                  ; sentinel: matches no real bank
+        ld      (SND_CUR_BANK), a        ; force the next SetBank uncached
         ; 2. SetBank(song bank) and LEAVE it set — the song's bank is the playback
         ;    bank now; the idle loop never re-banks, so it persists for ROM reads.
         ld      a, (SND_MUSIC_PARAM_BANK)
-        call    SndDrv_SetBank           ; $6000 latch only
+        call    SndDrv_SetBank           ; $6000 latch only (forced physical program)
         ; 3. song base = the $8000 window ptr; patch bank = its window ptr (same bank).
         ld      hl, (SND_MUSIC_PARAM_PTR)
         ld      (Snd_SongBase), hl
