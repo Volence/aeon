@@ -393,7 +393,9 @@ Section_UpdateColumns:
 .right_loop:
         cmp.w   d7, d5
         bge.w   .right_done
-        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + PLANE_V_CELLS*2), (Plane_Buffer_Ptr).w
+        ; reserve Draw_TileColumn's worst case: 2 headers (8) + 64 words —
+        ; a column split at the NT row 63/0 seam emits two entries
+        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (8 + PLANE_V_CELLS*2), (Plane_Buffer_Ptr).w
         bhi.w   .right_done
         addq.w  #1, d5
 
@@ -443,7 +445,9 @@ Section_UpdateColumns:
 .left_loop:
         cmp.w   d7, d5
         ble.w   .left_done
-        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + PLANE_V_CELLS*2), (Plane_Buffer_Ptr).w
+        ; reserve Draw_TileColumn's worst case: 2 headers (8) + 64 words —
+        ; a column split at the NT row 63/0 seam emits two entries
+        cmpi.w  #PLANE_BUFFER_SIZE - 2 - (8 + PLANE_V_CELLS*2), (Plane_Buffer_Ptr).w
         bhi.w   .left_done
         subq.w  #1, d5
 
