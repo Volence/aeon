@@ -23,6 +23,8 @@ from gen_sound_tables import (
     NUM_PITCHES,
     A4_PITCH_INDEX,
     FM_SAMPLE_RATE,
+    FNUM_LO,
+    FNUM_HI,
     _pitch_freq,
 )
 
@@ -95,11 +97,29 @@ class TestFmPitchTable(unittest.TestCase):
         delta (modulation, detune, portamento) worth the SAME cents on every
         note — the engine's block-correction routines assume this band."""
         for i, (_word, fnum, block) in enumerate(fm_pitch_table()):
-            if block == 7 or (block == 0 and fnum < 0x284):
-                continue
-            self.assertTrue(0x284 <= fnum < 0x508,
+            # One-sided exemptions: block 7 can only OVERSHOOT (it reached 7 by
+            # halving from >= FNUM_HI, so the low bound still holds); block 0 can
+            # only UNDERSHOOT (the loop guarantees the high bound).
+            lo = FNUM_LO if block != 0 else 0
+            hi = FNUM_HI if block != 7 else 0x800
+            self.assertTrue(lo <= fnum < hi,
                             f"pitch {i}: fnum {fnum:#x}/block {block} outside "
                             f"canonical band [644, 1288)")
+
+    def test_fnum_band_matches_engine_constants(self):
+        """The generator's FNUM_LO/FNUM_HI must equal the engine's authoritative
+        band in sound_constants.asm — an engine-side band change must fail here
+        loudly instead of silently drifting the generated table."""
+        asm = os.path.join(os.path.dirname(__file__), "..", "sound_constants.asm")
+        with open(asm) as fh:
+            text = fh.read()
+        engine = {}
+        for name in ("FNUM_LO", "FNUM_HI"):
+            m = re.search(rf"^{name}\s*=\s*\$([0-9A-Fa-f]+)", text, re.M)
+            self.assertIsNotNone(m, f"{name} not found in sound_constants.asm")
+            engine[name] = int(m.group(1), 16)
+        self.assertEqual(engine["FNUM_LO"], FNUM_LO)
+        self.assertEqual(engine["FNUM_HI"], FNUM_HI)
 
     def test_fm_pitch_table_frequency_identity(self):
         """Decoded frequency of every entry stays within 2 cents of equal

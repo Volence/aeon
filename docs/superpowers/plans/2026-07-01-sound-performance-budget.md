@@ -177,8 +177,8 @@ SND_SFX_BASE     = $1CA4                 ; 7 * 64 = 448 -> ..$1E63
 - Test: `tools/test_gen_sound_tables.py`
 - Regenerate: `engine/sound/sound_tables_z80.asm`
 
-- [ ] **Step 1: Research.** Read S3K's FM note table (skdisasm `Sound/Z80 Sound Driver.asm`, grep `zFrequencies`) and confirm the per-block band (documented 644-1214 per octave entry; our engine band [644,1288) covers it with the same halving relation). Confirm the two engine constants: `FNUM_LO=$0284`/`FNUM_HI=$0508` (sound_constants.asm:663-669). Check how `sound_tables_z80.asm` regeneration is invoked (build.sh generator step or manual — grep build.sh for gen_sound_tables).
-- [ ] **Step 2: Write the failing test** in `tools/test_gen_sound_tables.py`:
+- [x] **Step 1: Research.** Read S3K's FM note table (skdisasm `Sound/Z80 Sound Driver.asm`, grep `zFrequencies`) and confirm the per-block band (documented 644-1214 per octave entry; our engine band [644,1288) covers it with the same halving relation). Confirm the two engine constants: `FNUM_LO=$0284`/`FNUM_HI=$0508` (sound_constants.asm:663-669). Check how `sound_tables_z80.asm` regeneration is invoked (build.sh generator step or manual — grep build.sh for gen_sound_tables).
+- [x] **Step 2: Write the failing test** in `tools/test_gen_sound_tables.py`:
 
 ```python
 def test_fm_pitch_table_canonical_band():
@@ -201,8 +201,8 @@ def test_fm_pitch_table_frequency_identity():
         assert abs(cents) <= 2.0, f"idx {i}: {cents:+.2f} cents"
 ```
 
-- [ ] **Step 3: Run to verify the band test fails** (`python3 -m pytest tools/test_gen_sound_tables.py -q` — the old normalization puts low-block entries in [1024,2048)).
-- [ ] **Step 4: Implement** in `fnum_block()`:
+- [x] **Step 3: Run to verify the band test fails** (`python3 -m pytest tools/test_gen_sound_tables.py -q` — the old normalization puts low-block entries in [1024,2048)).
+- [x] **Step 4: Implement** in `fnum_block()`:
 
 ```python
 def fnum_block(semitone: int) -> tuple[int, int]:
@@ -222,9 +222,9 @@ def fnum_block(semitone: int) -> tuple[int, int]:
     return _round_half_up(fnum), block
 ```
 
-- [ ] **Step 5: Tests pass**, then regenerate `sound_tables_z80.asm` the same way the build does; diff the generated file (expect every FM entry's block to rise by ~1 and fnum to halve, PSG table untouched, `MovingTrucks_PitchTable` untouched — it is NOT emitted by this generator; verify by diff scope).
-- [ ] **Step 6: Verify on oracle.** Build; HCZ2: (a) `vib_series.py` — pitch identity: note-matched melody cents vs ref within the known ±2-3 cent residue (a wrong table shifts EVERYTHING — this gate catches it immediately); (b) depth in cents now matches ref on BOTH encoding classes: bass vibrato ≈72.5c (was 36.3), FM3 echo detune chorus width ≈10.8c (was 5.4). (c) MT A/B — MT is NOTE_RAW (bypasses the table entirely): captures byte-comparable on $A4/$A0 streams vs baseline. (d) SFX cycle B — SFX use the same table via `Fm_NoteOn`; spot-check ring/jump SFX against pre-change captures by ear + spectral.
-- [ ] **Step 7: Commit** (generator + test + regenerated table): `feat(sound): renormalize FmPitchTableZ to the canonical S3K fnum band — full-depth modulation/detune on every note (spec C.c)`.
+- [x] **Step 5: Tests pass**, then regenerate `sound_tables_z80.asm` the same way the build does; diff the generated file (expect every FM entry's block to rise by ~1 and fnum to halve, PSG table untouched, `MovingTrucks_PitchTable` untouched — it is NOT emitted by this generator; verify by diff scope).
+- [x] **Step 6: Verify on oracle.** Build; HCZ2: (a) `vib_series.py` — pitch identity: note-matched melody cents vs ref within the known ±2-3 cent residue (a wrong table shifts EVERYTHING — this gate catches it immediately); (b) depth in cents now matches ref on BOTH encoding classes: bass vibrato ≈72.5c (was 36.3), FM3 echo detune chorus width ≈10.8c (was 5.4). (c) MT A/B — MT is NOTE_RAW (bypasses the table entirely): captures byte-comparable on $A4/$A0 streams vs baseline. (d) SFX cycle B — SFX use the same table via `Fm_NoteOn`; spot-check ring/jump SFX against pre-change captures by ear + spectral.
+- [x] **Step 7: Commit** (generator + test + regenerated table): `feat(sound): renormalize FmPitchTableZ to the canonical S3K fnum band — full-depth modulation/detune on every note (spec C.c)`.
 
 ### Task 8: D.1 — Envelope write-on-change (cheap tick, part 1)
 

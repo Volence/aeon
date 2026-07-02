@@ -51,6 +51,11 @@ A4_MIDI = 69
 A4_PITCH_INDEX = A4_MIDI - SEMITONE0_MIDI   # = 57
 A4_FREQ = 440.0
 
+# Canonical S3K per-octave fnum band — MUST equal the engine's FNUM_LO/FNUM_HI
+# (sound_constants.asm; a sync test parses that file and asserts equality).
+FNUM_LO = 0x284                   # 644
+FNUM_HI = 0x508                   # 1288 = 2*FNUM_LO
+
 
 def _round_half_up(x: float) -> int:
     return math.floor(x + 0.5)
@@ -72,14 +77,14 @@ def fnum_block(semitone: int) -> tuple[int, int]:
     detune, portamento) is worth 2x fewer cents at 2x the fnum — only a uniform
     per-octave band gives every note the SAME cents per fnum-delta, and the
     engine's block-correction routines (Fm_FnumApplyDelta, Mod_Advance) normalize
-    into exactly this band. Block saturates at 7 with top notes riding above the
-    band, as in S3K. The halving condition tests the ROUNDED value so a raw fnum
+    into exactly this band. Block saturates at 7; top notes MAY ride above the
+    band (none do in the current 95-entry table), as in S3K. The halving condition tests the ROUNDED value so a raw fnum
     that rounds up to exactly 0x508 (e.g. C1 = 1287.54) still normalizes in-band.
     """
     freq = _pitch_freq(semitone)
     fnum = freq * 2 ** 21 / FM_SAMPLE_RATE
     block = 0
-    while _round_half_up(fnum) >= 0x508 and block < 7:   # 0x508 = 1288 = FNUM_HI
+    while _round_half_up(fnum) >= FNUM_HI and block < 7:
         fnum /= 2
         block += 1
     return _round_half_up(fnum), block
@@ -277,8 +282,8 @@ def emit_asm_z80() -> str:
     out.append(";")
     out.append("; Z80-SYNTAX INLINE copies of the FM tables, included INSIDE the phase-0")
     out.append("; Z80 blob so the FM voice writer (engine/sound/sound_fm.asm) reads them with")
-    out.append("; direct Z80 addressing (no $8000-window banking). Identical VALUES to the")
-    out.append("; 68k ROM tables in data/sound/sound_tables.asm.")
+    out.append("; direct Z80 addressing (no $8000-window banking). (The old 68k-side table")
+    out.append("; emission was removed 2026-07-01; emit_asm() retains the values unemitted.)")
     out.append("; ======================================================================")
     out.append("")
     out.append("FmPitchTableZ:")

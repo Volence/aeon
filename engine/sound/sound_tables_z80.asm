@@ -4,8 +4,8 @@
 ;
 ; Z80-SYNTAX INLINE copies of the FM tables, included INSIDE the phase-0
 ; Z80 blob so the FM voice writer (engine/sound/sound_fm.asm) reads them with
-; direct Z80 addressing (no $8000-window banking). Identical VALUES to the
-; 68k ROM tables in data/sound/sound_tables.asm.
+; direct Z80 addressing (no $8000-window banking). (The old 68k-side table
+; emission was removed 2026-07-01; emit_asm() retains the values unemitted.)
 ; ======================================================================
 
 FmPitchTableZ:
