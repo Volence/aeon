@@ -75,17 +75,24 @@ GameState_OJZScroll_Init:
         lea     (Player_1).w, a0
         jsr     Player_Init
 
-        ; -- write 4 marker tiles to VRAM (16×16 sprite = 2×2 tiles).
-        ;    Tile 250 ($FA, = byte $1F40) sits between section art and the
-        ;    BG region ($500+). All pixels colour 12 = solid block.
+        ; -- write 4 marker tiles to VRAM (16×16 sprite = 2×2 tiles) at
+        ;    VRAM_TEST_MARKER, in the free gap below the BG region — the
+        ;    act art pool owns tiles 0..POOL_TILE_CEILING-1, so a low slot
+        ;    would stomp live FG art. All pixels colour 12 = solid block.
+        ;    Ints masked: a VBlank mid-copy retargets the VDP address and
+        ;    the tail longs land in the ISR's last write region (observed:
+        ;    88/128 bytes arriving). Mirrors BG_Init's guard.
+        move.w  sr, -(sp)
+        move.w  #$2700, sr
         stopZ80
-        move.l  #vdpComm($1F40,VRAM,WRITE), (VDP_CTRL).l
+        move.l  #vdpComm(vram_bytes(VRAM_TEST_MARKER),VRAM,WRITE), (VDP_CTRL).l
         lea     PlayerMarkerTile(pc), a0
         moveq   #128/4-1, d0
 .copy_marker:
         move.l  (a0)+, (VDP_DATA).l
         dbf     d0, .copy_marker
         startZ80
+        move.w  (sp)+, sr
 
         ; -- initialise section streaming (fills nametable over 3 VBlanks) --
         lea     OJZ_Act1_Descriptor, a0
@@ -272,8 +279,8 @@ OJZ_SectionMarkerColors:
 
 ; -----------------------------------------------
 ; PlayerMarkerTile — 4 × 8×8 tiles, all pixels colour 12 (128 bytes).
-; Pal 1 entry 12 = $00EE = bright yellow. DMA'd to VRAM tile 250
-; ($1F40) at level init. 2×2 layout matches Map_TestObj_F0 (16×16).
+; Pal 1 entry 12 = $00EE = bright yellow. Written to VRAM_TEST_MARKER
+; at level init. 2×2 layout matches Map_TestObj_F0 (16×16).
 ; -----------------------------------------------
 PlayerMarkerTile:
         dc.l    $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC

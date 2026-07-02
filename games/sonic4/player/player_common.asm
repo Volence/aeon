@@ -700,7 +700,7 @@ Player_LevelBound:
 Player_DebugEnter:
         st      _pl_debug(a0)
         move.l  #Map_TestObj, SST_mappings(a0)
-        move.w  #vram_art($FA,1,1), SST_art_tile(a0)    ; PlayerMarkerTile
+        move.w  #vram_art(VRAM_TEST_MARKER,1,1), SST_art_tile(a0) ; PlayerMarkerTile
                                                 ; (written by the level
                                                 ; state init)
         move.b  #16, SST_width_pixels(a0)
