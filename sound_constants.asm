@@ -119,26 +119,47 @@ SND_FM_TL_MAX           = $7F                    ; TL is 7-bit; $7F = silent, 0 
 ; overflow re-arms + calls Sequencer_Frame. Timer A does NOT drive the DAC rate.
 SND_REG_TIMER_A_HI      = $24                    ; Timer A value bits 9..2
 SND_REG_TIMER_A_LO      = $25                    ; Timer A value bits 1..0
+SND_REG_TIMER_B         = $26                    ; Timer B 8-bit reload N_B (Task 9, spec D.2)
 SND_REG_TIMER_CTRL      = $27                    ; load/enable/reset Timer A & B
-; Timer A control-byte values written to $27 (Task 5):
-;   LOAD:A (bit0) = start/reload counter from N, ENBL:A (bit2) = let the overflow
-;   raise the status flag (WITHOUT it the poll never sees overflows), RST:A (bit4)
-;   = one-shot strobe that CLEARS the overflow status flag (timer keeps counting).
+; Timer control-byte values written to $27 (Task 5 Timer A; Task 9 adds Timer B):
+;   LOAD (bit0=A, bit1=B) = start/reload counter from N, ENBL (bit2=A, bit3=B) =
+;   let the overflow raise the status flag (WITHOUT it the poll never sees
+;   overflows), RST (bit4=A, bit5=B) = one-shot strobe that CLEARS the overflow
+;   status flag (timer keeps counting). Bits 6-7 = ch3 special mode (always 0
+;   here — the MEV_REGWRITE guard refuses authored $24-$27 writes).
 SND_TIMERA_CTRL_BIT_LOAD = 0
+SND_TIMERB_CTRL_BIT_LOAD = 1
 SND_TIMERA_CTRL_BIT_ENBL = 2
+SND_TIMERB_CTRL_BIT_ENBL = 3
 SND_TIMERA_CTRL_BIT_RST  = 4
-SND_TIMERA_CTRL_PROGRAM = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)             ; $05 : LOAD:A | ENBL:A
-SND_TIMERA_CTRL_REARM   = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)|(1<<SND_TIMERA_CTRL_BIT_RST) ; $15 : LOAD:A | ENBL:A | RST:A
+SND_TIMERB_CTRL_BIT_RST  = 5
+; SND_YM27_TIMERS is the CENTRAL $27 base value: BOTH timers loaded + enabled,
+; ch3 normal. EVERY $27 writer composes from it so no site can drop the other
+; timer's LOAD/ENBL bits (Task 9: Timer B is the drain-burst elapsed-time
+; marker; Timer A is the frame clock — neither may be disabled by the other).
+SND_YM27_TIMERS         = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERB_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)|(1<<SND_TIMERB_CTRL_BIT_ENBL) ; $0F
+SND_YM27_RESET_A        = (1<<SND_TIMERA_CTRL_BIT_RST) ; $10 write-only strobe: clear the A overflow flag
+SND_YM27_RESET_B        = (1<<SND_TIMERB_CTRL_BIT_RST) ; $20 write-only strobe: clear the B overflow flag
+SND_TIMER_CTRL_PROGRAM  = SND_YM27_TIMERS                                  ; $0F : LOAD+ENBL both timers
+SND_TIMER_CTRL_REARM    = SND_YM27_TIMERS|SND_YM27_RESET_A|SND_YM27_RESET_B ; $3F : tick entry — clear BOTH
+;   overflow flags (RST:B too, so every drain burst measures elapsed-WITHIN-this-tick)
 ; NOTE: Timer A is NEVER disabled at runtime — it is the whole-driver frame
 ; clock (sequencer + SFX + DAC refill all hang off its tick). StopMusic leaves
-; it running; an idle tick with SND_SEQ_ACTIVE=0 is a cheap early-out.
+; it running; an idle tick with SND_SEQ_ACTIVE=0 is a cheap early-out. Timer B
+; likewise runs forever once programmed; between ticks its overflow flag just
+; sits set until the next tick-entry REARM clears it (the seam polls only run
+; inside a tick).
 SND_TIMERA_OVF_MASK     = 1                       ; $4000 status bit0 = Timer A overflow
+SND_TIMERB_OVF_MASK     = $02                     ; $4000 status bit1 = Timer B overflow
 
-        if SND_TIMERA_CTRL_PROGRAM <> $05
-          error "SND_TIMERA_CTRL_PROGRAM must be $05 (LOAD:A|ENBL:A)"
+        if SND_TIMER_CTRL_PROGRAM <> $0F
+          error "SND_TIMER_CTRL_PROGRAM must be $0F (LOAD+ENBL, Timers A and B)"
         endif
-        if SND_TIMERA_CTRL_REARM <> $15
-          error "SND_TIMERA_CTRL_REARM must be $15 (LOAD:A|ENBL:A|RST:A)"
+        if SND_TIMER_CTRL_REARM <> $3F
+          error "SND_TIMER_CTRL_REARM must be $3F (LOAD+ENBL+RST, Timers A and B)"
+        endif
+        if (SND_YM27_TIMERS|SND_YM27_RESET_B) <> $2F
+          error "burst Timer-B reset byte must be $2F (keep both timers, strobe RST:B only)"
         endif
 
 ; --- Tempo: YM Timer A programming from the song-header tempo byte (Task 5) ---
@@ -240,6 +261,56 @@ dac_rate_hz  function cyc, (Z80_CLOCK_HZ / (cyc))
 ; balance proof in engine/z80_sound_driver.asm.
 SND_LOOP_CYC            = 195                      ; balanced 1:1 FILL pass (emit+poll+phase+DMA+fill+len+2jp)
 SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC) ; = 18356 Hz (3579545/195, int div)
+
+; --- Timer B: the intra-tick elapsed-time marker for the DAC drain bursts -----
+; (Task 9, spec D.2. The $27 control/reset values + the $4000 status mask live in
+; the timer-control block above, beside Timer A's.)
+; The drums freeze while the sequencer tick hogs the Z80 (the hot loop is paused
+; for the whole Sequencer_Frame). Timer B measures elapsed-within-this-tick: the
+; tick-entry REARM ($3F) clears its flag, seam polls inside the tick read $4000
+; bit1, and on overflow SndDrv_DrainBurst emits the ring samples the hot loop
+; WOULD have emitted in that period, at the true streaming cadence.
+; HW facts (YM2608/YM2612 manual, verified against the Timer-A math above):
+; reg $26 = 8-bit reload N_B, period = unit_B * (256 - N_B), and Timer B's unit
+; is 16x Timer A's base unit: 16 * 18773 ns = 300368 ns (~300.4 us) on NTSC.
+; (The phase plan quoted "~150.2 us/unit" and N=247 -> "~1.35 ms" — that unit is
+; 2x off against its own "unit = 16x Timer A" fact; the plan's ~1.35 ms TARGET
+; is kept and N_B derives from it with the verified unit.)
+SND_TIMERB_UNIT_NS      = 16 * 18773               ; = 300368 ns/unit (16x Timer A's 18.773 us)
+; CALIBRATION KNOB (controller Step 7 tunes by captured drum pitch/continuity):
+; the target Timer-B period. ~1.35 ms: long enough that one burst fully covers a
+; typical seam gap, short enough that >= 2 missed periods between seams is rare
+; (seams: every channel + every event-tick + every SFX slot).
+SND_TIMERB_TARGET_NS    = 1350000                  ; ~1.35 ms target (truncates to 4 units)
+timerBReload            function ns, 256 - ((ns) / SND_TIMERB_UNIT_NS)
+SND_TIMERB_N            = timerBReload(SND_TIMERB_TARGET_NS)      ; = 252
+SND_TIMERB_PERIOD_NS    = (256 - SND_TIMERB_N) * SND_TIMERB_UNIT_NS ; = 1201472 (~1.20 ms)
+; Samples owed per Timer-B period at the DAC loop's cadence (SND_LOOP_CYC = 195
+; cyc = ~54.48 us/sample): burst = period / sample-period. CALIBRATION KNOB
+; (controller Step 7 calibrates alongside SND_TIMERB_TARGET_NS + the burst
+; loop's nop pad — see SndDrv_DrainBurst).
+SND_DAC_SAMPLE_NS       = (SND_LOOP_CYC * 1000000000) / Z80_CLOCK_HZ ; = 54476 ns/sample
+SND_DRAIN_BURST         = SND_TIMERB_PERIOD_NS / SND_DAC_SAMPLE_NS   ; = 22 samples/period
+
+        ; Hard-pin the assembled values (the truncating build-time divisions make
+        ; them sensitive to the formulas' exact shape — same rationale as the
+        ; SND_TIMERA_N pin). Any deliberate recalibration updates these pins
+        ; alongside the target.
+        if (SND_TIMERB_N < 0) || (SND_TIMERB_N > 255)
+          error "SND_TIMERB_N (\{SND_TIMERB_N}) out of the 8-bit Timer-B range 0..255"
+        endif
+        if SND_TIMERB_N <> 252
+          error "SND_TIMERB_N (\{SND_TIMERB_N}) != the pinned 252 — drain pacing changed; recalibrate deliberately"
+        endif
+        if SND_DRAIN_BURST <> 22
+          error "SND_DRAIN_BURST (\{SND_DRAIN_BURST}) != the pinned 22 — drain pacing changed; recalibrate deliberately"
+        endif
+        ; The burst must never emit more than the ring's steady-state lead, or a
+        ; paced burst could chew into unwritten ring space faster than the dry
+        ; check protects (defense in depth; the RD==WR check is the real guard).
+        if SND_DRAIN_BURST >= SND_RING_LEAD_PRIME
+          error "SND_DRAIN_BURST (\{SND_DRAIN_BURST}) must stay below SND_RING_LEAD_PRIME (\{SND_RING_LEAD_PRIME})"
+        endif
 
 ; --- 1B: 68k->Z80 control (68k writes, Z80 reads) ---
 SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04        ; $1F04: 1 = 68k DMA in progress (no ROM reads)
