@@ -68,10 +68,10 @@ SongPatchTable_End:
           error "SONG_COUNT (\{SONG_COUNT}) must be < $FF ($FF is the stop sentinel)"
         endif
 
-        ; Song_MovingTrucks is the only song and STREAMS from ROM (T3, SH_F_STREAM):
-        ; it never passes through the fixed copy-path SND_SONG_BUF, so it needs no
-        ; per-song buffer-fit / $8000-window-wrap asserts (those guarded the removed
-        ; copy-path scratch songs).
+        ; Every song STREAMS from ROM through the banked $8000 window (the copy
+        ; path and its fixed Z80-RAM song buffer were deleted — budget A.1), so
+        ; no per-song buffer-fit asserts exist; only the bank-straddle guards
+        ; below matter.
 
         ; --- Sound Phase 3 Task 8 + F5 co-location: the Moving Trucks STREAMING block
         ; must fit in ONE 32KB bank so a single SetBank covers every sequencer ROM read

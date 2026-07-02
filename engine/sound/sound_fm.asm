@@ -102,11 +102,9 @@ Fm_RoutePart:
 ; ----------------------------------------------------------------------
 ; Fm_PatchPtr — compute the FmPatch pointer for sc_patch into hl.
 ; In:  ix = SeqChannel (uses sc_patch).  Out: hl = (SND_SEQ_PATCHTAB) + patch*32.
-; The base is the LOADED patch-table ptr (SND_SEQ_PATCHTAB), set by Snd_LoadSong:
-; the 1C copy-path sets it to FmPatchInlineTable (Z80 RAM); the Sound 1D stream-
-; path sets it to the song's patch bank window address (read transparently through
-; the $8000 window while the song's bank is held). So FM patch loads work the same
-; whether the bank lives in RAM or the banked ROM window.
+; The base is the LOADED patch-table ptr (SND_SEQ_PATCHTAB), set by Snd_LoadSong
+; to the song's patch bank window address (read transparently through the $8000
+; window while the song's bank is held).
 ; FmPatch_len = 32 (a power of two). Multiply by FIVE `add hl,hl` shifts (NO mulu,
 ; NO add-chain): patch -> *2 -> *4 -> *8 -> *16 -> *32. de is no longer needed
 ; (the old 26-byte add-chain kept P2=patch*2 in de; 32 is a pure shift).

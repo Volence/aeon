@@ -198,7 +198,9 @@ class TestHeader(unittest.TestCase):
 
     def test_flags_tempo_and_count(self):
         # Phase 3 header: flags(+0), tempo(+1), tempo_base(+2), channel_count(+3).
-        self.assertEqual(self.blob[0], 0)        # default flags = 0 (1C copy/DAC)
+        # SH_F_STREAM is force-set on every packed song (the engine's COPY path
+        # was deleted — the packer is the format authority for the reserved bit).
+        self.assertEqual(self.blob[0], SH_F_STREAM)
         self.assertEqual(self.blob[1], 6)        # tempo (legacy Timer-A selector)
         # tempo_base default clamps the legacy tempo (6) up to the 16 floor so
         # the per-frame accumulator never mis-plays (one event-tick/frame cap).
@@ -467,10 +469,10 @@ class TestEmitAsm(unittest.TestCase):
 
     def setUp(self):
         self.song = _simple_song()
-        self.asm = emit_asm(self.song, "Song_Test")
+        self.asm = emit_asm(self.song, "Song_Fixture")
 
     def test_labeled(self):
-        self.assertIn("Song_Test:", self.asm)
+        self.assertIn("Song_Fixture:", self.asm)
 
     def test_even_terminated(self):
         # AS in this build uses `align 2` (no `even` instruction).
@@ -845,27 +847,24 @@ class TestPackerSafetyGates(unittest.TestCase):
         with self.assertRaisesRegex(PackError, r"16-bit pointer range"):
             pack_song(self._song([ch]))
 
-    def test_copy_path_song_over_512_bytes_warns(self):
-        # Non-STREAM songs are ldir'd into the 512-byte SND_SONG_BUF: warn.
-        import io
-        from contextlib import redirect_stderr
-        big = [Patch(0), Vol(64)] + [NoteDur(0, 1)] * 300 + [End()]
-        ch = ChannelDesc(CHROUTE_FM1, big)
-        song = SongDesc(tempo=0x80, channels=[ch], flags=0, tempo_base=16)
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            pack_song(song)           # packs fine — warn only
-        self.assertIn("SND_SONG_BUF_SIZE", buf.getvalue())
+    # ── SH_F_STREAM is force-set: the packer is the format authority ──
+    # The engine's COPY load path was deleted (sound perf & budget A.1) — every
+    # song streams from ROM. The header bit stays reserved and ALWAYS SET.
 
-    def test_stream_song_over_512_bytes_no_warn(self):
-        import io
-        from contextlib import redirect_stderr
-        big = [Patch(0), Vol(64)] + [NoteDur(0, 1)] * 300 + [End()]
-        ch = ChannelDesc(CHROUTE_FM1, big)
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            pack_song(self._song([ch]))
-        self.assertNotIn("SND_SONG_BUF_SIZE", buf.getvalue())
+    def test_packed_song_always_has_stream_flag(self):
+        # Even a SongDesc that omits the flag packs with SH_F_STREAM set.
+        ch = ChannelDesc(CHROUTE_FM1, self._fm_events(Note(0)))
+        song = SongDesc(tempo=0x80, channels=[ch], flags=0, tempo_base=16)
+        blob = pack_song(song)
+        self.assertTrue(blob[0] & SH_F_STREAM)
+        self.assertEqual(blob[0], SH_F_STREAM)   # and nothing else is added
+
+    def test_stream_flag_forced_on_top_of_other_flags(self):
+        # Explicit flags are preserved; SH_F_STREAM is OR'd in, not overwritten.
+        ch = ChannelDesc(CHROUTE_FM1, self._fm_events(Note(0)))
+        song = SongDesc(tempo=0x80, channels=[ch], flags=SH_F_FM6_FM,
+                        tempo_base=16)
+        self.assertEqual(pack_song(song)[0], SH_F_FM6_FM | SH_F_STREAM)
 
 
 if __name__ == "__main__":

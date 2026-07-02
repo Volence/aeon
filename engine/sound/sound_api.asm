@@ -66,10 +66,10 @@ Sound_PlaySample:
 ; SongPatchTable), then posts the SND_MUSIC_PARAM block AND the SND_REQ_MUSIC
 ; trigger under ONE Z80 bus hold (param FIRST, trigger LAST) so the Z80 can't read
 ; a half-updated param block. The Z80's SND_REQ_MUSIC handler (in the VBlank ISR,
-; DAC paused) banks the song in, then either copies it to Z80 RAM (FM6=DAC, 1C) or
-; streams it from ROM with the DAC off (FM6=FM, Sound 1D §5.1), and arms the
-; sequencer. The flags MUST be forwarded by the 68k because the Z80 loader needs
-; them BEFORE choosing the copy-vs-stream path (it can't read SND_SONG_BUF yet).
+; DAC paused) banks the song in, streams it from ROM through the banked $8000
+; window (every song streams — the copy path was deleted, budget A.1), and arms
+; the sequencer. The flags are forwarded because the Z80 loader reads the
+; FM6-mode bits (SH_F_FM6_*) from the param block during the header parse.
 ; In:  d0.b = song id (1..SONG_COUNT).
 ; Clobbers: d0/d1/d2/d3/d4/a0/a1; SR restored.
 ; ----------------------------------------------------------------------
@@ -92,9 +92,9 @@ Sound_PlayMusic:
         move.l  a1, d4
         andi.l  #$7FFF, d4
         ori.l   #$8000, d4                    ; d4 = song window ptr (16 bits, +$8000)
-        ; --- patch-bank window ptr from the parallel SongPatchTable[id-1]. USED by
-        ; the Z80 ONLY on the stream path (the patch bank shares the song's bank);
-        ; the copy path ignores it. window_ptr = (patch_addr & $7FFF) | $8000. ---
+        ; --- patch-bank window ptr from the parallel SongPatchTable[id-1]. The
+        ; patch bank shares the song's bank; the Z80 reads it through the same
+        ; $8000 window. window_ptr = (patch_addr & $7FFF) | $8000. ---
         movea.l #SongPatchTable, a0
         adda.l  d0, a0                         ; d0 still = index*4
         movea.l (a0), a1                      ; a1 = patch-bank 68k ROM address

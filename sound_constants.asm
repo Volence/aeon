@@ -1200,15 +1200,11 @@ SND_FM_SCRATCH_LEN = 5                    ; Part,Ch,Log,Mask + Task-6 Op index
     endif
 
 ; --- Snd_LoadSong scratch (Task 6 + Sound 1D) ---
-; +0 (1 byte): the DAC bank saved across the song-load bank switch (SndDrv_SetBank
-; overwrites SND_CUR_BANK, so the COPY path stashes it here and restores after).
-; +1 (2 bytes, Sound 1D): the song BASE pointer the header/streams are read from —
-; SND_SONG_BUF (Z80 RAM) on the copy path, or the $8000 window ptr on the stream
-; path. The loader's shared header-parse/channel-init reads everything relative to
-; this base, so one routine serves both paths. In the free block just past the FM
-; scratch, below the trace ring.
-Snd_SavedDacBank   = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN
-Snd_SongBase       = Snd_SavedDacBank + 1        ; 2 bytes: song base ptr (RAM or window)
+; The song BASE pointer the header/streams are read from — the $8000 window ptr
+; (every song streams from ROM; the loader holds the song's bank). The loader's
+; header-parse/channel-init reads everything relative to this base. In the free
+; block just past the FM scratch, below the trace ring.
+Snd_SongBase       = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN ; 2 bytes: song base ptr ($8000 window)
 ; Phase 3: the loaded song's per-song PITCH TABLE ptr, cached by Snd_LoadSong from
 ; the SongHeader's pitchtable_ptr field (0 = engine default). ModUpdate's pitch
 ; renderer (Task 3) reads it; cached as an absolute Z80 ptr (base + header offset).
@@ -1226,22 +1222,19 @@ Snd_SpindashRev    = Snd_PitchTabPtr + 2          ; 1 byte: escalating spindash 
 ; The 68k pre-derives the song's bank + $8000-window ptr (same addressing as a
 ; DacSample) and posts them here (under the same bus hold as the SND_REQ_MUSIC
 ; trigger). The Z80 SND_REQ_MUSIC handler reads them, banks the song in, and
-; copies a FIXED SND_SONG_BUF_SIZE bytes into SND_SONG_BUF (Z80 RAM) so the
-; sequencer streams are RAM-resident (no $8000-window banking during playback —
-; the 1B DAC owns the bank).
+; streams the header + command streams directly through the $8000 window (the
+; loader holds the song's bank for the whole song).
 SND_MUSIC_PARAM          = Snd_SpindashRev + 1
 SND_MUSIC_PARAM_BANK     = SND_MUSIC_PARAM+$00   ; song bank id (1 byte)
 SND_MUSIC_PARAM_PTR      = SND_MUSIC_PARAM+$01   ; song $8000-window ptr (2 bytes, little-endian)
 ; Sound 1D: the song's SH_FLAGS byte, forwarded by the 68k (it reads the song's
-; ROM header directly). The Z80 loader needs the FLAGS *before* deciding the
-; copy-to-RAM vs stream-from-ROM path, so it cannot read them from SND_SONG_BUF
-; (which only exists for the copy path). Posted in the same bus hold as bank/ptr.
+; ROM header directly). The Z80 loader reads the FM6-mode bits (SH_F_FM6_*) from
+; it during the header parse. Posted in the same bus hold as bank/ptr.
 SND_MUSIC_PARAM_FLAGS    = SND_MUSIC_PARAM+$03   ; song SH_FLAGS byte (1 byte)
 ; Sound 1D: the song's FM-patch-bank $8000-window ptr (2 bytes, little-endian),
-; forwarded by the 68k from the song table's parallel patch-ptr entry. USED ONLY
-; on the stream path (SH_F_STREAM): the patch bank lives in the song's bank, read
-; through the same window. The copy path (1C) ignores it and uses the Z80-RAM
-; inline FmPatchInlineTable. (window ptr = (patch_addr & $7FFF) | $8000.)
+; forwarded by the 68k from the song table's parallel patch-ptr entry. The patch
+; bank lives in the song's bank, read through the same window.
+; (window ptr = (patch_addr & $7FFF) | $8000.)
 SND_MUSIC_PARAM_PATCHPTR = SND_MUSIC_PARAM+$04   ; song patch-bank window ptr (2 bytes, LE)
 SND_MUSIC_PARAM_LEN      = 6
 
@@ -1283,29 +1276,17 @@ SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
       fatal "sequencer RAM (\{SND_SEQ_END}) overruns the mailbox at \{SND_REQ_BASE}"
     endif
 
-; --- Song RAM buffer. Page-aligned at $1B00, unchanged.
-; The loader copies a fixed SND_SONG_BUF_SIZE bytes from the banked window here
-; once at load. 512 bytes — generously covers the bring-up song; the streams
-; self-terminate ($FF/$EF) so copying a little past the song into adjacent ROM is
-; harmless (never interpreted). A copy-path (RAM-buffered) song must fit
-; SND_SONG_BUF_SIZE; the streaming Moving Trucks song never uses this buffer.
-SND_SONG_BUF            = $1B00
-SND_SONG_BUF_SIZE       = $200                   ; 512 bytes ($1B00..$1CFF)
-
     if (SND_SEQ_TRACE + SND_SEQ_TRACE_LEN) > SND_GLOBAL_EXPR
       fatal "trace ring (\{SND_SEQ_TRACE}+\{SND_SEQ_TRACE_LEN}) runs into the Phase-2 globals (\{SND_GLOBAL_EXPR})"
     endif
-    if (SND_GLOBAL_EXPR + SND_GLOBAL_EXPR_LEN) > SND_SONG_BUF
-      fatal "Phase-2 globals (\{SND_GLOBAL_EXPR}+\{SND_GLOBAL_EXPR_LEN}) run into the song buffer at \{SND_SONG_BUF}"
-    endif
-    if (SND_SONG_BUF + SND_SONG_BUF_SIZE) > SND_REQ_BASE
-      fatal "song buffer (\{SND_SONG_BUF}+\{SND_SONG_BUF_SIZE}) overruns the mailbox at \{SND_REQ_BASE}"
-    endif
 
-; --- Phase 5a SFX RAM region (the free $1D00..$1EFF gap, below the mailbox) ----
-; Mirrors the seq-region asserts: guard the END against the mailbox ($1F00) above
-; and against the song-buffer END ($1D00) below so it can't collide with either.
-SND_SFX_BASE       = SND_SONG_BUF + SND_SONG_BUF_SIZE   ; = $1D00 (right after the song buffer)
+; --- Phase 5a SFX RAM region ($1D00..$1EFF, below the mailbox) -----------------
+; PINNED at $1D00 for now: the 512 B copy-path song buffer that used to sit at
+; $1B00..$1CFF is DELETED (budget A.1 — every song streams from ROM), freeing
+; that block, but the RAM map is not repacked yet — the budget phase's repack
+; task re-derives the whole tail in one deliberate pass.
+; Guard the END against the mailbox ($1F00) and the Phase-2 globals below.
+SND_SFX_BASE       = $1D00
 SND_SFX_CHANNELS   = SND_SFX_BASE                       ; the 7-slot SfxChannel array
 SND_SFX_CHAN_END   = SND_SFX_CHANNELS + (SFX_VOICE_COUNT * SfxChannel_len)
 ; SFX request queue (spec §9): a small priority-gated ring. 3 entries * 2 bytes
@@ -1321,14 +1302,11 @@ SND_SFX_DUCK_LEVEL = SND_SFX_QUEUE_CNT + 1              ; current applied duck (
 SND_SFX_DUCK_TARGET = SND_SFX_DUCK_LEVEL + 1           ; target (set while a duck-SFX runs)
 SND_SFX_RAM_END    = SND_SFX_DUCK_TARGET + 1
 
-    if SND_SFX_BASE <> $1D00
-      error "SND_SFX_BASE (\{SND_SFX_BASE}) must be $1D00 (right after the song buffer)"
-    endif
     if SND_SFX_RAM_END > SND_REQ_BASE
       fatal "SFX RAM (\{SND_SFX_RAM_END}) overruns the mailbox at \{SND_REQ_BASE}"
     endif
-    if SND_SFX_BASE < (SND_SONG_BUF + SND_SONG_BUF_SIZE)
-      fatal "SFX RAM (\{SND_SFX_BASE}) collides with the song buffer below it"
+    if (SND_GLOBAL_EXPR + SND_GLOBAL_EXPR_LEN) > SND_SFX_BASE
+      fatal "Phase-2 globals (\{SND_GLOBAL_EXPR}+\{SND_GLOBAL_EXPR_LEN}) run into the SFX region at \{SND_SFX_BASE}"
     endif
 
 ; --- Trace event_code values (0..15) — the controller decodes the trace ring.
@@ -1363,7 +1341,8 @@ SEQEV_RPT_END   = 10    ; bounded-repeat body end ($E6) — fires on every pass
 ;   dw  pitchtable_ptr   ; Phase 3 per-song pitch table BE offset (0 = engine default). +4
 ;   ; per channel: route + cmd_ptr (BE off) + mod_ptr (BE off, 0 for A)
 ;   rept channel_count: db route ; dw cmd_ptr ; dw mod_ptr ; endm
-;   dw  patch_table_ptr  ; FM patch table for this song (IGNORED in 1C copy path)
+;   dw  patch_table_ptr  ; FM patch table for this song (IGNORED by the loader —
+;                        ; the 68k forwards SongPatchTable's ptr; layout-stable)
 ; (No struct — the per-channel array length is variable. The packer back-patches
 ; each cmd_ptr to its stream's offset within the packed song blob; mod_ptr = 0.)
 ;
@@ -1385,24 +1364,30 @@ SHC_CMD_LO      = 2     ; +2  command-stream offset low byte
 SHC_MOD_HI      = 3     ; +3  modulation-stream offset high byte (0 for A)
 SHC_MOD_LO      = 4     ; +4  modulation-stream offset low byte
 SHC_LEN         = 5     ; per-channel record length
-; patch_table_ptr (2 bytes) follows the per-channel array; IGNORED in 1C (patches
-; stay inline — SND_SEQ_PATCHTAB is set to FmPatchInlineTable by the loader).
+; patch_table_ptr (2 bytes) follows the per-channel array; IGNORED by the loader
+; (the patch-bank ptr arrives via SND_MUSIC_PARAM_PATCHPTR, forwarded by the 68k
+; from the parallel SongPatchTable). Kept in the header contract (layout final).
 
 ; --- SongHeader flags byte (SH_FLAGS, Sound 1D §5.1) ----------------------
 ; bit0 SH_F_FM6_FM   : FM6 is a 6th FM SEQUENCER voice (DAC mode OFF, $2B=$00).
-;                      CLEAR -> FM6 is the DAC (1C behavior, DAC mode ON, $2B=$80).
-; bit1 SH_F_STREAM   : the song's streams + patch bank are read DIRECTLY through
-;                      the banked $8000 window (the loader holds the song's bank
-;                      and points sc_stream_ptr at window addresses — NO RAM copy).
-;                      CLEAR -> copy a fixed SND_SONG_BUF_SIZE bytes to RAM (1C).
+;                      CLEAR -> FM6 is the DAC's channel ("dedicate": the load
+;                      still starts with $2B=$00; each $E2 drum trigger flips
+;                      DAC mode on for its sample).
+; bit1 SH_F_STREAM   : RESERVED — always SET. Historically selected stream-from-
+;                      ROM vs a 512 B copy-to-RAM load; the copy path was DELETED
+;                      (budget A.1), every song streams through the banked $8000
+;                      window, and the engine no longer tests this bit. The
+;                      packer (tools/song_packer.py) force-sets it on every
+;                      packed song — the packer is the format authority — so the
+;                      header contract doesn't churn.
 ; bit2 SH_F_FM6_ADAPTIVE : Layer 7 — FM6 TIME-SHARES ch6 with the DAC (Echo-style):
 ;                      FM6 plays music (DAC OFF) BETWEEN drum hits; each $E2 keys FM6
 ;                      off + flips ch6 to DAC ($2B=$80) for the sample, then at exhaust
 ;                      flips back ($2B=$00) + re-keys FM6's held note. Requires
 ;                      SH_F_FM6_FM. CLEAR -> the Layer-4 "dedicate" (FM6 stays DAC-owned).
-; Contract: Moving Trucks = SH_F_FM6_FM|SH_F_STREAM (FM6=FM voice, stream from ROM);
+; Contract: Moving Trucks = SH_F_FM6_FM|SH_F_STREAM (FM6=FM voice);
 ;           Song_DrumTest = SH_F_FM6_FM|SH_F_STREAM|SH_F_FM6_ADAPTIVE (FM6 time-share);
-;           Song_Test / Ode demo = 0 (FM6=DAC, copy-to-RAM — the 1C path, regresses).
+;           Song_HCZ2 = SH_F_STREAM (FM6=DAC dedicate — drums own ch6).
 SH_F_FM6_FM_B   = 0
 SH_F_STREAM_B   = 1
 SH_F_FM6_ADAPTIVE_B = 2

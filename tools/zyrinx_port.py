@@ -67,7 +67,7 @@ MAX_DUR = 0xFF
 _TIMERA_PERIOD_NS = 18773         # 18.773 us per Timer-A count tick (NTSC)
 
 # --- Voice translation constants (Sound 1D Task 2) -------------------------
-# Our FmPatch is a 32-byte record (sound_constants.asm + data/sound/fm_patches.inc):
+# Our FmPatch is a 32-byte record (sound_constants.asm FmPatch struct):
 #   fp_alg_fb ($B0), fp_lr_ams_fms ($B4), then six 4-byte per-operator arrays for
 #   regs $30/$40/$50/$60/$70/$80 (dt_mul, tl, ks_ar, am_d1r, d2r, sl_rr), with
 #   array index 0..3 = PHYSICAL register order [S1,S3,S2,S4].
@@ -256,8 +256,8 @@ def emit_patch_bank_asm(bank_bytes: bytes, remap: dict, count: int,
     L.append("; S1,S3,S2,S4 (Zyrinx natural op order reordered via OP_REORDER=[0,2,1,3]).")
     L.append("; ======================================================================")
     L.append("")
-    # Self-contained pbyte macro (ifndef-guarded; identical to fm_patches.inc so
-    # including both files in the same context is safe).
+    # Self-contained pbyte macro (ifndef-guarded so including several generated
+    # patch files in the same context is safe — each carries an identical copy).
     L.append("        ifndef pbyte_defined")
     L.append("pbyte_defined = 1")
     L.append("pbyte   macro                           ; emit data byte(s); CPU-correct directive")

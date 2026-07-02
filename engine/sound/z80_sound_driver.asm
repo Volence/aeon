@@ -746,7 +746,7 @@ Snd_StartSample:
         ld      a, SND_REG_DAC_DATA
         ld      (SND_Z80_YM_A0), a       ; $4000 = $2A (re-park addr port on DAC DATA)
         ; --- FM6 $B6 (DAC pan): NOT forced here. The dedicate-mode default ($C0,
-        ; centered) is set ONCE at song load (.parse_header) — forcing it per
+        ; centered) is set ONCE at song load (Snd_LoadSong's header parse) — forcing it per
         ; sample-start would stomp any pan the DAC stream authors via
         ; MEV_REGWRITE (S3K DAC tracks pan their tom fills L/C/R through $B6;
         ; HCZ2's only stereo element). ADAPTIVE keeps FM6's music $B6 as before
@@ -852,8 +852,8 @@ SndDrv_SetBank:
 ; ======================================================================
 ; Run_SeqFrame_OnSongBank — B1 bracket. Run one sequencer frame with the $8000
 ; window on the SONG bank, then restore it to the SAMPLE bank. The frame engine
-; streams the song through the window (STREAM songs) — or reads RAM (COPY songs,
-; bank irrelevant) — so it MUST see the song bank; the DAC FILL reads the sample
+; streams the song through the window, so it MUST see the song bank; the DAC
+; FILL reads the sample
 ; payload through the same window, so the bank is restored to SND_ROM_BANK after.
 ; Both SetBanks are cached (no-op when already current), so for a DAC-off song
 ; (SND_SONG_BANK == SND_ROM_BANK) this is two cached no-ops — no per-frame cost.
@@ -1014,33 +1014,23 @@ Snd_TimerA_Rearm:
 ; bank switch below cannot corrupt an in-flight DAC FILL (none runs while paused),
 ; and the ~100k-cyc ring lead vastly outlasts the work here. (Banking decision A.)
 ;
-; TWO PATHS, selected by the song's SH_FLAGS byte (forwarded in SND_MUSIC_PARAM_
-; FLAGS by the 68k, which read it from the song's ROM header):
-;
-;  (A) COPY / FM6=DAC (1C path, SH_F_STREAM clear — Song_Test / Ode demo):
-;       DAC mode stays ON; the song is COPIED to SND_SONG_BUF (Z80 RAM) so the
-;       sequencer streams are RAM-resident while the 1B DAC owns the bank.
-;       1. Save the DAC bank; SetBank to the song bank.
-;       2. ldir SND_SONG_BUF_SIZE bytes window-ptr -> SND_SONG_BUF.
-;       3. Restore the DAC bank.
-;       4. Song base = SND_SONG_BUF; SND_SEQ_PATCHTAB = FmPatchInlineTable (RAM).
-;
-;  (B) STREAM / FM6=FM (Sound 1D, SH_F_STREAM set — Moving Trucks):
-;       NO RAM copy. The FM6=FM song runs with the DAC OFF, so the bank is free:
-;       the sequencer reads its streams + patch bank DIRECTLY through the banked
-;       $8000 window. Steps:
+; EVERY song STREAMS from ROM (SH_F_STREAM is always set — the packer force-sets
+; it; the 512 B copy-to-RAM path and its inline patch table were deleted in the
+; budget-recovery phase). The sequencer reads the song's streams + patch bank
+; DIRECTLY through the banked $8000 window. Steps:
 ;       1. Write $2B=$00 (DAC mode OFF — absolute addressing, re-park $2A) and set
 ;          SND_STAT_DAC_ACTIVE=0. The idle loop's per-pass $2A writes are now
 ;          harmless (DAC disabled); it never touches the bank latch, so the song's
-;          bank persists for every sequencer ROM read.
+;          bank persists for every sequencer ROM read. ($E2 drum triggers flip
+;          $2B back on per sample as before.)
 ;       2. SetBank(song bank) and LEAVE it set (no save/restore — the song's bank
 ;          IS the playback bank now; nothing else re-banks).
 ;       3. Song base = the $8000 window ptr (SND_MUSIC_PARAM_PTR); SND_SEQ_PATCHTAB
 ;          = the song's patch-bank window ptr (SND_MUSIC_PARAM_PATCHPTR — same bank).
 ;       4. Init channels with sc_stream_ptr = window_base + per-channel offset.
 ;
-; Both paths then SHARE .parse_header: read tempo/chcount/per-channel records
-; relative to Snd_SongBase, program Timer A, arm. The DAC-OFF song ticks from the
+; The load then parses the header: read tempo/chcount/per-channel records
+; relative to Snd_SongBase, program Timer A, arm. A DAC-OFF song ticks from the
 ; idle loop's Timer-A poll (SndDrv_IdleTick) once SND_SEQ_ACTIVE=1 — no DAC sample
 ; ever starts, so the streaming loop is never entered for an FM6=FM song.
 ;
@@ -1074,13 +1064,13 @@ Snd_LoadSong:
         ; so in-flight SFX survive a music change — is the 5b upgrade). The hardware
         ; voices those SFX held were just silenced by Sequencer_StopAll above, so no
         ; voice hangs. Sfx_StopAll touches only RAM (no chip writes; preserves the
-        ; de=$4001 invariant the loader relies on) — it does not fight the per-path
+        ; de=$4001 invariant the loader relies on) — it does not fight the load
         ; init that follows.
         call    Sfx_StopAll              ; cancel in-flight SFX so the new song starts clean
 
-        ; Clear the sequencer header + channel block FIRST (before the per-path setup
-        ; below), so the SND_SEQ_PATCHTAB + base each path writes are NOT zeroed by it.
-        ; (Bug: the clear used to live in .parse_header, AFTER the paths set PATCHTAB,
+        ; Clear the sequencer header + channel block FIRST (before the load setup
+        ; below), so the SND_SEQ_PATCHTAB + base it writes are NOT zeroed by it.
+        ; (Bug: the clear used to live in the header parse, AFTER PATCHTAB was set,
         ; so PATCHTAB ended up $0000 -> Fm_PatchPtr read garbage patches from $0000.)
         ld      hl, SND_SEQ_BASE
         ld      bc, SND_SEQ_END-SND_SEQ_BASE
@@ -1112,40 +1102,7 @@ Snd_LoadSong:
         ld      (SND_ROM_BANK), a        ; idle -> seed sample bank = song bank (B1 no-op)
 .keep_sample_bank:
 
-        ; --- branch on the streaming flag (forwarded from the song's SH_FLAGS) ---
-        ld      a, (SND_MUSIC_PARAM_FLAGS)
-        bit     SH_F_STREAM_B, a
-        jp      nz, .stream_path
-
-; ---------- PATH A: COPY / FM6=DAC (1C behavior, unchanged) ----------
-        ; 1. save the DAC bank (so we can restore it after reading the song).
-        ld      a, (SND_CUR_BANK)
-        ld      (Snd_SavedDacBank), a
-        ; 2. SetBank to the song's bank.
-        ld      a, (SND_MUSIC_PARAM_BANK)
-        call    SndDrv_SetBank           ; $6000 latch only
-        ; 3. copy SND_SONG_BUF_SIZE bytes window-ptr -> SND_SONG_BUF (ldir). The
-        ;    copy may read a little past the song into adjacent ROM (harmless —
-        ;    streams self-terminate). The song's window region must NOT cross
-        ;    $10000 (else ldir's hl would wrap past $FFFF into Z80 RAM and copy
-        ;    garbage); guaranteed by the build assert in song_table.asm.
-        ld      hl, (SND_MUSIC_PARAM_PTR) ; source = $8000-window ptr (little-endian in RAM)
-        ld      de, SND_SONG_BUF          ; dest = Z80 RAM song buffer
-        ld      bc, SND_SONG_BUF_SIZE
-        ldir
-        ; 4. restore the DAC bank (re-latches $6000; mismatch vs the cached song
-        ;    bank forces the 9 writes).
-        ld      a, (Snd_SavedDacBank)
-        call    SndDrv_SetBank
-        ; song base = SND_SONG_BUF (RAM); patches stay INLINE (FmPatchInlineTable).
-        ld      hl, SND_SONG_BUF
-        ld      (Snd_SongBase), hl
-        ld      hl, FmPatchInlineTable
-        ld      (SND_SEQ_PATCHTAB), hl
-        jp      .parse_header
-
-; ---------- PATH B: STREAM / FM6=FM (Sound 1D, DAC OFF) ----------
-.stream_path:
+; ---------- STREAM load (the only mode — every song streams from ROM) ----------
         ; 1. DAC mode OFF: $2B = $00. ABSOLUTE addressing (preserve de=$4001), then
         ;    re-park $2A on the addr port. The idle loop's per-pass $2A writes are
         ;    harmless once the DAC is disabled. (One write; no per-loop toggle.)
@@ -1166,12 +1123,10 @@ Snd_LoadSong:
         ld      (Snd_SongBase), hl
         ld      hl, (SND_MUSIC_PARAM_PATCHPTR)
         ld      (SND_SEQ_PATCHTAB), hl
-        ; fall into .parse_header
 
-; ---------- SHARED: parse the header + init channels (base in Snd_SongBase) ----
+; ---------- parse the header + init channels (base in Snd_SongBase) ----------
 ; (the seq region was already cleared at the top of Snd_LoadSong, BEFORE the
-; per-path setup, so the SND_SEQ_PATCHTAB + Snd_SongBase the paths set survive.)
-.parse_header:
+; setup above, so the SND_SEQ_PATCHTAB + Snd_SongBase it set survive.)
         ; Layer 7: cache the per-song adaptive-FM6 flag + null the FM6 channel ptr (set
         ; below in .chan_init when CHROUTE_FM6 is found). The DAC trigger/exhaust paths
         ; branch on these to time-share ch6 between FM6 music and the drum.
@@ -1324,8 +1279,7 @@ Snd_LoadSong:
         jp      nz, .chan_init           ; jr out-ranged when loop body > 127B; jp is safe
 
 .arm:
-        ; (SND_SEQ_PATCHTAB was set per-path above: FmPatchInlineTable for the copy
-        ; path, the song's patch-bank window ptr for the stream path.)
+        ; (SND_SEQ_PATCHTAB was set above: the song's patch-bank window ptr.)
         ; DEBUG trace/visibility housekeeping.
         xor     a
         ld      (SND_SEQ_TRACE_WR), a
@@ -1433,21 +1387,6 @@ Snd_RouteClassFlags:
 ; PitchTable two-page size assertion now lives at that bank block in main.asm, where
 ; the labels are defined — a blob `if` over those forward-refs can't evaluate in
 ; AS's 1st pass.)
-
-; --- Inline FM patch table (Z80-addressable) ---
-; Fm_PatchPtr indexes this by sc_patch (TEMP for 1C — Task 6 switches to the
-; banked 68k ROM FmPatchTable in data/sound/fm_patches.asm). The patch BYTES are
-; single-sourced from data/sound/fm_patches.inc (the SAME records the 68k ROM
-; FmPatchTable includes), so the inline copy and the ROM copy can never drift.
-; The .inc emits via a `pbyte` macro that selects `db` here (Z80) vs `dc.b` in
-; the 68k ROM. CLEARLY-TEMP bring-up data; FmPatch_len = 32 bytes/record.
-FmPatchInlineTable:
-        include "games/sonic4/data/sound/fm_patches.inc"
-FmPatchInlineTable_End:
-
-        if (FmPatchInlineTable_End-FmPatchInlineTable) <> 2*FmPatch_len
-          fatal "inline FM patch table wrong size"
-        endif
 
 ; --- Inline DAC sample descriptor table (Task 6 decision 3) ---
 ; Maps a 1-based sample id to a 9-byte DacSample record (see the struct in

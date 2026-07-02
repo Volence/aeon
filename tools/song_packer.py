@@ -35,7 +35,6 @@ Tests: python3 -m pytest tools/test_song_packer.py -q
 """
 
 import os
-import sys
 
 # --- Opcode + route constants (mirror of sound_constants.asm) ---
 MEV_REST = 0x80
@@ -121,7 +120,10 @@ _MUSIC_LEGAL_EXPRESSION_OPCODES = frozenset({
 
 # SongHeader flags byte (SH_FLAGS) — MIRROR of sound_constants.asm SH_F_*.
 SH_F_FM6_FM = 1 << 0     # FM6 is a 6th FM sequencer voice (DAC mode OFF)
-SH_F_STREAM = 1 << 1     # stream from ROM (no RAM copy); else copy-to-RAM (1C)
+SH_F_STREAM = 1 << 1     # stream from ROM — the ONLY load mode (the engine's COPY
+                         # path was deleted, budget A.1). The bit stays reserved in
+                         # the header contract; pack_song FORCE-SETS it on every
+                         # packed song (the packer is the format authority).
 SH_F_FM6_ADAPTIVE = 1 << 2  # Layer 7: FM6 time-shares ch6 with the DAC (music between drum hits); requires SH_F_FM6_FM
 
 
@@ -793,7 +795,7 @@ class SongDesc:
                  tempo_base: int = None, pitchtable=None):
         self.tempo = tempo
         self.channels = channels
-        self.flags = flags          # SH_FLAGS byte (SH_F_* OR'd); 0 = 1C copy/DAC
+        self.flags = flags          # SH_FLAGS byte (SH_F_* OR'd); pack_song force-sets SH_F_STREAM
         # Optional per-song pitch table the song carries in its own bank (a
         # streaming song with a custom fnum table). The packer does NOT read this
         # field — pack_song takes the resolved BE pitchtable_offset as a separate
@@ -916,8 +918,7 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
     is the SongHeader pitchtable_ptr field — a 16-bit BE offset, relative to the
     song header, of the per-song pitch table (for a streaming song that carries
     its own table in the same bank). The loader resolves it to base+offset; 0
-    leaves the engine-default table in use. The copy-path scratch songs leave it
-    0 (their pitch table is the inline engine default)."""
+    leaves the engine-default table in use."""
     if not (0 <= song.tempo <= 0xFF):
         raise PackError(f"tempo {song.tempo} out of byte range")
     if not (16 <= song.tempo_base <= 0xFF):
@@ -927,15 +928,15 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
             f"mis-plays)")
     if not (0 <= song.flags <= 0xFF):
         raise PackError(f"flags {song.flags} out of byte range")
-    # Layer 7: adaptive FM6 time-share REQUIRES FM6 to be an FM voice (SH_F_FM6_FM) and
-    # the stream load path (SH_F_STREAM sets $2B=$00 = FM6 plays music at load). Without
-    # FM6_FM the trigger/exhaust would toggle $2B on a song that never plays FM6 music;
-    # without STREAM the copy path leaves $2B=$80 (DAC) and the exhaust's $2B=$00 would
-    # mis-handle it. Catch the malformed combo at pack time, not on hardware.
-    if (song.flags & SH_F_FM6_ADAPTIVE) and not (song.flags & SH_F_FM6_FM):
+    # SH_F_STREAM is FORCE-SET: every song streams from ROM (the engine's COPY
+    # load path was deleted — budget A.1). The bit stays reserved in the header
+    # contract and the packer, as the format authority, guarantees it is set.
+    flags = song.flags | SH_F_STREAM
+    # Layer 7: adaptive FM6 time-share REQUIRES FM6 to be an FM voice (SH_F_FM6_FM).
+    # Without FM6_FM the trigger/exhaust would toggle $2B on a song that never
+    # plays FM6 music. Catch the malformed combo at pack time, not on hardware.
+    if (flags & SH_F_FM6_ADAPTIVE) and not (flags & SH_F_FM6_FM):
         raise PackError("SH_F_FM6_ADAPTIVE requires SH_F_FM6_FM (FM6 must be an FM voice to time-share with the DAC)")
-    if (song.flags & SH_F_FM6_ADAPTIVE) and not (song.flags & SH_F_STREAM):
-        raise PackError("SH_F_FM6_ADAPTIVE requires SH_F_STREAM (the stream load path sets $2B=$00 so FM6 plays music at load)")
     if not (1 <= len(song.channels) <= CHROUTE_COUNT):
         raise PackError(
             f"channel_count {len(song.channels)} out of range 1..{CHROUTE_COUNT} "
@@ -1002,21 +1003,12 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
             f"song blob layout is {cur} bytes — stream/body offsets exceed the "
             f"16-bit pointer range ($FFFF)")
 
-    # Copy-path (non-STREAM) songs are ldir'd into the 512-byte Z80 song
-    # buffer (SND_SONG_BUF_SIZE); a larger blob is silently truncated by the
-    # loader. Warn (not raise): the flag choice is the author's.
-    if not (song.flags & SH_F_STREAM) and cur > 0x200:
-            sys.stderr.write(
-            "song_packer: WARN: non-STREAM (copy-path) song is %d bytes > 512 "
-            "(SND_SONG_BUF_SIZE) — the Z80 loader will truncate it; set "
-            "SH_F_STREAM or shrink the song\n" % cur)
-
     # Re-encode the command streams AFTER back-patching Macro operands (the
     # first pass above encoded Macro() with body_offset=0).
     streams = [_validate_channel(ch) for ch in song.channels]
 
     out = bytearray()
-    out.append(song.flags & 0xFF)
+    out.append(flags & 0xFF)
     out.append(song.tempo & 0xFF)
     out.append(song.tempo_base & 0xFF)
     out.append(n & 0xFF)

@@ -24,9 +24,9 @@
 ; SFX set lives in ONE bank (asserted == the Moving Trucks bank), so when an
 ; FM6=FM song is playing the bank is ALREADY parked there and SfxDispatch reads
 ; the blob with no re-bank. SfxDispatch banks the SFX bank in and LEAVES it (the
-; stream-path model) — the per-frame SFX cursor reads the blob from the window
-; every frame. Cross-bank songs (e.g. the COPY path, where the bank is the DAC
-; bank) are a Task 8+ concern (a 68k-resolved SFX param block, mirroring
+; stream-song model) — the per-frame SFX cursor reads the blob from the window
+; every frame. A future cross-bank song (one whose bank differs from the SFX
+; bank) is a Task 8+ concern (a 68k-resolved SFX param block, mirroring
 ; SND_MUSIC_PARAM) — design-for-C: the format + slot layout already accommodate
 ; it; this 5a core is wired for the in-bank case the hardware test exercises.
 ;
@@ -1010,24 +1010,16 @@ Sfx_Restore:
     if SND_REKEY_OFF_THEN_ON
         call    Fm_NoteOff               ; clean 0->1 edge: key OFF first (mirrors ModUpdate)
     endif
-        ; RAW-vs-TABLE re-key: on a stream/NOTE_RAW song (SH_F_STREAM — the SH_FLAGS
-        ; byte the 68k forwarded stays in SND_MUSIC_PARAM_FLAGS until the next
-        ; PlayMusic) sc_note holds the raw $A4 byte, NOT a pitch-table index —
-        ; re-keying it through the table played a wrong note for up to ~130 ms per
-        ; steal. Re-key from sc_base_freq instead (the exact word; Seq_Op_NoteRaw
-        ; latches it even under override, and KEYED implies it is valid).
-        ld      a, (SND_MUSIC_PARAM_FLAGS)
-        bit     SH_F_STREAM_B, a
-        jr      z, .fm_rekey_table
+        ; Re-key from sc_base_freq — the exact unmodulated word latched at key-on
+        ; by every FM note path (Fm_NoteOnFreq's tail; KEYED implies it is valid).
+        ; sc_note may hold a raw $A4 byte (NOTE_RAW streams), NOT a pitch-table
+        ; index — a table re-key played a wrong note for up to ~130 ms per steal —
+        ; so the exact word is the one re-key that is right for every note source.
         ld      d, (ix+sc_base_freq)     ; high slot = $A4 value
         ld      e, (ix+sc_base_freq+1)   ; low slot  = $A0 value
         call    Fm_NoteOnFreqExact       ; re-key at the exact raw pitch (preserves ix).
         ; Exact entry: sc_base_freq was latched POST-detune, so the plain entry
         ; would fold sc_detune a second time on a detuned stream channel.
-        jr      .fm_done
-.fm_rekey_table:
-        ld      a, (ix+sc_note)          ; the held note index
-        call    Fm_NoteFromTable         ; re-key from the per-song fnum table (preserves ix)
         jr      .fm_done
 .fm_silence:
         call    Fm_NoteOff               ; no music note -> key the stolen FM voice off
