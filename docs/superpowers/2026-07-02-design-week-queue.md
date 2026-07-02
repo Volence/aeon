@@ -51,3 +51,7 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   hook, CPU-as-input-filter w/ AIR fixes, assets = stock S3K from skdisasm — S.C.E.
   has none) + implementation plan (12 tasks, C1-C4). Design #3 BANKED. Next: #4
   damage/shields/loss-rings.
+- 2026-07-02 — design #4 spec + plan committed (full S3K shield kit, dedicated
+  32-ring loss pool, death→respawn + star posts w/ explicit reset contract,
+  monitors w/ ghost-bug rules, 4 adopted fixes). Design #4 BANKED. Next: #5
+  engine/game split.
