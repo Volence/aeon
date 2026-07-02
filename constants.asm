@@ -535,12 +535,16 @@ FRAME_PIECES            = 6         ; byte offset to first piece datum
 VRAM_TEST_OBJ           = $03E0         ; tile 992 — test object art (8 tiles) in the free
                                         ; gap between the character DPLC region end (985)
                                         ; and the BG shared region base (1024).
-VRAM_RING_PLACEHOLDER   = VRAM_TEST_OBJ+8 ; tile 1000 — 1-tile gold ring (DrawRings)
-VRAM_TEST_MARKER        = VRAM_RING_PLACEHOLDER+1 ; tile 1001 — debug-fly marker (2×2 = 4 tiles)
+VRAM_RING_PLACEHOLDER   = VRAM_TEST_OBJ+8 ; tile 1000 — gold ring art (1 tile). DrawRings
+                                        ; emits 2×2 (16×16) sprites, so tiles 1001-1003
+                                        ; render too and MUST stay blank — they are the
+                                        ; ring's transparent surround.
+VRAM_TEST_MARKER        = VRAM_RING_PLACEHOLDER+4 ; tile 1004 — debug-fly marker (2×2 = 4 tiles)
                                         ; in the free gap below the BG region (1024). Must NOT
                                         ; sit inside the act art pool (every pool slot is
-                                        ; referenced FG art — see POOL_TILE_CEILING).
+                                        ; referenced FG art — see POOL_TILE_CEILING) nor in
+                                        ; the ring sprite's 1000-1003 span.
 VRAM_TEST_SONIC         = $03C0        ; tile 960 — character DPLC region (up to 25 tiles).
                                         ; MUST stay clear of: the act art pool (tiles
                                         ; 0..POOL_TILE_CEILING-1), the test-obj/ring/marker
-                                        ; gap (992-1004), BG region (1024+), SAT/HScroll/planes.
+                                        ; span (992-1007), BG region (1024+), SAT/HScroll/planes.
