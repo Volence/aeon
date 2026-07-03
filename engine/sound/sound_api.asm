@@ -220,10 +220,12 @@ Sound_StopMusic:
         bra.w   Sound_PostByte
 
 ; ----------------------------------------------------------------------
-; Sound_SetTempo — ramp the global music speed to a target. d0.b = target per-frame
-; accumulator decrement (16 = normal; >16 faster, <16 slower), or SND_TEMPO_RESTORE
-; ($FF) to return to the song's authored tempo. The CALLER supplies d0.b (this does
-; NOT set it, like Sound_Ping / Sound_PlaySample); d0 preserved. SR restored.
+; Sound_SetTempo — ramp the global music speed to a target. d0.b = target tempo mod
+; (S3K TempoWait units: raw per-frame accumulator addend; 0 = full speed / tick
+; every frame, BIGGER = SLOWER — each accumulator carry skips one event-tick;
+; rate = (256-mod)/256), or SND_TEMPO_RESTORE ($FF) to return to the song's
+; authored header tempo. The CALLER supplies d0.b (this does NOT set it, like
+; Sound_Ping / Sound_PlaySample); d0 preserved. SR restored.
 ; ----------------------------------------------------------------------
 Sound_SetTempo:
         lea     (SND_Z80_BASE+SND_REQ_TEMPO).l, a0

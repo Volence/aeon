@@ -783,10 +783,29 @@ NATIVE_GATE_TABLES = _build_gate_tables()
 # in ~25 bytes -> Patch. 8 is comfortably between (the task's suggested threshold).
 VOICE_DELTA_THRESHOLD = 8
 
-# Moving Trucks song format code ($38 = 56) = the per-channel tempo_base. The
-# per-frame engine event-tick rate = FODD*16/tempo_base ~= 16.87 Hz, matching the
-# Zyrinx ~17 events/sec. (Tempo overrides per pattern are applied where present.)
+# Moving Trucks song format code ($38 = 56) = the Zyrinx per-channel tempo base
+# (the original driver's `IX+33 -= 16/frame; on borrow += base` clock -> 16/56 =
+# 2/7 event-ticks per frame ~= 16.87 Hz, the Zyrinx ~17 events/sec). The engine
+# now runs S3K's exact TempoWait model instead (header tempo_mod: accum += mod
+# per frame, carry skips the tick; rate = (256-mod)/256), so the packed header
+# carries zyrinx_base_to_tempo_mod(MT_FORMAT_CODE) — see that helper for the
+# (tiny, unavoidable) rounding this conversion takes.
 MT_FORMAT_CODE = 0x38
+
+
+def zyrinx_base_to_tempo_mod(base: int) -> int:
+    """Zyrinx tempo base (event-tick rate 16/base) -> nearest S3K tempo mod
+    (event-tick rate (256 - mod)/256).
+
+    16/base = (256 - mod)/256  ->  mod = 256 - 4096/base.
+
+    EXACT only when base divides 4096. Moving Trucks' base 56 -> mod
+    256 - 73.14 -> 183 (rate 73/256 = 0.28516 vs the true 2/7 = 0.28571:
+    -0.196%, ~2.3 s/20 min — the closest the 8-bit S3K model can express; the
+    alternative mod 182 is +1.17%). Full-speed base 16 -> mod 0 exactly."""
+    if base <= 0:
+        raise ValueError(f"zyrinx tempo base {base} must be positive")
+    return max(0, min(255, 256 - round(4096 / base)))
 
 
 # ----------------------------------------------------------------------------
@@ -1594,8 +1613,12 @@ def build_native_songdesc(rom, pitchtable_offset=0,
     # Rides channel 0's stream, before its LoopPoint (fires once).
     channels[0].events.insert(0, Lfo(0x08))
 
-    # FM6=FM (DAC off) + stream from ROM. tempo_base = the song format code ($38).
-    song = SongDesc(tempo=MT_FORMAT_CODE, tempo_base=MT_FORMAT_CODE,
+    # FM6=FM (DAC off) + stream from ROM. The legacy header tempo byte keeps the
+    # song format code ($38) for visibility; the OPERATIVE header tempo_mod is
+    # the S3K-model conversion of that base (56 -> mod 183; see
+    # zyrinx_base_to_tempo_mod for the -0.196% rounding note).
+    song = SongDesc(tempo=MT_FORMAT_CODE,
+                    tempo_mod=zyrinx_base_to_tempo_mod(MT_FORMAT_CODE),
                     channels=channels, flags=SH_F_FM6_FM | SH_F_STREAM)
     song.pitchtable_offset = pitchtable_offset   # carried into pack_song below
     return song, stats_all, (bank_bytes, remap, pcount)

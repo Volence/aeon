@@ -119,17 +119,18 @@ class TestEventEncoding(unittest.TestCase):
             Porta(-1).validate(CHROUTE_FM1)
 
     def test_tempo_encode(self):
-        self.assertEqual(Tempo(24).encode(), bytes([MEV_TEMPO, 24]))
+        # Operand = the RAW S3K TempoWait mod (0 = full speed, bigger = slower).
+        self.assertEqual(Tempo(0x25).encode(), bytes([MEV_TEMPO, 0x25]))  # HCZ2's rate
         self.assertEqual(Tempo(8).encode(), bytes([MEV_TEMPO, 8]))
-        self.assertEqual(Tempo(16).encode(), bytes([MEV_TEMPO, 16]))   # normal speed
+        self.assertEqual(Tempo(0).encode(), bytes([MEV_TEMPO, 0]))        # full speed
 
     def test_tempo_range(self):
-        # Authored range is 1..$FE: 0 = engine "default" sentinel, $FF = the
-        # SND_TEMPO_RESTORE mailbox sentinel — both rejected at pack time so the
-        # engine's borrow-loop termination bound stays packer-guaranteed.
-        Tempo(1).validate(CHROUTE_FM1)
+        # Authored range is 0..$FE: 0 is a VALID mod (full speed — the old
+        # "engine clamps 0 -> 16" sentinel died with the S3K add/carry model);
+        # $FF stays rejected (the SND_TEMPO_RESTORE mailbox sentinel).
+        Tempo(0).validate(CHROUTE_FM1)
         Tempo(254).validate(CHROUTE_PSG1)
-        for bad in (0, 255, 256, -1):
+        for bad in (255, 256, -1):
             with self.assertRaises(PackError):
                 Tempo(bad).validate(CHROUTE_FM1)
 
@@ -210,23 +211,23 @@ class TestHeader(unittest.TestCase):
         self.blob = pack_song(self.song)
 
     def test_flags_tempo_and_count(self):
-        # Phase 3 header: flags(+0), tempo(+1), tempo_base(+2), channel_count(+3).
+        # Phase 3 header: flags(+0), tempo(+1), tempo_mod(+2), channel_count(+3).
         # SH_F_STREAM is force-set on every packed song (the engine's COPY path
         # was deleted — the packer is the format authority for the reserved bit).
         self.assertEqual(self.blob[0], SH_F_STREAM)
         self.assertEqual(self.blob[1], 6)        # tempo (legacy Timer-A selector)
-        # tempo_base default clamps the legacy tempo (6) up to the 16 floor so
-        # the per-frame accumulator never mis-plays (one event-tick/frame cap).
-        self.assertEqual(self.blob[2], 16)
+        # tempo_mod defaults to 0 = full speed (S3K TempoWait: a 0 mod never
+        # carries the accumulator -> one event-tick every frame).
+        self.assertEqual(self.blob[2], 0)
         self.assertEqual(self.blob[3], 2)        # channel count
         # pitchtable_ptr (+4, dw) = 0 (engine default).
         self.assertEqual((self.blob[4] << 8) | self.blob[5], 0)
 
     def test_channel_routes_and_pointers(self):
-        # Header: flags, tempo, tempo_base, count, dw pitchtable_ptr, then per
+        # Header: flags, tempo, tempo_mod, count, dw pitchtable_ptr, then per
         # channel (route, dw cmd_ptr, dw mod_ptr), then dw patch_table_ptr.
         # Pointers are big-endian offsets within the blob.
-        off = 6                                  # skip flags,tempo,tempo_base,count,pitchtab(2)
+        off = 6                                  # skip flags,tempo,tempo_mod,count,pitchtab(2)
         ptrs = []
         for ch in self.song.channels:
             self.assertEqual(self.blob[off], ch.route)
@@ -254,14 +255,23 @@ class TestHeader(unittest.TestCase):
                 Patch(0), Vol(100), SetDur(0x10), LoopPoint(), Note(57), Jump()])])
         self.assertEqual(pack_song(song)[0], SH_F_FM6_FM | SH_F_STREAM)
 
-    def test_tempo_base_emitted(self):
-        # tempo_base packs at +2 (distinct from the legacy tempo at +1).
-        song = SongDesc(tempo=6, tempo_base=0x38, channels=[
+    def test_tempo_mod_emitted(self):
+        # tempo_mod packs at +2 (distinct from the legacy tempo at +1) as the
+        # RAW S3K TempoWait addend — no conversion, no clamping.
+        song = SongDesc(tempo=6, tempo_mod=0x25, channels=[
             ChannelDesc(CHROUTE_FM1, [
                 Patch(0), Vol(100), SetDur(0x10), LoopPoint(), Note(57), Jump()])])
         blob = pack_song(song)
         self.assertEqual(blob[1], 6)
-        self.assertEqual(blob[2], 0x38)
+        self.assertEqual(blob[2], 0x25)
+
+    def test_tempo_mod_out_of_range_raises(self):
+        for bad in (-1, 256):
+            song = SongDesc(tempo=6, tempo_mod=bad, channels=[
+                ChannelDesc(CHROUTE_FM1, [
+                    Patch(0), Vol(100), SetDur(0x10), LoopPoint(), Note(57), Jump()])])
+            with self.assertRaises(PackError):
+                pack_song(song)
 
     def test_streams_present(self):
         # Concatenated streams appear after the header in order.
@@ -615,7 +625,7 @@ class TestMacroEvents(unittest.TestCase):
         ch.macro_body = [MacReg(0, 0x90, 0x08), MacNext(), MacEnd()]
         song = SongDesc(tempo=16, channels=[ch])
         blob = pack_song(song)
-        # header: flags,tempo,tempo_base,count, dw pitchtab, then ch record at +6.
+        # header: flags,tempo,tempo_mod,count, dw pitchtab, then ch record at +6.
         mod_ptr = (blob[6 + 3] << 8) | blob[6 + 4]
         self.assertNotEqual(mod_ptr, 0)
         self.assertEqual(blob[mod_ptr:mod_ptr + 6],
@@ -793,7 +803,7 @@ class TestPackerSafetyGates(unittest.TestCase):
 
     def _song(self, channels):
         return SongDesc(tempo=0x80, channels=channels, flags=SH_F_STREAM,
-                        tempo_base=16)
+                        tempo_mod=0)
 
     # ── nested repeats (engine is single-level: one sc_repeat_ptr/count) ──
 
@@ -867,7 +877,7 @@ class TestPackerSafetyGates(unittest.TestCase):
     def test_packed_song_always_has_stream_flag(self):
         # Even a SongDesc that omits the flag packs with SH_F_STREAM set.
         ch = ChannelDesc(CHROUTE_FM1, self._fm_events(Note(0)))
-        song = SongDesc(tempo=0x80, channels=[ch], flags=0, tempo_base=16)
+        song = SongDesc(tempo=0x80, channels=[ch], flags=0, tempo_mod=0)
         blob = pack_song(song)
         self.assertTrue(blob[0] & SH_F_STREAM)
         self.assertEqual(blob[0], SH_F_STREAM)   # and nothing else is added
@@ -876,7 +886,7 @@ class TestPackerSafetyGates(unittest.TestCase):
         # Explicit flags are preserved; SH_F_STREAM is OR'd in, not overwritten.
         ch = ChannelDesc(CHROUTE_FM1, self._fm_events(Note(0)))
         song = SongDesc(tempo=0x80, channels=[ch], flags=SH_F_FM6_FM,
-                        tempo_base=16)
+                        tempo_mod=0)
         self.assertEqual(pack_song(song)[0], SH_F_FM6_FM | SH_F_STREAM)
 
 

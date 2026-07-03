@@ -204,12 +204,12 @@ SndDrv_Init:
         ; Task 9: clear the SFX queue so CNT starts at 0 (Z80 RAM is undefined at power-on).
         ld      (SND_SFX_QUEUE_CNT), a   ; 0 entries pending
         ld      (Snd_SpindashRev), a     ; spindash rev escalation starts at 0 (spec §6)
-        ; Phase 2: fade = full volume (0), idle; tempo = normal-speed default (16).
+        ; Phase 2: fade = full volume (0), idle; tempo mod = 0 (full speed —
+        ; S3K TempoWait units: 0 never carries = tick every frame). a is still 0.
         ld      (SND_MASTER_FADE), a
         ld      (SND_FADE_TARGET), a
         ld      (SND_FADE_DIRTY), a
         ld      (SND_FADE_DELAY_CTR), a
-        ld      a, SND_TEMPO_DECR_DEFAULT
         ld      (SND_TEMPO_CUR), a
         ld      (SND_TEMPO_TARGET), a
         ld      (SND_TEMPO_BASE), a
@@ -605,7 +605,7 @@ SndDrv_PollMailbox:
         inc     a
         ld      (SND_STAT_ACK_COUNT), a
 .no_fade:
-        ; --- tempo request? (1..$FE target decrement; $FF restore authored base) ---
+        ; --- tempo request? (1..$FE target mod, bigger = slower; $FF restore authored base) ---
         ld      a, (SND_REQ_TEMPO)
         or      a
         jr      z, .no_tempo
@@ -643,21 +643,23 @@ SndDrv_PollMailbox:
         ret
 
 ; ======================================================================
-; Snd_TempoCommand — a = $FF (restore authored base) or a target decrement
-; (1..$FE). Sets SND_TEMPO_TARGET; Tempo_Ramp glides cur toward it. 0 -> default
-; (never freeze). Clobbers af. RESIDENT: reached from SndDrv_PollMailbox (mailbox /
-; ISR / streaming context — SAMPLE bank in the window), and touches only RAM, so it
-; must NOT live in the $8000 song-bank window.
+; Snd_TempoCommand — a = $FF (restore authored base) or a target tempo mod
+; (1..$FE; S3K TempoWait units — bigger = slower, 0 = full speed). Sets
+; SND_TEMPO_TARGET; Tempo_Ramp glides cur toward it (and writes each step
+; through to the per-channel sc_tempo_mod gates). Note: mod $FF itself is not
+; requestable (it is the restore sentinel) — a 1/256-rate tempo is useless
+; anyway. The old "0 -> default 16" clamp died with the decrement model: mod 0
+; is a valid value (restore of an authored base 0 must stay 0), and a request
+; byte of 0 never dispatches here (0 = mailbox idle). Clobbers af. RESIDENT:
+; reached from SndDrv_PollMailbox (mailbox / ISR / streaming context — SAMPLE
+; bank in the window), and touches only RAM, so it must NOT live in the $8000
+; song-bank window.
 ; ======================================================================
 Snd_TempoCommand:
         cp      SND_TEMPO_RESTORE        ; $FF -> restore authored base
         jr      nz, .have
         ld      a, (SND_TEMPO_BASE)
 .have:
-        or      a
-        jr      nz, .ok
-        ld      a, SND_TEMPO_DECR_DEFAULT ; 0 -> normal (defensive)
-.ok:
         ld      (SND_TEMPO_TARGET), a
         ret
 
@@ -1206,12 +1208,13 @@ Snd_LoadSong:
         ld      (SND_SEQ_CHCOUNT), a
         ld      c, a                     ; c = channel count (loop bound)
 
-        ; --- Phase 3: cache the header tempo_base + per-song pitch-table ptr (iy
-        ; still = song base). tempo_base seeds each channel's accumulator below;
-        ; the pitch-table ptr (BE offset; 0 = engine default) is cached for
-        ; ModUpdate's pitch renderer (Task 3) — a 0 offset stays 0 (use default). ---
-        ld      a, (iy+SH_TEMPO_BASE)
-        ld      (SND_SEQ_TEMPO_BASE), a
+        ; --- Phase 3: cache the header tempo_mod + per-song pitch-table ptr (iy
+        ; still = song base). tempo_mod (raw S3K TempoWait addend) seeds each
+        ; channel's mod + accumulator below; the pitch-table ptr (BE offset;
+        ; 0 = engine default) is cached for ModUpdate's pitch renderer (Task 3)
+        ; — a 0 offset stays 0 (use default). ---
+        ld      a, (iy+SH_TEMPO_MOD)
+        ld      (SND_SEQ_TEMPO_MOD), a
         ld      h, (iy+SH_PITCHTAB_HI)   ; BE: high byte first
         ld      l, (iy+SH_PITCHTAB_LO)
         ld      a, h
@@ -1301,13 +1304,13 @@ Snd_LoadSong:
         ld      (ix+sc_porta_accum), 0
         ld      (ix+sc_porta_accum+1), 0
         ; --- Phase 3 per-channel state ---
-        ; tempo accumulator: base from the header (SH_TEMPO_BASE), accum seeded =
-        ; base so the FIRST frame's `sub 16` starts counting toward an event-tick.
-        ; For tempo_base=16, frame 0 yields accum=0 with NO borrow, so the first
-        ; event-tick lands on frame 1 (~17 ms later), not frame 0 — harmless and
-        ; inaudible (matches the dur_count=1 "fetch on the first tick" intent).
-        ld      a, (SND_SEQ_TEMPO_BASE)  ; cached header tempo_base
-        ld      (ix+sc_tempo_base), a
+        ; tempo gate: mod from the header (SH_TEMPO_MOD), accumulator SEEDED =
+        ; mod — mirroring S3K's song init EXACTLY (skdisasm `Sound/Z80 Sound
+        ; Driver.asm` :1830-1831: `ld a,(iy+5)` / `ld (zTempoAccumulator),a` /
+        ; `ld (zCurrentTempo),a`). For mod < $80 frame 0 adds mod+mod with no
+        ; carry -> the first event-tick lands on frame 0 (S3K-identical phase).
+        ld      a, (SND_SEQ_TEMPO_MOD)   ; cached header tempo_mod
+        ld      (ix+sc_tempo_mod), a
         ld      (ix+sc_tempo_accum), a
         ; ModUpdate held-note no-op path needs a known baseline: a single plain
         ; note (pt_count=1) and a forced first patch load (last_patch=$FF != any
@@ -1341,8 +1344,8 @@ Snd_LoadSong:
         ; (Snd_TimerA_ProgramFixed). Re-program it here as belt-and-suspenders —
         ; on a running timer this just reloads the same N (harmless), and it
         ; revives the frame clock if anything ever left the timer off.
-        ; Musical tempo is per-channel via the tempo accumulator (sc_tempo_base,
-        ; seeded above from the cached SH_TEMPO_BASE). We still cache the legacy
+        ; Musical tempo is per-channel via the tempo gate (sc_tempo_mod,
+        ; seeded above from the cached SH_TEMPO_MOD). We still cache the legacy
         ; SH_TEMPO byte into SND_SEQ_TEMPO for visibility (it is otherwise unused).
         call    Snd_TimerA_ProgramFixed
         ld      iy, (Snd_SongBase)
@@ -1352,14 +1355,17 @@ Snd_LoadSong:
         ld      a, 1
         ld      (SND_SEQ_ACTIVE), a
         ; Phase 2: reset global expression state for the new song. Fade -> full
-        ; volume (else a song after a fade-out would play SILENT). Tempo -> normal
-        ; (the song's MEV_TEMPO, if any, overrides on its first tick).
+        ; volume (else a song after a fade-out would play SILENT). Tempo globals
+        ; -> the song's AUTHORED header mod (S3K: zCurrentTempo = header tempo),
+        ; so a stale Sound_SetTempo ramp from the previous song can't leak in and
+        ; a $FF "restore" request returns to THIS song's authored rate. (The
+        ; song's MEV_TEMPO, if any, overrides on its first tick.)
         xor     a
         ld      (SND_MASTER_FADE), a
         ld      (SND_FADE_TARGET), a
         ld      (SND_FADE_DIRTY), a
         ld      (SND_FADE_DELAY_CTR), a
-        ld      a, SND_TEMPO_DECR_DEFAULT
+        ld      a, (SND_SEQ_TEMPO_MOD)   ; authored header mod (cached above)
         ld      (SND_TEMPO_CUR), a
         ld      (SND_TEMPO_TARGET), a
         ld      (SND_TEMPO_BASE), a

@@ -64,14 +64,16 @@ KICK, SNARE = 2, 3              # 1=blip, 2=kick, 3=snare, 4=hat
 # correctness + the FM6 gate, not on a specific timbre.
 PATCH_A, PATCH_B, PATCH_C = 0, 1, 2
 
-# Phase 3 frame-model tempo: TEMPO_BASE=16 runs the per-channel clock at the full
-# ~59.92 Hz frame rate (the max event-tick rate). Durations are in event ticks.
-TEMPO_BASE = 16
+# Phase 3 frame-model tempo (S3K TempoWait units): TEMPO_MOD=0 never carries the
+# accumulator, so the per-channel clock ticks at the full ~59.92 Hz frame rate
+# (the max event-tick rate — same pacing the old TEMPO_BASE=16 gave).
+# Durations are in event ticks.
+TEMPO_MOD = 0
 E, Q, H = 15, 30, 60           # eighth / quarter / half (~0.25 / 0.5 / 1.0 s)
 
 
 def build_song() -> SongDesc:
-    return SongDesc(tempo=0x80, tempo_base=TEMPO_BASE,
+    return SongDesc(tempo=0x80, tempo_mod=TEMPO_MOD,
                     flags=SH_F_STREAM | SH_F_FM6_FM | SH_F_FM6_ADAPTIVE, channels=[
         # FM1 — LEAD melody. Proves the bank swap leaves the FM command stream +
         # patch + pitch reads correct AFTER each $E2 (loops a fixed 4-note motif).

@@ -142,20 +142,16 @@ class ChannelHdr:
         self.psg_voice = psg_voice
 
 class SongConfig:
+    # H.4: tempo_mod is now a RAW PASS-THROUGH — the engine adopted S3K's exact
+    # TempoWait model (accum += mod/frame; carry skips the event-tick), so the
+    # SMPS header mod byte goes into the packed header UNCHANGED. The old
+    # `tempo_base` property (tempo_base = round(4096 / (256 - mod)), converting
+    # to the retired `accum -= 16 / reload` engine model) is DELETED: its 16/N
+    # representation could only approximate SMPS rates (HCZ2's mod $25 = 219/256
+    # ticks/frame fell between 16/19 and 16/18 -> the measured -1.42% tempo
+    # error the exact model fixes).
     def __init__(self):
         self.divider = 1; self.tempo_mod = 0; self.channels = []
-    @property
-    def tempo_base(self):
-        # Engine tempo model: accumulator -= 16/frame; on borrow it re-adds
-        # tempo_base and fires one event-tick.  ticks/frame = 16 / tempo_base.
-        # SMPS model: accumulator += mod/frame; overflow SKIPS a tick.
-        # ticks/frame = (256 - mod) / 256.
-        # Match: 16 / tempo_base = (256 - mod) / 256
-        #  -> tempo_base = 16 * 256 / (256 - mod) = 4096 / (256 - mod).
-        denom = 256 - self.tempo_mod
-        if denom <= 0:
-            denom = 1
-        return max(16, min(255, round(4096 / denom)))
 
 def _signed8(v):
     return v - 256 if v >= 128 else v
@@ -1131,7 +1127,7 @@ _PSG_ROUTE_ORDER = (CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3)
 # Song-level playback constants. tempo is the LEGACY Timer-A selector field —
 # unused by the per-frame Phase-3 engine but kept in the header; 0x80 is the
 # conventional mid value used by the streaming songs. The real per-frame pace is
-# tempo_base (= cfg.tempo_base, the 256 - tempo_mod accumulator base).
+# tempo_mod (= cfg.tempo_mod, the raw S3K TempoWait addend, passed through).
 _SONG_TEMPO = 0x80
 
 
@@ -1299,7 +1295,7 @@ def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None):
     pitchtable   : optional per-song pitch table reference, stored on the SongDesc
                    for the loader (None = engine default).
 
-    Returns a SongDesc(tempo=0x80, tempo_base=cfg.tempo_base, flags=SH_F_STREAM,
+    Returns a SongDesc(tempo=0x80, tempo_mod=cfg.tempo_mod, flags=SH_F_STREAM,
     channels=[...]) ready for pack_song. Each channel is route-assigned by kind,
     converted via convert_channel, remapped, made packable (Vol/Patch prologue +
     terminator), and validated by pack_song's _validate_channel at pack time."""
@@ -1322,7 +1318,7 @@ def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None):
         channels.append(ChannelDesc(route, ev))
 
     return SongDesc(tempo=_SONG_TEMPO, channels=channels,
-                    flags=SH_F_STREAM, tempo_base=cfg.tempo_base,
+                    flags=SH_F_STREAM, tempo_mod=cfg.tempo_mod,
                     pitchtable=pitchtable)
 
 

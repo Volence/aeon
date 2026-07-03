@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """song_packer — build-time music song description -> packed bytes + .asm.
 
-A SongDesc (flags + tempo + tempo_base + list of ChannelDesc) packs to a
+A SongDesc (flags + tempo + tempo_mod + list of ChannelDesc) packs to a
 self-contained blob (Phase 3 C-ready header):
 
     SongHeader:
       db  flags            ; Sound 1D per-song playback mode (SH_F_* below)
       db  tempo            ; LEGACY Timer-A selector (Phase 3: unused)
-      db  tempo_base       ; Phase 3 per-frame tempo accumulator base
+      db  tempo_mod        ; Phase 3 tempo mod (raw S3K TempoWait addend; SMPS
+                           ; pass-through: 0 = full speed, rate = (256-mod)/256)
       db  channel_count
       dw  pitchtable_ptr   ; per-song pitch table BE offset (0 = engine default)
       ; per channel:
@@ -75,7 +76,7 @@ MEV_FMENV = 0xF7            # + env_id: arm the FM carrier-TL volume envelope (1
 MEV_REGWRITE = 0xF8         # + part(0/1) + reg + val: inline raw YM2612 register write
 MEV_MACRO = 0xF9            # + ptr_hi + ptr_lo: (re)arm the slot[1] macro stream at a blob offset
 # Phase-2 per-note + global expression opcodes (mirror of sound_constants.asm).
-MEV_TEMPO = 0xF3           # + dd: set the GLOBAL tempo speed scalar (accumulator decrement; 16 = 100%)
+MEV_TEMPO = 0xF3           # + dd: set the GLOBAL tempo mod (raw S3K TempoWait addend; 0 = full speed)
 MEV_LFO = 0xF4             # + value: write YM2612 $22 (bit3 enable | bits0-2 rate); DAC $2A re-parked
 MEV_PORTA = 0xF5           # + dd: set the persistent portamento glide rate (fnum/divisor units
                            # per frame; 0 = off -> notes snap)
@@ -518,24 +519,25 @@ class Lfo(Event):
 
 
 class Tempo(Event):
-    """Global tempo: set the per-frame sequencer-accumulator decrement scalar
-    (16 = authored/normal speed, larger = faster, smaller = slower). The engine
-    clamps 0 -> 16 so a song can never freeze itself. GLOBAL — affects every channel
-    though it rides one channel's stream; snaps base/cur/target (instant authored
-    change). Zero-tick (state-only setter)."""
-    def __init__(self, decrement: int):
-        self.decrement = decrement
+    """Global tempo: set the tempo mod (S3K TempoWait units — the RAW per-frame
+    accumulator addend; 0 = full speed / tick every frame, BIGGER = SLOWER;
+    event-tick rate = (256 - mod)/256). GLOBAL — affects every channel though it
+    rides one channel's stream; snaps base/cur/target AND writes through to every
+    channel's sc_tempo_mod (instant authored change). Zero-tick (state-only
+    setter)."""
+    def __init__(self, mod: int):
+        self.mod = mod
 
     def encode(self) -> bytes:
-        return bytes([MEV_TEMPO, self.decrement & 0xFF])
+        return bytes([MEV_TEMPO, self.mod & 0xFF])
 
     def validate(self, route):
-        # 1..$FE only: 0 is the engine's "default" sentinel (clamped to 16) and
-        # $FF is the SND_TEMPO_RESTORE mailbox sentinel — neither is a valid
-        # AUTHORED stream operand. Keeping them out here keeps the engine's
-        # borrow-loop termination bound (<= ~16 passes) packer-guaranteed.
-        if not (1 <= self.decrement <= 0xFE):
-            raise PackError(f"Tempo decrement {self.decrement} out of authored range 1..254")
+        # 0..$FE: 0 is a VALID mod now (full speed — the old "engine clamps
+        # 0 -> 16" rule died with the decrement model; a 0 mod never carries so
+        # it can never freeze). $FF stays excluded — it is the SND_TEMPO_RESTORE
+        # mailbox sentinel and a 1-tick-per-256-frames rate is never authored.
+        if not (0 <= self.mod <= 0xFE):
+            raise PackError(f"Tempo mod {self.mod} out of authored range 0..254")
 
 
 class ModSet(Event):
@@ -811,7 +813,7 @@ class ChannelDesc:
 
 class SongDesc:
     def __init__(self, tempo: int, channels: list, flags: int = 0,
-                 tempo_base: int = None, pitchtable=None):
+                 tempo_mod: int = None, pitchtable=None):
         self.tempo = tempo
         self.channels = channels
         self.flags = flags          # SH_FLAGS byte (SH_F_* OR'd); pack_song force-sets SH_F_STREAM
@@ -822,17 +824,15 @@ class SongDesc:
         # for the song_table/loader to wire up. None = use the engine default
         # pitch table (the SongHeader pitchtable_ptr stays 0).
         self.pitchtable = pitchtable
-        # Phase 3: per-frame tempo accumulator base. The per-frame engine does a
-        # single `sub 16` per frame, so it can yield at most one event-tick per
-        # frame and REQUIRES tempo_base >= 16 (a value 1..15 packs but plays at a
-        # wildly wrong rate). Songs should set this explicitly via the
-        # frame-rate event-rate math. When omitted we fall back to the legacy
-        # `tempo` (Timer-A selector) but CLAMP it up to the 16 floor so the
-        # default can never produce a silent mis-tempo — a too-low legacy tempo
-        # plays at the slowest valid rate instead of breaking. pack_song still
-        # hard-validates the final value, so an explicit out-of-range value
-        # raises rather than being silently clamped.
-        self.tempo_base = max(16, tempo) if tempo_base is None else tempo_base
+        # Phase 3 / H.4: tempo mod — the RAW S3K TempoWait addend (SMPS header
+        # pass-through). Per frame the engine does `accum += mod`; a CARRY frame
+        # is a tempo-delay (no event-tick), a no-carry frame runs exactly one
+        # event-tick. Event-tick rate = (256 - mod)/256 ticks/frame, so 0 = full
+        # speed (tick every frame; the default) and bigger = slower. This
+        # replaced the old quantizing `tempo_base` reload model (rate 16/N),
+        # whose 1/N granularity mis-played HCZ2 by -1.42%. pack_song
+        # hard-validates the final value (0..255) rather than clamping.
+        self.tempo_mod = 0 if tempo_mod is None else tempo_mod
 
 
 # --- Packing --------------------------------------------------------------
@@ -940,11 +940,13 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
     leaves the engine-default table in use."""
     if not (0 <= song.tempo <= 0xFF):
         raise PackError(f"tempo {song.tempo} out of byte range")
-    if not (16 <= song.tempo_base <= 0xFF):
+    # tempo_mod is a raw byte: ANY 0..255 value is a valid S3K TempoWait addend
+    # (0 = full speed .. 255 = 1 tick per 256 frames). The old ">= 16" floor
+    # guarded the retired reload model's borrow-loop; no such hazard exists in
+    # the add/carry model, so only the byte range is enforced.
+    if not (0 <= song.tempo_mod <= 0xFF):
         raise PackError(
-            f"tempo_base {song.tempo_base} out of range 16..255 (the per-frame "
-            f"tempo accumulator caps at one event-tick/frame; tempo_base<16 "
-            f"mis-plays)")
+            f"tempo_mod {song.tempo_mod} out of byte range 0..255")
     if not (0 <= song.flags <= 0xFF):
         raise PackError(f"flags {song.flags} out of byte range")
     # SH_F_STREAM is FORCE-SET: every song streams from ROM (the engine's COPY
@@ -975,7 +977,7 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
 
     n = len(song.channels)
     # Phase 3 C-ready header:
-    #   flags, tempo, tempo_base, count, dw pitchtable_ptr,
+    #   flags, tempo, tempo_mod, count, dw pitchtable_ptr,
     #   (route + dw cmd_ptr + dw mod_ptr)*n, dw patch_table_ptr.
     header_len = 4 + 2 + 5 * n + 2
 
@@ -1029,7 +1031,7 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
     out = bytearray()
     out.append(flags & 0xFF)
     out.append(song.tempo & 0xFF)
-    out.append(song.tempo_base & 0xFF)
+    out.append(song.tempo_mod & 0xFF)
     out.append(n & 0xFF)
     out.append((pitchtable_offset >> 8) & 0xFF)   # pitchtable_ptr hi (BE)
     out.append(pitchtable_offset & 0xFF)          # pitchtable_ptr lo (0 = default)

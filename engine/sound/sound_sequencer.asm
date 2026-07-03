@@ -33,11 +33,13 @@
 ; active channel, in order:
 ;   (1) call ModUpdate — render the channel's MODULATION STATE to the YM
 ;       (write-on-change; a held single note writes nothing). Stream-agnostic.
-;   (2) advance the per-channel TEMPO ACCUMULATOR (sc_tempo_accum -= SND_TEMPO_CUR). On a
-;       borrow (an event-tick is due), reload (accum += tempo_base) and run the
-;       EXISTING per-event-tick logic (Sequencer_Channel: dur_count + opcode
-;       fetch/dispatch). Otherwise no event-tick this frame (a held note still
-;       burns NO command-stream time — only the accumulator advanced).
+;   (2) advance the per-channel TEMPO ACCUMULATOR — the S3K TempoWait model
+;       (skdisasm Z80 driver :2606): sc_tempo_accum += sc_tempo_mod each frame.
+;       CARRY = a tempo-delay frame (NO event-tick — S3K INCs every track's
+;       DurationTimeout, i.e. delays one frame); NO carry = run EXACTLY ONE
+;       event-tick (Sequencer_Channel: dur_count + opcode fetch/dispatch).
+;       Event-tick rate = (256 - mod)/256 ticks/frame; mod 0 = tick every
+;       frame (full speed). A held note still burns NO command-stream time.
 ; Clobbers af,bc,de,hl,ix.
 ; ----------------------------------------------------------------------
 Sequencer_Frame:
@@ -57,7 +59,7 @@ Sequencer_Frame:
         ld      a, (SND_SEQ_CHCOUNT)
         or      a
         jr      z, .run_sfx              ; no channels -> still run SFX
-        call    Tempo_Ramp               ; ramp the global tempo decrement (resident; preamble-called)
+        call    Tempo_Ramp               ; ramp the global tempo mod (resident; preamble-called)
         call    Fade_Ramp                ; ramp the master fade; sets SND_FADE_DIRTY on a step
         ld      a, (SND_SEQ_CHCOUNT)     ; (the ramps clobbered a)
         ld      b, a                     ; b = channel count (djnz bound)
@@ -80,31 +82,20 @@ Sequencer_Frame:
         or      (ix+sc_mod_ptr+1)
         call    nz, MacroTick
 
-        ; (2) tempo accumulator: subtract the global tempo scalar (SND_TEMPO_CUR;
-        ; 16 = 100% speed, larger = faster) each frame; borrow => event-tick due.
-        ; c is free here (the loop body's push bc/pop bc spans this). No multiply.
-        ld      a, (SND_TEMPO_CUR)       ; global tempo decrement (16 = 100% speed)
-        ld      c, a
-        ld      a, (ix+sc_tempo_accum)
-        sub     c                        ; accum -= global decrement
+        ; (2) tempo gate — S3K's EXACT TempoWait model (skdisasm `Sound/Z80 Sound
+        ; Driver.asm` :2606-2620): accum += mod each frame. CARRY = tempo-delay
+        ; frame (S3K INCs every track's DurationTimeout = one frame of delay) ->
+        ; NO event-tick. NO carry -> exactly ONE event-tick. Rate = (256-mod)/256
+        ; ticks/frame, at most 1/frame; mod 0 never carries = tick every frame
+        ; (the full-speed degenerate case). This replaces the old quantizing
+        ; `accum -= 16; on borrow += tempo_base` shape (H.4: it could only
+        ; express 16/N rates — HCZ2's true $25 mod = 219/256 fell between
+        ; 16/19 and 16/18, a -1.56% tempo error).
+        ld      a, (ix+sc_tempo_mod)
+        add     a, (ix+sc_tempo_accum)
         ld      (ix+sc_tempo_accum), a
-        jr      nc, .chan_done           ; no borrow -> no event-tick this frame
-        ; borrow: absorb it in a LOOP — CUR > tempo_base owes MULTIPLE event-ticks
-        ; per frame (CUR = 2x base must yield 2.0 ticks/frame; a single absorb left
-        ; the accumulator wrapped out of range = burst-then-stall). Each pass adds
-        ; one tempo_base credit and runs one tick; the add's CARRY = accumulator
-        ; back in range = that was the last owed tick. Terminates: the packer
-        ; enforces tempo_base >= 16 AND Tempo operands 1..$FE (and Seq_Op_Tempo
-        ; clamps 0 -> 16 engine-side) -> at most ~16 passes. Re-calling
-        ; Sequencer_Channel with the same ix is safe (an ended channel's dur_count
-        ; underflows to $FF -> ret nz, no fetch).
-.tick_loop:
-        add     a, (ix+sc_tempo_base)    ; absorb one base credit; carry = in range
-        ld      (ix+sc_tempo_accum), a
-        push    af                       ; a + carry survive the tick (a = accum)
-        call    Sequencer_Channel        ; one event-tick (ix preserved)
-        pop     af
-        jr      nc, .tick_loop           ; still out of range -> another tick owed
+        jr      c, .chan_done            ; carry -> tempo-delay frame (no tick)
+        call    Sequencer_Channel        ; exactly one event-tick (ix preserved)
 .chan_done:
         pop     bc
 .next_chan:
@@ -118,11 +109,15 @@ Sequencer_Frame:
 
 ; ----------------------------------------------------------------------
 ; Tempo_Ramp — step SND_TEMPO_CUR one unit toward SND_TEMPO_TARGET each frame
-; (small range -> ~0.1-0.3s glide). No multiply. Clobbers af,b. Preserves ix.
-; RESIDENT — like ALL in-frame code. Banked in-frame CODE is a proven crash
-; hazard (opcode fetches through the $8000 window corrupt under 68k bus
-; contention -> wild PC -> Z80 self-reinit); only DATA tables may live in the
-; banked window. It is tiny (~17 B), so the resident cost is negligible.
+; (small range -> ~0.1-0.3s glide), then propagate the stepped value into every
+; music channel's sc_tempo_mod (the per-frame gate reads the PER-CHANNEL mod, so
+; a global tempo change must be written through). Units are S3K tempo-mod now:
+; 0 = full speed, BIGGER = SLOWER (more skipped frames). No multiply.
+; Clobbers af,bc,de + hl inside the helper (call site reloads all of them).
+; Preserves ix. RESIDENT — like ALL in-frame code. Banked in-frame CODE is a
+; proven crash hazard (opcode fetches through the $8000 window corrupt under
+; 68k bus contention -> wild PC -> Z80 self-reinit); only DATA tables may live
+; in the banked window. It is tiny, so the resident cost is negligible.
 ; ----------------------------------------------------------------------
 Tempo_Ramp:
         ld      a, (SND_TEMPO_TARGET)
@@ -130,13 +125,38 @@ Tempo_Ramp:
         ld      a, (SND_TEMPO_CUR)
         cp      b
         ret     z                        ; at target -> nothing
-        jr      c, .up                   ; cur < target -> speed up
-        dec     a                        ; cur > target -> slow down
-        ld      (SND_TEMPO_CUR), a
-        ret
+        jr      c, .up                   ; cur < target -> count up (slower)
+        dec     a                        ; cur > target -> count down (faster)
+        jr      .store
 .up:
         inc     a
+.store:
         ld      (SND_TEMPO_CUR), a
+        ; fall through: write the stepped mod into every channel (a = new mod)
+
+; ----------------------------------------------------------------------
+; Tempo_WriteChanMods — write a (a tempo mod) into EVERY allocated music
+; channel's sc_tempo_mod. The per-frame gate is per-channel, so the global
+; tempo machinery (MEV_TEMPO / the 68k SND_REQ_TEMPO ramp) propagates through
+; here. chcount 0 -> no-op. In: a = mod. Preserves hl (callers hold the live
+; stream ptr), ix. Clobbers af,bc,de. RESIDENT (RAM-only; reached from the
+; in-frame ramp AND from Seq_Op_Tempo).
+; ----------------------------------------------------------------------
+Tempo_WriteChanMods:
+        push    hl
+        ld      c, a                     ; c = the mod value to broadcast
+        ld      a, (SND_SEQ_CHCOUNT)
+        or      a
+        jr      z, .done                 ; no channels -> nothing to write
+        ld      b, a
+        ld      hl, SND_SEQ_CHANNELS + sc_tempo_mod
+        ld      de, SeqChannel_len
+.wloop:
+        ld      (hl), c
+        add     hl, de
+        djnz    .wloop
+.done:
+        pop     hl
         ret
 
 ; ----------------------------------------------------------------------
@@ -1189,21 +1209,21 @@ Seq_Op_Porta:
         ld      (ix+sc_porta_incr+1), 0
         jp      Seq_ContinueFetch
 
-; $F3 MEV_TEMPO + dd : set the GLOBAL tempo speed scalar (per-frame accumulator
-; decrement; 16 = authored/normal, larger = faster, smaller = slower). Snaps
-; base+cur+target (instant authored change). 0 clamped to default (0 would freeze
-; every accumulator). GLOBAL (affects all channels) though it rides one stream.
-; Zero-tick; no writer hook -> hl stays the live stream ptr.
+; $F3 MEV_TEMPO + dd : set the GLOBAL tempo mod (S3K TempoWait units: RAW
+; accumulator addend; 0 = full speed / tick every frame, BIGGER = SLOWER —
+; each frame that carries is a skipped event-tick). Snaps base+cur+target
+; (instant authored change) and writes through to every channel's sc_tempo_mod
+; (the per-frame gate is per-channel). 0 is a VALID mod now (full speed) — the
+; old "clamp 0 -> 16" guard died with the decrement model (a 0 mod never
+; freezes; it never carries). GLOBAL (affects all channels) though it rides
+; one stream. Zero-tick; Tempo_WriteChanMods preserves hl = live stream ptr.
 Seq_Op_Tempo:
         ld      a, (hl)
-        inc     hl                       ; consume operand (decrement value)
-        or      a
-        jr      nz, .ok
-        ld      a, SND_TEMPO_DECR_DEFAULT ; 0 -> normal (never freeze)
-.ok:
+        inc     hl                       ; consume operand (mod value)
         ld      (SND_TEMPO_BASE), a      ; authored base (restore reference)
         ld      (SND_TEMPO_CUR), a       ; instant snap (no ramp for an authored set)
         ld      (SND_TEMPO_TARGET), a
+        call    Tempo_WriteChanMods      ; propagate to the per-channel gates
         jp      Seq_ContinueFetch
 
 ; $EC MEV_MODSET + wait speed change step : latch the pitch-modulation params (the

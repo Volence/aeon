@@ -22,7 +22,8 @@ SND_REQ_SAMPLE          = SND_REQ_BASE+$01       ; DAC sample id (0 = idle)
 SND_REQ_MUSIC           = SND_REQ_BASE+$02       ; music command (0 idle / 1..$FE play / $FF stop)
 SND_REQ_SFX             = SND_REQ_BASE+$03       ; reserved (Phase 1C)
 SND_REQ_FADE            = SND_REQ_BASE+$05       ; master-fade cmd (0 idle / 1 out / 2 in)
-SND_REQ_TEMPO           = SND_REQ_BASE+$06       ; tempo cmd (0 idle / 1..$FE target / $FF restore)
+SND_REQ_TEMPO           = SND_REQ_BASE+$06       ; tempo cmd (0 idle / 1..$FE target mod, bigger
+                                                 ;   = slower / $FF restore authored)
 SND_MUSIC_STOP          = $FF                    ; SND_REQ_MUSIC stop sentinel
 
 ; --- Status / ack region (Z80 writes, 68k reads) ---
@@ -420,8 +421,9 @@ MEV_PSGNOISE      = $F2   ; + ctrl : set the SN76489 noise control byte (mode+ra
 ; — the new state fields are zeroed at seq/slot wipe). Each pins its own slot with a
 ; fixed-slot assert, so the global ($F3/$F4) and per-note ($F5/$F6) slices are
 ; collision-free by construction without a cross-ifdef.
-MEV_TEMPO         = $F3   ; + dd : set the GLOBAL tempo speed scalar (per-frame accumulator
-                          ; decrement; 16 = authored/normal, larger = faster, smaller = slower).
+MEV_TEMPO         = $F3   ; + dd : set the GLOBAL tempo mod (S3K TempoWait units: the raw
+                          ; per-frame accumulator addend; 0 = full speed / tick every frame,
+                          ; bigger = slower — every accumulator CARRY skips one event-tick).
         if (MEV_TEMPO <= MEV_NOTE_MAX) || (MEV_TEMPO < MEV_VOL) || (MEV_TEMPO > MEV_END)
           error "MEV_TEMPO (\{MEV_TEMPO}) must be a command opcode inside $E0-$FF"
         endif
@@ -814,7 +816,9 @@ SND_FADE_CMD_IN        = 2       ; SND_REQ_FADE: snap silent, ramp DOWN to full
 SND_FADE_SILENCE       = SND_FM_TL_MAX   ; $7F = full master-fade attenuation
 SND_FADE_STEP          = 2       ; fade change per applied step (TL units; full fade ~1.06s)
 SND_FADE_DELAY         = 1       ; frames between fade steps (1 = every frame)
-SND_TEMPO_DECR_DEFAULT = 16      ; normal-speed per-frame accumulator decrement (100%)
+; (SND_TEMPO_DECR_DEFAULT (16, the old fixed per-frame decrement) is RETIRED:
+; the S3K tempo-mod model's full-speed value is 0, and 0 is what init/xor
+; naturally seeds — no named constant needed.)
 SND_TEMPO_RESTORE      = $FF     ; SND_REQ_TEMPO sentinel: ramp back to the authored base
 
 ; --- FmPatch struct (the YM record) ---
@@ -902,7 +906,7 @@ sc_route        ds.b 1   ; +11 the PHYSICAL voice this SFX currently owns (CHROU
 sc_loop_ptr     ds.w 1   ; +12
 sc_repeat_ptr   ds.w 1   ; +14
 sc_repeat_count ds.b 1   ; +16
-sc_tempo_base   ds.b 1   ; +17
+sc_tempo_mod    ds.b 1   ; +17 (S3K tempo mod; SFX slots arm it 0 = full rate)
 sc_tempo_accum  ds.b 1   ; +18
 sc_pt_count     ds.b 1   ; +19
 sc_pt_cursor    ds.b 1   ; +20
@@ -977,8 +981,8 @@ sx_kind         = SfxChannel_sx_kind
 ;     stream; NULL for A / single-stream songs). The header descriptor commits a
 ;     {cmd_ptr, mod_ptr} pair NOW so reaching C (a second stream reader writing
 ;     the same MODULATION-STATE block) is purely additive — no layout migration.
-;   * the per-frame tempo accumulator (sc_tempo_base / sc_tempo_accum) that gates
-;     musical timing at the fixed ~59.92 Hz NTSC frame rate.
+;   * the per-frame tempo gate (sc_tempo_mod / sc_tempo_accum) that gates
+;     musical timing at the fixed ~59.92 Hz NTSC frame rate (S3K TempoWait model).
 ;   * the MODULATION-STATE block (pitch points/cursor, transpose, pan, per-op TL
 ;     bias, portamento, last-loaded patch) that ModUpdate renders to the YM —
 ;     STREAM-AGNOSTIC: ModUpdate only reads this state, never parses a stream.
@@ -1009,9 +1013,11 @@ sc_loop_ptr     ds.w 1   ; +12 saved loop-point ptr (set by $EE, used by $EF)
 ; count per channel is sufficient (nested repeats are UNSUPPORTED by design).
 sc_repeat_ptr   ds.w 1   ; +14 body-start ptr saved by $E5, reloaded by $E6 on jump-back
 sc_repeat_count ds.b 1   ; +16 reps remaining (0 = no active repeat / fresh-OR-done)
-; --- per-frame tempo accumulator (Phase 3): tempo_accum -= 16 each frame; on
-; borrow, tempo_accum += tempo_base and the channel consumes an event-tick. ---
-sc_tempo_base   ds.b 1   ; +17 tempo "format code" (event-tick rate vs frame rate)
+; --- per-frame tempo gate (S3K TempoWait model, skdisasm Z80 driver :2606):
+; tempo_accum += tempo_mod each frame; CARRY = tempo-delay frame (NO event-tick),
+; no carry = consume exactly one event-tick. Rate = (256-mod)/256 ticks/frame;
+; mod 0 = tick every frame (full speed; the accumulator then never changes). ---
+sc_tempo_mod    ds.b 1   ; +17 raw S3K tempo mod (header pass-through; 0 = full speed)
 sc_tempo_accum  ds.b 1   ; +18 running accumulator (the per-channel musical clock)
 ; --- MODULATION-STATE block (Phase 3; rendered by ModUpdate, Tasks 3–7) -------
 sc_pt_count     ds.b 1   ; +19 pitch-envelope point count (1 = plain note, >=2 = trill/arp)
@@ -1104,7 +1110,7 @@ sc_route        = SeqChannel_sc_route
 sc_loop_ptr     = SeqChannel_sc_loop_ptr
 sc_repeat_ptr   = SeqChannel_sc_repeat_ptr
 sc_repeat_count = SeqChannel_sc_repeat_count
-sc_tempo_base   = SeqChannel_sc_tempo_base
+sc_tempo_mod    = SeqChannel_sc_tempo_mod
 sc_tempo_accum  = SeqChannel_sc_tempo_accum
 sc_pt_count     = SeqChannel_sc_pt_count
 sc_pt_cursor    = SeqChannel_sc_pt_cursor
@@ -1224,7 +1230,7 @@ SND_SEQ_PATCHTAB   = SND_SEQ_BASE+$02   ; loaded patch table ptr (2)
 SND_SEQ_ACTIVE     = SND_SEQ_BASE+$04   ; 1 = song playing
 SND_SEQ_BADOP      = SND_SEQ_BASE+$05   ; DEBUG: last bad opcode seen (Seq_BadOpcode marker)
 SND_SEQ_TRACE_WR   = SND_SEQ_BASE+$06   ; trace ring write index (0..31)
-SND_SEQ_TEMPO_BASE = SND_SEQ_BASE+$07   ; Phase 3: cached song tempo_base (per-frame accumulator base)
+SND_SEQ_TEMPO_MOD  = SND_SEQ_BASE+$07   ; Phase 3: cached song tempo_mod (raw S3K TempoWait addend)
 SND_SEQ_CHANNELS   = SND_SEQ_BASE+$08   ; CHROUTE_COUNT * SeqChannel_len
 SND_SEQ_END        = SND_SEQ_CHANNELS + (CHROUTE_COUNT * SeqChannel_len)
 SND_SEQ_TRACE_LEN  = 32             ; 32-byte trace ring of dispatched opcodes
@@ -1299,9 +1305,9 @@ SND_MASTER_FADE     = SND_GLOBAL_EXPR+$00   ; current fade atten (0 full .. $7F 
 SND_FADE_TARGET     = SND_GLOBAL_EXPR+$01   ; fade ramp target
 SND_FADE_DELAY_CTR  = SND_GLOBAL_EXPR+$02   ; frames-until-next-step countdown
 SND_FADE_DIRTY      = SND_GLOBAL_EXPR+$03   ; 1 = fade stepped this frame (ModUpdate re-asserts)
-SND_TEMPO_CUR       = SND_GLOBAL_EXPR+$04   ; current per-frame accumulator decrement (16=100%)
-SND_TEMPO_TARGET    = SND_GLOBAL_EXPR+$05   ; tempo ramp target
-SND_TEMPO_BASE      = SND_GLOBAL_EXPR+$06   ; authored base (MEV_TEMPO; restore reference)
+SND_TEMPO_CUR       = SND_GLOBAL_EXPR+$04   ; current tempo mod (S3K units: 0=full speed, bigger=slower)
+SND_TEMPO_TARGET    = SND_GLOBAL_EXPR+$05   ; tempo ramp target (mod units)
+SND_TEMPO_BASE      = SND_GLOBAL_EXPR+$06   ; authored mod (header/MEV_TEMPO; restore reference)
 SND_GLOBAL_EXPR_LEN = 7
 
     ; Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots)
@@ -1384,7 +1390,7 @@ SEQEV_RPT_END   = 10    ; bounded-repeat body end ($E6) — fires on every pass
 ; Phase 3 C-ready header. Each channel descriptor now commits a {cmd_ptr, mod_ptr}
 ; PAIR (the C-ready stream seam): cmd_ptr = the command stream (slot[0], always
 ; present), mod_ptr = the independent modulation stream (slot[1], 0/NULL for A /
-; single-stream songs). The header also gains a per-frame tempo_base and a per-song
+; single-stream songs). The header also gains a per-frame tempo_mod and a per-song
 ; pitchtable_ptr (0 = engine default). Reaching the full dual-stream end state is
 ; then purely additive (populate mod_ptr + add a reader) — no header migration.
 ; SongHeader:
@@ -1393,7 +1399,9 @@ SEQEV_RPT_END   = 10    ; bounded-repeat body end ($E6) — fires on every pass
 ;                        ; it MUST stay at offset 0.
 ;   db  tempo            ; LEGACY Timer-A selector (Phase 3: UNUSED — Timer-A is a
 ;                        ; fixed frame clock; kept for layout stability). +1
-;   db  tempo_base       ; Phase 3 per-frame tempo accumulator base. +2
+;   db  tempo_mod        ; Phase 3 tempo mod (raw S3K TempoWait addend; SMPS
+;                        ; pass-through — smpsHeaderTempo's mod byte). 0 = full
+;                        ; speed; rate = (256-mod)/256 event-ticks/frame. +2
 ;   db  channel_count    ; +3
 ;   dw  pitchtable_ptr   ; Phase 3 per-song pitch table BE offset (0 = engine default). +4
 ;   ; per channel: route + cmd_ptr (BE off) + mod_ptr (BE off, 0 for A)
@@ -1407,7 +1415,7 @@ SEQEV_RPT_END   = 10    ; bounded-repeat body end ($E6) — fires on every pass
 ; Fixed-position fields (SH_FLAGS stays at +0 — the 68k forwards it):
 SH_FLAGS        = 0     ; +0  per-song playback-mode flags (SH_F_* below)
 SH_TEMPO        = 1     ; +1  LEGACY Timer-A selector (Phase 3: unused)
-SH_TEMPO_BASE   = 2     ; +2  per-frame tempo accumulator base (Phase 3)
+SH_TEMPO_MOD    = 2     ; +2  tempo mod, raw S3K TempoWait addend (Phase 3 / H.4)
 SH_CHCOUNT      = 3     ; +3  channel count
 SH_PITCHTAB_HI  = 4     ; +4  pitch table offset high byte (big-endian; 0 = default)
 SH_PITCHTAB_LO  = 5     ; +5  pitch table offset low byte

@@ -104,6 +104,32 @@ class TestTempoMapping(unittest.TestCase):
             self.assertTrue(0 <= tb <= 0xFF, (delta, tb))
 
 
+class TestTempoModConversion(unittest.TestCase):
+    """Zyrinx tempo base (rate 16/base) -> S3K engine tempo mod (rate
+    (256-mod)/256): mod = 256 - round(4096/base). H.4 replaced the engine's
+    16/N reload model with S3K's exact add/carry model, so the MT header now
+    carries a mod byte."""
+
+    def test_full_speed_base_16_is_mod_0(self):
+        # 16/16 = 1 tick/frame -> mod 0 (never carries) — EXACT.
+        from zyrinx_player import zyrinx_base_to_tempo_mod
+        self.assertEqual(zyrinx_base_to_tempo_mod(16), 0)
+
+    def test_moving_trucks_base_56_is_mod_183(self):
+        # MT's format code $38=56 -> true rate 16/56 = 2/7 = 0.285714…, which
+        # is NOT representable as k/256. Nearest mod: 256 - 4096/56 = 182.857
+        # -> 183 (rate 73/256 = 0.285156, -0.196%). mod 182 would be +1.17%.
+        from zyrinx_player import zyrinx_base_to_tempo_mod
+        self.assertEqual(zyrinx_base_to_tempo_mod(0x38), 183)
+
+    def test_power_of_two_bases_are_exact(self):
+        # Any base dividing 4096 converts exactly: rate 16/base == (256-mod)/256.
+        from zyrinx_player import zyrinx_base_to_tempo_mod
+        for base in (16, 32, 64, 128, 256):
+            mod = zyrinx_base_to_tempo_mod(base)
+            self.assertEqual((256 - mod) * base, 16 * 256, base)
+
+
 class TestDuration(unittest.TestCase):
     """wait `frames` -> our duration ticks. Our tick rate is ~DURATION_SCALE x
     the original event rate, so a frame maps to DURATION_SCALE ticks."""

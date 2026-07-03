@@ -59,8 +59,7 @@ Snd_HCZ2_Header:
 def test_parse_header():
     cfg = parse_header(HCZ2_HEADER)
     assert cfg.divider == 0x01
-    assert cfg.tempo_mod == 0x25
-    assert cfg.tempo_base == 19       # 4096/(256-0x25) = 4096/219 ≈ 18.7 -> 19
+    assert cfg.tempo_mod == 0x25      # raw S3K TempoWait addend (pass-through)
     assert [c.label for c in cfg.channels] == [
         "Snd_HCZ2_DAC","Snd_HCZ2_FM1","Snd_HCZ2_FM2","Snd_HCZ2_FM3",
         "Snd_HCZ2_FM4","Snd_HCZ2_FM5","Snd_HCZ2_PSG1","Snd_HCZ2_PSG2","Snd_HCZ2_PSG3"]
@@ -74,31 +73,28 @@ def test_parse_header():
     dac = cfg.channels[0]
     assert dac.kind == "DAC"
 
-# ── Tempo conversion correctness ─────────────────────────────────────────────
-# Engine model: accum -= 16/frame, tick on borrow -> ticks/frame = 16/tempo_base.
-# SMPS model:   accum += mod/frame, overflow skips tick -> ticks/frame = (256-mod)/256.
-# Match:        tempo_base = 4096 / (256 - mod).
+# ── Tempo pass-through correctness (H.4) ─────────────────────────────────────
+# The engine now runs S3K's EXACT TempoWait model (accum += mod/frame; a carry
+# frame skips the event-tick -> rate = (256 - mod)/256), so the SMPS header mod
+# byte is a RAW pass-through — no conversion, no quantization. The old
+# `cfg.tempo_base` property (round(4096/(256-mod)) for the retired 16/N reload
+# model) is gone: it could only approximate SMPS rates (HCZ2 -1.42%).
 
-def test_tempo_mod_zero_gives_max_rate():
-    # mod=0 -> denominator 256 -> 4096/256 = 16 -> 1 tick/frame (maximum rate).
-    cfg = SongConfig(); cfg.tempo_mod = 0
-    assert cfg.tempo_base == 16
-
-def test_tempo_mod_hcz2():
-    # HCZ2: mod=$25=37 -> 4096/(256-37) = 4096/219 ≈ 18.70 -> 19.
+def test_tempo_mod_is_raw_passthrough():
     cfg = SongConfig(); cfg.tempo_mod = 0x25
-    assert cfg.tempo_base == 19
+    assert cfg.tempo_mod == 0x25
+    assert not hasattr(SongConfig(), "tempo_base")  # conversion property deleted
 
-def test_tempo_mod_high_clamps():
-    # mod=$F0=240 -> 4096/(256-240) = 4096/16 = 256; clamp to 255.
-    cfg = SongConfig(); cfg.tempo_mod = 0xF0
-    assert cfg.tempo_base == 255
-
-def test_tempo_mod_never_below_16():
-    # Even mod=0 the floor is 16 (1 tick/frame exactly = already there).
-    # Try a very small denom via mod=255 -> 4096/1 = 4096, clamp to 255.
-    cfg = SongConfig(); cfg.tempo_mod = 255
-    assert cfg.tempo_base == 255
+def test_tempo_mod_hcz2_header_byte_is_25():
+    # HCZ2's smpsHeaderTempo $01, $25 must land in the packed header at +2
+    # UNCHANGED ($25 -> event-tick rate 219/256 = 0.85547/frame, S3K-exact).
+    from song_packer import SongDesc, ChannelDesc, CHROUTE_FM1, pack_song
+    from song_packer import Patch, Vol, SetDur, Note, End
+    cfg = parse_header(HCZ2_HEADER)
+    song = SongDesc(tempo=0x80, tempo_mod=cfg.tempo_mod, channels=[
+        ChannelDesc(CHROUTE_FM1, [Patch(0), Vol(100), SetDur(8), Note(10), End()])])
+    blob = pack_song(song)
+    assert blob[2] == 0x25
 
 # ── Task 1.2 ─────────────────────────────────────────────────────────────────
 
@@ -580,7 +576,7 @@ def test_convert_song_route_assignment_and_tempo():
     assert routes == [CHROUTE_DAC, CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3,
                       CHROUTE_FM4, CHROUTE_FM5, CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3]
     assert song.tempo == 0x80
-    assert song.tempo_base == 19      # 4096/(256-0x25) = 4096/219 ≈ 18.7 -> 19
+    assert song.tempo_mod == 0x25     # raw SMPS mod pass-through (S3K-exact model)
 
 def test_convert_song_prepends_vol_and_patch():
     from song_packer import Vol, Patch, Note

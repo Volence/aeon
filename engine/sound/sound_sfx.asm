@@ -267,13 +267,14 @@ Sfx_Frame:
         ; (1) modulation layer — render the SFX channel's state -> chip. ix kept.
         call    ModUpdate
 
-        ; (2) tempo accumulator: -16/frame; borrow => an event-tick is due.
-        ld      a, (ix+sc_tempo_accum)
-        sub     16
+        ; (2) tempo gate (S3K TempoWait model, same shape as Sequencer_Frame):
+        ; accum += mod; carry -> tempo-delay frame (no event-tick). SFX slots
+        ; are armed with mod 0 (below, at dispatch) -> the add never carries ->
+        ; one event-tick EVERY frame (SFX stay unconditioned full-rate).
+        ld      a, (ix+sc_tempo_mod)
+        add     a, (ix+sc_tempo_accum)
         ld      (ix+sc_tempo_accum), a
-        jr      nc, .slot_done           ; no borrow -> no event-tick this frame
-        add     a, (ix+sc_tempo_base)
-        ld      (ix+sc_tempo_accum), a
+        jr      c, .slot_done            ; carry -> no event-tick this frame
         call    Sequencer_Channel        ; advance the SFX cursor (shared interp)
         ; if the SFX stream ended, Seq_Op_End (MEV_END) cleared SCF_ACTIVE.
         bit     SCF_ACTIVE_B, (ix+sc_flags)
@@ -828,8 +829,8 @@ Sfx_BeginSound:
         ld      (ix+sc_dur_count), 1     ; fire the first event-tick promptly
         ld      (ix+sc_dur_default), 1
         ld      (ix+sc_pt_count), 1      ; plain-note path (no trill/arp)
-        ld      (ix+sc_tempo_base), 16   ; one event-tick per frame (accum -16 +16)
-        ld      (ix+sc_tempo_accum), 16
+        ld      (ix+sc_tempo_mod), 0     ; mod 0 = never carries = tick every frame
+        ld      (ix+sc_tempo_accum), 0
 
         call    Sfx_Steal                ; override the music voice + load the SFX voice
 

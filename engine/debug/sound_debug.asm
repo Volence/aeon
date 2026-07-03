@@ -15,15 +15,17 @@
 ; no longer mirror FULL channel slots within the 176-byte Sound_Dbg_Mirror. The
 ; mirror is a DEBUG observability window, not a faithful struct copy, so we mirror
 ; a PREFIX of each channel (SEQ_MIRROR_CHBYTES bytes) that captures the controller-
-; observed liveness fields — through sc_tempo_accum (+18), which proves the
-; per-frame tempo accumulator is advancing. The shipping songs (song_*.py)
+; observed liveness fields — through sc_tempo_accum (+18). (S3K tempo model:
+; the accumulator advances only when sc_tempo_mod is nonzero — a mod-0 /
+; full-speed song holds it at 0 forever, so liveness is proven via dur_count /
+; stream_ptr movement, not the accumulator.) The shipping songs (song_*.py)
 ; has 3 channels (FM1, FM2, PSG1), so 3 slots is the window.
 ;
 ; Per-channel mirror prefix (offsets within the 20-byte slot, from SeqChannel +0):
 ;   +0/+1 sc_stream_ptr, +2/+3 sc_mod_ptr, +4 sc_dur_count, +5 sc_dur_default,
 ;   +6 sc_patch, +7 sc_last_patch, +8 sc_volume, +9 sc_note, +10 sc_flags,
 ;   +11 sc_route, +12/+13 sc_loop_ptr, +14/+15 sc_repeat_ptr, +16 sc_repeat_count,
-;   +17 sc_tempo_base, +18 sc_tempo_accum, +19 sc_pt_count.
+;   +17 sc_tempo_mod, +18 sc_tempo_accum, +19 sc_pt_count.
 ; (Task 6's sc_pan +27, sc_opbias +28..+31, and sc_last_pan +36 live PAST the
 ; 20-byte prefix, so they are not mirrored; the controller verifies the $B4/$40
 ; writes via the Exodus YM register stream / the Task-9 oracle diff instead.)
@@ -60,7 +62,7 @@ Sound_DebugMirror:
         ;   [64] SND_SEQ_TEMPO      [65] SND_SEQ_CHCOUNT
         ;   [66..67] SND_SEQ_PATCHTAB
         ;   [68] SND_SEQ_ACTIVE     [69] SND_SEQ_BADOP
-        ;   [70] SND_SEQ_TRACE_WR   [71] SND_SEQ_TEMPO_BASE
+        ;   [70] SND_SEQ_TRACE_WR   [71] SND_SEQ_TEMPO_MOD
         ;   [72..] channel prefixes (SEQ_MIRROR_CHBYTES each) — see the field map above.
         ;   [...] SND_SEQ_TRACE ring (32 bytes); each = (route<<4)|event_code.
         ; Fit guard: 64 + (header + N*prefix) + trace <= 176.
