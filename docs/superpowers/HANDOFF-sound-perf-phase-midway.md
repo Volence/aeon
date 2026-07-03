@@ -22,11 +22,15 @@ emulator MCP tools** (a hung MCP call deadlocked two background agents for 9 hou
 | T7 table renorm | **DONE + capture-verified 2026-07-02** (`af82335` + review minors, budget-neutral, pytest 811+2). FM1 depth 19.2→36.7 vs ref 36.6 (encoding gap CLOSED); all 7 C-notes S3K-aligned via the rounding-edge fix (spec review endorsed); MT proven table-independent; SFX spectral parity. Numbers: `phase_harness/t7_verification.md`. FM0/FM2 keep a ~4c residue (band-overlap notes, not a table artifact) — carry to the T12 matrix. |
 | T8 env write-on-change | **DONE + capture-verified 2026-07-02** (`125ed3e` + review minors `dc7cab5`, byte-neutral). Rendered-inaudible (bed +0.1 dB); FM env attack seam (1-2 frames) carried to T12 by-ear. `phase_harness/t8_verification.md`. |
 | T9 DAC drain | **CLOSED BY MEASUREMENT 2026-07-02**: D.2 implemented (`8a43fd3`+`1e1f2cc`), measured net-negative twice (holds 24.1%→~50%, tempo −20% ungated), root-caused as architecturally unsound, REVERTED (`d6c11dd`+). T8 state = measured best (24.1% vs ref 21.4%). D.3 REJECTED on digital-silence parity. Follow-up lever = shorten worst ticks (DEFERRED_WORK at T12). `phase_harness/t9_verification.md`. |
-| T10–T12 | Not started. Oracle fully healthy (04ac467): reload→press from PAUSE (game auto-plays at boot — see t8_verification capture procedure). |
+| T10 porta | **DONE + capture-verified 2026-07-02** (`0205df1`+`f0825f1`+`e878469`, resident + `MEV_PORTA` + packer, +386 B): 3000+ frame soak PC-resident, `$0000` trap silent, uniform +8 fnum sweeps on the canonical table. T0.3 was already closed by T2/T3 (banked file gone pre-task). `phase_harness/t10_verification.md`. |
+| T11 frame clock | **DONE 2026-07-02** (`f56149a`): measured 59.873 Hz at N=136 under load → compensated pin N=137 = **59.9227 Hz exactly** (10,800/10,800 ticks). Drift residual isolated to the transcoder side → became H.4 work: the **S3K-exact tempo model shipped** (`b342889`, −1.42%→−0.52%; remainder = import loop length, deferred). `phase_harness/t11_verification.md`. |
+| T12 gate + doc sync | **Docs synced + H-matrix assembled 2026-07-02** (`phase_harness/t12_matrix.md` — all engine gates PASS; budget `$175A/$18F0` = $196 free DEBUG; pytest 815+2). ARCH §6 / DEFERRED_WORK / spec + handoff headers updated. **MERGE PENDING: user by-ear pass (H.2 drums, FM env attack seam) + explicit go.** |
 | T3.6 (unplanned) | StopMusic wedge → became the oracle saga (§3). Engine EXONERATED. |
 
-**Z80 budget: `$15CE / $18F0 ($322 free)` = 802 bytes free** (was 6 at phase start).
-pytest baseline: 808 passed, 2 skipped (2 old failures were fixed by the `.worktrees/skdisasm`
+**Z80 budget (phase-final 2026-07-02): `$175A / $18F0` = $196 (406) bytes free, DEBUG=1**
+(was 6 at phase start; midway peak after T2-T4 recovery was 802 free — porta + fidelity
+fixes spent it back; plain builds run 126 B leaner).
+pytest (final): 815 passed, 2 skipped (2 old failures were fixed by the `.worktrees/skdisasm`
 symlink — it must exist: `ln -sfn /home/volence/sonic_hacks/skdisasm /home/volence/sonic_hacks/aeon/.worktrees/skdisasm`).
 
 ## 2. Harness assets (RESCUED into repo — the session scratchpad is gone)

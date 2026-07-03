@@ -1219,7 +1219,8 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   (one key-on, smooth fade to silence). `Snd_ChanClass` has converted 11 of 12 inline channel-class sites;
   the 1 remaining + future reclaim is there if needed. (Historical: that fix left $16EE / 2 free; Task 0
   banking then recovered to $1618 / 216 free, and later phases spent it back to 10 free (2026-07-01);
-  the 2026-07-02 budget phase recovered to **$15D8 / $18F0 → 792 free** — see F1/F5.)
+  the 2026-07-02 budget phase recovered ~790 B and ended at **$175A / $18F0 → $196 (406) free,
+  DEBUG=1** after spending on fidelity + portamento — see F1/F5.)
 - **B5 — `smpsPSGform $E7` tone-FREQUENCY-TRACKED noise sweep** (refinement; the fixed-rate fix is done — see
   `docs/BUGS.md` BUG-003). The dash `$B6` (and any `smpsPSGform $E7` SFX) is now correctly rerouted to the
   NOISE channel, but plays a FIXED white-noise rate (`$E6`, clk/2048). S&K's `$E7` is white noise whose shift
@@ -1259,8 +1260,10 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   channel carrying `sc_mod_ctrl!=0` corrupts the noise control register. Gate on tone route + reject in transcoder.
 - **D2** note before any set-duration reloads from a zeroed `sc_dur_default` → 255-tick stuck note
   (`sound_sequencer.asm` 536; init `sc_dur_default` to 1).
-- **D3** `sc_mod_wait` never restored on note re-arm — 2nd+ modulated note gets zero delay vs S3K
-  `zPrepareModulation` (`sound_sequencer.asm` 381; add `sc_mod_wait_raw`).
+- ~~**D3** `sc_mod_wait` never restored on note re-arm — 2nd+ modulated note gets zero delay vs S3K
+  `zPrepareModulation` (`sound_sequencer.asm` 381; add `sc_mod_wait_raw`).~~ **DONE 2026-07-02
+  (budget phase T6):** `sc_mod_wait_raw` + `sc_mod_delta_raw` latched at MODSET, reloaded every
+  note-on — capture-verified at ref parity (`docs/research/phase_harness/t6_verification.md`).
 - **D4** `Psg_NoteOn` ignores `sc_transpose` (S3K applies it to PSG too) (`sound_psg.asm` 154).
 - **D5** PSG envelope attack uses a stale `sc_psgenv_out` / lands one frame late vs S3K (`sound_psg.asm`
   106/184; zero `sc_psgenv_out` at cursor-reset).
@@ -1278,9 +1281,10 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   **SFX channels only** — music gets none. Promote that machinery into the music `SeqChannel` path + add a
   fine-pitch representation. Fields `sc_porta_accum/incr` reserved (`sound_constants.asm` 793). *(This is
   the same as the long-deferred Phase 3a Task 7 portamento + Zyrinx "take-next".)* *(**2026-07-01:** the
-  fine-pitch half SHIPPED — `MEV_DETUNE` + music vibrato/`MEV_MODSET` are live on music channels; the
-  PORTAMENTO half is the last open music-expression item, turnkey via
-  `docs/superpowers/plans/2026-06-28-portamento-resume.md`.)*
+  fine-pitch half SHIPPED — `MEV_DETUNE` + music vibrato/`MEV_MODSET` are live on music channels.)*
+  *(**DONE 2026-07-02 (budget phase T10):** the PORTAMENTO half SHIPPED — `MEV_PORTA` ($F5) +
+  `Porta_Apply` fully RESIDENT, packer event + tests, soak/glide capture-verified
+  (`docs/research/phase_harness/t10_verification.md`). This entry is closed.)*
 - ~~**E-now-2 — per-frame FM TL volume envelope on music channels**~~ **DONE 2026-06-27 (music-expr merge)** —
   shipped as `MEV_FMENV` ($F7) + `FmEnvUpdate` (per-frame FM-TL carrier volume envelope), reusing the existing
   `Fm_PatchTlGroup` TL-write plumbing; no format change. Supersedes the static `OPBIAS`-only state. (Flamedriver `zDoFMVolEnv`.)
@@ -1343,8 +1347,11 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   `SND_SFX_BASE` / frozen `$1F00+` mailbox), layout invariants (incl. the `Snd_ChanClass` page-compare
   contract), headroom history, and the complete assert inventory. `sound_constants.asm` stays the
   authoritative values; the spec documents the design + which assert guards which seam.
-  **Live headroom as of 2026-07-02: `Z80_SOUND_SIZE` = $15D8, ceiling `SND_STATE_BASE` = $18F0 →
-  792 bytes free** (A.1 song-buffer delete + A.2 table banking + A.3's +512 ceiling raise). The
+  **Phase-final headroom (2026-07-02, end of the budget phase): `Z80_SOUND_SIZE` = $175A, ceiling
+  `SND_STATE_BASE` = $18F0 → $196 (406) bytes free** — DEBUG=1 figures; plain builds are 126 B
+  leaner. (A.1 song-buffer delete + A.2 table banking + A.3's +512 ceiling raise recovered ~790 B
+  to a peak of 802 free; the phase then spent it on fidelity — rekey −10, mod re-arm +18, porta
+  +386, tempo model −8. Full ledger: `docs/research/phase_harness/t12_matrix.md`.) The
   resident-code budget remains the binding sound constraint; data-banking remains the recovery lever
   (code may NOT be banked).
 - **F2** `ENGINE_ARCHITECTURE.md §6` still lists SFX deferred + AF_SOUND a stub (update on merge to master).
@@ -1359,10 +1366,12 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   lookup tables were co-located at the start of Moving Trucks' streamed ROM bank (read with the song bank already
   in the `$8000` window — no swap), recovering Z80 code headroom from ~2 B → ~1016 B. The Phase 1/3
   music-expression features consumed most of that back; music-expr Phase 2 (detune/LFO/tempo/fade) and the
-  2026-07-01 review fix pass took the rest. **Live as of 2026-07-02 (budget A.1/A.2/A.3):
-  `Z80_SOUND_SIZE` = $15D8, ceiling `SND_STATE_BASE` = $18F0 → 792 bytes free** (build message /
-  `s4.lst`). See F1 above (now DONE — the rewritten z80-ram-map spec carries the full headroom
-  history), and the "Music-expression Task 0 (Z80 code recovery)" entry above.
+  2026-07-01 review fix pass took the rest. **Phase-final as of 2026-07-02 (budget phase complete):
+  `Z80_SOUND_SIZE` = $175A, ceiling `SND_STATE_BASE` = $18F0 → $196 (406) bytes free, DEBUG=1**
+  (build message / `s4.lst`; plain builds 126 B leaner — the A.1/A.2/A.3 recovery peaked at 802
+  free, then portamento + the fidelity fixes spent it back). See F1 above (now DONE — the rewritten
+  z80-ram-map spec carries the full headroom history), and the "Music-expression Task 0 (Z80 code
+  recovery)" entry above.
 
 ### Per-frame pitch / volume envelopes (Phase 3a #2/#3) — DEFERRED, build-on-demand
 **Surfaced during:** Moving Trucks missing-effects investigation (2026-06-19).
@@ -1459,8 +1468,9 @@ the dead copies cannot silently diverge.
   ~~SSG-EG~~ load-time DONE (`FmPatch` $90 group — runtime 7th-RegDelta-group still open, see E5);
   ~~full PSG envelopes~~ DONE (`Seq_Op_PsgEnv`/`MEV_PSGENV`, music-legal);
   ~~raw-register escape hatch~~ DONE (`MEV_REGWRITE` $F8, $2A/$2B-guarded).
-  **STILL DEFERRED:** true (division-based) portamento [→ Phase 2 per-note `MEV_PORTA`, being built now],
-  broader sequencer-driven LFO use [→ Phase 2 global `MEV_LFO`], Ch3 special/CSM, detune-unison.
+  ~~true (division-based) portamento~~ DONE (per-note `MEV_PORTA` shipped resident 2026-07-02, budget
+  phase T10); ~~broader sequencer-driven LFO use~~ DONE (`MEV_LFO`, music-expr Phase 2).
+  **STILL DEFERRED:** Ch3 special/CSM, detune-unison.
 - **Phase 4 — Adaptive FM6/DAC slot:** the three content-adaptive modes (full 6th FM voice /
   Batman time-share / permanent N-channel DAC mixer). 1C keeps FM6 permanently the DAC (simple model).
 - **Phase 5 — Engine integration & game-feel:** section-aware sound banking, music fade state machine,
@@ -1658,8 +1668,58 @@ changes still cost ~25-35 ms ticks (per-load cost through the banked window).
 If one ever turns audible: pre-load the new patch during the preceding gate gap
 (the channel is keyed-off there — no audible timbre switch).
 
-### Frame-clock effective-rate tuning
-Timer-A N=136 (nominal ~59.99 Hz) measures ~59.63 Hz effective in Exodus (idle
+### ~~Frame-clock effective-rate tuning~~ — DONE 2026-07-02 (budget phase T11)
+~~Timer-A N=136 (nominal ~59.99 Hz) measures ~59.63 Hz effective in Exodus (idle
 poll latency). If a finer match to reference cadence is ever wanted, retune N
 against MEASURED cadence (and re-pin the build assert) rather than nominal math
-— but real hardware latency may differ from Exodus; don't tune to the emulator.
+— but real hardware latency may differ from Exodus; don't tune to the emulator.~~
+**Retuned exactly as this entry prescribed:** measured 59.873 Hz effective under
+HCZ2 load at N=136 (deterministic from-start window), re-pinned to the compensated
+N=137 (`SND_FRAME_MILLIHZ` 60053) → **59.9227 Hz exactly** over 10,800 frames, dead
+center in the ±0.02 gate. `docs/research/phase_harness/t11_verification.md`.
+
+## Sound — deferred follow-ups from the Sound Performance & Budget phase (2026-07-02)
+
+Phase record: `docs/superpowers/specs/2026-07-01-sound-performance-budget-design.md` +
+`docs/research/phase_harness/t*_verification.md` + `t12_matrix.md` (final numbers) +
+`phase_notes.md` (the accumulated minors).
+
+### Worst-tick shortening — the honest lever for the remaining DAC-hold tail (T9 outcome)
+Drum airtime lost to holds sits at 24.1% vs ref's own 21.4%; the gap is a handful of
+5-10 ms ticks (~4.6/s vs ref ~1.0/s). In-tick draining (D.2) was measured net-negative
+twice and reverted — the remaining lever is SHORTENING THE WORST TICKS themselves:
+profile what dominates them (patch-load YM busy-waits, bulk-refill length, event
+clusters) in its own profiling round. `docs/research/phase_harness/t9_verification.md`.
+
+### HCZ2 import loop-length residual (~−0.52% tempo vs S3K) — tools-side
+The engine tempo model is now S3K-exact (`b342889`); the residual −0.52% drift is an
+IMPORT defect: our packed HCZ2 loop runs ~14 event-ticks SHORT per loop vs the SMPS
+source — same family as the fixed drum standalone-duration bug. Audit per-channel
+packed loop tick counts vs the SMPS source (`tools/smps_import.py`). Related: MT's
+tempo is −0.196% by construction (zyrinx rate 2/7 unrepresentable in the 8-bit mod
+model; 73/256 is the nearest). `docs/research/phase_harness/t12_matrix.md` H.4.
+
+### Held-envelope resolve cost (T8 review info item — perf backlog)
+Sustained/parked env channels still pay id-resolve + cursor walk per frame
+(~90-180T FM, up to ~540T PSG worst case `PsgVolEnv_1D`) just to rediscover $81/$83;
+a held-sentinel (cursor bit 7) would cut that to ~30T. Needs bytes; the chip-write
+elimination (T8) already removed the dominant cost. Revisit with any tick-cost round.
+
+### Small correctness minors swept during the phase (from `phase_notes.md`)
+- **$28 REGWRITE guard gap:** `Seq_Op_RegWrite` guards $2A/$2B/$24-$27 but NOT $28 —
+  an authored REGWRITE to $28 can desync chip key state from `SCF_KEYED` (which the
+  T5 chokepoint's bit-test relies on). ~4-6 B to extend the guard.
+- **sc_base_freq steal-latch:** under SFX override, bare-note/NOTE_DUR paths skip the
+  `sc_base_freq` latch (`Seq_HookNoteOn` ret nz), so a note change DURING a steal
+  restores the pre-steal pitch; NOTE_RAW's pre-gate latch is the model fix. The
+  comment at `sound_sfx.asm:1013-1017` oversells the current behavior.
+- **Stale comment:** `z80_sound_driver.asm:1290-1292` "once the gates are removed
+  (later task)" — the gates were removed in music-expr Phase 1.
+
+### FM env attack seam (T8 residual — by-ear pending)
+FM key-on resets the `sc_env_out` shadow to 0 without a TL emit; an FM env body with
+leading zeros rides the PREVIOUS note's latched TL for 1-2 frames — after a
+rest-silenced note the next attack could open TL-silenced. Not visible in rendered
+A/B at capture scale; awaiting the user's by-ear pass. Candidate 0-2 byte fix if
+audible: key-on primes the shadow with a never-matches sentinel.
+`docs/research/phase_harness/t8_verification.md`.

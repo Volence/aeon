@@ -1,6 +1,26 @@
 # Sound Performance & Budget Phase — Design (2026-07-01)
 
 **Status:** APPROVED by user 2026-07-01 (design presented and signed off in-session).
+**EXECUTED 2026-07-02** on `feat/sound-perf-budget` — final §H matrix:
+`docs/research/phase_harness/t12_matrix.md`; per-task records in
+`docs/research/phase_harness/t5..t11_verification.md`. Outcome deltas vs this spec:
+
+- **C.b was verification-only.** The planning finding held: C.a (per-note wait + delta-sign
+  reload) alone produced the reference contour; no `Mod_Advance` mechanism change was written
+  (t6_verification).
+- **D.2 implemented, measured net-negative twice, REVERTED.** Holds 24.1%→48.9%/51.1% (ref
+  21.4%), tempo −20% ungated — a pitch-correct burst repays real time 1:1 and stretches ticks
+  past the Timer-A period. Ring-lead + short ticks is the architecture; the T8 state is the
+  measured best. Full record + the "why no variant can win" accounting: t9_verification.
+- **D.3 measured, hit-scoped $2B/FM6 toggling REJECTED** — both drivers are digital silence
+  (< −180 dBFS rel peak) between hits; parked-$80 equals ref's key-off+toggle. As this spec's
+  own expected outcome anticipated (t9_verification).
+- **H.4 required an unplanned engine change, SHIPPED:** the S3K-exact tempo model
+  (accumulator+skip in mod units, `b342889`) replaced the quantizing 16/N reload — drift
+  −1.42% → −0.52%. The residual is an IMPORT loop-length defect (~14 event-ticks/loop short
+  vs the SMPS source), deferred to DEFERRED_WORK (tools-side, not the engine or the clock).
+- Everything else landed per plan. Final budget `$175A/$18F0` = **$196 free** (DEBUG=1).
+
 **Source:** `docs/superpowers/HANDOFF-sound-performance-phase.md` (green-lit phase kickoff) +
 `2026-07-01-sound-engine-review-findings.md` + `2026-07-01-sound-specs-review.md`.
 All evidence figures below are from same-emulator A/B against the real skdisasm-built S3K

@@ -109,7 +109,9 @@ When researching how to implement a system, check these in order:
 ## Testing
 
 - Build and load in the user's debug emulator (Oracle with MCP)
-- Never auto-launch emulators — user handles that
+- Oracle auto-launch/relaunch is user-approved (2026-07-02) — ONE instance only (verify with
+  `pgrep -x oracle_gui`; multiple instances contend for the MCP socket and you end up debugging
+  a stale binary). Other emulators: never auto-launch — user handles that
 - Use Oracle MCP tools to inspect VRAM, CRAM, registers, RAM directly
 
 ## What This Engine Is

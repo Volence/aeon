@@ -2558,9 +2558,14 @@ soundscapes (the latter is deferred to Phase 5).
 **SHIPPED (Plans 1A / 1B / 1C / 1D + Phase 3a — merged to `master`):**
 - **1A Foundations** — Z80 shell (`phase 0` blob, even-padded), the 68k↔Z80 per-type
   mailbox + status/ack region (`$1F00..$1F3F`), and the Timer-A scheduler primitives.
-  Z80 RAM map: `docs/superpowers/specs/2026-06-16-sound-z80-ram-map.md`.
+  Z80 RAM map: `docs/superpowers/specs/2026-06-16-sound-z80-ram-map.md` — **rewritten in
+  full 2026-07-02** by the budget phase's A.3 repack: code ceiling `$16F0`→`$18F0` (+512),
+  ring page `$19` (`$1900`), sequencer state `$1A00`, derived page-aligned `SND_SFX_BASE`,
+  `$1F00+` mailbox/status FROZEN as the external contract. The spec carries the full map,
+  invariants, and assert inventory; `sound_constants.asm` stays the authoritative values.
 - **1B DMA-survival single-channel DAC** — a free-running, every-path-equal-cost streaming
-  loop (MegaPCM-2 model): a 256-byte page-aligned read-ahead ring (`$1700`), FILL/SKIP/DRAIN
+  loop (MegaPCM-2 model): a 256-byte page-aligned read-ahead ring (page `$19`/`$1900` since
+  the 2026-07-02 RAM repack; originally `$1700`), FILL/SKIP/DRAIN
   paths balanced to a constant per-pass cycle cost so DAC pitch never warbles, and a 68k DMA
   flag that switches the producer to a no-ROM-read DRAIN path for the duration of a DMA burst
   (no bus-stall sag). DAC owns the `$6000` bank latch and reg `$2A`.
@@ -2572,10 +2577,12 @@ soundscapes (the latter is deferred to Phase 5).
   mask). A **PSG voice writer** (3 tone + 1 noise, attenuation, pause-silence). **Scheduler
   integration:** YM **Timer-A** is programmed so one overflow = one sequencer tick
   (sub-frame, NTSC/PAL-independent — since revised: Timer-A is now the FIXED NTSC-rate frame
-  clock, N=136 → ~59.92 Hz, and musical tempo lives in the per-channel tempo accumulator, see
-  §6.8); the free-running 1B DAC loop polls the Timer-A overflow
+  clock, N=137 → measured 59.9227 Hz effective under load, and musical tempo lives in the
+  per-channel S3K-exact tempo accumulator, see §6.8); the free-running 1B DAC loop polls the
+  Timer-A overflow
   flag once per pass (equal cost on all three paths) and calls `Sequencer_Tick` on overflow,
-  bounded/splittable so the DAC never starves. **DAC drums** route the song's `$E2` triggers
+  bounded so the DAC ring outlasts it (tick-holds are inherent to the class — see §6.8's
+  measured 2026-07-02 tick/DAC disposition). **DAC drums** route the song's `$E2` triggers
   to the 1B sample path; FM6 stays the DAC channel in 1C. 68k API: `Sound_PlayMusic`
   /`Sound_StopMusic` over the 1A mailbox. Build-time Python tools generate the F-number/PSG
   divisor tables, the 256-byte log-volume LUT, and the 8-byte carrier-mask table, and pack the
@@ -2584,16 +2591,20 @@ soundscapes (the latter is deferred to Phase 5).
   flags now declare **FM6's role**: `SH_F_FM6_FM` routes FM6 to the sequencer as a 6th FM voice
   (DAC mode off) and `SH_F_STREAM` streams the packed song + its per-song `FmPatch` bank directly
   from a single 32 KB ROM bank (no RAM copy) — the loader holds that bank for the whole DAC-off
-  song. A new opcode **`MEV_NOTE_RAW` ($E7) + a4 a0 dur** keys an FM note at the **exact**
+  song. *(Since 2026-07-02 streaming is the ONLY load path: the legacy COPY path — the `$1B00`
+  RAM song buffer + `FmPatchInlineTable` — was deleted whole by the budget phase; the packer
+  still sets the `SH_F_STREAM` header bit and asserts it on every packed song.)* A new opcode **`MEV_NOTE_RAW` ($E7) + a4 a0 dur** keys an FM note at the **exact**
   `$A4/$A0` frequency word, bypassing `FmPitchTable` (engine: `Fm_NoteOnFreq`, the shared tail of
   `Fm_NoteOn` entered with the fnum word preset; `Seq_Op_NoteRaw`) — needed to reach pitches the
   note-index table can't (sub-C0 bass, microtuning). The Moving Trucks demo is **VGM-derived**:
   `tools/vgm_to_song.py` replays the original game's captured chip-register stream
   (`song_05.vgm`) through our sequencer — per FM channel, a `MEV_NOTE_RAW` at each key-on (60 Hz
   quantized durations) with the voice registers snapshotted at key-on into a deduped patch bank.
-  Each note keys **OFF→ON** (`Seq_Op_NoteRaw`) so the YM2612 hardware envelope re-attacks per note,
+  Each note keys **OFF→ON** so the YM2612 hardware envelope re-attacks per note,
   as the original driver does (without it the channel decays to silence after the first note — the
-  "blips" bug). The reference's per-frame fnum/TL rewrites are **redundant constants** (no vibrato,
+  "blips" bug). *(Since 2026-07-02 the off-before-on lives at the `Fm_NoteOnFreq` chokepoint for
+  EVERY note — see the perf-phase bullet below; `Seq_Op_NoteRaw`'s explicit off/on pair was folded
+  into it 1:1.)* The reference's per-frame fnum/TL rewrites are **redundant constants** (no vibrato,
   no manual envelope), so the retrigger is the whole story. Verified by **rendered-audio** diff vs
   `song_05.vgm` (`vgm2wav`): time-sounding 98% (ref 99%), log-spectrum r=0.997 (identical peaks),
   dynamic-envelope r=0.868, note sequences 100%. Genuinely faithful. (Lesson: verify rendered audio
@@ -2656,11 +2667,42 @@ soundscapes (the latter is deferred to Phase 5).
   PSG linear-in-divisor; glide owns the pitch, vibrato resumes at target; oracle soak/glide capture
   per the phase verification process).
 
-**Banked-window physics rule (hard constraint, learned 2026-06-28):** only DATA may live in the Z80
-`$8000` bank window. CODE fetched through the window corrupts under 68k bus contention (DMA/BUSREQ;
-`di` does not help) → wild PC → Z80 self-reinit. ALL in-frame code must be RESIDENT.
-`engine/sound/sound_banked_z80.asm` was deleted (2026-07-01) when its last banked routine,
-`Fm_FnumApplyDelta`, moved resident into `sound_fm.asm`.
+- **Sound Performance & Budget phase — SHIPPED (2026-07-02, `feat/sound-perf-budget`):** the
+  measurement-driven fidelity pass that closed the last audible HCZ2 gap vs real S3K (spec
+  `docs/superpowers/specs/2026-07-01-sound-performance-budget-design.md`; per-task numbers in
+  `docs/research/phase_harness/t*_verification.md` + the final `t12_matrix.md`). What changed:
+  - **One stream load path** — the COPY path deleted whole (T2, see the 1D note above);
+    **DacSampleTable + SeqOpcodeTable banked as co-located window DATA** at their bank heads,
+    the `FmPitchTableZ` pattern (T3); **RAM repack** — ceiling `$18F0`, ring page `$19`, seq
+    `$1A00` (T4, see the rewritten RAM-map spec under 1A above).
+  - **Key-off-before-key-on at the single FM chokepoint** (`Fm_NoteOnFreq.do_keyon`, T5): every
+    producer (bare note, NOTE_DUR, NOTE_RAW, PITCHENV rekey, SFX restore) gets a true 0→1 EG
+    edge; retrigger went 0-2% → 100% on all melody channels, at ref parity. Tie/no-attack notes
+    never reach the chokepoint (unchanged by construction).
+  - **Per-note modulation re-arm** (T6): `sc_mod_wait_raw`/`sc_mod_delta_raw` latched at MODSET,
+    reloaded every note-on — vibrato delay honored on EVERY note (was: first note ever), contour
+    unipolar-up with no inverted starts, at exact ref counts.
+  - **Canonical S3K fnum band table** (T7): the generator normalizes `FmPitchTableZ` into
+    [644, 1288) — fnum-denominated deltas (vibrato, detune, porta) are worth the same cents at
+    every note; the doubled-encoding half-depth gap closed to exact ref parity.
+  - **Envelope write-on-change** (T8): sustained FM-TL/PSG envelopes stop rewriting the chip
+    every frame; rendered-inaudible (bed ±0.1 dB).
+  - **Frame clock measured-and-pinned** (T11): N=137, **59.9227 Hz effective under HCZ2 load**
+    (10,800/10,800 ticks over 3 min — the pin compensates ~3 long-tick overruns/min at N=136).
+  - **S3K-exact tempo model** (`b342889`): accumulator+skip in mod units replaced the old
+    quantizing 16/N reload — see §6.8.
+  - **Budget:** phase start 6 bytes free; final `$175A/$18F0` = **$196 (406) bytes free**
+    (DEBUG=1 figures; plain builds are 126 B leaner).
+
+**Banked-window physics rule (hard constraint, learned 2026-06-28 — data-only banking invariant):**
+only DATA may live in the Z80 `$8000` bank window. CODE fetched through the window corrupts under
+68k bus contention (DMA/BUSREQ; `di` does not help) → wild PC → Z80 self-reinit. ALL in-frame code
+must be RESIDENT. `engine/sound/sound_banked_z80.asm` was deleted (2026-07-01) when its last banked
+routine, `Fm_FnumApplyDelta`, moved resident into `sound_fm.asm` — the portamento history is the
+cautionary tale (the original banked `Porta_Apply` caused Z80 self-reinits and porta only shipped
+once fully resident). The 2026-07-02 budget phase reaffirmed the invariant: its banking work (T3)
+moved DATA tables only, portamento landed resident (T10), and T10's 3000+-frame soak sampled the
+Z80 PC never fetching from `$8xxx`/`$Cxxx` with the `$0000` reset-vector trap never firing.
 
 **DEFERRED (each its own plan):** The old "Phase 2 N-channel DAC mixer"
 roadmap item is **superseded by the approved DAC-format spec**
@@ -2779,7 +2821,9 @@ S.C.E. supports continuous SFX — sounds that loop while a condition is held (s
 
 ### 6.8 Tempo & Timing
 
-**YM Timer A = the fixed NTSC-rate frame clock — SHIPPED (1C, revised 2026-07-01).** YM2612 Timer A (10-bit, registers $24-$25) is the driver's frame clock, programmed once to a FIXED build-time reload: `SND_TIMERA_N` = 136, computed by `timerAReload()` from `SND_FRAME_MILLIHZ` = 59920 (~59.92 Hz, the NTSC frame rate) — **one overflow = one engine frame**. Because Timer-A derives from the YM clock, not VBlank, **PAL drifts only ~0.9% by construction** (vs ~17% for a VBlank-locked driver), and lag frames are irrelevant to music tempo. Musical tempo is NOT the Timer-A reload: it is the per-channel tempo accumulator driven by the `MEV_TEMPO` global scalar (the original 1C per-song tempo→Timer-A programming is gone). The free-running DAC loop polls the Timer-A overflow flag once per pass; polled, not interrupt-driven (Genesis hardware limitation). **Timer A is never disabled:** `StopMusic` leaves the frame clock armed — the old `Snd_TimerA_Disable` path killed the entire driver (sequencer, SFX, DAC refill) and was deleted in the 2026-07-01 fix pass. (History: the reload was tempo-derived, then a fixed ~59.06 Hz — which played all music ~1.4% slow vs its S3K/B&R sources; caught by ear + review 2026-07-01.)
+**YM Timer A = the fixed NTSC-rate frame clock — SHIPPED (1C, revised 2026-07-01, measured + re-pinned 2026-07-02).** YM2612 Timer A (10-bit, registers $24-$25) is the driver's frame clock, programmed once to a FIXED build-time reload: `SND_TIMERA_N` = 137, computed by `timerAReload()` from `SND_FRAME_MILLIHZ` = 60053 — a **compensated pin**: the nominal target is the NTSC field rate 59.9227 Hz, and N=137 delivers **exactly 59.9227 Hz effective under HCZ2 load, measured** (10,800/10,800 ticks over 3 minutes; N=136's nominal ~59.99 Hz measured 59.873 Hz under load because ~3 long ticks/min each eat one overflow — the pin absorbs that; see `docs/research/phase_harness/t11_verification.md`). **One overflow = one engine frame.** Because Timer-A derives from the YM clock, not VBlank, **PAL drifts only ~0.9% by construction** (vs ~17% for a VBlank-locked driver), and lag frames are irrelevant to music tempo. Musical tempo is NOT the Timer-A reload: since 2026-07-02 (`b342889`) it is the **S3K-exact per-channel accumulator+skip** — `sc_tempo_accum += sc_tempo_mod` every frame; a CARRY marks a tempo-delay frame (no event-tick), no carry = exactly one event-tick, so a channel runs at (256−mod)/256 event-ticks per frame and any authored S3K mod byte is EXACT (the previous accum−=16/reload model could only quantize to 16/N — HCZ2 rendered −1.42% slow). `MEV_TEMPO`/`SND_REQ_TEMPO`/`Tempo_Ramp` are redefined in the same mod units (0 = full speed, bigger = slower). The free-running DAC loop polls the Timer-A overflow flag once per pass; polled, not interrupt-driven (Genesis hardware limitation). **Timer A is never disabled:** `StopMusic` leaves the frame clock armed — the old `Snd_TimerA_Disable` path killed the entire driver (sequencer, SFX, DAC refill) and was deleted in the 2026-07-01 fix pass. (History: the reload was tempo-derived, then a fixed ~59.06 Hz — which played all music ~1.4% slow vs its S3K/B&R sources; caught by ear + review 2026-07-01; then N=136 ≈ 59.92 nominal, replaced by the measured N=137 pin 2026-07-02.)
+
+**Tick/DAC relationship (settled by measurement, 2026-07-02):** in-tick DAC ring draining (Timer-B-paced seam bursts, spec D.2) was implemented, measured net-negative twice (a pitch-correct burst repays real time 1:1 and stretches ticks past the Timer-A period), and REVERTED — **ring-lead for DMA stalls + keeping ticks short is the architecture** (`docs/research/phase_harness/t9_verification.md`).
 
 **PSG silence on pause — SHIPPED (1C).** `Psg_SilenceAll` writes $9F,$BF,$DF,$FF to the PSG port on `StopMusic` to immediately silence all 4 PSG channels. Without this, tones sustain.
 

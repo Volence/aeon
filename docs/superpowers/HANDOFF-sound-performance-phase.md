@@ -1,5 +1,12 @@
 # Handoff — Sound Performance & Budget Phase (GREEN-LIT 2026-07-01)
 
+> **STATUS: EXECUTED 2026-07-02** (branch `feat/sound-perf-budget`). See the plan
+> (`docs/superpowers/plans/2026-07-01-sound-performance-budget.md`), the spec
+> (`docs/superpowers/specs/2026-07-01-sound-performance-budget-design.md`, outcome block in its
+> status header), and the per-task measured record
+> (`docs/research/phase_harness/t5..t11_verification.md` + `t12_matrix.md`, the final §H matrix).
+> The evidence figures below are the phase KICKOFF state — historical.
+
 **For:** the session executing this phase (brainstorm → spec → plan → subagent execution, per repo law).
 **User green-lit** the full phase after the HCZ2 "duller/muffled/muddy" investigation. All evidence
 below is from same-emulator A/B against the REAL S3K (skdisasm `sonic3k.bin` playing music id $04 in

@@ -34,10 +34,13 @@ Build baseline: `SOUND_DRIVER_ENABLED=1 DEBUG=1` green; `Z80_SOUND_SIZE=$1666` /
   loop has no SetBank. Cold boot + SFX with no song ever loaded → the Z80 interprets 68k code at ROM
   $0000-$7FFF as an event stream (random notes/reg pokes). Masked today only because all songs+SFX share
   one bank. Fix: `ld a,SFX_BLOB_BANK / call SndDrv_SetBank` at `Sfx_Frame` entry (+5 B).
-- **T0.3 Banked in-frame CODE hazard: `Fm_FnumApplyDelta`** (`sound_banked_z80.asm:41`, sole caller
+- ~~**T0.3 Banked in-frame CODE hazard: `Fm_FnumApplyDelta`** (`sound_banked_z80.asm:41`, sole caller
   `sound_fm.asm:725`, FM note-on path). The only code in the $8000 window; unsafe under bus contention
   (proven failure mode). Dormant on master (no `$F6` in shipped data) but armed by any detuned content.
-  Fix: relocate resident (~60 B), delete the banked-code file.
+  Fix: relocate resident (~60 B), delete the banked-code file.~~ **CLOSED:** relocated resident + the
+  banked-code file deleted in the fix pass (`3b18662`); the 2026-07-02 budget phase kept all further
+  banking data-only (T2/T3), shipped portamento resident (T10), and T10's 3000+-frame soak verified
+  the Z80 PC never fetches from the window (`docs/research/phase_harness/t10_verification.md`).
 - **T0.4 `MEV_REGWRITE`/`TAG_MAC_REG` guard $2A/$2B but not $24/$25/$27.** An authored `$27` write
   (natural ch3-special value `$40`) stops Timer A → total freeze (combined with T0.1, unrecoverable).
   Fix: extend guard or force timer bits (~12 B).
