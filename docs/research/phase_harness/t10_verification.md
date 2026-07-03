@@ -31,3 +31,13 @@ the note-on porta block re-derives incr from the channel porta rate.
   final commit message.
 - No shipped song emits MEV_PORTA yet; the packer + opcode + engine paths are
   fully wired and tested. Authored content lands whenever a song wants it.
+
+## Review outcome (combined spec+quality, 2026-07-02)
+
+Approved-with-minors: series byte-identical to the oracle-verified patch, placement
+resident-correct, T5-T8 composition hazard-free (steal/restore, NOTE_RAW, ties,
+band edges all verified). Minors applied: Q-fixed comment wording. The reviewer's
+"stale budget figures" finding was itself an artifact — their throwaway build
+omitted DEBUG=1; plain builds run $7E (126 B) leaner (verified: $16E4 plain vs
+$1762 DEBUG at the same HEAD). All phase budget figures are DEBUG=1 figures, per
+the plan's own build command.

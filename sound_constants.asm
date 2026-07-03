@@ -182,7 +182,13 @@ ym_timerA_hz            function tb, (1000000000 / ym_timerA_period_ns(tb)) ; ti
 ; This REPLACES the per-song tempo->Timer-A programming (Snd_TimerA_Program);
 ; musical tempo is now expressed per-channel via the tempo accumulator (Step 6),
 ; not by the Timer-A reload.
-SND_FRAME_MILLIHZ       = 59920
+; RETUNE 2026-07-02 (spec F, measured): with the T8/T10 engine under HCZ2 LOAD the
+; effective tick rate at N=136 measured 59.873 Hz (3597 ticks / 3600 emulated frames,
+; SND_STAT_TICK vs oracle frame count; deficit = ~3 residual long-tick overruns per
+; minute). Pin ONE N-step tighter so the DELIVERED rate lands on 59.92 +/- 0.02 under
+; load: N=137 <- target 60053 mHz (the target is the COMPENSATED value; the delivered
+; rate is the measured one, not this number).
+SND_FRAME_MILLIHZ       = 60053
 timerAReload            function mhz, 1024 - (1000000000000 / ((mhz) * 18773))
 SND_TIMERA_N           = timerAReload(SND_FRAME_MILLIHZ)
 
@@ -195,8 +201,8 @@ SND_TIMERA_N           = timerAReload(SND_FRAME_MILLIHZ)
         ; sensitive to the formula's exact shape (135 vs 136 was a real drift between
         ; the comment math and the assembled value). Any deliberate retune must
         ; update this pin alongside the target.
-        if SND_TIMERA_N <> 136
-          error "SND_TIMERA_N (\{SND_TIMERA_N}) != the pinned 136 — frame clock changed; retune deliberately"
+        if SND_TIMERA_N <> 137
+          error "SND_TIMERA_N (\{SND_TIMERA_N}) != the pinned 137 — frame clock changed; retune deliberately (last retune 2026-07-02: measured 59.873 Hz under load at 136 -> compensated to 137)"
         endif
 
 ; --- 1B: ring buffer (page-aligned, 256 bytes) ---
@@ -1014,7 +1020,7 @@ sc_points       ds.b 5   ; +21 up to 5 pitch point indices (note table indices)
 sc_transpose    ds.b 1   ; +26 signed per-pattern transpose (added then clamped)
 sc_pan          ds.b 1   ; +27 pan state (off/L/R/C) -> $B4 L/R bits
 sc_opbias       ds.b 4   ; +28 per-operator SIGNED TL bias (added to patch TLs at load; neg=brighten)
-sc_porta_accum  ds.w 1   ; +32 portamento Q-fixed accumulator
+sc_porta_accum  ds.w 1   ; +32 portamento accumulator (raw fnum/divisor units)
 sc_porta_incr   ds.w 1   ; +34 portamento per-frame increment (0 = no glide)
 ; --- Task 6 write-on-change shadow (ModUpdate tracks the last-WRITTEN pan) ------
 ; sc_last_pan: the $B4 value ModUpdate last wrote to the chip. ModUpdate writes
