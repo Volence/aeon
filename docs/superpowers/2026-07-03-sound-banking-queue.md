@@ -46,8 +46,8 @@ already reserved, and Stage A closed the retrigger policy — leaving the packag
 | E | Doc-sync + format hardening | inline edits, this branch | **DONE** (2fb0e4c + validity rules) |
 | A | **Game-Feel Moments** — pause/unpause, song-finished contract (`SND_STAT_*` mirror), jingle push/pop (1-up/invincibility/drowning) w/ mid-song resume snapshot, tempo-scalar reset-on-load semantics, PCM-jingle bank/FM6-mode rules, 512 B buffer arbitration, command-API v2 (absorbs the outgrown `2026-06-16-sound-command-api.md`) | spec + plan | **SPEC WRITTEN** (`specs/2026-07-03-sound-game-feel-moments-design.md`) — awaiting user review, then plan |
 | B | **SFX Stage B/C** — per-SFX `sfh_gain`/`sfh_duck`/`sfh_cap`, non-latching priority (bit 7), continuous-SFX class (`SHF_CONTINUOUS`, spindash charge + drowning warning), instance discriminator for cap>1 multi-channel | plan (+ small spec addendum to `2026-07-02-sfx-fidelity-and-mixing-design.md` §5) | **ADDENDUM WRITTEN** (spec §7) — awaiting user review, then plan |
-| C | **DAC drum-library readiness** — descriptor `ds_vol` + reserved mix-cursor bytes, Bank-D engine-table co-location hook (`gen_sound_tables.py` data-only twin), dead 68k table removal (`fm_patches.asm`/`sound_tables.asm`), authoring guidance | plan (+ ratification amendment, done in E) | QUEUED |
-| D | **Correctness batch** — surviving audit bugs: D1 (PSG pitch-mod noise-route gate), D2 (zeroed `sc_dur_default` 255-tick note), D4 (`Psg_NoteOn` ignores `sc_transpose`), D5 (PSG env attack one frame late), D6 (stale `sc_repeat_count` across song loop), D7 (`MEV_REPEAT_END` operand 0), B3 (AM-enable byte fidelity), B5 ($E7 tone-tracked noise sweep), E5-runtime (SSG-EG 7th RegDelta group), F3 (dead ROM: `SfxTable`/`sfx_NN_patches`/`Snd_TimerA_Program`), F4 (load-bearing-wrong comments) | plan | QUEUED |
+| C | **DAC drum-library readiness** — descriptor `ds_vol` + reserved mix-cursor bytes, Bank-D engine-table co-location hook (`gen_sound_tables.py` data-only twin), dead 68k table removal ~~(already resolved — verified 2026-07-03)~~, authoring guidance | plan (+ ratification amendment, done in E) | **PLAN WRITTEN** (`plans/2026-07-03-dac-drum-library-readiness.md`) |
+| D | **Correctness batch** — surviving audit bugs: D1 (PSG pitch-mod noise-route gate), D2 (zeroed `sc_dur_default` 255-tick note), D4 (`Psg_NoteOn` ignores `sc_transpose`), D5 (PSG env attack one frame late), D6 (stale `sc_repeat_count` across song loop), D7 (`MEV_REPEAT_END` operand 0), B3 (AM-enable byte fidelity), B5 ($E7 tone-tracked noise sweep), E5-runtime (SSG-EG 7th RegDelta group), F3/F4 ~~(verified already fixed/moot 2026-07-03 — SfxTable is LIVE; D2/D3/D5 also already fixed)~~ | plan | **PLAN WRITTEN** (`plans/2026-07-03-sound-correctness-batch.md`) |
 
 **Order rationale:** A defines contracts (song-finished, push/pop, continuous-SFX seam,
 API v2) that B references; C is mostly mechanical post-ratification; D is independent
@@ -64,6 +64,10 @@ envelopes Phase-3a #2/#3 (build-on-demand).
 - 2026-07-03: Session scoped (A–D + inline E), DAC bet ratified, mid-song resume
   chosen. Worktree + branch created; baseline build green (557125 bytes,
   SOUND_DRIVER_ENABLED=1 DEBUG=1).
+- 2026-07-03: Packages C + D plans written (research-verified same day: C's dead-tables
+  item and D's D2/D3/D5/F3/F4 were ALREADY resolved by earlier phases — plans document
+  this so no future session re-fixes them). B addendum (spec §7) resolved the sfh_cap
+  discriminator (single-channel-only rule) and pinned Stage C to a re-ping countdown.
 - 2026-07-03: E part 2 — format validity rules (normative, packer-cited, MegaDAW-exporter
   contract) appended to the music-expression spec; spot-checked 3 citations against
   song_packer.py before commit. E COMPLETE — note MEV_EXT reserve + master-spec amendment
