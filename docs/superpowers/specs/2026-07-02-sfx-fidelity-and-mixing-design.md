@@ -70,3 +70,70 @@ Explicitly NOT doing: real signal metering/HDR (priority byte IS the HDR window 
 ## 6. Constants hygiene
 
 `SFXPRI_*`/`SFXEL_*`/`SHF_*`/duck constants exist in TWO synced copies (`sound_constants.asm` + `tools/sfx_transcode.py`). Any new header fields (gain, duck depth, instance cap, continuous flag) must be added to both, with the existing test-suite byte-equality pattern extended to cover them.
+
+---
+
+## 7. STAGE B/C ADDENDUM (2026-07-03, sound design-banking session) — implementation-grade decisions
+
+Seam-verified against the post-Stage-A engine (all citations current as of `feat/sound-design-banking`).
+This addendum + §5 together are the full Stage B/C design; the banked implementation plan executes it.
+
+### 7.1 Stage B hook points (verified)
+
+- **`sfh_gain` folds** into the two existing single volume paths, immediately after each LUT read
+  and BEFORE the env/fade/duck folds so all existing clamps cover it: FM at `Fm_SetVolume`
+  (`engine/sound/sound_fm.asm:344-510`, fold after the log-LUT read ~:350, `SND_FM_TL_MAX`
+  clamps at :366-371/:393-406 already downstream); PSG at `Psg_SetVolume`
+  (`engine/sound/sound_psg.asm:387-450`, fold after `Psg_VolToAtten` ~:388, $0F clamp downstream).
+  One byte serves both units: FM adds it directly (0.75 dB TL steps); PSG adds `sfh_gain >> 3`
+  (TL→atten conversion, the same ÷8 the existing fade/duck fold uses at :427-429). Encoding
+  therefore: **sfh_gain is authored in FM-TL units** (0..~$30 useful range).
+- **`sfh_duck`** replaces the global constant at the single duck-arm site
+  (`sound_sfx.asm:903-912`: write `sfh_duck` instead of `SFX_DUCK_DEPTH` at :911). Threshold
+  test changes from priority-based to `sfh_duck != 0` (the per-SFX byte IS the eligibility).
+  Un-duck release (`Sfx_Restore:1123-1132` → `Sfx_AnyDuckActive`) scans for any active slot
+  with a nonzero armed duck — the scan reads a new per-slot copy (`sx_duck`, stashed at init)
+  so mixed-depth overlaps resolve to the DEEPEST active duck.
+- **Non-latching priority (bit 7)**: `Sfx_SelectVoice` (`sound_sfx.asm:1330-1503`) already
+  computes the min-priority victim scan; a bit-7 incoming writes `sx_priority = <min-of-active>`
+  instead of its own value at the init store (:876) — plays now, never raises the floor. Bit 7
+  is masked OFF for all arbitration comparisons.
+- **`sfh_cap` semantics RESOLVED (was the open discriminator question, DEFERRED_WORK ~:1178):**
+  `sfh_cap > 1` is legal ONLY for single-channel blobs (`sfh_chcount == 1`) — a
+  **packer-enforced validity rule** in `sfx_transcode.py`. Per-slot `SND_SFX_ID_TAB`
+  (`sound_constants.asm:1360`) counts instances exactly for single-channel SFX; the
+  kill-scan (`Sfx_BeginSound:731-761`) kills the LOWEST-slot match when count == cap
+  (oldest-by-slot approximation, documented). Multi-channel SFX stay cap=1 (replace-in-place,
+  Stage A behavior) until a real generation-tag need appears. No current or planned SFX needs
+  cap>1 multi-channel; the format door stays open via the reserved header bytes.
+
+### 7.2 Stage C — continuous-SFX class (S3K-exact semantics, simplified state)
+
+Reference verified: skdisasm `Z80 Sound Driver.asm` — re-ping detection
+`zPlaySound_NotContinuous:1937-1965` (same-id re-request sets `zContinuousSFXFlag=$80`,
+reloads `zContSFXLoopCnt`), loop opcode `cfLoopContinuousSFX:3712-3736` (flag set →
+decrement + re-loop; pings stopped → one final pass then end).
+
+Aeon shape (simpler than S3K's dual flag+count):
+- `SHF_CONTINUOUS` (bit 0, already reserved at `sound_constants.asm:899-905`) **requires
+  `SHF_LOOP`** (packer validity rule). Jingle-class blobs (package A) forbid BOTH.
+- New per-slot byte `sx_extend` (SfxChannel has pad space): **re-ping countdown**. On
+  `Sfx_BeginSound` with a matching active continuous id: instead of the retrigger kill-scan,
+  reload `sx_extend = SFX_EXTEND_FRAMES` (constant, ~10) and return — the ping is free
+  (no re-key, rev escalation state untouched, so spindash `MEV_SPINREV` keeps building —
+  the Stage-A rev behavior is preserved by construction).
+- `Sfx_Frame` decrements `sx_extend` per active continuous slot; at the blob's `MEV_JUMP`
+  loop boundary: `sx_extend != 0` → take the loop; `== 0` → fall through to the existing
+  looped-SFX **fade tail** (the shipped B4 machinery, 0ac3403's modSet-riding fade) → end.
+- Game side: the call sites already re-ping every frame (`player_spindash.asm:60-61`);
+  the drowning-warning cadence lands with package A's §7 drowning flow.
+- Existing 9 SFX: unchanged (none set the flag). Dash/spindash MAY be re-authored
+  continuous later as a taste pass — not part of this plan's gates.
+
+### 7.3 Budget + verification notes
+
+Stage B folds are one `ld`+`add`(+clamp already present) per path; Stage C is the countdown
++ boundary branch (~35-50 B total; headroom 792 B). Verification: register gates per §4
+pattern (gain: exact TL/atten deltas vs authored bytes; duck: ramp target per-SFX; cap:
+spam N+1 → N instances; continuous: ping-stop → fade within one loop + `SFX_EXTEND_FRAMES`),
+plus a rendered spindash-charge capture A/B against S3K (hold-charge timbre continuity).
