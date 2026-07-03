@@ -148,7 +148,7 @@ PSG_OCTAVE_FIXUP = 0
 #
 # The user reports they sound "a few octaves too high" by ear, so this knob
 # lowers the FM SFX a clean, whole number of octaves below faithful S3K.  It is
-# applied ONLY to FM SFX notes (PSG keeps its own scientific-pitch fixup above).
+# applied ONLY to FM SFX notes (PSG maps 1:1 to the S3K-numbered table; see PSG_OCTAVE_FIXUP).
 # Default = -12 semitones (one octave down) as a starting point; bump to -24 for
 # two octaves.  Set to 0 to restore byte-exact S3K pitch.
 # RESET TO S3K-FAITHFUL (0) to test the operator-order fix (_s3k_op_reorder / audit B1)
@@ -282,7 +282,7 @@ def _smps_note_to_pitch(raw_byte: int, is_psg: bool, transpose: int = 0,
         pitch += PSG_OCTAVE_FIXUP
     else:
         # FM SFX taste knob (NOT faithfulness): bring S3K's high FM SFX down.
-        # FM-only; PSG keeps its scientific fixup above.
+        # FM-only; PSG maps 1:1 (no fixup).
         pitch += fm_octave
     if pitch < 0:
         pitch = 0

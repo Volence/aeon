@@ -408,7 +408,7 @@ class TestFmSfxOctaveKnob(unittest.TestCase):
 
     It must lower FM SFX pitch indices by exactly FM_SFX_OCTAVE_SHIFT semitones
     (default -12 = one octave down) relative to the byte-exact-S3K pitch, and
-    must NOT touch PSG notes (which carry their own PSG_OCTAVE_FIXUP).
+    must NOT touch PSG notes (which map 1:1 to the S3K-numbered table).
     """
 
     def test_fm_note_shifted_by_knob(self):
