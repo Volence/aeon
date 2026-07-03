@@ -1159,6 +1159,40 @@ renders == pre-banking baseline. Merged on `feat/sound-task0-recovery`. Two foll
 > (N-channel DAC mixer, FM extras, adaptive FM6, section-aware banking/fades + SFX, MegaDAW export)
 > is tracked at the bottom of this section. References to "Flamedriver upload" below are historical.
 
+### SFX Fidelity Stage B/C (deferred from Stage A, 2026-07-03)
+**Surfaced during:** the SFX fidelity phase (spec `2026-07-02-sfx-fidelity-and-mixing-design.md`,
+plan `2026-07-03-sfx-fidelity-stage-a.md`, branch `feat/sfx-fidelity`). Stage A SHIPPED: PSG +24
+octave fixup removed (jump/skid S3K-exact), retrigger replace-in-place cap 1 (rev escalation kept),
+PSG sweep floor clamp, TL-clamp audit + bake test, `SfxHeader` 8 bytes with inert Stage-B fields,
+and the field-found stopped-sequencer drone fix (`Sfx_Restore` gates on `SND_SEQ_ACTIVE`).
+The retrigger POLICY DECISION from the 2026-07-01 review findings is CLOSED (replace-in-place, cap 1).
+
+- **Stage B — per-SFX mixing surface (engine wiring for the reserved header fields):**
+  `sfh_gain` (authored master attenuation, FM carrier-TL 0.75 dB steps / PSG atten 2 dB steps,
+  applied at init), `sfh_duck` (per-SFX duck depth replacing global `SFX_DUCK_DEPTH`; 0 for
+  bread-and-butter SFX, deep only for death/ring-loss class), `sfh_cap` (authored instance caps),
+  non-latching priority via bit 7 of `sfh_priority` (S2's trick — plays but never raises the floor).
+  Spec §5 has the full design. **Roll taste**: S3K's roll is authentically a ~2.2 kHz C#7 with a
+  1.4 s authored fade (`smpsFMAlterVol` ×42, register-verified at parity) — if it reads as "too
+  high/long" by ear, tame it via `sfh_gain`/the FM taste knob as a DELIBERATE divergence, not a fix.
+- **Instance discriminator for cap > 1 on multi-channel SFX** (quality-review note, Task 2): the
+  per-slot id table alone can't tell which slots form the OLDEST instance of a multi-channel SFX
+  (Dash = FM5+PSG3). cap=1 and cap-N-single-channel work as-is; cap>1 multi-channel needs a
+  generation tag or per-instance grouping.
+- **Stage C — continuous-SFX class** (S3K extend semantics; header flag `SHF_CONTINUOUS` + engine
+  re-ping/loop-counter). None of the current 9 SFX need it; ~30 S3K sounds (wind/fans/rumbles) are
+  unportable without it. Existing ARCH §6.7 entry stands.
+- **H3 (music-relative SFX level) — deferred pending by-ear:** SFX play at raw authored TL
+  (chip-exact). If SFX still feel hot vs music after Stage A, A/B the full music+SFX mix RMS/spectrum
+  against real S3K (HCZ2 bed) and fix the MUSIC converter's volume round-trip — do NOT tune SFX.
+- **Rendered S3K A/B per SFX — deferred:** Stage A verified register-exact divisors/F-nums/durations
+  against skdisasm sources on the same YM core (+ the S3K-source-exact roll fade), which pins pitch
+  and duration. A full vgm2wav energy/spectrum A/B vs `skdisasm/sonic3k.bin` sound-test captures
+  remains available if by-ear ever disputes timbre/level.
+- **Debug-harness START edge**: MCP-driven 3-frame START presses intermittently miss the
+  `Ctrl_1_Press` edge (one observed miss, 2026-07-03) — benign for gameplay, noise for scripted
+  emulator tests; suspect press/frame alignment in the harness, not the engine.
+
 ### Sound Engine Deep Audit (2026-06-21) — Full Bug Backlog + Best-in-Class Roadmap
 **Surfaced during:** a 73-agent adversarially-verified correctness audit + a fact-checked frontier
 gap analysis (Zyrinx, XGM/XGM2, Echo, MDSDRV, GEMS, Flamedriver, demoscene/MegaPCM). Branch

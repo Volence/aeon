@@ -2644,6 +2644,24 @@ soundscapes (the latter is deferred to Phase 5).
   (re-keys the displaced music voice off its saved KEYED state — no silence gap). Closes the old "no SFX
   path" gap; the 2026-06-21 73-agent audit's gameplay-reachable bugs are fixed. (Continuous/looping SFX —
   spindash buzz, shield hum — is the only SFX piece still deferred, with the Phase-5 game-feel layer.)
+- **SFX fidelity Stage A (feat/sfx-fidelity, 2026-07-03)** — S3K-faithful SFX pitch + arbitration:
+  - **PSG pitch**: the transcoder's stale `+24` octave fixup removed — PSG SFX notes map 1:1 to the
+    S3K-numbered `PsgDivisorTableZ` (register-verified: jump programs `$140/$0EF`, skid `$078`, all
+    S3K-exact). A convention-tie test (`TestPsgPitchMatchesS3KDivisors`) fails the build if the fixup
+    or the table numbering ever changes alone.
+  - **Retrigger = replace-in-place, instance cap 1** (S3K-faithful): `Sfx_BeginSound` kills any ACTIVE
+    slot already running the incoming id via the normal `Sfx_Restore` end-path, then allocates —
+    the freed voice is the preferred route again. Per-slot ids live in `SND_SFX_ID_TAB` (parallel
+    RAM table; the struct's `sx_pad` +58 aliases SeqChannel `sc_detune` and must stay 0). Spindash
+    rev escalation (+1 semitone/press) survives retriggers; register-verified under 5-press spam.
+  - **Guards**: PSG mod-sweep divisor floor clamp (underflow → divisor 1, never a wrapped low note);
+    TL-overflow saturation audited at every volume→carrier-TL add (engine already clamped; transcoder
+    bake pinned by test). `Sfx_Restore` gates on `SND_SEQ_ACTIVE` — an SFX ending over STOPPED music
+    silences its voice instead of re-keying the dead song's stale-KEYED note (was: unkillable PSG drone).
+  - **`SfxHeader` = 8 bytes** — `sfh_gain` / `sfh_duck` / `sfh_cap` reserved (inert in Stage A;
+    transcoder writes 0/0/1) + bit 7 of `sfh_priority` reserved for the non-latching priority flag,
+    so Stage B (per-SFX gain, per-SFX duck depth, authored instance caps, continuous-SFX class) is
+    pure engine work with no format change. Stage B/C backlog: DEFERRED_WORK "SFX Fidelity Stage B/C".
 - **Music-expression spine (Phase 1 + Phase 3, merged 2026-06-27)** — the format-defining lift that
   promotes the per-frame modulation engine onto MUSIC channels and adds a macro/automation layer:
   - **Phase 1** — un-gated software vibrato / pitch-mod / `MEV_MODSET` for music; grew the music

@@ -1,8 +1,15 @@
 # SFX Fidelity + Best-in-Class Mixing — Design
 
 **Date:** 2026-07-02
-**Status:** APPROVED by user (scope: "Design C, build A-first" — design the full best-in-class end-state, implement the confirmed fixes as stage 1)
-**Next step:** invoke `superpowers:writing-plans` to produce the implementation plan.
+**Status:** STAGE A SHIPPED (2026-07-03, `feat/sfx-fidelity` — plan `2026-07-03-sfx-fidelity-stage-a.md`).
+All four §3 fixes landed + register-verified in oracle (§4 checks 1-3: jump `$140/$0EF`, skid `$078`,
+spindash spam = 1 instance with rev escalation intact, clean tails). Fix 3 was audit-only (engine +
+transcoder already clamped; pinned by test). PLUS one field-found fix beyond the spec: `Sfx_Restore`
+now gates on `SND_SEQ_ACTIVE` — an SFX ending over STOPPED music re-keyed the dead song's stale-KEYED
+note into an unkillable PSG drone (user-reported "lingering sine"; forced-condition verified fixed).
+`SfxHeader` grew 4→8 with inert `sfh_gain`/`sfh_duck`/`sfh_cap` (§5 reservation). §4 check 4 (H3) and
+the full rendered A/B are deferred pending by-ear — see DEFERRED_WORK "SFX Fidelity Stage B/C".
+**Original status:** APPROVED by user (scope: "Design C, build A-first" — design the full best-in-class end-state, implement the confirmed fixes as stage 1)
 **Sequencing constraint:** implementation MUST wait until `feat/sound-perf-budget` merges — it touches the same files (`sound_sfx.asm`, `sound_fm.asm`, `sound_psg.asm`, `z80_sound_driver.asm`, `sound_constants.asm`, `tools/sfx_transcode.py`). This spec is docs-only and safe on master.
 **Emulator constraint:** oracle A/B work needs an explicit go-ahead from the user first (another session may be using the emulator).
 
