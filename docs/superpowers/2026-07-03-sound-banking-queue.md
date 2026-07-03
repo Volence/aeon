@@ -44,8 +44,8 @@ already reserved, and Stage A closed the retrigger policy — leaving the packag
 | # | Package | Deliverables | Status |
 |---|---------|-------------|--------|
 | E | Doc-sync + format hardening | inline edits, this branch | **DONE** (2fb0e4c + validity rules) |
-| A | **Game-Feel Moments** — pause/unpause, song-finished contract (`SND_STAT_*` mirror), jingle push/pop (1-up/invincibility/drowning) w/ mid-song resume snapshot, tempo-scalar reset-on-load semantics, PCM-jingle bank/FM6-mode rules, 512 B buffer arbitration, command-API v2 (absorbs the outgrown `2026-06-16-sound-command-api.md`) | spec + plan | **SPEC WRITTEN** (`specs/2026-07-03-sound-game-feel-moments-design.md`) — awaiting user review, then plan |
-| B | **SFX Stage B/C** — per-SFX `sfh_gain`/`sfh_duck`/`sfh_cap`, non-latching priority (bit 7), continuous-SFX class (`SHF_CONTINUOUS`, spindash charge + drowning warning), instance discriminator for cap>1 multi-channel | plan (+ small spec addendum to `2026-07-02-sfx-fidelity-and-mixing-design.md` §5) | **ADDENDUM WRITTEN** (spec §7) — awaiting user review, then plan |
+| A | **Game-Feel Moments** — pause/unpause, song-finished contract (`SND_STAT_*` mirror), jingle push/pop (1-up/invincibility/drowning) w/ mid-song resume snapshot, tempo-scalar reset-on-load semantics, PCM-jingle bank/FM6-mode rules, 512 B buffer arbitration, command-API v2 (absorbs the outgrown `2026-06-16-sound-command-api.md`) | spec + plan | **BANKED** — spec APPROVED (user, 2026-07-03) + plan `plans/2026-07-03-sound-game-feel-moments.md` |
+| B | **SFX Stage B/C** — per-SFX `sfh_gain`/`sfh_duck`/`sfh_cap`, non-latching priority (bit 7), continuous-SFX class (`SHF_CONTINUOUS`, spindash charge + drowning warning), instance discriminator for cap>1 multi-channel | plan (+ small spec addendum to `2026-07-02-sfx-fidelity-and-mixing-design.md` §5) | **BANKED** — addendum APPROVED (user, 2026-07-03) + plan `plans/2026-07-03-sfx-fidelity-stage-bc.md` |
 | C | **DAC drum-library readiness** — descriptor `ds_vol` + reserved mix-cursor bytes, Bank-D engine-table co-location hook (`gen_sound_tables.py` data-only twin), dead 68k table removal ~~(already resolved — verified 2026-07-03)~~, authoring guidance | plan (+ ratification amendment, done in E) | **PLAN WRITTEN** (`plans/2026-07-03-dac-drum-library-readiness.md`) |
 | D | **Correctness batch** — surviving audit bugs: D1 (PSG pitch-mod noise-route gate), D2 (zeroed `sc_dur_default` 255-tick note), D4 (`Psg_NoteOn` ignores `sc_transpose`), D5 (PSG env attack one frame late), D6 (stale `sc_repeat_count` across song loop), D7 (`MEV_REPEAT_END` operand 0), B3 (AM-enable byte fidelity), B5 ($E7 tone-tracked noise sweep), E5-runtime (SSG-EG 7th RegDelta group), F3/F4 ~~(verified already fixed/moot 2026-07-03 — SfxTable is LIVE; D2/D3/D5 also already fixed)~~ | plan | **PLAN WRITTEN** (`plans/2026-07-03-sound-correctness-batch.md`) |
 
@@ -58,6 +58,11 @@ jingle/bank rules require it; otherwise stays Phase-5-deferred), §6.5 attenuati
 (demoted), §6.6 ambient (CUT), Phase 6 MegaDAW compiler (deferred, content-driven),
 H3 + rendered S3K A/B (pending by-ear), GATE articulation, per-frame pitch/vol
 envelopes Phase-3a #2/#3 (build-on-demand).
+
+**ALL FOUR PACKAGES BANKED 2026-07-03.** Execution order stands (A -> B -> C -> D, all
+after feat/sfx-fidelity's by-ear merge). Every plan is cold-executable
+(subagent-driven-development per plan headers); emulator gates are controller-session
+steps marked FOREGROUND in each plan.
 
 ## Log
 
