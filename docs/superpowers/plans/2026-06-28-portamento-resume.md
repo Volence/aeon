@@ -1,8 +1,19 @@
 # Portamento — resume plan (deferred from music-expr Phase 2)
 
 **Date:** 2026-06-28. **Branch base:** `feat/music-expr-phase2` (after `d601093`).
-**Status:** B1 engine machinery IMPLEMENTED + the GLIDE VERIFIED WORKING, but reverted
-because it crashes the Z80 (root cause below). B2/B3 not started.
+**Status:** EXECUTED 2026-07-02 on `feat/sound-perf-budget` (Sound Perf & Budget
+phase, Task 10). B1 landed RESIDENT (Porta_Apply beside Tempo_Ramp/Fade_Ramp in
+`engine/sound/sound_sequencer.asm`; Fm_FnumApplyDelta was already resident in
+`engine/sound/sound_fm.asm` since that phase's T2/T3), B2 (`MEV_PORTA=$F5` +
+`Seq_Op_Porta` + dispatch slot) and B3 (packer `Porta` + music-legal set + tests,
+811→813 passed) done. Step 2's budget recovery was ALREADY DONE by that phase's
+Tasks 2-4 (skipped); `engine/sound_banked_z80.asm` + its include were ALREADY
+DELETED when Fm_FnumApplyDelta moved resident (the T0.3 hazard closed there, not
+here). Budget after: `$1762/$18F0` ($18E free). Step 4's oracle soak/glide capture
+is the controller's follow-up (this execution was code+build+pytest only).
+**Original status (historical):** B1 engine machinery IMPLEMENTED + the GLIDE
+VERIFIED WORKING, but reverted because it crashes the Z80 (root cause below).
+B2/B3 not started.
 
 ## Why deferred
 Portamento's `Porta_Apply` runs **per frame, per armed channel**, from `ModUpdate`. It was

@@ -1,5 +1,18 @@
 # Music-Expression Phase 2 — Z80 Space Recovery + Banking Strategy
 
+> **CORRECTION (2026-07-02, portamento resume):** this doc's **code-banking
+> technique for in-frame routines is UNSOUND**. Only **DATA** may live in the Z80
+> `$8000` bank window: CODE fetched through the window corrupts under 68k bus
+> contention (VRAM DMA-from-ROM / BUSREQ; `di` does not help — it masks INT, not
+> BUSREQ) → wild PC → Z80 self-reinit. This was live-captured twice with the banked
+> `Porta_Apply`. ALL in-frame code must be RESIDENT; the "Phase-2 code placement"
+> section below (banked handlers/`Porta_Apply` in the window) must NOT be followed.
+> The DATA-table banking targets (SfxBlobWinTab, FmPatchInlineTable, SeqOpcodeTable,
+> etc.) remain valid and were executed by the Sound Perf & Budget phase (Tasks 2-4).
+> Portamento itself landed RESIDENT on `feat/sound-perf-budget` (Task 10). See
+> `docs/superpowers/plans/2026-06-28-portamento-resume.md` and the banked-window
+> physics rule in `docs/ENGINE_ARCHITECTURE.md`.
+
 **Date:** 2026-06-28
 **Branch:** `feat/music-expr-phase2` (off master `20bcfe0`, after Task-0 doc-sync `d8ea65a`)
 **Why this exists:** The two Phase-2 plans (`2026-06-27-music-expression-phase2-{pernote,global}.md`)

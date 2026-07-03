@@ -2647,10 +2647,14 @@ soundscapes (the latter is deferred to Phase 5).
     opcode gate, `TAG_MAC_*` cross-file sync guard). The whole layer is **inert** when `sc_env`=0 /
     `sc_mod_ptr`=NULL (every shipped song), so HCZ2 / Moving Trucks / SFX render byte-identically.
 
-- **Music-expression Phase 2 — SHIPPED except portamento (merged to master; 2026-07-01 fix pass
-  verified):** fine detune (`MEV_DETUNE` $F6), sequencer-driven hardware LFO (`MEV_LFO` $F4), the
-  global tempo scalar (`MEV_TEMPO` $F3, per-channel tempo accumulator), and master fade-in/out
-  (`Sound_FadeOut`/`Sound_FadeIn` over `SND_REQ_FADE`) are all live.
+- **Music-expression Phase 2 — SHIPPED (portamento landed 2026-07-02 on `feat/sound-perf-budget`,
+  Task 10; the rest merged to master, 2026-07-01 fix pass verified):** fine detune (`MEV_DETUNE` $F6),
+  sequencer-driven hardware LFO (`MEV_LFO` $F4), the global tempo scalar (`MEV_TEMPO` $F3, per-channel
+  tempo accumulator), master fade-in/out (`Sound_FadeOut`/`Sound_FadeIn` over `SND_REQ_FADE`), and
+  **per-note portamento** (`MEV_PORTA` $F5 → persistent `sc_porta_incr` glide rate; `Porta_Apply`
+  RESIDENT in `sound_sequencer.asm`, FM glides block-correct via the shared `Fm_FnumApplyDelta`,
+  PSG linear-in-divisor; glide owns the pitch, vibrato resumes at target; oracle soak/glide capture
+  per the phase verification process).
 
 **Banked-window physics rule (hard constraint, learned 2026-06-28):** only DATA may live in the Z80
 `$8000` bank window. CODE fetched through the window corrupts under 68k bus contention (DMA/BUSREQ;
@@ -2658,10 +2662,7 @@ soundscapes (the latter is deferred to Phase 5).
 `engine/sound/sound_banked_z80.asm` was deleted (2026-07-01) when its last banked routine,
 `Fm_FnumApplyDelta`, moved resident into `sound_fm.asm`.
 
-**DEFERRED (each its own plan):** **Per-note portamento is the ONLY unshipped music-expression
-piece** — execute the turnkey resume plan (`docs/superpowers/plans/2026-06-28-portamento-resume.md`):
-relocate its ~323 B of in-frame code RESIDENT (per the banked-window rule above), bank remaining DATA
-tables (~200-260 B) to recover the budget, then B2/B3 + soak. The old "Phase 2 N-channel DAC mixer"
+**DEFERRED (each its own plan):** The old "Phase 2 N-channel DAC mixer"
 roadmap item is **superseded by the approved DAC-format spec**
 (`docs/superpowers/specs/2026-06-24-dac-drum-format-revision-design.md` + its 2026-06-25 raw-8-bit
 amendment): single voice, raw 8-bit PCM, pre-mixed composites; `ds_codec`/`ds_rate` reserved bytes
