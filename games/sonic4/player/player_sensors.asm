@@ -371,6 +371,12 @@ Player_SensorWallDir:
         moveq   #SOLID_LRB, d6         ; wall class: jump-through rejected
         moveq   #0, d3
         move.b  SST_layer(a0), d3
+        ; index hygiene (conventions §2.5b): d2 arrives from callers whose word
+        ; cleanliness is an ACCIDENT of RunObjects' small loop counter (d7<=1 ->
+        ; Ground_Move's move.w d7,d2). Clamp to the table range so a future
+        ; NUM_PLAYERS growth or a Player_Main reuse can't turn the computed jmp
+        ; below into a wild jump. Valid inputs 0-3 are unchanged.
+        andi.w  #3, d2
         add.w   d2, d2
         move.w  .dir_table(pc,d2.w), d2
         jmp     .dir_table(pc,d2.w)
