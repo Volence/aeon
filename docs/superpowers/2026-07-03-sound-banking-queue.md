@@ -25,11 +25,19 @@ already reserved, and Stage A closed the retrigger policy — leaving the packag
 2. **DAC format bet RATIFIED:** single voice + pre-mixed composites (2026-06-24 spec
    §2.2) confirmed; sampled-SFX-over-drums accepted as foreclosed; descriptor
    insurance (`ds_vol` + 2 reserved mix-cursor bytes) rides with package C.
-3. **Jingle policy: MID-SONG RESUME.** After 1-up (and for drowning-recovery /
-   invincibility swap-back), level music resumes where it left off (S1/S2 behavior,
-   exceeds S3K's restart annoyance). The snapshot claims the dead 512 B Z80 song
-   buffer at `$1B00`; the game-feel spec (package A) records the arbitration vs the
-   code-ceiling-raise claim on that RAM.
+3. **Jingle policy: MID-SONG RESUME.** After a 1-up jingle, level music resumes
+   where it left off (S1/S2 behavior, exceeds S3K's restart annoyance).
+   **Mechanism correction (engine-internals research, same day):** the 512 B `$1B00`
+   buffer named at decision time NO LONGER EXISTS — the 2026-07-02 A.3 repack already
+   consumed it for the code-ceiling raise (SeqChannels now occupy that range). No
+   snapshot buffer is needed: our SFX tier is SEPARATE RAM from the music SeqChannels
+   (unlike SMPS, where the jingle overwrites music track RAM — the whole reason S2
+   copies 470 B). Resume = freeze the sequencer in place (`SND_SEQ_ACTIVE=0`; the
+   live SeqChannels ARE the snapshot) + play the jingle on SFX-tier channels + unpause
+   at jingle end. Zero-byte snapshot, exact-position resume. Long takeover songs
+   (invincibility, drowning countdown) remain full music loads; swap-back restarts
+   level music (classic behavior in every reference game). The RAM arbitration is
+   therefore MOOT — both claims are satisfied.
 
 ## Package queue (execution order)
 
