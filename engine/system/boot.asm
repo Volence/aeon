@@ -206,7 +206,8 @@ Cold_Boot:
         ; Sound mailbox idle + (DEBUG) ping handshake. Z80 already has the bus
         ; and the driver is running; registers are free here (post-boot setup).
         bsr.w   Sound_Init
-      ifdef __DEBUG__
+      ifdef SOUND_DEBUG_HOTKEYS
+        ; sound test-harness only (SOUND_DEBUG_HOTKEYS=1 builds): ping + autoplay.
         moveq   #$3C, d0                 ; DEBUG: ping with a recognizable value
         bsr.w   Sound_Ping
         ; DEBUG: SONG_MOVINGTRUCKS (the only song, id 1) plays the sequencer-driven

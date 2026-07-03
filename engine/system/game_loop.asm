@@ -9,9 +9,9 @@ GameLoop:
     ifdef SOUND_DRIVER_ENABLED
         bsr.w   Sound_DrainSfxRing      ; A2: drain ONE pending SFX/frame into the mailbox
     endif                               ; (release sound builds need this too, not just DEBUG)
-    ifdef __DEBUG__
+    ifdef SOUND_DEBUG_HOTKEYS
       ifdef SOUND_DRIVER_ENABLED
-        bsr.w   Debug_MusicToggle       ; START toggles the demo song (stop/play)
+        bsr.w   Debug_MusicToggle       ; sound test-harness hotkeys (build with SOUND_DEBUG_HOTKEYS=1)
       endif
     endif
         movea.l (Game_State).w, a0
@@ -24,7 +24,7 @@ GameLoop:
 GameState_Idle:
         rts
 
-    ifdef __DEBUG__
+    ifdef SOUND_DEBUG_HOTKEYS
       ifdef SOUND_DRIVER_ENABLED
 ; -----------------------------------------------
 ; Debug_MusicToggle — DEBUG sound test-harness hotkeys (edge-detected on
