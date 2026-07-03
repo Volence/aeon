@@ -1292,6 +1292,14 @@ Snd_LoadSong:
         ; enable vibrato once the gates are removed (later task).
         ld      (ix+sc_mod_ctrl), 0
         ld      (ix+sc_detune), 0        ; fine-detune neutral (reserved)
+        ; portamento OFF for a fresh song (sc_porta_incr = the persistent glide rate;
+        ; nonzero = armed). A stale rate from a prior song would auto-glide the first
+        ; note. sc_porta_accum is seeded by the first (snapping) note-on, but zero it
+        ; for cleanliness/determinism.
+        ld      (ix+sc_porta_incr), 0
+        ld      (ix+sc_porta_incr+1), 0
+        ld      (ix+sc_porta_accum), 0
+        ld      (ix+sc_porta_accum+1), 0
         ; --- Phase 3 per-channel state ---
         ; tempo accumulator: base from the header (SH_TEMPO_BASE), accum seeded =
         ; base so the FIRST frame's `sub 16` starts counting toward an event-tick.

@@ -1071,7 +1071,7 @@ SeqChannel endstruct      ; = 60 bytes
         ; ModUpdate/Sequencer_Channel walk an SfxChannel correctly. The shared
         ; block runs +0..+56 (through sc_last_freq); the structs diverge at +57
         ; (sc_noise_mode vs sx_priority).
-        if (SfxChannel_sc_flags <> SeqChannel_sc_flags) || (SfxChannel_sc_route <> SeqChannel_sc_route) || (SfxChannel_sc_note <> SeqChannel_sc_note) || (SfxChannel_sc_points <> SeqChannel_sc_points) || (SfxChannel_sc_last_pan <> SeqChannel_sc_last_pan) || (SfxChannel_sc_mod_ctrl <> SeqChannel_sc_mod_ctrl) || (SfxChannel_sc_mod_wait_raw <> SeqChannel_sc_mod_wait_raw) || (SfxChannel_sc_mod_delta_raw <> SeqChannel_sc_mod_delta_raw) || (SfxChannel_sc_mod_accum <> SeqChannel_sc_mod_accum) || (SfxChannel_sc_base_freq <> SeqChannel_sc_base_freq) || (SfxChannel_sc_last_freq <> SeqChannel_sc_last_freq)
+        if (SfxChannel_sc_flags <> SeqChannel_sc_flags) || (SfxChannel_sc_route <> SeqChannel_sc_route) || (SfxChannel_sc_note <> SeqChannel_sc_note) || (SfxChannel_sc_points <> SeqChannel_sc_points) || (SfxChannel_sc_last_pan <> SeqChannel_sc_last_pan) || (SfxChannel_sc_mod_ctrl <> SeqChannel_sc_mod_ctrl) || (SfxChannel_sc_mod_wait_raw <> SeqChannel_sc_mod_wait_raw) || (SfxChannel_sc_mod_delta_raw <> SeqChannel_sc_mod_delta_raw) || (SfxChannel_sc_mod_accum <> SeqChannel_sc_mod_accum) || (SfxChannel_sc_base_freq <> SeqChannel_sc_base_freq) || (SfxChannel_sc_last_freq <> SeqChannel_sc_last_freq) || (SfxChannel_sc_porta_accum <> SeqChannel_sc_porta_accum) || (SfxChannel_sc_porta_incr <> SeqChannel_sc_porta_incr)
           error "SfxChannel shared prefix diverges from SeqChannel field offsets"
         endif
 

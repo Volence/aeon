@@ -182,6 +182,174 @@ Fade_Ramp:
         ret
 
 ; ----------------------------------------------------------------------
+; Porta_Apply — one frame of portamento glide (spec §4): step sc_porta_accum (the
+; current sounding pitch) toward the target (sc_base_freq, latched at note-on) by
+; sc_porta_incr (the persistent glide-rate MAGNITUDE, a byte), linear-in-fnum with
+; the block-boundary correction (FM, via the shared Fm_FnumApplyDelta — so a glide
+; crosses the canonical [FNUM_LO,FNUM_HI) band edges block-correct) or linear-in-
+; divisor (PSG). Write-on-change. Caller-gated on sc_porta_incr != 0. While a glide
+; is in progress this OWNS the pitch (vibrato suppressed); when accum == target it
+; returns "done" so vibrato resumes on the held target note.
+; RESIDENT — like ALL in-frame code (see Tempo_Ramp's banked-window rule: banked
+; in-frame CODE is a proven crash hazard; only DATA tables may live in the $8000
+; window). Reached per frame per armed channel from ModUpdate (FM + PSG paths).
+; In: ix = channel, sc_porta_incr != 0.
+; Out: CARRY SET  => glide active this frame (caller skips vibrato/pitch-mod).
+;      CARRY CLEAR => at target (caller runs vibrato/pitch-mod as normal).
+; Clobbers af,bc,de,hl. Preserves ix.
+; ----------------------------------------------------------------------
+Porta_Apply:
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        jp      z, .psg                  ; jp (not jr): the FM section below is > jr range
+        ; ===== FM glide (packed words are monotonic in pitch) =====
+        ld      d, (ix+sc_porta_accum)
+        ld      e, (ix+sc_porta_accum+1)  ; de = current packed word
+        ld      a, (ix+sc_base_freq)
+        cp      d
+        jr      nz, .fm_dir
+        ld      a, (ix+sc_base_freq+1)
+        cp      e
+        jr      nz, .fm_dir
+        or      a                        ; current == target -> CF clear (done)
+        ret
+.fm_dir:
+        ld      a, (ix+sc_base_freq)
+        cp      d
+        jr      c, .fm_down              ; target_hi < current_hi -> glide DOWN
+        jr      nz, .fm_up               ; target_hi > current_hi -> glide UP
+        ld      a, (ix+sc_base_freq+1)
+        cp      e
+        jr      c, .fm_down              ; equal hi, target_lo < current_lo -> DOWN
+.fm_up:
+        ld      l, (ix+sc_porta_incr)
+        ld      h, 0                     ; hl = +rate
+        call    Fm_FnumApplyDelta        ; d/e = current + rate (block-normalized)
+        ; overshoot up? new >= target -> snap
+        ld      a, (ix+sc_base_freq)
+        cp      d
+        jr      c, .fm_snap              ; target_hi < new_hi -> overshot
+        jr      nz, .fm_store            ; target_hi > new_hi -> not there yet
+        ld      a, (ix+sc_base_freq+1)
+        cp      e
+        jr      c, .fm_snap
+        jr      .fm_store
+.fm_down:
+        ld      a, (ix+sc_porta_incr)
+        neg
+        ld      l, a
+        sbc     a, a
+        ld      h, a                     ; hl = -rate (sign-extended; rate is a byte)
+        call    Fm_FnumApplyDelta        ; d/e = current - rate (block-normalized)
+        ; overshoot down? new <= target -> snap
+        ld      a, (ix+sc_base_freq)
+        cp      d
+        jr      c, .fm_store             ; target_hi < new_hi -> still above target
+        jr      nz, .fm_snap             ; target_hi > new_hi -> overshot
+        ld      a, (ix+sc_base_freq+1)
+        cp      e
+        jr      nc, .fm_snap             ; target_lo >= new_lo -> overshot/at target
+.fm_store:
+        ld      (ix+sc_porta_accum), d
+        ld      (ix+sc_porta_accum+1), e
+        jr      .fm_emit
+.fm_snap:
+        ld      d, (ix+sc_base_freq)
+        ld      e, (ix+sc_base_freq+1)
+        ld      (ix+sc_porta_accum), d
+        ld      (ix+sc_porta_accum+1), e
+.fm_emit:
+        ; write-on-change vs sc_last_freq (shared with the vibrato shadow)
+        ld      a, d
+        cp      (ix+sc_last_freq)
+        jr      nz, .fm_write
+        ld      a, e
+        cp      (ix+sc_last_freq+1)
+        jr      nz, .fm_write
+        scf                              ; unchanged but gliding -> skip write, CF set
+        ret
+.fm_write:
+        ld      (ix+sc_last_freq), d
+        ld      (ix+sc_last_freq+1), e
+        call    Fm_WriteFreq             ; $A4/$A0, no key-on (preserves ix)
+        scf                              ; glide active -> CF set
+        ret
+.psg:
+        ; ===== PSG glide (10-bit divisor; linear-in-divisor) =====
+        ld      d, (ix+sc_porta_accum)
+        ld      e, (ix+sc_porta_accum+1)  ; de = current divisor
+        ld      a, (ix+sc_base_freq)
+        cp      d
+        jr      nz, .psg_dir
+        ld      a, (ix+sc_base_freq+1)
+        cp      e
+        jr      nz, .psg_dir
+        or      a                        ; current == target -> done
+        ret
+.psg_dir:
+        ld      a, (ix+sc_base_freq)
+        cp      d
+        jr      c, .psg_down             ; target < current -> step DOWN (toward target)
+        jr      nz, .psg_up
+        ld      a, (ix+sc_base_freq+1)
+        cp      e
+        jr      c, .psg_down
+.psg_up:
+        ld      l, (ix+sc_porta_incr)
+        ld      h, 0
+        add     hl, de                   ; current + rate
+        ; overshoot? new >= target -> snap
+        ld      a, (ix+sc_base_freq)
+        cp      h
+        jr      c, .psg_snap
+        jr      nz, .psg_have
+        ld      a, (ix+sc_base_freq+1)
+        cp      l
+        jr      c, .psg_snap
+.psg_have:
+        ld      d, h
+        ld      e, l
+        jr      .psg_store
+.psg_down:
+        ld      a, e
+        sub     (ix+sc_porta_incr)
+        ld      l, a
+        ld      a, d
+        sbc     a, 0
+        ld      h, a                     ; hl = current - rate
+        ; overshoot? new <= target -> snap
+        ld      a, (ix+sc_base_freq)
+        cp      h
+        jr      c, .psg_have2            ; target_hi < new_hi -> still above target
+        jr      nz, .psg_snap
+        ld      a, (ix+sc_base_freq+1)
+        cp      l
+        jr      nc, .psg_snap
+.psg_have2:
+        ld      d, h
+        ld      e, l
+        jr      .psg_store
+.psg_snap:
+        ld      d, (ix+sc_base_freq)
+        ld      e, (ix+sc_base_freq+1)
+.psg_store:
+        ld      (ix+sc_porta_accum), d
+        ld      (ix+sc_porta_accum+1), e
+        ld      a, d
+        cp      (ix+sc_last_freq)
+        jr      nz, .psg_write
+        ld      a, e
+        cp      (ix+sc_last_freq+1)
+        jr      nz, .psg_write
+        scf
+        ret
+.psg_write:
+        ld      (ix+sc_last_freq), d
+        ld      (ix+sc_last_freq+1), e
+        call    Psg_EmitDivisor          ; re-latch divisor (d=hi,e=lo); preserves hl,ix
+        scf
+        ret
+
+; ----------------------------------------------------------------------
 ; ModUpdate — the MODULATION LAYER (Phase 3). Renders ONE channel's modulation
 ; STATE to the YM2612, once per frame. ix = the channel's SeqChannel.
 ;
@@ -269,6 +437,14 @@ ModUpdate:
         ; divisor. Shares the FM triangle core (Mod_Advance) via Psg_ApplyMod; a
         ; non-modulated PSG SFX (sc_mod_ctrl==0) pays only this one test. Runs BEFORE
         ; the vol-env so both compose (mod re-latches the divisor; env re-emits volume).
+        ; --- PORTAMENTO (PSG, spec §4): same gate/own-pitch model as FM. CF set =>
+        ; glide active -> skip pitch-mod (lands at .psg_env so the vol-env still runs).
+        ld      a, (ix+sc_porta_incr)
+        or      (ix+sc_porta_incr+1)
+        jr      z, .no_psg_porta
+        call    Porta_Apply
+        jr      c, .psg_env
+.no_psg_porta:
         ld      a, (ix+sc_mod_ctrl)
         or      a
         call    nz, Psg_ApplyMod         ; advance accum + re-latch tone divisor (no re-key)
@@ -309,6 +485,16 @@ ModUpdate:
         ; below — modulates held FM notes on music + SFX channels alike (the SFX-only
         ; gate was removed in Phase 1; sc_mod_ctrl exists on both structs at the same
         ; offset). A non-modulated channel (sc_mod_ctrl==0) pays only this one test.
+        ; --- PORTAMENTO (spec §4): a glide owns the pitch (suppresses vibrato); once
+        ; at target it falls through so a held note still vibratos. Only armed channels
+        ; (sc_porta_incr != 0) pay more than one test. Porta_Apply is RESIDENT (all
+        ; in-frame code is — see Tempo_Ramp's banked-window rule).
+        ld      a, (ix+sc_porta_incr)
+        or      (ix+sc_porta_incr+1)
+        jr      z, .no_porta
+        call    Porta_Apply              ; CF set => glide active -> skip vibrato
+        jr      c, .vibrato_done
+.no_porta:
         ld      a, (ix+sc_mod_ctrl)
         or      a
         call    nz, Mod_ApplyVibrato     ; advance + write-on-change $A4/$A0 (no key-on)

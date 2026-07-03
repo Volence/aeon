@@ -830,6 +830,24 @@ Fm_NoteOnFreqExact:
         ; NOTE: FmEnvUpdate advances the contour every frame sc_env != 0 even before the
         ; first key-on, so arming MEV_FMENV well before a note wastes contour frames.
         ; This per-attack reset re-starts the contour on each key-on (correct per-note behavior).
+        ; --- PORTAMENTO note-on (spec §4): if a glide rate is armed, ATTACK at the
+        ; current slid pitch (sc_porta_accum) and glide to the target (sc_base_freq,
+        ; just latched); else SNAP sc_porta_accum = target (normal attack; seeds the
+        ; next glide's start). de currently = the (detuned) target word.
+        ld      a, (ix+sc_porta_incr)
+        or      (ix+sc_porta_incr+1)
+        jr      z, .porta_snap
+        ld      d, (ix+sc_porta_accum)
+        ld      e, (ix+sc_porta_accum+1)  ; de = start pitch (old slid value)
+        ld      (ix+sc_last_freq), d
+        ld      (ix+sc_last_freq+1), e    ; prime write-on-change shadow to the start
+        call    Fm_WriteFreq             ; re-write $A4/$A0 = start (no key-on); preserves ix
+        jr      .keyon
+.porta_snap:
+        ld      d, (ix+sc_base_freq)
+        ld      e, (ix+sc_base_freq+1)
+        ld      (ix+sc_porta_accum), d
+        ld      (ix+sc_porta_accum+1), e  ; accum = target (no glide)
 .keyon:
         ; --- FM6 dedicate (Layer 4): while a DAC sample owns ch6 (SND_STAT_DAC_ACTIVE),
         ; $2B bit7 makes the DAC REPLACE FM6's output — a $28 key-on would only retrigger

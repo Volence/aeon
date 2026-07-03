@@ -232,6 +232,24 @@ Psg_NoteOn:
         ; all noise tracks, pays only one test).
         call    Mod_ReArm                ; PSG pitch-mod re-arm (preserves bc/de/hl/ix)
 .skip_rearm:
+        ; --- PORTAMENTO note-on (PSG, spec §4): attack at sc_porta_accum + glide, or
+        ; snap accum = target. Reload from sc_porta_accum/sc_base_freq (Psg_EmitDivisor/
+        ; Mod_ReArm clobbered de). de = the start divisor (armed) for the no-rekey re-latch.
+        ld      a, (ix+sc_porta_incr)
+        or      (ix+sc_porta_incr+1)
+        jr      z, .porta_snap
+        ld      d, (ix+sc_porta_accum)
+        ld      e, (ix+sc_porta_accum+1)
+        ld      (ix+sc_last_freq), d
+        ld      (ix+sc_last_freq+1), e
+        call    Psg_EmitDivisor          ; re-latch start divisor (no re-key); preserves hl,ix
+        jr      .porta_done
+.porta_snap:
+        ld      d, (ix+sc_base_freq)
+        ld      e, (ix+sc_base_freq+1)
+        ld      (ix+sc_porta_accum), d
+        ld      (ix+sc_porta_accum+1), e
+.porta_done:
         ld      a, (ix+sc_volume)
         jp      Psg_SetVolume            ; (preserves ix; ret from there)
 
