@@ -139,19 +139,28 @@ Sound_PlaySFX:
         beq.s   .ps_ret
         movem.l d1/a0, -(sp)                ; preserve d1 + caller's a0 (keep the d0-only contract)
         lea     (Sfx_Ring_Buf).w, a0        ; a0 = ring base
-        move.b  (Sfx_Ring_Wr).w, d1         ; d1 = Wr
+        ; d1 is used as an (a0,d1.w) INDEX below, so its full low WORD must be
+        ; clean — `move.b` alone leaves the caller's bits 8-15 in d1.w and the
+        ; write lands up to $FF00 bytes past the ring (found live 2026-07-03:
+        ; the spindash-release caller leaves $09xx in d1, so its dash post
+        ; wrote to ring+$9xx — the id vanished and a stray byte hit unrelated
+        ; RAM; rev callers happened to leave d1 clean, masking the bug).
+        ; moveq clears the whole register before every byte-cursor load.
+        moveq   #0, d1
+        move.b  (Sfx_Ring_Wr).w, d1         ; d1 = Wr (index-safe: d1.w clean)
         cmp.b   (Sfx_Ring_Rd).w, d1         ; Wr == Rd -> ring empty -> no last entry, skip dedup
         beq.s   .ps_checkfull
         ; --- same-id dedup vs the most-recent pending slot (Wr-1)&MASK ---
         subq.b  #1, d1
-        and.b   #SFX_RING_MASK, d1          ; d1 = last index
+        and.w   #SFX_RING_MASK, d1          ; d1 = last index (WORD mask: keep d1.w index-safe)
         cmp.b   (a0,d1.w), d0
         beq.s   .ps_drop                    ; same id already pending -> skip (no double-fire)
-        move.b  (Sfx_Ring_Wr).w, d1         ; reload d1 = Wr
+        moveq   #0, d1
+        move.b  (Sfx_Ring_Wr).w, d1         ; reload d1 = Wr (index-safe)
 .ps_checkfull:
         lea     (a0,d1.w), a0               ; a0 = &Sfx_Ring_Buf[Wr]  (capture BEFORE Wr is bumped)
         addq.b  #1, d1
-        and.b   #SFX_RING_MASK, d1          ; d1 = nextWr
+        and.b   #SFX_RING_MASK, d1          ; d1 = nextWr (byte ops only from here: cmp.b + move.b commit)
         cmp.b   (Sfx_Ring_Rd).w, d1         ; nextWr == Rd -> ring full -> drop (>7 same-frame: never)
         beq.s   .ps_drop
         move.b  d0, (a0)                    ; Sfx_Ring_Buf[Wr] = id  (data BEFORE pointer)
@@ -170,6 +179,9 @@ Sound_PlaySFX:
 ; is a fast no-op. Clobbers: d0/d1/a0; SR restored.
 ; ----------------------------------------------------------------------
 Sound_DrainSfxRing:
+        moveq   #0, d0                      ; d0 is an (a0,d0.w) index below — clear the
+                                            ; caller's bits 8-15 (same class as the
+                                            ; Sound_PlaySFX index bug, found 2026-07-03)
         move.b  (Sfx_Ring_Rd).w, d0
         cmp.b   (Sfx_Ring_Wr).w, d0
         beq.s   .dr_ret                     ; Rd == Wr -> ring empty -> nothing to drain
