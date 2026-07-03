@@ -249,6 +249,25 @@ Encode bands' factors as `(shift1, shift2, op)` byte triples in ROM data; runtim
 | `subq + bne` loop | `dbf` loop | 2 cycles/iteration saved |
 | `clr.l (a0)` (read-modify-write) | `moveq #0,d0; move.l d0,(a0)` | Avoids spurious read cycle |
 
+### 2.5b Index-Register Hygiene (MANDATORY)
+
+**Never feed a byte-loaded register to `(aN,dM.w)` / `(aN,dM.l)` indexed addressing.**
+`move.b X,dM` defines only bits 0-7; the caller's stale bits 8-15 survive into the
+index and the access lands up to `$FF00` bytes away — silently reading garbage or,
+worse, WRITING a stray byte into unrelated RAM. This shipped a real bug (2026-07-03):
+`Sound_PlaySFX` loaded the SFX ring cursor with `move.b` and indexed `(a0,d1.w)`;
+the spindash-release caller left `$09` in d1's bits 8-15, so the dash SFX id was
+written `$9xx` bytes past the ring — the sound vanished and a stray byte corrupted
+unrelated state. The bug is invisible from callers that happen to leave the register
+clean, so it survives light testing.
+
+Rules:
+- Sanitize BEFORE the byte load: `moveq #0, dM` then `move.b X, dM` (preferred — 4 cycles).
+- Or mask at full index width AFTER: `andi.w #mask, dM` — `and.b` does NOT clean bits 8-15.
+- `subq.b`/`addq.b`/`and.b` on a cursor keep it byte-clean ONLY if it was word-clean to start.
+- Subroutine entry registers are ALWAYS dirty. Every byte-cursor a routine loads for
+  indexing must be sanitized inside that routine — never rely on caller cleanliness.
+
 ### 2.6 Advanced 68000 Techniques
 
 **Branchless conditional via Scc:** `Scc Dn` sets a byte to $FF or $00 based on condition codes. Follow with `ext.w`/`ext.l` to create a full bitmask, then AND/OR to conditionally apply a value. Avoids branch penalty (10 cycles taken, 8 not-taken). Example: `slt d1; ext.w d1; and.w d1,d0` zeroes d0 if d0 was negative, preserves it otherwise.
