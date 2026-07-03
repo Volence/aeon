@@ -229,25 +229,29 @@ class TestRoundtripRoll(unittest.TestCase):
     def test_pack_produces_bytes(self):
         blob = pack_sfx(self.desc, SFXPRI_ROLL)
         self.assertIsInstance(blob, bytes)
-        self.assertGreater(len(blob), 4 + 6,
+        self.assertGreater(len(blob), 8 + 6,
                            "Blob must be larger than the header alone")
 
     def test_blob_header_layout(self):
-        blob = pack_sfx(self.desc, SFXPRI_ROLL)
-        # [0] = priority
-        self.assertEqual(blob[0], SFXPRI_ROLL)
-        # [1] = flags
-        self.assertEqual(blob[1], self.desc['flags'])
-        # [2] = chcount
-        self.assertEqual(blob[2], 1)
-        # [3] = pad
-        self.assertEqual(blob[3], 0x00)
-        # per-channel record [4..9]: route, kind, cmd_ptr_hi, cmd_ptr_lo, voice_hi, voice_lo
-        self.assertEqual(blob[4], CHROUTE_FM4)     # route
-        self.assertEqual(blob[5], SFXEL_FM)         # kind
-        # cmd_ptr must point past the header (4 + 1*6 = 10)
-        cmd_ptr = (blob[6] << 8) | blob[7]
-        self.assertEqual(cmd_ptr, 10, "cmd_ptr should be 10 (header + 1 channel record)")
+        desc = transcode_sfx_source(ROLL_SRC, 0x3C)
+        blob = pack_sfx(desc, SFXPRI_ROLL)
+        # 8-byte prefix (Stage B fields inert: gain=0, duck=0, cap=1, rsvd=0)
+        self.assertEqual(blob[0], SFXPRI_ROLL)          # sfh_priority
+        self.assertEqual(blob[1], desc['flags'])         # sfh_flags
+        self.assertEqual(blob[2], 1)                     # sfh_chcount
+        self.assertEqual(blob[3], 0)                     # sfh_gain (inert Stage A)
+        self.assertEqual(blob[4], 0)                     # sfh_duck (inert Stage A)
+        self.assertEqual(blob[5], 1)                     # sfh_cap  (inert; engine hard-caps 1)
+        self.assertEqual(blob[6], 0)                     # sfh_rsvd
+        self.assertEqual(blob[7], 0)                     # sfh_rsvd+1
+        # 6-byte per-channel record at offset 8
+        self.assertEqual(blob[8], CHROUTE_FM4)           # route
+        self.assertEqual(blob[9], SFXEL_FM)              # kind
+        cmd_ptr = (blob[10] << 8) | blob[11]
+        self.assertEqual(cmd_ptr, 14)                    # header 8 + 1 record*6
+        voice_ptr = (blob[12] << 8) | blob[13]
+        self.assertGreater(voice_ptr, 14,
+                           "FM channel voice_ptr must point past the stream data")
 
     def test_not_reserved_route(self):
         ch = self.desc['channels'][0]
@@ -295,9 +299,9 @@ class TestRoundtripSkid(unittest.TestCase):
 
     def test_psg_blob_has_no_voice_ptr(self):
         blob = pack_sfx(self.desc, SFXPRI_SKID)
-        # header = 4 bytes; 2 channels * 6 bytes each
+        # header = 8 bytes; 2 channels * 6 bytes each
         for ch_idx in range(2):
-            off = 4 + ch_idx * 6
+            off = 8 + ch_idx * 6
             voice_hi = blob[off + 4]
             voice_lo = blob[off + 5]
             self.assertEqual((voice_hi << 8) | voice_lo, 0,
@@ -603,53 +607,52 @@ Sound_XX_Voices:
 
 class TestBlobLayoutMatchesSfxHeader(unittest.TestCase):
     """Verify the packed blob exactly matches the SfxHeader field layout from
-    sound_constants.asm Task 2:
-      [0] sfh_priority, [1] sfh_flags, [2] sfh_chcount, [3] sfh_pad=0
+    sound_constants.asm Task 5:
+      [0] sfh_priority, [1] sfh_flags, [2] sfh_chcount,
+      [3] sfh_gain=0, [4] sfh_duck=0, [5] sfh_cap=1, [6:8] sfh_rsvd=0
       per channel record (6 bytes): route, kind, cmd_ptr(BE), voice_ptr(BE)
     """
 
     def test_roll_blob_header(self):
         desc = transcode_sfx_source(ROLL_SRC, 0x3C)
         blob = pack_sfx(desc, SFXPRI_ROLL)
-        # 4-byte prefix
+        # 8-byte prefix (Stage B fields inert: gain=0, duck=0, cap=1, rsvd=0)
         self.assertEqual(blob[0], SFXPRI_ROLL)          # sfh_priority
-        self.assertEqual(blob[1], desc['flags'])          # sfh_flags
-        self.assertEqual(blob[2], 1)                      # sfh_chcount
-        self.assertEqual(blob[3], 0)                      # sfh_pad
-        # 6-byte per-channel record
-        self.assertEqual(blob[4], CHROUTE_FM4)           # route
-        self.assertEqual(blob[5], SFXEL_FM)               # kind
-        cmd_ptr = (blob[6] << 8) | blob[7]
-        # header=4, 1 channel*6=6, so stream starts at offset 10
-        self.assertEqual(cmd_ptr, 10)
+        self.assertEqual(blob[1], desc['flags'])         # sfh_flags
+        self.assertEqual(blob[2], 1)                     # sfh_chcount
+        self.assertEqual(blob[3], 0)                     # sfh_gain (inert Stage A)
+        self.assertEqual(blob[4], 0)                     # sfh_duck (inert Stage A)
+        self.assertEqual(blob[5], 1)                     # sfh_cap  (inert; engine hard-caps 1)
+        self.assertEqual(blob[6], 0)                     # sfh_rsvd
+        self.assertEqual(blob[7], 0)                     # sfh_rsvd+1
+        # 6-byte per-channel record at offset 8
+        self.assertEqual(blob[8], CHROUTE_FM4)           # route
+        self.assertEqual(blob[9], SFXEL_FM)              # kind
+        cmd_ptr = (blob[10] << 8) | blob[11]
+        # header=8, 1 channel*6=6, so stream starts at offset 14
+        self.assertEqual(cmd_ptr, 14)
         # FM channel has a voice_ptr (points to patch bank after stream)
-        voice_ptr = (blob[8] << 8) | blob[9]
-        self.assertGreater(voice_ptr, 10,
+        voice_ptr = (blob[12] << 8) | blob[13]
+        self.assertGreater(voice_ptr, 14,
                            "FM channel voice_ptr must point past the stream data")
 
     def test_skid_blob_header(self):
         desc = transcode_sfx_source(SKID_SRC, 0x36)
         blob = pack_sfx(desc, SFXPRI_SKID)
-        # 4-byte prefix
         self.assertEqual(blob[0], SFXPRI_SKID)
         self.assertEqual(blob[2], 2)           # 2 channels
-        self.assertEqual(blob[3], 0)           # pad
-        # Channel 0 record starts at offset 4
-        # PSG channels have voice_ptr=0
-        voice_ptr_0 = (blob[8] << 8) | blob[9]
+        self.assertEqual(blob[5], 1)           # sfh_cap default
+        voice_ptr_0 = (blob[12] << 8) | blob[13]
         self.assertEqual(voice_ptr_0, 0)
-        # Channel 1 record starts at offset 10
-        voice_ptr_1 = (blob[14] << 8) | blob[15]
+        voice_ptr_1 = (blob[18] << 8) | blob[19]
         self.assertEqual(voice_ptr_1, 0)
 
     def test_blob_stream_ends_with_mev_end(self):
         """The packed stream for each channel must end with MEV_END ($FF)."""
         desc = transcode_sfx_source(ROLL_SRC, 0x3C)
         blob = pack_sfx(desc, SFXPRI_ROLL)
-        # Find the stream for channel 0
-        cmd_ptr = (blob[6] << 8) | blob[7]
-        voice_ptr = (blob[8] << 8) | blob[9]
-        # Stream spans cmd_ptr..voice_ptr (for FM with patch bank)
+        cmd_ptr = (blob[10] << 8) | blob[11]
+        voice_ptr = (blob[12] << 8) | blob[13]
         stream = blob[cmd_ptr:voice_ptr]
         self.assertEqual(stream[-1], MEV_END,
                          f"Stream must end with MEV_END ($FF); got ${stream[-1]:02X}")

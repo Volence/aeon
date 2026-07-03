@@ -857,14 +857,31 @@ FmPatch endstruct             ; = 2 + 6*4 + 4 + 2 = 32 bytes
 ; blob. The header carries the SFX-specific metadata the song format has no field
 ; for (preferred route, priority, own-voice ptr, flags). Big-endian ptr offsets,
 ; matching the SongHeader convention. design-for-C: SHF_* reserves continuous/loop
-; bits 5b will consume without a format change.
+; bits 5b will consume without a format change. Grown 4->8 bytes (spec §5) to
+; reserve Stage-B gain/duck/cap fields; all three are INERT in Stage A (engine
+; never reads them, transcoder writes fixed defaults).
 SfxHeader struct
-sfh_priority    ds.b 1   ; +0  authored priority byte (SFXPRI_*); higher wins
+sfh_priority    ds.b 1   ; +0  authored priority byte (SFXPRI_*); higher wins.
+                         ;     bit 7 RESERVED (Stage B): non-latching "plays but never
+                         ;     raises the priority floor" flag (S2's trick) — keep
+                         ;     authored priorities < $80 until Stage B lands.
 sfh_flags       ds.b 1   ; +1  SHF_* (continuous / stereo-alt / loop)
 sfh_chcount     ds.b 1   ; +2  number of SFX channels (1 or 2 for the core set)
-sfh_pad         ds.b 1   ; +3  align the per-channel records to even
+sfh_gain        ds.b 1   ; +3  Stage B: authored master attenuation (FM: +carrier TL
+                         ;     in 0.75 dB steps; PSG: +atten in 2 dB steps). INERT in
+                         ;     Stage A (engine never reads it; transcoder writes 0).
+sfh_duck        ds.b 1   ; +4  Stage B: per-SFX duck depth (replaces the global
+                         ;     SFX_DUCK_DEPTH). INERT in Stage A (transcoder writes 0).
+sfh_cap         ds.b 1   ; +5  Stage B: instance cap. INERT in Stage A: the engine
+                         ;     hard-caps at 1 (retrigger replace-in-place); transcoder
+                         ;     writes 1.
+sfh_rsvd        ds.b 2   ; +6  keep the per-channel records even-aligned
 ; per channel: route(.b) + kind(.b) + cmd_ptr(.w BE off) + voice_ptr(.w BE off)
-SfxHeader endstruct      ; = 4 bytes (fixed prefix; per-channel array follows)
+SfxHeader endstruct      ; = 8 bytes (fixed prefix; per-channel array follows)
+
+        if SfxHeader_len <> 8
+          error "SfxHeader struct is \{SfxHeader_len} bytes, expected 8 (transcoder pack_sfx must match)"
+        endif
 
 SFXH_PRIORITY = SfxHeader_sfh_priority
 SFXH_FLAGS    = SfxHeader_sfh_flags

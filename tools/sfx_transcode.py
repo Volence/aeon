@@ -8,7 +8,7 @@ emit_patch_bank_asm() from zyrinx_port.py, and packs events using the song_packe
 event model.  Emits data/sound/sfx/sfx_NN.asm + sfx_NN_patches.asm + sfx_table.asm.
 
 Format reference:
-  SfxHeader (4 bytes): priority, flags, chcount, pad
+  SfxHeader (8 bytes): priority, flags, chcount, gain, duck, cap, rsvd, rsvd
   Per-channel record  (6 bytes each): route, kind, cmd_ptr(BE), voice_ptr(BE)
   Then: packed event streams, then: FmPatch bank bytes.
   voice_ptr points into the inline FmPatch bank (offset from blob start).
@@ -1375,8 +1375,11 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
       [0]  priority (SFXPRI_*)
       [1]  flags (SHF_*)
       [2]  chcount
-      [3]  pad (0)
-      per channel (6 bytes each):
+      [3]  gain (Stage B: authored master attenuation; inert in Stage A, always 0)
+      [4]  duck (Stage B: per-SFX duck depth; inert in Stage A, always 0)
+      [5]  cap (Stage B: instance cap; inert in Stage A, engine hard-caps 1, always 1)
+      [6:8] rsvd (0; keeps per-channel records even-aligned)
+      per-channel records at +8 (6 bytes each):
         [+0] route
         [+1] kind
         [+2] cmd_ptr hi (BE offset from blob start)
@@ -1403,8 +1406,8 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
         s = b''.join(e.encode() for e in ch['events'])
         streams.append(s)
 
-    # Header: 4 bytes + chcount*6 bytes
-    header_len = 4 + chcount * 6
+    # Header: 8 bytes + chcount*6 bytes
+    header_len = 8 + chcount * 6
 
     # Stream layout: streams follow the header
     stream_offsets = []
@@ -1420,7 +1423,11 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
     out.append(priority & 0xFF)        # sfh_priority
     out.append(flags & 0xFF)           # sfh_flags
     out.append(chcount & 0xFF)         # sfh_chcount
-    out.append(0x00)                   # sfh_pad
+    out.append(0x00)                   # sfh_gain (Stage B: authored master attenuation; inert)
+    out.append(0x00)                   # sfh_duck (Stage B: per-SFX duck depth; inert)
+    out.append(0x01)                   # sfh_cap  (Stage B: instance cap; engine hard-caps 1 in Stage A)
+    out.append(0x00)                   # sfh_rsvd (keeps records even-aligned)
+    out.append(0x00)                   # sfh_rsvd+1
 
     for ch, stream_off in zip(channels, stream_offsets):
         out.append(ch['route'] & 0xFF)
