@@ -77,6 +77,8 @@ MEV_MACRO = 0xF9            # + ptr_hi + ptr_lo: (re)arm the slot[1] macro strea
 # Phase-2 per-note + global expression opcodes (mirror of sound_constants.asm).
 MEV_TEMPO = 0xF3           # + dd: set the GLOBAL tempo speed scalar (accumulator decrement; 16 = 100%)
 MEV_LFO = 0xF4             # + value: write YM2612 $22 (bit3 enable | bits0-2 rate); DAC $2A re-parked
+MEV_PORTA = 0xF5           # + dd: set the persistent portamento glide rate (fnum/divisor units
+                           # per frame; 0 = off -> notes snap)
 MEV_DETUNE = 0xF6          # + dd (signed): set the channel's fine-pitch detune (applied at note-on)
 MEV_EXT = 0xFA             # RESERVED extension prefix ($FA + sub-opcode = 256 more
                            # event kinds, zero format break). No handler, no event
@@ -116,7 +118,8 @@ _PSG_ROUTES = {CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN}
 # MEV_SPINREV_RESET is defined above (~line 69) — referenced here, NOT redefined.
 _MUSIC_ILLEGAL_OPCODES = frozenset({MEV_SPINREV_RESET})
 _MUSIC_LEGAL_EXPRESSION_OPCODES = frozenset({
-    MEV_PSGENV, MEV_FMENV, MEV_REGWRITE, MEV_MACRO, MEV_DETUNE, MEV_LFO, MEV_TEMPO})
+    MEV_PSGENV, MEV_FMENV, MEV_REGWRITE, MEV_MACRO, MEV_DETUNE, MEV_LFO, MEV_TEMPO,
+    MEV_PORTA})
 
 # SongHeader flags byte (SH_FLAGS) — MIRROR of sound_constants.asm SH_F_*.
 SH_F_FM6_FM = 1 << 0     # FM6 is a 6th FM sequencer voice (DAC mode OFF)
@@ -479,6 +482,22 @@ class Detune(Event):
     def validate(self, route):
         if not (-128 <= self.detune <= 127):
             raise PackError(f"Detune {self.detune} out of signed byte range -128..127")
+
+
+class Porta(Event):
+    """Portamento: set the glide rate (fnum/divisor units per frame; 0 = off). The
+    engine glides each new note from the previous pitch to the new one. FM and PSG.
+    Must follow at least one normal note on the channel (seeds the glide start).
+    Zero-tick."""
+    def __init__(self, rate: int):
+        self.rate = rate
+
+    def encode(self) -> bytes:
+        return bytes([MEV_PORTA, self.rate & 0xFF])
+
+    def validate(self, route):
+        if not (0 <= self.rate <= 0xFF):
+            raise PackError(f"Porta rate {self.rate} out of byte range 0..255")
 
 
 class Lfo(Event):
