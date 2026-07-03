@@ -10,7 +10,7 @@ Reference = `s3k_hcz2_ref.vgm` + the 115s `ref_long` capture (real S3K, muted RO
 | H.1 retrigger | ref parity (100%) | 100% all 5 melody ch (was 0-2%) | **PASS** |
 | H.1 bed/silence | ref parity | bed −0.1 dB, median −0.0 dB, silent −0.1 pp | **PASS** |
 | H.2 drum airtime | ≤ ~20% (spec, from evidence #s) | 24-26% vs REF'S OWN 21.4% (same script) | **PASS at ref-parity reading**; spec's absolute 20% was calibrated to evidence numbers that never reproduced (T1). D.2 attempt to force it lower measured net-negative and was reverted (t9_verification). |
-| H.2 by-ear | user confirmation | **PENDING — needs the user** | OPEN |
+| H.2 by-ear | user confirmation | User listened to the final A/B WAVs 2026-07-02: "sounds good to me" | **PASS** |
 | H.3 vibrato delay | ref 7-14 flat frames | 6.9/14.0/7.0/9.8/9.7 (ref 7.0/14.0/7.0/9.0/8.9) | **PASS** |
 | H.3 contour | unipolar-up, no inverted starts | down=0 on all channels | **PASS** |
 | H.3 depth | ref parity both encodings | FM1 36.7 (ref 36.6), FM3 18.2 (18.0), FM4 13.5 (13.6); FM0/FM2 36.6/36.7 vs 40.3/40.1 (~9% band-overlap residue, documented t7) | **PASS with noted residue** |
@@ -31,6 +31,6 @@ porta +386, tempo model −8; recovered by T2-T4: +790.
 gone); S3K-exact tempo model (b342889 — H.4). **Reverted after measurement:** D.2
 in-tick DAC drains. **Rejected on measurement:** D.3 hit-scoped toggling.
 
-**Open at gate:** H.2 by-ear (user), H.4 import residual (deferred, tools-side),
+**Open at gate:** H.4 import residual (deferred, tools-side),
 FM0/FM2 depth residue (band-overlap, cosmetic), FM env attack seam (1-2 frames,
 by-ear candidate), MT −0.196%.
