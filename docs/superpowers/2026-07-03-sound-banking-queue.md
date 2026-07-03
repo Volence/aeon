@@ -59,6 +59,18 @@ jingle/bank rules require it; otherwise stays Phase-5-deferred), §6.5 attenuati
 H3 + rendered S3K A/B (pending by-ear), GATE articulation, per-frame pitch/vol
 envelopes Phase-3a #2/#3 (build-on-demand).
 
+**SECOND WAVE (same day, user-directed):** two more packages so NO sound-driver item
+hangs afterward (Seraph/MegaDAW excluded — its own project):
+
+| # | Package | Deliverables | Status |
+|---|---------|-------------|--------|
+| 5 | **Audio production suite** — build-time mastering + ladder-aware staging + TL-filter-sweep generator + PSG sub-bass + generative variation (Tier 0, zero bytes); kick-sidechain pump + autopan (Tier 1, ~70 B); echo bus + detune-unison + ExtCh3 op-tracks (Tier 2, budget-gated on measured post-A-D headroom); CSM = door-only (Timer-A conflict); Paprium dismissed (fabricated) | spec `specs/2026-07-03-sound-production-suite-design.md` — awaiting user review, then plan | SPEC WRITTEN |
+| 6 | **Closeout sweep** — GATE→NOTEFILL import translation, $28 guard + cold-boot pan seed + FM env seam (~25 B), coverage-debt tests, HCZ2 loop-residual audit, bank-latch corrupter hunt (bounded), boundary-tick audibility check, formal dispositions (§6.4 clarified-closed, Phase-4 closed, defensive-upload closed, H3 closed on user PASS, worst-tick ACCEPTED) | plan `plans/2026-07-03-sound-closeout-sweep.md` (no spec needed — dispositions embedded) | PLAN WRITTEN |
+
+Post-5+6 state: sound backlog EMPTY except content-gated (drum authoring via C's runbook,
+Seraph export retarget). Phase-4 question answered: adaptive FM6/DAC IS shipped
+(dedicate + drain-gated time-share); the "richer modes" eremainder closes with it.
+
 **ALL FOUR PACKAGES BANKED 2026-07-03.** Execution order stands (A -> B -> C -> D, all
 after feat/sfx-fidelity's by-ear merge). Every plan is cold-executable
 (subagent-driven-development per plan headers); emulator gates are controller-session
