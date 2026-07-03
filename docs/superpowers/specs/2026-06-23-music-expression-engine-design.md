@@ -370,3 +370,70 @@ Each phase merges to master when verified (commit early/often; feature branch pe
 - Final `MEV_*` numeric assignments.
 - Whether `$B4` AMS/FMS gets its own opcode or rides the macro/pan path.
 - Confirm real code headroom by building before sizing F5.
+
+---
+
+## Format validity rules (normative) — added 2026-07-03
+
+`tools/song_packer.py` is the enforcement reference for every rule below (2026-07-01 sound-specs review §5 item 9). The Z80 engine does **not** re-validate streams — the format is trust-the-packer: a violating blob **hangs or corrupts the driver, it does not error**. Any other producer (the future MegaDAW exporter) MUST enforce ALL of these rules itself. Markings: **TRUST-PACKER** = the engine has no runtime defense; **ENGINE-GUARDED** = the engine also defends at runtime (the rule is still normative — don't emit it). Line numbers cite the enforcing code as of this date.
+
+### (a) Stream structure
+
+1. Every channel command stream is non-empty (`song_packer.py:927-928`). **TRUST-PACKER** (fetch runs into adjacent blob bytes).
+2. The LAST event of every stream is `Jump` ($EF) or `End` ($FF) (`song_packer.py:929-931`). **TRUST-PACKER**.
+3. `Jump` requires a preceding `LoopPoint` ($EE) in the same stream (`song_packer.py:910-912`). **TRUST-PACKER**.
+4. The loop body (`LoopPoint`..`Jump`) contains ≥1 **time-advancing** event (`song_packer.py:900-916`). The time-advancing set is exactly: `Rest` $80, `Note` $81–$DF, `NoteDur` $E3, `NoteRaw` $E7, `PitchEnv` $E8. All other events are zero-tick; a zero-tick-only loop spins the Z80 fetch loop forever. **TRUST-PACKER** (hard hang).
+5. `channel_count` is 1..11 (`CHROUTE_COUNT`) (`song_packer.py:961-965`); channel routes are unique — no two streams on one chip channel (`song_packer.py:966-971`). **TRUST-PACKER**.
+6. Header flags: `SH_F_STREAM` is always set (the packer force-sets it — every song streams from ROM; `song_packer.py:952-955`); `SH_F_FM6_ADAPTIVE` requires `SH_F_FM6_FM` (`song_packer.py:959-960`). **TRUST-PACKER**.
+
+### (b) Durations & notes
+
+1. `SetDur` operandless duration byte: $00–$7F ticks (range-dispatched opcode space) (`song_packer.py:156-158`).
+2. `Note` pitch index 0..$5E ($81 + pitch ≤ $DF) (`song_packer.py:173-175`).
+3. `NoteDur` ($E3): pitch 0..$5E, dur 0..255 (`song_packer.py:627-631`).
+4. `NoteRaw` ($E7): FM-only; a4/a0 raw bytes; dur **1..255** (0 illegal) (`song_packer.py:647-653`).
+5. `PitchEnv` ($E8): FM-only; 1..5 points, each an absolute fnum-table index 0..$83 (`song_packer.py:656, 674-683`).
+6. `Vol` ($E0): 0..127 (`song_packer.py:185-187`).
+
+### (c) Repeats ($E5/$E6)
+
+1. **Single-level only — nesting is illegal.** The engine keeps ONE `sc_repeat_ptr`/`sc_repeat_count` per channel; a nested `RepeatStart` would overwrite the saved pointer and corrupt the loop (`song_packer.py:853-859`; `engine/sound/sound_sequencer.asm:1678-1687`). Sequential (non-overlapping) repeat blocks are legal — the count re-arms after each block (`sound_sequencer.asm:1696-1702`; `test_song_packer.py:817`). **TRUST-PACKER**.
+2. Every `RepeatEnd` has a preceding open `RepeatStart` (`song_packer.py:862-864`); every `RepeatStart` is closed (`song_packer.py:924-926`). **TRUST-PACKER**.
+3. The repeat body contains ≥1 time-advancing event (same set as (a)4) — else the Z80 replays it entirely within one frame (loop collapse) (`song_packer.py:866-872`). **TRUST-PACKER**.
+4. `RepeatEnd` count is **1..255**; count = 1 plays the body once. **Operand 0 is illegal**: the engine decrements before testing, so 0 runs **255 passes** — there is no runtime clamp (`song_packer.py:781-784`; DEFERRED_WORK.md **D7, still open 2026-07-03**; `sound_sequencer.asm:1711-1737`). **TRUST-PACKER**.
+
+### (d) Route legality
+
+Routes: FM = 0..5 (FM1–FM6), PSG = 6..8, noise = 9, DAC = 10 (`song_packer.py:94-109`; mirror of `sound_constants.asm`).
+
+1. **FM routes only**: `Patch` $E1 (`song_packer.py:215-217`), `NoteFill` $ED (`:204-205`), `NoteRaw` $E7 (`:648-649`), `PitchEnv` $E8 (`:675-676`), `OpBias` $E9 (`:598-600`, op 0..3, val signed −128..127), `RegDelta` $EA (`:748-750`; count 1..255, group_code 0..5, byte values, `:751-763`), `FmEnv` $F7 (`:275-277`), `Macro` $F9 (`:344-346`).
+2. `RegWrite` $F8: FM routes, plus ONE narrow DAC-route door — part 1 reg $B6 (FM6/DAC pan) only (`song_packer.py:300-312`). On any route it refuses reg $2A/$2B (DAC data/enable) and the $24–$27 timer block (`:315-323`) — **ENGINE-GUARDED** (the handler skips those writes and re-parks $2A; `sound_constants.asm:467-479`), but normative for exporters regardless.
+3. **PSG/noise routes only**: `PsgEnv` $EB (rejected on FM; `song_packer.py:255-257`). **Noise route (9) only**: `PsgNoise` $F2, ctrl $E0..$EF (`:465-469`). **DAC route only**: `Dac` $E2 (`:614-616`).
+4. **Any route**: `SetDur`, `Rest`, `Note`, `Vol`, `NoteDur`, `Pan` $E4 (engine renders it FM-only; harmless store elsewhere — `sound_constants.asm:315-322`), `Detune` $F6 (signed −128..127; `song_packer.py:483-485`), `Porta` $F5 (0..255 = off..rate; `:499-501`), `Lfo` $F4 (0..$0F; `:515-518`), `Tempo` $F3, `ModSet` $EC (wait/speed/step unsigned bytes, change signed; `:561-566`), `SpinRev` $F0.
+5. `Tempo` event operand is **0..$FE** — $FF is reserved as the `SND_TEMPO_RESTORE` mailbox sentinel and must never be authored (`song_packer.py:534-540`).
+6. **Music-illegal**: `MEV_SPINREV_RESET` $F1 must NEVER appear in a music stream — the reset is dispatch-folded (`Sfx_BeginSound` zeroes the rev) and the engine maps a stream $F1 to `Seq_BadOpcode` (`song_packer.py:120, 918-922`; `sound_constants.asm:413`). **ENGINE-GUARDED** (bad-opcode trap, not corruption) — still forbidden.
+7. **Music-legal expression set** (D8, CLOSED 2026-06-27): the opcodes beyond the base set that a music stream may carry are exactly `_MUSIC_LEGAL_EXPRESSION_OPCODES` = { `MEV_PSGENV` $EB, `MEV_FMENV` $F7, `MEV_REGWRITE` $F8, `MEV_MACRO` $F9, `MEV_DETUNE` $F6, `MEV_LFO` $F4, `MEV_TEMPO` $F3, `MEV_PORTA` $F5 } (`song_packer.py:121-123`). Note the packer's runtime gate is the ILLEGAL blacklist ({$F1}); the legal set documents intent — an exporter MUST emit no opcode outside this spec. $FA (`MEV_EXT`) is a reserved prefix: no handler exists; emitting it is illegal (`sound_constants.asm:509-515`).
+8. **Engine-assumed (NOT packer-enforced)**: `Porta` must follow at least one normal note on the channel (the glide start is seeded by the previous pitch) (`song_packer.py:488-492` docstring only). **TRUST-PACKER** — exporters must order accordingly.
+
+### (e) Macros (slot[1] stream, TAG_MAC_* namespace)
+
+TAG_MAC_* bytes ($E0–$E3) are a PRIVATE namespace read only by MacroTick — not MEV_* opcodes (`sound_constants.asm:482-501`).
+
+1. Body non-empty (`song_packer.py:427-428`); terminated by `MacEnd` or `MacLoop` as the body's **last** event; no mid-body `MacLoop`/`MacEnd` (unreachable tail / un-yielded spin) (`:429-440`). **TRUST-PACKER**.
+2. A `MacLoop`-terminated body contains ≥1 `MacNext` **before** the `MacLoop` — MacroTick executes until a `TAG_MAC_NEXT` yield; a loop with no yield spins the Z80 forever (`song_packer.py:441-448`). **TRUST-PACKER** (hard hang).
+3. `MacReg`: part 0/1; reg not $2A/$2B and not $24–$27 (`song_packer.py:382-390`; **ENGINE-GUARDED**, `sound_constants.asm:488`); val a byte AND not in $E0..$E3 (control-code-valued data is rejected to keep bodies inspectable, even though operand-position decoding makes it technically safe) (`:395-399`).
+4. A slot[0] `Macro` ($F9) event is only legal on a channel that HAS a macro body — otherwise its operand packs as offset 0 and MacroTick executes the song header as tags (`song_packer.py:1013-1018`). **TRUST-PACKER**.
+5. Depth: exactly ONE macro stream per channel (`sc_mod_ptr`); `MacLoop` targets only its own body start (back-patched BE offset) — there are no nested macro calls (`song_packer.py:404-409, 991-1009`).
+
+### (f) Bounds
+
+1. All header and operand pointers are 16-bit BE **blob-relative** offsets; the total blob layout must fit ≤ $FFFF or the pointers silently truncate (`song_packer.py:1020-1025`). **TRUST-PACKER**.
+2. `pitchtable_offset` 0..$FFFF (`song_packer.py:972-974`); `tempo`, `tempo_mod`, `flags` header bytes 0..255 (`:941-951`). The header `tempo_mod` accepts the full 0..255 (any value is a valid TempoWait addend); the $FF exclusion applies only to the `MEV_TEMPO` event operand ((d)5).
+3. Env ids (`PsgEnv`/`FmEnv`) are 1-based bytes, 0 = off (`song_packer.py:258-259, 278-279`). The packer does NOT cross-check ids against the engine's env-table sizes — an out-of-table id indexes garbage. **TRUST-PACKER** (exporters emit only ids defined in the engine tables).
+
+### (g) Channel init-ordering (`_validate_channel`)
+
+1. Route byte 0..10 (`song_packer.py:841-842`).
+2. **FM channel**: BOTH `Patch` ($E1) AND `Vol` ($E0) must appear before the channel's FIRST time-advancing event — the chip is keyed at that point, and an uninitialized channel plays the YM2612 power-on garbage voice / undefined volume (`song_packer.py:877-894`). Order between Patch and Vol is free (`test_song_packer.py:441-450`). **`Rest` counts as time-advancing** for this check — keying runs via the tick driver either way (`test_song_packer.py:452-457`). **TRUST-PACKER**.
+3. **PSG/noise channel**: `Vol` ($E0) before the first time-advancing event (no patch concept; $E1 is already route-illegal) (`song_packer.py:895-899`). **TRUST-PACKER**.
+4. **DAC channel**: exempt — it only triggers samples ($E2) (`song_packer.py:877-884`; `test_song_packer.py:483-488`).
