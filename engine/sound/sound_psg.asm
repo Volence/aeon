@@ -298,8 +298,8 @@ Psg_ApplyMod:
         ; negative; the emit path masks the wrapped word into garbage divisor bits.
         ; Clamp to 1, not 0 — divisor 0 is chip-ambiguous on the SN76489 family
         ; (DC output or /1024 depending on variant; Psg_EmitNoiseClock makes the
-        ; same 0->1 clamp). Divisor 1 = ~55.9 kHz, inaudible: a floored sweep goes
-        ; silent-high instead of wrapping to a wrong low note. (The UPWARD overflow
+        ; same 0->1 clamp). Divisor 1 = ~111.9 kHz (3579545/32), inaudible: a floored
+        ; sweep goes silent-high instead of wrapping to a wrong low note. (The UPWARD overflow
         ; past $3FF is left as-is — S3K's zDoModulation wraps identically there,
         ; and matching S3K is the spec target.)
         bit     7, d                     ; negative 16-bit sum = the sweep underflowed
