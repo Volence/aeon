@@ -46,7 +46,7 @@ SeqOpcodeTable:
         dw      Seq_Op_PsgNoise          ; $F2 MEV_PSGNOISE
         dw      Seq_Op_Tempo             ; $F3 MEV_TEMPO (global tempo scalar)
         dw      Seq_Op_Lfo               ; $F4 MEV_LFO (write $22 LFO, DAC $2A re-parked)
-        dw      Seq_BadOpcode            ; $F5 reserved
+        dw      Seq_Op_Porta             ; $F5 MEV_PORTA (portamento glide rate)
         dw      Seq_Op_Detune            ; $F6 MEV_DETUNE (set sc_detune; applied at next note-on)
         dw      Seq_Op_PsgEnv            ; $F7 MEV_FMENV (shared handler: sets the unified
                                          ;   sc_env slot + resets sc_env_cur; ModUpdate

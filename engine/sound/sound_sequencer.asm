@@ -1178,6 +1178,17 @@ Seq_Op_Detune:
         ld      (ix+sc_detune), a
         jp      Seq_ContinueFetch
 
+; $F5 MEV_PORTA + dd : set the persistent portamento glide-rate magnitude (the per-
+; frame fnum/divisor step; 0 = off -> notes snap). The next porta-armed note keeps
+; the current pitch as the glide start. Zero-tick; state-only -> hl stays the stream
+; ptr. The rate is a byte (high byte forced 0) — Porta_Apply assumes hi==0.
+Seq_Op_Porta:
+        ld      a, (hl)
+        inc     hl                       ; consume operand (rate)
+        ld      (ix+sc_porta_incr), a
+        ld      (ix+sc_porta_incr+1), 0
+        jp      Seq_ContinueFetch
+
 ; $F3 MEV_TEMPO + dd : set the GLOBAL tempo speed scalar (per-frame accumulator
 ; decrement; 16 = authored/normal, larger = faster, smaller = slower). Snaps
 ; base+cur+target (instant authored change). 0 clamped to default (0 would freeze

@@ -441,6 +441,14 @@ MEV_DETUNE        = $F6   ; + dd (signed) : set this channel's sc_detune (fine p
         if MEV_DETUNE <> $F6
           error "MEV_DETUNE (\{MEV_DETUNE}) must be $F6 (Phase-2 per-note slice slot)"
         endif
+MEV_PORTA         = $F5   ; + dd : set the portamento glide rate (fnum/divisor units
+                          ;        per frame); 0 = OFF (notes snap)
+        if (MEV_PORTA <= MEV_NOTE_MAX) || (MEV_PORTA < MEV_VOL) || (MEV_PORTA > MEV_END)
+          error "MEV_PORTA (\{MEV_PORTA}) must be a command opcode inside $E0-$FF"
+        endif
+        if (MEV_PORTA <> $F5) || (MEV_PORTA = MEV_DETUNE)
+          error "MEV_PORTA (\{MEV_PORTA}) must be $F5 (distinct from MEV_DETUNE; GLOBAL slice owns $F3/$F4)"
+        endif
 
 ; --- Phase 3 macro spine: FM TL vol-env arm (spec §4 flagship) -----------------
 ; $F7-$F9 are owned by Phase 3 ($F3-$F6 stay RESERVED for Phase-2 plans). MEV_FMENV
