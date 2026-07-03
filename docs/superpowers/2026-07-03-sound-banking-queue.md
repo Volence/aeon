@@ -69,7 +69,7 @@ hangs afterward (Seraph/MegaDAW excluded — its own project):
 
 Post-5+6 state: sound backlog EMPTY except content-gated (drum authoring via C's runbook,
 Seraph export retarget). Phase-4 question answered: adaptive FM6/DAC IS shipped
-(dedicate + drain-gated time-share); the "richer modes" eremainder closes with it.
+(dedicate + drain-gated time-share); the "richer modes" remainder closes with it.
 
 **ALL FOUR PACKAGES BANKED 2026-07-03.** Execution order stands (A -> B -> C -> D, all
 after feat/sfx-fidelity's by-ear merge). Every plan is cold-executable
