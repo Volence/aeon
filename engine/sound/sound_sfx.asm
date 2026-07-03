@@ -964,6 +964,20 @@ Sfx_RouteKind:
 Sfx_Restore:
         push    ix                       ; save the SFX-slot ix (caller's invariant)
 
+        ; (0) STOPPED-SEQUENCER GATE (field fix, 2026-07-03): after StopMusic,
+        ; Sequencer_StopAll silences the chip and clears SND_SEQ_ACTIVE but does
+        ; NOT clear the per-channel SCF_KEYED bits on the dead song's SeqChannels
+        ; (only a song LOAD wipes them). The restore paths below re-key "the held
+        ; music note" gated ONLY on that stale SCF_KEYED — with the sequencer
+        ; stopped, nothing ever advances or silences the re-keyed note, so an SFX
+        ; ending over stopped music latched an UNKILLABLE tone (PSG holds at
+        ; constant volume forever — heard as a lingering pure tone; two stolen
+        ; PSG voices = two tones). No music is running, so treat EVERY route as
+        ; music-less: silence the SFX's own voice and deactivate.
+        ld      a, (SND_SEQ_ACTIVE)
+        or      a
+        jp      z, .no_music             ; sequencer stopped -> never re-key stale notes
+
         ; (1) find the music SeqChannel (if any) that owns this physical route.
         ; sx_saved_route == this SfxChannel's own physical voice (sc_route). If NO
         ; music channel owns it (carry set — e.g. PSG1 over a PSG-silent song), there
