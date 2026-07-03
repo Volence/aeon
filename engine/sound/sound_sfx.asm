@@ -76,7 +76,15 @@ SND_SFX_DISP_COUNT = SND_SFX_DISP_PRIO + 1             ; remaining channels (cou
 SND_SFX_DISP_IDX   = SND_SFX_DISP_COUNT + 1            ; current channel record index
 SND_SFX_DISP_SLOT  = SND_SFX_DISP_IDX + 1              ; chosen SfxChannel slot (this chan)
 SND_SFX_DISP_ROUTE = SND_SFX_DISP_SLOT + 1             ; physical route the slot owns
-SND_SFX_DISP_END   = SND_SFX_DISP_ROUTE + 1
+SND_SFX_DISP_ID    = SND_SFX_DISP_ROUTE + 1            ; raw id of the SFX being dispatched
+; Per-slot raw SFX id, parallel to the SfxChannel array (index = slot 0..6).
+; Lives HERE and not in the struct: SfxChannel_len must stay 64 (shift-free slot
+; addressing) and the only free struct byte (+58 sx_pad) aliases SeqChannel's
+; sc_detune, which Fm_NoteOnFreq reads with an SFX ix and requires to be 0.
+; Entries are only meaningful while the slot is ACTIVE (scan gates on SCF_ACTIVE;
+; stale ids in inactive slots are harmless and get overwritten at init).
+SND_SFX_ID_TAB     = SND_SFX_DISP_ID + 1               ; 7 bytes
+SND_SFX_DISP_END   = SND_SFX_ID_TAB + SFX_VOICE_COUNT
         if SND_SFX_DISP_END > SND_REQ_BASE
           fatal "SFX dispatch scratch (\{SND_SFX_DISP_END}) overruns the mailbox at \{SND_REQ_BASE}"
         endif
@@ -672,6 +680,7 @@ Sfx_QueueEnqueue:
 ; in RAM; the chosen slot/route come back from Sfx_SelectVoice each iteration.
 ; ----------------------------------------------------------------------
 Sfx_BeginSound:
+        ld      (SND_SFX_DISP_ID), a     ; raw id — keys the retrigger scan + per-slot id table
         ; spindash rev reset (spec §6): any NON-spindash SFX resets the global rev to
         ; 0 (mirror zPlaySound_Normal). The spindash SFX is the special-cased exception
         ; that does NOT reset, so its rev keeps rising across re-triggers. Compare the
@@ -719,6 +728,38 @@ Sfx_BeginSound:
         xor     a
         ld      (SND_SFX_DISP_IDX), a    ; current channel record index (0-based)
 
+        ; --- RETRIGGER REPLACE-IN-PLACE (spec fix 2, S3K-faithful) -----------------
+        ; S3K cannot stack the same SFX: a retrigger re-inits the same fixed track
+        ; (skdisasm Z80 Sound Driver.asm:1935-1975). Our dynamic allocator happily
+        ; placed a retrigger on a FREE same-kind voice, stacking up to 3 copies
+        ; (+5..+9.5 dB and runaway spindash mod-sweeps). Kill every ACTIVE slot
+        ; already running THIS id via the full Sfx_Restore end-path (music voice
+        ; restored / orphan voice silenced, slot deactivated, duck re-evaluated),
+        ; then fall into the normal allocation ladder: the just-freed voice is the
+        ; preferred route again, so the net effect is replace-in-place. Instance
+        ; cap = 1 (the Stage-B sfh_cap header byte may later author more).
+        ; Duck note: a kill may zero SND_SFX_DUCK_TARGET; the arm after .chan_loop
+        ; re-raises it this same frame, before Sfx_DuckRamp runs — no audible dip.
+        ld      ix, SND_SFX_CHANNELS     ; slot cursor (stride = SfxChannel_len)
+        ld      hl, SND_SFX_ID_TAB       ; parallel id cursor
+        ld      b, SFX_VOICE_COUNT
+.retrig_scan:
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      z, .retrig_next          ; inactive slot -> id entry is stale, skip
+        ld      a, (SND_SFX_DISP_ID)
+        cp      (hl)
+        jr      nz, .retrig_next         ; different SFX -> leave it playing
+        push    hl                       ; Sfx_Restore clobbers hl/bc (preserves ix)
+        push    bc
+        call    Sfx_Restore              ; full end path: restore/silence + deactivate
+        pop     bc
+        pop     hl
+.retrig_next:
+        inc     hl
+        ld      de, SfxChannel_len       ; reload each pass (Sfx_Restore clobbers de)
+        add     ix, de
+        djnz    .retrig_scan
+
 .chan_loop:
         ; --- point iy at the current channel record: base + SFXH_CHANNELS + idx*6 -
         ld      iy, (SND_SFX_DISP_BASE)
@@ -748,6 +789,15 @@ Sfx_BeginSound:
         ld      (SND_SFX_DISP_SLOT), a   ; chosen SfxChannel slot index
         ld      a, d
         ld      (SND_SFX_DISP_ROUTE), a  ; physical route the slot will own
+
+        ; record this slot's raw SFX id (the retrigger scan's key)
+        ld      a, (SND_SFX_DISP_SLOT)
+        ld      e, a
+        ld      d, 0
+        ld      hl, SND_SFX_ID_TAB
+        add     hl, de
+        ld      a, (SND_SFX_DISP_ID)
+        ld      (hl), a
 
         ; ix = &SfxChannel[chosen slot]
         ld      a, (SND_SFX_DISP_SLOT)
