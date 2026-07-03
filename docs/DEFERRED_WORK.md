@@ -1164,8 +1164,25 @@ renders == pre-banking baseline. Merged on `feat/sound-task0-recovery`. Two foll
 plan `2026-07-03-sfx-fidelity-stage-a.md`, branch `feat/sfx-fidelity`). Stage A SHIPPED: PSG +24
 octave fixup removed (jump/skid S3K-exact), retrigger replace-in-place cap 1 (rev escalation kept),
 PSG sweep floor clamp, TL-clamp audit + bake test, `SfxHeader` 8 bytes with inert Stage-B fields,
-and the field-found stopped-sequencer drone fix (`Sfx_Restore` gates on `SND_SEQ_ACTIVE`).
+and THREE field-found fixes from the user's by-ear pass (all live-debugged in oracle):
+1. **Stopped-sequencer drone** — `Sfx_Restore` gates on `SND_SEQ_ACTIVE` (an SFX ending over
+   stopped music re-keyed the dead song's stale-KEYED note into an unkillable tone).
+2. **S3K modSet load-point semantics** — S3K's `cfModulation` only retargets the data pointer;
+   params load at the next ATTACKED note (`zPrepareModulation` early-outs on no-attack) and
+   speed/steps reload THROUGH the pointer. So roll's fade RISES to the end and spindash's holds
+   the sweep-top. Our engine's base-pitch snap in `Seq_Op_ModSet` (built on the wrong immediate-
+   cancel reading) is DELETED; the transcoder's `_apply_s3k_modset_load_points` pass drops/freezes
+   unloaded modSets. Registered-verified: roll sweeps to `$6D9` (S3K-computed exact) through the
+   fade; spindash holds `$4F4` after the climb.
+3. **SFX-ring byte-cursor-as-word-index** — `Sound_PlaySFX`/`Sound_DrainSfxRing` loaded ring
+   cursors with `move.b` but indexed `(a0,dN.w)`; a dirty caller upper byte (spindash release
+   leaves `$09xx` in d1) sent the ring write up to `$FF00` bytes astray — the dash SFX vanished
+   AND a stray byte hit unrelated RAM. Fixed with `moveq #0` sanitization. A repo-wide audit of
+   the same pattern (70+ `(aN,dM.w)` sites) ran 2026-07-03 — see the audit report for verdicts.
 The retrigger POLICY DECISION from the 2026-07-01 review findings is CLOSED (replace-in-place, cap 1).
+The A2 runtime-verification item (below) is effectively DISCHARGED by fix 3's live debugging —
+the ring delivers correctly once the index bug is fixed; jump+ring same-frame pairing was
+exercised throughout the phase's captures.
 
 - **Stage B — per-SFX mixing surface (engine wiring for the reserved header fields):**
   `sfh_gain` (authored master attenuation, FM carrier-TL 0.75 dB steps / PSG atten 2 dB steps,
