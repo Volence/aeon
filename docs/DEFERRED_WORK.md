@@ -1360,9 +1360,10 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   *(**2026-07-01 update:** the DAC format revision decided AGAINST this — the approved spec
   (`2026-06-24-dac-drum-format-revision-design.md` §2.2) rejects runtime mixing in favor of a single voice
   + pre-mixed composites, and the shipped descriptor has NO per-voice volume/mix-cursor fields. That
-  rejection is the one irreversible format bet and **still needs user ratification** — the ratification-time
-  ask is the cheap insurance this entry wanted: add `ds_vol` + reserved mix-cursor bytes, ~3 B/descriptor,
-  zero code. See the 2026-07-01 spec review §4.)*
+  rejection is the one irreversible format bet and was **RATIFIED by the user 2026-07-03** (sound
+  design-banking session). The ratification-time ask — the cheap insurance this entry wanted (add
+  `ds_vol` + reserved mix-cursor bytes, ~3 B/descriptor, zero code) — is a build item in the banked
+  DAC drum-library-readiness package. See the 2026-07-01 spec review §4.)*
 - **E3 — round out the DAC format in that SAME revision:** loop point (= C2), priority, pan (via $B6),
   auto-bankswitch, `ds_rate` pitch, **+ 4-bit DPCM** (re-adopt our own S3K JMan2050 DPCM, `Flamedriver.asm`
   4321-4442 — halves ROM, producer-side so the 8948 Hz cadence is untouched), and route **sampled SFX** as

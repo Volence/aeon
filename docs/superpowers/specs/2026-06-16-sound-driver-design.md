@@ -21,7 +21,7 @@ superseded sections**. Current state-of-truth: `docs/superpowers/2026-07-01-soun
   **2026-06-24 DAC format-revision spec** (`2026-06-24-dac-drum-format-revision-design.md`) and
   its 2026-06-25 raw-8-bit amendment: **single voice, raw 8-bit PCM (~18.4 kHz), pre-mixed
   composites**; `ds_codec`/`ds_rate` descriptor bytes reserve the codec/rate doors. The mixer
-  rejection still needs explicit user ratification (see that spec + ARCH §6.2).
+  rejection was **RATIFIED by the user 2026-07-03** (see that spec + ARCH §6.2).
 - **§5 busy-poll policy** ("FM register-pair writes DO need a busy-poll") — superseded by the
   shipped choice: the FM writer uses **deliberate fixed `nop`/operator-loop spacing, no
   busy-flag poll** (the flag is unreliable and polling breaks the DAC `$4000`/`$2A` parking

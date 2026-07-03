@@ -2,6 +2,10 @@
 
 **Date:** 2026-06-24
 **Status:** design (approved direction; pending spec review)
+**RATIFIED (2026-07-03):** the §2.2 single-voice/no-runtime-mixer decision — the one irreversible
+format bet (forecloses sampled SFX over drums) — was explicitly ratified by the user in the
+2026-07-03 sound design-banking session. Descriptor insurance (`ds_vol` + 2 reserved mix-cursor
+bytes) is a build item in the DAC drum-library-readiness package banked in that session.
 **Supersedes:** the exploratory `feat/sound-stream-drums` branch (reference-only)
 **Predecessor context:** `docs/superpowers/2026-06-24-dac-drum-phase-handoff.md`,
 `docs/superpowers/specs/2026-06-23-music-expression-engine-design.md` (Task 0 banking)
