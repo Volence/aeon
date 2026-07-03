@@ -35,7 +35,7 @@ already reserved, and Stage A closed the retrigger policy — leaving the packag
 
 | # | Package | Deliverables | Status |
 |---|---------|-------------|--------|
-| E | Doc-sync + format hardening | inline edits, this branch | IN PROGRESS |
+| E | Doc-sync + format hardening | inline edits, this branch | **DONE** (2fb0e4c + validity rules) |
 | A | **Game-Feel Moments** — pause/unpause, song-finished contract (`SND_STAT_*` mirror), jingle push/pop (1-up/invincibility/drowning) w/ mid-song resume snapshot, tempo-scalar reset-on-load semantics, PCM-jingle bank/FM6-mode rules, 512 B buffer arbitration, command-API v2 (absorbs the outgrown `2026-06-16-sound-command-api.md`) | spec + plan | QUEUED |
 | B | **SFX Stage B/C** — per-SFX `sfh_gain`/`sfh_duck`/`sfh_cap`, non-latching priority (bit 7), continuous-SFX class (`SHF_CONTINUOUS`, spindash charge + drowning warning), instance discriminator for cap>1 multi-channel | plan (+ small spec addendum to `2026-07-02-sfx-fidelity-and-mixing-design.md` §5) | QUEUED |
 | C | **DAC drum-library readiness** — descriptor `ds_vol` + reserved mix-cursor bytes, Bank-D engine-table co-location hook (`gen_sound_tables.py` data-only twin), dead 68k table removal (`fm_patches.asm`/`sound_tables.asm`), authoring guidance | plan (+ ratification amendment, done in E) | QUEUED |
@@ -56,6 +56,10 @@ envelopes Phase-3a #2/#3 (build-on-demand).
 - 2026-07-03: Session scoped (A–D + inline E), DAC bet ratified, mid-song resume
   chosen. Worktree + branch created; baseline build green (557125 bytes,
   SOUND_DRIVER_ENABLED=1 DEBUG=1).
+- 2026-07-03: E part 2 — format validity rules (normative, packer-cited, MegaDAW-exporter
+  contract) appended to the music-expression spec; spot-checked 3 citations against
+  song_packer.py before commit. E COMPLETE — note MEV_EXT reserve + master-spec amendment
+  header + E-now closures were ALREADY done by earlier passes (verified, not duplicated).
 - 2026-07-03: E part 1 — ratification records (ARCH §6 index row + §6.2, master spec
   amendment header, DAC spec header, DEFERRED_WORK ×2), §6.5 DEMOTED note, §6.6 CUT
   note, §6.7 continuous-SFX unbundled → Stage C pointer, ARCH §6 index-row DEFERRED
