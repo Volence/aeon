@@ -480,6 +480,34 @@ class TestPsgPitchMatchesS3KDivisors(unittest.TestCase):
                          "skid's note must program S3K's $078 divisor (932.2 Hz)")
 
 
+class TestBakeChannelVolumeSaturates(unittest.TestCase):
+    """Spec fix 3: every volume->carrier-TL add must saturate at $7F, never
+    wrap quiet->loud (stock S3K wraps; Flamedriver/fix_sndbugs clamp)."""
+
+    def _patch(self, alg, tls):
+        # minimal 32-byte FmPatch: [0]=alg_fb, [1]=lr, [2:6]=dt_mul, [6:10]=tl
+        p = bytearray(32)
+        p[0] = alg
+        p[6:10] = bytes(tls)
+        return bytes(p)
+
+    def test_carrier_tl_saturates_at_7f(self):
+        from sfx_transcode import _bake_channel_volume
+        # alg 7: _CARRIER_MASK[7] = 0x0F -> all four operators are carriers
+        p = self._patch(7, [0x70, 0x7F, 0x00, 0x60])
+        out = _bake_channel_volume(p, 0x30)
+        self.assertEqual(list(out[6:10]), [0x7F, 0x7F, 0x30, 0x7F],
+                         "TL adds must clamp at $7F, never wrap")
+
+    def test_modulators_untouched(self):
+        from sfx_transcode import _bake_channel_volume
+        # alg 0: _CARRIER_MASK[0] = 0x08 (bit 3 only) -> only operator index 3 (S4) is a carrier
+        p = self._patch(0, [0x10, 0x20, 0x30, 0x40])
+        out = _bake_channel_volume(p, 0x50)
+        self.assertEqual(list(out[6:10]), [0x10, 0x20, 0x30, 0x7F],
+                         "modulator TLs must not be volume-baked (timbre, not loudness)")
+
+
 class TestSfxTableComplete(unittest.TestCase):
     """SfxTable must have SFX_COUNT entries and every SFXID_* maps to a label."""
 
