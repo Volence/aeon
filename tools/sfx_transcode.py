@@ -665,12 +665,10 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         last_pitch = None
 
         # A note is a HELD continuation (smpsNoAttack -> bit 7 of the NoteDur pitch,
-        # which the engine reads as "skip the $28 re-attack AND the freq re-write")
-        # ONLY when no modSet has dirtied the pitch since the last attacked note. The
-        # engine resets a modulation sweep's accumulator on a key-on, so the FIRST
-        # note after a modSet must re-key (reset the swept pitch back to base);
-        # subsequent tail passes then hold. mod_dirty tracks that.
-        mod_dirty = False
+        # which the engine reads as "skip the $28 re-attack AND the freq re-write").
+        # modSet events pass through here verbatim and are reconciled with S3K's
+        # load-at-attacked-note-only semantics by _apply_s3k_modset_load_points
+        # (a post-pass over the finished event list; see its docstring).
 
         # voice index (within the SFX's own bank, 0-based)
         voice_idx = 0
@@ -917,11 +915,11 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
 
         def _emit_notedur(pitch: int, dur: int):
             """Emit a NoteDur, applying the smpsNoAttack flag (bit 7) for a held
-            continuation. ALL tail passes hold (one key-on total): Seq_Op_ModSet now
-            re-writes the base freq (no key-on) when a sweep modSet turns off, so the
-            first note after a modSet no longer needs to re-key to reset the pitch —
-            which removes the faint 'second attack' at the main->tail seam."""
-            nonlocal noattack_pending, mod_dirty
+            continuation. ALL tail passes hold (one key-on total) — S3K-faithful:
+            a held note keeps the running modulation's accumulated pitch intact
+            (zPrepareModulation never runs without an attack), so fade tails ride
+            the sweep instead of snapping back to base."""
+            nonlocal noattack_pending
             if noise_form is not None:
                 # Noise channel: the engine reads the NOTE's low 3 bits as the SN76489
                 # noise mode (control = $E0|(pitch&7)); the source tone pitch and the
@@ -931,13 +929,12 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                 return
             if noattack_pending:
                 pitch |= 0x80                 # held: engine skips the $28 re-attack
-            mod_dirty = False                 # (kept for the modSet handler's state)
             events.append(NoteDur(pitch, dur))
             noattack_pending = False
 
         def _process_dcb(content: str):
             """Process a dc.b line's content, handling notes, durations, smpsNoAttack."""
-            nonlocal noattack_pending, cur_dur, last_pitch, mod_dirty
+            nonlocal noattack_pending, cur_dur, last_pitch
 
             tokens = [t.strip() for t in content.split(',') if t.strip()]
             t_idx = 0
@@ -1083,7 +1080,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         def _process_lines_v2(start_i: int) -> bool:
             nonlocal noattack_pending
             nonlocal cur_dur, voice_idx, loop_label, loop_count, has_loop
-            nonlocal jump_target_label, sfx_flags, last_pitch, mod_dirty
+            nonlocal jump_target_label, sfx_flags, last_pitch
 
             i = start_i
             while i < len(lines):
@@ -1199,7 +1196,6 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                         change = int(round(change * _SPINDASH_MOD_SCALE)) or (
                             1 if change > 0 else -1)
                     events.append(ModSet(wait, speed, change, step))
-                    mod_dirty = True             # next note must re-key to reset the sweep
                 elif macro == 'smpsSpindashRev':
                     events.append(SpinRev())
                 elif macro == 'smpsResetSpindashRev':
@@ -1322,6 +1318,10 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             cleaned.append(e)
         events[:] = cleaned
 
+        # S3K modSet load-point reconciliation (see _apply_s3k_modset_load_points):
+        # drop/freeze modSets that S3K never loads so fade tails ride the sweep.
+        events[:] = _apply_s3k_modset_load_points(events, sfx_id, chanid)
+
         channels_out.append({
             'chanid': chanid,
             'route': route,
@@ -1339,6 +1339,76 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         'voices': voices,
         'flags': sfx_flags,
     }
+
+
+def _apply_s3k_modset_load_points(events, sfx_id, chanid):
+    """S3K modSet LOAD-POINT pass (fidelity fix 2026-07-03).
+
+    S3K's cfModulation (skdisasm Z80 driver :3405) only stores the modulation
+    DATA POINTER and sets the on-flag; the four params load into track RAM at
+    the next ATTACKED note-on only (zPrepareModulation :1237 returns early when
+    the no-attack bit is set), and zDoModulation (:1279) keeps ADDING the
+    accumulated offset every frame — reloading speed/steps THROUGH the pointer.
+    Our engine's MEV_MODSET applies immediately, so a source modSet that S3K
+    never loads (no attacked note before the stream ends) must be transformed
+    to its S3K-EFFECTIVE behavior:
+
+      - new speed byte == 0 (spindash's $00,$00,$00,$00): the running sweep's
+        per-frame speed reload reads 0 through the retargeted pointer and the
+        delta stepper STALLS — pitch freezes at the accumulated sweep value.
+        Our all-zero MEV_MODSET (ctrl off; Mod_Advance stops writing; the chip
+        HOLDS the last modulated pitch) is the exact equivalent: normalize the
+        event to all-zero and KEEP it.
+      - new speed byte != 0 (roll's $00,$01,$00,$00): the running sweep keeps
+        applying its in-RAM delta at the (matching) speed reload — the sweep
+        RISES through the whole no-attack fade. DROP the event so the engine's
+        sweep runs to the stream end. If the unloaded event's speed differs
+        from the running program's (an inexpressible partial reload), warn —
+        no core SFX hits this.
+
+    A modSet FOLLOWED by an attacked note stays in place: immediate-apply +
+    per-note Mod_ReArm at that key-on equals S3K's load-at-that-note. A HELD
+    note between the modSet and its attacked load point would diverge (S3K
+    runs the OLD program over it, we the new one) — warn; no core SFX authors
+    that shape.
+    """
+    out = []
+    kept_running = None          # the last modSet that reaches the engine
+    for i, e in enumerate(events):
+        if not isinstance(e, ModSet):
+            out.append(e)
+            continue
+        # scan forward for the load point; note held notes crossed on the way
+        attacked_follows = False
+        held_before_attack = False
+        for e2 in events[i + 1:]:
+            if isinstance(e2, (Note, NoteDur)):
+                if e2.pitch & 0x80:
+                    held_before_attack = True
+                    continue
+                attacked_follows = True
+                break
+        if attacked_follows:
+            if held_before_attack:
+                print(f"  [warn] sfx ${sfx_id:02X} ch ${chanid:02X}: held note(s) "
+                      f"between a modSet and its attacked load point — S3K runs the "
+                      f"OLD program over them, we run the new one", file=sys.stderr)
+            kept_running = e
+            out.append(e)
+            continue
+        # never loaded by S3K: emit the effective behavior of the RUNNING program
+        if e.speed == 0:
+            frozen = ModSet(0, 0, 0, 0)   # ctrl-off = hold at accumulated pitch
+            kept_running = frozen
+            out.append(frozen)
+        else:
+            if kept_running is not None and kept_running.speed != e.speed:
+                print(f"  [warn] sfx ${sfx_id:02X} ch ${chanid:02X}: dropped unloaded "
+                      f"modSet's speed {e.speed} differs from the running program's "
+                      f"{kept_running.speed} (S3K reloads speed through the pointer) — "
+                      f"inexpressible, keeping the old speed", file=sys.stderr)
+            # dropped: the running sweep continues to the stream end
+    return out
 
 
 # ---------------------------------------------------------------------------

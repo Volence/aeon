@@ -590,19 +590,22 @@ Sound_XX_Voices:
         self.assertIsNotNone(desc2)
 
     def test_smpsmodset_emits_modset(self):
-        """SFX Expressive Fidelity Task 4: smpsModSet now EMITS MEV_MODSET (the
-        faithful pitch-modulation latch), it is no longer dropped. Roll's FM4 carries
-        smpsModSet $03,$01,$09,$FF then $00,$01,$00,$00 (mod-off)."""
+        """S3K modSet LOAD-POINT semantics (fidelity fix 2026-07-03): a source
+        modSet loads into S3K's track RAM only at the next ATTACKED note-on
+        (zPrepareModulation returns early on no-attack notes; cfModulation only
+        retargets the data pointer). Roll's second modSet ($00,$01,$00,$00)
+        precedes only the NoAttack fade loop, so S3K NEVER loads it — the +9
+        sweep keeps RISING through the whole fade. The transcoder therefore
+        DROPS it (speed byte != 0 -> the running sweep continues unchanged);
+        only the first (real) modSet survives."""
         from song_packer import ModSet
         desc = transcode_sfx_source(ROLL_SRC, 0x3C)
         ch = next(c for c in desc['channels'] if c['route'] == CHROUTE_FM4)
         mods = [e for e in ch['events'] if isinstance(e, ModSet)]
-        self.assertEqual(len(mods), 2, "Roll FM4 has two smpsModSet ops")
+        self.assertEqual(len(mods), 1,
+                         "Roll's unloaded mod-off must be dropped (sweep rises through the fade)")
         self.assertEqual((mods[0].wait, mods[0].speed, mods[0].change, mods[0].step),
                          (0x03, 0x01, 0x09, 0xFF))
-        # the second is the mod-off cancel
-        self.assertEqual((mods[1].wait, mods[1].speed, mods[1].change, mods[1].step),
-                         (0x00, 0x01, 0x00, 0x00))
 
 
 class TestBlobLayoutMatchesSfxHeader(unittest.TestCase):
@@ -846,6 +849,11 @@ Sound_AB_Voices:
         tamed = int(round(0x1A * _SPINDASH_MOD_SCALE)) or 1
         self.assertEqual((mods[0].wait, mods[0].speed, mods[0].change, mods[0].step),
                          (0x01, 0x01, tamed, 0x01))
+        # The cancel's speed byte is 0: in S3K the running sweep's per-frame speed
+        # reload reads 0 through the retargeted pointer and the stepper STALLS —
+        # pitch freezes at the sweep-top through the fade. Our all-zero MEV_MODSET
+        # (ctrl off; engine holds the last modulated pitch) is the exact equivalent,
+        # so it is KEPT (S3K load-point pass, fidelity fix 2026-07-03).
         self.assertEqual((mods[1].wait, mods[1].speed, mods[1].change, mods[1].step),
                          (0x00, 0x00, 0x00, 0x00))
 

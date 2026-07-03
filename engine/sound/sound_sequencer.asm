@@ -1273,26 +1273,20 @@ Seq_Op_ModSet:
         ; source wait of 0, so passing the raw byte through IS fidelity — no clamp.
         ; (The mod-off idiom 0,0,0,0 never reaches Mod_Advance: sc_mod_ctrl = 0.)
         ld      (ix+sc_mod_ctrl), a       ; nonzero => active; zero => off
-        ; SFX FM: re-write the UNMODULATED base note to the chip with NO key-on, so a
-        ; held tail (smpsNoAttack) snaps back to base pitch when a sweep modSet turns
-        ; off — Fm_WriteFreq changes a HELD note's pitch with no EG retrigger, so the
-        ; tail needs no re-key (kills the faint "second attack" at the main->tail seam).
-        ; Before the first note the channel is keyed-off/silent so this stale-freq write
-        ; is inaudible and the main note's key-on overwrites it that same frame.
-        ld      a, (ix+sc_route)
-        cp      CHROUTE_PSG1             ; FM routes (<6) only; PSG/noise skip
-        jr      nc, .modset_done
-        ; SFX-override gate: while an SFX owns this voice the music's base-freq
-        ; snap must not land on the SFX's $A4/$A0 (the mod state above is still
-        ; latched; Sfx_Restore re-keys from sc_base_freq so nothing is lost).
-        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
-        jr      nz, .modset_done
-        push    hl                       ; Fm_WriteFreq clobbers hl (the live stream ptr)
-        ld      d, (ix+sc_base_freq)
-        ld      e, (ix+sc_base_freq+1)
-        call    Fm_WriteFreq             ; $A4/$A0 = base note, no $28 key-on
-        pop     hl
-.modset_done:
+        ; NO base-pitch snap on mod-off (fidelity fix 2026-07-03). The old code
+        ; re-wrote the unmodulated base note here (FM routes, no key-on) so a held
+        ; tail "snapped back" when a sweep's cancel modSet arrived — built on a
+        ; WRONG reading of S3K. Real S3K (skdisasm Z80 driver): cfModulation only
+        ; stores the DATA POINTER (:3405); params load into track RAM at the next
+        ; ATTACKED note only (zPrepareModulation :1237 returns early on no-attack),
+        ; and zDoModulation (:1279) keeps ADDING the accumulated offset every frame.
+        ; A cancel modSet before a no-attack fade therefore never snaps pitch:
+        ; roll's sweep keeps RISING through its fade; spindash's stalls AT the
+        ; sweep-top (the cancel's speed byte 0 starves the delta stepper). With
+        ; ctrl=0 here, Mod_Advance simply stops writing — the chip HOLDS the last
+        ; modulated pitch, which IS the S3K freeze. The transcoder's modSet
+        ; load-point pass emits all-zero modSets only where S3K effectively
+        ; freezes, and DROPS the ones S3K never loads (no attacked note follows).
         jp      Seq_ContinueFetch
 
 ; $F0 MEV_SPINREV (no operand) : port of cfSpindashRev (S3K). Add the GLOBAL rev into
