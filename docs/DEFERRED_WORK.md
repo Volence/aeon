@@ -1126,12 +1126,23 @@ warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 
 ## From Sound Driver Work (Future)
 
-> **STATE-OF-TRUTH (2026-07-01):** the current sound-engine status — what shipped, what's open,
-> and the full drift/bug backlog — is the pair of 2026-07-01 review docs:
-> `docs/superpowers/2026-07-01-sound-engine-review-findings.md` (code review + same-day fix-pass
-> status header) and `docs/superpowers/2026-07-01-sound-specs-review.md` (spec review, gap list,
-> CUT list). Read those before acting on any sound entry below; several entries here are
-> annotated as resolved by later phases.
+> **STATE-OF-TRUTH (2026-07-03 — supersedes the 2026-07-01 banner):** EVERY open sound entry
+> below is now OWNED by a banked package of the 2026-07-03 design-banking session
+> (`docs/superpowers/2026-07-03-sound-banking-queue.md`, six packages 0-6, all specs+plans on
+> master). Do NOT execute any sound entry from this file directly — execute its owning package
+> plan, which embeds the entry's current verified state (several entries below are stale;
+> the plans record what was ALREADY fixed). Ownership map:
+> - SFX Stage B/C + continuous SFX → **package 2** (`plans/2026-07-03-sfx-fidelity-stage-bc.md`)
+> - deep-audit survivors D1/D4/D6/D7/B3/B5/E5-runtime → **package 4** (`plans/2026-07-03-sound-correctness-batch.md`)
+> - DAC descriptor insurance + Bank-D hook + drum authoring → **package 3** (`plans/2026-07-03-dac-drum-library-readiness.md`)
+> - game-feel gaps (pause/jingle/song-finished/API v2) → **package 1** (`plans/2026-07-03-sound-game-feel-moments.md`)
+> - detune-unison + production features → **package 5** (`plans/2026-07-03-sound-production-suite.md`)
+> - GATE articulation, opbias test, $28 guard, cold-boot pan seed, FM env seam, HCZ2 loop
+>   residual, bank-latch hunt, boundary-tick check, comment rot, + ALL formal closures
+>   (§6.4, Phase-4, defensive-upload, H3, worst-tick) → **package 6** (`plans/2026-07-03-sound-closeout-sweep.md`)
+> After packages 5+6 execute, this file's sound sections should contain ONLY closed/annotated
+> entries; anything still open then is a process bug. (The 2026-07-01 review pair remains the
+> analytical record behind the packages.)
 
 ### Music-expression Task 0 (Z80 code recovery) — follow-ups — 2026-06-24
 Task 0 recovered Z80 code headroom (2 → ~1016 B) by **co-locating** the engine lookup tables

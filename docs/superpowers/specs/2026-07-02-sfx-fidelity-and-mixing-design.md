@@ -116,7 +116,7 @@ decrement + re-loop; pings stopped → one final pass then end).
 
 Aeon shape (simpler than S3K's dual flag+count):
 - `SHF_CONTINUOUS` (bit 0, already reserved at `sound_constants.asm:899-905`) **requires
-  `SHF_LOOP`** (packer validity rule). Jingle-class blobs (package A) forbid BOTH.
+  `SHF_LOOP`** (packer validity rule). Jingle-class blobs (package 1) forbid BOTH.
 - New per-slot byte `sx_extend` (SfxChannel has pad space): **re-ping countdown**. On
   `Sfx_BeginSound` with a matching active continuous id: instead of the retrigger kill-scan,
   reload `sx_extend = SFX_EXTEND_FRAMES` (constant, ~10) and return — the ping is free
@@ -126,7 +126,7 @@ Aeon shape (simpler than S3K's dual flag+count):
   loop boundary: `sx_extend != 0` → take the loop; `== 0` → fall through to the existing
   looped-SFX **fade tail** (the shipped B4 machinery, 0ac3403's modSet-riding fade) → end.
 - Game side: the call sites already re-ping every frame (`player_spindash.asm:60-61`);
-  the drowning-warning cadence lands with package A's §7 drowning flow.
+  the drowning-warning cadence lands with package 1's §7 drowning flow.
 - Existing 9 SFX: unchanged (none set the flag). Dash/spindash MAY be re-authored
   continuous later as a taste pass — not part of this plan's gates.
 

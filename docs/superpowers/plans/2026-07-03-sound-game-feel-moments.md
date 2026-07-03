@@ -1,4 +1,4 @@
-# Sound Game-Feel Moments Implementation Plan (Banking Package A)
+# Sound Game-Feel Moments Implementation Plan (Banking Package 1)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -70,7 +70,7 @@ Run: `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh 2>&1 | grep -E "budget|complete"
 
 ```bash
 git add sound_constants.asm engine/sound/z80_sound_driver.asm
-git commit -m "feat(sound): game-feel constants — CTRL/JINGLE slots, 4 status mirrors, paused/jingle/fade-term state (spec A §8)"
+git commit -m "feat(sound): game-feel constants — CTRL/JINGLE slots, 4 status mirrors, paused/jingle/fade-term state (the game-feel spec (pkg 1) §8)"
 ```
 
 ### Task 2: Pause engine (Z80)
@@ -185,7 +185,7 @@ Snd_UnpauseShadows:
 
 ```bash
 git add engine/sound/sound_sequencer.asm engine/sound/z80_sound_driver.asm
-git commit -m "feat(sound): pause engine — CTRL slot, music/all scopes, factored mute sweep, shadow-zero unpause (spec A §4)"
+git commit -m "feat(sound): pause engine — CTRL slot, music/all scopes, factored mute sweep, shadow-zero unpause (the game-feel spec (pkg 1) §4)"
 ```
 
 - [ ] **Step 6 (controller session): oracle gate** — play MT; post CTRL=1 (`z80_write 0x1F07 0x01`): music freezes (FM `$B4`=0 all music ch, PSG atten $F), `SND_STAT_TICK` keeps counting; jump SFX still audible. CTRL=2: music resumes at position; pan re-written once (register trace). CTRL=3: everything silent; CTRL=4 resumes.
@@ -263,7 +263,7 @@ Snd_PauseMusic:                          ; public: pause-music entry (a clobbere
 
 ```bash
 git add engine/sound/sound_sequencer.asm engine/sound/z80_sound_driver.asm
-git commit -m "feat(sound): status mirrors (SEQ_ACTIVE/JINGLE/FADE_BUSY) + composed fade terminals out+stop / out+pause (spec A §6)"
+git commit -m "feat(sound): status mirrors (SEQ_ACTIVE/JINGLE/FADE_BUSY) + composed fade terminals out+stop / out+pause (the game-feel spec (pkg 1) §6)"
 ```
 
 - [ ] **Step 5 (controller session): oracle gate** — post FADE=3 during MT: TL ramp to silence then `SND_STAT_SEQ_ACTIVE`→0 (stop landed); FADE=4: silence then paused (CTRL=2 resumes at position). `SND_STAT_FADE_BUSY` reads 1 during the ramp, 0 after.
@@ -326,7 +326,7 @@ Wire `$FA` in the dispatch table/compare-chain exactly as `$F9` is wired (grep `
 
 ```bash
 git add tools/song_packer.py tools/test_song_packer.py engine/sound/sound_sequencer.asm sound_constants.asm docs/superpowers/specs/2026-06-23-music-expression-engine-design.md
-git commit -m "feat(sound): MEV_EXT sub-op 0 = COMM — score-authored cue byte to SND_STAT_COMM (first EXT tenant; spec A §6)"
+git commit -m "feat(sound): MEV_EXT sub-op 0 = COMM — score-authored cue byte to SND_STAT_COMM (first EXT tenant; the game-feel spec (pkg 1) §6)"
 ```
 
 ### Task 5: Jingle push/pop
@@ -427,7 +427,7 @@ Add `JINGLE_RESUME_FADE = $28` to `sound_constants.asm` near the fade constants.
 
 ```bash
 git add engine/sound/z80_sound_driver.asm engine/sound/sound_sfx.asm sound_constants.asm
-git commit -m "feat(sound): jingle push/pop — freeze-in-place resume, SND_PAUSED re-key gate, auto-pop + resume fade-in (spec A §5)"
+git commit -m "feat(sound): jingle push/pop — freeze-in-place resume, SND_PAUSED re-key gate, auto-pop + resume fade-in (the game-feel spec (pkg 1) §5)"
 ```
 
 - [ ] **Step 6 (controller session): oracle E2E gate (spec §11.2-11.3)** — the zero-copy proof: dump SeqChannel RAM (`0x1A08`, 660 B) → push a jingle mid-MT → dump again during the jingle → **byte-identical** except nothing (pause writes no channel state) → wait for pop → stream pointers advance from frozen values; fade-in TL ramp visible. Then the edge matrix: jingle-during-FADE=3, double-jingle, jingle-over-stopped (no drone — the a89430b gate), CTRL=3 during jingle, stop-while-paused.
@@ -494,7 +494,7 @@ Sound_GetComm:
 
 ```bash
 git add engine/sound/sound_api.asm
-git commit -m "feat(sound): 68k API v2 — pause/jingle/composed-fade wrappers + status readers (spec A §8)"
+git commit -m "feat(sound): 68k API v2 — pause/jingle/composed-fade wrappers + status readers (the game-feel spec (pkg 1) §8)"
 ```
 
 ### Task 7: Mark the old command-API spec superseded + tracking closure
@@ -502,7 +502,7 @@ git commit -m "feat(sound): 68k API v2 — pause/jingle/composed-fade wrappers +
 **Files:**
 - Modify: `docs/superpowers/specs/2026-06-16-sound-command-api.md` (header), `docs/DEFERRED_WORK.md`, `docs/ENGINE_ARCHITECTURE.md` §6, `docs/superpowers/2026-07-03-sound-banking-queue.md`
 
-- [ ] **Step 1:** Old API spec gets a SUPERSEDED header pointing at spec A §8. ARCH §6 gains a short game-feel paragraph (pause scopes, jingle model, status contract) + the index row updates "the current sound priority". DEFERRED_WORK: close the review's gap-list items this plan ships; the §7 game flows (act-clear sequencing etc.) get a NEW deferred entry pointing at spec A §7 + the screens/HUD package. Queue doc: package A → EXECUTED.
+- [ ] **Step 1:** Old API spec gets a SUPERSEDED header pointing at the game-feel spec (pkg 1) §8. ARCH §6 gains a short game-feel paragraph (pause scopes, jingle model, status contract) + the index row updates "the current sound priority". DEFERRED_WORK: close the review's gap-list items this plan ships; the §7 game flows (act-clear sequencing etc.) get a NEW deferred entry pointing at the game-feel spec (pkg 1) §7 + the screens/HUD package. Queue doc: package 1 → EXECUTED.
 
 - [ ] **Step 2: Final gates** — pytest suite green; DEBUG + plain builds green; final budget delta recorded (≤ 170 B); full oracle matrix from Task 5 Step 6 logged in the queue doc.
 
@@ -510,7 +510,7 @@ git commit -m "feat(sound): 68k API v2 — pause/jingle/composed-fade wrappers +
 
 ```bash
 git add docs/superpowers/specs/2026-06-16-sound-command-api.md docs/DEFERRED_WORK.md docs/ENGINE_ARCHITECTURE.md docs/superpowers/2026-07-03-sound-banking-queue.md
-git commit -m "docs(sound): package A executed — API spec superseded, ARCH/DEFERRED sync"
+git commit -m "docs(sound): package 1 executed — API spec superseded, ARCH/DEFERRED sync"
 ```
 
 ---

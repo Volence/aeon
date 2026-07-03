@@ -1,4 +1,4 @@
-# DAC Drum-Library Readiness Implementation Plan (Banking Package C)
+# DAC Drum-Library Readiness Implementation Plan (Banking Package 3)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -225,7 +225,7 @@ git commit -m "feat(tools): data-only Z80 table twin emitter (Bank-D co-location
 - [ ] **Step 1: Append the runbook section**
 
 ```markdown
-## Drum-library authoring runbook (added 2026-07-03, package C)
+## Drum-library authoring runbook (added 2026-07-03, package 3)
 
 Prereqs now in place: 12-byte descriptor (`ds_vol`/`ds_mix_rsvd` reserved), Bank-D
 twin emitter tested (`tools/gen_sound_tables.py::emit_asm_z80_data_only`, activation
@@ -258,16 +258,16 @@ documented in its docstring). Steps for a future drum-kit session:
 
 ```bash
 git add docs/superpowers/specs/2026-06-24-dac-drum-format-revision-design.md
-git commit -m "docs(sound): DAC spec — drum-library authoring runbook (package C)"
+git commit -m "docs(sound): DAC spec — drum-library authoring runbook (package 3)"
 ```
 
 ### Task 6: Close the loop in tracking docs
 
 **Files:**
 - Modify: `docs/DEFERRED_WORK.md` (E2 ratification entry: insurance DONE; Bank-D entry: generator DONE, activation pending first drum song)
-- Modify: `docs/superpowers/2026-07-03-sound-banking-queue.md` (package C row → EXECUTED)
+- Modify: `docs/superpowers/2026-07-03-sound-banking-queue.md` (package 3 row → EXECUTED)
 
-- [ ] **Step 1: Annotate both docs** — in DEFERRED_WORK's E2 entry (~:1358) append `*(Descriptor insurance LANDED <commit> — ds_vol + ds_mix_rsvd shipped, 12-byte descriptor.)*`; in the Bank-D follow-up entry (~:1141) append `*(Generator twin LANDED <commit>, byte-equality tested; ROM activation still rides the first COPY song.)*`. Update the queue-doc package C row status.
+- [ ] **Step 1: Annotate both docs** — in DEFERRED_WORK's E2 entry (~:1358) append `*(Descriptor insurance LANDED <commit> — ds_vol + ds_mix_rsvd shipped, 12-byte descriptor.)*`; in the Bank-D follow-up entry (~:1141) append `*(Generator twin LANDED <commit>, byte-equality tested; ROM activation still rides the first COPY song.)*`. Update the queue-doc package 3 row status.
 
 - [ ] **Step 2: Build one final time + commit**
 
@@ -275,7 +275,7 @@ Run: `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh 2>&1 | tail -4` → green.
 
 ```bash
 git add docs/DEFERRED_WORK.md docs/superpowers/2026-07-03-sound-banking-queue.md
-git commit -m "docs(sound): package C executed — tracking sync"
+git commit -m "docs(sound): package 3 executed — tracking sync"
 ```
 
 ---

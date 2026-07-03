@@ -6,11 +6,11 @@
 
 **Architecture:** Tier 0 is Python + authoring docs (zero resident bytes). Tier 1 rides shipped machinery: the pump writes the duck LEVEL at the existing DAC trigger hook (`Seq_HookDac`, `sound_sequencer.asm:2019`) and lets the shipped duck ramp provide the release; autopan is a new shadow-coherent macro tag (`TAG_MAC_PAN = $E4` in the private `$E0-$E3+` tag namespace). Tier 2 (PLAN-LEVEL REFINEMENT of spec items 10+11, flagged): echo bus and detune-unison unify into ONE **ghost-voice engine** — a designated ghost channel replays a source channel's note-ons with authored (delay, vol-drop, detune, pan-mode, patch) — echo = delay>0 preset, unison = delay 0 + detune preset. One mechanism (~100-140 B) instead of two (~130-200 B). ExtCh3 remains its own item, last.
 
-**Sequencing (normative, from the spec):** Tier 0 + Tier 1 execute any time after packages A-D merge. **Tier 2 tasks each begin with a measured budget gate** — build, read the `Z80 sound budget` line, STOP the task and record if free bytes < ceiling + 32 B safety floor. Priority: ghost-voice → ExtCh3.
+**Sequencing (normative, from the spec):** Tier 0 + Tier 1 execute any time after packages 1-4 merge. **Tier 2 tasks each begin with a measured budget gate** — build, read the `Z80 sound budget` line, STOP the task and record if free bytes < ceiling + 32 B safety floor. Priority: ghost-voice → ExtCh3.
 
 **Tech Stack:** Python 3 (scipy/numpy for DSP; pytest), AS Macro Assembler, `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh`, oracle MCP foreground-only, vgm2wav render pipeline.
 
-**Interaction contract (with packages B + D):** the pump and package B's per-SFX duck share `SND_SFX_DUCK_LEVEL/TARGET`. Rule (resolves spec §6): **LEVEL combines as MAX** — the pump writes `level = max(level, pump_depth)` instantly (fast attack); TARGET stays owned by the SFX-duck logic (deepest-active, per B); the shipped ramp walking level→target IS the release. No new state.
+**Interaction contract (with packages 2 + 4):** the pump and package 2's per-SFX duck share `SND_SFX_DUCK_LEVEL/TARGET`. Rule (resolves spec §6): **LEVEL combines as MAX** — the pump writes `level = max(level, pump_depth)` instantly (fast attack); TARGET stays owned by the SFX-duck logic (deepest-active, per package 2); the shipped ramp walking level→target IS the release. No new state.
 
 ---
 
@@ -72,7 +72,7 @@ git commit -m "feat(tools): drum mastering chain — EQ/comp/saturate/gated-reve
 
 - [ ] **Step 2: `song_variation.py`**: seeded transforms over the packer's event lists — `humanize_vol(events, amount, seed)`, `ghost_notes(events, prob, vol_drop, seed)`, `alternate_sample_offsets(dac_events, variants)` (requires kit variants baked by Task 1's chain — bake 2-3 start-offset trims per drum), `flam(dac_events, pairs)` → emits references to pre-baked composite samples (NEVER runtime mixing). Tests: same seed = same output; no seed param = error (reproducibility contract).
 
-- [ ] **Step 3: Authoring cookbook** — new section in the music-expression spec (or `docs/superpowers/sound-authoring-cookbook.md` if cleaner): TL-sweep patch vocabulary (wah/acid/filter-pad recipes), **PSG periodic-noise sub-bass** pattern (tone-2-clocked periodic mode, 4 octaves down — cite `MEV_PSGNOISE` ctrl byte values), **Follin echo rules** (−6 dB, opposite pan, duller patch, same-channel ghost fallback), SSG-EG timbre presets (post-package-D). Each recipe = concrete packer-event snippets, buildable.
+- [ ] **Step 3: Authoring cookbook** — new section in the music-expression spec (or `docs/superpowers/sound-authoring-cookbook.md` if cleaner): TL-sweep patch vocabulary (wah/acid/filter-pad recipes), **PSG periodic-noise sub-bass** pattern (tone-2-clocked periodic mode, 4 octaves down — cite `MEV_PSGNOISE` ctrl byte values), **Follin echo rules** (−6 dB, opposite pan, duller patch, same-channel ghost fallback), SSG-EG timbre presets (post-package-4). Each recipe = concrete packer-event snippets, buildable.
 
 - [ ] **Step 4: pytest + commit**
 
@@ -84,9 +84,9 @@ git commit -m "feat(tools): TL filter-sweep generator + seeded generative variat
 ### Task 3: Tier 1 — kick-sidechain pump (~30-50 B)
 
 **Files:**
-- Modify: `engine/sound/sound_sequencer.asm` (`Seq_HookDac` :2019 region; `Seq_Op_Ext` — extend package A's `$FA` dispatch), `sound_constants.asm` (2 RAM bytes), `tools/song_packer.py` (+`PumpSet` event), tests
+- Modify: `engine/sound/sound_sequencer.asm` (`Seq_HookDac` :2019 region; `Seq_Op_Ext` — extend package 1's `$FA` dispatch), `sound_constants.asm` (2 RAM bytes), `tools/song_packer.py` (+`PumpSet` event), tests
 
-- [ ] **Step 1: Score surface** — `MEV_EXT` sub-op 1 = **PUMPSET** `+ id + depth`: sets `SND_PUMP_SAMPLE` (the trigger sample id; 0 = pump off) and `SND_PUMP_DEPTH` (TL units). Two RAM bytes chained in the game-feel slack block (extend package A's `SND_GAMEFEEL_*` chain + seam assert). Zeroed at song load (grep the `.chan_init`/load-time state wipe — add both bytes; a song must opt in per-load). Packer `PumpSet(id, depth)` event + validity (music-legal, any route; depth 0..$7F) + test asserting `FA 01 id depth` bytes.
+- [ ] **Step 1: Score surface** — `MEV_EXT` sub-op 1 = **PUMPSET** `+ id + depth`: sets `SND_PUMP_SAMPLE` (the trigger sample id; 0 = pump off) and `SND_PUMP_DEPTH` (TL units). Two RAM bytes chained in the game-feel slack block (extend package 1's `SND_GAMEFEEL_*` chain + seam assert). Zeroed at song load (grep the `.chan_init`/load-time state wipe — add both bytes; a song must opt in per-load). Packer `PumpSet(id, depth)` event + validity (music-legal, any route; depth 0..$7F) + test asserting `FA 01 id depth` bytes.
 
 - [ ] **Step 2: Trigger hook** — in `Seq_HookDac` (sample id is in `sc_note`), after the existing trigger:
 
@@ -158,7 +158,7 @@ git commit -m "feat(sound): ghost-voice engine — unified echo bus + detune-uni
 
 ### Task 6: Tier 2 (BUDGET-GATED) — ExtCh3 operator-as-track
 
-- [ ] **Step 0: BUDGET GATE** — same protocol; ceiling TBD by a sizing step: FIRST write a sizing note (read `Fm_NoteOnFreq`/patch-load paths; count the op-frequency addressing delta: CH3 special mode = `$27` mode bits + `$A8-$AE`/`$AC-$AE` per-op frequency writes + a route variant `CHROUTE_FM3OP` decoding op index). If sizing lands > remaining budget − 32 B: record + close as "door documented, blocked at N bytes" (the spec's §4 CSM-style door treatment) — a legitimate outcome.
+- [ ] **Step 0: BUDGET GATE** — same protocol; ceiling determined by the sizing step: FIRST write a sizing note (read `Fm_NoteOnFreq`/patch-load paths; count the op-frequency addressing delta: CH3 special mode = `$27` mode bits + `$A8-$AE`/`$AC-$AE` per-op frequency writes + a route variant `CHROUTE_FM3OP` decoding op index). If sizing lands > remaining budget − 32 B: record + close as "door documented, blocked at N bytes" (the spec's §4 CSM-style door treatment) — a legitimate outcome.
 - [ ] **Step 1 (if funded):** v1 scope per spec: **alg-7 4-op chord mode only** (four independent sine-ish voices on FM3; alg-4 dual-voice stays door-only). Score surface: routes `CHROUTE_FM3_OP0..OP3` (packer maps them onto one physical channel; header validity: if any FM3-op route present, plain FM3 route is forbidden + `$27` mode set at load). Engine: note-on path for op routes writes the op's `$A8+`-block frequency + per-op TL as volume; no patch load per op (one shared FM3 patch, authored for alg 7).
 - [ ] **Step 2:** Tests (packer validity + byte layout), build gates, scratch-song chord render (4-note organ pad on FM3 + bass/lead elsewhere — the polyphony demo), byte-identity for existing songs. Commit:
 
@@ -186,5 +186,5 @@ git commit -m "docs(sound): package 5 executed — production suite closure (tie
 
 - Spec coverage: items 1-7 (Tier 0) → Tasks 1-2; 8-9 (Tier 1) → Tasks 3-4; 10-11 → Task 5 (unified ghost voice — flagged plan-level refinement, spec §6 delegated the details); 12 → Task 6; §4 doors need no tasks (already doc'd in the spec); §5 verification distributed into task gates.
 - Every Tier-2 task opens with a hard budget gate and has a legitimate blocked outcome — the plan cannot strand a future session.
-- MEV_EXT sub-op registry after this plan: 0=COMM (package A), 1=PUMPSET, 2=GHOSTSET — add the registry line to the format-validity rules in whichever task lands first at execution time.
+- MEV_EXT sub-op registry after this plan: 0=COMM (package 1), 1=PUMPSET, 2=GHOSTSET — add the registry line to the format-validity rules in whichever task lands first at execution time.
 - Consistency: `SND_PUMP_*`, `TAG_MAC_PAN`, `GhostSet`/`PumpSet`, `CHROUTE_FM3_OP*` named once and reused; all engine hooks cite verified anchors (`Seq_HookDac` :2019, TAG namespace :487-494, `$1ED2` block).

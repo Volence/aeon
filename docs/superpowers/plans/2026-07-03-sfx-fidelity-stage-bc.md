@@ -1,4 +1,4 @@
-# SFX Fidelity Stage B/C Implementation Plan (Banking Package B)
+# SFX Fidelity Stage B/C Implementation Plan (Banking Package 2)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** AS Macro Assembler (Z80), Python 3 (`tools/sfx_transcode.py` + pytest), `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh`, oracle MCP (FOREGROUND ONLY).
 
-**Worktree note:** branch off master AFTER `feat/sfx-fidelity` + `feat/sound-design-banking` merge. If package A merged first, the jingle validity rule in Task 6 references its `SND_REQ_JINGLE` path; otherwise the rule still lands (it is packer-side only).
+**Worktree note:** branch off master AFTER `feat/sfx-fidelity` + `feat/sound-design-banking` merge. If package 1 merged first, the jingle validity rule in Task 6 references its `SND_REQ_JINGLE` path; otherwise the rule still lands (it is packer-side only).
 
 **By-ear inputs (user, before or during execution):** authored `sfh_gain` values per SFX — including the roll-taste decision (DEFERRED_WORK "Roll taste": S3K-authentic 2.2 kHz/1.4 s fade; tame via gain ONLY as deliberate divergence). Plan defaults: all gains 0 (chip-exact Stage-A behavior), duck 0 for all but nothing (no current SFX is death-class), caps 1. Defaults are byte-behavior-neutral — the plan is executable without the user, and taste values drop in later as data.
 
@@ -146,13 +146,13 @@ git commit -m "feat(sound): continuous-SFX class — SHF_CONTINUOUS + sx_extend 
 **Files:**
 - Modify: `tools/sfx_transcode.py` (jingle rule), `docs/DEFERRED_WORK.md`, `docs/ENGINE_ARCHITECTURE.md` §6.7, `docs/superpowers/2026-07-03-sound-banking-queue.md`, spec §7 outcome header
 
-- [ ] **Step 1:** Package A cross-rule (spec A §5): blobs marked jingle-class reject `SHF_CONTINUOUS`, `SHF_LOOP`, FM6 and DAC routes (transcoder `--jingle`-class flag or config bit — match however Task 1 shaped the config table) + a test per rejection.
-- [ ] **Step 2:** Docs: DEFERRED_WORK "SFX Fidelity Stage B/C" entry → outcomes per item (incl. the duck-model divergence note for by-ear); ARCH §6.7 → SHIPPED; queue package B → EXECUTED; sfx-fidelity spec gets a Stage-B/C outcome line under its Stage-A header.
+- [ ] **Step 1:** Package 1 cross-rule (the game-feel spec (pkg 1) §5): blobs marked jingle-class reject `SHF_CONTINUOUS`, `SHF_LOOP`, FM6 and DAC routes (transcoder `--jingle`-class flag or config bit — match however Task 1 shaped the config table) + a test per rejection.
+- [ ] **Step 2:** Docs: DEFERRED_WORK "SFX Fidelity Stage B/C" entry → outcomes per item (incl. the duck-model divergence note for by-ear); ARCH §6.7 → SHIPPED; queue package 2 → EXECUTED; sfx-fidelity spec gets a Stage-B/C outcome line under its Stage-A header.
 - [ ] **Step 3:** Final gates: full pytest, DEBUG + plain builds, budget delta recorded (target ≤ 50 B), 9-SFX register-identity regression re-run after ALL tasks. Commit:
 
 ```bash
 git add tools/sfx_transcode.py tools/test_sfx_transcode.py docs/DEFERRED_WORK.md docs/ENGINE_ARCHITECTURE.md docs/superpowers/2026-07-03-sound-banking-queue.md docs/superpowers/specs/2026-07-02-sfx-fidelity-and-mixing-design.md
-git commit -m "docs(sound): package B executed — Stage B/C closure sync + jingle-class validity rules"
+git commit -m "docs(sound): package 2 executed — Stage B/C closure sync + jingle-class validity rules"
 ```
 
 ---

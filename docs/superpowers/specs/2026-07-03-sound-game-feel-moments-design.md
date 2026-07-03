@@ -1,4 +1,4 @@
-# Sound Game-Feel Moments — Design (Banking Package A)
+# Sound Game-Feel Moments — Design (Banking Package 1)
 
 **Date:** 2026-07-03
 **Status:** BANKED design (spec + plan pattern, 2026-07-03 sound design-banking session;

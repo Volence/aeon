@@ -1,4 +1,4 @@
-# Sound Correctness Batch Implementation Plan (Banking Package D)
+# Sound Correctness Batch Implementation Plan (Banking Package 4)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -263,7 +263,7 @@ git commit -m "feat(sound): MEV_REGDELTA group 6 — runtime SSG-EG sweeps ($90 
 ### Task 8: Tracking-doc closure
 
 **Files:**
-- Modify: `docs/DEFERRED_WORK.md` (audit section: strike D1/D4/D6/D7/B3/B5/E5 with outcomes; annotate D2/D3/D5/F3/F4 entries as verified-already-done 2026-07-03 where not already struck), `docs/superpowers/2026-07-03-sound-banking-queue.md` (package D row → EXECUTED), `docs/ENGINE_ARCHITECTURE.md` §6 index row only if E5/B5 change shipped-feature claims.
+- Modify: `docs/DEFERRED_WORK.md` (audit section: strike D1/D4/D6/D7/B3/B5/E5 with outcomes; annotate D2/D3/D5/F3/F4 entries as verified-already-done 2026-07-03 where not already struck), `docs/superpowers/2026-07-03-sound-banking-queue.md` (package 4 row → EXECUTED), `docs/ENGINE_ARCHITECTURE.md` §6 index row only if E5/B5 change shipped-feature claims.
 
 - [ ] **Step 1: Annotate all entries** (strikethrough + `**DONE <date> (<commit>)**` per the file's established idiom).
 - [ ] **Step 2: Final full build + test sweep** — `python3 -m pytest tools/ -q` and DEBUG + release builds green; record final Z80 budget delta in the queue log (target ≤ 40 B total).
@@ -271,7 +271,7 @@ git commit -m "feat(sound): MEV_REGDELTA group 6 — runtime SSG-EG sweeps ($90 
 
 ```bash
 git add docs/DEFERRED_WORK.md docs/superpowers/2026-07-03-sound-banking-queue.md docs/ENGINE_ARCHITECTURE.md
-git commit -m "docs(sound): package D executed — audit backlog closure sync"
+git commit -m "docs(sound): package 4 executed — audit backlog closure sync"
 ```
 
 ---

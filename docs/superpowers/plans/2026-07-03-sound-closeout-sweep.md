@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Empty the sound-driver backlog — every remaining item verified 2026-07-03 is either EXECUTED here or formally CLOSED with a cited rationale. After this plan + packages A/B/C/D/5, the only sound line items anywhere are content-gated (drum authoring, Seraph export).
+**Goal:** Empty the sound-driver backlog — every remaining item verified 2026-07-03 is either EXECUTED here or formally CLOSED with a cited rationale. After this plan + packages 1/2/3/4/5, the only sound line items anywhere are content-gated (drum authoring, Seraph export).
 
 **Architecture:** Three kinds of tasks: (1) small executes (~25 B Z80 total + transcoder/tests), (2) one bounded investigation (bank-latch corrupter — emulator watchpoint work, CONTROLLER SESSION ONLY), (3) doc dispositions with citations. Verification report grounding all verdicts: the 2026-07-03 closeout sweep (items below cite current master `ca5eb5b` file:line). Items found ALREADY CORRECT in current code and needing only annotation: smpsSetVol operand decode (`tools/smps_import.py:629-643`), smpsPan AMS/FMS preservation (`:587-605`), portamento, frame-clock pin.
 
@@ -136,7 +136,7 @@ git commit -m "test(sound): pin DAC bare-duration re-trigger + opbias-on-carrier
   - **Worst-tick-vs-S3K gap → ACCEPTED (user, 2026-07-03):** in-tick draining measured net-negative twice (T9, reverted); the residual 24.1%-vs-21.4% DAC-hold tail is an accepted trade; reopen only with new evidence of audible impact.
   - **smpsSetVol / smpsPan review items → VERIFIED CORRECT in current code** (cite `:629-643`, `:587-605`) — the 2026-07-01 findings described an earlier version.
   - **Per-frame pitch/vol envelope variants → stays build-on-demand** (measured 97% redundant) — entry re-affirmed, not hanging: it has a trigger condition (a song that needs them).
-- [ ] **Step 2: The queue doc gains the final state table:** packages A-D banked, 5 spec'd (+plan), 6 executed → sound backlog EMPTY except content-gated items (drum authoring via C's runbook; Seraph export retarget — its own project).
+- [ ] **Step 2: The queue doc gains the final state table:** packages 1-4 banked, 5 spec'd (+plan), 6 executed → sound backlog EMPTY except content-gated items (drum authoring via C's runbook; Seraph export retarget — its own project).
 - [ ] **Step 3: Final build + full pytest + commit**
 
 ```bash
@@ -151,4 +151,4 @@ git commit -m "docs(sound): closeout dispositions — backlog EMPTY except conte
 - Every item from the 2026-07-03 verification sweep appears exactly once: executes in Tasks 1-3 + investigations in Tasks 4-6 + closures in Task 7. Nothing is silently dropped; "closed" always carries a citation and a reopen condition.
 - Byte budget: Task 2's ~25 B is the plan's only resident cost.
 - Tasks 5-6 are controller-session (emulator) work by construction — subagents must not touch the oracle (standing rule).
-- Order flexibility: Tasks 1-4 and 7 are execution-independent of packages A/B/D; Task 2's budget line should still be recorded against whatever has merged by execution time.
+- Order flexibility: Tasks 1-4 and 7 are execution-independent of packages 1/2/4; Task 2's budget line should still be recorded against whatever has merged by execution time.

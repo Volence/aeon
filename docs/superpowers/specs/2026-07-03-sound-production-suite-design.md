@@ -13,16 +13,16 @@ respects that.
 Furnace/Deflemask, Kabuto notes, MDSDRV, Follin/Koshiro practice, SpritesMind; Paprium
 investigated and DISMISSED — fabricated chip branding, MCU-in-cart, nothing adoptable).
 **Byte reality (measured, not doc claims):** current free resident Z80: **362 B DEBUG / 488 B
-release**. Banked packages A+B+D consume ≤ 260 B of it (ceilings). The table-banking lever is
+release**. Banked packages 1+2+4 consume ≤ 260 B of it (ceilings). The table-banking lever is
 **exhausted** (SeqOpcodeTable + all big LUTs already live in the banked window — verified).
 The suite is therefore TIERED: Tier 1 fits unconditionally; Tier 2 executes against MEASURED
-post-A-D headroom with an explicit budget gate.
+post-1-4 headroom with an explicit budget gate.
 
 ---
 
 ## 1. Tier 0 — build-time / authoring (ZERO resident bytes, biggest wins)
 
-1. **Drum mastering chain** (extends package C's runbook): per-drum EQ / multiband
+1. **Drum mastering chain** (extends package 3's runbook): per-drum EQ / multiband
    compression / saturation / **baked reverb tails** in the Python sample pipeline.
    Demoscene validation: Titan Overdrive 2's acclaimed audio is exactly this — offline-
    mastered material through a clean DAC path. Amiga-scene rule adopted: bake **gated**
@@ -45,23 +45,23 @@ post-A-D headroom with an explicit budget gate.
    hit, and **baked kick+snare flam composites** (kills the main reason anyone wants a
    second DAC voice). Python-only; deterministic seeds (build reproducibility — no
    `random()` without a seed in the manifest).
-6. **SSG-EG timbre vocabulary** (after package D lands runtime group 6): patch presets
+6. **SSG-EG timbre vocabulary** (after package 4 lands runtime group 6): patch presets
    using looping SSG-EG on modulators for transient snap and shimmer tails.
 7. **Echo authoring rules** (Follin practice, applies to Tier-2's echo bus AND manual
    authoring today): echo notes at −6 dB-ish, **opposite hard-pan**, duller patch
    (modulator TL dropped), same-channel ghost-note fallback during rests when no spare
    channel exists (C64 convention).
 
-## 2. Tier 1 — small resident features (fit inside any realistic post-A-D floor)
+## 2. Tier 1 — small resident features (fit inside any realistic post-1-4 floor)
 
 8. **Kick-triggered sidechain pump (~30-50 B).** The user's "targeted compression," real:
    on a DAC drum trigger (per-sample flag in the 12-byte descriptor — `ds_vol` neighbors,
    or a song-header enable), set the existing duck engine's target to an authored depth
    with fast attack, and let the shipped slow-release ramp recover it. Music-side gate,
    write-on-change re-assert — all shipped plumbing (`SND_SFX_DUCK_LEVEL` path). Per-song
-   opt-in. NOTE the interaction: package B moves ducking to per-SFX authored depths; the
+   opt-in. NOTE the interaction: package 2 moves ducking to per-SFX authored depths; the
    pump writes the same target variable — LAST-WRITER semantics must be spec'd in the plan
-   (recommend: pump and SFX-duck targets combine as MAX, same rule as B's overlap policy).
+   (recommend: pump and SFX-duck targets combine as MAX, same rule as package 2's overlap policy).
 9. **Autopan macro target (~20-40 B).** Binary L/R pan flipping at macro rate (rotary/
    tremolo width) as a new macro/`MEV` surface riding the existing `$B4` pan plumbing —
    plus cross-panned echoes from item 7. (Furnace-community standard.)
@@ -84,7 +84,7 @@ post-A-D headroom with an explicit budget gate.
     feature it has that we don't. Score-side: a channel-route variant; engine-side: op-freq
     addressing in the note-on path. Size in the plan; likely the largest Tier-2 item.
 
-**Tier-2 budget gate (normative):** Tier 2 executes ONLY after packages A/B/D land and the
+**Tier-2 budget gate (normative):** Tier 2 executes ONLY after packages 1/2/4 land and the
 build's budget line is re-measured. Priority order 10 → 11 → 12; each item's plan task
 starts with "measure free bytes; if < item's ceiling + 32 B safety floor, STOP and record."
 If actuals block item 10, the fallback is a dedicated code-size optimization pass (the
@@ -127,11 +127,11 @@ driver has never had one; NOT promised here — sized as its own decision if nee
 ## 6. Resolve during writing-plans
 
 - Sidechain trigger encoding (per-sample descriptor flag vs song-header mask) + the
-  MAX-combine rule with package B ducking.
+  MAX-combine rule with package 2 ducking.
 - Echo FIFO depth/layout in the 46-byte block (bounds worst case: 16th-note echo at
   fastest tempo).
 - Autopan surface: macro tag vs new MEV (prefer macro tag — zero opcode spend).
 - ExtCh3 route encoding + whether alg-4 dual-voice is v1 or door-only.
-- Which Tier-0 tools land in package C's runbook vs this package's tasks (avoid duplicate
+- Which Tier-0 tools land in package 3's runbook vs this package's tasks (avoid duplicate
   pipelines — likely: mastering chain extends C's tool tasks; this package owns the
   filter-env generator + variation engine).
