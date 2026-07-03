@@ -427,10 +427,11 @@ class TestFmSfxOctaveKnob(unittest.TestCase):
         self.assertEqual(got, faithful + FM_SFX_OCTAVE_SHIFT)
 
     def test_psg_note_not_shifted_by_fm_knob(self):
-        # PSG keeps its scientific +24 fixup and is NOT affected by the FM knob.
+        # PSG is NOT affected by the FM taste knob, and maps 1:1 to the
+        # S3K-numbered table (no fixup): nC5 = $BD -> index $3C.
         raw = 0xBD
         got = _smps_note_to_pitch(raw, is_psg=True, transpose=0)
-        self.assertEqual(got, raw - S3K_NOTE_BASE + PSG_OCTAVE_FIXUP)
+        self.assertEqual(got, raw - S3K_NOTE_BASE)
 
     def test_octave_shift_in_taste_range(self):
         # FM_SFX_OCTAVE_SHIFT is a by-ear taste knob (S3K-faithful = 0 is verified high).
@@ -438,6 +439,45 @@ class TestFmSfxOctaveKnob(unittest.TestCase):
         # passes don't churn the test.
         self.assertTrue(-36 <= FM_SFX_OCTAVE_SHIFT <= 0,
                         "taste shift must be 0..-36 semitones (a whole-number-ish lowering)")
+
+
+class TestPsgPitchMatchesS3KDivisors(unittest.TestCase):
+    """END-TO-END convention tie (SFX fidelity Stage A, fix 1).
+
+    A transcoded PSG note's pitch index must look up the SAME 10-bit divisor
+    that S3K's zPSGFrequencies table yields for that note. PsgDivisorTableZ
+    was re-based to S3K numbering on 2026-06-26 (gen_sound_tables
+    psg_divisor_table), which made the old scientific-pitch +24 fixup a
+    +2-octave bug. This test ties PSG_OCTAVE_FIXUP to the table convention:
+    if either side changes alone, it fails.
+    Reference divisors (skdisasm zPSGFrequencies): jump $62 nF2 -> $140,
+    nBb2 -> $0EF; skid $36 nBb3 -> $078.
+    """
+
+    def test_fixup_is_zero_while_table_is_s3k_numbered(self):
+        self.assertEqual(PSG_OCTAVE_FIXUP, 0,
+                         "PsgDivisorTableZ uses S3K zPSGFrequencies numbering; "
+                         "raw S3K note indices are already correct")
+
+    def test_jump_nF2_hits_s3k_divisor(self):
+        from gen_sound_tables import psg_divisor_table
+        # nF2 = $81 + 2*12 + 5 = $9E
+        idx = _smps_note_to_pitch(0x9E, is_psg=True)
+        self.assertEqual(psg_divisor_table()[idx], 0x140,
+                         "jump's first PSG note must program S3K's $140 divisor (349.6 Hz)")
+
+    def test_jump_nBb2_hits_s3k_divisor(self):
+        from gen_sound_tables import psg_divisor_table
+        # nBb2 = $81 + 2*12 + 10 = $A3
+        idx = _smps_note_to_pitch(0xA3, is_psg=True)
+        self.assertEqual(psg_divisor_table()[idx], 0x0EF)
+
+    def test_skid_nBb3_hits_s3k_divisor(self):
+        from gen_sound_tables import psg_divisor_table
+        # nBb3 = $81 + 3*12 + 10 = $AF
+        idx = _smps_note_to_pitch(0xAF, is_psg=True)
+        self.assertEqual(psg_divisor_table()[idx], 0x078,
+                         "skid's note must program S3K's $078 divisor (932.2 Hz)")
 
 
 class TestSfxTableComplete(unittest.TestCase):
