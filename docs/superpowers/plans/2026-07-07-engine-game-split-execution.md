@@ -81,6 +81,13 @@
 - AS is multi-pass: forward references between equates are fine. If the assembler loops
   with warning #80 ("symbol value changes force additional pass"), you created an
   order-dependent definition — restructure the split, don't suppress the warning.
+- **AS macro labels are MACRO-LOCAL by default** (discovered T2 execution, 2026-07-07):
+  labels defined inside a macro body — and inside any file `include`d from a macro
+  body — are invisible outside the expansion and vanish from the symbol table /
+  convsym deb2 table. EVERY contract/hook macro that emits or includes labels MUST be
+  declared `name macro {GLOBALSYMBOLS}` (verified fix). This applies to `gameHeader`,
+  `gameBootHook`, `gameDebugTick`, `soundBankHead` (T4 — it includes label-bearing
+  files), and ALL SIX manifest macros in T7 (`gameConfigIncludes` … `gameSoundDataIncludes`).
 
 ## The verified coupling inventory (master @ 9bacc93; re-verified @ 2e42ec2 after the package-2 SFX Stage B/C merge)
 
@@ -231,7 +238,7 @@ GAME_ENTRY_ID   = GS_OJZ_SCROLL_TEST
 ; --- gameBootHook — engine boot invokes this after Sound_Init, before the
 ;     game-state handoff. May be empty. Sonic 4: sound test-harness ping +
 ;     autoplay (moved verbatim from engine/system/boot.asm).
-gameBootHook macro
+gameBootHook macro {GLOBALSYMBOLS}
     ifdef SOUND_DRIVER_ENABLED
       ifdef SOUND_DEBUG_HOTKEYS
         moveq   #$3C, d0                 ; ping with a recognizable value
@@ -318,7 +325,7 @@ verifiable; build after each, commit once at the end (or per sub-step if conveni
 ```asm
 ; --- gameDebugTick — engine GameLoop invokes this once per frame after
 ;     VSync/SFX-drain. May be empty. Sonic 4: sound test-harness hotkeys.
-gameDebugTick macro
+gameDebugTick macro {GLOBALSYMBOLS}
     ifdef SOUND_DEBUG_HOTKEYS
       ifdef SOUND_DRIVER_ENABLED
         jsr     Debug_MusicToggle       ; (was bsr.w — jsr is placement-free)
@@ -441,7 +448,7 @@ git commit -m "refactor(engine): invert all ten engine->game strays (E2) — sin
 ;                SetBank(SFX_BLOB_BANK)).
 ; The game must also define, game-side, at the bank start (BEFORE the phase
 ; bracket): a bank-start label and SND_ENGINE_TABLE_BANK = <label> >> 15.
-soundBankHead macro pitchfile, sfxtabfile
+soundBankHead macro pitchfile, sfxtabfile, {GLOBALSYMBOLS}
         include "engine/sound/sound_tables_z80.asm"
         include pitchfile
         include sfxtabfile
@@ -778,28 +785,28 @@ EndOfRom:
 
 PAD_TO_POWER_OF_TWO     = 1
 
-gameConfigIncludes macro
+gameConfigIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/config/constants.asm"
     include "games/sonic4/config/sound_ids.asm"
     include "games/sonic4/config/game.asm"
     endm
 
-gameRamIncludes macro
+gameRamIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/config/ram.asm"
     endm
 
-gameEngineBlockIncludes macro
+gameEngineBlockIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/player/player_sensors.asm"
     include "games/sonic4/debug/game_debug.asm"
     endm
 
-gameObjectBankIncludes macro
+gameObjectBankIncludes macro {GLOBALSYMBOLS}
     ; player_common first — it defines the overlay equates the state files use
     include "games/sonic4/player/player_common.asm"
     ; ... (the object-bank include list from old main.asm :153-168, verbatim) ...
     endm
 
-gameDataIncludes macro
+gameDataIncludes macro {GLOBALSYMBOLS}
     ; ... (old main.asm :178-233 verbatim: parallax, objdefs, entity/act data,
     ;      mappings, animations, collision BINCLUDEs + guards, Sonic art) ...
     ; game states
@@ -807,7 +814,7 @@ gameDataIncludes macro
     include "games/sonic4/test/ojz_scroll_test.asm"
     endm
 
-gameSoundDataIncludes macro
+gameSoundDataIncludes macro {GLOBALSYMBOLS}
     ; ... (old main.asm :240-409 verbatim: dac_samples, the MT bank with
     ;      soundBankHead, songs, patches, sfx blobs, guards) ...
     endm
@@ -902,9 +909,9 @@ Game_Entry              = GameState_Demo_Init
 GAME_ENTRY_ID           = GS_DEMO
 GAME_CAMERA_JUMP_LOCK   = 0             ; no player states in the demo
 
-gameBootHook macro
+gameBootHook macro {GLOBALSYMBOLS}
     endm
-gameDebugTick macro
+gameDebugTick macro {GLOBALSYMBOLS}
     endm
 ```
 
@@ -1021,28 +1028,28 @@ DemoObjectList:
 
 PAD_TO_POWER_OF_TWO     = 1
 
-gameConfigIncludes macro
+gameConfigIncludes macro {GLOBALSYMBOLS}
     include "games/demo/config/constants.asm"
     include "games/demo/config/game.asm"
     endm
 
-gameRamIncludes macro
+gameRamIncludes macro {GLOBALSYMBOLS}
     include "games/demo/config/ram.asm"
     endm
 
-gameEngineBlockIncludes macro
+gameEngineBlockIncludes macro {GLOBALSYMBOLS}
     endm
 
-gameObjectBankIncludes macro
+gameObjectBankIncludes macro {GLOBALSYMBOLS}
     include "games/demo/objects/demo_box.asm"
     endm
 
-gameDataIncludes macro
+gameDataIncludes macro {GLOBALSYMBOLS}
     include "games/demo/data/demo_data.asm"
     include "games/demo/demo_state.asm"
     endm
 
-gameSoundDataIncludes macro
+gameSoundDataIncludes macro {GLOBALSYMBOLS}
     endm
 
     include "engine/engine.inc"
@@ -1112,8 +1119,10 @@ grep -rnE "SONG_|SFXID_|OJZ|GS_OJZ|Sonic|sonic4|games/" engine/ --include='*.asm
     compatibility notes (`empyrean/docs/SIGIL_*.md` or wherever the compat checklist
     lives) — at minimum: string-valued `equ` symbols, `strlen()` in `if` expressions,
     macro parameters used as `include` paths (`soundBankHead`), `include` directives
-    inside macro bodies (`engine.inc` hooks + the manifest macros), and `fatal` with
-    interpolated strings. These are now part of the tree Sigil must assemble
+    inside macro bodies (`engine.inc` hooks + the manifest macros), the
+    `{GLOBALSYMBOLS}` macro attribute AND its default inverse (macro-local label
+    scoping — Sigil must replicate BOTH behaviors), and `fatal` with interpolated
+    strings. These are now part of the tree Sigil must assemble
     byte-identically — pinned against AS by this plan's [BYTE] stages.
 - [ ] **Step 4: Merge.**
 
