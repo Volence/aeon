@@ -1,7 +1,20 @@
 # SFX Fidelity + Best-in-Class Mixing — Design
 
 **Date:** 2026-07-02
-**Status:** STAGE A SHIPPED (2026-07-03, `feat/sfx-fidelity` — plan `2026-07-03-sfx-fidelity-stage-a.md`).
+**Status:** STAGE B/C SHIPPED (2026-07-07, `feat/sfx-fidelity-stage-bc` — plan `2026-07-03-sfx-fidelity-stage-bc.md`).
+All §5/§7 features landed + oracle-verified: per-SFX `sfh_gain` fold (FM TL + PSG atten), per-SFX
+`sfh_duck` (deepest-active wins; global threshold/depth retired), non-latching priority (bit 7),
+authored instance caps (oldest-slot kill), continuous-SFX class (tri-state `sx_extend` re-ping).
+`SfxChannel` grew 64→68 (`sx_gain`+64/`sx_duck`+65/`sx_extend`+66; `sx_pad`@+58 kept 0 — it aliases
+`SeqChannel.sc_detune`, read on SFX ix). Two plan defects were caught in review/verification and fixed:
+(1) `sx_gain` must NOT reuse +58 (detune aliasing); (2) **the bit-7 non-latching flag collided with the
+8-bit priority scale — `SFXPRI_*` rescaled to 7-bit ($10/$20/$30/$40/$60), bit 7 now reserved as the
+flag, guarded by a build-time fatal + pytest.** Oracle: spindash stores correct `sx_priority=$40` (was
+$00), 4-FM-SFX contention steals lowest (roll $30) leaving death $60 + spindash $40, cap=1, no duck at
+default. NOTE: blobs are no longer byte-identical to Stage A — header byte[0] (priority) intentionally
+rescaled; behavior/ordering preserved. Jingle cross-rule deferred to package 1 (introduces the class).
+Defaults (gain/duck 0, cap 1, no continuous) keep audible behavior == Stage A; taste values are by-ear.
+**Stage A status (2026-07-03, `feat/sfx-fidelity` — plan `2026-07-03-sfx-fidelity-stage-a.md`).**
 All four §3 fixes landed + register-verified in oracle (§4 checks 1-3: jump `$140/$0EF`, skid `$078`,
 spindash spam = 1 instance with rev escalation intact, clean tails). Fix 3 was audit-only (engine +
 transcoder already clamped; pinned by test). PLUS one field-found fix beyond the spec: `Sfx_Restore`
