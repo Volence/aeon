@@ -20,6 +20,11 @@
 ;     MAX_RING_BUFFER, RING_BUFFER_ENTRY_SIZE, RING_WIDTH,
 ;     COLLECTED_WINDOW_SLOTS, COLLECTED_SLOT_SIZE,
 ;     COLLECTED_PARK_SLOTS, COLLECTED_PARK_ENTRY_SIZE
+;   BgAnim_Table                  — BG tile-band animation table (part of
+;                                   gameDataIncludes; engine/level/bg_anim.asm
+;                                   reads it at runtime). dc.w 0 (band_count)
+;                                   disables the system for games with no BG
+;                                   animation.
 ;   With SOUND_DRIVER_ENABLED, additionally:
 ;     SFXID_REV_LOOP, SFXID_RING_LEFT, SFXID_RING_RIGHT
 ;     SND_ENGINE_TABLE_BANK

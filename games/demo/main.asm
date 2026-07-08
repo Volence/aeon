@@ -1,0 +1,43 @@
+; Aeon engine demo — main assembly file (game manifest)
+; The engine owns the ROM layout (engine/engine.inc). This file supplies the
+; minimal game-specific includes via the contract macros it requires — the
+; "start here" template proving the engine boots without Sonic.
+;
+; NOTE: builds sound-off via build.conf (SOUND_DRIVER_ENABLED defaults to 0
+; here) — a demo sound bank via the soundBankHead contract (engine/sound/
+; sound_bank.inc) is TODO for whoever grows this into a real game.
+
+; -----------------------------------------------
+; Assembly options
+; -----------------------------------------------
+PAD_TO_POWER_OF_TWO     = 1
+
+gameConfigIncludes macro {GLOBALSYMBOLS}
+    include "games/demo/config/constants.asm"
+    include "games/demo/config/game.asm"
+    endm
+
+gameRamIncludes macro {GLOBALSYMBOLS}
+    include "games/demo/config/ram.asm"
+    endm
+
+gameEngineBlockIncludes macro {GLOBALSYMBOLS}
+    endm
+
+gameObjectBankIncludes macro {GLOBALSYMBOLS}
+    include "games/demo/objects/demo_box.asm"
+    endm
+
+gameDataIncludes macro {GLOBALSYMBOLS}
+    include "games/demo/data/demo_data.asm"
+    endm
+
+gameSoundDataIncludes macro {GLOBALSYMBOLS}
+    endm
+
+gameStatesIncludes macro {GLOBALSYMBOLS}
+    include "games/demo/demo_state.asm"
+    endm
+
+    include "engine/engine.inc"
+    END
