@@ -6,6 +6,8 @@
 > line anchors and two of its seams went stale when the 2026-07-03 sound packages merged.
 > This refresh re-verified EVERY anchor against master @ `9bacc93` (2026-07-07) and adds
 > four seams the old plan does not cover. Use THIS plan; the old one is marked superseded.
+> Anchors re-verified again @ `2e42ec2` (post package-2 SFX Stage B/C merge): drifts in
+> items h/j and the T5 sound-constants game slice (SFXPRI_* ladder) are folded in.
 
 **Goal:** Real engine/game wall — `engine/engine.inc` + game manifest + `gameHeader` + parameterized boot + `soundBankHead` contract + def/RAM splits + `games/demo/` booting on oracle. Sonic 4 behavior and `s4.bin` unchanged.
 
@@ -23,7 +25,7 @@
    game FM-patch file (the inline patch table was deleted in the budget-recovery phase;
    patches are read per-song via `SongPatchTable` through the banked window). Do not
    create `GAME_FM_PATCHES`.
-2. **NEW seam — default pitch table:** `engine/sound/sound_fm.asm:668` loads game label
+2. **NEW seam — default pitch table:** `engine/sound/sound_fm.asm:690` loads game label
    `MovingTrucks_PitchTable` as the engine's default pitch table. Becomes contract label
    `SndDefaultPitchTable` (T3.8).
 3. **NEW seam — ring SFX ids:** `engine/sound/sound_api.asm:215,218` reference
@@ -80,7 +82,7 @@
   with warning #80 ("symbol value changes force additional pass"), you created an
   order-dependent definition — restructure the split, don't suppress the warning.
 
-## The verified coupling inventory (master @ 9bacc93)
+## The verified coupling inventory (master @ 9bacc93; re-verified @ 2e42ec2 after the package-2 SFX Stage B/C merge)
 
 Every engine→game reference that exists today. T2/T3 must clear ALL of these:
 
@@ -93,9 +95,9 @@ Every engine→game reference that exists today. T2/T3 must clear ALL of these:
 | e | `engine/debug/compression_selftest.asm:92` | `games/sonic4/data/generated/test/vectors.asm` | generator emits engine-side (T3.2) |
 | f | `engine/sound/sfx_blob_win_tab.asm` (whole file) | `Sfx_*` blob labels, `SFXID_*` gaps | reclassify: move file game-side (T3.4) |
 | g | `engine/sound/sound_sfx.asm:64` | `SFX_BLOB_BANK = sfx_bankid(Sfx_33)` | game-declared constant (T3.5) |
-| h | `engine/sound/sound_sfx.asm:687-688` | `SFXID_SPINDASH` (spindash-rev special case) | `SFXID_REV_LOOP` contract, −1 = off (T3.6) |
+| h | `engine/sound/sound_sfx.asm:698-699` | `SFXID_SPINDASH` (spindash-rev special case; coexists with the Stage-C `SHF_CONTINUOUS` class — separate mechanisms, do not conflate) | `SFXID_REV_LOOP` contract, −1 = off (T3.6) |
 | i | `engine/sound/sound_api.asm:215,218` | `SFXID_RING_RIGHT`, `SFXID_RING_LEFT` | contract constants (T3.7) |
-| j | `engine/sound/sound_fm.asm:668` | `MovingTrucks_PitchTable` | `SndDefaultPitchTable` contract label (T3.8) |
+| j | `engine/sound/sound_fm.asm:690` (comment :673) | `MovingTrucks_PitchTable` | `SndDefaultPitchTable` contract label (T3.8) |
 | k | `engine/level/camera.asm:180-184` | `_pl_state`, `PSTATE_JUMP`, `PSTATE_ROLLJUMP` | `GAME_CAMERA_JUMP_LOCK` gate (T3.9) |
 | l | `engine/level/camera.asm` + `ram.asm:319` | `Camera_Spindash_Lag` (Sonic-flavored engine RAM name) | rename → `Camera_Hold_Frames` (T3.9) |
 
@@ -115,7 +117,7 @@ evidence).
 ### Task 1: Branch + baselines
 
 - [ ] **Step 1: Read.** The spec (`2026-07-02-engine-game-split-design.md`), this plan's
-  coupling inventory, `games/sonic4/main.asm` in full (447 lines — it is the document
+  coupling inventory, `games/sonic4/main.asm` in full (446 lines — it is the document
   being decomposed), `engine/system/boot.asm:190-293`, `build.sh` in full.
 - [ ] **Step 2: Branch + hash.**
 
@@ -340,8 +342,10 @@ gameDebugTick macro
   is not, put the declaration at the top of `games/sonic4/data/sound/sfx_table.asm`
   instead and note the placement in the config file's comment.
 - [ ] **3.6 SFXID_SPINDASH → SFXID_REV_LOOP contract.** Read
-  `engine/sound/sound_sfx.asm:680-705` (the spindash-rev special case around the
-  `cp SFXID_SPINDASH` at :688). Replace `SFXID_SPINDASH` with `SFXID_REV_LOOP` and wrap
+  `engine/sound/sound_sfx.asm:690-715` (the spindash-rev special case around the
+  `cp SFXID_SPINDASH` at :699). This is the LEGACY rev special case — distinct from
+  the Stage-C `SHF_CONTINUOUS` mechanism nearby; touch only the `SFXID_SPINDASH`
+  compare block. Replace `SFXID_SPINDASH` with `SFXID_REV_LOOP` and wrap
   the ENTIRE special-case compare-and-branch block in `if SFXID_REV_LOOP >= 0` /
   `endif` (assemble the feature out, not a runtime check — Z80 side). Add to
   `games/sonic4/config/game.asm`: `SFXID_REV_LOOP = SFXID_SPINDASH` (with comment:
@@ -517,8 +521,13 @@ git commit -m "feat(sound): soundBankHead — the engine-tables-at-bank-head con
   the game slice) + `games/sonic4/config/constants.asm` (the game slice, in original
   relative order, with a header comment naming the file's role); same for
   `engine/sound_constants.asm` + `games/sonic4/config/sound_ids.asm` (the game slice of
-  sound_constants.asm is exactly the `SFXID_*` block, :770-778 — `SONG_*` ids already
-  live game-side in `song_table.asm`). Delete the root files. Update main.asm's defs
+  sound_constants.asm is the `SFXID_*` block, :770-778, AND the `SFXPRI_*` priority
+  ladder INCLUDING its 7-bit guard assert, :799-812 (added by package 2) — move them
+  together; the guard protects the engine's bit-7 non-latching flag, so keep the assert
+  with the values. `SONG_*` ids already live game-side in `song_table.asm`. The
+  `SfxHeader` struct (:875+) and `SHF_*` flags are driver format — ENGINE. Also repoint
+  the mirror comments in `tools/sfx_transcode.py` (:16, :76 — "mirrors
+  sound_constants.asm SFXPRI_*") to the new config path. Delete the root files. Update main.asm's defs
   prologue to:
 
 ```asm
