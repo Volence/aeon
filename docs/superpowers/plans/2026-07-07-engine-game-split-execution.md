@@ -15,7 +15,7 @@
 
 **Architecture:** T2 vectors/header/boot seams → T3 stray inversions (now TEN of them) → T4 soundBankHead → T5 def split → T6 RAM split → T7 engine.inc + manifest (moved LATE deliberately: every earlier stage keeps main.asm as the working orchestrator, so the big include-reshuffle is one mechanical byte-identical step at the end) → T8 build gating + games/demo → T9 grep gate + docs + merge.
 
-**Stage classes:** **[BYTE]** = `s4.bin` must hash identical (md5) to the previous stage. **[BEHAV]** = behavior-identical: oracle boot + full OJZ circuit (walk/jump/spindash left and right across at least one section boundary) + sound smoke.
+**Stage classes:** **[BYTE]** = the CART-CORE must hash identical to the previous stage: md5 of `s4.bin[0:EndOfRom]` with the checksum word ($18E) and ROM-end long ($1A4) zeroed — use the `rom_core_hash.py` gate tool (T3 field finding: the convsym deb2 symbol appendix rides past EndOfRom and changes size on ANY symbol add/rename, which also moves the two fixheader-derived header fields; the full-file md5 is therefore only usable when the symbol set is untouched). When the full-file md5 does move on a [BYTE] stage, the symbol-log name-set delta (`convsym -output log` before/after) must exactly equal the intended new/renamed symbols — nothing else. **[BEHAV]** = behavior-identical: oracle boot + full OJZ circuit + sound smoke.
 
 ---
 
@@ -341,7 +341,7 @@ gameDebugTick macro {GLOBALSYMBOLS}
   `git mv engine/sound/sfx_blob_win_tab.asm games/sonic4/data/sound/sfx_blob_win_tab.asm`;
   update the include at `games/sonic4/main.asm:294`. (It is transcoder-shaped game data —
   a table of game SFX-blob window pointers; engine-side was backwards.)
-- [ ] **3.5 SFX_BLOB_BANK → game-declared.** Find where `sfx_bankid` is defined
+- [ ] **3.5 SFX_BLOB_BANK → game-declared.** *(As executed 2026-07-07: `sfx_bankid()` is not visible at game.asm's include position, and `sfx_table.asm` is regenerated every build — so the declaration is emitted by `tools/sfx_transcode.py` into the generated file; game.asm carries the contract comment. T5 must NOT duplicate it into config/sound_ids.asm.)* Find where `sfx_bankid` is defined
   (`grep -rn "sfx_bankid" --include='*.asm' .` — expect `sound_constants.asm`). Delete
   `engine/sound/sound_sfx.asm:64` (`SFX_BLOB_BANK = sfx_bankid(Sfx_33)`) and add the same
   line to `games/sonic4/config/game.asm` under a `; --- sound contract ---` header,
