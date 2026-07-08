@@ -1171,6 +1171,19 @@ renders == pre-banking baseline. Merged on `feat/sound-task0-recovery`. Two foll
 > is tracked at the bottom of this section. References to "Flamedriver upload" below are historical.
 
 ### SFX Fidelity Stage B/C (deferred from Stage A, 2026-07-03)
+> **EXECUTED 2026-07-07** (`feat/sfx-fidelity-stage-bc`, plan `plans/2026-07-03-sfx-fidelity-stage-bc.md`).
+> Shipped + oracle-verified: `sfh_gain` fold (FM TL + PSG atten), per-SFX `sfh_duck` (deepest-active
+> wins; global `SFX_DUCK_THRESHOLD`/`SFX_DUCK_DEPTH` retired), non-latching priority (bit 7), authored
+> instance caps (oldest-slot kill), continuous-SFX class (tri-state `sx_extend`). `SfxChannel` 64→68.
+> Two plan defects fixed in review: (1) `sx_gain` moved off +58 (aliases `sc_detune`, read on SFX ix);
+> (2) **bit-7 non-latching flag collided with the 8-bit priority scale → `SFXPRI_*` rescaled to 7-bit
+> ($10/$20/$30/$40/$60), bit 7 reserved as the flag, build-fatal + pytest guard added.** Oracle proof:
+> spindash stores `sx_priority=$40` (was $00); 4-FM-SFX contention steals lowest (roll $30), death $60
+> + spindash $40 survive; cap=1; no duck at defaults. Blobs no longer byte-identical to Stage A (byte[0]
+> priority intentionally rescaled; ordering/behavior preserved). **STILL DEFERRED:** H3 (music-relative
+> level) + full rendered S3K A/B (below, by-ear-gated); cap>1 on multi-channel SFX (generation tag);
+> jingle cross-rule → package 1 (introduces the jingle class); by-ear taste values (gain/duck all 0).
+
 **Surfaced during:** the SFX fidelity phase (spec `2026-07-02-sfx-fidelity-and-mixing-design.md`,
 plan `2026-07-03-sfx-fidelity-stage-a.md`, branch `feat/sfx-fidelity`). Stage A SHIPPED: PSG +24
 octave fixup removed (jump/skid S3K-exact), retrigger replace-in-place cap 1 (rev escalation kept),

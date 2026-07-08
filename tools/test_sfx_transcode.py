@@ -27,7 +27,7 @@ from sfx_transcode import (
     SFXEL_FM, SFXEL_PSG, SFXEL_NOISE, SFXEL_NONE,
     SFXPRI_ROLL, SFXPRI_SKID, SFXPRI_RING, SFXPRI_JUMP,
     SFXPRI_DEATH, SFXPRI_RINGLOSS, SFXPRI_SPINDASH, SFXPRI_DASH,
-    SHF_LOOP,
+    SHF_LOOP, SHF_CONTINUOUS,
     _SFX_PRIORITY, _CORE_SFX_IDS, _sfx_label,
     _smps_note_to_pitch, FM_SFX_OCTAVE_SHIFT, PSG_OCTAVE_FIXUP,
     _LOG_VOLUME_LUT, _vol_for_atten, _validate_sfx_repeat,
@@ -352,6 +352,28 @@ class TestRoundtripSkid(unittest.TestCase):
         self.assertIsInstance(psg2_ch['events'][-1], End)
 
 
+class TestPrioritiesAre7Bit(unittest.TestCase):
+    """Bit 7 of sfh_priority is the non-latching flag (spec §5/§7.1); every
+    authored priority tier must fit in 7 bits ($00-0x7F) so it can't be misread
+    as the flag (mirrors the build-time assert in sound_constants.asm)."""
+
+    def test_priorities_are_7bit(self):
+        for name, val in (
+            ("SFXPRI_RING", SFXPRI_RING), ("SFXPRI_JUMP", SFXPRI_JUMP),
+            ("SFXPRI_ROLL", SFXPRI_ROLL), ("SFXPRI_SKID", SFXPRI_SKID),
+            ("SFXPRI_SPINDASH", SFXPRI_SPINDASH), ("SFXPRI_DASH", SFXPRI_DASH),
+            ("SFXPRI_DEATH", SFXPRI_DEATH), ("SFXPRI_RINGLOSS", SFXPRI_RINGLOSS),
+        ):
+            self.assertEqual(val & 0x80, 0, f"{name}={val:#04x} has bit 7 set (non-latching flag)")
+
+    def test_priority_ordering_preserved(self):
+        # ring < jump < roll==skid < spindash==dash < death==ringloss
+        self.assertTrue(SFXPRI_RING < SFXPRI_JUMP < SFXPRI_ROLL < SFXPRI_SPINDASH < SFXPRI_DEATH)
+        self.assertEqual(SFXPRI_ROLL, SFXPRI_SKID)
+        self.assertEqual(SFXPRI_SPINDASH, SFXPRI_DASH)
+        self.assertEqual(SFXPRI_DEATH, SFXPRI_RINGLOSS)
+
+
 class TestNoReservedTarget(unittest.TestCase):
     """For every transcoded SFX (Roll, Skid, Ring), assert no channel route is reserved."""
 
@@ -668,36 +690,83 @@ class TestBlobLayoutMatchesSfxHeader(unittest.TestCase):
                           f"SFXID ${sid:02X} missing from priority map")
 
 
+def pack_sfx_fixture(*, chcount=1, flags=0, priority=SFXPRI_RING,
+                      gain=None, duck=None, cap=None):
+    """Build a minimal synthetic sfx_desc (PSG channels, single End() event
+    each) and pack it — exercises pack_sfx()'s header-field emission and
+    validity rules directly, without a full transcode_sfx_source() run."""
+    routes = (CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN)
+    channels = [{'route': routes[i % len(routes)], 'kind': SFXEL_PSG, 'events': [End()]}
+                for i in range(chcount)]
+    desc = {'id': 0, 'channels': channels, 'flags': flags, 'voices': []}
+    if gain is not None:
+        desc['gain'] = gain
+    if duck is not None:
+        desc['duck'] = duck
+    if cap is not None:
+        desc['cap'] = cap
+    return pack_sfx(desc, priority)
+
+
+class TestStageBCHeaderFields(unittest.TestCase):
+    """Stage B/C (2026-07-03 plan Task 1): sfh_gain/sfh_duck/sfh_cap are
+    authored per-SFX instead of hardcoded 0/0/1, plus two packer validity
+    rules. Defaults must stay 0/0/1 so all 9 existing SFX blobs regenerate
+    byte-identically."""
+
+    def test_header_carries_gain_duck_cap(self):
+        blob = pack_sfx_fixture(gain=6, duck=0x18, cap=2, chcount=1)
+        self.assertEqual(blob[3], 6)      # sfh_gain
+        self.assertEqual(blob[4], 0x18)   # sfh_duck
+        self.assertEqual(blob[5], 2)      # sfh_cap
+
+    def test_defaults_are_stage_a_bytes(self):
+        blob = pack_sfx_fixture()          # no gain/duck/cap args
+        self.assertEqual(blob[3], 0)       # sfh_gain
+        self.assertEqual(blob[4], 0)       # sfh_duck
+        self.assertEqual(blob[5], 1)       # sfh_cap
+
+    def test_cap_gt1_rejected_on_multichannel(self):
+        with self.assertRaisesRegex(TranscodeError, "cap > 1 .* single-channel"):
+            pack_sfx_fixture(cap=2, chcount=2)
+
+    def test_continuous_requires_loop(self):
+        with self.assertRaisesRegex(TranscodeError, "SHF_CONTINUOUS requires SHF_LOOP"):
+            pack_sfx_fixture(flags=SHF_CONTINUOUS)
+
+
 class TestPriorityValues(unittest.TestCase):
     """Verify priority bytes match sound_constants.asm SFXPRI_* values."""
 
     def _p(self, sfx_id):
         return _SFX_PRIORITY[sfx_id]
 
+    # Assert against the SFXPRI_* constants (not hardcoded magnitudes) so the id->tier
+    # mapping is verified but the tests survive a priority rescale (e.g. the 7-bit move).
     def test_ring_priority(self):
-        self.assertEqual(self._p(0x33), 0x20)
-        self.assertEqual(self._p(0x34), 0x20)
+        self.assertEqual(self._p(0x33), SFXPRI_RING)
+        self.assertEqual(self._p(0x34), SFXPRI_RING)
 
     def test_death_priority(self):
-        self.assertEqual(self._p(0x35), 0xC0)
+        self.assertEqual(self._p(0x35), SFXPRI_DEATH)
 
     def test_skid_priority(self):
-        self.assertEqual(self._p(0x36), 0x60)
+        self.assertEqual(self._p(0x36), SFXPRI_SKID)
 
     def test_roll_priority(self):
-        self.assertEqual(self._p(0x3C), 0x60)
+        self.assertEqual(self._p(0x3C), SFXPRI_ROLL)
 
     def test_jump_priority(self):
-        self.assertEqual(self._p(0x62), 0x40)
+        self.assertEqual(self._p(0x62), SFXPRI_JUMP)
 
     def test_spindash_priority(self):
-        self.assertEqual(self._p(0xAB), 0x80)
+        self.assertEqual(self._p(0xAB), SFXPRI_SPINDASH)
 
     def test_dash_priority(self):
-        self.assertEqual(self._p(0xB6), 0x80)
+        self.assertEqual(self._p(0xB6), SFXPRI_DASH)
 
     def test_ringloss_priority(self):
-        self.assertEqual(self._p(0xB9), 0xC0)
+        self.assertEqual(self._p(0xB9), SFXPRI_RINGLOSS)
 
 
 # PSG vol-env fixtures (SFX Expressive Fidelity Task 3).

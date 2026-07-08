@@ -790,23 +790,34 @@ SFX_RING_MASK    = SFX_RING_DEPTH-1  ; cursor wrap mask ($07)
 ; Seeded from S2 zSFXPriority for shared sounds: death/hurt > spindash > skid/roll
 ; > jump > ring/UI. The transcoder bakes a priority byte into each SfxHeader keyed
 ; by id; these tiers are the source of that map (mirrored in tools/sfx_transcode.py).
-SFXPRI_RING     = $20    ; ring/UI — lowest; never ducks (below SFX_DUCK_THRESHOLD)
-SFXPRI_JUMP     = $40
-SFXPRI_ROLL     = $60
-SFXPRI_SKID     = $60
-SFXPRI_SPINDASH = $80
-SFXPRI_DASH     = $80
-SFXPRI_DEATH    = $C0    ; death/ring-loss — highest
-SFXPRI_RINGLOSS = $C0
+; 7-BIT SCALE ($00-$7F): bit 7 of sfh_priority is RESERVED as the non-latching flag
+; (spec §5/§7.1, S2's trick — plays but never latches the floor; Sfx_BeginSound masks
+; it off for arbitration). Only relative ordering matters (all compares are `cp`), so
+; these values carry rank only — keep them spaced and strictly < $80. Build-asserted
+; below; a value >= $80 would be misread as the non-latching flag AND is negative
+; under any signed Z80 compare.
+SFXPRI_RING     = $10    ; ring/UI — lowest; never ducks (authored sfh_duck = 0)
+SFXPRI_JUMP     = $20
+SFXPRI_ROLL     = $30
+SFXPRI_SKID     = $30
+SFXPRI_SPINDASH = $40
+SFXPRI_DASH     = $40
+SFXPRI_DEATH    = $60    ; death/ring-loss — highest
+SFXPRI_RINGLOSS = $60
 
-; --- Ducking (spec §7): a high-priority SFX transiently attenuates the music. A
-; global duck-level byte ramps up on duck-eligible SFX and ramps back over N frames
-; on SFX end. v1: fixed depth + linear ramp, all tunable.
-SFX_DUCK_THRESHOLD = $C0     ; SFX priority >= this ducks the music. Was $80, raised to
-                             ; $C0 so ONLY rare/dramatic SFX duck (death/ring-loss = $C0);
-                             ; the frequent gameplay SFX — spindash/dash ($80) — no longer
-                             ; pump the music (esp. the rapid spindash revs). (User pref.)
-SFX_DUCK_DEPTH     = $18     ; carrier-TL bump (attenuation units; bigger = quieter music)
+; Guard: every priority tier MUST fit in 7 bits so bit 7 stays free as the
+; non-latching flag (and stays non-negative under signed compares). Mirrored by a
+; test in tools/sfx_transcode.py.
+        if (SFXPRI_RING|SFXPRI_JUMP|SFXPRI_ROLL|SFXPRI_SKID|SFXPRI_SPINDASH|SFXPRI_DASH|SFXPRI_DEATH|SFXPRI_RINGLOSS) & $80
+          fatal "an SFXPRI_* tier has bit 7 set — priorities must be 7-bit ($00-$7F); bit 7 is the non-latching flag"
+        endif
+
+; --- Ducking (spec §7.1): a duck-authored SFX (sfh_duck != 0, stashed per-slot as
+; sx_duck) transiently attenuates the music by ITS OWN depth. Arm never lowers an
+; already-deeper active duck; release re-resolves to the deepest still-active duck
+; (0 = none). The duck-level byte ramps toward the target over N frames (v1: linear
+; ramp, tunable). Depth is authored per-SFX (SfxHeader.sfh_duck) — there is no
+; global threshold or depth anymore.
 SFX_DUCK_PSG_DEPTH = 3       ; PSG linear-volume drop applied while ducked
 SFX_DUCK_RAMP_STEP = 4       ; duck-level change per frame (linear ramp up/down)
 
@@ -870,8 +881,9 @@ sfh_chcount     ds.b 1   ; +2  number of SFX channels (1 or 2 for the core set)
 sfh_gain        ds.b 1   ; +3  Stage B: authored master attenuation (FM: +carrier TL
                          ;     in 0.75 dB steps; PSG: +atten in 2 dB steps). INERT in
                          ;     Stage A (engine never reads it; transcoder writes 0).
-sfh_duck        ds.b 1   ; +4  Stage B: per-SFX duck depth (replaces the global
-                         ;     SFX_DUCK_DEPTH). INERT in Stage A (transcoder writes 0).
+sfh_duck        ds.b 1   ; +4  Stage B: per-SFX duck depth (carrier-TL bump; bigger =
+                         ;     quieter music). 0 = never ducks. Live: arms the music
+                         ;     duck to this depth (deepest-active wins; spec §7.1).
 sfh_cap         ds.b 1   ; +5  Stage B: instance cap. INERT in Stage A: the engine
                          ;     hard-caps at 1 (retrigger replace-in-place); transcoder
                          ;     writes 1.
@@ -886,6 +898,9 @@ SfxHeader endstruct      ; = 8 bytes (fixed prefix; per-channel array follows)
 SFXH_PRIORITY = SfxHeader_sfh_priority
 SFXH_FLAGS    = SfxHeader_sfh_flags
 SFXH_CHCOUNT  = SfxHeader_sfh_chcount
+SFXH_GAIN     = SfxHeader_sfh_gain      ; +3
+SFXH_DUCK     = SfxHeader_sfh_duck      ; +4
+SFXH_CAP      = SfxHeader_sfh_cap       ; +5
 SFXH_CHANNELS = SfxHeader_len          ; per-channel array starts after the prefix
 ; per-channel record (6 bytes): route, kind, cmd_ptr(BE), voice_ptr(BE)
 SFXHC_ROUTE   = 0
@@ -903,6 +918,9 @@ SHF_LOOP_B       = 2     ; the blob self-loops (smpsLoop -> MEV_LOOP/JUMP)
 SHF_CONTINUOUS   = 1<<SHF_CONTINUOUS_B
 SHF_STEREO_ALT   = 1<<SHF_STEREO_ALT_B
 SHF_LOOP         = 1<<SHF_LOOP_B
+
+SFX_EXTEND_FRAMES = 10   ; Stage C: frames a continuous SFX survives after pings stop
+                         ; (~one loop; countdown seeds sx_extend on ping)
 
 ; --- SfxChannel struct (per-active-SFX-voice state; Z80 RAM, indexed by ix). It
 ; REUSES the SeqChannel field LAYOUT for the fields ModUpdate/Sequencer_Channel
@@ -968,28 +986,41 @@ sc_base_freq    ds.w 1   ; +53 unmodulated note word, latched at key-on: FM=(d=$
 sc_last_freq    ds.w 1   ; +55 last modulated freq/divisor written (write-on-change shadow; FM+PSG shared via Mod_Advance)
 ; --- SFX bookkeeping (offsets past the shared block; SeqChannel diverges here) ---
 sx_priority     ds.b 1   ; +57 the running SFX's priority (cleared on end; arbitration)
-sx_pad          ds.b 1   ; +58 pad to an even struct length (SfxChannel_len must stay even)
+sx_pad          ds.b 1   ; +58 pad; aliases SeqChannel.sc_detune (read on SFX ix at FM/PSG
+                         ;     note-on) — MUST stay 0. Do NOT repurpose. (SfxChannel_len even)
 sx_patch_base   ds.w 1   ; +59 the SFX's own FmPatch-bank window ptr (set at steal)
 sx_saved_route  ds.b 1   ; +61 the music route whose SeqChannel we overrode (for restore)
 sx_saved_note   ds.b 1   ; +62 PSG3 tone note saved on a noise steal (periodic-noise coupling)
 sx_kind         ds.b 1   ; +63 SFXEL_* of the owned voice (FM/PSG/NOISE) for restore dispatch
-SfxChannel endstruct     ; = 64 bytes
+sx_gain         ds.b 1   ; +64 Stage B: per-slot copy of the SFX's authored master gain
+sx_duck         ds.b 1   ; +65 Stage B: per-slot copy of the SFX's authored duck depth
+sx_extend       ds.b 1   ; +66 Stage C: continuity/re-ping state. 0 = not continuous;
+                         ;     1..SFX_EXTEND_FRAMES = continuous & alive (counts down when
+                         ;     un-pinged); $FF = continuous & expiring (end at next loop)
+sx_pad2         ds.b 1   ; +67 pad to an even struct length (SfxChannel_len must stay even)
+SfxChannel endstruct     ; = 68 bytes
 
-        if SfxChannel_len <> 64
-          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 64"
+        if SfxChannel_len <> 68
+          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 68"
         endif
         ; largest field offset must stay within the (ix+d) signed-8-bit range.
-        ; sc_last_freq ends at +56 (word at +55), sx_kind is at +63 — both <= 127.
+        ; sc_last_freq ends at +56 (word at +55), sx_extend is at +66 — both <= 127.
         if SfxChannel_sx_kind > 127
           error "SfxChannel sx_kind offset (\{SfxChannel_sx_kind}) exceeds (ix+d) +127"
+        endif
+        if SfxChannel_sx_extend > 127
+          error "SfxChannel sx_extend offset (\{SfxChannel_sx_extend}) exceeds (ix+d) +127"
         endif
 
 ; sc_* aliases already exist (SeqChannel). Add sx_* aliases for the SFX fields.
 sx_priority     = SfxChannel_sx_priority
+sx_gain         = SfxChannel_sx_gain
 sx_patch_base   = SfxChannel_sx_patch_base
 sx_saved_route  = SfxChannel_sx_saved_route
 sx_saved_note   = SfxChannel_sx_saved_note
 sx_kind         = SfxChannel_sx_kind
+sx_duck         = SfxChannel_sx_duck
+sx_extend       = SfxChannel_sx_extend
 
 ; --- SeqChannel struct (per-channel sequencer state; Z80 RAM, indexed by ix) ---
 ; Phase 3 (per-frame engine): the v0/1C COMMAND-STREAM fields (sc_stream_ptr ..

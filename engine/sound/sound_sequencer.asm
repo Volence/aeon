@@ -1751,6 +1751,18 @@ Seq_Op_LoopPoint:
 
 ; $EF MEV_JUMP : jump to the saved loop point
 Seq_Op_Jump:
+        ; Stage C: a continuous SFX slot that ran out of pings (sx_extend == 0FFh)
+        ; ENDS here instead of re-looping, so the last loop fades ~one loop after
+        ; pings stop. Guard on SFX class FIRST — music channels have no sx_extend.
+        push    hl
+        call    Snd_ChanClass            ; CARRY set => MUSIC channel
+        pop     hl
+        jr      c, .do_jump              ; music -> normal loop (unchanged)
+        ld      a, (ix+sx_extend)
+        inc     a                        ; 0FFh -> 0 : expiring?
+        jr      nz, .do_jump             ; not expiring -> normal loop
+        jp      Seq_Op_End               ; expiring continuous SFX -> end the stream
+.do_jump:
     ifdef __DEBUG__
         ld      a, SEQEV_JUMP
         call    Seq_Trace                ; (loads route from ix; hl not needed)
