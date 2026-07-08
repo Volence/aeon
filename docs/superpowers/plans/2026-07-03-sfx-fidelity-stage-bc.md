@@ -25,7 +25,7 @@
 
 This file supersedes the first banked skeleton of the same name. Three gaps in that skeleton were resolved against the real code and are baked into the tasks below:
 
-- **RAM byte budget (was hand-waved "use a pad byte / else extend the struct").** `SfxChannel` is exactly 64 bytes with only ONE free pad (`sx_pad` +58), but three new per-slot bytes are needed. Resolution (Task 0): `sx_gain` reuses `sx_pad` (+58); `sx_duck` (+64) and `sx_extend` (+65) grow the struct to **66** bytes; `sx_extend` is **tri-state** so Stage C needs no fourth byte. Verified: +65 ≤ 127 (ix+d range) and the array grows only 14 B toward the mailbox, guarded by the existing `SND_SFX_RAM_END > SND_REQ_BASE` fatal.
+- **RAM byte budget (was hand-waved "use a pad byte / else extend the struct").** `SfxChannel` is exactly 64 bytes with only ONE free pad (`sx_pad` +58) — but that pad **must stay a zero pad**: it aliases `SeqChannel.sc_detune` (+58), which the FM/PSG note-on path reads on an SFX `ix` (`sound_fm.asm:789`, `sound_psg.asm:200`) and requires to be 0. Putting a nonzero `sx_gain` there would silently detune the SFX. So all three new bytes go PAST the SFX-only region (nothing on the 60-byte `SeqChannel` reaches those offsets, so no alias-read hazard): `sx_gain` (+64), `sx_duck` (+65), `sx_extend` (+66), `sx_pad2` (+67, even) → struct grows to **68** bytes. `sx_extend` is **tri-state** so Stage C needs no fifth byte. Verified: +66 ≤ 127 (ix+d range); the array grows 28 B toward the mailbox, guarded by the existing `SND_SFX_RAM_END > SND_REQ_BASE` fatal.
 - **Stage C could not identify a continuous slot.** SFX `35/36/3C/AB` set `SHF_LOOP` WITHOUT `SHF_CONTINUOUS` (header byte[1] = `$04`), so "an SFX that loops is continuous" is FALSE and `sx_extend == 0` cannot mean "expired." Resolution: `sx_extend` encodes **0 = not continuous (never touched); 1..N = continuous, alive; $FF = continuous, expiring (end at next loop boundary)**. Non-continuous looping SFX stay pinned at 0 → `Seq_Op_Jump` loops them normally.
 - **Non-latching priority "min-of-active" had no source at the store site.** The victim-min is only computed inside steal tier (c); tiers (a)/(b) find a free slot and never scan. Resolution (Task 4): a small `Sfx_MinActiveKind` helper computes min `sx_priority` among active same-kind slots, called only when the incoming priority has bit 7 set.
 
@@ -39,29 +39,26 @@ Resolve the whole struct/constant surface before any logic uses it, so the overf
 - Modify: `sound_constants.asm` (`SfxChannel` struct + len assert ~:912-985; `SFXH_*` aliases ~:886-889; SHF flags ~:899-905; new `SFX_EXTEND_FRAMES`)
 - Modify: `engine/sound/sound_sfx.asm` (dispatch scratch chain :73-87)
 
-- [ ] **Step 1: Grow `SfxChannel` to 66 bytes.** In `sound_constants.asm`, in the `SfxChannel struct` (:912): rename the `sx_pad` line (+58) to `sx_gain`, and append two fields after `sx_kind` (+63):
+- [ ] **Step 1: Grow `SfxChannel` to 68 bytes.** In `sound_constants.asm`, in the `SfxChannel struct` (:912): **LEAVE `sx_pad` (+58) exactly as-is** — it aliases `SeqChannel.sc_detune` and must stay 0 on SFX channels (a nonzero value there detunes the SFX at FM/PSG note-on). Append the new bytes AFTER `sx_kind` (+63):
 
 ```asm
 sx_kind         ds.b 1   ; +63 SFXEL_* of the owned voice (FM/PSG/NOISE) for restore dispatch
-sx_duck         ds.b 1   ; +64 Stage B: per-slot copy of the SFX's authored duck depth
-sx_extend       ds.b 1   ; +65 Stage C: continuity/re-ping state. 0 = not continuous;
+sx_gain         ds.b 1   ; +64 Stage B: per-slot copy of the SFX's authored master gain
+sx_duck         ds.b 1   ; +65 Stage B: per-slot copy of the SFX's authored duck depth
+sx_extend       ds.b 1   ; +66 Stage C: continuity/re-ping state. 0 = not continuous;
                          ;     1..SFX_EXTEND_FRAMES = continuous & alive (counts down when
                          ;     un-pinged); $FF = continuous & expiring (end at next loop)
-SfxChannel endstruct     ; = 66 bytes
+sx_pad2         ds.b 1   ; +67 pad to an even struct length (SfxChannel_len must stay even)
+SfxChannel endstruct     ; = 68 bytes
 ```
 
-and change the `sx_pad` alias/comment at +58:
+Do NOT rename `sx_pad` and do NOT write to +58 anywhere in this plan.
+
+- [ ] **Step 2: Update the length assert + add the field aliases.** Change the `<> 64` assert to `<> 68` (:978), and add sx_* aliases next to the existing ones (~:987-992):
 
 ```asm
-sx_gain         ds.b 1   ; +58 Stage B: per-slot copy of the SFX's authored master gain
-                         ;     (was sx_pad; keeps SfxChannel_len even)
-```
-
-- [ ] **Step 2: Update the length assert + add the field aliases.** Change the `<> 64` assert to `<> 66` (:978), and add sx_* aliases next to the existing ones (~:987-992):
-
-```asm
-        if SfxChannel_len <> 66
-          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 66"
+        if SfxChannel_len <> 68
+          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 68"
         endif
 ```
 ```asm
@@ -213,7 +210,7 @@ git commit -m "feat(tools): SfxHeader gain/duck/cap authored per-SFX + Stage B/C
         ; --- Stage B sfh_gain (SFX slots only): authored per-SFX master attenuation
         ; in FM-TL units (0.75 dB/step). Folded into the carrier-TL delta BEFORE the
         ; env/duck folds so the existing $7F clamps cover the sum. Music SeqChannels
-        ; have no sx_gain (offset +58 is a music field) -> gate on SFX class (inverse
+        ; have no sx_gain (offset +64 is past the 60-byte SeqChannel) -> gate on SFX class (inverse
         ; of the :388 duck fold). Gain 0 -> byte-identical to no fold (or a / jr z).
         call    Snd_ChanClass            ; CARRY set => MUSIC channel
         jr      c, .no_sfx_gain          ; music -> no per-SFX gain
@@ -583,7 +580,7 @@ Seq_Op_Jump:
         ; Stage C: a continuous SFX slot that has run out of pings (sx_extend == $FF)
         ; ENDS here instead of re-looping, so the last loop fades out ~one loop after
         ; pings stop. Guard on SFX class FIRST — music SeqChannels have no sx_extend
-        ; (offset +65 is a music field), so they must never read it.
+        ; (offset +66 is past the 60-byte SeqChannel), so they must never read it.
         push    hl
         call    Snd_ChanClass            ; CARRY set => MUSIC channel
         pop     hl
@@ -654,7 +651,7 @@ Run: `python -m pytest tools/test_sfx_transcode.py -v` → all PASS
 Run: `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh` → clean
 Run: `./build.sh` (plain, no sound) → clean (confirms the sound code is properly guarded)
 Run: `git diff --stat games/sonic4/data/sound/sfx/` after regenerating with all defaults → ZERO changes (9-SFX byte-identity holds after ALL tasks)
-Record the total resident-byte delta (target ≤ ~50 B code; RAM +16 B: 2 struct × 7 slots + 2 scratch).
+Record the total resident-byte delta (target ≤ ~50 B code; RAM +30 B: 4 struct bytes × 7 slots + 2 scratch).
 
 - [ ] **Step 4: Commit**
 
