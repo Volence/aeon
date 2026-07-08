@@ -42,6 +42,8 @@
 ;                              MT bank, songs, sfx) — WITHOUT the outer
 ;                              `ifdef SOUND_DRIVER_ENABLED` (this file
 ;                              provides that)
+;   gameStatesIncludes       — game state includes (outside the sound
+;                              conditional — a game must boot without sound)
 ;   gameBootHook             — called during boot (defined in the game's
 ;                              contract file, pulled in by gameConfigIncludes)
 ;   gameDebugTick            — called during the debug tick (ditto)
@@ -146,6 +148,9 @@ __BUDGET_DATA:
     ifdef SOUND_DRIVER_ENABLED
         gameSoundDataIncludes
     endif
+
+; --- game states (outside the sound conditional — a game must boot without sound) ---
+    gameStatesIncludes
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)

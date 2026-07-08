@@ -239,10 +239,12 @@ SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
         if (Sfx_33>>15) <> SND_ENGINE_TABLE_BANK
             fatal "SFX blobs not co-located with the engine-table bank (Sfx_33 bank \{Sfx_33>>15} != \{SND_ENGINE_TABLE_BANK}) — Sfx_Frame's dispatch/table reads would see the wrong bank"
         endif
+    endm
 
 ; -----------------------------------------------
 ; Test game states
 ; -----------------------------------------------
+gameStatesIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/test/object_test_state.asm"
     include "games/sonic4/test/ojz_scroll_test.asm"
     endm
