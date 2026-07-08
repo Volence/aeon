@@ -10,8 +10,9 @@
 > items h/j and the T5 sound-constants game slice (SFXPRI_* ladder) are folded in.
 
 > **EXECUTED 2026-07-07/08** — subagent-driven, all nine tasks complete; merged to master
-> `<MERGE_COMMIT_PLACEHOLDER>`. Field findings folded into this doc as amendments; see also
-> the queue-doc log.
+> as `5f85b45`. Post-merge validation on master: sonic4 DEBUG `4fea9e0e…` (exact), plain
+> `1c83aac3…` (exact), sound-off green (329676 B), demo green + boots on oracle. Field
+> findings folded into this doc as amendments; see also the queue-doc log.
 
 **Goal:** Real engine/game wall — `engine/engine.inc` + game manifest + `gameHeader` + parameterized boot + `soundBankHead` contract + def/RAM splits + `games/demo/` booting on oracle. Sonic 4 behavior and `s4.bin` unchanged.
 
