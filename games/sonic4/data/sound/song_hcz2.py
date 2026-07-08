@@ -36,9 +36,9 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "..", "..", "tools")))
 
-from song_packer import write_asm                              # noqa: E402
+from song_packer import write_asm, write_bin, bin_path_for      # noqa: E402
 from smps_import import (                                       # noqa: E402
-    convert_song, emit_patch_table,
+    convert_song, emit_patch_table, pack_patch_table,
     HCZ2_DAC_REMAP, S3K_Z80_DRIVER,
 )
 
@@ -73,6 +73,16 @@ def main():
         f.write(patch_asm)
     print("wrote", patch_path)
     print("patch_remap:", remap)
+
+    if "--emit-bin" in sys.argv:
+        song_bin = bin_path_for(song_path)
+        write_bin(song, song_bin)
+        print("wrote", song_bin)
+
+        patch_bin = bin_path_for(patch_path)
+        with open(patch_bin, "wb") as f:
+            f.write(pack_patch_table(S3K_Z80_DRIVER, HCZ2_USED_VOICE_IDS))
+        print("wrote", patch_bin)
 
 
 if __name__ == "__main__":

@@ -186,6 +186,21 @@ def write_pitchtable_asm(out_path, label="MovingTrucks_PitchTable", directive="d
     return out_path
 
 
+def pack_pitchtable() -> bytes:
+    """Return the EXACT payload bytes emit_pitchtable_asm's two dc.b/db pages
+    encode: PITCHTAB_COUNT A4 bytes followed by PITCHTAB_COUNT A0 bytes (see
+    emit_pitchtable_asm's LAYOUT comment). No labels — just the blob a
+    --emit-bin / BINCLUDE would carry."""
+    assert len(A4_TBL) == PITCHTAB_COUNT and len(A0_TBL) == PITCHTAB_COUNT
+    return bytes(b & 0xFF for b in A4_TBL) + bytes(b & 0xFF for b in A0_TBL)
+
+
+def write_pitchtable_bin(out_path) -> str:
+    with open(out_path, "wb") as f:
+        f.write(pack_pitchtable())
+    return out_path
+
+
 def clamp_note(idx, transpose):
     """idx = clamp(note + transpose) into legal 0..0x83 range.
 
@@ -682,7 +697,7 @@ try:
         SH_F_FM6_FM, SH_F_STREAM,
         reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
         REGDELTA_GROUP_SHIFT, REGDELTA_OP_MASK,
-        pack_song,
+        pack_song, bin_path_for,
     )
     from zyrinx_port import translate_voice, FMPATCH_LEN, emit_patch_bank_asm
 except ImportError:  # pragma: no cover - alternate import path
@@ -695,7 +710,7 @@ except ImportError:  # pragma: no cover - alternate import path
         SH_F_FM6_FM, SH_F_STREAM,
         reg_sel, RD_GROUP_TL, REGDELTA_GROUP_COUNT,
         REGDELTA_GROUP_SHIFT, REGDELTA_OP_MASK,
-        pack_song,
+        pack_song, bin_path_for,
     )
     from tools.zyrinx_port import (  # type: ignore
         translate_voice, FMPATCH_LEN, emit_patch_bank_asm)
@@ -1710,7 +1725,8 @@ def simulate_write_bursts(song, loops=2):
 def emit_native_song(rom=None, song_out=None, patches_out=None,
                      pitchtab_out=None, song_label="Song_MovingTrucks",
                      patch_label="MovingTrucks_Patches",
-                     pitchtab_label="MovingTrucks_PitchTable_Stream"):
+                     pitchtab_label="MovingTrucks_PitchTable_Stream",
+                     emit_bin=False):
     """Generate the three native Moving Trucks data files (song / patch bank /
     streaming pitch table) and return a report dict.
 
@@ -1719,6 +1735,10 @@ def emit_native_song(rom=None, song_out=None, patches_out=None,
     pitchtable_ptr is the BE offset of the pitch table = len(packed song); the
     loader resolves it to an absolute window ptr (base + offset). The patch bank
     ptr is wired separately via SongPatchTable (its own window ptr).
+
+    emit_bin=True additionally writes the .bin sibling of each .asm output
+    (bin_path_for: same stem, .bin extension) with the exact payload bytes the
+    .asm's dc.b lines encode — no labels, no align padding.
     """
     import os
     here = os.path.dirname(os.path.abspath(__file__))
@@ -1746,15 +1766,25 @@ def emit_native_song(rom=None, song_out=None, patches_out=None,
 
     # --- write the song .asm (with the real pitchtable_ptr in the header) ---
     _write_blob_asm(blob, song_label, song_out)
+    if emit_bin:
+        song_bin = bin_path_for(song_out)
+        with open(song_bin, "wb") as f:
+            f.write(blob)
 
     # --- write the per-song FmPatch bank (reuse zyrinx_port's emitter) ---
     with open(patches_out, "w") as f:
         f.write(emit_patch_bank_asm(bank_bytes, remap, pcount, patch_label))
+    if emit_bin:
+        patches_bin = bin_path_for(patches_out)
+        with open(patches_bin, "wb") as f:
+            f.write(bank_bytes)
 
     # --- write the streaming-block copy of the 132-entry pitch table (distinct
     # label so it doesn't collide with the engine-default inline copy; dc.b since
     # it lives in the 68k ROM data area, not the Z80 phase-0 blob). ---
     write_pitchtable_asm(pitchtab_out, label=pitchtab_label, directive="dc.b")
+    if emit_bin:
+        write_pitchtable_bin(bin_path_for(pitchtab_out))
 
     return {
         "song_bytes": len(blob),
@@ -1920,12 +1950,16 @@ def main():
             here, "..", "games", "sonic4", "data", "sound", "movingtrucks_pitchtable.asm"))
         write_pitchtable_asm(out)
         print("wrote", out)
+        if "--emit-bin" in sys.argv:
+            bin_out = bin_path_for(out)
+            write_pitchtable_bin(bin_out)
+            print("wrote", bin_out)
         return
 
     # --emit-native-song (Task 8): walk the REAL Moving Trucks song data and emit
     # the native packed song + per-song FmPatch bank + streaming pitch table.
     if "--emit-native-song" in sys.argv:
-        rep = emit_native_song()
+        rep = emit_native_song(emit_bin="--emit-bin" in sys.argv)
         print("wrote", rep["song_out"], "(%d bytes)" % rep["song_bytes"])
         print("wrote", rep["patches_out"],
               "(%d FmPatch records, %d bytes)"

@@ -49,6 +49,7 @@ try:
         CHROUTE_DAC,
         PackError,
         MEV_END,
+        bin_path_for,
     )
 except ImportError:
     from tools.song_packer import (  # type: ignore
@@ -60,6 +61,7 @@ except ImportError:
         CHROUTE_DAC,
         PackError,
         MEV_END,
+        bin_path_for,
     )
 
 
@@ -1728,8 +1730,15 @@ _CORE_SFX_FILENAMES = {
 }
 
 
-def generate_all(out_dir: str = None, skdisasm_dir: str = None):
-    """Transcode all core SFX and write to out_dir."""
+def generate_all(out_dir: str = None, skdisasm_dir: str = None, emit_bin: bool = False):
+    """Transcode all core SFX and write to out_dir.
+
+    emit_bin=True additionally writes the .bin sibling (bin_path_for: same
+    stem, .bin extension) of each generated sfx_NN.asm / sfx_NN_patches.asm
+    with the exact payload bytes their dc.b lines encode — no labels, no
+    align padding. sfx_table.asm is NOT covered: it is a dc.l POINTER table
+    (linker-resolved label addresses), not a static byte payload, so it has
+    no byte-equal .bin twin."""
     if out_dir is None:
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         out_dir = os.path.join(repo_root, 'games', 'sonic4', 'data', 'sound', 'sfx')
@@ -1813,13 +1822,26 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None):
         with open(out_path, 'w') as f:
             f.write(blob_asm)
         print(f"    wrote {out_path}", file=sys.stderr)
+        if emit_bin:
+            blob = pack_sfx(sfx_desc, priority)
+            bin_path = bin_path_for(out_path)
+            with open(bin_path, 'wb') as f:
+                f.write(blob)
+            print(f"    wrote {bin_path}", file=sys.stderr)
 
         # Emit patches
-        patches_asm = emit_sfx_patches_asm(sfx_desc.get('voices', []), label, sfx_id)
+        voices = sfx_desc.get('voices', [])
+        patches_asm = emit_sfx_patches_asm(voices, label, sfx_id)
         patches_path = os.path.join(out_dir, f'sfx_{sfx_id:02X}_patches.asm')
         with open(patches_path, 'w') as f:
             f.write(patches_asm)
         print(f"    wrote {patches_path}", file=sys.stderr)
+        if emit_bin:
+            patches_blob = b''.join(voices)
+            patches_bin_path = bin_path_for(patches_path)
+            with open(patches_bin_path, 'wb') as f:
+                f.write(patches_blob)
+            print(f"    wrote {patches_bin_path}", file=sys.stderr)
 
         id_to_label[sfx_id] = label
 
@@ -1835,9 +1857,9 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None):
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     if argv and argv[0] == 'generate':
-        generate_all()
+        generate_all(emit_bin='--emit-bin' in argv[1:])
         return 0
-    print("Usage: python3 sfx_transcode.py generate", file=sys.stderr)
+    print("Usage: python3 sfx_transcode.py generate [--emit-bin]", file=sys.stderr)
     return 1
 
 
