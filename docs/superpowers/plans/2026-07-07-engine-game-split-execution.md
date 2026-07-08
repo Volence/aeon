@@ -687,10 +687,14 @@ include lands in the same order.
 ;                                   (no code_addr entry points; e.g. player sensors)
 ;        gameObjectBankIncludes   — object-bank code (org $10000, objroutine targets)
 ;        gameDataIncludes         — game data: parallax, objdefs, levels, mappings,
-;                                   collision binaries, animations, game states
+;                                   collision binaries, animations
 ;        gameSoundDataIncludes    — song/SFX banks (only assembled when
 ;                                   SOUND_DRIVER_ENABLED; must follow the
 ;                                   soundBankHead contract — see sound_bank.inc)
+;        gameStatesIncludes       — game states, invoked AFTER the sound block
+;                                   (T7 field finding: states must assemble in
+;                                   SOUND_DRIVER_ENABLED=0 builds too — Game_Entry
+;                                   resolves from here)
 ;   (gameBootHook and gameDebugTick are defined in the game's contract file,
 ;    which gameConfigIncludes pulls in.)
 ;
@@ -1059,10 +1063,13 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
 
 gameDataIncludes macro {GLOBALSYMBOLS}
     include "games/demo/data/demo_data.asm"
-    include "games/demo/demo_state.asm"
     endm
 
 gameSoundDataIncludes macro {GLOBALSYMBOLS}
+    endm
+
+gameStatesIncludes macro {GLOBALSYMBOLS}
+    include "games/demo/demo_state.asm"
     endm
 
     include "engine/engine.inc"
