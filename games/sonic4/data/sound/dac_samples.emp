@@ -1,0 +1,159 @@
+// ===========================================================================
+// data/sound/dac_samples.emp — ROM-resident DAC sample data (Phase 1B)
+// ===========================================================================
+// The .emp port of dac_samples.asm (this directory) — the exemplar the sound
+// migration copies. Raw 8-bit unsigned PCM (centered $80): the Z80 streams each
+// blob through its $8000-$FFFF window, selected by the 9-bit bank latch at $6000.
+//
+// In the .asm the Z80-window banking invariant is hand-maintained with three
+// pieces of ceremony; here each collapses into the language:
+//
+//   1. `align $8000` before each bank — replaced by the section `bank: $8000`
+//      property: the linker's placement pass bumps a bank-constrained section to
+//      the next 32KB boundary IFF its content would straddle one, and an
+//      always-on post-placement check re-verifies no `bank:` section crosses a
+//      boundary. No `align`, no wasted-space directive.
+//   2. the hand-written `if (start >> 15) <> ((end-1) >> 15) / fatal` straddle
+//      guards — subsumed by that same always-on `bank: $8000` no-straddle assert.
+//   3. per-sample `= (addr & $7F8000) >> 15` / `= (addr & $7FFF) | $8000` /
+//      `= end - start` constants, hand-spelled with the raw mask/shift magic —
+//      replaced by `bankid(L)` / `winptr(L)` (which fold to that same arithmetic
+//      at LINK, once the placed address is known — the magic lives ONCE, in the
+//      builtin) and the blob's comptime `.len`.
+//
+// Placement is HONEST: neither `bank:` section carries a `vma:` (a `bank:`
+// section WITH `vma:` is now a compile error), so labels follow the PLACED LMA —
+// VMA == LMA. The map regions pin `dac_blip_bank` at $50000 and `dac_shared_bank`
+// at $58000 (the aeon-f828406 layout); `bankid()` folds to $A / $B because the
+// bytes are GENUINELY in those banks, not because a `vma:` phase decoupled the
+// label address from the physical placement. A re-baseline moves the pins via
+// the harness PROVENANCE flow (regions place BY SECTION NAME).
+//
+// The blobs bind to `const` first because a blob's `.len` is only a readable
+// comptime int off a const binding (the `data K = embed(...)` readability gate);
+// the const both emits AND measures.
+//
+// DELIBERATELY NOT PORTED (all had zero external consumers):
+//   * the `Dac_*_End` labels and `Dac_SharedBank_Start` — every external ref is
+//     an `SND_*` equ; lengths now come from `.len`, not an end-minus-start.
+//   * the hand-written straddle `fatal`s — subsumed by `bank: $8000`'s
+//     always-on no-straddle link assert.
+//   * the `align $8000`s — subsumed by the pinned map regions + `bank: $8000`.
+//
+// CONSUMERS (unchanged): engine/sound/dac_sample_tab.asm reads the SND_* equs
+// below via `db`/`dw` into its DacSample descriptors — Z80-side, still AS.
+// ===========================================================================
+
+module data.dac_samples
+
+
+// --- the ten sample blobs, bound to consts so each `.len` is a readable
+// comptime int. `temp_blip.bin` lives in THIS module's directory; the nine
+// drums under `dac/`. ---
+const BlipBlob      = embed("temp_blip.bin")     // 2880 B — 1B bring-up placeholder
+const KickBlob      = embed("dac/kick.pcm")      // 1406
+const SnareBlob     = embed("dac/snare.pcm")     // 3748
+const HatBlob       = embed("dac/hat.pcm")       // 240
+const S3kSnareBlob  = embed("dac/s3k_snare.pcm") // 3748
+const S3kHiTomBlob  = embed("dac/s3k_hitom.pcm") // 3724
+const S3kMidTomBlob = embed("dac/s3k_midtom.pcm")// 4656
+const S3kLowTomBlob = embed("dac/s3k_lowtom.pcm")// 5558
+const S3kFloorTomBlob = embed("dac/s3k_floortom.pcm") // 6422
+const S3kKickBlob   = embed("dac/s3k_kick.pcm")  // 1406
+
+
+// --- length guards (the .asm's `0 < len < $8000` invariant, one per blob, as
+// first-class comptime `ensure`s: the lengths are comptime ints, so these check
+// at COMPILE time — exactly as the `fatal`s did, without the hand-rolled `if`).
+// The 1:1 FILL reads ONE byte/pass and exhausts at len==0 for ANY length (odd or
+// even), so there is no even-length requirement — just 0 < len < $8000. ---
+ensure(0 < BlipBlob.len      && BlipBlob.len      < $8000, "DAC sample length must be > 0 and < $8000")
+ensure(0 < KickBlob.len      && KickBlob.len      < $8000, "raw DAC drum length must be > 0 and < $8000")
+ensure(0 < SnareBlob.len     && SnareBlob.len     < $8000, "raw DAC drum length must be > 0 and < $8000")
+ensure(0 < HatBlob.len       && HatBlob.len       < $8000, "raw DAC drum length must be > 0 and < $8000")
+ensure(0 < S3kSnareBlob.len  && S3kSnareBlob.len  < $8000, "S3K DAC drum length must be > 0 and < $8000")
+ensure(0 < S3kHiTomBlob.len  && S3kHiTomBlob.len  < $8000, "S3K DAC drum length must be > 0 and < $8000")
+ensure(0 < S3kMidTomBlob.len && S3kMidTomBlob.len < $8000, "S3K DAC drum length must be > 0 and < $8000")
+ensure(0 < S3kLowTomBlob.len && S3kLowTomBlob.len < $8000, "S3K DAC drum length must be > 0 and < $8000")
+ensure(0 < S3kFloorTomBlob.len && S3kFloorTomBlob.len < $8000, "S3K DAC drum length must be > 0 and < $8000")
+ensure(0 < S3kKickBlob.len   && S3kKickBlob.len   < $8000, "S3K DAC drum length must be > 0 and < $8000")
+
+
+// ===========================================================================
+// The blip bank — the single 1B bring-up sample, alone in a $8000 window so one
+// bank id covers it and the Z80 never re-banks mid-sample. Pinned at $50000 by
+// the map (bank $A).
+// ===========================================================================
+section dac_blip_bank (cpu: m68000, bank: $8000) {
+    data Dac_Temp_Blip = BlipBlob
+}
+
+
+// ===========================================================================
+// The shared RAW 8-bit PCM drum bank — all nine drums (the 3 original
+// kick/snare/hat + the 6 S3K HCZ2 drums, ~30908 bytes) packed contiguously into
+// one $8000 window so a single bank id covers the whole region and FILL never
+// re-banks mid-sample. Pinned at $58000 by the map (bank $B). Order matches the
+// .asm exactly. The DPCM codec was dropped for drums (the shared bank made
+// compression moot; raw is higher-rate and cleaner).
+// ===========================================================================
+section dac_shared_bank (cpu: m68000, bank: $8000) {
+    data Dac_Kick        = KickBlob
+    data Dac_Snare       = SnareBlob
+    data Dac_Hat         = HatBlob
+    data Dac_S3K_Snare   = S3kSnareBlob
+    data Dac_S3K_HiTom   = S3kHiTomBlob
+    data Dac_S3K_MidTom  = S3kMidTomBlob
+    data Dac_S3K_LowTom  = S3kLowTomBlob
+    data Dac_S3K_FloorTom = S3kFloorTomBlob
+    data Dac_S3K_Kick    = S3kKickBlob
+}
+
+
+// ===========================================================================
+// The build-time SND_* constants the DAC descriptor table (dac_sample_tab.asm)
+// reads directly — the per-sample {bank, ptr, len} triple, one per blob, spelled
+// EXACTLY as the .asm names them (external consumers depend on these names):
+//   bank = bankid(L) → (L & $7F8000) >> 15   (link-folded from the placed addr)
+//   ptr  = winptr(L) → (L & $7FFF) | $8000    (link-folded)
+//   len  = Blob.len                            (comptime)
+// ===========================================================================
+equ SND_BLIP_BANK = bankid("Dac_Temp_Blip")
+equ SND_BLIP_PTR  = winptr("Dac_Temp_Blip")
+equ SND_BLIP_LEN  = BlipBlob.len
+
+equ SND_KICK_BANK = bankid("Dac_Kick")
+equ SND_KICK_PTR  = winptr("Dac_Kick")
+equ SND_KICK_LEN  = KickBlob.len
+
+equ SND_SNARE_BANK = bankid("Dac_Snare")
+equ SND_SNARE_PTR  = winptr("Dac_Snare")
+equ SND_SNARE_LEN  = SnareBlob.len
+
+equ SND_HAT_BANK = bankid("Dac_Hat")
+equ SND_HAT_PTR  = winptr("Dac_Hat")
+equ SND_HAT_LEN  = HatBlob.len
+
+equ SND_S3K_SNARE_BANK = bankid("Dac_S3K_Snare")
+equ SND_S3K_SNARE_PTR  = winptr("Dac_S3K_Snare")
+equ SND_S3K_SNARE_LEN  = S3kSnareBlob.len
+
+equ SND_S3K_HITOM_BANK = bankid("Dac_S3K_HiTom")
+equ SND_S3K_HITOM_PTR  = winptr("Dac_S3K_HiTom")
+equ SND_S3K_HITOM_LEN  = S3kHiTomBlob.len
+
+equ SND_S3K_MIDTOM_BANK = bankid("Dac_S3K_MidTom")
+equ SND_S3K_MIDTOM_PTR  = winptr("Dac_S3K_MidTom")
+equ SND_S3K_MIDTOM_LEN  = S3kMidTomBlob.len
+
+equ SND_S3K_LOWTOM_BANK = bankid("Dac_S3K_LowTom")
+equ SND_S3K_LOWTOM_PTR  = winptr("Dac_S3K_LowTom")
+equ SND_S3K_LOWTOM_LEN  = S3kLowTomBlob.len
+
+equ SND_S3K_FLOORTOM_BANK = bankid("Dac_S3K_FloorTom")
+equ SND_S3K_FLOORTOM_PTR  = winptr("Dac_S3K_FloorTom")
+equ SND_S3K_FLOORTOM_LEN  = S3kFloorTomBlob.len
+
+equ SND_S3K_KICK_BANK = bankid("Dac_S3K_Kick")
+equ SND_S3K_KICK_PTR  = winptr("Dac_S3K_Kick")
+equ SND_S3K_KICK_LEN  = S3kKickBlob.len
