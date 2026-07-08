@@ -77,13 +77,16 @@ SND_SFX_DISP_IDX   = SND_SFX_DISP_COUNT + 1            ; current channel record 
 SND_SFX_DISP_SLOT  = SND_SFX_DISP_IDX + 1              ; chosen SfxChannel slot (this chan)
 SND_SFX_DISP_ROUTE = SND_SFX_DISP_SLOT + 1             ; physical route the slot owns
 SND_SFX_DISP_ID    = SND_SFX_DISP_ROUTE + 1            ; raw id of the SFX being dispatched
+SND_SFX_DISP_PRIO_RAW = SND_SFX_DISP_ID + 1           ; raw incoming priority (bit7 = non-latching)
+SND_SFX_DISP_CAP   = SND_SFX_DISP_PRIO_RAW + 1        ; incoming SFX instance cap (sfh_cap)
 ; Per-slot raw SFX id, parallel to the SfxChannel array (index = slot 0..6).
-; Lives HERE and not in the struct: SfxChannel_len must stay 64 (shift-free slot
-; addressing) and the only free struct byte (+58 sx_pad) aliases SeqChannel's
-; sc_detune, which Fm_NoteOnFreq reads with an SFX ix and requires to be 0.
+; Lives HERE and not in the struct: SfxChannel_len must stay a fixed constant
+; (shift-free slot addressing) and the free struct byte (+58 sx_pad) aliases
+; SeqChannel's sc_detune, which Fm_NoteOnFreq reads with an SFX ix and requires
+; to be 0.
 ; Entries are only meaningful while the slot is ACTIVE (scan gates on SCF_ACTIVE;
 ; stale ids in inactive slots are harmless and get overwritten at init).
-SND_SFX_ID_TAB     = SND_SFX_DISP_ID + 1               ; 7 bytes
+SND_SFX_ID_TAB     = SND_SFX_DISP_CAP + 1              ; 7 bytes
 SND_SFX_DISP_END   = SND_SFX_ID_TAB + SFX_VOICE_COUNT
         if SND_SFX_DISP_END > SND_REQ_BASE
           fatal "SFX dispatch scratch (\{SND_SFX_DISP_END}) overruns the mailbox at \{SND_REQ_BASE}"

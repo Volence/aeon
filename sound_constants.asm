@@ -886,6 +886,9 @@ SfxHeader endstruct      ; = 8 bytes (fixed prefix; per-channel array follows)
 SFXH_PRIORITY = SfxHeader_sfh_priority
 SFXH_FLAGS    = SfxHeader_sfh_flags
 SFXH_CHCOUNT  = SfxHeader_sfh_chcount
+SFXH_GAIN     = SfxHeader_sfh_gain      ; +3
+SFXH_DUCK     = SfxHeader_sfh_duck      ; +4
+SFXH_CAP      = SfxHeader_sfh_cap       ; +5
 SFXH_CHANNELS = SfxHeader_len          ; per-channel array starts after the prefix
 ; per-channel record (6 bytes): route, kind, cmd_ptr(BE), voice_ptr(BE)
 SFXHC_ROUTE   = 0
@@ -903,6 +906,9 @@ SHF_LOOP_B       = 2     ; the blob self-loops (smpsLoop -> MEV_LOOP/JUMP)
 SHF_CONTINUOUS   = 1<<SHF_CONTINUOUS_B
 SHF_STEREO_ALT   = 1<<SHF_STEREO_ALT_B
 SHF_LOOP         = 1<<SHF_LOOP_B
+
+SFX_EXTEND_FRAMES = 10   ; Stage C: frames a continuous SFX survives after pings stop
+                         ; (~one loop; countdown seeds sx_extend on ping)
 
 ; --- SfxChannel struct (per-active-SFX-voice state; Z80 RAM, indexed by ix). It
 ; REUSES the SeqChannel field LAYOUT for the fields ModUpdate/Sequencer_Channel
@@ -968,28 +974,41 @@ sc_base_freq    ds.w 1   ; +53 unmodulated note word, latched at key-on: FM=(d=$
 sc_last_freq    ds.w 1   ; +55 last modulated freq/divisor written (write-on-change shadow; FM+PSG shared via Mod_Advance)
 ; --- SFX bookkeeping (offsets past the shared block; SeqChannel diverges here) ---
 sx_priority     ds.b 1   ; +57 the running SFX's priority (cleared on end; arbitration)
-sx_pad          ds.b 1   ; +58 pad to an even struct length (SfxChannel_len must stay even)
+sx_pad          ds.b 1   ; +58 pad; aliases SeqChannel.sc_detune (read on SFX ix at FM/PSG
+                         ;     note-on) — MUST stay 0. Do NOT repurpose. (SfxChannel_len even)
 sx_patch_base   ds.w 1   ; +59 the SFX's own FmPatch-bank window ptr (set at steal)
 sx_saved_route  ds.b 1   ; +61 the music route whose SeqChannel we overrode (for restore)
 sx_saved_note   ds.b 1   ; +62 PSG3 tone note saved on a noise steal (periodic-noise coupling)
 sx_kind         ds.b 1   ; +63 SFXEL_* of the owned voice (FM/PSG/NOISE) for restore dispatch
-SfxChannel endstruct     ; = 64 bytes
+sx_gain         ds.b 1   ; +64 Stage B: per-slot copy of the SFX's authored master gain
+sx_duck         ds.b 1   ; +65 Stage B: per-slot copy of the SFX's authored duck depth
+sx_extend       ds.b 1   ; +66 Stage C: continuity/re-ping state. 0 = not continuous;
+                         ;     1..SFX_EXTEND_FRAMES = continuous & alive (counts down when
+                         ;     un-pinged); $FF = continuous & expiring (end at next loop)
+sx_pad2         ds.b 1   ; +67 pad to an even struct length (SfxChannel_len must stay even)
+SfxChannel endstruct     ; = 68 bytes
 
-        if SfxChannel_len <> 64
-          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 64"
+        if SfxChannel_len <> 68
+          error "SfxChannel struct is \{SfxChannel_len} bytes, expected 68"
         endif
         ; largest field offset must stay within the (ix+d) signed-8-bit range.
-        ; sc_last_freq ends at +56 (word at +55), sx_kind is at +63 — both <= 127.
+        ; sc_last_freq ends at +56 (word at +55), sx_extend is at +66 — both <= 127.
         if SfxChannel_sx_kind > 127
           error "SfxChannel sx_kind offset (\{SfxChannel_sx_kind}) exceeds (ix+d) +127"
+        endif
+        if SfxChannel_sx_extend > 127
+          error "SfxChannel sx_extend offset (\{SfxChannel_sx_extend}) exceeds (ix+d) +127"
         endif
 
 ; sc_* aliases already exist (SeqChannel). Add sx_* aliases for the SFX fields.
 sx_priority     = SfxChannel_sx_priority
+sx_gain         = SfxChannel_sx_gain
 sx_patch_base   = SfxChannel_sx_patch_base
 sx_saved_route  = SfxChannel_sx_saved_route
 sx_saved_note   = SfxChannel_sx_saved_note
 sx_kind         = SfxChannel_sx_kind
+sx_duck         = SfxChannel_sx_duck
+sx_extend       = SfxChannel_sx_extend
 
 ; --- SeqChannel struct (per-channel sequencer state; Z80 RAM, indexed by ix) ---
 ; Phase 3 (per-frame engine): the v0/1C COMMAND-STREAM fields (sc_stream_ptr ..
