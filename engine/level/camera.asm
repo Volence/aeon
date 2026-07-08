@@ -41,7 +41,7 @@ Camera_Init:
 
         move.w  #0, (Camera_Pan_Offset).w
         move.w  #$10, (Camera_Deadzone_Base).w
-        clr.b   (Camera_Spindash_Lag).w            ; spindash release writes it;
+        clr.b   (Camera_Hold_Frames).w            ; spindash release writes it;
                                                    ; Camera_Update consumes it
         rts
 
@@ -54,7 +54,7 @@ Camera_Init:
 ; -----------------------------------------------
 Camera_Update:
         ; -- spindash launch freeze --
-        ;    Camera_Spindash_Lag is set =16 on spindash release.
+        ;    Camera_Hold_Frames is set =16 on spindash release.
         ;    While nonzero, hold the camera still (skip BOTH X and Y follow)
         ;    so the launch doesn't whip-scroll and the charge-frame backward
         ;    creep can't register. Classic "freeze camera 16 frames" (research
@@ -65,9 +65,9 @@ Camera_Update:
         ;    rebases — the camera tracks the player in world space). Decrement
         ;    once per frame.
         moveq   #0, d4                              ; d4 = "frozen this frame"
-        tst.b   (Camera_Spindash_Lag).w
+        tst.b   (Camera_Hold_Frames).w
         beq.s   .no_freeze
-        subq.b  #1, (Camera_Spindash_Lag).w
+        subq.b  #1, (Camera_Hold_Frames).w
         st      d4                                  ; survives to .y_track
         bra.w   .no_move                            ; X-clamp only; .y_track
                                                     ; tests d4 and skips Y follow

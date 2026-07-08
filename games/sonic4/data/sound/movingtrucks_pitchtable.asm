@@ -20,14 +20,9 @@
 ;   idx $44 = block2 fnum1625 -> A4=$16 A0=$59
 ; ======================================================================
 
-; engine contract (DEFERRED — see A7 note in the E2a task report): the song
-; bank head MUST define a SndDefaultPitchTable label inside the $8000 window;
-; sound_fm.asm falls back to it when a song's pitchtable_ptr is 0. Adding that
-; label here (even as a same-address alias of MovingTrucks_PitchTable) was
-; found to perturb the convsym-appended MD-debugger symbol table byte-for-byte
-; in the plain (non-DEBUG) build — see the Phase A gate report — so today
-; sound_fm.asm still reads MovingTrucks_PitchTable directly. The rename to a
-; game-agnostic contract label is tracked as follow-up work, not done here.
+; engine contract — the song bank head MUST define this inside the $8000
+; window; sound_fm.asm falls back to it when a song's pitchtable_ptr is 0.
+SndDefaultPitchTable:
 MovingTrucks_PitchTable:
 ; --- page 0: A4 (block|fnumHi) bytes, idx $00..$83 ---
         db      000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h

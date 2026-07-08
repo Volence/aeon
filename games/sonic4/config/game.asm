@@ -32,13 +32,11 @@ SFXID_REV_LOOP = SFXID_SPINDASH   ; spindash-rev special case; -1 = feature off 
 ; sound_constants.asm (root); they move to this file in a later task. No
 ; code change here — comment only.
 
-; SndDefaultPitchTable (engine contract: sound_fm.asm's Fm_NoteFromTable
-; fallback when a song's pitchtable_ptr is 0) is DEFERRED — see the comment
-; above MovingTrucks_PitchTable: in games/sonic4/data/sound/movingtrucks_pitchtable.asm.
-; Adding a same-address alias label was found to perturb the convsym-appended
-; MD-debugger symbol table in the plain (non-DEBUG) build, breaking the
-; Phase A byte-identical gate; sound_fm.asm still reads MovingTrucks_PitchTable
-; directly today.
+; SndDefaultPitchTable is an engine contract label: sound_fm.asm's
+; Fm_NoteFromTable falls back to it when a song's pitchtable_ptr is 0. The
+; song bank head MUST define it inside the $8000 window — Sonic 4 defines it
+; above MovingTrucks_PitchTable: in
+; games/sonic4/data/sound/movingtrucks_pitchtable.asm.
 
 ; --- engine feature gates ---
 GAME_CAMERA_JUMP_LOCK = 1   ; camera suppresses down-scroll during jump states; requires game-defined _pl_state, PSTATE_JUMP, PSTATE_ROLLJUMP; 0 = plain deadzone follow

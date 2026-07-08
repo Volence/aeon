@@ -94,7 +94,7 @@ PState_Spindash:
         neg.w   d0
 .launch:
         move.w  d0, _pl_gsp(a0)
-        move.b  #16, (Camera_Spindash_Lag).w    ; classic 16-frame camera
+        move.b  #16, (Camera_Hold_Frames).w    ; classic 16-frame camera
                                                 ; freeze
         moveq   #PSTATE_ROLL, d0
       ifdef SOUND_DRIVER_ENABLED
