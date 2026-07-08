@@ -715,7 +715,11 @@ Sfx_BeginSound:
         push    de
         pop     iy                       ; iy = blob base for the header reads
         ld      a, (iy+SFXH_PRIORITY)
-        ld      (SND_SFX_DISP_PRIO), a   ; incoming SFX priority
+        ld      (SND_SFX_DISP_PRIO_RAW), a  ; raw: bit 7 = non-latching request
+        and     07Fh
+        ld      (SND_SFX_DISP_PRIO), a   ; masked: every arbitration compare reads this
+        ld      a, (iy+SFXH_CAP)
+        ld      (SND_SFX_DISP_CAP), a    ; incoming SFX instance cap (sfh_cap)
         ld      a, (iy+SFXH_CHCOUNT)
         or      a
         ret     z                        ; chcount 0 -> nothing to do (defensive)
@@ -723,37 +727,57 @@ Sfx_BeginSound:
         xor     a
         ld      (SND_SFX_DISP_IDX), a    ; current channel record index (0-based)
 
-        ; --- RETRIGGER REPLACE-IN-PLACE (spec fix 2, S3K-faithful) -----------------
+        ; --- RETRIGGER + INSTANCE CAP (spec §7.1) ----------------------------------
         ; S3K cannot stack the same SFX: a retrigger re-inits the same fixed track
         ; (skdisasm Z80 Sound Driver.asm:1935-1975). Our dynamic allocator happily
-        ; placed a retrigger on a FREE same-kind voice, stacking up to 3 copies
-        ; (+5..+9.5 dB and runaway spindash mod-sweeps). Kill every ACTIVE slot
-        ; already running THIS id via the full Sfx_Restore end-path (music voice
-        ; restored / orphan voice silenced, slot deactivated, duck re-evaluated),
-        ; then fall into the normal allocation ladder: the just-freed voice is the
-        ; preferred route again, so the net effect is replace-in-place. Instance
-        ; cap = 1 (the Stage-B sfh_cap header byte may later author more).
+        ; placed a retrigger on a FREE same-kind voice, stacking up to sfh_cap copies
+        ; (+5..+9.5 dB and runaway spindash mod-sweeps at cap 1). Generalized: count
+        ; ACTIVE slots already running THIS id; if count < sfh_cap, allocate a NEW
+        ; instance (no kill); else kill the LOWEST-slot (oldest) match via the full
+        ; Sfx_Restore end-path (music voice restored / orphan voice silenced, slot
+        ; deactivated, duck re-evaluated), then fall into the normal allocation
+        ; ladder. cap 1 degenerates to the old kill-then-replace-in-place exactly.
         ; Duck note: a kill may zero SND_SFX_DUCK_TARGET; the arm after .chan_loop
         ; re-raises it this same frame, before Sfx_DuckRamp runs — no audible dip.
-        ld      ix, SND_SFX_CHANNELS     ; slot cursor (stride = SfxChannel_len)
-        ld      hl, SND_SFX_ID_TAB       ; parallel id cursor
+        ;
+        ; Phase 1: count ACTIVE slots running THIS id; remember the LOWEST-slot match.
+        ; No Sfx_Restore here (it clobbers bc/de/hl — would wreck the scan cursor).
+        ld      ix, SND_SFX_CHANNELS
+        ld      hl, SND_SFX_ID_TAB
         ld      b, SFX_VOICE_COUNT
-.retrig_scan:
+        ld      c, 0                     ; c = match count
+        ld      d, SFX_SLOT_NONE         ; d = lowest-slot match (none yet)
+        ld      e, 0                     ; e = slot cursor
+.cap_scan:
         bit     SCF_ACTIVE_B, (ix+sc_flags)
-        jr      z, .retrig_next          ; inactive slot -> id entry is stale, skip
+        jr      z, .cap_next             ; inactive -> id entry stale
         ld      a, (SND_SFX_DISP_ID)
         cp      (hl)
-        jr      nz, .retrig_next         ; different SFX -> leave it playing
-        push    hl                       ; Sfx_Restore clobbers hl/bc (preserves ix)
-        push    bc
-        call    Sfx_Restore              ; full end path: restore/silence + deactivate
-        pop     bc
-        pop     hl
-.retrig_next:
+        jr      nz, .cap_next            ; different id -> leave playing
+        inc     c                        ; another live instance
+        ld      a, d
+        cp      SFX_SLOT_NONE
+        jr      nz, .cap_next            ; already recorded a lower slot
+        ld      d, e                     ; record first (lowest) match slot
+.cap_next:
         inc     hl
-        ld      de, SfxChannel_len       ; reload each pass (Sfx_Restore clobbers de)
+        inc     e
+        push    de                       ; SfxChannel_len stride add (keep de/count intact)
+        ld      de, SfxChannel_len
         add     ix, de
-        djnz    .retrig_scan
+        pop     de
+        djnz    .cap_scan
+        ; Phase 2: count < cap -> allocate NEW (no kill). Else kill the lowest match.
+        ld      a, c
+        ld      hl, SND_SFX_DISP_CAP
+        cp      (hl)
+        jr      c, .cap_ok               ; count < cap -> room for a new instance
+        ld      a, d                     ; count >= cap -> kill lowest-slot match
+        cp      SFX_SLOT_NONE
+        jr      z, .cap_ok               ; defensive: no match (impossible when count>0)
+        call    Sfx_SlotPtr              ; ix = &SfxChannel[d]
+        call    Sfx_Restore              ; full end path: restore/silence + deactivate
+.cap_ok:
 
 .chan_loop:
         ; --- point iy at the current channel record: base + SFXH_CHANNELS + idx*6 -
@@ -867,7 +891,21 @@ Sfx_BeginSound:
 
         ; bookkeeping: priority, saved music route (== the OWNED physical route),
         ; tick gating (one event per frame until the stream sets durations).
-        ld      a, (SND_SFX_DISP_PRIO)
+        ; --- priority store: non-latching (bit 7) SFX record the current same-kind
+        ; floor (min-of-active) instead of their own priority, so they play now but
+        ; never raise the floor for later sounds (spec §5, S2's trick). Normal SFX
+        ; store their (masked) priority. iy is the record ptr here -> save it.
+        ld      a, (SND_SFX_DISP_PRIO_RAW)
+        bit     7, a
+        jr      z, .latch_prio
+        push    iy                       ; preserve channel-record ptr (Sfx_Steal needs it)
+        ld      c, (ix+sx_kind)
+        call    Sfx_MinActiveKind        ; a = min same-kind active priority (0 if none)
+        pop     iy
+        jr      .store_prio
+.latch_prio:
+        ld      a, (SND_SFX_DISP_PRIO)   ; normal: store the real (masked) priority
+.store_prio:
         ld      (ix+sx_priority), a
 
         ; Stage B: stash the header's authored gain/duck into per-slot bytes so the
@@ -1150,6 +1188,38 @@ Sfx_DeepestDuck:
         add     iy, de
         djnz    .scan
         ld      a, c
+        ret
+
+; ----------------------------------------------------------------------
+; Sfx_MinActiveKind — min sx_priority among ACTIVE same-kind slots.
+; In: c = incoming kind (SFXEL_*). Out: a = min priority (0 if no same-kind active).
+; Walks via iy. Clobbers af,b,de,hl,iy. Preserves ix, c.
+; ----------------------------------------------------------------------
+Sfx_MinActiveKind:
+        ld      iy, SND_SFX_CHANNELS
+        ld      b, SFX_VOICE_COUNT
+        ld      de, SfxChannel_len
+        ld      h, 255                   ; h = running min (sentinel)
+        ld      l, 0                     ; l = found flag
+.mk_scan:
+        bit     SCF_ACTIVE_B, (iy+sc_flags)
+        jr      z, .mk_next
+        ld      a, (iy+sx_kind)
+        cp      c
+        jr      nz, .mk_next             ; different kind -> ignore
+        ld      a, (iy+sx_priority)
+        cp      h
+        jr      nc, .mk_next             ; >= running min -> keep
+        ld      h, a                     ; new min
+        ld      l, 1                     ; mark found
+.mk_next:
+        add     iy, de
+        djnz    .mk_scan
+        ld      a, l
+        or      a
+        ld      a, h
+        ret     nz                       ; found -> a = min priority
+        xor     a                        ; none active -> 0
         ret
 
 ; ======================================================================
