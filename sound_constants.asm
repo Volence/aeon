@@ -790,7 +790,7 @@ SFX_RING_MASK    = SFX_RING_DEPTH-1  ; cursor wrap mask ($07)
 ; Seeded from S2 zSFXPriority for shared sounds: death/hurt > spindash > skid/roll
 ; > jump > ring/UI. The transcoder bakes a priority byte into each SfxHeader keyed
 ; by id; these tiers are the source of that map (mirrored in tools/sfx_transcode.py).
-SFXPRI_RING     = $20    ; ring/UI — lowest; never ducks (below SFX_DUCK_THRESHOLD)
+SFXPRI_RING     = $20    ; ring/UI — lowest; never ducks (authored sfh_duck = 0)
 SFXPRI_JUMP     = $40
 SFXPRI_ROLL     = $60
 SFXPRI_SKID     = $60
@@ -799,14 +799,12 @@ SFXPRI_DASH     = $80
 SFXPRI_DEATH    = $C0    ; death/ring-loss — highest
 SFXPRI_RINGLOSS = $C0
 
-; --- Ducking (spec §7): a high-priority SFX transiently attenuates the music. A
-; global duck-level byte ramps up on duck-eligible SFX and ramps back over N frames
-; on SFX end. v1: fixed depth + linear ramp, all tunable.
-SFX_DUCK_THRESHOLD = $C0     ; SFX priority >= this ducks the music. Was $80, raised to
-                             ; $C0 so ONLY rare/dramatic SFX duck (death/ring-loss = $C0);
-                             ; the frequent gameplay SFX — spindash/dash ($80) — no longer
-                             ; pump the music (esp. the rapid spindash revs). (User pref.)
-SFX_DUCK_DEPTH     = $18     ; carrier-TL bump (attenuation units; bigger = quieter music)
+; --- Ducking (spec §7.1): a duck-authored SFX (sfh_duck != 0, stashed per-slot as
+; sx_duck) transiently attenuates the music by ITS OWN depth. Arm never lowers an
+; already-deeper active duck; release re-resolves to the deepest still-active duck
+; (0 = none). The duck-level byte ramps toward the target over N frames (v1: linear
+; ramp, tunable). Depth is authored per-SFX (SfxHeader.sfh_duck) — there is no
+; global threshold or depth anymore.
 SFX_DUCK_PSG_DEPTH = 3       ; PSG linear-volume drop applied while ducked
 SFX_DUCK_RAMP_STEP = 4       ; duck-level change per frame (linear ramp up/down)
 
@@ -870,8 +868,9 @@ sfh_chcount     ds.b 1   ; +2  number of SFX channels (1 or 2 for the core set)
 sfh_gain        ds.b 1   ; +3  Stage B: authored master attenuation (FM: +carrier TL
                          ;     in 0.75 dB steps; PSG: +atten in 2 dB steps). INERT in
                          ;     Stage A (engine never reads it; transcoder writes 0).
-sfh_duck        ds.b 1   ; +4  Stage B: per-SFX duck depth (replaces the global
-                         ;     SFX_DUCK_DEPTH). INERT in Stage A (transcoder writes 0).
+sfh_duck        ds.b 1   ; +4  Stage B: per-SFX duck depth (carrier-TL bump; bigger =
+                         ;     quieter music). 0 = never ducks. Live: arms the music
+                         ;     duck to this depth (deepest-active wins; spec §7.1).
 sfh_cap         ds.b 1   ; +5  Stage B: instance cap. INERT in Stage A: the engine
                          ;     hard-caps at 1 (retrigger replace-in-place); transcoder
                          ;     writes 1.

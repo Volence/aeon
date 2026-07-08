@@ -92,14 +92,6 @@ SND_SFX_DISP_END   = SND_SFX_ID_TAB + SFX_VOICE_COUNT
           fatal "SFX dispatch scratch (\{SND_SFX_DISP_END}) overruns the mailbox at \{SND_REQ_BASE}"
         endif
 
-; --- Task 10 ducking invariant: rings must NEVER duck the music (spec §7) -------
-; The duck arms only for SFX whose authored priority >= SFX_DUCK_THRESHOLD. Ring
-; pickup (SFXPRI_RING) must fall strictly below the threshold so collecting rings
-; can't pump the music. Build-assert it here where the duck logic lives.
-        if SFXPRI_RING >= SFX_DUCK_THRESHOLD
-          error "SFXPRI_RING (\{SFXPRI_RING}) must be < SFX_DUCK_THRESHOLD (\{SFX_DUCK_THRESHOLD}) — rings must not duck"
-        endif
-
 ; ======================================================================
 ; Task 9: 3-deep priority-gated SFX queue
 ; ======================================================================
@@ -907,23 +899,18 @@ Sfx_BeginSound:
         dec     (hl)
         jp      nz, .chan_loop           ; jp (not jr): the loop body exceeds jr range
 
-        ; --- Task 10: arm the music duck if this SFX is high-priority (spec §7) ----
-        ; Done AFTER the channel loop so that any Sfx_Restore calls triggered by a
-        ; steal inside the loop (which zero SND_SFX_DUCK_TARGET if no other duck-
-        ; eligible SFX was active at that moment) cannot un-arm the arm we set here.
-        ; SND_SFX_DISP_PRIO is written once before the loop and only read (never
-        ; written) inside it, so it is still valid here.
-        ;
-        ; A duck-eligible SFX (priority >= SFX_DUCK_THRESHOLD: spindash/dash/death/
-        ; ring-loss) raises the duck TARGET to SFX_DUCK_DEPTH; Sfx_DuckRamp ramps the
-        ; applied LEVEL toward it. Rings ($20 < threshold) leave the target untouched
-        ; (build-asserted below) so collecting rings never pumps the music. The
-        ; target is cleared on restore once no duck-eligible SFX remains active.
-        ld      a, (SND_SFX_DISP_PRIO)
-        cp      SFX_DUCK_THRESHOLD
-        jr      c, .no_duck_arm          ; below threshold -> do not duck
-        ld      a, SFX_DUCK_DEPTH
-        ld      (SND_SFX_DUCK_TARGET), a
+        ; --- arm the music duck to THIS SFX's authored depth (spec §7.1) ----------
+        ; Threshold is now "sfh_duck != 0" (the byte IS the eligibility); rings/jump
+        ; author 0 -> no duck. Never lower an already-deeper active duck (deepest
+        ; wins); the release path (Sfx_DeepestDuck) re-resolves the exact depth.
+        ld      iy, (SND_SFX_DISP_BASE)
+        ld      a, (iy+SFXH_DUCK)
+        or      a
+        jr      z, .no_duck_arm          ; duck 0 -> do not duck
+        ld      hl, SND_SFX_DUCK_TARGET
+        cp      (hl)
+        jr      c, .no_duck_arm          ; sfh_duck < current target -> keep deeper
+        ld      (hl), a
 .no_duck_arm:
         ret
 
@@ -1134,43 +1121,35 @@ Sfx_Restore:
         res     SCF_ACTIVE_B, (ix+sc_flags)
         ld      (ix+sx_priority), 0
 
-        ; --- Task 10: release the music duck iff no duck-eligible SFX remains -------
-        ; This slot's sx_priority is now 0 (cleared above), so it won't self-count.
-        ; Scan the 7 slots for any ACTIVE one with sx_priority >= SFX_DUCK_THRESHOLD;
-        ; if NONE, drop the duck TARGET to 0 so Sfx_DuckRamp ramps the music back up.
-        ; (Walk via iy so the caller's SFX-slot ix on the stack is untouched.)
-        call    Sfx_AnyDuckActive        ; CARRY set => a duck-SFX still runs
-        jr      c, .duck_keep
-        xor     a
-        ld      (SND_SFX_DUCK_TARGET), a ; no duck-eligible SFX left -> ramp back
-.duck_keep:
+        ; --- release the music duck to the DEEPEST duck still active (0 = none) -----
+        ld      (ix+sx_duck), 0          ; this slot no longer contributes a duck
+        call    Sfx_DeepestDuck          ; a = deepest sx_duck among active slots
+        ld      (SND_SFX_DUCK_TARGET), a ; Sfx_DuckRamp ramps toward it (0 = back up)
         pop     ix                       ; restore the caller's SFX-slot ix
         ret
 
 ; ----------------------------------------------------------------------
-; Sfx_AnyDuckActive — scan the 7 SfxChannel slots for any ACTIVE slot whose
-; sx_priority >= SFX_DUCK_THRESHOLD (a duck-eligible SFX still running).
-; Out: CARRY SET if at least one such slot exists, CARRY CLEAR otherwise.
-; Clobbers af, bc, de, iy. Preserves ix, hl. (Walks via iy so an SFX-slot ix on
-; the caller's stack/registers is undisturbed.)
+; Sfx_DeepestDuck — scan the 7 SfxChannel slots; return the DEEPEST duck depth
+; (max sx_duck) among ACTIVE slots, or 0 if none. Walks via iy so an SFX-slot ix
+; on the caller's stack is undisturbed. Out: a = deepest sx_duck. Clobbers af,bc,de,iy.
+; Preserves ix, hl.
 ; ----------------------------------------------------------------------
-Sfx_AnyDuckActive:
+Sfx_DeepestDuck:
         ld      iy, SND_SFX_CHANNELS
         ld      b, SFX_VOICE_COUNT
         ld      de, SfxChannel_len
+        ld      c, 0                     ; c = deepest so far
 .scan:
         bit     SCF_ACTIVE_B, (iy+sc_flags)
-        jr      z, .scan_next            ; inactive slot -> skip
-        ld      a, (iy+sx_priority)
-        cp      SFX_DUCK_THRESHOLD
-        jr      nc, .found               ; sx_priority >= threshold -> duck still on
+        jr      z, .scan_next            ; inactive -> skip
+        ld      a, (iy+sx_duck)
+        cp      c
+        jr      c, .scan_next            ; a < deepest -> keep
+        ld      c, a                     ; new deepest
 .scan_next:
         add     iy, de
         djnz    .scan
-        or      a                        ; CARRY CLEAR -> no duck-eligible SFX active
-        ret
-.found:
-        scf                              ; CARRY SET -> a duck-eligible SFX is active
+        ld      a, c
         ret
 
 ; ======================================================================
