@@ -20,7 +20,8 @@ PAD_TO_POWER_OF_TWO     = 1
     include "games/sonic4/config/constants.asm"
     include "games/sonic4/config/sound_ids.asm"
     include "games/sonic4/config/game.asm"
-    include "ram.asm"
+    include "engine/ram.asm"
+    include "games/sonic4/config/ram.asm"
     include "engine/debug/debugger.asm"
 
     org 0
