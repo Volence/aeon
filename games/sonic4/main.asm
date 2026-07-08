@@ -53,6 +53,7 @@ __BUDGET_ENGINE:
     include "engine/level/tile_cache.asm"
     include "engine/level/collision_lookup.asm"
     include "games/sonic4/player/player_sensors.asm"
+    include "games/sonic4/debug/game_debug.asm"
     include "engine/level/section.asm"
     include "engine/level/camera.asm"
     include "engine/level/parallax.asm"

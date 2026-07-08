@@ -61,3 +61,13 @@ gameBootHook macro {GLOBALSYMBOLS}
       endif
     endif
     endm
+
+; --- gameDebugTick — engine GameLoop invokes this once per frame after
+;     VSync/SFX-drain. May be empty. Sonic 4: sound test-harness hotkeys.
+gameDebugTick macro {GLOBALSYMBOLS}
+    ifdef SOUND_DEBUG_HOTKEYS
+      ifdef SOUND_DRIVER_ENABLED
+        jsr     Debug_MusicToggle       ; jsr not bsr.w — placement-free
+      endif
+    endif
+    endm
