@@ -7,6 +7,43 @@ Tracks work that was identified during design/implementation but deferred becaus
 
 ---
 
+## Engine substrate gaps — stocktake 2026-07-07 (execute AFTER the Sigil port)
+
+Gaps with no owning design anywhere (not in the nine design-week specs, not in the sound
+packages, not in the engine/game split plan). Deliberately deferred until Sigil finishes
+and the code is ported — Sigil verifies by byte-exact pinning against AS output, so new
+engine code before then moves the pin target and grows the port surface for no de-risk
+(the pin is a stronger port-verification net than any of these features would be).
+
+**Recommended pickup order after the port:**
+
+1. **Input layer maturity + demo recording/replay** — do FIRST: 6-button read (TH-toggle
+   protocol), pad-2 support (a human second player; design #3's Tails AI is input-filter
+   based and doesn't need it, a player does), and an input abstraction a record/replay
+   harness hooks. Replay's real cost is the determinism audit (RNG seeding,
+   frame-count/window-scan-dependent logic must be replay-stable); its payoff is a
+   deterministic regression net under every later engine execution (#1/#2/#7-#9).
+   `engine/system/controllers.asm` is 62 lines today — 3-button, pad 1.
+2. **SRAM save system** — 68k side is simple; the design is slot format + checksums +
+   wear pattern. HIDDEN DEPENDENCY: oracle must emulate SRAM persistence first (verify;
+   likely an oracle-side task). UI home = design #7's menu screens. The `gameHeader`
+   SRAM field (engine/game split plan) already parameterizes the header declaration.
+3. **Water/underwater engine hooks** — NOT simple; needs its own design pass, and only
+   when a level actually needs water. Two halves: mid-frame underwater palette via HInt
+   (CRAM-dot timing hazards; design #8's raster script engine is the natural host —
+   extend it, don't build parallel machinery) and per-section physics-modifier plumbing
+   (engine hooks, game values). Also explicitly deferred by the design-week queue.
+4. **Engine-default sound bank** — lift the split plan's v1 limitation that `games/demo/`
+   can't build with `SOUND_DRIVER_ENABLED` (ship a minimal engine-side bank satisfying
+   the soundBankHead contract).
+5. **RNG** — trivial; fold into design #9 execution (the behavior sequencer is its first
+   real consumer), not a standalone task.
+6. **PAL music tempo** — small, likely WONTFIX (emulator-only project; classic games
+   shipped frame-based PAL music slow). Boot already region-adapts timing step + DMA
+   budgets; this entry records the decision, not a demand.
+
+---
+
 ## ✅ RESOLVED — OJZ section-0 tile-budget overflow — 2026-06-22
 
 **RESOLVED 2026-06-22** via the globally-deduped paged act art pool (OJZ_ACT_POOL_TILES,
