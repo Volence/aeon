@@ -203,27 +203,17 @@ Cold_Boot:
     endif
 
     ifdef SOUND_DRIVER_ENABLED
-        ; Sound mailbox idle + (DEBUG) ping handshake. Z80 already has the bus
-        ; and the driver is running; registers are free here (post-boot setup).
+        ; Sound mailbox idle handshake. Z80 already has the bus and the
+        ; driver is running; registers are free here (post-boot setup).
         bsr.w   Sound_Init
-      ifdef SOUND_DEBUG_HOTKEYS
-        ; sound test-harness only (SOUND_DEBUG_HOTKEYS=1 builds): ping + autoplay.
-        moveq   #$3C, d0                 ; DEBUG: ping with a recognizable value
-        bsr.w   Sound_Ping
-        ; DEBUG: SONG_MOVINGTRUCKS (the only song, id 1) plays the sequencer-driven
-        ; "Moving Trucks" port across all 6 FM voices (FM1..FM6, 1:1), streamed from
-        ; ROM with the DAC off (SH_F_FM6_FM|SH_F_STREAM). The Phase-3 scratch test
-        ; songs (id 1-5) have been removed. Press START in-game to toggle play/stop
-        ; (game_loop Debug_MusicToggle).
-        moveq   #SONG_MOVINGTRUCKS, d0
-        bsr.w   Sound_PlayMusic
-        move.b  #1, (Dbg_Music_On).w     ; DEBUG: track play state for the Start-toggle
-      endif
     endif
+        gameBootHook                     ; game-supplied (may be empty)
 
-        ; Set initial game state
-        move.l  #GameState_OJZScroll_Init, (Game_State).w
-        move.b  #GS_OJZ_SCROLL_TEST, (Game_State_ID).w
+        ; Set initial game state — the game supplies the entry contract:
+        ;   Game_Entry    = the first game-state routine
+        ;   GAME_ENTRY_ID = its game-state id
+        move.l  #Game_Entry, (Game_State).w
+        move.b  #GAME_ENTRY_ID, (Game_State_ID).w
         clr.b   (Game_State_Init).w
 
         ; Enter main loop — never returns
