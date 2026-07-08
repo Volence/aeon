@@ -93,6 +93,12 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   break; v1 = skeleton + 3 example badniks [user framing], boss seams designed
   not built; Aurora properties panel in map mode + 4 MCP tools, stale TS
   entity exporter retired). Design #9 BANKED.
+- 2026-07-07 — design #5 plan REFRESHED: `plans/2026-07-07-engine-game-split-execution.md`
+  supersedes `plans/2026-07-02-engine-game-split.md` (post-07-02 sound merges drifted its
+  anchors; GAME_FM_PATCHES seam dead; four new seams: SndDefaultPitchTable, ring SFXID
+  contract, camera `_pl_state` gate, root `test/` relocation; engine.inc formation moved
+  late as its own byte-identical stage). Spec unchanged; deltas listed in the new plan's
+  header. Execution still open.
 - **ALL NINE DESIGNS BANKED — design week COMPLETE.** Every design has an
   approved spec + cold-executable plan on master. Execution order note:
   #7 tasks 1-5 unblock #4 fully; #9 depends softly on #4 (Touch_Enemy split)
