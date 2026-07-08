@@ -267,6 +267,22 @@ Sfx_Frame:
         jr      z, .next_slot            ; inactive slot -> skip
         push    bc                       ; preserve the slot-loop counter (b)
 
+        ; Stage C: age the re-ping countdown. 0 = not continuous (skip). 1 -> 0FFh
+        ; (mark expiring: end at next loop boundary). 2..N -> decrement. A ping this
+        ; frame (Sfx_BeginSound) already reset it to N before Sfx_Frame runs.
+        ld      a, (ix+sx_extend)
+        or      a
+        jr      z, .extend_done          ; not continuous
+        inc     a                        ; a==0FFh (expiring)? -> a==0 -> leave as-is
+        jr      z, .extend_done
+        dec     a                        ; undo the test-inc; a = current value
+        dec     a                        ; count down one
+        jr      nz, .extend_store
+        ld      a, 0FFh                  ; hit 0 -> expiring sentinel
+.extend_store:
+        ld      (ix+sx_extend), a
+.extend_done:
+
         ; (1) modulation layer — render the SFX channel's state -> chip. ix kept.
         call    ModUpdate
 
@@ -727,6 +743,30 @@ Sfx_BeginSound:
         xor     a
         ld      (SND_SFX_DISP_IDX), a    ; current channel record index (0-based)
 
+        ; --- Stage C: continuous re-ping. If this id is continuous and already
+        ; running, refresh its extend countdown and return (free ping; no re-key). --
+        ld      iy, (SND_SFX_DISP_BASE)
+        ld      a, (iy+SFXH_FLAGS)
+        and     SHF_CONTINUOUS
+        jr      z, .not_reping           ; not continuous -> normal dispatch
+        ld      ix, SND_SFX_CHANNELS
+        ld      hl, SND_SFX_ID_TAB
+        ld      b, SFX_VOICE_COUNT
+.reping_scan:
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      z, .reping_next
+        ld      a, (SND_SFX_DISP_ID)
+        cp      (hl)
+        jr      nz, .reping_next
+        ld      (ix+sx_extend), SFX_EXTEND_FRAMES  ; refresh countdown; keep playing
+        ret                              ; ping consumed — do NOT re-dispatch
+.reping_next:
+        inc     hl
+        ld      de, SfxChannel_len
+        add     ix, de
+        djnz    .reping_scan
+.not_reping:
+
         ; --- RETRIGGER + INSTANCE CAP (spec §7.1) ----------------------------------
         ; S3K cannot stack the same SFX: a retrigger re-inits the same fixed track
         ; (skdisasm Z80 Sound Driver.asm:1935-1975). Our dynamic allocator happily
@@ -916,6 +956,18 @@ Sfx_BeginSound:
         ld      (ix+sx_gain), a
         ld      a, (iy+SFXH_DUCK)
         ld      (ix+sx_duck), a          ; consumed by Task 3's duck scan
+
+        ; Stage C: continuous SFX start their re-ping countdown; others pin sx_extend
+        ; at 0 (never continuous). Seq_Op_Jump reads this tri-state at the loop boundary.
+        ld      a, (iy+SFXH_FLAGS)
+        and     SHF_CONTINUOUS
+        jr      z, .not_continuous
+        ld      a, SFX_EXTEND_FRAMES
+        ld      (ix+sx_extend), a
+        jr      .cont_done
+.not_continuous:
+        ld      (ix+sx_extend), 0
+.cont_done:
         pop     iy
 
         ld      a, (ix+sc_route)
