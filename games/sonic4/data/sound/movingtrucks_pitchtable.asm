@@ -49,4 +49,6 @@ MovingTrucks_PitchTable:
         db      000h, 03Dh, 07Dh, 0C2h, 00Ah, 057h, 0A8h, 0FEh, 059h, 0BAh, 021h, 08Dh
         db      000h, 03Dh, 07Dh, 0C2h, 00Ah, 057h, 0A8h, 0FEh, 059h, 0BAh, 021h, 08Dh
 MovingTrucks_PitchTable_End:
-
+        if (MovingTrucks_PitchTable_End - MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT
+          fatal "MovingTrucks_PitchTable wrong size: \{MovingTrucks_PitchTable_End - MovingTrucks_PitchTable} != \{2*PITCHTAB_COUNT}"
+        endif

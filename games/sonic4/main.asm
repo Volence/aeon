@@ -15,6 +15,7 @@ PAD_TO_POWER_OF_TWO     = 1
     include "sound_constants.asm"
     include "structs.asm"
     include "macros.asm"
+    include "engine/sound/sound_bank.inc"
     include "engine/parallax_macros.inc"
     include "ram.asm"
     include "games/sonic4/config/game.asm"
@@ -199,48 +200,10 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
 ; SndDrv_PollMailbox's SND_REQ_SAMPLE block before its DacSampleTable descriptor
 ; reads). Same derivation as sfx_bankid()/the SND_*_BANK sample constants.
 SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
-        ; F5 co-location: the engine lookup tables live at the START of MT's OWN
-        ; streamed bank. MT reads its stream/patch/pitch through the $8000 window
-        ; every frame, so the tables are read from the SAME bank already in the
-        ; window — no separate table bank, no per-frame swap. Emitted under
-        ; `cpu z80` + `phase 08000h` so the labels equal their $8000-window ptrs
-        ; (little-endian, as the Z80 reads them). The song/pitch/patch follow.
-        ;
-        ; *** REPLICATE-PER-BANK RULE ***
-        ; Every bank the sequencer RUNS A FRAME ON — any bank SND_SONG_BANK or
-        ; SFX_BLOB_BANK can name — MUST carry this engine-table head at its start
-        ; with IDENTICAL layout: the reader labels below are fixed $8000-window
-        ; addresses, so a frame on a bank without the head reads garbage pitch/
-        ; volume/dispatch. TODAY there is exactly ONE such bank (all songs, all
-        ; SFX blobs, and these tables share THIS bank — asserted in song_table.asm
-        ; and below at the SFX blob guard), so no replication exists. A future
-        ; song/SFX set in another bank needs a label-free data-only twin of this
-        ; head emitted at that bank's start (see DEFERRED_WORK "Bank-D DAC
-        ; co-location hook" for the generator approach).
         save
         cpu     z80
         phase   08000h
-        include "engine/sound/sound_tables_z80.asm"
-        include "games/sonic4/data/sound/movingtrucks_pitchtable.asm"
-        if (MovingTrucks_PitchTable_End - MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT
-          fatal "MovingTrucks_PitchTable wrong size: \{MovingTrucks_PitchTable_End - MovingTrucks_PitchTable} != \{2*PITCHTAB_COUNT}"
-        endif
-        ; SfxBlobWinTab — moved here from the resident Z80 blob (Phase-2 budget
-        ; recovery, ~270 B). Co-located in this same MT/SFX bank so the two readers
-        ; (sound_sfx.asm) read it through the $8000 window after SetBank(SFX_BLOB_BANK).
-        include "games/sonic4/data/sound/sfx_blob_win_tab.asm"
-        ; SeqOpcodeTable + DacSampleTable — moved here from the resident Z80 blob
-        ; (budget A.2, 2026-07-02, ~154 B). Bank-visibility arguments + the
-        ; DacSampleTable placement constraint (readable under the SONG bank, not a
-        ; DAC sample bank) are documented in the files.
-        include "engine/sound/seq_opcode_tab.asm"
-        include "engine/sound/dac_sample_tab.asm"
-        ; NO CODE may be authored in this banked window — only DATA tables.
-        ; Z80 opcode fetches from $8000-$FFFF traverse the 68k bus; 68k contention
-        ; (VRAM DMA-from-ROM / BUSREQ) corrupts the fetched opcode -> wild PC ->
-        ; Z80 self-reinit (`di` masks INT, not BUSREQ). Banked DATA reads tolerate
-        ; contention (worst case a one-frame glitch); banked CODE fetches do not.
-        ; All in-frame code lives in the resident blob (SND_STATE_BASE ceiling).
+        soundBankHead "games/sonic4/data/sound/movingtrucks_pitchtable.asm", "games/sonic4/data/sound/sfx_blob_win_tab.asm"
         dephase
         restore
         include "games/sonic4/data/sound/song_movingtrucks.asm"
