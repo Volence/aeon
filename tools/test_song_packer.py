@@ -739,9 +739,9 @@ class TestConstantsSync(unittest.TestCase):
 
     @staticmethod
     def _parse_asm_equates():
-        # sound_constants.asm sits at the repo root; tests live in <repo>/tools/.
+        # sound_constants.asm sits under engine/; tests live in <repo>/tools/.
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        asm_path = os.path.join(repo_root, "sound_constants.asm")
+        asm_path = os.path.join(repo_root, "engine", "sound_constants.asm")
         mev, chroute, tag = {}, {}, {}
         # e.g. "MEV_REST        = $80    ; comment"  /  "CHROUTE_FM1 = 0"  /  "TAG_MAC_NEXT = $E0"
         mev_re = re.compile(r"^\s*(MEV_[A-Z0-9_]+)\s*=\s*\$([0-9A-Fa-f]+)")

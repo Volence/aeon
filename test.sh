@@ -37,20 +37,20 @@ fi
 # -----------------------------------------------
 section "2. S4LZ Real-Data Round-Trip"
 # -----------------------------------------------
-if [ -f "test/title_art.bin" ]; then
-    if python3 "${TOOLS}/s4lz.py" verify test/title_art.bin; then
+if [ -f "games/sonic4/test/title_art.bin" ]; then
+    if python3 "${TOOLS}/s4lz.py" verify games/sonic4/test/title_art.bin; then
         pass_test "S4LZ round-trip: title_art.bin"
     else
         fail_test "S4LZ round-trip: title_art.bin"
     fi
 
-    if python3 "${TOOLS}/s4lz.py" verify --tile-delta test/title_art.bin; then
+    if python3 "${TOOLS}/s4lz.py" verify --tile-delta games/sonic4/test/title_art.bin; then
         pass_test "S4LZ round-trip: title_art.bin (tile-delta)"
     else
         fail_test "S4LZ round-trip: title_art.bin (tile-delta)"
     fi
 else
-    fail_test "test/title_art.bin not found"
+    fail_test "games/sonic4/test/title_art.bin not found"
 fi
 
 # -----------------------------------------------

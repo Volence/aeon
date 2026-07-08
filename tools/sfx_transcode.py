@@ -13,7 +13,7 @@ Format reference:
   Then: packed event streams, then: FmPatch bank bytes.
   voice_ptr points into the inline FmPatch bank (offset from blob start).
 
-SFX id → priority map mirrors sound_constants.asm SFXPRI_* constants.
+SFX id → priority map mirrors games/sonic4/config/sound_ids.asm SFXPRI_* constants.
 Reserved channels (FM1, FM2, FM6, DAC) may NOT appear; any SFX targeting them
 raises a build error.  Unknown coord-flag bytes ($E0-$FF not in the v1 coverage
 list) and unknown smpsVc* voice sub-macros raise a build error per spec §8.
@@ -73,10 +73,11 @@ SFXEL_FM    = 1
 SFXEL_PSG   = 2
 SFXEL_NOISE = 3
 
-# Per-SFX priority tiers (mirror sound_constants.asm SFXPRI_*). 7-bit scale
-# ($00-0x7F): bit 7 of sfh_priority is reserved as the non-latching flag (spec
-# §5/§7.1). Only relative ordering matters; values must stay < 0x80 (guarded by a
-# build-time assert in sound_constants.asm and test_priorities_are_7bit below).
+# Per-SFX priority tiers (mirror games/sonic4/config/sound_ids.asm SFXPRI_*).
+# 7-bit scale ($00-0x7F): bit 7 of sfh_priority is reserved as the non-latching
+# flag (spec §5/§7.1). Only relative ordering matters; values must stay < 0x80
+# (guarded by a build-time assert in games/sonic4/config/sound_ids.asm and
+# test_priorities_are_7bit below).
 SFXPRI_RING     = 0x10
 SFXPRI_JUMP     = 0x20
 SFXPRI_ROLL     = 0x30
@@ -1658,6 +1659,17 @@ def emit_sfx_table_asm(sfx_ids: list, id_to_label: dict) -> str:
     max_id = max(sfx_ids)
     total = max_id - min_id + 1
 
+    # SFX_BLOB_BANK is a game-declared sound contract constant (see
+    # games/sonic4/config/game.asm's "sound contract" section for the
+    # canonical comment), but sfx_bankid() (engine/sound/sound_sfx.asm)
+    # isn't visible yet at game.asm's include position in main.asm, and the
+    # first SFX blob label doesn't exist until the sfx_NN.asm includes run.
+    # This generated file is included after both, so the declaration lives
+    # here instead — taken from the first (lowest-id) blob; the contiguous
+    # build layout (all sfx_NN.asm blobs included together in main.asm)
+    # guarantees the rest share its bank.
+    lines.append(f"SFX_BLOB_BANK = sfx_bankid({id_to_label[min_id]})")
+    lines.append("")
     lines.append(f"SFX_ID_BASE  = ${min_id:02X}")
     lines.append(f"SFX_COUNT    = {len(sfx_ids)}")
     lines.append(f"SFX_TABLE_LEN = {total}   ; max_id - min_id + 1 (sparse over the id range)")

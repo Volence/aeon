@@ -20,6 +20,9 @@
 ;   idx $44 = block2 fnum1625 -> A4=$16 A0=$59
 ; ======================================================================
 
+; engine contract — the song bank head MUST define this inside the $8000
+; window; sound_fm.asm falls back to it when a song's pitchtable_ptr is 0.
+SndDefaultPitchTable:
 MovingTrucks_PitchTable:
 ; --- page 0: A4 (block|fnumHi) bytes, idx $00..$83 ---
         db      000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h, 000h
@@ -46,4 +49,6 @@ MovingTrucks_PitchTable:
         db      000h, 03Dh, 07Dh, 0C2h, 00Ah, 057h, 0A8h, 0FEh, 059h, 0BAh, 021h, 08Dh
         db      000h, 03Dh, 07Dh, 0C2h, 00Ah, 057h, 0A8h, 0FEh, 059h, 0BAh, 021h, 08Dh
 MovingTrucks_PitchTable_End:
-
+        if (MovingTrucks_PitchTable_End - MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT
+          fatal "MovingTrucks_PitchTable wrong size: \{MovingTrucks_PitchTable_End - MovingTrucks_PitchTable} != \{2*PITCHTAB_COUNT}"
+        endif

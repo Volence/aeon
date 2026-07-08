@@ -110,7 +110,7 @@ class TestFmPitchTable(unittest.TestCase):
         """The generator's FNUM_LO/FNUM_HI must equal the engine's authoritative
         band in sound_constants.asm — an engine-side band change must fail here
         loudly instead of silently drifting the generated table."""
-        asm = os.path.join(os.path.dirname(__file__), "..", "sound_constants.asm")
+        asm = os.path.join(os.path.dirname(__file__), "..", "engine", "sound_constants.asm")
         with open(asm) as fh:
             text = fh.read()
         engine = {}

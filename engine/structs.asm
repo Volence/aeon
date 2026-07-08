@@ -216,8 +216,8 @@ start_sec_y         ds.b 1          ; $0D — starting section Y index
 act_bg_layout       ds.l 1          ; $0E — zone-wide Plane B layout pointer (T1 default)
 act_bg_tiles        ds.l 1          ; $12 — zone-wide Plane B tile blob (raw, loaded into shared BG region)
 act_parallax_config ds.l 1          ; $16 — default parallax config (fallback when section's is NULL)
-act_art_pool_table  ds.l 1          ; $1A — ptr to page-address table (OJZ_Act_Pool_PageTable)
-act_art_pool_pages  ds.w 1          ; $1E — number of pool pages (OJZ_ACT_POOL_PAGES)
+act_art_pool_table  ds.l 1          ; $1A — ptr to the game's page-address table
+act_art_pool_pages  ds.w 1          ; $1E — number of pool pages (game generator emits the count)
 edge_mode           ds.b 1          ; $20 — vertical edge behavior (EDGE_CLAMP/WRAP_V/KILL; §10)
                     ds.b 1          ; $21 — reserved (pad to word; future per-section edge flags)
 Act endstruct

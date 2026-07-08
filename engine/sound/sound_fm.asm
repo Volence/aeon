@@ -670,8 +670,9 @@ Fm_TransposeClamp:
 ;
 ; TABLE: TWO PARALLEL PAGES (sound_constants.asm) — A4 page first (PITCHTAB_COUNT
 ; bytes), then the A0 page. So for index i: $A4 = base[i], $A0 = base[COUNT+i].
-; base = Snd_PitchTabPtr (per-song) when nonzero, else MovingTrucks_PitchTable
-; (the inline engine-default table). idx = clamp_0_83(note+transpose) via
+; base = Snd_PitchTabPtr (per-song) when nonzero, else SndDefaultPitchTable
+; (the game-declared engine-contract default table — the song bank head must
+; define it inside the $8000 window). idx = clamp_0_83(note+transpose) via
 ; Fm_TransposeClamp; then $A4/$A0 are looked up and Fm_NoteOnFreq keys on.
 ; Clobbers: af, bc, de, hl. Preserves ix.
 ; ----------------------------------------------------------------------
@@ -687,7 +688,7 @@ Fm_NoteFromTable:
         ld      a, h
         or      l
         jr      nz, .have_base
-        ld      hl, MovingTrucks_PitchTable   ; banked default table; label = its $8000-window ptr
+        ld      hl, SndDefaultPitchTable      ; banked default table; label = its $8000-window ptr
 .have_base:
         ; --- $A4 = base[idx] ---
         add     hl, bc                   ; hl = &A4page[idx]

@@ -1,6 +1,6 @@
 # Engine/Game Agnostic Split — Execution Plan (2026-07-07 refresh)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`/`- [x]`) syntax for tracking.
 >
 > **SUPERSEDES** `2026-07-02-engine-game-split.md` (same spec, same goal). That plan's
 > line anchors and two of its seams went stale when the 2026-07-03 sound packages merged.
@@ -9,13 +9,17 @@
 > Anchors re-verified again @ `2e42ec2` (post package-2 SFX Stage B/C merge): drifts in
 > items h/j and the T5 sound-constants game slice (SFXPRI_* ladder) are folded in.
 
+> **EXECUTED 2026-07-07/08** — subagent-driven, all nine tasks complete; merged to master
+> `<MERGE_COMMIT_PLACEHOLDER>`. Field findings folded into this doc as amendments; see also
+> the queue-doc log.
+
 **Goal:** Real engine/game wall — `engine/engine.inc` + game manifest + `gameHeader` + parameterized boot + `soundBankHead` contract + def/RAM splits + `games/demo/` booting on oracle. Sonic 4 behavior and `s4.bin` unchanged.
 
 **Spec:** `docs/superpowers/specs/2026-07-02-engine-game-split-design.md` (APPROVED). Read it fully first. Spec deltas discovered in this refresh are listed below — where they conflict, THIS plan wins (the code moved after the spec was written).
 
 **Architecture:** T2 vectors/header/boot seams → T3 stray inversions (now TEN of them) → T4 soundBankHead → T5 def split → T6 RAM split → T7 engine.inc + manifest (moved LATE deliberately: every earlier stage keeps main.asm as the working orchestrator, so the big include-reshuffle is one mechanical byte-identical step at the end) → T8 build gating + games/demo → T9 grep gate + docs + merge.
 
-**Stage classes:** **[BYTE]** = `s4.bin` must hash identical (md5) to the previous stage. **[BEHAV]** = behavior-identical: oracle boot + full OJZ circuit (walk/jump/spindash left and right across at least one section boundary) + sound smoke.
+**Stage classes:** **[BYTE]** = the CART-CORE must hash identical to the previous stage: md5 of `s4.bin[0:EndOfRom]` with the checksum word ($18E) and ROM-end long ($1A4) zeroed — use the `rom_core_hash.py` gate tool (T3 field finding: the convsym deb2 symbol appendix rides past EndOfRom and changes size on ANY symbol add/rename, which also moves the two fixheader-derived header fields; the full-file md5 is therefore only usable when the symbol set is untouched). When the full-file md5 does move on a [BYTE] stage, the symbol-log name-set delta (`convsym -output log` before/after) must exactly equal the intended new/renamed symbols — nothing else. **[BEHAV]** = behavior-identical: oracle boot + full OJZ circuit + sound smoke.
 
 ---
 
@@ -81,6 +85,13 @@
 - AS is multi-pass: forward references between equates are fine. If the assembler loops
   with warning #80 ("symbol value changes force additional pass"), you created an
   order-dependent definition — restructure the split, don't suppress the warning.
+- **AS macro labels are MACRO-LOCAL by default** (discovered T2 execution, 2026-07-07):
+  labels defined inside a macro body — and inside any file `include`d from a macro
+  body — are invisible outside the expansion and vanish from the symbol table /
+  convsym deb2 table. EVERY contract/hook macro that emits or includes labels MUST be
+  declared `name macro {GLOBALSYMBOLS}` (verified fix). This applies to `gameHeader`,
+  `gameBootHook`, `gameDebugTick`, `soundBankHead` (T4 — it includes label-bearing
+  files), and ALL SIX manifest macros in T7 (`gameConfigIncludes` … `gameSoundDataIncludes`).
 
 ## The verified coupling inventory (master @ 9bacc93; re-verified @ 2e42ec2 after the package-2 SFX Stage B/C merge)
 
@@ -116,10 +127,10 @@ evidence).
 
 ### Task 1: Branch + baselines
 
-- [ ] **Step 1: Read.** The spec (`2026-07-02-engine-game-split-design.md`), this plan's
+- [x] **Step 1: Read.** The spec (`2026-07-02-engine-game-split-design.md`), this plan's
   coupling inventory, `games/sonic4/main.asm` in full (446 lines — it is the document
   being decomposed), `engine/system/boot.asm:190-293`, `build.sh` in full.
-- [ ] **Step 2: Branch + hash.**
+- [x] **Step 2: Branch + hash.**
 
 ```bash
 git checkout -b feat/engine-game-split
@@ -129,7 +140,7 @@ SOUND_DRIVER_ENABLED=1 SOUND_DEBUG_HOTKEYS=1 DEBUG=1 ./build.sh && md5sum s4.bin
 
   Record both hashes in the scratchpad. These are the T-anchor baselines; every [BYTE]
   stage re-derives and compares.
-- [ ] **Step 3: Behavior baseline on oracle.** Rebuild the SOUND+DEBUG variant (hash
+- [x] **Step 3: Behavior baseline on oracle.** Rebuild the SOUND+DEBUG variant (hash
   discipline!), load in oracle, run: boot → OJZ circuit → sound smoke (START toggles
   music; B cycles SFX 0-7; hotkeys need the `SOUND_DEBUG_HOTKEYS=1` build). Screenshot
   the running scene for reference.
@@ -140,14 +151,14 @@ SOUND_DRIVER_ENABLED=1 SOUND_DEBUG_HOTKEYS=1 DEBUG=1 ./build.sh && md5sum s4.bin
 - Create: `engine/system/vectors.asm`, `engine/system/header.inc`, `games/sonic4/config/game.asm`
 - Modify: `games/sonic4/main.asm` (lines 25-90 replaced; add config include after line 19), `engine/system/boot.asm:205-227`
 
-- [ ] **Step 1: Create `engine/system/vectors.asm`** — main.asm lines 30-71 verbatim
+- [x] **Step 1: Create `engine/system/vectors.asm`** — main.asm lines 30-71 verbatim
   (the `__BUDGET_VECTORS`/`Vectors:` labels through the last `ErrorTrap` row). Header
   comment: engine-owned 64-vector table; every target is an engine symbol
   (`EntryPoint`, error vectors, `HBlank_Dispatch`, `VBlank_Handler`, `NullInterrupt`,
   `ErrorTrap`). NOTE: `NullInterrupt` (`rte`) does NOT move here — the org-0 image is
   pure data until $200; the routine stays where it is emitted today (main.asm:420) and
   joins the engine.inc epilogue in T7.
-- [ ] **Step 2: Create `engine/system/header.inc`** with the `gameHeader` macro:
+- [x] **Step 2: Create `engine/system/header.inc`** with the `gameHeader` macro:
 
 ```asm
 ; gameHeader — emits the $100-$1FF Mega Drive ROM header from game-declared
@@ -206,7 +217,7 @@ Checksum:
     endm
 ```
 
-- [ ] **Step 3: Create `games/sonic4/config/game.asm`** (the game contract file — grows
+- [x] **Step 3: Create `games/sonic4/config/game.asm`** (the game contract file — grows
   in T3):
 
 ```asm
@@ -231,7 +242,7 @@ GAME_ENTRY_ID   = GS_OJZ_SCROLL_TEST
 ; --- gameBootHook — engine boot invokes this after Sound_Init, before the
 ;     game-state handoff. May be empty. Sonic 4: sound test-harness ping +
 ;     autoplay (moved verbatim from engine/system/boot.asm).
-gameBootHook macro
+gameBootHook macro {GLOBALSYMBOLS}
     ifdef SOUND_DRIVER_ENABLED
       ifdef SOUND_DEBUG_HOTKEYS
         moveq   #$3C, d0                 ; ping with a recognizable value
@@ -245,7 +256,7 @@ gameBootHook macro
 ```
 
   The exact strings above were lifted from main.asm:76-90 — verify by diff, not by eye.
-- [ ] **Step 4: Rewire `games/sonic4/main.asm`.** After line 19 (`include "ram.asm"`),
+- [x] **Step 4: Rewire `games/sonic4/main.asm`.** After line 19 (`include "ram.asm"`),
   add `include "games/sonic4/config/game.asm"`. Replace lines 25-90 (org 0 through the
   region string) with:
 
@@ -256,7 +267,7 @@ gameBootHook macro
     gameHeader
 ```
 
-- [ ] **Step 5: Parameterize `engine/system/boot.asm`.** Replace lines 205-227
+- [x] **Step 5: Parameterize `engine/system/boot.asm`.** Replace lines 205-227
   (the `ifdef SOUND_DRIVER_ENABLED` block + state handoff) with:
 
 ```asm
@@ -275,13 +286,13 @@ gameBootHook macro
         clr.b   (Game_State_Init).w
 ```
 
-- [ ] **Step 6: Verify.** Build both variants. `cmp` the first 512 bytes of the
+- [x] **Step 6: Verify.** Build both variants. `cmp` the first 512 bytes of the
   SOUND+DEBUG `s4.bin` against the Task-1 baseline ROM (`cmp -n 512 s4.bin <baseline>`)
   — must be identical (vectors + header are byte-frozen). Full-ROM hash should ALSO
   match (the boot rewrite emits identical bytes when both flags are on — the moved
   instructions are verbatim); if it doesn't, diff `s4.lst` around `EntryPoint` and
   justify every delta before proceeding. Oracle: boot + circuit + sound smoke.
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```bash
 git add engine/system/vectors.asm engine/system/header.inc games/sonic4/config/game.asm games/sonic4/main.asm engine/system/boot.asm
@@ -293,12 +304,12 @@ git commit -m "feat(engine): engine-owned vectors + gameHeader + parameterized b
 Work through the coupling inventory items c-l. Each sub-step is independently
 verifiable; build after each, commit once at the end (or per sub-step if convenient).
 
-- [ ] **3.1 sine.bin →  engine.** `git mv games/sonic4/data/misc/sine.bin engine/data/sine.bin`
+- [x] **3.1 sine.bin →  engine.** `git mv games/sonic4/data/misc/sine.bin engine/data/sine.bin`
   (create `engine/data/`). Update `engine/system/math.asm:27` to
   `BINCLUDE "engine/data/sine.bin"`. Check nothing else references the old path:
   `grep -rn "misc/sine" --include='*.asm' --include='*.py' .` → only math.asm (fix any
   tool hit found).
-- [ ] **3.2 Self-test vectors → engine.** Read `tools/gen_compression_vectors.py`; change
+- [x] **3.2 Self-test vectors → engine.** Read `tools/gen_compression_vectors.py`; change
   its output dir from `games/sonic4/data/generated/test/` to
   `engine/debug/generated/` (it is NOT daemon-watched — only ojz_strip_gen.py is).
   Update `engine/debug/compression_selftest.asm:92` to
@@ -308,7 +319,7 @@ verifiable; build after each, commit once at the end (or per sub-step if conveni
   `./build.sh` (the generator runs inside it) and check the file lands in the new spot.
   If any pytest under `tools/` asserts the old path (`grep -rn "generated/test" tools/`),
   repoint it and run the tool tests.
-- [ ] **3.3 Debug sound harness → game.** Create `games/sonic4/debug/game_debug.asm`;
+- [x] **3.3 Debug sound harness → game.** Create `games/sonic4/debug/game_debug.asm`;
   move `engine/system/game_loop.asm` lines 26-136 into it VERBATIM (the two nested
   `ifdef SOUND_DEBUG_HOTKEYS`/`ifdef SOUND_DRIVER_ENABLED` blocks containing
   `Debug_MusicToggle` + `Dbg_SfxIdTable`). In `game_loop.asm`, replace the call block
@@ -318,7 +329,7 @@ verifiable; build after each, commit once at the end (or per sub-step if conveni
 ```asm
 ; --- gameDebugTick — engine GameLoop invokes this once per frame after
 ;     VSync/SFX-drain. May be empty. Sonic 4: sound test-harness hotkeys.
-gameDebugTick macro
+gameDebugTick macro {GLOBALSYMBOLS}
     ifdef SOUND_DEBUG_HOTKEYS
       ifdef SOUND_DRIVER_ENABLED
         jsr     Debug_MusicToggle       ; (was bsr.w — jsr is placement-free)
@@ -330,18 +341,18 @@ gameDebugTick macro
   Include the new file from `games/sonic4/main.asm` in the engine-code region,
   immediately after the `player_sensors.asm` include (line 119) — co-locating ALL
   game-in-engine-block code at one slot so T7 needs exactly one hook there.
-- [ ] **3.4 sfx_blob_win_tab → game data.**
+- [x] **3.4 sfx_blob_win_tab → game data.**
   `git mv engine/sound/sfx_blob_win_tab.asm games/sonic4/data/sound/sfx_blob_win_tab.asm`;
   update the include at `games/sonic4/main.asm:294`. (It is transcoder-shaped game data —
   a table of game SFX-blob window pointers; engine-side was backwards.)
-- [ ] **3.5 SFX_BLOB_BANK → game-declared.** Find where `sfx_bankid` is defined
+- [x] **3.5 SFX_BLOB_BANK → game-declared.** *(As executed 2026-07-07: `sfx_bankid()` is not visible at game.asm's include position, and `sfx_table.asm` is regenerated every build — so the declaration is emitted by `tools/sfx_transcode.py` into the generated file; game.asm carries the contract comment. T5 must NOT duplicate it into config/sound_ids.asm.)* Find where `sfx_bankid` is defined
   (`grep -rn "sfx_bankid" --include='*.asm' .` — expect `sound_constants.asm`). Delete
   `engine/sound/sound_sfx.asm:64` (`SFX_BLOB_BANK = sfx_bankid(Sfx_33)`) and add the same
   line to `games/sonic4/config/game.asm` under a `; --- sound contract ---` header,
   IF `sfx_bankid` is visible there (defined in the defs files included earlier). If it
   is not, put the declaration at the top of `games/sonic4/data/sound/sfx_table.asm`
   instead and note the placement in the config file's comment.
-- [ ] **3.6 SFXID_SPINDASH → SFXID_REV_LOOP contract.** Read
+- [x] **3.6 SFXID_SPINDASH → SFXID_REV_LOOP contract.** Read
   `engine/sound/sound_sfx.asm:690-715` (the spindash-rev special case around the
   `cp SFXID_SPINDASH` at :699). This is the LEGACY rev special case — distinct from
   the Stage-C `SHF_CONTINUOUS` mechanism nearby; touch only the `SFXID_SPINDASH`
@@ -350,19 +361,19 @@ gameDebugTick macro
   `endif` (assemble the feature out, not a runtime check — Z80 side). Add to
   `games/sonic4/config/game.asm`: `SFXID_REV_LOOP = SFXID_SPINDASH` (with comment:
   −1 = no rev-loop SFX; games without a spindash define −1).
-- [ ] **3.7 Ring SFX contract.** No code change — `SFXID_RING_LEFT`/`SFXID_RING_RIGHT`
+- [x] **3.7 Ring SFX contract.** No code change — `SFXID_RING_LEFT`/`SFXID_RING_RIGHT`
   stay referenced by `engine/sound/sound_api.asm` (the engine ring system's L/R
   alternation). Add them to the contract comment block in `config/game.asm` (they are
   defined in the SFXID block that T5 moves to `config/sound_ids.asm`); they join the T9
   gate allowlist.
-- [ ] **3.8 Default pitch table contract.** In
+- [x] **3.8 Default pitch table contract.** In
   `games/sonic4/data/sound/movingtrucks_pitchtable.asm`, add directly above the
   `MovingTrucks_PitchTable:` label: `SndDefaultPitchTable:` (a second label on the same
   address; comment: engine contract — the bank head MUST define this inside the $8000
   window; `sound_fm.asm` falls back to it when a song's `pitchtable_ptr` is 0). Change
   `engine/sound/sound_fm.asm:668` to `ld hl, SndDefaultPitchTable` (keep the comment,
   updated). Byte-identical (same address, renamed reference).
-- [ ] **3.9 Camera de-Sonicization.** In `engine/level/camera.asm`, wrap the jump-state
+- [x] **3.9 Camera de-Sonicization.** In `engine/level/camera.asm`, wrap the jump-state
   landing-lock block — from the `move.b (Player_1+_pl_state).w, d2` at :180 through the
   `.land_lock` block's `bra.w .clamp_y` — in `if GAME_CAMERA_JUMP_LOCK` / `endif` so
   that with the flag 0 the code falls straight into `.down_ok`. Keep `.check_down:` and
@@ -374,7 +385,7 @@ gameDebugTick macro
   `engine/level/camera.asm`, and the setter in `games/sonic4/player/player_spindash.asm`);
   update the comment to describe it generically ("frames the camera holds position;
   game code sets it, e.g. spindash charge"). RAM-symbol rename — no ROM bytes change.
-- [ ] **3.10 Root test/ → game.** `mkdir games/sonic4/test`;
+- [x] **3.10 Root test/ → game.** `mkdir games/sonic4/test`;
   `git mv test/object_test_state.asm test/ojz_scroll_test.asm games/sonic4/test/`.
   Move the rest of `test/`'s referenced files with them: first
   `grep -rn '"test/' --include='*.asm' .` to find every include/BINCLUDE of the old
@@ -382,13 +393,13 @@ gameDebugTick macro
   `git mv` whatever they reference (`title_art.s4lz`, `*.bin` as applicable) and fix all
   paths. Delete `test/` remnants that nothing references (the stray `.png`s can move
   wholesale — they're artifacts of this test scene).
-- [ ] **3.11 Verify.** Both builds green. SOUND+DEBUG hash will differ from baseline
+- [x] **3.11 Verify.** Both builds green. SOUND+DEBUG hash will differ from baseline
   (jsr-for-bsr, moved includes) — that is expected; this stage is [BEHAV]: oracle boot,
   full circuit, ALL sound hotkeys (START music toggle, B-cycle through all 8 SFX —
   the harness moved, this is the regression surface), spindash rev SFX specifically
   (3.6 touched its dispatch), spindash camera hold + jump camera behavior (3.9 touched
   camera paths — jump around and confirm the camera doesn't chase a rising jump).
-- [ ] **3.12 Commit.**
+- [x] **3.12 Commit.**
 
 ```bash
 git add -u
@@ -405,13 +416,13 @@ git commit -m "refactor(engine): invert all ten engine->game strays (E2) — sin
 - Create: `engine/sound/sound_bank.inc`
 - Modify: `games/sonic4/main.asm:283-308`, `games/sonic4/data/sound/movingtrucks_pitchtable.asm`
 
-- [ ] **Step 1: Research.** Re-read `games/sonic4/main.asm:235-310` (the bank-head
+- [x] **Step 1: Research.** Re-read `games/sonic4/main.asm:235-310` (the bank-head
   region — line numbers will have drifted slightly after T2/T3). Identify exactly:
   the `save`/`cpu z80`/`phase 08000h` bracket, the five includes inside it, the pitch
   table size assert (lines 288-290 pre-drift), and the NO-CODE comment block. The
   `SND_ENGINE_TABLE_BANK` equate and `MovingTrucks_Bank_Start` label stay game-side
   (they derive from the game's bank placement).
-- [ ] **Step 2: Create `engine/sound/sound_bank.inc`:**
+- [x] **Step 2: Create `engine/sound/sound_bank.inc`:**
 
 ```asm
 ; soundBankHead — the engine-tables-at-bank-head contract.
@@ -441,7 +452,7 @@ git commit -m "refactor(engine): invert all ten engine->game strays (E2) — sin
 ;                SetBank(SFX_BLOB_BANK)).
 ; The game must also define, game-side, at the bank start (BEFORE the phase
 ; bracket): a bank-start label and SND_ENGINE_TABLE_BANK = <label> >> 15.
-soundBankHead macro pitchfile, sfxtabfile
+soundBankHead macro pitchfile, sfxtabfile, {GLOBALSYMBOLS}
         include "engine/sound/sound_tables_z80.asm"
         include pitchfile
         include sfxtabfile
@@ -451,12 +462,12 @@ soundBankHead macro pitchfile, sfxtabfile
 ```
 
   The include ORDER is the current main.asm order exactly — byte-frozen.
-- [ ] **Step 3: Move the pitch-table size assert.** Cut the
+- [x] **Step 3: Move the pitch-table size assert.** Cut the
   `if (MovingTrucks_PitchTable_End - MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT`
   /`fatal`/`endif` from main.asm into
   `games/sonic4/data/sound/movingtrucks_pitchtable.asm` (at its end, after
   `MovingTrucks_PitchTable_End`). Asserts emit nothing — byte-safe.
-- [ ] **Step 4: Rewire main.asm.** Add `include "engine/sound/sound_bank.inc"` in the
+- [x] **Step 4: Rewire main.asm.** Add `include "engine/sound/sound_bank.inc"` in the
   defs region (after the macros include). Replace the five includes inside the phase
   bracket (and the assert moved in Step 3, and the big invariant comment blocks the
   macro now carries) with:
@@ -473,10 +484,10 @@ soundBankHead macro pitchfile, sfxtabfile
   Keep game-side in main.asm: `MovingTrucks_Bank_Start:`, `SND_ENGINE_TABLE_BANK`, the
   `align $8000`, and everything after `restore` (songs, stream pitch table, patches,
   SFX blobs, guards) untouched.
-- [ ] **Step 5: Verify byte-identical.** Rebuild SOUND+DEBUG variant, `md5sum s4.bin`
+- [x] **Step 5: Verify byte-identical.** Rebuild SOUND+DEBUG variant, `md5sum s4.bin`
   vs the Task-3 post-commit hash of the same variant (rebuild that from the T3 commit
   if you didn't record it). MUST match exactly. Plain build green too.
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 git add engine/sound/sound_bank.inc games/sonic4/main.asm games/sonic4/data/sound/movingtrucks_pitchtable.asm
@@ -491,7 +502,7 @@ git commit -m "feat(sound): soundBankHead — the engine-tables-at-bank-head con
 - Delete: root `constants.asm`, root `sound_constants.asm`
 - Modify: `games/sonic4/main.asm:14-17`
 
-- [ ] **Step 1: Classify.** Root `constants.asm` is 550 lines. The game slice (verified
+- [x] **Step 1: Classify.** Root `constants.asm` is 550 lines. The game slice (verified
   2026-07-07 — re-verify each, lines may have drifted):
   - `GS_OBJECT_TEST` (:213), `GS_OJZ_SCROLL_TEST` (:432) — game state ids.
     `GS_BOOT`/`GS_IDLE` (:112-113) stay ENGINE (boot/dispatch core).
@@ -514,9 +525,9 @@ git commit -m "feat(sound): soundBankHead — the engine-tables-at-bank-head con
   `grep -n "PlayerV\|Player\|Sonic" structs.asm` — if the player SST overlay struct
   (`PlayerV_*`) lives there, split it out to `games/sonic4/config/constants.asm` too
   (the SST core struct is engine; the player overlay is game).
-- [ ] **Step 2: Check tool readers.** `grep -rn "constants.asm\|sound_constants.asm\|structs.asm\|macros.asm" tools/ .github 2>/dev/null` —
+- [x] **Step 2: Check tool readers.** `grep -rn "constants.asm\|sound_constants.asm\|structs.asm\|macros.asm" tools/ .github 2>/dev/null` —
   s4lint/s4budget/pytest may parse these by path. Repoint every hit to the new paths.
-- [ ] **Step 3: Cut.** `git mv structs.asm engine/structs.asm`,
+- [x] **Step 3: Cut.** `git mv structs.asm engine/structs.asm`,
   `git mv macros.asm engine/macros.asm`. Create `engine/constants.asm` (root file minus
   the game slice) + `games/sonic4/config/constants.asm` (the game slice, in original
   relative order, with a header comment naming the file's role); same for
@@ -548,13 +559,13 @@ git commit -m "feat(sound): soundBankHead — the engine-tables-at-bank-head con
   engine.inc order, established now. AS resolves forward equate references across
   passes; if assembly diverges (warning #80 loop), a game symbol is consumed in an
   order-dependent way — find it and leave THAT symbol engine-side with a comment.)
-- [ ] **Step 4: Verify.** Rebuild SOUND+DEBUG; target byte-identical hash. Pure def
+- [x] **Step 4: Verify.** Rebuild SOUND+DEBUG; target byte-identical hash. Pure def
   relocation SHOULD be byte-identical; if the hash moves, diff `s4.lst` against the
   previous stage's listing and prove every delta is file/line metadata only — any
   value/address delta is a bug. For each game-slice symbol moved, confirm
   `grep -rln "<SYM>" engine/` is empty (or contract-listed). Plain build green. Tool
   tests green if Step 2 touched any.
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add engine/constants.asm engine/sound_constants.asm engine/structs.asm engine/macros.asm games/sonic4/config/constants.asm games/sonic4/config/sound_ids.asm games/sonic4/main.asm
@@ -571,7 +582,7 @@ git commit -m "refactor: engine/game def split — constants, sound ids, structs
 - Delete: root `ram.asm`
 - Modify: `games/sonic4/main.asm` defs prologue
 
-- [ ] **Step 1: Research.** Read root `ram.asm` in full (478 lines). It has TWO phase
+- [x] **Step 1: Research.** Read root `ram.asm` in full (478 lines). It has TWO phase
   regions: `phase $FFFF0000` (:10-43) and `phase $FFFF8000` (:48 onward, the
   `.w`-addressable block) plus a trailing guard/alignment note (:414-420). The game
   slice (verified 2026-07-07; re-verify):
@@ -587,7 +598,7 @@ git commit -m "refactor: engine/game def split — constants, sound ids, structs
   - `Ring_*` buffers/counters, `Ring_Sfx_Speaker`, `Sfx_Ring_*`, `Sound_Dbg_Mirror`
     stay ENGINE (engine ring system + sound API + engine sound debug).
   Confirm each candidate with `grep -rln "<SYM>" engine/` (engine hit ⇒ stays engine).
-- [ ] **Step 2: Split.** `engine/ram.asm` = root file minus the game slice; at the end
+- [x] **Step 2: Split.** `engine/ram.asm` = root file minus the game slice; at the end
   of its `$FFFF8000` phase block (BEFORE its overflow guard), add:
 
 ```asm
@@ -636,7 +647,7 @@ Game_RAM_End:
   `ram.asm`. Update main.asm: `include "engine/ram.asm"` then
   `include "games/sonic4/config/ram.asm"` (game config constants are already included
   before ram — ring sizing feeds engine ram).
-- [ ] **Step 3: Verify — runtime, not just build.** Both builds green. Then oracle,
+- [x] **Step 3: Verify — runtime, not just build.** Both builds green. Then oracle,
   MANDATORY: boot (watch for address-error black screens), full circuit (spindash,
   jump, rings collect — ring counter increments, ring SFX alternates L/R), sound smoke,
   and spot-check via `s4.lst`: eyeball the new RAM map against the old listing —
@@ -644,7 +655,7 @@ Game_RAM_End:
   256-aligned address, every engine symbol that FOLLOWED the removed game blocks now
   shifted but even-aligned. Verify `Dbg_Music_On` still works (START music toggle) —
   it moved files.
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add engine/ram.asm games/sonic4/config/ram.asm games/sonic4/main.asm
@@ -664,7 +675,7 @@ include lands in the same order.
 - Rewrite: `games/sonic4/main.asm`
 - Modify: `games/sonic4/config/game.asm` (gains the module-list macros)
 
-- [ ] **Step 1: Create `engine/engine.inc`.** Contract header + the full orchestration.
+- [x] **Step 1: Create `engine/engine.inc`.** Contract header + the full orchestration.
   The body is main.asm's current content with every game include replaced by a macro
   invocation:
 
@@ -680,10 +691,14 @@ include lands in the same order.
 ;                                   (no code_addr entry points; e.g. player sensors)
 ;        gameObjectBankIncludes   — object-bank code (org $10000, objroutine targets)
 ;        gameDataIncludes         — game data: parallax, objdefs, levels, mappings,
-;                                   collision binaries, animations, game states
+;                                   collision binaries, animations
 ;        gameSoundDataIncludes    — song/SFX banks (only assembled when
 ;                                   SOUND_DRIVER_ENABLED; must follow the
 ;                                   soundBankHead contract — see sound_bank.inc)
+;        gameStatesIncludes       — game states, invoked AFTER the sound block
+;                                   (T7 field finding: states must assemble in
+;                                   SOUND_DRIVER_ENABLED=0 builds too — Game_Entry
+;                                   resolves from here)
 ;   (gameBootHook and gameDebugTick are defined in the game's contract file,
 ;    which gameConfigIncludes pulls in.)
 ;
@@ -770,7 +785,7 @@ EndOfRom:
   Copy the elided include runs from the CURRENT main.asm verbatim — do not retype from
   this plan. `gameEngineBlockIncludes` sits exactly where `player_sensors.asm` +
   `game_debug.asm` sit today (between collision_lookup and section).
-- [ ] **Step 2: Rewrite `games/sonic4/main.asm`** as the manifest:
+- [x] **Step 2: Rewrite `games/sonic4/main.asm`** as the manifest:
 
 ```asm
 ; Sonic 4 — game manifest. The engine owns the ROM layout (engine/engine.inc);
@@ -778,28 +793,28 @@ EndOfRom:
 
 PAD_TO_POWER_OF_TWO     = 1
 
-gameConfigIncludes macro
+gameConfigIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/config/constants.asm"
     include "games/sonic4/config/sound_ids.asm"
     include "games/sonic4/config/game.asm"
     endm
 
-gameRamIncludes macro
+gameRamIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/config/ram.asm"
     endm
 
-gameEngineBlockIncludes macro
+gameEngineBlockIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/player/player_sensors.asm"
     include "games/sonic4/debug/game_debug.asm"
     endm
 
-gameObjectBankIncludes macro
+gameObjectBankIncludes macro {GLOBALSYMBOLS}
     ; player_common first — it defines the overlay equates the state files use
     include "games/sonic4/player/player_common.asm"
     ; ... (the object-bank include list from old main.asm :153-168, verbatim) ...
     endm
 
-gameDataIncludes macro
+gameDataIncludes macro {GLOBALSYMBOLS}
     ; ... (old main.asm :178-233 verbatim: parallax, objdefs, entity/act data,
     ;      mappings, animations, collision BINCLUDEs + guards, Sonic art) ...
     ; game states
@@ -807,7 +822,7 @@ gameDataIncludes macro
     include "games/sonic4/test/ojz_scroll_test.asm"
     endm
 
-gameSoundDataIncludes macro
+gameSoundDataIncludes macro {GLOBALSYMBOLS}
     ; ... (old main.asm :240-409 verbatim: dac_samples, the MT bank with
     ;      soundBankHead, songs, patches, sfx blobs, guards) ...
     endm
@@ -819,12 +834,12 @@ gameSoundDataIncludes macro
   Every `; ...` is a verbatim block CUT from the pre-rewrite main.asm — build the new
   file by moving lines, not retyping. Multi-line conditionals (`ifdef __DEBUG__` song
   blocks, the SFX guards) move inside the macros unchanged.
-- [ ] **Step 3: Verify byte-identical.** Rebuild SOUND+DEBUG → hash MUST equal the
+- [x] **Step 3: Verify byte-identical.** Rebuild SOUND+DEBUG → hash MUST equal the
   Task-6 hash. Plain build green (and hash equal to T6 plain). If AS chokes on any
   include-inside-macro edge case, fix the mechanism (e.g. hoist that one file) and
   document it in engine.inc — do NOT abandon byte-identity.
-- [ ] **Step 4: Oracle boot + short circuit** (cheap insurance on top of the hash).
-- [ ] **Step 5: Commit.**
+- [x] **Step 4: Oracle boot + short circuit** (cheap insurance on top of the hash).
+- [x] **Step 5: Commit.**
 
 ```bash
 git add engine/engine.inc games/sonic4/main.asm games/sonic4/config/game.asm
@@ -843,7 +858,7 @@ invocations move into `games/sonic4/prebuild.sh`. Do not touch `tools/ojz_strip_
   `games/demo/demo_state.asm`
 - Modify: `build.sh`
 
-- [ ] **Step 1: Extract prebuild.** Create `games/sonic4/prebuild.sh` containing
+- [x] **Step 1: Extract prebuild.** Create `games/sonic4/prebuild.sh` containing
   build.sh's game-generator block VERBATIM (currently :72-146 **minus** the salvador
   bootstrap :64-70, `gen_compression_vectors.py` :142-143, and the lint block — those
   stay core):
@@ -872,7 +887,7 @@ python3 "${TOOLS}/gen_compression_vectors.py"
   (Keep the salvador bootstrap BEFORE the prebuild invocation — sonic4's prebuild uses
   it. Keep lint after, running on `${MAIN_ASM}` as today.)
   Verify: `./build.sh` (sonic4) output byte-identical to Task 7.
-- [ ] **Step 2: Author the demo.** Six small files.
+- [x] **Step 2: Author the demo.** Six small files.
 
   `games/demo/config/constants.asm`:
 
@@ -882,6 +897,19 @@ GS_DEMO                 = 2             ; entry state id (0/1 = engine GS_BOOT/G
 VRAM_DEMO_OBJ           = $03E0        ; demo box art (4 tiles) — free tile region
 VRAM_RING_PLACEHOLDER   = VRAM_DEMO_OBJ+4 ; engine contract (DrawRings) — unused here,
                                         ; points at a blank tile
+
+; Engine-consumed capacity contracts (T5 finding — every game must define these;
+; the engine sizes its ring/entity RAM and code loops from them):
+MAX_RING_BUFFER         = 16            ; minimal — demo has no rings
+RING_BUFFER_ENTRY_SIZE  = 6
+RING_WIDTH              = 16
+COLLECTED_WINDOW_SLOTS  = 4             ; minimal collected-ring bookkeeping
+COLLECTED_SLOT_SIZE     = 6             ; copy sonic4's entry sizes (engine layout)
+COLLECTED_PARK_SLOTS    = 4
+COLLECTED_PARK_ENTRY_SIZE = 6
+; (GAME_CAMERA_JUMP_LOCK=0 in game.asm, so PSTATE_* are NOT needed.)
+; VERIFY the four sizes against games/sonic4/config/constants.asm at execution
+; time — entry sizes are engine-layout-fixed, only the *_SLOTS counts are tunable.
 ```
 
   `games/demo/config/game.asm`:
@@ -902,9 +930,9 @@ Game_Entry              = GameState_Demo_Init
 GAME_ENTRY_ID           = GS_DEMO
 GAME_CAMERA_JUMP_LOCK   = 0             ; no player states in the demo
 
-gameBootHook macro
+gameBootHook macro {GLOBALSYMBOLS}
     endm
-gameDebugTick macro
+gameDebugTick macro {GLOBALSYMBOLS}
     endm
 ```
 
@@ -1021,35 +1049,38 @@ DemoObjectList:
 
 PAD_TO_POWER_OF_TWO     = 1
 
-gameConfigIncludes macro
+gameConfigIncludes macro {GLOBALSYMBOLS}
     include "games/demo/config/constants.asm"
     include "games/demo/config/game.asm"
     endm
 
-gameRamIncludes macro
+gameRamIncludes macro {GLOBALSYMBOLS}
     include "games/demo/config/ram.asm"
     endm
 
-gameEngineBlockIncludes macro
+gameEngineBlockIncludes macro {GLOBALSYMBOLS}
     endm
 
-gameObjectBankIncludes macro
+gameObjectBankIncludes macro {GLOBALSYMBOLS}
     include "games/demo/objects/demo_box.asm"
     endm
 
-gameDataIncludes macro
+gameDataIncludes macro {GLOBALSYMBOLS}
     include "games/demo/data/demo_data.asm"
-    include "games/demo/demo_state.asm"
     endm
 
-gameSoundDataIncludes macro
+gameSoundDataIncludes macro {GLOBALSYMBOLS}
+    endm
+
+gameStatesIncludes macro {GLOBALSYMBOLS}
+    include "games/demo/demo_state.asm"
     endm
 
     include "engine/engine.inc"
     END
 ```
 
-- [ ] **Step 3: First demo build — expect a punch list.** `DEBUG=1 ./build.sh demo` →
+- [x] **Step 3: First demo build — expect a punch list.** `DEBUG=1 ./build.sh demo` →
   `demo.bin`. Work through undefined symbols one at a time; each is either (a) a
   missed game-slice constant the demo must define (add to `games/demo/config/constants.asm`
   with a comment), or (b) an engine→game reference T2-T5 missed — if (b), fix it as a
@@ -1058,10 +1089,10 @@ gameSoundDataIncludes macro
   code demo-side. If the engine block references `player_sensors` symbols outside the
   hook (it shouldn't — it's included via the hook), that's category (b).
   Plain sonic4 `./build.sh` must stay byte-identical throughout.
-- [ ] **Step 4: Verify demo on oracle.** Load `demo.bin` (controller, foreground):
+- [x] **Step 4: Verify demo on oracle.** Load `demo.bin` (controller, foreground):
   boots, backdrop color visible, the white 16×16 box renders at screen center.
   Screenshot saved. Then rebuild + reverify sonic4 (both variants, hash + quick boot).
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add build.sh games/sonic4/prebuild.sh games/demo/
@@ -1070,7 +1101,7 @@ git commit -m "feat: games/demo — the engine boots without Sonic (E6); per-gam
 
 ### Task 9: The gate, docs, merge
 
-- [ ] **Step 1: The grep gate.**
+- [x] **Step 1: The grep gate.**
 
 ```bash
 grep -rnE "SONG_|SFXID_|OJZ|GS_OJZ|Sonic|sonic4|games/" engine/ --include='*.asm' --include='*.inc'
@@ -1080,13 +1111,19 @@ grep -rnE "SONG_|SFXID_|OJZ|GS_OJZ|Sonic|sonic4|games/" engine/ --include='*.asm
   `SFXID_REV_LOOP`, `SFXID_RING_LEFT`, `SFXID_RING_RIGHT` (plus `Game_Entry`,
   `GAME_ENTRY_ID`, `GAME_CAMERA_JUMP_LOCK`, `SndDefaultPitchTable`, `SFX_BLOB_BANK`,
   `SND_ENGINE_TABLE_BANK`, `VRAM_RING_PLACEHOLDER`, `SongTable`, `SfxTable`,
-  `SfxBlobWinTab`, the `gameBootHook`/`gameDebugTick`/`game*Includes` macro names, and
-  `GAME_*` header symbols). Fix any straggler as a T3-style inversion. Record the final
+  `SfxBlobWinTab`, the `gameBootHook`/`gameDebugTick`/`game*Includes` macro names,
+  `GAME_*` header symbols, **and the game-declared capacity/state constants the engine
+  consumes by design (T5 finding): `MAX_RING_BUFFER`, `RING_BUFFER_ENTRY_SIZE`,
+  `RING_WIDTH` (engine/objects/rings.asm), `COLLECTED_WINDOW_SLOTS`,
+  `COLLECTED_SLOT_SIZE`, `COLLECTED_PARK_SLOTS`, `COLLECTED_PARK_ENTRY_SIZE`
+  (engine/objects/entity_window.asm), `PSTATE_AIR`/`PSTATE_JUMP`/`PSTATE_ROLLJUMP`
+  (engine/level/camera.asm, inside the GAME_CAMERA_JUMP_LOCK gate)**). Fix any
+  straggler as a T3-style inversion. Record the final
   gate output in the commit message body.
-- [ ] **Step 2: Full verification sweep.** sonic4 both variants green + BEHAV suite on
+- [x] **Step 2: Full verification sweep.** sonic4 both variants green + BEHAV suite on
   oracle (boot, circuit, all sound hotkeys); `demo.bin` boots + renders; tool pytest
   suite green (`cd tools && python -m pytest` or the repo's documented invocation).
-- [ ] **Step 3: Docs.**
+- [x] **Step 3: Docs.**
   - `docs/ENGINE_ARCHITECTURE.md`: new "Engine/game contract" section — engine.inc
     layout contract, the required macros/symbols table (copy from engine.inc's header),
     gameHeader, Game_Entry, soundBankHead, the prebuild hook, games/demo as the
@@ -1112,10 +1149,12 @@ grep -rnE "SONG_|SFXID_|OJZ|GS_OJZ|Sonic|sonic4|games/" engine/ --include='*.asm
     compatibility notes (`empyrean/docs/SIGIL_*.md` or wherever the compat checklist
     lives) — at minimum: string-valued `equ` symbols, `strlen()` in `if` expressions,
     macro parameters used as `include` paths (`soundBankHead`), `include` directives
-    inside macro bodies (`engine.inc` hooks + the manifest macros), and `fatal` with
-    interpolated strings. These are now part of the tree Sigil must assemble
+    inside macro bodies (`engine.inc` hooks + the manifest macros), the
+    `{GLOBALSYMBOLS}` macro attribute AND its default inverse (macro-local label
+    scoping — Sigil must replicate BOTH behaviors), and `fatal` with interpolated
+    strings. These are now part of the tree Sigil must assemble
     byte-identically — pinned against AS by this plan's [BYTE] stages.
-- [ ] **Step 4: Merge.**
+- [x] **Step 4: Merge.**
 
 ```bash
 git checkout master && git merge --no-ff feat/engine-game-split

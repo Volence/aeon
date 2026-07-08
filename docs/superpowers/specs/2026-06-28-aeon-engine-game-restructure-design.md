@@ -1,7 +1,7 @@
 # Aeon engine/game restructure — design
 
 **Date:** 2026-06-28
-**Status:** PARTIALLY IMPLEMENTED — directory wall shipped (Tasks 1–2 + tool/doc cleanup); the agnostic-engine half (Tasks 3–6) deferred. See "Implementation status" at the bottom.
+**Status:** SHIPPED IN FULL — directory wall shipped 2026-06-28 (Tasks 1–2 + tool/doc cleanup); the agnostic-engine half (Tasks 3–6) executed 2026-07-07/08 per the 2026-07-02 design (`docs/superpowers/specs/2026-07-02-engine-game-split-design.md`) and the 2026-07-07 execution plan (`docs/superpowers/plans/2026-07-07-engine-game-split-execution.md`). See "Implementation status" at the bottom.
 
 ## Motivation
 
@@ -189,8 +189,14 @@ All on a feature branch; merge to `master` when green and Oracle-verified end to
   `.asm`/`.inc`, not Python string paths; both slash and `os.path.join` component forms); 771 tool
   tests pass. `docs/ENGINE_ARCHITECTURE.md` + `CLAUDE.md` repointed to the new tree.
 
-**DEFERRED — the agnostic-engine half (own design pass):** Tasks 3 (boot boilerplate → engine +
-`engine.inc` + manifest + parameterized boot), 4 (def split), 5 (RAM split), 6 (`games/demo/`).
+**EXECUTED 2026-07-07/08 — the agnostic-engine half:** Tasks 3 (boot boilerplate → engine +
+`engine.inc` + manifest + parameterized boot), 4 (def split), 5 (RAM split), 6 (`games/demo/`) all
+shipped. Designed in `docs/superpowers/specs/2026-07-02-engine-game-split-design.md` (which
+designs around exactly the three ROM-layout realities below — `gameHeader` for #1, the object
+bank stays a mechanical `gameObjectBankIncludes` hook for #2, and the `soundBankHead` macro
+contract for #3) and executed per
+`docs/superpowers/plans/2026-07-07-engine-game-split-execution.md`. The paragraphs below are the
+original deferral reasoning, kept for history — every blocker they name now has a shipped seam.
 
 **Why deferred — finding:** `games/sonic4/main.asm` is not an include list; it is a load-bearing
 **ROM-layout document** where engine and game are fused by hardware, not by choice:
