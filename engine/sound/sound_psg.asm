@@ -388,6 +388,27 @@ Psg_SetVolume:
         call    Psg_VolToAtten           ; a = 4-bit attenuation (clobbers b)
         ld      c, a                     ; c = attenuation
 
+        ; --- Stage B sfh_gain (SFX slots only): +sx_gain>>3 in PSG atten units.
+        ; Mirrors the fade/duck fold's TL->atten (>>3) conversion below. Music
+        ; SeqChannels have no sx_gain -> gate on SFX class. Gain 0 -> no-op.
+        push    hl                       ; Snd_ChanClass clobbers hl (contract: preserve)
+        call    Snd_ChanClass            ; CARRY set => MUSIC
+        pop     hl
+        jr      c, .no_sfx_gain
+        ld      a, (ix+sx_gain)
+        or      a
+        jr      z, .no_sfx_gain
+        srl     a
+        srl     a
+        srl     a                        ; sx_gain (TL units) >> 3 -> atten units
+        add     a, c
+        cp      SND_PSG_ATTEN_SILENT+1
+        jr      c, .sfx_gain_store
+        ld      a, SND_PSG_ATTEN_SILENT  ; clamp $0F (silent)
+.sfx_gain_store:
+        ld      c, a
+.no_sfx_gain:
+
         ; --- PSG volume envelope (spec §4): add the per-frame env atten delta -------
         ; sc_psgenv_out is the S3K VolEnv delta (attenuation units, higher = quieter),
         ; computed by PsgEnvUpdate. Add it BEFORE the duck fold (env+duck compose) and

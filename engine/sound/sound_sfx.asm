@@ -877,6 +877,17 @@ Sfx_BeginSound:
         ; tick gating (one event per frame until the stream sets durations).
         ld      a, (SND_SFX_DISP_PRIO)
         ld      (ix+sx_priority), a
+
+        ; Stage B: stash the header's authored gain/duck into per-slot bytes so the
+        ; volume paths / duck scan can read them without re-deriving the blob base.
+        push    iy                       ; preserve the channel-record ptr (Sfx_Steal reads it)
+        ld      iy, (SND_SFX_DISP_BASE)  ; iy = blob header base
+        ld      a, (iy+SFXH_GAIN)
+        ld      (ix+sx_gain), a
+        ld      a, (iy+SFXH_DUCK)
+        ld      (ix+sx_duck), a          ; consumed by Task 3's duck scan
+        pop     iy
+
         ld      a, (ix+sc_route)
         ld      (ix+sx_saved_route), a
         ld      (ix+sc_dur_count), 1     ; fire the first event-tick promptly

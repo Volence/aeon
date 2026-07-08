@@ -350,6 +350,28 @@ Fm_SetVolume:
         ld      a, (hl)
         ld      (Fm_ScratchLog), a       ; stash log delta
 
+        ; --- Stage B sfh_gain (SFX slots only): authored per-SFX master attenuation
+        ; in FM-TL units (0.75 dB/step). Folded into the carrier-TL delta BEFORE the
+        ; env/duck folds so the existing $7F clamps cover the sum. Music SeqChannels
+        ; have no sx_gain -> gate on SFX class (inverse of the duck fold below). Gain
+        ; 0 -> byte-identical to no fold.
+        call    Snd_ChanClass            ; CARRY set => MUSIC channel
+        jr      c, .no_sfx_gain          ; music -> no per-SFX gain
+        ld      a, (ix+sx_gain)
+        or      a
+        jr      z, .no_sfx_gain
+        ld      hl, Fm_ScratchLog
+        add     a, (hl)                  ; sx_gain + log delta
+        jr      nc, .sfx_gain_cap
+        ld      a, SND_FM_TL_MAX         ; 8-bit carry -> clamp $7F (silent)
+.sfx_gain_cap:
+        cp      SND_FM_TL_MAX+1
+        jr      c, .sfx_gain_store
+        ld      a, SND_FM_TL_MAX
+.sfx_gain_store:
+        ld      (hl), a
+.no_sfx_gain:
+
         ; --- FM TL VOLUME ENVELOPE (spec §4 flagship): add the per-frame env
         ; attenuation delta to the carrier-TL delta (mirror of Psg_SetVolume's env
         ; fold, sound_psg.asm:317-325). Folded HERE, BEFORE the duck/master-fade fold,
