@@ -27,7 +27,7 @@ from sfx_transcode import (
     SFXEL_FM, SFXEL_PSG, SFXEL_NOISE, SFXEL_NONE,
     SFXPRI_ROLL, SFXPRI_SKID, SFXPRI_RING, SFXPRI_JUMP,
     SFXPRI_DEATH, SFXPRI_RINGLOSS, SFXPRI_SPINDASH, SFXPRI_DASH,
-    SHF_LOOP,
+    SHF_LOOP, SHF_CONTINUOUS,
     _SFX_PRIORITY, _CORE_SFX_IDS, _sfx_label,
     _smps_note_to_pitch, FM_SFX_OCTAVE_SHIFT, PSG_OCTAVE_FIXUP,
     _LOG_VOLUME_LUT, _vol_for_atten, _validate_sfx_repeat,
@@ -666,6 +666,51 @@ class TestBlobLayoutMatchesSfxHeader(unittest.TestCase):
         for sid in _CORE_SFX_IDS:
             self.assertIn(sid, _SFX_PRIORITY,
                           f"SFXID ${sid:02X} missing from priority map")
+
+
+def pack_sfx_fixture(*, chcount=1, flags=0, priority=SFXPRI_RING,
+                      gain=None, duck=None, cap=None):
+    """Build a minimal synthetic sfx_desc (PSG channels, single End() event
+    each) and pack it — exercises pack_sfx()'s header-field emission and
+    validity rules directly, without a full transcode_sfx_source() run."""
+    routes = (CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN)
+    channels = [{'route': routes[i % len(routes)], 'kind': SFXEL_PSG, 'events': [End()]}
+                for i in range(chcount)]
+    desc = {'id': 0, 'channels': channels, 'flags': flags, 'voices': []}
+    if gain is not None:
+        desc['gain'] = gain
+    if duck is not None:
+        desc['duck'] = duck
+    if cap is not None:
+        desc['cap'] = cap
+    return pack_sfx(desc, priority)
+
+
+class TestStageBCHeaderFields(unittest.TestCase):
+    """Stage B/C (2026-07-03 plan Task 1): sfh_gain/sfh_duck/sfh_cap are
+    authored per-SFX instead of hardcoded 0/0/1, plus two packer validity
+    rules. Defaults must stay 0/0/1 so all 9 existing SFX blobs regenerate
+    byte-identically."""
+
+    def test_header_carries_gain_duck_cap(self):
+        blob = pack_sfx_fixture(gain=6, duck=0x18, cap=2, chcount=1)
+        self.assertEqual(blob[3], 6)      # sfh_gain
+        self.assertEqual(blob[4], 0x18)   # sfh_duck
+        self.assertEqual(blob[5], 2)      # sfh_cap
+
+    def test_defaults_are_stage_a_bytes(self):
+        blob = pack_sfx_fixture()          # no gain/duck/cap args
+        self.assertEqual(blob[3], 0)       # sfh_gain
+        self.assertEqual(blob[4], 0)       # sfh_duck
+        self.assertEqual(blob[5], 1)       # sfh_cap
+
+    def test_cap_gt1_rejected_on_multichannel(self):
+        with self.assertRaisesRegex(TranscodeError, "cap > 1 .* single-channel"):
+            pack_sfx_fixture(cap=2, chcount=2)
+
+    def test_continuous_requires_loop(self):
+        with self.assertRaisesRegex(TranscodeError, "SHF_CONTINUOUS requires SHF_LOOP"):
+            pack_sfx_fixture(flags=SHF_CONTINUOUS)
 
 
 class TestPriorityValues(unittest.TestCase):

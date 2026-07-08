@@ -1445,9 +1445,9 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
       [0]  priority (SFXPRI_*)
       [1]  flags (SHF_*)
       [2]  chcount
-      [3]  gain (Stage B: authored master attenuation; inert in Stage A, always 0)
-      [4]  duck (Stage B: per-SFX duck depth; inert in Stage A, always 0)
-      [5]  cap (Stage B: instance cap; inert in Stage A, engine hard-caps 1, always 1)
+      [3]  gain (Stage B: authored per-SFX master attenuation; sfx_desc['gain'], default 0)
+      [4]  duck (Stage B: authored per-SFX duck depth; sfx_desc['duck'], default 0)
+      [5]  cap (Stage B: authored instance cap; sfx_desc['cap'], default 1 = replace-in-place)
       [6:8] rsvd (0; keeps per-channel records even-aligned)
       per-channel records at +8 (6 bytes each):
         [+0] route
@@ -1465,6 +1465,14 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
     flags = sfx_desc['flags']
     voices = sfx_desc.get('voices', [])
     chcount = len(channels)
+
+    # Stage B/C validity rules (spec §7.1) -----------------------------------
+    cap = sfx_desc.get('cap', 1)
+    if cap > 1 and chcount != 1:
+        raise TranscodeError(f"sfh_cap > 1 ({cap}) is legal only for single-channel SFX "
+                             f"(chcount={chcount}); multi-channel SFX stay cap=1")
+    if (flags & SHF_CONTINUOUS) and not (flags & SHF_LOOP):
+        raise TranscodeError("SHF_CONTINUOUS requires SHF_LOOP (a continuous SFX must self-loop)")
 
     # Build the patch bank bytes
     patch_bank = b''.join(voices)
@@ -1493,9 +1501,9 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
     out.append(priority & 0xFF)        # sfh_priority
     out.append(flags & 0xFF)           # sfh_flags
     out.append(chcount & 0xFF)         # sfh_chcount
-    out.append(0x00)                   # sfh_gain (Stage B: authored master attenuation; inert)
-    out.append(0x00)                   # sfh_duck (Stage B: per-SFX duck depth; inert)
-    out.append(0x01)                   # sfh_cap  (Stage B: instance cap; engine hard-caps 1 in Stage A)
+    out.append(sfx_desc.get('gain', 0) & 0xFF)   # sfh_gain  (Stage B; 0 = Stage-A-exact)
+    out.append(sfx_desc.get('duck', 0) & 0xFF)   # sfh_duck  (Stage B; 0 = no duck)
+    out.append(cap & 0xFF)                       # sfh_cap   (Stage B; 1 = replace-in-place)
     out.append(0x00)                   # sfh_rsvd (keeps records even-aligned)
     out.append(0x00)                   # sfh_rsvd+1
 
