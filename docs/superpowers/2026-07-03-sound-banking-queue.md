@@ -103,3 +103,29 @@ steps marked FOREGROUND in each plan.
 `seraph/docs/superpowers/2026-07-03-seraph-banking-queue.md` (S0–S6 + cold-start
 handoff). Seraph S0–S3 are executable independently of packages 1–6; manifest
 feature flags flip as packages land.
+
+## Path-migration note (2026-07-07/08, engine/game split executed)
+
+The engine/game split (`docs/superpowers/plans/2026-07-07-engine-game-split-execution.md`)
+moved every def/RAM file these banked-but-unexecuted packages may cite. Any package plan
+above that references `sound_constants.asm`, `constants.asm`, `ram.asm`, `structs.asm`,
+`macros.asm`, root `test/`, or `engine/system/game_loop.asm`'s debug harness must rebase
+those paths mechanically before execution:
+
+- `sound_constants.asm` → `engine/sound_constants.asm` (engine slice) +
+  `games/sonic4/config/sound_ids.asm` (game slice: `SFXID_*`, `SFXPRI_*` ladder)
+- `constants.asm` → `engine/constants.asm` (engine slice) +
+  `games/sonic4/config/constants.asm` (game slice)
+- `ram.asm` → `engine/ram.asm` (engine slice, ends at `Engine_RAM_End`) +
+  `games/sonic4/config/ram.asm` (game slice, phases from `Engine_RAM_End`)
+- `structs.asm` → `engine/structs.asm`
+- `macros.asm` → `engine/macros.asm`
+- root `test/` → `games/sonic4/test/`
+- the debug sound harness (`Debug_MusicToggle`, `Dbg_SfxIdTable`) moved out of
+  `engine/system/game_loop.asm` into `games/sonic4/debug/game_debug.asm`, invoked via the
+  `gameDebugTick` manifest hook
+- game content generators (ojz_strip_gen, sfx_transcode, collision import, etc.) are now
+  invoked via `games/sonic4/prebuild.sh`, not inline in `build.sh`
+
+Whichever plan executes first should apply this rebase; it is mechanical (path + include
+rewrite only, no logic change).

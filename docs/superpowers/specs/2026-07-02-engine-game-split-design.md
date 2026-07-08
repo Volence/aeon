@@ -1,7 +1,12 @@
 # Engine/Game Agnostic Split — design spec
 
 **Date:** 2026-07-02
-**Status:** Approved by user (design dialogue 2026-07-02)
+**Status:** EXECUTED 2026-07-07/08 per `plans/2026-07-07-engine-game-split-execution.md` (see
+its header for the field deltas: `gameStatesIncludes` as a 7th manifest hook so game states
+assemble in `SOUND_DRIVER_ENABLED=0` builds, the `{GLOBALSYMBOLS}` macro-attribute requirement
+on every contract/hook macro, the cart-core hash gate replacing naive full-file md5 for [BYTE]
+stages, and the `BgAnim_Table` game-data contract). Originally approved by user (design dialogue
+2026-07-02).
 **Extends:** `2026-06-28-aeon-engine-game-restructure-design.md` (directory wall
 SHIPPED; this designs its deferred Tasks 3–6 around the ROM-layout realities that
 blocked the naive split). One stale-doc fix: that doc names `sound_banked_z80.asm`,

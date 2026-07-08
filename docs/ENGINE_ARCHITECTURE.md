@@ -25,6 +25,125 @@ This is the **design bible**. This document describes the engine we're building 
 
 ---
 
+## Engine/game contract (engine.inc)
+
+Aeon draws a hard **engine/game wall**. `engine/engine.inc` is the single entry point for any
+game built on Aeon — it owns the entire ROM layout (org-0 vectors/header, engine code block,
+object code bank, data region, sound-data region, epilogue). A game is a **manifest** —
+`games/<game>/main.asm` — plus config and content. Shipped 2026-07-07/08 (directory wall
+2026-06-28 + the agnostic-engine half, see the specs in `docs/superpowers/specs/`).
+
+### The manifest
+
+A game's `main.asm` must, before `include "engine/engine.inc"`:
+
+1. Define `PAD_TO_POWER_OF_TWO` (0/1).
+2. Declare all seven manifest macros below — each may be empty, but **all seven must be
+   declared, and every one must carry the `{GLOBALSYMBOLS}` macro attribute** (see "AS
+   gotchas" below):
+
+| Macro | Purpose |
+|---|---|
+| `gameConfigIncludes` | Game config includes (constants / sound ids / the game contract file) |
+| `gameRamIncludes` | Game RAM continuation (phases from `Engine_RAM_End`) |
+| `gameEngineBlockIncludes` | Game files that must live in the engine code block (e.g. player sensors, debug harness — no `objroutine()` entry points) |
+| `gameObjectBankIncludes` | Game files that must live in the object code bank (`org $10000`, `objroutine()`-addressed: player state files, test/path objects) |
+| `gameDataIncludes` | Game data region: parallax, objdefs, entity/act data, mappings, animations, collision, character art |
+| `gameSoundDataIncludes` | Game sound-data region contents (DAC samples, bank head, songs, SFX) — WITHOUT the outer `ifdef SOUND_DRIVER_ENABLED` (engine.inc supplies that) |
+| `gameStatesIncludes` | Game state includes, outside the sound conditional — **a game must boot without sound** (added as a 7th hook during execution so states assemble in `SOUND_DRIVER_ENABLED=0` builds; `Game_Entry` must resolve here even sound-off) |
+
+`gameBootHook` (called during boot, after `Sound_Init`) and `gameDebugTick` (called once per
+frame from the debug tick) are also required, but are defined *inside* the game's own contract
+file (`games/<game>/config/game.asm`), which `gameConfigIncludes` pulls in — they are not
+separate manifest hooks.
+
+### Required symbols (the game contract)
+
+Copied from `engine/engine.inc`'s header comment:
+
+| Symbol | Consumer | Notes |
+|---|---|---|
+| `Game_Entry` | `engine/system/boot.asm` | Game entry point routine, called from boot |
+| `GAME_ENTRY_ID` | `engine/system/boot.asm` | Initial game-state id |
+| `GAME_CAMERA_JUMP_LOCK` | `engine/level/camera.asm` | 1 gates the jump-state landing-lock block (requires the game to define `_pl_state`/`PSTATE_JUMP`/`PSTATE_ROLLJUMP`); 0 = plain deadzone follow |
+| `GAME_*` header strings | `engine/system/header.inc` | Domestic/overseas titles, serial, region, etc. — see `gameHeader` below |
+| `VRAM_RING_PLACEHOLDER` | `engine/objects/rings.asm` (`DrawRings`) | Ring art VRAM slot |
+| `MAX_RING_BUFFER`, `RING_BUFFER_ENTRY_SIZE`, `RING_WIDTH` | `engine/objects/rings.asm` | Ring buffer capacity/sizing — engine-tunable via game constants |
+| `COLLECTED_WINDOW_SLOTS`, `COLLECTED_SLOT_SIZE`, `COLLECTED_PARK_SLOTS`, `COLLECTED_PARK_ENTRY_SIZE` | `engine/objects/entity_window.asm` | Collected-entity bookkeeping capacity (×4 sizing family) |
+| `BgAnim_Table` | `engine/level/bg_anim.asm` | BG tile-band animation table, part of `gameDataIncludes`; `dc.w 0` (band_count) disables the system for games with no BG animation |
+| With `SOUND_DRIVER_ENABLED`, additionally: | | |
+| `SFXID_REV_LOOP`, `SFXID_RING_LEFT`, `SFXID_RING_RIGHT` | `engine/sound/sound_sfx.asm`, `sound_api.asm` | `SFXID_REV_LOOP = -1` disables the rev-loop special case |
+| `SND_ENGINE_TABLE_BANK` | sound bank placement | Derives from the game's bank placement |
+| `SndDefaultPitchTable`, `SfxBlobWinTab` | `engine/sound/sound_fm.asm`, `sound_sfx.asm` | Supplied as `soundBankHead` macro arguments (see below) |
+| `SongTable`, `SfxTable` + song data | sound driver data contract | Game-supplied song/SFX tables |
+
+### gameHeader
+
+`engine/system/header.inc` — symbol-driven, not parameter-driven. The game defines `GAME_*`
+string-valued `equ` symbols (`GAME_CONSOLE`, `GAME_COPYRIGHT`, `GAME_TITLE_DOM`,
+`GAME_TITLE_OVS`, `GAME_SERIAL`, `GAME_IO`, `GAME_SRAM`, `GAME_MEMO`, `GAME_REGION`); the
+`gameHeader` macro emits the $100-$1FF Mega Drive header and **width-asserts every field at
+build time** (`strlen(GAME_TITLE_DOM) <> 48` etc. → `fatal`) — a wrong-length string is a build
+error, not a corrupt header. Checksum ($18E) is emitted 0 (patched by `tools/fixheader`);
+ROM start/end and RAM range are engine-owned (`EndOfRom` is the engine epilogue label).
+
+### Parameterized boot
+
+The engine boot sequence ends by handing off to the game: `move.l #Game_Entry,(Game_State).w`
+/ `move.b #GAME_ENTRY_ID,(Game_State_ID).w`, with `gameBootHook` (game-supplied, may be empty)
+invoked just before the handoff, after `Sound_Init`.
+
+### soundBankHead
+
+`engine/sound/sound_bank.inc` — the engine-tables-at-bank-head contract. Every Z80 bank the
+sequencer runs a frame on must invoke `soundBankHead <pitchfile>, <sfxtabfile>` first, inside
+its `align $8000` / `phase $8000` bracket, so the fixed-address engine reader tables (pitch,
+SFX window, opcode dispatch, DAC sample table) land at the addresses the driver expects. The
+hard rule: **no code may be authored in the banked window — data tables only** — Z80 opcode
+fetches from a banked $8000-$FFFF window traverse the 68k bus, and 68k bus contention (VRAM
+DMA-from-ROM / BUSREQ) corrupts fetched opcodes, not just data. See `sound_bank.inc` for the
+full invariant text and the bank-D co-location note.
+
+### Engine_RAM_End
+
+`engine/ram.asm`'s `$FFFF8000` phase block ends with an `Engine_RAM_End:` label; a game's
+`games/<game>/config/ram.asm` phases its own RAM continuation from that address
+(`phase Engine_RAM_End`). Player state, debug harness variables, and other game-owned RAM all
+live game-side, after this seam.
+
+### build.conf + prebuild.sh
+
+Per-game build hooks, both optional and sourced/invoked by `build.sh` before assembly:
+
+- `games/<game>/build.conf` — sourced early; sets build-flag defaults (e.g.
+  `games/demo/build.conf` defaults `SOUND_DRIVER_ENABLED=0` since the demo ships no sound
+  bank yet).
+- `games/<game>/prebuild.sh` — invoked if executable; runs the game's content generators
+  (art-pool compression, collision baking, SFX transcoding, etc.) before the assembler runs.
+  `games/sonic4/prebuild.sh` holds everything sonic4-specific; the engine core (salvador
+  bootstrap, compression self-test vector generation, lint) stays in `build.sh` itself.
+
+### games/demo — the permanent agnosticism regression
+
+`games/demo/` is a ~30-line game: a manifest with all seven macros, a 16×16 white box object,
+and a one-shot init state. `DEBUG=1 ./build.sh demo` produces `demo.bin` (89830 bytes) and
+boots to a dark-blue backdrop with the white box centered on screen — zero Sonic code anywhere
+in the ROM. It exists both as the "start here" template for a new game and as a standing proof
+that the engine really is game-agnostic; keep it building green as a regression check whenever
+`engine/` changes. (v1 limitation: builds with sound off — see `docs/DEFERRED_WORK.md`,
+"Engine substrate gaps" item 4.)
+
+### AS gotchas the contract depends on
+
+- **`{GLOBALSYMBOLS}` is required on every contract/hook macro.** AS macro labels are
+  **macro-local by default** — labels defined inside a macro body, or inside any file
+  `include`d from a macro body, are invisible outside the expansion and vanish from the symbol
+  table (`convsym` deb2 appendix). Every manifest macro, `gameHeader`, `gameBootHook`,
+  `gameDebugTick`, and `soundBankHead` must be declared `name macro {GLOBALSYMBOLS}` or
+  downstream references (and the debug symbol table) silently break.
+
+---
+
 ## 0. Hardware Initialization & Boot Sequence
 
 The foundation everything else sits on. This section covers the first ~2000 cycles of execution: ROM header, exception vectors, TMSS handshake, VDP/Z80/PSG init, RAM clearing, region detection, and the transition into the game state machine. Every design here is informed by what Vectorman, Batman & Robin, Treasure (Gunstar/Alien Soldier), Thunder Force IV, and S.C.E. actually do on real hardware, cross-referenced with plutiedev, Kabuto, md.railgun.works, and modern engine initialization patterns.

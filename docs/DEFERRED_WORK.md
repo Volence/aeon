@@ -35,7 +35,13 @@ engine code before then moves the pin target and grows the port surface for no d
    (engine hooks, game values). Also explicitly deferred by the design-week queue.
 4. **Engine-default sound bank** — lift the split plan's v1 limitation that `games/demo/`
    can't build with `SOUND_DRIVER_ENABLED` (ship a minimal engine-side bank satisfying
-   the soundBankHead contract).
+   the soundBankHead contract). **LIVE as of 2026-07-08:** the engine/game split executed
+   and `games/demo/` exists — its `build.conf` defaults `SOUND_DRIVER_ENABLED=0` precisely
+   because no demo sound bank exists yet (see `docs/ENGINE_ARCHITECTURE.md`, "Engine/game
+   contract" section, and `games/demo/build.conf`). Lifting this limitation is now simply:
+   author a minimal engine-side (or demo-side) bank that satisfies the `soundBankHead`
+   contract (`engine/sound/sound_bank.inc`) — pitch table + SFX window table + song/SFX
+   data — and flip the default on.
 5. **RNG** — trivial; fold into design #9 execution (the behavior sequencer is its first
    real consumer), not a standalone task.
 6. **PAL music tempo** — small, likely WONTFIX (emulator-only project; classic games
