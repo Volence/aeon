@@ -73,15 +73,18 @@ SFXEL_FM    = 1
 SFXEL_PSG   = 2
 SFXEL_NOISE = 3
 
-# Per-SFX priority tiers (mirror sound_constants.asm SFXPRI_*)
-SFXPRI_RING     = 0x20
-SFXPRI_JUMP     = 0x40
-SFXPRI_ROLL     = 0x60
-SFXPRI_SKID     = 0x60
-SFXPRI_SPINDASH = 0x80
-SFXPRI_DASH     = 0x80
-SFXPRI_DEATH    = 0xC0
-SFXPRI_RINGLOSS = 0xC0
+# Per-SFX priority tiers (mirror sound_constants.asm SFXPRI_*). 7-bit scale
+# ($00-0x7F): bit 7 of sfh_priority is reserved as the non-latching flag (spec
+# §5/§7.1). Only relative ordering matters; values must stay < 0x80 (guarded by a
+# build-time assert in sound_constants.asm and test_priorities_are_7bit below).
+SFXPRI_RING     = 0x10
+SFXPRI_JUMP     = 0x20
+SFXPRI_ROLL     = 0x30
+SFXPRI_SKID     = 0x30
+SFXPRI_SPINDASH = 0x40
+SFXPRI_DASH     = 0x40
+SFXPRI_DEATH    = 0x60
+SFXPRI_RINGLOSS = 0x60
 
 # SHF_* flag bits (mirror sound_constants.asm)
 SHF_CONTINUOUS = 1 << 0

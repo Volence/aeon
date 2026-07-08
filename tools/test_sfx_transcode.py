@@ -352,6 +352,28 @@ class TestRoundtripSkid(unittest.TestCase):
         self.assertIsInstance(psg2_ch['events'][-1], End)
 
 
+class TestPrioritiesAre7Bit(unittest.TestCase):
+    """Bit 7 of sfh_priority is the non-latching flag (spec §5/§7.1); every
+    authored priority tier must fit in 7 bits ($00-0x7F) so it can't be misread
+    as the flag (mirrors the build-time assert in sound_constants.asm)."""
+
+    def test_priorities_are_7bit(self):
+        for name, val in (
+            ("SFXPRI_RING", SFXPRI_RING), ("SFXPRI_JUMP", SFXPRI_JUMP),
+            ("SFXPRI_ROLL", SFXPRI_ROLL), ("SFXPRI_SKID", SFXPRI_SKID),
+            ("SFXPRI_SPINDASH", SFXPRI_SPINDASH), ("SFXPRI_DASH", SFXPRI_DASH),
+            ("SFXPRI_DEATH", SFXPRI_DEATH), ("SFXPRI_RINGLOSS", SFXPRI_RINGLOSS),
+        ):
+            self.assertEqual(val & 0x80, 0, f"{name}={val:#04x} has bit 7 set (non-latching flag)")
+
+    def test_priority_ordering_preserved(self):
+        # ring < jump < roll==skid < spindash==dash < death==ringloss
+        self.assertTrue(SFXPRI_RING < SFXPRI_JUMP < SFXPRI_ROLL < SFXPRI_SPINDASH < SFXPRI_DEATH)
+        self.assertEqual(SFXPRI_ROLL, SFXPRI_SKID)
+        self.assertEqual(SFXPRI_SPINDASH, SFXPRI_DASH)
+        self.assertEqual(SFXPRI_DEATH, SFXPRI_RINGLOSS)
+
+
 class TestNoReservedTarget(unittest.TestCase):
     """For every transcoded SFX (Roll, Skid, Ring), assert no channel route is reserved."""
 
@@ -719,30 +741,32 @@ class TestPriorityValues(unittest.TestCase):
     def _p(self, sfx_id):
         return _SFX_PRIORITY[sfx_id]
 
+    # Assert against the SFXPRI_* constants (not hardcoded magnitudes) so the id->tier
+    # mapping is verified but the tests survive a priority rescale (e.g. the 7-bit move).
     def test_ring_priority(self):
-        self.assertEqual(self._p(0x33), 0x20)
-        self.assertEqual(self._p(0x34), 0x20)
+        self.assertEqual(self._p(0x33), SFXPRI_RING)
+        self.assertEqual(self._p(0x34), SFXPRI_RING)
 
     def test_death_priority(self):
-        self.assertEqual(self._p(0x35), 0xC0)
+        self.assertEqual(self._p(0x35), SFXPRI_DEATH)
 
     def test_skid_priority(self):
-        self.assertEqual(self._p(0x36), 0x60)
+        self.assertEqual(self._p(0x36), SFXPRI_SKID)
 
     def test_roll_priority(self):
-        self.assertEqual(self._p(0x3C), 0x60)
+        self.assertEqual(self._p(0x3C), SFXPRI_ROLL)
 
     def test_jump_priority(self):
-        self.assertEqual(self._p(0x62), 0x40)
+        self.assertEqual(self._p(0x62), SFXPRI_JUMP)
 
     def test_spindash_priority(self):
-        self.assertEqual(self._p(0xAB), 0x80)
+        self.assertEqual(self._p(0xAB), SFXPRI_SPINDASH)
 
     def test_dash_priority(self):
-        self.assertEqual(self._p(0xB6), 0x80)
+        self.assertEqual(self._p(0xB6), SFXPRI_DASH)
 
     def test_ringloss_priority(self):
-        self.assertEqual(self._p(0xB9), 0xC0)
+        self.assertEqual(self._p(0xB9), SFXPRI_RINGLOSS)
 
 
 # PSG vol-env fixtures (SFX Expressive Fidelity Task 3).
