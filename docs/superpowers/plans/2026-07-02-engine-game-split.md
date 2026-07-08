@@ -1,5 +1,11 @@
 # Engine/Game Agnostic Split Implementation Plan
 
+> **⚠ SUPERSEDED (2026-07-07)** by `2026-07-07-engine-game-split-execution.md`.
+> The 2026-07-03 sound merges (SFX Stage A hotkey rework, table banking) drifted this
+> plan's anchors and killed one seam (`GAME_FM_PATCHES` — the driver's fm_patches
+> include no longer exists) while adding four new ones (default pitch table, ring SFX
+> ids, camera `_pl_state` read, root `test/`). Execute the 2026-07-07 plan instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Real engine/game wall — engine.inc + gameHeader macro + parameterized boot + soundBankHead contract + def/RAM splits + `games/demo/` booting on oracle.
