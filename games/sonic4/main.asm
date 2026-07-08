@@ -11,14 +11,16 @@ PAD_TO_POWER_OF_TWO     = 1
 ; -----------------------------------------------
 ; Definitions (no ROM output)
 ; -----------------------------------------------
-    include "constants.asm"
-    include "sound_constants.asm"
-    include "structs.asm"
-    include "macros.asm"
-    include "engine/sound/sound_bank.inc"
+    include "engine/constants.asm"
+    include "engine/sound_constants.asm"
+    include "engine/structs.asm"
+    include "engine/macros.asm"
     include "engine/parallax_macros.inc"
-    include "ram.asm"
+    include "engine/sound/sound_bank.inc"
+    include "games/sonic4/config/constants.asm"
+    include "games/sonic4/config/sound_ids.asm"
     include "games/sonic4/config/game.asm"
+    include "ram.asm"
     include "engine/debug/debugger.asm"
 
     org 0
