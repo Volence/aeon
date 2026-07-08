@@ -316,10 +316,14 @@ H_scroll_frame_offset:  ds.b 1          ; camera lag depth (0 = no lag)
 Camera_Deadzone_Base:   ds.w 1          ; base deadzone width in pixels
 Camera_Lookahead:       ds.w 1          ; zone-default lookahead pixels
 Camera_Pan_Offset:      ds.w 1          ; current extended lookahead pan
-Camera_Spindash_Lag:    ds.b 1          ; frames the camera holds still after a spindash
-                                        ; release (classic 16-frame lag). Set to 16 by the
-                                        ; spindash release; Camera_Update tests it each
+Camera_Spindash_Lag:    ds.b 1          ; frames the camera holds position (game code sets it,
+                                        ; e.g. spindash charge). Camera_Update tests it each
                                         ; frame to suppress camera movement, then decrements.
+                                        ; Rename to Camera_Hold_Frames is DEFERRED — proven to
+                                        ; perturb the convsym-appended MD-debugger symbol table
+                                        ; byte-for-byte (any renamed/added symbol name does, not
+                                        ; just this one); breaks the Phase A byte-identical gate.
+                                        ; See the E2a task report.
                         ds.b 1          ; pad
 
 ; -----------------------------------------------

@@ -4,7 +4,7 @@
 Builds one fixed payload that forces every S4LZ v3 decoder path, compresses
 it three ways (S4LZ v3 plain, S4LZ v3 + dictionary, ZX0 via salvador), and
 emits the blobs plus an asm include with expected-size/checksum constants
-into data/generated/test/. The 68000 self-test (debug/compression_selftest.asm)
+into engine/debug/generated/. The 68000 self-test (debug/compression_selftest.asm)
 decompresses each vector at boot and compares a 16-bit additive word checksum
 against the constants emitted here — the only ASM-vs-encoder verification in
 the project (everything else is Python-vs-Python).
@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import s4lz
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-OUTPUT_DIR = os.path.join(ROOT, "games", "sonic4", "data", "generated", "test")
+OUTPUT_DIR = os.path.join(ROOT, "engine", "debug", "generated")
 SALVADOR = os.path.join(ROOT, "tools", "bin", "salvador")
 
 DICT_LEN = 256          # dictionary bytes for the dict vector (word-even)
@@ -330,20 +330,20 @@ def main():
             "; 16-bit additive BE word checksum\n"
             f"CSELF_DICT_LEN = {DICT_LEN}\n"
             "CSelf_S4LZ_Plain:\n"
-            "    BINCLUDE \"games/sonic4/data/generated/test/s4lz_plain.bin\"\n"
+            "    BINCLUDE \"engine/debug/generated/s4lz_plain.bin\"\n"
             "    align 2\n"
             "CSelf_S4LZ_Dict:\n"
-            "    BINCLUDE \"games/sonic4/data/generated/test/s4lz_dict.bin\"\n"
+            "    BINCLUDE \"engine/debug/generated/s4lz_dict.bin\"\n"
             "    align 2\n"
             "CSelf_Dict_Blob:\n"
-            "    BINCLUDE \"games/sonic4/data/generated/test/s4lz_dict_blob.bin\"\n"
+            "    BINCLUDE \"engine/debug/generated/s4lz_dict_blob.bin\"\n"
             "    align 2\n"
             "CSelf_ZX0:\n"
-            "    BINCLUDE \"games/sonic4/data/generated/test/zx0.bin\"\n"
+            "    BINCLUDE \"engine/debug/generated/zx0.bin\"\n"
             "    align 2\n"
             "; Expected uncompressed payload (debug byte-compare reference)\n"
             "CSelf_Expected:\n"
-            "    BINCLUDE \"games/sonic4/data/generated/test/payload.bin\"\n"
+            "    BINCLUDE \"engine/debug/generated/payload.bin\"\n"
             "    align 2\n"
         )
 

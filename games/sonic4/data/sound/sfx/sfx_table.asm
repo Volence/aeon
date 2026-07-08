@@ -4,6 +4,8 @@
 ; DO NOT EDIT BY HAND.
 ; ======================================================================
 
+SFX_BLOB_BANK = sfx_bankid(Sfx_33)
+
 SFX_ID_BASE  = $33
 SFX_COUNT    = 9
 SFX_TABLE_LEN = 135   ; max_id - min_id + 1 (sparse over the id range)

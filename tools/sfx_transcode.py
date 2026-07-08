@@ -1658,6 +1658,17 @@ def emit_sfx_table_asm(sfx_ids: list, id_to_label: dict) -> str:
     max_id = max(sfx_ids)
     total = max_id - min_id + 1
 
+    # SFX_BLOB_BANK is a game-declared sound contract constant (see
+    # games/sonic4/config/game.asm's "sound contract" section for the
+    # canonical comment), but sfx_bankid() (engine/sound/sound_sfx.asm)
+    # isn't visible yet at game.asm's include position in main.asm, and the
+    # first SFX blob label doesn't exist until the sfx_NN.asm includes run.
+    # This generated file is included after both, so the declaration lives
+    # here instead — taken from the first (lowest-id) blob; the contiguous
+    # build layout (all sfx_NN.asm blobs included together in main.asm)
+    # guarantees the rest share its bank.
+    lines.append(f"SFX_BLOB_BANK = sfx_bankid({id_to_label[min_id]})")
+    lines.append("")
     lines.append(f"SFX_ID_BASE  = ${min_id:02X}")
     lines.append(f"SFX_COUNT    = {len(sfx_ids)}")
     lines.append(f"SFX_TABLE_LEN = {total}   ; max_id - min_id + 1 (sparse over the id range)")

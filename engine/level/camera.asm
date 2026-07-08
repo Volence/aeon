@@ -164,7 +164,7 @@ Camera_Update:
         bra.s   .apply_y
 
 .check_down:
-        ; -- landing lock --
+        ; -- landing lock (game-declared GAME_CAMERA_JUMP_LOCK gate) --
         ;    While airborne FROM A JUMP (PSTATE_JUMP / PSTATE_ROLLJUMP — the
         ;    upward-launched states, classic's jump flag) the camera must NOT
         ;    scroll down to chase a rising/hanging player. We reach here only
@@ -177,6 +177,10 @@ Camera_Update:
         ;    a jump state: there we DO resume so a long fall after the apex
         ;    isn't left off-screen. Debug-fly forces PSTATE_AIR (not a jump
         ;    state), so it follows as before. (research feel-modern §3; spec §7)
+        ;    Requires game-defined _pl_state/PSTATE_JUMP/PSTATE_ROLLJUMP; games
+        ;    without them set GAME_CAMERA_JUMP_LOCK=0 for plain deadzone follow
+        ;    (falls straight from .check_down to .down_ok below).
+    if GAME_CAMERA_JUMP_LOCK
         move.b  (Player_1+_pl_state).w, d2
         cmpi.b  #PSTATE_JUMP, d2
         beq.s   .land_lock
@@ -190,6 +194,7 @@ Camera_Update:
         cmpi.w  #CAM_SCREEN_HALF_H, d3              ; at/over bottom screen edge?
         bge.s   .down_ok                            ; → resume follow
         bra.w   .clamp_y                            ; locked → hold Y
+    endif
 .down_ok:
         moveq   #32, d2                             ; restore +deadzone (d2 clobbered)
         cmp.w   d2, d3

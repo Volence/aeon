@@ -58,10 +58,7 @@ SFX_WIN_BASE = 32768                                     ; $8000 (window bit15)
 sfx_winptr  function addr, (((addr) & SFX_WIN_MASK) | SFX_WIN_BASE)
 sfx_bankid  function addr, ((addr) >> 15)               ; banked-window bank id
 
-; The bank all SFX blobs live in (taken from the first blob; the contiguous
-; build layout — all sfx_NN.asm blobs included together in main.asm — guarantees
-; the rest share it). SfxDispatch banks this in and LEAVES it set (stream model).
-SFX_BLOB_BANK = sfx_bankid(Sfx_33)
+; SFX_BLOB_BANK is game-declared — see games/<game>/config/game.asm
 
 ; --- SfxDispatch multi-channel loop scratch (Task 8) -------------------------
 ; The per-channel placement loop calls Sfx_SelectVoice/Sfx_Steal, which clobber
@@ -692,15 +689,19 @@ Sfx_QueueEnqueue:
 ; ----------------------------------------------------------------------
 Sfx_BeginSound:
         ld      (SND_SFX_DISP_ID), a     ; raw id — keys the retrigger scan + per-slot id table
-        ; spindash rev reset (spec §6): any NON-spindash SFX resets the global rev to
-        ; 0 (mirror zPlaySound_Normal). The spindash SFX is the special-cased exception
-        ; that does NOT reset, so its rev keeps rising across re-triggers. Compare the
-        ; raw id (a) against SFXID_SPINDASH BEFORE the range-check subtract.
-        cp      SFXID_SPINDASH
-        jr      z, .keep_rev             ; spindash -> do NOT reset (let it escalate)
+        ; rev-loop reset (spec §6, LEGACY spindash-rev mechanism — distinct from the
+        ; SHF_CONTINUOUS Stage-C machinery nearby): any NON-rev-loop SFX resets the
+        ; global rev to 0 (mirror zPlaySound_Normal). The rev-loop SFX is the special-
+        ; cased exception that does NOT reset, so its rev keeps rising across re-
+        ; triggers. Compare the raw id (a) against SFXID_REV_LOOP (game-declared;
+        ; -1 = feature off, no rev-loop SFX exists) BEFORE the range-check subtract.
+    if SFXID_REV_LOOP >= 0
+        cp      SFXID_REV_LOOP
+        jr      z, .keep_rev             ; rev-loop id -> do NOT reset (let it escalate)
         ld      hl, Snd_SpindashRev
         ld      (hl), 0                  ; normal SFX -> rev escalation back to 0 (a preserved)
 .keep_rev:
+    endif
         ; --- id range check (dense table indexed by id - SFX_ID_BASE) ---
         sub     SFX_ID_BASE
         ret     c                        ; id < base -> ignore

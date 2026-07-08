@@ -671,7 +671,10 @@ Fm_TransposeClamp:
 ; TABLE: TWO PARALLEL PAGES (sound_constants.asm) — A4 page first (PITCHTAB_COUNT
 ; bytes), then the A0 page. So for index i: $A4 = base[i], $A0 = base[COUNT+i].
 ; base = Snd_PitchTabPtr (per-song) when nonzero, else MovingTrucks_PitchTable
-; (the inline engine-default table). idx = clamp_0_83(note+transpose) via
+; (the inline engine-default table; DEFERRED rename to a game-agnostic
+; SndDefaultPitchTable contract label — see A7 note in movingtrucks_pitchtable.asm
+; and the E2a task report: a same-address alias label perturbs the plain-build
+; convsym symbol appendix). idx = clamp_0_83(note+transpose) via
 ; Fm_TransposeClamp; then $A4/$A0 are looked up and Fm_NoteOnFreq keys on.
 ; Clobbers: af, bc, de, hl. Preserves ix.
 ; ----------------------------------------------------------------------

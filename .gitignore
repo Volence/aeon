@@ -33,6 +33,7 @@ tags
 __pycache__/
 .worktrees/
 games/sonic4/data/generated/
+engine/debug/generated/
 
 # Build tool caches (content-hash keyed)
 tools/.cache/

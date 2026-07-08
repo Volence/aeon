@@ -227,7 +227,7 @@ SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
         ; SfxBlobWinTab — moved here from the resident Z80 blob (Phase-2 budget
         ; recovery, ~270 B). Co-located in this same MT/SFX bank so the two readers
         ; (sound_sfx.asm) read it through the $8000 window after SetBank(SFX_BLOB_BANK).
-        include "engine/sound/sfx_blob_win_tab.asm"
+        include "games/sonic4/data/sound/sfx_blob_win_tab.asm"
         ; SeqOpcodeTable + DacSampleTable — moved here from the resident Z80 blob
         ; (budget A.2, 2026-07-02, ~154 B). Bank-visibility arguments + the
         ; DacSampleTable placement constraint (readable under the SONG bank, not a
@@ -347,8 +347,8 @@ SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
 ; -----------------------------------------------
 ; Test game states
 ; -----------------------------------------------
-    include "test/object_test_state.asm"
-    include "test/ojz_scroll_test.asm"
+    include "games/sonic4/test/object_test_state.asm"
+    include "games/sonic4/test/ojz_scroll_test.asm"
 
 ; -----------------------------------------------
 ; Temporary stubs (replaced in later tasks)
