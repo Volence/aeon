@@ -1104,8 +1104,17 @@ grep -rnE "SONG_|SFXID_|OJZ|GS_OJZ|Sonic|sonic4|games/" engine/ --include='*.asm
     `constants.asm`, `sound_constants.asm`, `structs.asm`, `macros.asm`, `ram.asm`,
     root `test/`, or `engine/system/game_loop.asm`'s debug harness must rebase those
     paths mechanically** (the "whichever executes first wins" rule those plans carry).
-  - `docs/DEFERRED_WORK.md`: close/annotate any entries owned by this split; add one
-    entry: "demo sound bank via soundBankHead (v1 demo builds without sound)".
+  - `docs/DEFERRED_WORK.md`: close/annotate any entries owned by this split; the
+    "demo sound bank via soundBankHead" limitation is already recorded there (2026-07-07
+    substrate-gaps stocktake, item 4) — annotate it as live once games/demo exists.
+  - **Sigil compatibility handoff** (the split runs BEFORE the assembler port by
+    design): record every AS feature this split newly exercises in the Sigil
+    compatibility notes (`empyrean/docs/SIGIL_*.md` or wherever the compat checklist
+    lives) — at minimum: string-valued `equ` symbols, `strlen()` in `if` expressions,
+    macro parameters used as `include` paths (`soundBankHead`), `include` directives
+    inside macro bodies (`engine.inc` hooks + the manifest macros), and `fatal` with
+    interpolated strings. These are now part of the tree Sigil must assemble
+    byte-identically — pinned against AS by this plan's [BYTE] stages.
 - [ ] **Step 4: Merge.**
 
 ```bash
