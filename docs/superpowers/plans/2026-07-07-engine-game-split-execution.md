@@ -889,6 +889,19 @@ GS_DEMO                 = 2             ; entry state id (0/1 = engine GS_BOOT/G
 VRAM_DEMO_OBJ           = $03E0        ; demo box art (4 tiles) — free tile region
 VRAM_RING_PLACEHOLDER   = VRAM_DEMO_OBJ+4 ; engine contract (DrawRings) — unused here,
                                         ; points at a blank tile
+
+; Engine-consumed capacity contracts (T5 finding — every game must define these;
+; the engine sizes its ring/entity RAM and code loops from them):
+MAX_RING_BUFFER         = 16            ; minimal — demo has no rings
+RING_BUFFER_ENTRY_SIZE  = 6
+RING_WIDTH              = 16
+COLLECTED_WINDOW_SLOTS  = 4             ; minimal collected-ring bookkeeping
+COLLECTED_SLOT_SIZE     = 6             ; copy sonic4's entry sizes (engine layout)
+COLLECTED_PARK_SLOTS    = 4
+COLLECTED_PARK_ENTRY_SIZE = 6
+; (GAME_CAMERA_JUMP_LOCK=0 in game.asm, so PSTATE_* are NOT needed.)
+; VERIFY the four sizes against games/sonic4/config/constants.asm at execution
+; time — entry sizes are engine-layout-fixed, only the *_SLOTS counts are tunable.
 ```
 
   `games/demo/config/game.asm`:
@@ -1087,8 +1100,14 @@ grep -rnE "SONG_|SFXID_|OJZ|GS_OJZ|Sonic|sonic4|games/" engine/ --include='*.asm
   `SFXID_REV_LOOP`, `SFXID_RING_LEFT`, `SFXID_RING_RIGHT` (plus `Game_Entry`,
   `GAME_ENTRY_ID`, `GAME_CAMERA_JUMP_LOCK`, `SndDefaultPitchTable`, `SFX_BLOB_BANK`,
   `SND_ENGINE_TABLE_BANK`, `VRAM_RING_PLACEHOLDER`, `SongTable`, `SfxTable`,
-  `SfxBlobWinTab`, the `gameBootHook`/`gameDebugTick`/`game*Includes` macro names, and
-  `GAME_*` header symbols). Fix any straggler as a T3-style inversion. Record the final
+  `SfxBlobWinTab`, the `gameBootHook`/`gameDebugTick`/`game*Includes` macro names,
+  `GAME_*` header symbols, **and the game-declared capacity/state constants the engine
+  consumes by design (T5 finding): `MAX_RING_BUFFER`, `RING_BUFFER_ENTRY_SIZE`,
+  `RING_WIDTH` (engine/objects/rings.asm), `COLLECTED_WINDOW_SLOTS`,
+  `COLLECTED_SLOT_SIZE`, `COLLECTED_PARK_SLOTS`, `COLLECTED_PARK_ENTRY_SIZE`
+  (engine/objects/entity_window.asm), `PSTATE_AIR`/`PSTATE_JUMP`/`PSTATE_ROLLJUMP`
+  (engine/level/camera.asm, inside the GAME_CAMERA_JUMP_LOCK gate)**). Fix any
+  straggler as a T3-style inversion. Record the final
   gate output in the commit message body.
 - [ ] **Step 2: Full verification sweep.** sonic4 both variants green + BEHAV suite on
   oracle (boot, circuit, all sound hotkeys); `demo.bin` boots + renders; tool pytest
