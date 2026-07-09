@@ -4,8 +4,8 @@ ojz_Sec0_Rings:
     dc.w $00A0, $0060
     dc.w $00B0, $0060
     dc.w $00C0, $0060
-    dc.w $0180, $0080
-    dc.w $01A0, $0080
+    dc.w $0134, $009D
+    dc.w $0144, $009D
     dc.l 0               ; terminator
 
 ojz_Sec0_TypeTable:
@@ -14,7 +14,7 @@ ojz_Sec0_TypeTable:
     dc.l ObjDef_Solid    ; Solid Block
 
 ojz_Sec0_Objects:
-    dc.w $0200, $00B0, $0000   ; X=$0200, Y=$00B0, Solid Block:0
+    dc.w $0323, $00D0, $0000   ; X=$0323, Y=$00D0, Solid Block:0
     dc.w -1                                 ; terminator
 
 ojz_Sec1_Rings:
@@ -30,12 +30,15 @@ ojz_Sec1_Rings:
     dc.l 0               ; terminator
 
 ojz_Sec1_TypeTable:
-    dc.b 1       ; count
+    dc.b 2       ; count
     dc.b 0           ; pad
     dc.l ObjDef_Solid    ; Solid Block
+    dc.l ObjDef_PathSwap    ; Path Swap
 
 ojz_Sec1_Objects:
     dc.w $0100, $00B0, $0000   ; X=$0100, Y=$00B0, Solid Block:0
+    dc.w $0300, $0344, $0152   ; X=$0300, Y=$0344, Path Swap:82
+    dc.w $0370, $03E8, $0113   ; X=$0370, Y=$03E8, Path Swap:19
     dc.w -1                                 ; terminator
 
 ojz_Sec2_Rings:

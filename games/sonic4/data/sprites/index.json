@@ -1,0 +1,9 @@
+{
+  "sprites": [
+    {
+      "name": "plantbadmaps",
+      "frameCount": 6,
+      "tileCount": 92
+    }
+  ]
+}

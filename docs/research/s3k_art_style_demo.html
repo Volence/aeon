@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Why Sonic 3 &amp; Knuckles art looks like THAT — the game-specific choices</title>
+<style>
+  :root{
+    --bg:#0c0e14; --panel:#151823; --panel2:#1c2030; --ink:#e8ecf4;
+    --dim:#9aa3b8; --line:#2a3043; --accent:#39c2ff; --accent2:#ffd23f; --hot:#ff5d73;
+    --mono:ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 700px at 70% -10%,#1a2440 0%,var(--bg) 55%);
+    color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:48px 22px 120px}
+  header h1{font-size:29px;line-height:1.25;margin:0 0 8px;letter-spacing:-.02em}
+  header h1 .b{color:var(--accent)}
+  header p.lede{color:var(--dim);font-size:18px;margin:0 0 6px}
+  .pill{display:inline-block;font:12px/1 var(--mono);color:var(--accent2);border:1px solid var(--line);
+    border-radius:999px;padding:6px 11px;margin:14px 8px 0 0;background:#0008}
+  section{margin:44px 0 0;background:linear-gradient(180deg,var(--panel) 0%,#12141d 100%);
+    border:1px solid var(--line);border-radius:16px;padding:26px}
+  h2{font-size:21px;margin:0 0 4px;letter-spacing:-.01em}
+  h2 .n{font:13px/1 var(--mono);color:var(--accent);margin-right:10px;opacity:.85}
+  .sub{color:var(--dim);margin:0 0 18px;font-size:15px}
+  p{margin:0 0 14px}
+  canvas{image-rendering:pixelated;border-radius:8px;display:block;background:#000;width:100%;height:auto;border:1px solid #0008}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+  button{font:13px/1 inherit;color:var(--ink);background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;padding:9px 13px;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--accent);color:#fff}
+  button.on{background:var(--accent);color:#06121c;border-color:var(--accent);font-weight:600}
+  button.fire{background:var(--hot);color:#1a0608;border-color:var(--hot);font-weight:600}
+  label.ctl{font-size:13px;color:var(--dim);display:flex;align-items:center;gap:8px}
+  input[type=range]{accent-color:var(--accent)}
+  .cap{font-size:13px;color:var(--dim);margin-top:12px}
+  .cap b{color:var(--ink)} em.t{color:var(--accent2);font-style:normal}
+  .ex{font-size:13px;color:var(--dim);border-left:2px solid var(--accent);padding-left:12px;margin-top:14px}
+  .ex b{color:var(--ink)}
+  .footnote{color:var(--dim);font-size:13px;border-top:1px solid var(--line);margin-top:18px;padding-top:14px}
+  .footnote a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Why <span class="b">Sonic&nbsp;3 &amp; Knuckles</span> art looks like <em>that</em></h1>
+  <p class="lede">Not the hardware — the four choices the artists made on top of it. Sculpted forms, depth, the shine, and a world that changes state.</p>
+  <span class="pill">drag &amp; click everything</span>
+  <span class="pill">procedural art, S3K technique</span>
+</header>
+
+<section>
+  <h2><span class="n">01</span>The "sculpted / pre-rendered" object look</h2>
+  <p class="sub">The biggest thing you feel but can't name. S3K objects don't look drawn — they look <em class="t">extruded and lit</em>, like little 3D toys.</p>
+  <p>Same year as Donkey Kong Country's pre-rendered craze, S3K chases the same dimensionality <b>by hand</b>: rounded/beveled geometry, a tight near-white <b>specular blob</b> (not a soft gradient), a <b>rim light</b> on the far edge, a smooth dithered metal ramp, and a firm dark outline sealing the silhouette.</p>
+  <div class="row" style="margin:0 0 6px"><canvas id="sculpt" width="320" height="150"></canvas></div>
+  <div class="row">
+    <button id="sculptToggle" class="on">Rendered (S3K)</button>
+    <span class="cap" style="margin:0">Toggle to flat-shaded — same shape, instantly a plastic S1 sprite.</span>
+  </div>
+  <p class="ex"><b>In the game:</b> Carnival Night's chrome bumpers &amp; balloons · Launch Base girders and gears · Death Egg / Flying Battery machinery · Hydrocity's tube architecture · the bonus-stage spheres · the texture-mapped rotating planet in the blue-sphere Special Stage.</p>
+</section>
+
+<section>
+  <h2><span class="n">02</span>Atmospheric depth — loud foreground, quiet background</h2>
+  <p class="sub">Depth is <em class="t">painted into the art</em>, not just faked with parallax speed.</p>
+  <p>Foreground: saturated, high-contrast, outlined, fully textured. Background: cooler, hazier, low-contrast, soft shapes. Push the background back and the play layer <b>pops</b> — you instantly read where you can stand. Drag the haze slider and watch the foreground separate.</p>
+  <div class="row" style="margin:0 0 6px"><canvas id="depth" width="320" height="150"></canvas></div>
+  <label class="ctl">Background haze / recession <input id="hazeSlide" type="range" min="0" max="100" value="80"></label>
+  <p class="ex"><b>In the game:</b> Hydrocity's submerged ruins receding under the water-line shadows · Sky Sanctuary's pastel cloud depth · Marble Garden's rotating sky · Launch Base's distant skyline. Plus fast foreground framing — Angel Island palm fronds sweeping the top of the screen.</p>
+</section>
+
+<section>
+  <h2><span class="n">03</span>A world that changes state</h2>
+  <p class="sub">S3K's deepest identity, and almost nobody else did it on Genesis. The world <em class="t">transforms</em> — live, mid-level, with no text.</p>
+  <p>The signature moment: Angel Island Act 1's lush jungle gets <b>firebombed by Robotnik</b>. Watch the palette march from daylight green to orange/red as smoke rises and the sky chokes out — pure environmental storytelling done with a palette lerp. Hit the button.</p>
+  <div class="row" style="margin:0 0 6px"><canvas id="burn" width="320" height="150"></canvas></div>
+  <div class="row">
+    <button id="burnBtn" class="fire">🔥 Set the jungle on fire</button>
+    <button id="burnReset">Reset to morning</button>
+  </div>
+  <p class="ex"><b>Same family:</b> Launch Base day→sunset→night across acts · Sandopolis Act 2 lights-out darkness · Lava Reef molten→crystalline Hidden Palace · Death Egg selling vast scale by reusing cave art with only a palette + backdrop swap.</p>
+</section>
+
+<section>
+  <h2><span class="n">04</span>The "shine" — specular glints &amp; sparkle</h2>
+  <p class="sub">Single hot pixels in exactly the right spot. The anime-gloss that makes metal, crystal, water and rings feel <em class="t">wet and reflective</em>.</p>
+  <p>It's almost nothing — one or two near-white pixels, often <b>cycling</b> so they twinkle — but remove them and everything goes dead and matte. S3K places glints with discipline: aligned to the light, on every reflective surface, on the rings that cycle to sparkle.</p>
+  <div class="row" style="margin:0 0 6px"><canvas id="shine" width="320" height="120"></canvas></div>
+  <div class="row">
+    <button id="shineToggle" class="on">Glints ON</button>
+    <span class="cap" style="margin:0">Toggle off — same rings &amp; gems, suddenly cheap and flat.</span>
+  </div>
+  <p class="ex"><b>In the game:</b> the rotating rings (palette-cycled sparkle) · IceCap and Hidden Palace crystals · every chrome bumper · water surface highlights · the gold of Sky Sanctuary's ruins.</p>
+</section>
+
+<section>
+  <h2><span class="n">+</span>And the sprite work itself</h2>
+  <p class="sub">Where the static shots end and the polish lives.</p>
+  <p>Sonic's S3 redesign: a consistent thick outline, <b>two-tone blue</b> (deep body + a lighter plane for roundness), cuffed gloves, buckled shoes — glossier and rounder than S1. But the real jump is <b>animation density</b>: the figure-8 run, the impatient idle (foot-tap, watch-check, glance at camera), a breathing stand, ledge-teeter balance, the Super flash, the snowboard, water-running. Squash-and-stretch on every jump. Each zone's badniks share a material/palette family so they belong to their world. <b>Motion density reads as polish more than any single frame</b> — and S3K has more of it than any 16-bit platformer of its moment.</p>
+  <div class="footnote">
+    <b>Further reading:</b>
+    <a href="https://www.gamedeveloper.com/design/sonic-3-knuckles-design-lessons-in-transition-travel-and-pantomime">Game Developer — Transition, Travel &amp; Pantomime</a> ·
+    <a href="https://tcrf.net/Prerelease:Sonic_the_Hedgehog_3/Concept_Art">TCRF — S3 concept art</a> ·
+    <a href="https://info.sonicretro.org/SCHG:Sonic_3_%26_Knuckles">Sonic Retro SCHG</a>
+    <br><span style="opacity:.6">All art here is procedurally generated to illustrate the techniques — not ripped from the game.</span>
+  </div>
+</section>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+
+/* ---------- 01 sculpted vs flat ---------- */
+(function(){
+  const cv=$('#sculpt'), c=cv.getContext('2d'), W=cv.width,H=cv.height;
+  let rendered=true;
+  // hue-shifted metal ramp: shadow cool, highlight warm-white
+  function metal(t){ // t 0..1
+    const r=40+215*Math.pow(t,1.4);
+    const g=55+200*Math.pow(t,1.5);
+    const b=95+160*Math.pow(t,1.7);
+    return [Math.min(255,r),Math.min(255,g),Math.min(255,b)];
+  }
+  function flat(t){const v=70+150*Math.round(t*2)/2;return [v*0.7,v*0.85,v];}
+  const bayer=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+  function sphere(cx,cy,rad){
+    const img=c.getImageData(0,0,W,H);
+    for(let y=-rad-2;y<=rad+2;y++)for(let x=-rad-2;x<=rad+2;x++){
+      const d=Math.sqrt(x*x+y*y); const px=cx+x,py=cy+y;
+      if(px<0||py<0||px>=W||py>=H)continue;
+      const i=(py*W+px)*4;
+      if(d>rad+1.2)continue;
+      if(d>rad-0.5){ // outline
+        img.data[i]=8;img.data[i+1]=10;img.data[i+2]=16;img.data[i+3]=255;continue;
+      }
+      // lambert, light upper-left
+      let ndl=(-x*0.66 - y*0.66)/rad; let t=(ndl+1)/2;
+      // rim light on lower-right
+      const rim=Math.max(0,(d/rad-0.78))*2.2*Math.max(0,(x*0.6+y*0.6)/rad);
+      let col;
+      if(rendered){
+        t=Math.max(0,Math.min(1,t*1.05));
+        // ordered dither between quantized ramp steps for the metal gradient
+        const steps=7; const tf=t*steps; const lo=Math.floor(tf), f=tf-lo;
+        const th=(bayer[py&3][px&3]+0.5)/16; const q=(f>th?lo+1:lo)/steps;
+        col=metal(Math.min(1,q+rim*0.5));
+        // tight specular blob upper-left
+        const sx=x+rad*0.42, sy=y+rad*0.42; if(sx*sx+sy*sy < (rad*0.16)*(rad*0.16)){col=[255,255,255];}
+      } else {
+        col=flat(Math.max(0,Math.min(1,t)));
+      }
+      img.data[i]=col[0];img.data[i+1]=col[1];img.data[i+2]=col[2];img.data[i+3]=255;
+    }
+    c.putImageData(img,0,0);
+  }
+  function beveltube(x0,y0,w,h){
+    const img=c.getImageData(0,0,W,H);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+      const px=x0+x,py=y0+y; if(px<0||py<0||px>=W||py>=H)continue;
+      const i=(py*W+px)*4;
+      const u=x/(w-1); // across tube
+      let t=1-Math.abs(u-0.32)*1.7; t=Math.max(0,Math.min(1,t)); // bright band off-center
+      let col;
+      if(rendered){
+        const steps=6,tf=t*steps,lo=Math.floor(tf),f=tf-lo,th=(bayer[py&3][px&3]+0.5)/16;
+        col=metal((f>th?lo+1:lo)/steps);
+        if(u<0.06||u>0.94||y<1||y>h-2){col=[8,10,16];} // outline
+        if(Math.abs(u-0.30)<0.05 && y>2 && y<h-3){col=[255,255,255];} // specular streak
+      } else { col=flat(t); }
+      img.data[i]=col[0];img.data[i+1]=col[1];img.data[i+2]=col[2];img.data[i+3]=255;
+    }
+    c.putImageData(img,0,0);
+  }
+  function draw(){
+    c.fillStyle='#0a0c12';c.fillRect(0,0,W,H);
+    sphere(90,75,52);
+    beveltube(186,26,96,98);
+    c.fillStyle='#9aa3b8';c.font='11px monospace';
+    c.fillText(rendered?'beveled + specular + rim':'flat ramp',150,142);
+  }
+  draw();
+  $('#sculptToggle').onclick=function(){rendered=!rendered;this.textContent=rendered?'Rendered (S3K)':'Flat (S1-style)';this.classList.toggle('on',rendered);draw();};
+})();
+
+/* ---------- 02 atmospheric depth ---------- */
+(function(){
+  const cv=$('#depth'), c=cv.getContext('2d'), W=cv.width,H=cv.height, slide=$('#hazeSlide');
+  function mix(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];}
+  function draw(){
+    const haze=slide.value/100;
+    const sky=[120,170,210];
+    c.fillStyle='rgb(150,195,225)';c.fillRect(0,0,W,H);
+    // far mountains: desaturated toward sky + lowered contrast as haze rises
+    function layer(baseY,amp,col,recede){
+      const hazed=mix(col,sky,recede*haze);
+      c.fillStyle=`rgb(${hazed[0]|0},${hazed[1]|0},${hazed[2]|0})`;
+      c.beginPath();c.moveTo(0,H);
+      for(let x=0;x<=W;x+=4){const y=baseY+Math.sin(x*0.018+recede*3)*amp+Math.sin(x*0.06)*amp*0.4;c.lineTo(x,y);}
+      c.lineTo(W,H);c.closePath();c.fill();
+    }
+    layer(64,12,[90,120,150],0.95);   // far ridge
+    layer(86,16,[70,100,90],0.6);     // mid hills
+    layer(108,12,[45,80,40],0.28);    // near hills (greener)
+    // foreground platform: saturated, outlined, textured — never hazed
+    c.fillStyle='#1a3414';c.fillRect(0,H-34,W,34);
+    c.fillStyle='#2f6a24';c.fillRect(0,H-34,W,8);
+    c.fillStyle='#46a032';for(let x=0;x<W;x+=6){c.fillRect(x,H-34,3,3);} // grass speckle
+    c.fillStyle='#0c1a08';c.fillRect(0,H-35,W,2); // crisp dark top outline
+    // a foreground object (sculpted ring) to show pop
+    c.fillStyle='#caa018';c.beginPath();c.arc(250,H-58,15,0,7);c.fill();
+    c.fillStyle='#0a0c12';c.beginPath();c.arc(250,H-58,15,0,7);c.lineWidth=3;c.stroke();
+    c.fillStyle='#fff8d0';c.fillRect(243,H-66,3,3);
+    c.fillStyle='#9aa3b8';c.font='11px monospace';c.fillText('haze '+slide.value+'%',8,14);
+  }
+  draw();slide.oninput=draw;
+})();
+
+/* ---------- 03 the burn ---------- */
+(function(){
+  const cv=$('#burn'), c=cv.getContext('2d'), W=cv.width,H=cv.height;
+  // palettes: morning -> inferno
+  const A={sky:[120,180,225],sky2:[170,210,235],hill:[42,120,46],hill2:[70,160,72],trunk:[110,70,38],sun:[255,250,210]};
+  const B={sky:[60,18,16],sky2:[180,70,24],hill:[80,24,14],hill2:[150,50,18],trunk:[40,20,14],sun:[255,180,60]};
+  let burn=0, dir=0, smoke=[];
+  function mix(a,b,t){return `rgb(${(a[0]+(b[0]-a[0])*t)|0},${(a[1]+(b[1]-a[1])*t)|0},${(a[2]+(b[2]-a[2])*t)|0})`;}
+  function P(k){return mix(A[k],B[k],burn);}
+  function draw(){
+    // sky gradient
+    const g=c.createLinearGradient(0,0,0,H*0.7);g.addColorStop(0,P('sky'));g.addColorStop(1,P('sky2'));
+    c.fillStyle=g;c.fillRect(0,0,W,H);
+    // sun/glow
+    c.fillStyle=P('sun');c.globalAlpha=0.9;c.beginPath();c.arc(252,40,18+burn*10,0,7);c.fill();c.globalAlpha=1;
+    // hills
+    c.fillStyle=P('hill');c.beginPath();c.moveTo(0,H);
+    for(let x=0;x<=W;x+=6)c.lineTo(x,96+Math.sin(x*0.02)*14);c.lineTo(W,H);c.fill();
+    c.fillStyle=P('hill2');c.fillRect(0,H-40,W,40);
+    // trees (trunks)
+    for(let i=0;i<7;i++){const tx=24+i*44;c.fillStyle=P('trunk');c.fillRect(tx,H-58,6,24);
+      c.fillStyle=P('hill2');c.beginPath();c.arc(tx+3,H-60,12,0,7);c.fill();}
+    // flames at base when burning
+    if(burn>0.25){for(let i=0;i<W;i+=8){const fh=(8+Math.sin(i*0.5+burn*30)*6)*burn;
+      c.fillStyle=`rgba(255,${120+Math.random()*100|0},20,${0.7*burn})`;c.fillRect(i,H-40-fh,6,fh);}}
+    // smoke
+    smoke.forEach(s=>{c.fillStyle=`rgba(40,30,30,${s.a})`;c.beginPath();c.arc(s.x,s.y,s.r,0,7);c.fill();});
+    c.fillStyle='#fff';c.font='11px monospace';c.globalAlpha=.8;
+    c.fillText(burn<0.05?'Angel Island · morning':(burn>0.95?'Angel Island · ABLAZE':'…incoming…'),8,14);c.globalAlpha=1;
+  }
+  function step(){
+    if(dir>0&&burn<1)burn=Math.min(1,burn+0.012);
+    if(dir<0&&burn>0)burn=Math.max(0,burn-0.04);
+    if(burn>0.3 && smoke.length<40 && (smoke.length<1||Math.abs(smoke[smoke.length-1].y-(H-40))>6)){
+      smoke.push({x:30+Math.random()*260,y:H-44,r:4+Math.random()*5,a:0.5*burn,vy:-0.5-Math.random()});
+    }
+    smoke.forEach(s=>{s.y+=s.vy;s.x+=0.2;s.r+=0.06;s.a-=0.006;});
+    smoke=smoke.filter(s=>s.a>0);
+    draw();requestAnimationFrame(step);
+  }
+  draw();requestAnimationFrame(step);
+  $('#burnBtn').onclick=()=>dir=1;
+  $('#burnReset').onclick=()=>{dir=-1;};
+})();
+
+/* ---------- 04 shine ---------- */
+(function(){
+  const cv=$('#shine'), c=cv.getContext('2d'), W=cv.width,H=cv.height;
+  let on=true, t=0;
+  function ring(cx,cy,r){
+    c.lineWidth=6;c.strokeStyle='#c9a017';c.beginPath();c.arc(cx,cy,r,0,7);c.stroke();
+    c.lineWidth=2;c.strokeStyle='#8a6a08';c.beginPath();c.arc(cx,cy,r+2,0,7);c.stroke();
+    if(on){const a=(Math.sin(t*0.12+cx)*0.5+0.5);
+      c.fillStyle='#fff8d0';c.fillRect(cx-r-1,cy-2,3,3);
+      c.fillStyle=`rgba(255,255,255,${a})`;c.fillRect(cx-2,cy-r-1,3,3);}
+  }
+  function gem(cx,cy){
+    c.fillStyle='#2a7ad0';c.beginPath();c.moveTo(cx,cy-16);c.lineTo(cx+14,cy);c.lineTo(cx,cy+16);c.lineTo(cx-14,cy);c.closePath();c.fill();
+    c.fillStyle='#1a4a90';c.beginPath();c.moveTo(cx,cy-16);c.lineTo(cx,cy+16);c.lineTo(cx-14,cy);c.closePath();c.fill();
+    c.strokeStyle='#0a0c12';c.lineWidth=2;c.beginPath();c.moveTo(cx,cy-16);c.lineTo(cx+14,cy);c.lineTo(cx,cy+16);c.lineTo(cx-14,cy);c.closePath();c.stroke();
+    if(on){c.fillStyle='#cfeaff';c.fillRect(cx-6,cy-8,3,3);c.fillStyle='#fff';c.fillRect(cx-4,cy-6,2,2);}
+  }
+  function metalball(cx,cy){
+    const g=c.createRadialGradient(cx-6,cy-6,2,cx,cy,18);g.addColorStop(0,'#dfe8ff');g.addColorStop(.5,'#5a7fb8');g.addColorStop(1,'#1c2c4c');
+    c.fillStyle=g;c.beginPath();c.arc(cx,cy,18,0,7);c.fill();
+    c.strokeStyle='#0a0c12';c.lineWidth=2;c.stroke();
+    if(on){c.fillStyle='#fff';c.fillRect(cx-8,cy-9,3,3);}
+  }
+  function draw(){
+    c.fillStyle='#0a0c12';c.fillRect(0,0,W,H);
+    ring(60,60,20);ring(120,60,20);
+    gem(190,60);
+    metalball(270,60);
+    c.fillStyle='#9aa3b8';c.font='11px monospace';c.fillText(on?'glints ON — wet & reflective':'glints OFF — dead & matte',8,H-8);
+  }
+  function loop(){t++;draw();requestAnimationFrame(loop);}
+  loop();
+  $('#shineToggle').onclick=function(){on=!on;this.textContent=on?'Glints ON':'Glints OFF';this.classList.toggle('on',on);};
+})();
+</script>
+</body>
+</html>

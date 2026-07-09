@@ -1,0 +1,40 @@
+{
+  "name": "plantbadmaps",
+  "frame": {
+    "width": 48,
+    "height": 56
+  },
+  "frameCount": 6,
+  "tileCount": 92,
+  "paletteLine": 1,
+  "dplc": false,
+  "animTable": "Ani_plantbadmaps",
+  "animSteps": [
+    {
+      "frame": 1,
+      "duration": 9
+    },
+    {
+      "frame": 2,
+      "duration": 9
+    },
+    {
+      "frame": 3,
+      "duration": 9
+    },
+    {
+      "frame": 4,
+      "duration": 9
+    },
+    {
+      "frame": 1,
+      "duration": 9
+    }
+  ],
+  "bytes": {
+    "mappings": 240,
+    "art": 2944,
+    "dplc": 0
+  },
+  "sourceFormat": "s4"
+}

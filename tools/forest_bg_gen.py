@@ -20,54 +20,87 @@ def P(x,y,c):
     if 0<=y<H: buf[y][x%PW]=c
 
 BAND_R0, BAND_R1 = 8, 39      # animated tile rows (y 64..319)
-PAT_W   = 128                 # pattern period px (2 trunks per 256 module)
+PAT_W   = 256                 # colonnade module width — TWO distinct trees
+COL_COLS = PAT_W // 8         # 32 tiles wide
 PAT_ROWS = 4                  # vertical tile period (32px)
+PAT_H = PAT_ROWS * 8          # 32
+FF_W    = 128                 # firefly band keeps its own (narrower) period
+FF_COLS = FF_W // 8           # 16
 BAYER4 = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]]
 
 # ============ colonnade pattern (the animated layer) ============
-TRUNK_C, TRUNK_W = 64, 44
-WAV_L = (0,1,1,2,2,2,1,1,0,0,1,1,2,1,0,0)   # edge waver, 32px vertical period
-WAV_R = (2,1,1,0,0,1,1,2,2,2,1,0,0,1,2,2)
+# Two trees of different girth, bark and sway per 256px module, so the
+# colonnade reads as a varied stand rather than one trunk cloned forever.
+ZONES_A = (DBRN, MBRN, LBRN, LBRN, MBRN, LBRN, MBRN, MBRN,
+           DBRN, MBRN, DBRN, DBRN, RBRN, DBRN, RBRN, RBRN)
+ZONES_B = (DBRN, DBRN, MBRN, LBRN, MBRN, MBRN, LBRN, MBRN,
+           DBRN, RBRN, MBRN, DBRN, DBRN, RBRN, DBRN, DBRN)
+# (center, half_width, waverL, waverR, bark_zones, crack_row, scar_row)
+TREES = [
+    (64,  22, (0,1,1,2,2,2,1,1,0,0,1,1,2,1,0,0),
+              (2,1,1,0,0,1,1,2,2,2,1,0,0,1,2,2), ZONES_A, 13, 27),
+    (190, 18, (1,0,0,1,2,2,1,1,0,0,1,2,2,1,0,0),
+              (1,2,2,1,0,0,1,1,2,2,1,0,0,1,1,2), ZONES_B,  9, 22),
+]
 
-def trunk_pixel(ut, yy):
-    """Trunk color at trunk-space coord ut (0..127), or None outside the trunk."""
-    L = TRUNK_C - TRUNK_W//2 + WAV_L[yy//2]
-    R = TRUNK_C + TRUNK_W//2 - WAV_R[yy//2]
+def _tree_pixel(ut, yy, center, half, wavL, wavR, zones, crack, scar):
+    L = center - half + wavL[(yy//2) % 16]
+    R = center + half - wavR[(yy//2) % 16]
     if not (L <= ut <= R): return None
     i = ut - L; w = R - L
+    if w <= 0: return None
     # rim AA + broken rim light (left = lit side)
     if i == 0 or i == w: return DGRN1
     if i == 1: return BLACK
     if i == 2: return DGRN2 if yy % 7 != 3 else BLACK
     if i == w-1 or i == w-2: return BLACK
     # bark: coherent strand zones over a cylinder ramp, lit crest left of center
-    ZONES = (DBRN, MBRN, LBRN, LBRN, MBRN, LBRN, MBRN, MBRN,
-             DBRN, MBRN, DBRN, DBRN, RBRN, DBRN, RBRN, RBRN)
     waver = (0,0,1,1,2,1,1,0,0,1,2,2,1,0,1,1)[(yy//2) % 16]
     zip_n = (yy + ut*5) % 8 < 2
     s = (i*16)//w + waver + (1 if zip_n else 0)
-    c = ZONES[min(15, s)]
+    c = zones[min(15, s)]
     if (s*5 + yy//4) % 11 == 0: c = DBRN if c in (LBRN, MBRN) else BLACK
-    if yy in (13, 14) and (ut*7 + yy) % 32 < 11: c = BLACK   # partial crack ring
-    if yy in (27, 28) and (ut*5 + 9) % 32 < 9: c = RBRN      # scar band, offset half-period
+    if yy % 32 in (crack, crack+1) and (ut*7 + yy) % 32 < 11: c = BLACK   # crack ring
+    if yy % 32 in (scar, scar+1) and (ut*5 + 9) % 32 < 9: c = RBRN        # scar band
     return c
+
+def trunk_pixel(ut, yy):
+    """Trunk color at module coord ut (0..255), or None where no tree stands."""
+    for (center, half, wavL, wavR, zones, crack, scar) in TREES:
+        c = _tree_pixel(ut, yy, center, half, wavL, wavR, zones, crack, scar)
+        if c is not None: return c
+    return None
+
+def _wall_hash(a, b):
+    return ((a*73 ^ b*151) + a*b*13) & 0xFF
 
 def wall_pixel(v, yy):
-    """Backdrop forest wall. MUST be 8px-periodic in v: whole-tile DMA
-    rotation shifts it by multiples of 8, which must be invisible —
-    that is what lets the trunk move while the wall stays put."""
+    """Backdrop foliage. MUST be 8px-periodic in v: whole-tile DMA rotation
+    shifts it by multiples of 8, which must be invisible — that is what lets
+    the trees march while the wall stays put. Kept LOW-CONTRAST and seamless
+    top-to-bottom (no vertical bias) so the unavoidable 8px repeat reads as
+    soft depth between distant leaves, not a hard grid."""
     col = v % 8
-    c = (DGRN1, BLACK, DGRN1, DGRN1, DGRN2, DGRN1, BLACK, DGRN1)[col]
-    if c == DGRN2 and (yy + col*3) % 16 < 5: c = DGRN1     # broken highlight strand
-    if c == BLACK and (yy*3 + col) % 32 < 2: c = DGRN1     # notched shadow strand
-    if c == DGRN1 and yy in (7, 23) and col in (2, 3): c = BLACK  # faint cross-shadow
-    return c
+    h  = _wall_hash(col, yy)
+    h2 = _wall_hash(col, (yy + 11) % PAT_H)
+    if h < 38:
+        base = DGRN2                       # dim leaf mass catching a little light
+    elif h < 92 and (h2 & 1):
+        base = BLACK                       # sparse deep recess, vertically de-aligned
+    else:
+        base = DGRN1                       # deep-green body — most of the wall
+    g = _wall_hash(col ^ 5, (yy*3) % PAT_H)
+    if g < 6:
+        base = MGRN if base != BLACK else DGRN1   # rare soft dapple of filtered light
+    elif g == 255:
+        base = LGRN                        # very rare bright glint
+    return base
 
 def pat_pixel(v, y, ph=0):
-    """Composite at pattern coord v for fine phase ph: the trunk samples
-    shifted space (it translates 1px per step); the wall samples fixed
-    space (it only ever moves in invisible 8px jumps)."""
-    yy = y % 32
+    """Composite at pattern coord v for fine phase ph: the trees sample shifted
+    space (they translate 1px per step); the wall samples fixed space (it only
+    ever moves in invisible 8px jumps)."""
+    yy = y % PAT_H
     c = trunk_pixel((v + ph) % PAT_W, yy)
     return c if c is not None else wall_pixel(v, yy)
 
@@ -289,8 +322,8 @@ def firefly_at(ut, yy, ph):
     for fu, fy, bo in FIREFLIES:
         lvl = FF_TRI[(ph + bo) % 8]
         if lvl == 0: continue
-        du = (ut - fu) % PAT_W
-        if du > 64: du -= PAT_W
+        du = (ut - fu) % FF_W
+        if du > FF_W // 2: du -= FF_W
         dy = yy - fy
         if du == 0 and dy == 0: return FF_CENTER[lvl]
         if abs(du) <= 1 and abs(dy) <= 1 and FF_HALO[lvl] is not None:
@@ -299,8 +332,8 @@ def firefly_at(ut, yy, ph):
 
 def ff_pixel(v, y, ph=0):
     """Firefly band composite: fireflies translate/pulse, curtain stays."""
-    yy = y % 32
-    c = firefly_at((v + ph) % PAT_W, yy, ph)
+    yy = y % PAT_H
+    c = firefly_at((v + ph) % FF_W, yy, ph)
     return c if c is not None else roots_curtain(v, yy)
 
 # ============ fill band rows in buf (phase 0, for preview + editor) ============
@@ -309,7 +342,7 @@ for y in range(BAND_R0*8, (BAND_R1+1)*8):
         buf[y][x] = pat_pixel(x % PAT_W, y)
 for y in range(FF_R0*8, (FF_R1+1)*8):
     for x in range(PW):
-        buf[y][x] = ff_pixel(x % PAT_W, y)
+        buf[y][x] = ff_pixel(x % FF_W, y)
 
 # ============ slice: anim slots first (NO dedup), then static (dedup) ============
 def pat_tile(col, vrow, shift):
@@ -328,24 +361,25 @@ def ff_tile(col, vrow, shift):
     return out
 
 tiles = []
-for col in range(16):                 # column-major: each col's 4 tiles contiguous
+for col in range(COL_COLS):           # colonnade: each col's tiles contiguous
     for vrow in range(PAT_ROWS):
         tiles.append(pat_tile(col, vrow, 0))
-for col in range(16):                 # firefly band: slots 64..127
+N_COL = len(tiles)                     # colonnade anim slots 0..N_COL-1
+for col in range(FF_COLS):            # firefly band: slots N_COL..
     for vrow in range(PAT_ROWS):
         tiles.append(ff_tile(col, vrow, 0))
-N_ANIM = len(tiles)                   # 128
+N_ANIM = len(tiles)
 
 index = {}                            # static dedup only — never alias anim slots
 layout = [0]*4096
 for trow in range(64):
     for tcol in range(64):
         if BAND_R0 <= trow <= BAND_R1:
-            slot = (tcol % 16) * PAT_ROWS + (trow % PAT_ROWS)
+            slot = (tcol % COL_COLS) * PAT_ROWS + (trow % PAT_ROWS)
             layout[trow*64+tcol] = slot | (2<<13)
             continue
         if FF_R0 <= trow <= FF_R1:
-            slot = 64 + (tcol % 16) * PAT_ROWS + (trow % PAT_ROWS)
+            slot = N_COL + (tcol % FF_COLS) * PAT_ROWS + (trow % PAT_ROWS)
             layout[trow*64+tcol] = slot | (2<<13)
             continue
         t=[]
@@ -360,12 +394,15 @@ print(f'tiles: {len(tiles)} total ({N_ANIM} animated + {len(tiles)-N_ANIM} stati
 phases = []
 ff_phases = []
 for ph in range(8):
-    bank, ff_bank = [], []
-    for col in range(16):
+    bank = []
+    for col in range(COL_COLS):
         for vrow in range(PAT_ROWS):
             bank.append(pat_tile(col, vrow, ph))
-            ff_bank.append(ff_tile(col, vrow, ph))
     phases.append(bank)
+    ff_bank = []
+    for col in range(FF_COLS):
+        for vrow in range(PAT_ROWS):
+            ff_bank.append(ff_tile(col, vrow, ph))
     ff_phases.append(ff_bank)
 
 # preview PNG
@@ -383,13 +420,13 @@ with open('/tmp/bg_colonnade.png','wb') as f:
 import os
 OUT = os.environ.get('BG_OUT', os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'data', 'editor_bg_override.json'))
+    'games', 'sonic4', 'data', 'editor_bg_override.json'))
 json.dump({"layout":layout,"tiles":tiles,
            "anims":[
-             {"cols":16,"rows":PAT_ROWS,"pattern_px":PAT_W,
+             {"cols":COL_COLS,"rows":PAT_ROWS,"pattern_px":PAT_W,
               "driver":"camera_x","rate_shift":2,"slot_base":0,"phases":phases},
-             {"cols":16,"rows":PAT_ROWS,"pattern_px":PAT_W,
-              "driver":"timer","rate_shift":3,"slot_base":64,"phases":ff_phases},
+             {"cols":FF_COLS,"rows":PAT_ROWS,"pattern_px":FF_W,
+              "driver":"timer","rate_shift":3,"slot_base":N_COL,"phases":ff_phases},
            ]},
           open(OUT,'w'))
 print('dumped', OUT)
