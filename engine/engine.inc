@@ -104,11 +104,39 @@ __BUDGET_ENGINE:
         org     $2290
       endif
     endif
-    include "engine/system/controllers.asm"
+    ifndef SIGIL_EMP_CONTROLLERS
+        include "engine/system/controllers.asm"
+    else
+        ; sigil mixed build: Read_Controllers comes from
+        ; engine/system/controllers.emp, pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $2390
+      else
+        org     $2302
+      endif
+    endif
     include "engine/system/game_loop.asm"
     include "engine/compression/s4lz_decompress.asm"
     include "engine/compression/zx0_decompress.asm"
-    include "engine/system/math.asm"
+    ifndef SIGIL_EMP_MATH
+        include "engine/system/math.asm"
+    else
+        ; sigil mixed build: GetSineCosine/Sine_Table come from
+        ; engine/system/math.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $2892
+      else
+        org     $2700
+      endif
+    endif
     include "engine/objects/dplc.asm"
     include "engine/objects/core.asm"
     include "engine/objects/sprites.asm"

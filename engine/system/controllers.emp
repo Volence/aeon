@@ -1,0 +1,70 @@
+// Controller reading — 3-button joypad protocol
+module engine.controllers in controllers
+@as_compat
+
+// Button masks — mirrors engine/constants.asm:89-92 (port-time twins;
+// constants.asm stays authoritative until its own port). Only the two
+// pairs used as immediates below need to exist here; drift between
+// this module and constants.asm would fail the full-tree byte gate.
+const BUTTON_UP    = 1 << 0
+const BUTTON_DOWN  = 1 << 1
+const BUTTON_LEFT  = 1 << 2
+const BUTTON_RIGHT = 1 << 3
+
+// Read_Controllers — read P1 and P2 joypads (§9.4 simplified)
+// Called from VBlank handler
+// In:  none
+// Out: Ctrl_1_Held/Press_Accum, Ctrl_2_Held/Press_Accum updated
+// Clobbers: d0-d1, a0
+pub proc Read_Controllers () {
+        lea.l   HW_PORT_1_DATA, a0          // (HW_PORT_1_DATA).l — engine/constants.asm:17
+        bsr.s   .read_pad
+        move.b  Ctrl_1_Held, d1             // (Ctrl_1_Held).w — ram.asm $FFFF802C
+        move.b  d0, Ctrl_1_Held
+        eor.b   d0, d1
+        and.b   d0, d1
+        or.b    d1, Ctrl_1_Press_Accum      // (Ctrl_1_Press_Accum).w — ram.asm $FFFF8030; accumulate edges across lag frames (§5)
+
+        lea.l   HW_PORT_2_DATA, a0          // (HW_PORT_2_DATA).l — engine/constants.asm:18
+        bsr.s   .read_pad
+        move.b  Ctrl_2_Held, d1             // (Ctrl_2_Held).w — ram.asm $FFFF802E
+        move.b  d0, Ctrl_2_Held
+        eor.b   d0, d1
+        and.b   d0, d1
+        or.b    d1, Ctrl_2_Press_Accum      // (Ctrl_2_Press_Accum).w — ram.asm $FFFF8031; accumulate edges across lag frames (§5)
+        rts
+
+// .read_pad — read one 3-button pad
+// In:  a0 = port data register address
+// Out: d0.b = SACBRLDU (1 = pressed)
+// Clobbers: d1
+.read_pad:
+        move.b  #$40, (a0)                  // TH = 1
+        nop
+        move.b  (a0), d0                    // --CBRLDU
+        move.b  #$00, (a0)                  // TH = 0
+        nop
+        move.b  (a0), d1                    // --SA00DU
+        andi.b  #$3F, d0                    // keep CBRLDU
+        andi.b  #$30, d1                    // keep SA
+        lsl.b   #2, d1                       // shift SA to bits 7-6
+        or.b    d1, d0                       // combine: SACBRLDU
+        not.b   d0                           // invert: 1 = pressed
+        // L+R / U+D guard — worn pads can report both opposing
+        // directions at once (classic bug); if both bits set, clear both
+        // (clearing both means a held direction re-edges when the blip
+        // ends — acceptable, by design)
+        move.b  d0, d1
+        andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
+        cmpi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
+        bne.s   .lr_ok
+        andi.b  #~(BUTTON_LEFT|BUTTON_RIGHT)&$FF, d0
+.lr_ok:
+        move.b  d0, d1
+        andi.b  #BUTTON_UP|BUTTON_DOWN, d1
+        cmpi.b  #BUTTON_UP|BUTTON_DOWN, d1
+        bne.s   .ud_ok
+        andi.b  #~(BUTTON_UP|BUTTON_DOWN)&$FF, d0
+.ud_ok:
+        rts
+}
