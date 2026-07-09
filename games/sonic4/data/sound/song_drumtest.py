@@ -45,7 +45,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "..", "..", "tools")))
 
 from song_packer import (  # noqa: E402
-    SongDesc, ChannelDesc, write_asm,
+    SongDesc, ChannelDesc, write_asm, write_bin, bin_path_for,
     SetDur, Rest, Note, Vol, Patch, Dac, LoopPoint, Jump,
     CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_DAC,
     SH_F_STREAM, SH_F_FM6_FM, SH_F_FM6_ADAPTIVE,
@@ -126,8 +126,13 @@ def build_song() -> SongDesc:
 
 def main():
     out_path = os.path.join(_HERE, "song_drumtest.asm")
-    write_asm(build_song(), "Song_DrumTest", out_path)
+    song = build_song()
+    write_asm(song, "Song_DrumTest", out_path)
     print("wrote", out_path)
+    if "--emit-bin" in sys.argv:
+        bin_path = bin_path_for(out_path)
+        write_bin(song, bin_path)
+        print("wrote", bin_path)
 
 
 if __name__ == "__main__":

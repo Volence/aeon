@@ -108,7 +108,15 @@ Art_Sonic:
     endm
 
 gameSoundDataIncludes macro {GLOBALSYMBOLS}
+    ifndef SIGIL_EMP_DAC
         include "games/sonic4/data/sound/dac_samples.asm"
+    else
+        ; sigil mixed build: the DAC banks come from dac_samples.emp, pinned by
+        ; the sigil map at $50000/$58000. org skips the two-bank hole; the next
+        ; align $8000 (MT bank) then lands at $60000 exactly as before. If art
+        ; growth ever collides with the pins, the sigil linker errors loudly.
+        org     $60000
+    endif
         ; NOTE: the 68k DUPLICATE sound tables (data/sound/sound_tables.asm =
         ; FmPitchTable/PsgDivisorTable/LogVolumeLut/CarrierMaskTable, and
         ; data/sound/fm_patches.asm = FmPatchTable) were REMOVED. They are never

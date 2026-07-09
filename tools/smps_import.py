@@ -9,6 +9,7 @@ from song_packer import (
     SongDesc, ChannelDesc, SH_F_STREAM,
     CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
     CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN, CHROUTE_DAC,
+    pack_song, bin_path_for,
 )
 
 # ---------------------------------------------------------------------------
@@ -1494,6 +1495,35 @@ def build_patch_remap(used_ids=HCZ2_USED_VOICE_IDS) -> dict:
     return {vid: i for i, vid in enumerate(sorted(used_ids))}
 
 
+def pack_patch_table(driver_asm_path: str = S3K_Z80_DRIVER,
+                     used_ids=HCZ2_USED_VOICE_IDS) -> bytes:
+    """Return the EXACT payload bytes emit_patch_table's dc.b rows encode: each
+    used voice's 32-byte FmPatch record (padded to FMPATCH_LEN), concatenated in
+    remap-index order. No labels, no assert scaffolding — just the blob a
+    --emit-bin / BINCLUDE would carry."""
+    voices = parse_uvb_voices(driver_asm_path, used_ids)
+    remap = build_patch_remap(used_ids)
+    count = len(remap)
+    idx_to_id = {i: vid for vid, i in remap.items()}
+    out = bytearray()
+    for i in range(count):
+        vid = idx_to_id[i]
+        rec = voices[vid]
+        # Pad to FMPATCH_LEN (32): fp_ssg_eg group ($90, 4 ops) + 2 reserved bytes,
+        # all $00 (SSG-EG off). S3K UVB voices carry no SSG-EG data.
+        rec = bytes(rec) + b"\x00" * (FMPATCH_LEN - len(rec))
+        out += rec
+    return bytes(out)
+
+
+def write_patch_table_bin(out_path: str, driver_asm_path: str = S3K_Z80_DRIVER,
+                          used_ids=HCZ2_USED_VOICE_IDS) -> None:
+    """Write pack_patch_table()'s exact bytes to out_path (--emit-bin sibling of
+    emit_patch_table's .asm output)."""
+    with open(out_path, "wb") as f:
+        f.write(pack_patch_table(driver_asm_path, used_ids))
+
+
 def emit_patch_table(driver_asm_path: str = S3K_Z80_DRIVER,
                      used_ids=HCZ2_USED_VOICE_IDS,
                      label: str = "HCZ2_Patches"):
@@ -1542,3 +1572,61 @@ def emit_patch_table(driver_asm_path: str = S3K_Z80_DRIVER,
     L.append("        endif")
     L.append("")
     return "\n".join(L) + "\n", remap
+
+
+# ---------------------------------------------------------------------------
+# CLI: --emit-bin — write the .bin sibling(s) of the HCZ2 song + patch-table
+# .asm files that games/sonic4/data/sound/song_hcz2.py generates. This tool
+# has no .asm-authoring CLI of its own (song_hcz2.py owns that, since HCZ2 is
+# the one smps_import consumer so far); --emit-bin here regenerates the SAME
+# payload bytes (convert_song/pack_song for the song, pack_patch_table for the
+# patch bank) and writes them to the sibling .bin path next to each existing
+# .asm output, WITHOUT touching the .asm files themselves.
+# ---------------------------------------------------------------------------
+
+def _emit_bin_hcz2(out_dir=None):
+    """Regenerate song_hcz2.bin + hcz2_patches.bin next to the existing .asm
+    files in games/sonic4/data/sound/. Returns [(bin_path, nbytes), ...]."""
+    if out_dir is None:
+        repo_root = os.path.dirname(_HERE)
+        out_dir = os.path.join(repo_root, "games", "sonic4", "data", "sound")
+
+    hcz2_src = "/home/volence/sonic_hacks/skdisasm/Sound/Music/HCZ2.asm"
+    with open(hcz2_src) as f:
+        src_lines = f.readlines()
+
+    # Mirror song_hcz2.py's HCZ2_DAC_REMAP / HCZ2_PATCH_REMAP wiring exactly.
+    hcz2_patch_remap = {0x03: 0, 0x06: 1, 0x0E: 2, 0x15: 3}
+    hcz2_used_voice_ids = [0x03, 0x06, 0x0E, 0x15]
+
+    song = convert_song(src_lines, dac_remap=HCZ2_DAC_REMAP,
+                        patch_remap=hcz2_patch_remap)
+    song_blob = pack_song(song)
+    song_asm = os.path.join(out_dir, "song_hcz2.asm")
+    song_bin = bin_path_for(song_asm)
+    with open(song_bin, "wb") as f:
+        f.write(song_blob)
+
+    patch_blob = pack_patch_table(S3K_Z80_DRIVER, hcz2_used_voice_ids)
+    patches_asm = os.path.join(out_dir, "hcz2_patches.asm")
+    patches_bin = bin_path_for(patches_asm)
+    with open(patches_bin, "wb") as f:
+        f.write(patch_blob)
+
+    return [(song_bin, len(song_blob)), (patches_bin, len(patch_blob))]
+
+
+def main(argv=None):
+    argv = argv if argv is not None else sys.argv[1:]
+    if "--emit-bin" in argv:
+        for path, nbytes in _emit_bin_hcz2():
+            print("wrote", path, "(%d bytes)" % nbytes)
+        return 0
+    print("Usage: python3 smps_import.py --emit-bin", file=sys.stderr)
+    print("  (writes song_hcz2.bin + hcz2_patches.bin next to the .asm files", file=sys.stderr)
+    print("   games/sonic4/data/sound/song_hcz2.py already generates)", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
