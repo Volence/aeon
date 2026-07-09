@@ -16,6 +16,18 @@
 !games/sonic4/data/mappings/*.bin
 !art/palettes/*.bin
 
+# Sound-migration T2: committed --emit-bin twins of the MT/HCZ2 stream .asm
+# (mirrors the committed generated .asm — sigil's mt_bank.emp embeds these
+# directly; the emitters need external inputs (Zyrinx B&R ROM, skdisasm) so
+# they can't run in prebuild). Verified byte-identical to their dc.b .asm
+# twins via tools/verify_emit_bin.py before committing.
+!games/sonic4/data/sound/song_movingtrucks.bin
+!games/sonic4/data/sound/movingtrucks_pitchtable_stream.bin
+!games/sonic4/data/sound/movingtrucks_patches.bin
+!games/sonic4/data/sound/song_drumtest.bin
+!games/sonic4/data/sound/song_hcz2.bin
+!games/sonic4/data/sound/hcz2_patches.bin
+
 # Vendored salvador (ZX0 packer) — keep sources, ignore build artifacts
 !tools/salvador/**/*.h
 tools/salvador/obj/
