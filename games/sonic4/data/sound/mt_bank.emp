@@ -168,8 +168,8 @@ section mt_bank (cpu: m68000, bank: $8000) {
 
 // The engine-table-head rule (the sequencer reads FM pitch/log-volume/opcode
 // tables window-relative from the bank head): every stream/patch bank must
-// share the head's bank. Spelled as `bankid(X) == bankid("MovingTrucks_Bank_
-// Start")` rather than the .asm equ name directly — see the header comment's
+// share the head's bank. Spelled as `bankid(X) == bankid("MovingTrucks_Bank_Start")`
+// rather than the .asm equ name directly — see the header comment's
 // deviation note. UNCONDITIONAL (in the plain shape the DEBUG labels are
 // zero-length but still placed in-bank, so `bankid()` folds identically —
 // R4).
