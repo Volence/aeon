@@ -765,4 +765,8 @@ enforce it (Sigil ledger S2-D11(c)).
   (4) and instruction lines keep the `.asm` column style within that (mnemonic at the 8-space
   stop, operands aligned) — tenet 3: the instructions don't change, including how they're
   laid out.
+- **Ruled comment banners (Volence, tranche 2):** routine/data-item header comments get a
+  `// -----------------------------------------------` rule above and below the header block
+  (at the block's indent level). Not a compatibility thing — Volence likes how it reads, and
+  taste rulings are house style.
 - **Comments describe function, never change-history** (history lives in commits/notes).
