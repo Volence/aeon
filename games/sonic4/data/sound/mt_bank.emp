@@ -38,6 +38,10 @@
 //     low 15 bits are zero. `MovingTrucks_Bank_Start` (unlike the equ) IS a
 //     real .asm label, so `bankid("MovingTrucks_Bank_Start")` is the proven
 //     cross-seam idiom (ports.rs `probe_b`) and reads the identical value.
+//     COUPLING LOSS: the five ensures assert against the LABEL — if
+//     main.asm:143 ever redefines `SND_ENGINE_TABLE_BANK` to something other
+//     than `MovingTrucks_Bank_Start >> 15`, they keep asserting against the
+//     label, not the equ's new intent (update them alongside any such change).
 //   * main.asm:164-166 (MT_PITCHTAB_OFFSET pitch-contiguity fatal) →
 //     contiguous BY CONSTRUCTION (items in a section always emit back-to-back,
 //     no auto-pad, §4.3) + `ensure(SongBlob.len == MT_PITCHTAB_OFFSET, …)`
@@ -118,7 +122,11 @@ ensure(SongBlob.len == MT_PITCHTAB_OFFSET,
 // comments made structural — no pad exists between items unless written
 // explicitly (the two HCZ2/DrumTest pads below are the ONLY such pads; every
 // other adjacency in this section is genuinely zero-gap by construction,
-// verified against the .asm: no OTHER member has a trailing `align`).
+// verified against the .asm: no OTHER member has a trailing `align`.
+// song_table.asm's own trailing `align 2` — AFTER SongPatchTable_End — is
+// deliberately dropped: a no-op at the current pins (both shapes' tails end
+// even) and absorbed by main.asm's org-resume re-pin contract, which pins
+// the post-bank resume address per shape anyway).
 section mt_bank (cpu: m68000, bank: $8000) {
     data Song_MovingTrucks             = SongBlob
     data MovingTrucks_PitchTable_Stream = PitchBlob
