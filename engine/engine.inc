@@ -89,7 +89,21 @@ __BUDGET_ENGINE:
     include "engine/system/dma_queue.asm"
     include "engine/system/buffers.asm"
     include "engine/system/vblank.asm"
-    include "engine/system/hblank.asm"
+    ifndef SIGIL_EMP_HBLANK
+        include "engine/system/hblank.asm"
+    else
+        ; sigil mixed build: HBlank_Dispatch/HBlank_Null come from
+        ; engine/system/hblank.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $231E
+      else
+        org     $2290
+      endif
+    endif
     include "engine/system/controllers.asm"
     include "engine/system/game_loop.asm"
     include "engine/compression/s4lz_decompress.asm"

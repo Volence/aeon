@@ -746,3 +746,19 @@ when the need first arises — likely a per-ObjDef shift mask of custom longword
 - **Commit message describes the system, not the files.** "Implement DMA queue with 3-priority drain" not "Add dma_queue.asm"
 - **Never commit broken code to main.** Use branches for work-in-progress.
 - **Tag milestones.** When a major system is complete and tested, tag it: `v0.1-vdp-init`, `v0.2-dma-queue`, etc.
+
+## 10. `.emp` (Sigil) Source Formatting
+
+Set at port #1 (hblank, 2026-07-09); formatting is convention until `sigil fmt` exists to
+enforce it (Sigil ledger S2-D11(c)).
+
+- **Code files use the braceless form:** `module games.x in <section>` — no wrapper braces,
+  `proc`s at column 0, instruction lines at the classic asm indent inside proc bodies. Reads
+  like the `.asm` it replaces; no file-wide indent, no dangling `}` at EOF.
+  (`engine/system/hblank.emp` is the template; `pitcher_plant.emp` is the exhibit precedent.)
+- **Explicit `section name (…) { }` blocks** (data banks, multi-section files): members
+  indent **4 spaces** per brace level. (`games/sonic4/data/sound/sfx_bank.emp` is the
+  template.)
+- **Instruction lines keep the `.asm` column style** (mnemonic at one 8-space stop, operands
+  aligned) — tenet 3: the instructions don't change, including how they're laid out.
+- **Comments describe function, never change-history** (history lives in commits/notes).
