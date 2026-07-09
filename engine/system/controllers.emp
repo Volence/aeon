@@ -1,15 +1,7 @@
 // Controller reading — 3-button joypad protocol
 module engine.controllers in controllers
-@as_compat
 
-// Button masks — mirrors engine/constants.asm:89-92 (port-time twins;
-// constants.asm stays authoritative until its own port). Only the two
-// pairs used as immediates below need to exist here; drift between
-// this module and constants.asm would fail the full-tree byte gate.
-const BUTTON_UP    = 1 << 0
-const BUTTON_DOWN  = 1 << 1
-const BUTTON_LEFT  = 1 << 2
-const BUTTON_RIGHT = 1 << 3
+use engine.constants.{HW_PORT_1_DATA, HW_PORT_2_DATA, BUTTON_UP, BUTTON_DOWN, BUTTON_LEFT, BUTTON_RIGHT}
 
 // -----------------------------------------------
 // Read_Controllers — read P1 and P2 joypads (§9.4 simplified)
@@ -20,7 +12,7 @@ const BUTTON_RIGHT = 1 << 3
 // -----------------------------------------------
 pub proc Read_Controllers () {
         lea.l   HW_PORT_1_DATA, a0          // (HW_PORT_1_DATA).l — engine/constants.asm:17
-        bsr.s   .read_pad
+        jbsr    .read_pad
         move.b  Ctrl_1_Held, d1             // (Ctrl_1_Held).w — ram.asm $FFFF802C
         move.b  d0, Ctrl_1_Held
         eor.b   d0, d1
@@ -28,7 +20,7 @@ pub proc Read_Controllers () {
         or.b    d1, Ctrl_1_Press_Accum      // (Ctrl_1_Press_Accum).w — ram.asm $FFFF8030; accumulate edges across lag frames (§5)
 
         lea.l   HW_PORT_2_DATA, a0          // (HW_PORT_2_DATA).l — engine/constants.asm:18
-        bsr.s   .read_pad
+        jbsr    .read_pad
         move.b  Ctrl_2_Held, d1             // (Ctrl_2_Held).w — ram.asm $FFFF802E
         move.b  d0, Ctrl_2_Held
         eor.b   d0, d1

@@ -7,7 +7,6 @@
 //
 // Borrowed format from S.C.E. / Sonic 2 disassembly.
 module engine.math in math
-@as_compat
 
 // -----------------------------------------------
 // GetSineCosine — get sin and cos of angle d0
@@ -27,7 +26,10 @@ pub proc GetSineCosine () {
 }
 
 // -----------------------------------------------
-// Sine_Table — embed paths resolve relative to this module's own directory
+// Sine_Table — 320 word entries ($280 bytes): one full cycle plus the $40
+// quarter-cycle overlap GetSineCosine reads for cosine (see header). The
+// typed size doubles as a compile-time check against the embedded blob's
+// true length. Embed paths resolve relative to this module's own directory
 // (engine/system/), hence the ../data/ prefix to reach engine/data/sine.bin.
 // -----------------------------------------------
-pub data Sine_Table = embed("../data/sine.bin")
+pub data Sine_Table: [u8; $280] = embed("../data/sine.bin")

@@ -1,0 +1,37 @@
+// -----------------------------------------------
+// engine.constants — the shared-constants twin
+//
+// engine/constants.asm stays authoritative until its own port; this module
+// mirrors the handful of values today's .emp files need at comptime, so a
+// `use engine.constants` gets the same names as the `.asm` side without
+// re-declaring them per file. Every mirrored value carries an `ensure`
+// drift guard reading the real AS-side equ back through `extern()` — if
+// constants.asm ever changes without this twin following, the LINK fails
+// naming the drifted constant instead of silently emitting stale bytes.
+//
+// Pure consts + item-position ensures only: this module opens no section
+// and emits ZERO bytes anywhere in the ROM.
+// -----------------------------------------------
+module engine.constants
+
+// Controller button masks (mirrors engine/constants.asm:89-92).
+pub const BUTTON_UP    = 1 << 0
+pub const BUTTON_DOWN  = 1 << 1
+pub const BUTTON_LEFT  = 1 << 2
+pub const BUTTON_RIGHT = 1 << 3
+
+// Hardware controller port data registers (mirrors engine/constants.asm:17-18).
+pub const HW_PORT_1_DATA = $A10003
+pub const HW_PORT_2_DATA = $A10005
+
+// -----------------------------------------------
+// Drift guards — engine/constants.asm is the source of truth; these compare
+// this twin's values against the real AS-side equs through the link-symbol
+// seam (D2.27). A mismatch fails the link naming the drifted constant.
+// -----------------------------------------------
+ensure(extern("BUTTON_UP") == BUTTON_UP, "engine/constants.asm and engine/constants.emp disagree on BUTTON_UP — update the twin")
+ensure(extern("BUTTON_DOWN") == BUTTON_DOWN, "engine/constants.asm and engine/constants.emp disagree on BUTTON_DOWN — update the twin")
+ensure(extern("BUTTON_LEFT") == BUTTON_LEFT, "engine/constants.asm and engine/constants.emp disagree on BUTTON_LEFT — update the twin")
+ensure(extern("BUTTON_RIGHT") == BUTTON_RIGHT, "engine/constants.asm and engine/constants.emp disagree on BUTTON_RIGHT — update the twin")
+ensure(extern("HW_PORT_1_DATA") == HW_PORT_1_DATA, "engine/constants.asm and engine/constants.emp disagree on HW_PORT_1_DATA — update the twin")
+ensure(extern("HW_PORT_2_DATA") == HW_PORT_2_DATA, "engine/constants.asm and engine/constants.emp disagree on HW_PORT_2_DATA — update the twin")
