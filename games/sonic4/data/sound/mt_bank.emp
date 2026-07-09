@@ -1,0 +1,185 @@
+// ===========================================================================
+// data/sound/mt_bank.emp — the MT streaming-bank DATA (sound-migration T2)
+// ===========================================================================
+// Ports everything from `Song_MovingTrucks` ($60607) through
+// `SongPatchTable_End` — the .asm engine-table head (`soundBankHead`, the Z80
+// phase-0 blob, $60000..$60607, incl. `MovingTrucks_Bank_Start` and the
+// `SND_ENGINE_TABLE_BANK` equ) STAYS driver-side in main.asm; this module
+// picks up right after it, in the SAME bank-aligned 32KB window.
+//
+// Shape input: `-D DEBUG=0|1` (mirrors AS `-D __DEBUG__`). Plain shape
+// (DEBUG=0) carries only Moving Trucks (song id 1); DEBUG shape (DEBUG=1)
+// additionally carries the DrumTest (id 2) and HCZ2 (id 3) DEBUG songs, per
+// R4 — both shapes emit the SAME data items, with the DEBUG-only ones' value
+// folding to `Data.empty` (zero bytes, label still defined) when DEBUG=0.
+//
+// Pinned at $60607 by the map region `mt_bank` ($60607..$68000, R7). Re-pin
+// via the harness PROVENANCE flow on any re-baseline.
+//
+// What each .asm guard becomes here (R5):
+//   * song_table.asm:91/110/128 (straddle) + :99 (window-top) → the section's
+//     `bank: $8000` property (always-on no-straddle link assert — no hand
+//     `if`/`fatal` needed).
+//   * main.asm:143 `SND_ENGINE_TABLE_BANK` co-residency (every stream/patch
+//     bank must share the engine-table head's bank, since the sequencer reads
+//     FM pitch/log-volume/opcode tables window-relative from the bank head) →
+//     the five `ensure(bankid(...) == bankid("MovingTrucks_Bank_Start"), …)`
+//     asserts below. NOTE (deviation from the plan sketch): the sketch wrote
+//     these against a bare `SND_ENGINE_TABLE_BANK` name; that equ is NOT a
+//     data/proc label and is invisible outside `label_ctx` (only a CALL
+//     ARGUMENT — e.g. `bankid(...)`'s own argument — turns an unresolved
+//     bareword into a deferred link symbol; a bare name used as a plain
+//     sub-expression operand of `==` is not a call argument and hard-errors
+//     "unknown name" at comptime, confirmed empirically). Since
+//     `SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15` and
+//     `MovingTrucks_Bank_Start` is bank-aligned (`align $8000` in main.asm),
+//     `bankid(MovingTrucks_Bank_Start)` folds to EXACTLY the same value as
+//     `SND_ENGINE_TABLE_BANK` — `(L & $7F8000) >> 15 == L >> 15` whenever L's
+//     low 15 bits are zero. `MovingTrucks_Bank_Start` (unlike the equ) IS a
+//     real .asm label, so `bankid("MovingTrucks_Bank_Start")` is the proven
+//     cross-seam idiom (ports.rs `probe_b`) and reads the identical value.
+//   * main.asm:164-166 (MT_PITCHTAB_OFFSET pitch-contiguity fatal) →
+//     contiguous BY CONSTRUCTION (items in a section always emit back-to-back,
+//     no auto-pad, §4.3) + `ensure(SongBlob.len == MT_PITCHTAB_OFFSET, …)`
+//     with the pinned const below (same manual re-pin-on-regen contract the
+//     .asm's generator-emitted equ already has).
+//   * song_table.asm's own table-length checks + the `SONG_COUNT < $FF` guard
+//     → comptime `ensure`s (SONG_COUNT is itself a comptime if-expression, so
+//     the table-length check is structural: the array TYPE literally IS
+//     `[*u8; SONG_COUNT]`, and a mismatched literal-element count is a clean
+//     comptime error — P3, proven).
+//   * song_hcz2.asm's / song_drumtest.asm's trailing `align 2` → EXPLICIT
+//     self-adjusting pad items (`.emp` sections never auto-pad, §4.3) — see
+//     the comments at each pad below for why they're needed (or not).
+//
+// DELIBERATELY NOT PORTED: the `_End` labels (`Song_MovingTrucks_End`, etc.)
+// and `MovingTrucks_Patches_End` / `Song_DrumTest_End` / `Song_HCZ2_End` /
+// `HCZ2_Patches_End` / `SongTable_End` / `SongPatchTable_End` — every
+// consumer here reads a blob's `.len` (comptime) or a table's element type
+// width, never an end-minus-start; and `movingtrucks_pitchtable.asm` (the
+// engine-DEFAULT pitch table, inline in the Z80 blob) — untouched, still
+// `.asm`, per the plan's self-review (not this module's concern).
+//
+// Re-pin note (PROVENANCE): all six blob lengths and the `$30B1` pitch-table
+// offset are pinned against the aeon `e5b256c` + bg-restore re-baseline (the
+// same pins T1's `dac_samples.emp` cites). A song regeneration must re-verify
+// every `embed(...)` length here (the `MT_PITCHTAB_OFFSET` ensure below is the
+// one CI-visible tripwire; the others are sanity-known but not individually
+// pinned — see the length-guard note below).
+// ===========================================================================
+
+module data.mt_bank
+
+// --- the six stream blobs (generated .bin twins of the committed dc.b .asm;
+// see tools' --emit-bin + the dc.b-equality verifier). Bound to `const` first
+// so each `.len` is a readable comptime int (the `data K = embed(...)`
+// readability gate — the const both emits AND measures, dac_samples.emp
+// precedent). ---
+const SongBlob      = embed("song_movingtrucks.bin")              // 12465 B ($30B1)
+const PitchBlob     = embed("movingtrucks_pitchtable_stream.bin") // 264 B ($108)
+const PatchesBlob   = embed("movingtrucks_patches.bin")           // 800 B ($320)
+const DrumTestBlob  = embed("song_drumtest.bin")                  // 82 B ($52)  (DEBUG member)
+const Hcz2Blob      = embed("song_hcz2.bin")                      // 6511 B ($196F) (DEBUG member)
+const Hcz2PatchBlob = embed("hcz2_patches.bin")                   // 128 B ($80)  (DEBUG member)
+
+// Length-guard note: only the song's length is CI-pinned (via the
+// MT_PITCHTAB_OFFSET ensure below, which is load-bearing — a wrong song
+// length detunes the whole song). The other five blob lengths are NOT
+// individually `ensure`d here: they're sanity-known (see the comments above)
+// but pinning every one would just add regen churn with no guard they don't
+// already get for free — the section's `bank: $8000` no-straddle assert
+// catches any gross length blowup, and the byte-identity harness (Task 6)
+// catches anything subtler.
+
+// song ids (the .asm twins live in config/sound_ids.asm — R2; the TABLE
+// ORDER below must keep entry[id-1] = that song, the same coupling the .asm
+// table had — SongTable[id-1]/SongPatchTable[id-1], id 0 reserved = stop).
+const SONG_MOVINGTRUCKS = 1
+const SONG_DRUMTEST     = 2   // DEBUG-only id in .asm; harmless const here
+const SONG_HCZ2         = 3
+const SONG_COUNT = if DEBUG == 1 { 3 } else { 1 }
+ensure(SONG_COUNT < $FF, "SONG_COUNT must be < $FF ($FF is the stop sentinel)")
+
+// The generator-baked header offset (song_movingtrucks header pitchtable_ptr
+// = packed song length). The .asm twin: MT_PITCHTAB_OFFSET equ $30B1
+// (song_movingtrucks.asm:798). Re-pin BOTH on song regeneration; this ensure
+// is the detune guard (main.asm's old :164-166 fatal) — a mismatch means the
+// header disagrees with the layout below (a pad byte between the song and
+// the pitch table would shift every pitch lookup one byte early = the whole
+// song plays a semitone flat — the shipped-and-fixed bug main.asm's comment
+// documents).
+const MT_PITCHTAB_OFFSET = $30B1
+ensure(SongBlob.len == MT_PITCHTAB_OFFSET,
+    "MT pitch table not contiguous with the song: song len != header's pitchtable_ptr — a pad byte would detune the whole song")
+
+// ONE bank: $8000 section = the .asm's `align $8000` (main.asm:129) + all
+// four straddle/window-top fatals (song_table.asm:91/99/110/128). Items emit
+// contiguously (§4.3 no-auto-pad) = the .asm's hand-maintained contiguity
+// comments made structural — no pad exists between items unless written
+// explicitly (the two HCZ2/DrumTest pads below are the ONLY such pads; every
+// other adjacency in this section is genuinely zero-gap by construction,
+// verified against the .asm: no OTHER member has a trailing `align`).
+section mt_bank (cpu: m68000, bank: $8000) {
+    data Song_MovingTrucks             = SongBlob
+    data MovingTrucks_PitchTable_Stream = PitchBlob
+    data MovingTrucks_Patches          = PatchesBlob
+
+    data Song_DrumTest = if DEBUG == 1 { DrumTestBlob } else { Data.empty }
+
+    // song_drumtest.asm's trailing `align 2` mirrored explicitly (.emp never
+    // auto-pads, §4.3): DrumTestBlob is 82 bytes (EVEN) at the current
+    // pins, so this is a NO-OP today — folds to `Data.empty` — but it's
+    // written as a SELF-ADJUSTING conditional (not simply omitted) so a
+    // future DrumTest regeneration that lands on an ODD length stays
+    // regen-safe without a human having to notice and add a pad by hand.
+    // Only fires (emits one $00) when DEBUG == 1 AND the blob is odd-length.
+    data _drumtest_align = if DEBUG == 1 && DrumTestBlob.len % 2 == 1 { byte(0) } else { Data.empty }
+
+    data Song_HCZ2     = if DEBUG == 1 { Hcz2Blob }     else { Data.empty }
+
+    // song_hcz2.asm's trailing `align 2` mirrored explicitly — CRITICAL for
+    // byte-identity here (unlike the DrumTest pad above): Hcz2Blob is 6511
+    // bytes (ODD) at the current pins, so asl's `align 2` inserts ONE real
+    // $00 pad byte before `HCZ2_Patches` (reference ROM byte at $654A1 is
+    // $00 — verified against the fact base). `.emp` sections never
+    // auto-pad (§4.3), so this pad must be emitted EXPLICITLY, spelled as
+    // a self-adjusting conditional (not a bare `byte(0)`) so a future HCZ2
+    // regeneration that lands on an EVEN length correctly emits ZERO pad
+    // bytes instead of silently drifting one byte off from the reference.
+    // Only fires (emits one $00) when DEBUG == 1 AND the blob is odd-length
+    // — today that's true, so this DOES emit the pin-critical byte.
+    data _hcz2_align = if DEBUG == 1 && Hcz2Blob.len % 2 == 1 { byte(0) } else { Data.empty }
+
+    data HCZ2_Patches  = if DEBUG == 1 { Hcz2PatchBlob } else { Data.empty }
+
+    // song id -> SongHeader ptr, indexed SongTable[id-1]; id 0 reserved = stop.
+    data SongTable: [*u8; SONG_COUNT] = if DEBUG == 1 {
+        ["Song_MovingTrucks", "Song_DrumTest", "Song_HCZ2"]
+    } else {
+        ["Song_MovingTrucks"]
+    }
+    // parallel per-song FM-patch-bank ptr (DrumTest reuses MT's bank)
+    data SongPatchTable: [*u8; SONG_COUNT] = if DEBUG == 1 {
+        ["MovingTrucks_Patches", "MovingTrucks_Patches", "HCZ2_Patches"]
+    } else {
+        ["MovingTrucks_Patches"]
+    }
+}
+
+// The engine-table-head rule (the sequencer reads FM pitch/log-volume/opcode
+// tables window-relative from the bank head): every stream/patch bank must
+// share the head's bank. Spelled as `bankid(X) == bankid("MovingTrucks_Bank_
+// Start")` rather than the .asm equ name directly — see the header comment's
+// deviation note. UNCONDITIONAL (in the plain shape the DEBUG labels are
+// zero-length but still placed in-bank, so `bankid()` folds identically —
+// R4).
+ensure(bankid("Song_MovingTrucks") == bankid("MovingTrucks_Bank_Start"),
+    "Moving Trucks stream not co-located with the engine-table bank — window-relative table reads would see the wrong bank")
+ensure(bankid("MovingTrucks_Patches") == bankid("MovingTrucks_Bank_Start"),
+    "MT patch bank not co-located with the engine-table bank")
+ensure(bankid("Song_DrumTest") == bankid("MovingTrucks_Bank_Start"),
+    "Song_DrumTest (DEBUG) left Moving Trucks' bank — its stream/table reads need the engine-table head's bank")
+ensure(bankid("Song_HCZ2") == bankid("MovingTrucks_Bank_Start"),
+    "Song_HCZ2 (DEBUG) left Moving Trucks' bank — one SetBank must cover its stream + the engine-table head")
+ensure(bankid("HCZ2_Patches") == bankid("MovingTrucks_Bank_Start"),
+    "HCZ2 patch bank (DEBUG) left Moving Trucks' bank")
