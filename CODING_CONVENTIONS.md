@@ -759,6 +759,10 @@ enforce it (Sigil ledger S2-D11(c)).
 - **Explicit `section name (…) { }` blocks** (data banks, multi-section files): members
   indent **4 spaces** per brace level. (`games/sonic4/data/sound/sfx_bank.emp` is the
   template.)
-- **Instruction lines keep the `.asm` column style** (mnemonic at one 8-space stop, operands
-  aligned) — tenet 3: the instructions don't change, including how they're laid out.
+- **Strict bracket nesting (Volence, tranche 2):** EVERYTHING inside a `{ }` indents at least
+  one level (4 spaces) — including comments and dot-labels, not just instructions; each nested
+  bracket indents one more. Inside a `proc`, labels and comments sit at the proc's body level
+  (4) and instruction lines keep the `.asm` column style within that (mnemonic at the 8-space
+  stop, operands aligned) — tenet 3: the instructions don't change, including how they're
+  laid out.
 - **Comments describe function, never change-history** (history lives in commits/notes).

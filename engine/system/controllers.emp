@@ -34,11 +34,11 @@ pub proc Read_Controllers () {
         or.b    d1, Ctrl_2_Press_Accum      // (Ctrl_2_Press_Accum).w — ram.asm $FFFF8031; accumulate edges across lag frames (§5)
         rts
 
-// .read_pad — read one 3-button pad
-// In:  a0 = port data register address
-// Out: d0.b = SACBRLDU (1 = pressed)
-// Clobbers: d1
-.read_pad:
+    // .read_pad — read one 3-button pad
+    // In:  a0 = port data register address
+    // Out: d0.b = SACBRLDU (1 = pressed)
+    // Clobbers: d1
+    .read_pad:
         move.b  #$40, (a0)                  // TH = 1
         nop
         move.b  (a0), d0                    // --CBRLDU
@@ -59,12 +59,12 @@ pub proc Read_Controllers () {
         cmpi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
         bne.s   .lr_ok
         andi.b  #~(BUTTON_LEFT|BUTTON_RIGHT)&$FF, d0
-.lr_ok:
+    .lr_ok:
         move.b  d0, d1
         andi.b  #BUTTON_UP|BUTTON_DOWN, d1
         cmpi.b  #BUTTON_UP|BUTTON_DOWN, d1
         bne.s   .ud_ok
         andi.b  #~(BUTTON_UP|BUTTON_DOWN)&$FF, d0
-.ud_ok:
+    .ud_ok:
         rts
 }
