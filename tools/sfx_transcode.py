@@ -1661,15 +1661,24 @@ def emit_sfx_table_asm(sfx_ids: list, id_to_label: dict) -> str:
     max_id = max(sfx_ids)
     total = max_id - min_id + 1
 
-    # SFX_BLOB_BANK is a game-declared sound contract constant (see
+    # NOTE (post-R2): this emitter produces the LEGACY pre-R2 header shape and
+    # is BOOTSTRAP-ONLY. It is only reached via `generate --emit-table`, which
+    # clobbers the hand-owned sfx_table.asm (see the loud warning at that
+    # call site). In the current R2 world, SFX_BLOB_BANK/SFX_ID_BASE live in
+    # config/sound_ids.asm and the SFX_COUNT/table wiring lives in main.asm —
+    # NOT here. The pre-R2 rationale below is retained only to explain the
+    # legacy shape this function still emits; it does NOT describe the live
+    # build.
+    #
+    # (pre-R2) SFX_BLOB_BANK was a game-declared sound contract constant (see
     # games/sonic4/config/game.asm's "sound contract" section for the
     # canonical comment), but sfx_bankid() (engine/sound/sound_sfx.asm)
     # isn't visible yet at game.asm's include position in main.asm, and the
     # first SFX blob label doesn't exist until the sfx_NN.asm includes run.
-    # This generated file is included after both, so the declaration lives
+    # This generated file was included after both, so the declaration lived
     # here instead — taken from the first (lowest-id) blob; the contiguous
     # build layout (all sfx_NN.asm blobs included together in main.asm)
-    # guarantees the rest share its bank.
+    # guaranteed the rest share its bank.
     lines.append(f"SFX_BLOB_BANK = sfx_bankid({id_to_label[min_id]})")
     lines.append("")
     lines.append(f"SFX_ID_BASE  = ${min_id:02X}")
@@ -1862,6 +1871,24 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None,
         with open(table_path, 'w') as f:
             f.write(table_asm)
         print(f"  wrote {table_path} (--emit-table)", file=sys.stderr)
+        print(
+            "\n"
+            "  ****************************************************************\n"
+            "  * WARNING: --emit-table overwrote the HAND-OWNED sfx_table.asm *\n"
+            "  ****************************************************************\n"
+            f"  {table_path} has been replaced with the LEGACY generated shape\n"
+            "  (the 'GENERATED / DO NOT EDIT BY HAND' banner + the four pre-R2\n"
+            "  equs: SFX_BLOB_BANK, SFX_ID_BASE, SFX_COUNT, SFX_TABLE_LEN).\n"
+            "  This is a bootstrap-only shape and is NOT the current R2 layout.\n"
+            "  To restore the hand-owned file you must:\n"
+            "    - re-apply the hand-owned header (it is hand-maintained, not\n"
+            "      generated), and\n"
+            "    - keep the equs in their R2 homes: SFX_BLOB_BANK/SFX_ID_BASE\n"
+            "      in config/sound_ids.asm and the SFX_COUNT/table wiring in\n"
+            "      main.asm (R2) — do NOT leave them duplicated here.\n"
+            "  See the add-an-SFX checklist in git history for the full steps.",
+            file=sys.stderr,
+        )
     else:
         print("  skipping sfx_table.asm (hand-owned; use --emit-table to "
               "regenerate)", file=sys.stderr)
