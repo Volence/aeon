@@ -103,6 +103,10 @@ const SFX_TABLE_LEN = 135
 // odd blobs (Sfx_3C, Sfx_B6); every other adjacency is zero-gap by construction,
 // matching the .asm include stream (blob then its patches, ids ascending).
 section sfx_bank (cpu: m68000, bank: $8000) {
+    // Pad-item legend: `_pNN` = the align-2 pad after Sfx_NN's stream BLOB;
+    // `_qNN` = the align-2 pad after Sfx_NN's PATCH bank (Sfx_NN_Patches). NN is
+    // the SFX id. Each fires (one $00) only when the preceding item's length is
+    // odd; otherwise it folds to `Data.empty` (zero bytes).
     data Sfx_33         = Sfx33Blob
     data _p33  = if Sfx33Blob.len % 2 == 1 { byte(0) } else { Data.empty }
     data Sfx_33_Patches = Sfx33Patch
