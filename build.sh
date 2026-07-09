@@ -90,6 +90,15 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     fi
 fi
 
+# Generated sound data ships as .asm/.bin twins (the .asm for this asl build,
+# the .bin for sigil `embed` — sound-migration DSM.4). A regen that updates one
+# twin but not the other drifts the two builds apart silently; fail fast here.
+echo "Verifying generated sound .asm/.bin twins..."
+if ! python3 "${TOOLS}/verify_emit_bin.py"; then
+    echo "Generated .asm/.bin twin mismatch — re-run the emitter with --emit-bin, then rebuild."
+    exit 1
+fi
+
 # Remove stale intermediates so a failed assembly can't silently
 # leave a previous .p file for p2bin to convert.
 rm -f "${ROM_NAME}.p" "${ROM_NAME}.h"
