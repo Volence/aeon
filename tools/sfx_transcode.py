@@ -1661,15 +1661,24 @@ def emit_sfx_table_asm(sfx_ids: list, id_to_label: dict) -> str:
     max_id = max(sfx_ids)
     total = max_id - min_id + 1
 
-    # SFX_BLOB_BANK is a game-declared sound contract constant (see
+    # NOTE (post-R2): this emitter produces the LEGACY pre-R2 header shape and
+    # is BOOTSTRAP-ONLY. It is only reached via `generate --emit-table`, which
+    # clobbers the hand-owned sfx_table.asm (see the loud warning at that
+    # call site). In the current R2 world, SFX_BLOB_BANK/SFX_ID_BASE live in
+    # config/sound_ids.asm and the SFX_COUNT/table wiring lives in main.asm —
+    # NOT here. The pre-R2 rationale below is retained only to explain the
+    # legacy shape this function still emits; it does NOT describe the live
+    # build.
+    #
+    # (pre-R2) SFX_BLOB_BANK was a game-declared sound contract constant (see
     # games/sonic4/config/game.asm's "sound contract" section for the
     # canonical comment), but sfx_bankid() (engine/sound/sound_sfx.asm)
     # isn't visible yet at game.asm's include position in main.asm, and the
     # first SFX blob label doesn't exist until the sfx_NN.asm includes run.
-    # This generated file is included after both, so the declaration lives
+    # This generated file was included after both, so the declaration lived
     # here instead — taken from the first (lowest-id) blob; the contiguous
     # build layout (all sfx_NN.asm blobs included together in main.asm)
-    # guarantees the rest share its bank.
+    # guaranteed the rest share its bank.
     lines.append(f"SFX_BLOB_BANK = sfx_bankid({id_to_label[min_id]})")
     lines.append("")
     lines.append(f"SFX_ID_BASE  = ${min_id:02X}")
@@ -1730,7 +1739,8 @@ _CORE_SFX_FILENAMES = {
 }
 
 
-def generate_all(out_dir: str = None, skdisasm_dir: str = None, emit_bin: bool = False):
+def generate_all(out_dir: str = None, skdisasm_dir: str = None,
+                 emit_bin: bool = False, emit_table: bool = False):
     """Transcode all core SFX and write to out_dir.
 
     emit_bin=True additionally writes the .bin sibling (bin_path_for: same
@@ -1738,7 +1748,14 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None, emit_bin: bool =
     with the exact payload bytes their dc.b lines encode — no labels, no
     align padding. sfx_table.asm is NOT covered: it is a dc.l POINTER table
     (linker-resolved label addresses), not a static byte payload, so it has
-    no byte-equal .bin twin."""
+    no byte-equal .bin twin.
+
+    emit_table=False (default, sound-migration T3 ruling R1): sfx_table.asm is
+    HAND-OWNED and NOT rewritten by the default `generate` path — the prebuild
+    must not clobber the hand-maintained table. Pass emit_table=True (CLI:
+    `generate --emit-table`) only for a one-off bootstrap when reseeding the
+    table from scratch (then re-apply the hand-owned header + equ moves by
+    hand). Blobs/patches are still generated unconditionally."""
     if out_dir is None:
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         out_dir = os.path.join(repo_root, 'games', 'sonic4', 'data', 'sound', 'sfx')
@@ -1845,21 +1862,49 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None, emit_bin: bool =
 
         id_to_label[sfx_id] = label
 
-    # Emit sfx_table.asm
-    table_asm = emit_sfx_table_asm(_CORE_SFX_IDS, id_to_label)
-    table_path = os.path.join(out_dir, 'sfx_table.asm')
-    with open(table_path, 'w') as f:
-        f.write(table_asm)
-    print(f"  wrote {table_path}", file=sys.stderr)
+    # Emit sfx_table.asm — HAND-OWNED as of T3 (ruling R1): only on explicit
+    # opt-in (`generate --emit-table`), never on the default prebuild path, so
+    # the build cannot clobber the hand-maintained table.
+    if emit_table:
+        table_asm = emit_sfx_table_asm(_CORE_SFX_IDS, id_to_label)
+        table_path = os.path.join(out_dir, 'sfx_table.asm')
+        with open(table_path, 'w') as f:
+            f.write(table_asm)
+        print(f"  wrote {table_path} (--emit-table)", file=sys.stderr)
+        print(
+            "\n"
+            "  ****************************************************************\n"
+            "  * WARNING: --emit-table overwrote the HAND-OWNED sfx_table.asm *\n"
+            "  ****************************************************************\n"
+            f"  {table_path} has been replaced with the LEGACY generated shape\n"
+            "  (the 'GENERATED / DO NOT EDIT BY HAND' banner + the four pre-R2\n"
+            "  equs: SFX_BLOB_BANK, SFX_ID_BASE, SFX_COUNT, SFX_TABLE_LEN).\n"
+            "  This is a bootstrap-only shape and is NOT the current R2 layout.\n"
+            "  To restore the hand-owned file you must:\n"
+            "    - re-apply the hand-owned header (it is hand-maintained, not\n"
+            "      generated), and\n"
+            "    - keep the equs in their R2 homes: SFX_BLOB_BANK/SFX_ID_BASE\n"
+            "      in config/sound_ids.asm and the SFX_COUNT/table wiring in\n"
+            "      main.asm (R2) — do NOT leave them duplicated here.\n"
+            "  See the add-an-SFX checklist in git history for the full steps.",
+            file=sys.stderr,
+        )
+    else:
+        print("  skipping sfx_table.asm (hand-owned; use --emit-table to "
+              "regenerate)", file=sys.stderr)
     return id_to_label
 
 
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     if argv and argv[0] == 'generate':
-        generate_all(emit_bin='--emit-bin' in argv[1:])
+        generate_all(emit_bin='--emit-bin' in argv[1:],
+                     emit_table='--emit-table' in argv[1:])
         return 0
-    print("Usage: python3 sfx_transcode.py generate [--emit-bin]", file=sys.stderr)
+    print("Usage: python3 sfx_transcode.py generate [--emit-bin] [--emit-table]",
+          file=sys.stderr)
+    print("  --emit-table: regenerate the HAND-OWNED sfx_table.asm (bootstrap "
+          "only; not run by the default prebuild)", file=sys.stderr)
     return 1
 
 

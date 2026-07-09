@@ -44,6 +44,17 @@ SFXID_SPINDASH   = $AB
 SFXID_DASH       = $B6
 SFXID_RINGLOSS   = $B9
 
+; --- SFX table shape (sound-migration T3 ruling R2). Moved here (hand-owned)
+; from the once-generated data/sound/sfx/sfx_table.asm: these are plain ints,
+; consumed by the Z80 SFX reader as imm8 (ld a, .. / sub SFX_ID_BASE / cp
+; SFX_TABLE_LEN), which never defer — so they must resolve at AS-time, which a
+; hand-owned home guarantees. UNCHECKED MIRRORS of sfx_bank.emp's consts of the
+; same name (re-pin together; adding an SFX touches all four places — see the
+; add-an-SFX checklist in sfx_table.asm).
+SFX_ID_BASE   = $33
+SFX_COUNT     = 9
+SFX_TABLE_LEN = 135   ; max_id - min_id + 1 (sparse over the id range $33..$B9)
+
 ; --- Per-SFX priority tiers (authored; S3K has none — spec §6). Higher = wins.
 ; Seeded from S2 zSFXPriority for shared sounds: death/hurt > spindash > skid/roll
 ; > jump > ring/UI. The transcoder bakes a priority byte into each SfxHeader keyed

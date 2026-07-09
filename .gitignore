@@ -28,6 +28,29 @@
 !games/sonic4/data/sound/song_hcz2.bin
 !games/sonic4/data/sound/hcz2_patches.bin
 
+# Sound-migration T3: committed --emit-bin twins of the 9 SFX blob/patch .asm
+# (sigil's sfx_bank.emp embeds these directly; two patch banks are zero-byte —
+# sfx_36/sfx_62 are PSG-only). Verified byte-identical to their dc.b .asm twins
+# via tools/verify_emit_bin.py before committing.
+!games/sonic4/data/sound/sfx/sfx_33.bin
+!games/sonic4/data/sound/sfx/sfx_33_patches.bin
+!games/sonic4/data/sound/sfx/sfx_34.bin
+!games/sonic4/data/sound/sfx/sfx_34_patches.bin
+!games/sonic4/data/sound/sfx/sfx_35.bin
+!games/sonic4/data/sound/sfx/sfx_35_patches.bin
+!games/sonic4/data/sound/sfx/sfx_36.bin
+!games/sonic4/data/sound/sfx/sfx_36_patches.bin
+!games/sonic4/data/sound/sfx/sfx_3C.bin
+!games/sonic4/data/sound/sfx/sfx_3C_patches.bin
+!games/sonic4/data/sound/sfx/sfx_62.bin
+!games/sonic4/data/sound/sfx/sfx_62_patches.bin
+!games/sonic4/data/sound/sfx/sfx_AB.bin
+!games/sonic4/data/sound/sfx/sfx_AB_patches.bin
+!games/sonic4/data/sound/sfx/sfx_B6.bin
+!games/sonic4/data/sound/sfx/sfx_B6_patches.bin
+!games/sonic4/data/sound/sfx/sfx_B9.bin
+!games/sonic4/data/sound/sfx/sfx_B9_patches.bin
+
 # Vendored salvador (ZX0 packer) — keep sources, ignore build artifacts
 !tools/salvador/**/*.h
 tools/salvador/obj/

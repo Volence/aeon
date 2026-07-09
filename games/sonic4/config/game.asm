@@ -15,13 +15,14 @@ GAME_REGION     equ "JUE             "
 ; SFX_BLOB_BANK — the bank all SFX blobs live in (engine/sound/sound_sfx.asm
 ; SetBank()s this before reading a blob). Game-declared, but sfx_bankid()
 ; (sound_sfx.asm) isn't visible yet at THIS include position (main.asm
-; includes this file before boot.asm pulls in the Z80 sound driver), and the
-; first SFX blob label doesn't exist until the generated sfx_NN.asm includes
-; run later still. The actual declaration lives at the top of the generated
-; games/sonic4/data/sound/sfx/sfx_table.asm (emitted by
-; tools/sfx_transcode.py's emit_sfx_table_asm()), which is included after
-; both are visible. This comment documents the contract; there is no
-; assignment here.
+; includes this file before boot.asm pulls in the Z80 sound driver). As of
+; sound-migration T3 (ruling R2) the declaration lives in main.asm right after
+; SND_ENGINE_TABLE_BANK, spelled `SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK` —
+; sound because the SFX co-residency guard (and sfx_bank.emp's ensure successor)
+; asserts exactly that equality, and it no longer derives from the .emp-side
+; Sfx_33 label. The related SFX_ID_BASE / SFX_COUNT / SFX_TABLE_LEN ints live in
+; config/sound_ids.asm beside the SFXID_* ladder. This comment documents the
+; contract; there is no assignment here.
 
 SFXID_REV_LOOP = SFXID_SPINDASH   ; spindash-rev special case; -1 = feature off (games without a spindash)
 
