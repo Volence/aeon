@@ -1730,7 +1730,8 @@ _CORE_SFX_FILENAMES = {
 }
 
 
-def generate_all(out_dir: str = None, skdisasm_dir: str = None, emit_bin: bool = False):
+def generate_all(out_dir: str = None, skdisasm_dir: str = None,
+                 emit_bin: bool = False, emit_table: bool = False):
     """Transcode all core SFX and write to out_dir.
 
     emit_bin=True additionally writes the .bin sibling (bin_path_for: same
@@ -1738,7 +1739,14 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None, emit_bin: bool =
     with the exact payload bytes their dc.b lines encode — no labels, no
     align padding. sfx_table.asm is NOT covered: it is a dc.l POINTER table
     (linker-resolved label addresses), not a static byte payload, so it has
-    no byte-equal .bin twin."""
+    no byte-equal .bin twin.
+
+    emit_table=False (default, sound-migration T3 ruling R1): sfx_table.asm is
+    HAND-OWNED and NOT rewritten by the default `generate` path — the prebuild
+    must not clobber the hand-maintained table. Pass emit_table=True (CLI:
+    `generate --emit-table`) only for a one-off bootstrap when reseeding the
+    table from scratch (then re-apply the hand-owned header + equ moves by
+    hand). Blobs/patches are still generated unconditionally."""
     if out_dir is None:
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         out_dir = os.path.join(repo_root, 'games', 'sonic4', 'data', 'sound', 'sfx')
@@ -1845,21 +1853,31 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None, emit_bin: bool =
 
         id_to_label[sfx_id] = label
 
-    # Emit sfx_table.asm
-    table_asm = emit_sfx_table_asm(_CORE_SFX_IDS, id_to_label)
-    table_path = os.path.join(out_dir, 'sfx_table.asm')
-    with open(table_path, 'w') as f:
-        f.write(table_asm)
-    print(f"  wrote {table_path}", file=sys.stderr)
+    # Emit sfx_table.asm — HAND-OWNED as of T3 (ruling R1): only on explicit
+    # opt-in (`generate --emit-table`), never on the default prebuild path, so
+    # the build cannot clobber the hand-maintained table.
+    if emit_table:
+        table_asm = emit_sfx_table_asm(_CORE_SFX_IDS, id_to_label)
+        table_path = os.path.join(out_dir, 'sfx_table.asm')
+        with open(table_path, 'w') as f:
+            f.write(table_asm)
+        print(f"  wrote {table_path} (--emit-table)", file=sys.stderr)
+    else:
+        print("  skipping sfx_table.asm (hand-owned; use --emit-table to "
+              "regenerate)", file=sys.stderr)
     return id_to_label
 
 
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     if argv and argv[0] == 'generate':
-        generate_all(emit_bin='--emit-bin' in argv[1:])
+        generate_all(emit_bin='--emit-bin' in argv[1:],
+                     emit_table='--emit-table' in argv[1:])
         return 0
-    print("Usage: python3 sfx_transcode.py generate [--emit-bin]", file=sys.stderr)
+    print("Usage: python3 sfx_transcode.py generate [--emit-bin] [--emit-table]",
+          file=sys.stderr)
+    print("  --emit-table: regenerate the HAND-OWNED sfx_table.asm (bootstrap "
+          "only; not run by the default prebuild)", file=sys.stderr)
     return 1
 
 

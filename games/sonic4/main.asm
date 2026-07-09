@@ -141,6 +141,10 @@ MovingTrucks_Bank_Start:                        ; real ROM address of the bank s
 ; SndDrv_PollMailbox's SND_REQ_SAMPLE block before its DacSampleTable descriptor
 ; reads). Same derivation as sfx_bankid()/the SND_*_BANK sample constants.
 SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
+; The SFX blobs share the engine-table bank (asserted by the SFX co-residency
+; guard below / sfx_bank.emp's ensure) — declare the contract directly rather
+; than deriving from Sfx_33, whose label is .emp-side under SIGIL_EMP_SFX.
+SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK
         save
         cpu     z80
         phase   08000h
@@ -225,6 +229,7 @@ SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
         ; Each SFX has its own blob + FmPatch bank (independent labels, no sharing).
         ; Include order: blobs + their patch banks before sfx_table.asm (which
         ; references the blob labels). PSG-only SFX have empty patch banks.
+    ifndef SIGIL_EMP_SFX
         include "games/sonic4/data/sound/sfx/sfx_33.asm"
         include "games/sonic4/data/sound/sfx/sfx_33_patches.asm"
         include "games/sonic4/data/sound/sfx/sfx_34.asm"
@@ -260,6 +265,17 @@ SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
         if (Sfx_33>>15) <> SND_ENGINE_TABLE_BANK
             fatal "SFX blobs not co-located with the engine-table bank (Sfx_33 bank \{Sfx_33>>15} != \{SND_ENGINE_TABLE_BANK}) — Sfx_Frame's dispatch/table reads would see the wrong bank"
         endif
+    else
+        ; sigil mixed build: everything from Sfx_33 through SfxTable_End comes
+        ; from sfx_bank.emp, pinned by the sigil map (region `sfx_bank`).
+        ; Resume placement at the per-shape reference address
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+      ifdef __DEBUG__
+        org     $65C82
+      else
+        org     $64230
+      endif
+    endif
     endm
 
 ; -----------------------------------------------
