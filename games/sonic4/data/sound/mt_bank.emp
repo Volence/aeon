@@ -98,6 +98,16 @@ const Hcz2PatchBlob = embed("hcz2_patches.bin")                   // 128 B ($80)
 // song ids (the .asm twins live in config/sound_ids.asm — R2; the TABLE
 // ORDER below must keep entry[id-1] = that song, the same coupling the .asm
 // table had — SongTable[id-1]/SongPatchTable[id-1], id 0 reserved = stop).
+//
+// UNCHECKED MIRRORS: SONG_MOVINGTRUCKS/SONG_DRUMTEST/SONG_HCZ2 below are
+// hand-copied from config/sound_ids.asm and exist only to document the id
+// contract for readers of this file — only SONG_COUNT is actually consumed
+// (in the SongTable/SongPatchTable declarations below). There is no
+// cross-source comptime read tying these three back to sound_ids.asm's
+// values; the byte-bearing coupling that actually matters is the TABLE
+// ORDER at SongTable/SongPatchTable, not these consts. If sound_ids.asm's
+// numbering is ever renumbered, these three lines must be updated to match
+// BY HAND — nothing here will catch a drift.
 const SONG_MOVINGTRUCKS = 1
 const SONG_DRUMTEST     = 2   // DEBUG-only id in .asm; harmless const here
 const SONG_HCZ2         = 3
