@@ -1,5 +1,5 @@
 {
-  "name": "plantbadmaps",
+  "name": "pitcher_plant",
   "frame": {
     "width": 48,
     "height": 56
@@ -8,7 +8,7 @@
   "tileCount": 92,
   "paletteLine": 1,
   "dplc": false,
-  "animTable": "Ani_plantbadmaps",
+  "animTable": "Ani_PitcherPlant",
   "animSteps": [
     {
       "frame": 1,

@@ -1,7 +1,7 @@
 {
   "sprites": [
     {
-      "name": "plantbadmaps",
+      "name": "pitcher_plant",
       "frameCount": 6,
       "tileCount": 92
     }
