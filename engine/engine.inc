@@ -172,7 +172,21 @@ __BUDGET_ENGINE:
     include "engine/objects/core.asm"
     include "engine/objects/sprites.asm"
     include "engine/objects/animate.asm"
-    include "engine/objects/collision.asm"
+    ifndef SIGIL_EMP_COLLISION
+        include "engine/objects/collision.asm"
+    else
+        ; sigil mixed build: TouchResponse comes from
+        ; engine/objects/collision.emp, pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $34B4
+      else
+        org     $31FA
+      endif
+    endif
     include "engine/objects/rings.asm"
     include "engine/objects/entity_window.asm"
     include "engine/objects/children.asm"
