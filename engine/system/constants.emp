@@ -27,6 +27,14 @@ pub const HW_PORT_2_DATA = $A10005
 // Collision type: air / no surface (mirrors engine/constants.asm).
 pub const CTYPE_AIR = 0
 
+// Render flags — SST render_flags bit assignments (mirrors
+// engine/constants.asm).
+pub const RF_COORDMODE = 3            // 0 = world coords, 1 = screen coords
+pub const RF_PRIORITY_SHIFT = 5       // bits 5-7 = sprite priority band (0-7)
+
+// Animation script commands (mirrors engine/objects/animate.asm).
+pub const AF_DELETE = $FB             // auto-despawn command
+
 // VDP shadow-table length: 19 shadowed registers, $00-$12 (mirrors
 // engine/structs.asm's VDP_Shadow struct length — struct-generated `_len`
 // symbols export over the same equ seam, so the guard below reads the real
@@ -45,4 +53,7 @@ ensure(extern("BUTTON_RIGHT") == BUTTON_RIGHT, "engine/constants.asm and engine/
 ensure(extern("HW_PORT_1_DATA") == HW_PORT_1_DATA, "engine/constants.asm and engine/constants.emp disagree on HW_PORT_1_DATA — update the twin")
 ensure(extern("HW_PORT_2_DATA") == HW_PORT_2_DATA, "engine/constants.asm and engine/constants.emp disagree on HW_PORT_2_DATA — update the twin")
 ensure(extern("CTYPE_AIR") == CTYPE_AIR, "engine/constants.asm and engine/constants.emp disagree on CTYPE_AIR — update the twin")
+ensure(extern("RF_COORDMODE") == RF_COORDMODE, "engine/constants.asm and engine/constants.emp disagree on RF_COORDMODE — update the twin")
+ensure(extern("RF_PRIORITY_SHIFT") == RF_PRIORITY_SHIFT, "engine/constants.asm and engine/constants.emp disagree on RF_PRIORITY_SHIFT — update the twin")
+ensure(extern("AF_DELETE") == AF_DELETE, "engine/objects/animate.asm and engine/constants.emp disagree on AF_DELETE — update the twin")
 ensure(extern("VDP_Shadow_len") == VDP_Shadow_len, "engine/structs.asm's VDP_Shadow struct and engine/constants.emp disagree on VDP_Shadow_len — update the twin")

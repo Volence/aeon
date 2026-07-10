@@ -1,0 +1,62 @@
+// Test particle — short-lived effect with velocity + gravity + auto-despawn
+// Allocated from effect pool by emitters via CreateEffect_Normal/Simple.
+// Sets its own velocity on init — emitter only controls spawn position.
+module games.sonic4.test_particle in test_particle
+
+use engine.objects.sst.{Sst}
+use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT}
+
+const PARTICLE_GRAVITY = $20            // lighter than player gravity ($38)
+const PARTICLE_X_VEL   = -$100          // initial horizontal velocity (leftward)
+const PARTICLE_Y_VEL   = -$300          // initial vertical velocity (upward)
+
+// Cross-seam link values: the animation table (games/sonic4/data/animations/
+// particle_anims.emp — a `.l` link-time immediate) and the dispatch-store
+// offset from the object-code-bank base (a `.w` one; see test_solid.emp's
+// note on equ naming — equ names land in the shared link namespace, so the
+// aliases carry the object's name).
+equ ANI_PARTICLE          = extern("Ani_Particle")
+equ PARTICLE_ROUTINE_MAIN = extern("TestParticle_Main") - extern("ObjCodeBase")
+
+// -----------------------------------------------
+// TestParticle — init routine (called as first-frame code_addr)
+// In:  a0 = SST pointer (position, mappings, art_tile set by CreateEffect)
+// Out: none
+// Clobbers: d0-d4, a1-a3
+// -----------------------------------------------
+pub proc TestParticle () falls_into TestParticle_Main {
+        move.l  #ANI_PARTICLE, Sst.anim_table(a0)
+        moveq   #0, d0
+        move.b  d0, Sst.anim(a0)                // anim 0: flash
+        move.b  #$FF, Sst.prev_anim(a0)
+        move.b  #$FF, Sst.prev_frame(a0)
+        ori.b   #6<<RF_PRIORITY_SHIFT, Sst.render_flags(a0)
+        move.b  #8, Sst.width_pixels(a0)
+        move.b  #8, Sst.height_pixels(a0)
+        bset    #RF_COORDMODE, Sst.render_flags(a0) // screen coords (no camera)
+        move.w  #PARTICLE_X_VEL, Sst.x_vel(a0)
+        move.w  #PARTICLE_Y_VEL, Sst.y_vel(a0)
+        move.w  #PARTICLE_ROUTINE_MAIN, Sst.code_addr(a0)
+}
+
+// -----------------------------------------------
+// TestParticle_Main — per-frame update
+// In:  a0 = SST pointer
+// Out: none
+// Clobbers: d0-d4, a1-a3
+// -----------------------------------------------
+pub proc TestParticle_Main () {
+        // Apply gravity
+        move.w  Sst.y_vel(a0), d0
+        addi.w  #PARTICLE_GRAVITY, d0
+        move.w  d0, Sst.y_vel(a0)
+
+        // Move
+        jsr     ObjectMove
+
+        // Animate (AF_DELETE handles despawn)
+        jsr     AnimateSprite
+
+        // Draw
+        jmp     Draw_Sprite
+}

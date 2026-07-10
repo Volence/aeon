@@ -40,8 +40,23 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/objects/test_animated.asm"
     include "games/sonic4/objects/test_player.asm"
     include "games/sonic4/objects/test_enemy.asm"
-    include "games/sonic4/objects/test_solid.asm"
-    include "games/sonic4/objects/test_particle.asm"
+    ifndef SIGIL_EMP_TEST_OBJECTS
+      include "games/sonic4/objects/test_solid.asm"
+      include "games/sonic4/objects/test_particle.asm"
+    else
+        ; sigil mixed build: TestSolid_Init/Main + TestParticle/Main come from
+        ; games/sonic4/objects/test_solid.emp + test_particle.emp, pinned by
+        ; the sigil map at the reference addresses. Resume placement at the
+        ; region end (see sigil-harness golden/PROVENANCE.md; re-pin on
+        ; re-baseline). These addresses live inside the object code bank
+        ; (org $10000, ObjCodeBase) and are SHAPE-INVARIANT — the bank's
+        ; contents up to here don't change with __DEBUG__ — so one org serves
+        ; both shapes. AS-side consumers (ObjDef_Solid's objdef, the
+        ; emitters' objroutine words) keep resolving through the shared link.
+        ; NOTE: the gate define must never be set for other games (demo
+        ; builds take the includes).
+        org     $10FE4
+    endif
     include "games/sonic4/objects/test_emitter.asm"
     include "games/sonic4/objects/test_parent.asm"
     include "games/sonic4/objects/test_stress_emitter.asm"
