@@ -1,6 +1,9 @@
 ; aabb_axis_test — single-axis AABB overlap test (assembler macro)
 ; Single source of truth for the overlap math — used by TouchResponse
 ; and RingCollision. Call twice (X then Y) for full 2D overlap.
+; LOCKSTEP: engine/objects/aabb.emp is this macro's .emp twin (sigil
+; kill-list row 13) — any change here edits both, and the collision
+; byte gate re-pins.
 ;
 ; Tests: abs(apos - bpos) * 2 < (adim + bdim)
 ; Falls through if overlap on this axis; branches to mlab if not.
@@ -23,7 +26,10 @@
 __AABB_INC__ equ 1
 
 aabb_axis_test macro apos,bpos,adim,bdim,cdim,delt,stmp,mlab,utag
-        move.w  adim, cdim
+    if "adim" <> "cdim"
+        move.w  adim, cdim              ; zero-copy skip: when cdim aliases
+    endif                               ; adim this move is a no-op (flags die
+                                        ; at the add) — emit only when distinct
         add.w   bdim, cdim
 
         move.w  apos, delt

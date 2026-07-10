@@ -1,0 +1,45 @@
+// aabb_axis_test — single-axis AABB overlap test (comptime-fn template)
+// Single source of truth for the overlap math on the .emp side; the
+// engine/objects/aabb.inc macro is its AS twin (rings.asm still consumes
+// the .inc — the twin dies when rings ports). Call twice (X then Y) for
+// full 2D overlap.
+//
+// Tests: abs(apos - bpos) * 2 < (adim + bdim)
+// Falls through if overlap on this axis; branches to mlab if not.
+//
+// Register contract (mirrors the .inc):
+//   apos        — position A (read-only, e.g. cached player X/Y)
+//   breg + boff — position B memory operand boff(breg) (read-only;
+//                 boff 0 collapses to (breg), asl parity)
+//   adim,bdim   — widths/heights (consumed — aliasing with cdim/delt allowed)
+//   cdim        — receives adim + bdim (may alias adim for zero-copy)
+//   delt        — receives apos - bpos, signed (may alias bdim)
+//   stmp        — scratch, clobbered (MUST NOT alias cdim or delt)
+//   mlab        — label to branch to on no overlap
+//
+// The .inc's utag parameter has no twin here: template labels are
+// hygienic, so each instantiation gets its own .aov.
+//
+// Pure comptime-fn module: opens no section and emits ZERO bytes anywhere
+// in the ROM — bytes appear only where a consumer splices the template.
+module engine.objects.aabb
+
+pub comptime fn aabb_axis_test(apos: Reg, breg: Reg, boff: int, adim: Reg, bdim: Reg, cdim: Reg, delt: Reg, stmp: Reg, mlab: Label) -> Code {
+    // Zero-copy skip: when cdim aliases adim the lead move is a no-op (its
+    // flags die at the add) — emit it only when the registers are distinct.
+    let head = if adim != cdim { asm { move.w  {adim}, {cdim} } } else { asm { } }
+    return head ++ asm {
+        add.w   {bdim}, {cdim}
+
+        move.w  {apos}, {delt}
+        sub.w   {boff}({breg}), {delt}
+
+        move.w  {delt}, {stmp}
+        bpl.s   .aov
+        neg.w   {stmp}
+    .aov:
+        add.w   {stmp}, {stmp}
+        cmp.w   {cdim}, {stmp}
+        bhs.s   {mlab}
+    }
+}

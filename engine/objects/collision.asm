@@ -74,7 +74,9 @@ TouchResponse:
         moveq   #0, d4
         move.b  SST_collision_resp(a3), d4
         cmpi.b  #COLLISION_TOUCH, d4
-        bhi.s   .overlap_done
+        bhi.s   .next_object            ; invalid type: no handler ran, so the
+                                        ; d4/d5 position cache is still fresh —
+                                        ; skip the reload
 
         movem.l d6-d7/a2-a3, -(sp)
 
@@ -194,7 +196,7 @@ Touch_Solid:
         move.w  d1, SST_y_pos(a2)
         tst.w   SST_y_vel(a2)
         bpl.s   .solid_done
-        move.w  #0, SST_y_vel(a2)
+        clr.w   SST_y_vel(a2)
         rts
 
 .solid_top:
@@ -208,10 +210,18 @@ Touch_Solid:
         sub.w   d2, d1                  ; target.y - combined_half_h
         addq.w  #1, d1                  ; maintain contact
         move.w  d1, SST_y_pos(a2)
-        move.w  #0, SST_y_vel(a2)
+        clr.w   SST_y_vel(a2)
         bclr    #ST_IN_AIR, SST_status(a2)
         bset    #ST_ON_OBJECT, SST_status(a2)
-        bset    #ST_P1_STANDING, SST_status(a3)
+        ; Claim the object with THIS player's standing bit — the ledge
+        ; probe (player_sensors) scans for ST_P1/P2_STANDING by player
+        ; identity, so the bit must match the player that landed.
+        moveq   #ST_P1_STANDING, d1
+        cmpa.l  #Player_1, a2
+        beq.s   .solid_claim
+        moveq   #ST_P2_STANDING, d1
+.solid_claim:
+        bset    d1, SST_status(a3)
         rts
 
 .solid_side:
@@ -221,12 +231,12 @@ Touch_Solid:
         bmi.s   .solid_push_left
 
         add.w   d0, SST_x_pos(a2)       ; push right
-        move.w  #0, SST_x_vel(a2)
+        clr.w   SST_x_vel(a2)
         rts
 
 .solid_push_left:
         sub.w   d0, SST_x_pos(a2)       ; push left
-        move.w  #0, SST_x_vel(a2)
+        clr.w   SST_x_vel(a2)
 
 .solid_done:
         rts
