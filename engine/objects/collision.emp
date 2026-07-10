@@ -5,13 +5,20 @@ module engine.objects.collision in collision
 use engine.objects.sst.{Sst}
 use engine.objects.aabb.{aabb_axis_test}
 use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_SYSTEM, NUM_EFFECTS,
-                      COLLISION_TOUCH, ST_ON_OBJECT, ST_IN_AIR,
-                      ST_P1_STANDING, ST_P2_STANDING}
+                      COLLISION_TOUCH, ST_ON_OBJECT, ST_IN_AIR}
 
-// Player-1 slot address as a link-time immediate (Touch_Solid's standing-bit
-// claim compares the landing player against it; the EA-position uses read
-// the bare name, but an immediate needs the equ spelling — see sound_api).
-equ PLAYER_1_SLOT = extern("Player_1")
+// PLAYER slots only: the tail word of the custom window is engine-owned —
+// the solid that claimed this player THIS PASS (0 = standing on nothing).
+// Not an Sst field: object slots keep the full 34-byte overlay window;
+// this word overlays its tail with player-slot semantics. Spelled as a
+// comptime fn because a bare const name in displacement position on a
+// TYPED register is (correctly) closed to the field namespace — the
+// call-expr form is the escape. Drift-locked to engine/structs.asm's
+// SST_interact equ through the link seam.
+comptime fn interact_off() -> int {
+    return sizeof(Sst) - 2
+}
+ensure(extern("SST_interact") == interact_off(), "engine/structs.asm SST_interact and collision.emp interact_off() disagree — update both")
 
 // -----------------------------------------------
 // TouchResponse — check player(s) against all collidable objects
@@ -39,14 +46,17 @@ pub proc TouchResponse () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a
         tst.w   Sst.code_addr(a2)
         beq.w   .next_player
 
-        // On-object bit lifecycle: cleared HERE (pass start), re-set by
-        // Touch_Solid's top-contact within this same pass if the player is
-        // still standing on a solid — so a walk-off drops the bit, and the
-        // bit is LIVE for the player's entire next tick (state dispatch AND
-        // the animation classifier's ledge probe both read last pass's
-        // truth). The old mid-frame clear in player_common sat between the
-        // dispatch and the classifier, blinding the balance check.
+        // On-object lifecycle: bit AND interact pointer cleared HERE (pass
+        // start), re-set by Touch_Solid's top-contact within this same pass
+        // if the player is still standing on a solid — so a walk-off drops
+        // both, and they are LIVE for the player's entire next tick (state
+        // dispatch AND the animation classifier's ledge probe both read
+        // last pass's truth). The old mid-frame clear in player_common sat
+        // between the dispatch and the classifier, blinding the balance
+        // check. SST_interact carries WHICH solid claimed us — the probe
+        // reads it directly (no stale-bit slot scan).
         bclr    #ST_ON_OBJECT, Sst.status(a2)
+        clr.w   interact_off()(a2)
 
         move.w  Sst.x_pos(a2), d4       // cache player X integer
         move.w  Sst.y_pos(a2), d5       // cache player Y integer
@@ -232,15 +242,11 @@ proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbe
         clr.w   y_vel(a2)
         bclr    #ST_IN_AIR, status(a2)
         bset    #ST_ON_OBJECT, status(a2)
-        // Claim the object with THIS player's standing bit — the ledge
-        // probe (player_sensors) scans for ST_P1/P2_STANDING by player
-        // identity, so the bit must match the player that landed.
-        moveq   #ST_P1_STANDING, d1
-        cmpa.l  #PLAYER_1_SLOT, a2
-        beq.s   .solid_claim
-        moveq   #ST_P2_STANDING, d1
-    .solid_claim:
-        bset    d1, status(a3)
+        // Claim: record WHICH solid this player stands on — the ledge
+        // probe (player_sensors) reads it directly. Fresh every pass
+        // (cleared at the player-loop top), so it can never go stale and
+        // never needs per-player bit selection.
+        move.w  a3, interact_off()(a2)
         rts
 
     .solid_side:

@@ -191,9 +191,12 @@ ST_ROLLING              = 4         ; 1 = in ball form
 ST_ON_OBJECT            = 5         ; 1 = standing on a solid object
 ST_PUSHING              = 6         ; 1 = pushing against object
 ST_UNDERWATER           = 7         ; 1 = submerged
-; Object interpretation (platforms use bits 3-6):
-ST_P1_STANDING          = 3         ; 1 = player 1 standing on this object
-ST_P2_STANDING          = 4         ; 1 = player 2 standing on this object
+; Object interpretation (bits 5-6 reserved for pushing):
+; NOTE: the per-player STANDING bits are gone — "who stands on this solid"
+; is the PLAYER-side SST_interact pointer (structs.asm), set/cleared by the
+; TouchResponse lifecycle. Object-side per-player bits had no clear
+; lifecycle and went stale (the tranche-7 ledge-probe bug); don't bring
+; them back — compare player SST_interact against your own SST instead.
 ST_P1_PUSHING           = 5         ; 1 = player 1 pushing this object
 ST_P2_PUSHING           = 6         ; 1 = player 2 pushing this object
 

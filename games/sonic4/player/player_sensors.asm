@@ -433,26 +433,16 @@ Player_AtLedgeEdge:
         ; flush on the floor still counts the ground beyond its edge.
         btst    #ST_ON_OBJECT, SST_status(a0)
         beq.s   .terrain
-        ; find the solid that claimed us this pass (it set its own
-        ; P1/P2_STANDING bit in Touch_Solid). Cold path: runs only while
-        ; grounded AT REST on an object, so the slot scan is cheap.
-        moveq   #ST_P1_STANDING, d1
-        lea     (Player_1).w, a1
-        cmpa.l  a1, a0
-        beq.s   .scan
-        moveq   #ST_P2_STANDING, d1
-.scan:
-        lea     (Dynamic_Slots).w, a1
-        move.w  #NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS-1, d0
-.scan_loop:
-        tst.w   SST_code_addr(a1)
-        beq.s   .scan_next
-        btst    d1, SST_status(a1)
-        bne.s   .found
-.scan_next:
-        lea     SST_len(a1), a1
-        dbf     d0, .scan_loop
-        moveq   #0, d0                           ; no owner (stale bit) —
+        ; the solid that claimed us this pass left its SST address in
+        ; SST_interact (TouchResponse lifecycle — cleared at pass start,
+        ; set by Touch_Solid's top-contact; can't go stale, no slot scan,
+        ; no per-player bit selection)
+        move.w  SST_interact(a0), d0
+        beq.s   .no_owner                        ; 0 = none (defensive)
+        movea.w d0, a1
+        bra.s   .found
+.no_owner:
+        moveq   #0, d0                           ; no owner —
         rts                                      ; treat as supported
 .found:
         ; player center relative to the object's center vs its half-width:

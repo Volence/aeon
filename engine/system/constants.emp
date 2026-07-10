@@ -50,9 +50,6 @@ pub const COLLISION_TOUCH = 12
 // Player interpretation:
 pub const ST_IN_AIR      = 3          // 1 = airborne (jumped or falling)
 pub const ST_ON_OBJECT   = 5          // 1 = standing on a solid object
-// Object interpretation (platforms use bits 3-6):
-pub const ST_P1_STANDING = 3          // 1 = player 1 standing on this object
-pub const ST_P2_STANDING = 4          // 1 = player 2 standing on this object
 
 // VDP shadow-table length: 19 shadowed registers, $00-$12 (mirrors
 // engine/structs.asm's VDP_Shadow struct length — struct-generated `_len`
@@ -82,6 +79,4 @@ ensure(extern("NUM_EFFECTS") == NUM_EFFECTS, "engine/constants.asm and engine/co
 ensure(extern("COLLISION_TOUCH") == COLLISION_TOUCH, "engine/constants.asm and engine/constants.emp disagree on COLLISION_TOUCH — update the twin")
 ensure(extern("ST_IN_AIR") == ST_IN_AIR, "engine/constants.asm and engine/constants.emp disagree on ST_IN_AIR — update the twin")
 ensure(extern("ST_ON_OBJECT") == ST_ON_OBJECT, "engine/constants.asm and engine/constants.emp disagree on ST_ON_OBJECT — update the twin")
-ensure(extern("ST_P1_STANDING") == ST_P1_STANDING, "engine/constants.asm and engine/constants.emp disagree on ST_P1_STANDING — update the twin")
-ensure(extern("ST_P2_STANDING") == ST_P2_STANDING, "engine/constants.asm and engine/constants.emp disagree on ST_P2_STANDING — update the twin")
 ensure(extern("VDP_Shadow_len") == VDP_Shadow_len, "engine/structs.asm's VDP_Shadow struct and engine/constants.emp disagree on VDP_Shadow_len — update the twin")

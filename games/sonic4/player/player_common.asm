@@ -29,6 +29,11 @@ getup_timer      ds.b 1      ; >0 = play ANIM_GETUP one-shot, counts down
 look_offset      ds.b 1      ; camera look/duck pan seam — stays 0 this pass
 PlayerV endstruct
         objvarsCheck PlayerV_len
+        ; the engine owns the custom window's tail word on player slots
+        ; (SST_interact — the claimed-solid pointer, engine/structs.asm)
+        if PlayerV_len > SST_interact-SST_sst_custom
+          error "PlayerV overlay (\{PlayerV_len} bytes) collides with the engine's SST_interact word at +32"
+        endif
 _pl_gsp          = SST_sst_custom+PlayerV_ground_speed
 _pl_state        = SST_sst_custom+PlayerV_player_state
 _pl_status2      = SST_sst_custom+PlayerV_status_secondary
