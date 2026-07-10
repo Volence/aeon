@@ -6,11 +6,10 @@
 // every table word is link-range-checked to the signed-word window.
 module games.sonic4.particle_anims in particle_anims
 
-// Animation command bytes live in engine/objects/animate.asm (AS side) —
-// local mirror + drift guard until the constants twin grows an animation
-// block (jotted for the retrospect).
-const AF_DELETE = $FB                       // auto-despawn command
-ensure(extern("AF_DELETE") == AF_DELETE, "AF_DELETE drifted from animate.asm: {AF_DELETE}")
+// Animation command bytes come from the constants twin's animation block
+// (engine/system/constants.emp mirrors animate.asm and carries the drift
+// guard — one mirror, one guard, all consumers import it).
+use engine.constants.{AF_DELETE}
 
 offsets Ani_Particle {
     // anim 0: flash then die — duration 4 frames/frame, frame 2 (8x8
