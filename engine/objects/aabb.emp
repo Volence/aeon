@@ -1,7 +1,8 @@
 // aabb_axis_test — single-axis AABB overlap test (comptime-fn template)
 // Single source of truth for the overlap math on the .emp side; the
-// engine/objects/aabb.inc macro is its AS twin (rings.asm still consumes
-// the .inc — the twin dies when rings ports). Call twice (X then Y) for
+// engine/objects/aabb.inc macro is its AS twin, now consumed only by the
+// gate-off AS twins (collision.asm + rings.asm) — twin scaffolding under
+// sigil kill-list row 5, dies at Spec 5. Call twice (X then Y) for
 // full 2D overlap.
 //
 // Tests: abs(apos - bpos) * 2 < (adim + bdim)
