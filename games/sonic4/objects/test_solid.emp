@@ -17,20 +17,17 @@ equ SOLID_ROUTINE_MAIN = extern("TestSolid_Main") - extern("ObjCodeBase")
 // -----------------------------------------------
 // TestSolid_Init — set mapping frame from subtype
 // In:  a0 = SST pointer (base fields set by Load_Object)
-// Out: none
-// Clobbers: none
 // -----------------------------------------------
-pub proc TestSolid_Init () falls_into TestSolid_Main {
-        move.b  Sst.subtype(a0), Sst.mapping_frame(a0)
-        move.w  #SOLID_ROUTINE_MAIN, Sst.code_addr(a0)
+pub proc TestSolid_Init (a0: *Sst) clobbers() falls_into TestSolid_Main {
+        move.b  subtype(a0), mapping_frame(a0)
+        move.w  #SOLID_ROUTINE_MAIN, code_addr(a0)
 }
 
 // -----------------------------------------------
 // TestSolid_Main — display-only (collision handled by TouchResponse)
 // In:  a0 = SST pointer
-// Out: none
-// Clobbers: d0-d3, a1
+// Clobbers: d0-d3, a1 (Draw_Sprite's set — tail call)
 // -----------------------------------------------
-pub proc TestSolid_Main () {
-        jmp     Draw_Sprite
+pub proc TestSolid_Main (a0: *Sst) {
+        jbra    Draw_Sprite
 }
