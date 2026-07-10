@@ -48,7 +48,7 @@ Sound_Init:
 ; ----------------------------------------------------------------------
 Sound_Ping:
         lea     (SND_Z80_BASE+SND_REQ_PING).l, a0
-        bra.w   Sound_PostByte
+        bra.s   Sound_PostByte
 
 ; ----------------------------------------------------------------------
 ; Sound_PlaySample — start DAC playback of a sample id.
@@ -56,7 +56,7 @@ Sound_Ping:
 ; ----------------------------------------------------------------------
 Sound_PlaySample:
         lea     (SND_Z80_BASE+SND_REQ_SAMPLE).l, a0
-        bra.w   Sound_PostByte
+        bra.s   Sound_PostByte
 
 ; ----------------------------------------------------------------------
 ; Sound_PlayMusic — start a song (Task 6 + Sound 1D). The 68k pre-derives the
