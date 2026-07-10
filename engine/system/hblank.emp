@@ -1,7 +1,7 @@
 // HBlank dispatch — RAM-patched handler (§0.10)
 //
-// The whole module lives in the `hblank` section, pinned by the sigil map at
-// the per-shape reference address (plain $227E / debug $230C).
+// The whole module lives in the `hblank` section, pinned by the sigil map
+// at the per-shape reference address.
 module engine.hblank in hblank
 
 // -----------------------------------------------

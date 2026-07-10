@@ -4,8 +4,6 @@
 // plus a quarter-cycle overlap so cos(angle) = SineTable[angle + $40].
 // Output amplitude is $100 (so sin(0)=0, sin(90°)=$100, sin(180°)=0,
 // sin(270°)=-$100). One angle unit = 360°/256 ≈ 1.41°.
-//
-// Borrowed format from S.C.E. / Sonic 2 disassembly.
 module engine.math in math
 
 // -----------------------------------------------
@@ -29,7 +27,6 @@ pub proc GetSineCosine () clobbers(d0, d1) {
 // Sine_Table — 320 word entries ($280 bytes): one full cycle plus the $40
 // quarter-cycle overlap GetSineCosine reads for cosine (see header). The
 // typed size doubles as a compile-time check against the embedded blob's
-// true length. Embed paths resolve relative to this module's own directory
-// (engine/system/), hence the ../data/ prefix to reach engine/data/sine.bin.
+// true length. Path is relative to engine/system/, hence the ../data/.
 // -----------------------------------------------
 pub data Sine_Table: [u8; $280] = embed("../data/sine.bin")
