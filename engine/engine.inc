@@ -133,7 +133,24 @@ __BUDGET_ENGINE:
         org     $22FE
       endif
     endif
-    include "engine/system/game_loop.asm"
+    ifndef SIGIL_EMP_GAME_LOOP
+        include "engine/system/game_loop.asm"
+    else
+        ; sigil mixed build: GameLoop/GameState_Idle come from
+        ; engine/system/game_loop.emp, pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; The .emp takes -D SOUND_DRIVER_ENABLED / -D SOUND_DEBUG_HOTKEYS
+        ; (0|1) and mirrors BOTH conditionals, including sonic4's
+        ; gameDebugTick expansion (see games/sonic4/config/game.asm).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $239E
+      else
+        org     $2310
+      endif
+    endif
     include "engine/compression/s4lz_decompress.asm"
     include "engine/compression/zx0_decompress.asm"
     ifndef SIGIL_EMP_MATH
@@ -186,7 +203,24 @@ __BUDGET_ENGINE:
     include "engine/level/bg_anim.asm"
     include "engine/debug/compression_selftest.asm"
     ifdef SOUND_DRIVER_ENABLED
+      ifndef SIGIL_EMP_SOUND_API
         include "engine/sound/sound_api.asm"
+      else
+        ; sigil mixed build: the Sound_* API procs come from
+        ; engine/sound/sound_api.emp, pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; The .emp keeps the slot ADDRESSES AS-owned (extern-equ sums over
+        ; sound_constants.asm) and mirrors only immediate-position values
+        ; (kill-list row 10).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+        ifdef __DEBUG__
+        org     $7436
+        else
+        org     $5F78
+        endif
+      endif
     endif
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED

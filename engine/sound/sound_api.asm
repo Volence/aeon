@@ -3,9 +3,9 @@
 ; Posts commands into per-type Z80 RAM request slots. 68k access to Z80 RAM
 ; ($A00000+) is only valid while the Z80 bus is held — reads return garbage AND
 ; writes are silently ignored otherwise (confirmed real hardware, gen-hw.txt /
-; plutiedev). So every transaction holds the bus, with interrupts masked so the
-; DEBUG VBlank state-mirror (which also stopZ80s, non-nestable) can't release the
-; bus mid-write. A single-byte slot is atomic under the bus hold, so there is no
+; plutiedev). So every transaction holds the bus, with interrupts masked so a
+; VBlank stopZ80/startZ80 pair (the DMA window in ALL builds — vblank.asm — and
+; the DEBUG state-mirror; neither nestable) can't release the bus mid-write. A single-byte slot is atomic under the bus hold, so there is no
 ; pending flag and no wait-idle spin (latest-wins, Flamedriver model).
 ; See docs/superpowers/specs/2026-06-16-sound-command-api.md.
 ; ======================================================================
@@ -48,7 +48,7 @@ Sound_Init:
 ; ----------------------------------------------------------------------
 Sound_Ping:
         lea     (SND_Z80_BASE+SND_REQ_PING).l, a0
-        bra.w   Sound_PostByte
+        bra.s   Sound_PostByte
 
 ; ----------------------------------------------------------------------
 ; Sound_PlaySample — start DAC playback of a sample id.
@@ -56,7 +56,7 @@ Sound_Ping:
 ; ----------------------------------------------------------------------
 Sound_PlaySample:
         lea     (SND_Z80_BASE+SND_REQ_SAMPLE).l, a0
-        bra.w   Sound_PostByte
+        bra.s   Sound_PostByte
 
 ; ----------------------------------------------------------------------
 ; Sound_PlayMusic — start a song (Task 6 + Sound 1D). The 68k pre-derives the
@@ -224,7 +224,7 @@ Sound_PlayRing:
 ; key-offs every FM channel, silences PSG, and clears the sequencer-active
 ; flag. Timer A keeps running — it is the whole-driver frame clock (SFX + DAC
 ; refill hang off it). (The 1B DAC keeps running — DAC is owned by 1B.)
-; Clobbers: d0; SR restored.
+; Clobbers: d0, a0; SR restored.
 ; ----------------------------------------------------------------------
 Sound_StopMusic:
         move.b  #SND_MUSIC_STOP, d0          ; $FF (out of moveq's signed range)
@@ -246,7 +246,7 @@ Sound_SetTempo:
 ; ----------------------------------------------------------------------
 ; Sound_FadeOut — ramp the music master volume down to silence (~1s). The song keeps
 ; playing; the game typically follows with Sound_StopMusic when silent. Music-only
-; (SFX stay full). Clobbers: d0; SR restored.
+; (SFX stay full). Clobbers: d0, a0; SR restored.
 ; ----------------------------------------------------------------------
 Sound_FadeOut:
         move.b  #SND_FADE_CMD_OUT, d0
@@ -255,7 +255,7 @@ Sound_FadeOut:
 
 ; ----------------------------------------------------------------------
 ; Sound_FadeIn — snap the master volume to silence and ramp it up to full (~1s). Use
-; right after Sound_PlayMusic to fade a song in. Clobbers: d0; SR restored.
+; right after Sound_PlayMusic to fade a song in. Clobbers: d0, a0; SR restored.
 ; ----------------------------------------------------------------------
 Sound_FadeIn:
         move.b  #SND_FADE_CMD_IN, d0

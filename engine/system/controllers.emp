@@ -11,7 +11,7 @@ use engine.constants.{HW_PORT_1_DATA, HW_PORT_2_DATA, BUTTON_UP, BUTTON_DOWN, BU
 // Clobbers: d0-d1, a0
 // -----------------------------------------------
 pub proc Read_Controllers () clobbers(d0, d1, a0) {
-        lea.l   HW_PORT_1_DATA, a0          // (HW_PORT_1_DATA).l — engine/constants.asm
+        lea     HW_PORT_1_DATA, a0          // (HW_PORT_1_DATA).l — engine/constants.asm
         jbsr    .read_pad
         move.b  Ctrl_1_Held, d1             // (Ctrl_1_Held).w — ram.asm
         move.b  d0, Ctrl_1_Held
@@ -19,7 +19,7 @@ pub proc Read_Controllers () clobbers(d0, d1, a0) {
         and.b   d0, d1
         or.b    d1, Ctrl_1_Press_Accum      // (Ctrl_1_Press_Accum).w — ram.asm; accumulate edges across lag frames (§5)
 
-        lea.l   HW_PORT_2_DATA, a0          // (HW_PORT_2_DATA).l — engine/constants.asm
+        lea     HW_PORT_2_DATA, a0          // (HW_PORT_2_DATA).l — engine/constants.asm
         jbsr    .read_pad
         move.b  Ctrl_2_Held, d1             // (Ctrl_2_Held).w — ram.asm
         move.b  d0, Ctrl_2_Held
