@@ -1,0 +1,98 @@
+// The Sprite Status Table shape — one record per live object, $50 bytes.
+// engine/structs.asm's SST struct stays authoritative until its own port;
+// this module is its TYPE-ONLY twin: it emits ZERO bytes (no section, no
+// placement) and exists so object modules get typed field access
+// (`Sst.code_addr(a0)`, and bare `code_addr(a0)` on an `a0: *Sst` param)
+// instead of hand-carried displacement equs. Every field offset below is
+// double-locked: the `@` assertion pins this side to the literal, and the
+// drift guards at the bottom pin the AS side (its struct-generated `SST_*`
+// equs cross the link seam) to the same literal — a layout change on either
+// side fails the link naming the field.
+//
+// Field types are RAW INTS deliberately: the domain-type layer (SubPixel/
+// Speed fixed-point pairs, VramTile, the routine-offset type) is construct-
+// walk #3's decision surface — fields are grouped and commented so those
+// newtypes drop in as type-annotation diffs, not a rewrite.
+module engine.objects.sst
+
+pub struct Sst (size: $50) {
+    // --- dispatch + position ------------------------------------------------
+    // The first word IS the dispatch: the object executor jumps to
+    // ObjCodeBase + code_addr each frame (0 = empty slot, the bank's safety
+    // rts). Stores spell the value as a link-time difference — see the
+    // object modules' `equ ROUTINE_* = extern("...") - OBJ_CODE_BASE`.
+    code_addr: u16,               // $00 — object code offset from ObjCodeBase [template word]
+    x_pos: u32 @ $02,             // $02 — 16.16 subpixel X position [patched at spawn]
+    y_pos: u32 @ $06,             // $06 — 16.16 subpixel Y position [patched at spawn]
+
+    // --- template block $0A-$1F: copied verbatim from ObjDef at spawn -------
+    x_vel: i16 @ $0A,             // $0A — horizontal velocity (8.8 fixed-point)
+    y_vel: i16 @ $0C,             // $0C — vertical velocity (8.8 fixed-point)
+    render_flags: u8 @ $0E,       // $0E — bit 0 = on-screen, 1 = x-flip, 2 = y-flip,
+                                  //       3 = coordinate mode, 4 = multi-sprite,
+                                  //       bits 5-7 = priority band
+    collision_resp: u8 @ $0F,     // $0F — collision type dispatch (0 = none)
+    mappings: u32 @ $10,          // $10 — sprite mapping pointer (ROM)
+    art_tile: u16 @ $14,          // $14 — VRAM tile index + palette + priority
+    width_pixels: u8 @ $16,       // $16 — collision width (full, not half)
+    height_pixels: u8 @ $17,      // $17 — collision height (full, not half)
+    anim: u8 @ $18,               // $18 — desired animation ID
+    subtype: u8 @ $19,            // $19 — object subtype
+    anim_table: u32 @ $1A,        // $1A — animation table pointer (ROM)
+    status: u8 @ $1E,             // $1E — player/object status bits (ST_* constants)
+    angle: u8 @ $1F,              // $1F — terrain angle (player, slope-aligned objects)
+
+    // --- runtime block $20+: initialized individually at spawn --------------
+    prev_anim: u8 @ $20,          // $20 — previous anim ID (change detection; $FF at spawn)
+    anim_frame: u8 @ $21,         // $21 — byte offset within animation script
+    anim_timer: u8 @ $22,         // $22 — frame duration countdown
+    mapping_frame: u8 @ $23,      // $23 — current mapping frame index
+    prev_frame: u8 @ $24,         // $24 — previous mapping_frame (DPLC change detection; $FF at spawn)
+    sprite_piece_count: u8 @ $25, // $25 — current frame's piece count (overflow prediction)
+    parent_ptr: u16 @ $26,        // $26 — parent object RAM address
+    sibling_ptr: u16 @ $28,       // $28 — sibling link (multi-part objects)
+    slot_tag: u8 @ $2A,           // $2A — entity window quadrant entry index 0-3 ($FF = untagged)
+    entity_section_id: u8 @ $2B,  // $2B — spawning section's flat id (despawn bookkeeping)
+    entity_list_index: u8 @ $2C,  // $2C — index in section's ROM object list (killed bitmask)
+    layer: u8 @ $2D,              // $2D — collision layer select (0 = path A, 1 = path B)
+
+    // --- per-object custom data ----------------------------------------------
+    sst_custom: [u8; 34] @ $2E,   // $2E-$4F — overlay window (`vars X: sst_custom`)
+}
+
+// -----------------------------------------------
+// Drift guards — engine/structs.asm is the source of truth; these compare
+// the twin's asserted offsets against the real AS-side struct-generated
+// equs through the link-symbol seam (D2.27). A mismatch fails the link
+// naming the drifted field.
+// -----------------------------------------------
+ensure(extern("SST_code_addr") == $00, "engine/structs.asm SST and sst.emp disagree on code_addr — update the twin")
+ensure(extern("SST_x_pos") == $02, "engine/structs.asm SST and sst.emp disagree on x_pos — update the twin")
+ensure(extern("SST_y_pos") == $06, "engine/structs.asm SST and sst.emp disagree on y_pos — update the twin")
+ensure(extern("SST_x_vel") == $0A, "engine/structs.asm SST and sst.emp disagree on x_vel — update the twin")
+ensure(extern("SST_y_vel") == $0C, "engine/structs.asm SST and sst.emp disagree on y_vel — update the twin")
+ensure(extern("SST_render_flags") == $0E, "engine/structs.asm SST and sst.emp disagree on render_flags — update the twin")
+ensure(extern("SST_collision_resp") == $0F, "engine/structs.asm SST and sst.emp disagree on collision_resp — update the twin")
+ensure(extern("SST_mappings") == $10, "engine/structs.asm SST and sst.emp disagree on mappings — update the twin")
+ensure(extern("SST_art_tile") == $14, "engine/structs.asm SST and sst.emp disagree on art_tile — update the twin")
+ensure(extern("SST_width_pixels") == $16, "engine/structs.asm SST and sst.emp disagree on width_pixels — update the twin")
+ensure(extern("SST_height_pixels") == $17, "engine/structs.asm SST and sst.emp disagree on height_pixels — update the twin")
+ensure(extern("SST_anim") == $18, "engine/structs.asm SST and sst.emp disagree on anim — update the twin")
+ensure(extern("SST_subtype") == $19, "engine/structs.asm SST and sst.emp disagree on subtype — update the twin")
+ensure(extern("SST_anim_table") == $1A, "engine/structs.asm SST and sst.emp disagree on anim_table — update the twin")
+ensure(extern("SST_status") == $1E, "engine/structs.asm SST and sst.emp disagree on status — update the twin")
+ensure(extern("SST_angle") == $1F, "engine/structs.asm SST and sst.emp disagree on angle — update the twin")
+ensure(extern("SST_prev_anim") == $20, "engine/structs.asm SST and sst.emp disagree on prev_anim — update the twin")
+ensure(extern("SST_anim_frame") == $21, "engine/structs.asm SST and sst.emp disagree on anim_frame — update the twin")
+ensure(extern("SST_anim_timer") == $22, "engine/structs.asm SST and sst.emp disagree on anim_timer — update the twin")
+ensure(extern("SST_mapping_frame") == $23, "engine/structs.asm SST and sst.emp disagree on mapping_frame — update the twin")
+ensure(extern("SST_prev_frame") == $24, "engine/structs.asm SST and sst.emp disagree on prev_frame — update the twin")
+ensure(extern("SST_sprite_piece_count") == $25, "engine/structs.asm SST and sst.emp disagree on sprite_piece_count — update the twin")
+ensure(extern("SST_parent_ptr") == $26, "engine/structs.asm SST and sst.emp disagree on parent_ptr — update the twin")
+ensure(extern("SST_sibling_ptr") == $28, "engine/structs.asm SST and sst.emp disagree on sibling_ptr — update the twin")
+ensure(extern("SST_slot_tag") == $2A, "engine/structs.asm SST and sst.emp disagree on slot_tag — update the twin")
+ensure(extern("SST_entity_section_id") == $2B, "engine/structs.asm SST and sst.emp disagree on entity_section_id — update the twin")
+ensure(extern("SST_entity_list_index") == $2C, "engine/structs.asm SST and sst.emp disagree on entity_list_index — update the twin")
+ensure(extern("SST_layer") == $2D, "engine/structs.asm SST and sst.emp disagree on layer — update the twin")
+ensure(extern("SST_sst_custom") == $2E, "engine/structs.asm SST and sst.emp disagree on sst_custom — update the twin")
+ensure(extern("SST_len") == $50, "engine/structs.asm SST and sst.emp disagree on total size — update the twin")
