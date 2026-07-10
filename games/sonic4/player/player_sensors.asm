@@ -427,11 +427,50 @@ Player_AtLedgeEdge:
         ; On a solid object the object IS the floor (Player_SensorFloor's
         ; chokepoint rule) — but this probe bypasses that wrapper and asks
         ; the TERRAIN directly, which finds air under the object and teeters
-        ; forever. Standing on a solid = solidly supported; object-relative
-        ; edge balance (probing the object's own width) is future work.
+        ; forever. On a solid, probe the OBJECT's extent instead (classic
+        ; balance-on-object): center within its half-width = supported;
+        ; past it = fall through to the terrain probe, so a solid resting
+        ; flush on the floor still counts the ground beyond its edge.
         btst    #ST_ON_OBJECT, SST_status(a0)
         beq.s   .terrain
-        moveq   #0, d0                           ; supported -> Z set
+        ; find the solid that claimed us this pass (it set its own
+        ; P1/P2_STANDING bit in Touch_Solid). Cold path: runs only while
+        ; grounded AT REST on an object, so the slot scan is cheap.
+        moveq   #ST_P1_STANDING, d1
+        lea     (Player_1).w, a1
+        cmpa.l  a1, a0
+        beq.s   .scan
+        moveq   #ST_P2_STANDING, d1
+.scan:
+        lea     (Dynamic_Slots).w, a1
+        move.w  #NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS-1, d0
+.scan_loop:
+        tst.w   SST_code_addr(a1)
+        beq.s   .scan_next
+        btst    d1, SST_status(a1)
+        bne.s   .found
+.scan_next:
+        lea     SST_len(a1), a1
+        dbf     d0, .scan_loop
+        moveq   #0, d0                           ; no owner (stale bit) —
+        rts                                      ; treat as supported
+.found:
+        ; player center relative to the object's center vs its half-width:
+        ; the AABB keeps us standing until center passes half-width +
+        ; player half-width, so the last stretch before falling teeters —
+        ; the classic balance-on-object window.
+        move.w  SST_x_pos(a0), d0
+        sub.w   SST_x_pos(a1), d0
+        bpl.s   .obj_abs
+        neg.w   d0
+.obj_abs:
+        moveq   #0, d1
+        move.b  SST_width_pixels(a1), d1
+        lsr.w   #1, d1                           ; object half-width
+        cmp.w   d1, d0
+        bgt.s   .terrain                         ; center past the edge —
+                                                 ; check the ground beyond
+        moveq   #0, d0                           ; over the object -> Z set
         rts
 .terrain:
         moveq   #0, d3
