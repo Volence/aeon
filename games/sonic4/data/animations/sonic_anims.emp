@@ -1,0 +1,73 @@
+// Sonic animation scripts — the offsets table IS the animation index,
+// ordered by the shared ANIM_* ids (games/sonic4/config/constants.asm).
+// Walk/Run/Roll use DUR_DYNAMIC: AnimateSprite takes the hold from d3,
+// which Player_Animate computes from ground speed (speed-scaled timing).
+//
+// The ordinals ARE the ids: Ani_Sonic.Walk == ANIM_WALK by declaration
+// position, and the drift guards below prove the hand-synced pairing
+// stays synced — the AS twin's entry-count assert rides as the .count
+// guard, and its `if (End-Base) > $7FFF` guard is subsumed by the
+// construct's link-time range check on every table word.
+module games.sonic4.sonic_anims in sonic_anims
+
+// Animation command bytes live in engine/objects/animate.asm; DUR_DYNAMIC
+// in engine/constants.asm (AS side) — local mirrors + drift guards until
+// the constants twin grows an animation block (jotted at port #1).
+const AF_END      = $FF                     // loop: restart from first frame
+const AF_BACK     = $FE                     // jump back N: next byte = rewind count
+const DUR_DYNAMIC = $FF                     // per-frame hold comes from d3
+ensure(extern("AF_END") == AF_END, "AF_END drifted from animate.asm: {AF_END}")
+ensure(extern("AF_BACK") == AF_BACK, "AF_BACK drifted from animate.asm: {AF_BACK}")
+ensure(extern("DUR_DYNAMIC") == DUR_DYNAMIC, "DUR_DYNAMIC drifted from constants.asm: {DUR_DYNAMIC}")
+
+offsets Ani_Sonic {
+    Walk:     Ani_Sonic_Walk,
+    Run:      Ani_Sonic_Run,
+    Roll:     Ani_Sonic_Roll,
+    Spindash: Ani_Sonic_Spindash,
+    Push:     Ani_Sonic_Push,
+    Wait:     Ani_Sonic_Wait,
+    Balance:  Ani_Sonic_Balance,
+    LookUp:   Ani_Sonic_LookUp,
+    Duck:     Ani_Sonic_Duck,
+    Skid:     Ani_Sonic_Skid,
+    GetUp:    Ani_Sonic_GetUp,
+}
+
+// The ordinals-replace-hand-synced-constants story: declaration position
+// IS the ANIM_* id, and each pairing is a checked fact, not a comment.
+ensure(Ani_Sonic.Walk == extern("ANIM_WALK"), "Walk ordinal drifted from ANIM_WALK")
+ensure(Ani_Sonic.Run == extern("ANIM_RUN"), "Run ordinal drifted from ANIM_RUN")
+ensure(Ani_Sonic.Roll == extern("ANIM_ROLL"), "Roll ordinal drifted from ANIM_ROLL")
+ensure(Ani_Sonic.Spindash == extern("ANIM_SPINDASH"), "Spindash ordinal drifted from ANIM_SPINDASH")
+ensure(Ani_Sonic.Push == extern("ANIM_PUSH"), "Push ordinal drifted from ANIM_PUSH")
+ensure(Ani_Sonic.Wait == extern("ANIM_IDLE"), "Wait ordinal drifted from ANIM_IDLE")
+ensure(Ani_Sonic.Balance == extern("ANIM_BALANCE"), "Balance ordinal drifted from ANIM_BALANCE")
+ensure(Ani_Sonic.LookUp == extern("ANIM_LOOKUP"), "LookUp ordinal drifted from ANIM_LOOKUP")
+ensure(Ani_Sonic.Duck == extern("ANIM_DUCK"), "Duck ordinal drifted from ANIM_DUCK")
+ensure(Ani_Sonic.Skid == extern("ANIM_SKID"), "Skid ordinal drifted from ANIM_SKID")
+ensure(Ani_Sonic.GetUp == extern("ANIM_GETUP"), "GetUp ordinal drifted from ANIM_GETUP")
+ensure(Ani_Sonic.count == extern("ANIM_COUNT"), "Ani_Sonic entry count drifted from ANIM_COUNT")
+
+data Ani_Sonic_Walk: [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END]
+data Ani_Sonic_Run: [u8; 6] = [DUR_DYNAMIC, $21, $22, $23, $24, AF_END]
+data Ani_Sonic_Roll: [u8; 10] = [DUR_DYNAMIC, $96, $97, $96, $98, $96, $99, $96, $9A, AF_END]
+data Ani_Sonic_Spindash: [u8; 12] = [0, $86, $87, $86, $88, $86, $89, $86, $8A, $86, $8B, AF_END]
+                                            // duration 0: advance every frame (fast rev)
+data Ani_Sonic_Push: [u8; 6] = [6, $B6, $B7, $B8, $B9, AF_END]
+data Ani_Sonic_Wait: [u8; 19] = [7,         // neutral stand
+    $BA, $BA, $BA, $BA, $BA, $BA, $BA, $BA,
+    $BB, $BC, $BD,                          // lean into foot-tap
+    $BE, $BF, $C0, $BF, $BE,                // tap loop body
+    AF_BACK, 5]                             // loop the tap (5 frames back)
+align 2
+data Ani_Sonic_Balance: [u8; 5] = [9, $A4, $A5, $A6, AF_END]
+align 2
+data Ani_Sonic_LookUp: [u8; 5] = [5, $C3, $C4, AF_BACK, 1]    // hold last frame
+align 2
+data Ani_Sonic_Duck: [u8; 5] = [5, $9B, $9C, AF_BACK, 1]      // hold last frame
+align 2
+data Ani_Sonic_Skid: [u8; 7] = [3, $9D, $9E, $9F, $A0, AF_BACK, 1]  // hold the braced pose
+align 2
+data Ani_Sonic_GetUp: [u8; 3] = [8, $8F, AF_END]
+align 2

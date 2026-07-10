@@ -71,7 +71,21 @@ gameDataIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/data/generated/ojz/act1/entity_data.asm"
     include "games/sonic4/data/levels/ojz/act1/act_descriptor.asm"
     include "games/sonic4/data/mappings/test_mappings.asm"
-    include "games/sonic4/data/animations/sonic_anims.asm"
+    ifndef SIGIL_EMP_SONIC_ANIMS
+        include "games/sonic4/data/animations/sonic_anims.asm"
+    else
+        ; sigil mixed build: Ani_Sonic comes from
+        ; games/sonic4/data/animations/sonic_anims.emp, pinned by the sigil
+        ; map at the per-shape reference address. Resume placement at the
+        ; region end (see sigil-harness golden/PROVENANCE.md; re-pin on
+        ; re-baseline). NOTE: sonic4-shape addresses — never set the define
+        ; for other games.
+      ifdef __DEBUG__
+        org     $30A54
+      else
+        org     $309EC
+      endif
+    endif
     ifndef SIGIL_EMP_PARTICLE_ANIMS
         include "games/sonic4/data/animations/particle_anims.asm"
     else
