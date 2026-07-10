@@ -28,14 +28,17 @@ TouchResponse:
         tst.w   SST_code_addr(a2)
         beq.w   .next_player
 
-        ; On-object bit lifecycle: cleared HERE (pass start), re-set by
-        ; Touch_Solid's top-contact within this same pass if the player is
-        ; still standing on a solid — so a walk-off drops the bit, and the
-        ; bit is LIVE for the player's entire next tick (state dispatch AND
-        ; the animation classifier's ledge probe both read last pass's
-        ; truth). The old mid-frame clear in player_common sat between the
-        ; dispatch and the classifier, blinding the balance check.
+        ; On-object lifecycle: bit AND interact pointer cleared HERE (pass
+        ; start), re-set by Touch_Solid's top-contact within this same pass
+        ; if the player is still standing on a solid — so a walk-off drops
+        ; both, and they are LIVE for the player's entire next tick (state
+        ; dispatch AND the animation classifier's ledge probe both read
+        ; last pass's truth). The old mid-frame clear in player_common sat
+        ; between the dispatch and the classifier, blinding the balance
+        ; check. SST_interact carries WHICH solid claimed us — the probe
+        ; reads it directly (no stale-bit slot scan).
         bclr    #ST_ON_OBJECT, SST_status(a2)
+        clr.w   SST_interact(a2)
 
         move.w  SST_x_pos(a2), d4       ; cache player X integer
         move.w  SST_y_pos(a2), d5       ; cache player Y integer
@@ -213,15 +216,11 @@ Touch_Solid:
         clr.w   SST_y_vel(a2)
         bclr    #ST_IN_AIR, SST_status(a2)
         bset    #ST_ON_OBJECT, SST_status(a2)
-        ; Claim the object with THIS player's standing bit — the ledge
-        ; probe (player_sensors) scans for ST_P1/P2_STANDING by player
-        ; identity, so the bit must match the player that landed.
-        moveq   #ST_P1_STANDING, d1
-        cmpa.l  #Player_1, a2
-        beq.s   .solid_claim
-        moveq   #ST_P2_STANDING, d1
-.solid_claim:
-        bset    d1, SST_status(a3)
+        ; Claim: record WHICH solid this player stands on — the ledge
+        ; probe (player_sensors) reads it directly. Fresh every pass
+        ; (cleared at the player-loop top), so it can never go stale and
+        ; never needs per-player bit selection.
+        move.w  a3, SST_interact(a2)
         rts
 
 .solid_side:

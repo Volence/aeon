@@ -98,6 +98,17 @@ layer           ds.b 1      ; $2D — collision layer select (0 = path A, 1 = pa
 sst_custom      ds.b 34     ; $2E-$4F — per-object custom data overlay
 SST endstruct
 
+; PLAYER slots only: the tail word of the custom window is engine-owned —
+; the solid that claimed this player THIS PASS (TouchResponse lifecycle:
+; cleared at the top of the player loop, set by Touch_Solid's top-contact
+; to the solid's SST address low word; 0 = standing on nothing). Object
+; slots keep the full 34-byte overlay; the player overlay budget shrinks
+; to 32 (guarded at PlayerV in player_common.asm).
+SST_interact = SST_sst_custom+SST_CUSTOM_SIZE-2
+
+        if SST_interact <> $4E
+          error "SST_interact expected at $4E, got \{SST_interact}"
+        endif
         if SST_len <> $50
           error "SST struct is \{SST_len} bytes, expected $50"
         endif

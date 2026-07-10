@@ -182,9 +182,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $34B2
+        org     $34AA
       else
-        org     $31F8
+        org     $31F0
       endif
     endif
     include "engine/objects/rings.asm"
@@ -203,9 +203,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $544A
+        org     $5442
       else
-        org     $4C26
+        org     $4C1E
       endif
     endif
     gameEngineBlockIncludes
@@ -230,9 +230,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $7430
+        org     $740C
         else
-        org     $5F72
+        org     $5F4E
         endif
       endif
     endif
