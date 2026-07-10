@@ -1,0 +1,34 @@
+// Game state machine and main loop
+module engine.game_loop in game_loop
+
+// Build-shape inputs (mt_bank pattern, -D NAME=0|1): SOUND_DRIVER_ENABLED
+// mirrors the AS twin's ifdef; SOUND_DEBUG_HOTKEYS is the sound test-harness
+// opt-in (build.sh: requires DEBUG=1; OFF in normal play builds).
+
+// -----------------------------------------------
+// GameLoop — master loop
+// VSync → dispatch current state → repeat
+// -----------------------------------------------
+pub proc GameLoop () clobbers(a0) {
+        jbsr    VSync_Wait
+        if SOUND_DRIVER_ENABLED == 1 {
+        jbsr    Sound_DrainSfxRing      // A2: drain ONE pending SFX/frame into the mailbox
+                                        // (release sound builds need this too, not just DEBUG)
+        }
+        // sonic4's gameDebugTick expansion, mirrored — the game-contract
+        // per-frame debug hook (games/sonic4/config/game.asm; kill-list row:
+        // this file must follow that macro body). Empty in normal builds.
+        if SOUND_DEBUG_HOTKEYS == 1 && SOUND_DRIVER_ENABLED == 1 {
+        jsr     Debug_MusicToggle       // jsr not bsr.w — placement-free
+        }
+        movea.l Game_State, a0          // (Game_State).w — ram.asm
+        jsr     (a0)                    // computed dispatch (bare jsr by the jbra/jbsr rule)
+        jbra    GameLoop
+}
+
+// -----------------------------------------------
+// GameState_Idle — minimal state (VSync only)
+// -----------------------------------------------
+pub proc GameState_Idle () {
+        rts
+}

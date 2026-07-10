@@ -63,6 +63,9 @@ gameBootHook macro {GLOBALSYMBOLS}
 
 ; --- gameDebugTick — engine GameLoop invokes this once per frame after
 ;     VSync/SFX-drain. May be empty. Sonic 4: sound test-harness hotkeys.
+;     LOCKSTEP: engine/system/game_loop.emp mirrors this macro's EXPANSION
+;     (comptime if over the same defines) — edit both together; sigil's
+;     game_loop combo matrix re-extracts this body and fails on drift.
 gameDebugTick macro {GLOBALSYMBOLS}
     ifdef SOUND_DEBUG_HOTKEYS
       ifdef SOUND_DRIVER_ENABLED
