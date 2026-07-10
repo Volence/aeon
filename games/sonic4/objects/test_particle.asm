@@ -14,8 +14,7 @@ PARTICLE_Y_VEL          = -$300         ; initial vertical velocity (upward)
 ; -----------------------------------------------
 TestParticle:
         move.l  #Ani_Particle, SST_anim_table(a0)
-        moveq   #0, d0
-        move.b  d0, SST_anim(a0)                ; anim 0: flash
+        clr.b   SST_anim(a0)                    ; anim 0: flash
         move.b  #$FF, SST_prev_anim(a0)
         move.b  #$FF, SST_prev_frame(a0)
         ori.b   #6<<RF_PRIORITY_SHIFT, SST_render_flags(a0)
@@ -33,10 +32,8 @@ TestParticle:
 ; Clobbers: d0-d4, a1-a3
 ; -----------------------------------------------
 TestParticle_Main:
-        ; Apply gravity
-        move.w  SST_y_vel(a0), d0
-        addi.w  #PARTICLE_GRAVITY, d0
-        move.w  d0, SST_y_vel(a0)
+        ; Apply gravity (read-modify-write — no register round-trip)
+        addi.w  #PARTICLE_GRAVITY, SST_y_vel(a0)
 
         ; Move
         jsr     ObjectMove

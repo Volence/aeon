@@ -55,7 +55,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; emitters' objroutine words) keep resolving through the shared link.
         ; NOTE: the gate define must never be set for other games (demo
         ; builds take the includes).
-        org     $10FE4
+        org     $10FDC
     endif
     include "games/sonic4/objects/test_emitter.asm"
     include "games/sonic4/objects/test_parent.asm"
@@ -96,9 +96,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
         ; re-baseline). NOTE: sonic4-shape addresses — never set the define
         ; for other games.
       ifdef __DEBUG__
-        org     $30A4E
+        org     $30A46
       else
-        org     $309E6
+        org     $309DE
       endif
     endif
     ifndef SIGIL_EMP_PARTICLE_ANIMS
@@ -111,9 +111,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
         ; re-baseline). NOTE: sonic4-shape addresses — never set the define
         ; for other games.
       ifdef __DEBUG__
-        org     $30A56
+        org     $30A4E
       else
-        org     $309EE
+        org     $309E6
       endif
     endif
 

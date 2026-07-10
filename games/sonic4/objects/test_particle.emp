@@ -25,8 +25,7 @@ equ PARTICLE_ROUTINE_MAIN = extern("TestParticle_Main") - extern("ObjCodeBase")
 // -----------------------------------------------
 pub proc TestParticle (a0: *Sst) clobbers(d0, d1, d2, d3, d4, a1, a2, a3) falls_into TestParticle_Main {
         move.l  #ANI_PARTICLE, anim_table(a0)
-        moveq   #0, d0
-        move.b  d0, anim(a0)                    // anim 0: flash
+        clr.b   anim(a0)                        // anim 0: flash
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
         ori.b   #6<<RF_PRIORITY_SHIFT, render_flags(a0)
@@ -44,10 +43,8 @@ pub proc TestParticle (a0: *Sst) clobbers(d0, d1, d2, d3, d4, a1, a2, a3) falls_
 // Clobbers: d0-d4, a1-a3 (ObjectMove/AnimateSprite/Draw_Sprite's union)
 // -----------------------------------------------
 pub proc TestParticle_Main (a0: *Sst) clobbers(d0, d1, d2, d3, d4, a1, a2, a3) {
-        // Apply gravity
-        move.w  y_vel(a0), d0
-        addi.w  #PARTICLE_GRAVITY, d0
-        move.w  d0, y_vel(a0)
+        // Apply gravity (read-modify-write — no register round-trip)
+        addi.w  #PARTICLE_GRAVITY, y_vel(a0)
 
         // Move
         jbsr    ObjectMove
