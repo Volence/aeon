@@ -78,7 +78,7 @@ RingBuffer_Remove:
         add.w   d0, d2
         add.w   d2, d2                  ; d2 = remove_index × 6
         lea     (Ring_Buffer).w, a0
-        lea     (a0, d2.w), a0
+        adda.w  d2, a0
 
         ; source = &Ring_Buffer[last_index × 6]
         move.w  d1, d2
@@ -86,7 +86,7 @@ RingBuffer_Remove:
         add.w   d1, d2
         add.w   d2, d2                  ; d2 = last_index × 6
         lea     (Ring_Buffer).w, a1
-        lea     (a1, d2.w), a1
+        adda.w  d2, a1
 
         move.l  (a1)+, (a0)+           ; X + Y (4 bytes)
         move.w  (a1), (a0)             ; section_id + list_index (2 bytes)
@@ -183,7 +183,14 @@ DrawRings:
 ; -----------------------------------------------
 ; RingCollision — test player(s) vs rings in unified buffer
 ;
-; Iterates backward so swap-with-last removal doesn't skip entries.
+; Iterates backward with a ROLLING entry pointer (a3, decremented per
+; iteration — one subq replaces a per-ring ×6 index chain + lea pair,
+; the DrawRings walk pattern): swap-with-last removal only rewrites the
+; removed slot from an already-visited HIGHER index, so entries below
+; the cursor never move and the pointer stays valid across removals.
+; a3 survives the collect path (Collected_MarkRing d0-d1/a0,
+; EntityWindow_EntryForSection d1/a0, EntityLoaded_Clear d0/d2/a0,
+; Sound_PlayRing d0/a0, RingBuffer_Remove d1-d2/a0-a1).
 ;
 ; In:  none (reads Player_1/2, Ring_Buffer, Ring_Count)
 ; Out: none
@@ -206,33 +213,33 @@ RingCollision:
         subq.w  #1, d6
         bmi.s   .next_player            ; no rings
 
-.ring_loop:
-        ; Compute buffer pointer: a0 = &Ring_Buffer[d6 * 6]
+        ; a3 = &Ring_Buffer[d6 * 6] — the rolling entry pointer
         move.w  d6, d0
         add.w   d0, d0
         add.w   d6, d0
         add.w   d0, d0                  ; d0 = d6 × 6
-        lea     (Ring_Buffer).w, a0
-        lea     (a0, d0.w), a0
+        lea     (Ring_Buffer).w, a3
+        adda.w  d0, a3
 
+.ring_loop:
         ; X axis: player width vs ring 16px
         moveq   #0, d0
         move.b  SST_width_pixels(a2), d0
         moveq   #RING_WIDTH, d1
 
-        aabb_axis_test d4,(a0),d0,d1,d0,d1,d2,.no_hit,rx
+        aabb_axis_test d4,(a3),d0,d1,d0,d1,d2,.no_hit,rx
 
         ; Y axis: player height vs ring 16px
         moveq   #0, d0
         move.b  SST_height_pixels(a2), d0
         moveq   #RING_HEIGHT, d1
 
-        aabb_axis_test d5,2(a0),d0,d1,d0,d1,d2,.no_hit,ry
+        aabb_axis_test d5,2(a3),d0,d1,d0,d1,d2,.no_hit,ry
 
         ; Overlap — collect this ring
-        ; a0 points to ring entry: +4 = section_id, +5 = list_index
-        move.b  4(a0), d2               ; section_id
-        move.b  5(a0), d3               ; list_index
+        ; a3 points to ring entry: +4 = section_id, +5 = list_index
+        move.b  4(a3), d2               ; section_id
+        move.b  5(a3), d3               ; list_index
         bsr.w   Collected_MarkRing      ; clobbers d0-d1, a0 — d2/d3 survive
 
         ; Clear the loaded bit too — keeps ring bits == buffer census.
@@ -257,6 +264,7 @@ RingCollision:
         bsr.w   RingBuffer_Remove
 
 .no_hit:
+        subq.w  #RING_BUFFER_ENTRY_SIZE, a3
         dbf     d6, .ring_loop
 
 .next_player:
