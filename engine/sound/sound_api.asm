@@ -3,9 +3,9 @@
 ; Posts commands into per-type Z80 RAM request slots. 68k access to Z80 RAM
 ; ($A00000+) is only valid while the Z80 bus is held — reads return garbage AND
 ; writes are silently ignored otherwise (confirmed real hardware, gen-hw.txt /
-; plutiedev). So every transaction holds the bus, with interrupts masked so the
-; DEBUG VBlank state-mirror (which also stopZ80s, non-nestable) can't release the
-; bus mid-write. A single-byte slot is atomic under the bus hold, so there is no
+; plutiedev). So every transaction holds the bus, with interrupts masked so a
+; VBlank stopZ80/startZ80 pair (the DMA window in ALL builds — vblank.asm — and
+; the DEBUG state-mirror; neither nestable) can't release the bus mid-write. A single-byte slot is atomic under the bus hold, so there is no
 ; pending flag and no wait-idle spin (latest-wins, Flamedriver model).
 ; See docs/superpowers/specs/2026-06-16-sound-command-api.md.
 ; ======================================================================
