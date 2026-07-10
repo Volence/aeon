@@ -1,0 +1,54 @@
+// -----------------------------------------------
+// engine.types — the engine's domain-type vocabulary (construct-walk #3,
+// 2026-07-10, Volence-ratified names)
+//
+// Every type here erases to the raw representation — zero bytes, zero
+// cycles. The win is MEANING: values that are bit-identical but nonsense to
+// mix (an angle vs a timer byte, a velocity vs a pixel count) get distinct
+// names, and the fixed<I,F> scales make cross-scale arithmetic refusable
+// (D2.10) where values flow through typed surfaces.
+//
+// Pure types only: this module opens no section and emits ZERO bytes.
+// -----------------------------------------------
+module engine.types
+
+// A 16.16 positional coordinate: hi word = whole pixels, lo word = the
+// fraction (the codebase calls the lo word "the subpixel"). Space-NEUTRAL
+// by design — the same format carries world coords and, under RF_COORDMODE,
+// screen coords (test_particle), so the type names the format+role, not
+// the space.
+pub newtype Coord = fixed<16,16>
+
+// An 8.8 signed velocity: $100 = 1 px/frame. Covers x_vel/y_vel AND the
+// player's ground_speed (inertia) — the along-ground velocity is the same
+// domain, not a separate one. Signed and directed, hence Velocity (a
+// "Speed" would also blur against the ground_speed field name).
+pub newtype Velocity = fixed<8,8>
+
+// A byte angle: $00-$FF = one full turn (the 68k-native circle). Reused by
+// terrain angles (SST) and rotation. sin/cos (GetSineCosine) take an Angle
+// and return the BARE fixed<8,8> unit fraction sin·$100 — a scale factor,
+// not a Velocity; it becomes one only when multiplied by a speed.
+pub newtype Angle = u8
+
+// The object dispatch word: an offset from ObjCodeBase (objroutine's
+// value), stored at SST $00. Unlike every other u16 in the record — it is
+// executable-address-shaped, never arithmetic data.
+pub newtype ObjRoutine = u16
+
+// A hitbox half-extent in pixels (SST width/height) — collision-box
+// domain, distinct from world distances and screen coordinates.
+pub newtype Radius = u8
+
+// The PACKED VRAM art word: priority<<15 | palette<<13 | tile index
+// (vram_art's output shape). Named now so stores read honestly; the
+// index/address conversion family (VramTile, vram_bytes ×32) arrives with
+// the VRAM-layout port.
+pub newtype VramArtTile = u16
+
+// Animation identities: which script (AnimId — an index into an anim
+// table's offsets ordinals) and which mapping frame (FrameId). The SST's
+// anim_frame stays a raw u8 deliberately — it is a byte CURSOR within the
+// running script, not a frame identity.
+pub newtype AnimId = u8
+pub newtype FrameId = u8

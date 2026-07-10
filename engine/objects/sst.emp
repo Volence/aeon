@@ -9,11 +9,13 @@
 // equs cross the link seam) to the same literal — a layout change on either
 // side fails the link naming the field.
 //
-// Field types are RAW INTS deliberately: the domain-type layer (SubPixel/
-// Speed fixed-point pairs, VramTile, the routine-offset type) is construct-
-// walk #3's decision surface — fields are grouped and commented so those
-// newtypes drop in as type-annotation diffs, not a rewrite.
+// Field types are the engine.types domain vocabulary (construct-walk #3,
+// Volence-ratified): every type erases to the raw width, so the layout,
+// offsets, and guards are untouched — the annotations carry MEANING
+// (Coord vs Velocity vs a raw counter) and the fixed<I,F> scales.
 module engine.objects.sst
+
+use engine.types.{Coord, Velocity, Angle, ObjRoutine, Radius, VramArtTile, AnimId, FrameId}
 
 pub struct Sst (size: $50) {
     // --- dispatch + position ------------------------------------------------
@@ -21,33 +23,33 @@ pub struct Sst (size: $50) {
     // ObjCodeBase + code_addr each frame (0 = empty slot, the bank's safety
     // rts). Stores spell the value as a link-time difference — see the
     // object modules' `equ ROUTINE_* = extern("...") - OBJ_CODE_BASE`.
-    code_addr: u16,               // $00 — object code offset from ObjCodeBase [template word]
-    x_pos: u32 @ $02,             // $02 — 16.16 subpixel X position [patched at spawn]
-    y_pos: u32 @ $06,             // $06 — 16.16 subpixel Y position [patched at spawn]
+    code_addr: ObjRoutine,               // $00 — object code offset from ObjCodeBase [template word]
+    x_pos: Coord @ $02,             // $02 — 16.16 subpixel X position [patched at spawn]
+    y_pos: Coord @ $06,             // $06 — 16.16 subpixel Y position [patched at spawn]
 
     // --- template block $0A-$1F: copied verbatim from ObjDef at spawn -------
-    x_vel: i16 @ $0A,             // $0A — horizontal velocity (8.8 fixed-point)
-    y_vel: i16 @ $0C,             // $0C — vertical velocity (8.8 fixed-point)
+    x_vel: Velocity @ $0A,             // $0A — horizontal velocity (8.8 fixed-point)
+    y_vel: Velocity @ $0C,             // $0C — vertical velocity (8.8 fixed-point)
     render_flags: u8 @ $0E,       // $0E — bit 0 = on-screen, 1 = x-flip, 2 = y-flip,
                                   //       3 = coordinate mode, 4 = multi-sprite,
                                   //       bits 5-7 = priority band
     collision_resp: u8 @ $0F,     // $0F — collision type dispatch (0 = none)
     mappings: u32 @ $10,          // $10 — sprite mapping pointer (ROM)
-    art_tile: u16 @ $14,          // $14 — VRAM tile index + palette + priority
-    width_pixels: u8 @ $16,       // $16 — collision width (full, not half)
-    height_pixels: u8 @ $17,      // $17 — collision height (full, not half)
-    anim: u8 @ $18,               // $18 — desired animation ID
+    art_tile: VramArtTile @ $14,          // $14 — VRAM tile index + palette + priority
+    width_pixels: Radius @ $16,       // $16 — collision width (full, not half)
+    height_pixels: Radius @ $17,      // $17 — collision height (full, not half)
+    anim: AnimId @ $18,               // $18 — desired animation ID
     subtype: u8 @ $19,            // $19 — object subtype
     anim_table: u32 @ $1A,        // $1A — animation table pointer (ROM)
     status: u8 @ $1E,             // $1E — player/object status bits (ST_* constants)
-    angle: u8 @ $1F,              // $1F — terrain angle (player, slope-aligned objects)
+    angle: Angle @ $1F,              // $1F — terrain angle (player, slope-aligned objects)
 
     // --- runtime block $20+: initialized individually at spawn --------------
-    prev_anim: u8 @ $20,          // $20 — previous anim ID (change detection; $FF at spawn)
+    prev_anim: AnimId @ $20,          // $20 — previous anim ID (change detection; $FF at spawn)
     anim_frame: u8 @ $21,         // $21 — byte offset within animation script
     anim_timer: u8 @ $22,         // $22 — frame duration countdown
-    mapping_frame: u8 @ $23,      // $23 — current mapping frame index
-    prev_frame: u8 @ $24,         // $24 — previous mapping_frame (DPLC change detection; $FF at spawn)
+    mapping_frame: FrameId @ $23,      // $23 — current mapping frame index
+    prev_frame: FrameId @ $24,         // $24 — previous mapping_frame (DPLC change detection; $FF at spawn)
     sprite_piece_count: u8 @ $25, // $25 — current frame's piece count (overflow prediction)
     parent_ptr: u16 @ $26,        // $26 — parent object RAM address
     sibling_ptr: u16 @ $28,       // $28 — sibling link (multi-part objects)
