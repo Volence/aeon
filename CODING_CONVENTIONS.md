@@ -770,3 +770,15 @@ enforce it (Sigil ledger S2-D11(c)).
   (at the block's indent level). Not a compatibility thing — Volence likes how it reads, and
   taste rulings are house style.
 - **Comments describe function, never change-history** (history lives in commits/notes).
+- **Register contracts on procs (tranche 3):** every proc that writes registers declares
+  `clobbers(...)` — sourced from the write set INCLUDING outputs (they count as clobbers
+  until an outs-annotation exists) and callee effects. A proc that saves/restores via a
+  `movem` pair declares `preserves(d0-d1/a0)` instead (movem-reglist spelling) — the
+  compiler verifies the declared set against the literal pair (S2-D6b, error-tier).
+  The header comment's `Clobbers:` line explains MEANING (which are outputs, which come
+  from callees); the attribute is authoritative and the two must not contradict. A
+  no-effect proc (bare `rts`) currently declares neither — pending the empty-`clobbers()`
+  ruling (see the campaign gap ledger).
+- **Binary `%`-literals for bit masks where clearer** (taste, per file — tranche 3 applied
+  it to controllers' keep-CBRLDU/keep-SA masks; hex stays where the value IS hex-shaped,
+  like VDP command words).
