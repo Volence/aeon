@@ -72,7 +72,21 @@ gameDataIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/data/levels/ojz/act1/act_descriptor.asm"
     include "games/sonic4/data/mappings/test_mappings.asm"
     include "games/sonic4/data/animations/sonic_anims.asm"
-    include "games/sonic4/data/animations/particle_anims.asm"
+    ifndef SIGIL_EMP_PARTICLE_ANIMS
+        include "games/sonic4/data/animations/particle_anims.asm"
+    else
+        ; sigil mixed build: Ani_Particle comes from
+        ; games/sonic4/data/animations/particle_anims.emp, pinned by the
+        ; sigil map at the per-shape reference address. Resume placement at
+        ; the region end (see sigil-harness golden/PROVENANCE.md; re-pin on
+        ; re-baseline). NOTE: sonic4-shape addresses — never set the define
+        ; for other games.
+      ifdef __DEBUG__
+        org     $30A5C
+      else
+        org     $309F4
+      endif
+    endif
 
 ; -----------------------------------------------
 ; Collision data (§4.7 — global, shared across all zones)

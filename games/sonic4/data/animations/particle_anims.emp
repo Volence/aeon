@@ -1,0 +1,20 @@
+// Particle animation scripts — short flash → auto-despawn.
+//
+// The offsets table IS the animation index: one self-relative word per
+// script (dc.w Body-Ani_Particle), bodies inline after the table. The AS
+// twin's hand `if (End-Base) > $7FFF` guard is SUBSUMED by the construct —
+// every table word is link-range-checked to the signed-word window.
+module games.sonic4.particle_anims in particle_anims
+
+// Animation command bytes live in engine/objects/animate.asm (AS side) —
+// local mirror + drift guard until the constants twin grows an animation
+// block (jotted for the retrospect).
+const AF_DELETE = $FB                       // auto-despawn command
+ensure(extern("AF_DELETE") == AF_DELETE, "AF_DELETE drifted from animate.asm: {AF_DELETE}")
+
+offsets Ani_Particle {
+    // anim 0: flash then die — duration 4 frames/frame, frame 2 (8x8
+    // particle) × 3 cycles, then auto-despawn.
+    Flash: [u8; 5] = [4, 2, 2, 2, AF_DELETE],
+}
+align 2
