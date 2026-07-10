@@ -12,8 +12,10 @@
 ; hardwired — per-character dispatch-table indirection is future work
 ; for the second character (§11 closeout note); spec §3.1). Entered
 ; only from PState_Ground's trigger (down +
-; jump-press at |gsp| < $100); the enter hook curled the box and zeroed
-; gsp/velocities/charge.
+; jump-press at |gsp| < $100); the enter hook keeps the STANDING box
+; (classic S2 — the charge art is drawn for the standing origin; the
+; curl + feet-planted shift happen at release via ROLL's enter hook)
+; and zeroes gsp/velocities/charge.
 ;
 ; Classic S2 Obj01_Spindash semantics (order matters — decay FIRST,
 ; then rev with the clamp LAST, matching Sonic_ChargingSpindash):
@@ -28,8 +30,8 @@
 ; probe and no Player_SlopeRepel (the classics skip it — a slip nudge
 ; would corrupt the pinned gsp). Only the floor pair runs (classic
 ; calls AnglePos and nothing else) so a floor yanked from under a
-; charging player drops them — curled, charge discarded via the exit
-; hook.
+; charging player drops them — AIRBALL's enter hook curls them on the
+; way out, charge discarded via the exit hook.
 ; In:  a0 = player SST, a4 = Player_Phys
 ; Out: none (release → PSTATE_ROLL and the roll frame runs NOW — the
 ;      classic launches on the release frame; floor loss → PSTATE_AIRBALL)
@@ -78,9 +80,9 @@ PState_Spindash:
 .pinned:
         rts
 .floor_gone:
-        moveq   #PSTATE_AIRBALL, d0             ; still curled, not from a
-        jmp     Player_SetState                 ; jump; exit hook discards
-                                                ; the charge
+        moveq   #PSTATE_AIRBALL, d0             ; curls via AIRBALL's enter
+        jmp     Player_SetState                 ; hook (not a jump); exit hook
+                                                ; discards the charge
 .release:
         ; --- release: gsp = ±(SPINDASH_BASE + (charge>>8)·$80) — the
         ; closed form of the stock S2 table (research §8): charge 0 →

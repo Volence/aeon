@@ -491,7 +491,14 @@ PHook_RollEnter:                                ; grounded ball — entered from
         rts                                     ; held landing (air → cleared)
 
 PHook_SpindashEnter:                            ; entered only from GROUND —
-        bsr.s   PHook_EnsureBall                ; the player is pinned charging
+        bsr.s   PHook_EnsureStanding            ; the player is pinned charging
+                                                ; at STANDING size (classic S2:
+                                                ; the curl + feet-planted shift
+                                                ; happen at RELEASE, via ROLL's
+                                                ; enter hook — the donor charge
+                                                ; frames are drawn for the
+                                                ; standing origin, so curling
+                                                ; here sank the ball 10px)
         bclr    #ST_IN_AIR, SST_status(a0)
         clr.w   _pl_gsp(a0)
         clr.w   SST_x_vel(a0)

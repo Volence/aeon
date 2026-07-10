@@ -424,6 +424,16 @@ LEDGE_NO_GROUND   = 8                    ; floor dist beyond this = no ground
                                          ; visual pass if needed)
 
 Player_AtLedgeEdge:
+        ; On a solid object the object IS the floor (Player_SensorFloor's
+        ; chokepoint rule) — but this probe bypasses that wrapper and asks
+        ; the TERRAIN directly, which finds air under the object and teeters
+        ; forever. Standing on a solid = solidly supported; object-relative
+        ; edge balance (probing the object's own width) is future work.
+        btst    #ST_ON_OBJECT, SST_status(a0)
+        beq.s   .terrain
+        moveq   #0, d0                           ; supported -> Z set
+        rts
+.terrain:
         moveq   #0, d3
         move.b  SST_layer(a0), d3                ; layer select for the probe
         moveq   #SOLID_TOP, d6                   ; floor class (matches Player_SensorFloor)
