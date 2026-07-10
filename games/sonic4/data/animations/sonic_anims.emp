@@ -21,21 +21,34 @@ ensure(extern("AF_BACK") == AF_BACK, "AF_BACK drifted from animate.asm: {AF_BACK
 ensure(extern("DUR_DYNAMIC") == DUR_DYNAMIC, "DUR_DYNAMIC drifted from constants.asm: {DUR_DYNAMIC}")
 
 offsets Ani_Sonic {
-    Walk:     Ani_Sonic_Walk,
-    Run:      Ani_Sonic_Run,
-    Roll:     Ani_Sonic_Roll,
-    Spindash: Ani_Sonic_Spindash,
-    Push:     Ani_Sonic_Push,
-    Wait:     Ani_Sonic_Wait,
-    Balance:  Ani_Sonic_Balance,
-    LookUp:   Ani_Sonic_LookUp,
-    Duck:     Ani_Sonic_Duck,
-    Skid:     Ani_Sonic_Skid,
-    GetUp:    Ani_Sonic_GetUp,
+    // The ordinals-replace-hand-synced-constants story: declaration
+    // position IS the ANIM_* id (guards below), and each body rides INLINE
+    // — the step-5 rewrite: the AS twin's inter-body `align 2` pads were
+    // dead weight (AnimateSprite reads scripts BYTE-wise; only the table
+    // needs evenness), so the bodies pack and the construct's inline form
+    // becomes expressible. −6 bytes vs the first port.
+    Walk:     [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Run:      [u8; 6]  = [DUR_DYNAMIC, $21, $22, $23, $24, AF_END],
+    Roll:     [u8; 10] = [DUR_DYNAMIC, $96, $97, $96, $98, $96, $99, $96, $9A, AF_END],
+    Spindash: [u8; 12] = [0, $86, $87, $86, $88, $86, $89, $86, $8A, $86, $8B, AF_END],
+                                            // duration 0: advance every frame (fast rev)
+    Push:     [u8; 6]  = [6, $B6, $B7, $B8, $B9, AF_END],
+    Wait:     [u8; 19] = [7,                // neutral stand
+        $BA, $BA, $BA, $BA, $BA, $BA, $BA, $BA,
+        $BB, $BC, $BD,                      // lean into foot-tap
+        $BE, $BF, $C0, $BF, $BE,            // tap loop body
+        AF_BACK, 5],                        // loop the tap (5 frames back)
+    Balance:  [u8; 5]  = [9, $A4, $A5, $A6, AF_END],
+    LookUp:   [u8; 5]  = [5, $C3, $C4, AF_BACK, 1],   // hold last frame
+    Duck:     [u8; 5]  = [5, $9B, $9C, AF_BACK, 1],   // hold last frame
+    Skid:     [u8; 7]  = [3, $9D, $9E, $9F, $A0, AF_BACK, 1],  // hold the braced pose
+    GetUp:    [u8; 3]  = [8, $8F, AF_END],
 }
+// keeps the NEXT table (Ani_Particle, word-read) even — inert today
+// (the packed total is even) but guards body edits.
+align 2
 
-// The ordinals-replace-hand-synced-constants story: declaration position
-// IS the ANIM_* id, and each pairing is a checked fact, not a comment.
+// The ordinal pairing as checked facts, not comments.
 ensure(Ani_Sonic.Walk == extern("ANIM_WALK"), "Walk ordinal drifted from ANIM_WALK")
 ensure(Ani_Sonic.Run == extern("ANIM_RUN"), "Run ordinal drifted from ANIM_RUN")
 ensure(Ani_Sonic.Roll == extern("ANIM_ROLL"), "Roll ordinal drifted from ANIM_ROLL")
@@ -48,26 +61,3 @@ ensure(Ani_Sonic.Duck == extern("ANIM_DUCK"), "Duck ordinal drifted from ANIM_DU
 ensure(Ani_Sonic.Skid == extern("ANIM_SKID"), "Skid ordinal drifted from ANIM_SKID")
 ensure(Ani_Sonic.GetUp == extern("ANIM_GETUP"), "GetUp ordinal drifted from ANIM_GETUP")
 ensure(Ani_Sonic.count == extern("ANIM_COUNT"), "Ani_Sonic entry count drifted from ANIM_COUNT")
-
-data Ani_Sonic_Walk: [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END]
-data Ani_Sonic_Run: [u8; 6] = [DUR_DYNAMIC, $21, $22, $23, $24, AF_END]
-data Ani_Sonic_Roll: [u8; 10] = [DUR_DYNAMIC, $96, $97, $96, $98, $96, $99, $96, $9A, AF_END]
-data Ani_Sonic_Spindash: [u8; 12] = [0, $86, $87, $86, $88, $86, $89, $86, $8A, $86, $8B, AF_END]
-                                            // duration 0: advance every frame (fast rev)
-data Ani_Sonic_Push: [u8; 6] = [6, $B6, $B7, $B8, $B9, AF_END]
-data Ani_Sonic_Wait: [u8; 19] = [7,         // neutral stand
-    $BA, $BA, $BA, $BA, $BA, $BA, $BA, $BA,
-    $BB, $BC, $BD,                          // lean into foot-tap
-    $BE, $BF, $C0, $BF, $BE,                // tap loop body
-    AF_BACK, 5]                             // loop the tap (5 frames back)
-align 2
-data Ani_Sonic_Balance: [u8; 5] = [9, $A4, $A5, $A6, AF_END]
-align 2
-data Ani_Sonic_LookUp: [u8; 5] = [5, $C3, $C4, AF_BACK, 1]    // hold last frame
-align 2
-data Ani_Sonic_Duck: [u8; 5] = [5, $9B, $9C, AF_BACK, 1]      // hold last frame
-align 2
-data Ani_Sonic_Skid: [u8; 7] = [3, $9D, $9E, $9F, $A0, AF_BACK, 1]  // hold the braced pose
-align 2
-data Ani_Sonic_GetUp: [u8; 3] = [8, $8F, AF_END]
-align 2

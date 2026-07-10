@@ -50,27 +50,22 @@ Ani_Sonic_Wait:
         dc.b $BB, $BC, $BD                      ; lean into foot-tap
         dc.b $BE, $BF, $C0, $BF, $BE            ; tap loop body
         dc.b AF_BACK, 5                         ; loop the tap (5 frames back)
-        align 2
 Ani_Sonic_Balance:
         dc.b 9
         dc.b $A4, $A5, $A6
         dc.b AF_END
-        align 2
 Ani_Sonic_LookUp:
         dc.b 5
         dc.b $C3, $C4
         dc.b AF_BACK, 1                         ; hold last frame
-        align 2
 Ani_Sonic_Duck:
         dc.b 5
         dc.b $9B, $9C
         dc.b AF_BACK, 1                         ; hold last frame
-        align 2
 Ani_Sonic_Skid:
         dc.b 3
         dc.b $9D, $9E, $9F, $A0
         dc.b AF_BACK, 1                         ; hold the braced pose
-        align 2
 Ani_Sonic_GetUp:
         dc.b 8
         dc.b $8F

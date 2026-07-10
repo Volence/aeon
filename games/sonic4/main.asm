@@ -81,9 +81,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
         ; re-baseline). NOTE: sonic4-shape addresses — never set the define
         ; for other games.
       ifdef __DEBUG__
-        org     $30A54
+        org     $30A4E
       else
-        org     $309EC
+        org     $309E6
       endif
     endif
     ifndef SIGIL_EMP_PARTICLE_ANIMS
@@ -96,9 +96,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
         ; re-baseline). NOTE: sonic4-shape addresses — never set the define
         ; for other games.
       ifdef __DEBUG__
-        org     $30A5C
+        org     $30A56
       else
-        org     $309F4
+        org     $309EE
       endif
     endif
 
