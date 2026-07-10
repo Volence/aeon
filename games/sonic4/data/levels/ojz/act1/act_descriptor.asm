@@ -37,6 +37,7 @@
       error "OJZ act 1 axis extent (grid 3 << SECTION_SIZE_SHIFT) exceeds $8000 — signed-word clamp math breaks past 16 sections/axis; widen the clamp ops before growing the grid"
     endif
 
+    ifndef SIGIL_EMP_ACT_DESCRIPTOR
 OJZ_Act1_Descriptor:
     dc.l    OJZ_Act1_Sections       ; sec_grid_ptr
     dc.w    3                       ; grid_w (3 sections wide)
@@ -224,6 +225,19 @@ OJZ_Sec8:
     dc.b    0, 0, 0, 0
     dc.w    OJZ_SEC8_BLOCK_DICT_LEN ; sec_block_dict_len
     align 2
+    else
+        ; sigil mixed build: OJZ_Act1_Descriptor + OJZ_Act1_Sections come
+        ; from act_descriptor.emp (same dir), pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: sonic4-shape addresses — never set the define for other
+        ; games. The generated includes above stay AS-side in BOTH shapes.
+      ifdef __DEBUG__
+        org     $14DCA
+      else
+        org     $14D62
+      endif
+    endif
 
 ; -----------------------------------------------
 ; Generated block data — 16×16 blocks, S4LZ compressed (§4.7 2D)

@@ -1,0 +1,184 @@
+// OJZ Act 1 — level descriptor and section tables (§4 Phase 1, §2 A.3).
+//
+// The Tier-1+2 act shape (docs/superpowers/notes/2026-07-10-act-descriptor-
+// design.md): the descriptor is a TYPED Act literal (field-order drift
+// cannot compile; the type IS the old `* == Act_len` size guard), the nine
+// sections flow through one validating constructor, and the engine
+// invariants are written ONCE as comptime checks instead of per-act
+// if/error blocks. Generated data (pool pages, block blobs, palettes, BG)
+// stays AS-side; its symbols cross the seam as externs.
+module games.sonic4.act_descriptor_ojz_act1 in act_descriptor
+
+// ---- struct twins (twin-scaffolding kill list: die when structs.asm
+// ports, or consolidate when act 2 arrives) — layout pinned against the
+// AS-side struct-generated equs below.
+struct Act {
+    sec_grid_ptr:        *u8,           // $00 — section definition array
+    grid_w:              u16,           // $04 — sections wide
+    grid_h:              u16,           // $06 — sections tall
+    start_local_x:       u16,           // $08 — player start X within section
+    start_local_y:       u16,           // $0A — player start Y within section
+    start_sec_x:         u8,            // $0C — starting section X index
+    start_sec_y:         u8,            // $0D — starting section Y index
+    act_bg_layout:       *u8,           // $0E — zone-wide Plane B layout (T1 default)
+    act_bg_tiles:        *u8,           // $12 — zone-wide Plane B tile blob
+    act_parallax_config: *u8,           // $16 — default parallax config
+    act_art_pool_table:  *u8,           // $1A — page-address table (generated)
+    act_art_pool_pages:  u16,           // $1E — pool page count (generated)
+    edge_mode:           u8,            // $20 — vertical edge behavior (EDGE_*)
+    pad_21:              u8 = 0,        // $21 — reserved (word pad)
+}
+ensure(sizeof(Act) == extern("Act_len"), "Act twin drifted from structs.asm: {sizeof(Act)}")
+
+struct Sec {
+    sec_block_index:     *u8,           // $00 — 256-entry block index table
+    sec_objects:         *u8,           // $04 — objentry list (dc.w -1 terminated)
+    sec_rings:           *u8,           // $08 — X-sorted ring entries
+    sec_plc:             *u8 = 0,       // $0C — S4LZ art PLC list
+    sec_pal:             *u8,           // $10 — 128-byte palette
+    sec_parallax_config: *u8 = 0,       // $14 — 0 = inherit the act default
+    sec_raster_table:    *u8 = 0,       // $18 — raster command table
+    sec_bg_layout:       *u8 = 0,       // $1C — NULL = use Act_act_bg_layout
+    sec_type_table:      *u8,           // $20 — dc.b count,pad; dc.l ObjDef×N
+    sec_pal_cycle:       *u8 = 0,       // $24 — palette cycling script
+    sec_sound_bank:      *u8 = 0,       // $28 — DAC sample bank
+    sec_block_dict:      *u8,           // $2C — raw dict region (LZ pre-seed)
+    sec_anim_blocks:     *u8 = 0,       // $30 — animated tile script
+    sec_collision_s4lz:  *u8 = 0,       // $34 — reserved
+    sec_flags:           u16 = 0,       // $38 — SF_* bitmask
+    sec_music:           u16 = 0,       // $3A — music track (0 = keep current)
+    sec_pcfg_pad_3C:     u8 = 0,        // $3C — reserved
+    sec_camera_lookahead: u8 = 0,       // $3D — lookahead px (0 = zone default)
+    sec_pcfg_pad_3E:     u8 = 0,        // $3E — reserved
+    sec_pcfg_pad_3F:     u8 = 0,        // $3F — reserved
+    sec_block_dict_len:  u16,           // $40 — dict bytes (768×K, K≤3)
+}
+ensure(sizeof(Sec) == extern("Sec_len"), "Sec twin drifted from structs.asm: {sizeof(Sec)}")
+
+// ---- engine limits, mirrored for COMPTIME checking (kill-list rows: flip
+// when the owning engine files port) ----
+const MAX_ACT_SECTIONS   = 48
+const SECTION_SIZE_SHIFT = 11
+const EDGE_CLAMP         = 0        // §10 vertical edge mode (byte field —
+                                    // a link-folded extern can't range-prove
+                                    // into u8, so this one stays a mirror)
+ensure(extern("MAX_ACT_SECTIONS") == MAX_ACT_SECTIONS, "MAX_ACT_SECTIONS drifted: {MAX_ACT_SECTIONS}")
+ensure(extern("SECTION_SIZE_SHIFT") == SECTION_SIZE_SHIFT, "SECTION_SIZE_SHIFT drifted: {SECTION_SIZE_SHIFT}")
+ensure(extern("EDGE_CLAMP") == EDGE_CLAMP, "EDGE_CLAMP drifted: {EDGE_CLAMP}")
+
+// ---- the act's shape, written once ----
+const GRID_W = 3
+const GRID_H = 3
+
+// The old per-act if/error blocks, as comptime facts (they fail the build
+// HERE, not at link): grid capacity, and the signed-word camera clamp —
+// an axis extent at or past $8000 reads negative and min-clamps to 0.
+ensure(GRID_W * GRID_H <= MAX_ACT_SECTIONS,
+       "act grid {GRID_W}x{GRID_H} exceeds MAX_ACT_SECTIONS")
+ensure((GRID_W << SECTION_SIZE_SHIFT) <= $8000,
+       "grid_w axis extent breaks the signed-word camera clamp")
+ensure((GRID_H << SECTION_SIZE_SHIFT) <= $8000,
+       "grid_h axis extent breaks the signed-word camera clamp")
+
+pub data OJZ_Act1_Descriptor: Act = Act{
+    sec_grid_ptr:        OJZ_Act1_Sections,
+    grid_w:              GRID_W,
+    grid_h:              GRID_H,
+    start_local_x:       $0100,                          // 256px into section 0
+    start_local_y:       $0100,                          // ground level
+    start_sec_x:         0,
+    start_sec_y:         0,
+    act_bg_layout:       OJZ_Act1_BG_Layout,             // §2 A.5 T1 zone-wide BG
+    act_bg_tiles:        OJZ_Act1_BG_Tiles,
+    act_parallax_config: ParallaxConfig_OJZ_Default,     // fallback for NULL sections
+    act_art_pool_table:  OJZ_Act_Pool_PageTable,         // generated include, AS side
+    act_art_pool_pages:  extern("OJZ_ACT_POOL_PAGES"),   // generated count, link-folded
+    edge_mode:           EDGE_CLAMP,                     // §10; OJZ ships CLAMP
+    pad_21:              default,
+}
+
+// -----------------------------------------------
+// Section definition table — 9 entries × sizeof(Sec)
+// Grid layout (3×3):  Row 0 = Sec0,Sec1,Sec2 (unique art)
+//                     Row 1 = Sec3,Sec4,Sec5 (clone Sec0 art, distinct sky tint)
+//                     Row 2 = Sec6,Sec7,Sec8 (clone Sec0 art, distinct sky tint)
+// -----------------------------------------------
+// The standard OJZ section, built through ONE constructor: the varying
+// facts are the four per-section pointers and the dict pair; everything
+// else is the declared Sec default. (Tier 3 — deriving the stems from the
+// section NUMBER — waits on computed-name extern(); see the design note.)
+comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int) -> Sec {
+    return Sec{
+        sec_block_index:      blocks,
+        sec_objects:          objects,
+        sec_rings:            rings,
+        sec_plc:              default,
+        sec_pal:              OJZ_Palette,
+        sec_parallax_config:  default,      // act default parallax
+        sec_raster_table:     default,
+        sec_bg_layout:        default,      // NULL = zone-wide T1 BG
+        sec_type_table:       type_table,
+        sec_pal_cycle:        default,
+        sec_sound_bank:       default,
+        sec_block_dict:       dict,
+        sec_anim_blocks:      default,
+        sec_collision_s4lz:   default,
+        sec_flags:            default,
+        sec_music:            default,
+        sec_pcfg_pad_3C:      default,
+        sec_camera_lookahead: default,
+        sec_pcfg_pad_3E:      default,
+        sec_pcfg_pad_3F:      default,
+        sec_block_dict_len:   dict_len,
+    }
+}
+
+pub data OJZ_Act1_Sections: [Sec; 9] = [
+    ojz_sec(blocks: OJZ_Sec0_Blocks,
+            objects: OJZ_Sec0_Objects, rings: OJZ_Sec0_Rings,
+            type_table: OJZ_Sec0_TypeTable,
+            dict: extern("OJZ_Sec0_Blocks") + extern("BLOCK_INDEX_SIZE"),
+            dict_len: extern("OJZ_SEC0_BLOCK_DICT_LEN")),
+    ojz_sec(blocks: OJZ_Sec1_Blocks,
+            objects: OJZ_Sec1_Objects, rings: OJZ_Sec1_Rings,
+            type_table: OJZ_Sec1_TypeTable,
+            dict: extern("OJZ_Sec1_Blocks") + extern("BLOCK_INDEX_SIZE"),
+            dict_len: extern("OJZ_SEC1_BLOCK_DICT_LEN")),
+    ojz_sec(blocks: OJZ_Sec2_Blocks,
+            objects: OJZ_Sec2_Objects, rings: OJZ_Sec2_Rings,
+            type_table: OJZ_Sec2_TypeTable,
+            dict: extern("OJZ_Sec2_Blocks") + extern("BLOCK_INDEX_SIZE"),
+            dict_len: extern("OJZ_SEC2_BLOCK_DICT_LEN")),
+    ojz_sec(blocks: OJZ_Sec3_Blocks,
+            objects: OJZ_Sec3_Objects, rings: OJZ_Sec3_Rings,
+            type_table: OJZ_Sec3_TypeTable,
+            dict: extern("OJZ_Sec3_Blocks") + extern("BLOCK_INDEX_SIZE"),
+            dict_len: extern("OJZ_SEC3_BLOCK_DICT_LEN")),
+    ojz_sec(blocks: OJZ_Sec4_Blocks,
+            objects: OJZ_Sec4_Objects, rings: OJZ_Sec4_Rings,
+            type_table: OJZ_Sec4_TypeTable,
+            dict: extern("OJZ_Sec4_Blocks") + extern("BLOCK_INDEX_SIZE"),
+            dict_len: extern("OJZ_SEC4_BLOCK_DICT_LEN")),
+    ojz_sec(blocks: OJZ_Sec5_Blocks,
+            objects: OJZ_Sec5_Objects, rings: OJZ_Sec5_Rings,
+            type_table: OJZ_Sec5_TypeTable,
+            dict: extern("OJZ_Sec5_Blocks") + extern("BLOCK_INDEX_SIZE"),
+            dict_len: extern("OJZ_SEC5_BLOCK_DICT_LEN")),
+    ojz_sec(blocks: OJZ_Sec6_Blocks,
+            objects: OJZ_Sec6_Objects, rings: OJZ_Sec6_Rings,
+            type_table: OJZ_Sec6_TypeTable,
+            dict: extern("OJZ_Sec6_Blocks") + extern("BLOCK_INDEX_SIZE"),
+            dict_len: extern("OJZ_SEC6_BLOCK_DICT_LEN")),
+    ojz_sec(blocks: OJZ_Sec7_Blocks,
+            objects: OJZ_Sec7_Objects, rings: OJZ_Sec7_Rings,
+            type_table: OJZ_Sec7_TypeTable,
+            dict: extern("OJZ_Sec7_Blocks") + extern("BLOCK_INDEX_SIZE"),
+            dict_len: extern("OJZ_SEC7_BLOCK_DICT_LEN")),
+    ojz_sec(blocks: OJZ_Sec8_Blocks,
+            objects: OJZ_Sec8_Objects, rings: OJZ_Sec8_Rings,
+            type_table: OJZ_Sec8_TypeTable,
+            dict: extern("OJZ_Sec8_Blocks") + extern("BLOCK_INDEX_SIZE"),
+            dict_len: extern("OJZ_SEC8_BLOCK_DICT_LEN")),
+]
+// the [Sec; 9] length IS the table-size check; tie the literal to the grid
+ensure(GRID_W * GRID_H == 9, "the [Sec; 9] table must match grid_w*grid_h")

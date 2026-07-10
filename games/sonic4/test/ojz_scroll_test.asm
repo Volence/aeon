@@ -33,7 +33,7 @@ GameState_OJZScroll_Init:
         move.b  #$0F, (Palette_Dirty).w
 
         ; -- load deduped FG tile pool via S4LZ → VRAM (display still off) --
-        lea     OJZ_Act1_Descriptor, a0
+        lea     (OJZ_Act1_Descriptor).l, a0
         jsr     Level_LoadArt
 
         ; -- test object + ring placeholder art (9 tiles at VRAM_TEST_OBJ;
@@ -44,7 +44,7 @@ GameState_OJZScroll_Init:
         jsr     QueueDMA_Critical
 
         ; -- initialise camera first (Section_FillInitial reads Camera_X) --
-        lea     OJZ_Act1_Descriptor, a0
+        lea     (OJZ_Act1_Descriptor).l, a0
         jsr     Camera_Init
 
         ; -- init object system (must precede Player_1 setup and Section_Init) --
@@ -95,7 +95,7 @@ GameState_OJZScroll_Init:
         move.w  (sp)+, sr
 
         ; -- initialise section streaming (fills nametable over 3 VBlanks) --
-        lea     OJZ_Act1_Descriptor, a0
+        lea     (OJZ_Act1_Descriptor).l, a0
         jsr     Section_Init
 
         ; -- §4.7: populate tile cache (must run AFTER Camera_Init +
@@ -114,7 +114,7 @@ GameState_OJZScroll_Init:
         ; -- §4.6 parallax init: pull start section's parallax_config --
         ; Section_GetSecPtrXY handles the full grid math (sec_y included);
         ; runs after Section_Init so Current_Act_Ptr is valid.
-        lea     OJZ_Act1_Descriptor, a2
+        lea     (OJZ_Act1_Descriptor).l, a2
         move.b  Act_start_sec_x(a2), d2
         move.b  Act_start_sec_y(a2), d3
         jsr     Section_GetSecPtrXY             ; a0 = start Sec ptr (Z set = none)
