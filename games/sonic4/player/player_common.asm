@@ -218,15 +218,12 @@ Player_Main:
         move.w  (sp)+, d7
 
         ; --- on-object bit: 1-frame-lagged (TouchResponse runs AFTER this
-        ; frame and SETS it; the states above read the LIVE bit set by
-        ; LAST tick's TouchResponse). Clear it every normal frame so a
-        ; walk-off works: this tick's TouchResponse re-sets it only if the
-        ; player is still standing on the solid. Debug-fly never reaches
-        ; here (it returns via Player_DebugMove before the dispatch), so
-        ; the bit is only ever touched in the physics path. a0 is the
-        ; Player_1 SST throughout (states preserve a0 — RunObjects/display
-        ; contract). ---
-        bclr    #ST_ON_OBJECT, SST_status(a0)
+        ; frame; everything in the player tick — the states above AND the
+        ; animation classifier below — reads the LIVE bit set by LAST
+        ; tick's TouchResponse). The per-frame CLEAR lives at the top of
+        ; TouchResponse's player loop (collision.asm), not here: clearing
+        ; it mid-tick blinded Player_Animate's ledge probe (the
+        ; balance-on-solids bug). ---
 
         bsr.w   Player_LevelBound               ; classic LevelBound, post-
                                                 ; dispatch (placement rationale

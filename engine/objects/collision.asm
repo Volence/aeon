@@ -28,6 +28,15 @@ TouchResponse:
         tst.w   SST_code_addr(a2)
         beq.w   .next_player
 
+        ; On-object bit lifecycle: cleared HERE (pass start), re-set by
+        ; Touch_Solid's top-contact within this same pass if the player is
+        ; still standing on a solid — so a walk-off drops the bit, and the
+        ; bit is LIVE for the player's entire next tick (state dispatch AND
+        ; the animation classifier's ledge probe both read last pass's
+        ; truth). The old mid-frame clear in player_common sat between the
+        ; dispatch and the classifier, blinding the balance check.
+        bclr    #ST_ON_OBJECT, SST_status(a2)
+
         move.w  SST_x_pos(a2), d4       ; cache player X integer
         move.w  SST_y_pos(a2), d5       ; cache player Y integer
 
