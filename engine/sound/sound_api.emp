@@ -84,7 +84,7 @@ comptime fn start_z80() -> Code {
 // In:  d0.b = value (nonzero = request, 0 = idle), a0 = 68k addr of the slot.
 // Clobbers: SR restored; nothing else.
 // ----------------------------------------------------------------------
-pub proc Sound_PostByte () clobbers() {
+pub proc Sound_PostByte () clobbers() preserves(sr) {
         move.w  sr, -(sp)
         move.w  #$2700, sr                  // mask interrupts (no mirror nesting)
         stop_z80
@@ -101,7 +101,7 @@ pub proc Sound_PostByte () clobbers() {
 // only way the 68k reads Z80 RAM reliably).
 // Clobbers: nothing (SR preserved).
 // ----------------------------------------------------------------------
-pub proc Sound_Init () clobbers() {
+pub proc Sound_Init () clobbers() preserves(sr) {
         move.w  sr, -(sp)
     .wait_alive:
         move.w  #$2700, sr
@@ -147,7 +147,7 @@ pub proc Sound_PlaySample () clobbers(a0) {
 // In:  d0.b = song id (1..SONG_COUNT).
 // Clobbers: d0/d1/d2/d3/d4/a0/a1; SR restored.
 // ----------------------------------------------------------------------
-pub proc Sound_PlayMusic () clobbers(d0, d1, d2, d3, d4, a0, a1) {
+pub proc Sound_PlayMusic () clobbers(d0, d1, d2, d3, d4, a0, a1) preserves(sr) {
         andi.l  #$FF, d0                    // d0 = song id (1-based)
         move.l  d0, d2                      // d2 = song id (preserved for the trigger)
         subq.l  #1, d0                      // index = id-1
@@ -253,7 +253,7 @@ pub proc Sound_PlaySFX () preserves(d1/a0) {
 // Sound_PostByte) so the Z80's once/VBlank consume cannot land between them. Empty ring
 // is a fast no-op. Clobbers: d0/d1/a0; SR restored.
 // ----------------------------------------------------------------------
-pub proc Sound_DrainSfxRing () clobbers(d0, d1, a0) {
+pub proc Sound_DrainSfxRing () clobbers(d0, d1, a0) preserves(sr) {
         moveq   #0, d0                      // d0 is an (a0,d0.w) index below — clear the
                                             // caller's bits 8-15 (same class as the
                                             // Sound_PlaySFX index bug, found 2026-07-03)
