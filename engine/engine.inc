@@ -85,7 +85,21 @@
 ; -----------------------------------------------
 __BUDGET_ENGINE:
     include "engine/system/boot.asm"
-    include "engine/system/vdp_init.asm"
+    ifndef SIGIL_EMP_VDP_INIT
+        include "engine/system/vdp_init.asm"
+    else
+        ; sigil mixed build: VDP_Shadow_Init/Flush_VDP_Shadow come from
+        ; engine/system/vdp_init.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $1CE2
+      else
+        org     $1C60
+      endif
+    endif
     include "engine/system/dma_queue.asm"
     include "engine/system/buffers.asm"
     include "engine/system/vblank.asm"
@@ -148,7 +162,21 @@ __BUDGET_ENGINE:
     include "engine/objects/load_object.asm"
     include "engine/level/plane_buffer.asm"
     include "engine/level/tile_cache.asm"
-    include "engine/level/collision_lookup.asm"
+    ifndef SIGIL_EMP_COLLISION_LOOKUP
+        include "engine/level/collision_lookup.asm"
+    else
+        ; sigil mixed build: Collision_GetType comes from
+        ; engine/level/collision_lookup.emp, pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $545C
+      else
+        org     $4C38
+      endif
+    endif
     gameEngineBlockIncludes
     include "engine/level/section.asm"
     include "engine/level/camera.asm"
