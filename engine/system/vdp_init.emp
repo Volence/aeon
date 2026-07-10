@@ -22,8 +22,7 @@ pub proc VDP_Shadow_Init () clobbers(d0, a0, a1) {
     .copy:
         move.b  (a0)+, (a1)+
         dbf     d0, .copy
-        moveq   #0, d0
-        move.l  d0, VDP_Dirty_Mask          // (VDP_Dirty_Mask).w — ram.asm
+        clr.l   VDP_Dirty_Mask              // (VDP_Dirty_Mask).w — ram.asm; RAM operand, so the I/O clr read hazard doesn't apply
         rts
 }
 
@@ -51,8 +50,7 @@ pub proc Flush_VDP_Shadow () clobbers(d0, d1, d2, d3, a0, a1) {
         addi.w  #VDP_REG_STEP, d0           // next register command
         addq.w  #1, d2                      // next register index
         dbf     d3, .loop
-        moveq   #0, d0
-        move.l  d0, VDP_Dirty_Mask
+        clr.l   VDP_Dirty_Mask              // RAM operand — see VDP_Shadow_Init
     .done:
         rts
 }

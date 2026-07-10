@@ -13,8 +13,7 @@ VDP_Shadow_Init:
 .copy:
         move.b  (a0)+, (a1)+
         dbf     d0, .copy
-        moveq   #0, d0
-        move.l  d0, (VDP_Dirty_Mask).w
+        clr.l   (VDP_Dirty_Mask).w          ; RAM operand — the I/O clr read hazard doesn't apply
         rts
 
 ; -----------------------------------------------
@@ -41,7 +40,6 @@ Flush_VDP_Shadow:
         addi.w  #$0100, d0                  ; next register command
         addq.w  #1, d2                      ; next register index
         dbf     d3, .loop
-        moveq   #0, d0
-        move.l  d0, (VDP_Dirty_Mask).w
+        clr.l   (VDP_Dirty_Mask).w          ; RAM operand — see VDP_Shadow_Init
 .done:
         rts
