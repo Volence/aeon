@@ -1,0 +1,58 @@
+// VDP shadow table management
+module engine.vdp_init in vdp_init
+
+use engine.constants.{VDP_Shadow_len}
+
+// The VDP register-set encoding: a control-port word %100R_RRRR_VVVV_VVVV —
+// command base $8000 plus register-number strides of $0100, value in the
+// low byte. Module-local until a second consumer earns them a twin slot.
+const VDP_REG_CMD  = $8000
+const VDP_REG_STEP = $0100
+
+// -----------------------------------------------
+// VDP_Shadow_Init — copy boot VDP register values into shadow table
+// In:  none (reads from BootData VDP register values)
+// Out: none
+// Clobbers: d0, a0-a1
+// -----------------------------------------------
+pub proc VDP_Shadow_Init () clobbers(d0, a0, a1) {
+        lea.l   BootData_VDPRegs(pc), a0    // cross-seam pc-rel: engine/system/boot.asm
+        lea.l   VDP_Shadow_Table, a1        // (VDP_Shadow_Table).w — ram.asm; abs.w picked by the linker's asl width rule
+        moveq   #VDP_Shadow_len-1, d0
+    .copy:
+        move.b  (a0)+, (a1)+
+        dbf     d0, .copy
+        moveq   #0, d0
+        move.l  d0, VDP_Dirty_Mask          // (VDP_Dirty_Mask).w — ram.asm
+        rts
+}
+
+// -----------------------------------------------
+// Flush_VDP_Shadow — write only dirty registers to VDP (§0.4)
+// Called during VBlank
+// In:  none
+// Out: none
+// Clobbers: d0-d3, a0-a1
+// -----------------------------------------------
+pub proc Flush_VDP_Shadow () clobbers(d0, d1, d2, d3, a0, a1) {
+        move.l  VDP_Dirty_Mask, d1
+        beq     .done                       // fast path: nothing dirty
+        lea.l   VDP_Shadow_Table, a0
+        lea.l   VDP_CTRL, a1                // (VDP_CTRL).l — engine/constants.asm; abs.l by the width rule
+        move.w  #VDP_REG_CMD, d0            // register command base (reg 0)
+        moveq   #0, d2                      // register index (counts up)
+        moveq   #VDP_Shadow_len-1, d3       // loop counter (counts down)
+    .loop:
+        btst    d2, d1
+        beq     .skip
+        move.b  (a0,d2.w), d0               // load shadow value into low byte
+        move.w  d0, (a1)                    // write $8X00+val to VDP
+    .skip:
+        addi.w  #VDP_REG_STEP, d0           // next register command
+        addq.w  #1, d2                      // next register index
+        dbf     d3, .loop
+        moveq   #0, d0
+        move.l  d0, VDP_Dirty_Mask
+    .done:
+        rts
+}
