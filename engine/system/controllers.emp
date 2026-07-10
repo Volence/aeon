@@ -53,14 +53,14 @@ pub proc Read_Controllers () clobbers(d0, d1, a0) {
         move.b  d0, d1
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
         cmpi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
-        bne.s   .lr_ok
-        andi.b  #~(BUTTON_LEFT|BUTTON_RIGHT)&$FF, d0
+        bne     .lr_ok
+        andi.b  #~(BUTTON_LEFT|BUTTON_RIGHT), d0
     .lr_ok:
         move.b  d0, d1
         andi.b  #BUTTON_UP|BUTTON_DOWN, d1
         cmpi.b  #BUTTON_UP|BUTTON_DOWN, d1
-        bne.s   .ud_ok
-        andi.b  #~(BUTTON_UP|BUTTON_DOWN)&$FF, d0
+        bne     .ud_ok
+        andi.b  #~(BUTTON_UP|BUTTON_DOWN), d0
     .ud_ok:
         rts
 }

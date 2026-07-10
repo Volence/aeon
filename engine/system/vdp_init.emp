@@ -36,7 +36,7 @@ pub proc VDP_Shadow_Init () clobbers(d0, a0, a1) {
 // -----------------------------------------------
 pub proc Flush_VDP_Shadow () clobbers(d0, d1, d2, d3, a0, a1) {
         move.l  VDP_Dirty_Mask, d1
-        beq.s   .done                       // fast path: nothing dirty
+        beq     .done                       // fast path: nothing dirty
         lea.l   VDP_Shadow_Table, a0
         lea.l   VDP_CTRL, a1                // (VDP_CTRL).l — engine/constants.asm; abs.l by the width rule
         move.w  #VDP_REG_CMD, d0            // register command base (reg 0)
@@ -44,7 +44,7 @@ pub proc Flush_VDP_Shadow () clobbers(d0, d1, d2, d3, a0, a1) {
         moveq   #VDP_Shadow_len-1, d3       // loop counter (counts down)
     .loop:
         btst    d2, d1
-        beq.s   .skip
+        beq     .skip
         move.b  (a0,d2.w), d0               // load shadow value into low byte
         move.w  d0, (a1)                    // write $8X00+val to VDP
     .skip:

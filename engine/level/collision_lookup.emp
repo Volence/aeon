@@ -22,18 +22,18 @@ pub proc Collision_GetType () clobbers(d0, d1, d2, d3, a0) {
         move.w  d1, d2                      // save Y
         lsr.w   #3, d0                      // X pixels → world tile col
         cmp.w   Cache_Left_Col, d0          // (Cache_Left_Col).w — ram.asm; abs.w picked by the linker's asl width rule
-        blt.s   .cgt_air
+        blt     .cgt_air
         cmp.w   Cache_Head_Col, d0          // (Cache_Head_Col).w — ram.asm
-        bgt.s   .cgt_air
+        bgt     .cgt_air
         move.w  d0, -(sp)                   // push world col
 
         move.w  d2, d0
         lsr.w   #3, d0                      // Y pixels → world tile row
         move.w  d0, d1                      // d1 = world row
         cmp.w   Cache_Top_Row, d1           // (Cache_Top_Row).w — ram.asm
-        blt.s   .cgt_air_pop
+        blt     .cgt_air_pop
         cmp.w   Cache_Bottom_Row, d1        // (Cache_Bottom_Row).w — ram.asm
-        bgt.s   .cgt_air_pop
+        bgt     .cgt_air_pop
 
         move.w  (sp)+, d0                   // d0 = world col, d1 = world row
         // d3.b = layer (0/1) — passed through from caller to Tile_Cache_GetCollision

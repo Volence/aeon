@@ -777,8 +777,15 @@ enforce it (Sigil ledger S2-D11(c)).
   compiler verifies the declared set against the literal pair (S2-D6b, error-tier).
   The header comment's `Clobbers:` line explains MEANING (which are outputs, which come
   from callees); the attribute is authoritative and the two must not contradict. A
-  no-effect proc (bare `rts`) currently declares neither — pending the empty-`clobbers()`
-  ruling (see the campaign gap ledger).
+  no-effect proc declares the explicit empty form — `clobbers()` means "verified: touches
+  nothing" and the lint enforces it (Volence ruling, tranche 3).
 - **Binary `%`-literals for bit masks where clearer** (taste, per file — tranche 3 applied
   it to controllers' keep-CBRLDU/keep-SA masks; hex stays where the value IS hex-shaped,
   like VDP command words).
+- **Conditional branches are UNSIZED in new-style files (Volence, tranche 3):** write `bne
+  .label` — the assembler picks `.s`/`.w` by reach and errors loudly past ±32KB (`jbcc`
+  deliberately does not exist; a transfer that far wants restructuring, not a hidden
+  trampoline). Explicit sizes remain only in `@as_compat` ports. `dbf` keeps its form
+  (always word). Absolute addressing likewise defaults to the BARE symbol (the width rule
+  picks the asl-identical, optimal encoding); the explicit `(X).w`/`(X).l` spelling exists
+  for AS parity and self-modified/patched fields.

@@ -20,6 +20,6 @@ pub proc HBlank_Dispatch () preserves(d0-d1/a0) {
 // -----------------------------------------------
 // HBlank_Null — default handler (no raster effects)
 // -----------------------------------------------
-pub proc HBlank_Null () {
+pub proc HBlank_Null () clobbers() {
         rts
 }
