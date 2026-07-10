@@ -26,7 +26,10 @@
 __AABB_INC__ equ 1
 
 aabb_axis_test macro apos,bpos,adim,bdim,cdim,delt,stmp,mlab,utag
-        move.w  adim, cdim
+    if "adim" <> "cdim"
+        move.w  adim, cdim              ; zero-copy skip: when cdim aliases
+    endif                               ; adim this move is a no-op (flags die
+                                        ; at the add) — emit only when distinct
         add.w   bdim, cdim
 
         move.w  apos, delt

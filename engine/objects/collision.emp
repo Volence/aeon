@@ -5,7 +5,13 @@ module engine.objects.collision in collision
 use engine.objects.sst.{Sst}
 use engine.objects.aabb.{aabb_axis_test}
 use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_SYSTEM, NUM_EFFECTS,
-                      COLLISION_TOUCH, ST_ON_OBJECT, ST_IN_AIR, ST_P1_STANDING}
+                      COLLISION_TOUCH, ST_ON_OBJECT, ST_IN_AIR,
+                      ST_P1_STANDING, ST_P2_STANDING}
+
+// Player-1 slot address as a link-time immediate (Touch_Solid's standing-bit
+// claim compares the landing player against it; the EA-position uses read
+// the bare name, but an immediate needs the equ spelling — see sound_api).
+equ PLAYER_1_SLOT = extern("Player_1")
 
 // -----------------------------------------------
 // TouchResponse — check player(s) against all collidable objects
@@ -79,7 +85,9 @@ pub proc TouchResponse () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a
         moveq   #0, d4
         move.b  Sst.collision_resp(a3), d4
         cmpi.b  #COLLISION_TOUCH, d4
-        bhi.s   .overlap_done
+        bhi.s   .next_object            // invalid type: no handler ran, so the
+                                        // d4/d5 position cache is still fresh —
+                                        // skip the reload
 
         movem.l d6-d7/a2-a3, -(sp)
 
@@ -207,7 +215,7 @@ proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbe
         move.w  d1, y_pos(a2)
         tst.w   y_vel(a2)
         bpl.s   .solid_done
-        move.w  #0, y_vel(a2)
+        clr.w   y_vel(a2)
         rts
 
     .solid_top:
@@ -221,10 +229,18 @@ proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbe
         sub.w   d2, d1                  // target.y - combined_half_h
         addq.w  #1, d1                  // maintain contact
         move.w  d1, y_pos(a2)
-        move.w  #0, y_vel(a2)
+        clr.w   y_vel(a2)
         bclr    #ST_IN_AIR, status(a2)
         bset    #ST_ON_OBJECT, status(a2)
-        bset    #ST_P1_STANDING, status(a3)
+        // Claim the object with THIS player's standing bit — the ledge
+        // probe (player_sensors) scans for ST_P1/P2_STANDING by player
+        // identity, so the bit must match the player that landed.
+        moveq   #ST_P1_STANDING, d1
+        cmpa.l  #PLAYER_1_SLOT, a2
+        beq.s   .solid_claim
+        moveq   #ST_P2_STANDING, d1
+    .solid_claim:
+        bset    d1, status(a3)
         rts
 
     .solid_side:
@@ -234,12 +250,12 @@ proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbe
         bmi.s   .solid_push_left
 
         add.w   d0, x_pos(a2)           // push right
-        move.w  #0, x_vel(a2)
+        clr.w   x_vel(a2)
         rts
 
     .solid_push_left:
         sub.w   d0, x_pos(a2)           // push left
-        move.w  #0, x_vel(a2)
+        clr.w   x_vel(a2)
 
     .solid_done:
         rts

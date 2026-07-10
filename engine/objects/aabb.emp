@@ -25,8 +25,10 @@
 module engine.objects.aabb
 
 pub comptime fn aabb_axis_test(apos: Reg, breg: Reg, boff: int, adim: Reg, bdim: Reg, cdim: Reg, delt: Reg, stmp: Reg, mlab: Label) -> Code {
-    return asm {
-        move.w  {adim}, {cdim}
+    // Zero-copy skip: when cdim aliases adim the lead move is a no-op (its
+    // flags die at the add) — emit it only when the registers are distinct.
+    let head = if adim != cdim { asm { move.w  {adim}, {cdim} } } else { asm { } }
+    return head ++ asm {
         add.w   {bdim}, {cdim}
 
         move.w  {apos}, {delt}
