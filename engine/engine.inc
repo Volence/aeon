@@ -203,7 +203,24 @@ __BUDGET_ENGINE:
     include "engine/level/bg_anim.asm"
     include "engine/debug/compression_selftest.asm"
     ifdef SOUND_DRIVER_ENABLED
+      ifndef SIGIL_EMP_SOUND_API
         include "engine/sound/sound_api.asm"
+      else
+        ; sigil mixed build: the Sound_* API procs come from
+        ; engine/sound/sound_api.emp, pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; The .emp keeps the slot ADDRESSES AS-owned (extern-equ sums over
+        ; sound_constants.asm) and mirrors only immediate-position values
+        ; (kill-list row 10).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+        ifdef __DEBUG__
+        org     $743A
+        else
+        org     $5F7C
+        endif
+      endif
     endif
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED

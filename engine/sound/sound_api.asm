@@ -224,7 +224,7 @@ Sound_PlayRing:
 ; key-offs every FM channel, silences PSG, and clears the sequencer-active
 ; flag. Timer A keeps running — it is the whole-driver frame clock (SFX + DAC
 ; refill hang off it). (The 1B DAC keeps running — DAC is owned by 1B.)
-; Clobbers: d0; SR restored.
+; Clobbers: d0, a0; SR restored.
 ; ----------------------------------------------------------------------
 Sound_StopMusic:
         move.b  #SND_MUSIC_STOP, d0          ; $FF (out of moveq's signed range)
@@ -246,7 +246,7 @@ Sound_SetTempo:
 ; ----------------------------------------------------------------------
 ; Sound_FadeOut — ramp the music master volume down to silence (~1s). The song keeps
 ; playing; the game typically follows with Sound_StopMusic when silent. Music-only
-; (SFX stay full). Clobbers: d0; SR restored.
+; (SFX stay full). Clobbers: d0, a0; SR restored.
 ; ----------------------------------------------------------------------
 Sound_FadeOut:
         move.b  #SND_FADE_CMD_OUT, d0
@@ -255,7 +255,7 @@ Sound_FadeOut:
 
 ; ----------------------------------------------------------------------
 ; Sound_FadeIn — snap the master volume to silence and ramp it up to full (~1s). Use
-; right after Sound_PlayMusic to fade a song in. Clobbers: d0; SR restored.
+; right after Sound_PlayMusic to fade a song in. Clobbers: d0, a0; SR restored.
 ; ----------------------------------------------------------------------
 Sound_FadeIn:
         move.b  #SND_FADE_CMD_IN, d0
