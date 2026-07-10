@@ -13,32 +13,24 @@
 ;      d1.w = world Y pixel position
 ;      d3.b = layer select (0 = path A, 1 = path B)
 ; Out: d0.b = collision type byte (0 = air)
-; Clobbers: d0-d3, a0
+; Clobbers: d0-d3, a0 (d2/a0 via the Tile_Cache_GetCollision tail call)
 ; -----------------------------------------------
 Collision_GetType:
-        move.w  d1, d2                         ; save Y
         lsr.w   #3, d0                         ; X pixels → world tile col
         cmp.w   (Cache_Left_Col).w, d0
         blt.s   .cgt_air
         cmp.w   (Cache_Head_Col).w, d0
         bgt.s   .cgt_air
-        move.w  d0, -(sp)                     ; push world col
-
-        move.w  d2, d0
-        lsr.w   #3, d0                         ; Y pixels → world tile row
-        move.w  d0, d1                         ; d1 = world row
+        lsr.w   #3, d1                         ; Y pixels → world tile row, in place
         cmp.w   (Cache_Top_Row).w, d1
-        blt.s   .cgt_air_pop
+        blt.s   .cgt_air
         cmp.w   (Cache_Bottom_Row).w, d1
-        bgt.s   .cgt_air_pop
+        bgt.s   .cgt_air
 
-        move.w  (sp)+, d0                      ; d0 = world col, d1 = world row
+        ; d0 = world col, d1 = world row
         ; d3.b = layer (0/1) — passed through from caller to Tile_Cache_GetCollision
-        bsr.w   Tile_Cache_GetCollision        ; d0.b = collision type
-        rts
+        bra.w   Tile_Cache_GetCollision        ; tail call — d0.b = collision type
 
-.cgt_air_pop:
-        addq.l  #2, sp
 .cgt_air:
         moveq   #CTYPE_AIR, d0
         rts
