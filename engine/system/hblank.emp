@@ -3,13 +3,13 @@
 // The whole module lives in the `hblank` section, pinned by the sigil map at
 // the per-shape reference address (plain $227E / debug $230C).
 module engine.hblank in hblank
-@as_compat
 
 // -----------------------------------------------
 // HBlank_Dispatch — ROM stub, dispatches through the RAM pointer
 // (HBlank_Handler_Ptr): RAM-indirect dispatch for per-line raster effects.
+// Clobbers nothing — the movem pair is the declared contract (S2-D6b).
 // -----------------------------------------------
-pub proc HBlank_Dispatch () {
+pub proc HBlank_Dispatch () preserves(d0-d1/a0) {
         movem.l d0-d1/a0, -(sp)
         movea.l HBlank_Handler_Ptr, a0      // (HBlank_Handler_Ptr).w — abs.w picked by the linker's asl width rule
         jsr     (a0)

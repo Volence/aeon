@@ -1,13 +1,7 @@
 // VDP shadow table management
 module engine.vdp_init in vdp_init
-@as_compat
 
-// VDP_Shadow_len — mirrors engine/structs.asm's VDP_Shadow struct length
-// (19 shadowed registers, $00-$12; port-time twin — structs.asm stays
-// authoritative until its own port). Immediate-position use below needs a
-// comptime value; drift would fail the full-tree byte gate AND structs.asm's
-// own `VDP_Shadow_len <> 19` guard.
-const VDP_Shadow_len = 19
+use engine.constants.{VDP_Shadow_len}
 
 // -----------------------------------------------
 // VDP_Shadow_Init — copy boot VDP register values into shadow table
@@ -15,7 +9,7 @@ const VDP_Shadow_len = 19
 // Out: none
 // Clobbers: d0, a0-a1
 // -----------------------------------------------
-pub proc VDP_Shadow_Init () {
+pub proc VDP_Shadow_Init () clobbers(d0, a0, a1) {
         lea.l   BootData_VDPRegs(pc), a0    // cross-seam pc-rel: engine/system/boot.asm
         lea.l   VDP_Shadow_Table, a1        // (VDP_Shadow_Table).w — ram.asm $FFFF800A; abs.w picked by the linker's asl width rule
         moveq   #VDP_Shadow_len-1, d0
@@ -34,7 +28,7 @@ pub proc VDP_Shadow_Init () {
 // Out: none
 // Clobbers: d0-d3, a0-a1
 // -----------------------------------------------
-pub proc Flush_VDP_Shadow () {
+pub proc Flush_VDP_Shadow () clobbers(d0, d1, d2, d3, a0, a1) {
         move.l  VDP_Dirty_Mask, d1
         beq.s   .done                       // fast path: nothing dirty
         lea.l   VDP_Shadow_Table, a0

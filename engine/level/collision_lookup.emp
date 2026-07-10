@@ -7,13 +7,8 @@
 // Saved X/Y live in d4/d5. Set d3 before EVERY call — it is not
 // preserved by contract. New sensor wrappers (§5) must follow this.
 module engine.collision_lookup in collision_lookup
-@as_compat
 
-// CTYPE_AIR — mirrors engine/constants.asm:357 (port-time twin;
-// constants.asm stays authoritative until its own port). Immediate-position
-// use below needs a comptime value; drift between this module and
-// constants.asm would fail the full-tree byte gate.
-const CTYPE_AIR = 0
+use engine.constants.{CTYPE_AIR}
 
 // -----------------------------------------------
 // Collision_GetType — look up collision type for a world-space position
@@ -21,9 +16,9 @@ const CTYPE_AIR = 0
 //      d1.w = world Y pixel position
 //      d3.b = layer select (0 = path A, 1 = path B)
 // Out: d0.b = collision type byte (0 = air)
-// Clobbers: d0-d3, a0
+// Clobbers: d0-d2 here; d3/a0 via Tile_Cache_GetCollision
 // -----------------------------------------------
-pub proc Collision_GetType () {
+pub proc Collision_GetType () clobbers(d0, d1, d2, d3, a0) {
         move.w  d1, d2                      // save Y
         lsr.w   #3, d0                      // X pixels → world tile col
         cmp.w   Cache_Left_Col, d0          // (Cache_Left_Col).w — ram.asm; abs.w picked by the linker's asl width rule
@@ -42,7 +37,7 @@ pub proc Collision_GetType () {
 
         move.w  (sp)+, d0                   // d0 = world col, d1 = world row
         // d3.b = layer (0/1) — passed through from caller to Tile_Cache_GetCollision
-        bsr.w   Tile_Cache_GetCollision     // d0.b = collision type (cross-seam: engine/level/tile_cache.asm)
+        jbsr    Tile_Cache_GetCollision     // d0.b = collision type (cross-seam: engine/level/tile_cache.asm)
         rts
 
     .cgt_air_pop:

@@ -10,7 +10,7 @@ use engine.constants.{HW_PORT_1_DATA, HW_PORT_2_DATA, BUTTON_UP, BUTTON_DOWN, BU
 // Out: Ctrl_1_Held/Press_Accum, Ctrl_2_Held/Press_Accum updated
 // Clobbers: d0-d1, a0
 // -----------------------------------------------
-pub proc Read_Controllers () {
+pub proc Read_Controllers () clobbers(d0, d1, a0) {
         lea.l   HW_PORT_1_DATA, a0          // (HW_PORT_1_DATA).l — engine/constants.asm:17
         jbsr    .read_pad
         move.b  Ctrl_1_Held, d1             // (Ctrl_1_Held).w — ram.asm $FFFF802C
@@ -41,8 +41,8 @@ pub proc Read_Controllers () {
         move.b  #$00, (a0)                  // TH = 0
         nop
         move.b  (a0), d1                    // --SA00DU
-        andi.b  #$3F, d0                    // keep CBRLDU
-        andi.b  #$30, d1                    // keep SA
+        andi.b  #%00111111, d0              // keep CBRLDU
+        andi.b  #%00110000, d1              // keep SA
         lsl.b   #2, d1                       // shift SA to bits 7-6
         or.b    d1, d0                       // combine: SACBRLDU
         not.b   d0                           // invert: 1 = pressed
