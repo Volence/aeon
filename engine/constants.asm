@@ -253,6 +253,22 @@ PHYS_JUMP_BUFFER        = 2         ; frames — the one modern concession
 ; never set it, so they never read d3. Value is high so it can't collide with
 ; a real frame-hold (real holds are small: idle 30, wait 5, etc.).
 DUR_DYNAMIC             = $FF
+; Animation control codes ($F7-$FF; frame bytes 0-$F6 are valid mapping frame
+; indices — only $F7+ dispatches). Truth lives HERE, not animate.asm, so the
+; codes survive when SIGIL_EMP_ANIMATE gates the interpreter out of the AS
+; side: script DATA files (pitcher_plant/anims.asm, the anim twins, test
+; objects) read them in both build shapes. Full script-format semantics:
+; engine/objects/animate.asm header. Mirrored .emp-side in
+; engine/system/constants.emp (consumed values only — sigil kill-list row 2).
+AF_END              = $FF   ; loop: restart from first frame
+AF_BACK             = $FE   ; jump back N: next byte = rewind count
+AF_CHANGE           = $FD   ; switch animation: next byte = new anim ID
+AF_ROUTINE          = $FC   ; increment routine counter (SST_custom byte 0) by 2
+AF_DELETE           = $FB   ; delete the object
+AF_CALLBACK         = $FA   ; call routine: dc.b $FA, target_hi, target_lo, 0
+AF_SOUND            = $F9   ; play sound effect: dc.b $F9, sound_id
+AF_COLLISION        = $F8   ; set collision type: dc.b $F8, collision_type
+AF_SET_FIELD        = $F7   ; set SST byte: dc.b $F7, sst_offset, value, 0
 ; Player collision radii (SPG; sizes are 2r+1)
 PLAYER_X_RADIUS         = 9
 PLAYER_Y_RADIUS         = 19

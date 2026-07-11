@@ -171,7 +171,24 @@ __BUDGET_ENGINE:
     include "engine/objects/dplc.asm"
     include "engine/objects/core.asm"
     include "engine/objects/sprites.asm"
-    include "engine/objects/animate.asm"
+    ifndef SIGIL_EMP_ANIMATE
+        include "engine/objects/animate.asm"
+    else
+        ; sigil mixed build: AnimateSprite/RefreshSpritePieceCount come from
+        ; engine/objects/animate.emp,
+        ; pinned by the sigil map at the per-shape reference address. Resume
+        ; placement at the region end (see sigil-harness golden/PROVENANCE.md;
+        ; re-pin on re-baseline). The AF_* control-code equs the script data
+        ; files read live in engine/constants.asm, NOT here, so they survive
+        ; this gate.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $31C4
+      else
+        org     $2F0A
+      endif
+    endif
     ifndef SIGIL_EMP_COLLISION
         include "engine/objects/collision.asm"
     else
@@ -182,9 +199,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $34AA
+        org     $332A
       else
-        org     $31F0
+        org     $3070
       endif
     endif
     ifndef SIGIL_EMP_RINGS
@@ -200,9 +217,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $36BA
+        org     $353A
       else
-        org     $33A4
+        org     $3224
       endif
     endif
     include "engine/objects/entity_window.asm"
@@ -220,9 +237,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $543E
+        org     $52BE
       else
-        org     $4C1A
+        org     $4A9A
       endif
     endif
     gameEngineBlockIncludes
@@ -247,9 +264,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $7408
+        org     $7288
         else
-        org     $5F4A
+        org     $5DCA
         endif
       endif
     endif
