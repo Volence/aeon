@@ -293,7 +293,7 @@ Render_Sprites:
 
         ; Single-sprite: emit pieces and continue to next band entry
         bsr.w   Emit_ObjectPieces
-        bra.w   .next_object
+        bra.s   .next_object            ; was .w — asl width-selected .s at the t11 step-2 sweep
 
 .multi_sprite:
         ; Save band-pointer a2; repurpose a2 = parent SST throughout sibling walk
@@ -304,7 +304,7 @@ Render_Sprites:
         move.w  SST_sibling_ptr(a2), d0
 .sibling_loop:
         tst.w   d0
-        beq.w   .multi_done
+        beq.s   .multi_done             ; was .w — asl width-selected .s at the t11 step-2 sweep
 
         movea.w d0, a0                  ; a0 = current child SST
 
@@ -345,7 +345,7 @@ Render_Sprites:
 
         ; Save child SST across Emit (a0 clobbered by subroutine)
         move.l  a0, -(sp)
-        bsr.w   Emit_ObjectPieces
+        bsr.s   Emit_ObjectPieces       ; was .w — asl width-selected .s at the t11 step-2 sweep
         movea.l (sp)+, a0
 
 .sibling_advance:
@@ -443,7 +443,7 @@ Emit_ObjectPieces:
         tst.b   d0
         beq.s   .pieces_unflipped
         cmpi.b  #1<<RF_XFLIP, d0
-        beq.w   .pieces_xflip
+        beq.s   .pieces_xflip           ; was .w — asl width-selected .s at the t11 step-2 sweep
         cmpi.b  #1<<RF_YFLIP, d0
         beq.w   .pieces_yflip
         bra.w   .pieces_xyflip
