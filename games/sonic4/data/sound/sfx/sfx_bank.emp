@@ -3,195 +3,95 @@
 // ===========================================================================
 // Ports everything from `Sfx_33` through `SfxTable_End` — the 9 core SFX blobs,
 // their 9 FM-patch banks (two zero-length, PSG-only), and the sparse id->blob
-// `SfxTable`. The block CONTENT is byte-identical in BOTH build shapes (no DEBUG
-// members here — the SFX set is the same plain and debug); only the block's BASE
-// address shifts, because it sits AFTER the shape-dependent song tables (plain
-// $63AE8 / debug $6553A). So this module needs NO `-D` define — see the harness
-// PROVENANCE on any re-baseline for the per-shape map base.
+// `SfxTable` — as ONE `table` construct (Plan 7 T2-d). The block CONTENT is
+// byte-identical in BOTH build shapes (no DEBUG members here — the SFX set is
+// the same plain and debug); only the block's BASE address shifts, because it
+// sits AFTER the shape-dependent song tables (plain $63AE8 / debug $6553A). So
+// this module needs NO `-D` define — see the harness PROVENANCE on any
+// re-baseline for the per-shape map base.
 //
 // The win-tab (`sfx_blob_win_tab.asm`, the Z80 `phase 08000h` head passed to
 // `soundBankHead` at main.asm:147) STAYS driver-side `.asm` (R3 — it's
 // inseparable from the Z80 phase head). Its `dw sfx_winptr(Sfx_NN)` entries are
 // the tranche's only `.asm`->`.emp` reads: they resolve cross-seam via T0's `dw`
-// deferral (a compound `(Sfx_NN & mask) | base` expr lowered to a `Value16Le`
-// fixup, proven in P1). Those reads see the `Sfx_NN` labels defined below.
+// deferral. Those reads see the `Sfx_NN` PART labels the `table` defines below —
+// ordinary module-scoped data labels, real link symbols (design §3).
 //
 // Pinned at $63AE8 (plain) / $6553A (debug) by the map region `sfx_bank` (R7,
-// PER SHAPE — the first shape-dependent sound region base). Re-pin via the
-// harness PROVENANCE flow on any re-baseline.
+// PER SHAPE). Re-pin via the harness PROVENANCE flow on any re-baseline.
+//
+// The `table` construct subsumes what the hand-written form spelled out:
+//   * one `table` row per SFX id (ascending, contiguous) replaces the 18 `data`
+//     items + 18 `const` binds + the 135-element `SfxTable` array (9 syms + 122
+//     hand-typed `0` holes). Adding an SFX = one row.
+//   * `item_align: 2` replaces every `sfx_NN.asm` / `sfx_NN_patches.asm`
+//     trailing `align 2` — a self-adjusting pad after every emitted part
+//     (D2.29 machinery). Only the two ODD blobs (Sfx_3C 267 B, Sfx_B6 71 B)
+//     fire one $00 today; every patch bank is 32/0 B (even) so its pad folds to
+//     nothing. Regen-safe: a future odd-length blob re-pads automatically.
+//   * `cell: *u8, key: $33..=$B9, hole: 0` is the sparse id->blob table,
+//     SfxTable[id - $33] over [$33..$B9], 0 = unused id — lowering to the same
+//     `[*u8; N]` cell stream the hand table lowered to (D2.27). `SfxTable`
+//     anchors to the FIRST CELL (no header), so `Table[id - SFX_ID_BASE]` reads
+//     stay correct.
+//   * `body: before` places the blob payload BEFORE the cell table (the .asm
+//     include stream order: blobs then the id->blob table) — written explicitly
+//     so the one byte-layout fact correctness hangs on stays on the page.
 //
 // What each `.asm` guard becomes here (R5):
-//   * main.asm:252 straddle fatal (`if (Sfx_33>>15) <> ((Sfx_B9_Patches_End-1)
-//     >>15)` — "SFX blob set straddles a $8000 bank boundary") → the section's
-//     `bank: $8000` property (always-on no-straddle link assert — no hand
-//     `if`/`fatal` needed). This fatal has NO `ensure` twin below; the section
-//     property subsumes it entirely.
-//   * main.asm:260 co-residency fatal (`if (Sfx_33>>15) <> SND_ENGINE_TABLE_BANK`
-//     — every SFX blob must share the engine-table head's bank, since Sfx_Frame's
-//     dispatch/table reads are bank-relative from the head) → the single
-//     `ensure(bankid("Sfx_33") == bankid("MovingTrucks_Bank_Start"), …)` below.
-//     Spelled against the LABEL `MovingTrucks_Bank_Start` rather than the equ
-//     `SND_ENGINE_TABLE_BANK` — the bankid-label idiom (T2 Deviation 2): bare
-//     cross-seam equ reads don't exist (a bare name as a plain `==` operand
-//     hard-errors "unknown name" at comptime; only a CALL ARGUMENT turns an
-//     unresolved bareword into a deferred link symbol). Since
-//     `SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15` and
-//     `MovingTrucks_Bank_Start` is bank-aligned (`align $8000`),
-//     `bankid("MovingTrucks_Bank_Start")` folds to EXACTLY the equ's value.
-//   * sfx_table.asm's trailing `if (SfxTable_End-SfxTable)/4 <> SFX_TABLE_LEN`
-//     self-check → enforced STRUCTURALLY by the array TYPE `[*u8; SFX_TABLE_LEN]`
-//     with `const SFX_TABLE_LEN = 135` — a mismatched literal-element count is a
-//     clean comptime error (P3, proven).
-//   * every `sfx_NN.asm` / `sfx_NN_patches.asm` file's unconditional trailing
-//     `align 2` → EXPLICIT self-adjusting pad items after each data item (`.emp`
-//     sections never auto-pad, §4.3). Only the two ODD blobs (Sfx_3C 267 B,
-//     Sfx_B6 71 B) fire a pad today; every patch bank is 32/0 B (even) so its
-//     pad folds to `Data.empty`. Written self-adjusting (not omitted) so a
-//     future blob regeneration that lands on an odd length stays regen-safe.
+//   * main.asm:252 straddle fatal → the section's `bank: $8000` property
+//     (always-on no-straddle link assert). No hand `if`/`fatal` needed.
+//   * main.asm:260 co-residency fatal → the single `ensure(...)` below (spelled
+//     against the LABEL `MovingTrucks_Bank_Start`, the bankid-label idiom —
+//     bare cross-seam equ reads don't exist).
+//   * sfx_table.asm's `(SfxTable_End-SfxTable)/4 <> SFX_TABLE_LEN` self-check →
+//     STRUCTURAL: the cell count derives from `key: $33..=$B9` ($B9-$33+1 = 135
+//     cells), and a key outside that range is a comptime error. `SfxTable.len`
+//     is the derived cell-count fact.
 //
-// DELIBERATELY NOT PORTED: the `_End` labels (`Sfx_NN_End`, `Sfx_B9_Patches_End`,
-// `SfxTable_End`) — every cross-seam consumer reads a `Sfx_NN` label or a blob's
-// `.len` (comptime), never an end-minus-start (the straddle end address is the
-// section's own tail, computed by the linker via `bank: $8000`). The patch
-// files' interior Count/len asl asserts are also not ported — covered by the
-// `.bin` twin verifier + ROM byte-identity (T2 precedent for non-load-bearing
-// generated asserts).
+// DELIBERATELY NOT PORTED: the `_End` labels — every cross-seam consumer reads a
+// `Sfx_NN` label or a blob's `.len` (comptime), never an end-minus-start. The
+// patch files' interior Count/len asserts are covered by the `.bin` twin
+// verifier + ROM byte-identity.
 // ===========================================================================
 
 module data.sfx_bank
 
-// --- the 9 stream blobs + 9 patch banks (generated .bin twins of the committed
-// dc.b .asm; the --emit-bin verifier gates them). Bound to `const` first so each
-// `.len` is a readable comptime int for the self-adjusting pads (the mt_bank.emp
-// / dac_samples.emp `const`-both-emits-and-measures precedent). Lengths pinned
-// against the aeon re-baseline the harness PROVENANCE cites; a blob regeneration
-// must re-verify these — the section's `bank: $8000` no-straddle assert catches
-// any gross blowup, the `.bin` twin verifier + byte-identity harness the rest. ---
-const Sfx33Blob     = embed("sfx_33.bin")           // 58
-const Sfx33Patch    = embed("sfx_33_patches.bin")   // 32
-const Sfx34Blob     = embed("sfx_34.bin")           // 58
-const Sfx34Patch    = embed("sfx_34_patches.bin")   // 32
-const Sfx35Blob     = embed("sfx_35.bin")           // 286
-const Sfx35Patch    = embed("sfx_35_patches.bin")   // 32
-const Sfx36Blob     = embed("sfx_36.bin")           // 46
-const Sfx36Patch    = embed("sfx_36_patches.bin")   // 0 (PSG-only)
-const Sfx3CBlob     = embed("sfx_3C.bin")           // 267 (odd — pad fires)
-const Sfx3CPatch    = embed("sfx_3C_patches.bin")   // 32
-const Sfx62Blob     = embed("sfx_62.bin")           // 30
-const Sfx62Patch    = embed("sfx_62_patches.bin")   // 0 (PSG-only)
-const SfxABBlob     = embed("sfx_AB.bin")           // 184
-const SfxABPatch    = embed("sfx_AB_patches.bin")   // 32
-const SfxB6Blob     = embed("sfx_B6.bin")           // 71 (odd — pad fires)
-const SfxB6Patch    = embed("sfx_B6_patches.bin")   // 32
-const SfxB9Blob     = embed("sfx_B9.bin")           // 98
-const SfxB9Patch    = embed("sfx_B9_patches.bin")   // 32
-
-// UNCHECKED MIRRORS of config/sound_ids.asm (R2) — hand-copied to document the
-// id contract for readers; only SFX_TABLE_LEN is actually consumed (the SfxTable
-// declaration's array type below). SFX_ID_BASE / SFX_COUNT exist for parity with
-// their sound_ids.asm homes; nothing here ties them back to that source at
-// comptime, so if sound_ids.asm renumbers, update these BY HAND (and the .asm
-// table + this module's SfxTable — the four-place add-an-SFX checklist in
-// sfx_table.asm's header). SFX_TABLE_LEN = max_id - min_id + 1, sparse $33..$B9.
-const SFX_ID_BASE   = $33
-const SFX_COUNT     = 9
-const SFX_TABLE_LEN = 135
+// UNCHECKED MIRRORS of config/sound_ids.asm (R2), now DERIVED from the table
+// rows (design decision 5) — zero bytes, and drift-proof: a renumber that
+// changes the row set changes these automatically. They document the id
+// contract for readers exactly as the hand-written consts did. (Nothing ties
+// them back to sound_ids.asm at comptime — that seam stays hand-synced — but
+// they can no longer drift from the SFX SET they live beside.)
+const SFX_ID_BASE   = SfxTable.min_key   // $33
+const SFX_COUNT     = SfxTable.count     // 9
+const SFX_TABLE_LEN = SfxTable.len       // 135  (max_id - min_id + 1)
 
 // ONE bank: $8000 section = the .asm block's implicit bank alignment + the :252
-// straddle fatal (subsumed by the property). Items emit contiguously (§4.3
-// no-auto-pad) — the only pads are the two self-adjusting align-2 items after the
-// odd blobs (Sfx_3C, Sfx_B6); every other adjacency is zero-gap by construction,
-// matching the .asm include stream (blob then its patches, ids ascending).
+// straddle fatal (subsumed by the property).
 section sfx_bank (cpu: m68000, bank: $8000) {
-    // Pad-item legend: `_pNN` = the align-2 pad after Sfx_NN's stream BLOB;
-    // `_qNN` = the align-2 pad after Sfx_NN's PATCH bank (Sfx_NN_Patches). NN is
-    // the SFX id. Each fires (one $00) only when the preceding item's length is
-    // odd; otherwise it folds to `Data.empty` (zero bytes).
-    data Sfx_33         = Sfx33Blob
-    data _p33  = if Sfx33Blob.len % 2 == 1 { byte(0) } else { Data.empty }
-    data Sfx_33_Patches = Sfx33Patch
-    data _q33  = if Sfx33Patch.len % 2 == 1 { byte(0) } else { Data.empty }
-
-    data Sfx_34         = Sfx34Blob
-    data _p34  = if Sfx34Blob.len % 2 == 1 { byte(0) } else { Data.empty }
-    data Sfx_34_Patches = Sfx34Patch
-    data _q34  = if Sfx34Patch.len % 2 == 1 { byte(0) } else { Data.empty }
-
-    data Sfx_35         = Sfx35Blob
-    data _p35  = if Sfx35Blob.len % 2 == 1 { byte(0) } else { Data.empty }
-    data Sfx_35_Patches = Sfx35Patch
-    data _q35  = if Sfx35Patch.len % 2 == 1 { byte(0) } else { Data.empty }
-
-    data Sfx_36         = Sfx36Blob
-    data _p36  = if Sfx36Blob.len % 2 == 1 { byte(0) } else { Data.empty }
-    data Sfx_36_Patches = Sfx36Patch
-    data _q36  = if Sfx36Patch.len % 2 == 1 { byte(0) } else { Data.empty }
-
-    // Sfx_3C is 267 B (ODD) — this pad DOES fire today, emitting one $00 before
-    // Sfx_3C_Patches (the .asm's `align 2` byte).
-    data Sfx_3C         = Sfx3CBlob
-    data _p3C  = if Sfx3CBlob.len % 2 == 1 { byte(0) } else { Data.empty }
-    data Sfx_3C_Patches = Sfx3CPatch
-    data _q3C  = if Sfx3CPatch.len % 2 == 1 { byte(0) } else { Data.empty }
-
-    data Sfx_62         = Sfx62Blob
-    data _p62  = if Sfx62Blob.len % 2 == 1 { byte(0) } else { Data.empty }
-    data Sfx_62_Patches = Sfx62Patch
-    data _q62  = if Sfx62Patch.len % 2 == 1 { byte(0) } else { Data.empty }
-
-    data Sfx_AB         = SfxABBlob
-    data _pAB  = if SfxABBlob.len % 2 == 1 { byte(0) } else { Data.empty }
-    data Sfx_AB_Patches = SfxABPatch
-    data _qAB  = if SfxABPatch.len % 2 == 1 { byte(0) } else { Data.empty }
-
-    // Sfx_B6 is 71 B (ODD) — this pad DOES fire today, emitting one $00 before
-    // Sfx_B6_Patches (the .asm's `align 2` byte).
-    data Sfx_B6         = SfxB6Blob
-    data _pB6  = if SfxB6Blob.len % 2 == 1 { byte(0) } else { Data.empty }
-    data Sfx_B6_Patches = SfxB6Patch
-    data _qB6  = if SfxB6Patch.len % 2 == 1 { byte(0) } else { Data.empty }
-
-    data Sfx_B9         = SfxB9Blob
-    data _pB9  = if SfxB9Blob.len % 2 == 1 { byte(0) } else { Data.empty }
-    data Sfx_B9_Patches = SfxB9Patch
-    data _qB9  = if SfxB9Patch.len % 2 == 1 { byte(0) } else { Data.empty }
-
-    // Sparse id->blob table, indexed SfxTable[id - SFX_ID_BASE] over [$33..$B9],
-    // 0 = unused id. Transcribed ONCE from the (now hand-owned) sfx_table.asm —
-    // 9 syms + zero-runs of 5 ($37-$3B), 37 ($3D-$61), 72 ($63-$AA), 10
-    // ($AC-$B5), 2 ($B7-$B8), for 135 elements total (the `[*u8; SFX_TABLE_LEN]`
-    // type errors loud on a miscount).
-    data SfxTable: [*u8; SFX_TABLE_LEN] = [
-        "Sfx_33", "Sfx_34", "Sfx_35", "Sfx_36",             // $33-$36
-        0, 0, 0, 0, 0,                                       // $37-$3B (5)
-        "Sfx_3C",                                            // $3C
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $3D-$46
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $47-$50
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $51-$5A
-        0, 0, 0, 0, 0, 0, 0,                                 // $5B-$61 (37 total)
-        "Sfx_62",                                            // $62
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $63-$6C
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $6D-$76
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $77-$80
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $81-$8A
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $8B-$94
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $95-$9E
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $9F-$A8
-        0, 0,                                                // $A9-$AA (72 total)
-        "Sfx_AB",                                            // $AB
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                        // $AC-$B5 (10)
-        "Sfx_B6",                                            // $B6
-        0, 0,                                                // $B7-$B8 (2)
-        "Sfx_B9",                                            // $B9
-    ]
+    // 9 SFX: one row per id. Payload (blob, pad, patches, pad — the .asm include
+    // stream) emits first (body: before), then the sparse id->blob cell table
+    // (135 cells, holes 0). Blob include order == id order == ascending key
+    // order (the ascending-key rule), so the payload stream is deterministic.
+    table SfxTable (cell: *u8, key: $33..=$B9, hole: 0, item_align: 2, body: before) {
+        $33: Sfx_33 = embed("sfx_33.bin"), Sfx_33_Patches = embed("sfx_33_patches.bin"),
+        $34: Sfx_34 = embed("sfx_34.bin"), Sfx_34_Patches = embed("sfx_34_patches.bin"),
+        $35: Sfx_35 = embed("sfx_35.bin"), Sfx_35_Patches = embed("sfx_35_patches.bin"),
+        $36: Sfx_36 = embed("sfx_36.bin"), Sfx_36_Patches = embed("sfx_36_patches.bin"),
+        $3C: Sfx_3C = embed("sfx_3C.bin"), Sfx_3C_Patches = embed("sfx_3C_patches.bin"),
+        $62: Sfx_62 = embed("sfx_62.bin"), Sfx_62_Patches = embed("sfx_62_patches.bin"),
+        $AB: Sfx_AB = embed("sfx_AB.bin"), Sfx_AB_Patches = embed("sfx_AB_patches.bin"),
+        $B6: Sfx_B6 = embed("sfx_B6.bin"), Sfx_B6_Patches = embed("sfx_B6_patches.bin"),
+        $B9: Sfx_B9 = embed("sfx_B9.bin"), Sfx_B9_Patches = embed("sfx_B9_patches.bin"),
+    }
 }
 
 // The engine-table-head co-residency rule (main.asm:260 fatal) — Sfx_Frame reads
 // the FM-patch/pitch/opcode tables window-relative from the bank head, so the SFX
 // blobs MUST share it. Spelled as `bankid(X) == bankid("MovingTrucks_Bank_Start")`
-// rather than the equ name directly (see the header's R5 note; bare cross-seam equ
-// reads don't exist). Message = the :260 fatal's text minus the {…} interpolation.
-// `Sfx_33` is this module's own data label, so it rides the bareword form (C1
-// item 3); the cross-seam bank-start symbol keeps the string spelling.
+// rather than the equ name directly (bare cross-seam equ reads don't exist).
+// `Sfx_33` is this module's own data label (a table part label), so it rides the
+// bareword form; the cross-seam bank-start symbol keeps the string spelling.
 ensure(bankid(Sfx_33) == bankid("MovingTrucks_Bank_Start"),
     "SFX blobs not co-located with the engine-table bank — Sfx_Frame's dispatch/table reads would see the wrong bank")
