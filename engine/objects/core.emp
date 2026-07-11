@@ -188,7 +188,7 @@ pub proc RunObjects () clobbers(d0, d1, d2, d3, d4, d5, d6, a0, a1, a2, a3, a4, 
         move.w  d0, Spawn_Count
 
         tst.b   Game_Paused
-        bne     RunObjects_Frozen       // bare Bcc — relaxes to .w (RunObjects_Frozen out of .s range)
+        bne.w   RunObjects_Frozen       // byte-locked .w — target disp 0x7E FITS .s, but the AS twin pins bne.w; a bare Bcc would relax to .s (−2) and DIVERGE
 
         // --- Player slots (always execute) ---
         lea     Player_1, a0
