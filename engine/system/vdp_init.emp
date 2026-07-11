@@ -33,7 +33,7 @@ pub proc VDP_Shadow_Init () clobbers(d0, a0, a1) {
 // Out: none
 // Clobbers: d0-d3, a0-a1
 // -----------------------------------------------
-pub proc Flush_VDP_Shadow () clobbers(d0, d1, d2, d3, a0, a1) {
+pub proc Flush_VDP_Shadow () clobbers(d0-d3/a0-a1) {
         move.l  VDP_Dirty_Mask, d1
         beq     .done                       // fast path: nothing dirty
         lea     VDP_Shadow_Table, a0

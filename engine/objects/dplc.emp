@@ -24,7 +24,7 @@ use engine.objects.sst.{Sst}
 // Out: none
 // Clobbers: d0-d4, a1-a2
 // -----------------------------------------------
-pub proc Perform_DPLC () clobbers(d0, d1, d2, d3, d4, a1, a2) {
+pub proc Perform_DPLC () clobbers(d0-d4/a1-a2) {
         move.b  Sst.mapping_frame(a0), d0
         cmp.b   Sst.prev_frame(a0), d0
         beq.s   .done                           // frame unchanged, skip
@@ -75,7 +75,7 @@ pub proc Perform_DPLC () clobbers(d0, d1, d2, d3, d4, a1, a2) {
 // Out: none
 // Clobbers: d0-d4, a1-a2
 // -----------------------------------------------
-pub proc Perform_DPLC_Deferrable () clobbers(d0, d1, d2, d3, d4, a1, a2) {
+pub proc Perform_DPLC_Deferrable () clobbers(d0-d4/a1-a2) {
         move.b  Sst.mapping_frame(a0), d0
         cmp.b   Sst.prev_frame(a0), d0
         beq.s   .done                            // frame unchanged, skip

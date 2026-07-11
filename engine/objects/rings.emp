@@ -176,7 +176,7 @@ pub proc RingBuffer_Clear () clobbers() {
 //      d5 incremented per ring sprite emitted (bare write → out)
 // Clobbers: d0-d4, d6-d7, a0
 // -----------------------------------------------
-pub proc DrawRings () clobbers(d0, d1, d2, d3, d4, d6, d7, a0) out(d5) {
+pub proc DrawRings () clobbers(d0-d4/d6-d7/a0) out(d5) {
         // --- Animation timer ---
         move.b  Ring_Anim_Timer, d0
         subq.b  #1, d0
@@ -261,7 +261,7 @@ pub proc DrawRings () clobbers(d0, d1, d2, d3, d4, d6, d7, a0) out(d5) {
 // Out: none
 // Clobbers: d0-d7, a0-a3
 // -----------------------------------------------
-pub proc RingCollision () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a3) {
+pub proc RingCollision () clobbers(d0-d7/a0-a3) {
         lea     Player_1, a2
         move.w  #NUM_PLAYERS-1, d7
 

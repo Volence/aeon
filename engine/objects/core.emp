@@ -176,7 +176,7 @@ pub proc DeleteObject () clobbers(d0, a1) {
 // Out: none
 // Clobbers: d0-d6, a0-a6 (object code may clobber freely except a0/d7)
 // -----------------------------------------------
-pub proc RunObjects () clobbers(d0, d1, d2, d3, d4, d5, d6, a0, a1, a2, a3, a4, a5, a6) {
+pub proc RunObjects () clobbers(d0-d6/a0-a6) {
         moveq   #0, d0
         move.w  d0, Spawn_Count
 
@@ -343,7 +343,7 @@ pub proc Debug_AssertObjLoop () clobbers() {
 // Out: none
 // Clobbers: d0-d6, a0-a6
 // -----------------------------------------------
-pub proc RunObjects_Frozen () clobbers(d0, d1, d2, d3, d4, d5, d6, a0, a1, a2, a3, a4, a5, a6) {
+pub proc RunObjects_Frozen () clobbers(d0-d6/a0-a6) {
         lea     Object_RAM, a0
         move.w  #NUM_TOTAL_SLOTS-1, d7
     .loop:
