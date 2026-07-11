@@ -114,7 +114,7 @@ AnimateSprite:
         neg.b   d0
         andi.w  #$FF, d0
         cmpi.b  #9, d0
-        bhi.w   .cc_end
+        bhi.s   .cc_end   ; was .w — asl width-selected .s at the t9 step-2 sweep
         add.w   d0, d0
         add.w   d0, d0
         jmp     .cc_table-4(pc,d0.w)
@@ -135,7 +135,7 @@ AnimateSprite:
         moveq   #0, d1
         move.b  1(a1), d0
         cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
-        bhs.w   .control_code
+        bhs.s   .control_code           ; was .w — asl width-selected .s at the t9 step-2 sweep
         bra.w   .set_frame
 
 .cc_back:
@@ -147,7 +147,7 @@ AnimateSprite:
         move.b  SST_anim_frame(a0), d1
         move.b  1(a1,d1.w), d0
         cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
-        bhs.w   .control_code
+        bhs.s   .control_code           ; was .w — asl width-selected .s at the t9 step-2 sweep
         bra.w   .set_frame
 
 .cc_change:
@@ -160,7 +160,7 @@ AnimateSprite:
         rts
 
 .cc_delete:
-        jmp     DeleteObject
+        bra.w   DeleteObject            ; LOCKSTEP animate.emp step 2: static tail-call spelled as a branch (jmp reserved for computed targets); same length as the old jmp (xxx).w
 
 ; --- Animation event handlers ---
 
@@ -278,7 +278,7 @@ AnimateSprite_PerFrame:
         neg.b   d0
         andi.w  #$FF, d0
         cmpi.b  #9, d0
-        bhi.w   .pfc_end
+        bhi.s   .pfc_end  ; was .w — asl width-selected .s at the t9 step-2 sweep
         add.w   d0, d0
         add.w   d0, d0
         jmp     .pf_cc_table-4(pc,d0.w)
@@ -317,7 +317,7 @@ AnimateSprite_PerFrame:
         bhs.s   .pf_control
         move.b  d0, SST_mapping_frame(a0)
         move.b  1(a1,d1.w), SST_anim_timer(a0)
-        bra.w   RefreshSpritePieceCount    ; tail-call
+        bra.s   RefreshSpritePieceCount    ; was .w — asl width-selected .s at the t9 step-2 sweep (tail-call)
 
 .pfc_change:
         addq.b  #1, d1

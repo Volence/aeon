@@ -53,7 +53,7 @@ comptime fn reload_anim_timer(src: Reg) -> Code {
     return asm {
         move.b  ({src}), d2
         cmpi.b  #DUR_DYNAMIC, d2
-        bne.s   .rt_static
+        bne.s   .rt_static              // PINNED .s (bare-Bcc exception): template byte-locked to the macro twin's explicit width
         move.b  d3, d2                  // dynamic: substitute caller's d3 hold
     .rt_static:
         move.b  d2, Sst.anim_timer(a0)
@@ -78,10 +78,10 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         moveq   #0, d0
         move.b  Sst.anim(a0), d0
         cmp.b   Sst.prev_anim(a0), d0
-        bne.s   .anim_changed
+        bne     .anim_changed
 
         subq.b  #1, Sst.anim_timer(a0)
-        bpl.s   .done
+        bpl     .done
 
         movea.l Sst.anim_table(a0), a1
         add.w   d0, d0
@@ -94,10 +94,10 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         move.b  Sst.anim_frame(a0), d1
         move.b  1(a1,d1.w), d0
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs.s   .control_code
+        bhs     .control_code
     .set_frame:
         move.b  d0, Sst.mapping_frame(a0)
-        bsr.w   RefreshSpritePieceCount
+        jbsr    RefreshSpritePieceCount
     .done:
         rts
 
@@ -113,19 +113,21 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         moveq   #0, d1
         move.b  1(a1), d0
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs.s   .control_code
-        bra.s   .set_frame
+        bhs     .control_code
+        jbra    .set_frame
 
     // --- Control code / event dispatch ---
     .control_code:
         neg.b   d0
         andi.w  #$FF, d0
         cmpi.b  #9, d0
-        bhi.w   .cc_end
+        bhi     .cc_end
         add.w   d0, d0
         add.w   d0, d0
         jmp     .cc_table-4(pc,d0.w)
 
+    // PINNED bra.w ×9 (bare-Bcc/jbra exception): load-bearing table — the
+    // pc-indexed jmp above lands on fixed 4-byte slots.
     .cc_table:
         bra.w   .cc_end                 // $FF (1) — loop
         bra.w   .cc_back                // $FE (2) — jump back
@@ -142,8 +144,8 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         moveq   #0, d1
         move.b  1(a1), d0
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs.w   .control_code
-        bra.w   .set_frame
+        bhs     .control_code
+        jbra    .set_frame
 
     .cc_back:
         addq.b  #1, d1
@@ -154,13 +156,13 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         move.b  Sst.anim_frame(a0), d1
         move.b  1(a1,d1.w), d0
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs.w   .control_code
-        bra.w   .set_frame
+        bhs     .control_code
+        jbra    .set_frame
 
     .cc_change:
         addq.b  #1, d1
         move.b  1(a1,d1.w), Sst.anim(a0)
-        bra.w   AnimateSprite
+        jbra    AnimateSprite
 
     .cc_routine:
         addq.b  #2, Sst.sst_custom(a0)
@@ -169,7 +171,7 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
     // Exported (§5.2 `Owner.label`): the PerFrame dispatch table's $FB entry
     // branches here — the delete stub is shared across both interpreters.
     export .cc_delete:
-        jmp     DeleteObject
+        jbra    DeleteObject            // static tail-call — jmp stays reserved for computed targets
 
     // --- Animation event handlers ---
 
@@ -181,7 +183,7 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         lsl.w   #8, d0
         move.b  3(a1,d1.w), d0
         tst.w   d0                      // Z from the full word — $xx00 offsets are valid targets
-        beq.s   .evt_cb_done            // offset 0 = no-op safety
+        beq     .evt_cb_done            // offset 0 = no-op safety
         moveq   #OBJ_CODE_BANK, d2
         swap    d2
         move.w  d0, d2
@@ -191,24 +193,24 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         movea.l (sp)+, a1
     .evt_cb_done:
         addq.b  #4, Sst.anim_frame(a0)
-        bra.s   .after_event
+        jbra    .after_event
 
     .evt_sound:
         // dc.b AF_SOUND, sound_id -> play the SFX
         move.b  2(a1,d1.w), d0
         if SOUND_DRIVER_ENABLED == 1 {
         movem.l a1/d1, -(sp)
-        bsr.w   Sound_PlaySFX
+        jbsr    Sound_PlaySFX
         movem.l (sp)+, a1/d1
         }
         addq.b  #2, Sst.anim_frame(a0)
-        bra.s   .after_event
+        jbra    .after_event
 
     .evt_collision:
         // dc.b AF_COLLISION, collision_type
         move.b  2(a1,d1.w), Sst.collision_resp(a0)
         addq.b  #2, Sst.anim_frame(a0)
-        bra.s   .after_event
+        jbra    .after_event
 
     .evt_set_field:
         // dc.b AF_SET_FIELD, sst_offset, value, 0
@@ -223,8 +225,8 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         move.b  Sst.anim_frame(a0), d1
         move.b  1(a1,d1.w), d0
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs.w   .control_code
-        bra.w   .set_frame
+        bhs     .control_code
+        jbra    .set_frame
 }
 
 // -----------------------------------------------
@@ -243,10 +245,10 @@ pub proc AnimateSprite_PerFrame () clobbers(d0, d1, d2, a1, a2) {
         moveq   #0, d0
         move.b  Sst.anim(a0), d0
         cmp.b   Sst.prev_anim(a0), d0
-        bne.s   .pf_changed
+        bne     .pf_changed
 
         subq.b  #1, Sst.anim_timer(a0)
-        bpl.s   .pf_done
+        bpl     .pf_done
 
         movea.l Sst.anim_table(a0), a1
         add.w   d0, d0
@@ -258,12 +260,12 @@ pub proc AnimateSprite_PerFrame () clobbers(d0, d1, d2, a1, a2) {
         move.b  Sst.anim_frame(a0), d1
         move.b  (a1,d1.w), d0
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs.s   .pf_control
+        bhs     .pf_control
 
     .pf_set_frame:
         move.b  d0, Sst.mapping_frame(a0)
         move.b  1(a1,d1.w), Sst.anim_timer(a0)
-        bsr.w   RefreshSpritePieceCount
+        jbsr    RefreshSpritePieceCount
     .pf_done:
         rts
 
@@ -278,21 +280,23 @@ pub proc AnimateSprite_PerFrame () clobbers(d0, d1, d2, a1, a2) {
         moveq   #0, d1
         move.b  (a1), d0
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs.s   .pf_control
+        bhs     .pf_control
         move.b  d0, Sst.mapping_frame(a0)
         move.b  1(a1), Sst.anim_timer(a0)
-        bra.w   RefreshSpritePieceCount    // tail-call
+        jbra    RefreshSpritePieceCount     // tail-call
 
     // --- PerFrame control code / event dispatch ---
     .pf_control:
         neg.b   d0
         andi.w  #$FF, d0
         cmpi.b  #9, d0
-        bhi.w   .pfc_end
+        bhi     .pfc_end
         add.w   d0, d0
         add.w   d0, d0
         jmp     .pf_cc_table-4(pc,d0.w)
 
+    // PINNED bra.w ×9 (bare-Bcc/jbra exception): load-bearing table — the
+    // pc-indexed jmp above lands on fixed 4-byte slots.
     .pf_cc_table:
         bra.w   .pfc_end                // $FF — loop
         bra.w   .pfc_back               // $FE — jump back
@@ -309,10 +313,10 @@ pub proc AnimateSprite_PerFrame () clobbers(d0, d1, d2, a1, a2) {
         moveq   #0, d1
         move.b  (a1), d0
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs.s   .pf_control
+        bhs     .pf_control
         move.b  d0, Sst.mapping_frame(a0)
         move.b  1(a1), Sst.anim_timer(a0)
-        bra.w   RefreshSpritePieceCount    // tail-call
+        jbra    RefreshSpritePieceCount     // tail-call
 
     .pfc_back:
         addq.b  #1, d1
@@ -324,15 +328,15 @@ pub proc AnimateSprite_PerFrame () clobbers(d0, d1, d2, a1, a2) {
         move.b  Sst.anim_frame(a0), d1
         move.b  (a1,d1.w), d0
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs.s   .pf_control
+        bhs     .pf_control
         move.b  d0, Sst.mapping_frame(a0)
         move.b  1(a1,d1.w), Sst.anim_timer(a0)
-        bra.w   RefreshSpritePieceCount    // tail-call
+        jbra    RefreshSpritePieceCount     // tail-call
 
     .pfc_change:
         addq.b  #1, d1
         move.b  (a1,d1.w), Sst.anim(a0)
-        bra.w   AnimateSprite_PerFrame
+        jbra    AnimateSprite_PerFrame
 
     .pfc_routine:
         addq.b  #2, Sst.sst_custom(a0)
@@ -348,7 +352,7 @@ pub proc AnimateSprite_PerFrame () clobbers(d0, d1, d2, a1, a2) {
         lsl.w   #8, d0
         move.b  2(a1,d1.w), d0
         tst.w   d0                      // Z from the full word — $xx00 offsets are valid targets
-        beq.s   .pf_evt_cb_done         // offset 0 = no-op safety
+        beq     .pf_evt_cb_done         // offset 0 = no-op safety
         moveq   #OBJ_CODE_BANK, d2
         swap    d2
         move.w  d0, d2
@@ -358,24 +362,24 @@ pub proc AnimateSprite_PerFrame () clobbers(d0, d1, d2, a1, a2) {
         movea.l (sp)+, a1
     .pf_evt_cb_done:
         addq.b  #4, Sst.anim_frame(a0)
-        bra.s   .pf_after_event
+        jbra    .pf_after_event
 
     .pf_evt_sound:
         // dc.b AF_SOUND, sound_id -> play the SFX
         move.b  1(a1,d1.w), d0
         if SOUND_DRIVER_ENABLED == 1 {
         movem.l a1/d1, -(sp)
-        bsr.w   Sound_PlaySFX
+        jbsr    Sound_PlaySFX
         movem.l (sp)+, a1/d1
         }
         addq.b  #2, Sst.anim_frame(a0)
-        bra.s   .pf_after_event
+        jbra    .pf_after_event
 
     .pf_evt_collision:
         // dc.b AF_COLLISION, collision_type
         move.b  1(a1,d1.w), Sst.collision_resp(a0)
         addq.b  #2, Sst.anim_frame(a0)
-        bra.s   .pf_after_event
+        jbra    .pf_after_event
 
     .pf_evt_set_field:
         // dc.b AF_SET_FIELD, sst_offset, value, 0
@@ -390,8 +394,8 @@ pub proc AnimateSprite_PerFrame () clobbers(d0, d1, d2, a1, a2) {
         move.b  Sst.anim_frame(a0), d1
         move.b  (a1,d1.w), d0
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs.w   .pf_control
-        bra.w   .pf_set_frame
+        bhs     .pf_control
+        jbra    .pf_set_frame
 }
 
 // -----------------------------------------------
@@ -404,7 +408,7 @@ pub proc AnimateSprite_PerFrame () clobbers(d0, d1, d2, a1, a2) {
 pub proc RefreshSpritePieceCount () clobbers(d2, a1) {
         movea.l Sst.mappings(a0), a1
         move.l  a1, d2
-        beq.s   .skip                       // null mappings — leave field untouched
+        beq     .skip                       // null mappings — leave field untouched
         moveq   #0, d2
         move.b  Sst.mapping_frame(a0), d2
         add.w   d2, d2                       // word offset
