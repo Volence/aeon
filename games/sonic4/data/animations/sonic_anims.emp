@@ -16,6 +16,22 @@ module games.sonic4.sonic_anims in sonic_anims
 // own ensures guard the values.
 use engine.constants.{AF_END, AF_BACK, DUR_DYNAMIC}
 
+// rep(frame, n) — n copies of `frame`, for splicing HELD POSES into a
+// script while keeping the per-animation duration format:
+//
+//     Attack: [u8; 9] = [5, 1] ++ rep(2, 4) ++ [3, 4, AF_END]
+//                        └ frame 2 held 4× as long as the others ┘
+//
+// A held pose is its frame repeated — `duration = 1` plus repeats gives
+// exact per-tick control when needed. If repetition byte-costs ever bite,
+// the answer is an AF_DURATION control code (change the hold mid-script),
+// not a second interpreter. Unused today (every current script is
+// uniform-timed); probe-tested in sonic_anims_port.rs so the idiom stays
+// one grep away.
+comptime fn rep(frame: int, n: int) {
+    return 0..n |> map(|_i| frame)
+}
+
 offsets Ani_Sonic {
     // The ordinals-replace-hand-synced-constants story: declaration
     // position IS the ANIM_* id (guards below), and each body rides INLINE

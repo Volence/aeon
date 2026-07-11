@@ -5,10 +5,6 @@
 //   Anim0:      dc.b duration, frame0, frame1, ..., control_code [, arg]
 //               even
 //
-// Per-frame duration format (used by AnimateSprite_PerFrame):
-//   Anim0:      dc.b frame0, dur0, frame1, dur1, ..., control_code
-//               even
-//
 // Control codes occupy $F7-$FF; FRAME bytes 0-$F6 are valid mapping
 // frame indices (Sonic's sheet uses up to $DF — an $80+ frame byte is
 // data, not a command; only $F7+ dispatches). Values live in
@@ -31,7 +27,8 @@
 //
 // Events execute inline when encountered and continue reading the next byte.
 // Multiple events can chain before a frame byte.
-// All events consume an even number of bytes for PerFrame alignment.
+// All events consume an even number of bytes (a format invariant scripts
+// may rely on; also keeps `even`-terminated scripts stable).
 //
 // Build-shape input (-D NAME=0|1, the rings/game_loop convention):
 // SOUND_DRIVER_ENABLED gates the two AF_SOUND `Sound_PlaySFX` calls.
@@ -168,9 +165,7 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         addq.b  #2, Sst.sst_custom(a0)
         rts
 
-    // Exported (§5.2 `Owner.label`): the PerFrame dispatch table's $FB entry
-    // branches here — the delete stub is shared across both interpreters.
-    export .cc_delete:
+    .cc_delete:
         jbra    DeleteObject            // static tail-call — jmp stays reserved for computed targets
 
     // --- Animation event handlers ---
@@ -227,175 +222,6 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
         bhs     .control_code
         jbra    .set_frame
-}
-
-// -----------------------------------------------
-// AnimateSprite_PerFrame — per-frame duration (pairs: frame, duration)
-// Script format: dc.b frame0, dur0, frame1, dur1, ..., control_code
-// In:  a0 = SST pointer (anim_table must be set)
-// Out: mapping_frame updated if frame advanced
-// Clobbers: d0-d2, a1-a2
-// -----------------------------------------------
-pub proc AnimateSprite_PerFrame () clobbers(d0, d1, d2, a1, a2) {
-        andi.b  #$F9, Sst.render_flags(a0)
-        move.b  Sst.status(a0), d0
-        andi.b  #$06, d0
-        or.b    d0, Sst.render_flags(a0)
-
-        moveq   #0, d0
-        move.b  Sst.anim(a0), d0
-        cmp.b   Sst.prev_anim(a0), d0
-        bne     .pf_changed
-
-        subq.b  #1, Sst.anim_timer(a0)
-        bpl     .pf_done
-
-        movea.l Sst.anim_table(a0), a1
-        add.w   d0, d0
-        adda.w  (a1,d0.w), a1
-
-        addq.b  #2, Sst.anim_frame(a0)
-
-        moveq   #0, d1
-        move.b  Sst.anim_frame(a0), d1
-        move.b  (a1,d1.w), d0
-        cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs     .pf_control
-
-    .pf_set_frame:
-        move.b  d0, Sst.mapping_frame(a0)
-        move.b  1(a1,d1.w), Sst.anim_timer(a0)
-        jbsr    RefreshSpritePieceCount
-    .pf_done:
-        rts
-
-    .pf_changed:
-        move.b  d0, Sst.prev_anim(a0)
-        clr.b   Sst.anim_frame(a0)
-
-        movea.l Sst.anim_table(a0), a1
-        add.w   d0, d0
-        adda.w  (a1,d0.w), a1
-
-        moveq   #0, d1
-        move.b  (a1), d0
-        cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs     .pf_control
-        move.b  d0, Sst.mapping_frame(a0)
-        move.b  1(a1), Sst.anim_timer(a0)
-        jbra    RefreshSpritePieceCount     // tail-call
-
-    // --- PerFrame control code / event dispatch ---
-    .pf_control:
-        neg.b   d0
-        andi.w  #$FF, d0
-        cmpi.b  #9, d0
-        bhi     .pfc_end
-        add.w   d0, d0
-        add.w   d0, d0
-        jmp     .pf_cc_table-4(pc,d0.w)
-
-    // PINNED bra.w ×9 (bare-Bcc/jbra exception): load-bearing table — the
-    // pc-indexed jmp above lands on fixed 4-byte slots.
-    .pf_cc_table:
-        bra.w   .pfc_end                // $FF — loop
-        bra.w   .pfc_back               // $FE — jump back
-        bra.w   .pfc_change             // $FD — switch anim
-        bra.w   .pfc_routine            // $FC — advance routine
-        bra.w   AnimateSprite.cc_delete  // $FB — delete (shared)
-        bra.w   .pf_evt_callback        // $FA — call callback
-        bra.w   .pf_evt_sound           // $F9 — play sound
-        bra.w   .pf_evt_collision       // $F8 — set collision
-        bra.w   .pf_evt_set_field       // $F7 — set field
-
-    .pfc_end:
-        clr.b   Sst.anim_frame(a0)
-        moveq   #0, d1
-        move.b  (a1), d0
-        cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs     .pf_control
-        move.b  d0, Sst.mapping_frame(a0)
-        move.b  1(a1), Sst.anim_timer(a0)
-        jbra    RefreshSpritePieceCount     // tail-call
-
-    .pfc_back:
-        addq.b  #1, d1
-        move.b  (a1,d1.w), d0
-        add.b   d0, d0
-        sub.b   d0, Sst.anim_frame(a0)
-
-        moveq   #0, d1
-        move.b  Sst.anim_frame(a0), d1
-        move.b  (a1,d1.w), d0
-        cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs     .pf_control
-        move.b  d0, Sst.mapping_frame(a0)
-        move.b  1(a1,d1.w), Sst.anim_timer(a0)
-        jbra    RefreshSpritePieceCount     // tail-call
-
-    .pfc_change:
-        addq.b  #1, d1
-        move.b  (a1,d1.w), Sst.anim(a0)
-        jbra    AnimateSprite_PerFrame
-
-    .pfc_routine:
-        addq.b  #2, Sst.sst_custom(a0)
-        rts
-
-    // --- PerFrame animation event handlers ---
-
-    .pf_evt_callback:
-        // dc.b AF_CALLBACK, target_hi, target_lo, 0  (objroutine offset, byte pair)
-        // a0 = SST pointer passed to called routine
-        moveq   #0, d0
-        move.b  1(a1,d1.w), d0
-        lsl.w   #8, d0
-        move.b  2(a1,d1.w), d0
-        tst.w   d0                      // Z from the full word — $xx00 offsets are valid targets
-        beq     .pf_evt_cb_done         // offset 0 = no-op safety
-        moveq   #OBJ_CODE_BANK, d2
-        swap    d2
-        move.w  d0, d2
-        move.l  a1, -(sp)
-        movea.l d2, a2
-        jsr     (a2)
-        movea.l (sp)+, a1
-    .pf_evt_cb_done:
-        addq.b  #4, Sst.anim_frame(a0)
-        jbra    .pf_after_event
-
-    .pf_evt_sound:
-        // dc.b AF_SOUND, sound_id -> play the SFX
-        move.b  1(a1,d1.w), d0
-        if SOUND_DRIVER_ENABLED == 1 {
-        movem.l a1/d1, -(sp)
-        jbsr    Sound_PlaySFX
-        movem.l (sp)+, a1/d1
-        }
-        addq.b  #2, Sst.anim_frame(a0)
-        jbra    .pf_after_event
-
-    .pf_evt_collision:
-        // dc.b AF_COLLISION, collision_type
-        move.b  1(a1,d1.w), Sst.collision_resp(a0)
-        addq.b  #2, Sst.anim_frame(a0)
-        jbra    .pf_after_event
-
-    .pf_evt_set_field:
-        // dc.b AF_SET_FIELD, sst_offset, value, 0
-        moveq   #0, d0
-        move.b  1(a1,d1.w), d0
-        move.b  2(a1,d1.w), (a0,d0.w)
-        addq.b  #4, Sst.anim_frame(a0)
-        // fall through to .pf_after_event
-
-    .pf_after_event:
-        moveq   #0, d1
-        move.b  Sst.anim_frame(a0), d1
-        move.b  (a1,d1.w), d0
-        cmpi.b  #AF_SET_FIELD, d0       // $F7+ = control/event; frames 0-$F6 are valid
-        bhs     .pf_control
-        jbra    .pf_set_frame
 }
 
 // -----------------------------------------------
