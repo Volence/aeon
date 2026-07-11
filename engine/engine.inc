@@ -203,7 +203,25 @@ __BUDGET_ENGINE:
         org     $2954
       endif
     endif
-    include "engine/objects/sprites.asm"
+    ifndef SIGIL_EMP_SPRITES
+        include "engine/objects/sprites.asm"
+    else
+        ; sigil mixed build: InitSpriteSystem/Draw_Sprite/Render_Sprites/
+        ; Emit_ObjectPieces/InsertSpriteMasks come from
+        ; engine/objects/sprites.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; sprites is shape-INDEPENDENT length ($420 both shapes — no
+        ; __DEBUG__ code), so the two resume orgs differ only by the core
+        ; base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $302E
+      else
+        org     $2D74
+      endif
+    endif
     ifndef SIGIL_EMP_ANIMATE
         include "engine/objects/animate.asm"
     else

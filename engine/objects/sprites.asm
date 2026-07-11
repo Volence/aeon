@@ -1,11 +1,8 @@
 ; Sprite rendering — priority-banded display list + VDP SAT builder
 
-; -----------------------------------------------
-; Sprite coordinate offsets (SCREEN_HEIGHT lives in constants.asm)
-; -----------------------------------------------
-VDP_SPRITE_Y_OFFSET     = 128           ; VDP adds 128 to sprite Y
-VDP_SPRITE_X_OFFSET     = 128           ; VDP adds 128 to sprite X
-MAX_VDP_SPRITES         = 80
+; Sprite coordinate offsets (VDP_SPRITE_X/Y_OFFSET, MAX_VDP_SPRITES, and
+; SCREEN_HEIGHT all live in constants.asm — the geometry consts were hoisted
+; there at the sprites.emp port so they survive the SIGIL_EMP_SPRITES gate).
 
 ; Sprite X=0 masking — VDP size code for mask sprites (1×4 cells = 8×32 pixels)
 SPRITE_MASK_SIZE        = %00000011     ; width=1, height=4 (32 scanlines per mask)

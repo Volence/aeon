@@ -151,6 +151,14 @@ OBJ_CODE_BANK           = 1         ; moveq #1,d0; swap d0 → $00010000
 PRIORITY_BANDS          = 8
 SPRITES_PER_BAND        = 32
 
+; VDP sprite-table geometry (hoisted from engine/objects/sprites.asm at the
+; tranche-11 sprites.emp port — sprites.asm no longer defines them, so they
+; survive the SIGIL_EMP_SPRITES gate for the gate-off rings.asm twin;
+; kill-list row 17 → row-1 class). Mirrored in engine/system/constants.emp.
+VDP_SPRITE_Y_OFFSET     = 128           ; VDP adds 128 to sprite Y
+VDP_SPRITE_X_OFFSET     = 128           ; VDP adds 128 to sprite X
+MAX_VDP_SPRITES         = 80
+
 ; Scanline-aware sprite budgeting
 SCANLINE_BANDS          = 7             ; 224 / 32 = 7 bands of 32 scanlines each
 SCANLINE_SPRITE_LIMIT   = 24           ; max sprite pieces per band before skipping
