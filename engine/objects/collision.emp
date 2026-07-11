@@ -40,10 +40,11 @@ ensure(extern("SST_interact") == interact_off(), "engine/structs.asm SST_interac
 // -----------------------------------------------
 pub proc TouchResponse () clobbers(d0-d7/a0-a3) {
         lea     Player_1, a2
+        let     a2: *Sst                // C2: a2 self-loaded → typed here down
         move.w  #NUM_PLAYERS-1, d7
 
     .player_loop:
-        tst.w   Sst.code_addr(a2)
+        tst.w   code_addr(a2)
         beq     .next_player
 
         // On-object lifecycle: bit AND interact pointer cleared HERE (pass
@@ -55,26 +56,27 @@ pub proc TouchResponse () clobbers(d0-d7/a0-a3) {
         // between the dispatch and the classifier, blinding the balance
         // check. SST_interact carries WHICH solid claimed us — the probe
         // reads it directly (no stale-bit slot scan).
-        bclr    #ST_ON_OBJECT, Sst.status(a2)
+        bclr    #ST_ON_OBJECT, status(a2)
         clr.w   interact_off()(a2)
 
-        move.w  Sst.x_pos(a2), d4       // cache player X integer
-        move.w  Sst.y_pos(a2), d5       // cache player Y integer
+        move.w  x_pos(a2), d4       // cache player X integer
+        move.w  y_pos(a2), d5       // cache player Y integer
 
         lea     Dynamic_Slots, a3
+        let     a3: *Sst                // C2: a3 self-loaded → typed here down
         move.w  #NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS-1, d6
 
     .object_loop:
-        tst.w   Sst.code_addr(a3)
+        tst.w   code_addr(a3)
         beq     .next_object
-        tst.b   Sst.collision_resp(a3)
+        tst.b   collision_resp(a3)
         beq     .next_object
 
         // --- AABB overlap via the shared template (§4.9) ---
         moveq   #0, d0
-        move.b  Sst.width_pixels(a2), d0
+        move.b  width_pixels(a2), d0
         moveq   #0, d1
-        move.b  Sst.width_pixels(a3), d1
+        move.b  width_pixels(a3), d1
 
         aabb_axis_test(d4, a3, offsetof(Sst, x_pos), d0, d1, d0, d1, d2, .next_object)
 
@@ -82,9 +84,9 @@ pub proc TouchResponse () clobbers(d0-d7/a0-a3) {
         movea.w d1, a1                  // stash signed delta_x
 
         moveq   #0, d2
-        move.b  Sst.height_pixels(a2), d2
+        move.b  height_pixels(a2), d2
         moveq   #0, d3
-        move.b  Sst.height_pixels(a3), d3
+        move.b  height_pixels(a3), d3
 
         aabb_axis_test(d5, a3, offsetof(Sst, y_pos), d2, d3, d2, d3, d0, .next_object)
 
@@ -93,7 +95,7 @@ pub proc TouchResponse () clobbers(d0-d7/a0-a3) {
 
         // Dispatch via collision_resp jump table
         moveq   #0, d4
-        move.b  Sst.collision_resp(a3), d4
+        move.b  collision_resp(a3), d4
         cmpi.b  #COLLISION_TOUCH, d4
         bhi     .next_object            // invalid type: no handler ran, so the
                                         // d4/d5 position cache is still fresh —
@@ -109,8 +111,8 @@ pub proc TouchResponse () clobbers(d0-d7/a0-a3) {
 
     .overlap_done:
         // Reload cached player position (handler may have moved player)
-        move.w  Sst.x_pos(a2), d4
-        move.w  Sst.y_pos(a2), d5
+        move.w  x_pos(a2), d4
+        move.w  y_pos(a2), d5
 
     .next_object:
         lea     sizeof(Sst)(a3), a3
