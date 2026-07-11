@@ -11,14 +11,14 @@ use engine.types.{Angle}
 // -----------------------------------------------
 // GetSineCosine — get sin and cos of angle d0
 // In:  d0.b: Angle (0-255 = 0-360°)
-// Out: d0.w = sin(angle) × $100, d1.w = cos(angle) × $100 — BARE
+// Out: d0.w = sin(angle) × $100, d1.w = cos(angle) × $100 (both `out`) — BARE
 //      fixed<8,8> unit fractions (a scale factor, not a Velocity: it
 //      becomes one only when multiplied by a speed). Register OUTPUTS
 //      can't carry type annotations yet — the out-typing ask is ledgered
 //      with this ruling pre-made.
-// Clobbers: d0-d1 (the outputs); everything else preserved
+// Clobbers: nothing beyond the d0/d1 outputs (everything else preserved)
 // -----------------------------------------------
-pub proc GetSineCosine (d0: Angle) clobbers(d0, d1) {
+pub proc GetSineCosine (d0: Angle) clobbers() out(d0, d1) {
         andi.w  #$FF, d0
         add.w   d0, d0
         addi.w  #$40*2, d0                  // +90° for cosine

@@ -19,7 +19,7 @@ use engine.constants.{CTYPE_AIR}
 // Clobbers: d0-d1 here; d2/a0 via the Tile_Cache_GetCollision tail call,
 //           d3 per the sensor convention above (never preserved)
 // -----------------------------------------------
-pub proc Collision_GetType () clobbers(d0, d1, d2, d3, a0) {
+pub proc Collision_GetType () clobbers(d1, d2, d3, a0) out(d0) {
         lsr.w   #3, d0                      // X pixels → world tile col
         cmp.w   Cache_Left_Col, d0          // (Cache_Left_Col).w — ram.asm; abs.w picked by the linker's asl width rule
         blt     .cgt_air

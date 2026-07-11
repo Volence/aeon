@@ -168,11 +168,15 @@ pub proc RingBuffer_Clear () clobbers() {
 //
 // In:  a4 = SAT buffer write pointer (from Render_Sprites)
 //      d5.w = current VDP sprite count (from Render_Sprites)
-// Out: a4 advanced past emitted ring sprites
-//      d5 incremented per ring sprite emitted
+// Out: a4 advanced past emitted ring sprites (in-out; declared out below
+//        ONLY once the write-analysis models (a4)+ — see gap-ledger, the
+//        auto-inc/dec write-detection gap; declaring out(a4) today
+//        false-positives [proc.out-unwritten] because a4 is written only
+//        via (a4)+, which the heuristic misses)
+//      d5 incremented per ring sprite emitted (bare write → out)
 // Clobbers: d0-d4, d6-d7, a0
 // -----------------------------------------------
-pub proc DrawRings () clobbers(d0, d1, d2, d3, d4, d6, d7, a0) {
+pub proc DrawRings () clobbers(d0, d1, d2, d3, d4, d6, d7, a0) out(d5) {
         // --- Animation timer ---
         move.b  Ring_Anim_Timer, d0
         subq.b  #1, d0
