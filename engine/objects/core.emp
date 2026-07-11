@@ -62,7 +62,7 @@ pub proc InitObjectRAM () clobbers(d0, d1, a0, a1) {
 //      Slot is tagged SLOT_TAG_UNTAGGED on return.
 // Clobbers: d0
 // -----------------------------------------------
-pub proc AllocDynamic () clobbers(d0) {
+pub proc AllocDynamic () clobbers(d0) out(a1) {
         cmpi.w  #extern("Dynamic_Free_Stack"), (Dynamic_Free_SP).w
         beq     .full
         movea.w (Dynamic_Free_SP).w, a1
@@ -83,7 +83,7 @@ pub proc AllocDynamic () clobbers(d0) {
 //      d0=1/Z clear if pool exhausted
 // Clobbers: d0
 // -----------------------------------------------
-pub proc AllocEffect () clobbers(d0) {
+pub proc AllocEffect () clobbers(d0) out(a1) {
         cmpi.w  #extern("Effect_Free_Stack"), (Effect_Free_SP).w
         beq     .full
         movea.w (Effect_Free_SP).w, a1
