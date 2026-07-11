@@ -1,0 +1,335 @@
+// Ring system — buffer ops, draw, collide
+// §4.9 camera-driven entity window
+//
+// Build-shape inputs (-D NAME=0|1, the mt_bank/game_loop convention):
+// DEBUG mirrors the AS twin's `ifdef __DEBUG__` (the RingBuffer_Add
+// drop assert); SOUND_DRIVER_ENABLED gates the ring-collect SFX call.
+
+module engine.objects.rings in rings
+
+use engine.objects.sst.{Sst}
+use engine.objects.aabb.{aabb_axis_test}
+use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEED,
+                      MAX_VDP_SPRITES, VDP_SPRITE_X_OFFSET, VDP_SPRITE_Y_OFFSET}
+
+// GAME-owned capacity/geometry mirrors (truth:
+// games/sonic4/config/constants.asm — engine.inc game-contract symbols).
+// All sit in immediate/moveq/addq positions, so the `.b`/`.w` imm-link
+// deferral gap forces comptime mirrors here in the consumer module (the
+// sound_api SFXID pattern, kill-list row 18). VRAM_RING_PLACEHOLDER is a
+// PLACEHOLDER art slot — when real ring art lands, the ensure below makes
+// the change loud on both sides.
+const MAX_RING_BUFFER        = 128
+const RING_BUFFER_ENTRY_SIZE = 6
+const RING_WIDTH             = 16
+const VRAM_RING_PLACEHOLDER  = $3E8
+ensure(extern("MAX_RING_BUFFER") == MAX_RING_BUFFER, "games/sonic4/config/constants.asm and rings.emp disagree on MAX_RING_BUFFER — update both")
+ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and rings.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
+ensure(extern("RING_WIDTH") == RING_WIDTH, "games/sonic4/config/constants.asm and rings.emp disagree on RING_WIDTH — update both")
+ensure(extern("VRAM_RING_PLACEHOLDER") == VRAM_RING_PLACEHOLDER, "games/sonic4/config/constants.asm and rings.emp disagree on VRAM_RING_PLACEHOLDER — update both")
+
+// -----------------------------------------------
+// RingBuffer_Add — append a ring to the unified buffer
+//
+// In:  d0.w = engine-space X
+//      d1.w = engine-space Y
+//      d2.b = section_id
+//      d3.b = list_index (index in section's ROM ring list)
+// Out: carry clear = success, carry set = buffer full
+// Side effects: updates Ring_HighWater (success path);
+//               increments Ring_Add_Dropped + DEBUG-fatal assert (.full)
+// Clobbers: d4, a0
+// -----------------------------------------------
+pub proc RingBuffer_Add () clobbers(d4, a0) {
+        moveq   #0, d4
+        move.b  Ring_Count, d4
+        cmpi.b  #MAX_RING_BUFFER, d4
+        bhs     .full
+
+        // a0 = &Ring_Buffer[count * 6]
+        move.w  d4, -(sp)
+        add.w   d4, d4                  // ×2
+        add.w   (sp)+, d4               // ×3
+        add.w   d4, d4                  // ×6
+        lea     Ring_Buffer, a0
+        adda.w  d4, a0
+
+        move.w  d0, (a0)+               // engine_X
+        move.w  d1, (a0)+               // engine_Y
+        move.b  d2, (a0)+               // section_id
+        move.b  d3, (a0)+               // list_index
+
+        addq.b  #1, Ring_Count
+        move.b  Ring_Count, d4
+        cmp.b   Ring_HighWater, d4
+        bls     .not_record
+        move.b  d4, Ring_HighWater
+    .not_record:
+        andi.b  #$FE, ccr               // clear carry
+        rts
+
+    .full:
+        addq.b  #1, Ring_Add_Dropped
+        if DEBUG == 1 {
+        // TRANSLITERATION of debugger.asm's `assert.b d4, eq, #0` expansion
+        // (assert → _assert → RaiseError → __FSTRING_*): the instruction
+        // skeleton is spelled as real asm (the two MDDBG__* targets and the
+        // RAM read resolve through the link seam), the FSTRING-generated
+        // string/descriptor/flag data as dc.b verbatim from the reference
+        // listing. The debug-shape byte gate is the drift guard — any
+        // debugger.asm macro change that alters this expansion fails the
+        // gate loudly. Scheduled demolition: kill-list row 16 (dies when
+        // debugger.asm ports or an .emp assert construct lands).
+        //
+        // register comparand — the assert macro's message expansion can't
+        // take a parenthesised memory operand (assembles to error #1300)
+        move.b  Ring_Add_Dropped, d4    // d4 = declared clobber
+        // assert.b d4, eq, #0 — drop = content bug, fatal in DEBUG
+        move.w  sr, -(sp)               // assert saves/restores CCR
+        cmp.b   #0, d4
+        beq.w   .assert_ok
+        // RaiseError "Assertion failed: …" — handler consumes the string
+        // at the jsr return address; control never falls through the data.
+    .raise:
+        pea     .raise(pc)              // pea *(pc) — self-address for the handler
+        move.w  sr, -(sp)
+        subq.w  #2, sp                  // FSTRING arg push: %<.b d4>
+        move.b  d4, 1(sp)
+        jsr     (MDDBG__ErrorHandler).l
+        // __FSTRING_GenerateDecodedString output ($E0 endl, $E8/$EA/$EC
+        // pal0/1/2 tokens), then the byte-arg descriptor + terminator,
+        // then the _eh_return flag byte + align pad — POSITION-DEPENDENT
+        // constants (parity-derived in the macro), safe while the gate pins
+        // the whole block.
+        dc.b    "Assertion failed:", $E0, $EC, "> assert.b ", $E8, "d4,", $EC, "eq", $E8, ",#0", $E0, $EA, "Got: "
+        dc.b    $80, $00                // %<.b d4> descriptor + string terminator
+        dc.b    $A0, $00                // _eh_return|_eh_align_offset flag + align pad
+        jmp     (MDDBG__ErrorHandler_PagesController).l
+    .assert_ok:
+        move.w  (sp)+, sr
+        }
+        ori.b   #1, ccr                 // set carry
+        rts
+}
+
+// -----------------------------------------------
+// RingBuffer_Remove — remove ring at index by swapping with last
+//
+// In:  d0.w = index to remove (0-based)
+// Out: none
+// Clobbers: d1-d2, a0-a1
+// -----------------------------------------------
+pub proc RingBuffer_Remove () clobbers(d1, d2, a0, a1) {
+        moveq   #0, d1
+        move.b  Ring_Count, d1
+        subq.b  #1, d1
+        bmi     .done                   // count is zero (becomes -1 after decrement)
+
+        move.b  d1, Ring_Count          // decrement count
+
+        cmp.w   d1, d0
+        beq     .done                   // removing last entry, nothing to swap
+
+        // dest = &Ring_Buffer[remove_index × 6]
+        move.w  d0, d2
+        add.w   d2, d2
+        add.w   d0, d2
+        add.w   d2, d2                  // d2 = remove_index × 6
+        lea     Ring_Buffer, a0
+        adda.w  d2, a0
+
+        // source = &Ring_Buffer[last_index × 6]
+        move.w  d1, d2
+        add.w   d2, d2
+        add.w   d1, d2
+        add.w   d2, d2                  // d2 = last_index × 6
+        lea     Ring_Buffer, a1
+        adda.w  d2, a1
+
+        move.l  (a1)+, (a0)+            // X + Y (4 bytes)
+        move.w  (a1), (a0)              // section_id + list_index (2 bytes)
+
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// RingBuffer_Clear — zero the ring count
+// -----------------------------------------------
+pub proc RingBuffer_Clear () clobbers() {
+        clr.b   Ring_Count
+        clr.b   Ring_HighWater
+        clr.b   Ring_Add_Dropped
+        rts
+}
+
+// -----------------------------------------------
+// DrawRings — render rings from unified buffer to sprite table
+//
+// In:  a4 = SAT buffer write pointer (from Render_Sprites)
+//      d5.w = current VDP sprite count (from Render_Sprites)
+// Out: a4 advanced past emitted ring sprites
+//      d5 incremented per ring sprite emitted
+// Clobbers: d0-d4, d6-d7, a0
+// -----------------------------------------------
+pub proc DrawRings () clobbers(d0, d1, d2, d3, d4, d6, d7, a0) {
+        // --- Animation timer ---
+        move.b  Ring_Anim_Timer, d0
+        subq.b  #1, d0
+        bpl     .no_anim_tick
+        move.b  #RING_ANIM_SPEED-1, d0
+        move.b  Ring_Anim_Frame, d1
+        addq.b  #1, d1
+        cmpi.b  #RING_ANIM_FRAMES, d1
+        blo     .frame_ok
+        moveq   #0, d1
+    .frame_ok:
+        move.b  d1, Ring_Anim_Frame
+    .no_anim_tick:
+        move.b  d0, Ring_Anim_Timer
+
+        // Cache camera position
+        move.w  Camera_X, d6
+        move.w  Camera_Y, d7
+
+        lea     Ring_Buffer, a0
+        moveq   #0, d1
+        move.b  Ring_Count, d1
+        beq     .done
+        subq.w  #1, d1                  // dbf adjust
+
+    .ring_loop:
+        cmpi.w  #MAX_VDP_SPRITES, d5
+        bhs     .done
+
+        // On-screen culling — X
+        move.w  (a0), d2                // engine X
+        sub.w   d6, d2                  // screen X
+        move.w  d2, d0
+        addi.w  #16, d0
+        cmpi.w  #336, d0                // 320 + 16
+        bhi     .skip_ring
+
+        // On-screen culling — Y
+        move.w  2(a0), d3               // engine Y
+        sub.w   d7, d3                  // screen Y
+        move.w  d3, d0
+        addi.w  #16, d0
+        cmpi.w  #240, d0                // 224 + 16
+        bhi     .skip_ring
+
+        // --- Write SAT entry (8 bytes) ---
+        subi.w  #8, d3
+        addi.w  #VDP_SPRITE_Y_OFFSET, d3
+        move.w  d3, (a4)+               // +0: Y position
+        move.b  #$05, (a4)+             // +2: size 2×2 (16×16 px)
+        addq.b  #1, d5
+        move.b  d5, (a4)+               // +3: link (next sprite index)
+        move.w  #VRAM_RING_PLACEHOLDER, (a4)+  // +4: tile attrs (placeholder ring art)
+        subi.w  #8, d2
+        addi.w  #VDP_SPRITE_X_OFFSET, d2
+        bne     .x_ok
+        moveq   #1, d2                  // avoid X=0 (VDP sprite masking)
+    .x_ok:
+        move.w  d2, (a4)+               // +6: X position
+
+    .skip_ring:
+        addq.w  #RING_BUFFER_ENTRY_SIZE, a0
+        dbf     d1, .ring_loop
+
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// RingCollision — test player(s) vs rings in unified buffer
+//
+// Iterates backward with a ROLLING entry pointer (a3, decremented per
+// iteration — one subq replaces a per-ring ×6 index chain + lea pair,
+// the DrawRings walk pattern): swap-with-last removal only rewrites the
+// removed slot from an already-visited HIGHER index, so entries below
+// the cursor never move and the pointer stays valid across removals.
+// a3 survives the collect path (Collected_MarkRing d0-d1/a0,
+// EntityWindow_EntryForSection d1/a0, EntityLoaded_Clear d0/d2/a0,
+// Sound_PlayRing d0/a0, RingBuffer_Remove d1-d2/a0-a1).
+//
+// In:  none (reads Player_1/2, Ring_Buffer, Ring_Count)
+// Out: none
+// Clobbers: d0-d7, a0-a3
+// -----------------------------------------------
+pub proc RingCollision () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a3) {
+        lea     Player_1, a2
+        move.w  #NUM_PLAYERS-1, d7
+
+    .player_loop:
+        tst.w   Sst.code_addr(a2)
+        beq     .next_player
+
+        move.w  Sst.x_pos(a2), d4       // cache player X
+        move.w  Sst.y_pos(a2), d5       // cache player Y
+
+        // Iterate backward: index = Ring_Count - 1 down to 0
+        moveq   #0, d6
+        move.b  Ring_Count, d6
+        subq.w  #1, d6
+        bmi     .next_player            // no rings
+
+        // a3 = &Ring_Buffer[d6 * 6] — the rolling entry pointer
+        move.w  d6, d0
+        add.w   d0, d0
+        add.w   d6, d0
+        add.w   d0, d0                  // d0 = d6 × 6
+        lea     Ring_Buffer, a3
+        adda.w  d0, a3
+
+    .ring_loop:
+        // X axis: player width vs ring 16px
+        moveq   #0, d0
+        move.b  Sst.width_pixels(a2), d0
+        moveq   #RING_WIDTH, d1
+
+        aabb_axis_test(d4, a3, 0, d0, d1, d0, d1, d2, .no_hit)
+
+        // Y axis: player height vs ring 16px
+        moveq   #0, d0
+        move.b  Sst.height_pixels(a2), d0
+        moveq   #RING_HEIGHT, d1
+
+        aabb_axis_test(d5, a3, 2, d0, d1, d0, d1, d2, .no_hit)
+
+        // Overlap — collect this ring
+        // a3 points to ring entry: +4 = section_id, +5 = list_index
+        move.b  4(a3), d2               // section_id
+        move.b  5(a3), d3               // list_index
+        jbsr    Collected_MarkRing      // clobbers d0-d1, a0 — d2/d3 survive
+
+        // Clear the loaded bit too — keeps ring bits == buffer census.
+        // (Collected bit already blocks respawn; this is mask hygiene.)
+        move.b  d2, d0                  // section_id
+        jbsr    EntityWindow_EntryForSection
+        tst.w   d0
+        bmi     .no_loaded_bit          // section untracked — no loaded bits
+        moveq   #0, d1
+        move.b  d3, d1                  // list_index
+        moveq   #0, d2                  // ring bits
+        jbsr    EntityLoaded_Clear
+    .no_loaded_bit:
+
+        addq.w  #1, Ring_Counter
+        if SOUND_DRIVER_ENABLED == 1 {
+        jbsr    Sound_PlayRing          // L/R-alternating ring SFX ($33/$34)
+        }
+
+        // Remove from buffer (swap-with-last)
+        move.w  d6, d0
+        jbsr    RingBuffer_Remove
+
+    .no_hit:
+        subq.w  #RING_BUFFER_ENTRY_SIZE, a3
+        dbf     d6, .ring_loop
+
+    .next_player:
+        lea     sizeof(Sst)(a2), a2
+        dbf     d7, .player_loop
+        rts
+}

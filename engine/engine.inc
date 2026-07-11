@@ -187,7 +187,24 @@ __BUDGET_ENGINE:
         org     $31F0
       endif
     endif
-    include "engine/objects/rings.asm"
+    ifndef SIGIL_EMP_RINGS
+        include "engine/objects/rings.asm"
+    else
+        ; sigil mixed build: the RingBuffer_*/DrawRings/RingCollision procs
+        ; come from engine/objects/rings.emp, pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: rings is the campaign's FIRST shape-dependent-LENGTH region
+        ; (the __DEBUG__ assert block exists only in the debug shape), so the
+        ; two resume orgs differ by more than the usual base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $36BA
+      else
+        org     $33A4
+      endif
+    endif
     include "engine/objects/entity_window.asm"
     include "engine/objects/children.asm"
     include "engine/objects/load_object.asm"
@@ -203,9 +220,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $5442
+        org     $543E
       else
-        org     $4C1E
+        org     $4C1A
       endif
     endif
     gameEngineBlockIncludes
@@ -230,9 +247,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $740C
+        org     $7408
         else
-        org     $5F4E
+        org     $5F4A
         endif
       endif
     endif

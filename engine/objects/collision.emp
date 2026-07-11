@@ -44,7 +44,7 @@ pub proc TouchResponse () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a
 
     .player_loop:
         tst.w   Sst.code_addr(a2)
-        beq.w   .next_player
+        beq     .next_player
 
         // On-object lifecycle: bit AND interact pointer cleared HERE (pass
         // start), re-set by Touch_Solid's top-contact within this same pass
@@ -66,9 +66,9 @@ pub proc TouchResponse () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a
 
     .object_loop:
         tst.w   Sst.code_addr(a3)
-        beq.s   .next_object
+        beq     .next_object
         tst.b   Sst.collision_resp(a3)
-        beq.s   .next_object
+        beq     .next_object
 
         // --- AABB overlap via the shared template (§4.9) ---
         moveq   #0, d0
@@ -95,7 +95,7 @@ pub proc TouchResponse () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a
         moveq   #0, d4
         move.b  Sst.collision_resp(a3), d4
         cmpi.b  #COLLISION_TOUCH, d4
-        bhi.s   .next_object            // invalid type: no handler ran, so the
+        bhi     .next_object            // invalid type: no handler ran, so the
                                         // d4/d5 position cache is still fresh —
                                         // skip the reload
 
@@ -194,27 +194,27 @@ proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbe
 
         // pen_x = combined_half_w - abs(delta_x)
         move.w  d1, d4                  // d4 = signed delta_x (for direction)
-        bpl.s   .solid_ax_pos
+        bpl     .solid_ax_pos
         neg.w   d1
     .solid_ax_pos:
         sub.w   d1, d0                  // d0 = pen_x
-        ble.s   .solid_done
+        ble     .solid_done
 
         // pen_y = combined_half_h - abs(delta_y)
         move.w  d3, d5                  // d5 = signed delta_y (for direction)
-        bpl.s   .solid_ay_pos
+        bpl     .solid_ay_pos
         neg.w   d3
     .solid_ay_pos:
         sub.w   d3, d2                  // d2 = pen_y
-        ble.s   .solid_done
+        ble     .solid_done
 
         // Minimum penetration axis: pen_x vs pen_y
         cmp.w   d2, d0
-        blo.s   .solid_side             // pen_x < pen_y → side contact
+        blo     .solid_side             // pen_x < pen_y → side contact
 
         // --- Vertical contact (pen_y <= pen_x) ---
         tst.w   d5
-        bmi.s   .solid_top              // player above target
+        bmi     .solid_top              // player above target
 
         // Player below target — snap below, zero y_vel if rising
         // +1/-1 offsets keep 1px overlap so next frame's AABB check still passes
@@ -224,14 +224,14 @@ proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbe
         subq.w  #1, d1                  // maintain contact
         move.w  d1, y_pos(a2)
         tst.w   y_vel(a2)
-        bpl.s   .solid_done
+        bpl     .solid_done
         clr.w   y_vel(a2)
         rts
 
     .solid_top:
         // Only land if player is falling (y_vel >= 0)
         tst.w   y_vel(a2)
-        bmi.s   .solid_done             // still rising — don't snap to top
+        bmi     .solid_done             // still rising — don't snap to top
 
         // Player above target — snap above, zero y_vel, set grounded
         add.w   d3, d2                  // restore combined_half_h
@@ -253,7 +253,7 @@ proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbe
         // Push player horizontally — subtract 1 from pen to maintain contact
         subq.w  #1, d0
         tst.w   d4
-        bmi.s   .solid_push_left
+        bmi     .solid_push_left
 
         add.w   d0, x_pos(a2)           // push right
         clr.w   x_vel(a2)
