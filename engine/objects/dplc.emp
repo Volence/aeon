@@ -55,7 +55,7 @@ pub proc Perform_DPLC () clobbers(d0, d1, d2, d3, d4, a1, a2) {
         lsl.w   #5, d3                           // d3.w = length (bytes)
 
         movem.l d2-d4/a2-a3, -(sp)
-        jsr     QueueDMA_Important
+        jbsr    QueueDMA_Important
         movem.l (sp)+, d2-d4/a2-a3
 
         add.w   d3, d2
@@ -105,7 +105,7 @@ pub proc Perform_DPLC_Deferrable () clobbers(d0, d1, d2, d3, d4, a1, a2) {
         lsl.w   #5, d3
 
         movem.l d2-d4/a2-a3, -(sp)
-        jsr     QueueDMA_Deferrable
+        jbsr    QueueDMA_Deferrable
         movem.l (sp)+, d2-d4/a2-a3
 
         add.w   d3, d2

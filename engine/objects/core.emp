@@ -64,7 +64,7 @@ pub proc InitObjectRAM () clobbers(d0, d1, a0, a1) {
 // -----------------------------------------------
 pub proc AllocDynamic () clobbers(d0) {
         cmpi.w  #extern("Dynamic_Free_Stack"), (Dynamic_Free_SP).w
-        beq.s   .full
+        beq     .full
         movea.w (Dynamic_Free_SP).w, a1
         subq.w  #2, (Dynamic_Free_SP).w
         movea.w -(a1), a1
@@ -85,7 +85,7 @@ pub proc AllocDynamic () clobbers(d0) {
 // -----------------------------------------------
 pub proc AllocEffect () clobbers(d0) {
         cmpi.w  #extern("Effect_Free_Stack"), (Effect_Free_SP).w
-        beq.s   .full
+        beq     .full
         movea.w (Effect_Free_SP).w, a1
         subq.w  #2, (Effect_Free_SP).w
         movea.w -(a1), a1
@@ -114,30 +114,30 @@ pub proc AllocEffect () clobbers(d0) {
 pub proc DeleteObject () clobbers(d0, a1) {
         // Check Effect pool first (highest address range)
         cmpa.w  #extern("Effect_Slots"), a0
-        bhs.s   .check_effect
+        bhs     .check_effect
 
         // Below Effect_Slots — check System_Slots
         cmpa.w  #extern("System_Slots"), a0
-        bhs.s   .clear_slot             // system slot: just clear, no push
+        bhs     .clear_slot             // system slot: just clear, no push
 
         // Below System_Slots — check Dynamic_Slots
         cmpa.w  #extern("Dynamic_Slots"), a0
-        bhs.s   .dynamic_pool
+        bhs     .dynamic_pool
 
         // Below Dynamic_Slots — player slot: just clear, no push
-        bra.s   .clear_slot
+        jbra    .clear_slot
 
     .check_effect:
         // Past Effect_Slots — confirm it's within the effect range
         cmpa.w  #extern("Effect_Slots")+sizeof(Sst)*NUM_EFFECTS, a0
-        bhs.s   .clear_slot             // out of effect range (shouldn't happen)
+        bhs     .clear_slot             // out of effect range (shouldn't happen)
         // Fall through: it's a valid effect slot
 
     .effect_pool:
         movea.w (Effect_Free_SP).w, a1
         move.w  a0, (a1)+
         move.w  a1, (Effect_Free_SP).w
-        bra.s   .clear_slot
+        jbra    .clear_slot
 
     .dynamic_pool:
         movea.w (Dynamic_Free_SP).w, a1
@@ -188,27 +188,27 @@ pub proc RunObjects () clobbers(d0, d1, d2, d3, d4, d5, d6, a0, a1, a2, a3, a4, 
         move.w  d0, Spawn_Count
 
         tst.b   Game_Paused
-        bne.w   RunObjects_Frozen
+        bne     RunObjects_Frozen       // bare Bcc — relaxes to .w (RunObjects_Frozen out of .s range)
 
         // --- Player slots (always execute) ---
         lea     Player_1, a0
         move.w  #NUM_PLAYERS-1, d7
-        bsr.s   .run_always
+        jbsr    .run_always
 
         // --- Dynamic slots (culled by distance) ---
         lea     Dynamic_Slots, a0
         move.w  #NUM_DYNAMIC-1, d7
-        bsr.w   .run_culled
+        jbsr    .run_culled
 
         // --- System slots (always execute) ---
         lea     System_Slots, a0
         move.w  #NUM_SYSTEM-1, d7
-        bsr.s   .run_always
+        jbsr    .run_always
 
         // --- Effect slots (always execute) ---
         lea     Effect_Slots, a0
         move.w  #NUM_EFFECTS-1, d7
-        bsr.s   .run_always
+        jbsr    .run_always
         rts
 
     // Dispatch loop — no culling
@@ -217,11 +217,13 @@ pub proc RunObjects () clobbers(d0, d1, d2, d3, d4, d5, d6, a0, a1, a2, a3, a4, 
         moveq   #OBJ_CODE_BANK, d0
         swap    d0
         move.w  (a0), d0
-        beq.s   .always_next
+        beq     .always_next
         movea.l d0, a1
         jsr     (a1)
         // debug builds: catch object routines violating the a0/d7
-        // preservation contract at the source
+        // preservation contract at the source. bsr.w stays explicit —
+        // byte-locked to the AS twin's `ifdebug bsr.w` (a bare jbsr would
+        // relax the short site to .s and DIVERGE from the reference).
         if DEBUG == 1 { bsr.w Debug_AssertObjLoop }
     .always_next:
         lea     sizeof(Sst)(a0), a0
@@ -232,25 +234,25 @@ pub proc RunObjects () clobbers(d0, d1, d2, d3, d4, d5, d6, a0, a1, a2, a3, a4, 
     .run_culled:
     .culled_loop:
         tst.w   (a0)
-        beq.s   .culled_next
+        beq     .culled_next
 
         // X distance check: abs(obj_x - camera_x)
         move.w  Sst.x_pos(a0), d0
         sub.w   Camera_X, d0
-        bpl.s   .culled_xpos
+        bpl     .culled_xpos
         neg.w   d0
     .culled_xpos:
         cmpi.w  #CULL_DISTANCE_X, d0
-        bhi.s   .culled_next
+        bhi     .culled_next
 
         // Y distance check: abs(obj_y - camera_y)
         move.w  Sst.y_pos(a0), d0
         sub.w   Camera_Y, d0
-        bpl.s   .culled_ypos
+        bpl     .culled_ypos
         neg.w   d0
     .culled_ypos:
         cmpi.w  #CULL_DISTANCE_Y, d0
-        bhi.s   .culled_next
+        bhi     .culled_next
 
         // Within range — dispatch
         moveq   #OBJ_CODE_BANK, d0
@@ -258,6 +260,7 @@ pub proc RunObjects () clobbers(d0, d1, d2, d3, d4, d5, d6, a0, a1, a2, a3, a4, 
         move.w  (a0), d0
         movea.l d0, a1
         jsr     (a1)
+        // bsr.w stays explicit — byte-locked to the AS twin's `ifdebug bsr.w`
         if DEBUG == 1 { bsr.w Debug_AssertObjLoop }
     .culled_next:
         lea     sizeof(Sst)(a0), a0
@@ -292,7 +295,7 @@ pub proc Debug_AssertObjLoop () clobbers() {
         // assert.l a0, hs, #Object_RAM
         move.w  sr, -(sp)
         cmp.l   #extern("Object_RAM"), a0
-        bhs.w   .skip1
+        bhs.w   .skip1                  // byte-locked .w (assert-macro expansion transliteration)
     .a1raise:
         pea     .a1raise(pc)            // pea *(pc) — self-address for the handler
         move.w  sr, -(sp)
@@ -308,7 +311,7 @@ pub proc Debug_AssertObjLoop () clobbers() {
         // assert.l a0, lo, #Object_RAM_End
         move.w  sr, -(sp)
         cmp.l   #extern("Object_RAM_End"), a0
-        blo.w   .skip2
+        blo.w   .skip2                  // byte-locked .w (assert-macro expansion transliteration)
     .a2raise:
         pea     .a2raise(pc)            // pea *(pc) — self-address for the handler
         move.w  sr, -(sp)
@@ -324,7 +327,7 @@ pub proc Debug_AssertObjLoop () clobbers() {
         // assert.w d7, lo, #NUM_DYNAMIC
         move.w  sr, -(sp)
         cmp.w   #NUM_DYNAMIC, d7
-        blo.w   .skip3
+        blo.w   .skip3                  // byte-locked .w (assert-macro expansion transliteration)
     .a3raise:
         pea     .a3raise(pc)            // pea *(pc) — self-address for the handler
         move.w  sr, -(sp)
@@ -352,8 +355,8 @@ pub proc RunObjects_Frozen () clobbers(d0, d1, d2, d3, d4, d5, d6, a0, a1, a2, a
         move.w  #NUM_TOTAL_SLOTS-1, d7
     .loop:
         tst.w   (a0)
-        beq.s   .next
-        bsr.w   Draw_Sprite
+        beq     .next
+        jbsr    Draw_Sprite
     .next:
         lea     sizeof(Sst)(a0), a0
         dbf     d7, .loop

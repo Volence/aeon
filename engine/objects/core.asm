@@ -182,7 +182,7 @@ RunObjects:
         ; --- Dynamic slots (culled by distance) ---
         lea     (Dynamic_Slots).w, a0
         move.w  #NUM_DYNAMIC-1, d7
-        bsr.w   .run_culled
+        bsr.s   .run_culled             ; LOCKSTEP core.emp step 2: jbsr shrink (was bsr.w; disp reaches .s → −2 bytes both shapes)
 
         ; --- System slots (always execute) ---
         lea     (System_Slots).w, a0
@@ -278,7 +278,7 @@ RunObjects_Frozen:
 .loop:
         tst.w   (a0)
         beq.s   .next
-        bsr.w   Draw_Sprite
+        bsr.s   Draw_Sprite             ; LOCKSTEP core.emp step 2: jbsr shrink (was bsr.w; disp 0x5A reaches .s → −2 bytes both shapes)
 .next:
         lea     SST_len(a0), a0
         dbf     d7, .loop
