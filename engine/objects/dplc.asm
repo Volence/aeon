@@ -49,7 +49,7 @@ Perform_DPLC:
         lsl.w   #5, d3                           ; d3.w = length (bytes)
 
         movem.l d2-d4/a2-a3, -(sp)
-        jsr     QueueDMA_Important
+        bsr.w   QueueDMA_Important      ; LOCKSTEP dplc.emp step 2: jbsr cross-seam static call (was jsr abs.w; same 4 bytes, 4EB8→6100)
         movem.l (sp)+, d2-d4/a2-a3
 
         add.w   d3, d2
@@ -98,7 +98,7 @@ Perform_DPLC_Deferrable:
         lsl.w   #5, d3
 
         movem.l d2-d4/a2-a3, -(sp)
-        jsr     QueueDMA_Deferrable
+        bsr.w   QueueDMA_Deferrable     ; LOCKSTEP dplc.emp step 2: jbsr cross-seam static call (was jsr abs.w; same 4 bytes, 4EB8→6100)
         movem.l (sp)+, d2-d4/a2-a3
 
         add.w   d3, d2
