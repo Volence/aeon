@@ -21,6 +21,12 @@
 // The .inc's utag parameter has no twin here: template labels are
 // hygienic, so each instantiation gets its own .aov.
 //
+// The two branch widths stay PINNED `.s` (exempt from the bare-Bcc house
+// rule, Volence-ratified 2026-07-10): this template is byte-locked to the
+// .inc macro's explicit `.s` spellings — divergent relaxation between the
+// twins (a far mlab silently widening here while the .inc errors) is the
+// hazard the pin closes.
+//
 // Pure comptime-fn module: opens no section and emits ZERO bytes anywhere
 // in the ROM — bytes appear only where a consumer splices the template.
 module engine.objects.aabb

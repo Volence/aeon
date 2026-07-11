@@ -44,7 +44,7 @@ pub proc RingBuffer_Add () clobbers(d4, a0) {
         moveq   #0, d4
         move.b  Ring_Count, d4
         cmpi.b  #MAX_RING_BUFFER, d4
-        bhs.s   .full
+        bhs     .full
 
         // a0 = &Ring_Buffer[count * 6]
         move.w  d4, -(sp)
@@ -62,7 +62,7 @@ pub proc RingBuffer_Add () clobbers(d4, a0) {
         addq.b  #1, Ring_Count
         move.b  Ring_Count, d4
         cmp.b   Ring_HighWater, d4
-        bls.s   .not_record
+        bls     .not_record
         move.b  d4, Ring_HighWater
     .not_record:
         andi.b  #$FE, ccr               // clear carry
@@ -123,12 +123,12 @@ pub proc RingBuffer_Remove () clobbers(d1, d2, a0, a1) {
         moveq   #0, d1
         move.b  Ring_Count, d1
         subq.b  #1, d1
-        bmi.s   .done                   // count is zero (becomes -1 after decrement)
+        bmi     .done                   // count is zero (becomes -1 after decrement)
 
         move.b  d1, Ring_Count          // decrement count
 
         cmp.w   d1, d0
-        beq.s   .done                   // removing last entry, nothing to swap
+        beq     .done                   // removing last entry, nothing to swap
 
         // dest = &Ring_Buffer[remove_index × 6]
         move.w  d0, d2
@@ -176,12 +176,12 @@ pub proc DrawRings () clobbers(d0, d1, d2, d3, d4, d6, d7, a0) {
         // --- Animation timer ---
         move.b  Ring_Anim_Timer, d0
         subq.b  #1, d0
-        bpl.s   .no_anim_tick
+        bpl     .no_anim_tick
         move.b  #RING_ANIM_SPEED-1, d0
         move.b  Ring_Anim_Frame, d1
         addq.b  #1, d1
         cmpi.b  #RING_ANIM_FRAMES, d1
-        blo.s   .frame_ok
+        blo     .frame_ok
         moveq   #0, d1
     .frame_ok:
         move.b  d1, Ring_Anim_Frame
@@ -195,12 +195,12 @@ pub proc DrawRings () clobbers(d0, d1, d2, d3, d4, d6, d7, a0) {
         lea     Ring_Buffer, a0
         moveq   #0, d1
         move.b  Ring_Count, d1
-        beq.s   .done
+        beq     .done
         subq.w  #1, d1                  // dbf adjust
 
     .ring_loop:
         cmpi.w  #MAX_VDP_SPRITES, d5
-        bhs.s   .done
+        bhs     .done
 
         // On-screen culling — X
         move.w  (a0), d2                // engine X
@@ -208,7 +208,7 @@ pub proc DrawRings () clobbers(d0, d1, d2, d3, d4, d6, d7, a0) {
         move.w  d2, d0
         addi.w  #16, d0
         cmpi.w  #336, d0                // 320 + 16
-        bhi.s   .skip_ring
+        bhi     .skip_ring
 
         // On-screen culling — Y
         move.w  2(a0), d3               // engine Y
@@ -216,7 +216,7 @@ pub proc DrawRings () clobbers(d0, d1, d2, d3, d4, d6, d7, a0) {
         move.w  d3, d0
         addi.w  #16, d0
         cmpi.w  #240, d0                // 224 + 16
-        bhi.s   .skip_ring
+        bhi     .skip_ring
 
         // --- Write SAT entry (8 bytes) ---
         subi.w  #8, d3
@@ -228,7 +228,7 @@ pub proc DrawRings () clobbers(d0, d1, d2, d3, d4, d6, d7, a0) {
         move.w  #VRAM_RING_PLACEHOLDER, (a4)+  // +4: tile attrs (placeholder ring art)
         subi.w  #8, d2
         addi.w  #VDP_SPRITE_X_OFFSET, d2
-        bne.s   .x_ok
+        bne     .x_ok
         moveq   #1, d2                  // avoid X=0 (VDP sprite masking)
     .x_ok:
         move.w  d2, (a4)+               // +6: X position
@@ -263,7 +263,7 @@ pub proc RingCollision () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a
 
     .player_loop:
         tst.w   Sst.code_addr(a2)
-        beq.w   .next_player
+        beq     .next_player
 
         move.w  Sst.x_pos(a2), d4       // cache player X
         move.w  Sst.y_pos(a2), d5       // cache player Y
@@ -272,7 +272,7 @@ pub proc RingCollision () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a
         moveq   #0, d6
         move.b  Ring_Count, d6
         subq.w  #1, d6
-        bmi.s   .next_player            // no rings
+        bmi     .next_player            // no rings
 
         // a3 = &Ring_Buffer[d6 * 6] — the rolling entry pointer
         move.w  d6, d0
@@ -308,7 +308,7 @@ pub proc RingCollision () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a
         move.b  d2, d0                  // section_id
         jbsr    EntityWindow_EntryForSection
         tst.w   d0
-        bmi.s   .no_loaded_bit          // section untracked — no loaded bits
+        bmi     .no_loaded_bit          // section untracked — no loaded bits
         moveq   #0, d1
         move.b  d3, d1                  // list_index
         moveq   #0, d2                  // ring bits
