@@ -33,17 +33,14 @@
 ; Multiple events can chain before a frame byte.
 ; All events consume an even number of bytes for PerFrame alignment.
 
-AF_END              = $FF
-AF_BACK             = $FE
-AF_CHANGE           = $FD
-AF_ROUTINE          = $FC
-AF_DELETE           = $FB
+; AF_* control-code values live in engine/constants.asm (next to DUR_DYNAMIC):
+; script DATA files read them in the mixed build, where SIGIL_EMP_ANIMATE
+; gates this file out of the AS side.
 
-AF_CALLBACK         = $FA
-AF_SOUND            = $F9
-AF_COLLISION        = $F8
-AF_SET_FIELD        = $F7
-
+; LOCKSTEP: engine/objects/animate.emp's reload_anim_timer comptime fn is this
+; macro's .emp twin (sigil kill-list row 5 class — dies with this file at
+; Spec 5). The `tag` param has no .emp counterpart: template labels are
+; hygienic, so each expansion gets its own .rt_static.
 ; Reload SST_anim_timer from the script duration byte at (srcReg), substituting
 ; the caller's d3 when the byte is the DUR_DYNAMIC sentinel. srcReg points at
 ; the script's byte 0. Clobbers d2.

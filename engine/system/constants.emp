@@ -32,8 +32,18 @@ pub const CTYPE_AIR = 0
 pub const RF_COORDMODE = 3            // 0 = world coords, 1 = screen coords
 pub const RF_PRIORITY_SHIFT = 5       // bits 5-7 = sprite priority band (0-7)
 
-// Animation script commands (mirrors engine/objects/animate.asm).
-pub const AF_DELETE = $FB             // auto-despawn command
+// Animation script commands + interpreter inputs (mirror engine/constants.asm
+// — the AF_* AS truth re-homed there at the animate port so script DATA files
+// survive the SIGIL_EMP_ANIMATE gate; kill-list row 2, dies at row 1's flip).
+// Consumed values only: AF_CHANGE/ROUTINE/CALLBACK/SOUND/COLLISION have no
+// .emp consumer yet and stay unmirrored.
+pub const AF_END       = $FF          // loop: restart from first frame
+pub const AF_BACK      = $FE          // jump back N: next byte = rewind count
+pub const AF_DELETE    = $FB          // auto-despawn command
+pub const AF_SET_FIELD = $F7          // lowest control code — the $F7+ dispatch threshold
+pub const DUR_DYNAMIC  = $FF          // duration sentinel: hold comes from caller's d3
+pub const OBJ_CODE_BANK = 1           // objroutine bank hi-word (moveq/swap → $00010000)
+pub const FRAME_PIECE_COUNT = 4       // sprite-frame piece-count word offset (after 4 bbox bytes)
 
 // Object slot counts per pool (mirrors engine/constants.asm).
 pub const NUM_PLAYERS = 2
@@ -84,7 +94,13 @@ ensure(extern("HW_PORT_2_DATA") == HW_PORT_2_DATA, "engine/constants.asm and eng
 ensure(extern("CTYPE_AIR") == CTYPE_AIR, "engine/constants.asm and engine/constants.emp disagree on CTYPE_AIR — update the twin")
 ensure(extern("RF_COORDMODE") == RF_COORDMODE, "engine/constants.asm and engine/constants.emp disagree on RF_COORDMODE — update the twin")
 ensure(extern("RF_PRIORITY_SHIFT") == RF_PRIORITY_SHIFT, "engine/constants.asm and engine/constants.emp disagree on RF_PRIORITY_SHIFT — update the twin")
-ensure(extern("AF_DELETE") == AF_DELETE, "engine/objects/animate.asm and engine/constants.emp disagree on AF_DELETE — update the twin")
+ensure(extern("AF_END") == AF_END, "engine/constants.asm and engine/constants.emp disagree on AF_END — update the twin")
+ensure(extern("AF_BACK") == AF_BACK, "engine/constants.asm and engine/constants.emp disagree on AF_BACK — update the twin")
+ensure(extern("AF_DELETE") == AF_DELETE, "engine/constants.asm and engine/constants.emp disagree on AF_DELETE — update the twin")
+ensure(extern("AF_SET_FIELD") == AF_SET_FIELD, "engine/constants.asm and engine/constants.emp disagree on AF_SET_FIELD — update the twin")
+ensure(extern("DUR_DYNAMIC") == DUR_DYNAMIC, "engine/constants.asm and engine/constants.emp disagree on DUR_DYNAMIC — update the twin")
+ensure(extern("OBJ_CODE_BANK") == OBJ_CODE_BANK, "engine/constants.asm and engine/constants.emp disagree on OBJ_CODE_BANK — update the twin")
+ensure(extern("FRAME_PIECE_COUNT") == FRAME_PIECE_COUNT, "engine/constants.asm and engine/constants.emp disagree on FRAME_PIECE_COUNT — update the twin")
 ensure(extern("NUM_PLAYERS") == NUM_PLAYERS, "engine/constants.asm and engine/constants.emp disagree on NUM_PLAYERS — update the twin")
 ensure(extern("NUM_DYNAMIC") == NUM_DYNAMIC, "engine/constants.asm and engine/constants.emp disagree on NUM_DYNAMIC — update the twin")
 ensure(extern("NUM_SYSTEM") == NUM_SYSTEM, "engine/constants.asm and engine/constants.emp disagree on NUM_SYSTEM — update the twin")

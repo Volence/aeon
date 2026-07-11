@@ -10,15 +10,11 @@
 // construct's link-time range check on every table word.
 module games.sonic4.sonic_anims in sonic_anims
 
-// Animation command bytes live in engine/objects/animate.asm; DUR_DYNAMIC
-// in engine/constants.asm (AS side) — local mirrors + drift guards until
-// the constants twin grows an animation block (jotted at port #1).
-const AF_END      = $FF                     // loop: restart from first frame
-const AF_BACK     = $FE                     // jump back N: next byte = rewind count
-const DUR_DYNAMIC = $FF                     // per-frame hold comes from d3
-ensure(extern("AF_END") == AF_END, "AF_END drifted from animate.asm: {AF_END}")
-ensure(extern("AF_BACK") == AF_BACK, "AF_BACK drifted from animate.asm: {AF_BACK}")
-ensure(extern("DUR_DYNAMIC") == DUR_DYNAMIC, "DUR_DYNAMIC drifted from constants.asm: {DUR_DYNAMIC}")
+// Animation command bytes + DUR_DYNAMIC come from the constants twin —
+// the "grows an animation block" jot from port #1 landed at the animate
+// port (tranche 9, kill-list row 3 closed by consolidation); the twin's
+// own ensures guard the values.
+use engine.constants.{AF_END, AF_BACK, DUR_DYNAMIC}
 
 offsets Ani_Sonic {
     // The ordinals-replace-hand-synced-constants story: declaration

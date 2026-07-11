@@ -171,7 +171,24 @@ __BUDGET_ENGINE:
     include "engine/objects/dplc.asm"
     include "engine/objects/core.asm"
     include "engine/objects/sprites.asm"
-    include "engine/objects/animate.asm"
+    ifndef SIGIL_EMP_ANIMATE
+        include "engine/objects/animate.asm"
+    else
+        ; sigil mixed build: AnimateSprite/AnimateSprite_PerFrame/
+        ; RefreshSpritePieceCount come from engine/objects/animate.emp,
+        ; pinned by the sigil map at the per-shape reference address. Resume
+        ; placement at the region end (see sigil-harness golden/PROVENANCE.md;
+        ; re-pin on re-baseline). The AF_* control-code equs the script data
+        ; files read live in engine/constants.asm, NOT here, so they survive
+        ; this gate.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $3344
+      else
+        org     $308A
+      endif
+    endif
     ifndef SIGIL_EMP_COLLISION
         include "engine/objects/collision.asm"
     else
