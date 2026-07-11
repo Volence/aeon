@@ -191,13 +191,13 @@ section mt_bank (cpu: m68000, bank: $8000) {
 // deviation note. UNCONDITIONAL (in the plain shape the DEBUG labels are
 // zero-length but still placed in-bank, so `bankid()` folds identically —
 // R4).
-ensure(bankid("Song_MovingTrucks") == bankid("MovingTrucks_Bank_Start"),
+ensure(bankid(Song_MovingTrucks) == bankid("MovingTrucks_Bank_Start"),
     "Moving Trucks stream not co-located with the engine-table bank — window-relative table reads would see the wrong bank")
-ensure(bankid("MovingTrucks_Patches") == bankid("MovingTrucks_Bank_Start"),
+ensure(bankid(MovingTrucks_Patches) == bankid("MovingTrucks_Bank_Start"),
     "MT patch bank not co-located with the engine-table bank")
-ensure(bankid("Song_DrumTest") == bankid("MovingTrucks_Bank_Start"),
+ensure(bankid(Song_DrumTest) == bankid("MovingTrucks_Bank_Start"),
     "Song_DrumTest (DEBUG) left Moving Trucks' bank — its stream/table reads need the engine-table head's bank")
-ensure(bankid("Song_HCZ2") == bankid("MovingTrucks_Bank_Start"),
+ensure(bankid(Song_HCZ2) == bankid("MovingTrucks_Bank_Start"),
     "Song_HCZ2 (DEBUG) left Moving Trucks' bank — one SetBank must cover its stream + the engine-table head")
-ensure(bankid("HCZ2_Patches") == bankid("MovingTrucks_Bank_Start"),
+ensure(bankid(HCZ2_Patches) == bankid("MovingTrucks_Bank_Start"),
     "HCZ2 patch bank (DEBUG) left Moving Trucks' bank")

@@ -118,42 +118,42 @@ section dac_shared_bank (cpu: m68000, bank: $8000) {
 //   ptr  = winptr(L) → (L & $7FFF) | $8000    (link-folded)
 //   len  = Blob.len                            (comptime)
 // ===========================================================================
-equ SND_BLIP_BANK = bankid("Dac_Temp_Blip")
-equ SND_BLIP_PTR  = winptr("Dac_Temp_Blip")
+equ SND_BLIP_BANK = bankid(Dac_Temp_Blip)
+equ SND_BLIP_PTR  = winptr(Dac_Temp_Blip)
 equ SND_BLIP_LEN  = BlipBlob.len
 
-equ SND_KICK_BANK = bankid("Dac_Kick")
-equ SND_KICK_PTR  = winptr("Dac_Kick")
+equ SND_KICK_BANK = bankid(Dac_Kick)
+equ SND_KICK_PTR  = winptr(Dac_Kick)
 equ SND_KICK_LEN  = KickBlob.len
 
-equ SND_SNARE_BANK = bankid("Dac_Snare")
-equ SND_SNARE_PTR  = winptr("Dac_Snare")
+equ SND_SNARE_BANK = bankid(Dac_Snare)
+equ SND_SNARE_PTR  = winptr(Dac_Snare)
 equ SND_SNARE_LEN  = SnareBlob.len
 
-equ SND_HAT_BANK = bankid("Dac_Hat")
-equ SND_HAT_PTR  = winptr("Dac_Hat")
+equ SND_HAT_BANK = bankid(Dac_Hat)
+equ SND_HAT_PTR  = winptr(Dac_Hat)
 equ SND_HAT_LEN  = HatBlob.len
 
-equ SND_S3K_SNARE_BANK = bankid("Dac_S3K_Snare")
-equ SND_S3K_SNARE_PTR  = winptr("Dac_S3K_Snare")
+equ SND_S3K_SNARE_BANK = bankid(Dac_S3K_Snare)
+equ SND_S3K_SNARE_PTR  = winptr(Dac_S3K_Snare)
 equ SND_S3K_SNARE_LEN  = S3kSnareBlob.len
 
-equ SND_S3K_HITOM_BANK = bankid("Dac_S3K_HiTom")
-equ SND_S3K_HITOM_PTR  = winptr("Dac_S3K_HiTom")
+equ SND_S3K_HITOM_BANK = bankid(Dac_S3K_HiTom)
+equ SND_S3K_HITOM_PTR  = winptr(Dac_S3K_HiTom)
 equ SND_S3K_HITOM_LEN  = S3kHiTomBlob.len
 
-equ SND_S3K_MIDTOM_BANK = bankid("Dac_S3K_MidTom")
-equ SND_S3K_MIDTOM_PTR  = winptr("Dac_S3K_MidTom")
+equ SND_S3K_MIDTOM_BANK = bankid(Dac_S3K_MidTom)
+equ SND_S3K_MIDTOM_PTR  = winptr(Dac_S3K_MidTom)
 equ SND_S3K_MIDTOM_LEN  = S3kMidTomBlob.len
 
-equ SND_S3K_LOWTOM_BANK = bankid("Dac_S3K_LowTom")
-equ SND_S3K_LOWTOM_PTR  = winptr("Dac_S3K_LowTom")
+equ SND_S3K_LOWTOM_BANK = bankid(Dac_S3K_LowTom)
+equ SND_S3K_LOWTOM_PTR  = winptr(Dac_S3K_LowTom)
 equ SND_S3K_LOWTOM_LEN  = S3kLowTomBlob.len
 
-equ SND_S3K_FLOORTOM_BANK = bankid("Dac_S3K_FloorTom")
-equ SND_S3K_FLOORTOM_PTR  = winptr("Dac_S3K_FloorTom")
+equ SND_S3K_FLOORTOM_BANK = bankid(Dac_S3K_FloorTom)
+equ SND_S3K_FLOORTOM_PTR  = winptr(Dac_S3K_FloorTom)
 equ SND_S3K_FLOORTOM_LEN  = S3kFloorTomBlob.len
 
-equ SND_S3K_KICK_BANK = bankid("Dac_S3K_Kick")
-equ SND_S3K_KICK_PTR  = winptr("Dac_S3K_Kick")
+equ SND_S3K_KICK_BANK = bankid(Dac_S3K_Kick)
+equ SND_S3K_KICK_PTR  = winptr(Dac_S3K_Kick)
 equ SND_S3K_KICK_LEN  = S3kKickBlob.len

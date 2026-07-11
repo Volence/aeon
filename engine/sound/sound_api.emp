@@ -147,7 +147,7 @@ pub proc Sound_PlaySample () clobbers(a0) {
 // In:  d0.b = song id (1..SONG_COUNT).
 // Clobbers: d0/d1/d2/d3/d4/a0/a1; SR restored.
 // ----------------------------------------------------------------------
-pub proc Sound_PlayMusic () clobbers(d0, d1, d2, d3, d4, a0, a1) preserves(sr) {
+pub proc Sound_PlayMusic () clobbers(d0-d4/a0-a1) preserves(sr) {
         andi.l  #$FF, d0                    // d0 = song id (1-based)
         move.l  d0, d2                      // d2 = song id (preserved for the trigger)
         subq.l  #1, d0                      // index = id-1

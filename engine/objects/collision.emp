@@ -190,7 +190,7 @@ proc Touch_Hurt (a2: *Sst, a3: *Sst) clobbers() {
 // Out: none
 // Clobbers: d0-d5
 // -----------------------------------------------
-proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbers(d0, d1, d2, d3, d4, d5) {
+proc Touch_Solid (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbers(d0-d5) {
         lsr.w   #1, d0                  // d0 = combined_half_w
         lsr.w   #1, d2                  // d2 = combined_half_h
 
