@@ -191,5 +191,7 @@ section sfx_bank (cpu: m68000, bank: $8000) {
 // blobs MUST share it. Spelled as `bankid(X) == bankid("MovingTrucks_Bank_Start")`
 // rather than the equ name directly (see the header's R5 note; bare cross-seam equ
 // reads don't exist). Message = the :260 fatal's text minus the {…} interpolation.
-ensure(bankid("Sfx_33") == bankid("MovingTrucks_Bank_Start"),
+// `Sfx_33` is this module's own data label, so it rides the bareword form (C1
+// item 3); the cross-seam bank-start symbol keeps the string spelling.
+ensure(bankid(Sfx_33) == bankid("MovingTrucks_Bank_Start"),
     "SFX blobs not co-located with the engine-table bank — Sfx_Frame's dispatch/table reads would see the wrong bank")

@@ -5,22 +5,18 @@ module games.sonic4.test_solid in test_solid
 
 use engine.objects.sst.{Sst}
 
-// The dispatch-store value: this object's Main routine as an offset from the
-// object-code-bank base (engine.inc's ObjCodeBase — objroutine in the AS
-// twin). `pub proc` labels export unmangled, so the module's own Main comes
-// back through the shared link; the difference rides a `.w` link-time
-// immediate. NOTE: equ names also land in the shared link namespace
-// unmangled, so the alias carries the object's name to stay collision-free
-// against its sibling modules.
-equ SOLID_ROUTINE_MAIN = extern("TestSolid_Main") - extern("ObjCodeBase")
-
 // -----------------------------------------------
 // TestSolid_Init — set mapping frame from subtype
 // In:  a0 = SST pointer (base fields set by Load_Object)
 // -----------------------------------------------
 pub proc TestSolid_Init (a0: *Sst) clobbers() falls_into TestSolid_Main {
         move.b  subtype(a0), mapping_frame(a0)
-        move.w  #SOLID_ROUTINE_MAIN, code_addr(a0)
+        // The dispatch-store value: this object's Main routine as an offset from
+        // the object-code-bank base (engine.inc's ObjCodeBase — objroutine in
+        // the AS twin), a `.w` link-time immediate. `TestSolid_Main` is this
+        // module's own `pub proc` (exports unmangled); `ObjCodeBase` is the
+        // cross-seam .asm symbol — both resolve through the shared link.
+        move.w  #TestSolid_Main - ObjCodeBase, code_addr(a0)
 }
 
 // -----------------------------------------------
