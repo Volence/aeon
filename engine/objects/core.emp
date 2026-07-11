@@ -12,6 +12,18 @@ use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_SYSTEM, NUM_EFFECTS,
                       NUM_TOTAL_SLOTS, OBJ_CODE_BANK, CULL_DISTANCE_X,
                       CULL_DISTANCE_Y, SLOT_TAG_UNTAGGED}
 
+// Store d0 (the fill value) to (a0)+ n times — the unrolled long-word
+// clear/fill. Emits `move.l d0, (a0)+` × n, byte-identical to the hand
+// unroll; the count derives from the type so an SST size change re-emits
+// the right number of stores instead of drifting a hand list.
+// LOCKSTEP: core.asm's DeleteObject spells this as n hand-written
+// `move.l d0, (a0)+` lines (no AS `rept`) — the debug/plain byte gates are
+// the guard; an SST size change must update both sides (the gate names the
+// first diverging byte if only one moves).
+comptime fn clear_longs(n: int) -> Code {
+    return 0..n |> fold(asm {}, |acc, _i| acc ++ asm { move.l d0, (a0)+ })
+}
+
 // -----------------------------------------------
 // InitObjectRAM — clear all slots, push addresses to free stacks
 // Called at game state init (level start, etc.)
@@ -145,28 +157,9 @@ pub proc DeleteObject () clobbers(d0, a1) {
         move.w  a1, (Dynamic_Free_SP).w
 
     .clear_slot:
-        // Zero all $50 bytes of the SST entry
+        // Zero all sizeof(Sst) bytes of the SST entry, one long at a time.
         moveq   #0, d0
-        move.l  d0, (a0)+       // $00
-        move.l  d0, (a0)+       // $04
-        move.l  d0, (a0)+       // $08
-        move.l  d0, (a0)+       // $0C
-        move.l  d0, (a0)+       // $10
-        move.l  d0, (a0)+       // $14
-        move.l  d0, (a0)+       // $18
-        move.l  d0, (a0)+       // $1C
-        move.l  d0, (a0)+       // $20
-        move.l  d0, (a0)+       // $24
-        move.l  d0, (a0)+       // $28
-        move.l  d0, (a0)+       // $2C
-        move.l  d0, (a0)+       // $30
-        move.l  d0, (a0)+       // $34
-        move.l  d0, (a0)+       // $38
-        move.l  d0, (a0)+       // $3C
-        move.l  d0, (a0)+       // $40
-        move.l  d0, (a0)+       // $44
-        move.l  d0, (a0)+       // $48
-        move.l  d0, (a0)+       // $4C
+        clear_longs(sizeof(Sst) / 4)
         lea     -sizeof(Sst)(a0), a0 // restore a0 to slot start
         rts
 }
