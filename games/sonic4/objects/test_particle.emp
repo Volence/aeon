@@ -10,13 +10,11 @@ const PARTICLE_GRAVITY = $20            // lighter than player gravity ($38)
 const PARTICLE_X_VEL   = -$100          // initial horizontal velocity (leftward)
 const PARTICLE_Y_VEL   = -$300          // initial vertical velocity (upward)
 
-// Cross-seam link values: the animation table (games/sonic4/data/animations/
-// particle_anims.emp — a `.l` link-time immediate) and the dispatch-store
-// offset from the object-code-bank base (a `.w` one; see test_solid.emp's
-// note on equ naming — equ names land in the shared link namespace, so the
-// aliases carry the object's name).
+// Cross-seam link value: the animation table (games/sonic4/data/animations/
+// particle_anims.emp — a `.l` link-time immediate). The dispatch-store offset
+// (`TestParticle_Main - ObjCodeBase`, a `.w` one) is now written inline as a
+// bare label difference at its store site below (C1 item 1).
 equ ANI_PARTICLE          = extern("Ani_Particle")
-equ PARTICLE_ROUTINE_MAIN = extern("TestParticle_Main") - extern("ObjCodeBase")
 
 // -----------------------------------------------
 // TestParticle — init routine (called as first-frame code_addr)
@@ -34,7 +32,7 @@ pub proc TestParticle (a0: *Sst) clobbers(d0, d1, d2, d3, d4, a1, a2, a3) falls_
         bset    #RF_COORDMODE, render_flags(a0) // screen coords (no camera)
         move.w  #PARTICLE_X_VEL, x_vel(a0)
         move.w  #PARTICLE_Y_VEL, y_vel(a0)
-        move.w  #PARTICLE_ROUTINE_MAIN, code_addr(a0)
+        move.w  #TestParticle_Main - ObjCodeBase, code_addr(a0)
 }
 
 // -----------------------------------------------
