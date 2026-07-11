@@ -168,8 +168,41 @@ __BUDGET_ENGINE:
         org     $26FC
       endif
     endif
-    include "engine/objects/dplc.asm"
-    include "engine/objects/core.asm"
+    ifndef SIGIL_EMP_DPLC
+        include "engine/objects/dplc.asm"
+    else
+        ; sigil mixed build: Perform_DPLC/Perform_DPLC_Deferrable come from
+        ; engine/objects/dplc.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $2926
+      else
+        org     $2794
+      endif
+    endif
+    ifndef SIGIL_EMP_CORE
+        include "engine/objects/core.asm"
+    else
+        ; sigil mixed build: InitObjectRAM/AllocDynamic/AllocEffect/
+        ; DeleteObject/RunObjects/RunObjects_Frozen/ObjectMove* come from
+        ; engine/objects/core.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: core is shape-dependent-LENGTH (the __DEBUG__
+        ; Debug_AssertObjLoop proc + the two ifdebug call sites exist only in
+        ; the debug shape), so the two resume orgs differ by more than the
+        ; usual base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $2C12
+      else
+        org     $2958
+      endif
+    endif
     include "engine/objects/sprites.asm"
     ifndef SIGIL_EMP_ANIMATE
         include "engine/objects/animate.asm"
