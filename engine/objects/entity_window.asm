@@ -67,7 +67,7 @@ Collected_FindSlot:
 ; -----------------------------------------------
 Collected_CheckRing:
         movem.l d0-d1, -(sp)
-        bsr.w   Collected_FindSlot
+        bsr.s   Collected_FindSlot
         movem.l (sp)+, d0-d1
         beq.s   .uncollected
 
@@ -91,7 +91,11 @@ Collected_CheckRing:
 ; -----------------------------------------------
 Collected_MarkRing:
         move.b  d2, d0
-        bsr.w   Collected_FindSlot
+    ifdef __DEBUG__
+        bsr.w   Collected_FindSlot             ; per-shape: assert expansions between call and target
+    else
+        bsr.s   Collected_FindSlot
+    endif
         beq.s   .done
         moveq   #0, d1
         move.b  d3, d1
@@ -112,7 +116,11 @@ Collected_MarkRing:
 ; -----------------------------------------------
 Killed_CheckObject:
         movem.l d0-d1, -(sp)
-        bsr.w   Collected_FindSlot
+    ifdef __DEBUG__
+        bsr.w   Collected_FindSlot             ; per-shape: assert expansions between call and target
+    else
+        bsr.s   Collected_FindSlot
+    endif
         movem.l (sp)+, d0-d1
         beq.s   .alive
 
@@ -139,9 +147,17 @@ Killed_CheckObject:
 Killed_MarkObject:
         move.b  d0, d3                  ; section_id survives FindSlot for the loaded-bit clear
         move.w  d1, -(sp)
-        bsr.w   Collected_FindSlot
+    ifdef __DEBUG__
+        bsr.w   Collected_FindSlot             ; per-shape: assert expansions between call and target
+    else
+        bsr.s   Collected_FindSlot
+    endif
         move.w  (sp)+, d1
-        beq.w   .markdone               ; .w — DEBUG assert expansions exceed short range
+    ifdef __DEBUG__
+        beq.w   .markdone             ; per-shape: DEBUG assert expansion pushes the target out of .s range
+    else
+        beq.s   .markdone
+    endif
         moveq   #0, d2
         move.b  d1, d2
         ifdebug assert.w d2, lo, #MAX_LIST_ENTRIES
@@ -602,7 +618,7 @@ EntityWindow_DeriveWindow:
 ; Clobbers: d0-d7, a0-a3
 ; -----------------------------------------------
 EntityWindow_BuildEntries:
-        bsr.w   EntityWindow_DeriveWindow       ; d2/d3 = anchor, d4/d5 = sec_x0/sec_y0
+        bsr.s   EntityWindow_DeriveWindow             ; d2/d3 = anchor, d4/d5 = sec_x0/sec_y0
         move.b  d2, (Entity_Window_Anchor).w
         move.b  d3, (Entity_Window_Anchor+1).w
         ; origin bases: sec_x0/sec_y0 × SECTION_SIZE = world px of column-0/row-0
@@ -732,8 +748,8 @@ EntityWindow_Init:
         andi.w  #ENTITY_RESCAN_COARSE_MASK, d0
         move.w  d0, (Camera_Y_Coarse_Prev).w
 
-        ; Run initial scan to load entities in camera range
-        bra.w   EntityWindow_Scan
+        ; falls through to EntityWindow_Scan (physically the next proc) — the
+        ; initial scan loads entities in camera range
 
 ; -----------------------------------------------
 ; EntityWindow_Scan — per-frame camera-range entity scan
@@ -821,10 +837,18 @@ EntityWindow_TrySpawnRing:
         move.w  (Camera_Y).w, d2
         subi.w  #ENTITY_LOAD_BUFFER_Y, d2
         cmp.w   d2, d1
-        blt.w   .out_of_band            ; above band (.w — DEBUG assert expansion exceeds short range)
+    ifdef __DEBUG__
+        blt.w   .out_of_band             ; per-shape: DEBUG assert expansion pushes the target out of .s range
+    else
+        blt.s   .out_of_band
+    endif
         addi.w  #SCREEN_HEIGHT+2*ENTITY_LOAD_BUFFER_Y, d2
         cmp.w   d2, d1
-        bgt.w   .out_of_band            ; below band (.w — see above)
+    ifdef __DEBUG__
+        bgt.w   .out_of_band             ; per-shape: DEBUG assert expansion pushes the target out of .s range
+    else
+        bgt.s   .out_of_band
+    endif
 
         ; one save window for both checks + the add (subcalls clobber a0)
         movem.l d3-d4/a0, -(sp)
@@ -834,7 +858,11 @@ EntityWindow_TrySpawnRing:
         moveq   #0, d1
         move.w  d4, d1                  ; list_index
         bsr.w   Collected_CheckRing     ; clobbers d2, a0
-        bne.w   .gated                  ; Z clear = collected (.w — DEBUG assert expansion exceeds short range)
+    ifdef __DEBUG__
+        bne.w   .gated             ; per-shape: DEBUG assert expansion pushes the target out of .s range
+    else
+        bne.s   .gated
+    endif
 
         ; already in the buffer? (loaded bit — set on add, cleared on remove)
         moveq   #0, d0
@@ -843,7 +871,11 @@ EntityWindow_TrySpawnRing:
         move.w  d4, d1                  ; list_index
         moveq   #0, d2                  ; ring bits
         bsr.w   EntityLoaded_Test       ; clobbers d0, d2, a0
-        bne.w   .gated                  ; loaded → skip (.w — see above)
+    ifdef __DEBUG__
+        bne.w   .gated             ; per-shape: DEBUG assert expansion pushes the target out of .s range
+    else
+        bne.s   .gated
+    endif
 
         ; spawn ring into buffer
         movea.l 8(sp), a0               ; ROM entry (a0 slot of movem frame)
@@ -1073,7 +1105,7 @@ EntityWindow_TrySpawnObject:
         addq.w  #2, d3                  ; skip count+pad header
         movea.l (a2, d3.w), a1          ; a1 = ObjDef pointer
 
-        jsr     Load_Object             ; clobbers d0-d3/a1-a3, preserves d4-d7/a0
+        bsr.w   Load_Object             ; clobbers d0-d3/a1-a3, preserves d4-d7/a0
         bne.s   .gated                  ; alloc failed — no bit, re-scan retries
 
         ; Tag spawned object (a1 = new SST from Load_Object)
@@ -1170,9 +1202,9 @@ EntityWindow_RescanY:
         btst    d6, d5
         beq.s   .entry_next
         lea     (a3), a1
-        bsr.w   EntityWindow_RescanRings
+        bsr.s   EntityWindow_RescanRings
         lea     (a3), a1
-        bsr.w   EntityWindow_RescanObjects
+        bsr.s   EntityWindow_RescanObjects
 .entry_next:
         lea     EntityScanState_len(a3), a3
         addq.w  #1, d6
@@ -1372,7 +1404,7 @@ EntityWindow_DespawnObjects:
         ; this live for active sections too)
         clearLoadedObj a0
         movea.l 12(sp), a0              ; SST ptr (a0 slot of the movem frame)
-        jsr     DeleteObject
+        bsr.w   DeleteObject
         movem.l (sp)+, d5-d7/a0/a2
 
 .next:
