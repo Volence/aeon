@@ -664,6 +664,14 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
 // starting at SpriteMask_Y. Sprites after these in the link chain are
 // hidden on the covered scanlines (VDP hardware feature).
 //
+// C1 (accepted limitation, Volence 2026-07-11): the VDP X=0 mask honours the
+// FIRST-SPRITE-ON-LINE exemption — masking takes effect ONLY when an EARLIER-
+// linked (higher-priority) sprite already touches the masked scanline. A mask
+// inserted at a band boundary whose HIGHER bands are empty is itself the first
+// sprite on those lines, so it does NOT hide anything there. Known limitation;
+// masking is reliable only where the masked lines carry a leading sprite. A
+// future guaranteed-leader fix is ledgered (campaign-gap-ledger, consumer-gated).
+//
 // In:  a4 = SAT buffer write pointer (current position)
 //      d5 = current VDP sprite index
 // Out: a4 = advanced past mask entries
