@@ -198,26 +198,21 @@ RunObjects:
         move.w  d0, (Spawn_Count).w
 
         tst.b   (Game_Paused).w
-        ; LOCKSTEP core.emp C-A1: .emp uses a bare `bne` that sigil width-selects
-        ; per shape. AS bare branches phase-error against the tight bsr.s below,
-        ; so mirror the two widths explicitly: plain disp 0x7E fits .s; the DEBUG
-        ; shape's two ifdebug bsr sites push RunObjects_Frozen out to disp ~0x1A4,
-        ; forcing .w.
-    ifdef __DEBUG__
+        ; LOCKSTEP core.emp: .emp uses a bare `bne` that sigil width-selects.
+        ; Since the object-pool occupancy step-2 retrofit grew .run_culled, the
+        ; plain-shape disp to RunObjects_Frozen now also exceeds .s (it fit .s
+        ; pre-step-2), so BOTH shapes force .w — the twin drops the ifdef split.
         bne.w   RunObjects_Frozen
-    else
-        bne.s   RunObjects_Frozen
-    endif
 
         ; --- Player slots (always execute) ---
         lea     (Player_1).w, a0
         move.w  #NUM_PLAYERS-1, d7
         bsr.s   .run_always
 
-        ; --- Dynamic slots (culled by distance) ---
-        lea     (Dynamic_Slots).w, a0
-        move.w  #NUM_DYNAMIC-1, d7
-        bsr.s   .run_culled             ; LOCKSTEP core.emp step 2: jbsr shrink (was bsr.w; disp reaches .s → −2 bytes both shapes)
+        ; --- Dynamic slots (culled by distance, walked in spawn order via
+        ;     the live list — empty slots cost zero; .run_culled sets up its
+        ;     own cursor + count) ---
+        bsr.s   .run_culled
 
         ; --- System slots (always execute) ---
         lea     (System_Slots).w, a0
@@ -247,10 +242,19 @@ RunObjects:
         dbf     d7, .always_loop
         rts
 
-; Dispatch loop — skip objects far from camera
+; Dispatch loop — dynamic pool, walked in SPAWN order via the live list.
+; Empty slots cost ZERO (never appended); a dead-but-uncompacted entry costs
+; one tst.w guard. d7 snapshots the count at entry (a child appended mid-walk
+; runs NEXT frame). a2 = list cursor, saved across dispatch (object code may
+; clobber it — only a0/d7 are preserved).
 .run_culled:
+        lea     (Dynamic_Live).w, a2
+        move.w  (Dynamic_Live_Count).w, d7
+        beq.s   .culled_done
+        subq.w  #1, d7
 .culled_loop:
-        tst.w   (a0)
+        movea.w (a2)+, a0
+        tst.w   (a0)                    ; truth guard: skip a dead-uncompacted slot
         beq.s   .culled_next
 
         ; X distance check: abs(obj_x - camera_x)
@@ -271,16 +275,18 @@ RunObjects:
         cmpi.w  #CULL_DISTANCE_Y, d0
         bhi.s   .culled_next
 
-        ; Within range — dispatch
+        ; Within range — dispatch (a2 saved: object code may clobber it)
         moveq   #OBJ_CODE_BANK, d0
         swap    d0
         move.w  (a0), d0
         movea.l d0, a1
+        move.l  a2, -(sp)
         jsr     (a1)
-        ifdebug bsr.s Debug_AssertObjLoop  ; LOCKSTEP core.emp C-A1: jbsr shrink (was bsr.w; Debug_AssertObjLoop is near → disp reaches .s → −2 bytes, DEBUG shape only)
+        movea.l (sp)+, a2
+        ifdebug bsr.s Debug_AssertObjLoop  ; LOCKSTEP core.emp: preservation-contract check
 .culled_next:
-        lea     SST_len(a0), a0
         dbf     d7, .culled_loop
+.culled_done:
         rts
 
     ifdef __DEBUG__

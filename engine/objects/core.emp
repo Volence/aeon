@@ -214,9 +214,9 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
         move.w  #NUM_PLAYERS-1, d7
         jbsr    .run_always
 
-        // --- Dynamic slots (culled by distance) ---
-        lea     Dynamic_Slots, a0
-        move.w  #NUM_DYNAMIC-1, d7
+        // --- Dynamic slots (culled by distance, walked in spawn order via
+        //     the live list — empty slots cost zero; .run_culled sets up its
+        //     own cursor + count) ---
         jbsr    .run_culled
 
         // --- System slots (always execute) ---
@@ -247,10 +247,21 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
         dbf     d7, .always_loop
         rts
 
-    // Dispatch loop — skip objects far from camera
+    // Dispatch loop — dynamic pool, walked in SPAWN order via the live list.
+    // Empty slots cost ZERO (never appended); a dead-but-uncompacted entry
+    // (deleted this frame, compaction pending) costs one tst.w guard. d7
+    // snapshots the count at entry, so a child appended mid-walk first runs
+    // NEXT frame (deterministic). a2 is the list cursor; object code may
+    // clobber it (only a0/d7 are preserved across dispatch), so it is saved
+    // across the jsr.
     .run_culled:
+        lea     Dynamic_Live, a2
+        move.w  Dynamic_Live_Count, d7
+        beq     .culled_done
+        subq.w  #1, d7
     .culled_loop:
-        tst.w   (a0)
+        movea.w (a2)+, a0
+        tst.w   (a0)                    // truth guard: skip a dead-uncompacted slot
         beq     .culled_next
 
         // X distance check: abs(obj_x - camera_x)
@@ -271,17 +282,19 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
         cmpi.w  #CULL_DISTANCE_Y, d0
         bhi     .culled_next
 
-        // Within range — dispatch
+        // Within range — dispatch (a2 saved: object code may clobber it)
         moveq   #OBJ_CODE_BANK, d0
         swap    d0
         move.w  (a0), d0
         movea.l d0, a1
+        move.l  a2, -(sp)
         jsr     (a1)
+        movea.l (sp)+, a2
         // debug builds: catch a0/d7 preservation-contract violations at the source
         if DEBUG == 1 { jbsr Debug_AssertObjLoop }
     .culled_next:
-        lea     sizeof(Sst)(a0), a0
         dbf     d7, .culled_loop
+    .culled_done:
         rts
 }
 
