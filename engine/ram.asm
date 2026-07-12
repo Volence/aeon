@@ -268,6 +268,13 @@ Scanline_Band_Sprites:  ds.b SCANLINE_BANDS
 Camera_X:               ds.l 1          ; 16.16 camera X position
 Camera_Y:               ds.l 1          ; 16.16 camera Y position
 
+; Frame-constant biased camera (Render_Sprites): Camera_{X,Y} integer minus the
+; VDP +128 SAT offset, computed once per render frame so the four Emit loops
+; drop the per-piece `addi #128`. Integer words only (the fold is on the
+; screen-position integer, not the 16.16 world position).
+Camera_X_Biased:        ds.w 1          ; Camera_X(int) - VDP_SPRITE_X_OFFSET
+Camera_Y_Biased:        ds.w 1          ; Camera_Y(int) - VDP_SPRITE_Y_OFFSET
+
 ; Game pause / freeze flag
 Game_Paused:            ds.b 1
                         ds.b 1          ; pad

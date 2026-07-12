@@ -173,6 +173,16 @@ Draw_Sprite:
 Render_Sprites:
         addq.w  #1, (Sprite_Cycle_Counter).w
 
+        ; A1 camera-bias fold: store Camera - VDP_SPRITE_*_OFFSET once so the
+        ; per-object setup folds the +128 SAT offset in and the four Emit loops
+        ; drop the per-piece addi. Behavior-identical; screen paths compensate.
+        move.w  (Camera_X).w, d0
+        subi.w  #VDP_SPRITE_X_OFFSET, d0
+        move.w  d0, (Camera_X_Biased).w
+        move.w  (Camera_Y).w, d0
+        subi.w  #VDP_SPRITE_Y_OFFSET, d0
+        move.w  d0, (Camera_Y_Biased).w
+
         lea     (Sprite_Table_Buffer).w, a4  ; a4 = SAT buffer write pointer
         moveq   #0, d5                      ; d5 = VDP sprite index (0-based)
 
@@ -253,15 +263,18 @@ Render_Sprites:
 
         ; World coords: screen_pos = object_pos - camera_pos
         move.w  SST_x_pos(a0), d2         ; object X integer
-        sub.w   (Camera_X).w, d2           ; d2 = screen-relative X
+        sub.w   (Camera_X_Biased).w, d2 ; screen X + 128           ; d2 = screen-relative X
         move.w  SST_y_pos(a0), d3         ; object Y integer
-        sub.w   (Camera_Y).w, d3           ; d3 = screen-relative Y
+        sub.w   (Camera_Y_Biased).w, d3 ; screen Y + 128           ; d3 = screen-relative Y
         bra.s   .have_pos
 
 .screen_pos:
-        ; Screen coords: position IS the screen position
+        ; Screen coords: position IS the screen position; add the +128 SAT
+        ; offset explicitly (this path skips the biased-camera subtract).
         move.w  SST_x_pos(a0), d2
+        addi.w  #VDP_SPRITE_X_OFFSET, d2
         move.w  SST_y_pos(a0), d3
+        addi.w  #VDP_SPRITE_Y_OFFSET, d3
 
 .have_pos:
         move.w  SST_art_tile(a0), d6
@@ -293,7 +306,7 @@ Render_Sprites:
 
         ; Single-sprite: emit pieces and continue to next band entry
         bsr.w   Emit_ObjectPieces
-        bra.s   .next_object            ; was .w — asl width-selected .s at the t11 step-2 sweep
+        bra.w   .next_object            ; A1 regrowth pushed .next_object back out of .s range (was .s at t11 step-2; .emp `jbra` auto-relaxes)
 
 .multi_sprite:
         ; Save band-pointer a2; repurpose a2 = parent SST throughout sibling walk
@@ -331,13 +344,15 @@ Render_Sprites:
         btst    #RF_COORDMODE, SST_render_flags(a0)
         bne.s   .child_screen_pos
         move.w  SST_x_pos(a0), d2
-        sub.w   (Camera_X).w, d2
+        sub.w   (Camera_X_Biased).w, d2 ; screen X + 128
         move.w  SST_y_pos(a0), d3
-        sub.w   (Camera_Y).w, d3
+        sub.w   (Camera_Y_Biased).w, d3 ; screen Y + 128
         bra.s   .child_have_pos
 .child_screen_pos:
         move.w  SST_x_pos(a0), d2
+        addi.w  #VDP_SPRITE_X_OFFSET, d2   ; screen path: add the +128 SAT offset
         move.w  SST_y_pos(a0), d3
+        addi.w  #VDP_SPRITE_Y_OFFSET, d3
 .child_have_pos:
         move.w  SST_art_tile(a0), d6
         move.b  SST_render_flags(a0), d0
@@ -445,7 +460,7 @@ Emit_ObjectPieces:
         cmpi.b  #1<<RF_XFLIP, d0
         beq.s   .pieces_xflip           ; was .w — asl width-selected .s at the t11 step-2 sweep
         cmpi.b  #1<<RF_YFLIP, d0
-        beq.w   .pieces_yflip
+        beq.s   .pieces_yflip           ; A1 shrank unflipped+xflip variants (per-piece addis dropped) → now in .s range (was .w; .emp `beq` auto-relaxes)
         bra.w   .pieces_xyflip
 
         ; --- Unflipped piece loop ---
@@ -459,7 +474,6 @@ Emit_ObjectPieces:
         move.w  (a3)+, a1              ; X offset (signed)
 
         add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
         move.w  d0, (a4)+              ; SAT +0: Y
 
         move.b  d1, (a4)+              ; SAT +2: size code
@@ -472,7 +486,6 @@ Emit_ObjectPieces:
 
         move.w  a1, d0
         add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
         bne.s   .x_ok
         moveq   #1, d0
 .x_ok:
@@ -493,7 +506,6 @@ Emit_ObjectPieces:
         move.w  (a3)+, a1
 
         add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
         move.w  d0, (a4)+
 
         move.b  d1, (a4)+
@@ -512,7 +524,6 @@ Emit_ObjectPieces:
         move.b  (a0,d1.w), d1           ; X-flip width from CellOffsets_XFlip
         sub.w   d1, d0
         add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
         bne.s   .x_ok_xf
         moveq   #1, d0
 .x_ok_xf:
@@ -538,7 +549,6 @@ Emit_ObjectPieces:
         lsl.w   #3, d1                  ; height in pixels
         sub.w   d1, d0
         add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
         move.w  d0, (a4)+
 
         move.b  -6(a3), d1
@@ -553,7 +563,6 @@ Emit_ObjectPieces:
 
         move.w  a1, d0
         add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
         bne.s   .x_ok_yf
         moveq   #1, d0
 .x_ok_yf:
@@ -579,7 +588,6 @@ Emit_ObjectPieces:
         lsl.w   #3, d1
         sub.w   d1, d0
         add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
         move.w  d0, (a4)+
 
         move.b  -6(a3), d1
@@ -599,7 +607,6 @@ Emit_ObjectPieces:
         move.b  (a0,d1.w), d1
         sub.w   d1, d0
         add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
         bne.s   .x_ok_xyf
         moveq   #1, d0
 .x_ok_xyf:
