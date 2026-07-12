@@ -65,9 +65,18 @@ AllocDynamic:
         movea.w -(a1), a1
         move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a1)
         ; Spawn-order occupancy: append the popped slot to the live list
-        ; (Dynamic_Live[Count++] = a1). a0 is saved as a LONG — callers hold a
-        ; full 32-bit pointer (Load_ObjectList's ROM list ptr) across the call,
-        ; so a word save/restore would truncate it. O(1), spawn-time only.
+        ; (Dynamic_Live[Count++] = a1), UNIQUE by construction — DeleteObject (A1)
+        ; zeroed any prior entry for this slot. a0 saved LONG (callers hold a
+        ; 32-bit ROM ptr). Spawn-time only.
+        ; A1 capacity-guard: at a full count, compact FIRST (reclaims zero/dead
+        ; entries). Room guaranteed — we just popped, so the free stack was
+        ; nonempty; a full count then implies stale entries exist.
+        cmpi.w  #NUM_DYNAMIC, (Dynamic_Live_Count).w
+        bne.s   .append
+        movem.l d1/a0-a2, -(sp)         ; CompactDynamicLive clobbers these; the
+        bsr.w   CompactDynamicLive      ; popped slot (a1) is saved + restored
+        movem.l (sp)+, d1/a0-a2
+.append:
         move.l  a0, -(sp)
         lea     (Dynamic_Live).w, a0
         move.w  (Dynamic_Live_Count).w, d0
@@ -152,8 +161,25 @@ DeleteObject:
         move.w  a0, (a1)+
         move.w  a1, (Dynamic_Free_SP).w
         st      (Dynamic_Live_Dirty).w  ; dynamic deletion -> compact live list at frame end
-                                        ; (the entry stays put mid-walk; the slot
-                                        ; clear below is what actually kills it)
+        ; A1: ZERO this slot's live-list entry so a same-frame LIFO realloc can't
+        ; list it twice (the permanent-duplicate hazard, §6). <=NUM_DYNAMIC-word
+        ; scan, deletes rare; zeroing moves nothing (cursor-safe). d1 saved — not
+        ; in the clobber contract.
+        move.w  d1, -(sp)
+        move.w  a0, d1                  ; d1 = low16(slot addr) = the entry to find
+        lea     (Dynamic_Live).w, a1
+        move.w  (Dynamic_Live_Count).w, d0
+        beq.s   .dyn_zero_done
+        subq.w  #1, d0
+.dyn_zero_scan:
+        cmp.w   (a1)+, d1
+        beq.s   .dyn_zero_hit
+        dbf     d0, .dyn_zero_scan
+        bra.s   .dyn_zero_done
+.dyn_zero_hit:
+        clr.w   -(a1)                  ; (a1)+ passed the match; step back and zero it
+.dyn_zero_done:
+        move.w  (sp)+, d1
 
 .clear_slot:
         ; Zero all $50 bytes of the SST entry
@@ -179,6 +205,38 @@ DeleteObject:
         move.l  d0, (a0)+       ; $48
         move.l  d0, (a0)+       ; $4C
         lea     -SST_len(a0), a0 ; restore a0 to slot start
+        rts
+
+; -----------------------------------------------
+; CompactDynamicLive — reconcile the dynamic live-list (see core.emp)
+; Keeps nonzero + live-code_addr entries in place, drops zeroed (A1 delete) and
+; dead-code_addr entries alike, recounts, clears dirty. Because it MOVES entries
+; down, it MUST run only when no walk is live (RunObjects tail, or inside
+; AllocDynamic's append-on-full guard).
+; In: none  Out: none  Clobbers: d0, d1, a0, a1, a2
+; -----------------------------------------------
+CompactDynamicLive:
+        lea     (Dynamic_Live).w, a0    ; read cursor
+        lea     (Dynamic_Live).w, a1    ; write cursor (compacts down over drops)
+        move.w  (Dynamic_Live_Count).w, d1
+        beq.s   .recount
+        subq.w  #1, d1
+.loop:
+        move.w  (a0)+, d0               ; entry word
+        beq.s   .next                   ; zeroed (A1 delete) — drop
+        movea.w d0, a2
+        tst.w   (a2)                    ; slot code_addr
+        beq.s   .next                   ; dead slot — drop
+        move.w  d0, (a1)+               ; keep — copy down
+.next:
+        dbf     d1, .loop
+.recount:
+        lea     (Dynamic_Live).w, a0    ; new count = (write - base) / 2
+        suba.l  a0, a1
+        move.w  a1, d0
+        lsr.w   #1, d0
+        move.w  d0, (Dynamic_Live_Count).w
+        sf      (Dynamic_Live_Dirty).w
         rts
 
 ; -----------------------------------------------
@@ -253,7 +311,9 @@ RunObjects:
         beq.s   .culled_done
         subq.w  #1, d7
 .culled_loop:
-        movea.w (a2)+, a0
+        move.w  (a2)+, d0               ; A1: load entry, null-guard a zeroed
+        beq.s   .culled_next            ;     entry (same-frame delete) — no deref
+        movea.w d0, a0
         tst.w   (a0)                    ; truth guard: skip a dead-uncompacted slot
         beq.s   .culled_next
 
