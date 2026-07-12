@@ -16,11 +16,22 @@
 ;   a2   = player SST
 ;   a3   = target SST
 ;
+; Handler contract (effective clobber license = the dispatch movem): a handler
+; may clobber d0-d7 / a0-a4; TouchResponse reloads d4/d5 (player X/Y) and the
+; movem restores d6-d7 / a2-a4 — a5-a6 MUST survive.
+;
 ; In:  none (reads Object_RAM directly)
 ; Out: none
 ; Clobbers: d0-d7, a0-a3
 ; -----------------------------------------------
+; LOCKSTEP collision.emp: the per-target body (code_addr/collision_resp gate,
+; AABB pair, dispatch, reload) is single-sourced there as the touch_test_target
+; comptime fn and spliced into both segments; AS has no comptime fn, so this
+; twin spells the body inline TWICE (dynamic + fixed). The byte gates guard that
+; the two forms agree.
 TouchResponse:
+        move.l  a4, -(sp)               ; a4 = dynamic live-list cursor (saved —
+                                        ; not in the caller clobber contract)
         lea     (Player_1).w, a2
         move.w  #NUM_PLAYERS-1, d7
 
@@ -43,22 +54,26 @@ TouchResponse:
         move.w  SST_x_pos(a2), d4       ; cache player X integer
         move.w  SST_y_pos(a2), d5       ; cache player Y integer
 
-        lea     (Dynamic_Slots).w, a3
-        move.w  #NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS-1, d6
-
-.object_loop:
+        ; --- Dynamic pool: spawn-order live list (empty slots cost zero) ---
+        lea     (Dynamic_Live).w, a4
+        move.w  (Dynamic_Live_Count).w, d6
+        beq.w   .dyn_done               ; skips the whole segment; > .s range
+        subq.w  #1, d6
+.dyn_loop:
+        move.w  (a4)+, d0               ; A1: null-guard a zeroed entry — no deref
+        beq.s   .dyn_next
+        movea.w d0, a3
         tst.w   SST_code_addr(a3)
-        beq.s   .next_object
+        beq.s   .dyn_next
         tst.b   SST_collision_resp(a3)
-        beq.s   .next_object
+        beq.s   .dyn_next
 
-        ; --- AABB overlap via shared macro (§4.9) ---
         moveq   #0, d0
         move.b  SST_width_pixels(a2), d0
         moveq   #0, d1
         move.b  SST_width_pixels(a3), d1
 
-        aabb_axis_test d4,SST_x_pos(a3),d0,d1,d0,d1,d2,.next_object,x
+        aabb_axis_test d4,SST_x_pos(a3),d0,d1,d0,d1,d2,.dyn_next,dx
 
         movea.w d0, a0                  ; stash combined_w
         movea.w d1, a1                  ; stash signed delta_x
@@ -68,39 +83,90 @@ TouchResponse:
         moveq   #0, d3
         move.b  SST_height_pixels(a3), d3
 
-        aabb_axis_test d5,SST_y_pos(a3),d2,d3,d2,d3,d0,.next_object,y
+        aabb_axis_test d5,SST_y_pos(a3),d2,d3,d2,d3,d0,.dyn_next,dy
 
         move.w  a0, d0                  ; d0 = combined_w
         move.w  a1, d1                  ; d1 = signed delta_x
 
-        ; Dispatch via collision_resp jump table
         moveq   #0, d4
         move.b  SST_collision_resp(a3), d4
         cmpi.b  #COLLISION_TOUCH, d4
-        bhi.s   .next_object            ; invalid type: no handler ran, so the
-                                        ; d4/d5 position cache is still fresh —
-                                        ; skip the reload
+        bhi.s   .dyn_next               ; invalid type: cache still fresh, no reload
 
-        movem.l d6-d7/a2-a3, -(sp)
+        movem.l d6-d7/a2-a4, -(sp)      ; a4 (cursor) joins the saved set
 
+        ; Dispatch via a0-based indexing (a0 free — stash consumed into d0).
+        ; PC-relative table(pc,d4.w) can't reach the table from both bodies.
+        lea     .handler_table, a0
         add.w   d4, d4
         add.w   d4, d4                  ; type * 4 (bra.w entry size)
-        jsr     .handler_table(pc, d4.w)
+        jsr     (a0, d4.w)
 
-        movem.l (sp)+, d6-d7/a2-a3
+        movem.l (sp)+, d6-d7/a2-a4
 
-.overlap_done:
-        ; Reload cached player position (handler may have moved player)
-        move.w  SST_x_pos(a2), d4
+.dyn_overlap_done:
+        move.w  SST_x_pos(a2), d4       ; reload (handler may have moved player)
         move.w  SST_y_pos(a2), d5
+.dyn_next:
+        dbf     d6, .dyn_loop
+.dyn_done:
 
-.next_object:
+        ; --- System + Effect pools: fixed sweep (24 contiguous slots) ---
+        lea     (System_Slots).w, a3
+        move.w  #NUM_SYSTEM+NUM_EFFECTS-1, d6
+.fixed_loop:
+        tst.w   SST_code_addr(a3)
+        beq.s   .fixed_next
+        tst.b   SST_collision_resp(a3)
+        beq.s   .fixed_next
+
+        moveq   #0, d0
+        move.b  SST_width_pixels(a2), d0
+        moveq   #0, d1
+        move.b  SST_width_pixels(a3), d1
+
+        aabb_axis_test d4,SST_x_pos(a3),d0,d1,d0,d1,d2,.fixed_next,fx
+
+        movea.w d0, a0                  ; stash combined_w
+        movea.w d1, a1                  ; stash signed delta_x
+
+        moveq   #0, d2
+        move.b  SST_height_pixels(a2), d2
+        moveq   #0, d3
+        move.b  SST_height_pixels(a3), d3
+
+        aabb_axis_test d5,SST_y_pos(a3),d2,d3,d2,d3,d0,.fixed_next,fy
+
+        move.w  a0, d0                  ; d0 = combined_w
+        move.w  a1, d1                  ; d1 = signed delta_x
+
+        moveq   #0, d4
+        move.b  SST_collision_resp(a3), d4
+        cmpi.b  #COLLISION_TOUCH, d4
+        bhi.s   .fixed_next             ; invalid type: cache still fresh, no reload
+
+        movem.l d6-d7/a2-a4, -(sp)      ; a4 (unused here) rides the same shape
+
+        ; Dispatch via a0-based indexing (a0 free — stash consumed into d0).
+        ; PC-relative table(pc,d4.w) can't reach the table from both bodies.
+        lea     .handler_table, a0
+        add.w   d4, d4
+        add.w   d4, d4                  ; type * 4 (bra.w entry size)
+        jsr     (a0, d4.w)
+
+        movem.l (sp)+, d6-d7/a2-a4
+
+.fixed_overlap_done:
+        move.w  SST_x_pos(a2), d4       ; reload (handler may have moved player)
+        move.w  SST_y_pos(a2), d5
+.fixed_next:
         lea     SST_len(a3), a3
-        dbf     d6, .object_loop
+        dbf     d6, .fixed_loop
 
 .next_player:
         lea     SST_len(a2), a2
         dbf     d7, .player_loop
+        movea.l (sp)+, a4
         rts
 
 ; -----------------------------------------------
