@@ -29,7 +29,11 @@ pub const CTYPE_AIR = 0
 
 // Render flags — SST render_flags bit assignments (mirrors
 // engine/constants.asm).
+pub const RF_ONSCREEN  = 0            // set by Draw_Sprite if visible
+pub const RF_XFLIP     = 1            // horizontal flip
+pub const RF_YFLIP     = 2            // vertical flip
 pub const RF_COORDMODE = 3            // 0 = world coords, 1 = screen coords
+pub const RF_MULTISPRITE = 4          // (parent only) batch render via sibling walk
 pub const RF_PRIORITY_SHIFT = 5       // bits 5-7 = sprite priority band (0-7)
 
 // Animation script commands + interpreter inputs (mirror engine/constants.asm
@@ -75,11 +79,32 @@ pub const RING_HEIGHT      = 16
 pub const RING_ANIM_FRAMES = 4
 pub const RING_ANIM_SPEED  = 8              // frames per animation tick
 
-// VDP sprite-table geometry (mirrors engine/objects/sprites.asm:6-8 —
-// sprites.asm is the truth until IT ports; kill-list row 17).
+// VDP sprite-table geometry (mirrors engine/constants.asm — hoisted there
+// from sprites.asm at the tranche-11 sprites.emp port so it survives the
+// SIGIL_EMP_SPRITES gate for the gate-off rings.asm twin; kill-list row 17
+// → row-1 class).
 pub const MAX_VDP_SPRITES     = 80
 pub const VDP_SPRITE_X_OFFSET = 128         // VDP adds 128 to sprite X
 pub const VDP_SPRITE_Y_OFFSET = 128         // VDP adds 128 to sprite Y
+
+// Sprite priority-band + scanline budgeting geometry (mirror
+// engine/constants.asm — first consumed at the tranche-11 sprites.emp port).
+pub const PRIORITY_BANDS        = 8
+pub const SPRITES_PER_BAND      = 32
+pub const SCANLINE_BANDS        = 7         // 224 / 32 = 7 bands of 32 scanlines
+pub const SCANLINE_SPRITE_LIMIT = 24        // max sprite pieces per band
+
+// Visible screen dimensions in pixels (mirror engine/constants.asm).
+pub const SCREEN_WIDTH  = 320
+pub const SCREEN_HEIGHT = 224
+
+// Sprite-frame precomputed bbox byte offsets + first-piece offset (mirror
+// engine/constants.asm; FRAME_PIECE_COUNT above completes the header layout).
+pub const FRAME_BBOX_X_MIN = 0              // signed byte — leftmost piece pixel
+pub const FRAME_BBOX_X_MAX = 1              // signed byte — rightmost piece pixel
+pub const FRAME_BBOX_Y_MIN = 2              // signed byte — topmost piece pixel
+pub const FRAME_BBOX_Y_MAX = 3              // signed byte — bottommost piece pixel
+pub const FRAME_PIECES     = 6              // byte offset to first piece datum
 
 // VDP shadow-table length: 19 shadowed registers, $00-$12 (mirrors
 // engine/structs.asm's VDP_Shadow struct length — struct-generated `_len`
@@ -123,6 +148,21 @@ ensure(extern("VDP_Shadow_len") == VDP_Shadow_len, "engine/structs.asm's VDP_Sha
 ensure(extern("RING_HEIGHT") == RING_HEIGHT, "engine/constants.asm and engine/constants.emp disagree on RING_HEIGHT — update the twin")
 ensure(extern("RING_ANIM_FRAMES") == RING_ANIM_FRAMES, "engine/constants.asm and engine/constants.emp disagree on RING_ANIM_FRAMES — update the twin")
 ensure(extern("RING_ANIM_SPEED") == RING_ANIM_SPEED, "engine/constants.asm and engine/constants.emp disagree on RING_ANIM_SPEED — update the twin")
-ensure(extern("MAX_VDP_SPRITES") == MAX_VDP_SPRITES, "engine/objects/sprites.asm and engine/constants.emp disagree on MAX_VDP_SPRITES — update the twin")
-ensure(extern("VDP_SPRITE_X_OFFSET") == VDP_SPRITE_X_OFFSET, "engine/objects/sprites.asm and engine/constants.emp disagree on VDP_SPRITE_X_OFFSET — update the twin")
-ensure(extern("VDP_SPRITE_Y_OFFSET") == VDP_SPRITE_Y_OFFSET, "engine/objects/sprites.asm and engine/constants.emp disagree on VDP_SPRITE_Y_OFFSET — update the twin")
+ensure(extern("MAX_VDP_SPRITES") == MAX_VDP_SPRITES, "engine/constants.asm and engine/constants.emp disagree on MAX_VDP_SPRITES — update the twin")
+ensure(extern("VDP_SPRITE_X_OFFSET") == VDP_SPRITE_X_OFFSET, "engine/constants.asm and engine/constants.emp disagree on VDP_SPRITE_X_OFFSET — update the twin")
+ensure(extern("VDP_SPRITE_Y_OFFSET") == VDP_SPRITE_Y_OFFSET, "engine/constants.asm and engine/constants.emp disagree on VDP_SPRITE_Y_OFFSET — update the twin")
+ensure(extern("RF_ONSCREEN") == RF_ONSCREEN, "engine/constants.asm and engine/constants.emp disagree on RF_ONSCREEN — update the twin")
+ensure(extern("RF_XFLIP") == RF_XFLIP, "engine/constants.asm and engine/constants.emp disagree on RF_XFLIP — update the twin")
+ensure(extern("RF_YFLIP") == RF_YFLIP, "engine/constants.asm and engine/constants.emp disagree on RF_YFLIP — update the twin")
+ensure(extern("RF_MULTISPRITE") == RF_MULTISPRITE, "engine/constants.asm and engine/constants.emp disagree on RF_MULTISPRITE — update the twin")
+ensure(extern("PRIORITY_BANDS") == PRIORITY_BANDS, "engine/constants.asm and engine/constants.emp disagree on PRIORITY_BANDS — update the twin")
+ensure(extern("SPRITES_PER_BAND") == SPRITES_PER_BAND, "engine/constants.asm and engine/constants.emp disagree on SPRITES_PER_BAND — update the twin")
+ensure(extern("SCANLINE_BANDS") == SCANLINE_BANDS, "engine/constants.asm and engine/constants.emp disagree on SCANLINE_BANDS — update the twin")
+ensure(extern("SCANLINE_SPRITE_LIMIT") == SCANLINE_SPRITE_LIMIT, "engine/constants.asm and engine/constants.emp disagree on SCANLINE_SPRITE_LIMIT — update the twin")
+ensure(extern("SCREEN_WIDTH") == SCREEN_WIDTH, "engine/constants.asm and engine/constants.emp disagree on SCREEN_WIDTH — update the twin")
+ensure(extern("SCREEN_HEIGHT") == SCREEN_HEIGHT, "engine/constants.asm and engine/constants.emp disagree on SCREEN_HEIGHT — update the twin")
+ensure(extern("FRAME_BBOX_X_MIN") == FRAME_BBOX_X_MIN, "engine/constants.asm and engine/constants.emp disagree on FRAME_BBOX_X_MIN — update the twin")
+ensure(extern("FRAME_BBOX_X_MAX") == FRAME_BBOX_X_MAX, "engine/constants.asm and engine/constants.emp disagree on FRAME_BBOX_X_MAX — update the twin")
+ensure(extern("FRAME_BBOX_Y_MIN") == FRAME_BBOX_Y_MIN, "engine/constants.asm and engine/constants.emp disagree on FRAME_BBOX_Y_MIN — update the twin")
+ensure(extern("FRAME_BBOX_Y_MAX") == FRAME_BBOX_Y_MAX, "engine/constants.asm and engine/constants.emp disagree on FRAME_BBOX_Y_MAX — update the twin")
+ensure(extern("FRAME_PIECES") == FRAME_PIECES, "engine/constants.asm and engine/constants.emp disagree on FRAME_PIECES — update the twin")
