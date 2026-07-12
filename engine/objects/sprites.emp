@@ -58,6 +58,10 @@ pub proc Draw_Sprite () clobbers(d0, d1, d2, d3, a1) {
         movea.w d0, a1
         btst    #RF_MULTISPRITE, Sst.render_flags(a1)
         bne   .offscreen              // parent batches — clear ONSCREEN, don't register
+        // NOTE (B2): a multisprite CHILD lands at .offscreen here and keeps
+        // RF_ONSCREEN CLEAR even though it IS rendered (via the parent's
+        // sibling walk in Render_Sprites). Nothing may key culling or logic on
+        // a child's RF_ONSCREEN — for children the flag is meaningless.
     .no_parent:
 
         // Check if object has mappings — skip if null (must guard before frame resolution)
@@ -122,6 +126,10 @@ pub proc Draw_Sprite () clobbers(d0, d1, d2, d3, a1) {
         cmpi.b  #SPRITES_PER_BAND, d1
         blo   .band_has_room
 
+        // CHOSEN (B2): a full band cascades the sprite DOWN into a lower band
+        // (it renders BEHIND lower-priority sprites) rather than dropping it.
+        // A saturated high band degrades z-order gracefully instead of the
+        // sprite vanishing — visible-but-mis-layered beats invisible.
     .cascade:
         subq.w  #1, d0
         bmi   .all_bands_full         // all bands full, truly drop
@@ -205,6 +213,10 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         subq.w  #1, d7                     // adjust for dbf (must be .w — dbf uses full word)
 
         // --- Link-order cycling: reverse intra-band order on odd frames ---
+        // CHOSEN (B2): same-band overlap z-order flips EVERY frame, even with
+        // no band overflow — per-frame fairness (no sprite is permanently
+        // occluded by a same-band neighbour) is preferred over a stable
+        // z-order. The flicker is the cost of the fairness.
         btst    #0, Sprite_Cycle_Counter+1    // odd byte = frame parity; (Sprite_Cycle_Counter+1).w ram.asm
         bne   .reverse_band
         move.w  #2, -(sp)                  // even frame: forward step
@@ -277,7 +289,14 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         move.w  Sst.art_tile(a0), d6
 
         // --- Scanline band budget check ---
-        // Skip entirely when total pieces < limit — no band can overflow yet
+        // SOFT heuristic that UNDERCOUNTS by design (B1): the early-out below
+        // (d5 < SCANLINE_SPRITE_LIMIT) skips the COMMIT too, so the first
+        // SCANLINE_SPRITE_LIMIT sprites are never charged to the per-band
+        // counters (budget lenient ~2× per band); and multi-sprite CHILDREN
+        // (the sibling walk) bypass the budget entirely. The VDP drops excess
+        // per-line sprites in hardware regardless — the budget only shapes
+        // WHICH sprites drop, so an approximate charge is acceptable.
+        // (Volence's gate call: keep soft, or always-commit + charge children.)
         cmpi.w  #SCANLINE_SPRITE_LIMIT, d5
         blo   .budget_ok
         move.w  d3, d0                     // d0 = screen-relative Y
@@ -411,6 +430,12 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         rts
 
     .band_limit_pop:
+        // NOTE (B2): the cap path jumps straight to .done, SKIPPING the
+        // DrawRings call the normal band-loop exit makes (before .done). This
+        // is equivalent to the normal path ONLY because DrawRings cannot emit
+        // once d5 == MAX_VDP_SPRITES (the cap we hit to get here) — it early-
+        // outs at the cap. If DrawRings is ever changed to emit at the cap,
+        // this shortcut silently drops rings; route DrawRings before .done.
         addq.w  #2, sp                    // pop step value before done
         jbra   .done
 }
@@ -652,6 +677,11 @@ proc InsertSpriteMasks () clobbers(d0, d1) out(d5) {
 
         addi.w  #SPRITE_MASK_HEIGHT, d0   // advance Y by 32 scanlines
         subi.w  #SPRITE_MASK_HEIGHT, d1   // subtract covered height
+        // NOTE (B2): coverage rounds UP to whole 32-scanline mask sprites —
+        // SpriteMask_Height is effectively ceil'd to a multiple of 32 (the
+        // loop emits one full 8×32 mask per pass while d1 > 0). Intended: a
+        // partial final band still gets a full mask sprite covering its 32
+        // lines; over-covering a few blank scanlines is harmless.
         bgt   .mask_loop                // continue if scanlines remain
 
     .masks_done:
