@@ -474,9 +474,143 @@ data CellOffsets_XFlip: [u8; 16] = [
 ]
 
 // -----------------------------------------------
+// Per-piece SAT-emit term helpers — each returns the straight-line Code for
+// one flip-dependent segment of the piece loop (§2026-07-11 asm code-splice).
+// Label-free by construction (x_term's .x_ok is self-contained), so they drop
+// into the emit_piece_loop skeleton as holes without touching its .piece_loop.
+// -----------------------------------------------
+
+// Y position: flipped negates then subtracts the sprite height; upright just
+// adds the camera-relative origin.
+comptime fn y_term(yflip: int) -> Code {
+    if yflip != 0 {
+        return asm {
+            neg.w   d0
+            andi.w  #3, d1                  // height-1 from VDP size code low 2 bits
+            addq.w  #1, d1
+            lsl.w   #3, d1                  // height in pixels
+            sub.w   d1, d0
+            add.w   d3, d0                  // d3 = Camera_Y_Biased origin (A1: +128 pre-folded)
+            move.w  d0, (a4)+
+        }
+    }
+    return asm {
+        add.w   d3, d0                  // d3 = Camera_Y_Biased origin (A1: +128 pre-folded)
+        move.w  d0, (a4)+              // SAT +0: Y
+    }
+}
+
+// size code + link: the yflip height calc clobbered d1 → re-read it first.
+comptime fn size_link(yflip: int) -> Code {
+    if yflip != 0 {
+        return asm {
+            move.b  -6(a3), d1              // re-read VDP size code
+            move.b  d1, (a4)+              // SAT +2: size code
+            addq.b  #1, d5
+            move.b  d5, (a4)+              // SAT +3: link
+        }
+    }
+    return asm {
+        move.b  d1, (a4)+              // SAT +2: size code
+        addq.b  #1, d5
+        move.b  d5, (a4)+              // SAT +3: link
+    }
+}
+
+// tile attrs: toggle the flip bits — X=$0800, Y=$1000, both=$1800.
+comptime fn tile_term(xflip: int, yflip: int) -> Code {
+    if xflip != 0 {
+        if yflip != 0 {
+            return asm {
+                move.w  a6, d0
+                eori.w  #$1800, d0              // toggle both flip bits
+                add.w   d6, d0
+                move.w  d0, (a4)+
+            }
+        }
+        return asm {
+            move.w  a6, d0
+            eori.w  #$0800, d0              // toggle X flip bit
+            add.w   d6, d0
+            move.w  d0, (a4)+
+        }
+    }
+    if yflip != 0 {
+        return asm {
+            move.w  a6, d0
+            eori.w  #$1000, d0              // toggle Y flip bit
+            add.w   d6, d0
+            move.w  d0, (a4)+
+        }
+    }
+    return asm {
+        move.w  a6, d0
+        add.w   d6, d0
+        move.w  d0, (a4)+              // SAT +4: tile attrs
+    }
+}
+
+// X position: flipped negates then subtracts the sprite width (from
+// CellOffsets_XFlip via a0); upright just adds the origin. The .x_ok label +
+// its bne are BOTH here (self-contained) → resolved within this block, so the
+// splice never touches the skeleton's .piece_loop.
+comptime fn x_term(xflip: int) -> Code {
+    if xflip != 0 {
+        return asm {
+            move.w  a1, d0
+            neg.w   d0
+            moveq   #0, d1
+            move.b  -6(a3), d1              // re-read VDP size code
+            move.b  (a0,d1.w), d1           // X-flip width from CellOffsets_XFlip
+            sub.w   d1, d0
+            add.w   d2, d0                  // d2 = Camera_X_Biased origin (A1: +128 pre-folded)
+            bne     .x_ok
+            moveq   #1, d0
+        .x_ok:
+            move.w  d0, (a4)+
+        }
+    }
+    return asm {
+        move.w  a1, d0
+        add.w   d2, d0                  // d2 = Camera_X_Biased origin (A1: +128 pre-folded)
+        bne     .x_ok
+        moveq   #1, d0
+    .x_ok:
+        move.w  d0, (a4)+              // SAT +6: X
+    }
+}
+
+// -----------------------------------------------
+// emit_piece_loop — the per-piece SAT-emit loop skeleton, parametrized by
+// flip. The loop-back label (.piece_loop) and its dbeq live in THIS ONE block;
+// the flip-dependent segments are label-free {term()} splices (holes). The
+// caller jumps to the matching instantiation, so the code stays fully UNROLLED
+// (zero JSR per piece). Byte-identical to the four former inline variants.
+// -----------------------------------------------
+comptime fn emit_piece_loop(xflip: int, yflip: int) -> Code {
+    return asm {
+        subq.w  #1, d4
+    .piece_loop:
+        move.w  (a3)+, d0               // Y offset (signed)
+        move.b  (a3)+, d1               // VDP size code
+        addq.w  #1, a3                  // skip padding byte
+        move.w  (a3)+, a6              // tile attrs (relative)
+        move.w  (a3)+, a1              // X offset (signed)
+        {y_term(yflip)}
+        {size_link(yflip)}
+        {tile_term(xflip, yflip)}
+        {x_term(xflip)}
+        cmpi.b  #MAX_VDP_SPRITES, d5
+        dbeq    d4, .piece_loop
+        rts
+    }
+}
+
+// -----------------------------------------------
 // Emit_ObjectPieces — emit one object's mapping pieces to the SAT buffer
-// Reusable across single-object render path and multi-sprite sibling walk
-// Four flip variants kept inline (zero JSR per piece).
+// Reusable across single-object render path and multi-sprite sibling walk.
+// Dispatches on the (already-masked) flip byte to the matching unrolled
+// emit_piece_loop instantiation (four variants, zero JSR per piece).
 //
 // In:  a3 = pointer to first piece data (after piece-count word)
 //      a4 = SAT buffer write pointer
@@ -504,158 +638,14 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
         beq   .pieces_yflip
         jbra   .pieces_xyflip
 
-        // --- Unflipped piece loop ---
     .pieces_unflipped:
-        subq.w  #1, d4
-    .piece_loop:
-        move.w  (a3)+, d0               // Y offset (signed)
-        move.b  (a3)+, d1               // VDP size code
-        addq.w  #1, a3                  // skip padding byte
-        move.w  (a3)+, a6              // tile attrs (relative)
-        move.w  (a3)+, a1              // X offset (signed)
-
-        add.w   d3, d0
-        move.w  d0, (a4)+              // SAT +0: Y
-
-        move.b  d1, (a4)+              // SAT +2: size code
-        addq.b  #1, d5
-        move.b  d5, (a4)+              // SAT +3: link
-
-        move.w  a6, d0
-        add.w   d6, d0
-        move.w  d0, (a4)+              // SAT +4: tile attrs
-
-        move.w  a1, d0
-        add.w   d2, d0
-        bne   .x_ok
-        moveq   #1, d0
-    .x_ok:
-        move.w  d0, (a4)+              // SAT +6: X
-
-        cmpi.b  #MAX_VDP_SPRITES, d5
-        dbeq    d4, .piece_loop
-        rts
-
-        // --- X-flipped piece loop ---
+        emit_piece_loop(0, 0)
     .pieces_xflip:
-        subq.w  #1, d4
-    .piece_loop_xf:
-        move.w  (a3)+, d0
-        move.b  (a3)+, d1
-        addq.w  #1, a3
-        move.w  (a3)+, a6
-        move.w  (a3)+, a1
-
-        add.w   d3, d0
-        move.w  d0, (a4)+
-
-        move.b  d1, (a4)+
-        addq.b  #1, d5
-        move.b  d5, (a4)+
-
-        move.w  a6, d0
-        eori.w  #$0800, d0              // toggle X flip bit
-        add.w   d6, d0
-        move.w  d0, (a4)+
-
-        move.w  a1, d0
-        neg.w   d0
-        moveq   #0, d1
-        move.b  -6(a3), d1              // re-read VDP size code
-        move.b  (a0,d1.w), d1           // X-flip width from CellOffsets_XFlip
-        sub.w   d1, d0
-        add.w   d2, d0
-        bne   .x_ok_xf
-        moveq   #1, d0
-    .x_ok_xf:
-        move.w  d0, (a4)+
-
-        cmpi.b  #MAX_VDP_SPRITES, d5
-        dbeq    d4, .piece_loop_xf
-        rts
-
-        // --- Y-flipped piece loop ---
+        emit_piece_loop(1, 0)
     .pieces_yflip:
-        subq.w  #1, d4
-    .piece_loop_yf:
-        move.w  (a3)+, d0
-        move.b  (a3)+, d1
-        addq.w  #1, a3
-        move.w  (a3)+, a6
-        move.w  (a3)+, a1
-
-        neg.w   d0
-        andi.w  #3, d1                  // height-1 from VDP size code low 2 bits
-        addq.w  #1, d1
-        lsl.w   #3, d1                  // height in pixels
-        sub.w   d1, d0
-        add.w   d3, d0
-        move.w  d0, (a4)+
-
-        move.b  -6(a3), d1
-        move.b  d1, (a4)+
-        addq.b  #1, d5
-        move.b  d5, (a4)+
-
-        move.w  a6, d0
-        eori.w  #$1000, d0              // toggle Y flip bit
-        add.w   d6, d0
-        move.w  d0, (a4)+
-
-        move.w  a1, d0
-        add.w   d2, d0
-        bne   .x_ok_yf
-        moveq   #1, d0
-    .x_ok_yf:
-        move.w  d0, (a4)+
-
-        cmpi.b  #MAX_VDP_SPRITES, d5
-        dbeq    d4, .piece_loop_yf
-        rts
-
-        // --- XY-flipped piece loop ---
+        emit_piece_loop(0, 1)
     .pieces_xyflip:
-        subq.w  #1, d4
-    .piece_loop_xyf:
-        move.w  (a3)+, d0
-        move.b  (a3)+, d1
-        addq.w  #1, a3
-        move.w  (a3)+, a6
-        move.w  (a3)+, a1
-
-        neg.w   d0
-        andi.w  #3, d1
-        addq.w  #1, d1
-        lsl.w   #3, d1
-        sub.w   d1, d0
-        add.w   d3, d0
-        move.w  d0, (a4)+
-
-        move.b  -6(a3), d1
-        move.b  d1, (a4)+
-        addq.b  #1, d5
-        move.b  d5, (a4)+
-
-        move.w  a6, d0
-        eori.w  #$1800, d0              // toggle both flip bits
-        add.w   d6, d0
-        move.w  d0, (a4)+
-
-        move.w  a1, d0
-        neg.w   d0
-        moveq   #0, d1
-        move.b  -6(a3), d1
-        move.b  (a0,d1.w), d1
-        sub.w   d1, d0
-        add.w   d2, d0
-        bne   .x_ok_xyf
-        moveq   #1, d0
-    .x_ok_xyf:
-        move.w  d0, (a4)+
-
-        cmpi.b  #MAX_VDP_SPRITES, d5
-        dbeq    d4, .piece_loop_xyf
-        rts
+        emit_piece_loop(1, 1)
 }
 
 // -----------------------------------------------
