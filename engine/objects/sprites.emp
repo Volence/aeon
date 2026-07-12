@@ -191,6 +191,19 @@ pub proc Draw_Sprite () clobbers(d0, d1, d2, d3, a1) {
 pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         addq.w  #1, Sprite_Cycle_Counter      // (Sprite_Cycle_Counter).w — ram.asm
 
+        // A1 camera-bias fold: read Camera_X/Y ONCE here (final for this
+        // frame's render — the same value the per-object world path used to
+        // read per-object) and store Camera - VDP_SPRITE_*_OFFSET. The
+        // per-object setup subtracts the BIASED camera, folding the +128 SAT
+        // offset in, so all four Emit loops drop their per-piece `addi #128`
+        // (16 cyc/piece). Behavior-identical; screen-coord paths compensate.
+        move.w  Camera_X, d0
+        subi.w  #VDP_SPRITE_X_OFFSET, d0
+        move.w  d0, Camera_X_Biased           // (Camera_X_Biased).w — ram.asm
+        move.w  Camera_Y, d0
+        subi.w  #VDP_SPRITE_Y_OFFSET, d0
+        move.w  d0, Camera_Y_Biased           // (Camera_Y_Biased).w — ram.asm
+
         lea     Sprite_Table_Buffer, a4  // (Sprite_Table_Buffer).w — ram.asm; a4 = SAT buffer write pointer
         moveq   #0, d5                      // d5 = VDP sprite index (0-based)
 
@@ -273,17 +286,21 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         btst    #RF_COORDMODE, Sst.render_flags(a0)
         bne   .screen_pos
 
-        // World coords: screen_pos = object_pos - camera_pos
+        // World coords: d2/d3 = object_pos - biased_camera = screen_pos + 128
+        // (the +128 SAT offset folded in via the biased camera).
         move.w  Sst.x_pos(a0), d2         // object X integer
-        sub.w   Camera_X, d2               // (Camera_X).w — ram.asm; d2 = screen-relative X
+        sub.w   Camera_X_Biased, d2        // (Camera_X_Biased).w — ram.asm; d2 = screen X + 128
         move.w  Sst.y_pos(a0), d3         // object Y integer
-        sub.w   Camera_Y, d3               // (Camera_Y).w — ram.asm; d3 = screen-relative Y
+        sub.w   Camera_Y_Biased, d3        // (Camera_Y_Biased).w — ram.asm; d3 = screen Y + 128
         jbra   .have_pos
 
     .screen_pos:
-        // Screen coords: position IS the screen position
+        // Screen coords: position IS the screen position; add the +128 SAT
+        // offset explicitly (this path skips the biased-camera subtract).
         move.w  Sst.x_pos(a0), d2
+        addi.w  #VDP_SPRITE_X_OFFSET, d2
         move.w  Sst.y_pos(a0), d3
+        addi.w  #VDP_SPRITE_Y_OFFSET, d3
 
     .have_pos:
         move.w  Sst.art_tile(a0), d6
@@ -360,13 +377,15 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         btst    #RF_COORDMODE, Sst.render_flags(a0)
         bne   .child_screen_pos
         move.w  Sst.x_pos(a0), d2
-        sub.w   Camera_X, d2               // (Camera_X).w — ram.asm
+        sub.w   Camera_X_Biased, d2        // (Camera_X_Biased).w — ram.asm; screen X + 128
         move.w  Sst.y_pos(a0), d3
-        sub.w   Camera_Y, d3               // (Camera_Y).w — ram.asm
+        sub.w   Camera_Y_Biased, d3        // (Camera_Y_Biased).w — ram.asm; screen Y + 128
         jbra   .child_have_pos
     .child_screen_pos:
         move.w  Sst.x_pos(a0), d2
+        addi.w  #VDP_SPRITE_X_OFFSET, d2   // screen path: add the +128 SAT offset
         move.w  Sst.y_pos(a0), d3
+        addi.w  #VDP_SPRITE_Y_OFFSET, d3
     .child_have_pos:
         move.w  Sst.art_tile(a0), d6
         move.b  Sst.render_flags(a0), d0
@@ -496,7 +515,6 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
         move.w  (a3)+, a1              // X offset (signed)
 
         add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
         move.w  d0, (a4)+              // SAT +0: Y
 
         move.b  d1, (a4)+              // SAT +2: size code
@@ -509,7 +527,6 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
 
         move.w  a1, d0
         add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
         bne   .x_ok
         moveq   #1, d0
     .x_ok:
@@ -530,7 +547,6 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
         move.w  (a3)+, a1
 
         add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
         move.w  d0, (a4)+
 
         move.b  d1, (a4)+
@@ -549,7 +565,6 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
         move.b  (a0,d1.w), d1           // X-flip width from CellOffsets_XFlip
         sub.w   d1, d0
         add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
         bne   .x_ok_xf
         moveq   #1, d0
     .x_ok_xf:
@@ -575,7 +590,6 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
         lsl.w   #3, d1                  // height in pixels
         sub.w   d1, d0
         add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
         move.w  d0, (a4)+
 
         move.b  -6(a3), d1
@@ -590,7 +604,6 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
 
         move.w  a1, d0
         add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
         bne   .x_ok_yf
         moveq   #1, d0
     .x_ok_yf:
@@ -616,7 +629,6 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
         lsl.w   #3, d1
         sub.w   d1, d0
         add.w   d3, d0
-        addi.w  #VDP_SPRITE_Y_OFFSET, d0
         move.w  d0, (a4)+
 
         move.b  -6(a3), d1
@@ -636,7 +648,6 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
         move.b  (a0,d1.w), d1
         sub.w   d1, d0
         add.w   d2, d0
-        addi.w  #VDP_SPRITE_X_OFFSET, d0
         bne   .x_ok_xyf
         moveq   #1, d0
     .x_ok_xyf:
