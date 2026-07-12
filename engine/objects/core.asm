@@ -219,6 +219,7 @@ CompactDynamicLive:
         lea     (Dynamic_Live).w, a0    ; read cursor
         lea     (Dynamic_Live).w, a1    ; write cursor (compacts down over drops)
         move.w  (Dynamic_Live_Count).w, d1
+        assert.w d1, ls, #NUM_DYNAMIC   ; §6 (1): count never exceeds capacity
         beq.s   .recount
         subq.w  #1, d1
 .loop:
@@ -237,6 +238,38 @@ CompactDynamicLive:
         lsr.w   #1, d0
         move.w  d0, (Dynamic_Live_Count).w
         sf      (Dynamic_Live_Dirty).w
+        ; DEBUG invariant rail (§6), kept OUT of the hot loop so the plain
+        ; shape is byte-unchanged and the compaction loop's short branches keep
+        ; their .s widths. d0 = the fresh count (spent by §6-3's decrement).
+    ifdef __DEBUG__
+        ; §6 (3): post-compact count == a full-pool tst.w live sweep — no
+        ; duplicate, none missing (the check that catches the A1 double-
+        ; dispatch). Decrement the fresh count per live slot; a dup leaves it
+        ; >0, a missing slot drives it <0, so it must land exactly on zero.
+        lea     (Dynamic_Slots).w, a0
+        move.w  #NUM_DYNAMIC-1, d1
+.sweep_loop:
+        tst.w   (a0)
+        beq.s   .sweep_next
+        subq.w  #1, d0
+.sweep_next:
+        lea     SST_len(a0), a0
+        dbf     d1, .sweep_loop
+        assert.w d0, eq, #0
+        ; §6 (2): every live-list entry points into object RAM (the dynamic
+        ; slots are a subrange; identical spelling to Debug_AssertObjLoop so
+        ; the embedded assert message is byte-identical across the twins).
+        move.w  (Dynamic_Live_Count).w, d1
+        beq.w   .dbg_done
+        lea     (Dynamic_Live).w, a0
+        subq.w  #1, d1
+.entry_check:
+        movea.w (a0)+, a2
+        assert.l a2, hs, #Object_RAM
+        assert.l a2, lo, #Object_RAM_End
+        dbf     d1, .entry_check
+.dbg_done:
+    endif
         rts
 
 ; -----------------------------------------------
@@ -287,11 +320,16 @@ RunObjects:
         ;     Runs only on a frame where a deletion dirtied the list — O(1)
         ;     otherwise. Reconciles Count to the true live set + drains the
         ;     A1-zeroed entries the walkers had been null-guarding.
-        ;     LOCKSTEP core.emp: jbsr auto-selects; CompactDynamicLive is ~106
-        ;     bytes back → disp reaches .s (shape-invariant region between). ---
+        ;     LOCKSTEP core.emp: jbsr auto-selects PER SHAPE — plain reaches .s
+        ;     (~106 back), but the step-7 DEBUG asserts grew CompactDynamicLive
+        ;     enough to push the debug disp past .s, so the debug shape takes .w.
         tst.b   (Dynamic_Live_Dirty).w
         beq.s   .no_compact
+    ifdef __DEBUG__
+        bsr.w   CompactDynamicLive
+    else
         bsr.s   CompactDynamicLive
+    endif
 .no_compact:
         rts
 
