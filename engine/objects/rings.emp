@@ -76,8 +76,10 @@ pub proc RingBuffer_Add () clobbers(d4, a0) {
     .full:
         addq.b  #1, Ring_Add_Dropped
         if DEBUG == 1 {
-        // register comparand — the assert macro's message expansion can't
-        // take a parenthesised memory operand (assembles to error #1300)
+        // wrapper gates the move (asserts self-gate; the load does not — else
+        // it runs in the plain shape)
+        // register comparand — assert's src must be a register; a parenthesised
+        // memory operand assembles to error #1300
         move.b  Ring_Add_Dropped, d4    // d4 = declared clobber
         assert.b d4, eq, #0             // drop = content bug, fatal in DEBUG
         }

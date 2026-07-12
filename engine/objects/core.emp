@@ -280,6 +280,9 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
 // -----------------------------------------------
 pub proc Debug_AssertObjLoop () clobbers() {
     if DEBUG == 1 {
+        // wrapper elides the whole proc body in the plain shape (asserts
+        // self-gate; the rts does not — core_port's debug_shape_length_diverges
+        // pins plain = zero bytes)
         // a0 must point into Object_RAM (own SST), d7 into the loop counter
         // range — a violation means an object routine clobbered the contract.
         assert.l a0, hs, #Object_RAM
