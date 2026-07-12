@@ -31,11 +31,21 @@
 // in the ROM — bytes appear only where a consumer splices the template.
 module engine.objects.aabb
 
+// Zero-copy skip: when cdim aliases adim the lead move is a no-op (its flags
+// die at the following add), so emit it ONLY when the registers are distinct.
+// A conditionally-empty Code value spliced into the stream: for the aliasing
+// case (every call site today) it returns empty and inlines NOTHING — the
+// byte-neutral no-op. Formerly this was an `if`-branch whose `asm{}` yielded
+// Unit, so the would-be-emitting branch was latently DEAD; the splice makes it
+// real, working code for the first non-aliasing caller.
+comptime fn lead_move(adim: Reg, cdim: Reg) -> Code {
+    if adim != cdim { return asm { move.w  {adim}, {cdim} } }
+    return asm { }
+}
+
 pub comptime fn aabb_axis_test(apos: Reg, breg: Reg, boff: int, adim: Reg, bdim: Reg, cdim: Reg, delt: Reg, stmp: Reg, mlab: Label) -> Code {
-    // Zero-copy skip: when cdim aliases adim the lead move is a no-op (its
-    // flags die at the add) — emit it only when the registers are distinct.
-    let head = if adim != cdim { asm { move.w  {adim}, {cdim} } } else { asm { } }
-    return head ++ asm {
+    return asm {
+        {lead_move(adim, cdim)}
         add.w   {bdim}, {cdim}
 
         move.w  {apos}, {delt}
