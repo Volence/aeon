@@ -273,7 +273,23 @@ __BUDGET_ENGINE:
         org     $3388
       endif
     endif
-    include "engine/objects/entity_window.asm"
+    ifndef SIGIL_EMP_ENTITY_WINDOW
+        include "engine/objects/entity_window.asm"
+    else
+        ; sigil mixed build: entity_window's Collected_*/Killed_*/EntityLoaded_*/
+        ; EntityWindow_* procs come from engine/objects/entity_window.emp, pinned
+        ; by the sigil map at the per-shape reference address. Resume placement at
+        ; the region end (see sigil-harness golden/PROVENANCE.md; re-pin on
+        ; re-baseline). Shape-dependent LENGTH (the 11 asserts + 3 __DEBUG__
+        ; blocks), so the two resume orgs differ by more than the base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $4570
+      else
+        org     $3C5A
+      endif
+    endif
     include "engine/objects/children.asm"
     include "engine/objects/load_object.asm"
     include "engine/level/plane_buffer.asm"
