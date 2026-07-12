@@ -417,6 +417,25 @@ Sfx_Ring_Rd:            ds.b 1                 ; read cursor  (0..SFX_RING_MASK)
 Sound_Dbg_Mirror:       ds.b 176        ; DEBUG: [0..47] Z80 mailbox/status ($1F00..$1F2F), [48..63] playback state ($18F0..$18FF), [64..71] seq header, [72..141] 5 SeqChannel slots (FM1/FM2/PSG1/PSGN/DAC, 14 B each), [142..173] trace ring (see debug/sound_debug.asm)
 
 ; -----------------------------------------------
+; Object-pool occupancy — the dynamic-pool "run objects list"
+; (docs/superpowers/specs/2026-07-11-object-pool-occupancy-design.md)
+; Word SST-addresses of the live DYNAMIC slots, in SPAWN order, + count +
+; a frame-end-compaction dirty flag. SST code_addr==0 stays the single
+; source of truth; this list is a conservative over-approximation (may
+; briefly hold dead slots, never misses a live one — walkers keep a tst.w
+; guard) that lets RunObjects / TouchResponse / EntityWindow skip the ~37
+; typically-empty dynamic slots instead of sweeping all 40.
+; Placed at the RAM TAIL (not beside the free stacks): the addition then
+; ripples ZERO existing RAM addresses, so no ported module's byte gate moves
+; from the layout change — only the code edits do. Genesis RAM has no
+; locality cost, so tail placement is free.
+; -----------------------------------------------
+Dynamic_Live:           ds.w NUM_DYNAMIC ; 80B — live dynamic slot addresses, spawn order
+Dynamic_Live_Count:     ds.w 1           ; live entries (0..NUM_DYNAMIC)
+Dynamic_Live_Dirty:     ds.b 1           ; a dynamic deletion happened; compact at frame end
+                        ds.b 1           ; pad to even
+
+; -----------------------------------------------
 ; Engine RAM ends here — game RAM continues from Engine_RAM_End
 ; (games/<game>/config/ram.asm phases from this address).
 ; -----------------------------------------------

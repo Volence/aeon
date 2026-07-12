@@ -1322,11 +1322,21 @@ EntityWindow_DespawnRings:
 ; entry).
 ; -----------------------------------------------
 EntityWindow_DespawnObjects:
-        lea     (Dynamic_Slots).w, a0
-        move.w  #NUM_DYNAMIC-1, d5
+        ; Walk the dynamic live list (spawn order) instead of the fixed
+        ; 40-slot Dynamic_Slots sweep — empty slots cost ZERO. a2 = list
+        ; cursor; it must survive the DeleteObject call below (see .despawn).
+        move.w  (Dynamic_Live_Count).w, d5
+        bne.s   .have_live
+        rts
+.have_live:
+        lea     (Dynamic_Live).w, a2
+        subq.w  #1, d5
 
 .loop:
-        tst.w   SST_code_addr(a0)
+        move.w  (a2)+, d0               ; A1: load entry, null-guard a zeroed
+        beq.s   .next                   ;     entry (same-frame delete) — no deref
+        movea.w d0, a0
+        tst.w   SST_code_addr(a0)       ; truth guard: dead-but-uncompacted slot
         beq.s   .next
 
         cmpi.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a0)
@@ -1357,16 +1367,15 @@ EntityWindow_DespawnObjects:
                                         ; far below → fall into .despawn
 
 .despawn:
-        movem.l d5-d7/a0, -(sp)
+        movem.l d5-d7/a0/a2, -(sp)      ; +a2: live cursor must survive DeleteObject
         ; clear the loaded bit before the SST vanishes (Y despawn makes
         ; this live for active sections too)
         clearLoadedObj a0
         movea.l 12(sp), a0              ; SST ptr (a0 slot of the movem frame)
         jsr     DeleteObject
-        movem.l (sp)+, d5-d7/a0
+        movem.l (sp)+, d5-d7/a0/a2
 
 .next:
-        lea     SST_len(a0), a0
         dbf     d5, .loop
         rts
 

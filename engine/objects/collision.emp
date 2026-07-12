@@ -21,6 +21,79 @@ comptime fn interact_off() -> int {
 ensure(extern("SST_interact") == interact_off(), "engine/structs.asm SST_interact and collision.emp interact_off() disagree — update both")
 
 // -----------------------------------------------
+// touch_test_target — one candidate object vs. the current player (a2)
+// The per-target body shared by TouchResponse's two segments (the dynamic
+// live-list walk and the fixed system/effect sweep) — the ONLY difference
+// between them is how a3 (the target SST) was obtained, so the gate + AABB +
+// dispatch body is single-sourced here (the emit_piece_loop skeleton-with-holes
+// pattern). Splice it; each instantiation branches its no-overlap / no-collide
+// exits to `skip` (the caller's per-segment .next label). Hygienic locals
+// (.overlap_done, the aabb .aov) are per-instantiation.
+//
+// In:  a2 = player SST, a3 = candidate SST, d4/d5 = cached player X/Y
+// Uses/clobbers d0-d4, a0-a1; on overlap dispatches the handler (see the
+// handler contract on TouchResponse). Falls through to `skip` on no contact.
+// The AS twin (collision.asm) spells this body inline in BOTH segments (no
+// comptime fn in AS) — the byte gates are the guard that the two forms agree.
+comptime fn touch_test_target(skip: Label) -> Code {
+    return asm {
+        tst.w   Sst.code_addr(a3)
+        beq     {skip}
+        tst.b   Sst.collision_resp(a3)
+        beq     {skip}
+
+        // --- AABB overlap via the shared template (§4.9) ---
+        moveq   #0, d0
+        move.b  Sst.width_pixels(a2), d0
+        moveq   #0, d1
+        move.b  Sst.width_pixels(a3), d1
+
+        {aabb_axis_test(d4, a3, offsetof(Sst, x_pos), d0, d1, d0, d1, d2, skip)}
+
+        movea.w d0, a0                  // stash combined_w
+        movea.w d1, a1                  // stash signed delta_x
+
+        moveq   #0, d2
+        move.b  Sst.height_pixels(a2), d2
+        moveq   #0, d3
+        move.b  Sst.height_pixels(a3), d3
+
+        {aabb_axis_test(d5, a3, offsetof(Sst, y_pos), d2, d3, d2, d3, d0, skip)}
+
+        move.w  a0, d0                  // d0 = combined_w
+        move.w  a1, d1                  // d1 = signed delta_x
+
+        // Dispatch via collision_resp jump table
+        moveq   #0, d4
+        move.b  Sst.collision_resp(a3), d4
+        cmpi.b  #COLLISION_TOUCH, d4
+        bhi     {skip}                  // invalid type: no handler ran, so the
+                                        // d4/d5 position cache is still fresh —
+                                        // skip the reload
+
+        // a4 (the dynamic cursor) joins the saved set: the handler may clobber
+        // it, and it must survive to the next live-list step. The save/reload
+        // only fires on an actual overlap.
+        movem.l d6-d7/a2-a4, -(sp)
+
+        // Dispatch via a0-based indexing (a0 is free — its combined_w stash was
+        // consumed into d0 above). PC-relative `table(pc,d4.w)` can't be used:
+        // its 8-bit displacement can't reach the table from BOTH spliced sites.
+        lea     Touch_HandlerTable, a0
+        add.w   d4, d4
+        add.w   d4, d4                  // type * 4 (bra.w entry size)
+        jsr     (a0, d4.w)
+
+        movem.l (sp)+, d6-d7/a2-a4
+
+    .overlap_done:
+        // Reload cached player position (handler may have moved player)
+        move.w  Sst.x_pos(a2), d4
+        move.w  Sst.y_pos(a2), d5
+    }
+}
+
+// -----------------------------------------------
 // TouchResponse — check player(s) against all collidable objects
 // Iterates dynamic + system + effect slots. For each with
 // collision_resp != 0, performs AABB overlap test against each
@@ -34,11 +107,19 @@ ensure(extern("SST_interact") == interact_off(), "engine/structs.asm SST_interac
 //   a2   = player SST
 //   a3   = target SST
 //
+// Handler contract (effective clobber license = the dispatch movem): a handler
+// may clobber d0-d7 / a0-a4; TouchResponse reloads d4/d5 (player X/Y) and the
+// movem restores d6-d7 / a2-a4 — a5-a6 MUST survive. (Handlers are stubs today;
+// this states the rule for the first real one.)
+//
 // In:  none (reads Object_RAM directly)
 // Out: none
 // Clobbers: d0-d7, a0-a3
 // -----------------------------------------------
 pub proc TouchResponse () clobbers(d0-d7/a0-a3) {
+        // a4 is the dynamic live-list cursor; saved/restored at the proc
+        // boundary so the clobbers(a0-a3) caller contract is unchanged.
+        move.l  a4, -(sp)
         lea     Player_1, a2
         let     a2: *Sst                // C2: a2 self-loaded → typed here down
         move.w  #NUM_PLAYERS-1, d7
@@ -62,65 +143,33 @@ pub proc TouchResponse () clobbers(d0-d7/a0-a3) {
         move.w  x_pos(a2), d4       // cache player X integer
         move.w  y_pos(a2), d5       // cache player Y integer
 
-        lea     Dynamic_Slots, a3
-        let     a3: *Sst                // C2: a3 self-loaded → typed here down
-        move.w  #NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS-1, d6
+        // --- Dynamic pool: spawn-order live list (empty slots cost zero) ---
+        lea     Dynamic_Live, a4
+        move.w  Dynamic_Live_Count, d6
+        beq     .dyn_done
+        subq.w  #1, d6
+    .dyn_loop:
+        move.w  (a4)+, d0               // A1: null-guard a zeroed entry — no deref
+        beq     .dyn_next
+        movea.w d0, a3
+        touch_test_target(.dyn_next)
+    .dyn_next:
+        dbf     d6, .dyn_loop
+    .dyn_done:
 
-    .object_loop:
-        tst.w   code_addr(a3)
-        beq     .next_object
-        tst.b   collision_resp(a3)
-        beq     .next_object
-
-        // --- AABB overlap via the shared template (§4.9) ---
-        moveq   #0, d0
-        move.b  width_pixels(a2), d0
-        moveq   #0, d1
-        move.b  width_pixels(a3), d1
-
-        aabb_axis_test(d4, a3, offsetof(Sst, x_pos), d0, d1, d0, d1, d2, .next_object)
-
-        movea.w d0, a0                  // stash combined_w
-        movea.w d1, a1                  // stash signed delta_x
-
-        moveq   #0, d2
-        move.b  height_pixels(a2), d2
-        moveq   #0, d3
-        move.b  height_pixels(a3), d3
-
-        aabb_axis_test(d5, a3, offsetof(Sst, y_pos), d2, d3, d2, d3, d0, .next_object)
-
-        move.w  a0, d0                  // d0 = combined_w
-        move.w  a1, d1                  // d1 = signed delta_x
-
-        // Dispatch via collision_resp jump table
-        moveq   #0, d4
-        move.b  collision_resp(a3), d4
-        cmpi.b  #COLLISION_TOUCH, d4
-        bhi     .next_object            // invalid type: no handler ran, so the
-                                        // d4/d5 position cache is still fresh —
-                                        // skip the reload
-
-        movem.l d6-d7/a2-a3, -(sp)
-
-        add.w   d4, d4
-        add.w   d4, d4                  // type * 4 (bra.w entry size)
-        jsr     Touch_HandlerTable(pc, d4.w)
-
-        movem.l (sp)+, d6-d7/a2-a3
-
-    .overlap_done:
-        // Reload cached player position (handler may have moved player)
-        move.w  x_pos(a2), d4
-        move.w  y_pos(a2), d5
-
-    .next_object:
+        // --- System + Effect pools: fixed sweep (24 contiguous slots) ---
+        lea     System_Slots, a3
+        move.w  #NUM_SYSTEM+NUM_EFFECTS-1, d6
+    .fixed_loop:
+        touch_test_target(.fixed_next)
+    .fixed_next:
         lea     sizeof(Sst)(a3), a3
-        dbf     d6, .object_loop
+        dbf     d6, .fixed_loop
 
     .next_player:
         lea     sizeof(Sst)(a2), a2
         dbf     d7, .player_loop
+        movea.l (sp)+, a4
         rts
 }
 

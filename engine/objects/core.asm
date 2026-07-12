@@ -39,6 +39,12 @@ InitObjectRAM:
         dbf     d0, .push_eff
         move.w  #Effect_Free_Stack+NUM_EFFECTS*2, (Effect_Free_SP).w
 
+        ; Reset the dynamic live-list (spawn-order occupancy): empty, not dirty.
+        ; The Dynamic_Live array itself needs no clear — Count 0 means no entry
+        ; is valid. d1 still 0 from the .clear loop.
+        move.w  d1, (Dynamic_Live_Count).w
+        move.b  d1, (Dynamic_Live_Dirty).w
+
         ; Reset spawn counter (d1 still 0 from .clear loop)
         move.w  d1, (Spawn_Count).w
         rts
@@ -58,6 +64,26 @@ AllocDynamic:
         subq.w  #2, (Dynamic_Free_SP).w
         movea.w -(a1), a1
         move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a1)
+        ; Spawn-order occupancy: append the popped slot to the live list
+        ; (Dynamic_Live[Count++] = a1), UNIQUE by construction — DeleteObject (A1)
+        ; zeroed any prior entry for this slot. a0 saved LONG (callers hold a
+        ; 32-bit ROM ptr). Spawn-time only.
+        ; A1 capacity-guard: at a full count, compact FIRST (reclaims zero/dead
+        ; entries). Room guaranteed — we just popped, so the free stack was
+        ; nonempty; a full count then implies stale entries exist.
+        cmpi.w  #NUM_DYNAMIC, (Dynamic_Live_Count).w
+        bne.s   .append
+        movem.l d1/a0-a2, -(sp)         ; CompactDynamicLive clobbers these; the
+        bsr.w   CompactDynamicLive      ; popped slot (a1) is saved + restored
+        movem.l (sp)+, d1/a0-a2
+.append:
+        move.l  a0, -(sp)
+        lea     (Dynamic_Live).w, a0
+        move.w  (Dynamic_Live_Count).w, d0
+        add.w   d0, d0                  ; word index -> byte offset
+        move.w  a1, (a0,d0.w)
+        addq.w  #1, (Dynamic_Live_Count).w
+        movea.l (sp)+, a0
         moveq   #0, d0                  ; Z set = success
         rts
 .full:
@@ -134,6 +160,26 @@ DeleteObject:
         movea.w (Dynamic_Free_SP).w, a1
         move.w  a0, (a1)+
         move.w  a1, (Dynamic_Free_SP).w
+        st      (Dynamic_Live_Dirty).w  ; dynamic deletion -> compact live list at frame end
+        ; A1: ZERO this slot's live-list entry so a same-frame LIFO realloc can't
+        ; list it twice (the permanent-duplicate hazard, §6). <=NUM_DYNAMIC-word
+        ; scan, deletes rare; zeroing moves nothing (cursor-safe). d1 saved — not
+        ; in the clobber contract.
+        move.w  d1, -(sp)
+        move.w  a0, d1                  ; d1 = low16(slot addr) = the entry to find
+        lea     (Dynamic_Live).w, a1
+        move.w  (Dynamic_Live_Count).w, d0
+        beq.s   .dyn_zero_done
+        subq.w  #1, d0
+.dyn_zero_scan:
+        cmp.w   (a1)+, d1
+        beq.s   .dyn_zero_hit
+        dbf     d0, .dyn_zero_scan
+        bra.s   .dyn_zero_done
+.dyn_zero_hit:
+        clr.w   -(a1)                  ; (a1)+ passed the match; step back and zero it
+.dyn_zero_done:
+        move.w  (sp)+, d1
 
 .clear_slot:
         ; Zero all $50 bytes of the SST entry
@@ -162,6 +208,71 @@ DeleteObject:
         rts
 
 ; -----------------------------------------------
+; CompactDynamicLive — reconcile the dynamic live-list (see core.emp)
+; Keeps nonzero + live-code_addr entries in place, drops zeroed (A1 delete) and
+; dead-code_addr entries alike, recounts, clears dirty. Because it MOVES entries
+; down, it MUST run only when no walk is live (RunObjects tail, or inside
+; AllocDynamic's append-on-full guard).
+; In: none  Out: none  Clobbers: d0, d1, a0, a1, a2
+; -----------------------------------------------
+CompactDynamicLive:
+        lea     (Dynamic_Live).w, a0    ; read cursor
+        lea     (Dynamic_Live).w, a1    ; write cursor (compacts down over drops)
+        move.w  (Dynamic_Live_Count).w, d1
+        assert.w d1, ls, #NUM_DYNAMIC   ; §6 (1): count never exceeds capacity
+        beq.s   .recount
+        subq.w  #1, d1
+.loop:
+        move.w  (a0)+, d0               ; entry word
+        beq.s   .next                   ; zeroed (A1 delete) — drop
+        movea.w d0, a2
+        tst.w   (a2)                    ; slot code_addr
+        beq.s   .next                   ; dead slot — drop
+        move.w  d0, (a1)+               ; keep — copy down
+.next:
+        dbf     d1, .loop
+.recount:
+        lea     (Dynamic_Live).w, a0    ; new count = (write - base) / 2
+        suba.l  a0, a1
+        move.w  a1, d0
+        lsr.w   #1, d0
+        move.w  d0, (Dynamic_Live_Count).w
+        sf      (Dynamic_Live_Dirty).w
+        ; DEBUG invariant rail (§6), kept OUT of the hot loop so the plain
+        ; shape is byte-unchanged and the compaction loop's short branches keep
+        ; their .s widths. d0 = the fresh count (spent by §6-3's decrement).
+    ifdef __DEBUG__
+        ; §6 (3): post-compact count == a full-pool tst.w live sweep — no
+        ; duplicate, none missing (the check that catches the A1 double-
+        ; dispatch). Decrement the fresh count per live slot; a dup leaves it
+        ; >0, a missing slot drives it <0, so it must land exactly on zero.
+        lea     (Dynamic_Slots).w, a0
+        move.w  #NUM_DYNAMIC-1, d1
+.sweep_loop:
+        tst.w   (a0)
+        beq.s   .sweep_next
+        subq.w  #1, d0
+.sweep_next:
+        lea     SST_len(a0), a0
+        dbf     d1, .sweep_loop
+        assert.w d0, eq, #0
+        ; §6 (2): every live-list entry points into object RAM (the dynamic
+        ; slots are a subrange; identical spelling to Debug_AssertObjLoop so
+        ; the embedded assert message is byte-identical across the twins).
+        move.w  (Dynamic_Live_Count).w, d1
+        beq.w   .dbg_done
+        lea     (Dynamic_Live).w, a0
+        subq.w  #1, d1
+.entry_check:
+        movea.w (a0)+, a2
+        assert.l a2, hs, #Object_RAM
+        assert.l a2, lo, #Object_RAM_End
+        dbf     d1, .entry_check
+.dbg_done:
+    endif
+        rts
+
+; -----------------------------------------------
 ; RunObjects — dispatch all active object slots
 ; Per-pool loops: players/system/effects always execute,
 ; dynamic pool is culled by distance from camera.
@@ -178,26 +289,21 @@ RunObjects:
         move.w  d0, (Spawn_Count).w
 
         tst.b   (Game_Paused).w
-        ; LOCKSTEP core.emp C-A1: .emp uses a bare `bne` that sigil width-selects
-        ; per shape. AS bare branches phase-error against the tight bsr.s below,
-        ; so mirror the two widths explicitly: plain disp 0x7E fits .s; the DEBUG
-        ; shape's two ifdebug bsr sites push RunObjects_Frozen out to disp ~0x1A4,
-        ; forcing .w.
-    ifdef __DEBUG__
+        ; LOCKSTEP core.emp: .emp uses a bare `bne` that sigil width-selects.
+        ; Since the object-pool occupancy step-2 retrofit grew .run_culled, the
+        ; plain-shape disp to RunObjects_Frozen now also exceeds .s (it fit .s
+        ; pre-step-2), so BOTH shapes force .w — the twin drops the ifdef split.
         bne.w   RunObjects_Frozen
-    else
-        bne.s   RunObjects_Frozen
-    endif
 
         ; --- Player slots (always execute) ---
         lea     (Player_1).w, a0
         move.w  #NUM_PLAYERS-1, d7
         bsr.s   .run_always
 
-        ; --- Dynamic slots (culled by distance) ---
-        lea     (Dynamic_Slots).w, a0
-        move.w  #NUM_DYNAMIC-1, d7
-        bsr.s   .run_culled             ; LOCKSTEP core.emp step 2: jbsr shrink (was bsr.w; disp reaches .s → −2 bytes both shapes)
+        ; --- Dynamic slots (culled by distance, walked in spawn order via
+        ;     the live list — empty slots cost zero; .run_culled sets up its
+        ;     own cursor + count) ---
+        bsr.s   .run_culled
 
         ; --- System slots (always execute) ---
         lea     (System_Slots).w, a0
@@ -208,6 +314,23 @@ RunObjects:
         lea     (Effect_Slots).w, a0
         move.w  #NUM_EFFECTS-1, d7
         bsr.s   .run_always
+
+        ; --- Frame-end compaction (step 6): every walk is done, so it is
+        ;     safe for CompactDynamicLive to move entries down over drops.
+        ;     Runs only on a frame where a deletion dirtied the list — O(1)
+        ;     otherwise. Reconciles Count to the true live set + drains the
+        ;     A1-zeroed entries the walkers had been null-guarding.
+        ;     LOCKSTEP core.emp: jbsr auto-selects PER SHAPE — plain reaches .s
+        ;     (~106 back), but the step-7 DEBUG asserts grew CompactDynamicLive
+        ;     enough to push the debug disp past .s, so the debug shape takes .w.
+        tst.b   (Dynamic_Live_Dirty).w
+        beq.s   .no_compact
+    ifdef __DEBUG__
+        bsr.w   CompactDynamicLive
+    else
+        bsr.s   CompactDynamicLive
+    endif
+.no_compact:
         rts
 
 ; Dispatch loop — no culling
@@ -227,10 +350,21 @@ RunObjects:
         dbf     d7, .always_loop
         rts
 
-; Dispatch loop — skip objects far from camera
+; Dispatch loop — dynamic pool, walked in SPAWN order via the live list.
+; Empty slots cost ZERO (never appended); a dead-but-uncompacted entry costs
+; one tst.w guard. d7 snapshots the count at entry (a child appended mid-walk
+; runs NEXT frame). a2 = list cursor, saved across dispatch (object code may
+; clobber it — only a0/d7 are preserved).
 .run_culled:
+        lea     (Dynamic_Live).w, a2
+        move.w  (Dynamic_Live_Count).w, d7
+        beq.s   .culled_done
+        subq.w  #1, d7
 .culled_loop:
-        tst.w   (a0)
+        move.w  (a2)+, d0               ; A1: load entry, null-guard a zeroed
+        beq.s   .culled_next            ;     entry (same-frame delete) — no deref
+        movea.w d0, a0
+        tst.w   (a0)                    ; truth guard: skip a dead-uncompacted slot
         beq.s   .culled_next
 
         ; X distance check: abs(obj_x - camera_x)
@@ -251,16 +385,18 @@ RunObjects:
         cmpi.w  #CULL_DISTANCE_Y, d0
         bhi.s   .culled_next
 
-        ; Within range — dispatch
+        ; Within range — dispatch (a2 saved: object code may clobber it)
         moveq   #OBJ_CODE_BANK, d0
         swap    d0
         move.w  (a0), d0
         movea.l d0, a1
+        move.l  a2, -(sp)
         jsr     (a1)
-        ifdebug bsr.s Debug_AssertObjLoop  ; LOCKSTEP core.emp C-A1: jbsr shrink (was bsr.w; Debug_AssertObjLoop is near → disp reaches .s → −2 bytes, DEBUG shape only)
+        movea.l (sp)+, a2
+        ifdebug bsr.s Debug_AssertObjLoop  ; LOCKSTEP core.emp: preservation-contract check
 .culled_next:
-        lea     SST_len(a0), a0
         dbf     d7, .culled_loop
+.culled_done:
         rts
 
     ifdef __DEBUG__
@@ -282,21 +418,51 @@ Debug_AssertObjLoop:
 
 ; -----------------------------------------------
 ; RunObjects_Frozen — render-only pass (player death, pause)
-; Calls Draw_Sprite for each occupied slot, skips object logic
+; Player + system + effect keep small fixed sweeps (26 slots); the dynamic
+; segment walks the spawn-order live list, so paused frames skip the ~37 empty
+; dynamic slots too.
 ; In:  none
 ; Out: none
 ; Clobbers: d0-d6, a0-a6
 ; -----------------------------------------------
 RunObjects_Frozen:
-        lea     (Object_RAM).w, a0
-        move.w  #NUM_TOTAL_SLOTS-1, d7
-.loop:
+        ; Players (fixed sweep, 2 slots)
+        lea     (Player_1).w, a0
+        move.w  #NUM_PLAYERS-1, d7
+        bsr.s   .frozen_fixed
+
+        ; Dynamic pool — spawn-order live list (empty slots cost zero). a2 is the
+        ; cursor; Draw_Sprite preserves a0/d7/a2, so no save is needed.
+        lea     (Dynamic_Live).w, a2
+        move.w  (Dynamic_Live_Count).w, d7
+        beq.s   .frozen_dyn_done
+        subq.w  #1, d7
+.frozen_dyn_loop:
+        move.w  (a2)+, d0               ; A1: null-guard a zeroed entry — no deref
+        beq.s   .frozen_dyn_next
+        movea.w d0, a0
+        tst.w   (a0)                    ; truth guard: dead-but-uncompacted slot
+        beq.s   .frozen_dyn_next
+        bsr.s   Draw_Sprite
+.frozen_dyn_next:
+        dbf     d7, .frozen_dyn_loop
+.frozen_dyn_done:
+
+        ; System + Effect (fixed sweep, contiguous 24 slots)
+        lea     (System_Slots).w, a0
+        move.w  #NUM_SYSTEM+NUM_EFFECTS-1, d7
+        bsr.s   .frozen_fixed
+        rts
+
+; Fixed-pool sweep — Draw each occupied slot across an [a0 .. a0+d7] run
+.frozen_fixed:
+.frozen_fixed_loop:
         tst.w   (a0)
-        beq.s   .next
-        bsr.s   Draw_Sprite             ; LOCKSTEP core.emp step 2: jbsr shrink (was bsr.w; disp 0x5A reaches .s → −2 bytes both shapes)
-.next:
+        beq.s   .frozen_fixed_next
+        bsr.s   Draw_Sprite
+.frozen_fixed_next:
         lea     SST_len(a0), a0
-        dbf     d7, .loop
+        dbf     d7, .frozen_fixed_loop
         rts
 
 ; -----------------------------------------------
