@@ -368,21 +368,51 @@ Debug_AssertObjLoop:
 
 ; -----------------------------------------------
 ; RunObjects_Frozen — render-only pass (player death, pause)
-; Calls Draw_Sprite for each occupied slot, skips object logic
+; Player + system + effect keep small fixed sweeps (26 slots); the dynamic
+; segment walks the spawn-order live list, so paused frames skip the ~37 empty
+; dynamic slots too.
 ; In:  none
 ; Out: none
 ; Clobbers: d0-d6, a0-a6
 ; -----------------------------------------------
 RunObjects_Frozen:
-        lea     (Object_RAM).w, a0
-        move.w  #NUM_TOTAL_SLOTS-1, d7
-.loop:
+        ; Players (fixed sweep, 2 slots)
+        lea     (Player_1).w, a0
+        move.w  #NUM_PLAYERS-1, d7
+        bsr.s   .frozen_fixed
+
+        ; Dynamic pool — spawn-order live list (empty slots cost zero). a2 is the
+        ; cursor; Draw_Sprite preserves a0/d7/a2, so no save is needed.
+        lea     (Dynamic_Live).w, a2
+        move.w  (Dynamic_Live_Count).w, d7
+        beq.s   .frozen_dyn_done
+        subq.w  #1, d7
+.frozen_dyn_loop:
+        move.w  (a2)+, d0               ; A1: null-guard a zeroed entry — no deref
+        beq.s   .frozen_dyn_next
+        movea.w d0, a0
+        tst.w   (a0)                    ; truth guard: dead-but-uncompacted slot
+        beq.s   .frozen_dyn_next
+        bsr.s   Draw_Sprite
+.frozen_dyn_next:
+        dbf     d7, .frozen_dyn_loop
+.frozen_dyn_done:
+
+        ; System + Effect (fixed sweep, contiguous 24 slots)
+        lea     (System_Slots).w, a0
+        move.w  #NUM_SYSTEM+NUM_EFFECTS-1, d7
+        bsr.s   .frozen_fixed
+        rts
+
+; Fixed-pool sweep — Draw each occupied slot across an [a0 .. a0+d7] run
+.frozen_fixed:
+.frozen_fixed_loop:
         tst.w   (a0)
-        beq.s   .next
-        bsr.s   Draw_Sprite             ; LOCKSTEP core.emp step 2: jbsr shrink (was bsr.w; disp 0x5A reaches .s → −2 bytes both shapes)
-.next:
+        beq.s   .frozen_fixed_next
+        bsr.s   Draw_Sprite
+.frozen_fixed_next:
         lea     SST_len(a0), a0
-        dbf     d7, .loop
+        dbf     d7, .frozen_fixed_loop
         rts
 
 ; -----------------------------------------------
