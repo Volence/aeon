@@ -280,62 +280,11 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
 // -----------------------------------------------
 pub proc Debug_AssertObjLoop () clobbers() {
     if DEBUG == 1 {
-        // TRANSLITERATION of debugger.asm's three `assert` macro expansions
-        // (assert → _assert → RaiseError → __FSTRING_*): the instruction
-        // skeleton is spelled as real asm (the two MDDBG__* targets and the
-        // symbol comparands resolve through the link seam), the FSTRING-
-        // generated string/descriptor/flag data as dc.b verbatim from the
-        // debug listing ($2AA2 window). The debug-shape byte gate is the
-        // drift guard. Scheduled demolition: kill-list row 16 (dies when
-        // debugger.asm ports or an .emp assert construct lands).
-
-        // assert.l a0, hs, #Object_RAM
-        move.w  sr, -(sp)
-        cmp.l   #extern("Object_RAM"), a0
-        bhs.w   .skip1                  // byte-locked .w (assert-macro expansion transliteration)
-    .a1raise:
-        pea     .a1raise(pc)            // pea *(pc) — self-address for the handler
-        move.w  sr, -(sp)
-        move.l  a0, -(sp)
-        jsr     (MDDBG__ErrorHandler).l
-        dc.b    "Assertion failed:", $E0, $EC, "> assert.l ", $E8, "a0,", $EC, "hs", $E8, ",#Object_RAM", $E0, $EA, "Got: "
-        dc.b    $83, $00                // %<.l a0> descriptor + string terminator
-        dc.b    $20                     // _eh_return|_eh_align_offset flag
-        jmp     (MDDBG__ErrorHandler_PagesController).l
-    .skip1:
-        move.w  (sp)+, sr
-
-        // assert.l a0, lo, #Object_RAM_End
-        move.w  sr, -(sp)
-        cmp.l   #extern("Object_RAM_End"), a0
-        blo.w   .skip2                  // byte-locked .w (assert-macro expansion transliteration)
-    .a2raise:
-        pea     .a2raise(pc)            // pea *(pc) — self-address for the handler
-        move.w  sr, -(sp)
-        move.l  a0, -(sp)
-        jsr     (MDDBG__ErrorHandler).l
-        dc.b    "Assertion failed:", $E0, $EC, "> assert.l ", $E8, "a0,", $EC, "lo", $E8, ",#Object_RAM_End", $E0, $EA, "Got: "
-        dc.b    $83, $00                // %<.l a0> descriptor + string terminator
-        dc.b    $20                     // _eh_return|_eh_align_offset flag
-        jmp     (MDDBG__ErrorHandler_PagesController).l
-    .skip2:
-        move.w  (sp)+, sr
-
-        // assert.w d7, lo, #NUM_DYNAMIC
-        move.w  sr, -(sp)
-        cmp.w   #NUM_DYNAMIC, d7
-        blo.w   .skip3                  // byte-locked .w (assert-macro expansion transliteration)
-    .a3raise:
-        pea     .a3raise(pc)            // pea *(pc) — self-address for the handler
-        move.w  sr, -(sp)
-        move.w  d7, -(sp)
-        jsr     (MDDBG__ErrorHandler).l
-        dc.b    "Assertion failed:", $E0, $EC, "> assert.w ", $E8, "d7,", $EC, "lo", $E8, ",#NUM_DYNAMIC", $E0, $EA, "Got: "
-        dc.b    $81, $00                // %<.w d7> descriptor + string terminator
-        dc.b    $A0, $00                // _eh_return|_eh_align_offset flag + align pad
-        jmp     (MDDBG__ErrorHandler_PagesController).l
-    .skip3:
-        move.w  (sp)+, sr
+        // a0 must point into Object_RAM (own SST), d7 into the loop counter
+        // range — a violation means an object routine clobbered the contract.
+        assert.l a0, hs, #Object_RAM
+        assert.l a0, lo, #Object_RAM_End
+        assert.w d7, lo, #NUM_DYNAMIC
         rts
     }
 }

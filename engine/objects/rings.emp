@@ -76,42 +76,10 @@ pub proc RingBuffer_Add () clobbers(d4, a0) {
     .full:
         addq.b  #1, Ring_Add_Dropped
         if DEBUG == 1 {
-        // TRANSLITERATION of debugger.asm's `assert.b d4, eq, #0` expansion
-        // (assert → _assert → RaiseError → __FSTRING_*): the instruction
-        // skeleton is spelled as real asm (the two MDDBG__* targets and the
-        // RAM read resolve through the link seam), the FSTRING-generated
-        // string/descriptor/flag data as dc.b verbatim from the reference
-        // listing. The debug-shape byte gate is the drift guard — any
-        // debugger.asm macro change that alters this expansion fails the
-        // gate loudly. Scheduled demolition: kill-list row 16 (dies when
-        // debugger.asm ports or an .emp assert construct lands).
-        //
         // register comparand — the assert macro's message expansion can't
         // take a parenthesised memory operand (assembles to error #1300)
         move.b  Ring_Add_Dropped, d4    // d4 = declared clobber
-        // assert.b d4, eq, #0 — drop = content bug, fatal in DEBUG
-        move.w  sr, -(sp)               // assert saves/restores CCR
-        cmp.b   #0, d4
-        beq.w   .assert_ok
-        // RaiseError "Assertion failed: …" — handler consumes the string
-        // at the jsr return address; control never falls through the data.
-    .raise:
-        pea     .raise(pc)              // pea *(pc) — self-address for the handler
-        move.w  sr, -(sp)
-        subq.w  #2, sp                  // FSTRING arg push: %<.b d4>
-        move.b  d4, 1(sp)
-        jsr     (MDDBG__ErrorHandler).l
-        // __FSTRING_GenerateDecodedString output ($E0 endl, $E8/$EA/$EC
-        // pal0/1/2 tokens), then the byte-arg descriptor + terminator,
-        // then the _eh_return flag byte + align pad — POSITION-DEPENDENT
-        // constants (parity-derived in the macro), safe while the gate pins
-        // the whole block.
-        dc.b    "Assertion failed:", $E0, $EC, "> assert.b ", $E8, "d4,", $EC, "eq", $E8, ",#0", $E0, $EA, "Got: "
-        dc.b    $80, $00                // %<.b d4> descriptor + string terminator
-        dc.b    $A0, $00                // _eh_return|_eh_align_offset flag + align pad
-        jmp     (MDDBG__ErrorHandler_PagesController).l
-    .assert_ok:
-        move.w  (sp)+, sr
+        assert.b d4, eq, #0             // drop = content bug, fatal in DEBUG
         }
         ori.b   #1, ccr                 // set carry
         rts
