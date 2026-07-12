@@ -281,6 +281,18 @@ RunObjects:
         lea     (Effect_Slots).w, a0
         move.w  #NUM_EFFECTS-1, d7
         bsr.s   .run_always
+
+        ; --- Frame-end compaction (step 6): every walk is done, so it is
+        ;     safe for CompactDynamicLive to move entries down over drops.
+        ;     Runs only on a frame where a deletion dirtied the list — O(1)
+        ;     otherwise. Reconciles Count to the true live set + drains the
+        ;     A1-zeroed entries the walkers had been null-guarding.
+        ;     LOCKSTEP core.emp: jbsr auto-selects; CompactDynamicLive is ~106
+        ;     bytes back → disp reaches .s (shape-invariant region between). ---
+        tst.b   (Dynamic_Live_Dirty).w
+        beq.s   .no_compact
+        bsr.s   CompactDynamicLive
+.no_compact:
         rts
 
 ; Dispatch loop — no culling
