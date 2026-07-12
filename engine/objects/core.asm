@@ -39,6 +39,12 @@ InitObjectRAM:
         dbf     d0, .push_eff
         move.w  #Effect_Free_Stack+NUM_EFFECTS*2, (Effect_Free_SP).w
 
+        ; Reset the dynamic live-list (spawn-order occupancy): empty, not dirty.
+        ; The Dynamic_Live array itself needs no clear — Count 0 means no entry
+        ; is valid. d1 still 0 from the .clear loop.
+        move.w  d1, (Dynamic_Live_Count).w
+        move.b  d1, (Dynamic_Live_Dirty).w
+
         ; Reset spawn counter (d1 still 0 from .clear loop)
         move.w  d1, (Spawn_Count).w
         rts
@@ -58,6 +64,17 @@ AllocDynamic:
         subq.w  #2, (Dynamic_Free_SP).w
         movea.w -(a1), a1
         move.b  #SLOT_TAG_UNTAGGED, SST_slot_tag(a1)
+        ; Spawn-order occupancy: append the popped slot to the live list
+        ; (Dynamic_Live[Count++] = a1). a0 is saved as a LONG — callers hold a
+        ; full 32-bit pointer (Load_ObjectList's ROM list ptr) across the call,
+        ; so a word save/restore would truncate it. O(1), spawn-time only.
+        move.l  a0, -(sp)
+        lea     (Dynamic_Live).w, a0
+        move.w  (Dynamic_Live_Count).w, d0
+        add.w   d0, d0                  ; word index -> byte offset
+        move.w  a1, (a0,d0.w)
+        addq.w  #1, (Dynamic_Live_Count).w
+        movea.l (sp)+, a0
         moveq   #0, d0                  ; Z set = success
         rts
 .full:
@@ -134,6 +151,9 @@ DeleteObject:
         movea.w (Dynamic_Free_SP).w, a1
         move.w  a0, (a1)+
         move.w  a1, (Dynamic_Free_SP).w
+        st      (Dynamic_Live_Dirty).w  ; dynamic deletion -> compact live list at frame end
+                                        ; (the entry stays put mid-walk; the slot
+                                        ; clear below is what actually kills it)
 
 .clear_slot:
         ; Zero all $50 bytes of the SST entry
