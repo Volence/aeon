@@ -36,8 +36,13 @@ pub newtype Angle = u8
 // executable-address-shaped, never arithmetic data.
 pub newtype ObjRoutine = u16
 
-// A hitbox half-extent in pixels (SST width/height) — collision-box
-// domain, distinct from world distances and screen coordinates.
+// A hitbox dimension in pixels — the FULL collision-box width/height (SST
+// width_pixels/height_pixels), NOT a half-extent: aabb_axis_test sums both
+// boxes' full dims and compares against TWICE the centre distance, so a
+// half-extent here would halve every hitbox. Collision-box domain, distinct
+// from world distances and screen coordinates.
+// NAME MISMATCH (flagged to Volence, not renamed unilaterally): "Radius"
+// reads as a half-extent but the value is a full dimension — rename candidate.
 pub newtype Radius = u8
 
 // The PACKED VRAM art word: priority<<15 | palette<<13 | tile index

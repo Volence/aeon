@@ -183,14 +183,26 @@ Camera_Update:
     if GAME_CAMERA_JUMP_LOCK
         move.b  (Player_1+_pl_state).w, d2
         cmpi.b  #PSTATE_JUMP, d2
-        beq.s   .land_lock
+        beq.s   .jump_state
         cmpi.b  #PSTATE_ROLLJUMP, d2
         bne.s   .down_ok
+.jump_state:
+        ; Gate the lock on vertical velocity: only hold while RISING/HANGING —
+        ; exactly the stated intent ("must NOT scroll down to chase a rising/
+        ; hanging player"). The jump state persists through the whole arc incl.
+        ; the descent, so without this the lock froze Y while the player sank to
+        ; the bottom edge, then alternated 16-px catch-up steps with hold frames
+        ; (Sonic riding the edge, jittering). Once y_vel goes positive the player
+        ; is falling: release so the descent follows like a walk-off (32-px
+        ; deadzone, 16 px/frame) and settles back to the focal point. Short hops
+        ; still don't scroll (their descent never exceeds the deadzone).
+        tst.w   (Player_1+SST_y_vel).w             ; falling? (y_vel > 0)
+        bgt.s   .down_ok                           ; yes → normal deadzone follow
 .land_lock:
-        ; player is below focal point in a jump state — d3 still holds the raw
-        ; signed dist (player_y - center). Lock only until the player reaches
-        ; the bottom screen edge (CAM_SCREEN_HALF_H below center); past that a
-        ; long post-apex fall must resume follow so it isn't left off-screen.
+        ; rising/hanging, below focal point — d3 still holds the raw signed dist
+        ; (player_y - center). Failsafe: if the player somehow reaches the bottom
+        ; screen edge (CAM_SCREEN_HALF_H below center) while still rising, resume
+        ; follow so it isn't left off-screen; otherwise hold Y.
         cmpi.w  #CAM_SCREEN_HALF_H, d3              ; at/over bottom screen edge?
         bge.s   .down_ok                            ; → resume follow
         bra.w   .clamp_y                            ; locked → hold Y

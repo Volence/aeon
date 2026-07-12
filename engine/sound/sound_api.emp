@@ -79,6 +79,29 @@ comptime fn start_z80() -> Code {
     }
 }
 
+// z80_bank / z80_window — split a 68k ROM address into the two parts the Z80
+// uses to read that ROM through its banked $8000 window: `bank` selects the
+// $8000-byte page, `window` is the in-page pointer ORed with $8000. Same
+// derivation the DacSample table bakes in at build time (see PlayMusic).
+//   bank   = (addr & $7F8000) >> 15     (lsr.l #8 then #7 — >>15 in two steps)
+//   window = (addr & $7FFF) | $8000
+// Each moves {src} into {dst} first, then reduces {dst} in place.
+comptime fn z80_bank(dst: Reg, src: Reg) -> Code {
+    return asm {
+        move.l  {src}, {dst}
+        andi.l  #$7F8000, {dst}
+        lsr.l   #8, {dst}
+        lsr.l   #7, {dst}
+    }
+}
+comptime fn z80_window(dst: Reg, src: Reg) -> Code {
+    return asm {
+        move.l  {src}, {dst}
+        andi.l  #$7FFF, {dst}
+        ori.l   #$8000, {dst}
+    }
+}
+
 // ----------------------------------------------------------------------
 // Sound_PostByte — write d0.b into the Z80 RAM request slot at (a0).
 // In:  d0.b = value (nonzero = request, 0 = idle), a0 = 68k addr of the slot.
@@ -157,24 +180,15 @@ pub proc Sound_PlayMusic () clobbers(d0-d4/a0-a1) preserves(sr) {
         adda.l  d0, a0
         movea.l (a0), a1                    // a1 = song 68k ROM address (dc.l)
         move.b  (a1), d3                    // d3.b = SH_FLAGS (header +0 = song address)
-        // bank = (addr & $7F8000) >> 15  ; window_ptr = (addr & $7FFF) | $8000
-        // (same addressing as DacSample — the Z80 reads ROM via the $8000 window).
-        move.l  a1, d1
-        andi.l  #$7F8000, d1
-        lsr.l   #8, d1
-        lsr.l   #7, d1                      // d1 = bank id (>>15)
-        move.l  a1, d4
-        andi.l  #$7FFF, d4
-        ori.l   #$8000, d4                  // d4 = song window ptr (16 bits, +$8000)
+        z80_bank(d1, a1)                     // d1 = bank id (the $8000-page of the song)
+        z80_window(d4, a1)                   // d4 = song window ptr (in-page, +$8000)
         // --- patch-bank window ptr from the parallel SongPatchTable[id-1]. The
         // patch bank shares the song's bank; the Z80 reads it through the same
         // $8000 window. window_ptr = (patch_addr & $7FFF) | $8000. ---
         movea.l #SONG_PATCH_TABLE, a0
         adda.l  d0, a0                      // d0 still = index*4
         movea.l (a0), a1                    // a1 = patch-bank 68k ROM address
-        move.l  a1, d0
-        andi.l  #$7FFF, d0
-        ori.l   #$8000, d0                  // d0 = patch-bank window ptr (16 bits)
+        z80_window(d0, a1)                  // d0 = patch-bank window ptr (shares the song's bank)
         // --- post the param block + trigger under one bus hold (SR-masked so the
         // DEBUG mirror's stopZ80 can't nest and release the bus mid-write). ---
         move.w  sr, -(sp)
@@ -206,7 +220,13 @@ pub proc Sound_PlayMusic () clobbers(d0-d4/a0-a1) preserves(sr) {
 // dedup vs the most-recent pending entry suppresses a same-frame double-fire (keyed on
 // EXACT id, so the L/R ring pair $33/$34 is never collapsed). This touches ONLY 68k
 // RAM (no Z80 bus hold at call time -> less bus contention than the old direct post).
-// In:  d0.b = sfx id (nonzero). Clobbers: d0 only. Preserves a0/a1/d1-d7/SR.
+// In:  d0.b = sfx id (nonzero).
+// Clobbers: d0 (the id — callers must treat it as consumed).
+// Preserves — two kinds, don't conflate them:
+//   ENFORCED (saved/restored via movem — the preserves(d1/a0) contract, so the
+//     d0-only clobber survives even if the body grows to touch them): d1, a0.
+//   INCIDENTAL (the current body simply never writes them — NOT a guarantee,
+//     do not rely on it across edits): a1, d2-d7, SR.
 // ----------------------------------------------------------------------
 pub proc Sound_PlaySFX () preserves(d1/a0) {
         tst.b   d0                          // defensive: id 0 = nothing to queue

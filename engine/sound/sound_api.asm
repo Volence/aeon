@@ -132,7 +132,13 @@ Sound_PlayMusic:
 ; dedup vs the most-recent pending entry suppresses a same-frame double-fire (keyed on
 ; EXACT id, so the L/R ring pair $33/$34 is never collapsed). This touches ONLY 68k
 ; RAM (no Z80 bus hold at call time -> less bus contention than the old direct post).
-; In:  d0.b = sfx id (nonzero). Clobbers: d0 only. Preserves a0/a1/d1-d7/SR.
+; In:  d0.b = sfx id (nonzero).
+; Clobbers: d0 (the id — callers must treat it as consumed).
+; Preserves — two kinds, don't conflate them:
+;   ENFORCED (saved/restored via movem — the preserves(d1/a0) contract, so the
+;     d0-only clobber survives even if the body grows to touch them): d1, a0.
+;   INCIDENTAL (the current body simply never writes them — NOT a guarantee,
+;     do not rely on it across edits): a1, d2-d7, SR.
 ; ----------------------------------------------------------------------
 Sound_PlaySFX:
         tst.b   d0                          ; defensive: id 0 = nothing to queue

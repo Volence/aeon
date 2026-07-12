@@ -67,14 +67,15 @@ COLLECTED_PARK_ENTRY_SIZE = 1+2*COLLECTED_MASK_BYTES ; 33 — id byte + collecte
 VRAM_TEST_OBJ           = $03E0         ; tile 992 — test object art (8 tiles) in the free
                                         ; gap between the character DPLC region end (985)
                                         ; and the BG shared region base (1024).
-VRAM_RING_PLACEHOLDER   = VRAM_TEST_OBJ+8 ; tile 1000 — gold ring art (1 tile). DrawRings
-                                        ; emits 2×2 (16×16) sprites, so tiles 1001-1003
-                                        ; render too and MUST stay blank — they are the
-                                        ; ring's transparent surround.
+VRAM_RING_PLACEHOLDER   = VRAM_TEST_OBJ+8 ; tile 1000 — S3K ring art, 4 spin frames ×
+                                        ; 4 tiles (2×2) = 16 tiles ($3E8-$3F7). DrawRings
+                                        ; emits a 2×2 (16×16) sprite at base + frame×4.
+                                        ; (Name kept for now; it's no longer a placeholder —
+                                        ; rename to VRAM_RING is a flagged follow-up.)
                                         ; ENGINE CONTRACT — DrawRings (engine/objects/rings.asm)
-                                        ; renders every ring with this tile; every game must
-                                        ; define it.
-VRAM_TEST_MARKER        = VRAM_RING_PLACEHOLDER+4 ; tile 1004 — debug-fly marker (2×2 = 4 tiles)
+                                        ; renders every ring from this base; every game must
+                                        ; define it (>=16 tiles for the 4-frame spin).
+VRAM_TEST_MARKER        = VRAM_RING_PLACEHOLDER+16 ; tile 1016 — debug-fly marker (2×2 = 4 tiles)
                                         ; in the free gap below the BG region (1024). Must NOT
                                         ; sit inside the act art pool (every pool slot is
                                         ; referenced FG art — see POOL_TILE_CEILING) nor in

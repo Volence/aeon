@@ -10,7 +10,8 @@ module engine.objects.rings in rings
 use engine.objects.sst.{Sst}
 use engine.objects.aabb.{aabb_axis_test}
 use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEED,
-                      MAX_VDP_SPRITES, VDP_SPRITE_X_OFFSET, VDP_SPRITE_Y_OFFSET}
+                      MAX_VDP_SPRITES, VDP_SPRITE_X_OFFSET, VDP_SPRITE_Y_OFFSET,
+                      SCREEN_WIDTH, SCREEN_HEIGHT}
 
 // GAME-owned capacity/geometry mirrors (truth:
 // games/sonic4/config/constants.asm — engine.inc game-contract symbols).
@@ -23,6 +24,10 @@ const MAX_RING_BUFFER        = 128
 const RING_BUFFER_ENTRY_SIZE = 6
 const RING_WIDTH             = 16
 const VRAM_RING_PLACEHOLDER  = $3E8
+// SAT attr base: priority(bit15) | palette line 1(bit13) | tile. The act
+// palette carries the ring's gold on CRAM line 1 (OJZ_Palette → line 1;
+// donor convention vram_art(VRAM_Ring,1,1)). Matches the twin's vram_art().
+const RING_ART_ATTR          = (1 << 15) | (1 << 13) | VRAM_RING_PLACEHOLDER
 ensure(extern("MAX_RING_BUFFER") == MAX_RING_BUFFER, "games/sonic4/config/constants.asm and rings.emp disagree on MAX_RING_BUFFER — update both")
 ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and rings.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
 ensure(extern("RING_WIDTH") == RING_WIDTH, "games/sonic4/config/constants.asm and rings.emp disagree on RING_WIDTH — update both")
@@ -196,6 +201,13 @@ pub proc DrawRings () clobbers(d0-d4/d6-d7/a0) out(d5) {
         move.w  Camera_X, d6
         move.w  Camera_Y, d7
 
+        // Animated ring tile attr: base + frame×4 (each 2×2 frame = 4 tiles).
+        // Constant across the loop, so compute once here.
+        moveq   #0, d4
+        move.b  Ring_Anim_Frame, d4
+        lsl.w   #2, d4                  // frame × 4 tiles/frame
+        addi.w  #RING_ART_ATTR, d4      // + priority | palette line 1 (see RING_ART_ATTR)
+
         lea     Ring_Buffer, a0
         moveq   #0, d1
         move.b  Ring_Count, d1
@@ -210,16 +222,17 @@ pub proc DrawRings () clobbers(d0-d4/d6-d7/a0) out(d5) {
         move.w  (a0), d2                // engine X
         sub.w   d6, d2                  // screen X
         move.w  d2, d0
-        addi.w  #16, d0
-        cmpi.w  #336, d0                // 320 + 16
+        addi.w  #RING_WIDTH/2, d0       // centre→edge bias: sprite is centre-anchored, spans centre±(w/2);
+                                        // one unsigned compare then culls ONLY when fully off-screen
+        cmpi.w  #SCREEN_WIDTH+RING_WIDTH, d0
         bhi     .skip_ring
 
         // On-screen culling — Y
         move.w  2(a0), d3               // engine Y
         sub.w   d7, d3                  // screen Y
         move.w  d3, d0
-        addi.w  #16, d0
-        cmpi.w  #240, d0                // 224 + 16
+        addi.w  #RING_HEIGHT/2, d0      // centre→edge bias (see X cull above)
+        cmpi.w  #SCREEN_HEIGHT+RING_HEIGHT, d0
         bhi     .skip_ring
 
         // --- Write SAT entry (8 bytes) ---
@@ -229,7 +242,7 @@ pub proc DrawRings () clobbers(d0-d4/d6-d7/a0) out(d5) {
         move.b  #$05, (a4)+             // +2: size 2×2 (16×16 px)
         addq.b  #1, d5
         move.b  d5, (a4)+               // +3: link (next sprite index)
-        move.w  #VRAM_RING_PLACEHOLDER, (a4)+  // +4: tile attrs (placeholder ring art)
+        move.w  d4, (a4)+              // +4: tile attrs (animated ring frame, d4 = base + frame×4)
         subi.w  #8, d2
         addi.w  #VDP_SPRITE_X_OFFSET, d2
         bne     .x_ok

@@ -132,6 +132,16 @@ DrawRings:
         move.w  (Camera_X).w, d6
         move.w  (Camera_Y).w, d7
 
+        ; Animated ring tile attr: base + frame×4 (each 2×2 frame = 4 tiles).
+        ; Constant across the loop, so compute once here.
+        moveq   #0, d4
+        move.b  (Ring_Anim_Frame).w, d4
+        lsl.w   #2, d4                  ; frame × 4 tiles/frame
+        ; + priority(bit15) | palette line 1(bit13) | tile = vram_art(VRAM_RING_PLACEHOLDER,1,1)
+        ; shape (spelled inline: the isolated twin gate has no macros.asm). The act
+        ; palette holds the ring gold on CRAM line 1.
+        addi.w  #(1<<15)|(1<<13)|VRAM_RING_PLACEHOLDER, d4
+
         lea     (Ring_Buffer).w, a0
         moveq   #0, d1
         move.b  (Ring_Count).w, d1
@@ -146,16 +156,17 @@ DrawRings:
         move.w  (a0), d2                ; engine X
         sub.w   d6, d2                  ; screen X
         move.w  d2, d0
-        addi.w  #16, d0
-        cmpi.w  #336, d0               ; 320 + 16
+        addi.w  #RING_WIDTH/2, d0      ; centre→edge bias: sprite is centre-anchored, spans centre±(w/2);
+                                       ; one unsigned compare then culls ONLY when fully off-screen
+        cmpi.w  #SCREEN_WIDTH+RING_WIDTH, d0
         bhi.s   .skip_ring
 
         ; On-screen culling — Y
         move.w  2(a0), d3              ; engine Y
         sub.w   d7, d3                  ; screen Y
         move.w  d3, d0
-        addi.w  #16, d0
-        cmpi.w  #240, d0               ; 224 + 16
+        addi.w  #RING_HEIGHT/2, d0     ; centre→edge bias (see X cull above)
+        cmpi.w  #SCREEN_HEIGHT+RING_HEIGHT, d0
         bhi.s   .skip_ring
 
         ; --- Write SAT entry (8 bytes) ---
@@ -165,7 +176,7 @@ DrawRings:
         move.b  #$05, (a4)+            ; +2: size 2×2 (16×16 px)
         addq.b  #1, d5
         move.b  d5, (a4)+              ; +3: link (next sprite index)
-        move.w  #VRAM_RING_PLACEHOLDER, (a4)+  ; +4: tile attrs (placeholder ring art)
+        move.w  d4, (a4)+             ; +4: tile attrs (animated ring frame, d4 = base + frame×4)
         subi.w  #8, d2
         addi.w  #VDP_SPRITE_X_OFFSET, d2
         bne.s   .x_ok

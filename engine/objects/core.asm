@@ -16,8 +16,10 @@ InitObjectRAM:
         move.l  d1, (a0)+
         dbf     d0, .clear
 
-        ; Init dynamic free stack — push addresses from last to first
-        ; so first slot is popped first (LIFO order matches slot 2→41)
+        ; Init dynamic free stack — push slot addresses low-to-high (slot 2
+        ; pushed first ... slot 41 pushed last). Pops are LIFO, so the
+        ; LAST-pushed (highest) slot is allocated first; the pool fills
+        ; downward toward slot 2.
         lea     (Dynamic_Free_Stack).w, a0
         lea     (Dynamic_Slots).w, a1
         move.w  #NUM_DYNAMIC-1, d0
@@ -75,6 +77,10 @@ AllocEffect:
         movea.w (Effect_Free_SP).w, a1
         subq.w  #2, (Effect_Free_SP).w
         movea.w -(a1), a1
+        ; No slot_tag write (unlike AllocDynamic): slot_tag is the entity-window
+        ; quadrant index, read ONLY by the entity-window Y-despawn band. Effects
+        ; are never entity-window-managed (object code allocs them and they
+        ; self-delete), so their slot_tag is never read — nothing to initialize.
         moveq   #0, d0
         rts
 .full:
@@ -172,7 +178,16 @@ RunObjects:
         move.w  d0, (Spawn_Count).w
 
         tst.b   (Game_Paused).w
+        ; LOCKSTEP core.emp C-A1: .emp uses a bare `bne` that sigil width-selects
+        ; per shape. AS bare branches phase-error against the tight bsr.s below,
+        ; so mirror the two widths explicitly: plain disp 0x7E fits .s; the DEBUG
+        ; shape's two ifdebug bsr sites push RunObjects_Frozen out to disp ~0x1A4,
+        ; forcing .w.
+    ifdef __DEBUG__
         bne.w   RunObjects_Frozen
+    else
+        bne.s   RunObjects_Frozen
+    endif
 
         ; --- Player slots (always execute) ---
         lea     (Player_1).w, a0
@@ -206,7 +221,7 @@ RunObjects:
         jsr     (a1)
         ; debug builds: catch object routines violating the a0/d7
         ; preservation contract at the source
-        ifdebug bsr.w Debug_AssertObjLoop
+        ifdebug bsr.s Debug_AssertObjLoop  ; LOCKSTEP core.emp C-A1: jbsr shrink (was bsr.w; Debug_AssertObjLoop is near → disp reaches .s → −2 bytes, DEBUG shape only)
 .always_next:
         lea     SST_len(a0), a0
         dbf     d7, .always_loop
@@ -242,7 +257,7 @@ RunObjects:
         move.w  (a0), d0
         movea.l d0, a1
         jsr     (a1)
-        ifdebug bsr.w Debug_AssertObjLoop
+        ifdebug bsr.s Debug_AssertObjLoop  ; LOCKSTEP core.emp C-A1: jbsr shrink (was bsr.w; Debug_AssertObjLoop is near → disp reaches .s → −2 bytes, DEBUG shape only)
 .culled_next:
         lea     SST_len(a0), a0
         dbf     d7, .culled_loop

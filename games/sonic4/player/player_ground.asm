@@ -664,7 +664,12 @@ Ground_Move:
         move.w  d7, d2
         jsr     Player_SensorWallDir            ; d0 dist (d7 preserved)
         tst.w   d0
-        bmi.s   .wall_hit
+        ble.s   .wall_hit                       ; dist<=0: overlap OR flush (dist==0) both count
+                                                ; as contact — flush must stay ST_PUSHING (else the
+                                                ; classifier flickers push↔walk as gsp re-accelerates
+                                                ; against the wall). dist==0 through .wall_hit is inert:
+                                                ; asl of 0 backs out 0 velocity, gsp is killed (stops
+                                                ; the subpixel creep), facing-aware push logic still runs.
 .clear_push:
         bclr    #ST_PUSHING, SST_status(a0)
         rts

@@ -60,9 +60,13 @@ reloadAnimTimer macro srcReg, tag
 ; Clobbers: d0-d2, a1-a2
 ; -----------------------------------------------
 AnimateSprite:
+        ; Propagate facing from status -> render_flags each frame. The flip bits
+        ; are bit-aligned (ST_XFLIP/ST_YFLIP == RF_XFLIP/RF_YFLIP), so this is a
+        ; straight copy of bits 1-2. $F9 = ~(RF_XFLIP|RF_YFLIP): clear the two
+        ; flip bits, preserve the rest (on-screen, multisprite, priority, coord).
         andi.b  #$F9, SST_render_flags(a0)
         move.b  SST_status(a0), d0
-        andi.b  #$06, d0
+        andi.b  #$06, d0                ; $06 = RF_XFLIP|RF_YFLIP: isolate flip bits
         or.b    d0, SST_render_flags(a0)
 
         moveq   #0, d0

@@ -251,11 +251,13 @@ TestArt:
         dc.l    $22222222, $22222222, $22222222, $22222222
         dc.l    $22222222, $22222222, $22222222, $22222222
         endr
-; Ring placeholder — 8x8 gold donut (palette 0: index $E = gold, $6 = white
-; sparkle in the sonic.bin line-0 palette). Tile VRAM_RING_PLACEHOLDER
-; (= VRAM_TEST_OBJ+8); DrawRings points every ring sprite at it.
-        dc.l    $00EEEE00, $0E600EE0, $EE0000EE, $EE0000EE
-        dc.l    $EE0000EE, $EE0000EE, $0EE00EE0, $00EEEE00
+; Ring art — S3K ring, 4 spin frames × 4 tiles (2×2) = 16 tiles, at
+; VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ+8). Ported from skdisasm Ring.bin
+; (Nemesis, 14 tiles): F0 full / F1 narrower / F2 thin-edge (centred) /
+; F3 narrower-mirrored, in VDP 2×2 column-major order per frame; the S3K
+; line-0 gold indices remapped to sonic.bin line-0 (E/F gold, 6 white glint).
+; DrawRings picks a frame with base + Ring_Anim_Frame×4.
+        BINCLUDE "games/sonic4/test/ring_art.bin"
 TestArt_End:
 
 ; -----------------------------------------------

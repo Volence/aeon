@@ -40,8 +40,10 @@ pub proc InitObjectRAM () clobbers(d0, d1, a0, a1) {
         move.l  d1, (a0)+
         dbf     d0, .clear
 
-        // Init dynamic free stack — push addresses from last to first
-        // so first slot is popped first (LIFO order matches slot 2→41)
+        // Init dynamic free stack — push slot addresses low-to-high (slot 2
+        // pushed first ... slot 41 pushed last). Pops are LIFO, so the
+        // LAST-pushed (highest) slot is allocated first; the pool fills
+        // downward toward slot 2.
         lea     Dynamic_Free_Stack, a0
         lea     Dynamic_Slots, a1
         move.w  #NUM_DYNAMIC-1, d0
@@ -101,6 +103,10 @@ pub proc AllocEffect () clobbers(d0) out(a1) {
         movea.w (Effect_Free_SP).w, a1
         subq.w  #2, (Effect_Free_SP).w
         movea.w -(a1), a1
+        // No slot_tag write (unlike AllocDynamic): slot_tag is the entity-window
+        // quadrant index, read ONLY by the entity-window Y-despawn band. Effects
+        // are never entity-window-managed (object code allocs them and they
+        // self-delete), so their slot_tag is never read — nothing to initialize.
         moveq   #0, d0
         rts
     .full:
@@ -181,7 +187,7 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
         move.w  d0, Spawn_Count
 
         tst.b   Game_Paused
-        bne.w   RunObjects_Frozen       // byte-locked .w — target disp 0x7E FITS .s, but the AS twin pins bne.w; a bare Bcc would relax to .s (−2) and DIVERGE
+        bne     RunObjects_Frozen
 
         // --- Player slots (always execute) ---
         lea     Player_1, a0
@@ -214,10 +220,8 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
         movea.l d0, a1
         jsr     (a1)
         // debug builds: catch object routines violating the a0/d7
-        // preservation contract at the source. bsr.w stays explicit —
-        // byte-locked to the AS twin's `ifdebug bsr.w` (a bare jbsr would
-        // relax the short site to .s and DIVERGE from the reference).
-        if DEBUG == 1 { bsr.w Debug_AssertObjLoop }
+        // preservation contract at the source.
+        if DEBUG == 1 { jbsr Debug_AssertObjLoop }
     .always_next:
         lea     sizeof(Sst)(a0), a0
         dbf     d7, .always_loop
@@ -253,8 +257,8 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
         move.w  (a0), d0
         movea.l d0, a1
         jsr     (a1)
-        // bsr.w stays explicit — byte-locked to the AS twin's `ifdebug bsr.w`
-        if DEBUG == 1 { bsr.w Debug_AssertObjLoop }
+        // debug builds: catch a0/d7 preservation-contract violations at the source
+        if DEBUG == 1 { jbsr Debug_AssertObjLoop }
     .culled_next:
         lea     sizeof(Sst)(a0), a0
         dbf     d7, .culled_loop
