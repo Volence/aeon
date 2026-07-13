@@ -291,7 +291,23 @@ __BUDGET_ENGINE:
       endif
     endif
     include "engine/objects/children.asm"
-    include "engine/objects/load_object.asm"
+    ifndef SIGIL_EMP_LOAD_OBJECT
+        include "engine/objects/load_object.asm"
+    else
+        ; sigil mixed build: Load_Object / Load_ObjectList come from
+        ; engine/objects/load_object.emp, pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; Shape-INVARIANT length (no asserts / no __DEBUG__) — the two resume
+        ; orgs differ only by the upstream base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $4C3E
+      else
+        org     $4074
+      endif
+    endif
     include "engine/level/plane_buffer.asm"
     include "engine/level/tile_cache.asm"
     ifndef SIGIL_EMP_COLLISION_LOOKUP
@@ -304,9 +320,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $58E0
+        org     $58DA
       else
-        org     $4C5E
+        org     $4C58
       endif
     endif
     gameEngineBlockIncludes
@@ -331,9 +347,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $79A6
+        org     $79A0
         else
-        org     $5F94
+        org     $5F8E
         endif
       endif
     endif

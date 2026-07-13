@@ -26,8 +26,8 @@
 ; -----------------------------------------------
 Load_Object:
         movem.l d0-d2/a1, -(sp)
-        jsr     AllocDynamic
-        bne.w   .alloc_fail
+        bsr.w   AllocDynamic
+        bne.s   .alloc_fail
         movem.l (sp)+, d0-d2/a2        ; a2 = template (saved a1), a1 = new SST
         move.l  d4, -(sp)              ; preserve d4 — caller (EntityWindow_TrySpawnObject) reads it after return
 
@@ -89,7 +89,7 @@ Load_Object:
 ;
 ; In:  a0 = object list pointer (ROM)
 ; Out: none (objects spawned, alloc failures silently skipped)
-; Clobbers: d0-d3, a0-a2
+; Clobbers: d0-d3, a0-a3 (a3 transitively, via Load_Object)
 ; -----------------------------------------------
 Load_ObjectList:
 .loop:
@@ -99,9 +99,7 @@ Load_ObjectList:
         move.w  (a0)+, d0              ; X position
         move.w  (a0)+, d1              ; Y position
         move.w  (a0)+, d2              ; subtype (low byte; bits 13-15 clear in sane list data)
-        move.l  a0, -(sp)
-        jsr     Load_Object
-        movea.l (sp)+, a0
+        bsr.w   Load_Object            ; preserves a0 (the list cursor) — no save needed
         bra.s   .loop
 .done:
         rts
