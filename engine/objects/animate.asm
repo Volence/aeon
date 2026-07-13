@@ -213,9 +213,11 @@ AnimateSprite:
         ; dc.b AF_SOUND, sound_id -> play the SFX
         move.b  2(a1,d1.w), d0
       ifdef SOUND_DRIVER_ENABLED
-        movem.l a1/d1, -(sp)
+        ; item 5: Sound_PlaySFX clobbers ONLY d0 — under the exhaustive-license
+        ; ruling a1/d1 are CONTRACTUALLY preserved, so the old movem.l a1/d1
+        ; save/restore pair is dead. a1 is reused in .after_event; d1 reloaded
+        ; there. −8 B.
         bsr.w   Sound_PlaySFX
-        movem.l (sp)+, a1/d1
       endif
         addq.b  #2, SST_anim_frame(a0)
     ifdef __DEBUG__

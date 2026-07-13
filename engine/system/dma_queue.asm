@@ -32,7 +32,14 @@ Init_DMA_Queue:
 ; In:  d1.l = source address (bytes, even)
 ;      d2.w = VRAM destination (byte address)
 ;      d3.w = transfer length (bytes, even, non-zero)
-; Out: none (carry set = queue was full)
+; Out: carry SET = request DROPPED (queue full); carry CLEAR = enqueued OK.
+;      (item 11: the impl now HONORS this long-documented contract — it used to
+;      restore the caller's entry SR on both paths, so the carry was garbage and
+;      every carry-checking caller, e.g. bg_anim's retry, was silently dead.
+;      Known remaining edge: a 128KB-split with only one free slot enqueues the
+;      first half and returns carry CLEAR — atomic split rollback is the
+;      art-streaming plan's Vectorman work, out of scope here; unreachable for
+;      dplc's small single-entry loads.)
 ; Clobbers: d0-d4, a1-a2
 ; -----------------------------------------------
 QueueDMA_Critical:
@@ -88,6 +95,7 @@ QueueDMATransfer:
         move.w  a1, (a2)
 
         move.w  (sp)+, sr
+        andi.b  #$FE, ccr               ; item 11: carry CLEAR = enqueued OK
         rts
 
 .full:
@@ -95,6 +103,7 @@ QueueDMATransfer:
         addq.w  #1, (DMA_Overflow_Count).w
     endif
         move.w  (sp)+, sr
+        ori.b   #1, ccr                 ; item 11: carry SET = request dropped (queue full)
         rts
 
         ; --- 128KB boundary split ---
@@ -130,6 +139,7 @@ QueueDMATransfer:
         move.w  a1, (a2)
 
         move.w  (sp)+, sr
+        andi.b  #$FE, ccr               ; item 11: carry CLEAR = both split entries enqueued OK
         rts
 
 ; -----------------------------------------------
