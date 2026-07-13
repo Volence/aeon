@@ -106,6 +106,18 @@ rm -f "${ROM_NAME}.p" "${ROM_NAME}.h"
 echo "Assembling ${MAIN_ASM}..."
 "${TOOLS}/asl" ${ASFLAGS} "${MAIN_ASM}"
 
+# asl can report assembler errors to the -E log yet STILL exit 0 and emit a .p
+# with the offending region silently zeroed — a malformed ROM that looks valid
+# by size and passes the .p-exists check below, but poisons provenance baselines
+# (real incident: a `jump distance too big` zeroed the sound_api region). `set -e`
+# does not catch it because asl's exit is 0. Fail HARD on any error line in the
+# log. (With -pe there is no -E log — errors stream to stdout for the dev to see.)
+if [[ -f "${ROM_NAME}.log" ]] && grep -qiE 'error #[0-9]|: error' "${ROM_NAME}.log"; then
+    echo "ERROR: assembler reported errors (see ${ROM_NAME}.log):"
+    grep -iE 'error #[0-9]|: error' "${ROM_NAME}.log" | head
+    exit 1
+fi
+
 if [[ ! -f "${ROM_NAME}.p" ]]; then
     echo "ERROR: Assembly produced no output (${ROM_NAME}.p missing)."
     echo "       Check ${ROM_NAME}.log for errors."
