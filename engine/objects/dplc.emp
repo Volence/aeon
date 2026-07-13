@@ -24,7 +24,7 @@ comptime fn perform_dplc(queue: Label) -> Code {
     return asm {
         move.b  Sst.mapping_frame(a0), d0
         cmp.b   Sst.prev_frame(a0), d0
-        beq.s   .done                           // frame unchanged, skip
+        beq     .done                           // frame unchanged, skip (bare: the item-6 DEBUG assert pushes .done past .s in debug; sigil relaxes per-shape, plain stays .s)
         move.b  d0, Sst.prev_frame(a0)
 
         // Resolve DPLC frame data
@@ -33,7 +33,12 @@ comptime fn perform_dplc(queue: Label) -> Code {
         adda.w  (a2,d0.w), a2                   // a2 = frame data pointer
         move.w  (a2)+, d4                        // d4 = entry count
         subq.w  #1, d4
-        bmi.s   .done                            // 0 entries
+        bmi     .done                            // 0 entries (bare: see the .done relaxation note above)
+        // DEBUG (item 6): the contiguous-art build guarantees EXACTLY 1 DPLC
+        // entry per frame (single DMA — the header claim). d4 = entry_count-1, so
+        // it must be 0 here; a nonzero count means the art layout broke the
+        // guarantee. Self-gates to zero bytes in release.
+        assert.w d4, eq, #0
 
         move.w  d1, d2                           // d2 = running VRAM dest
 

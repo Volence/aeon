@@ -21,7 +21,11 @@
 Perform_DPLC:
         move.b  SST_mapping_frame(a0), d0
         cmp.b   SST_prev_frame(a0), d0
-        beq.s   .done                           ; frame unchanged, skip
+            ifdef __DEBUG__
+            beq.w   .done           ; item 6: the DPLC single-entry assert pushes .done past .s in DEBUG
+            else
+            beq.s   .done           ; frame unchanged, skip
+            endif
         move.b  d0, SST_prev_frame(a0)
 
         ; Resolve DPLC frame data
@@ -30,7 +34,19 @@ Perform_DPLC:
         adda.w  (a2,d0.w), a2                   ; a2 = frame data pointer
         move.w  (a2)+, d4                        ; d4 = entry count
         subq.w  #1, d4
-        bmi.s   .done                            ; 0 entries
+            ifdef __DEBUG__
+            bmi.w   .done           ; item 6: the DPLC single-entry assert pushes .done past .s in DEBUG
+            else
+            bmi.s   .done           ; 0 entries
+            endif
+    ifdef __DEBUG__
+        ; DEBUG (item 6): the contiguous-art build guarantees EXACTLY 1 DPLC entry
+        ; per frame (single DMA). d4 = entry_count-1, so it must be 0 here; a
+        ; nonzero count means the art layout broke the guarantee. (ifdef so the
+        ; standalone AS-twin assembly, which has no debugger.asm assert macro,
+        ; skips it in plain — byte-neutral: the macro is itself ifdef __DEBUG__.)
+        assert.w d4, eq, #0
+    endif
 
         move.w  d1, d2                           ; d2 = running VRAM dest
 
@@ -71,7 +87,11 @@ Perform_DPLC:
 Perform_DPLC_Deferrable:
         move.b  SST_mapping_frame(a0), d0
         cmp.b   SST_prev_frame(a0), d0
-        beq.s   .done                            ; frame unchanged, skip
+            ifdef __DEBUG__
+            beq.w   .done           ; item 6: the DPLC single-entry assert pushes .done past .s in DEBUG
+            else
+            beq.s   .done           ; frame unchanged, skip
+            endif
         move.b  d0, SST_prev_frame(a0)
 
         andi.w  #$FF, d0
@@ -79,7 +99,19 @@ Perform_DPLC_Deferrable:
         adda.w  (a2,d0.w), a2
         move.w  (a2)+, d4
         subq.w  #1, d4
-        bmi.s   .done
+            ifdef __DEBUG__
+            bmi.w   .done           ; item 6: the DPLC single-entry assert pushes .done past .s in DEBUG
+            else
+            bmi.s   .done           ; 0 entries
+            endif
+    ifdef __DEBUG__
+        ; DEBUG (item 6): the contiguous-art build guarantees EXACTLY 1 DPLC entry
+        ; per frame (single DMA). d4 = entry_count-1, so it must be 0 here; a
+        ; nonzero count means the art layout broke the guarantee. (ifdef so the
+        ; standalone AS-twin assembly, which has no debugger.asm assert macro,
+        ; skips it in plain — byte-neutral: the macro is itself ifdef __DEBUG__.)
+        assert.w d4, eq, #0
+    endif
 
         move.w  d1, d2
 

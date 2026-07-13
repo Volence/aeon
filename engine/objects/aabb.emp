@@ -44,6 +44,13 @@ comptime fn lead_move(adim: Reg, cdim: Reg) -> Code {
 }
 
 pub comptime fn aabb_axis_test(apos: Reg, breg: Reg, boff: int, adim: Reg, bdim: Reg, cdim: Reg, delt: Reg, stmp: Reg, mlab: Label) -> Code {
+    // The contract's stmp non-alias rule (item 7) was prose only — the template
+    // spliced whatever Reg it was handed, so `stmp == cdim` / `stmp == delt`
+    // assembled CLEAN and miscompiled (the neg/double scratch clobbers a live
+    // value). Reg equality is comptime-decidable (lead_move already compares
+    // adim != cdim) — make the mis-instantiation a COMPILE error instead.
+    ensure(stmp != cdim, "aabb_axis_test: stmp MUST NOT alias cdim — the scratch neg/double would destroy the combined dimension")
+    ensure(stmp != delt, "aabb_axis_test: stmp MUST NOT alias delt — the scratch neg/double would destroy the signed delta")
     return asm {
         {lead_move(adim, cdim)}
         add.w   {bdim}, {cdim}
@@ -53,6 +60,9 @@ pub comptime fn aabb_axis_test(apos: Reg, breg: Reg, boff: int, adim: Reg, bdim:
 
         move.w  {delt}, {stmp}
         bpl.s   .aov
+        // NOTE (item 7): delt == -32768 survives neg.w as $8000 → doubled = 0 →
+        // false overlap. Unreachable via current callers (cull windows bound
+        // |delta| << $4000); a new caller with unbounded delta must guard.
         neg.w   {stmp}
     .aov:
         add.w   {stmp}, {stmp}

@@ -9,6 +9,14 @@ use engine.constants.{VDP_Shadow_len}
 const VDP_REG_CMD  = $8000
 const VDP_REG_STEP = $0100
 
+// Drift-lock (item 8): Flush_VDP_Shadow indexes the dirty registers with
+// `btst d2, d1` — a data-register bit test that reads d1 (the .l dirty mask)
+// mod 32 — and builds the loop counter with `moveq #VDP_Shadow_len-1` (signed
+// byte). Both cap the register count at 32; a table grown past that would wrap
+// the dirty-bit indexing silently. Compile error instead. VDP_Shadow_len is an
+// imported const, so ensure sees it at comptime.
+ensure(VDP_Shadow_len <= 32, "engine/constants.asm VDP_Shadow_len > 32 — Flush_VDP_Shadow's btst d2,d1 dirty-mask indexing wraps mod 32 (the .l mask holds only 32 dirty bits)")
+
 // -----------------------------------------------
 // VDP_Shadow_Init — copy boot VDP register values into shadow table
 // In:  none (reads from BootData VDP register values)

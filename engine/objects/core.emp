@@ -9,8 +9,16 @@ module engine.objects.core in core
 
 use engine.objects.sst.{Sst}
 use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_SYSTEM, NUM_EFFECTS,
-                      NUM_TOTAL_SLOTS, OBJ_CODE_BANK, CULL_DISTANCE_X,
+                      OBJ_CODE_BANK, CULL_DISTANCE_X,
                       CULL_DISTANCE_Y, SLOT_TAG_UNTAGGED}
+
+// Link-time drift-lock (item 9 / audit core-5): RunObjects_Frozen's merged
+// System+Effect sweep (`lea System_Slots, a0` + `move.w #NUM_SYSTEM+NUM_EFFECTS-1`)
+// walks the two pools as ONE contiguous run — it depends on Effect_Slots
+// immediately following the System_Slots block in RAM, which nothing else
+// enforces. extern() resolves the RAM labels at link (collision.emp's SST_interact
+// precedent); a ram.asm reorder that broke the adjacency would fail the link.
+ensure(extern("Effect_Slots") == extern("System_Slots") + sizeof(Sst)*NUM_SYSTEM, "ram.asm: Effect_Slots must immediately follow the System_Slots block — RunObjects_Frozen sweeps System+Effect as one contiguous NUM_SYSTEM+NUM_EFFECTS run")
 
 // Store d0 (the fill value) to (a0)+ n times — the unrolled long-word
 // clear/fill. Emits `move.l d0, (a0)+` × n, byte-identical to the hand
@@ -81,6 +89,13 @@ pub proc InitObjectRAM () clobbers(d0, d1, a0, a1) {
 //      d0=1/Z clear if pool exhausted
 //      Slot is tagged SLOT_TAG_UNTAGGED on return.
 // Clobbers: d0
+// CALLER INVARIANT (item 3): the caller MUST write the returned slot's
+// code_addr before the NEXT AllocDynamic. The append-on-full guard runs
+// CompactDynamicLive, which treats code_addr==0 as dead and drops the slot
+// from the live list — so a caller that allocs a second slot before
+// initializing the first would silently lose the first (a claimed-but-invisible
+// zombie), reachable only at a full count. All current callers write code_addr
+// immediately (children/load_object/object_test emitters — audit §core-2).
 // -----------------------------------------------
 pub proc AllocDynamic () clobbers(d0) out(a1) {
         cmpi.w  #extern("Dynamic_Free_Stack"), (Dynamic_Free_SP).w
@@ -158,6 +173,17 @@ pub proc AllocEffect () clobbers(d0) out(a1) {
 // Clobbers: d0, a1
 // -----------------------------------------------
 pub proc DeleteObject () clobbers(d0, a1) {
+        // DEBUG rails (item 2): a0 must point at a live SST inside Object_RAM.
+        // An out-of-range a0 falls to .clear_slot and zeroes wild memory; a
+        // code_addr==0 slot is an already-deleted (double-delete) slot whose
+        // re-push corrupts the free stack (the classic double-alloc bug). d0 is
+        // clobbered — free as the scratch comparand. Byte-neutral in release.
+        if DEBUG == 1 {
+        assert.l a0, hs, #Object_RAM
+        assert.l a0, lo, #Object_RAM_End
+        move.w  Sst.code_addr(a0), d0
+        assert.w d0, ne, #0
+        }
         // Check Effect pool first (highest address range)
         cmpa.w  #extern("Effect_Slots"), a0
         bhs     .check_effect
@@ -224,9 +250,12 @@ pub proc DeleteObject () clobbers(d0, a1) {
 // Rewrites Dynamic_Live in place, KEEPING only entries that are nonzero AND
 // point at a live slot (code_addr != 0); drops zeroed entries (A1 deletes) and
 // dead-code_addr entries alike, then recounts and clears the dirty flag.
-// Because it MOVES entries down over drops, it MUST run only when no walk is
-// live — the frame-end tail after all RunObjects walks (step 6), or inside
-// AllocDynamic's append-on-full guard (before any dispatch this frame).
+// Because it MOVES entries down over drops, it MUST run only when no dynamic
+// live-list walk holds a cursor — the frame-end tail after all RunObjects
+// walks (step 6), or inside AllocDynamic's append-on-full guard. The latter
+// CAN fire mid-dispatch (object code / ObjectTest emitters alloc while a walker
+// holds a cursor — the A2 hazard); the DEBUG Dynamic_Live_Walking rail (item 1)
+// asserts the walk flag is clear here to catch exactly that case.
 // In:  none
 // Out: none
 // Clobbers: d0, d1, a0, a1, a2
