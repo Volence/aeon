@@ -143,6 +143,12 @@ NUM_DYNAMIC             = 40
 NUM_EFFECTS             = 16
 NUM_SYSTEM              = 8
 NUM_TOTAL_SLOTS         = NUM_PLAYERS+NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS
+; Occupancy amendment A2 (overflow latch): capacity of the frame-end pending
+; latch. AllocDynamic at a full live list (count==NUM_DYNAMIC) latches the popped
+; slot here instead of compacting mid-frame; RunObjects' tail drains it (one
+; compaction, then append latched in alloc order). Bounded, rare (>this many
+; allocs in one saturated frame → alloc-fail). See spec §9.
+NUM_DYNAMIC_PENDING     = 8
 
 ; Object code bank (ObjCodeBase aligned to $10000)
 OBJ_CODE_BANK           = 1         ; moveq #1,d0; swap d0 → $00010000
