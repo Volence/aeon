@@ -164,6 +164,104 @@ GameState_ObjectTest:
     endif
         rts
 
+; ===============================================
+; GameState_ObjectTestChurn — dynamic-pool CHURN variant (A2 soak vehicle)
+;
+; Unlike GameState_ObjectTest (churn lives in the EFFECT pool; dynamic pool
+; static 40/40), this fills the dynamic pool to capacity with self-replacing
+; TestChurnObj stressors (test_churn.asm). Under this churn Dynamic_Live_Count
+; rides at NUM_DYNAMIC while deletions free stack slots mid-walk — the exact
+; precondition for AllocDynamic's compact-on-full firing during a live-list
+; walk (the A2 hazard the DEBUG Dynamic_Live_Walking rail guards).
+;
+; Entered at runtime by writing GameState_ObjectTestChurn_Init to Game_State
+; (the OJZ scroll test owns Game_Entry). Per-frame it also calls
+; EntityWindow_Scan so the fourth live-list walker (DespawnObjects) is
+; exercised over the churning pool for the churn profile — the window is left
+; inactive (Entity_Window_Active=0) so Scan early-outs to Despawn{Rings,Objects}
+; only; the churners are UNTAGGED so DespawnObjects walks and skips them.
+; ===============================================
+GameState_ObjectTestChurn_Init:
+        ; Load test palette to CRAM line 0
+        lea     TestPalette(pc), a0
+        lea     (Palette_Buffer).w, a1
+        moveq   #32/4-1, d0
+.copy_pal:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .copy_pal
+        move.b  #$0F, (Palette_Dirty).w
+
+        ; DMA test art to VRAM
+        move.l  #TestArt, d1
+        move.w  #vram_bytes(VRAM_TEST_OBJ), d2
+        move.w  #TestArt_End-TestArt, d3
+        jsr     QueueDMA_Critical
+
+        ; Init object and sprite systems
+        jsr     InitObjectRAM
+        jsr     Init_SpriteTable
+
+        ; Entity-window safe-idle: clear the ring buffer and mark the window
+        ; inactive. EntityWindow_Scan then early-outs (Active=0) to
+        ; DespawnRings (no-op on the empty buffer) + DespawnObjects (walks the
+        ; live list; UNTAGGED churners are skipped, never wrongly deleted).
+        jsr     RingBuffer_Clear
+        clr.b   (Entity_Window_Active).w
+
+        ; Clear camera
+        move.l  #0, (Camera_X).w
+        move.l  #0, (Camera_Y).w
+
+        ; --- Player (physics target for TouchResponse; rests on stub floor,
+        ;     placed clear of the churner grid so it is not culled/hurt) ---
+        lea     (Player_1).w, a1
+        move.w  #objroutine(TestPlayer), SST_code_addr(a1)
+        move.l  #300<<16, SST_x_pos(a1)
+        move.l  #STUB_FLOOR_Y<<16, SST_y_pos(a1)
+
+        ; --- Fill the dynamic pool to capacity with churn stressors ---
+        moveq   #NUM_DYNAMIC-1, d4
+        moveq   #0, d5                  ; grid index
+.spawn_churn:
+        jsr     AllocDynamic
+        bne.s   .churn_done             ; pool full — stop
+        move.w  #objroutine(TestChurnObj), SST_code_addr(a1)
+        ; x = 20 + (i & 7)*36 ; y = 20 + (i>>3)*40  (8-wide grid on screen)
+        move.w  d5, d0
+        andi.w  #7, d0
+        mulu.w  #36, d0
+        addi.w  #20, d0
+        swap    d0
+        clr.w   d0
+        move.l  d0, SST_x_pos(a1)
+        move.w  d5, d0
+        lsr.w   #3, d0
+        mulu.w  #40, d0
+        addi.w  #20, d0
+        swap    d0
+        clr.w   d0
+        move.l  d0, SST_y_pos(a1)
+        addq.w  #1, d5
+        dbf     d4, .spawn_churn
+.churn_done:
+
+        ; Enable display
+        setVDPReg VDP_Shadow_vdp_mode2, #$74
+
+        move.l  #GameState_ObjectTestChurn, (Game_State).w
+        rts
+
+; -----------------------------------------------
+; GameState_ObjectTestChurn — per-frame update (both build shapes)
+; -----------------------------------------------
+GameState_ObjectTestChurn:
+        jsr     InitSpriteSystem
+        jsr     RunObjects              ; DEBUG: A2 assert fires here on the trigger frame
+        jsr     TouchResponse
+        jsr     EntityWindow_Scan       ; exercises DespawnObjects walk over the churn pool
+        jsr     Render_Sprites
+        rts
+
 ; -----------------------------------------------
 ; Object spawn list — stress layout
 ;
