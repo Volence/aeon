@@ -38,8 +38,9 @@ Init_DMA_Queue:
 ;      every carry-checking caller, e.g. bg_anim's retry, was silently dead.
 ;      Known remaining edge: a 128KB-split with only one free slot enqueues the
 ;      first half and returns carry CLEAR — atomic split rollback is the
-;      art-streaming plan's Vectorman work, out of scope here; unreachable for
-;      dplc's small single-entry loads.)
+;      art-streaming plan's Vectorman work, out of scope here. Vanishingly rare
+;      for dplc (a small source can still straddle a 128KB boundary), not
+;      impossible.)
 ; Clobbers: d0-d4, a1-a2
 ; -----------------------------------------------
 QueueDMA_Critical:
