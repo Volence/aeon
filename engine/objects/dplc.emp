@@ -5,8 +5,13 @@
 //   Frame data:   word entry_count, then entry_count words
 //   Entry word:   bits 15-12 = tile_count-1 (1-16), bits 11-0 = tile_start
 //
-// With contiguous art layout (build-time optimized), each frame has
-// exactly 1 DPLC entry — guaranteed single DMA per frame change.
+// A frame may carry 1..N entries (each a separate DMA), so the entry loop
+// below is load-bearing — NOT dead generality. (Item 6 originally asserted
+// "exactly 1 entry" per the contiguous-art optimization note; the ObjectTest
+// oracle soak DISPROVED it — DPLC_Sonic frames legitimately carry up to 6
+// entries — so that assert was removed. If a single-DMA guarantee is wanted
+// for the shipping art, it belongs in the build tool, not this shared runtime
+// path.)
 //
 // Cross-seam: QueueDMA_Important / QueueDMA_Deferrable resolve at link.
 
@@ -24,7 +29,7 @@ comptime fn perform_dplc(queue: Label) -> Code {
     return asm {
         move.b  Sst.mapping_frame(a0), d0
         cmp.b   Sst.prev_frame(a0), d0
-        beq     .done                           // frame unchanged, skip (bare: the item-6 DEBUG assert pushes .done past .s in debug; sigil relaxes per-shape, plain stays .s)
+        beq     .done                           // frame unchanged, skip (bare Bcc — sigil relaxes per-shape)
         // item 11: prev_frame is committed AFTER a successful enqueue (below), NOT
         // here — QueueDMATransfer returns carry-set when the queue is full and it
         // silently drops the request. Committing before meant a dropped frame left
@@ -38,12 +43,7 @@ comptime fn perform_dplc(queue: Label) -> Code {
         adda.w  (a2,d0.w), a2                   // a2 = frame data pointer
         move.w  (a2)+, d4                        // d4 = entry count
         subq.w  #1, d4
-        bmi     .done                            // 0 entries (bare: see the .done relaxation note above)
-        // DEBUG (item 6): the contiguous-art build guarantees EXACTLY 1 DPLC
-        // entry per frame (single DMA — the header claim). d4 = entry_count-1, so
-        // it must be 0 here; a nonzero count means the art layout broke the
-        // guarantee. Self-gates to zero bytes in release.
-        assert.w d4, eq, #0
+        bmi     .done                            // 0 entries
 
         move.w  d1, d2                           // d2 = running VRAM dest
 

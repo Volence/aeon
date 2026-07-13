@@ -8,8 +8,10 @@
 ;   Frame data:   word entry_count, then entry_count words
 ;   Entry word:   bits 15-12 = tile_count-1 (1-16), bits 11-0 = tile_start
 ;
-; With contiguous art layout (build-time optimized), each frame has
-; exactly 1 DPLC entry — guaranteed single DMA per frame change.
+; A frame may carry 1..N entries (each a separate DMA), so the entry loop is
+; load-bearing. (Item 6 originally asserted exactly-1-entry per the contiguous-
+; art note; the ObjectTest oracle soak disproved it — DPLC_Sonic frames carry
+; up to 6 entries — so the assert was removed.)
 ;
 ; In:  a0 = SST pointer
 ;      a2 = DPLC table pointer (ROM)
@@ -21,11 +23,7 @@
 Perform_DPLC:
         move.b  SST_mapping_frame(a0), d0
         cmp.b   SST_prev_frame(a0), d0
-            ifdef __DEBUG__
-            beq.w   .done           ; item 6: the DPLC single-entry assert pushes .done past .s in DEBUG
-            else
-            beq.s   .done           ; frame unchanged, skip
-            endif
+        beq.s   .done           ; frame unchanged, skip
         ; item 11: prev_frame is committed AFTER a successful enqueue (below), not
         ; here — QueueDMATransfer returns carry-set on a full-queue drop. d0 still
         ; holds mapping_frame for the resolve below.
@@ -36,19 +34,7 @@ Perform_DPLC:
         adda.w  (a2,d0.w), a2                   ; a2 = frame data pointer
         move.w  (a2)+, d4                        ; d4 = entry count
         subq.w  #1, d4
-            ifdef __DEBUG__
-            bmi.w   .done           ; item 6: the DPLC single-entry assert pushes .done past .s in DEBUG
-            else
-            bmi.s   .done           ; 0 entries
-            endif
-    ifdef __DEBUG__
-        ; DEBUG (item 6): the contiguous-art build guarantees EXACTLY 1 DPLC entry
-        ; per frame (single DMA). d4 = entry_count-1, so it must be 0 here; a
-        ; nonzero count means the art layout broke the guarantee. (ifdef so the
-        ; standalone AS-twin assembly, which has no debugger.asm assert macro,
-        ; skips it in plain — byte-neutral: the macro is itself ifdef __DEBUG__.)
-        assert.w d4, eq, #0
-    endif
+        bmi.s   .done           ; 0 entries
 
         move.w  d1, d2                           ; d2 = running VRAM dest
 
@@ -94,11 +80,7 @@ Perform_DPLC:
 Perform_DPLC_Deferrable:
         move.b  SST_mapping_frame(a0), d0
         cmp.b   SST_prev_frame(a0), d0
-            ifdef __DEBUG__
-            beq.w   .done           ; item 6: the DPLC single-entry assert pushes .done past .s in DEBUG
-            else
-            beq.s   .done           ; frame unchanged, skip
-            endif
+        beq.s   .done           ; frame unchanged, skip
         ; item 11: prev_frame committed AFTER a successful enqueue (below), not
         ; here — QueueDMATransfer returns carry-set on a full-queue drop.
 
@@ -107,19 +89,7 @@ Perform_DPLC_Deferrable:
         adda.w  (a2,d0.w), a2
         move.w  (a2)+, d4
         subq.w  #1, d4
-            ifdef __DEBUG__
-            bmi.w   .done           ; item 6: the DPLC single-entry assert pushes .done past .s in DEBUG
-            else
-            bmi.s   .done           ; 0 entries
-            endif
-    ifdef __DEBUG__
-        ; DEBUG (item 6): the contiguous-art build guarantees EXACTLY 1 DPLC entry
-        ; per frame (single DMA). d4 = entry_count-1, so it must be 0 here; a
-        ; nonzero count means the art layout broke the guarantee. (ifdef so the
-        ; standalone AS-twin assembly, which has no debugger.asm assert macro,
-        ; skips it in plain — byte-neutral: the macro is itself ifdef __DEBUG__.)
-        assert.w d4, eq, #0
-    endif
+        bmi.s   .done           ; 0 entries
 
         move.w  d1, d2
 
