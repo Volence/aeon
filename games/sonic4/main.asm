@@ -60,6 +60,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/objects/test_emitter.asm"
     include "games/sonic4/objects/test_parent.asm"
     include "games/sonic4/objects/test_stress_emitter.asm"
+    include "games/sonic4/objects/test_churn.asm"
     include "games/sonic4/objects/path_swap.asm"
     endm
 
