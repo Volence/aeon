@@ -154,7 +154,15 @@ GameState_OJZScroll_Update:
         jsr     RunObjects
 
         ; -- camera follows Player_1 (deadzone + preview-aware clamp) --
+        ; DEBUG scene-pin: skip so a write_memory Camera_X/Y stays put.
+    ifdef __DEBUG__
+        tst.b   (Debug_Scene_Freeze).w
+        bne.s   .skip_camera_update
+    endif
         jsr     Camera_Update
+    ifdef __DEBUG__
+.skip_camera_update:
+    endif
 
         ; -- §4.7: fill tile cache with new blocks as camera scrolls --
         jsr     Tile_Cache_Fill
@@ -164,7 +172,16 @@ GameState_OJZScroll_Update:
         ;    no section rebases. --
 
         ; -- §4.9: camera-driven entity scan (load/despawn rings + objects) --
+        ; DEBUG scene-pin: skip so a hand-placed ring isn't despawned/reloaded.
+        ; (Despawn lives inside EntityWindow_Scan's body, so one gate covers both.)
+    ifdef __DEBUG__
+        tst.b   (Debug_Scene_Freeze).w
+        bne.s   .skip_entity_scan
+    endif
         jsr     EntityWindow_Scan
+    ifdef __DEBUG__
+.skip_entity_scan:
+    endif
 
         ; -- per-column nametable streaming --
         jsr     Section_UpdateColumns
