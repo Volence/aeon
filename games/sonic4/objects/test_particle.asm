@@ -10,7 +10,7 @@ PARTICLE_Y_VEL          = -$300         ; initial vertical velocity (upward)
 ; TestParticle — init routine (called as first-frame code_addr)
 ; In:  a0 = SST pointer (position, mappings, art_tile set by CreateEffect)
 ; Out: none
-; Clobbers: d0-d4, a1-a3
+; Clobbers: d0-d3, a1-a2 (the exact callee union; falls into Main below)
 ; -----------------------------------------------
 TestParticle:
         move.l  #Ani_Particle, SST_anim_table(a0)
@@ -29,7 +29,8 @@ TestParticle:
 ; TestParticle_Main — per-frame update
 ; In:  a0 = SST pointer
 ; Out: none
-; Clobbers: d0-d4, a1-a3
+; Clobbers: d0-d3, a1-a2 — the EXACT callee union: ObjectMove(d0) u
+;   AnimateSprite(d0-d2/a1-a2) u Draw_Sprite(d0-d3/a1) (retro-fix batch 2, item 8)
 ; -----------------------------------------------
 TestParticle_Main:
         ; Apply gravity (read-modify-write — no register round-trip)

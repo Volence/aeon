@@ -28,7 +28,12 @@ Sound_PostByte:
 ; Sound_Init — block until the Z80 driver has finished its own init.
 ; The driver clears its slots + writes STAT_ALIVE during SndDrv_Init; the 68k
 ; must not post until that marker appears. Each probe holds the Z80 bus (the
-; only way the 68k reads Z80 RAM reliably).
+; only way the 68k reads Z80 RAM reliably), THEN RELEASES it (startZ80 inside
+; the loop) between probes so the Z80 can actually run and finish booting — a
+; continuous hold would deadlock the handshake (the driver never runs, the
+; marker never appears). No timeout: a driver that never boots hangs here
+; forever — a chosen tradeoff (a dead sound driver is a build/ROM fault, not a
+; runtime state worth recovering from).
 ; Clobbers: nothing (SR preserved).
 ; ----------------------------------------------------------------------
 Sound_Init:
@@ -76,6 +81,12 @@ Sound_PlaySample:
 ; ----------------------------------------------------------------------
 Sound_PlayMusic:
         andi.l  #$FF, d0                    ; d0 = song id (1-based)
+        ; retro-fix batch 2 (sound_api finding 1): a bad id indexes past
+        ; SongTable[id-1] and posts a garbage bank/window/patch block to the Z80
+        ; (it streams as noise). Bounds the 1-based id against the game-owned
+        ; SONG_COUNT (song_table.asm). assert self-gates to zero bytes in plain.
+        assert.w  d0, ne, #0                  ; id != 0
+        assert.w  d0, ls, #SONG_COUNT         ; id <= SONG_COUNT
         move.l  d0, d2                       ; d2 = song id (preserved for the trigger)
         subq.l  #1, d0                        ; index = id-1
         lsl.l   #2, d0                        ; *4 (dc.l entries)
@@ -144,7 +155,11 @@ Sound_PlayMusic:
 ; ----------------------------------------------------------------------
 Sound_PlaySFX:
         tst.b   d0                          ; defensive: id 0 = nothing to queue
+    ifdef __DEBUG__
+        beq.w   .ps_ret                     ; finding 2: the .ps_full raise_error blob pushes .ps_ret past .s in DEBUG
+    else
         beq.s   .ps_ret
+    endif
         movem.l d1/a0, -(sp)                ; preserve d1 + caller's a0 (keep the d0-only contract)
         lea     (Sfx_Ring_Buf).w, a0        ; a0 = ring base
         ; d1 is used as an (a0,d1.w) INDEX below, so its full low WORD must be
@@ -170,9 +185,19 @@ Sound_PlaySFX:
         addq.b  #1, d1
         and.b   #SFX_RING_MASK, d1          ; d1 = nextWr (byte ops only from here: cmp.b + move.b commit)
         cmp.b   (Sfx_Ring_Rd).w, d1         ; nextWr == Rd -> ring full -> drop (>7 same-frame: never)
-        beq.s   .ps_drop
+        beq.s   .ps_full
         move.b  d0, (a0)                    ; Sfx_Ring_Buf[Wr] = id  (data BEFORE pointer)
         move.b  d1, (Sfx_Ring_Wr).w         ; commit Wr = nextWr
+.ps_full:
+        ; retro-fix batch 2 (sound_api finding 2): ONLY the ring-full drop reaches
+        ; here — its own label so the assert fires only on the "never happens"
+        ; branch (the dedup-skip below lands on .ps_drop, silent and correct).
+        ; Full = >7 DISTINCT SFX ids enqueued in one frame before the drain ran:
+        ; a content bug. RingBuffer_Add's assert-on-drop precedent. Empty in plain
+        ; (label aliases .ps_drop — byte-neutral in release).
+    ifdef __DEBUG__
+        RaiseError "Sound_PlaySFX: SFX ring full (>7 in one frame)"
+    endif
 .ps_drop:
         movem.l (sp)+, d1/a0
 .ps_ret:
@@ -184,7 +209,14 @@ Sound_PlaySFX:
 ; Called once/frame from GameLoop right after VSync. The mailbox read-of-0 and the
 ; post are done inside ONE stopZ80/startZ80 bus hold (SR-masked, exactly like
 ; Sound_PostByte) so the Z80's once/VBlank consume cannot land between them. Empty ring
-; is a fast no-op. Clobbers: d0/d1/a0; SR restored.
+; is a fast no-op.
+; Clobbers: d0/d1/a0. SR (finding 3, retro-fix batch 2 — precise contract): the
+;   interrupt MASK is never altered on either path. The empty fast-path
+;   (beq .dr_ret) saves no SR and leaves CCR clobbered (the cmp result) — cheaper,
+;   and harmless to the only caller (GameLoop discards flags). The posting path
+;   saves and restores the FULL SR around the mask — the load-bearing reliance:
+;   the DMA-window stopZ80 can't nest and corrupt the caller's mask. (S2-D7
+;   CCR-liveness lint is the deferred enforcement of the empty-path CCR clobber.)
 ; ----------------------------------------------------------------------
 Sound_DrainSfxRing:
         moveq   #0, d0                      ; d0 is an (a0,d0.w) index below — clear the
@@ -213,7 +245,9 @@ Sound_DrainSfxRing:
 ; ----------------------------------------------------------------------
 ; Sound_PlayRing — collect-ring SFX with internal L/R alternation. Toggles
 ; Ring_Sfx_Speaker each call, posting SFXID_RING_RIGHT or _LEFT.
-; In: none. Clobbers: d0, a0; SR restored.
+; In: none. Clobbers: d0 (finding 4, retro-fix batch 2 — tightened from d0/a0:
+;   the body never touches a0, and the Sound_PlaySFX tail-callee preserves it
+;   ENFORCED, so a0 is contractually preserved through the tail-call). SR restored.
 ; ----------------------------------------------------------------------
 Sound_PlayRing:
         move.b  (Ring_Sfx_Speaker).w, d0
@@ -269,3 +303,11 @@ Sound_FadeIn:
         move.b  #SND_FADE_CMD_IN, d0
         lea     (SND_Z80_BASE+SND_REQ_FADE).l, a0
         bra.w   Sound_PostByte
+
+; retro-fix batch 2: region-end anchor for the repin harness. The sound_api
+; content ends unlabeled here (the next placement is sound_debug.asm in DEBUG
+; or the org $10000 object bank in plain); the mixed build resumes at this same
+; address via engine.inc's per-shape `org`. Giving it a symbol lets repin derive
+; a PER-SHAPE length (finding 1/2's DEBUG asserts grow the debug region) instead
+; of the old shape-invariant literal. Zero bytes.
+Sound_Api_End:

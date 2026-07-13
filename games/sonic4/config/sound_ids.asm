@@ -30,6 +30,18 @@ SONG_DRUMTEST      = 2
 SONG_HCZ2          = 3
     endif
 
+; SONG_COUNT — number of songs in SongTable (id 1..SONG_COUNT; id 0 = stop). Lives
+; HERE (ungated, beside the SONG_* ids) rather than in data/sound/song_table.asm so
+; it resolves at AS-time in EVERY build shape: the sigil mixed build (SIGIL_EMP_MT)
+; gates song_table.asm OUT, but sound_api's DEBUG song-id bounds assert (retro-fix
+; batch 2, finding 1) reads SONG_COUNT cross-seam on BOTH the .asm and .emp sides.
+; song_table.asm still self-checks its table length against this value.
+    ifdef __DEBUG__
+SONG_COUNT         = 3    ; MovingTrucks + DrumTest + HCZ2
+    else
+SONG_COUNT         = 1    ; MovingTrucks only
+    endif
+
 ; --- Symbolic SFX ids (spec §9; ids posted to SND_REQ_SFX, disjoint from song ids)
 ; Values are the S3K source filenames so the transcoder's SfxTable index matches
 ; (id -> SfxTable[id-1] inside the contiguous SFX-id range; the transcoder densely

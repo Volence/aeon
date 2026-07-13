@@ -40,10 +40,10 @@ pub newtype ObjRoutine = u16
 // width_pixels/height_pixels), NOT a half-extent: aabb_axis_test sums both
 // boxes' full dims and compares against TWICE the centre distance, so a
 // half-extent here would halve every hitbox. Collision-box domain, distinct
-// from world distances and screen coordinates.
-// NAME MISMATCH (flagged to Volence, not renamed unilaterally): "Radius"
-// reads as a half-extent but the value is a full dimension — rename candidate.
-pub newtype Radius = u8
+// from world distances and screen coordinates. Named HitboxDim (not the earlier
+// Radius) because the value is a full box dimension and "radius" read as a
+// half-extent (Volence-approved rename, retro-fix batch 2).
+pub newtype HitboxDim = u8
 
 // The PACKED VRAM art word: priority<<15 | palette<<13 | tile index
 // (vram_art's output shape). Named now so stores read honestly; the
