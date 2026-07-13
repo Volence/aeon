@@ -216,6 +216,13 @@ DeleteObject:
 ; In: none  Out: none  Clobbers: d0, d1, a0, a1, a2
 ; -----------------------------------------------
 CompactDynamicLive:
+    ifdef __DEBUG__
+        ; A2 rail (item 1): a live-list walk must NOT be in progress — compaction
+        ; moves entries down under any held cursor (the mid-walk double-dispatch
+        ; hazard). d0 is free at entry. Byte-neutral in release.
+        move.b  (Dynamic_Live_Walking).w, d0
+        assert.b d0, eq, #0
+    endif
         lea     (Dynamic_Live).w, a0    ; read cursor
         lea     (Dynamic_Live).w, a1    ; write cursor (compacts down over drops)
         move.w  (Dynamic_Live_Count).w, d1
@@ -356,6 +363,12 @@ RunObjects:
 ; runs NEXT frame). a2 = list cursor, saved across dispatch (object code may
 ; clobber it — only a0/d7 are preserved).
 .run_culled:
+    ifdef __DEBUG__
+        ; A2 rail (item 1): dispatched object code may AllocDynamic mid-walk while
+        ; a2 holds a live cursor — flag the walk so a resulting CompactDynamicLive
+        ; trips the assert instead of moving entries silently.
+        st      (Dynamic_Live_Walking).w
+    endif
         lea     (Dynamic_Live).w, a2
         move.w  (Dynamic_Live_Count).w, d7
         beq.s   .culled_done
@@ -397,6 +410,9 @@ RunObjects:
 .culled_next:
         dbf     d7, .culled_loop
 .culled_done:
+    ifdef __DEBUG__
+        sf      (Dynamic_Live_Walking).w
+    endif
         rts
 
     ifdef __DEBUG__
@@ -433,6 +449,11 @@ RunObjects_Frozen:
 
         ; Dynamic pool — spawn-order live list (empty slots cost zero). a2 is the
         ; cursor; Draw_Sprite preserves a0/d7/a2, so no save is needed.
+    ifdef __DEBUG__
+        ; A2 rail (item 1): Draw_Sprite doesn't alloc today, but flag the walk so
+        ; the CompactDynamicLive assert stays TOTAL if it ever gains a spawn.
+        st      (Dynamic_Live_Walking).w
+    endif
         lea     (Dynamic_Live).w, a2
         move.w  (Dynamic_Live_Count).w, d7
         beq.s   .frozen_dyn_done
@@ -447,6 +468,9 @@ RunObjects_Frozen:
 .frozen_dyn_next:
         dbf     d7, .frozen_dyn_loop
 .frozen_dyn_done:
+    ifdef __DEBUG__
+        sf      (Dynamic_Live_Walking).w
+    endif
 
         ; System + Effect (fixed sweep, contiguous 24 slots)
         lea     (System_Slots).w, a0

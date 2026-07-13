@@ -1361,6 +1361,12 @@ EntityWindow_DespawnObjects:
         bne.s   .have_live
         rts
 .have_live:
+    ifdef __DEBUG__
+        ; A2 rail (item 12): the fourth dynamic live-list walker. DespawnObjects
+        ; only deletes (no alloc → A1-safe today), but flag the walk so the
+        ; CompactDynamicLive assert stays TOTAL if a spawn is ever added here.
+        st      (Dynamic_Live_Walking).w
+    endif
         lea     (Dynamic_Live).w, a2
         subq.w  #1, d5
 
@@ -1409,6 +1415,9 @@ EntityWindow_DespawnObjects:
 
 .next:
         dbf     d5, .loop
+    ifdef __DEBUG__
+        sf      (Dynamic_Live_Walking).w
+    endif
         rts
 
 ; -----------------------------------------------

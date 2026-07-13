@@ -55,6 +55,12 @@ TouchResponse:
         move.w  SST_y_pos(a2), d5       ; cache player Y integer
 
         ; --- Dynamic pool: spawn-order live list (empty slots cost zero) ---
+    ifdef __DEBUG__
+        ; A2 rail (item 1): a4 holds a live cursor and a dispatched touch handler
+        ; may AllocDynamic mid-walk — flag the walk so a resulting
+        ; CompactDynamicLive trips the assert instead of moving entries silently.
+        st      (Dynamic_Live_Walking).w
+    endif
         lea     (Dynamic_Live).w, a4
         move.w  (Dynamic_Live_Count).w, d6
         beq.w   .dyn_done               ; skips the whole segment; > .s range
@@ -110,6 +116,9 @@ TouchResponse:
 .dyn_next:
         dbf     d6, .dyn_loop
 .dyn_done:
+    ifdef __DEBUG__
+        sf      (Dynamic_Live_Walking).w
+    endif
 
         ; --- System + Effect pools: fixed sweep (24 contiguous slots) ---
         lea     (System_Slots).w, a3

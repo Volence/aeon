@@ -232,6 +232,13 @@ pub proc DeleteObject () clobbers(d0, a1) {
 // Clobbers: d0, d1, a0, a1, a2
 // -----------------------------------------------
 proc CompactDynamicLive () clobbers(d0, d1, a0, a1, a2) {
+        // A2 rail (item 1): a live-list walk must NOT be in progress — compaction
+        // moves entries down under any held cursor (the mid-walk double-dispatch
+        // hazard). d0 is free at entry (clobbered below). DEBUG-only, byte-neutral.
+        if DEBUG == 1 {
+        move.b  Dynamic_Live_Walking, d0
+        assert.b d0, eq, #0
+        }
         lea     Dynamic_Live, a0        // read cursor
         lea     Dynamic_Live, a1        // write cursor (compacts down over drops)
         move.w  Dynamic_Live_Count, d1
@@ -364,6 +371,10 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
     // clobber it (only a0/d7 are preserved across dispatch), so it is saved
     // across the jsr.
     .run_culled:
+        // A2 rail (item 1): dispatched object code may AllocDynamic mid-walk, and
+        // a2 holds a live cursor into Dynamic_Live — flag the walk so a resulting
+        // CompactDynamicLive trips the assert instead of moving entries silently.
+        if DEBUG == 1 { st Dynamic_Live_Walking }
         lea     Dynamic_Live, a2
         move.w  Dynamic_Live_Count, d7
         beq     .culled_done
@@ -406,6 +417,7 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
     .culled_next:
         dbf     d7, .culled_loop
     .culled_done:
+        if DEBUG == 1 { sf Dynamic_Live_Walking }
         rts
 }
 
@@ -454,6 +466,9 @@ pub proc RunObjects_Frozen () clobbers(d0-d6/a0-a6) {
         // Dynamic pool — spawn-order live list (empty slots cost zero). a2 is
         // the cursor; Draw_Sprite preserves a0/d7/a2, so no save is needed
         // (unlike .run_culled, whose dispatched object code may clobber a2).
+        // A2 rail (item 1): Draw_Sprite doesn't alloc today, but flag the walk so
+        // the CompactDynamicLive assert stays TOTAL if it ever gains a spawn.
+        if DEBUG == 1 { st Dynamic_Live_Walking }
         lea     Dynamic_Live, a2
         move.w  Dynamic_Live_Count, d7
         beq     .frozen_dyn_done
@@ -468,6 +483,7 @@ pub proc RunObjects_Frozen () clobbers(d0-d6/a0-a6) {
     .frozen_dyn_next:
         dbf     d7, .frozen_dyn_loop
     .frozen_dyn_done:
+        if DEBUG == 1 { sf Dynamic_Live_Walking }
 
         // System + Effect (fixed sweep, contiguous 24 slots)
         lea     System_Slots, a0
