@@ -132,6 +132,11 @@ AnimateSprite:
         bra.w   .evt_set_field          ; $F7 (9) — set field
 
 .cc_end:
+        ; NOTE (item 4): a frameless script — byte 1 is itself a non-exiting
+        ; control code (e.g. `dc.b dur, AF_END`) — loops forever here: clear
+        ; anim_frame, re-read byte 1, dispatch AF_END again, within one frame (a
+        ; full game hang). A required-terminator / non-empty-body invariant in the
+        ; typed-script DSL is the cure (byte-command-DSL demand).
         clr.b   SST_anim_frame(a0)
         moveq   #0, d1
         move.b  1(a1), d0
@@ -142,16 +147,31 @@ AnimateSprite:
 .cc_back:
         addq.b  #1, d1
         move.b  1(a1,d1.w), d0
+    ifdef __DEBUG__
+        ; DEBUG rail (item 4): AF_BACK with N==0 subtracts 0, re-reads the same
+        ; AF_BACK byte, and dispatches forever within one frame (a full game
+        ; hang). Typed script args (count != 0) are the full cure.
+        assert.b d0, ne, #0
+    endif
         sub.b   d0, SST_anim_frame(a0)
 
         moveq   #0, d1
         move.b  SST_anim_frame(a0), d1
         move.b  1(a1,d1.w), d0
         cmpi.b  #AF_SET_FIELD, d0       ; $F7+ = control/event; frames 0-$F6 are valid
+    ifdef __DEBUG__
+        bhs.w   .control_code           ; item 4: the AF_BACK N!=0 assert pushes this backward disp past .s in DEBUG
+    else
         bhs.s   .control_code           ; was .w — asl width-selected .s at the t9 step-2 sweep
+    endif
         bra.w   .set_frame
 
 .cc_change:
+        ; NOTE (item 4): AF_CHANGE to the CURRENT anim silently fails to restart —
+        ; re-dispatch takes the unchanged-anim path (prev_anim == anim), so
+        ; anim_frame never resets and the object freezes, re-dispatching each timer
+        ; expiry. Scripts must not AF_CHANGE to self; the typed-script DSL would
+        ; make this unrepresentable. No cheap register-comparand assert.
         addq.b  #1, d1
         move.b  1(a1,d1.w), SST_anim(a0)
         bra.w   AnimateSprite
@@ -183,29 +203,51 @@ AnimateSprite:
         movea.l (sp)+, a1
 .evt_cb_done:
         addq.b  #4, SST_anim_frame(a0)
+    ifdef __DEBUG__
+        bra.w   .after_event            ; item 4: the AF_SET_FIELD asserts push .after_event past .s in DEBUG
+    else
         bra.s   .after_event
+    endif
 
 .evt_sound:
         ; dc.b AF_SOUND, sound_id -> play the SFX
         move.b  2(a1,d1.w), d0
       ifdef SOUND_DRIVER_ENABLED
-        movem.l a1/d1, -(sp)
+        ; item 5: Sound_PlaySFX clobbers ONLY d0 — under the exhaustive-license
+        ; ruling a1/d1 are CONTRACTUALLY preserved, so the old movem.l a1/d1
+        ; save/restore pair is dead. a1 is reused in .after_event; d1 reloaded
+        ; there. −8 B.
         bsr.w   Sound_PlaySFX
-        movem.l (sp)+, a1/d1
       endif
         addq.b  #2, SST_anim_frame(a0)
+    ifdef __DEBUG__
+        bra.w   .after_event            ; item 4: the AF_SET_FIELD asserts push .after_event past .s in DEBUG
+    else
         bra.s   .after_event
+    endif
 
 .evt_collision:
         ; dc.b AF_COLLISION, collision_type
         move.b  2(a1,d1.w), SST_collision_resp(a0)
         addq.b  #2, SST_anim_frame(a0)
+    ifdef __DEBUG__
+        bra.w   .after_event            ; item 4: the AF_SET_FIELD asserts push .after_event past .s in DEBUG
+    else
         bra.s   .after_event
+    endif
 
 .evt_set_field:
         ; dc.b AF_SET_FIELD, sst_offset, value, 0
         moveq   #0, d0
         move.b  2(a1,d1.w), d0
+    ifdef __DEBUG__
+        ; DEBUG rails (item 4): a script offset >= SST_len writes into the NEXT
+        ; object's SST (neighbour corruption); targeting mapping_frame bypasses
+        ; RefreshSpritePieceCount (stale piece count). The typed-script DSL is the
+        ; full cure (byte-command-DSL demand).
+        assert.w d0, lo, #SST_len
+        assert.w d0, ne, #SST_mapping_frame
+    endif
         move.b  3(a1,d1.w), (a0,d0.w)
         addq.b  #4, SST_anim_frame(a0)
         ; fall through to .after_event

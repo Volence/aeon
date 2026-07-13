@@ -433,7 +433,18 @@ Sound_Dbg_Mirror:       ds.b 176        ; DEBUG: [0..47] Z80 mailbox/status ($1F
 Dynamic_Live:           ds.w NUM_DYNAMIC ; 80B — live dynamic slot addresses, spawn order
 Dynamic_Live_Count:     ds.w 1           ; live entries (0..NUM_DYNAMIC)
 Dynamic_Live_Dirty:     ds.b 1           ; a dynamic deletion happened; compact at frame end
+    ifdef __DEBUG__
+; A2 walk-live rail (retro-fix-audit-1, item 1/12): set while a dynamic
+; live-list walk holds a cursor into Dynamic_Live (.run_culled /
+; RunObjects_Frozen / TouchResponse / EntityWindow_DespawnObjects), asserted
+; CLEAR at CompactDynamicLive entry — a set flag there means a mid-walk
+; compaction is about to move entries under a live cursor (the A2 hazard).
+; Occupies the release pad slot, so Engine_RAM_End is shape-INVARIANT (no
+; downstream RAM address moves in either shape).
+Dynamic_Live_Walking:   ds.b 1           ; DEBUG-only: a dynamic live-list walk is in progress
+    else
                         ds.b 1           ; pad to even
+    endif
 
 ; -----------------------------------------------
 ; Engine RAM ends here — game RAM continues from Engine_RAM_End

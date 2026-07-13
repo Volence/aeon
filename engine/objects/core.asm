@@ -56,6 +56,12 @@ InitObjectRAM:
 ;      d0=1/Z clear if pool exhausted
 ;      Slot is tagged SLOT_TAG_UNTAGGED on return.
 ; Clobbers: d0
+; CALLER INVARIANT (item 3): the caller MUST write the returned slot's code_addr
+; before the NEXT AllocDynamic. The append-on-full guard runs CompactDynamicLive,
+; which treats code_addr==0 as dead and drops the slot — a caller that allocs a
+; second slot before initializing the first would silently lose the first (a
+; claimed-but-invisible zombie), reachable only at a full count. All current
+; callers write code_addr immediately (children/load_object/object_test emitters).
 ; -----------------------------------------------
 AllocDynamic:
         cmpi.w  #Dynamic_Free_Stack, (Dynamic_Free_SP).w
@@ -129,6 +135,16 @@ AllocEffect:
 ; Clobbers: d0, a1
 ; -----------------------------------------------
 DeleteObject:
+    ifdef __DEBUG__
+        ; DEBUG rails (item 2): a0 must point at a live SST inside Object_RAM.
+        ; An out-of-range a0 falls to .clear_slot and zeroes wild memory; a
+        ; code_addr==0 slot is an already-deleted (double-delete) slot whose
+        ; re-push corrupts the free stack. d0 is clobbered — free as scratch.
+        assert.l a0, hs, #Object_RAM
+        assert.l a0, lo, #Object_RAM_End
+        move.w  SST_code_addr(a0), d0
+        assert.w d0, ne, #0
+    endif
         ; Check Effect pool first (highest address range)
         cmpa.w  #Effect_Slots, a0
         bhs.s   .check_effect
@@ -211,11 +227,20 @@ DeleteObject:
 ; CompactDynamicLive — reconcile the dynamic live-list (see core.emp)
 ; Keeps nonzero + live-code_addr entries in place, drops zeroed (A1 delete) and
 ; dead-code_addr entries alike, recounts, clears dirty. Because it MOVES entries
-; down, it MUST run only when no walk is live (RunObjects tail, or inside
-; AllocDynamic's append-on-full guard).
+; down, it MUST run only when no dynamic live-list walk holds a cursor
+; (RunObjects tail, or inside AllocDynamic's append-on-full guard — the latter
+; CAN fire mid-dispatch, the A2 hazard; the DEBUG Dynamic_Live_Walking rail
+; asserts the walk flag is clear at entry to catch it).
 ; In: none  Out: none  Clobbers: d0, d1, a0, a1, a2
 ; -----------------------------------------------
 CompactDynamicLive:
+    ifdef __DEBUG__
+        ; A2 rail (item 1): a live-list walk must NOT be in progress — compaction
+        ; moves entries down under any held cursor (the mid-walk double-dispatch
+        ; hazard). d0 is free at entry. Byte-neutral in release.
+        move.b  (Dynamic_Live_Walking).w, d0
+        assert.b d0, eq, #0
+    endif
         lea     (Dynamic_Live).w, a0    ; read cursor
         lea     (Dynamic_Live).w, a1    ; write cursor (compacts down over drops)
         move.w  (Dynamic_Live_Count).w, d1
@@ -356,6 +381,12 @@ RunObjects:
 ; runs NEXT frame). a2 = list cursor, saved across dispatch (object code may
 ; clobber it — only a0/d7 are preserved).
 .run_culled:
+    ifdef __DEBUG__
+        ; A2 rail (item 1): dispatched object code may AllocDynamic mid-walk while
+        ; a2 holds a live cursor — flag the walk so a resulting CompactDynamicLive
+        ; trips the assert instead of moving entries silently.
+        st      (Dynamic_Live_Walking).w
+    endif
         lea     (Dynamic_Live).w, a2
         move.w  (Dynamic_Live_Count).w, d7
         beq.s   .culled_done
@@ -397,6 +428,9 @@ RunObjects:
 .culled_next:
         dbf     d7, .culled_loop
 .culled_done:
+    ifdef __DEBUG__
+        sf      (Dynamic_Live_Walking).w
+    endif
         rts
 
     ifdef __DEBUG__
@@ -433,6 +467,11 @@ RunObjects_Frozen:
 
         ; Dynamic pool — spawn-order live list (empty slots cost zero). a2 is the
         ; cursor; Draw_Sprite preserves a0/d7/a2, so no save is needed.
+    ifdef __DEBUG__
+        ; A2 rail (item 1): Draw_Sprite doesn't alloc today, but flag the walk so
+        ; the CompactDynamicLive assert stays TOTAL if it ever gains a spawn.
+        st      (Dynamic_Live_Walking).w
+    endif
         lea     (Dynamic_Live).w, a2
         move.w  (Dynamic_Live_Count).w, d7
         beq.s   .frozen_dyn_done
@@ -447,6 +486,9 @@ RunObjects_Frozen:
 .frozen_dyn_next:
         dbf     d7, .frozen_dyn_loop
 .frozen_dyn_done:
+    ifdef __DEBUG__
+        sf      (Dynamic_Live_Walking).w
+    endif
 
         ; System + Effect (fixed sweep, contiguous 24 slots)
         lea     (System_Slots).w, a0

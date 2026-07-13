@@ -8,8 +8,10 @@
 ;   Frame data:   word entry_count, then entry_count words
 ;   Entry word:   bits 15-12 = tile_count-1 (1-16), bits 11-0 = tile_start
 ;
-; With contiguous art layout (build-time optimized), each frame has
-; exactly 1 DPLC entry — guaranteed single DMA per frame change.
+; A frame may carry 1..N entries (each a separate DMA), so the entry loop is
+; load-bearing. (Item 6 originally asserted exactly-1-entry per the contiguous-
+; art note; the ObjectTest oracle soak disproved it — DPLC_Sonic frames carry
+; up to 6 entries — so the assert was removed.)
 ;
 ; In:  a0 = SST pointer
 ;      a2 = DPLC table pointer (ROM)
@@ -21,8 +23,10 @@
 Perform_DPLC:
         move.b  SST_mapping_frame(a0), d0
         cmp.b   SST_prev_frame(a0), d0
-        beq.s   .done                           ; frame unchanged, skip
-        move.b  d0, SST_prev_frame(a0)
+        beq.s   .done           ; frame unchanged, skip
+        ; item 11: prev_frame is committed AFTER a successful enqueue (below), not
+        ; here — QueueDMATransfer returns carry-set on a full-queue drop. d0 still
+        ; holds mapping_frame for the resolve below.
 
         ; Resolve DPLC frame data
         andi.w  #$FF, d0
@@ -30,7 +34,7 @@ Perform_DPLC:
         adda.w  (a2,d0.w), a2                   ; a2 = frame data pointer
         move.w  (a2)+, d4                        ; d4 = entry count
         subq.w  #1, d4
-        bmi.s   .done                            ; 0 entries
+        bmi.s   .done           ; 0 entries
 
         move.w  d1, d2                           ; d2 = running VRAM dest
 
@@ -50,10 +54,15 @@ Perform_DPLC:
 
         movem.l d2-d4/a2-a3, -(sp)
         bsr.w   QueueDMA_Important      ; LOCKSTEP dplc.emp step 2: jbsr cross-seam static call (was jsr abs.w; same 4 bytes, 4EB8→6100)
-        movem.l (sp)+, d2-d4/a2-a3
+        movem.l (sp)+, d2-d4/a2-a3      ; movem preserves CCR — the carry survives
+        bcs.s   .done                   ; item 11: dropped (queue full) — leave prev_frame stale, retry next frame
 
         add.w   d3, d2
         dbf     d4, .entry_loop
+        ; All entries enqueued OK — NOW commit prev_frame (item 11). Re-read
+        ; mapping_frame (unchanged this routine; d0 was consumed by the loop).
+        move.b  SST_mapping_frame(a0), d0
+        move.b  d0, SST_prev_frame(a0)
 .done:
         rts
 
@@ -71,15 +80,16 @@ Perform_DPLC:
 Perform_DPLC_Deferrable:
         move.b  SST_mapping_frame(a0), d0
         cmp.b   SST_prev_frame(a0), d0
-        beq.s   .done                            ; frame unchanged, skip
-        move.b  d0, SST_prev_frame(a0)
+        beq.s   .done           ; frame unchanged, skip
+        ; item 11: prev_frame committed AFTER a successful enqueue (below), not
+        ; here — QueueDMATransfer returns carry-set on a full-queue drop.
 
         andi.w  #$FF, d0
         add.w   d0, d0
         adda.w  (a2,d0.w), a2
         move.w  (a2)+, d4
         subq.w  #1, d4
-        bmi.s   .done
+        bmi.s   .done           ; 0 entries
 
         move.w  d1, d2
 
@@ -99,9 +109,13 @@ Perform_DPLC_Deferrable:
 
         movem.l d2-d4/a2-a3, -(sp)
         bsr.w   QueueDMA_Deferrable     ; LOCKSTEP dplc.emp step 2: jbsr cross-seam static call (was jsr abs.w; same 4 bytes, 4EB8→6100)
-        movem.l (sp)+, d2-d4/a2-a3
+        movem.l (sp)+, d2-d4/a2-a3      ; movem preserves CCR — the carry survives
+        bcs.s   .done                   ; item 11: dropped (queue full) — leave prev_frame stale, retry next frame
 
         add.w   d3, d2
         dbf     d4, .entry_loop
+        ; All entries enqueued OK — NOW commit prev_frame (item 11).
+        move.b  SST_mapping_frame(a0), d0
+        move.b  d0, SST_prev_frame(a0)
 .done:
         rts

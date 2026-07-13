@@ -134,11 +134,13 @@ Sound_PlayMusic:
 ; RAM (no Z80 bus hold at call time -> less bus contention than the old direct post).
 ; In:  d0.b = sfx id (nonzero).
 ; Clobbers: d0 (the id — callers must treat it as consumed).
-; Preserves — two kinds, don't conflate them:
-;   ENFORCED (saved/restored via movem — the preserves(d1/a0) contract, so the
-;     d0-only clobber survives even if the body grows to touch them): d1, a0.
-;   INCIDENTAL (the current body simply never writes them — NOT a guarantee,
-;     do not rely on it across edits): a1, d2-d7, SR.
+; Preserves: everything except d0. Under the exhaustive-license convention
+;   (Volence-ratified 2026-07-12, retro-fix item 9) a register NOT in the clobber
+;   set is CONTRACTUALLY preserved and callers MAY rely on it — what the S2-D6
+;   checked-clobbers lint will verify. So a1, d2-d7, and SR are guaranteed, not
+;   "incidental". preserves(d1/a0) adds movem-ENFORCED emphasis on the two hot
+;   reliances, so the d0-only clobber survives even if the body grows to touch
+;   d1/a0 (e.g. animate dropping BOTH saves around this call).
 ; ----------------------------------------------------------------------
 Sound_PlaySFX:
         tst.b   d0                          ; defensive: id 0 = nothing to queue

@@ -5,8 +5,13 @@
 //   Frame data:   word entry_count, then entry_count words
 //   Entry word:   bits 15-12 = tile_count-1 (1-16), bits 11-0 = tile_start
 //
-// With contiguous art layout (build-time optimized), each frame has
-// exactly 1 DPLC entry — guaranteed single DMA per frame change.
+// A frame may carry 1..N entries (each a separate DMA), so the entry loop
+// below is load-bearing — NOT dead generality. (Item 6 originally asserted
+// "exactly 1 entry" per the contiguous-art optimization note; the ObjectTest
+// oracle soak DISPROVED it — DPLC_Sonic frames legitimately carry up to 6
+// entries — so that assert was removed. If a single-DMA guarantee is wanted
+// for the shipping art, it belongs in the build tool, not this shared runtime
+// path.)
 //
 // Cross-seam: QueueDMA_Important / QueueDMA_Deferrable resolve at link.
 
@@ -24,8 +29,13 @@ comptime fn perform_dplc(queue: Label) -> Code {
     return asm {
         move.b  Sst.mapping_frame(a0), d0
         cmp.b   Sst.prev_frame(a0), d0
-        beq.s   .done                           // frame unchanged, skip
-        move.b  d0, Sst.prev_frame(a0)
+        beq     .done                           // frame unchanged, skip (bare Bcc — sigil relaxes per-shape)
+        // item 11: prev_frame is committed AFTER a successful enqueue (below), NOT
+        // here — QueueDMATransfer returns carry-set when the queue is full and it
+        // silently drops the request. Committing before meant a dropped frame left
+        // prev_frame == mapping_frame, so the object believed its art loaded and
+        // showed stale tiles until mapping_frame changed again. d0 still holds
+        // mapping_frame for the resolve below.
 
         // Resolve DPLC frame data
         andi.w  #$FF, d0
@@ -33,7 +43,7 @@ comptime fn perform_dplc(queue: Label) -> Code {
         adda.w  (a2,d0.w), a2                   // a2 = frame data pointer
         move.w  (a2)+, d4                        // d4 = entry count
         subq.w  #1, d4
-        bmi.s   .done                            // 0 entries
+        bmi     .done                            // 0 entries
 
         move.w  d1, d2                           // d2 = running VRAM dest
 
@@ -52,11 +62,16 @@ comptime fn perform_dplc(queue: Label) -> Code {
         lsl.w   #5, d3                           // d3.w = length (bytes)
 
         movem.l d2-d4/a2-a3, -(sp)
-        jbsr    {queue}
-        movem.l (sp)+, d2-d4/a2-a3
+        jbsr    {queue}                          // carry SET = dropped (queue full)
+        movem.l (sp)+, d2-d4/a2-a3               // movem preserves CCR — the carry survives
+        bcs     .done                            // item 11: dropped — leave prev_frame stale so next frame RETRIES
 
         add.w   d3, d2
         dbf     d4, .entry_loop
+        // All entries enqueued OK — NOW commit prev_frame (item 11). Re-read
+        // mapping_frame (unchanged this routine; d0 was consumed by the loop).
+        move.b  Sst.mapping_frame(a0), d0
+        move.b  d0, Sst.prev_frame(a0)
     .done:
         rts
     }

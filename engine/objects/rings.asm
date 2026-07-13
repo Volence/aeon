@@ -128,9 +128,15 @@ DrawRings:
 .no_anim_tick:
         move.b  d0, (Ring_Anim_Timer).w
 
-        ; Cache camera position
+        ; Cache camera position, PRE-BIASED for the SAT write (item 10 fold, the
+        ; A1 camera-bias class): folding the ring-centre −8 and the SAT bias into
+        ; the cached camera makes `sub.w d6,d2` yield the final SAT X directly,
+        ; dropping the per-ring subi/addi pairs. d6/d7 are the ring camera only
+        ; (untouched in the loop), so pre-biasing is safe.
         move.w  (Camera_X).w, d6
+        subi.w  #VDP_SPRITE_X_OFFSET-RING_WIDTH/2, d6   ; d6 = Camera_X − (128−8)
         move.w  (Camera_Y).w, d7
+        subi.w  #VDP_SPRITE_Y_OFFSET-RING_HEIGHT/2, d7
 
         ; Animated ring tile attr: base + frame×4 (each 2×2 frame = 4 tiles).
         ; Constant across the loop, so compute once here.
@@ -152,35 +158,36 @@ DrawRings:
         cmpi.w  #MAX_VDP_SPRITES, d5
         bhs.s   .done
 
-        ; On-screen culling — X
+        ; On-screen culling — X. d2 = SAT X (biased camera). The cull needs the
+        ; screen-relative centre→edge value, so the addi subtracts the fold bias
+        ; back out: d0 = SAT_X + (RING_WIDTH/2 − bias) = screen X + RING_WIDTH/2,
+        ; BYTE-IDENTICAL to the pre-fold unsigned window (cmpi unchanged → no
+        ; wraparound shift). Culls ONLY when fully off-screen (centre-anchored).
         move.w  (a0), d2                ; engine X
-        sub.w   d6, d2                  ; screen X
+        sub.w   d6, d2                  ; SAT X (screen X − 8 + VDP_SPRITE_X_OFFSET)
         move.w  d2, d0
-        addi.w  #RING_WIDTH/2, d0      ; centre→edge bias: sprite is centre-anchored, spans centre±(w/2);
-                                       ; one unsigned compare then culls ONLY when fully off-screen
+        addi.w  #RING_WIDTH/2-(VDP_SPRITE_X_OFFSET-RING_WIDTH/2), d0
         cmpi.w  #SCREEN_WIDTH+RING_WIDTH, d0
         bhi.s   .skip_ring
 
-        ; On-screen culling — Y
+        ; On-screen culling — Y (same fold compensation as X)
         move.w  2(a0), d3              ; engine Y
-        sub.w   d7, d3                  ; screen Y
+        sub.w   d7, d3                  ; SAT Y
         move.w  d3, d0
-        addi.w  #RING_HEIGHT/2, d0     ; centre→edge bias (see X cull above)
+        addi.w  #RING_HEIGHT/2-(VDP_SPRITE_Y_OFFSET-RING_HEIGHT/2), d0
         cmpi.w  #SCREEN_HEIGHT+RING_HEIGHT, d0
         bhi.s   .skip_ring
 
-        ; --- Write SAT entry (8 bytes) ---
-        subi.w  #8, d3
-        addi.w  #VDP_SPRITE_Y_OFFSET, d3
+        ; --- Write SAT entry (8 bytes) --- d2/d3 already hold the final SAT X/Y
+        ; (camera pre-biased), so no per-ring subi/addi.
         move.w  d3, (a4)+              ; +0: Y position
         move.b  #$05, (a4)+            ; +2: size 2×2 (16×16 px)
         addq.b  #1, d5
         move.b  d5, (a4)+              ; +3: link (next sprite index)
         move.w  d4, (a4)+             ; +4: tile attrs (animated ring frame, d4 = base + frame×4)
-        subi.w  #8, d2
-        addi.w  #VDP_SPRITE_X_OFFSET, d2
+        tst.w   d2                     ; avoid X=0 (VDP sprite masking) — tests the biased SAT X, as before
         bne.s   .x_ok
-        moveq   #1, d2                 ; avoid X=0 (VDP sprite masking)
+        moveq   #1, d2
 .x_ok:
         move.w  d2, (a4)+              ; +6: X position
 
