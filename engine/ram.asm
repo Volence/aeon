@@ -205,6 +205,13 @@ Prof_Peak_Render:       ds.w 1          ; peak Render_Sprites
 Prof_Peak_Frame:        ds.w 1          ; peak full frame
 Prof_Dynamic_Used:      ds.w 1          ; dynamic slots in use this frame
 Prof_Effect_Used:       ds.w 1          ; effect slots in use this frame
+
+; Debug harness: scene-pin flag. Nonzero = GameState_OJZScroll_Update skips
+; Camera_Update + EntityWindow_Scan so a write_memory camera+ring scene
+; survives (R-A1 ring-cull boundary verification). See
+; docs/superpowers/specs/2026-07-12-ojz-scene-pin-debug-hook-design.md.
+Debug_Scene_Freeze:     ds.b 1          ; 0 = normal, nonzero = pin OJZScroll scene
+                        ds.b 1          ; pad to even (keep the __DEBUG__ block word-aligned)
     endif
 
 ; -----------------------------------------------
