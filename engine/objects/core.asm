@@ -74,14 +74,25 @@ AllocDynamic:
         ; (Dynamic_Live[Count++] = a1), UNIQUE by construction — DeleteObject (A1)
         ; zeroed any prior entry for this slot. a0 saved LONG (callers hold a
         ; 32-bit ROM ptr). Spawn-time only.
-        ; A1 capacity-guard: at a full count, compact FIRST (reclaims zero/dead
-        ; entries). Room guaranteed — we just popped, so the free stack was
-        ; nonempty; a full count then implies stale entries exist.
+        ; A2 overflow latch (spec §9): at a FULL live list, latch the popped slot
+        ; for the frame-end drain instead of compacting mid-frame under a held
+        ; walker cursor (the A2 hazard). The slot IS allocated (caller sets
+        ; code_addr); it joins Dynamic_Live at the frame-end drain and first
+        ; dispatches NEXT frame (misses same-frame TouchResponse). The live list
+        ; is never mutated mid-frame by the alloc path now.
         cmpi.w  #NUM_DYNAMIC, (Dynamic_Live_Count).w
         bne.s   .append
-        movem.l d1/a0-a2, -(sp)         ; CompactDynamicLive clobbers these; the
-        bsr.w   CompactDynamicLive      ; popped slot (a1) is saved + restored
-        movem.l (sp)+, d1/a0-a2
+        cmpi.w  #NUM_DYNAMIC_PENDING, (Dynamic_Live_Pending_Count).w
+        beq.s   .latch_full            ; latch full → roll back the pop, alloc-fail
+        move.l  a0, -(sp)
+        lea     (Dynamic_Live_Pending).w, a0
+        move.w  (Dynamic_Live_Pending_Count).w, d0
+        add.w   d0, d0                 ; word index -> byte offset
+        move.w  a1, (a0,d0.w)
+        addq.w  #1, (Dynamic_Live_Pending_Count).w
+        movea.l (sp)+, a0
+        moveq   #0, d0                 ; Z set = success (latched; dispatches next frame)
+        rts
 .append:
         move.l  a0, -(sp)
         lea     (Dynamic_Live).w, a0
@@ -92,8 +103,12 @@ AllocDynamic:
         movea.l (sp)+, a0
         moveq   #0, d0                  ; Z set = success
         rts
+.latch_full:
+        ; The slot was already popped before the full count was known; return it
+        ; to the free stack so it is not leaked (re-exposed at the current SP).
+        addq.w  #2, (Dynamic_Free_SP).w
 .full:
-        moveq   #1, d0                  ; Z clear = pool exhausted
+        moveq   #1, d0                  ; Z clear = pool exhausted (or latch full)
         rts
 
 ; -----------------------------------------------
@@ -185,15 +200,31 @@ DeleteObject:
         move.w  a0, d1                  ; d1 = low16(slot addr) = the entry to find
         lea     (Dynamic_Live).w, a1
         move.w  (Dynamic_Live_Count).w, d0
-        beq.s   .dyn_zero_done
+        beq.s   .dyn_zero_pending
         subq.w  #1, d0
 .dyn_zero_scan:
         cmp.w   (a1)+, d1
         beq.s   .dyn_zero_hit
         dbf     d0, .dyn_zero_scan
-        bra.s   .dyn_zero_done
+        bra.s   .dyn_zero_pending
 .dyn_zero_hit:
         clr.w   -(a1)                  ; (a1)+ passed the match; step back and zero it
+.dyn_zero_pending:
+        ; A2: also zero a matching PENDING-latch entry — a slot latched this frame
+        ; (allocated, not yet in the live list) can be deleted the same frame; the
+        ; stale latch entry would make the drain re-append (LIFO re-latch would
+        ; double it). Same exactly-once fix as the live-list zero above.
+        lea     (Dynamic_Live_Pending).w, a1
+        move.w  (Dynamic_Live_Pending_Count).w, d0
+        beq.s   .dyn_zero_done
+        subq.w  #1, d0
+.dyn_pend_scan:
+        cmp.w   (a1)+, d1
+        beq.s   .dyn_pend_hit
+        dbf     d0, .dyn_pend_scan
+        bra.s   .dyn_zero_done
+.dyn_pend_hit:
+        clr.w   -(a1)
 .dyn_zero_done:
         move.w  (sp)+, d1
 
@@ -227,10 +258,13 @@ DeleteObject:
 ; CompactDynamicLive — reconcile the dynamic live-list (see core.emp)
 ; Keeps nonzero + live-code_addr entries in place, drops zeroed (A1 delete) and
 ; dead-code_addr entries alike, recounts, clears dirty. Because it MOVES entries
-; down, it MUST run only when no dynamic live-list walk holds a cursor
-; (RunObjects tail, or inside AllocDynamic's append-on-full guard — the latter
-; CAN fire mid-dispatch, the A2 hazard; the DEBUG Dynamic_Live_Walking rail
-; asserts the walk flag is clear at entry to catch it).
+; down, it MUST run only when no dynamic live-list walk holds a cursor. Post A2
+; (spec §9) it is called ONLY from the RunObjects frame-end reconcile (no walk
+; live) — AllocDynamic's full-count path now LATCHES instead of compacting, so
+; the mid-walk-compact hazard is gone. The DEBUG Dynamic_Live_Walking rail
+; asserts the walk flag is clear here as a regression guard (should never fire).
+; The §6-2/§6-3 post-state asserts moved to DrainDynamicPending (verify the list
+; AFTER the latch drain appends).
 ; In: none  Out: none  Clobbers: d0, d1, a0, a1, a2
 ; -----------------------------------------------
 CompactDynamicLive:
@@ -263,37 +297,64 @@ CompactDynamicLive:
         lsr.w   #1, d0
         move.w  d0, (Dynamic_Live_Count).w
         sf      (Dynamic_Live_Dirty).w
-        ; DEBUG invariant rail (§6), kept OUT of the hot loop so the plain
-        ; shape is byte-unchanged and the compaction loop's short branches keep
-        ; their .s widths. d0 = the fresh count (spent by §6-3's decrement).
+        rts
+
+; -----------------------------------------------
+; DrainDynamicPending — append the A2 overflow latch to the live list (spec §9).
+; Runs at the RunObjects frame-end reconcile, right AFTER CompactDynamicLive
+; (which reclaimed room from the frame's deletions). Appends each non-zero
+; Dynamic_Live_Pending entry to Dynamic_Live IN ALLOC ORDER (spawn-order
+; preserved; a latched spawn first runs NEXT frame); a zeroed entry
+; (deleted-while-latched, DeleteObject A2) is dropped. Clears the latch count.
+; Room is guaranteed (no overflow): occupied slots (live list + non-zero latch)
+; <= NUM_DYNAMIC, since each occupied slot has exactly one live entry in the list
+; OR the latch (never both), so room >= latch entries. See core.emp / spec §9.
+; In: none  Out: none  Clobbers: d0, d1, d2, a0, a1
+; -----------------------------------------------
+DrainDynamicPending:
+        move.w  (Dynamic_Live_Pending_Count).w, d1
+        beq.s   .clear                  ; empty (dirty-only reconcile) — nothing to append
+        subq.w  #1, d1
+        lea     (Dynamic_Live_Pending).w, a0
+        lea     (Dynamic_Live).w, a1
+        move.w  (Dynamic_Live_Count).w, d0
+        add.w   d0, d0                  ; d0 = live byte offset (append cursor)
+.drain_loop:
+        move.w  (a0)+, d2               ; latched entry
+        beq.s   .drain_next             ; zeroed (deleted while latched) — drop
+        move.w  d2, (a1,d0.w)           ; append in alloc order → spawn-order preserved
+        addq.w  #2, d0
+        addq.w  #1, (Dynamic_Live_Count).w
+.drain_next:
+        dbf     d1, .drain_loop
+.clear:
+        clr.w   (Dynamic_Live_Pending_Count).w
     ifdef __DEBUG__
-        ; §6 (3): post-compact count == a full-pool tst.w live sweep — no
-        ; duplicate, none missing (the check that catches the A1 double-
-        ; dispatch). Decrement the fresh count per live slot; a dup leaves it
-        ; >0, a missing slot drives it <0, so it must land exactly on zero.
+        ; §6-2/§6-3 on the FINAL reconciled list (moved from CompactDynamicLive,
+        ; which now runs pre-drain): post-drain count == a full-pool tst.w live
+        ; sweep (no duplicate, none missing — the A1 double-dispatch check; count
+        ; == occupied <= NUM_DYNAMIC is the §9 room proof), every entry in-pool.
+        move.w  (Dynamic_Live_Count).w, d0
         lea     (Dynamic_Slots).w, a0
         move.w  #NUM_DYNAMIC-1, d1
-.sweep_loop:
+.drain_sweep_loop:
         tst.w   (a0)
-        beq.s   .sweep_next
+        beq.s   .drain_sweep_next
         subq.w  #1, d0
-.sweep_next:
+.drain_sweep_next:
         lea     SST_len(a0), a0
-        dbf     d1, .sweep_loop
+        dbf     d1, .drain_sweep_loop
         assert.w d0, eq, #0
-        ; §6 (2): every live-list entry points into object RAM (the dynamic
-        ; slots are a subrange; identical spelling to Debug_AssertObjLoop so
-        ; the embedded assert message is byte-identical across the twins).
         move.w  (Dynamic_Live_Count).w, d1
-        beq.w   .dbg_done
+        beq.w   .drain_dbg_done
         lea     (Dynamic_Live).w, a0
         subq.w  #1, d1
-.entry_check:
-        movea.w (a0)+, a2
-        assert.l a2, hs, #Object_RAM
-        assert.l a2, lo, #Object_RAM_End
-        dbf     d1, .entry_check
-.dbg_done:
+.drain_entry_check:
+        movea.w (a0)+, a1
+        assert.l a1, hs, #Object_RAM
+        assert.l a1, lo, #Object_RAM_End
+        dbf     d1, .drain_entry_check
+.drain_dbg_done:
     endif
         rts
 
@@ -340,22 +401,27 @@ RunObjects:
         move.w  #NUM_EFFECTS-1, d7
         bsr.s   .run_always
 
-        ; --- Frame-end compaction (step 6): every walk is done, so it is
-        ;     safe for CompactDynamicLive to move entries down over drops.
-        ;     Runs only on a frame where a deletion dirtied the list — O(1)
-        ;     otherwise. Reconciles Count to the true live set + drains the
-        ;     A1-zeroed entries the walkers had been null-guarding.
-        ;     LOCKSTEP core.emp: jbsr auto-selects PER SHAPE — plain reaches .s
-        ;     (~106 back), but the step-7 DEBUG asserts grew CompactDynamicLive
-        ;     enough to push the debug disp past .s, so the debug shape takes .w.
+        ; --- Frame-end reconcile (step 6 + A2 §9): every walk is done (no walk
+        ;     live), so CompactDynamicLive can move entries down, then
+        ;     DrainDynamicPending appends the overflow latch IN ALLOC ORDER.
+        ;     Runs when a deletion dirtied the list OR the latch holds pending
+        ;     spawns (latch non-empty => dirty by construction; the OR guards
+        ;     against ever leaking a latched object). O(1) on a quiet frame.
+        ;     LOCKSTEP core.emp: the two jbsr widths are hand-set to sigil's
+        ;     per-shape relaxation (backward disp; the debug shape's larger
+        ;     CompactDynamicLive/DrainDynamicPending push it past .s).
         tst.b   (Dynamic_Live_Dirty).w
-        beq.s   .no_compact
+        bne.s   .reconcile
+        tst.w   (Dynamic_Live_Pending_Count).w
+        beq.s   .no_reconcile
+.reconcile:
+        bsr.w   CompactDynamicLive      ; .w both shapes (disp past .s: plain -158, debug -666)
     ifdef __DEBUG__
-        bsr.w   CompactDynamicLive
+        bsr.w   DrainDynamicPending     ; debug: disp -432 → .w
     else
-        bsr.s   CompactDynamicLive
+        bsr.s   DrainDynamicPending     ; plain: disp -110 → .s (sigil relaxes per shape)
     endif
-.no_compact:
+.no_reconcile:
         rts
 
 ; Dispatch loop — no culling

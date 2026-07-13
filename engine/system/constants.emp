@@ -58,6 +58,11 @@ pub const NUM_EFFECTS = 16
 // Total slot count across all pools + culling geometry + the untagged slot
 // sentinel (mirror engine/constants.asm — the object-core block, tranche 10).
 pub const NUM_TOTAL_SLOTS = NUM_PLAYERS + NUM_DYNAMIC + NUM_SYSTEM + NUM_EFFECTS
+// Occupancy amendment A2 (overflow latch, spec §9): frame-end pending-latch
+// capacity. AllocDynamic at a full live list latches the popped slot instead of
+// compacting mid-frame; RunObjects' tail drains it (one compaction, then append
+// in alloc order). Latch full → alloc-fail. Bounded, rare.
+pub const NUM_DYNAMIC_PENDING = 8
 pub const CULL_DISTANCE_X = $300      // 768px — skip dynamic objects beyond this
 pub const CULL_DISTANCE_Y = $200      // 512px
 pub const SLOT_TAG_UNTAGGED = $FF     // AllocDynamic tags a fresh slot untagged
@@ -138,6 +143,7 @@ ensure(extern("NUM_DYNAMIC") == NUM_DYNAMIC, "engine/constants.asm and engine/co
 ensure(extern("NUM_SYSTEM") == NUM_SYSTEM, "engine/constants.asm and engine/constants.emp disagree on NUM_SYSTEM — update the twin")
 ensure(extern("NUM_EFFECTS") == NUM_EFFECTS, "engine/constants.asm and engine/constants.emp disagree on NUM_EFFECTS — update the twin")
 ensure(extern("NUM_TOTAL_SLOTS") == NUM_TOTAL_SLOTS, "engine/constants.asm and engine/constants.emp disagree on NUM_TOTAL_SLOTS — update the twin")
+ensure(extern("NUM_DYNAMIC_PENDING") == NUM_DYNAMIC_PENDING, "engine/constants.asm and engine/constants.emp disagree on NUM_DYNAMIC_PENDING — update the twin")
 ensure(extern("CULL_DISTANCE_X") == CULL_DISTANCE_X, "engine/constants.asm and engine/constants.emp disagree on CULL_DISTANCE_X — update the twin")
 ensure(extern("CULL_DISTANCE_Y") == CULL_DISTANCE_Y, "engine/constants.asm and engine/constants.emp disagree on CULL_DISTANCE_Y — update the twin")
 ensure(extern("SLOT_TAG_UNTAGGED") == SLOT_TAG_UNTAGGED, "engine/constants.asm and engine/constants.emp disagree on SLOT_TAG_UNTAGGED — update the twin")

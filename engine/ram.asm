@@ -453,6 +453,17 @@ Dynamic_Live_Walking:   ds.b 1           ; DEBUG-only: a dynamic live-list walk 
                         ds.b 1           ; pad to even
     endif
 
+; Occupancy amendment A2 (overflow latch, spec §9) — RELEASE (both shapes).
+; AllocDynamic at a full live list (count==NUM_DYNAMIC) latches the popped slot
+; word here instead of compacting mid-frame under a live walker; RunObjects' tail
+; drains it (one CompactDynamicLive, then append the latched entries IN ALLOC
+; ORDER, preserving spawn-order dispatch). DeleteObject zeroes a latch entry too
+; (the "exactly once" invariant extends to the latch). Placed after the
+; DEBUG/pad byte so both shapes carry it at the same offset (Engine_RAM_End moves
+; identically in both). Word count for even alignment.
+Dynamic_Live_Pending:       ds.w NUM_DYNAMIC_PENDING ; latched slot addresses (alloc order)
+Dynamic_Live_Pending_Count: ds.w 1                   ; latch occupancy (0..NUM_DYNAMIC_PENDING)
+
 ; -----------------------------------------------
 ; Engine RAM ends here — game RAM continues from Engine_RAM_End
 ; (games/<game>/config/ram.asm phases from this address).
