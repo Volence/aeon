@@ -41,12 +41,25 @@ flag cannot manufacture a wall to push against. Bug-2 stays on the ledger's
 ### The variable
 
 One RAM byte, `Debug_Scene_Freeze`, allocated in `engine/ram.asm` inside the
-existing `ifdef __DEBUG__` block (the `Prof_*` region, lines 190–208), keeping
-the block's word-evenness (add a pad byte if the following item needs it).
-Default 0 = normal behavior. Harness-owned, so the `Debug_` prefix is correct
+existing `ifdef __DEBUG__` block (the `Prof_*` region). Default 0 = normal
+behavior. Harness-owned, so the `Debug_` prefix is correct
 (the debug-harness family: `Debug_AssertObjLoop`, `Debug_MusicToggle`); the
 `_Dbg_` infix is the subsystem-owned-mirror convention (`Sound_Dbg_Mirror`) and
 does not apply here.
+
+**Pad-byte double-booking — check current state, don't trust this spec's
+snapshot.** As of master (post the `retro-fix-audit-1` merge, `5e946ca`) this
+`__DEBUG__` block is entirely `ds.w`/`ds.l` — there is **no spare `ds.b` pad to
+reuse** (the A2 walk-live-flag work in that batch is the kind of change that
+consumes such pads, `Engine_RAM_End` shape-invariant). So adding a lone
+`Debug_Scene_Freeze: ds.b 1` would make the block **odd** and shift every
+`__DEBUG__` address after it. The implementation MUST inspect the block's
+**current** layout at implementation time (not this spec's line numbers) and
+re-establish word-evenness itself — concretely, add the byte **and** a
+`ds.b 1 ; pad to even` immediately after (net 2 bytes, block stays even), unless
+it finds a genuine odd/pad slot to land in. This is a symbol-table concern only
+(RAM emits no bytes), but it still moves DEBUG-shape addresses — see the re-pin
+check in Verification.
 
 The entire hook is `__DEBUG__`-gated: the variable and the two guards compile
 only into the debug build. Release `s4.bin` therefore takes no code change.
@@ -103,14 +116,32 @@ the `jsr`s.
 ### Tester flow (oracle, existing tooling)
 
 1. Enter OJZScroll; let it settle.
-2. `pause` / `run_frames` for controlled stepping.
+2. `pause` — and **stay paused across steps 3–5**. All the writes plus the
+   freeze must land while the emulator is stopped so no frame runs between the
+   camera write and the freeze taking effect (otherwise one `Camera_Update` /
+   `EntityWindow_Scan` fires against the half-set scene). Step frames only at
+   step 6.
 3. `write_memory` `Camera_X`/`Camera_Y` to the target position.
-4. `write_memory` the ring into the ring buffer at a world position that lands
-   at the screen-edge boundary — **away from the player spawn** (RingCollision
-   is live).
+4. Hand-place the ring: `write_memory` the **6-byte ring-buffer entry** at a
+   world position that lands at the screen-edge boundary, **and bump
+   `Ring_Count`** to include it. The count bump is not optional — `DrawRings`
+   iterates `Ring_Count` entries, so a ring written without incrementing the
+   count **draws nothing** and the tester chases a phantom failure. The entry's
+   `section_id` / `list_index` fields may be sentinel garbage (`$FF`): the
+   despawn/window bookkeeping that would read them is frozen (`EntityWindow_Scan`
+   skipped), so nothing cross-checks them.
 5. `write_memory` `Debug_Scene_Freeze = 1`.
 6. `run_frames(N)`.
 7. Read the SAT (VRAM sprite table) → observe the ring's boundary cull.
+
+**Why "away from the player spawn" carries more weight than it looks:**
+`RingCollision` stays live (by design). If the pin overlaps the player it gets
+collected — and because the entry's `section_id` is deliberately bogus (`$FF`),
+`Collected_MarkRing` would then stamp a **garbage section** into the
+collected-ring window, claiming a real collected-window slot for a nonexistent
+ring and corrupting the streaming bookkeeping. So the placement rule is two
+constraints, not one: (a) at the screen-edge boundary under test, and (b) far
+enough from the spawn/player that `RingCollision` never touches it.
 
 ## Verification
 
