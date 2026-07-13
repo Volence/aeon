@@ -89,7 +89,7 @@ Load_Object:
 ;
 ; In:  a0 = object list pointer (ROM)
 ; Out: none (objects spawned, alloc failures silently skipped)
-; Clobbers: d0-d3, a0-a2
+; Clobbers: d0-d3, a0-a3 (a3 transitively, via Load_Object)
 ; -----------------------------------------------
 Load_ObjectList:
 .loop:
@@ -99,9 +99,7 @@ Load_ObjectList:
         move.w  (a0)+, d0              ; X position
         move.w  (a0)+, d1              ; Y position
         move.w  (a0)+, d2              ; subtype (low byte; bits 13-15 clear in sane list data)
-        move.l  a0, -(sp)
-        bsr.w   Load_Object
-        movea.l (sp)+, a0
+        bsr.w   Load_Object            ; preserves a0 (the list cursor) — no save needed
         bra.s   .loop
 .done:
         rts

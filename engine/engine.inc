@@ -304,9 +304,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $58DE
+        org     $58DA
       else
-        org     $4C5C
+        org     $4C58
       endif
     endif
     gameEngineBlockIncludes
@@ -331,9 +331,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $79A4
+        org     $79A0
         else
-        org     $5F92
+        org     $5F8E
         endif
       endif
     endif
