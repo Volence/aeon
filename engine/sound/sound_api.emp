@@ -270,20 +270,21 @@ pub proc Sound_PlaySFX () preserves(d1/a0) {
         addq.b  #1, d1
         and.b   #SFX_RING_MASK, d1          // d1 = nextWr (byte ops only from here: cmp.b + move.b commit)
         cmp.b   Sfx_Ring_Rd, d1         // nextWr == Rd -> ring full -> drop (>7 same-frame: never)
-        beq     .ps_full
+        // retro-fix batch 2 (sound_api finding 2): assert the ring-full "never"
+        // claim (>7 DISTINCT SFX ids enqueued in one frame before the drain ran =
+        // a content bug, keyed on EXACT id so the L/R pair is never collapsed).
+        // DEBUG-only, and placed BEFORE the shared drop branch so the plain shape
+        // stays byte-IDENTICAL — the whole block elides, no extra label ships in
+        // the release ROM. Fires ONLY on the full path: the dedup-skip reaches
+        // .ps_drop from earlier and never runs this cmp. RingBuffer_Add precedent.
+        if DEBUG == 1 {
+        bne     .ps_full_ok             // not full -> skip; the cmp's Z survives to the beq below
+        raise_error "Sound_PlaySFX: SFX ring full (>7 in one frame)"
+    .ps_full_ok:
+        }
+        beq     .ps_drop
         move.b  d0, (a0)                    // Sfx_Ring_Buf[Wr] = id  (data BEFORE pointer)
         move.b  d1, Sfx_Ring_Wr         // commit Wr = nextWr
-    .ps_full:
-        // retro-fix batch 2 (sound_api finding 2): ONLY the ring-full drop reaches here — its
-        // own label so the assert fires only on the "never happens" branch (the
-        // dedup-skip below lands on .ps_drop, silent and correct). Full means >7
-        // DISTINCT SFX ids enqueued in one frame before the drain ran: a content
-        // bug, not a real audio state. RingBuffer_Add's assert-on-drop is the
-        // precedent. Self-gates to zero bytes in the plain shape (label aliases
-        // .ps_drop there — byte-neutral in release).
-        if DEBUG == 1 {
-        raise_error "Sound_PlaySFX: SFX ring full (>7 in one frame)"
-        }
     .ps_drop:
         movem.l (sp)+, d1/a0
     .ps_ret:

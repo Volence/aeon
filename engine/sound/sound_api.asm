@@ -185,19 +185,18 @@ Sound_PlaySFX:
         addq.b  #1, d1
         and.b   #SFX_RING_MASK, d1          ; d1 = nextWr (byte ops only from here: cmp.b + move.b commit)
         cmp.b   (Sfx_Ring_Rd).w, d1         ; nextWr == Rd -> ring full -> drop (>7 same-frame: never)
-        beq.s   .ps_full
+    ifdef __DEBUG__
+        ; retro-fix batch 2 (sound_api finding 2): assert the ring-full "never"
+        ; claim. DEBUG-only, BEFORE the shared drop branch so the plain shape is
+        ; byte-IDENTICAL (no extra label ships in the release ROM). Fires ONLY on
+        ; the full path (the dedup-skip reaches .ps_drop from earlier, not here).
+        bne.s   .ps_full_ok                 ; not full -> skip; cmp's Z survives to the beq below
+        RaiseError "Sound_PlaySFX: SFX ring full (>7 in one frame)"
+.ps_full_ok:
+    endif
+        beq.s   .ps_drop
         move.b  d0, (a0)                    ; Sfx_Ring_Buf[Wr] = id  (data BEFORE pointer)
         move.b  d1, (Sfx_Ring_Wr).w         ; commit Wr = nextWr
-.ps_full:
-        ; retro-fix batch 2 (sound_api finding 2): ONLY the ring-full drop reaches
-        ; here — its own label so the assert fires only on the "never happens"
-        ; branch (the dedup-skip below lands on .ps_drop, silent and correct).
-        ; Full = >7 DISTINCT SFX ids enqueued in one frame before the drain ran:
-        ; a content bug. RingBuffer_Add's assert-on-drop precedent. Empty in plain
-        ; (label aliases .ps_drop — byte-neutral in release).
-    ifdef __DEBUG__
-        RaiseError "Sound_PlaySFX: SFX ring full (>7 in one frame)"
-    endif
 .ps_drop:
         movem.l (sp)+, d1/a0
 .ps_ret:
@@ -303,11 +302,3 @@ Sound_FadeIn:
         move.b  #SND_FADE_CMD_IN, d0
         lea     (SND_Z80_BASE+SND_REQ_FADE).l, a0
         bra.w   Sound_PostByte
-
-; retro-fix batch 2: region-end anchor for the repin harness. The sound_api
-; content ends unlabeled here (the next placement is sound_debug.asm in DEBUG
-; or the org $10000 object bank in plain); the mixed build resumes at this same
-; address via engine.inc's per-shape `org`. Giving it a symbol lets repin derive
-; a PER-SHAPE length (finding 1/2's DEBUG asserts grow the debug region) instead
-; of the old shape-invariant literal. Zero bytes.
-Sound_Api_End:
