@@ -3,10 +3,10 @@
 ; Uses subtype as mapping_frame selector.
 
 ; -----------------------------------------------
-; TestSolid_Init — set mapping frame from subtype
+; TestSolid_Init — set mapping frame from subtype (falls into TestSolid_Main)
 ; In:  a0 = SST pointer (base fields set by Load_Object)
 ; Out: none
-; Clobbers: none
+; Clobbers: d0-d3, a1 (falls into TestSolid_Main — the whole-object set)
 ; -----------------------------------------------
 TestSolid_Init:
         move.b  SST_subtype(a0), SST_mapping_frame(a0)

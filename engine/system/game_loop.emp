@@ -8,8 +8,14 @@ module engine.game_loop in game_loop
 // -----------------------------------------------
 // GameLoop — master loop
 // VSync → dispatch current state → repeat
+// Clobbers EVERYTHING (retro-fix batch 2, item 9 sweep): the `jsr (a0)` state
+// dispatch runs arbitrary game-state code, so no register is contractually
+// preserved (and even the fixed callees already trash d0/d1/d2/a0/a1). The old
+// clobbers(a0) under-declared. GameLoop never returns (jbra GameLoop tail-recurse)
+// so the contract is nominal — but the signature must not falsely claim to
+// preserve registers the body destroys.
 // -----------------------------------------------
-pub proc GameLoop () clobbers(a0) {
+pub proc GameLoop () clobbers(d0-d7/a0-a6) {
         jbsr    VSync_Wait
         if SOUND_DRIVER_ENABLED == 1 {
         jbsr    Sound_DrainSfxRing      // A2: drain ONE pending SFX/frame into the mailbox

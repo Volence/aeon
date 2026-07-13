@@ -3,6 +3,9 @@
 ; -----------------------------------------------
 ; GameLoop — master loop
 ; VSync → dispatch current state → repeat
+; Clobbers: d0-d7, a0-a6 (retro-fix batch 2, item 9 sweep) — the jsr (a0) state
+;   dispatch runs arbitrary game-state code, so nothing is preserved. Never
+;   returns (bra.s GameLoop), so the contract is nominal.
 ; -----------------------------------------------
 GameLoop:
         bsr.w   VSync_Wait

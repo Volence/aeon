@@ -208,7 +208,7 @@ DrawRings:
 ; the cursor never move and the pointer stays valid across removals.
 ; a3 survives the collect path (Collected_MarkRing d0-d1/a0,
 ; EntityWindow_EntryForSection d1/a0, EntityLoaded_Clear d0/d2/a0,
-; Sound_PlayRing d0/a0, RingBuffer_Remove d1-d2/a0-a1).
+; Sound_PlayRing d0, RingBuffer_Remove d1-d2/a0-a1).
 ;
 ; In:  none (reads Player_1/2, Ring_Buffer, Ring_Count)
 ; Out: none

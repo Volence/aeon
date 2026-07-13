@@ -57,15 +57,22 @@
 
 module data.sfx_bank
 
-// UNCHECKED MIRRORS of config/sound_ids.asm (R2), now DERIVED from the table
-// rows (design decision 5) — zero bytes, and drift-proof: a renumber that
-// changes the row set changes these automatically. They document the id
-// contract for readers exactly as the hand-written consts did. (Nothing ties
-// them back to sound_ids.asm at comptime — that seam stays hand-synced — but
-// they can no longer drift from the SFX SET they live beside.)
+// Mirrors of config/sound_ids.asm (R2), DERIVED from the table rows (design
+// decision 5) — zero bytes, and drift-proof from the SFX SET: a renumber that
+// changes the row set changes these automatically. They document the id contract
+// for readers exactly as the hand-written consts did.
+//
+// SEAM CLOSED (retro-fix batch 2, item 10): the ensure(extern(...))s below now
+// ALSO tie them back to sound_ids.asm at comptime (all three are ungated equs
+// there) — the same mechanism sound_api's SFXID mirrors use. So a drift in EITHER
+// direction (the table row set here, or the hand-owned counts in sound_ids.asm)
+// fails the link naming the field.
 const SFX_ID_BASE   = SfxTable.min_key   // $33
 const SFX_COUNT     = SfxTable.count     // 9
 const SFX_TABLE_LEN = SfxTable.len       // 135  (max_id - min_id + 1)
+ensure(extern("SFX_ID_BASE") == SFX_ID_BASE, "SFX_ID_BASE drifted from config/sound_ids.asm: {SFX_ID_BASE}")
+ensure(extern("SFX_COUNT") == SFX_COUNT, "SFX_COUNT drifted from config/sound_ids.asm: {SFX_COUNT}")
+ensure(extern("SFX_TABLE_LEN") == SFX_TABLE_LEN, "SFX_TABLE_LEN drifted from config/sound_ids.asm: {SFX_TABLE_LEN}")
 
 // ONE bank: $8000 section = the .asm block's implicit bank alignment + the :252
 // straddle fatal (subsumed by the property).

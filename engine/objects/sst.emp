@@ -15,7 +15,7 @@
 // (Coord vs Velocity vs a raw counter) and the fixed<I,F> scales.
 module engine.objects.sst
 
-use engine.types.{Coord, Velocity, Angle, ObjRoutine, Radius, VramArtTile, AnimId, FrameId}
+use engine.types.{Coord, Velocity, Angle, ObjRoutine, HitboxDim, VramArtTile, AnimId, FrameId}
 
 pub struct Sst (size: $50) {
     // --- dispatch + position ------------------------------------------------
@@ -36,8 +36,8 @@ pub struct Sst (size: $50) {
     collision_resp: u8 @ $0F,     // $0F — collision type dispatch (0 = none)
     mappings: u32 @ $10,          // $10 — sprite mapping pointer (ROM)
     art_tile: VramArtTile @ $14,          // $14 — VRAM tile index + palette + priority
-    width_pixels: Radius @ $16,       // $16 — collision width (full, not half)
-    height_pixels: Radius @ $17,      // $17 — collision height (full, not half)
+    width_pixels: HitboxDim @ $16,    // $16 — collision width (full, not half)
+    height_pixels: HitboxDim @ $17,   // $17 — collision height (full, not half)
     anim: AnimId @ $18,               // $18 — desired animation ID
     subtype: u8 @ $19,            // $19 — object subtype
     anim_table: u32 @ $1A,        // $1A — animation table pointer (ROM)

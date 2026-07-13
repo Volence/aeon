@@ -121,7 +121,12 @@ pub proc Sound_PostByte () clobbers() preserves(sr) {
 // Sound_Init — block until the Z80 driver has finished its own init.
 // The driver clears its slots + writes STAT_ALIVE during SndDrv_Init; the 68k
 // must not post until that marker appears. Each probe holds the Z80 bus (the
-// only way the 68k reads Z80 RAM reliably).
+// only way the 68k reads Z80 RAM reliably), THEN RELEASES it (startZ80 inside
+// the loop) between probes so the Z80 can actually run and finish booting — a
+// continuous hold would deadlock the handshake (the driver never runs, the
+// marker never appears). No timeout: a driver that never boots hangs here
+// forever — a chosen tradeoff (a dead sound driver is a build/ROM fault, not a
+// runtime state worth recovering from).
 // Clobbers: nothing (SR preserved).
 // ----------------------------------------------------------------------
 pub proc Sound_Init () clobbers() preserves(sr) {
@@ -172,6 +177,13 @@ pub proc Sound_PlaySample () clobbers(a0) {
 // ----------------------------------------------------------------------
 pub proc Sound_PlayMusic () clobbers(d0-d4/a0-a1) preserves(sr) {
         andi.l  #$FF, d0                    // d0 = song id (1-based)
+        // retro-fix batch 2 (sound_api finding 1): a bad id indexes past SongTable[id-1] and
+        // posts a garbage bank/window/patch block to the Z80 (it streams as
+        // noise). Bounds the 1-based id against the game-owned SONG_COUNT (a link
+        // symbol from games/sonic4/data/sound/song_table.asm). DEBUG-only; the
+        // asserts self-gate to zero bytes in the plain shape.
+        assert.w  d0, ne, #0                  // id != 0
+        assert.w  d0, ls, #SONG_COUNT         // id <= SONG_COUNT
         move.l  d0, d2                      // d2 = song id (preserved for the trigger)
         subq.l  #1, d0                      // index = id-1
         lsl.l   #2, d0                      // *4 (dc.l entries)
@@ -258,6 +270,18 @@ pub proc Sound_PlaySFX () preserves(d1/a0) {
         addq.b  #1, d1
         and.b   #SFX_RING_MASK, d1          // d1 = nextWr (byte ops only from here: cmp.b + move.b commit)
         cmp.b   Sfx_Ring_Rd, d1         // nextWr == Rd -> ring full -> drop (>7 same-frame: never)
+        // retro-fix batch 2 (sound_api finding 2): assert the ring-full "never"
+        // claim (>7 DISTINCT SFX ids enqueued in one frame before the drain ran =
+        // a content bug, keyed on EXACT id so the L/R pair is never collapsed).
+        // DEBUG-only, and placed BEFORE the shared drop branch so the plain shape
+        // stays byte-IDENTICAL — the whole block elides, no extra label ships in
+        // the release ROM. Fires ONLY on the full path: the dedup-skip reaches
+        // .ps_drop from earlier and never runs this cmp. RingBuffer_Add precedent.
+        if DEBUG == 1 {
+        bne     .ps_full_ok             // not full -> skip; the cmp's Z survives to the beq below
+        raise_error "Sound_PlaySFX: SFX ring full (>7 in one frame)"
+    .ps_full_ok:
+        }
         beq     .ps_drop
         move.b  d0, (a0)                    // Sfx_Ring_Buf[Wr] = id  (data BEFORE pointer)
         move.b  d1, Sfx_Ring_Wr         // commit Wr = nextWr
@@ -273,7 +297,15 @@ pub proc Sound_PlaySFX () preserves(d1/a0) {
 // Called once/frame from GameLoop right after VSync. The mailbox read-of-0 and the
 // post are done inside ONE stopZ80/startZ80 bus hold (SR-masked, exactly like
 // Sound_PostByte) so the Z80's once/VBlank consume cannot land between them. Empty ring
-// is a fast no-op. Clobbers: d0/d1/a0; SR restored.
+// is a fast no-op.
+// Clobbers: d0/d1/a0. SR (finding 3, retro-fix batch 2 — precise contract): the
+//   interrupt MASK is never altered on either path. The empty fast-path
+//   (beq .dr_ret) saves no SR and leaves CCR clobbered (the cmp result) — cheaper,
+//   and harmless to the only caller (GameLoop discards flags). The posting path
+//   saves and restores the FULL SR around the mask. preserves(sr) marks that
+//   posting-path save/restore — the load-bearing reliance: the DMA-window stopZ80
+//   can't nest and corrupt the caller's mask. (S2-D7 CCR-liveness lint is the
+//   deferred enforcement that would make the empty-path CCR clobber a checked fact.)
 // ----------------------------------------------------------------------
 pub proc Sound_DrainSfxRing () clobbers(d0, d1, a0) preserves(sr) {
         moveq   #0, d0                      // d0 is an (a0,d0.w) index below — clear the
@@ -303,9 +335,11 @@ pub proc Sound_DrainSfxRing () clobbers(d0, d1, a0) preserves(sr) {
 // ----------------------------------------------------------------------
 // Sound_PlayRing — collect-ring SFX with internal L/R alternation. Toggles
 // Ring_Sfx_Speaker each call, posting SFXID_RING_RIGHT or _LEFT.
-// In: none. Clobbers: d0, a0; SR restored.
+// In: none. Clobbers: d0 (finding 4, retro-fix batch 2 — tightened from d0/a0:
+//   the body never touches a0, and the Sound_PlaySFX tail-callee preserves it
+//   ENFORCED, so a0 is contractually preserved through the tail-call). SR restored.
 // ----------------------------------------------------------------------
-pub proc Sound_PlayRing () clobbers(d0, a0) {
+pub proc Sound_PlayRing () clobbers(d0) {
         move.b  Ring_Sfx_Speaker, d0
         eori.b  #1, d0
         move.b  d0, Ring_Sfx_Speaker

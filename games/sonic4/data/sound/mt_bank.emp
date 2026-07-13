@@ -99,19 +99,24 @@ const Hcz2PatchBlob = embed("hcz2_patches.bin")                   // 128 B ($80)
 // ORDER below must keep entry[id-1] = that song, the same coupling the .asm
 // table had — SongTable[id-1]/SongPatchTable[id-1], id 0 reserved = stop).
 //
-// UNCHECKED MIRRORS: SONG_MOVINGTRUCKS/SONG_DRUMTEST/SONG_HCZ2 below are
-// hand-copied from config/sound_ids.asm and exist only to document the id
-// contract for readers of this file — only SONG_COUNT is actually consumed
-// (in the SongTable/SongPatchTable declarations below). There is no
-// cross-source comptime read tying these three back to sound_ids.asm's
-// values; the byte-bearing coupling that actually matters is the TABLE
-// ORDER at SongTable/SongPatchTable, not these consts. If sound_ids.asm's
-// numbering is ever renumbered, these three lines must be updated to match
-// BY HAND — nothing here will catch a drift.
+// Mirrors of config/sound_ids.asm's song ids (they document the id contract for
+// readers of this file — only SONG_COUNT is actually consumed, in the
+// SongTable/SongPatchTable declarations below; the byte-bearing coupling that
+// matters is the TABLE ORDER at SongTable/SongPatchTable).
+//
+// SEAM CLOSED (retro-fix batch 2, item 10): SONG_MOVINGTRUCKS and SONG_COUNT now
+// drift-guard against sound_ids.asm via ensure(extern(...)) — the same mechanism
+// sound_api's SFXID mirrors use (SONG_COUNT moved to sound_ids.asm ungated this
+// batch, so both resolve at link in ALL build shapes). SONG_DRUMTEST/SONG_HCZ2
+// stay documentation-only: their sound_ids.asm equates are inside `ifdef
+// __DEBUG__`, so extern() would be unresolved in the plain shape — they are not
+// consumed here, and a renumber is caught by the TABLE ORDER either way.
 const SONG_MOVINGTRUCKS = 1
-const SONG_DRUMTEST     = 2   // DEBUG-only id in .asm; harmless const here
-const SONG_HCZ2         = 3
+const SONG_DRUMTEST     = 2   // DEBUG-only id in .asm; documentation const here
+const SONG_HCZ2         = 3   // DEBUG-only id in .asm; documentation const here
 const SONG_COUNT = if DEBUG == 1 { 3 } else { 1 }
+ensure(extern("SONG_MOVINGTRUCKS") == SONG_MOVINGTRUCKS, "SONG_MOVINGTRUCKS drifted from config/sound_ids.asm: {SONG_MOVINGTRUCKS}")
+ensure(extern("SONG_COUNT") == SONG_COUNT, "SONG_COUNT drifted from config/sound_ids.asm: {SONG_COUNT}")
 ensure(SONG_COUNT < $FF, "SONG_COUNT must be < $FF ($FF is the stop sentinel)")
 
 // The generator-baked header offset (song_movingtrucks header pitchtable_ptr

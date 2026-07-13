@@ -12,12 +12,10 @@
 ; SONG_MOVINGTRUCKS / SONG_DRUMTEST / SONG_HCZ2 id equates now live in
 ; config/sound_ids.asm (sound-migration T2 ruling R2 — moveq bakes the id
 ; immediate into the opcode word, so a hand-written contract file holds them
-; instead of a cross-seam deferral).
-    ifdef __DEBUG__
-SONG_COUNT         = 3
-    else
-SONG_COUNT         = 1
-    endif
+; instead of a cross-seam deferral). SONG_COUNT moved there too (retro-fix
+; batch 2): it must resolve UNGATED for sound_api's cross-seam DEBUG bounds
+; assert, since the mixed build gates this file out. The self-check below still
+; validates the actual table length against it.
 
 SongTable:
         dc.l    Song_MovingTrucks   ; id 1 — Phase 3 Task 8 native Moving Trucks (streamed)

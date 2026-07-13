@@ -21,7 +21,7 @@ equ ANI_PARTICLE          = extern("Ani_Particle")
 // In:  a0 = SST pointer (position, mappings, art_tile set by CreateEffect)
 // (clobbers is the whole-object set: the init frame falls into Main below)
 // -----------------------------------------------
-pub proc TestParticle (a0: *Sst) clobbers(d0-d4/a1-a3) falls_into TestParticle_Main {
+pub proc TestParticle (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestParticle_Main {
         move.l  #ANI_PARTICLE, anim_table(a0)
         clr.b   anim(a0)                        // anim 0: flash
         move.b  #$FF, prev_anim(a0)
@@ -38,9 +38,11 @@ pub proc TestParticle (a0: *Sst) clobbers(d0-d4/a1-a3) falls_into TestParticle_M
 // -----------------------------------------------
 // TestParticle_Main — per-frame update
 // In:  a0 = SST pointer
-// Clobbers: d0-d4, a1-a3 (ObjectMove/AnimateSprite/Draw_Sprite's union)
+// Clobbers: d0-d3, a1-a2 — the EXACT callee union (retro-fix batch 2, item 8):
+//   ObjectMove(d0) ∪ AnimateSprite(d0-d2/a1-a2) ∪ Draw_Sprite(d0-d3/a1). The old
+//   d0-d4/a1-a3 over-declared d4/a3 while claiming to be the union.
 // -----------------------------------------------
-pub proc TestParticle_Main (a0: *Sst) clobbers(d0-d4/a1-a3) {
+pub proc TestParticle_Main (a0: *Sst) clobbers(d0-d3/a1-a2) {
         // Apply gravity (read-modify-write — no register round-trip)
         addi.w  #PARTICLE_GRAVITY, y_vel(a0)
 
