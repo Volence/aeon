@@ -26,8 +26,8 @@
 ; -----------------------------------------------
 Load_Object:
         movem.l d0-d2/a1, -(sp)
-        jsr     AllocDynamic
-        bne.w   .alloc_fail
+        bsr.w   AllocDynamic
+        bne.s   .alloc_fail
         movem.l (sp)+, d0-d2/a2        ; a2 = template (saved a1), a1 = new SST
         move.l  d4, -(sp)              ; preserve d4 — caller (EntityWindow_TrySpawnObject) reads it after return
 
@@ -100,7 +100,7 @@ Load_ObjectList:
         move.w  (a0)+, d1              ; Y position
         move.w  (a0)+, d2              ; subtype (low byte; bits 13-15 clear in sane list data)
         move.l  a0, -(sp)
-        jsr     Load_Object
+        bsr.w   Load_Object
         movea.l (sp)+, a0
         bra.s   .loop
 .done:

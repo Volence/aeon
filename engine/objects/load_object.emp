@@ -34,8 +34,8 @@ use engine.objects.sst.{Sst}
 // -----------------------------------------------
 pub proc Load_Object () clobbers(d0-d3, a1, a2, a3) {
         movem.l d0-d2/a1, -(sp)
-        jsr     AllocDynamic
-        bne.w   .alloc_fail
+        jbsr    AllocDynamic
+        bne     .alloc_fail
         movem.l (sp)+, d0-d2/a2        // a2 = template (saved a1), a1 = new SST
         move.l  d4, -(sp)              // preserve d4 — caller (EntityWindow_TrySpawnObject) reads it after return
 
@@ -72,7 +72,7 @@ pub proc Load_Object () clobbers(d0-d3, a1, a2, a3) {
 
         // --- initial sprite_piece_count from mappings frame 0 ---
         move.l  Sst.mappings(a1), d3
-        beq.s   .no_piece_count
+        beq     .no_piece_count
         movea.l d3, a3
         move.w  (a3), d3                    // offset to frame 0 data
         // piece count is at FRAME_PIECE_COUNT (+4), after 4 bbox bytes
@@ -107,14 +107,14 @@ pub proc Load_ObjectList () clobbers(d0-d3, a0, a1, a2) {
     .loop:
         movea.l (a0)+, a1              // a1 = definition pointer
         move.l  a1, d0
-        beq.s   .done                  // 0 = end of list
+        beq     .done                  // 0 = end of list
         move.w  (a0)+, d0              // X position
         move.w  (a0)+, d1              // Y position
         move.w  (a0)+, d2              // subtype (low byte; bits 13-15 clear in sane list data)
         move.l  a0, -(sp)
-        jsr     Load_Object
+        jbsr    Load_Object
         movea.l (sp)+, a0
-        bra.s   .loop
+        jbra    .loop
     .done:
         rts
 }
