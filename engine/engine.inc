@@ -309,7 +309,22 @@ __BUDGET_ENGINE:
       endif
     endif
     include "engine/level/plane_buffer.asm"
-    include "engine/level/tile_cache.asm"
+    ifndef SIGIL_EMP_TILE_CACHE
+        include "engine/level/tile_cache.asm"
+    else
+        ; sigil mixed build: Tile_Cache_GetTile..TileCache_Reinit come from
+        ; engine/level/tile_cache.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end (collision_lookup's
+        ; Collision_GetType — the SIGIL_EMP_COLLISION_LOOKUP block below). Shape-
+        ; VARYING length ($924 plain / $9DC debug — the .raw_direct assert block).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define must
+        ; never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $58A0
+      else
+        org     $4C1E
+      endif
+    endif
     ifndef SIGIL_EMP_COLLISION_LOOKUP
         include "engine/level/collision_lookup.asm"
     else
