@@ -171,9 +171,17 @@ TileCache_DecompressBlock:
         ;    (tile 0, collision 0) instead of indexing the Sec table out of
         ;    range. The key recorded above caches the blank like any block. --
         cmp.w   Act_grid_w(a0), d0
-        bhs.w   .empty_block                   ; (.w: raw-copy path pushes target past .s range)
+    ifdef __DEBUG__
+        bhs.w   .empty_block            ; debug: the assert block pushes .empty_block past .s range
+    else
+        bhs.s   .empty_block            ; plain: within .s range (asl/sigil relax per shape)
+    endif
         cmp.w   Act_grid_h(a0), d1
-        bhs.w   .empty_block
+    ifdef __DEBUG__
+        bhs.w   .empty_block            ; debug: the assert block pushes .empty_block past .s range
+    else
+        bhs.s   .empty_block            ; plain: within .s range (asl/sigil relax per shape)
+    endif
 
         ; sec_id = sec_y * grid_w + sec_x (add loop, cold path)
         move.w  Act_grid_w(a0), d4             ; d4 = grid_w
@@ -197,13 +205,21 @@ TileCache_DecompressBlock:
 
         movea.l Sec_sec_block_index(a1), a2    ; a2 = block index table base (ROM)
         move.l  a2, d3
-        beq.w   .empty_block                   ; (.w: raw-copy path pushes target past .s range)
+    ifdef __DEBUG__
+        beq.w   .empty_block            ; debug: the assert block pushes .empty_block past .s range
+    else
+        beq.s   .empty_block            ; plain: within .s range (asl/sigil relax per shape)
+    endif
 
         ; index into block table: block_index × 4
         move.w  d2, d3
         lsl.w   #2, d3
         move.l  (a2, d3.w), d0                 ; d0 = offset from table base (0 = null)
-        beq.w   .empty_block
+    ifdef __DEBUG__
+        beq.w   .empty_block            ; debug: the assert block pushes .empty_block past .s range
+    else
+        beq.s   .empty_block            ; plain: within .s range (asl/sigil relax per shape)
+    endif
         bmi.s   .raw_direct                    ; bit 31 = raw block in the dict region
 
         ; compressed v3 stream — decode with the section dictionary window
@@ -388,7 +404,7 @@ Tile_Cache_Init:
 
         bsr.w   TileCache_InvalidateStaging
 
-        bsr.w   TileCache_FillAll
+        bsr.s   TileCache_FillAll
         rts
 
 ; -----------------------------------------------
@@ -655,7 +671,7 @@ Tile_Cache_Fill:
         beq.s   .h_right_fill
         ; budget out — skip remaining column work, vertical still runs
         addq.l  #2, sp                         ; pop desired_left
-        bra.w   .v_section
+        bra.s   .v_section
 .h_right_done:
 
         ; --- fill leftward columns (evict 1 from right as needed) ---
@@ -821,7 +837,7 @@ Tile_Cache_Fill:
         move.w  (Cache_Prev_Cam_Row).w, d1
         move.w  d0, (Cache_Prev_Cam_Row).w     ; update for next frame
         sub.w   d1, d0                         ; d0 = delta (+down / -up / 0)
-        beq.w   .fill_return                   ; not moving vertically — skip
+        beq.s   .fill_return                   ; not moving vertically — skip
         bmi.s   .pfx_up
 
         ; moving DOWN: target = world tile row of the block-row below cache bottom

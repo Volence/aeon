@@ -106,13 +106,13 @@ pub proc Tile_Cache_GetTile () clobbers(d0-d1/a0) out(d2) {
         sub.w   (Cache_Left_Col).w, d0
         add.w   (Cache_Origin_Col).w, d0
         cmpi.w  #TILE_CACHE_COLS, d0
-        blt.s   .col_nowrap
+        blt     .col_nowrap
         subi.w  #TILE_CACHE_COLS, d0
     .col_nowrap:
         sub.w   (Cache_Top_Row).w, d1
         add.w   (Cache_Origin_Row).w, d1
         cmpi.w  #TILE_CACHE_ROWS, d1
-        blt.s   .row_nowrap
+        blt     .row_nowrap
         subi.w  #TILE_CACHE_ROWS, d1
     .row_nowrap:
         // d1 * 80 via shift-add (80 = 64 + 16)
@@ -139,7 +139,7 @@ pub proc Tile_Cache_GetCollision () clobbers(d1-d2/a0) out(d0) {
         sub.w   (Cache_Left_Col).w, d0
         add.w   (Cache_Origin_Col).w, d0
         cmpi.w  #TILE_CACHE_COLS, d0
-        blt.s   .col_nowrap
+        blt     .col_nowrap
         subi.w  #TILE_CACHE_COLS, d0
     .col_nowrap:
         sub.w   (Cache_Top_Row).w, d1
@@ -148,7 +148,7 @@ pub proc Tile_Cache_GetCollision () clobbers(d1-d2/a0) out(d0) {
         lsr.w   #1, d2                         // origin even → exact collision origin
         add.w   d2, d1
         cmpi.w  #TILE_CACHE_COLL_ROWS, d1
-        blt.s   .row_nowrap
+        blt     .row_nowrap
         subi.w  #TILE_CACHE_COLL_ROWS, d1
     .row_nowrap:
         // d1 * 80 via shift-add
@@ -159,7 +159,7 @@ pub proc Tile_Cache_GetCollision () clobbers(d1-d2/a0) out(d0) {
         add.w   d0, d1
         // layer plane select: layer B shifts byte index into the second plane
         tst.b   d3
-        beq.s   .plane_selected
+        beq     .plane_selected
         addi.w  #TILE_CACHE_COLL_SIZE, d1      // plane B starts at +TILE_CACHE_COLL_SIZE
     .plane_selected:
         lea     (Tile_Cache_Collision).l, a0
@@ -192,7 +192,7 @@ pub proc TileCache_FindStagedBlock () clobbers(d3-d4/a1) {
     .probe:
         cmp.l   (a1)+, d3
         dbeq    d4, .probe
-        bne.s   .miss
+        bne     .miss
         // slot index × 4 = (a1 - 4) - Block_Stage_Keys
         move.w  a1, d3
         subi.w  #(Block_Stage_Keys+4) & $FFFF, d3
@@ -242,7 +242,7 @@ pub proc TileCache_DecompressBlock () clobbers(d0-d7/a0/a2-a4) out(a1) {
         move.w  d4, d5
         addq.w  #1, d5
         cmpi.w  #BLOCK_STAGE_SLOTS, d5
-        blt.s   .rr_ok
+        blt     .rr_ok
         moveq   #0, d5
     .rr_ok:
         move.w  d5, (Block_Stage_Next).w
@@ -262,15 +262,15 @@ pub proc TileCache_DecompressBlock () clobbers(d0-d7/a0/a2-a4) out(a1) {
         //    (tile 0, collision 0) instead of indexing the Sec table out of
         //    range. The key recorded above caches the blank like any block. --
         cmp.w   Act_grid_w(a0), d0
-        bhs.w   .empty_block                   // (.w: raw-copy path pushes target past .s range)
+        bhs     .empty_block                   // (.w: raw-copy path pushes target past .s range)
         cmp.w   Act_grid_h(a0), d1
-        bhs.w   .empty_block
+        bhs     .empty_block
 
         // sec_id = sec_y * grid_w + sec_x (add loop, cold path)
         move.w  Act_grid_w(a0), d4             // d4 = grid_w
         moveq   #0, d3                         // accumulator
         move.w  d1, d5                         // d5 = sec_y counter
-        bra.s   .mul_test
+        jbra    .mul_test
     .mul_loop:
         add.w   d4, d3
     .mul_test:
@@ -285,14 +285,14 @@ pub proc TileCache_DecompressBlock () clobbers(d0-d7/a0/a2-a4) out(a1) {
 
         movea.l Sec_sec_block_index(a1), a2    // a2 = block index table base (ROM)
         move.l  a2, d3
-        beq.w   .empty_block                   // (.w: raw-copy path pushes target past .s range)
+        beq     .empty_block                   // (.w: raw-copy path pushes target past .s range)
 
         // index into block table: block_index × 4
         move.w  d2, d3
         lsl.w   #2, d3
         move.l  (a2, d3.w), d0                 // d0 = offset from table base (0 = null)
-        beq.w   .empty_block
-        bmi.s   .raw_direct                    // bit 31 = raw block in the dict region
+        beq     .empty_block
+        bmi     .raw_direct                    // bit 31 = raw block in the dict region
 
         // compressed v3 stream — decode with the section dictionary window
         lea     (a2, d0.l), a0                 // a0 = compressed block data
@@ -300,7 +300,7 @@ pub proc TileCache_DecompressBlock () clobbers(d0-d7/a0/a2-a4) out(a1) {
         movea.l Sec_sec_block_dict(a1), a4     // a4 = raw dict base (ROM)
         movea.l a3, a1
         move.l  a3, -(sp)                      // decompress clobbers a3, advances a1
-        bsr.w   S4LZ_DecompressDict            // cross-seam: engine/compression/s4lz_decompress.asm
+        jbsr    S4LZ_DecompressDict            // cross-seam: engine/compression/s4lz_decompress.asm
         movea.l (sp)+, a1                      // a1 = slot base
         rts
 
@@ -355,13 +355,13 @@ pub proc TileCache_CopyBlockColumn () clobbers(d0-d3/d5/a0/a2-a3) {
         // wrap d1 (logical cache col) to physical column via circular origin
         add.w   (Cache_Origin_Col).w, d1
         cmpi.w  #TILE_CACHE_COLS, d1
-        blt.s   .col_nowrap
+        blt     .col_nowrap
         subi.w  #TILE_CACHE_COLS, d1
     .col_nowrap:
         // wrap d2 (logical dest row) to physical row via circular origin
         add.w   (Cache_Origin_Row).w, d2
         cmpi.w  #TILE_CACHE_ROWS, d2
-        blt.s   .row_nowrap
+        blt     .row_nowrap
         subi.w  #TILE_CACHE_ROWS, d2
     .row_nowrap:
         // source: slot base + (src_row * 16 + col) * 2
@@ -392,7 +392,7 @@ pub proc TileCache_CopyBlockColumn () clobbers(d0-d3/d5/a0/a2-a3) {
         lea     BLOCK_TILE_SIZE*2(a0), a0      // next block row (32 bytes)
         lea     TILE_CACHE_STRIDE*2(a2), a2    // next cache row (160 bytes)
         cmpa.l  a3, a2
-        blo.s   .nt_nowrap
+        blo     .nt_nowrap
         suba.w  #TILE_CACHE_NT_SIZE, a2        // physical row 59 → 0
     .nt_nowrap:
         dbf     d5, .copy_nt
@@ -419,7 +419,7 @@ pub proc TileCache_CopyBlockColumn () clobbers(d0-d3/d5/a0/a2-a3) {
         lsr.w   #1, d3                         // d3 = collision rows to copy (tile rows / 2)
         lea     Tile_Cache_Collision+TILE_CACHE_COLL_SIZE, a3 // plane A row-wrap sentinel (bare sym+const: width rule → abs.l)
         subq.w  #1, d3
-        bmi.s   .done_coll
+        bmi     .done_coll
         // Both planes copied in ONE loop: the fixed displacements reach
         // plane B from the plane-A cursors (source +BLOCK_COLL_PLANE_SIZE,
         // dest +TILE_CACHE_COLL_SIZE). Plane B's wrap is free — when a2
@@ -432,7 +432,7 @@ pub proc TileCache_CopyBlockColumn () clobbers(d0-d3/d5/a0/a2-a3) {
         lea     BLOCK_TILE_SIZE(a0), a0        // next collision row in block (16 bytes)
         lea     TILE_CACHE_STRIDE(a2), a2      // next collision row in cache (80 bytes)
         cmpa.l  a3, a2
-        blo.s   .coll_nowrap
+        blo     .coll_nowrap
         suba.w  #TILE_CACHE_COLL_SIZE, a2      // wrap within plane A (row 29 → 0)
     .coll_nowrap:
         dbf     d3, .copy_coll
@@ -453,7 +453,7 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
         swap    d0
         lsr.w   #3, d0                         // camera world tile col
         subi.w  #TILE_CACHE_MARGIN_H, d0
-        bpl.s   .left_ok
+        bpl     .left_ok
         moveq   #0, d0
     .left_ok:
         move.w  d0, (Cache_Left_Col).w
@@ -470,7 +470,7 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
         lsr.w   #3, d0                         // camera world tile row
         move.w  d0, (Cache_Prev_Cam_Row).w     // init prefetch baseline
         subi.w  #TILE_CACHE_MARGIN_V, d0
-        bpl.s   .top_ok
+        bpl     .top_ok
         moveq   #0, d0
     .top_ok:
         andi.w  #$FFFE, d0                     // keep Cache_Top_Row even (collision cell alignment)
@@ -478,9 +478,9 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
         addi.w  #TILE_CACHE_ROWS-1, d0
         move.w  d0, (Cache_Bottom_Row).w
 
-        bsr.w   TileCache_InvalidateStaging
+        jbsr    TileCache_InvalidateStaging
 
-        bsr.w   TileCache_FillAll
+        jbsr    TileCache_FillAll
         rts
 }
 
@@ -547,7 +547,7 @@ pub proc TileCache_FillAll () clobbers(d0-d7/a0-a6) {
         move.w  d3, d2                         // d2 = block_index
 
         movem.l d6/d7, -(sp)
-        bsr.w   TileCache_DecompressBlock
+        jbsr    TileCache_DecompressBlock
         movem.l (sp)+, d6/d7
 
         // copy all 16 columns from staging into cache
@@ -562,9 +562,9 @@ pub proc TileCache_FillAll () clobbers(d0-d7/a0-a6) {
         move.w  d4, d1
         add.w   d0, d1
         sub.w   (Cache_Left_Col).w, d1
-        bmi.s   .fill_skip_col
+        bmi     .fill_skip_col
         cmpi.w  #TILE_CACHE_COLS, d1
-        bge.s   .fill_skip_col
+        bge     .fill_skip_col
 
         // dest row offset = block_top_tile - Cache_Top_Row.
         // If the block straddles the cache top, clip dest to row 0 and
@@ -572,45 +572,45 @@ pub proc TileCache_FillAll () clobbers(d0-d7/a0-a6) {
         move.w  d5, d2
         sub.w   (Cache_Top_Row).w, d2          // signed dest row
         move.w  d2, d7
-        bpl.s   .fill_no_clip
+        bpl     .fill_no_clip
         moveq   #0, d2
     .fill_no_clip:
         sub.w   d2, d7
         neg.w   d7                             // d7 = source start row (0 if no clip)
         cmpi.w  #BLOCK_TILE_SIZE, d7
-        bge.s   .fill_skip_col                 // block entirely above cache
+        bge     .fill_skip_col                 // block entirely above cache
 
         // rows = min(TILE_CACHE_ROWS - dest_row, BLOCK_TILE_SIZE - src_start)
         move.w  #TILE_CACHE_ROWS, d3
         sub.w   d2, d3
-        ble.s   .fill_skip_col                 // block entirely below cache
+        ble     .fill_skip_col                 // block entirely below cache
         neg.w   d7
         addi.w  #BLOCK_TILE_SIZE, d7           // d7 = rows available in block
         cmp.w   d7, d3
-        ble.s   .fill_rows_ok
+        ble     .fill_rows_ok
         move.w  d7, d3
     .fill_rows_ok:
         movem.l d0/d4-d6, -(sp)
         move.w  #BLOCK_TILE_SIZE, d4
         sub.w   d7, d4                         // d4 = source start row
-        bsr.w   TileCache_CopyBlockColumn
+        jbsr    TileCache_CopyBlockColumn
         movem.l (sp)+, d0/d4-d6
     .fill_skip_col:
         addq.w  #1, d0
         cmpi.w  #BLOCK_TILE_SIZE, d0
-        blt.s   .fill_copy_col
+        blt     .fill_copy_col
 
         // next block col
         addq.w  #1, d6
         cmp.w   4(sp), d6                     // compare with end_block_col
-        ble.w   .block_col_loop
+        ble     .block_col_loop
 
         // next block row
         move.w  2(sp), d0
         addq.w  #1, d0
         move.w  d0, 2(sp)
         cmp.w   (sp), d0                      // compare with end_block_row
-        ble.w   .block_row_loop
+        ble     .block_row_loop
 
         lea     8(sp), sp                     // clean up stack
         rts
@@ -630,7 +630,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // iterations within the same VBlank period see the same value.
         move.w  (Frame_Counter).w, d0
         cmp.w   (Cache_Fill_Last_Frame).w, d0
-        beq.w   .fill_return
+        beq     .fill_return
         move.w  d0, (Cache_Fill_Last_Frame).w
 
         // --- reset per-frame decompress budget + rows-this-frame cap ---
@@ -646,29 +646,29 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         //     stale tiles AND stale collision (merge review C2a). ---
         move.w  (Cache_Fill_RowResume_Row).w, d5
         cmpi.w  #$FFFF, d5
-        beq.s   .no_row_pending
+        beq     .no_row_pending
         cmp.w   (Cache_Top_Row).w, d5
-        blt.s   .row_pending_stale
+        blt     .row_pending_stale
         cmp.w   (Cache_Bottom_Row).w, d5
-        bgt.s   .row_pending_stale
+        bgt     .row_pending_stale
         move.w  d5, -(sp)                      // FillRow clobbers d5
-        bsr.w   TileCache_FillRow
+        jbsr    TileCache_FillRow
         move.w  (sp)+, d5
         tst.w   d0
-        bne.w   .fill_return                   // budget out again — done this frame
+        bne     .fill_return                   // budget out again — done this frame
         // If the completed row IS the cache top, it was the first half of an
         // up-fill pair whose budget-out orphaned the second half — fill it
         // too (Top is always even; no other partial stores a row equal to
         // Top; refilling a filled row is idempotent). Merge review C1.
         cmp.w   (Cache_Top_Row).w, d5
-        bne.s   .no_row_pending
+        bne     .no_row_pending
         addq.w  #1, d5
         cmp.w   (Cache_Bottom_Row).w, d5
-        bgt.s   .no_row_pending
-        bsr.w   TileCache_FillRow
+        bgt     .no_row_pending
+        jbsr    TileCache_FillRow
         tst.w   d0
-        bne.w   .fill_return
-        bra.s   .no_row_pending
+        bne     .fill_return
+        jbra    .no_row_pending
     .row_pending_stale:
         move.w  #$FFFF, (Cache_Fill_RowResume_Row).w
     .no_row_pending:
@@ -678,21 +678,21 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         //     budget, which stops all further column work for the frame). ---
         move.w  (Cache_Fill_Resume_Col).w, d5
         cmpi.w  #$FFFF, d5
-        beq.s   .no_pending
+        beq     .no_pending
         cmp.w   (Cache_Left_Col).w, d5
-        blt.s   .pending_stale                 // column evicted since — drop it
+        blt     .pending_stale                 // column evicted since — drop it
         cmp.w   (Cache_Head_Col).w, d5
-        bgt.s   .pending_stale
+        bgt     .pending_stale
         // if rows were evicted from the top since, resume from the new top
         move.w  (Cache_Top_Row).w, d0
         cmp.w   (Cache_Fill_Resume_Row).w, d0
-        ble.s   .pending_row_ok
+        ble     .pending_row_ok
         move.w  d0, (Cache_Fill_Resume_Row).w
     .pending_row_ok:
-        bsr.w   TileCache_FillColumn
+        jbsr    TileCache_FillColumn
         tst.w   d0
-        bne.w   .v_section                     // budget out again — vertical still runs
-        bra.s   .no_pending
+        bne     .v_section                     // budget out again — vertical still runs
+        jbra    .no_pending
     .pending_stale:
         move.w  #$FFFF, (Cache_Fill_Resume_Col).w
     .no_pending:
@@ -703,7 +703,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         lsr.w   #3, d6
         move.w  d6, d0                         // d0 = world tile col
         subi.w  #TILE_CACHE_MARGIN_H, d0
-        bpl.s   .h_left_pos
+        bpl     .h_left_pos
         moveq   #0, d0
     .h_left_pos:
         move.w  d0, -(sp)                     // [sp] = desired_left
@@ -721,7 +721,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  (sp), d0                       // desired_left
         addi.w  #TILE_CACHE_COLS-1, d0
         cmp.w   d0, d7
-        ble.s   .h_clamp_ok
+        ble     .h_clamp_ok
         move.w  d0, d7
     .h_clamp_ok:
 
@@ -729,27 +729,27 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  (Cache_Head_Col).w, d5
     .h_right_fill:
         cmp.w   d7, d5
-        bge.s   .h_right_done
+        bge     .h_right_done
         addq.w  #1, d5
 
         // evict 1 column from left if cache is at capacity
         move.w  d5, d0
         sub.w   (Cache_Left_Col).w, d0
         cmpi.w  #TILE_CACHE_COLS, d0
-        blt.s   .h_no_evict
+        blt     .h_no_evict
         moveq   #1, d0
-        bsr.w   TileCache_HSlide
+        jbsr    TileCache_HSlide
     .h_no_evict:
         move.w  d5, (Cache_Head_Col).w         // commit before fill (resume is keyed by column)
 
         movem.l d5/d7, -(sp)
-        bsr.w   TileCache_FillColumn
+        jbsr    TileCache_FillColumn
         movem.l (sp)+, d5/d7
         tst.w   d0
-        beq.s   .h_right_fill
+        beq     .h_right_fill
         // budget out — skip remaining column work, vertical still runs
         addq.l  #2, sp                         // pop desired_left
-        bra.w   .v_section
+        jbra    .v_section
     .h_right_done:
 
         // --- fill leftward columns (evict 1 from right as needed) ---
@@ -757,14 +757,14 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  (Cache_Left_Col).w, d5
     .h_left_fill:
         cmp.w   d4, d5
-        ble.s   .h_left_done
+        ble     .h_left_done
         subq.w  #1, d5
 
         // evict 1 column from right if cache is at capacity
         move.w  (Cache_Head_Col).w, d0
         sub.w   d5, d0
         cmpi.w  #TILE_CACHE_COLS, d0
-        blt.s   .h_no_evict_left
+        blt     .h_no_evict_left
         subq.w  #1, (Cache_Head_Col).w
     .h_no_evict_left:
 
@@ -772,16 +772,16 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  d5, (Cache_Left_Col).w
         move.w  (Cache_Origin_Col).w, d0
         subq.w  #1, d0
-        bpl.s   .h_origin_ok
+        bpl     .h_origin_ok
         move.w  #TILE_CACHE_COLS-1, d0
     .h_origin_ok:
         move.w  d0, (Cache_Origin_Col).w
 
         movem.l d4-d5, -(sp)
-        bsr.w   TileCache_FillColumn
+        jbsr    TileCache_FillColumn
         movem.l (sp)+, d4-d5
         tst.w   d0
-        beq.s   .h_left_fill
+        beq     .h_left_fill
     .h_left_done:
 
     .v_section:
@@ -791,7 +791,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         lsr.w   #3, d6
         move.w  d6, d0                         // d0 = world tile row
         subi.w  #TILE_CACHE_MARGIN_V, d0
-        bpl.s   .v_top_pos
+        bpl     .v_top_pos
         moveq   #0, d0
     .v_top_pos:
         andi.w  #$FFFE, d0
@@ -810,7 +810,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  (sp), d0                       // desired_top
         addi.w  #TILE_CACHE_ROWS-1, d0
         cmp.w   d0, d7
-        ble.s   .v_clamp_ok
+        ble     .v_clamp_ok
         move.w  d0, d7
     .v_clamp_ok:
 
@@ -820,36 +820,36 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // safely resume a partial row using the committed tracker.
         move.w  (Cache_Bottom_Row).w, d5
         cmp.w   d7, d5
-        bge.s   .v_bottom_done
+        bge     .v_bottom_done
 
     .v_bottom_fill:
         tst.w   (Cache_Fill_Rows_Left).w       // rows cap exhausted?
-        beq.s   .v_bottom_done
+        beq     .v_bottom_done
 
         addq.w  #1, d5
         cmp.w   d7, d5
-        bgt.s   .v_bottom_done
+        bgt     .v_bottom_done
 
         // evict 2 rows from top if cache is at capacity
         move.w  d5, d0
         sub.w   (Cache_Top_Row).w, d0
         cmpi.w  #TILE_CACHE_ROWS, d0
-        blt.s   .v_no_evict
+        blt     .v_no_evict
         moveq   #2, d0
-        bsr.w   TileCache_VSlide
+        jbsr    TileCache_VSlide
     .v_no_evict:
 
         // commit BEFORE fill (resume is keyed by row)
         move.w  d5, (Cache_Bottom_Row).w
 
         movem.l d5/d7, -(sp)
-        bsr.w   TileCache_FillRow
+        jbsr    TileCache_FillRow
         movem.l (sp)+, d5/d7
 
         tst.w   d0
-        bne.s   .v_bottom_done                 // partial — resume preamble finishes next frame
+        bne     .v_bottom_done                 // partial — resume preamble finishes next frame
         subq.w  #1, (Cache_Fill_Rows_Left).w
-        bra.s   .v_bottom_fill
+        jbra    .v_bottom_fill
     .v_bottom_done:
 
         // --- fill upward rows in pairs (evict 2 from bottom as needed) ---
@@ -860,14 +860,14 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  (Cache_Top_Row).w, d5
     .v_top_fill:
         cmp.w   d4, d5
-        ble.s   .v_top_done
+        ble     .v_top_done
         // need 2 rows remaining to start a pair
         cmpi.w  #2, (Cache_Fill_Rows_Left).w
-        blt.s   .v_top_done
+        blt     .v_top_done
         // a bottom-fill partial leaves budget 0 — starting a pair here would
         // clobber its resume slot and orphan the half-filled row (review C2b)
         tst.w   (Cache_Fill_Budget).w
-        beq.s   .v_top_done
+        beq     .v_top_done
 
         subq.w  #2, d5                         // 2-row step keeps Top even
 
@@ -875,36 +875,36 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  (Cache_Bottom_Row).w, d0
         sub.w   d5, d0
         cmpi.w  #TILE_CACHE_ROWS, d0
-        blt.s   .v_no_evict_up
+        blt     .v_no_evict_up
         moveq   #2, d0
-        bsr.w   TileCache_VSlideUp             // O(1) origin retreat — clobbers d0-d1 only
+        jbsr    TileCache_VSlideUp             // O(1) origin retreat — clobbers d0-d1 only
     .v_no_evict_up:
 
         // commit Cache_Top_Row BEFORE fills (resume keyed by row)
         move.w  d5, (Cache_Top_Row).w
 
         movem.l d4-d5, -(sp)
-        bsr.w   TileCache_FillRow              // new top row (d5)
+        jbsr    TileCache_FillRow              // new top row (d5)
         movem.l (sp)+, d4-d5
         tst.w   d0
-        bne.s   .v_top_done                    // partial — exit; resume finishes next frame
+        bne     .v_top_done                    // partial — exit; resume finishes next frame
         subq.w  #1, (Cache_Fill_Rows_Left).w
 
         addq.w  #1, d5
         movem.l d4-d5, -(sp)
-        bsr.w   TileCache_FillRow              // second row of the pair (d5+1)
+        jbsr    TileCache_FillRow              // second row of the pair (d5+1)
         movem.l (sp)+, d4-d5
         tst.w   d0
-        bne.s   .v_top_done                    // partial — exit; resume finishes next frame
+        bne     .v_top_done                    // partial — exit; resume finishes next frame
         subq.w  #1, (Cache_Fill_Rows_Left).w
         subq.w  #1, d5                         // restore d5 to even (pair base)
-        bra.s   .v_top_fill
+        jbra    .v_top_fill
     .v_top_done:
         // --- leftover-budget prefetch: pre-decompress one block of the NEXT
         //     block-row in the scroll direction, flattening the 6-block spike
         //     at block-row crossings across the quiet frames between them ---
         tst.w   (Cache_Fill_Budget).w
-        beq.w   .fill_return                   // budget spent — no prefetch
+        beq     .fill_return                   // budget spent — no prefetch
 
         // compute current camera world tile row
         move.l  (Camera_Y).w, d0
@@ -915,8 +915,8 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  (Cache_Prev_Cam_Row).w, d1
         move.w  d0, (Cache_Prev_Cam_Row).w     // update for next frame
         sub.w   d1, d0                         // d0 = delta (+down / -up / 0)
-        beq.w   .fill_return                   // not moving vertically — skip
-        bmi.s   .pfx_up
+        beq     .fill_return                   // not moving vertically — skip
+        bmi     .pfx_up
 
         // moving DOWN: target = world tile row of the block-row below cache bottom
         // = align bottom to block boundary, then add BLOCK_TILE_SIZE
@@ -930,8 +930,8 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         moveq   #0, d0
         move.b  Act_grid_h+1(a0), d0           // grid_h (sections)
         cmp.w   d0, d5
-        bcc.s   .pfx_skip                      // sec_y >= grid_h — out of world
-        bra.s   .pfx_go
+        bcc     .pfx_skip                      // sec_y >= grid_h — out of world
+        jbra    .pfx_go
 
     .pfx_up:
         // moving UP: target = world tile row of the block-row above cache top
@@ -939,7 +939,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  (Cache_Top_Row).w, d7
         andi.w  #~(BLOCK_TILE_SIZE-1), d7      // align down to block start (Top is even, may already be aligned)
         tst.w   d7
-        beq.s   .pfx_skip                      // top block-row IS world row 0 — nothing above
+        beq     .pfx_skip                      // top block-row IS world row 0 — nothing above
         subi.w  #BLOCK_TILE_SIZE, d7           // first row of block above
         // d7 >= 0 guaranteed (just subtracted from a value > 0)
 
@@ -963,7 +963,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         moveq   #0, d1
         move.b  Act_grid_w+1(a0), d1
         cmp.w   d1, d0
-        bcc.s   .pfx_skip
+        bcc     .pfx_skip
         move.w  d7, d1
         lsr.w   #8, d1                         // sec_y = world_tile_row >> 8
         move.w  d6, d2
@@ -976,11 +976,11 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         add.w   d2, d3
         move.w  d3, d2                         // d2 = block_index
 
-        bsr.w   TileCache_FindStagedBlock      // Z set + a1 on hit; d0-d2 preserved; clobbers d3-d4,a1
-        beq.s   .pfx_skip                      // already staged — nothing to do
+        jbsr    TileCache_FindStagedBlock      // Z set + a1 on hit; d0-d2 preserved; clobbers d3-d4,a1
+        beq     .pfx_skip                      // already staged — nothing to do
 
         subq.w  #1, (Cache_Fill_Budget).w
-        bsr.w   TileCache_DecompressBlock      // d0=sec_x, d1=sec_y, d2=block_index in; clobbers d0-d7,a0-a4
+        jbsr    TileCache_DecompressBlock      // d0=sec_x, d1=sec_y, d2=block_index in; clobbers d0-d7,a0-a4
 
     .pfx_skip:
     .fill_return:
@@ -1000,13 +1000,13 @@ pub proc TileCache_FillColumn () clobbers(d1-d7/a0-a4) out(d0) {
         // resume only if a partial is pending for THIS column
         move.w  (Cache_Top_Row).w, d7
         cmp.w   (Cache_Fill_Resume_Col).w, d5
-        bne.s   .fc_from_top
+        bne     .fc_from_top
         move.w  (Cache_Fill_Resume_Row).w, d7
     .fc_from_top:
 
     .fc_block_loop:
         cmp.w   (Cache_Bottom_Row).w, d7
-        bgt.w   .fc_complete                   // cursor past bottom — done
+        bgt     .fc_complete                   // cursor past bottom — done
 
         // decompose into section + block + intra
         move.w  d5, d0
@@ -1024,16 +1024,16 @@ pub proc TileCache_FillColumn () clobbers(d1-d7/a0-a4) out(d0) {
         move.w  d3, d2                         // d2 = block_index
 
         // probe staging cache (a1 = slot base on hit)
-        bsr.w   TileCache_FindStagedBlock
-        beq.s   .fc_have_block
+        jbsr    TileCache_FindStagedBlock
+        beq     .fc_have_block
 
         // need decompress — check shared frame budget
         tst.w   (Cache_Fill_Budget).w
-        beq.s   .fc_budget_out
+        beq     .fc_budget_out
         subq.w  #1, (Cache_Fill_Budget).w
 
         movem.l d5/d7, -(sp)
-        bsr.w   TileCache_DecompressBlock      // a1 = slot base
+        jbsr    TileCache_DecompressBlock      // a1 = slot base
         movem.l (sp)+, d5/d7
     .fc_have_block:
 
@@ -1054,19 +1054,19 @@ pub proc TileCache_FillColumn () clobbers(d1-d7/a0-a4) out(d0) {
         move.w  (Cache_Bottom_Row).w, d6
         addq.w  #1, d6
         cmp.w   d6, d3
-        ble.s   .fc_rows_ok
+        ble     .fc_rows_ok
         move.w  d6, d3
     .fc_rows_ok:
         sub.w   d7, d3                         // d3 = rows (> 0, even)
 
         movem.l d5/d7, -(sp)
-        bsr.w   TileCache_CopyBlockColumn
+        jbsr    TileCache_CopyBlockColumn
         movem.l (sp)+, d5/d7
 
         // advance cursor to next block top
         andi.w  #$FFF0, d7
         addi.w  #BLOCK_TILE_SIZE, d7
-        bra.w   .fc_block_loop
+        jbra    .fc_block_loop
 
     .fc_budget_out:
         move.w  d5, (Cache_Fill_Resume_Col).w
@@ -1095,7 +1095,7 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
         // cache row offset (constant for all columns)
         move.w  d5, d2
         sub.w   (Cache_Top_Row).w, d2
-        bmi.w   .fr_early_out
+        bmi     .fr_early_out
 
         // remember logical row for the cell-parity test, then map to
         // physical row via the circular origin (origin even → parity
@@ -1103,14 +1103,14 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
         move.w  d2, d4                         // d4 = logical row
         add.w   (Cache_Origin_Row).w, d2
         cmpi.w  #TILE_CACHE_ROWS, d2
-        blt.s   .fr_row_nowrap
+        blt     .fr_row_nowrap
         subi.w  #TILE_CACHE_ROWS, d2
     .fr_row_nowrap:
 
         // collision dest row offset (bytes); $FFFF = even row, skip collision
         move.w  #$FFFF, d3
         btst    #0, d4
-        beq.s   .fr_no_coll
+        beq     .fr_no_coll
         move.w  d2, d3
         lsr.w   #1, d3                         // physical collision row
         move.w  d3, d4
@@ -1133,15 +1133,15 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
         // Clamp to Left_Col in case columns were evicted since the partial.
         move.w  (Cache_Left_Col).w, d7
         cmp.w   (Cache_Fill_RowResume_Row).w, d5
-        bne.s   .fr_from_left
+        bne     .fr_from_left
         move.w  (Cache_Fill_RowResume_Col).w, d7
         cmp.w   (Cache_Left_Col).w, d7        // resume col < Left → evicted, use Left
-        bge.s   .fr_from_left
+        bge     .fr_from_left
         move.w  (Cache_Left_Col).w, d7
     .fr_from_left:
     .fr_block_loop:
         cmp.w   (Cache_Head_Col).w, d7
-        bgt.w   .fr_done
+        bgt     .fr_done
 
         // decompose d7 into section + block for staging probe
         move.w  d7, d0
@@ -1158,14 +1158,14 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
         add.w   d2, d3
         move.w  d3, d2                         // d2 = block_index
 
-        bsr.w   TileCache_FindStagedBlock      // a1 = slot base on hit
-        beq.s   .fr_have_block
+        jbsr    TileCache_FindStagedBlock      // a1 = slot base on hit
+        beq     .fr_have_block
         // need decompress — check shared frame budget
         tst.w   (Cache_Fill_Budget).w
-        beq.w   .fr_budget_out
+        beq     .fr_budget_out
         subq.w  #1, (Cache_Fill_Budget).w
         movem.l d5/d7, -(sp)
-        bsr.w   TileCache_DecompressBlock      // a1 = slot base
+        jbsr    TileCache_DecompressBlock      // a1 = slot base
         movem.l (sp)+, d5/d7
     .fr_have_block:
 
@@ -1192,25 +1192,25 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
 
     .fr_col_loop:
         cmpi.w  #BLOCK_TILE_SIZE, d6
-        bge.s   .fr_next_block
+        bge     .fr_next_block
 
         // world col
         move.w  d7, d1
         andi.w  #$FFF0, d1
         add.w   d6, d1                         // world_col = block_base + intra_col
         cmp.w   (Cache_Head_Col).w, d1
-        bgt.s   .fr_next_block
+        bgt     .fr_next_block
 
         // cache col offset
         sub.w   (Cache_Left_Col).w, d1
-        bmi.s   .fr_skip_col
+        bmi     .fr_skip_col
         cmpi.w  #TILE_CACHE_COLS, d1
-        bge.s   .fr_skip_col
+        bge     .fr_skip_col
 
         // circular column mapping
         add.w   (Cache_Origin_Col).w, d1
         cmpi.w  #TILE_CACHE_COLS, d1
-        blt.s   .fr_nowrap
+        blt     .fr_nowrap
         subi.w  #TILE_CACHE_COLS, d1
     .fr_nowrap:
 
@@ -1231,7 +1231,7 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
         // d6 = intra-block col (0-15), used as byte index within row
         move.w  2(sp), d0
         cmpi.w  #$FFFF, d0
-        beq.s   .fr_skip_col
+        beq     .fr_skip_col
         add.w   d1, d0                         // + cache col → byte index within cache row
         // plane A
         lea     (Tile_Cache_Collision).l, a2
@@ -1245,14 +1245,14 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
 
     .fr_skip_col:
         addq.w  #1, d6
-        bra.s   .fr_col_loop
+        jbra    .fr_col_loop
 
     .fr_next_block:
         move.w  d7, d0
         andi.w  #$FFF0, d0
         addi.w  #BLOCK_TILE_SIZE, d0
         move.w  d0, d7
-        bra.w   .fr_block_loop
+        jbra    .fr_block_loop
 
     .fr_budget_out:
         // Budget exhausted mid-row. Store resume state and return partial.
@@ -1281,12 +1281,12 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
 // -----------------------------------------------
 pub proc TileCache_HSlide () clobbers(d0-d1) {
         tst.w   d0
-        ble.s   .done
+        ble     .done
         add.w   d0, (Cache_Left_Col).w
         move.w  (Cache_Origin_Col).w, d1
         add.w   d0, d1
         cmpi.w  #TILE_CACHE_COLS, d1
-        blt.s   .nowrap
+        blt     .nowrap
         subi.w  #TILE_CACHE_COLS, d1
     .nowrap:
         move.w  d1, (Cache_Origin_Col).w
@@ -1307,11 +1307,11 @@ pub proc TileCache_HSlide () clobbers(d0-d1) {
 // -----------------------------------------------
 pub proc TileCache_VSlide () clobbers(d0) {
         tst.w   d0
-        ble.s   .vslide_done
+        ble     .vslide_done
         add.w   d0, (Cache_Top_Row).w
         add.w   (Cache_Origin_Row).w, d0
         cmpi.w  #TILE_CACHE_ROWS, d0
-        blt.s   .vslide_nowrap
+        blt     .vslide_nowrap
         subi.w  #TILE_CACHE_ROWS, d0
     .vslide_nowrap:
         move.w  d0, (Cache_Origin_Row).w
@@ -1329,11 +1329,11 @@ pub proc TileCache_VSlide () clobbers(d0) {
 // -----------------------------------------------
 pub proc TileCache_VSlideUp () clobbers(d0-d1) {
         tst.w   d0
-        ble.s   .vsu_done
+        ble     .vsu_done
         sub.w   d0, (Cache_Bottom_Row).w
         move.w  (Cache_Origin_Row).w, d1
         sub.w   d0, d1
-        bpl.s   .vsu_nowrap
+        bpl     .vsu_nowrap
         addi.w  #TILE_CACHE_ROWS, d1
     .vsu_nowrap:
         move.w  d1, (Cache_Origin_Row).w
@@ -1356,7 +1356,7 @@ pub proc TileCache_Reinit () clobbers(d0-d7/a0-a6) {
         swap    d0
         lsr.w   #3, d0                         // camera world tile col
         subi.w  #TILE_CACHE_MARGIN_H, d0
-        bpl.s   .ri_left_ok
+        bpl     .ri_left_ok
         moveq   #0, d0
     .ri_left_ok:
         move.w  d0, (Cache_Left_Col).w
@@ -1372,7 +1372,7 @@ pub proc TileCache_Reinit () clobbers(d0-d7/a0-a6) {
         lsr.w   #3, d0                         // camera world tile row
         move.w  d0, (Cache_Prev_Cam_Row).w     // reset prefetch baseline on reinit
         subi.w  #TILE_CACHE_MARGIN_V, d0
-        bpl.s   .ri_top_ok
+        bpl     .ri_top_ok
         moveq   #0, d0
     .ri_top_ok:
         andi.w  #$FFFE, d0                     // keep Cache_Top_Row even (collision cell alignment)
@@ -1380,10 +1380,10 @@ pub proc TileCache_Reinit () clobbers(d0-d7/a0-a6) {
         addi.w  #TILE_CACHE_ROWS-1, d0
         move.w  d0, (Cache_Bottom_Row).w
 
-        bsr.w   TileCache_InvalidateStaging
+        jbsr    TileCache_InvalidateStaging
 
         // refill
-        bsr.w   TileCache_FillAll
+        jbsr    TileCache_FillAll
 
         // mark plane dirty for full redraw
         st.b    (Section_Plane_Dirty).w

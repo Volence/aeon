@@ -316,13 +316,14 @@ __BUDGET_ENGINE:
         ; engine/level/tile_cache.emp, pinned by the sigil map at the per-shape
         ; reference address. Resume placement at the region end (collision_lookup's
         ; Collision_GetType — the SIGIL_EMP_COLLISION_LOOKUP block below). Shape-
-        ; VARYING length ($924 plain / $9DC debug — the .raw_direct assert block).
+        ; VARYING length ($916 plain / $9D6 debug — the .raw_direct assert block;
+        ; step-2 bare-Bcc relaxation shrank it -$E/-$6 from the step-1 $924/$9DC).
         ; NOTE: these org values are sonic4-shape addresses — the gate define must
         ; never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $58A0
+        org     $589A
       else
-        org     $4C1E
+        org     $4C10
       endif
     endif
     ifndef SIGIL_EMP_COLLISION_LOOKUP
@@ -335,9 +336,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $58C4
+        org     $58BE
       else
-        org     $4C42
+        org     $4C34
       endif
     endif
     gameEngineBlockIncludes
@@ -352,9 +353,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $619C
+        org     $6196
       else
-        org     $551A
+        org     $550C
       endif
     endif
     include "engine/level/camera.asm"
