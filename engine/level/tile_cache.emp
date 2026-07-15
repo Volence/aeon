@@ -96,6 +96,30 @@ comptime fn coll_src_row_base(reg: Reg) -> Code {
     }
 }
 
+// decompose_block — split a WORLD TILE (col, row) into section coords + block
+// index for a FindStagedBlock / DecompressBlock probe: sec = tile >> 8 (256-tile
+// sections), block = (tile >> 4) & 15, block_index = block_y*16 + block_x. Names
+// the idiom the donor flagged "(same pattern as FillColumn/FillRow)". File-local;
+// the AS twin keeps the sequence inline. col/row must be preserved regs (NOT the
+// d0-d3 scratch). Out: d0 = sec_x, d1 = sec_y, d2 = block_index. Clobbers d0-d3.
+comptime fn decompose_block(col: Reg, row: Reg) -> Code {
+    return asm {
+        move.w  {col}, d0
+        lsr.w   #8, d0                         // sec_x = tile_col >> 8
+        move.w  {row}, d1
+        lsr.w   #8, d1                         // sec_y = tile_row >> 8
+        move.w  {col}, d2
+        lsr.w   #BLOCK_TILE_SHIFT, d2
+        andi.w  #$F, d2                        // block_x = (tile_col >> 4) & 15
+        move.w  {row}, d3
+        lsr.w   #BLOCK_TILE_SHIFT, d3
+        andi.w  #$F, d3                        // block_y = (tile_row >> 4) & 15
+        lsl.w   #4, d3
+        add.w   d2, d3
+        move.w  d3, d2                         // block_index = block_y*16 + block_x
+    }
+}
+
 // -----------------------------------------------
 // Tile_Cache_GetTile — look up nametable word for a world tile position
 // In:  d0.w = world tile col, d1.w = world tile row
@@ -1008,20 +1032,8 @@ pub proc TileCache_FillColumn () clobbers(d1-d7/a0-a4) out(d0) {
         cmp.w   Cache_Bottom_Row, d7
         bgt     .fc_complete                   // cursor past bottom — done
 
-        // decompose into section + block + intra
-        move.w  d5, d0
-        lsr.w   #8, d0                         // sec_x
-        move.w  d7, d1
-        lsr.w   #8, d1                         // sec_y
-        move.w  d5, d2
-        lsr.w   #BLOCK_TILE_SHIFT, d2
-        andi.w  #$F, d2                        // block_x
-        move.w  d7, d3
-        lsr.w   #BLOCK_TILE_SHIFT, d3
-        andi.w  #$F, d3                        // block_y
-        lsl.w   #4, d3
-        add.w   d2, d3
-        move.w  d3, d2                         // d2 = block_index
+        // decompose world col d5 / row d7 into sec_x=d0, sec_y=d1, block_index=d2
+        decompose_block(d5, d7)
 
         // probe staging cache (a1 = slot base on hit)
         jbsr    TileCache_FindStagedBlock
@@ -1143,20 +1155,8 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
         cmp.w   Cache_Head_Col, d7
         bgt     .fr_done
 
-        // decompose d7 into section + block for staging probe
-        move.w  d7, d0
-        lsr.w   #8, d0                         // sec_x
-        move.w  d5, d1
-        lsr.w   #8, d1                         // sec_y
-        move.w  d7, d2
-        lsr.w   #BLOCK_TILE_SHIFT, d2
-        andi.w  #$F, d2                        // block_x
-        move.w  d5, d3
-        lsr.w   #BLOCK_TILE_SHIFT, d3
-        andi.w  #$F, d3                        // block_y
-        lsl.w   #4, d3
-        add.w   d2, d3
-        move.w  d3, d2                         // d2 = block_index
+        // decompose world col d7 / row d5 into sec_x=d0, sec_y=d1, block_index=d2
+        decompose_block(d7, d5)
 
         jbsr    TileCache_FindStagedBlock      // a1 = slot base on hit
         beq     .fr_have_block
