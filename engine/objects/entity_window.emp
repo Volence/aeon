@@ -1471,7 +1471,7 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
         rts
     .have_live:
         // Walk-flag assert rail: the fourth dynamic live-list walker. DespawnObjects
-        // only deletes (no alloc → A1-safe today), but flag the walk so the
+        // only deletes (no alloc → no mid-walk compaction today), but flag the walk so the
         // CompactDynamicLive assert stays TOTAL if a spawn is ever added here.
         if DEBUG == 1 { st Dynamic_Live_Walking }
         lea     Dynamic_Live, a2

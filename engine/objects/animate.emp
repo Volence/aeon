@@ -218,7 +218,7 @@ pub proc AnimateSprite () clobbers(d0-d2/a1-a2) {
         move.b  2(a1,d1.w), d0
         if SOUND_DRIVER_ENABLED == 1 {
         // Sound_PlaySFX clobbers ONLY d0 — under the exhaustive-license
-        // ruling (audit §clobbers-semantics) a1 and d1 are CONTRACTUALLY
+        // ruling a1 and d1 are CONTRACTUALLY
         // preserved, so the old movem.l a1/d1 save/restore pair is dead. a1 is
         // reused in .after_event; d1 is reloaded there anyway. −8 B.
         jbsr    Sound_PlaySFX

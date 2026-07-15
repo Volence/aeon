@@ -8,7 +8,7 @@ use engine.objects.sst.{Sst}
 // -----------------------------------------------
 // TestSolid_Init — set mapping frame from subtype
 // In:  a0 = SST pointer (base fields set by Load_Object)
-// Clobbers: d0-d3, a1: the init frame falls
+// Clobbers: d0-d3, a1 — the init frame falls
 //   into TestSolid_Main (Draw_Sprite's set), so a caller sees Main's clobbers —
 //   the old clobbers() under-declared (matches TestParticle's whole-object set).
 // -----------------------------------------------
