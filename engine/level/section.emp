@@ -9,8 +9,9 @@ use engine.constants.{SECTION_SIZE_SHIFT}
 
 // ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm,
 // except VRAM_PLANE_B_BYTES from engine/level/bg.asm). Mirrored local +
-// drift-locked to keep this port byte-isolated; hoist as each reaches a 2nd
-// .emp consumer (the SECTION_SIZE_SHIFT precedent, tranche-15 R1). ----
+// drift-locked to keep this port byte-isolated; hoist each into the shared
+// engine.constants twin when a 2nd .emp file consumes it (the SECTION_SIZE_SHIFT
+// precedent — it consolidated once section became its 2nd consumer). ----
 const VRAM_PLANE_A       = $C000        // Plane A nametable VRAM byte address
 const VRAM_PLANE_B_BYTES = $E000        // Plane B nametable VRAM byte address
 const PLANE_H_CELLS      = 64
@@ -58,7 +59,7 @@ ensure(Sec_len == 66, "Section_GetSecPtrXY stride (lsl #6 + lsl #1 = ×66) assum
 
 // ---- VDP command macros (truth: engine/macros.asm). First .emp consumer. ----
 
-// VDP command target/op as pure sum types (R6): an out-of-vocabulary target or
+// VDP command target/op as pure sum types: an out-of-vocabulary target or
 // op cannot compile. Discriminants live ONCE — in the mapper fns below, not on
 // the variants — so the enum is the vocabulary and the mapper is the single
 // source of the %-encodings that feed the AS `(type & rwd)` derivation verbatim.
@@ -167,7 +168,7 @@ pub proc Section_Init () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a3
 // direction order on the first frames (avoids a left-edge content pop).
 //
 // Out: Section_Right_Col_Written, Section_Left_Col_Written initialised
-// Clobbers: d0 (AS header said "none"; the body scratches d0 — step-3(b))
+// Clobbers: d0 (the original AS header claimed "none", but the body scratches d0)
 // -----------------------------------------------
 pub proc Section_FillInitial () clobbers(d0) {
         move.l  Camera_X, d0                    // (Camera_X).w
