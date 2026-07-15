@@ -83,7 +83,20 @@ gameDataIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/data/parallax/scenes/sky_haze.asm"
     include "games/sonic4/data/parallax/scenes/caves.asm"
     include "games/sonic4/data/parallax/scenes/locked_clouds.asm"
-    include "games/sonic4/data/objdefs/test_objects.asm"
+    ifndef SIGIL_EMP_OBJDEFS
+        include "games/sonic4/data/objdefs/test_objects.asm"
+    else
+        ; sigil mixed build: the four ObjDef_* archetype templates come from
+        ; games/sonic4/data/objdefs/test_objects.emp, pinned by the sigil map
+        ; at the per-shape reference address. Resume placement at the region
+        ; end (objdef_port pins OBJDEFS; re-pin on re-baseline). NOTE:
+        ; sonic4-shape addresses — never set the define for other games.
+      ifdef __DEBUG__
+        org     $11E1A
+      else
+        org     $11DB2
+      endif
+    endif
     include "games/sonic4/data/generated/ojz/act1/entity_data.asm"
     include "games/sonic4/data/levels/ojz/act1/act_descriptor.asm"
     include "games/sonic4/data/mappings/test_mappings.asm"

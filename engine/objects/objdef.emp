@@ -1,0 +1,68 @@
+// engine.objects.objdef — the v2 archetype template emitter.
+//
+// Ports the AS `objdef` macro (engine/macros.asm): builds one ObjDef record
+// — the compact 26-byte spawn template (engine/objects/sst.emp) — from named,
+// mostly-defaulted inputs. The AS macro's per-param `if "x" <> ""` defaulting
+// becomes real default parameters; its `dc.w/dc.b` field emission becomes a
+// checked ObjDef struct literal (every field named, no silent fill).
+//
+// Two behaviors the macro carried, kept here:
+//   - render_flags is COMPUTED: render_bits | (priority << RF_PRIORITY_SHIFT).
+//   - priority is bounded 0..7. The macro checked this at assemble time with
+//     `fatal "priority exceeds 7"`; the refinement type makes it a COMPILE
+//     error instead (totality) — byte-identical for every valid input.
+//
+// code/map are ROM symbol NAMES (strings), externed to link values — the
+// `equ ROUTINE_* = extern("...") - OBJ_CODE_BASE` idiom, generalized. The
+// code_addr word is the routine's offset from ObjCodeBase (a link-time word
+// difference); mappings is an absolute ROM pointer (a link-time long).
+module engine.objects.objdef
+
+use engine.objects.sst.{ObjDef}
+use engine.types.{Velocity, VramArtTile, HitboxDim, AnimId}
+use engine.system.constants.{RF_PRIORITY_SHIFT}
+
+// vram_art(tile, pal, pri) — pack a VRAM tile index with palette + priority
+// bits (macros.asm's `vram_art` function: (pri<<15)|(pal<<13)|tile). objdef
+// is its first .emp consumer; relocate to a shared art home at the second.
+pub comptime fn vram_art(tile: int, pal: int = 0, pri: int = 0) -> int {
+    return (pri << 15) | (pal << 13) | tile   // pri→bit15, pal→bits13-14, tile→bits0-12
+}
+
+// objdef(...) — one archetype template. `code`/`map` required (a spawn with
+// no code word is a dead slot; the macro required both). Everything else
+// defaults to 0, exactly as the macro's absent params did.
+pub comptime fn objdef(
+    code: string,
+    map: string,
+    art: VramArtTile = 0,
+    priority: u8 where 0..7 = 0,
+    x_vel: Velocity = 0,
+    y_vel: Velocity = 0,
+    width: HitboxDim = 0,
+    height: HitboxDim = 0,
+    collision: u8 = 0,
+    anim_table: u32 = 0,
+    anim: AnimId = 0,
+    subtype: u8 = 0,
+    render_bits: u8 = 0,
+    status: u8 = 0,
+) -> ObjDef {
+    return ObjDef {
+        code_addr:      extern(code) - extern("ObjCodeBase"),
+        x_vel:          x_vel,
+        y_vel:          y_vel,
+        render_flags:   render_bits | (priority << RF_PRIORITY_SHIFT),
+        collision_resp: collision,
+        mappings:       extern(map),
+        art_tile:       art,
+        width_pixels:   width,
+        height_pixels:  height,
+        anim:           anim,
+        subtype:        subtype,
+        anim_table:     anim_table,
+        status:         status,
+        angle:          0,             // terrain angle — runtime-only, template leaves 0
+        pad:            0,             // → Sst $20-$21 (prev_anim/anim_frame), re-inited at spawn
+    }
+}

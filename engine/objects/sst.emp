@@ -1,13 +1,17 @@
-// The Sprite Status Table shape — one record per live object, $50 bytes.
-// engine/structs.asm's SST struct stays authoritative until its own port;
-// this module is its TYPE-ONLY twin: it emits ZERO bytes (no section, no
-// placement) and exists so object modules get typed field access
-// (`Sst.code_addr(a0)`, and bare `code_addr(a0)` on an `a0: *Sst` param)
-// instead of hand-carried displacement equs. Every field offset below is
-// double-locked: the `@` assertion pins this side to the literal, and the
-// drift guards at the bottom pin the AS side (its struct-generated `SST_*`
-// equs cross the link seam) to the same literal — a layout change on either
-// side fails the link naming the field.
+// The spawn-template structs — Sst (the live $50-byte object record) and
+// ObjDef (its compact 26-byte ROM source image). Both are TYPE-ONLY twins:
+// this module emits ZERO bytes (no section, no placement). Sst gives object
+// code typed field access (`Sst.code_addr(a0)`, and bare `code_addr(a0)` on
+// an `a0: *Sst` param) instead of hand-carried displacement equs; ObjDef is
+// the shape the objdef() emitter (engine/objects/objdef.emp) fills and
+// consumers place. engine/structs.asm's SST struct stays authoritative for
+// the layout until its own port.
+//
+// Sst's field offsets are double-locked: the `@` assertion pins this side to
+// the literal, and the drift guards below pin the AS side (its
+// struct-generated `SST_*` equs cross the link seam) to the same literal — a
+// layout change on either side fails the link naming the field. ObjDef is
+// pinned to Sst by the burst-copy ensure-chain (below the guards).
 //
 // Field types are the engine.types domain vocabulary (construct-walk #3,
 // Volence-ratified): every type erases to the raw width, so the layout,
@@ -98,3 +102,62 @@ ensure(extern("SST_entity_list_index") == $2C, "engine/structs.asm SST and sst.e
 ensure(extern("SST_layer") == $2D, "engine/structs.asm SST and sst.emp disagree on layer — update the twin")
 ensure(extern("SST_sst_custom") == $2E, "engine/structs.asm SST and sst.emp disagree on sst_custom — update the twin")
 ensure(extern("SST_len") == $50, "engine/structs.asm SST and sst.emp disagree on total size — update the twin")
+
+// -----------------------------------------------
+// ObjDef — the v2 archetype spawn template. A COMPACT 26-byte ROM image
+// (code_addr word + a 24-byte block) that Load_Object burst-copies into a
+// fresh SST at spawn (load_object.emp). It is Sst's source image, not a
+// second layout of it: the compact record closes the $02..$09 gap that
+// Sst spends on runtime-only fields (x_pos/y_pos), so a template field at
+// ObjDef offset N lands at Sst offset N + TEMPLATE_COPY_SHIFT — except
+// code_addr, which copies at shift 0. This module co-locates ObjDef with
+// Sst so the burst-copy correspondence (the ensure-chain below) checks
+// both structs' `offsetof` in-file, at comptime.
+// -----------------------------------------------
+pub struct ObjDef (size: 26) {
+    code_addr:      ObjRoutine  @ $00,   // objroutine(code) — code − ObjCodeBase (link word)
+    x_vel:          Velocity    @ $02,   // 8.8 fixed-point
+    y_vel:          Velocity    @ $04,
+    render_flags:   u8          @ $06,   // render_bits | (priority << RF_PRIORITY_SHIFT)
+    collision_resp: u8          @ $07,
+    mappings:       u32         @ $08,   // sprite mapping pointer (ROM)
+    art_tile:       VramArtTile @ $0C,
+    width_pixels:   HitboxDim   @ $0E,
+    height_pixels:  HitboxDim   @ $0F,
+    anim:           AnimId      @ $10,
+    subtype:        u8          @ $11,
+    anim_table:     u32         @ $12,   // animation table pointer (ROM)
+    status:         u8          @ $16,
+    angle:          Angle       @ $17,
+    pad:            u16         @ $18,    // → Sst $20-$21 (prev_anim/anim_frame), re-inited at spawn
+}
+
+// The +8 the template block gains when Load_Object does `lea Sst.x_vel(a1)`
+// before the burst copy: Sst.x_vel($0A) − Sst.code_addr($00) − code_addr's
+// 2 bytes = 8, the count of Sst-only bytes ($02..$09: x_pos/y_pos) the
+// compact ObjDef omits.
+const TEMPLATE_COPY_SHIFT = 8
+
+// -----------------------------------------------
+// Burst-copy correspondence — the ObjDef-twin payoff. Each ObjDef field
+// must land on the matching Sst field when Load_Object copies it: code_addr
+// at shift 0, every template field at +TEMPLATE_COPY_SHIFT. Both structs are
+// in-file, so these are eager comptime `offsetof` compares — a layout drift
+// on either side fails the BUILD naming the field. (Distinct from the
+// extern() drift guards above, which cross the link seam to AS's structs.asm.)
+// -----------------------------------------------
+ensure(offsetof(ObjDef, code_addr) == offsetof(Sst, code_addr), "ObjDef/Sst burst-copy correspondence broken at code_addr")
+ensure(offsetof(ObjDef, x_vel) + TEMPLATE_COPY_SHIFT == offsetof(Sst, x_vel), "ObjDef/Sst burst-copy correspondence broken at x_vel")
+ensure(offsetof(ObjDef, y_vel) + TEMPLATE_COPY_SHIFT == offsetof(Sst, y_vel), "ObjDef/Sst burst-copy correspondence broken at y_vel")
+ensure(offsetof(ObjDef, render_flags) + TEMPLATE_COPY_SHIFT == offsetof(Sst, render_flags), "ObjDef/Sst burst-copy correspondence broken at render_flags")
+ensure(offsetof(ObjDef, collision_resp) + TEMPLATE_COPY_SHIFT == offsetof(Sst, collision_resp), "ObjDef/Sst burst-copy correspondence broken at collision_resp")
+ensure(offsetof(ObjDef, mappings) + TEMPLATE_COPY_SHIFT == offsetof(Sst, mappings), "ObjDef/Sst burst-copy correspondence broken at mappings")
+ensure(offsetof(ObjDef, art_tile) + TEMPLATE_COPY_SHIFT == offsetof(Sst, art_tile), "ObjDef/Sst burst-copy correspondence broken at art_tile")
+ensure(offsetof(ObjDef, width_pixels) + TEMPLATE_COPY_SHIFT == offsetof(Sst, width_pixels), "ObjDef/Sst burst-copy correspondence broken at width_pixels")
+ensure(offsetof(ObjDef, height_pixels) + TEMPLATE_COPY_SHIFT == offsetof(Sst, height_pixels), "ObjDef/Sst burst-copy correspondence broken at height_pixels")
+ensure(offsetof(ObjDef, anim) + TEMPLATE_COPY_SHIFT == offsetof(Sst, anim), "ObjDef/Sst burst-copy correspondence broken at anim")
+ensure(offsetof(ObjDef, subtype) + TEMPLATE_COPY_SHIFT == offsetof(Sst, subtype), "ObjDef/Sst burst-copy correspondence broken at subtype")
+ensure(offsetof(ObjDef, anim_table) + TEMPLATE_COPY_SHIFT == offsetof(Sst, anim_table), "ObjDef/Sst burst-copy correspondence broken at anim_table")
+ensure(offsetof(ObjDef, status) + TEMPLATE_COPY_SHIFT == offsetof(Sst, status), "ObjDef/Sst burst-copy correspondence broken at status")
+ensure(offsetof(ObjDef, angle) + TEMPLATE_COPY_SHIFT == offsetof(Sst, angle), "ObjDef/Sst burst-copy correspondence broken at angle")
+ensure(offsetof(ObjDef, pad) + TEMPLATE_COPY_SHIFT == offsetof(Sst, prev_anim), "ObjDef/Sst burst-copy correspondence broken at pad→prev_anim")

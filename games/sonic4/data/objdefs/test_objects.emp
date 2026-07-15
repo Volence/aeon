@@ -1,0 +1,31 @@
+// Object definitions for test objects — v2 archetype templates.
+// Ported from games/sonic4/data/objdefs/test_objects.asm (the AS `objdef`
+// macro); the objdef() emitter (engine/objects/objdef.emp) builds each
+// 26-byte record. Byte-identical to the macro (objdef_port byte gate).
+//
+// The game-config values below (VRAM_TEST_OBJ, COLLISION_*, patrol speed)
+// are byte-checked by the gate itself — a drift shows up as a mismatched
+// record byte, so no separate extern() drift guard is carried here.
+module games.sonic4.data.objdefs.test_objects
+
+use engine.objects.sst.{ObjDef}
+use engine.objects.objdef.{objdef, vram_art}
+
+const VRAM_TEST_OBJ = $03E0          // games/sonic4/config/constants.asm
+const COLLISION_SOLID = 8            // engine/constants.asm
+const COLLISION_HURT = 3
+const ENEMY_PATROL_SPEED = $100      // games/sonic4/objects/test_enemy.asm (8.8: 1.0 px/frame)
+
+pub data ObjDef_Static: ObjDef = objdef(
+    code: "TestStatic_Main", map: "Map_TestObj", art: vram_art(VRAM_TEST_OBJ))
+
+pub data ObjDef_Solid: ObjDef = objdef(
+    code: "TestSolid_Init", map: "Map_TestObj", art: vram_art(VRAM_TEST_OBJ),
+    priority: 3, width: 16, height: 16, collision: COLLISION_SOLID)
+
+pub data ObjDef_Enemy: ObjDef = objdef(
+    code: "TestEnemy_Init", map: "Map_TestObj", art: vram_art(VRAM_TEST_OBJ),
+    priority: 4, x_vel: ENEMY_PATROL_SPEED, width: 16, height: 16, collision: COLLISION_HURT)
+
+pub data ObjDef_Parent: ObjDef = objdef(
+    code: "TestParent", map: "Map_TestObj", art: vram_art(VRAM_TEST_OBJ), priority: 3)
