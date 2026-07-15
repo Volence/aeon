@@ -18,8 +18,9 @@
 
 module engine.objects.load_object in load_object
 
-use engine.constants.{RF_XFLIP, RF_YFLIP, FRAME_PIECE_COUNT}
+use engine.constants.{RF_XFLIP, RF_YFLIP}
 use engine.objects.sst.{Sst}
+use engine.objects.frames.{frame_piece_count}
 
 ensure(RF_XFLIP == 1 && RF_YFLIP == 2, "rol.w #4 placement-flip fold assumes OEF bits 13/14 → RF bits 1/2")
 
@@ -76,8 +77,7 @@ pub proc Load_Object () clobbers(d0-d3, a1, a2, a3) {
         beq     .no_piece_count
         movea.l d3, a3
         move.w  (a3), d3                    // offset to frame 0 data
-        // piece count is at FRAME_PIECE_COUNT (+4), after 4 bbox bytes
-        move.w  FRAME_PIECE_COUNT(a3,d3.w), d3
+        frame_piece_count(a3, d3, d3)       // d3 = piece-count word from frame 0
         move.b  d3, Sst.sprite_piece_count(a1)
     .no_piece_count:
         moveq   #0, d0                 // Z set = success
