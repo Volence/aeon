@@ -1,7 +1,7 @@
-# TheBlad768 survey — S.C.E. deform engine + S3K Epilogue — 2026-07-14
+# TheBlad768 + Spinball survey — deform engine, S3K Epilogue, SpinTool — 2026-07-14
 
-Quick survey of three TheBlad768 sources, filtered for what Aeon doesn't already have.
-Two ideas worth keeping; everything else was confirmation of techniques already banked
+Quick survey of external sources, filtered for what Aeon doesn't already have.
+Three ideas worth keeping; everything else was confirmation of techniques already banked
 in ENGINE_ARCHITECTURE.md §7 or stock-S3K machinery we deliberately replaced.
 
 Sources:
@@ -9,6 +9,9 @@ Sources:
 - S.C.E. tutorial `eng/how_to/new_deform_engine.md` (wraps MarkeyJester's SSRG deform post)
 - Sonic 3 & Knuckles: Epilogue public source — github.com/TheBlad768/Sonic-3-Knuckles-Epilogue-Public-Source
   (archived read-only 2026-06-14; full-repo sweep by subagent, 2026-07-14)
+- SpinTool (Sonic Spinball reverse-engineering/modding tool) — github.com/AlpasNet/SpinTool
+  (fork = current lineage; merged upstream into Eggplant891/SonicSpintool via PR #5, 2026-07-05;
+  full-source sweep by subagent, 2026-07-14)
 
 ---
 
@@ -73,6 +76,38 @@ lifted community code.
 
 ---
 
+## KEEP #3 — Script-VM cutscene/animation architecture (Sonic Spinball, 1993)
+
+**What:** Spinball (written largely in C — near-unique for a Genesis game) drives its
+animation and cutscenes through small bytecode interpreters rather than hardcoded object
+code:
+
+- **Animation command stream** (`animation_sequence.cpp` in SpinTool documents the
+  format): frame-display commands with timing, relative jumps / goto-previous-frame for
+  loops, ADD_X/Y + SET_X/Y offset commands (sprites reposition mid-animation without new
+  mapping frames), and CREATE_ANIM_OBJ_INSTANCE / composite-object spawn commands.
+  Extended opcodes via an escape pattern (`(code & 0x1F) == 0x1F` → read second byte).
+  End marker $8000, frame-skip marker $3FFF.
+- **Cutscene script VM** (`tails_plane_decoder.cpp` — the Tails-plane sequence): ~18
+  opcodes including direct object-slot placement, object-table application, subroutine
+  call (depth-limited to 32), repeat-block (loop N times), and frame capture. Object
+  positions in Sint16 fixed-point (1/16 px).
+
+**Why it matters to us:** When a cutscene/scripted-sequence system opens (title
+sequences, act intros/outros, boss defeat handoffs), "tiny script VM with subroutines +
+repeat + object-spawn opcodes" is a better shape than S3K-style hardcoded cutscene
+objects: sequences become data, tooling can emit them, and the interpreter is small.
+This is the 1993 existence proof that it fits comfortably on the 68000. Pairs naturally
+with the Epilogue chained-routine boss pattern (KEEP #2) — both replace routine-counter
+ladders with data-driven control flow.
+
+**Bonus historical note:** Spinball's bonus-stage sprite mapping is a 6-byte header
+(**piece count** + X/Y origin) followed by **8-byte pieces in {Y, size, tile, X} VDP
+order** — a 1993 precedent for our §7.8 count-header + VDP-order format, predating the
+2024 Plutié reorder post by three decades.
+
+---
+
 ## Confirmations / rejections (no action)
 
 - **S.C.E. `VInt_DrawLevel` rework (c8ad081):** dedicated a5=control-port register and
@@ -100,3 +135,22 @@ lifted community code.
   slot format + checksums + wear pattern. One borrowable detail: a user-facing
   corruption screen with reinit, rather than silent reset.
 - **Epilogue Time Attack / progressive text reveal:** UI polish, not engine tech.
+- **Spinball LZW compression ("Compressed2"):** the game ships real LZW — variable
+  9–11-bit codes, 2048-entry dictionary, reset token $100 / end token $101, $FFFF block
+  markers. Genuinely novel for a Genesis cart (LZW's dictionary RAM cost is why everyone
+  else used LZSS-family), but no action: LZW loses to ZX0 on both ratio and RAM.
+  IMPORTANT caveat when reading SpinTool: the multi-strategy dictionary-reset optimizer
+  (`compressed2_optimizer.cpp`) is the modern TOOL's recompressor for PNG reimport, NOT
+  1993 game tech — don't cite it as Spinball engineering. Same for the tool's "virtual
+  VRAM" written-byte tracking (import safety, tool-side).
+- **Spinball per-sector collision-object culling + level-instanced flippers:**
+  broad-phase object ID lists per map sector; flipper data/animations/collision defined
+  per table. Sound 1993 engineering; our camera-driven entity window + data-driven
+  archetypes already cover it.
+- **Spinball ball/playfield collision — NOT decoded:** the pinball-novel part is
+  opaque. `collision_tile.cpp` is a stub; `SplineCullingTable` and
+  `flipper_collision_unknown` are named-but-undecoded pointers. The spline table hints
+  playfield collision is curve-based, not tile-heightmap — if ever worth chasing, it
+  needs a ROM + disassembly session on the collision code, not more tool-reading.
+- **Spinball tile layout** (4x4 tile brushes → brush instances, 11-bit tile / 10-bit
+  brush indices): conventional Genesis tilemap hierarchy, nothing to take.
