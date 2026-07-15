@@ -42,7 +42,7 @@ pub newtype ObjRoutine = u16
 // half-extent here would halve every hitbox. Collision-box domain, distinct
 // from world distances and screen coordinates. Named HitboxDim (not the earlier
 // Radius) because the value is a full box dimension and "radius" read as a
-// half-extent (Volence-approved rename, retro-fix batch 2).
+// half-extent (Volence-approved rename).
 pub newtype HitboxDim = u8
 
 // The PACKED VRAM art word: priority<<15 | palette<<13 | tile index

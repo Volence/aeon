@@ -8,7 +8,7 @@ use engine.objects.sst.{Sst}
 // -----------------------------------------------
 // TestSolid_Init — set mapping frame from subtype
 // In:  a0 = SST pointer (base fields set by Load_Object)
-// Clobbers: d0-d3, a1 (retro-fix batch 2, item 9 sweep): the init frame falls
+// Clobbers: d0-d3, a1 — the init frame falls
 //   into TestSolid_Main (Draw_Sprite's set), so a caller sees Main's clobbers —
 //   the old clobbers() under-declared (matches TestParticle's whole-object set).
 // -----------------------------------------------
@@ -26,7 +26,7 @@ pub proc TestSolid_Init (a0: *Sst) clobbers(d0-d3/a1) falls_into TestSolid_Main 
 // TestSolid_Main — display-only (collision handled by TouchResponse)
 // In:  a0 = SST pointer
 // Clobbers: d0-d3, a1 (Draw_Sprite's set — tail call). Declared as the contract
-//   (retro-fix batch 2, item 7): the signature under-declared (nothing) while
+//   the signature under-declared (nothing) while
 //   tail-calling Draw_Sprite — the dangerous direction under exhaustive-license.
 // -----------------------------------------------
 pub proc TestSolid_Main (a0: *Sst) clobbers(d0-d3/a1) {

@@ -30,7 +30,7 @@ comptime fn perform_dplc(queue: Label) -> Code {
         move.b  Sst.mapping_frame(a0), d0
         cmp.b   Sst.prev_frame(a0), d0
         beq     .done                           // frame unchanged, skip (bare Bcc — sigil relaxes per-shape)
-        // item 11: prev_frame is committed AFTER a successful enqueue (below), NOT
+        // prev_frame is committed AFTER a successful enqueue (below), NOT
         // here — QueueDMATransfer returns carry-set when the queue is full and it
         // silently drops the request. Committing before meant a dropped frame left
         // prev_frame == mapping_frame, so the object believed its art loaded and
@@ -64,11 +64,11 @@ comptime fn perform_dplc(queue: Label) -> Code {
         movem.l d2-d4/a2-a3, -(sp)
         jbsr    {queue}                          // carry SET = dropped (queue full)
         movem.l (sp)+, d2-d4/a2-a3               // movem preserves CCR — the carry survives
-        bcs     .done                            // item 11: dropped — leave prev_frame stale so next frame RETRIES
+        bcs     .done                            // dropped — leave prev_frame stale so next frame RETRIES
 
         add.w   d3, d2
         dbf     d4, .entry_loop
-        // All entries enqueued OK — NOW commit prev_frame (item 11). Re-read
+        // All entries enqueued OK — NOW commit prev_frame. Re-read
         // mapping_frame (unchanged this routine; d0 was consumed by the loop).
         move.b  Sst.mapping_frame(a0), d0
         move.b  d0, Sst.prev_frame(a0)

@@ -144,7 +144,7 @@ pub proc TouchResponse () clobbers(d0-d7/a0-a3) {
         move.w  y_pos(a2), d5       // cache player Y integer
 
         // --- Dynamic pool: spawn-order live list (empty slots cost zero) ---
-        // A2 rail (item 1): a4 holds a live cursor and a dispatched touch handler
+        // Walk-flag assert rail: a4 holds a live cursor and a dispatched touch handler
         // may AllocDynamic mid-walk — flag the walk so a resulting
         // CompactDynamicLive trips the assert instead of moving entries silently.
         if DEBUG == 1 { st Dynamic_Live_Walking }
@@ -153,7 +153,7 @@ pub proc TouchResponse () clobbers(d0-d7/a0-a3) {
         beq     .dyn_done
         subq.w  #1, d6
     .dyn_loop:
-        move.w  (a4)+, d0               // A1: null-guard a zeroed entry — no deref
+        move.w  (a4)+, d0               // null-guard a zeroed entry — no deref
         beq     .dyn_next
         movea.w d0, a3
         touch_test_target(.dyn_next)

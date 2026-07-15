@@ -9,7 +9,7 @@ use engine.constants.{VDP_Shadow_len}
 const VDP_REG_CMD  = $8000
 const VDP_REG_STEP = $0100
 
-// Drift-lock (item 8): Flush_VDP_Shadow indexes the dirty registers with
+// Drift-lock: Flush_VDP_Shadow indexes the dirty registers with
 // `btst d2, d1` — a data-register bit test that reads d1 (the .l dirty mask)
 // mod 32 — and builds the loop counter with `moveq #VDP_Shadow_len-1` (signed
 // byte). Both cap the register count at 32; a table grown past that would wrap
@@ -25,12 +25,12 @@ ensure(VDP_Shadow_len <= 32, "engine/constants.asm VDP_Shadow_len > 32 — Flush
 // -----------------------------------------------
 pub proc VDP_Shadow_Init () clobbers(d0, a0, a1) {
         lea     BootData_VDPRegs(pc), a0    // cross-seam pc-rel: engine/system/boot.asm
-        lea     VDP_Shadow_Table, a1        // (VDP_Shadow_Table).w — ram.asm; abs.w picked by the linker's asl width rule
+        lea     VDP_Shadow_Table, a1
         moveq   #VDP_Shadow_len-1, d0
     .copy:
         move.b  (a0)+, (a1)+
         dbf     d0, .copy
-        clr.l   VDP_Dirty_Mask              // (VDP_Dirty_Mask).w — ram.asm; RAM operand, so the I/O clr read hazard doesn't apply
+        clr.l   VDP_Dirty_Mask        // RAM operand, so the I/O clr read hazard doesn't apply
         rts
 }
 
@@ -45,7 +45,7 @@ pub proc Flush_VDP_Shadow () clobbers(d0-d3/a0-a1) {
         move.l  VDP_Dirty_Mask, d1
         beq     .done                       // fast path: nothing dirty
         lea     VDP_Shadow_Table, a0
-        lea     VDP_CTRL, a1                // (VDP_CTRL).l — engine/constants.asm; abs.l by the width rule
+        lea     VDP_CTRL, a1
         move.w  #VDP_REG_CMD, d0            // register command base (reg 0)
         moveq   #0, d2                      // register index (counts up)
         moveq   #VDP_Shadow_len-1, d3       // loop counter (counts down)

@@ -25,18 +25,18 @@ const SPRITE_MASK_HEIGHT = 32
 // -----------------------------------------------
 pub proc InitSpriteSystem () clobbers(d0, a0) {
         // Clear all band counts (8 bytes, padded to even = 8 bytes)
-        lea     Sprite_Band_Counts, a0        // (Sprite_Band_Counts).w — ram.asm
+        lea     Sprite_Band_Counts, a0
         moveq   #0, d0
         move.l  d0, (a0)+              // bands 0-3
         move.l  d0, (a0)+              // bands 4-7 + pad byte
 
         // Clear scanline band sprite counters (8 bytes: 7 bands + 1 pad)
-        lea     Scanline_Band_Sprites, a0     // (Scanline_Band_Sprites).w — ram.asm
+        lea     Scanline_Band_Sprites, a0
         move.l  d0, (a0)+
         move.l  d0, (a0)
 
         // Reset counters
-        move.w  d0, Sprites_Rendered          // (Sprites_Rendered).w — ram.asm
+        move.w  d0, Sprites_Rendered
         rts
 }
 
@@ -49,7 +49,7 @@ pub proc InitSpriteSystem () clobbers(d0, a0) {
 // Clobbers: d0-d3, a1
 // Preserves: a0, d7 (required by RunObjects_Frozen loop)
 // -----------------------------------------------
-pub proc Draw_Sprite () clobbers(d0, d1, d2, d3, a1) {
+pub proc Draw_Sprite () clobbers(d0-d3/a1) {
         // --- Child-skip guard for multi-sprite parents ---
         // If our parent has RF_MULTISPRITE set, we render via the parent's
         // sibling walk in Render_Sprites — don't register independently.
@@ -84,7 +84,7 @@ pub proc Draw_Sprite () clobbers(d0, d1, d2, d3, a1) {
         // screen_x = SST_x_pos - Camera_X (origin screen position)
         // Visible if: screen_x + x_min < SCREEN_WIDTH AND screen_x + x_max > 0
         move.w  Sst.x_pos(a0), d0
-        sub.w   Camera_X, d0           // (Camera_X).w — ram.asm; d0 = screen-relative X origin
+        sub.w   Camera_X, d0        // d0 = screen-relative X origin
         move.b  FRAME_BBOX_X_MIN(a1), d2
         ext.w   d2
         add.w   d0, d2                 // d2 = screen_x + x_min (left edge)
@@ -97,7 +97,7 @@ pub proc Draw_Sprite () clobbers(d0, d1, d2, d3, a1) {
 
         // --- Exact Y cull ---
         move.w  Sst.y_pos(a0), d0
-        sub.w   Camera_Y, d0           // (Camera_Y).w — ram.asm; d0 = screen-relative Y origin
+        sub.w   Camera_Y, d0        // d0 = screen-relative Y origin
         move.b  FRAME_BBOX_Y_MIN(a1), d2
         ext.w   d2
         add.w   d0, d2                 // d2 = screen_y + y_min (top edge)
@@ -120,7 +120,7 @@ pub proc Draw_Sprite () clobbers(d0, d1, d2, d3, a1) {
         lsr.b   #RF_PRIORITY_SHIFT, d0
 
         // Check band overflow — cascade to lower bands if full
-        lea     Sprite_Band_Counts, a1        // (Sprite_Band_Counts).w — ram.asm
+        lea     Sprite_Band_Counts, a1
         moveq   #0, d1
         move.b  (a1,d0.w), d1
         cmpi.b  #SPRITES_PER_BAND, d1
@@ -147,11 +147,11 @@ pub proc Draw_Sprite () clobbers(d0, d1, d2, d3, a1) {
         add.w   d3, d2                 // d2 = byte offset into Sprite_Bands
 
         // Store object address in band list
-        lea     Sprite_Bands, a1              // (Sprite_Bands).w — ram.asm
+        lea     Sprite_Bands, a1
         move.w  a0, (a1,d2.w)         // store SST address (RAM = .w addressable)
 
         // Increment band count
-        lea     Sprite_Band_Counts, a1        // (Sprite_Band_Counts).w — ram.asm
+        lea     Sprite_Band_Counts, a1
         addq.b  #1, (a1,d0.w)
 
     .all_bands_full:
@@ -189,9 +189,9 @@ pub proc Draw_Sprite () clobbers(d0, d1, d2, d3, a1) {
 // Clobbers: d0-d7, a0-a6
 // -----------------------------------------------
 pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
-        addq.w  #1, Sprite_Cycle_Counter      // (Sprite_Cycle_Counter).w — ram.asm
+        addq.w  #1, Sprite_Cycle_Counter
 
-        // A1 camera-bias fold: read Camera_X/Y ONCE here (final for this
+        // Camera-bias fold: read Camera_X/Y ONCE here (final for this
         // frame's render — the same value the per-object world path used to
         // read per-object) and store Camera - VDP_SPRITE_*_OFFSET. The
         // per-object setup subtracts the BIASED camera, folding the +128 SAT
@@ -199,12 +199,12 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // (16 cyc/piece). Behavior-identical; screen-coord paths compensate.
         move.w  Camera_X, d0
         subi.w  #VDP_SPRITE_X_OFFSET, d0
-        move.w  d0, Camera_X_Biased           // (Camera_X_Biased).w — ram.asm
+        move.w  d0, Camera_X_Biased
         move.w  Camera_Y, d0
         subi.w  #VDP_SPRITE_Y_OFFSET, d0
-        move.w  d0, Camera_Y_Biased           // (Camera_Y_Biased).w — ram.asm
+        move.w  d0, Camera_Y_Biased
 
-        lea     Sprite_Table_Buffer, a4  // (Sprite_Table_Buffer).w — ram.asm; a4 = SAT buffer write pointer
+        lea     Sprite_Table_Buffer, a4        // a4 = SAT buffer write pointer
         moveq   #0, d5                      // d5 = VDP sprite index (0-based)
 
         // Use a5 as band counter (7 down to 0) to avoid d6 conflicts
@@ -212,7 +212,7 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
 
     .band_loop:
         move.w  a5, d6                      // d6 = current band index
-        lea     Sprite_Band_Counts, a1       // (Sprite_Band_Counts).w — ram.asm
+        lea     Sprite_Band_Counts, a1
         moveq   #0, d7
         move.b  (a1,d6.w), d7              // d7.w = number of objects in this band
         beq   .next_band                  // skip empty bands
@@ -220,7 +220,7 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // Get base of this band's object list
         move.w  d6, d0
         lsl.w   #6, d0                     // d0 = band * 64 (SPRITES_PER_BAND=32, *2 bytes)
-        lea     Sprite_Bands, a2             // (Sprite_Bands).w — ram.asm
+        lea     Sprite_Bands, a2
         adda.w  d0, a2                     // a2 = pointer to this band's list
 
         subq.w  #1, d7                     // adjust for dbf (must be .w — dbf uses full word)
@@ -289,9 +289,9 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // World coords: d2/d3 = object_pos - biased_camera = screen_pos + 128
         // (the +128 SAT offset folded in via the biased camera).
         move.w  Sst.x_pos(a0), d2         // object X integer
-        sub.w   Camera_X_Biased, d2        // (Camera_X_Biased).w — ram.asm; d2 = screen X + 128
+        sub.w   Camera_X_Biased, d2        // d2 = screen X + 128
         move.w  Sst.y_pos(a0), d3         // object Y integer
-        sub.w   Camera_Y_Biased, d3        // (Camera_Y_Biased).w — ram.asm; d3 = screen Y + 128
+        sub.w   Camera_Y_Biased, d3        // d3 = screen Y + 128
         jbra   .have_pos
 
     .screen_pos:
@@ -321,7 +321,7 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         lsr.w   #5, d0                     // d0 = screen_y >> 5 = band index (0-6)
         cmpi.w  #SCANLINE_BANDS, d0
         bhs   .budget_ok                 // below screen — allow
-        lea     Scanline_Band_Sprites, a1   // (Scanline_Band_Sprites).w — ram.asm
+        lea     Scanline_Band_Sprites, a1
         move.b  (a1,d0.w), d1
         add.b   d4, d1                     // d1 = current count + this object's pieces
         cmpi.b  #SCANLINE_SPRITE_LIMIT, d1
@@ -377,9 +377,9 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         btst    #RF_COORDMODE, Sst.render_flags(a0)
         bne   .child_screen_pos
         move.w  Sst.x_pos(a0), d2
-        sub.w   Camera_X_Biased, d2        // (Camera_X_Biased).w — ram.asm; screen X + 128
+        sub.w   Camera_X_Biased, d2        // screen X + 128
         move.w  Sst.y_pos(a0), d3
-        sub.w   Camera_Y_Biased, d3        // (Camera_Y_Biased).w — ram.asm; screen Y + 128
+        sub.w   Camera_Y_Biased, d3        // screen Y + 128
         jbra   .child_have_pos
     .child_screen_pos:
         move.w  Sst.x_pos(a0), d2
@@ -410,9 +410,9 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
     .next_band:
         // --- Sprite X=0 mask insertion at band boundary ---
         move.w  a5, d0                    // d0 = band we just finished (or about to start)
-        cmp.b   SpriteMask_After_Band, d0 // (SpriteMask_After_Band).w — ram.asm
+        cmp.b   SpriteMask_After_Band, d0
         bne   .no_mask_insert
-        tst.w   SpriteMask_Y              // (SpriteMask_Y).w — ram.asm
+        tst.w   SpriteMask_Y
         beq   .no_mask_insert
         jbsr   InsertSpriteMasks
     .no_mask_insert:
@@ -429,8 +429,8 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         tst.w   d5
         beq   .empty_table              // nothing rendered
         move.b  #0, -5(a4)               // overwrite last sprite's link byte with 0
-        move.w  d5, Sprites_Rendered      // (Sprites_Rendered).w — ram.asm
-        move.b  #1, Sprite_Table_Dirty    // (Sprite_Table_Dirty).w — ram.asm
+        move.w  d5, Sprites_Rendered
+        move.b  #1, Sprite_Table_Dirty
         rts
 
     .empty_table:
@@ -438,13 +438,13 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // at sprite 0, the previous frame's SAT (full link chain) stays
         // in VRAM and its sprites freeze on screen. Edge-triggered: only
         // written on the had-sprites → none transition.
-        tst.w   Sprites_Rendered          // (Sprites_Rendered).w — ram.asm
+        tst.w   Sprites_Rendered
         beq   .still_empty              // already terminated last frame
         moveq   #0, d0
         move.l  d0, (a4)+                // Y=0, size=0, link=0 (chain ends)
         move.l  d0, (a4)                 // tile=0, X=0
-        move.w  d0, Sprites_Rendered      // (Sprites_Rendered).w — ram.asm
-        move.b  #1, Sprite_Table_Dirty    // (Sprite_Table_Dirty).w — ram.asm
+        move.w  d0, Sprites_Rendered
+        move.b  #1, Sprite_Table_Dirty
     .still_empty:
         rts
 
@@ -490,12 +490,12 @@ comptime fn y_term(yflip: int) -> Code {
             addq.w  #1, d1
             lsl.w   #3, d1                  // height in pixels
             sub.w   d1, d0
-            add.w   d3, d0                  // d3 = Camera_Y_Biased origin (A1: +128 pre-folded)
+            add.w   d3, d0                  // d3 = Camera_Y_Biased origin (+128 pre-folded)
             move.w  d0, (a4)+
         }
     }
     return asm {
-        add.w   d3, d0                  // d3 = Camera_Y_Biased origin (A1: +128 pre-folded)
+        add.w   d3, d0                  // d3 = Camera_Y_Biased origin (+128 pre-folded)
         move.w  d0, (a4)+              // SAT +0: Y
     }
 }
@@ -563,7 +563,7 @@ comptime fn x_term(xflip: int) -> Code {
             move.b  -6(a3), d1              // re-read VDP size code
             move.b  (a0,d1.w), d1           // X-flip width from CellOffsets_XFlip
             sub.w   d1, d0
-            add.w   d2, d0                  // d2 = Camera_X_Biased origin (A1: +128 pre-folded)
+            add.w   d2, d0                  // d2 = Camera_X_Biased origin (+128 pre-folded)
             bne     .x_ok
             moveq   #1, d0
         .x_ok:
@@ -572,7 +572,7 @@ comptime fn x_term(xflip: int) -> Code {
     }
     return asm {
         move.w  a1, d0
-        add.w   d2, d0                  // d2 = Camera_X_Biased origin (A1: +128 pre-folded)
+        add.w   d2, d0                  // d2 = Camera_X_Biased origin (+128 pre-folded)
         bne     .x_ok
         moveq   #1, d0
     .x_ok:
@@ -628,7 +628,7 @@ comptime fn emit_piece_loop(xflip: int, yflip: int) -> Code {
 //   the consumed pieces), a6
 // Preserves: d2, d3, d6, d7
 // -----------------------------------------------
-proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
+proc Emit_ObjectPieces () clobbers(d0-d1/d4/a0-a1/a3/a6) out(d5) {
         lea     CellOffsets_XFlip(pc), a0  // a0 = flip-table base for variants
         tst.b   d0
         beq   .pieces_unflipped
@@ -669,8 +669,8 @@ proc Emit_ObjectPieces () clobbers(d0, d1, d4, a0, a1, a3, a6) out(d5) {
 // Clobbers: d0-d1
 // -----------------------------------------------
 proc InsertSpriteMasks () clobbers(d0, d1) out(d5) {
-        move.w  SpriteMask_Y, d0           // (SpriteMask_Y).w — ram.asm; d0 = VDP Y start position
-        move.w  SpriteMask_Height, d1      // (SpriteMask_Height).w — ram.asm; d1 = remaining scanlines to cover
+        move.w  SpriteMask_Y, d0        // d0 = VDP Y start position
+        move.w  SpriteMask_Height, d1        // d1 = remaining scanlines to cover
         ble   .masks_done
 
     .mask_loop:

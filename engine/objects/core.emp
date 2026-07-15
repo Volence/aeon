@@ -13,7 +13,7 @@ use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_DYNAMIC_PENDING,
                       OBJ_CODE_BANK, CULL_DISTANCE_X,
                       CULL_DISTANCE_Y, SLOT_TAG_UNTAGGED}
 
-// Link-time drift-lock (item 9 / audit core-5): RunObjects_Frozen's merged
+// Link-time drift-lock: RunObjects_Frozen's merged
 // System+Effect sweep (`lea System_Slots, a0` + `move.w #NUM_SYSTEM+NUM_EFFECTS-1`)
 // walks the two pools as ONE contiguous run — it depends on Effect_Slots
 // immediately following the System_Slots block in RAM, which nothing else
@@ -40,7 +40,7 @@ comptime fn clear_longs(n: int) -> Code {
 // Out: none
 // Clobbers: d0-d1, a0-a1
 // -----------------------------------------------
-pub proc InitObjectRAM () clobbers(d0, d1, a0, a1) {
+pub proc InitObjectRAM () clobbers(d0-d1/a0-a1) {
         // Zero all Object RAM
         lea     Object_RAM, a0
         move.w  #(extern("Object_RAM_End")-extern("Object_RAM"))/4-1, d0
@@ -60,7 +60,7 @@ pub proc InitObjectRAM () clobbers(d0, d1, a0, a1) {
         move.w  a1, (a0)+
         lea     sizeof(Sst)(a1), a1
         dbf     d0, .push_dyn
-        move.w  #extern("Dynamic_Free_Stack")+NUM_DYNAMIC*2, (Dynamic_Free_SP).w
+        move.w  #extern("Dynamic_Free_Stack")+NUM_DYNAMIC*2, (Dynamic_Free_SP).w   // explicit .w kept: a link-imm source + bare (relaxable) symbolic dest can't both defer — the imm-link lowering gap
 
         // Init effect free stack
         lea     Effect_Free_Stack, a0
@@ -70,7 +70,7 @@ pub proc InitObjectRAM () clobbers(d0, d1, a0, a1) {
         move.w  a1, (a0)+
         lea     sizeof(Sst)(a1), a1
         dbf     d0, .push_eff
-        move.w  #extern("Effect_Free_Stack")+NUM_EFFECTS*2, (Effect_Free_SP).w
+        move.w  #extern("Effect_Free_Stack")+NUM_EFFECTS*2, (Effect_Free_SP).w   // explicit .w kept: link-imm source + bare symbolic dest — imm-link lowering gap (see line 63)
 
         // Reset the dynamic live-list (spawn-order occupancy): empty, not dirty.
         // The Dynamic_Live array itself needs no clear — Count 0 means no entry
@@ -90,29 +90,29 @@ pub proc InitObjectRAM () clobbers(d0, d1, a0, a1) {
 //      d0=1/Z clear if pool exhausted
 //      Slot is tagged SLOT_TAG_UNTAGGED on return.
 // Clobbers: d0
-// CALLER INVARIANT (item 3): the caller MUST write the returned slot's
+// CALLER INVARIANT: the caller MUST write the returned slot's
 // code_addr before the NEXT AllocDynamic. The append-on-full guard runs
 // CompactDynamicLive, which treats code_addr==0 as dead and drops the slot
 // from the live list — so a caller that allocs a second slot before
 // initializing the first would silently lose the first (a claimed-but-invisible
 // zombie), reachable only at a full count. All current callers write code_addr
-// immediately (children/load_object/object_test emitters — audit §core-2).
+// immediately (children/load_object/object_test emitters).
 // -----------------------------------------------
 pub proc AllocDynamic () clobbers(d0) out(a1) {
-        cmpi.w  #extern("Dynamic_Free_Stack"), (Dynamic_Free_SP).w
+        cmpi.w  #extern("Dynamic_Free_Stack"), (Dynamic_Free_SP).w   // explicit .w kept: link-imm source + bare symbolic dest — imm-link lowering gap (see AllocDynamic init)
         beq     .full
-        movea.w (Dynamic_Free_SP).w, a1
-        subq.w  #2, (Dynamic_Free_SP).w
+        movea.w Dynamic_Free_SP, a1
+        subq.w  #2, Dynamic_Free_SP
         movea.w -(a1), a1
         move.b  #SLOT_TAG_UNTAGGED, Sst.slot_tag(a1)
         // Spawn-order occupancy: append the popped slot to the live list
         // (Dynamic_Live[Count++] = a1), UNIQUE by construction — DeleteObject
-        // (A1) zeroed any prior entry for this slot, so a LIFO recycle can't
+        // zeroed any prior entry for this slot, so a LIFO recycle can't
         // list it twice. a0 is saved LONG — callers hold a full 32-bit pointer
         // (Load_ObjectList's ROM list ptr). Spawn-time only.
-        // A2 overflow latch (spec §9): at a FULL live list, latch the popped
+        // Overflow latch (spec §9): at a FULL live list, latch the popped
         // slot for the frame-end drain instead of compacting mid-frame under a
-        // held walker cursor (the A2 mid-walk-compact hazard). The slot IS
+        // held walker cursor (the mid-walk-compact hazard). The slot IS
         // allocated (the caller sets code_addr); it joins Dynamic_Live at the
         // frame-end drain and first dispatches NEXT frame — so a latched spawn
         // misses same-frame TouchResponse (collision begins next frame). The
@@ -143,7 +143,7 @@ pub proc AllocDynamic () clobbers(d0) out(a1) {
     .latch_full:
         // The slot was already popped before the full count was known; return it
         // to the free stack so it is not leaked (re-exposed at the current SP).
-        addq.w  #2, (Dynamic_Free_SP).w
+        addq.w  #2, Dynamic_Free_SP
         // fall into .full
     .full:
         moveq   #1, d0                  // Z clear = pool exhausted (or latch full)
@@ -158,10 +158,10 @@ pub proc AllocDynamic () clobbers(d0) out(a1) {
 // Clobbers: d0
 // -----------------------------------------------
 pub proc AllocEffect () clobbers(d0) out(a1) {
-        cmpi.w  #extern("Effect_Free_Stack"), (Effect_Free_SP).w
+        cmpi.w  #extern("Effect_Free_Stack"), (Effect_Free_SP).w   // explicit .w kept: link-imm source + bare symbolic dest — imm-link lowering gap (see AllocDynamic)
         beq     .full
-        movea.w (Effect_Free_SP).w, a1
-        subq.w  #2, (Effect_Free_SP).w
+        movea.w Effect_Free_SP, a1
+        subq.w  #2, Effect_Free_SP
         movea.w -(a1), a1
         // No slot_tag write (unlike AllocDynamic): slot_tag is the entity-window
         // quadrant index, read ONLY by the entity-window Y-despawn band. Effects
@@ -190,7 +190,7 @@ pub proc AllocEffect () clobbers(d0) out(a1) {
 // Clobbers: d0, a1
 // -----------------------------------------------
 pub proc DeleteObject () clobbers(d0, a1) {
-        // DEBUG rails (item 2): a0 must point at a live SST inside Object_RAM.
+        // DEBUG rails: a0 must point at a live SST inside Object_RAM.
         // An out-of-range a0 falls to .clear_slot and zeroes wild memory; a
         // code_addr==0 slot is an already-deleted (double-delete) slot whose
         // re-push corrupts the free stack (the classic double-alloc bug). d0 is
@@ -223,17 +223,17 @@ pub proc DeleteObject () clobbers(d0, a1) {
         // Fall through: it's a valid effect slot
 
     .effect_pool:
-        movea.w (Effect_Free_SP).w, a1
+        movea.w Effect_Free_SP, a1
         move.w  a0, (a1)+
-        move.w  a1, (Effect_Free_SP).w
+        move.w  a1, Effect_Free_SP
         jbra    .clear_slot
 
     .dynamic_pool:
-        movea.w (Dynamic_Free_SP).w, a1
+        movea.w Dynamic_Free_SP, a1
         move.w  a0, (a1)+
-        move.w  a1, (Dynamic_Free_SP).w
+        move.w  a1, Dynamic_Free_SP
         st      Dynamic_Live_Dirty      // dynamic deletion -> compact live list at frame end
-        // A1: ZERO this slot's live-list entry so a same-frame LIFO realloc can't
+        // ZERO this slot's live-list entry so a same-frame LIFO realloc can't
         // list it twice (the permanent-duplicate hazard, §6). Scan is <=NUM_DYNAMIC
         // words and deletes are rare; zeroing moves nothing, so a live walker's
         // cursor stays valid (the null-guard skips a zeroed entry). d1 is saved —
@@ -252,11 +252,11 @@ pub proc DeleteObject () clobbers(d0, a1) {
     .dyn_zero_hit:
         clr.w   -(a1)                  // (a1)+ passed the match; step back and zero it
     .dyn_zero_pending:
-        // A2 (spec §9): also zero a matching PENDING-latch entry. A slot latched
+        // Overflow latch (spec §9): also zero a matching PENDING-latch entry. A slot latched
         // THIS frame (allocated, code_addr set, not yet in the live list) can be
         // DeleteObject'd the same frame; the stale latch entry would make the
         // frame-end drain re-append it (and a LIFO re-latch would list it twice —
-        // the permanent double-dispatch A1 killed). Zeroing keeps "exactly once"
+        // the permanent double-dispatch that entry-zeroing killed). Zeroing keeps "exactly once"
         // total over the latch too; the drain null-guards a zeroed entry.
         lea     Dynamic_Live_Pending, a1
         move.w  Dynamic_Live_Pending_Count, d0
@@ -283,14 +283,14 @@ pub proc DeleteObject () clobbers(d0, a1) {
 // -----------------------------------------------
 // CompactDynamicLive — reconcile the dynamic live-list
 // Rewrites Dynamic_Live in place, KEEPING only entries that are nonzero AND
-// point at a live slot (code_addr != 0); drops zeroed entries (A1 deletes) and
+// point at a live slot (code_addr != 0); drops zeroed entries (deleted slots) and
 // dead-code_addr entries alike, then recounts and clears the dirty flag.
 // Because it MOVES entries down over drops, it MUST run only when no dynamic
-// live-list walk holds a cursor. Post A2 (spec §9) it is called ONLY from the
+// live-list walk holds a cursor. Since the overflow latch (spec §9) it is called ONLY from the
 // RunObjects frame-end reconcile (all walks done → no walk live by
 // construction): the AllocDynamic full-count path now LATCHES instead of
 // compacting, so the mid-walk-compact hazard is gone. The DEBUG
-// Dynamic_Live_Walking rail (item 1) asserts the walk flag is clear here as a
+// Dynamic_Live_Walking rail asserts the walk flag is clear here as a
 // regression guard — it should now NEVER fire. The §6-2/§6-3 post-state
 // invariant asserts moved to DrainDynamicPending (they must verify the list
 // AFTER the latch drain appends).
@@ -298,8 +298,8 @@ pub proc DeleteObject () clobbers(d0, a1) {
 // Out: none
 // Clobbers: d0, d1, a0, a1, a2
 // -----------------------------------------------
-proc CompactDynamicLive () clobbers(d0, d1, a0, a1, a2) {
-        // A2 rail (item 1): a live-list walk must NOT be in progress — compaction
+proc CompactDynamicLive () clobbers(d0-d1/a0-a2) {
+        // Walk-flag assert rail: a live-list walk must NOT be in progress — compaction
         // moves entries down under any held cursor (the mid-walk double-dispatch
         // hazard). d0 is free at entry (clobbered below). DEBUG-only, byte-neutral.
         if DEBUG == 1 {
@@ -314,7 +314,7 @@ proc CompactDynamicLive () clobbers(d0, d1, a0, a1, a2) {
         subq.w  #1, d1
     .loop:
         move.w  (a0)+, d0               // entry word
-        beq     .next                   // zeroed (A1 delete) — drop
+        beq     .next                   // zeroed (deleted) — drop
         movea.w d0, a2
         tst.w   (a2)                    // slot code_addr
         beq     .next                   // dead slot — drop
@@ -332,12 +332,12 @@ proc CompactDynamicLive () clobbers(d0, d1, a0, a1, a2) {
 }
 
 // -----------------------------------------------
-// DrainDynamicPending — append the A2 overflow latch to the live list
+// DrainDynamicPending — append the overflow latch to the live list
 // (spec §9). Runs at the RunObjects frame-end reconcile, immediately AFTER
 // CompactDynamicLive (which reclaimed room from the frame's deletions). Appends
 // each non-zero Dynamic_Live_Pending entry to Dynamic_Live IN ALLOC ORDER, so a
 // latched (saturated-frame) spawn keeps spawn-order dispatch and first runs the
-// NEXT frame. A zeroed latch entry (deleted-while-latched, DeleteObject A2) is
+// NEXT frame. A zeroed latch entry (deleted-while-latched) is
 // dropped. Then clears the latch count.
 // Room is guaranteed (no overflow): only NUM_DYNAMIC physical dynamic slots
 // exist, and at drain every occupied slot has EXACTLY ONE live entry, in the
@@ -348,7 +348,7 @@ proc CompactDynamicLive () clobbers(d0, d1, a0, a1, a2) {
 // In:  none  Out: none
 // Clobbers: d0, d1, d2, a0, a1
 // -----------------------------------------------
-proc DrainDynamicPending () clobbers(d0, d1, d2, a0, a1) {
+proc DrainDynamicPending () clobbers(d0-d2/a0-a1) {
         move.w  Dynamic_Live_Pending_Count, d1
         beq     .clear                  // empty (dirty-only reconcile) — nothing to append
         subq.w  #1, d1
@@ -368,8 +368,8 @@ proc DrainDynamicPending () clobbers(d0, d1, d2, a0, a1) {
         clr.w   Dynamic_Live_Pending_Count
         // §6-2/§6-3 invariant on the FINAL reconciled list (moved here from
         // CompactDynamicLive, which now runs pre-drain): post-drain count == a
-        // full-pool tst.w live sweep (no duplicate, none missing — the A1
-        // double-dispatch check), count <= capacity (the §9 room proof), and
+        // full-pool tst.w live sweep (no duplicate, none missing — the
+        // no-double-dispatch check entry-zeroing enables), count <= capacity (the §9 room proof), and
         // every live entry points into object RAM.
         if DEBUG == 1 {
         move.w  Dynamic_Live_Count, d0
@@ -436,7 +436,7 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
         move.w  #NUM_EFFECTS-1, d7
         jbsr    .run_always
 
-        // --- Frame-end reconcile (step 6 + A2 §9): every walk is done (no walk
+        // --- Frame-end reconcile (spec §9): every walk is done (no walk
         //     live), so CompactDynamicLive can move entries down over drops, then
         //     DrainDynamicPending appends the overflow latch IN ALLOC ORDER
         //     (spawn-order preserved). Runs when a deletion dirtied the list OR
@@ -478,7 +478,7 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
     // clobber it (only a0/d7 are preserved across dispatch), so it is saved
     // across the jsr.
     .run_culled:
-        // A2 rail (item 1): dispatched object code may AllocDynamic mid-walk, and
+        // Walk-flag assert rail: dispatched object code may AllocDynamic mid-walk, and
         // a2 holds a live cursor into Dynamic_Live — flag the walk so a resulting
         // CompactDynamicLive trips the assert instead of moving entries silently.
         if DEBUG == 1 { st Dynamic_Live_Walking }
@@ -487,7 +487,7 @@ pub proc RunObjects () clobbers(d0-d6/a0-a6) {
         beq     .culled_done
         subq.w  #1, d7
     .culled_loop:
-        move.w  (a2)+, d0               // A1: load the entry and null-guard a
+        move.w  (a2)+, d0               // load the entry and null-guard a
         beq     .culled_next            //     zeroed entry (same-frame delete) —
         movea.w d0, a0                  //     don't dereference a zero
         tst.w   (a0)                    // truth guard: skip a dead-uncompacted slot
@@ -573,7 +573,7 @@ pub proc RunObjects_Frozen () clobbers(d0-d6/a0-a6) {
         // Dynamic pool — spawn-order live list (empty slots cost zero). a2 is
         // the cursor; Draw_Sprite preserves a0/d7/a2, so no save is needed
         // (unlike .run_culled, whose dispatched object code may clobber a2).
-        // A2 rail (item 1): Draw_Sprite doesn't alloc today, but flag the walk so
+        // Walk-flag assert rail: Draw_Sprite doesn't alloc today, but flag the walk so
         // the CompactDynamicLive assert stays TOTAL if it ever gains a spawn.
         if DEBUG == 1 { st Dynamic_Live_Walking }
         lea     Dynamic_Live, a2
@@ -581,7 +581,7 @@ pub proc RunObjects_Frozen () clobbers(d0-d6/a0-a6) {
         beq     .frozen_dyn_done
         subq.w  #1, d7
     .frozen_dyn_loop:
-        move.w  (a2)+, d0               // A1: null-guard a zeroed entry — no deref
+        move.w  (a2)+, d0               // null-guard a zeroed entry — no deref
         beq     .frozen_dyn_next
         movea.w d0, a0
         tst.w   (a0)                    // truth guard: dead-but-uncompacted slot

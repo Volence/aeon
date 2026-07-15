@@ -8,7 +8,7 @@ module engine.game_loop in game_loop
 // -----------------------------------------------
 // GameLoop — master loop
 // VSync → dispatch current state → repeat
-// Clobbers EVERYTHING (retro-fix batch 2, item 9 sweep): the `jsr (a0)` state
+// Clobbers EVERYTHING: the `jsr (a0)` state
 // dispatch runs arbitrary game-state code, so no register is contractually
 // preserved (and even the fixed callees already trash d0/d1/d2/a0/a1). The old
 // clobbers(a0) under-declared. GameLoop never returns (jbra GameLoop tail-recurse)
@@ -18,16 +18,21 @@ module engine.game_loop in game_loop
 pub proc GameLoop () clobbers(d0-d7/a0-a6) {
         jbsr    VSync_Wait
         if SOUND_DRIVER_ENABLED == 1 {
-        jbsr    Sound_DrainSfxRing      // A2: drain ONE pending SFX/frame into the mailbox
+        jbsr    Sound_DrainSfxRing      // drain ONE pending SFX/frame into the mailbox
                                         // (release sound builds need this too, not just DEBUG)
         }
         // sonic4's gameDebugTick expansion, mirrored — the game-contract
         // per-frame debug hook (games/sonic4/config/game.asm; kill-list row:
         // this file must follow that macro body). Empty in normal builds.
         if SOUND_DEBUG_HOTKEYS == 1 && SOUND_DRIVER_ENABLED == 1 {
-        jsr     Debug_MusicToggle       // jsr not bsr.w — placement-free
+        jsr     Debug_MusicToggle       // absolute jsr, not jbsr (structural, macro-mirror): this
+                                        // hook byte-follows game.asm's gameDebugTick macro body, which
+                                        // spells jsr. Debug_MusicToggle is a GAME-side symbol (debug/
+                                        // game_debug.asm); an engine->game cross-seam call stays
+                                        // placement-independent — jbsr would emit bsr.w and PC-relative-
+                                        // couple the engine to the game's debug section.
         }
-        movea.l Game_State, a0          // (Game_State).w — ram.asm
+        movea.l Game_State, a0
         jsr     (a0)                    // computed dispatch (bare jsr by the jbra/jbsr rule)
         jbra    GameLoop
 }

@@ -9,6 +9,7 @@ module engine.objects.rings in rings
 
 use engine.objects.sst.{Sst}
 use engine.objects.aabb.{aabb_axis_test}
+use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEED,
                       MAX_VDP_SPRITES, VDP_SPRITE_X_OFFSET, VDP_SPRITE_Y_OFFSET,
                       SCREEN_WIDTH, SCREEN_HEIGHT}
@@ -24,10 +25,10 @@ const MAX_RING_BUFFER        = 128
 const RING_BUFFER_ENTRY_SIZE = 6
 const RING_WIDTH             = 16
 const VRAM_RING_PLACEHOLDER  = $3E8
-// SAT attr base: priority(bit15) | palette line 1(bit13) | tile. The act
-// palette carries the ring's gold on CRAM line 1 (OJZ_Palette → line 1;
-// donor convention vram_art(VRAM_Ring,1,1)). Matches the twin's vram_art().
-const RING_ART_ATTR          = (1 << 15) | (1 << 13) | VRAM_RING_PLACEHOLDER
+// SAT attr base: priority | palette line 1 | tile. The act palette carries
+// the ring's gold on CRAM line 1 (OJZ_Palette → line 1). The AS twin spells
+// the pack inline (its isolated gate sees no macros.asm).
+const RING_ART_ATTR          = vram_art(VRAM_RING_PLACEHOLDER, 1, 1)
 ensure(extern("MAX_RING_BUFFER") == MAX_RING_BUFFER, "games/sonic4/config/constants.asm and rings.emp disagree on MAX_RING_BUFFER — update both")
 ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and rings.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
 ensure(extern("RING_WIDTH") == RING_WIDTH, "games/sonic4/config/constants.asm and rings.emp disagree on RING_WIDTH — update both")
@@ -94,7 +95,7 @@ pub proc RingBuffer_Add () clobbers(d4, a0) {
 // Out: none
 // Clobbers: d1-d2, a0-a1
 // -----------------------------------------------
-pub proc RingBuffer_Remove () clobbers(d1, d2, a0, a1) {
+pub proc RingBuffer_Remove () clobbers(d1-d2/a0-a1) {
         moveq   #0, d1
         move.b  Ring_Count, d1
         subq.b  #1, d1
@@ -167,8 +168,8 @@ pub proc DrawRings () clobbers(d0-d4/d6-d7/a0) out(d5) {
     .no_anim_tick:
         move.b  d0, Ring_Anim_Timer
 
-        // Cache camera position, PRE-BIASED for the SAT write (item 10 fold,
-        // the A1 camera-bias class): folding the ring-centre −8 and the
+        // Cache camera position, PRE-BIASED for the SAT write (a camera-bias
+        // fold): folding the ring-centre −8 and the
         // VDP_SPRITE_*_OFFSET SAT bias into the cached camera makes `sub.w d6,d2`
         // yield the final SAT X directly, dropping the per-ring subi/addi pairs
         // (−3 ops/ring). d6/d7 are used ONLY as the ring camera and are not

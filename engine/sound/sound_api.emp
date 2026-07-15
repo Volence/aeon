@@ -177,7 +177,7 @@ pub proc Sound_PlaySample () clobbers(a0) {
 // ----------------------------------------------------------------------
 pub proc Sound_PlayMusic () clobbers(d0-d4/a0-a1) preserves(sr) {
         andi.l  #$FF, d0                    // d0 = song id (1-based)
-        // retro-fix batch 2 (sound_api finding 1): a bad id indexes past SongTable[id-1] and
+        // a bad id indexes past SongTable[id-1] and
         // posts a garbage bank/window/patch block to the Z80 (it streams as
         // noise). Bounds the 1-based id against the game-owned SONG_COUNT (a link
         // symbol from games/sonic4/data/sound/song_table.asm). DEBUG-only; the
@@ -225,7 +225,7 @@ pub proc Sound_PlayMusic () clobbers(d0-d4/a0-a1) preserves(sr) {
 // ----------------------------------------------------------------------
 // Sound_PlaySFX — request an SFX by id. ENQUEUES it into the 68k-side Sfx_Ring_Buf;
 // Sound_DrainSfxRing (GameLoop, post-VSync) drains ONE id/frame into the SND_REQ_SFX
-// mailbox. AUDIT A2 FIX: posting straight to the single mailbox byte meant a 2nd SFX
+// mailbox. Posting straight to the single mailbox byte meant a 2nd SFX
 // requested in the SAME 68k frame clobbered the 1st before the Z80 (once/VBlank)
 // consumed it — one was silently DROPPED, priority-blind. The ring + per-frame drain
 // deliver BOTH to the Z80's downstream 3-deep priority queue (over 2 frames). A same-id
@@ -235,7 +235,7 @@ pub proc Sound_PlayMusic () clobbers(d0-d4/a0-a1) preserves(sr) {
 // In:  d0.b = sfx id (nonzero).
 // Clobbers: d0 (the id — callers must treat it as consumed).
 // Preserves: everything except d0. Under the exhaustive-license convention
-//   (Volence-ratified 2026-07-12, retro-fix item 9) a register NOT in the
+//   (Volence-ratified 2026-07-12) a register NOT in the
 //   clobber set is CONTRACTUALLY preserved and callers MAY rely on it — this is
 //   what the S2-D6 checked-clobbers lint will verify. So a1, d2-d7, and SR are
 //   guaranteed, not "incidental". preserves(d1/a0) adds movem-ENFORCED emphasis
@@ -270,7 +270,7 @@ pub proc Sound_PlaySFX () preserves(d1/a0) {
         addq.b  #1, d1
         and.b   #SFX_RING_MASK, d1          // d1 = nextWr (byte ops only from here: cmp.b + move.b commit)
         cmp.b   Sfx_Ring_Rd, d1         // nextWr == Rd -> ring full -> drop (>7 same-frame: never)
-        // retro-fix batch 2 (sound_api finding 2): assert the ring-full "never"
+        // assert the ring-full "never"
         // claim (>7 DISTINCT SFX ids enqueued in one frame before the drain ran =
         // a content bug, keyed on EXACT id so the L/R pair is never collapsed).
         // DEBUG-only, and placed BEFORE the shared drop branch so the plain shape
@@ -298,7 +298,7 @@ pub proc Sound_PlaySFX () preserves(d1/a0) {
 // post are done inside ONE stopZ80/startZ80 bus hold (SR-masked, exactly like
 // Sound_PostByte) so the Z80's once/VBlank consume cannot land between them. Empty ring
 // is a fast no-op.
-// Clobbers: d0/d1/a0. SR (finding 3, retro-fix batch 2 — precise contract): the
+// Clobbers: d0/d1/a0. SR (precise contract): the
 //   interrupt MASK is never altered on either path. The empty fast-path
 //   (beq .dr_ret) saves no SR and leaves CCR clobbered (the cmp result) — cheaper,
 //   and harmless to the only caller (GameLoop discards flags). The posting path
@@ -335,7 +335,7 @@ pub proc Sound_DrainSfxRing () clobbers(d0, d1, a0) preserves(sr) {
 // ----------------------------------------------------------------------
 // Sound_PlayRing — collect-ring SFX with internal L/R alternation. Toggles
 // Ring_Sfx_Speaker each call, posting SFXID_RING_RIGHT or _LEFT.
-// In: none. Clobbers: d0 (finding 4, retro-fix batch 2 — tightened from d0/a0:
+// In: none. Clobbers: d0 (tightened from d0/a0:
 //   the body never touches a0, and the Sound_PlaySFX tail-callee preserves it
 //   ENFORCED, so a0 is contractually preserved through the tail-call). SR restored.
 // ----------------------------------------------------------------------
