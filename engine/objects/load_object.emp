@@ -12,7 +12,7 @@
 //   +22: dc.b  status, angle        ; $1E-$1F image
 //   +24: dc.w  0                    ; $20-$21 pad (re-inited at spawn)
 // Emitted by the objdef macro (macros.asm). The template is copied VERBATIM
-// as an opaque byte block here (movem burst) — this consumer never names an
+// as an opaque byte block here (six long moves) — this consumer never names an
 // ObjDef field, so the ObjDef struct-twin belongs to the objdef-emitting data
 // file, not this port.
 
@@ -20,6 +20,8 @@ module engine.objects.load_object in load_object
 
 use engine.constants.{RF_XFLIP, RF_YFLIP, FRAME_PIECE_COUNT}
 use engine.objects.sst.{Sst}
+
+ensure(RF_XFLIP == 1 && RF_YFLIP == 2, "rol.w #4 placement-flip fold assumes OEF bits 13/14 → RF bits 1/2")
 
 // -----------------------------------------------
 // Load_Object — spawn one object from a v2 archetype template
@@ -37,17 +39,16 @@ pub proc Load_Object () clobbers(d0-d3, a1, a2, a3) {
         jbsr    AllocDynamic
         bne     .alloc_fail
         movem.l (sp)+, d0-d2/a2        // a2 = template (saved a1), a1 = new SST
-        move.l  d4, -(sp)              // preserve d4 — caller (EntityWindow_TrySpawnObject) reads it after return
 
         // --- burst copy: code_addr word + 24-byte template block ---
         move.w  (a2)+, Sst.code_addr(a1)
         lea     Sst.x_vel(a1), a3
-        movem.l (a2)+, d3-d4
-        movem.l d3-d4, (a3)            // $0A-$11
-        movem.l (a2)+, d3-d4
-        movem.l d3-d4, 8(a3)           // $12-$19
-        movem.l (a2)+, d3-d4
-        movem.l d3-d4, 16(a3)          // $1A-$21 ($20-$21 re-inited below)
+        move.l  (a2)+, (a3)+          // $0A-$11
+        move.l  (a2)+, (a3)+
+        move.l  (a2)+, (a3)+          // $12-$19
+        move.l  (a2)+, (a3)+
+        move.l  (a2)+, (a3)+          // $1A-$21 ($20-$21 re-inited below)
+        move.l  (a2)+, (a3)+
 
         // --- per-placement patch ---
         swap    d0
@@ -79,7 +80,6 @@ pub proc Load_Object () clobbers(d0-d3, a1, a2, a3) {
         move.w  FRAME_PIECE_COUNT(a3,d3.w), d3
         move.b  d3, Sst.sprite_piece_count(a1)
     .no_piece_count:
-        move.l  (sp)+, d4
         moveq   #0, d0                 // Z set = success
         rts
 

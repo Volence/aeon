@@ -29,17 +29,16 @@ Load_Object:
         bsr.w   AllocDynamic
         bne.s   .alloc_fail
         movem.l (sp)+, d0-d2/a2        ; a2 = template (saved a1), a1 = new SST
-        move.l  d4, -(sp)              ; preserve d4 — caller (EntityWindow_TrySpawnObject) reads it after return
 
         ; --- burst copy: code_addr word + 24-byte template block ---
         move.w  (a2)+, SST_code_addr(a1)
         lea     SST_x_vel(a1), a3
-        movem.l (a2)+, d3-d4
-        movem.l d3-d4, (a3)            ; $0A-$11
-        movem.l (a2)+, d3-d4
-        movem.l d3-d4, 8(a3)           ; $12-$19
-        movem.l (a2)+, d3-d4
-        movem.l d3-d4, 16(a3)          ; $1A-$21 ($20-$21 re-inited below)
+        move.l  (a2)+, (a3)+          ; $0A-$11
+        move.l  (a2)+, (a3)+
+        move.l  (a2)+, (a3)+          ; $12-$19
+        move.l  (a2)+, (a3)+
+        move.l  (a2)+, (a3)+          ; $1A-$21 ($20-$21 re-inited below)
+        move.l  (a2)+, (a3)+
 
         ; --- per-placement patch ---
         swap    d0
@@ -68,7 +67,6 @@ Load_Object:
         move.w  FRAME_PIECE_COUNT(a3,d3.w), d3
         move.b  d3, SST_sprite_piece_count(a1)
 .no_piece_count:
-        move.l  (sp)+, d4
         moveq   #0, d0                 ; Z set = success
         rts
 
@@ -99,7 +97,7 @@ Load_ObjectList:
         move.w  (a0)+, d0              ; X position
         move.w  (a0)+, d1              ; Y position
         move.w  (a0)+, d2              ; subtype (low byte; bits 13-15 clear in sane list data)
-        bsr.w   Load_Object            ; preserves a0 (the list cursor) — no save needed
+        bsr.s   Load_Object            ; preserves a0 (the list cursor) — no save needed
         bra.s   .loop
 .done:
         rts
