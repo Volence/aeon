@@ -84,6 +84,16 @@ pub const RING_HEIGHT      = 16
 pub const RING_ANIM_FRAMES = 4
 pub const RING_ANIM_SPEED  = 8              // frames per animation tick
 
+// Section / level geometry (mirrors engine/constants.asm). Consolidated here
+// at the tranche-15 section.emp port: SECTION_SIZE_SHIFT reached its 3rd .emp
+// consumer (entity_window + act_descriptor + section), tripping row-22/row-8's
+// "consolidate on a 2nd consumer" kill condition. SECTION_SIZE moves with its
+// shift partner and SEC_VOID with the family so entity_window's mirror clears
+// whole. SEC_VOID = flat section-id sentinel ("no section here").
+pub const SECTION_SIZE       = $0800        // section width/height in world px
+pub const SECTION_SIZE_SHIFT = 11           // log2(SECTION_SIZE)
+pub const SEC_VOID           = $FF          // sentinel flat section id (void cell)
+
 // VDP sprite-table geometry (mirrors engine/constants.asm — hoisted there
 // from sprites.asm at the tranche-11 sprites.emp port so it survives the
 // SIGIL_EMP_SPRITES gate for the gate-off rings.asm twin; kill-list row 17
@@ -151,6 +161,9 @@ ensure(extern("COLLISION_TOUCH") == COLLISION_TOUCH, "engine/constants.asm and e
 ensure(extern("ST_IN_AIR") == ST_IN_AIR, "engine/constants.asm and engine/constants.emp disagree on ST_IN_AIR — update the twin")
 ensure(extern("ST_ON_OBJECT") == ST_ON_OBJECT, "engine/constants.asm and engine/constants.emp disagree on ST_ON_OBJECT — update the twin")
 ensure(extern("VDP_Shadow_len") == VDP_Shadow_len, "engine/structs.asm's VDP_Shadow struct and engine/constants.emp disagree on VDP_Shadow_len — update the twin")
+ensure(extern("SECTION_SIZE") == SECTION_SIZE, "engine/constants.asm and engine/constants.emp disagree on SECTION_SIZE — update the twin")
+ensure(extern("SECTION_SIZE_SHIFT") == SECTION_SIZE_SHIFT, "engine/constants.asm and engine/constants.emp disagree on SECTION_SIZE_SHIFT — update the twin")
+ensure(extern("SEC_VOID") == SEC_VOID, "engine/constants.asm and engine/constants.emp disagree on SEC_VOID — update the twin")
 ensure(extern("RING_HEIGHT") == RING_HEIGHT, "engine/constants.asm and engine/constants.emp disagree on RING_HEIGHT — update the twin")
 ensure(extern("RING_ANIM_FRAMES") == RING_ANIM_FRAMES, "engine/constants.asm and engine/constants.emp disagree on RING_ANIM_FRAMES — update the twin")
 ensure(extern("RING_ANIM_SPEED") == RING_ANIM_SPEED, "engine/constants.asm and engine/constants.emp disagree on RING_ANIM_SPEED — update the twin")
