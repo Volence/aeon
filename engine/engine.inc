@@ -337,9 +337,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $61AA
+        org     $619C
       else
-        org     $5528
+        org     $551A
       endif
     endif
     include "engine/level/camera.asm"
@@ -362,9 +362,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $798A
+        org     $797C
         else
-        org     $5F78
+        org     $5F6A
         endif
       endif
     endif

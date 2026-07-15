@@ -13,10 +13,10 @@ Section_Init:
         move.l  a0, (Current_Act_Ptr).w
 
         ; -- set up column/row trackers; first frame streams the plane --
-        bsr.w   Section_FillInitial
+        bsr.s   Section_FillInitial
 
         ; -- §4.9: camera-driven entity window init --
-        jsr     EntityWindow_Init
+        bsr.w   EntityWindow_Init
         rts
 
 ; -----------------------------------------------
@@ -392,11 +392,11 @@ Section_UpdateColumns:
         move.w  (Section_Right_Col_Written).w, d5
 .right_loop:
         cmp.w   d7, d5
-        bge.w   .right_done
+        bge.s   .right_done
         ; reserve Draw_TileColumn's worst case: 2 headers (8) + 64 words —
         ; a column split at the NT row 63/0 seam emits two entries
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (8 + PLANE_V_CELLS*2), (Plane_Buffer_Ptr).w
-        bhi.w   .right_done
+        bhi.s   .right_done
         addq.w  #1, d5
 
         ; convert world col → nametable position (world_col & 63)
@@ -407,7 +407,7 @@ Section_UpdateColumns:
         move.w  d5, -(sp)
         bsr.w   Draw_TileColumn
         move.w  (sp)+, d5
-        bra.w   .right_loop
+        bra.s   .right_loop
 .right_done:
         move.w  d5, (Section_Right_Col_Written).w
         move.w  d5, d3
@@ -444,11 +444,11 @@ Section_UpdateColumns:
         move.w  (Section_Left_Col_Written).w, d5
 .left_loop:
         cmp.w   d7, d5
-        ble.w   .left_done
+        ble.s   .left_done
         ; reserve Draw_TileColumn's worst case: 2 headers (8) + 64 words —
         ; a column split at the NT row 63/0 seam emits two entries
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (8 + PLANE_V_CELLS*2), (Plane_Buffer_Ptr).w
-        bhi.w   .left_done
+        bhi.s   .left_done
         subq.w  #1, d5
 
         move.w  d5, d0
@@ -458,7 +458,7 @@ Section_UpdateColumns:
         move.w  d5, -(sp)
         bsr.w   Draw_TileColumn
         move.w  (sp)+, d5
-        bra.w   .left_loop
+        bra.s   .left_loop
 .left_done:
         move.w  d5, (Section_Left_Col_Written).w
         move.w  d5, d3

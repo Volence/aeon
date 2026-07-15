@@ -151,10 +151,10 @@ pub proc Section_Init () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a3
         move.l  a0, Current_Act_Ptr             // (Current_Act_Ptr).w — ram.asm; abs.w by the width rule
 
         // -- set up column/row trackers; first frame streams the plane --
-        bsr.w   Section_FillInitial
+        jbsr    Section_FillInitial
 
         // -- §4.9: camera-driven entity window init --
-        jsr     EntityWindow_Init
+        jbsr    EntityWindow_Init
         rts
 }
 
@@ -199,7 +199,7 @@ pub proc Section_FlatIDXY () clobbers(d1) out(d0) {
         moveq   #0, d1
         move.b  d3, d1                          // d1 = sec_y
         subq.w  #1, d1
-        bmi.s   .fxy_add_x
+        bmi     .fxy_add_x
     .fxy_mul:
         add.w   Act_grid_w(a2), d0
         dbf     d1, .fxy_mul
@@ -218,14 +218,14 @@ pub proc Section_FlatIDXY () clobbers(d1) out(d0) {
 // -----------------------------------------------
 pub proc Section_GetSecPtrXY () clobbers(d1) out(d0, a0) {
         cmp.b   Act_grid_w+1(a2), d2
-        bcc.s   .out_of_range                   // sec_x >= grid_w (unsigned)
+        bcc     .out_of_range                   // sec_x >= grid_w (unsigned)
         cmp.b   Act_grid_h+1(a2), d3
-        bcc.s   .out_of_range                   // sec_y >= grid_h (unsigned)
+        bcc     .out_of_range                   // sec_y >= grid_h (unsigned)
 
         // flat_id = sec_y * grid_w + sec_x (repeated-add, no multiply)
         moveq   #0, d0
         move.b  d3, d0                          // d0 = sec_y
-        beq.s   .gxy_add_x
+        beq     .gxy_add_x
         move.w  d2, -(sp)                       // save sec_x input
         move.w  Act_grid_w(a2), d1              // d1 = grid_w
         move.w  d0, d2                          // d2 = sec_y counter
@@ -249,7 +249,7 @@ pub proc Section_GetSecPtrXY () clobbers(d1) out(d0, a0) {
         adda.w  d0, a0
 
         tst.l   (a0)
-        beq.s   .out_of_range
+        beq     .out_of_range
 
         moveq   #1, d0                          // Z clear (success)
         rts
@@ -310,9 +310,9 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
         // on miss so off-screen columns retain old nametable content
         // instead of flashing black/zero tiles
         cmp.w   Cache_Left_Col, d7
-        blt.w   .pla_next
+        blt     .pla_next
         cmp.w   Cache_Head_Col, d7
-        bgt.w   .pla_next
+        bgt     .pla_next
 
         // convert world col → plane col (world_col & 63)
         move.w  d7, d0
@@ -325,7 +325,7 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
         sub.w   Cache_Left_Col, d0
         add.w   Cache_Origin_Col, d0
         cmpi.w  #TILE_CACHE_COLS, d0
-        blt.s   .col_nowrap
+        blt     .col_nowrap
         subi.w  #TILE_CACHE_COLS, d0
     .col_nowrap:
         add.w   d0, d0                          // byte offset = col × 2
@@ -353,17 +353,17 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
         sub.w   d6, d2                          // d2 = count_A (rows in Part A)
         moveq   #TILE_CACHE_ROWS, d4
         cmp.w   d2, d4
-        ble.s   .pA_clamp
+        ble     .pA_clamp
         move.w  d2, d4                          // d4 = data_A = min(cache_rows, count_A)
     .pA_clamp:
         move.w  d4, d0
         subq.w  #1, d0
-        bmi.s   .pA_dskip
+        bmi     .pA_dskip
     .pA_data:
         move.w  (a1), (a6)
         lea     TILE_CACHE_STRIDE*2(a1), a1
         cmpa.l  a0, a1
-        blo.s   .pa_nowrap
+        blo     .pa_nowrap
         suba.w  #TILE_CACHE_NT_SIZE, a1         // physical row 59 → 0
     .pa_nowrap:
         dbf     d0, .pA_data
@@ -371,7 +371,7 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
         move.w  d2, d0
         sub.w   d4, d0                          // zero_A = count_A - data_A
         subq.w  #1, d0
-        bmi.s   .pA_zskip
+        bmi     .pA_zskip
         moveq   #0, d1                          // zero source (clr.w would RMW-read VDP)
     .pA_zero:
         move.w  d1, (a6)
@@ -380,7 +380,7 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
 
         // -- Part B: nametable rows 0 to start_nt_row - 1 --
         tst.w   d6
-        beq.s   .pB_skip
+        beq     .pB_skip
         moveq   #0, d2
         move.w  (sp), d2                        // col byte offset
         addi.l  #VRAM_PLANE_A, d2
@@ -389,9 +389,9 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
         move.w  d6, d2                          // d2 = count_B = start_nt_row
         move.w  #TILE_CACHE_ROWS, d0
         sub.w   d4, d0                          // remaining cache rows
-        ble.s   .pB_allz
+        ble     .pB_allz
         cmp.w   d2, d0
-        ble.s   .pB_dok
+        ble     .pB_dok
         move.w  d2, d0
     .pB_dok:
         move.w  d0, d4
@@ -400,19 +400,19 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
         move.w  (a1), (a6)
         lea     TILE_CACHE_STRIDE*2(a1), a1
         cmpa.l  a0, a1
-        blo.s   .pb_nowrap
+        blo     .pb_nowrap
         suba.w  #TILE_CACHE_NT_SIZE, a1         // physical row 59 → 0
     .pb_nowrap:
         dbf     d0, .pB_data
         move.w  d2, d0
         sub.w   d4, d0
         subq.w  #1, d0
-        bmi.s   .pB_skip
+        bmi     .pB_skip
         moveq   #0, d1                          // zero source (clr.w would RMW-read VDP)
     .pB_zfill:
         move.w  d1, (a6)
         dbf     d0, .pB_zfill
-        bra.s   .pB_skip
+        jbra    .pB_skip
     .pB_allz:
         move.w  d2, d0
         subq.w  #1, d0
@@ -426,7 +426,7 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
     .pla_next:
         addq.w  #1, d3
         cmpi.w  #64, d3
-        blt.w   .pla_fill
+        blt     .pla_fill
 
         // -- Plane B: row-major linear write (BG layout is act-wide, not position-dependent) --
         // Continuous-scroll: derive the on-screen section straight from the
@@ -439,15 +439,15 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
         asr.w   d0, d2                          // d2.w = sec_x
         move.w  Camera_Y, d3                    // world Y px
         asr.w   d0, d3                          // d3.w = sec_y
-        bsr.w   Section_GetSecPtrXY             // a0 = on-screen Sec ptr (Z set = none)
-        beq.s   .plb_use_act_layout
+        jbsr    Section_GetSecPtrXY             // a0 = on-screen Sec ptr (Z set = none)
+        beq     .plb_use_act_layout
         movea.l Sec_sec_bg_layout(a0), a1
         cmpa.w  #0, a1
-        bne.s   .plb_have_layout
+        bne     .plb_have_layout
     .plb_use_act_layout:
         movea.l Act_act_bg_layout(a2), a1       // T1 fallback to act-level BG
         cmpa.w  #0, a1
-        beq.s   .plb_done
+        beq     .plb_done
     .plb_have_layout:
         move.w  #$8F02, (a5)                    // autoincrement $02 (row-major)
         move.l  #vdp_comm(VRAM_PLANE_B_BYTES, VdpTarget.Vram, VdpOp.Write), (a5)
@@ -467,7 +467,7 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
         // columns we skipped (outside cache at redraw time).
         move.w  Cache_Left_Col, d0
         cmp.w   d0, d5
-        bge.s   .track_left_ok
+        bge     .track_left_ok
         move.w  d0, d5
     .track_left_ok:
         move.w  Cache_Head_Col, d7
@@ -485,9 +485,9 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
 pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a3, a5, a6) {
         // -- §4.2: full-plane redraw if dirty (level init + cache recovery only) --
         tst.b   Section_Plane_Dirty
-        beq.s   .not_dirty
+        beq     .not_dirty
         clr.b   Section_Plane_Dirty
-        bsr.w   Section_RedrawPlanes
+        jbsr    Section_RedrawPlanes
         move.w  d7, Section_Right_Col_Written
         move.w  d5, Section_Left_Col_Written
         // mem-to-mem: two width-PINNED abs operands. Explicit .w (not the bare
@@ -515,13 +515,13 @@ pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a
         lsl.w   #8, d0
         subq.w  #1, d0
         cmp.w   d0, d7
-        ble.s   .right_clamp_ok
+        ble     .right_clamp_ok
         move.w  d0, d7
     .right_clamp_ok:
         // clamp to cache bounds
         move.w  Cache_Head_Col, d0
         cmp.w   d0, d7
-        ble.s   .right_cache_ok
+        ble     .right_cache_ok
         move.w  d0, d7
     .right_cache_ok:
         // clamp to VDP plane wrap: max right = visible_left_world + 63
@@ -529,18 +529,18 @@ pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a
         lsr.w   #3, d0                          // camera tile col (world)
         addi.w  #63, d0                         // max right = visible_left + 63 VDP cells
         cmp.w   d0, d7
-        ble.s   .right_wrap_ok
+        ble     .right_wrap_ok
         move.w  d0, d7
     .right_wrap_ok:
 
         move.w  Section_Right_Col_Written, d5
     .right_loop:
         cmp.w   d7, d5
-        bge.w   .right_done
+        bge     .right_done
         // reserve Draw_TileColumn's worst case: 2 headers (8) + 64 words —
         // a column split at the NT row 63/0 seam emits two entries
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (8 + PLANE_V_CELLS*2), Plane_Buffer_Ptr
-        bhi.w   .right_done
+        bhi     .right_done
         addq.w  #1, d5
 
         // convert world col → nametable position (world_col & 63)
@@ -549,19 +549,19 @@ pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a
 
         move.w  d5, d1                          // d1 = world col
         move.w  d5, -(sp)
-        bsr.w   Draw_TileColumn
+        jbsr    Draw_TileColumn
         move.w  (sp)+, d5
-        bra.w   .right_loop
+        jbra    .right_loop
     .right_done:
         move.w  d5, Section_Right_Col_Written
         move.w  d5, d3
         subi.w  #63, d3                         // left = right - 63 (VDP wrap span)
         cmp.w   Cache_Left_Col, d3             // clamp to cache: left = max(., Cache_Left_Col)
-        bge.s   .right_done_cache_ok
+        bge     .right_done_cache_ok
         move.w  Cache_Left_Col, d3
     .right_done_cache_ok:
         cmp.w   Section_Left_Col_Written, d3
-        ble.s   .left_clamp_skip
+        ble     .left_clamp_skip
         move.w  d3, Section_Left_Col_Written
     .left_clamp_skip:
 
@@ -572,7 +572,7 @@ pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a
         // clamp to cache and act bounds
         move.w  Cache_Left_Col, d0
         cmp.w   d0, d7
-        bge.s   .left_cache_ok
+        bge     .left_cache_ok
         move.w  d0, d7
     .left_cache_ok:
         // clamp to VDP plane wrap: min left = visible_right_world - 63
@@ -581,18 +581,18 @@ pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a
         lsr.w   #3, d0
         subi.w  #63, d0                         // min left = visible_right − 63 VDP cells
         cmp.w   d0, d7
-        bge.s   .left_wrap_ok
+        bge     .left_wrap_ok
         move.w  d0, d7
     .left_wrap_ok:
 
         move.w  Section_Left_Col_Written, d5
     .left_loop:
         cmp.w   d7, d5
-        ble.w   .left_done
+        ble     .left_done
         // reserve Draw_TileColumn's worst case: 2 headers (8) + 64 words —
         // a column split at the NT row 63/0 seam emits two entries
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (8 + PLANE_V_CELLS*2), Plane_Buffer_Ptr
-        bhi.w   .left_done
+        bhi     .left_done
         subq.w  #1, d5
 
         move.w  d5, d0
@@ -600,19 +600,19 @@ pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a
 
         move.w  d5, d1
         move.w  d5, -(sp)
-        bsr.w   Draw_TileColumn
+        jbsr    Draw_TileColumn
         move.w  (sp)+, d5
-        bra.w   .left_loop
+        jbra    .left_loop
     .left_done:
         move.w  d5, Section_Left_Col_Written
         move.w  d5, d3
         addi.w  #63, d3                         // right = left + 63 (VDP wrap span)
         cmp.w   Cache_Head_Col, d3             // clamp to cache: right = min(., Cache_Head_Col)
-        ble.s   .left_done_cache_ok
+        ble     .left_done_cache_ok
         move.w  Cache_Head_Col, d3
     .left_done_cache_ok:
         cmp.w   Section_Right_Col_Written, d3
-        bge.s   .right_clamp_skip2
+        bge     .right_clamp_skip2
         move.w  d3, Section_Right_Col_Written
     .right_clamp_skip2:
 
@@ -626,16 +626,16 @@ pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a
         // clamp to cache bounds
         move.w  Cache_Bottom_Row, d0
         cmp.w   d0, d7
-        ble.s   .bot_cache_ok
+        ble     .bot_cache_ok
         move.w  d0, d7
     .bot_cache_ok:
 
         move.w  Section_Bottom_Row_Written, d5
     .bot_loop:
         cmp.w   d7, d5
-        bge.s   .bot_done
+        bge     .bot_done
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + PLANE_H_CELLS*2), Plane_Buffer_Ptr
-        bhi.s   .bot_done
+        bhi     .bot_done
         addq.w  #1, d5
 
         // convert world row → nametable row (world_row & 63)
@@ -644,19 +644,19 @@ pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a
 
         move.w  d5, d1                          // d1 = world row
         move.w  d5, -(sp)
-        bsr.w   Draw_TileRow_FromCache
+        jbsr    Draw_TileRow_FromCache
         move.w  (sp)+, d5
-        bra.s   .bot_loop
+        jbra    .bot_loop
     .bot_done:
         move.w  d5, Section_Bottom_Row_Written
         move.w  d5, d3
         subi.w  #63, d3                         // top = bottom - 63 (VDP wrap span)
         cmp.w   Cache_Top_Row, d3              // clamp to cache: top = max(., Cache_Top_Row)
-        bge.s   .bot_done_cache_ok
+        bge     .bot_done_cache_ok
         move.w  Cache_Top_Row, d3
     .bot_done_cache_ok:
         cmp.w   Section_Top_Row_Written, d3
-        ble.s   .top_row_clamp_skip
+        ble     .top_row_clamp_skip
         move.w  d3, Section_Top_Row_Written
     .top_row_clamp_skip:
 
@@ -666,16 +666,16 @@ pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a
 
         move.w  Cache_Top_Row, d0
         cmp.w   d0, d7
-        bge.s   .top_cache_ok
+        bge     .top_cache_ok
         move.w  d0, d7
     .top_cache_ok:
 
         move.w  Section_Top_Row_Written, d5
     .top_loop:
         cmp.w   d7, d5
-        ble.s   .top_done
+        ble     .top_done
         cmpi.w  #PLANE_BUFFER_SIZE - 2 - (4 + PLANE_H_CELLS*2), Plane_Buffer_Ptr
-        bhi.s   .top_done
+        bhi     .top_done
         subq.w  #1, d5
 
         move.w  d5, d0
@@ -683,19 +683,19 @@ pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a
 
         move.w  d5, d1
         move.w  d5, -(sp)
-        bsr.w   Draw_TileRow_FromCache
+        jbsr    Draw_TileRow_FromCache
         move.w  (sp)+, d5
-        bra.s   .top_loop
+        jbra    .top_loop
     .top_done:
         move.w  d5, Section_Top_Row_Written
         move.w  d5, d3
         addi.w  #63, d3                         // bottom = top + 63 (VDP wrap span)
         cmp.w   Cache_Bottom_Row, d3          // clamp to cache: bottom = min(., Cache_Bottom_Row)
-        ble.s   .top_done_cache_ok
+        ble     .top_done_cache_ok
         move.w  Cache_Bottom_Row, d3
     .top_done_cache_ok:
         cmp.w   Section_Bottom_Row_Written, d3
-        bge.s   .bot_row_clamp_skip
+        bge     .bot_row_clamp_skip
         move.w  d3, Section_Bottom_Row_Written
     .bot_row_clamp_skip:
 
