@@ -45,22 +45,27 @@ const OEF_TYPE_MASK             = $1F
 const OBJ_ENTRY_SIZE            = 6
 const RING_BUFFER_ENTRY_SIZE    = 6
 
-// EntityScanState field offsets (truth: engine/structs.asm `struct`). Mirrored
-// as comptime displacements (an extern() resolves at link → can't be a d(An)
-// displacement). Step-4 candidate: replace with an `EntityScanState` struct
-// twin (sst.emp architecture) for typed `ess_section_id(a1)` access.
-const EntityScanState_ess_ring_right_idx   = $00
-const EntityScanState_ess_ring_left_idx    = $02
-const EntityScanState_ess_obj_right_idx    = $04
-const EntityScanState_ess_obj_left_idx     = $06
-const EntityScanState_ess_rom_ring_ptr     = $08
-const EntityScanState_ess_rom_obj_ptr      = $0C
-const EntityScanState_ess_rom_type_tbl_ptr = $10
-const EntityScanState_ess_origin_x         = $14
-const EntityScanState_ess_section_id       = $16
-const EntityScanState_ess_entry_idx        = $17
-const EntityScanState_ess_origin_y         = $18
-const EntityScanState_len                  = $1A
+// EntityScanState — one scan-state record per tracked section (4 entries in
+// Entity_Scan_State, $1A bytes each). TYPE-ONLY twin: emits zero bytes and
+// gives typed `EntityScanState.ess_*(aN)` field access plus `sizeof`/`offsetof`
+// in place of hand-carried displacement consts. Truth: engine/structs.asm's
+// `struct` — the drift guards below pin every offset to the AS-side
+// struct-generated equs through the link seam. This struct has a single
+// consumer (this module), so it lives here rather than in its own module —
+// the complement to sst.emp's precedent that a SHARED struct earns its own.
+struct EntityScanState (size: $1A) {
+    ess_ring_right_idx: u16 @ $00,    // $00 — ring X-scan ratchet (right edge)
+    ess_ring_left_idx: u16 @ $02,     // $02 — ring X-scan ratchet (left edge)
+    ess_obj_right_idx: u16 @ $04,     // $04 — object X-scan ratchet (right edge)
+    ess_obj_left_idx: u16 @ $06,      // $06 — object X-scan ratchet (left edge)
+    ess_rom_ring_ptr: u32 @ $08,      // $08 — ROM ring list pointer
+    ess_rom_obj_ptr: u32 @ $0C,       // $0C — ROM object list pointer
+    ess_rom_type_tbl_ptr: u32 @ $10,  // $10 — ROM type-table pointer
+    ess_origin_x: u16 @ $14,          // $14 — section origin X (engine-space px)
+    ess_section_id: u8 @ $16,         // $16 — flat section id
+    ess_entry_idx: u8 @ $17,          // $17 — window entry index (0-3)
+    ess_origin_y: u16 @ $18,          // $18 — section origin Y (engine-space px)
+}
 
 // Sec (ROM section descriptor) + Act field offsets used here.
 const Sec_sec_objects     = $04
@@ -94,18 +99,18 @@ ensure(extern("OEF_TYPE_SHIFT") == OEF_TYPE_SHIFT, "engine/constants.asm and ent
 ensure(extern("OEF_TYPE_MASK") == OEF_TYPE_MASK, "engine/constants.asm and entity_window.emp disagree on OEF_TYPE_MASK — update both")
 ensure(extern("OBJ_ENTRY_SIZE") == OBJ_ENTRY_SIZE, "engine/constants.asm and entity_window.emp disagree on OBJ_ENTRY_SIZE — update both")
 ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
-ensure(extern("EntityScanState_ess_ring_right_idx") == EntityScanState_ess_ring_right_idx, "engine/structs.asm and entity_window.emp disagree on ess_ring_right_idx — update the twin")
-ensure(extern("EntityScanState_ess_ring_left_idx") == EntityScanState_ess_ring_left_idx, "engine/structs.asm and entity_window.emp disagree on ess_ring_left_idx — update the twin")
-ensure(extern("EntityScanState_ess_obj_right_idx") == EntityScanState_ess_obj_right_idx, "engine/structs.asm and entity_window.emp disagree on ess_obj_right_idx — update the twin")
-ensure(extern("EntityScanState_ess_obj_left_idx") == EntityScanState_ess_obj_left_idx, "engine/structs.asm and entity_window.emp disagree on ess_obj_left_idx — update the twin")
-ensure(extern("EntityScanState_ess_rom_ring_ptr") == EntityScanState_ess_rom_ring_ptr, "engine/structs.asm and entity_window.emp disagree on ess_rom_ring_ptr — update the twin")
-ensure(extern("EntityScanState_ess_rom_obj_ptr") == EntityScanState_ess_rom_obj_ptr, "engine/structs.asm and entity_window.emp disagree on ess_rom_obj_ptr — update the twin")
-ensure(extern("EntityScanState_ess_rom_type_tbl_ptr") == EntityScanState_ess_rom_type_tbl_ptr, "engine/structs.asm and entity_window.emp disagree on ess_rom_type_tbl_ptr — update the twin")
-ensure(extern("EntityScanState_ess_origin_x") == EntityScanState_ess_origin_x, "engine/structs.asm and entity_window.emp disagree on ess_origin_x — update the twin")
-ensure(extern("EntityScanState_ess_section_id") == EntityScanState_ess_section_id, "engine/structs.asm and entity_window.emp disagree on ess_section_id — update the twin")
-ensure(extern("EntityScanState_ess_entry_idx") == EntityScanState_ess_entry_idx, "engine/structs.asm and entity_window.emp disagree on ess_entry_idx — update the twin")
-ensure(extern("EntityScanState_ess_origin_y") == EntityScanState_ess_origin_y, "engine/structs.asm and entity_window.emp disagree on ess_origin_y — update the twin")
-ensure(extern("EntityScanState_len") == EntityScanState_len, "engine/structs.asm and entity_window.emp disagree on EntityScanState_len — update the twin")
+ensure(extern("EntityScanState_ess_ring_right_idx") == $00, "engine/structs.asm and entity_window.emp disagree on ess_ring_right_idx — update the twin")
+ensure(extern("EntityScanState_ess_ring_left_idx") == $02, "engine/structs.asm and entity_window.emp disagree on ess_ring_left_idx — update the twin")
+ensure(extern("EntityScanState_ess_obj_right_idx") == $04, "engine/structs.asm and entity_window.emp disagree on ess_obj_right_idx — update the twin")
+ensure(extern("EntityScanState_ess_obj_left_idx") == $06, "engine/structs.asm and entity_window.emp disagree on ess_obj_left_idx — update the twin")
+ensure(extern("EntityScanState_ess_rom_ring_ptr") == $08, "engine/structs.asm and entity_window.emp disagree on ess_rom_ring_ptr — update the twin")
+ensure(extern("EntityScanState_ess_rom_obj_ptr") == $0C, "engine/structs.asm and entity_window.emp disagree on ess_rom_obj_ptr — update the twin")
+ensure(extern("EntityScanState_ess_rom_type_tbl_ptr") == $10, "engine/structs.asm and entity_window.emp disagree on ess_rom_type_tbl_ptr — update the twin")
+ensure(extern("EntityScanState_ess_origin_x") == $14, "engine/structs.asm and entity_window.emp disagree on ess_origin_x — update the twin")
+ensure(extern("EntityScanState_ess_section_id") == $16, "engine/structs.asm and entity_window.emp disagree on ess_section_id — update the twin")
+ensure(extern("EntityScanState_ess_entry_idx") == $17, "engine/structs.asm and entity_window.emp disagree on ess_entry_idx — update the twin")
+ensure(extern("EntityScanState_ess_origin_y") == $18, "engine/structs.asm and entity_window.emp disagree on ess_origin_y — update the twin")
+ensure(extern("EntityScanState_len") == $1A, "engine/structs.asm and entity_window.emp disagree on EntityScanState_len — update the twin")
 ensure(extern("Sec_sec_objects") == Sec_sec_objects, "engine/structs.asm and entity_window.emp disagree on Sec_sec_objects — update the twin")
 ensure(extern("Sec_sec_rings") == Sec_sec_rings, "engine/structs.asm and entity_window.emp disagree on Sec_sec_rings — update the twin")
 ensure(extern("Sec_sec_type_table") == Sec_sec_type_table, "engine/structs.asm and entity_window.emp disagree on Sec_sec_type_table — update the twin")
@@ -596,12 +601,12 @@ pub proc EntityLoaded_Clear () clobbers(d0, d2, a0) {
 // Clobbers: d1, a0
 // -----------------------------------------------
 pub proc EntityWindow_EntryForSection () clobbers(d1, a0) {
-        lea     Entity_Scan_State+EntityScanState_ess_section_id, a0
+        lea     Entity_Scan_State+offsetof(EntityScanState, ess_section_id), a0
         moveq   #0, d1
     .efs_loop:
         cmp.b   (a0), d0
         beq     .efs_found
-        lea     EntityScanState_len(a0), a0
+        lea     sizeof(EntityScanState)(a0), a0
         addq.w  #1, d1
         cmpi.w  #MAX_TRACKED_SECTIONS, d1
         blo     .efs_loop
@@ -635,7 +640,7 @@ proc EntityWindow_InitSection () clobbers(d3, a2) {
         // this entry's section changes. Same-section re-init preserves the
         // bits; on a slide the entry's section changes, so this clears here
         // and EntityWindow_MigrateMasks copies survivors in.
-        cmp.b   EntityScanState_ess_section_id(a1), d1
+        cmp.b   EntityScanState.ess_section_id(a1), d1
         beq     .same_section
         moveq   #0, d3
         move.b  d6, d3
@@ -648,17 +653,17 @@ proc EntityWindow_InitSection () clobbers(d3, a2) {
         dbf     d3, .clear_mask
     .same_section:
 
-        move.l  Sec_sec_rings(a0), EntityScanState_ess_rom_ring_ptr(a1)
-        move.l  Sec_sec_objects(a0), EntityScanState_ess_rom_obj_ptr(a1)
-        move.l  Sec_sec_type_table(a0), EntityScanState_ess_rom_type_tbl_ptr(a1)
-        move.w  d0, EntityScanState_ess_origin_x(a1)
-        move.w  d2, EntityScanState_ess_origin_y(a1)
-        move.b  d1, EntityScanState_ess_section_id(a1)
-        move.b  d6, EntityScanState_ess_entry_idx(a1)
-        clr.w   EntityScanState_ess_ring_right_idx(a1)
-        clr.w   EntityScanState_ess_ring_left_idx(a1)
-        clr.w   EntityScanState_ess_obj_right_idx(a1)
-        clr.w   EntityScanState_ess_obj_left_idx(a1)
+        move.l  Sec_sec_rings(a0), EntityScanState.ess_rom_ring_ptr(a1)
+        move.l  Sec_sec_objects(a0), EntityScanState.ess_rom_obj_ptr(a1)
+        move.l  Sec_sec_type_table(a0), EntityScanState.ess_rom_type_tbl_ptr(a1)
+        move.w  d0, EntityScanState.ess_origin_x(a1)
+        move.w  d2, EntityScanState.ess_origin_y(a1)
+        move.b  d1, EntityScanState.ess_section_id(a1)
+        move.b  d6, EntityScanState.ess_entry_idx(a1)
+        clr.w   EntityScanState.ess_ring_right_idx(a1)
+        clr.w   EntityScanState.ess_ring_left_idx(a1)
+        clr.w   EntityScanState.ess_obj_right_idx(a1)
+        clr.w   EntityScanState.ess_obj_left_idx(a1)
         rts
 }
 
@@ -771,7 +776,7 @@ proc EntityWindow_BuildEntries () clobbers(d0-d7, a0-a3) {
         // claim a collected/killed bitmask slot for this section
         movem.l d6-d7/a3, -(sp)
         moveq   #0, d0
-        move.b  EntityScanState_ess_section_id(a1), d0
+        move.b  EntityScanState.ess_section_id(a1), d0
         jbsr    Collected_ClaimSlot
         movem.l (sp)+, d6-d7/a3
 
@@ -781,11 +786,11 @@ proc EntityWindow_BuildEntries () clobbers(d0-d7, a0-a3) {
     .void_entry:
         // stamp SEC_VOID — despawn paths read entry ids unconditionally;
         // a stale id would keep dead-section survivors alive forever
-        move.b  #SEC_VOID, EntityScanState_ess_section_id(a3)
-        move.b  d6, EntityScanState_ess_entry_idx(a3)
+        move.b  #SEC_VOID, EntityScanState.ess_section_id(a3)
+        move.b  d6, EntityScanState.ess_entry_idx(a3)
 
     .next_entry:
-        lea     EntityScanState_len(a3), a3
+        lea     sizeof(EntityScanState)(a3), a3
         addq.w  #1, d6
         cmpi.w  #MAX_TRACKED_SECTIONS, d6
         blo     .entry_loop
@@ -815,7 +820,7 @@ pub proc EntityWindow_Init () clobbers(d0-d7, a0-a4) falls_into EntityWindow_Sca
         clr.l   (a0)+
         dbf     d0, .clear_loaded
         lea     Entity_Scan_State, a0
-        move.w  #(MAX_TRACKED_SECTIONS*EntityScanState_len)-1, d0
+        move.w  #(MAX_TRACKED_SECTIONS*sizeof(EntityScanState))-1, d0
     .clear_scan:
         clr.b   (a0)+
         dbf     d0, .clear_scan
@@ -908,7 +913,7 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a5) {
         jbsr    EntityWindow_ScanRingsRight
         jbsr    EntityWindow_ScanObjectsRight
     .section_next:
-        lea     EntityScanState_len(a3), a3
+        lea     sizeof(EntityScanState)(a3), a3
         addq.b  #1, d6
         cmpi.b  #MAX_TRACKED_SECTIONS, d6
         blo     .section_loop
@@ -937,7 +942,7 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a5) {
 proc EntityWindow_TrySpawnRing () clobbers(d0-d2) {
         // Y load band: camY-LOAD_Y .. camY+SCREEN_HEIGHT+LOAD_Y
         move.w  2(a0), d1
-        add.w   EntityScanState_ess_origin_y(a1), d1    // engine Y
+        add.w   EntityScanState.ess_origin_y(a1), d1    // engine Y
         move.w  Camera_Y, d2
         subi.w  #ENTITY_LOAD_BUFFER_Y, d2
         cmp.w   d2, d1
@@ -950,7 +955,7 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2) {
         movem.l d3-d4/a0, -(sp)
 
         // collected on a previous visit?
-        move.b  EntityScanState_ess_section_id(a1), d0
+        move.b  EntityScanState.ess_section_id(a1), d0
         moveq   #0, d1
         move.w  d4, d1                  // list_index
         jbsr    Collected_CheckRing     // clobbers d2, a0
@@ -958,7 +963,7 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2) {
 
         // already in the buffer? (loaded bit — set on add, cleared on remove)
         moveq   #0, d0
-        move.b  EntityScanState_ess_entry_idx(a1), d0
+        move.b  EntityScanState.ess_entry_idx(a1), d0
         moveq   #0, d1
         move.w  d4, d1                  // list_index
         moveq   #0, d2                  // ring bits
@@ -968,10 +973,10 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2) {
         // spawn ring into buffer
         movea.l 8(sp), a0               // ROM entry (a0 slot of movem frame)
         move.w  (a0), d0
-        add.w   EntityScanState_ess_origin_x(a1), d0    // engine X
+        add.w   EntityScanState.ess_origin_x(a1), d0    // engine X
         move.w  2(a0), d1
-        add.w   EntityScanState_ess_origin_y(a1), d1    // engine Y
-        move.b  EntityScanState_ess_section_id(a1), d2  // section_id
+        add.w   EntityScanState.ess_origin_y(a1), d1    // engine Y
+        move.b  EntityScanState.ess_section_id(a1), d2  // section_id
         move.b  d4, d3                  // list_index
 
         if DEBUG == 1 {
@@ -1008,7 +1013,7 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2) {
         jbsr    RingBuffer_Add          // clobbers d4, a0
         bcs     .gated                  // full — no bit; re-scan/populate retries
         moveq   #0, d0
-        move.b  EntityScanState_ess_entry_idx(a1), d0
+        move.b  EntityScanState.ess_entry_idx(a1), d0
         moveq   #0, d1
         move.b  d3, d1                  // list_index (RingBuffer_Add's d3 input)
         moveq   #0, d2                  // ring bits
@@ -1031,12 +1036,12 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2) {
 // Clobbers: d0-d4, a0
 // -----------------------------------------------
 proc EntityWindow_ScanRingsRight () clobbers(d0-d4, a0) {
-        move.l  EntityScanState_ess_rom_ring_ptr(a1), d0
+        move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
         beq     .done
         movea.l d0, a0
 
-        move.w  EntityScanState_ess_ring_right_idx(a1), d4
-        move.w  EntityScanState_ess_origin_x(a1), d3
+        move.w  EntityScanState.ess_ring_right_idx(a1), d4
+        move.w  EntityScanState.ess_origin_x(a1), d3
 
         // Advance a0 to current index (4 bytes per ROM entry: dc.w X, dc.w Y)
         move.w  d4, d0
@@ -1059,7 +1064,7 @@ proc EntityWindow_ScanRingsRight () clobbers(d0-d4, a0) {
         jbra    .loop
 
     .update_idx:
-        move.w  d4, EntityScanState_ess_ring_right_idx(a1)
+        move.w  d4, EntityScanState.ess_ring_right_idx(a1)
     .done:
         rts
 }
@@ -1083,10 +1088,10 @@ proc EntityWindow_ScanRingsRight () clobbers(d0-d4, a0) {
 // Clobbers: d0-d4, a0, a2
 // -----------------------------------------------
 proc EntityWindow_PopulateSectionRings () clobbers(d0-d4, a0, a2) {
-        move.l  EntityScanState_ess_rom_ring_ptr(a1), d0
+        move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
         beq     .pdone
         movea.l d0, a2
-        move.w  EntityScanState_ess_origin_x(a1), d3
+        move.w  EntityScanState.ess_origin_x(a1), d3
 
         // Pass 1: find ring_right_idx (first ring past right load edge)
         move.w  Camera_X, d0
@@ -1104,7 +1109,7 @@ proc EntityWindow_PopulateSectionRings () clobbers(d0-d4, a0, a2) {
         addq.w  #4, a0
         jbra    .pfind
     .pfound:
-        move.w  d4, EntityScanState_ess_ring_right_idx(a1)
+        move.w  d4, EntityScanState.ess_ring_right_idx(a1)
 
         // Pass 2: offer every listed ring (band/collected/loaded gates inside)
         movea.l a2, a0
@@ -1147,7 +1152,7 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) {
 
         // Y load band: camY-LOAD_Y .. camY+SCREEN_HEIGHT+LOAD_Y
         move.w  2(a0), d1
-        add.w   EntityScanState_ess_origin_y(a1), d1    // engine Y
+        add.w   EntityScanState.ess_origin_y(a1), d1    // engine Y
         move.w  Camera_Y, d0
         subi.w  #ENTITY_LOAD_BUFFER_Y, d0
         cmp.w   d0, d1
@@ -1161,7 +1166,7 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) {
         movem.l d3/d5/a0-a1/a3, -(sp)
 
         // killed on a previous visit?
-        move.b  EntityScanState_ess_section_id(a1), d0
+        move.b  EntityScanState.ess_section_id(a1), d0
         moveq   #0, d1
         move.w  d4, d1                  // list_index
         jbsr    Killed_CheckObject      // clobbers d2, a0
@@ -1169,7 +1174,7 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) {
 
         // already spawned? (loaded bit — set on spawn, cleared on despawn/kill)
         moveq   #0, d0
-        move.b  EntityScanState_ess_entry_idx(a1), d0
+        move.b  EntityScanState.ess_entry_idx(a1), d0
         moveq   #0, d1
         move.w  d4, d1                  // list_index
         moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
@@ -1179,19 +1184,19 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) {
         // spawn (d5 stashes section_id — Load_Object preserves d4-d7)
         movea.l 8(sp), a0               // ROM entry (a0 slot of movem frame)
         moveq   #0, d5
-        move.b  EntityScanState_ess_section_id(a1), d5
+        move.b  EntityScanState.ess_section_id(a1), d5
 
         move.w  (a0), d0
-        add.w   EntityScanState_ess_origin_x(a1), d0    // engine X
+        add.w   EntityScanState.ess_origin_x(a1), d0    // engine X
         move.w  2(a0), d1
-        add.w   EntityScanState_ess_origin_y(a1), d1    // engine Y
+        add.w   EntityScanState.ess_origin_y(a1), d1    // engine Y
         move.w  4(a0), d2               // full placement word — Load_Object reads flips from bits 13-14
 
         // Type extraction: bits 12-8 → d3, then type-table lookup
         move.w  d2, d3
         lsr.w   #OEF_TYPE_SHIFT, d3
         andi.w  #OEF_TYPE_MASK, d3
-        movea.l EntityScanState_ess_rom_type_tbl_ptr(a1), a2
+        movea.l EntityScanState.ess_rom_type_tbl_ptr(a1), a2
         lsl.w   #2, d3                  // type × 4 (longword)
         addq.w  #2, d3                  // skip count+pad header
         movea.l (a2, d3.w), a1          // a1 = ObjDef pointer
@@ -1202,7 +1207,7 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) {
         // Tag spawned object (a1 = new SST from Load_Object)
         // slot_tag = entry index; bit 7 = ANY_Y (placement bit 15)
         movea.l 12(sp), a2              // scan state (a1 slot of movem frame)
-        move.b  EntityScanState_ess_entry_idx(a2), d0
+        move.b  EntityScanState.ess_entry_idx(a2), d0
         move.w  4(a0), d3               // placement word (a0 survived Load_Object)
         bpl     .tag_plain
         bset    #7, d0
@@ -1213,7 +1218,7 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) {
 
         // mark loaded (entry index WITHOUT the ANY_Y bit — it's a mask base)
         moveq   #0, d0
-        move.b  EntityScanState_ess_entry_idx(a2), d0
+        move.b  EntityScanState.ess_entry_idx(a2), d0
         moveq   #0, d1
         move.w  d4, d1                  // list_index
         moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
@@ -1238,12 +1243,12 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) {
 // Clobbers: d0-d4, a0, a2
 // -----------------------------------------------
 proc EntityWindow_ScanObjectsRight () clobbers(d0-d4, a0, a2) {
-        move.l  EntityScanState_ess_rom_obj_ptr(a1), d0
+        move.l  EntityScanState.ess_rom_obj_ptr(a1), d0
         beq     .obj_done
         movea.l d0, a0
 
-        move.w  EntityScanState_ess_obj_right_idx(a1), d4
-        move.w  EntityScanState_ess_origin_x(a1), d3
+        move.w  EntityScanState.ess_obj_right_idx(a1), d4
+        move.w  EntityScanState.ess_origin_x(a1), d3
 
         // Advance a0 to current index: d4 × 6 via ×2, ×3, ×6
         move.w  d4, d0
@@ -1268,7 +1273,7 @@ proc EntityWindow_ScanObjectsRight () clobbers(d0-d4, a0, a2) {
         jbra    .obj_loop
 
     .obj_update_idx:
-        move.w  d4, EntityScanState_ess_obj_right_idx(a1)
+        move.w  d4, EntityScanState.ess_obj_right_idx(a1)
     .obj_done:
         rts
 }
@@ -1299,7 +1304,7 @@ proc EntityWindow_RescanY () clobbers(d0-d6, a0-a3) {
         lea     (a3), a1
         jbsr    EntityWindow_RescanObjects
     .entry_next:
-        lea     EntityScanState_len(a3), a3
+        lea     sizeof(EntityScanState)(a3), a3
         addq.w  #1, d6
         cmpi.w  #MAX_TRACKED_SECTIONS, d6
         blo     .entry_loop
@@ -1318,10 +1323,10 @@ proc EntityWindow_RescanY () clobbers(d0-d6, a0-a3) {
 // Clobbers: d0-d4, a0
 // -----------------------------------------------
 proc EntityWindow_RescanRings () clobbers(d0-d4, a0) {
-        move.l  EntityScanState_ess_rom_ring_ptr(a1), d0
+        move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
         beq     .done
         movea.l d0, a0
-        move.w  EntityScanState_ess_ring_right_idx(a1), d3      // X ratchet bound
+        move.w  EntityScanState.ess_ring_right_idx(a1), d3      // X ratchet bound
         beq     .done
         moveq   #0, d4
     .loop:
@@ -1344,10 +1349,10 @@ proc EntityWindow_RescanRings () clobbers(d0-d4, a0) {
 // Clobbers: d0-d4, a0, a2
 // -----------------------------------------------
 proc EntityWindow_RescanObjects () clobbers(d0-d4, a0, a2) {
-        move.l  EntityScanState_ess_rom_obj_ptr(a1), d0
+        move.l  EntityScanState.ess_rom_obj_ptr(a1), d0
         beq     .done
         movea.l d0, a0
-        move.w  EntityScanState_ess_obj_right_idx(a1), d3       // X ratchet bound
+        move.w  EntityScanState.ess_obj_right_idx(a1), d3       // X ratchet bound
         beq     .done
         moveq   #0, d4
     .loop:
@@ -1399,13 +1404,13 @@ proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
 
     .check_active:
         move.b  4(a0, d0.w), d1
-        cmp.b   Entity_Scan_State+EntityScanState_ess_section_id, d1
+        cmp.b   Entity_Scan_State+offsetof(EntityScanState, ess_section_id), d1
         beq     .check_y
-        cmp.b   Entity_Scan_State+(EntityScanState_len*1+EntityScanState_ess_section_id), d1
+        cmp.b   Entity_Scan_State+(sizeof(EntityScanState)*1+offsetof(EntityScanState, ess_section_id)), d1
         beq     .check_y
-        cmp.b   Entity_Scan_State+(EntityScanState_len*2+EntityScanState_ess_section_id), d1
+        cmp.b   Entity_Scan_State+(sizeof(EntityScanState)*2+offsetof(EntityScanState, ess_section_id)), d1
         beq     .check_y
-        cmp.b   Entity_Scan_State+(EntityScanState_len*3+EntityScanState_ess_section_id), d1
+        cmp.b   Entity_Scan_State+(sizeof(EntityScanState)*3+offsetof(EntityScanState, ess_section_id)), d1
         bne     .remove                 // X straggler in a dead section
 
     .check_y:
@@ -1487,13 +1492,13 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
 
     .check_active:
         move.b  Sst.entity_section_id(a0), d1
-        cmp.b   Entity_Scan_State+EntityScanState_ess_section_id, d1
+        cmp.b   Entity_Scan_State+offsetof(EntityScanState, ess_section_id), d1
         beq     .check_y
-        cmp.b   Entity_Scan_State+(EntityScanState_len*1+EntityScanState_ess_section_id), d1
+        cmp.b   Entity_Scan_State+(sizeof(EntityScanState)*1+offsetof(EntityScanState, ess_section_id)), d1
         beq     .check_y
-        cmp.b   Entity_Scan_State+(EntityScanState_len*2+EntityScanState_ess_section_id), d1
+        cmp.b   Entity_Scan_State+(sizeof(EntityScanState)*2+offsetof(EntityScanState, ess_section_id)), d1
         beq     .check_y
-        cmp.b   Entity_Scan_State+(EntityScanState_len*3+EntityScanState_ess_section_id), d1
+        cmp.b   Entity_Scan_State+(sizeof(EntityScanState)*3+offsetof(EntityScanState, ess_section_id)), d1
         bne     .despawn                // section untracked → despawn
 
     .check_y:
@@ -1560,7 +1565,7 @@ proc EntityWindow_MigrateMasks () clobbers(d0-d3, a0-a1) {
         move.w  d3, d1
         add.w   d1, d1
         add.w   d1, d0
-        lea     Entity_Scan_State+EntityScanState_ess_section_id, a0
+        lea     Entity_Scan_State+offsetof(EntityScanState, ess_section_id), a0
         move.b  (a0, d0.w), d2
         cmpi.b  #SEC_VOID, d2
         beq     .new_next               // void entry — nothing to receive
@@ -1612,10 +1617,10 @@ proc EntityWindow_MigrateMasks () clobbers(d0-d3, a0-a1) {
 proc EntityWindow_Slide () clobbers(d0-d7, a0-a4) {
         // snapshot the old window: 4 section-id bytes + the 128-byte mask block
         lea     Entity_Mask_Scratch, a0
-        move.b  Entity_Scan_State+EntityScanState_ess_section_id, (a0)+
-        move.b  Entity_Scan_State+(EntityScanState_len*1+EntityScanState_ess_section_id), (a0)+
-        move.b  Entity_Scan_State+(EntityScanState_len*2+EntityScanState_ess_section_id), (a0)+
-        move.b  Entity_Scan_State+(EntityScanState_len*3+EntityScanState_ess_section_id), (a0)+
+        move.b  Entity_Scan_State+offsetof(EntityScanState, ess_section_id), (a0)+
+        move.b  Entity_Scan_State+(sizeof(EntityScanState)*1+offsetof(EntityScanState, ess_section_id)), (a0)+
+        move.b  Entity_Scan_State+(sizeof(EntityScanState)*2+offsetof(EntityScanState, ess_section_id)), (a0)+
+        move.b  Entity_Scan_State+(sizeof(EntityScanState)*3+offsetof(EntityScanState, ess_section_id)), (a0)+
         lea     Entity_Loaded_Masks, a1
         moveq   #(MAX_TRACKED_SECTIONS*ENTITY_LOADED_SLOT_SIZE)/4-1, d0
     .snapshot:
@@ -1670,7 +1675,7 @@ proc EntityWindow_Slide () clobbers(d0-d7, a0-a4) {
         move.b  Entity_Window_Active, d0
         btst    d6, d0
         beq     .populate_next
-        move.b  EntityScanState_ess_section_id(a3), d0
+        move.b  EntityScanState.ess_section_id(a3), d0
         lea     Entity_Mask_Scratch, a0
         moveq   #MAX_TRACKED_SECTIONS-1, d1
     .old_id_scan:
@@ -1680,7 +1685,7 @@ proc EntityWindow_Slide () clobbers(d0-d7, a0-a4) {
         lea     (a3), a1
         jbsr    EntityWindow_PopulateSectionRings       // clobbers d0-d4/a0/a2 — d6/a3 safe
     .populate_next:
-        lea     EntityScanState_len(a3), a3
+        lea     sizeof(EntityScanState)(a3), a3
         addq.w  #1, d6
         cmpi.w  #MAX_TRACKED_SECTIONS, d6
         blo     .populate_loop
