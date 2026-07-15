@@ -326,7 +326,22 @@ __BUDGET_ENGINE:
       endif
     endif
     gameEngineBlockIncludes
-    include "engine/level/section.asm"
+    ifndef SIGIL_EMP_SECTION
+        include "engine/level/section.asm"
+    else
+        ; sigil mixed build: Section_Init..Section_UpdateColumns come from
+        ; engine/level/section.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end (camera.asm's
+        ; Camera_Init). Shape-INVARIANT length ($3EA both shapes) — the two
+        ; resume orgs differ only by the upstream base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $619C
+      else
+        org     $551A
+      endif
+    endif
     include "engine/level/camera.asm"
     include "engine/level/parallax.asm"
     include "engine/level/load_art.asm"
@@ -347,9 +362,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $798A
+        org     $797C
         else
-        org     $5F78
+        org     $5F6A
         endif
       endif
     endif

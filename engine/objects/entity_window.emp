@@ -11,6 +11,7 @@
 module engine.objects.entity_window in entity_window
 
 use engine.constants.{SLOT_TAG_UNTAGGED, SCREEN_WIDTH, SCREEN_HEIGHT}
+use engine.constants.{SECTION_SIZE, SECTION_SIZE_SHIFT, SEC_VOID}
 use engine.objects.sst.{Sst}
 
 // GAME-owned capacity mirrors (truth: games/sonic4/config/constants.asm).
@@ -22,10 +23,9 @@ const COLLECTED_PARK_SLOTS      = 4
 
 // ENGINE constants not yet in constants.emp (truth: engine/constants.asm).
 // Mirrored locally to keep this port byte-isolated; step-4 candidate to hoist
-// the engine-wide ones (SECTION_SIZE, SEC_VOID) into constants.emp.
-const SECTION_SIZE              = $0800
-const SECTION_SIZE_SHIFT        = 11
-const SEC_VOID                  = $FF
+// the rest as their 2nd consumer appears (SECTION_SIZE/_SHIFT/SEC_VOID
+// consolidated into constants.emp at the tranche-15 section.emp port — `use`d
+// above).
 const MAX_TRACKED_SECTIONS      = 4
 const MAX_LIST_ENTRIES          = 128
 const ENTITY_LOAD_BUFFER        = $180
@@ -79,9 +79,6 @@ ensure(extern("COLLECTED_WINDOW_SLOTS") == COLLECTED_WINDOW_SLOTS, "games/sonic4
 ensure(extern("COLLECTED_SLOT_SIZE") == COLLECTED_SLOT_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_SLOT_SIZE — update both")
 ensure(extern("COLLECTED_PARK_SLOTS") == COLLECTED_PARK_SLOTS, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_PARK_SLOTS — update both")
 ensure(extern("COLLECTED_PARK_ENTRY_SIZE") == COLLECTED_PARK_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_PARK_ENTRY_SIZE — update both")
-ensure(extern("SECTION_SIZE") == SECTION_SIZE, "engine/constants.asm and entity_window.emp disagree on SECTION_SIZE — update both")
-ensure(extern("SECTION_SIZE_SHIFT") == SECTION_SIZE_SHIFT, "engine/constants.asm and entity_window.emp disagree on SECTION_SIZE_SHIFT — update both")
-ensure(extern("SEC_VOID") == SEC_VOID, "engine/constants.asm and entity_window.emp disagree on SEC_VOID — update both")
 ensure(extern("MAX_TRACKED_SECTIONS") == MAX_TRACKED_SECTIONS, "engine/constants.asm and entity_window.emp disagree on MAX_TRACKED_SECTIONS — update both")
 ensure(extern("MAX_LIST_ENTRIES") == MAX_LIST_ENTRIES, "engine/constants.asm and entity_window.emp disagree on MAX_LIST_ENTRIES — update both")
 ensure(extern("ENTITY_LOAD_BUFFER") == ENTITY_LOAD_BUFFER, "engine/constants.asm and entity_window.emp disagree on ENTITY_LOAD_BUFFER — update both")
