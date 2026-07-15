@@ -28,7 +28,7 @@ Section_Init:
 ; direction order on the first frames (avoids a left-edge content pop).
 ;
 ; Out: Section_Right_Col_Written, Section_Left_Col_Written initialised
-; Clobbers: none
+; Clobbers: d0 (the "none" was aspirational — the body scratches d0)
 ; -----------------------------------------------
 Section_FillInitial:
         move.l  (Camera_X).w, d0
