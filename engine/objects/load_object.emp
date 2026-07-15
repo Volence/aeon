@@ -67,9 +67,9 @@ pub proc Load_Object () clobbers(d0-d3, a1, a2, a3) {
 
         // --- runtime init ($20-$24: prev_anim $FF, frame/timer/mapframe 0, prev_frame $FF) ---
         // Deliberate 4-byte overlay write over prev_anim/anim_frame/anim_timer/
-        // mapping_frame via prev_anim's address — offsetof() gives the plain $20
-        // displacement so the .l write isn't rejected as a 1-byte-field overrun.
-        move.l  #$FF000000, offsetof(Sst, prev_anim)(a1)
+        // mapping_frame — the `:l` sized override authorizes the multi-field
+        // write from prev_anim's address ($20), naming the field it starts at.
+        move.l  #$FF000000, Sst.prev_anim:l(a1)
         move.b  #$FF, Sst.prev_frame(a1)
 
         // --- initial sprite_piece_count from mappings frame 0 ---
