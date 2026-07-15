@@ -1006,7 +1006,12 @@ TileCache_FillColumn:
 ; Out: d0.w = 0 complete / 1 budget-out (resume state stored in
 ;             Cache_Fill_RowResume_Row/Col).
 ;      On complete, Cache_Fill_RowResume_Row is set to $FFFF.
-; Clobbers: d0-d7, a0-a4
+; Clobbers: d0-d7, a0-a6
+;   a5/a6 hold the collision plane-A/plane-B DEST row bases for the WHOLE row
+;   (step-5 hoist). They survive the per-block DecompressBlock call — its license
+;   (d0-d7/a0/a2-a4) EXCLUDES a5/a6; a4 (NT dest base) + a2 (plane-B src base) ARE
+;   clobbered by it, so re-set per block. (widened from a0-a4; sole caller
+;   Tile_Cache_Fill already licenses a0-a6.)
 ; Note: collision is copied only on the odd row of each 16px cell (the row
 ;       that completes the cell). Cache_Top_Row is kept even, so cell
 ;       boundaries align with world block data.
@@ -1047,6 +1052,15 @@ TileCache_FillRow:
         lsl.w   #4, d3                         ; * 16
         add.w   d3, d2                         ; * 80
         move.w  d2, -(sp)                      ; 0(sp) = cache_row_offset_words
+
+        ; --- step-5 hoist: collision plane-A/B DEST row bases are loop-invariant;
+        ;     hoist ONCE per row into a5/a6. LOAD-BEARING & INVISIBLE: relies on
+        ;     a5/a6 surviving the per-block DecompressBlock call — its license
+        ;     (d0-d7/a0/a2-a4) excludes them (S4LZ_DecompressDict verified a5/a6-
+        ;     clean too). An edit making DecompressBlock touch a5/a6 corrupts the
+        ;     collision planes SILENTLY (S2-D6 checked-clobbers lint would catch). ---
+        lea     (Tile_Cache_Collision).l, a5           ; plane-A dest base (whole row)
+        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a6  ; plane-B dest base (whole row)
 
         ; resume: if this is the partially-filled row from last frame,
         ; restart the column walk from where we left off (not Cache_Left_Col).
@@ -1106,6 +1120,13 @@ TileCache_FillRow:
         lea     BLOCK_NT_SIZE(a1), a3
         adda.w  d3, a3
 
+        ; step-5 hoist: a4 = NT DEST base, a2 = plane-B SRC base (a3 + 128). Both
+        ; per-BLOCK — DecompressBlock clobbers a4 + a2, so they re-set here (a5/a6
+        ; survive it, hoisted per-row above). Plane-B src can't be an indexed
+        ; displacement: BLOCK_COLL_PLANE_SIZE = 128 > +127 (signed 8-bit).
+        lea     (Tile_Cache_Nametable).l, a4
+        lea     BLOCK_COLL_PLANE_SIZE(a3), a2
+
         ; first intra-block col for this block
         move.w  d7, d6
         andi.w  #$F, d6
@@ -1143,25 +1164,19 @@ TileCache_FillRow:
         move.w  (sp), d0                       ; cache_row_offset_words
         add.w   d1, d0                         ; + cache_col
         add.w   d0, d0                         ; byte offset
-        lea     (Tile_Cache_Nametable).l, a1
-        move.w  d3, (a1, d0.w)                 ; write tile
+        move.w  d3, (a4, d0.w)                 ; write tile — a4 = NT dest base (hoisted per-block)
 
         ; collision planes A and B (cell-completing rows only)
-        ; a3 = plane A collision row base in staging slot
-        ; d6 = intra-block col (0-15), used as byte index within row
+        ; a5/a6 = plane A/B DEST bases (hoisted per-row); a2 = plane-B SRC base
+        ; (hoisted per-block = a3 + BLOCK_COLL_PLANE_SIZE); d6 = intra-block col
+        ; (0-15), the byte index within the row.
         move.w  2(sp), d0
         cmpi.w  #$FFFF, d0
         beq.s   .fr_skip_col
         add.w   d1, d0                         ; + cache col → byte index within cache row
-        ; plane A
-        lea     (Tile_Cache_Collision).l, a2
-        move.b  (a3, d6.w), (a2, d0.w)
-        ; plane B: source = a3 + BLOCK_COLL_PLANE_SIZE + d6
-        ; a1 is free here (was Tile_Cache_Nametable base, done with it for this cell)
-        lea     BLOCK_COLL_PLANE_SIZE(a3), a1  ; plane B row base in staging slot
-        move.b  (a1, d6.w), d3                 ; plane B byte
-        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a2
-        move.b  d3, (a2, d0.w)
+        move.b  (a3, d6.w), (a5, d0.w)         ; plane A
+        move.b  (a2, d6.w), d3                 ; plane B source
+        move.b  d3, (a6, d0.w)                 ; plane B dest
 
 .fr_skip_col:
         addq.w  #1, d6

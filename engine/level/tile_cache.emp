@@ -1098,12 +1098,18 @@ pub proc TileCache_FillColumn () clobbers(d1-d7/a0-a4) out(d0) {
 // Out: d0.w = 0 complete / 1 budget-out (resume state stored in
 //             Cache_Fill_RowResume_Row/Col).
 //      On complete, Cache_Fill_RowResume_Row is set to $FFFF.
-// Clobbers: d0-d7, a0-a4
+// Clobbers: d0-d7, a0-a6
+//   a5/a6 hold the collision plane-A/plane-B DEST row bases for the WHOLE row
+//   (step-5 hoist — out of the per-cell loop). They survive the per-block
+//   DecompressBlock call because its license (d0-d7/a0/a2-a4) EXCLUDES a5/a6;
+//   a4 (NT dest base) + a2 (plane-B src base) ARE clobbered by it, so they are
+//   re-set per block. (transitive-attribute: widened from a0-a4; sole caller
+//   Tile_Cache_Fill already licenses a0-a6.)
 // Note: collision is copied only on the odd row of each 16px cell (the row
 //       that completes the cell). Cache_Top_Row is kept even, so cell
 //       boundaries align with world block data.
 // -----------------------------------------------
-pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
+pub proc TileCache_FillRow () clobbers(d1-d7/a0-a6) out(d0) {
         // cache row offset (constant for all columns)
         move.w  d5, d2
         sub.w   Cache_Top_Row, d2
@@ -1139,6 +1145,19 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
         lsl.w   #4, d3                         // * 16
         add.w   d3, d2                         // * 80
         move.w  d2, -(sp)                      // 0(sp) = cache_row_offset_words
+
+        // --- step-5 hoist: the collision plane-A/plane-B DEST row bases are
+        //     loop-invariant (Tile_Cache_Collision / +TILE_CACHE_COLL_SIZE, both
+        //     compile-time). Hoist them ONCE per row into a5/a6. LOAD-BEARING &
+        //     INVISIBLE: this relies on a5/a6 surviving the per-block
+        //     DecompressBlock call — its license (d0-d7/a0/a2-a4) excludes them
+        //     (S4LZ_DecompressDict, the AS-side transitive callee, verified
+        //     a5/a6-clean too). A future edit that makes DecompressBlock (or a
+        //     swapped decompressor) touch a5/a6 would corrupt the collision
+        //     planes SILENTLY — the S2-D6 checked-clobbers lint is what would
+        //     catch this mechanically. ---
+        lea     Tile_Cache_Collision, a5           // plane-A dest base (whole row)
+        lea     Tile_Cache_Collision+TILE_CACHE_COLL_SIZE, a6  // plane-B dest base (whole row)
 
         // resume: if this is the partially-filled row from last frame,
         // restart the column walk from where we left off (not Cache_Left_Col).
@@ -1186,6 +1205,13 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
         lea     BLOCK_NT_SIZE(a1), a3
         adda.w  d3, a3
 
+        // step-5 hoist: a4 = NT DEST base, a2 = plane-B SRC base (a3 + 128). Both
+        // per-BLOCK — DecompressBlock clobbers a4 + a2, so they re-set here (a5/a6
+        // survive it, hoisted per-row above). Plane-B src can't be an indexed
+        // displacement: BLOCK_COLL_PLANE_SIZE = 128 > +127 (signed 8-bit).
+        lea     Tile_Cache_Nametable, a4
+        lea     BLOCK_COLL_PLANE_SIZE(a3), a2
+
         // first intra-block col for this block
         move.w  d7, d6
         andi.w  #$F, d6
@@ -1223,25 +1249,19 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a4) out(d0) {
         move.w  (sp), d0                       // cache_row_offset_words
         add.w   d1, d0                         // + cache_col
         add.w   d0, d0                         // byte offset
-        lea     Tile_Cache_Nametable, a1
-        move.w  d3, (a1, d0.w)                 // write tile
+        move.w  d3, (a4, d0.w)                 // write tile — a4 = NT dest base (hoisted per-block)
 
         // collision planes A and B (cell-completing rows only)
-        // a3 = plane A collision row base in staging slot
-        // d6 = intra-block col (0-15), used as byte index within row
+        // a5/a6 = plane A/B DEST bases (hoisted per-row); a2 = plane-B SRC base
+        // (hoisted per-block = a3 + BLOCK_COLL_PLANE_SIZE); d6 = intra-block col
+        // (0-15), the byte index within the row.
         move.w  2(sp), d0
         cmpi.w  #$FFFF, d0
         beq     .fr_skip_col
         add.w   d1, d0                         // + cache col → byte index within cache row
-        // plane A
-        lea     Tile_Cache_Collision, a2
-        move.b  (a3, d6.w), (a2, d0.w)
-        // plane B: source = a3 + BLOCK_COLL_PLANE_SIZE + d6
-        // a1 is free here (was Tile_Cache_Nametable base, done with it for this cell)
-        lea     BLOCK_COLL_PLANE_SIZE(a3), a1  // plane B row base in staging slot
-        move.b  (a1, d6.w), d3                 // plane B byte
-        lea     Tile_Cache_Collision+TILE_CACHE_COLL_SIZE, a2 // bare sym+const: width rule → abs.l
-        move.b  d3, (a2, d0.w)
+        move.b  (a3, d6.w), (a5, d0.w)         // plane A
+        move.b  (a2, d6.w), d3                 // plane B source
+        move.b  d3, (a6, d0.w)                 // plane B dest
 
     .fr_skip_col:
         addq.w  #1, d6
