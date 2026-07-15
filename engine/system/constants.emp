@@ -56,9 +56,9 @@ pub const NUM_SYSTEM  = 8
 pub const NUM_EFFECTS = 16
 
 // Total slot count across all pools + culling geometry + the untagged slot
-// sentinel (mirror engine/constants.asm — the object-core block, tranche 10).
+// sentinel (mirror engine/constants.asm — the object-core block).
 pub const NUM_TOTAL_SLOTS = NUM_PLAYERS + NUM_DYNAMIC + NUM_SYSTEM + NUM_EFFECTS
-// Occupancy amendment A2 (overflow latch, spec §9): frame-end pending-latch
+// Occupancy overflow-latch amendment (spec §9): frame-end pending-latch
 // capacity. AllocDynamic at a full live list latches the popped slot instead of
 // compacting mid-frame; RunObjects' tail drains it (one compaction, then append
 // in alloc order). Latch full → alloc-fail. Bounded, rare.

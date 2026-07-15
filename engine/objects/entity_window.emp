@@ -685,7 +685,7 @@ proc EntityWindow_InitSection () clobbers(d3, a2) {
 //      d5.w = sec_y0 (word)
 // Clobbers: d0
 // -----------------------------------------------
-proc EntityWindow_DeriveWindow () clobbers(d0) out(d2, d3, d4, d5) {
+proc EntityWindow_DeriveWindow () clobbers(d0) out(d2-d5) {
         move.w  Camera_X, d4            // world X px (16.16 high word)
         subi.w  #ENTITY_DESPAWN_BUFFER, d4
         moveq   #SECTION_SIZE_SHIFT, d0
@@ -1470,7 +1470,7 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
         bne     .have_live
         rts
     .have_live:
-        // A2 rail (item 12): the fourth dynamic live-list walker. DespawnObjects
+        // Walk-flag assert rail: the fourth dynamic live-list walker. DespawnObjects
         // only deletes (no alloc → A1-safe today), but flag the walk so the
         // CompactDynamicLive assert stays TOTAL if a spawn is ever added here.
         if DEBUG == 1 { st Dynamic_Live_Walking }
@@ -1478,7 +1478,7 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
         subq.w  #1, d5
 
     .loop:
-        move.w  (a2)+, d0               // A1: load entry, null-guard a zeroed
+        move.w  (a2)+, d0               // load entry, null-guard a zeroed
         beq     .next                   //     entry (same-frame delete) — no deref
         movea.w d0, a0
         tst.w   Sst.code_addr(a0)       // truth guard: dead-but-uncompacted slot

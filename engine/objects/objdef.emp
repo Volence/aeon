@@ -23,9 +23,19 @@ use engine.types.{Velocity, VramArtTile, HitboxDim, AnimId}
 use engine.system.constants.{RF_PRIORITY_SHIFT}
 
 // vram_art(tile, pal, pri) — pack a VRAM tile index with palette + priority
-// bits (macros.asm's `vram_art` function: (pri<<15)|(pal<<13)|tile). objdef
-// is its first .emp consumer; relocate to a shared art home at the second.
-pub comptime fn vram_art(tile: int, pal: int = 0, pri: int = 0) -> int {
+// bits (macros.asm's `vram_art` function: (pri<<15)|(pal<<13)|tile). The
+// param refinements make an out-of-range field a COMPILE error rather than a
+// silent bit-collision: pal>3 would corrupt the priority bit via `pal<<13`,
+// tile>$1FFF would bleed into the palette bits. Returns the packed
+// VramArtTile so stores read honestly. Consumers: objdef and rings
+// (which imports it). Shared home lands with the VRAM-layout port, which
+// brings the whole art/VRAM family (VramTile, vram_bytes ×32) it belongs
+// with (see engine.types) — not relocated piecemeal before then.
+pub comptime fn vram_art(
+    tile: int where 0..$1FFF,
+    pal: int where 0..3 = 0,
+    pri: int where 0..1 = 0,
+) -> VramArtTile {
     return (pri << 15) | (pal << 13) | tile   // pri→bit15, pal→bits13-14, tile→bits0-12
 }
 

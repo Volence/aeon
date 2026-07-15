@@ -12,7 +12,7 @@ module games.sonic4.sonic_anims in sonic_anims
 
 // Animation command bytes + DUR_DYNAMIC come from the constants twin —
 // the "grows an animation block" jot from port #1 landed at the animate
-// port (tranche 9, kill-list row 3 closed by consolidation); the twin's
+// port (kill-list row 3 closed by consolidation); the twin's
 // own ensures guard the values.
 use engine.constants.{AF_END, AF_BACK, DUR_DYNAMIC}
 

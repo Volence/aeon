@@ -62,7 +62,7 @@ module data.sfx_bank
 // changes the row set changes these automatically. They document the id contract
 // for readers exactly as the hand-written consts did.
 //
-// SEAM CLOSED (retro-fix batch 2, item 10): the ensure(extern(...))s below now
+// SEAM CLOSED: the ensure(extern(...))s below now
 // ALSO tie them back to sound_ids.asm at comptime (all three are ungated equs
 // there) — the same mechanism sound_api's SFXID mirrors use. So a drift in EITHER
 // direction (the table row set here, or the hand-owned counts in sound_ids.asm)

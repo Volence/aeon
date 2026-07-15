@@ -44,7 +44,7 @@ comptime fn lead_move(adim: Reg, cdim: Reg) -> Code {
 }
 
 pub comptime fn aabb_axis_test(apos: Reg, breg: Reg, boff: int, adim: Reg, bdim: Reg, cdim: Reg, delt: Reg, stmp: Reg, mlab: Label) -> Code {
-    // The contract's stmp non-alias rule (item 7) was prose only — the template
+    // The contract's stmp non-alias rule was prose only — the template
     // spliced whatever Reg it was handed, so `stmp == cdim` / `stmp == delt`
     // assembled CLEAN and miscompiled (the neg/double scratch clobbers a live
     // value). Reg equality is comptime-decidable (lead_move already compares
@@ -59,14 +59,14 @@ pub comptime fn aabb_axis_test(apos: Reg, breg: Reg, boff: int, adim: Reg, bdim:
         sub.w   {boff}({breg}), {delt}
 
         move.w  {delt}, {stmp}
-        bpl.s   .aov
-        // NOTE (item 7): delt == -32768 survives neg.w as $8000 → doubled = 0 →
+        bpl     .aov
+        // NOTE: delt == -32768 survives neg.w as $8000 → doubled = 0 →
         // false overlap. Unreachable via current callers (cull windows bound
         // |delta| << $4000); a new caller with unbounded delta must guard.
         neg.w   {stmp}
     .aov:
         add.w   {stmp}, {stmp}
         cmp.w   {cdim}, {stmp}
-        bhs.s   {mlab}
+        bhs.s   {mlab}                  // PINNED .s (splice-hole exception): {mlab} is a caller-supplied label; the .s locks the macro's near-target reach contract (aabb.inc's `bhs.s mlab`) — a far target must fail loud, not silently widen
     }
 }

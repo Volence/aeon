@@ -104,7 +104,7 @@ const Hcz2PatchBlob = embed("hcz2_patches.bin")                   // 128 B ($80)
 // SongTable/SongPatchTable declarations below; the byte-bearing coupling that
 // matters is the TABLE ORDER at SongTable/SongPatchTable).
 //
-// SEAM CLOSED (retro-fix batch 2, item 10): SONG_MOVINGTRUCKS and SONG_COUNT now
+// SEAM CLOSED: SONG_MOVINGTRUCKS and SONG_COUNT now
 // drift-guard against sound_ids.asm via ensure(extern(...)) — the same mechanism
 // sound_api's SFXID mirrors use (SONG_COUNT moved to sound_ids.asm ungated this
 // batch, so both resolve at link in ALL build shapes). SONG_DRUMTEST/SONG_HCZ2

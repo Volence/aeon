@@ -67,7 +67,7 @@ comptime fn reload_anim_timer(src: Reg) -> Code {
 // Out: mapping_frame updated if frame advanced
 // Clobbers: d0-d2, a1-a2
 // -----------------------------------------------
-pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
+pub proc AnimateSprite () clobbers(d0-d2/a1-a2) {
         // Propagate facing from status → render_flags each frame. The flip bits
         // are bit-aligned (ST_XFLIP/ST_YFLIP == RF_XFLIP/RF_YFLIP), so this is a
         // straight copy of bits 1-2. $F9 = ~(RF_XFLIP|RF_YFLIP): clear the two
@@ -142,7 +142,7 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         bra.w   .evt_set_field          // $F7 (9) — set field
 
     .cc_end:
-        // NOTE (item 4): a frameless script — byte 1 is itself a non-exiting
+        // NOTE: a frameless script — byte 1 is itself a non-exiting
         // control code (e.g. `dc.b dur, AF_END`) — loops forever here: clear
         // anim_frame, re-read byte 1, dispatch AF_END again, within one frame (a
         // full game hang). A required-terminator / non-empty-body invariant in
@@ -158,7 +158,7 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
     .cc_back:
         addq.b  #1, d1
         move.b  1(a1,d1.w), d0
-        // DEBUG rail (item 4): AF_BACK with N==0 subtracts 0, re-reads the same
+        // DEBUG rail: AF_BACK with N==0 subtracts 0, re-reads the same
         // AF_BACK byte, and dispatches forever within one frame (a full game
         // hang, not garbage art). Typed script args (count != 0 by refinement)
         // are the full cure (ledger: byte-command-DSL demand). Byte-neutral.
@@ -173,7 +173,7 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         jbra    .set_frame
 
     .cc_change:
-        // NOTE (item 4): AF_CHANGE to the CURRENT anim silently fails to restart
+        // NOTE: AF_CHANGE to the CURRENT anim silently fails to restart
         // — re-dispatch takes the unchanged-anim path (prev_anim == anim), so
         // anim_frame never resets and the object freezes at the AF_CHANGE frame,
         // re-dispatching each timer expiry. Scripts must not AF_CHANGE to self;
@@ -217,7 +217,7 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         // dc.b AF_SOUND, sound_id -> play the SFX
         move.b  2(a1,d1.w), d0
         if SOUND_DRIVER_ENABLED == 1 {
-        // item 5: Sound_PlaySFX clobbers ONLY d0 — under the exhaustive-license
+        // Sound_PlaySFX clobbers ONLY d0 — under the exhaustive-license
         // ruling (audit §clobbers-semantics) a1 and d1 are CONTRACTUALLY
         // preserved, so the old movem.l a1/d1 save/restore pair is dead. a1 is
         // reused in .after_event; d1 is reloaded there anyway. −8 B.
@@ -236,7 +236,7 @@ pub proc AnimateSprite () clobbers(d0, d1, d2, a1, a2) {
         // dc.b AF_SET_FIELD, sst_offset, value, 0
         moveq   #0, d0
         move.b  2(a1,d1.w), d0
-        // DEBUG rails (item 4): a script offset >= SST_len writes into the NEXT
+        // DEBUG rails: a script offset >= SST_len writes into the NEXT
         // object's SST (neighbour corruption); targeting mapping_frame bypasses
         // RefreshSpritePieceCount, so the SAT emits the wrong piece count for the
         // frame. The full cure is the typed animation-script DSL (ledger:

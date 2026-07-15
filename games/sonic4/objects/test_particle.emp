@@ -38,7 +38,7 @@ pub proc TestParticle (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestParticle_M
 // -----------------------------------------------
 // TestParticle_Main — per-frame update
 // In:  a0 = SST pointer
-// Clobbers: d0-d3, a1-a2 — the EXACT callee union (retro-fix batch 2, item 8):
+// Clobbers: d0-d3, a1-a2 — the EXACT callee union:
 //   ObjectMove(d0) ∪ AnimateSprite(d0-d2/a1-a2) ∪ Draw_Sprite(d0-d3/a1). The old
 //   d0-d4/a1-a3 over-declared d4/a3 while claiming to be the union.
 // -----------------------------------------------

@@ -148,7 +148,7 @@ comptime fn vdp_comm_reg(reg: Reg, target: VdpTarget, op: VdpOp, clr: bool = tru
 // Out: none
 // Clobbers: d0–d7, a0–a4   (transitive via EntityWindow_Init)
 // -----------------------------------------------
-pub proc Section_Init () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a3, a4) {
+pub proc Section_Init () clobbers(d0-d7/a0-a4) {
         move.l  a0, Current_Act_Ptr             // (Current_Act_Ptr).w — ram.asm; abs.w by the width rule
 
         // -- set up column/row trackers; first frame streams the plane --
@@ -281,7 +281,7 @@ pub proc Section_GetSecPtrXY () clobbers(d1) out(d0, a0) {
 //      d7.w = start_world_col + 63 (for tracker reset by caller)
 // Clobbers: d0–d7, a0–a4, a5–a6
 // -----------------------------------------------
-pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3, a4, a5, a6) out(d5, d7) {
+pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6) out(d5, d7) {
         lea     VDP_CTRL, a5                    // (VDP_CTRL).l — engine/constants.asm; abs.l by the width rule
         lea     VDP_DATA, a6
         move.w  sr, -(sp)
@@ -489,7 +489,7 @@ pub proc Section_RedrawPlanes () clobbers(d0, d1, d2, d3, d4, d6, a0, a1, a2, a3
 // Out: none
 // Clobbers: d0–d7, a0–a3, a5–a6 (a5/a6 only when Plane_Dirty triggers redraw)
 // -----------------------------------------------
-pub proc Section_UpdateColumns () clobbers(d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a3, a5, a6) {
+pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         // -- §4.2: full-plane redraw if dirty (level init + cache recovery only) --
         tst.b   Section_Plane_Dirty
         beq     .not_dirty
