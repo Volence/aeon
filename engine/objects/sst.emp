@@ -1,13 +1,17 @@
-// The Sprite Status Table shape — one record per live object, $50 bytes.
-// engine/structs.asm's SST struct stays authoritative until its own port;
-// this module is its TYPE-ONLY twin: it emits ZERO bytes (no section, no
-// placement) and exists so object modules get typed field access
-// (`Sst.code_addr(a0)`, and bare `code_addr(a0)` on an `a0: *Sst` param)
-// instead of hand-carried displacement equs. Every field offset below is
-// double-locked: the `@` assertion pins this side to the literal, and the
-// drift guards at the bottom pin the AS side (its struct-generated `SST_*`
-// equs cross the link seam) to the same literal — a layout change on either
-// side fails the link naming the field.
+// The spawn-template structs — Sst (the live $50-byte object record) and
+// ObjDef (its compact 26-byte ROM source image). Both are TYPE-ONLY twins:
+// this module emits ZERO bytes (no section, no placement). Sst gives object
+// code typed field access (`Sst.code_addr(a0)`, and bare `code_addr(a0)` on
+// an `a0: *Sst` param) instead of hand-carried displacement equs; ObjDef is
+// the shape the objdef() emitter (engine/objects/objdef.emp) fills and
+// consumers place. engine/structs.asm's SST struct stays authoritative for
+// the layout until its own port.
+//
+// Sst's field offsets are double-locked: the `@` assertion pins this side to
+// the literal, and the drift guards below pin the AS side (its
+// struct-generated `SST_*` equs cross the link seam) to the same literal — a
+// layout change on either side fails the link naming the field. ObjDef is
+// pinned to Sst by the burst-copy ensure-chain (below the guards).
 //
 // Field types are the engine.types domain vocabulary (construct-walk #3,
 // Volence-ratified): every type erases to the raw width, so the layout,

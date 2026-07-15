@@ -26,7 +26,7 @@ use engine.system.constants.{RF_PRIORITY_SHIFT}
 // bits (macros.asm's `vram_art` function: (pri<<15)|(pal<<13)|tile). objdef
 // is its first .emp consumer; relocate to a shared art home at the second.
 pub comptime fn vram_art(tile: int, pal: int = 0, pri: int = 0) -> int {
-    return (pri << 15) | (pal << 13) | tile
+    return (pri << 15) | (pal << 13) | tile   // pri→bit15, pal→bits13-14, tile→bits0-12
 }
 
 // objdef(...) — one archetype template. `code`/`map` required (a spawn with
@@ -62,7 +62,7 @@ pub comptime fn objdef(
         subtype:        subtype,
         anim_table:     anim_table,
         status:         status,
-        angle:          0,
-        pad:            0,
+        angle:          0,             // terrain angle — runtime-only, template leaves 0
+        pad:            0,             // → Sst $20-$21 (prev_anim/anim_frame), re-inited at spawn
     }
 }
