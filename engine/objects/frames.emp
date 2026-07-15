@@ -1,0 +1,25 @@
+// frame_piece_count — read a sprite frame's piece-count word (comptime-fn template)
+//
+// A mappings frame begins with 4 bounding-box bytes, then the piece-count word
+// at FRAME_PIECE_COUNT (+4). Callers hold the frame's base pointer and a
+// pre-doubled word offset into the frame table; this template reads the count:
+//
+//   move.w  FRAME_PIECE_COUNT(base, off.w), dest
+//
+// Register contract:
+//   base — frame-table base pointer (An, read-only)
+//   off  — word offset to the frame within the table (Dn, read-only, .w index)
+//   dest — receives the piece-count word (Dn)
+//
+// The AS twins keep the move inline (load_object.asm / animate.asm) — this is
+// the single .emp source of truth for the +4 offset, byte-identical to them.
+//
+// Pure comptime-fn module: opens no section and emits ZERO bytes anywhere in
+// the ROM — bytes appear only where a consumer splices the template.
+module engine.objects.frames
+
+use engine.constants.{FRAME_PIECE_COUNT}
+
+pub comptime fn frame_piece_count(base: Reg, off: Reg, dest: Reg) -> Code {
+    return asm { move.w FRAME_PIECE_COUNT({base}, {off}.w), {dest} }
+}
