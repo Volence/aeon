@@ -6,15 +6,14 @@
 
 module engine.tile_cache in tile_cache
 
-// ---- ENGINE constants (truth: engine/constants.asm). Mirrored local +
-// drift-locked to keep this port byte-isolated; hoist each into the shared
-// engine.constants twin when it earns a 2nd .emp consumer (section already
-// mirrors TILE_CACHE_COLS/ROWS/STRIDE/NT_SIZE the same way — the shared hoist
-// is deferred to the same wave). ----
-const TILE_CACHE_COLS       = 80
-const TILE_CACHE_ROWS       = 60
-const TILE_CACHE_STRIDE     = TILE_CACHE_COLS
-const TILE_CACHE_NT_SIZE    = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2       // 9600 bytes
+use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
+use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
+
+// ---- ENGINE constants. TILE_CACHE_COLS/ROWS/STRIDE/NT_SIZE now come from the
+// shared engine.constants twin (consolidated at the shared-struct-module batch —
+// section + tile_cache were both mirroring them, the 2nd-consumer trigger). The
+// COLL_*/BLOCK_* derivatives below stay file-local (single consumer, tile_cache-
+// specific), drift-locked against engine/constants.asm. ----
 const TILE_CACHE_COLL_ROWS  = TILE_CACHE_ROWS / 2                         // 30 collision rows
 const TILE_CACHE_COLL_SIZE  = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS      // 2400 bytes per plane
 const TILE_CACHE_COLL_PLANES = 2                                         // path A + path B
@@ -35,27 +34,14 @@ const BLOCK_INDEX_SIZE      = 1024                                        // 256
 const VFILL_ROWS_PER_FRAME  = 2
 const H_PFX_HYST             = 16
 
-// ---- Sec / Act field offsets used here (DEFERRED struct-twin; truth:
-// engine/structs.asm). Sec/Act are multi-consumer (entity_window, section,
-// tile_cache, …) so they earn a SHARED struct module, not a file-local twin —
-// this is the 3rd consumer; adopt-when-that-module-stands-up (ledgered row
-// 1051, committed next batch). Until then, mirror the consumed offsets +
-// drift-lock, the pre-adoption entity_window/section shape. ----
-const Act_sec_grid_ptr       = $00
-const Act_grid_w             = $04
-const Act_grid_h             = $06
-const Sec_sec_block_index    = $00
-const Sec_sec_block_dict     = $2C
-const Sec_sec_block_dict_len = $40
-const Sec_len                = $42
+// ---- Sec / Act field access comes from the shared engine.structs module
+// (`Sec.field(aN)` / `Act.field(aN)`, the grid-dim low-byte views via
+// Act_grid_w_lo / Act_grid_h_lo) — the file-local offset-const mirrors are gone. ----
 
 // ---- Drift guards — engine/constants.asm + engine/structs.asm are the source
 // of truth; each compares this twin's value against the real AS-side equ through
 // the link seam. A mismatch fails the link naming the constant. ----
-ensure(extern("TILE_CACHE_COLS") == TILE_CACHE_COLS, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLS — update the twin")
-ensure(extern("TILE_CACHE_ROWS") == TILE_CACHE_ROWS, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_ROWS — update the twin")
-ensure(extern("TILE_CACHE_STRIDE") == TILE_CACHE_STRIDE, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_STRIDE — update the twin")
-ensure(extern("TILE_CACHE_NT_SIZE") == TILE_CACHE_NT_SIZE, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_NT_SIZE — update the twin")
+// (TILE_CACHE_COLS/ROWS/STRIDE/NT_SIZE drift guards now live centrally in engine.constants.)
 ensure(extern("TILE_CACHE_COLL_ROWS") == TILE_CACHE_COLL_ROWS, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLL_ROWS — update the twin")
 ensure(extern("TILE_CACHE_COLL_SIZE") == TILE_CACHE_COLL_SIZE, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLL_SIZE — update the twin")
 ensure(extern("TILE_CACHE_COLL_PLANES") == TILE_CACHE_COLL_PLANES, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLL_PLANES — update the twin")
@@ -74,16 +60,10 @@ ensure(extern("BLOCK_DECOMP_BUDGET") == BLOCK_DECOMP_BUDGET, "engine/constants.a
 ensure(extern("BLOCK_INDEX_SIZE") == BLOCK_INDEX_SIZE, "engine/constants.asm and tile_cache.emp disagree on BLOCK_INDEX_SIZE — update the twin")
 ensure(extern("VFILL_ROWS_PER_FRAME") == VFILL_ROWS_PER_FRAME, "engine/constants.asm and tile_cache.emp disagree on VFILL_ROWS_PER_FRAME — update the twin")
 ensure(extern("H_PFX_HYST") == H_PFX_HYST, "engine/constants.asm and tile_cache.emp disagree on H_PFX_HYST — update the twin")
-ensure(extern("Act_sec_grid_ptr") == Act_sec_grid_ptr, "engine/structs.asm and tile_cache.emp disagree on Act_sec_grid_ptr — update the twin")
-ensure(extern("Act_grid_w") == Act_grid_w, "engine/structs.asm and tile_cache.emp disagree on Act_grid_w — update the twin")
-ensure(extern("Act_grid_h") == Act_grid_h, "engine/structs.asm and tile_cache.emp disagree on Act_grid_h — update the twin")
-ensure(extern("Sec_sec_block_index") == Sec_sec_block_index, "engine/structs.asm and tile_cache.emp disagree on Sec_sec_block_index — update the twin")
-ensure(extern("Sec_sec_block_dict") == Sec_sec_block_dict, "engine/structs.asm and tile_cache.emp disagree on Sec_sec_block_dict — update the twin")
-ensure(extern("Sec_sec_block_dict_len") == Sec_sec_block_dict_len, "engine/structs.asm and tile_cache.emp disagree on Sec_sec_block_dict_len — update the twin")
-ensure(extern("Sec_len") == Sec_len, "engine/structs.asm and tile_cache.emp disagree on Sec_len — update the twin")
+// (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
 // The ×66 Sec stride (lsl #6 + lsl #1) in TileCache_DecompressBlock assumes the
 // Sec struct is 66 bytes — the AS twin's `if Sec_len <> 66 / error` guard.
-ensure(Sec_len == 66, "tile_cache Sec stride (lsl #6 + lsl #1 = ×66) assumes Sec_len=66 — update the shifts")
+ensure(sizeof(Sec) == 66, "tile_cache Sec stride (lsl #6 + lsl #1 = ×66) assumes sizeof(Sec)=66 — update the shifts")
 
 // coll_src_row_base — staged-block collision-row byte base from an intra-block
 // tile row (mirrors the AS `collSrcRowBase` macro). Parity-safe: halve the tile
@@ -260,7 +240,7 @@ pub proc TileCache_InvalidateStaging () clobbers(d0/a0) {
 // Index entry forms: 0 = empty (zero-fill); bit 31 set = RAW DIRECT (offset
 // from table base to an uncompressed 768-byte block in the dict region —
 // straight ROM→slot copy); else = S4LZ v3 stream decoded with the section's
-// block dictionary pre-seeding the window (Sec_sec_block_dict/_len).
+// block dictionary pre-seeding the window (Sec.sec_block_dict/_len).
 // In:  d0.w = sec_x, d1.w = sec_y, d2.w = block_index (0–255)
 // Out: a1 = slot base (nametable; collision at +BLOCK_NT_SIZE)
 // Clobbers: d0-d7, a0-a4
@@ -288,20 +268,20 @@ pub proc TileCache_DecompressBlock () clobbers(d0-d7/a0/a2-a4) out(a1) {
         movea.l (a1, d4.w), a3                 // a3 = dest slot base
 
         movea.l Current_Act_Ptr, a0
-        movea.l Act_sec_grid_ptr(a0), a1
+        movea.l Act.sec_grid_ptr(a0), a1
 
         // -- world-edge guard: the fixed-width cache extends past the act
         //    grid at boundaries (and debug-fly wanders anywhere), so out-of-
         //    grid requests are legitimate — they decompress as blank blocks
         //    (tile 0, collision 0) instead of indexing the Sec table out of
         //    range. The key recorded above caches the blank like any block. --
-        cmp.w   Act_grid_w(a0), d0
+        cmp.w   Act.grid_w(a0), d0
         bhs     .empty_block                   // (target past .s in DEBUG only — the .raw_direct assert block; bare relaxes per shape, twin ifdefs it)
-        cmp.w   Act_grid_h(a0), d1
+        cmp.w   Act.grid_h(a0), d1
         bhs     .empty_block
 
         // sec_id = sec_y * grid_w + sec_x (add loop, cold path)
-        move.w  Act_grid_w(a0), d4             // d4 = grid_w
+        move.w  Act.grid_w(a0), d4             // d4 = grid_w
         moveq   #0, d3                         // accumulator
         move.w  d1, d5                         // d5 = sec_y counter
         jbra    .mul_test
@@ -310,14 +290,14 @@ pub proc TileCache_DecompressBlock () clobbers(d0-d7/a0/a2-a4) out(a1) {
     .mul_test:
         dbf     d5, .mul_loop
         add.w   d0, d3                         // d3 = flat section id
-        // d3 × Sec_len ($42 = 66 = 64 + 2)
+        // d3 × sizeof(Sec) ($42 = 66 = 64 + 2)
         move.w  d3, d4
         lsl.w   #6, d3                         // flat × 64
         lsl.w   #1, d4                         // flat × 2
         add.w   d4, d3                         // flat × 66
         adda.w  d3, a1                         // a1 = Sec struct pointer
 
-        movea.l Sec_sec_block_index(a1), a2    // a2 = block index table base (ROM)
+        movea.l Sec.sec_block_index(a1), a2    // a2 = block index table base (ROM)
         move.l  a2, d3
         beq     .empty_block                   // (target past .s in DEBUG only — the .raw_direct assert block; bare relaxes per shape, twin ifdefs it)
 
@@ -330,8 +310,8 @@ pub proc TileCache_DecompressBlock () clobbers(d0-d7/a0/a2-a4) out(a1) {
 
         // compressed v3 stream — decode with the section dictionary window
         lea     (a2, d0.l), a0                 // a0 = compressed block data
-        move.w  Sec_sec_block_dict_len(a1), d4 // d4 = dict bytes (0 = none)
-        movea.l Sec_sec_block_dict(a1), a4     // a4 = raw dict base (ROM)
+        move.w  Sec.sec_block_dict_len(a1), d4 // d4 = dict bytes (0 = none)
+        movea.l Sec.sec_block_dict(a1), a4     // a4 = raw dict base (ROM)
         movea.l a3, a1
         move.l  a3, -(sp)                      // decompress clobbers a3, advances a1
         jbsr    S4LZ_DecompressDict            // cross-seam: engine/compression/s4lz_decompress.asm
@@ -694,7 +674,7 @@ pub proc TileCache_WarmupBelowRow () clobbers(d0-d7/a0-a4) {
         lsr.w   #8, d5                         // sec_y
         movea.l Current_Act_Ptr, a0
         moveq   #0, d0
-        move.b  Act_grid_h+1(a0), d0           // grid_h (sections)
+        move.b  Act_grid_h_lo(a0), d0           // grid_h (sections)
         cmp.w   d0, d5
         bcc     .done                          // sec_y >= grid_h — below the world, skip
 
@@ -710,7 +690,7 @@ pub proc TileCache_WarmupBelowRow () clobbers(d0-d7/a0-a4) {
         // grid guard: sec_x < grid_w (cols past the act right edge decompress blank)
         movea.l Current_Act_Ptr, a0
         moveq   #0, d3
-        move.b  Act_grid_w+1(a0), d3           // grid_w (sections)
+        move.b  Act_grid_w_lo(a0), d3           // grid_w (sections)
         cmp.w   d3, d0
         bcc     .next                          // sec_x >= grid_w — past world, skip col
         jbsr    TileCache_FindStagedBlock      // Z set on hit; d0-d2 preserved
@@ -1070,7 +1050,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         lsr.w   #8, d5                         // sec_y
         movea.l Current_Act_Ptr, a0
         moveq   #0, d0
-        move.b  Act_grid_h+1(a0), d0           // grid_h (sections)
+        move.b  Act_grid_h_lo(a0), d0           // grid_h (sections)
         cmp.w   d0, d5
         bcc     .row_done                      // sec_y >= grid_h — out of world
         jbra    .pfx_go
@@ -1096,7 +1076,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         decompose_block(d6, d7)                // -> sec_x=d0, sec_y=d1, block_index=d2
         movea.l Current_Act_Ptr, a0
         moveq   #0, d3
-        move.b  Act_grid_w+1(a0), d3
+        move.b  Act_grid_w_lo(a0), d3
         cmp.w   d3, d0
         bcc     .pfx_next                      // sec_x >= grid_w — out of world, skip col
         jbsr    TileCache_FindStagedBlock      // Z on hit; d0-d2 preserved; clobbers d3-d4,a1
@@ -1175,7 +1155,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         lsr.w   #8, d5                         // sec_x
         movea.l Current_Act_Ptr, a0
         moveq   #0, d0
-        move.b  Act_grid_w+1(a0), d0           // grid_w (sections)
+        move.b  Act_grid_w_lo(a0), d0           // grid_w (sections)
         cmp.w   d0, d5
         bcc     .col_done                      // sec_x >= grid_w — out of world
         move.w  d6, Cache_Pfx_Col_Target       // record for the corner (H2)
@@ -1189,7 +1169,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         lsr.w   #8, d5                         // sec_y
         movea.l Current_Act_Ptr, a0
         moveq   #0, d3
-        move.b  Act_grid_h+1(a0), d3
+        move.b  Act_grid_h_lo(a0), d3
         cmp.w   d3, d5
         bcc     .cs_next                       // sec_y >= grid_h — skip this block row
         decompose_block(d6, d7)                // -> sec_x=d0, sec_y=d1, block_index=d2

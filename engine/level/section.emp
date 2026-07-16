@@ -6,34 +6,24 @@
 module engine.section in section
 
 use engine.constants.{SECTION_SIZE_SHIFT}
+use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
+use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 
 // ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm,
 // except VRAM_PLANE_B_BYTES from engine/level/bg.asm). Mirrored local +
 // drift-locked to keep this port byte-isolated; hoist each into the shared
 // engine.constants twin when a 2nd .emp file consumes it (the SECTION_SIZE_SHIFT
-// precedent — it consolidated once section became its 2nd consumer). ----
+// + TILE_CACHE_* precedent — both consolidated once section became a 2nd
+// consumer). ----
 const VRAM_PLANE_A       = $C000        // Plane A nametable VRAM byte address
 const VRAM_PLANE_B_BYTES = $E000        // Plane B nametable VRAM byte address
 const PLANE_H_CELLS      = 64
 const PLANE_V_CELLS      = 64
 const PLANE_BUFFER_SIZE  = 1536         // plane-update ring buffer bytes
-const TILE_CACHE_COLS    = 80
-const TILE_CACHE_ROWS    = 60
-const TILE_CACHE_STRIDE  = TILE_CACHE_COLS
-const TILE_CACHE_NT_SIZE = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2
 
-// ---- Sec / Act field offsets used here (DEFERRED struct-twin; truth:
-// engine/structs.asm). The Sec/Act structs are multi-consumer (section,
-// tile_cache, camera, parallax) so they earn a SHARED struct module, not a
-// file-local twin — adopt-when-that-module-stands-up (ledgered). Until then,
-// mirror the consumed offsets + drift-lock, the pre-adoption entity_window
-// shape. ----
-const Act_sec_grid_ptr   = $00
-const Act_grid_w         = $04
-const Act_grid_h         = $06
-const Act_act_bg_layout  = $0E
-const Sec_sec_bg_layout  = $1C
-const Sec_len            = $42
+// ---- Sec / Act field access comes from the shared engine.structs module
+// (`Sec.field(aN)` / `Act.field(aN)`, the grid-dim low-byte views via
+// Act_grid_w_lo / Act_grid_h_lo) — the file-local offset-const mirrors are gone. ----
 
 // ---- Drift guards — engine/constants.asm (+ bg.asm, structs.asm) are the
 // source of truth; each compares this twin's value against the real AS-side
@@ -43,19 +33,11 @@ ensure(extern("VRAM_PLANE_B_BYTES") == VRAM_PLANE_B_BYTES, "engine/level/bg.asm 
 ensure(extern("PLANE_H_CELLS") == PLANE_H_CELLS, "engine/constants.asm and section.emp disagree on PLANE_H_CELLS — update the twin")
 ensure(extern("PLANE_V_CELLS") == PLANE_V_CELLS, "engine/constants.asm and section.emp disagree on PLANE_V_CELLS — update the twin")
 ensure(extern("PLANE_BUFFER_SIZE") == PLANE_BUFFER_SIZE, "engine/constants.asm and section.emp disagree on PLANE_BUFFER_SIZE — update the twin")
-ensure(extern("TILE_CACHE_COLS") == TILE_CACHE_COLS, "engine/constants.asm and section.emp disagree on TILE_CACHE_COLS — update the twin")
-ensure(extern("TILE_CACHE_ROWS") == TILE_CACHE_ROWS, "engine/constants.asm and section.emp disagree on TILE_CACHE_ROWS — update the twin")
-ensure(extern("TILE_CACHE_STRIDE") == TILE_CACHE_STRIDE, "engine/constants.asm and section.emp disagree on TILE_CACHE_STRIDE — update the twin")
-ensure(extern("TILE_CACHE_NT_SIZE") == TILE_CACHE_NT_SIZE, "engine/constants.asm and section.emp disagree on TILE_CACHE_NT_SIZE — update the twin")
-ensure(extern("Act_sec_grid_ptr") == Act_sec_grid_ptr, "engine/structs.asm and section.emp disagree on Act_sec_grid_ptr — update the twin")
-ensure(extern("Act_grid_w") == Act_grid_w, "engine/structs.asm and section.emp disagree on Act_grid_w — update the twin")
-ensure(extern("Act_grid_h") == Act_grid_h, "engine/structs.asm and section.emp disagree on Act_grid_h — update the twin")
-ensure(extern("Act_act_bg_layout") == Act_act_bg_layout, "engine/structs.asm and section.emp disagree on Act_act_bg_layout — update the twin")
-ensure(extern("Sec_sec_bg_layout") == Sec_sec_bg_layout, "engine/structs.asm and section.emp disagree on Sec_sec_bg_layout — update the twin")
-ensure(extern("Sec_len") == Sec_len, "engine/structs.asm and section.emp disagree on Sec_len — update the twin")
+// (TILE_CACHE_* drift guards now live centrally in engine.constants.)
+// (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
 // The ×66 stride trick in Section_GetSecPtrXY (lsl #6 + lsl #1) assumes the Sec
 // struct is 66 bytes — the AS twin's `if Sec_len <> 66 / error` guard.
-ensure(Sec_len == 66, "Section_GetSecPtrXY stride (lsl #6 + lsl #1 = ×66) assumes Sec_len=66 — update the shifts")
+ensure(sizeof(Sec) == 66, "Section_GetSecPtrXY stride (lsl #6 + lsl #1 = ×66) assumes sizeof(Sec)=66 — update the shifts")
 
 // ---- VDP command macros (truth: engine/macros.asm). First .emp consumer. ----
 
@@ -202,7 +184,7 @@ pub proc Section_FlatIDXY () clobbers(d1) out(d0) {
         subq.w  #1, d1
         bmi     .fxy_add_x
     .fxy_mul:
-        add.w   Act_grid_w(a2), d0
+        add.w   Act.grid_w(a2), d0
         dbf     d1, .fxy_mul
     .fxy_add_x:
         moveq   #0, d1
@@ -218,9 +200,9 @@ pub proc Section_FlatIDXY () clobbers(d1) out(d0) {
 // Clobbers: d0, d1     (d2/d3/a2 preserved — sec_x stack-saved across multiply)
 // -----------------------------------------------
 pub proc Section_GetSecPtrXY () clobbers(d1) out(d0, a0) {
-        cmp.b   Act_grid_w+1(a2), d2
+        cmp.b   Act_grid_w_lo(a2), d2
         bcc     .out_of_range                   // sec_x >= grid_w (unsigned)
-        cmp.b   Act_grid_h+1(a2), d3
+        cmp.b   Act_grid_h_lo(a2), d3
         bcc     .out_of_range                   // sec_y >= grid_h (unsigned)
 
         // flat_id = sec_y * grid_w + sec_x (repeated-add, no multiply)
@@ -228,7 +210,7 @@ pub proc Section_GetSecPtrXY () clobbers(d1) out(d0, a0) {
         move.b  d3, d0                          // d0 = sec_y
         beq     .gxy_add_x
         move.w  d2, -(sp)                       // save sec_x input
-        move.w  Act_grid_w(a2), d1              // d1 = grid_w
+        move.w  Act.grid_w(a2), d1              // d1 = grid_w
         move.w  d0, d2                          // d2 = sec_y counter
         moveq   #0, d0                          // d0 = accumulator
         subq.w  #1, d2
@@ -241,8 +223,8 @@ pub proc Section_GetSecPtrXY () clobbers(d1) out(d0, a0) {
         move.b  d2, d1
         add.w   d1, d0                          // d0 = flat section index
 
-        // d0 × Sec_len ($42 = 66 = 64 + 2)   [stride guard: module-level ensure]
-        movea.l Act_sec_grid_ptr(a2), a0
+        // d0 × sizeof(Sec) ($42 = 66 = 64 + 2)   [stride guard: module-level ensure]
+        movea.l Act.sec_grid_ptr(a2), a0
         move.w  d0, d1
         lsl.w   #6, d0                          // flat × 64
         lsl.w   #1, d1                          // flat × 2
@@ -442,11 +424,11 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6) out(d5, d7) {
         asr.w   d0, d3                          // d3.w = sec_y
         jbsr    Section_GetSecPtrXY             // a0 = on-screen Sec ptr (Z set = none)
         beq     .plb_use_act_layout
-        movea.l Sec_sec_bg_layout(a0), a1
+        movea.l Sec.sec_bg_layout(a0), a1
         cmpa.w  #0, a1
         bne     .plb_have_layout
     .plb_use_act_layout:
-        movea.l Act_act_bg_layout(a2), a1       // T1 fallback to act-level BG
+        movea.l Act.act_bg_layout(a2), a1       // T1 fallback to act-level BG
         cmpa.w  #0, a1
         beq     .plb_done
     .plb_have_layout:
@@ -518,7 +500,7 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         // clamp to act boundary
         movea.l Current_Act_Ptr, a0
         moveq   #0, d0
-        move.w  Act_grid_w(a0), d0
+        move.w  Act.grid_w(a0), d0
         lsl.w   #8, d0
         subq.w  #1, d0
         cmp.w   d0, d7

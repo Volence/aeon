@@ -13,6 +13,7 @@ module engine.objects.entity_window in entity_window
 use engine.constants.{SLOT_TAG_UNTAGGED, SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.constants.{SECTION_SIZE, SECTION_SIZE_SHIFT, SEC_VOID}
 use engine.objects.sst.{Sst}
+use engine.structs.{Sec, Act_grid_w_lo}
 
 // GAME-owned capacity mirrors (truth: games/sonic4/config/constants.asm).
 // Sit in immediate/moveq/displacement positions → comptime mirrors here,
@@ -67,11 +68,8 @@ struct EntityScanState (size: $1A) {
     ess_origin_y: u16 @ $18,          // $18 — section origin Y (engine-space px)
 }
 
-// Sec (ROM section descriptor) + Act field offsets used here.
-const Sec_sec_objects     = $04
-const Sec_sec_rings       = $08
-const Sec_sec_type_table  = $20
-const Act_grid_w          = $04
+// Sec (ROM section descriptor) + Act field access comes from the shared
+// engine.structs module (`Sec.field(aN)`, the grid-dim low byte via Act_grid_w_lo).
 
 // Drift-locks: every mirrored value pinned to its AS-side truth. A layout or
 // value change on either side fails the link naming the constant.
@@ -108,10 +106,7 @@ ensure(extern("EntityScanState_ess_section_id") == $16, "engine/structs.asm and 
 ensure(extern("EntityScanState_ess_entry_idx") == $17, "engine/structs.asm and entity_window.emp disagree on ess_entry_idx — update the twin")
 ensure(extern("EntityScanState_ess_origin_y") == $18, "engine/structs.asm and entity_window.emp disagree on ess_origin_y — update the twin")
 ensure(extern("EntityScanState_len") == $1A, "engine/structs.asm and entity_window.emp disagree on EntityScanState_len — update the twin")
-ensure(extern("Sec_sec_objects") == Sec_sec_objects, "engine/structs.asm and entity_window.emp disagree on Sec_sec_objects — update the twin")
-ensure(extern("Sec_sec_rings") == Sec_sec_rings, "engine/structs.asm and entity_window.emp disagree on Sec_sec_rings — update the twin")
-ensure(extern("Sec_sec_type_table") == Sec_sec_type_table, "engine/structs.asm and entity_window.emp disagree on Sec_sec_type_table — update the twin")
-ensure(extern("Act_grid_w") == Act_grid_w, "engine/structs.asm and entity_window.emp disagree on Act_grid_w — update the twin")
+// (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
 
 // Loaded-mask geometry static asserts (AS `if <> / error` → ensure).
 ensure(ENTITY_LOADED_SLOT_SIZE == 32, "EntityLoaded primitives assume 32-byte slots (lsl #5)")
@@ -650,9 +645,9 @@ proc EntityWindow_InitSection () clobbers(d3, a2) {
         dbf     d3, .clear_mask
     .same_section:
 
-        move.l  Sec_sec_rings(a0), EntityScanState.ess_rom_ring_ptr(a1)
-        move.l  Sec_sec_objects(a0), EntityScanState.ess_rom_obj_ptr(a1)
-        move.l  Sec_sec_type_table(a0), EntityScanState.ess_rom_type_tbl_ptr(a1)
+        move.l  Sec.sec_rings(a0), EntityScanState.ess_rom_ring_ptr(a1)
+        move.l  Sec.sec_objects(a0), EntityScanState.ess_rom_obj_ptr(a1)
+        move.l  Sec.sec_type_table(a0), EntityScanState.ess_rom_type_tbl_ptr(a1)
         move.w  d0, EntityScanState.ess_origin_x(a1)
         move.w  d2, EntityScanState.ess_origin_y(a1)
         move.b  d1, EntityScanState.ess_section_id(a1)
@@ -842,7 +837,7 @@ pub proc EntityWindow_Init () clobbers(d0-d7, a0-a4) falls_into EntityWindow_Sca
         movea.l Current_Act_Ptr, a2
         jbsr    Section_FlatIDXY        // d0.w = camera-center flat id
         moveq   #0, d1
-        move.b  Act_grid_w+1(a2), d1
+        move.b  Act_grid_w_lo(a2), d1
         jbsr    Collected_UpdateCenter
 
         jbsr    EntityWindow_BuildEntries
@@ -1639,7 +1634,7 @@ proc EntityWindow_Slide () clobbers(d0-d7, a0-a4) {
         movea.l Current_Act_Ptr, a2
         jbsr    Section_FlatIDXY        // d0.w = camera-center flat id
         moveq   #0, d1
-        move.b  Act_grid_w+1(a2), d1
+        move.b  Act_grid_w_lo(a2), d1
         jbsr    Collected_UpdateCenter
 
         if DEBUG == 1 {
