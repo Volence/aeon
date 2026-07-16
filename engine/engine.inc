@@ -308,7 +308,22 @@ __BUDGET_ENGINE:
         org     $405E
       endif
     endif
-    include "engine/level/plane_buffer.asm"
+    ifndef SIGIL_EMP_PLANE_BUFFER
+        include "engine/level/plane_buffer.asm"
+    else
+        ; sigil mixed build: Plane_Buffer_Reset..VInt_DrawLevel come from
+        ; engine/level/plane_buffer.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end (Tile_Cache_GetTile).
+        ; Shape-INVARIANT length ($29C both shapes; no asserts / no __DEBUG__) — the
+        ; two resume orgs differ only by the upstream base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define must
+        ; never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $4EC4
+      else
+        org     $42FA
+      endif
+    endif
     ifndef SIGIL_EMP_TILE_CACHE
         include "engine/level/tile_cache.asm"
     else
