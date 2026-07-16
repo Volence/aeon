@@ -34,8 +34,15 @@ ParallaxConfig_OJZ_Default:
     ; height — the wrap is seamless, no per-section compensation needed.
     ; Band tops below are PLANE B cell rows (0..63), converted to screen
     ; cells per frame by Step 4a in Parallax_Update.
+    ; deformShiftDefault=15 marks every band's H-deform channel INACTIVE (shift 15
+    ; = the runtime "flat" sentinel, parallax.asm .fg_inactive/.lp_flat), so each
+    ; band skips the per-line deform sample loop on this all-zero table (~16k cy/f).
+    ; Mode-select keys on the table POINTER being non-NULL, not the shift, so
+    ; per-line HScroll mode ($03, 896-byte DMA, pixel-clean band boundaries) is
+    ; retained — the emitted HScroll is byte-identical, just produced without the
+    ; pointless (0 >> shift) = 0 math. Free lunch; no visual change.
     parallax_section layerMask=$1F, vFactorBg=3, vCenter=512, vOffset=0, \
-                     deformBg=DeformTable_Zero
+                     deformBg=DeformTable_Zero, deformShiftDefault=15
         ; Deep Forest tuning: the colonnade band scrolls at 1/8 line-scroll
         ; + camera/4 tile animation = 3/8 apparent, keeping the depth stack
         ; monotonic: 1/16 canopy, 3/8 trunks, 1/2 undergrowth, 5/8 roots, 1 FG.
