@@ -323,7 +323,7 @@ __BUDGET_ENGINE:
       ifdef __DEBUG__
         org     $589A
       else
-        org     $4C10
+        org     $4C1A
       endif
     endif
     ifndef SIGIL_EMP_COLLISION_LOOKUP
@@ -336,9 +336,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $58BE
+        org     $58C8
       else
-        org     $4C34
+        org     $4C3E
       endif
     endif
     gameEngineBlockIncludes
@@ -353,9 +353,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $6196
+        org     $61A0
       else
-        org     $550C
+        org     $5516
       endif
     endif
     include "engine/level/camera.asm"

@@ -822,9 +822,10 @@ Tile_Cache_Fill:
         subq.w  #1, d5                         ; restore d5 to even (pair base)
         bra.s   .v_top_fill
 .v_top_done:
-        ; --- leftover-budget prefetch: pre-decompress one block of the NEXT
-        ;     block-row in the scroll direction, flattening the 6-block spike
-        ;     at block-row crossings across the quiet frames between them ---
+        ; --- leftover-budget prefetch: stage the next block-row's blocks (one
+        ;     per frame, left-to-right — the enumeration at .pfx_go) so a crossing
+        ;     finds them cached. Flattens the ~6-block crossing spike across the
+        ;     ~8 quiet frames between crossings. ---
         tst.w   (Cache_Fill_Budget).w
         beq.w   .fill_return                   ; budget spent — no prefetch
 
@@ -837,7 +838,7 @@ Tile_Cache_Fill:
         move.w  (Cache_Prev_Cam_Row).w, d1
         move.w  d0, (Cache_Prev_Cam_Row).w     ; update for next frame
         sub.w   d1, d0                         ; d0 = delta (+down / -up / 0)
-        beq.s   .fill_return                   ; not moving vertically — skip
+        beq.w   .fill_return                   ; not moving vertically — skip (.w: the prefetch scan below pushed .fill_return past .s range)
         bmi.s   .pfx_up
 
         ; moving DOWN: target = world tile row of the block-row below cache bottom
@@ -866,43 +867,50 @@ Tile_Cache_Fill:
         ; d7 >= 0 guaranteed (just subtracted from a value > 0)
 
 .pfx_go:
-        ; d7 = target world tile row (within a valid block in the act grid)
-        ; block column under camera center X
-        move.l  (Camera_X).w, d6
-        swap    d6
-        addi.w  #160, d6                       ; camera center X (world pixels)
-        lsr.w   #3, d6                         ; d0 = camera center world tile col
+        ; d7 = target world tile row (next block-row, a valid block in the grid).
+        ; Scan the cache's block columns [Left..Head] and stage the FIRST unstaged
+        ; block, ONE per frame (k=1). Across the ~8 quiet frames between crossings
+        ; this warms the whole next row left-to-right (already-staged cols are
+        ; cheap FindStagedBlock hits), so the crossing finds it cached — THIS is
+        ; the "flatten the 6-block spike" mechanism. (No RAM cursor: the scan
+        ; self-advances as cols get staged, and re-targets across crossings free —
+        ; the target row is stable for the 8 quiet frames, then jumps. The <=6
+        ; probes/frame land in a quiet frame's leftover budget.)
+        move.w  (Cache_Left_Col).w, d6
+        andi.w  #$FFF0, d6                     ; align to the first block col
+.pfx_scan:
+        cmp.w   (Cache_Head_Col).w, d6
+        bgt.s   .pfx_skip                      ; whole next row already staged — done
+        ; decompose (col d6, row d7) -> sec_x=d0, sec_y=d1, block_index=d2
         move.w  d6, d0
-
-        ; decompose (same pattern as FillColumn/FillRow):
-        ; d0 = world tile col,  d7 = world tile row of target block
-        move.w  d0, d6                         ; save world tile col
-        lsr.w   #8, d0                         ; sec_x = world_tile_col >> 8
-        ; guard: sec_x must be < grid_w (mirror of the sec_y guard above —
-        ; near the act right edge the center column can sit past the grid;
-        ; the block would decompress blank, wasting the leftover budget)
-        movea.l (Current_Act_Ptr).w, a0
-        moveq   #0, d1
-        move.b  Act_grid_w+1(a0), d1
-        cmp.w   d1, d0
-        bcc.s   .pfx_skip
+        lsr.w   #8, d0                         ; sec_x = tile_col >> 8
         move.w  d7, d1
-        lsr.w   #8, d1                         ; sec_y = world_tile_row >> 8
+        lsr.w   #8, d1                         ; sec_y = tile_row >> 8
         move.w  d6, d2
         lsr.w   #BLOCK_TILE_SHIFT, d2
-        andi.w  #$F, d2                        ; block_x = (world_tile_col >> 4) & 15
+        andi.w  #$F, d2                        ; block_x = (tile_col >> 4) & 15
         move.w  d7, d3
         lsr.w   #BLOCK_TILE_SHIFT, d3
-        andi.w  #$F, d3                        ; block_y = (world_tile_row >> 4) & 15
+        andi.w  #$F, d3                        ; block_y = (tile_row >> 4) & 15
         lsl.w   #4, d3
         add.w   d2, d3
-        move.w  d3, d2                         ; d2 = block_index
-
-        bsr.w   TileCache_FindStagedBlock      ; Z set + a1 on hit; d0-d2 preserved; clobbers d3-d4,a1
-        beq.s   .pfx_skip                      ; already staged — nothing to do
-
+        move.w  d3, d2                         ; block_index = block_y*16 + block_x
+        ; grid guard: sec_x < grid_w (near the act right edge the col sits past
+        ; the grid; skip — that block decompresses blank, wasting budget). sec_y
+        ; was guarded once at the .pfx_up/.pfx_go entry (d7 is fixed for the scan).
+        movea.l (Current_Act_Ptr).w, a0
+        moveq   #0, d3
+        move.b  Act_grid_w+1(a0), d3
+        cmp.w   d3, d0
+        bcc.s   .pfx_next                      ; sec_x >= grid_w — out of world, skip col
+        bsr.w   TileCache_FindStagedBlock      ; Z set on hit; d0-d2 preserved; clobbers d3-d4,a1
+        beq.s   .pfx_next                      ; already staged — try next col
         subq.w  #1, (Cache_Fill_Budget).w
-        bsr.w   TileCache_DecompressBlock      ; d0=sec_x, d1=sec_y, d2=block_index in; clobbers d0-d7,a0-a4
+        bsr.w   TileCache_DecompressBlock      ; stage this block (d0/d1/d2 in) — k=1, then done
+        bra.s   .pfx_skip
+.pfx_next:
+        addi.w  #BLOCK_TILE_SIZE, d6           ; next block col
+        bra.s   .pfx_scan
 
 .pfx_skip:
 .fill_return:
