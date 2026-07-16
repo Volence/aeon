@@ -953,7 +953,11 @@ Tile_Cache_Fill:
         swap    d0
         lsr.w   #3, d0                         ; d0 = camera world tile row
         move.w  (Cache_Prev_Cam_Row).w, d1
-        move.w  d0, (Cache_Prev_Cam_Row).w     ; update for next frame
+        move.w  d0, (Cache_Prev_Cam_Row).w     ; update for next frame. If a frame is
+                                               ; H4-gate-skipped or budget-0 this (and the
+                                               ; Cache_Prev_Cam_X update below) don't run,
+                                               ; so the next tail-run sees a DOUBLED delta —
+                                               ; harmless: V uses the sign only, H nets px.
         sub.w   d1, d0                         ; d0 = delta (+down / -up / 0)
         beq.w   .row_done                      ; not moving vertically — no row target
         bmi.s   .pfx_up
@@ -1059,7 +1063,10 @@ Tile_Cache_Fill:
         move.w  d3, (Cache_H_Pfx_Dir).w
         clr.w   (Cache_H_Pfx_Accum).w
 .cs_latched:
-        ; d3 = latched direction (+1 right / -1 left)
+        ; d3 = latched direction (+1 right / -1 left). NOTE: the col scan runs whenever a
+        ; direction is latched — INCLUDING purely-vertical frames (no H motion this frame)
+        ; — so it keeps pre-warming the latched-side column. Probe-only cost when that
+        ; column is already staged (FindStagedBlock hits, no decompress); intentional.
         tst.w   (Cache_Fill_Budget).w
         beq.w   .fill_return                   ; row scan spent the budget — no col this frame
         tst.w   d3
