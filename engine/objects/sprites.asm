@@ -286,7 +286,8 @@ Render_Sprites:
         ; Skip entirely when total pieces < limit — no band can overflow yet
         cmpi.w  #SCANLINE_SPRITE_LIMIT, d5
         blo.s   .budget_ok
-        move.w  d3, d0                     ; d0 = screen-relative Y
+        move.w  d3, d0                     ; d0 = biased Y (screen Y + 128)
+        subi.w  #VDP_SPRITE_Y_OFFSET, d0   ; d0 = true screen-relative Y (unbias)
         bmi.s   .budget_ok                 ; above screen — allow
         lsr.w   #5, d0                     ; d0 = screen_y >> 5 = band index (0-6)
         cmpi.w  #SCANLINE_BANDS, d0

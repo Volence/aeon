@@ -319,7 +319,8 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // (Volence's gate call: keep soft, or always-commit + charge children.)
         cmpi.w  #SCANLINE_SPRITE_LIMIT, d5
         blo   .budget_ok
-        move.w  d3, d0                     // d0 = screen-relative Y
+        move.w  d3, d0                     // d0 = biased Y (screen Y + 128)
+        subi.w  #VDP_SPRITE_Y_OFFSET, d0   // d0 = true screen-relative Y (unbias)
         bmi   .budget_ok                 // above screen — allow
         lsr.w   #5, d0                     // d0 = screen_y >> 5 = band index (0-6)
         cmpi.w  #SCANLINE_BANDS, d0
