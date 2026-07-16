@@ -309,7 +309,25 @@ __BUDGET_ENGINE:
       endif
     endif
     include "engine/level/plane_buffer.asm"
-    include "engine/level/tile_cache.asm"
+    ifndef SIGIL_EMP_TILE_CACHE
+        include "engine/level/tile_cache.asm"
+    else
+        ; sigil mixed build: Tile_Cache_GetTile..TileCache_Reinit come from
+        ; engine/level/tile_cache.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end (collision_lookup's
+        ; Collision_GetType — the SIGIL_EMP_COLLISION_LOOKUP block below). Shape-
+        ; VARYING length ($996 plain / $A56 debug — the .raw_direct assert block;
+        ; Wave-2 (ii) WarmupBelowRow grew it +$76 plain / +$80 debug from the
+        ; Wave-2 (i) $920/$9D6, the extra $A in debug = an auto-width branch in the
+        ; region relaxing under the insertion shift).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define must
+        ; never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $591A
+      else
+        org     $4C90
+      endif
+    endif
     ifndef SIGIL_EMP_COLLISION_LOOKUP
         include "engine/level/collision_lookup.asm"
     else
@@ -320,9 +338,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $58C4
+        org     $593E
       else
-        org     $4C42
+        org     $4CB4
       endif
     endif
     gameEngineBlockIncludes
@@ -337,9 +355,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $619C
+        org     $6216
       else
-        org     $551A
+        org     $558C
       endif
     endif
     include "engine/level/camera.asm"
@@ -362,9 +380,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $797C
+        org     $79F6
         else
-        org     $5F6A
+        org     $5FDC
         endif
       endif
     endif

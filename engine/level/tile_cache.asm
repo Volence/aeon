@@ -171,9 +171,17 @@ TileCache_DecompressBlock:
         ;    (tile 0, collision 0) instead of indexing the Sec table out of
         ;    range. The key recorded above caches the blank like any block. --
         cmp.w   Act_grid_w(a0), d0
-        bhs.w   .empty_block                   ; (.w: raw-copy path pushes target past .s range)
+    ifdef __DEBUG__
+        bhs.w   .empty_block            ; debug: the assert block pushes .empty_block past .s range
+    else
+        bhs.s   .empty_block            ; plain: within .s range (asl/sigil relax per shape)
+    endif
         cmp.w   Act_grid_h(a0), d1
-        bhs.w   .empty_block
+    ifdef __DEBUG__
+        bhs.w   .empty_block            ; debug: the assert block pushes .empty_block past .s range
+    else
+        bhs.s   .empty_block            ; plain: within .s range (asl/sigil relax per shape)
+    endif
 
         ; sec_id = sec_y * grid_w + sec_x (add loop, cold path)
         move.w  Act_grid_w(a0), d4             ; d4 = grid_w
@@ -197,13 +205,21 @@ TileCache_DecompressBlock:
 
         movea.l Sec_sec_block_index(a1), a2    ; a2 = block index table base (ROM)
         move.l  a2, d3
-        beq.w   .empty_block                   ; (.w: raw-copy path pushes target past .s range)
+    ifdef __DEBUG__
+        beq.w   .empty_block            ; debug: the assert block pushes .empty_block past .s range
+    else
+        beq.s   .empty_block            ; plain: within .s range (asl/sigil relax per shape)
+    endif
 
         ; index into block table: block_index × 4
         move.w  d2, d3
         lsl.w   #2, d3
         move.l  (a2, d3.w), d0                 ; d0 = offset from table base (0 = null)
-        beq.w   .empty_block
+    ifdef __DEBUG__
+        beq.w   .empty_block            ; debug: the assert block pushes .empty_block past .s range
+    else
+        beq.s   .empty_block            ; plain: within .s range (asl/sigil relax per shape)
+    endif
         bmi.s   .raw_direct                    ; bit 31 = raw block in the dict region
 
         ; compressed v3 stream — decode with the section dictionary window
@@ -388,7 +404,8 @@ Tile_Cache_Init:
 
         bsr.w   TileCache_InvalidateStaging
 
-        bsr.w   TileCache_FillAll
+        bsr.s   TileCache_FillAll
+        bsr.w   TileCache_WarmupBelowRow       ; (ii) cold-start: pre-stage the below-row
         rts
 
 ; -----------------------------------------------
@@ -520,6 +537,77 @@ TileCache_FillAll:
         ble.w   .block_row_loop
 
         lea     8(sp), sp                     ; clean up stack
+        rts
+
+; -----------------------------------------------
+; TileCache_WarmupBelowRow — Wave-2 (ii) cold-start warmup
+; Pre-stages the ENTIRE block-row just below the initial cache window so the
+; FIRST downward crossing is warm — before (i)'s leftover-budget prefetch has
+; had any quiet frames to work. Targets the cold-start regime (i) structurally
+; can't cover (the first crossing has no prior quiet frames). Called once from
+; Tile_Cache_Init after FillAll, display OFF: the ~5-6 extra synchronous
+; decompresses ride Init's existing ~10-frame cost, no lag concern. Down-scroll
+; assumption (the common level-entry direction); an up-scroll from spawn simply
+; doesn't benefit — no correctness cost either way (staging is a decompress
+; cache; unused pre-staged blocks evict harmlessly as scroll proceeds).
+; Init-only by design: Reinit is mid-play recovery where the scroll direction
+; is unknown, so the down assumption doesn't hold there.
+; In:  none (reads Cache_Bottom_Row/Left_Col/Head_Col, Current_Act_Ptr)
+; Out: none
+; Clobbers: d0-d7, a0-a4 (DecompressBlock's set + scan temps; a5/a6 preserved)
+; -----------------------------------------------
+TileCache_WarmupBelowRow:
+        ; target = first world tile row of the block-row below cache bottom
+        ; (mirrors the prefetch down-branch: align bottom to block start + one block)
+        move.w  (Cache_Bottom_Row).w, d7
+        andi.w  #~(BLOCK_TILE_SIZE-1), d7      ; align down to block start
+        addi.w  #BLOCK_TILE_SIZE, d7           ; first row of the block below
+        ; guard: sec_y = d7 >> 8 must be < grid_h (else below the world — nothing to warm)
+        move.w  d7, d5
+        lsr.w   #8, d5                         ; sec_y
+        movea.l (Current_Act_Ptr).w, a0
+        moveq   #0, d0
+        move.b  Act_grid_h+1(a0), d0           ; grid_h (sections)
+        cmp.w   d0, d5
+        bcc.s   .done                          ; sec_y >= grid_h — below the world, skip
+
+        ; scan block cols [Left..Head], stage EVERY unstaged block (no k=1 cap,
+        ; no budget — display off). d6 = col cursor, d7 = target row; both are
+        ; preserved regs, so DecompressBlock (clobbers d0-d7) needs them saved.
+        move.w  (Cache_Left_Col).w, d6
+        andi.w  #$FFF0, d6                     ; align to the first block col
+.warm_scan:
+        cmp.w   (Cache_Head_Col).w, d6
+        bgt.s   .done                          ; whole below-row scanned
+        ; decompose (col d6, row d7) -> sec_x=d0, sec_y=d1, block_index=d2
+        move.w  d6, d0
+        lsr.w   #8, d0                         ; sec_x = tile_col >> 8
+        move.w  d7, d1
+        lsr.w   #8, d1                         ; sec_y = tile_row >> 8
+        move.w  d6, d2
+        lsr.w   #BLOCK_TILE_SHIFT, d2
+        andi.w  #$F, d2                        ; block_x = (tile_col >> 4) & 15
+        move.w  d7, d3
+        lsr.w   #BLOCK_TILE_SHIFT, d3
+        andi.w  #$F, d3                        ; block_y = (tile_row >> 4) & 15
+        lsl.w   #4, d3
+        add.w   d2, d3
+        move.w  d3, d2                         ; block_index = block_y*16 + block_x
+        ; grid guard: sec_x < grid_w (cols past the act right edge decompress blank)
+        movea.l (Current_Act_Ptr).w, a0
+        moveq   #0, d3
+        move.b  Act_grid_w+1(a0), d3           ; grid_w (sections)
+        cmp.w   d3, d0
+        bcc.s   .warm_next                     ; sec_x >= grid_w — past world, skip col
+        bsr.w   TileCache_FindStagedBlock      ; Z set on hit; d0-d2 preserved
+        beq.s   .warm_next                     ; already staged — next col
+        movem.l d6-d7, -(sp)                   ; DecompressBlock clobbers d0-d7
+        bsr.w   TileCache_DecompressBlock      ; stage this block (d0/d1/d2 in)
+        movem.l (sp)+, d6-d7
+.warm_next:
+        addi.w  #BLOCK_TILE_SIZE, d6           ; next block col
+        bra.s   .warm_scan
+.done:
         rts
 
 ; -----------------------------------------------
@@ -655,7 +743,7 @@ Tile_Cache_Fill:
         beq.s   .h_right_fill
         ; budget out — skip remaining column work, vertical still runs
         addq.l  #2, sp                         ; pop desired_left
-        bra.w   .v_section
+        bra.s   .v_section
 .h_right_done:
 
         ; --- fill leftward columns (evict 1 from right as needed) ---
@@ -806,9 +894,10 @@ Tile_Cache_Fill:
         subq.w  #1, d5                         ; restore d5 to even (pair base)
         bra.s   .v_top_fill
 .v_top_done:
-        ; --- leftover-budget prefetch: pre-decompress one block of the NEXT
-        ;     block-row in the scroll direction, flattening the 6-block spike
-        ;     at block-row crossings across the quiet frames between them ---
+        ; --- leftover-budget prefetch: stage the next block-row's blocks (one
+        ;     per frame, left-to-right — the enumeration at .pfx_go) so a crossing
+        ;     finds them cached. Flattens the ~6-block crossing spike across the
+        ;     ~8 quiet frames between crossings. ---
         tst.w   (Cache_Fill_Budget).w
         beq.w   .fill_return                   ; budget spent — no prefetch
 
@@ -821,7 +910,7 @@ Tile_Cache_Fill:
         move.w  (Cache_Prev_Cam_Row).w, d1
         move.w  d0, (Cache_Prev_Cam_Row).w     ; update for next frame
         sub.w   d1, d0                         ; d0 = delta (+down / -up / 0)
-        beq.w   .fill_return                   ; not moving vertically — skip
+        beq.w   .fill_return                   ; not moving vertically — skip (.w: the prefetch scan below pushed .fill_return past .s range)
         bmi.s   .pfx_up
 
         ; moving DOWN: target = world tile row of the block-row below cache bottom
@@ -850,43 +939,50 @@ Tile_Cache_Fill:
         ; d7 >= 0 guaranteed (just subtracted from a value > 0)
 
 .pfx_go:
-        ; d7 = target world tile row (within a valid block in the act grid)
-        ; block column under camera center X
-        move.l  (Camera_X).w, d6
-        swap    d6
-        addi.w  #160, d6                       ; camera center X (world pixels)
-        lsr.w   #3, d6                         ; d0 = camera center world tile col
+        ; d7 = target world tile row (next block-row, a valid block in the grid).
+        ; Scan the cache's block columns [Left..Head] and stage the FIRST unstaged
+        ; block, ONE per frame (k=1). Across the ~8 quiet frames between crossings
+        ; this warms the whole next row left-to-right (already-staged cols are
+        ; cheap FindStagedBlock hits), so the crossing finds it cached — THIS is
+        ; the "flatten the 6-block spike" mechanism. (No RAM cursor: the scan
+        ; self-advances as cols get staged, and re-targets across crossings free —
+        ; the target row is stable for the 8 quiet frames, then jumps. The <=6
+        ; probes/frame land in a quiet frame's leftover budget.)
+        move.w  (Cache_Left_Col).w, d6
+        andi.w  #$FFF0, d6                     ; align to the first block col
+.pfx_scan:
+        cmp.w   (Cache_Head_Col).w, d6
+        bgt.s   .pfx_skip                      ; whole next row already staged — done
+        ; decompose (col d6, row d7) -> sec_x=d0, sec_y=d1, block_index=d2
         move.w  d6, d0
-
-        ; decompose (same pattern as FillColumn/FillRow):
-        ; d0 = world tile col,  d7 = world tile row of target block
-        move.w  d0, d6                         ; save world tile col
-        lsr.w   #8, d0                         ; sec_x = world_tile_col >> 8
-        ; guard: sec_x must be < grid_w (mirror of the sec_y guard above —
-        ; near the act right edge the center column can sit past the grid;
-        ; the block would decompress blank, wasting the leftover budget)
-        movea.l (Current_Act_Ptr).w, a0
-        moveq   #0, d1
-        move.b  Act_grid_w+1(a0), d1
-        cmp.w   d1, d0
-        bcc.s   .pfx_skip
+        lsr.w   #8, d0                         ; sec_x = tile_col >> 8
         move.w  d7, d1
-        lsr.w   #8, d1                         ; sec_y = world_tile_row >> 8
+        lsr.w   #8, d1                         ; sec_y = tile_row >> 8
         move.w  d6, d2
         lsr.w   #BLOCK_TILE_SHIFT, d2
-        andi.w  #$F, d2                        ; block_x = (world_tile_col >> 4) & 15
+        andi.w  #$F, d2                        ; block_x = (tile_col >> 4) & 15
         move.w  d7, d3
         lsr.w   #BLOCK_TILE_SHIFT, d3
-        andi.w  #$F, d3                        ; block_y = (world_tile_row >> 4) & 15
+        andi.w  #$F, d3                        ; block_y = (tile_row >> 4) & 15
         lsl.w   #4, d3
         add.w   d2, d3
-        move.w  d3, d2                         ; d2 = block_index
-
-        bsr.w   TileCache_FindStagedBlock      ; Z set + a1 on hit; d0-d2 preserved; clobbers d3-d4,a1
-        beq.s   .pfx_skip                      ; already staged — nothing to do
-
+        move.w  d3, d2                         ; block_index = block_y*16 + block_x
+        ; grid guard: sec_x < grid_w (near the act right edge the col sits past
+        ; the grid; skip — that block decompresses blank, wasting budget). sec_y
+        ; was guarded once at the .pfx_up/.pfx_go entry (d7 is fixed for the scan).
+        movea.l (Current_Act_Ptr).w, a0
+        moveq   #0, d3
+        move.b  Act_grid_w+1(a0), d3
+        cmp.w   d3, d0
+        bcc.s   .pfx_next                      ; sec_x >= grid_w — out of world, skip col
+        bsr.w   TileCache_FindStagedBlock      ; Z set on hit; d0-d2 preserved; clobbers d3-d4,a1
+        beq.s   .pfx_next                      ; already staged — try next col
         subq.w  #1, (Cache_Fill_Budget).w
-        bsr.w   TileCache_DecompressBlock      ; d0=sec_x, d1=sec_y, d2=block_index in; clobbers d0-d7,a0-a4
+        bsr.w   TileCache_DecompressBlock      ; stage this block (d0/d1/d2 in) — k=1, then done
+        bra.s   .pfx_skip
+.pfx_next:
+        addi.w  #BLOCK_TILE_SIZE, d6           ; next block col
+        bra.s   .pfx_scan
 
 .pfx_skip:
 .fill_return:
@@ -990,7 +1086,12 @@ TileCache_FillColumn:
 ; Out: d0.w = 0 complete / 1 budget-out (resume state stored in
 ;             Cache_Fill_RowResume_Row/Col).
 ;      On complete, Cache_Fill_RowResume_Row is set to $FFFF.
-; Clobbers: d0-d7, a0-a4
+; Clobbers: d0-d7, a0-a6
+;   a5/a6 hold the collision plane-A/plane-B DEST row bases for the WHOLE row
+;   (step-5 hoist). They survive the per-block DecompressBlock call — its license
+;   (d0-d7/a0/a2-a4) EXCLUDES a5/a6; a4 (NT dest base) + a2 (plane-B src base) ARE
+;   clobbered by it, so re-set per block. (widened from a0-a4; sole caller
+;   Tile_Cache_Fill already licenses a0-a6.)
 ; Note: collision is copied only on the odd row of each 16px cell (the row
 ;       that completes the cell). Cache_Top_Row is kept even, so cell
 ;       boundaries align with world block data.
@@ -1031,6 +1132,15 @@ TileCache_FillRow:
         lsl.w   #4, d3                         ; * 16
         add.w   d3, d2                         ; * 80
         move.w  d2, -(sp)                      ; 0(sp) = cache_row_offset_words
+
+        ; --- step-5 hoist: collision plane-A/B DEST row bases are loop-invariant;
+        ;     hoist ONCE per row into a5/a6. LOAD-BEARING & INVISIBLE: relies on
+        ;     a5/a6 surviving the per-block DecompressBlock call — its license
+        ;     (d0-d7/a0/a2-a4) excludes them (S4LZ_DecompressDict verified a5/a6-
+        ;     clean too). An edit making DecompressBlock touch a5/a6 corrupts the
+        ;     collision planes SILENTLY (S2-D6 checked-clobbers lint would catch). ---
+        lea     (Tile_Cache_Collision).l, a5           ; plane-A dest base (whole row)
+        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a6  ; plane-B dest base (whole row)
 
         ; resume: if this is the partially-filled row from last frame,
         ; restart the column walk from where we left off (not Cache_Left_Col).
@@ -1090,6 +1200,13 @@ TileCache_FillRow:
         lea     BLOCK_NT_SIZE(a1), a3
         adda.w  d3, a3
 
+        ; step-5 hoist: a4 = NT DEST base, a2 = plane-B SRC base (a3 + 128). Both
+        ; per-BLOCK — DecompressBlock clobbers a4 + a2, so they re-set here (a5/a6
+        ; survive it, hoisted per-row above). Plane-B src can't be an indexed
+        ; displacement: BLOCK_COLL_PLANE_SIZE = 128 > +127 (signed 8-bit).
+        lea     (Tile_Cache_Nametable).l, a4
+        lea     BLOCK_COLL_PLANE_SIZE(a3), a2
+
         ; first intra-block col for this block
         move.w  d7, d6
         andi.w  #$F, d6
@@ -1127,25 +1244,19 @@ TileCache_FillRow:
         move.w  (sp), d0                       ; cache_row_offset_words
         add.w   d1, d0                         ; + cache_col
         add.w   d0, d0                         ; byte offset
-        lea     (Tile_Cache_Nametable).l, a1
-        move.w  d3, (a1, d0.w)                 ; write tile
+        move.w  d3, (a4, d0.w)                 ; write tile — a4 = NT dest base (hoisted per-block)
 
         ; collision planes A and B (cell-completing rows only)
-        ; a3 = plane A collision row base in staging slot
-        ; d6 = intra-block col (0-15), used as byte index within row
+        ; a5/a6 = plane A/B DEST bases (hoisted per-row); a2 = plane-B SRC base
+        ; (hoisted per-block = a3 + BLOCK_COLL_PLANE_SIZE); d6 = intra-block col
+        ; (0-15), the byte index within the row.
         move.w  2(sp), d0
         cmpi.w  #$FFFF, d0
         beq.s   .fr_skip_col
         add.w   d1, d0                         ; + cache col → byte index within cache row
-        ; plane A
-        lea     (Tile_Cache_Collision).l, a2
-        move.b  (a3, d6.w), (a2, d0.w)
-        ; plane B: source = a3 + BLOCK_COLL_PLANE_SIZE + d6
-        ; a1 is free here (was Tile_Cache_Nametable base, done with it for this cell)
-        lea     BLOCK_COLL_PLANE_SIZE(a3), a1  ; plane B row base in staging slot
-        move.b  (a1, d6.w), d3                 ; plane B byte
-        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a2
-        move.b  d3, (a2, d0.w)
+        move.b  (a3, d6.w), (a5, d0.w)         ; plane A
+        move.b  (a2, d6.w), d3                 ; plane B source
+        move.b  d3, (a6, d0.w)                 ; plane B dest
 
 .fr_skip_col:
         addq.w  #1, d6
