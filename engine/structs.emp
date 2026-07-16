@@ -14,6 +14,11 @@
 // guards. Field names are VERBATIM from structs.asm (the `sec_`/`act_`
 // stutter included) for cross-seam greppability; renames are a Spec-5
 // decision.
+//
+// BOUNDARY: this module carries LAYOUT and layout-adjacent struct knowledge
+// (offsets, sizes, blessed sub-field views like the grid-dim low bytes) — NOT
+// consumer-specific usage detail. A derived view read by multiple consumers
+// belongs here with the layout; a one-consumer computed offset stays file-local.
 module engine.structs
 
 // -----------------------------------------------
@@ -35,6 +40,15 @@ pub struct Act {
     edge_mode:           u8,            // $20 — vertical edge behavior (EDGE_*)
     pad_21:              u8 = 0,        // $21 — reserved word pad (anonymous in structs.asm)
 }
+
+// Low-byte views of the word grid dims — safe: grid_w, grid_h ≤
+// MAX_ACT_SECTIONS (48) < 256, guarded by the act constructor.
+// (`.field + N` does not compose in disp arithmetic — row 1068.) A blessed
+// sub-field view read by all three consumers (section/tile_cache/entity_window)
+// is layout-adjacent struct knowledge, so it lives WITH the layout — not
+// consumer-specific detail (rule-1 amendment).
+pub const Act_grid_w_lo = offsetof(Act, grid_w) + 1
+pub const Act_grid_h_lo = offsetof(Act, grid_h) + 1
 
 // -----------------------------------------------
 // Section Definition (§4) — 66 bytes ($42), ROM table
