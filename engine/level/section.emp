@@ -38,6 +38,13 @@ ensure(extern("PLANE_BUFFER_SIZE") == PLANE_BUFFER_SIZE, "engine/constants.asm a
 // The ×66 stride trick in Section_GetSecPtrXY (lsl #6 + lsl #1) assumes the Sec
 // struct is 66 bytes — the AS twin's `if Sec_len <> 66 / error` guard.
 ensure(sizeof(Sec) == 66, "Section_GetSecPtrXY stride (lsl #6 + lsl #1 = ×66) assumes sizeof(Sec)=66 — update the shifts")
+// Section_GetSecPtrXY's `adda.w d0, a0` (d0 = flat × 66) sign-extends the word
+// offset: once flat × 66 crosses $7FFF the pointer wraps negative, capping an act
+// at $7FFF / 66 = 496 sections. That MAX_ACT_SECTIONS ≤ 496 ceiling is asserted at
+// its owner (games/.../act_descriptor.emp, beside the other mega-act grid
+// ceilings) — MAX_ACT_SECTIONS is a drift-guarded const there, so the check stays
+// comptime and doesn't demand the extern when section is compiled standalone.
+// MAX_ACT_SECTIONS (48) is far under 496 today.
 
 // ---- VDP command macros (truth: engine/macros.asm). First .emp consumer. ----
 
@@ -229,7 +236,7 @@ pub proc Section_GetSecPtrXY () clobbers(d1) out(d0, a0) {
         lsl.w   #6, d0                          // flat × 64
         lsl.w   #1, d1                          // flat × 2
         add.w   d1, d0                          // flat × 66
-        adda.w  d0, a0
+        adda.w  d0, a0                          // sign-extends d0 → ≤496 sections (module ensure guards it)
 
         tst.l   (a0)
         beq     .out_of_range

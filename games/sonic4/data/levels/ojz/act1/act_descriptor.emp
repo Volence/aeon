@@ -31,14 +31,25 @@ const GRID_W = 3
 const GRID_H = 3
 
 // The old per-act if/error blocks, as comptime facts (they fail the build
-// HERE, not at link): grid capacity, and the signed-word camera clamp —
-// an axis extent at or past $8000 reads negative and min-clamps to 0.
+// HERE, not at link): grid capacity, and the <= $8000 axis-extent ceiling that
+// guards BOTH boundary-clamp hazards (grid dim <= 16 sections, tighter than
+// either): (a) the signed-word MIN clamp — an axis extent at or past $8000 reads
+// negative and min-clamps to 0; (b) the word-truncated MAX clamp in camera.asm
+// AND player_common.asm (subi.w/cmp.w) that wraps above $FFFF px = grid dim > 31.
+// Floating-origin Phase 4 lifts both.
 ensure(GRID_W * GRID_H <= MAX_ACT_SECTIONS,
        "act grid {GRID_W}x{GRID_H} exceeds MAX_ACT_SECTIONS")
 ensure((GRID_W << SECTION_SIZE_SHIFT) <= $8000,
        "grid_w axis extent breaks the signed-word camera clamp")
 ensure((GRID_H << SECTION_SIZE_SHIFT) <= $8000,
        "grid_h axis extent breaks the signed-word camera clamp")
+// Section_GetSecPtrXY (engine/level/section.emp) indexes the Sec grid with
+// `adda.w d0, a0`, d0 = flat_id × sizeof(Sec)=66; adda.w SIGN-EXTENDS the word, so
+// an act above $7FFF / 66 = 496 flat sections wraps the pointer. MAX_ACT_SECTIONS
+// is the flat-section ceiling — keep it under 496. (66 = sizeof(Sec), guarded by
+// section.emp's `ensure(sizeof(Sec) == 66)`.)
+ensure(MAX_ACT_SECTIONS * 66 <= $7FFF,
+       "MAX_ACT_SECTIONS > 496: Section_GetSecPtrXY adda.w sign-extends and wraps — widen the adda or pre-multiply flat_id as a long")
 
 pub data OJZ_Act1_Descriptor: Act = Act{
     sec_grid_ptr:        OJZ_Act1_Sections,

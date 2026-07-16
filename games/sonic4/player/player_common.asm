@@ -639,6 +639,10 @@ Player_LevelBound:
         move.w  Act_grid_w(a1), d1
         lsl.l   #8, d1
         lsl.l   #3, d1                          ; grid_w × 2048 = level_width (px)
+        ; MEGA-ACT CEILING: word clamp (subi.w/cmp.w) word-wraps for level_width
+        ; above $FFFF px — grid_w > 31 sections. Same ceiling as camera.asm; guarded
+        ; today by act_descriptor's (GRID_W << SECTION_SIZE_SHIFT) <= $8000 ensure
+        ; (grid_w <= 16). Floating-origin Phase 4 removes the word truncation.
         subi.w  #PBOUND_RIGHT_MARGIN, d1
         cmp.w   d1, d0
         ble.s   .x_done
@@ -656,6 +660,8 @@ Player_LevelBound:
         move.w  Act_grid_h(a1), d1
         lsl.l   #8, d1
         lsl.l   #3, d1
+        ; MEGA-ACT CEILING: word clamp word-wraps for level_height above $FFFF px —
+        ; grid_h > 31 sections (act_descriptor's <= $8000 ensure caps grid_h <= 16).
         subi.w  #SCREEN_HEIGHT, d1              ; d1 = playable bottom edge (world)
         move.w  d1, d2
         addi.w  #PBOUND_BOTTOM_MARGIN, d2
