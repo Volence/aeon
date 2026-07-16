@@ -412,13 +412,15 @@ CAM_MAX_Y_STEP          = 16        ; max camera Y movement px/frame. The stream
                                     ; engine bounds the CAMERA: S2=16, S3K=24) — must
                                     ; stay <= VFILL_ROWS_PER_FRAME*8 or fills fall
                                     ; behind the view. Teleports bypass via Reinit.
-                                    ; KEEP 16: the on-device diagonal stress runs
-                                    ; ~76% lag at sustained MAX diagonal — column-fill
-                                    ; and row-fill share BLOCK_DECOMP_BUDGET, so the
-                                    ; zero-slack contract (sized single-axis) has NO
-                                    ; headroom to raise to 24; doing so worsens the
-                                    ; diagonal lag. Revisit with the diagonal-budget
-                                    ; work tracked in DEFERRED_WORK (§4.7/§1.1).
+                                    ; KEEP 16: sustained MAX diagonal measured ~42% lag
+                                    ; post-unified-prefetch (2026-07-16, oracle; was
+                                    ; ~76% pre-prefetch). Column-fill and row-fill share
+                                    ; BLOCK_DECOMP_BUDGET, so the zero-slack contract
+                                    ; (sized single-axis) has NO headroom to raise to 24.
+                                    ; The prefetch removed the DECOMPRESS spike; the
+                                    ; residual is COPY/DRAW-bound (the "horizontal Wave-1"
+                                    ; — see campaign-gap-ledger). Revisit with the
+                                    ; diagonal-budget work in DEFERRED_WORK (§4.7/§1.1).
 
 ; -----------------------------------------------
 ; Vertical edge modes (per-act Act_edge_mode; §10)
