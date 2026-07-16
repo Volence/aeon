@@ -405,6 +405,7 @@ Tile_Cache_Init:
         bsr.w   TileCache_InvalidateStaging
 
         bsr.s   TileCache_FillAll
+        bsr.w   TileCache_WarmupBelowRow       ; (ii) cold-start: pre-stage the below-row
         rts
 
 ; -----------------------------------------------
@@ -536,6 +537,77 @@ TileCache_FillAll:
         ble.w   .block_row_loop
 
         lea     8(sp), sp                     ; clean up stack
+        rts
+
+; -----------------------------------------------
+; TileCache_WarmupBelowRow — Wave-2 (ii) cold-start warmup
+; Pre-stages the ENTIRE block-row just below the initial cache window so the
+; FIRST downward crossing is warm — before (i)'s leftover-budget prefetch has
+; had any quiet frames to work. Targets the cold-start regime (i) structurally
+; can't cover (the first crossing has no prior quiet frames). Called once from
+; Tile_Cache_Init after FillAll, display OFF: the ~5-6 extra synchronous
+; decompresses ride Init's existing ~10-frame cost, no lag concern. Down-scroll
+; assumption (the common level-entry direction); an up-scroll from spawn simply
+; doesn't benefit — no correctness cost either way (staging is a decompress
+; cache; unused pre-staged blocks evict harmlessly as scroll proceeds).
+; Init-only by design: Reinit is mid-play recovery where the scroll direction
+; is unknown, so the down assumption doesn't hold there.
+; In:  none (reads Cache_Bottom_Row/Left_Col/Head_Col, Current_Act_Ptr)
+; Out: none
+; Clobbers: d0-d7, a0-a4 (DecompressBlock's set + scan temps; a5/a6 preserved)
+; -----------------------------------------------
+TileCache_WarmupBelowRow:
+        ; target = first world tile row of the block-row below cache bottom
+        ; (mirrors the prefetch down-branch: align bottom to block start + one block)
+        move.w  (Cache_Bottom_Row).w, d7
+        andi.w  #~(BLOCK_TILE_SIZE-1), d7      ; align down to block start
+        addi.w  #BLOCK_TILE_SIZE, d7           ; first row of the block below
+        ; guard: sec_y = d7 >> 8 must be < grid_h (else below the world — nothing to warm)
+        move.w  d7, d5
+        lsr.w   #8, d5                         ; sec_y
+        movea.l (Current_Act_Ptr).w, a0
+        moveq   #0, d0
+        move.b  Act_grid_h+1(a0), d0           ; grid_h (sections)
+        cmp.w   d0, d5
+        bcc.s   .done                          ; sec_y >= grid_h — below the world, skip
+
+        ; scan block cols [Left..Head], stage EVERY unstaged block (no k=1 cap,
+        ; no budget — display off). d6 = col cursor, d7 = target row; both are
+        ; preserved regs, so DecompressBlock (clobbers d0-d7) needs them saved.
+        move.w  (Cache_Left_Col).w, d6
+        andi.w  #$FFF0, d6                     ; align to the first block col
+.warm_scan:
+        cmp.w   (Cache_Head_Col).w, d6
+        bgt.s   .done                          ; whole below-row scanned
+        ; decompose (col d6, row d7) -> sec_x=d0, sec_y=d1, block_index=d2
+        move.w  d6, d0
+        lsr.w   #8, d0                         ; sec_x = tile_col >> 8
+        move.w  d7, d1
+        lsr.w   #8, d1                         ; sec_y = tile_row >> 8
+        move.w  d6, d2
+        lsr.w   #BLOCK_TILE_SHIFT, d2
+        andi.w  #$F, d2                        ; block_x = (tile_col >> 4) & 15
+        move.w  d7, d3
+        lsr.w   #BLOCK_TILE_SHIFT, d3
+        andi.w  #$F, d3                        ; block_y = (tile_row >> 4) & 15
+        lsl.w   #4, d3
+        add.w   d2, d3
+        move.w  d3, d2                         ; block_index = block_y*16 + block_x
+        ; grid guard: sec_x < grid_w (cols past the act right edge decompress blank)
+        movea.l (Current_Act_Ptr).w, a0
+        moveq   #0, d3
+        move.b  Act_grid_w+1(a0), d3           ; grid_w (sections)
+        cmp.w   d3, d0
+        bcc.s   .warm_next                     ; sec_x >= grid_w — past world, skip col
+        bsr.w   TileCache_FindStagedBlock      ; Z set on hit; d0-d2 preserved
+        beq.s   .warm_next                     ; already staged — next col
+        movem.l d6-d7, -(sp)                   ; DecompressBlock clobbers d0-d7
+        bsr.w   TileCache_DecompressBlock      ; stage this block (d0/d1/d2 in)
+        movem.l (sp)+, d6-d7
+.warm_next:
+        addi.w  #BLOCK_TILE_SIZE, d6           ; next block col
+        bra.s   .warm_scan
+.done:
         rts
 
 ; -----------------------------------------------
