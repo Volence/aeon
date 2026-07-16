@@ -21,7 +21,7 @@ const VDP_CTRL           = $C00004      // VDP control port
 const PLANE_H_CELLS      = 64
 const PLANE_V_CELLS      = 64
 const PLANE_BUFFER_SIZE  = 1536         // plane-update ring buffer bytes
-const VDP_CTRL_OFF       = VDP_CTRL - VDP_DATA   // control port = data port + this (byte-saving a6-relative derive; VInt_DrawLevel)
+const VDP_CTRL_OFF       = VDP_CTRL - VDP_DATA   // control port = data port + this (byte-saving a6-relative derive; VInt_DrawLevel). The bare A-B(An) disp misparses as a call (gap-ledger), so this named derive is the house spelling until that grammar lands.
 
 // ---- Sec / Act field access comes from the shared engine.structs module
 // (`Sec.sec_bg_layout(a0)` / `Act.act_bg_layout(a2)`) — no file-local offset
@@ -44,7 +44,7 @@ ensure(extern("PLANE_BUFFER_SIZE") == PLANE_BUFFER_SIZE, "engine/constants.asm a
 // Clobbers: none
 // -----------------------------------------------
 pub proc Plane_Buffer_Reset () {
-        move.w  #0, (Plane_Buffer_Ptr).w
+        move.w  #0, Plane_Buffer_Ptr
         rts
 }
 
@@ -60,28 +60,28 @@ pub proc Plane_Buffer_Reset () {
 // -----------------------------------------------
 pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
         // worst case: 2 headers (8 bytes) + 64 data words (128 bytes) = 136
-        move.w  (Plane_Buffer_Ptr).w, d2
+        move.w  Plane_Buffer_Ptr, d2
         addi.w  #8 + PLANE_V_CELLS*2, d2
         cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
-        bhi.w   .done
+        bhi     .done
 
-        cmp.w   (Cache_Left_Col).w, d1
-        blt.w   .done
-        cmp.w   (Cache_Head_Col).w, d1
-        bgt.w   .done
+        cmp.w   Cache_Left_Col, d1
+        blt     .done
+        cmp.w   Cache_Head_Col, d1
+        bgt     .done
 
         // compute cache source pointer for cache[logical row 0][col]
         // = physical row Cache_Origin_Row (circular)
         move.w  d0, -(sp)                     // save nametable col
         move.w  d1, d0
-        sub.w   (Cache_Left_Col).w, d0
-        add.w   (Cache_Origin_Col).w, d0
+        sub.w   Cache_Left_Col, d0
+        add.w   Cache_Origin_Col, d0
         cmpi.w  #TILE_CACHE_COLS, d0
-        blt.s   .col_nowrap
+        blt     .col_nowrap
         subi.w  #TILE_CACHE_COLS, d0
     .col_nowrap:
         add.w   d0, d0
-        move.w  (Cache_Origin_Row).w, d1
+        move.w  Cache_Origin_Row, d1
         move.w  d1, d2
         lsl.w   #7, d1                         // × 128
         lsl.w   #5, d2                         // × 32
@@ -93,11 +93,11 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
         move.w  (sp)+, d0                      // restore nametable col
 
         add.w   d0, d0                         // d0 = col byte offset
-        move.w  (Cache_Top_Row).w, d3
+        move.w  Cache_Top_Row, d3
         andi.w  #63, d3                        // d3 = start_nt_row
 
-        lea     (Plane_Buffer).w, a2
-        adda.w  (Plane_Buffer_Ptr).w, a2
+        lea     Plane_Buffer, a2
+        adda.w  Plane_Buffer_Ptr, a2
 
         // === Part A: nametable rows start_nt_row to 63 ===
         move.w  d3, d1
@@ -115,7 +115,7 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
 
         move.w  d5, d4
         cmpi.w  #TILE_CACHE_ROWS, d4
-        ble.s   .pA_clamp
+        ble     .pA_clamp
         move.w  #TILE_CACHE_ROWS, d4
     .pA_clamp:
         move.w  d4, d1
@@ -124,14 +124,14 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
         move.w  (a0), (a2)+
         lea     TILE_CACHE_STRIDE*2(a0), a0
         cmpa.l  a1, a0
-        blo.s   .pa_nowrap
+        blo     .pa_nowrap
         suba.w  #TILE_CACHE_NT_SIZE, a0        // physical row 59 → 0
     .pa_nowrap:
         dbf     d1, .pA_data
 
         move.w  d5, d1
         sub.w   d4, d1
-        beq.s   .pA_zend
+        beq     .pA_zend
         subq.w  #1, d1
     .pA_zero:
         clr.w   (a2)+
@@ -140,7 +140,7 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
 
         // === Part B: nametable rows 0 to start_nt_row-1 ===
         tst.w   d3
-        beq.s   .no_pB
+        beq     .no_pB
 
         move.w  d0, d1
         addi.w  #VRAM_PLANE_A & $FFFF, d1
@@ -154,10 +154,10 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
 
         move.w  #TILE_CACHE_ROWS, d1
         sub.w   d4, d1                         // remaining cache = 60 - data_in_A
-        ble.s   .pB_allz
+        ble     .pB_allz
 
         cmp.w   d5, d1
-        ble.s   .pB_dok
+        ble     .pB_dok
         move.w  d5, d1
     .pB_dok:
         move.w  d1, d4
@@ -166,19 +166,19 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
         move.w  (a0), (a2)+
         lea     TILE_CACHE_STRIDE*2(a0), a0
         cmpa.l  a1, a0
-        blo.s   .pb_nowrap
+        blo     .pb_nowrap
         suba.w  #TILE_CACHE_NT_SIZE, a0        // physical row 59 → 0
     .pb_nowrap:
         dbf     d1, .pB_data
 
         move.w  d5, d1
         sub.w   d4, d1
-        beq.s   .pB_zend
+        beq     .pB_zend
         subq.w  #1, d1
     .pB_zfill:
         clr.w   (a2)+
         dbf     d1, .pB_zfill
-        bra.s   .pB_zend
+        jbra    .pB_zend
 
     .pB_allz:
         move.w  d5, d1
@@ -191,11 +191,11 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
         move.w  #0, (a2)
         move.w  #4 + PLANE_V_CELLS*2, d2
         tst.w   d3
-        beq.s   .sz_ok
+        beq     .sz_ok
         addq.w  #4, d2
     .sz_ok:
-        add.w   (Plane_Buffer_Ptr).w, d2
-        move.w  d2, (Plane_Buffer_Ptr).w
+        add.w   Plane_Buffer_Ptr, d2
+        move.w  d2, Plane_Buffer_Ptr
     .done:
         rts
 }
@@ -208,18 +208,18 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
 // Clobbers: d0–d5, a0–a2
 // -----------------------------------------------
 pub proc Draw_TileRow_FromCache () clobbers(d0-d5/a0-a2) {
-        move.w  (Plane_Buffer_Ptr).w, d2
+        move.w  Plane_Buffer_Ptr, d2
         addi.w  #4 + PLANE_H_CELLS*2, d2
         cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
-        bhi.w   .done
+        bhi     .done
 
-        cmp.w   (Cache_Top_Row).w, d1
-        blt.w   .done
-        cmp.w   (Cache_Bottom_Row).w, d1
-        bgt.w   .done
+        cmp.w   Cache_Top_Row, d1
+        blt     .done
+        cmp.w   Cache_Bottom_Row, d1
+        bgt     .done
 
-        lea     (Plane_Buffer).w, a2
-        adda.w  (Plane_Buffer_Ptr).w, a2
+        lea     Plane_Buffer, a2
+        adda.w  Plane_Buffer_Ptr, a2
 
         // row header (bit 15 clear = row mode)
         lsl.w   #7, d0                         // row × 128 (64 cols × 2 bytes)
@@ -229,10 +229,10 @@ pub proc Draw_TileRow_FromCache () clobbers(d0-d5/a0-a2) {
 
         // compute source: cache nametable row base (physical col 0)
         move.w  d1, d0
-        sub.w   (Cache_Top_Row).w, d0
-        add.w   (Cache_Origin_Row).w, d0       // map to physical row (circular)
+        sub.w   Cache_Top_Row, d0
+        add.w   Cache_Origin_Row, d0           // map to physical row (circular)
         cmpi.w  #TILE_CACHE_ROWS, d0
-        blt.s   .row_nowrap
+        blt     .row_nowrap
         subi.w  #TILE_CACHE_ROWS, d0
     .row_nowrap:
         // row × 80 via shift-add
@@ -255,43 +255,43 @@ pub proc Draw_TileRow_FromCache () clobbers(d0-d5/a0-a2) {
         //    candidates (W and W+64); anchor R to Section_Right_Col_Written
         //    (cache-clamped to Cache_Head_Col) so the visible-left plane
         //    cols pick the correct twin, not the wrap twin 64 cols ahead.
-        move.w  (Section_Right_Col_Written).w, d4
-        cmp.w   (Cache_Head_Col).w, d4
-        ble.s   .r_clamp_ok
-        move.w  (Cache_Head_Col).w, d4         // R = min(R, Cache_Head_Col)
+        move.w  Section_Right_Col_Written, d4
+        cmp.w   Cache_Head_Col, d4
+        ble     .r_clamp_ok
+        move.w  Cache_Head_Col, d4             // R = min(R, Cache_Head_Col)
     .r_clamp_ok:
         move.w  d4, d0
         andi.w  #$FFC0, d0                     // d0 = W cursor, starts at A = R & ~63
-        move.w  (Cache_Origin_Col).w, d3
-        sub.w   (Cache_Left_Col).w, d3         // d3 = Origin - Left (physical adjust)
-        move.w  (Cache_Left_Col).w, d5
+        move.w  Cache_Origin_Col, d3
+        sub.w   Cache_Left_Col, d3             // d3 = Origin - Left (physical adjust)
+        move.w  Cache_Left_Col, d5
         move.w  #PLANE_H_CELLS-1, d2
     .row_src_loop:
         cmp.w   d5, d0                         // W < Cache_Left → no data
-        blt.s   .row_src_zero
+        blt     .row_src_zero
         move.w  d0, d1
         add.w   d3, d1                         // physical col = W + (Origin - Left)
         cmpi.w  #TILE_CACHE_COLS, d1
-        blt.s   .row_src_nowrap
+        blt     .row_src_nowrap
         subi.w  #TILE_CACHE_COLS, d1
     .row_src_nowrap:
         add.w   d1, d1
         move.w  (a0, d1.w), (a2)+
-        bra.s   .row_src_next
+        jbra    .row_src_next
     .row_src_zero:
         clr.w   (a2)+
     .row_src_next:
         addq.w  #1, d0
         cmp.w   d4, d0                         // past R → wrap back one plane width
-        ble.s   .row_src_cont
+        ble     .row_src_cont
         subi.w  #64, d0
     .row_src_cont:
         dbf     d2, .row_src_loop
 
         move.w  #0, (a2)
-        move.w  (Plane_Buffer_Ptr).w, d2
+        move.w  Plane_Buffer_Ptr, d2
         addi.w  #4 + PLANE_H_CELLS*2, d2
-        move.w  d2, (Plane_Buffer_Ptr).w
+        move.w  d2, Plane_Buffer_Ptr
     .done:
         rts
 }
@@ -309,19 +309,19 @@ pub proc Draw_TileRow_FromCache () clobbers(d0-d5/a0-a2) {
 // -----------------------------------------------
 pub proc Draw_BG_TileColumn () clobbers(d0-d3/a1-a2) {
         // -- overflow check (entry size = 4 + 32*2 = 68 bytes) --
-        move.w  (Plane_Buffer_Ptr).w, d2
+        move.w  Plane_Buffer_Ptr, d2
         addi.w  #4 + 32*2, d2
         cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
-        bhi.s   .done
+        bhi     .done
 
         // -- get source: sec_bg_layout. Fall back to act default if NULL. --
         movea.l Sec.sec_bg_layout(a0), a1
         cmpa.w  #0, a1
-        bne.s   .have_layout
-        movea.l (Current_Act_Ptr).w, a2
+        bne     .have_layout
+        movea.l Current_Act_Ptr, a2
         movea.l Act.act_bg_layout(a2), a1
         cmpa.w  #0, a1
-        beq.s   .done
+        beq     .done
     .have_layout:
         // -- a1 = layout base; advance by (col * 2) to point at row 0 of col --
         move.w  d1, d3
@@ -329,8 +329,8 @@ pub proc Draw_BG_TileColumn () clobbers(d0-d3/a1-a2) {
         adda.w  d3, a1
 
         // -- write buffer header --
-        lea     (Plane_Buffer).w, a2
-        adda.w  (Plane_Buffer_Ptr).w, a2
+        lea     Plane_Buffer, a2
+        adda.w  Plane_Buffer_Ptr, a2
         add.w   d0, d0
         addi.w  #VRAM_PLANE_B_BYTES & $FFFF, d0
         move.w  d0, (a2)+
@@ -345,9 +345,9 @@ pub proc Draw_BG_TileColumn () clobbers(d0-d3/a1-a2) {
 
         // -- zero terminator + buffer pointer update --
         move.w  #0, (a2)
-        move.w  (Plane_Buffer_Ptr).w, d2
+        move.w  Plane_Buffer_Ptr, d2
         addi.w  #4 + 32*2, d2
-        move.w  d2, (Plane_Buffer_Ptr).w
+        move.w  d2, Plane_Buffer_Ptr
 
     .done:
         rts
@@ -363,19 +363,19 @@ pub proc Draw_BG_TileColumn () clobbers(d0-d3/a1-a2) {
 // Clobbers: d0–d1, a0, a5–a6
 // -----------------------------------------------
 pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) {
-        tst.w   (Plane_Buffer_Ptr).w
-        beq.s   .reset                             // nothing to draw
+        tst.w   Plane_Buffer_Ptr
+        beq     .reset                             // nothing to draw
 
-        lea     (Plane_Buffer).w, a0
-        lea     (VDP_DATA).l, a6
-        lea     VDP_CTRL_OFF(a6), a5              // a5 = VDP_CTRL (= a6 + VDP_CTRL-VDP_DATA)
+        lea     Plane_Buffer, a0
+        lea     VDP_DATA, a6
+        lea     VDP_CTRL_OFF(a6), a5               // a5 = VDP_CTRL (= a6 + VDP_CTRL-VDP_DATA)
 
     .next:
         moveq   #0, d0
         move.w  (a0)+, d0                          // VRAM addr (0 = end)
-        beq.s   .done
+        beq     .done
         move.w  (a0)+, d1                          // flags | count
-        bmi.s   .col_entry
+        bmi     .col_entry
 
         // -- ROW entry: autoincrement $02, longword drain --
         move.w  #$8F02, (a5)
@@ -387,7 +387,7 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) {
     .drain_row:
         move.l  (a0)+, (a6)
         dbf     d1, .drain_row
-        bra.s   .next
+        jbra    .next
 
     .col_entry:
         // -- COL entry: autoincrement $80, word drain --
@@ -401,12 +401,12 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) {
     .drain_col:
         move.w  (a0)+, (a6)
         dbf     d1, .drain_col
-        bra.s   .next
+        jbra    .next
 
     .done:
         move.w  #$8F02, (a5)
 
     .reset:
-        move.w  #0, (Plane_Buffer_Ptr).w
+        move.w  #0, Plane_Buffer_Ptr
         rts
 }
