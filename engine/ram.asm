@@ -331,6 +331,9 @@ Cache_H_Pfx_Dir:        ds.w 1          ; latched H prefetch direction (0=none, 
 Cache_H_Pfx_Accum:      ds.w 1          ; net opposite-motion px accumulator (>=0) for the hysteresis flip
 Cache_Pfx_Row_Target:   ds.w 1          ; this-frame vertical prefetch target row ($FFFF = none) — corner input
 Cache_Pfx_Col_Target:   ds.w 1          ; this-frame horizontal prefetch target col ($FFFF = none) — corner input
+Cache_Pfx_Skip_Armed:   ds.w 1          ; 1 = prefetch skipped last frame (bound: never skip two running)
+Cache_Pfx_Lag_Flag:     ds.w 1          ; set =1 by VInt_Lag (release-safe lag signal); the prefetch
+                                        ; H4 gate consumes it (skip this frame if the prev frame lagged)
 
 ; Block staging metadata — keys parallel to Block_Stage_Buffers slots
 ; Key format: sec_x.b | sec_y.b | block_index.w ($FFFFFFFF = empty)

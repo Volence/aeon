@@ -370,10 +370,10 @@ VFILL_ROWS_PER_FRAME    = 2         ; rows filled per frame cap. Terminal veloci
                                     ; camera Y clamp (CAM_MAX_Y_STEP) must stay
                                     ; <= this*8 px or streaming falls behind the view.
 ; Unified direction-aware prefetch tuning (§4.7). A/B-bound (design note §8):
-PFX_DEADLINE_LINE       = 200       ; VDP V-counter (scanline) past which the
-                                    ; leftover-budget prefetch tail is skipped for
-                                    ; the frame — pure speculation must not push a
-                                    ; late frame over VBlank. Demand fill is never gated.
+; NB the H4 late-frame gate is NOT a beam-position deadline — Tile_Cache_Fill runs
+; once/frame inside VBlank (V~=240), so it uses a TRAILING lag indicator instead
+; (skip the prefetch tail if the previous frame lagged; Lag_Frame_Count). See the
+; A/B finding in the design note §3/H4.
 H_PFX_HYST              = 16        ; net opposite-motion px before the horizontal
                                     ; prefetch direction latch flips (hysteresis vs
                                     ; seam-dither churn). 16 px = 2 tile-cols.

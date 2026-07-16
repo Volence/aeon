@@ -402,6 +402,8 @@ Tile_Cache_Init:
         move.w  d1, (Cache_Prev_Cam_X).w
         clr.w   (Cache_H_Pfx_Dir).w
         clr.w   (Cache_H_Pfx_Accum).w
+        clr.w   (Cache_Pfx_Skip_Armed).w
+        clr.w   (Cache_Pfx_Lag_Flag).w         ; trailing-lag gate baseline (no false skip on frame 1)
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .top_ok
         moveq   #0, d0
@@ -638,6 +640,18 @@ Tile_Cache_Fill:
         move.w  (Frame_Counter).w, d0
         cmp.w   (Cache_Fill_Last_Frame).w, d0
         beq.w   .fill_return
+        ; trailing-lag detect (consumed by the H4 gate below): Frame_Counter ticks once
+        ; per VBlank on BOTH the normal (VInt_Level) and lag (VInt_Lag) paths, so it
+        ; advancing by MORE than 1 since the last fill means a frame lagged in between.
+        move.w  d0, d1
+        sub.w   (Cache_Fill_Last_Frame).w, d1  ; frames since last fill
+        subq.w  #1, d1                          ; 0 = on time, >0 = a frame lagged
+        beq.s   .fg_on_time
+        move.w  #1, (Cache_Pfx_Lag_Flag).w
+        bra.s   .fg_lag_done
+.fg_on_time:
+        clr.w   (Cache_Pfx_Lag_Flag).w
+.fg_lag_done:
         move.w  d0, (Cache_Fill_Last_Frame).w
 
         ; --- reset per-frame decompress budget + rows-this-frame cap ---
@@ -911,13 +925,22 @@ Tile_Cache_Fill:
         ; Leftover-budget speculation ordered row -> col -> corner. H4 deadline gate
         ; first: pure speculation must never push a late frame past VBlank. The demand
         ; fill above already ran and is NEVER gated.
-        move.b  (VDP_HV_COUNTER).l, d0         ; VDP V-counter (current scanline)
-        cmpi.b  #SCREEN_HEIGHT, d0
-        bhs.s   .pfx_gate_ok                   ; V >= 224 = VBlank: Fill ran early (its normal slot),
-                                               ; a full active frame of budget ahead — never gate here
-        cmpi.b  #PFX_DEADLINE_LINE, d0
-        bhs.w   .fill_return                   ; past the deadline WITHIN active display — the frame is
-                                               ; running late; skip ALL prefetch (pure speculation, safety)
+        ; H4 (trailing-lag gate): Tile_Cache_Fill runs once/frame inside VBlank (V~=240,
+        ; the same slot every frame), so a beam-position read cannot gauge frame load.
+        ; Use the previous frame's outcome instead: Cache_Pfx_Lag_Flag was set at the
+        ; frame gate above from the Frame_Counter delta (release-safe, unlike the DEBUG
+        ; Lag_Frame_Count). If the frame just before this one lagged, skip this frame's
+        ; speculation — but NEVER skip two running: a sustained-lag run must keep pre-
+        ; warming or cold columns cascade back in (demand fill is never gated, so the
+        ; bounded worst case is the pre-prefetch path).
+        tst.w   (Cache_Pfx_Lag_Flag).w         ; did the previous frame lag?
+        beq.s   .pfx_no_recent_lag
+        tst.w   (Cache_Pfx_Skip_Armed).w
+        bne.s   .pfx_gate_ok                   ; already skipped once -> run anyway (no cascade)
+        move.w  #1, (Cache_Pfx_Skip_Armed).w   ; arm: skip this frame's speculation
+        bra.w   .fill_return
+.pfx_no_recent_lag:
+        clr.w   (Cache_Pfx_Skip_Armed).w
 .pfx_gate_ok:
         tst.w   (Cache_Fill_Budget).w
         beq.w   .fill_return                   ; demand fill spent the budget — no prefetch
@@ -1537,6 +1560,8 @@ TileCache_Reinit:
         move.w  d1, (Cache_Prev_Cam_X).w       ; reset horizontal prefetch baseline
         clr.w   (Cache_H_Pfx_Dir).w
         clr.w   (Cache_H_Pfx_Accum).w
+        clr.w   (Cache_Pfx_Skip_Armed).w
+        clr.w   (Cache_Pfx_Lag_Flag).w         ; trailing-lag gate baseline
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .ri_top_ok
         moveq   #0, d0
