@@ -37,9 +37,11 @@ pub proc Read_Controllers () clobbers(d0, d1, a0) {
     .read_pad:
         move.b  #$40, (a0)                  // TH = 1
         nop
+        nop                                 // TH settling: 2 nops (S1/S2/S3K, SGDK) — real-HW settle time, invisible to emulators
         move.b  (a0), d0                    // --CBRLDU
         move.b  #$00, (a0)                  // TH = 0
         nop
+        nop                                 // TH settling: 2 nops (S1/S2/S3K, SGDK) — real-HW settle time, invisible to emulators
         move.b  (a0), d1                    // --SA00DU
         andi.b  #%00111111, d0              // keep CBRLDU
         andi.b  #%00110000, d1              // keep SA
