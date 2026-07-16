@@ -369,6 +369,15 @@ VFILL_ROWS_PER_FRAME    = 2         ; rows filled per frame cap. Terminal veloci
                                     ; 2 rows/frame (16px); 4 = catch-up headroom. The
                                     ; camera Y clamp (CAM_MAX_Y_STEP) must stay
                                     ; <= this*8 px or streaming falls behind the view.
+; Unified direction-aware prefetch tuning (§4.7). A/B-bound (design note §8):
+PFX_DEADLINE_LINE       = 200       ; VDP V-counter (scanline) past which the
+                                    ; leftover-budget prefetch tail is skipped for
+                                    ; the frame — pure speculation must not push a
+                                    ; late frame over VBlank. Demand fill is never gated.
+H_PFX_HYST              = 16        ; net opposite-motion px before the horizontal
+                                    ; prefetch direction latch flips (hysteresis vs
+                                    ; seam-dither churn). 16 px = 2 tile-cols.
+
 BLOCKS_PER_SECTION_AXIS = 16        ; 16 blocks across, 16 blocks down
 BLOCK_INDEX_ENTRIES     = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  ; 256
 BLOCK_INDEX_SIZE        = BLOCK_INDEX_ENTRIES * 4  ; 1024 bytes (ROM)
