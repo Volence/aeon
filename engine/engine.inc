@@ -316,16 +316,15 @@ __BUDGET_ENGINE:
         ; engine/level/tile_cache.emp, pinned by the sigil map at the per-shape
         ; reference address. Resume placement at the region end (collision_lookup's
         ; Collision_GetType — the SIGIL_EMP_COLLISION_LOOKUP block below). Shape-
-        ; VARYING length ($996 plain / $A56 debug — the .raw_direct assert block;
-        ; Wave-2 (ii) WarmupBelowRow grew it +$76 plain / +$80 debug from the
-        ; Wave-2 (i) $920/$9D6, the extra $A in debug = an auto-width branch in the
-        ; region relaxing under the insertion shift).
+        ; VARYING length ($9A6 plain / $A66 debug — the .raw_direct assert block;
+        ; unified-prefetch H5 grew BlockStage_PtrTable +$10 both shapes (12→16
+        ; slots) over the Wave-2 (ii) $996/$A56).
         ; NOTE: these org values are sonic4-shape addresses — the gate define must
         ; never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $591A
+        org     $592A
       else
-        org     $4C90
+        org     $4CA0
       endif
     endif
     ifndef SIGIL_EMP_COLLISION_LOOKUP
@@ -338,9 +337,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $593E
+        org     $594E
       else
-        org     $4CB4
+        org     $4CC4
       endif
     endif
     gameEngineBlockIncludes
@@ -355,9 +354,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $6216
+        org     $6226
       else
-        org     $558C
+        org     $559C
       endif
     endif
     include "engine/level/camera.asm"
@@ -380,9 +379,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $79F6
+        org     $7A06
         else
-        org     $5FDC
+        org     $5FEC
         endif
       endif
     endif

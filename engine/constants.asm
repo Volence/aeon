@@ -357,9 +357,13 @@ BLOCK_COLL_COLS         = BLOCK_TILE_SIZE      ; 16 collision cells per row (byt
 BLOCK_COLL_PLANE_SIZE   = BLOCK_COLL_COLS * BLOCK_COLL_ROWS  ; 128 bytes per plane
 BLOCK_COLL_SIZE         = BLOCK_COLL_PLANE_SIZE * TILE_CACHE_COLL_PLANES  ; 256 bytes (A+B)
 BLOCK_RAW_SIZE          = BLOCK_NT_SIZE + BLOCK_COLL_SIZE  ; 768 bytes
-BLOCK_STAGE_SLOTS       = 12        ; staged decompressed blocks (round-robin evict)
-                                    ; sized so a column fill (<=5 blocks) + a row fill
-                                    ; (<=6 blocks) coexist without thrashing on diagonals
+BLOCK_STAGE_SLOTS       = 16        ; staged decompressed blocks (round-robin evict)
+                                    ; sized by the lap-rate model (unified-prefetch §5):
+                                    ; steady warm max-diagonal claims ~12/8-frame window
+                                    ; (next-row <=6 + next-col <=5 + corner 1); 16 slots
+                                    ; give a 10.7-frame lap vs the 8-frame crossing
+                                    ; survival window (1.33x margin). 12 was zero-margin
+                                    ; once the H-column + corner prefetch joined the pool.
 BLOCK_DECOMP_BUDGET     = 6         ; max block decompresses per frame (shared: columns + rows)
 VFILL_ROWS_PER_FRAME    = 2         ; rows filled per frame cap. Terminal velocity is
                                     ; 2 rows/frame (16px); 4 = catch-up headroom. The
