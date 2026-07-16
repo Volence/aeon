@@ -83,6 +83,9 @@ Each section page is a single technical narrative with these components:
 Hub + one exemplar section page: **§0 Boot / Hardware Init** (natural starting point,
 self-contained, best teaching hook — TMSS, vectors, VDP init, Z80 bus).
 
+On the v1 hub, only the §0 card links anywhere; all other section and tool cards
+render in a visibly unpublished state (dimmed, no link) until their pages exist.
+
 After the exemplar's form is approved by the user, the remaining nine Aeon sections and
 the suite tool pages (Sigil, Oracle, Seraph, Aurora) fan out mechanically — drafting
 parallelizable with agents, with a foreground accuracy pass before publishing each.
