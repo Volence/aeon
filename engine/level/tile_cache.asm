@@ -269,7 +269,9 @@ TileCache_DecompressBlock:
 ;      d3.w = rows to copy (> 0, even)
 ;      d4.w = source start row within block (0–15, even)
 ;      a1   = staged block base (nametable; collision at +BLOCK_NT_SIZE)
-; Out: none; a1 preserved
+;      a5   = Tile_Cache_Nametable base (H6 hoist — caller-set, loop-invariant)
+;      a6   = Tile_Cache_Collision base (H6 hoist — caller-set, loop-invariant)
+; Out: none; a1/a5/a6 preserved
 ; Clobbers: d0-d3, d5, a0, a2-a3
 ; Note: d2/d3/d4 even is guaranteed because Cache_Top_Row is kept even and
 ;       block tops are multiples of 16 — collision halving stays exact.
@@ -306,10 +308,10 @@ TileCache_CopyBlockColumn:
         lsl.w   #4, d5                         ; d5 = phys_row * 80
         add.w   d1, d5                         ; + cache_col
         add.w   d5, d5                         ; byte offset
-        lea     (Tile_Cache_Nametable).l, a2
+        movea.l a5, a2                        ; H6: hoisted NT base (a5, set by the caller — survives DecompressBlock)
         adda.w  d5, a2
 
-        lea     (Tile_Cache_Nametable+TILE_CACHE_NT_SIZE).l, a3   ; row-wrap sentinel
+        lea     TILE_CACHE_NT_SIZE(a5), a3    ; row-wrap sentinel = NT base + size (H6: derived by displacement)
         move.w  d3, d5
         subq.w  #1, d5
 .copy_nt:
@@ -338,11 +340,11 @@ TileCache_CopyBlockColumn:
         add.w   d2, d5
         lsl.w   #4, d5                         ; d5 = collision_row * 80
         add.w   d1, d5                         ; d5 = dest byte offset within plane
-        lea     (Tile_Cache_Collision).l, a2
+        movea.l a6, a2                        ; H6: hoisted collision base (a6, set by the caller)
         adda.w  d5, a2
 
         lsr.w   #1, d3                         ; d3 = collision rows to copy (tile rows / 2)
-        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a3 ; plane A row-wrap sentinel
+        lea     TILE_CACHE_COLL_SIZE(a6), a3  ; plane A row-wrap sentinel = collision base + size (H6: derived)
         subq.w  #1, d3
         bmi.s   .done_coll
         ; Both planes copied in ONE loop: the fixed displacements reach
@@ -416,6 +418,10 @@ Tile_Cache_Init:
 ; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 TileCache_FillAll:
+        ; H6: hoist the CopyBlockColumn base leas — a5/a6 survive DecompressBlock,
+        ; loop-invariant for the whole fill (mirrors FillColumn's hoist).
+        lea     (Tile_Cache_Nametable).l, a5
+        lea     (Tile_Cache_Collision).l, a6
         ; zero the cache first
         lea     (Tile_Cache_Nametable).l, a0
         move.w  #(TILE_CACHE_NT_SIZE/4)-1, d0
@@ -1121,9 +1127,15 @@ Tile_Cache_Fill:
 ;      On partial, resume state (Cache_Fill_Resume_Col/Row) is stored;
 ;      Tile_Cache_Fill finishes it first next frame.
 ; Uses Cache_Fill_Budget — shared per-frame decompress allowance.
-; Clobbers: d0-d7, a0-a4
+; In (H6): a5/a6 set at entry to the NT/collision bases (hoisted CopyBlockColumn leas).
+; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 TileCache_FillColumn:
+        ; H6: hoist the two loop-invariant base leas out of CopyBlockColumn — a5/a6
+        ; are the only regs surviving DecompressBlock's clobber license (d0-d7/a0/a2-a4),
+        ; so they carry the bases across the per-block decompress for the whole column.
+        lea     (Tile_Cache_Nametable).l, a5
+        lea     (Tile_Cache_Collision).l, a6
         ; resume only if a partial is pending for THIS column
         move.w  (Cache_Top_Row).w, d7
         cmp.w   (Cache_Fill_Resume_Col).w, d5
