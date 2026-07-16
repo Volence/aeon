@@ -394,7 +394,14 @@ Tile_Cache_Init:
         move.l  (Camera_Y).w, d0
         swap    d0
         lsr.w   #3, d0                         ; camera world tile row
-        move.w  d0, (Cache_Prev_Cam_Row).w     ; init prefetch baseline
+        move.w  d0, (Cache_Prev_Cam_Row).w     ; init vertical prefetch baseline
+        ; init horizontal prefetch baseline (else the first H-motion frame sees a
+        ; huge spurious delta off Cache_Prev_Cam_X=0 and mis-latches the direction)
+        move.l  (Camera_X).w, d1
+        swap    d1
+        move.w  d1, (Cache_Prev_Cam_X).w
+        clr.w   (Cache_H_Pfx_Dir).w
+        clr.w   (Cache_H_Pfx_Accum).w
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .top_ok
         moveq   #0, d0
@@ -905,8 +912,13 @@ Tile_Cache_Fill:
         ; first: pure speculation must never push a late frame past VBlank. The demand
         ; fill above already ran and is NEVER gated.
         move.b  (VDP_HV_COUNTER).l, d0         ; VDP V-counter (current scanline)
+        cmpi.b  #SCREEN_HEIGHT, d0
+        bhs.s   .pfx_gate_ok                   ; V >= 224 = VBlank: Fill ran early (its normal slot),
+                                               ; a full active frame of budget ahead — never gate here
         cmpi.b  #PFX_DEADLINE_LINE, d0
-        bhs.w   .fill_return                   ; beam past the deadline — skip ALL prefetch
+        bhs.w   .fill_return                   ; past the deadline WITHIN active display — the frame is
+                                               ; running late; skip ALL prefetch (pure speculation, safety)
+.pfx_gate_ok:
         tst.w   (Cache_Fill_Budget).w
         beq.w   .fill_return                   ; demand fill spent the budget — no prefetch
         ; corner (H2) inputs: each axis scan records its target; $FFFF = axis inactive
@@ -1519,7 +1531,12 @@ TileCache_Reinit:
         move.l  (Camera_Y).w, d0
         swap    d0
         lsr.w   #3, d0                         ; camera world tile row
-        move.w  d0, (Cache_Prev_Cam_Row).w     ; reset prefetch baseline on reinit
+        move.w  d0, (Cache_Prev_Cam_Row).w     ; reset vertical prefetch baseline on reinit
+        move.l  (Camera_X).w, d1
+        swap    d1
+        move.w  d1, (Cache_Prev_Cam_X).w       ; reset horizontal prefetch baseline
+        clr.w   (Cache_H_Pfx_Dir).w
+        clr.w   (Cache_H_Pfx_Accum).w
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .ri_top_ok
         moveq   #0, d0

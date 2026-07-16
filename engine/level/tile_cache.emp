@@ -35,6 +35,7 @@ const BLOCK_INDEX_SIZE      = 1024                                        // 256
 const VFILL_ROWS_PER_FRAME  = 2
 const PFX_DEADLINE_LINE      = 200
 const H_PFX_HYST             = 16
+const SCREEN_HEIGHT          = 224   // NTSC active lines; V >= this = VBlank (H4 gate boundary)
 
 // ---- Sec / Act field offsets used here (DEFERRED struct-twin; truth:
 // engine/structs.asm). Sec/Act are multi-consumer (entity_window, section,
@@ -76,6 +77,7 @@ ensure(extern("BLOCK_INDEX_SIZE") == BLOCK_INDEX_SIZE, "engine/constants.asm and
 ensure(extern("VFILL_ROWS_PER_FRAME") == VFILL_ROWS_PER_FRAME, "engine/constants.asm and tile_cache.emp disagree on VFILL_ROWS_PER_FRAME — update the twin")
 ensure(extern("PFX_DEADLINE_LINE") == PFX_DEADLINE_LINE, "engine/constants.asm and tile_cache.emp disagree on PFX_DEADLINE_LINE — update the twin")
 ensure(extern("H_PFX_HYST") == H_PFX_HYST, "engine/constants.asm and tile_cache.emp disagree on H_PFX_HYST — update the twin")
+ensure(extern("SCREEN_HEIGHT") == SCREEN_HEIGHT, "engine/constants.asm and tile_cache.emp disagree on SCREEN_HEIGHT — update the twin")
 ensure(extern("Act_sec_grid_ptr") == Act_sec_grid_ptr, "engine/structs.asm and tile_cache.emp disagree on Act_sec_grid_ptr — update the twin")
 ensure(extern("Act_grid_w") == Act_grid_w, "engine/structs.asm and tile_cache.emp disagree on Act_grid_w — update the twin")
 ensure(extern("Act_grid_h") == Act_grid_h, "engine/structs.asm and tile_cache.emp disagree on Act_grid_h — update the twin")
@@ -506,7 +508,14 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
         move.l  Camera_Y, d0
         swap    d0
         lsr.w   #3, d0                         // camera world tile row
-        move.w  d0, Cache_Prev_Cam_Row     // init prefetch baseline
+        move.w  d0, Cache_Prev_Cam_Row     // init vertical prefetch baseline
+        // init horizontal prefetch baseline (else the first H-motion frame sees a
+        // huge spurious delta off Cache_Prev_Cam_X=0 and mis-latches the direction)
+        move.l  Camera_X, d1
+        swap    d1
+        move.w  d1, Cache_Prev_Cam_X
+        clr.w   Cache_H_Pfx_Dir
+        clr.w   Cache_H_Pfx_Accum
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl     .top_ok
         moveq   #0, d0
@@ -1007,8 +1016,13 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // first: pure speculation must never push a late frame past VBlank. The demand
         // fill above already ran and is NEVER gated.
         move.b  VDP_HV_COUNTER, d0             // VDP V-counter (current scanline)
+        cmpi.b  #SCREEN_HEIGHT, d0
+        bhs     .pfx_gate_ok                   // V >= 224 = VBlank: Fill ran early (its normal slot),
+                                               // a full active frame of budget ahead — never gate here
         cmpi.b  #PFX_DEADLINE_LINE, d0
-        bhs     .fill_return                   // beam past the deadline — skip ALL prefetch
+        bhs     .fill_return                   // past the deadline WITHIN active display — the frame is
+                                               // running late; skip ALL prefetch (pure speculation, safety)
+    .pfx_gate_ok:
         tst.w   Cache_Fill_Budget
         beq     .fill_return                   // demand fill spent the budget — no prefetch
         // corner (H2) inputs: each axis scan records its target; $FFFF = axis inactive
@@ -1566,7 +1580,12 @@ pub proc TileCache_Reinit () clobbers(d0-d7/a0-a6) {
         move.l  Camera_Y, d0
         swap    d0
         lsr.w   #3, d0                         // camera world tile row
-        move.w  d0, Cache_Prev_Cam_Row     // reset prefetch baseline on reinit
+        move.w  d0, Cache_Prev_Cam_Row     // reset vertical prefetch baseline on reinit
+        move.l  Camera_X, d1
+        swap    d1
+        move.w  d1, Cache_Prev_Cam_X       // reset horizontal prefetch baseline
+        clr.w   Cache_H_Pfx_Dir
+        clr.w   Cache_H_Pfx_Accum
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl     .ri_top_ok
         moveq   #0, d0
