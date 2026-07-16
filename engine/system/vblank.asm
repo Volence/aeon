@@ -172,8 +172,18 @@ VSync_Wait:
         ; immediately and the queued Critical DMA never drains before the
         ; CALLER overwrites the source buffer (Art_Staging_Buffer).
         moveq   #0, d0
+        ; The clear-flag + set-Ready pair below MUST be atomic. If a VBlank IRQ6
+        ; lands between them (VBlank_Ready still 0), it runs VInt_Lag, which sets
+        ; VBlank_Flag — so .wait falls through with NO real vsync, while Ready is
+        ; left =1 for the NEXT VBlank to full-drain a still-mid-fill Plane_Buffer
+        ; (the b96c861 torn-drain hazard). Mask IRQs across the pair (~34-40 cy on
+        ; this once-per-frame path); this also makes Lag_Frame_Count exact. SR is
+        ; restored BEFORE .wait — the wait itself depends on IRQ6 setting the flag.
+        move.w  sr, -(sp)
+        move.w  #$2700, sr
         move.b  d0, (VBlank_Flag).w
         move.b  #1, (VBlank_Ready).w
+        move.w  (sp)+, sr
 .wait:
         tst.b   (VBlank_Flag).w
         beq.s   .wait
