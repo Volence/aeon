@@ -120,6 +120,22 @@ comptime fn decompose_block(col: Reg, row: Reg) -> Code {
     }
 }
 
+// mul_cache_stride — multiply a cache row by TILE_CACHE_STRIDE (the row width) via
+// shift-add: row*80 = (row<<6) + (row<<4). Names the ×80 idiom shared by GetTile,
+// GetCollision, and FillRow's cache_row_offset (the "form (a)" sites that need a
+// separate scratch reg; CopyBlockColumn's "form (b)" single-temp variant stays
+// inline). The #6/#4 shifts encode 64+16=80 — the comptime guard makes a stride
+// drift unrepresentable. dst ends = dst*stride; scratch is trashed.
+comptime fn mul_cache_stride(dst: Reg, scratch: Reg) -> Code {
+    ensure(TILE_CACHE_STRIDE == 80, "mul_cache_stride assumes TILE_CACHE_STRIDE=80 (lsl #6 + lsl #4); update the shifts")
+    return asm {
+        move.w  {dst}, {scratch}
+        lsl.w   #6, {dst}                         // * 64
+        lsl.w   #4, {scratch}                      // * 16
+        add.w   {scratch}, {dst}                   // * 80 (= TILE_CACHE_STRIDE)
+    }
+}
+
 // -----------------------------------------------
 // Tile_Cache_GetTile — look up nametable word for a world tile position
 // In:  d0.w = world tile col, d1.w = world tile row
@@ -139,11 +155,7 @@ pub proc Tile_Cache_GetTile () clobbers(d0-d1/a0) out(d2) {
         blt     .row_nowrap
         subi.w  #TILE_CACHE_ROWS, d1
     .row_nowrap:
-        // d1 * 80 via shift-add (80 = 64 + 16)
-        move.w  d1, d2
-        lsl.w   #6, d1
-        lsl.w   #4, d2
-        add.w   d2, d1
+        mul_cache_stride(d1, d2)              // d1 = row * TILE_CACHE_STRIDE
         add.w   d0, d1
         add.w   d1, d1                         // ×2 for word-sized entries
         lea     Tile_Cache_Nametable, a0
@@ -175,11 +187,7 @@ pub proc Tile_Cache_GetCollision () clobbers(d1-d2/a0) out(d0) {
         blt     .row_nowrap
         subi.w  #TILE_CACHE_COLL_ROWS, d1
     .row_nowrap:
-        // d1 * 80 via shift-add
-        move.w  d1, d2
-        lsl.w   #6, d1
-        lsl.w   #4, d2
-        add.w   d2, d1
+        mul_cache_stride(d1, d2)              // d1 = coll_row * TILE_CACHE_STRIDE
         add.w   d0, d1
         // layer plane select: layer B shifts byte index into the second plane
         tst.b   d3
@@ -505,7 +513,7 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
         jbsr    TileCache_InvalidateStaging
 
         jbsr    TileCache_FillAll
-        jbsr    TileCache_WarmupBelowRow       // (ii) cold-start: pre-stage the below-row
+        jbsr    TileCache_WarmupBelowRow       // cold-start warmup: pre-stage the below-row
         rts
 }
 
@@ -642,11 +650,11 @@ pub proc TileCache_FillAll () clobbers(d0-d7/a0-a6) {
 }
 
 // -----------------------------------------------
-// TileCache_WarmupBelowRow — Wave-2 (ii) cold-start warmup
+// TileCache_WarmupBelowRow — cold-start warmup
 // Pre-stages the ENTIRE block-row just below the initial cache window so the
-// FIRST downward crossing is warm — before (i)'s leftover-budget prefetch has
-// had any quiet frames to work. Targets the cold-start regime (i) structurally
-// can't cover (the first crossing has no prior quiet frames). Called once from
+// FIRST downward crossing is warm — before the leftover-budget row prefetch has
+// had any quiet frames to work. Targets the cold-start regime the leftover-budget
+// prefetch structurally can't cover (the first crossing has no prior quiet frames). Called once from
 // Tile_Cache_Init after FillAll, display OFF: the ~5-6 extra synchronous
 // decompresses ride Init's existing ~10-frame cost, no lag concern. Down-scroll
 // assumption (the common level-entry direction); an up-scroll from spawn simply
@@ -695,7 +703,7 @@ pub proc TileCache_WarmupBelowRow () clobbers(d0-d7/a0-a4) {
         movem.l (sp)+, d6-d7
     .next:
         addi.w  #BLOCK_TILE_SIZE, d6           // next block col
-        bra     .scan
+        jbra    .scan
     .done:
         rts
 }
@@ -1057,10 +1065,10 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         beq     .pfx_next                      // already staged — try next col
         subq.w  #1, Cache_Fill_Budget
         jbsr    TileCache_DecompressBlock      // stage this block (d0/d1/d2 in) — k=1, then done
-        bra     .pfx_skip
+        jbra    .pfx_skip
     .pfx_next:
         addi.w  #BLOCK_TILE_SIZE, d6           // next block col
-        bra     .pfx_scan
+        jbra    .pfx_scan
 
     .pfx_skip:
     .fill_return:
@@ -1156,7 +1164,7 @@ pub proc TileCache_FillColumn () clobbers(d1-d7/a0-a4) out(d0) {
 //      On complete, Cache_Fill_RowResume_Row is set to $FFFF.
 // Clobbers: d0-d7, a0-a6
 //   a5/a6 hold the collision plane-A/plane-B DEST row bases for the WHOLE row
-//   (step-5 hoist — out of the per-cell loop). They survive the per-block
+//   (loop-invariant, hoisted out of the per-cell loop). They survive the per-block
 //   DecompressBlock call because its license (d0-d7/a0/a2-a4) EXCLUDES a5/a6;
 //   a4 (NT dest base) + a2 (plane-B src base) ARE clobbered by it, so they are
 //   re-set per block. (transitive-attribute: widened from a0-a4; sole caller
@@ -1196,13 +1204,10 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a6) out(d0) {
         move.w  d3, -(sp)                      // 2(sp) = collision row offset
 
         // pre-compute cache row stride in words — pushed once for entire call
-        move.w  d2, d3
-        lsl.w   #6, d2                         // * 64
-        lsl.w   #4, d3                         // * 16
-        add.w   d3, d2                         // * 80
+        mul_cache_stride(d2, d3)              // d2 = phys_row * TILE_CACHE_STRIDE
         move.w  d2, -(sp)                      // 0(sp) = cache_row_offset_words
 
-        // --- step-5 hoist: the collision plane-A/plane-B DEST row bases are
+        // --- loop-invariant hoist: the collision plane-A/plane-B DEST row bases are
         //     loop-invariant (Tile_Cache_Collision / +TILE_CACHE_COLL_SIZE, both
         //     compile-time). Hoist them ONCE per row into a5/a6. LOAD-BEARING &
         //     INVISIBLE: this relies on a5/a6 surviving the per-block
@@ -1210,8 +1215,8 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a6) out(d0) {
         //     (S4LZ_DecompressDict, the AS-side transitive callee, verified
         //     a5/a6-clean too). A future edit that makes DecompressBlock (or a
         //     swapped decompressor) touch a5/a6 would corrupt the collision
-        //     planes SILENTLY — the S2-D6 checked-clobbers lint is what would
-        //     catch this mechanically. ---
+        //     planes SILENTLY — a checked-clobbers lint (callee writes ⊆ its
+        //     declared clobbers) is what would catch this mechanically. ---
         lea     Tile_Cache_Collision, a5           // plane-A dest base (whole row)
         lea     Tile_Cache_Collision+TILE_CACHE_COLL_SIZE, a6  // plane-B dest base (whole row)
 
@@ -1261,7 +1266,7 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a6) out(d0) {
         lea     BLOCK_NT_SIZE(a1), a3
         adda.w  d3, a3
 
-        // step-5 hoist: a4 = NT DEST base, a2 = plane-B SRC base (a3 + 128). Both
+        // per-block hoist: a4 = NT DEST base, a2 = plane-B SRC base (a3 + 128). Both
         // per-BLOCK — DecompressBlock clobbers a4 + a2, so they re-set here (a5/a6
         // survive it, hoisted per-row above). Plane-B src can't be an indexed
         // displacement: BLOCK_COLL_PLANE_SIZE = 128 > +127 (signed 8-bit).
