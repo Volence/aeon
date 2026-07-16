@@ -269,7 +269,9 @@ TileCache_DecompressBlock:
 ;      d3.w = rows to copy (> 0, even)
 ;      d4.w = source start row within block (0–15, even)
 ;      a1   = staged block base (nametable; collision at +BLOCK_NT_SIZE)
-; Out: none; a1 preserved
+;      a5   = Tile_Cache_Nametable base (H6 hoist — caller-set, loop-invariant)
+;      a6   = Tile_Cache_Collision base (H6 hoist — caller-set, loop-invariant)
+; Out: none; a1/a5/a6 preserved
 ; Clobbers: d0-d3, d5, a0, a2-a3
 ; Note: d2/d3/d4 even is guaranteed because Cache_Top_Row is kept even and
 ;       block tops are multiples of 16 — collision halving stays exact.
@@ -306,10 +308,10 @@ TileCache_CopyBlockColumn:
         lsl.w   #4, d5                         ; d5 = phys_row * 80
         add.w   d1, d5                         ; + cache_col
         add.w   d5, d5                         ; byte offset
-        lea     (Tile_Cache_Nametable).l, a2
+        movea.l a5, a2                        ; H6: hoisted NT base (a5, set by the caller — survives DecompressBlock)
         adda.w  d5, a2
 
-        lea     (Tile_Cache_Nametable+TILE_CACHE_NT_SIZE).l, a3   ; row-wrap sentinel
+        lea     TILE_CACHE_NT_SIZE(a5), a3    ; row-wrap sentinel = NT base + size (H6: derived by displacement)
         move.w  d3, d5
         subq.w  #1, d5
 .copy_nt:
@@ -338,11 +340,11 @@ TileCache_CopyBlockColumn:
         add.w   d2, d5
         lsl.w   #4, d5                         ; d5 = collision_row * 80
         add.w   d1, d5                         ; d5 = dest byte offset within plane
-        lea     (Tile_Cache_Collision).l, a2
+        movea.l a6, a2                        ; H6: hoisted collision base (a6, set by the caller)
         adda.w  d5, a2
 
         lsr.w   #1, d3                         ; d3 = collision rows to copy (tile rows / 2)
-        lea     (Tile_Cache_Collision+TILE_CACHE_COLL_SIZE).l, a3 ; plane A row-wrap sentinel
+        lea     TILE_CACHE_COLL_SIZE(a6), a3  ; plane A row-wrap sentinel = collision base + size (H6: derived)
         subq.w  #1, d3
         bmi.s   .done_coll
         ; Both planes copied in ONE loop: the fixed displacements reach
@@ -392,7 +394,16 @@ Tile_Cache_Init:
         move.l  (Camera_Y).w, d0
         swap    d0
         lsr.w   #3, d0                         ; camera world tile row
-        move.w  d0, (Cache_Prev_Cam_Row).w     ; init prefetch baseline
+        move.w  d0, (Cache_Prev_Cam_Row).w     ; init vertical prefetch baseline
+        ; init horizontal prefetch baseline (else the first H-motion frame sees a
+        ; huge spurious delta off Cache_Prev_Cam_X=0 and mis-latches the direction)
+        move.l  (Camera_X).w, d1
+        swap    d1
+        move.w  d1, (Cache_Prev_Cam_X).w
+        clr.w   (Cache_H_Pfx_Dir).w
+        clr.w   (Cache_H_Pfx_Accum).w
+        clr.w   (Cache_Pfx_Skip_Armed).w
+        clr.w   (Cache_Pfx_Lag_Flag).w         ; trailing-lag gate baseline (no false skip on frame 1)
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .top_ok
         moveq   #0, d0
@@ -416,6 +427,10 @@ Tile_Cache_Init:
 ; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 TileCache_FillAll:
+        ; H6: hoist the CopyBlockColumn base leas — a5/a6 survive DecompressBlock,
+        ; loop-invariant for the whole fill (mirrors FillColumn's hoist).
+        lea     (Tile_Cache_Nametable).l, a5
+        lea     (Tile_Cache_Collision).l, a6
         ; zero the cache first
         lea     (Tile_Cache_Nametable).l, a0
         move.w  #(TILE_CACHE_NT_SIZE/4)-1, d0
@@ -625,6 +640,18 @@ Tile_Cache_Fill:
         move.w  (Frame_Counter).w, d0
         cmp.w   (Cache_Fill_Last_Frame).w, d0
         beq.w   .fill_return
+        ; trailing-lag detect (consumed by the H4 gate below): Frame_Counter ticks once
+        ; per VBlank on BOTH the normal (VInt_Level) and lag (VInt_Lag) paths, so it
+        ; advancing by MORE than 1 since the last fill means a frame lagged in between.
+        move.w  d0, d1
+        sub.w   (Cache_Fill_Last_Frame).w, d1  ; frames since last fill
+        subq.w  #1, d1                          ; 0 = on time, >0 = a frame lagged
+        beq.s   .fg_on_time
+        move.w  #1, (Cache_Pfx_Lag_Flag).w
+        bra.s   .fg_lag_done
+.fg_on_time:
+        clr.w   (Cache_Pfx_Lag_Flag).w
+.fg_lag_done:
         move.w  d0, (Cache_Fill_Last_Frame).w
 
         ; --- reset per-frame decompress budget + rows-this-frame cap ---
@@ -894,65 +921,78 @@ Tile_Cache_Fill:
         subq.w  #1, d5                         ; restore d5 to even (pair base)
         bra.s   .v_top_fill
 .v_top_done:
-        ; --- leftover-budget prefetch: stage the next block-row's blocks (one
-        ;     per frame, left-to-right — the enumeration at .pfx_go) so a crossing
-        ;     finds them cached. Flattens the ~6-block crossing spike across the
-        ;     ~8 quiet frames between crossings. ---
+        ; ============ UNIFIED DIRECTION-AWARE PREFETCH (§4.7, design note) ============
+        ; Leftover-budget speculation ordered row -> col -> corner. H4 deadline gate
+        ; first: pure speculation must never push a late frame past VBlank. The demand
+        ; fill above already ran and is NEVER gated.
+        ; H4 (trailing-lag gate): Tile_Cache_Fill runs once/frame inside VBlank (V~=240,
+        ; the same slot every frame), so a beam-position read cannot gauge frame load.
+        ; Use the previous frame's outcome instead: Cache_Pfx_Lag_Flag was set at the
+        ; frame gate above from the Frame_Counter delta (release-safe, unlike the DEBUG
+        ; Lag_Frame_Count). If the frame just before this one lagged, skip this frame's
+        ; speculation — but NEVER skip two running: a sustained-lag run must keep pre-
+        ; warming or cold columns cascade back in (demand fill is never gated, so the
+        ; bounded worst case is the pre-prefetch path).
+        tst.w   (Cache_Pfx_Lag_Flag).w         ; did the previous frame lag?
+        beq.s   .pfx_no_recent_lag
+        tst.w   (Cache_Pfx_Skip_Armed).w
+        bne.s   .pfx_gate_ok                   ; already skipped once -> run anyway (no cascade)
+        move.w  #1, (Cache_Pfx_Skip_Armed).w   ; arm: skip this frame's speculation
+        bra.w   .fill_return
+.pfx_no_recent_lag:
+        clr.w   (Cache_Pfx_Skip_Armed).w
+.pfx_gate_ok:
         tst.w   (Cache_Fill_Budget).w
-        beq.w   .fill_return                   ; budget spent — no prefetch
+        beq.w   .fill_return                   ; demand fill spent the budget — no prefetch
+        ; corner (H2) inputs: each axis scan records its target; $FFFF = axis inactive
+        move.w  #$FFFF, (Cache_Pfx_Row_Target).w
+        move.w  #$FFFF, (Cache_Pfx_Col_Target).w
 
-        ; compute current camera world tile row
+        ; ---- ROW SCAN (vertical prefetch; NO hysteresis — gravity is decisive) ----
         move.l  (Camera_Y).w, d0
         swap    d0
         lsr.w   #3, d0                         ; d0 = camera world tile row
-
-        ; compare with last frame to get scroll direction
         move.w  (Cache_Prev_Cam_Row).w, d1
-        move.w  d0, (Cache_Prev_Cam_Row).w     ; update for next frame
+        move.w  d0, (Cache_Prev_Cam_Row).w     ; update for next frame. If a frame is
+                                               ; H4-gate-skipped or budget-0 this (and the
+                                               ; Cache_Prev_Cam_X update below) don't run,
+                                               ; so the next tail-run sees a DOUBLED delta —
+                                               ; harmless: V uses the sign only, H nets px.
         sub.w   d1, d0                         ; d0 = delta (+down / -up / 0)
-        beq.w   .fill_return                   ; not moving vertically — skip (.w: the prefetch scan below pushed .fill_return past .s range)
+        beq.w   .row_done                      ; not moving vertically — no row target
         bmi.s   .pfx_up
 
-        ; moving DOWN: target = world tile row of the block-row below cache bottom
-        ; = align bottom to block boundary, then add BLOCK_TILE_SIZE
+        ; moving DOWN: target = block-row just below cache bottom
         move.w  (Cache_Bottom_Row).w, d7
         andi.w  #~(BLOCK_TILE_SIZE-1), d7      ; align down to block start
         addi.w  #BLOCK_TILE_SIZE, d7           ; first row of next block below
-        ; guard: sec_y = d7 >> 8 must be < grid_h
         move.w  d7, d5
         lsr.w   #8, d5                         ; sec_y
         movea.l (Current_Act_Ptr).w, a0
         moveq   #0, d0
         move.b  Act_grid_h+1(a0), d0           ; grid_h (sections)
         cmp.w   d0, d5
-        bcc.s   .pfx_skip                      ; sec_y >= grid_h — out of world
+        bcc.s   .row_done                      ; sec_y >= grid_h — out of world
         bra.s   .pfx_go
 
 .pfx_up:
-        ; moving UP: target = world tile row of the block-row above cache top
-        ; = align top to block boundary, then subtract BLOCK_TILE_SIZE
+        ; moving UP: target = block-row just above cache top
         move.w  (Cache_Top_Row).w, d7
-        andi.w  #~(BLOCK_TILE_SIZE-1), d7      ; align down to block start (Top is even, may already be aligned)
+        andi.w  #~(BLOCK_TILE_SIZE-1), d7      ; align down to block start (Top is even)
         tst.w   d7
-        beq.s   .pfx_skip                      ; top block-row IS world row 0 — nothing above
+        beq.s   .row_done                      ; top block-row IS world row 0 — nothing above
         subi.w  #BLOCK_TILE_SIZE, d7           ; first row of block above
-        ; d7 >= 0 guaranteed (just subtracted from a value > 0)
 
 .pfx_go:
-        ; d7 = target world tile row (next block-row, a valid block in the grid).
-        ; Scan the cache's block columns [Left..Head] and stage the FIRST unstaged
-        ; block, ONE per frame (k=1). Across the ~8 quiet frames between crossings
-        ; this warms the whole next row left-to-right (already-staged cols are
-        ; cheap FindStagedBlock hits), so the crossing finds it cached — THIS is
-        ; the "flatten the 6-block spike" mechanism. (No RAM cursor: the scan
-        ; self-advances as cols get staged, and re-targets across crossings free —
-        ; the target row is stable for the 8 quiet frames, then jumps. The <=6
-        ; probes/frame land in a quiet frame's leftover budget.)
+        ; d7 = target world tile row. Scan block cols [Left..Head], stage the FIRST
+        ; unstaged block k=1 (self-advancing across the ~8 quiet frames), sec_x per
+        ; step, sec_y fixed (guarded at entry).
+        move.w  d7, (Cache_Pfx_Row_Target).w   ; record for the corner (H2)
         move.w  (Cache_Left_Col).w, d6
         andi.w  #$FFF0, d6                     ; align to the first block col
 .pfx_scan:
         cmp.w   (Cache_Head_Col).w, d6
-        bgt.s   .pfx_skip                      ; whole next row already staged — done
+        bgt.s   .row_done                      ; whole next row already staged
         ; decompose (col d6, row d7) -> sec_x=d0, sec_y=d1, block_index=d2
         move.w  d6, d0
         lsr.w   #8, d0                         ; sec_x = tile_col >> 8
@@ -967,9 +1007,6 @@ Tile_Cache_Fill:
         lsl.w   #4, d3
         add.w   d2, d3
         move.w  d3, d2                         ; block_index = block_y*16 + block_x
-        ; grid guard: sec_x < grid_w (near the act right edge the col sits past
-        ; the grid; skip — that block decompresses blank, wasting budget). sec_y
-        ; was guarded once at the .pfx_up/.pfx_go entry (d7 is fixed for the scan).
         movea.l (Current_Act_Ptr).w, a0
         moveq   #0, d3
         move.b  Act_grid_w+1(a0), d3
@@ -979,12 +1016,149 @@ Tile_Cache_Fill:
         beq.s   .pfx_next                      ; already staged — try next col
         subq.w  #1, (Cache_Fill_Budget).w
         bsr.w   TileCache_DecompressBlock      ; stage this block (d0/d1/d2 in) — k=1, then done
-        bra.s   .pfx_skip
+        bra.s   .row_done
 .pfx_next:
         addi.w  #BLOCK_TILE_SIZE, d6           ; next block col
         bra.s   .pfx_scan
 
-.pfx_skip:
+.row_done:
+        ; ---- COL SCAN (horizontal prefetch; H3 direction hysteresis) ----
+        ; Update the latch EVERY tail-run frame (accuracy), THEN gate the scan on
+        ; budget. Camera px delta -> direction; the latch flips only after
+        ; >= H_PFX_HYST px of NET opposite motion (players dither on column seams).
+        move.l  (Camera_X).w, d0
+        swap    d0                             ; d0.w = camera px (low word)
+        move.w  (Cache_Prev_Cam_X).w, d1
+        move.w  d0, (Cache_Prev_Cam_X).w       ; update for next frame
+        sub.w   d1, d0                         ; d0 = delta px (+right / -left / 0)
+        move.w  (Cache_H_Pfx_Dir).w, d3
+        bne.s   .cs_have_latch
+        ; no latch yet: establish from this frame's motion sign
+        tst.w   d0
+        beq.w   .fill_return                   ; never moved horizontally — no col, no corner
+        bmi.s   .cs_first_left
+        moveq   #1, d3
+        bra.s   .cs_first_set
+.cs_first_left:
+        moveq   #-1, d3
+.cs_first_set:
+        move.w  d3, (Cache_H_Pfx_Dir).w
+        clr.w   (Cache_H_Pfx_Accum).w
+        bra.s   .cs_latched
+.cs_have_latch:
+        ; opp = motion opposite the latch; accumulate (clamp >=0); flip at threshold
+        move.w  d0, d1                         ; d1 = delta px
+        tst.w   d3
+        bmi.s   .cs_opp_ready                  ; latch LEFT: opposite = +delta (keep sign)
+        neg.w   d1                             ; latch RIGHT: opposite = -delta
+.cs_opp_ready:
+        add.w   d1, (Cache_H_Pfx_Accum).w
+        tst.w   (Cache_H_Pfx_Accum).w
+        bpl.s   .cs_accum_ok
+        clr.w   (Cache_H_Pfx_Accum).w          ; net: with-latch motion cannot bank below 0
+.cs_accum_ok:
+        cmpi.w  #H_PFX_HYST, (Cache_H_Pfx_Accum).w
+        blt.s   .cs_latched                    ; not enough opposite motion — keep latch
+        neg.w   d3                             ; flip the latched direction
+        move.w  d3, (Cache_H_Pfx_Dir).w
+        clr.w   (Cache_H_Pfx_Accum).w
+.cs_latched:
+        ; d3 = latched direction (+1 right / -1 left). NOTE: the col scan runs whenever a
+        ; direction is latched — INCLUDING purely-vertical frames (no H motion this frame)
+        ; — so it keeps pre-warming the latched-side column. Probe-only cost when that
+        ; column is already staged (FindStagedBlock hits, no decompress); intentional.
+        tst.w   (Cache_Fill_Budget).w
+        beq.w   .fill_return                   ; row scan spent the budget — no col this frame
+        tst.w   d3
+        bmi.s   .cs_left
+        ; RIGHT: target = block-col just beyond cache head
+        move.w  (Cache_Head_Col).w, d6
+        andi.w  #~(BLOCK_TILE_SIZE-1), d6
+        addi.w  #BLOCK_TILE_SIZE, d6
+        bra.s   .cs_have_col
+.cs_left:
+        ; LEFT: target = block-col just before cache left
+        move.w  (Cache_Left_Col).w, d6
+        andi.w  #~(BLOCK_TILE_SIZE-1), d6
+        beq.s   .col_done                      ; left block-col IS world col 0 — nothing left
+        subi.w  #BLOCK_TILE_SIZE, d6
+.cs_have_col:
+        ; guard sec_x = d6 >> 8 < grid_w (FIXED for the whole col scan)
+        move.w  d6, d5
+        lsr.w   #8, d5                         ; sec_x
+        movea.l (Current_Act_Ptr).w, a0
+        moveq   #0, d0
+        move.b  Act_grid_w+1(a0), d0           ; grid_w (sections)
+        cmp.w   d0, d5
+        bcc.s   .col_done                      ; sec_x >= grid_w — out of world
+        move.w  d6, (Cache_Pfx_Col_Target).w   ; record for the corner (H2)
+        ; scan block rows [Top..Bottom]; sec_y per step (d6 fixed for the scan)
+        move.w  (Cache_Top_Row).w, d7
+        andi.w  #$FFF0, d7                     ; align to the first block row
+.cs_scan:
+        cmp.w   (Cache_Bottom_Row).w, d7
+        bgt.s   .col_done                      ; whole next col already staged
+        move.w  d7, d5
+        lsr.w   #8, d5                         ; sec_y
+        movea.l (Current_Act_Ptr).w, a0
+        moveq   #0, d3
+        move.b  Act_grid_h+1(a0), d3
+        cmp.w   d3, d5
+        bcc.s   .cs_next                       ; sec_y >= grid_h — skip this block row
+        ; decompose (col d6, row d7) -> sec_x=d0, sec_y=d1, block_index=d2
+        move.w  d6, d0
+        lsr.w   #8, d0
+        move.w  d7, d1
+        lsr.w   #8, d1
+        move.w  d6, d2
+        lsr.w   #BLOCK_TILE_SHIFT, d2
+        andi.w  #$F, d2
+        move.w  d7, d3
+        lsr.w   #BLOCK_TILE_SHIFT, d3
+        andi.w  #$F, d3
+        lsl.w   #4, d3
+        add.w   d2, d3
+        move.w  d3, d2                         ; block_index = block_y*16 + block_x
+        bsr.w   TileCache_FindStagedBlock
+        beq.s   .cs_next                       ; already staged — try next row
+        subq.w  #1, (Cache_Fill_Budget).w
+        bsr.w   TileCache_DecompressBlock      ; stage this block — k=1, then done
+        bra.s   .col_done
+.cs_next:
+        addi.w  #BLOCK_TILE_SIZE, d7           ; next block row
+        bra.s   .cs_scan
+
+.col_done:
+        ; ---- CORNER (H2): the (next-row x next-col) block is in NEITHER axis scan;
+        ; stage it LAST, only when BOTH axes are actively crossing. Both targets were
+        ; grid-guarded when recorded, so the corner section is in-grid by construction
+        ; (sec_x<grid_w from the col, sec_y<grid_h from the row).
+        tst.w   (Cache_Fill_Budget).w
+        beq.s   .fill_return
+        move.w  (Cache_Pfx_Row_Target).w, d7
+        cmpi.w  #$FFFF, d7
+        beq.s   .fill_return                   ; no vertical target — no corner
+        move.w  (Cache_Pfx_Col_Target).w, d6
+        cmpi.w  #$FFFF, d6
+        beq.s   .fill_return                   ; no horizontal target — no corner
+        ; decompose (col d6, row d7) -> sec_x=d0, sec_y=d1, block_index=d2
+        move.w  d6, d0
+        lsr.w   #8, d0
+        move.w  d7, d1
+        lsr.w   #8, d1
+        move.w  d6, d2
+        lsr.w   #BLOCK_TILE_SHIFT, d2
+        andi.w  #$F, d2
+        move.w  d7, d3
+        lsr.w   #BLOCK_TILE_SHIFT, d3
+        andi.w  #$F, d3
+        lsl.w   #4, d3
+        add.w   d2, d3
+        move.w  d3, d2                         ; block_index = block_y*16 + block_x
+        bsr.w   TileCache_FindStagedBlock
+        beq.s   .fill_return                   ; already staged
+        subq.w  #1, (Cache_Fill_Budget).w
+        bsr.w   TileCache_DecompressBlock      ; stage the corner — k=1
 .fill_return:
         rts
 
@@ -995,9 +1169,15 @@ Tile_Cache_Fill:
 ;      On partial, resume state (Cache_Fill_Resume_Col/Row) is stored;
 ;      Tile_Cache_Fill finishes it first next frame.
 ; Uses Cache_Fill_Budget — shared per-frame decompress allowance.
-; Clobbers: d0-d7, a0-a4
+; In (H6): a5/a6 set at entry to the NT/collision bases (hoisted CopyBlockColumn leas).
+; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 TileCache_FillColumn:
+        ; H6: hoist the two loop-invariant base leas out of CopyBlockColumn — a5/a6
+        ; are the only regs surviving DecompressBlock's clobber license (d0-d7/a0/a2-a4),
+        ; so they carry the bases across the per-block decompress for the whole column.
+        lea     (Tile_Cache_Nametable).l, a5
+        lea     (Tile_Cache_Collision).l, a6
         ; resume only if a partial is pending for THIS column
         move.w  (Cache_Top_Row).w, d7
         cmp.w   (Cache_Fill_Resume_Col).w, d5
@@ -1381,7 +1561,14 @@ TileCache_Reinit:
         move.l  (Camera_Y).w, d0
         swap    d0
         lsr.w   #3, d0                         ; camera world tile row
-        move.w  d0, (Cache_Prev_Cam_Row).w     ; reset prefetch baseline on reinit
+        move.w  d0, (Cache_Prev_Cam_Row).w     ; reset vertical prefetch baseline on reinit
+        move.l  (Camera_X).w, d1
+        swap    d1
+        move.w  d1, (Cache_Prev_Cam_X).w       ; reset horizontal prefetch baseline
+        clr.w   (Cache_H_Pfx_Dir).w
+        clr.w   (Cache_H_Pfx_Accum).w
+        clr.w   (Cache_Pfx_Skip_Armed).w
+        clr.w   (Cache_Pfx_Lag_Flag).w         ; trailing-lag gate baseline
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl.s   .ri_top_ok
         moveq   #0, d0

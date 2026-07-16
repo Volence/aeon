@@ -357,14 +357,27 @@ BLOCK_COLL_COLS         = BLOCK_TILE_SIZE      ; 16 collision cells per row (byt
 BLOCK_COLL_PLANE_SIZE   = BLOCK_COLL_COLS * BLOCK_COLL_ROWS  ; 128 bytes per plane
 BLOCK_COLL_SIZE         = BLOCK_COLL_PLANE_SIZE * TILE_CACHE_COLL_PLANES  ; 256 bytes (A+B)
 BLOCK_RAW_SIZE          = BLOCK_NT_SIZE + BLOCK_COLL_SIZE  ; 768 bytes
-BLOCK_STAGE_SLOTS       = 12        ; staged decompressed blocks (round-robin evict)
-                                    ; sized so a column fill (<=5 blocks) + a row fill
-                                    ; (<=6 blocks) coexist without thrashing on diagonals
+BLOCK_STAGE_SLOTS       = 16        ; staged decompressed blocks (round-robin evict)
+                                    ; sized by the lap-rate model (unified-prefetch §5):
+                                    ; steady warm max-diagonal claims ~12/8-frame window
+                                    ; (next-row <=6 + next-col <=5 + corner 1); 16 slots
+                                    ; give a 10.7-frame lap vs the 8-frame crossing
+                                    ; survival window (1.33x margin). 12 was zero-margin
+                                    ; once the H-column + corner prefetch joined the pool.
 BLOCK_DECOMP_BUDGET     = 6         ; max block decompresses per frame (shared: columns + rows)
 VFILL_ROWS_PER_FRAME    = 2         ; rows filled per frame cap. Terminal velocity is
                                     ; 2 rows/frame (16px); 4 = catch-up headroom. The
                                     ; camera Y clamp (CAM_MAX_Y_STEP) must stay
                                     ; <= this*8 px or streaming falls behind the view.
+; Unified direction-aware prefetch tuning (§4.7). A/B-bound (design note §8):
+; NB the H4 late-frame gate is NOT a beam-position deadline — Tile_Cache_Fill runs
+; once/frame inside VBlank (V~=240), so it uses a TRAILING lag indicator instead
+; (skip the prefetch tail if the previous frame lagged; Lag_Frame_Count). See the
+; A/B finding in the design note §3/H4.
+H_PFX_HYST              = 16        ; net opposite-motion px before the horizontal
+                                    ; prefetch direction latch flips (hysteresis vs
+                                    ; seam-dither churn). 16 px = 2 tile-cols.
+
 BLOCKS_PER_SECTION_AXIS = 16        ; 16 blocks across, 16 blocks down
 BLOCK_INDEX_ENTRIES     = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  ; 256
 BLOCK_INDEX_SIZE        = BLOCK_INDEX_ENTRIES * 4  ; 1024 bytes (ROM)
@@ -399,13 +412,15 @@ CAM_MAX_Y_STEP          = 16        ; max camera Y movement px/frame. The stream
                                     ; engine bounds the CAMERA: S2=16, S3K=24) — must
                                     ; stay <= VFILL_ROWS_PER_FRAME*8 or fills fall
                                     ; behind the view. Teleports bypass via Reinit.
-                                    ; KEEP 16: the on-device diagonal stress runs
-                                    ; ~76% lag at sustained MAX diagonal — column-fill
-                                    ; and row-fill share BLOCK_DECOMP_BUDGET, so the
-                                    ; zero-slack contract (sized single-axis) has NO
-                                    ; headroom to raise to 24; doing so worsens the
-                                    ; diagonal lag. Revisit with the diagonal-budget
-                                    ; work tracked in DEFERRED_WORK (§4.7/§1.1).
+                                    ; KEEP 16: sustained MAX diagonal measured ~42% lag
+                                    ; post-unified-prefetch (2026-07-16, oracle; was
+                                    ; ~76% pre-prefetch). Column-fill and row-fill share
+                                    ; BLOCK_DECOMP_BUDGET, so the zero-slack contract
+                                    ; (sized single-axis) has NO headroom to raise to 24.
+                                    ; The prefetch removed the DECOMPRESS spike; the
+                                    ; residual is COPY/DRAW-bound (the "horizontal Wave-1"
+                                    ; — see campaign-gap-ledger). Revisit with the
+                                    ; diagonal-budget work in DEFERRED_WORK (§4.7/§1.1).
 
 ; -----------------------------------------------
 ; Vertical edge modes (per-act Act_edge_mode; §10)

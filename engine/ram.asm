@@ -324,7 +324,16 @@ Cache_Fill_Budget:      ds.w 1          ; per-frame block decompress allowance (
 Cache_Fill_RowResume_Row: ds.w 1        ; partial FillRow resume world row ($FFFF = none)
 Cache_Fill_RowResume_Col: ds.w 1        ; partial FillRow resume col cursor
 Cache_Fill_Rows_Left:   ds.w 1          ; rows-this-frame cap countdown (reset to VFILL_ROWS_PER_FRAME)
-Cache_Prev_Cam_Row:     ds.w 1          ; last frame's camera world tile row (prefetch direction)
+Cache_Prev_Cam_Row:     ds.w 1          ; last frame's camera world tile row (vertical prefetch direction)
+; Horizontal prefetch state (unified direction-aware prefetch, §4.7).
+Cache_Prev_Cam_X:       ds.w 1          ; last frame's camera px (low word) — H prefetch delta/hysteresis
+Cache_H_Pfx_Dir:        ds.w 1          ; latched H prefetch direction (0=none, +1=right, -1=left)
+Cache_H_Pfx_Accum:      ds.w 1          ; net opposite-motion px accumulator (>=0) for the hysteresis flip
+Cache_Pfx_Row_Target:   ds.w 1          ; this-frame vertical prefetch target row ($FFFF = none) — corner input
+Cache_Pfx_Col_Target:   ds.w 1          ; this-frame horizontal prefetch target col ($FFFF = none) — corner input
+Cache_Pfx_Skip_Armed:   ds.w 1          ; 1 = prefetch skipped last frame (bound: never skip two running)
+Cache_Pfx_Lag_Flag:     ds.w 1          ; set =1 by VInt_Lag (release-safe lag signal); the prefetch
+                                        ; H4 gate consumes it (skip this frame if the prev frame lagged)
 
 ; Block staging metadata — keys parallel to Block_Stage_Buffers slots
 ; Key format: sec_x.b | sec_y.b | block_index.w ($FFFFFFFF = empty)
