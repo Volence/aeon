@@ -22,6 +22,7 @@ const PLANE_H_CELLS      = 64
 const PLANE_V_CELLS      = 64
 const PLANE_BUFFER_SIZE  = 1536         // plane-update ring buffer bytes
 const VDP_CTRL_OFF       = VDP_CTRL - VDP_DATA   // control port = data port + this (byte-saving a6-relative derive; VInt_DrawLevel). The bare A-B(An) disp misparses as a call (gap-ledger), so this named derive is the house spelling until that grammar lands.
+const PLANE_ENTRY_COL_FLAG = $8000      // plane-buffer entry header bit 15: set = column mode (word drain), clear = row mode (longword drain)
 
 // ---- Sec / Act field access comes from the shared engine.structs module
 // (`Sec.sec_bg_layout(a0)` / `Act.act_bg_layout(a2)`) — no file-local offset
@@ -39,8 +40,28 @@ ensure(extern("PLANE_H_CELLS") == PLANE_H_CELLS, "engine/constants.asm and plane
 ensure(extern("PLANE_V_CELLS") == PLANE_V_CELLS, "engine/constants.asm and plane_buffer.emp disagree on PLANE_V_CELLS — update the twin")
 ensure(extern("PLANE_BUFFER_SIZE") == PLANE_BUFFER_SIZE, "engine/constants.asm and plane_buffer.emp disagree on PLANE_BUFFER_SIZE — update the twin")
 
+// vdp_cmd_from_addr — convert a VRAM byte address (in the given data reg, low
+// word) to a VDP write-command longword (the addr bits shuffled into the
+// $4000-0000|(A15..A14)>>14 control-port encoding). Drift-locked to the VDP
+// command bit-layout, not an AS const — the AS twin spells the 4-instr shuffle
+// inline at both VInt_DrawLevel drain heads.
+comptime fn vdp_cmd_from_addr(reg: Reg) -> Code {
+    return asm {
+        lsl.l   #2, {reg}
+        addq.w  #1, {reg}
+        ror.w   #2, {reg}
+        swap    {reg}
+    }
+}
+
 // -----------------------------------------------
-// Plane_Buffer_Reset — clear buffer (call each frame after drain)
+// Plane_Buffer_Reset — clear the plane buffer (zero the write cursor).
+// The reset hook for level/act transitions: an undrained buffer left by a
+// pre-transition lag frame must NOT drain its stale (old-level) entries into
+// the new level's VRAM. NO CALLER yet — act transitions aren't wired (single-
+// level harness), and VInt_DrawLevel does the per-frame post-drain reset inline
+// (its .reset). Kept as the forward reset hook (§9 dead-code flag; see the
+// stale-drain audit in the tranche-17 packet).
 // Clobbers: none
 // -----------------------------------------------
 pub proc Plane_Buffer_Reset () {
@@ -110,7 +131,7 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
         sub.w   d3, d5                         // d5 = rows_A
         move.w  d5, d1
         subq.w  #1, d1
-        ori.w   #$8000, d1
+        ori.w   #PLANE_ENTRY_COL_FLAG, d1
         move.w  d1, (a2)+                      // word count | column flag
 
         move.w  d5, d4
@@ -149,7 +170,7 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
         move.w  d3, d5                         // d5 = rows_B = start_nt_row
         move.w  d5, d1
         subq.w  #1, d1
-        ori.w   #$8000, d1
+        ori.w   #PLANE_ENTRY_COL_FLAG, d1
         move.w  d1, (a2)+                      // word count | column flag
 
         move.w  #TILE_CACHE_ROWS, d1
@@ -334,7 +355,7 @@ pub proc Draw_BG_TileColumn () clobbers(d0-d3/a1-a2) {
         add.w   d0, d0
         addi.w  #VRAM_PLANE_B_BYTES & $FFFF, d0
         move.w  d0, (a2)+
-        move.w  #$8000 | (32 - 1), (a2)+         // column write, 32 words - 1
+        move.w  #PLANE_ENTRY_COL_FLAG | (32 - 1), (a2)+   // column write, 32 words - 1
 
         // -- copy 32 words (one per row), reading column-major (stride = 128) --
         moveq   #32-1, d3
@@ -379,10 +400,7 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) {
 
         // -- ROW entry: autoincrement $02, longword drain --
         move.w  #$8F02, (a5)
-        lsl.l   #2, d0
-        addq.w  #1, d0
-        ror.w   #2, d0
-        swap    d0
+        vdp_cmd_from_addr(d0)
         move.l  d0, (a5)
     .drain_row:
         move.l  (a0)+, (a6)
@@ -392,11 +410,8 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) {
     .col_entry:
         // -- COL entry: autoincrement $80, word drain --
         move.w  #$8F80, (a5)
-        andi.w  #$7FFF, d1
-        lsl.l   #2, d0
-        addq.w  #1, d0
-        ror.w   #2, d0
-        swap    d0
+        andi.w  #$7FFF, d1                         // strip PLANE_ENTRY_COL_FLAG (bit 15) → bare word count
+        vdp_cmd_from_addr(d0)
         move.l  d0, (a5)
     .drain_col:
         move.w  (a0)+, (a6)
