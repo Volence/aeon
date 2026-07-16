@@ -6,22 +6,20 @@
 module engine.section in section
 
 use engine.constants.{SECTION_SIZE_SHIFT}
+use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 
 // ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm,
 // except VRAM_PLANE_B_BYTES from engine/level/bg.asm). Mirrored local +
 // drift-locked to keep this port byte-isolated; hoist each into the shared
 // engine.constants twin when a 2nd .emp file consumes it (the SECTION_SIZE_SHIFT
-// precedent — it consolidated once section became its 2nd consumer). ----
+// + TILE_CACHE_* precedent — both consolidated once section became a 2nd
+// consumer). ----
 const VRAM_PLANE_A       = $C000        // Plane A nametable VRAM byte address
 const VRAM_PLANE_B_BYTES = $E000        // Plane B nametable VRAM byte address
 const PLANE_H_CELLS      = 64
 const PLANE_V_CELLS      = 64
 const PLANE_BUFFER_SIZE  = 1536         // plane-update ring buffer bytes
-const TILE_CACHE_COLS    = 80
-const TILE_CACHE_ROWS    = 60
-const TILE_CACHE_STRIDE  = TILE_CACHE_COLS
-const TILE_CACHE_NT_SIZE = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2
 
 // ---- Sec / Act field access comes from the shared engine.structs module
 // (`Sec.field(aN)` / `Act.field(aN)`, the grid-dim low-byte views via
@@ -35,10 +33,7 @@ ensure(extern("VRAM_PLANE_B_BYTES") == VRAM_PLANE_B_BYTES, "engine/level/bg.asm 
 ensure(extern("PLANE_H_CELLS") == PLANE_H_CELLS, "engine/constants.asm and section.emp disagree on PLANE_H_CELLS — update the twin")
 ensure(extern("PLANE_V_CELLS") == PLANE_V_CELLS, "engine/constants.asm and section.emp disagree on PLANE_V_CELLS — update the twin")
 ensure(extern("PLANE_BUFFER_SIZE") == PLANE_BUFFER_SIZE, "engine/constants.asm and section.emp disagree on PLANE_BUFFER_SIZE — update the twin")
-ensure(extern("TILE_CACHE_COLS") == TILE_CACHE_COLS, "engine/constants.asm and section.emp disagree on TILE_CACHE_COLS — update the twin")
-ensure(extern("TILE_CACHE_ROWS") == TILE_CACHE_ROWS, "engine/constants.asm and section.emp disagree on TILE_CACHE_ROWS — update the twin")
-ensure(extern("TILE_CACHE_STRIDE") == TILE_CACHE_STRIDE, "engine/constants.asm and section.emp disagree on TILE_CACHE_STRIDE — update the twin")
-ensure(extern("TILE_CACHE_NT_SIZE") == TILE_CACHE_NT_SIZE, "engine/constants.asm and section.emp disagree on TILE_CACHE_NT_SIZE — update the twin")
+// (TILE_CACHE_* drift guards now live centrally in engine.constants.)
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
 // The ×66 stride trick in Section_GetSecPtrXY (lsl #6 + lsl #1) assumes the Sec
 // struct is 66 bytes — the AS twin's `if Sec_len <> 66 / error` guard.

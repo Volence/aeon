@@ -7,16 +7,13 @@
 module engine.tile_cache in tile_cache
 
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
+use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 
-// ---- ENGINE constants (truth: engine/constants.asm). Mirrored local +
-// drift-locked to keep this port byte-isolated; hoist each into the shared
-// engine.constants twin when it earns a 2nd .emp consumer (section already
-// mirrors TILE_CACHE_COLS/ROWS/STRIDE/NT_SIZE the same way — the shared hoist
-// is deferred to the same wave). ----
-const TILE_CACHE_COLS       = 80
-const TILE_CACHE_ROWS       = 60
-const TILE_CACHE_STRIDE     = TILE_CACHE_COLS
-const TILE_CACHE_NT_SIZE    = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2       // 9600 bytes
+// ---- ENGINE constants. TILE_CACHE_COLS/ROWS/STRIDE/NT_SIZE now come from the
+// shared engine.constants twin (consolidated at the shared-struct-module batch —
+// section + tile_cache were both mirroring them, the 2nd-consumer trigger). The
+// COLL_*/BLOCK_* derivatives below stay file-local (single consumer, tile_cache-
+// specific), drift-locked against engine/constants.asm. ----
 const TILE_CACHE_COLL_ROWS  = TILE_CACHE_ROWS / 2                         // 30 collision rows
 const TILE_CACHE_COLL_SIZE  = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS      // 2400 bytes per plane
 const TILE_CACHE_COLL_PLANES = 2                                         // path A + path B
@@ -44,10 +41,7 @@ const H_PFX_HYST             = 16
 // ---- Drift guards — engine/constants.asm + engine/structs.asm are the source
 // of truth; each compares this twin's value against the real AS-side equ through
 // the link seam. A mismatch fails the link naming the constant. ----
-ensure(extern("TILE_CACHE_COLS") == TILE_CACHE_COLS, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLS — update the twin")
-ensure(extern("TILE_CACHE_ROWS") == TILE_CACHE_ROWS, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_ROWS — update the twin")
-ensure(extern("TILE_CACHE_STRIDE") == TILE_CACHE_STRIDE, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_STRIDE — update the twin")
-ensure(extern("TILE_CACHE_NT_SIZE") == TILE_CACHE_NT_SIZE, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_NT_SIZE — update the twin")
+// (TILE_CACHE_COLS/ROWS/STRIDE/NT_SIZE drift guards now live centrally in engine.constants.)
 ensure(extern("TILE_CACHE_COLL_ROWS") == TILE_CACHE_COLL_ROWS, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLL_ROWS — update the twin")
 ensure(extern("TILE_CACHE_COLL_SIZE") == TILE_CACHE_COLL_SIZE, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLL_SIZE — update the twin")
 ensure(extern("TILE_CACHE_COLL_PLANES") == TILE_CACHE_COLL_PLANES, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLL_PLANES — update the twin")

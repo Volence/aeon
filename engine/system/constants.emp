@@ -94,6 +94,16 @@ pub const SECTION_SIZE       = $0800        // section width/height in world px
 pub const SECTION_SIZE_SHIFT = 11           // log2(SECTION_SIZE)
 pub const SEC_VOID           = $FF          // sentinel flat section id (void cell)
 
+// 2D tile-cache geometry (mirrors engine/constants.asm). Consolidated here at
+// the shared-struct-module batch: section.emp + tile_cache.emp both mirrored
+// these four the same way — the 2nd-consumer kill condition, so they move to
+// the shared twin (the SECTION_SIZE precedent). The COLL_*/BLOCK_* derivatives
+// stay file-local in tile_cache (single consumer).
+pub const TILE_CACHE_COLS    = 80                                 // viewport 40 + margin 20×2
+pub const TILE_CACHE_ROWS    = 60                                 // viewport 28 + margin 16×2
+pub const TILE_CACHE_STRIDE  = TILE_CACHE_COLS                    // row stride (cols)
+pub const TILE_CACHE_NT_SIZE = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2  // 9600 bytes
+
 // VDP sprite-table geometry (mirrors engine/constants.asm — hoisted there
 // from sprites.asm at the tranche-11 sprites.emp port so it survives the
 // SIGIL_EMP_SPRITES gate for the gate-off rings.asm twin; kill-list row 17
@@ -185,3 +195,7 @@ ensure(extern("FRAME_BBOX_X_MAX") == FRAME_BBOX_X_MAX, "engine/constants.asm and
 ensure(extern("FRAME_BBOX_Y_MIN") == FRAME_BBOX_Y_MIN, "engine/constants.asm and engine/constants.emp disagree on FRAME_BBOX_Y_MIN — update the twin")
 ensure(extern("FRAME_BBOX_Y_MAX") == FRAME_BBOX_Y_MAX, "engine/constants.asm and engine/constants.emp disagree on FRAME_BBOX_Y_MAX — update the twin")
 ensure(extern("FRAME_PIECES") == FRAME_PIECES, "engine/constants.asm and engine/constants.emp disagree on FRAME_PIECES — update the twin")
+ensure(extern("TILE_CACHE_COLS") == TILE_CACHE_COLS, "engine/constants.asm and engine/constants.emp disagree on TILE_CACHE_COLS — update the twin")
+ensure(extern("TILE_CACHE_ROWS") == TILE_CACHE_ROWS, "engine/constants.asm and engine/constants.emp disagree on TILE_CACHE_ROWS — update the twin")
+ensure(extern("TILE_CACHE_STRIDE") == TILE_CACHE_STRIDE, "engine/constants.asm and engine/constants.emp disagree on TILE_CACHE_STRIDE — update the twin")
+ensure(extern("TILE_CACHE_NT_SIZE") == TILE_CACHE_NT_SIZE, "engine/constants.asm and engine/constants.emp disagree on TILE_CACHE_NT_SIZE — update the twin")
