@@ -1495,44 +1495,90 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a6) out(d0) {
 
     .fr_nt_empty:
         // === phase 2: collision planes A and B (cell-completing rows only) ===
-        // KEPT per-cell for 1.1a (1.1b segments it). Gated once on the row parity
-        // (2(sp) = $FFFF on even rows) — constant for the whole row, so hoisting the
-        // test out of the loop writes the identical cells. a5/a6 = plane A/B DEST
-        // bases (per-row); a3/a2 = plane A/B SRC bases (per-block); d6 = intra-col.
+        // Segmented mirror of phase 1: the collision byte-copy walks the SAME valid run
+        // [ic_lo, ic_hi) with the SAME Origin_Col wrap-split as the nametable — RE-derived
+        // here, independent of phase 1, so the nametable half stays byte-for-byte as 1.1a
+        // and a fault in this block can only touch collision. Runs only on the ODD (cell-
+        // completing) row (2(sp) = $FFFF gates the whole phase — constant per row). Dest
+        // byte index = coll_row_offset + physical col; src byte = (plane base, intra_col),
+        // contiguous. a5/a6 = plane A/B DEST bases (per-row); a3/a2 = plane A/B SRC bases
+        // (per-block); a1/a4 = the run dest pointers (a4 = NT base, dead after phase 1).
+        // (move.b runs; move.w/move.l byte-pairing is the ledgered step-5 rider.)
         move.w  2(sp), d0
         cmpi.w  #$FFFF, d0
         beq     .fr_next_block                // even row: no collision this row
-        move.w  d7, d6
-        andi.w  #$F, d6                        // intra_start
-    .fr_coll_loop:
-        cmpi.w  #BLOCK_TILE_SIZE, d6
-        bge     .fr_next_block
 
-        move.w  d7, d1
-        andi.w  #$FFF0, d1
-        add.w   d6, d1                         // world_col = block_base + intra_col
-        cmp.w   Cache_Head_Col, d1
-        bgt     .fr_next_block
+        // re-derive the valid run [ic_lo=d3, ic_hi=d4); d2 = block base B
+        move.w  d7, d2
+        andi.w  #$FFF0, d2
+        move.w  d7, d3
+        andi.w  #$F, d3                        // ic_lo = intra_start
+        move.w  Cache_Left_Col, d0
+        sub.w   d2, d0                         // Left - B
+        cmp.w   d3, d0
+        ble     .fr_ci_iclo
+        move.w  d0, d3                         // ic_lo = Left - B
+    .fr_ci_iclo:
+        moveq   #BLOCK_TILE_SIZE, d4
+        move.w  Cache_Head_Col, d0
+        sub.w   d2, d0
+        addq.w  #1, d0                         // Head - B + 1
+        cmp.w   d4, d0
+        bge     .fr_ci_head
+        move.w  d0, d4
+    .fr_ci_head:
+        move.w  Cache_Left_Col, d0
+        sub.w   d2, d0
+        addi.w  #TILE_CACHE_COLS, d0           // Left + COLS - B
+        cmp.w   d4, d0
+        bge     .fr_ci_ichi
+        move.w  d0, d4                         // ic_hi = Left + COLS - B
+    .fr_ci_ichi:
+        cmp.w   d4, d3
+        bge     .fr_next_block                // empty run
 
-        sub.w   Cache_Left_Col, d1            // cache col
-        bmi     .fr_coll_skip
-        cmpi.w  #TILE_CACHE_COLS, d1
-        bge     .fr_coll_skip
-
-        add.w   Cache_Origin_Col, d1          // circular column mapping
-        cmpi.w  #TILE_CACHE_COLS, d1
-        blt     .fr_coll_nowrap
-        subi.w  #TILE_CACHE_COLS, d1
-    .fr_coll_nowrap:
-        move.w  2(sp), d0                      // collision row offset
-        add.w   d1, d0                         // + cache col → byte index within cache row
-        move.b  (a3, d6.w), (a5, d0.w)         // plane A
-        move.b  (a2, d6.w), d3                 // plane B source
-        move.b  d3, (a6, d0.w)                 // plane B dest
-
-    .fr_coll_skip:
-        addq.w  #1, d6
-        jbra    .fr_coll_loop
+        // advance plane-A/B src to ic_lo (byte index); n_total -> d1; phys_start -> d2
+        move.w  d3, d0
+        adda.w  d0, a3
+        adda.w  d0, a2
+        move.w  d4, d1
+        sub.w   d3, d1
+        add.w   d3, d2
+        sub.w   Cache_Left_Col, d2
+        add.w   Cache_Origin_Col, d2          // phys_start (0..2*COLS-2)
+        cmpi.w  #TILE_CACHE_COLS, d2
+        blt     .fr_ci_ncalc
+        subi.w  #TILE_CACHE_COLS, d2           // starts already wrapped: one run
+        move.w  d1, d0                         // n1 = n_total
+        bra     .fr_ci_emit
+    .fr_ci_ncalc:
+        move.w  #TILE_CACHE_COLS, d0
+        sub.w   d2, d0                         // cols_before_wrap = COLS - phys_start (>=1)
+        cmp.w   d1, d0
+        blt     .fr_ci_emit                   // n1 = cols_before_wrap (< n_total)
+        move.w  d1, d0                         // n1 = n_total (whole run fits pre-wrap)
+    .fr_ci_emit:
+        move.w  d1, d3
+        sub.w   d0, d3                         // d3 = n2 = n_total - n1
+        move.w  2(sp), d4
+        add.w   d2, d4                         // coll_row_offset + phys_start
+        lea     (a5, d4.w), a1                 // run-1 plane A dest
+        lea     (a6, d4.w), a4                 // run-1 plane B dest
+        subq.w  #1, d0
+    .fr_ci_run1:
+        move.b  (a3)+, (a1)+                   // plane A
+        move.b  (a2)+, (a4)+                   // plane B
+        dbf     d0, .fr_ci_run1
+        tst.w   d3
+        beq     .fr_next_block
+        move.w  2(sp), d4                      // wrap dest starts at phys 0
+        lea     (a5, d4.w), a1                 // run-2 plane A dest
+        lea     (a6, d4.w), a4                 // run-2 plane B dest
+        subq.w  #1, d3
+    .fr_ci_run2:
+        move.b  (a3)+, (a1)+
+        move.b  (a2)+, (a4)+
+        dbf     d3, .fr_ci_run2
 
     .fr_next_block:
         move.w  d7, d0
