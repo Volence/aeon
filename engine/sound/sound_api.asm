@@ -80,6 +80,20 @@ Sound_PlaySample:
 ; Clobbers: d0/d1/d2/d3/d4/a0/a1; SR restored.
 ; ----------------------------------------------------------------------
 Sound_PlayMusic:
+        ; H-1 repost gate: a second Sound_PlayMusic landing while the Z80 is mid
+        ; Snd_LoadSong would tear the 6-byte param block AND lose this trigger (the
+        ; Z80 clears the slot after consuming the params). Spin until the previous
+        ; request is consumed (MUSIC_SLOT == 0) before touching the block. Common
+        ; case — no load in flight — the slot is already 0 and this falls straight
+        ; through. stopZ80 per iteration so the read is reliable AND the Z80 runs
+        ; between reads to actually clear the slot (a held bus would deadlock).
+        ; See docs/superpowers/2026-07-16-sound-repost-gate-design.md.
+.await_slot:
+        stopZ80
+        tst.b   (SND_Z80_BASE+SND_REQ_MUSIC).l
+        startZ80
+        bne.s   .await_slot
+
         andi.l  #$FF, d0                    ; d0 = song id (1-based)
         ; retro-fix batch 2 (sound_api finding 1): a bad id indexes past
         ; SongTable[id-1] and posts a garbage bank/window/patch block to the Z80
