@@ -400,18 +400,33 @@ pub proc TileCache_CopyBlockColumn () clobbers(d0-d3/d5/a0/a2-a3) {
         movea.l a5, a2                        // H6: hoisted NT base (a5, set by the caller — survives DecompressBlock)
         adda.w  d5, a2
 
-        lea     TILE_CACHE_NT_SIZE(a5), a3    // row-wrap sentinel = NT base + size (H6: derived by displacement)
-        move.w  d3, d5
+        // wrap-split: the vertical run (≤16 rows) crosses the cache row-59→0
+        // boundary at most once, so emit ≤2 straight copies split there instead
+        // of a per-row sentinel test — byte-identical dest, no per-row wrap branch.
+        move.w  #TILE_CACHE_ROWS, d5
+        sub.w   d2, d5                         // d5 = rows until the dest column wraps
+        cmp.w   d3, d5
+        bge     .nt_one_run                    // whole run fits before the wrap
         subq.w  #1, d5
-    .copy_nt:
+    .nt_run1:
         move.w  (a0), (a2)
         lea     BLOCK_TILE_SIZE*2(a0), a0      // next block row (32 bytes)
         lea     TILE_CACHE_STRIDE*2(a2), a2    // next cache row (160 bytes)
-        cmpa.l  a3, a2
-        blo     .nt_nowrap
-        suba.w  #TILE_CACHE_NT_SIZE, a2        // physical row 59 → 0
-    .nt_nowrap:
-        dbf     d5, .copy_nt
+        dbf     d5, .nt_run1
+        suba.w  #TILE_CACHE_NT_SIZE, a2        // dest wraps row 59 → 0, keeping cache_col
+        move.w  d3, d5
+        add.w   d2, d5
+        subi.w  #TILE_CACHE_ROWS, d5           // d5 = rows after the wrap
+        jbra    .nt_run2
+    .nt_one_run:
+        move.w  d3, d5
+    .nt_run2:
+        subq.w  #1, d5
+    .nt_run2_loop:
+        move.w  (a0), (a2)
+        lea     BLOCK_TILE_SIZE*2(a0), a0
+        lea     TILE_CACHE_STRIDE*2(a2), a2
+        dbf     d5, .nt_run2_loop
 
         // collision plane A: src = slot base + BLOCK_NT_SIZE + (src_row/2)*16 + col
         // src_row (d4) is even here, but use the parity-safe macro anyway so this
@@ -433,25 +448,41 @@ pub proc TileCache_CopyBlockColumn () clobbers(d0-d3/d5/a0/a2-a3) {
         adda.w  d5, a2
 
         lsr.w   #1, d3                         // d3 = collision rows to copy (tile rows / 2)
-        lea     TILE_CACHE_COLL_SIZE(a6), a3  // plane A row-wrap sentinel = collision base + size (H6: derived)
-        subq.w  #1, d3
-        bmi     .done_coll
-        // Both planes copied in ONE loop: the fixed displacements reach
-        // plane B from the plane-A cursors (source +BLOCK_COLL_PLANE_SIZE,
-        // dest +TILE_CACHE_COLL_SIZE). Plane B's wrap is free — when a2
-        // wraps within plane A by subtracting TILE_CACHE_COLL_SIZE, the
-        // +TILE_CACHE_COLL_SIZE displacement still lands on the correct
-        // plane B row. (~70% cheaper than a separate second loop.)
-    .copy_coll:
+        // Both planes copied in ONE run: the fixed displacements reach plane B
+        // from the plane-A cursors (source +BLOCK_COLL_PLANE_SIZE, dest
+        // +TILE_CACHE_COLL_SIZE). Plane B's wrap is free — when the plane-A
+        // dest wraps to row 0, the +TILE_CACHE_COLL_SIZE displacement still
+        // lands on the correct plane B row. Same wrap-split as the nametable
+        // loop: the ≤8-row run crosses the plane-A row-29→0 boundary at most
+        // once — ≤2 straight copies, no per-row wrap branch.
+        tst.w   d3
+        beq     .done_coll
+        move.w  #TILE_CACHE_COLL_ROWS, d5
+        sub.w   d2, d5                         // d5 = collision rows until the dest wraps
+        cmp.w   d3, d5
+        bge     .coll_one_run
+        subq.w  #1, d5
+    .coll_run1:
         move.b  (a0), (a2)                                       // plane A
         move.b  BLOCK_COLL_PLANE_SIZE(a0), TILE_CACHE_COLL_SIZE(a2) // plane B
         lea     BLOCK_TILE_SIZE(a0), a0        // next collision row in block (16 bytes)
         lea     TILE_CACHE_STRIDE(a2), a2      // next collision row in cache (80 bytes)
-        cmpa.l  a3, a2
-        blo     .coll_nowrap
-        suba.w  #TILE_CACHE_COLL_SIZE, a2      // wrap within plane A (row 29 → 0)
-    .coll_nowrap:
-        dbf     d3, .copy_coll
+        dbf     d5, .coll_run1
+        suba.w  #TILE_CACHE_COLL_SIZE, a2      // wrap plane A row 29 → 0, keeping cache_col
+        move.w  d3, d5
+        add.w   d2, d5
+        subi.w  #TILE_CACHE_COLL_ROWS, d5      // d5 = rows after the wrap
+        jbra    .coll_run2
+    .coll_one_run:
+        move.w  d3, d5
+    .coll_run2:
+        subq.w  #1, d5
+    .coll_run2_loop:
+        move.b  (a0), (a2)                                       // plane A
+        move.b  BLOCK_COLL_PLANE_SIZE(a0), TILE_CACHE_COLL_SIZE(a2) // plane B
+        lea     BLOCK_TILE_SIZE(a0), a0
+        lea     TILE_CACHE_STRIDE(a2), a2
+        dbf     d5, .coll_run2_loop
     .done_coll:
         rts
 }
