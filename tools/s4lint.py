@@ -61,6 +61,7 @@ DIAGNOSTIC_LABELS: Dict[str, str] = {
     "W018": "routine too long",
     "W019": "file missing header comment",
     "W020": "tail call — bsr/jsr before rts",
+    "W021": "writes register outside declared Clobbers header",
 }
 
 DIAGNOSTIC_SEVERITY: Dict[str, str] = {
@@ -435,6 +436,15 @@ class LintContext:
         self.recent_raw_lines: deque = deque(maxlen=15)
         # Pending global label for W006: (label_name, lines_snapshot) or None
         self.pending_w006 = None
+        # W021: the current routine's allowed write set (declared "; Clobbers:"
+        # ∪ In:/Out: registers), or None when no "; Clobbers:" header is present
+        # (the check is OFF for that routine — mirrors the .emp lint running only
+        # when clobbers() is declared).
+        self.declared_writeset: Optional[Set[str]] = None
+        # W021: (register) already warned in the current routine — one warning
+        # per (routine, register), not one per write site (the .emp lint fires
+        # per-instruction; a human-facing .asm warning dedups for readability).
+        self.w021_seen: Set[str] = set()
 
         # Block-level guards (linting is suppressed inside these blocks)
         self.in_struct: bool = False
@@ -453,6 +463,8 @@ class LintContext:
         self.prev_token = None
         self.label_since_last_instr = False
         self.pending_w006 = None
+        self.declared_writeset = None
+        self.w021_seen = set()
 
     def check_routine_end(self, line_num: int) -> None:
         """Run checks at rts/rte — paired-resource validation."""
@@ -1133,10 +1145,174 @@ _W005_BRANCH_MNEMONICS: frozenset = frozenset({
 _HEADER_PATTERNS: tuple = ("in:", "out:", "clobbers:", "-------")
 
 
+# ---------------------------------------------------------------------------
+# W021: write-set vs declared "; Clobbers:" header — a best-effort .asm
+# approximation of the .emp `[proc.clobber-undeclared]` lint (D1-lite). The
+# .asm tier is warnings-only (never blocks the build). Like the .emp lint it is
+# LOCAL (callee effects are not tracked) and HEURISTIC — it fires only on
+# recognized 68k mnemonics with a clear register destination or auto-inc/dec,
+# so macro invocations and unresolved operands are skipped rather than guessed.
+# ---------------------------------------------------------------------------
+
+# 68k condition-code suffixes (for bcc / dbcc / scc recognition).
+_M68K_COND_CODES = frozenset({
+    "t", "f", "hi", "ls", "cc", "cs", "hs", "lo", "ne", "eq",
+    "vc", "vs", "pl", "mi", "ge", "lt", "gt", "le",
+})
+
+# Write-form mnemonics whose LAST operand is the written destination (mirrors
+# the .emp `writes_dest_register` set; the s<cc> family is matched by prefix).
+_WRITE_FORM_MNEMONICS = frozenset({
+    "move", "movea", "moveq", "add", "adda", "addi", "addq", "addx", "sub",
+    "suba", "subi", "subq", "subx", "and", "andi", "or", "ori", "eor", "eori",
+    "lea", "clr", "neg", "negx", "not", "swap", "ext", "extb", "muls", "mulu",
+    "divs", "divu", "asl", "asr", "lsl", "lsr", "rol", "ror", "roxl", "roxr",
+    "bset", "bclr", "bchg", "tas", "nbcd",
+})
+
+# Read-only / control mnemonics — recognized (so auto-inc/dec on them is
+# scanned) but they write no destination register.
+_READ_CONTROL_MNEMONICS = frozenset({
+    "cmp", "cmpa", "cmpi", "cmpm", "tst", "btst", "jmp", "jsr", "bsr", "bra",
+    "pea", "link", "unlk", "nop", "rts", "rte", "rtr", "trap", "trapv",
+    "reset", "stop", "dbf", "dbra", "illegal", "movem",
+})
+
+_AUTOINC_RE = re.compile(r'\(\s*(a[0-7]|sp)\s*\)\s*\+', re.IGNORECASE)
+_PREDEC_RE = re.compile(r'-\s*\(\s*(a[0-7]|sp)\s*\)', re.IGNORECASE)
+_REG_TOKEN_RE = re.compile(r'\b([ad][0-7])\b', re.IGNORECASE)
+# Range separator accepts ASCII hyphen AND the Unicode en-dash/em-dash the .asm
+# headers actually use (`; Clobbers: d0–d4, a0`) — an ASCII-only regex silently
+# drops the range interior and false-fires on d1/d2/d3.
+_REG_RANGE_RE = re.compile(r'\b([ad][0-7])\s*[-–—]\s*([ad][0-7])\b', re.IGNORECASE)
+
+
+def _canon_reg(r: str) -> str:
+    """Canonical register spelling: lowercase, `sp` → `a7`."""
+    r = r.strip().lower()
+    return "a7" if r == "sp" else r
+
+
+def _reg_bit(r: str):
+    """A register spelling to its movem-mask bit (d0=0..d7=7, a0=8..a7=15)."""
+    r = _canon_reg(r)
+    if len(r) == 2 and r[0] == "d" and r[1].isdigit():
+        return int(r[1])
+    if len(r) == 2 and r[0] == "a" and r[1].isdigit():
+        return 8 + int(r[1])
+    return None
+
+
+def _bit_reg(b: int) -> str:
+    return f"d{b}" if b < 8 else f"a{b - 8}"
+
+
+def _expand_reglist(text: str) -> Set[str]:
+    """Expand a Clobbers reglist (`d0-d3/a1`, and prose around it) to a register
+    set. Ranges expand via movem bit order; bare `dN`/`aN`/`sp` tokens add
+    themselves; everything else is ignored (best-effort over free-form headers)."""
+    out: Set[str] = set()
+    for lo, hi in _REG_RANGE_RE.findall(text):
+        b0, b1 = _reg_bit(lo), _reg_bit(hi)
+        if b0 is not None and b1 is not None and b0 <= b1:
+            out.update(_bit_reg(b) for b in range(b0, b1 + 1))
+    # Singletons: strip the ranges first so a range endpoint isn't re-added.
+    singles = _REG_RANGE_RE.sub(" ", text)
+    out.update(_canon_reg(r) for r in _REG_TOKEN_RE.findall(singles))
+    if re.search(r'\bsp\b', text, re.IGNORECASE):
+        out.add("a7")
+    return out
+
+
+def _parse_clobbers_header(raw_lines: List[str]):
+    """Parse the routine's header comment block (the lines before its label).
+    Returns the allowed write set, or None when no `; Clobbers:` line is present
+    (→ the W021 check is OFF for this routine, mirroring the .emp lint running
+    only when clobbers() is declared).
+
+    The allowed set is EVERY register named ANYWHERE in the header comments —
+    the `Clobbers:` reglist plus any `dN`/`aN`/`sp` mentioned in the `In:`/`Out:`
+    prose (which is free-form and often spans continuation lines: `In:  a4 =
+    ptr` / `     d5.w = count`). W021 therefore fires only on a register the
+    header is COMPLETELY SILENT about — the high-confidence, low-noise signal
+    appropriate for a best-effort warning-tier .asm check (the strict
+    Clobbers-set check is the .emp compiler tier)."""
+    clobbers = None
+    mentioned: Set[str] = set()
+    for raw in raw_lines:
+        ci = raw.find(";")
+        if ci < 0:
+            continue
+        body = raw[ci + 1:]
+        if body.strip().lower().startswith("clobbers:"):
+            idx = body.lower().find("clobbers:") + len("clobbers:")
+            clobbers = _expand_reglist(body[idx:])
+        # Collect every register token named anywhere in the header comments.
+        mentioned.update(_canon_reg(r) for r in _REG_TOKEN_RE.findall(body))
+        if re.search(r'\bsp\b', body, re.IGNORECASE):
+            mentioned.add("a7")
+    if clobbers is None:
+        return None
+    return clobbers | mentioned
+
+
+def _is_scc(m: str) -> bool:
+    return m.startswith("s") and m[1:] in _M68K_COND_CODES
+
+
+def _is_recognized_mnemonic(m: str) -> bool:
+    """True for a mnemonic the write-set scan understands — a real 68k opcode.
+    Everything else (macro invocations, directives) is skipped, so the linter
+    never guesses a macro's write set."""
+    return (
+        m in _WRITE_FORM_MNEMONICS
+        or m in _READ_CONTROL_MNEMONICS
+        or _is_scc(m)
+        or (m.startswith("b") and m[1:] in _M68K_COND_CODES)
+        or (m.startswith("db") and m[2:] in _M68K_COND_CODES)
+    )
+
+
+def _written_regs(instr: str, operands: List[str]) -> Set[str]:
+    """The registers this instruction MODIFIES (best-effort): the write-form
+    destination (last operand, when a plain register) plus any `(An)+`/`-(An)`
+    base (source OR destination, any mnemonic). `a7`/`sp` is dropped — the stack
+    pointer is never a Clobbers-header convention. Empty for an unrecognized
+    mnemonic (a macro), so those are skipped."""
+    if not _is_recognized_mnemonic(instr):
+        return set()
+    regs: Set[str] = set()
+    if (instr in _WRITE_FORM_MNEMONICS or _is_scc(instr)) and operands:
+        dst = operands[-1].strip()
+        if _is_dreg(dst) or _is_areg(dst) or dst.lower() == "sp":
+            regs.add(_canon_reg(dst))
+    for op in operands:
+        for m in _AUTOINC_RE.finditer(op):
+            regs.add(_canon_reg(m.group(1)))
+        for m in _PREDEC_RE.finditer(op):
+            regs.add(_canon_reg(m.group(1)))
+    regs.discard("a7")
+    return regs
+
+
 def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
                    raw_line: str, suppressed: Set[str]) -> None:
     """Run all W001-W013 optimization and style warning checks."""
     instr = token.instruction.lower()
+
+    # ------------------------------------------------------------------
+    # W021: write outside the declared "; Clobbers:" header (only active when
+    # the routine declared one — ctx.declared_writeset is not None).
+    # ------------------------------------------------------------------
+    if "W021" not in suppressed and ctx.declared_writeset is not None:
+        for reg in sorted(_written_regs(instr, token.operands) - ctx.declared_writeset):
+            if reg in ctx.w021_seen:
+                continue  # one warning per (routine, register)
+            ctx.w021_seen.add(reg)
+            ctx.warning("W021", line_num,
+                        f"routine '{ctx.current_routine}' writes '{reg}', which is not in its "
+                        f"declared '; Clobbers:' set (best-effort .asm write-set check — add "
+                        f"'{reg}' to the header/In/Out, or suppress with 'lint: disable=W021')")
 
     # ------------------------------------------------------------------
     # W001: clr.w / clr.l on memory (read-modify-write)
@@ -1381,6 +1557,9 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         # Skip __-prefixed labels (build-tool sentinels, not routines).
         if not label.startswith("__"):
             ctx.pending_w006 = (label, list(ctx.recent_raw_lines))
+            # W021: parse the routine's "; Clobbers:" header (∪ In:/Out: regs)
+            # from the same pre-label snapshot. None if no Clobbers: line.
+            ctx.declared_writeset = _parse_clobbers_header(list(ctx.recent_raw_lines))
         ctx.recent_raw_lines.clear()
 
     if label and label.startswith("."):
