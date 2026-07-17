@@ -75,9 +75,37 @@ Each section page is a single technical narrative with these components:
 - `aeon/docs/ENGINE_ARCHITECTURE.md` is the backbone for engine pages.
 - Every page gets **cross-checked against the actual code before publishing** — the
   architecture doc drifts (2026-07-15 alignment audit: doc claimed palette cross-fade
-  shipped; zero code exists). Where doc and code disagree, the wiki states what the
-  code does and flags the divergence; it never repeats an unverified doc claim.
+  shipped; zero code exists). Where doc and code disagree, the doc is reconciled FIRST
+  (fixed to match code) and the wiki is written from the reconciled truth. Public
+  pages never carry doc-mismatch callouts (revised 2026-07-16 after user feedback);
+  unbuilt designs are described as design-stage. The wiki never repeats an unverified
+  doc claim.
 - Never pin ROM sizes or other constantly-changing numbers; describe mechanisms.
+
+## Content model (added 2026-07-16 after v1 shipped)
+
+Three layers, built in this order:
+
+1. **Reference** (v1, shipping): per-system technical specification with inline
+   explainers. This is the canonical record; everything else links into it.
+2. **Start Here**: a sequenced on-ramp page teaching the concepts in dependency order
+   (CPU, memory, the VDP, interrupts, ...) with links into reference pages at the
+   right moments. Build once 2-3 more reference sections exist.
+3. **Tutorials**: hands-on exercises attached to their section, e.g. "add your own
+   sprite art" under the art pages, "watch this RAM address in Oracle during boot"
+   under hardware. Oracle-driven "go look for yourself" verification is the
+   signature move. Build after Start Here.
+
+**Hub organization**: reader-first grouping with DESCRIPTIVE names only; every group
+and page label must answer "what is in here" without decoding (Hardware Foundations,
+World & Rendering, Objects & Player, Audio, Build & Tooling). No metaphor names. The
+wiki does not mirror ENGINE_ARCHITECTURE.md's section numbering; pages draw from
+whichever doc sections they need.
+
+**Language documentation**: the `.emp` language specification lives under SIGIL's
+pages (it is Sigil's language). Aeon pages carry a short standing "How to read the
+code on these pages" explainer (covers both classic `.asm` and `.emp`, ten lines
+max) linking into the Sigil language pages for depth.
 
 ## V1 scope
 
