@@ -336,12 +336,14 @@ __BUDGET_ENGINE:
         ; tail), +$C (H6 base-lea hoist), +$2A (interim H4 VBlank fix + Cache_Prev_Cam_X
         ; init), +$2C (H4 reworked to the Frame_Counter-delta trailing-lag gate) over the
         ; Wave-2 (ii) $996/$A56; +$88 (pass-2 1.1a FillRow nametable segment restructure) + $56 (1.1b FillRow collision segment restructure)).
+        ; The +$22 for pass-2 1.2 (Draw_TileRow_FromCache segment restructure) lands
+        ; in plane_buffer, not tile_cache, but slides every resume org below by +$22.
         ; NOTE: these org values are sonic4-shape addresses — the gate define must
         ; never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $5BC2
+        org     $5BE4
       else
-        org     $4F38
+        org     $4F5A
       endif
     endif
     ifndef SIGIL_EMP_COLLISION_LOOKUP
@@ -354,9 +356,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $5BE6
+        org     $5C08
       else
-        org     $4F5C
+        org     $4F7E
       endif
     endif
     gameEngineBlockIncludes
@@ -371,9 +373,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $64BE
+        org     $64E0
       else
-        org     $5834
+        org     $5856
       endif
     endif
     include "engine/level/camera.asm"
@@ -396,9 +398,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $7CC0
+        org     $7CE2
         else
-        org     $62A6
+        org     $62C8
         endif
       endif
     endif
