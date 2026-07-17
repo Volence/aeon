@@ -39,6 +39,17 @@ use engine.objects.sst.{Sst}
 use engine.constants.{AF_SET_FIELD, DUR_DYNAMIC, OBJ_CODE_BANK}
 use engine.objects.frames.{frame_piece_count}
 
+// Contract type (contract-grammar v2 §4) — the AF_CALLBACK dispatch bound. The
+// installable-target set is EMPTY today (no animation script bakes a callback;
+// the $FA opcode + .evt_callback are forward machinery), so this is a DESIGN
+// commitment, not a description of existing targets: a callback may clobber
+// only AnimateSprite's own declared set. A future callback needing more fails
+// [dispatch.target-exceeds-bound] at its own definition, making the widen — and
+// its cascade — a conscious change. preserves(a0) keeps the SST cursor; d7 ∉ the
+// clobbers means an object-loop caller's d7 survives through here (no explicit
+// preserves(d7) cargo-culted from the object routine's own bound).
+type AnimCallback = proc (a0: *Sst) preserves(a0) clobbers(d0-d2, a1-a2)
+
 // Reload Sst.anim_timer from the script duration byte at (src), substituting
 // the caller's d3 when the byte is the DUR_DYNAMIC sentinel. src points at
 // the script's byte 0. Clobbers d2.
@@ -207,7 +218,7 @@ pub proc AnimateSprite () clobbers(d0-d2/a1-a2) {
         move.w  d0, d2
         move.l  a1, -(sp)
         movea.l d2, a2
-        jsr     (a2)
+        jsr     (a2) as AnimCallback    // AF_CALLBACK target; a0 = SST ptr (empty target set — design bound)
         movea.l (sp)+, a1
     .evt_cb_done:
         addq.b  #4, Sst.anim_frame(a0)

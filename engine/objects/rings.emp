@@ -152,7 +152,7 @@ pub proc RingBuffer_Clear () clobbers() {
 //      d5 incremented per ring sprite emitted (bare write → out)
 // Clobbers: d0-d4, d6-d7, a0
 // -----------------------------------------------
-pub proc DrawRings () clobbers(d0-d4/d6-d7/a0) out(d5) {
+pub proc DrawRings () clobbers(d0-d4/d6-d7/a0) out(d5, a4) {
         // --- Animation timer ---
         move.b  Ring_Anim_Timer, d0
         subq.b  #1, d0

@@ -592,7 +592,7 @@ pub proc EntityLoaded_Clear () clobbers(d0, d2, a0) {
 // Out: d0.w = entry index 0-3, or -1 if untracked
 // Clobbers: d1, a0
 // -----------------------------------------------
-pub proc EntityWindow_EntryForSection () clobbers(d1, a0) {
+pub proc EntityWindow_EntryForSection () clobbers(d0-d1, a0) {
         lea     Entity_Scan_State+offsetof(EntityScanState, ess_section_id), a0
         moveq   #0, d1
     .efs_loop:
@@ -931,7 +931,7 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a5) {
 // Out: none
 // Clobbers: d0-d2 (d3-d7/a0-a6 preserved; d3/d4/a0 saved internally)
 // -----------------------------------------------
-proc EntityWindow_TrySpawnRing () clobbers(d0-d2) {
+proc EntityWindow_TrySpawnRing () clobbers(d0-d4, a0) {
         // Y load band: camY-LOAD_Y .. camY+SCREEN_HEIGHT+LOAD_Y
         move.w  2(a0), d1
         add.w   EntityScanState.ess_origin_y(a1), d1    // engine Y
@@ -1137,7 +1137,7 @@ proc EntityWindow_PopulateSectionRings () clobbers(d0-d4, a0, a2) {
 // Out: none
 // Clobbers: d0-d2, a2 (d3-d7/a0-a1/a3 preserved; d3/d5/a0-a1/a3 saved internally)
 // -----------------------------------------------
-proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) {
+proc EntityWindow_TrySpawnObject () clobbers(d0-d3/d5, a0-a3) {
         // ANY_Y (placement bit 15) skips the Y band check
         move.w  4(a0), d2               // placement word
         bmi     .y_ok
@@ -1234,7 +1234,7 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) {
 // Out: none
 // Clobbers: d0-d4, a0, a2
 // -----------------------------------------------
-proc EntityWindow_ScanObjectsRight () clobbers(d0-d4, a0, a2) {
+proc EntityWindow_ScanObjectsRight () clobbers(d0-d5, a0-a3) {
         move.l  EntityScanState.ess_rom_obj_ptr(a1), d0
         beq     .obj_done
         movea.l d0, a0
@@ -1340,7 +1340,7 @@ proc EntityWindow_RescanRings () clobbers(d0-d4, a0) {
 // Out: none
 // Clobbers: d0-d4, a0, a2
 // -----------------------------------------------
-proc EntityWindow_RescanObjects () clobbers(d0-d4, a0, a2) {
+proc EntityWindow_RescanObjects () clobbers(d0-d5, a0-a3) {
         move.l  EntityScanState.ess_rom_obj_ptr(a1), d0
         beq     .done
         movea.l d0, a0

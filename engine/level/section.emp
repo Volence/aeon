@@ -206,7 +206,7 @@ pub proc Section_FlatIDXY () clobbers(d1) out(d0) {
 // Out: a0 = Sec ptr; Z clear if found, Z set if out of range (a0 = 0)
 // Clobbers: d0, d1     (d2/d3/a2 preserved — sec_x stack-saved across multiply)
 // -----------------------------------------------
-pub proc Section_GetSecPtrXY () clobbers(d1) out(d0, a0) {
+pub proc Section_GetSecPtrXY () clobbers(d1-d2) out(d0, a0) {
         cmp.b   Act_grid_w_lo(a2), d2
         bcc     .out_of_range                   // sec_x >= grid_w (unsigned)
         cmp.b   Act_grid_h_lo(a2), d3
@@ -270,7 +270,7 @@ pub proc Section_GetSecPtrXY () clobbers(d1) out(d0, a0) {
 //      d7.w = start_world_col + 63 (for tracker reset by caller)
 // Clobbers: d0–d7, a0–a4, a5–a6
 // -----------------------------------------------
-pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6) out(d5, d7) {
+pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6, sr) out(d5, d7) {
         lea     VDP_CTRL, a5                    // (VDP_CTRL).l — engine/constants.asm; abs.l by the width rule
         lea     VDP_DATA, a6
         move.w  sr, -(sp)

@@ -9,6 +9,14 @@ module engine.tile_cache in tile_cache
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 
+// Boundary contract (contract-grammar v2 §3) — the .asm decompressor's contract
+// so the transitive closure sees past the cross-seam call. Emits nothing.
+// drift-guard: engine/compression/s4lz_decompress.asm:58 — Extra In: a4=dict base,
+//   d4.w=dict len (d4 preserved); shared body (line 35) Clobbers d0-d3/a2-a3 +
+//   this entry's a4 rebase; Out a0/a1 = past-end cursors (a0 destroyed-not-read →
+//   clobbers, a1 = the slot-base result the caller reads → out).
+extern proc S4LZ_DecompressDict (a0, a1, a4: *DictBase, d4) clobbers(d0-d3/a0/a2-a4) out(a1)
+
 // ---- ENGINE constants. TILE_CACHE_COLS/ROWS/STRIDE/NT_SIZE now come from the
 // shared engine.constants twin (consolidated at the shared-struct-module batch —
 // section + tile_cache were both mirroring them, the 2nd-consumer trigger). The

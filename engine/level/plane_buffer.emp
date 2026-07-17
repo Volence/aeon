@@ -59,6 +59,7 @@ ensure(extern("PLANE_BUFFER_SIZE") == PLANE_BUFFER_SIZE, "engine/constants.asm a
 // stale-drain audit in the tranche-17 packet).
 // Clobbers: none
 // -----------------------------------------------
+@scaffolding("VInt_Lag race fix — forward reset hook for act transitions (unwired: single-level harness)")
 pub proc Plane_Buffer_Reset () {
         move.w  #0, Plane_Buffer_Ptr
         rts
