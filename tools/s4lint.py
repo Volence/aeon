@@ -65,6 +65,7 @@ DIAGNOSTIC_LABELS: Dict[str, str] = {
     "W022": "loop-invariant memory operand inside dbf loop",
     "W023": "ifdebug CCR setup consumed by release-side conditional",
     "W024": "debug-only macro (RaiseError/Console) outside __DEBUG__ gate",
+    "W026": "byte-loaded register used at word/long width without extension",
 }
 
 DIAGNOSTIC_SEVERITY: Dict[str, str] = {
@@ -458,6 +459,14 @@ class LintContext:
         # True/False once a CCR-writer is seen; None at a flow break (label /
         # call), where the CCR predecessor of a later conditional is unknown.
         self.ccr_last_writer_ifdebug: Optional[bool] = None
+        # W026: data registers currently BYTE-tainted (last written by a `move.b`
+        # into them, so their high bits are stale). Cleared by a full-width write
+        # or an ext, and at any label (flow break). Straight-line, best-effort.
+        self.byte_tainted: Set[str] = set()
+        # W026: registers whose high bits are KNOWN ZERO (`moveq #0..127` / clr /
+        # high-clearing andi). A `move.b` into such a register is a valid
+        # zero-extended byte (the SAFE `moveq #0 / move.b` idiom) → NOT tainted.
+        self.high_clean: Set[str] = set()
 
         # W024: conditional-assembly stack — one entry per open `if`/`ifdef`
         # block, each "debug" (inside a true `__DEBUG__` branch) / "release"
@@ -487,6 +496,8 @@ class LintContext:
         self.dbf_body = []
         self.dbf_loop_label = ""
         self.ccr_last_writer_ifdebug = None
+        self.byte_tainted = set()
+        self.high_clean = set()
 
     def check_routine_end(self, line_num: int) -> None:
         """Run checks at rts/rte — paired-resource validation."""
@@ -1560,6 +1571,97 @@ def check_w024(ctx: "LintContext", token: "Token", line_num: int,
                 f"… `endif` or prefix with `ifdebug`")
 
 
+# ---------------------------------------------------------------------------
+# W026: a register byte-loaded with `move.b` then consumed at word/long width
+# without zero/sign-extension — the §2.5b bug class (Sound_PlaySFX, player G9):
+# the stale high byte corrupts the word value or the index. Straight-line taint:
+# `move.b X, dN` taints dN; a full-width write / ext / high-clearing andi
+# untaints it; a `.w`/`.l` READ of a tainted dN, or its use as a `.w`/`.l`
+# INDEX, is the hazard. A label breaks the chain (dN may be set elsewhere).
+# ---------------------------------------------------------------------------
+
+_INDEX_REG_RE = re.compile(r'\b(d[0-7])\.[wl]\b', re.IGNORECASE)
+
+
+def _andi_clears_high(size: str, imm_operand: str) -> bool:
+    """True for an `andi` whose mask clears every bit above bit 7 — i.e. it
+    zero-extends the byte to the operand width (`andi.w #$00FF` / `andi.l
+    #$000000FF`), which untaints the register."""
+    val = _parse_immediate(imm_operand)
+    if val is None:
+        return False
+    high_mask = 0xFF00 if size in (".w", "") else 0xFFFFFF00
+    return (val & high_mask) == 0
+
+
+def check_w026(ctx: "LintContext", token: "Token", line_num: int, suppressed: Set[str]) -> None:
+    instr = token.instruction.lower()
+    size = token.size
+    ops = [o.strip() for o in token.operands]
+    dst = ops[-1] if ops else ""
+
+    # --- USE detection (uses the taint as of the PRECEDING instruction) --------
+    if "W026" not in suppressed:
+        flagged = set()
+        # Index use at .w/.l — a byte value used as an index reads the stale byte
+        # regardless of the instruction's own size.
+        for op in ops:
+            for m in _INDEX_REG_RE.finditer(op):
+                r = m.group(1).lower()
+                if r in ctx.byte_tainted and r not in flagged:
+                    flagged.add(r)
+                    ctx.warning("W026", line_num,
+                                f"'{r}' was byte-loaded (move.b) and is used as a word/long "
+                                f"index here — the stale high byte corrupts the index (§2.5b); "
+                                f"zero/sign-extend it first (ext / andi #$00FF / moveq)")
+        # Word/long COMPARISON of a tainted register — `tst.w`/`cmp.w`/… read the
+        # full word incl. the stale high byte. (A plain `move.w dN, X` value-read
+        # is deliberately NOT flagged: it is too often an intentional high-byte
+        # use — VDP register words `$8X00|v`, packed byte pairs `hi<<8|lo` — and
+        # would drown the signal. Index and comparison are the low-FP shapes.)
+        if size in (".w", ".l") and instr in ("tst", "cmp", "cmpi", "cmpa", "cmpm"):
+            for op in ops:
+                r = op.lower()
+                if r in ctx.byte_tainted and r not in flagged:
+                    flagged.add(r)
+                    ctx.warning("W026", line_num,
+                                f"'{r}' was byte-loaded (move.b) and is compared at {size} width "
+                                f"here without extension — the stale high byte corrupts the "
+                                f"comparison (§2.5b); zero/sign-extend it first (ext / andi "
+                                f"#$00FF / moveq)")
+
+    # --- taint / untaint updates ----------------------------------------------
+    # A call can redefine any register (a word/long return, clobbers) — clear all
+    # taint across it (conservative, like a flow break).
+    if instr in ("bsr", "jsr"):
+        ctx.byte_tainted = set()
+        ctx.high_clean = set()
+        return
+    if _is_dreg(dst):
+        if instr == "moveq":
+            # moveq #0..127 sign-extends to a zero high half → high known clean;
+            # moveq #-N sets the high bits to $FF → not clean.
+            val = _parse_immediate(ops[0]) if ops else None
+            ctx.byte_tainted.discard(dst)
+            (ctx.high_clean.add if (val is not None and val >= 0) else ctx.high_clean.discard)(dst)
+        elif instr == "clr" and size in (".w", ".l"):
+            ctx.byte_tainted.discard(dst)
+            ctx.high_clean.add(dst)
+        elif instr == "andi" and _andi_clears_high(size, ops[0] if len(ops) > 1 else ""):
+            ctx.byte_tainted.discard(dst)
+            ctx.high_clean.add(dst)
+        elif instr in ("ext", "extb") or (instr == "move" and size in (".w", ".l")):
+            # A full-width value: no longer byte-tainted, but not a known-clean
+            # byte either (it is a real word/long).
+            ctx.byte_tainted.discard(dst)
+            ctx.high_clean.discard(dst)
+    # A byte load: taints the register UNLESS its high bits are known zero (the
+    # safe `moveq #0 / move.b` zero-extend idiom), where the byte stays valid.
+    if instr == "move" and size == ".b" and len(ops) == 2 and _is_dreg(dst):
+        if dst not in ctx.high_clean:
+            ctx.byte_tainted.add(dst)
+
+
 def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
                    raw_line: str, suppressed: Set[str]) -> None:
     """Run all W001-W013 optimization and style warning checks."""
@@ -1869,6 +1971,9 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         # W023: a label is a potential branch target — the CCR predecessor of a
         # following conditional is unknown, so break the ifdebug-CCR chain.
         ctx.ccr_last_writer_ifdebug = None
+        # W026: a label is reachable from elsewhere — byte-taint state is unknown.
+        ctx.byte_tainted = set()
+        ctx.high_clean = set()
 
     # ------------------------------------------------------------------
     # Naming convention checks (W015-W017)
@@ -1987,6 +2092,7 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         check_warnings(ctx, token, line_num, raw_line, suppressed)
         check_w023(ctx, token, line_num, raw_line, suppressed)
         check_w024(ctx, token, line_num, raw_line, suppressed)
+        check_w026(ctx, token, line_num, suppressed)
 
     # ------------------------------------------------------------------
     # Track prev_token for multi-line checks (W009, etc.)

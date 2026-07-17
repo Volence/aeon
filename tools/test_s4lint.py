@@ -2921,5 +2921,97 @@ class TestW025_AddaImmToLea(unittest.TestCase):
         self.assertEqual(len(w), 0)
 
 
+# ---------------------------------------------------------------------------
+# W026: byte-loaded register consumed by a word/long op without extension (D3-lite)
+# ---------------------------------------------------------------------------
+
+class TestW026_ByteLoadWordUse(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W026"]
+
+    def test_byteload_then_word_index_warns(self):
+        # The Sound_PlaySFX class: byte-loaded d0 used as a .w index (stale high byte).
+        w = self._warns("R:\n    move.b  (a0), d0\n    move.w  Tab(pc,d0.w), d1\n    rts\n")
+        self.assertEqual(len(w), 1)
+
+    def test_byteload_then_tst_w_warns(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 1)
+
+    def test_byteload_then_cmp_w_warns(self):
+        # Comparing a byte-loaded value at word width reads the stale high byte.
+        w = self._warns("R:\n    move.b  (a0), d0\n    cmp.w   #5, d0\n    rts\n")
+        self.assertEqual(len(w), 1)
+
+    def test_byteload_then_move_w_source_not_flagged(self):
+        # A plain `move.w dN, X` value-read is too often an intentional
+        # high-byte use (VDP register words, packed pairs) — not flagged, to
+        # keep the warning noise-free (index + comparison are the flagged shapes).
+        w = self._warns("R:\n    move.b  (a0), d0\n    move.w  d0, (a1)\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_ext_untaints(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    ext.w   d0\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_moveq_untaints(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    moveq   #0, d0\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_andi_clear_high_untaints(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    andi.w  #$00FF, d0\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_byte_use_ok(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    move.b  d0, d1\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_label_resets(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n.mid:\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_no_byteload_no_warn(self):
+        w = self._warns("R:\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_moveq_then_byteload_is_clean(self):
+        # The SAFE idiom: moveq pre-clears the high bits, so the byte-load yields
+        # a valid zero-extended word — no hazard.
+        w = self._warns(
+            "R:\n    moveq   #0, d0\n    move.b  (a0), d0\n    tst.w   d0\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_clr_then_byteload_index_is_clean(self):
+        w = self._warns(
+            "R:\n    clr.w   d0\n    move.b  (a0), d0\n    move.w  Tab(pc,d0.w), d1\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_moveq_negative_then_byteload_not_clean(self):
+        # moveq #-1 sets the high bits to $FF — NOT a clean zero-extend.
+        w = self._warns(
+            "R:\n    moveq   #-1, d0\n    move.b  (a0), d0\n    tst.w   d0\n    rts\n"
+        )
+        self.assertEqual(len(w), 1)
+
+    def test_call_clears_taint(self):
+        # A bsr/jsr can redefine registers (e.g. a word return in d0) — the
+        # byte-taint before the call must not carry across it.
+        w = self._warns(
+            "R:\n    move.b  d3, d0\n    bsr.w   Helper\n    tst.w   d0\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_full_width_move_untaints(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    move.w  (a1), d0\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_suppressed(self):
+        w = self._warns("R:\n    move.b (a0), d0\n    tst.w d0  ; lint: disable=W026\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
