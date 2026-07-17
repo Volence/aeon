@@ -15,8 +15,11 @@
 ; Layout: identical 5-band shape to OJZ_Default; only H-factors differ.
 
 ParallaxConfig_OJZ_Caves:
+    ; deformShiftDefault=15: flat-path the all-zero H-deform (skips per-line sample
+    ; loop, ~16k cy/f) while per-line HScroll mode is retained (mode-select keys on
+    ; the non-NULL table pointer). Byte-identical HScroll output. See ojz_default.
     parallax_section layerMask=$1F, vFactorBg=15, vCenter=0, vOffset=0, \
-                     transition=1, deformBg=DeformTable_Zero
+                     transition=1, deformBg=DeformTable_Zero, deformShiftDefault=15
         band 0,  FACTOR_1, FACTOR_1_16      ; rows 0-3   distant cave ceiling
         band 4,  FACTOR_1, FACTOR_1_16      ; rows 4-9   far walls
         band 10, FACTOR_1, FACTOR_1_8       ; rows 10-13 mid walls

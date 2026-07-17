@@ -108,7 +108,7 @@ Section_GetSecPtrXY:
         lsl.w   #6, d0                              ; flat × 64
         lsl.w   #1, d1                              ; flat × 2
         add.w   d1, d0                              ; flat × 66
-        adda.w  d0, a0
+        adda.w  d0, a0                              ; sign-extends d0 -> <=496 sections (MAX_ACT_SECTIONS*66 <= $7FFF; .emp ensure guards it)
 
         tst.l   (a0)
         beq.s   .out_of_range

@@ -123,8 +123,18 @@ def merge_adjacent_entries(frames):
             else:
                 merged.append([start, count])
 
-        total_after += len(merged)
-        merged_frames.append([(s, c) for s, c in merged])
+        # A merged run can accumulate past MAX_TILES_PER_ENTRY, but the DPLC tile
+        # count is a 4-bit field (bits 15-12 = count-1); an un-split run silently
+        # wraps in write_dplc ((20-1)&0xF = 3 -> loads 4 tiles, corrupting art).
+        # Re-split every run so no emitted entry overflows. (The contiguous layout
+        # path in main() already splits via split_contiguous_entries; --merge-only
+        # is the path that skipped it — this closes that hole.)
+        normalized = []
+        for start, count in merged:
+            normalized.extend(split_contiguous_entries(start, count))
+
+        total_after += len(normalized)
+        merged_frames.append(normalized)
 
     return merged_frames, total_before, total_after
 
@@ -143,6 +153,13 @@ def write_dplc(frames):
         entry_count = len(entries)
         frame_bytes = struct.pack('>H', entry_count)
         for tile_start, tile_count in entries:
+            # Defense in depth: the tile count is a 4-bit field (bits 15-12 =
+            # count-1). A count outside 1..16 would silently wrap and corrupt the
+            # art load — fail loudly instead. Producers (split_contiguous_entries)
+            # must keep runs <= MAX_TILES_PER_ENTRY.
+            assert 1 <= tile_count <= MAX_TILES_PER_ENTRY, (
+                f"DPLC tile_count={tile_count} out of range 1..{MAX_TILES_PER_ENTRY} "
+                f"(4-bit field wraps) at tile_start={tile_start}")
             word = ((tile_count - 1) & 0xF) << 12 | (tile_start & 0xFFF)
             frame_bytes += struct.pack('>H', word)
         frame_data_parts.append(frame_bytes)

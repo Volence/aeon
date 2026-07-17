@@ -1197,6 +1197,19 @@ Snd_LoadSong:
         ld      a, 0C0h                  ; L+R on, AMS=FMS=0 -> centered default
         ld      (SND_Z80_YM_A3), a       ; $4003 = data
 .fm6_pan_owned:
+        ; H-1 (sound repost gate): the 6-byte param block is FULLY CONSUMED by now
+        ; (SND_MUSIC_PARAM_FLAGS at :1183 was the last read; nothing below reads it).
+        ; Clear the request slot HERE — well before the end of the load — so the
+        ; 68k's repost gate (Sound_PlayMusic spins on MUSIC_SLOT==0) unblocks without
+        ; waiting for the rest of the load. The end-of-load clear is REMOVED (moved
+        ; here): a repost landing in the tail below is then KEPT, not wiped, and is
+        ; picked up by the next mailbox poll. No snapshot is needed — the 68k gate
+        ; guarantees no repost overwrites the block while the slot is set, so the
+        ; live reads above are safe. Placed at .fm6_pan_owned (both branches rejoin;
+        ; the FM6-adaptive Z flag is dead here) so `xor a` is safe — byte-neutral
+        ; with the removed end clear. See docs/superpowers/2026-07-16-sound-repost-gate-design.md.
+        xor     a
+        ld      (SND_REQ_MUSIC), a
 
         ; channel_count (SH_CHCOUNT) — read via iy = song base ($8000-window).
         ld      iy, (Snd_SongBase)
@@ -1369,9 +1382,9 @@ Snd_LoadSong:
         ld      (SND_TEMPO_CUR), a
         ld      (SND_TEMPO_TARGET), a
         ld      (SND_TEMPO_BASE), a
-        ; clear the request slot (consumed) + bump the ack count.
-        xor     a
-        ld      (SND_REQ_MUSIC), a
+        ; H-1: the request slot was already cleared at .fm6_pan_owned (right after
+        ; the param block was consumed); just bump the ack count here. Clearing at
+        ; THIS point would wipe a repost that landed during the load tail.
         ld      a, (SND_STAT_ACK_COUNT)
         inc     a
         ld      (SND_STAT_ACK_COUNT), a

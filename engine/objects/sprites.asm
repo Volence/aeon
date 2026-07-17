@@ -9,7 +9,7 @@ SPRITE_MASK_SIZE        = %00000011     ; width=1, height=4 (32 scanlines per ma
 SPRITE_MASK_HEIGHT      = 32
 
 ; -----------------------------------------------
-; InitSpriteSystem — clear priority band counts and sprite counters
+; InitSpriteSystem — clear priority band counts and scanline band counters
 ; Called at frame start, before RunObjects.
 ; In:  none
 ; Out: none
@@ -27,8 +27,11 @@ InitSpriteSystem:
         move.l  d0, (a0)+
         move.l  d0, (a0)
 
-        ; Reset counters
-        move.w  d0, (Sprites_Rendered).w
+        ; Sprites_Rendered is deliberately NOT reset here: it must persist
+        ; across frames so Render_Sprites' had-sprites -> none edge test
+        ; (.empty_table) fires the hidden SAT terminator exactly once.
+        ; Render_Sprites owns it on every exit path; the cold-boot RAM clear
+        ; seeds it to 0 (VRAM SAT also starts cleared, so frame 1 is correct).
         rts
 
 ; -----------------------------------------------
@@ -283,7 +286,8 @@ Render_Sprites:
         ; Skip entirely when total pieces < limit — no band can overflow yet
         cmpi.w  #SCANLINE_SPRITE_LIMIT, d5
         blo.s   .budget_ok
-        move.w  d3, d0                     ; d0 = screen-relative Y
+        move.w  d3, d0                     ; d0 = biased Y (screen Y + 128)
+        subi.w  #VDP_SPRITE_Y_OFFSET, d0   ; d0 = true screen-relative Y (unbias)
         bmi.s   .budget_ok                 ; above screen — allow
         lsr.w   #5, d0                     ; d0 = screen_y >> 5 = band index (0-6)
         cmpi.w  #SCANLINE_BANDS, d0

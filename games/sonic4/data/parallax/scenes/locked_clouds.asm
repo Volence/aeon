@@ -20,8 +20,11 @@
 ; struct layout but are ignored at runtime because layer_mask bit 0 = 0.
 
 ParallaxConfig_OJZ_LockedClouds:
+    ; deformShiftDefault=15: flat-path the all-zero H-deform (skips per-line sample
+    ; loop, ~16k cy/f) while per-line HScroll mode is retained (mode-select keys on
+    ; the non-NULL table pointer). Byte-identical HScroll output. See ojz_default.
     parallax_section layerMask=$1E, vFactorBg=15, vCenter=0, vOffset=0, \
-                     transition=1, deformBg=DeformTable_Zero
+                     transition=1, deformBg=DeformTable_Zero, deformShiftDefault=15
         band 0,  FACTOR_1, FACTOR_1_8       ; rows 0-3   DISABLED → BG inherits 0 → locked
                                             ;            (FG stays camera-locked — disabled
                                             ;             bands only lock the BG plane)

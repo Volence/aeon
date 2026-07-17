@@ -34,9 +34,11 @@ Read_Controllers:
 .read_pad:
         move.b  #$40, (a0)                  ; TH = 1
         nop
+        nop                                 ; TH settling: 2 nops (S1/S2/S3K, SGDK) — real-HW settle time, invisible to emulators
         move.b  (a0), d0                    ; --CBRLDU
         move.b  #$00, (a0)                  ; TH = 0
         nop
+        nop                                 ; TH settling: 2 nops (S1/S2/S3K, SGDK) — real-HW settle time, invisible to emulators
         move.b  (a0), d1                    ; --SA00DU
         andi.b  #$3F, d0                    ; keep CBRLDU
         andi.b  #$30, d1                    ; keep SA

@@ -132,6 +132,11 @@ Camera_Update:
         move.w  Act_grid_w(a0), d1
         lsl.l   #8, d1                              ; grid_w << 11 = level_width (px)
         lsl.l   #3, d1                              ; (SECTION_SIZE_SHIFT, split 8+3)
+        ; MEGA-ACT CEILING: the right-bound clamp below is WORD arithmetic
+        ; (subi.w/cmp.w), so a level_width above $FFFF px — grid_w > 31 sections —
+        ; word-wraps. Guarded today by act_descriptor's
+        ; (GRID_W << SECTION_SIZE_SHIFT) <= $8000 ensure (grid_w <= 16, tighter than
+        ; 31). Floating-origin Phase 4 removes the word truncation.
         subi.w  #SCREEN_WIDTH, d1
         cmp.w   d1, d0
         ble.s   .clamp_x
@@ -244,6 +249,10 @@ Camera_Update:
         move.w  Act_grid_h(a0), d1
         lsl.l   #8, d1                              ; grid_h << 11 = level_height (px)
         lsl.l   #3, d1                              ; (SECTION_SIZE_SHIFT, split 8+3)
+        ; MEGA-ACT CEILING: word clamp below (subi.w/cmp.w) word-wraps for a
+        ; level_height above $FFFF px — grid_h > 31 sections. Guarded today by
+        ; act_descriptor's (GRID_H << SECTION_SIZE_SHIFT) <= $8000 ensure
+        ; (grid_h <= 16). Floating-origin Phase 4 removes the word truncation.
         subi.w  #SCREEN_HEIGHT, d1
         cmp.w   d1, d0
         ble.s   .y_write
