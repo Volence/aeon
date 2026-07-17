@@ -1408,60 +1408,131 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a6) out(d0) {
         lea     Tile_Cache_Nametable, a4
         lea     BLOCK_COLL_PLANE_SIZE(a3), a2
 
-        // first intra-block col for this block
-        move.w  d7, d6
-        andi.w  #$F, d6
+        // === valid intra-block column run [ic_lo, ic_hi) ===
+        // The per-tile loop this replaced wrote a column iff it passed three
+        // monotone gates: world_col <= Head (else the block loop TERMINATES),
+        // world_col >= Left, and cache_col < COLS (the latter two SKIP the cell).
+        // world_col rises with the intra-col, so the surviving columns form one
+        // contiguous run — the prefix below Left and the suffix past Head/COLS are
+        // clamped off (never written, never zero-filled; FillRow always skipped
+        // out-of-range cells rather than zeroing them, so the clamp is inherent).
+        //   ic_lo = max(intra_start, Left - B)
+        //   ic_hi = min(BLOCK_TILE_SIZE, Head - B + 1, Left + COLS - B)   (B = block base)
+        move.w  d7, d2
+        andi.w  #$FFF0, d2                    // d2 = block base B
+        move.w  d7, d3
+        andi.w  #$F, d3                       // ic_lo = intra_start
+        move.w  Cache_Left_Col, d0
+        sub.w   d2, d0                         // Left - B
+        cmp.w   d3, d0
+        ble     .fr_iclo_done
+        move.w  d0, d3                         // ic_lo = Left - B
+    .fr_iclo_done:
+        moveq   #BLOCK_TILE_SIZE, d4
+        move.w  Cache_Head_Col, d0
+        sub.w   d2, d0
+        addq.w  #1, d0                         // Head - B + 1
+        cmp.w   d4, d0
+        bge     .fr_ichi_head
+        move.w  d0, d4
+    .fr_ichi_head:
+        move.w  Cache_Left_Col, d0
+        sub.w   d2, d0
+        addi.w  #TILE_CACHE_COLS, d0           // Left + COLS - B
+        cmp.w   d4, d0
+        bge     .fr_ichi_done
+        move.w  d0, d4                         // ic_hi = Left + COLS - B
+    .fr_ichi_done:
+        cmp.w   d4, d3
+        bge     .fr_nt_empty                  // ic_lo >= ic_hi: nothing to copy
 
-    .fr_col_loop:
+        // === phase 1: nametable segment copy ===
+        // src words are contiguous (staging slot, intra_col * 2); dest columns are
+        // contiguous in the circular cache and wrap at most once at Origin_Col, so
+        // the run splits into <=2 straight move.w copies. d2=B still; d3=ic_lo,
+        // d4=ic_hi. a0 = NT staging row base (consumed here — DecompressBlock resets
+        // it per block, and phase 2 reads collision via a3/a2, not a0).
+        move.w  d3, d0
+        add.w   d0, d0
+        adda.w  d0, a0                         // a0 -> staging src at ic_lo
+        move.w  d4, d1
+        sub.w   d3, d1                         // d1 = n_total (> 0)
+        add.w   d3, d2
+        sub.w   Cache_Left_Col, d2            // cache_col_lo (0..COLS-1)
+        add.w   Cache_Origin_Col, d2          // phys_start (0..2*COLS-2)
+        move.w  (sp), d4                       // d4 = cache_row_offset_words
+        cmpi.w  #TILE_CACHE_COLS, d2
+        blt     .fr_nt_ncalc
+        subi.w  #TILE_CACHE_COLS, d2           // starts already wrapped: one run
+        move.w  d1, d0                         // n1 = n_total
+        bra     .fr_nt_emit
+    .fr_nt_ncalc:
+        move.w  #TILE_CACHE_COLS, d0
+        sub.w   d2, d0                         // cols_before_wrap = COLS - phys_start (>=1)
+        cmp.w   d1, d0
+        blt     .fr_nt_emit                   // n1 = cols_before_wrap (< n_total)
+        move.w  d1, d0                         // n1 = n_total (whole run fits pre-wrap)
+    .fr_nt_emit:
+        move.w  d1, d3
+        sub.w   d0, d3                         // d3 = n2 = n_total - n1
+        move.w  d4, d1
+        add.w   d2, d1
+        add.w   d1, d1                         // (row_off + phys_start) * 2
+        lea     (a4, d1.w), a1                 // run-1 dest
+        subq.w  #1, d0
+    .fr_nt_run1:
+        move.w  (a0)+, (a1)+
+        dbf     d0, .fr_nt_run1
+        tst.w   d3
+        beq     .fr_nt_empty
+        move.w  d4, d1
+        add.w   d1, d1                         // wrap dest starts at phys 0
+        lea     (a4, d1.w), a1                 // run-2 dest
+        subq.w  #1, d3
+    .fr_nt_run2:
+        move.w  (a0)+, (a1)+
+        dbf     d3, .fr_nt_run2
+
+    .fr_nt_empty:
+        // === phase 2: collision planes A and B (cell-completing rows only) ===
+        // KEPT per-cell for 1.1a (1.1b segments it). Gated once on the row parity
+        // (2(sp) = $FFFF on even rows) — constant for the whole row, so hoisting the
+        // test out of the loop writes the identical cells. a5/a6 = plane A/B DEST
+        // bases (per-row); a3/a2 = plane A/B SRC bases (per-block); d6 = intra-col.
+        move.w  2(sp), d0
+        cmpi.w  #$FFFF, d0
+        beq     .fr_next_block                // even row: no collision this row
+        move.w  d7, d6
+        andi.w  #$F, d6                        // intra_start
+    .fr_coll_loop:
         cmpi.w  #BLOCK_TILE_SIZE, d6
         bge     .fr_next_block
 
-        // world col
         move.w  d7, d1
         andi.w  #$FFF0, d1
         add.w   d6, d1                         // world_col = block_base + intra_col
         cmp.w   Cache_Head_Col, d1
         bgt     .fr_next_block
 
-        // cache col offset
-        sub.w   Cache_Left_Col, d1
-        bmi     .fr_skip_col
+        sub.w   Cache_Left_Col, d1            // cache col
+        bmi     .fr_coll_skip
         cmpi.w  #TILE_CACHE_COLS, d1
-        bge     .fr_skip_col
+        bge     .fr_coll_skip
 
-        // circular column mapping
-        add.w   Cache_Origin_Col, d1
+        add.w   Cache_Origin_Col, d1          // circular column mapping
         cmpi.w  #TILE_CACHE_COLS, d1
-        blt     .fr_nowrap
+        blt     .fr_coll_nowrap
         subi.w  #TILE_CACHE_COLS, d1
-    .fr_nowrap:
-
-        // read source tile from staging slot
-        move.w  d6, d0
-        add.w   d0, d0                         // intra_col * 2
-        move.w  (a0, d0.w), d3                 // d3 = nametable word
-
-        // dest offset = (cache_row_stride + cache_col) * 2
-        move.w  (sp), d0                       // cache_row_offset_words
-        add.w   d1, d0                         // + cache_col
-        add.w   d0, d0                         // byte offset
-        move.w  d3, (a4, d0.w)                 // write tile — a4 = NT dest base (hoisted per-block)
-
-        // collision planes A and B (cell-completing rows only)
-        // a5/a6 = plane A/B DEST bases (hoisted per-row); a2 = plane-B SRC base
-        // (hoisted per-block = a3 + BLOCK_COLL_PLANE_SIZE); d6 = intra-block col
-        // (0-15), the byte index within the row.
-        move.w  2(sp), d0
-        cmpi.w  #$FFFF, d0
-        beq     .fr_skip_col
+    .fr_coll_nowrap:
+        move.w  2(sp), d0                      // collision row offset
         add.w   d1, d0                         // + cache col → byte index within cache row
         move.b  (a3, d6.w), (a5, d0.w)         // plane A
         move.b  (a2, d6.w), d3                 // plane B source
         move.b  d3, (a6, d0.w)                 // plane B dest
 
-    .fr_skip_col:
+    .fr_coll_skip:
         addq.w  #1, d6
-        jbra    .fr_col_loop
+        jbra    .fr_coll_loop
 
     .fr_next_block:
         move.w  d7, d0

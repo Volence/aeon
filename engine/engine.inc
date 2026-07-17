@@ -331,17 +331,17 @@ __BUDGET_ENGINE:
         ; engine/level/tile_cache.emp, pinned by the sigil map at the per-shape
         ; reference address. Resume placement at the region end (collision_lookup's
         ; Collision_GetType — the SIGIL_EMP_COLLISION_LOOKUP block below). Shape-
-        ; VARYING length ($B54 plain / $C14 debug — the .raw_direct assert block;
+        ; VARYING length ($BDC plain / $C9C debug — the .raw_direct assert block;
         ; unified-prefetch grew tile_cache: +$10 (H5 slots), +$14C (H1/H2/H3/H4 prefetch
         ; tail), +$C (H6 base-lea hoist), +$2A (interim H4 VBlank fix + Cache_Prev_Cam_X
         ; init), +$2C (H4 reworked to the Frame_Counter-delta trailing-lag gate) over the
-        ; Wave-2 (ii) $996/$A56).
+        ; Wave-2 (ii) $996/$A56; +$88 (pass-2 1.1a FillRow nametable segment restructure)).
         ; NOTE: these org values are sonic4-shape addresses — the gate define must
         ; never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $5AE4
+        org     $5B6C
       else
-        org     $4E5A
+        org     $4EE2
       endif
     endif
     ifndef SIGIL_EMP_COLLISION_LOOKUP
@@ -354,9 +354,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $5B08
+        org     $5B90
       else
-        org     $4E7E
+        org     $4F06
       endif
     endif
     gameEngineBlockIncludes
@@ -371,9 +371,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $63E0
+        org     $6468
       else
-        org     $5756
+        org     $57DE
       endif
     endif
     include "engine/level/camera.asm"
@@ -396,9 +396,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $7BE2
+        org     $7C6A
         else
-        org     $61C8
+        org     $6250
         endif
       endif
     endif
