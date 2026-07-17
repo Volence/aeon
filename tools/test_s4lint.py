@@ -20,7 +20,7 @@ from tools.s4lint import (
     parse_numeric, _extract_address_value,
     check_e001, check_e002, check_e003, check_e004,
     check_e005_track, _count_dc_b_items, _count_ds_b_items,
-    run_checks, _parse_suppressed,
+    run_checks, _parse_suppressed, flush_w021,
     check_warnings,
     _is_dreg, _is_areg, _is_memory_operand, _parse_immediate,
     lint_file,
@@ -977,6 +977,7 @@ def _lint_lines(lines_str, filepath="engine/test.asm"):
         t = tokenize_line(line)
         suppressed = _parse_suppressed(t.comment) if t.comment else set()
         run_checks(ctx, t, i, line, suppressed)
+    flush_w021(ctx)
     return ctx.diagnostics
 
 
@@ -1395,6 +1396,7 @@ def _lint(line, filepath="engine/test.asm"):
     t = tokenize_line(line)
     suppressed = _parse_suppressed(t.comment) if t.comment else set()
     run_checks(ctx, t, 1, line, suppressed)
+    flush_w021(ctx)
     return ctx.diagnostics
 
 
@@ -1405,6 +1407,7 @@ def _lint_lines_w(lines_str, filepath="engine/test.asm"):
         t = tokenize_line(line)
         suppressed = _parse_suppressed(t.comment) if t.comment else set()
         run_checks(ctx, t, i, line, suppressed)
+    flush_w021(ctx)
     return ctx.diagnostics
 
 
@@ -2664,6 +2667,29 @@ class TestW021_WriteSetVsHeader(unittest.TestCase):
         w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    move.w d5, d1\n    rts\n")
         self.assertEqual(len(w), 1)
         self.assertIn("d1", w[0].message)
+
+    def test_push_without_restore_still_flagged(self):
+        # A PUSH alone does not prove preservation — without a matching restore
+        # the register IS clobbered for the caller, so it must still be flagged.
+        w = self._warns(
+            self.HDR + "; Clobbers: d0\nR:\n"
+            "    move.w  d1, -(sp)\n"
+            "    move.w  a0, d1\n"
+            "    rts\n"           # no `move.w (sp)+, d1` restore
+        )
+        self.assertEqual(len(w), 1)
+        self.assertIn("d1", w[0].message)
+
+    def test_flush_per_routine_boundary(self):
+        # A saved-but-unrestored register in routine A is flagged; a fully
+        # push/pop-preserved register in routine B is not — each routine's
+        # verdict is independent (flush at the global-label boundary).
+        w = self._warns(
+            "; A\n; Clobbers: d0\nA:\n    move.w d1, -(sp)\n    move.w a0, d1\n    rts\n"
+            "; B\n; Clobbers: d0\nB:\n    move.w d2, -(sp)\n    move.w a0, d2\n    move.w (sp)+, d2\n    rts\n"
+        )
+        regs = sorted(m for d in w for m in ("d1", "d2") if m in d.message)
+        self.assertEqual(regs, ["d1"])
 
 
 # ---------------------------------------------------------------------------

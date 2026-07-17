@@ -445,15 +445,19 @@ class LintContext:
         # (the check is OFF for that routine — mirrors the .emp lint running only
         # when clobbers() is declared).
         self.declared_writeset: Optional[Set[str]] = None
-        # W021: (register) already warned in the current routine — one warning
-        # per (routine, register), not one per write site (the .emp lint fires
-        # per-instruction; a human-facing .asm warning dedups for readability).
-        self.w021_seen: Set[str] = set()
-        # W021: registers SAVED (pushed) in the current routine — a saved (and
-        # thus preserved-for-the-caller) register is not an undeclared clobber,
-        # even though it is written as scratch (the individual-push / movem
-        # preservation idiom). Reset per routine.
+        # W021: undeclared-clobber CANDIDATES for the current routine, buffered
+        # {reg: (first_write_line, suppressed_at_that_line)} and flushed at the
+        # routine boundary — the verdict needs the WHOLE routine (a register is
+        # only exempt if it is BOTH saved AND restored, which a streaming
+        # inline emit could not confirm). One warning per (routine, register).
+        self.w021_candidates: Dict[str, Tuple[int, bool]] = {}
+        # W021: registers SAVED (pushed) / RESTORED (popped) in the current
+        # routine. A register that is BOTH is preserved for the caller (the
+        # individual-push / movem idiom) — not an undeclared clobber. A push
+        # WITHOUT a matching restore does NOT prove preservation, so both are
+        # required. Reset per routine.
         self.w021_saved: Set[str] = set()
+        self.w021_restored: Set[str] = set()
         # W022: buffered dbf-loop body — (line_num, instr, operands) since the
         # loop's opening local label, plus that label's name. Analyzed at the
         # dbf ONLY when the dbf's target matches (else the body is partial and
@@ -497,8 +501,9 @@ class LintContext:
         self.label_since_last_instr = False
         self.pending_w006 = None
         self.declared_writeset = None
-        self.w021_seen = set()
+        self.w021_candidates = {}
         self.w021_saved = set()
+        self.w021_restored = set()
         self.dbf_body = []
         self.dbf_loop_label = ""
         self.ccr_last_writer_ifdebug = None
@@ -1352,6 +1357,41 @@ def _saved_registers(instr: str, operands: List[str]) -> Set[str]:
     return set()
 
 
+def _restored_registers(instr: str, operands: List[str]) -> Set[str]:
+    """The registers a POP restores: `move.X (sp)+, rN` → {rN}; `movem.X (sp)+,
+    <list>` → the whole list. A register that was saved AND is restored here is
+    preserved for the caller — the other half of W021's preservation check."""
+    if len(operands) < 2:
+        return set()
+    src = operands[0].strip().lower().replace(" ", "")
+    if src not in ("(sp)+", "(a7)+"):
+        return set()
+    dst = operands[-1].strip()
+    if instr == "movem":
+        return _expand_reglist(dst)
+    if _is_dreg(dst) or _is_areg(dst):
+        return {_canon_reg(dst)}
+    return set()
+
+
+def flush_w021(ctx: "LintContext") -> None:
+    """Emit the current routine's buffered W021 candidates, now that the whole
+    routine has been seen. A candidate register is exempt only if it was BOTH
+    saved and restored (preserved for the caller); a push without a matching
+    restore does not prove preservation. Per-line suppression is honored from
+    the buffered write-site state. Called at each routine boundary and at EOF."""
+    for reg, (line, suppressed) in sorted(ctx.w021_candidates.items()):
+        if suppressed:
+            continue
+        if reg in ctx.w021_saved and reg in ctx.w021_restored:
+            continue  # preserved: saved AND restored
+        ctx.warning("W021", line,
+                    f"routine '{ctx.current_routine}' writes '{reg}', which is not in its "
+                    f"declared '; Clobbers:' set (best-effort .asm write-set check — add "
+                    f"'{reg}' to the header/In/Out, or suppress with 'lint: disable=W021')")
+    ctx.w021_candidates = {}
+
+
 # ---------------------------------------------------------------------------
 # W022: loop-invariant memory operand inside a dbf loop — a memory location read
 # every iteration but never written in the loop can be hoisted above it. Feeds a
@@ -1695,19 +1735,16 @@ def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
     # W021: write outside the declared "; Clobbers:" header (only active when
     # the routine declared one — ctx.declared_writeset is not None).
     # ------------------------------------------------------------------
-    if "W021" not in suppressed and ctx.declared_writeset is not None:
-        # Record any registers this instruction SAVES (push) — a saved register
-        # is preserved, not an undeclared clobber. Saves precede the scratch
-        # writes in the push/…/pop idiom, so streaming tracking suffices.
+    if ctx.declared_writeset is not None:
+        # Track the routine's saves (push) and restores (pop) — the verdict on a
+        # written register is deferred to the routine boundary (flush_w021),
+        # where a register is exempt only if it was BOTH saved and restored.
         ctx.w021_saved |= _saved_registers(instr, token.operands)
-        for reg in sorted(_written_regs(instr, token.operands) - ctx.declared_writeset):
-            if reg in ctx.w021_seen or reg in ctx.w021_saved:
-                continue  # already warned, or preserved via push/pop
-            ctx.w021_seen.add(reg)
-            ctx.warning("W021", line_num,
-                        f"routine '{ctx.current_routine}' writes '{reg}', which is not in its "
-                        f"declared '; Clobbers:' set (best-effort .asm write-set check — add "
-                        f"'{reg}' to the header/In/Out, or suppress with 'lint: disable=W021')")
+        ctx.w021_restored |= _restored_registers(instr, token.operands)
+        for reg in _written_regs(instr, token.operands) - ctx.declared_writeset:
+            # First write site wins (one warning per routine+register); capture
+            # this line's suppression state for the deferred emit.
+            ctx.w021_candidates.setdefault(reg, (line_num, "W021" in suppressed))
 
     # ------------------------------------------------------------------
     # W001: clr.w / clr.l on memory (read-modify-write)
@@ -1971,7 +2008,10 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     label = token.label
 
     if label and not label.startswith("."):
-        # Global label — start of a new routine
+        # Global label — start of a new routine. Flush the PREVIOUS routine's
+        # buffered W021 candidates first (uses its still-current name), then
+        # reset per-routine state.
+        flush_w021(ctx)
         ctx.current_routine = label
         ctx.reset_routine_state()
         ctx.last_routine_terminated = False
@@ -2169,6 +2209,9 @@ def lint_file(filepath: str, options: dict, base_dir: str) -> LintContext:
         suppressed = _parse_suppressed(token.comment)
         run_checks(ctx, token, line_num, raw_line, suppressed)
 
+    # Flush the final routine's buffered W021 candidates (no trailing global
+    # label follows it to trigger the boundary flush).
+    flush_w021(ctx)
     return ctx
 
 
