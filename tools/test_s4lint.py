@@ -2566,5 +2566,76 @@ class TestW020_TailCall(unittest.TestCase):
         self.assertIn("bra.w", w020[0].message)
 
 
+# ---------------------------------------------------------------------------
+# W021: routine writes a register outside its declared "Clobbers:" header
+# (best-effort .asm approximation of the .emp [proc.clobber-undeclared] lint —
+# D1-lite, warning tier, only active when a "; Clobbers:" header is present)
+# ---------------------------------------------------------------------------
+
+class TestW021_WriteSetVsHeader(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W021"]
+
+    HDR = "; ------------\n; R — a routine\n"
+
+    def test_undeclared_write_warns(self):
+        # Clobbers: d0, but the body writes d3 → W021 naming d3.
+        w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    move.w d5, d3\n    rts\n")
+        self.assertEqual(len(w), 1)
+        self.assertIn("d3", w[0].message)
+
+    def test_declared_write_silent(self):
+        # Writing only the declared clobber (d0) → no W021.
+        w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    moveq #0, d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_no_clobbers_header_disables_check(self):
+        # No "Clobbers:" line → the check is off for this routine (mirrors the
+        # .emp lint running only when clobbers() is declared).
+        w = self._warns("; ------------\n; R does a thing\nR:\n    move.w d5, d3\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_reglist_range_expands(self):
+        # Clobbers: d0-d3/a1 — a write inside the range (d2) is silent; outside (d4) warns.
+        w = self._warns(self.HDR + "; Clobbers: d0-d3/a1\nR:\n    move.w d5, d2\n    move.w d5, d4\n    rts\n")
+        msgs = " ".join(d.message for d in w)
+        self.assertIn("d4", msgs)
+        self.assertNotIn("`d2`", msgs)
+
+    def test_postinc_writes_areg(self):
+        # Auto-inc parity with the .emp fix: `move.w (a4)+, d0` advances a4.
+        # Clobbers: d0 → a4 is undeclared → W021 naming a4.
+        w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    move.w (a4)+, d0\n    rts\n")
+        self.assertTrue(any("a4" in d.message for d in w), f"expected a4 warning: {w}")
+
+    def test_predec_writes_areg(self):
+        w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    move.w d0, -(a3)\n    rts\n")
+        self.assertTrue(any("a3" in d.message for d in w), f"expected a3 warning: {w}")
+
+    def test_stack_push_pop_exempt(self):
+        # `-(sp)`/`(sp)+` push/pop advance a7 but are stack discipline — not a clobber.
+        w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    move.l d0, -(sp)\n    movea.l (sp)+, d0\n    rts\n")
+        self.assertEqual(len(w), 0, f"stack push/pop must not warn: {w}")
+
+    def test_in_out_registers_allowed(self):
+        # In:/Out: header registers are legitimately touched → not undeclared.
+        w = self._warns(
+            "; ------------\n; R\n; In:  a0 = ptr\n; Out: d0 = result\n; Clobbers: d1\n"
+            "R:\n    move.w (a0), d0\n    lea 4(a0), a0\n    rts\n"
+        )
+        self.assertEqual(len(w), 0, f"In/Out registers must be allowed: {w}")
+
+    def test_macro_line_not_flagged(self):
+        # An unrecognized mnemonic (a macro invocation) is skipped — best-effort,
+        # the linter cannot know a macro's write set.
+        w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    dmaFillVRAM 0, d3, 100\n    rts\n")
+        self.assertEqual(len(w), 0, f"macro lines must be skipped: {w}")
+
+    def test_suppressed(self):
+        w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    move.w d5, d3  ; lint: disable=W021\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
