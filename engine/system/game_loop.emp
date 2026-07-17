@@ -5,6 +5,16 @@ module engine.game_loop in game_loop
 // mirrors the AS twin's ifdef; SOUND_DEBUG_HOTKEYS is the sound test-harness
 // opt-in (build.sh: requires DEBUG=1; OFF in normal play builds).
 
+// Boundary contracts (contract-grammar v2 §3/§4). These emit nothing — they
+// state the .asm callees' contracts so the transitive clobber closure can see
+// past the cross-seam calls, and bound the state dispatch.
+// drift-guard: engine/system/vblank.asm:167 — In: none · Out: none · Clobbers: d0
+extern proc VSync_Wait () clobbers(d0)
+// drift-guard: games/sonic4/debug/game_debug.asm:20 — Clobbers: d0-d2/a0/a1
+extern proc Debug_MusicToggle () clobbers(d0-d2/a0/a1)
+// The Game_State dispatch runs arbitrary state code — an honest ⊤ bound.
+type GameState = proc () clobbers(d0-d7/a0-a6)
+
 // -----------------------------------------------
 // GameLoop — master loop
 // VSync → dispatch current state → repeat
@@ -33,7 +43,7 @@ pub proc GameLoop () clobbers(d0-d7/a0-a6) {
                                         // couple the engine to the game's debug section.
         }
         movea.l Game_State, a0
-        jsr     (a0)                    // computed dispatch (bare jsr by the jbra/jbsr rule)
+        jsr     (a0) as GameState       // computed dispatch (bare jsr by the jbra/jbsr rule)
         jbra    GameLoop
 }
 

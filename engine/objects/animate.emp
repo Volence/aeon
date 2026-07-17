@@ -207,7 +207,7 @@ pub proc AnimateSprite () clobbers(d0-d2/a1-a2) {
         move.w  d0, d2
         move.l  a1, -(sp)
         movea.l d2, a2
-        jsr     (a2)
+        jsr     (a2) as ObjRoutine      // AF_CALLBACK target; a0 = SST ptr (ObjRoutine, core.emp)
         movea.l (sp)+, a1
     .evt_cb_done:
         addq.b  #4, Sst.anim_frame(a0)

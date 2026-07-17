@@ -4,6 +4,12 @@
 // at the per-shape reference address.
 module engine.hblank in hblank
 
+// Contract type (contract-grammar v2 §4) — the HBlank handler bound. The
+// dispatch saves/restores ONLY d0-d1/a0 around the `jsr (a0)`, so an installed
+// raster handler may clobber ONLY those (interrupt context — everything else
+// must survive for the interrupted main line).
+type HBlankHandler = proc () clobbers(d0, d1, a0)
+
 // -----------------------------------------------
 // HBlank_Dispatch — ROM stub, dispatches through the RAM pointer
 // (HBlank_Handler_Ptr): RAM-indirect dispatch for per-line raster effects.
@@ -17,7 +23,7 @@ module engine.hblank in hblank
 pub proc HBlank_Dispatch () preserves(d0-d1/a0) {
         movem.l d0-d1/a0, -(sp)
         movea.l HBlank_Handler_Ptr, a0
-        jsr     (a0)
+        jsr     (a0) as HBlankHandler
         movem.l (sp)+, d0-d1/a0
         rte
 }

@@ -19,6 +19,16 @@ module engine.objects.dplc in dplc
 
 use engine.objects.sst.{Sst}
 
+// Boundary contracts (contract-grammar v2 §3) — the two DMA-queue .asm entries
+// this file calls via perform_dplc(QueueDMA_*). Emit nothing; they let the
+// transitive closure see past the cross-seam calls. (The carry-out `dropped`
+// result these routines document rides G2's out(carry:); G1 declares only the
+// register clobbers.) Both share the QueueDMATransfer core, so one contract.
+// drift-guard: engine/system/dma_queue.asm:51 — In: d1.l/d2.w/d3.w · Clobbers: d0-d4, a1-a2
+extern proc QueueDMA_Important (d1, d2, d3) clobbers(d0-d4/a1-a2)
+// drift-guard: engine/system/dma_queue.asm:56 — In: d1.l/d2.w/d3.w · Clobbers: d0-d4, a1-a2
+extern proc QueueDMA_Deferrable (d1, d2, d3) clobbers(d0-d4/a1-a2)
+
 // -----------------------------------------------
 // perform_dplc — the shared DPLC body (single-sourced; the Important and
 // Deferrable procs differ ONLY in which QueueDMA priority they call, so the

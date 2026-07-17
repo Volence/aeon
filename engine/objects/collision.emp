@@ -7,6 +7,12 @@ use engine.objects.aabb.{aabb_axis_test}
 use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_SYSTEM, NUM_EFFECTS,
                       COLLISION_TOUCH, ST_ON_OBJECT, ST_IN_AIR}
 
+// Contract type (contract-grammar v2 §4) — the Touch_HandlerTable dispatch
+// bound. The caller saves d6-d7/a2-a4 around the `jsr (a0, d4.w)`, so a handler
+// MAY clobber those and must preserve everything else (the 11 Touch_* stubs
+// clobber nothing). Bound = the caller-saved set.
+type TouchHandler = proc (a0: *Sst) clobbers(d6-d7/a2-a4)
+
 // PLAYER slots only: the tail word of the custom window is engine-owned —
 // the solid that claimed this player THIS PASS (0 = standing on nothing).
 // Not an Sst field: object slots keep the full 34-byte overlay window;
@@ -82,7 +88,7 @@ comptime fn touch_test_target(skip: Label) -> Code {
         lea     Touch_HandlerTable, a0
         add.w   d4, d4
         add.w   d4, d4                  // type * 4 (bra.w entry size)
-        jsr     (a0, d4.w)
+        jsr     (a0, d4.w) as TouchHandler
 
         movem.l (sp)+, d6-d7/a2-a4
 
