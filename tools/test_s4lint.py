@@ -2879,5 +2879,47 @@ class TestW024_DebugMacroUngated(unittest.TestCase):
         self.assertEqual(len(w), 0)
 
 
+# ---------------------------------------------------------------------------
+# W025: adda.w #imm, aN where lea imm(aN), aN fits (same size, faster / idiom)
+# ---------------------------------------------------------------------------
+
+class TestW025_AddaImmToLea(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W025"]
+
+    def test_adda_w_imm_suggests_lea(self):
+        w = self._warns("    adda.w  #128, a1")
+        self.assertEqual(len(w), 1)
+        self.assertIn("lea 128(a1), a1", w[0].message)
+
+    def test_adda_w_symbol_imm_suggests_lea(self):
+        w = self._warns("    adda.w  #TILE_SIZE, a1")
+        self.assertEqual(len(w), 1)
+        self.assertIn("lea TILE_SIZE(a1), a1", w[0].message)
+
+    def test_adda_w_small_imm_suggests_addq(self):
+        w = self._warns("    adda.w  #4, a0")
+        self.assertEqual(len(w), 1)
+        self.assertIn("addq", w[0].message)
+
+    def test_adda_l_not_flagged(self):
+        # .l immediate may exceed a 16-bit displacement — lea might not fit.
+        w = self._warns("    adda.l  #128, a1")
+        self.assertEqual(len(w), 0)
+
+    def test_register_source_not_flagged(self):
+        w = self._warns("    adda.w  d0, a1")
+        self.assertEqual(len(w), 0)
+
+    def test_addq_not_flagged(self):
+        w = self._warns("    addq.w  #4, a0")
+        self.assertEqual(len(w), 0)
+
+    def test_suppressed(self):
+        w = self._warns("    adda.w  #128, a1  ; lint: disable=W025")
+        self.assertEqual(len(w), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

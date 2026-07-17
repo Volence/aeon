@@ -1746,6 +1746,29 @@ def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
                             f"'move{token.size} #{val}, {dst}' — "
                             f"use 'moveq #{val}, {dst}' (shorter, faster)")
 
+    # ------------------------------------------------------------------
+    # W025: adda.w #imm, aN → lea imm(aN), aN (same size, faster — lea is the
+    # pointer-add idiom). Only `.w`: a `.l` immediate may exceed a 16-bit
+    # displacement, so lea would not fit. For a small imm (1-8) addq.w is
+    # smaller still, so suggest that instead.
+    # ------------------------------------------------------------------
+    if "W025" not in suppressed:
+        if instr == "adda" and token.size in (".w", "") and len(token.operands) == 2:
+            src = token.operands[0].strip()
+            dst = token.operands[1].strip()
+            if src.startswith("#") and _is_areg(dst):
+                imm = src[1:].strip()
+                val = _parse_immediate(src)
+                if val is not None and 1 <= val <= 8:
+                    ctx.warning("W025", line_num,
+                                f"'adda{token.size} #{imm}, {dst}' — use "
+                                f"'addq{token.size} #{imm}, {dst}' (2 bytes, faster)")
+                else:
+                    ctx.warning("W025", line_num,
+                                f"'adda{token.size} #{imm}, {dst}' — use "
+                                f"'lea {imm}({dst}), {dst}' (same size, faster; lea is the "
+                                f"pointer-add idiom)")
+
 
 def run_checks(ctx: LintContext, token: Token, line_num: int,
                raw_line: str, suppressed: Set[str]) -> None:
