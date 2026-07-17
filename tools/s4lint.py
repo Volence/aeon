@@ -62,6 +62,7 @@ DIAGNOSTIC_LABELS: Dict[str, str] = {
     "W019": "file missing header comment",
     "W020": "tail call — bsr/jsr before rts",
     "W021": "writes register outside declared Clobbers header",
+    "W022": "loop-invariant memory operand inside dbf loop",
 }
 
 DIAGNOSTIC_SEVERITY: Dict[str, str] = {
@@ -445,6 +446,12 @@ class LintContext:
         # per (routine, register), not one per write site (the .emp lint fires
         # per-instruction; a human-facing .asm warning dedups for readability).
         self.w021_seen: Set[str] = set()
+        # W022: buffered dbf-loop body — (line_num, instr, operands) since the
+        # loop's opening local label, plus that label's name. Analyzed at the
+        # dbf ONLY when the dbf's target matches (else the body is partial and
+        # analysis would false-positive).
+        self.dbf_body: List = []
+        self.dbf_loop_label: str = ""
 
         # Block-level guards (linting is suppressed inside these blocks)
         self.in_struct: bool = False
@@ -465,6 +472,8 @@ class LintContext:
         self.pending_w006 = None
         self.declared_writeset = None
         self.w021_seen = set()
+        self.dbf_body = []
+        self.dbf_loop_label = ""
 
     def check_routine_end(self, line_num: int) -> None:
         """Run checks at rts/rte — paired-resource validation."""
@@ -1295,6 +1304,129 @@ def _written_regs(instr: str, operands: List[str]) -> Set[str]:
     return regs
 
 
+# ---------------------------------------------------------------------------
+# W022: loop-invariant memory operand inside a dbf loop — a memory location read
+# every iteration but never written in the loop can be hoisted above it. Feeds a
+# large slice of the review's Medium perf findings (despawn-loop hoists,
+# FlatIDXY's grid_w, camera reloads). Best-effort: ABSOLUTE operands only
+# (symbols / (Var).w|l) — register-indirect invariance needs An tracking and is
+# skipped to stay noise-free. The loop body is buffered from its opening local
+# label and analyzed at the dbf ONLY when the dbf's target matches that label
+# (a mismatched target means the buffer is a partial body → analysis would
+# false-positive on a write it did not see).
+# ---------------------------------------------------------------------------
+
+# Data-access mnemonics whose operands touch memory (control flow excluded).
+_W022_DATA_MNEMONICS = frozenset(
+    _WRITE_FORM_MNEMONICS | {"cmp", "cmpa", "cmpi", "cmpm", "tst", "btst"}
+)
+
+# An address-register indirect / indexed base: `(a0)`, `4(a0)`, `(a0,d0.w)`,
+# `(sp)`. Its address is NOT loop-invariant without tracking the base register.
+_AREG_BASE_RE = re.compile(r'\(\s*(a[0-7]|sp)\b', re.IGNORECASE)
+
+
+def _is_absolute_mem(op: str) -> bool:
+    """True for an ABSOLUTE memory operand — a bare symbol/number or `(X).w`/
+    `(X).l` where X is not an address register — as opposed to a register, an
+    immediate, a register-indirect/indexed base, or a pc-relative operand."""
+    s = op.strip()
+    if not s:
+        return False
+    low = s.lower()
+    if low.startswith("#"):
+        return False  # immediate
+    if _is_dreg(s) or _is_areg(s) or low in ("sp", "sr", "ccr"):
+        return False  # register
+    if _AREG_BASE_RE.search(s):
+        return False  # register-indirect / indexed base
+    if "(pc" in low.replace(" ", ""):
+        return False  # pc-relative
+    return True
+
+
+def _invariant_read_key(operand: str, modified_regs: Set[str],
+                        abs_written: Set[str], written_bases: Set[str]):
+    """If `operand` is a loop-invariant memory READ, return a stable key for it;
+    else None. Two invariant shapes:
+
+    - ABSOLUTE (`Camera_X`, `(Var).w`) — invariant iff never written in the loop.
+    - REGISTER-INDIRECT `disp(aN)` / `(aN)` (NOT auto-inc/dec, NOT indexed) —
+      invariant iff aN is unmodified in the loop AND nothing is written THROUGH
+      aN (conservative anti-aliasing). This is the FlatIDXY `Act_grid_w(a2)` /
+      camera-reload class the review names. `(sp)`-relative reads are excluded
+      (rarely hoistable; stack churn is hard to track)."""
+    s = operand.strip()
+    low = s.lower()
+    if not s or low.startswith("#"):
+        return None  # immediate / empty
+    if _is_dreg(s) or _is_areg(s) or low in ("sp", "sr", "ccr"):
+        return None  # register
+    if "(pc" in low.replace(" ", ""):
+        return None  # pc-relative
+    if _AUTOINC_RE.search(s) or _PREDEC_RE.search(s):
+        return None  # pointer advances — iterating, not invariant
+    base = _AREG_BASE_RE.search(s)
+    if base:
+        # Register-indirect: reject indexed `(aN,dN...)` and sp-relative.
+        if "," in s[base.start():]:
+            return None
+        reg = _canon_reg(base.group(1))
+        if reg == "a7" or reg in modified_regs or reg in written_bases:
+            return None
+        return s  # hoistable disp(aN)
+    # Absolute.
+    return None if s in abs_written else s
+
+
+def _analyze_dbf_loop_invariants(ctx: "LintContext", body: List, dbf_suppressed: Set[str]) -> None:
+    """Emit W022 for each memory operand read in the loop body that is
+    loop-invariant (see [`_invariant_read_key`]). `body` is the buffered
+    `(line_num, instr, operands, suppressed)` list; `dbf_suppressed` (the dbf
+    line's own set) disables the whole loop."""
+    if "W022" in dbf_suppressed:
+        return
+    # A call (or computed transfer) in the loop can clobber any register or
+    # memory location — its callee's effects are not tracked, so conservatively
+    # emit nothing for that loop (noise-free is the priority for a warning tier).
+    if any(instr in ("bsr", "jsr", "jmp", "trap") for (_ln, instr, _ops, _sup) in body):
+        return
+    modified_regs: Set[str] = set()   # dN/aN written or auto-inc/dec'd in the loop
+    abs_written: Set[str] = set()     # absolute mem destinations
+    written_bases: Set[str] = set()   # aN a write goes THROUGH (dest `(aN...`)
+    for (_ln, instr, ops, _sup) in body:
+        modified_regs.update(_written_regs(instr, ops))
+        # A `movem` register-list LOAD (`movem.l (sp)+, d2-d3/a0`) writes every
+        # listed register — the destination (last operand) is the reglist (no
+        # `(` in it), vs a push where the last operand is the memory dest.
+        if instr == "movem" and ops and "(" not in ops[-1]:
+            modified_regs.update(_expand_reglist(ops[-1]))
+        if (instr in _WRITE_FORM_MNEMONICS or _is_scc(instr)) and ops:
+            dst = ops[-1].strip()
+            if _is_absolute_mem(dst):
+                abs_written.add(dst)
+            else:
+                mb = _AREG_BASE_RE.search(dst)
+                if mb:
+                    written_bases.add(_canon_reg(mb.group(1)))
+    seen = set()
+    for (ln, instr, ops, sup) in body:
+        if instr not in _W022_DATA_MNEMONICS or "W022" in sup:
+            continue
+        is_write_form = instr in _WRITE_FORM_MNEMONICS or _is_scc(instr)
+        # Source operands = everything but the destination (write-form: the last
+        # operand is the dest; read-only cmp/tst: every operand is a source).
+        src_ops = ops[:-1] if (is_write_form and ops) else ops
+        for op in src_ops:
+            key = _invariant_read_key(op, modified_regs, abs_written, written_bases)
+            if key is None or key in seen:
+                continue
+            seen.add(key)
+            ctx.warning("W022", ln,
+                        f"'{key}' is loop-invariant inside the dbf loop (read every "
+                        f"iteration but never written in it) — hoist the load above the loop")
+
+
 def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
                    raw_line: str, suppressed: Set[str]) -> None:
     """Run all W001-W013 optimization and style warning checks."""
@@ -1566,6 +1698,10 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         # Local label — record it; assume it may be a loop top (W010)
         ctx.local_labels.add(label)
         ctx.in_dbf_loop = True
+        # W022: a local label opens a fresh potential loop body — start buffering
+        # from here and remember the label so the dbf can confirm it targets it.
+        ctx.dbf_loop_label = label
+        ctx.dbf_body = []
 
     if label:
         ctx.label_since_last_instr = True
@@ -1606,6 +1742,12 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
 
     ctx.routine_lines += 1
 
+    # W022: buffer instructions inside a potential dbf-loop body (the dbf itself
+    # is analyzed below, before the buffer is consumed).
+    if ctx.in_dbf_loop and instr_lower not in ("dbf", "dbra", "dbt", "dbcc",
+                                               "dbcs", "dbvc", "dbvs"):
+        ctx.dbf_body.append((line_num, instr_lower, list(token.operands), suppressed))
+
     # ------------------------------------------------------------------
     # Routine termination
     # ------------------------------------------------------------------
@@ -1639,7 +1781,14 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
 
     # dbf/dbra — end of loop body
     if instr_lower in ("dbf", "dbra"):
+        # W022: analyze the buffered body ONLY when this dbf targets the label
+        # that opened the buffer (otherwise the body is partial — see the guard).
+        target = token.operands[-1].strip() if token.operands else ""
+        if target and target == ctx.dbf_loop_label:
+            _analyze_dbf_loop_invariants(ctx, ctx.dbf_body, suppressed)
         ctx.in_dbf_loop = False
+        ctx.dbf_body = []
+        ctx.dbf_loop_label = ""
 
     # ------------------------------------------------------------------
     # Stateful checks (must run before stateless checks)

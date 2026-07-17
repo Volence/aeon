@@ -2637,5 +2637,130 @@ class TestW021_WriteSetVsHeader(unittest.TestCase):
         self.assertEqual(len(w), 0)
 
 
+# ---------------------------------------------------------------------------
+# W022: loop-invariant memory operand inside a dbf loop (hoist candidate)
+# ---------------------------------------------------------------------------
+
+class TestW022_LoopInvariantMemOperand(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W022"]
+
+    def test_invariant_absolute_read_warns(self):
+        # Camera_X is read every iteration but never written in the loop → hoistable.
+        w = self._warns(
+            "R:\n"
+            ".loop:\n"
+            "    move.w  Camera_X, d0\n"
+            "    add.w   d0, d1\n"
+            "    dbf     d2, .loop\n"
+        )
+        self.assertEqual(len(w), 1)
+        self.assertIn("Camera_X", w[0].message)
+
+    def test_operand_written_in_loop_not_flagged(self):
+        # Camera_X is stored to in the loop → not invariant.
+        w = self._warns(
+            "R:\n"
+            ".loop:\n"
+            "    move.w  Camera_X, d0\n"
+            "    move.w  d1, Camera_X\n"
+            "    dbf     d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_read_outside_any_loop_not_flagged(self):
+        w = self._warns("R:\n    move.w  Camera_X, d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_register_indirect_invariant_base_warns(self):
+        # `4(a0)` with a0 unmodified in the loop IS loop-invariant (the FlatIDXY
+        # `Act_grid_w(a2)` case the review names) → hoistable.
+        w = self._warns(
+            "R:\n.loop:\n    move.w  4(a0), d0\n    add.w d0, d1\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 1)
+        self.assertIn("4(a0)", w[0].message)
+
+    def test_autoinc_base_not_flagged(self):
+        # `(a0)+` advances a0 — it is iterating, not invariant.
+        w = self._warns(
+            "R:\n.loop:\n    move.w  (a0)+, d0\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_base_modified_in_loop_not_flagged(self):
+        # a0 is advanced in the loop → 4(a0) is not invariant.
+        w = self._warns(
+            "R:\n.loop:\n    move.w  4(a0), d0\n    addq.l #2, a0\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_write_through_base_not_flagged(self):
+        # A write through a0 in the loop → conservatively not invariant (aliasing).
+        w = self._warns(
+            "R:\n.loop:\n    move.w  4(a0), d0\n    move.w d1, (a0)\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_call_in_loop_suppresses(self):
+        # A bsr/jsr in the loop can clobber any register or memory location →
+        # conservatively emit nothing for that loop (best-effort, noise-free).
+        w = self._warns(
+            "R:\n.loop:\n    move.w  4(a0), d0\n    bsr.w Helper\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_movem_load_of_base_not_flagged(self):
+        # `movem.l (sp)+, a0` RELOADS a0 each iteration → 4(a0) is not invariant
+        # (movem register-list loads must count as writes to those registers).
+        w = self._warns(
+            "R:\n.loop:\n    movem.l (sp)+, a0\n    move.w 4(a0), d0\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_indexed_operand_not_flagged(self):
+        # `(a0,d0.w)` — the index may vary; not treated as invariant.
+        w = self._warns(
+            "R:\n.loop:\n    move.w  (a0,d0.w), d1\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_rmw_counter_not_flagged(self):
+        # addq to an absolute counter writes it → not invariant.
+        w = self._warns(
+            "R:\n.loop:\n    addq.w #1, Frame_Count\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_dedup_once_per_operand(self):
+        w = self._warns(
+            "R:\n.loop:\n"
+            "    move.w  Camera_X, d0\n"
+            "    move.w  Camera_X, d1\n"
+            "    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 1)
+
+    def test_dbf_target_mismatch_not_analyzed(self):
+        # dbf targets an EARLIER label than the buffered one → body is partial,
+        # so no analysis (avoids false positives on a partial body).
+        w = self._warns(
+            "R:\n"
+            ".outer:\n"
+            "    move.w  d1, Camera_X\n"   # writes Camera_X (in the true body)
+            ".inner:\n"
+            "    move.w  Camera_X, d0\n"   # read; buffer starts at .inner
+            "    dbf d2, .outer\n"          # but dbf targets .outer → don't analyze
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_suppressed(self):
+        w = self._warns(
+            "R:\n.loop:\n    move.w Camera_X, d0  ; lint: disable=W022\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
