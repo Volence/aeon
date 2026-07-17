@@ -146,7 +146,7 @@ that the engine really is game-agnostic; keep it building green as a regression 
 
 ## 0. Hardware Initialization & Boot Sequence
 
-The foundation everything else sits on. This section covers the first ~2000 cycles of execution: ROM header, exception vectors, TMSS handshake, VDP/Z80/PSG init, RAM clearing, region detection, and the transition into the game state machine. Every design here is informed by what Vectorman, Batman & Robin, Treasure (Gunstar/Alien Soldier), Thunder Force IV, and S.C.E. actually do on real hardware, cross-referenced with plutiedev, Kabuto, md.railgun.works, and modern engine initialization patterns.
+The foundation everything else sits on. This section covers the first moments of execution (the 64KB RAM clear alone is ~180,000 cycles): ROM header, exception vectors, TMSS handshake, VDP/Z80/PSG init, RAM clearing, region detection, and the transition into the game state machine. Every design here is informed by what Vectorman, Batman & Robin, Treasure (Gunstar/Alien Soldier), Thunder Force IV, and S.C.E. actually do on real hardware, cross-referenced with plutiedev, Kabuto, md.railgun.works, and modern engine initialization patterns.
 
 ### 0.1 ROM Header & Vector Table
 
@@ -158,18 +158,18 @@ The first 256 bytes of ROM are the 68000 exception vector table. Two entries mat
 |--------|--------|-----------|---------|
 | Initial SSP | $000000 | `$FFFFFF00` | Stack pointer — high RAM, away from game data |
 | Reset PC | $000004 | `EntryPoint` | First instruction after power-on or reset |
-| Bus Error | $000008 | `ExceptionHandler` | Invalid bus cycle |
-| Address Error | $00000C | `ExceptionHandler` | Odd-address word/long access |
-| Illegal Instruction | $000010 | `ExceptionHandler` | Invalid opcode |
-| Division by Zero | $000014 | `ExceptionHandler` | `divu`/`divs` with divisor 0 |
-| CHK Exception | $000018 | `ExceptionHandler` | CHK instruction out of bounds |
-| TRAPV | $00001C | `ExceptionHandler` | Overflow trap |
-| Privilege Violation | $000020 | `ExceptionHandler` | User-mode restricted instruction |
-| Trace | $000024 | `ExceptionHandler` | Single-step debugging |
-| Line 1010 | $000028 | `ExceptionHandler` | Unimplemented A-line trap |
-| Line 1111 | $00002C | `ExceptionHandler` | Unimplemented F-line trap |
-| Reserved | $000030-$000060 | `ExceptionHandler` | 12 reserved vectors |
-| Spurious Interrupt | $000060 | `ExceptionHandler` | Uninitialized interrupt |
+| Bus Error | $000008 | `BusError` | Invalid bus cycle |
+| Address Error | $00000C | `AddressError` | Odd-address word/long access |
+| Illegal Instruction | $000010 | `IllegalInstr` | Invalid opcode |
+| Division by Zero | $000014 | `ZeroDivide` | `divu`/`divs` with divisor 0 |
+| CHK Exception | $000018 | `ChkInstr` | CHK instruction out of bounds |
+| TRAPV | $00001C | `TrapvInstr` | Overflow trap |
+| Privilege Violation | $000020 | `PrivilegeViol` | User-mode restricted instruction |
+| Trace | $000024 | `Trace` | Single-step debugging |
+| Line 1010 | $000028 | `Line1010Emu` | Unimplemented A-line trap |
+| Line 1111 | $00002C | `Line1111Emu` | Unimplemented F-line trap |
+| Reserved | $000030-$00005C | `ErrorExcept` | 12 reserved vectors |
+| Spurious Interrupt | $000060 | `ErrorExcept` | Uninitialized interrupt |
 | IRQ1 (External) | $000064 | `NullInterrupt` | External device (unused) |
 | IRQ2 (External) | $000068 | `NullInterrupt` | External device (unused) |
 | IRQ3 | $00006C | `NullInterrupt` | Unused on Genesis |
@@ -177,44 +177,46 @@ The first 256 bytes of ROM are the 68000 exception vector table. Two entries mat
 | IRQ5 | $000074 | `NullInterrupt` | Unused on Genesis |
 | IRQ6 (VBlank) | $000078 | `VBlank_Handler` | Vertical blanking interrupt |
 | IRQ7 (NMI) | $00007C | `NullInterrupt` | Non-maskable (unused on standard hardware) |
-| TRAP #0-15 | $000080-$0000BC | `ExceptionHandler` | 16 TRAP vectors — used for debug system |
-| Reserved | $0000C0-$0000FF | `ExceptionHandler` | Remaining reserved vectors |
+| TRAP #0-15 | $000080-$0000BC | `ErrorTrap` | 16 TRAP vectors — reserved for the debug system |
+| Reserved | $0000C0-$0000FC | `ErrorTrap` | Remaining reserved vectors |
 
 **Design decisions:**
 
 - **SSP = $FFFFFF00** (not $00000000): Vectorman, Gunstar Heroes, and Alien Soldier all use high RAM. Stack grows downward from near-top of 64KB RAM, staying far from game data at low RAM addresses. $00000000 (used by S.C.E., Batman, Thunder Force IV) makes the stack grow down from the very bottom of the address space — wrapping bugs are silent and catastrophic. $FFFFFF00 gives 256 bytes of headroom below the RAM ceiling ($FFFFFFFF), which is sufficient since our deepest call chain is audited.
 - **RAM-patched HBlank**: The vector table entry at $70 points to a tiny ROM stub that reads and jumps through a pointer in RAM. This allows swapping raster effect handlers per-section without modifying ROM. Vectorman ($FFFF9D2E), Batman ($FFFFE560), Gunstar/Alien Soldier ($FFFFEE00) all do this. Thunder Force IV is the only holdout (ROM-based), and it can't change HBlank behavior between levels.
 - **VBlank in ROM**: Unlike HBlank (which changes per-section), VBlank always does the same core work: drain DMA queue, update sprites, read controllers, process sound, set VBlank flag. A single ROM handler with conditional dispatch is sufficient.
-- **Exception routing**: All exceptions go to `ExceptionHandler` which integrates with the MD Debugger v2.6 error handler (§8.3). In debug builds this shows register dumps, backtraces, and symbol resolution. In release builds it does a soft reset.
-- **TRAP vectors**: Reserved for the debug system. TRAP #0 can be wired to `RaiseError` for debug assertions. Other TRAPs available for future use (e.g., system calls for cooperative multitasking §9.7).
+- **Exception routing**: Each exception has its own labeled entry point (`BusError`, `AddressError`, `IllegalInstr`, `ZeroDivide`, `ChkInstr`, `TrapvInstr`, `PrivilegeViol`, `Trace`, `Line1010Emu`, `Line1111Emu`), with `ErrorExcept` covering the reserved $30-$60 vectors — all integrating with the MD Debugger v2.6 error handler (§8.3). Per-exception labels let the error screen name the exact fault. In debug builds this shows register dumps, backtraces, and symbol resolution.
+- **TRAP vectors**: All 16 TRAP vectors (and the reserved $C0-$FC block) currently route to `ErrorTrap`. Reserved for the debug system — TRAP #0 can later be wired to `RaiseError` for debug assertions; other TRAPs available for future use (e.g., system calls for cooperative multitasking §9.7).
 
 **ROM Header** ($000100-$0001FF):
 
-Standard Sega header format, populated at build time:
+Standard Sega header format — emitted by the engine's `gameHeader` macro (`engine/system/header.inc`) from game-declared string symbols, not a hardcoded block. Since the engine/game split, the game supplies the strings in its config (`games/sonic4/config/game.asm`) and the engine owns the layout:
 
-```
-$100: "SEGA GENESIS    "          ; Console name (TMSS requires "SEGA" at $100)
-$110: "(C)     2026.XXX"          ; Copyright
-$120: "SONIC THE HEDGEHOG 4                    "  ; Domestic name (48 bytes)
-$150: "SONIC THE HEDGEHOG 4                    "  ; Overseas name (48 bytes)
-$180: "GM S4-0001-00   "          ; Serial/version
-$18E: dc.w Checksum                ; Computed by fixheader tool
-$190: "J               "          ; I/O support (J = 3/6-button joypad)
-$1A0: dc.l $00000000               ; ROM start
-$1A4: dc.l ROM_End-1               ; ROM end (computed by assembler)
-$1A8: dc.l $00FF0000               ; RAM start
-$1AC: dc.l $00FFFFFF               ; RAM end
-$1B0-$1EF: Zeroed                  ; No SRAM/modem (SRAM handled in software §9.6)
-$1F0: "JUE             "          ; Region: Japan + US + Europe
-```
+| Offset | Symbol | Width | Sonic 4 value |
+|--------|--------|-------|---------------|
+| $100 | `GAME_CONSOLE` | 16 | `"SEGA GENESIS    "` (TMSS requires "SEGA" at $100) |
+| $110 | `GAME_COPYRIGHT` | 16 | Copyright string |
+| $120 | `GAME_TITLE_DOM` | 48 | Domestic name |
+| $150 | `GAME_TITLE_OVS` | 48 | Overseas name |
+| $180 | `GAME_SERIAL` | 14 | `"GM S4-0001-00 "` |
+| $18E | `Checksum` | word | Emitted 0, patched by `tools/fixheader` |
+| $190 | `GAME_IO` | 16 | I/O support (J = 3/6-button joypad) |
+| $1A0 | — | long | ROM start = $00000000 (engine-owned) |
+| $1A4 | — | long | ROM end = `EndOfRom-1` (engine epilogue label) |
+| $1A8/$1AC | — | 2 longs | RAM range $00FF0000-$00FFFFFF (engine-owned) |
+| $1B0 | `GAME_SRAM` | 12 | No SRAM/modem (SRAM handled in software §9.6) |
+| $1BC | `GAME_MEMO` | 52 | Memo field |
+| $1F0 | `GAME_REGION` | 16 | Region: Japan + US + Europe |
 
 **Build-time validation** (AS catches errors before we ever run):
 
+Every string field width-asserts inside `gameHeader` — a wrong-length string is a `fatal` build error, not a corrupt header. The ROM-size checks live at the engine epilogue (`engine/engine.inc`):
+
 ```asm
-    if (ROM_End & 1) <> 0
-      error "ROM size is odd — padding error"
+    if (EndOfRom & 1) <> 0
+      error "ROM size is odd"
     endif
-    if ROM_End > $3FFFFF
+    if EndOfRom > $3FFFFF
       error "ROM exceeds 4MB without banking"
     endif
 ```
@@ -225,18 +227,27 @@ The Trademark Security System exists on Model 1 VA7+ and all Model 2/3 units. If
 
 ```asm
 EntryPoint:
-        tst.l   ($A10008).l         ; Port A control register — non-zero on soft reset
-        bne.s   .warm_boot          ; Skip hardware init on soft reset (§9.5 CrossResetRAM)
-        tst.w   ($A1000C).l         ; Expansion port control — second soft-reset check
-.cold_boot:
-        move.b  ($A10001).l, d0     ; Read version register
+        tst.l   (HW_PORT_A_CTRL_FULL).l     ; Port A control — non-zero on soft reset
+        bne.s   Warm_Boot
+        tst.w   (HW_EXPANSION_CTRL_FULL).l  ; Expansion control — second soft-reset check
+        beq.s   Cold_Boot
+
+Warm_Boot:
+.wait_dma:                          ; Soft reset: wait for any in-progress DMA...
+        move.w  (VDP_CTRL).l, d0
+        btst    #1, d0
+        bne.s   .wait_dma
+        ; ...then fall through to Cold_Boot — full hardware init runs on soft reset too.
+
+Cold_Boot:
+        move.b  (HW_VERSION).l, d0  ; Read version register
         andi.b  #$F, d0             ; Isolate hardware revision nibble
         beq.s   .no_tmss            ; Revision 0 = original Model 1 (no TMSS)
-        move.l  #$53454741, ($A14000).l  ; Write "SEGA" to TMSS register
+        move.l  #$53454741, (TMSS_REGISTER).l  ; Write "SEGA" to TMSS register
 .no_tmss:
 ```
 
-**Why this order:** The soft-reset detection (port A control + expansion control) must come before TMSS because on soft reset, VDP state is already initialized — reinitializing could corrupt in-progress DMA or VRAM state. S.C.E. does exactly this check. On cold boot (power-on), both port registers read zero.
+**Why this order:** The soft-reset detection (port A control + expansion control) must come before TMSS because on soft reset, VDP state is already initialized — a DMA may still be in progress. The warm path exists solely to wait out that in-flight DMA safely; it then performs the same full cold-boot initialization (there is no separate warm-reset path — see §0.11). S.C.E. does exactly this check. On cold boot (power-on), both port registers read zero.
 
 ### 0.3 VDP Register Initialization
 
@@ -259,9 +270,9 @@ EntryPoint:
 | $0A | `$FF` | HInt counter = every 256 lines | Effectively disabled until gameplay |
 | $0B | `$00` | Full-screen VScroll, full-screen HScroll | Changed per-section for effects (§7.2) |
 | $0C | `$81` | H40 (320px), no interlace, no S/H | S/H enabled per-section (§7.3) |
-| $0D | `$37` | HScroll table at $DC00 | 224 entries × 4 bytes for per-line scroll |
+| $0D | `$2F` | HScroll table at $BC00 | 224 entries × 4 bytes for per-line scroll — below Plane A, outside both nametables (§2.3) |
 | $0E | `$00` | Nametable generator base (normal mode) | Not used in standard 64KB VRAM |
-| $0F | `$01` | Auto-increment = 1 byte | Set to 1 for DMA fill (byte-by-byte), reset to 2 after fill completes |
+| $0F | `$02` | Auto-increment = 2 bytes | Normal word access. Boot temporarily writes `$8F01` just before the VRAM DMA fill (byte-by-byte), then restores `$8F02` after the fill completes |
 | $10 | `$11` | **64×64 cell scroll planes** | §2.3 — validated by Vectorman, enables vertical streaming |
 | $11 | `$00` | Window H pos = disabled | Enabled dynamically for HUD (§7) |
 | $12 | `$00` | Window V pos = disabled | Enabled dynamically for letterbox (§7) |
@@ -321,12 +332,18 @@ PLANE_V_CELLS = 64
         movem.l (a5)+, a0-a4        ; a0=Z80_RAM, a1=Z80_Bus, a2=Z80_Reset, a3=VDP_Data, a4=VDP_Ctrl
 
 ; Write 24 VDP registers from table
-        moveq   #23, d0
+        moveq   #23, d1
 .vdp_loop:
         move.b  (a5)+, d5           ; Load register value into low byte of d5
         move.w  d5, (a4)            ; Write $80xx to VDP control port
-        addi.w  #$100, d5           ; Advance to next register number
-        dbf     d0, .vdp_loop
+        add.w   d7, d5              ; d7 = $0100 → advance to next register number
+        dbf     d1, .vdp_loop
+
+; Byte-wise VRAM DMA fill needs increment=1 — written separately, NOT the table value
+        move.w  #vdpReg($0F, $01), (a4)
+        move.l  (a5)+, (a4)         ; vdpComm(0, VRAM, DMA)
+        moveq   #0, d0
+        move.w  d0, (a3)            ; trigger fill (fill byte = 0)
 ```
 
 ### 0.4 VDP Shadow Table — RAM-Resident Register Mirror (from Batman & Robin)
@@ -367,37 +384,39 @@ vdp_window_v        ds.b 1      ; reg $12
 Batman and Alien Soldier bulk-write all 19 registers every VBlank regardless of changes. That's 19 × `move.b`/`move.w` pairs = ~190 cycles. For most frames, only 1-3 registers actually change (background color, scroll mode, window position).
 
 ```asm
-; Modern approach: dirty-bit bitmask
-VDP_Dirty_Mask:     ds.w 1      ; 16-bit mask, one bit per register $00-$0F
+; Modern approach: dirty-bit bitmask — one 32-bit mask covers all 19 registers
+VDP_Dirty_Mask:     ds.l 1      ; bits 0-18 for regs $00-$12
                                 ; Bit 0 = reg $00, bit 1 = reg $01, etc.
-VDP_Dirty_Mask_Hi:  ds.b 1      ; 3-bit mask for registers $10-$12
 ```
 
 **Write-through macro** (game code uses this, never writes VDP directly):
 
 ```asm
-SetVDPReg macro reg, val
-        move.b  val, VDP_Shadow+\reg    ; Update shadow
-        ori.w   #(1<<(\reg)), (VDP_Dirty_Mask).w   ; Mark dirty
+setVDPReg macro reg,val
+        move.b  val, (VDP_Shadow_Table+reg).w      ; Update shadow
+        ori.l   #(1<<reg), (VDP_Dirty_Mask).w      ; Mark dirty
         endm
 
-; VBlank flush — only writes changed registers
+; VBlank flush — only writes changed registers (ascending from reg 0)
 Flush_VDP_Shadow:
-        move.w  (VDP_Dirty_Mask).w, d6
-        beq.s   .no_changes             ; Fast path: nothing dirty
+        move.l  (VDP_Dirty_Mask).w, d1
+        beq.s   .done                       ; Fast path: nothing dirty
         lea.l   (VDP_Shadow_Table).w, a0
-        move.w  #$8000, d5
-        moveq   #18, d4                 ; 19 registers (0-18)
+        lea.l   (VDP_CTRL).l, a1
+        move.w  #$8000, d0                  ; VDP command base (reg 0)
+        moveq   #0, d2                      ; register index (counts up)
+        moveq   #VDP_Shadow_len-1, d3       ; loop counter (counts down)
 .loop:
-        btst    d4, d6
+        btst    d2, d1
         beq.s   .skip
-        move.b  (a0,d4.w), d5          ; Read shadow value
-        move.w  d5, (a4)               ; Write to VDP
+        move.b  (a0,d2.w), d0              ; load shadow value into low byte
+        move.w  d0, (a1)                    ; write $8X00+val to VDP
 .skip:
-        addi.w  #$100, d5
-        dbf     d4, .loop
-        clr.w   (VDP_Dirty_Mask).w     ; Reset dirty flags
-.no_changes:
+        addi.w  #$0100, d0                  ; next register command
+        addq.w  #1, d2                      ; next register index
+        dbf     d3, .loop
+        clr.l   (VDP_Dirty_Mask).w
+.done:
         rts
 ```
 
@@ -429,55 +448,53 @@ The `setVDPReg` macro is the only sanctioned write path for **persistent** frame
 
 ```asm
 ; Phase 1: Assert reset, request bus
-        move.w  #$0000, (a2)            ; Assert Z80 reset (active low)
+        move.w  d0, (a2)                ; Assert Z80 reset (d0 = 0, active low)
         move.w  d7, (a1)                ; Request Z80 bus (d7 = $0100)
         move.w  d7, (a2)                ; Release Z80 reset
 
 ; Phase 2: Wait for bus grant
 .wait_z80:
-        btst    #0, (a1)                ; Poll bus grant
+        btst    d0, (a1)                ; Poll bus grant (bit 0)
         bne.s   .wait_z80              ; Loop until Z80 stops
 
-; Phase 3: Load Z80 idle program (byte writes!)
-        lea.l   Z80_IdleProgram(pc), a6
-        moveq   #Z80_IdleProgramSize-1, d0
+; Phase 3: Load Z80 program (byte writes!) — the full sound driver when
+; SOUND_DRIVER_ENABLED (the default build), the idle program otherwise.
+; a5 already points at the included blob in BootData.
+    ifdef SOUND_DRIVER_ENABLED
+        move.w  #Z80_SOUND_SIZE-1, d1   ; word count — blob may exceed moveq range
+    else
+        moveq   #Z80_IDLE_SIZE-1, d1
+    endif
 .load_z80:
-        move.b  (a6)+, (a0)+            ; Copy to Z80 RAM
-        dbf     d0, .load_z80
+        move.b  (a5)+, (a0)+            ; Copy to Z80 RAM
+        dbf     d1, .load_z80
 
 ; Phase 4: Reset with YM2612-safe delay
-        move.w  #$0000, (a2)            ; Assert reset
-        moveq   #25, d0                 ; ~200 cycles delay (YM2612 needs ≥192)
+        move.w  d0, (a2)                ; Assert reset (d0 = 0)
+        moveq   #25, d2                 ; ~264 cycles delay (YM2612 needs ≥192)
 .ym_delay:
-        dbf     d0, .ym_delay
-        move.w  d7, (a2)                ; Release reset — Z80 starts running idle loop
-        move.w  #$0000, (a1)            ; Release bus — Z80 has control
+        dbf     d2, .ym_delay
+        move.w  d7, (a2)                ; Release reset — Z80 starts running
+        move.w  d0, (a1)                ; Release bus — Z80 has control
 ```
 
-**Z80 idle program** (runs after init, before the sound driver is active):
+**Z80 idle program** (`engine/system/z80_init.asm` — used only in sound-OFF builds):
+
+Clears Z80 RAM *after its own code* via LDIR (BC/DE/HL computed from the assembled program size, stack parked at the program end), pops IX/IY/both register banks clean from the zeroed RAM, clears I and R, sets `di`/`im 1`, then self-patches a `jp (hl)` opcode ($E9) at Z80 address 0 and jumps to it — the idle loop is a single 1-byte instruction spinning at address 0, not a two-address `jp` loop:
 
 ```z80
-; Clear all Z80 RAM via LDIR, set IM 1, loop forever
-        xor     a
-        ld      bc, $1FF9               ; 8KB - overhead
-        ld      de, $0001
-        ld      hl, $0000
-        ld      sp, $2000               ; Stack at top of Z80 RAM
-        ld      (hl), a                 ; Zero first byte
-        ldir                            ; Fill rest
-        pop     ix                      ; Clear IX
-        pop     iy                      ; Clear IY
-        ld      i, a                    ; Clear I
-        ld      r, a                    ; Clear R
-        di                              ; Disable Z80 interrupts
-        im      1                       ; Interrupt mode 1
-.idle:
-        jp      .idle                   ; idle until the sound driver loads over it (at boot)
+        ...
+        di
+        im      1
+        ld      (hl), 0E9h          ; patch: jp (hl) opcode at address 0
+        jp      (hl)                ; idle loop — jp (hl) at 0 jumps to itself
 ```
 
-**Sound-driver loading:** the driver (`engine/sound/z80_sound_driver.asm`) is assembled inline as a `phase 0` Z80 blob and, when `SOUND_DRIVER_ENABLED` is defined, copied into Z80 RAM over this idle program at boot. The idle program is the pre-driver placeholder — nothing is streamed over the bus at title-screen init.
+**Sound-driver loading:** the driver (`engine/sound/z80_sound_driver.asm`) is assembled inline as a `phase 0` Z80 blob; in the default build (`SOUND_DRIVER_ENABLED`) it is what boot copies into Z80 RAM — the idle program is included and loaded *only* in sound-OFF builds. Nothing is streamed over the bus at title-screen init.
 
-**Critical hardware rule** (from plutiedev): Always stopZ80 before any DMA transfer. If Z80 accesses the 68K bus during DMA (e.g., reading ROM for music data), DMA loads garbage. This is not optional — it corrupts art on real hardware, especially early board revisions.
+**Critical hardware rule** (from plutiedev): the Z80 must never fetch from the 68K bus (e.g., reading ROM for music data) while a DMA transfer runs — DMA loads garbage. This is not optional — it corrupts art on real hardware, especially early board revisions. How we enforce it depends on the build:
+- **Sound-OFF build:** classic full fence — `stopZ80` before the VBlank DMA pipeline, `startZ80` after.
+- **Sound build (default):** the `SND_CTRL_DMA_ACTIVE` flag bracket (MegaPCM-2 drain model, §6) supersedes the blanket fence. VBlank raises the flag before any VDP work and clears it after the last DMA; the Z80 driver checks it every sample and takes its RAM-only DRAIN path while set, so no ROM fetch can land inside a DMA burst. The DMA pipeline itself runs with the Z80 *free* — only the two flag-byte writes briefly bus-hold. See `engine/system/vblank.asm`.
 
 ### 0.6 PSG Silence & YM2612 Reset
 
@@ -502,20 +519,20 @@ PSG_Silence:  dc.b $9F, $BF, $DF, $FF  ; Channels 0-3 at max attenuation
 The Z80 idle program handles this implicitly by clearing Z80 RAM (which includes the YM2612 register cache). But on soft reset, leftover FM voices may still be sounding. Explicit silence:
 
 ```asm
-; Key-off all 6 FM channels (register $28)
+; Key-off all 6 FM channels (register $28) — runs after the CRAM/VSRAM clears
         stopZ80
-        lea.l   ($A04000).l, a0
-        move.b  #$28, (a0)             ; Select Key On/Off register
-        moveq   #2, d1                 ; Channels 0-2 (Part I)
+        lea.l   (YM2612_A0).l, a6
+        move.b  #$28, (a6)             ; Select Key On/Off register
+        moveq   #2, d2                 ; Channels 0-2 (Part I)
 .keyoff_part1:
-        move.b  d1, 1(a0)              ; Key off (all operators off, channel = d1)
-        dbf     d1, .keyoff_part1
-        moveq   #6, d1                 ; Channels 3-5 (Part II: $04, $05, $06)
-        moveq   #2, d0
+        move.b  d2, 1(a6)              ; Key off (all operators off, channel = d2)
+        dbf     d2, .keyoff_part1
+        moveq   #6, d2                 ; Channels 3-5 (Part II: $04, $05, $06)
+        moveq   #2, d1
 .keyoff_part2:
-        move.b  d1, 1(a0)
-        subq.w  #1, d1
-        dbf     d0, .keyoff_part2
+        move.b  d2, 1(a6)
+        subq.w  #1, d2
+        dbf     d1, .keyoff_part2
         startZ80
 ```
 
@@ -527,12 +544,13 @@ The Z80 idle program handles this implicitly by clearing Z80 RAM (which includes
 
 ```
 1. Prime DMA fill (set regs $13-$17 during VDP init — already done in §0.3)
-2. Start VRAM fill: write destination + trigger word to VDP → DMA runs in background
-3. While DMA runs: clear 68K RAM (64KB = ~180,000 cycles)
-4. While DMA runs: init Z80, silence PSG
-5. After CPU work: poll DMA busy bit, wait for fill to complete
-6. Clear CRAM (128 bytes — fast CPU loop)
-7. Clear VSRAM (80 bytes — fast CPU loop)
+2. Start VRAM fill: set increment=1, write destination + trigger word → DMA runs in background
+3. While DMA runs: init Z80 (bus dance, program copy, YM-safe reset)
+4. While DMA runs: clear 68K RAM (64KB = ~180,000 cycles)
+5. While DMA runs: silence PSG
+6. After CPU work: poll DMA busy bit, wait for fill to complete; restore increment=2
+7. Clear CRAM (128 bytes — fast CPU loop)
+8. Clear VSRAM (80 bytes — fast CPU loop)
 ```
 
 **Work RAM clear** (64KB, ~180,000 cycles):
@@ -593,27 +611,35 @@ Bits 3-0: VER — Hardware revision
 | VBlank cycles | ~18,500 | ~35,100 |
 | DMA bandwidth/VBlank | ~7.5 KB (NTSC) | ~14 KB (PAL) |
 
-**Design — compile-time AND runtime constants:**
+**Design — detect once, bake into RAM:**
+
+The region branch happens exactly once, at boot — the chosen values are stored in RAM (`Timing_Step`, `DMA_Budget_Default`) and consumed from there, so no runtime code re-tests the region flag on hot paths:
 
 ```asm
 ; Detection (runs once at boot)
-        move.b  ($A10001).l, d0
+        move.b  (HW_VERSION).l, d0
         move.b  d0, (Hardware_Region).w ; Store full byte for later queries
         andi.b  #$C0, d0
         move.b  d0, (Region_Flags).w    ; Bit 7 = overseas, bit 6 = PAL
+        btst    #6, d0
+        bne.s   .pal
+        move.w  #NTSC_TIMING_STEP, (Timing_Step).w
+        move.w  #DMA_BUDGET_NTSC, (DMA_Budget_Default).w
+        bra.s   .region_done
+.pal:
+        move.w  #PAL_TIMING_STEP, (Timing_Step).w
+        move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w
+.region_done:
+        move.w  #0, (Frame_Accumulator).w
 
-; Runtime queries (branching)
-        btst    #6, (Region_Flags).w
-        bne.s   .pal_timing
-
-; Compile-time constants for the common case (NTSC)
-NTSC_VBLANK_LINES      = 38
-PAL_VBLANK_LINES        = 72
-NTSC_CYCLES_PER_VBLANK  = 18500
-PAL_CYCLES_PER_VBLANK   = 35100
-DMA_BUDGET_NTSC         = 7200      ; usable DMA bytes per VBlank
-DMA_BUDGET_PAL          = 15000     ; usable DMA bytes per VBlank
+; Compile-time constants (engine/constants.asm — these four are the ones that exist)
+NTSC_TIMING_STEP        = $0100     ; 1.0 (8.8 fixed)
+PAL_TIMING_STEP         = $0133     ; 1.2 (8.8 fixed, 6/5 ratio)
+DMA_BUDGET_NTSC         = 7200      ; usable DMA bytes per NTSC VBlank
+DMA_BUDGET_PAL          = 15000     ; usable DMA bytes per PAL VBlank
 ```
+
+The scanline/cycle table above is hardware background, not engine constants — no `VBLANK_LINES`/`CYCLES_PER_VBLANK` symbols exist in code.
 
 **PAL compensation** (from modern frame-rate independent design):
 
@@ -627,10 +653,11 @@ We use approach 3 — the accumulator. It handles both PAL compensation and futu
 
 ```asm
 ; In RAM
-Frame_Accumulator:      ds.w 1      ; 8.8 fixed-point, incremented by TIMING_STEP each frame
-NTSC_TIMING_STEP        = $0100     ; 1.0 — one tick per frame
-PAL_TIMING_STEP         = $0133     ; 1.2 — 6/5 ratio, so every 5 frames we get 6 ticks
+Frame_Accumulator:      ds.w 1      ; 8.8 fixed-point, incremented by Timing_Step each frame
+Timing_Step:            ds.w 1      ; NTSC_TIMING_STEP or PAL_TIMING_STEP, baked at boot
 ```
+
+**Status: consume side is design, not implemented (2026-07-16).** Boot detects the region and initializes `Timing_Step`/`Frame_Accumulator`, but nothing reads them yet — `GameLoop` dispatches exactly one game-state tick per VSync unconditionally (`engine/system/game_loop.asm`). The accumulate/consume loop still needs to be wired into the game loop before PAL plays at correct speed.
 
 ### 0.9 Controller Port Initialization
 
@@ -642,15 +669,18 @@ PAL_TIMING_STEP         = $0133     ; 1.2 — 6/5 ratio, so every 5 frames we ge
 | Port 2 (player 2) | `$A10005` | `$A1000B` |
 | Expansion | `$A10007` | `$A1000D` |
 
-**Init** (TH pin as output for joypad protocol):
+**Init** (TH pin as output for joypad protocol, driven high as the initial state):
 
 ```asm
-        move.b  #$40, ($A10009).l       ; Port 1: TH = output
-        move.b  #$40, ($A1000B).l       ; Port 2: TH = output
-        move.b  #$40, ($A1000D).l       ; Expansion: TH = output
+        move.b  #$40, (HW_PORT_1_CTRL).l    ; Port 1: TH = output
+        move.b  #$40, (HW_PORT_2_CTRL).l    ; Port 2: TH = output
+        move.b  #$40, (HW_EXPANSION_CTRL).l ; Expansion: TH = output
+        move.b  #$40, (HW_PORT_1_DATA).l    ; Port 1: TH high (initial state)
+        move.b  #$40, (HW_PORT_2_DATA).l    ; Port 2: TH high
+        move.b  #$40, (HW_PORT_EXP_DATA).l  ; Expansion: TH high
 ```
 
-6-button detection and full controller reading protocol are in §9.4. Boot only sets pin direction — actual polling happens in VBlank.
+6-button detection and full controller reading protocol are in §9.4. Boot only sets pin direction and the initial TH level — actual polling happens in VBlank.
 
 ### 0.10 Interrupt System — Dispatch Architecture
 
@@ -665,14 +695,16 @@ VBlank_Handler:
         jsr     (a0)
         bra.s   .done
 .lag:
-        bsr.w   VInt_Lag                ; Minimal handler — Critical DMA only
+        bsr.w   VInt_Lag                ; Reduced handler — skips the plane-buffer drain
 .done:
         clr.b   (VBlank_Ready).w
         movem.l (sp)+, d0-a6
         rte
 ```
 
-`VInt_Level` (normal frames) runs: stopZ80 → Flush_VDP_Shadow → VSRAM write → Enqueue_Dirty_Buffers → Process_DMA_Critical → budget set → Process_DMA_Important → Process_DMA_Deferrable → startZ80 → Read_Controllers → frame counter → VBlank_Flag. `VInt_Lag` runs only Critical DMA and controllers. See §1.4 for details.
+`VInt_Level` (normal frames) runs: DMA-window open (sound build: raise `SND_CTRL_DMA_ACTIVE` flag bracket; sound-OFF build: stopZ80 — see §0.5) → Flush_VDP_Shadow → Enqueue_Dirty_Buffers → VInt_DrawLevel (Plane_Buffer drain, §4.1) → Process_DMA_Critical → Vscroll_Write (VSRAM write must come **after** the HScroll DMA, §4.6) → budget set → Process_DMA_Important → Process_DMA_Deferrable → DMA-window close (clear flag / startZ80) → Read_Controllers → press-edge latch → frame counter → VBlank_Flag.
+
+`VInt_Lag` (lag frames) runs the same pipeline **minus** VInt_DrawLevel and the Important/Deferrable drains: shadow flush, dirty-buffer enqueue, Critical DMA, VSRAM write, controllers, frame counter, VBlank_Flag (plus `Lag_Frame_Count` in DEBUG). The plane-buffer drain is deliberately skipped — on a lag frame the main loop is still mid-fill and the buffer may be torn. See §1.4 for details.
 
 **HBlank (IRQ4) — RAM-patched dispatch** (Vectorman/Batman/Treasure pattern):
 
@@ -702,34 +734,33 @@ HBlank_Null:
 
 **Problem:** When the user presses RESET, only the 68000 resets. VDP, Z80, VRAM, CRAM, all retain their state. A running DMA may still be in progress.
 
-**Solution — two-tier detection:**
+**What is implemented (as of 2026-07-16):** soft-reset *detection* and DMA safety only. `Warm_Boot` waits for any in-flight DMA to finish and then falls through to `Cold_Boot` — the full hardware init runs on every boot, warm or cold:
 
 ```asm
-; At $000200 (entry point)
-        tst.l   ($A10008).l             ; Port A control — zero on cold boot, non-zero on soft reset
-        bne.s   .warm_boot
-        tst.w   ($A1000C).l             ; Expansion control — second check
-        beq.s   .cold_boot
+EntryPoint:
+        tst.l   (HW_PORT_A_CTRL_FULL).l     ; Port A control — zero on cold boot, non-zero on soft reset
+        bne.s   Warm_Boot
+        tst.w   (HW_EXPANSION_CTRL_FULL).l  ; Expansion control — second check
+        beq.s   Cold_Boot
 
-.warm_boot:
-; VDP may have in-progress DMA — wait for it
+Warm_Boot:
 .wait_dma:
-        move.w  ($C00004).l, d0
+        move.w  (VDP_CTRL).l, d0
         btst    #1, d0                  ; DMA busy flag
         bne.s   .wait_dma
+        ; Fall through to Cold_Boot — nothing is preserved.
 
-; Preserve CrossResetRAM region (§9.5 — lives/continues/score survive reset)
-; Clear everything else, re-enter game state machine at title screen
-        bra.w   Warm_Reset
-
-.cold_boot:
+Cold_Boot:
 ; Full hardware init (§0.2-§0.9)
-        bra.w   Cold_Boot
 ```
 
-**CrossResetRAM** is a small region of Work RAM (e.g., $FFFFE0-$FFFFFF) that survives soft reset. On cold boot, it's detected as zero (freshly cleared RAM) and initialized. On warm boot, it's preserved. This allows "press RESET to return to title screen with score intact" behavior.
+The top 256 bytes of RAM are reserved for the mechanism (`CROSS_RESET_RAM = $FFFFFF00`, `engine/ram.asm`), and boot writes `CROSS_RESET_MAGIC` ('INIT') to $FFFFFF00 at the end of init — but today that magic is purely a "cold boot completed" marker: the RAM clear wipes it and boot unconditionally rewrites it every time. Nothing survives soft reset.
+
+**Design (not implemented): CrossResetRAM persistence.** **Status: design, not implemented (2026-07-16).** The intended end state is a small Work-RAM region that survives soft reset: on warm boot, a valid magic word gates preservation of the region (lives/continues/score) while everything else is cleared and the game re-enters at the title screen via a dedicated `Warm_Reset` path. On cold boot the region reads as garbage/zero and is initialized. This allows "press RESET to return to title screen with score intact" behavior. No `Warm_Reset` path exists in code yet.
 
 ### 0.12 Boot Sequence — Complete Execution Order
+
+The real order from `engine/system/boot.asm` (line references as of 2026-07-16):
 
 ```
 Power On
@@ -737,82 +768,83 @@ Power On
   ├── 68000 reads Reset PC from $000004 (EntryPoint)
   │
   EntryPoint:
-  ├── Soft reset check ($A10008 / $A1000C)
-  │     ├── Warm: wait DMA busy, preserve CrossResetRAM, → Warm_Reset
+  ├── Soft reset check ($A10008 tst.l / $A1000C tst.w)
+  │     ├── Warm_Boot: poll VDP status bit 1 until DMA idle, FALL THROUGH to Cold_Boot
   │     └── Cold: continue below
   │
   Cold_Boot:
-  ├── TMSS handshake (read $A10001, write "SEGA" to $A14000 if needed)
+  ├── TMSS handshake ($A10001 revision-nibble test, "SEGA" → $A14000 if non-zero)
   ├── Read VDP control port (reset command word state machine)
-  ├── Load hardware addresses into a0-a4 via movem
+  ├── movem preload d5-d7/a0-a4 from BootData
   │
   ├── VDP register init ($00-$17, 24 registers from table)
   │     └── Register $17 = $80 primes DMA fill
-  │
+  ├── Set auto-increment to 1 ($8F01 — explicit write, not the table value)
   ├── Start VRAM DMA fill (write dest+trigger → VDP fills 64KB in background)
   │
   ├── WHILE DMA RUNS (parallel work):
-  │     ├── Init Z80 (bus request, load idle program, reset with YM2612 delay)
-  │     ├── Clear Work RAM (64KB, ~180,000 cycles)
+  │     ├── Init Z80 (reset/bus dance, load sound driver — or idle blob when
+  │     │   sound is off — reset with YM2612-safe delay, release bus)
+  │     ├── Clear Work RAM (64KB via wrapping predecrement, ~180,000 cycles)
   │     └── Silence PSG (4 bytes to $C00011)
   │
   ├── Wait for DMA fill completion (poll VDP status bit 1)
-  ├── Set auto-increment to 2 ($8F02) — fill used increment=1, restore for word writes
-  ├── Clear CRAM (128 bytes via CPU loop)
-  ├── Clear VSRAM (80 bytes via CPU loop)
+  ├── Restore auto-increment to 2 ($8F02)
+  ├── Clear CRAM (32 longs via CPU loop)
+  ├── Clear VSRAM (20 longs via CPU loop)
+  ├── YM2612 key-off all 6 FM channels (stopZ80/startZ80 bracket)
   │
-  ├── Region detection (read $A10001, store flags)
-  ├── Controller port init (TH = output on ports 1, 2, expansion)
+  ├── Clear all 68K registers (movem.l (RAM_Start).w, d0-a6)
+  ├── disableInts (SR = $2700 while the subsystem inits run)
   │
-  ├── Init VDP shadow table in RAM (copy init values)
-  ├── Init HBlank handler pointer (→ HBlank_Null)
-  ├── Init interrupt dispatch
+  ├── VDP_Shadow_Init (copy boot register values into shadow, §0.4)
+  ├── Init_DMA_Queue (§1.1)
+  ├── Init_SpriteTable (link chain, §1.3)
+  ├── BuildStaticDMA (§1.5)
+  ├── Set VInt_Ptr = VInt_Level (§1.2)
   │
-  ├── Clear all 68K registers (movem from zeroed RAM)
-  ├── Set SR = $2700 (supervisor mode, all interrupts masked)
+  ├── Region detection ($A10001 → Hardware_Region/Region_Flags,
+  │   bake Timing_Step + DMA_Budget_Default, zero Frame_Accumulator)
+  ├── Controller port init ($40 → 3 control regs AND 3 data ports, §0.9)
+  ├── Set HBlank_Handler_Ptr = HBlank_Null (§0.10)
   │
-  └── Branch to Game_StateInit (state machine entry)
-        └── Show logos, transition to title screen (sound driver already loaded over the Z80 idle at boot)
+  ├── setVDPReg mode2 = $34 (VInt enable in VDP — display still OFF)
+  ├── Flush_VDP_Shadow (VInt enabled in hardware before unmasking)
+  ├── enableInts — interrupts are LIVE from here on (SR = $2300)
+  │
+  ├── Write CROSS_RESET_MAGIC ('INIT') to $FFFFFF00 (§0.11 — cold-boot-complete marker)
+  ├── DEBUG builds: CompressionSelfTest (golden decompressor self-test)
+  ├── Sound builds: Sound_Init (Z80 mailbox idle handshake)
+  ├── gameBootHook (game-supplied, may be empty)
+  │
+  ├── Set Game_State = Game_Entry, Game_State_ID = GAME_ENTRY_ID,
+  │   clear Game_State_Init (game-supplied entry contract)
+  └── bra.w GameLoop (never returns)
+        └── Game_Entry state runs first — logos/title etc.
+            (sound driver already loaded over the Z80 at boot)
 ```
 
-### 0.13 Build-Time Data Generation (AS Features)
+Note the final interrupt state: boot **enables** interrupts (`enableInts`, SR = $2300) before entering `GameLoop` — VBlank is live during the self-test, Sound_Init, and the game's first state. There is no masked $2700 handoff.
 
-Several boot-time data tables are generated by the assembler rather than maintained by hand:
+### 0.13 Boot-Time Data Tables
 
-**Sine/Cosine table** (512 entries, computed by AS `rept` + math — see CODING_CONVENTIONS.md §1.8):
-
-```asm
-Sine_Table:
-__angle = 0
-        rept 512
-        dc.w (__angle * 3.14159265 * 2.0 / 512.0) * $7FFF
-__angle = __angle + 1
-        endr
-; No external binary, no hand-maintained table, no drift from "the correct values"
-```
-
-**RNG** (linear congruential, same as S.C.E.):
+**Sine/Cosine table** (`engine/system/math.asm`, S.C.E./Sonic 2 format): 320 word entries BINCLUDE'd from `engine/data/sine.bin` — one full cycle over 256 angle units plus a quarter-cycle overlap so `cos(angle) = Sine_Table[angle + $40]` with no wrap logic. Output amplitude is $100 (sin(90°) = $100), matching the classic Sonic physics scale. One angle unit = 360°/256 ≈ 1.41°.
 
 ```asm
-Random_Number:
-        move.l  (RNG_Seed).w, d1
-        bne.s   .non_zero
-        move.l  #$2A6D365A, d1          ; Rescue from zero-seed degenerate case
-.non_zero:
-        move.l  d1, d0
-        asl.l   #2, d1
-        add.l   d0, d1
-        asl.l   #3, d1
-        add.l   d0, d1
-        move.w  d1, d0
-        swap    d1
-        add.w   d1, d0
-        move.w  d0, d1
-        swap    d1
-        move.l  d1, (RNG_Seed).w
+GetSineCosine:                              ; d0.b = angle → d0.w = sin×$100, d1.w = cos×$100
+        andi.w  #$FF, d0
+        add.w   d0, d0
+        addi.w  #$40*2, d0                  ; +90° for cosine
+        move.w  Sine_Table(pc,d0.w), d1     ; cos
+        subi.w  #$40*2, d0
+        move.w  Sine_Table(pc,d0.w), d0     ; sin
         rts
-; Returns random value in d0.w
+
+Sine_Table:
+        BINCLUDE "engine/data/sine.bin"     ; 320 words, amplitude $100
 ```
+
+**RNG** — **Status: design, not implemented (2026-07-16).** The `RNG_Seed: ds.l 1` RAM slot exists (`engine/ram.asm`), but no `Random_Number` routine has been written yet. When needed, the plan is a linear congruential generator (same as S.C.E.): multiply-by-41 via shift/add on the 32-bit seed, swap-and-add to mix the halves, returning a random word in d0 — with a rescue constant for the zero-seed degenerate case.
 
 **Fixed-point convention** (documented here, used everywhere):
 
@@ -822,7 +854,7 @@ Random_Number:
 | Velocity | 8.8 | ±127.996 px/frame | Object speeds |
 | Subpixel | 0.8 (low byte of word) | 0.004-0.996 | Fractional accumulation |
 | Angle | 0-255 (byte) | 360° in 256 steps | Slope angles, rotation |
-| Sine result | 1.15 (signed word) | -0.99997 to +0.99997 | Trig results |
+| Sine result | 8.8 (signed word, amplitude $100) | -1.0 to +1.0 | Trig results (`GetSineCosine`) |
 
 ### 0.14 Cascade Effects
 
@@ -838,9 +870,9 @@ Changes in this section that ripple to other sections:
 | Region detection | §5 Player Physics | PAL timing accumulator affects physics tick rate |
 | Region detection | §1.1 DMA Queue | PAL gets nearly double DMA budget — adaptive byte count |
 | Controller port init | §9.4 6-Button | Boot sets TH output; VBlank reads using rapid TH cycling |
-| Frame accumulator | §9.7 Cooperative Multitasking | Tick count determines how many logic frames to simulate |
-| Z80 idle program | §6 Audio | The sound driver loads over the idle program at boot (when SOUND_DRIVER_ENABLED) |
-| CrossResetRAM | §9.5 Soft-Reset | Boot detects warm/cold, preserves CrossResetRAM region |
+| Frame accumulator | §9.7 Cooperative Multitasking | Tick count determines how many logic frames to simulate (consume side not yet wired — §0.8) |
+| Z80 idle program | §6 Audio | Boot loads the sound driver directly when SOUND_DRIVER_ENABLED (default); the idle program ships only in sound-OFF builds |
+| CrossResetRAM | §9.5 Soft-Reset | Boot detects warm/cold and reserves the region; persistence is design-stage (§0.11) |
 | DMA-parallel init | §1.1 DMA Queue | Validates that DMA fill + CPU work can overlap safely |
 
 ---
