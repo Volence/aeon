@@ -108,12 +108,16 @@ review; re-derive against current HEAD before fixing.
 - PSG silence writes race the in-flight VRAM DMA fill (~2× implicit margin, no enforcement) — free reorder fix.
 - YM key-off block: no busy-wait + address-latch race vs the already-running Z80 driver.
 - z80_init leaves SP=0 (future push lands in the 68k bank window); EntryPoint doesn't reload SP (jmp-reset unsupported); spurious-interrupt vector policy inconsistent (crash in release); `ld bc` operand parse trap.
-- No build-time evenness assert on either Z80 blob (odd blob = boot address error).
+- No build-time evenness assert on either Z80 blob (odd blob = boot address error). **[closed by D8 linker asserts — blob alignment becomes a link-time invariant; do not hand-fix]**
 
 ### Tier 5 — latent guards / data-width (condition not reached today; add asserts or width fixes)
 
+> **⏳ pending-mechanism markers:** items tagged `[closed by <D-check>]` will be made
+> impossible STRUCTURALLY by a pending diagnostics-tier mechanism — do NOT hand-fix these in
+> a future parcel; they are waiting customers for that mechanism, not standalone work.
+
 - `section` B1 (RedrawPlanes right-edge tracker unclamped), B3 (hardcoded `lsl.w #8` no guard).
-- `math` B1 — Sine_Table declared `[u8]` but word-read; evenness accidental → latent address-error.
+- `math` B1 — Sine_Table declared `[u8]` but word-read; evenness accidental → latent address-error. **[closed by D8 typed data tables — a word-read of a `[u8]` table is a type error; do not hand-fix]**
 - `aabb` #3/#4 — missing `ensure(cdim != delt)` + read-only `apos` guards (same miscompile class as the two shipped `stmp` ensures).
 - `objdef` O1 — `vram_art` tile refine `0..$1FFF` permits flip-bit bleed ($800..$1FFF).
 - `frames` F1 / `dplc` D5 — offset-table words sign-extend; mappings/DPLC ≥32KB index backwards (build-tool fatal check).
@@ -122,7 +126,7 @@ review; re-derive against current HEAD before fixing.
 
 ### Tier 6 — build/release hygiene + test-template scaffolding (not gameplay; separate batches)
 
-- Release leaks: convsym appends the full symbol table to release ROMs (unconditional); `SOUND_DEBUG_HOTKEYS=1` without `DEBUG=1` builds hotkeys+autoplay into release; MDDBG blob + exception stubs ship in release; RaiseError/Console not DEBUG-gated.
+- Release leaks: convsym appends the full symbol table to release ROMs (unconditional); `SOUND_DEBUG_HOTKEYS=1` without `DEBUG=1` builds hotkeys+autoplay into release; MDDBG blob + exception stubs ship in release; RaiseError/Console not DEBUG-gated. **[closed by D10 flag algebra — DEBUG-implication/exclusion becomes a checked build-flag relation; do not hand-fix the flag-gating half]**
 - Template/test bugs: AnimateSprite called with uncontrolled d3 under DUR_DYNAMIC (anim rate = register garbage); test_parent self-destruct never fires (parent immortal); "idle" is actually ANIM_RUN; magic art_tile `$A0FA` aliases the level art pool; path_swap single-player hardwired.
 
 ### Excluded (NOT counted as functional bugs here)
