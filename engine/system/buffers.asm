@@ -123,34 +123,45 @@ PlaneMapToVRAM:
 ; Called from VBlank handlers (Z80 already stopped).
 ; In:  none
 ; Out: none
-; Clobbers: d0, a1-a2 (d0 zeroed as side effect)
+; Clobbers: d0, a1-a2
 ; -----------------------------------------------
+; Each dirty bit / flag is cleared ONLY when its enqueue succeeded (carry clear).
+; On a drop (Critical queue full — reachable during a fade + heavy art staging)
+; the bit is left set so the next VBlank retries it, instead of clearing it and
+; leaving stale palette/SAT data in VRAM indefinitely.
 Enqueue_Dirty_Buffers:
         move.b  (Palette_Dirty).w, d0
         beq.w   .no_pal
         btst    #0, d0
         beq.s   .skip_pal0
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Pal_Line0
+        bcs.s   .skip_pal0                      ; dropped → leave bit 0 set
+        bclr    #0, (Palette_Dirty).w           ; enqueued → clear bit 0
 .skip_pal0:
         btst    #1, d0
         beq.s   .skip_pal1
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Pal_Line1
+        bcs.s   .skip_pal1
+        bclr    #1, (Palette_Dirty).w
 .skip_pal1:
         btst    #2, d0
         beq.s   .skip_pal2
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Pal_Line2
+        bcs.s   .skip_pal2
+        bclr    #2, (Palette_Dirty).w
 .skip_pal2:
         btst    #3, d0
         beq.s   .skip_pal3
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Pal_Line3
+        bcs.s   .skip_pal3
+        bclr    #3, (Palette_Dirty).w
 .skip_pal3:
-        moveq   #0, d0
-        move.b  d0, (Palette_Dirty).w
 .no_pal:
         tst.b   (Sprite_Table_Dirty).w
         beq.s   .no_spr
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Sprite_DMA
-        move.b  d0, (Sprite_Table_Dirty).w
+        bcs.s   .no_spr                         ; dropped → leave flag set
+        clr.b   (Sprite_Table_Dirty).w          ; enqueued → clear
 .no_spr:
         ; §4.6: enqueue HScroll DMA when a parallax_config is active.
         ; Mode auto-selected: any H-deform table → per-line (896B), else per-cell (112B).

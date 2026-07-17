@@ -44,9 +44,38 @@ engine code before then moves the pin target and grows the port surface for no d
    data — and flip the default on.
 5. **RNG** — trivial; fold into design #9 execution (the behavior sequencer is its first
    real consumer), not a standalone task.
+
+### PAL fixed-timestep — written at boot, zero readers (awaiting a product decision) — 2026-07-17
+**Surfaced during:** the silent-drop-class doc-reconciliation audit (2026-07-16 review
+cross-check). Recorded as an UNFINISHED FEATURE awaiting a product decision, NOT a bug.
+**Status:** `boot.asm:167-174` performs region detection and writes a per-region timing
+step + accumulator, but nothing consumes them:
+- `Timing_Step` (ram.asm:79) ← `NTSC_TIMING_STEP=$0100` / `PAL_TIMING_STEP=$0133` (the 6/5
+  ratio, constants.asm:83-84). **Zero readers** (grep-verified: only the two boot writes).
+- `Frame_Accumulator` (ram.asm:80) ← `0` at boot. **Zero readers.**
+- `GameLoop` (game_loop.asm:10-18) runs exactly ONE state tick per `VSync_Wait`,
+  unconditionally — no accumulator step, no catch-up ticks. So on PAL hardware the whole
+  game (physics, camera, animation) runs at 50 Hz uncompensated (~5/6 speed), and the
+  timestep machinery that would drive a fixed-timestep accumulator is dead scaffolding.
+  (The region DMA budget `DMA_Budget_Default`, written on the same lines, IS live — the
+  drain reads it — so only the *timestep* half is unconsumed.)
+**The product decision (either direction is fine; this entry just forces the choice):**
+- **(A) Implement PAL support** — consume `Timing_Step` into `Frame_Accumulator` in the
+  main loop to run 0/1/2 catch-up ticks per VSync (fixed-timestep), so PAL plays at NTSC
+  wall-clock speed. Couples to every frame-rate-sensitive system (physics caps, streaming
+  budget, sound tempo — see item 6 above).
+- **(B) Commit to NTSC-only** — then `Timing_Step`/`Frame_Accumulator`/`PAL_TIMING_STEP`
+  and the PAL boot branch are dead and should be removed for honesty.
+**Do NOT delete the cells until the decision is made** — leaving them written-but-unread is
+the lesser evil vs. silently dropping a half-built feature. The write sites are harmless
+(two `move.w` at boot). Cite boot.asm:167-174.
+**See:** item 6 above (PAL music tempo, the sound half of the same decision).
+
 6. **PAL music tempo** — small, likely WONTFIX (emulator-only project; classic games
-   shipped frame-based PAL music slow). Boot already region-adapts timing step + DMA
-   budgets; this entry records the decision, not a demand.
+   shipped frame-based PAL music slow). Boot region-adapts the DMA budget (that IS wired,
+   read by the drain), but the region timing STEP it also writes is NOT consumed — see the
+   dated **"PAL fixed-timestep — written at boot, zero readers"** entry below; this line
+   records the decision, not a demand.
 
 ---
 

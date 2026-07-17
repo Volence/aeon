@@ -51,7 +51,17 @@ Art_Decompress:
 ;   QueueDMA_Critical clobbers d0–d4, a1–a2
 ;   VSync_Wait        clobbers d0
 ; → a4 (act ptr), a5 (page table cursor), a6 (VRAM dest), d6 (page count-1)
-;   are all untouched across the calls.
+;   are all untouched across the calls. d7 carries the page's byte length across
+;   the queue attempt (QueueDMA_Critical clobbers d4, so a drop-retry can't
+;   re-read the length from d4).
+;
+; Drop handling (Fable rider): QueueDMA_Critical's carry is consumed IMMEDIATELY
+; (VSync_Wait, the next call, clobbers CCR and d0). A drop should never happen
+; here — init runs display-off with an extended VBlank that drains Critical every
+; VSync — so DEBUG asserts on it (RaiseError) and release honestly drains a frame
+; and retries the same page (Art_Staging_Buffer still holds the decompressed
+; data; VSync_Wait touches neither it nor a6). Both directions are testable:
+; force the Critical queue full and confirm DEBUG halts / release retries + lands.
 ; -----------------------------------------------
 Level_LoadArt:
         movem.l d6/a4-a6, -(sp)
@@ -71,12 +81,15 @@ Level_LoadArt:
 
         lea     (Art_Staging_Buffer).l, a1          ; a1 = decompress scratch
         bsr.w   Art_Decompress                      ; a4/d4 preserved across this
+        move.w  d4, d7                              ; d7 = byte length (survives QueueDMA/VSync for retry)
 
+.queue_page:
         move.l  #Art_Staging_Buffer, d1             ; d1 = DMA source (RAM)
         moveq   #0, d2
         move.w  a6, d2                              ; d2.w = VRAM byte dest
-        move.w  d4, d3                              ; d3.w = byte length
+        move.w  d7, d3                              ; d3.w = byte length
         bsr.w   QueueDMA_Critical
+        bcs.s   .drop_page                         ; carry SET → dropped (rare; handled out of line)
         bsr.w   VSync_Wait
 
 .next:
@@ -90,3 +103,15 @@ Level_LoadArt:
 
         movem.l (sp)+, d6/a4-a6
         rts
+
+; Out-of-line drop handler — kept out of the .page_loop body so the loop's
+; forward .s branches (beq.s .done, beq.s .next) stay in range in BOTH shapes
+; despite the DEBUG RaiseError expansion. Reached only on carry SET (queue full),
+; which should never happen during blanked-init load (see the header note).
+.drop_page:
+    ifdef __DEBUG__
+        RaiseError "Level_LoadArt: Critical DMA queue full during init art load"
+    else
+        bsr.w   VSync_Wait                         ; release: drain a frame, then retry this page
+        bra.s   .queue_page                        ; Art_Staging_Buffer + a6 still valid
+    endif

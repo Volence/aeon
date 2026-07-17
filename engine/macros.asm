@@ -284,18 +284,25 @@ vdpCommReg macro reg, type, rwd, clr
 ; In: slotvar = queue slot pointer variable (e.g. DMA_Critical_Slot)
 ;     queueend = queue end address constant
 ;     entryvar = pre-computed entry variable (e.g. Static_Pal_Line0)
+; Out: carry SET = request DROPPED (queue full); carry CLEAR = enqueued OK.
+;      (Mirrors QueueDMA_Critical's contract so callers can leave dirty state set
+;      on a drop and retry next frame instead of clearing it unconditionally.)
 ; Clobbers: a1, a2
 ; -----------------------------------------------
 queueStaticDMA macro slotvar, queueend, entryvar
         movea.w (slotvar).w, a1
         cmpa.w  #queueend, a1
-        beq.s   .done
+        beq.s   .drop
         lea     (entryvar).w, a2
         move.l  (a2)+, (a1)+
         move.l  (a2)+, (a1)+
         move.l  (a2)+, (a1)+
         move.w  (a2)+, (a1)+
         move.w  a1, (slotvar).w
+        andi.b  #$FE, ccr               ; enqueued → carry CLEAR
+        bra.s   .done
+.drop:
+        ori.b   #1, ccr                 ; queue full → carry SET (dropped)
 .done:
         endm
 
