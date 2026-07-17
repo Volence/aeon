@@ -21,13 +21,15 @@ use engine.objects.sst.{Sst}
 
 // Boundary contracts (contract-grammar v2 §3) — the two DMA-queue .asm entries
 // this file calls via perform_dplc(QueueDMA_*). Emit nothing; they let the
-// transitive closure see past the cross-seam calls. (The carry-out `dropped`
-// result these routines document rides G2's out(carry:); G1 declares only the
-// register clobbers.) Both share the QueueDMATransfer core, so one contract.
-// drift-guard: engine/system/dma_queue.asm:51 — In: d1.l/d2.w/d3.w · Clobbers: d0-d4, a1-a2
-extern proc QueueDMA_Important (d1, d2, d3) clobbers(d0-d4/a1-a2)
-// drift-guard: engine/system/dma_queue.asm:56 — In: d1.l/d2.w/d3.w · Clobbers: d0-d4, a1-a2
-extern proc QueueDMA_Deferrable (d1, d2, d3) clobbers(d0-d4/a1-a2)
+// transitive closure see past the cross-seam calls. The carry-out `dropped`
+// result (§6): carry SET = the queue was full and the request was silently
+// dropped — a caller MUST consume it (perform_dplc's `bcs .done` does), or the
+// [call.flag-result-unused] check fires. Both share the QueueDMATransfer core,
+// so one contract.
+// drift-guard: engine/system/dma_queue.asm:51 — In: d1.l/d2.w/d3.w · Clobbers: d0-d4, a1-a2 · Out: carry = dropped
+extern proc QueueDMA_Important (d1, d2, d3) clobbers(d0-d4/a1-a2) out(carry: dropped)
+// drift-guard: engine/system/dma_queue.asm:56 — In: d1.l/d2.w/d3.w · Clobbers: d0-d4, a1-a2 · Out: carry = dropped
+extern proc QueueDMA_Deferrable (d1, d2, d3) clobbers(d0-d4/a1-a2) out(carry: dropped)
 
 // -----------------------------------------------
 // perform_dplc — the shared DPLC body (single-sourced; the Important and
