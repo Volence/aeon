@@ -63,6 +63,7 @@ DIAGNOSTIC_LABELS: Dict[str, str] = {
     "W020": "tail call — bsr/jsr before rts",
     "W021": "writes register outside declared Clobbers header",
     "W022": "loop-invariant memory operand inside dbf loop",
+    "W023": "ifdebug CCR setup consumed by release-side conditional",
 }
 
 DIAGNOSTIC_SEVERITY: Dict[str, str] = {
@@ -452,6 +453,10 @@ class LintContext:
         # analysis would false-positive).
         self.dbf_body: List = []
         self.dbf_loop_label: str = ""
+        # W023: was the most recent CCR-setting instruction `ifdebug`-prefixed?
+        # True/False once a CCR-writer is seen; None at a flow break (label /
+        # call), where the CCR predecessor of a later conditional is unknown.
+        self.ccr_last_writer_ifdebug: Optional[bool] = None
 
         # Block-level guards (linting is suppressed inside these blocks)
         self.in_struct: bool = False
@@ -474,6 +479,7 @@ class LintContext:
         self.w021_seen = set()
         self.dbf_body = []
         self.dbf_loop_label = ""
+        self.ccr_last_writer_ifdebug = None
 
     def check_routine_end(self, line_num: int) -> None:
         """Run checks at rts/rte — paired-resource validation."""
@@ -1427,6 +1433,80 @@ def _analyze_dbf_loop_invariants(ctx: "LintContext", body: List, dbf_suppressed:
                         f"iteration but never written in it) — hoist the load above the loop")
 
 
+# ---------------------------------------------------------------------------
+# W023: an `ifdebug`-prefixed instruction sets CCR and a RELEASE-side (non-
+# ifdebug) conditional consumes it. In release builds the ifdebug line vanishes,
+# so the branch reads CCR from a different instruction → divergent control flow
+# (CONVENTIONS §1.7). Straight-line CCR tracking: remember whether the last
+# CCR-writer was ifdebug; a release conditional consumer while that flag is True
+# is the hazard. A label or a release call breaks the chain (CCR predecessor
+# unknown / clobbered).
+# ---------------------------------------------------------------------------
+
+# Mnemonics that SET CCR (N/Z/V/C). Excludes the CCR-transparent ops movea/
+# adda/suba/lea/exg/movem and all control flow.
+_CCR_WRITERS = frozenset({
+    "move", "moveq", "add", "addi", "addq", "addx", "sub", "subi", "subq",
+    "subx", "and", "andi", "or", "ori", "eor", "eori", "not", "neg", "negx",
+    "cmp", "cmpi", "cmpm", "cmpa", "tst", "btst", "bchg", "bclr", "bset",
+    "asl", "asr", "lsl", "lsr", "rol", "ror", "roxl", "roxr", "muls", "mulu",
+    "divs", "divu", "ext", "extb", "swap", "clr", "tas", "nbcd", "abcd", "sbcd",
+})
+
+
+def _reads_ccr_conditionally(m: str) -> bool:
+    """True for a conditional that READS CCR: `bcc`/`bne`/… (not `bra`), a real
+    `dbcc` (not `dbf`/`dbra`/`dbt`), or an `scc` (not `st`/`sf`). `t`/`f` forms
+    are excluded — they are unconditional / never and read no flag."""
+    if m.startswith("db"):
+        cc = m[2:]
+        return cc in _M68K_COND_CODES and cc not in ("t", "f")
+    if m.startswith("s"):
+        cc = m[1:]
+        return cc in _M68K_COND_CODES and cc not in ("t", "f")
+    if m.startswith("b"):
+        cc = m[1:]
+        return cc in _M68K_COND_CODES and cc not in ("t", "f")
+    return False
+
+
+def _ifdebug_inner_mnemonic(token: "Token") -> str:
+    """The real mnemonic inside an `ifdebug <instr>` line (the tokenizer records
+    `instruction == 'ifdebug'` and buries the inner instruction in the operands),
+    lowercased and size-suffix-stripped."""
+    if not token.operands:
+        return ""
+    head = token.operands[0].strip().split()
+    if not head:
+        return ""
+    m = head[0].lower()
+    for suf in (".b", ".w", ".l", ".s"):
+        if m.endswith(suf):
+            return m[:-2]
+    return m
+
+
+def check_w023(ctx: "LintContext", token: "Token", line_num: int,
+               raw_line: str, suppressed: Set[str]) -> None:
+    """Per-instruction CCR-divergence tracking (see the section header)."""
+    is_ifdebug = raw_line.lstrip().lower().startswith("ifdebug")
+    inner = _ifdebug_inner_mnemonic(token) if is_ifdebug else token.instruction.lower()
+    # Consumer check FIRST — using the state as of the PRECEDING instruction.
+    if (not is_ifdebug and _reads_ccr_conditionally(inner)
+            and ctx.ccr_last_writer_ifdebug is True and "W023" not in suppressed):
+        ctx.warning("W023", line_num,
+                    "this release-side conditional consumes CCR set by an `ifdebug` "
+                    "instruction — in release builds that setup vanishes and the branch "
+                    "reads a different CCR (§1.7 CCR-divergence); move the flag setup "
+                    "release-side or guard the consumer under ifdebug")
+    # Update the CCR-writer state.
+    if inner in _CCR_WRITERS:
+        ctx.ccr_last_writer_ifdebug = is_ifdebug
+    elif not is_ifdebug and inner in ("bsr", "jsr", "jmp", "trap"):
+        # A release call clobbers CCR (callee runs arbitrary code) — chain broken.
+        ctx.ccr_last_writer_ifdebug = None
+
+
 def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
                    raw_line: str, suppressed: Set[str]) -> None:
     """Run all W001-W013 optimization and style warning checks."""
@@ -1705,6 +1785,9 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
 
     if label:
         ctx.label_since_last_instr = True
+        # W023: a label is a potential branch target — the CCR predecessor of a
+        # following conditional is unknown, so break the ifdebug-CCR chain.
+        ctx.ccr_last_writer_ifdebug = None
 
     # ------------------------------------------------------------------
     # Naming convention checks (W015-W017)
@@ -1821,6 +1904,7 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     # ------------------------------------------------------------------
     if token.instruction:
         check_warnings(ctx, token, line_num, raw_line, suppressed)
+        check_w023(ctx, token, line_num, raw_line, suppressed)
 
     # ------------------------------------------------------------------
     # Track prev_token for multi-line checks (W009, etc.)

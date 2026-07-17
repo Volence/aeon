@@ -2762,5 +2762,74 @@ class TestW022_LoopInvariantMemOperand(unittest.TestCase):
         self.assertEqual(len(w), 0)
 
 
+# ---------------------------------------------------------------------------
+# W023: ifdebug CCR setup consumed by a release-side conditional (CCR divergence)
+# ---------------------------------------------------------------------------
+
+class TestW023_IfdebugCCRDivergence(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W023"]
+
+    def test_ifdebug_ccr_then_release_branch_warns(self):
+        # The last CCR-writer before the release `beq` is an ifdebug instruction;
+        # in release it vanishes → the branch reads a different CCR.
+        w = self._warns(
+            "R:\n"
+            "    ifdebug move.w  d4, d0\n"
+            "    ifdebug andi.w  #1, d0\n"
+            "    beq.s   .x\n"
+            ".x:\n    rts\n"
+        )
+        self.assertEqual(len(w), 1)
+
+    def test_release_ccr_writer_between_no_warn(self):
+        # A release CCR-writer (tst) between the ifdebug and the branch → the
+        # branch reads the release instruction's flags → consistent, no hazard.
+        w = self._warns(
+            "R:\n"
+            "    ifdebug move.w  d4, d0\n"
+            "    tst.w   d1\n"
+            "    beq.s   .x\n"
+            ".x:\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_ifdebug_consumer_no_warn(self):
+        # The consumer is itself ifdebug → debug-only, no release divergence.
+        w = self._warns(
+            "R:\n"
+            "    ifdebug move.w  d4, d0\n"
+            "    ifdebug beq.s   .x\n"
+            ".x:\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_label_between_resets(self):
+        # A label between the ifdebug setup and the branch — the branch is a
+        # reachable target, CCR predecessor is unknown → no hazard assumed.
+        w = self._warns(
+            "R:\n"
+            "    ifdebug move.w  d4, d0\n"
+            ".mid:\n"
+            "    beq.s   .x\n"
+            ".x:\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_no_ifdebug_no_warn(self):
+        w = self._warns("R:\n    tst.w d0\n    beq.s .x\n.x:\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_suppressed(self):
+        w = self._warns(
+            "R:\n"
+            "    ifdebug andi.w #1, d0\n"
+            "    beq.s   .x  ; lint: disable=W023\n"
+            ".x:\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
