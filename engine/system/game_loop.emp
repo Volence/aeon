@@ -50,6 +50,6 @@ pub proc GameLoop () clobbers(d0-d7/a0-a6) {
 // -----------------------------------------------
 // GameState_Idle — minimal state (VSync only)
 // -----------------------------------------------
-pub proc GameState_Idle () {
+pub proc GameState_Idle () clobbers() {
         rts
 }

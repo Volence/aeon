@@ -632,7 +632,7 @@ comptime fn emit_piece_loop(xflip: int, yflip: int) -> Code {
 //   the consumed pieces), a6
 // Preserves: d2, d3, d6, d7
 // -----------------------------------------------
-proc Emit_ObjectPieces () clobbers(d0-d1/d4/a0-a1/a3/a6) out(d5) {
+proc Emit_ObjectPieces () clobbers(d0-d1/d4/a0-a1/a3/a6) out(d5, a4) {
         lea     CellOffsets_XFlip(pc), a0  // a0 = flip-table base for variants
         tst.b   d0
         beq   .pieces_unflipped
@@ -672,7 +672,7 @@ proc Emit_ObjectPieces () clobbers(d0-d1/d4/a0-a1/a3/a6) out(d5) {
 //      d5 = updated sprite index
 // Clobbers: d0-d1
 // -----------------------------------------------
-proc InsertSpriteMasks () clobbers(d0, d1) out(d5) {
+proc InsertSpriteMasks () clobbers(d0-d1) out(d5, a4) {
         move.w  SpriteMask_Y, d0        // d0 = VDP Y start position
         move.w  SpriteMask_Height, d1        // d1 = remaining scanlines to cover
         ble   .masks_done

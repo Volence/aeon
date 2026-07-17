@@ -122,7 +122,7 @@ comptime fn touch_test_target(skip: Label) -> Code {
 // Out: none
 // Clobbers: d0-d7, a0-a3
 // -----------------------------------------------
-pub proc TouchResponse () clobbers(d0-d7/a0-a3) {
+pub proc TouchResponse () clobbers(d0-d7/a0-a4) {
         // a4 is the dynamic live-list cursor; saved/restored at the proc
         // boundary so the clobbers(a0-a3) caller contract is unchanged.
         move.l  a4, -(sp)
@@ -215,17 +215,17 @@ proc Touch_HandlerTable () {
 // (empty falls_into chain: every label aliases the single rts, and a stub
 // gaining a body without a terminator fails the fallthrough lint)
 // -----------------------------------------------
-proc Touch_None () falls_into Touch_Enemy {}
-proc Touch_Enemy () falls_into Touch_Boss {}
-proc Touch_Boss () falls_into Touch_Monitor {}
-proc Touch_Monitor () falls_into Touch_Ring {}
-proc Touch_Ring () falls_into Touch_Bubble {}
-proc Touch_Bubble () falls_into Touch_Projectile {}
-proc Touch_Projectile () falls_into Touch_SolidBreak {}
-proc Touch_SolidBreak () falls_into Touch_Spring {}
-proc Touch_Spring () falls_into Touch_SolidHurt {}
-proc Touch_SolidHurt () falls_into Touch_Touch {}
-proc Touch_Touch () {
+proc Touch_None () clobbers() falls_into Touch_Enemy {}
+proc Touch_Enemy () clobbers() falls_into Touch_Boss {}
+proc Touch_Boss () clobbers() falls_into Touch_Monitor {}
+proc Touch_Monitor () clobbers() falls_into Touch_Ring {}
+proc Touch_Ring () clobbers() falls_into Touch_Bubble {}
+proc Touch_Bubble () clobbers() falls_into Touch_Projectile {}
+proc Touch_Projectile () clobbers() falls_into Touch_SolidBreak {}
+proc Touch_SolidBreak () clobbers() falls_into Touch_Spring {}
+proc Touch_Spring () clobbers() falls_into Touch_SolidHurt {}
+proc Touch_SolidHurt () clobbers() falls_into Touch_Touch {}
+proc Touch_Touch () clobbers() {
         rts
 }
 
