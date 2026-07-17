@@ -1,15 +1,58 @@
-# .emp Port Optimization Review — 2026-07-16
+# Engine-wide Optimization Review — 2026-07-16
 
-Static optimization review of ALL `.emp` ports, in two waves.
-**Wave 1** (hot per-frame paths): `plane_buffer`, `tile_cache`, `entity_window`, `sprites`,
-`core`, `collision` + `collision_lookup`, `animate` + `rings`.
-**Wave 2** (everything else): `section`, `sound_api`, `dplc`/`load_object`/`frames`/
+Static optimization review of the ENTIRE codebase, in four waves (29 independent reviews).
+**Wave 1** (hot per-frame .emp ports): `plane_buffer`, `tile_cache`, `entity_window`,
+`sprites`, `core`, `collision` + `collision_lookup`, `animate` + `rings`.
+**Wave 2** (remaining .emp): `section`, `sound_api`, `dplc`/`load_object`/`frames`/
 `objdef`/`sst`, `hblank`/`game_loop`/`controllers`/`math`/`vdp_init`/`types`, `aabb` +
 test objects, and the data/definition files (`structs`/`constants` twins + game data).
-Thirteen independent deep reviews, synthesized here. **Notes only — nothing has been
-applied.** All cycle figures are estimates from standard 68000 timing tables; no emulator
-profiling was run. Wave-2 sections start at "WAVE 2" below; the cross-file priority list
-and bug roll-up immediately following this paragraph cover BOTH waves.
+**Wave 3** (hot .asm with no .emp twin — NO lockstep constraint on these): `parallax`,
+`vblank`/`dma_queue`/`buffers`, `camera`/`bg_anim`/`s4lz_decompress`,
+`player_ground`/`air`/`spindash`, `player_common`/`sensors` + `sonic.asm`,
+`children` + `macros`.
+**Wave 4** (everything else — full coverage): `boot`/`vectors`/`z80_init`,
+`zx0_decompress`/`load_art`/`bg`, `ram`+`constants`+game configs (alignment audit),
+debug cluster (`debugger`/`error_handler`/selftests/`game_debug`), game shell
+(`main`/`ojz_scroll_test`/`object_test_state`/demo), game test objects (+`path_swap`),
+and the Z80 sound driver: core (`z80_sound_driver`+`dac_sample_tab`+`sound_constants`),
+`sound_sequencer`+opcode table, `sound_sfx`, `sound_fm`+`sound_psg`+`sound_tables_z80`.
+
+**STATUS (updated):** the correctness bugs in the roll-up below have been FIXED (separate
+fix campaign; the roll-up is retained as the evidence base). Execution order for what
+remains: **(1) the Sigil diagnostics tier (next section) → (2) the performance items.**
+The diagnostics come first deliberately — several performance items are register/contract
+surgery (movem trims, register-resident rewrites, drain restructures) that the diagnostics
+make safe to perform and impossible to regress.
+
+All cycle figures are estimates (68000 cycle tables / Z80 T-state tables); no emulator
+profiling was run. The cross-file priority list and bug roll-up below cover ALL FOUR
+waves. Coverage is complete: every engine and game source file has been reviewed.
+
+**Z80 apply-rules (wave 4):** Z80 resident headroom is ~86 bytes DEBUG — SIZE reductions
+are wins in themselves and code-growing changes are near-forbidden. The DAC stream loop's
+195-cycle balance is correctness (pitch), not perf — any change there must re-prove the
+balance and A/B the $2A cadence. All audible-behavior changes need rendered-audio A/B
+(VGM → wav, energy+spectrum vs mt_ref.vgm / S3K refs), never register streams; SFX testing
+needs SOUND_DEBUG_HOTKEYS=1 builds (and byte-verify ROM vs .lst — the daemon plain-rebuilds
+mid-session). **Combined size ledger from the four sound reviews: roughly −180 to −230
+bytes of resident Z80 code reclaimable with behavior-identical refactors** (driver core
+−45..50 net incl. the +8 race fix, SFX −80..110, FM/PSG −55..70) — i.e. the ~86-byte
+headroom can be roughly tripled.
+
+**THE #1 ITEM OVERALL (wave 3, parallax H1):** the production OJZ config pays the full
+per-line BG sampling loop on a table of zeros — ~21,000 cycles/frame computing `base + 0`,
+because `ojz_default.asm` uses `DeformTable_Zero` to force per-line mode but the `band`
+macro's `deformShiftDefault=4` prevents the flat-path shortcut. A ONE-LINE DATA CHANGE
+(`deformShiftDefault=15`, mode selection keys only on table non-NULL so per-line mode is
+retained) recovers an estimated **~16,000 cycles/frame ≈ 13% of the frame budget** at zero
+visual change. See the parallax section for the verifier checklist.
+
+**Mega-act ceiling cluster (flag for the floating-origin plan):** three independent
+word-width ceilings were found that all break at large act sizes — `section.emp:232`
+(`adda.w` flat×66 caps at ≤496 sections/act), `camera.asm:133-137/245-247` + `Camera_Init`
+(clamp math wraps at grid_w ≥ 32 sections), `player_common.asm:641-659`
+(`Player_LevelBound` word truncation, same threshold). None is guarded. Any mega-act work
+hits all three; add build asserts now, fix properly in floating-origin Phase 4.
 
 ## Global constraints for whoever applies any of this
 
@@ -73,6 +116,62 @@ and bug roll-up immediately following this paragraph cover BOTH waves.
     caller/callee checks between section and plane_buffer producers (~100–250 on max-scroll
     frames; keep the CALLER's check — the tracker desyncs if the callee's is kept instead).
 15. Everything filed Medium/Micro in the per-file sections, opportunistically.
+
+Wave-3 additions (merged by expected value — parallax H1 above outranks everything):
+
+16. **s4lz H1** — extended-run copy loops run at 11 cycles/byte vs 5.6 achievable with 4×
+    move.l chunking (remainder via the EXISTING unroll table); offset-2 matches (word-RLE,
+    flat tiles) become a 3-cycles/byte long-fill. ~4,000 cycles per near-incompressible
+    block, up to ~24k/frame at 6 staged blocks. MUST stay within d0-d3/a2-a3 (see s4lz H2
+    register freeze).
+17. **vblank H1+H2** — unify the frame budget (Critical bytes + CPU plane-copy currently
+    uncharged; worst case overruns the ~18.5k window ~1.7×) and reorder Critical DMA before
+    the CPU plane drain (+ explicit $8F02 at Critical drain head, which also closes the
+    lag-frame autoinc bug).
+18. **player G1 + sensors H3** — jump-press frame probes the ceiling pair twice
+    (~900–1,600/jump); `Player_AtLedgeEdge` probes the same point twice every grounded idle
+    frame (~500–1,000/frame) — found independently by BOTH player reviewers. Plus the
+    sensors review's caller-side map for engine lookup #4 (extensions are ~HALF of all cell
+    evals; single swap point in `.cell`; a1 free to carry the pointer; ~600–1,500/frame).
+19. **camera H1+H2 / player M3** — act-invariant bounds precomputed at init (~130/frame
+    camera, ~120/frame LevelBound) + keep Camera_X/Y in registers through the update
+    (~60–80/frame); same pattern as section H3.
+20. **children M1 + C1** — six creators oversave around Alloc (44–116 cycles/child of pure
+    waste; `_Linked`/`_Simple` need NOTHING saved); replace the per-frame parent_ptr deref
+    in Draw_Sprite with a child-side flag set at spawn (~28 → ~10 cycles per child/effect
+    per frame, and it fixes two rendering bug shapes).
+21. **dma_queue H1 + buffers H1** — register-resident budget in the drain loop
+    (~480/frame worst case) + a `Static_Pal_All` fast path for the all-lines-dirty fade
+    case (~560/fade frame + frees 3 Critical slots).
+22. **s4lz M1-M3, parallax H2/H3/M1-M5, bg_anim M1, spindash S1-S2** and the rest —
+    opportunistically per the per-file sections.
+
+Wave-4 additions (merged by expected value):
+
+23. **Sound bug-fix batch** (before any sound optimization): driver B1 boot-window fix
+    (net-zero bytes), SFX B1 DuckRamp gate (+5 B), PSG zero-divisor clamp (+5 B),
+    sequencer B2 env assert (0 Z80 bytes, generator-side), driver B2 PlayMusic snapshot
+    (+8 B) — total ≈ +18 bytes, paid for many times over by:
+24. **Z80 size-reclaim campaign** (−180..230 B behavior-identical): SFX S1-S6 (−80..110),
+    FM/PSG dedups + ChanClass single-calls + WriteFreq rewrite (−55..70), driver H1-H4 +
+    M1 (−50..60). Most are lst-diff-verifiable (chip-stream identical); H3 (nop→jr pads)
+    is cadence-sensitive — recount + VGM A/B.
+25. **Sequencer H1-H3** — global tempo accumulator (smaller + faster + more S3K-exact),
+    page-aligned opcode dispatch (−30 T/op), Seq_ContinueFetch retarget (free).
+26. **Game-shell ordering decisions** — sprite-cull camera skew (ordering or margin),
+    kill the per-frame direct $8B write, clamp in Camera_Init, stopZ80 inside
+    Section_RedrawPlanes.
+27. **Boot hardening batch** — PSG-after-fill reorder, YM key-off before bus release,
+    Z80 blob evenness asserts, cross-reset RAM decision, EntryPoint SP reload.
+28. **bg.asm blits → move.l/DMA** (~2 frames off act load) + the **BG column-major
+    transpose** (per-frame Draw_BG_TileColumn win; decide together with the blit posture);
+    load_art carry check + optional direct-DMA posture (~1 frame/page of load time).
+29. **Build hygiene** — gate convsym on DEBUG, make SOUND_DEBUG_HOTKEYS imply/require
+    DEBUG, decide the MDDBG-in-release question, delete dead DEBUG_* flags + fix
+    conventions §1.7, template fixes (d3/DUR_DYNAMIC, test_parent lifetime, ANIM ids).
+30. **RAM/constants cleanup** — implement-or-delete Spawn_Count guard, add the
+    CAM_MAX_Y_STEP build guard, computed pads, dead constants, act_descriptor
+    SECTION_SIZE_SHIFT migration.
 
 ## Correctness findings surfaced by the review (not optimizations — triage these)
 
@@ -145,6 +244,324 @@ Wave-2 additions (details in the per-file sections):
 - **hblank:** ENGINE_ARCHITECTURE.md:1136 understates the no-effect HInt cost ~8×.
 - **frames F1 / dplc D5:** offset-table words sign-extend — mappings/DPLC files ≥ 32KB
   index backwards; belongs as fatal checks in the build tools.
+
+Wave-3 additions (details in the per-file sections):
+
+- **buffers bug #1 (real, corruption-class):** `Palette_Dirty`/`Sprite_Table_Dirty` are
+  cleared even when `queueStaticDMA` silently dropped the enqueue (Critical queue full — 
+  reachable during a fade + heavy art staging, which also queues Critical). Stale palette
+  persists indefinitely. Fix: report drop via carry, clear bits only on success.
+- **vblank bug #3:** DMA entries never set autoinc ($8F) — Critical drains inherit it from
+  the PREVIOUS frame's VInt_DrawLevel exit; on a lag frame a main-loop transient autoinc≠2
+  interrupted mid-setup corrupts the CRAM/sprite DMA stride. One `move.w #$8F02,(a5)` at
+  the Critical drain head closes it permanently.
+- **vblank H1 (budget hole):** Critical DMA bytes and the CPU plane-copy are uncharged by
+  the frame budget (reset AFTER Critical drains) — worst case exceeds the ~18.5k-cycle
+  window ~1.7×. Also: CODING_CONVENTIONS §3.3/§8.1's "~4,300 cycles" VBlank figure is
+  wrong ~4× (the engine's own DMA_BUDGET_NTSC=7200 bytes ≈ 17k cycles of halt time proves
+  the ~18.5k window). VInt_Level's header comment documents the exact ordering §3.4
+  forbids (code is right, comment is wrong).
+- **parallax B1/B2/B3 (transition logic):** re-crossing back into the current config's
+  section mid-transition doesn't cancel the staged transition (wrong config persists);
+  builder/DMA-length/VSRAM-mode consumers disagree on which config is "active" during a
+  smooth transition (up to 16 frames of mode/length mismatch for cell↔line pairs); the
+  16-frame >>4 lerp ends with ~36% of the delta remaining → visible end-of-transition pop
+  (the constants.asm:319 convergence comment is mathematically wrong). Also: the
+  Hscroll_Dirty range mechanism is written but never read (dead), and the file's "~410
+  cycles/frame" cost comment is off ~50×.
+- **children C1 (rendering bugs):** an effect spawned by an RF_MULTISPRITE parent is
+  NEVER rendered (skipped as batch-rendered but not in the sibling chain); stale
+  parent_ptr on parent-slot recycling can silently hide children; children never inherit
+  a priority band (always band 0 = backmost); `CreateChild_Linked` orphans a pre-existing
+  chain (dynamic-slot leak).
+- **macros B1 (sprSize, expanded):** the w/h-swapped formula is ALSO the canonical example
+  in CODING_CONVENTIONS.md:25 — fix both together or it comes back. All in-file evidence
+  (SPRITE_MASK_SIZE, CellOffsets_XFlip, SAT format doc) confirms the macro is the
+  wrong-way-round party. Also: the clearLoadedRing/Obj "expand once per scope" comment is
+  false for AS (7 expansions in one scope build fine today); DEBUG_DMA/_VRAM/_OBJECTS/
+  _COLLISION flags are dead and §1.7's subsystem-gated ifdebug was never built.
+- **player G9 (latent §2.5b violation):** `Ground_Move:620` byte-loads the probe code into
+  d7 then consumes it with WORD ops (`move.w d7,d2` / `tst.w d7`) — high byte is caller
+  residue (0 today only because d7 = player counter 0). Same bug class that shipped in
+  Sound_PlaySFX. Fix: `moveq #0,d7` before the load.
+- **player G10:** `move_lock` never ticks while standing on a solid object — a slipped
+  player landing on a solid keeps frozen input forever (only jump escapes).
+- **player A7 (needs a ruling):** landing always uncurls with no clearance check while the
+  roll path guards the identical wall-clip hazard — classic parity vs the codebase's own
+  hazard-class spec; decide, don't drive-by fix.
+- **s4lz H2/P1/P2:** the routine's real preservation contract (d4-d7/a5-a6 + a4/d4 for
+  load_art; tile_cache's a5/a6 hoist is load-bearing) is written nowhere in the file —
+  doc-fix before ANY register change; TileDelta_Undo's a1-exit contract holds only by
+  construction; the dict-hit debug assert reads garbage d4 on the plain entry.
+- **camera P1/P2:** word-width ceiling (see mega-act cluster in the header); Camera_Init
+  doesn't clamp — a start position near the world edge feeds one negative-camera frame
+  into cache population.
+- **bg_anim M1/P1:** header claims a3-a4 clobbered while the movem preserves them (one is
+  wrong — per the declared contract the movem is dead weight); no band_count ≤ 4 guard
+  (malformed table corrupts RAM past BgAnim_LastStep).
+- **game_loop/vblank note:** the robust VSync_Wait fix is spinning on Frame_Counter
+  change (monotonic, no consume-side clear) rather than reordering the two flag stores —
+  reordering alone opens the mirror race.
+- **player misc:** `Player_LevelBound` word truncation (mega-act cluster); stale "spindash
+  lives in sonic.asm" comments; `PHYS_ROLL_FRICTION` constant is dead and misleading;
+  `Player_AtLedgeEdge`/`Player_Display`/`Player_Init` clobber headers understate.
+
+Wave-4 additions (details in the per-file sections):
+
+SOUND (Z80) — real bugs:
+- **Z80 boot-window garbage (driver B1, real):** on sound builds the RAM-clearing idle
+  program never runs (blob loads INSTEAD of it) — the 7 SfxChannels + duck bytes are
+  power-on garbage from boot until the first Snd_LoadSong; `Sfx_Frame` walks the garbage
+  channels every frame (possible wild chip/bank writes). Oracle can NEVER show it
+  (emulators zero RAM). **Net-zero fix:** replace init's queue-cnt store with
+  `call Sfx_StopAll`.
+- **`Sfx_DuckRamp` resurrects a stopped song's PSG channels (SFX B1, high confidence):**
+  the held-note re-assert walk has no `SND_SEQ_ACTIVE` gate (unlike the fixed
+  `Sfx_Restore`) — StopMusic + a ducking SFX un-silences a stale-KEYED PSG channel at its
+  stale tone; it drones until the next song load. +5-byte fix (gate the walk, not the ramp).
+- **`Psg_ApplyMod` zero-divisor (PSG #1, likely real):** clamps only negative sums; an
+  exact-zero divisor passes and is written to the chip, contradicting its own comment.
+  Reachable (top 13 pitch entries have divisor 1). `Psg_EmitNoiseClock` does it right.
+- **Sequencer B1:** PSG portamento down-glide 16-bit underflow evades the overshoot snap →
+  glides through wrapped space up to ~65536/rate frames. **B2:** a vol-env body starting
+  `$80` (Loop) wedges the driver inside the Timer-A tick — zero-byte fix = build-time
+  assert in the table generator.
+- **PlayMusic race, Z80-side evaluated (driver B2):** snapshot-and-clear-early is sound;
+  concrete shape costs ≈ +8 bytes (affordable with the size reclaims); snapshot-first
+  ordering shrinks the lost-repost window ~1000×. Cheaper zero-byte fallback: clear-early
+  alone (self-heals a torn load next poll).
+- **YM2612 write-spacing audit: PASS** — single primitive, worst-case gaps 1.3–5× hardware
+  requirements, more conservative than shipped SMPS. `Fm_PatchLoad` clobbering `sc_pan` on
+  mid-song patch changes is the one latent hazard to verify sequencer-side.
+- **Sequencer H1:** the per-channel tempo gate is provably redundant (all accumulators in
+  lockstep forever) — ONE global accumulator is smaller, faster, AND more S3K-exact.
+- **SFX invariants verified INTACT** (7-bit priorities, sx_pad alias, StopAll gotcha still
+  latent at source but patched at Sfx_Restore — DuckRamp is the missed second consumer).
+  Queue arbitration compares RAW priority (bit7 would add +128 weight — latent drift, 2-byte
+  fix). Alias fields (sc_noise_mode/sx_priority, sc_detune/sx_pad) protected only by
+  transcoder convention — add python-side asserts ($F2/$F6 never in SFX streams).
+
+BOOT — hardware-risk items (oracle can't verify most of these):
+- **Cross-reset RAM mechanism is dead scaffolding:** warm boot falls into the cold path and
+  wipes it; `CROSS_RESET_MAGIC` is written but never read anywhere. Implement or delete.
+- **PSG silence writes race the in-flight VRAM DMA fill** (~2× implicit timing margin, no
+  enforcement) — free fix: move them after `.wait_fill`. Hardware-only effect.
+- **YM key-off block:** no busy-wait AND can hit the address-latch race against the
+  already-running Z80 driver (stopZ80 can halt it between its own addr/data writes) — do
+  the key-off before the bus release, or drop it in sound builds.
+- **No build-time evenness assert on either Z80 blob** — the known "blob must be even"
+  memory invariant is unenforced; an odd blob = boot address error.
+- z80_init leaves SP=0 (a future push lands in the 68k bank window); `ld bc,(...)-...`
+  operand parse trap; spurious-interrupt vector policy inconsistent (crash in release);
+  EntryPoint doesn't reload SP (jmp-reset unsupported).
+
+68K SHELL / TEST / DEBUG / DATA:
+- **Sprite culling uses LAST frame's camera** (RunObjects before Camera_Update in the only
+  camera-moving state; zero cull margin, 16px/frame step) — edge pop-in; needs an ordering
+  or margin decision.
+- **OJZ direct `$8B` VDP write** applies a new HScroll mode a frame before its data (§3.4
+  tear), unconditionally every frame — the setVDPReg shadow path alone is correct.
+- **`Camera_Init` doesn't clamp** and the ENTIRE OJZ init ladder (spawn, trackers, cache,
+  redraw, entity scan, parallax prime) seeds from the unclamped value.
+- **`Section_RedrawPlanes` Z80-safety asymmetry:** init call site stopZ80-wraps it, the
+  bare per-frame call site can reach it via runtime `Section_Plane_Dirty` (cache recovery)
+  → direct VDP writes with the Z80 live. Fix engine-side (stopZ80 inside RedrawPlanes).
+- **Release-build leaks:** convsym appends the FULL symbol table to release ROMs
+  (build.sh:130-134, unconditional); `SOUND_DEBUG_HOTKEYS=1` without `DEBUG=1` builds a
+  release ROM with hotkeys + boot autoplay ("requires DEBUG" enforced nowhere); MDDBG blob
+  + exception stubs ship in release (decide + document); `RaiseError`/`Console` are not
+  DEBUG-gated (call-site discipline only).
+- **Template bugs:** `AnimateSprite` called with uncontrolled d3 while anims use
+  DUR_DYNAMIC (test_player + test_animated — animation rate is register garbage);
+  test_parent's self-destruct never fires (swing phase reloads the lifetime counter —
+  parent immortal); "idle" is actually ANIM_RUN; magic art_tile `$A0FA` aliases the level
+  art pool. path_swap itself is clean (speed-independent, correctly armed) but
+  single-player hardwired — reserve per-player state before Tails.
+- **load_art ignores the QueueDMA_Critical carry** (same silent-drop class as the buffers
+  bug); **bg.asm:** a length-1 tile blob sprays 64K words across all of VRAM past the
+  existing guard; both init blits are ~2 frames of CPU word-pokes (move.l/DMA territory).
+- **Transpose question ANSWERED (bg reviewer):** column-major BG layout works with NO dual
+  format — linear consumers adapt via autoinc $80 (row stride fits the autoinc register
+  exactly); Draw_BG_TileColumn drops ~34 → ~22 cyc/word. Act blob must be transposed too
+  (production sections have sec_bg_layout = NULL → act fallback is the common case).
+- **RAM alignment audit: CLEAN** across all four build shapes; +256 B trivially available
+  (~19.4 KB upper-half margin). `Spawn_Count`/`MAX_SPAWNS_PER_FRAME` is dead scaffolding;
+  `CAM_MAX_Y_STEP ≤ VFILL_ROWS_PER_FRAME*8` sits at exact equality with NO build guard;
+  several dead constants (HEIGHT_MAP_SIZE, CTYPE_FLAT_SOLID, SF_*, ST_P*_PUSHING…);
+  fragile fixed pads that should be computed. The conventions "4,300 cycles" is the CPU
+  budget figure and it's the stale one — constants.asm is consistent.
+- **ZX0 verified byte-faithful to upstream** (Emmanuel Marty V2) — keep untouched; latent
+  dbf word-count ceiling safe by construction (document it).
+
+---
+---
+
+# SIGIL DIAGNOSTICS TIER — compile-time nets for the bug classes this review found
+
+**Phase order: this section executes AFTER the bug fixes (done) and BEFORE the performance
+items.** Rationale: the perf work is largely register/contract surgery (movem trims,
+register-resident budgets, drain restructures, caller-side hoists) — exactly the changes
+these diagnostics protect. Land the nets, then cut.
+
+Scope note on .emp vs .asm: the full mechanisms are Sigil-compiler-tier and apply to .emp.
+The .asm tree is not endgame, but it shares every bug class — the interim strategy is:
+**s4lint grows lint-tier approximations** of D1/D3/D7/D11 for .asm (best-effort, warning
+level), while Sigil enforces the real thing on .emp (error level). Anything ported gains
+the strong guarantees automatically; nothing waits on the port.
+
+Each mechanism below cites the actual findings from this review that it would have caught
+(the evidence base — see the bug roll-up above and per-file sections).
+
+## D1. Verified register contracts (the biggest single net — ~2 dozen findings)
+
+Four sub-checks, in order of value:
+
+- **D1a — write-set verification, transitive.** Compiler computes each proc's write set
+  INCLUDING callee effects (call-graph closure) and errors on any mismatch with the
+  declared `clobbers()`/`preserves()`. This is S2-D6b finished and made transitive.
+  *Would have caught:* core's d7 omissions (RunObjects/RunObjects_Frozen), Vscroll_Write's
+  d0/a0 (a prerequisite for the ISR movem trim), load_art's phantom d6, bg_anim's
+  header-vs-movem contradiction, touch_test_target's d5, Player_Display/Init/AtLedgeEdge
+  headers, sound_debug's d1, every stale template header.
+- **D1b — declared inputs.** `in(reg: name)` parameters; a call site where the input
+  register has no reaching definition = error (def-use over the caller body).
+  *Would have caught:* the AnimateSprite d3/DUR_DYNAMIC bug in test_player AND
+  test_animated (animation rate driven by register garbage — shipped in two templates).
+- **D1c — caller-side liveness.** Holding a live value in a register across a call whose
+  verified clobber set includes it = error; relying on a register not in `preserves()` =
+  error. *Would have caught / prevents:* the fragile d6-across-Parallax_CheckBoundary
+  pattern; makes every "trusting the callee's contract" hoist (the perf items) safe.
+- **D1d — dead-save lint** (perf tier, warning): a save/restore pair for registers the
+  callee provably preserves. *Evidence:* dplc D1 (~575 cyc/frame-change), load_object L1
+  (~76/spawn), children M1 (44-116/child ×6 creators), test_parent's GetSineCosine movem,
+  test_churn's a0 dance, zx0's cosmetic movem. This lint IS a chunk of the perf backlog.
+
+## D2. Must-use error results (cheapest catch-per-effort on the list)
+
+Carry-typed (or flag-typed) declared outputs: `out(carry: dropped)` on QueueDMA_* /
+queueStaticDMA / RingBuffer_Add; a call site that neither branches on nor explicitly
+discards the result = error ([[nodiscard]] semantics).
+*Would have caught:* **Palette_Dirty cleared-on-drop** (buffers bug #1) and **load_art's
+ignored Critical carry** — both real silent-corruption bugs from this review.
+
+## D3. Width/sign dataflow (§2.5b as a compiler pass)
+
+Track value width+signedness through registers. Byte-loaded value consumed by a word op
+(index, compare, tst) without zero/sign-extension = error. Narrowing/sign-reinterpretation
+(`adda.w` of a value whose declared range can exceed $7FFF; word compare of long math) =
+error unless an explicit range `ensure` discharges it — powered by refinement types on the
+source fields (Act.grid_w etc.).
+*Would have caught:* player G9 (d7 byte-load/word-use — the Sound_PlaySFX bug class),
+the marker_id byte-compare/word-index, AND the entire **mega-act ceiling cluster**
+(section ≤496 cap, camera word wrap, LevelBound truncation) at the moment a big act
+descriptor is first authored.
+
+## D4. Static worst-case cycle counting + budget/balance asserts (the differentiator)
+
+68000/Z80 timing is deterministic — Sigil can compute worst-case cycles per path at build
+time (loops need bounds; the hot loops have compile-time bounds). Three assert forms:
+- `budget(cycles <= N)` on a proc — build fails on regression.
+- `ensure(cycles(pathA) == cycles(pathB))` — **the DAC loop's 195/195/194 balance becomes
+  a build-time proof instead of a comment**, making the nop→jr size reclaim safe forever.
+- Link-time budget over a call graph — the VBlank ISR worst case vs the real ~18.5k
+  window; the unbudgeted-Critical overrun class becomes a build failure.
+*Would have caught (indirectly but loudly):* the parallax "~410 cycles" comment vs the
+~23,000 reality — a budget assert at any sane value would have flagged the zero-table
+waste the day it became the default path. Kills lying cycle comments as a category. No
+other retro toolchain has this; it is a genuine Crucible differentiator.
+
+## D5. Hardware-state effects (the catchable half of the races)
+
+A small typestate set threaded through the call graph: Z80 bus (stopped/running), SR mask
+level, VDP autoinc value, current ROM bank, display on/off, DMA-fill-in-flight. Procs
+declare `requires`/`ensures` on these; plus a **pairing check** (every path from stop_z80
+reaches start_z80 before return — lock discipline as a CFG check).
+*Would have caught:* the lag-frame **autoinc inheritance** bug (drain `requires
+autoinc=2`), **Section_RedrawPlanes reachable per-frame without stopZ80**, boot's
+**PSG-vs-DMA-fill race** (fill-active conflicts with PSG writes), and it mechanizes the
+stop/start pairing that sound_api currently passes only by hand-audit.
+
+## D6. Shared-state context ownership (the 68k-internal race net)
+
+Tag RAM symbols with writer contexts (`main` / `vblank_isr` / `z80-shared`). Rules: a
+multi-instruction read-modify-write of ISR-shared state from main context outside a
+masked region = error (single-instruction RMW like `ori.l` passes); cross-CPU cells
+declare read/write/clear roles per side, and a same-side violation (writing a cell the
+other side clears, without a declared consumed-gate) = warning.
+*Would have caught:* the **VSync_Wait clear/set race** outright. The warning tier would
+have made the PlayMusic mailbox asymmetry visible (SFX slot gated, music slot not) even
+though the full cross-CPU race needs protocol design, not types.
+
+## D7. Whole-program dead-write / dead-symbol analysis
+
+Sigil owns the link: RAM written-never-read, RAM read-never-written, pub with zero
+consumers, const with zero consumers — all natural lints.
+*Would have caught:* Spawn_Count/MAX_SPAWNS_PER_FRAME, CROSS_RESET_MAGIC (written, never
+read — the dead cross-reset mechanism), ess_ring/obj_left_idx, Hscroll_Dirty_Start/End
+(the dead dirty mechanism), Tile_Cache_GetTile, the dead constants list from the wave-4
+audit, the DEBUG_* flags. This mechanizes "clean, not bolted-on".
+
+## D8. Typed data + layout asserts
+
+- Typed tables: `[i16; N]` is even by construction — kills the Sine_Table class.
+- Typed RAM slices (already the .emp direction) make the alignment audit a non-event.
+- Linker size/evenness asserts: the Z80 blob evenness invariant (currently unenforced,
+  boot finding #4) is one declaration.
+- Computed pads (`(N)&1`) required where a pad depends on a constant — kills the fragile
+  fixed-pad class from the RAM audit.
+
+## D9. comptime unit tests for pure functions
+
+Build-time test blocks next to `fn`s so writing golden asserts is frictionless:
+`ensure(sprSize(4,1) == <expected>)`. *Evidence:* the sprSize w/h swap survived because no
+non-square value was ever computed anywhere — one golden assert kills the whole class
+(and the conventions doc can cite the test instead of restating the formula wrong).
+
+## D10. Build-config flag algebra
+
+Declared implications in the manifest: `SOUND_DEBUG_HOTKEYS requires DEBUG`,
+`SIGIL_EMP_TEST_OBJECTS forbidden unless game==sonic4`. *Would have caught:* the
+release-ROM-with-hotkeys-and-autoplay leak; enforces the comment claims build.sh currently
+makes and ignores.
+
+## D11. Local-mirror ban + drift-guard completeness
+
+A file-local const equal in value to a reachable `extern`/shared twin symbol without an
+`ensure(extern(...))` guard = lint; `use` imports preferred over mirrors once a shared
+home exists. *Would have caught:* act_descriptor's duplicate SECTION_SIZE_SHIFT,
+test_objects' four unguarded mirrors (whose byte-gate protection dies with the .asm twin),
+ENEMY_PATROL_SPEED's two homes.
+
+## s4lint growth list (the .asm interim tier)
+
+Idiom lints implementable today without the compiler: clr-on-memory RMW; move.w #imm
+where moveq fits; adda.w #imm where lea fits; **loop-invariant memory operand inside a
+dbf loop** (catches the despawn-loop hoists, FlatIDXY's grid_w, camera reloads — a large
+slice of the Medium perf findings); byte-load-then-word-use heuristic (D3-lite);
+ifdebug-prefixed setup followed by a release-side flag consumer (the CCR-divergence
+hazard); RaiseError/Console outside an __DEBUG__ gate.
+
+## Explicitly NOT catchable (so nobody over-promises)
+
+Algorithmic redundancy (double ceiling probe, AtLedgeEdge duplicate, per-tile wrap checks)
+— semantic. Intent bugs (parallax transition non-cancel, DuckRamp's missing gate, children
+priority-band inheritance) — design decisions, though typestate can stretch to some
+("SeqChannels valid only while SND_SEQ_ACTIVE"). Hardware electrical reality (TH settling
+nops) — only a hardware loop catches that. Cross-CPU protocol races in full — D6's
+warning tier surfaces the asymmetries; the fix is protocol design.
+
+## Recommended implementation order
+
+1. **D1a-c** (finish + extend verified contracts) — largest catch count, unblocks the
+   perf surgery.
+2. **D2** (must-use results) — two real bugs for a day of work.
+3. **D3** (width/sign dataflow) — the shipped-bug class + the mega-act cluster.
+4. **D7** (dead-write analysis) + **D11** (mirror ban) — cheap, linker-side.
+5. **D4** (cycle counting) — the big one; start with straight-line `budget()` +
+   two-path `ensure(cycles==)` (enough for the DAC balance), grow to call-graph budgets.
+6. **D5** (hardware-state effects) + **D6** (context ownership) — the race nets.
+7. **D8/D9/D10** — small, fold in opportunistically.
+8. **s4lint growth list** in parallel at warning level for the .asm tree.
 
 ---
 
@@ -1559,3 +1976,1321 @@ self-terminates with align 2, so the claim is moot regardless of link order.
 - Every byte-count claim in all three files verified exact against on-disk blobs (drum-bank
   sum 30908; MT_PITCHTAB_OFFSET equals the actual blob length — the detune guard is armed;
   odd/even blob claims all check out; SFX key range/row count/zero-length banks confirmed).
+
+---
+---
+
+# WAVE 3 — hot .asm files (no .emp twins; NO lockstep constraint)
+
+## 14. engine/level/parallax.asm
+
+### High-impact conceptual
+
+**H1. Production OJZ pays the full per-line BG sampling loop on a table of zeros —
+~21,000 cycles/frame computing `base + 0`.** `parallax.asm:745-764` (`.lg_line`), driven by
+`ojz_default.asm:25-28` (`DeformTable_Zero`) + the macro default `deformShiftDefault=4`
+(`parallax_macros.inc:120-133`). ojz_default deliberately uses the zero table to force
+per-line VDP mode (mandatory, documented) — but because BAND_DSB defaults to 4 (not 15),
+every band fails the `shift_b == 15 → .lp_flat` test (`:683-685`) and runs the ~94-cycle/
+line sampling loop instead of the ~22-cycle flat path. **Fixes:**
+- *Data-only (zero engine risk):* `deformShiftDefault=15` in the `parallax_section`
+  invocation. Mode selection (per-line fill, 896-byte DMA, reg $0B) keys ONLY on table
+  non-NULL (`parallax.asm:427-429`, `buffers.asm:160-162`, `parallax.asm:149-152`) — so
+  per-line mode is retained and every band drops to `.lp_flat`.
+- *Cleaner (engine):* a pcfg "force per-line" flag (a pad byte exists at offset 11) so the
+  256-byte zero table isn't needed — must update fill dispatch, $0B shadow, AND DMA enqueue
+  in lockstep; miss one and mode/length/content disagree.
+**Est. ~16,000 cycles/frame (~13% of budget), zero visual change. #1 item overall.**
+Verifier: data-only variant must produce no code change in s4.lst; mid-scroll max-speed
+capture — band boundaries pixel-clean at arbitrary lines; reg $0B still $03; 896-byte
+HScroll DMA still enqueued; re-measure with lag counter.
+
+**H2. Flat-band fill (`.fl_line`, `:768-776`) — band spans are guaranteed multiples of 8
+lines** (tops = cell×8, `:643-644`; end = 224), so an 8× unroll needs no remainder
+(~22 → 13.25 cyc/line), or a movem-fill via 6 copies of d0 (~9.3/line). **~2,000-2,800/
+frame** on the (post-H1) production path. Verifier: sentinel-fill Hscroll_Buffer, confirm
+all 896 bytes overwritten; mid-scroll band-tear check; disabled-first-band inheritance
+seed path (`:261-266`).
+
+**H3. Everything rebuilds every frame; the dirty mechanism is dead.** `:440-446` writes
+`Hscroll_Dirty_Start/End` — **nothing reads them**; `Enqueue_Dirty_Buffers`
+(`buffers.asm:155-167`) enqueues unconditionally. Cheapest meaningful fix: whole-buffer
+skip — compare (camX, BG vscroll, deform phases, transition state) against last frame; if
+unchanged skip fill + DMA. ~5-23k cycles + 896 B DMA on idle frames; 0 at max scroll.
+Either wire it or delete the dead writes. Verifier: first moving frame after idle must
+regenerate (off-by-one staleness is the classic failure); deform-animated scenes never
+take the skip.
+
+### Medium
+
+- **M1.** `Decode_Factor_A/B` call overhead + stack-borrowed scratch (`:287,292`,
+  `:543-603`): d3/d4 are dead at the call sites — inline both (single caller) with d3/d4
+  as scratch. ~350-580/frame at 5 bands.
+- **M2.** Sampling line loops (`.lb_line` `:698-721` ~152 cyc/line; `.lg_line` ~94):
+  (1) byte-cursor phase (`addq.b #1` wraps free — the Step-5 `.col` loop already does
+  this, `:520,530`) −12/line; (2) dbf instead of addq/cmp/blo −8/line; (3) freed d4 holds
+  the FG base, killing the swap-dance −8/line. `.lb_line` ~152 → ~110 (~9,400/frame
+  full-screen); `.lg_line` ~94 → ~64. Optional: bake amplitude shift into per-band table
+  copies at build time (256 B ROM each, drops ext+asr ≈ 18/line/channel). Verifier: A/B
+  windy/haze scenes mid-scroll — phase, amplitude, per-band desync exact; phase+line
+  crossing $FF.
+- **M3.** Step 4a shadow rebuild recomputes source addresses per band (`:375-418`,
+  ~220/band): three running pointers advanced with lea/addq, reset at the wrap (`:414-417`
+  already detects it). ~400-500/frame. Verifier: vshift≠0 mid-vertical-scroll AND the
+  wrap case; tops still clamp to 28 (crash-class if broken, `:340-344`).
+- **M4.** `Vscroll_Write` (`:196-199`): 20 longs via displacement (24 cyc) vs (a5) direct
+  (20) — point a5 at VDP_DATA. ~80 VBLANK cycles. Verifier: autoinc must be 2 when this
+  runs (check Process_DMA_Critical exit state).
+- **M5.** `Parallax_Fill_PerCell` inner fill (`:824-829`, ~38 cyc/cell) → count+dbf
+  (~22/cell). Low priority — production forces per-line.
+
+### Micro
+
+`:315`/`:832` `adda.l #imm` → lea (the `:779` twin already uses lea); `:233`/`:140`
+`move.l #0,mem` → zeroed reg; `:141-142` two adjacent byte stores → one move.w; `:509`
+redundant `and.w #$FF` RMW — delete; `:440-446` dead dirty writes; `:37-38`
+bsr+rts → bra (init).
+
+### Possible bugs / comment mismatches
+
+- **B1.** Re-crossing back into the current config's section mid-transition doesn't cancel
+  the staged transition (`:120-121` new==Current → no-op while Target counts down →
+  promotes the WRONG config while the camera sits in the old section). Fix: when
+  new==Current and Target≠0, clear Target/frames. Verify by boundary ping-pong mid-scroll.
+- **B2.** Builder uses Target_Config during smooth transitions (`:235-237`) but DMA length
+  keys on Current (`buffers.asm:157-163`) and Vscroll mode keys on Current (`:188-192`) —
+  cell↔line transition pairs get up to 16 frames of buffer/DMA/mode disagreement (stale
+  VRAM rows ≥28). One shared "active config for mode decisions" resolver. Verify with a
+  deliberate cell↔line pair, watching VRAM HScroll rows ≥28.
+- **B3.** 16-frame >>4 exponential lerp ends with ~36% of the delta remaining → snap pop.
+  `constants.asm:319`'s "~95% convergence" claim is mathematically wrong (that needs ~46
+  frames). Lengthen frames, shrink shift, or run until delta < ε.
+- **B4.** Clobber contracts wrong: `Parallax_Update` (`:217`) omits a5/a6 (clobbered at
+  `:369-370`, `:632-633`); `Vscroll_Write` (`:170`) claims a5 only but clobbers d0/a0 —
+  runs in the VBlank handler, MUST be fixed before trimming the ISR movem.
+- **B5.** Stale comments: `:206/:211` "per-cell only" (code does per-line/transitions/
+  Vscroll/per-column); `:214` "~410 cycles" (actual ~23,000 — dangerously misleading for
+  lag triage); `:166` "T12 adds per-column" (it exists 8 lines down); `:629-630`/
+  `:798-799`/`ram.asm:164-165` claim a vshift=0 fast path that doesn't exist (`.bands_ready`
+  is a dead label); duplicated banner `:788-792`; `ram.asm:143` says ~126 bytes, actual 244
+  (still /4-safe for the init wipe).
+
+### Checked and already fine
+
+Index hygiene clean throughout; `.lp_both` shift-register dance traced correct; Step 4a
+wrap/clamp math proven (ascending tops, ≤28 clamp); Step-5 `.col` already uses the cheap
+byte-wrap cursor; VSRAM emit already unrolled + §3.4 ordering honored at both call sites;
+branch sizing + tail call at `:93` correct; no mulu/divu — factor decomposition matches
+conventions exactly.
+
+---
+
+## 15. engine/system/vblank.asm + dma_queue.asm + buffers.asm
+
+### The real budget constraint (verified)
+
+Real NTSC VBlank window ≈ 38 lines ≈ **~18,500 cycles**. CODING_CONVENTIONS §3.3/§8.1's
+"~4,300 cycles" is stale/wrong (~4× off): the engine's own `DMA_BUDGET_NTSC = 7200` bytes
+(`constants.asm:123`) ≈ 35 lines ≈ ~17,100 cycles of 68k-halted DMA — only fits an ~18.5k
+window. 68k→VDP DMA HALTS the CPU, so DMA bytes and CPU cycles are additive in one window.
+
+### VInt_Level worst-case cycle inventory (estimates)
+
+| Phase | Typical | Worst |
+|---|---|---|
+| IRQ entry + movem d0-a6 | 172 | 172 |
+| Ready test + dispatch | ~60 | ~60 |
+| Z80 flag-bracket open | ~90 | ~190 |
+| Flush_VDP_Shadow | ~40 | ~1,000 |
+| Enqueue_Dirty_Buffers | ~300 | ~800 |
+| VInt_DrawLevel (CPU copy) | ~800 | 3,000+ |
+| Process_DMA_Critical CPU | ~300 | ~650 |
+| — Critical DMA halt | ~1,900 | ~4,000+ (UNBUDGETED) |
+| Vscroll_Write | ~60 | ~640 |
+| Important/Deferrable CPU | ~100 | ~2,900 |
+| — budgeted DMA halt | small | ~17,100 |
+| Z80 bracket close + controllers + tail | ~720 | ~820 |
+| **Total** | **~4,500** | **~10,300 CPU + ~21,000 halt ⇒ can exceed the window ~1.7×** |
+
+### vblank.asm
+
+**H1. The budget only counts Important/Deferrable bytes** (`:69`, `dma_queue.asm:236-240`)
+— Critical bytes (pal + sprite + hscroll + art-staging Critical from `load_art.asm:79`)
+and VInt_DrawLevel's CPU time ride free. Charge everything against one budget: reset at
+top of VInt_Level; Enqueue subtracts build-time constants; pre-charge the plane copy from
+`Plane_Buffer_Ptr` (bytes × ~11 cyc → DMA-byte equivalents). ~50 cycles of accounting buys
+an actual invariant. Verifier: DEBUG-count charged-total > budget frames vs Lag_Frame_Count
+under max-scroll streaming.
+
+**H2. CPU plane drain runs BEFORE the Critical DMA drain** (`:62` vs `:64`) — CRAM/sprite
+DMA are the artifact-visible transfers if they slip past VBlank end; the drain can burn
+3,000+ cycles first. Reorder: Flush → Enqueue → Critical → Vscroll_Write → VInt_DrawLevel
+→ budgeted. Caveat: Critical currently inherits autoinc=2 from the PREVIOUS frame's
+VInt_DrawLevel exit — add `move.w #$8F02,(a5)` before the Critical drain (~12 cyc), which
+also permanently closes bug #3. Verifier: mid-fade + max-streaming frame; no CRAM-dot
+flicker; VSRAM still after hscroll DMA.
+
+**H3. ISR movem saves 15 regs; actual clobber union is 10** (d0-d3/a0-a3/a5-a6). Trim ≈
+~80 cyc/frame — but VInt_Ptr is a game-facing seam: state the handler contract first, fix
+Vscroll_Write's understated clobbers first (buffers bug #3), audit DEBUG+sound paths.
+
+*Medium:* common case pays `bra.s .done` — put lag out-of-line (~10/frame); factor the
+duplicated Level/Lag tail (ROM + drift-proofing; split point before the press latch);
+Z80 flag brackets (~180-380/frame) are the price of the MegaPCM-2 model — recorded so
+nobody "optimizes" them away.
+
+*Bugs/mismatches:* **(1)** header `:33-35` documents "shadow flush → VSRAM → enqueue →
+Critical" — the exact order §3.4 forbids; code is right, comment wrong, VInt_DrawLevel
+omitted. **(2)** VSync_Wait race (already reported): the robust fix is spinning on
+Frame_Counter change (monotonic, incremented by both handlers `:99/:153`, no consume-side
+clear) — reordering the two stores alone opens the mirror race. **(3)** No DMA entry sets
+$8F — lag-frame Critical drains inherit main-loop transient autoinc; closed by H2's
+explicit write. **(4)** stale "Z80 already stopped" claims (`buffers.asm:123`,
+`plane_buffer.asm:330`) — the safety model is the flag bracket now.
+
+*Fine:* lag-frame plane-drain skip + rationale; press-accumulator latch asymmetry
+deliberate and correct; VBlank_Ready clear no-race; §3.4 honored on both paths.
+
+### dma_queue.asm
+
+**H1.** `Drain_Budgeted_Queue` keeps the budget in RAM through the loop (`:236-240`,
+~24 cyc/entry round-trip) — register-resident with write-back at the three exits: **~480/
+frame worst case** in the VBlank-critical drain. Verifier: all three exits write back;
+signed `ble` semantics preserved (budget legitimately goes negative on overshoot).
+
+*Medium:* per-entry drain cost is at its floor (movep-interleaved format, zero massaging);
+16-byte DMAEntry variant is marginal — only if the struct is touched anyway.
+Check-before-subtract lets one entry overshoot by its full size (deliberate soft budget;
+revisit only with vblank H1). *Micro:* enqueue carry plumbing and stubs fine; the
+interrupt-masked enqueue span (~250-350 worst) is required and acceptable.
+
+*Bugs/mismatches:* `:148` "~64 cycles/entry, ~514 all 8" understates (real ~72/entry,
+~650 total) and duplicates a line; Important/Deferrable headers over-claim clobbers on the
+empty path (harmless superset); the 128KB-split single-slot edge is known — added
+observation: any future fix must ROLL BACK the first half-entry, not just report carry
+(caller may recycle the dirty source on carry-clear).
+
+*Fine:* 128KB boundary borrow math incl. exact-boundary case; vdpCommReg sanitization
+traced; movep write order (clobber-then-overwrite) correct; slot-var-last enqueue ordering;
+trap #0 jump-table padding; carry contract honored on all exits; init verified.
+
+### buffers.asm
+
+**H1.** Fade frames (`Palette_Dirty == $0F` common) enqueue 4 separate 32-byte DMAs
+(`:131-146`): add a fifth static entry `Static_Pal_All` (128 B, CRAM 0) + `cmpi.b #$0F`
+fast path — **~560 cycles/fade frame** and frees 3 Critical slots (mitigating bug #1).
+**H2.** Sprite DMA length patchable in place with one `movep.w d3,DMAEntry_SizeH(a0)` from
+the renderer (implements wave-1 sprites H3; up to ~500 B ≈ 1.2 scanlines on sparse frames).
+
+*Medium:* HScroll mode select re-derives from the parallax config every VBlank (`:157-162`,
+~60 cyc) — cache the chosen static-entry address, written by parallax config-set/transition
+(event-driven); natural hook for the missing hscroll dirty gating (currently enqueued
+unconditionally, even fully static frames).
+
+*Bugs/mismatches:* **(1) real bug** — dirty flags cleared even when `queueStaticDMA`
+silently dropped (Critical full: 4 pal + sprite + hscroll = 6 of 8 slots, PLUS main-loop
+art staging queues Critical) ⇒ **stale palette persists indefinitely**. Make the macro
+report drop via carry; clear bits only on success. Verifier: DEBUG-assert Critical
+headroom at Enqueue entry; oracle test = fade during heavy art streaming. **(2)** stale
+"Z80 already stopped" precondition. **(3)** `Vscroll_Write` clobber header (see vblank).
+*Micro:* `queueStaticDMA` drops silently with no DEBUG counter (dma_queue counts — add the
+same under __DEBUG__); `:126` "(d0 zeroed as side effect)" only true on the dirty path;
+PlaneMapToVRAM one-shot — leave.
+
+*Fine:* static entry layout matches DMAEntry + drain pattern; tail-call fall-through of
+the last static entry into `.build_entry` (don't append below it); sprite link chain;
+enqueue order pal → sprite → hscroll keeps §3.4 satisfied regardless of in-queue order.
+
+---
+
+## 16. engine/level/camera.asm + bg_anim.asm + engine/compression/s4lz_decompress.asm
+
+### s4lz_decompress.asm
+
+Baseline shape: short literal ≈ 96 cyc/token + 6 cyc/byte copy; short match ≈ 136/token;
+**extended runs (≥15 words) = 22 cyc/word = 11 cyc/byte** (`:162-164`, `:173-175`);
+TileDelta_Undo ≈ 8.5 cyc/byte second pass.
+
+**H1. Chunk the extended-run loops.** Literals: 4× `move.l (a0)+,(a1)+` per dbf (≈5.6
+cyc/byte), remainder via the EXISTING `.lit_end` unroll table (zero extra ROM). Matches:
+gate on offset — `offset == 2` (word-RLE, flat tiles) becomes load-once + long-fill =
+**3 cyc/byte** (the single fastest path, and flat tiles are exactly this pattern);
+`offset ≥ 4` chunks as literals. Near-incompressible 768-byte block: ~8,450 → ~4,400
+cycles — **~4,000/block, up to ~24k/frame at 6 blocks**. Word alignment guaranteed by the
+format; move.l on word-aligned is full speed. Verifier: golden self-test byte-exact; add
+test streams (odd-remainder extended literal, offset-2 match, offset-4 match, dict-tail
+match); a0/a1 exit values unchanged; NO new register use outside d0-d3/a2-a3 (H2).
+
+**H2. The register-preservation contract is real, load-bearing, and only half-written-down
+— effectively freezes ALL of d4-d7/a5-a6.** Header declares `Clobbers: d0-d3, a2-a3`
+(body verified matching; dict entry also a4). Stacked implicit dependencies: tile_cache's
+a5/a6 hoist (`tile_cache.asm:1316-1323`, self-declared LOAD-BEARING & INVISIBLE);
+`load_art.asm:20-21` keeps a4/d4 live across the plain entry; the narrow clobber license
+means callers may legally rely on d5-d7. **Doc-only fix:** add an explicit `Preserves:`
+line naming both dependents. Any H1 work must live in d0-d3/a2-a3 (it can).
+
+*Medium:* M1 — `bra.w .token_loop` at every sequence end (~10 × 30-60 sequences/block):
+restructure so the token fetch sits below `.match_end` and the common path falls through.
+M2 — `lsr.w #8,d0` nibble extraction (22 cyc/matching token) avoidable via the `rol.w #4`
+already done at `:80`; needs d2 freed (flags byte → stack, 8 cyc once). M3 — read
+flags+version as one word (~16/call).
+
+*Bugs/mismatches:* P1 — the a1-out contract survives the tile-delta path only by
+construction (TileDelta_Undo happens to end with a1 at buffer end) — one comment line.
+P2 — the dict-hit debug assert (`:129-131`) reads d4, which is caller garbage via the
+plain entry — note "dict entry only". `:83`'s .w-reach comment verified accurate.
+
+*Fine:* short-run unrolled dispatch structure right (d8 reach verified); word-ascending
+match copy overlap-correct for all offsets ≥2; the per-match window check is load-bearing
+for the dominant (dict) caller; TileDelta_Undo at its practical floor (batching collides
+with the H2 freeze for ~6%); EOS/token-edge/pad semantics match the docs.
+
+### camera.asm
+
+**H1.** Both clamps re-derive act-invariant bounds every frame (`:124-137`, `:236-247`,
+~62 cyc each): precompute `Camera_Max_X/Y` at Camera_Init → **~120-130/frame**, and a0
+stops being clobbered mid-routine (removes the second `lea Player_1`).
+**H2.** Camera_X does a RAM round-trip between apply and clamp (`:115` add.l to mem, `:125`
+reload, `:140-142` store): single-pass in-register per axis → **~60-80/frame** combined.
+Verifier: `.no_move`/`.clamp_y` stay valid entry points for freeze/hold; d4 freeze-flag
+reservation honored.
+
+*Medium:* M1 — `ext.l + lsl.l #8 ×2` (52 cyc) → `swap + clr.w` (8) per applied axis
+(the conventions' own §2.6 idiom); M2 — Y-deadzone `moveq/neg/cmp` dance → `cmpi.w #±32`
+(deletes a cross-block register coupling).
+*Micro:* `:94` dead tst.w; `:78/:147` lea+displacement → direct absolutes; `:42` clr.w;
+`:72` bra.w may come into .s range post-restructure.
+
+*Bugs:* **P1 (mega-act cluster)** — all camera math is word-width; grid_w ≥ 32 sections
+wraps the low word (max-clamp negative → camera pinned at 0; init loses the carry). Add a
+build/debug assert now; floating-origin is the real fix. **P2** — Camera_Init doesn't
+clamp: a start position near the world edge feeds one negative-camera frame into cache
+population (init order: Camera_Init → cache populate → first Update). One clamp at init.
+
+*Fine:* freeze semantics match the long comment; jump-lock d3/y_vel logic verified against
+both game configs; fraction word provably zero; branch sizings reach-correct.
+
+### bg_anim.asm
+
+**High-impact: none** — the change-detection design (skip unchanged bands, event-driven
+DMA) is exactly right; ~60 cyc/band/frame steady state. Not a cost problem.
+
+*Medium:* M1 — header (`:51`) declares a3-a4 clobbered but `:54/:130` movem-preserve them;
+per the declared contract the movem is dead weight (~52/frame) — delete it and fix the
+header to d0-d7/a1-a2, or keep and fix the header. Sole caller (ojz_scroll_test.asm:278)
+doesn't rely on a3/a4.
+*Micro:* `:85` and.w → andi.w (consistency); the 3-word stack round-trip at `:96-98` is
+genuinely necessary (verified — no free register) — listed so nobody "optimizes" it into
+a clobber bug.
+*Bugs:* P1 — no `band_count ≤ BGANIM_MAX_BANDS` guard: a malformed generated table walks
+past `BgAnim_LastStep` and `.commit` corrupts adjacent RAM (ifdebug assert or a check in
+tools/inject_editor_bg.py). P2 — a bad table can queue a zero-length DMA (violates
+QueueDMA's input contract); same fix venue.
+*Fine:* partial-failure retry policy correct (carry contract real — dma_queue was fixed
+specifically for this caller); record-offset arithmetic all verified; driver-select branch
+chain optimal for 3 drivers.
+
+---
+
+## 17. games/sonic4/player/player_ground.asm + player_air.asm + player_spindash.asm
+
+Sensor cost model: probe core ≈ 450-800 cyc; a floor/ceiling PAIR ≈ 900-1,600 cyc.
+Grounded moving ≈ 3 cores; airborne vertical ≈ 4; airborne horizontal ≈ up to 5;
+jump-press frame ≈ 5+. Classic-parity structure — **no same-cell duplicate probe found
+within a frame** except the two items below.
+
+**G1 (high). Jump-press frame probes the ceiling twice.** `player_ground.asm:74` (roll
+twin `:329`) runs the full headroom pair, then `Player_Jump` tail-runs the air body the
+same frame (`:783`) whose mostly-up class re-probes walls AND the ceiling pair again
+(`player_air.asm:220-222`); the headroom clearance in d0 is discarded. Carry the clearance
+across Player_Jump and skip/reuse in the mostly-up class. **~900-1,600 per jump press.**
+Verifier: jump under a 6-7px ceiling still rejects (buffer live); slanted-ceiling bump on
+the press frame; ROLLJUMP radii; on-object jump unaffected.
+
+**G2 (high). `GetSineCosine` computed twice on the same angle every slope frame** (`:93`/
+roll `:347`, then `.project_slope` `:581` — angle can't change between them). ~80 cyc/
+slope frame; textbook recomputed-derivation shape. Stash sin/cos in d5/d6 with a validity
+marker for the skip paths. Verifier: flat fast path untouched; roll keeps the RAW pair
+(it mangles d0 into the 5/4-shift form).
+
+*Medium:* G3 — snap window computed before the embedded/convex checks that bypass it
+(`Ground_PostMove:176-194`) — reorder, free on the normal path. G4 — idle-frame floor pair
+memo (~900-1,600/idle frame) — design decision, needs sign-off (dynamic terrain, classics
+probe every frame); flag only. G5 — duplicated slope preamble; fold into G2's shape.
+*Micro:* G6 — SlopeRepel reads SST_angle 3× (`:247,264,271`); G7 — gsp reload after write
+(`:469`, awkward due to shared entry — note only); G8 — magic button bits vs named
+constants elsewhere.
+
+*Bugs/mismatches:*
+- **G9 (latent, §2.5b violation):** `Ground_Move:620` byte-loads the probe code into d7,
+  then `:646/:664` `move.w d7,d2` and `:657/:691` `tst.w d7` consume it as a WORD — high
+  byte is caller residue (0 today only because Player_Main dispatches with d7 = player
+  counter = 0). player_sensors documents this exact hazard on ITS side and clamps; Ground_
+  Move's own word uses are unguarded. Fix: `moveq #0,d7` before the load (4 cyc). Same bug
+  class that shipped in Sound_PlaySFX 2026-07-03.
+- **G10 (latent):** `move_lock` only decrements in Player_SlopeRepel (`:239-243`), and the
+  on-object path rts's before it (`Ground_PostMove:161-164`) — a slip-locked player landing
+  on a solid object keeps frozen input forever (friction zeroes gsp; only jump escapes).
+  Tick the lock on the on-object exit or hoist to Player_Main.
+- G11 — stale "PState_Spindash lives in sonic.asm" comments (`:4`; also
+  player_common.asm:407). G12 — `PHYS_ROLL_FRICTION` (constants.asm:251) is dead and
+  misleading (roll deliberately derives friction/2 from the phys table).
+
+*Fine (verified in detail):* all physics constants check against S3K/SPG (accel/decel/
+friction/top/gravity/jump/air/slip band/roll thresholds; the $D standing-slope gate ≈24°);
+slope shift forms exact + build-asserted; the btst-preserves-N trick correct; turnaround
+carry/borrow edges; wall-probe gating (cardinals always, $41-$BF skipped, gsp==0 early-out
+already present); the two muls.w are lint-annotated variable×variable on slope/jump frames
+only (legitimate); $FC0 steep-landing cap confirmed classic (s2.asm:37604-37606); dispatch
+shape already the recommended structure.
+
+### player_air.asm
+
+**A2 (high, needs sign-off).** Both-wall probing in the vertical classes (`:214-215`,
+`:220-221`) — 2 cores (~900-1,600) every mostly-down/up frame even at x_vel==0. Classic
+parity (S2/S3K do it); any gate (probe toward nonzero x_vel only) is a behavior decision —
+crushers/shaft spawns/moving walls lean on the both-sides sweep. Declining is defensible.
+*Medium:* A3 — mostly_right/left duplicated tails (ROM only); A4 — banded-landing steep
+path memory churn (~20, steep landings only).
+*Micro:* A5 — release cap read twice; A6 — clr.b on RAM fine, leave.
+*Bugs:* **A7 (needs a ruling)** — landing uncurl has no clearance check
+(`Air_LandState:392` + PHook_EnsureStanding's +10px rise) while PState_Roll's unroll path
+guards the IDENTICAL wall-clip hazard (`player_ground.asm:436-438`). Classic parity vs the
+codebase's own hazard-class spec — decide, don't drive-by fix (if guarded: return ROLL when
+the ceiling pair says blocked; costs a pair on curled landings only).
+*Fine:* drag band inclusive edge exact-classic; integrate-then-gravity order; banded
+landing masks byte-identical to s2.asm 37570+; d4 lifetime verified (consumed before wall
+probes clobber it); FloorLandFlat's y_vel≥0 early-out already present; CeilingBump in
+horizontal classes is required + classic; airborne quadrant=0 invariant holds.
+
+### player_spindash.asm
+
+No high/medium findings — one floor pair on charge (classic parity), no redundant sensors.
+*Micro:* S1 — release SFX movem pair deletable by reordering (SFX first, then moveq)
+(~50 cyc + 8 bytes); S2 — rev clamp does 3 memory ops on _pl_spindash → route through a
+register (~20-30, tap frames).
+*Bugs/notes:* S3 — self-contradicting header comments (shared-ability vs character-state;
+the inner one predates the relocation); S4 — spindash charge not move_lock-gated
+(self-resolving, unlike G10 — comment it if G10 is fixed).
+*Fine:* decay-then-rev order classic; release closed form no-mulu, range verified; floor
+window = ground formula at speed 0; buffered-press drop logic verified.
+
+---
+
+## 18. games/sonic4/player/player_common.asm + player_sensors.asm + sonic.asm
+
+### player_sensors.asm — the probe census (caller-side map for engine lookup #4)
+
+Cost model: **L** (full lookup) ≈ ~330 cyc; **T** (solidity/angle/height chain on solid)
+≈ ~170; one `.cell` eval ≈ 375-500; one core ≈ 600-1,000; one pair ≈ 1,300-2,100.
+
+| Mode | Cores | .cell evals | Est. cycles |
+|---|---|---|---|
+| Ground running flat | 3 | 5-7 | ~2,400-3,300 |
+| Ground + buffered jump frame | 5 | 9-11 | ~4,400-5,400 |
+| Ground idle (gsp=0, + ledge probe) | 4 | 6-8 | ~3,200-3,500 |
+| Rolling fast | 3 | 5-7 | ~2,400-3,300 |
+| Rolling slow (+ unroll clearance) | 5 | 9-11 | ~4,400-5,400 |
+| Spindash charging | 2 | 3-5 | ~1,500-2,300 |
+| Air mostly right/left | 5 | 8-10 | ~4,300-5,000 |
+| Air mostly down | 4 | 7-8 | ~3,600-4,300 |
+| Air mostly up (jump-launch frame: 6) | 4 (6) | 7-8 (11-12) | ~3,600-4,300 (~5,600) |
+
+Sensors ≈ 2-4.5% of frame budget per player, worst case airborne-horizontal.
+
+**Key structural fact: the extension probe is the COMMON case** — every open-air probe
+takes `.empty_fwd`, every flush-solid probe takes `.full_back`; roughly HALF of all `.cell`
+evals per frame are extensions. Each converted to a relative fetch saves ~300 cycles ⇒
+**~600-900/frame grounded, ~1,200-1,500/frame airborne** (est.).
+
+**H2 — landing plan for the pointer-return variant:**
+1. Single swap point: `.cell`'s `bsr.w Collision_GetType` (player_sensors.asm:133), inside
+   the probeCore macro — all four stamps inherit one edit.
+2. Extension delta is compile-time per stamp: Down/Up = ±TILE_CACHE_STRIDE (80) bytes
+   (with COLL_ROWS wrap); Right/Left = ±2 bytes (with COLS wrap). Pass as a macro arg;
+   each stamp gets its own seam test.
+3. **a1 is untouched** between primary and extension `.cell` calls on both paths — the
+   variant returns the cell byte address in a1 with zero extra saves. d3 is dead until
+   probeSub for the seam-safe indicator.
+4. Only L is saved, not T: split `.cell` into `.cell_full` and `.cell_chain` (attr in d0)
+   so the fast extension does `move.b delta(a1),d0` → `.cell_chain`.
+5. The cross-axis coordinate is invariant across the extension (pcolreg never changes) —
+   state it in the variant's contract.
+6. Phase-2 seam (flag only): a pair's two sensors share the probe-axis coordinate — a
+   row-base-return variant could make sensor B's primary a relative fetch too (~300 more/
+   pair); `Player_SensorPair` (:193) is the natural holder. Do after lookup #4 proves out.
+
+**H3 — `Player_AtLedgeEdge` probes the same point twice** (`:483-486`): `.single` sets
+B = A and runs the identical core twice, comparing the result with itself — **~500-1,000
+wasted cycles every grounded at-rest frame** (balance check). Fix: call
+`Collision_ProbeDown` directly, skip the pair wrapper. (Independently confirmed by the
+player-movement reviewer as the largest genuinely-duplicate sensor call in the player
+tick.) Optional verdict-cache keyed on x_pos+facing is NOT sound alone (streaming/crumbling
+terrain) — the duplicate-call fix is the safe win.
+
+*Medium:* M1 — three `lea (table).l` per solid `.cell` eval (`:138,144,150`, 36 cyc):
+co-locate SolidityTable/AngleTable at build time, one lea + fixed displacement
+(~50-100/frame; add a build assert on the layout). M2 — SensorSurface recomputes the
+cardinal after the pair (`:325-328`) when it was in d2 at `:274-277` — stash (~20).
+*Micro:* probe cores already minimal; `andi.w #3,d2` hygiene clamp is correct — keep.
+*Bugs:* `Player_AtLedgeEdge` header omits d6 (`:419` vs moveq at `:468`) — doc fix; probe
+core stack discipline and `.full_back` distance algebra verified correct.
+*Fine:* macro-stamped cores with assembly-time direction resolution; pair tie rule matches
+comment; ST_ON_OBJECT short-circuit zeroes pair cost on solids; angle post-processing
+cheap and matches S.C.E. references.
+
+### player_common.asm
+
+*Medium:* M3 — `Player_LevelBound` re-derives act extents every frame (`:639-659`,
+~180-200 cyc): precompute at act init (~80 cyc), which also removes the truncation trap.
+M4 — DUR_DYNAMIC hold computed up front every frame (~40) but consumed only by ball/walk
+exits — move to a shared stub (marginal).
+*Micro:* history-ring input word (`:245-247`, ~38 cyc) → single `move.w (Ctrl_1_Held).w`
+(Held/Press are adjacent in that order, ram.asm:85-86) — IFF even-aligned; add an
+alignment assert (AS does not auto-align). SnapToSurface branch chain and quadrant
+derivation already minimal.
+*Bugs:* **LevelBound word-truncation** (`:641-643,659`) — long math, word compare: grid_w
+≥ 32 sections truncates the right bound → player clamps at the left margin forever
+(mega-act cluster; assert now). `Player_Display` header understates clobbers (balance path
+trashes d5-d6 as Animate's own header admits); `Player_Init` header omits the SetState
+hook contract's d2/a2.
+*Fine:* Ground_PostMove's N-flag trick verified; Player_Main's d7 save necessary and
+scoped; history rings (256-alignment assert exists, low-byte wrap sound); EnsureStanding/
+EnsureBall idempotent pattern + ST_ROLLING repair correct incl. debug-16 case; hook
+dispatch + table-sync asserts fine; distToFix minimal.
+
+### sonic.asm
+
+Adjacent to dplc D3: the frame-unchanged early-out should sit BEFORE Sonic_LoadArt's two
+`lea (X).l` + `move.w #imm` (~28 cyc, `:25-27`) — key on `mapping_frame` vs `prev_frame`;
+the invalidation path already exists (DebugEnter/Exit reset prev_frame to $FF,
+player_common.asm:127,733). `Sonic_InitAssets` "Clobbers: none" verified true. PhysTable
+copy init-only, size-asserted. Nothing else per-frame.
+
+---
+
+## 19. engine/objects/children.asm + engine/macros.asm
+
+### children.asm
+
+**C1 (high — per-frame tax + two rendering bug shapes).** `CreateEffect_Normal` (`:423`)
+and `CreateEffect_Simple` (`:473`) set `parent_ptr` "so effect can reference parent" — no
+effect code reads it. Cost: `Draw_Sprite`'s child-skip guard (sprites.emp:56-60) derefs
+parent_ptr + btsts the PARENT's render_flags for every object with nonzero parent_ptr,
+every frame (~28 cyc each). Bugs: (a) **an effect spawned by an RF_MULTISPRITE parent is
+skipped as batch-rendered but is NOT in the sibling chain → never rendered at all**;
+(b) nothing clears parent_ptr when the parent dies — slot recycling by a multisprite
+object silently hides orphans. Fix: stop writing parent_ptr on effects (dead store);
+replace the parent-deref guard with a child-side "RF_BATCHED" bit set at spawn (~10 cyc,
+no dangling deref). Constraint to document: parent must have RF_MULTISPRITE before
+spawning children (true today — objdef template). Verifier: spawn effect from multisprite
+parent → currently invisible (confirms bug); grep effect code for parent_ptr reads;
+multisprite children still skip self-registration; orphans still render.
+
+**C2.** `sibling_ptr` is overloaded (children-list head on the parent / next-sibling on
+children) → nesting is impossible and undocumented; a child calling CreateChild_* corrupts
+the grandparent's chain, and DeleteChildren is non-recursive. Minimum: header comment +
+DEBUG assert (parent must not itself be a linked child). Structural fix (separate
+first_child/next_sibling) only if nesting is ever needed.
+
+**C3.** Cascade delete = N × core's linear live-list scan + full SST zero ≈ **~600 cyc/
+child + ~110 overhead → 8-child cascade ≈ 5,700 cycles in one frame**. Bursty-acceptable
+today; a `DeleteChildren_Batch` (ONE live-list pass zeroing all chain members) turns N
+scans into 1 but touches core's §6/§9 invariants — design review, not a casual fix.
+Verifier: lag counter during a max-children cascade.
+
+*Medium:* **M1 — all six creators oversave around Alloc** (AllocDynamic/AllocEffect
+clobber d0 + out a1 ONLY): Normal/Complex save d3/a0-a1 (should be a1 alone, ~44 waste);
+FlipAware d3-d4/a0-a1 (~60); **_Linked saves d1-d5/a0 — none of which the callee touches —
+the entire ~116-cycle pair is unnecessary**; Effect_Normal a0-a1 → a1; Effect_Simple
+d2-d3/a0 → nothing. Note a1 DOES need saving where it's the descriptor cursor (the
+latch-full fail path clobbers a1 too). Verifier: re-read Alloc contracts in BOTH core
+twins (lockstep); run test_parent/test_stress_emitter/test_churn.
+M2 — PopulateSpawnedPieceCount saves a1 it never touches (~16/spawn); its ~120-cyc
+call overhead wraps a ~40-cyc payload; header claims mapping_frame "already set" — no call
+site sets it (frame is always 0 here). M3 — DeleteChildren's per-iteration movem
+(~56/child) avoidable by holding parent in a2 / next in d2. M4 — fail-path descriptor
+skip-walks are dead work (a1 is a declared clobber; nothing reads it) — replace with
+immediate rts, ×4 routines. M5 — chain head rewritten every iteration (`:82,163,253`) —
+hoist to one unconditional write of d3 after the loop (correct even when the first alloc
+fails).
+
+*Micro:* offset-to-16.16 pattern ~10/axis cheaper via high-word add; PopulateSpawnedPiece
+Count's movea/move.l/beq → move.l/beq/movea; FlipAware tests tst.w d4 3×/child (branch to
+a flipped/unflipped loop pair, ~60 bytes ROM); first PopulateSpawnedPieceCount bsr may be
+.s-reachable; `:358` move.w #0 vs clr.w is a wash.
+
+*Bugs:* **(1) `CreateChild_Linked` orphans a pre-existing chain** (`:330-331` overwrites
+the head; Normal/Complex/FlipAware deliberately prepend via d3) — slot leak until
+entity-window despawn; fix by seeding the last child's sibling_ptr with the old head, or
+document + DEBUG-assert childless-parent. **(2) children never inherit a priority band**
+(slots zeroed; render_flags not copied) — every independently-rendered child registers in
+band 0 (backmost); high-priority parents' debris draws behind everything. Inherit bits 5-7
+or take a band parameter — decide before the first real multi-part badnik. (3) = C1's
+shapes. (4) PopulateSpawnedPieceCount header mismatch (M2). (5) cosmetic: two fail-skip
+loop shapes differ (M4 deletes both).
+
+*Fine:* AllocDynamic's code_addr-before-next-alloc invariant honored by every creator;
+DeleteChildren reads next before deleting; chain termination via zeroed slots correct in
+all five builders; _Linked stack discipline balanced on both exits; 14-byte descriptor
+arithmetic incl. fail-path lea correct; branch sizes explicit; no mulu/divu.
+
+### macros.asm — per-macro verdict table
+
+| Macro | Verdict |
+|---|---|
+| vdpComm, vdpReg, vram_art, vram_bytes | correct (bit-exact verified) |
+| **sprSize** | **BUG (confirmed, latent)** — see below |
+| bytesToLcnt | correct; silently floors n%4≠0 (note in header) |
+| vdpCommDelta | correct; undocumented $4000-window carry constraint |
+| planeLoc, dmaSource, dmaLength, objroutine | correct (dmaSource comment loose) |
+| objvarsCheck, objdef, objentry, objend | correct (objend IS alive — generated data uses it) |
+| stopZ80, startZ80, disableInts | correct |
+| enableInts | correct at its single boot site; hardcodes IPL3 — unsafe as a general undo |
+| setVDPReg | correct; all 8 sites event-driven — fine |
+| vdpCommReg | correct, near-optimal (canonical transform + tas.b trick verified) |
+| queueStaticDMA | correct; no DEBUG drop counter (dma_queue has one — add) |
+| clearLoadedRing/Obj | correct; header scoping claim is FALSE (see B3) |
+| collSrcRowBase | correct; keep as-is (form expresses the parity argument) |
+| DEBUG_ALL/_DMA/_VRAM/_OBJECTS/_COLLISION | **DEAD** — zero consumers |
+
+**B1 — sprSize (macros.asm:21), expanded:** hardware wants width in bits 3-2, height in
+bits 1-0; the function emits `((h-1)<<2)|(w-1)` — swapped. Three in-repo references
+contradict it, all correct (sprites.emp:16 SPRITE_MASK_SIZE, the SAT format doc at
+sprites.emp:172, CellOffsets_XFlip at sprites.emp:469). **Aggravators:** (a) the swapped
+formula is ALSO the canonical example at CODING_CONVENTIONS.md:25 — fix both together or
+it comes back; (b) the `<<8` is a wart — all 4 call sites immediately `>>8` it for a dc.b;
+drop it. All current users square → latent. Verifier: swap to `((w-1)<<2)|(h-1)`; update
+the conventions doc; drop `<<8` + update 4 sites; add a NON-SQUARE test mapping and
+confirm on oracle it renders 32×8 not 8×32; re-grep for hand-written size bytes that
+compensated (none found — re-check).
+
+**B2** — the four DEBUG_* subsystem flags are dead AND the block's comment points at an
+`ifdebug` that takes no subsystem argument; conventions §1.7's two-layer scheme was never
+built. Implement or delete + reconcile §1.7.
+**B3** — clearLoadedRing/Obj's "expand at most once per global-label scope" claim is false
+for this assembler: queueStaticDMA expands 7× in one scope (buffers.asm:133-166) and
+stopZ80 2× in one scope (vblank.asm:116,147), both with fixed internal labels — asl scopes
+macro symbols per-expansion unless {GLOBALSYMBOLS}. The stale comment actively misleads.
+**B4** — vdpCommDelta: state "total advance must not cross a $4000 VRAM boundary".
+**B5-B7** — bytesToLcnt floor note; dmaSource comment precision (the load-bearing effect
+is keeping DMD1 zero for $FFxxxx RAM); enableInts "boot only" note.
+
+*Medium:* setVDPReg sets the dirty bit even when the value is unchanged — fine today (all
+sites event-driven); revisit only if it ever enters a per-frame path. queueStaticDMA's
+14-byte copy shape is the floor; if VBlank pinches, pre-slot the static entries at
+build time rather than micro-optimizing.
+
+*Fine:* vdpComm verified bit-exact for all 6 combos; vdpCommReg verified against the
+encoding incl. the tas.b lone-CD5 case and both dma_queue call sites' clr choices;
+objentry guards coherent (flags overlap, type/sub ranges, monotonic-X, MAX_LIST_ENTRIES);
+objdef's AS size-suffix quirk is real and properly dodged; stopZ80 polarity correct; no
+macro computes at runtime what function could do at build time.
+
+---
+---
+
+# WAVE 4 — boot, remaining 68k, debug, shell, data audits
+
+## 20. engine/system/boot.asm + vectors.asm + z80_init.asm
+
+### Correctness / hardware-risk findings
+
+**1. Cross-reset RAM contract is violated — the clear wipes it every boot and the magic is
+never read.** `ram.asm:493-499` documents CROSS_RESET_RAM as soft-reset-surviving, but
+`Warm_Boot` falls straight into `Cold_Boot` (`boot.asm:22`) and the clear loop
+(`boot.asm:86-91`) clears the full 64KB on both paths. `CROSS_RESET_MAGIC` (`:197`) has
+zero readers (grep). Dead scaffolding contradicting its docs — implement the
+warm-boot-preserving clear or delete the mechanism. Oracle CAN verify.
+
+**2. PSG silence writes race the in-flight VRAM DMA fill.** Fill triggered `:52-55`,
+waited on only at `:101-104`; the PSG writes `:93-97` land while the fill may run (the PSG
+lives inside the VDP — plutiedev-documented hazard). Latent (~2× implicit timing margin,
+computed) but unenforced. Free fix: move the 4 writes after `.wait_fill`. Race-window
+liveness oracle-checkable; the corruption effect is hardware-only.
+
+**3. YM2612 key-off block: no busy-wait + address-latch race vs the running driver.**
+`:124-137` writes ~22 cycles apart with no busy poll (real silicon drops writes) — mostly
+moot because the reset pulse at `:79-83` already keyed everything off. Sharper: in sound
+builds the Z80 driver has been running since `:84`; `stopZ80` can halt it BETWEEN its own
+YM addr/data writes → the 68k latches $28 → the Z80's resumed data write lands on $28
+(dual-owner latch race). Fix: key-off before the bus release (Z80 not yet running), or
+drop the block in sound builds.
+
+**4. No build-time evenness assert on either Z80 blob.** Copy at `:74-76` + data stream
+resuming at `align 2` (`:274`): an odd `Z80_SOUND_SIZE` desyncs the a5 stream (pad byte
+eaten as a PSG value; noise never silenced) then `move.w (a5)+` at `:107` address-errors.
+The "blob must be even" memory invariant has NO enforcement — `if (SIZE&1) fatal` both
+blobs.
+
+**5. Warm-boot VDP read precedes TMSS** (`:17-20` vs `:32`) — safe only by the S1/S2
+inherited precedent ($A14000 latch survives reset button). Cheap hardening: unconditional
+TMSS write before the DMA wait. Hardware-only; low priority.
+
+**10 (vectors). Spurious-interrupt vector ($60) → ErrorExcept** (`vectors.asm:32`): a
+transient IPL glitch hard-crashes a retail build; IRQ5 (`:37`) already takes the tolerant
+NullInterrupt stance — the table is internally inconsistent about glitch policy. Suggest
+NullInterrupt in release, ErrorExcept under __DEBUG__. Hardware-only.
+
+**11 (z80_init). Final `ld sp,hl` leaves SP=0** (`z80_init.asm:25-27`) — a future push
+wraps to $FFFF = the 68k bank window. Inert today; the idle blob is the template people
+copy. One instruction fixes it.
+
+### Medium
+
+- **6.** Window nametable $F000 overlaps Plane B $E000-$FFFF (`:243-244`, 64×64 planes) —
+  harmless (window disabled) but with this VRAM map there is NO free window space; comment
+  the constraint.
+- **7.** `EntryPoint` doesn't reload SP — `jmp EntryPoint` soft-reset would run the RAM
+  clear on a stale stack then `bsr` through garbage. One `lea (SYSTEM_STACK).l,sp` closes
+  it (S2/S3K do this).
+- **8.** Interrupts live during CompressionSelfTest/Sound_Init/gameBootHook (`:194` →
+  `:199-210`) — VInt_Lag must be safe against fully-zeroed RAM (it is today); implicit
+  invariant, comment it.
+- **9.** No boot checksum verification — consistent with the skip philosophy and arguably
+  safer; record as intentional in ENGINE_ARCHITECTURE.
+
+### Micro / mismatches
+
+`:98` dead `align 2` mid-code; `:143` redundant disableInts (comment it); `:174`
+`move.w #0` → clr.w (+ redundant after RAM clear); `:70` comment "word count" is WRONG —
+it's a byte count (a reader "fixing" the loop to words would halve the copy); `:196` "cold
+boot complete" executes on warm boots too; `vectors.asm:33` "IRQ1 (external)" mislabel
+(external = IRQ2/$68); z80_init `ld bc,(…)-…` operand-parse trap (hoist to a named
+constant); z80_init header "clears Z80 RAM" → "above the program".
+
+### Checked and already fine
+
+TMSS handshake canonical; VDP command-latch reset; all 24 VDP register values verified
+against hardware constraints (no nametable/sprite/hscroll overlap modulo the window note;
+128K mode clear); DMA fill protocol exact (autoinc 1 → fill → status poll via control port
+→ autoinc 2 restore) and the fill/Z80-load/RAM-clear parallelization is genuinely good
+init design; Z80 reset/busreq dance canonical incl. the verified 264 ≥ 192-cycle YM hold
+(re-derived, not trusted); RAM clear covers the entire 64KB incl. both phases; register
+clear via `movem.l (RAM_Start).w,d0-a6` legal and correct; PSG silence values correct
+(placement is finding 2); YM key-off VALUES correct ({00,01,02,04,05,06}, skipping
+03/07); interrupt-enable ordering airtight (handlers + pointers before any interrupt);
+region handling correct (V28-on-PAL letterbox is a decision, not a bug); controller init
+correct and is exactly what makes warm-boot detection work; warm/cold detection
+S1-identical; all 64 vectors present/even, every target symbol exists, gameHeader
+placement correct; the generated debug "vectors.asm" is a pure NAME COLLISION
+(compression-selftest payloads, not CPU vectors — resolved, no issue); z80_init arithmetic
+verified exact (clear range, pops-read-zeros, $E9 self-trap; byte-wise 68k copy correct).
+
+---
+
+## 21. engine/compression/zx0_decompress.asm + engine/level/load_art.asm + engine/level/bg.asm
+
+### zx0_decompress.asm
+
+**Verified instruction-by-instruction against Emmanuel Marty's upstream `unzx0_68000.S`
+V2 — byte-faithful (mnemonic spellings only), as the header claims. Keep it untouched**:
+the diff-against-upstream property answers every future correctness question. Optional 2×
+unroll of the byte-copy loops (~20-25% of decompress time) ONLY if measured load time is a
+problem — it erodes the provenance note; word copies are NOT safe (byte-granular format,
+arbitrary parity). Latent: elias values accumulate in d0.l but the copy loops count with
+dbf (word) — safe by construction (u16 wrapper size), document with one comment line.
+Bit-queue idiom, d2 upper-word invariant, shared-rts trick all verified upstream-exact.
+
+### load_art.asm
+
+- **The `QueueDMA_Critical` carry return is ignored** (`:79`) — a drop means the page's
+  art never reaches VRAM AND the next iteration overwrites the staging buffer: permanent
+  corrupted act art, zero diagnostics. Can't realistically fire today (one entry/VSync,
+  Critical drained unconditionally) but it's conventions §7.7 silent failure. Minimum:
+  `bcc.s .queued` + DEBUG RaiseError.
+- **Consider direct blocking DMA instead of queue+VSync** (`:79-80`): display-off init,
+  each page pays up to a full frame parked in VSync_Wait — direct stopZ80/DMA/startZ80
+  saves est. 3-8 frames per act load and removes the drop hazard structurally. Judgment
+  call; decide together with bg.asm's posture (below).
+- Dispatch fall-through favors S4LZ over the common ZX0 case (`:24-29`) — invert (§2.2).
+- **Clobber header contradicts the code** (`:36` "d0-d7, a0-a3"): d6 is saved/restored
+  (NOT clobbered), d5/d7 never touched. Actual set: d0-d4/a0-a3. Fix header or drop the
+  dead d6 save.
+- Fine: a4/d4-across-decompress is sound on both paths; size peek even by construction;
+  empty-page skip advances the VRAM cursor correctly; the callee-contract table at
+  `:50-53` is accurate.
+
+### bg.asm
+
+- **Both init blits are CPU word-pokes** (`:83-85` nametable 4,096 words ≈ 90k cycles;
+  `:68-70` tiles up to 7,168 words ≈ 158k — **~2 frames with SR masked + Z80 stopped**).
+  ROM sources = the conventions §7.2 zero-copy case. Tier 1: `move.l`+halved dbf (3-line
+  change, ~80k saved). Tier 2: 4× unroll. Tier 3: real DMA (~0.3-0.4 frame for all 22KB)
+  — needs 128KB-straddle handling; decide with load_art.
+- **THE TRANSPOSE QUESTION (from wave-1 plane_buffer note 6) — ANSWERED:** bg.asm consumes
+  the layout strictly row-major as one flat 8,192-byte stream (autoinc 2). Full consumer
+  census: Draw_BG_TileColumn (column gather, stride 128 — the transpose target),
+  Section_RedrawPlanes Plane B blit (row-major linear), BG_Init (row-major linear), and
+  the build side (ojz_strip_gen.py:1336 + editor export blobs). **Column-major works with
+  NO dual format**: the two linear consumers adapt via autoinc `$80` (row stride 128 fits
+  the 8-bit autoinc register exactly) — 64 command setups ≈ 2-3k cycles per blob,
+  init-only noise — and their inner loops stay sequential-source. Payoff:
+  Draw_BG_TileColumn ~34 → ~22 cyc/word (~380/strip, per-frame at scroll speed), plus
+  move.l pairing unlocked. CRITICAL: the ACT blob must be transposed too — production
+  sections have `sec_bg_layout = NULL`, so the act fallback is the common per-frame path.
+  Caveats: column-major forces 64 small DMAs if the init blits become DMA (decide
+  together); .emp twins + ojz_strip_gen.py + editor-library blobs flip in one commit;
+  verify mid-scroll.
+- **Bugs:** header `:3-4` claims the region is $A000-$BFFF — actual $8000-$B7FF (the
+  `:22-25` comment is the correct one). **A length-1 (or odd) tile blob survives the
+  clamp: `lsr` → 0 → `subq` → $FFFF → dbf sprays 65,536 words across ALL of VRAM** — the
+  "last line of defense" guard has this hole; `beq.s .skip_tiles` after the lsr closes it.
+  Cross-file: bottom 32 plane rows are init-only (RedrawPlanes/Draw_BG_TileColumn maintain
+  32 rows; bg.asm writes 64 and advertises 512px vertical headroom) — consistent today
+  only via injector zero-padding; record the runtime 32-row limit.
+- Fine: interrupt masking correctly motivated; NULL checks full-width; autoinc set before
+  each command; Z80 released between the two copies (kind to the driver); clamp
+  byte-length units consistent.
+
+---
+
+## 22. engine/ram.asm + engine/constants.asm + game configs (alignment + defs audit)
+
+**ALIGNMENT AUDIT: CLEAN.** All four layout shapes walked (engine release/DEBUG ×
+sonic4/demo): every ds.w/ds.l lands even; Engine_RAM_End/Lower_RAM_End/Game_RAM_End even
+in all shapes. Parity chains documented for every non-obvious region (VDP shadow pad, DMA
+queue, parallax odd-byte pairs, 36-byte-even DEBUG profiler block, SST 5280, ring stride,
+collected window 306+2, SFX ring, live-pending DEBUG/release byte pair, game-slice align
+256 + &$FF guard). Overflow guards all present; no lower-half symbol is `.w`-addressed.
+
+**RAM MARGIN: +256 B trivially available** — upper half has **19,454 bytes free** to
+SYSTEM_STACK (identical DEBUG/release; align 256 absorbs the debug delta); lower half
+6,078 free. Total ~40KB/64KB used. (Answers the wave-1 ring-stride question; note an odd
+stride would break parity — 8 is fine.)
+
+**Findings:** (1) `Spawn_Count`/`MAX_SPAWNS_PER_FRAME` is dead scaffolding — written zero,
+never incremented/compared; implement or delete. (2) **Missing build guard on the
+load-bearing streaming contract `CAM_MAX_Y_STEP ≤ VFILL_ROWS_PER_FRAME*8`** — currently at
+exact equality (16 = 2×8, zero slack), conventions §1.6 requires the `if`. (3)
+`VFILL_ROWS_PER_FRAME` comment says "4 = catch-up headroom" but the value is 2 — verify
+intent. (4) `ram.asm:25` stale "9216 (12×768)" — slots are 16 now (12,288). (5) game-slice
+pad comment claims to protect an engine symbol (pre-split leftover). (6) Parallax_State
+"~126 bytes" → actual 244. (7) two comments overstate DEBUG/release layout invariance
+(the profiler block shifts addresses by 36). (8) `RING_BUFFER_ENTRY_SIZE`/
+`COLLECTED_SLOT_SIZE` are engine-owned formats duplicated in both game configs — derive
+engine-side; only counts are game knobs. (9) demo's COLLECTED_WINDOW_SLOTS=4 vs the "3×3 =
+9" contract comment — benign (no rings) but unasserted. (10) `BgAnim_LastStep: ds.w 4`
+hardcodes BGANIM_MAX_BANDS with a comment, not an assert.
+
+**Dead defs (grep-verified):** PHYS_ROLL_FRICTION (confirmed), HEIGHT_MAP_SIZE,
+ANGLE_TABLE_SIZE, CTYPE_FLAT_SOLID, MAX_OBJECT_TYPES, MAX_SPAWNS_PER_FRAME, all four
+SF_* flags, ST_P1/P2_PUSHING (leftovers of exactly what the comment above them says not to
+bring back), SECTION_TILE_WIDTH/HEIGHT (the tool re-defines 256 as an independent
+literal). **Fragile fixed pads:** `:270` assumes SCANLINE_BANDS odd; `:249` relies on
+PRIORITY_BANDS even; `:398`/`:19` pads are spurious (already even) with wrong comments —
+use computed `&1` pads like `:402` does.
+
+**Cross-checks:** PARALLAX_LERP_SHIFT comment confirmed wrong ((15/16)^16 ≈ 36% remaining;
+~95% needs ~46 frames) — and conventions §2.6's lerp table has the SAME ~3× error (the
+comment faithfully mirrors a wrong table). DMA figures: 4,300 is the §3.3 CPU-cycle figure
+(itself suspect vs the real ~17-18k window); 7200 is the §8.1 DMA-bytes row — constants
+file is internally consistent; the staleness lives in CODING_CONVENTIONS.md. Guards
+verified present: SECTION_SIZE sync, Y-band invariants, SFXPRI 7-bit, PSTATE ordering;
+SFX_TABLE_LEN/COLLECTED_SLOT_SIZE/KILLED_BITMASK_OFFSET/Sound_Dbg_Mirror math all check.
+
+---
+
+## 23. Debug cluster (debugger, error_handler, sound_debug, compression_selftest, game_debug, generated vectors)
+
+### The three actionable items
+
+1. **Plain-build leakage that exists TODAY:** (a) the MDDBG blob + exception stubs ship in
+   every release ROM — possibly intended, undocumented (decide + record); (b) **convsym
+   appends the FULL symbol table to release ROMs** (`build.sh:130-134`, `-OLIST`
+   unconditional) — size + reverse-engineering giveaway; gate on DEBUG; (c)
+   **`SOUND_DEBUG_HOTKEYS=1` without `DEBUG=1` builds successfully** and ships a release
+   ROM with the hotkey harness AND the boot-time MT autoplay — the "requires DEBUG=1"
+   claims (build.sh:52, game_loop.emp:5-6) are enforced NOWHERE. One line in build.sh.
+2. **Macro contract asymmetry:** `assert`/`ifdebug`/`KDebug` are __DEBUG__-gated;
+   `RaiseError`/`Console` are NOT — only call-site discipline (currently correct at both
+   production sites) prevents release bytes. Gate, name-convention, or lint.
+3. **Conventions §1.7 is fiction — confirmed:** the subsystem-gated two-layer
+   ifdebug/debugend was never built; DEBUG_DMA/_VRAM/_OBJECTS/_COLLISION are read by
+   nothing; DEBUG_ALL=0 contradicts the doc's example. Build it or delete + rewrite §1.7.
+
+### Rail-correctness results (the good news)
+
+- **`assert` verified flag-transparent and release-zero-cost**: push SR → cmp/tst → Bcc
+  (doesn't touch CCR) → pop SR; condition-code operand order verified against usage. The
+  REAL hazard is `ifdebug`-prefixed SETUP instructions (clobber a register + CCR in DEBUG
+  only) — all three live sites audited safe (s4lz ×2, tile_cache ×1); lint the pattern.
+- **`assert` with stack-relative operands is off-by-2** (SR pushed first) — no current
+  usage; comment/lint it. `_assert` (no CCR save) has zero users — document "never in
+  flag-sensitive code" or remove.
+- **compression_selftest fails loudly — verified** (checksum + word-exact compare + $A5A5
+  poison defeats no-op AND short-write decodes; failure PC identifies the vector). Gaps:
+  no OVERRUN guard (one poisoned word past the end closes the last silent mode); runs with
+  interrupts live (safe today; pin the assumption). Does NOT rely on the S4LZ narrow
+  clobber license (wave-3 concern unfounded — verified).
+- **sound_debug**: clean gating (triple), correct copy math; header clobber list omits d1;
+  `ram.asm:426-433`'s mirror description is two generations stale (the MCP-facing map
+  lives in two places, one updated). Nested-bus-bracket invariant is comment-enforced —
+  lint candidate.
+- **error_handler**: ints masked first (good); movem onto the crashed SP means an odd-SP
+  crash double-faults to a black screen (upstream limitation — document); Z80 never
+  stopped (correct — port writes only) but a crash mid-stopZ80-bracket leaves the Z80
+  frozen (cosmetic, document). Include ordering honors the "no data after" warning.
+- **game_debug**: edge detection + masks verified; SFX cycle logic clean incl. the
+  align 2 after the odd table; engine game_loop.emp hard-mirrors this game's hook and
+  names a game symbol in an engine module — acknowledged debt, track until a per-game
+  hook seam exists.
+- **generated/vectors.asm**: release-clean only via its include site — add a
+  self-defensive `ifndef __DEBUG__ fatal`.
+
+---
+
+## 24. Game shell — main.asm, ojz_scroll_test, object_test_state, demo
+
+### OJZ per-frame order (mapped): InitSpriteSystem → RunObjects (draws sprites) →
+Camera_Update → Tile_Cache_Fill → EntityWindow_Scan → Section_UpdateColumns →
+TouchResponse → RingCollision → Render_Sprites (+DrawRings) → FlatID/marker diagnostics →
+mode-set force → Parallax_Update → BgAnim_Update. Init ladder mapped at `:9-143`.
+
+### Ordering findings
+
+- **Ghost-sprites bug root cause CONFIRMED as engine contract**: all three states call
+  InitSpriteSystem at frame start per the engine's own documented contract
+  (sprites.asm:13) — fix once engine-side (separate prev-frame latch or stop clearing
+  `Sprites_Rendered` in init), not per state.
+- **Sprite culling uses LAST frame's camera** — `Draw_Sprite` culls against `Camera_X`
+  inside RunObjects (step 2) with zero margin; `Camera_Update` runs after (step 3);
+  positioning uses the post-update bias. At CAM_MAX_X_STEP=16, objects within 16px of the
+  leading edge cull one frame late/early → edge pop-in. Either Camera_Update before
+  RunObjects (accepting 1-frame camera-vs-player lag) or a ≥16px cull margin — needs a
+  deliberate decision; today it's an accident of ordering.
+- **Direct `$8B` write (`:263-273`) is a §3.4 state-before-data inversion**: applies the
+  new HScroll MODE a full frame before its matching table reaches VRAM (per-cell↔per-line
+  crossing = the documented one-frame tear), violates §3.1 rule 5, and runs
+  unconditionally every frame (stopZ80 round-trip for nothing on ≥99% of frames). The
+  setVDPReg shadow at `:262` alone is the correct shape.
+- **Init consumes unclamped Camera_X/Y** — Camera_Init has no bounds clamp; player spawn,
+  Section_FillInitial trackers, Tile_Cache_Init, the synchronous redraw, entity-window
+  initial scan, and the primed Parallax_Update ALL seed from it. A descriptor start within
+  160px/112px of an act edge snap-clamps on frame 1 with trackers/cache seeded around the
+  wrong origin. Cheapest fix: clamp inside Camera_Init.
+- **`Section_UpdateColumns` Z80-safety asymmetric**: init call stopZ80-wrapped
+  (`:110-113`); the bare per-frame call (`:187`) reaches the redraw path via runtime
+  `Section_Plane_Dirty` (cache recovery) → direct VDP writes with the Z80 live (§3.1 rule
+  3). Fix engine-side (stopZ80 inside Section_RedrawPlanes); future states clone the bare
+  call.
+- 1-frame spawn latency (entities load after RunObjects) is load-bearing on
+  ENTITY_LOAD_BUFFER — fine, worth knowing.
+
+### Medium/micro + mismatches
+
+`.marker_id_ok` byte-compares a word then word-indexes (§2.5b shape, safe at 3×3,
+hardcodes 9); d6 held across a jsr on a comment contract (fragile in a template);
+redundant `VInt_Ptr` write at `:140` (boot set it; demo omits it — pick one); OJZ never
+calls Init_SpriteTable while object_test/demo do (all rely on boot — pick one); `:97`
+"fills nametable over 3 VBlanks" stale; tile_cache.asm:628 references a renamed routine;
+`:169-172` tombstone comment. object_test: DEBUG profiler subtracts a non-monotonic V
+counter (VBlank-spanning samples permanently pollute Prof_Peak maxima — add a discard
+guard); `GameState_ObjectTest_Init` should adopt Churn_Init's entity-window/ring idle
+(stale Ring_Buffer draws over the scene if entered after OJZ ran); header "35+ slots" vs
+the (correct) ":269 33+9" math. demo: same InitSpriteSystem inheritance (THE template);
+TouchResponse-without-player is safe but un-commented. main.asm manifests: all seven
+GLOBALSYMBOLS macros verified against engine.inc's MACRO LAW; MT-bank layout guards
+exemplary; BUT sonic4's `gameDataIncludes` carries ~30 lines of inline BINCLUDEs (demo
+keeps data in demo_data.asm — the divergence is the drift risk; move to a data include);
+the six sigil pin `org`s have no AS-side `if * > $XXXX` drift guards.
+
+### Checked and already fine
+
+Tile_Cache_Init/Section_Init dependency order; Section_UpdateColumns after Camera_Update
+(contract honored); EntityWindow_Scan after camera with DEBUG freeze covering both;
+despawn-after-registration safe via the Render_Sprites NULL guard; RingCollision placement
+(same-frame collect + collide); Parallax→BgAnim order per contract; marker-tile VRAM copy
+correctly bracketed with the failure-mode comment; player spawn-before-Init contract;
+GameLoop's engine-owned VSync/SFX-drain placement correct in all states; churn's
+deliberate scan placement documented; object_test stack discipline + AllocDynamic Z-checks
+consistent.
+
+---
+
+## 25. Game test objects (test_player, test_parent, path_swap, small ones)
+
+### path_swap.asm (real machinery — reviewed hardest): CLEAN with two notes
+
+Speed-independent edge trigger (sign-relation, not proximity — a 16px/frame player cannot
+skip it); arming/idempotency matches S.C.E. semantics incl. the walk-around-and-return
+case; teleport-rebase-safe (both X's shift equally); culling can't eat a crossing; §7.8
+compliant. Notes: (1) **single-player hardwired** and the SST layout can't hold a second
+arming byte without a data-format break — reserve `prev_side ds.b NUM_PLAYERS` before
+Tails, or comment the deliberate deferral; (2) vertical band gate samples post-move Y (≤
+~16px sampling error at speed) — document "size bands with ≥16px margin". Micro: clobber
+header says d0-d2/a1 but the Draw_Sprite tail makes it d0-d3; `sgt` on-the-line = left
+(un-commented tie rule).
+
+### test_player.asm
+
+- **`AnimateSprite` called with uncontrolled d3 while all three anims are DUR_DYNAMIC**
+  (`:245-253`; the hold is read from d3, `animate.asm:54-58`) — at the call site d3 is
+  sensor leftovers or a physics constant: **animation rate is garbage-driven**. Fix:
+  `moveq #hold,d3` (same bug in test_animated.asm:41).
+- Headers claim `Clobbers: d0-d7, a0-a6` — contradicting the a0/d7 dispatch rule the file
+  itself cites (code IS compliant; headers lie; templates clone headers).
+- "idle" (`:51,:251` anim 1) is actually **ANIM_RUN** (ANIM_IDLE=5). Magic art_tile
+  `#$A0FA` (`:82`) indexes the level art pool — the debug square renders by accident;
+  use `vram_art(...)`.
+- Dead `:104` status snapshot (d5 never read — either the on-object landing logic was
+  never written or it's leftover; d5 is also the natural home for a status-in-register
+  rewrite, ~60-100 cyc/frame); dead `:118` bclr (bit already cleared at `:105`); 16.16
+  conversion via double `lsl.l #8` (52c) → the conventions' own swap+clr.w idiom (8c).
+- Fine: d4-not-d7 controller read with the incident writeup; d7 save around the sensor;
+  physics ladder clean and classic-correct.
+
+### test_parent.asm
+
+- **The self-destruct is dead code — the parent is immortal**: `:187` reloads
+  `_parent_life_timer` with PARENT_LIFETIME at the end of every left swing, so the
+  `bne.s .move` at `:162` never falls through and the DeleteChildren/DeleteObject cascade
+  (`:165-166`) — the file's stated purpose — never executes. Separate the swing counter
+  from the lifetime.
+- **The orphan check is false security** (`:84-86`): nothing ever zeroes a child's
+  parent_ptr — a parent deleted via bare DeleteObject leaves a stale pointer into a
+  recyclable slot. Children that outlive parents must validate liveness (check the
+  pointed slot's code_addr) or parents must always cascade.
+- Over-wide movem around GetSineCosine (preserves all but d0/d1) — re-fetch a1 instead
+  (~165 cyc/frame across 3 children). `:28` "~90°/sec" comment: actual ≈ 337°/sec.
+- Fine: child descriptor format exact; orbit math exact, no multiply; RF_MULTISPRITE
+  usage matches the sprites contract.
+
+### Small ones
+
+test_churn: the a0 save/peek/pop around AllocDynamic is dead weight (AllocDynamic
+preserves a0 on all paths — and the comment teaches the wrong contract); `jsr
+DeleteObject / rts` → `jmp` tail. test_enemy: `ENEMY_PATROL_SPEED` defined in two places
+with the step counter silently assuming 1px/frame — add the build-time check; `.draw`
+label unreferenced. test_emitter banner names the wrong label. Init-falls-into-Main
+clobber-header convention inconsistent across all templates — pick one. test_animated:
+same d3/DUR_DYNAMIC bug as test_player. Fine: stress-emitter vs objdef-loaded
+PopulateSpawnedPieceCount asymmetry is real and correctly commented; DplcV ifndef guards
+follow §4.1 verbatim; test_static/demo_box nothing to do.
+
+---
+---
+
+# WAVE 4 — Z80 sound driver (all T-state/byte figures are estimates)
+
+## 26. engine/sound/z80_sound_driver.asm + dac_sample_tab.asm + sound_constants.asm
+
+### High-impact (SIZE — ordered for the ~86 B headroom)
+
+- **H1. Factor the 7× "clear slot + bump ack" mailbox tail** (sites :554-556, :576-578,
+  :593-595, :604-606, :615-617, :640-642, :1375-1377) into a resident helper —
+  **−23..−28 B**, cold path. hl dead at every site (verified).
+- **H2. SndDrv_SetBank rept 8 → djnz loop** (:868-871) — **−10 B**, +~100 cyc per real
+  switch (≤2/frame, absorbed by the ring lead like the documented 200-cyc bound). Caller
+  b-audit done for the known sites; re-audit sound_sfx callers before landing.
+- **H3. DRAIN/DRAINING nop pads → `jr $+2` chains** (:459-462 19 nops; :407-409 21 nops)
+  — **−13 B, cycle-IDENTICAL if counted right** (76/84 T totals must be preserved
+  exactly). CADENCE-SENSITIVE: re-derive the balance comment, VGM $2A histogram under
+  heavy DMA, rendered A/B.
+- **H4. Snd_StartSample descriptor walk** (:796-807): sequential inc-walking replaces
+  push/pop + two ld de/add hl — **−6 B**, cold.
+
+### Medium
+
+- **M1. `.seq_clr` byte loop → LDIR** (:1105-1113): −1 B and halves the ~660-byte wipe
+  (~27.7k → ~13.9k cyc) — directly widens the mid-drum song-load margin the :1045 comment
+  leans on. Verify mid-drum load, ring lead ≥ 0.
+- **M2.** Timer-A bulk-refill inner loop ~108 cyc/byte — restructure would help worst-case
+  refills but GROWS code; not recommended now, logged as a lever if sustained-DMA
+  wow/flutter is ever measured.
+- **M3.** `.chan_init` push/pop bc looks removable (−2 B) — needs a body-write proof +
+  comment guard.
+
+### Micro
+
+`jp z,.music_stop` → jr (−1 B); shared silence stub option (~−6 B); DacLookup 8-bit ×9
+(−1..2 B, needs a `count*9 ≤ 255` assert). **DO NOT touch the hot loop** (:352-388) —
+every instruction is load-bearing in the 195-cycle balance; the shadow-de′ FILL idea
+CHANGES the sample clock (+~149 cents) — deliberate-retune-only, not an optimization.
+
+### Possible bugs / mismatches
+
+- **B1 (REAL, oracle-invisible): boot-window garbage.** boot.asm loads the sound blob
+  INSTEAD of the RAM-clearing idle program, so SfxChannels ×7, duck bytes, and SeqChannels
+  are power-on garbage until the first Snd_LoadSong. `Sequencer_Frame` jumps to `.run_sfx`
+  even with SND_SEQ_ACTIVE=0 → **Sfx_Frame walks 7 garbage channels every frame from the
+  first tick** (garbage SCF_ACTIVE ⇒ stream interpretation over random pointers — chip and
+  bank-latch writes possible); garbage duck folds into every pre-song volume write.
+  Exposure: boot → first PlayMusic. **Net-zero fix:** replace init's
+  `ld (SND_SFX_QUEUE_CNT),a` (:205) with `call Sfx_StopAll` (clears active bits,
+  priorities, queue cnt, both duck bytes; returns a=0; pre-ei). Also fix the header
+  comment ("over the idle program" → "instead of").
+- **B2. Snd_LoadSong repost race — Z80-side shape for snapshot-and-clear-early:** all five
+  param reads move to entry; bank→SND_SONG_BANK and ptr→Snd_SongBase survive the wipe
+  (0 net); PATCHPTR must stage via push/pop (+2 B — SND_SEQ_PATCHTAB is INSIDE the wiped
+  region, the exact bug :1101-1104 records); FLAGS stashes via SND_FM6_ADAPTIVE (+6 B);
+  clear moves to entry AFTER the snapshot (snapshot-first residual window ~1000× smaller
+  than today's). **Net ≈ +8 B** — pay from H1/H2. Zero-byte fallback: clear-early alone
+  (fixes the swallowed-repost half; a torn load self-heals next poll, SH_CHCOUNT clamp
+  bounds one garbage frame).
+- **B3.** Snd_LoadSong header claims ISR-only reach (":1042 the DAC loop is PAUSED") —
+  false since the Timer-A tick services the mailbox (the file contradicts itself at
+  :1122). Replace with the tick-context safety argument. Same stale phrasing at :734.
+- **B4.** :496-497 describes the deleted per-iteration-ei design. **B5.** :1439/:1452
+  "main.asm's phase block" → the soundBankHead macro (sound_bank.inc) is the contract now.
+
+### sound_constants.asm audit
+
+Stale/wrong: :23 SND_REQ_SFX "reserved (Phase 1C)" (live mailbox); :836-838 sfh_priority
+bit7 "RESERVED (Stage B)… keep < $80" (Stage B/C LANDED — bit 7 is the live non-latching
+flag, the guidance is now wrong); :841-849 sfh_gain/sfh_cap "INERT in Stage A" (both read
+live); :96 vs :98 LFO-rate self-contradiction (:98 still says the value :96 explicitly
+corrects); :62 SND_SAMPLE_TEST dead + stale label; request-slot list silently skips +$04
+(placeholder comment wanted); SND_SEQ_TEMPO legacy note accurate (first byte to reclaim if
+needed). Everything else verified: Timer-A pin + retune tripwire, SND_LOOP_CYC matches the
+verified loop, the derived-chain asserts complete, SeqChannel/SfxChannel shared-prefix +
+(ix+d) range asserts, MEV opcode-space asserts exhaustive.
+
+### dac_sample_tab.asm
+
+Banked (zero headroom cost); 5 dead bytes/descriptor are deliberate forward-compat —
+don't resident-ize without touching Snd_DacLookup's ×9. Size assert present; ids/offsets
+verified vs the constants and Snd_StartSample's reads. :12 same soft-stale main.asm
+pointer.
+
+### Checked and already fine
+
+**Cycle-balance proof re-derived and matches exactly** (FILL 195 / DRAIN 195 / DRAINING
+194; exx preserves flags so the post-exx jp z is correct). No code executes from the
+$8000 window (data-only, stated + honored). Timer-A mailbox reach paths + spill/reload
+bracketing correct; PollMailbox_Banked restores the possibly-NEW sample bank in the right
+order. SetBank 9th-bit xor fix correct. Ring math safe (PRIME 128 ≤ TARGET 200 < 256; WR
+can never lap RD; page-wrap sound under the 256-align assert). `.stop` ordering matches
+the click-avoidance rationale. Idle-loop ei window genuinely catches the /INT pulse. Blob
+even-pad + code-ceiling asserts correct.
+
+**Landing order (size ledger):** H1 −23..28 → H2 −10 → H3 −13 (cadence-audit) → H4 −6 →
+B1 ±0 (bug fix) → B2 +8 (race fix) → M1 −1 ⇒ **net ≈ −45..−50 B**.
+
+---
+
+## 27. engine/sound/sound_sequencer.asm + seq_opcode_tab.asm
+
+**Per-tick worst case ≈ 35,000 T ≈ 58% of the Z80 frame** (10 channels, note-ons, 2 patch
+loads); held-note frames ≈ 6,100 T ≈ 10% — the write-on-change discipline genuinely works.
+
+### High-impact
+
+- **H1. The per-channel tempo gate is provably redundant** (:94-97): the loader seeds all
+  channels identically and the only other writer broadcasts one value — all accumulators
+  are in lockstep forever. Real S3K uses ONE global TempoWait — a global gate is MORE
+  S3K-exact. Compute once per frame, test per channel. **−40 T/ch/frame (~−400 @10ch),
+  −15..25 B resident, −2 B/channel RAM.** Verify: no per-channel writer (checked: none);
+  A/B onset timing vs mt_ref.vgm/S3K refs; SFX Sfx_Frame separate (spot-check).
+- **H2. Page-align SeqOpcodeTable + high-byte-constant dispatch**: move the table to FIRST
+  in soundBankHead (the phase block is align $8000 → page-aligned for free). Dispatch
+  ~114 T → ~84 T, 13 B vs 17 B. **−30 T per coord op, −4 B.** Verify: no consumer assumes
+  sound_tables_z80 starts at exactly $8000; lst check `& $FF == 0`; golden self-test.
+- **H3. `jp Seq_ContinueFetch` double-jump → retarget to `Sequencer_NextOpcode.fetch`**
+  (~14 handlers, 3 B either way) — **−10 T per zero-tick op, zero size**. Keep the
+  trampoline for the four `jr` users.
+
+### Medium
+
+- **M1.** `sc_porta_incr` high byte is 0 by construction (both writers force it) — drop
+  the `or (ix+…+1)` from 4 gate sites: −19 T/ch/frame, **−up to 12 B**.
+- **M2.** Cache `sc_flags` in a register through ModUpdate (4-6 separate bit (ix+d) tests
+  @20 T) — −40..60 T/ch/frame; HAZARD: Fm_NoteOff mutates the flags mid-routine — reload
+  after mutating calls or restrict to the pre-notefill gates.
+- **M3.** Factor Porta_Apply's EIGHT near-identical 16-bit compare ladders (~11 B each)
+  into one helper — **−40..60 B resident** at +28 T/call (glide frames only). The single
+  biggest clean size recovery in the file.
+- **M4.** Seq_HookNoteOn/SetVol operand hoists — −5..8 B.
+
+### Micro
+
+`.multipoint`/OpBias pointer-math folds (−4 B, −20 T each, arp-hot); PitchEnv tail reload
+→ `dec c/ret nz` (−2 B); inline the dec-gate = +5 B → REJECT under the space regime;
+all-channels-ended songs keep walking (an active-count fold would save ~500 T/frame in
+that state, +bytes, optional).
+
+### Possible bugs / mismatches
+
+- **B1. PSG portamento down-glide 16-bit underflow evades the snap** (:332-346): rate >
+  current divisor wraps to $FFxx, the overshoot test reads it as still-above, stores a
+  garbage divisor, keeps gliding through wrapped space up to ~65536/rate frames. Trigger:
+  high note (top 13 divisors are 1!) + fast glide down. FM shielded by FnumApplyDelta
+  (verify). Fix: snap on the borrow (`jr c,.psg_snap` off the sbc).
+- **B2. A vol-env body whose byte 0 is $80 (Loop) hangs the driver** (Psg :701-706 / Fm
+  :779-783): loop→cursor 0→$80→infinite loop inside the Timer-A tick (DAC starves).
+  Hand-authored bodies, no packer between author and driver. **Zero-Z80-byte fix:
+  build-time assert in the table generator (first body byte < $80).**
+- **B3.** Mod_Advance FM pack can bleed into block bits at the extremes (block 7 +
+  fnum+accum ≥ $800; single-step correction skipped) — likely unreachable with authored
+  deltas; document or clamp.
+- **B4/B5.** Stale reserved-opcode range comment (:1785 vs the table's actual $F1,
+  $FA-$FE); stale line refs (:1842; sound_constants :999 claims sc_last_pan is the
+  largest offset — it's sc_detune +58, the assert is what actually protects it).
+- **B6.** Sequencer_StopAll leaves SCF_KEYED/SCF_ACTIVE stale (known) — see the SFX
+  review's B1 for the missed consumer; add the contract comment.
+
+### Checked and already fine
+
+Dispatch idiom right given hl-must-survive; banked-table/resident-handler split honored +
+asserted; zero-tick fetch keeps hl live with documented push/pop invariants; channel walk
+add-ix-de with offsets < +127 asserted; write-on-change enforced at every render seam;
+MacroTick's unmasked part byte safe (Fm_YmWrite tests bit 0 only); timer/DAC guards in
+both raw-write doors; RepeatEnd edges verified; ModSet no-ordering-hazard; no iy in
+per-tick paths, no mul/div, djnz where it fits.
+
+---
+
+## 28. engine/sound/sound_sfx.asm
+
+### Invariant status (B0 — the three load-bearing Stage B/C invariants)
+
+1. **7-bit priorities + bit7 flag: INTACT at source** (build-fatal guard confirmed;
+   runtime masks correctly) — but see B2 for queue drift.
+2. **SfxChannel=68 / sx_pad+58 stays 0: INTACT** (struct assert; full-struct wipe on every
+   allocation; no +58 writers; transcoder never emits MEV_DETUNE) — but protected only by
+   transcoder CONVENTION (B4).
+3. **StopAll/SCF_KEYED gotcha: STILL LATENT at source; Sfx_Restore carries the fix — but a
+   second consumer was missed** (B1).
+
+### Possible bugs
+
+- **B1 (HIGH confidence, audible). `Sfx_DuckRamp` re-asserts volume on a STOPPED song's
+  channels** (:358-383): the held-note re-assert walk gates on per-channel
+  ACTIVE/OVERRIDE/KEYED only — **no SND_SEQ_ACTIVE gate** (unlike Sfx_Restore:1069).
+  StopMusic → stale KEYED PSG channel → any ducking SFX → the ramp's "changed" path walks
+  the dead song's channels → Psg_SetVolume un-silences the channel at its stale latched
+  tone → **drones until the next song load** (Psg_SilenceAll writes attenuation only,
+  never tone). FM side benign. Fix (+5 B): gate the WALK on SND_SEQ_ACTIVE after `.store`
+  (the level must still update). Verify: hotkey build, StopMusic mid-note + ducking SFX,
+  listen + oracle-read PSG latches; rendered A/B.
+- **B2 (latent drift).** Queue arbitration compares RAW priority (SfxDispatch:572 enqueues
+  unmasked; drain max-scan + overflow eviction compare it) — a future bit7 SFX would get
+  +128 queue weight, contradicting the 7-bit model. 2-byte fix (`res 7,b`).
+- **B3 (design note).** Continuous-SFX pings consume the one-per-frame drain — a per-frame
+  ping at priority P starves lower-priority queued SFX until pings stop. The 5b
+  dispatch-stage extend (consume pings before the queue) is the fix; concrete reason to
+  prioritize it.
+- **B4.** Alias fields (sc_noise_mode≡sx_priority, sc_detune≡sx_pad) protected only by
+  "the transcoder drops those ops" comments — add python-side asserts ($F2/$F6 never in
+  SFX streams) + a test: zero Z80 bytes.
+- **B5.** Stale comment z80_sound_driver:590 ("resolve blob + init slot 0 + steal voice" —
+  SfxDispatch only enqueues since Task 9).
+
+### High-impact (SIZE): S1-S6 ≈ −80..110 B total
+
+S1 merge the duplicated id→blob resolve preamble (Dispatch vs BeginSound, ~35 B each) —
+−25..30 B. S2 build-time SfxSlotKind table collapses the slot→kind double table chase —
+−13..20 B net + cycles. S3 page-fit assert on the 29-byte contiguous table block → drop
+the carry-propagate triplet at ~7 sites — −16..24 B, drift-proofed by the assert. S4
+restructure DrainQueue's scan to the fixed-address 3-way max the enqueue overflow path
+already proves — −15..25 B (preserve the earlier-slot tie rule). S5 slot wipe 16-bit
+counter → djnz or LDIR — −3 B + ~1,000 T per SFX start (add `len ≤ 255` assert). S6
+dedupe the two identical channel-record stride blocks — −8..12 B (or stash iy in the
+unused-by-5a SND_SFX_QUEUE_HEAD/TAIL pair — zero new RAM).
+
+### Medium / Micro
+
+M1 steady-state de hoist = +3 B (code-growing — only after headroom recovers). M2 scan
+RAM re-reads (small). M3 worst-case trigger frame ≈ ~15k T ≈ 25% of a Z80 frame (2-ch FM
+steal ×2) — trigger-frame only; steady-state idle ≈ 0.6k T; the drain-one-per-frame
+design already amortizes bursts. M4 Sfx_Frame banks SFX_BLOB_BANK every frame — cached
+no-op today via the same-bank assert; keep it load-bearing. Micro: QueueEntryPtr header
+over-claims a; drain tie comment "FIFO" only true absent overflow; Stage-C countdown
+tri-state correct (verified) — add the "inc = $FF test" comment.
+
+### Checked and already fine
+
+Override-gate coverage COMPLETE for current content (ModUpdate early-return, RekeySingle
+pending-arm, RegDelta consume-skip, PsgNoise latch-skip, MacroTick gates; RegWrite's
+deliberate non-gate documented with its growth condition). **FM restore completeness
+verified**: patch re-upload + op-bias, pan shadow zeroed for MEV_PAN refire, volume
+re-fold with live duck, re-key from sc_base_freq via NoteOnFreqExact (avoids both the
+NOTE_RAW wrong-note trap and double-detune), keyed-off-between-notes symmetric. PSG/noise
+restore on-change + rate-3 clock re-emit + no-music silencing all correct.
+MusicKeyOffKeepKeyed's flag-safe KEYED snapshot verified against both NoteOffs.
+Arbitration ordering correct (MinActiveKind before own ACTIVE; victim restore before slot
+re-init). Queue overflow semantics match the documented model; StopAll drains the queue +
+resets duck; Snd_LoadSong calls it. Bank discipline correct incl. the cold-boot no-song
+case. The `:1278-1299` edge-case audit block re-verified — none of its four claims has
+drifted.
+
+---
+
+## 29. engine/sound/sound_fm.asm + sound_psg.asm + sound_tables_z80.asm
+
+### ⓪ YM2612 write-spacing audit — **VERDICT: PASS** (every path spaced by construction)
+
+No busy-poll by design; every YM write funnels through `Fm_YmWrite` (:59-72). Traced every
+caller against conservative hardware numbers: address→data 21 T ≥ ~8 T ✓ (even without
+the nop it matches shipped SMPS); data→next-address tightest path ~50 T ≥ ~39 T ✓; no
+path reaches a second write in under ~50 T. $28 always part I ✓; $A4-before-$A0 everywhere
+✓; single-threaded vs DAC (every YM-touching entry terminates in Fm_ReparkDac — verified
+at all 8 sites); no $2B write exists in either file ✓. Caveat: 68k-side YM writes
+(init/error) are uncoordinated — fine while they only happen with the driver stopped
+(see boot finding 3).
+
+### sound_fm.asm
+
+High: **1.** Fm_WriteFreq's scratch round-trip is dead weight in the hottest path
+(:942-968, per-frame vibrato/porta): Fm_YmWrite preserves bc — keep ch/part in registers,
+delete 4 loads + 2 stores: **−14 B, −80 T per modulated channel per frame** (no external
+scratch readers — grepped). **2.** Fm_SetVolume calls Snd_ChanClass TWICE for mutually
+exclusive folds (:358, :410) — one call dispatches both: **−5 B, −65 T per volume write**
+(fires per note AND per duck/fade frame). **3.** Factor the 4× RoutePart+stash prologue —
+**−13..20 B**.
+Medium: PatchOpGroup re-reads invariants per op (hoist base+ch: ~−900 T/patch load,
+size-neutral); the fold-clamp block repeats 3× (~−12..15 B); PatchLoad header-write
+scratch reloads (−10 B).
+Micro: the two nops in Fm_YmWrite are removable (−2 B, −8 T per write — every write in
+the driver; 17 T still exceeds the ~8 T requirement and matches shipped SMPS; keep only
+as insurance); Fm_NoteOff header over-claims de.
+Bugs: **10.** stale "INLINE, not banked" header (:21-26) — the tables ARE banked-window
+data (the per-use comments are correct; fix the header + the twin claims in psg/tables).
+**11.** Fm_PatchLoad writes $B4 from the patch (:179-186) — clobbers sc_pan on mid-song
+patch changes unless the sequencer re-asserts pan after MEV_PATCH; verify sequencer-side
+or source the $B4 byte from sc_pan. **12.** FnumApplyDelta block-bit bleed at extremes
+(block 0/7 corrections skipped) — unreachable with current ±127 detunes; document.
+Fine: part I/II pairs + chsel gap correct; RegDelta extraction matches the build-asserted
+constants; FM6/DAC keyon gate at the single chokepoint covers all producers (ungated FM6
+TL/freq/pan writes while DAC owns ch6 are harmless); EG retrigger discipline correct;
+CarrierMaskTableZ correct for the physical op order; TransposeClamp + the alg-5+ opbias
+fix verified.
+
+### sound_psg.asm
+
+High: **1 (likely REAL bug).** `Psg_ApplyMod`'s floor guard doesn't match its own comment
+(:299-308): "clamp to 1, not 0" but the code clamps only NEGATIVE sums — an exact-zero
+divisor (top 13 table entries have divisor 1; accum −1 reaches it) passes and writes
+divisor 0 to the chip (chip-ambiguous). Psg_EmitNoiseClock does it right (:373-377) —
+copy that clamp (+5 B). Behavioral → rendered A/B. **2.** PsgVolEnv_Resolve /
+FmVolEnv_Resolve are byte-identical except three constants — merge: **−17 B resident,
+zero cycles — the single biggest headroom win in these files.** **3.** Single
+Snd_ChanClass in Psg_SetVolume (+ deletes a push/pop): **−9 B, −90 T per PSG volume write**
+(hot via PsgEnvUpdate).
+Medium: Psg_VolToAtten rewrite (`cpl/and $7F/srl×3` — provably identical for all 256
+inputs): −3 B, frees b; **5.** Psg_NoteOn's detune fold has NO range guard (negative
+detune on divisor-1 notes wraps to $FFxx — same failure family as finding 1); **6.** no
+pitch clamp on the PSG note path (note > 94 reads past the table into LogVolumeLutZ) —
+verify upstream clamping or comment the asymmetry vs FM's TransposeClamp.
+Micro: env-fold clamp is one table away from a channel-select-corrupting wrap (max delta
+$10 + max atten $0F = $1F exactly — a future env byte ≥ $11 ORs into the latch channel
+bits): generator-side assert. Dead labels `.skip_base_latch`/`.skip_rearm`; contradictory
+hl comments; stale banked-claim header.
+Fine: no-PSG-delay is correct on MD (VDP wait-states the Z80); mute values correct;
+noise discipline matches the deliberate S3K-faithful MEV_PSGNOISE design; volume order
+gain→env→duck with per-stage clamps; ch<<5 via rrca×3 valid; ix-preservation holds.
+
+### sound_tables_z80.asm
+
+**1.** Header flatly wrong about placement ("no $8000-window banking" — sole include site
+is INSIDE the bank-head phase block); fix in tools/gen_sound_tables.py's header emission.
+Consequence worth knowing: the tables cost ZERO resident headroom. **2.** No size asserts
+on the four core tables (FmPitchTableZ/PsgDivisorTableZ 190 B each, LogVolumeLutZ 256,
+CarrierMaskTableZ 8) — FMPITCH_MAX_IDX currently trusts a comment; generator-emit the
+asserts. Fine: pitch table 95 entries, block-0 octave = FNUM_LO exactly, little-endian
+matches the read order; divisor clamps ($3FF floor, 1 ceiling — which is what makes the
+PSG findings live); log LUT monotonic; env ctl bytes match the S3K-exact format with the
+S3K relative-jump bug deliberately not replicated.
+
+**FM/PSG size ledger: ~55-70 B reclaimable, chip-stream-identical except the Psg_ApplyMod
+fix (the only rendered-A/B-required change).**
