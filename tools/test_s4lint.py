@@ -20,7 +20,7 @@ from tools.s4lint import (
     parse_numeric, _extract_address_value,
     check_e001, check_e002, check_e003, check_e004,
     check_e005_track, _count_dc_b_items, _count_ds_b_items,
-    run_checks, _parse_suppressed,
+    run_checks, _parse_suppressed, flush_w021,
     check_warnings,
     _is_dreg, _is_areg, _is_memory_operand, _parse_immediate,
     lint_file,
@@ -977,6 +977,7 @@ def _lint_lines(lines_str, filepath="engine/test.asm"):
         t = tokenize_line(line)
         suppressed = _parse_suppressed(t.comment) if t.comment else set()
         run_checks(ctx, t, i, line, suppressed)
+    flush_w021(ctx)
     return ctx.diagnostics
 
 
@@ -1395,6 +1396,7 @@ def _lint(line, filepath="engine/test.asm"):
     t = tokenize_line(line)
     suppressed = _parse_suppressed(t.comment) if t.comment else set()
     run_checks(ctx, t, 1, line, suppressed)
+    flush_w021(ctx)
     return ctx.diagnostics
 
 
@@ -1405,6 +1407,7 @@ def _lint_lines_w(lines_str, filepath="engine/test.asm"):
         t = tokenize_line(line)
         suppressed = _parse_suppressed(t.comment) if t.comment else set()
         run_checks(ctx, t, i, line, suppressed)
+    flush_w021(ctx)
     return ctx.diagnostics
 
 
@@ -2634,6 +2637,434 @@ class TestW021_WriteSetVsHeader(unittest.TestCase):
 
     def test_suppressed(self):
         w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    move.w d5, d3  ; lint: disable=W021\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_individual_push_preserved_not_flagged(self):
+        # d1 is written but SAVED via push and restored → preserved for the
+        # caller, so the header correctly omits it → no W021 (not an
+        # under-declaration; the individual-push preservation FP class).
+        w = self._warns(
+            self.HDR + "; Clobbers: d0\nR:\n"
+            "    move.w  d1, -(sp)\n"
+            "    move.w  a0, d1\n"
+            "    move.w  (sp)+, d1\n"
+            "    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_movem_saved_not_flagged(self):
+        w = self._warns(
+            self.HDR + "; Clobbers: d0\nR:\n"
+            "    movem.l a3, -(sp)\n"
+            "    movea.l a0, a3\n"
+            "    movem.l (sp)+, a3\n"
+            "    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_unsaved_write_still_flagged(self):
+        # A register written but NOT saved is a genuine undeclared clobber.
+        w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    move.w d5, d1\n    rts\n")
+        self.assertEqual(len(w), 1)
+        self.assertIn("d1", w[0].message)
+
+    def test_push_without_restore_still_flagged(self):
+        # A PUSH alone does not prove preservation — without a matching restore
+        # the register IS clobbered for the caller, so it must still be flagged.
+        w = self._warns(
+            self.HDR + "; Clobbers: d0\nR:\n"
+            "    move.w  d1, -(sp)\n"
+            "    move.w  a0, d1\n"
+            "    rts\n"           # no `move.w (sp)+, d1` restore
+        )
+        self.assertEqual(len(w), 1)
+        self.assertIn("d1", w[0].message)
+
+    def test_flush_per_routine_boundary(self):
+        # A saved-but-unrestored register in routine A is flagged; a fully
+        # push/pop-preserved register in routine B is not — each routine's
+        # verdict is independent (flush at the global-label boundary).
+        w = self._warns(
+            "; A\n; Clobbers: d0\nA:\n    move.w d1, -(sp)\n    move.w a0, d1\n    rts\n"
+            "; B\n; Clobbers: d0\nB:\n    move.w d2, -(sp)\n    move.w a0, d2\n    move.w (sp)+, d2\n    rts\n"
+        )
+        regs = sorted(m for d in w for m in ("d1", "d2") if m in d.message)
+        self.assertEqual(regs, ["d1"])
+
+
+# ---------------------------------------------------------------------------
+# W022: loop-invariant memory operand inside a dbf loop (hoist candidate)
+# ---------------------------------------------------------------------------
+
+class TestW022_LoopInvariantMemOperand(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W022"]
+
+    def test_invariant_absolute_read_warns(self):
+        # Camera_X is read every iteration but never written in the loop → hoistable.
+        w = self._warns(
+            "R:\n"
+            ".loop:\n"
+            "    move.w  Camera_X, d0\n"
+            "    add.w   d0, d1\n"
+            "    dbf     d2, .loop\n"
+        )
+        self.assertEqual(len(w), 1)
+        self.assertIn("Camera_X", w[0].message)
+
+    def test_operand_written_in_loop_not_flagged(self):
+        # Camera_X is stored to in the loop → not invariant.
+        w = self._warns(
+            "R:\n"
+            ".loop:\n"
+            "    move.w  Camera_X, d0\n"
+            "    move.w  d1, Camera_X\n"
+            "    dbf     d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_read_outside_any_loop_not_flagged(self):
+        w = self._warns("R:\n    move.w  Camera_X, d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_register_indirect_invariant_base_warns(self):
+        # `4(a0)` with a0 unmodified in the loop IS loop-invariant (the FlatIDXY
+        # `Act_grid_w(a2)` case the review names) → hoistable.
+        w = self._warns(
+            "R:\n.loop:\n    move.w  4(a0), d0\n    add.w d0, d1\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 1)
+        self.assertIn("4(a0)", w[0].message)
+
+    def test_autoinc_base_not_flagged(self):
+        # `(a0)+` advances a0 — it is iterating, not invariant.
+        w = self._warns(
+            "R:\n.loop:\n    move.w  (a0)+, d0\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_base_modified_in_loop_not_flagged(self):
+        # a0 is advanced in the loop → 4(a0) is not invariant.
+        w = self._warns(
+            "R:\n.loop:\n    move.w  4(a0), d0\n    addq.l #2, a0\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_write_through_base_not_flagged(self):
+        # A write through a0 in the loop → conservatively not invariant (aliasing).
+        w = self._warns(
+            "R:\n.loop:\n    move.w  4(a0), d0\n    move.w d1, (a0)\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_call_in_loop_suppresses(self):
+        # A bsr/jsr in the loop can clobber any register or memory location →
+        # conservatively emit nothing for that loop (best-effort, noise-free).
+        w = self._warns(
+            "R:\n.loop:\n    move.w  4(a0), d0\n    bsr.w Helper\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_movem_load_of_base_not_flagged(self):
+        # `movem.l (sp)+, a0` RELOADS a0 each iteration → 4(a0) is not invariant
+        # (movem register-list loads must count as writes to those registers).
+        w = self._warns(
+            "R:\n.loop:\n    movem.l (sp)+, a0\n    move.w 4(a0), d0\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_indexed_operand_not_flagged(self):
+        # `(a0,d0.w)` — the index may vary; not treated as invariant.
+        w = self._warns(
+            "R:\n.loop:\n    move.w  (a0,d0.w), d1\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_rmw_counter_not_flagged(self):
+        # addq to an absolute counter writes it → not invariant.
+        w = self._warns(
+            "R:\n.loop:\n    addq.w #1, Frame_Count\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_dedup_once_per_operand(self):
+        w = self._warns(
+            "R:\n.loop:\n"
+            "    move.w  Camera_X, d0\n"
+            "    move.w  Camera_X, d1\n"
+            "    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 1)
+
+    def test_dbf_target_mismatch_not_analyzed(self):
+        # dbf targets an EARLIER label than the buffered one → body is partial,
+        # so no analysis (avoids false positives on a partial body).
+        w = self._warns(
+            "R:\n"
+            ".outer:\n"
+            "    move.w  d1, Camera_X\n"   # writes Camera_X (in the true body)
+            ".inner:\n"
+            "    move.w  Camera_X, d0\n"   # read; buffer starts at .inner
+            "    dbf d2, .outer\n"          # but dbf targets .outer → don't analyze
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_suppressed(self):
+        w = self._warns(
+            "R:\n.loop:\n    move.w Camera_X, d0  ; lint: disable=W022\n    dbf d2, .loop\n"
+        )
+        self.assertEqual(len(w), 0)
+
+
+# ---------------------------------------------------------------------------
+# W023: ifdebug CCR setup consumed by a release-side conditional (CCR divergence)
+# ---------------------------------------------------------------------------
+
+class TestW023_IfdebugCCRDivergence(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W023"]
+
+    def test_ifdebug_ccr_then_release_branch_warns(self):
+        # The last CCR-writer before the release `beq` is an ifdebug instruction;
+        # in release it vanishes → the branch reads a different CCR.
+        w = self._warns(
+            "R:\n"
+            "    ifdebug move.w  d4, d0\n"
+            "    ifdebug andi.w  #1, d0\n"
+            "    beq.s   .x\n"
+            ".x:\n    rts\n"
+        )
+        self.assertEqual(len(w), 1)
+
+    def test_release_ccr_writer_between_no_warn(self):
+        # A release CCR-writer (tst) between the ifdebug and the branch → the
+        # branch reads the release instruction's flags → consistent, no hazard.
+        w = self._warns(
+            "R:\n"
+            "    ifdebug move.w  d4, d0\n"
+            "    tst.w   d1\n"
+            "    beq.s   .x\n"
+            ".x:\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_ifdebug_consumer_no_warn(self):
+        # The consumer is itself ifdebug → debug-only, no release divergence.
+        w = self._warns(
+            "R:\n"
+            "    ifdebug move.w  d4, d0\n"
+            "    ifdebug beq.s   .x\n"
+            ".x:\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_label_between_resets(self):
+        # A label between the ifdebug setup and the branch — the branch is a
+        # reachable target, CCR predecessor is unknown → no hazard assumed.
+        w = self._warns(
+            "R:\n"
+            "    ifdebug move.w  d4, d0\n"
+            ".mid:\n"
+            "    beq.s   .x\n"
+            ".x:\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_no_ifdebug_no_warn(self):
+        w = self._warns("R:\n    tst.w d0\n    beq.s .x\n.x:\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_suppressed(self):
+        w = self._warns(
+            "R:\n"
+            "    ifdebug andi.w #1, d0\n"
+            "    beq.s   .x  ; lint: disable=W023\n"
+            ".x:\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+
+# ---------------------------------------------------------------------------
+# W024: RaiseError / Console invocation outside an __DEBUG__ gate
+# ---------------------------------------------------------------------------
+
+class TestW024_DebugMacroUngated(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W024"]
+
+    def test_raiseerror_ungated_warns(self):
+        w = self._warns("R:\n    RaiseError \"boom\"\n    rts\n")
+        self.assertEqual(len(w), 1)
+        self.assertIn("RaiseError", w[0].message)
+
+    def test_raiseerror_in_debug_gate_no_warn(self):
+        w = self._warns(
+            "R:\n    ifdef __DEBUG__\n    RaiseError \"boom\"\n    endif\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_raiseerror_ifdebug_prefix_no_warn(self):
+        w = self._warns("R:\n    ifdebug RaiseError \"boom\"\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_console_ungated_warns(self):
+        w = self._warns("R:\n    Console.WriteLine \"hi\"\n    rts\n")
+        self.assertEqual(len(w), 1)
+
+    def test_else_branch_of_debug_gate_warns(self):
+        # The `else` of `ifdef __DEBUG__` is the RELEASE branch → ungated.
+        w = self._warns(
+            "R:\n    ifdef __DEBUG__\n    nop\n    else\n"
+            "    RaiseError \"boom\"\n    endif\n    rts\n"
+        )
+        self.assertEqual(len(w), 1)
+
+    def test_nested_nondebug_if_inside_debug_gate_no_warn(self):
+        w = self._warns(
+            "R:\n    ifdef __DEBUG__\n    if 1\n    RaiseError \"x\"\n"
+            "    endif\n    endif\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_suppressed(self):
+        w = self._warns("R:\n    RaiseError \"boom\"  ; lint: disable=W024\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+
+# ---------------------------------------------------------------------------
+# W025: adda.w #imm, aN where lea imm(aN), aN fits (same size, faster / idiom)
+# ---------------------------------------------------------------------------
+
+class TestW025_AddaImmToLea(unittest.TestCase):
+
+    def _warns(self, line):
+        return [d for d in _lint(line) if d.code == "W025"]
+
+    def test_adda_w_imm_suggests_lea(self):
+        w = self._warns("    adda.w  #128, a1")
+        self.assertEqual(len(w), 1)
+        self.assertIn("lea 128(a1), a1", w[0].message)
+
+    def test_adda_w_symbol_imm_suggests_lea(self):
+        w = self._warns("    adda.w  #TILE_SIZE, a1")
+        self.assertEqual(len(w), 1)
+        self.assertIn("lea TILE_SIZE(a1), a1", w[0].message)
+
+    def test_adda_w_small_imm_suggests_addq(self):
+        w = self._warns("    adda.w  #4, a0")
+        self.assertEqual(len(w), 1)
+        self.assertIn("addq", w[0].message)
+
+    def test_adda_l_not_flagged(self):
+        # .l immediate may exceed a 16-bit displacement — lea might not fit.
+        w = self._warns("    adda.l  #128, a1")
+        self.assertEqual(len(w), 0)
+
+    def test_register_source_not_flagged(self):
+        w = self._warns("    adda.w  d0, a1")
+        self.assertEqual(len(w), 0)
+
+    def test_addq_not_flagged(self):
+        w = self._warns("    addq.w  #4, a0")
+        self.assertEqual(len(w), 0)
+
+    def test_suppressed(self):
+        w = self._warns("    adda.w  #128, a1  ; lint: disable=W025")
+        self.assertEqual(len(w), 0)
+
+
+# ---------------------------------------------------------------------------
+# W026: byte-loaded register consumed by a word/long op without extension (D3-lite)
+# ---------------------------------------------------------------------------
+
+class TestW026_ByteLoadWordUse(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W026"]
+
+    def test_byteload_then_word_index_warns(self):
+        # The Sound_PlaySFX class: byte-loaded d0 used as a .w index (stale high byte).
+        w = self._warns("R:\n    move.b  (a0), d0\n    move.w  Tab(pc,d0.w), d1\n    rts\n")
+        self.assertEqual(len(w), 1)
+
+    def test_byteload_then_tst_w_warns(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 1)
+
+    def test_byteload_then_cmp_w_warns(self):
+        # Comparing a byte-loaded value at word width reads the stale high byte.
+        w = self._warns("R:\n    move.b  (a0), d0\n    cmp.w   #5, d0\n    rts\n")
+        self.assertEqual(len(w), 1)
+
+    def test_byteload_then_move_w_source_not_flagged(self):
+        # A plain `move.w dN, X` value-read is too often an intentional
+        # high-byte use (VDP register words, packed pairs) — not flagged, to
+        # keep the warning noise-free (index + comparison are the flagged shapes).
+        w = self._warns("R:\n    move.b  (a0), d0\n    move.w  d0, (a1)\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_ext_untaints(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    ext.w   d0\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_moveq_untaints(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    moveq   #0, d0\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_andi_clear_high_untaints(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    andi.w  #$00FF, d0\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_byte_use_ok(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    move.b  d0, d1\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_label_resets(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n.mid:\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_no_byteload_no_warn(self):
+        w = self._warns("R:\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_moveq_then_byteload_is_clean(self):
+        # The SAFE idiom: moveq pre-clears the high bits, so the byte-load yields
+        # a valid zero-extended word — no hazard.
+        w = self._warns(
+            "R:\n    moveq   #0, d0\n    move.b  (a0), d0\n    tst.w   d0\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_clr_then_byteload_index_is_clean(self):
+        w = self._warns(
+            "R:\n    clr.w   d0\n    move.b  (a0), d0\n    move.w  Tab(pc,d0.w), d1\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_moveq_negative_then_byteload_not_clean(self):
+        # moveq #-1 sets the high bits to $FF — NOT a clean zero-extend.
+        w = self._warns(
+            "R:\n    moveq   #-1, d0\n    move.b  (a0), d0\n    tst.w   d0\n    rts\n"
+        )
+        self.assertEqual(len(w), 1)
+
+    def test_call_clears_taint(self):
+        # A bsr/jsr can redefine registers (e.g. a word return in d0) — the
+        # byte-taint before the call must not carry across it.
+        w = self._warns(
+            "R:\n    move.b  d3, d0\n    bsr.w   Helper\n    tst.w   d0\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_full_width_move_untaints(self):
+        w = self._warns("R:\n    move.b  (a0), d0\n    move.w  (a1), d0\n    tst.w   d0\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_suppressed(self):
+        w = self._warns("R:\n    move.b (a0), d0\n    tst.w d0  ; lint: disable=W026\n    rts\n")
         self.assertEqual(len(w), 0)
 
 

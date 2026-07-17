@@ -3,9 +3,11 @@
 // macro); the objdef() emitter (engine/objects/objdef.emp) builds each
 // 26-byte record. Byte-identical to the macro (objdef_port byte gate).
 //
-// The game-config values below (VRAM_TEST_OBJ, COLLISION_*, patrol speed)
-// are byte-checked by the gate itself — a drift shows up as a mismatched
-// record byte, so no separate extern() drift guard is carried here.
+// The game-config values below (VRAM_TEST_OBJ, COLLISION_*, patrol speed) are
+// byte-checked by the objdef gate today (a drift shows up as a mismatched record
+// byte) AND carry ensure(extern) drift guards (D11): the byte-gate protection
+// dies with the test_objects.asm twin (Spec 5), but each value's real home is a
+// DIFFERENT .asm that outlives the twin, so the guards keep protecting them.
 module games.sonic4.data.objdefs.test_objects
 
 use engine.objects.sst.{ObjDef}
@@ -15,6 +17,13 @@ const VRAM_TEST_OBJ = $03E0          // games/sonic4/config/constants.asm
 const COLLISION_SOLID = 8            // engine/constants.asm
 const COLLISION_HURT = 3
 const ENEMY_PATROL_SPEED = $100      // games/sonic4/objects/test_enemy.asm (8.8: 1.0 px/frame)
+
+// Drift guards (D11): each const's real home is an .asm that survives the
+// test_objects.asm byte-gate twin. Source of truth stays the .asm side.
+ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "VRAM_TEST_OBJ drifted from config/constants.asm: {VRAM_TEST_OBJ}")
+ensure(extern("COLLISION_SOLID") == COLLISION_SOLID, "COLLISION_SOLID drifted from engine/constants.asm: {COLLISION_SOLID}")
+ensure(extern("COLLISION_HURT") == COLLISION_HURT, "COLLISION_HURT drifted from engine/constants.asm: {COLLISION_HURT}")
+ensure(extern("ENEMY_PATROL_SPEED") == ENEMY_PATROL_SPEED, "ENEMY_PATROL_SPEED drifted from test_enemy.asm: {ENEMY_PATROL_SPEED}")
 
 pub data ObjDef_Static: ObjDef = objdef(
     code: "TestStatic_Main", map: "Map_TestObj", art: vram_art(VRAM_TEST_OBJ))

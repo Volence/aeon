@@ -168,7 +168,7 @@ Parallax_StartTransition:
 ;
 ; In:  none (reads Parallax_Current_Config, Vscroll_Factor)
 ; Out: VSRAM written
-; Clobbers: a5
+; Clobbers: d0, a0, a5
 ;
 ; HARDWARE QUIRK (per-column branch): the VDP's per-column V-scroll grain
 ; is 16 px (one VSRAM entry per column-pair). When Plane B has non-zero

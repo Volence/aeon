@@ -62,6 +62,10 @@ DIAGNOSTIC_LABELS: Dict[str, str] = {
     "W019": "file missing header comment",
     "W020": "tail call — bsr/jsr before rts",
     "W021": "writes register outside declared Clobbers header",
+    "W022": "loop-invariant memory operand inside dbf loop",
+    "W023": "ifdebug CCR setup consumed by release-side conditional",
+    "W024": "debug-only macro (RaiseError/Console) outside __DEBUG__ gate",
+    "W026": "byte-loaded register used at word/long width without extension",
 }
 
 DIAGNOSTIC_SEVERITY: Dict[str, str] = {
@@ -441,10 +445,43 @@ class LintContext:
         # (the check is OFF for that routine — mirrors the .emp lint running only
         # when clobbers() is declared).
         self.declared_writeset: Optional[Set[str]] = None
-        # W021: (register) already warned in the current routine — one warning
-        # per (routine, register), not one per write site (the .emp lint fires
-        # per-instruction; a human-facing .asm warning dedups for readability).
-        self.w021_seen: Set[str] = set()
+        # W021: undeclared-clobber CANDIDATES for the current routine, buffered
+        # {reg: (first_write_line, suppressed_at_that_line)} and flushed at the
+        # routine boundary — the verdict needs the WHOLE routine (a register is
+        # only exempt if it is BOTH saved AND restored, which a streaming
+        # inline emit could not confirm). One warning per (routine, register).
+        self.w021_candidates: Dict[str, Tuple[int, bool]] = {}
+        # W021: registers SAVED (pushed) / RESTORED (popped) in the current
+        # routine. A register that is BOTH is preserved for the caller (the
+        # individual-push / movem idiom) — not an undeclared clobber. A push
+        # WITHOUT a matching restore does NOT prove preservation, so both are
+        # required. Reset per routine.
+        self.w021_saved: Set[str] = set()
+        self.w021_restored: Set[str] = set()
+        # W022: buffered dbf-loop body — (line_num, instr, operands) since the
+        # loop's opening local label, plus that label's name. Analyzed at the
+        # dbf ONLY when the dbf's target matches (else the body is partial and
+        # analysis would false-positive).
+        self.dbf_body: List = []
+        self.dbf_loop_label: str = ""
+        # W023: was the most recent CCR-setting instruction `ifdebug`-prefixed?
+        # True/False once a CCR-writer is seen; None at a flow break (label /
+        # call), where the CCR predecessor of a later conditional is unknown.
+        self.ccr_last_writer_ifdebug: Optional[bool] = None
+        # W026: data registers currently BYTE-tainted (last written by a `move.b`
+        # into them, so their high bits are stale). Cleared by a full-width write
+        # or an ext, and at any label (flow break). Straight-line, best-effort.
+        self.byte_tainted: Set[str] = set()
+        # W026: registers whose high bits are KNOWN ZERO (`moveq #0..127` / clr /
+        # high-clearing andi). A `move.b` into such a register is a valid
+        # zero-extended byte (the SAFE `moveq #0 / move.b` idiom) → NOT tainted.
+        self.high_clean: Set[str] = set()
+
+        # W024: conditional-assembly stack — one entry per open `if`/`ifdef`
+        # block, each "debug" (inside a true `__DEBUG__` branch) / "release"
+        # (the false branch of a `__DEBUG__` test) / "other". File-global (an
+        # ifdef can wrap multiple routines), so NOT reset per routine.
+        self.cond_stack: List[str] = []
 
         # Block-level guards (linting is suppressed inside these blocks)
         self.in_struct: bool = False
@@ -464,7 +501,14 @@ class LintContext:
         self.label_since_last_instr = False
         self.pending_w006 = None
         self.declared_writeset = None
-        self.w021_seen = set()
+        self.w021_candidates = {}
+        self.w021_saved = set()
+        self.w021_restored = set()
+        self.dbf_body = []
+        self.dbf_loop_label = ""
+        self.ccr_last_writer_ifdebug = None
+        self.byte_tainted = set()
+        self.high_clean = set()
 
     def check_routine_end(self, line_num: int) -> None:
         """Run checks at rts/rte — paired-resource validation."""
@@ -1295,6 +1339,393 @@ def _written_regs(instr: str, operands: List[str]) -> Set[str]:
     return regs
 
 
+def _saved_registers(instr: str, operands: List[str]) -> Set[str]:
+    """The registers a PUSH saves: `move.X rN, -(sp)` → {rN}; `movem.X <list>,
+    -(sp)` → the whole list. A register saved this way is preserved for the
+    caller (paired with a later restore), so W021 must not treat it as an
+    undeclared clobber."""
+    if not operands:
+        return set()
+    dst = operands[-1].strip().lower().replace(" ", "")
+    if dst not in ("-(sp)", "-(a7)"):
+        return set()
+    src = operands[0].strip()
+    if instr == "movem":
+        return _expand_reglist(src)
+    if _is_dreg(src) or _is_areg(src):
+        return {_canon_reg(src)}
+    return set()
+
+
+def _restored_registers(instr: str, operands: List[str]) -> Set[str]:
+    """The registers a POP restores: `move.X (sp)+, rN` → {rN}; `movem.X (sp)+,
+    <list>` → the whole list. A register that was saved AND is restored here is
+    preserved for the caller — the other half of W021's preservation check."""
+    if len(operands) < 2:
+        return set()
+    src = operands[0].strip().lower().replace(" ", "")
+    if src not in ("(sp)+", "(a7)+"):
+        return set()
+    dst = operands[-1].strip()
+    if instr == "movem":
+        return _expand_reglist(dst)
+    if _is_dreg(dst) or _is_areg(dst):
+        return {_canon_reg(dst)}
+    return set()
+
+
+def flush_w021(ctx: "LintContext") -> None:
+    """Emit the current routine's buffered W021 candidates, now that the whole
+    routine has been seen. A candidate register is exempt only if it was BOTH
+    saved and restored (preserved for the caller); a push without a matching
+    restore does not prove preservation. Per-line suppression is honored from
+    the buffered write-site state. Called at each routine boundary and at EOF."""
+    for reg, (line, suppressed) in sorted(ctx.w021_candidates.items()):
+        if suppressed:
+            continue
+        if reg in ctx.w021_saved and reg in ctx.w021_restored:
+            continue  # preserved: saved AND restored
+        ctx.warning("W021", line,
+                    f"routine '{ctx.current_routine}' writes '{reg}', which is not in its "
+                    f"declared '; Clobbers:' set (best-effort .asm write-set check — add "
+                    f"'{reg}' to the header/In/Out, or suppress with 'lint: disable=W021')")
+    ctx.w021_candidates = {}
+
+
+# ---------------------------------------------------------------------------
+# W022: loop-invariant memory operand inside a dbf loop — a memory location read
+# every iteration but never written in the loop can be hoisted above it. Feeds a
+# large slice of the review's Medium perf findings (despawn-loop hoists,
+# FlatIDXY's grid_w, camera reloads). Best-effort: ABSOLUTE operands only
+# (symbols / (Var).w|l) — register-indirect invariance needs An tracking and is
+# skipped to stay noise-free. The loop body is buffered from its opening local
+# label and analyzed at the dbf ONLY when the dbf's target matches that label
+# (a mismatched target means the buffer is a partial body → analysis would
+# false-positive on a write it did not see).
+# ---------------------------------------------------------------------------
+
+# Data-access mnemonics whose operands touch memory (control flow excluded).
+_W022_DATA_MNEMONICS = frozenset(
+    _WRITE_FORM_MNEMONICS | {"cmp", "cmpa", "cmpi", "cmpm", "tst", "btst"}
+)
+
+# An address-register indirect / indexed base: `(a0)`, `4(a0)`, `(a0,d0.w)`,
+# `(sp)`. Its address is NOT loop-invariant without tracking the base register.
+_AREG_BASE_RE = re.compile(r'\(\s*(a[0-7]|sp)\b', re.IGNORECASE)
+
+
+def _is_absolute_mem(op: str) -> bool:
+    """True for an ABSOLUTE memory operand — a bare symbol/number or `(X).w`/
+    `(X).l` where X is not an address register — as opposed to a register, an
+    immediate, a register-indirect/indexed base, or a pc-relative operand."""
+    s = op.strip()
+    if not s:
+        return False
+    low = s.lower()
+    if low.startswith("#"):
+        return False  # immediate
+    if _is_dreg(s) or _is_areg(s) or low in ("sp", "sr", "ccr"):
+        return False  # register
+    if _AREG_BASE_RE.search(s):
+        return False  # register-indirect / indexed base
+    if "(pc" in low.replace(" ", ""):
+        return False  # pc-relative
+    return True
+
+
+def _invariant_read_key(operand: str, modified_regs: Set[str],
+                        abs_written: Set[str], written_bases: Set[str]):
+    """If `operand` is a loop-invariant memory READ, return a stable key for it;
+    else None. Two invariant shapes:
+
+    - ABSOLUTE (`Camera_X`, `(Var).w`) — invariant iff never written in the loop.
+    - REGISTER-INDIRECT `disp(aN)` / `(aN)` (NOT auto-inc/dec, NOT indexed) —
+      invariant iff aN is unmodified in the loop AND nothing is written THROUGH
+      aN (conservative anti-aliasing). This is the FlatIDXY `Act_grid_w(a2)` /
+      camera-reload class the review names. `(sp)`-relative reads are excluded
+      (rarely hoistable; stack churn is hard to track)."""
+    s = operand.strip()
+    low = s.lower()
+    if not s or low.startswith("#"):
+        return None  # immediate / empty
+    if _is_dreg(s) or _is_areg(s) or low in ("sp", "sr", "ccr"):
+        return None  # register
+    if "(pc" in low.replace(" ", ""):
+        return None  # pc-relative
+    if _AUTOINC_RE.search(s) or _PREDEC_RE.search(s):
+        return None  # pointer advances — iterating, not invariant
+    base = _AREG_BASE_RE.search(s)
+    if base:
+        # Register-indirect: reject indexed `(aN,dN...)` and sp-relative.
+        if "," in s[base.start():]:
+            return None
+        reg = _canon_reg(base.group(1))
+        if reg == "a7" or reg in modified_regs or reg in written_bases:
+            return None
+        return s  # hoistable disp(aN)
+    # Absolute.
+    return None if s in abs_written else s
+
+
+def _analyze_dbf_loop_invariants(ctx: "LintContext", body: List, dbf_suppressed: Set[str]) -> None:
+    """Emit W022 for each memory operand read in the loop body that is
+    loop-invariant (see [`_invariant_read_key`]). `body` is the buffered
+    `(line_num, instr, operands, suppressed)` list; `dbf_suppressed` (the dbf
+    line's own set) disables the whole loop."""
+    if "W022" in dbf_suppressed:
+        return
+    # A call (or computed transfer) in the loop can clobber any register or
+    # memory location — its callee's effects are not tracked, so conservatively
+    # emit nothing for that loop (noise-free is the priority for a warning tier).
+    if any(instr in ("bsr", "jsr", "jmp", "trap") for (_ln, instr, _ops, _sup) in body):
+        return
+    modified_regs: Set[str] = set()   # dN/aN written or auto-inc/dec'd in the loop
+    abs_written: Set[str] = set()     # absolute mem destinations
+    written_bases: Set[str] = set()   # aN a write goes THROUGH (dest `(aN...`)
+    for (_ln, instr, ops, _sup) in body:
+        modified_regs.update(_written_regs(instr, ops))
+        # A `movem` register-list LOAD (`movem.l (sp)+, d2-d3/a0`) writes every
+        # listed register — the destination (last operand) is the reglist (no
+        # `(` in it), vs a push where the last operand is the memory dest.
+        if instr == "movem" and ops and "(" not in ops[-1]:
+            modified_regs.update(_expand_reglist(ops[-1]))
+        if (instr in _WRITE_FORM_MNEMONICS or _is_scc(instr)) and ops:
+            dst = ops[-1].strip()
+            if _is_absolute_mem(dst):
+                abs_written.add(dst)
+            else:
+                mb = _AREG_BASE_RE.search(dst)
+                if mb:
+                    written_bases.add(_canon_reg(mb.group(1)))
+    seen = set()
+    for (ln, instr, ops, sup) in body:
+        if instr not in _W022_DATA_MNEMONICS or "W022" in sup:
+            continue
+        is_write_form = instr in _WRITE_FORM_MNEMONICS or _is_scc(instr)
+        # Source operands = everything but the destination (write-form: the last
+        # operand is the dest; read-only cmp/tst: every operand is a source).
+        src_ops = ops[:-1] if (is_write_form and ops) else ops
+        for op in src_ops:
+            key = _invariant_read_key(op, modified_regs, abs_written, written_bases)
+            if key is None or key in seen:
+                continue
+            seen.add(key)
+            ctx.warning("W022", ln,
+                        f"'{key}' is loop-invariant inside the dbf loop (read every "
+                        f"iteration but never written in it) — hoist the load above the loop")
+
+
+# ---------------------------------------------------------------------------
+# W023: an `ifdebug`-prefixed instruction sets CCR and a RELEASE-side (non-
+# ifdebug) conditional consumes it. In release builds the ifdebug line vanishes,
+# so the branch reads CCR from a different instruction → divergent control flow
+# (CONVENTIONS §1.7). Straight-line CCR tracking: remember whether the last
+# CCR-writer was ifdebug; a release conditional consumer while that flag is True
+# is the hazard. A label or a release call breaks the chain (CCR predecessor
+# unknown / clobbered).
+# ---------------------------------------------------------------------------
+
+# Mnemonics that SET CCR (N/Z/V/C). Excludes the CCR-transparent ops movea/
+# adda/suba/lea/exg/movem and all control flow.
+_CCR_WRITERS = frozenset({
+    "move", "moveq", "add", "addi", "addq", "addx", "sub", "subi", "subq",
+    "subx", "and", "andi", "or", "ori", "eor", "eori", "not", "neg", "negx",
+    "cmp", "cmpi", "cmpm", "cmpa", "tst", "btst", "bchg", "bclr", "bset",
+    "asl", "asr", "lsl", "lsr", "rol", "ror", "roxl", "roxr", "muls", "mulu",
+    "divs", "divu", "ext", "extb", "swap", "clr", "tas", "nbcd", "abcd", "sbcd",
+})
+
+
+def _reads_ccr_conditionally(m: str) -> bool:
+    """True for a conditional that READS CCR: `bcc`/`bne`/… (not `bra`), a real
+    `dbcc` (not `dbf`/`dbra`/`dbt`), or an `scc` (not `st`/`sf`). `t`/`f` forms
+    are excluded — they are unconditional / never and read no flag."""
+    if m.startswith("db"):
+        cc = m[2:]
+        return cc in _M68K_COND_CODES and cc not in ("t", "f")
+    if m.startswith("s"):
+        cc = m[1:]
+        return cc in _M68K_COND_CODES and cc not in ("t", "f")
+    if m.startswith("b"):
+        cc = m[1:]
+        return cc in _M68K_COND_CODES and cc not in ("t", "f")
+    return False
+
+
+def _ifdebug_inner_mnemonic(token: "Token") -> str:
+    """The real mnemonic inside an `ifdebug <instr>` line (the tokenizer records
+    `instruction == 'ifdebug'` and buries the inner instruction in the operands),
+    lowercased and size-suffix-stripped."""
+    if not token.operands:
+        return ""
+    head = token.operands[0].strip().split()
+    if not head:
+        return ""
+    m = head[0].lower()
+    for suf in (".b", ".w", ".l", ".s"):
+        if m.endswith(suf):
+            return m[:-2]
+    return m
+
+
+def check_w023(ctx: "LintContext", token: "Token", line_num: int,
+               raw_line: str, suppressed: Set[str]) -> None:
+    """Per-instruction CCR-divergence tracking (see the section header)."""
+    is_ifdebug = raw_line.lstrip().lower().startswith("ifdebug")
+    inner = _ifdebug_inner_mnemonic(token) if is_ifdebug else token.instruction.lower()
+    # Consumer check FIRST — using the state as of the PRECEDING instruction.
+    if (not is_ifdebug and _reads_ccr_conditionally(inner)
+            and ctx.ccr_last_writer_ifdebug is True and "W023" not in suppressed):
+        ctx.warning("W023", line_num,
+                    "this release-side conditional consumes CCR set by an `ifdebug` "
+                    "instruction — in release builds that setup vanishes and the branch "
+                    "reads a different CCR (§1.7 CCR-divergence); move the flag setup "
+                    "release-side or guard the consumer under ifdebug")
+    # Update the CCR-writer state.
+    if inner in _CCR_WRITERS:
+        ctx.ccr_last_writer_ifdebug = is_ifdebug
+    elif not is_ifdebug and inner in ("bsr", "jsr", "jmp", "trap"):
+        # A release call clobbers CCR (callee runs arbitrary code) — chain broken.
+        ctx.ccr_last_writer_ifdebug = None
+
+
+# ---------------------------------------------------------------------------
+# W024: a debug-only macro (`RaiseError`, `Console.*`) invoked outside an
+# `__DEBUG__` gate. These macros are NOT self-gating (their bodies emit the
+# error-handler/console call unconditionally), so an un-gated call ships in
+# release builds (review wave-4). Gated = inside an `ifdef __DEBUG__` block or
+# an `ifdebug`-prefixed line.
+# ---------------------------------------------------------------------------
+
+
+def _update_cond_stack(ctx: "LintContext", instr_lower: str, operands: List[str]) -> None:
+    """Track conditional-assembly nesting for the `__DEBUG__`-gate test. `else`
+    flips the top frame's debug/release sense; `endif`/`endc` pop."""
+    names_debug = any("__DEBUG__" in op for op in operands)
+    if instr_lower in ("if", "ifdef"):
+        ctx.cond_stack.append("debug" if names_debug else "other")
+    elif instr_lower == "ifndef":
+        # The body runs when the symbol is NOT defined — the RELEASE branch of a
+        # `__DEBUG__` test.
+        ctx.cond_stack.append("release" if names_debug else "other")
+    elif instr_lower in ("else", "elseif") and ctx.cond_stack:
+        top = ctx.cond_stack[-1]
+        ctx.cond_stack[-1] = {"debug": "release", "release": "debug"}.get(top, top)
+    elif instr_lower in ("endif", "endc") and ctx.cond_stack:
+        ctx.cond_stack.pop()
+
+
+def _is_debug_only_macro(instr: str) -> bool:
+    """`RaiseError` or a `Console`/`_Console` (`.Method`) invocation — the
+    debug-only MD Debugger macros (case-sensitive names)."""
+    return instr == "RaiseError" or instr.split(".", 1)[0] in ("Console", "_Console")
+
+
+def check_w024(ctx: "LintContext", token: "Token", line_num: int,
+               raw_line: str, suppressed: Set[str]) -> None:
+    if "W024" in suppressed or not _is_debug_only_macro(token.instruction):
+        return
+    if raw_line.lstrip().lower().startswith("ifdebug"):
+        return  # ifdebug-prefixed = gated
+    if "debug" in ctx.cond_stack:
+        return  # inside an __DEBUG__ block
+    ctx.warning("W024", line_num,
+                f"'{token.instruction}' is a debug-only macro (not self-gated) invoked outside "
+                f"an __DEBUG__ gate — it ships in release builds; wrap it in `ifdef __DEBUG__` "
+                f"… `endif` or prefix with `ifdebug`")
+
+
+# ---------------------------------------------------------------------------
+# W026: a register byte-loaded with `move.b` then consumed at word/long width
+# without zero/sign-extension — the §2.5b bug class (Sound_PlaySFX, player G9):
+# the stale high byte corrupts the word value or the index. Straight-line taint:
+# `move.b X, dN` taints dN; a full-width write / ext / high-clearing andi
+# untaints it; a `.w`/`.l` READ of a tainted dN, or its use as a `.w`/`.l`
+# INDEX, is the hazard. A label breaks the chain (dN may be set elsewhere).
+# ---------------------------------------------------------------------------
+
+_INDEX_REG_RE = re.compile(r'\b(d[0-7])\.[wl]\b', re.IGNORECASE)
+
+
+def _andi_clears_high(size: str, imm_operand: str) -> bool:
+    """True for an `andi` whose mask clears every bit above bit 7 — i.e. it
+    zero-extends the byte to the operand width (`andi.w #$00FF` / `andi.l
+    #$000000FF`), which untaints the register."""
+    val = _parse_immediate(imm_operand)
+    if val is None:
+        return False
+    high_mask = 0xFF00 if size in (".w", "") else 0xFFFFFF00
+    return (val & high_mask) == 0
+
+
+def check_w026(ctx: "LintContext", token: "Token", line_num: int, suppressed: Set[str]) -> None:
+    instr = token.instruction.lower()
+    size = token.size
+    ops = [o.strip() for o in token.operands]
+    dst = ops[-1] if ops else ""
+
+    # --- USE detection (uses the taint as of the PRECEDING instruction) --------
+    if "W026" not in suppressed:
+        flagged = set()
+        # Index use at .w/.l — a byte value used as an index reads the stale byte
+        # regardless of the instruction's own size.
+        for op in ops:
+            for m in _INDEX_REG_RE.finditer(op):
+                r = m.group(1).lower()
+                if r in ctx.byte_tainted and r not in flagged:
+                    flagged.add(r)
+                    ctx.warning("W026", line_num,
+                                f"'{r}' was byte-loaded (move.b) and is used as a word/long "
+                                f"index here — the stale high byte corrupts the index (§2.5b); "
+                                f"zero/sign-extend it first (ext / andi #$00FF / moveq)")
+        # Word/long COMPARISON of a tainted register — `tst.w`/`cmp.w`/… read the
+        # full word incl. the stale high byte. (A plain `move.w dN, X` value-read
+        # is deliberately NOT flagged: it is too often an intentional high-byte
+        # use — VDP register words `$8X00|v`, packed byte pairs `hi<<8|lo` — and
+        # would drown the signal. Index and comparison are the low-FP shapes.)
+        if size in (".w", ".l") and instr in ("tst", "cmp", "cmpi", "cmpa", "cmpm"):
+            for op in ops:
+                r = op.lower()
+                if r in ctx.byte_tainted and r not in flagged:
+                    flagged.add(r)
+                    ctx.warning("W026", line_num,
+                                f"'{r}' was byte-loaded (move.b) and is compared at {size} width "
+                                f"here without extension — the stale high byte corrupts the "
+                                f"comparison (§2.5b); zero/sign-extend it first (ext / andi "
+                                f"#$00FF / moveq)")
+
+    # --- taint / untaint updates ----------------------------------------------
+    # A call can redefine any register (a word/long return, clobbers) — clear all
+    # taint across it (conservative, like a flow break).
+    if instr in ("bsr", "jsr"):
+        ctx.byte_tainted = set()
+        ctx.high_clean = set()
+        return
+    if _is_dreg(dst):
+        if instr == "moveq":
+            # moveq #0..127 sign-extends to a zero high half → high known clean;
+            # moveq #-N sets the high bits to $FF → not clean.
+            val = _parse_immediate(ops[0]) if ops else None
+            ctx.byte_tainted.discard(dst)
+            (ctx.high_clean.add if (val is not None and val >= 0) else ctx.high_clean.discard)(dst)
+        elif instr == "clr" and size in (".w", ".l"):
+            ctx.byte_tainted.discard(dst)
+            ctx.high_clean.add(dst)
+        elif instr == "andi" and _andi_clears_high(size, ops[0] if len(ops) > 1 else ""):
+            ctx.byte_tainted.discard(dst)
+            ctx.high_clean.add(dst)
+        elif instr in ("ext", "extb") or (instr == "move" and size in (".w", ".l")):
+            # A full-width value: no longer byte-tainted, but not a known-clean
+            # byte either (it is a real word/long).
+            ctx.byte_tainted.discard(dst)
+            ctx.high_clean.discard(dst)
+    # A byte load: taints the register UNLESS its high bits are known zero (the
+    # safe `moveq #0 / move.b` zero-extend idiom), where the byte stays valid.
+    if instr == "move" and size == ".b" and len(ops) == 2 and _is_dreg(dst):
+        if dst not in ctx.high_clean:
+            ctx.byte_tainted.add(dst)
+
+
 def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
                    raw_line: str, suppressed: Set[str]) -> None:
     """Run all W001-W013 optimization and style warning checks."""
@@ -1304,15 +1735,16 @@ def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
     # W021: write outside the declared "; Clobbers:" header (only active when
     # the routine declared one — ctx.declared_writeset is not None).
     # ------------------------------------------------------------------
-    if "W021" not in suppressed and ctx.declared_writeset is not None:
-        for reg in sorted(_written_regs(instr, token.operands) - ctx.declared_writeset):
-            if reg in ctx.w021_seen:
-                continue  # one warning per (routine, register)
-            ctx.w021_seen.add(reg)
-            ctx.warning("W021", line_num,
-                        f"routine '{ctx.current_routine}' writes '{reg}', which is not in its "
-                        f"declared '; Clobbers:' set (best-effort .asm write-set check — add "
-                        f"'{reg}' to the header/In/Out, or suppress with 'lint: disable=W021')")
+    if ctx.declared_writeset is not None:
+        # Track the routine's saves (push) and restores (pop) — the verdict on a
+        # written register is deferred to the routine boundary (flush_w021),
+        # where a register is exempt only if it was BOTH saved and restored.
+        ctx.w021_saved |= _saved_registers(instr, token.operands)
+        ctx.w021_restored |= _restored_registers(instr, token.operands)
+        for reg in _written_regs(instr, token.operands) - ctx.declared_writeset:
+            # First write site wins (one warning per routine+register); capture
+            # this line's suppression state for the deferred emit.
+            ctx.w021_candidates.setdefault(reg, (line_num, "W021" in suppressed))
 
     # ------------------------------------------------------------------
     # W001: clr.w / clr.l on memory (read-modify-write)
@@ -1481,6 +1913,29 @@ def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
                             f"'move{token.size} #{val}, {dst}' — "
                             f"use 'moveq #{val}, {dst}' (shorter, faster)")
 
+    # ------------------------------------------------------------------
+    # W025: adda.w #imm, aN → lea imm(aN), aN (same size, faster — lea is the
+    # pointer-add idiom). Only `.w`: a `.l` immediate may exceed a 16-bit
+    # displacement, so lea would not fit. For a small imm (1-8) addq.w is
+    # smaller still, so suggest that instead.
+    # ------------------------------------------------------------------
+    if "W025" not in suppressed:
+        if instr == "adda" and token.size in (".w", "") and len(token.operands) == 2:
+            src = token.operands[0].strip()
+            dst = token.operands[1].strip()
+            if src.startswith("#") and _is_areg(dst):
+                imm = src[1:].strip()
+                val = _parse_immediate(src)
+                if val is not None and 1 <= val <= 8:
+                    ctx.warning("W025", line_num,
+                                f"'adda{token.size} #{imm}, {dst}' — use "
+                                f"'addq{token.size} #{imm}, {dst}' (2 bytes, faster)")
+                else:
+                    ctx.warning("W025", line_num,
+                                f"'adda{token.size} #{imm}, {dst}' — use "
+                                f"'lea {imm}({dst}), {dst}' (same size, faster; lea is the "
+                                f"pointer-add idiom)")
+
 
 def run_checks(ctx: LintContext, token: Token, line_num: int,
                raw_line: str, suppressed: Set[str]) -> None:
@@ -1500,6 +1955,11 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     # Sliding window of raw lines (W006 header detection)
     # ------------------------------------------------------------------
     ctx.recent_raw_lines.append(raw_line)
+
+    # W024: track __DEBUG__ conditional nesting (before block guards, so it stays
+    # balanced even for directives inside otherwise-skipped blocks).
+    if instr_lower in ("if", "ifdef", "ifndef", "else", "elseif", "endif", "endc"):
+        _update_cond_stack(ctx, instr_lower, token.operands)
 
     # ------------------------------------------------------------------
     # Block-level tracking — update state FIRST so checks inside blocks
@@ -1548,7 +2008,10 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     label = token.label
 
     if label and not label.startswith("."):
-        # Global label — start of a new routine
+        # Global label — start of a new routine. Flush the PREVIOUS routine's
+        # buffered W021 candidates first (uses its still-current name), then
+        # reset per-routine state.
+        flush_w021(ctx)
         ctx.current_routine = label
         ctx.reset_routine_state()
         ctx.last_routine_terminated = False
@@ -1566,9 +2029,19 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
         # Local label — record it; assume it may be a loop top (W010)
         ctx.local_labels.add(label)
         ctx.in_dbf_loop = True
+        # W022: a local label opens a fresh potential loop body — start buffering
+        # from here and remember the label so the dbf can confirm it targets it.
+        ctx.dbf_loop_label = label
+        ctx.dbf_body = []
 
     if label:
         ctx.label_since_last_instr = True
+        # W023: a label is a potential branch target — the CCR predecessor of a
+        # following conditional is unknown, so break the ifdebug-CCR chain.
+        ctx.ccr_last_writer_ifdebug = None
+        # W026: a label is reachable from elsewhere — byte-taint state is unknown.
+        ctx.byte_tainted = set()
+        ctx.high_clean = set()
 
     # ------------------------------------------------------------------
     # Naming convention checks (W015-W017)
@@ -1606,6 +2079,12 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
 
     ctx.routine_lines += 1
 
+    # W022: buffer instructions inside a potential dbf-loop body (the dbf itself
+    # is analyzed below, before the buffer is consumed).
+    if ctx.in_dbf_loop and instr_lower not in ("dbf", "dbra", "dbt", "dbcc",
+                                               "dbcs", "dbvc", "dbvs"):
+        ctx.dbf_body.append((line_num, instr_lower, list(token.operands), suppressed))
+
     # ------------------------------------------------------------------
     # Routine termination
     # ------------------------------------------------------------------
@@ -1639,7 +2118,14 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
 
     # dbf/dbra — end of loop body
     if instr_lower in ("dbf", "dbra"):
+        # W022: analyze the buffered body ONLY when this dbf targets the label
+        # that opened the buffer (otherwise the body is partial — see the guard).
+        target = token.operands[-1].strip() if token.operands else ""
+        if target and target == ctx.dbf_loop_label:
+            _analyze_dbf_loop_invariants(ctx, ctx.dbf_body, suppressed)
         ctx.in_dbf_loop = False
+        ctx.dbf_body = []
+        ctx.dbf_loop_label = ""
 
     # ------------------------------------------------------------------
     # Stateful checks (must run before stateless checks)
@@ -1672,6 +2158,9 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     # ------------------------------------------------------------------
     if token.instruction:
         check_warnings(ctx, token, line_num, raw_line, suppressed)
+        check_w023(ctx, token, line_num, raw_line, suppressed)
+        check_w024(ctx, token, line_num, raw_line, suppressed)
+        check_w026(ctx, token, line_num, suppressed)
 
     # ------------------------------------------------------------------
     # Track prev_token for multi-line checks (W009, etc.)
@@ -1720,6 +2209,9 @@ def lint_file(filepath: str, options: dict, base_dir: str) -> LintContext:
         suppressed = _parse_suppressed(token.comment)
         run_checks(ctx, token, line_num, raw_line, suppressed)
 
+    # Flush the final routine's buffered W021 candidates (no trailing global
+    # label follows it to trigger the boundary flush).
+    flush_w021(ctx)
     return ctx
 
 

@@ -7,7 +7,7 @@
 ; GameState_ObjectTest_Init — one-shot setup
 ; In:  none
 ; Out: none
-; Clobbers: d0-d3, a0-a2
+; Clobbers: d0-d4, a0-a2
 ; -----------------------------------------------
 GameState_ObjectTest_Init:
         ; Load test palette to CRAM line 0

@@ -523,7 +523,7 @@ Debug_AssertObjLoop:
 ; dynamic slots too.
 ; In:  none
 ; Out: none
-; Clobbers: d0-d6, a0-a6
+; Clobbers: d0-d7, a0-a6
 ; -----------------------------------------------
 RunObjects_Frozen:
         ; Players (fixed sweep, 2 slots)
