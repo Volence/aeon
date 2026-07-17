@@ -17,16 +17,121 @@ debug cluster (`debugger`/`error_handler`/selftests/`game_debug`), game shell
 and the Z80 sound driver: core (`z80_sound_driver`+`dac_sample_tab`+`sound_constants`),
 `sound_sequencer`+opcode table, `sound_sfx`, `sound_fm`+`sound_psg`+`sound_tables_z80`.
 
-**STATUS (updated):** the correctness bugs in the roll-up below have been FIXED (separate
-fix campaign; the roll-up is retained as the evidence base). Execution order for what
-remains: **(1) the Sigil diagnostics tier (next section) → (2) the performance items.**
-The diagnostics come first deliberately — several performance items are register/contract
-surgery (movem trims, register-resident rewrites, drain restructures) that the diagnostics
-make safe to perform and impossible to regress.
+**STATUS (CORRECTED 2026-07-17):** ⚠ The prior STATUS line ("the correctness bugs in the
+roll-up below have been FIXED") was INACCURATE. Only a specific, self-contained subset was
+fixed by the two merged batches:
+- **sprites branch** (`fix/sprites-pb1-pb2`): **PB1** (Sprites_Rendered frozen-ghost),
+  **PB2** (scanline-band index unbias).
+- **wave-2 batch**: **B1** (VSync_Wait torn-drain SR mask), **C1** (Read_Controllers second
+  TH-settle nop), **D1** (dplc_layout.py 16-tile merge cap + overflow assert — the review's
+  dplc D4 build hole), **E1** (section adda.w ≤496 mega-act ensure), **P1a** (parallax
+  deformShiftDefault=15), **P1b** (camera/player mega-act ceiling — found ALREADY
+  transitively guarded; site comments only), **H-1** (Sound_PlayMusic repost gate — MUSIC
+  slot only).
+
+**Everything else in the roll-up REMAINS OPEN.** A doc-reconciliation pass (2026-07-17)
+found the review's own **buffers bug #1** (Palette_Dirty/Sprite_Table_Dirty cleared on a
+silently-dropped enqueue) was never fixed, and Fable verified it live — including that
+**Sprite_Table_Dirty has the identical shape** and that **load_art's ignored
+QueueDMA_Critical carry** (line ~380) is the same silent-drop class. The definitive
+remaining-functional-bugs table is the **"REMAINING FUNCTIONAL BUGS (2026-07-17 audit)"**
+section immediately below; the silent-drop class is being fixed under the
+`fix/silent-drop-class` parcel. A separate newly-surfaced doc-writer finding — the **PAL
+timestep is written at boot but has zero readers** (boot.asm:167-174; GameLoop runs one
+tick per VSync unconditionally) — is recorded in `docs/DEFERRED_WORK.md` as an unfinished
+feature awaiting a product decision (PAL support vs NTSC-only), NOT a bug.
+
+Execution order for what remains: **(1) the Sigil diagnostics tier (next section) → (2) the
+performance items**, with the correctness bugs in the table below triaged and scheduled per
+their listed disposition. The diagnostics come first deliberately — several performance
+items are register/contract surgery (movem trims, register-resident rewrites, drain
+restructures) that the diagnostics make safe to perform and impossible to regress.
 
 All cycle figures are estimates (68000 cycle tables / Z80 T-state tables); no emulator
 profiling was run. The cross-file priority list and bug roll-up below cover ALL FOUR
 waves. Coverage is complete: every engine and game source file has been reviewed.
+
+## REMAINING FUNCTIONAL BUGS (2026-07-17 audit)
+
+Definitive cross-reference of this review's correctness roll-up against the two merged fix
+batches (sprites PB1/PB2 + wave-2 B1/C1/D1/E1/P1a/P1b/H-1). Everything below is a genuine
+functional/behavioral defect (runtime- or hardware-visible, incl. latent) that the two
+batches did NOT address. "Why out of scope" = why it wasn't in those two batches. Severity:
+High = reachable corruption/crash/gameplay-break; Med = visible glitch or reachable-but-rare
+corruption; Low = latent (condition not hit today) or hygiene. Cited lines are as-of the
+review; re-derive against current HEAD before fixing.
+
+### Tier 1 — silent-drop class (`fix/silent-drop-class` parcel, being fixed now)
+
+| Site | Class | Sev | Why out of the two batches |
+|---|---|---|---|
+| `buffers.asm` Enqueue_Dirty_Buffers (Palette_Dirty clear) | enqueue-result-ignored, state cleared | High | buffers untouched by either batch; the `queueStaticDMA` macro silently no-ops on full and the caller clears the dirty bits unconditionally → stale palette persists through a fade (reachable: fade + heavy Critical art staging both fill Critical) |
+| `buffers.asm` Enqueue_Dirty_Buffers (Sprite_Table_Dirty clear) | same shape | High | identical pattern one routine down; Fable-verified same class → stale SAT persists |
+| `load_art.asm:79` (QueueDMA_Critical carry ignored) | enqueue-result-ignored, state assumed | Med | review names it "same silent-drop class as the buffers bug"; runs display-off at init (extended VBlank drains each VSync → queue-full unlikely) but on a full Critical queue a page's art DMA is dropped and never retried → permanently wrong tile page for the act |
+
+### Tier 2 — other functional bugs (runtime/hardware-visible; each needs its own fix or ruling)
+
+| Site | Class | Sev | Why out of the two batches |
+|---|---|---|---|
+| `vblank` #3 — Critical DMA entries never set autoinc ($8F); drain inherits stride from prior frame | corruption (stride) | Med | bundled with vblank H1/H2 perf reorder (the `$8F02` write goes at the Critical drain head) → deferred to the perf phase, not a wave-2 correctness item |
+| `vblank` H1 — Critical DMA bytes + CPU plane-copy uncharged by frame budget; worst case ~1.7× the ~18.5k window | timing/overrun | Med | budget-accounting restructure → perf phase |
+| `parallax` B1 — re-crossing current config's section mid-transition doesn't cancel the staged transition | wrong-config persists | Med | needs a transition-logic design pass, not a drive-by (excluded by design from wave-2) |
+| `parallax` B2 — builder/DMA-length/VSRAM-mode consumers disagree on "active" config mid-transition (≤16 frames mode/length mismatch); overlaps the game-shell direct-`$8B`-write §3.4 tear | visual tear | Med | same design pass |
+| `parallax` B3 — 16-frame `>>4` lerp ends ~36% short of target → end-of-transition pop | visual pop | Med | same design pass (+ constants.asm:319 convergence comment is wrong) |
+| `children` C1a — effect spawned by an RF_MULTISPRITE parent is NEVER rendered | rendering | Med | bundled with children M1 spawn-flag rework (rendering-model change), not wave-2 |
+| `children` C1b — stale parent_ptr on parent-slot recycle can silently hide children | rendering | Med | same bundle |
+| `children` C1c — children never inherit a priority band (always band 0 = backmost) | rendering | Med | same bundle |
+| `children` C1d — CreateChild_Linked orphans a pre-existing chain | dynamic-slot leak | Med | same bundle |
+| `player` G10 — move_lock never ticks while standing on a solid object → frozen input forever (only jump escapes) | gameplay | Med | not in either batch; needs fix + solid-object-landing test |
+| `player` G9 — Ground_Move:620 byte-loads probe into d7, consumed at WORD width (high byte = caller residue; 0 today only because d7=0) | latent §2.5b | Low | latent; same class as shipped Sound_PlaySFX; deferred to the §2.5b sweep / diagnostics tier |
+| `player` A7 — landing always uncurls with no clearance check while the roll path guards the same wall-clip hazard | needs ruling | Med | design ruling (parity decision), not a drive-by |
+| `camera` P2 / game-shell — Camera_Init doesn't clamp; whole OJZ init ladder seeds from the unclamped value → one negative-camera frame into cache at edge starts | init glitch | Med | P1b only guarded the mega-act WORD-WIDTH ceiling, NOT the init clamp; game-shell ordering decision |
+| game-shell — Section_RedrawPlanes Z80-safety asymmetry: per-frame path (via runtime Section_Plane_Dirty cache recovery) does direct VDP writes with the Z80 live | hardware bus / crash risk | High | engine-side fix (stopZ80 inside RedrawPlanes); game-shell ordering batch |
+| game-shell — sprite culling uses LAST frame's camera (RunObjects before Camera_Update; zero cull margin, 16px/frame) | edge pop-in | Med | needs ordering-or-margin decision; game-shell ordering batch |
+| `bg.asm` — a length-1 tile blob sprays 64K words across all of VRAM past the existing guard | corruption (malformed data) | Med | bg blit-posture batch |
+
+### Tier 3 — Z80 sound cluster (real, but oracle-invisible; deferred to the sound bug-fix batch + rendered-audio A/B)
+
+| Site | Class | Sev | Note |
+|---|---|---|---|
+| driver B1 — SfxChannels+duck bytes are power-on garbage until first Snd_LoadSong; Sfx_Frame walks garbage (possible wild chip/bank writes) | uninit state | High | net-zero fix (init → `call Sfx_StopAll`); emulators zero RAM so oracle can NEVER show it |
+| SFX B1 — Sfx_DuckRamp resurrects a stopped song's PSG channels (no SND_SEQ_ACTIVE gate) → drone until next song | stale key-on | Med | +5-byte gate |
+| PSG #1 — Psg_ApplyMod exact-zero divisor passes to the chip (contradicts its own comment; reachable, top 13 pitch entries divisor 1) | zero-divisor | Med | +5-byte clamp |
+| Sequencer B1 — PSG portamento down-glide 16-bit underflow evades the overshoot snap | glide underflow | Med | sound batch |
+| Sequencer B2 — vol-env body starting `$80` (Loop) wedges the driver inside the Timer-A tick | driver wedge | Med | zero-byte fix = generator build-time assert |
+| sound_api PB-2 — ping/fade/tempo/sample mailbox slots share the read→handle→clear latest-wins-violated shape | lost/torn request | Med | H-1 fixed the MUSIC slot ONLY; the other slots still need the same gate |
+| SFX — queue arbitration compares RAW priority (bit7 would add +128 weight) | latent drift | Low | 2-byte fix |
+| Fm_PatchLoad clobbers sc_pan on mid-song patch change | latent | Low | verify sequencer-side |
+
+### Tier 4 — boot / hardware-risk (functional on real hardware; oracle can't verify — separate boot-hardening batch)
+
+- PSG silence writes race the in-flight VRAM DMA fill (~2× implicit margin, no enforcement) — free reorder fix.
+- YM key-off block: no busy-wait + address-latch race vs the already-running Z80 driver.
+- z80_init leaves SP=0 (future push lands in the 68k bank window); EntryPoint doesn't reload SP (jmp-reset unsupported); spurious-interrupt vector policy inconsistent (crash in release); `ld bc` operand parse trap.
+- No build-time evenness assert on either Z80 blob (odd blob = boot address error).
+
+### Tier 5 — latent guards / data-width (condition not reached today; add asserts or width fixes)
+
+- `section` B1 (RedrawPlanes right-edge tracker unclamped), B3 (hardcoded `lsl.w #8` no guard).
+- `math` B1 — Sine_Table declared `[u8]` but word-read; evenness accidental → latent address-error.
+- `aabb` #3/#4 — missing `ensure(cdim != delt)` + read-only `apos` guards (same miscompile class as the two shipped `stmp` ensures).
+- `objdef` O1 — `vram_art` tile refine `0..$1FFF` permits flip-bit bleed ($800..$1FFF).
+- `frames` F1 / `dplc` D5 — offset-table words sign-extend; mappings/DPLC ≥32KB index backwards (build-tool fatal check).
+- `bg_anim` — no `band_count ≤ 4` guard (malformed table corrupts RAM past BgAnim_LastStep).
+- `macros` sprSize (PB3) — w/h swap confirmed at `macros.asm:21` AND CODING_CONVENTIONS.md:25; latent (sprites.emp hand-codes correct constants) until the first non-square `sprSize` use — fix both places together.
+
+### Tier 6 — build/release hygiene + test-template scaffolding (not gameplay; separate batches)
+
+- Release leaks: convsym appends the full symbol table to release ROMs (unconditional); `SOUND_DEBUG_HOTKEYS=1` without `DEBUG=1` builds hotkeys+autoplay into release; MDDBG blob + exception stubs ship in release; RaiseError/Console not DEBUG-gated.
+- Template/test bugs: AnimateSprite called with uncontrolled d3 under DUR_DYNAMIC (anim rate = register garbage); test_parent self-destruct never fires (parent immortal); "idle" is actually ANIM_RUN; magic art_tile `$A0FA` aliases the level art pool; path_swap single-player hardwired.
+
+### Excluded (NOT counted as functional bugs here)
+
+- **Contract-header / clobber understatements** — collision #11 (d5), lookup #8 (d3), rings (d0), core #11 (d7 RunObjects/RunObjects_Frozen), animate Sound_PlaySFX re-verify, s4lz preservation contract undocumented, bg_anim header a3-a4. These document the contract surface; they become *errors* only once the contract-grammar D1a net lands, and are not live misbehavior today. Tracked by the diagnostics tier, not this table.
+- **Pure comment/doc mismatches and dead code** (Hscroll_Dirty dead range, cost-comment errors, dead constants, orphaned RAM, ARCH doc figure drifts) — tracked in the per-file sections.
+- **Minor state-hygiene / DEBUG-only** — core #12 (AllocDynamic rollback leaves a stamped slot_tag byte), core #14 (`bne` where `blo` fails-closed), entity_window #3 (Collected_ClaimSlot failure silently ignored — wants a DEBUG assert), tile_cache #1 (spurious frame-1 lag flag).
+
+---
 
 **Z80 apply-rules (wave 4):** Z80 resident headroom is ~86 bytes DEBUG — SIZE reductions
 are wins in themselves and code-growing changes are near-forbidden. The DAC stream loop's
