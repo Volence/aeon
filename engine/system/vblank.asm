@@ -30,8 +30,8 @@ VBlank_Handler:
 
 ; -----------------------------------------------
 ; VInt_Level — full pipeline handler (normal frames)
-; Execution order: shadow flush -> VSRAM -> dirty enqueue ->
-;   Critical drain -> budget -> Important drain -> Deferrable drain ->
+; Execution order: shadow flush -> dirty enqueue -> plane-buffer drain ->
+;   Critical drain -> VSRAM -> budget -> Important drain -> Deferrable drain ->
 ;   controllers -> frame counter -> VBlank flag
 ; -----------------------------------------------
 VInt_Level:
