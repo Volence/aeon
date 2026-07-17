@@ -2636,6 +2636,35 @@ class TestW021_WriteSetVsHeader(unittest.TestCase):
         w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    move.w d5, d3  ; lint: disable=W021\n    rts\n")
         self.assertEqual(len(w), 0)
 
+    def test_individual_push_preserved_not_flagged(self):
+        # d1 is written but SAVED via push and restored → preserved for the
+        # caller, so the header correctly omits it → no W021 (not an
+        # under-declaration; the individual-push preservation FP class).
+        w = self._warns(
+            self.HDR + "; Clobbers: d0\nR:\n"
+            "    move.w  d1, -(sp)\n"
+            "    move.w  a0, d1\n"
+            "    move.w  (sp)+, d1\n"
+            "    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_movem_saved_not_flagged(self):
+        w = self._warns(
+            self.HDR + "; Clobbers: d0\nR:\n"
+            "    movem.l a3, -(sp)\n"
+            "    movea.l a0, a3\n"
+            "    movem.l (sp)+, a3\n"
+            "    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_unsaved_write_still_flagged(self):
+        # A register written but NOT saved is a genuine undeclared clobber.
+        w = self._warns(self.HDR + "; Clobbers: d0\nR:\n    move.w d5, d1\n    rts\n")
+        self.assertEqual(len(w), 1)
+        self.assertIn("d1", w[0].message)
+
 
 # ---------------------------------------------------------------------------
 # W022: loop-invariant memory operand inside a dbf loop (hoist candidate)

@@ -449,6 +449,11 @@ class LintContext:
         # per (routine, register), not one per write site (the .emp lint fires
         # per-instruction; a human-facing .asm warning dedups for readability).
         self.w021_seen: Set[str] = set()
+        # W021: registers SAVED (pushed) in the current routine — a saved (and
+        # thus preserved-for-the-caller) register is not an undeclared clobber,
+        # even though it is written as scratch (the individual-push / movem
+        # preservation idiom). Reset per routine.
+        self.w021_saved: Set[str] = set()
         # W022: buffered dbf-loop body — (line_num, instr, operands) since the
         # loop's opening local label, plus that label's name. Analyzed at the
         # dbf ONLY when the dbf's target matches (else the body is partial and
@@ -493,6 +498,7 @@ class LintContext:
         self.pending_w006 = None
         self.declared_writeset = None
         self.w021_seen = set()
+        self.w021_saved = set()
         self.dbf_body = []
         self.dbf_loop_label = ""
         self.ccr_last_writer_ifdebug = None
@@ -1328,6 +1334,24 @@ def _written_regs(instr: str, operands: List[str]) -> Set[str]:
     return regs
 
 
+def _saved_registers(instr: str, operands: List[str]) -> Set[str]:
+    """The registers a PUSH saves: `move.X rN, -(sp)` → {rN}; `movem.X <list>,
+    -(sp)` → the whole list. A register saved this way is preserved for the
+    caller (paired with a later restore), so W021 must not treat it as an
+    undeclared clobber."""
+    if not operands:
+        return set()
+    dst = operands[-1].strip().lower().replace(" ", "")
+    if dst not in ("-(sp)", "-(a7)"):
+        return set()
+    src = operands[0].strip()
+    if instr == "movem":
+        return _expand_reglist(src)
+    if _is_dreg(src) or _is_areg(src):
+        return {_canon_reg(src)}
+    return set()
+
+
 # ---------------------------------------------------------------------------
 # W022: loop-invariant memory operand inside a dbf loop — a memory location read
 # every iteration but never written in the loop can be hoisted above it. Feeds a
@@ -1672,9 +1696,13 @@ def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
     # the routine declared one — ctx.declared_writeset is not None).
     # ------------------------------------------------------------------
     if "W021" not in suppressed and ctx.declared_writeset is not None:
+        # Record any registers this instruction SAVES (push) — a saved register
+        # is preserved, not an undeclared clobber. Saves precede the scratch
+        # writes in the push/…/pop idiom, so streaming tracking suffices.
+        ctx.w021_saved |= _saved_registers(instr, token.operands)
         for reg in sorted(_written_regs(instr, token.operands) - ctx.declared_writeset):
-            if reg in ctx.w021_seen:
-                continue  # one warning per (routine, register)
+            if reg in ctx.w021_seen or reg in ctx.w021_saved:
+                continue  # already warned, or preserved via push/pop
             ctx.w021_seen.add(reg)
             ctx.warning("W021", line_num,
                         f"routine '{ctx.current_routine}' writes '{reg}', which is not in its "
