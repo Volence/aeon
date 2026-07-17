@@ -210,8 +210,9 @@ Draw_TileRow_FromCache:
         ;    NT col P shows world col W ≡ P (mod 64) — every engine→plane
         ;    offset is a multiple of 64 — so the source walks W = A, A+1,
         ;    …, R, then wraps to R-63 … A-1, where A = R & ~63. Cols behind
-        ;    Cache_Left_Col have no cache data; write tile 0 (they sit
-        ;    behind the streamed window, never visible).
+        ;    Cache_Left_Col have no cache data; they sit behind the streamed
+        ;    window (never visible), so the run emits their stale physical-col
+        ;    word rather than paying a per-cell zero-write (Probe (i)).
         ;    The cache spans 80 cols — 16 plane cols have two cached
         ;    candidates (W and W+64); anchor R to Section_Right_Col_Written
         ;    (cache-clamped to Cache_Head_Col) so the visible-left plane
@@ -221,39 +222,67 @@ Draw_TileRow_FromCache:
         ble.s   .r_clamp_ok
         move.w  (Cache_Head_Col).w, d4         ; R = min(R, Cache_Head_Col)
 .r_clamp_ok:
-        move.w  d4, d0
-        andi.w  #$FFC0, d0                     ; d0 = W cursor, starts at A = R & ~63
+        ; The NT-order walk is two monotonic world-col legs — A..R and
+        ; R-63..A-1 — and physical col = (W + Origin - Left) mod COLS is affine
+        ; in W, so each leg is a contiguous cache run split at most once by the
+        ; cache-right wrap. Emit them as move.w/dbf runs; the < Cache_Left cols
+        ; fall out as stale reads (never visible), no per-cell zero-write.
         move.w  (Cache_Origin_Col).w, d3
-        sub.w   (Cache_Left_Col).w, d3         ; d3 = Origin - Left (physical adjust)
-        move.w  (Cache_Left_Col).w, d5
-        move.w  #PLANE_H_CELLS-1, d2
-.row_src_loop:
-        cmp.w   d5, d0                         ; W < Cache_Left → no data
-        blt.s   .row_src_zero
-        move.w  d0, d1
-        add.w   d3, d1                         ; physical col = W + (Origin - Left)
-        cmpi.w  #TILE_CACHE_COLS, d1
-        blt.s   .row_src_nowrap
-        subi.w  #TILE_CACHE_COLS, d1
-.row_src_nowrap:
-        add.w   d1, d1
-        move.w  (a0, d1.w), (a2)+
-        bra.s   .row_src_next
-.row_src_zero:
-        clr.w   (a2)+
-.row_src_next:
-        addq.w  #1, d0
-        cmp.w   d4, d0                         ; past R → wrap back one plane width
-        ble.s   .row_src_cont
-        subi.w  #64, d0
-.row_src_cont:
-        dbf     d2, .row_src_loop
+        sub.w   (Cache_Left_Col).w, d3         ; d3 = Origin - Left (world→physical)
 
+        move.w  d4, d0
+        andi.w  #$FFC0, d0                     ; leg-1 start world col A = R & ~63
+        move.w  d4, d1
+        andi.w  #63, d1
+        addq.w  #1, d1                         ; d1 = len1 = (R & 63) + 1  (cols A..R)
+        move.w  d1, d5                         ; stash len1
+        bsr.s   .emit_row_run                  ; leg 1: A..R
+
+        move.w  d4, d0
+        subi.w  #63, d0                        ; leg-2 start world col R-63
+        moveq   #PLANE_H_CELLS, d1
+        sub.w   d5, d1                         ; d1 = len2 = 64 - len1
+        beq.s   .row_emit_done                 ; len1 == 64 → leg 2 empty
+        bsr.s   .emit_row_run                  ; leg 2: R-63..A-1
+.row_emit_done:
         move.w  #0, (a2)
         move.w  (Plane_Buffer_Ptr).w, d2
         addi.w  #4 + PLANE_H_CELLS*2, d2
         move.w  d2, (Plane_Buffer_Ptr).w
 .done:
+        rts
+
+        ; -- emit d1 (> 0) cache words for the plane-col run starting at world col
+        ;    d0; physical col = (d0 + d3) mod TILE_CACHE_COLS, contiguous, wrapping
+        ;    at most once at the cache right edge. a0 = cache row base (phys col 0),
+        ;    a2 = dst cursor (advanced). Clobbers d0-d2, a1. --
+.emit_row_run:
+        add.w   d3, d0                         ; physical col (may be < 0 or ≥ COLS)
+        bpl.s   .err_nonneg
+        addi.w  #TILE_CACHE_COLS, d0
+        bra.s   .err_norm
+.err_nonneg:
+        cmpi.w  #TILE_CACHE_COLS, d0
+        blt.s   .err_norm
+        subi.w  #TILE_CACHE_COLS, d0
+.err_norm:
+        move.w  #TILE_CACHE_COLS, d2
+        sub.w   d0, d2                         ; cells before the cache-right wrap
+        add.w   d0, d0                         ; physical col → byte offset
+        lea     (a0, d0.w), a1
+        cmp.w   d1, d2
+        bge.s   .err_single                   ; whole run fits before the wrap
+        sub.w   d2, d1                         ; d1 = cells after the wrap
+        subq.w  #1, d2
+.err_run1:
+        move.w  (a1)+, (a2)+
+        dbf     d2, .err_run1
+        movea.l a0, a1                         ; wrap back to physical col 0
+.err_single:
+        subq.w  #1, d1
+.err_run2:
+        move.w  (a1)+, (a2)+
+        dbf     d1, .err_run2
         rts
 
 ; -----------------------------------------------
