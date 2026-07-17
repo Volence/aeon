@@ -64,6 +64,7 @@ DIAGNOSTIC_LABELS: Dict[str, str] = {
     "W021": "writes register outside declared Clobbers header",
     "W022": "loop-invariant memory operand inside dbf loop",
     "W023": "ifdebug CCR setup consumed by release-side conditional",
+    "W024": "debug-only macro (RaiseError/Console) outside __DEBUG__ gate",
 }
 
 DIAGNOSTIC_SEVERITY: Dict[str, str] = {
@@ -457,6 +458,12 @@ class LintContext:
         # True/False once a CCR-writer is seen; None at a flow break (label /
         # call), where the CCR predecessor of a later conditional is unknown.
         self.ccr_last_writer_ifdebug: Optional[bool] = None
+
+        # W024: conditional-assembly stack — one entry per open `if`/`ifdef`
+        # block, each "debug" (inside a true `__DEBUG__` branch) / "release"
+        # (the false branch of a `__DEBUG__` test) / "other". File-global (an
+        # ifdef can wrap multiple routines), so NOT reset per routine.
+        self.cond_stack: List[str] = []
 
         # Block-level guards (linting is suppressed inside these blocks)
         self.in_struct: bool = False
@@ -1507,6 +1514,52 @@ def check_w023(ctx: "LintContext", token: "Token", line_num: int,
         ctx.ccr_last_writer_ifdebug = None
 
 
+# ---------------------------------------------------------------------------
+# W024: a debug-only macro (`RaiseError`, `Console.*`) invoked outside an
+# `__DEBUG__` gate. These macros are NOT self-gating (their bodies emit the
+# error-handler/console call unconditionally), so an un-gated call ships in
+# release builds (review wave-4). Gated = inside an `ifdef __DEBUG__` block or
+# an `ifdebug`-prefixed line.
+# ---------------------------------------------------------------------------
+
+
+def _update_cond_stack(ctx: "LintContext", instr_lower: str, operands: List[str]) -> None:
+    """Track conditional-assembly nesting for the `__DEBUG__`-gate test. `else`
+    flips the top frame's debug/release sense; `endif`/`endc` pop."""
+    names_debug = any("__DEBUG__" in op for op in operands)
+    if instr_lower in ("if", "ifdef"):
+        ctx.cond_stack.append("debug" if names_debug else "other")
+    elif instr_lower == "ifndef":
+        # The body runs when the symbol is NOT defined — the RELEASE branch of a
+        # `__DEBUG__` test.
+        ctx.cond_stack.append("release" if names_debug else "other")
+    elif instr_lower in ("else", "elseif") and ctx.cond_stack:
+        top = ctx.cond_stack[-1]
+        ctx.cond_stack[-1] = {"debug": "release", "release": "debug"}.get(top, top)
+    elif instr_lower in ("endif", "endc") and ctx.cond_stack:
+        ctx.cond_stack.pop()
+
+
+def _is_debug_only_macro(instr: str) -> bool:
+    """`RaiseError` or a `Console`/`_Console` (`.Method`) invocation — the
+    debug-only MD Debugger macros (case-sensitive names)."""
+    return instr == "RaiseError" or instr.split(".", 1)[0] in ("Console", "_Console")
+
+
+def check_w024(ctx: "LintContext", token: "Token", line_num: int,
+               raw_line: str, suppressed: Set[str]) -> None:
+    if "W024" in suppressed or not _is_debug_only_macro(token.instruction):
+        return
+    if raw_line.lstrip().lower().startswith("ifdebug"):
+        return  # ifdebug-prefixed = gated
+    if "debug" in ctx.cond_stack:
+        return  # inside an __DEBUG__ block
+    ctx.warning("W024", line_num,
+                f"'{token.instruction}' is a debug-only macro (not self-gated) invoked outside "
+                f"an __DEBUG__ gate — it ships in release builds; wrap it in `ifdef __DEBUG__` "
+                f"… `endif` or prefix with `ifdebug`")
+
+
 def check_warnings(ctx: "LintContext", token: "Token", line_num: int,
                    raw_line: str, suppressed: Set[str]) -> None:
     """Run all W001-W013 optimization and style warning checks."""
@@ -1713,6 +1766,11 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     # ------------------------------------------------------------------
     ctx.recent_raw_lines.append(raw_line)
 
+    # W024: track __DEBUG__ conditional nesting (before block guards, so it stays
+    # balanced even for directives inside otherwise-skipped blocks).
+    if instr_lower in ("if", "ifdef", "ifndef", "else", "elseif", "endif", "endc"):
+        _update_cond_stack(ctx, instr_lower, token.operands)
+
     # ------------------------------------------------------------------
     # Block-level tracking — update state FIRST so checks inside blocks
     # can reference correct state, then skip actual lint checks if blocked.
@@ -1905,6 +1963,7 @@ def run_checks(ctx: LintContext, token: Token, line_num: int,
     if token.instruction:
         check_warnings(ctx, token, line_num, raw_line, suppressed)
         check_w023(ctx, token, line_num, raw_line, suppressed)
+        check_w024(ctx, token, line_num, raw_line, suppressed)
 
     # ------------------------------------------------------------------
     # Track prev_token for multi-line checks (W009, etc.)

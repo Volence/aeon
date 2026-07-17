@@ -2831,5 +2831,53 @@ class TestW023_IfdebugCCRDivergence(unittest.TestCase):
         self.assertEqual(len(w), 0)
 
 
+# ---------------------------------------------------------------------------
+# W024: RaiseError / Console invocation outside an __DEBUG__ gate
+# ---------------------------------------------------------------------------
+
+class TestW024_DebugMacroUngated(unittest.TestCase):
+
+    def _warns(self, lines_str):
+        return [d for d in _lint_lines(lines_str) if d.code == "W024"]
+
+    def test_raiseerror_ungated_warns(self):
+        w = self._warns("R:\n    RaiseError \"boom\"\n    rts\n")
+        self.assertEqual(len(w), 1)
+        self.assertIn("RaiseError", w[0].message)
+
+    def test_raiseerror_in_debug_gate_no_warn(self):
+        w = self._warns(
+            "R:\n    ifdef __DEBUG__\n    RaiseError \"boom\"\n    endif\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_raiseerror_ifdebug_prefix_no_warn(self):
+        w = self._warns("R:\n    ifdebug RaiseError \"boom\"\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+    def test_console_ungated_warns(self):
+        w = self._warns("R:\n    Console.WriteLine \"hi\"\n    rts\n")
+        self.assertEqual(len(w), 1)
+
+    def test_else_branch_of_debug_gate_warns(self):
+        # The `else` of `ifdef __DEBUG__` is the RELEASE branch → ungated.
+        w = self._warns(
+            "R:\n    ifdef __DEBUG__\n    nop\n    else\n"
+            "    RaiseError \"boom\"\n    endif\n    rts\n"
+        )
+        self.assertEqual(len(w), 1)
+
+    def test_nested_nondebug_if_inside_debug_gate_no_warn(self):
+        w = self._warns(
+            "R:\n    ifdef __DEBUG__\n    if 1\n    RaiseError \"x\"\n"
+            "    endif\n    endif\n    rts\n"
+        )
+        self.assertEqual(len(w), 0)
+
+    def test_suppressed(self):
+        w = self._warns("R:\n    RaiseError \"boom\"  ; lint: disable=W024\n    rts\n")
+        self.assertEqual(len(w), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
