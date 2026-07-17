@@ -33,9 +33,10 @@ Two audiences, one document per page:
   resources, not navigation). First publish needs a one-time backfill pass:
   publish pages → record URLs in `urls.json` → wire nav links → redeploy.
 - **Design system**: canonical `empyrean/wiki/theme.css` in the repo; its contents are
-  copied into each page's inline `<style>` (artifacts cannot share files). One source
-  of truth to copy from; a page is out of date if its inline block drifts from
-  `theme.css`.
+  copied to the top of each page's inline `<style>` (artifacts cannot share files),
+  followed by a `/* Page-specific styles */` banner and any page-local rules. One
+  source of truth to copy from; a page is out of date if the theme portion above the
+  banner drifts from `theme.css`. Page-local rules below the banner are intentional.
 - **No external assets ever** — inline SVG/JS/CSS only, per the artifact CSP.
 
 ## Page format (Option B — one narrative, inline explainers)
