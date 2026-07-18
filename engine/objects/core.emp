@@ -196,7 +196,7 @@ pub proc AllocEffect () clobbers(d0) out(a1) {
 // Out: none
 // Clobbers: d0, a1
 // -----------------------------------------------
-pub proc DeleteObject () clobbers(d0-d1, a1) {
+pub proc DeleteObject (a0: *Sst) clobbers(d0-d1, a1) preserves(a0) {
         // DEBUG rails: a0 must point at a live SST inside Object_RAM.
         // An out-of-range a0 falls to .clear_slot and zeroes wild memory; a
         // code_addr==0 slot is an already-deleted (double-delete) slot whose
