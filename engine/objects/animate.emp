@@ -78,7 +78,7 @@ comptime fn reload_anim_timer(src: Reg) -> Code {
 // Out: mapping_frame updated if frame advanced
 // Clobbers: d0-d2, a1-a2
 // -----------------------------------------------
-pub proc AnimateSprite () clobbers(d0-d2/a1-a2) {
+pub proc AnimateSprite (a0: *Sst) clobbers(d0-d2/a1-a2) {
         // Propagate facing from status → render_flags each frame. The flip bits
         // are bit-aligned (ST_XFLIP/ST_YFLIP == RF_XFLIP/RF_YFLIP), so this is a
         // straight copy of bits 1-2. $F9 = ~(RF_XFLIP|RF_YFLIP): clear the two
