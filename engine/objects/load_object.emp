@@ -35,7 +35,7 @@ ensure(RF_XFLIP == 1 && RF_YFLIP == 2, "rol.w #4 placement-flip fold assumes OEF
 //      Z clear = allocation failed
 // Clobbers: d0-d3, a1-a3
 // -----------------------------------------------
-pub proc Load_Object () clobbers(d0-d3, a1, a2, a3) {
+pub proc Load_Object () clobbers(d0-d3, a2, a3) out(a1) {
         movem.l d0-d2/a1, -(sp)
         jbsr    AllocDynamic
         bne     .alloc_fail

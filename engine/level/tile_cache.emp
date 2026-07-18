@@ -203,7 +203,7 @@ pub data BlockStage_PtrTable: [*u8; BLOCK_STAGE_SLOTS] = comptime for i in 0..BL
 //      Z clear on miss (a1 trashed). d0–d2 preserved.
 // Clobbers: d3-d4, a1
 // -----------------------------------------------
-pub proc TileCache_FindStagedBlock () clobbers(d3-d4/a1) {
+pub proc TileCache_FindStagedBlock () clobbers(d3-d4) out(a1) {
         move.w  d0, d3
         lsl.w   #8, d3
         move.b  d1, d3
