@@ -206,7 +206,7 @@ pub proc Section_FlatIDXY (d2: u8, d3: u8, a2: *Act) clobbers(d1) out(d0) {
 // Out: a0 = Sec ptr; Z clear if found, Z set if out of range (a0 = 0)
 // Clobbers: d0, d1     (d2/d3/a2 preserved — sec_x stack-saved across multiply)
 // -----------------------------------------------
-pub proc Section_GetSecPtrXY () clobbers(d1-d2) out(d0, a0) {
+pub proc Section_GetSecPtrXY (d2: u8, d3: u8, a2: *Act) clobbers(d1-d2) out(d0, a0) {
         cmp.b   Act_grid_w_lo(a2), d2
         bcc     .out_of_range                   // sec_x >= grid_w (unsigned)
         cmp.b   Act_grid_h_lo(a2), d3
