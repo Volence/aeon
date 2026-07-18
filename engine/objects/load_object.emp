@@ -35,7 +35,7 @@ ensure(RF_XFLIP == 1 && RF_YFLIP == 2, "rol.w #4 placement-flip fold assumes OEF
 //      Z clear = allocation failed
 // Clobbers: d0-d3, a1-a3
 // -----------------------------------------------
-pub proc Load_Object () clobbers(d0-d3, a2, a3) out(a1) {
+pub proc Load_Object (a1: *u8, d0: u16, d1: u16, d2: u16) clobbers(d0-d3, a2, a3) out(a1) {
         movem.l d0-d2/a1, -(sp)
         jbsr    AllocDynamic
         bne     .alloc_fail
@@ -103,7 +103,7 @@ pub proc Load_Object () clobbers(d0-d3, a2, a3) out(a1) {
 // Out: none (objects spawned, alloc failures silently skipped)
 // Clobbers: d0-d3, a0-a3 (a3 transitively, via Load_Object)
 // -----------------------------------------------
-pub proc Load_ObjectList () clobbers(d0-d3, a0, a1, a2, a3) {
+pub proc Load_ObjectList (a0: *u8) clobbers(d0-d3, a0, a1, a2, a3) {
     .loop:
         movea.l (a0)+, a1              // a1 = definition pointer
         move.l  a1, d0
