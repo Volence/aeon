@@ -105,7 +105,7 @@ pub proc InitObjectRAM () clobbers(d0-d1/a0-a1) {
 // zombie), reachable only at a full count. All current callers write code_addr
 // immediately (children/load_object/object_test emitters).
 // -----------------------------------------------
-pub proc AllocDynamic () clobbers(d0) out(a1) {
+pub proc AllocDynamic () clobbers(d0) out(a1) preserves(a0) {
         cmpi.w  #extern("Dynamic_Free_Stack"), (Dynamic_Free_SP).w   // explicit .w kept: link-imm source + bare symbolic dest — imm-link lowering gap (see AllocDynamic init)
         beq     .full
         movea.w Dynamic_Free_SP, a1

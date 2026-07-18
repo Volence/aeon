@@ -188,7 +188,7 @@ proc Collected_FindSlot () clobbers(d1) out(a0) {
 // Out: Z clear = collected (skip), Z set = uncollected (spawn)
 // Clobbers: d2, a0
 // -----------------------------------------------
-proc Collected_CheckRing () clobbers(d2, a0) {
+proc Collected_CheckRing () clobbers(d2, a0) preserves(d1) {
         movem.l d0-d1, -(sp)
         jbsr    Collected_FindSlot
         movem.l (sp)+, d0-d1
@@ -235,7 +235,7 @@ pub proc Collected_MarkRing () clobbers(d0-d1, a0) {
 // Out: Z clear = killed (skip), Z set = alive (spawn)
 // Clobbers: d2, a0
 // -----------------------------------------------
-proc Killed_CheckObject () clobbers(d2, a0) {
+proc Killed_CheckObject () clobbers(d2, a0) preserves(d1) {
         movem.l d0-d1, -(sp)
         jbsr    Collected_FindSlot
         movem.l (sp)+, d0-d1
@@ -331,7 +331,7 @@ proc Collected_ClaimSlot () clobbers(d1, a1) out(a0) {
 // Out: none
 // Clobbers: d0-d1, a1
 // -----------------------------------------------
-proc Collected_ParkSlot () clobbers(d0-d1, a1) {
+proc Collected_ParkSlot () clobbers(d0-d1, a1) preserves(a0) {
         move.l  COLLECTED_BITMASK_OFFSET(a0), d0
         or.l    COLLECTED_BITMASK_OFFSET+4(a0), d0
         or.l    COLLECTED_BITMASK_OFFSET+8(a0), d0
@@ -414,7 +414,7 @@ proc Collected_ParkSlot () clobbers(d0-d1, a1) {
 // Out: none
 // Clobbers: d1, a1
 // -----------------------------------------------
-proc Collected_UnparkSlot () clobbers(d1, a1) {
+proc Collected_UnparkSlot () clobbers(d1, a1) preserves(a0) {
         lea     Ring_Collected_Park, a1
         moveq   #COLLECTED_PARK_SLOTS-1, d1
     .scan:
