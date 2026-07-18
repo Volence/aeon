@@ -132,7 +132,7 @@ comptime fn mul_cache_stride(dst: Reg, scratch: Reg) -> Code {
 // Out: d2.w = nametable word
 // Clobbers: d0-d2, a0
 // -----------------------------------------------
-pub proc Tile_Cache_GetTile () clobbers(d0-d1/a0) out(d2) {
+pub proc Tile_Cache_GetTile (d0: u16, d1: u16) clobbers(d0-d1/a0) out(d2) {
         sub.w   Cache_Left_Col, d0
         add.w   Cache_Origin_Col, d0
         cmpi.w  #TILE_CACHE_COLS, d0
@@ -161,7 +161,7 @@ pub proc Tile_Cache_GetTile () clobbers(d0-d1/a0) out(d2) {
 // Note: layer input is in d3 (not d2) so the ×80 shift-add can use d2 as scratch
 //       without clobbering the layer before the plane select.
 // -----------------------------------------------
-pub proc Tile_Cache_GetCollision () clobbers(d1-d2/a0) out(d0) {
+pub proc Tile_Cache_GetCollision (d0: u16, d1: u16, d3: u8) clobbers(d1-d2/a0) out(d0) {
         sub.w   Cache_Left_Col, d0
         add.w   Cache_Origin_Col, d0
         cmpi.w  #TILE_CACHE_COLS, d0
@@ -203,7 +203,7 @@ pub data BlockStage_PtrTable: [*u8; BLOCK_STAGE_SLOTS] = comptime for i in 0..BL
 //      Z clear on miss (a1 trashed). d0–d2 preserved.
 // Clobbers: d3-d4, a1
 // -----------------------------------------------
-pub proc TileCache_FindStagedBlock () clobbers(d3-d4) out(a1) {
+pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4) out(a1 if eq) {
         move.w  d0, d3
         lsl.w   #8, d3
         move.b  d1, d3
@@ -253,7 +253,7 @@ pub proc TileCache_InvalidateStaging () clobbers(d0/a0) {
 // Out: a1 = slot base (nametable; collision at +BLOCK_NT_SIZE)
 // Clobbers: d0-d7, a0-a4
 // -----------------------------------------------
-pub proc TileCache_DecompressBlock () clobbers(d0-d7/a0/a2-a4) out(a1) {
+pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0/a2-a4) out(a1) {
         // claim next round-robin slot, record key
         move.w  d0, d3
         lsl.w   #8, d3
@@ -375,7 +375,7 @@ pub proc TileCache_DecompressBlock () clobbers(d0-d7/a0/a2-a4) out(a1) {
 //       Cache_Origin_Row is also kept even, so the physical row keeps the
 //       logical row's parity and physical_row/2 = physical collision row.
 // -----------------------------------------------
-pub proc TileCache_CopyBlockColumn () clobbers(d0-d3/d5/a0/a2-a3) {
+pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16, a1: *u8, a5: *u8, a6: *u8) clobbers(d0-d3/d5/a0/a2-a3) {
         // wrap d1 (logical cache col) to physical column via circular origin
         add.w   Cache_Origin_Col, d1
         cmpi.w  #TILE_CACHE_COLS, d1
@@ -1253,7 +1253,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
 // In (H6): a5/a6 set at entry to the NT/collision bases (hoisted CopyBlockColumn leas).
 // Clobbers: d0-d7, a0-a6
 // -----------------------------------------------
-pub proc TileCache_FillColumn () clobbers(d1-d7/a0-a6) out(d0) {
+pub proc TileCache_FillColumn (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         // H6: hoist the two loop-invariant base leas out of CopyBlockColumn — a5/a6
         // are the only regs surviving DecompressBlock's clobber license (d0-d7/a0/a2-a4),
         // so they carry the bases across the per-block decompress for the whole column.
@@ -1347,7 +1347,7 @@ pub proc TileCache_FillColumn () clobbers(d1-d7/a0-a6) out(d0) {
 //       that completes the cell). Cache_Top_Row is kept even, so cell
 //       boundaries align with world block data.
 // -----------------------------------------------
-pub proc TileCache_FillRow () clobbers(d1-d7/a0-a6) out(d0) {
+pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         // cache row offset (constant for all columns)
         move.w  d5, d2
         sub.w   Cache_Top_Row, d2
@@ -1651,7 +1651,7 @@ pub proc TileCache_FillRow () clobbers(d1-d7/a0-a6) out(d0) {
 // Out: none
 // Clobbers: d0-d1
 // -----------------------------------------------
-pub proc TileCache_HSlide () clobbers(d0-d1) {
+pub proc TileCache_HSlide (d0: u16) clobbers(d0-d1) {
         tst.w   d0
         ble     .done
         add.w   d0, Cache_Left_Col
@@ -1677,7 +1677,7 @@ pub proc TileCache_HSlide () clobbers(d0-d1) {
 // Out: none
 // Clobbers: d0
 // -----------------------------------------------
-pub proc TileCache_VSlide () clobbers(d0) {
+pub proc TileCache_VSlide (d0: u16) clobbers(d0) {
         tst.w   d0
         ble     .vslide_done
         add.w   d0, Cache_Top_Row
@@ -1699,7 +1699,7 @@ pub proc TileCache_VSlide () clobbers(d0) {
 // Out: none
 // Clobbers: d0-d1
 // -----------------------------------------------
-pub proc TileCache_VSlideUp () clobbers(d0-d1) {
+pub proc TileCache_VSlideUp (d0: u16) clobbers(d0-d1) {
         tst.w   d0
         ble     .vsu_done
         sub.w   d0, Cache_Bottom_Row

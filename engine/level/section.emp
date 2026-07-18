@@ -137,7 +137,7 @@ comptime fn vdp_comm_reg(reg: Reg, target: VdpTarget, op: VdpOp, clr: bool = tru
 // Out: none
 // Clobbers: d0–d7, a0–a4   (transitive via EntityWindow_Init)
 // -----------------------------------------------
-pub proc Section_Init () clobbers(d0-d7/a0-a4) {
+pub proc Section_Init (a0: *Act) clobbers(d0-d7/a0-a4) {
         move.l  a0, Current_Act_Ptr             // (Current_Act_Ptr).w — ram.asm; abs.w by the width rule
 
         // -- set up column/row trackers; first frame streams the plane --
@@ -184,7 +184,7 @@ pub proc Section_FillInitial () clobbers(d0) {
 // Out: d0.w = sec_y * grid_w + sec_x
 // Clobbers: d1     (d2/d3/a2 preserved)
 // -----------------------------------------------
-pub proc Section_FlatIDXY () clobbers(d1) out(d0) {
+pub proc Section_FlatIDXY (d2: u8, d3: u8, a2: *Act) clobbers(d1) out(d0) {
         moveq   #0, d0
         moveq   #0, d1
         move.b  d3, d1                          // d1 = sec_y
