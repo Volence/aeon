@@ -276,7 +276,7 @@ pub proc AnimateSprite (a0: *Sst) clobbers(d0-d2/a1-a2) {
 // Out: Sst.sprite_piece_count(a0) = first word of current frame's data
 // Clobbers: d2, a1
 // -----------------------------------------------
-pub proc RefreshSpritePieceCount () clobbers(d2, a1) {
+pub proc RefreshSpritePieceCount (a0: *Sst) clobbers(d2, a1) {
         movea.l Sst.mappings(a0), a1
         move.l  a1, d2
         beq     .skip                       // null mappings — leave field untouched

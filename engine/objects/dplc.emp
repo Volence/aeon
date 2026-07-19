@@ -99,7 +99,7 @@ comptime fn perform_dplc(queue: Label) -> Code {
 // Out: none
 // Clobbers: d0-d4, a1-a2
 // -----------------------------------------------
-pub proc Perform_DPLC () clobbers(d0-d4/a1-a2) {
+pub proc Perform_DPLC (a0: *Sst, a2: *u8, a3: *u8, d1: u16) clobbers(d0-d4/a1-a2) {
         perform_dplc(QueueDMA_Important)
 }
 
@@ -114,6 +114,6 @@ pub proc Perform_DPLC () clobbers(d0-d4/a1-a2) {
 // Out: none
 // Clobbers: d0-d4, a1-a2
 // -----------------------------------------------
-pub proc Perform_DPLC_Deferrable () clobbers(d0-d4/a1-a2) {
+pub proc Perform_DPLC_Deferrable (a0: *Sst, a2: *u8, a3: *u8, d1: u16) clobbers(d0-d4/a1-a2) {
         perform_dplc(QueueDMA_Deferrable)
 }

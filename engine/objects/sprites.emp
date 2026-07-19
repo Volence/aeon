@@ -52,7 +52,7 @@ pub proc InitSpriteSystem () clobbers(d0, a0) {
 // Clobbers: d0-d3, a1
 // Preserves: a0, d7 (required by RunObjects_Frozen loop)
 // -----------------------------------------------
-pub proc Draw_Sprite () clobbers(d0-d3/a1) {
+pub proc Draw_Sprite (a0: *Sst) clobbers(d0-d3/a1) {
         // --- Child-skip guard for multi-sprite parents ---
         // If our parent has RF_MULTISPRITE set, we render via the parent's
         // sibling walk in Render_Sprites — don't register independently.
@@ -632,7 +632,7 @@ comptime fn emit_piece_loop(xflip: int, yflip: int) -> Code {
 //   the consumed pieces), a6
 // Preserves: d2, d3, d6, d7
 // -----------------------------------------------
-proc Emit_ObjectPieces () clobbers(d0-d1/d4/a0-a1/a3/a6) out(d5, a4) {
+proc Emit_ObjectPieces (a3: *u8, a4: *u8, d0: u8, d2: i16, d3: i16, d4: u16, d5: u16, d6: u16) clobbers(d0-d1/d4/a0-a1/a3/a6) out(d5, a4) {
         lea     CellOffsets_XFlip(pc), a0  // a0 = flip-table base for variants
         tst.b   d0
         beq   .pieces_unflipped
@@ -672,7 +672,7 @@ proc Emit_ObjectPieces () clobbers(d0-d1/d4/a0-a1/a3/a6) out(d5, a4) {
 //      d5 = updated sprite index
 // Clobbers: d0-d1
 // -----------------------------------------------
-proc InsertSpriteMasks () clobbers(d0-d1) out(d5, a4) {
+proc InsertSpriteMasks (a4: *u8, d5: u16) clobbers(d0-d1) out(d5, a4) {
         move.w  SpriteMask_Y, d0        // d0 = VDP Y start position
         move.w  SpriteMask_Height, d1        // d1 = remaining scanlines to cover
         ble   .masks_done

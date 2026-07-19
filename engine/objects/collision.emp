@@ -235,7 +235,7 @@ proc Touch_Touch () clobbers() {
 // Out: none
 // Clobbers: none
 // -----------------------------------------------
-proc Touch_Hurt (a2: *Sst, a3: *Sst) clobbers() {
+proc Touch_Hurt (d0: u16, d1: i16, d2: u16, d3: i16, a2: *Sst, a3: *Sst) clobbers() {
         rts
 }
 

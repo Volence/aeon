@@ -107,7 +107,7 @@ comptime fn z80_window(dst: Reg, src: Reg) -> Code {
 // In:  d0.b = value (nonzero = request, 0 = idle), a0 = 68k addr of the slot.
 // Clobbers: SR restored; nothing else.
 // ----------------------------------------------------------------------
-pub proc Sound_PostByte () clobbers() preserves(sr) {
+pub proc Sound_PostByte (d0: u16, a0: *u8) clobbers() preserves(sr) {
         move.w  sr, -(sp)
         move.w  #$2700, sr                  // mask interrupts (no mirror nesting)
         stop_z80
@@ -145,7 +145,7 @@ pub proc Sound_Init () clobbers() preserves(sr) {
 // Sound_Ping — debug: ask the driver to echo d0.b into STAT_PING_ECHO.
 // In:  d0.b = nonzero echo token value.
 // ----------------------------------------------------------------------
-pub proc Sound_Ping () clobbers(a0) {
+pub proc Sound_Ping (d0: u16) clobbers(a0) {
         lea     PING_SLOT, a0
         jbra    Sound_PostByte
 }
@@ -154,7 +154,7 @@ pub proc Sound_Ping () clobbers(a0) {
 // Sound_PlaySample — start DAC playback of a sample id.
 // In:  d0.b = sample id (nonzero).
 // ----------------------------------------------------------------------
-pub proc Sound_PlaySample () clobbers(a0) {
+pub proc Sound_PlaySample (d0: u16) clobbers(a0) {
         lea     SAMPLE_SLOT, a0
         jbra    Sound_PostByte
 }
@@ -175,7 +175,7 @@ pub proc Sound_PlaySample () clobbers(a0) {
 // In:  d0.b = song id (1..SONG_COUNT).
 // Clobbers: d0/d1/d2/d3/d4/a0/a1; SR restored.
 // ----------------------------------------------------------------------
-pub proc Sound_PlayMusic () clobbers(d0-d4/a0-a1) preserves(sr) {
+pub proc Sound_PlayMusic (d0: u16) clobbers(d0-d4/a0-a1) preserves(sr) {
         // H-1 repost gate: a second Sound_PlayMusic landing while the Z80 is mid
         // Snd_LoadSong would tear the 6-byte param block AND lose this trigger (the
         // Z80 clears the slot after consuming the params). Spin until the previous
@@ -256,7 +256,7 @@ pub proc Sound_PlayMusic () clobbers(d0-d4/a0-a1) preserves(sr) {
 //   on the two hot reliances, so the d0-only clobber survives even if the body
 //   grows to touch d1/a0 (e.g. animate dropping BOTH saves around this call).
 // ----------------------------------------------------------------------
-pub proc Sound_PlaySFX () preserves(d1/a0) {
+pub proc Sound_PlaySFX (d0: u16) preserves(d1/a0) {
         tst.b   d0                          // defensive: id 0 = nothing to queue
         beq     .ps_ret
         movem.l d1/a0, -(sp)                // preserve d1 + caller's a0 (keep the d0-only contract)
@@ -387,7 +387,7 @@ pub proc Sound_StopMusic () clobbers(d0, a0) {
 // authored header tempo. The CALLER supplies d0.b (this does NOT set it, like
 // Sound_Ping / Sound_PlaySample); d0 preserved. SR restored.
 // ----------------------------------------------------------------------
-pub proc Sound_SetTempo () clobbers(a0) {
+pub proc Sound_SetTempo (d0: u16) clobbers(a0) {
         lea     TEMPO_SLOT, a0
         jbra    Sound_PostByte
 }

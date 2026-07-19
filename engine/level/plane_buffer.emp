@@ -75,7 +75,7 @@ pub proc Plane_Buffer_Reset () {
 // Out: none (silently drops if buffer full)
 // Clobbers: d0–d5, a0–a2 (a1 = row-wrap sentinel through both parts)
 // -----------------------------------------------
-pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
+pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         // worst case: 2 headers (8 bytes) + 64 data words (128 bytes) = 136
         move.w  Plane_Buffer_Ptr, d2
         addi.w  #8 + PLANE_V_CELLS*2, d2
@@ -224,7 +224,7 @@ pub proc Draw_TileColumn () clobbers(d0-d5/a0-a2) {
 // Out: none (silently drops if buffer full)
 // Clobbers: d0–d5, a0–a2
 // -----------------------------------------------
-pub proc Draw_TileRow_FromCache () clobbers(d0-d5/a0-a2) {
+pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         move.w  Plane_Buffer_Ptr, d2
         addi.w  #4 + PLANE_H_CELLS*2, d2
         cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
@@ -353,7 +353,7 @@ pub proc Draw_TileRow_FromCache () clobbers(d0-d5/a0-a2) {
 //       Source layout is row-major 64×32 — for col N, words at byte offsets
 //       row*128 + N*2 for row=0..31 (stride = 64 cols * 2 B = 128).
 // -----------------------------------------------
-pub proc Draw_BG_TileColumn () clobbers(d0-d3/a1-a2) {
+pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
         // -- overflow check (entry size = 4 + 32*2 = 68 bytes) --
         move.w  Plane_Buffer_Ptr, d2
         addi.w  #4 + 32*2, d2

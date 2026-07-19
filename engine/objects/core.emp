@@ -548,7 +548,7 @@ pub proc RunObjects () clobbers(d0-d7/a0-a6) {
 // bytes in the plain shape — the body sits inside `if DEBUG == 1 {}` so the
 // region length is shape-dependent (rings.emp precedent).
 // -----------------------------------------------
-pub proc Debug_AssertObjLoop () clobbers() {
+pub proc Debug_AssertObjLoop (a0: *Sst, d7: u16) clobbers() {
     if DEBUG == 1 {
         // wrapper elides the whole proc body in the plain shape (asserts
         // self-gate; the rts does not — core_port's debug_shape_length_diverges
@@ -623,7 +623,7 @@ pub proc RunObjects_Frozen () clobbers(d0-d7/a0-a6) {
 // Out: none
 // Clobbers: d0
 // -----------------------------------------------
-pub proc ObjectMove () clobbers(d0) {
+pub proc ObjectMove (a0: *Sst) clobbers(d0) {
         move.w  Sst.x_vel(a0), d0
         ext.l   d0
         asl.l   #8, d0
@@ -641,7 +641,7 @@ pub proc ObjectMove () clobbers(d0) {
 // Out: none
 // Clobbers: d0
 // -----------------------------------------------
-pub proc ObjectMoveX () clobbers(d0) {
+pub proc ObjectMoveX (a0: *Sst) clobbers(d0) {
         move.w  Sst.x_vel(a0), d0
         ext.l   d0
         asl.l   #8, d0
@@ -655,7 +655,7 @@ pub proc ObjectMoveX () clobbers(d0) {
 // Out: none
 // Clobbers: d0
 // -----------------------------------------------
-pub proc ObjectMoveY () clobbers(d0) {
+pub proc ObjectMoveY (a0: *Sst) clobbers(d0) {
         move.w  Sst.y_vel(a0), d0
         ext.l   d0
         asl.l   #8, d0
