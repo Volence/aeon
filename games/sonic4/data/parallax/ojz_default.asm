@@ -43,13 +43,15 @@ ParallaxConfig_OJZ_Default:
     ; pointless (0 >> shift) = 0 math. Free lunch; no visual change.
     parallax_section layerMask=$1F, vFactorBg=3, vCenter=512, vOffset=0, \
                      deformBg=DeformTable_Zero, deformShiftDefault=15
-        ; Deep Forest tuning: the colonnade band scrolls at 1/8 line-scroll
-        ; + camera/4 tile animation = 3/8 apparent, keeping the depth stack
-        ; monotonic: 1/16 canopy, 3/8 trunks, 1/2 undergrowth, 5/8 roots, 1 FG.
-        band 0,  FACTOR_1, FACTOR_1_16      ; plane rows 0-7   canopy ceiling
-        band 8,  FACTOR_1, FACTOR_1_8       ; plane rows 8-39  marching colonnade
+        ; The ChatGPT Deep Forest BG is ONE continuous scene (trunks run the
+        ; full plane height), not separate depth layers — so all bands must
+        ; share a single BG scroll factor or the differential shears the trunks
+        ; apart at each band boundary. Uniform 1/2 = coherent parallax depth
+        ; (BG at half the 1:1 foreground). Tune the single factor to taste.
+        band 0,  FACTOR_1, FACTOR_1_2       ; plane rows 0-7   canopy ceiling
+        band 8,  FACTOR_1, FACTOR_1_2       ; plane rows 8-39  colonnade trunks
         band 40, FACTOR_1, FACTOR_1_2       ; plane rows 40-47 undergrowth + grass
-        band 48, FACTOR_1, FACTOR_5_8       ; plane rows 48-63 roots + the dark below
+        band 48, FACTOR_1, FACTOR_1_2       ; plane rows 48-63 roots + the dark below
     parallax_section_end
 
 ; Note: previous T12 fixtures (perspective floor, wave rocking) have been
