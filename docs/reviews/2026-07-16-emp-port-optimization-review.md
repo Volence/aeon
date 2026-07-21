@@ -507,9 +507,26 @@ BOOT — hardware-risk items (oracle can't verify most of these):
 
 # SIGIL DIAGNOSTICS TIER — compile-time nets for the bug classes this review found
 
-**Phase order: this section executes AFTER the bug fixes (done) and BEFORE the performance
-items.** Rationale: the perf work is largely register/contract surgery (movem trims,
-register-resident budgets, drain restructures, caller-side hoists) — exactly the changes
+**ADJUDICATION (2026-07-16): ENDORSED with amendments — this section is now the EVIDENCE
+BASE, not the build source.** The build source is the **contract-grammar spec** (Fable
+drafting), which merges D1b (declared inputs) + D2 (must-use carry outputs) + the
+pre-existing typed-register-signature ask into one grammar. Amendments folded into the
+spec that this section does not cover:
+- **extern-proc contract declarations** — the .asm-callee trust boundary D1a needs (an
+  .emp caller of an unported .asm routine gets a declared, checkable contract instead of
+  an unverifiable hole in the call-graph closure);
+- **indirect-call contract bounds** — jump tables, `VInt_Ptr`/`HBlank_Handler_Ptr`,
+  object dispatch, animate's `.evt_callback`: the indirect site declares the contract
+  BOUND every installable target must satisfy;
+- **scaffolding annotation** — ratified zero-caller keeps (e.g. `Plane_Buffer_Reset`'s
+  forward reset hook) marked so D7's dead-symbol analysis doesn't nag them; unmarked dead
+  symbols still fail.
+
+**Sequencing (adjudicated):** pass-2 streaming perf runs PARALLEL to the diagnostics
+build; **pass-3 contract surgery waits for D1a/D2** to land.
+
+**Phase-order rationale (original, still valid):** the contract-surgery perf work (movem
+trims, register-resident budgets, drain restructures, caller-side hoists) is exactly what
 these diagnostics protect. Land the nets, then cut.
 
 Scope note on .emp vs .asm: the full mechanisms are Sigil-compiler-tier and apply to .emp.
