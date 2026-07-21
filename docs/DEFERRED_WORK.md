@@ -1884,3 +1884,46 @@ rest-silenced note the next attack could open TL-silenced. Not visible in render
 A/B at capture scale; awaiting the user's by-ear pass. Candidate 0-2 byte fix if
 audible: key-on primes the shadow with a never-matches sentinel.
 `docs/research/phase_harness/t8_verification.md`.
+
+---
+
+## On-target diagnostic instrumentation — idea capture 2026-07-20
+
+**Framing (shared across three repos):** we use vladikcomper's Error Handler/Debugger
+(and `convsym` from the same suite) as our one significant not-from-scratch tool. It's
+excellent, but it's designed as a *drop-in library* for someone with an arbitrary
+emulator and no control over their assembler — so it renders crashes to the Genesis
+screen, symbolizes PC → nearest label, is post-mortem-only, and is 68K-only. **We are not
+in that position: we own the whole stack (sigil assembler + Oracle emulator + MCP + build),
+and we have no real hardware, so emulator-substitutes-for-hardware is a first-class goal.**
+That changes what "better" means — the leverage is tight integration, not out-engineering
+his handler. Emulator-side ideas live in `oracle-next/docs/2026-07-20-diagnostic-tooling-ideas.md`;
+assembler-side in `sigil/docs/2026-07-20-diagnostic-instrumentation-ideas.md`. This section
+holds the pieces that run **on the 68K/Z80 target itself** (the drop-in-library tier).
+
+These are unbuilt ideas, not committed work. Pick up opportunistically.
+
+- **Structured crash-frame mailbox (highest value; pairs with the Oracle reader).**
+  Instead of rendering registers to VDP, a thin exception handler writes a fixed
+  crash-frame struct (regs, PC, SR, USP/SSP, fault addr, a few RAM breadcrumbs) to a
+  known RAM address and halts. Oracle reads it straight off the MCP socket as structured
+  data — no rendering path, works even when the VDP is the wedged thing. ~100-200 B of
+  68K + a `struct` def. This is the one piece worth building first because it turns crash
+  debugging from "OCR the screen" into "query the crash." Reader half is an Oracle task.
+- **RAM poisoning for uninitialized-read detection.** Fill all RAM with a poison pattern
+  at cold boot; any value read back as poison = read-before-write. Catches the
+  "works after soft reset, not cold boot" class. Debug-build only.
+- **Stack high-water canary.** Sentinel pattern below the stack; check how deep it was
+  ever eaten. 68K has no frame convention, so silent stack overflow into RAM is a common
+  nasty failure — this makes it visible. Cheap.
+- **Object-slot leak / use-after-free tracker.** Instrument the 64-byte SST slot allocator
+  to flag leaks and reuse of freed slots. Debug-build only.
+- **Z80 heartbeat / watchdog.** A counter the Z80 bumps that the 68K samples each frame;
+  a stalled counter = silent sound-driver hang, which currently nothing catches (the
+  drop-in handler is 68K-only). Small; closes a real blind spot.
+- **Contract-enforcement trap handler (the 68K half).** Depends on sigil emitting the
+  shadow-check instrumentation (see the sigil note). This repo's In:/Out: contract grammar
+  (recent `contract-grammar` commits) is the vocabulary; a DEBUG build traps the exact
+  instant a routine clobbers a register it swore to preserve or returns garbage in a
+  promised `Out:`. High value because the expensive prerequisite (the contract grammar)
+  is already being paid for.

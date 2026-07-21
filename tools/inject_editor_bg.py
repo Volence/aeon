@@ -122,5 +122,25 @@ def main():
         f.write(blob)
     print(f'[inject_editor_bg] wrote zone_bg.bin ({len(nt)}B) + bg_tiles.bin ({len(tiles)} tiles)')
 
+    # optional: stamp a BG palette line. strip_gen copies ojz_palette.bin from
+    # sonic_hack every build, so a palette that matches the injected art must be
+    # written HERE (inject runs after strip_gen) or the colours revert.
+    if 'palette' in data:
+        cram_line = int(data.get('palette_line', 2)) & 3
+        words = data['palette']
+        assert len(words) == 16, f'palette must be 16 CRAM words, got {len(words)}'
+        # ojz_palette.bin's 3 source lines load starting at CRAM line 1 (the
+        # scroll test / act loader put OJZ_Palette at Palette_Buffer+$20), so
+        # source line = cram_line - 1. The BG nametable references CRAM line 2.
+        file_line = cram_line - 1
+        assert file_line >= 0, 'BG palette maps to CRAM line >=1'
+        pal_path = os.path.join(OUT_DIR, 'ojz_palette.bin')
+        pal = bytearray(open(pal_path, 'rb').read())
+        for i, w in enumerate(words):
+            struct.pack_into('>H', pal, file_line * 32 + i * 2, w & 0xFFFF)
+        with open(pal_path, 'wb') as f:
+            f.write(pal)
+        print(f'[inject_editor_bg] stamped CRAM line {cram_line} (file line {file_line}, {len(words)} colours)')
+
 if __name__ == '__main__':
     main()
