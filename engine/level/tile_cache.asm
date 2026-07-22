@@ -1523,9 +1523,12 @@ TileCache_FillRow:
         ; === phase 1: nametable segment copy ===
         ; src words are contiguous (staging slot, intra_col * 2); dest columns are
         ; contiguous in the circular cache and wrap at most once at Origin_Col, so
-        ; the run splits into <=2 straight move.w copies. d2=B still; d3=ic_lo,
-        ; d4=ic_hi. a0 = NT staging row base (consumed here — DecompressBlock resets
-        ; it per block, and phase 2 reads collision via a3/a2, not a0).
+        ; the run splits into <=2 straight copies. Each run drains as move.l pairs
+        ; (src and dest both word-aligned: the intra_col*2 src and the *2 dest offset
+        ; are even) plus a move.w odd-word tail — the two runs are individually odd
+        ; or even, so each carries its own tail. d2=B still; d3=ic_lo, d4=ic_hi.
+        ; a0 = NT staging row base (consumed here — DecompressBlock resets it per
+        ; block, and phase 2 reads collision via a3/a2, not a0).
         move.w  d3, d0
         add.w   d0, d0
         adda.w  d0, a0                         ; a0 -> staging src at ic_lo
@@ -1553,19 +1556,34 @@ TileCache_FillRow:
         add.w   d2, d1
         add.w   d1, d1                         ; (row_off + phys_start) * 2
         lea     (a4, d1.w), a1                 ; run-1 dest
+        move.w  d0, d1                         ; save n1 for the odd-word tail
+        lsr.w   #1, d0                         ; n1 / 2 long copies
+        beq.s   .fr_nt_run1_tail              ; n1 == 1: tail word only
         subq.w  #1, d0
 .fr_nt_run1:
-        move.w  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
         dbf     d0, .fr_nt_run1
+.fr_nt_run1_tail:
+        btst    #0, d1                         ; odd run-1: trailing word
+        beq.s   .fr_nt_run1_done
+        move.w  (a0)+, (a1)+
+.fr_nt_run1_done:
         tst.w   d3
         beq.s   .fr_nt_empty
         move.w  d4, d1
         add.w   d1, d1                         ; wrap dest starts at phys 0
         lea     (a4, d1.w), a1                 ; run-2 dest
+        move.w  d3, d1                         ; save n2 for the odd-word tail
+        lsr.w   #1, d3                         ; n2 / 2 long copies
+        beq.s   .fr_nt_run2_tail              ; n2 == 1: tail word only
         subq.w  #1, d3
 .fr_nt_run2:
-        move.w  (a0)+, (a1)+
+        move.l  (a0)+, (a1)+
         dbf     d3, .fr_nt_run2
+.fr_nt_run2_tail:
+        btst    #0, d1                         ; odd run-2: trailing word
+        beq.s   .fr_nt_empty
+        move.w  (a0)+, (a1)+
 
 .fr_nt_empty:
         ; === phase 2: collision planes A and B (cell-completing rows only) ===
