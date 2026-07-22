@@ -354,7 +354,7 @@ Section_UpdateColumns:
         move.w  (Cache_Bottom_Row).w, (Section_Bottom_Row_Written).w
         rts
 .not_dirty:
-        movem.l d2-d7/a0-a3, -(sp)
+        movem.l d2-d7/a0-a2, -(sp)     ; a3 is preserved across the whole span (Draw_TileColumn/Draw_TileRow_FromCache clobber d0-d5/a0-a2)
 
         move.l  (Camera_X).w, d6
         swap    d6                              ; d6.w = Camera_X pixels
@@ -555,5 +555,5 @@ Section_UpdateColumns:
         move.w  d3, (Section_Bottom_Row_Written).w
 .bot_row_clamp_skip:
 
-        movem.l (sp)+, d2-d7/a0-a3
+        movem.l (sp)+, d2-d7/a0-a2
         rts

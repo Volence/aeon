@@ -66,9 +66,9 @@ Collected_FindSlot:
 ; Clobbers: d2, a0
 ; -----------------------------------------------
 Collected_CheckRing:
-        movem.l d0-d1, -(sp)
+        movem.l d1, -(sp)              ; Collected_FindSlot clobbers d1 — saved to honor preserves(d1); d0 it preserves
         bsr.s   Collected_FindSlot
-        movem.l (sp)+, d0-d1
+        movem.l (sp)+, d1
         beq.s   .uncollected
 
         ifdebug assert.w d1, lo, #MAX_LIST_ENTRIES
@@ -115,13 +115,13 @@ Collected_MarkRing:
 ; Clobbers: d2, a0
 ; -----------------------------------------------
 Killed_CheckObject:
-        movem.l d0-d1, -(sp)
+        movem.l d1, -(sp)              ; Collected_FindSlot clobbers d1 — saved to honor preserves(d1); d0 it preserves
     ifdef __DEBUG__
         bsr.w   Collected_FindSlot             ; per-shape: assert expansions between call and target
     else
         bsr.s   Collected_FindSlot
     endif
-        movem.l (sp)+, d0-d1
+        movem.l (sp)+, d1
         beq.s   .alive
 
         ifdebug assert.w d1, lo, #MAX_LIST_ENTRIES
@@ -668,11 +668,11 @@ EntityWindow_BuildEntries:
         bsr.w   EntityWindow_InitSection
 
         ; claim a collected/killed bitmask slot for this section
-        movem.l d6-d7/a3, -(sp)
+        ; Collected_ClaimSlot preserves d6,d7,a3 (clobbers d1,a1) and the span
+        ; writes only d0, so nothing here needs saving across the call.
         moveq   #0, d0
         move.b  EntityScanState_ess_section_id(a1), d0
         bsr.w   Collected_ClaimSlot
-        movem.l (sp)+, d6-d7/a3
 
         bset    d6, d7                  ; mark entry valid
         bra.s   .next_entry
@@ -774,9 +774,9 @@ EntityWindow_Scan:
         cmp.w   (Camera_Y_Coarse_Prev).w, d0
         beq.s   .no_rescan
         move.w  d0, (Camera_Y_Coarse_Prev).w
-        movem.l d5/d7, -(sp)
+        movem.l d5, -(sp)              ; EntityWindow_RescanY clobbers d5 (saved); it preserves d7
         bsr.w   EntityWindow_RescanY
-        movem.l (sp)+, d5/d7
+        movem.l (sp)+, d5
 .no_rescan:
 
         ; window slide: fires when the camera envelope crosses a section
@@ -1328,10 +1328,11 @@ EntityWindow_DespawnRings:
         ; clear the loaded bit before removal (no-op when section
         ; untracked; Y despawn makes this live for active sections too)
         clearLoadedRing a0,d0
-        movem.l d5-d7, -(sp)
+        ; RingBuffer_Remove preserves d5,d6,d7 (clobbers d1-d2/a0-a1) and the
+        ; span writes only d0 (d5 stays the dbf loop counter below), so nothing
+        ; here needs saving across the call.
         move.w  d5, d0
         bsr.w   RingBuffer_Remove
-        movem.l (sp)+, d5-d7
 
 .next:
         dbf     d5, .loop

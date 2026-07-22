@@ -61,6 +61,10 @@ QueueDMA_Deferrable:
 ; QueueDMATransfer — shared enqueue core
 ; In:  d1.l = source (bytes), d2.w = dest, d3.w = length (bytes)
 ;      a2 = pointer to slot variable, d4.w = queue end address
+; Clobbers: d0-d4, a1-a2 (a3/a5-a6 and d5-d7 preserved). This clobber set is a
+;   pinned extern contract at dplc.emp:30/32 — callers (Perform_DPLC*) rely on
+;   exactly it and skip saving a3 across the call; widening it here requires
+;   updating that extern decl and re-checking the dead-save callers.
 ; -----------------------------------------------
 QueueDMATransfer:
         move.w  sr, -(sp)
