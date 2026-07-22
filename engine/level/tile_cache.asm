@@ -1271,9 +1271,9 @@ TileCache_FillColumn:
 .fc_rows_ok:
         sub.w   d7, d3                         ; d3 = rows (> 0, even)
 
-        movem.l d5/d7, -(sp)
+        movem.l d5, -(sp)              ; d7 dropped: CopyBlockColumn preserves d7 (clobbers d0-d3/d5/a0/a2-a3; d5 kept) — dead-save, Parcel A
         bsr.w   TileCache_CopyBlockColumn
-        movem.l (sp)+, d5/d7
+        movem.l (sp)+, d5
 
         ; advance cursor to next block top
         andi.w  #$FFF0, d7
