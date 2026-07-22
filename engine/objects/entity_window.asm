@@ -756,7 +756,7 @@ EntityWindow_Init:
 ;
 ; In:  none
 ; Out: none
-; Clobbers: d0-d7, a0-a5
+; Clobbers: d0-d7, a0-a4
 ; -----------------------------------------------
 EntityWindow_Scan:
         move.b  (Entity_Window_Active).w, d5
@@ -1143,7 +1143,7 @@ EntityWindow_TrySpawnObject:
 ; In:  a1 = EntityScanState pointer
 ;      d7.w = right edge (Camera_X + SCREEN_WIDTH + ENTITY_LOAD_BUFFER)
 ; Out: none
-; Clobbers: d0-d4, a0, a2
+; Clobbers: d0-d4, a0-a3
 ; -----------------------------------------------
 EntityWindow_ScanObjectsRight:
         move.l  EntityScanState_ess_rom_obj_ptr(a1), d0
@@ -1246,7 +1246,7 @@ EntityWindow_RescanRings:
 ;
 ; In:  a1 = EntityScanState pointer
 ; Out: none
-; Clobbers: d0-d4, a0, a2
+; Clobbers: d0-d4, a0-a3
 ; -----------------------------------------------
 EntityWindow_RescanObjects:
         move.l  EntityScanState_ess_rom_obj_ptr(a1), d0
