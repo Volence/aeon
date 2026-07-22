@@ -4,6 +4,12 @@ set -euo pipefail
 GAME="${1:-sonic4}"
 # sonic4 keeps the historical ROM name s4.bin (game content); other games use their own name.
 if [[ "$GAME" == "sonic4" ]]; then ROM_NAME="s4"; else ROM_NAME="$GAME"; fi
+# DEBUG builds emit SUFFIXED artifacts natively (s4.debug.bin/.lst/.log), so the
+# two shapes never overwrite each other and no manual cp of the debug artifacts is
+# needed. ROM_NAME threads through -OLIST/-o/-shareout, p2bin, convsym, s4budget
+# and fixheader below, so every downstream consumer (repin, oracle, pins) sees the
+# filenames it already expects.
+if [[ "${DEBUG:-0}" == "1" ]]; then ROM_NAME="${ROM_NAME}.debug"; fi
 MAIN_ASM="games/${GAME}/main.asm"
 TOOLS="${TOOLS:-tools}"
 

@@ -57,13 +57,12 @@ while IFS= read -r -d '' f; do
 done < <(git -C "$SRC" ls-files --others --ignored --exclude-standard -z)
 echo "  copied $count gitignored artifact(s)"
 
-# Build the reference ROMs. DEBUG first → s4.debug.* (build.sh writes s4.bin
-# regardless of DEBUG — the repin trap), then the plain build last.
-echo "building reference ROMs (DEBUG then plain)..."
+# Build the reference ROMs, both shapes. DEBUG=1 emits s4.debug.* natively (build.sh
+# suffixes ROM_NAME under DEBUG), so the shapes never overwrite each other and no cp
+# of the debug artifacts is needed.
+echo "building reference ROMs (both shapes)..."
 cd "$WT"
 DEBUG=1 ./build.sh
-cp -f s4.bin s4.debug.bin
-cp -f s4.lst s4.debug.lst
 ./build.sh
 
 echo "done: $WT is seeded and built (s4.bin + s4.debug.bin present)."
