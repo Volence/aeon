@@ -189,9 +189,9 @@ proc Collected_FindSlot () clobbers(d1) out(a0) {
 // Clobbers: d2, a0
 // -----------------------------------------------
 proc Collected_CheckRing () clobbers(d2, a0) preserves(d1) {
-        movem.l d0-d1, -(sp)
+        movem.l d1, -(sp)                       // d0 dropped: Collected_FindSlot preserves d0 (d1 kept for preserves(d1)) — dead-save, Parcel A
         jbsr    Collected_FindSlot
-        movem.l (sp)+, d0-d1
+        movem.l (sp)+, d1
         beq     .uncollected
 
         assert.w d1, lo, #MAX_LIST_ENTRIES
@@ -236,9 +236,9 @@ pub proc Collected_MarkRing () clobbers(d0-d1, a0) {
 // Clobbers: d2, a0
 // -----------------------------------------------
 proc Killed_CheckObject () clobbers(d2, a0) preserves(d1) {
-        movem.l d0-d1, -(sp)
+        movem.l d1, -(sp)                       // d0 dropped: Collected_FindSlot preserves d0 (d1 kept for preserves(d1)) — dead-save, Parcel A
         jbsr    Collected_FindSlot
-        movem.l (sp)+, d0-d1
+        movem.l (sp)+, d1
         beq     .alive
 
         assert.w d1, lo, #MAX_LIST_ENTRIES
@@ -874,9 +874,9 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a5) {
         cmp.w   Camera_Y_Coarse_Prev, d0
         beq     .no_rescan
         move.w  d0, Camera_Y_Coarse_Prev
-        movem.l d5/d7, -(sp)
+        movem.l d5, -(sp)                       // d7 dropped: EntityWindow_RescanY preserves d7 (clobbers d0-d6/a0-a3; d5 kept) — dead-save, Parcel A
         jbsr    EntityWindow_RescanY
-        movem.l (sp)+, d5/d7
+        movem.l (sp)+, d5
     .no_rescan:
 
         // window slide: fires when the camera envelope crosses a section

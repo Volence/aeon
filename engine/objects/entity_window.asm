@@ -66,9 +66,9 @@ Collected_FindSlot:
 ; Clobbers: d2, a0
 ; -----------------------------------------------
 Collected_CheckRing:
-        movem.l d0-d1, -(sp)
+        movem.l d1, -(sp)              ; d0 dropped: Collected_FindSlot preserves d0 (d1 kept for preserves(d1)) — dead-save, Parcel A
         bsr.s   Collected_FindSlot
-        movem.l (sp)+, d0-d1
+        movem.l (sp)+, d1
         beq.s   .uncollected
 
         ifdebug assert.w d1, lo, #MAX_LIST_ENTRIES
@@ -115,13 +115,13 @@ Collected_MarkRing:
 ; Clobbers: d2, a0
 ; -----------------------------------------------
 Killed_CheckObject:
-        movem.l d0-d1, -(sp)
+        movem.l d1, -(sp)              ; d0 dropped: Collected_FindSlot preserves d0 (d1 kept for preserves(d1)) — dead-save, Parcel A
     ifdef __DEBUG__
         bsr.w   Collected_FindSlot             ; per-shape: assert expansions between call and target
     else
         bsr.s   Collected_FindSlot
     endif
-        movem.l (sp)+, d0-d1
+        movem.l (sp)+, d1
         beq.s   .alive
 
         ifdebug assert.w d1, lo, #MAX_LIST_ENTRIES
@@ -774,9 +774,9 @@ EntityWindow_Scan:
         cmp.w   (Camera_Y_Coarse_Prev).w, d0
         beq.s   .no_rescan
         move.w  d0, (Camera_Y_Coarse_Prev).w
-        movem.l d5/d7, -(sp)
+        movem.l d5, -(sp)              ; d7 dropped: EntityWindow_RescanY preserves d7 (clobbers d0-d6/a0-a3; d5 kept) — dead-save, Parcel A
         bsr.w   EntityWindow_RescanY
-        movem.l (sp)+, d5/d7
+        movem.l (sp)+, d5
 .no_rescan:
 
         ; window slide: fires when the camera envelope crosses a section
