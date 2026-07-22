@@ -25,10 +25,10 @@
 ; Clobbers: d0-d3, a1-a3
 ; -----------------------------------------------
 Load_Object:
-        movem.l d0-d2/a1, -(sp)
+        movem.l d0/a1, -(sp)          ; d1,d2 dropped: AllocDynamic preserves them (clobbers d0 only) — dead-save, Parcel A
         bsr.w   AllocDynamic
         bne.s   .alloc_fail
-        movem.l (sp)+, d0-d2/a2        ; a2 = template (saved a1), a1 = new SST
+        movem.l (sp)+, d0/a2          ; a2 = template (saved a1), a1 = new SST
 
         ; --- burst copy: code_addr word + 24-byte template block ---
         move.w  (a2)+, SST_code_addr(a1)
@@ -71,7 +71,7 @@ Load_Object:
         rts
 
 .alloc_fail:
-        movem.l (sp)+, d0-d2/a1
+        movem.l (sp)+, d0/a1          ; d1,d2 dropped (balanced with the narrowed save) — dead-save, Parcel A
         moveq   #1, d0                 ; Z clear = failed
         rts
 
