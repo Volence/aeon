@@ -73,9 +73,9 @@ comptime fn perform_dplc(queue: Label) -> Code {
 
         lsl.w   #5, d3                           // d3.w = length (bytes)
 
-        movem.l d2-d4/a2-a3, -(sp)
+        movem.l d2-d4/a2, -(sp)                  // a3 dropped: QueueDMA preserves a3 (verified §5 dead-save, Parcel A)
         jbsr    {queue}                          // carry SET = dropped (queue full)
-        movem.l (sp)+, d2-d4/a2-a3               // movem preserves CCR — the carry survives
+        movem.l (sp)+, d2-d4/a2                  // movem preserves CCR — the carry survives
         bcs     .done                            // dropped — leave prev_frame stale so next frame RETRIES
 
         add.w   d3, d2
