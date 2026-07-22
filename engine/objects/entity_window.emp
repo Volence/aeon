@@ -766,11 +766,11 @@ proc EntityWindow_BuildEntries () clobbers(d0-d7, a0-a3) {
         jbsr    EntityWindow_InitSection
 
         // claim a collected/killed bitmask slot for this section
-        movem.l d6-d7/a3, -(sp)
+        // (no save around the call: Collected_ClaimSlot preserves d6,d7,a3 —
+        //  clobbers(d1,a1) — and the span touches only d0; dead-save removed, Parcel A)
         moveq   #0, d0
         move.b  EntityScanState.ess_section_id(a1), d0
         jbsr    Collected_ClaimSlot
-        movem.l (sp)+, d6-d7/a3
 
         bset    d6, d7                  // mark entry valid
         jbra    .next_entry
@@ -1431,10 +1431,11 @@ proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
         moveq   #0, d2                  // ring bits
         jbsr    EntityLoaded_Clear
     .clr_ring_skip:
-        movem.l d5-d7, -(sp)
+        // no save around the call: RingBuffer_Remove preserves d5,d6,d7 —
+        // clobbers(d1-d2/a0-a1) — and the span touches only d0 (d5 stays the
+        // loop counter for the dbf below); dead-save removed, Parcel A
         move.w  d5, d0
         jbsr    RingBuffer_Remove
-        movem.l (sp)+, d5-d7
 
     .next:
         dbf     d5, .loop

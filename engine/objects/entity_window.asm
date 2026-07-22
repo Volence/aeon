@@ -668,11 +668,11 @@ EntityWindow_BuildEntries:
         bsr.w   EntityWindow_InitSection
 
         ; claim a collected/killed bitmask slot for this section
-        movem.l d6-d7/a3, -(sp)
+        ; (no save around the call: Collected_ClaimSlot preserves d6,d7,a3 —
+        ;  clobbers(d1,a1) — and the span touches only d0; dead-save removed, Parcel A)
         moveq   #0, d0
         move.b  EntityScanState_ess_section_id(a1), d0
         bsr.w   Collected_ClaimSlot
-        movem.l (sp)+, d6-d7/a3
 
         bset    d6, d7                  ; mark entry valid
         bra.s   .next_entry
@@ -1328,10 +1328,11 @@ EntityWindow_DespawnRings:
         ; clear the loaded bit before removal (no-op when section
         ; untracked; Y despawn makes this live for active sections too)
         clearLoadedRing a0,d0
-        movem.l d5-d7, -(sp)
+        ; no save around the call: RingBuffer_Remove preserves d5,d6,d7 —
+        ; clobbers(d1-d2/a0-a1) — and the span touches only d0 (d5 stays the
+        ; loop counter for the dbf below); dead-save removed, Parcel A
         move.w  d5, d0
         bsr.w   RingBuffer_Remove
-        movem.l (sp)+, d5-d7
 
 .next:
         dbf     d5, .loop
