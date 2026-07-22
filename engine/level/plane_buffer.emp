@@ -311,7 +311,10 @@ pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
     // -- emit d1 (> 0) cache words for the plane-col run starting at world col
     //    d0; physical col = (d0 + d3) mod TILE_CACHE_COLS, contiguous, wrapping
     //    at most once at the cache right edge. a0 = cache row base (phys col 0),
-    //    a2 = dst cursor (advanced). Clobbers d0-d2, a1. --
+    //    a2 = dst cursor (advanced). Both a1 (src) and a2 (dst) are word-aligned
+    //    throughout (cache base + phys*2 even; Plane_Buffer base even + a 132-byte
+    //    ptr stride + 4-byte header), so each run drains as move.l pairs + a
+    //    move.w odd-word tail. Clobbers d0-d2, a1. --
     .emit_row_run:
         add.w   d3, d0                         // physical col (may be < 0 or ≥ COLS)
         bpl     .err_nonneg
@@ -329,16 +332,32 @@ pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         cmp.w   d1, d2
         bge     .err_single                   // whole run fits before the wrap
         sub.w   d2, d1                         // d1 = cells after the wrap
+        move.w  d2, d0                         // save n1 for the odd-word tail
+        lsr.w   #1, d2                         // n1 / 2 long copies
+        beq     .err_run1_tail                // n1 == 1: tail word only
         subq.w  #1, d2
     .err_run1:
-        move.w  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
         dbf     d2, .err_run1
+    .err_run1_tail:
+        btst    #0, d0                         // odd run-1: trailing word
+        beq     .err_run1_done
+        move.w  (a1)+, (a2)+
+    .err_run1_done:
         movea.l a0, a1                         // wrap back to physical col 0
     .err_single:
+        move.w  d1, d0                         // save run length for the odd-word tail
+        lsr.w   #1, d1                         // len / 2 long copies
+        beq     .err_run2_tail                // len == 1: tail word only
         subq.w  #1, d1
     .err_run2:
-        move.w  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
         dbf     d1, .err_run2
+    .err_run2_tail:
+        btst    #0, d0                         // odd run: trailing word
+        beq     .err_ret
+        move.w  (a1)+, (a2)+
+    .err_ret:
         rts
 }
 
