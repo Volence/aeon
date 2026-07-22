@@ -22,7 +22,7 @@
 ;             Direct spawns pass plain subtype (bits 13-15 clear).
 ; Out: Z set = success, a1 = new SST pointer
 ;      Z clear = allocation failed
-; Clobbers: d0-d3, a1-a3
+; Clobbers: d0-d1/d3, a1-a3 (d2 is read-only — placement subtype/flags source)
 ; -----------------------------------------------
 Load_Object:
         movem.l d0/a1, -(sp)          ; AllocDynamic clobbers d0 only; d1,d2 need no save
