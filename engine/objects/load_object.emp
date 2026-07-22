@@ -36,7 +36,7 @@ ensure(RF_XFLIP == 1 && RF_YFLIP == 2, "rol.w #4 placement-flip fold assumes OEF
 // Clobbers: d0-d3, a1-a3
 // -----------------------------------------------
 pub proc Load_Object (a1: *u8, d0: u16, d1: u16, d2: u16) clobbers(d0-d3, a2, a3) out(a1) {
-        movem.l d0/a1, -(sp)          // d1,d2 dropped: AllocDynamic preserves them (clobbers d0 only) — dead-save, Parcel A
+        movem.l d0/a1, -(sp)          // AllocDynamic clobbers d0 only; d1,d2 need no save
         jbsr    AllocDynamic
         bne     .alloc_fail
         movem.l (sp)+, d0/a2          // a2 = template (saved a1), a1 = new SST
@@ -84,7 +84,7 @@ pub proc Load_Object (a1: *u8, d0: u16, d1: u16, d2: u16) clobbers(d0-d3, a2, a3
         rts
 
     .alloc_fail:
-        movem.l (sp)+, d0/a1          // d1,d2 dropped (balanced with the narrowed save) — dead-save, Parcel A
+        movem.l (sp)+, d0/a1
         moveq   #1, d0                 // Z clear = failed
         rts
 }

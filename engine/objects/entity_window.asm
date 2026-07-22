@@ -66,7 +66,7 @@ Collected_FindSlot:
 ; Clobbers: d2, a0
 ; -----------------------------------------------
 Collected_CheckRing:
-        movem.l d1, -(sp)              ; d0 dropped: Collected_FindSlot preserves d0 (d1 kept for preserves(d1)) — dead-save, Parcel A
+        movem.l d1, -(sp)              ; Collected_FindSlot clobbers d1 — saved to honor preserves(d1); d0 it preserves
         bsr.s   Collected_FindSlot
         movem.l (sp)+, d1
         beq.s   .uncollected
@@ -115,7 +115,7 @@ Collected_MarkRing:
 ; Clobbers: d2, a0
 ; -----------------------------------------------
 Killed_CheckObject:
-        movem.l d1, -(sp)              ; d0 dropped: Collected_FindSlot preserves d0 (d1 kept for preserves(d1)) — dead-save, Parcel A
+        movem.l d1, -(sp)              ; Collected_FindSlot clobbers d1 — saved to honor preserves(d1); d0 it preserves
     ifdef __DEBUG__
         bsr.w   Collected_FindSlot             ; per-shape: assert expansions between call and target
     else
@@ -668,8 +668,8 @@ EntityWindow_BuildEntries:
         bsr.w   EntityWindow_InitSection
 
         ; claim a collected/killed bitmask slot for this section
-        ; (no save around the call: Collected_ClaimSlot preserves d6,d7,a3 —
-        ;  clobbers(d1,a1) — and the span touches only d0; dead-save removed, Parcel A)
+        ; Collected_ClaimSlot preserves d6,d7,a3 (clobbers d1,a1) and the span
+        ; writes only d0, so nothing here needs saving across the call.
         moveq   #0, d0
         move.b  EntityScanState_ess_section_id(a1), d0
         bsr.w   Collected_ClaimSlot
@@ -774,7 +774,7 @@ EntityWindow_Scan:
         cmp.w   (Camera_Y_Coarse_Prev).w, d0
         beq.s   .no_rescan
         move.w  d0, (Camera_Y_Coarse_Prev).w
-        movem.l d5, -(sp)              ; d7 dropped: EntityWindow_RescanY preserves d7 (clobbers d0-d6/a0-a3; d5 kept) — dead-save, Parcel A
+        movem.l d5, -(sp)              ; EntityWindow_RescanY clobbers d5 (saved); it preserves d7
         bsr.w   EntityWindow_RescanY
         movem.l (sp)+, d5
 .no_rescan:
@@ -1328,9 +1328,9 @@ EntityWindow_DespawnRings:
         ; clear the loaded bit before removal (no-op when section
         ; untracked; Y despawn makes this live for active sections too)
         clearLoadedRing a0,d0
-        ; no save around the call: RingBuffer_Remove preserves d5,d6,d7 —
-        ; clobbers(d1-d2/a0-a1) — and the span touches only d0 (d5 stays the
-        ; loop counter for the dbf below); dead-save removed, Parcel A
+        ; RingBuffer_Remove preserves d5,d6,d7 (clobbers d1-d2/a0-a1) and the
+        ; span writes only d0 (d5 stays the dbf loop counter below), so nothing
+        ; here needs saving across the call.
         move.w  d5, d0
         bsr.w   RingBuffer_Remove
 

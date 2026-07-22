@@ -189,7 +189,7 @@ proc Collected_FindSlot () clobbers(d1) out(a0) {
 // Clobbers: d2, a0
 // -----------------------------------------------
 proc Collected_CheckRing () clobbers(d2, a0) preserves(d1) {
-        movem.l d1, -(sp)                       // d0 dropped: Collected_FindSlot preserves d0 (d1 kept for preserves(d1)) — dead-save, Parcel A
+        movem.l d1, -(sp)                       // Collected_FindSlot clobbers d1 — saved to honor preserves(d1); d0 it preserves
         jbsr    Collected_FindSlot
         movem.l (sp)+, d1
         beq     .uncollected
@@ -236,7 +236,7 @@ pub proc Collected_MarkRing () clobbers(d0-d1, a0) {
 // Clobbers: d2, a0
 // -----------------------------------------------
 proc Killed_CheckObject () clobbers(d2, a0) preserves(d1) {
-        movem.l d1, -(sp)                       // d0 dropped: Collected_FindSlot preserves d0 (d1 kept for preserves(d1)) — dead-save, Parcel A
+        movem.l d1, -(sp)                       // Collected_FindSlot clobbers d1 — saved to honor preserves(d1); d0 it preserves
         jbsr    Collected_FindSlot
         movem.l (sp)+, d1
         beq     .alive
@@ -766,8 +766,8 @@ proc EntityWindow_BuildEntries () clobbers(d0-d7, a0-a3) {
         jbsr    EntityWindow_InitSection
 
         // claim a collected/killed bitmask slot for this section
-        // (no save around the call: Collected_ClaimSlot preserves d6,d7,a3 —
-        //  clobbers(d1,a1) — and the span touches only d0; dead-save removed, Parcel A)
+        // Collected_ClaimSlot preserves d6,d7,a3 (clobbers d1,a1) and the span
+        // writes only d0, so nothing here needs saving across the call.
         moveq   #0, d0
         move.b  EntityScanState.ess_section_id(a1), d0
         jbsr    Collected_ClaimSlot
@@ -874,7 +874,7 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a5) {
         cmp.w   Camera_Y_Coarse_Prev, d0
         beq     .no_rescan
         move.w  d0, Camera_Y_Coarse_Prev
-        movem.l d5, -(sp)                       // d7 dropped: EntityWindow_RescanY preserves d7 (clobbers d0-d6/a0-a3; d5 kept) — dead-save, Parcel A
+        movem.l d5, -(sp)                       // EntityWindow_RescanY clobbers d5 (saved); it preserves d7
         jbsr    EntityWindow_RescanY
         movem.l (sp)+, d5
     .no_rescan:
@@ -1431,9 +1431,9 @@ proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
         moveq   #0, d2                  // ring bits
         jbsr    EntityLoaded_Clear
     .clr_ring_skip:
-        // no save around the call: RingBuffer_Remove preserves d5,d6,d7 —
-        // clobbers(d1-d2/a0-a1) — and the span touches only d0 (d5 stays the
-        // loop counter for the dbf below); dead-save removed, Parcel A
+        // RingBuffer_Remove preserves d5,d6,d7 (clobbers d1-d2/a0-a1) and the
+        // span writes only d0 (d5 stays the dbf loop counter below), so nothing
+        // here needs saving across the call.
         move.w  d5, d0
         jbsr    RingBuffer_Remove
 

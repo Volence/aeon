@@ -52,7 +52,7 @@ Perform_DPLC:
 
         lsl.w   #5, d3                           ; d3.w = length (bytes)
 
-        movem.l d2-d4/a2, -(sp)         ; a3 dropped: QueueDMA preserves a3 (verified §5 dead-save, Parcel A)
+        movem.l d2-d4/a2, -(sp)         ; a3 is live across the call but QueueDMA preserves it
         bsr.w   QueueDMA_Important      ; LOCKSTEP dplc.emp step 2: jbsr cross-seam static call (was jsr abs.w; same 4 bytes, 4EB8→6100)
         movem.l (sp)+, d2-d4/a2         ; movem preserves CCR — the carry survives
         bcs.s   .done                   ; item 11: dropped (queue full) — leave prev_frame stale, retry next frame
@@ -107,7 +107,7 @@ Perform_DPLC_Deferrable:
 
         lsl.w   #5, d3
 
-        movem.l d2-d4/a2, -(sp)         ; a3 dropped: QueueDMA preserves a3 (verified §5 dead-save, Parcel A)
+        movem.l d2-d4/a2, -(sp)         ; a3 is live across the call but QueueDMA preserves it
         bsr.w   QueueDMA_Deferrable     ; LOCKSTEP dplc.emp step 2: jbsr cross-seam static call (was jsr abs.w; same 4 bytes, 4EB8→6100)
         movem.l (sp)+, d2-d4/a2         ; movem preserves CCR — the carry survives
         bcs.s   .done                   ; item 11: dropped (queue full) — leave prev_frame stale, retry next frame

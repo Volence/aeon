@@ -25,7 +25,7 @@
 ; Clobbers: d0-d3, a1-a3
 ; -----------------------------------------------
 Load_Object:
-        movem.l d0/a1, -(sp)          ; d1,d2 dropped: AllocDynamic preserves them (clobbers d0 only) — dead-save, Parcel A
+        movem.l d0/a1, -(sp)          ; AllocDynamic clobbers d0 only; d1,d2 need no save
         bsr.w   AllocDynamic
         bne.s   .alloc_fail
         movem.l (sp)+, d0/a2          ; a2 = template (saved a1), a1 = new SST
@@ -71,7 +71,7 @@ Load_Object:
         rts
 
 .alloc_fail:
-        movem.l (sp)+, d0/a1          ; d1,d2 dropped (balanced with the narrowed save) — dead-save, Parcel A
+        movem.l (sp)+, d0/a1
         moveq   #1, d0                 ; Z clear = failed
         rts
 
