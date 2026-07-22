@@ -238,6 +238,9 @@ pub proc TileCache_InvalidateStaging () clobbers(d0/a0) {
         move.l  #-1, (a0)+
         dbf     d0, .inv
         clr.w   Block_Stage_Next
+        addq.w  #1, Block_Stage_Gen            // staging emptied — every warm-line memo now stale
+        move.w  #$FFFF, Pfx_Memo_Gen           // sentinel: the next frame's scans re-probe in full
+        move.w  #$FFFF, Cs_Memo_Gen
         rts
 }
 
@@ -268,6 +271,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         moveq   #0, d5
     .rr_ok:
         move.w  d5, Block_Stage_Next
+        addq.w  #1, Block_Stage_Gen            // a new staging claim invalidates every warm-line memo
         add.w   d4, d4
         add.w   d4, d4                         // slot index × 4
         lea     Block_Stage_Keys, a1
@@ -1107,11 +1111,32 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // unstaged block k=1 (self-advancing across the ~8 quiet frames), sec_x per
         // step, sec_y fixed (guarded at entry).
         move.w  d7, Cache_Pfx_Row_Target       // record for the corner (H2)
+        // Memo skip: when this target row, the cache col bounds, AND the staging
+        // generation all match the last frame that found the whole row already
+        // staged, the FindStagedBlock walk below can only re-probe to the same all-
+        // hits result — skip straight to .row_done (Cache_Pfx_Row_Target is already
+        // set, so the corner still sees the target; budget is untouched on this path).
+        // R1: the Left/Head bounds compare is LOAD-BEARING, not belt-and-braces —
+        // Cache_Head_Col advances on a prefetch-SUCCESS fill (all-hits, zero
+        // decompress, generation UNCHANGED), so on that frame the bounds are the only
+        // thing that killed the memo. Never simplify the bounds compare away.
+        cmp.w   Pfx_Memo_Row, d7
+        bne     .pfx_scan_begin
+        move.w  Cache_Left_Col, d5
+        cmp.w   Pfx_Memo_L, d5
+        bne     .pfx_scan_begin
+        move.w  Cache_Head_Col, d5
+        cmp.w   Pfx_Memo_H, d5
+        bne     .pfx_scan_begin
+        move.w  Block_Stage_Gen, d5
+        cmp.w   Pfx_Memo_Gen, d5
+        beq     .row_done                      // memo hit — row still all-staged
+    .pfx_scan_begin:
         move.w  Cache_Left_Col, d6
         andi.w  #$FFF0, d6                     // align to the first block col
     .pfx_scan:
         cmp.w   Cache_Head_Col, d6
-        bgt     .row_done                      // whole next row already staged
+        bgt     .pfx_record                    // whole next row already staged
         decompose_block(d6, d7)                // -> sec_x=d0, sec_y=d1, block_index=d2
         movea.l Current_Act_Ptr, a0
         moveq   #0, d3
@@ -1126,6 +1151,16 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
     .pfx_next:
         addi.w  #BLOCK_TILE_SIZE, d6           // next block col
         jbra    .pfx_scan
+
+    .pfx_record:
+        // Reached ONLY from the bgt all-hits exit — the whole row was already staged
+        // and no block was decompressed this frame (the decompress path jumps to
+        // .row_done and never records). Memoize (target row, Left, Head, generation)
+        // so the next unchanged frame skips this walk.
+        move.w  d7, Pfx_Memo_Row
+        move.w  (Cache_Left_Col).w, (Pfx_Memo_L).w
+        move.w  (Cache_Head_Col).w, (Pfx_Memo_H).w
+        move.w  (Block_Stage_Gen).w, (Pfx_Memo_Gen).w
 
     .row_done:
         // ---- COL SCAN (horizontal prefetch; H3 direction hysteresis) ----
@@ -1198,12 +1233,32 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         cmp.w   d0, d5
         bcc     .col_done                      // sec_x >= grid_w — out of world
         move.w  d6, Cache_Pfx_Col_Target       // record for the corner (H2)
+        // Memo skip (mirror of .pfx): when this target col, the cache row bounds, AND
+        // the staging generation all match the last frame that found the whole col
+        // already staged, the FindStagedBlock row walk can only re-probe to the same
+        // all-hits result — skip to .col_done (Cache_Pfx_Col_Target is already set, so
+        // the corner still sees the target; budget is untouched on this path).
+        // R1: the Top/Bottom bounds compare is LOAD-BEARING — Cache_Top_Row/Bottom_Row
+        // advance on a prefetch-SUCCESS fill (all-hits, zero decompress, generation
+        // UNCHANGED), so on that frame the bounds are the only memo-killer.
+        cmp.w   Cs_Memo_Col, d6
+        bne     .cs_scan_begin
+        move.w  Cache_Top_Row, d5
+        cmp.w   Cs_Memo_T, d5
+        bne     .cs_scan_begin
+        move.w  Cache_Bottom_Row, d5
+        cmp.w   Cs_Memo_B, d5
+        bne     .cs_scan_begin
+        move.w  Block_Stage_Gen, d5
+        cmp.w   Cs_Memo_Gen, d5
+        beq     .col_done                      // memo hit — col still all-staged
+    .cs_scan_begin:
         // scan block rows [Top..Bottom]; sec_y per step (d6 fixed for the scan)
         move.w  Cache_Top_Row, d7
         andi.w  #$FFF0, d7                     // align to the first block row
     .cs_scan:
         cmp.w   Cache_Bottom_Row, d7
-        bgt     .col_done                      // whole next col already staged
+        bgt     .cs_record                     // whole next col already staged
         move.w  d7, d5
         lsr.w   #8, d5                         // sec_y
         movea.l Current_Act_Ptr, a0
@@ -1220,6 +1275,15 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
     .cs_next:
         addi.w  #BLOCK_TILE_SIZE, d7           // next block row
         jbra    .cs_scan
+
+    .cs_record:
+        // Reached ONLY from the bgt all-hits exit — the whole col was already staged
+        // and no block was decompressed this frame (the decompress path jumps to
+        // .col_done and never records). Memoize (target col, Top, Bottom, generation).
+        move.w  d6, Cs_Memo_Col
+        move.w  (Cache_Top_Row).w, (Cs_Memo_T).w
+        move.w  (Cache_Bottom_Row).w, (Cs_Memo_B).w
+        move.w  (Block_Stage_Gen).w, (Cs_Memo_Gen).w
 
     .col_done:
         // ---- CORNER (H2): the (next-row x next-col) block is in NEITHER axis scan;

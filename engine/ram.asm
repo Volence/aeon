@@ -474,6 +474,28 @@ Dynamic_Live_Pending:       ds.w NUM_DYNAMIC_PENDING ; latched slot addresses (a
 Dynamic_Live_Pending_Count: ds.w 1                   ; latch occupancy (0..NUM_DYNAMIC_PENDING)
 
 ; -----------------------------------------------
+; Prefetch scan memoize — a generation word plus one keyed memo per axis. The
+; vertical (.pfx_scan) and horizontal (.cs_scan) prefetch scans skip their
+; FindStagedBlock all-hits re-probe walk when the target line, cache bounds, and
+; generation still match the last recorded all-staged result. Every staging claim
+; (TileCache_DecompressBlock) and every TileCache_InvalidateStaging bumps the
+; generation, so a memo survives only across frames in which no block was staged —
+; exactly when the walk would re-probe to all hits and skipping is behaviour-
+; identical. Placed at the RAM tail: the addition ripples ZERO existing RAM
+; addresses (only Engine_RAM_End + game RAM shift), so no ported module's byte gate
+; moves from the layout change.
+; -----------------------------------------------
+Block_Stage_Gen:        ds.w 1 ; bumped on every staging claim + invalidate; the memo generation key
+Pfx_Memo_Row:           ds.w 1 ; vertical scan: memoized target row
+Pfx_Memo_L:             ds.w 1 ; vertical scan: Cache_Left_Col at record (bounds guard — load-bearing)
+Pfx_Memo_H:             ds.w 1 ; vertical scan: Cache_Head_Col at record (bounds guard — load-bearing)
+Pfx_Memo_Gen:           ds.w 1 ; vertical scan: Block_Stage_Gen at record ($FFFF sentinel = no memo)
+Cs_Memo_Col:            ds.w 1 ; horizontal scan: memoized target col
+Cs_Memo_T:              ds.w 1 ; horizontal scan: Cache_Top_Row at record (bounds guard — load-bearing)
+Cs_Memo_B:              ds.w 1 ; horizontal scan: Cache_Bottom_Row at record (bounds guard — load-bearing)
+Cs_Memo_Gen:            ds.w 1 ; horizontal scan: Block_Stage_Gen at record ($FFFF sentinel = no memo)
+
+; -----------------------------------------------
 ; Engine RAM ends here — game RAM continues from Engine_RAM_End
 ; (games/<game>/config/ram.asm phases from this address).
 ; -----------------------------------------------

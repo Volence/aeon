@@ -126,6 +126,9 @@ TileCache_InvalidateStaging:
         move.l  #-1, (a0)+
         dbf     d0, .inv
         clr.w   (Block_Stage_Next).w
+        addq.w  #1, (Block_Stage_Gen).w        ; staging emptied — every warm-line memo now stale
+        move.w  #$FFFF, (Pfx_Memo_Gen).w       ; sentinel: the next frame's scans re-probe in full
+        move.w  #$FFFF, (Cs_Memo_Gen).w
         rts
 
 ; -----------------------------------------------
@@ -155,6 +158,7 @@ TileCache_DecompressBlock:
         moveq   #0, d5
 .rr_ok:
         move.w  d5, (Block_Stage_Next).w
+        addq.w  #1, (Block_Stage_Gen).w        ; a new staging claim invalidates every warm-line memo
         add.w   d4, d4
         add.w   d4, d4                         ; slot index × 4
         lea     (Block_Stage_Keys).w, a1
@@ -1003,7 +1007,7 @@ Tile_Cache_Fill:
         moveq   #0, d0
         move.b  Act_grid_h+1(a0), d0           ; grid_h (sections)
         cmp.w   d0, d5
-        bcc.s   .row_done                      ; sec_y >= grid_h — out of world
+        bcc.w   .row_done                      ; sec_y >= grid_h — out of world
         bra.s   .pfx_go
 
 .pfx_up:
@@ -1011,7 +1015,7 @@ Tile_Cache_Fill:
         move.w  (Cache_Top_Row).w, d7
         andi.w  #~(BLOCK_TILE_SIZE-1), d7      ; align down to block start (Top is even)
         tst.w   d7
-        beq.s   .row_done                      ; top block-row IS world row 0 — nothing above
+        beq.w   .row_done                      ; top block-row IS world row 0 — nothing above
         subi.w  #BLOCK_TILE_SIZE, d7           ; first row of block above
 
 .pfx_go:
@@ -1019,11 +1023,32 @@ Tile_Cache_Fill:
         ; unstaged block k=1 (self-advancing across the ~8 quiet frames), sec_x per
         ; step, sec_y fixed (guarded at entry).
         move.w  d7, (Cache_Pfx_Row_Target).w   ; record for the corner (H2)
+        ; Memo skip: when this target row, the cache col bounds, AND the staging
+        ; generation all match the last frame that found the whole row already
+        ; staged, the FindStagedBlock walk below can only re-probe to the same all-
+        ; hits result — skip straight to .row_done (Cache_Pfx_Row_Target is already
+        ; set, so the corner still sees the target; budget is untouched on this path).
+        ; R1: the Left/Head bounds compare is LOAD-BEARING, not belt-and-braces —
+        ; Cache_Head_Col advances on a prefetch-SUCCESS fill (all-hits, zero
+        ; decompress, generation UNCHANGED), so on that frame the bounds are the only
+        ; thing that killed the memo. Never simplify the bounds compare away.
+        cmp.w   (Pfx_Memo_Row).w, d7
+        bne.s   .pfx_scan_begin
+        move.w  (Cache_Left_Col).w, d5
+        cmp.w   (Pfx_Memo_L).w, d5
+        bne.s   .pfx_scan_begin
+        move.w  (Cache_Head_Col).w, d5
+        cmp.w   (Pfx_Memo_H).w, d5
+        bne.s   .pfx_scan_begin
+        move.w  (Block_Stage_Gen).w, d5
+        cmp.w   (Pfx_Memo_Gen).w, d5
+        beq.s   .row_done                      ; memo hit — row still all-staged
+.pfx_scan_begin:
         move.w  (Cache_Left_Col).w, d6
         andi.w  #$FFF0, d6                     ; align to the first block col
 .pfx_scan:
         cmp.w   (Cache_Head_Col).w, d6
-        bgt.s   .row_done                      ; whole next row already staged
+        bgt.s   .pfx_record                    ; whole next row already staged
         ; decompose (col d6, row d7) -> sec_x=d0, sec_y=d1, block_index=d2
         move.w  d6, d0
         lsr.w   #8, d0                         ; sec_x = tile_col >> 8
@@ -1051,6 +1076,16 @@ Tile_Cache_Fill:
 .pfx_next:
         addi.w  #BLOCK_TILE_SIZE, d6           ; next block col
         bra.s   .pfx_scan
+
+.pfx_record:
+        ; Reached ONLY from the bgt all-hits exit — the whole row was already staged
+        ; and no block was decompressed this frame (the decompress path jumps to
+        ; .row_done and never records). Memoize (target row, Left, Head, generation)
+        ; so the next unchanged frame skips this walk.
+        move.w  d7, (Pfx_Memo_Row).w
+        move.w  (Cache_Left_Col).w, (Pfx_Memo_L).w
+        move.w  (Cache_Head_Col).w, (Pfx_Memo_H).w
+        move.w  (Block_Stage_Gen).w, (Pfx_Memo_Gen).w
 
 .row_done:
         ; ---- COL SCAN (horizontal prefetch; H3 direction hysteresis) ----
@@ -1111,7 +1146,7 @@ Tile_Cache_Fill:
         ; LEFT: target = block-col just before cache left
         move.w  (Cache_Left_Col).w, d6
         andi.w  #~(BLOCK_TILE_SIZE-1), d6
-        beq.s   .col_done                      ; left block-col IS world col 0 — nothing left
+        beq.w   .col_done                      ; left block-col IS world col 0 — nothing left
         subi.w  #BLOCK_TILE_SIZE, d6
 .cs_have_col:
         ; guard sec_x = d6 >> 8 < grid_w (FIXED for the whole col scan)
@@ -1121,14 +1156,34 @@ Tile_Cache_Fill:
         moveq   #0, d0
         move.b  Act_grid_w+1(a0), d0           ; grid_w (sections)
         cmp.w   d0, d5
-        bcc.s   .col_done                      ; sec_x >= grid_w — out of world
+        bcc.w   .col_done                      ; sec_x >= grid_w — out of world
         move.w  d6, (Cache_Pfx_Col_Target).w   ; record for the corner (H2)
+        ; Memo skip (mirror of .pfx): when this target col, the cache row bounds, AND
+        ; the staging generation all match the last frame that found the whole col
+        ; already staged, the FindStagedBlock row walk can only re-probe to the same
+        ; all-hits result — skip to .col_done (Cache_Pfx_Col_Target is already set, so
+        ; the corner still sees the target; budget is untouched on this path).
+        ; R1: the Top/Bottom bounds compare is LOAD-BEARING — Cache_Top_Row/Bottom_Row
+        ; advance on a prefetch-SUCCESS fill (all-hits, zero decompress, generation
+        ; UNCHANGED), so on that frame the bounds are the only memo-killer.
+        cmp.w   (Cs_Memo_Col).w, d6
+        bne.s   .cs_scan_begin
+        move.w  (Cache_Top_Row).w, d5
+        cmp.w   (Cs_Memo_T).w, d5
+        bne.s   .cs_scan_begin
+        move.w  (Cache_Bottom_Row).w, d5
+        cmp.w   (Cs_Memo_B).w, d5
+        bne.s   .cs_scan_begin
+        move.w  (Block_Stage_Gen).w, d5
+        cmp.w   (Cs_Memo_Gen).w, d5
+        beq.s   .col_done                      ; memo hit — col still all-staged
+.cs_scan_begin:
         ; scan block rows [Top..Bottom]; sec_y per step (d6 fixed for the scan)
         move.w  (Cache_Top_Row).w, d7
         andi.w  #$FFF0, d7                     ; align to the first block row
 .cs_scan:
         cmp.w   (Cache_Bottom_Row).w, d7
-        bgt.s   .col_done                      ; whole next col already staged
+        bgt.s   .cs_record                     ; whole next col already staged
         move.w  d7, d5
         lsr.w   #8, d5                         ; sec_y
         movea.l (Current_Act_Ptr).w, a0
@@ -1158,6 +1213,15 @@ Tile_Cache_Fill:
 .cs_next:
         addi.w  #BLOCK_TILE_SIZE, d7           ; next block row
         bra.s   .cs_scan
+
+.cs_record:
+        ; Reached ONLY from the bgt all-hits exit — the whole col was already staged
+        ; and no block was decompressed this frame (the decompress path jumps to
+        ; .col_done and never records). Memoize (target col, Top, Bottom, generation).
+        move.w  d6, (Cs_Memo_Col).w
+        move.w  (Cache_Top_Row).w, (Cs_Memo_T).w
+        move.w  (Cache_Bottom_Row).w, (Cs_Memo_B).w
+        move.w  (Block_Stage_Gen).w, (Cs_Memo_Gen).w
 
 .col_done:
         ; ---- CORNER (H2): the (next-row x next-col) block is in NEITHER axis scan;
