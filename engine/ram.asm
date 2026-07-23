@@ -69,7 +69,10 @@ VDP_Dirty_Mask:         ds.l 1          ; bits 0-18 for regs $00-$12
 ; -----------------------------------------------
 ; Interrupt dispatch
 ; -----------------------------------------------
-HBlank_Handler_Ptr:     ds.l 1
+; HBlank dispatch runs through HBlank_Vector_Slot (defined at the RAM tail — see
+; below — so its addition ripples zero existing upper-RAM addresses). This
+; reserved word holds that layout stable.
+                        ds.l 1          ; reserved (interrupt dispatch)
 
 ; -----------------------------------------------
 ; Region detection (§0.8)
@@ -490,6 +493,17 @@ Cs_Memo_Col:            ds.w 1 ; horizontal scan: memoized target col
 Cs_Memo_T:              ds.w 1 ; horizontal scan: Cache_Top_Row at record (bounds guard — load-bearing)
 Cs_Memo_B:              ds.w 1 ; horizontal scan: Cache_Bottom_Row at record (bounds guard — load-bearing)
 Cs_Memo_Gen:            ds.w 1 ; horizontal scan: Block_Stage_Gen at record ($FFFF sentinel = no memo)
+
+; -----------------------------------------------
+; HBlank vector slot (§0.10) — the IRQ4 vector points DIRECTLY here. Holds a
+; 6-byte executable instruction: idle rte ($4E73) when no raster handler is
+; installed, or `jmp handler.l` ($4EF9 + 4-byte target) when HBlank_Install arms
+; one. Entered with no wrapper — the handler owns its save/restore + rte.
+; Placed at the RAM TAIL (not beside the interrupt-dispatch reserve above): the
+; addition then ripples ZERO existing RAM addresses — only Engine_RAM_End + game
+; RAM shift. Genesis RAM has no locality cost, so tail placement is free.
+; -----------------------------------------------
+HBlank_Vector_Slot:     ds.b 6
 
 ; -----------------------------------------------
 ; Engine RAM ends here — game RAM continues from Engine_RAM_End

@@ -181,8 +181,14 @@ Cold_Boot:
         move.b  #$40, (HW_PORT_2_DATA).l
         move.b  #$40, (HW_PORT_EXP_DATA).l
 
-        ; Init HBlank handler pointer (§0.10)
-        move.l  #HBlank_Null, (HBlank_Handler_Ptr).w
+        ; Init HBlank vector slot to idle (§0.10). Written BEFORE interrupts
+        ; unmask — RAM-clear leaves $0000, not a legal instruction; the slot
+        ; must decode to a real rte before IRQ4 can fire. The long write fills
+        ; the first two slot words with rte ($4E73) — offset 0 is the one that
+        ; executes; the second rte is defensive. move.l (vs move.w) keeps this
+        ; init 8 bytes, so boot stays byte-neutral and the trampoline re-pin is
+        ; confined to the hblank region and below.
+        move.l  #$4E734E73, (HBlank_Vector_Slot).w
 
         ; Enable VBlank interrupt (set VDP reg $01 bit 5)
         setVDPReg VDP_Shadow_vdp_mode2, #$34   ; $14 | $20 (VInt enable) = $34
