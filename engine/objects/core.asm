@@ -44,9 +44,6 @@ InitObjectRAM:
         ; is valid. d1 still 0 from the .clear loop.
         move.w  d1, (Dynamic_Live_Count).w
         move.b  d1, (Dynamic_Live_Dirty).w
-
-        ; Reset spawn counter (d1 still 0 from .clear loop)
-        move.w  d1, (Spawn_Count).w
         rts
 
 ; -----------------------------------------------
@@ -371,9 +368,6 @@ DrainDynamicPending:
 ; Clobbers: d0-d6, a0-a6 (object code may clobber freely except a0/d7)
 ; -----------------------------------------------
 RunObjects:
-        moveq   #0, d0
-        move.w  d0, (Spawn_Count).w
-
         tst.b   (Game_Paused).w
         ; LOCKSTEP core.emp: .emp uses a bare `bne` that sigil width-selects.
         ; Since the object-pool occupancy step-2 retrofit grew .run_culled, the

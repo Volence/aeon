@@ -365,13 +365,3 @@ collSrcRowBase macro reg
         lsr.w   #1, reg                  ; tile row -> collision row (16px cell)
         lsl.w   #4, reg                  ; * BLOCK_COLL_COLS (16 bytes per row)
         endm
-
-; -----------------------------------------------
-; Debug subsystem flags (only meaningful when __DEBUG__ is defined)
-; Use the MD Debugger's ifdebug macro (from debug/debugger.asm) for conditionals.
-; -----------------------------------------------
-DEBUG_ALL               = 0
-DEBUG_DMA               = 0 | DEBUG_ALL
-DEBUG_VRAM              = 0 | DEBUG_ALL
-DEBUG_OBJECTS            = 0 | DEBUG_ALL
-DEBUG_COLLISION         = 0 | DEBUG_ALL

@@ -30,16 +30,17 @@ Flush_VDP_Shadow:
         lea.l   (VDP_CTRL).l, a1
         move.w  #$8000, d0                  ; VDP command base (reg 0)
         moveq   #0, d2                      ; register index (counts up)
-        moveq   #VDP_Shadow_len-1, d3       ; loop counter (counts down)
+        moveq   #VDP_Shadow_len-1, d3       ; upper-bound loop counter
 .loop:
-        btst    d2, d1
-        beq.s   .skip
+        lsr.l   #1, d1                       ; shift next dirty bit into carry
+        bcc.s   .skip
         move.b  (a0,d2.w), d0              ; load shadow value into low byte
         move.w  d0, (a1)                    ; write $8X00+val to VDP
 .skip:
         addi.w  #$0100, d0                  ; next register command
         addq.w  #1, d2                      ; next register index
-        dbf     d3, .loop
+        tst.l   d1                          ; dirty bits remaining?
+        dbeq    d3, .loop                   ; early-exit when the mask drains, else loop to the VDP_Shadow_len bound
         clr.l   (VDP_Dirty_Mask).w          ; RAM operand — see VDP_Shadow_Init
 .done:
         rts

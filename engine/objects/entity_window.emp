@@ -47,25 +47,23 @@ const OBJ_ENTRY_SIZE            = 6
 const RING_BUFFER_ENTRY_SIZE    = 6
 
 // EntityScanState — one scan-state record per tracked section (4 entries in
-// Entity_Scan_State, $1A bytes each). TYPE-ONLY twin: emits zero bytes and
+// Entity_Scan_State, $16 bytes each). TYPE-ONLY twin: emits zero bytes and
 // gives typed `EntityScanState.ess_*(aN)` field access plus `sizeof`/`offsetof`
 // in place of hand-carried displacement consts. Truth: engine/structs.asm's
 // `struct` — the drift guards below pin every offset to the AS-side
 // struct-generated equs through the link seam. This struct has a single
 // consumer (this module), so it lives here rather than in its own module —
 // the complement to sst.emp's precedent that a SHARED struct earns its own.
-struct EntityScanState (size: $1A) {
+struct EntityScanState (size: $16) {
     ess_ring_right_idx: u16 @ $00,    // $00 — ring X-scan ratchet (right edge)
-    ess_ring_left_idx: u16 @ $02,     // $02 — ring X-scan ratchet (left edge)
-    ess_obj_right_idx: u16 @ $04,     // $04 — object X-scan ratchet (right edge)
-    ess_obj_left_idx: u16 @ $06,      // $06 — object X-scan ratchet (left edge)
-    ess_rom_ring_ptr: u32 @ $08,      // $08 — ROM ring list pointer
-    ess_rom_obj_ptr: u32 @ $0C,       // $0C — ROM object list pointer
-    ess_rom_type_tbl_ptr: u32 @ $10,  // $10 — ROM type-table pointer
-    ess_origin_x: u16 @ $14,          // $14 — section origin X (engine-space px)
-    ess_section_id: u8 @ $16,         // $16 — flat section id
-    ess_entry_idx: u8 @ $17,          // $17 — window entry index (0-3)
-    ess_origin_y: u16 @ $18,          // $18 — section origin Y (engine-space px)
+    ess_obj_right_idx: u16 @ $02,     // $02 — object X-scan ratchet (right edge)
+    ess_rom_ring_ptr: u32 @ $04,      // $04 — ROM ring list pointer
+    ess_rom_obj_ptr: u32 @ $08,       // $08 — ROM object list pointer
+    ess_rom_type_tbl_ptr: u32 @ $0C,  // $0C — ROM type-table pointer
+    ess_origin_x: u16 @ $10,          // $10 — section origin X (engine-space px)
+    ess_section_id: u8 @ $12,         // $12 — flat section id
+    ess_entry_idx: u8 @ $13,          // $13 — window entry index (0-3)
+    ess_origin_y: u16 @ $14,          // $14 — section origin Y (engine-space px)
 }
 
 // Sec (ROM section descriptor) + Act field access comes from the shared
@@ -95,17 +93,15 @@ ensure(extern("OEF_TYPE_MASK") == OEF_TYPE_MASK, "engine/constants.asm and entit
 ensure(extern("OBJ_ENTRY_SIZE") == OBJ_ENTRY_SIZE, "engine/constants.asm and entity_window.emp disagree on OBJ_ENTRY_SIZE — update both")
 ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
 ensure(extern("EntityScanState_ess_ring_right_idx") == $00, "engine/structs.asm and entity_window.emp disagree on ess_ring_right_idx — update the twin")
-ensure(extern("EntityScanState_ess_ring_left_idx") == $02, "engine/structs.asm and entity_window.emp disagree on ess_ring_left_idx — update the twin")
-ensure(extern("EntityScanState_ess_obj_right_idx") == $04, "engine/structs.asm and entity_window.emp disagree on ess_obj_right_idx — update the twin")
-ensure(extern("EntityScanState_ess_obj_left_idx") == $06, "engine/structs.asm and entity_window.emp disagree on ess_obj_left_idx — update the twin")
-ensure(extern("EntityScanState_ess_rom_ring_ptr") == $08, "engine/structs.asm and entity_window.emp disagree on ess_rom_ring_ptr — update the twin")
-ensure(extern("EntityScanState_ess_rom_obj_ptr") == $0C, "engine/structs.asm and entity_window.emp disagree on ess_rom_obj_ptr — update the twin")
-ensure(extern("EntityScanState_ess_rom_type_tbl_ptr") == $10, "engine/structs.asm and entity_window.emp disagree on ess_rom_type_tbl_ptr — update the twin")
-ensure(extern("EntityScanState_ess_origin_x") == $14, "engine/structs.asm and entity_window.emp disagree on ess_origin_x — update the twin")
-ensure(extern("EntityScanState_ess_section_id") == $16, "engine/structs.asm and entity_window.emp disagree on ess_section_id — update the twin")
-ensure(extern("EntityScanState_ess_entry_idx") == $17, "engine/structs.asm and entity_window.emp disagree on ess_entry_idx — update the twin")
-ensure(extern("EntityScanState_ess_origin_y") == $18, "engine/structs.asm and entity_window.emp disagree on ess_origin_y — update the twin")
-ensure(extern("EntityScanState_len") == $1A, "engine/structs.asm and entity_window.emp disagree on EntityScanState_len — update the twin")
+ensure(extern("EntityScanState_ess_obj_right_idx") == $02, "engine/structs.asm and entity_window.emp disagree on ess_obj_right_idx — update the twin")
+ensure(extern("EntityScanState_ess_rom_ring_ptr") == $04, "engine/structs.asm and entity_window.emp disagree on ess_rom_ring_ptr — update the twin")
+ensure(extern("EntityScanState_ess_rom_obj_ptr") == $08, "engine/structs.asm and entity_window.emp disagree on ess_rom_obj_ptr — update the twin")
+ensure(extern("EntityScanState_ess_rom_type_tbl_ptr") == $0C, "engine/structs.asm and entity_window.emp disagree on ess_rom_type_tbl_ptr — update the twin")
+ensure(extern("EntityScanState_ess_origin_x") == $10, "engine/structs.asm and entity_window.emp disagree on ess_origin_x — update the twin")
+ensure(extern("EntityScanState_ess_section_id") == $12, "engine/structs.asm and entity_window.emp disagree on ess_section_id — update the twin")
+ensure(extern("EntityScanState_ess_entry_idx") == $13, "engine/structs.asm and entity_window.emp disagree on ess_entry_idx — update the twin")
+ensure(extern("EntityScanState_ess_origin_y") == $14, "engine/structs.asm and entity_window.emp disagree on ess_origin_y — update the twin")
+ensure(extern("EntityScanState_len") == $16, "engine/structs.asm and entity_window.emp disagree on EntityScanState_len — update the twin")
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
 
 // Loaded-mask geometry static asserts (AS `if <> / error` → ensure).
@@ -653,9 +649,7 @@ proc EntityWindow_InitSection () clobbers(d3, a2) {
         move.b  d1, EntityScanState.ess_section_id(a1)
         move.b  d6, EntityScanState.ess_entry_idx(a1)
         clr.w   EntityScanState.ess_ring_right_idx(a1)
-        clr.w   EntityScanState.ess_ring_left_idx(a1)
         clr.w   EntityScanState.ess_obj_right_idx(a1)
-        clr.w   EntityScanState.ess_obj_left_idx(a1)
         rts
 }
 
@@ -1549,11 +1543,11 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
 proc EntityWindow_MigrateMasks () clobbers(d0-d3, a0-a1) {
         moveq   #0, d3                  // d3 = new entry index
     .new_loop:
-        // d2.b = new entry d3's section id (entry stride $1A: ×26 = ×16+×8+×2)
+        // d2.b = new entry d3's section id (entry stride $16: ×22 = ×16+×4+×2)
         move.w  d3, d0
         lsl.w   #4, d0
         move.w  d3, d1
-        lsl.w   #3, d1
+        lsl.w   #2, d1
         add.w   d1, d0
         move.w  d3, d1
         add.w   d1, d1

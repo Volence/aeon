@@ -102,11 +102,6 @@ BUTTON_LEFT_BIT         = 2
 BUTTON_RIGHT_BIT        = 3
 
 ; -----------------------------------------------
-; CROSS_RESET_RAM
-; -----------------------------------------------
-CROSS_RESET_MAGIC       = 'INIT'
-
-; -----------------------------------------------
 ; Game state IDs
 ; -----------------------------------------------
 GS_BOOT                 = 0
@@ -205,14 +200,11 @@ ST_ROLLING              = 4         ; 1 = in ball form
 ST_ON_OBJECT            = 5         ; 1 = standing on a solid object
 ST_PUSHING              = 6         ; 1 = pushing against object
 ST_UNDERWATER           = 7         ; 1 = submerged
-; Object interpretation (bits 5-6 reserved for pushing):
-; NOTE: the per-player STANDING bits are gone — "who stands on this solid"
-; is the PLAYER-side SST_interact pointer (structs.asm), set/cleared by the
-; TouchResponse lifecycle. Object-side per-player bits had no clear
-; lifecycle and went stale (the tranche-7 ledge-probe bug); don't bring
+; NOTE: per-player object bits (STANDING and PUSHING) are gone — "who stands
+; on / pushes this solid" is the PLAYER-side SST_interact pointer (structs.asm),
+; set/cleared by the TouchResponse lifecycle. Object-side per-player bits had no
+; clear lifecycle and went stale (the tranche-7 ledge-probe bug); don't bring
 ; them back — compare player SST_interact against your own SST instead.
-ST_P1_PUSHING           = 5         ; 1 = player 1 pushing this object
-ST_P2_PUSHING           = 6         ; 1 = player 2 pushing this object
 
 ; SST layout constants (sync with structs.asm)
 SST_CUSTOM_SIZE         = 34        ; bytes in sst_custom ($2E-$4F)
@@ -222,9 +214,6 @@ SST_TEMPLATE_SIZE       = 24        ; template bytes copied at spawn ($0A-$21; $
 ; Execution culling distances (pixels from camera center)
 CULL_DISTANCE_X         = $300      ; 768px — skip dynamic objects beyond this
 CULL_DISTANCE_Y         = $200      ; 512px
-
-; Spawn guard
-MAX_SPAWNS_PER_FRAME    = 8
 
 ; -----------------------------------------------
 ; Player physics (§5) — 8.8 fixed point. Values are the verified
@@ -393,15 +382,8 @@ ART_VER_ZX0             = 2         ; ZX0 modern/V2 bitstream (load-time tier)
 ; Collision (§4.7) — collision bytes embedded in block data, no separate maps
 COLLISION_CELL_SHIFT    = 4         ; pixel → cell (/ 16)
 
-; Height maps (§4.7)
-NUM_COLLISION_PROFILES  = 256
-HEIGHT_PROFILE_SIZE     = 16        ; bytes per profile (one per pixel column in 16px block)
-HEIGHT_MAP_SIZE         = NUM_COLLISION_PROFILES * HEIGHT_PROFILE_SIZE  ; 4096 bytes
-ANGLE_TABLE_SIZE        = 256       ; one byte per collision type
-
 ; Collision types
 CTYPE_AIR               = 0
-CTYPE_FLAT_SOLID        = 1
 
 ; Camera
 CAM_LOOKAHEAD_THRESHOLD = $0600     ; ground speed for pan enable
@@ -431,12 +413,6 @@ CAM_MAX_Y_STEP          = 16        ; max camera Y movement px/frame. The stream
 EDGE_CLAMP   = 0
 EDGE_WRAP_V  = 1
 EDGE_KILL    = 2
-
-; Section flags (sec_flags word bits)
-SF_HAS_WATER            = 1<<0
-SF_UNDERGROUND          = 1<<1
-SF_NO_Y_WRAP            = 1<<2
-SF_PRESERVE_STATE       = 1<<3
 
 ; -----------------------------------------------
 ; Entity System (§4.9 — camera-driven sliding window)
@@ -484,9 +460,6 @@ COLLECTED_MASK_BYTES    = KILLED_BITMASK_OFFSET-COLLECTED_BITMASK_OFFSET ; 16 �
 MAX_LIST_ENTRIES        = 128           ; collected/killed bitmask capacity per section
                                         ; (16-byte bitmask; index >= 128 corrupts the next
                                         ; window slot — enforced by debug asserts + T9 objentry macro)
-
-; Object type tables (read from ROM, no RAM copy)
-MAX_OBJECT_TYPES        = 32
 
 ; Slot tag — stored in SST_slot_tag; identifies which quadrant entry (0-3) spawned an object
 ; 0 = upper-left (slot L, row r), 1 = upper-right (slot R, row r)

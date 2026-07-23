@@ -84,9 +84,6 @@ pub proc InitObjectRAM () clobbers(d0-d1/a0-a1) {
         // is valid. d1 still 0 from the .clear loop.
         move.w  d1, Dynamic_Live_Count
         move.b  d1, Dynamic_Live_Dirty
-
-        // Reset spawn counter (d1 still 0 from .clear loop)
-        move.w  d1, Spawn_Count
         rts
 }
 
@@ -417,9 +414,6 @@ proc DrainDynamicPending () clobbers(d0-d2/a0-a1) {
 // Clobbers: d0-d6, a0-a6 (object code may clobber freely except a0/d7)
 // -----------------------------------------------
 pub proc RunObjects () clobbers(d0-d7/a0-a6) {
-        moveq   #0, d0
-        move.w  d0, Spawn_Count
-
         tst.b   Game_Paused
         bne     RunObjects_Frozen
 

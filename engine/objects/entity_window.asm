@@ -557,9 +557,7 @@ EntityWindow_InitSection:
         move.b  d1, EntityScanState_ess_section_id(a1)
         move.b  d6, EntityScanState_ess_entry_idx(a1)
         clr.w   EntityScanState_ess_ring_right_idx(a1)
-        clr.w   EntityScanState_ess_ring_left_idx(a1)
         clr.w   EntityScanState_ess_obj_right_idx(a1)
-        clr.w   EntityScanState_ess_obj_left_idx(a1)
         rts
 
 ; -----------------------------------------------
@@ -1438,11 +1436,11 @@ EntityWindow_DespawnObjects:
 EntityWindow_MigrateMasks:
         moveq   #0, d3                  ; d3 = new entry index
 .new_loop:
-        ; d2.b = new entry d3's section id (entry stride $1A: ×26 = ×16+×8+×2)
+        ; d2.b = new entry d3's section id (entry stride $16: ×22 = ×16+×4+×2)
         move.w  d3, d0
         lsl.w   #4, d0
         move.w  d3, d1
-        lsl.w   #3, d1
+        lsl.w   #2, d1
         add.w   d1, d0
         move.w  d3, d1
         add.w   d1, d1
