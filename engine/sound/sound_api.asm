@@ -34,15 +34,23 @@ Sound_PostByte:
 ; marker never appears). No timeout: a driver that never boots hangs here
 ; forever — a chosen tradeoff (a dead sound driver is a build/ROM fault, not a
 ; runtime state worth recovering from).
-; Clobbers: nothing (SR preserved).
+; The marker byte is CAPTURED into d0 under the bus hold and compared AFTER
+; startZ80: startZ80's bus-release write sets the CCR, so a compare straddling
+; the release would test the release's flags, not the marker — the loop condition
+; must come from the captured register. The probe must still release the bus each
+; iteration (the Z80 needs it to run and post the marker), so branch-before-release
+; is not an option here.
+; Clobbers: d0 (marker scratch); SR preserved. (boot calls this in post-boot
+; setup where registers are free.)
 ; ----------------------------------------------------------------------
 Sound_Init:
         move.w  sr, -(sp)
 .wait_alive:
         move.w  #$2700, sr
         stopZ80
-        cmp.b   #SND_ALIVE_MARKER, (SND_Z80_BASE+SND_STAT_ALIVE).l
+        move.b  (SND_Z80_BASE+SND_STAT_ALIVE).l, d0    ; capture marker under the hold
         startZ80
+        cmp.b   #SND_ALIVE_MARKER, d0                  ; test AFTER release (flags clean)
         bne.s   .wait_alive
         move.w  (sp)+, sr
         rts
@@ -87,11 +95,15 @@ Sound_PlayMusic:
         ; case — no load in flight — the slot is already 0 and this falls straight
         ; through. stopZ80 per iteration so the read is reliable AND the Z80 runs
         ; between reads to actually clear the slot (a held bus would deadlock).
+        ; The slot byte is CAPTURED into d1 under the hold and tested AFTER
+        ; startZ80: the bus-release write sets the CCR, so the loop condition must
+        ; come from the captured register, not a test straddling the release.
         ; See docs/superpowers/2026-07-16-sound-repost-gate-design.md.
 .await_slot:
         stopZ80
-        tst.b   (SND_Z80_BASE+SND_REQ_MUSIC).l
+        move.b  (SND_Z80_BASE+SND_REQ_MUSIC).l, d1     ; capture the slot under the hold
         startZ80
+        tst.b   d1                                     ; test AFTER release (flags clean)
         bne.s   .await_slot
 
         andi.l  #$FF, d0                    ; d0 = song id (1-based)
