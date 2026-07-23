@@ -9,13 +9,13 @@ use engine.constants.{VDP_Shadow_len}
 const VDP_REG_CMD  = $8000
 const VDP_REG_STEP = $0100
 
-// Drift-lock: Flush_VDP_Shadow indexes the dirty registers with
-// `btst d2, d1` — a data-register bit test that reads d1 (the .l dirty mask)
-// mod 32 — and builds the loop counter with `moveq #VDP_Shadow_len-1` (signed
-// byte). Both cap the register count at 32; a table grown past that would wrap
-// the dirty-bit indexing silently. Compile error instead. VDP_Shadow_len is an
-// imported const, so ensure sees it at comptime.
-ensure(VDP_Shadow_len <= 32, "engine/constants.asm VDP_Shadow_len > 32 — Flush_VDP_Shadow's btst d2,d1 dirty-mask indexing wraps mod 32 (the .l mask holds only 32 dirty bits)")
+// Drift-lock: Flush_VDP_Shadow walks the dirty registers by shifting the `.l`
+// dirty mask one bit at a time (`lsr.l #1, d1`) and bounds the walk with
+// `moveq #VDP_Shadow_len-1` (signed byte) consumed by `dbeq`. The .l mask holds
+// exactly 32 dirty bits and the signed-byte counter caps at 32; a table grown
+// past that would need more than 32 mask bits. Compile error instead.
+// VDP_Shadow_len is an imported const, so ensure sees it at comptime.
+ensure(VDP_Shadow_len <= 32, "engine/constants.asm VDP_Shadow_len > 32 — Flush_VDP_Shadow's .l dirty mask holds only 32 bits; the lsr walk cannot index past that")
 
 // -----------------------------------------------
 // VDP_Shadow_Init — copy boot VDP register values into shadow table
@@ -48,16 +48,17 @@ pub proc Flush_VDP_Shadow () clobbers(d0-d3/a0-a1) {
         lea     VDP_CTRL, a1
         move.w  #VDP_REG_CMD, d0            // register command base (reg 0)
         moveq   #0, d2                      // register index (counts up)
-        moveq   #VDP_Shadow_len-1, d3       // loop counter (counts down)
+        moveq   #VDP_Shadow_len-1, d3       // upper-bound loop counter
     .loop:
-        btst    d2, d1
-        beq     .skip
+        lsr.l   #1, d1                      // shift next dirty bit into carry
+        bcc     .skip
         move.b  (a0,d2.w), d0               // load shadow value into low byte
         move.w  d0, (a1)                    // write $8X00+val to VDP
     .skip:
         addi.w  #VDP_REG_STEP, d0           // next register command
         addq.w  #1, d2                      // next register index
-        dbf     d3, .loop
+        tst.l   d1                          // dirty bits remaining?
+        dbeq    d3, .loop                   // early-exit when the mask drains, else loop to the VDP_Shadow_len bound
         clr.l   VDP_Dirty_Mask              // RAM operand — see VDP_Shadow_Init
     .done:
         rts
