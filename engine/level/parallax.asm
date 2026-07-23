@@ -207,8 +207,7 @@ Vscroll_Write:
 ;
 ; Reads:  Camera_X, Parallax_Current_Config, Parallax_Current_Scroll_A/B
 ; Writes: Parallax_Current_Scroll_A/B (lerp toward target),
-;         Hscroll_Buffer (28 longwords for per-cell mode),
-;         Hscroll_Dirty_Start/End
+;         Hscroll_Buffer (28 longwords for per-cell mode)
 ;
 ; Per-frame cost target: ~410 NTSC cycles for 5-band per-cell pure shift-add.
 ;
@@ -437,13 +436,9 @@ Parallax_Step4_Fill:
         move.b  parallax_config_pcfg_deform_speed_bg(a0), d0
         add.w   d0, (Parallax_Deform_Phase_BG).w
         bsr.w   Parallax_Fill_PerLine
-        move.b  #0, (Hscroll_Dirty_Start).w
-        move.b  #(28*8)-1, (Hscroll_Dirty_End).w
         bra.s   .fill_done
 .fill_per_cell:
         bsr.w   Parallax_Fill_PerCell
-        move.b  #0, (Hscroll_Dirty_Start).w
-        move.b  #27, (Hscroll_Dirty_End).w
 .fill_done:
         rts
 

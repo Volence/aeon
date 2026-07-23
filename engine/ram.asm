@@ -133,8 +133,7 @@ Sprite_Table_Dirty:     ds.b 1
                         ds.b 1          ; pad
 
 Hscroll_Buffer:         ds.b 896        ; 224 lines × 4 bytes (FG + BG)
-Hscroll_Dirty_Start:    ds.b 1          ; first dirty scanline ($FF = clean)
-Hscroll_Dirty_End:      ds.b 1          ; last dirty scanline
+                        ds.b 2          ; reserved (pad)
 
 Vscroll_Factor:         ds.l 1          ; FG word + BG word
 
