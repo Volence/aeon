@@ -8,6 +8,7 @@ module engine.section in section
 use engine.constants.{SECTION_SIZE_SHIFT}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
 
 // ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm,
 // except VRAM_PLANE_B_BYTES from engine/level/bg.asm). Mirrored local +
@@ -48,88 +49,9 @@ ensure(sizeof(Sec) == 66, "Section_GetSecPtrXY stride (lsl #6 + lsl #1 = ×66) a
 
 // ---- VDP command macros (truth: engine/macros.asm). First .emp consumer. ----
 
-// VDP command target/op as pure sum types: an out-of-vocabulary target or
-// op cannot compile. Discriminants live ONCE — in the mapper fns below, not on
-// the variants — so the enum is the vocabulary and the mapper is the single
-// source of the %-encodings that feed the AS `(type & rwd)` derivation verbatim.
-// Comptime-only (never emitted as data). (§4 pokes use Vram/Write; the full
-// vocabulary is declared so a future consumer is type-checked and the exhaustive
-// mappers force an update when a variant is added.)
-comptime enum VdpTarget { Vram, Cram, Vsram }
-comptime enum VdpOp     { Read, Write, Dma }
-
-// The %-encodings (truth: engine/constants.asm). Exhaustive match — Plan-3
-// totality checks it, so a new variant FORCES the mapper to grow.
-comptime fn target_bits(t: VdpTarget) -> int {
-    match t {
-        Vram  => %100001,
-        Cram  => %101011,
-        Vsram => %100101,
-    }
-}
-comptime fn op_bits(o: VdpOp) -> int {
-    match o {
-        Read  => %001100,
-        Write => %000111,
-        Dma   => %100111,
-    }
-}
-
-// Drift-lock the MAPPING, not just the constants: each arm is pinned to its
-// AS-side equ through the link seam, so the match itself can't drift.
-ensure(target_bits(VdpTarget.Vram) == extern("VRAM"), "engine/constants.asm and section.emp disagree on VRAM — update target_bits")
-ensure(target_bits(VdpTarget.Cram) == extern("CRAM"), "engine/constants.asm and section.emp disagree on CRAM — update target_bits")
-ensure(target_bits(VdpTarget.Vsram) == extern("VSRAM"), "engine/constants.asm and section.emp disagree on VSRAM — update target_bits")
-ensure(op_bits(VdpOp.Read) == extern("READ"), "engine/constants.asm and section.emp disagree on READ — update op_bits")
-ensure(op_bits(VdpOp.Write) == extern("WRITE"), "engine/constants.asm and section.emp disagree on WRITE — update op_bits")
-ensure(op_bits(VdpOp.Dma) == extern("DMA"), "engine/constants.asm and section.emp disagree on DMA — update op_bits")
-
-// vdp_comm — build-time VDP command longword from a VRAM/CRAM/VSRAM byte
-// address (mirrors the AS `vdpComm` function). The typed target/op feed the
-// mappers; the derivation is the AS bit-trick verbatim.
-comptime fn vdp_comm(addr: int, target: VdpTarget, op: VdpOp) -> int {
-    let type = target_bits(target)
-    let rwd = op_bits(op)
-    return (((type & rwd) & 3) << 30) | ((addr & $3FFF) << 16) | (((type & rwd) & $FC) << 2) | ((addr & $C000) >> 14)
-}
-
-// vdp_comm_reg — convert a VRAM/CRAM/VSRAM byte address in `reg` to a VDP
-// command longword IN PLACE (mirrors the AS `vdpCommReg` macro). The four guards
-// below all select ENCODING CASES (which instructions to emit for the resolved
-// bit pattern) — none are vocabulary validation, so the sum types added no
-// unreachable guard to delete; they add call-site safety. Each guard is a small
-// helper spliced into the one asm block (the lead_move/aabb pattern), so a
-// not-taken arm emits nothing. `clr` defaults to `true`, the dominant vdpCommReg
-// value ENGINE-WIDE (3:2 — section ×2 + one DMA-queue write pass clr=1; two
-// DMA-queue `VRAM,DMA,0` sites pass clr=0). The clr=0 minority lives in the
-// DMA-queue path (ports next), so future consumers WILL pass `clr: false` — the
-// default is a mild convenience at a marginal 3:2, not a norm.
-comptime fn vcr_addq(tr: int, reg: Reg) -> Code {
-    let bits = tr & 3
-    if bits != 0 { return asm { addq.w  #{bits}, {reg} } }
-    return asm { }
-}
-comptime fn vcr_clr(clr: bool, reg: Reg) -> Code {
-    if clr { return asm { andi.w  #3, {reg} } }
-    return asm { }
-}
-comptime fn vcr_type(tr: int, reg: Reg) -> Code {
-    let hi = tr & $FC
-    if hi == $20 { return asm { tas.b   {reg} } }
-    if hi != 0 { return asm { ori.w   #{hi << 2}, {reg} } }
-    return asm { }
-}
-comptime fn vdp_comm_reg(reg: Reg, target: VdpTarget, op: VdpOp, clr: bool = true) -> Code {
-    let tr = target_bits(target) & op_bits(op)
-    return asm {
-        lsl.l   #2, {reg}
-        {vcr_addq(tr, reg)}
-        ror.w   #2, {reg}
-        swap    {reg}
-        {vcr_clr(clr, reg)}
-        {vcr_type(tr, reg)}
-    }
-}
+// The typed VDP command interface (VdpTarget/VdpOp sum types + vdp_comm /
+// vdp_comm_reg derivations) lives in the shared engine.vdp module — hoisted
+// there when plane_buffer became the 2nd consumer (gap-ledger row 1073).
 
 // -----------------------------------------------
 // Section_Init — record the act, fill nametable, init the entity window
