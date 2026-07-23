@@ -506,15 +506,4 @@ Engine_RAM_End:
           error "Object_RAM .w address $\{Object_RAM & $FFFF} has bit 15 clear — will resolve to ROM"
         endif
 
-; -----------------------------------------------
-; CROSS_RESET_RAM — top 256 bytes of RAM ($FFFFFF00-$FFFFFFFF)
-; Survives soft reset, cleared only on cold boot.
-; Lives ABOVE the stack base (SYSTEM_STACK = $FFFFFF00, grows down),
-; so stack pushes can never reach it.
-; -----------------------------------------------
-CROSS_RESET_RAM:            = $FFFFFF00
-CROSS_RESET_MAGIC_ADDR:     = $FFFFFF00
-CROSS_RESET_MAGIC_END:      = $FFFFFF04
-CROSS_RESET_RAM_END:        = $00000000     ; exclusive end (wraps at top of RAM)
-
         dephase

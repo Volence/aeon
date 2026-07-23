@@ -193,9 +193,6 @@ Cold_Boot:
         ; Enable interrupts
         enableInts
 
-        ; Mark cold boot complete (§0.11)
-        move.l  #CROSS_RESET_MAGIC, (CROSS_RESET_MAGIC_ADDR).l
-
     ifdef __DEBUG__
         ; Golden compression self-test — decompressors vs build encoders.
         ; Runs before any game state touches Art_Staging_Buffer.
