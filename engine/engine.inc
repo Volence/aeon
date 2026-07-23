@@ -381,7 +381,22 @@ __BUDGET_ENGINE:
       endif
     endif
     include "engine/level/camera.asm"
-    include "engine/level/parallax.asm"
+    ifndef SIGIL_EMP_PARALLAX
+        include "engine/level/parallax.asm"
+    else
+        ; sigil mixed build: the §4.6 parallax pipeline (Parallax_Init ..
+        ; Parallax_Fill_PerCell) comes from engine/level/parallax.emp, pinned by
+        ; the sigil map at the per-shape reference address. Resume placement at
+        ; the region end (load_art's Art_Decompress; see sigil-harness
+        ; golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $6CE2
+      else
+        org     $6058
+      endif
+    endif
     include "engine/level/load_art.asm"
     include "engine/level/bg.asm"
     include "engine/level/bg_anim.asm"

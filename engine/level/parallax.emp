@@ -8,21 +8,15 @@
 
 module engine.parallax in parallax
 
-use engine.constants.{SECTION_SIZE_SHIFT}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.structs.{Act, Sec}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
 
 // ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm).
 // Mirrored local + drift-locked to keep this port byte-isolated; hoist each into
 // the shared engine.constants twin when a 2nd .emp file consumes it. ----
-const SCREEN_WIDTH            = 320
-const SCREEN_HEIGHT           = 224
-const MAX_PARALLAX_BANDS      = 8
 const PARALLAX_TRANS_DEFAULT  = 16
 const PARALLAX_LERP_SHIFT     = 4
-ensure(extern("SCREEN_WIDTH") == SCREEN_WIDTH, "engine/constants.asm and parallax.emp disagree on SCREEN_WIDTH — update the twin")
-ensure(extern("SCREEN_HEIGHT") == SCREEN_HEIGHT, "engine/constants.asm and parallax.emp disagree on SCREEN_HEIGHT — update the twin")
-ensure(extern("MAX_PARALLAX_BANDS") == MAX_PARALLAX_BANDS, "engine/constants.asm and parallax.emp disagree on MAX_PARALLAX_BANDS — update the twin")
 ensure(extern("PARALLAX_TRANS_DEFAULT") == PARALLAX_TRANS_DEFAULT, "engine/constants.asm and parallax.emp disagree on PARALLAX_TRANS_DEFAULT — update the twin")
 ensure(extern("PARALLAX_LERP_SHIFT") == PARALLAX_LERP_SHIFT, "engine/constants.asm and parallax.emp disagree on PARALLAX_LERP_SHIFT — update the twin")
 
@@ -122,7 +116,7 @@ const band_top_cell_next = offsetof(band_entry, band_top_cell) + sizeof(band_ent
 // Out: none
 // Clobbers: d0, d1, a1
 // ----------------------------------------------------------------------
-pub proc Parallax_Init () clobbers(d0-d1/a1) {
+pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
         lea     Parallax_State, a1                          // (Parallax_State).w
         moveq   #PARALLAX_STATE_LONGS-1, d0
         moveq   #0, d1
@@ -174,10 +168,10 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d3/a0/a2) {
         move.w  Camera_X, d2                        // (Camera_X).w — world X px (high word)
         addi.w  #SCREEN_WIDTH/2, d2
         moveq   #SECTION_SIZE_SHIFT, d0
-        asr.w   d0, d2                              // d2 = cur_sec_x
+        asr.w   d0, d2 as GridX                     // d2 = cur_sec_x
         move.w  Camera_Y, d3                        // (Camera_Y).w — world Y px
         addi.w  #SCREEN_HEIGHT/2, d3
-        asr.w   d0, d3                              // d3 = cur_sec_y
+        asr.w   d0, d3 as GridY                     // d3 = cur_sec_y
 
         // -- crossing? compare against last frame's section --
         cmp.b   Parallax_Prev_Sec_X, d2            // (Parallax_Prev_Sec_X).w
@@ -678,7 +672,7 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
 // Preserves: d0, d3-d7, a0-a4. Clobbers: d1, d2.
 // (Pushes d3 internally to use as the second-term scratch register.)
 // ----------------------------------------------------------------------
-proc Decode_Factor_A () clobbers(d1-d2) {
+proc Decode_Factor_A () clobbers(d1-d2) preserves(d3) {
         moveq   #0, d1
         move.b  band_entry.band_factor_a_s1(a1), d1
         cmpi.b  #15, d1
@@ -712,7 +706,7 @@ proc Decode_Factor_A () clobbers(d1-d2) {
 // ----------------------------------------------------------------------
 // Decode_Factor_B — same shape as Decode_Factor_A, reads factor_b fields
 // ----------------------------------------------------------------------
-proc Decode_Factor_B () clobbers(d1-d2) {
+proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
         moveq   #0, d1
         move.b  band_entry.band_factor_b_s1(a1), d1
         cmpi.b  #15, d1
@@ -763,7 +757,7 @@ proc Decode_Factor_B () clobbers(d1-d2) {
 //   a5/a6 = FG/BG deform tables
 // Deform-table indices wrap at 256 via andi #$FF.
 // ----------------------------------------------------------------------
-proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) {
+proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         movem.l a0/d7, -(sp)                        // preserve caller's config ptr + band count
 
         // a1/a2/a3 = band array + scroll arrays, set by the caller (Step 4a:
