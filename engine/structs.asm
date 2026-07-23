@@ -243,18 +243,16 @@ Act endstruct
 ; -----------------------------------------------
 EntityScanState struct
 ess_ring_right_idx   ds.w 1      ; $00 — next unloaded ring index (scanning right)
-ess_ring_left_idx    ds.w 1      ; $02 — next unloaded ring index (scanning left)
-ess_obj_right_idx    ds.w 1      ; $04 — next unloaded object index (scanning right)
-ess_obj_left_idx     ds.w 1      ; $06 — next unloaded object index (scanning left)
-ess_rom_ring_ptr     ds.l 1      ; $08 — pointer to section's ROM ring list
-ess_rom_obj_ptr      ds.l 1      ; $0C — pointer to section's ROM object list
-ess_rom_type_tbl_ptr ds.l 1      ; $10 — pointer to section's ROM type table
-ess_origin_x         ds.w 1      ; $14 — section's engine-space X origin
-ess_section_id       ds.b 1      ; $16 — section grid index (sec_y * grid_w + sec_x)
-ess_entry_idx        ds.b 1      ; $17 — this entry's index (0-3) — loaded-mask base derives from it
-ess_origin_y         ds.w 1      ; $18 — section's engine-space Y origin (§4.9 phase 2)
+ess_obj_right_idx    ds.w 1      ; $02 — next unloaded object index (scanning right)
+ess_rom_ring_ptr     ds.l 1      ; $04 — pointer to section's ROM ring list
+ess_rom_obj_ptr      ds.l 1      ; $08 — pointer to section's ROM object list
+ess_rom_type_tbl_ptr ds.l 1      ; $0C — pointer to section's ROM type table
+ess_origin_x         ds.w 1      ; $10 — section's engine-space X origin
+ess_section_id       ds.b 1      ; $12 — section grid index (sec_y * grid_w + sec_x)
+ess_entry_idx        ds.b 1      ; $13 — this entry's index (0-3) — loaded-mask base derives from it
+ess_origin_y         ds.w 1      ; $14 — section's engine-space Y origin (§4.9 phase 2)
 EntityScanState endstruct
 
-    if EntityScanState_len <> $1A
-      error "EntityScanState struct is \{EntityScanState_len} bytes, expected $1A"
+    if EntityScanState_len <> $16
+      error "EntityScanState struct is \{EntityScanState_len} bytes, expected $16"
     endif

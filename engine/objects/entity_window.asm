@@ -557,9 +557,7 @@ EntityWindow_InitSection:
         move.b  d1, EntityScanState_ess_section_id(a1)
         move.b  d6, EntityScanState_ess_entry_idx(a1)
         clr.w   EntityScanState_ess_ring_right_idx(a1)
-        clr.w   EntityScanState_ess_ring_left_idx(a1)
         clr.w   EntityScanState_ess_obj_right_idx(a1)
-        clr.w   EntityScanState_ess_obj_left_idx(a1)
         rts
 
 ; -----------------------------------------------
