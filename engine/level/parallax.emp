@@ -3,8 +3,8 @@
 // Public:
 //   Parallax_Init(a0=parallax_config*) — initialize Parallax_State at level load
 //   Parallax_Update                    — main-loop per-frame builder
-//   Parallax_StartTransition(a0=new)   — section boundary handler (T8+)
-//   Vscroll_Write                      — VBlank VSRAM emitter (T6+)
+//   Parallax_StartTransition(a0=new)   — section-boundary config switch
+//   Vscroll_Write                      — VBlank VSRAM emitter
 
 module engine.parallax in parallax
 
@@ -271,7 +271,8 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
 
 // ----------------------------------------------------------------------
 // Vscroll_Write — emit Vscroll_Factor (whole-plane) or column buf (per-column)
-// T6 stub: always whole-plane. T12 adds per-column branch.
+// Whole-plane Vscroll_Factor, or the 20-longword per-column buffer when the
+// config's v_deform_table_bg is set.
 //
 // Caller (VBlank handler) must hold stopZ80 — VDP writes happen here.
 //
@@ -330,14 +331,15 @@ pub proc Vscroll_Write () clobbers(d0/a0/a5) {
 }
 
 // ----------------------------------------------------------------------
-// Parallax_Update — per-frame parallax buffer build (T5: per-cell only)
+// Parallax_Update — per-frame parallax buffer build
 //
 // Reads:  Camera_X, Parallax_Current_Config, Parallax_Current_Scroll_A/B
 // Writes: Parallax_Current_Scroll_A/B (lerp toward target),
 //         Hscroll_Buffer (28 longwords for per-cell mode),
 //         Hscroll_Dirty_Start/End
 //
-// Per-frame cost target: ~410 NTSC cycles for 5-band per-cell pure shift-add.
+// Per-frame cost scales with band count; the per-line deform fill
+// (Parallax_Fill_PerLine) is the hot path (§4.6 perf charter).
 //
 // In:  none
 // Out: none
@@ -625,7 +627,7 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         move.w  d2, d1                              // BG in low half (d2 = current_vscroll_bg)
         move.l  d1, Vscroll_Factor                  // (Vscroll_Factor).w
 
-        // --- Step 5b (T12): per-column V-scroll buffer fill ---
+        // --- Step 5b: per-column V-scroll buffer fill ---
         // If v_deform_table_bg != NULL, sample table per column and write
         // column buffer. Vscroll_Write picks this up via the same flag.
         // Whole-plane Vscroll_Factor is also kept correct (above) so the
