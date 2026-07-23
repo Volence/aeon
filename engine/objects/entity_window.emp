@@ -733,10 +733,10 @@ proc EntityWindow_BuildEntries () clobbers(d0-d7, a0-a3) {
         move.b  Entity_Window_Anchor+1, d3      // d3 = sec_y0
         move.w  d6, d0
         andi.w  #1, d0                  // d0 = column offset (entry & 1)
-        add.b   d0, d2                  // d2 = sec_x0 + (entry & 1)
+        add.b   d0, d2 as GridX         // d2 = sec_x0 + (entry & 1)
         move.w  d6, d1
         lsr.w   #1, d1                  // d1 = row offset (entry >> 1)
-        add.b   d1, d3                  // d3 = sec_y0 + (entry >> 1)
+        add.b   d1, d3 as GridY         // d3 = sec_y0 + (entry >> 1)
         movea.l Current_Act_Ptr, a2
         jbsr    Section_GetSecPtrXY     // a0 = Sec ptr, Z set = out of grid
         beq     .void_entry             // (unsigned check voids "negative" bytes too)
@@ -824,10 +824,10 @@ pub proc EntityWindow_Init () clobbers(d0-d7, a0-a4) falls_into EntityWindow_Sca
         move.w  Camera_X, d2            // world X px
         addi.w  #SCREEN_WIDTH/2, d2
         moveq   #SECTION_SIZE_SHIFT, d0
-        asr.w   d0, d2                  // d2 = sec_x of the camera center
+        asr.w   d0, d2                  // d2 = sec_x of the camera center (u8)
         move.w  Camera_Y, d3            // world Y px
         addi.w  #SCREEN_HEIGHT/2, d3
-        asr.w   d0, d3                  // d3 = sec_y of the camera center
+        asr.w   d0, d3 as GridY         // d3 = sec_y of the camera center
         movea.l Current_Act_Ptr, a2
         jbsr    Section_FlatIDXY        // d0.w = camera-center flat id
         moveq   #0, d1
@@ -1624,8 +1624,8 @@ proc EntityWindow_Slide () clobbers(d0-d7, a0-a4) {
         move.w  Camera_Y, d5           // world Y px
         addi.w  #SCREEN_HEIGHT/2, d5
         asr.w   d0, d5                  // d3 = sec_y of the camera center
-        move.w  d4, d2                  // sec_x
-        move.w  d5, d3                  // sec_y
+        move.w  d4, d2                 // sec_x (u8)
+        move.w  d5, d3 as GridY        // sec_y
         movea.l Current_Act_Ptr, a2
         jbsr    Section_FlatIDXY        // d0.w = camera-center flat id
         moveq   #0, d1
