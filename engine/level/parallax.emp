@@ -331,7 +331,7 @@ pub proc Vscroll_Write () clobbers(d0/a0/a5) {
         rts
 
     .whole_plane:
-        move.l  (Vscroll_Factor).w, VDP_DATA_OFF(a5)  // (Vscroll_Factor).w — explicit .w: abs-sym + (d16,An) two-ext-word form
+        move.l  (Vscroll_Factor).w, VDP_DATA_OFF(a5)  // (Vscroll_Factor).w — explicit .w pins the abs width (twin spelling)
         rts
 }
 
