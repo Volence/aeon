@@ -57,3 +57,19 @@ pub newtype VramArtTile = u16
 // running script, not a frame identity.
 pub newtype AnimId = u8
 pub newtype FrameId = u8
+
+// Section-grid coordinates, AXIS-SPLIT (G5). A level is a grid of fixed-size
+// sections; a cell is addressed by its column (GridX = sec_x) and row
+// (GridY = sec_y). They are split into two newtypes precisely so the compiler
+// REFUSES a sec_x/sec_y swap at a call boundary — the same silent-wrong-answer
+// class as the MigrateMasks stride bug. Both erase to u8 (grids are small); the
+// unsigned range guard in Section_GetSecPtrXY still catches out-of-grid at run
+// time, so these carry naming, not a refinement.
+pub newtype GridX = u8
+pub newtype GridY = u8
+
+// A flat section id: sec_y * grid_w + sec_x — the linear index into the Sec
+// grid that Section_FlatIDXY computes and EntityScanState.ess_section_id holds.
+// u16 because a large act's flat index exceeds a byte (MAX_ACT_SECTIONS ≤ 496,
+// guarded where the ×66 stride sign-extends).
+pub newtype SectionId = u16

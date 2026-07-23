@@ -102,11 +102,18 @@ pub proc Section_FillInitial () clobbers(d0) {
 
 // -----------------------------------------------
 // Section_FlatIDXY — flat section id from grid coordinates.
-// In:  d2.b = sec_x, d3.b = sec_y, a2 = Act ptr
-// Out: d0.w = sec_y * grid_w + sec_x
+// In:  d2 = sec_x, d3 = sec_y (GridY), a2 = Act ptr
+// Out: d0 = sec_y * grid_w + sec_x (SectionId)
 // Clobbers: d1     (d2/d3/a2 preserved)
+// NOTE: d2 (sec_x) is left u8, NOT GridX. At the 3×3-window build site
+// (EntityWindow_BuildEntries) this is called immediately after
+// Section_GetSecPtrXY, which clobbers d2 as its multiply scratch — so a typed
+// GridX in d2 cannot be proven to survive that call byte-neutrally. The GridY
+// axis DOES survive (GetSecPtrXY preserves d3), so d3 carries the axis-split
+// swap guard here; typing d2 GridX is BANKED until GetSecPtrXY's d2 preserve is
+// verifier-recognized (or it stops reusing d2 as scratch).
 // -----------------------------------------------
-pub proc Section_FlatIDXY (d2: u8, d3: u8, a2: *Act) clobbers(d1) out(d0) {
+pub proc Section_FlatIDXY (d2: u8, d3: GridY, a2: *Act) clobbers(d1) out(d0: SectionId) {
         moveq   #0, d0
         moveq   #0, d1
         move.b  d3, d1                          // d1 = sec_y
@@ -124,11 +131,16 @@ pub proc Section_FlatIDXY (d2: u8, d3: u8, a2: *Act) clobbers(d1) out(d0) {
 
 // -----------------------------------------------
 // Section_GetSecPtrXY — Sec ptr lookup by grid coordinates (§4.2).
-// In:  d2.b = sec_x, d3.b = sec_y, a2 = Act ptr
-// Out: a0 = Sec ptr; Z clear if found, Z set if out of range (a0 = 0)
-// Clobbers: d0, d1     (d2/d3/a2 preserved — sec_x stack-saved across multiply)
+// In:  d2 = sec_x (GridX), d3 = sec_y (GridY), a2 = Act ptr
+// Out: a0 = Sec ptr; d0 = found flag (Z clear if found, Z set if out of range,
+//      a0 = 0) — a boolean, NOT a SectionId, so d0 is untyped here.
+// Clobbers: d1, d2     (d2 is reused as the multiply counter — sec_x is
+//      stack-saved and restored, so its VALUE survives, but the declared
+//      contract is d2-clobbered: the conditional individual save/restore is not
+//      verifier-recognized as a preserve. Consequence: a caller cannot carry a
+//      typed GridX in d2 across this call — see Section_FlatIDXY's d2.)
 // -----------------------------------------------
-pub proc Section_GetSecPtrXY (d2: u8, d3: u8, a2: *Act) clobbers(d1-d2) out(d0, a0) {
+pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) out(d0, a0) {
         cmp.b   Act_grid_w_lo(a2), d2
         bcc     .out_of_range                   // sec_x >= grid_w (unsigned)
         cmp.b   Act_grid_h_lo(a2), d3
@@ -348,9 +360,9 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6, sr) out(d5, d7) {
         movea.l Current_Act_Ptr, a2
         move.w  Camera_X, d2                    // world X px (16.16 high word)
         moveq   #SECTION_SIZE_SHIFT, d0
-        asr.w   d0, d2                          // d2.w = sec_x
+        asr.w   d0, d2 as GridX                 // d2.w = sec_x
         move.w  Camera_Y, d3                    // world Y px
-        asr.w   d0, d3                          // d3.w = sec_y
+        asr.w   d0, d3 as GridY                 // d3.w = sec_y
         jbsr    Section_GetSecPtrXY             // a0 = on-screen Sec ptr (Z set = none)
         beq     .plb_use_act_layout
         movea.l Sec.sec_bg_layout(a0), a1
