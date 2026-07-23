@@ -895,14 +895,27 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         blo     .lg_line
         jbra    .band_done
 
-// --- FLAT: same longword for every line of the band ---
+// --- FLAT: same longword for every line of the band (8x unrolled) ---
+    // Band line spans are ALWAYS multiples of 8: tops are Plane-B cell rows
+    // scaled ×8 (band_top_cell × 8 in both the config-own path and the Step4a
+    // screen-space shadow view — the clamp there is on cell values too), and
+    // the last band ends at 224 = 28×8. So `span >> 3` is exact — no remainder
+    // tail. The unroll drops the dbf overhead from per-line to per-8-lines.
     .lp_flat:
         move.w  d5, d1
         sub.w   d4, d1
         ble     .band_done                          // empty/malformed band
         move.w  d5, d4                              // line index jumps to band end
+        lsr.w   #3, d1                              // span/8 groups (span is ×8; >0 here → >=1)
         subq.w  #1, d1
     .fl_line:
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
         move.l  d0, (a4)+
         dbf     d1, .fl_line
 

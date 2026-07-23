@@ -759,14 +759,25 @@ Parallax_Fill_PerLine:
         blo.s   .lg_line
         bra.s   .band_done
 
-; --- FLAT: same longword for every line of the band ---
+; --- FLAT: same longword for every line of the band (8x unrolled) ---
+; Band line spans are ALWAYS multiples of 8 (tops = cell rows ×8 in both the
+; config-own and Step4a screen-space paths; last band ends at 224 = 28×8), so
+; span>>3 is exact — no remainder tail. Drops dbf overhead per-line → per-8.
 .lp_flat:
         move.w  d5, d1
         sub.w   d4, d1
         ble.s   .band_done                          ; empty/malformed band
         move.w  d5, d4                              ; line index jumps to band end
+        lsr.w   #3, d1                              ; span/8 groups (span is ×8; >0 here → >=1)
         subq.w  #1, d1
 .fl_line:
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
         move.l  d0, (a4)+
         dbf     d1, .fl_line
 
