@@ -33,6 +33,13 @@ const HBLANK_SLOT_JMP = $4EF9                // armed: jmp xxx.l (4-byte target 
 // restore every register it touches (observable clobbers = EMPTY — interrupt
 // transparency) and MUST terminate with `rte`. The `as HBlankHandler` bless sits
 // on HBlank_Install's target argument.
+//
+// CPU-STATE ONLY: `clobbers()` covers d0-a7/SR (the handler saves/restores + rte).
+// It does NOT cover VDP hardware state the 68000 register model can't see — a
+// handler that writes the VDP control port ($C00004) can corrupt the two-word
+// command latch or the autoincrement (reg $0F) of whatever it interrupted. A
+// raster handler doing VDP writes must respect the engine's VDP-access invariant
+// (command pairs only where IRQ4 can't split them), not just save registers.
 type HBlankHandler = proc () clobbers()
 
 // -----------------------------------------------
