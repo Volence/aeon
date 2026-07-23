@@ -236,9 +236,6 @@ Dynamic_Free_SP:        ds.w 1
 Effect_Free_Stack:      ds.w NUM_EFFECTS
 Effect_Free_SP:         ds.w 1
 
-; Spawn guard counter (reset each frame)
-Spawn_Count:            ds.w 1
-
 ; -----------------------------------------------
 ; Sprite Rendering (§3.5)
 ; -----------------------------------------------
