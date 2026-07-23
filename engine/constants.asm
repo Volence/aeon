@@ -305,7 +305,7 @@ SECTION_TILE_HEIGHT     = SECTION_SIZE/8    ; 256 — tile rows per section
 ; Parallax (§4.6)
 MAX_PARALLAX_BANDS         = 8
 PARALLAX_TRANS_DEFAULT     = 16     ; default boundary lerp duration (frames)
-PARALLAX_LERP_SHIFT        = 4      ; >>4 ≈ 16-frame convergence to ~95% — gentler slide on factor changes
+PARALLAX_LERP_SHIFT        = 4      ; per-frame BG transition lerp = gap>>4 (geometric; ~36% of the gap remains after the PARALLAX_TRANS_DEFAULT 16-frame window)
 
 ; Act art pool VRAM ceiling — the PHASE-1 shipped layout, not the end-state.
 ; The pool loads to tiles 0..N-1; the character DPLC region sits at tile 960

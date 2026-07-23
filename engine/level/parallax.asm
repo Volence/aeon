@@ -76,7 +76,7 @@ Parallax_CheckBoundary:
 .crossed:
         ; -- look up the new section (a2 = act ptr) --
         movea.l (Current_Act_Ptr).w, a2
-        jsr     Section_GetSecPtrXY                 ; a0 = Sec ptr (Z set = out of grid)
+        bsr.w   Section_GetSecPtrXY                 ; a0 = Sec ptr (Z set = out of grid)
         beq.s   .no_crossing                        ; out of grid — keep current config
 
         ; commit the new section coords only once we have a valid section
@@ -90,7 +90,7 @@ Parallax_CheckBoundary:
         movea.l (Current_Act_Ptr).w, a0
         movea.l Act_act_parallax_config(a0), a0
 .have_config:
-        bra.w   Parallax_StartTransition            ; snap/lerp + mode shadow; no-op if unchanged
+        bra.s   Parallax_StartTransition            ; snap/lerp + mode shadow; no-op if unchanged
 .no_crossing:
         rts
 
@@ -116,11 +116,11 @@ Parallax_CheckBoundary:
 ; ----------------------------------------------------------------------
 Parallax_StartTransition:
         cmpa.w  #0, a0
-        beq.w   .no_change                          ; null → inherit, no-op
+        beq.s   .no_change                          ; null → inherit, no-op
         cmpa.l  (Parallax_Current_Config).w, a0
-        beq.w   .no_change                          ; matches current → no-op
+        beq.s   .no_change                          ; matches current → no-op
         cmpa.l  (Parallax_Target_Config).w, a0
-        beq.w   .no_change                          ; already transitioning to this → no-op
+        beq.s   .no_change                          ; already transitioning to this → no-op
 
         ; -- pick transition mode from the new config's pcfg_transition flag --
         tst.b   parallax_config_pcfg_transition(a0)
@@ -207,8 +207,7 @@ Vscroll_Write:
 ;
 ; Reads:  Camera_X, Parallax_Current_Config, Parallax_Current_Scroll_A/B
 ; Writes: Parallax_Current_Scroll_A/B (lerp toward target),
-;         Hscroll_Buffer (28 longwords for per-cell mode),
-;         Hscroll_Dirty_Start/End
+;         Hscroll_Buffer (28 longwords for per-cell mode)
 ;
 ; Per-frame cost target: ~410 NTSC cycles for 5-band per-cell pure shift-add.
 ;
@@ -239,12 +238,12 @@ Parallax_Update:
         move.l  (Parallax_Current_Config).w, d0
 .config_resolved:
         ; 0 = inert (no parallax config active)
-        beq.w   .no_config
+        beq.s   .no_config
         movea.l d0, a0
 
         moveq   #0, d7
         move.b  parallax_config_pcfg_band_count(a0), d7
-        beq.w   .no_config
+        beq.s   .no_config
 
         ; -- camera X (signed pixel high word) --
         move.l  (Camera_X).w, d0
@@ -437,13 +436,9 @@ Parallax_Step4_Fill:
         move.b  parallax_config_pcfg_deform_speed_bg(a0), d0
         add.w   d0, (Parallax_Deform_Phase_BG).w
         bsr.w   Parallax_Fill_PerLine
-        move.b  #0, (Hscroll_Dirty_Start).w
-        move.b  #(28*8)-1, (Hscroll_Dirty_End).w
         bra.s   .fill_done
 .fill_per_cell:
         bsr.w   Parallax_Fill_PerCell
-        move.b  #0, (Hscroll_Dirty_Start).w
-        move.b  #27, (Hscroll_Dirty_End).w
 .fill_done:
         rts
 
@@ -764,14 +759,25 @@ Parallax_Fill_PerLine:
         blo.s   .lg_line
         bra.s   .band_done
 
-; --- FLAT: same longword for every line of the band ---
+; --- FLAT: same longword for every line of the band (8x unrolled) ---
+; Band line spans are ALWAYS multiples of 8 (tops = cell rows ×8 in both the
+; config-own and Step4a screen-space paths; last band ends at 224 = 28×8), so
+; span>>3 is exact — no remainder tail. Drops dbf overhead per-line → per-8.
 .lp_flat:
         move.w  d5, d1
         sub.w   d4, d1
         ble.s   .band_done                          ; empty/malformed band
         move.w  d5, d4                              ; line index jumps to band end
+        lsr.w   #3, d1                              ; span/8 groups (span is ×8; >0 here → >=1)
         subq.w  #1, d1
 .fl_line:
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
+        move.l  d0, (a4)+
         move.l  d0, (a4)+
         dbf     d1, .fl_line
 

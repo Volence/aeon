@@ -33,7 +33,7 @@ Vectors:
     dc.l    NullInterrupt                   ; $64: IRQ1 (external)
     dc.l    NullInterrupt                   ; $68: IRQ2 (external)
     dc.l    NullInterrupt                   ; $6C: IRQ3
-    dc.l    HBlank_Dispatch                 ; $70: IRQ4 (HBlank)
+    dc.l    HBlank_Vector_Slot              ; $70: IRQ4 (HBlank) — RAM jmp-slot trampoline
     dc.l    NullInterrupt                   ; $74: IRQ5
     dc.l    VBlank_Handler                  ; $78: IRQ6 (VBlank)
     dc.l    NullInterrupt                   ; $7C: IRQ7 (NMI)

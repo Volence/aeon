@@ -1,36 +1,82 @@
-// HBlank dispatch — RAM-patched handler (§0.10)
+// HBlank dispatch — RAM jmp-slot trampoline (§0.10)
 //
-// The whole module lives in the `hblank` section, pinned by the sigil map
-// at the per-shape reference address.
+// The IRQ4 (HBlank) vector points DIRECTLY at HBlank_Vector_Slot (a 6-byte
+// executable slot in RAM). The slot holds either an idle `rte` ($4E73) when no
+// raster handler is installed, or a `jmp handler.l` ($4EF9 + 4-byte target) when
+// HBlank_Install arms one. There is no ROM dispatch stub and no indirect call:
+// the interrupt reaches the handler through one `jmp`, and the handler owns its
+// own register save/restore and terminates with `rte`.
+//
+// The whole module lives in the `hblank` section, pinned by the sigil map at the
+// per-shape reference address.
 module engine.hblank in hblank
 
-// Contract type (contract-grammar v2 §4) — the HBlank handler bound. The
-// dispatch saves/restores ONLY d0-d1/a0 around the `jsr (a0)`, so an installed
-// raster handler may clobber ONLY those (interrupt context — everything else
-// must survive for the interrupted main line).
-type HBlankHandler = proc () clobbers(d0, d1, a0)
+// VDP shadow register offsets consumed by install/uninstall (truth:
+// engine/structs.asm VDP_Shadow struct). Drift-locked below.
+const VDP_MODE1_OFF = $00                    // reg $00 (Mode Set 1) — carries IE1
+const VDP_HINT_OFF  = $0A                    // reg $0A — HInt line counter
+ensure(VDP_MODE1_OFF == extern("VDP_Shadow_vdp_mode1"), "engine/structs.asm and hblank.emp disagree on the vdp_mode1 shadow offset — update VDP_MODE1_OFF")
+ensure(VDP_HINT_OFF == extern("VDP_Shadow_vdp_hint_rate"), "engine/structs.asm and hblank.emp disagree on the vdp_hint_rate shadow offset — update VDP_HINT_OFF")
+
+// VDP reg $00 bit 4 = IE1 (H-interrupt enable). Install sets it, uninstall clears
+// it — always through the VDP shadow so a later Flush_VDP_Shadow never reverts it.
+const HBLANK_IE1_BIT = $10
+
+// RAM-slot idle / armed opcodes. The slot is entered by the IRQ4 vector, so its
+// first word must always decode to a legal instruction.
+const HBLANK_SLOT_RTE = $4E73                // idle: bare rte
+const HBLANK_SLOT_JMP = $4EF9                // armed: jmp xxx.l (4-byte target follows)
+
+// Contract type (contract-grammar v2 §4) — the installed HBlank handler bound.
+// The trampoline enters the handler by `jmp` from the RAM slot with NO wrapper
+// save/restore, so the handler runs in raw interrupt context: it MUST save and
+// restore every register it touches (observable clobbers = EMPTY — interrupt
+// transparency) and MUST terminate with `rte`. The `as HBlankHandler` bless sits
+// on HBlank_Install's target argument.
+//
+// CPU-STATE ONLY: `clobbers()` covers d0-a7/SR (the handler saves/restores + rte).
+// It does NOT cover VDP hardware state the 68000 register model can't see — a
+// handler that writes the VDP control port ($C00004) can corrupt the two-word
+// command latch or the autoincrement (reg $0F) of whatever it interrupted. A
+// raster handler doing VDP writes must respect the engine's VDP-access invariant
+// (command pairs only where IRQ4 can't split them), not just save registers.
+type HBlankHandler = proc () clobbers()
 
 // -----------------------------------------------
-// HBlank_Dispatch — ROM stub, dispatches through the RAM pointer
-// (HBlank_Handler_Ptr): RAM-indirect dispatch for per-line raster effects.
-// Clobbers nothing — the movem pair is the declared contract (S2-D6b).
-//
-// HANDLER CONTRACT: the dispatch saves/restores ONLY d0-d1/a0 around
-// the `jsr (a0)`, so the installed HBlank handler may clobber ONLY d0-d1/a0.
-// Every other register (d2-d7/a1-a6) MUST survive — this runs mid-frame in
-// interrupt context, and the interrupted main-line code expects them intact.
+// HBlank_Install — arm the RAM slot with a raster handler and enable HInt.
+//   a0 = handler (rte-terminated, interrupt-transparent — see HBlankHandler)
+//   d0.b = HInt line counter (VDP reg $0A: fire every d0+1 scanlines)
+// Patches the slot to `jmp a0`, programs the line counter, and sets IE1 — all
+// register writes go through the VDP shadow (+ dirty mask) so the enable survives
+// the next Flush_VDP_Shadow. The slot write is a direct RAM store (instant), so
+// the jmp target is live the moment IE1 takes effect.
 // -----------------------------------------------
-pub proc HBlank_Dispatch () preserves(d0-d1/a0) {
-        movem.l d0-d1/a0, -(sp)
-        movea.l HBlank_Handler_Ptr, a0
-        jsr     (a0) as HBlankHandler
-        movem.l (sp)+, d0-d1/a0
-        rte
+pub proc HBlank_Install (a0: HBlankHandler, d0: u8) clobbers(d1) {
+        move.w  #HBLANK_SLOT_JMP, HBlank_Vector_Slot        // jmp.l opcode
+        move.l  a0, HBlank_Vector_Slot + 2                  // handler target
+        // program the HInt line counter (reg $0A) — shadow + dirty
+        move.b  d0, VDP_Shadow_Table + VDP_HINT_OFF
+        ori.l   #(1 << VDP_HINT_OFF), VDP_Dirty_Mask
+        // enable HInt (reg $00 IE1) — read/modify/write to keep the other bits
+        move.b  VDP_Shadow_Table + VDP_MODE1_OFF, d1
+        ori.b   #HBLANK_IE1_BIT, d1
+        move.b  d1, VDP_Shadow_Table + VDP_MODE1_OFF
+        ori.l   #(1 << VDP_MODE1_OFF), VDP_Dirty_Mask
+        rts
 }
 
 // -----------------------------------------------
-// HBlank_Null — default handler (no raster effects)
+// HBlank_Uninstall — disarm the raster handler and disable HInt.
+// Returns the slot to the idle `rte` FIRST (a direct, instant RAM store) so any
+// HInt still in flight before the IE1-disable Flush lands hits a bare rte and
+// no-ops. Then clears IE1 through the shadow.
 // -----------------------------------------------
-pub proc HBlank_Null () clobbers() {
+pub proc HBlank_Uninstall () clobbers(d0) {
+        move.w  #HBLANK_SLOT_RTE, HBlank_Vector_Slot        // idle rte
+        // disable HInt (clear reg $00 IE1) — read/modify/write, preserve the rest
+        move.b  VDP_Shadow_Table + VDP_MODE1_OFF, d0
+        andi.b  #~HBLANK_IE1_BIT, d0                        // clear IE1, keep the rest
+        move.b  d0, VDP_Shadow_Table + VDP_MODE1_OFF
+        ori.l   #(1 << VDP_MODE1_OFF), VDP_Dirty_Mask
         rts
 }
