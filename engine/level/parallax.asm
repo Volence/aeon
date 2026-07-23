@@ -76,7 +76,7 @@ Parallax_CheckBoundary:
 .crossed:
         ; -- look up the new section (a2 = act ptr) --
         movea.l (Current_Act_Ptr).w, a2
-        jsr     Section_GetSecPtrXY                 ; a0 = Sec ptr (Z set = out of grid)
+        bsr.w   Section_GetSecPtrXY                 ; a0 = Sec ptr (Z set = out of grid)
         beq.s   .no_crossing                        ; out of grid — keep current config
 
         ; commit the new section coords only once we have a valid section
@@ -90,7 +90,7 @@ Parallax_CheckBoundary:
         movea.l (Current_Act_Ptr).w, a0
         movea.l Act_act_parallax_config(a0), a0
 .have_config:
-        bra.w   Parallax_StartTransition            ; snap/lerp + mode shadow; no-op if unchanged
+        bra.s   Parallax_StartTransition            ; snap/lerp + mode shadow; no-op if unchanged
 .no_crossing:
         rts
 
@@ -116,11 +116,11 @@ Parallax_CheckBoundary:
 ; ----------------------------------------------------------------------
 Parallax_StartTransition:
         cmpa.w  #0, a0
-        beq.w   .no_change                          ; null → inherit, no-op
+        beq.s   .no_change                          ; null → inherit, no-op
         cmpa.l  (Parallax_Current_Config).w, a0
-        beq.w   .no_change                          ; matches current → no-op
+        beq.s   .no_change                          ; matches current → no-op
         cmpa.l  (Parallax_Target_Config).w, a0
-        beq.w   .no_change                          ; already transitioning to this → no-op
+        beq.s   .no_change                          ; already transitioning to this → no-op
 
         ; -- pick transition mode from the new config's pcfg_transition flag --
         tst.b   parallax_config_pcfg_transition(a0)
@@ -238,12 +238,12 @@ Parallax_Update:
         move.l  (Parallax_Current_Config).w, d0
 .config_resolved:
         ; 0 = inert (no parallax config active)
-        beq.w   .no_config
+        beq.s   .no_config
         movea.l d0, a0
 
         moveq   #0, d7
         move.b  parallax_config_pcfg_band_count(a0), d7
-        beq.w   .no_config
+        beq.s   .no_config
 
         ; -- camera X (signed pixel high word) --
         move.l  (Camera_X).w, d0
