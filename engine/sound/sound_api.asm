@@ -10,6 +10,15 @@
 ; See docs/superpowers/specs/2026-06-16-sound-command-api.md.
 ; ======================================================================
 
+; DEBUG watchdog budget for the two Z80-handshake spins (Sound_PlayMusic's
+; await_slot and Sound_Init's wait_alive). At ~15-20us per stop/probe/release
+; iteration, $8000 iterations is ~250ms+ — orders of magnitude above any healthy
+; slot-consumption or driver-boot latency, so only a genuinely wedged Z80 trips
+; it. DEBUG-only: the counter + RaiseError self-gate to zero bytes in plain,
+; where the documented no-timeout tradeoff (a dead driver is a build/ROM fault)
+; stands.
+SPIN_WATCHDOG_LIMIT = $8000
+
 ; ----------------------------------------------------------------------
 ; Sound_PostByte — write d0.b into the Z80 RAM request slot at (a0).
 ; In:  d0.b = value (nonzero = request, 0 = idle), a0 = 68k addr of the slot.
@@ -31,26 +40,38 @@ Sound_PostByte:
 ; only way the 68k reads Z80 RAM reliably), THEN RELEASES it (startZ80 inside
 ; the loop) between probes so the Z80 can actually run and finish booting — a
 ; continuous hold would deadlock the handshake (the driver never runs, the
-; marker never appears). No timeout: a driver that never boots hangs here
-; forever — a chosen tradeoff (a dead sound driver is a build/ROM fault, not a
-; runtime state worth recovering from).
+; marker never appears). No timeout in the plain shape: a driver that never boots
+; hangs here forever — a chosen tradeoff (a dead sound driver is a build/ROM
+; fault, not a runtime state worth recovering from). The DEBUG build adds a
+; bounded SPIN_WATCHDOG_LIMIT counter that RaiseErrors on a wedge, so the
+; otherwise-silent hang is loud under DEBUG.
 ; The marker byte is CAPTURED into d0 under the bus hold and compared AFTER
 ; startZ80: startZ80's bus-release write sets the CCR, so a compare straddling
 ; the release would test the release's flags, not the marker — the loop condition
 ; must come from the captured register. The probe must still release the bus each
 ; iteration (the Z80 needs it to run and post the marker), so branch-before-release
 ; is not an option here.
-; Clobbers: d0 (marker scratch); SR preserved. (boot calls this in post-boot
-; setup where registers are free.)
+; Clobbers: d0 (marker scratch), d1 (DEBUG watchdog counter); SR preserved.
+; (boot calls this in post-boot setup where registers are free.)
 ; ----------------------------------------------------------------------
 Sound_Init:
         move.w  sr, -(sp)
+    ifdef __DEBUG__
+        move.l  #SPIN_WATCHDOG_LIMIT, d1               ; DEBUG watchdog budget
+    endif
 .wait_alive:
         move.w  #$2700, sr
         stopZ80
         move.b  (SND_Z80_BASE+SND_STAT_ALIVE).l, d0    ; capture marker under the hold
         startZ80
         cmp.b   #SND_ALIVE_MARKER, d0                  ; test AFTER release (flags clean)
+    ifdef __DEBUG__
+        beq.s   .alive_go                              ; marker present -> proceed to exit
+        subq.l  #1, d1                                 ; absent -> spend one iteration of budget
+        bne.s   .wait_alive                            ; budget remains -> keep probing
+        RaiseError "Sound_Init: STAT_ALIVE never posted - Z80 driver wedged?"
+.alive_go:
+    endif
         bne.s   .wait_alive
         move.w  (sp)+, sr
         rts
@@ -61,7 +82,11 @@ Sound_Init:
 ; ----------------------------------------------------------------------
 Sound_Ping:
         lea     (SND_Z80_BASE+SND_REQ_PING).l, a0
+    ifdef __DEBUG__
+        bra.w   Sound_PostByte              ; .w in DEBUG: Sound_Init's watchdog pushes this past .s range (.emp jbra auto-relaxes)
+    else
         bra.s   Sound_PostByte
+    endif
 
 ; ----------------------------------------------------------------------
 ; Sound_PlaySample — start DAC playback of a sample id.
@@ -69,7 +94,11 @@ Sound_Ping:
 ; ----------------------------------------------------------------------
 Sound_PlaySample:
         lea     (SND_Z80_BASE+SND_REQ_SAMPLE).l, a0
+    ifdef __DEBUG__
+        bra.w   Sound_PostByte              ; .w in DEBUG: Sound_Init's watchdog pushes this past .s range (.emp jbra auto-relaxes)
+    else
         bra.s   Sound_PostByte
+    endif
 
 ; ----------------------------------------------------------------------
 ; Sound_PlayMusic — start a song (Task 6 + Sound 1D). The 68k pre-derives the
@@ -99,11 +128,21 @@ Sound_PlayMusic:
         ; startZ80: the bus-release write sets the CCR, so the loop condition must
         ; come from the captured register, not a test straddling the release.
         ; See docs/superpowers/2026-07-16-sound-repost-gate-design.md.
+    ifdef __DEBUG__
+        move.l  #SPIN_WATCHDOG_LIMIT, d4               ; DEBUG watchdog budget
+    endif
 .await_slot:
         stopZ80
         move.b  (SND_Z80_BASE+SND_REQ_MUSIC).l, d1     ; capture the slot under the hold
         startZ80
         tst.b   d1                                     ; test AFTER release (flags clean)
+    ifdef __DEBUG__
+        beq.s   .await_go                              ; slot cleared -> proceed to exit
+        subq.l  #1, d4                                 ; still set -> spend one iteration of budget
+        bne.s   .await_slot                            ; budget remains -> keep spinning
+        RaiseError "Sound_PlayMusic: MUSIC_SLOT never cleared - Z80 wedged?"
+.await_go:
+    endif
         bne.s   .await_slot
 
         andi.l  #$FF, d0                    ; d0 = song id (1-based)
