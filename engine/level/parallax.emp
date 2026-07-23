@@ -326,7 +326,7 @@ pub proc Vscroll_Write () clobbers(d0/a0/a5) {
         rts
 
     .whole_plane:
-        move.l  (Vscroll_Factor).w, VDP_DATA_OFF(a5)  // (Vscroll_Factor).w — explicit .w pins the abs width (twin spelling)
+        move.l  (Vscroll_Factor).w, VDP_DATA_OFF(a5)  // explicit .w: the relaxable-abs + trailing-(d16,An) form has no bare lowering yet (gap-ledger successor to the pinned abs-sym feature) — must pin the width
         rts
 }
 
@@ -620,7 +620,7 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // pack into Vscroll_Factor (used by Vscroll_Write whole-plane branch)
         swap    d1                                  // FG in high half
         move.w  d2, d1                              // BG in low half (d2 = current_vscroll_bg)
-        move.l  d1, Vscroll_Factor                  // (Vscroll_Factor).w
+        move.l  d1, Vscroll_Factor
 
         // --- Step 5b: per-column V-scroll buffer fill ---
         // If v_deform_table_bg != NULL, sample table per column and write
