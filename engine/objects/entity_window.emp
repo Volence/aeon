@@ -47,7 +47,7 @@ const OBJ_ENTRY_SIZE            = 6
 const RING_BUFFER_ENTRY_SIZE    = 6
 
 // EntityScanState — one scan-state record per tracked section (4 entries in
-// Entity_Scan_State, $1A bytes each). TYPE-ONLY twin: emits zero bytes and
+// Entity_Scan_State, $16 bytes each). TYPE-ONLY twin: emits zero bytes and
 // gives typed `EntityScanState.ess_*(aN)` field access plus `sizeof`/`offsetof`
 // in place of hand-carried displacement consts. Truth: engine/structs.asm's
 // `struct` — the drift guards below pin every offset to the AS-side
@@ -1543,11 +1543,11 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
 proc EntityWindow_MigrateMasks () clobbers(d0-d3, a0-a1) {
         moveq   #0, d3                  // d3 = new entry index
     .new_loop:
-        // d2.b = new entry d3's section id (entry stride $1A: ×26 = ×16+×8+×2)
+        // d2.b = new entry d3's section id (entry stride $16: ×22 = ×16+×4+×2)
         move.w  d3, d0
         lsl.w   #4, d0
         move.w  d3, d1
-        lsl.w   #3, d1
+        lsl.w   #2, d1
         add.w   d1, d0
         move.w  d3, d1
         add.w   d1, d1
