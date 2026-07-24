@@ -34,6 +34,13 @@ const VDP_CTRL_OFF = VDP_CTRL - VDP_DATA
 // their dirty bit/flag ONLY on carry-clear and leave it set on a drop so the
 // next VBlank retries, instead of leaving stale palette/SAT data in VRAM
 // indefinitely.
+// Clobbers: a1-a2 (d0 untouched — Enqueue_Dirty_Buffers keeps its dirty-bit
+// snapshot live in d0 across four consecutive splices).
+// Unlike QueueDMA_Critical's transfer core, this template does NOT mask IRQs
+// around the slot read-modify-write: it is non-pub and its only consumer runs
+// exclusively inside IRQ6, while every main-loop enqueuer goes through the
+// masked core — mutual exclusion by containment. Exporting it to main-loop
+// context would open the slot race the core's mask closes.
 // -----------------------------------------------
 comptime fn queue_static_dma(entry: Label) -> Code {
     return asm {
@@ -46,13 +53,17 @@ comptime fn queue_static_dma(entry: Label) -> Code {
         move.l  (a2)+, (a1)+
         move.w  (a2)+, (a1)+
         move.w  a1, DMA_Critical_Slot
-        andi.b  #$FE, ccr               // enqueued -> carry CLEAR
+        andi.b  #$FE, ccr               // enqueued -> carry CLEAR (defensive spelling: the slot-var MOVE above already cleared C — kept as the explicit contract point)
         jbra    .done
     .drop:
         ori.b   #1, ccr                 // queue full -> carry SET (dropped)
     .done:
     }
 }
+// The template's 3×move.l + move.w copy is spelled for 14-byte entries — pin
+// it to the struct so a DMAEntry layout change cannot silently truncate the
+// copy (the engine.structs wall pins .emp == .asm, not this copy's width).
+ensure(sizeof(DMAEntry) == 14, "queue_static_dma's 3L+1W entry copy assumes sizeof(DMAEntry) == 14 — re-derive the copy")
 
 // -----------------------------------------------
 // Init_SpriteTable — pre-init sprite link chain 0->1->2->...->79->0
@@ -157,6 +168,9 @@ pub proc BuildStaticDMA () clobbers(d0-d3/d5/a0) {
 // Exported API awaiting its consumers — the title/menu system is the intended
 // caller; no call site exists in the tree yet (deliberate forward-scaffolding,
 // kill condition on the campaign gap-ledger).
+// PRECONDITION: the per-row `add.l` command advance is carry-blind across the
+// VDP command word's A15:A14 split — the target nametable must sit inside one
+// $4000-aligned address segment (any aligned <=4KB nametable qualifies).
 // In:  a1   = source nametable data (VDP-ready words)
 //      d0.l = VDP write command for top-left cell
 //      d1.w = width in cells - 1
@@ -239,9 +253,9 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) {
         or.l    parallax_config.pcfg_deform_table_bg(a1), d0
         beq     .hs_cell
         queue_static_dma(Static_Hscroll_Line)
-        jbra    .no_hscroll
+        jbra    .hs_done   
     .hs_cell:
         queue_static_dma(Static_Hscroll_Cell)
-    .no_hscroll:
+    .hs_done:
         rts
 }

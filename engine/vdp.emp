@@ -64,7 +64,9 @@ ensure(op_bits(VdpOp.Dma) == extern("DMA"), "engine/constants.asm and engine.vdp
 pub comptime fn vdp_comm(addr: int, target: VdpTarget, op: VdpOp) -> int {
     let type = target_bits(target)
     let rwd = op_bits(op)
-    return (((type & rwd) & 3) << 30) | ((addr & $3FFF) << 16) | (((type & rwd) & $FC) << 2) | ((addr & $C000) >> 14)
+    // The address scatter is vdp_comm_delta's derivation — composed, not
+    // re-spelled, so the scatter lives once in this module.
+    return (((type & rwd) & 3) << 30) | vdp_comm_delta(addr) | (((type & rwd) & $FC) << 2)
 }
 
 // vdp_comm_reg — convert a VRAM/CRAM/VSRAM byte address in `reg` to a VDP

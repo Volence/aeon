@@ -13,7 +13,7 @@ equ SND_DMA_ACTIVE_SLOT = extern("SND_Z80_BASE") + extern("SND_CTRL_DMA_ACTIVE")
 // Boundary contract (contract-grammar v2 §3) — the Z80-state snapshot stays
 // .asm. The decl is UNGATED (it emits nothing and an unreferenced decl never
 // reaches the link); the CALL is comptime-gated to the one shape whose AS
-// side assembles the callee (__DEBUG__ × SOUND_DRIVER_ENABLED ×
+// side assembles the callee (DEBUG (AS side: __DEBUG__) × SOUND_DRIVER_ENABLED ×
 // SOUND_DBG_MIRROR — build.sh wires all three).
 // drift-guard: engine/debug/sound_debug.asm:41 — In: none · Out: none · Clobbers: d0-d1/a0-a1
 extern proc Sound_DebugMirror () clobbers(d0-d1/a0-a1)
@@ -28,9 +28,9 @@ type VBlankHandler = proc () clobbers(d0-d7/a0-a6)
 // Dispatches through VInt_Ptr on normal frames,
 // VInt_Lag when main loop hasn't finished.
 //
-// CPU-STATE ONLY: clobbers() covers the full movem save/restore + rte
-// (interrupt transparency — the hblank.emp HBlankHandler convention);
-// preserves() marks the round-trip movem-ENFORCED. It does NOT cover VDP
+// CPU-STATE ONLY: clobbers() is empty BECAUSE the movem round-trip — enforced
+// by preserves() — restores all CPU register state before rte (interrupt
+// transparency — the hblank.emp HBlankHandler convention). It does NOT cover VDP
 // latch/autoincrement state: the dispatched handlers own the engine's
 // VDP-access invariants.
 // -----------------------------------------------
@@ -164,9 +164,14 @@ proc VInt_Lag () clobbers(d0-d3/a0-a2/a5) {
         // entry's addr field is garbage, so the drain writes to a garbage VDP dest
         // (nametable corruption, e.g. Plane B fills with ROM/cache bytes) and then
         // resets Plane_Buffer_Ptr=0 under the main loop's feet, cascading into more
-        // lag and more torn drains. The dirty palette/sprite/HScroll buffers above
-        // ARE safe: they are dirty-FLAG gated (the flag is set only after a complete
-        // write), unlike the Ptr-gated plane buffer. The plane drain defers to the
+        // lag and more torn drains. The palette/sprite enqueues above ARE safe:
+        // they are dirty-FLAG gated (the flag is set only after a complete write).
+        // The HScroll enqueue is NOT flag-gated (it fires every VBlank) — it is
+        // safe by a different, weaker mechanism: the static entry's destination
+        // and length are pre-built, so a lag-frame tear corrupts scroll VALUES
+        // only (one frame of mixed offsets, self-healing next complete frame),
+        // never the VDP destination — the garbage-destination write is what makes
+        // the Ptr-gated plane buffer dangerous. The plane drain defers to the
         // next complete frame (VInt_Level, VBlank_Ready=1).
         jbsr    Process_DMA_Critical
         jbsr    Vscroll_Write           // §4.6 — after Critical DMA
@@ -198,6 +203,9 @@ proc VInt_Lag () clobbers(d0-d3/a0-a2/a5) {
 // In:  none
 // Out: none
 // Clobbers: d0
+// PRECONDITION: the caller runs below IPL 6 — preserves(sr) faithfully
+// re-masks, so a caller already at IPL >= 6 spins forever (no in-tree caller
+// does).
 // -----------------------------------------------
 pub proc VSync_Wait () clobbers(d0) preserves(sr) {
         // Clear any STALE VBlank_Flag first — VInt_Lag (which fires when
@@ -212,7 +220,7 @@ pub proc VSync_Wait () clobbers(d0) preserves(sr) {
         // VBlank_Flag — so .wait falls through with NO real vsync, while Ready is
         // left =1 for the NEXT VBlank to full-drain a still-mid-fill Plane_Buffer
         // (the torn-drain hazard VInt_Lag's header describes). Mask IRQs across
-        // the pair (~34-40 cy on this once-per-frame path); this also makes
+        // the pair (46 cy — 14+16+16 — on this once-per-frame path); this also makes
         // Lag_Frame_Count exact. SR is restored BEFORE .wait — the wait itself
         // depends on IRQ6 setting the flag.
         sr_masked(asm {

@@ -100,6 +100,9 @@ BuildStaticDMA:
 ; Exported API awaiting its consumers — the title/menu system is the intended
 ; caller; no call site exists in the tree yet (deliberate forward-scaffolding,
 ; kill condition on the campaign gap-ledger).
+; PRECONDITION: the per-row `add.l` command advance is carry-blind across the
+; VDP command word's A15:A14 split — the target nametable must sit inside one
+; $4000-aligned address segment (any aligned <=4KB nametable qualifies).
 ; In:  a1   = source nametable data (VDP-ready words)
 ;      d0.l = VDP write command for top-left cell
 ;      d1.w = width in cells - 1
@@ -181,8 +184,8 @@ Enqueue_Dirty_Buffers:
         or.l    parallax_config_pcfg_deform_table_bg(a1), d0
         beq.s   .hs_cell
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Hscroll_Line
-        bra.s   .no_hscroll
+        bra.s   .hs_done
 .hs_cell:
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Hscroll_Cell
-.no_hscroll:
+.hs_done:
         rts

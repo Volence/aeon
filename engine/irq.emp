@@ -4,13 +4,18 @@
 // (`move.w sr,-(sp)` / `move.w #$2700,sr` / `move.w (sp)+,sr`). The AS twins
 // keep spelling the bracket inline, byte-identical to the template.
 //
+// Consumers `use engine.irq.{sr_masked}`.
+//
 // PAIRED USE ONLY: sr_masked is for the one-save/one-restore bracket whose
 // masked section is a label-free straight-line block (the splice-hole house
-// rule). Multi-exit brackets (one save, several restore-and-return paths —
-// the DMA-queue transfer core's shape) and loops that re-mask under a single
-// save (Sound_Init's alive-wait) stay inline BY DESIGN — forcing them through
-// a paired template would obscure the unwind structure the inline spelling
-// makes visible.
+// rule). Sites that stay inline BY DESIGN: multi-exit brackets (one save,
+// several restore-and-return paths — the DMA-queue transfer core), loops that
+// re-mask under a single save (Sound_Init's alive-wait), brackets with
+// internal labels/branches (Sound_DrainSfxRing), and long-span brackets whose
+// masked section is a whole code region (Section_RedrawPlanes, BG_Init).
+// STRUCTURAL exclusion: any bracket with a CCR out-contract can NEVER adopt —
+// the full-SR restore overwrites CCR, so those sites pin their carry AFTER
+// the restore (the DMA-queue core's andi/ori-to-ccr ordering).
 //
 // Pure comptime module: opens no section and emits ZERO bytes anywhere in the
 // ROM — bytes appear only where a consumer splices the template.
