@@ -73,7 +73,7 @@ comptime fn start_z80() -> Code {
 // Display assumed off (called from Level_LoadArt, before display enable).
 // Both writes are blocking via VDP DATA port; autoincrement = 2 bytes/word.
 // -----------------------------------------------
-pub proc BG_Init () clobbers(d0-d1/a0-a2) preserves(sr) {
+pub proc BG_Init (a0: *Act) clobbers(d0-d1/a0-a2) preserves(sr) {
         movem.l a3, -(sp)
         movea.l a0, a3                  // a3 = act ptr (preserve)
         // Mask interrupts for the blocking VDP copies: a VBlank mid-copy lets
@@ -86,16 +86,16 @@ pub proc BG_Init () clobbers(d0-d1/a0-a2) preserves(sr) {
         // --- load BG tile blob into shared region at BG_TILE_BASE_VRAM ---
         movea.l Act.act_bg_tiles(a3), a1
         cmpa.w  #0, a1
-        beq.s   .skip_tiles
+        beq     .skip_tiles
         move.w  (a1)+, d1               // d1.w = tile-bytes length (uncompressed)
-        beq.s   .skip_tiles
+        beq     .skip_tiles
         // Capacity guard (last line of defense): the BG region is bounded above by
         // the SAT at $B800. Clamp the copy length to BG_TILE_REGION_BYTES so a blob
         // larger than 448 tiles can never spray into the sprite attr table. The build
         // tools should keep BG art within budget (inject_editor_bg.py already uses
         // 448); this guarantees no SAT corruption even if a generator gate drifts.
         cmpi.w  #BG_TILE_REGION_BYTES, d1
-        bls.s   .bg_len_ok
+        bls     .bg_len_ok
         move.w  #BG_TILE_REGION_BYTES, d1
     .bg_len_ok:
         stop_z80
@@ -113,7 +113,7 @@ pub proc BG_Init () clobbers(d0-d1/a0-a2) preserves(sr) {
         // --- blit BG nametable to Plane B ---
         movea.l Act.act_bg_layout(a3), a1
         cmpa.w  #0, a1
-        beq.s   .skip_nt
+        beq     .skip_nt
         stop_z80
         move.w  #$8F02, VDP_CTRL        // (VDP_CTRL).l — autoincrement = 2
         move.l  #vdp_comm(VRAM_PLANE_B_BYTES, VdpTarget.Vram, VdpOp.Write), VDP_CTRL

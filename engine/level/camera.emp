@@ -73,7 +73,7 @@ equ PL_STATE_ADDR = pl_state_addr()
 // Out: none
 // Clobbers: d0, a0
 // -----------------------------------------------
-pub proc Camera_Init () clobbers(d0/a0) {
+pub proc Camera_Init (a0: *Act) clobbers(d0/a0) {
         // Camera_X/Y are 16.16 fixed-point, WORLD coordinates (continuous-scroll).
         // start X = (start_sec_x << SECTION_SIZE_SHIFT) + start_local_x - CAM_SCREEN_HALF_W
         moveq   #0, d0
