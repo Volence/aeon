@@ -253,7 +253,7 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) {
         or.l    parallax_config.pcfg_deform_table_bg(a1), d0
         beq     .hs_cell
         queue_static_dma(Static_Hscroll_Line)
-        jbra    .hs_done   
+        jbra    .hs_done
     .hs_cell:
         queue_static_dma(Static_Hscroll_Cell)
     .hs_done:
