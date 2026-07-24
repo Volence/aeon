@@ -58,7 +58,9 @@ pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
 // Out: none
 // Clobbers: d0-d5, d7, a0-a3; d6/a4-a6 are movem-PRESERVED (the loop-live
 //      registers below sit in them so both callees' licenses leave them
-//      alone, and the movem round-trip proves the preservation)
+//      alone, and the movem round-trip proves the preservation). d5/a3
+//      enter the license only through BG_Init's callee license — no
+//      instruction in THIS file writes them.
 //
 // The act ships one paged art pool. Each page
 // is a wrapped ZX0/S4LZ blob of up to ART_POOL_PAGE_TILES (256) tiles. We
@@ -68,8 +70,10 @@ pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
 // page_index << 13). The whole pool is then resident for the life of the
 // act, so section streaming/teleport never reloads tile art.
 //
-// Runs at init with the display blanked OFF (caller's responsibility) so
-// the multi-page Critical DMAs drain across the extended VBlank.
+// Runs at init with the display blanked OFF (caller's responsibility): with
+// the display off, DMA runs at the full ~205 bytes/line rate on EVERY line
+// (the active/blank distinction disappears), so each page's Critical DMA
+// drains with wide margin inside its one VSync.
 //
 // Loop-live registers chosen to survive BOTH callees:
 //   Art_Decompress    clobbers d0-d3, a2-a3 (a4/d4 preserved)

@@ -44,8 +44,10 @@ Art_Decompress:
 ; page_index << 13). The whole pool is then resident for the life of the
 ; act, so section streaming/teleport never reloads tile art.
 ;
-; Runs at init with the display blanked OFF (caller's responsibility) so
-; the multi-page Critical DMAs drain across the extended VBlank.
+; Runs at init with the display blanked OFF (caller's responsibility): with
+; the display off, DMA runs at the full ~205 bytes/line rate on EVERY line
+; (the active/blank distinction disappears), so each page's Critical DMA
+; drains with wide margin inside its one VSync.
 ;
 ; Loop-live registers chosen to survive BOTH callees:
 ;   Art_Decompress    clobbers d0–d3, a2–a3 (a4/d4 preserved)

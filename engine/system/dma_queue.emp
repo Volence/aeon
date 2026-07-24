@@ -108,7 +108,7 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
         beq     .full
 
         lsr.l   #1, d1                          // source to words
-        bclr.l  #23, d1                         // RAM source safety
+        bclr.l  #23, d1                         // defensive: word-address bit 23 = reg $17 bit 7 (DMD1) — force 0 = 68k-memory->VRAM (a real 24-bit pointer already has it clear)
         movep.l d1, DMAEntry.SizeL(a1)          // source -> offsets 3,5,7,9
 
         lsr.w   #1, d3                          // length to words
@@ -164,7 +164,7 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
         add.w   d2, d0                          // d0 = second part VRAM dest
 
         // Finish first entry with original destination
-        vdp_comm_reg(d2, VdpTarget.Vram, VdpOp.Dma)     // d2 -> VDP command (clr default true, upper word unknown)
+        vdp_comm_reg(d2, VdpTarget.Vram, VdpOp.Dma, true)   // d2 -> VDP command (clr=true: upper word unknown — the one masking site among the three)
         move.l  d2, DMAEntry.Command(a1)
 
         // Write second entry into next slot
@@ -223,13 +223,25 @@ comptime fn dma_send_entry() -> Code {
 // The slot list and drain run below are hand-spelled 8-wide; pin the count so
 // a queue-geometry change fails loud here instead of drifting past the table.
 ensure(DMA_CRITICAL_SLOTS == 8, "Process_DMA_Critical's jump table is spelled for 8 slots — re-derive .jump_table/.drain_* for {DMA_CRITICAL_SLOTS}")
+// jt_slot emits a PHYSICALLY FIXED 14-byte slot (lea.l 6 + lea.w 4 + bra.w 4)
+// while the dispatch index scales with sizeof(DMAEntry) — pin the equality so
+// an entry-layout change cannot silently desync the jmp indexing from the
+// slot stride (the count ensure above is blind to this).
+ensure(sizeof(DMAEntry) == 14, "the jump-table slot stride is spelled as 14 fixed bytes — a DMAEntry layout change must re-derive jt_slot/jt_filler/dma_send_entry")
 
 // -----------------------------------------------
 // Process_DMA_Critical — drain Critical queue via jump table
-// Zero branches per entry. ~64 cycles/entry, ~514 for all 8.
+// Zero branches per entry. 72 cycles/entry (3x move.l 20 + move.w 12),
+// 576 for all 8 drain groups; ~670 whole-proc worst case with dispatch,
+// slot-var reset, and rts (68000 table timing — VDP FIFO waits can only
+// add to this, never subtract).
 // In:  none
 // Out: none
 // Clobbers: a1, a5
+// Precondition: the VDP control-port first/second-word flip-flop is CLEAR on
+// entry — a stranded unpaired command word upstream would eat the first
+// register write and desync the whole stream (every VInt writer issues
+// paired words; single-word register writes like $8F02 cannot strand it).
 // -----------------------------------------------
 pub proc Process_DMA_Critical () clobbers(a1/a5) {
         movea.w DMA_Critical_Slot, a1           // (DMA_Critical_Slot).w
@@ -315,6 +327,8 @@ pub proc Process_DMA_Deferrable () clobbers(d0-d1/a0-a3/a5) {
 // Out: slot variable updated (base if fully drained,
 //      base + survivors after compaction, unchanged if nothing drained)
 // Clobbers: d0-d1, a0-a1, a3, a5
+// Precondition: the VDP control-port flip-flop is CLEAR on entry (see
+// Process_DMA_Critical's header — same stream-desync class).
 // -----------------------------------------------
 proc Drain_Budgeted_Queue (a0: *u8, a1: *u8, a2: *u8) clobbers(d0-d1/a0-a1/a3/a5) {
         lea     VDP_CTRL, a5                    // (VDP_CTRL).l

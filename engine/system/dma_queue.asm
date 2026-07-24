@@ -74,7 +74,7 @@ QueueDMATransfer:
         beq.s   .full
 
         lsr.l   #1, d1                          ; source to words
-        bclr.l  #23, d1                         ; RAM source safety
+        bclr.l  #23, d1                         ; defensive: word-address bit 23 = reg $17 bit 7 (DMD1) — force 0 = 68k-memory->VRAM
         movep.l d1, DMAEntry_SizeL(a1)          ; source → offsets 3,5,7,9
 
         lsr.w   #1, d3                          ; length to words
@@ -149,8 +149,9 @@ QueueDMATransfer:
 
 ; -----------------------------------------------
 ; Process_DMA_Critical — drain Critical queue via jump table
-; Zero branches per entry. ~64 cycles/entry, ~514 for all 8.
-; Jump-table drain — zero branches per entry.
+; Zero branches per entry. 72 cycles/entry (3x move.l 20 + move.w 12),
+; 576 for all 8 drain groups; ~670 whole-proc worst case with dispatch,
+; slot-var reset, and rts.
 ; In:  none
 ; Out: none
 ; Clobbers: a1, a5
