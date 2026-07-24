@@ -226,10 +226,13 @@ Parallax_Update:
         beq.s   .use_current
         subq.b  #1, (Parallax_Transition_Frames).w
         bne.s   .use_target
-        ; counter just hit 0 → promote target into current, clear target
+        ; counter just hit 0 → promote target into current, clear target.
+        ; The d0→Current move is LAST so .config_resolved reads Z from d0:
+        ; every path into .config_resolved leaves the active config in d0 with
+        ; Z reflecting it, so `beq .no_config` fires only for a genuine null.
         move.l  (Parallax_Target_Config).w, d0
-        move.l  d0, (Parallax_Current_Config).w
         move.l  #0, (Parallax_Target_Config).w
+        move.l  d0, (Parallax_Current_Config).w
         bra.s   .config_resolved
 .use_target:
         move.l  (Parallax_Target_Config).w, d0
