@@ -30,8 +30,12 @@
 ;           NOTE: for odd declared sizes the encoder pads to word boundary;
 ;           the decoder writes the pad byte, so a1 lands at declared_size+1.
 ;           The header size word is authoritative — consumers must use it,
-;           not (a1 − dest_start). Dest buffers must be ≤ 32766 bytes
-;           (suba.w sign-extends; offsets must stay < $8000).
+;           not (a1 − dest_start). Offsets must stay < $8000 (suba.w
+;           sign-extends): plain entry — dest buffers <= 32766 bytes; DICT
+;           entry — dest_written + dict_len <= 32766 (a deeper legal offset
+;           would wrap the suba.w and silently read ABOVE the dest, skipping
+;           the debug range assert). Today's deepest use is tile_cache's
+;           768-byte slot + 2304-byte dict = 3072.
 ; Clobbers: d0-d3, a2-a3
 ;           (a4/d4 untouched — load_art keeps both live across this call)
 ;
@@ -50,6 +54,8 @@
 ; Extra In:  a4 = dict base (ROM, word-aligned)
 ;            d4.w = dict length in bytes (even, ≤ 3*768; 0 = no dict)
 ; Extra clobbers: a4 (becomes the rebase constant). d4 preserved.
+;   a0 is a clobber here (not an out, unlike the plain entry): it ends past
+;   the stream identically, but no dict-entry caller consumes it.
 ; Cost: +16 cycles per match (cmpa.l + taken branch) on the in-buffer path,
 ;       shared with the plain entry — whose branch never fires on valid
 ;       no-dict streams (offsets never reach below the dest start), so the
@@ -80,7 +86,11 @@ S4LZ_Decompress:
         andi.w  #$0F, d1                        ; d1 = LIT_CNT (0-15)
         beq.s   .no_literals                    ; 0 literals -> skip
         cmpi.w  #15, d1
-        beq.w   .lit_extended                   ; 15 = read count word (.w: debug asserts push it past .s range)
+    ifdef __DEBUG__
+        beq.w   .lit_extended                   ; debug: spans the dict-hit assert blob
+    else
+        beq.s   .lit_extended                   ; 15 = read count word
+    endif
 
     ; --- Unrolled literal copy (1-14 words) ---
         add.w   d1, d1                          ; count * 2 bytes per move.w instruction
@@ -162,7 +172,11 @@ S4LZ_Decompress:
 .lit_dbf_loop:
         move.w  (a0)+, (a1)+
         dbf     d1, .lit_dbf_loop
-        bra.w   .no_literals                    ; continue to match portion
+    ifdef __DEBUG__
+        bra.w   .no_literals                    ; debug: spans the dict-hit assert blob
+    else
+        bra.s   .no_literals                    ; continue to match portion
+    endif
 
     ; --- Extended match count (a2 = match source, set in .have_offset) ---
     ; Short form: this word directly follows the literals.
@@ -182,7 +196,9 @@ S4LZ_Decompress:
         move.l  a0, -(sp)                       ; save compressed-end pointer
         movea.l a3, a0                          ; a0 = buffer start
         move.w  d3, d0                          ; d0.w = uncompressed size
-        bsr.s   TileDelta_Undo
+        bsr.s   TileDelta_Undo                  ; clobbers a1 - but its XOR walk ends at
+                                                ; buffer_end = the decode's own a1 endpoint
+                                                ; (size is a multiple of 32), so the a1 out holds
         movea.l (sp)+, a0                       ; restore compressed-end pointer
 
 .return:
@@ -198,7 +214,7 @@ S4LZ_Decompress:
 ; Clobbers: d0-d1, a0-a1
 ; -----------------------------------------------
 TileDelta_Undo:
-        lsr.w   #5, d0                          ; d0 = tile count
+        lsr.w   #5, d0                          ; d0 = tile count (bytes/TILE_SIZE; 32 = 1<<5)
         subq.w  #1, d0                          ; subtract 1 for first tile (unchanged)
         ble.s   .done                           ; 0 or 1 tiles -> nothing to do
         subq.w  #1, d0                          ; adjust for dbf
