@@ -80,7 +80,11 @@ S4LZ_Decompress:
         andi.w  #$0F, d1                        ; d1 = LIT_CNT (0-15)
         beq.s   .no_literals                    ; 0 literals -> skip
         cmpi.w  #15, d1
-        beq.w   .lit_extended                   ; 15 = read count word (.w: debug asserts push it past .s range)
+    ifdef __DEBUG__
+        beq.w   .lit_extended                   ; debug: spans the dict-hit assert blob
+    else
+        beq.s   .lit_extended                   ; 15 = read count word
+    endif
 
     ; --- Unrolled literal copy (1-14 words) ---
         add.w   d1, d1                          ; count * 2 bytes per move.w instruction
@@ -162,7 +166,11 @@ S4LZ_Decompress:
 .lit_dbf_loop:
         move.w  (a0)+, (a1)+
         dbf     d1, .lit_dbf_loop
-        bra.w   .no_literals                    ; continue to match portion
+    ifdef __DEBUG__
+        bra.w   .no_literals                    ; debug: spans the dict-hit assert blob
+    else
+        bra.s   .no_literals                    ; continue to match portion
+    endif
 
     ; --- Extended match count (a2 = match source, set in .have_offset) ---
     ; Short form: this word directly follows the literals.

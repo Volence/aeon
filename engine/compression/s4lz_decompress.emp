@@ -85,15 +85,15 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
 
     .token_loop:
         move.w  (a0)+, d0                       // d0 = [token.b][offmark.b]
-        beq.w   .stream_done                    // $0000 = end of stream
+        beq     .stream_done                    // $0000 = end of stream
 
         // --- Extract literal count (token word bits 15-12) ---
         move.w  d0, d1
         rol.w   #4, d1                          // high nibble -> bits 3-0
         andi.w  #$0F, d1                        // d1 = LIT_CNT (0-15)
-        beq.s   .no_literals                    // 0 literals -> skip
+        beq     .no_literals                    // 0 literals -> skip
         cmpi.w  #15, d1
-        beq.w   .lit_extended                   // 15 = read count word (.w: debug asserts push it past .s range)
+        beq     .lit_extended                   // 15 = read count word (relaxes .s in plain; the debug dict-hit assert block pushes it past .s range — twin rides ifdef widths)
 
         // --- Unrolled literal copy (1-14 words) ---
         add.w   d1, d1                          // count * 2 bytes per move.w instruction
@@ -120,23 +120,23 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
         // --- Decode match offset from offmark (token word low byte) ---
         moveq   #0, d1
         move.b  d0, d1                          // d1 = offmark, zero-extended (unsigned 1-255)
-        beq.s   .offmark_zero
+        beq     .offmark_zero
         add.w   d1, d1                          // short form: offset = offmark * 2 (2-510)
         lsr.w   #8, d0
         andi.w  #$0F, d0                        // d0 = MATCH_CNT (offmark != 0 guarantees > 0)
-        bra.s   .have_offset
+        jbra    .have_offset
 
     .offmark_zero:
         lsr.w   #8, d0
         andi.w  #$0F, d0                        // d0 = MATCH_CNT (0-15)
-        beq.s   .token_loop                     // 0 matches -> next token
+        beq     .token_loop                     // 0 matches -> next token
         move.w  (a0)+, d1                       // long form: offset word (after literals)
 
     .have_offset:
         movea.l a1, a2
         suba.w  d1, a2                          // a2 = match source (dest - offset)
         cmpa.l  a3, a2
-        bhs.s   .src_in_dest                    // common case: source within output
+        bhs     .src_in_dest                    // common case: source within output
         // dictionary hit — redirect into the dict tail (see header trace)
         if DEBUG == 1 {
             move.l  a3, d1                      // d1 (offset) is dead past suba
@@ -146,7 +146,7 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
         adda.l  a4, a2                          // a2 = dict_end - (dest_start - a2)
     .src_in_dest:
         cmpi.w  #15, d0
-        beq.s   .match_extended                 // 15 = read count word
+        beq     .match_extended                 // 15 = read count word
 
         // --- Unrolled match copy (1-14 words, word-ascending for overlap) ---
         add.w   d0, d0
@@ -168,7 +168,7 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
         move.w  (a2)+, (a1)+                    // entry 2
         move.w  (a2)+, (a1)+                    // entry 1
     .match_end:
-        bra.w   .token_loop
+        jbra    .token_loop
 
         // --- Extended literal count ---
     .lit_extended:
@@ -177,7 +177,7 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
     .lit_dbf_loop:
         move.w  (a0)+, (a1)+
         dbf     d1, .lit_dbf_loop
-        bra.w   .no_literals                    // continue to match portion
+        jbra    .no_literals                    // continue to match portion (relaxes .s in plain; the span crosses the debug dict-hit assert block — twin rides ifdef widths)
 
         // --- Extended match count (a2 = match source, set in .have_offset) ---
         // Short form: this word directly follows the literals.
@@ -188,16 +188,16 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
     .match_dbf_loop:
         move.w  (a2)+, (a1)+                    // word-ascending — overlap-safe
         dbf     d0, .match_dbf_loop
-        bra.w   .token_loop
+        jbra    .token_loop
 
         // --- Stream complete ---
     .stream_done:
         btst    #0, d2                          // tile-delta flag?
-        beq.s   .return
+        beq     .return
         move.l  a0, -(sp)                       // save compressed-end pointer
         movea.l a3, a0                          // a0 = buffer start
         move.w  d3, d0                          // d0.w = uncompressed size
-        bsr.s   TileDelta_Undo
+        jbsr    TileDelta_Undo
         movea.l (sp)+, a0                       // restore compressed-end pointer
 
     .return:
@@ -216,7 +216,7 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
 proc TileDelta_Undo (a0: *u8, d0: u16) clobbers(d0-d1/a0-a1) {
         lsr.w   #5, d0                          // d0 = tile count
         subq.w  #1, d0                          // subtract 1 for first tile (unchanged)
-        ble.s   .done                           // 0 or 1 tiles -> nothing to do
+        ble     .done                           // 0 or 1 tiles -> nothing to do
         subq.w  #1, d0                          // adjust for dbf
 
         movea.l a0, a1
