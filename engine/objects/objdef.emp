@@ -19,20 +19,20 @@
 module engine.objects.objdef
 
 use engine.objects.sst.{ObjDef}
-use engine.types.{Velocity, VramArtTile, HitboxDim, AnimId}
+use engine.types.{Velocity, VramArtTile, VramTile, HitboxDim, AnimId}
 use engine.system.constants.{RF_PRIORITY_SHIFT}
 
-// vram_art(tile, pal, pri) — pack a VRAM tile index with palette + priority
+// vram_art(tile, pal, pri) — pack a VRAM tile INDEX with palette + priority
 // bits (macros.asm's `vram_art` function: (pri<<15)|(pal<<13)|tile). The
 // param refinements make an out-of-range field a COMPILE error rather than a
 // silent bit-collision: pal>3 would corrupt the priority bit via `pal<<13`,
-// tile>$1FFF would bleed into the palette bits. Returns the packed
-// VramArtTile so stores read honestly. Consumers: objdef and rings
-// (which imports it). Shared home lands with the VRAM-layout port, which
-// brings the whole art/VRAM family (VramTile, vram_bytes ×32) it belongs
-// with (see engine.types) — not relocated piecemeal before then.
+// tile>$1FFF would bleed into the palette bits. `tile` is a VramTile (a tile
+// index, NOT a byte address — see engine.types) with the field-width bound
+// preserved; the result is the packed VramArtTile so stores read honestly.
+// Consumers: objdef and rings (which imports it). Shared home lands with the
+// VRAM-layout port that also brings a vram_bytes tile→address converter.
 pub comptime fn vram_art(
-    tile: int where 0..$1FFF,
+    tile: VramTile where 0..$1FFF,
     pal: int where 0..3 = 0,
     pri: int where 0..1 = 0,
 ) -> VramArtTile {

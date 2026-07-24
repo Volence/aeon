@@ -46,10 +46,22 @@ pub newtype ObjRoutine = u16
 pub newtype HitboxDim = u8
 
 // The PACKED VRAM art word: priority<<15 | palette<<13 | tile index
-// (vram_art's output shape). Named now so stores read honestly; the
-// index/address conversion family (VramTile, vram_bytes ×32) arrives with
-// the VRAM-layout port.
+// (vram_art's output shape).
 pub newtype VramArtTile = u16
+
+// The VRAM index/address confusion class (item-13 wave 1). A VramTile is a TILE
+// INDEX (0-based ordinal into the 2048-tile VRAM); a VramAddr is a BYTE ADDRESS
+// in VRAM (tile index ×32, or a plane base like $C000). They are the same width
+// but mixing them is off-by-32× — the classic tile-vs-address bug. vram_art
+// takes a VramTile (the tile-index input to the packed art word); the tile-index
+// layout consts (VRAM_RING_PLACEHOLDER, VRAM_TEST_OBJ) are born VramTile.
+// VramAddr names the byte-address half: its wave-1 users — a `vram_bytes()`
+// tile→address converter and the plane-base consts (VRAM_PLANE_A/_B_BYTES) —
+// are demand-/A4-i-gated (the planes live in address ARITHMETIC, which waits for
+// arithmetic-preservation before typing pays), so it is the vocabulary contrast
+// that makes "this is a tile, NOT an address" expressible today.
+pub newtype VramTile = u16
+pub newtype VramAddr = u16
 
 // Animation identities, THREE distinct byte types (item-13 wave 1). They are
 // bit-identical small indices that live in adjacent SST fields, so mixing them

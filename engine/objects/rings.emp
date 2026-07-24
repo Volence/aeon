@@ -10,6 +10,7 @@ module engine.objects.rings in rings
 use engine.objects.sst.{Sst}
 use engine.objects.aabb.{aabb_axis_test}
 use engine.objects.objdef.{vram_art}
+use engine.types.{VramTile}
 use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEED,
                       MAX_VDP_SPRITES, VDP_SPRITE_X_OFFSET, VDP_SPRITE_Y_OFFSET,
                       SCREEN_WIDTH, SCREEN_HEIGHT}
@@ -24,7 +25,7 @@ use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEE
 const MAX_RING_BUFFER        = 128
 const RING_BUFFER_ENTRY_SIZE = 6
 const RING_WIDTH             = 16
-const VRAM_RING_PLACEHOLDER  = $3E8
+const VRAM_RING_PLACEHOLDER: VramTile = $3E8
 // SAT attr base: priority | palette line 1 | tile. The act palette carries
 // the ring's gold on CRAM line 1 (OJZ_Palette → line 1). The AS twin spells
 // the pack inline (its isolated gate sees no macros.asm).
