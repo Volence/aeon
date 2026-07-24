@@ -217,7 +217,7 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         move.w  #PAL_TIMING_STEP, (Timing_Step).w           // instruction (core.emp kept-width
         move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w     // class, row 1046)
     .region_done:
-        move.w  #0, Frame_Accumulator
+        clr.w   Frame_Accumulator           // RAM operand — the 68000 clr read-before-write hazard is I/O-only
 
         // Controller port init (§0.9)
         move.b  #$40, HW_PORT_1_CTRL        // TH as output

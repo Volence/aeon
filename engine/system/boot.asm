@@ -174,7 +174,7 @@ Cold_Boot:
         move.w  #PAL_TIMING_STEP, (Timing_Step).w
         move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w
 .region_done:
-        move.w  #0, (Frame_Accumulator).w
+        clr.w   (Frame_Accumulator).w       ; RAM operand — the 68000 clr read-before-write hazard is I/O-only
 
         ; Controller port init (§0.9)
         move.b  #$40, (HW_PORT_1_CTRL).l    ; TH as output
