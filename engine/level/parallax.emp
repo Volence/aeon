@@ -226,7 +226,7 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         cmpa.w  #0, a0
         beq     .no_change                          // null → inherit, no-op
         cmpa.l  Parallax_Current_Config, a0         // (Parallax_Current_Config).w
-        beq     .no_change                          // matches current → no-op
+        beq     .recross_current                    // matches current → cancel a staged transition, else no-op
         cmpa.l  Parallax_Target_Config, a0          // (Parallax_Target_Config).w
         beq     .no_change                          // already transitioning to this → no-op
 
@@ -269,6 +269,20 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
 
     .no_change:
         rts
+
+    .recross_current:
+        // Re-crossed into the CURRENT config's own section. If a transition to a
+        // different config is staged (mid-lerp), CANCEL it: clear the stage, snap
+        // the band scrolls back to current, and restore current's mode (active
+        // config reverts to current the instant frames→0, so every mode/length/
+        // stride consumer follows it back). With nothing staged this is the
+        // genuine no-op (already settled on this config).
+        tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
+        beq     .no_change
+        move.l  #0, Parallax_Target_Config          // (Parallax_Target_Config).w
+        move.b  #0, Parallax_Transition_Frames      // (Parallax_Transition_Frames).w
+        move.b  #1, Parallax_Snap_Pending           // (Parallax_Snap_Pending).w — snap bands back to current
+        jbra    .update_mode                        // a0 == current → restore current's mode bits
 }
 
 // ----------------------------------------------------------------------

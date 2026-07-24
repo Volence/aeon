@@ -118,7 +118,7 @@ Parallax_StartTransition:
         cmpa.w  #0, a0
         beq.s   .no_change                          ; null → inherit, no-op
         cmpa.l  (Parallax_Current_Config).w, a0
-        beq.s   .no_change                          ; matches current → no-op
+        beq.s   .recross_current                    ; matches current → cancel a staged transition, else no-op
         cmpa.l  (Parallax_Target_Config).w, a0
         beq.s   .no_change                          ; already transitioning to this → no-op
 
@@ -159,6 +159,20 @@ Parallax_StartTransition:
 
 .no_change:
         rts
+
+.recross_current:
+        ; Re-crossed into the CURRENT config's own section. If a transition to a
+        ; different config is staged (mid-lerp), CANCEL it: clear the stage, snap
+        ; the band scrolls back to current, and restore current's mode (active
+        ; config reverts to current the instant frames→0, so every mode/length/
+        ; stride consumer follows it back). With nothing staged this is the
+        ; genuine no-op (already settled on this config).
+        tst.b   (Parallax_Transition_Frames).w
+        beq.s   .no_change
+        move.l  #0, (Parallax_Target_Config).w
+        move.b  #0, (Parallax_Transition_Frames).w
+        move.b  #1, (Parallax_Snap_Pending).w       ; snap bands back to current
+        bra.s   .update_mode                        ; a0 == current → restore current's mode bits
 
 ; ----------------------------------------------------------------------
 ; Parallax_Active_Config — the transition state machine's single "active config"
