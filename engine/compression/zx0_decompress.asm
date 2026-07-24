@@ -107,6 +107,7 @@ ZX0_Decompress:
         bra.s   .elias_loop             ; keep reading
 
 .done:
-        movem.l (sp)+, a2/d2            ; restore preserved registers
+        movem.l (sp)+, a2/d2            ; restore preserved registers, fall into the shared rts
 .got_elias:
-        rts
+        rts                             ; BOTH the .get_elias subroutine return (bcs lands here,
+                                        ; skipping the restore) AND the proc exit via .done

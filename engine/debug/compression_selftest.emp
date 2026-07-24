@@ -9,6 +9,15 @@
 
 module engine.compression_selftest in compression_selftest
 
+// Addressing modes: every CSelf_*/Art_Staging_Buffer operand is spelled BARE
+// and the width rule picks the mode — the CSelf_* ROM labels sit below $8000
+// (abs.w), Art_Staging_Buffer at $FFFF0000 sits outside the sign-extended
+// abs.w window (abs.l). The ensure below is the fit-lock: if the generated
+// vectors ever push the LAST label to $8000+, this fails loudly instead of
+// the two twins silently diverging (the .asm twin spells (sym).w and would
+// error; the .emp would relax to abs.l).
+ensure(extern("CSelf_Expected") < $8000, "generated compression vectors grew past the abs.w window — re-widen the CSelf_* operands in BOTH twins (s4lz selftest)")
+
 // -----------------------------------------------
 // CompressionSelfTest — decode golden vectors, assert checksums
 //
@@ -30,8 +39,8 @@ module engine.compression_selftest in compression_selftest
 pub proc CompressionSelfTest () clobbers(d0-d4/a0-a4) {
         // --- S4LZ v3 plain through Art_Decompress dispatch (covers S4LZ branch) ---
         jbsr    .poison
-        lea     CSelf_S4LZ_Plain, a0        // bare: abs.w today (generated data below $8000)
-        lea     Art_Staging_Buffer, a1      // bare: abs.l ($FFFF0000 sits outside the abs.w window)
+        lea     CSelf_S4LZ_Plain, a0
+        lea     Art_Staging_Buffer, a1
         jbsr    Art_Decompress
         jbsr    .checksum
         assert.w d0, eq, #CSELF_PAYLOAD_SUM
@@ -39,9 +48,9 @@ pub proc CompressionSelfTest () clobbers(d0-d4/a0-a4) {
 
         // --- S4LZ v3 + dictionary (window rebase path) ---
         jbsr    .poison
-        lea     CSelf_S4LZ_Dict, a0         // bare: abs.w today
-        lea     Art_Staging_Buffer, a1      // bare: abs.l ($FFFF0000 sits outside the abs.w window)
-        lea     CSelf_Dict_Blob, a4         // bare: abs.w today
+        lea     CSelf_S4LZ_Dict, a0
+        lea     Art_Staging_Buffer, a1
+        lea     CSelf_Dict_Blob, a4
         move.w  #CSELF_DICT_LEN, d4
         jbsr    S4LZ_DecompressDict
         jbsr    .checksum
@@ -50,8 +59,8 @@ pub proc CompressionSelfTest () clobbers(d0-d4/a0-a4) {
 
         // --- ZX0 through the version-dispatch wrapper (Art_Decompress) ---
         jbsr    .poison
-        lea     CSelf_ZX0, a0               // bare: abs.w today
-        lea     Art_Staging_Buffer, a1      // bare: abs.l ($FFFF0000 sits outside the abs.w window)
+        lea     CSelf_ZX0, a0
+        lea     Art_Staging_Buffer, a1
         jbsr    Art_Decompress
         jbsr    .checksum
         assert.w d0, eq, #CSELF_PAYLOAD_SUM
@@ -59,7 +68,7 @@ pub proc CompressionSelfTest () clobbers(d0-d4/a0-a4) {
         rts
 
     .poison:
-        lea     Art_Staging_Buffer, a1      // bare: abs.l ($FFFF0000 sits outside the abs.w window)
+        lea     Art_Staging_Buffer, a1
         move.w  #CSELF_PAYLOAD_SIZE/2-1, d1
         move.w  #$A5A5, d0                  // must match generator POISON_WORD
     .poison_loop:
@@ -70,7 +79,7 @@ pub proc CompressionSelfTest () clobbers(d0-d4/a0-a4) {
     .checksum:
         // Out: d0.w = additive word checksum over the payload region
         // Clobbers: d1, a1
-        lea     Art_Staging_Buffer, a1      // bare: abs.l ($FFFF0000 sits outside the abs.w window)
+        lea     Art_Staging_Buffer, a1
         move.w  #CSELF_PAYLOAD_SIZE/2-1, d1
         moveq   #0, d0
     .sum_loop:
@@ -82,8 +91,8 @@ pub proc CompressionSelfTest () clobbers(d0-d4/a0-a4) {
         // Word-by-word compare of Art_Staging_Buffer against CSelf_Expected.
         // Counts mismatches in d0.w; asserts d0.w == 0 on exit.
         // Clobbers: d0, d1, a0, a1
-        lea     Art_Staging_Buffer, a0      // bare: abs.l
-        lea     CSelf_Expected, a1          // bare: abs.w today
+        lea     Art_Staging_Buffer, a0
+        lea     CSelf_Expected, a1
         move.w  #CSELF_PAYLOAD_SIZE/2-1, d1
         moveq   #0, d0
     .cmp_loop:

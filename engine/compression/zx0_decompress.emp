@@ -47,10 +47,11 @@ module engine.zx0 in zx0
 //    misrepresented as being the original software.
 // 3. This notice may not be removed or altered from any source distribution.
 // -----------------------------------------------
-// `preserves(d2/a2)` is the movem-ENFORCED spelling of the decl's parenthetical
-// ("a2/d2 movem-saved inside") — the §5 verifier proves the round-trip on the
-// exit path, and the corpus closure error-gate requires the credit (an
-// undeclared register effect cannot ship).
+// d2 (rep-offset) and a2 (backreference cursor) are scratch INSIDE the call
+// but movem-preserved for the caller — `preserves(d2/a2)` is the enforced
+// spelling (§5-verified). The single rts at `.got_elias` serves BOTH the
+// internal `.get_elias` subroutine returns and, via `.done`'s restore, the
+// proc exit — the only true exit path is the EOD branch through `.done`.
 pub proc ZX0_Decompress (a0: *u8, a1: *u8) clobbers(d0-d1) out(a0, a1) preserves(d2/a2) {
         movem.l a2/d2, -(sp)            // preserve registers
         moveq   #-128, d1               // initialize empty bit queue
@@ -113,7 +114,8 @@ pub proc ZX0_Decompress (a0: *u8, a1: *u8) clobbers(d0-d1) out(a0, a1) preserves
         jbra    .elias_loop             // keep reading
 
     .done:
-        movem.l (sp)+, a2/d2            // restore preserved registers
+        movem.l (sp)+, a2/d2            // restore preserved registers, fall into the shared rts
     .got_elias:
-        rts
+        rts                             // BOTH the .get_elias subroutine return (bcs lands here,
+                                        // skipping the restore) AND the proc exit via .done
 }

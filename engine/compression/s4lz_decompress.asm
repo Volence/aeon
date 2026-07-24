@@ -30,8 +30,12 @@
 ;           NOTE: for odd declared sizes the encoder pads to word boundary;
 ;           the decoder writes the pad byte, so a1 lands at declared_size+1.
 ;           The header size word is authoritative — consumers must use it,
-;           not (a1 − dest_start). Dest buffers must be ≤ 32766 bytes
-;           (suba.w sign-extends; offsets must stay < $8000).
+;           not (a1 − dest_start). Offsets must stay < $8000 (suba.w
+;           sign-extends): plain entry — dest buffers <= 32766 bytes; DICT
+;           entry — dest_written + dict_len <= 32766 (a deeper legal offset
+;           would wrap the suba.w and silently read ABOVE the dest, skipping
+;           the debug range assert). Today's deepest use is tile_cache's
+;           768-byte slot + 2304-byte dict = 3072.
 ; Clobbers: d0-d3, a2-a3
 ;           (a4/d4 untouched — load_art keeps both live across this call)
 ;
@@ -50,6 +54,8 @@
 ; Extra In:  a4 = dict base (ROM, word-aligned)
 ;            d4.w = dict length in bytes (even, ≤ 3*768; 0 = no dict)
 ; Extra clobbers: a4 (becomes the rebase constant). d4 preserved.
+;   a0 is a clobber here (not an out, unlike the plain entry): it ends past
+;   the stream identically, but no dict-entry caller consumes it.
 ; Cost: +16 cycles per match (cmpa.l + taken branch) on the in-buffer path,
 ;       shared with the plain entry — whose branch never fires on valid
 ;       no-dict streams (offsets never reach below the dest start), so the

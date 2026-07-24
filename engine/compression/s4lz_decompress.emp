@@ -2,6 +2,12 @@
 
 module engine.s4lz in s4lz
 
+// The dictionary blob is an opaque word-aligned ROM byte region with no
+// record shape — DictBase is a MARKER type so `a4: *DictBase` documents
+// intent at signatures and call sites (it is not interchangeable with the
+// stream or dest pointers).
+struct DictBase { }
+
 // TILE_SIZE mirrors engine/constants.asm (first .emp consumer — file-local
 // with drift lock; hoists to engine.constants at the 2nd consumer).
 const TILE_SIZE = 32                            // bytes per 8x8 4bpp tile
@@ -37,8 +43,12 @@ ensure(extern("TILE_SIZE") == TILE_SIZE, "engine/constants.asm and s4lz_decompre
 //           NOTE: for odd declared sizes the encoder pads to word boundary;
 //           the decoder writes the pad byte, so a1 lands at declared_size+1.
 //           The header size word is authoritative — consumers must use it,
-//           not (a1 − dest_start). Dest buffers must be ≤ 32766 bytes
-//           (suba.w sign-extends; offsets must stay < $8000).
+//           not (a1 − dest_start). Offsets must stay < $8000 (suba.w
+//           sign-extends): plain entry — dest buffers ≤ 32766 bytes; DICT
+//           entry — dest_written + dict_len ≤ 32766 (a deeper legal offset
+//           would wrap the suba.w and silently read ABOVE the dest, skipping
+//           the debug range assert). Today's deepest use is tile_cache's
+//           768-byte slot + 2304-byte dict = 3072.
 // Clobbers: d0-d3, a2-a3
 //           (a4/d4 untouched — load_art keeps both live across this call)
 //
@@ -57,6 +67,8 @@ ensure(extern("TILE_SIZE") == TILE_SIZE, "engine/constants.asm and s4lz_decompre
 // Extra In:  a4 = dict base (ROM, word-aligned)
 //            d4.w = dict length in bytes (even, ≤ 3*768; 0 = no dict)
 // Extra clobbers: a4 (becomes the rebase constant). d4 preserved.
+//   a0 is CLOBBERS here (not out, unlike the plain entry): it ends past the
+//   stream identically, but no dict-entry caller consumes it.
 // Cost: +16 cycles per match (cmpa.l + taken branch) on the in-buffer path,
 //       shared with the plain entry — whose branch never fires on valid
 //       no-dict streams (offsets never reach below the dest start), so the
