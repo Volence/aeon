@@ -73,6 +73,44 @@ equ PL_STATE_ADDR = pl_state_addr()
 
 
 // -----------------------------------------------
+// clamp_camera_axis — the continuous-scroll world clamp, one axis:
+//   cam = max(0, min(cam, (grid_dim << SECTION_SIZE_SHIFT) - screen_dim))
+// Spliced for X (.x_done) and Y (.clamp_y) — the two sites are the same
+// 13-instruction shape differing only in these three terms.
+// In: the axis' 16.16 RAM cell, the Act grid-dim field offset, the screen
+// extent. Uses d0/d1/a0 (inside both callers' licenses).
+//
+// MEGA-ACT CEILING: the upper-bound clamp is WORD arithmetic (subi.w/cmp.w),
+// so an axis extent above $FFFF px — grid dim > 31 sections — word-wraps.
+// Guarded today by act_descriptor's (GRID_* << SECTION_SIZE_SHIFT) <= $8000
+// ensures (grid dims <= 16, tighter than 31). Floating-origin Phase 4
+// removes the word truncation.
+// -----------------------------------------------
+comptime fn clamp_camera_axis(cam: Label, dim_off: int, screen: int) -> Code {
+    return asm {
+        movea.l Current_Act_Ptr, a0             // (Current_Act_Ptr).w
+        move.l  {cam}, d0
+        swap    d0
+        tst.w   d0
+        bge     .min_ok
+        moveq   #0, d0
+    .min_ok:
+        moveq   #0, d1
+        move.w  {dim_off}(a0), d1
+        lsl.l   #8, d1                          // grid dim << SECTION_SIZE_SHIFT
+        lsl.l   #SECTION_SIZE_SHIFT-8, d1       //   = axis extent (px); split 8+rest
+        subi.w  #{screen}, d1
+        cmp.w   d1, d0
+        ble     .clamp
+        move.w  d1, d0
+    .clamp:
+        swap    d0
+        clr.w   d0
+        move.l  d0, {cam}
+    }
+}
+
+// -----------------------------------------------
 // Camera_Init — initialise from act descriptor
 // In:  a0 = act descriptor pointer (read only — preserved)
 // Out: none
@@ -185,30 +223,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         //    ALL X paths converge here — .x_done is the branch target for the
         //    deadzone hold and the spindash freeze, and .apply_x falls through;
         //    control continues into .y_track below.
-        movea.l Current_Act_Ptr, a0                 // (Current_Act_Ptr).w
-        move.l  Camera_X, d0                        // (Camera_X).w
-        swap    d0
-        tst.w   d0
-        bge     .min_ok
-        moveq   #0, d0
-    .min_ok:
-        moveq   #0, d1
-        move.w  Act.grid_w(a0), d1
-        lsl.l   #8, d1                              // grid_w << SECTION_SIZE_SHIFT
-        lsl.l   #SECTION_SIZE_SHIFT-8, d1           //   = level_width (px); split 8+rest
-        // MEGA-ACT CEILING: the right-bound clamp below is WORD arithmetic
-        // (subi.w/cmp.w), so a level_width above $FFFF px — grid_w > 31 sections —
-        // word-wraps. Guarded today by act_descriptor's
-        // (GRID_W << SECTION_SIZE_SHIFT) <= $8000 ensure (grid_w <= 16, tighter than
-        // 31). Floating-origin Phase 4 removes the word truncation.
-        subi.w  #SCREEN_WIDTH, d1
-        cmp.w   d1, d0
-        ble     .clamp_x
-        move.w  d1, d0
-    .clamp_x:
-        swap    d0
-        clr.w   d0
-        move.l  d0, Camera_X                        // (Camera_X).w
+        clamp_camera_axis(Camera_X, offsetof(Act, grid_w), SCREEN_WIDTH)
 
     .y_track:
         tst.b   d4                                  // spindash freeze active?
@@ -299,31 +314,9 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
     .clamp_y:
         // -- continuous-scroll Y clamp: [0, level_height − SCREEN_HEIGHT] --
         //    level_height = grid_h << SECTION_SIZE_SHIFT. Grid-derived, fully
-        //    symmetric with .clamp_x — no act-supplied camera bounds. External
-        //    entry (spindash freeze, .land_lock, fall-through from
+        //    symmetric with the X clamp — no act-supplied camera bounds.
+        //    External entry (spindash freeze, .land_lock, fall-through from
         //    .y_step_lo_ok); must keep the .clamp_y label and the trailing rts.
-        movea.l Current_Act_Ptr, a0                 // (Current_Act_Ptr).w
-        move.l  Camera_Y, d0                        // (Camera_Y).w
-        swap    d0
-        tst.w   d0
-        bge     .y_min_ok
-        moveq   #0, d0
-    .y_min_ok:
-        moveq   #0, d1
-        move.w  Act.grid_h(a0), d1
-        lsl.l   #8, d1                              // grid_h << SECTION_SIZE_SHIFT
-        lsl.l   #SECTION_SIZE_SHIFT-8, d1           //   = level_height (px); split 8+rest
-        // MEGA-ACT CEILING: word clamp below (subi.w/cmp.w) word-wraps for a
-        // level_height above $FFFF px — grid_h > 31 sections. Guarded today by
-        // act_descriptor's (GRID_H << SECTION_SIZE_SHIFT) <= $8000 ensure
-        // (grid_h <= 16). Floating-origin Phase 4 removes the word truncation.
-        subi.w  #SCREEN_HEIGHT, d1
-        cmp.w   d1, d0
-        ble     .y_write
-        move.w  d1, d0
-    .y_write:
-        swap    d0
-        clr.w   d0
-        move.l  d0, Camera_Y                        // (Camera_Y).w
+        clamp_camera_axis(Camera_Y, offsetof(Act, grid_h), SCREEN_HEIGHT)
         rts
 }
