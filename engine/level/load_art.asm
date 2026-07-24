@@ -80,7 +80,7 @@ Level_LoadArt:
         beq.s   .next                               ; size 0 → skip (empty page stub)
 
         lea     (Art_Staging_Buffer).l, a1          ; a1 = decompress scratch
-        bsr.w   Art_Decompress                      ; a4/d4 preserved across this
+        bsr.s   Art_Decompress                      ; a4/d4 preserved across this. LOCKSTEP load_art.emp step 2: jbsr relaxes short (in-region backward reach)
         move.w  d4, d7                              ; d7 = byte length (survives QueueDMA/VSync for retry)
 
 .queue_page:
@@ -99,7 +99,7 @@ Level_LoadArt:
 .done:
         ; -- §2 A.5: blit zone-wide BG to Plane B nametable (T1) --
         movea.l a4, a0                              ; a0 = act ptr
-        bsr.w   BG_Init
+        bsr.s   BG_Init                             ; LOCKSTEP load_art.emp step 2: jbsr relaxes short (BG_Init is the next placement)
 
         movem.l (sp)+, d6/a4-a6
         rts

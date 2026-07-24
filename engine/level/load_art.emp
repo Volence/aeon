@@ -44,11 +44,11 @@ extern proc VSync_Wait () clobbers(d0)
 // -----------------------------------------------
 pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
         cmpi.b  #ART_VER_ZX0, ART_HDR_VERSION(a0)
-        beq.s   .zx0
-        bra.w   S4LZ_Decompress                 // S4LZ_Decompress reads its own wrapper
+        beq     .zx0
+        jbra    S4LZ_Decompress                 // S4LZ_Decompress reads its own wrapper
     .zx0:
         addq.l  #ART_HDR_SIZE, a0               // ZX0 stream starts past wrapper
-        bra.w   ZX0_Decompress
+        jbra    ZX0_Decompress
 }
 
 // -----------------------------------------------
@@ -93,7 +93,7 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d5/d7/a0-a3) preserves(d6/a4-a6) {
         movea.l a0, a4                              // a4 = act ptr (preserved)
 
         move.w  Act.act_art_pool_pages(a4), d6      // d6.w = page count
-        beq.s   .done                               // empty pool -> nothing to load
+        beq     .done                               // empty pool -> nothing to load
         subq.w  #1, d6                              // d6 = count-1 (dbf counter)
 
         movea.l Act.act_art_pool_table(a4), a5      // a5 = page-address table cursor
@@ -102,10 +102,10 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d5/d7/a0-a3) preserves(d6/a4-a6) {
     .page_loop:
         movea.l (a5)+, a0                           // a0 = next page wrapper addr
         move.w  (a0), d4                            // d4.w = uncompressed size (BE)
-        beq.s   .next                               // size 0 -> skip (empty page stub)
+        beq     .next                               // size 0 -> skip (empty page stub)
 
         lea     Art_Staging_Buffer, a1              // (Art_Staging_Buffer).l — decompress scratch
-        bsr.w   Art_Decompress                      // a4/d4 preserved across this
+        jbsr    Art_Decompress                      // a4/d4 preserved across this
         move.w  d4, d7                              // d7 = byte length (survives QueueDMA/VSync for retry)
 
     .queue_page:
@@ -113,9 +113,9 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d5/d7/a0-a3) preserves(d6/a4-a6) {
         moveq   #0, d2
         move.w  a6, d2                              // d2.w = VRAM byte dest
         move.w  d7, d3                              // d3.w = byte length
-        bsr.w   QueueDMA_Critical
-        bcs.s   .drop_page                          // carry SET -> dropped (rare; handled out of line)
-        bsr.w   VSync_Wait
+        jbsr    QueueDMA_Critical
+        bcs     .drop_page                          // carry SET -> dropped (rare; handled out of line)
+        jbsr    VSync_Wait
 
     .next:
         lea     ART_POOL_PAGE_BYTES(a6), a6         // advance VRAM dest one page (8192 B)
@@ -124,7 +124,7 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d5/d7/a0-a3) preserves(d6/a4-a6) {
     .done:
         // -- §2 A.5: blit zone-wide BG to Plane B nametable (T1) --
         movea.l a4, a0                              // a0 = act ptr
-        bsr.w   BG_Init
+        jbsr    BG_Init
 
         movem.l (sp)+, d6/a4-a6
         rts
@@ -137,7 +137,7 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d5/d7/a0-a3) preserves(d6/a4-a6) {
         if DEBUG == 1 {
             raise_error "Level_LoadArt: Critical DMA queue full during init art load"
         } else {
-            bsr.w   VSync_Wait                      // release: drain a frame, then retry this page
-            bra.s   .queue_page                     // Art_Staging_Buffer + a6 still valid
+            jbsr    VSync_Wait                      // release: drain a frame, then retry this page
+            jbra    .queue_page                     // Art_Staging_Buffer + a6 still valid
         }
 }

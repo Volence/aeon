@@ -80,13 +80,13 @@ pub proc Init_DMA_Queue () clobbers(d0-d1/a0) {
 pub proc QueueDMA_Critical (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) out(carry: dropped) {
         lea     DMA_Critical_Slot, a2           // (DMA_Critical_Slot).w
         move.w  #DMA_Critical_End, d4
-        bra.s   QueueDMA_Deferrable.transfer
+        jbra    QueueDMA_Deferrable.transfer
 }
 
 pub proc QueueDMA_Important (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) out(carry: dropped) {
         lea     DMA_Important_Slot, a2          // (DMA_Important_Slot).w
         move.w  #DMA_Important_End, d4
-        bra.s   QueueDMA_Deferrable.transfer
+        jbra    QueueDMA_Deferrable.transfer
 }
 
 pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) out(carry: dropped) {
@@ -105,7 +105,7 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
         move.w  #$2700, sr                      // disableInts (engine/macros.asm)
         movea.w (a2), a1
         cmpa.w  d4, a1
-        beq.s   .full
+        beq     .full
 
         lsr.l   #1, d1                          // source to words
         bclr.l  #23, d1                         // RAM source safety
@@ -119,7 +119,7 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
         moveq   #0, d0
         sub.w   d3, d0
         sub.w   d1, d0
-        blo.s   .split                          // carry = crosses boundary
+        blo     .split                          // carry = crosses boundary
 
         // No crossing — write length and finish
         movep.w d3, DMAEntry.SizeH(a1)          // length -> offsets 1,3
@@ -155,7 +155,7 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
         // Need two free slots — check room for second entry
         subi.w  #sizeof(DMAEntry), d4           // d4 = start of last slot
         cmpa.w  d4, a1
-        bhs.s   .finish_entry                   // only one slot — finish first part
+        bhs     .finish_entry                   // only one slot — finish first part
 
         // Second part parameters
         sub.w   d0, d3                          // d3 = second part length (words)
@@ -279,9 +279,9 @@ pub proc Process_DMA_Important () clobbers(d0-d1/a0-a3/a5) {
         movea.w DMA_Important_Slot, a1          // (DMA_Important_Slot).w
         lea     DMA_Important, a0               // (DMA_Important).w
         cmpa.l  a0, a1
-        bls.s   .done
+        bls     .done
         lea     DMA_Important_Slot, a2
-        bra.s   Drain_Budgeted_Queue            // tail call — updates slot var
+        jbra    Drain_Budgeted_Queue            // tail call — updates slot var
     .done:
         rts
 }
@@ -296,9 +296,9 @@ pub proc Process_DMA_Deferrable () clobbers(d0-d1/a0-a3/a5) {
         movea.w DMA_Deferrable_Slot, a1         // (DMA_Deferrable_Slot).w
         lea     DMA_Deferrable, a0              // (DMA_Deferrable).w
         cmpa.l  a0, a1
-        bls.s   .done
+        bls     .done
         lea     DMA_Deferrable_Slot, a2
-        bra.s   Drain_Budgeted_Queue            // tail call — updates slot var
+        jbra    Drain_Budgeted_Queue            // tail call — updates slot var
     .done:
         rts
 }
@@ -321,7 +321,7 @@ proc Drain_Budgeted_Queue (a0: *u8, a1: *u8, a2: *u8) clobbers(d0-d1/a0-a1/a3/a5
         movea.l a0, a3                          // a3 = queue base
     .loop:
         move.w  DMA_Budget_Remaining, d0        // (DMA_Budget_Remaining).w
-        ble.s   .out_of_budget
+        ble     .out_of_budget
         movep.w DMAEntry.SizeH(a0), d1          // read size in words
         add.w   d1, d1                          // words -> bytes
         sub.w   d1, DMA_Budget_Remaining
@@ -330,20 +330,20 @@ proc Drain_Budgeted_Queue (a0: *u8, a1: *u8, a2: *u8) clobbers(d0-d1/a0-a1/a3/a5
         move.l  (a0)+, (a5)
         move.w  (a0)+, (a5)
         cmpa.l  a0, a1
-        bhi.s   .loop
+        bhi     .loop
         move.w  a3, (a2)                        // fully drained — slot = base
         rts
 
     .out_of_budget:
         cmpa.l  a0, a3
-        beq.s   .no_drain                       // nothing sent — slot already correct
+        beq     .no_drain                       // nothing sent — slot already correct
     .compact:
         move.l  (a0)+, (a3)+                    // src always above dst — safe forward copy
         move.l  (a0)+, (a3)+
         move.l  (a0)+, (a3)+
         move.w  (a0)+, (a3)+
         cmpa.l  a0, a1
-        bhi.s   .compact
+        bhi     .compact
         move.w  a3, (a2)                        // slot = base + surviving entries
     .no_drain:
         rts
