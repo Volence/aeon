@@ -51,12 +51,23 @@ pub newtype HitboxDim = u8
 // the VRAM-layout port.
 pub newtype VramArtTile = u16
 
-// Animation identities: which script (AnimId — an index into an anim
-// table's offsets ordinals) and which mapping frame (FrameId). The SST's
-// anim_frame stays a raw u8 deliberately — it is a byte CURSOR within the
-// running script, not a frame identity.
+// Animation identities, THREE distinct byte types (item-13 wave 1). They are
+// bit-identical small indices that live in adjacent SST fields, so mixing them
+// is the same silent-wrong-answer class as the grid-axis swap:
+//   AnimId       — which script (an index into an anim table's offset ordinals).
+//   AnimFrame    — the byte CURSOR within the running script (SST anim_frame);
+//                  the read position an event/frame walk advances, NOT a frame
+//                  identity.
+//   MappingFrame — which sprite mapping frame (SST mapping_frame / prev_frame);
+//                  the drawn-frame identity a DPLC/mapping lookup indexes.
+// The script-cursor vs mapping-frame pair is the highest-risk swap; splitting
+// them names the distinction at every typed surface. (These flow through SST
+// MEMORY today, not register call slots, so the types carry MEANING; the slice
+// enforces the moment such a value crosses a typed register param — see the
+// field-store domain-check ledger row.)
 pub newtype AnimId = u8
-pub newtype FrameId = u8
+pub newtype AnimFrame = u8
+pub newtype MappingFrame = u8
 
 // Section-grid coordinates, AXIS-SPLIT (G5). A level is a grid of fixed-size
 // sections; a cell is addressed by its column (GridX = sec_x) and row
