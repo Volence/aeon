@@ -1,0 +1,242 @@
+// Buffer initialization, static DMA entries, and plane utilities
+module engine.buffers in buffers
+
+use engine.structs.{DMAEntry, parallax_config}
+use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, PLANE_H_CELLS}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_delta, plane_loc, dma_length, VDP_DATA, VDP_CTRL}
+
+// DMA source word addresses for the static entries — the link-time arm of
+// engine.vdp's dma_source derivation ((addr >> 1) & $7FFFFF): the sources are
+// RAM labels, so the fold happens in the link expression, not at comptime
+// (the row-1004 comptime/link boundary; see dma_source's header).
+equ SRC_PAL_LINE0 = (extern("Palette_Buffer") >> 1) & $7FFFFF
+equ SRC_PAL_LINE1 = ((extern("Palette_Buffer") + $20) >> 1) & $7FFFFF
+equ SRC_PAL_LINE2 = ((extern("Palette_Buffer") + $40) >> 1) & $7FFFFF
+equ SRC_PAL_LINE3 = ((extern("Palette_Buffer") + $60) >> 1) & $7FFFFF
+equ SRC_SPRITE_TABLE = (extern("Sprite_Table_Buffer") >> 1) & $7FFFFF
+equ SRC_HSCROLL = (extern("Hscroll_Buffer") >> 1) & $7FFFFF
+
+// Directional derive over the shared port bases (kept local per the
+// engine.vdp header rule).
+const VDP_CTRL_OFF = VDP_CTRL - VDP_DATA
+
+// -----------------------------------------------
+// queue_static_dma — enqueue one pre-built static DMAEntry on the Critical
+// queue (the .emp counterpart of engine/macros.asm's queueStaticDMA; the AS
+// twin keeps the macro spelling — lockstep is byte-level).
+//
+// The interface is entry-only and Critical-bound: the slot/end pair lives
+// ONCE here, so a caller can never mismatch a slot variable with another
+// queue's end bound (the donor macro's 3-symbol interface allowed it).
+//
+// Out: carry SET = request DROPPED (Critical queue full); carry CLEAR =
+// enqueued OK — the same carry contract as QueueDMA_Critical. Callers clear
+// their dirty bit/flag ONLY on carry-clear and leave it set on a drop so the
+// next VBlank retries, instead of leaving stale palette/SAT data in VRAM
+// indefinitely.
+// -----------------------------------------------
+comptime fn queue_static_dma(entry: Label) -> Code {
+    return asm {
+        movea.w DMA_Critical_Slot, a1
+        cmpa.w  #DMA_Critical_End, a1
+        beq.s   .drop
+        lea     {entry}, a2
+        move.l  (a2)+, (a1)+
+        move.l  (a2)+, (a1)+
+        move.l  (a2)+, (a1)+
+        move.w  (a2)+, (a1)+
+        move.w  a1, DMA_Critical_Slot
+        andi.b  #$FE, ccr               // enqueued -> carry CLEAR
+        bra.s   .done
+    .drop:
+        ori.b   #1, ccr                 // queue full -> carry SET (dropped)
+    .done:
+    }
+}
+
+// -----------------------------------------------
+// Init_SpriteTable — pre-init sprite link chain 0->1->2->...->79->0
+// Y positions = 0 (off-screen), size = 0, tiles = 0
+// In:  none
+// Out: none
+// Clobbers: d0-d2, a0
+// -----------------------------------------------
+pub proc Init_SpriteTable () clobbers(d0-d2/a0) {
+        lea     Sprite_Table_Buffer, a0         // (Sprite_Table_Buffer).w
+        moveq   #0, d0
+        moveq   #1, d1
+        moveq   #79-1, d2
+    .loop:
+        move.w  d0, (a0)+                       // Y = 0
+        move.b  d0, (a0)+                       // size = 0
+        move.b  d1, (a0)+                       // link -> next
+        move.l  d0, (a0)+                       // tile = 0, X = 0
+        addq.b  #1, d1
+        dbf     d2, .loop
+        move.w  d0, (a0)+                       // entry 79: Y = 0
+        move.b  d0, (a0)+                       // size = 0
+        move.b  d0, (a0)+                       // link = 0 (terminate)
+        move.l  d0, (a0)+                       // tile = 0, X = 0
+        rts
+}
+
+// -----------------------------------------------
+// BuildStaticDMA — pre-compute the 7 static DMA entries
+// (4 palette lines + 1 sprite table + 2 HScroll entries)
+// Called once at boot after Init_DMA_Queue.
+// In:  none
+// Out: none
+// Clobbers: d0-d3, d5, a0
+// -----------------------------------------------
+pub proc BuildStaticDMA () clobbers(d0-d3/d5/a0) {
+        moveq   #-$6C, d0                       // $94 sign-extended
+        move.l  #$93979695, d5                  // reg markers $93/$97/$96/$95 — one movep.l lands all four at offsets 2/4/6/8
+
+        // Palette line 0: Palette_Buffer+$00 -> CRAM $0000, 32 bytes
+        lea     Static_Pal_Line0, a0            // (Static_Pal_Line0).w
+        move.l  #SRC_PAL_LINE0, d1
+        move.w  #dma_length(32), d3
+        move.l  #vdp_comm(0, VdpTarget.Cram, VdpOp.Dma), d2
+        bsr.w   .build_entry
+
+        // Palette line 1: Palette_Buffer+$20 -> CRAM $0020, 32 bytes
+        lea     Static_Pal_Line1, a0
+        move.l  #SRC_PAL_LINE1, d1
+        move.w  #dma_length(32), d3
+        move.l  #vdp_comm($20, VdpTarget.Cram, VdpOp.Dma), d2
+        bsr.w   .build_entry
+
+        // Palette line 2: Palette_Buffer+$40 -> CRAM $0040, 32 bytes
+        lea     Static_Pal_Line2, a0
+        move.l  #SRC_PAL_LINE2, d1
+        move.w  #dma_length(32), d3
+        move.l  #vdp_comm($40, VdpTarget.Cram, VdpOp.Dma), d2
+        bsr.w   .build_entry
+
+        // Palette line 3: Palette_Buffer+$60 -> CRAM $0060, 32 bytes
+        lea     Static_Pal_Line3, a0
+        move.l  #SRC_PAL_LINE3, d1
+        move.w  #dma_length(32), d3
+        move.l  #vdp_comm($60, VdpTarget.Cram, VdpOp.Dma), d2
+        bsr.w   .build_entry
+
+        // Sprite table: Sprite_Table_Buffer -> VRAM sprite table, 640 bytes
+        lea     Static_Sprite_DMA, a0
+        move.l  #SRC_SPRITE_TABLE, d1
+        move.w  #dma_length(640), d3
+        move.l  #vdp_comm(VRAM_SPRITE_TABLE, VdpTarget.Vram, VdpOp.Dma), d2
+        bsr.w   .build_entry
+
+        // §4.6 HScroll cell mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 112 bytes
+        lea     Static_Hscroll_Cell, a0
+        move.l  #SRC_HSCROLL, d1
+        move.w  #dma_length(112), d3
+        move.l  #vdp_comm(VRAM_HSCROLL_TABLE, VdpTarget.Vram, VdpOp.Dma), d2
+        bsr.w   .build_entry
+
+        // §4.6 HScroll line mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 896 bytes
+        // (falls through into .build_entry — the seventh entry's build IS the tail)
+        lea     Static_Hscroll_Line, a0
+        move.l  #SRC_HSCROLL, d1
+        move.w  #dma_length(896), d3
+        move.l  #vdp_comm(VRAM_HSCROLL_TABLE, VdpTarget.Vram, VdpOp.Dma), d2
+
+    .build_entry:
+        move.b  d0, DMAEntry.Reg94(a0)
+        movep.l d5, DMAEntry.Reg93(a0)
+        movep.l d1, DMAEntry.SizeL(a0)          // source -> offsets 3,5,7,9
+        movep.w d3, DMAEntry.SizeH(a0)          // length -> offsets 1,3
+        move.l  d2, DMAEntry.Command(a0)
+        rts
+}
+
+// -----------------------------------------------
+// PlaneMapToVRAM — CPU-based row-by-row nametable writer
+// For one-shot plane loads (title screens, menus, level init).
+// Use during display-off or VBlank only.
+// In:  a1   = source nametable data (VDP-ready words)
+//      d0.l = VDP write command for top-left cell
+//      d1.w = width in cells - 1
+//      d2.w = height in rows - 1
+// Out: none
+// Clobbers: d0-d4, a1, a5-a6
+// -----------------------------------------------
+pub proc PlaneMapToVRAM (a1: *u8, d0: u32, d1: u16, d2: u16) clobbers(d0-d4/a1/a5-a6) {
+        move.l  #vdp_comm_delta(plane_loc(PLANE_H_CELLS, 0, 1)), d4
+        lea     VDP_DATA, a6                    // (VDP_DATA).l
+        lea     VDP_CTRL_OFF(a6), a5
+    .row:
+        move.l  d0, (a5)                        // set VRAM write address
+        move.w  d1, d3
+    .cell:
+        move.w  (a1)+, (a6)                     // write one nametable word
+        dbf     d3, .cell
+        add.l   d4, d0                          // advance to next row
+        dbf     d2, .row
+        rts
+}
+
+// -----------------------------------------------
+// Enqueue_Dirty_Buffers — enqueue dirty palette lines and sprite table
+// Called from VBlank handlers (Z80 already stopped).
+// In:  none
+// Out: none
+// Clobbers: d0, a1-a2
+// -----------------------------------------------
+// Each dirty bit / flag is cleared ONLY when its enqueue succeeded (carry clear).
+// On a drop (Critical queue full — reachable during a fade + heavy art staging)
+// the bit is left set so the next VBlank retries it, instead of clearing it and
+// leaving stale palette/SAT data in VRAM indefinitely.
+pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) {
+        move.b  Palette_Dirty, d0               // (Palette_Dirty).w
+        beq.w   .no_pal
+        btst    #0, d0
+        beq.s   .skip_pal0
+        queue_static_dma(Static_Pal_Line0)
+        bcs.s   .skip_pal0                      // dropped -> leave bit 0 set
+        bclr    #0, Palette_Dirty               // enqueued -> clear bit 0
+    .skip_pal0:
+        btst    #1, d0
+        beq.s   .skip_pal1
+        queue_static_dma(Static_Pal_Line1)
+        bcs.s   .skip_pal1
+        bclr    #1, Palette_Dirty
+    .skip_pal1:
+        btst    #2, d0
+        beq.s   .skip_pal2
+        queue_static_dma(Static_Pal_Line2)
+        bcs.s   .skip_pal2
+        bclr    #2, Palette_Dirty
+    .skip_pal2:
+        btst    #3, d0
+        beq.s   .skip_pal3
+        queue_static_dma(Static_Pal_Line3)
+        bcs.s   .skip_pal3
+        bclr    #3, Palette_Dirty
+    .skip_pal3:
+    .no_pal:
+        tst.b   Sprite_Table_Dirty              // (Sprite_Table_Dirty).w
+        beq.s   .no_spr
+        queue_static_dma(Static_Sprite_DMA)
+        bcs.s   .no_spr                         // dropped -> leave flag set
+        clr.b   Sprite_Table_Dirty              // enqueued -> clear
+    .no_spr:
+        // §4.6: enqueue HScroll DMA when a parallax_config is active.
+        // Mode auto-selected: any H-deform table -> per-line (896B), else per-cell (112B).
+        // Length keys off the ACTIVE config (Target during a transition) so the DMA
+        // byte count matches the mode the buffer was built + the VDP was told to
+        // render in — otherwise a mode-differing transition ships a cell-length DMA
+        // for a line-mode buffer (or vice versa) = the ≤16-frame tear.
+        jsr     Parallax_Active_Config          // d0 = active config; Z reflects d0
+        beq.s   .hs_cell                        // NULL -> per-cell default
+        movea.l d0, a1
+        move.l  parallax_config.pcfg_deform_table_fg(a1), d0
+        or.l    parallax_config.pcfg_deform_table_bg(a1), d0
+        beq.s   .hs_cell
+        queue_static_dma(Static_Hscroll_Line)
+        bra.s   .no_hscroll
+    .hs_cell:
+        queue_static_dma(Static_Hscroll_Cell)
+    .no_hscroll:
+        rts
+}

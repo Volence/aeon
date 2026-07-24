@@ -119,8 +119,40 @@ __BUDGET_ENGINE:
         org     $1F56
       endif
     endif
-    include "engine/system/buffers.asm"
-    include "engine/system/vblank.asm"
+    ifndef SIGIL_EMP_BUFFERS
+        include "engine/system/buffers.asm"
+    else
+        ; sigil mixed build: Init_SpriteTable/BuildStaticDMA/PlaneMapToVRAM/
+        ; Enqueue_Dirty_Buffers come from engine/system/buffers.emp, pinned by
+        ; the sigil map at the per-shape reference address. Resume placement
+        ; at the region end (vblank.asm's VBlank_Handler). Shape-INVARIANT
+        ; length (no ifdef arms), so the two orgs differ only by the base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $223E
+      else
+        org     $21B8
+      endif
+    endif
+    ifndef SIGIL_EMP_VBLANK
+        include "engine/system/vblank.asm"
+    else
+        ; sigil mixed build: VBlank_Handler/VInt_Level/VInt_Lag/VSync_Wait come
+        ; from engine/system/vblank.emp, pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (hblank.asm's HBlank_Install). Shape-DEPENDENT length ($130 plain /
+        ; $138 debug — the debug surplus is VInt_Lag's lag-frame counter bump
+        ; + VSync_Wait's DMA-bytes clear), so the two resume orgs differ by
+        ; more than the base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $2376
+      else
+        org     $22E8
+      endif
+    endif
     ifndef SIGIL_EMP_HBLANK
         include "engine/system/hblank.asm"
     else

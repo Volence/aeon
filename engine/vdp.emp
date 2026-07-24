@@ -102,3 +102,38 @@ pub comptime fn vdp_comm_reg(reg: Reg, target: VdpTarget, op: VdpOp, clr: bool =
         {vcr_type(tr, reg)}
     }
 }
+
+// -----------------------------------------------
+// DMA/plane address derivations (mirror the AS functions in
+// engine/macros.asm; joined at the tranche-21 buffers port — the row-1052
+// shared-home adoption's second half). Pure comptime int fns: the byte gates
+// bind every fold. dma_source takes COMPTIME addresses only — a link-time
+// RAM source (Palette_Buffer class) cannot reach a comptime fn and rides a
+// consumer-side `equ` spelling the same derivation over extern() (the
+// row-1004 comptime/link boundary; buffers.emp is the worked example).
+// -----------------------------------------------
+
+// dmaSource (engine/macros.asm): byte address -> DMA source word address for
+// VDP regs $95-$97 (bit 23 excluded: reg $17 bit 7 is DMD1, not an address).
+pub comptime fn dma_source(addr: int) -> int {
+    return (addr >> 1) & $7FFFFF
+}
+
+// dmaLength (engine/macros.asm): byte count -> DMA length in words for VDP
+// regs $93-$94.
+pub comptime fn dma_length(bytes: int) -> int {
+    return (bytes >> 1) & $FFFF
+}
+
+// vdpCommDelta (engine/macros.asm): VRAM byte-address DELTA -> the same
+// scrambled bit layout as the command longword's address field, so adding it
+// to a write command advances the destination by `addr` bytes.
+pub comptime fn vdp_comm_delta(addr: int) -> int {
+    return ((addr & $3FFF) << 16) | ((addr & $C000) >> 14)
+}
+
+// planeLoc (engine/macros.asm): nametable cell (col, row) -> byte offset in a
+// plane `width` cells wide.
+pub comptime fn plane_loc(width: int, col: int, row: int) -> int {
+    return ((width * row) + col) * 2
+}

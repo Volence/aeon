@@ -9,7 +9,7 @@
 module engine.parallax in parallax
 
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
-use engine.structs.{Act, Sec}
+use engine.structs.{Act, Sec, parallax_config}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL}
 
 // ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm).
@@ -37,8 +37,10 @@ ensure(VDP_MODE3_OFF == extern("VDP_Shadow_vdp_mode3"), "engine/structs.asm and 
 const PARALLAX_STATE_LONGS = 61
 ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from ram.asm: expected {PARALLAX_STATE_LONGS} longs")
 
-// ---- Parallax ROM data structs (§4.6) — parallax-private (only parallax reads
-// them); field order/sizes copied from engine/structs.asm, drift-locked below. ----
+// ---- Parallax band-entry ROM struct (§4.6) — parallax-private (only parallax
+// reads it); field order/sizes copied from engine/structs.asm, drift-locked
+// below. parallax_config lives in engine.structs (shared with engine.buffers,
+// which keys the HScroll DMA length off the deform-table fields). ----
 
 // Parallax band entry — 10 bytes per band, ROM data.
 struct band_entry {
@@ -54,30 +56,8 @@ struct band_entry {
     band_phase_offset:   u8,   // 0..255, added to deform sample index for desync
 }
 
-// Parallax config — 28-byte header + N × band_entry inline, ROM data.
-// Pointed-to by Sec.sec_parallax_config; one config per section (or shared).
-struct parallax_config {
-    pcfg_band_count:        u8,
-    pcfg_v_factor_bg:       u8,    // whole-plane Plane B vshift (used when v_deform_table_bg = 0)
-    pcfg_v_factor_fg:       u8,    // RESERVED — v1 pipeline always sets fg_vscroll = camY
-    pcfg_layer_mask:        u8,    // bit per band; 1 = active
-    pcfg_v_center_y:        u16,   // section's "natural" camera Y
-    pcfg_v_offset:          u16,   // vscroll BG value at center_y
-    pcfg_transition:        u8,    // 0 = smooth lerp (default), 1 = instant snap
-    pcfg_deform_speed_fg:   u8,    // FG H-deform table phase increment per frame
-    pcfg_deform_speed_bg:   u8,    // BG H-deform table phase increment per frame
-    pcfg_pad:               u8,
-    pcfg_deform_table_fg:   *u8,   // ROM ptr to 256-byte signed FG H-deform (0 = none)
-    pcfg_deform_table_bg:   *u8,   // ROM ptr to 256-byte signed BG H-deform (0 = none)
-    pcfg_v_deform_table_bg: *u8,   // ROM ptr to 256-byte signed BG V-column (0 = whole-plane)
-    pcfg_v_deform_speed_bg: u8,    // 0 = static column shape, >0 = animated
-    pcfg_v_deform_shift_bg: u8,    // amplitude shift on V-column samples
-    pcfg_pad2:              [u8; 2],
-}
-
 // ---- struct drift wall — sizes + every field offset pinned to structs.asm ----
 ensure(sizeof(band_entry) == extern("band_entry_len"), "band_entry twin drifted from structs.asm: {sizeof(band_entry)}")
-ensure(sizeof(parallax_config) == extern("parallax_config_len"), "parallax_config twin drifted from structs.asm: {sizeof(parallax_config)}")
 ensure(offsetof(band_entry, band_top_cell) == extern("band_entry_band_top_cell"), "band_entry.band_top_cell drifted: {offsetof(band_entry, band_top_cell)}")
 ensure(offsetof(band_entry, band_factor_a_s1) == extern("band_entry_band_factor_a_s1"), "band_entry.band_factor_a_s1 drifted: {offsetof(band_entry, band_factor_a_s1)}")
 ensure(offsetof(band_entry, band_factor_a_s2) == extern("band_entry_band_factor_a_s2"), "band_entry.band_factor_a_s2 drifted: {offsetof(band_entry, band_factor_a_s2)}")
@@ -88,19 +68,6 @@ ensure(offsetof(band_entry, band_factor_b_op) == extern("band_entry_band_factor_
 ensure(offsetof(band_entry, band_deform_shift_a) == extern("band_entry_band_deform_shift_a"), "band_entry.band_deform_shift_a drifted: {offsetof(band_entry, band_deform_shift_a)}")
 ensure(offsetof(band_entry, band_deform_shift_b) == extern("band_entry_band_deform_shift_b"), "band_entry.band_deform_shift_b drifted: {offsetof(band_entry, band_deform_shift_b)}")
 ensure(offsetof(band_entry, band_phase_offset) == extern("band_entry_band_phase_offset"), "band_entry.band_phase_offset drifted: {offsetof(band_entry, band_phase_offset)}")
-ensure(offsetof(parallax_config, pcfg_band_count) == extern("parallax_config_pcfg_band_count"), "parallax_config.pcfg_band_count drifted: {offsetof(parallax_config, pcfg_band_count)}")
-ensure(offsetof(parallax_config, pcfg_v_factor_bg) == extern("parallax_config_pcfg_v_factor_bg"), "parallax_config.pcfg_v_factor_bg drifted: {offsetof(parallax_config, pcfg_v_factor_bg)}")
-ensure(offsetof(parallax_config, pcfg_layer_mask) == extern("parallax_config_pcfg_layer_mask"), "parallax_config.pcfg_layer_mask drifted: {offsetof(parallax_config, pcfg_layer_mask)}")
-ensure(offsetof(parallax_config, pcfg_v_center_y) == extern("parallax_config_pcfg_v_center_y"), "parallax_config.pcfg_v_center_y drifted: {offsetof(parallax_config, pcfg_v_center_y)}")
-ensure(offsetof(parallax_config, pcfg_v_offset) == extern("parallax_config_pcfg_v_offset"), "parallax_config.pcfg_v_offset drifted: {offsetof(parallax_config, pcfg_v_offset)}")
-ensure(offsetof(parallax_config, pcfg_transition) == extern("parallax_config_pcfg_transition"), "parallax_config.pcfg_transition drifted: {offsetof(parallax_config, pcfg_transition)}")
-ensure(offsetof(parallax_config, pcfg_deform_speed_fg) == extern("parallax_config_pcfg_deform_speed_fg"), "parallax_config.pcfg_deform_speed_fg drifted: {offsetof(parallax_config, pcfg_deform_speed_fg)}")
-ensure(offsetof(parallax_config, pcfg_deform_speed_bg) == extern("parallax_config_pcfg_deform_speed_bg"), "parallax_config.pcfg_deform_speed_bg drifted: {offsetof(parallax_config, pcfg_deform_speed_bg)}")
-ensure(offsetof(parallax_config, pcfg_deform_table_fg) == extern("parallax_config_pcfg_deform_table_fg"), "parallax_config.pcfg_deform_table_fg drifted: {offsetof(parallax_config, pcfg_deform_table_fg)}")
-ensure(offsetof(parallax_config, pcfg_deform_table_bg) == extern("parallax_config_pcfg_deform_table_bg"), "parallax_config.pcfg_deform_table_bg drifted: {offsetof(parallax_config, pcfg_deform_table_bg)}")
-ensure(offsetof(parallax_config, pcfg_v_deform_table_bg) == extern("parallax_config_pcfg_v_deform_table_bg"), "parallax_config.pcfg_v_deform_table_bg drifted: {offsetof(parallax_config, pcfg_v_deform_table_bg)}")
-ensure(offsetof(parallax_config, pcfg_v_deform_speed_bg) == extern("parallax_config_pcfg_v_deform_speed_bg"), "parallax_config.pcfg_v_deform_speed_bg drifted: {offsetof(parallax_config, pcfg_v_deform_speed_bg)}")
-ensure(offsetof(parallax_config, pcfg_v_deform_shift_bg) == extern("parallax_config_pcfg_v_deform_shift_bg"), "parallax_config.pcfg_v_deform_shift_bg drifted: {offsetof(parallax_config, pcfg_v_deform_shift_bg)}")
 
 // Displacement to the NEXT band's band_top_cell (peek-ahead) — the .field-in-disp
 // sugar does not compose in displacement arithmetic (row 1068), so a named const.

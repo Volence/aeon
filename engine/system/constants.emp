@@ -123,6 +123,13 @@ pub const ART_HDR_SIZE        = 4           // wrapper bytes ahead of the stream
 pub const ART_VER_S4LZ        = 1           // S4LZ v3 token stream (runtime tier)
 pub const ART_VER_ZX0         = 2           // ZX0 modern/V2 bitstream (load-time tier)
 
+// VRAM fixed-region byte addresses + plane geometry (mirrors
+// engine/constants.asm). First consumed at the tranche-21 buffers.emp port
+// (the static sprite/HScroll DMA entries and PlaneMapToVRAM's row stride).
+pub const VRAM_SPRITE_TABLE = $B800         // relocated from $D800 to free plane rows 48-63
+pub const VRAM_HSCROLL_TABLE = $BC00        // relocated from $DC00 (was inside Plane A 64x64 nametable)
+pub const PLANE_H_CELLS     = 64
+
 // VDP sprite-table geometry (mirrors engine/constants.asm — hoisted there
 // from sprites.asm at the tranche-11 sprites.emp port so it survives the
 // SIGIL_EMP_SPRITES gate for the gate-off rings.asm twin; kill-list row 17
@@ -227,3 +234,6 @@ ensure(extern("ART_HDR_VERSION") == ART_HDR_VERSION, "engine/constants.asm and e
 ensure(extern("ART_HDR_SIZE") == ART_HDR_SIZE, "engine/constants.asm and engine/constants.emp disagree on ART_HDR_SIZE — update the twin")
 ensure(extern("ART_VER_S4LZ") == ART_VER_S4LZ, "engine/constants.asm and engine/constants.emp disagree on ART_VER_S4LZ — update the twin")
 ensure(extern("ART_VER_ZX0") == ART_VER_ZX0, "engine/constants.asm and engine/constants.emp disagree on ART_VER_ZX0 — update the twin")
+ensure(extern("VRAM_SPRITE_TABLE") == VRAM_SPRITE_TABLE, "engine/constants.asm and engine/constants.emp disagree on VRAM_SPRITE_TABLE — update the twin")
+ensure(extern("VRAM_HSCROLL_TABLE") == VRAM_HSCROLL_TABLE, "engine/constants.asm and engine/constants.emp disagree on VRAM_HSCROLL_TABLE — update the twin")
+ensure(extern("PLANE_H_CELLS") == PLANE_H_CELLS, "engine/constants.asm and engine/constants.emp disagree on PLANE_H_CELLS — update the twin")
