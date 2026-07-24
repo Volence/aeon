@@ -118,7 +118,7 @@ Parallax_StartTransition:
         cmpa.w  #0, a0
         beq.s   .no_change                          ; null → inherit, no-op
         cmpa.l  (Parallax_Current_Config).w, a0
-        beq.s   .no_change                          ; matches current → no-op
+        beq.s   .recross_current                    ; matches current → cancel a staged transition, else no-op
         cmpa.l  (Parallax_Target_Config).w, a0
         beq.s   .no_change                          ; already transitioning to this → no-op
 
@@ -160,13 +160,52 @@ Parallax_StartTransition:
 .no_change:
         rts
 
+.recross_current:
+        ; Re-crossed into the CURRENT config's own section. If a transition to a
+        ; different config is staged (mid-lerp), CANCEL it: clear the stage, snap
+        ; the band scrolls back to current, and restore current's mode (active
+        ; config reverts to current the instant frames→0, so every mode/length/
+        ; stride consumer follows it back). With nothing staged this is the
+        ; genuine no-op (already settled on this config).
+        tst.b   (Parallax_Transition_Frames).w
+        beq.s   .no_change
+        move.l  #0, (Parallax_Target_Config).w
+        move.b  #0, (Parallax_Transition_Frames).w
+        move.b  #1, (Parallax_Snap_Pending).w       ; snap bands back to current
+        bra.s   .update_mode                        ; a0 == current → restore current's mode bits
+
+; ----------------------------------------------------------------------
+; Parallax_Active_Config — the transition state machine's single "active config"
+; selector. During a smooth transition (Transition_Frames > 0) the NEW (Target)
+; config is active for ALL structural decisions — render mode, HScroll DMA
+; length, VSRAM stride, band layout; only Plane B scroll lerps toward it. Every
+; mode/format/length consumer routes through here so they never disagree
+; mid-transition (the band builder, the fill format, and the mode-set-3 register
+; already commit to Target from frame 0; this accessor is the one they share).
+;
+; For a shipped (mode-equal) config pair Active and Current select the same mode,
+; so shipped rendering is unchanged.
+;
+; In:  none
+; Out: d0 = active parallax_config* (0 = inert); Z reflects d0.
+; Clobbers: d0
+; ----------------------------------------------------------------------
+Parallax_Active_Config:
+        tst.b   (Parallax_Transition_Frames).w
+        bne.s   .use_target
+        move.l  (Parallax_Current_Config).w, d0     ; Z from d0
+        rts
+.use_target:
+        move.l  (Parallax_Target_Config).w, d0      ; Z from d0
+        rts
+
 ; ----------------------------------------------------------------------
 ; Vscroll_Write — emit Vscroll_Factor (whole-plane) or column buf (per-column)
 ; T6 stub: always whole-plane. T12 adds per-column branch.
 ;
 ; Caller (VBlank handler) must hold stopZ80 — VDP writes happen here.
 ;
-; In:  none (reads Parallax_Current_Config, Vscroll_Factor)
+; In:  none (reads Parallax_Active_Config, Vscroll_Factor)
 ; Out: VSRAM written
 ; Clobbers: d0, a0, a5
 ;
@@ -184,8 +223,10 @@ Vscroll_Write:
         lea     (VDP_CTRL).l, a5
         move.l  #vdpComm(0, VSRAM, WRITE), (a5)
 
-        ; per-column or whole-plane?
-        move.l  (Parallax_Current_Config).w, d0
+        ; per-column or whole-plane? — key off the ACTIVE config (Target during
+        ; a transition) so the VSRAM stride matches the mode the register + fill
+        ; committed to at frame 0 (transition mode-contract).
+        bsr.s   Parallax_Active_Config              ; d0 = active config; Z reflects d0
         beq.s   .whole_plane
         movea.l d0, a0
         move.l  parallax_config_pcfg_v_deform_table_bg(a0), d0
@@ -226,10 +267,13 @@ Parallax_Update:
         beq.s   .use_current
         subq.b  #1, (Parallax_Transition_Frames).w
         bne.s   .use_target
-        ; counter just hit 0 → promote target into current, clear target
+        ; counter just hit 0 → promote target into current, clear target.
+        ; The d0→Current move is LAST so .config_resolved reads Z from d0:
+        ; every path into .config_resolved leaves the active config in d0 with
+        ; Z reflecting it, so `beq .no_config` fires only for a genuine null.
         move.l  (Parallax_Target_Config).w, d0
-        move.l  d0, (Parallax_Current_Config).w
         move.l  #0, (Parallax_Target_Config).w
+        move.l  d0, (Parallax_Current_Config).w
         bra.s   .config_resolved
 .use_target:
         move.l  (Parallax_Target_Config).w, d0
@@ -293,10 +337,25 @@ Parallax_Update:
         bne.s   .snap_b
         tst.b   (Parallax_Transition_Frames).w
         beq.s   .snap_b                             ; no transition — lock to target
-        move.w  (a3), d1
-        sub.w   d1, d2
-        asr.w   #PARALLAX_LERP_SHIFT, d2
-        add.w   d2, d1
+        ; frames-remaining ramp: step = (target − current) / frames_remaining,
+        ; so the BG scroll converges EXACTLY by the last window frame
+        ; (frames_remaining reaches 1 → step = the whole residual). The promote
+        ; frame's .snap_b is then a no-op (current already equals target) — no
+        ; end-of-transition pop. d4 is dead here (it is rewritten with current_b
+        ; at .write_b), so it carries the divisor.
+        ; Divisor invariant: the divide path is reached only past the
+        ; `tst.b Transition_Frames / beq .snap_b` above, so frames_remaining is
+        ; 1..PARALLAX_TRANS_DEFAULT here — never 0. Divide-by-zero is structurally
+        ; unreachable. The gap is ext.l'd to a 32-bit dividend; |quotient| =
+        ; |gap|/frames_remaining ≤ |gap| ≤ $7FFF fits a word, so divs never
+        ; overflows.
+        move.w  (a3), d1                            ; d1 = current_b
+        sub.w   d1, d2                              ; d2.w = target − current (gap)
+        ext.l   d2                                  ; sign-extend gap → 32-bit dividend
+        moveq   #0, d4
+        move.b  (Parallax_Transition_Frames).w, d4 ; frames_remaining 1..15
+        divs.w  d4, d2                              ; d2.w = gap / frames_remaining = ramp step
+        add.w   d2, d1                              ; d1 = current + step
         bra.s   .write_b
 .snap_b:
         move.w  d2, d1                              ; snap: current_b = target
