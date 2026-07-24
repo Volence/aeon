@@ -1,4 +1,5 @@
 ; Boot sequence — TMSS, VDP init, Z80 init, memory clearing
+; (§ references = docs/ENGINE_ARCHITECTURE.md)
 
 ; -----------------------------------------------
 ; EntryPoint — first instruction after reset
@@ -13,10 +14,12 @@ EntryPoint:
 ; Warm_Boot — soft reset path
 ; -----------------------------------------------
 Warm_Boot:
-        ; Wait for any in-progress DMA
+        ; Wait for any in-progress DMA. (Safe pre-handshake on TMSS
+        ; hardware: the TMSS boot ROM has already unlocked the VDP on every
+        ; reset path before the cartridge runs.)
 .wait_dma:
         move.w  (VDP_CTRL).l, d0
-        btst    #1, d0
+        btst    #1, d0                      ; VDP status bit 1 = DMA busy
         bne.s   .wait_dma
 
         ; Fall through to cold boot.
@@ -27,7 +30,7 @@ Warm_Boot:
 Cold_Boot:
         ; TMSS handshake (§0.2)
         move.b  (HW_VERSION).l, d0
-        andi.b  #$F, d0
+        andi.b  #$F, d0                     ; low nibble = hardware version (0 = pre-TMSS)
         beq.s   .no_tmss
         move.l  #$53454741, (TMSS_REGISTER).l   ; "SEGA"
 .no_tmss:
@@ -35,7 +38,10 @@ Cold_Boot:
         ; Reset VDP command word state machine
         move.w  (VDP_CTRL).l, d0
 
-        ; Preload hardware addresses via movem
+        ; Preload hardware addresses via movem — the table head assigns:
+        ; d5=$8000 (VDP reg cmd base) d6=RAM-clear dbf count d7=$0100 (reg
+        ; stride / Z80 bus value); a0=Z80_RAM a1=Z80_BUS_REQUEST a2=Z80_RESET
+        ; a3=VDP_DATA a4=VDP_CTRL (boot_data.asm owns the values).
         lea.l   BootData(pc), a5
         movem.w (a5)+, d5-d7
         movem.l (a5)+, a0-a4
@@ -55,6 +61,15 @@ Cold_Boot:
         move.w  d0, (a3)                    ; trigger fill (fill byte = 0)
 
         ; --- PARALLEL WORK WHILE DMA FILLS VRAM ---
+        ; Window invariant: until .wait_fill, nothing may touch the VDP DATA
+        ; port ($C00000) — a data write mid-fill both lands in VRAM and
+        ; REPLACES the fill byte. The PSG writes below ($C00011) are the one
+        ; VDP-DECODED access in the window; their safety is TEMPORAL, not
+        ; topological: the 64KB RAM clear (~360k cycles ≈ 47ms) strictly
+        ; dominates the display-off fill (~21ms), so the fill is complete
+        ; before the PSG loop runs. Moving the PSG loop ahead of the RAM
+        ; clear (or shrinking the clear) re-opens a real-hardware hazard —
+        ; move it below .wait_fill instead.
 
         ; Z80 init (§0.5)
         move.w  d0, (a2)                    ; assert Z80 reset
@@ -67,7 +82,7 @@ Cold_Boot:
 
         ; Copy Z80 program to Z80 RAM (a5 already points at the included blob)
     ifdef SOUND_DRIVER_ENABLED
-        move.w  #Z80_SOUND_SIZE-1, d1       ; word count — blob may exceed moveq range
+        move.w  #Z80_SOUND_SIZE-1, d1       ; byte count — the blob size exceeds moveq's signed-8 immediate
     else
         moveq   #Z80_IDLE_SIZE-1, d1
     endif
@@ -85,7 +100,7 @@ Cold_Boot:
 
         ; Clear Work RAM — 64KB (§0.7)
         movea.l d0, a6                      ; a6 = 0
-        move.w  d6, d2                      ; d2 = $3FFF (longword count)
+        move.w  d6, d2                      ; d2 = $3FFF dbf count → $4000 longs = 64KB
 .clear_ram:
         move.l  d0, -(a6)                   ; wraps: $00000000 → $FFFFFFFC → ... → $FFFF0000
         dbf     d2, .clear_ram
@@ -120,7 +135,12 @@ Cold_Boot:
         move.l  d0, (a3)
         dbf     d2, .clear_vsram
 
-        ; YM2612 key-off — silence all 6 FM channels (§0.6)
+        ; YM2612 key-off — silence all 6 FM channels (§0.6). CHOSEN
+        ; compromise: these writes are NOT busy-paced (~3.5us apart vs the
+        ; chip's ~25us busy window), so on real silicon most are swallowed —
+        ; boot silence is actually guaranteed by the >=192-cycle /IC reset
+        ; pulse above; this block is belt-and-braces. If it ever becomes
+        ; load-bearing, poll $A04000 bit 7 between data writes.
         stopZ80
         lea.l   (YM2612_A0).l, a6
         move.b  #$28, (a6)                  ; select Key On/Off register
@@ -136,7 +156,7 @@ Cold_Boot:
         dbf     d1, .keyoff_part2
         startZ80
 
-        ; Clear all 68K registers
+        ; Clear d0-a6 from just-cleared RAM (sp keeps the reset-vector stack)
         movem.l (RAM_Start).w, d0-a6
 
         ; Disable all interrupts
@@ -160,9 +180,9 @@ Cold_Boot:
         ; Region detection (§0.8)
         move.b  (HW_VERSION).l, d0
         move.b  d0, (Hardware_Region).w
-        andi.b  #$C0, d0
+        andi.b  #$C0, d0                    ; keep bits 7:6 (domestic/export, NTSC/PAL)
         move.b  d0, (Region_Flags).w
-        btst    #6, d0
+        btst    #6, d0                      ; bit 6 = PAL
         bne.s   .pal
         move.w  #NTSC_TIMING_STEP, (Timing_Step).w
         move.w  #DMA_BUDGET_NTSC, (DMA_Budget_Default).w
@@ -171,7 +191,7 @@ Cold_Boot:
         move.w  #PAL_TIMING_STEP, (Timing_Step).w
         move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w
 .region_done:
-        move.w  #0, (Frame_Accumulator).w
+        clr.w   (Frame_Accumulator).w       ; RAM operand — the 68000 clr read-before-write hazard is I/O-only
 
         ; Controller port init (§0.9)
         move.b  #$40, (HW_PORT_1_CTRL).l    ; TH as output
@@ -221,67 +241,3 @@ Cold_Boot:
 
         ; Enter main loop — never returns
         bra.w   GameLoop
-
-; -----------------------------------------------
-; Boot Data Table — read sequentially via (a5)+
-; -----------------------------------------------
-BootData:
-        ; Movem preload: d5-d7
-        dc.w    $8000                       ; d5: VDP reg command base
-        dc.w    bytesToLcnt($10000)         ; d6: RAM clear longword count ($3FFF)
-        dc.w    $0100                       ; d7: Z80 bus/reset value
-
-        ; Movem preload: a0-a4
-        dc.l    Z80_RAM                     ; a0
-        dc.l    Z80_BUS_REQUEST             ; a1
-        dc.l    Z80_RESET                   ; a2
-        dc.l    VDP_DATA                    ; a3
-        dc.l    VDP_CTRL                    ; a4
-
-        ; VDP register values $00-$17 (§0.3)
-BootData_VDPRegs:
-        dc.b    $04                         ; $00: HInt off, HV counter readable
-        dc.b    $14                         ; $01: display OFF, VInt OFF, DMA ON
-        dc.b    $30                         ; $02: Plane A nametable at $C000
-        dc.b    $3C                         ; $03: Window nametable at $F000
-        dc.b    $07                         ; $04: Plane B nametable at $E000
-        dc.b    $5C                         ; $05: Sprite table at $B800
-        dc.b    $00                         ; $06: unused
-        dc.b    $00                         ; $07: BG color = pal 0, entry 0
-        dc.b    $00                         ; $08: unused (SMS compat)
-        dc.b    $00                         ; $09: unused (SMS compat)
-        dc.b    $FF                         ; $0A: HInt counter = every 256 lines
-        dc.b    $00                         ; $0B: full-screen V/H scroll
-        dc.b    $81                         ; $0C: H40 (320px), no interlace
-        dc.b    $2F                         ; $0D: HScroll table at $BC00
-        dc.b    $00                         ; $0E: unused
-        dc.b    $02                         ; $0F: auto-increment = 2 (normal word access)
-        dc.b    $11                         ; $10: 64x64 scroll planes
-        dc.b    $00                         ; $11: window H disabled
-        dc.b    $00                         ; $12: window V disabled
-        dc.b    $FF                         ; $13: DMA length low = $FF
-        dc.b    $FF                         ; $14: DMA length high = $FF
-        dc.b    $00                         ; $15: DMA source low
-        dc.b    $00                         ; $16: DMA source mid
-        dc.b    $80                         ; $17: DMA fill mode
-
-        ; VRAM DMA fill command
-        dc.l    vdpComm(0, VRAM, DMA)
-
-        ; Z80 program (assembled Z80 code) — sound driver replaces idle when enabled
-    ifdef SOUND_DRIVER_ENABLED
-        include "engine/sound/z80_sound_driver.asm"
-    else
-        include "engine/system/z80_init.asm"
-    endif
-        align 2
-
-        ; PSG silence values
-        dc.b    $9F, $BF, $DF, $FF
-        align 2
-
-        ; Post-DMA VDP commands
-        dc.w    vdpReg($0F, $02)            ; restore auto-increment to 2
-        dc.l    vdpComm(0, CRAM, WRITE)
-        dc.l    vdpComm(0, VSRAM, WRITE)
-BootData_End:
