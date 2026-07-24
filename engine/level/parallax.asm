@@ -161,12 +161,37 @@ Parallax_StartTransition:
         rts
 
 ; ----------------------------------------------------------------------
+; Parallax_Active_Config — the transition state machine's single "active config"
+; selector. During a smooth transition (Transition_Frames > 0) the NEW (Target)
+; config is active for ALL structural decisions — render mode, HScroll DMA
+; length, VSRAM stride, band layout; only Plane B scroll lerps toward it. Every
+; mode/format/length consumer routes through here so they never disagree
+; mid-transition (the band builder, the fill format, and the mode-set-3 register
+; already commit to Target from frame 0; this accessor is the one they share).
+;
+; For a shipped (mode-equal) config pair Active and Current select the same mode,
+; so shipped rendering is unchanged.
+;
+; In:  none
+; Out: d0 = active parallax_config* (0 = inert); Z reflects d0.
+; Clobbers: d0
+; ----------------------------------------------------------------------
+Parallax_Active_Config:
+        tst.b   (Parallax_Transition_Frames).w
+        bne.s   .use_target
+        move.l  (Parallax_Current_Config).w, d0     ; Z from d0
+        rts
+.use_target:
+        move.l  (Parallax_Target_Config).w, d0      ; Z from d0
+        rts
+
+; ----------------------------------------------------------------------
 ; Vscroll_Write — emit Vscroll_Factor (whole-plane) or column buf (per-column)
 ; T6 stub: always whole-plane. T12 adds per-column branch.
 ;
 ; Caller (VBlank handler) must hold stopZ80 — VDP writes happen here.
 ;
-; In:  none (reads Parallax_Current_Config, Vscroll_Factor)
+; In:  none (reads Parallax_Active_Config, Vscroll_Factor)
 ; Out: VSRAM written
 ; Clobbers: d0, a0, a5
 ;
@@ -184,8 +209,10 @@ Vscroll_Write:
         lea     (VDP_CTRL).l, a5
         move.l  #vdpComm(0, VSRAM, WRITE), (a5)
 
-        ; per-column or whole-plane?
-        move.l  (Parallax_Current_Config).w, d0
+        ; per-column or whole-plane? — key off the ACTIVE config (Target during
+        ; a transition) so the VSRAM stride matches the mode the register + fill
+        ; committed to at frame 0 (transition mode-contract).
+        bsr.s   Parallax_Active_Config              ; d0 = active config; Z reflects d0
         beq.s   .whole_plane
         movea.l d0, a0
         move.l  parallax_config_pcfg_v_deform_table_bg(a0), d0

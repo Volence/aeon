@@ -165,7 +165,11 @@ Enqueue_Dirty_Buffers:
 .no_spr:
         ; §4.6: enqueue HScroll DMA when a parallax_config is active.
         ; Mode auto-selected: any H-deform table → per-line (896B), else per-cell (112B).
-        move.l  (Parallax_Current_Config).w, d0
+        ; Length keys off the ACTIVE config (Target during a transition) so the DMA
+        ; byte count matches the mode the buffer was built + the VDP was told to
+        ; render in — otherwise a mode-differing transition ships a cell-length DMA
+        ; for a line-mode buffer (or vice versa) = the ≤16-frame tear.
+        jsr     Parallax_Active_Config              ; d0 = active config; Z reflects d0
         beq.s   .hs_cell                            ; NULL → per-cell default
         movea.l d0, a1
         move.l  parallax_config_pcfg_deform_table_fg(a1), d0
