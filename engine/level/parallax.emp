@@ -28,9 +28,10 @@ const VDP_DATA_OFF = VDP_DATA - VDP_CTRL     // = -4
 // dirty mask; VDP_MODE3_OFF comes from the shared engine.vdp shadow-offset
 // block (drift-locked there against structs.asm).
 
-// Parallax_State clear span in longwords — mirrored comptime so the Init moveq
-// can embed it (moveq embeds its immediate in the opcode word; a link-time extern
-// difference cannot defer there). Drift-locked to the ram.asm layout.
+// Parallax_State clear span in longwords — a NAMED comptime mirror for the
+// Init moveq, drift-locked to the ram.asm layout. (moveq link-deferral exists
+// — the ImmSigned8 fixup — but the named count + drift-lock reads better than
+// inline extern arithmetic; keeping the mirror is the chosen spelling.)
 const PARALLAX_STATE_LONGS = 61
 ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from ram.asm: expected {PARALLAX_STATE_LONGS} longs")
 
@@ -223,7 +224,8 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         beq     .v_done
         ori.b   #%100, d0                           // bit 2 = per-column V
     .v_done:
-        // setVDPReg VDP_Shadow_vdp_mode3, d0 (inlined; set_vdp_reg = step-4)
+        // setVDPReg VDP_Shadow_vdp_mode3, d0 — write-through shadow + dirty
+        // (shared set_vdp_reg helper = ledgered adoption debt, 3-site census)
         move.b  d0, VDP_Shadow_Table + VDP_MODE3_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode3).w
         ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask  // (VDP_Dirty_Mask).w
 
