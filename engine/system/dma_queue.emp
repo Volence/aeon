@@ -43,7 +43,7 @@ comptime fn fill_slot_markers(n: int) -> Code {
 pub proc Init_DMA_Queue () clobbers(d0-d1/a0) {
         lea     DMA_Queue, a0                   // (DMA_Queue).w
         moveq   #-$6C, d0                       // $94 sign-extended
-        move.l  #$93979695, d1
+        move.l  #$93979695, d1                  // reg markers $93/$97/$96/$95 — one movep.l lands all four at offsets 2/4/6/8
         fill_slot_markers(DMA_TOTAL_SLOTS)
         // Slot vars hold the next free entry's address; empty = queue base.
         // (dest widths pinned `.w`: a link-time #imm source with a bare

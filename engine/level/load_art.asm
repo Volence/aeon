@@ -33,7 +33,8 @@ Art_Decompress:
 ;
 ; In:  a0 = act descriptor pointer
 ; Out: none
-; Clobbers: d0–d7, a0–a3 (a4–a6 preserved by callee discipline below)
+; Clobbers: d0–d5, d7, a0–a3; d6/a4–a6 are movem-PRESERVED (the loop-live
+;      registers below sit in them so both callees' licenses leave them alone)
 ;
 ; The act ships one paged art pool. Each page
 ; is a wrapped ZX0/S4LZ blob of up to ART_POOL_PAGE_TILES (256) tiles. We
@@ -55,7 +56,7 @@ Art_Decompress:
 ;   the queue attempt (QueueDMA_Critical clobbers d4, so a drop-retry can't
 ;   re-read the length from d4).
 ;
-; Drop handling (Fable rider): QueueDMA_Critical's carry is consumed IMMEDIATELY
+; Drop handling: QueueDMA_Critical's carry is consumed IMMEDIATELY
 ; (VSync_Wait, the next call, clobbers CCR and d0). A drop should never happen
 ; here — init runs display-off with an extended VBlank that drains Critical every
 ; VSync — so DEBUG asserts on it (RaiseError) and release honestly drains a frame
