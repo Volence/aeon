@@ -33,6 +33,32 @@
 module engine.bg_anim in bg_anim
 
 const BGANIM_MAX_BANDS = 4
+const BGANIM_BANKS     = 8          // pre-shifted art banks, 1px apart (fine phase)
+
+// The 44-byte band record — the comptime layout twin of the table
+// tools/inject_editor_bg.py emits (the OTHER author of this layout; see the
+// LOCKSTEP note in the emitter). The runtime walk stays `(a3)+` streams —
+// this struct exists so every hand-tracked cursor offset below is DERIVED
+// from the layout instead of a magic number.
+struct bganim_band {
+    driver:     u16,                // 0 = Camera_X, 1 = Camera_Y, 2 = Frame_Counter
+    rate_shift: u16,                // step = driver_value >> rate_shift
+    step_mask:  u16,                // pattern width in px, minus 1
+    col_shift:  u16,                // log2 of column stride in bytes (rows*32)
+    tile_count: u16,
+    vram_dest:  u16,                // VRAM byte address of the band's first slot
+    banks:      [*u8; 8],           // bank0..bank7 pre-shifted art, 1px per bank
+}
+ensure(sizeof(bganim_band) == 44, "bganim_band drifted from the inject_editor_bg.py record layout: {sizeof(bganim_band)}")
+
+// Walk-cursor displacements, derived from the record. After the step
+// computation the cursor sits at col_shift (driver/rate_shift/step_mask
+// consumed), so "to the banks" is one distance used twice: as the bank-read
+// displacement and as the .skip_band advance over the unread fixed fields.
+const BGANIM_COL_SHIFT_TO_BANKS = offsetof(bganim_band, banks) - offsetof(bganim_band, col_shift)   // = 6
+const BGANIM_BANKS_BYTES        = sizeof(bganim_band) - offsetof(bganim_band, banks)                // = 32
+const BGANIM_SPILL_BYTES        = 6 // the 3-word piece2-len/dest/piece1-len stack spill below
+const TILE_BYTES_SHIFT          = 5 // log2(32 bytes per 8x8 tile)
 
 // The DMA-queue enqueue's contract (kill-list row 32's class — the dplc.emp
 // decl verbatim; deleted the commit dma_queue ports to .emp).
@@ -65,6 +91,9 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         lea     BgAnim_Table, a3                // (BgAnim_Table).l
         lea     BgAnim_LastStep, a4             // (BgAnim_LastStep).w
         move.w  (a3)+, d7                       // band count
+        assert.w d7, ls, #BGANIM_MAX_BANDS      // table wider than BgAnim_LastStep = a4 walk
+                                                // off the state array + garbage DMAs (the
+                                                // emitter asserts <= 4; this is defense-in-depth)
         beq     .exit
         subq.w  #1, d7
     .band_loop:
@@ -90,16 +119,16 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
 
         // -- fine phase: bank pointer (record offset: banks at a3+6) --
         move.w  d0, d1
-        and.w   #7, d1
+        and.w   #BGANIM_BANKS-1, d1
         add.w   d1, d1
-        add.w   d1, d1
-        move.l  6(a3,d1.w), d6                  // d6 = bank base
+        add.w   d1, d1                          // fine phase × 4 (pointer table)
+        move.l  BGANIM_COL_SHIFT_TO_BANKS(a3,d1.w), d6  // d6 = bank base
         // -- coarse: whole-column rotation in bytes --
-        lsr.w   #3, d0
+        lsr.w   #3, d0                          // step / BGANIM_BANKS → whole columns
         move.w  (a3)+, d1                       // col_shift
         lsl.w   d1, d0                          // d0 = shift bytes
         move.w  (a3)+, d3                       // tile_count
-        lsl.w   #5, d3                          // total bytes
+        lsl.w   #TILE_BYTES_SHIFT, d3           // total bytes
         move.w  (a3)+, d2                       // vram dest
         sub.w   d0, d3                          // d3 = piece 1 length (> 0)
         move.w  d0, -(sp)                       // piece 2 length (= shift bytes)
@@ -127,12 +156,12 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         jbra    .next_band
 // ---------------------------------------------------------------
     .queue_full:
-        addq.w  #6, sp
+        addq.w  #BGANIM_SPILL_BYTES, sp
         jbra    .next_band
     .skip_band:
-        addq.w  #6, a3                          // col_shift + count + dest
+        addq.w  #BGANIM_COL_SHIFT_TO_BANKS, a3  // over col_shift + count + dest
     .next_band:
-        lea     32(a3), a3                      // past the 8 bank pointers
+        lea     BGANIM_BANKS_BYTES(a3), a3      // past the 8 bank pointers
         addq.w  #2, a4
         dbf     d7, .band_loop
     .exit:

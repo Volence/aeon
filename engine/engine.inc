@@ -439,12 +439,14 @@ __BUDGET_ENGINE:
         ; reference address. Resume placement at the region end (the next
         ; placement is compression_selftest.asm, whose only label is
         ; __DEBUG__-gated — the region carries a literal length in repin.toml,
-        ; the sound_api precedent). Shape-INVARIANT length ($A0 both shapes —
-        ; no __DEBUG__ code, no asserts).
+        ; the sound_api precedent). Shape-DEPENDENT length ($9E plain / $100
+        ; debug — the band-count assert + its message blob exist only in the
+        ; debug shape), so the two resume orgs differ by more than the base
+        ; slide.
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $6F30
+        org     $6F92
       else
         org     $625C
       endif
@@ -464,7 +466,7 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $7F7E
+        org     $7FE0
         else
         org     $6466
         endif

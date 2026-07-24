@@ -56,6 +56,9 @@ BgAnim_Update:
         lea     (BgAnim_Table).l, a3
         lea     (BgAnim_LastStep).w, a4
         move.w  (a3)+, d7                       ; band count
+        assert.w d7, ls, #BGANIM_MAX_BANDS      ; table wider than BgAnim_LastStep = a4 walk
+                                                ; off the state array + garbage DMAs (the
+                                                ; emitter asserts <= 4; this is defense-in-depth)
         beq.s   .exit
         subq.w  #1, d7
 .band_loop:
