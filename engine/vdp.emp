@@ -32,6 +32,18 @@ pub const VDP_CTRL = $C00004
 ensure(extern("VDP_DATA") == VDP_DATA, "engine/constants.asm and engine.vdp disagree on VDP_DATA — update the twin")
 ensure(extern("VDP_CTRL") == VDP_CTRL, "engine/constants.asm and engine.vdp disagree on VDP_CTRL — update the twin")
 
+// VDP_Shadow register-slot offsets (truth: engine/structs.asm VDP_Shadow
+// struct) — the write-through-shadow consumers read registers back through
+// these. Hoisted here when boot became the 2nd file mirroring VDP_Shadow
+// offsets (hblank carried the first two); each is drift-locked to its
+// struct-generated AS symbol.
+pub const VDP_MODE1_OFF = $00                // reg $00 (Mode Set 1) — carries IE1
+pub const VDP_MODE2_OFF = $01                // reg $01 (Mode Set 2) — carries VInt enable
+pub const VDP_HINT_OFF  = $0A                // reg $0A — HInt line counter
+ensure(VDP_MODE1_OFF == extern("VDP_Shadow_vdp_mode1"), "engine/structs.asm and engine.vdp disagree on the vdp_mode1 shadow offset — update VDP_MODE1_OFF")
+ensure(VDP_MODE2_OFF == extern("VDP_Shadow_vdp_mode2"), "engine/structs.asm and engine.vdp disagree on the vdp_mode2 shadow offset — update VDP_MODE2_OFF")
+ensure(VDP_HINT_OFF == extern("VDP_Shadow_vdp_hint_rate"), "engine/structs.asm and engine.vdp disagree on the vdp_hint_rate shadow offset — update VDP_HINT_OFF")
+
 // The %-encodings (truth: engine/constants.asm). Exhaustive match — Plan-3
 // totality checks it, so a new variant FORCES the mapper to grow.
 comptime fn target_bits(t: VdpTarget) -> int {

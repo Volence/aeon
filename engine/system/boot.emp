@@ -7,7 +7,7 @@
 // .emp reaches the table head via `lea BootData(pc)` across the region seam.
 module engine.boot in boot
 
-use engine.vdp.{VDP_DATA, VDP_CTRL}
+use engine.vdp.{VDP_DATA, VDP_CTRL, VDP_MODE2_OFF}
 use engine.z80_bus.{stop_z80, start_z80}
 
 // The hardware ports below (HW_*, TMSS_REGISTER, YM2612_A0) are bare
@@ -25,19 +25,19 @@ const PSG_PORT = $C00011
 const PSG_DATA_OFF = PSG_PORT - VDP_DATA
 ensure(extern("PSG_PORT") == PSG_PORT, "engine/constants.asm and boot.emp disagree on PSG_PORT — update the mirror")
 
-// VDP shadow offset of register $01 (Mode Set 2) — truth: engine/structs.asm
-// VDP_Shadow struct. Drift-locked below (the hblank.emp offset-mirror class).
-const VDP_MODE2_OFF = $01
-ensure(extern("VDP_Shadow_vdp_mode2") == VDP_MODE2_OFF, "engine/structs.asm and boot.emp disagree on the vdp_mode2 shadow offset — update VDP_MODE2_OFF")
-
 // vdpReg (engine/macros.asm): VDP register-set command word — $8000 base,
-// register number in the high byte, value in the low byte.
-comptime fn vdp_reg(reg: int, val: int) -> int {
+// register number in the high byte, value in the low byte. The refinements
+// close the macro's silent bit-collisions (vram_art precedent): reg > $17
+// would name a register the VDP doesn't have, val > $FF would bleed into the
+// register-number byte.
+comptime fn vdp_reg(reg: int where 0..$17, val: int where 0..$FF) -> int {
     return $8000 | (reg << 8) | val
 }
 
 // bytesToLcnt (engine/macros.asm): byte count -> dbf longword-loop count.
-comptime fn bytes_to_lcnt(n: int) -> int {
+// Bounded to the real clear-loop domain; a non-multiple-of-4 count would
+// silently floor (the AS function shares that edge — documentary).
+comptime fn bytes_to_lcnt(n: int where 4..$10000) -> int {
     return n / 4 - 1
 }
 
@@ -59,7 +59,7 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // Wait for any in-progress DMA
     .wait_dma:
         move.w  VDP_CTRL, d0
-        btst    #1, d0
+        btst    #1, d0                      // VDP status bit 1 = DMA busy
         bne     .wait_dma
 
         // Fall through to cold boot.
@@ -70,7 +70,7 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
     .cold_boot:
         // TMSS handshake (§0.2)
         move.b  HW_VERSION, d0
-        andi.b  #$F, d0
+        andi.b  #$F, d0                     // low nibble = hardware version (0 = pre-TMSS)
         beq     .no_tmss
         move.l  #$53454741, TMSS_REGISTER       // "SEGA"
     .no_tmss:
@@ -78,7 +78,10 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // Reset VDP command word state machine
         move.w  VDP_CTRL, d0
 
-        // Preload hardware addresses via movem
+        // Preload hardware addresses via movem — the table head assigns:
+        // d5=$8000 (VDP reg cmd base) d6=RAM-clear dbf count d7=$0100 (reg
+        // stride / Z80 bus value); a0=Z80_RAM a1=Z80_BUS_REQUEST a2=Z80_RESET
+        // a3=VDP_DATA a4=VDP_CTRL (boot_data.asm owns the values).
         lea     BootData(pc), a5
         movem.w (a5)+, d5-d7
         movem.l (a5)+, a0-a4
@@ -110,7 +113,7 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
 
         // Copy Z80 program to Z80 RAM (a5 already points at the included blob)
         if SOUND_DRIVER_ENABLED == 1 {
-            move.w  #Z80_SOUND_SIZE-1, d1   // word count — blob may exceed moveq range
+            move.w  #Z80_SOUND_SIZE-1, d1   // byte count — the blob size exceeds moveq's signed-8 immediate
         } else {
             moveq   #Z80_IDLE_SIZE-1, d1
         }
@@ -128,7 +131,7 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
 
         // Clear Work RAM — 64KB (§0.7)
         movea.l d0, a6                      // a6 = 0
-        move.w  d6, d2                      // d2 = $3FFF (longword count)
+        move.w  d6, d2                      // d2 = $3FFF dbf count → $4000 longs = 64KB
     .clear_ram:
         move.l  d0, -(a6)                   // wraps: $00000000 → $FFFFFFFC → ... → $FFFF0000
         dbf     d2, .clear_ram
@@ -203,9 +206,9 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // Region detection (§0.8)
         move.b  HW_VERSION, d0
         move.b  d0, Hardware_Region
-        andi.b  #$C0, d0
+        andi.b  #$C0, d0                    // keep bits 7:6 (domestic/export, NTSC/PAL)
         move.b  d0, Region_Flags
-        btst    #6, d0
+        btst    #6, d0                      // bit 6 = PAL
         bne     .pal
         move.w  #NTSC_TIMING_STEP, (Timing_Step).w          // explicit .w x4: link-imm source +
         move.w  #DMA_BUDGET_NTSC, (DMA_Budget_Default).w    // relaxable dest can't share an

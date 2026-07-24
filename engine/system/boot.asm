@@ -16,7 +16,7 @@ Warm_Boot:
         ; Wait for any in-progress DMA
 .wait_dma:
         move.w  (VDP_CTRL).l, d0
-        btst    #1, d0
+        btst    #1, d0                      ; VDP status bit 1 = DMA busy
         bne.s   .wait_dma
 
         ; Fall through to cold boot.
@@ -27,7 +27,7 @@ Warm_Boot:
 Cold_Boot:
         ; TMSS handshake (§0.2)
         move.b  (HW_VERSION).l, d0
-        andi.b  #$F, d0
+        andi.b  #$F, d0                     ; low nibble = hardware version (0 = pre-TMSS)
         beq.s   .no_tmss
         move.l  #$53454741, (TMSS_REGISTER).l   ; "SEGA"
 .no_tmss:
@@ -35,7 +35,10 @@ Cold_Boot:
         ; Reset VDP command word state machine
         move.w  (VDP_CTRL).l, d0
 
-        ; Preload hardware addresses via movem
+        ; Preload hardware addresses via movem — the table head assigns:
+        ; d5=$8000 (VDP reg cmd base) d6=RAM-clear dbf count d7=$0100 (reg
+        ; stride / Z80 bus value); a0=Z80_RAM a1=Z80_BUS_REQUEST a2=Z80_RESET
+        ; a3=VDP_DATA a4=VDP_CTRL (boot_data.asm owns the values).
         lea.l   BootData(pc), a5
         movem.w (a5)+, d5-d7
         movem.l (a5)+, a0-a4
@@ -67,7 +70,7 @@ Cold_Boot:
 
         ; Copy Z80 program to Z80 RAM (a5 already points at the included blob)
     ifdef SOUND_DRIVER_ENABLED
-        move.w  #Z80_SOUND_SIZE-1, d1       ; word count — blob may exceed moveq range
+        move.w  #Z80_SOUND_SIZE-1, d1       ; byte count — the blob size exceeds moveq's signed-8 immediate
     else
         moveq   #Z80_IDLE_SIZE-1, d1
     endif
@@ -85,7 +88,7 @@ Cold_Boot:
 
         ; Clear Work RAM — 64KB (§0.7)
         movea.l d0, a6                      ; a6 = 0
-        move.w  d6, d2                      ; d2 = $3FFF (longword count)
+        move.w  d6, d2                      ; d2 = $3FFF dbf count → $4000 longs = 64KB
 .clear_ram:
         move.l  d0, -(a6)                   ; wraps: $00000000 → $FFFFFFFC → ... → $FFFF0000
         dbf     d2, .clear_ram
@@ -160,9 +163,9 @@ Cold_Boot:
         ; Region detection (§0.8)
         move.b  (HW_VERSION).l, d0
         move.b  d0, (Hardware_Region).w
-        andi.b  #$C0, d0
+        andi.b  #$C0, d0                    ; keep bits 7:6 (domestic/export, NTSC/PAL)
         move.b  d0, (Region_Flags).w
-        btst    #6, d0
+        btst    #6, d0                      ; bit 6 = PAL
         bne.s   .pal
         move.w  #NTSC_TIMING_STEP, (Timing_Step).w
         move.w  #DMA_BUDGET_NTSC, (DMA_Budget_Default).w
