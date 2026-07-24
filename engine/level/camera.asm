@@ -3,6 +3,10 @@
 
 CAM_SCREEN_HALF_W   = 160
 CAM_SCREEN_HALF_H   = 112
+CAM_X_DEADZONE_INIT = $10       ; Camera_Deadzone_Base seed: the classic 16px
+                                ; asymmetric X window (variable at runtime —
+                                ; game code may widen it; Y's stays fixed)
+CAM_Y_DEADZONE      = 32        ; fixed vertical deadzone half-window (px)
 CAM_MAX_X_STEP      = 16        ; max horizontal scroll px/frame (classic S2/CD;
                                 ; S3K=24, imperceptible at the 6px/f player top
                                 ; speed). Caps large player position jumps (e.g.
@@ -11,17 +15,17 @@ CAM_MAX_X_STEP      = 16        ; max horizontal scroll px/frame (classic S2/CD;
 
 ; -----------------------------------------------
 ; Camera_Init — initialise from act descriptor
-; In:  a0 = act descriptor pointer
+; In:  a0 = act descriptor pointer (read only — preserved)
 ; Out: none
-; Clobbers: d0, a0
+; Clobbers: d0
 ; -----------------------------------------------
 Camera_Init:
         ; Camera_X/Y are 16.16 fixed-point, WORLD coordinates (continuous-scroll).
         ; start X = (start_sec_x << SECTION_SIZE_SHIFT) + start_local_x - CAM_SCREEN_HALF_W
         moveq   #0, d0
         move.b  Act_start_sec_x(a0), d0
-        lsl.l   #8, d0                             ; sec_x << 11 (SECTION_SIZE_SHIFT,
-        lsl.l   #3, d0                             ; split 8+3: max shift is 8/op)
+        lsl.l   #8, d0                             ; sec_x << SECTION_SIZE_SHIFT,
+        lsl.l   #SECTION_SIZE_SHIFT-8, d0          ; split 8+rest: max shift is 8/op
         add.w   Act_start_local_x(a0), d0          ; section world origin (px) + local
         subi.w  #CAM_SCREEN_HALF_W, d0
         swap    d0
@@ -31,24 +35,28 @@ Camera_Init:
         ; start Y = (start_sec_y << SECTION_SIZE_SHIFT) + start_local_y - CAM_SCREEN_HALF_H
         moveq   #0, d0
         move.b  Act_start_sec_y(a0), d0
-        lsl.l   #8, d0                             ; sec_y << 11 (SECTION_SIZE_SHIFT,
-        lsl.l   #3, d0                             ; split 8+3: max shift is 8/op)
+        lsl.l   #8, d0                             ; sec_y << SECTION_SIZE_SHIFT,
+        lsl.l   #SECTION_SIZE_SHIFT-8, d0          ; split 8+rest: max shift is 8/op
         add.w   Act_start_local_y(a0), d0          ; section world origin (px) + local
         subi.w  #CAM_SCREEN_HALF_H, d0
         swap    d0
         clr.w   d0
         move.l  d0, (Camera_Y).w
 
-        move.w  #0, (Camera_Pan_Offset).w
-        move.w  #$10, (Camera_Deadzone_Base).w
+        move.w  #0, (Camera_Pan_Offset).w         ; feature scaffolding awaiting its
+                                                   ; consumer: the camera-lookahead system
+                                                   ; (Sec_sec_camera_lookahead is its
+                                                   ; per-section knob); write-only until
+                                                   ; that ships - do not cut
+        move.w  #CAM_X_DEADZONE_INIT, (Camera_Deadzone_Base).w
         clr.b   (Camera_Hold_Frames).w            ; spindash release writes it;
                                                    ; Camera_Update consumes it
         rts
 
 ; -----------------------------------------------
 ; Camera_Update — follow Player_1 each frame
-; In:  none (reads Player_1 SST and Camera_X)
-; Out: none (updates Camera_X)
+; In:  none (reads Player_1 SST and Camera_X/Camera_Y)
+; Out: none (updates Camera_X and Camera_Y)
 ; Clobbers: d0–d4, a0   (d4 = spindash-freeze flag, set in the preamble and
 ;                        consumed at .y_track — see the reservation note there)
 ; -----------------------------------------------
@@ -64,16 +72,16 @@ Camera_Update:
         ;    position writes (continuous-scroll: there are no section teleport
         ;    rebases — the camera tracks the player in world space). Decrement
         ;    once per frame.
+        ; NOTE: d4 is reserved as the freeze flag from here through the
+        ; X-tracking and X-clamp paths to .y_track — do not reuse d4
+        ; anywhere between, or the Y freeze silently breaks.
         moveq   #0, d4                              ; d4 = "frozen this frame"
         tst.b   (Camera_Hold_Frames).w
         beq.s   .no_freeze
         subq.b  #1, (Camera_Hold_Frames).w
         st      d4                                  ; survives to .y_track
-        bra.w   .no_move                            ; X-clamp only; .y_track
+        bra.s   .x_done                             ; X-clamp only; .y_track
                                                     ; tests d4 and skips Y follow
-        ; NOTE: d4 is reserved as the freeze flag from here through the
-        ; X-clamp path to .y_track — do not reuse d4 between here and
-        ; .y_track or the Y freeze silently breaks.
 .no_freeze:
         lea     (Player_1).w, a0
 
@@ -97,7 +105,7 @@ Camera_Update:
         move.w  (Camera_Deadzone_Base).w, d2
         neg.w   d2                                 ; d2 = -deadzone (left boundary)
         cmp.w   d2, d3
-        bge.s   .no_move                           ; -deadzone <= dist < 0 → hold
+        bge.s   .x_done                            ; -deadzone <= dist < 0 → hold
         sub.w   d2, d3                             ; overshoot = dist + deadzone (<0)
         cmpi.w  #-CAM_MAX_X_STEP, d3               ; cap leftward step
         bge.s   .apply_x
@@ -114,13 +122,13 @@ Camera_Update:
         lsl.l   #8, d3                             ; to 16.16 fixed (lsl.l #16 split for AS)
         add.l   d3, (Camera_X).w
 
-.no_move:
+.x_done:
         ; -- continuous-scroll X clamp: [0, level_width − SCREEN_WIDTH] --
         ;    level_width = grid_w << SECTION_SIZE_SHIFT. No more Section_Edge_Flags
         ;    / PREVIEW_PIXELS branches — the world camera spans the whole act.
-        ;    .no_move (entered from the deadzone-hold path and the spindash
-        ;    freeze) and .clamp_x are branch targets; control falls through
-        ;    into .y_track below.
+        ;    ALL X paths converge here — .x_done is the branch target for the
+        ;    deadzone hold and the spindash freeze, and .apply_x falls through;
+        ;    control continues into .y_track below.
         movea.l (Current_Act_Ptr).w, a0
         move.l  (Camera_X).w, d0
         swap    d0
@@ -130,8 +138,8 @@ Camera_Update:
 .min_ok:
         moveq   #0, d1
         move.w  Act_grid_w(a0), d1
-        lsl.l   #8, d1                              ; grid_w << 11 = level_width (px)
-        lsl.l   #3, d1                              ; (SECTION_SIZE_SHIFT, split 8+3)
+        lsl.l   #8, d1                              ; grid_w << SECTION_SIZE_SHIFT
+        lsl.l   #SECTION_SIZE_SHIFT-8, d1           ;   = level_width (px); split 8+rest
         ; MEGA-ACT CEILING: the right-bound clamp below is WORD arithmetic
         ; (subi.w/cmp.w), so a level_width above $FFFF px — grid_w > 31 sections —
         ; word-wraps. Guarded today by act_descriptor's
@@ -148,7 +156,7 @@ Camera_Update:
 
 .y_track:
         tst.b   d4                                  ; spindash freeze active?
-        bne.w   .clamp_y                            ; yes → hold Y, clamp only
+        bne.s   .clamp_y                            ; yes → hold Y, clamp only
         lea     (Player_1).w, a0
 
         move.l  SST_y_pos(a0), d0
@@ -157,7 +165,7 @@ Camera_Update:
         swap    d1                                 ; d1.w = camera Y pixels
         addi.w  #CAM_SCREEN_HALF_H, d1            ; d1 = camera center Y
 
-        moveq   #32, d2                           ; fixed vertical deadzone
+        moveq   #CAM_Y_DEADZONE, d2               ; fixed vertical deadzone
 
         move.w  d0, d3
         sub.w   d1, d3                             ; dist = player_y - camera_center
@@ -201,7 +209,7 @@ Camera_Update:
         ; is falling: release so the descent follows like a walk-off (32-px
         ; deadzone, 16 px/frame) and settles back to the focal point. Short hops
         ; still don't scroll (their descent never exceeds the deadzone).
-        tst.w   (Player_1+SST_y_vel).w             ; falling? (y_vel > 0)
+        tst.w   SST_y_vel(a0)                      ; a0 = Player_1 (unclobbered since .y_track) - falling? (y_vel > 0)
         bgt.s   .down_ok                           ; yes → normal deadzone follow
 .land_lock:
         ; rising/hanging, below focal point — d3 still holds the raw signed dist
@@ -210,10 +218,10 @@ Camera_Update:
         ; follow so it isn't left off-screen; otherwise hold Y.
         cmpi.w  #CAM_SCREEN_HALF_H, d3              ; at/over bottom screen edge?
         bge.s   .down_ok                            ; → resume follow
-        bra.w   .clamp_y                            ; locked → hold Y
+        bra.s   .clamp_y                            ; locked → hold Y
     endif
 .down_ok:
-        moveq   #32, d2                             ; restore +deadzone (d2 clobbered)
+        moveq   #CAM_Y_DEADZONE, d2                 ; restore +deadzone (d2 clobbered)
         cmp.w   d2, d3
         ble.s   .clamp_y
         sub.w   d2, d3
@@ -247,8 +255,8 @@ Camera_Update:
 .y_min_ok:
         moveq   #0, d1
         move.w  Act_grid_h(a0), d1
-        lsl.l   #8, d1                              ; grid_h << 11 = level_height (px)
-        lsl.l   #3, d1                              ; (SECTION_SIZE_SHIFT, split 8+3)
+        lsl.l   #8, d1                              ; grid_h << SECTION_SIZE_SHIFT
+        lsl.l   #SECTION_SIZE_SHIFT-8, d1           ;   = level_height (px); split 8+rest
         ; MEGA-ACT CEILING: word clamp below (subi.w/cmp.w) word-wraps for a
         ; level_height above $FFFF px — grid_h > 31 sections. Guarded today by
         ; act_descriptor's (GRID_H << SECTION_SIZE_SHIFT) <= $8000 ensure

@@ -380,7 +380,24 @@ __BUDGET_ENGINE:
         org     $59CE
       endif
     endif
-    include "engine/level/camera.asm"
+    ifndef SIGIL_EMP_CAMERA
+        include "engine/level/camera.asm"
+    else
+        ; sigil mixed build: Camera_Init/Camera_Update come from
+        ; engine/level/camera.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end (parallax.asm's
+        ; Parallax_Init). Shape-INVARIANT length ($164 both shapes — no
+        ; __DEBUG__ code, no asserts) — the two resume orgs differ only by the
+        ; upstream base slide. The .emp takes -D GAME_CAMERA_JUMP_LOCK (0|1)
+        ; and mirrors the conditional (see games/*/config/game.asm).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $67BC
+      else
+        org     $5B32
+      endif
+    endif
     ifndef SIGIL_EMP_PARALLAX
         include "engine/level/parallax.asm"
     else
@@ -392,14 +409,48 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $6D38
+        org     $6D32
       else
-        org     $60AE
+        org     $60A8
       endif
     endif
     include "engine/level/load_art.asm"
-    include "engine/level/bg.asm"
-    include "engine/level/bg_anim.asm"
+    ifndef SIGIL_EMP_BG
+        include "engine/level/bg.asm"
+    else
+        ; sigil mixed build: BG_Init comes from engine/level/bg.emp, pinned by
+        ; the sigil map at the per-shape reference address. Resume placement at
+        ; the region end (bg_anim.asm's BgAnim_Init). Shape-INVARIANT length
+        ; ($AE both shapes — no __DEBUG__ code, no asserts) — the two resume
+        ; orgs differ only by the upstream base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $6E92
+      else
+        org     $61BE
+      endif
+    endif
+    ifndef SIGIL_EMP_BG_ANIM
+        include "engine/level/bg_anim.asm"
+    else
+        ; sigil mixed build: BgAnim_Init/BgAnim_Update come from
+        ; engine/level/bg_anim.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end (the next
+        ; placement is compression_selftest.asm, whose only label is
+        ; __DEBUG__-gated — the region carries a literal length in repin.toml,
+        ; the sound_api precedent). Shape-DEPENDENT length ($9E plain / $100
+        ; debug — the band-count assert + its message blob exist only in the
+        ; debug shape), so the two resume orgs differ by more than the base
+        ; slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $6FEA
+      else
+        org     $625C
+      endif
+    endif
     include "engine/debug/compression_selftest.asm"
     ifdef SOUND_DRIVER_ENABLED
       ifndef SIGIL_EMP_SOUND_API
@@ -415,9 +466,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $7F86
+        org     $8038
         else
-        org     $646E
+        org     $6466
         endif
       endif
     endif

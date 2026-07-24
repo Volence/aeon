@@ -15,6 +15,8 @@
 // ======================================================================
 module engine.sound_api in sound_api
 
+use engine.z80_bus.{stop_z80, start_z80}
+
 use engine.types.{SongId, SfxId}
 
 // Immediate-position mirrors (kill-list row 10): values the immediates need
@@ -72,23 +74,9 @@ equ PARAM_PATCHPTR_HI = PARAM_PATCHPTR_LO + 1
 equ SONG_TABLE       = extern("SongTable")
 equ SONG_PATCH_TABLE = extern("SongPatchTable")
 
-// stopZ80 (engine/macros.asm): request the Z80 bus and spin until granted —
-// the only way the 68k reads/writes Z80 RAM reliably. Pair with start_z80.
-comptime fn stop_z80() -> Code {
-    return asm {
-        move.w  #$0100, Z80_BUS_REQUEST
-    .wait_z80:
-        btst    #0, Z80_BUS_REQUEST
-        bne     .wait_z80
-    }
-}
-
-// startZ80 (engine/macros.asm): release the bus.
-comptime fn start_z80() -> Code {
-    return asm {
-        move.w  #$0000, Z80_BUS_REQUEST
-    }
-}
+// stop_z80/start_z80 come from the shared engine.z80_bus module (hoisted
+// there when bg became the 2nd consumer; the macro↔template lockstep story
+// lives with the module).
 
 // z80_bank / z80_window — split a 68k ROM address into the two parts the Z80
 // uses to read that ROM through its banked $8000 window: `bank` selects the

@@ -11,6 +11,10 @@ Run by build.sh after ojz_strip_gen.py when the override file exists.
 """
 import json, struct, os, sys
 
+# LOCKSTEP: the per-band record layout this tool emits (6 dc.w fields + 8
+# bank pointers = 44 bytes) is mirrored by the `bganim_band` struct in
+# engine/level/bg_anim.emp (and read field-by-field in engine/level/
+# bg_anim.asm). A record-format change edits ALL THREE together.
 BG_TILE_BASE_SLOT = 1024
 # constants.asm says 512, but the sprite table ($B800) and HScroll table
 # ($BC00) live in the top of the $8000-$BFFF region — real art ceiling:

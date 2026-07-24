@@ -48,14 +48,22 @@ BgAnim_Init:
 ; BgAnim_Update — call once per frame from the main loop (after
 ; Parallax_Update). Per changed band, queues one or two deferrable
 ; DMAs (tile_count*32 bytes total).
-; In: none. Clobbers: d0-d7, a1-a4
+; In: none. Clobbers: d0-d7, a1-a4 (a3/a4 are movem-saved/restored by the
+; body, but preservation is not a contract - callers must not rely on it)
 ; -----------------------------------------------
 BgAnim_Update:
         movem.l a3-a4, -(sp)
         lea     (BgAnim_Table).l, a3
         lea     (BgAnim_LastStep).w, a4
         move.w  (a3)+, d7                       ; band count
-        beq.w   .exit
+        assert.w d7, ls, #BGANIM_MAX_BANDS      ; table wider than BgAnim_LastStep = a4 walk
+                                                ; off the state array + garbage DMAs (the
+                                                ; emitter asserts <= 4; this is defense-in-depth)
+    ifdef __DEBUG__
+        beq.w   .exit                           ; debug: spans the piece-length assert blob
+    else
+        beq.s   .exit
+    endif
         subq.w  #1, d7
 .band_loop:
         ; -- step = (driver value >> rate_shift) & step_mask --
@@ -75,7 +83,11 @@ BgAnim_Update:
         lsr.w   d1, d0
         and.w   (a3)+, d0                       ; step_mask
         cmp.w   (a4), d0
+    ifdef __DEBUG__
+        beq.w   .skip_band                      ; debug: spans the piece-length assert blob
+    else
         beq.s   .skip_band                      ; unchanged this frame
+    endif
         move.w  d0, d5                          ; d5 = step (commit on success)
 
         ; -- fine phase: bank pointer (record offset: banks at a3+6) --
@@ -92,7 +104,11 @@ BgAnim_Update:
         move.w  (a3)+, d3                       ; tile_count
         lsl.w   #5, d3                          ; total bytes
         move.w  (a3)+, d2                       ; vram dest
-        sub.w   d0, d3                          ; d3 = piece 1 length (> 0)
+        sub.w   d0, d3                          ; d3 = piece 1 length - positive only under the
+                                                ; emitter invariants (step_mask = 8*columns-1,
+                                                ; tile_count = columns*rows); a drifted table row
+                                                ; would send QueueDMA length <= 0 = a 128KB spray
+        assert.w d3, gt, #0                     ; DEBUG-ONLY backstop for that drift class
         move.w  d0, -(sp)                       ; piece 2 length (= shift bytes)
         move.w  d2, -(sp)                       ; dest base
         move.w  d3, -(sp)                       ; piece 1 length
@@ -101,7 +117,7 @@ BgAnim_Update:
         moveq   #0, d1
         move.w  d0, d1
         add.l   d6, d1                          ; src = bank + shift bytes
-        jsr     QueueDMA_Deferrable
+        bsr.w   QueueDMA_Deferrable
         bcs.s   .queue_full                     ; full — retry next frame
 
         ; -- DMA 2: art columns 0..coarse-1 -> base + piece 1 (wrap) --
@@ -111,8 +127,12 @@ BgAnim_Update:
         beq.s   .commit                         ; no rotation this step
         add.w   d4, d2
         move.l  d6, d1
-        jsr     QueueDMA_Deferrable
-        bcs.s   .next_band                      ; partial — redo both next frame
+        bsr.w   QueueDMA_Deferrable
+        bcs.s   .next_band                      ; partial: piece 1 is already queued and lands
+                                                ; this frame (one-frame seam); the skipped commit
+                                                ; forces a redo ONLY when the step moves again -
+                                                ; a driver parked back on the committed step
+                                                ; leaves the mixed band until the next change
 .commit:
         move.w  d5, (a4)
         bra.s   .next_band

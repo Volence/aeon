@@ -22,6 +22,16 @@ module engine.vdp
 pub comptime enum VdpTarget { Vram, Cram, Vsram }
 pub comptime enum VdpOp     { Read, Write, Dma }
 
+// The VDP port base addresses (truth: engine/constants.asm) — hoisted here
+// when bg became the 3rd `.emp` consumer (parallax + plane_buffer carried
+// local mirrors; the 2nd-consumer rule had already triggered). Consumers
+// `use engine.vdp.{VDP_DATA, VDP_CTRL}` and keep any directional derives
+// (e.g. `VDP_DATA_OFF = VDP_DATA - VDP_CTRL`) local.
+pub const VDP_DATA = $C00000
+pub const VDP_CTRL = $C00004
+ensure(extern("VDP_DATA") == VDP_DATA, "engine/constants.asm and engine.vdp disagree on VDP_DATA — update the twin")
+ensure(extern("VDP_CTRL") == VDP_CTRL, "engine/constants.asm and engine.vdp disagree on VDP_CTRL — update the twin")
+
 // The %-encodings (truth: engine/constants.asm). Exhaustive match — Plan-3
 // totality checks it, so a new variant FORCES the mapper to grow.
 comptime fn target_bits(t: VdpTarget) -> int {
