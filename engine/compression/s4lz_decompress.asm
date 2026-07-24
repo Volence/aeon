@@ -190,7 +190,9 @@ S4LZ_Decompress:
         move.l  a0, -(sp)                       ; save compressed-end pointer
         movea.l a3, a0                          ; a0 = buffer start
         move.w  d3, d0                          ; d0.w = uncompressed size
-        bsr.s   TileDelta_Undo
+        bsr.s   TileDelta_Undo                  ; clobbers a1 - but its XOR walk ends at
+                                                ; buffer_end = the decode's own a1 endpoint
+                                                ; (size is a multiple of 32), so the a1 out holds
         movea.l (sp)+, a0                       ; restore compressed-end pointer
 
 .return:
@@ -206,7 +208,7 @@ S4LZ_Decompress:
 ; Clobbers: d0-d1, a0-a1
 ; -----------------------------------------------
 TileDelta_Undo:
-        lsr.w   #5, d0                          ; d0 = tile count
+        lsr.w   #5, d0                          ; d0 = tile count (bytes/TILE_SIZE; 32 = 1<<5)
         subq.w  #1, d0                          ; subtract 1 for first tile (unchanged)
         ble.s   .done                           ; 0 or 1 tiles -> nothing to do
         subq.w  #1, d0                          ; adjust for dbf
