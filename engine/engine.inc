@@ -100,7 +100,25 @@ __BUDGET_ENGINE:
         org     $1C54
       endif
     endif
-    include "engine/system/dma_queue.asm"
+    ifndef SIGIL_EMP_DMA_QUEUE
+        include "engine/system/dma_queue.asm"
+    else
+        ; sigil mixed build: the 3-priority DMA queue (Init_DMA_Queue,
+        ; QueueDMA_* + the shared transfer core, Process_DMA_*,
+        ; Drain_Budgeted_Queue) comes from engine/system/dma_queue.emp, pinned
+        ; by the sigil map at the per-shape reference address. Resume placement
+        ; at the region end (buffers.asm's Init_SpriteTable). Shape-DEPENDENT
+        ; length ($302 plain / $306 debug — the debug surplus is the
+        ; overflow-count bump in the enqueue's full-queue arm), so the two
+        ; resume orgs differ by more than the base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $1FDC
+      else
+        org     $1F56
+      endif
+    endif
     include "engine/system/buffers.asm"
     include "engine/system/vblank.asm"
     ifndef SIGIL_EMP_HBLANK
@@ -414,7 +432,24 @@ __BUDGET_ENGINE:
         org     $60A8
       endif
     endif
-    include "engine/level/load_art.asm"
+    ifndef SIGIL_EMP_LOAD_ART
+        include "engine/level/load_art.asm"
+    else
+        ; sigil mixed build: Art_Decompress/Level_LoadArt come from
+        ; engine/level/load_art.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end (bg.asm's
+        ; BG_Init). Shape-DEPENDENT length ($68 plain / $B2 debug — the debug
+        ; surplus is the .drop_page RaiseError expansion; the release arm is
+        ; the 6-byte drain-and-retry), so the two resume orgs differ by more
+        ; than the base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $6DE0
+      else
+        org     $610C
+      endif
+    endif
     ifndef SIGIL_EMP_BG
         include "engine/level/bg.asm"
     else
@@ -426,9 +461,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $6E92
+        org     $6E8E
       else
-        org     $61BE
+        org     $61BA
       endif
     endif
     ifndef SIGIL_EMP_BG_ANIM
@@ -446,9 +481,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $6FEA
+        org     $6FE6
       else
-        org     $625C
+        org     $6258
       endif
     endif
     include "engine/debug/compression_selftest.asm"
@@ -466,9 +501,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $8038
+        org     $8034
         else
-        org     $6466
+        org     $6462
         endif
       endif
     endif

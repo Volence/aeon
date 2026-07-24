@@ -33,14 +33,14 @@ Init_DMA_Queue:
 ;      d2.w = VRAM destination (byte address)
 ;      d3.w = transfer length (bytes, even, non-zero)
 ; Out: carry SET = request DROPPED (queue full); carry CLEAR = enqueued OK.
-;      (item 11: the impl now HONORS this long-documented contract — it used to
-;      restore the caller's entry SR on both paths, so the carry was garbage and
-;      every carry-checking caller, e.g. bg_anim's retry, was silently dead.
+;      The carry is pinned AFTER the caller's SR is restored — the restore
+;      would otherwise overwrite it and every carry-checking caller (e.g.
+;      bg_anim's retry) would read garbage; see the andi/ori-to-ccr sites.
 ;      Known remaining edge: a 128KB-split with only one free slot enqueues the
 ;      first half and returns carry CLEAR — atomic split rollback is the
-;      art-streaming plan's Vectorman work, out of scope here. Vanishingly rare
-;      for dplc (a small source can still straddle a 128KB boundary), not
-;      impossible.)
+;      art-streaming plan's rollback work, out of scope here (ledgered).
+;      Vanishingly rare for dplc (a small source can still straddle a 128KB
+;      boundary), not impossible.
 ; Clobbers: d0-d4, a1-a2
 ; -----------------------------------------------
 QueueDMA_Critical:
@@ -74,7 +74,7 @@ QueueDMATransfer:
         beq.s   .full
 
         lsr.l   #1, d1                          ; source to words
-        bclr.l  #23, d1                         ; RAM source safety
+        bclr.l  #23, d1                         ; defensive: word-address bit 23 = reg $17 bit 7 (DMD1) — force 0 = 68k-memory->VRAM
         movep.l d1, DMAEntry_SizeL(a1)          ; source → offsets 3,5,7,9
 
         lsr.w   #1, d3                          ; length to words
@@ -100,7 +100,7 @@ QueueDMATransfer:
         move.w  a1, (a2)
 
         move.w  (sp)+, sr
-        andi.b  #$FE, ccr               ; item 11: carry CLEAR = enqueued OK
+        andi.b  #$FE, ccr               ; carry CLEAR = enqueued OK (pinned after the SR restore)
         rts
 
 .full:
@@ -108,7 +108,7 @@ QueueDMATransfer:
         addq.w  #1, (DMA_Overflow_Count).w
     endif
         move.w  (sp)+, sr
-        ori.b   #1, ccr                 ; item 11: carry SET = request dropped (queue full)
+        ori.b   #1, ccr                 ; carry SET = request dropped (queue full; pinned after the SR restore)
         rts
 
         ; --- 128KB boundary split ---
@@ -144,13 +144,14 @@ QueueDMATransfer:
         move.w  a1, (a2)
 
         move.w  (sp)+, sr
-        andi.b  #$FE, ccr               ; item 11: carry CLEAR = both split entries enqueued OK
+        andi.b  #$FE, ccr               ; carry CLEAR = both split entries enqueued OK
         rts
 
 ; -----------------------------------------------
 ; Process_DMA_Critical — drain Critical queue via jump table
-; Zero branches per entry. ~64 cycles/entry, ~514 for all 8.
-; Jump-table drain — zero branches per entry.
+; Zero branches per entry. 72 cycles/entry (3x move.l 20 + move.w 12),
+; 576 for all 8 drain groups; ~670 whole-proc worst case with dispatch,
+; slot-var reset, and rts.
 ; In:  none
 ; Out: none
 ; Clobbers: a1, a5

@@ -104,6 +104,25 @@ pub const TILE_CACHE_ROWS    = 60                                 // viewport 28
 pub const TILE_CACHE_STRIDE  = TILE_CACHE_COLS                    // row stride (cols)
 pub const TILE_CACHE_NT_SIZE = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2  // 9600 bytes
 
+// DMA-queue geometry (mirrors engine/constants.asm) — slot counts per
+// priority sub-queue; the total is the derived sum, as in the .asm. First
+// consumed at the tranche-20 dma_queue.emp port (Init's pre-fill count and
+// the Critical drain's hand-spelled slot count, ensure-pinned there).
+pub const DMA_CRITICAL_SLOTS   = 8
+pub const DMA_IMPORTANT_SLOTS  = 12
+pub const DMA_DEFERRABLE_SLOTS = 12
+pub const DMA_TOTAL_SLOTS      = DMA_CRITICAL_SLOTS + DMA_IMPORTANT_SLOTS + DMA_DEFERRABLE_SLOTS
+
+// Act art-pool paging + compressed-art wrapper (mirrors engine/constants.asm).
+// Every compressed art blob starts with the 4-byte wrapper
+// [u16 BE uncompressed size][u8 flags][u8 version]; first consumed at the
+// tranche-20 load_art.emp port.
+pub const ART_POOL_PAGE_TILES = 256         // tiles per pool page (matches build tool + ojz_strip_gen)
+pub const ART_HDR_VERSION     = 3           // byte offset of version within wrapper
+pub const ART_HDR_SIZE        = 4           // wrapper bytes ahead of the stream
+pub const ART_VER_S4LZ        = 1           // S4LZ v3 token stream (runtime tier)
+pub const ART_VER_ZX0         = 2           // ZX0 modern/V2 bitstream (load-time tier)
+
 // VDP sprite-table geometry (mirrors engine/constants.asm — hoisted there
 // from sprites.asm at the tranche-11 sprites.emp port so it survives the
 // SIGIL_EMP_SPRITES gate for the gate-off rings.asm twin; kill-list row 17
@@ -199,3 +218,12 @@ ensure(extern("TILE_CACHE_COLS") == TILE_CACHE_COLS, "engine/constants.asm and e
 ensure(extern("TILE_CACHE_ROWS") == TILE_CACHE_ROWS, "engine/constants.asm and engine/constants.emp disagree on TILE_CACHE_ROWS — update the twin")
 ensure(extern("TILE_CACHE_STRIDE") == TILE_CACHE_STRIDE, "engine/constants.asm and engine/constants.emp disagree on TILE_CACHE_STRIDE — update the twin")
 ensure(extern("TILE_CACHE_NT_SIZE") == TILE_CACHE_NT_SIZE, "engine/constants.asm and engine/constants.emp disagree on TILE_CACHE_NT_SIZE — update the twin")
+ensure(extern("DMA_CRITICAL_SLOTS") == DMA_CRITICAL_SLOTS, "engine/constants.asm and engine/constants.emp disagree on DMA_CRITICAL_SLOTS — update the twin")
+ensure(extern("DMA_IMPORTANT_SLOTS") == DMA_IMPORTANT_SLOTS, "engine/constants.asm and engine/constants.emp disagree on DMA_IMPORTANT_SLOTS — update the twin")
+ensure(extern("DMA_DEFERRABLE_SLOTS") == DMA_DEFERRABLE_SLOTS, "engine/constants.asm and engine/constants.emp disagree on DMA_DEFERRABLE_SLOTS — update the twin")
+ensure(extern("DMA_TOTAL_SLOTS") == DMA_TOTAL_SLOTS, "engine/constants.asm and engine/constants.emp disagree on DMA_TOTAL_SLOTS — update the twin")
+ensure(extern("ART_POOL_PAGE_TILES") == ART_POOL_PAGE_TILES, "engine/constants.asm and engine/constants.emp disagree on ART_POOL_PAGE_TILES — update the twin")
+ensure(extern("ART_HDR_VERSION") == ART_HDR_VERSION, "engine/constants.asm and engine/constants.emp disagree on ART_HDR_VERSION — update the twin")
+ensure(extern("ART_HDR_SIZE") == ART_HDR_SIZE, "engine/constants.asm and engine/constants.emp disagree on ART_HDR_SIZE — update the twin")
+ensure(extern("ART_VER_S4LZ") == ART_VER_S4LZ, "engine/constants.asm and engine/constants.emp disagree on ART_VER_S4LZ — update the twin")
+ensure(extern("ART_VER_ZX0") == ART_VER_ZX0, "engine/constants.asm and engine/constants.emp disagree on ART_VER_ZX0 — update the twin")

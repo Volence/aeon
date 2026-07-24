@@ -33,7 +33,8 @@ Art_Decompress:
 ;
 ; In:  a0 = act descriptor pointer
 ; Out: none
-; Clobbers: d0–d7, a0–a3 (a4–a6 preserved by callee discipline below)
+; Clobbers: d0–d5, d7, a0–a3; d6/a4–a6 are movem-PRESERVED (the loop-live
+;      registers below sit in them so both callees' licenses leave them alone)
 ;
 ; The act ships one paged art pool. Each page
 ; is a wrapped ZX0/S4LZ blob of up to ART_POOL_PAGE_TILES (256) tiles. We
@@ -43,8 +44,10 @@ Art_Decompress:
 ; page_index << 13). The whole pool is then resident for the life of the
 ; act, so section streaming/teleport never reloads tile art.
 ;
-; Runs at init with the display blanked OFF (caller's responsibility) so
-; the multi-page Critical DMAs drain across the extended VBlank.
+; Runs at init with the display blanked OFF (caller's responsibility): with
+; the display off, DMA runs at the full ~205 bytes/line rate on EVERY line
+; (the active/blank distinction disappears), so each page's Critical DMA
+; drains with wide margin inside its one VSync.
 ;
 ; Loop-live registers chosen to survive BOTH callees:
 ;   Art_Decompress    clobbers d0–d3, a2–a3 (a4/d4 preserved)
@@ -55,7 +58,7 @@ Art_Decompress:
 ;   the queue attempt (QueueDMA_Critical clobbers d4, so a drop-retry can't
 ;   re-read the length from d4).
 ;
-; Drop handling (Fable rider): QueueDMA_Critical's carry is consumed IMMEDIATELY
+; Drop handling: QueueDMA_Critical's carry is consumed IMMEDIATELY
 ; (VSync_Wait, the next call, clobbers CCR and d0). A drop should never happen
 ; here — init runs display-off with an extended VBlank that drains Critical every
 ; VSync — so DEBUG asserts on it (RaiseError) and release honestly drains a frame
@@ -80,7 +83,7 @@ Level_LoadArt:
         beq.s   .next                               ; size 0 → skip (empty page stub)
 
         lea     (Art_Staging_Buffer).l, a1          ; a1 = decompress scratch
-        bsr.w   Art_Decompress                      ; a4/d4 preserved across this
+        bsr.s   Art_Decompress                      ; a4/d4 preserved across this. LOCKSTEP load_art.emp step 2: jbsr relaxes short (in-region backward reach)
         move.w  d4, d7                              ; d7 = byte length (survives QueueDMA/VSync for retry)
 
 .queue_page:
@@ -99,7 +102,7 @@ Level_LoadArt:
 .done:
         ; -- §2 A.5: blit zone-wide BG to Plane B nametable (T1) --
         movea.l a4, a0                              ; a0 = act ptr
-        bsr.w   BG_Init
+        bsr.s   BG_Init                             ; LOCKSTEP load_art.emp step 2: jbsr relaxes short (BG_Init is the next placement)
 
         movem.l (sp)+, d6/a4-a6
         rts
