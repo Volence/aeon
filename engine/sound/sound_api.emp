@@ -15,6 +15,8 @@
 // ======================================================================
 module engine.sound_api in sound_api
 
+use engine.types.{SongId, SfxId}
+
 // Immediate-position mirrors (kill-list row 10): values the immediates need
 // at COMPTIME. EA-position slot ADDRESSES are not mirrored — those stay
 // AS-owned (sound_constants.asm; the MUSIC_PARAM block floats with the Z80
@@ -25,8 +27,8 @@ const SND_MUSIC_STOP    = $FF   // SND_REQ_MUSIC stop sentinel (out of moveq's s
 const SND_FADE_CMD_OUT  = 1     // SND_REQ_FADE: ramp to silence
 const SND_FADE_CMD_IN   = 2     // SND_REQ_FADE: snap silent, ramp to full
 const SFX_RING_MASK     = $07   // pending-SFX ring cursor wrap (depth 8)
-const SFXID_RING_RIGHT  = $33   // collect-ring SFX, right speaker (config/sound_ids.asm)
-const SFXID_RING_LEFT   = $34   // collect-ring SFX, left speaker
+const SFXID_RING_RIGHT: SfxId = $33   // collect-ring SFX, right speaker (config/sound_ids.asm)
+const SFXID_RING_LEFT: SfxId  = $34   // collect-ring SFX, left speaker
 
 // DEBUG watchdog budget for the two Z80-handshake spins (Sound_PlayMusic's
 // await_slot and Sound_Init's wait_alive). At ~15-20us per stop/probe/release
@@ -202,7 +204,7 @@ pub proc Sound_PlaySample (d0: u16) clobbers(a0) {
 // In:  d0.b = song id (1..SONG_COUNT).
 // Clobbers: d0/d1/d2/d3/d4/a0/a1; SR restored.
 // ----------------------------------------------------------------------
-pub proc Sound_PlayMusic (d0: u16) clobbers(d0-d4/a0-a1) preserves(sr) {
+pub proc Sound_PlayMusic (d0: SongId) clobbers(d0-d4/a0-a1) preserves(sr) {
         // H-1 repost gate: a second Sound_PlayMusic landing while the Z80 is mid
         // Snd_LoadSong would tear the 6-byte param block AND lose this trigger (the
         // Z80 clears the slot after consuming the params). Spin until the previous
@@ -295,7 +297,7 @@ pub proc Sound_PlayMusic (d0: u16) clobbers(d0-d4/a0-a1) preserves(sr) {
 //   on the two hot reliances, so the d0-only clobber survives even if the body
 //   grows to touch d1/a0 (e.g. animate dropping BOTH saves around this call).
 // ----------------------------------------------------------------------
-pub proc Sound_PlaySFX (d0: u16) preserves(d1/a0) {
+pub proc Sound_PlaySFX (d0: SfxId) preserves(d1/a0) {
         tst.b   d0                          // defensive: id 0 = nothing to queue
         beq     .ps_ret
         movem.l d1/a0, -(sp)                // preserve d1 + caller's a0 (keep the d0-only contract)
@@ -397,10 +399,10 @@ pub proc Sound_PlayRing () clobbers(d0) {
         eori.b  #1, d0
         move.b  d0, Ring_Sfx_Speaker
         beq     .left
-        moveq   #SFXID_RING_RIGHT, d0
+        moveq   #SFXID_RING_RIGHT, d0 as SfxId   // born SfxId at the literal; the moveq degrades, the bless re-types
         jbra    Sound_PlaySFX
     .left:
-        moveq   #SFXID_RING_LEFT, d0
+        moveq   #SFXID_RING_LEFT, d0 as SfxId    // ditto — SfxId into Sound_PlaySFX's d0 slot
         jbra    Sound_PlaySFX
 }
 

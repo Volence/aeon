@@ -19,7 +19,7 @@
 // (Coord vs Velocity vs a raw counter) and the fixed<I,F> scales.
 module engine.objects.sst
 
-use engine.types.{Coord, Velocity, Angle, ObjRoutine, HitboxDim, VramArtTile, AnimId, FrameId}
+use engine.types.{Coord, Velocity, Angle, ObjRoutine, HitboxDim, VramArtTile, AnimId, AnimFrame, MappingFrame}
 
 pub struct Sst (size: $50) {
     // --- dispatch + position ------------------------------------------------
@@ -50,10 +50,10 @@ pub struct Sst (size: $50) {
 
     // --- runtime block $20+: initialized individually at spawn --------------
     prev_anim: AnimId @ $20,          // $20 — previous anim ID (change detection; $FF at spawn)
-    anim_frame: u8 @ $21,         // $21 — byte offset within animation script
+    anim_frame: AnimFrame @ $21,  // $21 — byte cursor within the running animation script
     anim_timer: u8 @ $22,         // $22 — frame duration countdown
-    mapping_frame: FrameId @ $23,      // $23 — current mapping frame index
-    prev_frame: FrameId @ $24,         // $24 — previous mapping_frame (DPLC change detection; $FF at spawn)
+    mapping_frame: MappingFrame @ $23, // $23 — current mapping frame index
+    prev_frame: MappingFrame @ $24,    // $24 — previous mapping_frame (DPLC change detection; $FF at spawn)
     sprite_piece_count: u8 @ $25, // $25 — current frame's piece count (overflow prediction)
     parent_ptr: u16 @ $26,        // $26 — parent object RAM address
     sibling_ptr: u16 @ $28,       // $28 — sibling link (multi-part objects)

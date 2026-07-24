@@ -46,17 +46,40 @@ pub newtype ObjRoutine = u16
 pub newtype HitboxDim = u8
 
 // The PACKED VRAM art word: priority<<15 | palette<<13 | tile index
-// (vram_art's output shape). Named now so stores read honestly; the
-// index/address conversion family (VramTile, vram_bytes ×32) arrives with
-// the VRAM-layout port.
+// (vram_art's output shape).
 pub newtype VramArtTile = u16
 
-// Animation identities: which script (AnimId — an index into an anim
-// table's offsets ordinals) and which mapping frame (FrameId). The SST's
-// anim_frame stays a raw u8 deliberately — it is a byte CURSOR within the
-// running script, not a frame identity.
+// The VRAM index/address confusion class (item-13 wave 1). A VramTile is a TILE
+// INDEX (0-based ordinal into the 2048-tile VRAM); a VramAddr is a BYTE ADDRESS
+// in VRAM (tile index ×32, or a plane base like $C000). They are the same width
+// but mixing them is off-by-32× — the classic tile-vs-address bug. vram_art
+// takes a VramTile (the tile-index input to the packed art word); the tile-index
+// layout consts (VRAM_RING_PLACEHOLDER, VRAM_TEST_OBJ) are born VramTile.
+// VramAddr names the byte-address half: its wave-1 users — a `vram_bytes()`
+// tile→address converter and the plane-base consts (VRAM_PLANE_A/_B_BYTES) —
+// are demand-/A4-i-gated (the planes live in address ARITHMETIC, which waits for
+// arithmetic-preservation before typing pays), so it is the vocabulary contrast
+// that makes "this is a tile, NOT an address" expressible today.
+pub newtype VramTile = u16
+pub newtype VramAddr = u16
+
+// Animation identities, THREE distinct byte types (item-13 wave 1). They are
+// bit-identical small indices that live in adjacent SST fields, so mixing them
+// is the same silent-wrong-answer class as the grid-axis swap:
+//   AnimId       — which script (an index into an anim table's offset ordinals).
+//   AnimFrame    — the byte CURSOR within the running script (SST anim_frame);
+//                  the read position an event/frame walk advances, NOT a frame
+//                  identity.
+//   MappingFrame — which sprite mapping frame (SST mapping_frame / prev_frame);
+//                  the drawn-frame identity a DPLC/mapping lookup indexes.
+// The script-cursor vs mapping-frame pair is the highest-risk swap; splitting
+// them names the distinction at every typed surface. (These flow through SST
+// MEMORY today, not register call slots, so the types carry MEANING; the slice
+// enforces the moment such a value crosses a typed register param — see the
+// field-store domain-check ledger row.)
 pub newtype AnimId = u8
-pub newtype FrameId = u8
+pub newtype AnimFrame = u8
+pub newtype MappingFrame = u8
 
 // Section-grid coordinates, AXIS-SPLIT (G5). A level is a grid of fixed-size
 // sections; a cell is addressed by its column (GridX = sec_x) and row
@@ -73,3 +96,14 @@ pub newtype GridY = u8
 // u16 because a large act's flat index exceeds a byte (MAX_ACT_SECTIONS ≤ 496,
 // guarded where the ×66 stride sign-extends).
 pub newtype SectionId = u16
+
+// Sound identities, DISTINCT (item-13 wave 1). A song id (SongId — the SONG_*
+// family, indexes SongTable) and a sound-effect id (SfxId — the SFX_* / SFXID_*
+// family, indexes SfxTable) are both small bytes that flow to the 68k sound API,
+// and mixing them plays the wrong sound. Split so the compiler REFUSES an SfxId
+// in a SongId slot (or vice versa) at a sound-API call boundary. Both erase to
+// u8; the driver-side Z80 blob is untouched — the types stop at the param-block
+// boundary. APIs keep ACTION names (Sound_PlayMusic / Sound_PlaySFX); the types
+// name the VALUE.
+pub newtype SongId = u8
+pub newtype SfxId = u8
