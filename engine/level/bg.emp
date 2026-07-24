@@ -73,7 +73,7 @@ comptime fn start_z80() -> Code {
 // Display assumed off (called from Level_LoadArt, before display enable).
 // Both writes are blocking via VDP DATA port; autoincrement = 2 bytes/word.
 // -----------------------------------------------
-pub proc BG_Init (a0: *Act) clobbers(d0-d1/a0-a2) preserves(sr) {
+pub proc BG_Init (a0: *Act) clobbers(d0-d1/a0-a2) preserves(a3/sr) {
         movem.l a3, -(sp)
         movea.l a0, a3                  // a3 = act ptr (preserve)
         // Mask interrupts for the blocking VDP copies: a VBlank mid-copy lets

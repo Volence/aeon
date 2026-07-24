@@ -55,7 +55,7 @@ BgAnim_Update:
         lea     (BgAnim_Table).l, a3
         lea     (BgAnim_LastStep).w, a4
         move.w  (a3)+, d7                       ; band count
-        beq.w   .exit
+        beq.s   .exit
         subq.w  #1, d7
 .band_loop:
         ; -- step = (driver value >> rate_shift) & step_mask --
@@ -101,7 +101,7 @@ BgAnim_Update:
         moveq   #0, d1
         move.w  d0, d1
         add.l   d6, d1                          ; src = bank + shift bytes
-        jsr     QueueDMA_Deferrable
+        bsr.w   QueueDMA_Deferrable
         bcs.s   .queue_full                     ; full — retry next frame
 
         ; -- DMA 2: art columns 0..coarse-1 -> base + piece 1 (wrap) --
@@ -111,7 +111,7 @@ BgAnim_Update:
         beq.s   .commit                         ; no rotation this step
         add.w   d4, d2
         move.l  d6, d1
-        jsr     QueueDMA_Deferrable
+        bsr.w   QueueDMA_Deferrable
         bcs.s   .next_band                      ; partial — redo both next frame
 .commit:
         move.w  d5, (a4)

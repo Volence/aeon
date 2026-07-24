@@ -61,19 +61,19 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         lea     BgAnim_Table, a3                // (BgAnim_Table).l
         lea     BgAnim_LastStep, a4             // (BgAnim_LastStep).w
         move.w  (a3)+, d7                       // band count
-        beq.w   .exit
+        beq     .exit
         subq.w  #1, d7
     .band_loop:
         // -- step = (driver value >> rate_shift) & step_mask --
         move.w  (a3)+, d0                       // driver select
-        beq.s   .cam_x
+        beq     .cam_x
         subq.w  #1, d0
-        beq.s   .cam_y
+        beq     .cam_y
         move.w  Frame_Counter, d0               // (Frame_Counter).w
-        bra.s   .have_value
+        jbra    .have_value
     .cam_x:
         move.w  Camera_X, d0                    // (Camera_X).w — integer px (16.16 high word)
-        bra.s   .have_value
+        jbra    .have_value
     .cam_y:
         move.w  Camera_Y, d0                    // (Camera_Y).w
     .have_value:
@@ -81,7 +81,7 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         lsr.w   d1, d0
         and.w   (a3)+, d0                       // step_mask
         cmp.w   (a4), d0
-        beq.s   .skip_band                      // unchanged this frame
+        beq     .skip_band                      // unchanged this frame
         move.w  d0, d5                          // d5 = step (commit on success)
 
         // -- fine phase: bank pointer (record offset: banks at a3+6) --
@@ -106,25 +106,25 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         moveq   #0, d1
         move.w  d0, d1
         add.l   d6, d1                          // src = bank + shift bytes
-        jsr     QueueDMA_Deferrable
-        bcs.s   .queue_full                     // full — retry next frame
+        jbsr    QueueDMA_Deferrable
+        bcs     .queue_full                     // full — retry next frame
 
         // -- DMA 2: art columns 0..coarse-1 -> base + piece 1 (wrap) --
         move.w  (sp)+, d4                       // piece 1 length
         move.w  (sp)+, d2                       // dest base
         move.w  (sp)+, d3                       // piece 2 length
-        beq.s   .commit                         // no rotation this step
+        beq     .commit                         // no rotation this step
         add.w   d4, d2
         move.l  d6, d1
-        jsr     QueueDMA_Deferrable
-        bcs.s   .next_band                      // partial — redo both next frame
+        jbsr    QueueDMA_Deferrable
+        bcs     .next_band                      // partial — redo both next frame
     .commit:
         move.w  d5, (a4)
-        bra.s   .next_band
+        jbra    .next_band
 // ---------------------------------------------------------------
     .queue_full:
         addq.w  #6, sp
-        bra.s   .next_band
+        jbra    .next_band
     .skip_band:
         addq.w  #6, a3                          // col_shift + count + dest
     .next_band:

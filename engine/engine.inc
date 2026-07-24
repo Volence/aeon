@@ -444,9 +444,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $6F32
+        org     $6F30
       else
-        org     $625E
+        org     $625C
       endif
     endif
     include "engine/debug/compression_selftest.asm"
@@ -464,9 +464,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $7F80
+        org     $7F7E
         else
-        org     $6468
+        org     $6466
         endif
       endif
     endif
