@@ -47,13 +47,11 @@ module engine.zx0 in zx0
 //    misrepresented as being the original software.
 // 3. This notice may not be removed or altered from any source distribution.
 // -----------------------------------------------
-// (d2/a2 are movem-preserved in the body but NOT declared `preserves(d2/a2)`:
-// the shared `.got_elias` rts doubles as the .get_elias subroutine return, so
-// the preserves checker sees exit paths that skip the restore and rejects the
-// claim — `[proc.preserves-unverifiable]`. The clobber lint's d2/a2 warnings
-// are the same shared-rts blind spot. Ledgered as S2-D6 demand data; the
-// license itself already promises d2/a2 (not in clobbers = preserved).)
-pub proc ZX0_Decompress (a0: *u8, a1: *u8) clobbers(d0-d1) out(a0, a1) {
+// `preserves(d2/a2)` is the movem-ENFORCED spelling of the decl's parenthetical
+// ("a2/d2 movem-saved inside") — the §5 verifier proves the round-trip on the
+// exit path, and the corpus closure error-gate requires the credit (an
+// undeclared register effect cannot ship).
+pub proc ZX0_Decompress (a0: *u8, a1: *u8) clobbers(d0-d1) out(a0, a1) preserves(d2/a2) {
         movem.l a2/d2, -(sp)            // preserve registers
         moveq   #-128, d1               // initialize empty bit queue
                                         // plus bit to roll into carry

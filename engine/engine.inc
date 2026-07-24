@@ -546,7 +546,23 @@ __BUDGET_ENGINE:
         org     $624A
       endif
     endif
-    include "engine/debug/compression_selftest.asm"
+    ifndef SIGIL_EMP_COMPRESSION_SELFTEST
+        include "engine/debug/compression_selftest.asm"
+    else
+        ; sigil mixed build: CompressionSelfTest comes from
+        ; engine/debug/compression_selftest.emp — a DEBUG-ONLY region (the
+        ; twin is whole-file `ifdef __DEBUG__`): the plain shape emits nothing
+        ; and placement stays at the previous region's resume org, so there is
+        ; no plain org arm. The generated golden-vector data (CSelf_*/CSELF_*,
+        ; tools/gen_compression_vectors.py) stays AS-side here — the .emp
+        ; consumes those symbols cross-seam at link.
+        ; NOTE: the org value is a sonic4-shape address — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $7204
+        include "engine/debug/generated/vectors.asm"
+      endif
+    endif
     ifdef SOUND_DRIVER_ENABLED
       ifndef SIGIL_EMP_SOUND_API
         include "engine/sound/sound_api.asm"
