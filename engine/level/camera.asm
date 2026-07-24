@@ -20,8 +20,8 @@ Camera_Init:
         ; start X = (start_sec_x << SECTION_SIZE_SHIFT) + start_local_x - CAM_SCREEN_HALF_W
         moveq   #0, d0
         move.b  Act_start_sec_x(a0), d0
-        lsl.l   #8, d0                             ; sec_x << 11 (SECTION_SIZE_SHIFT,
-        lsl.l   #3, d0                             ; split 8+3: max shift is 8/op)
+        lsl.l   #8, d0                             ; sec_x << SECTION_SIZE_SHIFT,
+        lsl.l   #SECTION_SIZE_SHIFT-8, d0          ; split 8+rest: max shift is 8/op
         add.w   Act_start_local_x(a0), d0          ; section world origin (px) + local
         subi.w  #CAM_SCREEN_HALF_W, d0
         swap    d0
@@ -31,8 +31,8 @@ Camera_Init:
         ; start Y = (start_sec_y << SECTION_SIZE_SHIFT) + start_local_y - CAM_SCREEN_HALF_H
         moveq   #0, d0
         move.b  Act_start_sec_y(a0), d0
-        lsl.l   #8, d0                             ; sec_y << 11 (SECTION_SIZE_SHIFT,
-        lsl.l   #3, d0                             ; split 8+3: max shift is 8/op)
+        lsl.l   #8, d0                             ; sec_y << SECTION_SIZE_SHIFT,
+        lsl.l   #SECTION_SIZE_SHIFT-8, d0          ; split 8+rest: max shift is 8/op
         add.w   Act_start_local_y(a0), d0          ; section world origin (px) + local
         subi.w  #CAM_SCREEN_HALF_H, d0
         swap    d0
@@ -69,7 +69,7 @@ Camera_Update:
         beq.s   .no_freeze
         subq.b  #1, (Camera_Hold_Frames).w
         st      d4                                  ; survives to .y_track
-        bra.w   .no_move                            ; X-clamp only; .y_track
+        bra.s   .no_move                            ; X-clamp only; .y_track
                                                     ; tests d4 and skips Y follow
         ; NOTE: d4 is reserved as the freeze flag from here through the
         ; X-clamp path to .y_track — do not reuse d4 between here and
@@ -130,8 +130,8 @@ Camera_Update:
 .min_ok:
         moveq   #0, d1
         move.w  Act_grid_w(a0), d1
-        lsl.l   #8, d1                              ; grid_w << 11 = level_width (px)
-        lsl.l   #3, d1                              ; (SECTION_SIZE_SHIFT, split 8+3)
+        lsl.l   #8, d1                              ; grid_w << SECTION_SIZE_SHIFT
+        lsl.l   #SECTION_SIZE_SHIFT-8, d1           ;   = level_width (px); split 8+rest
         ; MEGA-ACT CEILING: the right-bound clamp below is WORD arithmetic
         ; (subi.w/cmp.w), so a level_width above $FFFF px — grid_w > 31 sections —
         ; word-wraps. Guarded today by act_descriptor's
@@ -148,7 +148,7 @@ Camera_Update:
 
 .y_track:
         tst.b   d4                                  ; spindash freeze active?
-        bne.w   .clamp_y                            ; yes → hold Y, clamp only
+        bne.s   .clamp_y                            ; yes → hold Y, clamp only
         lea     (Player_1).w, a0
 
         move.l  SST_y_pos(a0), d0
@@ -210,7 +210,7 @@ Camera_Update:
         ; follow so it isn't left off-screen; otherwise hold Y.
         cmpi.w  #CAM_SCREEN_HALF_H, d3              ; at/over bottom screen edge?
         bge.s   .down_ok                            ; → resume follow
-        bra.w   .clamp_y                            ; locked → hold Y
+        bra.s   .clamp_y                            ; locked → hold Y
     endif
 .down_ok:
         moveq   #32, d2                             ; restore +deadzone (d2 clobbered)
@@ -247,8 +247,8 @@ Camera_Update:
 .y_min_ok:
         moveq   #0, d1
         move.w  Act_grid_h(a0), d1
-        lsl.l   #8, d1                              ; grid_h << 11 = level_height (px)
-        lsl.l   #3, d1                              ; (SECTION_SIZE_SHIFT, split 8+3)
+        lsl.l   #8, d1                              ; grid_h << SECTION_SIZE_SHIFT
+        lsl.l   #SECTION_SIZE_SHIFT-8, d1           ;   = level_height (px); split 8+rest
         ; MEGA-ACT CEILING: word clamp below (subi.w/cmp.w) word-wraps for a
         ; level_height above $FFFF px — grid_h > 31 sections. Guarded today by
         ; act_descriptor's (GRID_H << SECTION_SIZE_SHIFT) <= $8000 ensure

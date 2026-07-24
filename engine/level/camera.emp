@@ -11,6 +11,12 @@ use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.structs.{Act}
 use engine.objects.sst.{Sst}
 
+// The <<SECTION_SIZE_SHIFT chains below split as 8 + (SECTION_SIZE_SHIFT-8)
+// (an immediate shift is 1..8/op). The split spelling is derivation-locked to
+// the constant; this guard keeps the second term in immediate range if the
+// section size ever changes.
+ensure(SECTION_SIZE_SHIFT > 8 && SECTION_SIZE_SHIFT <= 16, "SECTION_SIZE_SHIFT {SECTION_SIZE_SHIFT} breaks camera's 8+rest split-shift spelling — respell the chains")
+
 const CAM_SCREEN_HALF_W = 160
 const CAM_SCREEN_HALF_H = 112
 const CAM_MAX_X_STEP    = 16        // max horizontal scroll px/frame (classic S2/CD;
@@ -72,8 +78,8 @@ pub proc Camera_Init () clobbers(d0/a0) {
         // start X = (start_sec_x << SECTION_SIZE_SHIFT) + start_local_x - CAM_SCREEN_HALF_W
         moveq   #0, d0
         move.b  Act.start_sec_x(a0), d0
-        lsl.l   #8, d0                             // sec_x << 11 (SECTION_SIZE_SHIFT,
-        lsl.l   #3, d0                             // split 8+3: max shift is 8/op)
+        lsl.l   #8, d0                             // sec_x << SECTION_SIZE_SHIFT,
+        lsl.l   #SECTION_SIZE_SHIFT-8, d0          // split 8+rest: max shift is 8/op
         add.w   Act.start_local_x(a0), d0          // section world origin (px) + local
         subi.w  #CAM_SCREEN_HALF_W, d0
         swap    d0
@@ -83,8 +89,8 @@ pub proc Camera_Init () clobbers(d0/a0) {
         // start Y = (start_sec_y << SECTION_SIZE_SHIFT) + start_local_y - CAM_SCREEN_HALF_H
         moveq   #0, d0
         move.b  Act.start_sec_y(a0), d0
-        lsl.l   #8, d0                             // sec_y << 11 (SECTION_SIZE_SHIFT,
-        lsl.l   #3, d0                             // split 8+3: max shift is 8/op)
+        lsl.l   #8, d0                             // sec_y << SECTION_SIZE_SHIFT,
+        lsl.l   #SECTION_SIZE_SHIFT-8, d0          // split 8+rest: max shift is 8/op
         add.w   Act.start_local_y(a0), d0          // section world origin (px) + local
         subi.w  #CAM_SCREEN_HALF_H, d0
         swap    d0
@@ -119,10 +125,10 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         //    once per frame.
         moveq   #0, d4                              // d4 = "frozen this frame"
         tst.b   Camera_Hold_Frames                  // (Camera_Hold_Frames).w
-        beq.s   .no_freeze
+        beq     .no_freeze
         subq.b  #1, Camera_Hold_Frames
         st      d4                                  // survives to .y_track
-        bra.w   .no_move                            // X-clamp only; .y_track
+        jbra    .no_move                            // X-clamp only; .y_track
                                                     // tests d4 and skips Y follow
         // NOTE: d4 is reserved as the freeze flag from here through the
         // X-clamp path to .y_track — do not reuse d4 between here and
@@ -145,20 +151,20 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         sub.w   d1, d3                             // d3 = dist = screen_x - 160
 
         tst.w   d3
-        bge.s   .x_scroll_right                    // dist >= 0 → at/past centre → scroll right
+        bge     .x_scroll_right                    // dist >= 0 → at/past centre → scroll right
         // left: hold until the player passes the left boundary (-deadzone)
         move.w  Camera_Deadzone_Base, d2           // (Camera_Deadzone_Base).w
         neg.w   d2                                 // d2 = -deadzone (left boundary)
         cmp.w   d2, d3
-        bge.s   .no_move                           // -deadzone <= dist < 0 → hold
+        bge     .no_move                           // -deadzone <= dist < 0 → hold
         sub.w   d2, d3                             // overshoot = dist + deadzone (<0)
         cmpi.w  #-CAM_MAX_X_STEP, d3               // cap leftward step
-        bge.s   .apply_x
+        bge     .apply_x
         move.w  #-CAM_MAX_X_STEP, d3
-        bra.s   .apply_x
+        jbra    .apply_x
     .x_scroll_right:
         cmpi.w  #CAM_MAX_X_STEP, d3                // overshoot = dist; cap rightward step
-        ble.s   .apply_x
+        ble     .apply_x
         move.w  #CAM_MAX_X_STEP, d3
 
     .apply_x:
@@ -178,13 +184,13 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         move.l  Camera_X, d0                        // (Camera_X).w
         swap    d0
         tst.w   d0
-        bge.s   .min_ok
+        bge     .min_ok
         moveq   #0, d0
     .min_ok:
         moveq   #0, d1
         move.w  Act.grid_w(a0), d1
-        lsl.l   #8, d1                              // grid_w << 11 = level_width (px)
-        lsl.l   #3, d1                              // (SECTION_SIZE_SHIFT, split 8+3)
+        lsl.l   #8, d1                              // grid_w << SECTION_SIZE_SHIFT
+        lsl.l   #SECTION_SIZE_SHIFT-8, d1           //   = level_width (px); split 8+rest
         // MEGA-ACT CEILING: the right-bound clamp below is WORD arithmetic
         // (subi.w/cmp.w), so a level_width above $FFFF px — grid_w > 31 sections —
         // word-wraps. Guarded today by act_descriptor's
@@ -192,7 +198,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         // 31). Floating-origin Phase 4 removes the word truncation.
         subi.w  #SCREEN_WIDTH, d1
         cmp.w   d1, d0
-        ble.s   .clamp_x
+        ble     .clamp_x
         move.w  d1, d0
     .clamp_x:
         swap    d0
@@ -201,7 +207,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
 
     .y_track:
         tst.b   d4                                  // spindash freeze active?
-        bne.w   .clamp_y                            // yes → hold Y, clamp only
+        bne     .clamp_y                            // yes → hold Y, clamp only
         lea     Player_1, a0                        // (Player_1).w
 
         move.l  Sst.y_pos(a0), d0
@@ -217,9 +223,9 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
 
         neg.w   d2
         cmp.w   d2, d3
-        bge.s   .check_down
+        bge     .check_down
         sub.w   d2, d3
-        bra.s   .apply_y
+        jbra    .apply_y
 
     .check_down:
         // -- landing lock (game-declared GAME_CAMERA_JUMP_LOCK gate) --
@@ -241,9 +247,9 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         if GAME_CAMERA_JUMP_LOCK == 1 {
             move.b  PL_STATE_ADDR, d2                   // (Player_1+_pl_state).w
             cmpi.b  #PSTATE_JUMP, d2
-            beq.s   .jump_state
+            beq     .jump_state
             cmpi.b  #PSTATE_ROLLJUMP, d2
-            bne.s   .down_ok
+            bne     .down_ok
         .jump_state:
             // Gate the lock on vertical velocity: only hold while RISING/HANGING —
             // exactly the stated intent ("must NOT scroll down to chase a rising/
@@ -255,29 +261,29 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
             // deadzone, 16 px/frame) and settles back to the focal point. Short hops
             // still don't scroll (their descent never exceeds the deadzone).
             tst.w   Player_1 + offsetof(Sst, y_vel)     // (Player_1+SST_y_vel).w — falling? (y_vel > 0)
-            bgt.s   .down_ok                            // yes → normal deadzone follow
+            bgt     .down_ok                            // yes → normal deadzone follow
         .land_lock:
             // rising/hanging, below focal point — d3 still holds the raw signed dist
             // (player_y - center). Failsafe: if the player somehow reaches the bottom
             // screen edge (CAM_SCREEN_HALF_H below center) while still rising, resume
             // follow so it isn't left off-screen; otherwise hold Y.
             cmpi.w  #CAM_SCREEN_HALF_H, d3              // at/over bottom screen edge?
-            bge.s   .down_ok                            // → resume follow
-            bra.w   .clamp_y                            // locked → hold Y
+            bge     .down_ok                            // → resume follow
+            jbra    .clamp_y                            // locked → hold Y
         }
     .down_ok:
         moveq   #32, d2                             // restore +deadzone (d2 clobbered)
         cmp.w   d2, d3
-        ble.s   .clamp_y
+        ble     .clamp_y
         sub.w   d2, d3
 
     .apply_y:
         cmpi.w  #CAM_MAX_Y_STEP, d3
-        ble.s   .y_step_hi_ok
+        ble     .y_step_hi_ok
         move.w  #CAM_MAX_Y_STEP, d3
     .y_step_hi_ok:
         cmpi.w  #-CAM_MAX_Y_STEP, d3
-        bge.s   .y_step_lo_ok
+        bge     .y_step_lo_ok
         move.w  #-CAM_MAX_Y_STEP, d3
     .y_step_lo_ok:
         ext.l   d3
@@ -295,20 +301,20 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         move.l  Camera_Y, d0                        // (Camera_Y).w
         swap    d0
         tst.w   d0
-        bge.s   .y_min_ok
+        bge     .y_min_ok
         moveq   #0, d0
     .y_min_ok:
         moveq   #0, d1
         move.w  Act.grid_h(a0), d1
-        lsl.l   #8, d1                              // grid_h << 11 = level_height (px)
-        lsl.l   #3, d1                              // (SECTION_SIZE_SHIFT, split 8+3)
+        lsl.l   #8, d1                              // grid_h << SECTION_SIZE_SHIFT
+        lsl.l   #SECTION_SIZE_SHIFT-8, d1           //   = level_height (px); split 8+rest
         // MEGA-ACT CEILING: word clamp below (subi.w/cmp.w) word-wraps for a
         // level_height above $FFFF px — grid_h > 31 sections. Guarded today by
         // act_descriptor's (GRID_H << SECTION_SIZE_SHIFT) <= $8000 ensure
         // (grid_h <= 16). Floating-origin Phase 4 removes the word truncation.
         subi.w  #SCREEN_HEIGHT, d1
         cmp.w   d1, d0
-        ble.s   .y_write
+        ble     .y_write
         move.w  d1, d0
     .y_write:
         swap    d0

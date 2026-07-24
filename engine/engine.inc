@@ -386,16 +386,16 @@ __BUDGET_ENGINE:
         ; sigil mixed build: Camera_Init/Camera_Update come from
         ; engine/level/camera.emp, pinned by the sigil map at the per-shape
         ; reference address. Resume placement at the region end (parallax.asm's
-        ; Parallax_Init). Shape-INVARIANT length ($16A both shapes — no
+        ; Parallax_Init). Shape-INVARIANT length ($164 both shapes — no
         ; __DEBUG__ code, no asserts) — the two resume orgs differ only by the
         ; upstream base slide. The .emp takes -D GAME_CAMERA_JUMP_LOCK (0|1)
         ; and mirrors the conditional (see games/*/config/game.asm).
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $67C2
+        org     $67BC
       else
-        org     $5B38
+        org     $5B32
       endif
     endif
     ifndef SIGIL_EMP_PARALLAX
@@ -409,9 +409,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $6D38
+        org     $6D32
       else
-        org     $60AE
+        org     $60A8
       endif
     endif
     include "engine/level/load_art.asm"
@@ -432,9 +432,9 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $7F86
+        org     $7F80
         else
-        org     $646E
+        org     $6468
         endif
       endif
     endif
