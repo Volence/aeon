@@ -31,6 +31,11 @@ const CAM_MAX_X_STEP    = 16        // max horizontal scroll px/frame (classic S
 const CAM_MAX_Y_STEP    = 16        // max camera Y movement px/frame
 ensure(extern("CAM_MAX_Y_STEP") == CAM_MAX_Y_STEP, "engine/constants.asm and camera.emp disagree on CAM_MAX_Y_STEP — update the twin")
 
+const CAM_X_DEADZONE_INIT = $10     // Camera_Deadzone_Base seed: the classic 16px
+                                    // asymmetric X window (variable at runtime —
+                                    // game code may widen it; Y's stays fixed)
+const CAM_Y_DEADZONE      = 32      // fixed vertical deadzone half-window (px)
+
 // Game-contract values the landing lock reads (truth: games/sonic4/config/
 // constants.asm + player_common.asm). The PSTATE_* values sit in cmpi.b imm8
 // positions, which cannot read through extern() until the imm-link width
@@ -69,11 +74,11 @@ equ PL_STATE_ADDR = pl_state_addr()
 
 // -----------------------------------------------
 // Camera_Init — initialise from act descriptor
-// In:  a0 = act descriptor pointer
+// In:  a0 = act descriptor pointer (read only — preserved)
 // Out: none
-// Clobbers: d0, a0
+// Clobbers: d0
 // -----------------------------------------------
-pub proc Camera_Init (a0: *Act) clobbers(d0/a0) {
+pub proc Camera_Init (a0: *Act) clobbers(d0) {
         // Camera_X/Y are 16.16 fixed-point, WORLD coordinates (continuous-scroll).
         // start X = (start_sec_x << SECTION_SIZE_SHIFT) + start_local_x - CAM_SCREEN_HALF_W
         moveq   #0, d0
@@ -98,7 +103,7 @@ pub proc Camera_Init (a0: *Act) clobbers(d0/a0) {
         move.l  d0, Camera_Y                       // (Camera_Y).w
 
         move.w  #0, Camera_Pan_Offset              // (Camera_Pan_Offset).w
-        move.w  #$10, Camera_Deadzone_Base         // (Camera_Deadzone_Base).w
+        move.w  #CAM_X_DEADZONE_INIT, Camera_Deadzone_Base  // (Camera_Deadzone_Base).w
         clr.b   Camera_Hold_Frames                 // (Camera_Hold_Frames).w — spindash release
                                                    // writes it; Camera_Update consumes it
         rts
@@ -106,8 +111,8 @@ pub proc Camera_Init (a0: *Act) clobbers(d0/a0) {
 
 // -----------------------------------------------
 // Camera_Update — follow Player_1 each frame
-// In:  none (reads Player_1 SST and Camera_X)
-// Out: none (updates Camera_X)
+// In:  none (reads Player_1 SST and Camera_X/Camera_Y)
+// Out: none (updates Camera_X and Camera_Y)
 // Clobbers: d0-d4, a0   (d4 = spindash-freeze flag, set in the preamble and
 //                        consumed at .y_track — see the reservation note there)
 // -----------------------------------------------
@@ -128,7 +133,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         beq     .no_freeze
         subq.b  #1, Camera_Hold_Frames
         st      d4                                  // survives to .y_track
-        jbra    .no_move                            // X-clamp only; .y_track
+        jbra    .x_done                             // X-clamp only; .y_track
                                                     // tests d4 and skips Y follow
         // NOTE: d4 is reserved as the freeze flag from here through the
         // X-clamp path to .y_track — do not reuse d4 between here and
@@ -156,7 +161,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         move.w  Camera_Deadzone_Base, d2           // (Camera_Deadzone_Base).w
         neg.w   d2                                 // d2 = -deadzone (left boundary)
         cmp.w   d2, d3
-        bge     .no_move                           // -deadzone <= dist < 0 → hold
+        bge     .x_done                            // -deadzone <= dist < 0 → hold
         sub.w   d2, d3                             // overshoot = dist + deadzone (<0)
         cmpi.w  #-CAM_MAX_X_STEP, d3               // cap leftward step
         bge     .apply_x
@@ -173,13 +178,13 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         lsl.l   #8, d3                             // to 16.16 fixed (lsl.l #16 split for AS)
         add.l   d3, Camera_X                       // (Camera_X).w
 
-    .no_move:
+    .x_done:
         // -- continuous-scroll X clamp: [0, level_width − SCREEN_WIDTH] --
         //    level_width = grid_w << SECTION_SIZE_SHIFT. No more Section_Edge_Flags
         //    / PREVIEW_PIXELS branches — the world camera spans the whole act.
-        //    .no_move (entered from the deadzone-hold path and the spindash
-        //    freeze) and .clamp_x are branch targets; control falls through
-        //    into .y_track below.
+        //    ALL X paths converge here — .x_done is the branch target for the
+        //    deadzone hold and the spindash freeze, and .apply_x falls through;
+        //    control continues into .y_track below.
         movea.l Current_Act_Ptr, a0                 // (Current_Act_Ptr).w
         move.l  Camera_X, d0                        // (Camera_X).w
         swap    d0
@@ -216,7 +221,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         swap    d1                                 // d1.w = camera Y pixels
         addi.w  #CAM_SCREEN_HALF_H, d1             // d1 = camera center Y
 
-        moveq   #32, d2                            // fixed vertical deadzone
+        moveq   #CAM_Y_DEADZONE, d2                // fixed vertical deadzone
 
         move.w  d0, d3
         sub.w   d1, d3                             // dist = player_y - camera_center
@@ -272,7 +277,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
             jbra    .clamp_y                            // locked → hold Y
         }
     .down_ok:
-        moveq   #32, d2                             // restore +deadzone (d2 clobbered)
+        moveq   #CAM_Y_DEADZONE, d2                 // restore +deadzone (d2 clobbered)
         cmp.w   d2, d3
         ble     .clamp_y
         sub.w   d2, d3

@@ -48,7 +48,8 @@ BgAnim_Init:
 ; BgAnim_Update — call once per frame from the main loop (after
 ; Parallax_Update). Per changed band, queues one or two deferrable
 ; DMAs (tile_count*32 bytes total).
-; In: none. Clobbers: d0-d7, a1-a4
+; In: none. Clobbers: d0-d7, a1-a4 (a3/a4 are movem-saved/restored by the
+; body, but preservation is not a contract - callers must not rely on it)
 ; -----------------------------------------------
 BgAnim_Update:
         movem.l a3-a4, -(sp)

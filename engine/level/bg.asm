@@ -27,9 +27,9 @@ BG_TILE_REGION_BYTES = VRAM_SPRITE_TABLE - BG_TILE_BASE_VRAM   ; $3800 = 14336 B
 ; -----------------------------------------------
 ; BG_Init — load shared BG tiles + blit Plane B nametable.
 ;
-; In:  a0 = Act descriptor pointer
+; In:  a0 = Act descriptor pointer (read only — preserved)
 ; Out: none
-; Clobbers: d0, d1, a0–a2
+; Clobbers: d0, d1, a1, a2
 ;
 ; Display assumed off (called from Level_LoadArt, before display enable).
 ; Both writes are blocking via VDP DATA port; autoincrement = 2 bytes/word.
