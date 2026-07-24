@@ -9,13 +9,9 @@ module engine.tile_cache in tile_cache
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 
-// Boundary contract (contract-grammar v2 §3) — the .asm decompressor's contract
-// so the transitive closure sees past the cross-seam call. Emits nothing.
-// drift-guard: engine/compression/s4lz_decompress.asm:58 — Extra In: a4=dict base,
-//   d4.w=dict len (d4 preserved); shared body (line 35) Clobbers d0-d3/a2-a3 +
-//   this entry's a4 rebase; Out a0/a1 = past-end cursors (a0 destroyed-not-read →
-//   clobbers, a1 = the slot-base result the caller reads → out).
-extern proc S4LZ_DecompressDict (a0, a1, a4: *DictBase, d4) clobbers(d0-d3/a0/a2-a4) out(a1)
+// S4LZ_DecompressDict is .emp-owned (engine.s4lz) and resolves at link — no
+// decl; its contract (a4=dict base, d4.w=dict len preserved, clobbers
+// d0-d3/a0/a2-a4, out a1) travels with the proc itself.
 
 // ---- ENGINE constants. TILE_CACHE_COLS/ROWS/STRIDE/NT_SIZE now come from the
 // shared engine.constants twin (consolidated at the shared-struct-module batch —
@@ -326,7 +322,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         movea.l Sec.sec_block_dict(a1), a4     // a4 = raw dict base (ROM)
         movea.l a3, a1
         move.l  a3, -(sp)                      // decompress clobbers a3, advances a1
-        jbsr    S4LZ_DecompressDict            // cross-seam: engine/compression/s4lz_decompress.asm
+        jbsr    S4LZ_DecompressDict            // engine.s4lz (module-to-module)
         movea.l (sp)+, a1                      // a1 = slot base
         rts
 
@@ -1450,7 +1446,7 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         //     compile-time). Hoist them ONCE per row into a5/a6. LOAD-BEARING &
         //     INVISIBLE: this relies on a5/a6 surviving the per-block
         //     DecompressBlock call — its license (d0-d7/a0/a2-a4) excludes them
-        //     (S4LZ_DecompressDict, the AS-side transitive callee, verified
+        //     (S4LZ_DecompressDict, the engine.s4lz transitive callee, verified
         //     a5/a6-clean too). A future edit that makes DecompressBlock (or a
         //     swapped decompressor) touch a5/a6 would corrupt the collision
         //     planes SILENTLY — a checked-clobbers lint (callee writes ⊆ its

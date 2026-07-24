@@ -201,8 +201,36 @@ __BUDGET_ENGINE:
         org     $23AE
       endif
     endif
-    include "engine/compression/s4lz_decompress.asm"
-    include "engine/compression/zx0_decompress.asm"
+    ifndef SIGIL_EMP_S4LZ
+        include "engine/compression/s4lz_decompress.asm"
+    else
+        ; sigil mixed build: S4LZ_DecompressDict/S4LZ_Decompress come from
+        ; engine/compression/s4lz_decompress.emp, pinned by the sigil map at
+        ; the per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $263C
+      else
+        org     $24AA
+      endif
+    endif
+    ifndef SIGIL_EMP_ZX0
+        include "engine/compression/zx0_decompress.asm"
+    else
+        ; sigil mixed build: ZX0_Decompress comes from
+        ; engine/compression/zx0_decompress.emp, pinned by the sigil map at
+        ; the per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $2694
+      else
+        org     $2502
+      endif
+    endif
     ifndef SIGIL_EMP_MATH
         include "engine/system/math.asm"
     else
