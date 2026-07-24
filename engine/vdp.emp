@@ -39,9 +39,11 @@ ensure(extern("VDP_CTRL") == VDP_CTRL, "engine/constants.asm and engine.vdp disa
 // struct-generated AS symbol.
 pub const VDP_MODE1_OFF = $00                // reg $00 (Mode Set 1) — carries IE1
 pub const VDP_MODE2_OFF = $01                // reg $01 (Mode Set 2) — carries VInt enable
+pub const VDP_MODE3_OFF = $0B                // reg $0B (Mode Set 3) — ext-int/scroll modes
 pub const VDP_HINT_OFF  = $0A                // reg $0A — HInt line counter
 ensure(VDP_MODE1_OFF == extern("VDP_Shadow_vdp_mode1"), "engine/structs.asm and engine.vdp disagree on the vdp_mode1 shadow offset — update VDP_MODE1_OFF")
 ensure(VDP_MODE2_OFF == extern("VDP_Shadow_vdp_mode2"), "engine/structs.asm and engine.vdp disagree on the vdp_mode2 shadow offset — update VDP_MODE2_OFF")
+ensure(VDP_MODE3_OFF == extern("VDP_Shadow_vdp_mode3"), "engine/structs.asm and engine.vdp disagree on the vdp_mode3 shadow offset — update VDP_MODE3_OFF")
 ensure(VDP_HINT_OFF == extern("VDP_Shadow_vdp_hint_rate"), "engine/structs.asm and engine.vdp disagree on the vdp_hint_rate shadow offset — update VDP_HINT_OFF")
 
 // The %-encodings (truth: engine/constants.asm). Exhaustive match — Plan-3

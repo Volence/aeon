@@ -10,7 +10,7 @@ module engine.parallax in parallax
 
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.structs.{Act, Sec, parallax_config}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL, VDP_MODE3_OFF}
 
 // ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm).
 // Mirrored local + drift-locked to keep this port byte-isolated; hoist each into
@@ -24,12 +24,9 @@ ensure(extern("PARALLAX_LERP_SHIFT") == PARALLAX_LERP_SHIFT, "engine/constants.a
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
 const VDP_DATA_OFF = VDP_DATA - VDP_CTRL     // = -4
 
-// VDP shadow register $0B (Mode Set 3) — StartTransition writes it via the
-// setVDPReg macro, inlined here (shadow-table byte + dirty-mask bit). The
-// set_vdp_reg comptime-fn counterpart is deferred to the step-4 construct pass
-// (macro-port rule; shared with the hblank trampoline's IE1/counter writes).
-const VDP_MODE3_OFF = $0B
-ensure(VDP_MODE3_OFF == extern("VDP_Shadow_vdp_mode3"), "engine/structs.asm and parallax.emp disagree on the vdp_mode3 shadow offset — update VDP_MODE3_OFF")
+// StartTransition writes VDP register $0B (Mode Set 3) through the shadow +
+// dirty mask; VDP_MODE3_OFF comes from the shared engine.vdp shadow-offset
+// block (drift-locked there against structs.asm).
 
 // Parallax_State clear span in longwords — mirrored comptime so the Init moveq
 // can embed it (moveq embeds its immediate in the opcode word; a link-time extern

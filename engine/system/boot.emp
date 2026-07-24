@@ -1,4 +1,5 @@
 // Boot sequence — TMSS, VDP init, Z80 init, memory clearing
+// (§ references = docs/ENGINE_ARCHITECTURE.md)
 //
 // The BootData table (movem preloads, VDP register bytes, DMA fill command,
 // Z80 blob, PSG bytes, post-DMA commands) stays AS-side in
@@ -13,8 +14,9 @@ use engine.z80_bus.{stop_z80, start_z80}
 // The hardware ports below (HW_*, TMSS_REGISTER, YM2612_A0) are bare
 // link-resolved addresses (truth: engine/constants.asm) — EA-position only,
 // so nothing here needs a comptime mirror (the z80_bus Z80_BUS_REQUEST
-// class). VDP_DATA/VDP_CTRL come from the shared engine.vdp twin because the
-// PSG displacement below needs them at COMPTIME.
+// class). VDP_DATA comes from the shared engine.vdp twin because the PSG
+// displacement below needs it at COMPTIME; VDP_CTRL and VDP_MODE2_OFF ride
+// the same import as shared-twin values.
 
 // PSG data port (truth: engine/constants.asm) — needed at COMPTIME for the
 // PSG displacement off the VDP_DATA base in a3. Module-local until a second
@@ -45,6 +47,10 @@ comptime fn bytes_to_lcnt(n: int where 4..$10000) -> int {
 // EntryPoint — first instruction after reset
 // Never returns (falls through Warm/Cold boot into the GameLoop tail), so the
 // contract is the honest ⊤ bound: the body destroys every register.
+// RESET-ENTRY ONLY (the reset vector is the sole referencer): everything up
+// to the interrupt unmask relies on the 68000 reset forcing SR=$2700 — a
+// software `jmp EntryPoint` with interrupts live would race the RAM clear
+// (VInt_Ptr zeroed) against a pending VInt.
 // -----------------------------------------------
 pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         tst.l   HW_PORT_A_CTRL_FULL
@@ -56,7 +62,9 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
     // Warm boot — soft reset path
     // -----------------------------------------------
     .warm_boot:
-        // Wait for any in-progress DMA
+        // Wait for any in-progress DMA. (Safe pre-handshake on TMSS
+        // hardware: the TMSS boot ROM has already unlocked the VDP on every
+        // reset path before the cartridge runs.)
     .wait_dma:
         move.w  VDP_CTRL, d0
         btst    #1, d0                      // VDP status bit 1 = DMA busy
@@ -101,6 +109,15 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         move.w  d0, (a3)                    // trigger fill (fill byte = 0)
 
         // --- PARALLEL WORK WHILE DMA FILLS VRAM ---
+        // Window invariant: until .wait_fill, nothing may touch the VDP DATA
+        // port ($C00000) — a data write mid-fill both lands in VRAM and
+        // REPLACES the fill byte. The PSG writes below ($C00011) are the one
+        // VDP-DECODED access in the window; their safety is TEMPORAL, not
+        // topological: the 64KB RAM clear (~360k cycles ≈ 47ms) strictly
+        // dominates the display-off fill (~21ms), so the fill is complete
+        // before the PSG loop runs. Moving the PSG loop ahead of the RAM
+        // clear (or shrinking the clear) re-opens a real-hardware hazard —
+        // move it below .wait_fill instead.
 
         // Z80 init (§0.5)
         move.w  d0, (a2)                    // assert Z80 reset
@@ -141,7 +158,8 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
     .silence_psg:
         move.b  (a5)+, PSG_DATA_OFF(a3)     // PSG_PORT-VDP_DATA off the data-port base
         dbf     d2, .silence_psg
-        // (the twin carries an `align 2` here — code is even, it emits nothing)
+        // code address is even here — the table walk needs no alignment pad
+        // (twin-lockstep: boot.asm's align 2 at this point emits nothing)
 
         // --- WAIT FOR DMA FILL TO COMPLETE ---
     .wait_fill:
@@ -166,7 +184,12 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         move.l  d0, (a3)
         dbf     d2, .clear_vsram
 
-        // YM2612 key-off — silence all 6 FM channels (§0.6)
+        // YM2612 key-off — silence all 6 FM channels (§0.6). CHOSEN
+        // compromise: these writes are NOT busy-paced (~3.5us apart vs the
+        // chip's ~25us busy window), so on real silicon most are swallowed —
+        // boot silence is actually guaranteed by the >=192-cycle /IC reset
+        // pulse above; this block is belt-and-braces. If it ever becomes
+        // load-bearing, poll $A04000 bit 7 between data writes.
         stop_z80()
         lea     YM2612_A0, a6
         move.b  #$28, (a6)                  // select Key On/Off register
@@ -182,7 +205,7 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         dbf     d1, .keyoff_part2
         start_z80()
 
-        // Clear all 68K registers
+        // Clear d0-a6 from just-cleared RAM (sp keeps the reset-vector stack)
         movem.l (RAM_Start).w, d0-a6        // explicit .w: movem's abs seam is pinned-width (relaxable movem form ledgered)
 
         // Disable all interrupts
@@ -210,12 +233,15 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         move.b  d0, Region_Flags
         btst    #6, d0                      // bit 6 = PAL
         bne     .pal
-        move.w  #NTSC_TIMING_STEP, (Timing_Step).w          // explicit .w x4: link-imm source +
-        move.w  #DMA_BUDGET_NTSC, (DMA_Budget_Default).w    // relaxable dest can't share an
+        // The four stores below keep explicit `.w` dests: a link-imm source
+        // and a relaxable dest can't share an instruction (core.emp
+        // kept-width class, gap-ledger row 1046).
+        move.w  #NTSC_TIMING_STEP, (Timing_Step).w
+        move.w  #DMA_BUDGET_NTSC, (DMA_Budget_Default).w
         jbra    .region_done
     .pal:
-        move.w  #PAL_TIMING_STEP, (Timing_Step).w           // instruction (core.emp kept-width
-        move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w     // class, row 1046)
+        move.w  #PAL_TIMING_STEP, (Timing_Step).w
+        move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w
     .region_done:
         clr.w   Frame_Accumulator           // RAM operand — the 68000 clr read-before-write hazard is I/O-only
 
@@ -274,8 +300,10 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // Set initial game state — the game supplies the entry contract:
         //   Game_Entry    = the first game-state routine
         //   GAME_ENTRY_ID = its game-state id
-        move.l  #Game_Entry, (Game_State).w // explicit .w x2: link-imm source + relaxable dest
-        move.b  #GAME_ENTRY_ID, (Game_State_ID).w   // can't share an instruction (core.emp kept-width class)
+        // Both stores keep explicit `.w` dests (the row-1046 kept-width
+        // class — link-imm source + relaxable dest).
+        move.l  #Game_Entry, (Game_State).w
+        move.b  #GAME_ENTRY_ID, (Game_State_ID).w
         clr.b   Game_State_Init
 
         // Enter main loop — never returns

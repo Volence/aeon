@@ -1,4 +1,5 @@
 ; Boot sequence — TMSS, VDP init, Z80 init, memory clearing
+; (§ references = docs/ENGINE_ARCHITECTURE.md)
 
 ; -----------------------------------------------
 ; EntryPoint — first instruction after reset
@@ -13,7 +14,9 @@ EntryPoint:
 ; Warm_Boot — soft reset path
 ; -----------------------------------------------
 Warm_Boot:
-        ; Wait for any in-progress DMA
+        ; Wait for any in-progress DMA. (Safe pre-handshake on TMSS
+        ; hardware: the TMSS boot ROM has already unlocked the VDP on every
+        ; reset path before the cartridge runs.)
 .wait_dma:
         move.w  (VDP_CTRL).l, d0
         btst    #1, d0                      ; VDP status bit 1 = DMA busy
@@ -58,6 +61,15 @@ Cold_Boot:
         move.w  d0, (a3)                    ; trigger fill (fill byte = 0)
 
         ; --- PARALLEL WORK WHILE DMA FILLS VRAM ---
+        ; Window invariant: until .wait_fill, nothing may touch the VDP DATA
+        ; port ($C00000) — a data write mid-fill both lands in VRAM and
+        ; REPLACES the fill byte. The PSG writes below ($C00011) are the one
+        ; VDP-DECODED access in the window; their safety is TEMPORAL, not
+        ; topological: the 64KB RAM clear (~360k cycles ≈ 47ms) strictly
+        ; dominates the display-off fill (~21ms), so the fill is complete
+        ; before the PSG loop runs. Moving the PSG loop ahead of the RAM
+        ; clear (or shrinking the clear) re-opens a real-hardware hazard —
+        ; move it below .wait_fill instead.
 
         ; Z80 init (§0.5)
         move.w  d0, (a2)                    ; assert Z80 reset
@@ -123,7 +135,12 @@ Cold_Boot:
         move.l  d0, (a3)
         dbf     d2, .clear_vsram
 
-        ; YM2612 key-off — silence all 6 FM channels (§0.6)
+        ; YM2612 key-off — silence all 6 FM channels (§0.6). CHOSEN
+        ; compromise: these writes are NOT busy-paced (~3.5us apart vs the
+        ; chip's ~25us busy window), so on real silicon most are swallowed —
+        ; boot silence is actually guaranteed by the >=192-cycle /IC reset
+        ; pulse above; this block is belt-and-braces. If it ever becomes
+        ; load-bearing, poll $A04000 bit 7 between data writes.
         stopZ80
         lea.l   (YM2612_A0).l, a6
         move.b  #$28, (a6)                  ; select Key On/Off register
@@ -139,7 +156,7 @@ Cold_Boot:
         dbf     d1, .keyoff_part2
         startZ80
 
-        ; Clear all 68K registers
+        ; Clear d0-a6 from just-cleared RAM (sp keeps the reset-vector stack)
         movem.l (RAM_Start).w, d0-a6
 
         ; Disable all interrupts
