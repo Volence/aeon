@@ -140,7 +140,12 @@ pub proc Camera_Init (a0: *Act) clobbers(d0) {
         clr.w   d0
         move.l  d0, Camera_Y                       // (Camera_Y).w
 
-        move.w  #0, Camera_Pan_Offset              // (Camera_Pan_Offset).w
+        move.w  #0, Camera_Pan_Offset              // (Camera_Pan_Offset).w — feature
+                                                   // scaffolding awaiting its consumer:
+                                                   // the camera-lookahead system
+                                                   // (Sec.sec_camera_lookahead is its
+                                                   // per-section knob); write-only until
+                                                   // that ships — do not cut
         move.w  #CAM_X_DEADZONE_INIT, Camera_Deadzone_Base  // (Camera_Deadzone_Base).w
         clr.b   Camera_Hold_Frames                 // (Camera_Hold_Frames).w — spindash release
                                                    // writes it; Camera_Update consumes it

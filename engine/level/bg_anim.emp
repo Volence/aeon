@@ -32,6 +32,8 @@
 
 module engine.bg_anim in bg_anim
 
+use engine.types.{VramAddr}
+
 const BGANIM_MAX_BANDS = 4
 const BGANIM_BANKS     = 8          // pre-shifted art banks, 1px apart (fine phase)
 
@@ -46,7 +48,7 @@ struct bganim_band {
     step_mask:  u16,                // pattern width in px, minus 1
     col_shift:  u16,                // log2 of column stride in bytes (rows*32)
     tile_count: u16,
-    vram_dest:  u16,                // VRAM byte address of the band's first slot
+    vram_dest:  VramAddr,           // VRAM byte address of the band's first slot
     banks:      [*u8; 8],           // bank0..bank7 pre-shifted art, 1px per bank
 }
 ensure(sizeof(bganim_band) == 44, "bganim_band drifted from the inject_editor_bg.py record layout: {sizeof(bganim_band)}")
