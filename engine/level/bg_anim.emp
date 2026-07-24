@@ -62,10 +62,9 @@ const BGANIM_BANKS_BYTES        = sizeof(bganim_band) - offsetof(bganim_band, ba
 const BGANIM_SPILL_BYTES        = 6 // the 3-word piece2-len/dest/piece1-len stack spill below
 const TILE_BYTES_SHIFT          = 5 // log2(32 bytes per 8x8 tile)
 
-// The DMA-queue enqueue's contract (kill-list row 32's class — the dplc.emp
-// decl verbatim; deleted the commit dma_queue ports to .emp).
-// drift-guard: engine/system/dma_queue.asm:56 — In: d1.l/d2.w/d3.w · Clobbers: d0-d4, a1-a2 · Out: carry = dropped
-extern proc QueueDMA_Deferrable (d1, d2, d3) clobbers(d0-d4/a1-a2) out(carry: dropped)
+// QueueDMA_Deferrable is an .emp-owned proc (engine.dma_queue) — its real
+// signature carries the contract (`(d1, d2, d3) clobbers(d0-d4/a1-a2)
+// out(carry: dropped)`); it resolves at link.
 
 // -----------------------------------------------
 // BgAnim_Init — force a bank DMA on each band's first Update.

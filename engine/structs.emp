@@ -1,11 +1,12 @@
-// Shared ROM level-descriptor struct twins — Act (the 34-byte act descriptor)
-// and Sec (the 66-byte section descriptor). Both are TYPE-ONLY twins: this
-// module emits ZERO bytes. It gives every consumer (act_descriptor.emp,
-// section.emp, tile_cache.emp, entity_window.emp) ONE typed home for Sec/Act
-// field access — `Sec.sec_bg_layout(a0)`, `offsetof(Act, grid_w)` — instead of
-// per-file offset-const mirrors.
+// Shared engine struct twins — Act (the 34-byte act descriptor), Sec (the
+// 66-byte section descriptor), and DMAEntry (the 14-byte DMA-queue entry).
+// All are TYPE-ONLY twins: this module emits ZERO bytes. It gives every
+// consumer (act_descriptor.emp, section.emp, tile_cache.emp,
+// entity_window.emp, dma_queue.emp) ONE typed home for field access —
+// `Sec.sec_bg_layout(a0)`, `DMAEntry.SizeH(a1)`, `offsetof(Act, grid_w)` —
+// instead of per-file offset-const mirrors.
 //
-// engine/structs.asm's `Act`/`Sec` structs stay authoritative for the layout
+// engine/structs.asm's structs stay authoritative for the layout
 // until structs.asm itself ports (Spec 5, the twin-scaffolding kill). Two
 // locks hold this side to that side: the auto-computed field offsets are
 // pinned by the per-field `offsetof(S, f) == extern("S_f")` drift wall below
@@ -78,9 +79,30 @@ pub struct Sec {
     sec_block_dict_len:  u16,           // $40 — dict bytes (768×K, K≤3)
 }
 
+// -----------------------------------------------
+// DMA Queue Entry (§1.2) — 14 bytes, RAM queue slots
+// VDP reg numbers at even offsets, data at odd offsets — movep's
+// alternate-byte writes interleave value bytes between the pre-filled
+// register markers, so one movep.l lands a whole field family.
+// -----------------------------------------------
+pub struct DMAEntry {
+    Reg94:   u8,            // +0  VDP reg $14 marker
+    SizeH:   u8,            // +1  DMA length high byte
+    Reg93:   u8,            // +2  VDP reg $13 marker
+    SizeL:   u8,            // +3  DMA length low byte
+    Reg97:   u8,            // +4  VDP reg $17 marker
+    SrcH:    u8,            // +5  source address bits 22-16
+    Reg96:   u8,            // +6  VDP reg $16 marker
+    SrcM:    u8,            // +7  source address bits 15-8
+    Reg95:   u8,            // +8  VDP reg $15 marker
+    SrcL:    u8,            // +9  source address bits 7-0
+    Command: u32,           // +10 VDP command (destination + DMA trigger)
+}
+
 // ---- total-size guards (structs.asm's `if *_len <> $XX` checks) ----
 ensure(sizeof(Act) == extern("Act_len"), "Act twin drifted from structs.asm: {sizeof(Act)}")
 ensure(sizeof(Sec) == extern("Sec_len"), "Sec twin drifted from structs.asm: {sizeof(Sec)}")
+ensure(sizeof(DMAEntry) == extern("DMAEntry_len"), "DMAEntry twin drifted from structs.asm: {sizeof(DMAEntry)}")
 
 // ---- per-field drift wall (strictly stronger than sizeof) — every named
 // field's offset pinned to its structs.asm-generated `<Struct>_<field>` equ.
@@ -120,3 +142,14 @@ ensure(offsetof(Sec, sec_camera_lookahead) == extern("Sec_sec_camera_lookahead")
 ensure(offsetof(Sec, sec_pcfg_pad_3E)     == extern("Sec_sec_pcfg_pad_3E"),     "Sec.sec_pcfg_pad_3E drifted: {offsetof(Sec, sec_pcfg_pad_3E)}")
 ensure(offsetof(Sec, sec_pcfg_pad_3F)     == extern("Sec_sec_pcfg_pad_3F"),     "Sec.sec_pcfg_pad_3F drifted: {offsetof(Sec, sec_pcfg_pad_3F)}")
 ensure(offsetof(Sec, sec_block_dict_len)  == extern("Sec_sec_block_dict_len"),  "Sec.sec_block_dict_len drifted: {offsetof(Sec, sec_block_dict_len)}")
+ensure(offsetof(DMAEntry, Reg94)   == extern("DMAEntry_Reg94"),   "DMAEntry.Reg94 drifted: {offsetof(DMAEntry, Reg94)}")
+ensure(offsetof(DMAEntry, SizeH)   == extern("DMAEntry_SizeH"),   "DMAEntry.SizeH drifted: {offsetof(DMAEntry, SizeH)}")
+ensure(offsetof(DMAEntry, Reg93)   == extern("DMAEntry_Reg93"),   "DMAEntry.Reg93 drifted: {offsetof(DMAEntry, Reg93)}")
+ensure(offsetof(DMAEntry, SizeL)   == extern("DMAEntry_SizeL"),   "DMAEntry.SizeL drifted: {offsetof(DMAEntry, SizeL)}")
+ensure(offsetof(DMAEntry, Reg97)   == extern("DMAEntry_Reg97"),   "DMAEntry.Reg97 drifted: {offsetof(DMAEntry, Reg97)}")
+ensure(offsetof(DMAEntry, SrcH)    == extern("DMAEntry_SrcH"),    "DMAEntry.SrcH drifted: {offsetof(DMAEntry, SrcH)}")
+ensure(offsetof(DMAEntry, Reg96)   == extern("DMAEntry_Reg96"),   "DMAEntry.Reg96 drifted: {offsetof(DMAEntry, Reg96)}")
+ensure(offsetof(DMAEntry, SrcM)    == extern("DMAEntry_SrcM"),    "DMAEntry.SrcM drifted: {offsetof(DMAEntry, SrcM)}")
+ensure(offsetof(DMAEntry, Reg95)   == extern("DMAEntry_Reg95"),   "DMAEntry.Reg95 drifted: {offsetof(DMAEntry, Reg95)}")
+ensure(offsetof(DMAEntry, SrcL)    == extern("DMAEntry_SrcL"),    "DMAEntry.SrcL drifted: {offsetof(DMAEntry, SrcL)}")
+ensure(offsetof(DMAEntry, Command) == extern("DMAEntry_Command"), "DMAEntry.Command drifted: {offsetof(DMAEntry, Command)}")

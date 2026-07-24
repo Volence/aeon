@@ -100,7 +100,25 @@ __BUDGET_ENGINE:
         org     $1C54
       endif
     endif
-    include "engine/system/dma_queue.asm"
+    ifndef SIGIL_EMP_DMA_QUEUE
+        include "engine/system/dma_queue.asm"
+    else
+        ; sigil mixed build: the 3-priority DMA queue (Init_DMA_Queue,
+        ; QueueDMA_* + the shared transfer core, Process_DMA_*,
+        ; Drain_Budgeted_Queue) comes from engine/system/dma_queue.emp, pinned
+        ; by the sigil map at the per-shape reference address. Resume placement
+        ; at the region end (buffers.asm's Init_SpriteTable). Shape-DEPENDENT
+        ; length ($302 plain / $306 debug — the debug surplus is the
+        ; overflow-count bump in the enqueue's full-queue arm), so the two
+        ; resume orgs differ by more than the base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $1FDC
+      else
+        org     $1F56
+      endif
+    endif
     include "engine/system/buffers.asm"
     include "engine/system/vblank.asm"
     ifndef SIGIL_EMP_HBLANK

@@ -1,0 +1,350 @@
+// DMA queue — 3-priority sub-queue system with movep-interleaved format.
+//
+// Queue entries are 14-byte DMAEntry records (engine.structs twin): VDP reg
+// numbers pre-filled at even offsets, value bytes movep-interleaved at odd
+// offsets, so draining an entry is a straight register-port byte stream.
+
+module engine.dma_queue in dma_queue
+
+use engine.structs.{DMAEntry}
+use engine.constants.{DMA_CRITICAL_SLOTS, DMA_TOTAL_SLOTS}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg, VDP_CTRL}
+
+// Derived entry displacements (one-consumer usage detail — file-local per the
+// engine.structs boundary rule). The ENTRY2_* forms address the SECOND entry
+// of a 128KB split pair through the same base register.
+const ENTRY_LEN      = sizeof(DMAEntry)
+const ENTRY2_SIZEH   = ENTRY_LEN + offsetof(DMAEntry, SizeH)
+const ENTRY2_SIZEL   = ENTRY_LEN + offsetof(DMAEntry, SizeL)
+const ENTRY2_COMMAND = ENTRY_LEN + offsetof(DMAEntry, Command)
+
+// -----------------------------------------------
+// fill_slot_markers — Init's per-slot marker pre-fill, displacements DERIVED
+// from the DMAEntry layout (slot c's Reg94 byte, then the Reg93/97/96/95
+// marker family via one movep.l). Emits n slots' worth of stores.
+// LOCKSTEP: dma_queue.asm spells this as a `rept DMA_TOTAL_SLOTS`/`set`
+// unroll — the byte gates are the guard; a slot-count or layout change must
+// move both sides (the gate names the first diverging byte if only one moves).
+// -----------------------------------------------
+comptime fn fill_slot_markers(n: int) -> Code {
+    return 0..n |> fold(asm {}, |acc, c| acc ++ asm {
+        move.b  d0, {c * sizeof(DMAEntry) + offsetof(DMAEntry, Reg94)}(a0)
+        movep.l d1, {c * sizeof(DMAEntry) + offsetof(DMAEntry, Reg93)}(a0)
+    })
+}
+
+// -----------------------------------------------
+// Init_DMA_Queue — pre-fill all 32 slots with VDP register markers
+// Called once at boot.
+// In:  none
+// Out: none
+// Clobbers: d0-d1, a0
+// -----------------------------------------------
+pub proc Init_DMA_Queue () clobbers(d0-d1/a0) {
+        lea     DMA_Queue, a0                   // (DMA_Queue).w
+        moveq   #-$6C, d0                       // $94 sign-extended
+        move.l  #$93979695, d1
+        fill_slot_markers(DMA_TOTAL_SLOTS)
+        // Slot vars hold the next free entry's address; empty = queue base.
+        // (dest widths pinned `.w`: a link-time #imm source with a bare
+        // relaxable dest is the [lower.imm-link] gap — row 1046 item 2)
+        move.w  #DMA_Critical, (DMA_Critical_Slot).w
+        move.w  #DMA_Important, (DMA_Important_Slot).w
+        move.w  #DMA_Deferrable, (DMA_Deferrable_Slot).w
+        rts
+}
+
+// -----------------------------------------------
+// QueueDMA_Critical / QueueDMA_Important / QueueDMA_Deferrable
+// Entry points that select the target sub-queue, then tail into the shared
+// QueueDMA_Deferrable.transfer core (Deferrable's own body runs straight
+// into it — the shared core IS Deferrable's tail).
+//
+// In:  d1.l = source address (bytes, even)
+//      d2.w = VRAM destination (byte address)
+//      d3.w = transfer length (bytes, even, non-zero)
+// Out: carry SET = request DROPPED (queue full); carry CLEAR = enqueued OK.
+//      The carry is pinned AFTER the caller's SR is restored — the restore
+//      would otherwise overwrite it and every carry-checking caller would
+//      read garbage (see the andi/ori-to-ccr sites in the core).
+//      Known remaining edge: a 128KB split with only one free slot enqueues
+//      the first half and returns carry CLEAR — atomic split rollback is the
+//      art-streaming plan's rollback work, out of scope here (ledgered).
+//      Vanishingly rare for dplc (a small source can still straddle a 128KB
+//      boundary), not impossible.
+// Clobbers: d0-d4, a1-a2 — the exhaustive license; everything outside it is
+//      contractually preserved. Callers rely on exactly this set (dplc's
+//      Perform_DPLC* skip saving a3 across the call), so widening it means
+//      re-checking every dead-save caller.
+// -----------------------------------------------
+pub proc QueueDMA_Critical (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) out(carry: dropped) {
+        lea     DMA_Critical_Slot, a2           // (DMA_Critical_Slot).w
+        move.w  #DMA_Critical_End, d4
+        bra.s   QueueDMA_Deferrable.transfer
+}
+
+pub proc QueueDMA_Important (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) out(carry: dropped) {
+        lea     DMA_Important_Slot, a2          // (DMA_Important_Slot).w
+        move.w  #DMA_Important_End, d4
+        bra.s   QueueDMA_Deferrable.transfer
+}
+
+pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) out(carry: dropped) {
+        lea     DMA_Deferrable_Slot, a2         // (DMA_Deferrable_Slot).w
+        move.w  #DMA_Deferrable_End, d4
+
+    // -----------------------------------------------
+    // .transfer — the shared enqueue core (the three entry points above all
+    // arrive here; Deferrable falls straight in).
+    // In:  d1.l = source (bytes), d2.w = dest, d3.w = length (bytes)
+    //      a2 = pointer to slot variable, d4.w = queue end address
+    // Out/Clobbers: the entry points' contract above.
+    // -----------------------------------------------
+    export .transfer:
+        move.w  sr, -(sp)
+        move.w  #$2700, sr                      // disableInts (engine/macros.asm)
+        movea.w (a2), a1
+        cmpa.w  d4, a1
+        beq.s   .full
+
+        lsr.l   #1, d1                          // source to words
+        bclr.l  #23, d1                         // RAM source safety
+        movep.l d1, DMAEntry.SizeL(a1)          // source -> offsets 3,5,7,9
+
+        lsr.w   #1, d3                          // length to words
+
+        // 128KB boundary check (sub+sub approach).
+        // Detects if (source_words.w + length_words.w) > $10000,
+        // i.e. the DMA crosses a 128KB byte boundary.
+        moveq   #0, d0
+        sub.w   d3, d0
+        sub.w   d1, d0
+        blo.s   .split                          // carry = crosses boundary
+
+        // No crossing — write length and finish
+        movep.w d3, DMAEntry.SizeH(a1)          // length -> offsets 1,3
+
+    .finish_entry:
+        moveq   #0, d0
+        move.w  d2, d0
+        vdp_comm_reg(d0, VdpTarget.Vram, VdpOp.Dma, false)
+        move.l  d0, DMAEntry.Command(a1)
+
+        lea     ENTRY_LEN(a1), a1
+        move.w  a1, (a2)
+
+        move.w  (sp)+, sr
+        andi.b  #$FE, ccr                       // carry CLEAR = enqueued OK (pinned after the SR restore)
+        rts
+
+    .full:
+        if DEBUG == 1 {
+            addq.w  #1, DMA_Overflow_Count      // (DMA_Overflow_Count).w — debug-only profiling counter
+        }
+        move.w  (sp)+, sr
+        ori.b   #1, ccr                         // carry SET = request dropped (queue full; pinned after the SR restore)
+        rts
+
+        // --- 128KB boundary split ---
+        // Split the transfer into two queue entries: one up to the boundary,
+        // one for the remainder. Both go to the same sub-queue.
+    .split:
+        add.w   d3, d0                          // d0 = words until 128KB boundary
+        movep.w d0, DMAEntry.SizeH(a1)          // write first part length
+
+        // Need two free slots — check room for second entry
+        subi.w  #sizeof(DMAEntry), d4           // d4 = start of last slot
+        cmpa.w  d4, a1
+        bhs.s   .finish_entry                   // only one slot — finish first part
+
+        // Second part parameters
+        sub.w   d0, d3                          // d3 = second part length (words)
+        add.l   d0, d1                          // d1 = second part source (words)
+        add.w   d0, d0                          // d0 = first part length (bytes)
+        add.w   d2, d0                          // d0 = second part VRAM dest
+
+        // Finish first entry with original destination
+        vdp_comm_reg(d2, VdpTarget.Vram, VdpOp.Dma)     // d2 -> VDP command (clr default true, upper word unknown)
+        move.l  d2, DMAEntry.Command(a1)
+
+        // Write second entry into next slot
+        movep.l d1, ENTRY2_SIZEL(a1)
+        movep.w d3, ENTRY2_SIZEH(a1)
+
+        // Second entry VDP command — d0 upper word known zero
+        vdp_comm_reg(d0, VdpTarget.Vram, VdpOp.Dma, false)
+        lea     ENTRY2_COMMAND(a1), a1
+        move.l  d0, (a1)+
+        move.w  a1, (a2)
+
+        move.w  (sp)+, sr
+        andi.b  #$FE, ccr                       // carry CLEAR = both split entries enqueued OK
+        rts
+}
+
+// -----------------------------------------------
+// Process_DMA_Critical jump-table pieces.
+// The table dispatches on the queue's BYTE offset (entry count ×
+// sizeof(DMAEntry)), so every slot must be exactly sizeof(DMAEntry) = 14
+// bytes wide; the drain run unrolls one 8-byte send group per entry, and
+// slot c branches to the group that drains exactly c entries.
+// LOCKSTEP: dma_queue.asm spells the table as `rept`/`set` unrolls with
+// arithmetic slot targets (`bra.w .drain_end-.c*8`) — this side names the
+// drain entry points instead; the byte gates prove the two spellings
+// identical.
+// -----------------------------------------------
+
+// One jump-table slot: point a5/a1 at the port and queue, then branch to the
+// drain group for this slot's entry count.
+comptime fn jt_slot(drain: Label) -> Code {
+    return asm {
+        lea     VDP_CTRL, a5                    // (VDP_CTRL).l
+        lea     DMA_Critical, a1                // (DMA_Critical).w
+        bra.w   {drain}                         // STRUCTURAL bra.w: stride-locked jump-table slot — lea.l(6) + lea.w(4) + bra.w(4) = sizeof(DMAEntry); a relaxed branch would break the offset indexing
+    }
+}
+
+// Slot 0's trap-filler pad: slot 0 is `bra.w .done` (4 bytes); the rest of
+// its sizeof(DMAEntry)-wide slot is unreachable trap #0 filler.
+comptime fn jt_filler() -> Code {
+    return 0..(sizeof(DMAEntry) - 4) / 2 |> fold(asm {}, |acc, _i| acc ++ asm { trap #0 })
+}
+
+// One drain send group: stream one 14-byte entry to the VDP control port.
+comptime fn dma_send_entry() -> Code {
+    return asm {
+        move.l  (a1)+, (a5)
+        move.l  (a1)+, (a5)
+        move.l  (a1)+, (a5)
+        move.w  (a1)+, (a5)
+    }
+}
+
+// The slot list and drain run below are hand-spelled 8-wide; pin the count so
+// a queue-geometry change fails loud here instead of drifting past the table.
+ensure(DMA_CRITICAL_SLOTS == 8, "Process_DMA_Critical's jump table is spelled for 8 slots — re-derive .jump_table/.drain_* for {DMA_CRITICAL_SLOTS}")
+
+// -----------------------------------------------
+// Process_DMA_Critical — drain Critical queue via jump table
+// Zero branches per entry. ~64 cycles/entry, ~514 for all 8.
+// In:  none
+// Out: none
+// Clobbers: a1, a5
+// -----------------------------------------------
+pub proc Process_DMA_Critical () clobbers(a1/a5) {
+        movea.w DMA_Critical_Slot, a1           // (DMA_Critical_Slot).w
+        suba.w  #DMA_Critical, a1               // a1 = byte offset into queue
+        jmp     .jump_table(a1)
+
+    .jump_table:
+        bra.w   .done                           // STRUCTURAL bra.w: slot 0 (queue empty) — the 4-byte head of the sizeof(DMAEntry)-wide slot
+        jt_filler()
+        jt_slot(.drain_1)                       // 1 entry queued
+        jt_slot(.drain_2)
+        jt_slot(.drain_3)
+        jt_slot(.drain_4)
+        jt_slot(.drain_5)
+        jt_slot(.drain_6)
+        jt_slot(.drain_7)
+        lea     VDP_CTRL, a5                    // slot 8 (queue full) falls through into the full drain
+        lea     DMA_Critical, a1
+    .drain_8:
+        dma_send_entry()
+    .drain_7:
+        dma_send_entry()
+    .drain_6:
+        dma_send_entry()
+    .drain_5:
+        dma_send_entry()
+    .drain_4:
+        dma_send_entry()
+    .drain_3:
+        dma_send_entry()
+    .drain_2:
+        dma_send_entry()
+    .drain_1:
+        dma_send_entry()
+        move.w  #DMA_Critical, (DMA_Critical_Slot).w    // width pinned: [lower.imm-link], row 1046 item 2
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// Process_DMA_Important — drain Important queue with byte budget
+// In:  none (reads DMA_Budget_Remaining)
+// Out: none
+// Clobbers: d0-d1, a0-a3, a5
+// -----------------------------------------------
+pub proc Process_DMA_Important () clobbers(d0-d1/a0-a3/a5) {
+        movea.w DMA_Important_Slot, a1          // (DMA_Important_Slot).w
+        lea     DMA_Important, a0               // (DMA_Important).w
+        cmpa.l  a0, a1
+        bls.s   .done
+        lea     DMA_Important_Slot, a2
+        bra.s   Drain_Budgeted_Queue            // tail call — updates slot var
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// Process_DMA_Deferrable — drain Deferrable queue with byte budget
+// In:  none (reads DMA_Budget_Remaining)
+// Out: none
+// Clobbers: d0-d1, a0-a3, a5
+// -----------------------------------------------
+pub proc Process_DMA_Deferrable () clobbers(d0-d1/a0-a3/a5) {
+        movea.w DMA_Deferrable_Slot, a1         // (DMA_Deferrable_Slot).w
+        lea     DMA_Deferrable, a0              // (DMA_Deferrable).w
+        cmpa.l  a0, a1
+        bls.s   .done
+        lea     DMA_Deferrable_Slot, a2
+        bra.s   Drain_Budgeted_Queue            // tail call — updates slot var
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// Drain_Budgeted_Queue — shared loop for Important/Deferrable
+// Entries that don't fit this frame's budget are COMPACTED to the
+// queue base and persist to the next frame (consumers like
+// Perform_DPLC queue once and rely on eventual delivery —
+// discarding meant stale art).
+// In:  a0 = queue start, a1 = slot pointer value (first free)
+//      a2 = slot variable address
+//      DMA_Budget_Remaining must be set
+// Out: slot variable updated (base if fully drained,
+//      base + survivors after compaction, unchanged if nothing drained)
+// Clobbers: d0-d1, a0-a1, a3, a5
+// -----------------------------------------------
+proc Drain_Budgeted_Queue (a0: *u8, a1: *u8, a2: *u8) clobbers(d0-d1/a0-a1/a3/a5) {
+        lea     VDP_CTRL, a5                    // (VDP_CTRL).l
+        movea.l a0, a3                          // a3 = queue base
+    .loop:
+        move.w  DMA_Budget_Remaining, d0        // (DMA_Budget_Remaining).w
+        ble.s   .out_of_budget
+        movep.w DMAEntry.SizeH(a0), d1          // read size in words
+        add.w   d1, d1                          // words -> bytes
+        sub.w   d1, DMA_Budget_Remaining
+        move.l  (a0)+, (a5)
+        move.l  (a0)+, (a5)
+        move.l  (a0)+, (a5)
+        move.w  (a0)+, (a5)
+        cmpa.l  a0, a1
+        bhi.s   .loop
+        move.w  a3, (a2)                        // fully drained — slot = base
+        rts
+
+    .out_of_budget:
+        cmpa.l  a0, a3
+        beq.s   .no_drain                       // nothing sent — slot already correct
+    .compact:
+        move.l  (a0)+, (a3)+                    // src always above dst — safe forward copy
+        move.l  (a0)+, (a3)+
+        move.l  (a0)+, (a3)+
+        move.w  (a0)+, (a3)+
+        cmpa.l  a0, a1
+        bhi.s   .compact
+        move.w  a3, (a2)                        // slot = base + surviving entries
+    .no_drain:
+        rts
+}
