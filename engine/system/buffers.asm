@@ -97,6 +97,9 @@ BuildStaticDMA:
 ; PlaneMapToVRAM — CPU-based row-by-row nametable writer
 ; For one-shot plane loads (title screens, menus, level init).
 ; Use during display-off or VBlank only.
+; Exported API awaiting its consumers — the title/menu system is the intended
+; caller; no call site exists in the tree yet (deliberate forward-scaffolding,
+; kill condition on the campaign gap-ledger).
 ; In:  a1   = source nametable data (VDP-ready words)
 ;      d0.l = VDP write command for top-left cell
 ;      d1.w = width in cells - 1
@@ -120,7 +123,9 @@ PlaneMapToVRAM:
 
 ; -----------------------------------------------
 ; Enqueue_Dirty_Buffers — enqueue dirty palette lines and sprite table
-; Called from VBlank handlers (Z80 already stopped).
+; Called from VBlank handlers inside the DMA window (sound build: the
+; SND_CTRL_DMA_ACTIVE flag bracket is raised, the Z80 runs free on its DRAIN
+; path; sound-off build: the Z80 is bus-stopped for the whole window).
 ; In:  none
 ; Out: none
 ; Clobbers: d0, a1-a2

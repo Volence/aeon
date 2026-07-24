@@ -261,10 +261,13 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
 // so shipped rendering is unchanged.
 //
 // In:  none
-// Out: d0 = active parallax_config* (0 = inert); Z reflects d0.
-// Clobbers: d0
+// Out: d0 = active parallax_config* (0 = inert); Z reflects d0 — declared as
+//      the `zero: inert` flag result so callers' beq-after-call reliance is
+//      contract, not header prose (demanding sites: Vscroll_Write's and
+//      Enqueue_Dirty_Buffers' NULL-config dispatch). d0 is the returned
+//      result, so it rides out(), not clobbers().
 // ----------------------------------------------------------------------
-pub proc Parallax_Active_Config () clobbers(d0) {
+pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
         tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
         bne     .use_target
         move.l  Parallax_Current_Config, d0         // (Parallax_Current_Config).w — Z from d0

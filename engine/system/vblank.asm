@@ -183,7 +183,8 @@ VSync_Wait:
         ; lands between them (VBlank_Ready still 0), it runs VInt_Lag, which sets
         ; VBlank_Flag — so .wait falls through with NO real vsync, while Ready is
         ; left =1 for the NEXT VBlank to full-drain a still-mid-fill Plane_Buffer
-        ; (the b96c861 torn-drain hazard). Mask IRQs across the pair (~34-40 cy on
+        ; (the torn-drain hazard VInt_Lag's header describes). Mask IRQs across
+        ; the pair (~34-40 cy on
         ; this once-per-frame path); this also makes Lag_Frame_Count exact. SR is
         ; restored BEFORE .wait — the wait itself depends on IRQ6 setting the flag.
         move.w  sr, -(sp)

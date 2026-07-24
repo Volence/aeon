@@ -2,6 +2,7 @@
 module engine.vblank in vblank
 
 use engine.z80_bus.{stop_z80, start_z80}
+use engine.irq.{sr_masked}
 
 // 68k-side view of the Z80 sound driver's DMA-window flag (SND_Z80_BASE +
 // SND_CTRL_DMA_ACTIVE — truth: engine/sound_constants.asm). Link-resolved sum;
@@ -214,11 +215,10 @@ pub proc VSync_Wait () clobbers(d0) preserves(sr) {
         // the pair (~34-40 cy on this once-per-frame path); this also makes
         // Lag_Frame_Count exact. SR is restored BEFORE .wait — the wait itself
         // depends on IRQ6 setting the flag.
-        move.w  sr, -(sp)
-        move.w  #$2700, sr
-        move.b  d0, VBlank_Flag
-        move.b  #1, VBlank_Ready
-        move.w  (sp)+, sr
+        sr_masked(asm {
+            move.b  d0, VBlank_Flag
+            move.b  #1, VBlank_Ready
+        })
     .wait:
         tst.b   VBlank_Flag
         beq     .wait
