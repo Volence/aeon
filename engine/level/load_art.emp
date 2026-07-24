@@ -14,15 +14,14 @@ use engine.constants.{ART_POOL_PAGE_TILES, ART_HDR_VERSION, ART_HDR_SIZE, ART_VE
 const ART_POOL_PAGE_BYTES = ART_POOL_PAGE_TILES * 32
 
 // Boundary contracts (contract-grammar v2 §3) — the blocking decompressors
-// and the frame-wait stay .asm; these decls let the transitive closure see
-// past the cross-seam calls. QueueDMA_Critical and BG_Init are .emp-owned
-// (engine.dma_queue / engine.bg) and resolve at link — no decls.
+// stay .asm; these decls let the transitive closure see past the cross-seam
+// calls. QueueDMA_Critical, BG_Init and VSync_Wait are .emp-owned
+// (engine.dma_queue / engine.bg / engine.vblank) and resolve at link — no
+// decls.
 // drift-guard: engine/compression/s4lz_decompress.asm:65 — In: a0 src/a1 dst · Clobbers: d0-d3, a2-a3 · Out: a0 past stream, a1 past output (the no-dict entry touches neither a4 nor d4)
 extern proc S4LZ_Decompress (a0, a1) clobbers(d0-d3/a2-a3) out(a0, a1)
 // drift-guard: engine/compression/zx0_decompress.asm:48 — In: a0 src/a1 dst · Clobbers: d0-d1 (a2/d2 movem-saved) · Out: a0 past stream, a1 past output
 extern proc ZX0_Decompress (a0, a1) clobbers(d0-d1) out(a0, a1)
-// drift-guard: engine/system/vblank.asm:167 — In/Out: none · Clobbers: d0 (game_loop.emp:12 carries the same decl)
-extern proc VSync_Wait () clobbers(d0)
 
 // -----------------------------------------------
 // Art_Decompress — version-dispatched blocking art decompressor.

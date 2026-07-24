@@ -1,0 +1,35 @@
+// Interrupt-mask bracket templates — shared module.
+//
+// The .emp counterpart of the hand-spelled SR save/mask/restore bracket
+// (`move.w sr,-(sp)` / `move.w #$2700,sr` / `move.w (sp)+,sr`). The AS twins
+// keep spelling the bracket inline, byte-identical to the template.
+//
+// Consumers `use engine.irq.{sr_masked}`.
+//
+// PAIRED USE ONLY: sr_masked is for the one-save/one-restore bracket whose
+// masked section is a label-free straight-line block (the splice-hole house
+// rule). Sites that stay inline BY DESIGN: multi-exit brackets (one save,
+// several restore-and-return paths — the DMA-queue transfer core), loops that
+// re-mask under a single save (Sound_Init's alive-wait), brackets with
+// internal labels/branches (Sound_DrainSfxRing), and long-span brackets whose
+// masked section is a whole code region (Section_RedrawPlanes, BG_Init).
+// STRUCTURAL exclusion: any bracket with a CCR out-contract can NEVER adopt —
+// the full-SR restore overwrites CCR, so those sites pin their carry AFTER
+// the restore (the DMA-queue core's andi/ori-to-ccr ordering).
+//
+// Pure comptime module: opens no section and emits ZERO bytes anywhere in the
+// ROM — bytes appear only where a consumer splices the template.
+module engine.irq
+
+// Mask all interrupts (level 7) around `code`, restoring the caller's SR
+// after. The caller declares `preserves(sr)` (the save/restore is the
+// enforcement) and owns the WHY comment at the call site — atomicity
+// rationales are site facts, not template facts.
+pub comptime fn sr_masked(code: Code) -> Code {
+    return asm {
+        move.w  sr, -(sp)
+        move.w  #$2700, sr
+    } ++ code ++ asm {
+        move.w  (sp)+, sr
+    }
+}

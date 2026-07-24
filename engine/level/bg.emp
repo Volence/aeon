@@ -19,6 +19,7 @@
 
 module engine.bg in bg
 
+use engine.constants.{VRAM_SPRITE_TABLE}
 use engine.structs.{Act}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL}
 use engine.z80_bus.{stop_z80, start_z80}
@@ -27,9 +28,10 @@ use engine.z80_bus.{stop_z80, start_z80}
 // Mirrored local + drift-locked to keep this port byte-isolated; hoist each into
 // the shared engine.constants twin when a 2nd .emp file consumes it. ----
 const BG_TILE_BASE_VRAM  = $8000        // byte address (slot 1024)
-const VRAM_SPRITE_TABLE  = $B800        // relocated SAT — the BG region's ceiling
+// VRAM_SPRITE_TABLE (the BG region's ceiling) comes from the shared
+// engine.constants twin (hoisted at the tranche-21 buffers port — 2nd
+// consumer; the shared twin carries the drift lock).
 ensure(extern("BG_TILE_BASE_VRAM") == BG_TILE_BASE_VRAM, "engine/constants.asm and bg.emp disagree on BG_TILE_BASE_VRAM — update the twin")
-ensure(extern("VRAM_SPRITE_TABLE") == VRAM_SPRITE_TABLE, "engine/constants.asm and bg.emp disagree on VRAM_SPRITE_TABLE — update the twin")
 
 const VRAM_PLANE_B_BYTES  = $E000       // Plane B nametable VRAM byte address
 const BG_LAYOUT_SIZE      = 64*64*2     // 8192 bytes (full Plane B nametable)

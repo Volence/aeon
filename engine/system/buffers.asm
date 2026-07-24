@@ -49,35 +49,35 @@ BuildStaticDMA:
         move.l  #dmaSource(Palette_Buffer+$20), d1
         move.w  #dmaLength(32), d3
         move.l  #vdpComm($20, CRAM, DMA), d2
-        bsr.w   .build_entry
+        bsr.s   .build_entry
 
         ; Palette line 2: Palette_Buffer+$40 -> CRAM $0040, 32 bytes
         lea     (Static_Pal_Line2).w, a0
         move.l  #dmaSource(Palette_Buffer+$40), d1
         move.w  #dmaLength(32), d3
         move.l  #vdpComm($40, CRAM, DMA), d2
-        bsr.w   .build_entry
+        bsr.s   .build_entry
 
         ; Palette line 3: Palette_Buffer+$60 -> CRAM $0060, 32 bytes
         lea     (Static_Pal_Line3).w, a0
         move.l  #dmaSource(Palette_Buffer+$60), d1
         move.w  #dmaLength(32), d3
         move.l  #vdpComm($60, CRAM, DMA), d2
-        bsr.w   .build_entry
+        bsr.s   .build_entry
 
         ; Sprite table: Sprite_Table_Buffer -> VRAM $B800, 640 bytes
         lea     (Static_Sprite_DMA).w, a0
         move.l  #dmaSource(Sprite_Table_Buffer), d1
         move.w  #dmaLength(640), d3
         move.l  #vdpComm(VRAM_SPRITE_TABLE, VRAM, DMA), d2
-        bsr.w   .build_entry
+        bsr.s   .build_entry
 
         ; §4.6 HScroll cell mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 112 bytes
         lea     (Static_Hscroll_Cell).w, a0
         move.l  #dmaSource(Hscroll_Buffer), d1
         move.w  #dmaLength(112), d3
         move.l  #vdpComm(VRAM_HSCROLL_TABLE, VRAM, DMA), d2
-        bsr.w   .build_entry
+        bsr.s   .build_entry
 
         ; §4.6 HScroll line mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 896 bytes
         lea     (Static_Hscroll_Line).w, a0
@@ -97,6 +97,12 @@ BuildStaticDMA:
 ; PlaneMapToVRAM — CPU-based row-by-row nametable writer
 ; For one-shot plane loads (title screens, menus, level init).
 ; Use during display-off or VBlank only.
+; Exported API awaiting its consumers — the title/menu system is the intended
+; caller; no call site exists in the tree yet (deliberate forward-scaffolding,
+; kill condition on the campaign gap-ledger).
+; PRECONDITION: the per-row `add.l` command advance is carry-blind across the
+; VDP command word's A15:A14 split — the target nametable must sit inside one
+; $4000-aligned address segment (any aligned <=4KB nametable qualifies).
 ; In:  a1   = source nametable data (VDP-ready words)
 ;      d0.l = VDP write command for top-left cell
 ;      d1.w = width in cells - 1
@@ -120,7 +126,9 @@ PlaneMapToVRAM:
 
 ; -----------------------------------------------
 ; Enqueue_Dirty_Buffers — enqueue dirty palette lines and sprite table
-; Called from VBlank handlers (Z80 already stopped).
+; Called from VBlank handlers inside the DMA window (sound build: the
+; SND_CTRL_DMA_ACTIVE flag bracket is raised, the Z80 runs free on its DRAIN
+; path; sound-off build: the Z80 is bus-stopped for the whole window).
 ; In:  none
 ; Out: none
 ; Clobbers: d0, a1-a2
@@ -169,15 +177,15 @@ Enqueue_Dirty_Buffers:
         ; byte count matches the mode the buffer was built + the VDP was told to
         ; render in — otherwise a mode-differing transition ships a cell-length DMA
         ; for a line-mode buffer (or vice versa) = the ≤16-frame tear.
-        jsr     Parallax_Active_Config              ; d0 = active config; Z reflects d0
+        bsr.w   Parallax_Active_Config              ; d0 = active config; Z reflects d0
         beq.s   .hs_cell                            ; NULL → per-cell default
         movea.l d0, a1
         move.l  parallax_config_pcfg_deform_table_fg(a1), d0
         or.l    parallax_config_pcfg_deform_table_bg(a1), d0
         beq.s   .hs_cell
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Hscroll_Line
-        bra.s   .no_hscroll
+        bra.s   .hs_done
 .hs_cell:
         queueStaticDMA DMA_Critical_Slot, DMA_Critical_End, Static_Hscroll_Cell
-.no_hscroll:
+.hs_done:
         rts

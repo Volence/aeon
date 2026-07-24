@@ -7,9 +7,8 @@ module engine.game_loop in game_loop
 
 // Boundary contracts (contract-grammar v2 §3/§4). These emit nothing — they
 // state the .asm callees' contracts so the transitive clobber closure can see
-// past the cross-seam calls, and bound the state dispatch.
-// drift-guard: engine/system/vblank.asm:167 — In: none · Out: none · Clobbers: d0
-extern proc VSync_Wait () clobbers(d0)
+// past the cross-seam calls, and bound the state dispatch. VSync_Wait is
+// .emp-owned (engine.vblank) and resolves module-to-module — no decl.
 // drift-guard: games/sonic4/debug/game_debug.asm:20 — Clobbers: d0-d2/a0/a1
 extern proc Debug_MusicToggle () clobbers(d0-d2/a0/a1)
 // The Game_State dispatch runs arbitrary state code — an honest ⊤ bound.

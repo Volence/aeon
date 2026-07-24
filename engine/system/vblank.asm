@@ -13,7 +13,14 @@ VBlank_Handler:
         jsr     (a0)
         bra.s   .done
 .lag:
+    ifdef SOUND_DRIVER_ENABLED
         bsr.w   VInt_Lag
+    endif
+    ifndef SOUND_DRIVER_ENABLED
+        bsr.s   VInt_Lag                ; sound-off: VInt_Level's fence arms are 42 bytes
+                                        ; shorter, pulling VInt_Lag into .s reach — the
+                                        ; .emp side is bare and relaxes per shape
+    endif
 .done:
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
@@ -130,9 +137,14 @@ VInt_Lag:
         ; entry's addr field is garbage, so the drain writes to a garbage VDP dest
         ; (nametable corruption, e.g. Plane B fills with ROM/cache bytes) and then
         ; resets Plane_Buffer_Ptr=0 under the main loop's feet, cascading into more
-        ; lag and more torn drains. The dirty palette/sprite/HScroll buffers above
-        ; ARE safe: they are dirty-FLAG gated (the flag is set only after a complete
-        ; write), unlike the Ptr-gated plane buffer. The plane drain defers to the
+        ; lag and more torn drains. The palette/sprite enqueues above ARE safe:
+        ; they are dirty-FLAG gated (the flag is set only after a complete write).
+        ; The HScroll enqueue is NOT flag-gated (it fires every VBlank) — it is
+        ; safe by a different, weaker mechanism: the static entry's destination
+        ; and length are pre-built, so a lag-frame tear corrupts scroll VALUES
+        ; only (one frame of mixed offsets, self-healing next complete frame),
+        ; never the VDP destination — the garbage-destination write is what makes
+        ; the Ptr-gated plane buffer dangerous. The plane drain defers to the
         ; next complete frame (VInt_Level, VBlank_Ready=1).
         bsr.w   Process_DMA_Critical
         bsr.w   Vscroll_Write           ; §4.6 — after Critical DMA
@@ -176,8 +188,8 @@ VSync_Wait:
         ; lands between them (VBlank_Ready still 0), it runs VInt_Lag, which sets
         ; VBlank_Flag — so .wait falls through with NO real vsync, while Ready is
         ; left =1 for the NEXT VBlank to full-drain a still-mid-fill Plane_Buffer
-        ; (the b96c861 torn-drain hazard). Mask IRQs across the pair (~34-40 cy on
-        ; this once-per-frame path); this also makes Lag_Frame_Count exact. SR is
+        ; (the torn-drain hazard VInt_Lag's header describes). Mask IRQs across
+        ; the pair (46 cy — 14+16+16 — on this once-per-frame path); this also makes Lag_Frame_Count exact. SR is
         ; restored BEFORE .wait — the wait itself depends on IRQ6 setting the flag.
         move.w  sr, -(sp)
         move.w  #$2700, sr

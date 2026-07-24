@@ -331,7 +331,9 @@ Cache_H_Pfx_Accum:      ds.w 1          ; net opposite-motion px accumulator (>=
 Cache_Pfx_Row_Target:   ds.w 1          ; this-frame vertical prefetch target row ($FFFF = none) — corner input
 Cache_Pfx_Col_Target:   ds.w 1          ; this-frame horizontal prefetch target col ($FFFF = none) — corner input
 Cache_Pfx_Skip_Armed:   ds.w 1          ; 1 = prefetch skipped last frame (bound: never skip two running)
-Cache_Pfx_Lag_Flag:     ds.w 1          ; set =1 by VInt_Lag (release-safe lag signal); the prefetch
+Cache_Pfx_Lag_Flag:     ds.w 1          ; set =1 by the tile-cache frame gate when Frame_Counter
+                                        ; advanced by >1 since the last fill (a frame lagged in
+                                        ; between — trailing detect, release-safe); the prefetch
                                         ; H4 gate consumes it (skip this frame if the prev frame lagged)
 
 ; Block staging metadata — keys parallel to Block_Stage_Buffers slots

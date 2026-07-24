@@ -299,7 +299,7 @@ queueStaticDMA macro slotvar, queueend, entryvar
         move.l  (a2)+, (a1)+
         move.w  (a2)+, (a1)+
         move.w  a1, (slotvar).w
-        andi.b  #$FE, ccr               ; enqueued → carry CLEAR
+        andi.b  #$FE, ccr               ; enqueued → carry CLEAR (defensive spelling: the slot-var MOVE above already cleared C — kept as the explicit contract point)
         bra.s   .done
 .drop:
         ori.b   #1, ccr                 ; queue full → carry SET (dropped)

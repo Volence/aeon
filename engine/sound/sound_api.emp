@@ -16,6 +16,7 @@
 module engine.sound_api in sound_api
 
 use engine.z80_bus.{stop_z80, start_z80}
+use engine.irq.{sr_masked}
 
 use engine.types.{SongId, SfxId}
 
@@ -107,12 +108,11 @@ comptime fn z80_window(dst: Reg, src: Reg) -> Code {
 // Clobbers: SR restored; nothing else.
 // ----------------------------------------------------------------------
 pub proc Sound_PostByte (d0: u16, a0: *u8) clobbers() preserves(sr) {
-        move.w  sr, -(sp)
-        move.w  #$2700, sr                  // mask interrupts (no mirror nesting)
-        stop_z80
-        move.b  d0, (a0)
-        start_z80
-        move.w  (sp)+, sr
+        sr_masked(asm {
+            {stop_z80()}
+            move.b  d0, (a0)                // mask: no mirror-stopZ80 nesting
+            {start_z80()}
+        })
         rts
 }
 
@@ -246,22 +246,21 @@ pub proc Sound_PlayMusic (d0: SongId) clobbers(d0-d4/a0-a1) preserves(sr) {
         z80_window(d0, a1)                  // d0 = patch-bank window ptr (shares the song's bank)
         // --- post the param block + trigger under one bus hold (SR-masked so the
         // DEBUG mirror's stopZ80 can't nest and release the bus mid-write). ---
-        move.w  sr, -(sp)
-        move.w  #$2700, sr
-        stop_z80
-        // param block FIRST. bank, song window_ptr (LE), flags, patch window_ptr (LE).
-        move.b  d1, PARAM_BANK
-        move.b  d4, PARAM_PTR_LO    // song window ptr low byte
-        lsr.w   #8, d4
-        move.b  d4, PARAM_PTR_HI  // song window ptr high byte
-        move.b  d3, PARAM_FLAGS  // song SH_FLAGS byte
-        move.b  d0, PARAM_PATCHPTR_LO   // patch window ptr low
-        lsr.w   #8, d0
-        move.b  d0, PARAM_PATCHPTR_HI // patch window ptr high
-        // trigger LAST: the song id (1..$FE) tells the Z80 a load is pending.
-        move.b  d2, MUSIC_SLOT
-        start_z80
-        move.w  (sp)+, sr
+        sr_masked(asm {
+            {stop_z80()}
+            // param block FIRST. bank, song window_ptr (LE), flags, patch window_ptr (LE).
+            move.b  d1, PARAM_BANK
+            move.b  d4, PARAM_PTR_LO        // song window ptr low byte
+            lsr.w   #8, d4
+            move.b  d4, PARAM_PTR_HI        // song window ptr high byte
+            move.b  d3, PARAM_FLAGS         // song SH_FLAGS byte
+            move.b  d0, PARAM_PATCHPTR_LO   // patch window ptr low
+            lsr.w   #8, d0
+            move.b  d0, PARAM_PATCHPTR_HI   // patch window ptr high
+            // trigger LAST: the song id (1..$FE) tells the Z80 a load is pending.
+            move.b  d2, MUSIC_SLOT
+            {start_z80()}
+        })
         rts
 }
 

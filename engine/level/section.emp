@@ -5,7 +5,7 @@
 
 module engine.section in section
 
-use engine.constants.{SECTION_SIZE_SHIFT}
+use engine.constants.{SECTION_SIZE_SHIFT, PLANE_H_CELLS}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg, VDP_DATA, VDP_CTRL}
@@ -18,7 +18,6 @@ use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg, VDP_DATA, VDP_CTRL}
 // consumer). ----
 const VRAM_PLANE_A       = $C000        // Plane A nametable VRAM byte address
 const VRAM_PLANE_B_BYTES = $E000        // Plane B nametable VRAM byte address
-const PLANE_H_CELLS      = 64
 const PLANE_V_CELLS      = 64
 const PLANE_BUFFER_SIZE  = 1536         // plane-update ring buffer bytes
 
@@ -140,7 +139,7 @@ pub proc Section_FlatIDXY (d2: u8, d3: GridY, a2: *Act) clobbers(d1) out(d0: Sec
 //      verifier-recognized as a preserve. Consequence: a caller cannot carry a
 //      typed GridX in d2 across this call — see Section_FlatIDXY's d2.)
 // -----------------------------------------------
-pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) out(d0, a0) {
+pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) out(d0, a0, zero: none) {
         cmp.b   Act_grid_w_lo(a2), d2
         bcc     .out_of_range                   // sec_x >= grid_w (unsigned)
         cmp.b   Act_grid_h_lo(a2), d3

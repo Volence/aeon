@@ -4,7 +4,7 @@
 
 module engine.plane_buffer in plane_buffer
 
-use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
+use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE, PLANE_H_CELLS}
 use engine.structs.{Act, Sec}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg, VDP_DATA, VDP_CTRL}
 
@@ -17,7 +17,6 @@ use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg, VDP_DATA, VDP_CTRL}
 // consolidation.) TILE_CACHE_* come from the shared engine.constants twin. ----
 const VRAM_PLANE_A       = $C000        // Plane A nametable VRAM byte address
 const VRAM_PLANE_B_BYTES = $E000        // Plane B nametable VRAM byte address
-const PLANE_H_CELLS      = 64
 const PLANE_V_CELLS      = 64
 const PLANE_BUFFER_SIZE  = 1536         // plane-update ring buffer bytes
 const VDP_CTRL_OFF       = VDP_CTRL - VDP_DATA   // control port = data port + this (byte-saving a6-relative derive; VInt_DrawLevel). The bare A-B(An) disp misparses as a call (gap-ledger), so this named derive is the house spelling until that grammar lands.

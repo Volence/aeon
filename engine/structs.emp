@@ -1,5 +1,6 @@
 // Shared engine struct twins — Act (the 34-byte act descriptor), Sec (the
-// 66-byte section descriptor), and DMAEntry (the 14-byte DMA-queue entry).
+// 66-byte section descriptor), DMAEntry (the 14-byte DMA-queue entry), and
+// parallax_config (the 28-byte parallax ROM config header).
 // All are TYPE-ONLY twins: this module emits ZERO bytes. It gives every
 // consumer (act_descriptor.emp, section.emp, tile_cache.emp,
 // entity_window.emp, dma_queue.emp) ONE typed home for field access —
@@ -153,3 +154,44 @@ ensure(offsetof(DMAEntry, SrcM)    == extern("DMAEntry_SrcM"),    "DMAEntry.SrcM
 ensure(offsetof(DMAEntry, Reg95)   == extern("DMAEntry_Reg95"),   "DMAEntry.Reg95 drifted: {offsetof(DMAEntry, Reg95)}")
 ensure(offsetof(DMAEntry, SrcL)    == extern("DMAEntry_SrcL"),    "DMAEntry.SrcL drifted: {offsetof(DMAEntry, SrcL)}")
 ensure(offsetof(DMAEntry, Command) == extern("DMAEntry_Command"), "DMAEntry.Command drifted: {offsetof(DMAEntry, Command)}")
+
+// -----------------------------------------------
+// Parallax config (§4.6) — 28-byte header + N × band_entry inline, ROM data.
+// Pointed-to by Sec.sec_parallax_config; one config per section (or shared).
+// Shared consumers: engine.parallax (the whole pipeline) + engine.buffers
+// (Enqueue_Dirty_Buffers keys the HScroll DMA length off the deform-table
+// fields). band_entry stays parallax-private (single consumer).
+// -----------------------------------------------
+pub struct parallax_config {
+    pcfg_band_count:        u8,
+    pcfg_v_factor_bg:       u8,    // whole-plane Plane B vshift (used when v_deform_table_bg = 0)
+    pcfg_v_factor_fg:       u8,    // RESERVED — v1 pipeline always sets fg_vscroll = camY
+    pcfg_layer_mask:        u8,    // bit per band; 1 = active
+    pcfg_v_center_y:        u16,   // section's "natural" camera Y
+    pcfg_v_offset:          u16,   // vscroll BG value at center_y
+    pcfg_transition:        u8,    // 0 = smooth lerp (default), 1 = instant snap
+    pcfg_deform_speed_fg:   u8,    // FG H-deform table phase increment per frame
+    pcfg_deform_speed_bg:   u8,    // BG H-deform table phase increment per frame
+    pcfg_pad:               u8,
+    pcfg_deform_table_fg:   *u8,   // ROM ptr to 256-byte signed FG H-deform (0 = none)
+    pcfg_deform_table_bg:   *u8,   // ROM ptr to 256-byte signed BG H-deform (0 = none)
+    pcfg_v_deform_table_bg: *u8,   // ROM ptr to 256-byte signed BG V-column (0 = whole-plane)
+    pcfg_v_deform_speed_bg: u8,    // 0 = static column shape, >0 = animated
+    pcfg_v_deform_shift_bg: u8,    // amplitude shift on V-column samples
+    pcfg_pad2:              [u8; 2],
+}
+
+ensure(sizeof(parallax_config) == extern("parallax_config_len"), "parallax_config twin drifted from structs.asm: {sizeof(parallax_config)}")
+ensure(offsetof(parallax_config, pcfg_band_count) == extern("parallax_config_pcfg_band_count"), "parallax_config.pcfg_band_count drifted: {offsetof(parallax_config, pcfg_band_count)}")
+ensure(offsetof(parallax_config, pcfg_v_factor_bg) == extern("parallax_config_pcfg_v_factor_bg"), "parallax_config.pcfg_v_factor_bg drifted: {offsetof(parallax_config, pcfg_v_factor_bg)}")
+ensure(offsetof(parallax_config, pcfg_layer_mask) == extern("parallax_config_pcfg_layer_mask"), "parallax_config.pcfg_layer_mask drifted: {offsetof(parallax_config, pcfg_layer_mask)}")
+ensure(offsetof(parallax_config, pcfg_v_center_y) == extern("parallax_config_pcfg_v_center_y"), "parallax_config.pcfg_v_center_y drifted: {offsetof(parallax_config, pcfg_v_center_y)}")
+ensure(offsetof(parallax_config, pcfg_v_offset) == extern("parallax_config_pcfg_v_offset"), "parallax_config.pcfg_v_offset drifted: {offsetof(parallax_config, pcfg_v_offset)}")
+ensure(offsetof(parallax_config, pcfg_transition) == extern("parallax_config_pcfg_transition"), "parallax_config.pcfg_transition drifted: {offsetof(parallax_config, pcfg_transition)}")
+ensure(offsetof(parallax_config, pcfg_deform_speed_fg) == extern("parallax_config_pcfg_deform_speed_fg"), "parallax_config.pcfg_deform_speed_fg drifted: {offsetof(parallax_config, pcfg_deform_speed_fg)}")
+ensure(offsetof(parallax_config, pcfg_deform_speed_bg) == extern("parallax_config_pcfg_deform_speed_bg"), "parallax_config.pcfg_deform_speed_bg drifted: {offsetof(parallax_config, pcfg_deform_speed_bg)}")
+ensure(offsetof(parallax_config, pcfg_deform_table_fg) == extern("parallax_config_pcfg_deform_table_fg"), "parallax_config.pcfg_deform_table_fg drifted: {offsetof(parallax_config, pcfg_deform_table_fg)}")
+ensure(offsetof(parallax_config, pcfg_deform_table_bg) == extern("parallax_config_pcfg_deform_table_bg"), "parallax_config.pcfg_deform_table_bg drifted: {offsetof(parallax_config, pcfg_deform_table_bg)}")
+ensure(offsetof(parallax_config, pcfg_v_deform_table_bg) == extern("parallax_config_pcfg_v_deform_table_bg"), "parallax_config.pcfg_v_deform_table_bg drifted: {offsetof(parallax_config, pcfg_v_deform_table_bg)}")
+ensure(offsetof(parallax_config, pcfg_v_deform_speed_bg) == extern("parallax_config_pcfg_v_deform_speed_bg"), "parallax_config.pcfg_v_deform_speed_bg drifted: {offsetof(parallax_config, pcfg_v_deform_speed_bg)}")
+ensure(offsetof(parallax_config, pcfg_v_deform_shift_bg) == extern("parallax_config_pcfg_v_deform_shift_bg"), "parallax_config.pcfg_v_deform_shift_bg drifted: {offsetof(parallax_config, pcfg_v_deform_shift_bg)}")
