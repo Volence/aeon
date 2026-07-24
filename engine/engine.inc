@@ -559,7 +559,7 @@ __BUDGET_ENGINE:
         ; NOTE: the org value is a sonic4-shape address — the gate define
         ; must never be set for other games (demo builds take the include).
       ifdef __DEBUG__
-        org     $7204
+        org     $71F4
         include "engine/debug/generated/vectors.asm"
       endif
     endif
@@ -577,7 +577,7 @@ __BUDGET_ENGINE:
         ; NOTE: these org values are sonic4-shape addresses — the gate define
         ; must never be set for other games (demo builds take the include).
         ifdef __DEBUG__
-        org     $802A
+        org     $801A
         else
         org     $6454
         endif

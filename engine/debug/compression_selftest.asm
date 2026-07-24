@@ -23,7 +23,7 @@
 CompressionSelfTest:
         ; --- S4LZ v3 plain through Art_Decompress dispatch (covers S4LZ branch) ---
         bsr.w   .poison
-        lea     (CSelf_S4LZ_Plain).l, a0
+        lea     (CSelf_S4LZ_Plain).w, a0
         lea     (Art_Staging_Buffer).l, a1
         bsr.w   Art_Decompress
         bsr.w   .checksum
@@ -32,9 +32,9 @@ CompressionSelfTest:
 
         ; --- S4LZ v3 + dictionary (window rebase path) ---
         bsr.w   .poison
-        lea     (CSelf_S4LZ_Dict).l, a0
+        lea     (CSelf_S4LZ_Dict).w, a0
         lea     (Art_Staging_Buffer).l, a1
-        lea     (CSelf_Dict_Blob).l, a4
+        lea     (CSelf_Dict_Blob).w, a4
         move.w  #CSELF_DICT_LEN, d4
         bsr.w   S4LZ_DecompressDict
         bsr.w   .checksum
@@ -42,13 +42,13 @@ CompressionSelfTest:
         bsr.w   .byte_compare
 
         ; --- ZX0 through the version-dispatch wrapper (Art_Decompress) ---
-        bsr.w   .poison
-        lea     (CSelf_ZX0).l, a0
+        bsr.s   .poison
+        lea     (CSelf_ZX0).w, a0
         lea     (Art_Staging_Buffer).l, a1
         bsr.w   Art_Decompress
-        bsr.w   .checksum
+        bsr.s   .checksum
         assert.w d0, eq, #CSELF_PAYLOAD_SUM
-        bsr.w   .byte_compare
+        bsr.s   .byte_compare
         rts
 
 .poison:
@@ -76,7 +76,7 @@ CompressionSelfTest:
         ; Counts mismatches in d0.w; asserts d0.w == 0 on exit.
         ; Clobbers: d0, d1, a0, a1
         lea     (Art_Staging_Buffer).l, a0
-        lea     (CSelf_Expected).l, a1
+        lea     (CSelf_Expected).w, a1
         move.w  #CSELF_PAYLOAD_SIZE/2-1, d1
         moveq   #0, d0
 .cmp_loop:
