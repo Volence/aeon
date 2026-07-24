@@ -13,7 +13,14 @@ VBlank_Handler:
         jsr     (a0)
         bra.s   .done
 .lag:
+    ifdef SOUND_DRIVER_ENABLED
         bsr.w   VInt_Lag
+    endif
+    ifndef SOUND_DRIVER_ENABLED
+        bsr.s   VInt_Lag                ; sound-off: VInt_Level's fence arms are 42 bytes
+                                        ; shorter, pulling VInt_Lag into .s reach — the
+                                        ; .emp side is bare and relaxes per shape
+    endif
 .done:
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
