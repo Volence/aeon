@@ -323,10 +323,25 @@ Parallax_Update:
         bne.s   .snap_b
         tst.b   (Parallax_Transition_Frames).w
         beq.s   .snap_b                             ; no transition — lock to target
-        move.w  (a3), d1
-        sub.w   d1, d2
-        asr.w   #PARALLAX_LERP_SHIFT, d2
-        add.w   d2, d1
+        ; frames-remaining ramp: step = (target − current) / frames_remaining,
+        ; so the BG scroll converges EXACTLY by the last window frame
+        ; (frames_remaining reaches 1 → step = the whole residual). The promote
+        ; frame's .snap_b is then a no-op (current already equals target) — no
+        ; end-of-transition pop. d4 is dead here (it is rewritten with current_b
+        ; at .write_b), so it carries the divisor.
+        ; Divisor invariant: the divide path is reached only past the
+        ; `tst.b Transition_Frames / beq .snap_b` above, so frames_remaining is
+        ; 1..PARALLAX_TRANS_DEFAULT here — never 0. Divide-by-zero is structurally
+        ; unreachable. The gap is ext.l'd to a 32-bit dividend; |quotient| =
+        ; |gap|/frames_remaining ≤ |gap| ≤ $7FFF fits a word, so divs never
+        ; overflows.
+        move.w  (a3), d1                            ; d1 = current_b
+        sub.w   d1, d2                              ; d2.w = target − current (gap)
+        ext.l   d2                                  ; sign-extend gap → 32-bit dividend
+        moveq   #0, d4
+        move.b  (Parallax_Transition_Frames).w, d4 ; frames_remaining 1..15
+        divs.w  d4, d2                              ; d2.w = gap / frames_remaining = ramp step
+        add.w   d2, d1                              ; d1 = current + step
         bra.s   .write_b
 .snap_b:
         move.w  d2, d1                              ; snap: current_b = target
