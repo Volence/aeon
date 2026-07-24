@@ -10,7 +10,7 @@ module engine.parallax in parallax
 
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.structs.{Act, Sec}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL}
 
 // ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm).
 // Mirrored local + drift-locked to keep this port byte-isolated; hoist each into
@@ -20,13 +20,9 @@ const PARALLAX_LERP_SHIFT     = 4
 ensure(extern("PARALLAX_TRANS_DEFAULT") == PARALLAX_TRANS_DEFAULT, "engine/constants.asm and parallax.emp disagree on PARALLAX_TRANS_DEFAULT — update the twin")
 ensure(extern("PARALLAX_LERP_SHIFT") == PARALLAX_LERP_SHIFT, "engine/constants.asm and parallax.emp disagree on PARALLAX_LERP_SHIFT — update the twin")
 
-// VDP port addresses + the a5-relative data-port derive (a5 = VDP_CTRL, so
-// VDP_DATA_OFF(a5) hits VDP_DATA).
-const VDP_DATA     = $C00000
-const VDP_CTRL     = $C00004
+// The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
+// VDP_DATA). Port bases + their drift locks live in engine.vdp.
 const VDP_DATA_OFF = VDP_DATA - VDP_CTRL     // = -4
-ensure(extern("VDP_DATA") == VDP_DATA, "engine/constants.asm and parallax.emp disagree on VDP_DATA — update the twin")
-ensure(extern("VDP_CTRL") == VDP_CTRL, "engine/constants.asm and parallax.emp disagree on VDP_CTRL — update the twin")
 
 // VDP shadow register $0B (Mode Set 3) — StartTransition writes it via the
 // setVDPReg macro, inlined here (shadow-table byte + dirty-mask bit). The

@@ -8,7 +8,7 @@ module engine.section in section
 use engine.constants.{SECTION_SIZE_SHIFT}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg, VDP_DATA, VDP_CTRL}
 
 // ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm,
 // except VRAM_PLANE_B_BYTES from engine/level/bg.asm). Mirrored local +
@@ -205,7 +205,7 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
 // Clobbers: d0–d7, a0–a4, a5–a6
 // -----------------------------------------------
 pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6, sr) out(d5, d7) {
-        lea     VDP_CTRL, a5                    // (VDP_CTRL).l — engine/constants.asm; abs.l by the width rule
+        lea     VDP_CTRL, a5                    // (VDP_CTRL).l — engine.vdp const; abs.l by the width rule
         lea     VDP_DATA, a6
         move.w  sr, -(sp)
         move.w  #$2700, sr
