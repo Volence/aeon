@@ -415,7 +415,22 @@ __BUDGET_ENGINE:
       endif
     endif
     include "engine/level/load_art.asm"
-    include "engine/level/bg.asm"
+    ifndef SIGIL_EMP_BG
+        include "engine/level/bg.asm"
+    else
+        ; sigil mixed build: BG_Init comes from engine/level/bg.emp, pinned by
+        ; the sigil map at the per-shape reference address. Resume placement at
+        ; the region end (bg_anim.asm's BgAnim_Init). Shape-INVARIANT length
+        ; ($AE both shapes — no __DEBUG__ code, no asserts) — the two resume
+        ; orgs differ only by the upstream base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $6E92
+      else
+        org     $61BE
+      endif
+    endif
     include "engine/level/bg_anim.asm"
     include "engine/debug/compression_selftest.asm"
     ifdef SOUND_DRIVER_ENABLED
