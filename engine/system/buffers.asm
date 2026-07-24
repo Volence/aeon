@@ -49,35 +49,35 @@ BuildStaticDMA:
         move.l  #dmaSource(Palette_Buffer+$20), d1
         move.w  #dmaLength(32), d3
         move.l  #vdpComm($20, CRAM, DMA), d2
-        bsr.w   .build_entry
+        bsr.s   .build_entry
 
         ; Palette line 2: Palette_Buffer+$40 -> CRAM $0040, 32 bytes
         lea     (Static_Pal_Line2).w, a0
         move.l  #dmaSource(Palette_Buffer+$40), d1
         move.w  #dmaLength(32), d3
         move.l  #vdpComm($40, CRAM, DMA), d2
-        bsr.w   .build_entry
+        bsr.s   .build_entry
 
         ; Palette line 3: Palette_Buffer+$60 -> CRAM $0060, 32 bytes
         lea     (Static_Pal_Line3).w, a0
         move.l  #dmaSource(Palette_Buffer+$60), d1
         move.w  #dmaLength(32), d3
         move.l  #vdpComm($60, CRAM, DMA), d2
-        bsr.w   .build_entry
+        bsr.s   .build_entry
 
         ; Sprite table: Sprite_Table_Buffer -> VRAM $B800, 640 bytes
         lea     (Static_Sprite_DMA).w, a0
         move.l  #dmaSource(Sprite_Table_Buffer), d1
         move.w  #dmaLength(640), d3
         move.l  #vdpComm(VRAM_SPRITE_TABLE, VRAM, DMA), d2
-        bsr.w   .build_entry
+        bsr.s   .build_entry
 
         ; §4.6 HScroll cell mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 112 bytes
         lea     (Static_Hscroll_Cell).w, a0
         move.l  #dmaSource(Hscroll_Buffer), d1
         move.w  #dmaLength(112), d3
         move.l  #vdpComm(VRAM_HSCROLL_TABLE, VRAM, DMA), d2
-        bsr.w   .build_entry
+        bsr.s   .build_entry
 
         ; §4.6 HScroll line mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 896 bytes
         lea     (Static_Hscroll_Line).w, a0
@@ -169,7 +169,7 @@ Enqueue_Dirty_Buffers:
         ; byte count matches the mode the buffer was built + the VDP was told to
         ; render in — otherwise a mode-differing transition ships a cell-length DMA
         ; for a line-mode buffer (or vice versa) = the ≤16-frame tear.
-        jsr     Parallax_Active_Config              ; d0 = active config; Z reflects d0
+        bsr.w   Parallax_Active_Config              ; d0 = active config; Z reflects d0
         beq.s   .hs_cell                            ; NULL → per-cell default
         movea.l d0, a1
         move.l  parallax_config_pcfg_deform_table_fg(a1), d0

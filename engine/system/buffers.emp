@@ -39,7 +39,7 @@ comptime fn queue_static_dma(entry: Label) -> Code {
     return asm {
         movea.w DMA_Critical_Slot, a1
         cmpa.w  #DMA_Critical_End, a1
-        beq.s   .drop
+        beq     .drop
         lea     {entry}, a2
         move.l  (a2)+, (a1)+
         move.l  (a2)+, (a1)+
@@ -47,7 +47,7 @@ comptime fn queue_static_dma(entry: Label) -> Code {
         move.w  (a2)+, (a1)+
         move.w  a1, DMA_Critical_Slot
         andi.b  #$FE, ccr               // enqueued -> carry CLEAR
-        bra.s   .done
+        jbra    .done
     .drop:
         ori.b   #1, ccr                 // queue full -> carry SET (dropped)
     .done:
@@ -97,42 +97,42 @@ pub proc BuildStaticDMA () clobbers(d0-d3/d5/a0) {
         move.l  #SRC_PAL_LINE0, d1
         move.w  #dma_length(32), d3
         move.l  #vdp_comm(0, VdpTarget.Cram, VdpOp.Dma), d2
-        bsr.w   .build_entry
+        jbsr    .build_entry
 
         // Palette line 1: Palette_Buffer+$20 -> CRAM $0020, 32 bytes
         lea     Static_Pal_Line1, a0
         move.l  #SRC_PAL_LINE1, d1
         move.w  #dma_length(32), d3
         move.l  #vdp_comm($20, VdpTarget.Cram, VdpOp.Dma), d2
-        bsr.w   .build_entry
+        jbsr    .build_entry
 
         // Palette line 2: Palette_Buffer+$40 -> CRAM $0040, 32 bytes
         lea     Static_Pal_Line2, a0
         move.l  #SRC_PAL_LINE2, d1
         move.w  #dma_length(32), d3
         move.l  #vdp_comm($40, VdpTarget.Cram, VdpOp.Dma), d2
-        bsr.w   .build_entry
+        jbsr    .build_entry
 
         // Palette line 3: Palette_Buffer+$60 -> CRAM $0060, 32 bytes
         lea     Static_Pal_Line3, a0
         move.l  #SRC_PAL_LINE3, d1
         move.w  #dma_length(32), d3
         move.l  #vdp_comm($60, VdpTarget.Cram, VdpOp.Dma), d2
-        bsr.w   .build_entry
+        jbsr    .build_entry
 
         // Sprite table: Sprite_Table_Buffer -> VRAM sprite table, 640 bytes
         lea     Static_Sprite_DMA, a0
         move.l  #SRC_SPRITE_TABLE, d1
         move.w  #dma_length(640), d3
         move.l  #vdp_comm(VRAM_SPRITE_TABLE, VdpTarget.Vram, VdpOp.Dma), d2
-        bsr.w   .build_entry
+        jbsr    .build_entry
 
         // §4.6 HScroll cell mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 112 bytes
         lea     Static_Hscroll_Cell, a0
         move.l  #SRC_HSCROLL, d1
         move.w  #dma_length(112), d3
         move.l  #vdp_comm(VRAM_HSCROLL_TABLE, VdpTarget.Vram, VdpOp.Dma), d2
-        bsr.w   .build_entry
+        jbsr    .build_entry
 
         // §4.6 HScroll line mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 896 bytes
         // (falls through into .build_entry — the seventh entry's build IS the tail)
@@ -189,36 +189,36 @@ pub proc PlaneMapToVRAM (a1: *u8, d0: u32, d1: u16, d2: u16) clobbers(d0-d4/a1/a
 // leaving stale palette/SAT data in VRAM indefinitely.
 pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) {
         move.b  Palette_Dirty, d0               // (Palette_Dirty).w
-        beq.w   .no_pal
+        beq     .no_pal
         btst    #0, d0
-        beq.s   .skip_pal0
+        beq     .skip_pal0
         queue_static_dma(Static_Pal_Line0)
-        bcs.s   .skip_pal0                      // dropped -> leave bit 0 set
+        bcs     .skip_pal0                      // dropped -> leave bit 0 set
         bclr    #0, Palette_Dirty               // enqueued -> clear bit 0
     .skip_pal0:
         btst    #1, d0
-        beq.s   .skip_pal1
+        beq     .skip_pal1
         queue_static_dma(Static_Pal_Line1)
-        bcs.s   .skip_pal1
+        bcs     .skip_pal1
         bclr    #1, Palette_Dirty
     .skip_pal1:
         btst    #2, d0
-        beq.s   .skip_pal2
+        beq     .skip_pal2
         queue_static_dma(Static_Pal_Line2)
-        bcs.s   .skip_pal2
+        bcs     .skip_pal2
         bclr    #2, Palette_Dirty
     .skip_pal2:
         btst    #3, d0
-        beq.s   .skip_pal3
+        beq     .skip_pal3
         queue_static_dma(Static_Pal_Line3)
-        bcs.s   .skip_pal3
+        bcs     .skip_pal3
         bclr    #3, Palette_Dirty
     .skip_pal3:
     .no_pal:
         tst.b   Sprite_Table_Dirty              // (Sprite_Table_Dirty).w
-        beq.s   .no_spr
+        beq     .no_spr
         queue_static_dma(Static_Sprite_DMA)
-        bcs.s   .no_spr                         // dropped -> leave flag set
+        bcs     .no_spr                         // dropped -> leave flag set
         clr.b   Sprite_Table_Dirty              // enqueued -> clear
     .no_spr:
         // §4.6: enqueue HScroll DMA when a parallax_config is active.
@@ -227,14 +227,14 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) {
         // byte count matches the mode the buffer was built + the VDP was told to
         // render in — otherwise a mode-differing transition ships a cell-length DMA
         // for a line-mode buffer (or vice versa) = the ≤16-frame tear.
-        jsr     Parallax_Active_Config          // d0 = active config; Z reflects d0
-        beq.s   .hs_cell                        // NULL -> per-cell default
+        jbsr    Parallax_Active_Config          // d0 = active config; Z reflects d0
+        beq     .hs_cell                        // NULL -> per-cell default
         movea.l d0, a1
         move.l  parallax_config.pcfg_deform_table_fg(a1), d0
         or.l    parallax_config.pcfg_deform_table_bg(a1), d0
-        beq.s   .hs_cell
+        beq     .hs_cell
         queue_static_dma(Static_Hscroll_Line)
-        bra.s   .no_hscroll
+        jbra    .no_hscroll
     .hs_cell:
         queue_static_dma(Static_Hscroll_Cell)
     .no_hscroll:
