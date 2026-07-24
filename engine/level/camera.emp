@@ -19,7 +19,10 @@ ensure(SECTION_SIZE_SHIFT > 8 && SECTION_SIZE_SHIFT <= 16, "SECTION_SIZE_SHIFT {
 
 const CAM_SCREEN_HALF_W = 160
 const CAM_SCREEN_HALF_H = 112
-const CAM_MAX_X_STEP    = 16        // max horizontal scroll px/frame (classic S2/CD;
+const CAM_MAX_X_STEP    = 16        // no extern drift-lock: this file-pair IS the
+                                    // truth (byte-gate-covered), unlike CAM_MAX_Y_STEP
+                                    // whose truth lives in engine/constants.asm.
+                                    // max horizontal scroll px/frame (classic S2/CD;
                                     // S3K=24, imperceptible at the 6px/f player top
                                     // speed). Caps large player position jumps (e.g.
                                     // springs) so the camera can't outrun
@@ -78,7 +81,8 @@ equ PL_STATE_ADDR = pl_state_addr()
 // Spliced for X (.x_done) and Y (.clamp_y) — the two sites are the same
 // 13-instruction shape differing only in these three terms.
 // In: the axis' 16.16 RAM cell, the Act grid-dim field offset, the screen
-// extent. Uses d0/d1/a0 (inside both callers' licenses).
+// extent. Uses d0/d1/a0 (inside both callers' licenses). Emits no rts and
+// no external branches — control falls through the splice.
 //
 // MEGA-ACT CEILING: the upper-bound clamp is WORD arithmetic (subi.w/cmp.w),
 // so an axis extent above $FFFF px — grid dim > 31 sections — word-wraps.
@@ -171,6 +175,9 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         //    position writes (continuous-scroll: there are no section teleport
         //    rebases — the camera tracks the player in world space). Decrement
         //    once per frame.
+        // NOTE: d4 is reserved as the freeze flag from here through the
+        // X-tracking and X-clamp paths to .y_track — do not reuse d4
+        // anywhere between, or the Y freeze silently breaks.
         moveq   #0, d4                              // d4 = "frozen this frame"
         tst.b   Camera_Hold_Frames                  // (Camera_Hold_Frames).w
         beq     .no_freeze
@@ -178,9 +185,6 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         st      d4                                  // survives to .y_track
         jbra    .x_done                             // X-clamp only; .y_track
                                                     // tests d4 and skips Y follow
-        // NOTE: d4 is reserved as the freeze flag from here through the
-        // X-clamp path to .y_track — do not reuse d4 between here and
-        // .y_track or the Y freeze silently breaks.
     .no_freeze:
         lea     Player_1, a0                        // (Player_1).w
 
@@ -216,6 +220,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         move.w  #CAM_MAX_X_STEP, d3
 
     .apply_x:
+        // falls through into .x_done below after applying the step
         ext.l   d3
         lsl.l   #8, d3
         lsl.l   #8, d3                             // to 16.16 fixed (lsl.l #16 split for AS)
@@ -285,7 +290,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
             // is falling: release so the descent follows like a walk-off (32-px
             // deadzone, 16 px/frame) and settles back to the focal point. Short hops
             // still don't scroll (their descent never exceeds the deadzone).
-            tst.w   Player_1 + offsetof(Sst, y_vel)     // (Player_1+SST_y_vel).w — falling? (y_vel > 0)
+            tst.w   Sst.y_vel(a0)                       // a0 = Player_1 (unclobbered since .y_track) — falling? (y_vel > 0)
             bgt     .down_ok                            // yes → normal deadzone follow
         .land_lock:
             // rising/hanging, below focal point — d3 still holds the raw signed dist

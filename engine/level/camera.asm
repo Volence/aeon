@@ -72,6 +72,9 @@ Camera_Update:
         ;    position writes (continuous-scroll: there are no section teleport
         ;    rebases — the camera tracks the player in world space). Decrement
         ;    once per frame.
+        ; NOTE: d4 is reserved as the freeze flag from here through the
+        ; X-tracking and X-clamp paths to .y_track — do not reuse d4
+        ; anywhere between, or the Y freeze silently breaks.
         moveq   #0, d4                              ; d4 = "frozen this frame"
         tst.b   (Camera_Hold_Frames).w
         beq.s   .no_freeze
@@ -79,9 +82,6 @@ Camera_Update:
         st      d4                                  ; survives to .y_track
         bra.s   .x_done                             ; X-clamp only; .y_track
                                                     ; tests d4 and skips Y follow
-        ; NOTE: d4 is reserved as the freeze flag from here through the
-        ; X-clamp path to .y_track — do not reuse d4 between here and
-        ; .y_track or the Y freeze silently breaks.
 .no_freeze:
         lea     (Player_1).w, a0
 
@@ -209,7 +209,7 @@ Camera_Update:
         ; is falling: release so the descent follows like a walk-off (32-px
         ; deadzone, 16 px/frame) and settles back to the focal point. Short hops
         ; still don't scroll (their descent never exceeds the deadzone).
-        tst.w   (Player_1+SST_y_vel).w             ; falling? (y_vel > 0)
+        tst.w   SST_y_vel(a0)                      ; a0 = Player_1 (unclobbered since .y_track) - falling? (y_vel > 0)
         bgt.s   .down_ok                           ; yes → normal deadzone follow
 .land_lock:
         ; rising/hanging, below focal point — d3 still holds the raw signed dist

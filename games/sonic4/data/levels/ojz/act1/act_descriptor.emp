@@ -39,6 +39,8 @@ const GRID_H = 3
 // Floating-origin Phase 4 lifts both.
 ensure(GRID_W * GRID_H <= MAX_ACT_SECTIONS,
        "act grid {GRID_W}x{GRID_H} exceeds MAX_ACT_SECTIONS")
+ensure(GRID_W >= 1 && GRID_H >= 1,
+       "act grid {GRID_W}x{GRID_H}: a zero axis makes the camera clamp bound negative (extent < screen)")
 ensure((GRID_W << SECTION_SIZE_SHIFT) <= $8000,
        "grid_w axis extent breaks the signed-word camera clamp")
 ensure((GRID_H << SECTION_SIZE_SHIFT) <= $8000,

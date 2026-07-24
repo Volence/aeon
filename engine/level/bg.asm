@@ -59,6 +59,12 @@ BG_Init:
         bls.s   .bg_len_ok
         move.w  #BG_TILE_REGION_BYTES, d1
 .bg_len_ok:
+        ; The clamp bounds the copy from ABOVE; a drifted length of exactly 1
+        ; would defeat it from below (lsr -> 0, dbf -> 65536 words = 128KB
+        ; through the SAT). Odd lengths >= 3 merely drop their last byte.
+        ; (No assert here: the debug blob would push .skip_tiles past short-
+        ; branch reach, forcing shape-dependent width pins - ledgered instead;
+        ; the emitter always emits 32-byte multiples.)
         stopZ80
         move.w  #$8F02, (VDP_CTRL).l
         move.l  #vdpComm(BG_TILE_BASE_VRAM,VRAM,WRITE), (VDP_CTRL).l

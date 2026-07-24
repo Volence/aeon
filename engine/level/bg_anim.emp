@@ -49,7 +49,7 @@ struct bganim_band {
     col_shift:  u16,                // log2 of column stride in bytes (rows*32)
     tile_count: u16,
     vram_dest:  VramAddr,           // VRAM byte address of the band's first slot
-    banks:      [*u8; 8],           // bank0..bank7 pre-shifted art, 1px per bank
+    banks:      [*u8; BGANIM_BANKS], // bank0..bank7 pre-shifted art, 1px per bank
 }
 ensure(sizeof(bganim_band) == 44, "bganim_band drifted from the inject_editor_bg.py record layout: {sizeof(bganim_band)}")
 
@@ -87,6 +87,16 @@ pub proc BgAnim_Init () clobbers(d0) {
 // license: the preserves() round-trip proof is blocked by the mid-body
 // 3-word SP juggle + the .queue_full unwind, so preservation is not a
 // contract — callers must not rely on it.)
+//
+// PAIR-ATOMICITY CONTRACT (load-bearing call-position invariant): the two
+// enqueues need no interrupt bracket because deferrable entries drain ONLY
+// in VInt_Level, which cannot run until VSync_Wait sets VBlank_Ready —
+// AFTER this proc returns (a lag-frame VInt drains nothing deferrable).
+// Calling BgAnim_Update after VSync_Wait, or draining deferrable from
+// VInt_Lag, would open a mid-pair drain window. Even with both pieces
+// queued, the per-entry VBlank budget can land piece 1 and defer piece 2
+// one frame — a one-frame coarse seam on the band (accepted; the pieces
+// stay FIFO so piece 2 never lands first).
 // -----------------------------------------------
 pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         movem.l a3-a4, -(sp)
@@ -94,8 +104,9 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         lea     BgAnim_LastStep, a4             // (BgAnim_LastStep).w
         move.w  (a3)+, d7                       // band count
         assert.w d7, ls, #BGANIM_MAX_BANDS      // table wider than BgAnim_LastStep = a4 walk
-                                                // off the state array + garbage DMAs (the
-                                                // emitter asserts <= 4; this is defense-in-depth)
+                                                // off the state array + garbage DMAs. DEBUG-ONLY
+                                                // backstop (asserts are zero bytes in plain) — the
+                                                // emitter's <= 4 assert is the release defense
         beq     .exit
         subq.w  #1, d7
     .band_loop:
@@ -119,7 +130,8 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         beq     .skip_band                      // unchanged this frame
         move.w  d0, d5                          // d5 = step (commit on success)
 
-        // -- fine phase: bank pointer (record offset: banks at a3+6) --
+        // -- fine phase: bank pointer (cursor sits at col_shift; banks are
+        //    BGANIM_COL_SHIFT_TO_BANKS ahead) --
         move.w  d0, d1
         and.w   #BGANIM_BANKS-1, d1
         add.w   d1, d1
@@ -132,7 +144,11 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         move.w  (a3)+, d3                       // tile_count
         lsl.w   #TILE_BYTES_SHIFT, d3           // total bytes
         move.w  (a3)+, d2                       // vram dest
-        sub.w   d0, d3                          // d3 = piece 1 length (> 0)
+        sub.w   d0, d3                          // d3 = piece 1 length — positive only under the
+                                                // emitter invariants (step_mask = 8*columns-1,
+                                                // tile_count = columns*rows); a drifted table row
+                                                // would send QueueDMA length <= 0 = a 128KB spray
+        assert.w d3, gt, #0                     // DEBUG-ONLY backstop for that drift class
         move.w  d0, -(sp)                       // piece 2 length (= shift bytes)
         move.w  d2, -(sp)                       // dest base
         move.w  d3, -(sp)                       // piece 1 length
@@ -152,7 +168,13 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         add.w   d4, d2
         move.l  d6, d1
         jbsr    QueueDMA_Deferrable
-        bcs     .next_band                      // partial — redo both next frame
+        bcs     .next_band                      // partial: piece 1 is already queued and lands
+                                                // this frame (one-frame seam); the skipped commit
+                                                // forces a redo ONLY when the step moves again —
+                                                // a driver parked back on the committed step
+                                                // leaves the mixed band until the next change
+                                                // (ledgered: poison the LastStep word with the
+                                                // Init sentinel here to force the redo)
     .commit:
         move.w  d5, (a4)
         jbra    .next_band
