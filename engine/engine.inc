@@ -84,7 +84,25 @@
 ; Engine code
 ; -----------------------------------------------
 __BUDGET_ENGINE:
-    include "engine/system/boot.asm"
+    ifndef SIGIL_EMP_BOOT
+        include "engine/system/boot.asm"
+    else
+        ; sigil mixed build: the boot code (EntryPoint through the GameLoop
+        ; entry) comes from engine/system/boot.emp, pinned by the sigil map at
+        ; the per-shape reference address. Resume placement at the BootData
+        ; table — the data tail below stays AS-side in BOTH arms (the .emp
+        ; reaches it via `lea BootData(pc)` and the link seam), so no splice
+        ; window ever crosses the nested Z80 source include. Shape-DEPENDENT
+        ; length (debug +4: the __DEBUG__ bsr.w CompressionSelfTest).
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $3AE
+      else
+        org     $3AA
+      endif
+    endif
+    include "engine/system/boot_data.asm"
     ifndef SIGIL_EMP_VDP_INIT
         include "engine/system/vdp_init.asm"
     else
