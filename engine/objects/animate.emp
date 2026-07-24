@@ -226,7 +226,7 @@ pub proc AnimateSprite (a0: *Sst) clobbers(d0-d2/a1-a2) {
 
     .evt_sound:
         // dc.b AF_SOUND, sound_id -> play the SFX
-        move.b  2(a1,d1.w), d0
+        move.b  2(a1,d1.w), d0 as SfxId     // the script byte IS an sfx id — born SfxId here for Sound_PlaySFX's d0 slot
         if SOUND_DRIVER_ENABLED == 1 {
         // Sound_PlaySFX clobbers ONLY d0 — under the exhaustive-license
         // ruling a1 and d1 are CONTRACTUALLY

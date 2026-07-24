@@ -74,6 +74,8 @@
 
 module data.mt_bank
 
+use engine.types.{SongId}
+
 // --- the six stream blobs (generated .bin twins of the committed dc.b .asm;
 // see tools' --emit-bin + the dc.b-equality verifier). Bound to `const` first
 // so each `.len` is a readable comptime int (the `data K = embed(...)`
@@ -111,10 +113,10 @@ const Hcz2PatchBlob = embed("hcz2_patches.bin")                   // 128 B ($80)
 // stay documentation-only: their sound_ids.asm equates are inside `ifdef
 // __DEBUG__`, so extern() would be unresolved in the plain shape — they are not
 // consumed here, and a renumber is caught by the TABLE ORDER either way.
-const SONG_MOVINGTRUCKS = 1
-const SONG_DRUMTEST     = 2   // DEBUG-only id in .asm; documentation const here
-const SONG_HCZ2         = 3   // DEBUG-only id in .asm; documentation const here
-const SONG_COUNT = if DEBUG == 1 { 3 } else { 1 }
+const SONG_MOVINGTRUCKS: SongId = 1
+const SONG_DRUMTEST: SongId     = 2   // DEBUG-only id in .asm; documentation const here
+const SONG_HCZ2: SongId         = 3   // DEBUG-only id in .asm; documentation const here
+const SONG_COUNT = if DEBUG == 1 { 3 } else { 1 }   // a bound, not a song id — stays a raw count
 ensure(extern("SONG_MOVINGTRUCKS") == SONG_MOVINGTRUCKS, "SONG_MOVINGTRUCKS drifted from config/sound_ids.asm: {SONG_MOVINGTRUCKS}")
 ensure(extern("SONG_COUNT") == SONG_COUNT, "SONG_COUNT drifted from config/sound_ids.asm: {SONG_COUNT}")
 ensure(SONG_COUNT < $FF, "SONG_COUNT must be < $FF ($FF is the stop sentinel)")

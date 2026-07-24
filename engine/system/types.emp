@@ -73,3 +73,14 @@ pub newtype GridY = u8
 // u16 because a large act's flat index exceeds a byte (MAX_ACT_SECTIONS ≤ 496,
 // guarded where the ×66 stride sign-extends).
 pub newtype SectionId = u16
+
+// Sound identities, DISTINCT (item-13 wave 1). A song id (SongId — the SONG_*
+// family, indexes SongTable) and a sound-effect id (SfxId — the SFX_* / SFXID_*
+// family, indexes SfxTable) are both small bytes that flow to the 68k sound API,
+// and mixing them plays the wrong sound. Split so the compiler REFUSES an SfxId
+// in a SongId slot (or vice versa) at a sound-API call boundary. Both erase to
+// u8; the driver-side Z80 blob is untouched — the types stop at the param-block
+// boundary. APIs keep ACTION names (Sound_PlayMusic / Sound_PlaySFX); the types
+// name the VALUE.
+pub newtype SongId = u8
+pub newtype SfxId = u8
