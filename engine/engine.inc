@@ -432,7 +432,24 @@ __BUDGET_ENGINE:
         org     $60A8
       endif
     endif
-    include "engine/level/load_art.asm"
+    ifndef SIGIL_EMP_LOAD_ART
+        include "engine/level/load_art.asm"
+    else
+        ; sigil mixed build: Art_Decompress/Level_LoadArt come from
+        ; engine/level/load_art.emp, pinned by the sigil map at the per-shape
+        ; reference address. Resume placement at the region end (bg.asm's
+        ; BG_Init). Shape-DEPENDENT length ($68 plain / $B2 debug — the debug
+        ; surplus is the .drop_page RaiseError expansion; the release arm is
+        ; the 6-byte drain-and-retry), so the two resume orgs differ by more
+        ; than the base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $6DE4
+      else
+        org     $6110
+      endif
+    endif
     ifndef SIGIL_EMP_BG
         include "engine/level/bg.asm"
     else
