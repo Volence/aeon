@@ -1,5 +1,26 @@
 ; Child creation — data-driven parent-child object spawning
 ;
+; THE SIBLING-CHAIN CONTRACT (read before adding a creator or a caller).
+; `sibling_ptr` is OVERLOADED: on a PARENT it is the head of that parent's
+; child list; on a CHILD it is the next sibling in that list. One field, two
+; meanings, so:
+;   * A parent may not itself be a linked child. An object that is already in
+;     someone's chain has its own `sibling_ptr` spoken for; letting it spawn
+;     children overwrites that link and orphans every sibling behind it.
+;     ONE LEVEL of nesting only - asserted in DEBUG at each chaining creator.
+;   * `DeleteChildren` is therefore NOT recursive by contract, not by
+;     omission: a child cannot have children, so there is nothing to recurse
+;     into. It also leaves each deleted child's `parent_ptr` alone - the slot
+;     is zeroed wholesale by DeleteObject, so the stale value is unreachable.
+;   * Chain SHAPE differs by creator, deliberately: Normal/Complex/FlipAware
+;     PREPEND (each new child points at the old head, so the parent always
+;     points at the NEWEST child), while Linked APPENDS (each child points at
+;     the next one spawned). Both terminate only because a freshly allocated
+;     slot's `sibling_ptr` is zero - DeleteObject zeroes the whole SST on
+;     release and the pools start zeroed, so an allocated slot's links are
+;     always clear. A future allocator that hands back dirty slots must zero
+;     `sibling_ptr` or every walk here runs off into garbage.
+;
 ; LOCKSTEP twin of engine/objects/children.emp (byte-identical by gate).
 ; The cross-region calls (AllocDynamic/AllocEffect/DeleteObject) are spelled
 ; bsr.w because the .emp's `jbsr` relaxation ladder emits that 4-byte PC-
@@ -12,8 +33,11 @@
 ; SST in a2. Called from each CreateChild_*/CreateEffect_* site after
 ; mappings have been inherited. Direct-alloc path that bypasses Load_Object.
 ;
-; In:  a2 = newly-spawned SST (with mappings + mapping_frame already set)
-; Out: SST_sprite_piece_count(a2) populated from current frame data
+; In:  a2 = newly-spawned SST - `mappings` must already be inherited.
+;      `mapping_frame` is read as-is: every creator here spawns into a
+;      freshly-zeroed slot, so it is ALWAYS frame 0 at this point (no call
+;      site sets it). A null `mappings` leaves the field untouched.
+; Out: SST_sprite_piece_count(a2) populated from that frame's header
 ; Preserves: all caller registers
 ; -----------------------------------------------
 PopulateSpawnedPieceCount:
@@ -25,7 +49,8 @@ PopulateSpawnedPieceCount:
         move.b  SST_mapping_frame(a2), d0
         add.w   d0, d0                  ; word offset
         move.w  (a0,d0.w), d0           ; offset to frame data
-        ; piece count is at FRAME_PIECE_COUNT (+4), after 4 bbox bytes
+        ; frame header: 4 signed bbox bytes (FRAME_BBOX_*), then the
+        ; piece-count word at FRAME_PIECE_COUNT, then pieces at FRAME_PIECES
         move.w  FRAME_PIECE_COUNT(a0,d0.w), d0
         move.b  d0, SST_sprite_piece_count(a2)
 .skip:
@@ -156,7 +181,8 @@ CreateChild_Complex:
         ; Animation
         move.l  (a1)+, SST_anim_table(a2)
         move.b  (a1)+, SST_anim(a2)
-        move.b  #$FF, SST_prev_anim(a2)
+        move.b  #$FF, SST_prev_anim(a2) ; $FF = "no previous anim" (forces the
+                                        ; animator's change detection on frame 1)
         addq.w  #1, a1                  ; skip pad byte
 
         ; Inherit mappings, art_tile
@@ -242,7 +268,8 @@ CreateChild_FlipAware:
         ; Animation
         move.l  (a1)+, SST_anim_table(a2)
         move.b  (a1)+, SST_anim(a2)
-        move.b  #$FF, SST_prev_anim(a2)
+        move.b  #$FF, SST_prev_anim(a2) ; $FF = "no previous anim" (forces the
+                                        ; animator's change detection on frame 1)
         addq.w  #1, a1
 
         ; Inherit + flip child render_flags if parent is flipped
@@ -275,7 +302,13 @@ CreateChild_FlipAware:
         rts
 
 ; -----------------------------------------------
-; CreateChild_Linked — spawn a chain of identical children
+; CreateChild_Linked - spawn a chain of identical children
+;
+; CONSTRAINT: the parent must be CHILDLESS. This creator APPENDS, so it
+; overwrites the parent's chain head with its first child; any children the
+; parent already had are orphaned (they stay allocated and running, but
+; DeleteChildren can no longer reach them - a dynamic-slot leak until the
+; entity window despawns the parent's section). Asserted in DEBUG.
 ;
 ; In:  a0 = parent SST
 ;      d0.w = child code_addr (objroutine value)
@@ -288,8 +321,8 @@ CreateChild_FlipAware:
 CreateChild_Linked:
         subq.w  #1, d1                  ; adjust for dbf
         bmi.s   .done
-        move.w  d0, d4                  ; d4 = code_addr (preserved)
-        move.w  d1, d5                  ; d5 = counter (preserved)
+        move.w  d0, d4                  ; d4 = code_addr, parked (d0 is the alloc's scratch)
+        move.w  d1, d5                  ; d5 = dbf counter
         moveq   #0, d1                  ; d1 = previous child addr
 
         ; Start position = parent position
@@ -355,7 +388,8 @@ CreateChild_Linked:
 ; DeleteChildren — walk sibling chain from parent and delete each child
 ;
 ; In:  a0 = parent SST
-; Out: parent's sibling_ptr cleared
+; Out: parent's sibling_ptr cleared; each child's slot released whole (its
+;      parent_ptr is not cleared separately - DeleteObject zeroes the SST)
 ; Clobbers: d0-d1, a1-a2
 ; -----------------------------------------------
 DeleteChildren:
@@ -426,7 +460,12 @@ CreateEffect_Normal:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
-        ; Set parent_ptr so effect can reference parent if needed
+        ; parent_ptr: NO effect code reads this today. It is not free -
+        ; Draw_Sprite dereferences a non-zero parent_ptr every frame to test
+        ; the parent's RF_MULTISPRITE. Removing it is an open decision
+        ; (it also decides whether an effect spawned by a multisprite parent
+        ; can ever be drawn); until then the write stands as the documented
+        ; parent back-reference for effect code that wants it.
         move.w  a0, SST_parent_ptr(a2)
 
         bsr.w   PopulateSpawnedPieceCount
@@ -457,8 +496,8 @@ CreateEffect_Normal:
 CreateEffect_Simple:
         subq.w  #1, d1                  ; adjust for dbf
         bmi.s   .done
-        move.w  d0, d2                  ; d2 = code_addr (preserved)
-        move.w  d1, d3                  ; d3 = counter (preserved)
+        move.w  d0, d2                  ; d2 = code_addr, parked (d0 is the alloc's scratch)
+        move.w  d1, d3                  ; d3 = dbf counter
 
 .spawn_loop:
         movem.l d2-d3/a0, -(sp)
