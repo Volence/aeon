@@ -35,6 +35,8 @@ pub const RF_YFLIP     = 2            // vertical flip
 pub const RF_COORDMODE = 3            // 0 = world coords, 1 = screen coords
 pub const RF_MULTISPRITE = 4          // (parent only) batch render via sibling walk
 pub const RF_PRIORITY_SHIFT = 5       // bits 5-7 = sprite priority band (0-7)
+pub const RF_PRIORITY_MASK = $E0      // the band bits themselves — a runtime band change
+                                      // must clear these before or-ing the new band in
 
 // Animation script commands + interpreter inputs (mirror engine/constants.asm
 // — the AF_* AS truth re-homed there at the animate port so script DATA files
@@ -177,6 +179,7 @@ ensure(extern("HW_PORT_2_DATA") == HW_PORT_2_DATA, "engine/constants.asm and eng
 ensure(extern("CTYPE_AIR") == CTYPE_AIR, "engine/constants.asm and engine/constants.emp disagree on CTYPE_AIR — update the twin")
 ensure(extern("RF_COORDMODE") == RF_COORDMODE, "engine/constants.asm and engine/constants.emp disagree on RF_COORDMODE — update the twin")
 ensure(extern("RF_PRIORITY_SHIFT") == RF_PRIORITY_SHIFT, "engine/constants.asm and engine/constants.emp disagree on RF_PRIORITY_SHIFT — update the twin")
+ensure(extern("RF_PRIORITY_MASK") == RF_PRIORITY_MASK, "engine/constants.asm and engine/constants.emp disagree on RF_PRIORITY_MASK — update the twin")
 ensure(extern("AF_END") == AF_END, "engine/constants.asm and engine/constants.emp disagree on AF_END — update the twin")
 ensure(extern("AF_BACK") == AF_BACK, "engine/constants.asm and engine/constants.emp disagree on AF_BACK — update the twin")
 ensure(extern("AF_DELETE") == AF_DELETE, "engine/constants.asm and engine/constants.emp disagree on AF_DELETE — update the twin")

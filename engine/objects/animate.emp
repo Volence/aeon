@@ -37,7 +37,7 @@ module engine.objects.animate in animate
 
 use engine.objects.sst.{Sst}
 use engine.constants.{AF_SET_FIELD, DUR_DYNAMIC, OBJ_CODE_BANK}
-use engine.objects.frames.{frame_piece_count}
+use engine.objects.frames.{refresh_piece_count}
 
 // Contract type (contract-grammar v2 §4) — the AF_CALLBACK dispatch bound. The
 // installable-target set is EMPTY today (no animation script bakes a callback;
@@ -277,15 +277,6 @@ pub proc AnimateSprite (a0: *Sst) clobbers(d0-d2/a1-a2) {
 // Clobbers: d2, a1
 // -----------------------------------------------
 pub proc RefreshSpritePieceCount (a0: *Sst) clobbers(d2, a1) {
-        movea.l Sst.mappings(a0), a1
-        move.l  a1, d2
-        beq     .skip                       // null mappings — leave field untouched
-        moveq   #0, d2
-        move.b  Sst.mapping_frame(a0), d2
-        add.w   d2, d2                       // word offset
-        move.w  (a1,d2.w), d2                // offset to frame data
-        frame_piece_count(a1, d2, d2)       // d2 = piece-count word from frame data
-        move.b  d2, Sst.sprite_piece_count(a0)
-    .skip:
+        refresh_piece_count(a0, a1, d2)
         rts
 }
