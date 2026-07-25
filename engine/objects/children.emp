@@ -84,11 +84,19 @@ const CHILD_INHERITED_FLAGS = (1 << RF_COORDMODE)
 // live registers (CreateChild_Linked's d1, CreateChild_FlipAware's d4).
 // -----------------------------------------------
 pub proc PopulateSpawnedPieceCount (a2: *Sst) clobbers(d0) preserves(a0) {
-        movem.l a0, -(sp)               // a1 is never touched here (the template
+        // Parked with move.l/movea.l, NOT a one-register movem pair: 12 cycles
+        // and 4 bytes cheaper on the file's hottest per-child path, and those 4
+        // bytes are load-bearing — the plain-shape `jbsr` from
+        // CreateChild_Normal back to this proc sits near the end of its 8-bit
+        // displacement window, so growing this proc pushes that call out of
+        // reach. The .emp side re-selects the width automatically; the .asm
+        // twin's frozen `.s` would silently diverge instead of erroring. Do not
+        // "tidy" this back to movem.
+        move.l  a0, -(sp)               // a1 is never touched here (the template
                                         // works in a0/d0) and d0 is dead at
                                         // every call site
         refresh_piece_count(a2, a0, d0)
-        movem.l (sp)+, a0
+        movea.l (sp)+, a0
         rts
 }
 
@@ -116,6 +124,8 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
                                         // be a linked child (its sibling_ptr is
                                         // the grandparent's link)
         }
+        move.b  Sst.render_flags(a0), d1  // hoisted: inherited flags, ready to or
+        andi.b  #CHILD_INHERITED_FLAGS, d1
         move.w  Sst.sibling_ptr(a0), d3 // d3 = current chain head (newest child, 0 if no children yet)
     .child_loop:
         move.w  (a1)+, d2               // d2 = child code_addr
@@ -170,9 +180,14 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         //                    Copying it to a child makes the child claim to be
         //                    a batch parent, and Draw_Sprite would then skip
         //                    every object pointing at it.
-        move.b  Sst.render_flags(a0), d0
-        andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, Sst.render_flags(a2)
+        // The read+mask is LOOP-INVARIANT — these are the PARENT's flags and
+        // nothing in this loop writes them (AllocDynamic and
+        // PopulateSpawnedPieceCount both carry exhaustive licences that exclude
+        // a0's SST) — so it is hoisted above the loop into d1 and only the or
+        // stays per child. `or`, not `move`: it relies on nothing about the
+        // child's other bits, where a masked `move.b` would quietly depend on
+        // the whole byte being zero at spawn.
+        or.b    d1, Sst.render_flags(a2)
 
         // Link: child -> parent
         move.w  a0, Sst.parent_ptr(a2)
@@ -223,6 +238,8 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
 // -----------------------------------------------
 @scaffolding("engine API awaiting its consumer — zero call sites today; kept deliberately. At the post-asl module split these four move out of children.emp into their own unit so the live path (CreateChild_Normal / CreateEffect_Normal / DeleteChildren) carries no unreferenced code.")
 pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
+        move.b  Sst.render_flags(a0), d1  // hoisted: inherited flags, ready to or
+        andi.b  #CHILD_INHERITED_FLAGS, d1
         move.w  Sst.sibling_ptr(a0), d3
     .child_loop:
         move.w  (a1)+, d2
@@ -266,9 +283,7 @@ pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         move.l  Sst.mappings(a0), Sst.mappings(a2)
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
-        move.b  Sst.render_flags(a0), d0
-        andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, Sst.render_flags(a2) // band + coordmode only — see CreateChild_Normal
+        or.b    d1, Sst.render_flags(a2) // hoisted inherit — see CreateChild_Normal
 
         // Parent link + sibling chain
         move.w  a0, Sst.parent_ptr(a2)
@@ -305,6 +320,8 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
         beq     .no_flip
         moveq   #-1, d4
     .no_flip:
+        move.b  Sst.render_flags(a0), d1  // hoisted: inherited flags, ready to or
+        andi.b  #CHILD_INHERITED_FLAGS, d1
         move.w  Sst.sibling_ptr(a0), d3
     .child_loop:
         move.w  (a1)+, d2
@@ -354,9 +371,7 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
         move.l  Sst.mappings(a0), Sst.mappings(a2)
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
-        move.b  Sst.render_flags(a0), d0
-        andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, Sst.render_flags(a2) // band + coordmode only — see CreateChild_Normal
+        or.b    d1, Sst.render_flags(a2) // hoisted inherit — see CreateChild_Normal
 
         tst.w   d4
         beq     .rf_no_flip
@@ -450,9 +465,12 @@ pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: i8, d3: i8) 
         move.l  Sst.mappings(a0), Sst.mappings(a2)
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
+        // NOT hoisted here: d1 is the previous-child pointer for the whole
+        // loop and this proc has no free data register (d0 scratch, d2/d3
+        // spacing, d4 code_addr, d5 counter), so the read+mask stays inline.
         move.b  Sst.render_flags(a0), d0
         andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, Sst.render_flags(a2) // band + coordmode only — see CreateChild_Normal
+        or.b    d0, Sst.render_flags(a2)
 
         move.w  a0, Sst.parent_ptr(a2)
 
@@ -531,6 +549,8 @@ pub proc DeleteChildren (a0: *Sst) clobbers(d0-d2/a1) preserves(a0) {
 // Clobbers: d0-d2, a1-a2
 // -----------------------------------------------
 pub proc CreateEffect_Normal (a0: *Sst, a1: *u8) clobbers(d0-d2/a1-a2) {
+        move.b  Sst.render_flags(a0), d1  // hoisted: inherited flags, ready to or
+        andi.b  #CHILD_INHERITED_FLAGS, d1
     .effect_loop:
         move.w  (a1)+, d2               // d2 = effect code_addr
         beq     .done                   // 0 = end of table
@@ -562,9 +582,7 @@ pub proc CreateEffect_Normal (a0: *Sst, a1: *u8) clobbers(d0-d2/a1-a2) {
         move.l  Sst.mappings(a0), Sst.mappings(a2)
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
-        move.b  Sst.render_flags(a0), d0
-        andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, Sst.render_flags(a2) // band + coordmode only — see CreateChild_Normal
+        or.b    d1, Sst.render_flags(a2) // hoisted inherit — see CreateChild_Normal
 
         // NO parent_ptr write. Effects are fire-and-forget: nothing reads the
         // back-reference, and setting it made Draw_Sprite dereference the
@@ -600,6 +618,9 @@ pub proc CreateEffect_Simple (a0: *Sst, d0: ObjRoutine, d1: u16) clobbers(d0-d3/
         move.w  d0, d2                  // d2 = code_addr, parked (d0 is the alloc's scratch)
         move.w  d1, d3                  // d3 = dbf counter
 
+        move.b  Sst.render_flags(a0), d1  // hoisted: inherited flags, ready to or
+        andi.b  #CHILD_INHERITED_FLAGS, d1
+
     .spawn_loop:
         // No alloc save: AllocEffect's exhaustive license leaves d2/d3/a0
         // intact and a1 is its output.
@@ -617,9 +638,7 @@ pub proc CreateEffect_Simple (a0: *Sst, d0: ObjRoutine, d1: u16) clobbers(d0-d3/
         move.l  Sst.mappings(a0), Sst.mappings(a2)
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
-        move.b  Sst.render_flags(a0), d0
-        andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, Sst.render_flags(a2) // band + coordmode only — see CreateChild_Normal
+        or.b    d1, Sst.render_flags(a2) // hoisted inherit — see CreateChild_Normal
 
         // No parent_ptr write — see CreateEffect_Normal.
 

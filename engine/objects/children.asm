@@ -1,12 +1,5 @@
 ; Child creation - data-driven parent-child object spawning
 ;
-; The render_flags bits a child inherits from its parent (LOCKSTEP with
-; children.emp's CHILD_INHERITED_FLAGS). The priority BAND is deliberately not
-; in the mask: a band is a 3-bit value, this inherit composes with `or`, and
-; the child-side idiom `ori.b #N<<RF_PRIORITY_SHIFT` assumes a zero field - so
-; or-ing both yields their union, not the child's band. See children.emp.
-CHILD_INHERITED_FLAGS = (1<<RF_COORDMODE)
-;
 ; THE SIBLING-CHAIN CONTRACT (read before adding a creator or a caller).
 ; `sibling_ptr` is OVERLOADED: on a PARENT it is the head of that parent's
 ; child list; on a CHILD it is the next sibling in that list. One field, two
@@ -44,6 +37,22 @@ CHILD_INHERITED_FLAGS = (1<<RF_COORDMODE)
 ;     always clear. A future allocator that hands back dirty slots must zero
 ;     `sibling_ptr` or every walk here runs off into garbage.
 
+; The render_flags bits a child inherits from its parent. Named once so the
+; six creators state the POLICY rather than re-deriving the mask, and so the
+; omission list below has a single home.
+;
+; THE PRIORITY BAND IS NOT IN THIS MASK, and that is a correctness constraint,
+; not an oversight. A band is a 3-bit VALUE in bits 5-7, while this inherit
+; composes with `or`, and the engine-wide child-side idiom for setting one is
+; `ori.b #N<<RF_PRIORITY_SHIFT` - which also ors, on the assumption that the
+; field is zero. Or-ing an inherited band with the child's own therefore
+; yields their bitwise UNION, not the child's choice: a band-5 parent
+; (test_emitter) spawning a band-6 child (test_particle) produces band 7.
+; Inheriting a band correctly needs either a clear-then-set idiom on the child
+; side (game-wide convention change) or a mechanism that runs before child
+; init without being overwritten by it - ruled elsewhere, ledgered here.
+CHILD_INHERITED_FLAGS = (1<<RF_COORDMODE)
+
 ; -----------------------------------------------
 ; PopulateSpawnedPieceCount - refresh sprite_piece_count for newly-spawned
 ; SST in a2. Called from each CreateChild_*/CreateEffect_* site after
@@ -67,7 +76,15 @@ CHILD_INHERITED_FLAGS = (1<<RF_COORDMODE)
 ; live registers (CreateChild_Linked's d1, CreateChild_FlipAware's d4).
 ; -----------------------------------------------
 PopulateSpawnedPieceCount:
-        movem.l a0, -(sp)               ; a1 is never touched here (the template
+        ; Parked with move.l/movea.l, NOT a one-register movem pair: 12 cycles
+        ; and 4 bytes cheaper on the file's hottest per-child path, and those 4
+        ; bytes are load-bearing - the plain-shape `jbsr` from
+        ; CreateChild_Normal back to this proc sits near the end of its 8-bit
+        ; displacement window, so growing this proc pushes that call out of
+        ; reach. The .emp side re-selects the width automatically; the .asm
+        ; twin's frozen `.s` would silently diverge instead of erroring. Do not
+        ; "tidy" this back to movem.
+        move.l  a0, -(sp)               ; a1 is never touched here (the template
                                         ; works in a0/d0) and d0 is dead at
                                         ; every call site
         movea.l SST_mappings(a2), a0
@@ -82,7 +99,7 @@ PopulateSpawnedPieceCount:
         move.w  FRAME_PIECE_COUNT(a0,d0.w), d0
         move.b  d0, SST_sprite_piece_count(a2)
 .no_mappings:
-        movem.l (sp)+, a0
+        movea.l (sp)+, a0
         rts
 
 ; -----------------------------------------------
@@ -109,6 +126,8 @@ CreateChild_Normal:
                                         ; be a linked child (its sibling_ptr is
                                         ; the grandparent's link)
     endif
+        move.b  SST_render_flags(a0), d1  ; hoisted: inherited flags, ready to or
+        andi.b  #CHILD_INHERITED_FLAGS, d1
         move.w  SST_sibling_ptr(a0), d3 ; d3 = current chain head (newest child, 0 if no children yet)
 .child_loop:
         move.w  (a1)+, d2               ; d2 = child code_addr
@@ -165,9 +184,14 @@ CreateChild_Normal:
         ;                    Copying it to a child makes the child claim to be
         ;                    a batch parent, and Draw_Sprite would then skip
         ;                    every object pointing at it.
-        move.b  SST_render_flags(a0), d0
-        andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, SST_render_flags(a2)
+        ; The read+mask is LOOP-INVARIANT - these are the PARENT's flags and
+        ; nothing in this loop writes them (AllocDynamic and
+        ; PopulateSpawnedPieceCount both carry exhaustive licences that exclude
+        ; a0's SST) - so it is hoisted above the loop into d1 and only the or
+        ; stays per child. `or`, not `move`: it relies on nothing about the
+        ; child's other bits, where a masked `move.b` would quietly depend on
+        ; the whole byte being zero at spawn.
+        or.b    d1, SST_render_flags(a2)
 
         ; Link: child -> parent
         move.w  a0, SST_parent_ptr(a2)
@@ -177,10 +201,11 @@ CreateChild_Normal:
         move.w  a2, d3                  ; new head = this child
 
     ifdef __DEBUG__
-        bsr.w   PopulateSpawnedPieceCount   ; debug: the chain-contract
-                                        ; assert blob pushes this call out of .s reach
+        bsr.w   PopulateSpawnedPieceCount   ; debug: the chain-contract assert
+                                        ; blob pushes this call out of .s reach
     else
-        bsr.s   PopulateSpawnedPieceCount
+        bsr.s   PopulateSpawnedPieceCount   ; margin restored by parking a0 with
+                                        ; move.l instead of movem (see the .emp)
     endif
 
         bra.s   .child_loop
@@ -221,6 +246,8 @@ CreateChild_Normal:
 ; Clobbers: d0-d3, a1-a2
 ; -----------------------------------------------
 CreateChild_Complex:
+        move.b  SST_render_flags(a0), d1  ; hoisted: inherited flags, ready to or
+        andi.b  #CHILD_INHERITED_FLAGS, d1
         move.w  SST_sibling_ptr(a0), d3
 .child_loop:
         move.w  (a1)+, d2
@@ -266,9 +293,7 @@ CreateChild_Complex:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
-        move.b  SST_render_flags(a0), d0
-        andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
+        or.b    d1, SST_render_flags(a2) ; hoisted inherit - see CreateChild_Normal
 
         ; Parent link + sibling chain
         move.w  a0, SST_parent_ptr(a2)
@@ -303,10 +328,12 @@ CreateChild_FlipAware:
         beq.s   .no_flip
         moveq   #-1, d4
 .no_flip:
+        move.b  SST_render_flags(a0), d1  ; hoisted: inherited flags, ready to or
+        andi.b  #CHILD_INHERITED_FLAGS, d1
         move.w  SST_sibling_ptr(a0), d3
 .child_loop:
         move.w  (a1)+, d2
-        beq.w   .done
+        beq.s   .done
 
         ; ALLOC SAVE: only the descriptor cursor (see CreateChild_Normal -
         ; AllocDynamic's exhaustive license leaves d3/d4/a0 intact).
@@ -354,9 +381,7 @@ CreateChild_FlipAware:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
-        move.b  SST_render_flags(a0), d0
-        andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
+        or.b    d1, SST_render_flags(a2) ; hoisted inherit - see CreateChild_Normal
 
         tst.w   d4
         beq.s   .rf_no_flip
@@ -370,7 +395,7 @@ CreateChild_FlipAware:
 
         bsr.w   PopulateSpawnedPieceCount
 
-        bra.w   .child_loop
+        bra.s   .child_loop
 
 .alloc_fail:
         addq.l  #4, sp                  ; drop the saved cursor (see CreateChild_Normal)
@@ -450,9 +475,12 @@ CreateChild_Linked:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
+        ; NOT hoisted here: d1 is the previous-child pointer for the whole
+        ; loop and this proc has no free data register (d0 scratch, d2/d3
+        ; spacing, d4 code_addr, d5 counter), so the read+mask stays inline.
         move.b  SST_render_flags(a0), d0
         andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
+        or.b    d0, SST_render_flags(a2)
 
         move.w  a0, SST_parent_ptr(a2)
 
@@ -529,6 +557,8 @@ DeleteChildren:
 ; Clobbers: d0-d2, a1-a2
 ; -----------------------------------------------
 CreateEffect_Normal:
+        move.b  SST_render_flags(a0), d1  ; hoisted: inherited flags, ready to or
+        andi.b  #CHILD_INHERITED_FLAGS, d1
 .effect_loop:
         move.w  (a1)+, d2               ; d2 = effect code_addr
         beq.s   .done                   ; 0 = end of table
@@ -562,9 +592,7 @@ CreateEffect_Normal:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
-        move.b  SST_render_flags(a0), d0
-        andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
+        or.b    d1, SST_render_flags(a2) ; hoisted inherit - see CreateChild_Normal
 
         ; NO parent_ptr write. Effects are fire-and-forget: nothing reads the
         ; back-reference, and setting it made Draw_Sprite dereference the
@@ -598,6 +626,9 @@ CreateEffect_Simple:
         move.w  d0, d2                  ; d2 = code_addr, parked (d0 is the alloc's scratch)
         move.w  d1, d3                  ; d3 = dbf counter
 
+        move.b  SST_render_flags(a0), d1  ; hoisted: inherited flags, ready to or
+        andi.b  #CHILD_INHERITED_FLAGS, d1
+
 .spawn_loop:
         ; No alloc save: AllocEffect's exhaustive license leaves d2/d3/a0
         ; intact and a1 is its output.
@@ -615,9 +646,7 @@ CreateEffect_Simple:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
-        move.b  SST_render_flags(a0), d0
-        andi.b  #CHILD_INHERITED_FLAGS, d0
-        or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
+        or.b    d1, SST_render_flags(a2) ; hoisted inherit - see CreateChild_Normal
 
         ; No parent_ptr write - see CreateEffect_Normal.
 
