@@ -49,10 +49,17 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; the sigil map at the reference addresses. Resume placement at the
         ; region end (see sigil-harness golden/PROVENANCE.md; re-pin on
         ; re-baseline). These addresses live inside the object code bank
-        ; (org $10000, ObjCodeBase) and are SHAPE-INVARIANT — the bank's
-        ; contents up to here don't change with __DEBUG__ — so one org serves
-        ; both shapes. AS-side consumers (ObjDef_Solid's objdef, the
-        ; emitters' objroutine words) keep resolving through the shared link.
+        ; (org $10000, ObjCodeBase). ONE org serves both shapes only while the
+        ; two banks coincide, which is a CONDITIONAL fact, not a structural
+        ; one: the bank's own contents are __DEBUG__-invariant, but the player
+        ; code inside it calls ENGINE symbols, so a debug-only engine growth
+        ; that pushes one of those symbols past $8000 widens `jsr (Sym).w` to
+        ; abs.l (+2 bytes each) and slides the whole debug bank. If that
+        ; happens, this arm needs per-shape orgs and every harness fixture
+        ; keyed to the bank needs its debug pin (measured at tranche 24, where
+        ; a +$14E debug-only growth did exactly that before it was trimmed).
+        ; AS-side consumers (ObjDef_Solid's objdef, the emitters' objroutine
+        ; words) keep resolving through the shared link.
         ; NOTE: the gate define must never be set for other games (demo
         ; builds take the includes).
         org     $10FDC

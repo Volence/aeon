@@ -1,4 +1,4 @@
-; Child creation — data-driven parent-child object spawning
+; Child creation - data-driven parent-child object spawning
 ;
 ; THE SIBLING-CHAIN CONTRACT (read before adding a creator or a caller).
 ; `sibling_ptr` is OVERLOADED: on a PARENT it is the head of that parent's
@@ -7,7 +7,10 @@
 ;   * A parent may not itself be a linked child. An object that is already in
 ;     someone's chain has its own `sibling_ptr` spoken for; letting it spawn
 ;     children overwrites that link and orphans every sibling behind it.
-;     ONE LEVEL of nesting only - asserted in DEBUG at each chaining creator.
+;     ONE LEVEL of nesting only. The DEBUG assert rides CreateChild_Normal
+;     (the only chaining creator with call sites); the others carry the
+;     constraint in their headers - an assert on an uncalled proc cannot
+;     fire, and its message blob is not free (see the packet's $8000 note).
 ;   * `DeleteChildren` is therefore NOT recursive by contract, not by
 ;     omission: a child cannot have children, so there is nothing to recurse
 ;     into. It also leaves each deleted child's `parent_ptr` alone - the slot
@@ -20,16 +23,9 @@
 ;     release and the pools start zeroed, so an allocated slot's links are
 ;     always clear. A future allocator that hands back dirty slots must zero
 ;     `sibling_ptr` or every walk here runs off into garbage.
-;
-; LOCKSTEP twin of engine/objects/children.emp (byte-identical by gate).
-; The cross-region calls (AllocDynamic/AllocEffect/DeleteObject) are spelled
-; bsr.w because the .emp's `jbsr` relaxation ladder emits that 4-byte PC-
-; relative form at this distance — same length as the abs.w jsr it replaces.
-; Branch widths here are the widths the .emp's BARE branches resolve to;
-; edit both files together.
 
 ; -----------------------------------------------
-; PopulateSpawnedPieceCount — refresh sprite_piece_count for newly-spawned
+; PopulateSpawnedPieceCount - refresh sprite_piece_count for newly-spawned
 ; SST in a2. Called from each CreateChild_*/CreateEffect_* site after
 ; mappings have been inherited. Direct-alloc path that bypasses Load_Object.
 ;
@@ -41,24 +37,25 @@
 ; Preserves: all caller registers
 ; -----------------------------------------------
 PopulateSpawnedPieceCount:
-        movem.l d0/a0-a1, -(sp)
+        movem.l d0/a0, -(sp)            ; a1 is never touched here - the shared
+                                        ; template works in a0/d0
         movea.l SST_mappings(a2), a0
         move.l  a0, d0
-        beq.s   .skip
+        beq.s   .no_mappings
         moveq   #0, d0
         move.b  SST_mapping_frame(a2), d0
-        add.w   d0, d0                  ; word offset
-        move.w  (a0,d0.w), d0           ; offset to frame data
+        add.w   d0, d0                  ; frame index -> word offset
+        move.w  (a0,d0.w), d0           ; offset to this frame's data
         ; frame header: 4 signed bbox bytes (FRAME_BBOX_*), then the
         ; piece-count word at FRAME_PIECE_COUNT, then pieces at FRAME_PIECES
         move.w  FRAME_PIECE_COUNT(a0,d0.w), d0
         move.b  d0, SST_sprite_piece_count(a2)
-.skip:
-        movem.l (sp)+, d0/a0-a1
+.no_mappings:
+        movem.l (sp)+, d0/a0
         rts
 
 ; -----------------------------------------------
-; CreateChild_Normal — spawn children from a descriptor table
+; CreateChild_Normal - spawn children from a descriptor table
 ; Allocates from Dynamic pool. Each child inherits parent's
 ; mappings and art_tile. Chains children via sibling_ptr.
 ;
@@ -73,16 +70,27 @@ PopulateSpawnedPieceCount:
 ; Clobbers: d0-d3, a1-a2
 ; -----------------------------------------------
 CreateChild_Normal:
+    ifdef __DEBUG__
+        move.w  SST_parent_ptr(a0), d0
+        assert.w d0, eq, #0             ; chain contract: a parent may not itself
+                                        ; be a linked child (its sibling_ptr is
+                                        ; the grandparent's link)
+    endif
         move.w  SST_sibling_ptr(a0), d3 ; d3 = current chain head (newest child, 0 if no children yet)
 .child_loop:
         move.w  (a1)+, d2               ; d2 = child code_addr
         beq.s   .done                   ; 0 = end of table
 
-        movem.l d3/a0-a1, -(sp)
+        ; ALLOC SAVE: the descriptor cursor is the ONLY register at risk.
+        ; AllocDynamic's license is `clobbers(d0) out(a1 if eq) preserves(a0)`
+        ; - an EXHAUSTIVE license, so d3/d4/a0 are contractually intact - and
+        ; a1 is written on BOTH outcomes (the slot on success, the pop-rollback
+        ; path on latch-full).
+        move.l  a1, -(sp)
         bsr.w   AllocDynamic
         bne.s   .alloc_fail
         movea.l a1, a2                  ; a2 = child SST
-        movem.l (sp)+, d3/a0-a1
+        movea.l (sp)+, a1
 
         move.w  d2, SST_code_addr(a2)
 
@@ -111,28 +119,30 @@ CreateChild_Normal:
         ; Chain into sibling list (prepend)
         move.w  d3, SST_sibling_ptr(a2) ; child points to previous head
         move.w  a2, d3                  ; new head = this child
-        move.w  a2, SST_sibling_ptr(a0) ; parent always points to newest child
 
+    ifdef __DEBUG__
+        bsr.w   PopulateSpawnedPieceCount   ; debug: the chain-contract
+                                        ; assert blob pushes this call out of .s reach
+    else
         bsr.s   PopulateSpawnedPieceCount
+    endif
 
         bra.s   .child_loop
 
 .alloc_fail:
-        movem.l (sp)+, d3/a0-a1
-        ; Skip remaining descriptor bytes (code_addr already consumed)
-        addq.w  #2, a1                  ; skip x_off, y_off
-        tst.w   (a1)                    ; check next entry
-        bne.s   .alloc_fail_skip        ; more entries to skip
+        ; Drop the saved cursor and stop. Walking the rest of the descriptor
+        ; table would only advance a1, which is a declared clobber no caller
+        ; reads - dead work on the failure path.
+        addq.l  #4, sp
 .done:
-        rts
-.alloc_fail_skip:
-        addq.w  #4, a1                  ; skip code_addr + offsets
-        tst.w   (a1)
-        bne.s   .alloc_fail_skip
+        move.w  d3, SST_sibling_ptr(a0) ; parent points at the newest child; one
+                                        ; write for the whole run, and on the
+                                        ; failure paths it writes back the head
+                                        ; that survived
         rts
 
 ; -----------------------------------------------
-; CreateChild_Complex — spawn children with velocity and animation
+; CreateChild_Complex - spawn children with velocity and animation
 ;
 ; Descriptor format (14 bytes per child, terminated by dc.w 0):
 ;   dc.w objroutine(ChildCode)   ; code_addr (0 = end)
@@ -151,11 +161,13 @@ CreateChild_Complex:
         move.w  (a1)+, d2
         beq.s   .done
 
-        movem.l d3/a0-a1, -(sp)
+        ; ALLOC SAVE: only the descriptor cursor (see CreateChild_Normal -
+        ; AllocDynamic's exhaustive license leaves d3/d4/a0 intact).
+        move.l  a1, -(sp)
         bsr.w   AllocDynamic
         bne.s   .alloc_fail
         movea.l a1, a2
-        movem.l (sp)+, d3/a0-a1
+        movea.l (sp)+, a1
 
         move.w  d2, SST_code_addr(a2)
 
@@ -182,7 +194,7 @@ CreateChild_Complex:
         move.l  (a1)+, SST_anim_table(a2)
         move.b  (a1)+, SST_anim(a2)
         move.b  #$FF, SST_prev_anim(a2) ; $FF = "no previous anim" (forces the
-                                        ; animator's change detection on frame 1)
+                                       ; animator's change detection on frame 1)
         addq.w  #1, a1                  ; skip pad byte
 
         ; Inherit mappings, art_tile
@@ -193,25 +205,19 @@ CreateChild_Complex:
         move.w  a0, SST_parent_ptr(a2)
         move.w  d3, SST_sibling_ptr(a2)
         move.w  a2, d3
-        move.w  a2, SST_sibling_ptr(a0)
 
         bsr.w   PopulateSpawnedPieceCount
 
         bra.s   .child_loop
 
 .alloc_fail:
-        movem.l (sp)+, d3/a0-a1
-        lea     12(a1), a1              ; skip remaining 12 bytes of failed entry
-.skip_rest:
-        tst.w   (a1)
-        beq.s   .done
-        lea     14(a1), a1              ; skip full 14-byte entry
-        bra.s   .skip_rest
+        addq.l  #4, sp                  ; drop the saved cursor (see CreateChild_Normal)
 .done:
+        move.w  d3, SST_sibling_ptr(a0)
         rts
 
 ; -----------------------------------------------
-; CreateChild_FlipAware — Complex + mirror for parent X-flip
+; CreateChild_FlipAware - Complex + mirror for parent X-flip
 ;
 ; In:  a0 = parent SST, a1 = descriptor table (ROM)
 ; Out: none
@@ -226,13 +232,15 @@ CreateChild_FlipAware:
         move.w  SST_sibling_ptr(a0), d3
 .child_loop:
         move.w  (a1)+, d2
-        beq.w   .done
+        beq.s   .done
 
-        movem.l d3-d4/a0-a1, -(sp)
+        ; ALLOC SAVE: only the descriptor cursor (see CreateChild_Normal -
+        ; AllocDynamic's exhaustive license leaves d3/d4/a0 intact).
+        move.l  a1, -(sp)
         bsr.w   AllocDynamic
         bne.s   .alloc_fail
         movea.l a1, a2
-        movem.l (sp)+, d3-d4/a0-a1
+        movea.l (sp)+, a1
 
         move.w  d2, SST_code_addr(a2)
 
@@ -269,7 +277,7 @@ CreateChild_FlipAware:
         move.l  (a1)+, SST_anim_table(a2)
         move.b  (a1)+, SST_anim(a2)
         move.b  #$FF, SST_prev_anim(a2) ; $FF = "no previous anim" (forces the
-                                        ; animator's change detection on frame 1)
+                                       ; animator's change detection on frame 1)
         addq.w  #1, a1
 
         ; Inherit + flip child render_flags if parent is flipped
@@ -284,21 +292,15 @@ CreateChild_FlipAware:
         move.w  a0, SST_parent_ptr(a2)
         move.w  d3, SST_sibling_ptr(a2)
         move.w  a2, d3
-        move.w  a2, SST_sibling_ptr(a0)
 
         bsr.w   PopulateSpawnedPieceCount
 
-        bra.w   .child_loop
+        bra.s   .child_loop
 
 .alloc_fail:
-        movem.l (sp)+, d3-d4/a0-a1
-        lea     12(a1), a1              ; skip remaining 12 bytes of failed entry
-.skip_rest:
-        tst.w   (a1)
-        beq.s   .done
-        lea     14(a1), a1              ; skip full 14-byte entry
-        bra.s   .skip_rest
+        addq.l  #4, sp                  ; drop the saved cursor (see CreateChild_Normal)
 .done:
+        move.w  d3, SST_sibling_ptr(a0)
         rts
 
 ; -----------------------------------------------
@@ -319,6 +321,11 @@ CreateChild_FlipAware:
 ; Clobbers: d0-d5, a1-a2
 ; -----------------------------------------------
 CreateChild_Linked:
+    ifdef __DEBUG__
+        move.w  SST_sibling_ptr(a0), d4
+        assert.w d4, eq, #0             ; this creator APPENDS over the chain head:
+                                        ; a pre-existing chain would be orphaned
+    endif
         subq.w  #1, d1                  ; adjust for dbf
         bmi.s   .done
         move.w  d0, d4                  ; d4 = code_addr, parked (d0 is the alloc's scratch)
@@ -330,11 +337,11 @@ CreateChild_Linked:
         move.l  SST_y_pos(a0), -(sp)    ; save running Y on stack
 
 .spawn_loop:
-        movem.l d1-d5/a0, -(sp)
+        ; No alloc save at all here: AllocDynamic's exhaustive license leaves
+        ; d1-d5/a0 intact, and a1 is its OUTPUT (nothing of ours lives in it).
         bsr.w   AllocDynamic
         bne.s   .link_fail
         movea.l a1, a2                  ; a2 = child SST
-        movem.l (sp)+, d1-d5/a0
 
         move.w  d4, SST_code_addr(a2)
 
@@ -364,7 +371,9 @@ CreateChild_Linked:
         ; Chain: previous child's sibling_ptr -> this child
         tst.w   d1
         beq.s   .first_child
-        movea.w d1, a1
+        movea.w d1, a1                  ; RAM lives in the sign-extending
+                                        ; $FFFFxxxx window, so a bare word IS
+                                        ; the pointer (SST links are u16)
         move.w  a2, SST_sibling_ptr(a1)
         bra.s   .linked
 .first_child:
@@ -380,43 +389,43 @@ CreateChild_Linked:
         rts
 
 .link_fail:
-        movem.l (sp)+, d1-d5/a0
         addq.w  #8, sp                  ; clean running position
         rts
 
 ; -----------------------------------------------
-; DeleteChildren — walk sibling chain from parent and delete each child
+; DeleteChildren - walk sibling chain from parent and delete each child
 ;
 ; In:  a0 = parent SST
 ; Out: parent's sibling_ptr cleared; each child's slot released whole (its
 ;      parent_ptr is not cleared separately - DeleteObject zeroes the SST)
-; Clobbers: d0-d1, a1-a2
+; Clobbers: d0-d1, a1 (d1 comes from DeleteObject's license); a0 is
+;           movem-preserved across every delete
 ; -----------------------------------------------
 DeleteChildren:
-        move.w  SST_sibling_ptr(a0), d0
+        move.w  SST_sibling_ptr(a0), d2
         beq.s   .done                   ; no children
 
-        move.w  #0, SST_sibling_ptr(a0) ; disconnect from parent
+        clr.w   SST_sibling_ptr(a0)     ; disconnect from parent
 
+        ; The parent is parked ONCE for the whole cascade (a0 is DeleteObject's
+        ; argument register, so the walk needs it); the next link rides d2,
+        ; which DeleteObject's clobbers(d0-d1) leaves alone.
+        movem.l a0, -(sp)
 .walk_chain:
-        movea.w d0, a1                  ; a1 = current child
-        move.w  SST_sibling_ptr(a1), d0 ; d0 = next child (save before delete)
-
-        ; Delete this child
-        movem.l d0/a0, -(sp)
-        movea.l a1, a0                  ; DeleteObject expects a0
+        movea.w d2, a0                  ; a0 = current child
+        move.w  SST_sibling_ptr(a0), d2 ; d2 = next child (read before the delete
+                                        ; zeroes this slot)
         bsr.w   DeleteObject
-        movem.l (sp)+, d0/a0
-
-        tst.w   d0                      ; more children?
+        tst.w   d2                      ; more children?
         bne.s   .walk_chain
+        movem.l (sp)+, a0
 .done:
         rts
 
 ; -----------------------------------------------
-; CreateEffect_Normal — spawn effect children from a descriptor table
+; CreateEffect_Normal - spawn effect children from a descriptor table
 ; Allocates from Effect pool (not Dynamic). Children are NOT linked
-; into the parent's sibling chain — effects are fire-and-forget.
+; into the parent's sibling chain - effects are fire-and-forget.
 ;
 ; Descriptor format (4 bytes per child, terminated by dc.w 0):
 ;   dc.w objroutine(EffectCode)   ; child code_addr (0 = end)
@@ -433,11 +442,13 @@ CreateEffect_Normal:
         move.w  (a1)+, d2               ; d2 = effect code_addr
         beq.s   .done                   ; 0 = end of table
 
-        movem.l a0-a1, -(sp)
+        ; ALLOC SAVE: only the descriptor cursor. AllocEffect is
+        ; `clobbers(d0) out(a1 if eq)` - an exhaustive license, so a0 is intact.
+        move.l  a1, -(sp)
         bsr.w   AllocEffect
         bne.s   .alloc_fail
         movea.l a1, a2                  ; a2 = effect SST
-        movem.l (sp)+, a0-a1
+        movea.l (sp)+, a1
 
         move.w  d2, SST_code_addr(a2)
 
@@ -473,18 +484,12 @@ CreateEffect_Normal:
         bra.s   .effect_loop
 
 .alloc_fail:
-        movem.l (sp)+, a0-a1
-        addq.w  #2, a1                  ; skip x_off, y_off of failed entry
-.skip_rest:
-        tst.w   (a1)                    ; check next entry
-        beq.s   .done
-        addq.w  #4, a1                  ; skip full 4-byte entry
-        bra.s   .skip_rest
+        addq.l  #4, sp                  ; drop the saved cursor (see CreateChild_Normal)
 .done:
         rts
 
 ; -----------------------------------------------
-; CreateEffect_Simple — spawn N copies of the same effect at parent position
+; CreateEffect_Simple - spawn N copies of the same effect at parent position
 ; Allocates from Effect pool. Fire-and-forget (no sibling chain).
 ;
 ; In:  a0 = parent SST pointer
@@ -500,11 +505,11 @@ CreateEffect_Simple:
         move.w  d1, d3                  ; d3 = dbf counter
 
 .spawn_loop:
-        movem.l d2-d3/a0, -(sp)
+        ; No alloc save: AllocEffect's exhaustive license leaves d2/d3/a0
+        ; intact and a1 is its output.
         bsr.w   AllocEffect
         bne.s   .alloc_fail
         movea.l a1, a2                  ; a2 = effect SST
-        movem.l (sp)+, d2-d3/a0
 
         move.w  d2, SST_code_addr(a2)
 
@@ -516,6 +521,8 @@ CreateEffect_Simple:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
+        ; parent_ptr: see CreateEffect_Normal - no effect code reads it and
+        ; Draw_Sprite pays for it every frame.
         move.w  a0, SST_parent_ptr(a2)
 
         bsr.w   PopulateSpawnedPieceCount
@@ -525,5 +532,4 @@ CreateEffect_Simple:
         rts
 
 .alloc_fail:
-        movem.l (sp)+, d2-d3/a0
         rts

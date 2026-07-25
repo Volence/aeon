@@ -7,7 +7,10 @@
 //   * A parent may not itself be a linked child. An object that is already in
 //     someone's chain has its own `sibling_ptr` spoken for; letting it spawn
 //     children overwrites that link and orphans every sibling behind it.
-//     ONE LEVEL of nesting only — asserted in DEBUG at each chaining creator.
+//     ONE LEVEL of nesting only. The DEBUG assert rides CreateChild_Normal
+//     (the only chaining creator with call sites); the others carry the
+//     constraint in their headers — an assert on an uncalled proc cannot
+//     fire, and its message blob is not free (see the packet's $8000 note).
 //   * `DeleteChildren` is therefore NOT recursive by contract, not by
 //     omission: a child cannot have children, so there is nothing to recurse
 //     into. It also leaves each deleted child's `parent_ptr` alone — the slot
@@ -41,10 +44,11 @@ use engine.types.{ObjRoutine}
 // Out: Sst.sprite_piece_count(a2) populated from that frame's header
 // Preserves: all caller registers
 // -----------------------------------------------
-pub proc PopulateSpawnedPieceCount (a2: *Sst) preserves(d0/a0-a1) {
-        movem.l d0/a0-a1, -(sp)
+pub proc PopulateSpawnedPieceCount (a2: *Sst) preserves(d0/a0) {
+        movem.l d0/a0, -(sp)            // a1 is never touched here — the shared
+                                        // template works in a0/d0
         refresh_piece_count(a2, a0, d0)
-        movem.l (sp)+, d0/a0-a1
+        movem.l (sp)+, d0/a0
         rts
 }
 
@@ -64,16 +68,27 @@ pub proc PopulateSpawnedPieceCount (a2: *Sst) preserves(d0/a0-a1) {
 // Clobbers: d0-d3, a1-a2
 // -----------------------------------------------
 pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
+        if DEBUG == 1 {
+        move.w  Sst.parent_ptr(a0), d0
+        assert.w d0, eq, #0             // chain contract: a parent may not itself
+                                        // be a linked child (its sibling_ptr is
+                                        // the grandparent's link)
+        }
         move.w  Sst.sibling_ptr(a0), d3 // d3 = current chain head (newest child, 0 if no children yet)
     .child_loop:
         move.w  (a1)+, d2               // d2 = child code_addr
         beq     .done                   // 0 = end of table
 
-        movem.l d3/a0-a1, -(sp)
+        // ALLOC SAVE: the descriptor cursor is the ONLY register at risk.
+        // AllocDynamic's license is `clobbers(d0) out(a1 if eq) preserves(a0)`
+        // — an EXHAUSTIVE license, so d3/d4/a0 are contractually intact — and
+        // a1 is written on BOTH outcomes (the slot on success, the pop-rollback
+        // path on latch-full).
+        move.l  a1, -(sp)
         jbsr    AllocDynamic
         bne     .alloc_fail
         movea.l a1, a2                  // a2 = child SST
-        movem.l (sp)+, d3/a0-a1
+        movea.l (sp)+, a1
 
         move.w  d2, Sst.code_addr(a2)
 
@@ -100,24 +115,21 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         // Chain into sibling list (prepend)
         move.w  d3, Sst.sibling_ptr(a2) // child points to previous head
         move.w  a2, d3                  // new head = this child
-        move.w  a2, Sst.sibling_ptr(a0) // parent always points to newest child
 
         jbsr    PopulateSpawnedPieceCount
 
         jbra    .child_loop
 
     .alloc_fail:
-        movem.l (sp)+, d3/a0-a1
-        // Skip remaining descriptor bytes (code_addr already consumed)
-        addq.w  #2, a1                  // skip x_off, y_off
-        tst.w   (a1)                    // check next entry
-        bne     .alloc_fail_skip        // more entries to skip
+        // Drop the saved cursor and stop. Walking the rest of the descriptor
+        // table would only advance a1, which is a declared clobber no caller
+        // reads — dead work on the failure path.
+        addq.l  #4, sp
     .done:
-        rts
-    .alloc_fail_skip:
-        addq.w  #4, a1                  // skip code_addr + offsets
-        tst.w   (a1)
-        bne     .alloc_fail_skip
+        move.w  d3, Sst.sibling_ptr(a0) // parent points at the newest child; one
+                                        // write for the whole run, and on the
+                                        // failure paths it writes back the head
+                                        // that survived
         rts
 }
 
@@ -141,11 +153,13 @@ pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         move.w  (a1)+, d2
         beq     .done
 
-        movem.l d3/a0-a1, -(sp)
+        // ALLOC SAVE: only the descriptor cursor (see CreateChild_Normal —
+        // AllocDynamic's exhaustive license leaves d3/d4/a0 intact).
+        move.l  a1, -(sp)
         jbsr    AllocDynamic
         bne     .alloc_fail
         movea.l a1, a2
-        movem.l (sp)+, d3/a0-a1
+        movea.l (sp)+, a1
 
         move.w  d2, Sst.code_addr(a2)
 
@@ -181,21 +195,15 @@ pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         move.w  a0, Sst.parent_ptr(a2)
         move.w  d3, Sst.sibling_ptr(a2)
         move.w  a2, d3
-        move.w  a2, Sst.sibling_ptr(a0)
 
         jbsr    PopulateSpawnedPieceCount
 
         jbra    .child_loop
 
     .alloc_fail:
-        movem.l (sp)+, d3/a0-a1
-        lea     12(a1), a1              // skip remaining 12 bytes of failed entry
-    .skip_rest:
-        tst.w   (a1)
-        beq     .done
-        lea     14(a1), a1              // skip full 14-byte entry
-        jbra    .skip_rest
+        addq.l  #4, sp                  // drop the saved cursor (see CreateChild_Normal)
     .done:
+        move.w  d3, Sst.sibling_ptr(a0)
         rts
 }
 
@@ -217,11 +225,13 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
         move.w  (a1)+, d2
         beq     .done
 
-        movem.l d3-d4/a0-a1, -(sp)
+        // ALLOC SAVE: only the descriptor cursor (see CreateChild_Normal —
+        // AllocDynamic's exhaustive license leaves d3/d4/a0 intact).
+        move.l  a1, -(sp)
         jbsr    AllocDynamic
         bne     .alloc_fail
         movea.l a1, a2
-        movem.l (sp)+, d3-d4/a0-a1
+        movea.l (sp)+, a1
 
         move.w  d2, Sst.code_addr(a2)
 
@@ -271,21 +281,15 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
         move.w  a0, Sst.parent_ptr(a2)
         move.w  d3, Sst.sibling_ptr(a2)
         move.w  a2, d3
-        move.w  a2, Sst.sibling_ptr(a0)
 
         jbsr    PopulateSpawnedPieceCount
 
         jbra    .child_loop
 
     .alloc_fail:
-        movem.l (sp)+, d3-d4/a0-a1
-        lea     12(a1), a1              // skip remaining 12 bytes of failed entry
-    .skip_rest:
-        tst.w   (a1)
-        beq     .done
-        lea     14(a1), a1              // skip full 14-byte entry
-        jbra    .skip_rest
+        addq.l  #4, sp                  // drop the saved cursor (see CreateChild_Normal)
     .done:
+        move.w  d3, Sst.sibling_ptr(a0)
         rts
 }
 
@@ -307,6 +311,11 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
 // Clobbers: d0-d5, a1-a2
 // -----------------------------------------------
 pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: u16, d3: u16) clobbers(d0-d5/a1-a2) {
+        if DEBUG == 1 {
+        move.w  Sst.sibling_ptr(a0), d4
+        assert.w d4, eq, #0             // this creator APPENDS over the chain head:
+                                        // a pre-existing chain would be orphaned
+        }
         subq.w  #1, d1                  // adjust for dbf
         bmi     .done
         move.w  d0, d4                  // d4 = code_addr, parked (d0 is the alloc's scratch)
@@ -318,11 +327,11 @@ pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: u16, d3: u16
         move.l  Sst.y_pos(a0), -(sp)    // save running Y on stack
 
     .spawn_loop:
-        movem.l d1-d5/a0, -(sp)
+        // No alloc save at all here: AllocDynamic's exhaustive license leaves
+        // d1-d5/a0 intact, and a1 is its OUTPUT (nothing of ours lives in it).
         jbsr    AllocDynamic
         bne     .link_fail
         movea.l a1, a2                  // a2 = child SST
-        movem.l (sp)+, d1-d5/a0
 
         move.w  d4, Sst.code_addr(a2)
 
@@ -350,7 +359,9 @@ pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: u16, d3: u16
         // Chain: previous child's sibling_ptr -> this child
         tst.w   d1
         beq     .first_child
-        movea.w d1, a1
+        movea.w d1, a1                  // RAM lives in the sign-extending
+                                        // $FFFFxxxx window, so a bare word IS
+                                        // the pointer (SST links are u16)
         move.w  a2, Sst.sibling_ptr(a1)
         jbra    .linked
     .first_child:
@@ -366,7 +377,6 @@ pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: u16, d3: u16
         rts
 
     .link_fail:
-        movem.l (sp)+, d1-d5/a0
         addq.w  #8, sp                  // clean running position
         rts
 }
@@ -380,24 +390,24 @@ pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: u16, d3: u16
 // Clobbers: d0-d1, a1 (d1 comes from DeleteObject's license); a0 is
 //           movem-preserved across every delete
 // -----------------------------------------------
-pub proc DeleteChildren (a0: *Sst) clobbers(d0-d1/a1) preserves(a0) {
-        move.w  Sst.sibling_ptr(a0), d0
+pub proc DeleteChildren (a0: *Sst) clobbers(d0-d2/a1) preserves(a0) {
+        move.w  Sst.sibling_ptr(a0), d2
         beq     .done                   // no children
 
-        move.w  #0, Sst.sibling_ptr(a0) // disconnect from parent
+        clr.w   Sst.sibling_ptr(a0)     // disconnect from parent
 
+        // The parent is parked ONCE for the whole cascade (a0 is DeleteObject's
+        // argument register, so the walk needs it); the next link rides d2,
+        // which DeleteObject's clobbers(d0-d1) leaves alone.
+        movem.l a0, -(sp)
     .walk_chain:
-        movea.w d0, a1                  // a1 = current child
-        move.w  Sst.sibling_ptr(a1), d0 // d0 = next child (save before delete)
-
-        // Delete this child
-        movem.l d0/a0, -(sp)
-        movea.l a1, a0                  // DeleteObject expects a0
+        movea.w d2, a0                  // a0 = current child
+        move.w  Sst.sibling_ptr(a0), d2 // d2 = next child (read before the delete
+                                        // zeroes this slot)
         jbsr    DeleteObject
-        movem.l (sp)+, d0/a0
-
-        tst.w   d0                      // more children?
+        tst.w   d2                      // more children?
         bne     .walk_chain
+        movem.l (sp)+, a0
     .done:
         rts
 }
@@ -422,11 +432,13 @@ pub proc CreateEffect_Normal (a0: *Sst, a1: *u8) clobbers(d0-d2/a1-a2) {
         move.w  (a1)+, d2               // d2 = effect code_addr
         beq     .done                   // 0 = end of table
 
-        movem.l a0-a1, -(sp)
+        // ALLOC SAVE: only the descriptor cursor. AllocEffect is
+        // `clobbers(d0) out(a1 if eq)` — an exhaustive license, so a0 is intact.
+        move.l  a1, -(sp)
         jbsr    AllocEffect
         bne     .alloc_fail
         movea.l a1, a2                  // a2 = effect SST
-        movem.l (sp)+, a0-a1
+        movea.l (sp)+, a1
 
         move.w  d2, Sst.code_addr(a2)
 
@@ -460,13 +472,7 @@ pub proc CreateEffect_Normal (a0: *Sst, a1: *u8) clobbers(d0-d2/a1-a2) {
         jbra    .effect_loop
 
     .alloc_fail:
-        movem.l (sp)+, a0-a1
-        addq.w  #2, a1                  // skip x_off, y_off of failed entry
-    .skip_rest:
-        tst.w   (a1)                    // check next entry
-        beq     .done
-        addq.w  #4, a1                  // skip full 4-byte entry
-        jbra    .skip_rest
+        addq.l  #4, sp                  // drop the saved cursor (see CreateChild_Normal)
     .done:
         rts
 }
@@ -488,11 +494,11 @@ pub proc CreateEffect_Simple (a0: *Sst, d0: ObjRoutine, d1: u16) clobbers(d0-d3/
         move.w  d1, d3                  // d3 = dbf counter
 
     .spawn_loop:
-        movem.l d2-d3/a0, -(sp)
+        // No alloc save: AllocEffect's exhaustive license leaves d2/d3/a0
+        // intact and a1 is its output.
         jbsr    AllocEffect
         bne     .alloc_fail
         movea.l a1, a2                  // a2 = effect SST
-        movem.l (sp)+, d2-d3/a0
 
         move.w  d2, Sst.code_addr(a2)
 
@@ -504,6 +510,8 @@ pub proc CreateEffect_Simple (a0: *Sst, d0: ObjRoutine, d1: u16) clobbers(d0-d3/
         move.l  Sst.mappings(a0), Sst.mappings(a2)
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
+        // parent_ptr: see CreateEffect_Normal — no effect code reads it and
+        // Draw_Sprite pays for it every frame.
         move.w  a0, Sst.parent_ptr(a2)
 
         jbsr    PopulateSpawnedPieceCount
@@ -513,6 +521,5 @@ pub proc CreateEffect_Simple (a0: *Sst, d0: ObjRoutine, d1: u16) clobbers(d0-d3/
         rts
 
     .alloc_fail:
-        movem.l (sp)+, d2-d3/a0
         rts
 }
