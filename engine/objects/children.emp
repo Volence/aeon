@@ -45,6 +45,22 @@ use engine.objects.frames.{refresh_piece_count}
 use engine.objects.sst.{Sst}
 use engine.types.{ObjRoutine}
 
+// The render_flags bits a child inherits from its parent. Named once so the
+// six creators state the POLICY rather than re-deriving the mask, and so the
+// omission list below has a single home.
+//
+// THE PRIORITY BAND IS NOT IN THIS MASK, and that is a correctness constraint,
+// not an oversight. A band is a 3-bit VALUE in bits 5-7, while this inherit
+// composes with `or`, and the engine-wide child-side idiom for setting one is
+// `ori.b #N<<RF_PRIORITY_SHIFT` — which also ors, on the assumption that the
+// field is zero. Or-ing an inherited band with the child's own therefore
+// yields their bitwise UNION, not the child's choice: a band-5 parent
+// (test_emitter) spawning a band-6 child (test_particle) produces band 7.
+// Inheriting a band correctly needs either a clear-then-set idiom on the child
+// side (game-wide convention change) or a mechanism that runs before child
+// init without being overwritten by it — ruled elsewhere, ledgered here.
+const CHILD_INHERITED_FLAGS = (1 << RF_COORDMODE)
+
 // -----------------------------------------------
 // PopulateSpawnedPieceCount — refresh sprite_piece_count for newly-spawned
 // SST in a2. Called from each CreateChild_*/CreateEffect_* site after
@@ -155,7 +171,7 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         //                    a batch parent, and Draw_Sprite would then skip
         //                    every object pointing at it.
         move.b  Sst.render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, Sst.render_flags(a2)
 
         // Link: child -> parent
@@ -251,7 +267,7 @@ pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
         move.b  Sst.render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, Sst.render_flags(a2) // band + coordmode only — see CreateChild_Normal
 
         // Parent link + sibling chain
@@ -339,7 +355,7 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
         move.b  Sst.render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, Sst.render_flags(a2) // band + coordmode only — see CreateChild_Normal
 
         tst.w   d4
@@ -435,7 +451,7 @@ pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: i8, d3: i8) 
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
         move.b  Sst.render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, Sst.render_flags(a2) // band + coordmode only — see CreateChild_Normal
 
         move.w  a0, Sst.parent_ptr(a2)
@@ -547,7 +563,7 @@ pub proc CreateEffect_Normal (a0: *Sst, a1: *u8) clobbers(d0-d2/a1-a2) {
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
         move.b  Sst.render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, Sst.render_flags(a2) // band + coordmode only — see CreateChild_Normal
 
         // NO parent_ptr write. Effects are fire-and-forget: nothing reads the
@@ -602,7 +618,7 @@ pub proc CreateEffect_Simple (a0: *Sst, d0: ObjRoutine, d1: u16) clobbers(d0-d3/
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
 
         move.b  Sst.render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, Sst.render_flags(a2) // band + coordmode only — see CreateChild_Normal
 
         // No parent_ptr write — see CreateEffect_Normal.

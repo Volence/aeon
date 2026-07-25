@@ -1,5 +1,12 @@
 ; Child creation - data-driven parent-child object spawning
 ;
+; The render_flags bits a child inherits from its parent (LOCKSTEP with
+; children.emp's CHILD_INHERITED_FLAGS). The priority BAND is deliberately not
+; in the mask: a band is a 3-bit value, this inherit composes with `or`, and
+; the child-side idiom `ori.b #N<<RF_PRIORITY_SHIFT` assumes a zero field - so
+; or-ing both yields their union, not the child's band. See children.emp.
+CHILD_INHERITED_FLAGS = (1<<RF_COORDMODE)
+;
 ; THE SIBLING-CHAIN CONTRACT (read before adding a creator or a caller).
 ; `sibling_ptr` is OVERLOADED: on a PARENT it is the head of that parent's
 ; child list; on a CHILD it is the next sibling in that list. One field, two
@@ -159,7 +166,7 @@ CreateChild_Normal:
         ;                    a batch parent, and Draw_Sprite would then skip
         ;                    every object pointing at it.
         move.b  SST_render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, SST_render_flags(a2)
 
         ; Link: child -> parent
@@ -260,7 +267,7 @@ CreateChild_Complex:
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
         move.b  SST_render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
 
         ; Parent link + sibling chain
@@ -348,7 +355,7 @@ CreateChild_FlipAware:
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
         move.b  SST_render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
 
         tst.w   d4
@@ -444,7 +451,7 @@ CreateChild_Linked:
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
         move.b  SST_render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
 
         move.w  a0, SST_parent_ptr(a2)
@@ -556,7 +563,7 @@ CreateEffect_Normal:
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
         move.b  SST_render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
 
         ; NO parent_ptr write. Effects are fire-and-forget: nothing reads the
@@ -609,7 +616,7 @@ CreateEffect_Simple:
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
         move.b  SST_render_flags(a0), d0
-        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        andi.b  #CHILD_INHERITED_FLAGS, d0
         or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
 
         ; No parent_ptr write - see CreateEffect_Normal.
