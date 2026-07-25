@@ -4,6 +4,7 @@ module engine.objects.children in children
 
 use engine.constants.{FRAME_PIECE_COUNT, RF_XFLIP}
 use engine.objects.sst.{Sst}
+use engine.types.{ObjRoutine}
 
 // -----------------------------------------------
 // PopulateSpawnedPieceCount — refresh sprite_piece_count for newly-spawned
@@ -18,7 +19,7 @@ pub proc PopulateSpawnedPieceCount (a2: *Sst) preserves(d0/a0-a1) {
         movem.l d0/a0-a1, -(sp)
         movea.l Sst.mappings(a2), a0
         move.l  a0, d0
-        beq.s   .skip
+        beq     .skip
         moveq   #0, d0
         move.b  Sst.mapping_frame(a2), d0
         add.w   d0, d0                  // word offset
@@ -50,11 +51,11 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         move.w  Sst.sibling_ptr(a0), d3 // d3 = current chain head (newest child, 0 if no children yet)
     .child_loop:
         move.w  (a1)+, d2               // d2 = child code_addr
-        beq.s   .done                   // 0 = end of table
+        beq     .done                   // 0 = end of table
 
         movem.l d3/a0-a1, -(sp)
-        jsr     AllocDynamic
-        bne.s   .alloc_fail
+        jbsr    AllocDynamic
+        bne     .alloc_fail
         movea.l a1, a2                  // a2 = child SST
         movem.l (sp)+, d3/a0-a1
 
@@ -87,22 +88,22 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         move.w  a2, d3                  // new head = this child
         move.w  a2, Sst.sibling_ptr(a0) // parent always points to newest child
 
-        bsr.w   PopulateSpawnedPieceCount
+        jbsr    PopulateSpawnedPieceCount
 
-        bra.s   .child_loop
+        jbra    .child_loop
 
     .alloc_fail:
         movem.l (sp)+, d3/a0-a1
         // Skip remaining descriptor bytes (code_addr already consumed)
         addq.w  #2, a1                  // skip x_off, y_off
         tst.w   (a1)                    // check next entry
-        bne.s   .alloc_fail_skip        // more entries to skip
+        bne     .alloc_fail_skip        // more entries to skip
     .done:
         rts
     .alloc_fail_skip:
         addq.w  #4, a1                  // skip code_addr + offsets
         tst.w   (a1)
-        bne.s   .alloc_fail_skip
+        bne     .alloc_fail_skip
         rts
 }
 
@@ -124,11 +125,11 @@ pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         move.w  Sst.sibling_ptr(a0), d3
     .child_loop:
         move.w  (a1)+, d2
-        beq.w   .done
+        beq     .done
 
         movem.l d3/a0-a1, -(sp)
-        jsr     AllocDynamic
-        bne.s   .alloc_fail
+        jbsr    AllocDynamic
+        bne     .alloc_fail
         movea.l a1, a2
         movem.l (sp)+, d3/a0-a1
 
@@ -169,18 +170,18 @@ pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         move.w  a2, d3
         move.w  a2, Sst.sibling_ptr(a0)
 
-        bsr.w   PopulateSpawnedPieceCount
+        jbsr    PopulateSpawnedPieceCount
 
-        bra.s   .child_loop
+        jbra    .child_loop
 
     .alloc_fail:
         movem.l (sp)+, d3/a0-a1
         lea     12(a1), a1              // skip remaining 12 bytes of failed entry
     .skip_rest:
         tst.w   (a1)
-        beq.s   .done
+        beq     .done
         lea     14(a1), a1              // skip full 14-byte entry
-        bra.s   .skip_rest
+        jbra    .skip_rest
     .done:
         rts
 }
@@ -195,17 +196,17 @@ pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
 pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
         moveq   #0, d4                  // d4 = flip flag
         btst    #RF_XFLIP, Sst.render_flags(a0)
-        beq.s   .no_flip
+        beq     .no_flip
         moveq   #1, d4
     .no_flip:
         move.w  Sst.sibling_ptr(a0), d3
     .child_loop:
         move.w  (a1)+, d2
-        beq.w   .done
+        beq     .done
 
         movem.l d3-d4/a0-a1, -(sp)
-        jsr     AllocDynamic
-        bne.w   .alloc_fail
+        jbsr    AllocDynamic
+        bne     .alloc_fail
         movea.l a1, a2
         movem.l (sp)+, d3-d4/a0-a1
 
@@ -215,7 +216,7 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
         move.b  (a1)+, d0
         ext.w   d0
         tst.w   d4
-        beq.s   .x_no_flip
+        beq     .x_no_flip
         neg.w   d0
     .x_no_flip:
         swap    d0
@@ -234,7 +235,7 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
         // X velocity (negate if flipped)
         move.w  (a1)+, d0
         tst.w   d4
-        beq.s   .xv_no_flip
+        beq     .xv_no_flip
         neg.w   d0
     .xv_no_flip:
         move.w  d0, Sst.x_vel(a2)
@@ -250,7 +251,7 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
         move.l  Sst.mappings(a0), Sst.mappings(a2)
         move.w  Sst.art_tile(a0), Sst.art_tile(a2)
         tst.w   d4
-        beq.s   .rf_no_flip
+        beq     .rf_no_flip
         bset    #RF_XFLIP, Sst.render_flags(a2)
     .rf_no_flip:
 
@@ -260,18 +261,18 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
         move.w  a2, d3
         move.w  a2, Sst.sibling_ptr(a0)
 
-        bsr.w   PopulateSpawnedPieceCount
+        jbsr    PopulateSpawnedPieceCount
 
-        bra.w   .child_loop
+        jbra    .child_loop
 
     .alloc_fail:
         movem.l (sp)+, d3-d4/a0-a1
         lea     12(a1), a1              // skip remaining 12 bytes of failed entry
     .skip_rest:
         tst.w   (a1)
-        beq.s   .done
+        beq     .done
         lea     14(a1), a1              // skip full 14-byte entry
-        bra.s   .skip_rest
+        jbra    .skip_rest
     .done:
         rts
 }
@@ -287,9 +288,9 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
 // Out: none
 // Clobbers: d0-d5, a1-a2
 // -----------------------------------------------
-pub proc CreateChild_Linked (a0: *Sst, d0: u16, d1: u16, d2: u16, d3: u16) clobbers(d0-d5/a1-a2) {
+pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: u16, d3: u16) clobbers(d0-d5/a1-a2) {
         subq.w  #1, d1                  // adjust for dbf
-        bmi.s   .done
+        bmi     .done
         move.w  d0, d4                  // d4 = code_addr (preserved)
         move.w  d1, d5                  // d5 = counter (preserved)
         moveq   #0, d1                  // d1 = previous child addr
@@ -300,8 +301,8 @@ pub proc CreateChild_Linked (a0: *Sst, d0: u16, d1: u16, d2: u16, d3: u16) clobb
 
     .spawn_loop:
         movem.l d1-d5/a0, -(sp)
-        jsr     AllocDynamic
-        bne.s   .link_fail
+        jbsr    AllocDynamic
+        bne     .link_fail
         movea.l a1, a2                  // a2 = child SST
         movem.l (sp)+, d1-d5/a0
 
@@ -332,16 +333,16 @@ pub proc CreateChild_Linked (a0: *Sst, d0: u16, d1: u16, d2: u16, d3: u16) clobb
 
         // Chain: previous child's sibling_ptr -> this child
         tst.w   d1
-        beq.s   .first_child
+        beq     .first_child
         movea.w d1, a1
         move.w  a2, Sst.sibling_ptr(a1)
-        bra.s   .linked
+        jbra    .linked
     .first_child:
         move.w  a2, Sst.sibling_ptr(a0) // parent -> first child
     .linked:
         move.w  a2, d1                  // this child becomes previous
 
-        bsr.w   PopulateSpawnedPieceCount
+        jbsr    PopulateSpawnedPieceCount
 
         dbf     d5, .spawn_loop
         addq.w  #8, sp                  // clean running position from stack
@@ -364,7 +365,7 @@ pub proc CreateChild_Linked (a0: *Sst, d0: u16, d1: u16, d2: u16, d3: u16) clobb
 // -----------------------------------------------
 pub proc DeleteChildren (a0: *Sst) clobbers(d0-d1/a1) preserves(a0) {
         move.w  Sst.sibling_ptr(a0), d0
-        beq.s   .done                   // no children
+        beq     .done                   // no children
 
         move.w  #0, Sst.sibling_ptr(a0) // disconnect from parent
 
@@ -375,11 +376,11 @@ pub proc DeleteChildren (a0: *Sst) clobbers(d0-d1/a1) preserves(a0) {
         // Delete this child
         movem.l d0/a0, -(sp)
         movea.l a1, a0                  // DeleteObject expects a0
-        jsr     DeleteObject
+        jbsr    DeleteObject
         movem.l (sp)+, d0/a0
 
         tst.w   d0                      // more children?
-        bne.s   .walk_chain
+        bne     .walk_chain
     .done:
         rts
 }
@@ -402,11 +403,11 @@ pub proc DeleteChildren (a0: *Sst) clobbers(d0-d1/a1) preserves(a0) {
 pub proc CreateEffect_Normal (a0: *Sst, a1: *u8) clobbers(d0-d2/a1-a2) {
     .effect_loop:
         move.w  (a1)+, d2               // d2 = effect code_addr
-        beq.s   .done                   // 0 = end of table
+        beq     .done                   // 0 = end of table
 
         movem.l a0-a1, -(sp)
-        jsr     AllocEffect
-        bne.s   .alloc_fail
+        jbsr    AllocEffect
+        bne     .alloc_fail
         movea.l a1, a2                  // a2 = effect SST
         movem.l (sp)+, a0-a1
 
@@ -434,18 +435,18 @@ pub proc CreateEffect_Normal (a0: *Sst, a1: *u8) clobbers(d0-d2/a1-a2) {
         // Set parent_ptr so effect can reference parent if needed
         move.w  a0, Sst.parent_ptr(a2)
 
-        bsr.w   PopulateSpawnedPieceCount
+        jbsr    PopulateSpawnedPieceCount
 
-        bra.s   .effect_loop
+        jbra    .effect_loop
 
     .alloc_fail:
         movem.l (sp)+, a0-a1
         addq.w  #2, a1                  // skip x_off, y_off of failed entry
     .skip_rest:
         tst.w   (a1)                    // check next entry
-        beq.s   .done
+        beq     .done
         addq.w  #4, a1                  // skip full 4-byte entry
-        bra.s   .skip_rest
+        jbra    .skip_rest
     .done:
         rts
 }
@@ -460,16 +461,16 @@ pub proc CreateEffect_Normal (a0: *Sst, a1: *u8) clobbers(d0-d2/a1-a2) {
 // Out: none (silently stops if pool exhausted)
 // Clobbers: d0-d3, a1-a2
 // -----------------------------------------------
-pub proc CreateEffect_Simple (a0: *Sst, d0: u16, d1: u16) clobbers(d0-d3/a1-a2) {
+pub proc CreateEffect_Simple (a0: *Sst, d0: ObjRoutine, d1: u16) clobbers(d0-d3/a1-a2) {
         subq.w  #1, d1                  // adjust for dbf
-        bmi.s   .done
+        bmi     .done
         move.w  d0, d2                  // d2 = code_addr (preserved)
         move.w  d1, d3                  // d3 = counter (preserved)
 
     .spawn_loop:
         movem.l d2-d3/a0, -(sp)
-        jsr     AllocEffect
-        bne.s   .alloc_fail
+        jbsr    AllocEffect
+        bne     .alloc_fail
         movea.l a1, a2                  // a2 = effect SST
         movem.l (sp)+, d2-d3/a0
 
@@ -485,7 +486,7 @@ pub proc CreateEffect_Simple (a0: *Sst, d0: u16, d1: u16) clobbers(d0-d3/a1-a2) 
 
         move.w  a0, Sst.parent_ptr(a2)
 
-        bsr.w   PopulateSpawnedPieceCount
+        jbsr    PopulateSpawnedPieceCount
 
         dbf     d3, .spawn_loop
     .done:

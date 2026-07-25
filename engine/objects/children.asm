@@ -1,4 +1,11 @@
 ; Child creation — data-driven parent-child object spawning
+;
+; LOCKSTEP twin of engine/objects/children.emp (byte-identical by gate).
+; The cross-region calls (AllocDynamic/AllocEffect/DeleteObject) are spelled
+; bsr.w because the .emp's `jbsr` relaxation ladder emits that 4-byte PC-
+; relative form at this distance — same length as the abs.w jsr it replaces.
+; Branch widths here are the widths the .emp's BARE branches resolve to;
+; edit both files together.
 
 ; -----------------------------------------------
 ; PopulateSpawnedPieceCount — refresh sprite_piece_count for newly-spawned
@@ -47,7 +54,7 @@ CreateChild_Normal:
         beq.s   .done                   ; 0 = end of table
 
         movem.l d3/a0-a1, -(sp)
-        jsr     AllocDynamic
+        bsr.w   AllocDynamic
         bne.s   .alloc_fail
         movea.l a1, a2                  ; a2 = child SST
         movem.l (sp)+, d3/a0-a1
@@ -81,7 +88,7 @@ CreateChild_Normal:
         move.w  a2, d3                  ; new head = this child
         move.w  a2, SST_sibling_ptr(a0) ; parent always points to newest child
 
-        bsr.w   PopulateSpawnedPieceCount
+        bsr.s   PopulateSpawnedPieceCount
 
         bra.s   .child_loop
 
@@ -117,10 +124,10 @@ CreateChild_Complex:
         move.w  SST_sibling_ptr(a0), d3
 .child_loop:
         move.w  (a1)+, d2
-        beq.w   .done
+        beq.s   .done
 
         movem.l d3/a0-a1, -(sp)
-        jsr     AllocDynamic
+        bsr.w   AllocDynamic
         bne.s   .alloc_fail
         movea.l a1, a2
         movem.l (sp)+, d3/a0-a1
@@ -196,8 +203,8 @@ CreateChild_FlipAware:
         beq.w   .done
 
         movem.l d3-d4/a0-a1, -(sp)
-        jsr     AllocDynamic
-        bne.w   .alloc_fail
+        bsr.w   AllocDynamic
+        bne.s   .alloc_fail
         movea.l a1, a2
         movem.l (sp)+, d3-d4/a0-a1
 
@@ -291,7 +298,7 @@ CreateChild_Linked:
 
 .spawn_loop:
         movem.l d1-d5/a0, -(sp)
-        jsr     AllocDynamic
+        bsr.w   AllocDynamic
         bne.s   .link_fail
         movea.l a1, a2                  ; a2 = child SST
         movem.l (sp)+, d1-d5/a0
@@ -364,7 +371,7 @@ DeleteChildren:
         ; Delete this child
         movem.l d0/a0, -(sp)
         movea.l a1, a0                  ; DeleteObject expects a0
-        jsr     DeleteObject
+        bsr.w   DeleteObject
         movem.l (sp)+, d0/a0
 
         tst.w   d0                      ; more children?
@@ -393,7 +400,7 @@ CreateEffect_Normal:
         beq.s   .done                   ; 0 = end of table
 
         movem.l a0-a1, -(sp)
-        jsr     AllocEffect
+        bsr.w   AllocEffect
         bne.s   .alloc_fail
         movea.l a1, a2                  ; a2 = effect SST
         movem.l (sp)+, a0-a1
@@ -455,7 +462,7 @@ CreateEffect_Simple:
 
 .spawn_loop:
         movem.l d2-d3/a0, -(sp)
-        jsr     AllocEffect
+        bsr.w   AllocEffect
         bne.s   .alloc_fail
         movea.l a1, a2                  ; a2 = effect SST
         movem.l (sp)+, d2-d3/a0
