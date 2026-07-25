@@ -28,11 +28,13 @@ pub comptime fn frame_piece_count(base: Reg, off: Reg, dest: Reg) -> Code {
 // refresh_piece_count — recompute an SST's cached sprite_piece_count from the
 // frame its `mappings`/`mapping_frame` currently name.
 //
-// The engine needs this in two places that cannot share a proc: the animator
+// The engine needs this in two places that do NOT share a proc: the animator
 // (after an anim script changes the frame) and the child/effect spawners
-// (after a fresh slot inherits its parent's mappings). They differ only in
-// which registers they have free, so the SHAPE is the shared thing — this
-// template is its single source of truth.
+// (after a fresh slot inherits its parent's mappings). They could call one
+// another, but they hold the SST in different registers and have different
+// preservation duties, and the spawn path would pay a cross-region call for
+// nine instructions. So the SHAPE is the shared thing — this template is its
+// single source of truth, spliced into both.
 //
 // Register contract:
 //   sst     — the SST pointer (An, read-only)

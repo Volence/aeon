@@ -7,10 +7,15 @@
 //   * A parent may not itself be a linked child. An object that is already in
 //     someone's chain has its own `sibling_ptr` spoken for; letting it spawn
 //     children overwrites that link and orphans every sibling behind it.
-//     ONE LEVEL of nesting only. The DEBUG assert rides CreateChild_Normal
-//     (the only chaining creator with call sites); the others carry the
-//     constraint in their headers — an assert on an uncalled proc cannot
-//     fire, and its message blob is not free (see the packet's $8000 note).
+//     ONE LEVEL of nesting only. ASSERT COVERAGE IS DELIBERATELY PARTIAL:
+//     the DEBUG rail rides CreateChild_Normal (the only chaining creator with
+//     call sites) and CreateChild_Linked (its own childless-parent
+//     constraint); Complex and FlipAware carry the constraint in their
+//     headers ONLY. Chosen, not overlooked — an assert on a zero-caller proc
+//     can never fire, while its message blob costs debug bytes that are not
+//     free at the system level (past a threshold they push engine symbols
+//     across $8000 and relocate the whole debug object bank). When either
+//     creator gains a caller, it gains the assert in the same change.
 //   * `DeleteChildren` is therefore NOT recursive by contract, not by
 //     omission: a child cannot have children, so there is nothing to recurse
 //     into. It also leaves each deleted child's `parent_ptr` alone — the slot
@@ -126,10 +131,19 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         // reads — dead work on the failure path.
         addq.l  #4, sp
     .done:
-        move.w  d3, Sst.sibling_ptr(a0) // parent points at the newest child; one
-                                        // write for the whole run, and on the
-                                        // failure paths it writes back the head
-                                        // that survived
+        // Parent points at the newest child — ONE write per call, not one per
+        // child. Safe because the only reader of a PARENT's chain head outside
+        // this file is Render_Sprites' multi-sprite walk (sprites.emp:354; its
+        // second read at :404 walks a CHILD's next-sibling, not a head), and
+        // Render_Sprites runs in the game state's main loop AFTER RunObjects
+        // returns — the creators cannot be preempted by it. No interrupt path
+        // reads the field either: VInt_Level only DMAs the sprite buffer that
+        // the previous Render_Sprites already built. And where the original
+        // wrote the head every iteration, a mid-call observer would have seen a
+        // PARTIALLY linked chain; deferring means the head only ever points at
+        // a completed run. On the failure paths d3 still holds the head that
+        // survived, so they write back exactly what was already there.
+        move.w  d3, Sst.sibling_ptr(a0)
         rts
 }
 
@@ -203,7 +217,7 @@ pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
     .alloc_fail:
         addq.l  #4, sp                  // drop the saved cursor (see CreateChild_Normal)
     .done:
-        move.w  d3, Sst.sibling_ptr(a0)
+        move.w  d3, Sst.sibling_ptr(a0) // deferred head write — see CreateChild_Normal
         rts
 }
 
@@ -289,7 +303,7 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
     .alloc_fail:
         addq.l  #4, sp                  // drop the saved cursor (see CreateChild_Normal)
     .done:
-        move.w  d3, Sst.sibling_ptr(a0)
+        move.w  d3, Sst.sibling_ptr(a0) // deferred head write — see CreateChild_Normal
         rts
 }
 

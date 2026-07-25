@@ -19,8 +19,9 @@ module engine.coords
 // (`ext.w`) — this template promotes, it does not widen.
 //
 // Reads as "these pixels are now a Coord" at the call site, which is the
-// point: the bare `swap`/`clr.w` pair is the single most-repeated shape in the
-// spawn and camera paths, and it says nothing about what it means.
+// point: the bare `swap`/`clr.w` pair runs ten times in children.emp alone and
+// again in camera.emp (×3) and the game's spawn code, and it says nothing
+// about what it means.
 pub comptime fn pixels_to_coord(v: Reg) -> Code {
     return asm {
         swap    {v}
