@@ -20,6 +20,14 @@
 ;     omission: a child cannot have children, so there is nothing to recurse
 ;     into. It also leaves each deleted child's `parent_ptr` alone - the slot
 ;     is zeroed wholesale by DeleteObject, so the stale value is unreachable.
+;   * A chain member may NEVER be released except through DeleteChildren.
+;     Termination below relies on a freshly allocated slot's `sibling_ptr`
+;     being zero, which is necessary but NOT sufficient: if a linked child
+;     frees itself with DeleteObject, the parent keeps a stale head, the LIFO
+;     free stack can hand that very slot back to the parent's NEXT spawn, and
+;     the prepend then writes `sibling_ptr(C) = C` - a self-loop that makes
+;     Render_Sprites' sibling walk spin forever and DeleteChildren free the
+;     same slot twice. Unlink first, or delete the whole chain.
 ;   * Chain SHAPE differs by creator, deliberately: Normal/Complex/FlipAware
 ;     PREPEND (each new child points at the old head, so the parent always
 ;     points at the NEWEST child), while Linked APPENDS (each child points at
@@ -39,11 +47,22 @@
 ;      freshly-zeroed slot, so it is ALWAYS frame 0 at this point (no call
 ;      site sets it). A null `mappings` leaves the field untouched.
 ; Out: SST_sprite_piece_count(a2) populated from that frame's header
-; Preserves: all caller registers
+; Clobbers: d0 - dead at all eight call sites (the six creators below re-load
+;           it at the top of their next iteration; test_churn.asm:45 and
+;           test_stress_emitter.asm:29 write it immediately after the call)
+; Preserves: a0 (the shared template's pointer scratch)
+;
+; The empty-but-EXPLICIT `clobbers()` half of the contract is load-bearing:
+; the body is a comptime template shared with animate.emp, which splices it
+; with a DIFFERENT register triple (a0/a1/d2 there, a2/a0/d0 here). Declaring
+; the register effect turns any future harmonization of the template's
+; internals into a compile error instead of silent corruption of a caller's
+; live registers (CreateChild_Linked's d1, CreateChild_FlipAware's d4).
 ; -----------------------------------------------
 PopulateSpawnedPieceCount:
-        movem.l d0/a0, -(sp)            ; a1 is never touched here - the shared
-                                        ; template works in a0/d0
+        movem.l a0, -(sp)               ; a1 is never touched here (the template
+                                        ; works in a0/d0) and d0 is dead at
+                                        ; every call site
         movea.l SST_mappings(a2), a0
         move.l  a0, d0
         beq.s   .no_mappings
@@ -56,7 +75,7 @@ PopulateSpawnedPieceCount:
         move.w  FRAME_PIECE_COUNT(a0,d0.w), d0
         move.b  d0, SST_sprite_piece_count(a2)
 .no_mappings:
-        movem.l (sp)+, d0/a0
+        movem.l (sp)+, a0
         rts
 
 ; -----------------------------------------------
@@ -71,7 +90,9 @@ PopulateSpawnedPieceCount:
 ;
 ; In:  a0 = parent SST pointer
 ;      a1 = descriptor table pointer (ROM)
-; Out: none (children allocated, or silently skipped if pool full)
+; Out: the PARENT's sibling_ptr is updated to the newest child (this proc
+;      writes the caller's own SST); children allocated, or silently skipped
+;      if the pool is full
 ; Clobbers: d0-d3, a1-a2
 ; -----------------------------------------------
 CreateChild_Normal:
@@ -119,6 +140,28 @@ CreateChild_Normal:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
+        ; Inherit the two render_flags bits a child must share with its parent,
+        ; in ONE masked or: the PRIORITY BAND (bits 5-7 - a fresh slot is
+        ; zeroed, so without this every child registers in band 0 and a
+        ; high-priority parent's parts draw behind everything) and COORDMODE
+        ; (a child of a screen-space parent is positioned from screen-space
+        ; coordinates, so rendering it world-space - even for the single frame
+        ; before its own routine runs - puts it at position minus camera).
+        ; DELIBERATELY NOT INHERITED, and each for its own reason:
+        ;   RF_ONSCREEN    - per-object visibility state, recomputed every
+        ;                    frame by Draw_Sprite; copying it publishes a lie.
+        ;   RF_XFLIP/YFLIP - flip is owned per creator: CreateChild_FlipAware
+        ;                    sets XFLIP deliberately (and mirrors the offsets
+        ;                    to match), so a blanket copy would fight it.
+        ;   RF_MULTISPRITE - THE LOAD-BEARING OMISSION. That bit means "I am a
+        ;                    batch parent; my siblings render through my walk".
+        ;                    Copying it to a child makes the child claim to be
+        ;                    a batch parent, and Draw_Sprite would then skip
+        ;                    every object pointing at it.
+        move.b  SST_render_flags(a0), d0
+        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        or.b    d0, SST_render_flags(a2)
+
         ; Link: child -> parent
         move.w  a0, SST_parent_ptr(a2)
 
@@ -143,8 +186,8 @@ CreateChild_Normal:
 .done:
         ; Parent points at the newest child - ONE write per call, not one per
         ; child. Safe because the only reader of a PARENT's chain head outside
-        ; this file is Render_Sprites' multi-sprite walk (sprites.asm:321; its
-        ; second read at :371 walks a CHILD's next-sibling, not a head), and
+        ; this file is Render_Sprites' multi-sprite walk (sprites.emp:354; its
+        ; second read at :404 walks a CHILD's next-sibling, not a head), and
         ; Render_Sprites runs in the game state's main loop AFTER RunObjects
         ; returns - the creators cannot be preempted by it. No interrupt path
         ; reads the field either: VInt_Level only DMAs the sprite buffer that
@@ -167,7 +210,7 @@ CreateChild_Normal:
 ;   dc.b anim_id, pad            ; starting animation + alignment
 ;
 ; In:  a0 = parent SST, a1 = descriptor table (ROM)
-; Out: none
+; Out: the PARENT's sibling_ptr is updated to the newest child
 ; Clobbers: d0-d3, a1-a2
 ; -----------------------------------------------
 CreateChild_Complex:
@@ -216,6 +259,10 @@ CreateChild_Complex:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
+        move.b  SST_render_flags(a0), d0
+        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
+
         ; Parent link + sibling chain
         move.w  a0, SST_parent_ptr(a2)
         move.w  d3, SST_sibling_ptr(a2)
@@ -235,19 +282,24 @@ CreateChild_Complex:
 ; CreateChild_FlipAware - Complex + mirror for parent X-flip
 ;
 ; In:  a0 = parent SST, a1 = descriptor table (ROM)
-; Out: none
+; Out: the PARENT's sibling_ptr is updated to the newest child
 ; Clobbers: d0-d4, a1-a2
 ; -----------------------------------------------
 CreateChild_FlipAware:
-        moveq   #0, d4                  ; d4 = flip flag
+        ; d4 is a 0 / -1 MASK, not a 0/1 flag: `eor.w d4,dN` + `sub.w d4,dN`
+        ; is a branchless negate - (x ^ -1) - (-1) = ~x + 1 = -x, and
+        ; (x ^ 0) - 0 = x - so the two offset negates below need no test and
+        ; no branch. Identity holds for every input; smaller and faster than
+        ; the tested form it replaces.
+        moveq   #0, d4                  ; d4 = flip mask (0 = none, -1 = flipped)
         btst    #RF_XFLIP, SST_render_flags(a0)
         beq.s   .no_flip
-        moveq   #1, d4
+        moveq   #-1, d4
 .no_flip:
         move.w  SST_sibling_ptr(a0), d3
 .child_loop:
         move.w  (a1)+, d2
-        beq.s   .done
+        beq.w   .done
 
         ; ALLOC SAVE: only the descriptor cursor (see CreateChild_Normal -
         ; AllocDynamic's exhaustive license leaves d3/d4/a0 intact).
@@ -259,13 +311,11 @@ CreateChild_FlipAware:
 
         move.w  d2, SST_code_addr(a2)
 
-        ; X position (negate offset if flipped)
+        ; X position (branchless negate under the flip mask)
         move.b  (a1)+, d0
         ext.w   d0
-        tst.w   d4
-        beq.s   .x_no_flip
-        neg.w   d0
-.x_no_flip:
+        eor.w   d4, d0
+        sub.w   d4, d0
         swap    d0
         clr.w   d0
         add.l   SST_x_pos(a0), d0
@@ -279,12 +329,10 @@ CreateChild_FlipAware:
         add.l   SST_y_pos(a0), d0
         move.l  d0, SST_y_pos(a2)
 
-        ; X velocity (negate if flipped)
+        ; X velocity (branchless negate under the same mask)
         move.w  (a1)+, d0
-        tst.w   d4
-        beq.s   .xv_no_flip
-        neg.w   d0
-.xv_no_flip:
+        eor.w   d4, d0
+        sub.w   d4, d0
         move.w  d0, SST_x_vel(a2)
         move.w  (a1)+, SST_y_vel(a2)
 
@@ -298,6 +346,11 @@ CreateChild_FlipAware:
         ; Inherit + flip child render_flags if parent is flipped
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
+
+        move.b  SST_render_flags(a0), d0
+        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
+
         tst.w   d4
         beq.s   .rf_no_flip
         bset    #RF_XFLIP, SST_render_flags(a2)
@@ -310,7 +363,7 @@ CreateChild_FlipAware:
 
         bsr.w   PopulateSpawnedPieceCount
 
-        bra.s   .child_loop
+        bra.w   .child_loop
 
 .alloc_fail:
         addq.l  #4, sp                  ; drop the saved cursor (see CreateChild_Normal)
@@ -323,20 +376,28 @@ CreateChild_FlipAware:
 ;
 ; CONSTRAINT: the parent must be CHILDLESS. This creator APPENDS, so it
 ; overwrites the parent's chain head with its first child; any children the
-; parent already had are orphaned (they stay allocated and running, but
-; DeleteChildren can no longer reach them - a dynamic-slot leak until the
-; entity window despawns the parent's section). Asserted in DEBUG.
+; parent already had are orphaned - they stay allocated and running, and
+; NOTHING ever frees them: entity-window despawn calls DeleteObject on the
+; parent alone, and it skips SLOT_TAG_UNTAGGED slots, which is exactly what
+; every child is. The leak is permanent for the level. Asserted in DEBUG.
 ;
 ; In:  a0 = parent SST
 ;      d0.w = child code_addr (objroutine value)
 ;      d1.w = number of children to spawn
 ;      d2.b = X spacing between children (signed byte)
 ;      d3.b = Y spacing between children (signed byte)
-; Out: none
+; Out: the PARENT's sibling_ptr is updated to the first child
 ; Clobbers: d0-d5, a1-a2
 ; -----------------------------------------------
 CreateChild_Linked:
     ifdef __DEBUG__
+        move.w  SST_parent_ptr(a0), d4
+        assert.w d4, eq, #0             ; chain contract: a parent may not itself be
+                                        ; a linked child. The sibling_ptr test below
+                                        ; does NOT imply this one - the TAIL child of
+                                        ; a grandparent has sibling_ptr == 0 and would
+                                        ; pass it while splicing its children into the
+                                        ; grandparent's chain.
         move.w  SST_sibling_ptr(a0), d4
         assert.w d4, eq, #0             ; this creator APPENDS over the chain head:
                                         ; a pre-existing chain would be orphaned
@@ -381,6 +442,11 @@ CreateChild_Linked:
         ; Inherit from parent
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
+
+        move.b  SST_render_flags(a0), d0
+        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
+
         move.w  a0, SST_parent_ptr(a2)
 
         ; Chain: previous child's sibling_ptr -> this child
@@ -413,8 +479,9 @@ CreateChild_Linked:
 ; In:  a0 = parent SST
 ; Out: parent's sibling_ptr cleared; each child's slot released whole (its
 ;      parent_ptr is not cleared separately - DeleteObject zeroes the SST)
-; Clobbers: d0-d1, a1 (d1 comes from DeleteObject's license); a0 is
-;           movem-preserved across every delete
+; Clobbers: d0-d2, a1 - d0-d1 come from DeleteObject's license and d2 is the
+;           chain cursor this proc rides across the delete; a0 is
+;           movem-preserved across the whole cascade
 ; -----------------------------------------------
 DeleteChildren:
         move.w  SST_sibling_ptr(a0), d2
@@ -425,7 +492,9 @@ DeleteChildren:
         ; The parent is parked ONCE for the whole cascade (a0 is DeleteObject's
         ; argument register, so the walk needs it); the next link rides d2,
         ; which DeleteObject's clobbers(d0-d1) leaves alone.
-        movem.l a0, -(sp)
+        move.l  a0, -(sp)               ; same spelling as the alloc sites: a
+                                        ; one-register movem pair costs 12
+                                        ; cycles and 4 bytes more than this
 .walk_chain:
         movea.w d2, a0                  ; a0 = current child
         move.w  SST_sibling_ptr(a0), d2 ; d2 = next child (read before the delete
@@ -433,7 +502,7 @@ DeleteChildren:
         bsr.w   DeleteObject
         tst.w   d2                      ; more children?
         bne.s   .walk_chain
-        movem.l (sp)+, a0
+        movea.l (sp)+, a0
 .done:
         rts
 
@@ -449,7 +518,7 @@ DeleteChildren:
 ;
 ; In:  a0 = parent SST pointer
 ;      a1 = descriptor table pointer (ROM)
-; Out: none (effects allocated, or silently skipped if pool full)
+; Out: none - effects are fire-and-forget (no chain, no back-reference)
 ; Clobbers: d0-d2, a1-a2
 ; -----------------------------------------------
 CreateEffect_Normal:
@@ -486,13 +555,16 @@ CreateEffect_Normal:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
-        ; parent_ptr: NO effect code reads this today. It is not free -
-        ; Draw_Sprite dereferences a non-zero parent_ptr every frame to test
-        ; the parent's RF_MULTISPRITE. Removing it is an open decision
-        ; (it also decides whether an effect spawned by a multisprite parent
-        ; can ever be drawn); until then the write stands as the documented
-        ; parent back-reference for effect code that wants it.
-        move.w  a0, SST_parent_ptr(a2)
+        move.b  SST_render_flags(a0), d0
+        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
+
+        ; NO parent_ptr write. Effects are fire-and-forget: nothing reads the
+        ; back-reference, and setting it made Draw_Sprite dereference the
+        ; parent every frame to test RF_MULTISPRITE - which also meant an
+        ; effect spawned by a multisprite parent was skipped as batch-rendered
+        ; while being absent from the sibling chain, i.e. never drawn at all.
+        ; Leaving parent_ptr zero costs the effect nothing and removes both.
 
         bsr.w   PopulateSpawnedPieceCount
 
@@ -510,7 +582,7 @@ CreateEffect_Normal:
 ; In:  a0 = parent SST pointer
 ;      d0.w = effect code_addr (objroutine value)
 ;      d1.w = number of copies to spawn
-; Out: none (silently stops if pool exhausted)
+; Out: none - effects are fire-and-forget (silently stops if pool exhausted)
 ; Clobbers: d0-d3, a1-a2
 ; -----------------------------------------------
 CreateEffect_Simple:
@@ -536,9 +608,11 @@ CreateEffect_Simple:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
-        ; parent_ptr: see CreateEffect_Normal - no effect code reads it and
-        ; Draw_Sprite pays for it every frame.
-        move.w  a0, SST_parent_ptr(a2)
+        move.b  SST_render_flags(a0), d0
+        andi.b  #RF_PRIORITY_MASK|(1<<RF_COORDMODE), d0
+        or.b    d0, SST_render_flags(a2) ; band + coordmode only - see CreateChild_Normal
+
+        ; No parent_ptr write - see CreateEffect_Normal.
 
         bsr.w   PopulateSpawnedPieceCount
 

@@ -102,6 +102,15 @@ pub proc InitObjectRAM () clobbers(d0-d1/a0-a1) {
 // zombie), reachable only at a full count. All current callers write code_addr
 // immediately (children/load_object/object_test emitters).
 // -----------------------------------------------
+// CONTRACT CAVEAT — a1 IS DESTROYED ON THE FAILURE EDGE TOO. `out(a1 if eq)`
+// reads, under the exhaustive-license convention, as "a1 survives unless eq";
+// that is FALSE here. The pop below writes a1 BEFORE the full/latch tests, so
+// both failure exits (.latch_full and .full-via-latch) return with a1
+// destroyed. A caller holding something in a1 across this call must save it on
+// EVERY path, not just the success path — children.emp's six alloc sites do.
+// The honest declaration `clobbers(d0, a1) out(a1 if eq)` is REJECTED today:
+// [proc.out-clobbers-overlap] treats a register as either a result or scratch,
+// never both (ledgered as the conditional-out-on-clobbered-register ask).
 pub proc AllocDynamic () clobbers(d0) out(a1 if eq) preserves(a0) {
         cmpi.w  #extern("Dynamic_Free_Stack"), (Dynamic_Free_SP).w   // explicit .w kept: link-imm source + bare symbolic dest — imm-link lowering gap (see AllocDynamic init)
         beq     .full

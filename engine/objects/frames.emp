@@ -11,8 +11,13 @@
 //   off  — word offset to the frame within the table (Dn, read-only, .w index)
 //   dest — receives the piece-count word (Dn)
 //
-// The AS twins keep the move inline (load_object.asm / animate.asm) — this is
-// the single .emp source of truth for the +4 offset, byte-identical to them.
+// The AS twins keep the move inline (load_object.asm / animate.asm),
+// byte-identical to this. NOT yet the single .emp source of truth for the +4
+// offset: sprites.emp imports FRAME_PIECE_COUNT and spells the read itself at
+// two sites, because it has already `lea`'d the frame offset into its base
+// register (it needs the frame pointer for FRAME_BBOX_*/FRAME_PIECES anyway)
+// and so needs a DISPLACEMENT form, not this indexed one. A two-argument
+// sibling would make the claim true — ledgered.
 //
 // Pure comptime-fn module: opens no section and emits ZERO bytes anywhere in
 // the ROM — bytes appear only where a consumer splices the template.
