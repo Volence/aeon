@@ -386,7 +386,24 @@ __BUDGET_ENGINE:
         org     $3D38
       endif
     endif
-    include "engine/objects/children.asm"
+    ifndef SIGIL_EMP_CHILDREN
+        include "engine/objects/children.asm"
+    else
+        ; sigil mixed build: PopulateSpawnedPieceCount / CreateChild_* /
+        ; DeleteChildren / CreateEffect_* come from
+        ; engine/objects/children.emp, pinned by the sigil map at the
+        ; per-shape reference address. Resume placement at the region end
+        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
+        ; Shape-INVARIANT length (no asserts / no __DEBUG__) — the two resume
+        ; orgs differ only by the upstream base slide.
+        ; NOTE: these org values are sonic4-shape addresses — the gate define
+        ; must never be set for other games (demo builds take the include).
+      ifdef __DEBUG__
+        org     $4C14
+      else
+        org     $4046
+      endif
+    endif
     ifndef SIGIL_EMP_LOAD_OBJECT
         include "engine/objects/load_object.asm"
     else
