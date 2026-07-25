@@ -1,0 +1,29 @@
+// Coordinate-domain templates — shared module.
+//
+// The engine stores positions as 16.16 fixed point (`Coord`): whole pixels in
+// the HIGH word, the subpixel fraction in the low word. Anything that arrives
+// as integer pixels — a descriptor offset, a camera position, a spawn point —
+// has to be PROMOTED into that layout before it can be added to or stored in a
+// Coord field, and the promotion is always the same two instructions.
+//
+// Consumers `use engine.coords.{pixels_to_coord}`; the AS twins keep the two
+// instructions inline, byte-identical to this.
+//
+// Pure comptime module: opens no section and emits ZERO bytes anywhere in the
+// ROM — bytes appear only where a consumer splices the template.
+module engine.coords
+
+// Promote integer pixels held in the LOW word of `v` to a 16.16 `Coord` in the
+// whole of `v`: the pixel value moves to the high word and the subpixel
+// fraction is cleared. The caller sign-extends first if its source was a byte
+// (`ext.w`) — this template promotes, it does not widen.
+//
+// Reads as "these pixels are now a Coord" at the call site, which is the
+// point: the bare `swap`/`clr.w` pair is the single most-repeated shape in the
+// spawn and camera paths, and it says nothing about what it means.
+pub comptime fn pixels_to_coord(v: Reg) -> Code {
+    return asm {
+        swap    {v}
+        clr.w   {v}
+    }
+}

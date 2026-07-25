@@ -19,7 +19,44 @@
 module engine.objects.frames
 
 use engine.constants.{FRAME_PIECE_COUNT}
+use engine.objects.sst.{Sst}
 
 pub comptime fn frame_piece_count(base: Reg, off: Reg, dest: Reg) -> Code {
     return asm { move.w FRAME_PIECE_COUNT({base}, {off}.w), {dest} }
+}
+
+// refresh_piece_count — recompute an SST's cached sprite_piece_count from the
+// frame its `mappings`/`mapping_frame` currently name.
+//
+// The engine needs this in two places that cannot share a proc: the animator
+// (after an anim script changes the frame) and the child/effect spawners
+// (after a fresh slot inherits its parent's mappings). They differ only in
+// which registers they have free, so the SHAPE is the shared thing — this
+// template is its single source of truth.
+//
+// Register contract:
+//   sst     — the SST pointer (An, read-only)
+//   ptr     — scratch address register; receives the mappings pointer (An)
+//   scratch — scratch data register; the frame offset, then the count (Dn)
+//
+// A null `mappings` leaves `sprite_piece_count` untouched (a slot with no
+// mappings draws nothing, so a stale count cannot be observed).
+//
+// The AS twins keep the sequence inline (animate.asm / children.asm),
+// byte-identical to this.
+pub comptime fn refresh_piece_count(sst: Reg, ptr: Reg, scratch: Reg) -> Code {
+    return asm {
+        movea.l Sst.mappings({sst}), {ptr}
+        move.l  {ptr}, {scratch}
+        beq     .no_mappings
+        moveq   #0, {scratch}
+        move.b  Sst.mapping_frame({sst}), {scratch}
+        add.w   {scratch}, {scratch}             // frame index -> word offset
+        move.w  ({ptr},{scratch}.w), {scratch}   // offset to this frame's data
+        // frame header: 4 signed bbox bytes (FRAME_BBOX_*), then the
+        // piece-count word at FRAME_PIECE_COUNT, then pieces at FRAME_PIECES
+        move.w  FRAME_PIECE_COUNT({ptr}, {scratch}.w), {scratch}
+        move.b  {scratch}, Sst.sprite_piece_count({sst})
+    .no_mappings:
+    }
 }
