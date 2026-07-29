@@ -219,7 +219,7 @@ pub comptime fn mask_opposing_lr(held: Reg) -> Code {
         return asm {
                 andi.b  #BUTTON_LEFT|BUTTON_RIGHT, {held}
                 cmpi.b  #BUTTON_LEFT|BUTTON_RIGHT, {held}
-                bne.s   .lr_masked
+                bne     .lr_masked
                 moveq   #0, {held}
         .lr_masked:
         }
@@ -228,17 +228,15 @@ pub comptime fn mask_opposing_lr(held: Reg) -> Code {
 // -----------------------------------------------
 // dist_to_fix — widen a signed pixel distance (.w) into a 16.16 delta (dist<<16)
 // for adding to the x_pos/y_pos longwords. The .emp counterpart of the distToFix
-// AS macro; ADOPTS pixels_to_coord (engine.coords, kill row 49) for the promotion
-// half. (The leading ext.l is a step-5 wave candidate — swap/clr.w discard the
-// sign word, so it has no effect on the output.)
+// AS macro; a bare pixels_to_coord splice (engine.coords, kill row 49): swap moves
+// the .w pixel value into the high word and clr.w zeroes the fraction. No sign
+// extension is needed — the high word of v is discarded by swap+clr.w regardless
+// of its contents, so the promotion is independent of v's incoming high word.
 // In:  v.w = signed px distance
 // Out: v.l = dist<<16
 // -----------------------------------------------
 pub comptime fn dist_to_fix(v: Reg) -> Code {
-        return asm {
-                ext.l   {v}
-                {pixels_to_coord(v)}
-        }
+        return pixels_to_coord(v)
 }
 
 // -----------------------------------------------
@@ -247,10 +245,10 @@ pub comptime fn dist_to_fix(v: Reg) -> Code {
 // streaming-test workflow — B drops into physics.
 // In:  a0 = player SST
 // Out: none
-// Clobbers: d0-d1, a1-a2
+// Clobbers: d0-d2, a1-a2 (d2 via Player_SetState's hook dispatch)
 // -----------------------------------------------
 pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
-        bsr.w   Sonic_InitAssets
+        jbsr    Sonic_InitAssets
         move.b  #ANIM_IDLE, anim(a0)            // Player_Display re-selects per frame
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
@@ -270,10 +268,10 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
         clr.b   PlayerV.look_offset(a0)
         clr.b   PlayerV.player_state(a0)        // defined start for SetState's exit lookup
         moveq   #PSTATE_AIR, d0                 // drop to ground on frame 1
-        bsr.w   Player_SetState
-        bsr.w   Player_RefreshPhysics
+        jbsr    Player_SetState
+        jbsr    Player_RefreshPhysics
         move.w  #Player_Main - ObjCodeBase, code_addr(a0)
-        bra.w   Player_DebugEnter
+        jbra    Player_DebugEnter
 }
 
 // -----------------------------------------------
@@ -314,16 +312,16 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
         move.b  (Ctrl_1_Press).w, d6
         // --- debug-fly toggle (B press) ---
         btst    #4, d6                          // BUTTON_B
-        beq.s   .no_toggle
+        beq     .no_toggle
         tst.b   PlayerV.debug_flag(a0)
-        bne.s   .toggle_exit
-        bsr.w   Player_DebugEnter
-        bra.s   .no_toggle
+        bne     .toggle_exit
+        jbsr    Player_DebugEnter
+        jbra    .no_toggle
 .toggle_exit:
-        bsr.w   Player_DebugExit
+        jbsr    Player_DebugExit
 .no_toggle:
         tst.b   PlayerV.debug_flag(a0)
-        bne.w   Player_DebugMove                // obj_control escape hatch:
+        bne     Player_DebugMove                // obj_control escape hatch:
                                                 // skips physics, dispatch,
                                                 // rings, and display tail
 
@@ -340,12 +338,12 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
         // jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick down.
         // Maintained here; the ground-state jump check CONSUMES it.
         andi.b  #BUTTON_JUMP_MASK, d6
-        beq.s   .no_latch
+        beq     .no_latch
         move.b  #PHYS_JUMP_BUFFER, (Player_JumpBuffer).w
-        bra.s   .buffer_done
+        jbra    .buffer_done
 .no_latch:
         tst.b   (Player_JumpBuffer).w
-        beq.s   .buffer_done
+        beq     .buffer_done
         subq.b  #1, (Player_JumpBuffer).w
 .buffer_done:
 
@@ -364,7 +362,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
         // tick's TouchResponse). The per-frame CLEAR lives at the top of
         // TouchResponse's player loop (collision.asm), not here. ---
 
-        bsr.w   Player_LevelBound               // classic LevelBound, post-dispatch
+        jbsr    Player_LevelBound               // classic LevelBound, post-dispatch
 
         // --- position history rings (recorded unconditionally — a "follower
         // active?" branch costs more than the writes) ---
@@ -386,26 +384,28 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
 // -----------------------------------------------
 // Player_Display — classify the animation, advance it, stream art, draw.
 // In:  a0 = player SST
-// Clobbers: d0-d4, a1-a3
+// Clobbers: d0-d5, a1-a3 (d5 via Player_Animate's balance-path ledge probe)
 // -----------------------------------------------
 pub proc Player_Display (a0: *Sst) clobbers(d0-d5/a1-a3) {
-        bsr.w   Player_Animate                  // sets SST_anim + d3 (dyn hold)
-        jsr     AnimateSprite
-        jmp     Sonic_LoadArt                   // character dispatch (Tails/Knux
+        jbsr    Player_Animate                  // sets SST_anim + d3 (dyn hold)
+        jbsr    AnimateSprite
+        jbra    Sonic_LoadArt                   // character dispatch (Tails/Knux
                                                 // replace via roster later)
 }
 
 // -----------------------------------------------
 // Player_Animate — read-only animation classifier. Reads state/status/input and
 // (at rest) one ledge sensor; writes ONE ANIM_* id to SST_anim and the
-// speed-scaled hold to d3. Mutates only the display transient skid_latch.
+// speed-scaled hold to d3. Mutates the display transients skid_latch and
+// getup_timer (the get-up one-shot counts down here).
 // Priority: spindash > ball > skid > push > (rest: getup > duck > lookup >
 // balance > idle) > run/walk.
 // In:  a0 = player SST
 // Out: SST_anim set; d3.b = dynamic per-anim hold (for DUR_DYNAMIC scripts)
-// Clobbers: d0-d2, d4, a1-a2 (d3 is an output). The balance path additionally
-//           trashes d5-d6 via Player_AtLedgeEdge — caller (Player_Display, a
-//           frame-tail routine) keeps no live d5/d6 across this call.
+// Clobbers: d0-d5, a1-a2 (d3 is an output; d0-d2/d4 in the body). The balance
+//           path additionally trashes d5 via Player_AtLedgeEdge (clobbers d0-d5)
+//           — caller (Player_Display, a frame-tail routine) keeps no live d5
+//           across this call.
 // -----------------------------------------------
 pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
         // speed-scaled hold for DUR_DYNAMIC scripts (walk/run/roll):
@@ -413,12 +413,12 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
         // walk/run paths consume d3 and neither clobbers it. The balance path
         // clobbers d3 (sensor) but leads to a FIXED-duration anim, so it's moot.
         move.w  PlayerV.ground_speed(a0), d0
-        bpl.s   .abs_ok
+        bpl     .abs_ok
         neg.w   d0
 .abs_ok:
         move.w  #$800, d4
         sub.w   d0, d4
-        bpl.s   .hold_ok
+        bpl     .hold_ok
         moveq   #0, d4
 .hold_ok:
         lsr.w   #8, d4
@@ -427,15 +427,15 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
         move.b  PlayerV.player_state(a0), d0
         // (1) spindash
         cmpi.b  #PSTATE_SPINDASH, d0
-        bne.s   .not_spindash
+        bne     .not_spindash
         move.b  #ANIM_SPINDASH, anim(a0)
         rts
 .not_spindash:
         // (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL >= PSTATE_JUMP)
         cmpi.b  #PSTATE_JUMP, d0
-        bhs.s   .ball
+        bhs     .ball
         cmpi.b  #PSTATE_ROLL, d0
-        bne.s   .uncurled
+        bne     .uncurled
 .ball:
         move.b  #ANIM_ROLL, anim(a0)
         rts
@@ -443,35 +443,35 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
         // GROUND or uncurled AIR. Airborne keeps the walk/run cycle; the
         // grounded-only conditions are gated below.
         btst    #ST_IN_AIR, status(a0)
-        bne.w   .walk_or_run
+        bne     .walk_or_run
 
         // (3) skid — grounded, opposing input held, |gsp| >= PHYS_SKID_MIN.
         // Latch holds the pose through the brake WHILE opposing input is held;
         // cleared at rest or when the opposing input is released.
         move.w  PlayerV.ground_speed(a0), d1
-        beq.s   .skid_drop                      // stopped -> clear latch
+        beq     .skid_drop                      // stopped -> clear latch
         move.b  (Ctrl_1_Held).w, d2
         tst.w   d1
-        bmi.s   .skid_left
+        bmi     .skid_left
         btst    #BUTTON_LEFT_BIT, d2            // moving right: opposing = LEFT
-        beq.s   .skid_drop
-        bra.s   .skid_opposing
+        beq     .skid_drop
+        jbra    .skid_opposing
 .skid_left:
         btst    #BUTTON_RIGHT_BIT, d2           // moving left: opposing = RIGHT
-        beq.s   .skid_drop
+        beq     .skid_drop
 .skid_opposing:
         tst.b   PlayerV.skid_latch(a0)
-        bne.s   .skid_show                      // already latched -> keep (no new sfx)
+        bne     .skid_show                      // already latched -> keep (no new sfx)
         move.w  d1, d2
-        bpl.s   .skid_abs
+        bpl     .skid_abs
         neg.w   d2
 .skid_abs:
         cmpi.w  #PHYS_SKID_MIN, d2
-        blo.s   .not_skid                       // opposing but too slow to arm
+        blo     .not_skid                       // opposing but too slow to arm
         // fresh-arm edge — fire the skid SFX once before latching
         if SOUND_DRIVER_ENABLED == 1 {
                 moveq   #SFXID_SKID, d0
-                jsr     Sound_PlaySFX
+                jbsr    Sound_PlaySFX
         }
 .skid_show:
         st      PlayerV.skid_latch(a0)
@@ -483,39 +483,39 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
 
         // (4) push — grounded, ST_PUSHING (facing-aware bit from ground code)
         btst    #ST_PUSHING, status(a0)
-        beq.s   .not_push
+        beq     .not_push
         move.b  #ANIM_PUSH, anim(a0)
         rts
 .not_push:
         // rest vs moving
         tst.w   PlayerV.ground_speed(a0)
-        bne.s   .walk_or_run
+        bne     .walk_or_run
 
         // --- at rest ---
         // get-up one-shot: mechanism in place; nothing arms _pl_getup in
         // gameplay this pass (in-game get-up trigger deferred).
         tst.b   PlayerV.getup_timer(a0)
-        beq.s   .rest_input
+        beq     .rest_input
         subq.b  #1, PlayerV.getup_timer(a0)
         move.b  #ANIM_GETUP, anim(a0)
         rts
 .rest_input:
         // (5) duck
         btst    #BUTTON_DOWN_BIT, (Ctrl_1_Held).w
-        beq.s   .not_duck
+        beq     .not_duck
         move.b  #ANIM_DUCK, anim(a0)
         rts
 .not_duck:
         // (6) look up
         btst    #BUTTON_UP_BIT, (Ctrl_1_Held).w
-        beq.s   .not_lookup
+        beq     .not_lookup
         move.b  #ANIM_LOOKUP, anim(a0)
         rts
 .not_lookup:
         // (9) balance at a ledge edge — (7)/(8) in the priority table are
         // run/walk, handled below in .walk_or_run (the moving branch)
-        jsr     Player_AtLedgeEdge              // beq = supported
-        beq.s   .idle
+        jbsr    Player_AtLedgeEdge              // beq = supported
+        beq     .idle
         move.b  #ANIM_BALANCE, anim(a0)
         rts
 .idle:
@@ -524,11 +524,11 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
 
 .walk_or_run:
         move.w  PlayerV.ground_speed(a0), d1
-        bpl.s   .wr_abs
+        bpl     .wr_abs
         neg.w   d1
 .wr_abs:
         cmpi.w  #ANIM_RUN_THRESHOLD, d1
-        blt.s   .walk
+        blt     .walk
         move.b  #ANIM_RUN, anim(a0)
         rts
 .walk:
@@ -599,7 +599,7 @@ pub proc PHook_Null () clobbers() {
 }
 
 pub proc PHook_GroundEnter (a0: *Sst) clobbers() {
-        bsr.s   PHook_EnsureStanding            // uncurl (jump/ball landings;
+        jbsr    PHook_EnsureStanding            // uncurl (jump/ball landings;
                                                 // down-held landings go straight
                                                 // to ROLL via Air_LandState)
         bclr    #ST_IN_AIR, status(a0)
@@ -607,25 +607,25 @@ pub proc PHook_GroundEnter (a0: *Sst) clobbers() {
 }
 
 pub proc PHook_AirEnter (a0: *Sst) clobbers() { // uncurled airborne
-        bsr.s   PHook_EnsureStanding
+        jbsr    PHook_EnsureStanding
         bset    #ST_IN_AIR, status(a0)
         rts
 }
 
 pub proc PHook_AirBallEnter (a0: *Sst) clobbers() { // JUMP / ROLLJUMP / AIRBALL
-        bsr.s   PHook_EnsureBall
+        jbsr    PHook_EnsureBall
         bset    #ST_IN_AIR, status(a0)
         rts
 }
 
 pub proc PHook_RollEnter (a0: *Sst) clobbers() { // grounded ball — entered from
-        bsr.s   PHook_EnsureBall                // GROUND (roll start), SPINDASH
+        jbsr    PHook_EnsureBall                // GROUND (roll start), SPINDASH
         bclr    #ST_IN_AIR, status(a0)          // (release), or a curled/down-
         rts                                     // held landing (air → cleared)
 }
 
 pub proc PHook_SpindashEnter (a0: *Sst) clobbers() { // entered only from GROUND —
-        bsr.s   PHook_EnsureStanding            // the player is pinned charging
+        jbsr    PHook_EnsureStanding            // the player is pinned charging
                                                 // at STANDING size (classic S2:
                                                 // curl + feet-planted shift
                                                 // happen at RELEASE via ROLL's
@@ -660,7 +660,7 @@ pub proc PHook_SpindashExit (a0: *Sst) clobbers() {
 pub proc PHook_EnsureStanding (a0: *Sst) clobbers() {
         bclr    #ST_ROLLING, status(a0)
         cmpi.b  #BALL_Y_RADIUS*2+1, height_pixels(a0)
-        bne.s   .keep                           // not curled (incl. debug 16)
+        bne     .keep                           // not curled (incl. debug 16)
         set_standing_size(a0)
         subi.l  #CURL_Y_SHIFT<<16, y_pos(a0)
 .keep:
@@ -670,7 +670,7 @@ pub proc PHook_EnsureStanding (a0: *Sst) clobbers() {
 pub proc PHook_EnsureBall (a0: *Sst) clobbers() {
         bset    #ST_ROLLING, status(a0)
         cmpi.b  #BALL_Y_RADIUS*2+1, height_pixels(a0)
-        beq.s   .keep                           // already curled
+        beq     .keep                           // already curled
         set_ball_size(a0)
         addi.l  #CURL_Y_SHIFT<<16, y_pos(a0)
 .keep:
@@ -692,10 +692,10 @@ pub proc PHook_EnsureBall (a0: *Sst) clobbers() {
 pub proc Player_SnapToSurface (a0: *Sst) clobbers(d0/d2) {
         dist_to_fix(d0)
         move.b  (Player_Quadrant).w, d2
-        beq.s   .down                           // floor mode — common case
+        beq     .down                           // floor mode — common case
         subq.b  #2, d2
-        bmi.s   .left                           // quadrant 1
-        beq.s   .up                             // quadrant 2
+        bmi     .left                           // quadrant 1
+        beq     .up                             // quadrant 2
         add.l   d0, x_pos(a0)                   // quadrant 3
         rts
 .down:
@@ -750,7 +750,7 @@ pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
         // --- left bound: world [0, level_width) ---
         move.w  #PBOUND_LEFT_MARGIN, d1
         cmp.w   d1, d0
-        blt.s   .clamp_x
+        blt     .clamp_x
         // --- right bound: world level_width − margin ---
         //     level_width = grid_w << SECTION_SIZE_SHIFT (split 8+3 for AS).
         moveq   #0, d1
@@ -761,7 +761,7 @@ pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
         // — grid_w > 31 sections; guarded by act_descriptor's <= $8000 ensure.
         subi.w  #PBOUND_RIGHT_MARGIN, d1
         cmp.w   d1, d0
-        ble.s   .x_done
+        ble     .x_done
 .clamp_x:
         move.w  d1, x_pos(a0)
         clr.w   SST_x_pos_sub(a0)               // subpixel zeroed (classic)
@@ -780,13 +780,13 @@ pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
         move.w  d1, d2
         addi.w  #PBOUND_BOTTOM_MARGIN, d2
         cmp.w   d2, d0
-        ble.s   .y_ok                           // above the bottom guard → done
+        ble     .y_ok                           // above the bottom guard → done
         // --- player tripped the bottom edge: dispatch on the act's edge_mode ---
         move.b  Act.edge_mode(a1), d2
         cmpi.b  #EDGE_WRAP_V, d2
-        beq.s   .edge_wrap
+        beq     .edge_wrap
         cmpi.b  #EDGE_KILL, d2
-        beq.s   .edge_kill
+        beq     .edge_kill
         // EDGE_CLAMP (default) — clamp to the bottom edge. With editor-authored /
         // S&K collision the player can fall through air or an erased floor by
         // design (pits, WIP), so this is expected — just clamp.
@@ -801,13 +801,13 @@ pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
         // build uses EDGE_CLAMP). A correct wrap is an atomic live-set shift by
         // ±level_height + camera Y-clamp edge-mode awareness. Full design: spec
         // §10. Until built: clamp.
-        bra.s   .edge_clamp
+        jbra    .edge_clamp
 .edge_kill:
         // EDGE_KILL — death pit. No death/respawn system exists yet, so this
         // records intent and clamps meanwhile. When the death system exists it
         // consumes Player_Death_Pending; this stays the single trigger point.
         st      (Player_Death_Pending).w        // set the death-pending flag ($FF)
-        bra.s   .edge_clamp                     // clamp until the death system exists
+        jbra    .edge_clamp                     // clamp until the death system exists
 }
 
 // -----------------------------------------------
@@ -834,7 +834,7 @@ pub proc Player_DebugEnter (a0: *Sst) clobbers() {
 // In:  a0 = player SST.  Clobbers: d0-d2, a1-a2
 pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
         sf      PlayerV.debug_flag(a0)
-        bsr.w   Sonic_InitAssets
+        jbsr    Sonic_InitAssets
         // standing radii until the AIR frame lands and hooks take over
         set_standing_size(a0)
         clr.b   mapping_frame(a0)
@@ -844,7 +844,7 @@ pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
         clr.w   y_vel(a0)
         clr.w   PlayerV.ground_speed(a0)
         moveq   #PSTATE_AIR, d0
-        jmp     Player_SetState
+        jbra    Player_SetState
 }
 
 // D-pad free flight at PLAYER_DEBUG_FLY_SPEED px/frame (camera Y clamp caps
@@ -855,20 +855,20 @@ pub proc Player_DebugMove (a0: *Sst) clobbers(d0-d3/a1) {
         moveq   #PLAYER_DEBUG_FLY_SPEED, d1
         swap    d1                              // px → 16.16
         btst    #2, d0                          // LEFT
-        beq.s   .check_right
+        beq     .check_right
         sub.l   d1, x_pos(a0)
 .check_right:
         btst    #3, d0                          // RIGHT
-        beq.s   .check_up
+        beq     .check_up
         add.l   d1, x_pos(a0)
 .check_up:
         btst    #0, d0                          // UP
-        beq.s   .check_down
+        beq     .check_down
         sub.l   d1, y_pos(a0)
 .check_down:
         btst    #1, d0                          // DOWN
-        beq.s   .draw
+        beq     .draw
         add.l   d1, y_pos(a0)
 .draw:
-        jmp     Draw_Sprite
+        jbra    Draw_Sprite
 }
