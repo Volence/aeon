@@ -10,7 +10,10 @@
 module games.sonic4.player_air in player_air
 
 use engine.objects.sst.{Sst}
-use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix, abs_w}
+use engine.coords.{abs_w}
+use engine.constants.{PHYS_FALL_CAP, PHYS_ROLL_START_MIN, PUSH_RADIUS, ST_XFLIP, ST_ON_OBJECT, ST_PUSHING,
+        BUTTON_LEFT, BUTTON_RIGHT, BUTTON_A, BUTTON_C, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
+use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix}
 
 // Boundary decls to the surviving-AS player_sensors (ports at P4). Cross-seam
 // today, module-to-module once sensors port. KILL ROW: delete when P4 lands.
@@ -22,27 +25,10 @@ extern proc Player_SensorWallAt (a0: *Sst) clobbers(d0-d6/a1)
 const PSTATE_GROUND = 0
 ensure(extern("PSTATE_GROUND") == PSTATE_GROUND, "config/constants.asm PSTATE_GROUND drifted")
 
-// ── engine-constant mirrors (engine/constants.asm; file-local, hoist ledgered) ─
-const PHYS_FALL_CAP      = $1000
-const PHYS_ROLL_START_MIN = $100
-const PUSH_RADIUS        = 10
-const ST_XFLIP           = 1
-const ST_ON_OBJECT       = 5
-const ST_PUSHING         = 6
-const BUTTON_LEFT        = 4
-const BUTTON_RIGHT       = 8
-const BUTTON_A           = $40
-const BUTTON_C           = $20
-ensure(extern("PHYS_FALL_CAP")       == PHYS_FALL_CAP,       "engine/constants.asm PHYS_FALL_CAP drifted")
-ensure(extern("PHYS_ROLL_START_MIN") == PHYS_ROLL_START_MIN, "engine/constants.asm PHYS_ROLL_START_MIN drifted")
-ensure(extern("PUSH_RADIUS")         == PUSH_RADIUS,         "engine/constants.asm PUSH_RADIUS drifted")
-ensure(extern("ST_XFLIP")            == ST_XFLIP,            "engine/constants.asm ST_XFLIP drifted")
-ensure(extern("ST_ON_OBJECT")        == ST_ON_OBJECT,        "engine/constants.asm ST_ON_OBJECT drifted")
-ensure(extern("ST_PUSHING")          == ST_PUSHING,          "engine/constants.asm ST_PUSHING drifted")
-ensure(extern("BUTTON_LEFT")         == BUTTON_LEFT,         "engine/constants.asm BUTTON_LEFT drifted")
-ensure(extern("BUTTON_RIGHT")        == BUTTON_RIGHT,        "engine/constants.asm BUTTON_RIGHT drifted")
-ensure(extern("BUTTON_A")            == BUTTON_A,            "engine/constants.asm BUTTON_A drifted")
-ensure(extern("BUTTON_C")            == BUTTON_C,            "engine/constants.asm BUTTON_C drifted")
+// Engine-constant mirrors (PHYS_FALL_CAP / PHYS_ROLL_START_MIN / PUSH_RADIUS /
+// ST_* / BUTTON_LEFT/RIGHT/A/C) HOISTED to the engine.constants twin at the
+// ambient-hoist parcel (kill-list row 81) — consumed via `use engine.constants`
+// above; their drift guards live at the twin.
 
 // Jump press sources: A and C only — B is the debug-fly toggle (player_common.asm).
 const BUTTON_JUMP_MASK = BUTTON_A | BUTTON_C
@@ -135,9 +121,9 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.b  Ctrl_1_Held, d2
         mask_opposing_lr(d2)
         move.w  x_vel(a0), d0
-        btst    #2, d2                          // LEFT
+        btst    #BUTTON_LEFT_BIT, d2
         bne     .air_left
-        btst    #3, d2                          // RIGHT
+        btst    #BUTTON_RIGHT_BIT, d2
         beq     .input_done
         bclr    #ST_XFLIP, status(a0)
         move.w  PPHYS_TOP_SPEED(a4), d1
@@ -449,7 +435,7 @@ proc Air_GspFromYvel (a0: *Sst) clobbers(d0) {
 proc Air_LandState (a0: *Sst) clobbers(d1) out(d0) {
         moveq   #PSTATE_GROUND, d0
         move.b  Ctrl_1_Held, d1
-        btst    #1, d1                          // DOWN
+        btst    #BUTTON_DOWN_BIT, d1
         beq     .done
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
         bne     .done                           // sideways intent vetoes

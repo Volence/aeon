@@ -28,3 +28,23 @@ pub comptime fn pixels_to_coord(v: Reg) -> Code {
         clr.w   {v}
     }
 }
+
+// abs_w — |v| in place: negate the word when it is negative. The .emp
+// counterpart of the corpus's most-repeated absolute-value idiom (the bpl/neg.w
+// pair), with a hygienic `.abs` label per expansion (the mask_opposing_lr splice
+// pattern). Shared here in engine.coords beside pixels_to_coord — a corpus-wide
+// engine idiom: player physics (player_ground/air), |slot-center| eviction
+// (entity_window), AABB |delta| (collision), and |pos-camera| culling (core) all
+// splice it. The caller must have v's sign live in the condition codes — every
+// site loads/computes v immediately before, so the bpl reads v's own sign (no
+// self-tst, exactly the inline idiom). The AS twins keep the bpl/neg inline
+// (byte-level lockstep — no macro needed).
+// In:  v = data register holding a signed word; N reflects its sign
+// Out: v = |v|
+pub comptime fn abs_w(v: Reg) -> Code {
+    return asm {
+        bpl     .abs
+        neg.w   {v}
+    .abs:
+    }
+}
