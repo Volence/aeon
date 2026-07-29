@@ -51,12 +51,20 @@ BootData_VDPRegs:
       ifndef SIGIL_EMP_Z80_INIT
         include "engine/system/z80_init.asm"
       else
-        ; sigil mixed build (no-sound shape): the idle program comes from
-        ; z80_init.emp, placed by the sigil map. Whole-ROM off-canonical
-        ; placement (the org-advance past the .emp span) is the deferred
-        ; DEMAND-3 machinery, shared with sound_debug/game_debug; the port is
-        ; proven by the z80_init_port off-canonical oracle. Both shipped shapes
-        ; have sound ENABLED, so this whole `else` is skipped canonically.
+        ; sigil mixed build (off-canonical Config B: no-sound shape): the idle
+        ; program comes from z80_init.emp, placed by the sigil map at the region
+        ; start. org resumes at Z80_IdleProgram_End. The whole-ROM off-canonical
+        ; placement machinery LANDED at t28 (shared with sound_debug/game_debug);
+        ; the mixed_offcanonical_rom::mixed_z80_init_config_b gate proves the
+        ; placement byte-for-byte, and z80_init_port stays as the region oracle.
+        ; Both shipped shapes have sound ENABLED, so this whole `else` is skipped
+        ; canonically. This org is the CONFIG-B sonic4-shape address — the gate
+        ; define must NEVER be set except by that whole-ROM gate.
+        ; Z80_IDLE_SIZE is z80_init.asm's boot-cursor equate (End - Start), which
+        ; the code bytes do not contain; the .emp supplies the code, so the equate
+        ; is defined numerically here for the downstream boot cursor.
+Z80_IDLE_SIZE = $3FE-$3D8
+        org     $3FE
       endif
     endif
         align 2
