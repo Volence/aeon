@@ -672,21 +672,22 @@ NullInterrupt:
         ; sigil map at the per-shape reference address. Resume placement at
         ; EndOfRom so the label + its size checks still land (the s4lz gate-else
         ; precedent; error_handler emits nothing after the region, so the resume
-        ; address IS EndOfRom).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games. The MDDBG__ equ table (AS-side,
-        ; error_handler.asm) is gated out with the region; the derived-equ
-        ; ownership flip off the .emp ErrorHandler is BLOCKED pending a
-        ; link-time-equ capability (error_handler_port::
-        ; derived_equ_off_external_base_is_unresolved_today), so the whole-ROM
-        ; mixed gate is deferred — the windowed error_handler_port gates prove
-        ; byte-identity meanwhile.
+        ; address IS EndOfRom). ErrorHandler is defined here as a NUMERIC per-shape
+        ; equ so the MDDBG__ equ table (mddbg_symbols.asm, always included below)
+        ; derives off a folded constant — resolving the debugger.asm macro
+        ; consumers without a link-time-equ-off-external-base capability (the
+        ; blob's .emp label is renamed to avoid colliding with this equ).
+        ; NOTE: these org/equ values are sonic4-shape addresses — the gate define
+        ; must never be set for other games.
       ifdef __DEBUG__
         org     $5F65A
+ErrorHandler:   equ $5E704                  ; BusError($5E5AA) + $15A
       else
         org     $5DB60
+ErrorHandler:   equ $5CC0A                  ; BusError($5CAB0) + $15A
       endif
     endif
+    include "engine/debug/mddbg_symbols.asm"
 
 ; -----------------------------------------------
 ; End of ROM

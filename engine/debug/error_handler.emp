@@ -82,7 +82,11 @@ pub proc ErrorTrap () clobbers() {
 // dc.l verbatim, bytes untouchable. Reached only via `jsr (ErrorHandler).l`
 // (the stubs) and internal computed transfers; never falls through (its own
 // rts/jmp encodings live inside the data), and it ends the ROM.
-pub proc ErrorHandler () clobbers() {
+// Named ErrorHandlerBlob (not ErrorHandler): in the mixed build the AS side owns
+// the numeric `ErrorHandler` equ (engine.inc gate-ON arm) that the MDDBG__ table
+// derives off; a same-named .emp export would collide at link. The blob is
+// reached only via the AS-resolved MDDBG__ErrorHandler equ (= this address).
+pub proc ErrorHandlerBlob () clobbers() {
     dc.l    $46FC2700, $4FEFFFF0, $48E7FFFE, $4EBA0242, $49EF004C, $4E682F08, $47EF0040, $4EBA0124
     dc.l    $41FA02C4, $4EBA0B6C, $225C45D4, $4EBA0C2A, $4EBA0AF2, $49D21C19, $6A025249, $47D10806
     dc.l    $0000670E, $41FA02A7, $222C0002, $4EBA016A, $504C41FA, $02A4222C, $00024EBA, $015C0806
