@@ -1,7 +1,7 @@
 ; Player grounded states — PState_Ground (slope factor, quadrant-rotated
 ; floor adherence, S3K slip), PState_Roll (rolling physics; shares the
 ; cap/projection/probe via Ground_Move.cap and the movement tail via
-; Ground_PostMove), + Player_Jump. PState_Spindash lives in sonic.asm
+; Ground_PostMove), + Player_Jump. PState_Spindash lives in player_spindash.asm
 ; (character state). Player_Jump lives in this file because it is
 ; invoked only from grounded states (its tail jumps into the air body in
 ; player_air.asm — the bug #4 press-frame fix). Reached only through the
@@ -62,7 +62,7 @@ PState_Ground:
         bsr.w   Player_SetState                 ; hook curls + zeroes motion/charge
         bra.w   PState_Spindash                 ; run the charge frame now —
                                                 ; the floor pair keeps running
-                                                ; (sonic.asm). Subsequent rev SFX per-tap in player_spindash.asm
+                                                ; (player_spindash.asm). Subsequent rev SFX per-tap here
 .no_spindash:
         ; --- jump check (classic order: after spindash, before slope/
         ; input). Player_JumpBuffer covers fresh press AND buffered —

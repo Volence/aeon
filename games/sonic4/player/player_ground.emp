@@ -154,7 +154,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         jbsr    Player_SetState                 // hook curls + zeroes motion/charge
         jbra    PState_Spindash                 // run the charge frame now —
                                                 // the floor pair keeps running
-                                                // (sonic.asm). Subsequent rev SFX per-tap in player_spindash.asm
+                                                // (player_spindash). Subsequent rev SFX per-tap in player_spindash.emp
 .no_spindash:
         // --- jump check (classic order: after spindash, before slope/
         // input). Player_JumpBuffer covers fresh press AND buffered —
