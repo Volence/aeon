@@ -11,6 +11,19 @@
 // HBlank_Vector_Slot RAM trampoline stay AS-side. Bytes are shape-invariant in
 // SOURCE; the VALUES differ per shape through the link (normal). The region's
 // fixed 256-byte size makes the header boundary structurally byte-neutral.
+//
+// FORM — a proc with raw `dc.l <label>`, NOT a `data [*u8; 64]` array (the
+// tile_cache.emp BlockStage_PtrTable shape): the t25 `dc.l <label>` capability
+// was built for exactly this raw CPU-read vector/jump-table class (t25 step-6
+// named vectors.asm its one genuine consumer). The corpus `data [*u8;N]` pointer
+// arrays spell every cell as a quoted label-name string / `extern(...)` /
+// `comptime for` — none take a BAREWORD link symbol — so a `data` recast would
+// turn these 64 clean cross-module barewords into 64 quoted/extern cells, and
+// element 0 (`SYSTEM_STACK`, an integer equ, not a pointer) is heterogeneous
+// with the 63 label cells. `dc.l` handles the bareword symbols and the leading
+// int uniformly; that is the right form here. (The typed/label-carrying
+// data-table construct that would let a `data` array hold barewords + domain
+// types is the offset-table-roadmap language ask — ledgered t26.)
 module engine.system.vectors in vectors
 
 pub proc Vectors () clobbers() {

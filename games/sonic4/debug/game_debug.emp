@@ -83,6 +83,11 @@ ensure(extern("SFXID_RINGLOSS") == SFXID_RINGLOSS, "SFXID_RINGLOSS drifted from 
 //   UP    = play HCZ2 (S3K Hydrocity Zone Act 2 import, id 3)
 //   C     = play the DAC-drum-test song (id 2)
 //   START = toggle Moving Trucks play/stop
+// PRIORITY CHAIN, not five independent keys: the checks fall through in the
+// listed order (A → B → UP → C → START), each `beq.s .next` else `rts`, so the
+// FIRST matching button this frame wins and the rest are skipped (a same-frame
+// A+START restarts the song and never reaches the toggle). The button masks are
+// distinct single bits, so simultaneous presses are resolved by this order.
 // Also exercises Sound_StopMusic and the song-switch silence path (a fresh
 // PlayMusic).
 //
