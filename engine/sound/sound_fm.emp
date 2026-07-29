@@ -23,14 +23,18 @@
 // (psg trusted it as an extern whose address shifted).
 //
 // --- COEXISTENCE WITH THE 1B DAC LOOP (the central constraint) ------------
-// The DAC streaming loop holds `de` = $4001 for its whole life and re-selects
-// reg $2A on $4000 every pass before `ld (de),a`. THEREFORE every YM port write
-// here uses ABSOLUTE addressing (`ld ($4000),a` style) and NEVER loads a port
-// address into `de` — so de=$4001 is preserved BY CONSTRUCTION. As
-// belt-and-suspenders, every multi-write batch re-parks reg $2A on $4000 at the
-// END (Fm_ReparkDac) so a DAC write that races in lands on $2A even before the
-// consumer re-selects. We NEVER touch $2B (the DAC-enable edge is owned by init /
-// sample-start — re-toggling it clicks). These are HARDWARE-PORT disciplines
+// The DAC streaming loop holds `de` = $4001 while it streams, and the addr port
+// stays PARKED on reg $2A — parked ONCE at init and re-parked only at the Timer-A
+// tick / stop / sample-start (the streaming FILL loop does NOT re-select $2A per
+// sample; z80_sound_driver.asm). fm runs FROM that Timer-A tick, which spills +
+// reloads `de` around Sequencer_Frame. fm uses `de` freely as scratch, but every
+// YM port write here uses ABSOLUTE addressing (`ld ($4000),a` style) and NEVER
+// LEAVES a port address in `de`, so the tick's reload restores de=$4001 cleanly
+// (fm does NOT itself hold de=$4001 live). As belt-and-suspenders, every
+// multi-write batch re-parks reg $2A on $4000 at the END (Fm_ReparkDac) —
+// redundant against the tick's own re-park, but cheap and future-proof. We NEVER
+// touch $2B (the DAC-enable edge is owned by init / sample-start — re-toggling it
+// clicks). These are HARDWARE-PORT disciplines
 // (the `[fm.dac-repark]` / `[bus.*]` lint SEAM, design §3.3/§9-B), carried here
 // as present-tense prose — NOT register contracts.
 //
@@ -877,8 +881,14 @@ section sound_fm (cpu: z80, vma: $12C3) {
     // which was latched POST-detune below — entering at Fm_NoteOnFreq would apply
     // sc_detune a second time (and compound across repeated steals).
     // In: ix = SeqChannel, d = $A4 value, e = $A0 value (already-final).
-    // Writes $A4 then $A0, latches the base freq, re-arms pitch mod, applies
-    // portamento, then keys on (with the FM6-dedicate skip). Sets SCF_KEYED.
+    // The SINGLE chokepoint every FM key-on funnels through, so ALL of this happens
+    // here: writes $A4 then $A0 (Fm_WriteFreq); latches sc_base_freq for the vibrato
+    // renderer; re-arms pitch mod (Mod_ReArm); RELOADS the note-fill countdown
+    // (sc_fill_count = sc_fill_master) and RESETS the FM vol-env contour (sc_env_cur/
+    // sc_env_out = 0) for this fresh attack; applies portamento (attack-at-slid-pitch
+    // or snap); then, on the .do_keyon path, KEYS OFF FIRST (call Fm_NoteOff) to force
+    // a true 0->1 EG edge before the $28 key-on (the FM6-dedicate path skips the chip
+    // key-on entirely). Sets SCF_KEYED.
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc, de, hl (+ ix inherited — every callee preserves it).
     pub proc Fm_NoteOnFreqExact () clobbers(af, bc, de, hl) {
@@ -979,11 +989,12 @@ section sound_fm (cpu: z80, vma: $12C3) {
     // In: ix = SeqChannel/SfxChannel, d = $A4 value (block|fnumHi), e = $A0 value
     // (fnum low).
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc, hl. preserves de (bracketed by push/pop across the
-    // callees, which all preserve it; de is never loaded with a port address —
-    // absolute YM addressing) (+ ix inherited). NOTE: the `.asm`
-    // `Clobbers af,bc,de,hl` header OVER-CLAIMS de — de survives.
-    pub proc Fm_WriteFreq () clobbers(af, bc, hl) preserves(de) {
+    // Contract: clobbers af, bc. preserves de, hl (de is push/pop-bracketed and
+    // never loaded with a port address — absolute YM addressing; hl is never
+    // written and the callees Fm_RoutePart/Fm_YmWrite/Fm_ReparkDac all preserve it)
+    // (+ ix inherited). NOTE: the `.asm` `Clobbers af,bc,de,hl` header OVER-CLAIMS
+    // BOTH de and hl — both survive.
+    pub proc Fm_WriteFreq () clobbers(af, bc) preserves(de, hl) {
         push    de                       // save the split fnum bytes across Fm_RoutePart
         call    Fm_RoutePart             // b = part, c = ch-in-part
         ld      a, c
