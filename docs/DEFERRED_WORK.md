@@ -1927,3 +1927,51 @@ These are unbuilt ideas, not committed work. Pick up opportunistically.
   instant a routine clobbers a register it swore to preserve or returns garbage in a
   promised `Out:`. High value because the expensive prerequisite (the contract grammar)
   is already being paid for.
+
+---
+
+## Synced sprite-art streaming — idea capture 2026-07-29
+
+**Framing:** the engine already streams level art aggressively; sprite art is the last
+fully-resident holdout. Devon's SCHG guide ("Dynamically Loading Ring Animation Frames
+into VRAM", info.sonicretro.org) shows the trick the classics never used: when every
+instance of an object class shows the SAME animation frame (one global clock), keep only
+the current frame's tiles in VRAM and DMA the next frame in when the clock ticks. This is
+NOT per-object DPLC (which would be redundant per-instance loads) — it's one shared slot
++ one compare + one small DMA per frame *change*, serving every instance on screen. The
+headline win isn't the VRAM refund; it's that animation frame count decouples from VRAM
+entirely (frames live in ROM, uncompressed, DMA'd on demand).
+
+These are unbuilt ideas, not committed work. Pick up opportunistically.
+
+- **Ring frame swap (the concrete, do-first one).** Today: 16 tiles resident at
+  `VRAM_RING_PLACEHOLDER` (4 frames × 2×2), `DrawRings` computes attr = base + frame×4
+  (engine/objects/rings.asm:141-149) off global `Ring_Anim_Frame`. Change: shrink the
+  slot to 4 tiles, freeze the attr at base (per-ring hot loop gets CHEAPER — attr becomes
+  a constant), and in the existing `Ring_Anim_Timer` tick queue a $80-byte DMA of the new
+  frame from ROM when the frame byte changes (every 8 frames ≈ 16 B/frame amortized,
+  ~0.2% of a VBlank on change frames). Refund: 12 tiles. Unlock: the S1-2013 8-frame
+  smooth spin (halve tick period, mask 7) at zero VRAM — the real reason to do it.
+  Triggers to pick it up: we want the smooth spin, or the tile-1000 gap comes under
+  pressure. Engine-contract note: `VRAM_RING_PLACEHOLDER` shrinks from ">=16 tiles" to
+  ">=4 tiles" and the game must provide uncompressed frame-sequential ring art + a frame
+  count; update engine.inc contract comment + demo game stub when done.
+- **Generalize to "synced art channels" if a second consumer appears.** A small table of
+  {clock RAM addr, ROM art base, bytes/frame, VRAM dest, frame mask} walked once per
+  frame: compare clock vs shadow, queue DMA on change. Rings become channel 0. Candidate
+  future channels: checkpoint orb spin, any globally-clocked hazard loop, animated
+  goal-post spin. Don't build the table for one consumer — hardcode rings first
+  (clean-not-bolted-on cuts both ways: no speculative scaffolding).
+- **Single-instance effect streaming (shields, invincibility, signpost).** Different
+  sync story, same economics: objects that exist at most once (per player) with many
+  frames need only the current frame resident — a per-object stream, and redundant-load
+  objections don't apply at instance count 1. The same SCHG family has a
+  "Shield/Invincibility Art" guide in this vein. Evaluate when shields/invincibility get
+  built (design queue), not before.
+- **Badnik archetype animation lockstep (NOVEL BET — needs user sign-off).** Force each
+  badnik archetype's loop animation (wing flap, tread roll) onto a per-archetype global
+  clock; all instances of a type then share one streamed slot. Payoff scales with the
+  mega-act tech demo (many archetypes resident at once is exactly its VRAM pressure);
+  costs: lockstep look (subtle for loops), and state-dependent frames (attack poses)
+  break sync so only the common loop streams. Genuinely novel — no classic or reference
+  disasm does this; flag before designing (leapfrog-provenance rule).
