@@ -15,11 +15,8 @@ use engine.constants.{PHYS_FALL_CAP, PHYS_ROLL_START_MIN, PUSH_RADIUS, ST_XFLIP,
         BUTTON_LEFT, BUTTON_RIGHT, BUTTON_A, BUTTON_C, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix}
 
-// Boundary decls to the surviving-AS player_sensors (ports at P4). Cross-seam
-// today, module-to-module once sensors port. KILL ROW: delete when P4 lands.
-extern proc Player_SensorFloor (a0: *Sst) clobbers(d0-d7/a1-a2)
-extern proc Player_SensorCeiling (a0: *Sst) clobbers(d0-d7/a1-a2)
-extern proc Player_SensorWallAt (a0: *Sst) clobbers(d0-d6/a1)
+// Player_SensorFloor/Ceiling/WallAt resolve module-to-module to player_sensors.emp
+// (bare link) — the P4 close retired their extern-proc boundary decls (kill row 80).
 
 // ── game-config mirrors (config/constants.asm) ───────────────────────────────
 const PSTATE_GROUND = 0

@@ -15,10 +15,8 @@ use engine.objects.sst.{Sst}
 use engine.constants.{ST_XFLIP, BUTTON_DOWN_BIT}
 use games.sonic4.player_common.{PlayerV}
 
-// Boundary decl to the surviving-AS player_sensors (ports at P4). The call
-// resolves cross-seam today, becomes module-to-module once sensors port.
-// KILL ROW: delete when P4 (player_sensors) lands.
-extern proc Player_SensorFloor (a0: *Sst) clobbers(d0-d7/a1-a2)
+// Player_SensorFloor resolves module-to-module to player_sensors.emp (bare link) —
+// the P4 close retired its extern-proc boundary decl (kill row 80).
 
 // ── game-config mirrors (config/constants.asm + config/sound_ids.asm) ────────
 const PSTATE_ROLL    = 2

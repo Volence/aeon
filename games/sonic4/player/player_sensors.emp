@@ -121,7 +121,7 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 move.w  d3, -(sp)              // layer must survive for the extension
                 move.w  d0, d4                 // X (file convention: X in d4)
                 move.w  d1, d5                 // Y (file convention: Y in d5)
-                bsr.s   .cell                  // d0.w h_eff, d1.b angle, d2.b attr
+                jbsr    .cell                  // d0.w h_eff, d1.b angle, d2.b attr
                 tst.w   d0
                 beq.s   .empty_fwd
                 cmpi.w  #16, d0
@@ -140,7 +140,7 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 // primary empty → evaluate ONE cell forward; dist = dist2 + 16
                 move.w  (sp), d3               // reload layer
                 addi.w  #{pstep}, {paxreg}
-                bsr.s   .cell
+                jbsr    .cell
                 tst.w   d0
                 beq.s   .nothing               // forward empty too → sentinel
                 {probe_sub(paxreg, psubflip, d3)}  // ±16 step keeps the low 4 bits
@@ -164,7 +164,7 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 move.w  d2, -(sp)              // primary attr
                 move.w  4(sp), d3              // reload layer (under the two stashes)
                 subi.w  #{pstep}, {paxreg}
-                bsr.s   .cell
+                jbsr    .cell
                 tst.b   d2
                 bne.s   .back_supplied
                 move.w  (sp), d2               // back cell empty → primary's attr
@@ -233,16 +233,16 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
 // The four stamped cores
 //          name                table          col axis step neg    flip
 // -----------------------------------------------
-pub proc Collision_ProbeDown (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) {
+pub proc Collision_ProbeDown (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) preserves(a0) {
         probe_core(HeightMaps,    d4, d5,  16, false, false)
 }
-pub proc Collision_ProbeUp (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) {
+pub proc Collision_ProbeUp (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) preserves(a0) {
         probe_core(HeightMaps,    d4, d5, -16, true,  true)
 }
-pub proc Collision_ProbeRight (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) {
+pub proc Collision_ProbeRight (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) preserves(a0) {
         probe_core(HeightMapsRot, d5, d4,  16, true,  false)
 }
-pub proc Collision_ProbeLeft (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) {
+pub proc Collision_ProbeLeft (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) preserves(a0) {
         probe_core(HeightMapsRot, d5, d4, -16, false, true)
 }
 
@@ -492,7 +492,7 @@ const LEDGE_NO_GROUND   = 8                     // floor dist beyond this = no g
                                                 // under the leading foot (TUNE at the
                                                 // visual pass if needed)
 
-pub proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d5/a1-a2) {
+pub proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d6/a1-a2) {
         // On a solid object the object IS the floor (Player_SensorFloor's
         // chokepoint rule) — but this probe bypasses that wrapper and asks
         // the TERRAIN directly, which finds air under the object and teeters
