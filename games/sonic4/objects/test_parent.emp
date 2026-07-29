@@ -1,6 +1,10 @@
-// Test parent — multi-part object that spawns children, then self-destructs.
-// Demonstrates CreateChild_Normal lifecycle + DeleteChildren cascade, plus a
-// moving parent whose children follow via stored orbit state.
+// Test parent — spawns 3 orbiting children and oscillates horizontally,
+// indefinitely. Demonstrates CreateChild_Normal spawning and child orbit-follow
+// via stored state. The timer-expiry self-destruct path (DeleteChildren +
+// DeleteObject) is UNREACHABLE: the left-swing branch resets life_timer to
+// PARENT_LIFETIME before the countdown can reach 0, so the parent never expires
+// (see TestParent_Main; confirmed defect, deferred — the gap-ledger carries the
+// trace).
 module games.sonic4.test_parent in test_parent
 
 use engine.objects.sst.{Sst}
@@ -161,11 +165,17 @@ data child_desc: [SpawnDesc; 3] = [
         SpawnDesc { code: extern("TestChildPart") - extern("ObjCodeBase"), x_off:  24, y_off:   0 },  // right of parent
         SpawnDesc { code: extern("TestChildPart") - extern("ObjCodeBase"), x_off:   0, y_off: -24 },  // above parent
 ]
+// ADJACENCY-CRITICAL: this terminator must emit IMMEDIATELY after child_desc (the
+// walk reads records until it hits this zero code word). Nothing may be declared
+// between them — source-order layout is the only thing coupling them today. A
+// `table` sentinel-record-list would fold this in (gap-ledger, deferred).
 data child_desc_term: u16 = 0
 
 // -----------------------------------------------
-// TestParent_Main — per-frame: countdown, oscillate horizontally, eventually
-// self-destruct with children.
+// TestParent_Main — per-frame: decrement the life/phase counter and oscillate X.
+// The self-destruct branch (life_timer reaching 0) is UNREACHABLE: the left-swing
+// branch resets life_timer to PARENT_LIFETIME before it counts down to 0, so the
+// object oscillates forever. life_timer doubles as the swing-phase counter.
 // In:  a0 = SST pointer
 // Clobbers: d0-d3, a1 — DeleteChildren(d0-d2/a1) ∪ Draw_Sprite(d0-d3/a1); the
 //   delete tail is DeleteObject(d0-d1). (a2 is never touched here.)
@@ -174,7 +184,8 @@ pub proc TestParent_Main (a0: *Sst) clobbers(d0-d3/a1) {
         subq.w  #1, TParentV.life_timer(a0)
         bne     .move
 
-        // Timer expired — kill children then self
+        // Self-destruct: kill children, then self. UNREACHABLE — life_timer is
+        // reset to PARENT_LIFETIME on the left swing before it can reach 0 here.
         jbsr    DeleteChildren
         jbra    DeleteObject
 

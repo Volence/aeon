@@ -64,4 +64,8 @@ data emitter_particle_desc: SpawnDesc = SpawnDesc {
         x_off: 0,
         y_off: 0,
 }
+// ADJACENCY-CRITICAL: this terminator must emit IMMEDIATELY after
+// emitter_particle_desc (the CreateEffect_Normal walk reads records until this
+// zero code word). Nothing may be declared between them — source-order layout is
+// the only coupling. A `table` sentinel-record-list would fold this in (ledgered).
 data emitter_particle_term: u16 = 0

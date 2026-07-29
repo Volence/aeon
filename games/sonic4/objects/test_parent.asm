@@ -1,6 +1,10 @@
-; Test parent — multi-part object that spawns children, then self-destructs
-; Demonstrates CreateChild_Normal lifecycle + DeleteChildren cascade.
-; Now also demos moving-parent-children-follow via stored child offsets.
+; Test parent — spawns 3 orbiting children and oscillates horizontally,
+; indefinitely. Demonstrates CreateChild_Normal spawning and child orbit-follow
+; via stored state. The timer-expiry self-destruct path (DeleteChildren +
+; DeleteObject) is UNREACHABLE: the left-swing branch resets _parent_life_timer to
+; PARENT_LIFETIME before the countdown can reach 0, so the parent never expires
+; (see TestParent_Main; confirmed defect, deferred — the gap-ledger carries the
+; trace). LOCKSTEP twin of test_parent.emp (kill row 67; edit both together).
 
 ; Parent custom layout
 TParentV struct
@@ -153,8 +157,10 @@ TestParent:
         dc.w    0                               ; terminator
 
 ; -----------------------------------------------
-; TestParent_Main — per-frame: countdown, oscillate horizontally,
-; eventually self-destruct with children
+; TestParent_Main — per-frame: decrement the life/phase counter and oscillate X.
+; The self-destruct branch (_parent_life_timer reaching 0) is UNREACHABLE: the
+; left-swing branch resets it to PARENT_LIFETIME before it counts down to 0, so
+; the object oscillates forever. _parent_life_timer doubles as the swing-phase counter.
 ; In:  a0 = SST pointer
 ; Out: none
 ; Clobbers: d0-d3, a1-a2
@@ -163,7 +169,8 @@ TestParent_Main:
         subq.w  #1, _parent_life_timer(a0)
         bne.s   .move
 
-        ; Timer expired — kill children then self
+        ; Self-destruct: kill children, then self. UNREACHABLE — _parent_life_timer
+        ; is reset to PARENT_LIFETIME on the left swing before it can reach 0 here.
         jsr     DeleteChildren
         jmp     DeleteObject
 
