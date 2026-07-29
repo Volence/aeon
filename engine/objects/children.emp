@@ -61,6 +61,20 @@ use engine.types.{ObjRoutine}
 // init without being overwritten by it — ruled elsewhere, ledgered here.
 const CHILD_INHERITED_FLAGS = (1 << RF_COORDMODE)
 
+// SpawnDesc — the shared 4-byte spawn descriptor record that CreateChild_Normal
+// and CreateEffect_Normal both walk. The seam reads these records until a zero
+// `code` word, so the terminator is a SEPARATE `dc.w 0` following the array (a
+// caller spells `[SpawnDesc; N]` + an explicit terminator word). `code` carries
+// the child's code_addr (an objroutine offset — a link word raw `dc.w` cannot
+// hold, hence the typed field), and the two signed byte offsets are relative to
+// the parent position. This record is the FORMAT OWNER's home for the descriptor
+// the game objects consume (the ObjDef-in-sst.emp precedent).
+pub struct SpawnDesc (size: 4) {
+        code:   ObjRoutine  @ $00,      // child code_addr (objroutine offset; 0 = end)
+        x_off:  i8          @ $02,      // signed X offset from parent
+        y_off:  i8          @ $03,      // signed Y offset from parent
+}
+
 // -----------------------------------------------
 // PopulateSpawnedPieceCount — refresh sprite_piece_count for newly-spawned
 // SST in a2. Called from each CreateChild_*/CreateEffect_* site after
