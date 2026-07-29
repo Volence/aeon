@@ -1,18 +1,20 @@
-; Test parent — spawns 3 orbiting children and oscillates horizontally,
-; indefinitely. Demonstrates CreateChild_Normal spawning and child orbit-follow
-; via stored state. The timer-expiry self-destruct path (DeleteChildren +
-; DeleteObject) is UNREACHABLE: the left-swing branch resets _parent_life_timer to
-; PARENT_LIFETIME before the countdown can reach 0, so the parent never expires
-; (see TestParent_Main; confirmed defect, deferred — the gap-ledger carries the
-; trace). LOCKSTEP twin of test_parent.emp (kill row 67; edit both together).
+; Test parent — spawns 3 orbiting children, oscillates horizontally for
+; PARENT_LIFETIME frames, then self-destructs (DeleteChildren + DeleteObject),
+; freeing its children. Demonstrates CreateChild_Normal spawning, child
+; orbit-follow via stored state, and the parent-lifecycle cascade. The life
+; countdown (_parent_life_timer) is independent of the swing-phase counter
+; (_parent_swing_phase), so it reaches 0 on schedule and the cascade fires (see
+; TestParent_Main). LOCKSTEP twin of test_parent.emp (kill row 67; edit both together).
 
 ; Parent custom layout
 TParentV struct
-life_timer      ds.w 1                  ; countdown to self-destruct
+life_timer      ds.w 1                  ; pure countdown to self-destruct
+swing_phase     ds.w 1                  ; oscillation phase counter (decoupled from life)
 x_dir           ds.b 1                  ; 0 = right, 1 = left
 TParentV endstruct
         objvarsCheck TParentV_len
 _parent_life_timer      = SST_sst_custom+TParentV_life_timer
+_parent_swing_phase     = SST_sst_custom+TParentV_swing_phase
 _parent_x_dir           = SST_sst_custom+TParentV_x_dir
 
 ; Child custom layout (same SST_sst_custom region, different fields):
@@ -27,6 +29,7 @@ _child_phase_offset     = SST_sst_custom+TOrbitChildV_phase_offset
 _child_radius           = SST_sst_custom+TOrbitChildV_radius
 
 PARENT_LIFETIME         = 180                   ; frames before self-destruct (3 seconds)
+PARENT_SWING_PERIOD     = 180                   ; swing-phase counter start/reset (must exceed 2*PARENT_SWING_RANGE)
 PARENT_SPEED            = 1                     ; px/frame swing rate
 PARENT_SWING_RANGE      = 60                    ; pixels each side from start
 CHILD_ORBIT_SPEED       = 4                     ; angle units per frame (4 = ~90°/sec)
@@ -138,6 +141,7 @@ TestParent:
         bset    #RF_COORDMODE, SST_render_flags(a0)
         bset    #RF_MULTISPRITE, SST_render_flags(a0)   ; batched render
         move.w  #PARENT_LIFETIME, _parent_life_timer(a0)
+        move.w  #PARENT_SWING_PERIOD, _parent_swing_phase(a0)
 
         ; Spawn 3 children around parent
         lea     .child_desc(pc), a1
@@ -157,10 +161,11 @@ TestParent:
         dc.w    0                               ; terminator
 
 ; -----------------------------------------------
-; TestParent_Main — per-frame: decrement the life/phase counter and oscillate X.
-; The self-destruct branch (_parent_life_timer reaching 0) is UNREACHABLE: the
-; left-swing branch resets it to PARENT_LIFETIME before it counts down to 0, so
-; the object oscillates forever. _parent_life_timer doubles as the swing-phase counter.
+; TestParent_Main — per-frame: count the life timer down and oscillate X.
+; The self-destruct branch fires when _parent_life_timer reaches 0: the life
+; countdown is a pure timer, independent of _parent_swing_phase (the oscillation
+; counter), so it reaches 0 on schedule and the DeleteChildren + DeleteObject
+; cascade runs, freeing the children.
 ; In:  a0 = SST pointer
 ; Out: none
 ; Clobbers: d0-d3, a1-a2
@@ -169,31 +174,32 @@ TestParent_Main:
         subq.w  #1, _parent_life_timer(a0)
         bne.s   .move
 
-        ; Self-destruct: kill children, then self. UNREACHABLE — _parent_life_timer
-        ; is reset to PARENT_LIFETIME on the left swing before it can reach 0 here.
+        ; Self-destruct: kill children, then self.
         jsr     DeleteChildren
         jmp     DeleteObject
 
 .move:
-        ; Oscillate parent X. Use lifetime as a phase counter.
-        ; Direction byte at _parent_x_dir; 0 = right, 1 = left.
+        ; Oscillate parent X. _parent_swing_phase is the phase counter (separate
+        ; from the life countdown above). Direction byte at _parent_x_dir; 0 =
+        ; right, 1 = left.
+        subq.w  #1, _parent_swing_phase(a0)
         tst.b   _parent_x_dir(a0)
         bne.s   .moving_left
         addq.w  #PARENT_SPEED, SST_x_pos(a0)
-        move.w  _parent_life_timer(a0), d0
-        cmpi.w  #PARENT_LIFETIME-PARENT_SWING_RANGE, d0
+        move.w  _parent_swing_phase(a0), d0
+        cmpi.w  #PARENT_SWING_PERIOD-PARENT_SWING_RANGE, d0
         bge.s   .draw
         move.b  #1, _parent_x_dir(a0)
         bra.s   .draw
 
 .moving_left:
         subq.w  #PARENT_SPEED, SST_x_pos(a0)
-        move.w  _parent_life_timer(a0), d0
-        cmpi.w  #PARENT_LIFETIME-(2*PARENT_SWING_RANGE), d0
+        move.w  _parent_swing_phase(a0), d0
+        cmpi.w  #PARENT_SWING_PERIOD-(2*PARENT_SWING_RANGE), d0
         bge.s   .draw
         move.b  #0, _parent_x_dir(a0)
-        ; reset phase: bump life timer back so we swing right again
-        move.w  #PARENT_LIFETIME, _parent_life_timer(a0)
+        ; reset phase: bump the swing counter back so we swing right again
+        move.w  #PARENT_SWING_PERIOD, _parent_swing_phase(a0)
 
 .draw:
         jmp     Draw_Sprite

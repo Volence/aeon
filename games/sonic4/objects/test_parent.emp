@@ -1,10 +1,9 @@
-// Test parent — spawns 3 orbiting children and oscillates horizontally,
-// indefinitely. Demonstrates CreateChild_Normal spawning and child orbit-follow
-// via stored state. The timer-expiry self-destruct path (DeleteChildren +
-// DeleteObject) is UNREACHABLE: the left-swing branch resets life_timer to
-// PARENT_LIFETIME before the countdown can reach 0, so the parent never expires
-// (see TestParent_Main; confirmed defect, deferred — the gap-ledger carries the
-// trace).
+// Test parent — spawns 3 orbiting children, oscillates horizontally for
+// PARENT_LIFETIME frames, then self-destructs (DeleteChildren + DeleteObject),
+// freeing its children. Demonstrates CreateChild_Normal spawning, child
+// orbit-follow via stored state, and the parent-lifecycle cascade. The life
+// countdown (life_timer) is independent of the swing-phase counter (swing_phase),
+// so it reaches 0 on schedule and the cascade fires (see TestParent_Main).
 module games.sonic4.test_parent in test_parent
 
 use engine.objects.sst.{Sst}
@@ -19,6 +18,7 @@ const VRAM_TEST_OBJ: VramTile = $03E0
 ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from test_parent.emp")
 
 const PARENT_LIFETIME      = 180        // frames before self-destruct (3 seconds)
+const PARENT_SWING_PERIOD  = 180        // swing-phase counter start/reset (must exceed 2*PARENT_SWING_RANGE)
 const PARENT_SPEED         = 1          // px/frame swing rate
 const PARENT_SWING_RANGE   = 60         // pixels each side from start
 const CHILD_ORBIT_SPEED    = 4          // angle units per frame (4 = ~90 deg/sec)
@@ -27,8 +27,9 @@ const CHILD_ORBIT_RADIUS   = 32         // pixels
 // TParentV — the parent's per-object state, overlaying sst_custom. The overlay's
 // always-on window-overflow check subsumes the AS `objvarsCheck`.
 vars TParentV: Sst.sst_custom {
-        life_timer: u16,                // countdown to self-destruct
-        x_dir:      u8,                 // 0 = right, 1 = left
+        life_timer:  u16,               // pure countdown to self-destruct
+        swing_phase: u16,               // oscillation phase counter (decoupled from life)
+        x_dir:       u8,                // 0 = right, 1 = left
 }
 
 // TOrbitChildV — the child's per-object state, overlaying the SAME sst_custom
@@ -149,6 +150,7 @@ pub proc TestParent (a0: *Sst) clobbers(d0-d3/a1-a2) {
         bset    #RF_COORDMODE, render_flags(a0)
         bset    #RF_MULTISPRITE, render_flags(a0)       // batched render
         move.w  #PARENT_LIFETIME, TParentV.life_timer(a0)
+        move.w  #PARENT_SWING_PERIOD, TParentV.swing_phase(a0)
 
         // Spawn 3 children around parent
         lea     child_desc(pc), a1
@@ -172,10 +174,11 @@ data child_desc: [SpawnDesc; 3] = [
 data child_desc_term: u16 = 0
 
 // -----------------------------------------------
-// TestParent_Main — per-frame: decrement the life/phase counter and oscillate X.
-// The self-destruct branch (life_timer reaching 0) is UNREACHABLE: the left-swing
-// branch resets life_timer to PARENT_LIFETIME before it counts down to 0, so the
-// object oscillates forever. life_timer doubles as the swing-phase counter.
+// TestParent_Main — per-frame: count the life timer down and oscillate X.
+// The self-destruct branch fires when life_timer reaches 0: the life countdown is
+// a pure timer, independent of swing_phase (the oscillation counter), so it
+// reaches 0 on schedule and the DeleteChildren + DeleteObject cascade runs,
+// freeing the children.
 // In:  a0 = SST pointer
 // Clobbers: d0-d3, a1 — DeleteChildren(d0-d2/a1) ∪ Draw_Sprite(d0-d3/a1); the
 //   delete tail is DeleteObject(d0-d1). (a2 is never touched here.)
@@ -184,31 +187,31 @@ pub proc TestParent_Main (a0: *Sst) clobbers(d0-d3/a1) {
         subq.w  #1, TParentV.life_timer(a0)
         bne     .move
 
-        // Self-destruct: kill children, then self. UNREACHABLE — life_timer is
-        // reset to PARENT_LIFETIME on the left swing before it can reach 0 here.
+        // Self-destruct: kill children, then self.
         jbsr    DeleteChildren
         jbra    DeleteObject
 
 .move:
-        // Oscillate parent X. Use lifetime as a phase counter.
-        // x_dir: 0 = right, 1 = left.
+        // Oscillate parent X. swing_phase is the phase counter (separate from the
+        // life countdown above). x_dir: 0 = right, 1 = left.
+        subq.w  #1, TParentV.swing_phase(a0)
         tst.b   TParentV.x_dir(a0)
         bne     .moving_left
         addq.w  #PARENT_SPEED, x_pos(a0)
-        move.w  TParentV.life_timer(a0), d0
-        cmpi.w  #PARENT_LIFETIME-PARENT_SWING_RANGE, d0
+        move.w  TParentV.swing_phase(a0), d0
+        cmpi.w  #PARENT_SWING_PERIOD-PARENT_SWING_RANGE, d0
         bge     .draw
         move.b  #1, TParentV.x_dir(a0)
         jbra    .draw
 
 .moving_left:
         subq.w  #PARENT_SPEED, x_pos(a0)
-        move.w  TParentV.life_timer(a0), d0
-        cmpi.w  #PARENT_LIFETIME-(2*PARENT_SWING_RANGE), d0
+        move.w  TParentV.swing_phase(a0), d0
+        cmpi.w  #PARENT_SWING_PERIOD-(2*PARENT_SWING_RANGE), d0
         bge     .draw
         move.b  #0, TParentV.x_dir(a0)
-        // reset phase: bump life timer back so we swing right again
-        move.w  #PARENT_LIFETIME, TParentV.life_timer(a0)
+        // reset phase: bump the swing counter back so we swing right again
+        move.w  #PARENT_SWING_PERIOD, TParentV.swing_phase(a0)
 
 .draw:
         jbra    Draw_Sprite
