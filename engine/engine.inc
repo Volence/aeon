@@ -664,7 +664,30 @@ __BUDGET_DATA:
 NullInterrupt:
     rte
 
-    include "engine/debug/error_handler.asm"
+    ifndef SIGIL_EMP_ERROR_HANDLER
+        include "engine/debug/error_handler.asm"
+    else
+        ; sigil mixed build: the exception-vector stubs (BusError..) and the MD
+        ; Debugger blob come from engine/debug/error_handler.emp, pinned by the
+        ; sigil map at the per-shape reference address. Resume placement at
+        ; EndOfRom so the label + its size checks still land (the s4lz gate-else
+        ; precedent; error_handler emits nothing after the region, so the resume
+        ; address IS EndOfRom). ErrorHandler is defined here as a NUMERIC per-shape
+        ; equ so the MDDBG__ equ table (mddbg_symbols.asm, always included below)
+        ; derives off a folded constant — resolving the debugger.asm macro
+        ; consumers without a link-time-equ-off-external-base capability (the
+        ; blob's .emp label is renamed to avoid colliding with this equ).
+        ; NOTE: these org/equ values are sonic4-shape addresses — the gate define
+        ; must never be set for other games.
+      ifdef __DEBUG__
+        org     $5F65A                      ; EndOfRom (debug) = BusError($5E5AA) + region $10B0
+ErrorHandler:   equ $5E704                  ; BusError($5E5AA) + stub-table $15A
+      else
+        org     $5DB60                      ; EndOfRom (plain) = BusError($5CAB0) + region $10B0
+ErrorHandler:   equ $5CC0A                  ; BusError($5CAB0) + stub-table $15A
+      endif
+    endif
+    include "engine/debug/mddbg_symbols.asm"
 
 ; -----------------------------------------------
 ; End of ROM
