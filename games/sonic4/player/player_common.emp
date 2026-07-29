@@ -240,6 +240,25 @@ pub comptime fn dist_to_fix(v: Reg) -> Code {
 }
 
 // -----------------------------------------------
+// abs_w — |v| in place (negate the word when it is negative). The .emp
+// counterpart of the port's most-repeated physics idiom (the bpl/neg.w pair,
+// 9 sites across player_ground/air); a hygienic .abs label per expansion, the
+// mask_opposing_lr splice pattern. The caller must have v's sign live in the
+// condition codes — every site loads/computes v immediately before, so the
+// bpl reads v's own sign (no self-tst, exactly the inline idiom). The AS twins
+// keep the bpl/neg inline (byte-level lockstep — no macro needed).
+// In:  v = data register holding a signed word; N reflects its sign
+// Out: v = |v|
+// -----------------------------------------------
+pub comptime fn abs_w(v: Reg) -> Code {
+        return asm {
+                bpl     .abs
+                neg.w   {v}
+        .abs:
+        }
+}
+
+// -----------------------------------------------
 // Player_Init — set up a player slot as Sonic (called from level state init;
 // caller writes x_pos/y_pos first). Boots in DEBUG-FLY to preserve the
 // streaming-test workflow — B drops into physics.

@@ -16,7 +16,7 @@ module games.sonic4.player_ground in player_ground
 
 use engine.objects.sst.{Sst}
 use engine.types.{Angle}
-use games.sonic4.player_common.{PlayerV, mask_opposing_lr}
+use games.sonic4.player_common.{PlayerV, mask_opposing_lr, abs_w}
 
 // Boundary decls to the surviving-AS player_sensors (ports at P4). Cross-seam
 // today, module-to-module once sensors port. KILL ROW: delete when P4 lands.
@@ -135,9 +135,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         tst.b   Player_JumpBuffer
         beq     .no_spindash
         move.w  PlayerV.ground_speed(a0), d0
-        bpl     .sd_abs
-        neg.w   d0
-.sd_abs:
+        abs_w(d0)
         cmpi.w  #PHYS_ROLL_START_MIN, d0
         bge     .no_spindash
         clr.b   Player_JumpBuffer               // consume — this press is rev 0
@@ -193,9 +191,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // the minimum start a slide (|factor| ≥ $D ≈ asin(13/32) ≈ 24°);
         // shallower slopes hold the player still — no micro-creep
         move.w  d0, d1
-        bpl     .factor_abs
-        neg.w   d1
-.factor_abs:
+        abs_w(d1)
         cmpi.w  #PHYS_SLOPE_STAND_MIN, d1
         blt     .no_slope
 .slope_apply:
@@ -215,9 +211,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d0
         bne     Ground_PostMove
         move.w  PlayerV.ground_speed(a0), d0
-        bpl     .roll_abs
-        neg.w   d0
-.roll_abs:
+        abs_w(d0)
         cmpi.w  #PHYS_ROLL_START_MIN, d0
         blt     Ground_PostMove
         moveq   #PSTATE_ROLL, d0
@@ -272,9 +266,7 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
         beq     .axis_sel                       // .axis_sel is still the
         move.w  y_vel(a0), d2                   // loaded value's sign on
 .axis_sel:                                      // both paths
-        bpl     .speed_pos
-        neg.w   d2
-.speed_pos:
+        abs_w(d2)
         lsr.w   #8, d2
         addq.w  #4, d2
         cmpi.w  #14, d2
@@ -343,9 +335,7 @@ proc Player_SlopeRepel (a0: *Sst) clobbers(d0-d2/a1-a2) {
         cmpi.b  #PHYS_SLIP_ANGLE*2, d0
         blo     .done                           // inside the flat band ±$17
         move.w  PlayerV.ground_speed(a0), d1
-        bpl     .speed_abs
-        neg.w   d1
-.speed_abs:
+        abs_w(d1)
         cmpi.w  #PHYS_SLIP_SPEED, d1
         bge     .done                           // fast enough to hold on
         // downhill nudge: sign = sign of sin(angle). Under our convention
@@ -524,9 +514,7 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.w  d0, PlayerV.ground_speed(a0)    // bank gsp — the ceiling
                                                 // sensor below clobbers d0
         move.w  d0, d1
-        bpl     .uabs
-        neg.w   d1
-.uabs:
+        abs_w(d1)
         cmpi.w  #PHYS_UNROLL_MAX, d1
         bge     .shared_move                    // d0 = gsp, still rolling
         jbsr    Player_SensorCeiling            // d0 = head clearance (ball box)

@@ -10,7 +10,7 @@
 module games.sonic4.player_air in player_air
 
 use engine.objects.sst.{Sst}
-use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix}
+use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix, abs_w}
 
 // Boundary decls to the surviving-AS player_sensors (ports at P4). Cross-seam
 // today, module-to-module once sensors port. KILL ROW: delete when P4 lands.
@@ -230,14 +230,10 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // Signed copies live in d3/d4 — no velocity re-reads below
         move.w  x_vel(a0), d3
         move.w  d3, d1
-        bpl     .ax_pos
-        neg.w   d1
-.ax_pos:
+        abs_w(d1)
         move.w  y_vel(a0), d4
         move.w  d4, d2
-        bpl     .ay_pos
-        neg.w   d2
-.ay_pos:
+        abs_w(d2)
         cmp.w   d2, d1                          // |x_vel| − |y_vel|
         bls     .vertical
         tst.w   d3
@@ -458,9 +454,7 @@ proc Air_LandState (a0: *Sst) clobbers(d1) out(d0) {
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
         bne     .done                           // sideways intent vetoes
         move.w  PlayerV.ground_speed(a0), d1
-        bpl     .abs
-        neg.w   d1
-.abs:
+        abs_w(d1)
         cmpi.w  #PHYS_ROLL_START_MIN, d1
         blt     .done
         moveq   #PSTATE_ROLL, d0
