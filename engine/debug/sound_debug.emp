@@ -8,15 +8,15 @@
 // playback/sequencer state and trace ring into Sound_Dbg_Mirror (68k RAM) so the
 // MCP can observe driver state (its emulator_read_memory errors on $A00000, so we
 // snapshot the Z80 region into 68k RAM each frame). Stops the Z80 for the copy,
-// then restarts it — a ~190us bus-held window (the audible 60Hz tick that keeps
-// the mirror OFF by default).
+// then restarts it — a bus-held window long enough to be an audible 60Hz tick
+// (~164 bytes copied off the held Z80 bus; the exact µs is oracle-measurable but
+// not verified here), which keeps the mirror OFF by default.
 //
-// Phase 3: SeqChannel grew 14 -> 36 bytes (the modulation-state block), so we can
-// no longer mirror FULL channel slots within the 176-byte Sound_Dbg_Mirror. The
-// mirror is a DEBUG observability window, not a faithful struct copy, so we mirror
-// a PREFIX of each channel (SEQ_MIRROR_CHBYTES bytes) that captures the
-// controller-observed liveness fields. The shipping songs have 3 channels
-// (FM1, FM2, PSG1), so 3 slots is the window.
+// SeqChannel is 60 bytes (SEQ_CHANNEL_LEN), too large to mirror in FULL within the
+// 176-byte Sound_Dbg_Mirror. The mirror is a DEBUG observability window, not a
+// faithful struct copy, so we mirror a PREFIX of each channel (SEQ_MIRROR_CHBYTES
+// bytes) that captures the controller-observed liveness fields. The shipping songs
+// have 3 channels (FM1, FM2, PSG1), so 3 slots is the window.
 //
 // Per-channel mirror prefix (offsets within the 20-byte slot, from SeqChannel +0):
 //   +0/+1 sc_stream_ptr, +2/+3 sc_mod_ptr, +4 sc_dur_count, +5 sc_dur_default,
