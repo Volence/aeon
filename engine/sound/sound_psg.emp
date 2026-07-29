@@ -66,19 +66,29 @@
 //
 // --- ix PRESERVATION (project-critical contract) --------------------------
 // Every routine here PRESERVES ix (the SeqChannel pointer the channel loop relies
-// on) — none of them touch ix at all (it is only read as `(ix+d)`). The leaf
-// routines carry a machine-checked `preserves(...)` (verified over the push/pop
-// stack model); the routines that CALL a sub-routine document their preserve set
-// in prose here, unmachine-checked — the register-preserve proof treats a `call`
-// as clobber-all (no callee-contract awareness), so it cannot yet verify a
-// caller that relies on a callee's own preservation, and the module-scope
-// `invariant(ix)` those routines would inherit is likewise deferred. The
-// per-routine clobber sets are the accurate prose below (a false clobber comment
-// caused a prior bug); `clobbers(...)`/`out(<reg>)` on Z80 registers are not yet
-// expressible as machine contracts, so they stay prose too.
+// on) — none of them touch ix at all (it is only read as `(ix+d)`). This is the
+// module-scope `invariant: preserves(ix)`: the checker inherits it onto every
+// proc and verifies it over the push/pop stack model + the callee-preserves
+// oracle (a `call`/tail-jump to a routine that itself preserves ix does not
+// clobber it). The full register contract is machine-checked: `out(<reg>)` names
+// each result register, `clobbers(...)` the destroyed scratch (the `af` split —
+// `a` is the result, `f` the flag scratch), `preserves(...)` the save/restored or
+// untouched set (a false clobber comment caused a prior bug — the checker closes
+// that class). The external callees carry `extern proc` contracts so the oracle
+// can credit their ix (and de) preservation.
 // ===========================================================================
 
-module engine.sound_psg (cpu: z80)
+module engine.sound_psg (cpu: z80, invariant: preserves(ix))
+
+// The cross-module resident callees this file tail-/sub-calls. Only their
+// PRESERVES set is load-bearing here (the callee-preserves oracle credits it):
+// every sound-driver routine preserves ix (the project invariant); Snd_ChanClass
+// additionally preserves bc/de (Psg_SetVolume relies on de surviving it, and
+// brackets hl with push/pop); Mod_ReArm preserves bc/de/hl/ix; Mod_Advance
+// returns its result in de (so only ix is preserved).
+extern proc Snd_ChanClass () preserves(bc, de, ix)
+extern proc Mod_ReArm () preserves(bc, de, hl, ix)
+extern proc Mod_Advance () preserves(ix)
 
 section sound_psg (cpu: z80, vma: $1660) {
 
@@ -88,8 +98,10 @@ section sound_psg (cpu: z80, vma: $1660) {
     // Out: a = hw ch (0..2). (PSGN never reaches here — the hook routes it to
     //      Psg_Noise before any tone-channel math.)
     // ------------------------------------------------------------------
-    // Contract: clobbers af; preserves bc, de, hl, ix (machine-checked).
-    pub proc Psg_HwCh () preserves(bc, de, hl, ix) {
+    // Contract: out(a) = hw ch; clobbers f (the sub flags); preserves bc, de, hl
+    // (ix inherited from the module invariant). The `af` header splits: `a` is the
+    // result, `f` the scratch.
+    pub proc Psg_HwCh () out(a) clobbers(f) preserves(bc, de, hl) {
         ld      a, (ix+sc_route)
         sub     CHROUTE_PSG1            // route 5/6/7 -> hw ch 0/1/2
         ret
@@ -99,8 +111,9 @@ section sound_psg (cpu: z80, vma: $1660) {
     // Psg_ChBase — derive ch<<5 (the latch/vol base offset) for a tone channel.
     // In:  ix = SeqChannel.  Out: a = ch<<5 ($00/$20/$40 for hw ch 0/1/2).
     // ------------------------------------------------------------------
-    // Contract: clobbers af; preserves bc, de, hl, ix (prose — a `call` blocks the preserve proof).
-    pub proc Psg_ChBase () {
+    // Contract: out(a) = ch<<5; clobbers f (rrca carry); preserves bc, de, hl (via
+    // Psg_HwCh's contract, credited by the callee-preserves oracle) + ix (inherited).
+    pub proc Psg_ChBase () out(a) clobbers(f) preserves(bc, de, hl) {
         call    Psg_HwCh               // a = hw ch (0..2)
         rrca                           // ch<<5: rotate right 3 == <<5 mod 256
         rrca                           //   (ch<=2 -> bits land in D6-D5, no wrap
@@ -113,8 +126,9 @@ section sound_psg (cpu: z80, vma: $1660) {
     // In:  a = linear volume.  Out: a = attenuation (0..15; 0 loudest, $0F silent).
     // atten = (($7F - vol) >> 3) & $0F   (decision 1; see file header).
     // ------------------------------------------------------------------
-    // Contract: clobbers af, b; preserves c, de, hl, ix (machine-checked).
-    pub proc Psg_VolToAtten () preserves(c, de, hl, ix) {
+    // Contract: out(a) = atten; clobbers b, f (scratch); preserves c, de, hl (ix
+    // inherited). The `af, b` header splits: `a` is the result, `f`/`b` scratch.
+    pub proc Psg_VolToAtten () out(a) clobbers(b, f) preserves(c, de, hl) {
         ld      b, a                   // b = vol
         ld      a, SND_FM_TL_MAX       // $7F
         sub     b                      // a = $7F - vol (no underflow for vol<=$7F)
@@ -132,8 +146,10 @@ section sound_psg (cpu: z80, vma: $1660) {
     // unused while sc_psgenv=0).
     // In: ix = SeqChannel/SfxChannel.
     // ------------------------------------------------------------------
-    // Contract: clobbers nothing (the two (ix+d) stores touch no register — the .asm's `Clobbers af` over-claims); preserves bc, de, hl, ix (machine-checked).
-    pub proc Psg_EnvCursorReset () preserves(bc, de, hl, ix) {
+    // Contract: clobbers nothing — the two (ix+d) immediate stores touch no
+    // register (the .asm's `Clobbers af` over-claims). Preserves af, bc, de, hl (ix
+    // inherited); the checker VERIFIES the af the header wrongly claimed clobbered.
+    pub proc Psg_EnvCursorReset () preserves(af, bc, de, hl) {
         ld      (ix+sc_psgenv_cur), 0  // restart the contour from frame 0
         ld      (ix+sc_psgenv_out), 0  // drop the previous note's env tail so the
                                        // attack's volume emit (Psg_NoteOn's SetVolume,
@@ -148,8 +164,10 @@ section sound_psg (cpu: z80, vma: $1660) {
     // Out: carry clear + hl = body base on a match; carry set on an unknown id.
     // In: a = 1-based env id.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc, de, hl; out(carry: found) + hl = body base; preserves ix (carry machine-checked; ix machine-checked).
-    pub proc PsgVolEnv_Resolve () out(carry: found) preserves(ix) {
+    // Contract: out(hl) = body base + out(carry: found); clobbers a, b, de, f
+    // (scan scratch); preserves c (untouched) + ix (inherited). The `bc` header
+    // over-claims — only `b` (the djnz counter) dies, `c` survives.
+    pub proc PsgVolEnv_Resolve () out(hl, carry: found) clobbers(a, b, de, f) preserves(c) {
         ld      b, PSGVOLENV_COUNT
         ld      hl, PsgVolEnv_Ids      // banked table; label = its $8000-window ptr
         ld      de, PsgVolEnv_Ptrs     // banked ptr array (entries are window ptrs)
@@ -179,8 +197,10 @@ section sound_psg (cpu: z80, vma: $1660) {
     // Out: carry clear + hl = body base on a match; carry set on an unknown id.
     // In: a = 1-based env id.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc, de, hl; out(carry: found) + hl = body base; preserves ix (carry machine-checked; ix machine-checked).
-    pub proc FmVolEnv_Resolve () out(carry: found) preserves(ix) {
+    // Contract: out(hl) = body base + out(carry: found); clobbers a, b, de, f
+    // (scan scratch); preserves c (untouched) + ix (inherited). The FM mirror of
+    // PsgVolEnv_Resolve; the same `bc`-header over-claim (`c` survives).
+    pub proc FmVolEnv_Resolve () out(hl, carry: found) clobbers(a, b, de, f) preserves(c) {
         ld      b, FMVOLENV_COUNT
         ld      hl, FmVolEnv_Ids       // banked table; label = its $8000-window ptr
         ld      de, FmVolEnv_Ptrs      // banked ptr array (entries are window ptrs)
@@ -211,8 +231,9 @@ section sound_psg (cpu: z80, vma: $1660) {
     // Then set the channel volume from sc_volume so the note is audible.
     // Sets SCF_KEYED.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc, de, hl; preserves ix (prose — calls block the preserve proof; tail-jumps Psg_SetVolume).
-    pub proc Psg_NoteOn () {
+    // Contract: clobbers af, bc, de, hl; preserves ix (inherited — verified across
+    // the calls + the `jp Psg_SetVolume` tail, each an ix-preserving callee).
+    pub proc Psg_NoteOn () clobbers(af, bc, de, hl) {
         // hl = &PsgDivisorTableZ[pitch] = base + pitch*2
         ld      l, a
         ld      h, 0
@@ -285,8 +306,9 @@ section sound_psg (cpu: z80, vma: $1660) {
     // In:  ix = SeqChannel.  Clears SCF_KEYED.
     // Tone:  vol byte = $90 | (ch<<5) | $0F.   Noise: $F0 | $0F = $FF.
     // ------------------------------------------------------------------
-    // Contract: clobbers af; preserves bc, de, hl, ix (prose — the tone path calls Psg_ChBase).
-    pub proc Psg_NoteOff () {
+    // Contract: clobbers af; preserves bc, de, hl (via Psg_ChBase's contract) + ix
+    // (inherited).
+    pub proc Psg_NoteOff () clobbers(af) preserves(bc, de, hl) {
         res     SCF_KEYED_B, (ix+sc_flags)
         ld      a, (ix+sc_route)
         cp      CHROUTE_PSGN
@@ -312,8 +334,9 @@ section sound_psg (cpu: z80, vma: $1660) {
     // In: ix = PSG TONE channel (SFX), sc_mod_ctrl != 0.
     // Falls into Psg_EmitDivisor (tail; no inserted jump — byte-critical).
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc, de, hl; preserves ix (prose — calls Mod_Advance). falls_into Psg_EmitDivisor (machine-checked).
-    pub proc Psg_ApplyMod () falls_into Psg_EmitDivisor {
+    // Contract: clobbers af, bc, de, hl; preserves ix (inherited — Mod_Advance
+    // preserves it). falls_into Psg_EmitDivisor.
+    pub proc Psg_ApplyMod () clobbers(af, bc, de, hl) falls_into Psg_EmitDivisor {
         call    Mod_Advance            // advance triangle; CF set => no write this frame
         ret     c
         // FLOOR GUARD (spec fix 4): a downward sweep can drive base+accum 16-bit
@@ -339,8 +362,11 @@ section sound_psg (cpu: z80, vma: $1660) {
     // In: ix = PSG tone channel, d = div hi, e = div lo.
     // Falls into Psg_EmitDivisorTo (tail; c = latch base, de = divisor).
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc, de; preserves hl, ix (prose — calls Psg_ChBase). falls_into Psg_EmitDivisorTo (machine-checked).
-    pub proc Psg_EmitDivisor () falls_into Psg_EmitDivisorTo {
+    // Contract: clobbers a, c, f (latch scratch); preserves b, de, hl (de is
+    // push/pop-bracketed across Psg_ChBase, hl via ChBase's contract, b untouched)
+    // + ix (inherited). The `af, bc, de` header over-claims — de and b survive.
+    // falls_into Psg_EmitDivisorTo.
+    pub proc Psg_EmitDivisor () clobbers(a, c, f) preserves(b, de, hl) falls_into Psg_EmitDivisorTo {
         push    de                     // save divisor across Psg_ChBase
         call    Psg_ChBase             // a = ch<<5 ($00/$20/$40)
         or      SND_PSG_TONE_LATCH     // a = $80 | (ch<<5)
@@ -357,8 +383,9 @@ section sound_psg (cpu: z80, vma: $1660) {
     // Shared by Psg_EmitDivisor (tone), Psg_ApplyMod (pitch sweep) and
     // Psg_EmitNoiseClock so the divisor-split exists once.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, b; preserves c, hl, ix (machine-checked).
-    pub proc Psg_EmitDivisorTo () preserves(c, hl, ix) {
+    // Contract: clobbers a, b, f (data-byte scratch); preserves c, de, hl (c is the
+    // read-only latch base, de the read-only divisor, hl untouched) + ix (inherited).
+    pub proc Psg_EmitDivisorTo () clobbers(a, b, f) preserves(c, de, hl) {
         ld      a, e
         and     $0F                    // div & $0F (freq low 4 bits)
         or      c                      // latch base | low nibble
@@ -390,8 +417,9 @@ section sound_psg (cpu: z80, vma: $1660) {
     // reset the LFSR.
     // In: a = pitch index 0..94.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc, de, hl; preserves ix (prose — tail-jumps Psg_EmitDivisorTo).
-    pub proc Psg_EmitNoiseClock () {
+    // Contract: clobbers af, bc, de, hl; preserves ix (inherited — the
+    // `jr Psg_EmitDivisorTo` tail preserves it and ix is untouched here).
+    pub proc Psg_EmitNoiseClock () clobbers(af, bc, de, hl) {
         ld      l, a
         ld      h, 0
         add     hl, hl                 // pitch*2 (word entries)
@@ -414,8 +442,10 @@ section sound_psg (cpu: z80, vma: $1660) {
     // In:  ix = SeqChannel (PSG1..3 OR PSGN), a = linear vol (0..127).
     // Tone:  emit $90 | (ch<<5) | atten.   Noise: emit $F0 | atten.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc; preserves de, hl, ix (prose — calls Psg_VolToAtten/Snd_ChanClass).
-    pub proc Psg_SetVolume () {
+    // Contract: clobbers af, bc; preserves de, hl (de survives via the callees'
+    // contracts — Psg_VolToAtten/Snd_ChanClass/Psg_ChBase all preserve de; hl is
+    // push/pop-bracketed around each Snd_ChanClass) + ix (inherited).
+    pub proc Psg_SetVolume () clobbers(af, bc) preserves(de, hl) {
         call    Psg_VolToAtten         // a = 4-bit attenuation (clobbers b)
         ld      c, a                   // c = attenuation
 
@@ -513,8 +543,9 @@ section sound_psg (cpu: z80, vma: $1660) {
     //     ARE the mode/rate; write $E0|(note&7) as the control + set the noise volume.
     // In: ix = SeqChannel, a = note value. Sets SCF_KEYED.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc, de, hl; preserves ix (prose — calls Snd_ChanClass; tail-jumps Psg_SetVolume).
-    pub proc Psg_Noise () {
+    // Contract: clobbers af, bc, de, hl; preserves ix (inherited — Snd_ChanClass,
+    // the sub-calls, and the `jp Psg_SetVolume` tails all preserve ix).
+    pub proc Psg_Noise () clobbers(af, bc, de, hl) {
         ld      b, a                   // save note (pitch/mode) — Snd_ChanClass clobbers a
         call    Snd_ChanClass          // CARRY set => MUSIC channel (preserves bc)
         jr      nc, .sfx
@@ -546,8 +577,8 @@ section sound_psg (cpu: z80, vma: $1660) {
     // three tone channels + the noise channel go to max attenuation. Used by
     // Sequencer_StopAll (StopMusic, Task 6).
     // ------------------------------------------------------------------
-    // Contract: clobbers af; preserves bc, de, hl, ix (machine-checked).
-    pub proc Psg_SilenceAll () preserves(bc, de, hl, ix) {
+    // Contract: clobbers af; preserves bc, de, hl (untouched) + ix (inherited).
+    pub proc Psg_SilenceAll () clobbers(af) preserves(bc, de, hl) {
         ld      a, SND_PSG_SILENCE_T1  // $9F
         ld      (SND_Z80_PSG), a
         ld      a, SND_PSG_SILENCE_T2  // $BF
