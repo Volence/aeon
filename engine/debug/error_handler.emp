@@ -17,12 +17,17 @@
 // vectors.asm references all 12 labels by name (dc.l).
 //
 // THE BLOB is opaque vendored binary (MD Debugger v2.6, (c) Vladikcomper),
-// transliterated dc.l verbatim from error_handler.asm; its bytes are
-// untouchable. The two symbolic sites resolve self-relative to `ErrorHandler`:
-// the `dc.w $148` is STR_OFFSET_SELECTOR - DrawOffsetLocation_inj - 2 (a
-// constant, the ErrorHandler base cancels), and the three extension-button
-// pointers are `ErrorHandler + $E6C/$EB8` (BTN_A/BTN_B; BTN_C is disabled = 0).
-// The `MDDBG__*` equ table stays AS-side, deriving off this `ErrorHandler`.
+// transliterated dc.l verbatim from error_handler.asm; its bytes are untouchable.
+// It carries two symbolic source lines: the `dc.w $148` is
+// STR_OFFSET_SELECTOR - DrawOffsetLocation_inj - 2 (a self-relative CONSTANT — the
+// handler base cancels), and the extension-button pointers are spelled as their
+// MDDBG__ names (`dc.l MDDBG__Debugger_AddressRegisters, 0,
+// MDDBG__Debugger_Backtrace` = BTN_A, BTN_C=disabled=0, BTN_B). Those MDDBG__
+// symbols are the AS-side equ table (mddbg_symbols.asm), which derives off
+// `ErrorHandler` — the AS-side blob label in the pure-AS build, a numeric
+// per-shape equ in the sigil mixed build (engine.inc gate-ON arm). The blob's own
+// `.emp` label is `ErrorHandlerBlob` (renamed so it never collides with that
+// numeric `ErrorHandler` equ at link).
 //
 // WARNING (from error_handler.asm): this region MUST stay the final ROM
 // emission — the convsym symbol-table appendix rides after `EndOfRom`; no data
