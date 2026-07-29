@@ -630,7 +630,18 @@ __BUDGET_ENGINE:
     endif
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
+        ifndef SIGIL_EMP_SOUND_DEBUG
         include "engine/debug/sound_debug.asm"
+        else
+        ; sigil mixed build (off-canonical Config A: __DEBUG__ + SOUND_DRIVER_ENABLED
+        ; + SOUND_DBG_MIRROR): Sound_DebugMirror comes from sound_debug.emp, placed
+        ; by the sigil map at the region start. org resumes at the region end.
+        ; Canonically sound_debug.asm emits ZERO bytes (the third gate SOUND_DBG_MIRROR
+        ; is off in every shipped build), so the gate-OFF build is byte-neutral. This
+        ; org value is the CONFIG-A sonic4-shape address — the gate define must NEVER
+        ; be set except by the sigil off-canonical whole-ROM gate at Config A.
+        org     $827C
+        endif
       endif
     endif
 

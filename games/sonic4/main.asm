@@ -19,7 +19,19 @@ gameRamIncludes macro {GLOBALSYMBOLS}
 
 gameEngineBlockIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/player/player_sensors.asm"
-    include "games/sonic4/debug/game_debug.asm"
+    ifndef SIGIL_EMP_GAME_DEBUG
+        include "games/sonic4/debug/game_debug.asm"
+    else
+        ; sigil mixed build (off-canonical Config A: __DEBUG__ + SOUND_DRIVER_ENABLED
+        ; + SOUND_DEBUG_HOTKEYS): Debug_MusicToggle/Dbg_SfxIdTable come from
+        ; game_debug.emp, placed by the sigil map at the region start. org resumes
+        ; at the region end (Section_Init). Canonically game_debug.asm emits ZERO
+        ; bytes (whole-file ifdef SOUND_DEBUG_HOTKEYS, off in every shipped build),
+        ; so the gate-OFF build is byte-neutral. This org value is the CONFIG-A
+        ; sonic4-shape address — the gate define must NEVER be set except by the
+        ; sigil off-canonical whole-ROM gate at Config A.
+        org     $6408
+    endif
     endm
 
 gameObjectBankIncludes macro {GLOBALSYMBOLS}

@@ -10,13 +10,11 @@ use engine.irq.{sr_masked}
 // abs.w window).
 equ SND_DMA_ACTIVE_SLOT = extern("SND_Z80_BASE") + extern("SND_CTRL_DMA_ACTIVE")
 
-// Boundary contract (contract-grammar v2 §3) — the Z80-state snapshot stays
-// .asm. The decl is UNGATED (it emits nothing and an unreferenced decl never
-// reaches the link); the CALL is comptime-gated to the one shape whose AS
-// side assembles the callee (DEBUG (AS side: __DEBUG__) × SOUND_DRIVER_ENABLED ×
-// SOUND_DBG_MIRROR — build.sh wires all three).
-// drift-guard: engine/debug/sound_debug.asm:41 — In: none · Out: none · Clobbers: d0-d1/a0-a1
-extern proc Sound_DebugMirror () clobbers(d0-d1/a0-a1)
+// The Z80-state snapshot Sound_DebugMirror is now engine.debug.sound_debug-owned
+// (sound_debug.emp, t28). The comptime-gated CALL below (DEBUG × SOUND_DRIVER_ENABLED
+// × SOUND_DBG_MIRROR — the mirror shape) resolves module-to-module to that proc; no
+// extern decl (a decl + the .emp-owned proc would §11-Q4 collide, the kill-row-33
+// precedent). In every other shape the call is comptime-false, so nothing references it.
 
 // The VInt_Ptr dispatch runs one of the VBlank pipeline handlers — an honest
 // ⊤ bound (the handlers' own contracts are narrower; the full save/restore
