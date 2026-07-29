@@ -96,7 +96,7 @@ extern proc Psg_EmitDivisor () preserves(hl, ix)
 extern proc Psg_SilenceAll () preserves(bc, de, hl, ix)
 extern proc PsgVolEnv_Resolve () out(hl, carry: found) preserves(ix)
 extern proc FmVolEnv_Resolve () out(hl, carry: found) preserves(ix)
-extern proc Snd_ChanClass () preserves(bc, de, ix)
+extern proc Snd_ChanClass () out(carry: music) preserves(bc, de, ix)
 extern proc Snd_StartSample () preserves(ix)
 extern proc Snd_DacLookup () out(hl, carry: ok) preserves(ix)
 
@@ -1093,8 +1093,11 @@ section sound_sequencer (cpu: z80, vma: $0565) {
     }
 
     // $F4 MEV_LFO + value : write YM2612 $22 (bit3 enable | bits0-2 rate). MUST re-park
-    // the DAC $2A addr after the $22 write. Fm_YmWrite (part I) + Fm_ReparkDac both
-    // preserve hl (the live stream ptr). Zero-tick.
+    // the DAC $2A addr after the $22 write: the addr port is left on $22 by the write, so
+    // a DAC byte racing in before the consumer's next pass would misroute to $22 — hence
+    // Fm_ReparkDac re-selects $2A here (the $22-specific case; not the generally-redundant
+    // repark). Fm_YmWrite (part I) + Fm_ReparkDac both preserve hl (the live stream ptr).
+    // Zero-tick.
     pub proc Seq_Op_Lfo () clobbers(af, bc) {
         ld      c, (hl)                 // c = operand ($22 value: enable|rate)
         inc     hl                      // consume operand
