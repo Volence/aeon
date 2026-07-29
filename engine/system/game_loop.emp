@@ -9,8 +9,9 @@ module engine.game_loop in game_loop
 // state the .asm callees' contracts so the transitive clobber closure can see
 // past the cross-seam calls, and bound the state dispatch. VSync_Wait is
 // .emp-owned (engine.vblank) and resolves module-to-module — no decl.
-// drift-guard: games/sonic4/debug/game_debug.asm:20 — Clobbers: d0-d2/a0/a1
-extern proc Debug_MusicToggle () clobbers(d0-d2/a0/a1)
+// Debug_MusicToggle is now .emp-owned too (games.sonic4.game_debug) and
+// resolves module-to-module — no decl (the old extern decl died when
+// game_debug.emp landed; keeping it would §11-Q4-collide with that proc).
 // The Game_State dispatch runs arbitrary state code — an honest ⊤ bound.
 type GameState = proc () clobbers(d0-d7/a0-a6)
 

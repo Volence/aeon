@@ -1,0 +1,210 @@
+// games/sonic4/debug/game_debug.emp — game-side debug/test-harness code invoked
+// by the engine's gameDebugTick hook (games/sonic4/config/game.asm). The FIRST
+// game-side .emp CODE module. Sonic 4's sound test-harness hotkeys, not engine
+// code; the engine only knows about the gameDebugTick macro, which is empty for
+// games that don't supply one.
+//
+// SHAPE: the AS twin (game_debug.asm) is whole-file `ifdef SOUND_DEBUG_HOTKEYS`
+// / `ifdef SOUND_DRIVER_ENABLED` — it emits ZERO bytes in every normal build
+// (SOUND_DEBUG_HOTKEYS is a dev opt-in, OFF in both canonical shapes). This .emp
+// mirrors that: it is compiled/placed ONLY at the hotkeys shape (the
+// compression_selftest external-gate model — a module-level comptime `if`
+// wrapping items is not expressible, and the whole file is the gated unit). Its
+// canonical emptiness is the TWIN's whole-file ifdef; proven both shapes in
+// game_debug_port.rs. The byte gate is the OFF-CANONICAL twin-parity oracle:
+// there is no canonical reference ROM at the hotkeys shape, so game_debug.emp is
+// byte-checked against game_debug.asm assembled through sigil's AS front-end at
+// that shape.
+
+module games.sonic4.game_debug in game_debug
+
+// SongId / SfxId — the sound_api.emp d0 slot types. The song/sfx ids this
+// harness feeds Sound_PlayMusic/PlaySFX are born as those newtypes at their
+// construction sites (the moveq/move.b degrades the type, the `as` bless
+// re-types — sound_api.emp:389 precedent), so the slot-type check sees a typed
+// value flowing into each typed slot.
+use engine.types.{SongId, SfxId}
+
+// game_debug mirrors the game-contract const surface it uses, each drift-guarded
+// against the .asm truth (the sfx_bank mirror pattern) so a divergence is a loud
+// comptime error, never a silent wrong instruction. The buttons are mirrored
+// LOCALLY (not `use engine.constants`) to keep this game-side module self-
+// contained — engine.constants.emp carries only the d-pad four (UP/DOWN/LEFT/
+// RIGHT) anyway, so A/B/C/START would need mirroring regardless. LEDGER: when a
+// game-constants .emp module is born (or A/B/C/START hoist into engine.constants),
+// this block collapses into a `use`. Kill-list row tracks the mirror.
+const BUTTON_UP    = 1 << 0          // $01
+const BUTTON_B     = 1 << 4          // $10
+const BUTTON_C     = 1 << 5          // $20
+const BUTTON_A     = 1 << 6          // $40
+const BUTTON_START = 1 << 7          // $80
+ensure(extern("BUTTON_UP") == BUTTON_UP, "BUTTON_UP drifted from engine/constants.asm: {BUTTON_UP}")
+ensure(extern("BUTTON_B") == BUTTON_B, "BUTTON_B drifted from engine/constants.asm: {BUTTON_B}")
+ensure(extern("BUTTON_C") == BUTTON_C, "BUTTON_C drifted from engine/constants.asm: {BUTTON_C}")
+ensure(extern("BUTTON_A") == BUTTON_A, "BUTTON_A drifted from engine/constants.asm: {BUTTON_A}")
+ensure(extern("BUTTON_START") == BUTTON_START, "BUTTON_START drifted from engine/constants.asm: {BUTTON_START}")
+
+// Song ids (games/sonic4/config/sound_ids.asm).
+const SONG_MOVINGTRUCKS = 1
+const SONG_DRUMTEST     = 2
+const SONG_HCZ2         = 3
+ensure(extern("SONG_MOVINGTRUCKS") == SONG_MOVINGTRUCKS, "SONG_MOVINGTRUCKS drifted from config/sound_ids.asm: {SONG_MOVINGTRUCKS}")
+ensure(extern("SONG_DRUMTEST") == SONG_DRUMTEST, "SONG_DRUMTEST drifted from config/sound_ids.asm: {SONG_DRUMTEST}")
+ensure(extern("SONG_HCZ2") == SONG_HCZ2, "SONG_HCZ2 drifted from config/sound_ids.asm: {SONG_HCZ2}")
+
+// SFX ids (games/sonic4/config/sound_ids.asm) — the DEBUG SFX-trigger cycle.
+const SFXID_RING_RIGHT = $33
+const SFXID_DEATH      = $35
+const SFXID_SKID       = $36
+const SFXID_ROLL       = $3C
+const SFXID_JUMP       = $62
+const SFXID_SPINDASH   = $AB
+const SFXID_DASH       = $B6
+const SFXID_RINGLOSS   = $B9
+ensure(extern("SFXID_RING_RIGHT") == SFXID_RING_RIGHT, "SFXID_RING_RIGHT drifted from config/sound_ids.asm: {SFXID_RING_RIGHT}")
+ensure(extern("SFXID_DEATH") == SFXID_DEATH, "SFXID_DEATH drifted from config/sound_ids.asm: {SFXID_DEATH}")
+ensure(extern("SFXID_SKID") == SFXID_SKID, "SFXID_SKID drifted from config/sound_ids.asm: {SFXID_SKID}")
+ensure(extern("SFXID_ROLL") == SFXID_ROLL, "SFXID_ROLL drifted from config/sound_ids.asm: {SFXID_ROLL}")
+ensure(extern("SFXID_JUMP") == SFXID_JUMP, "SFXID_JUMP drifted from config/sound_ids.asm: {SFXID_JUMP}")
+ensure(extern("SFXID_SPINDASH") == SFXID_SPINDASH, "SFXID_SPINDASH drifted from config/sound_ids.asm: {SFXID_SPINDASH}")
+ensure(extern("SFXID_DASH") == SFXID_DASH, "SFXID_DASH drifted from config/sound_ids.asm: {SFXID_DASH}")
+ensure(extern("SFXID_RINGLOSS") == SFXID_RINGLOSS, "SFXID_RINGLOSS drifted from config/sound_ids.asm: {SFXID_RINGLOSS}")
+
+// The four Sound_* callees are .emp-owned (sound_api.emp) — they resolve
+// module-to-module, so NO `extern proc` decl here (a decl of a .emp-owned proc
+// is a §11-Q4 extern/proc collision, the same reason game_loop.emp's
+// Debug_MusicToggle extern dies this tranche).
+//
+// -----------------------------------------------
+// Debug_MusicToggle — DEBUG sound test-harness hotkeys (edge-detected on
+// Ctrl_1_Press). Key map:
+//   A     = restart Moving Trucks from pattern 0 (logger-safe re-trigger)
+//   B     = fire the next test SFX in the cycle (Dbg_Sfx_Sel)
+//   UP    = play HCZ2 (S3K Hydrocity Zone Act 2 import, id 3)
+//   C     = play the DAC-drum-test song (id 2)
+//   START = toggle Moving Trucks play/stop
+// PRIORITY CHAIN, not five independent keys: the checks fall through in the
+// listed order (A → B → UP → C → START), each `beq.s .next` else `rts`, so the
+// FIRST matching button this frame wins and the rest are skipped (a same-frame
+// A+START restarts the song and never reaches the toggle). The button masks are
+// distinct single bits, so simultaneous presses are resolved by this order.
+// Also exercises Sound_StopMusic and the song-switch silence path (a fresh
+// PlayMusic).
+//
+// CLOBBERS = the honest transitive closure d0-d4/a0-a1: the body writes
+// d0-d2/a1 directly, and Sound_PlayMusic (sound_api.emp) clobbers d0-d4/a0-a1 —
+// so d3/d4/a0 leak in through that call. The .asm twin's hand comment says
+// "d0-d2/a0/a1", which UNDER-DECLARES d3/d4: the old game_loop.emp extern decl
+// TRUSTED that narrow leaf contract and hid the gap; porting the body makes the
+// contract closure verify it against the real callee, surfacing the leak. The
+// harness relies on nothing across the call (each Sound_* is immediately
+// followed by an rts or a Dbg_Music_On store), so the under-declaration was
+// latent — but the contract must be honest. Twin comment corrected in lockstep.
+// -----------------------------------------------
+pub proc Debug_MusicToggle () clobbers(d0-d4/a0-a1) {
+        // STRUCTURAL WIDTH PIN (step-2 exception class — the trailing-`align`
+        // dependency): the branches stay explicit `.s`/`bsr.w` and the RAM
+        // operands stay explicit `(X).w` rather than going bare / `jbsr`. The
+        // `align 2` after Dbg_SfxIdTable (below) needs every preceding
+        // instruction size FIXED; a bare Bcc (relaxable `.s`/`.w`), a `jbsr` to a
+        // cross-seam link target (unknown reach → bsr.s/bsr.w undecided), or a
+        // bare abs symbol (abs.w/.l by resolved value) all leave the align at a
+        // provisional position → `[align.provisional]`. Byte-identical to the AS
+        // twin regardless (it spells the same explicit widths).
+        // A button = RESTART the song from pattern 0 (re-trigger Sound_PlayMusic; NO
+        // reboot, NO toggle). For clean from-the-very-top VGM capture during sound
+        // debugging: the emulator's reset/reload either kills the VGM logger or doesn't
+        // restart the Z80 sequencer, so this gives a logger-safe pattern-0 restart on
+        // demand (press A while logging -> capture begins exactly at the song's start).
+        move.b  (Ctrl_1_Press).w, d0
+        andi.b  #BUTTON_A, d0
+        beq.s   .check_sfx
+        moveq   #SONG_MOVINGTRUCKS, d0 as SongId   // re-trigger from the top (load silences first)
+        bsr.w   Sound_PlayMusic
+        move.b  #1, (Dbg_Music_On).w
+        rts
+    .check_sfx:
+        // B button = fire the NEXT test SFX in the cycle (DEBUG SFX-trigger hotkey).
+        // Edge-detected on Ctrl_1_Press (one fire per fresh press). Dbg_Sfx_Sel cycles
+        // 0..7 over Dbg_SfxIdTable so every core SFX is drivable for VGM capture +
+        // the acceptance matrix. B ($10) does not collide with A($40)/START($80).
+        // RING_RIGHT is fired via Sound_PlayRing so the L/R stereo-alternation path is
+        // exercised too; all others go straight through Sound_PlaySFX. (Both preserve
+        // a0 + clobber only d0/SR — safe inside this handler's d0-d4/a0-a1 budget.)
+        move.b  (Ctrl_1_Press).w, d0
+        andi.b  #BUTTON_B, d0
+        beq.s   .check_hcz2
+        move.w  (Dbg_Sfx_Sel).w, d1          // current cycle index (0..7)
+        move.w  d1, d2
+        addq.w  #1, d2
+        andi.w  #7, d2                    // wrap 0..7 (8 ids)
+        move.w  d2, (Dbg_Sfx_Sel).w          // advance for the next press
+        andi.w  #7, d1                    // clamp (defensive)
+        cmpi.w  #1, d1                    // index 1 = RING_RIGHT -> use the ring path
+        beq.s   .sfx_ring
+        moveq   #0, d0
+        lea     Dbg_SfxIdTable(pc), a1
+        move.b  (a1,d1.w), d0 as SfxId            // d0.b = id from the cycle table (born SfxId for Sound_PlaySFX)
+        bsr.w   Sound_PlaySFX
+        rts
+    .sfx_ring:
+        bsr.w   Sound_PlayRing          // L/R-alternating ring SFX ($33/$34)
+        rts
+    .check_hcz2:
+        // UP = play the HCZ2 (S3K Hydrocity Zone Act 2) import song (id 3) on a fresh
+        // press. The plan/design proposed B for this, but B ($10) is already the SFX-
+        // cycle hotkey (above), so the dedicated HCZ2 trigger uses UP — a free D-pad
+        // bit unused by the debug harness and by the idle game state. Edge-detected on
+        // Ctrl_1_Press; UP ($01) does not collide with A($40)/B($10)/C($20)/START($80).
+        move.b  (Ctrl_1_Press).w, d0
+        andi.b  #BUTTON_UP, d0
+        beq.s   .check_sample
+        moveq   #SONG_HCZ2, d0 as SongId           // S3K Hydrocity Zone Act 2 import (Phase 7)
+        bsr.w   Sound_PlayMusic
+        move.b  #1, (Dbg_Music_On).w         // keep START's play/stop toggle coherent
+        rts
+    .check_sample:
+        // C button = play the DEBUG STREAM DAC-on drum-test song (id 2) on a fresh
+        // press. Exercises the DAC-drum phase end-to-end: $E2 kick/snare from the
+        // shared DAC bank with the per-frame song<->sample bank swap (B1), the Layer-4
+        // FM6 key-on gate, and FM/PSG music streaming alongside. (Supersedes the old
+        // one-shot blip hotkey — the song fires real kick/snare via $E2.) Edge-detected
+        // on Ctrl_1_Press; C ($20) does not collide with A($40)/B($10)/START($80).
+        move.b  (Ctrl_1_Press).w, d0
+        andi.b  #BUTTON_C, d0
+        beq.s   .check_start
+        moveq   #SONG_DRUMTEST, d0 as SongId       // DEBUG STREAM DAC-on drum-test song
+        bsr.w   Sound_PlayMusic
+        move.b  #1, (Dbg_Music_On).w         // keep START's play/stop toggle coherent
+        rts
+    .check_start:
+        move.b  (Ctrl_1_Press).w, d0
+        andi.b  #BUTTON_START, d0
+        beq.s   .done                   // START not pressed this frame
+        tst.b   (Dbg_Music_On).w
+        bne.s   .stop
+        moveq   #SONG_MOVINGTRUCKS, d0 as SongId  // was stopped -> play (Phase 3 native Moving Trucks)
+        bsr.w   Sound_PlayMusic
+        move.b  #1, (Dbg_Music_On).w
+        rts
+    .stop:
+        bsr.w   Sound_StopMusic         // was playing -> stop
+        clr.b   (Dbg_Music_On).w
+    .done:
+        rts
+}
+
+// DEBUG SFX-trigger cycle (indexed by Dbg_Sfx_Sel, 0..7). Index 1 (RING_RIGHT) is
+// special-cased to Sound_PlayRing in .check_sfx; the byte here is the fallback id.
+// Order: JUMP / RING_RIGHT / SPINDASH / DASH / ROLL / SKID / DEATH / RINGLOSS.
+data Dbg_SfxIdTable: [u8; 8] = [
+    SFXID_JUMP,              // 0
+    SFXID_RING_RIGHT,        // 1 (fired via Sound_PlayRing for L/R alt)
+    SFXID_SPINDASH,          // 2
+    SFXID_DASH,              // 3
+    SFXID_ROLL,              // 4
+    SFXID_SKID,              // 5
+    SFXID_DEATH,             // 6
+    SFXID_RINGLOSS,          // 7
+]
+align 2

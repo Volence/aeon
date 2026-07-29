@@ -9,7 +9,12 @@
 ; The MCP's emulator_read_memory routes 68k RAM ($FF0000+) and ROM but
 ; errors on $A00000, so we snapshot the Z80 region into 68k RAM each frame.
 ; DEBUG only. Stops the Z80 for the copy, then restarts it.
-; Clobbers: d0/a0/a1
+; Clobbers: d0-d1/a0-a1 — d1 is the channel-copy outer loop counter
+; (moveq #SEQ_MIRROR_CHANNELS-1, d1), d0 the inner byte counters, a0/a1 the
+; copy pointers; none are restored (leaf, no movem). An earlier comment said
+; "d0/a0/a1", under-declaring d1 — vblank.emp's `extern proc Sound_DebugMirror
+; () clobbers(d0-d1/a0-a1)` already declares the honest set; this comment is
+; corrected to match (the t26 extern-decl census caught the stale twin comment).
 ; ----------------------------------------------------------------------
 ; Phase 3: SeqChannel grew 14 -> 36 bytes (the modulation-state block), so we can
 ; no longer mirror FULL channel slots within the 176-byte Sound_Dbg_Mirror. The
