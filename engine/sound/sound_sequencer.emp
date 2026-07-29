@@ -234,7 +234,7 @@ section sound_sequencer (cpu: z80, vma: $0565) {
     // from the Sequencer_Frame preamble before the channel loop. Clobbers af,b.
     // Preserves ix. RESIDENT (all in-frame code is).
     // ----------------------------------------------------------------------
-    pub proc Fade_Ramp () clobbers(af, b) preserves(ix) {
+    pub proc Fade_Ramp () clobbers(af, b) preserves(c, de, hl, ix) {
         ld      a, (SND_FADE_TARGET)
         ld      b, a                    // b = target (preserved below)
         ld      a, (SND_MASTER_FADE)
