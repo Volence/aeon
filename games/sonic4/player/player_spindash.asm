@@ -81,7 +81,7 @@ PState_Spindash:
         rts
 .floor_gone:
         moveq   #PSTATE_AIRBALL, d0             ; curls via AIRBALL's enter
-        jmp     Player_SetState                 ; hook (not a jump); exit hook
+        bra.w   Player_SetState                 ; hook (not a jump); exit hook
                                                 ; discards the charge
 .release:
         ; --- release: gsp = ±(SPINDASH_BASE + (charge>>8)·$80) — the
@@ -114,6 +114,6 @@ PState_Spindash:
         ; FRESH press after the launch still roll-jumps normally.
         clr.b   (Player_JumpBuffer).w
         bsr.w   Player_SetState
-        jmp     PState_Roll                     ; classic: the release frame
+        bra.w   PState_Roll                     ; classic: the release frame
                                                 ; runs the full roll movement
                                                 ; — the launch happens NOW

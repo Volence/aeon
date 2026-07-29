@@ -81,11 +81,11 @@ pub proc PState_Air (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into PState_AirBall {
 pub proc PState_AirBall (a0: *Sst) clobbers(d0-d7/a1-a2) { // same flags as AIR today;
                                                 // restack if they ever diverge
         moveq   #0, d6
-        bra.s   PState_AirShared
+        jbra    PState_AirShared
 }
 pub proc PState_RollJump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         moveq   #(1<<AIRF_RELEASE_CAP)|(1<<AIRF_INPUT_LOCK), d6
-        bra.s   PState_AirShared
+        jbra    PState_AirShared
 }
 pub proc PState_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into PState_AirShared {
         moveq   #1<<AIRF_RELEASE_CAP, d6
@@ -104,26 +104,26 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // shared GROUND-vs-ROLL pick. Skips ALL air physics this frame
         // (gravity/input/sensors would re-detach us from the object). ---
         btst    #ST_ON_OBJECT, status(a0)
-        beq.s   .not_on_obj
+        beq     .not_on_obj
         clr.b   angle(a0)                       // flat object top
         move.w  x_vel(a0), PlayerV.ground_speed(a0) // flat conversion (gsp = x_vel)
         bclr    #ST_PUSHING, status(a0)
-        bsr.w   Air_LandState                   // d0 = GROUND/ROLL (curled
+        jbsr    Air_LandState                   // d0 = GROUND/ROLL (curled
                                                 // states uncurl in the enter
                                                 // hook; down-held → ROLL)
-        jmp     Player_SetState                 // tail — does NOT fall into
+        jbra    Player_SetState                 // tail — does NOT fall into
                                                 // air physics below
 .not_on_obj:
         // --- 1. variable jump height: while rising faster than the
         // release cap with no jump button held, cut to the cap ---
         btst    #AIRF_RELEASE_CAP, d6
-        beq.s   .no_cap
+        beq     .no_cap
         move.w  y_vel(a0), d0
         cmp.w   PPHYS_RELEASE_CAP(a4), d0
-        bge.s   .no_cap                         // not rising past the cap
+        bge     .no_cap                         // not rising past the cap
         move.b  Ctrl_1_Held, d1
         andi.b  #BUTTON_JUMP_MASK, d1
-        bne.s   .no_cap                         // still held → full arc
+        bne     .no_cap                         // still held → full arc
         move.w  PPHYS_RELEASE_CAP(a4), y_vel(a0)
 .no_cap:
 
@@ -131,34 +131,34 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // airborne. ROLLJUMP lockout skips the whole block (no accel,
         // no facing change) ---
         btst    #AIRF_INPUT_LOCK, d6
-        bne.s   .input_done
+        bne     .input_done
         move.b  Ctrl_1_Held, d2
         mask_opposing_lr(d2)
         move.w  x_vel(a0), d0
         btst    #2, d2                          // LEFT
-        bne.s   .air_left
+        bne     .air_left
         btst    #3, d2                          // RIGHT
-        beq.s   .input_done
+        beq     .input_done
         bclr    #ST_XFLIP, status(a0)
         move.w  PPHYS_TOP_SPEED(a4), d1
         cmp.w   d1, d0
-        bge.s   .input_done                     // S3K back-out: speed already
+        bge     .input_done                     // S3K back-out: speed already
                                                 // at/above top is preserved —
                                                 // input never curtails it
         add.w   PPHYS_AIR_ACCEL(a4), d0
         cmp.w   d1, d0
-        ble.s   .air_store
+        ble     .air_store
         move.w  d1, d0                          // crossed top this frame → clamp
-        bra.s   .air_store
+        jbra    .air_store
 .air_left:
         bset    #ST_XFLIP, status(a0)
         move.w  PPHYS_TOP_SPEED(a4), d1
         neg.w   d1
         cmp.w   d1, d0
-        ble.s   .input_done                     // S3K back-out (mirror)
+        ble     .input_done                     // S3K back-out (mirror)
         sub.w   PPHYS_AIR_ACCEL(a4), d0
         cmp.w   d1, d0
-        bge.s   .air_store
+        bge     .air_store
         move.w  d1, d0
 .air_store:
         move.w  d0, x_vel(a0)
@@ -170,24 +170,24 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // toward zero while +0..+$1F drags 0; subtraction direction is
         // automatic for both signs and can't cross zero (|x>>5| ≤ |x|) ---
         move.w  y_vel(a0), d0
-        bpl.s   .no_drag                        // falling/level → no drag
+        bpl     .no_drag                        // falling/level → no drag
         cmpi.w  #-$400, d0
-        blt.s   .no_drag                        // rising faster than $400
+        blt     .no_drag                        // rising faster than $400
         move.w  x_vel(a0), d0
         move.w  d0, d1
         asr.w   #5, d1
-        beq.s   .no_drag
+        beq     .no_drag
         sub.w   d1, d0
         move.w  d0, x_vel(a0)
 .no_drag:
 
         // --- 4. integrate, THEN gravity (classic order, research §4:
         // old y_vel moves you this frame, gravity sets up the next) ---
-        jsr     ObjectMove
+        jbsr    ObjectMove
         move.w  y_vel(a0), d0
         add.w   PPHYS_GRAVITY(a4), d0
         cmpi.w  #PHYS_FALL_CAP, d0
-        ble.s   .fall_capped
+        ble     .fall_capped
         move.w  #PHYS_FALL_CAP, d0
 .fall_capped:
         // FEEL DEVIATION (spec §2.1): classic non-jump up-velocity cap
@@ -202,10 +202,10 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // (research §3 end). Angles here are always even (the odd-flag
         // sensors substitute cardinals), so ±2 lands exactly on 0 ---
         move.b  angle(a0), d0
-        beq.s   .angle_done
-        bpl.s   .angle_pos
+        beq     .angle_done
+        bpl     .angle_pos
         addq.b  #2, d0
-        bra.s   .angle_set
+        jbra    .angle_set
 .angle_pos:
         subq.b  #2, d0
 .angle_set:
@@ -230,57 +230,57 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // Signed copies live in d3/d4 — no velocity re-reads below
         move.w  x_vel(a0), d3
         move.w  d3, d1
-        bpl.s   .ax_pos
+        bpl     .ax_pos
         neg.w   d1
 .ax_pos:
         move.w  y_vel(a0), d4
         move.w  d4, d2
-        bpl.s   .ay_pos
+        bpl     .ay_pos
         neg.w   d2
 .ay_pos:
         cmp.w   d2, d1                          // |x_vel| − |y_vel|
-        bls.s   .vertical
+        bls     .vertical
         tst.w   d3
-        bmi.s   .mostly_left
+        bmi     .mostly_left
 
         // --- mostly RIGHT: right wall → ceiling bump → flat-rule floor ---
-        bsr.w   Air_WallProbeRight
+        jbsr    Air_WallProbeRight
         tst.w   d4
-        beq.s   .right_no_wall
+        beq     .right_no_wall
         // wall-run engage (classic HitRightWall): gsp picks up the fall
         // speed so a wall-quadrant attach can continue the motion
         move.w  y_vel(a0), PlayerV.ground_speed(a0)
 .right_no_wall:
-        bsr.w   Air_CeilingBump
-        bra.w   Air_FloorLandFlat
+        jbsr    Air_CeilingBump
+        jbra    Air_FloorLandFlat
 
 .mostly_left:
-        bsr.w   Air_WallProbeLeft
+        jbsr    Air_WallProbeLeft
         tst.w   d4
-        beq.s   .left_no_wall
+        beq     .left_no_wall
         move.w  y_vel(a0), PlayerV.ground_speed(a0)
 .left_no_wall:
-        bsr.w   Air_CeilingBump
-        bra.w   Air_FloorLandFlat
+        jbsr    Air_CeilingBump
+        jbra    Air_FloorLandFlat
 
 .vertical:
         tst.w   d4                              // signed y_vel copy
-        bmi.s   .mostly_up
+        bmi     .mostly_up
         // --- mostly DOWN: both walls, then banded floor landing ---
-        bsr.w   Air_WallProbeLeft
-        bsr.w   Air_WallProbeRight
-        bra.w   Air_FloorLandBanded
+        jbsr    Air_WallProbeLeft
+        jbsr    Air_WallProbeRight
+        jbra    Air_FloorLandBanded
 
 .mostly_up:
         // --- mostly UP: both walls, then ceiling — bump or reattach ---
-        bsr.w   Air_WallProbeLeft
-        bsr.w   Air_WallProbeRight
-        jsr     Player_SensorCeiling            // d0 dist, d1 angle (slanted
+        jbsr    Air_WallProbeLeft
+        jbsr    Air_WallProbeRight
+        jbsr    Player_SensorCeiling            // d0 dist, d1 angle (slanted
                                                 // ceiling angles pass through
                                                 // — the wrapper substitutes a
                                                 // cardinal only on odd flags)
         tst.w   d0
-        bpl.s   .up_done                        // clear of the ceiling
+        bpl     .up_done                        // clear of the ceiling
         move.b  d1, d3                          // ceiling angle
         dist_to_fix(d0)
         sub.l   d0, y_pos(a0)                   // up-probe dist < 0 = head
@@ -294,7 +294,7 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.b  d3, d0
         addi.b  #$20, d0
         andi.b  #$40, d0
-        bne.s   .reattach
+        bne     .reattach
         clr.w   y_vel(a0)                       // bump (y_vel < 0 in this class)
 .up_done:
         rts
@@ -305,9 +305,9 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // from gsp, preserving the upward motion along the surface
         move.b  d3, angle(a0)
         bclr    #ST_PUSHING, status(a0)
-        bsr.w   Air_GspFromYvel
+        jbsr    Air_GspFromYvel
         moveq   #PSTATE_GROUND, d0
-        jmp     Player_SetState
+        jbra    Player_SetState
 }
 
 // -----------------------------------------------
@@ -319,9 +319,9 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 proc Air_FloorLandBanded (a0: *Sst) clobbers(d0-d7/a1-a2) {
-        jsr     Player_SensorFloor              // d0 dist, d1 resolved angle
+        jbsr    Player_SensorFloor              // d0 dist, d1 resolved angle
         tst.w   d0
-        bpl.s   .no_land                        // must be embedded to land
+        bpl     .no_land                        // must be embedded to land
         // eligibility: dist ≥ −(y_vel>>8) − 8 — embed tolerance scales
         // with fall speed; prevents snagging walls as floors (spec §6)
         move.w  y_vel(a0), d2
@@ -329,9 +329,9 @@ proc Air_FloorLandBanded (a0: *Sst) clobbers(d0-d7/a1-a2) {
         addq.w  #8, d2
         neg.w   d2
         cmp.w   d2, d0
-        blt.s   .no_land                        // too deep — keep falling
+        blt     .no_land                        // too deep — keep falling
         move.b  d1, d3                          // floor angle for the bands
-        bsr.w   Air_TouchFloor
+        jbsr    Air_TouchFloor
         // band select on d3 (classic mask tests):
         //   steep ±$20-$3F: (d3+$20)&$40 ≠ 0
         //   mid   ±$10-$1F: (d3+$10)&$20 ≠ 0
@@ -339,39 +339,39 @@ proc Air_FloorLandBanded (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.b  d3, d0
         addi.b  #$20, d0
         andi.b  #$40, d0
-        bne.s   .steep
+        bne     .steep
         move.b  d3, d0
         addi.b  #$10, d0
         andi.b  #$20, d0
-        bne.s   .mid
+        bne     .mid
         // flat: full conversion to the ground axis
         move.w  x_vel(a0), PlayerV.ground_speed(a0)
         clr.w   y_vel(a0)
-        bra.s   .grounded
+        jbra    .grounded
 .mid:
         // halve the fall speed, convert by angle sign. x_vel and the
         // halved y_vel are left as-is — the next ground frame's
         // projection overwrites both from gsp (classic)
         asr.w   y_vel(a0)
-        bsr.s   Air_GspFromYvel
-        bra.s   .grounded
+        jbsr    Air_GspFromYvel
+        jbra    .grounded
 .steep:
         clr.w   x_vel(a0)
         // landing-conversion fall cap $FC0 — part of the classic steep
         // conversion, NOT the removed airborne up-cap (that one is the
         // FEEL DEVIATION note in PState_AirShared)
         cmpi.w  #$FC0, y_vel(a0)
-        ble.s   .steep_capped
+        ble     .steep_capped
         move.w  #$FC0, y_vel(a0)
 .steep_capped:
-        bsr.s   Air_GspFromYvel
+        jbsr    Air_GspFromYvel
 .grounded:
-        bsr.w   Air_LandState                   // GROUND (curled states
+        jbsr    Air_LandState                   // GROUND (curled states
                                                 // uncurl in its enter hook)
                                                 // or straight to ROLL on a
                                                 // down-held landing — no
                                                 // uncurl flicker
-        jmp     Player_SetState
+        jbra    Player_SetState
 .no_land:
         rts
 }
@@ -386,15 +386,15 @@ proc Air_FloorLandBanded (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // -----------------------------------------------
 proc Air_FloorLandFlat (a0: *Sst) clobbers(d0-d7/a1-a2) {
         tst.w   y_vel(a0)
-        bmi.s   .no_land                        // rising — can't land
-        jsr     Player_SensorFloor
+        bmi     .no_land                        // rising — can't land
+        jbsr    Player_SensorFloor
         tst.w   d0
-        bpl.s   .no_land
-        bsr.s   Air_TouchFloor
+        bpl     .no_land
+        jbsr    Air_TouchFloor
         move.w  x_vel(a0), PlayerV.ground_speed(a0)
         clr.w   y_vel(a0)
-        bsr.w   Air_LandState                   // shared GROUND-vs-ROLL pick
-        jmp     Player_SetState
+        jbsr    Air_LandState                   // shared GROUND-vs-ROLL pick
+        jbra    Player_SetState
 .no_land:
         rts
 }
@@ -410,7 +410,7 @@ proc Air_TouchFloor (a0: *Sst) clobbers(d0/d2) {
         // forces Player_Quadrant = 0 before its sensor block (air
         // sensors never rotate), so the helper's quadrant dispatch is
         // always the +Y snap here — classic landings snap on Y
-        bsr.w   Player_SnapToSurface
+        jbsr    Player_SnapToSurface
         move.b  d1, angle(a0)
         bclr    #ST_PUSHING, status(a0)
         rts
@@ -431,7 +431,7 @@ proc Air_TouchFloor (a0: *Sst) clobbers(d0/d2) {
 proc Air_GspFromYvel (a0: *Sst) clobbers(d0) {
         move.w  y_vel(a0), d0
         tst.b   d3
-        bpl.s   .store
+        bpl     .store
         neg.w   d0
 .store:
         move.w  d0, PlayerV.ground_speed(a0)
@@ -450,19 +450,19 @@ proc Air_GspFromYvel (a0: *Sst) clobbers(d0) {
 // Out: d0.w = PSTATE_ROLL / PSTATE_GROUND (feed to Player_SetState)
 // Clobbers: d1
 // -----------------------------------------------
-proc Air_LandState (a0: *Sst) out(d0) clobbers(d1) {
+proc Air_LandState (a0: *Sst) clobbers(d1) out(d0) {
         moveq   #PSTATE_GROUND, d0
         move.b  Ctrl_1_Held, d1
         btst    #1, d1                          // DOWN
-        beq.s   .done
+        beq     .done
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
-        bne.s   .done                           // sideways intent vetoes
+        bne     .done                           // sideways intent vetoes
         move.w  PlayerV.ground_speed(a0), d1
-        bpl.s   .abs
+        bpl     .abs
         neg.w   d1
 .abs:
         cmpi.w  #PHYS_ROLL_START_MIN, d1
-        blt.s   .done
+        blt     .done
         moveq   #PSTATE_ROLL, d0
 .done:
         rts
@@ -483,9 +483,9 @@ proc Air_WallProbeRight (a0: *Sst) clobbers(d0-d6/a1) {
         addi.w  #PUSH_RADIUS, d0
         move.w  y_pos(a0), d1
         moveq   #1, d4                          // probe rightward
-        jsr     Player_SensorWallAt
+        jbsr    Player_SensorWallAt
         tst.w   d0
-        bpl.s   .no_hit
+        bpl     .no_hit
         dist_to_fix(d0)
         add.l   d0, x_pos(a0)                   // dist < 0 → pushes left
         clr.w   x_vel(a0)
@@ -501,9 +501,9 @@ proc Air_WallProbeLeft (a0: *Sst) clobbers(d0-d6/a1) {
         subi.w  #PUSH_RADIUS, d0
         move.w  y_pos(a0), d1
         moveq   #-1, d4                         // probe leftward
-        jsr     Player_SensorWallAt
+        jbsr    Player_SensorWallAt
         tst.w   d0
-        bpl.s   .no_hit
+        bpl     .no_hit
         dist_to_fix(d0)                         // (along −X)
         sub.l   d0, x_pos(a0)                   // dist < 0 → pushes right
         clr.w   x_vel(a0)
@@ -522,13 +522,13 @@ proc Air_WallProbeLeft (a0: *Sst) clobbers(d0-d6/a1) {
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 proc Air_CeilingBump (a0: *Sst) clobbers(d0-d7/a1-a2) {
-        jsr     Player_SensorCeiling
+        jbsr    Player_SensorCeiling
         tst.w   d0
-        bpl.s   .clear
+        bpl     .clear
         dist_to_fix(d0)
         sub.l   d0, y_pos(a0)                   // embedded → snap DOWN
         tst.w   y_vel(a0)
-        bpl.s   .clear
+        bpl     .clear
         clr.w   y_vel(a0)
 .clear:
         rts

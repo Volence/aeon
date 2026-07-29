@@ -51,7 +51,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; Player_Jump) come from games/sonic4/player/player_ground.emp. Pure code,
         ; shape-invariant window; ONE org both shapes. Resume lands on player_air's
         ; first label PState_Air. The gate define must never be set for other games.
-        org     $108A2
+        org     $10896
     endif
     ifndef SIGIL_EMP_PLAYER_AIR
       include "games/sonic4/player/player_air.asm"
@@ -60,7 +60,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; Jump/AirShared + the Air_* helpers) come from player_air.emp. Shape-invariant
         ; window; ONE org both shapes. Resume lands on player_spindash's first label
         ; PState_Spindash.
-        org     $10B74
+        org     $10B58
     endif
     ifndef SIGIL_EMP_PLAYER_SPINDASH
       include "games/sonic4/player/player_spindash.asm"
@@ -68,7 +68,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; sigil mixed build: PState_Spindash comes from player_spindash.emp. Shape-
         ; invariant window; ONE org both shapes. Resume lands on sonic.asm's first
         ; label Sonic_InitAssets.
-        org     $10C14
+        org     $10BF4
     endif
     ifndef SIGIL_EMP_SONIC
       include "games/sonic4/player/sonic.asm"
@@ -78,7 +78,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; shapes. Resume lands on test_static.asm's first label TestStatic_Main.
         ; The gate define must never be set for other games (demo takes the
         ; includes).
-        org     $10C54
+        org     $10C34
     endif
 
     ifndef SIGIL_EMP_TEST_STATIC
@@ -91,7 +91,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; coincide (the $8000 abs.w/abs.l bar — see the test_objects arm below).
         ; The gate define must never be set for other games (demo takes the
         ; includes).
-        org     $10C58
+        org     $10C38
     endif
     ifndef SIGIL_EMP_TEST_ANIMATED
       include "games/sonic4/objects/test_animated.asm"
@@ -101,7 +101,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; is defined AS-side by the surviving test_player.asm copy (identical
         ; equs), so _dplc_ptr/_art_base still resolve for it. Shape-invariant
         ; window; ONE org both shapes.
-        org     $10CB2
+        org     $10C92
     endif
     include "games/sonic4/objects/test_player.asm"
     include "games/sonic4/objects/test_enemy.asm"
@@ -127,7 +127,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; words) keep resolving through the shared link.
         ; NOTE: the gate define must never be set for other games (demo
         ; builds take the includes).
-        org     $10FCA
+        org     $10FAA
     endif
     ifndef SIGIL_EMP_TEST_EMITTER
       include "games/sonic4/objects/test_emitter.asm"
@@ -140,7 +140,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; its third label). AS-side consumers (the effect descriptor's objroutine
         ; word for TestParticle) keep resolving through the shared link. The gate
         ; define must never be set for other games (demo takes the includes).
-        org     $1101E
+        org     $10FFE
     endif
     ifndef SIGIL_EMP_TEST_PARENT
       include "games/sonic4/objects/test_parent.asm"
@@ -153,7 +153,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; callees (CreateChild_Normal / DeleteChildren / GetSineCosine /
         ; DeleteObject / Draw_Sprite) resolve through the shared link. The gate
         ; define must never be set for other games (demo takes the includes).
-        org     $11148
+        org     $11128
     endif
     ifndef SIGIL_EMP_TEST_STRESS_EMITTER
       include "games/sonic4/objects/test_stress_emitter.asm"
@@ -161,7 +161,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; sigil mixed build: TestStressEmitter/TestStressEmitter_Main come from
         ; games/sonic4/objects/test_stress_emitter.emp. Shape-invariant window;
         ; ONE org both shapes. Resume lands on test_churn's TestChurnObj.
-        org     $111A2
+        org     $11182
     endif
     ifndef SIGIL_EMP_TEST_CHURN
       include "games/sonic4/objects/test_churn.asm"
@@ -169,7 +169,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; sigil mixed build: TestChurnObj/TestChurnObj_Main come from
         ; games/sonic4/objects/test_churn.emp. Shape-invariant window; ONE org
         ; both shapes. Resume lands on path_swap.asm's ObjDef_PathSwap.
-        org     $1121A
+        org     $111FA
     endif
     include "games/sonic4/objects/path_swap.asm"
     endm
@@ -202,9 +202,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
         ; end (objdef_port pins OBJDEFS; re-pin on re-baseline). NOTE:
         ; sonic4-shape addresses — never set the define for other games.
       ifdef __DEBUG__
-        org     $11E06
+        org     $11DE6
       else
-        org     $11D9E
+        org     $11D7E
       endif
     endif
     include "games/sonic4/data/generated/ojz/act1/entity_data.asm"
@@ -220,9 +220,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
         ; re-baseline). NOTE: sonic4-shape addresses — never set the define
         ; for other games.
       ifdef __DEBUG__
-        org     $257D2
+        org     $257B2
       else
-        org     $2576A
+        org     $2574A
       endif
     endif
     ifndef SIGIL_EMP_PARTICLE_ANIMS
@@ -235,9 +235,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
         ; re-baseline). NOTE: sonic4-shape addresses — never set the define
         ; for other games.
       ifdef __DEBUG__
-        org     $257DA
+        org     $257BA
       else
-        org     $25772
+        org     $25752
       endif
     endif
 

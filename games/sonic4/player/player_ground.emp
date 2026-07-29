@@ -131,28 +131,28 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // threshold that separates duck from roll in S3K. At rolling
         // speed the press falls through to the jump check instead. ---
         btst    #1, Ctrl_1_Held                 // DOWN held
-        beq.s   .no_spindash
+        beq     .no_spindash
         tst.b   Player_JumpBuffer
-        beq.s   .no_spindash
+        beq     .no_spindash
         move.w  PlayerV.ground_speed(a0), d0
-        bpl.s   .sd_abs
+        bpl     .sd_abs
         neg.w   d0
 .sd_abs:
         cmpi.w  #PHYS_ROLL_START_MIN, d0
-        bge.s   .no_spindash
+        bge     .no_spindash
         clr.b   Player_JumpBuffer               // consume — this press is rev 0
-      if SOUND_DRIVER_ENABLED == 1 {
-        // The initiating press IS a rev (rev 0) and must play the rev SFX — classic
-        // spindash makes the sound on the FIRST press. Since we consumed the jump
-        // buffer above, PState_Spindash's .rev sees it empty and won't fire for this
-        // press, so play it here. (Subsequent taps fire .rev in player_spindash.asm.)
-        // Sound_PlaySFX preserves a0/a4; only d0 is clobbered (reloaded below).
-        move.b  #SFXID_SPINDASH, d0
-        jsr     Sound_PlaySFX
-      }
+        if SOUND_DRIVER_ENABLED == 1 {
+                // The initiating press IS a rev (rev 0) and must play the rev SFX — classic
+                // spindash makes the sound on the FIRST press. Since we consumed the jump
+                // buffer above, PState_Spindash's .rev sees it empty and won't fire for this
+                // press, so play it here. (Subsequent taps fire .rev in player_spindash.asm.)
+                // Sound_PlaySFX preserves a0/a4; only d0 is clobbered (reloaded below).
+                move.b  #SFXID_SPINDASH, d0
+                jbsr    Sound_PlaySFX
+        }
         moveq   #PSTATE_SPINDASH, d0
-        bsr.w   Player_SetState                 // hook curls + zeroes motion/charge
-        jmp     PState_Spindash                 // run the charge frame now —
+        jbsr    Player_SetState                 // hook curls + zeroes motion/charge
+        jbra    PState_Spindash                 // run the charge frame now —
                                                 // the floor pair keeps running
                                                 // (sonic.asm). Subsequent rev SFX per-tap in player_spindash.asm
 .no_spindash:
@@ -162,11 +162,11 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // successful launch, so a headroom rejection leaves it live and
         // the classic retry happens next frame while the buffer lasts ---
         tst.b   Player_JumpBuffer
-        beq.s   .no_jump
-        jsr     Player_SensorCeiling            // headroom: d0 = clearance
+        beq     .no_jump
+        jbsr    Player_SensorCeiling            // headroom: d0 = clearance
                                                 // (≥16 sentinel = open sky)
         cmpi.w  #PHYS_JUMP_HEADROOM, d0
-        bge.w   Player_Jump                     // classic CalcRoomOverHead
+        bge     Player_Jump                     // classic CalcRoomOverHead
                                                 // ≥6px rule; does not return
 .no_jump:
         // --- slope factor on gsp — BEFORE input, with LAST frame's angle
@@ -177,31 +177,31 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // this AND after input, so the cap bounds the post-slope sum.
         // (ROLL applies its own $50/$14 asymmetric factor — PState_Roll.) ---
         move.b  angle(a0), d0 as Angle          // GetSineCosine takes d0: Angle
-        beq.s   .no_slope                       // flat: factor 0 (fast path)
+        beq     .no_slope                       // flat: factor 0 (fast path)
         move.b  d0, d1
         addi.b  #$60, d1
         cmpi.b  #$C0, d1
-        bhs.s   .no_slope                       // ceiling band $60-$9F
-        jsr     GetSineCosine                   // d0.w = sin(angle)·$100
+        bhs     .no_slope                       // ceiling band $60-$9F
+        jbsr    GetSineCosine                   // d0.w = sin(angle)·$100
         asr.w   #3, d0                          // factor = ($20·sin)>>8 ≡
                                                 // sin asr 3 — exact, no muls
                                                 // (PHYS_SLOPE_WALK = 2^5,
                                                 // asserted at file top)
         tst.w   PlayerV.ground_speed(a0)
-        bne.s   .slope_apply
+        bne     .slope_apply
         // S3K standing gate: from rest, only slopes steep enough to beat
         // the minimum start a slide (|factor| ≥ $D ≈ asin(13/32) ≈ 24°);
         // shallower slopes hold the player still — no micro-creep
         move.w  d0, d1
-        bpl.s   .factor_abs
+        bpl     .factor_abs
         neg.w   d1
 .factor_abs:
         cmpi.w  #PHYS_SLOPE_STAND_MIN, d1
-        blt.s   .no_slope
+        blt     .no_slope
 .slope_apply:
         add.w   d0, PlayerV.ground_speed(a0)
 .no_slope:
-        bsr.w   Ground_Move
+        jbsr    Ground_Move
         // --- roll start (the classic Sonic_Roll slot: after Move, before
         // integration — this frame already moved with standing semantics,
         // exactly like the classics): down held, L/R NOT held (raw bits —
@@ -211,21 +211,21 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // ($200) when curling at rest — see PState_Roll's keep-roll note.
         move.b  Ctrl_1_Held, d0
         btst    #1, d0                          // DOWN
-        beq.s   Ground_PostMove
+        beq     Ground_PostMove
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d0
-        bne.s   Ground_PostMove
+        bne     Ground_PostMove
         move.w  PlayerV.ground_speed(a0), d0
-        bpl.s   .roll_abs
+        bpl     .roll_abs
         neg.w   d0
 .roll_abs:
         cmpi.w  #PHYS_ROLL_START_MIN, d0
-        blt.s   Ground_PostMove
+        blt     Ground_PostMove
         moveq   #PSTATE_ROLL, d0
-        bsr.w   Player_SetState                 // hook curls (+5px y-shift)
-      if SOUND_DRIVER_ENABLED == 1 {
-        moveq   #SFXID_ROLL, d0
-        jsr     Sound_PlaySFX
-      }
+        jbsr    Player_SetState                 // hook curls (+5px y-shift)
+        if SOUND_DRIVER_ENABLED == 1 {
+                moveq   #SFXID_ROLL, d0
+                jbsr    Sound_PlaySFX
+        }
         // fall through — the frame completes below as a roll
 }
 
@@ -240,7 +240,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRepel {
-        jsr     ObjectMove
+        jbsr    ObjectMove
 
         // --- on-object: the player is grounded on a solid object (set by
         // LAST tick's TouchResponse, still live this frame — Player_Main
@@ -252,7 +252,7 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
         // this tail; ROLL's unroll check runs in PState_Roll BEFORE here,
         // so rolling-to-stop on the object still uncurls. ---
         btst    #ST_ON_OBJECT, status(a0)
-        beq.s   .terrain
+        beq     .terrain
         clr.b   angle(a0)
         rts
 .terrain:
@@ -263,40 +263,40 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
         // flag OR |Δangle| ≥ $20 — that IS the "reject angle jumps > $20
         // between frames" loop fall-through guard; nothing more needed
         // at this site. ---
-        jsr     Player_SensorFloor              // d0 dist, d1 resolved angle
+        jbsr    Player_SensorFloor              // d0 dist, d1 resolved angle
         // adaptive snap-down window: min(|speed along probe axis|>>8 + 4,
         // 14) — S2+ rule (research feel-modern §2): Y-probe modes
         // (quadrant 0/2) use x_vel, X-probe wall modes (1/3) use y_vel
         move.w  x_vel(a0), d2
         btst    #0, Player_Quadrant             // sets Z only — N at
-        beq.s   .axis_sel                       // .axis_sel is still the
+        beq     .axis_sel                       // .axis_sel is still the
         move.w  y_vel(a0), d2                   // loaded value's sign on
 .axis_sel:                                      // both paths
-        bpl.s   .speed_pos
+        bpl     .speed_pos
         neg.w   d2
 .speed_pos:
         lsr.w   #8, d2
         addq.w  #4, d2
         cmpi.w  #14, d2
-        bls.s   .window_ok
+        bls     .window_ok
         moveq   #14, d2
 .window_ok:
         cmpi.w  #-14, d0
-        blt.s   .no_snap                        // embedded past the fixed
+        blt     .no_snap                        // embedded past the fixed
                                                 // snap-up — classic ignores
         tst.b   PlayerV.stick_convex(a0)
-        bne.s   .snap                           // full adherence: snap-down
+        bne     .snap                           // full adherence: snap-down
                                                 // window bypassed (research
                                                 // physics-classics §7)
         cmp.w   d2, d0
-        ble.s   .snap
+        ble     .snap
         // surface beyond snap reach — covers both-sensors-nothing (≥16
         // sentinel) and a ledge run-off. Velocities kept — gravity takes
         // over next frame. Roll-aware: a roll-off stays curled (AIRBALL),
         // spec §3.3 / verification matrix item 7
-        bra.w   Ground_DetachState              // does not return
+        jbra    Ground_DetachState              // does not return
 .snap:
-        bsr.w   Player_SnapToSurface            // probe-axis snap per
+        jbsr    Player_SnapToSurface            // probe-axis snap per
                                                 // quadrant (helper mirrors
                                                 // the sensor case table;
                                                 // clobbers d0/d2 — d1 angle
@@ -331,23 +331,23 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
 // -----------------------------------------------
 proc Player_SlopeRepel (a0: *Sst) clobbers(d0-d2/a1-a2) {
         move.w  PlayerV.move_lock(a0), d0
-        beq.s   .lock_idle
+        beq     .lock_idle
         subq.w  #1, d0
         move.w  d0, PlayerV.move_lock(a0)
         rts
 .lock_idle:
         tst.b   PlayerV.stick_convex(a0)
-        bne.s   .done                           // loop adherence: no slip
+        bne     .done                           // loop adherence: no slip
         move.b  angle(a0), d0
         addi.b  #PHYS_SLIP_ANGLE, d0
         cmpi.b  #PHYS_SLIP_ANGLE*2, d0
-        blo.s   .done                           // inside the flat band ±$17
+        blo     .done                           // inside the flat band ±$17
         move.w  PlayerV.ground_speed(a0), d1
-        bpl.s   .speed_abs
+        bpl     .speed_abs
         neg.w   d1
 .speed_abs:
         cmpi.w  #PHYS_SLIP_SPEED, d1
-        bge.s   .done                           // fast enough to hold on
+        bge     .done                           // fast enough to hold on
         // downhill nudge: sign = sign of sin(angle). Under our convention
         // positive sin (angle bit 7 clear) = right-descending surface →
         // downhill is +gsp; bit 7 set mirrors. sin ≥ 0 exactly on 0-$80,
@@ -355,7 +355,7 @@ proc Player_SlopeRepel (a0: *Sst) clobbers(d0-d2/a1-a2) {
         // a faithful sign proxy across the whole slip band
         move.w  #PHYS_SLIP_NUDGE, d1
         tst.b   angle(a0)
-        bpl.s   .nudge
+        bpl     .nudge
         neg.w   d1
 .nudge:
         add.w   d1, PlayerV.ground_speed(a0)
@@ -365,8 +365,8 @@ proc Player_SlopeRepel (a0: *Sst) clobbers(d0-d2/a1-a2) {
         move.b  angle(a0), d0
         addi.b  #PHYS_FALL_ANGLE, d0
         cmpi.b  #PHYS_FALL_ANGLE*2, d0
-        blo.s   .done
-        bra.s   Ground_DetachState              // roll-aware (gsp kept — S3K
+        blo     .done
+        jbra    Ground_DetachState              // roll-aware (gsp kept — S3K
                                                 // "slide, don't fall")
 .done:
         rts
@@ -396,10 +396,10 @@ proc Player_SlopeRepel (a0: *Sst) clobbers(d0-d2/a1-a2) {
 proc Ground_DetachState (a0: *Sst) clobbers(d0-d2/a1-a2) {
         moveq   #PSTATE_AIR, d0
         cmpi.b  #PSTATE_ROLL, PlayerV.player_state(a0)
-        bne.s   .set
+        bne     .set
         moveq   #PSTATE_AIRBALL, d0
 .set:
-        jmp     Player_SetState
+        jbra    Player_SetState
 }
 
 // -----------------------------------------------
@@ -421,10 +421,10 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // lockout); ball radii are KEPT by the hooks — bug #5 fix is
         // structural, no size pop on a roll-jump ---
         tst.b   Player_JumpBuffer
-        beq.s   .no_jump
-        jsr     Player_SensorCeiling            // d0 = headroom
+        beq     .no_jump
+        jbsr    Player_SensorCeiling            // d0 = headroom
         cmpi.w  #PHYS_JUMP_HEADROOM, d0
-        bge.w   Player_Jump                     // does not return
+        bge     Player_Jump                     // does not return
 .no_jump:
         // --- roll slope factor (classic Sonic_RollRepel): $50·sin>>8,
         // quartered to $14·sin>>8 when the factor's sign opposes gsp
@@ -435,24 +435,24 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // consecutive arithmetic shifts compose; constants asserted at
         // file top ---
         move.b  angle(a0), d0 as Angle          // GetSineCosine takes d0: Angle
-        beq.s   .no_slope                       // flat: factor 0 (fast path)
+        beq     .no_slope                       // flat: factor 0 (fast path)
         move.b  d0, d1
         addi.b  #$60, d1
         cmpi.b  #$C0, d1
-        bhs.s   .no_slope                       // ceiling band $60-$9F
-        jsr     GetSineCosine                   // d0.w = sin(angle)·$100
+        bhs     .no_slope                       // ceiling band $60-$9F
+        jbsr    GetSineCosine                   // d0.w = sin(angle)·$100
         move.w  d0, d1
         asl.w   #2, d0
         add.w   d1, d0                          // 5·sin (≤ ±$500 — no overflow)
         asr.w   #4, d0                          // downhill factor ($50 form)
         tst.w   PlayerV.ground_speed(a0)
-        bmi.s   .gsp_neg
+        bmi     .gsp_neg
         tst.w   d0
-        bpl.s   .slope_apply
-        bra.s   .uphill
+        bpl     .slope_apply
+        jbra    .uphill
 .gsp_neg:
         tst.w   d0
-        bmi.s   .slope_apply
+        bmi     .slope_apply
 .uphill:
         asr.w   #2, d0                          // quartered ($14 form)
 .slope_apply:
@@ -469,47 +469,47 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // the slope factor still run (S3K, same as walking) ---
         move.w  PlayerV.ground_speed(a0), d0
         tst.w   PlayerV.move_lock(a0)
-        bne.s   .friction
+        bne     .friction
         move.b  Ctrl_1_Held, d2
         mask_opposing_lr(d2)
         tst.w   d0
-        beq.s   .friction                       // no motion — nothing to brake
-        bmi.s   .moving_left
+        beq     .friction                       // no motion — nothing to brake
+        bmi     .moving_left
         btst    #2, d2                          // LEFT opposes rightward roll
-        bne.s   .brake_left
+        bne     .brake_left
         btst    #3, d2                          // RIGHT with the motion:
-        beq.s   .friction                       // facing only (classic
+        beq     .friction                       // facing only (classic
         bclr    #ST_XFLIP, status(a0)           // Obj01_RollRight)
-        bra.s   .friction
+        jbra    .friction
 .brake_left:
         subi.w  #PHYS_ROLL_DECEL, d0
-        bcc.s   .friction                       // borrow = crossed zero
+        bcc     .friction                       // borrow = crossed zero
         moveq   #-$80, d0                       // turnaround kick
-        bra.s   .friction
+        jbra    .friction
 .moving_left:
         btst    #3, d2                          // RIGHT opposes leftward roll
-        bne.s   .brake_right
+        bne     .brake_right
         btst    #2, d2
-        beq.s   .friction
+        beq     .friction
         bset    #ST_XFLIP, status(a0)           // facing only (classic)
-        bra.s   .friction
+        jbra    .friction
 .brake_right:
         addi.w  #PHYS_ROLL_DECEL, d0
-        bcc.s   .friction                       // carry = crossed zero
+        bcc     .friction                       // carry = crossed zero
         move.w  #$80, d0                        // (+$80 exceeds moveq range)
 .friction:
         move.w  PPHYS_FRICTION(a4), d1
         asr.w   #1, d1                          // roll friction = friction/2
         tst.w   d0
-        beq.s   .unroll_check
-        bmi.s   .fric_neg
+        beq     .unroll_check
+        bmi     .fric_neg
         sub.w   d1, d0
-        bcc.s   .unroll_check
+        bcc     .unroll_check
         moveq   #0, d0                          // crossed zero → stop
-        bra.s   .unroll_check
+        jbra    .unroll_check
 .fric_neg:
         add.w   d1, d0
-        bcc.s   .unroll_check
+        bcc     .unroll_check
         moveq   #0, d0
 
 .unroll_check:
@@ -524,33 +524,33 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.w  d0, PlayerV.ground_speed(a0)    // bank gsp — the ceiling
                                                 // sensor below clobbers d0
         move.w  d0, d1
-        bpl.s   .uabs
+        bpl     .uabs
         neg.w   d1
 .uabs:
         cmpi.w  #PHYS_UNROLL_MAX, d1
-        bge.s   .shared_move                    // d0 = gsp, still rolling
-        jsr     Player_SensorCeiling            // d0 = head clearance (ball box)
+        bge     .shared_move                    // d0 = gsp, still rolling
+        jbsr    Player_SensorCeiling            // d0 = head clearance (ball box)
         cmpi.w  #(PLAYER_Y_RADIUS-BALL_Y_RADIUS)+CURL_Y_SHIFT, d0
-        blt.s   .keep_rolling
+        blt     .keep_rolling
         moveq   #PSTATE_GROUND, d0              // unroll — the hook restores
-        bsr.w   Player_SetState                 // standing radii, −5px y-shift
+        jbsr    Player_SetState                 // standing radii, −5px y-shift
         move.w  PlayerV.ground_speed(a0), d0
-        bra.s   .shared_move                    // frame completes as GROUND
+        jbra    .shared_move                    // frame completes as GROUND
                                                 // from the cap (wall probe
                                                 // picks standing offsets off
                                                 // the new state)
 .keep_rolling:
         move.w  #PHYS_KEEP_ROLL_MIN, d0
         tst.w   PlayerV.ground_speed(a0)
-        bpl.s   .shared_move
+        bpl     .shared_move
         neg.w   d0
 .shared_move:
-        bsr.w   Ground_Move_Cap                 // shared cap → projection →
+        jbsr    Ground_Move_Cap                 // shared cap → projection →
                                                 // wall probe (see the entry-
                                                 // point note at Ground_Move_Cap; the
                                                 // probe raises −5px while
                                                 // _pl_state == ROLL)
-        bra.w   Ground_PostMove                 // integrate → floor pair →
+        jbra    Ground_PostMove                 // integrate → floor pair →
                                                 // SlopeRepel fall-through
 }
 
@@ -565,70 +565,70 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
 proc Ground_Move (a0: *Sst) clobbers(d0-d7/a1) falls_into Ground_Move_Cap {
         move.w  PlayerV.ground_speed(a0), d0
         tst.w   PlayerV.move_lock(a0)
-        bne.s   .friction                       // slip/spring input freeze:
+        bne     .friction                       // slip/spring input freeze:
                                                 // friction still runs (S3K);
                                                 // the decrement lives in
                                                 // Player_SlopeRepel
         move.b  Ctrl_1_Held, d2
         mask_opposing_lr(d2)
         btst    #2, d2                          // LEFT
-        bne.s   .move_left
+        bne     .move_left
         btst    #3, d2                          // RIGHT
-        bne.s   .move_right
+        bne     .move_right
 .friction:
         move.w  PPHYS_FRICTION(a4), d1
         tst.w   d0
-        beq.s   Ground_Move_Cap
-        bmi.s   .friction_neg
+        beq     Ground_Move_Cap
+        bmi     .friction_neg
         sub.w   d1, d0
-        bcc.s   Ground_Move_Cap                 // borrow = crossed zero
+        bcc     Ground_Move_Cap                 // borrow = crossed zero
         moveq   #0, d0
-        bra.s   Ground_Move_Cap
+        jbra    Ground_Move_Cap
 .friction_neg:
         add.w   d1, d0
-        bcc.s   Ground_Move_Cap                 // carry = crossed zero
+        bcc     Ground_Move_Cap                 // carry = crossed zero
         moveq   #0, d0
-        bra.s   Ground_Move_Cap
+        jbra    Ground_Move_Cap
 
 .move_left:
         tst.w   d0
-        ble.s   .accel_left
+        ble     .accel_left
         // decelerating against rightward motion
         sub.w   PPHYS_DECEL(a4), d0
-        bcc.s   Ground_Move_Cap
+        bcc     Ground_Move_Cap
         moveq   #-$80, d0                       // turnaround kick (.w use only)
-        bra.s   Ground_Move_Cap
+        jbra    Ground_Move_Cap
 .accel_left:
         bset    #ST_XFLIP, status(a0)
         move.w  PPHYS_TOP_SPEED(a4), d1
         neg.w   d1
         cmp.w   d1, d0
-        ble.s   Ground_Move_Cap                 // at/beyond −top already:
+        ble     Ground_Move_Cap                 // at/beyond −top already:
                                                 // preserve (S3K back-out —
                                                 // input never curtails
                                                 // earned overspeed)
         sub.w   PPHYS_ACCEL(a4), d0
         cmp.w   d1, d0
-        bge.s   Ground_Move_Cap
+        bge     Ground_Move_Cap
         move.w  d1, d0                          // crossed top this frame → clamp
-        bra.s   Ground_Move_Cap
+        jbra    Ground_Move_Cap
 
 .move_right:
         tst.w   d0
-        bge.s   .accel_right
+        bge     .accel_right
         add.w   PPHYS_DECEL(a4), d0
-        bcc.s   Ground_Move_Cap
+        bcc     Ground_Move_Cap
         move.w  #$80, d0                        // turnaround kick (+$80 exceeds
                                                 // moveq's signed-byte range)
-        bra.s   Ground_Move_Cap
+        jbra    Ground_Move_Cap
 .accel_right:
         bclr    #ST_XFLIP, status(a0)
         move.w  PPHYS_TOP_SPEED(a4), d1
         cmp.w   d1, d0
-        bge.s   Ground_Move_Cap                 // S3K back-out (see .accel_left)
+        bge     Ground_Move_Cap                 // S3K back-out (see .accel_left)
         add.w   PPHYS_ACCEL(a4), d0
         cmp.w   d1, d0
-        ble.s   Ground_Move_Cap
+        ble     Ground_Move_Cap
         move.w  d1, d0
 }
 
@@ -651,11 +651,11 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         // CAM_MAX_Y_STEP, VFILL_ROWS_PER_FRAME, and sensor reach to rise
         // together.
         cmpi.w  #PHYS_GSP_CAP, d0
-        ble.s   .cap_pos_ok
+        ble     .cap_pos_ok
         move.w  #PHYS_GSP_CAP, d0
 .cap_pos_ok:
         cmpi.w  #-PHYS_GSP_CAP, d0
-        bge.s   .cap_neg_ok
+        bge     .cap_neg_ok
         move.w  #-PHYS_GSP_CAP, d0
 .cap_neg_ok:
         move.w  d0, PlayerV.ground_speed(a0)
@@ -668,10 +668,10 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         // angle 0 fast path: x_vel = gsp exactly, y_vel = 0 (skips two
         // muls — the flat common case)
         tst.b   angle(a0)
-        bne.s   .project_slope
+        bne     .project_slope
         move.w  d0, x_vel(a0)
         clr.w   y_vel(a0)
-        bra.s   .wall_probe
+        jbra    .wall_probe
 .project_slope:
         // classic Traction: x_vel = cos·gsp>>8, y_vel = sin·gsp>>8 — NO
         // negation: the angle convention (down-right slope = +$10) and the
@@ -682,7 +682,7 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
                                                 // GetSineCosine (d0/d1 only)
         moveq   #0, d0
         move.b  angle(a0), d0 as Angle          // GetSineCosine takes d0: Angle
-        jsr     GetSineCosine                   // d0 = sin·$100, d1 = cos·$100
+        jbsr    GetSineCosine                   // d0 = sin·$100, d1 = cos·$100
         // variable×variable product — no table/shift form exists; one
         // player, slope frames only (flat fast path above), classic does
         // exactly this in Traction
@@ -703,13 +703,13 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         // enabled (feel-modern §2 "disabled outside −90°..90°,
         // re-enabled at exact multiples of 90°") ---
         tst.w   d4                              // capped gsp from .cap —
-        beq.s   .clear_push                     // probe direction sign
+        beq     .clear_push                     // probe direction sign
         move.b  angle(a0), d1
         move.b  d1, d2
         andi.b  #$3F, d2
-        beq.s   .gate_ok                        // exact cardinal: always probe
+        beq     .gate_ok                        // exact cardinal: always probe
         addi.b  #$40, d1
-        bmi.s   .clear_push                     // non-cardinal upper half
+        bmi     .clear_push                     // non-cardinal upper half
 .gate_ok:
         // "ahead" per quadrant — derived from the projection at the
         // cardinals (x_vel = cos·gsp, y_vel = sin·gsp): gsp>0 moves
@@ -717,7 +717,7 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         moveq   #0, d2
         move.b  Player_Quadrant, d2
         tst.w   d4
-        bpl.s   .dir_fwd
+        bpl     .dir_fwd
         addq.w  #4, d2
 .dir_fwd:
         lea     .dir_table(pc), a1              // (beyond d8(pc,Xn) reach)
@@ -732,16 +732,16 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         asr.w   #8, d1
         add.w   y_pos(a0), d1                   // projected engine Y
         cmpi.b  #PSTATE_ROLL, PlayerV.player_state(a0)
-        bne.s   .not_rolling
+        bne     .not_rolling
         subq.w  #5, d1                          // rolling: probe raised 5px —
                                                 // the curl shifted y_pos +5,
                                                 // so −5 restores the STANDING
                                                 // center height (SPG/spec §5;
                                                 // applies at every angle)
-        bra.s   .probe_y_set
+        jbra    .probe_y_set
 .not_rolling:
         tst.b   angle(a0)
-        bne.s   .probe_y_set
+        bne     .probe_y_set
         addq.w  #8, d1                          // foot-level probe ONLY at
                                                 // angle == 0 exactly (SPG:
                                                 // low steps push instead of
@@ -750,25 +750,25 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
 .probe_y_set:
         move.w  d7, d2                          // offset PUSH_RADIUS along
         subq.w  #2, d2                          // the probe direction
-        bmi.s   .off_vert                       // 0/1 = probe along Y
-        beq.s   .off_right
+        bmi     .off_vert                       // 0/1 = probe along Y
+        beq     .off_right
         subi.w  #PUSH_RADIUS, d0                // 3: left
-        bra.s   .probe_go
+        jbra    .probe_go
 .off_right:
         addi.w  #PUSH_RADIUS, d0                // 2: right
-        bra.s   .probe_go
+        jbra    .probe_go
 .off_vert:
         tst.w   d7
-        bne.s   .off_up
+        bne     .off_up
         addi.w  #PUSH_RADIUS, d1                // 0: down
-        bra.s   .probe_go
+        jbra    .probe_go
 .off_up:
         subi.w  #PUSH_RADIUS, d1                // 1: up
 .probe_go:
         move.w  d7, d2
-        jsr     Player_SensorWallDir            // d0 dist (d7 preserved)
+        jbsr    Player_SensorWallDir            // d0 dist (d7 preserved)
         tst.w   d0
-        ble.s   .wall_hit                       // dist<=0: overlap OR flush (dist==0) both count
+        ble     .wall_hit                       // dist<=0: overlap OR flush (dist==0) both count
                                                 // as contact — flush must stay ST_PUSHING (else the
                                                 // classifier flickers push↔walk as gsp re-accelerates
                                                 // against the wall). dist==0 through .wall_hit is inert:
@@ -784,18 +784,18 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         asl.w   #8, d0                          // dist → 8.8
         move.w  d7, d2
         subq.w  #2, d2
-        bmi.s   .cancel_vert
-        beq.s   .cancel_right
+        bmi     .cancel_vert
+        beq     .cancel_right
         sub.w   d0, x_vel(a0)                   // 3 left: dist<0 → vel rises
-        bra.s   .gsp_kill                       // toward zero
+        jbra    .gsp_kill                       // toward zero
 .cancel_right:
         add.w   d0, x_vel(a0)
-        bra.s   .gsp_kill
+        jbra    .gsp_kill
 .cancel_vert:
         tst.w   d7
-        bne.s   .cancel_up
+        bne     .cancel_up
         add.w   d0, y_vel(a0)                   // 0 down
-        bra.s   .gsp_kill
+        jbra    .gsp_kill
 .cancel_up:
         sub.w   d0, y_vel(a0)                   // 1 up
 .gsp_kill:
@@ -806,13 +806,13 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         // space rule, quadrant-independent: input→gsp mapping never
         // rotates, so gsp>0 is always the "facing right" travel direction
         tst.w   d1
-        bmi.s   .hit_back
+        bmi     .hit_back
         btst    #ST_XFLIP, status(a0)
-        bne.s   .clear_push                     // moving fwd, facing away
-        bra.s   .set_push
+        bne     .clear_push                     // moving fwd, facing away
+        jbra    .set_push
 .hit_back:
         btst    #ST_XFLIP, status(a0)
-        beq.s   .clear_push
+        beq     .clear_push
 .set_push:
         bset    #ST_PUSHING, status(a0)
         rts
@@ -839,15 +839,15 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
 // -----------------------------------------------
 pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         clr.b   Player_JumpBuffer               // consume the buffered press
-      if SOUND_DRIVER_ENABLED == 1 {
-        moveq   #SFXID_JUMP, d0
-        jsr     Sound_PlaySFX
-      }
+        if SOUND_DRIVER_ENABLED == 1 {
+                moveq   #SFXID_JUMP, d0
+                jbsr    Sound_PlaySFX
+        }
         move.w  PPHYS_JUMP_FORCE(a4), d2
         move.b  angle(a0), d0
-        beq.s   .flat
+        beq     .flat
         subi.b  #$40, d0 as Angle               // surface normal (GetSineCosine takes d0: Angle)
-        jsr     GetSineCosine                   // d0 sin·$100, d1 cos·$100
+        jbsr    GetSineCosine                   // d0 sin·$100, d1 cos·$100
                                                 // (d2 survives — clobbers
                                                 // nothing else)
         // variable×variable product — one-shot event, classic Sonic_Jump
@@ -858,7 +858,7 @@ pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         muls.w  d2, d0                          // lint: disable=E002
         asr.l   #8, d0
         add.w   d0, y_vel(a0)
-        bra.s   .launched
+        jbra    .launched
 .flat:
         // angle 0 fast path: cos(−$40) = 0, sin(−$40) = −$100 →
         // x_vel += 0, y_vel −= jump_force (from rest: exactly −$680).
@@ -877,14 +877,14 @@ pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // SPINDASH never calls here (its body has no jump check).
         moveq   #PSTATE_JUMP, d0
         cmpi.b  #PSTATE_ROLL, PlayerV.player_state(a0)
-        bne.s   .from_stand
+        bne     .from_stand
         moveq   #PSTATE_ROLLJUMP, d0
 .from_stand:
-        bsr.w   Player_SetState                 // preserves d0 (hook contract)
+        jbsr    Player_SetState                 // preserves d0 (hook contract)
         // bug #4 fix: run the full air body on the press frame — through
         // the state's own preamble so ROLLJUMP locks input on this frame
         // too
         cmpi.w  #PSTATE_ROLLJUMP, d0
-        beq.w   PState_RollJump
-        jmp     PState_Jump
+        beq     PState_RollJump
+        jbra    PState_Jump
 }

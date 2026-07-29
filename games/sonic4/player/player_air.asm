@@ -55,7 +55,7 @@ PState_AirShared:
         bsr.w   Air_LandState                   ; d0 = GROUND/ROLL (curled
                                                 ; states uncurl in the enter
                                                 ; hook; down-held → ROLL)
-        jmp     Player_SetState                 ; tail — does NOT fall into
+        bra.w   Player_SetState                 ; tail — does NOT fall into
                                                 ; air physics below
 .not_on_obj:
         ; --- 1. variable jump height: while rising faster than the
@@ -213,7 +213,7 @@ PState_AirShared:
         ; --- mostly DOWN: both walls, then banded floor landing ---
         bsr.w   Air_WallProbeLeft
         bsr.w   Air_WallProbeRight
-        bra.w   Air_FloorLandBanded
+        bra.s   Air_FloorLandBanded
 
 .mostly_up:
         ; --- mostly UP: both walls, then ceiling — bump or reattach ---
@@ -251,7 +251,7 @@ PState_AirShared:
         bclr    #ST_PUSHING, SST_status(a0)
         bsr.w   Air_GspFromYvel
         moveq   #PSTATE_GROUND, d0
-        jmp     Player_SetState
+        bra.w   Player_SetState
 
 ; -----------------------------------------------
 ; Air_FloorLandBanded — down-class floor landing with the classic angle
@@ -274,7 +274,7 @@ Air_FloorLandBanded:
         cmp.w   d2, d0
         blt.s   .no_land                        ; too deep — keep falling
         move.b  d1, d3                          ; floor angle for the bands
-        bsr.w   Air_TouchFloor
+        bsr.s   Air_TouchFloor
         ; band select on d3 (classic mask tests):
         ;   steep ±$20-$3F: (d3+$20)&$40 ≠ 0
         ;   mid   ±$10-$1F: (d3+$10)&$20 ≠ 0
@@ -309,12 +309,12 @@ Air_FloorLandBanded:
 .steep_capped:
         bsr.s   Air_GspFromYvel
 .grounded:
-        bsr.w   Air_LandState                   ; GROUND (curled states
+        bsr.s   Air_LandState                   ; GROUND (curled states
                                                 ; uncurl in its enter hook)
                                                 ; or straight to ROLL on a
                                                 ; down-held landing — no
                                                 ; uncurl flicker
-        jmp     Player_SetState
+        bra.w   Player_SetState
 .no_land:
         rts
 
@@ -335,8 +335,8 @@ Air_FloorLandFlat:
         bsr.s   Air_TouchFloor
         move.w  SST_x_vel(a0), _pl_gsp(a0)
         clr.w   SST_y_vel(a0)
-        bsr.w   Air_LandState                   ; shared GROUND-vs-ROLL pick
-        jmp     Player_SetState
+        bsr.s   Air_LandState                   ; shared GROUND-vs-ROLL pick
+        bra.w   Player_SetState
 .no_land:
         rts
 

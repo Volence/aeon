@@ -75,11 +75,11 @@ ensure(extern("ST_XFLIP") == ST_XFLIP, "engine/constants.asm ST_XFLIP drifted")
 // -----------------------------------------------
 pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
         btst    #1, Ctrl_1_Held                 // DOWN still held?
-        beq.s   .release
+        beq     .release
         // --- decay FIRST (classic order; runs on tap frames too, before
         // the rev, so the rev's clamp is the last word) ---
         move.w  PlayerV.spindash_charge(a0), d0
-        beq.s   .rev
+        beq     .rev
         move.w  d0, d1
         asr.w   #5, d1
         sub.w   d1, d0
@@ -91,33 +91,33 @@ pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // press test — the trigger consumed the initiating press, so a
         // charge frame only sees fresh taps ---
         tst.b   Player_JumpBuffer
-        beq.s   .floor
+        beq     .floor
         clr.b   Player_JumpBuffer
         addi.w  #SPINDASH_CHARGE_STEP, PlayerV.spindash_charge(a0)
-      if SOUND_DRIVER_ENABLED == 1 {
-        move.b  #SFXID_SPINDASH, d0
-        jsr     Sound_PlaySFX
-      }
+        if SOUND_DRIVER_ENABLED == 1 {
+                move.b  #SFXID_SPINDASH, d0
+                jbsr    Sound_PlaySFX
+        }
         cmpi.w  #SPINDASH_CHARGE_MAX, PlayerV.spindash_charge(a0)
-        bls.s   .floor
+        bls     .floor
         move.w  #SPINDASH_CHARGE_MAX, PlayerV.spindash_charge(a0)
 .floor:
         // --- floor maintenance (the classic AnglePos slot, reduced for
         // zero speed: snap window = 0>>8 + 4 = 4, fixed −14 snap-up;
         // mirrors PState_Ground's floor pair with speed = 0) ---
-        jsr     Player_SensorFloor              // d0 dist, d1 resolved angle
+        jbsr    Player_SensorFloor              // d0 dist, d1 resolved angle
         cmpi.w  #-14, d0
-        blt.s   .pinned                         // embedded past the snap-up
+        blt     .pinned                         // embedded past the snap-up
                                                 // — classic ignores
         cmpi.w  #4, d0
-        bgt.s   .floor_gone
-        bsr.w   Player_SnapToSurface
+        bgt     .floor_gone
+        jbsr    Player_SnapToSurface
         move.b  d1, angle(a0)
 .pinned:
         rts
 .floor_gone:
         moveq   #PSTATE_AIRBALL, d0             // curls via AIRBALL's enter
-        jmp     Player_SetState                 // hook (not a jump); exit hook
+        jbra    Player_SetState                 // hook (not a jump); exit hook
                                                 // discards the charge
 .release:
         // --- release: gsp = ±(SPINDASH_BASE + (charge>>8)·$80) — the
@@ -128,19 +128,19 @@ pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
         lsl.w   #7, d0                          // ·$80
         addi.w  #SPINDASH_BASE, d0
         btst    #ST_XFLIP, status(a0)
-        beq.s   .launch
+        beq     .launch
         neg.w   d0
 .launch:
         move.w  d0, PlayerV.ground_speed(a0)
         move.b  #16, Camera_Hold_Frames        // classic 16-frame camera
                                                 // freeze
         moveq   #PSTATE_ROLL, d0
-      if SOUND_DRIVER_ENABLED == 1 {
-        movem.l d0, -(sp)
-        move.b  #SFXID_DASH, d0
-        jsr     Sound_PlaySFX
-        movem.l (sp)+, d0
-      }
+        if SOUND_DRIVER_ENABLED == 1 {
+                movem.l d0, -(sp)
+                move.b  #SFXID_DASH, d0
+                jbsr    Sound_PlaySFX
+                movem.l (sp)+, d0
+        }
         // Drop any jump press buffered during the charge mash. The release
         // frame runs .release (never .rev), so a jump press landing in the
         // buffer window at release is NOT consumed — PState_Roll's jump-check
@@ -149,8 +149,8 @@ pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // the 1-byte mailbox (the quick-spindash "no follow-up noise"). A
         // FRESH press after the launch still roll-jumps normally.
         clr.b   Player_JumpBuffer
-        bsr.w   Player_SetState
-        jmp     PState_Roll                     // classic: the release frame
+        jbsr    Player_SetState
+        jbra    PState_Roll                     // classic: the release frame
                                                 // runs the full roll movement
                                                 // — the launch happens NOW
 }
