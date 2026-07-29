@@ -129,7 +129,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; callees (CreateChild_Normal / DeleteChildren / GetSineCosine /
         ; DeleteObject / Draw_Sprite) resolve through the shared link. The gate
         ; define must never be set for other games (demo takes the includes).
-        org     $1113E
+        org     $11148
     endif
     ifndef SIGIL_EMP_TEST_STRESS_EMITTER
       include "games/sonic4/objects/test_stress_emitter.asm"
@@ -137,7 +137,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; sigil mixed build: TestStressEmitter/TestStressEmitter_Main come from
         ; games/sonic4/objects/test_stress_emitter.emp. Shape-invariant window;
         ; ONE org both shapes. Resume lands on test_churn's TestChurnObj.
-        org     $11198
+        org     $111A2
     endif
     ifndef SIGIL_EMP_TEST_CHURN
       include "games/sonic4/objects/test_churn.asm"
@@ -145,7 +145,7 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; sigil mixed build: TestChurnObj/TestChurnObj_Main come from
         ; games/sonic4/objects/test_churn.emp. Shape-invariant window; ONE org
         ; both shapes. Resume lands on path_swap.asm's ObjDef_PathSwap.
-        org     $11210
+        org     $1121A
     endif
     include "games/sonic4/objects/path_swap.asm"
     endm
@@ -178,9 +178,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
         ; end (objdef_port pins OBJDEFS; re-pin on re-baseline). NOTE:
         ; sonic4-shape addresses — never set the define for other games.
       ifdef __DEBUG__
-        org     $11DFC
+        org     $11E06
       else
-        org     $11D94
+        org     $11D9E
       endif
     endif
     include "games/sonic4/data/generated/ojz/act1/entity_data.asm"
@@ -196,9 +196,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
         ; re-baseline). NOTE: sonic4-shape addresses — never set the define
         ; for other games.
       ifdef __DEBUG__
-        org     $257C8
+        org     $257D2
       else
-        org     $25760
+        org     $2576A
       endif
     endif
     ifndef SIGIL_EMP_PARTICLE_ANIMS
@@ -211,9 +211,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
         ; re-baseline). NOTE: sonic4-shape addresses — never set the define
         ; for other games.
       ifdef __DEBUG__
-        org     $257D0
+        org     $257DA
       else
-        org     $25768
+        org     $25772
       endif
     endif
 
