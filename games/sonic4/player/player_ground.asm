@@ -1,7 +1,7 @@
 ; Player grounded states — PState_Ground (slope factor, quadrant-rotated
 ; floor adherence, S3K slip), PState_Roll (rolling physics; shares the
 ; cap/projection/probe via Ground_Move.cap and the movement tail via
-; Ground_PostMove), + Player_Jump. PState_Spindash lives in sonic.asm
+; Ground_PostMove), + Player_Jump. PState_Spindash lives in player_spindash.asm
 ; (character state). Player_Jump lives in this file because it is
 ; invoked only from grounded states (its tail jumps into the air body in
 ; player_air.asm — the bug #4 press-frame fix). Reached only through the
@@ -60,9 +60,9 @@ PState_Ground:
       endif
         moveq   #PSTATE_SPINDASH, d0
         bsr.w   Player_SetState                 ; hook curls + zeroes motion/charge
-        jmp     PState_Spindash                 ; run the charge frame now —
+        bra.w   PState_Spindash                 ; run the charge frame now —
                                                 ; the floor pair keeps running
-                                                ; (sonic.asm). Subsequent rev SFX per-tap in player_spindash.asm
+                                                ; (player_spindash.asm). Subsequent rev SFX per-tap here
 .no_spindash:
         ; --- jump check (classic order: after spindash, before slope/
         ; input). Player_JumpBuffer covers fresh press AND buffered —
@@ -201,7 +201,7 @@ Ground_PostMove:
         ; sentinel) and a ledge run-off. Velocities kept — gravity takes
         ; over next frame. Roll-aware: a roll-off stays curled (AIRBALL),
         ; spec §3.3 / verification matrix item 7
-        bra.w   Ground_DetachState              ; does not return
+        bra.s   Ground_DetachState              ; does not return
 .snap:
         bsr.w   Player_SnapToSurface            ; probe-axis snap per
                                                 ; quadrant (helper mirrors
@@ -304,7 +304,7 @@ Ground_DetachState:
         bne.s   .set
         moveq   #PSTATE_AIRBALL, d0
 .set:
-        jmp     Player_SetState
+        bra.w   Player_SetState
 
 ; -----------------------------------------------
 ; PState_Roll — grounded, curled. Classic Obj01_MdRoll order (research
@@ -779,5 +779,5 @@ Player_Jump:
         ; the state's own preamble so ROLLJUMP locks input on this frame
         ; too
         cmpi.w  #PSTATE_ROLLJUMP, d0
-        beq.w   PState_RollJump
-        jmp     PState_Jump
+        beq.s   PState_RollJump
+        bra.s   PState_Jump

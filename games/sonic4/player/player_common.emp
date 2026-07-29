@@ -149,7 +149,7 @@ ensure(extern("BUTTON_RIGHT_BIT") == BUTTON_RIGHT_BIT, "engine/constants.asm BUT
 // always-on window-overflow check subsumes the AS objvarsCheck / SST_interact
 // collision assert.
 // -----------------------------------------------
-vars PlayerV: Sst.sst_custom {
+pub vars PlayerV: Sst.sst_custom {
         ground_speed:     i16,          // inertia — single source of truth on ground
         player_state:     u8,           // PSTATE_* (jump-table byte offset)
         status_secondary: u8,           // reserved condition bits (speedshoes etc.) — 0 for now
@@ -237,6 +237,25 @@ pub comptime fn mask_opposing_lr(held: Reg) -> Code {
 // -----------------------------------------------
 pub comptime fn dist_to_fix(v: Reg) -> Code {
         return pixels_to_coord(v)
+}
+
+// -----------------------------------------------
+// abs_w — |v| in place (negate the word when it is negative). The .emp
+// counterpart of the port's most-repeated physics idiom (the bpl/neg.w pair,
+// 9 sites across player_ground/air); a hygienic .abs label per expansion, the
+// mask_opposing_lr splice pattern. The caller must have v's sign live in the
+// condition codes — every site loads/computes v immediately before, so the
+// bpl reads v's own sign (no self-tst, exactly the inline idiom). The AS twins
+// keep the bpl/neg inline (byte-level lockstep — no macro needed).
+// In:  v = data register holding a signed word; N reflects its sign
+// Out: v = |v|
+// -----------------------------------------------
+pub comptime fn abs_w(v: Reg) -> Code {
+        return asm {
+                bpl     .abs
+                neg.w   {v}
+        .abs:
+        }
 }
 
 // -----------------------------------------------
@@ -413,9 +432,7 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
         // walk/run paths consume d3 and neither clobbers it. The balance path
         // clobbers d3 (sensor) but leads to a FIXED-duration anim, so it's moot.
         move.w  PlayerV.ground_speed(a0), d0
-        bpl     .abs_ok
-        neg.w   d0
-.abs_ok:
+        abs_w(d0)
         move.w  #$800, d4
         sub.w   d0, d4
         bpl     .hold_ok
@@ -463,9 +480,7 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
         tst.b   PlayerV.skid_latch(a0)
         bne     .skid_show                      // already latched -> keep (no new sfx)
         move.w  d1, d2
-        bpl     .skid_abs
-        neg.w   d2
-.skid_abs:
+        abs_w(d2)
         cmpi.w  #PHYS_SKID_MIN, d2
         blo     .not_skid                       // opposing but too slow to arm
         // fresh-arm edge — fire the skid SFX once before latching
@@ -524,9 +539,7 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
 
 .walk_or_run:
         move.w  PlayerV.ground_speed(a0), d1
-        bpl     .wr_abs
-        neg.w   d1
-.wr_abs:
+        abs_w(d1)
         cmpi.w  #ANIM_RUN_THRESHOLD, d1
         blt     .walk
         move.b  #ANIM_RUN, anim(a0)

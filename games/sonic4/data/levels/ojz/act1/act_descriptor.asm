@@ -233,9 +233,9 @@ OJZ_Sec8:
         ; NOTE: sonic4-shape addresses — never set the define for other
         ; games. The generated includes above stay AS-side in BOTH shapes.
       ifdef __DEBUG__
-        org     $14E26
+        org     $14E06
       else
-        org     $14DBE
+        org     $14D9E
       endif
     endif
 
