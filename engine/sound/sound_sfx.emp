@@ -1,0 +1,1650 @@
+// ===========================================================================
+// engine/sound/sound_sfx.emp — Phase 5a SFX engine: steal + per-frame interpreter
+// ===========================================================================
+// The .emp port of sound_sfx.asm (this directory) — the FOURTH resident Z80 CODE
+// file and the last interpreter before the driver top (rung 4). A parallel SFX
+// interpreter layered over the music sequencer: a fixed 7-slot SfxChannel array
+// whose shared prefix MIRRORS SeqChannel, so the SHARED interpreter (ModUpdate +
+// Sequencer_Channel, DEFINED in sound_sequencer.emp) walks it with ix = the
+// SfxChannel exactly as it walks a music channel. Assembled INLINE inside the
+// z80_sound_driver.asm `phase 0` blob (AFTER sound_sequencer.asm — whose
+// ModUpdate/Sequencer_Channel this REUSES — and BEFORE sound_fm.asm/sound_psg.asm
+// — whose writers it CALLS). Its labels resolve into Z80 RAM at base $0CD7 (plain).
+//
+// The `.asm` twin stays CANONICAL in the build (Z80-blob-precedes-engine: one byte
+// slides the whole corpus). This `.emp` is proven by the SCALE-1 WINDOWED oracle
+// (`sound_sfx_port`, BOTH shapes), NOT wired into build.sh — the seam sub-tranche
+// owns whole-ROM placement.
+//
+// --- SHAPE VARIANCE: the PSG t32 CASE (shape-VARIANT base, shape-INVARIANT body) -
+// Base is $0CD7 (plain) / $0D55 (debug) — a +$7E shift from the sequencer's own 16
+// internal `if DEBUG == 1` blocks that PRECEDE this window. sfx has NO internal
+// debug blocks of its own, so its window length is 1516 B ($5EC) in BOTH shapes;
+// the shapes differ only in the base embedded in internal jp/call targets + the
+// +$7E-shifted fm/psg external call targets (the two sequencer procs ModUpdate/
+// Sequencer_Channel + the two driver procs SndDrv_SetBank/Snd_RouteClassFlags
+// PRECEDE the sequencer's debug growth, so they are shape-INVARIANT). sfx's only
+// comptime conditional is the GAME-CONFIG `if SFXID_REV_LOOP >= 0` (always-on in
+// sonic4: SFXID_REV_LOOP = SFXID_SPINDASH = $AB), emitted identically in both
+// shapes.
+//
+// --- HARDWARE / BANK CONTRACTS (C3 audit surface) --------------------------
+//   * SFX DATA SOURCING: the SFX blobs are 68k ROM data (id -> blob via SfxBlobWinTab,
+//     a banked $8000-window table). The whole SFX set lives in ONE bank == the
+//     engine-table bank (SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK, asserted at build).
+//     SfxDispatch/Sfx_Frame/Sfx_BeginSound SetBank(SFX_BLOB_BANK) before the lookup
+//     and LEAVE it (the stream-song model): the per-frame cursor reads the blob from
+//     the $8000 window every frame.
+//   * PATCH RESOLUTION (no SND_SEQ_PATCHTAB clobber): an SfxChannel carries its OWN
+//     voice ptr in sx_patch_base; Sfx_Steal calls Fm_PatchLoad(hl=that ptr) so the
+//     SFX voice loads WITHOUT touching SND_SEQ_PATCHTAB. Music restore re-derives the
+//     music patch via Fm_PatchPtr (read-only).
+//   * de=$4001 invariant: all YM writes go through the Fm_* writers (absolute
+//     addressing + $2A re-park). Sfx_Frame NEVER does raw `ld (de),a`; it clobbers de,
+//     and both Sequencer_Frame call sites re-park de=$4001 after the tail-call.
+//
+// --- ix PRESERVATION (per-proc, NOT a module invariant) --------------------
+// Sfx_Frame is the SFX-side channel-walk DRIVER — it reloads ix
+// (`ld ix, SND_SFX_CHANNELS`), advances it (`add ix, de`), and reads
+// `(ix+sc_flags)` across `call Sequencer_Channel` (the shared interpreter, whose
+// ix preservation is TRUE but checker-invisible across its `ex (sp),hl` computed
+// dispatch — the t36 §3.4 finding; sound_sfx.asm:294 is the 2nd relied-upon site).
+// So there is NO module-scope `invariant: preserves(ix)` (a module invariant would
+// correctly fire on Sfx_Frame + the dispatch/allocation procs that clobber ix);
+// `preserves(ix)` is declared PER-PROC on the routines the checker verifies it for
+// (the push/pop-bracketed or iy-walking leaves).
+//
+// --- COMPOUND-DISPLACEMENT SPELLING ----------------------------------------
+// `(ix+(field+k))` (parenthesized) is the house spelling for a field+offset
+// displacement — the flat `(ix+field+k)` parser fix is deferred (gap-ledger t32
+// row; forced-spelling name-the-row discipline). A bare `(ix+field)` stays flat.
+// ===========================================================================
+
+module engine.sound_sfx (cpu: z80)
+
+// --- The cross-seam resident callees this file calls (extern boundary of the
+// windowed oracle). Each `preserves(...)` set is VERIFIED BY HAND against the
+// co-resident `pub proc` def (the machine cross-check does NOT exist — the t36
+// extern-decl-vs-def drift hazard; kept exact-or-conservative-subset). ---
+// Sequencer-defined (sound_sequencer.emp):
+extern proc ModUpdate () preserves(ix)                  // def clobbers(af,bc,de,hl) preserves(ix) — EXACT
+extern proc Sequencer_Channel ()                        // def clobbers(af,bc,de,hl), NO preserves(ix) (t36 checker-limitation omission) — matched
+// FM-defined (sound_fm.emp):
+extern proc Fm_PatchLoad () preserves(ix)
+extern proc Fm_NoteOff () preserves(ix)
+extern proc Fm_SetVolume () preserves(ix)
+extern proc Fm_PatchPtr () preserves(ix)
+extern proc Fm_NoteOnFreqExact () preserves(ix)
+// PSG-defined (sound_psg.emp):
+extern proc Psg_NoteOff () preserves(ix)
+extern proc Psg_SetVolume () preserves(de, hl, ix)
+extern proc Psg_NoteOn () preserves(ix)
+extern proc Psg_Noise () preserves(ix)
+// Driver-defined (z80_sound_driver.asm — rung 4, DIE-AT-PORT boundary externs):
+extern proc SndDrv_SetBank () preserves(bc, de, ix)     // driver: clobbers af,hl; preserves bc,de,ix,iy
+extern proc Snd_RouteClassFlags () preserves(bc, de, hl, ix) // driver: clobbers af (out a); preserves bc,de,hl,ix,iy
+
+section sound_sfx (cpu: z80, vma: $0CD7) {
+
+    // SFX_SLOT_NONE = 255 ($FF) — route not mapped to any SfxChannel slot.
+    const SFX_SLOT_NONE = 255
+
+    // SfxDispatch/Sfx_BeginSound multi-channel loop scratch (RAM, anchored above
+    // SND_SFX_DUCK_TARGET). The per-channel placement loop calls Sfx_SelectVoice/
+    // Sfx_Steal, which clobber EVERY register (incl. ix/iy), so the blob base +
+    // chcount + per-channel cursor + selected slot/route survive in RAM across
+    // iterations, not registers.
+    const SND_SFX_DISP_BASE     = SND_SFX_DUCK_TARGET + 1    // blob window base (word)
+    const SND_SFX_DISP_PRIO     = SND_SFX_DISP_BASE + 2      // incoming SFX priority
+    const SND_SFX_DISP_COUNT    = SND_SFX_DISP_PRIO + 1      // remaining channels (count-down)
+    const SND_SFX_DISP_IDX      = SND_SFX_DISP_COUNT + 1     // current channel record index
+    const SND_SFX_DISP_SLOT     = SND_SFX_DISP_IDX + 1       // chosen SfxChannel slot (this chan)
+    const SND_SFX_DISP_ROUTE    = SND_SFX_DISP_SLOT + 1      // physical route the slot owns
+    const SND_SFX_DISP_ID       = SND_SFX_DISP_ROUTE + 1     // raw id of the SFX being dispatched
+    const SND_SFX_DISP_PRIO_RAW = SND_SFX_DISP_ID + 1        // raw incoming priority (bit7 = non-latching)
+    const SND_SFX_DISP_CAP      = SND_SFX_DISP_PRIO_RAW + 1  // incoming SFX instance cap (sfh_cap)
+    const SND_SFX_ID_TAB        = SND_SFX_DISP_CAP + 1       // 7 bytes (per-slot raw SFX id)
+    const SND_SFX_DISP_END      = SND_SFX_ID_TAB + SFX_VOICE_COUNT
+    ensure(SND_SFX_DISP_END <= SND_REQ_BASE,
+           "SFX dispatch scratch overruns the mailbox at SND_REQ_BASE")
+
+    // ----------------------------------------------------------------------
+    // Sfx_QueueEntryPtr — compute hl = address of entry[n].id byte in the queue.
+    // entry[n] is at SND_SFX_QUEUE + n*2 = SND_SFX_QUEUE + n + n (no multiply).
+    // In: a = n (0..2). Out: hl = &queue_entry[n].id.
+    // Callers must not rely on de surviving this call.
+    // ----------------------------------------------------------------------
+    // Contract: out(hl); clobbers af, de (n*2 scratch); preserves bc, ix, iy (only
+    // a,h,l,d,e touched — bc/ix/iy declared so callers Sfx_DrainQueue/Sfx_QueueEnqueue
+    // that hold state there get the callee-preserves credit).
+    pub proc Sfx_QueueEntryPtr () out(hl) clobbers(af, de) preserves(bc, ix, iy) {
+        ld      l, a
+        ld      h, 0
+        add     hl, hl                   // hl = n*2 (no multiply: add hl,hl)
+        ld      de, SND_SFX_QUEUE
+        add     hl, de                   // hl = SND_SFX_QUEUE + n*2
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_DrainQueue — pop the highest-priority entry from the SFX queue and
+    // launch it via Sfx_BeginSound. Called once per frame at the TOP of Sfx_Frame.
+    // At most one SFX is begun per frame (bounded latency; highest-priority waiter
+    // plays first).
+    // In: nothing. Out: SND_SFX_QUEUE_CNT decremented by 1 if an entry was drained;
+    //   Sfx_BeginSound called with the popped id.
+    //
+    // REGISTER NOTES:
+    //   Throughout the scan phase: b=djnz-counter, c=best-slot, d=best-priority.
+    //   The slot cursor is kept in e (= SND_SFX_QUEUE_CNT scratch) between iterations.
+    //   Sfx_QueueEntryPtr clobbers de — the slot cursor (e) must be pushed/popped around
+    //   each call (b=djnz/c=best-slot are also pushed together as bc).
+    // ----------------------------------------------------------------------
+    // Contract: clobbers all (tail-jumps to Sfx_BeginSound).
+    pub proc Sfx_DrainQueue () clobbers(af, bc, de, hl, ix, iy) {
+        ld      a, (SND_SFX_QUEUE_CNT)
+        or      a
+        ret     z                        // queue empty -> nothing to drain
+
+        // scan entries 0..CNT-1 for the highest-priority one.
+        // Register allocation: b=djnz-counter (CNT-1), c=best-slot, d=best-priority.
+        // e = scan cursor (clobbered by Sfx_QueueEntryPtr, so push de saves it across call)
+        ld      a, (SND_SFX_QUEUE_CNT)
+        ld      b, a                     // b = CNT (djnz counter)
+        ld      c, 0                     // c = best slot index (entry 0 primed)
+        // prime best priority = entry[0].priority (direct load, no Sfx_QueueEntryPtr call)
+        ld      hl, SND_SFX_QUEUE + 1    // &entry[0].priority
+        ld      d, (hl)                  // d = best priority
+        // only one entry -> slot 0 wins (no scan needed).
+        dec     b
+        jr      z, .drain_pop
+        // scan entries 1..CNT-1.
+        // b = djnz counter (CNT-1, already decremented), c = best slot, d = best priority.
+        // e = scan cursor (1..CNT-1). Sfx_QueueEntryPtr clobbers de, so push/pop de
+        // around each call to save (best-priority d, cursor e); bc pushed/popped too.
+        ld      e, 1                     // e = scan cursor starting at slot 1
+    .drain_scan_loop:
+        push    bc                       // save (djnz-counter b, best-slot c)
+        push    de                       // save (best-priority d, cursor e) — de clobbered below
+        ld      a, e                     // a = slot cursor (from saved e)
+        call    Sfx_QueueEntryPtr        // hl = &entry[a].id; de clobbered
+        inc     hl                       // hl = &entry[a].priority
+        ld      a, (hl)                  // a = candidate priority
+        pop     de                       // restore (d=best-priority, e=cursor)
+        pop     bc                       // restore (b=djnz-counter, c=best-slot)
+        // compare candidate(a) vs best(d): if a > d -> new winner
+        cp      d                        // CARRY set if a < d; Z if equal
+        jr      c, .drain_no_update      // a < d -> no update
+        jr      z, .drain_no_update      // tie -> FIFO (earlier slot = lower index wins)
+        ld      d, a                     // new best priority
+        ld      c, e                     // new best slot
+    .drain_no_update:
+        inc     e                        // advance cursor
+        djnz    .drain_scan_loop         // b-- and loop until all CNT-1 extras scanned
+
+    .drain_pop:
+        // c = best slot, d = best priority (d used only for scan; no longer needed).
+        // Read the popped id from entry[c].id.
+        ld      a, c
+        call    Sfx_QueueEntryPtr        // hl = &entry[c].id; de clobbered
+        ld      a, (hl)                  // a = the popped id
+        push    af                       // preserve the id across the compact
+
+        // --- COMPACT: shift entries c+1..CNT-1 down one slot. ---------------------
+        // Number of entries to shift = (CNT-1) - c.
+        // Use hl as source ptr (entry[c+1]), de as dest ptr (entry[c]).
+        // Since hl = &entry[c] right now (from QueueEntryPtr above), advance 2 bytes:
+        ld      d, h
+        ld      e, l                     // de = &entry[c] (dest)
+        inc     hl
+        inc     hl                       // hl = &entry[c+1] (source)
+        // shift-count = CNT - 1 - c, in entries (each 2 bytes).
+        ld      a, (SND_SFX_QUEUE_CNT)
+        dec     a                        // a = CNT-1
+        sub     c                        // a = (CNT-1) - c = entries to shift
+        // if a == 0 (c was the last slot), no shifting needed.
+        jr      z, .compact_done
+        // each entry is 2 bytes; copy a*2 bytes from hl to de.
+        ld      b, a
+        add     a, b                     // a = b*2 (byte count) without SLA (use add a,a)
+        ld      b, a                     // b = byte count
+    .shift_loop:
+        ld      a, (hl)
+        ld      (de), a
+        inc     hl
+        inc     de
+        djnz    .shift_loop
+    .compact_done:
+        // decrement CNT.
+        ld      hl, SND_SFX_QUEUE_CNT
+        dec     (hl)
+
+        // call Sfx_BeginSound with the popped id.
+        pop     af                       // a = the popped id (raw SFX id)
+        jp      Sfx_BeginSound           // tail-call (clobbers all)
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_Frame — run all active SfxChannels once per frame, AFTER Sequencer_Frame.
+    // Mirrors Sequencer_Frame's .chan_loop: per ACTIVE slot, ModUpdate (render) then
+    // the tempo-gated Sequencer_Channel (advance the SFX cursor — the SHARED interp).
+    // On a slot's stream End, Sequencer_Channel's MEV_END handler clears SCF_ACTIVE
+    // (verified in sound_sequencer.asm Seq_Op_End) — detect that and hand the voice
+    // back via Sfx_Restore (un-mute the override, re-upload the music voice, re-key the
+    // held note iff it's keyed, and deactivate the slot).
+    // In: nothing. Reloads ix as the channel cursor, so it CLOBBERS ix (no
+    // `preserves(ix)` — see the file header). Preserves nothing the caller needs
+    // except the de re-park it does after this tail-call.
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af,bc,de,hl,ix,iy — the honest superset. iy is destroyed by
+    // the callees Sfx_DrainQueue/Sfx_DuckRamp/Sfx_Restore (their iy-walkers own it), so
+    // a caller must not rely on iy surviving; omitting it would falsely read as
+    // preserved (exhaustive-license semantics). The sole caller Sequencer_Frame also
+    // clobbers iy, so no live reliance breaks.
+    pub proc Sfx_Frame () clobbers(af, bc, de, hl, ix, iy) {
+        // Bank the SFX blob bank in FIRST: the slot loop's stream/env reads go
+        // through the $8000 window, but the caller (Run_SeqFrame_OnSongBank)
+        // banked SND_SONG_BANK — which is 0 at cold boot with no song ever
+        // loaded, so an SFX started before any music would read 68k code at ROM
+        // $0000-$7FFF as its event stream. Cached no-op whenever the (co-located)
+        // song bank is already selected. Clobbers af,hl (nothing live at entry).
+        ld      a, SFX_BLOB_BANK
+        call    SndDrv_SetBank
+        call    Sfx_DrainQueue           // Task 9: pop highest-priority pending SFX
+        call    Sfx_DuckRamp             // Task 10: ramp the music duck level toward target
+        ld      b, SFX_VOICE_COUNT       // b = slot count (djnz bound)
+        ld      ix, SND_SFX_CHANNELS     // ix = first SfxChannel
+    .slot_loop:
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      z, .next_slot            // inactive slot -> skip
+        push    bc                       // preserve the slot-loop counter (b)
+
+        // Stage C: age the re-ping countdown. 0 = not continuous (skip). 1 -> 0FFh
+        // (mark expiring: end at next loop boundary). 2..N -> decrement. A ping this
+        // frame (Sfx_BeginSound) already reset it to N before Sfx_Frame runs.
+        ld      a, (ix+sx_extend)
+        or      a
+        jr      z, .extend_done          // not continuous
+        inc     a                        // a==0FFh (expiring)? -> a==0 -> leave as-is
+        jr      z, .extend_done
+        dec     a                        // undo the test-inc; a = current value
+        dec     a                        // count down one
+        jr      nz, .extend_store
+        ld      a, $FF                   // hit 0 -> expiring sentinel
+    .extend_store:
+        ld      (ix+sx_extend), a
+    .extend_done:
+
+        // (1) modulation layer — render the SFX channel's state -> chip. ix kept.
+        call    ModUpdate
+
+        // (2) tempo gate (S3K TempoWait model, same shape as Sequencer_Frame):
+        // accum += mod; carry -> tempo-delay frame (no event-tick). SFX slots
+        // are armed with mod 0 (below, at dispatch) -> the add never carries ->
+        // one event-tick EVERY frame (SFX stay unconditioned full-rate).
+        ld      a, (ix+sc_tempo_mod)
+        add     a, (ix+sc_tempo_accum)
+        ld      (ix+sc_tempo_accum), a
+        jr      c, .slot_done            // carry -> no event-tick this frame
+        call    Sequencer_Channel        // advance the SFX cursor (shared interp)
+        // if the SFX stream ended, Seq_Op_End (MEV_END) cleared SCF_ACTIVE.
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      nz, .slot_done
+        call    Sfx_Restore              // SFX ended -> hand the voice back to music
+    .slot_done:
+        pop     bc
+    .next_slot:
+        ld      de, SfxChannel_len       // size added directly (no multiply)
+        add     ix, de
+        djnz    .slot_loop
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_DuckRamp — ramp the global music duck LEVEL toward the duck TARGET by
+    // SFX_DUCK_RAMP_STEP each frame (linear, clamped, no overshoot). Called once per
+    // frame at the TOP of Sfx_Frame. The duck is FOLDED INTO Fm_SetVolume/Psg_SetVolume
+    // (music-only, gated by ix < SND_SFX_BASE), so the music's own note volume events
+    // already pick up the current level. This routine only handles HELD notes: on a
+    // frame where the level CHANGED, it re-asserts the volume on every active, non-
+    // overridden, KEYED music channel so a held note ducks/un-ducks IMMEDIATELY instead
+    // of coasting at the old level until its next volume event.
+    //
+    // WRITE-ON-CHANGE: if level == target (steady state, incl. both 0), do nothing — no
+    // ramp step, no chip writes. No multiply.
+    // In: nothing. Re-points ix at music channels; the caller (Sfx_Frame) reloads
+    // ix=SND_SFX_CHANNELS right after this returns.
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af,bc,de,hl,ix,iy.
+    pub proc Sfx_DuckRamp () clobbers(af, bc, de, hl, ix, iy) {
+        ld      a, (SND_SFX_DUCK_LEVEL)
+        ld      b, a                     // b = current level
+        ld      a, (SND_SFX_DUCK_TARGET)
+        cp      b
+        ret     z                        // already at target -> no change, no writes
+        jr      c, .ramp_down            // target < level -> ramp down (decay)
+
+        // --- ramp UP: level = min(level + STEP, target). a = target, b = level. ---
+        ld      c, a                     // c = target (clamp ceiling)
+        ld      a, b
+        add     a, SFX_DUCK_RAMP_STEP    // level + step (step is small; no 8-bit wrap)
+        cp      c                        // overshoot target?
+        jr      c, .store                // level+step < target -> use it
+        ld      a, c                     // clamp to target (no overshoot)
+        jr      .store
+
+    .ramp_down:
+        // --- ramp DOWN: level = max(level - STEP, target). a = target, b = level. --
+        ld      c, a                     // c = target (clamp floor)
+        ld      a, b
+        sub     SFX_DUCK_RAMP_STEP       // level - step
+        jr      c, .clamp_floor          // underflow past 0 -> floor at target
+        cp      c                        // undershoot target?
+        jr      nc, .store               // level-step >= target -> use it
+    .clamp_floor:
+        ld      a, c                     // clamp to target (no undershoot)
+
+    .store:
+        ld      (SND_SFX_DUCK_LEVEL), a  // the level CHANGED this frame (== guarded above)
+
+        // --- re-assert held music notes at the new duck level ----------------------
+        // Walk the 11 music SeqChannels. For each ACTIVE, NON-overridden, KEYED FM/PSG
+        // channel, re-apply sc_volume through the duck-aware writer (which re-folds
+        // the current SND_SFX_DUCK_LEVEL for ix < SND_SFX_BASE — do NOT add the duck
+        // again here). Overridden channels are silent (SFX owns them) -> skip.
+        ld      ix, SND_SEQ_CHANNELS
+        ld      b, CHROUTE_COUNT         // 11 music channels
+    .dr_loop:
+        push    bc                       // preserve the channel counter
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      z, .dr_next
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        jr      nz, .dr_next             // SFX owns this voice -> no music write
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .dr_next              // not sounding -> next note keys at the new level
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        jr      z, .dr_psg
+        ld      a, (ix+sc_volume)
+        call    Fm_SetVolume             // carrier-TL re-asserted WITH the duck (ix kept)
+        jr      .dr_next
+    .dr_psg:
+        bit     SCF_IS_PSG_B, (ix+sc_flags)
+        jr      z, .dr_next              // DAC (or other) -> no PSG volume
+        ld      a, (ix+sc_volume)
+        call    Psg_SetVolume            // attenuation re-asserted WITH the duck (ix kept)
+    .dr_next:
+        pop     bc
+        ld      de, SeqChannel_len
+        add     ix, de
+        djnz    .dr_loop
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_MusicChanPtr — resolve a physical route (in `a`, CHROUTE_*) to the MUSIC
+    // SeqChannel that OWNS it. Music channels are stored in SONG ORDER (index 0..
+    // SND_SEQ_CHCOUNT-1) with ARBITRARY sc_route values — there is NO index==route
+    // relationship (e.g. Moving Trucks = FM1..FM6 = routes 0..5, zero PSG, so PSG1's
+    // route 6 has no music channel at all). Resolving by stride math therefore lands
+    // on a stale/zeroed non-channel; we MUST search by sc_route instead.
+    //
+    // Iterate the SND_SEQ_CHCOUNT active channels from SND_SEQ_CHANNELS (stride
+    // SeqChannel_len, NO multiply), comparing each channel's sc_route to the target.
+    // In:  a  = target route (CHROUTE_*).
+    // Out: CARRY CLEAR + iy = &SeqChannel owning that route, if found;
+    //      CARRY SET (iy indeterminate) if no music channel owns it (or CHCOUNT==0).
+    // Preserves ix, hl.
+    // ----------------------------------------------------------------------
+    // Contract: out(iy, carry: found); clobbers af, bc, de; preserves hl, ix.
+    pub proc Sfx_MusicChanPtr () out(iy, carry: found) clobbers(af, bc, de) preserves(hl, ix) {
+        ld      c, a                     // c = target route (preserved across the scan)
+        ld      a, (SND_SEQ_CHCOUNT)
+        or      a
+        jr      z, .not_found            // no channels -> not found (carry set below)
+        ld      b, a                     // b = channel count (djnz bound)
+        ld      iy, SND_SEQ_CHANNELS     // iy = first SeqChannel
+        ld      de, SeqChannel_len
+    .scan:
+        ld      a, (iy+sc_route)
+        cp      c                        // this channel's route == target?
+        jr      z, .found                // match -> carry clear (cp equal => carry clear)
+        add     iy, de                   // advance to next channel (no multiply)
+        djnz    .scan
+    .not_found:
+        scf                              // CARRY SET -> no music owns this route
+        ret
+    .found:
+        or      a                        // CARRY CLEAR -> iy = owning SeqChannel
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_Steal — claim a physical voice for an SfxChannel (spec §5).
+    // In:  ix = the target SfxChannel (init'd by SfxDispatch except SCF_ACTIVE):
+    //        sc_route       = the physical voice to steal (CHROUTE_*)
+    //        sx_saved_route = the music route whose SeqChannel to override
+    //        sx_kind        = SFXEL_FM / SFXEL_PSG / SFXEL_NOISE
+    //        sx_patch_base  = the SFX's own FM voice ptr (FM only; window addr)
+    // Steps: (1) set SCF_SFX_OVERRIDE on the music SeqChannel for sx_saved_route;
+    //        (2) key-off that physical voice on the MUSIC channel (clean note stop);
+    //        (3) for FM, load the SFX's OWN voice via Fm_PatchLoad(hl=sx_patch_base)
+    //            — does NOT touch SND_SEQ_PATCHTAB; (4) set SCF_ACTIVE on the SfxChannel.
+    // Preserves ix (the caller's SfxChannel) across all the music-channel work.
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af,bc,de,hl,iy; preserves ix (push/pop-bracketed).
+    pub proc Sfx_Steal () clobbers(af, bc, de, hl, iy) preserves(ix) {
+        // (1) find the MUSIC SeqChannel (if any) that owns this physical route.
+        // sx_saved_route == this SfxChannel's own physical voice (sc_route). If NO
+        // music channel owns it (carry set — e.g. PSG1 over a PSG-silent song), there
+        // is nothing to override or key-off: skip straight to loading the SFX voice +
+        // arming the slot. The SFX's own note-on then drives the physical voice.
+        ld      a, (ix+sx_saved_route)
+        call    Sfx_MusicChanPtr         // carry clear + iy = owning channel; carry set = none
+        jr      c, .no_music_fm_check    // no music on this voice -> skip override+key-off
+        set     SCF_SFX_OVERRIDE_B, (iy+sc_flags)
+
+        // (2)+(3) key-off the physical voice + load the SFX voice. The Fm_*/Psg_*
+        // writers take ix = the channel; push the SFX-slot ix, point ix at the
+        // MUSIC channel for the key-off, then restore the SFX-slot ix.
+        ld      a, (ix+sx_kind)
+        cp      SFXEL_FM
+        jr      z, .fm
+        cp      SFXEL_PSG
+        jr      z, .psg
+        // --- NOISE: key off the music noise voice ---
+        // sx_saved_note is NOT captured here: our SFX transcoder drops periodic-noise
+        // mode (smpsPSGform), so a noise SFX never writes PSG3's $C0 tone register
+        // and PSG3's tone latch needs no restore. Field reserved for 5b periodic-noise
+        // restore if periodic-noise SFX are added later.
+        push    ix                       // save SFX-slot ix
+        push    iy
+        pop     ix                       // ix = music noise SeqChannel
+        call    Sfx_MusicKeyOffKeepKeyed // key off the chip; preserve logical SCF_KEYED
+        pop     ix                       // restore SFX-slot ix
+        jr      .activate
+
+    .psg:
+        push    ix
+        push    iy
+        pop     ix                       // ix = music SeqChannel
+        call    Sfx_MusicKeyOffKeepKeyed // key off the chip; preserve logical SCF_KEYED
+        pop     ix
+        jr      .activate
+
+    .fm:
+        push    ix
+        push    iy
+        pop     ix                       // ix = music SeqChannel
+        call    Sfx_MusicKeyOffKeepKeyed // key off the chip; preserve logical SCF_KEYED
+        pop     ix
+    .no_music_fm_check:
+        // FM SFX always loads its OWN voice (whether or not music underlay it). For a
+        // voice with no music underneath (carry-set path) only the FM kind needs the
+        // patch upload; PSG/noise just arm (their note-on writes tone+volume directly).
+        ld      a, (ix+sx_kind)
+        cp      SFXEL_FM
+        jr      nz, .activate
+        // load the SFX's OWN FM voice (hl = sx_patch_base) into the SFX channel's
+        // physical voice. Fm_PatchLoad reads ix=SfxChannel for the route, hl=ptr.
+        ld      l, (ix+sx_patch_base)
+        ld      h, (ix+(sx_patch_base+1)) // hl = SFX FmPatch window ptr
+        call    Fm_PatchLoad             // upload the SFX voice (preserves ix)
+
+    .activate:
+        // (4) the SfxChannel is now armed — Sfx_Frame will run it next frame.
+        set     SCF_ACTIVE_B, (ix+sc_flags)
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_MusicKeyOffKeepKeyed — silence the music voice on the chip during a steal
+    // WITHOUT corrupting its logical SCF_KEYED. That bit is the sequencer's LIVE
+    // note-state tracking: the note/rest handlers set/clear it BEFORE the SFX-override
+    // gate (sound_sequencer.asm note path sets it, .rest clears it), so it keeps
+    // tracking the song even while overridden. Sfx_Restore reads it to decide whether
+    // to re-key the held note on SFX end. Fm_NoteOff / Psg_NoteOff do `res SCF_KEYED`
+    // as a side effect of their hardware key-off — so a naive steal would clear it and,
+    // for a SHORT SFX (no intervening music note-on to re-set it), Restore would read 0
+    // and leave the still-held music note silent for the rest of its duration (the
+    // "silence gap"). Here we snapshot the bit, do the chip key-off, then re-assert it
+    // iff it was set — so the steal silences the hardware but leaves the live keyed-
+    // state intact for Restore to honour.
+    //
+    // In:  ix = the MUSIC SeqChannel (its sc_route/SCF_IS_* select the kind).
+    // Out: physical voice keyed off; SCF_KEYED restored to its pre-call value.
+    // Preserves ix (Fm_*/Psg_NoteOff preserve it).
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af,bc,de,hl; preserves ix.
+    pub proc Sfx_MusicKeyOffKeepKeyed () clobbers(af, bc, de, hl) preserves(ix) {
+        bit     SCF_KEYED_B, (ix+sc_flags) // snapshot live keyed-state (Z = was NOT keyed)
+        push    af                         // save Z across the key-off (NoteOff clobbers af)
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        jr      z, .psg
+        call    Fm_NoteOff                 // FM hardware key-off (also res SCF_KEYED)
+        jr      .reassert
+    .psg:
+        call    Psg_NoteOff                // PSG/noise hardware key-off (also res SCF_KEYED)
+    .reassert:
+        pop     af                         // recover the snapshot
+        ret     z                          // was not keyed -> leave SCF_KEYED clear
+        set     SCF_KEYED_B, (ix+sc_flags) // re-assert the live keyed-state for Sfx_Restore
+        ret
+    }
+
+    // ======================================================================
+    // SfxDispatch (Task 9) — the FAST mailbox handler: resolve the id, read the
+    // SfxHeader for priority + flags, check the continuous-extend seam (5b dormant),
+    // then ENQUEUE {id, priority} via Sfx_QueueEnqueue and return immediately.
+    // The actual voice-selection + steal runs later in Sfx_DrainQueue (per frame).
+    //
+    // SfxDispatch is called from SndDrv_PollMailbox after consuming SND_REQ_SFX;
+    // it must be fast (the mailbox handler is on the timing-critical Z80 interrupt path).
+    // In: a = the raw SFX id posted to SND_REQ_SFX.
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af,bc,de,hl,ix,iy.
+    pub proc SfxDispatch () clobbers(af, bc, de, hl, ix, iy) {
+        // --- id range check (dense table indexed by id - SFX_ID_BASE) ---
+        push    af                       // save raw id (needed for enqueue after range/ptr work)
+        sub     SFX_ID_BASE
+        jr      c, .disp_ignore          // id < base -> ignore
+        cp      SFX_TABLE_LEN
+        jr      nc, .disp_ignore         // id > max -> ignore
+        // --- bank the SFX/table bank in FIRST: SfxBlobWinTab is now BANKED in this
+        // same bank (F5 recovery), so the lookup reads it through the $8000 window.
+        // SetBank touches only the $6000 latch (DMA-safe) and leaves it set (restored
+        // by the mailbox wrapper). Preserve the index in a across it (clobbers af,hl).
+        push    af                       // a = index
+        ld      a, SFX_BLOB_BANK
+        call    SndDrv_SetBank
+        pop     af                       // a = index
+        // hl = &SfxBlobWinTab[index] (2-byte entries; index*2 via add)
+        ld      l, a
+        ld      h, 0
+        add     hl, hl                   // index*2
+        ld      de, SfxBlobWinTab        // window addr (read under the SFX bank now)
+        add     hl, de
+        ld      e, (hl)
+        inc     hl
+        ld      d, (hl)                  // de = blob window ptr (0 = unused id)
+        ld      a, d
+        or      e
+        jr      z, .disp_ignore          // unused id slot -> ignore
+
+        // --- read SfxHeader: priority + flags (two bytes, no clobber of id) --------
+        push    de
+        pop     iy                       // iy = blob base for header reads
+        ld      b, (iy+SFXH_PRIORITY)    // b = incoming SFX priority
+        ld      a, (iy+SFXH_FLAGS)
+
+        // --- CONTINUOUS-EXTEND HOOK (5b seam, fully dormant in 5a) -----------------
+        // If SHF_CONTINUOUS is set AND a slot is already running this same id, EXTEND
+        // it (reset cursor) instead of queuing another instance. All 5a SFX are one-
+        // shots (SHF_CONTINUOUS never set in any transcoded 5a blob), so this branch
+        // is unreachable. 5b: add an sx_id field to SfxChannel, scan here, and call
+        // Sfx_Extend(slot) — the seam is present to avoid a format change later.
+        bit     SHF_CONTINUOUS_B, a
+        jr      z, .disp_enqueue         // one-shot (or no matching active slot) -> enqueue
+        // SHF_CONTINUOUS: check if this id is already running (requires sx_id — 5b).
+        // For 5a: no sx_id field exists, so we cannot find the running slot safely.
+        // Fall through to enqueue (may retrigger, but no 5a SFX hits this path).
+        // 5b: insert "scan SfxChannels for sx_id == raw_id; if found call Sfx_Extend; ret"
+
+    .disp_enqueue:
+        // --- enqueue {raw_id, priority} -------------------------------------------
+        // priority is in b; recover raw id from the stack.
+        pop     af                       // a = raw id (pushed at entry before range check)
+        call    Sfx_QueueEnqueue         // enqueue {a=id, b=priority}; registers clobbered
+        ret
+
+    .disp_ignore:
+        pop     af                       // discard the pushed raw id
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_QueueEnqueue — insert {id, priority} into the 3-slot packed queue.
+    // If count < SFX_QUEUE_DEPTH: append at slot[CNT], increment CNT.
+    // If count == SFX_QUEUE_DEPTH (full): find the lowest-priority queued entry;
+    //   if incoming priority > that lowest -> overwrite {id,prio} in that slot;
+    //   else -> drop the incoming.
+    // In:  a = raw SFX id (caller guarantees a != 0).
+    //      b = incoming priority.
+    // Out: nothing. Preserves ix, iy.
+    //
+    // OVERFLOW IMPLEMENTATION NOTE: SFX_QUEUE_DEPTH == 3 and the 3 entries live at
+    // FIXED, KNOWN addresses (SND_SFX_QUEUE+0/1, +2/3, +4/5). We compare priorities
+    // directly at those addresses rather than via Sfx_QueueEntryPtr (which clobbers de
+    // and would destroy our tracking state). The lowest-priority slot index (0,1,2) and
+    // its priority are kept in e and d respectively throughout the overflow path.
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af, bc, de, hl; preserves ix, iy.
+    pub proc Sfx_QueueEnqueue () clobbers(af, bc, de, hl) preserves(ix, iy) {
+        ld      c, a                     // c = id (save across ptr operations)
+        ld      a, (SND_SFX_QUEUE_CNT)
+        cp      SFX_QUEUE_DEPTH
+        jr      nc, .enq_overflow        // full -> overflow handling
+
+        // --- append: write {id,priority} at slot[CNT], increment CNT --------------
+        // a = CNT (unchanged by cp). Sfx_QueueEntryPtr clobbers de, but we don't
+        // need de after this call — proceed directly.
+        call    Sfx_QueueEntryPtr        // hl = &entry[CNT].id
+        ld      (hl), c                  // entry[CNT].id = incoming id
+        inc     hl
+        ld      (hl), b                  // entry[CNT].priority = incoming priority
+        ld      hl, SND_SFX_QUEUE_CNT
+        inc     (hl)
+        ret
+
+    .enq_overflow:
+        // queue full. Find the slot with the LOWEST priority among the 3 fixed entries.
+        // Use direct addressing (no Sfx_QueueEntryPtr) to avoid clobbering de.
+        // Track: d = lowest priority found, e = index of that slot (0,1,2).
+        ld      hl, SND_SFX_QUEUE + 1    // &entry[0].priority (offset 1 = SND_SFX_QUEUE+1)
+        ld      d, (hl)                  // d = entry[0].priority
+        ld      e, 0                     // e = slot of current lowest (slot 0)
+        // compare entry[1].priority (at SND_SFX_QUEUE + 3):
+        ld      hl, SND_SFX_QUEUE + 3    // &entry[1].priority
+        ld      a, (hl)
+        cp      d                        // a vs d: CARRY set if a < d
+        jr      nc, .enq_try2            // a >= d -> entry[1] not lower, keep slot 0
+        ld      d, a                     // entry[1] is lower
+        ld      e, 1                     // e = slot 1
+    .enq_try2:
+        // compare entry[2].priority (at SND_SFX_QUEUE + 5):
+        ld      hl, SND_SFX_QUEUE + 5    // &entry[2].priority
+        ld      a, (hl)
+        cp      d                        // a vs d: CARRY set if a < d
+        jr      nc, .enq_cmp             // a >= d -> entry[2] not lower
+        ld      d, a                     // entry[2] is lower
+        ld      e, 2                     // e = slot 2
+    .enq_cmp:
+        // d = lowest queued priority, e = its slot index.
+        // Gate: incoming priority (b) must STRICTLY exceed lowest (d) to overwrite.
+        ld      a, b                     // a = incoming priority
+        cp      d
+        ret     c                        // a < d -> DROP incoming (no improvement)
+        ret     z                        // a == d -> DROP (tie; keep the running one)
+        // incoming > lowest: overwrite entry[e] with {incoming-id, incoming-priority}.
+        // Compute address = SND_SFX_QUEUE + e*2 (direct: e is 0,1,2; e*2 via add a,a).
+        ld      a, e
+        call    Sfx_QueueEntryPtr        // hl = &entry[e].id; de clobbered (ok — done)
+        ld      (hl), c                  // overwrite id
+        inc     hl
+        ld      (hl), b                  // overwrite priority
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_BeginSound — resolve a posted SFX id to its blob, then for EACH of the
+    // SFX's channels (chcount) call Sfx_SelectVoice (dynamic-among-eligible +
+    // priority steal, Task 8) and, on success, init the chosen SfxChannel slot
+    // from that channel's record + Sfx_Steal it. Multi-channel SFX (Dash = FM5+PSG3,
+    // Skid = PSG1+PSG2) steal their voices INDEPENDENTLY: each channel runs the full
+    // selection ladder, so one channel dropping doesn't block the rest.
+    // In: a = the raw SFX id (range-unchecked — we re-check here for safety, since
+    //   the queue may have been populated before a ROM change or by Sfx_QueueEnqueue).
+    // Called from Sfx_DrainQueue via tail-call (jp Sfx_BeginSound).
+    //
+    // The blob lives in 68k ROM, read via the $8000 window. Bank in the SFX bank and
+    // LEAVE it (stream-path model). The per-channel cmd_ptr/voice_ptr are offsets from
+    // the blob base; add them to the blob's window base.
+    //
+    // Loop state lives in RAM (SND_SFX_DISP_*) rather than registers because each
+    // iteration calls Sfx_SelectVoice/Sfx_Steal, which clobber the full register set
+    // (incl. ix/iy). The blob base + chcount + per-channel cursor survive across calls
+    // in RAM; the chosen slot/route come back from Sfx_SelectVoice each iteration.
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af,bc,de,hl,ix,iy.
+    pub proc Sfx_BeginSound () clobbers(af, bc, de, hl, ix, iy) {
+        ld      (SND_SFX_DISP_ID), a     // raw id — keys the retrigger scan + per-slot id table
+        // rev-loop reset (spec §6, LEGACY spindash-rev mechanism — distinct from the
+        // SHF_CONTINUOUS Stage-C machinery nearby): any NON-rev-loop SFX resets the
+        // global rev to 0 (mirror zPlaySound_Normal). The rev-loop SFX is the special-
+        // cased exception that does NOT reset, so its rev keeps rising across re-
+        // triggers. Compare the raw id (a) against SFXID_REV_LOOP (game-declared;
+        // -1 = feature off, no rev-loop SFX exists) BEFORE the range-check subtract.
+        if SFXID_REV_LOOP >= 0 {
+            cp      SFXID_REV_LOOP
+            jr      z, .keep_rev         // rev-loop id -> do NOT reset (let it escalate)
+            ld      hl, Snd_SpindashRev
+            ld      (hl), 0              // normal SFX -> rev escalation back to 0 (a preserved)
+        .keep_rev:
+        }
+        // --- id range check (dense table indexed by id - SFX_ID_BASE) ---
+        sub     SFX_ID_BASE
+        ret     c                        // id < base -> ignore
+        cp      SFX_TABLE_LEN
+        ret     nc                       // id > max -> ignore
+        // --- bank the SFX/table bank in FIRST: SfxBlobWinTab is BANKED in this same
+        // bank (F5 recovery), so the lookup reads it through the $8000 window. SetBank
+        // touches only the $6000 latch (DMA-safe). Preserve the index in a (clobbers af,hl).
+        push    af                       // a = index
+        ld      a, SFX_BLOB_BANK
+        call    SndDrv_SetBank           // $6000 latch only (DMA-safe); leaves it set
+        pop     af                       // a = index
+        // hl = &SfxBlobWinTab[index] (2-byte window-ptr entries; index*2 via add)
+        ld      l, a
+        ld      h, 0
+        add     hl, hl                   // index*2
+        ld      de, SfxBlobWinTab        // window addr (read under the SFX bank now)
+        add     hl, de                   // hl = &SfxBlobWinTab[index]
+        ld      e, (hl)
+        inc     hl
+        ld      d, (hl)                  // de = blob window ptr (0 = unused id)
+        ld      a, d
+        or      e
+        ret     z                        // unused id slot -> ignore
+
+        // --- stash the blob base + header fields into the dispatch scratch RAM ----
+        ld      (SND_SFX_DISP_BASE), de  // blob window base (little-endian word)
+        push    de
+        pop     iy                       // iy = blob base for the header reads
+        ld      a, (iy+SFXH_PRIORITY)
+        ld      (SND_SFX_DISP_PRIO_RAW), a  // raw: bit 7 = non-latching request
+        and     $7F
+        ld      (SND_SFX_DISP_PRIO), a   // masked: every arbitration compare reads this
+        ld      a, (iy+SFXH_CAP)
+        ld      (SND_SFX_DISP_CAP), a    // incoming SFX instance cap (sfh_cap)
+        ld      a, (iy+SFXH_CHCOUNT)
+        or      a
+        ret     z                        // chcount 0 -> nothing to do (defensive)
+        ld      (SND_SFX_DISP_COUNT), a  // remaining channels to place
+        xor     a
+        ld      (SND_SFX_DISP_IDX), a    // current channel record index (0-based)
+
+        // --- Stage C: continuous re-ping. If this id is continuous and already
+        // running, refresh its extend countdown and return (free ping; no re-key). --
+        ld      iy, (SND_SFX_DISP_BASE)
+        ld      a, (iy+SFXH_FLAGS)
+        and     SHF_CONTINUOUS
+        jr      z, .not_reping           // not continuous -> normal dispatch
+        ld      ix, SND_SFX_CHANNELS
+        ld      hl, SND_SFX_ID_TAB
+        ld      b, SFX_VOICE_COUNT
+    .reping_scan:
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      z, .reping_next
+        ld      a, (SND_SFX_DISP_ID)
+        cp      (hl)
+        jr      nz, .reping_next
+        ld      (ix+sx_extend), SFX_EXTEND_FRAMES  // refresh countdown; keep playing
+        ret                              // ping consumed — do NOT re-dispatch
+    .reping_next:
+        inc     hl
+        ld      de, SfxChannel_len
+        add     ix, de
+        djnz    .reping_scan
+    .not_reping:
+
+        // --- RETRIGGER + INSTANCE CAP (spec §7.1) ----------------------------------
+        // S3K cannot stack the same SFX: a retrigger re-inits the same fixed track
+        // (skdisasm Z80 Sound Driver.asm:1935-1975). Our dynamic allocator happily
+        // placed a retrigger on a FREE same-kind voice, stacking up to sfh_cap copies
+        // (+5..+9.5 dB and runaway spindash mod-sweeps at cap 1). Generalized: count
+        // ACTIVE slots already running THIS id; if count < sfh_cap, allocate a NEW
+        // instance (no kill); else kill the LOWEST-slot (oldest) match via the full
+        // Sfx_Restore end-path (music voice restored / orphan voice silenced, slot
+        // deactivated, duck re-evaluated), then fall into the normal allocation
+        // ladder. cap 1 degenerates to the old kill-then-replace-in-place exactly.
+        // Duck note: a kill may zero SND_SFX_DUCK_TARGET; the arm after .chan_loop
+        // re-raises it this same frame, before Sfx_DuckRamp runs — no audible dip.
+        //
+        // Phase 1: count ACTIVE slots running THIS id; remember the LOWEST-slot match.
+        // No Sfx_Restore here (it clobbers bc/de/hl — would wreck the scan cursor).
+        ld      ix, SND_SFX_CHANNELS
+        ld      hl, SND_SFX_ID_TAB
+        ld      b, SFX_VOICE_COUNT
+        ld      c, 0                     // c = match count
+        ld      d, SFX_SLOT_NONE         // d = lowest-slot match (none yet)
+        ld      e, 0                     // e = slot cursor
+    .cap_scan:
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      z, .cap_next             // inactive -> id entry stale
+        ld      a, (SND_SFX_DISP_ID)
+        cp      (hl)
+        jr      nz, .cap_next            // different id -> leave playing
+        inc     c                        // another live instance
+        ld      a, d
+        cp      SFX_SLOT_NONE
+        jr      nz, .cap_next            // already recorded a lower slot
+        ld      d, e                     // record first (lowest) match slot
+    .cap_next:
+        inc     hl
+        inc     e
+        push    de                       // SfxChannel_len stride add (keep de/count intact)
+        ld      de, SfxChannel_len
+        add     ix, de
+        pop     de
+        djnz    .cap_scan
+        // Phase 2: count < cap -> allocate NEW (no kill). Else kill the lowest match.
+        ld      a, c
+        ld      hl, SND_SFX_DISP_CAP
+        cp      (hl)
+        jr      c, .cap_ok               // count < cap -> room for a new instance
+        ld      a, d                     // count >= cap -> kill lowest-slot match
+        cp      SFX_SLOT_NONE
+        jr      z, .cap_ok               // defensive: no match (impossible when count>0)
+        call    Sfx_SlotPtr              // ix = &SfxChannel[d]
+        call    Sfx_Restore              // full end path: restore/silence + deactivate
+    .cap_ok:
+
+    .chan_loop:
+        // --- point iy at the current channel record: base + SFXH_CHANNELS + idx*6 -
+        ld      iy, (SND_SFX_DISP_BASE)
+        ld      bc, SFXH_CHANNELS        // bc = fixed-header size (record array start)
+        add     iy, bc
+        ld      a, (SND_SFX_DISP_IDX)
+        or      a
+        jr      z, .rec_ready            // record 0 -> no stride
+        ld      b, a                     // b = record index (iteration count)
+        ld      de, SFXHC_LEN            // 6-byte records; advance via add-loop (no mul)
+    .rec_stride:
+        add     iy, de
+        djnz    .rec_stride
+    .rec_ready:
+
+        // --- run the selection ladder for this channel's PREFERRED route ----------
+        // In: c = preferred route; incoming priority is read from SND_SFX_DISP_PRIO
+        // inside Sfx_SelectVoice (no reg survives the ladder). Out: a=slot, d=route
+        // (CARRY clear) or CARRY set = dropped.
+        ld      a, (iy+SFXHC_ROUTE)
+        ld      c, a                     // c = preferred physical route
+        call    Sfx_SelectVoice          // clobbers everything incl. iy; selects/steals victim
+        jp      c, .chan_drop            // jp (not jr): the init body exceeds jr range
+
+        // a = chosen slot, d = physical route to own. Stash both, then re-derive iy
+        // (Sfx_SelectVoice clobbered it) and init the slot from the channel record.
+        ld      (SND_SFX_DISP_SLOT), a   // chosen SfxChannel slot index
+        ld      a, d
+        ld      (SND_SFX_DISP_ROUTE), a  // physical route the slot will own
+
+        // record this slot's raw SFX id (the retrigger scan's key)
+        ld      a, (SND_SFX_DISP_SLOT)
+        ld      e, a
+        ld      d, 0
+        ld      hl, SND_SFX_ID_TAB
+        add     hl, de
+        ld      a, (SND_SFX_DISP_ID)
+        ld      (hl), a
+
+        // ix = &SfxChannel[chosen slot]
+        ld      a, (SND_SFX_DISP_SLOT)
+        call    Sfx_SlotPtr              // ix = chosen SfxChannel
+
+        // re-point iy at the channel record (Sfx_SlotPtr left iy intact, but
+        // Sfx_SelectVoice clobbered it — recompute base + SFXH_CHANNELS + idx*6).
+        ld      iy, (SND_SFX_DISP_BASE)
+        ld      bc, SFXH_CHANNELS
+        add     iy, bc
+        ld      a, (SND_SFX_DISP_IDX)
+        or      a
+        jr      z, .rec2_ready
+        ld      b, a
+        ld      de, SFXHC_LEN
+    .rec2_stride:
+        add     iy, de
+        djnz    .rec2_stride
+    .rec2_ready:
+
+        // --- wipe the chosen slot, then populate it from the record ---------------
+        // (the slot may be a just-restored steal victim — wipe clears stale state.)
+        push    ix                       // save the slot ptr across the wipe
+        pop     hl                       // hl = &SfxChannel[slot] (wipe cursor)
+        ld      bc, SfxChannel_len
+    .wipe:
+        ld      (hl), 0
+        inc     hl
+        dec     bc
+        ld      a, b
+        or      c
+        jr      nz, .wipe
+
+        // sc_route = the PHYSICAL route the slot owns (NOT necessarily the preferred
+        // one — substitution/steal may have steered it to a different eligible voice).
+        ld      a, (SND_SFX_DISP_ROUTE)
+        ld      (ix+sc_route), a
+        // sc_flags = class bits, minus SCF_ACTIVE (Sfx_Steal arms it last), PLUS
+        // SCF_PITCH_CHROMATIC: SFX notes key via FmPitchTableZ (Fm_NoteOn), so
+        // ModUpdate's re-key paths must use the chromatic table too (spec §3) — else
+        // a pitch-env / vibrato re-key reads the per-song table and warbles octaves.
+        call    Snd_RouteClassFlags      // a = SCF_ACTIVE | class bit (FM/PSG/DAC)
+        res     SCF_ACTIVE_B, a
+        or      SCF_PITCH_CHROMATIC      // mark this slot's pitch domain as chromatic
+        ld      (ix+sc_flags), a
+
+        // sc_stream_ptr = blob base + cmd offset (BE in the record)
+        ld      a, (iy+SFXHC_CMD_HI)
+        ld      h, a
+        ld      a, (iy+SFXHC_CMD_LO)
+        ld      l, a                     // hl = cmd offset (from blob base)
+        ld      de, (SND_SFX_DISP_BASE)  // de = blob window base
+        add     hl, de
+        ld      (ix+sc_stream_ptr), l
+        ld      (ix+(sc_stream_ptr+1)), h
+
+        // sx_patch_base = blob base + voice offset (FM only; PSG/noise -> base+0)
+        ld      a, (iy+SFXHC_VOICE_HI)
+        ld      h, a
+        ld      a, (iy+SFXHC_VOICE_LO)
+        ld      l, a
+        add     hl, de
+        ld      (ix+sx_patch_base), l
+        ld      (ix+(sx_patch_base+1)), h
+
+        // sx_kind = SFXEL_* derived from the OWNED route (FM3..5 -> FM, PSG1..3 ->
+        // PSG, PSGN -> NOISE). Substitution keeps the kind (same-kind only), so the
+        // record's authored kind and the owned route's kind always agree.
+        ld      a, (ix+sc_route)
+        call    Sfx_RouteKind
+        ld      (ix+sx_kind), a
+
+        // bookkeeping: priority, saved music route (== the OWNED physical route),
+        // tick gating (one event per frame until the stream sets durations).
+        // --- priority store: non-latching (bit 7) SFX record the current same-kind
+        // floor (min-of-active) instead of their own priority, so they play now but
+        // never raise the floor for later sounds (spec §5, S2's trick). Normal SFX
+        // store their (masked) priority. iy is the record ptr here -> save it.
+        ld      a, (SND_SFX_DISP_PRIO_RAW)
+        bit     7, a
+        jr      z, .latch_prio
+        push    iy                       // preserve channel-record ptr (Sfx_Steal needs it)
+        ld      c, (ix+sx_kind)
+        call    Sfx_MinActiveKind        // a = min same-kind active priority (0 if none)
+        pop     iy
+        jr      .store_prio
+    .latch_prio:
+        ld      a, (SND_SFX_DISP_PRIO)   // normal: store the real (masked) priority
+    .store_prio:
+        ld      (ix+sx_priority), a
+
+        // Stage B: stash the header's authored gain/duck into per-slot bytes so the
+        // volume paths / duck scan can read them without re-deriving the blob base.
+        push    iy                       // preserve the channel-record ptr (Sfx_Steal reads it)
+        ld      iy, (SND_SFX_DISP_BASE)  // iy = blob header base
+        ld      a, (iy+SFXH_GAIN)
+        ld      (ix+sx_gain), a
+        ld      a, (iy+SFXH_DUCK)
+        ld      (ix+sx_duck), a          // consumed by Task 3's duck scan
+
+        // Stage C: continuous SFX start their re-ping countdown; others pin sx_extend
+        // at 0 (never continuous). Seq_Op_Jump reads this tri-state at the loop boundary.
+        ld      a, (iy+SFXH_FLAGS)
+        and     SHF_CONTINUOUS
+        jr      z, .not_continuous
+        ld      a, SFX_EXTEND_FRAMES
+        ld      (ix+sx_extend), a
+        jr      .cont_done
+    .not_continuous:
+        ld      (ix+sx_extend), 0
+    .cont_done:
+        pop     iy
+
+        ld      a, (ix+sc_route)
+        ld      (ix+sx_saved_route), a
+        ld      (ix+sc_dur_count), 1     // fire the first event-tick promptly
+        ld      (ix+sc_dur_default), 1
+        ld      (ix+sc_pt_count), 1      // plain-note path (no trill/arp)
+        ld      (ix+sc_tempo_mod), 0     // mod 0 = never carries = tick every frame
+        ld      (ix+sc_tempo_accum), 0
+
+        call    Sfx_Steal                // override the music voice + load the SFX voice
+
+    .chan_drop:
+        // advance to the next channel record; loop until chcount exhausted.
+        ld      a, (SND_SFX_DISP_IDX)
+        inc     a
+        ld      (SND_SFX_DISP_IDX), a
+        ld      hl, SND_SFX_DISP_COUNT
+        dec     (hl)
+        jp      nz, .chan_loop           // jp (not jr): the loop body exceeds jr range
+
+        // --- arm the music duck to THIS SFX's authored depth (spec §7.1) ----------
+        // Threshold is now "sfh_duck != 0" (the byte IS the eligibility); rings/jump
+        // author 0 -> no duck. Never lower an already-deeper active duck (deepest
+        // wins); the release path (Sfx_DeepestDuck) re-resolves the exact depth.
+        ld      iy, (SND_SFX_DISP_BASE)
+        ld      a, (iy+SFXH_DUCK)
+        or      a
+        jr      z, .no_duck_arm          // duck 0 -> do not duck
+        ld      hl, SND_SFX_DUCK_TARGET
+        cp      (hl)
+        jr      c, .no_duck_arm          // sfh_duck < current target -> keep deeper
+        ld      (hl), a
+    .no_duck_arm:
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_RouteKind — map a physical route (in `a`, CHROUTE_*) to its SFXEL_* kind.
+    // FM3..FM5 -> SFXEL_FM; PSG1..PSG3 -> SFXEL_PSG; PSGN -> SFXEL_NOISE; else NONE.
+    // (No multiply; pure comparisons against the CHROUTE_* enum.)
+    // ----------------------------------------------------------------------
+    // Contract: out(a); clobbers f; preserves bc, de, hl, ix, iy.
+    pub proc Sfx_RouteKind () out(a) clobbers(f) preserves(bc, de, hl, ix, iy) {
+        cp      CHROUTE_PSGN
+        jr      z, .noise
+        cp      CHROUTE_PSG1             // < PSG1 -> FM (FM3..FM5 in the stealable set)
+        jr      c, .fm
+        ld      a, SFXEL_PSG             // PSG1..PSG3 (PSGN handled above)
+        ret
+    .fm:
+        ld      a, SFXEL_FM
+        ret
+    .noise:
+        ld      a, SFXEL_NOISE
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_Restore — hand the physical voice back to the music CLEANLY (spec §5).
+    // On an SfxChannel's End (Sfx_Frame detects the cleared SCF_ACTIVE), un-mute the
+    // overridden music channel, re-derive + re-upload its FM voice (NO register
+    // snapshots — everything is recomputed from the music channel's surviving
+    // sc_patch/sc_volume/sc_note, which the steal never overwrote), restore the
+    // PSG3<->noise coupled latch if a noise voice was borrowed, and FORCE a re-key of
+    // the held music note ONLY if it is currently keyed (SCF_KEYED set). The steal
+    // preserves the music channel's LIVE SCF_KEYED (see Sfx_MusicKeyOffKeepKeyed), and
+    // the sequencer keeps tracking it under override, so this reflects the song's
+    // current note — a short SFX resumes the still-held note instantly with no silence
+    // gap; a long SFX that outlived the note correctly stays silent until the next one.
+    // If the channel was between notes, just clearing the override is enough (the next
+    // note keys normally).
+    // The re-key funnels through Fm_NoteOnFreqExact -> Mod_ReArm, so a restored note
+    // re-arms modulation like any fresh attack (full onset delay, original delta sign) —
+    // coherent with the re-key-retriggers-the-EG model (spec B/C.a, 2026-07-02).
+    //
+    // In:  ix = the ended SfxChannel:
+    //        sx_saved_route = the music route to un-mute (CHROUTE_*)
+    //        sx_kind        = SFXEL_FM / SFXEL_PSG / SFXEL_NOISE
+    //        sx_saved_note  = unused in v1 (reserved for 5b periodic-noise restore)
+    // Out: SCF_SFX_OVERRIDE cleared on the music channel; its voice re-asserted;
+    //      held note re-keyed iff it was keyed; the SfxChannel deactivated + priority 0.
+    // Preserves ix (push/pop) so Sfx_Frame's `add ix,de` still advances. The Fm_*/Psg_*
+    // writers preserve ix internally; we re-point ix at MUSIC channels only inside the
+    // push/pop. SND_SEQ_PATCHTAB is read-only (Fm_PatchPtr) — never written.
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af,bc,de,hl,iy; preserves ix (push/pop-bracketed).
+    pub proc Sfx_Restore () clobbers(af, bc, de, hl, iy) preserves(ix) {
+        push    ix                       // save the SFX-slot ix (caller's invariant)
+
+        // (0) STOPPED-SEQUENCER GATE (field fix, 2026-07-03): after StopMusic,
+        // Sequencer_StopAll silences the chip and clears SND_SEQ_ACTIVE but does
+        // NOT clear the per-channel SCF_KEYED bits on the dead song's SeqChannels
+        // (only a song LOAD wipes them). The restore paths below re-key "the held
+        // music note" gated ONLY on that stale SCF_KEYED — with the sequencer
+        // stopped, nothing ever advances or silences the re-keyed note, so an SFX
+        // ending over stopped music latched an UNKILLABLE tone (PSG holds at
+        // constant volume forever — heard as a lingering pure tone; two stolen
+        // PSG voices = two tones). No music is running, so treat EVERY route as
+        // music-less: silence the SFX's own voice and deactivate.
+        ld      a, (SND_SEQ_ACTIVE)
+        or      a
+        jp      z, .no_music             // sequencer stopped -> never re-key stale notes
+
+        // (1) find the music SeqChannel (if any) that owns this physical route.
+        // sx_saved_route == this SfxChannel's own physical voice (sc_route). If NO
+        // music channel owns it (carry set — e.g. PSG1 over a PSG-silent song), there
+        // is nothing to un-mute or restore: silence the SFX's OWN physical voice so its
+        // last note doesn't drone forever, then deactivate. (ix is still the SFX slot,
+        // whose sc_route IS the physical voice and whose SCF_IS_* are set, so the
+        // Fm_*/Psg_* writers target the right voice with no ix re-point.)
+        ld      a, (ix+sx_saved_route)
+        call    Sfx_MusicChanPtr         // carry clear + iy = owning channel; carry set = none
+        jp      c, .no_music             // no music on this voice -> silence the SFX's own voice
+                                         //   (jp: the raw-rekey branch pushed this past jr range)
+
+        // (2) un-mute: clear the override so its chip-write sites fire again.
+        res     SCF_SFX_OVERRIDE_B, (iy+sc_flags)
+
+        // (3) dispatch by the owned voice kind (read from the SFX slot via ix).
+        ld      a, (ix+sx_kind)
+        cp      SFXEL_FM
+        jr      z, .fm
+        cp      SFXEL_PSG
+        jr      z, .psg
+        // --- NOISE: re-key the music noise channel iff it was keyed when stolen ---
+        // iy already = the owning (noise) music channel from the single search above.
+        push    ix
+        push    iy
+        pop     ix                       // ix = music noise channel
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .noise_silence        // music not keyed -> silence the stolen noise
+        // ON-CHANGE re-arm: the SFX noise burst wrote its own $E_ control byte (which
+        // reset the LFSR to the SFX's mode); restore THIS channel's latched noise mode
+        // (sc_noise_mode, set by MEV_PSGNOISE) + re-silence tone-ch2 so the music hat's
+        // color returns. Skip if this channel never set a mode (sc_noise_mode == 0).
+        ld      a, (ix+sc_noise_mode)
+        or      a
+        jr      z, .noise_rekey
+        ld      (SND_Z80_PSG), a         // restore the music noise control byte
+        ld      a, SND_PSG_SILENCE_T3    // $DF: re-silence tone-ch2 (its freq clocks noise)
+        ld      (SND_Z80_PSG), a
+    .noise_rekey:
+        ld      a, (ix+sc_note)          // the held noise note (music = pitch -> tone-2 clock)
+        call    Psg_Noise                // re-emit tone-2 clock + noise volume (preserves ix)
+        jr      .noise_done
+    .noise_silence:
+        // No music noise to restore: the SFX left the noise volume latched audible.
+        // Silence the noise channel (Psg_NoteOff's noise path writes $FF) so a noise
+        // SFX over a noise-silent song doesn't hiss forever.
+        call    Psg_NoteOff              // noise route -> $FF (max attenuation)
+    .noise_done:
+        pop     ix                       // ix = SFX slot
+        jr      .deactivate
+
+    .psg:
+        // --- PSG TONE: if the music note was sounding, re-key it (re-applies tone+
+        // volume); if NOT, SILENCE the stolen physical voice. The SFX left its own
+        // last tone + volume LATCHED on the chip; if no music underlies this PSG
+        // channel (e.g. Moving Trucks uses 0 PSG channels, so PSG1 is never keyed) the
+        // re-key branch would do NOTHING and the SFX's last PSG tone would DRONE
+        // FOREVER. Key the channel off so it goes silent when there's no music to
+        // restore. (Jump = id $62 = PSG1 over a PSG-silent song is exactly this case.)
+        push    ix
+        push    iy
+        pop     ix                       // ix = music PSG tone channel
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .psg_silence          // music not keyed -> silence the stolen voice
+        ld      a, (ix+sc_note)
+        call    Psg_NoteOn               // re-key the held tone (preserves ix)
+        jr      .psg_done
+    .psg_silence:
+        call    Psg_NoteOff              // no music here -> silence the PSG channel
+    .psg_done:
+        pop     ix                       // ix = SFX slot
+        jr      .deactivate
+
+    .fm:
+        // --- FM: re-upload the music voice (the exact Seq_HookSetPatch pair), then
+        // re-key the held note iff it was sounding when stolen. ix = MUSIC channel
+        // for all of this so Fm_PatchPtr/Fm_SetVolume read the MUSIC sc_patch/sc_volume.
+        push    ix
+        push    iy
+        pop     ix                       // ix = music FM channel
+        call    Fm_PatchPtr              // hl = music FmPatch ptr (SND_SEQ_PATCHTAB, read-only)
+        call    Fm_PatchLoad             // re-upload the music voice (re-asserts op-bias)
+        // pan shadow resync: the patch upload just re-derived $B4, so a
+        // song-commanded MEV_PAN (sc_pan != 0) is lost on the chip while the
+        // write-on-change shadow still matches -> it would never refire. Zero the
+        // shadow so ModUpdate re-asserts sc_pan next frame; never-panned channels
+        // (sc_pan == 0 == shadow) still compare equal and keep the patch default.
+        xor     a
+        ld      (ix+sc_last_pan), a
+        ld      a, (ix+sc_volume)        // re-apply the music channel's loudness
+        call    Fm_SetVolume             // carrier TLs (+ op-bias) restored
+        // force re-key ONLY if a note was sounding when the voice was stolen.
+        // If the music was NOT keyed, the SFX may have left the FM voice keyed-ON with
+        // its own note; re-uploading the patch above does NOT key it off, so the stolen
+        // FM voice would sustain forever. Key it OFF (the music's next note keys it
+        // normally) — symmetric with the PSG/noise silence-when-no-music fix.
+        bit     SCF_KEYED_B, (ix+sc_flags)
+        jr      z, .fm_silence           // between notes -> silence the stolen FM voice
+        // (No explicit key-off here: the chokepoint below keys an already-keyed
+        // channel OFF before the key-on — SCF_KEYED is set on this path — so the
+        // restore re-key gets its clean 0->1 EG edge for free; spec B.)
+        // Re-key from sc_base_freq — the exact unmodulated word latched at key-on
+        // by every FM note path (Fm_NoteOnFreq's tail; KEYED implies it is valid).
+        // sc_note may hold a raw $A4 byte (NOTE_RAW streams), NOT a pitch-table
+        // index — a table re-key played a wrong note for up to ~130 ms per steal —
+        // so the exact word is the one re-key that is right for every note source.
+        ld      d, (ix+sc_base_freq)     // high slot = $A4 value
+        ld      e, (ix+(sc_base_freq+1)) // low slot  = $A0 value
+        call    Fm_NoteOnFreqExact       // re-key at the exact raw pitch (preserves ix).
+        // Exact entry: sc_base_freq was latched POST-detune, so the plain entry
+        // would fold sc_detune a second time on a detuned stream channel.
+        jr      .fm_done
+    .fm_silence:
+        call    Fm_NoteOff               // no music note -> key the stolen FM voice off
+    .fm_done:
+        pop     ix                       // ix = SFX slot
+        jr      .deactivate
+
+    .no_music:
+        // No music channel owns this physical voice (carry set from the search). The
+        // SFX left its own last note LATCHED on the physical voice; silence it so it
+        // doesn't drone forever. ix is STILL the SFX slot (never re-pointed on this
+        // path) — its sc_route IS the physical voice and SCF_IS_* are set, so the
+        // Fm_*/Psg_* writers target the correct voice directly. Do NOT touch any
+        // music channel. No extra push/pop: the entry `push ix` is balanced by
+        // .deactivate's `pop ix`.
+        ld      a, (ix+sx_kind)
+        cp      SFXEL_FM
+        jr      nz, .no_music_psg
+        call    Fm_NoteOff               // FM SFX voice -> key off (preserves ix)
+        jr      .deactivate
+    .no_music_psg:
+        // PSG tone OR noise: Psg_NoteOff reads ix's sc_route and silences the right
+        // voice (tone -> $9x|$0F attenuation, noise -> $FF).
+        call    Psg_NoteOff              // PSG/noise SFX voice -> silence (preserves ix)
+
+    .deactivate:
+        // (4) deactivate the SfxChannel (End already cleared SCF_ACTIVE — defensive)
+        // and drop its priority so the next SFX of any priority can claim the slot.
+        res     SCF_ACTIVE_B, (ix+sc_flags)
+        ld      (ix+sx_priority), 0
+
+        // --- release the music duck to the DEEPEST duck still active (0 = none) -----
+        ld      (ix+sx_duck), 0          // this slot no longer contributes a duck
+        call    Sfx_DeepestDuck          // a = deepest sx_duck among active slots
+        ld      (SND_SFX_DUCK_TARGET), a // Sfx_DuckRamp ramps toward it (0 = back up)
+        pop     ix                       // restore the caller's SFX-slot ix
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_DeepestDuck — scan the 7 SfxChannel slots; return the DEEPEST duck depth
+    // (max sx_duck) among ACTIVE slots, or 0 if none. Walks via iy so an SFX-slot ix
+    // on the caller's stack is undisturbed. Out: a = deepest sx_duck.
+    // Preserves ix, hl.
+    // ----------------------------------------------------------------------
+    // Contract: out(a); clobbers f,bc,de,iy; preserves hl, ix.
+    pub proc Sfx_DeepestDuck () out(a) clobbers(f, bc, de, iy) preserves(hl, ix) {
+        ld      iy, SND_SFX_CHANNELS
+        ld      b, SFX_VOICE_COUNT
+        ld      de, SfxChannel_len
+        ld      c, 0                     // c = deepest so far
+    .scan:
+        bit     SCF_ACTIVE_B, (iy+sc_flags)
+        jr      z, .scan_next            // inactive -> skip
+        ld      a, (iy+sx_duck)
+        cp      c
+        jr      c, .scan_next            // a < deepest -> keep
+        ld      c, a                     // new deepest
+    .scan_next:
+        add     iy, de
+        djnz    .scan
+        ld      a, c
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_MinActiveKind — min sx_priority among ACTIVE same-kind slots.
+    // In: c = incoming kind (SFXEL_*). Out: a = min priority (0 if no same-kind active).
+    // Walks via iy. Preserves ix, c.
+    // ----------------------------------------------------------------------
+    // Contract: out(a); clobbers f,b,de,hl,iy; preserves c, ix.
+    pub proc Sfx_MinActiveKind () out(a) clobbers(f, b, de, hl, iy) preserves(c, ix) {
+        ld      iy, SND_SFX_CHANNELS
+        ld      b, SFX_VOICE_COUNT
+        ld      de, SfxChannel_len
+        ld      h, 255                   // h = running min (sentinel)
+        ld      l, 0                     // l = found flag
+    .mk_scan:
+        bit     SCF_ACTIVE_B, (iy+sc_flags)
+        jr      z, .mk_next
+        ld      a, (iy+sx_kind)
+        cp      c
+        jr      nz, .mk_next             // different kind -> ignore
+        ld      a, (iy+sx_priority)
+        cp      h
+        jr      nc, .mk_next             // >= running min -> keep
+        ld      h, a                     // new min
+        ld      l, 1                     // mark found
+    .mk_next:
+        add     iy, de
+        djnz    .mk_scan
+        ld      a, l
+        or      a
+        ld      a, h
+        ret     nz                       // found -> a = min priority
+        xor     a                        // none active -> 0
+        ret
+    }
+
+    // ======================================================================
+    // Phase 5a SFX engine — confirmed edge-case guarantees (Task 12 sweep).
+    // Each of these is verified in the code above; this block is the audit trail.
+    //
+    // (a) PRIORITY CLEARED ON SFX END. Sfx_Restore (.deactivate) writes sx_priority=0
+    //     on every ended slot, so the next SFX of ANY priority can claim it — a
+    //     finished high-priority SFX never permanently blocks the slot (spec §11).
+    //     Sfx_StopAll also zeroes sx_priority on all 7 slots.
+    // (b) NOISE/PSG3 COUPLING NOT RESTORED — BY DESIGN. The transcoder DROPS periodic-
+    //     noise mode (smpsPSGform, Task 7 fix), so a noise SFX never writes PSG3's $C0
+    //     tone register; PSG3's tone latch is never disturbed and needs no restore.
+    //     Sfx_Restore's NOISE path therefore re-keys only the music noise channel (when
+    //     it was keyed) and deliberately omits any PSG3 tone re-latch (see the comment
+    //     at .fm/.psg/noise dispatch). sx_saved_note is reserved-but-unread for the 5b
+    //     periodic-noise upgrade.
+    // (c) FM6<->DAC MUTUAL EXCLUSION IS MOOT. FM6 is SFXEL_NONE in SfxEligTable, so no
+    //     SFX ever steals FM6 — there is no path where an SFX and the DAC contend for
+    //     it. (Opening FM6 to SFX for DAC-off songs is a one-byte table edit, 5b.)
+    // (d) Sfx_Frame RUNS EVEN WITH NO MUSIC. Sequencer_Frame's two "no song / no
+    //     channels" early guards branch to .run_sfx (jp Sfx_Frame), so SFX still own
+    //     the chip and drain the queue when the sequencer is idle (Task 6 Step 4).
+    // ======================================================================
+
+    // ----------------------------------------------------------------------
+    // Sfx_StopAll — clear all overrides + kill SfxChannels + DRAIN the queue + reset
+    // ducking (duck = 0, target = 0). Task 9 adds the queue drain here so a StopMusic
+    // mid-SFX leaves no stale queue entries that would fire on the next song's first
+    // frame.  Used by StopMusic (.music_stop) AND Snd_LoadSong (PlayMusic-mid-SFX
+    // reconciliation, Task 12) so the next song starts with no stale overrides or
+    // in-flight SFX.
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af,bc,de,hl,ix.
+    pub proc Sfx_StopAll () clobbers(af, bc, de, hl, ix) {
+        // clear SCF_SFX_OVERRIDE on every music SeqChannel.
+        ld      ix, SND_SEQ_CHANNELS
+        ld      b, CHROUTE_COUNT
+        ld      de, SeqChannel_len
+    .clr_music:
+        res     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        add     ix, de
+        djnz    .clr_music
+        // deactivate + clear priority on every SfxChannel.
+        ld      ix, SND_SFX_CHANNELS
+        ld      b, SFX_VOICE_COUNT
+        ld      de, SfxChannel_len
+    .clr_sfx:
+        res     SCF_ACTIVE_B, (ix+sc_flags)
+        ld      (ix+sx_priority), 0
+        add     ix, de
+        djnz    .clr_sfx
+        // Task 9: drain the SFX queue (CNT=0; HEAD/TAIL left as-is — they're unused).
+        xor     a
+        ld      (SND_SFX_QUEUE_CNT), a
+        // Task 10: reset duck level + target (no duck after StopAll).
+        ld      (SND_SFX_DUCK_LEVEL), a
+        ld      (SND_SFX_DUCK_TARGET), a
+        ret
+    }
+
+    // ======================================================================
+    // SfxEligTable — per-physical-route eligibility (CHROUTE_* -> SFXEL_*), the
+    // build-time data that drives runtime voice substitution (spec §4). FM1/FM2/FM6/
+    // DAC are SFXEL_NONE (lead/bass/DAC never stolen); FM3/4/5 = SFXEL_FM; PSG1/2/3 =
+    // SFXEL_PSG; PSGN = SFXEL_NOISE. The transcoder already rejects reserved-route
+    // SFX at build time; this table is what Sfx_SelectVoice consults at RUNTIME to
+    // find a same-kind free voice (FM<->FM, PSG<->PSG dynamic substitution). Opening
+    // FM6 to SFX later for DAC-off songs is a one-byte edit here (design-for-C).
+    // ======================================================================
+    pub proc SfxEligTable () clobbers() {
+        dc.b    SFXEL_NONE   // CHROUTE_FM1  (0) — lead, never stolen
+        dc.b    SFXEL_NONE   // CHROUTE_FM2  (1) — bass, never stolen
+        dc.b    SFXEL_FM     // CHROUTE_FM3  (2)
+        dc.b    SFXEL_FM     // CHROUTE_FM4  (3)
+        dc.b    SFXEL_FM     // CHROUTE_FM5  (4)
+        dc.b    SFXEL_NONE   // CHROUTE_FM6  (5) — reserved v1 (DAC / DAC-off FM)
+        dc.b    SFXEL_PSG    // CHROUTE_PSG1 (6)
+        dc.b    SFXEL_PSG    // CHROUTE_PSG2 (7)
+        dc.b    SFXEL_PSG    // CHROUTE_PSG3 (8)
+        dc.b    SFXEL_NOISE  // CHROUTE_PSGN (9)
+        dc.b    SFXEL_NONE   // CHROUTE_DAC  (10) — DAC trigger channel, never stolen
+    }
+    // Length drift guard — RHS-ONLY (the literal 11 is the AUTHORED row count, hand-
+    // kept). This is WEAKER than the AS twin's `(SfxEligTable_End - SfxEligTable) <>
+    // CHROUTE_COUNT`: the twin checks the EMITTED byte count, so adding a `db` row
+    // trips it; this checks only that the constant CHROUTE_COUNT still equals the
+    // authored count, because `.emp` has no data-proc emitted-length introspection
+    // (the `sizeof`/end-label ask — gap-ledgered). A row added here is caught by the
+    // twin's byte gate, not this ensure. (The fm RegDeltaGroupBase / dac_sample_tab
+    // RHS-only precedent.)
+    ensure(11 == CHROUTE_COUNT, "SfxEligTable length must equal CHROUTE_COUNT")
+
+    // ======================================================================
+    // SfxRouteSlot — per-physical-route SfxChannel SLOT index (CHROUTE_* -> 0..6, or
+    // SFX_SLOT_NONE for non-stealable routes). The 7 SfxChannel slots map 1:1 onto
+    // the 7 stealable physical voices (FM3,FM4,FM5,PSG1,PSG2,PSG3,PSGN), so a slot
+    // PERMANENTLY owns its physical voice — "is this physical voice free" reduces to
+    // "is SfxChannel[SfxRouteSlot[route]] SCF_ACTIVE clear", and a slot's sc_route is
+    // always its own physical route. This makes Sfx_SelectVoice tiers (a) "preferred
+    // route busy?" and (b) "any free same-kind voice?" direct slot lookups (no
+    // multiply). Non-stealable routes ($FF) are never passed here (the transcoder
+    // rejects them; the eligibility table also gates them out).
+    //
+    //   slot 0 = FM3 (route 2)   slot 3 = PSG1 (route 6)
+    //   slot 1 = FM4 (route 3)   slot 4 = PSG2 (route 7)
+    //   slot 2 = FM5 (route 4)   slot 5 = PSG3 (route 8)
+    //                            slot 6 = PSGN (route 9)
+    // ======================================================================
+    pub proc SfxRouteSlot () clobbers() {
+        dc.b    SFX_SLOT_NONE // CHROUTE_FM1  (0)
+        dc.b    SFX_SLOT_NONE // CHROUTE_FM2  (1)
+        dc.b    0             // CHROUTE_FM3  (2) -> slot 0
+        dc.b    1             // CHROUTE_FM4  (3) -> slot 1
+        dc.b    2             // CHROUTE_FM5  (4) -> slot 2
+        dc.b    SFX_SLOT_NONE // CHROUTE_FM6  (5)
+        dc.b    3             // CHROUTE_PSG1 (6) -> slot 3
+        dc.b    4             // CHROUTE_PSG2 (7) -> slot 4
+        dc.b    5             // CHROUTE_PSG3 (8) -> slot 5
+        dc.b    6             // CHROUTE_PSGN (9) -> slot 6
+        dc.b    SFX_SLOT_NONE // CHROUTE_DAC  (10)
+    }
+    ensure(11 == CHROUTE_COUNT, "SfxRouteSlot length must equal CHROUTE_COUNT")
+
+    // ======================================================================
+    // SfxSlotRoute — inverse of SfxRouteSlot: SfxChannel slot index (0..6) -> its
+    // permanently-owned physical route (CHROUTE_*). Used by Sfx_SelectVoice's
+    // same-kind scan + priority-steal to recover the physical route a chosen slot
+    // owns (so the incoming SFX is steered onto a free voice it didn't author).
+    // ======================================================================
+    pub proc SfxSlotRoute () clobbers() {
+        dc.b    CHROUTE_FM3   // slot 0
+        dc.b    CHROUTE_FM4   // slot 1
+        dc.b    CHROUTE_FM5   // slot 2
+        dc.b    CHROUTE_PSG1  // slot 3
+        dc.b    CHROUTE_PSG2  // slot 4
+        dc.b    CHROUTE_PSG3  // slot 5
+        dc.b    CHROUTE_PSGN  // slot 6
+    }
+    ensure(7 == SFX_VOICE_COUNT, "SfxSlotRoute length must equal SFX_VOICE_COUNT")
+
+    // ======================================================================
+    // Sfx_SlotPtr — resolve an SfxChannel slot index (in `a`, 0..6) to its RAM ptr
+    // in ix: SND_SFX_CHANNELS + slot*SfxChannel_len, via an add-loop (NO multiply).
+    // In: a = slot index. Out: ix = &SfxChannel[slot].
+    // PRESERVES bc, hl, iy — Sfx_SelectVoice holds the incoming kind in b and the
+    // preferred route in c across these calls, so bc must survive (the djnz counter
+    // is push/pop'd around the loop).
+    // ======================================================================
+    // Contract: out(ix); clobbers af, de; preserves bc, hl, iy.
+    pub proc Sfx_SlotPtr () out(ix) clobbers(af, de) preserves(bc, hl, iy) {
+        ld      ix, SND_SFX_CHANNELS
+        or      a
+        ret     z                        // slot 0 -> base, no stride
+        push    bc                       // preserve bc (caller's kind/route live here)
+        ld      b, a                     // b = slot index (iteration count)
+        ld      de, SfxChannel_len
+    .add_loop:
+        add     ix, de
+        djnz    .add_loop
+        pop     bc
+        ret
+    }
+
+    // ======================================================================
+    // Sfx_SelectVoice — pick the SfxChannel slot + physical route for an incoming SFX
+    // channel (spec §4 dynamic-among-eligible + §6 priority-gated steal).
+    //
+    // In:  c = preferred physical route (CHROUTE_*, the SFX's authored target)
+    //      SND_SFX_DISP_PRIO = incoming SFX priority (SFXPRI_*; higher wins). NOTE the
+    //        priority is read from this dispatch scratch at the steal gate, NOT from a
+    //        register: Sfx_SlotPtr clobbers de on every tier, so no reg survives the
+    //        full ladder. The single caller (SfxDispatch) sets it before calling.
+    // Out: CARRY CLEAR  -> a = chosen SfxChannel slot index (0..6)
+    //                      d = physical route the chosen slot owns (CHROUTE_*)
+    //                      (the slot is NOT yet inited/stolen — SfxDispatch does that;
+    //                       if the slot was a steal victim it has ALREADY been
+    //                       Sfx_Restore'd here, so SfxDispatch may re-init freely)
+    //      CARRY SET    -> dropped (no eligible voice, incoming priority too low)
+    //
+    // The three-tier ladder (no multiply; slot ptrs via Sfx_SlotPtr add-loop):
+    //   (a) PREFERRED: SfxRouteSlot[c] is the slot that owns route c. If it is free
+    //       (SCF_ACTIVE clear) -> use it on route c.
+    //   (b) SUBSTITUTE: else scan all 7 slots for a FREE one whose route has the SAME
+    //       kind as c (SfxEligTable[route]==SfxEligTable[c]) -> use the first such slot
+    //       on ITS owned route (dynamic substitution; more SFX sound at once).
+    //   (c) STEAL/DROP: else all same-kind slots are busy. Among the same-kind slots,
+    //       find the one with the LOWEST sx_priority; if incoming priority (read from
+    //       SND_SFX_DISP_PRIO) >= that lowest -> Sfx_Restore that victim (hands its
+    //       music voice back) and reuse the slot; else carry-set DROP. A lower-priority
+    //       SFX can never cut off a higher one.
+    // ======================================================================
+    // Contract: out(a, d, carry: dropped); clobbers f,bc,e,hl,ix,iy (a + d are the
+    // outs, so f/e carry the a/de scratch halves that remain clobbered).
+    pub proc Sfx_SelectVoice () out(a, d, carry: dropped) clobbers(f, bc, e, hl, ix, iy) {
+        // --- the incoming channel's KIND (SfxEligTable[c]) into b (held all tiers).
+        ld      hl, SfxEligTable
+        ld      a, c
+        add     a, l
+        ld      l, a
+        ld      a, 0
+        adc     a, h
+        ld      h, a                     // hl = &SfxEligTable[c]
+        ld      a, (hl)
+        ld      b, a                     // b = incoming kind (SFXEL_*)
+
+        // --- TIER (a): preferred route's own slot, if free. ----------------------
+        ld      hl, SfxRouteSlot
+        ld      a, c
+        add     a, l
+        ld      l, a
+        ld      a, 0
+        adc     a, h
+        ld      h, a                     // hl = &SfxRouteSlot[c]
+        ld      a, (hl)                  // a = preferred slot (0..6; $FF if unmapped)
+        cp      SFX_SLOT_NONE
+        jr      z, .substitute           // defensive: unmapped route -> skip to scan
+        push    af                       // save preferred slot index
+        call    Sfx_SlotPtr              // ix = &SfxChannel[preferred slot]
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      nz, .pref_busy           // preferred voice busy -> try substitution
+        pop     af                       // a = preferred slot (free) — use it
+        ld      d, c                     // d = preferred physical route
+        or      a                        // CARRY CLEAR -> success
+        ret
+    .pref_busy:
+        pop     af                       // discard preferred slot index
+
+    .substitute:
+        // --- TIER (b): first FREE slot of the SAME kind (b) on its OWNED route. ---
+        // Scan slots 0..6: kind = SfxEligTable[SfxSlotRoute[slot]] == b AND free.
+        ld      c, 0                     // c = slot index cursor (0..6)
+    .sub_loop:
+        ld      a, c
+        ld      hl, SfxSlotRoute
+        add     a, l
+        ld      l, a
+        ld      a, 0
+        adc     a, h
+        ld      h, a
+        ld      a, (hl)                  // a = route owned by slot c
+        ld      hl, SfxEligTable
+        add     a, l
+        ld      l, a
+        ld      a, 0
+        adc     a, h
+        ld      h, a
+        ld      a, (hl)                  // a = SfxEligTable[route] = slot's kind
+        cp      b
+        jr      nz, .sub_next            // different kind -> skip
+        // same kind: is this slot free?
+        ld      a, c
+        call    Sfx_SlotPtr              // ix = &SfxChannel[c]
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      nz, .sub_next            // busy -> skip
+        // free same-kind slot found -> use it on its owned route.
+        ld      a, c
+        ld      hl, SfxSlotRoute
+        add     a, l
+        ld      l, a
+        ld      a, 0
+        adc     a, h
+        ld      h, a
+        ld      d, (hl)                  // d = the slot's owned physical route
+        ld      a, c                     // a = chosen slot
+        or      a                        // CARRY CLEAR -> success
+        ret
+    .sub_next:
+        inc     c
+        ld      a, c
+        cp      SFX_VOICE_COUNT
+        jr      c, .sub_loop
+
+        // --- TIER (c): all same-kind slots busy -> find lowest-priority occupant.
+        // b still = incoming kind. Scan same-kind slots; track the slot with the
+        // minimum sx_priority. l = best slot (or $FF none), h = best priority.
+        ld      l, SFX_SLOT_NONE         // l = lowest-priority same-kind slot (none yet)
+        ld      h, 255                   // $FF — priority sentinel above any real prio
+        ld      c, 0                     // c = slot cursor
+    .steal_loop:
+        ld      a, c
+        push    hl                       // preserve (best slot,best prio) across the lookup
+        ld      hl, SfxSlotRoute
+        add     a, l
+        ld      l, a
+        ld      a, 0
+        adc     a, h
+        ld      h, a
+        ld      a, (hl)                  // a = route owned by slot c
+        ld      hl, SfxEligTable
+        add     a, l
+        ld      l, a
+        ld      a, 0
+        adc     a, h
+        ld      h, a
+        ld      a, (hl)                  // a = slot's kind
+        pop     hl                       // restore (best slot,best prio)
+        cp      b
+        jr      nz, .steal_next          // different kind -> ignore
+        // same kind — read its current priority and keep the minimum.
+        push    hl
+        ld      a, c
+        call    Sfx_SlotPtr              // ix = &SfxChannel[c]
+        ld      a, (ix+sx_priority)      // a = occupant priority
+        pop     hl
+        cp      h
+        jr      nc, .steal_next          // >= current best -> not lower, keep best
+        ld      h, a                     // new lowest priority
+        ld      l, c                     // new lowest-priority slot
+    .steal_next:
+        inc     c
+        ld      a, c
+        cp      SFX_VOICE_COUNT
+        jr      c, .steal_loop
+
+        // l = lowest-priority same-kind slot, h = its priority. (l == $FF only if
+        // NO same-kind slot exists at all — impossible once tier (a)/(b) found the
+        // route mapped, but guard defensively.)
+        ld      a, l
+        cp      SFX_SLOT_NONE
+        jr      z, .drop
+        // priority gate: incoming >= lowest occupant(h) -> steal; else drop. Read
+        // the incoming priority from the dispatch scratch (the `e` arg is long gone:
+        // Sfx_SlotPtr clobbers de on every tier's slot-ptr resolve).
+        ld      a, (SND_SFX_DISP_PRIO)   // a = incoming priority
+        cp      h                        // CARRY set if incoming < h (lower) -> drop
+        jr      c, .drop
+        // --- STEAL: hand the victim's music voice back BEFORE re-init (order!) ----
+        ld      a, l                     // a = victim slot
+        push    af                       // save victim slot index
+        call    Sfx_SlotPtr              // ix = &SfxChannel[victim]
+        call    Sfx_Restore              // restore the victim's music voice (preserves ix)
+        // Sfx_Restore cleared SCF_ACTIVE + sx_priority; the slot is now reusable.
+        pop     af                       // a = victim slot
+        // recover the slot's owned physical route for the caller.
+        push    af
+        ld      hl, SfxSlotRoute
+        add     a, l
+        ld      l, a
+        ld      a, 0
+        adc     a, h
+        ld      h, a
+        ld      d, (hl)                  // d = the victim slot's owned physical route
+        pop     af                       // a = victim slot (chosen)
+        or      a                        // CARRY CLEAR -> success
+        ret
+    .drop:
+        scf                              // CARRY SET -> dropped (no voice available)
+        ret
+    }
+
+    // SfxBlobWinTab (id -> blob $8000-window ptr) lives OUT of this resident phase-0
+    // blob in the Moving Trucks / SFX bank (main.asm `phase 08000h` block, file
+    // engine/sfx_blob_win_tab.asm); it is read through the $8000 window — the two
+    // readers here (SfxDispatch, Sfx_BeginSound) SetBank(SFX_BLOB_BANK) BEFORE the
+    // lookup. The sfx_winptr()/SFX_WIN_* build-time helpers stay in the `.asm` twin
+    // (they serve that moved-out table, not this resident window — no emitted bytes
+    // here, so out of the port's scope).
+}
