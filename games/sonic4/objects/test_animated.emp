@@ -1,0 +1,67 @@
+// Test object — animated Sonic walk cycle with DPLC art streaming.
+module games.sonic4.test_animated in test_animated
+
+use engine.objects.sst.{Sst}
+use engine.constants.{RF_PRIORITY_SHIFT}
+use engine.objects.objdef.{vram_art}
+use engine.types.{VramTile, VramAddr}
+
+// VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). Mirrors
+// games/sonic4/config/constants.asm; the drift guard makes an AS-side change
+// loud (game-config mirror class, until the config ports).
+const VRAM_TEST_SONIC: VramTile = $03C0
+ensure(extern("VRAM_TEST_SONIC") == VRAM_TEST_SONIC, "config/constants.asm VRAM_TEST_SONIC drifted from test_animated.emp")
+
+// vram_bytes(tile) — the VDP BYTE ADDRESS of a tile (tile index x 32), the
+// counterpart of macros.asm's `vram_bytes` function. VramTile in, VramAddr out
+// makes the tile-vs-address conversion honest (the exact converter types.emp
+// names). File-local first consumer; hoists to the shared VRAM-layout home
+// (with vram_art) at the second consumer.
+comptime fn vram_bytes(tile: VramTile) -> VramAddr {
+        return tile << 5
+}
+
+// DplcV — the per-object DPLC state, overlaying sst_custom. Shared byte-for-byte
+// with test_player.asm's copy (the surviving AS definition of _dplc_ptr/_art_base
+// once this object is gated to .emp). The overlay's always-on window-overflow
+// check subsumes the AS `objvarsCheck`.
+vars DplcV: Sst.sst_custom {
+        dplc_ptr: u32,                  // DPLC table pointer (ROM)
+        art_base: u32,                  // uncompressed art base (ROM)
+}
+ensure(extern("_dplc_ptr") == offsetof(Sst, sst_custom) + offsetof(DplcV, dplc_ptr), "test_player.asm _dplc_ptr drifted from test_animated.emp DplcV")
+ensure(extern("_art_base") == offsetof(Sst, sst_custom) + offsetof(DplcV, art_base), "test_player.asm _art_base drifted from test_animated.emp DplcV")
+
+// -----------------------------------------------
+// TestAnimated — init routine
+// In:  a0 = SST pointer (slot already allocated)
+// Clobbers: d0-d4, a1-a3 — falls into TestAnimated_Main (its whole set).
+// -----------------------------------------------
+pub proc TestAnimated (a0: *Sst) clobbers(d0-d4/a1-a3) falls_into TestAnimated_Main {
+        move.l  #Map_Sonic, mappings(a0)
+        move.w  #vram_art(VRAM_TEST_SONIC), art_tile(a0)
+        move.l  #Ani_Sonic, anim_table(a0)
+        move.l  #DPLC_Sonic, DplcV.dplc_ptr(a0)
+        move.l  #Art_Sonic, DplcV.art_base(a0)
+        move.b  #0, anim(a0)
+        move.b  #$FF, prev_anim(a0)
+        move.b  #$FF, prev_frame(a0)
+        ori.b   #4<<RF_PRIORITY_SHIFT, render_flags(a0)
+        move.w  #TestAnimated_Main - ObjCodeBase, code_addr(a0)
+}
+
+// -----------------------------------------------
+// TestAnimated_Main — per-frame update
+// In:  a0 = SST pointer
+// Clobbers: d0-d4, a1-a3
+// -----------------------------------------------
+pub proc TestAnimated_Main (a0: *Sst) clobbers(d0-d4/a1-a3) {
+        jbsr    AnimateSprite
+
+        movea.l DplcV.dplc_ptr(a0), a2
+        movea.l DplcV.art_base(a0), a3
+        move.w  #vram_bytes(VRAM_TEST_SONIC), d1
+        jbsr    Perform_DPLC
+
+        jbra    Draw_Sprite
+}

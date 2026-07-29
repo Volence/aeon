@@ -48,8 +48,28 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/player/player_spindash.asm"
     include "games/sonic4/player/sonic.asm"
 
-    include "games/sonic4/objects/test_static.asm"
-    include "games/sonic4/objects/test_animated.asm"
+    ifndef SIGIL_EMP_TEST_STATIC
+      include "games/sonic4/objects/test_static.asm"
+    else
+        ; sigil mixed build: TestStatic_Main comes from
+        ; games/sonic4/objects/test_static.emp, pinned by the sigil map at the
+        ; reference address inside the object code bank (org $10000, ObjCodeBase).
+        ; Shape-invariant window; ONE org serves both shapes while the banks
+        ; coincide (the $8000 abs.w/abs.l bar — see the test_objects arm below).
+        ; The gate define must never be set for other games (demo takes the
+        ; includes).
+        org     $10C6A
+    endif
+    ifndef SIGIL_EMP_TEST_ANIMATED
+      include "games/sonic4/objects/test_animated.asm"
+    else
+        ; sigil mixed build: TestAnimated/TestAnimated_Main come from
+        ; games/sonic4/objects/test_animated.emp. The DplcV sst_custom overlay
+        ; is defined AS-side by the surviving test_player.asm copy (identical
+        ; equs), so _dplc_ptr/_art_base still resolve for it. Shape-invariant
+        ; window; ONE org both shapes.
+        org     $10CC4
+    endif
     include "games/sonic4/objects/test_player.asm"
     include "games/sonic4/objects/test_enemy.asm"
     ifndef SIGIL_EMP_TEST_OBJECTS
