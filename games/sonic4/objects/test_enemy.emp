@@ -61,6 +61,5 @@ pub proc TestEnemy_Main (a0: *Sst) clobbers(d0-d3/a1) {
 .steps_ok:
         move.w  d0, TEnemyV.steps_remaining(a0)
 
-.draw:
         jbra    Draw_Sprite
 }

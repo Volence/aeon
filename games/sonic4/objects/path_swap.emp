@@ -74,7 +74,7 @@ pub proc PathSwap_Init (a0: *Sst) clobbers(d0-d2/a1) {
                 raise_error "PathSwap: reserved subtype bit PATHSWAP_BIT_PRIO (5) set but unimplemented"
         .prio_unused:
         }
-        moveq   #$F, d0
+        moveq   #$F, d0                         // subtype bits 0-3 = half-height selector
         and.b   subtype(a0), d0
         lsl.w   #5, d0                          // units of 32px
         bne     .have_hh
