@@ -10,7 +10,7 @@ use engine.constants.{HW_PORT_1_DATA, HW_PORT_2_DATA, BUTTON_UP, BUTTON_DOWN, BU
 // Out: Ctrl_1_Held/Press_Accum, Ctrl_2_Held/Press_Accum updated
 // Clobbers: d0-d1, a0
 // -----------------------------------------------
-pub proc Read_Controllers () clobbers(d0, d1, a0) {
+pub proc Read_Controllers () clobbers(d0-d1/a0) {
         lea     HW_PORT_1_DATA, a0
         jbsr    .read_pad
         move.b  Ctrl_1_Held, d1

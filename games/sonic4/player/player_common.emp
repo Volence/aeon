@@ -284,8 +284,8 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
 // Clobbers: a1-a2
 // -----------------------------------------------
 pub proc Player_RefreshPhysics () clobbers(a1-a2) {
-        lea     (PhysTable_Sonic).l, a1
-        lea     (Player_Phys).w, a2
+        lea     PhysTable_Sonic, a1             // (PhysTable_Sonic).l — ROM table, abs.l by the width rule
+        lea     Player_Phys, a2
         move.l  (a1)+, (a2)+
         move.l  (a1)+, (a2)+
         move.l  (a1)+, (a2)+
@@ -309,7 +309,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
         // press bits read ONCE for the frame — d6 survives the debug toggle
         // calls (DebugEnter clobbers none, DebugExit d0-d2/a1-a2) and feeds both
         // the B-toggle and the jump-buffer latch
-        move.b  (Ctrl_1_Press).w, d6
+        move.b  Ctrl_1_Press, d6
         // --- debug-fly toggle (B press) ---
         btst    #4, d6                          // BUTTON_B
         beq     .no_toggle
@@ -325,7 +325,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
                                                 // skips physics, dispatch,
                                                 // rings, and display tail
 
-        lea     (Player_Phys).w, a4             // physics table convention
+        lea     Player_Phys, a4                 // physics table convention
 
         // quadrant = (angle+$20)>>6 — first-class derived value; computed from
         // LAST frame's angle (classic: angle updates at the floor pair)
@@ -333,18 +333,18 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
         addi.b  #$20, d0
         rol.b   #2, d0
         andi.b  #3, d0
-        move.b  d0, (Player_Quadrant).w
+        move.b  d0, Player_Quadrant
 
         // jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick down.
         // Maintained here; the ground-state jump check CONSUMES it.
         andi.b  #BUTTON_JUMP_MASK, d6
         beq     .no_latch
-        move.b  #PHYS_JUMP_BUFFER, (Player_JumpBuffer).w
+        move.b  #PHYS_JUMP_BUFFER, Player_JumpBuffer
         jbra    .buffer_done
 .no_latch:
-        tst.b   (Player_JumpBuffer).w
+        tst.b   Player_JumpBuffer
         beq     .buffer_done
-        subq.b  #1, (Player_JumpBuffer).w
+        subq.b  #1, Player_JumpBuffer
 .buffer_done:
 
         // --- state dispatch. d7 saved across: Player_SensorFloor legitimately
@@ -366,14 +366,14 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
 
         // --- position history rings (recorded unconditionally — a "follower
         // active?" branch costs more than the writes) ---
-        move.w  (Player_Ring_Index).w, d0
-        lea     (Player_Pos_Ring).w, a1
+        move.w  Player_Ring_Index, d0
+        lea     Player_Pos_Ring, a1
         move.w  x_pos(a0), (a1,d0.w)
         move.w  y_pos(a0), 2(a1,d0.w)
-        lea     (Player_Stat_Ring).w, a1
-        move.b  (Ctrl_1_Held).w, d1
+        lea     Player_Stat_Ring, a1
+        move.b  Ctrl_1_Held, d1
         lsl.w   #8, d1
-        move.b  (Ctrl_1_Press).w, d1
+        move.b  Ctrl_1_Press, d1
         move.w  d1, (a1,d0.w)                   // input word (Held<<8|Press)
         move.b  status(a0), 2(a1,d0.w)          // +pad byte left untouched
         addq.b  #4, Player_Ring_Index+1         // (Player_Ring_Index+1).w — low-byte
@@ -450,7 +450,7 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
         // cleared at rest or when the opposing input is released.
         move.w  PlayerV.ground_speed(a0), d1
         beq     .skid_drop                      // stopped -> clear latch
-        move.b  (Ctrl_1_Held).w, d2
+        move.b  Ctrl_1_Held, d2
         tst.w   d1
         bmi     .skid_left
         btst    #BUTTON_LEFT_BIT, d2            // moving right: opposing = LEFT
@@ -501,13 +501,13 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
         rts
 .rest_input:
         // (5) duck
-        btst    #BUTTON_DOWN_BIT, (Ctrl_1_Held).w
+        btst    #BUTTON_DOWN_BIT, Ctrl_1_Held
         beq     .not_duck
         move.b  #ANIM_DUCK, anim(a0)
         rts
 .not_duck:
         // (6) look up
-        btst    #BUTTON_UP_BIT, (Ctrl_1_Held).w
+        btst    #BUTTON_UP_BIT, Ctrl_1_Held
         beq     .not_lookup
         move.b  #ANIM_LOOKUP, anim(a0)
         rts
@@ -691,7 +691,7 @@ pub proc PHook_EnsureBall (a0: *Sst) clobbers() {
 // -----------------------------------------------
 pub proc Player_SnapToSurface (a0: *Sst) clobbers(d0/d2) {
         dist_to_fix(d0)
-        move.b  (Player_Quadrant).w, d2
+        move.b  Player_Quadrant, d2
         beq     .down                           // floor mode — common case
         subq.b  #2, d2
         bmi     .left                           // quadrant 1
@@ -744,7 +744,7 @@ ensure(PBOUND_BOTTOM_MARGIN > (PHYS_FALL_CAP >> 8), "PBOUND_BOTTOM_MARGIN must e
 // Clobbers: d0-d2, a1
 // -----------------------------------------------
 pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
-        movea.l (Current_Act_Ptr).w, a1
+        movea.l Current_Act_Ptr, a1
         move.w  x_pos(a0), d0                   // integer X (16.16 high word)
 
         // --- left bound: world [0, level_width) ---
@@ -806,7 +806,7 @@ pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
         // EDGE_KILL — death pit. No death/respawn system exists yet, so this
         // records intent and clamps meanwhile. When the death system exists it
         // consumes Player_Death_Pending; this stays the single trigger point.
-        st      (Player_Death_Pending).w        // set the death-pending flag ($FF)
+        st      Player_Death_Pending            // set the death-pending flag ($FF)
         jbra    .edge_clamp                     // clamp until the death system exists
 }
 
@@ -851,7 +851,7 @@ pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
 // effective follow speed), draw only.
 // In:  a0 = player SST.  Clobbers: d0-d3, a1 (a0/d7 preserved)
 pub proc Player_DebugMove (a0: *Sst) clobbers(d0-d3/a1) {
-        move.b  (Ctrl_1_Held).w, d0
+        move.b  Ctrl_1_Held, d0
         moveq   #PLAYER_DEBUG_FLY_SPEED, d1
         swap    d1                              // px → 16.16
         btst    #2, d0                          // LEFT

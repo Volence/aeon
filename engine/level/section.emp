@@ -423,8 +423,8 @@ pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
         // house spelling) — the bare form would demand two-way RelaxAbsSym
         // (unbuilt; ledgered). Zero byte cost: RAM syms, the asl width rule
         // converges to abs.w anyway.
-        move.w  (Cache_Top_Row).w, (Section_Top_Row_Written).w
-        move.w  (Cache_Bottom_Row).w, (Section_Bottom_Row_Written).w
+        move.w  (Cache_Top_Row).w, (Section_Top_Row_Written).w        // widths pinned: mem-to-mem two-symbolic operands
+        move.w  (Cache_Bottom_Row).w, (Section_Bottom_Row_Written).w  // widths pinned: mem-to-mem two-symbolic operands
         rts
     .not_dirty:
         movem.l d2-d7/a0-a2, -(sp)              // a3 is preserved across the whole span (Draw_TileColumn/Draw_TileRow_FromCache clobber d0-d5/a0-a2)

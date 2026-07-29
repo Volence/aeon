@@ -53,7 +53,7 @@ pub proc TestChurnObj (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestChurnObj_M
         // Staggered lifetime = MIN + ((Frame_Counter + slot>>3) & (SPREAD-1)).
         // slot term spreads the initial batch across positions; Frame_Counter
         // term spreads successive replacement generations -> steady expiry.
-        move.w  (Frame_Counter).w, d0
+        move.w  Frame_Counter, d0
         move.w  a0, d1
         lsr.w   #3, d1
         add.w   d1, d0
