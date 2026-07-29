@@ -1,0 +1,87 @@
+// Sonic — character data + per-character code (§5). Asset wiring, physics
+// base table, DPLC immediates.
+module games.sonic4.sonic in sonic
+
+use engine.objects.sst.{Sst}
+use engine.objects.objdef.{vram_art, vram_bytes}
+use engine.types.{VramTile}
+
+// VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). Mirrors
+// games/sonic4/config/constants.asm (game-config; the .emp const cannot be seen
+// by the gate-off AS build). The drift guard makes an AS-side change loud.
+const VRAM_TEST_SONIC: VramTile = $03C0
+ensure(extern("VRAM_TEST_SONIC") == VRAM_TEST_SONIC, "config/constants.asm VRAM_TEST_SONIC drifted from sonic.emp")
+
+// PHYS_* — Sonic's 8 section-modifiable physics base values (the PhysTable_Sonic
+// row below). Mirrors of engine/constants.asm (row-1 class; player is the FIRST
+// .emp consumer of the physics block, so file-local mirrors — hoist to the shared
+// engine.constants twin trips at the 2nd consumer, P2/player_ground). Each drift
+// guard makes an AS-side change loud.
+const PHYS_ACCEL             = $C
+const PHYS_DECEL             = $80
+const PHYS_FRICTION          = $C
+const PHYS_TOP_SPEED         = $600
+const PHYS_GRAVITY           = $38
+const PHYS_JUMP_FORCE        = $680
+const PHYS_AIR_ACCEL         = $18
+const PHYS_JUMP_RELEASE_CAP  = -$400
+ensure(extern("PHYS_ACCEL")            == PHYS_ACCEL,            "engine/constants.asm PHYS_ACCEL drifted from sonic.emp")
+ensure(extern("PHYS_DECEL")            == PHYS_DECEL,            "engine/constants.asm PHYS_DECEL drifted from sonic.emp")
+ensure(extern("PHYS_FRICTION")         == PHYS_FRICTION,         "engine/constants.asm PHYS_FRICTION drifted from sonic.emp")
+ensure(extern("PHYS_TOP_SPEED")        == PHYS_TOP_SPEED,        "engine/constants.asm PHYS_TOP_SPEED drifted from sonic.emp")
+ensure(extern("PHYS_GRAVITY")          == PHYS_GRAVITY,          "engine/constants.asm PHYS_GRAVITY drifted from sonic.emp")
+ensure(extern("PHYS_JUMP_FORCE")       == PHYS_JUMP_FORCE,       "engine/constants.asm PHYS_JUMP_FORCE drifted from sonic.emp")
+ensure(extern("PHYS_AIR_ACCEL")        == PHYS_AIR_ACCEL,        "engine/constants.asm PHYS_AIR_ACCEL drifted from sonic.emp")
+ensure(extern("PHYS_JUMP_RELEASE_CAP") == PHYS_JUMP_RELEASE_CAP, "engine/constants.asm PHYS_JUMP_RELEASE_CAP drifted from sonic.emp")
+
+// -----------------------------------------------
+// Sonic_InitAssets — point a player SST at Sonic's art set
+// In:  a0 = player SST
+// Out: none
+// Clobbers: none
+// -----------------------------------------------
+pub proc Sonic_InitAssets (a0: *Sst) clobbers() {
+        move.l  #Map_Sonic, mappings(a0)
+        move.w  #vram_art(VRAM_TEST_SONIC, 0, 0), art_tile(a0)
+        move.l  #Ani_Sonic, anim_table(a0)
+        rts
+}
+
+// -----------------------------------------------
+// Sonic_LoadArt — DPLC stream + draw (the player display tail).
+// DPLC table / art base are per-character code immediates, NOT SST
+// fields (spec §3.2 — keeps 10 bytes of sst_custom headroom).
+// In:  a0 = player SST (mapping_frame current)
+// Out: none
+// Clobbers: d0-d4, a1-a3 (a0/d7 preserved)
+// -----------------------------------------------
+pub proc Sonic_LoadArt (a0: *Sst) clobbers(d0-d4/a1-a3) {
+        lea     (DPLC_Sonic).l, a2
+        lea     (Art_Sonic).l, a3
+        move.w  #vram_bytes(VRAM_TEST_SONIC), d1
+        jbsr    Perform_DPLC
+        jbra    Draw_Sprite
+}
+
+// -----------------------------------------------
+// Sonic's physics base table — block-copied into Player_Phys by
+// Player_RefreshPhysics (the per-CHARACTER base row; section modifiers
+// compose there later, NEVER per-frame). Field order is bound to the
+// Player_Phys RAM layout (ram.asm) — the ensure below enforces size.
+// SCOPE NOTE: ONLY these 8 fields are section-modifiable. The other
+// physics values (GSp/fall caps, slope factors, roll friction/decel,
+// slip params, spindash + roll thresholds) are direct PHYS_*/SPINDASH_*
+// immediates in the state code — S3K invariants, intentionally NOT in
+// this table; a future per-section modifier would not touch them.
+// -----------------------------------------------
+pub data PhysTable_Sonic: [i16; 8] = [
+        PHYS_ACCEL,
+        PHYS_DECEL,
+        PHYS_FRICTION,
+        PHYS_TOP_SPEED,
+        PHYS_GRAVITY,
+        PHYS_JUMP_FORCE,
+        PHYS_AIR_ACCEL,
+        PHYS_JUMP_RELEASE_CAP,
+]
+ensure(8 * 2 == extern("Player_Phys_End") - extern("Player_Phys"), "PhysTable_Sonic out of sync with Player_Phys layout")

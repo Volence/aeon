@@ -107,10 +107,17 @@ maskOpposingLR macro heldReg
 ; Out: dreg.l = dist<<16
 ; -----------------------------------------------
 distToFix macro dreg
-        ext.l   dreg
         swap    dreg
         clr.w   dreg
         endm
+
+; ===== INTERNAL GATE (t34): the zero-byte header above (PlayerV struct, _pl_* /
+; PPHYS_* equates, and the four macros) is ALWAYS emitted so the surviving
+; player_ground/air/spindash resolve it. Only the CODE below is gated — when
+; SIGIL_EMP_PLAYER_COMMON is set the .emp (games/sonic4/player/player_common.emp)
+; provides it and this arm resumes assembly at player_ground's first label. The
+; gate define must never be set for other games (demo takes the code).
+    ifndef SIGIL_EMP_PLAYER_COMMON
 
 ; -----------------------------------------------
 ; Player_Init — set up a player slot as Sonic (called from level state
@@ -118,7 +125,7 @@ distToFix macro dreg
 ; the streaming-test workflow — B drops into physics.
 ; In:  a0 = player SST
 ; Out: none
-; Clobbers: d0-d1, a1-a2
+; Clobbers: d0-d2, a1-a2 (d2 via Player_SetState's hook dispatch)
 ; -----------------------------------------------
 Player_Init:
         bsr.w   Sonic_InitAssets
@@ -142,7 +149,7 @@ Player_Init:
         clr.b   _pl_state(a0)                   ; defined start for SetState's exit lookup
         moveq   #PSTATE_AIR, d0                 ; drop to ground on frame 1
         bsr.w   Player_SetState
-        bsr.w   Player_RefreshPhysics
+        bsr.s   Player_RefreshPhysics
         move.w  #objroutine(Player_Main), SST_code_addr(a0)
         bra.w   Player_DebugEnter
 
@@ -168,7 +175,10 @@ Player_RefreshPhysics:
 ; Player_Main — per-frame player update (RunObjects entry)
 ; In:  a0 = player SST
 ; Out: none
-; Clobbers: d0-d6, a1-a4 (a0/d7 preserved — RunObjects loop contract)
+; Clobbers: d0-d7, a1-a4 (a0 preserved — RunObjects loop contract; d7's HIGH
+;   word is clobbered by the state handlers via Player_SensorFloor. Only the
+;   RunObjects slot-counter LOW word is round-tripped, by the move.w d7,-(sp) /
+;   move.w (sp)+,d7 bracketing the dispatch — RunObjects reads d7 only as a word)
 ; -----------------------------------------------
 Player_Main:
         ; press bits read ONCE for the frame — d6 survives the debug
@@ -253,25 +263,27 @@ Player_Main:
 ; -----------------------------------------------
 ; Player_Display — classify the animation, advance it, stream art, draw.
 ; In:  a0 = player SST
-; Clobbers: d0-d4, a1-a3
+; Clobbers: d0-d5, a1-a3 (d5 via Player_Animate's balance-path ledge probe)
 ; -----------------------------------------------
 Player_Display:
-        bsr.w   Player_Animate                  ; sets SST_anim + d3 (dyn hold)
+        bsr.s   Player_Animate                  ; sets SST_anim + d3 (dyn hold)
         jsr     AnimateSprite
-        jmp     Sonic_LoadArt                   ; character dispatch (Tails/Knux
+        bra.w   Sonic_LoadArt                   ; character dispatch (Tails/Knux
                                                 ; replace via roster later)
 
 ; -----------------------------------------------
 ; Player_Animate — read-only animation classifier. Reads state/status/input
 ; and (at rest) one ledge sensor; writes ONE ANIM_* id to SST_anim and the
-; speed-scaled hold to d3. Mutates only the display transient skid_latch.
+; speed-scaled hold to d3. Mutates the display transients skid_latch and
+; getup_timer (the get-up one-shot counts down here).
 ; Priority: spindash > ball > skid > push > (rest: getup > duck > lookup >
 ; balance > idle) > run/walk.
 ; In:  a0 = player SST
 ; Out: SST_anim set; d3.b = dynamic per-anim hold (for DUR_DYNAMIC scripts)
-; Clobbers: d0-d2, d4, a1-a2 (d3 is an output). The balance path additionally
-;           trashes d5-d6 via Player_AtLedgeEdge — caller (Player_Display, a
-;           frame-tail routine) keeps no live d5/d6 across this call.
+; Clobbers: d0-d5, a1-a2 (d3 is an output; d0-d2/d4 in the body). The balance
+;           path additionally trashes d5 via Player_AtLedgeEdge (clobbers d0-d5)
+;           — caller (Player_Display, a frame-tail routine) keeps no live d5
+;           across this call.
 ; -----------------------------------------------
 Player_Animate:
         ; speed-scaled hold for DUR_DYNAMIC scripts (walk/run/roll):
@@ -741,7 +753,7 @@ Player_DebugExit:
         clr.w   SST_y_vel(a0)
         clr.w   _pl_gsp(a0)
         moveq   #PSTATE_AIR, d0
-        jmp     Player_SetState
+        bra.w   Player_SetState
 
 ; D-pad free flight at PLAYER_DEBUG_FLY_SPEED px/frame (camera Y clamp
 ; caps effective follow speed), draw only.
@@ -767,4 +779,12 @@ Player_DebugMove:
         add.l   d1, SST_y_pos(a0)
 .draw:
         jmp     Draw_Sprite
+
+    else
+        ; sigil mixed build: the player_common code comes from
+        ; games/sonic4/player/player_common.emp. Shape-invariant window; ONE org
+        ; both shapes. Resume lands on player_ground.asm's first label
+        ; PState_Ground.
+        org     $10448
+    endif
 
