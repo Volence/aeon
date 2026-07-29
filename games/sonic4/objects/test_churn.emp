@@ -49,7 +49,7 @@ pub proc TestChurnObj (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestChurnObj_M
         move.b  #16, height_pixels(a0)
         move.b  #COLLISION_TOUCH, collision_resp(a0)   // TouchResponse work, non-lethal
         movea.l a0, a2
-        jsr     PopulateSpawnedPieceCount
+        jbsr    PopulateSpawnedPieceCount
         // Staggered lifetime = MIN + ((Frame_Counter + slot>>3) & (SPREAD-1)).
         // slot term spreads the initial batch across positions; Frame_Counter
         // term spreads successive replacement generations -> steady expiry.
@@ -79,23 +79,23 @@ pub proc TestChurnObj (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestChurnObj_M
 // -----------------------------------------------
 pub proc TestChurnObj_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
         subq.w  #1, TChurnV.life(a0)
-        bne.s   .draw                   // still alive — draw
+        bne     .draw                   // still alive — draw
 
         // Expired: alloc a replacement (code_addr set immediately), then
         // delete self unconditionally (self-delete frees the stack slot a
         // sibling's replacement alloc consumes mid-walk).
         move.l  a0, -(sp)               // save self
-        jsr     AllocDynamic
-        bne.s   .no_replace             // free stack empty (saturated) — skip
+        jbsr    AllocDynamic
+        bne     .no_replace             // free stack empty (saturated) — skip
         move.w  #TestChurnObj - ObjCodeBase, Sst.code_addr(a1)  // invariant: set before any next alloc
         movea.l (sp), a0                // reload self for position inherit
         move.l  x_pos(a0), Sst.x_pos(a1)
         move.l  y_pos(a0), Sst.y_pos(a1)
 .no_replace:
         movea.l (sp)+, a0               // restore self
-        jsr     DeleteObject            // self-delete (a0) — zeros entry, frees slot, sets dirty
+        jbsr    DeleteObject            // self-delete (a0) — zeros entry, frees slot, sets dirty
         rts                             // SST now zeroed — do NOT draw
 
 .draw:
-        jmp     Draw_Sprite
+        jbra    Draw_Sprite
 }

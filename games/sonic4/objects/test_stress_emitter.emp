@@ -49,7 +49,7 @@ pub proc TestStressEmitter (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestStres
         // Direct-alloc + no animation: populate sprite_piece_count manually
         // (Load_Object would have done this; AnimateSprite refresh won't fire.)
         movea.l a0, a2
-        jsr     PopulateSpawnedPieceCount
+        jbsr    PopulateSpawnedPieceCount
         move.w  #STRESS_EMITTER_INTERVAL, TStressEmitterV.timer(a0)
         move.w  #TestStressEmitter_Main - ObjCodeBase, code_addr(a0)
 }
@@ -61,12 +61,12 @@ pub proc TestStressEmitter (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestStres
 // -----------------------------------------------
 pub proc TestStressEmitter_Main (a0: *Sst) clobbers(d0-d3/a1-a2) {
         subq.w  #1, TStressEmitterV.timer(a0)
-        bne.s   .draw
+        bne     .draw
         move.w  #STRESS_EMITTER_INTERVAL, TStressEmitterV.timer(a0)
         lea     stress_particle_desc(pc), a1
-        jsr     CreateEffect_Normal
+        jbsr    CreateEffect_Normal
 .draw:
-        jmp     Draw_Sprite
+        jbra    Draw_Sprite
 }
 
 data stress_particle_desc: EffectSpawn1 = EffectSpawn1 {

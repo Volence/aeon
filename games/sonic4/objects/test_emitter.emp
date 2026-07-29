@@ -56,15 +56,15 @@ pub proc TestEmitter (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestEmitter_Mai
 // -----------------------------------------------
 pub proc TestEmitter_Main (a0: *Sst) clobbers(d0-d3/a1-a2) {
         subq.w  #1, TEmitterV.timer(a0)
-        bne.s   .draw
+        bne     .draw
 
         // Timer expired — spawn particle (particle sets its own velocity)
         move.w  #EMITTER_INTERVAL, TEmitterV.timer(a0)
         lea     emitter_particle_desc(pc), a1
-        jsr     CreateEffect_Normal
+        jbsr    CreateEffect_Normal
 
 .draw:
-        jmp     Draw_Sprite
+        jbra    Draw_Sprite
 }
 
 // Descriptor: one particle at emitter position (0,0 offset).
