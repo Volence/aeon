@@ -187,7 +187,25 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; both shapes. Resume lands on path_swap.asm's ObjDef_PathSwap.
         org     $111FA
     endif
-    include "games/sonic4/objects/path_swap.asm"
+    ifndef SIGIL_EMP_PATH_SWAP
+      include "games/sonic4/objects/path_swap.asm"
+    else
+        ; sigil mixed build: ObjDef_PathSwap descriptor + PathSwap_Init/Main come
+        ; from games/sonic4/objects/path_swap.emp. SHAPE-DEPENDENT window (2
+        ; __DEBUG__ blocks: the reserved-bit RaiseError guard + the debug jmp
+        ; Draw_Sprite vs release rts tail) — the debug shape is +$68 longer, so
+        ; this is the object bank's first PER-SHAPE gate resume org. Resume lands
+        ; on gameDataIncludes' first label DeformTable_Zero (ojz_default.asm), the
+        ; next placement. AS-side consumers (act_descriptor / entity_data
+        ; `dc.l ObjDef_PathSwap`) resolve to the .emp-exported label through the
+        ; shared link. The gate define must never be set for other games (demo
+        ; takes the include).
+      ifdef __DEBUG__
+        org     $112F4
+      else
+        org     $1128C
+      endif
+    endif
     endm
 
 gameDataIncludes macro {GLOBALSYMBOLS}

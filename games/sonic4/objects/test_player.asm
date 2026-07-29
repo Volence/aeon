@@ -36,6 +36,16 @@ DEBUG_FLY_SPEED         = 16            ; pixels per frame in debug mode
 DEBUG_FLY_SPEED_FAST    = 16            ; = base speed for now (camera clamp); turbo is a no-op            ; capped to CAM_MAX_Y_STEP — camera can't follow faster
 STUB_FLOOR_Y            = 192           ; pixel Y for stub ground plane (used by object_test_state)
 
+; ===== INTERNAL GATE (t39): the zero-byte header above (DplcV struct, TPlayerV
+; struct, _debug_flag / physics equates, STUB_FLOOR_Y, objvarsCheck) is ALWAYS
+; emitted — test_animated.emp's DplcV drift guards read _dplc_ptr/_art_base and
+; object_test_state.asm reads STUB_FLOOR_Y. Only the CODE below is gated: when
+; SIGIL_EMP_TEST_PLAYER is set the .emp (games/sonic4/objects/test_player.emp)
+; provides it and this arm resumes assembly at test_enemy's first label
+; TestEnemy_Init. The gate define must never be set for other games (demo takes
+; the code).
+    ifndef SIGIL_EMP_TEST_PLAYER
+
 ; -----------------------------------------------
 ; TestPlayer — init routine
 ; In:  a0 = SST pointer (slot already allocated)
@@ -291,3 +301,7 @@ TestPlayer_Debug:
         add.l   d1, SST_y_pos(a0)
 .dbg_draw:
         jmp     Draw_Sprite
+
+    else
+        org     $10F02
+    endif

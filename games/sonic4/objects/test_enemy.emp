@@ -1,0 +1,66 @@
+// Test enemy — simple patrol object that walks left/right within boundaries.
+// Base fields (mappings, art_tile, velocity, collision, priority) set by
+// Load_Object from ObjDef_Enemy. This code handles behavior-specific init only.
+//
+// Patrol is counter-driven — no absolute world coordinates stored in sst_custom.
+// steps_remaining counts pixels left before reversing (the velocity sign is
+// toggled by neg.w x_vel); direction byte tracks facing and drives RF_XFLIP.
+module games.sonic4.test_enemy in test_enemy
+
+use engine.objects.sst.{Sst}
+use engine.constants.{RF_XFLIP}
+
+const ENEMY_PATROL_RANGE = 48           // pixels each side from spawn centre
+
+// TEnemyV — patrol counter state, overlaying sst_custom. Single-consumer (only
+// this object reads it) so the overlay is UNGUARDED (row-66 class); the always-on
+// window-overflow check subsumes the AS objvarsCheck. ENEMY_PATROL_SPEED lives in
+// the surviving AS header (internal-gated) — test_objects.emp's objdef drift guard
+// reads it — so it is NOT re-declared here.
+vars TEnemyV: Sst.sst_custom {
+        steps_remaining: u16,           // pixels remaining before turn
+        direction: u8,                  // 0 = moving right, 1 = moving left
+}
+
+// -----------------------------------------------
+// TestEnemy_Init — behavior-specific init (called as first-frame code_addr)
+// In:  a0 = SST pointer (base fields already set by Load_Object)
+// Clobbers: d0-d3, a1 — falls into TestEnemy_Main (its whole-object set).
+// -----------------------------------------------
+pub proc TestEnemy_Init (a0: *Sst) clobbers(d0-d3/a1) falls_into TestEnemy_Main {
+        move.w  #ENEMY_PATROL_RANGE, TEnemyV.steps_remaining(a0)
+        clr.b   TEnemyV.direction(a0)
+
+        move.w  #TestEnemy_Main - ObjCodeBase, code_addr(a0)
+}
+
+// -----------------------------------------------
+// TestEnemy_Main — per-frame update
+// In:  a0 = SST pointer
+// Clobbers: d0-d3, a1 — the callee union ObjectMoveX(d0) ∪ Draw_Sprite(d0-d3/a1).
+// -----------------------------------------------
+pub proc TestEnemy_Main (a0: *Sst) clobbers(d0-d3/a1) {
+        jbsr    ObjectMoveX
+
+        // Decrement steps counter. One step = one pixel (speed $100 = 1 px/frame).
+        move.w  TEnemyV.steps_remaining(a0), d0
+        subq.w  #1, d0
+        bne     .steps_ok
+
+        // Steps exhausted — reverse direction and reload counter.
+        neg.w   x_vel(a0)
+        move.w  #ENEMY_PATROL_RANGE * 2, d0     // full leg edge-to-edge = 2× the spawn-centre range
+        tst.b   TEnemyV.direction(a0)
+        beq     .was_right
+        clr.b   TEnemyV.direction(a0)
+        bclr    #RF_XFLIP, render_flags(a0)
+        bra     .steps_ok
+.was_right:
+        move.b  #1, TEnemyV.direction(a0)
+        bset    #RF_XFLIP, render_flags(a0)
+
+.steps_ok:
+        move.w  d0, TEnemyV.steps_remaining(a0)
+
+        jbra    Draw_Sprite
+}
