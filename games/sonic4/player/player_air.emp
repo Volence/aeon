@@ -444,7 +444,7 @@ proc Air_GspFromYvel (a0: *Sst) clobbers(d0) {
 // → PSTATE_ROLL, else PSTATE_GROUND. Same gate as the grounded roll
 // start (research §5 preconditions), applied to the post-conversion gsp
 // — so a curled landing stays curled (RollEnter's EnsureBall is a no-op)
-// and an uncurled AIR landing curls; the carried-Task-6 uncurl-flicker
+// and an uncurled AIR landing curls; the uncurl-flicker
 // class is gone.
 // In:  a0 = player SST (_pl_gsp already converted by the caller)
 // Out: d0.w = PSTATE_ROLL / PSTATE_GROUND (feed to Player_SetState)

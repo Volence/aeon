@@ -4,7 +4,7 @@
 // Ground_PostMove), + Player_Jump. PState_Spindash lives in player_spindash.emp
 // (shared ability). Player_Jump lives in this file because it is
 // invoked only from grounded states (its tail jumps into the air body in
-// player_air.emp — the bug #4 press-frame fix). Reached only through the
+// player_air.emp — the press-frame movement fix). Reached only through the
 // Player_States offset table in player_common.asm; shares its overlay
 // equates, macros, and the (a4) physics-table convention.
 //
@@ -418,8 +418,8 @@ proc Ground_DetachState (a0: *Sst) clobbers(d0-d2/a1-a2) {
 pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // --- jump check — same gate as PState_Ground. Player_Jump reads
         // _pl_state and launches into ROLLJUMP from here (air-control
-        // lockout); ball radii are KEPT by the hooks — bug #5 fix is
-        // structural, no size pop on a roll-jump ---
+        // lockout); ball radii are KEPT by the hooks — structural,
+        // no size pop on a roll-jump ---
         tst.b   Player_JumpBuffer
         beq     .no_jump
         jbsr    Player_SensorCeiling            // d0 = headroom
@@ -832,7 +832,7 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
 // Out: DOES NOT return to the ground flow — transitions to PSTATE_JUMP
 //      (PSTATE_ROLLJUMP from a roll) and runs the air body THIS frame,
 //      returning to Player_Main's dispatch.
-//      bug #4 fix: the classic aborts the press frame with
+//      press-frame movement: the classic aborts the press frame with
 //      `addq.l #4,sp` (no movement until the next frame); we complete
 //      the frame airborne so movement happens on the press frame.
 // Clobbers: d0-d7, a1-a2
@@ -873,7 +873,7 @@ pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // re-set it while rising (.solid_top requires y_vel >= 0).
         bclr    #ST_ON_OBJECT, status(a0)
         // from a roll → ROLLJUMP (classic lockout: no air control; ball
-        // radii simply KEPT by the hooks — bug #5 fix is structural).
+        // radii simply KEPT by the hooks — structural).
         // SPINDASH never calls here (its body has no jump check).
         moveq   #PSTATE_JUMP, d0
         cmpi.b  #PSTATE_ROLL, PlayerV.player_state(a0)
@@ -881,7 +881,7 @@ pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         moveq   #PSTATE_ROLLJUMP, d0
 .from_stand:
         jbsr    Player_SetState                 // preserves d0 (hook contract)
-        // bug #4 fix: run the full air body on the press frame — through
+        // press-frame movement: run the full air body on the press frame — through
         // the state's own preamble so ROLLJUMP locks input on this frame
         // too
         cmpi.w  #PSTATE_ROLLJUMP, d0
