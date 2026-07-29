@@ -19,6 +19,7 @@
 module games.sonic4.object_test_state in object_test_state
 
 use engine.objects.sst.{Sst}
+use engine.objects.objdef.{vram_bytes}
 use engine.constants.{NUM_DYNAMIC, NUM_EFFECTS}
 use engine.vdp.{VDP_MODE2_OFF}
 use engine.types.{VramTile}
@@ -44,6 +45,15 @@ ensure(extern("VDP_HV_COUNTER") == VDP_HV_COUNTER, "engine/constants.asm VDP_HV_
 
 // The ring blob (512 B) that tails the two 128-byte colour squares in TestArt.
 const RingArt = embed("games/sonic4/test/ring_art.bin")
+const RING_ART_LEN = 512
+// Drift guard on the embedded blob's size (an `ensure` evaluates the embed in a
+// sandbox-rooted context; a proc-body immediate does not, so TEST_ART_LEN below
+// must stay pure-int). RING_ART_LEN feeds the DMA length.
+ensure(RingArt.len == RING_ART_LEN, "games/sonic4/test/ring_art.bin size drifted from RING_ART_LEN")
+// TestArt_End - TestArt = the two 128-byte squares + the ring blob (the DMA
+// length). A pure-int comptime const (link-time immediate arithmetic on a label
+// pair is not an expressible EA); byte-identical to the twin's TestArt_End - TestArt.
+const TEST_ART_LEN = 128 + 128 + RING_ART_LEN
 
 // -----------------------------------------------
 // GameState_ObjectTest_Init — one-shot setup
@@ -64,7 +74,7 @@ pub proc GameState_ObjectTest_Init () clobbers(d0-d4/a0-a2) {
         // DMA test art to VRAM
         move.l  #TestArt, d1
         move.w  #vram_bytes(VRAM_TEST_OBJ), d2
-        move.w  #TestArt_End - TestArt, d3
+        move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt
         jbsr    QueueDMA_Critical
 
         // Init object and sprite systems
@@ -110,7 +120,7 @@ pub proc GameState_ObjectTest_Init () clobbers(d0-d4/a0-a2) {
         ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask    // (VDP_Dirty_Mask).w
 
         // Switch to running loop
-        move.l  #GameState_ObjectTest, Game_State   // (Game_State).w
+        move.l  #GameState_ObjectTest, (Game_State).w
         rts
 }
 
@@ -237,7 +247,7 @@ pub proc GameState_ObjectTestChurn_Init () clobbers(d0-d5/a0-a2) {
         // DMA test art to VRAM
         move.l  #TestArt, d1
         move.w  #vram_bytes(VRAM_TEST_OBJ), d2
-        move.w  #TestArt_End - TestArt, d3
+        move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt
         jbsr    QueueDMA_Critical
 
         // Init object and sprite systems
@@ -292,7 +302,7 @@ pub proc GameState_ObjectTestChurn_Init () clobbers(d0-d5/a0-a2) {
         move.b  #$74, VDP_Shadow_Table + VDP_MODE2_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode2).w
         ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask    // (VDP_Dirty_Mask).w
 
-        move.l  #GameState_ObjectTestChurn, Game_State   // (Game_State).w
+        move.l  #GameState_ObjectTestChurn, (Game_State).w
         rts
 }
 
@@ -397,10 +407,6 @@ data TestArt_Square2: [u32; 32] = [
 // line-0 gold indices remapped to sonic.bin line-0 (E/F gold, 6 white glint).
 // DrawRings picks a frame with base + Ring_Anim_Frame×4.
 data TestArt_Ring = RingArt
-
-// TestArt_End — marker at the end of the DMA blob (== TestPalette address). Its
-// only use is the TestArt_End - TestArt length above (and ojz_scroll_test's).
-pub data TestArt_End = Data.empty
 
 // -----------------------------------------------
 // Test palette — 16 colors for CRAM line 0. TestArt_End lands here.

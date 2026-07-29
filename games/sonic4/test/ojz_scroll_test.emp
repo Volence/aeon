@@ -41,6 +41,12 @@ const CAM_SCREEN_HALF_H = 112
 ensure(extern("CAM_SCREEN_HALF_W") == CAM_SCREEN_HALF_W, "camera.asm CAM_SCREEN_HALF_W drifted from ojz_scroll_test.emp")
 ensure(extern("CAM_SCREEN_HALF_H") == CAM_SCREEN_HALF_H, "camera.asm CAM_SCREEN_HALF_H drifted from ojz_scroll_test.emp")
 
+// TestArt_End - TestArt (the marker-DMA length) — object_test_state owns the
+// TestArt blob; this mirrors its length (two 128-byte squares + the 512-byte ring
+// blob, drift-guarded there). A pure-int comptime const (label-pair immediate
+// arithmetic isn't an expressible EA); byte-identical to the twin's TestArt_End - TestArt.
+const TEST_ART_LEN = 128 + 128 + 512
+
 // Player_1 SST-field absolute addresses (the extern-equ-sum idiom, camera.emp's
 // PL_STATE_ADDR precedent) — the init writes the spawn position/velocity directly
 // to (Player_1+field).w without holding the base in a register.
@@ -87,7 +93,7 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d3/a0-a3) {
         //    the last tile is VRAM_RING_PLACEHOLDER for DrawRings) --
         move.l  #TestArt, d1
         move.w  #vram_bytes(VRAM_TEST_OBJ), d2
-        move.w  #TestArt_End - TestArt, d3
+        move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt
         jbsr    QueueDMA_Critical
 
         // -- initialise camera first (Section_FillInitial reads Camera_X) --
@@ -185,10 +191,10 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d3/a0-a3) {
         ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask
 
         // -- set VInt_Ptr to level handler --
-        move.l  #VInt_Level, VInt_Ptr          // (VInt_Ptr).w
+        move.l  #VInt_Level, (VInt_Ptr).w   // explicit .w: link-imm source + relaxable dest can't share one instruction
 
         // -- transition to update loop --
-        move.l  #GameState_OJZScroll_Update, Game_State   // (Game_State).w
+        move.l  #GameState_OJZScroll_Update, (Game_State).w
         rts
 }
 
