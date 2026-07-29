@@ -1,0 +1,76 @@
+// Test emitter — spawns particles at a fixed interval.
+// Placed in the test scene to demonstrate effect pool lifecycle.
+module games.sonic4.test_emitter in test_emitter
+
+use engine.objects.sst.{Sst}
+use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT}
+use engine.objects.objdef.{vram_art}
+use engine.types.{VramTile, ObjRoutine}
+
+// VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Mirrors
+// games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
+const VRAM_TEST_OBJ: VramTile = $03E0
+ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from test_emitter.emp")
+
+const EMITTER_INTERVAL = 30             // frames between spawns
+
+// TEmitterV — the per-object emitter state, overlaying sst_custom. The overlay's
+// always-on window-overflow check subsumes the AS `objvarsCheck`.
+vars TEmitterV: Sst.sst_custom {
+        timer: u16,                     // countdown to next spawn
+}
+
+// EffectSpawn1 — a single-entry CreateEffect_Normal descriptor table. The seam
+// reads [code:w, x_off:b, y_off:b] records until a zero code word, so `code`
+// carries the ObjRoutine (objroutine offset — a link word that raw `dc.w` cannot
+// hold, hence the typed record) and `term` is the end-of-table 0.
+struct EffectSpawn1 (size: 6) {
+        code:   ObjRoutine  @ $00,      // child code_addr (objroutine offset)
+        x_off:  i8          @ $02,      // signed X offset from parent
+        y_off:  i8          @ $03,      // signed Y offset from parent
+        term:   u16         @ $04,      // end-of-table terminator (0)
+}
+
+// -----------------------------------------------
+// TestEmitter — set up emitter (called as first-frame code_addr)
+// In:  a0 = SST pointer (position set by spawn list)
+// Clobbers: d0-d3, a1-a2 — the whole-object set (falls into Main below, whose
+//   contract is CreateEffect_Normal(d0-d2/a1-a2) ∪ Draw_Sprite(d0-d3/a1)).
+// -----------------------------------------------
+pub proc TestEmitter (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestEmitter_Main {
+        move.l  #Map_TestObj, mappings(a0)
+        move.w  #vram_art(VRAM_TEST_OBJ), art_tile(a0)
+        move.b  #1, mapping_frame(a0)           // frame 1 (color 2 square)
+        ori.b   #5<<RF_PRIORITY_SHIFT, render_flags(a0)
+        move.b  #16, width_pixels(a0)
+        move.b  #16, height_pixels(a0)
+        bset    #RF_COORDMODE, render_flags(a0)
+        move.w  #EMITTER_INTERVAL, TEmitterV.timer(a0)
+        move.w  #TestEmitter_Main - ObjCodeBase, code_addr(a0)
+}
+
+// -----------------------------------------------
+// TestEmitter_Main — per-frame: countdown, spawn particle, draw self
+// In:  a0 = SST pointer
+// Clobbers: d0-d3, a1-a2 — CreateEffect_Normal(d0-d2/a1-a2) ∪ Draw_Sprite(d0-d3/a1).
+// -----------------------------------------------
+pub proc TestEmitter_Main (a0: *Sst) clobbers(d0-d3/a1-a2) {
+        subq.w  #1, TEmitterV.timer(a0)
+        bne.s   .draw
+
+        // Timer expired — spawn particle (particle sets its own velocity)
+        move.w  #EMITTER_INTERVAL, TEmitterV.timer(a0)
+        lea     emitter_particle_desc(pc), a1
+        jsr     CreateEffect_Normal
+
+.draw:
+        jmp     Draw_Sprite
+}
+
+// Descriptor: one particle at emitter position (0,0 offset).
+data emitter_particle_desc: EffectSpawn1 = EffectSpawn1 {
+        code:  extern("TestParticle") - extern("ObjCodeBase"),
+        x_off: 0,
+        y_off: 0,
+        term:  0,
+}
