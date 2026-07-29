@@ -351,7 +351,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
 // -----------------------------------------------
 // Player_Display — classify the animation, advance it, stream art, draw.
 // In:  a0 = player SST
-// Clobbers: d0-d5, a1-a3 (d5 via Player_Animate's balance-path ledge probe)
+// Clobbers: d0-d6, a1-a3 (d5-d6 via Player_Animate's balance-path ledge probe)
 // -----------------------------------------------
 pub proc Player_Display (a0: *Sst) clobbers(d0-d6/a1-a3) {
         jbsr    Player_Animate                  // sets SST_anim + d3 (dyn hold)
@@ -369,10 +369,10 @@ pub proc Player_Display (a0: *Sst) clobbers(d0-d6/a1-a3) {
 // balance > idle) > run/walk.
 // In:  a0 = player SST
 // Out: SST_anim set; d3.b = dynamic per-anim hold (for DUR_DYNAMIC scripts)
-// Clobbers: d0-d5, a1-a2 (d3 is an output; d0-d2/d4 in the body). The balance
-//           path additionally trashes d5 via Player_AtLedgeEdge (clobbers d0-d5)
-//           — caller (Player_Display, a frame-tail routine) keeps no live d5
-//           across this call.
+// Clobbers: d0-d6, a1-a2 (d3 is an output; d0-d2/d4 in the body). The balance
+//           path additionally trashes d5-d6 via Player_AtLedgeEdge (clobbers
+//           d0-d6; d6 = the SOLID_TOP class mask) — caller (Player_Display, a
+//           frame-tail routine) keeps no live d5-d6 across this call.
 // -----------------------------------------------
 pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         // speed-scaled hold for DUR_DYNAMIC scripts (walk/run/roll):

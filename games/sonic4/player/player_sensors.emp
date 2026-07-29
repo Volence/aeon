@@ -34,6 +34,7 @@ module games.sonic4.player_sensors in player_sensors
 
 use engine.objects.sst.{Sst}
 use engine.constants.{ST_XFLIP, ST_ON_OBJECT, PLAYER_X_RADIUS}
+use engine.coords.{abs_w}
 
 // Collision_GetType is a ported .emp proc (engine.collision_lookup); the .cell
 // call below resolves to it by BARE LINK (module-to-module in the mixed build,
@@ -485,7 +486,7 @@ pub proc Player_SensorWallDir (a0: *Sst) clobbers(d0-d6/a1) {
 // In:  a0 = player SST (grounded, at rest — caller gates this)
 // Out: d0 = 0 and Z set (beq) = solidly supported; d0 = 1 and Z clear (bne)
 //      = at an edge. (Z reflects d0 so the caller can branch on beq/bne.)
-// Clobbers: d0-d5, a1-a2
+// Clobbers: d0-d6, a1-a2 (d6 = the SOLID_TOP class mask on the terrain path)
 // -----------------------------------------------
 const LEDGE_PROBE_REACH = PLAYER_X_RADIUS+2    // just past the support foot
 const LEDGE_NO_GROUND   = 8                     // floor dist beyond this = no ground
@@ -520,9 +521,7 @@ pub proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d6/a1-a2) {
         // the classic balance-on-object window.
         move.w  x_pos(a0), d0
         sub.w   Sst.x_pos(a1), d0
-        bpl     .obj_abs
-        neg.w   d0
-.obj_abs:
+        abs_w(d0)                             // |player center − object center|
         moveq   #0, d1
         move.b  Sst.width_pixels(a1), d1
         lsr.w   #1, d1                           // object half-width
