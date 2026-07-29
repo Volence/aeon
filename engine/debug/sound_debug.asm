@@ -11,10 +11,10 @@
 ; DEBUG only. Stops the Z80 for the copy, then restarts it.
 ; Clobbers: d0-d1/a0-a1 — d1 is the channel-copy outer loop counter
 ; (moveq #SEQ_MIRROR_CHANNELS-1, d1), d0 the inner byte counters, a0/a1 the
-; copy pointers; none are restored (leaf, no movem). An earlier comment said
-; "d0/a0/a1", under-declaring d1 — vblank.emp's `extern proc Sound_DebugMirror
-; () clobbers(d0-d1/a0-a1)` already declares the honest set; this comment is
-; corrected to match (the t26 extern-decl census caught the stale twin comment).
+; copy pointers; none are restored (leaf, no movem). This is the honest set the
+; .emp port (sound_debug.emp, engine.debug.sound_debug) carries as its proc
+; contract clobbers(d0-d1/a0-a1); vblank.emp resolves the mirror-shape call
+; module-to-module (no extern decl — a decl would §11-Q4 collide with the proc).
 ; ----------------------------------------------------------------------
 ; Phase 3: SeqChannel grew 14 -> 36 bytes (the modulation-state block), so we can
 ; no longer mirror FULL channel slots within the 176-byte Sound_Dbg_Mirror. The
