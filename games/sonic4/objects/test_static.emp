@@ -7,8 +7,8 @@ use engine.objects.sst.{Sst}
 // -----------------------------------------------
 // TestStatic_Main — display-only (no per-frame logic)
 // In:  a0 = SST pointer
-// Clobbers: d0-d3, a1 — Draw_Sprite's set (tail call). The signature carries
-//   the callee union the AS header under-declared (test_solid precedent).
+// Clobbers: d0-d3, a1 — Draw_Sprite's set (the exhaustive-license contract for
+//   a proc that tail-jumps into Draw_Sprite).
 // -----------------------------------------------
 pub proc TestStatic_Main (a0: *Sst) clobbers(d0-d3/a1) {
         jbra    Draw_Sprite
