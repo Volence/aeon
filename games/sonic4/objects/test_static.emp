@@ -1,0 +1,15 @@
+// Test object — static display at fixed position (no logic).
+// Base fields set by Load_Object from ObjDef_Static.
+module games.sonic4.test_static in test_static
+
+use engine.objects.sst.{Sst}
+
+// -----------------------------------------------
+// TestStatic_Main — display-only (no per-frame logic)
+// In:  a0 = SST pointer
+// Clobbers: d0-d3, a1 — Draw_Sprite's set (the exhaustive-license contract for
+//   a proc that tail-jumps into Draw_Sprite).
+// -----------------------------------------------
+pub proc TestStatic_Main (a0: *Sst) clobbers(d0-d3/a1) {
+        jbra    Draw_Sprite
+}
