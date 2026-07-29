@@ -36,17 +36,23 @@
 //   * $E2 (Seq_HookDac → Snd_StartSample): window = SND_SONG_BANK (B1), and
 //     every song lives in this bank (song_table.asm asserts).
 //   * mailbox SND_REQ_SAMPLE (SndDrv_PollMailbox → Snd_StartSample): the sample
-//     block does an explicit SetBank(SND_ENGINE_TABLE_BANK) before the lookup.
+//     block does an explicit SetBank(SND_ENGINE_TABLE_BANK) before the lookup
+//     (this path has no ambient guarantee — streaming ticks leave the sample
+//     bank in the window, cold-boot ISRs bank 0).
 // ===========================================================================
 
 module engine.dac_sample_tab (cpu: z80)
 
 // The table emits 10 descriptors of 9 bytes (db,db,db,dw,dw,dw) = 90 bytes.
-// Mirror the AS twin's `(End-Start) <> DAC_SAMPLE_COUNT*DacSample_len / fatal`
-// span guard at the seam: a link-time drift guard against the engine's declared
-// count × stride. (A section-length primitive would let this read End-Start
-// directly — see the gap-ledger table-span note; today the emitted total is the
-// declared 10 × 9.)
+// Partial mirror of the AS twin's `(End-Start) <> DAC_SAMPLE_COUNT*DacSample_len
+// / fatal` span guard: this checks only the RHS — that the engine's DECLARED
+// count × stride still equals this table's declared 90 (a link-time drift guard
+// against DAC_SAMPLE_COUNT / DacSample_len changing). It does NOT read the
+// EMITTED span, so unlike the AS `End-Start` half it cannot catch this `.emp`
+// body emitting the wrong NUMBER of descriptors — the LHS `10*9` is a hand
+// literal, not a measured length. That half awaits a comptime section-length
+// primitive (gap-ledgered); until then the AS twin's canonical `End-Start`
+// guard + the oracle's length pin cover table-body drift.
 ensure(10 * 9 == extern("DAC_SAMPLE_COUNT") * extern("DacSample_len"),
        "DacSampleTable size (10 descriptors × 9 bytes) disagrees with DAC_SAMPLE_COUNT × DacSample_len")
 
