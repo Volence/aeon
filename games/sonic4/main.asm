@@ -18,7 +18,23 @@ gameRamIncludes macro {GLOBALSYMBOLS}
     endm
 
 gameEngineBlockIncludes macro {GLOBALSYMBOLS}
-    include "games/sonic4/player/player_sensors.asm"
+    ifndef SIGIL_EMP_PLAYER_SENSORS
+        include "games/sonic4/player/player_sensors.asm"
+    else
+        ; sigil mixed build: the collision sensor primitives (Collision_Probe*,
+        ; Player_Sensor*, Player_AtLedgeEdge) come from player_sensors.emp,
+        ; pinned by the sigil map at the engine-block region start. Unlike the
+        ; object-bank player state files, this region's BASE shifts with upstream
+        ; __DEBUG__ growth (SHAPE-VARYING base, shape-invariant own layout $4FC),
+        ; so the resume org is PER-SHAPE. Resume lands on game_debug.asm's start,
+        ; which emits ZERO canonical bytes (whole-file ifdef SOUND_DEBUG_HOTKEYS),
+        ; i.e. Section_Init. The gate define must never be set for other games.
+      ifdef __DEBUG__
+        org     $633C
+      else
+        org     $55A4
+      endif
+    endif
     ifndef SIGIL_EMP_GAME_DEBUG
         include "games/sonic4/debug/game_debug.asm"
     else
