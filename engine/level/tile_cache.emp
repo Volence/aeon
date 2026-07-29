@@ -1154,9 +1154,9 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // .row_done and never records). Memoize (target row, Left, Head, generation)
         // so the next unchanged frame skips this walk.
         move.w  d7, Pfx_Memo_Row
-        move.w  (Cache_Left_Col).w, (Pfx_Memo_L).w
-        move.w  (Cache_Head_Col).w, (Pfx_Memo_H).w
-        move.w  (Block_Stage_Gen).w, (Pfx_Memo_Gen).w
+        move.w  (Cache_Left_Col).w, (Pfx_Memo_L).w    // widths pinned: mem-to-mem two-symbolic operands
+        move.w  (Cache_Head_Col).w, (Pfx_Memo_H).w    // widths pinned: mem-to-mem two-symbolic operands
+        move.w  (Block_Stage_Gen).w, (Pfx_Memo_Gen).w // widths pinned: mem-to-mem two-symbolic operands
 
     .row_done:
         // ---- COL SCAN (horizontal prefetch; H3 direction hysteresis) ----
@@ -1277,9 +1277,9 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // and no block was decompressed this frame (the decompress path jumps to
         // .col_done and never records). Memoize (target col, Top, Bottom, generation).
         move.w  d6, Cs_Memo_Col
-        move.w  (Cache_Top_Row).w, (Cs_Memo_T).w
-        move.w  (Cache_Bottom_Row).w, (Cs_Memo_B).w
-        move.w  (Block_Stage_Gen).w, (Cs_Memo_Gen).w
+        move.w  (Cache_Top_Row).w, (Cs_Memo_T).w     // widths pinned: mem-to-mem two-symbolic operands
+        move.w  (Cache_Bottom_Row).w, (Cs_Memo_B).w  // widths pinned: mem-to-mem two-symbolic operands
+        move.w  (Block_Stage_Gen).w, (Cs_Memo_Gen).w // widths pinned: mem-to-mem two-symbolic operands
 
     .col_done:
         // ---- CORNER (H2): the (next-row x next-col) block is in NEITHER axis scan;

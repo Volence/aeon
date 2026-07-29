@@ -56,8 +56,8 @@ pub proc Sonic_InitAssets (a0: *Sst) clobbers() {
 // Clobbers: d0-d4, a1-a3 (a0/d7 preserved)
 // -----------------------------------------------
 pub proc Sonic_LoadArt (a0: *Sst) clobbers(d0-d4/a1-a3) {
-        lea     (DPLC_Sonic).l, a2
-        lea     (Art_Sonic).l, a3
+        lea     DPLC_Sonic, a2                 // (DPLC_Sonic).l — ROM addr, abs.l by the width rule
+        lea     Art_Sonic, a3                  // (Art_Sonic).l
         move.w  #vram_bytes(VRAM_TEST_SONIC), d1
         jbsr    Perform_DPLC
         jbra    Draw_Sprite
