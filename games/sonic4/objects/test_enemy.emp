@@ -3,7 +3,8 @@
 // Load_Object from ObjDef_Enemy. This code handles behavior-specific init only.
 //
 // Patrol is counter-driven — no absolute world coordinates stored in sst_custom.
-// steps_remaining counts pixels left before reversing; direction byte sets sign.
+// steps_remaining counts pixels left before reversing (the velocity sign is
+// toggled by neg.w x_vel); direction byte tracks facing and drives RF_XFLIP.
 module games.sonic4.test_enemy in test_enemy
 
 use engine.objects.sst.{Sst}
@@ -48,7 +49,7 @@ pub proc TestEnemy_Main (a0: *Sst) clobbers(d0-d3/a1) {
 
         // Steps exhausted — reverse direction and reload counter.
         neg.w   x_vel(a0)
-        move.w  #ENEMY_PATROL_RANGE * 2, d0     // full leg: 2× range each way
+        move.w  #ENEMY_PATROL_RANGE * 2, d0     // full leg edge-to-edge = 2× the spawn-centre range
         tst.b   TEnemyV.direction(a0)
         beq     .was_right
         clr.b   TEnemyV.direction(a0)

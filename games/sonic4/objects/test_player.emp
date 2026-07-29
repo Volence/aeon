@@ -3,7 +3,8 @@
 module games.sonic4.test_player in test_player
 
 use engine.objects.sst.{Sst}
-use engine.constants.{RF_PRIORITY_SHIFT, ST_XFLIP, ST_IN_AIR, ST_ON_OBJECT, COLLISION_NONE}
+use engine.constants.{RF_PRIORITY_SHIFT, ST_XFLIP, ST_IN_AIR, ST_ON_OBJECT, COLLISION_NONE,
+        BUTTON_UP_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.types.{VramTile}
 
@@ -139,7 +140,7 @@ pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d7/a1-a3) {
         move.w  #AIR_ACCEL, d3
 .have_phys:
 
-        btst    #2, d6                          // LEFT
+        btst    #BUTTON_LEFT_BIT, d6
         beq     .check_right
 
         tst.w   d0
@@ -158,7 +159,7 @@ pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d7/a1-a3) {
         bra     .clamp_vel
 
 .check_right:
-        btst    #3, d6                          // RIGHT
+        btst    #BUTTON_RIGHT_BIT, d6
         beq     .no_input
 
         tst.w   d0
@@ -275,7 +276,7 @@ pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d7/a1-a3) {
 // -----------------------------------------------
 // TestPlayer_Debug — free-flight debug mode (yellow square)
 // D-pad moves at DEBUG_FLY_SPEED px/frame, B to exit
-// Clobbers: d0-d1, a1 (Draw_Sprite tail call).
+// Clobbers: d0-d3, a1 (Draw_Sprite tail call; the proc itself uses d0-d1).
 // -----------------------------------------------
 pub proc TestPlayer_Debug (a0: *Sst) clobbers(d0-d3/a1) {
         move.b  Ctrl_1_Held, d0
@@ -286,19 +287,19 @@ pub proc TestPlayer_Debug (a0: *Sst) clobbers(d0-d3/a1) {
 .dbg_speed_ok:
         swap    d1                              // d1 = speed<<16
 
-        btst    #2, d0                          // LEFT
+        btst    #BUTTON_LEFT_BIT, d0
         beq     .dbg_check_right
         sub.l   d1, x_pos(a0)
 .dbg_check_right:
-        btst    #3, d0                          // RIGHT
+        btst    #BUTTON_RIGHT_BIT, d0
         beq     .dbg_check_up
         add.l   d1, x_pos(a0)
 .dbg_check_up:
-        btst    #0, d0                          // UP
+        btst    #BUTTON_UP_BIT, d0
         beq     .dbg_check_down
         sub.l   d1, y_pos(a0)
 .dbg_check_down:
-        btst    #1, d0                          // DOWN
+        btst    #BUTTON_DOWN_BIT, d0
         beq     .dbg_draw
         add.l   d1, y_pos(a0)
 .dbg_draw:
