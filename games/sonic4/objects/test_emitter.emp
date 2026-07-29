@@ -3,9 +3,10 @@
 module games.sonic4.test_emitter in test_emitter
 
 use engine.objects.sst.{Sst}
+use engine.objects.children.{SpawnDesc}
 use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT}
 use engine.objects.objdef.{vram_art}
-use engine.types.{VramTile, ObjRoutine}
+use engine.types.{VramTile}
 
 // VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Mirrors
 // games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
@@ -18,17 +19,6 @@ const EMITTER_INTERVAL = 30             // frames between spawns
 // always-on window-overflow check subsumes the AS `objvarsCheck`.
 vars TEmitterV: Sst.sst_custom {
         timer: u16,                     // countdown to next spawn
-}
-
-// EffectSpawn1 — a single-entry CreateEffect_Normal descriptor table. The seam
-// reads [code:w, x_off:b, y_off:b] records until a zero code word, so `code`
-// carries the ObjRoutine (objroutine offset — a link word that raw `dc.w` cannot
-// hold, hence the typed record) and `term` is the end-of-table 0.
-struct EffectSpawn1 (size: 6) {
-        code:   ObjRoutine  @ $00,      // child code_addr (objroutine offset)
-        x_off:  i8          @ $02,      // signed X offset from parent
-        y_off:  i8          @ $03,      // signed Y offset from parent
-        term:   u16         @ $04,      // end-of-table terminator (0)
 }
 
 // -----------------------------------------------
@@ -67,10 +57,11 @@ pub proc TestEmitter_Main (a0: *Sst) clobbers(d0-d3/a1-a2) {
         jbra    Draw_Sprite
 }
 
-// Descriptor: one particle at emitter position (0,0 offset).
-data emitter_particle_desc: EffectSpawn1 = EffectSpawn1 {
+// Descriptor: one particle at emitter position (0,0 offset), then the zero-word
+// terminator the CreateEffect_Normal walk stops on (children.emp's SpawnDesc).
+data emitter_particle_desc: SpawnDesc = SpawnDesc {
         code:  extern("TestParticle") - extern("ObjCodeBase"),
         x_off: 0,
         y_off: 0,
-        term:  0,
 }
+data emitter_particle_term: u16 = 0

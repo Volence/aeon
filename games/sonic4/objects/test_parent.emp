@@ -1,0 +1,201 @@
+// Test parent — multi-part object that spawns children, then self-destructs.
+// Demonstrates CreateChild_Normal lifecycle + DeleteChildren cascade, plus a
+// moving parent whose children follow via stored orbit state.
+module games.sonic4.test_parent in test_parent
+
+use engine.objects.sst.{Sst}
+use engine.objects.children.{SpawnDesc}
+use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, RF_MULTISPRITE}
+use engine.objects.objdef.{vram_art}
+use engine.types.{VramTile}
+
+// VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Mirrors
+// games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
+const VRAM_TEST_OBJ: VramTile = $03E0
+ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from test_parent.emp")
+
+const PARENT_LIFETIME      = 180        // frames before self-destruct (3 seconds)
+const PARENT_SPEED         = 1          // px/frame swing rate
+const PARENT_SWING_RANGE   = 60         // pixels each side from start
+const CHILD_ORBIT_SPEED    = 4          // angle units per frame (4 = ~90 deg/sec)
+const CHILD_ORBIT_RADIUS   = 32         // pixels
+
+// TParentV — the parent's per-object state, overlaying sst_custom. The overlay's
+// always-on window-overflow check subsumes the AS `objvarsCheck`.
+vars TParentV: Sst.sst_custom {
+        life_timer: u16,                // countdown to self-destruct
+        x_dir:      u8,                 // 0 = right, 1 = left
+}
+
+// TOrbitChildV — the child's per-object state, overlaying the SAME sst_custom
+// region with different fields (the child never coexists with the parent state
+// in one slot). Its window-overflow check subsumes the AS `objvarsCheck`.
+vars TOrbitChildV: Sst.sst_custom {
+        orbit_angle:  u8,               // current orbit angle (0-255) — `orbit_`
+                                        // prefixed: a bare `angle` overlay field
+                                        // would shadow Sst's direct `angle`
+        phase_offset: u8,               // initial phase (per-child)
+        radius:       u16,              // orbit radius in pixels
+}
+
+// -----------------------------------------------
+// TestChildPart — child init: derive starting angle from spawn offset, then
+// fall into the orbit loop. Children orbit the parent at fixed radius, phase-
+// offset 120 deg apart so they form an equilateral triangle.
+// In:  a0 = SST pointer (position, mappings, art_tile set by CreateChild_Normal)
+// Clobbers: d0-d3, a1 — its own d0-d2/a1 ∪ the orbit loop it falls into below.
+// -----------------------------------------------
+pub proc TestChildPart (a0: *Sst) clobbers(d0-d3/a1) falls_into TestChildPart_Main {
+        ori.b   #3<<RF_PRIORITY_SHIFT, render_flags(a0)
+        move.b  #16, width_pixels(a0)
+        move.b  #16, height_pixels(a0)
+        bset    #RF_COORDMODE, render_flags(a0)
+
+        // Derive initial phase from spawn offset. CreateChild_Normal places us at
+        // parent.pos + (x_off, y_off):
+        //   left:  (-24,   0) -> angle 192 (270 deg / -X axis)
+        //   right: ( 24,   0) -> angle  64 (90 deg / +X axis)
+        //   above: (  0, -24) -> angle   0 (0 deg / -Y axis upward)
+        // The sign of (dx, dy) picks the 90-deg quadrant.
+        movea.w parent_ptr(a0), a1
+        move.w  x_pos(a0), d1
+        sub.w   Sst.x_pos(a1), d1                   // d1 = signed dx
+        move.w  y_pos(a0), d2
+        sub.w   Sst.y_pos(a1), d2                   // d2 = signed dy
+
+        // Angle byte: 0=up, 64=right, 128=down, 192=left.
+        moveq   #0, d0                          // default: above (-Y)
+        tst.w   d2
+        bmi.s   .save_angle                     // dy negative -> above -> keep 0
+        tst.w   d1
+        bmi.s   .set_left
+        moveq   #64, d0                         // right (+X)
+        bra.s   .save_angle
+.set_left:
+        move.w  #192, d0                        // left (-X)
+.save_angle:
+        move.b  d0, TOrbitChildV.phase_offset(a0)
+        move.b  d0, TOrbitChildV.orbit_angle(a0)
+        move.w  #CHILD_ORBIT_RADIUS, TOrbitChildV.radius(a0)
+
+        move.w  #TestChildPart_Main - ObjCodeBase, code_addr(a0)
+}
+
+// -----------------------------------------------
+// TestChildPart_Main — orbit parent each frame
+// (Draw_Sprite early-returns because parent has RF_MULTISPRITE; the sibling walk
+//  in Render_Sprites picks up our updated x_pos/y_pos.)
+// In:  a0 = SST pointer
+// Clobbers: d0-d3, a1 — the tail Draw_Sprite set (d0-d3/a1); the orphan path is
+//   DeleteObject (d0-d1). GetSineCosine preserves everything but its d0/d1 out.
+// -----------------------------------------------
+pub proc TestChildPart_Main (a0: *Sst) clobbers(d0-d3/a1) {
+        movea.w parent_ptr(a0), a1
+        move.l  a1, d0
+        beq.s   .orphan_delete
+
+        // Advance angle
+        move.b  TOrbitChildV.orbit_angle(a0), d0
+        addq.b  #CHILD_ORBIT_SPEED, d0
+        move.b  d0, TOrbitChildV.orbit_angle(a0)
+
+        // sin/cos at d0 -> d0=sin*$100, d1=cos*$100
+        andi.w  #$FF, d0
+        movem.l d2-d3/a1, -(sp)
+        jsr     GetSineCosine
+        movem.l (sp)+, d2-d3/a1
+
+        // Scale: sine amplitude = $100 = 256, radius = 32 = 2^5.
+        // offset = (sin * 32) / 256 = sin >> 3. Constant shift, no multiply.
+        // (Stored radius is informational; the shift is hard-coded.)
+        // Negate cos so angle 0 puts the child above parent (screen -Y is up).
+        asr.w   #3, d0                          // d0.w = scaled X offset
+        neg.w   d1
+        asr.w   #3, d1                          // d1.w = scaled Y offset
+
+        // Apply: child.pos = parent.pos + (dx, dy)
+        add.w   Sst.x_pos(a1), d0
+        move.w  d0, x_pos(a0)
+        add.w   Sst.y_pos(a1), d1
+        move.w  d1, y_pos(a0)
+
+        jmp     Draw_Sprite
+
+.orphan_delete:
+        jmp     DeleteObject
+}
+
+// -----------------------------------------------
+// TestParent — init routine: set up the parent, spawn 3 children, advance to the
+// per-frame code. Branches over the child descriptor table to TestParent_Main.
+// In:  a0 = SST pointer
+// Clobbers: d0-d3, a1-a2 — CreateChild_Normal(d0-d3/a1-a2) ∪ the Main it branches to.
+// -----------------------------------------------
+pub proc TestParent (a0: *Sst) clobbers(d0-d3/a1-a2) {
+        move.l  #Map_TestObj, mappings(a0)
+        move.w  #vram_art(VRAM_TEST_OBJ), art_tile(a0)
+        moveq   #0, d0
+        move.b  d0, mapping_frame(a0)           // frame 0 (color 1 square)
+        ori.b   #3<<RF_PRIORITY_SHIFT, render_flags(a0)
+        move.b  #16, width_pixels(a0)
+        move.b  #16, height_pixels(a0)
+        bset    #RF_COORDMODE, render_flags(a0)
+        bset    #RF_MULTISPRITE, render_flags(a0)       // batched render
+        move.w  #PARENT_LIFETIME, TParentV.life_timer(a0)
+
+        // Spawn 3 children around parent
+        lea     child_desc(pc), a1
+        jsr     CreateChild_Normal
+
+        move.w  #TestParent_Main - ObjCodeBase, code_addr(a0)
+        bra.s   TestParent_Main
+}
+
+// Child descriptor: 3 children at offsets around parent, then the zero-word
+// terminator the CreateChild_Normal walk stops on (children.emp's SpawnDesc).
+data child_desc: [SpawnDesc; 3] = [
+        SpawnDesc { code: extern("TestChildPart") - extern("ObjCodeBase"), x_off: -24, y_off:   0 },  // left of parent
+        SpawnDesc { code: extern("TestChildPart") - extern("ObjCodeBase"), x_off:  24, y_off:   0 },  // right of parent
+        SpawnDesc { code: extern("TestChildPart") - extern("ObjCodeBase"), x_off:   0, y_off: -24 },  // above parent
+]
+data child_desc_term: u16 = 0
+
+// -----------------------------------------------
+// TestParent_Main — per-frame: countdown, oscillate horizontally, eventually
+// self-destruct with children.
+// In:  a0 = SST pointer
+// Clobbers: d0-d3, a1 — DeleteChildren(d0-d2/a1) ∪ Draw_Sprite(d0-d3/a1); the
+//   delete tail is DeleteObject(d0-d1). (a2 is never touched here.)
+// -----------------------------------------------
+pub proc TestParent_Main (a0: *Sst) clobbers(d0-d3/a1) {
+        subq.w  #1, TParentV.life_timer(a0)
+        bne.s   .move
+
+        // Timer expired — kill children then self
+        jsr     DeleteChildren
+        jmp     DeleteObject
+
+.move:
+        // Oscillate parent X. Use lifetime as a phase counter.
+        // x_dir: 0 = right, 1 = left.
+        tst.b   TParentV.x_dir(a0)
+        bne.s   .moving_left
+        addq.w  #PARENT_SPEED, x_pos(a0)
+        move.w  TParentV.life_timer(a0), d0
+        cmpi.w  #PARENT_LIFETIME-PARENT_SWING_RANGE, d0
+        bge.s   .draw
+        move.b  #1, TParentV.x_dir(a0)
+        bra.s   .draw
+
+.moving_left:
+        subq.w  #PARENT_SPEED, x_pos(a0)
+        move.w  TParentV.life_timer(a0), d0
+        cmpi.w  #PARENT_LIFETIME-(2*PARENT_SWING_RANGE), d0
+        bge.s   .draw
+        move.b  #0, TParentV.x_dir(a0)
+        // reset phase: bump life timer back so we swing right again
+        move.w  #PARENT_LIFETIME, TParentV.life_timer(a0)
+
+.draw:
+        jmp     Draw_Sprite
+}

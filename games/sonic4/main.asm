@@ -109,7 +109,19 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
         ; define must never be set for other games (demo takes the includes).
         org     $11030
     endif
-    include "games/sonic4/objects/test_parent.asm"
+    ifndef SIGIL_EMP_TEST_PARENT
+      include "games/sonic4/objects/test_parent.asm"
+    else
+        ; sigil mixed build: TestChildPart/TestChildPart_Main/TestParent/
+        ; TestParent_Main come from games/sonic4/objects/test_parent.emp. Shape-
+        ; invariant window; ONE org both shapes while the object banks coincide
+        ; (the $8000 abs.w/abs.l bar — see the test_objects arm above). Resume
+        ; lands on test_stress_emitter's first label TestStressEmitter. All
+        ; callees (CreateChild_Normal / DeleteChildren / GetSineCosine /
+        ; DeleteObject / Draw_Sprite) resolve through the shared link. The gate
+        ; define must never be set for other games (demo takes the includes).
+        org     $1115C
+    endif
     ifndef SIGIL_EMP_TEST_STRESS_EMITTER
       include "games/sonic4/objects/test_stress_emitter.asm"
     else
