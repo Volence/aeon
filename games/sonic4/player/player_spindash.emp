@@ -12,6 +12,7 @@
 module games.sonic4.player_spindash in player_spindash
 
 use engine.objects.sst.{Sst}
+use engine.constants.{ST_XFLIP, BUTTON_DOWN_BIT}
 use games.sonic4.player_common.{PlayerV}
 
 // Boundary decl to the surviving-AS player_sensors (ports at P4). The call
@@ -37,9 +38,9 @@ const SFXID_DASH     = $B6
 ensure(extern("SFXID_SPINDASH") == SFXID_SPINDASH, "config/sound_ids.asm SFXID_SPINDASH drifted")
 ensure(extern("SFXID_DASH")     == SFXID_DASH,     "config/sound_ids.asm SFXID_DASH drifted")
 
-// ── engine-constant mirror (engine/constants.asm; file-local, hoist ledgered) ──
-const ST_XFLIP = 1
-ensure(extern("ST_XFLIP") == ST_XFLIP, "engine/constants.asm ST_XFLIP drifted")
+// Engine-constant mirror (ST_XFLIP) HOISTED to the engine.constants twin at the
+// ambient-hoist parcel (kill-list row 81) — consumed via `use engine.constants`
+// above; its drift guard lives at the twin.
 
 // -----------------------------------------------
 // PState_Spindash — Sonic's spindash charge (a CHARACTER state BODY:
@@ -74,7 +75,7 @@ ensure(extern("ST_XFLIP") == ST_XFLIP, "engine/constants.asm ST_XFLIP drifted")
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
-        btst    #1, Ctrl_1_Held                 // DOWN still held?
+        btst    #BUTTON_DOWN_BIT, Ctrl_1_Held   // still held?
         beq     .release
         // --- decay FIRST (classic order; runs on tap frames too, before
         // the rev, so the rev's clamp is the last word) ---

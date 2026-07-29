@@ -14,6 +14,7 @@ use engine.constants.{SLOT_TAG_UNTAGGED, SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.constants.{SECTION_SIZE, SECTION_SIZE_SHIFT, SEC_VOID}
 use engine.objects.sst.{Sst}
 use engine.structs.{Sec, Act_grid_w_lo}
+use engine.coords.{abs_w}
 
 // GAME-owned capacity mirrors (truth: games/sonic4/config/constants.asm).
 // Sit in immediate/moveq/displacement positions → comptime mirrors here,
@@ -491,17 +492,13 @@ proc Collected_UpdateCenter () clobbers(d0-d5, a0-a1) {
 
         // Check |slot_x - center_x| <= 1
         sub.w   d2, d1
-        bpl     .sx_pos
-        neg.w   d1
-    .sx_pos:
+        abs_w(d1)
         cmpi.w  #1, d1
         bhi     .evict
 
         // Check |slot_y - center_y| <= 1
         sub.w   d4, d0
-        bpl     .sy_pos
-        neg.w   d0
-    .sy_pos:
+        abs_w(d0)
         cmpi.w  #1, d0
         bls     .slot_next
 

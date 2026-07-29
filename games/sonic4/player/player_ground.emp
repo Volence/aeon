@@ -16,7 +16,13 @@ module games.sonic4.player_ground in player_ground
 
 use engine.objects.sst.{Sst}
 use engine.types.{Angle}
-use games.sonic4.player_common.{PlayerV, mask_opposing_lr, abs_w}
+use engine.coords.{abs_w}
+use engine.constants.{PHYS_SLOPE_WALK, PHYS_SLOPE_ROLL_DOWN, PHYS_SLOPE_ROLL_UP, PHYS_SLOPE_STAND_MIN,
+        PHYS_ROLL_START_MIN, PHYS_JUMP_HEADROOM, PHYS_GSP_CAP, PHYS_ROLL_DECEL, PHYS_UNROLL_MAX, PHYS_KEEP_ROLL_MIN,
+        PHYS_SLIP_SPEED, PHYS_SLIP_ANGLE, PHYS_FALL_ANGLE, PHYS_SLIP_NUDGE, PHYS_MOVE_LOCK_TIME,
+        PLAYER_Y_RADIUS, BALL_Y_RADIUS, CURL_Y_SHIFT, PUSH_RADIUS, BUTTON_LEFT, BUTTON_RIGHT,
+        BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT, ST_XFLIP, ST_ON_OBJECT, ST_PUSHING}
+use games.sonic4.player_common.{PlayerV, mask_opposing_lr}
 
 // Boundary decls to the surviving-AS player_sensors (ports at P4). Cross-seam
 // today, module-to-module once sensors port. KILL ROW: delete when P4 lands.
@@ -45,55 +51,11 @@ ensure(extern("SFXID_ROLL")     == SFXID_ROLL,     "config/sound_ids.asm SFXID_R
 ensure(extern("SFXID_JUMP")     == SFXID_JUMP,     "config/sound_ids.asm SFXID_JUMP drifted")
 ensure(extern("SFXID_SPINDASH") == SFXID_SPINDASH, "config/sound_ids.asm SFXID_SPINDASH drifted")
 
-// ── engine-constant mirrors (engine/constants.asm; file-local, hoist ledgered) ─
-const PHYS_SLOPE_WALK      = $20
-const PHYS_SLOPE_ROLL_DOWN = $50
-const PHYS_SLOPE_ROLL_UP   = $14
-const PHYS_SLOPE_STAND_MIN = $D
-const PHYS_ROLL_START_MIN  = $100
-const PHYS_JUMP_HEADROOM   = 6
-const PHYS_GSP_CAP         = $1000
-const PHYS_ROLL_DECEL      = $20
-const PHYS_UNROLL_MAX      = $80
-const PHYS_KEEP_ROLL_MIN   = $400
-const PHYS_SLIP_SPEED      = $280
-const PHYS_SLIP_ANGLE      = $18
-const PHYS_FALL_ANGLE      = $30
-const PHYS_SLIP_NUDGE      = $80
-const PHYS_MOVE_LOCK_TIME  = 30
-const PLAYER_Y_RADIUS      = 19
-const BALL_Y_RADIUS        = 14
-const CURL_Y_SHIFT         = 5
-const PUSH_RADIUS          = 10
-const BUTTON_LEFT          = 4
-const BUTTON_RIGHT         = 8
-const ST_XFLIP             = 1
-const ST_ON_OBJECT         = 5
-const ST_PUSHING           = 6
-ensure(extern("PHYS_SLOPE_WALK")      == PHYS_SLOPE_WALK,      "engine/constants.asm PHYS_SLOPE_WALK drifted")
-ensure(extern("PHYS_SLOPE_ROLL_DOWN") == PHYS_SLOPE_ROLL_DOWN, "engine/constants.asm PHYS_SLOPE_ROLL_DOWN drifted")
-ensure(extern("PHYS_SLOPE_ROLL_UP")   == PHYS_SLOPE_ROLL_UP,   "engine/constants.asm PHYS_SLOPE_ROLL_UP drifted")
-ensure(extern("PHYS_SLOPE_STAND_MIN") == PHYS_SLOPE_STAND_MIN, "engine/constants.asm PHYS_SLOPE_STAND_MIN drifted")
-ensure(extern("PHYS_ROLL_START_MIN")  == PHYS_ROLL_START_MIN,  "engine/constants.asm PHYS_ROLL_START_MIN drifted")
-ensure(extern("PHYS_JUMP_HEADROOM")   == PHYS_JUMP_HEADROOM,   "engine/constants.asm PHYS_JUMP_HEADROOM drifted")
-ensure(extern("PHYS_GSP_CAP")         == PHYS_GSP_CAP,         "engine/constants.asm PHYS_GSP_CAP drifted")
-ensure(extern("PHYS_ROLL_DECEL")      == PHYS_ROLL_DECEL,      "engine/constants.asm PHYS_ROLL_DECEL drifted")
-ensure(extern("PHYS_UNROLL_MAX")      == PHYS_UNROLL_MAX,      "engine/constants.asm PHYS_UNROLL_MAX drifted")
-ensure(extern("PHYS_KEEP_ROLL_MIN")   == PHYS_KEEP_ROLL_MIN,   "engine/constants.asm PHYS_KEEP_ROLL_MIN drifted")
-ensure(extern("PHYS_SLIP_SPEED")      == PHYS_SLIP_SPEED,      "engine/constants.asm PHYS_SLIP_SPEED drifted")
-ensure(extern("PHYS_SLIP_ANGLE")      == PHYS_SLIP_ANGLE,      "engine/constants.asm PHYS_SLIP_ANGLE drifted")
-ensure(extern("PHYS_FALL_ANGLE")      == PHYS_FALL_ANGLE,      "engine/constants.asm PHYS_FALL_ANGLE drifted")
-ensure(extern("PHYS_SLIP_NUDGE")      == PHYS_SLIP_NUDGE,      "engine/constants.asm PHYS_SLIP_NUDGE drifted")
-ensure(extern("PHYS_MOVE_LOCK_TIME")  == PHYS_MOVE_LOCK_TIME,  "engine/constants.asm PHYS_MOVE_LOCK_TIME drifted")
-ensure(extern("PLAYER_Y_RADIUS")      == PLAYER_Y_RADIUS,      "engine/constants.asm PLAYER_Y_RADIUS drifted")
-ensure(extern("BALL_Y_RADIUS")        == BALL_Y_RADIUS,        "engine/constants.asm BALL_Y_RADIUS drifted")
-ensure(extern("CURL_Y_SHIFT")         == CURL_Y_SHIFT,         "engine/constants.asm CURL_Y_SHIFT drifted")
-ensure(extern("PUSH_RADIUS")          == PUSH_RADIUS,          "engine/constants.asm PUSH_RADIUS drifted")
-ensure(extern("BUTTON_LEFT")          == BUTTON_LEFT,          "engine/constants.asm BUTTON_LEFT drifted")
-ensure(extern("BUTTON_RIGHT")         == BUTTON_RIGHT,         "engine/constants.asm BUTTON_RIGHT drifted")
-ensure(extern("ST_XFLIP")             == ST_XFLIP,             "engine/constants.asm ST_XFLIP drifted")
-ensure(extern("ST_ON_OBJECT")         == ST_ON_OBJECT,         "engine/constants.asm ST_ON_OBJECT drifted")
-ensure(extern("ST_PUSHING")           == ST_PUSHING,           "engine/constants.asm ST_PUSHING drifted")
+// Engine-constant mirrors (PHYS_* / radii / CURL / PUSH / BUTTON_LEFT/RIGHT /
+// ST_*) HOISTED to the engine.constants twin at the ambient-hoist parcel
+// (kill-list row 81) — consumed via `use engine.constants.{...}` above; their
+// drift guards live at the twin. The shift-form assumption ensures below stay
+// (they guard THIS file's asr-shift slope math, not the mirror).
 
 // physics-table field offsets (a4-relative; mirror player_common.asm's PPHYS_*).
 const PPHYS_ACCEL      = 0
@@ -130,7 +92,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // gate is down held + |gsp| < PHYS_ROLL_START_MIN — the same
         // threshold that separates duck from roll in S3K. At rolling
         // speed the press falls through to the jump check instead. ---
-        btst    #1, Ctrl_1_Held                 // DOWN held
+        btst    #BUTTON_DOWN_BIT, Ctrl_1_Held
         beq     .no_spindash
         tst.b   Player_JumpBuffer
         beq     .no_spindash
@@ -206,7 +168,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // contract: they bypass this gate and use PHYS_ROLL_FORCE_MIN
         // ($200) when curling at rest — see PState_Roll's keep-roll note.
         move.b  Ctrl_1_Held, d0
-        btst    #1, d0                          // DOWN
+        btst    #BUTTON_DOWN_BIT, d0
         beq     Ground_PostMove
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d0
         bne     Ground_PostMove
@@ -465,9 +427,9 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         tst.w   d0
         beq     .friction                       // no motion — nothing to brake
         bmi     .moving_left
-        btst    #2, d2                          // LEFT opposes rightward roll
+        btst    #BUTTON_LEFT_BIT, d2            // opposes rightward roll
         bne     .brake_left
-        btst    #3, d2                          // RIGHT with the motion:
+        btst    #BUTTON_RIGHT_BIT, d2           // with the motion:
         beq     .friction                       // facing only (classic
         bclr    #ST_XFLIP, status(a0)           // Obj01_RollRight)
         jbra    .friction
@@ -477,9 +439,9 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         moveq   #-$80, d0                       // turnaround kick
         jbra    .friction
 .moving_left:
-        btst    #3, d2                          // RIGHT opposes leftward roll
+        btst    #BUTTON_RIGHT_BIT, d2           // opposes leftward roll
         bne     .brake_right
-        btst    #2, d2
+        btst    #BUTTON_LEFT_BIT, d2
         beq     .friction
         bset    #ST_XFLIP, status(a0)           // facing only (classic)
         jbra    .friction
@@ -559,9 +521,9 @@ proc Ground_Move (a0: *Sst) clobbers(d0-d7/a1) falls_into Ground_Move_Cap {
                                                 // Player_SlopeRepel
         move.b  Ctrl_1_Held, d2
         mask_opposing_lr(d2)
-        btst    #2, d2                          // LEFT
+        btst    #BUTTON_LEFT_BIT, d2
         bne     .move_left
-        btst    #3, d2                          // RIGHT
+        btst    #BUTTON_RIGHT_BIT, d2
         bne     .move_right
 .friction:
         move.w  PPHYS_FRICTION(a4), d1

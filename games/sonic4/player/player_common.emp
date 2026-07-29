@@ -20,9 +20,12 @@ module games.sonic4.player_common in player_common
 
 use engine.objects.sst.{Sst}
 use engine.structs.{Act}
-use engine.coords.{pixels_to_coord}
+use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
-use engine.constants.{RF_PRIORITY_SHIFT, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT}
+use engine.constants.{RF_PRIORITY_SHIFT, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
+        PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP, PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS,
+        CURL_Y_SHIFT, ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_C,
+        BUTTON_UP_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use engine.types.{VramTile}
 
 // Player_AtLedgeEdge — player_sensors' idle-balance ledge probe (returns d0=0/Z
@@ -96,49 +99,10 @@ ensure(extern("VRAM_TEST_MARKER") == VRAM_TEST_MARKER, "config/constants.asm VRA
 const SFXID_SKID = $36
 ensure(extern("SFXID_SKID") == SFXID_SKID, "config/sound_ids.asm SFXID_SKID drifted")
 
-// ── engine-constant mirrors (engine/constants.asm; player is the FIRST .emp
-// consumer of these — file-local per the first-consumer rule, hoist to the
-// engine.constants twin at the 2nd consumer P2/player_ground) ────────────────
-const PHYS_SKID_MIN   = $400
-const PHYS_JUMP_BUFFER = 2
-const PHYS_FALL_CAP   = $1000
-const PLAYER_X_RADIUS = 9
-const PLAYER_Y_RADIUS = 19
-const BALL_X_RADIUS   = 7
-const BALL_Y_RADIUS   = 14
-const CURL_Y_SHIFT    = 5
-const ST_ROLLING      = 4
-const ST_PUSHING      = 6
-const COLLISION_NONE  = 0
-const EDGE_CLAMP      = 0
-const EDGE_WRAP_V     = 1
-const EDGE_KILL       = 2
-const BUTTON_A        = $40
-const BUTTON_C        = $20
-const BUTTON_UP_BIT    = 0
-const BUTTON_DOWN_BIT  = 1
-const BUTTON_LEFT_BIT  = 2
-const BUTTON_RIGHT_BIT = 3
-ensure(extern("PHYS_SKID_MIN")    == PHYS_SKID_MIN,    "engine/constants.asm PHYS_SKID_MIN drifted")
-ensure(extern("PHYS_JUMP_BUFFER") == PHYS_JUMP_BUFFER, "engine/constants.asm PHYS_JUMP_BUFFER drifted")
-ensure(extern("PHYS_FALL_CAP")    == PHYS_FALL_CAP,    "engine/constants.asm PHYS_FALL_CAP drifted")
-ensure(extern("PLAYER_X_RADIUS")  == PLAYER_X_RADIUS,  "engine/constants.asm PLAYER_X_RADIUS drifted")
-ensure(extern("PLAYER_Y_RADIUS")  == PLAYER_Y_RADIUS,  "engine/constants.asm PLAYER_Y_RADIUS drifted")
-ensure(extern("BALL_X_RADIUS")    == BALL_X_RADIUS,    "engine/constants.asm BALL_X_RADIUS drifted")
-ensure(extern("BALL_Y_RADIUS")    == BALL_Y_RADIUS,    "engine/constants.asm BALL_Y_RADIUS drifted")
-ensure(extern("CURL_Y_SHIFT")     == CURL_Y_SHIFT,     "engine/constants.asm CURL_Y_SHIFT drifted")
-ensure(extern("ST_ROLLING")       == ST_ROLLING,       "engine/constants.asm ST_ROLLING drifted")
-ensure(extern("ST_PUSHING")       == ST_PUSHING,       "engine/constants.asm ST_PUSHING drifted")
-ensure(extern("COLLISION_NONE")   == COLLISION_NONE,   "engine/constants.asm COLLISION_NONE drifted")
-ensure(extern("EDGE_CLAMP")       == EDGE_CLAMP,       "engine/constants.asm EDGE_CLAMP drifted")
-ensure(extern("EDGE_WRAP_V")      == EDGE_WRAP_V,      "engine/constants.asm EDGE_WRAP_V drifted")
-ensure(extern("EDGE_KILL")        == EDGE_KILL,        "engine/constants.asm EDGE_KILL drifted")
-ensure(extern("BUTTON_A")         == BUTTON_A,         "engine/constants.asm BUTTON_A drifted")
-ensure(extern("BUTTON_C")         == BUTTON_C,         "engine/constants.asm BUTTON_C drifted")
-ensure(extern("BUTTON_UP_BIT")    == BUTTON_UP_BIT,    "engine/constants.asm BUTTON_UP_BIT drifted")
-ensure(extern("BUTTON_DOWN_BIT")  == BUTTON_DOWN_BIT,  "engine/constants.asm BUTTON_DOWN_BIT drifted")
-ensure(extern("BUTTON_LEFT_BIT")  == BUTTON_LEFT_BIT,  "engine/constants.asm BUTTON_LEFT_BIT drifted")
-ensure(extern("BUTTON_RIGHT_BIT") == BUTTON_RIGHT_BIT, "engine/constants.asm BUTTON_RIGHT_BIT drifted")
+// Engine-constant mirrors (PHYS_* / radii / CURL / ST_* / COLLISION_NONE /
+// EDGE_* / BUTTON_A/C / BUTTON_*_BIT) HOISTED to the engine.constants twin at
+// the ambient-hoist parcel (kill-list rows 76/77/81) — consumed via the
+// `use engine.constants.{...}` above; their drift guards live at the twin.
 
 // -----------------------------------------------
 // PlayerV — the SST overlay (research structure-refs §2.2 budget: 12 of 34
@@ -240,24 +204,9 @@ pub comptime fn dist_to_fix(v: Reg) -> Code {
 }
 
 // -----------------------------------------------
-// abs_w — |v| in place (negate the word when it is negative). The .emp
-// counterpart of the port's most-repeated physics idiom (the bpl/neg.w pair,
-// 9 sites across player_ground/air); a hygienic .abs label per expansion, the
-// mask_opposing_lr splice pattern. The caller must have v's sign live in the
-// condition codes — every site loads/computes v immediately before, so the
-// bpl reads v's own sign (no self-tst, exactly the inline idiom). The AS twins
-// keep the bpl/neg inline (byte-level lockstep — no macro needed).
-// In:  v = data register holding a signed word; N reflects its sign
-// Out: v = |v|
-// -----------------------------------------------
-pub comptime fn abs_w(v: Reg) -> Code {
-        return asm {
-                bpl     .abs
-                neg.w   {v}
-        .abs:
-        }
-}
-
+// abs_w — the |v| in-place idiom (bpl/neg.w) HOISTED to engine.coords at the
+// ambient-hoist parcel (kill-list row 82): a corpus-wide engine idiom, not a
+// game one. Consumed via `use engine.coords.{abs_w}` above.
 // -----------------------------------------------
 // Player_Init — set up a player slot as Sonic (called from level state init;
 // caller writes x_pos/y_pos first). Boots in DEBUG-FLY to preserve the
@@ -867,19 +816,19 @@ pub proc Player_DebugMove (a0: *Sst) clobbers(d0-d3/a1) {
         move.b  Ctrl_1_Held, d0
         moveq   #PLAYER_DEBUG_FLY_SPEED, d1
         swap    d1                              // px → 16.16
-        btst    #2, d0                          // LEFT
+        btst    #BUTTON_LEFT_BIT, d0
         beq     .check_right
         sub.l   d1, x_pos(a0)
 .check_right:
-        btst    #3, d0                          // RIGHT
+        btst    #BUTTON_RIGHT_BIT, d0
         beq     .check_up
         add.l   d1, x_pos(a0)
 .check_up:
-        btst    #0, d0                          // UP
+        btst    #BUTTON_UP_BIT, d0
         beq     .check_down
         sub.l   d1, y_pos(a0)
 .check_down:
-        btst    #1, d0                          // DOWN
+        btst    #BUTTON_DOWN_BIT, d0
         beq     .draw
         add.l   d1, y_pos(a0)
 .draw:

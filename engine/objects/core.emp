@@ -7,6 +7,7 @@
 
 module engine.objects.core in core
 
+use engine.coords.{abs_w}
 use engine.objects.sst.{Sst}
 use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_DYNAMIC_PENDING,
                       NUM_SYSTEM, NUM_EFFECTS,
@@ -506,18 +507,14 @@ pub proc RunObjects () clobbers(d0-d7/a0-a6) {
         // X distance check: abs(obj_x - camera_x)
         move.w  Sst.x_pos(a0), d0
         sub.w   Camera_X, d0
-        bpl     .culled_xpos
-        neg.w   d0
-    .culled_xpos:
+        abs_w(d0)
         cmpi.w  #CULL_DISTANCE_X, d0
         bhi     .culled_next
 
         // Y distance check: abs(obj_y - camera_y)
         move.w  Sst.y_pos(a0), d0
         sub.w   Camera_Y, d0
-        bpl     .culled_ypos
-        neg.w   d0
-    .culled_ypos:
+        abs_w(d0)
         cmpi.w  #CULL_DISTANCE_Y, d0
         bhi     .culled_next
 

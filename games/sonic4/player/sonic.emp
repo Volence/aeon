@@ -5,6 +5,7 @@ module games.sonic4.sonic in sonic
 use engine.objects.sst.{Sst}
 use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.types.{VramTile}
+use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
 
 // VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). Mirrors
 // games/sonic4/config/constants.asm (game-config; the .emp const cannot be seen
@@ -13,26 +14,9 @@ const VRAM_TEST_SONIC: VramTile = $03C0
 ensure(extern("VRAM_TEST_SONIC") == VRAM_TEST_SONIC, "config/constants.asm VRAM_TEST_SONIC drifted from sonic.emp")
 
 // PHYS_* — Sonic's 8 section-modifiable physics base values (the PhysTable_Sonic
-// row below). Mirrors of engine/constants.asm (row-1 class; player is the FIRST
-// .emp consumer of the physics block, so file-local mirrors — hoist to the shared
-// engine.constants twin trips at the 2nd consumer, P2/player_ground). Each drift
-// guard makes an AS-side change loud.
-const PHYS_ACCEL             = $C
-const PHYS_DECEL             = $80
-const PHYS_FRICTION          = $C
-const PHYS_TOP_SPEED         = $600
-const PHYS_GRAVITY           = $38
-const PHYS_JUMP_FORCE        = $680
-const PHYS_AIR_ACCEL         = $18
-const PHYS_JUMP_RELEASE_CAP  = -$400
-ensure(extern("PHYS_ACCEL")            == PHYS_ACCEL,            "engine/constants.asm PHYS_ACCEL drifted from sonic.emp")
-ensure(extern("PHYS_DECEL")            == PHYS_DECEL,            "engine/constants.asm PHYS_DECEL drifted from sonic.emp")
-ensure(extern("PHYS_FRICTION")         == PHYS_FRICTION,         "engine/constants.asm PHYS_FRICTION drifted from sonic.emp")
-ensure(extern("PHYS_TOP_SPEED")        == PHYS_TOP_SPEED,        "engine/constants.asm PHYS_TOP_SPEED drifted from sonic.emp")
-ensure(extern("PHYS_GRAVITY")          == PHYS_GRAVITY,          "engine/constants.asm PHYS_GRAVITY drifted from sonic.emp")
-ensure(extern("PHYS_JUMP_FORCE")       == PHYS_JUMP_FORCE,       "engine/constants.asm PHYS_JUMP_FORCE drifted from sonic.emp")
-ensure(extern("PHYS_AIR_ACCEL")        == PHYS_AIR_ACCEL,        "engine/constants.asm PHYS_AIR_ACCEL drifted from sonic.emp")
-ensure(extern("PHYS_JUMP_RELEASE_CAP") == PHYS_JUMP_RELEASE_CAP, "engine/constants.asm PHYS_JUMP_RELEASE_CAP drifted from sonic.emp")
+// row below) HOISTED to the engine.constants twin at the ambient-hoist parcel
+// (kill-list row 77); consumed via `use engine.constants.{...}` above, drift
+// guards live at the twin.
 
 // -----------------------------------------------
 // Sonic_InitAssets — point a player SST at Sonic's art set
