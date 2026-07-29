@@ -123,9 +123,9 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 move.w  d1, d5                 // Y (file convention: Y in d5)
                 jbsr    .cell                  // d0.w h_eff, d1.b angle, d2.b attr
                 tst.w   d0
-                beq.s   .empty_fwd
+                beq     .empty_fwd
                 cmpi.w  #16, d0
-                beq.s   .full_back
+                beq     .full_back
                 // surface in the primary cell: dist = 16 − h − sub
                 {probe_sub(paxreg, psubflip, d3)}
                 add.w   d0, d3
@@ -142,18 +142,18 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 addi.w  #{pstep}, {paxreg}
                 jbsr    .cell
                 tst.w   d0
-                beq.s   .nothing               // forward empty too → sentinel
+                beq     .nothing               // forward empty too → sentinel
                 {probe_sub(paxreg, psubflip, d3)}  // ±16 step keeps the low 4 bits
                 add.w   d0, d3
                 moveq   #32, d0                // 16 − h_eff − sub, +16
                 sub.w   d3, d0
-                bra.s   .done
+                jbra    .done
 
         .nothing:
                 moveq   #32, d0
                 moveq   #0, d1
                 moveq   #0, d2
-                bra.s   .done
+                jbra    .done
 
         .full_back:
                 // primary full (or embedded in a hanging run) → evaluate ONE cell
@@ -166,7 +166,7 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 subi.w  #{pstep}, {paxreg}
                 jbsr    .cell
                 tst.b   d2
-                bne.s   .back_supplied
+                bne     .back_supplied
                 move.w  (sp), d2               // back cell empty → primary's attr
                 move.w  2(sp), d1              // ... and angle
         .back_supplied:
@@ -174,7 +174,7 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 {probe_sub(paxreg, psubflip, d3)}
                 add.w   d3, d0
                 neg.w   d0
-                bra.s   .done
+                jbra    .done
 
         // --- evaluate ONE cell -------------------------------------------------
         // In:  d3.b layer, d4/d5 = X/Y (probe-axis reg pre-adjusted ±16 for
@@ -186,9 +186,9 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
         .cell:
                 move.w  d4, d0
                 move.w  d5, d1
-                bsr.w   Collision_GetType      // d0.b = attr (clobbers d0-d3, a0)
+                jbsr    Collision_GetType      // d0.b = attr (clobbers d0-d3, a0)
                 move.b  d0, d2
-                beq.s   .cl_air
+                beq     .cl_air
                 moveq   #0, d3
                 move.b  d2, d3                 // attr index
                 lea     (SolidityTable).l, a1
@@ -196,7 +196,7 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 // gate is "class == SOLID_ALL || (class & mask)"; ALL = TOP|LRB,
                 // so a single AND covers both cases for any nonzero mask
                 and.b   d6, d0
-                beq.s   .cl_air                // wrong class for this sensor → air
+                beq     .cl_air                // wrong class for this sensor → air
                 lea     (AngleTable).l, a1
                 move.b  (a1, d3.w), d1         // raw angle (odd flag passes through)
                 lsl.w   #4, d3                 // attr × 16
@@ -207,8 +207,8 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 move.b  (a1, d3.w), d0
                 ext.w   d0
                 {probe_neg(pnegate)}
-                beq.s   .cl_air                // height 0 → empty column
-                bmi.s   .cl_hanging
+                beq     .cl_air                // height 0 → empty column
+                bmi     .cl_hanging
                 rts                            // 1..15 partial / 16 full
 
         .cl_hanging:
@@ -217,7 +217,7 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 // treat as full; outside → no surface this side, treat as air
                 {probe_sub(paxreg, psubflip, d3)}
                 add.w   d3, d0
-                bpl.s   .cl_air
+                bpl     .cl_air
                 moveq   #16, d0
                 rts
 
@@ -267,7 +267,7 @@ pub proc Player_SensorPair () clobbers(d0-d5/a1) {
         move.w  (sp)+, d4              // A angle
         move.w  (sp)+, d5              // A dist
         cmp.w   d0, d5                 // A − B
-        bgt.s   .b_wins
+        bgt     .b_wins
         move.w  d5, d0                 // A ≤ B → A wins (ties → A)
         move.b  d4, d1
         move.b  d3, d2
@@ -299,7 +299,7 @@ pub proc Player_SensorFloor (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // hold for all grounded states. Ceiling probes enter at
         // Player_SensorSurface (via Player_SensorCeiling) and are unaffected.
         btst    #ST_ON_OBJECT, status(a0)
-        beq.s   .terrain
+        beq     .terrain
         moveq   #0, d0                 // dist = touching (Player_SnapToSurface no-op)
         moveq   #0, d1                 // angle = flat
         moveq   #1, d2                 // nonzero attr = floor present
@@ -308,7 +308,7 @@ pub proc Player_SensorFloor (a0: *Sst) clobbers(d0-d7/a1-a2) {
         moveq   #SOLID_TOP, d6         // floor class: top-only + all pass,
                                        // lrb-only (jump-up-through) rejected
         moveq   #0, d7                 // probe along the quadrant's "down"
-        bra.s   Player_SensorSurface
+        jbra    Player_SensorSurface
 }
 
 // -----------------------------------------------
@@ -357,7 +357,7 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.w  d1, d0
         move.w  d5, d1                 // d0/d1 = A coords; d4/d5 = B coords
         lea     Collision_ProbeDown(pc), a2
-        bra.s   .pair
+        jbra    .pair
 .probe_up:
         sub.w   d1, d5                 // probe Y = y − y_rad (head)
         move.w  d4, d1
@@ -366,7 +366,7 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.w  d1, d0
         move.w  d5, d1
         lea     Collision_ProbeUp(pc), a2
-        bra.s   .pair
+        jbra    .pair
 .probe_left:
         // wall modes swap the radius roles: probe-axis offset = y_rad
         // along X, pair spread = x_rad along Y
@@ -376,7 +376,7 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
         add.w   d0, d5                 // B y = y + x_rad
         move.w  d4, d0
         lea     Collision_ProbeLeft(pc), a2
-        bra.s   .pair
+        jbra    .pair
 .probe_right:
         add.w   d1, d4                 // probe X = x + y_rad
         move.w  d5, d1
@@ -385,7 +385,7 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.w  d4, d0
         lea     Collision_ProbeRight(pc), a2
 .pair:
-        bsr.w   Player_SensorPair      // d0/d1/d2 = closer sensor (raw angle)
+        jbsr    Player_SensorPair      // d0/d1/d2 = closer sensor (raw angle)
 
         // angle resolution: cardinal = ((Player_Quadrant + d7) & 3) << 6
         move.b  (Player_Quadrant).w, d3
@@ -393,16 +393,16 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
         andi.b  #3, d3
         ror.b   #2, d3                 // 0/1/2/3 → $00/$40/$80/$C0
         btst    #0, d1
-        bne.s   .substitute            // odd flag → no usable angle
+        bne     .substitute            // odd flag → no usable angle
         cmpi.b  #2, d7
-        beq.s   .keep                  // ceiling pair: odd-flag rule only
+        beq     .keep                  // ceiling pair: odd-flag rule only
         move.b  d1, d4                 // floor pair: divergence snap too
         sub.b   angle(a0), d4          // byte difference wraps naturally
-        bpl.s   .diff_pos
+        bpl     .diff_pos
         neg.b   d4
 .diff_pos:
         cmpi.b  #$20, d4
-        blo.s   .keep                  // |Δ| < $20 → trust the surface angle
+        blo     .keep                  // |Δ| < $20 → trust the surface angle
 .substitute:
         move.b  d3, d1
 .keep:
@@ -430,7 +430,7 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
 pub proc Player_SensorWallAt (a0: *Sst) clobbers(d0-d6/a1) falls_into Player_SensorWallDir {
         moveq   #2, d2                 // right
         tst.w   d4
-        bpl.s   Player_SensorWallDir
+        bpl     Player_SensorWallDir
         moveq   #3, d2                 // left
         // fall through
 }
@@ -454,23 +454,23 @@ pub proc Player_SensorWallDir (a0: *Sst) clobbers(d0-d6/a1) {
         dc.w    .right-.dir_table
         dc.w    .left-.dir_table
 .down:
-        bsr.w   Collision_ProbeDown
+        jbsr    Collision_ProbeDown
         moveq   #0, d3                 // floor-facing cardinal
-        bra.s   .resolve
+        jbra    .resolve
 .up:
-        bsr.w   Collision_ProbeUp
+        jbsr    Collision_ProbeUp
         move.b  #$80, d3               // ceiling-facing cardinal
-        bra.s   .resolve
+        jbra    .resolve
 .right:
-        bsr.w   Collision_ProbeRight
+        jbsr    Collision_ProbeRight
         move.b  #$C0, d3               // right-wall facing cardinal
-        bra.s   .resolve
+        jbra    .resolve
 .left:
-        bsr.w   Collision_ProbeLeft
+        jbsr    Collision_ProbeLeft
         moveq   #$40, d3               // left-wall facing cardinal
 .resolve:
         btst    #0, d1
-        beq.s   .keep
+        beq     .keep
         move.b  d3, d1
 .keep:
         rts
@@ -501,15 +501,15 @@ pub proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d6/a1-a2) {
         // past it = fall through to the terrain probe, so a solid resting
         // flush on the floor still counts the ground beyond its edge.
         btst    #ST_ON_OBJECT, status(a0)
-        beq.s   .terrain
+        beq     .terrain
         // the solid that claimed us this pass left its SST address in
         // SST_interact (TouchResponse lifecycle — cleared at pass start,
         // set by Touch_Solid's top-contact; can't go stale, no slot scan,
         // no per-player bit selection)
         move.w  interact_off()(a0), d0
-        beq.s   .no_owner                        // 0 = none (defensive)
+        beq     .no_owner                        // 0 = none (defensive)
         movea.w d0, a1
-        bra.s   .found
+        jbra    .found
 .no_owner:
         moveq   #0, d0                           // no owner —
         rts                                      // treat as supported
@@ -520,14 +520,14 @@ pub proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d6/a1-a2) {
         // the classic balance-on-object window.
         move.w  x_pos(a0), d0
         sub.w   Sst.x_pos(a1), d0
-        bpl.s   .obj_abs
+        bpl     .obj_abs
         neg.w   d0
 .obj_abs:
         moveq   #0, d1
         move.b  Sst.width_pixels(a1), d1
         lsr.w   #1, d1                           // object half-width
         cmp.w   d1, d0
-        bgt.s   .terrain                         // center past the edge —
+        bgt     .terrain                         // center past the edge —
                                                  // check the ground beyond
         moveq   #0, d0                           // over the object -> Z set
         rts
@@ -543,18 +543,18 @@ pub proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d6/a1-a2) {
         // probe X = x offset toward facing
         move.w  x_pos(a0), d0
         btst    #ST_XFLIP, status(a0)
-        bne.s   .face_left
+        bne     .face_left
         addi.w  #LEDGE_PROBE_REACH, d0           // facing right
-        bra.s   .single
+        jbra    .single
 .face_left:
         subi.w  #LEDGE_PROBE_REACH, d0           // facing left
 .single:
         move.w  d0, d4                           // B = A (single-point probe)
         move.w  d1, d5
         lea     Collision_ProbeDown(pc), a2
-        bsr.w   Player_SensorPair                // d0 = floor distance at the foot
+        jbsr    Player_SensorPair                // d0 = floor distance at the foot
         cmpi.w  #LEDGE_NO_GROUND, d0
-        bgt.s   .at_edge
+        bgt     .at_edge
         moveq   #0, d0                           // supported -> Z set
         rts
 .at_edge:
