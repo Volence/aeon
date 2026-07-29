@@ -27,7 +27,12 @@
 module engine.z80_init (cpu: z80)
 
 section z80_idle (cpu: z80, vma: $0) {
-    pub proc Z80_IdleProgram () clobbers() {
+    // No register contract: Z80 contract checking is a rung-2 class (the 68k
+    // clobber closure has no Z80 model, so `(cpu: z80)` modules are skipped),
+    // and this proc in fact clobbers nearly every Z80 register. An empty
+    // `clobbers()` would falsely claim it touches nothing; omitting the clause
+    // declares no contract, honest until the rung-2 Z80 model checks it.
+    pub proc Z80_IdleProgram () {
         xor     a
         ld      bc, extern("Z80_RAM_END") - extern("Z80_RAM") - .code_end - 1
         ld      de, 1 + .code_end       // (== code_end+1) leading-`.`local bug: see gap-ledger
