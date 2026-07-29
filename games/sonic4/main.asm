@@ -43,9 +43,33 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     ; the state files use; ground/air are reached only via the offset
     ; tables, so order among them is otherwise free.
     include "games/sonic4/player/player_common.asm"
-    include "games/sonic4/player/player_ground.asm"
-    include "games/sonic4/player/player_air.asm"
-    include "games/sonic4/player/player_spindash.asm"
+    ifndef SIGIL_EMP_PLAYER_GROUND
+      include "games/sonic4/player/player_ground.asm"
+    else
+        ; sigil mixed build: the grounded state bodies (PState_Ground/Roll,
+        ; Ground_Move/Cap/PostMove, Player_SlopeRepel, Ground_DetachState,
+        ; Player_Jump) come from games/sonic4/player/player_ground.emp. Pure code,
+        ; shape-invariant window; ONE org both shapes. Resume lands on player_air's
+        ; first label PState_Air. The gate define must never be set for other games.
+        org     $108A2
+    endif
+    ifndef SIGIL_EMP_PLAYER_AIR
+      include "games/sonic4/player/player_air.asm"
+    else
+        ; sigil mixed build: the airborne state bodies (PState_Air/AirBall/RollJump/
+        ; Jump/AirShared + the Air_* helpers) come from player_air.emp. Shape-invariant
+        ; window; ONE org both shapes. Resume lands on player_spindash's first label
+        ; PState_Spindash.
+        org     $10B74
+    endif
+    ifndef SIGIL_EMP_PLAYER_SPINDASH
+      include "games/sonic4/player/player_spindash.asm"
+    else
+        ; sigil mixed build: PState_Spindash comes from player_spindash.emp. Shape-
+        ; invariant window; ONE org both shapes. Resume lands on sonic.asm's first
+        ; label Sonic_InitAssets.
+        org     $10C14
+    endif
     ifndef SIGIL_EMP_SONIC
       include "games/sonic4/player/sonic.asm"
     else

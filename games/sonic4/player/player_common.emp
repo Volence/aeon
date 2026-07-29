@@ -149,7 +149,7 @@ ensure(extern("BUTTON_RIGHT_BIT") == BUTTON_RIGHT_BIT, "engine/constants.asm BUT
 // always-on window-overflow check subsumes the AS objvarsCheck / SST_interact
 // collision assert.
 // -----------------------------------------------
-vars PlayerV: Sst.sst_custom {
+pub vars PlayerV: Sst.sst_custom {
         ground_speed:     i16,          // inertia — single source of truth on ground
         player_state:     u8,           // PSTATE_* (jump-table byte offset)
         status_secondary: u8,           // reserved condition bits (speedshoes etc.) — 0 for now
