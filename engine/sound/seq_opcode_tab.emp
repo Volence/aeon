@@ -1,0 +1,79 @@
+// ===========================================================================
+// engine/sound/seq_opcode_tab.emp — the sequencer coordination-opcode jump
+// table ($E0..$FF, 32 entries; index = opcode - MEV_VOL).
+// ===========================================================================
+// The .emp port of seq_opcode_tab.asm (this directory). A banked data table:
+// 32 little-endian words, each the RESIDENT phase-0 Z80 address of a `Seq_Op_*`
+// handler; reserved opcodes point at `Seq_BadOpcode`. Read by Sequencer_Channel's
+// `.coord` dispatch (sound_sequencer.asm) as a plain indexed table.
+//
+// BANKED at the engine-table head of the song/SFX bank (main.asm's
+// `cpu z80 / phase 08000h` block), so it costs ZERO against the resident
+// Z80-code ceiling. The table label equals its $8000-window pointer; the reader
+// needs no code change (indexed read, no self-modification).
+//
+// The `dc.w` entries hold RESIDENT phase-0 handler addresses (the handlers are
+// CODE and stay resident — banked opcode FETCHES corrupt under 68k bus
+// contention). Reading a resident address THROUGH the window is a plain data
+// read. Each cell lowers to a `Value16Le` fixup: a raw little-endian 16-bit Z80
+// address, NOT a windowed 68k pointer (the linker's unsigned-u16 window check
+// still catches a stray > $FFFF address).
+//
+// BANK GUARANTEES at the read site (both == THIS bank today):
+//   * music frame: Sequencer_Channel runs under SetBank(SND_SONG_BANK)
+//     (Run_SeqFrame_OnSongBank), and every song lives in this bank
+//     (song_table.asm no-straddle asserts anchor at MovingTrucks_Bank_Start).
+//   * SFX frame: Sfx_Frame's entry SetBank(SFX_BLOB_BANK) — the SFX blobs are
+//     asserted co-located with this bank in main.asm.
+// A future song/SFX bank that diverges must carry an identical-layout
+// engine-table head (this table included) — the replicate-per-bank rule at the
+// main.asm phase block.
+//
+// The 32-entry count is load-bearing: a short table sends high opcodes into the
+// neighbouring table's bytes as a bogus "handler". The AS twin's `if/error`
+// span guard enforces it canonically; a comptime table-span guard here awaits a
+// section-length mechanism (gap-ledgered).
+// ===========================================================================
+
+module engine.seq_opcode_tab (cpu: z80)
+
+// Pure data table — the proc emits only `dc.w` cells and touches no register, so
+// `clobbers()` is the honest empty contract (unlike z80_init's code proc).
+section seq_opcode_tab (cpu: z80, vma: $8000) {
+    pub proc SeqOpcodeTable () clobbers() {
+        dc.w    Seq_Op_Vol          // $E0 MEV_VOL
+        dc.w    Seq_Op_Patch        // $E1 MEV_PATCH
+        dc.w    Seq_Op_Dac          // $E2 MEV_DAC
+        dc.w    Seq_Op_NoteDur      // $E3 MEV_NOTE_DUR
+        dc.w    Seq_Op_Pan          // $E4 MEV_PAN
+        dc.w    Seq_Op_RepeatStart  // $E5 MEV_REPEAT_START
+        dc.w    Seq_Op_RepeatEnd    // $E6 MEV_REPEAT_END
+        dc.w    Seq_Op_NoteRaw      // $E7 MEV_NOTE_RAW
+        dc.w    Seq_Op_PitchEnv     // $E8 MEV_PITCHENV
+        dc.w    Seq_Op_OpBias       // $E9 MEV_OPBIAS
+        dc.w    Seq_Op_RegDelta     // $EA MEV_REGDELTA (voice-stepping)
+        dc.w    Seq_Op_PsgEnv       // $EB MEV_PSGENV
+        dc.w    Seq_Op_ModSet       // $EC MEV_MODSET
+        dc.w    Seq_Op_NoteFill     // $ED MEV_NOTEFILL (gate articulation)
+        dc.w    Seq_Op_LoopPoint    // $EE MEV_LOOP_POINT
+        dc.w    Seq_Op_Jump         // $EF MEV_JUMP
+        dc.w    Seq_Op_SpinRev      // $F0 MEV_SPINREV
+        dc.w    Seq_BadOpcode       // $F1 reserved (SPINREV reset is dispatch-folded)
+        dc.w    Seq_Op_PsgNoise     // $F2 MEV_PSGNOISE
+        dc.w    Seq_Op_Tempo        // $F3 MEV_TEMPO (global tempo scalar)
+        dc.w    Seq_Op_Lfo          // $F4 MEV_LFO (write $22 LFO, DAC $2A re-parked)
+        dc.w    Seq_Op_Porta        // $F5 MEV_PORTA (portamento glide rate)
+        dc.w    Seq_Op_Detune       // $F6 MEV_DETUNE (set sc_detune; applied at next note-on)
+        dc.w    Seq_Op_PsgEnv       // $F7 MEV_FMENV (shared handler: sets the unified
+                                    //   sc_env slot + resets sc_env_cur; ModUpdate
+                                    //   picks FmVolEnv vs PsgVolEnv by SCF_IS_FM_B)
+        dc.w    Seq_Op_RegWrite     // $F8 MEV_REGWRITE (raw YM2612 register write)
+        dc.w    Seq_Op_Macro        // $F9 MEV_MACRO (arm slot[1])
+        dc.w    Seq_BadOpcode       // $FA reserved
+        dc.w    Seq_BadOpcode       // $FB reserved
+        dc.w    Seq_BadOpcode       // $FC reserved
+        dc.w    Seq_BadOpcode       // $FD reserved
+        dc.w    Seq_BadOpcode       // $FE reserved
+        dc.w    Seq_Op_End          // $FF MEV_END
+    }
+}

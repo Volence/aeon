@@ -48,7 +48,16 @@ BootData_VDPRegs:
     ifdef SOUND_DRIVER_ENABLED
         include "engine/sound/z80_sound_driver.asm"
     else
+      ifndef SIGIL_EMP_Z80_INIT
         include "engine/system/z80_init.asm"
+      else
+        ; sigil mixed build (no-sound shape): the idle program comes from
+        ; z80_init.emp, placed by the sigil map. Whole-ROM off-canonical
+        ; placement (the org-advance past the .emp span) is the deferred
+        ; DEMAND-3 machinery, shared with sound_debug/game_debug; the port is
+        ; proven by the z80_init_port off-canonical oracle. Both shipped shapes
+        ; have sound ENABLED, so this whole `else` is skipped canonically.
+      endif
     endif
         align 2
 
