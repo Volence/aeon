@@ -7,7 +7,7 @@ use engine.objects.sst.{Sst}
 use engine.objects.children.{SpawnDesc}
 use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, RF_MULTISPRITE}
 use engine.objects.objdef.{vram_art}
-use engine.types.{VramTile}
+use engine.types.{VramTile, Angle}
 
 // VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Mirrors
 // games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
@@ -99,8 +99,9 @@ pub proc TestChildPart_Main (a0: *Sst) clobbers(d0-d3/a1) {
         addq.b  #CHILD_ORBIT_SPEED, d0
         move.b  d0, TOrbitChildV.orbit_angle(a0)
 
-        // sin/cos at d0 -> d0=sin*$100, d1=cos*$100
-        andi.w  #$FF, d0
+        // sin/cos at d0 -> d0=sin*$100, d1=cos*$100. The mask finalizes the
+        // 0-255 angle -> born Angle here for GetSineCosine's typed d0 slot.
+        andi.w  #$FF, d0 as Angle
         movem.l d2-d3/a1, -(sp)
         jbsr    GetSineCosine
         movem.l (sp)+, d2-d3/a1
