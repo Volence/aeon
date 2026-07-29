@@ -1372,8 +1372,14 @@ section sound_sfx (cpu: z80, vma: $0CD7) {
         dc.b    SFXEL_NOISE  // CHROUTE_PSGN (9)
         dc.b    SFXEL_NONE   // CHROUTE_DAC  (10) — DAC trigger channel, never stolen
     }
-    // Length drift guard (RHS-only; mirrors the AS twin's
-    // `(SfxEligTable_End - SfxEligTable) <> CHROUTE_COUNT / error`).
+    // Length drift guard — RHS-ONLY (the literal 11 is the AUTHORED row count, hand-
+    // kept). This is WEAKER than the AS twin's `(SfxEligTable_End - SfxEligTable) <>
+    // CHROUTE_COUNT`: the twin checks the EMITTED byte count, so adding a `db` row
+    // trips it; this checks only that the constant CHROUTE_COUNT still equals the
+    // authored count, because `.emp` has no data-proc emitted-length introspection
+    // (the `sizeof`/end-label ask — gap-ledgered). A row added here is caught by the
+    // twin's byte gate, not this ensure. (The fm RegDeltaGroupBase / dac_sample_tab
+    // RHS-only precedent.)
     ensure(11 == CHROUTE_COUNT, "SfxEligTable length must equal CHROUTE_COUNT")
 
     // ======================================================================
