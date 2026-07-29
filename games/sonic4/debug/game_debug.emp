@@ -97,6 +97,15 @@ ensure(extern("SFXID_RINGLOSS") == SFXID_RINGLOSS, "SFXID_RINGLOSS drifted from 
 // latent — but the contract must be honest. Twin comment corrected in lockstep.
 // -----------------------------------------------
 pub proc Debug_MusicToggle () clobbers(d0-d4/a0-a1) {
+        // STRUCTURAL WIDTH PIN (step-2 exception class — the trailing-`align`
+        // dependency): the branches stay explicit `.s`/`bsr.w` and the RAM
+        // operands stay explicit `(X).w` rather than going bare / `jbsr`. The
+        // `align 2` after Dbg_SfxIdTable (below) needs every preceding
+        // instruction size FIXED; a bare Bcc (relaxable `.s`/`.w`), a `jbsr` to a
+        // cross-seam link target (unknown reach → bsr.s/bsr.w undecided), or a
+        // bare abs symbol (abs.w/.l by resolved value) all leave the align at a
+        // provisional position → `[align.provisional]`. Byte-identical to the AS
+        // twin regardless (it spells the same explicit widths).
         // A button = RESTART the song from pattern 0 (re-trigger Sound_PlayMusic; NO
         // reboot, NO toggle). For clean from-the-very-top VGM capture during sound
         // debugging: the emulator's reset/reload either kills the VGM logger or doesn't
@@ -116,7 +125,7 @@ pub proc Debug_MusicToggle () clobbers(d0-d4/a0-a1) {
         // the acceptance matrix. B ($10) does not collide with A($40)/START($80).
         // RING_RIGHT is fired via Sound_PlayRing so the L/R stereo-alternation path is
         // exercised too; all others go straight through Sound_PlaySFX. (Both preserve
-        // a0 + clobber only d0/SR — safe inside this debug-toggle's d0-d2/a0/a1 budget.)
+        // a0 + clobber only d0/SR — safe inside this handler's d0-d4/a0-a1 budget.)
         move.b  (Ctrl_1_Press).w, d0
         andi.b  #BUTTON_B, d0
         beq.s   .check_hcz2
