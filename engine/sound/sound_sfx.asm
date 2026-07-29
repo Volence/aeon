@@ -243,8 +243,10 @@ Sfx_DrainQueue:
 ; (verified in sound_sequencer.asm Seq_Op_End) — detect that and hand the voice
 ; back via Sfx_Restore (un-mute the override, re-upload the music voice, re-key the
 ; held note iff it's keyed, and deactivate the slot).
-; In: nothing. Clobbers af,bc,de,hl,ix (same as Sequencer_Frame). Preserves
-; nothing the caller needs except the de re-park it does after this tail-call.
+; In: nothing. Clobbers af,bc,de,hl,ix,iy (iy destroyed by Sfx_DrainQueue /
+; Sfx_DuckRamp / Sfx_Restore, whose iy-walkers own it — a caller must not rely on
+; iy surviving). Preserves nothing the caller needs except the de re-park it does
+; after this tail-call.
 ; ----------------------------------------------------------------------
 Sfx_Frame:
         ; Bank the SFX blob bank in FIRST: the slot loop's stream/env reads go

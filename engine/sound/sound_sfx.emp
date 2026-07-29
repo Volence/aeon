@@ -236,9 +236,11 @@ section sound_sfx (cpu: z80, vma: $0CD7) {
     // `preserves(ix)` — see the file header). Preserves nothing the caller needs
     // except the de re-park it does after this tail-call.
     // ----------------------------------------------------------------------
-    // Contract: clobbers af,bc,de,hl,ix,iy (the callees SetBank/DrainQueue/DuckRamp/
-    // Restore clobber iy; the `.asm` header omits iy — an under-claim, header-accuracy
-    // note: the sole caller Sequencer_Frame also clobbers iy, so no reliance breaks).
+    // Contract: clobbers af,bc,de,hl,ix,iy — the honest superset. iy is destroyed by
+    // the callees Sfx_DrainQueue/Sfx_DuckRamp/Sfx_Restore (their iy-walkers own it), so
+    // a caller must not rely on iy surviving; omitting it would falsely read as
+    // preserved (exhaustive-license semantics). The sole caller Sequencer_Frame also
+    // clobbers iy, so no live reliance breaks.
     pub proc Sfx_Frame () clobbers(af, bc, de, hl, ix, iy) {
         // Bank the SFX blob bank in FIRST: the slot loop's stream/env reads go
         // through the $8000 window, but the caller (Run_SeqFrame_OnSongBank)
