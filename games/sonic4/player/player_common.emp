@@ -1,0 +1,874 @@
+// Player frame skeleton — state machine, dispatch, shared services (§5)
+//
+// Owns the player frame: debug-fly escape → physics table (a4) →
+// quadrant → jump buffer → state dispatch → history rings → display tail.
+// The state bodies live in player_ground.asm / player_air.asm (reached
+// only via the Player_States offset table below); characters contribute
+// asset/physics data + ability states (sonic.emp) — never forks inside
+// shared routines (spec §3.1 inversion of the sonic_hack split).
+//
+// Lives in the object code bank: Player_Main is dispatched through
+// SST_code_addr via a code_addr = label − ObjCodeBase store.
+//
+// KEYSTONE NOTE: player_common.asm keeps an INTERNAL gate — its zero-byte
+// header (the PlayerV struct, the _pl_*/PPHYS_* equates, and the four macros)
+// stays ALWAYS-EMITTED so the surviving player_ground/air/spindash still resolve
+// it; only the code span sits under SIGIL_EMP_PLAYER_COMMON. This module IS that
+// code span; the overlay + macro templates below are its .emp-side counterparts,
+// drift-locked to the surviving AS header.
+module games.sonic4.player_common in player_common
+
+use engine.objects.sst.{Sst}
+use engine.structs.{Act}
+use engine.coords.{pixels_to_coord}
+use engine.objects.objdef.{vram_art}
+use engine.constants.{RF_PRIORITY_SHIFT, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT}
+use engine.types.{VramTile}
+
+// Player_AtLedgeEdge — player_sensors' idle-balance ledge probe (returns d0=0/Z
+// set = supported, d0=1/Z clear = teetering). Boundary decl for the surviving-AS
+// player_sensors, which ports at P4; the call resolves cross-seam today, becomes
+// module-to-module once sensors port. KILL ROW: delete this decl when P4 lands.
+extern proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d5/a1-a2)
+
+// PlayerState — the state-handler routine type the Player_States table dispatches
+// (PState_Ground/Roll/Spindash/Air/Jump/RollJump/AirBall, surviving player_ground/
+// air/spindash). Preserves a0 (RunObjects); clobbers d0-d7 — the handlers clobber
+// d7 internally (via Player_SensorFloor), which is why Player_Main brackets the
+// dispatch with a `move.w d7,-(sp)` / `move.w (sp)+,d7` word save/restore that
+// preserves the RunObjects slot counter (d7 is a WORD there).
+type PlayerState = proc (a0: *Sst) preserves(a0) clobbers(d0-d7, a1-a4)
+
+// PlayerHook — the enter/exit hook routine type (PHook_*, this module). Hooks
+// preserve a0/d0/d7 (their contract); the dispatch's d1/a1 + the hook's d2/a2 are
+// the clobber set.
+type PlayerHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
+
+// ── game-config mirrors (config/constants.asm + config/sound_ids.asm) ────────
+// The .emp const cannot be seen by the gate-off AS build (row-54 class); each
+// drift guard makes an AS-side change loud.
+const PSTATE_GROUND   = 0
+const PSTATE_ROLL     = 2
+const PSTATE_SPINDASH = 4
+const PSTATE_AIR      = 6
+const PSTATE_JUMP     = 8
+const PSTATE_ROLLJUMP = 10
+const PSTATE_AIRBALL  = 12
+const PSTATE_COUNT    = 7
+ensure(extern("PSTATE_GROUND")   == PSTATE_GROUND,   "config/constants.asm PSTATE_GROUND drifted")
+ensure(extern("PSTATE_ROLL")     == PSTATE_ROLL,     "config/constants.asm PSTATE_ROLL drifted")
+ensure(extern("PSTATE_SPINDASH") == PSTATE_SPINDASH, "config/constants.asm PSTATE_SPINDASH drifted")
+ensure(extern("PSTATE_AIR")      == PSTATE_AIR,      "config/constants.asm PSTATE_AIR drifted")
+ensure(extern("PSTATE_JUMP")     == PSTATE_JUMP,     "config/constants.asm PSTATE_JUMP drifted")
+ensure(extern("PSTATE_ROLLJUMP") == PSTATE_ROLLJUMP, "config/constants.asm PSTATE_ROLLJUMP drifted")
+ensure(extern("PSTATE_AIRBALL")  == PSTATE_AIRBALL,  "config/constants.asm PSTATE_AIRBALL drifted")
+ensure(extern("PSTATE_COUNT")    == PSTATE_COUNT,    "config/constants.asm PSTATE_COUNT drifted")
+
+const ANIM_WALK     = 0
+const ANIM_RUN      = 1
+const ANIM_ROLL     = 2
+const ANIM_SPINDASH = 3
+const ANIM_PUSH     = 4
+const ANIM_IDLE     = 5
+const ANIM_BALANCE  = 6
+const ANIM_LOOKUP   = 7
+const ANIM_DUCK     = 8
+const ANIM_SKID     = 9
+const ANIM_GETUP    = 10
+const ANIM_RUN_THRESHOLD = $600
+ensure(extern("ANIM_WALK")     == ANIM_WALK,     "config/constants.asm ANIM_WALK drifted")
+ensure(extern("ANIM_RUN")      == ANIM_RUN,      "config/constants.asm ANIM_RUN drifted")
+ensure(extern("ANIM_ROLL")     == ANIM_ROLL,     "config/constants.asm ANIM_ROLL drifted")
+ensure(extern("ANIM_SPINDASH") == ANIM_SPINDASH, "config/constants.asm ANIM_SPINDASH drifted")
+ensure(extern("ANIM_PUSH")     == ANIM_PUSH,     "config/constants.asm ANIM_PUSH drifted")
+ensure(extern("ANIM_IDLE")     == ANIM_IDLE,     "config/constants.asm ANIM_IDLE drifted")
+ensure(extern("ANIM_BALANCE")  == ANIM_BALANCE,  "config/constants.asm ANIM_BALANCE drifted")
+ensure(extern("ANIM_LOOKUP")   == ANIM_LOOKUP,   "config/constants.asm ANIM_LOOKUP drifted")
+ensure(extern("ANIM_DUCK")     == ANIM_DUCK,     "config/constants.asm ANIM_DUCK drifted")
+ensure(extern("ANIM_SKID")     == ANIM_SKID,     "config/constants.asm ANIM_SKID drifted")
+ensure(extern("ANIM_GETUP")    == ANIM_GETUP,    "config/constants.asm ANIM_GETUP drifted")
+ensure(extern("ANIM_RUN_THRESHOLD") == ANIM_RUN_THRESHOLD, "config/constants.asm ANIM_RUN_THRESHOLD drifted")
+
+// VRAM_TEST_MARKER — tile 1016, debug-fly marker (2×2). Mirror of config/constants.asm.
+const VRAM_TEST_MARKER: VramTile = $03F8
+ensure(extern("VRAM_TEST_MARKER") == VRAM_TEST_MARKER, "config/constants.asm VRAM_TEST_MARKER drifted")
+
+const SFXID_SKID = $36
+ensure(extern("SFXID_SKID") == SFXID_SKID, "config/sound_ids.asm SFXID_SKID drifted")
+
+// ── engine-constant mirrors (engine/constants.asm; player is the FIRST .emp
+// consumer of these — file-local per the first-consumer rule, hoist to the
+// engine.constants twin at the 2nd consumer P2/player_ground) ────────────────
+const PHYS_SKID_MIN   = $400
+const PHYS_JUMP_BUFFER = 2
+const PHYS_FALL_CAP   = $1000
+const PLAYER_X_RADIUS = 9
+const PLAYER_Y_RADIUS = 19
+const BALL_X_RADIUS   = 7
+const BALL_Y_RADIUS   = 14
+const CURL_Y_SHIFT    = 5
+const ST_ROLLING      = 4
+const ST_PUSHING      = 6
+const COLLISION_NONE  = 0
+const EDGE_CLAMP      = 0
+const EDGE_WRAP_V     = 1
+const EDGE_KILL       = 2
+const BUTTON_A        = $40
+const BUTTON_C        = $20
+const BUTTON_UP_BIT    = 0
+const BUTTON_DOWN_BIT  = 1
+const BUTTON_LEFT_BIT  = 2
+const BUTTON_RIGHT_BIT = 3
+ensure(extern("PHYS_SKID_MIN")    == PHYS_SKID_MIN,    "engine/constants.asm PHYS_SKID_MIN drifted")
+ensure(extern("PHYS_JUMP_BUFFER") == PHYS_JUMP_BUFFER, "engine/constants.asm PHYS_JUMP_BUFFER drifted")
+ensure(extern("PHYS_FALL_CAP")    == PHYS_FALL_CAP,    "engine/constants.asm PHYS_FALL_CAP drifted")
+ensure(extern("PLAYER_X_RADIUS")  == PLAYER_X_RADIUS,  "engine/constants.asm PLAYER_X_RADIUS drifted")
+ensure(extern("PLAYER_Y_RADIUS")  == PLAYER_Y_RADIUS,  "engine/constants.asm PLAYER_Y_RADIUS drifted")
+ensure(extern("BALL_X_RADIUS")    == BALL_X_RADIUS,    "engine/constants.asm BALL_X_RADIUS drifted")
+ensure(extern("BALL_Y_RADIUS")    == BALL_Y_RADIUS,    "engine/constants.asm BALL_Y_RADIUS drifted")
+ensure(extern("CURL_Y_SHIFT")     == CURL_Y_SHIFT,     "engine/constants.asm CURL_Y_SHIFT drifted")
+ensure(extern("ST_ROLLING")       == ST_ROLLING,       "engine/constants.asm ST_ROLLING drifted")
+ensure(extern("ST_PUSHING")       == ST_PUSHING,       "engine/constants.asm ST_PUSHING drifted")
+ensure(extern("COLLISION_NONE")   == COLLISION_NONE,   "engine/constants.asm COLLISION_NONE drifted")
+ensure(extern("EDGE_CLAMP")       == EDGE_CLAMP,       "engine/constants.asm EDGE_CLAMP drifted")
+ensure(extern("EDGE_WRAP_V")      == EDGE_WRAP_V,      "engine/constants.asm EDGE_WRAP_V drifted")
+ensure(extern("EDGE_KILL")        == EDGE_KILL,        "engine/constants.asm EDGE_KILL drifted")
+ensure(extern("BUTTON_A")         == BUTTON_A,         "engine/constants.asm BUTTON_A drifted")
+ensure(extern("BUTTON_C")         == BUTTON_C,         "engine/constants.asm BUTTON_C drifted")
+ensure(extern("BUTTON_UP_BIT")    == BUTTON_UP_BIT,    "engine/constants.asm BUTTON_UP_BIT drifted")
+ensure(extern("BUTTON_DOWN_BIT")  == BUTTON_DOWN_BIT,  "engine/constants.asm BUTTON_DOWN_BIT drifted")
+ensure(extern("BUTTON_LEFT_BIT")  == BUTTON_LEFT_BIT,  "engine/constants.asm BUTTON_LEFT_BIT drifted")
+ensure(extern("BUTTON_RIGHT_BIT") == BUTTON_RIGHT_BIT, "engine/constants.asm BUTTON_RIGHT_BIT drifted")
+
+// -----------------------------------------------
+// PlayerV — the SST overlay (research structure-refs §2.2 budget: 12 of 34
+// bytes). The GUARDED overlay class (row-61 DplcV): the surviving AS header in
+// player_common.asm keeps the identical PlayerV struct + _pl_* equates for
+// player_ground/air/spindash, so the fields THEY read carry drift guards; the
+// rest are covered by this module's own region byte gate. The overlay's
+// always-on window-overflow check subsumes the AS objvarsCheck / SST_interact
+// collision assert.
+// -----------------------------------------------
+vars PlayerV: Sst.sst_custom {
+        ground_speed:     i16,          // inertia — single source of truth on ground
+        player_state:     u8,           // PSTATE_* (jump-table byte offset)
+        status_secondary: u8,           // reserved condition bits (speedshoes etc.) — 0 for now
+        move_lock:        u16,          // input-freeze frames (slip/spring channel)
+        spindash_charge:  u16,          // spindash rev accumulator (release converts charge→gsp)
+        flip_angle:       u8,           // reserved (visual rotation)
+        air_left:         u8,           // reserved (no water yet)
+        invuln_time:      u8,           // reserved
+        stick_convex:     u8,           // flag: full terrain adherence (objects will set)
+        debug_flag:       u8,           // nonzero = debug-fly (suspends state dispatch)
+        skid_latch:       u8,           // nonzero = hold the skid pose (display latch)
+        getup_timer:      u8,           // >0 = play ANIM_GETUP one-shot, counts down
+        look_offset:      u8,           // camera look/duck pan seam — stays 0 this pass
+}
+// Guards: the fields a surviving AS file reads (drift is invisible to this
+// module's region gate). gsp: ground/air/spindash; state/move_lock/stick_convex:
+// ground; spindash_charge: spindash.
+ensure(extern("_pl_gsp")          == offsetof(Sst, sst_custom) + offsetof(PlayerV, ground_speed),    "player_common.asm _pl_gsp drifted from PlayerV")
+ensure(extern("_pl_state")        == offsetof(Sst, sst_custom) + offsetof(PlayerV, player_state),    "player_common.asm _pl_state drifted from PlayerV")
+ensure(extern("_pl_move_lock")    == offsetof(Sst, sst_custom) + offsetof(PlayerV, move_lock),       "player_common.asm _pl_move_lock drifted from PlayerV")
+ensure(extern("_pl_spindash")     == offsetof(Sst, sst_custom) + offsetof(PlayerV, spindash_charge), "player_common.asm _pl_spindash drifted from PlayerV")
+ensure(extern("_pl_stick_convex") == offsetof(Sst, sst_custom) + offsetof(PlayerV, stick_convex),    "player_common.asm _pl_stick_convex drifted from PlayerV")
+
+// Sub-field displacement consts — the 16.16 subpixel low words (LevelBound
+// clears them). `Sst.field + N` does not compose inside a displacement, so name
+// the offset (the Act_grid_w_lo precedent).
+const SST_x_pos_sub = offsetof(Sst, x_pos) + 2
+const SST_y_pos_sub = offsetof(Sst, y_pos) + 2
+
+// Jump press sources: A and C only — B is the debug-fly toggle.
+const BUTTON_JUMP_MASK = BUTTON_A | BUTTON_C
+
+const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_MAX_Y_STEP
+
+// -----------------------------------------------
+// set_standing_size / set_ball_size — the two collision boxes (sizes are 2r+1;
+// sensors halve by lsr → standing 9/19, ball 7/14 — the exact classic radii).
+// The enter hooks are the ONE writer of these fields and of the paired
+// ±CURL_Y_SHIFT y-shift (spec §3.3). .emp counterparts of the setStandingSize /
+// setBallSize AS macros (macro-port rule); the AS twins keep the macros inline.
+// In: sst = player SST register
+// -----------------------------------------------
+pub comptime fn set_standing_size(sst: Reg) -> Code {
+        return asm {
+                move.b  #PLAYER_X_RADIUS*2+1, Sst.width_pixels({sst})
+                move.b  #PLAYER_Y_RADIUS*2+1, Sst.height_pixels({sst})
+        }
+}
+
+pub comptime fn set_ball_size(sst: Reg) -> Code {
+        return asm {
+                move.b  #BALL_X_RADIUS*2+1, Sst.width_pixels({sst})
+                move.b  #BALL_Y_RADIUS*2+1, Sst.height_pixels({sst})
+        }
+}
+
+// -----------------------------------------------
+// mask_opposing_lr — L+R held together = neither (bug #10). Hygienic .lr_masked
+// label per expansion (the AS macro's fixed label, splice-hygienic here). The
+// .emp counterpart of the maskOpposingLR AS macro; consumers are the surviving
+// player_ground (×2) / player_air (×1) — this module defines it for P2/P3, does
+// not expand it itself. Lockstep twin of the AS macro.
+// In: held = data register holding the held-button bits (masked to LEFT|RIGHT,
+//     zeroed when both are down)
+// -----------------------------------------------
+pub comptime fn mask_opposing_lr(held: Reg) -> Code {
+        return asm {
+                andi.b  #BUTTON_LEFT|BUTTON_RIGHT, {held}
+                cmpi.b  #BUTTON_LEFT|BUTTON_RIGHT, {held}
+                bne.s   .lr_masked
+                moveq   #0, {held}
+        .lr_masked:
+        }
+}
+
+// -----------------------------------------------
+// dist_to_fix — widen a signed pixel distance (.w) into a 16.16 delta (dist<<16)
+// for adding to the x_pos/y_pos longwords. The .emp counterpart of the distToFix
+// AS macro; ADOPTS pixels_to_coord (engine.coords, kill row 49) for the promotion
+// half. (The leading ext.l is a step-5 wave candidate — swap/clr.w discard the
+// sign word, so it has no effect on the output.)
+// In:  v.w = signed px distance
+// Out: v.l = dist<<16
+// -----------------------------------------------
+pub comptime fn dist_to_fix(v: Reg) -> Code {
+        return asm {
+                ext.l   {v}
+                {pixels_to_coord(v)}
+        }
+}
+
+// -----------------------------------------------
+// Player_Init — set up a player slot as Sonic (called from level state init;
+// caller writes x_pos/y_pos first). Boots in DEBUG-FLY to preserve the
+// streaming-test workflow — B drops into physics.
+// In:  a0 = player SST
+// Out: none
+// Clobbers: d0-d1, a1-a2
+// -----------------------------------------------
+pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
+        bsr.w   Sonic_InitAssets
+        move.b  #ANIM_IDLE, anim(a0)            // Player_Display re-selects per frame
+        move.b  #$FF, prev_anim(a0)
+        move.b  #$FF, prev_frame(a0)
+        ori.b   #4<<RF_PRIORITY_SHIFT, render_flags(a0)
+        set_standing_size(a0)
+        move.b  #COLLISION_NONE, collision_resp(a0)
+        clr.b   status(a0)
+        clr.b   angle(a0)
+        clr.b   layer(a0)
+        clr.w   PlayerV.ground_speed(a0)
+        clr.w   PlayerV.move_lock(a0)
+        clr.w   PlayerV.spindash_charge(a0)
+        clr.b   PlayerV.status_secondary(a0)
+        clr.b   PlayerV.stick_convex(a0)
+        clr.b   PlayerV.skid_latch(a0)
+        clr.b   PlayerV.getup_timer(a0)
+        clr.b   PlayerV.look_offset(a0)
+        clr.b   PlayerV.player_state(a0)        // defined start for SetState's exit lookup
+        moveq   #PSTATE_AIR, d0                 // drop to ground on frame 1
+        bsr.w   Player_SetState
+        bsr.w   Player_RefreshPhysics
+        move.w  #Player_Main - ObjCodeBase, code_addr(a0)
+        bra.w   Player_DebugEnter
+}
+
+// -----------------------------------------------
+// Player_RefreshPhysics — recompute the effective physics table in RAM.
+// Identity modifier today: straight copy of the character base row.
+// Section/water/speed-shoes modifiers compose HERE later — called on section
+// change and status events, NEVER per-frame (spec §3.4).
+// In:  none (character = Sonic until the roster exists)
+// Out: none
+// Clobbers: a1-a2
+// -----------------------------------------------
+pub proc Player_RefreshPhysics () clobbers(a1-a2) {
+        lea     (PhysTable_Sonic).l, a1
+        lea     (Player_Phys).w, a2
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        rts
+}
+
+// -----------------------------------------------
+// Player_Main — per-frame player update (RunObjects entry)
+// In:  a0 = player SST
+// Out: none
+// Clobbers: d0-d7, a1-a4 (a0 preserved — RunObjects loop contract). The state
+//   dispatch clobbers d7 (Player_SensorFloor inside the handlers), bracketed by a
+//   `move.w d7,-(sp)` / `move.w (sp)+,d7` save that preserves the LOW WORD (the
+//   RunObjects slot counter is a word). The full-register contract can't express
+//   partial-width preservation — the .w restore round-trips only 16 bits (a .l
+//   restore is what the verifier credits, preserves.rs:470) — so d7 is declared
+//   clobbered: RunObjects reads d7 only as the word this bracket preserves.
+// -----------------------------------------------
+pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display {
+        // press bits read ONCE for the frame — d6 survives the debug toggle
+        // calls (DebugEnter clobbers none, DebugExit d0-d2/a1-a2) and feeds both
+        // the B-toggle and the jump-buffer latch
+        move.b  (Ctrl_1_Press).w, d6
+        // --- debug-fly toggle (B press) ---
+        btst    #4, d6                          // BUTTON_B
+        beq.s   .no_toggle
+        tst.b   PlayerV.debug_flag(a0)
+        bne.s   .toggle_exit
+        bsr.w   Player_DebugEnter
+        bra.s   .no_toggle
+.toggle_exit:
+        bsr.w   Player_DebugExit
+.no_toggle:
+        tst.b   PlayerV.debug_flag(a0)
+        bne.w   Player_DebugMove                // obj_control escape hatch:
+                                                // skips physics, dispatch,
+                                                // rings, and display tail
+
+        lea     (Player_Phys).w, a4             // physics table convention
+
+        // quadrant = (angle+$20)>>6 — first-class derived value; computed from
+        // LAST frame's angle (classic: angle updates at the floor pair)
+        move.b  angle(a0), d0
+        addi.b  #$20, d0
+        rol.b   #2, d0
+        andi.b  #3, d0
+        move.b  d0, (Player_Quadrant).w
+
+        // jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick down.
+        // Maintained here; the ground-state jump check CONSUMES it.
+        andi.b  #BUTTON_JUMP_MASK, d6
+        beq.s   .no_latch
+        move.b  #PHYS_JUMP_BUFFER, (Player_JumpBuffer).w
+        bra.s   .buffer_done
+.no_latch:
+        tst.b   (Player_JumpBuffer).w
+        beq.s   .buffer_done
+        subq.b  #1, (Player_JumpBuffer).w
+.buffer_done:
+
+        // --- state dispatch. d7 saved across: Player_SensorFloor legitimately
+        // clobbers it inside the handlers ---
+        move.w  d7, -(sp)
+        lea     Player_States(pc), a1
+        moveq   #0, d0
+        move.b  PlayerV.player_state(a0), d0
+        move.w  (a1,d0.w), d1
+        jsr     (a1,d1.w) as PlayerState
+        move.w  (sp)+, d7
+
+        // --- on-object bit: 1-frame-lagged (TouchResponse runs AFTER this
+        // frame; everything in the player tick reads the LIVE bit set by LAST
+        // tick's TouchResponse). The per-frame CLEAR lives at the top of
+        // TouchResponse's player loop (collision.asm), not here. ---
+
+        bsr.w   Player_LevelBound               // classic LevelBound, post-dispatch
+
+        // --- position history rings (recorded unconditionally — a "follower
+        // active?" branch costs more than the writes) ---
+        move.w  (Player_Ring_Index).w, d0
+        lea     (Player_Pos_Ring).w, a1
+        move.w  x_pos(a0), (a1,d0.w)
+        move.w  y_pos(a0), 2(a1,d0.w)
+        lea     (Player_Stat_Ring).w, a1
+        move.b  (Ctrl_1_Held).w, d1
+        lsl.w   #8, d1
+        move.b  (Ctrl_1_Press).w, d1
+        move.w  d1, (a1,d0.w)                   // input word (Held<<8|Press)
+        move.b  status(a0), 2(a1,d0.w)          // +pad byte left untouched
+        addq.b  #4, Player_Ring_Index+1         // (Player_Ring_Index+1).w — low-byte
+                                                // wrap; rings are 256-aligned (ram.asm)
+        // fall through to the shared display tail
+}
+
+// -----------------------------------------------
+// Player_Display — classify the animation, advance it, stream art, draw.
+// In:  a0 = player SST
+// Clobbers: d0-d4, a1-a3
+// -----------------------------------------------
+pub proc Player_Display (a0: *Sst) clobbers(d0-d5/a1-a3) {
+        bsr.w   Player_Animate                  // sets SST_anim + d3 (dyn hold)
+        jsr     AnimateSprite
+        jmp     Sonic_LoadArt                   // character dispatch (Tails/Knux
+                                                // replace via roster later)
+}
+
+// -----------------------------------------------
+// Player_Animate — read-only animation classifier. Reads state/status/input and
+// (at rest) one ledge sensor; writes ONE ANIM_* id to SST_anim and the
+// speed-scaled hold to d3. Mutates only the display transient skid_latch.
+// Priority: spindash > ball > skid > push > (rest: getup > duck > lookup >
+// balance > idle) > run/walk.
+// In:  a0 = player SST
+// Out: SST_anim set; d3.b = dynamic per-anim hold (for DUR_DYNAMIC scripts)
+// Clobbers: d0-d2, d4, a1-a2 (d3 is an output). The balance path additionally
+//           trashes d5-d6 via Player_AtLedgeEdge — caller (Player_Display, a
+//           frame-tail routine) keeps no live d5/d6 across this call.
+// -----------------------------------------------
+pub proc Player_Animate (a0: *Sst) clobbers(d0-d5/a1-a2) {
+        // speed-scaled hold for DUR_DYNAMIC scripts (walk/run/roll):
+        // hold = max(0,($800-|gsp|)>>8). Computed up front; only the ball and
+        // walk/run paths consume d3 and neither clobbers it. The balance path
+        // clobbers d3 (sensor) but leads to a FIXED-duration anim, so it's moot.
+        move.w  PlayerV.ground_speed(a0), d0
+        bpl.s   .abs_ok
+        neg.w   d0
+.abs_ok:
+        move.w  #$800, d4
+        sub.w   d0, d4
+        bpl.s   .hold_ok
+        moveq   #0, d4
+.hold_ok:
+        lsr.w   #8, d4
+        move.b  d4, d3
+
+        move.b  PlayerV.player_state(a0), d0
+        // (1) spindash
+        cmpi.b  #PSTATE_SPINDASH, d0
+        bne.s   .not_spindash
+        move.b  #ANIM_SPINDASH, anim(a0)
+        rts
+.not_spindash:
+        // (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL >= PSTATE_JUMP)
+        cmpi.b  #PSTATE_JUMP, d0
+        bhs.s   .ball
+        cmpi.b  #PSTATE_ROLL, d0
+        bne.s   .uncurled
+.ball:
+        move.b  #ANIM_ROLL, anim(a0)
+        rts
+.uncurled:
+        // GROUND or uncurled AIR. Airborne keeps the walk/run cycle; the
+        // grounded-only conditions are gated below.
+        btst    #ST_IN_AIR, status(a0)
+        bne.w   .walk_or_run
+
+        // (3) skid — grounded, opposing input held, |gsp| >= PHYS_SKID_MIN.
+        // Latch holds the pose through the brake WHILE opposing input is held;
+        // cleared at rest or when the opposing input is released.
+        move.w  PlayerV.ground_speed(a0), d1
+        beq.s   .skid_drop                      // stopped -> clear latch
+        move.b  (Ctrl_1_Held).w, d2
+        tst.w   d1
+        bmi.s   .skid_left
+        btst    #BUTTON_LEFT_BIT, d2            // moving right: opposing = LEFT
+        beq.s   .skid_drop
+        bra.s   .skid_opposing
+.skid_left:
+        btst    #BUTTON_RIGHT_BIT, d2           // moving left: opposing = RIGHT
+        beq.s   .skid_drop
+.skid_opposing:
+        tst.b   PlayerV.skid_latch(a0)
+        bne.s   .skid_show                      // already latched -> keep (no new sfx)
+        move.w  d1, d2
+        bpl.s   .skid_abs
+        neg.w   d2
+.skid_abs:
+        cmpi.w  #PHYS_SKID_MIN, d2
+        blo.s   .not_skid                       // opposing but too slow to arm
+        // fresh-arm edge — fire the skid SFX once before latching
+        if SOUND_DRIVER_ENABLED == 1 {
+                moveq   #SFXID_SKID, d0
+                jsr     Sound_PlaySFX
+        }
+.skid_show:
+        st      PlayerV.skid_latch(a0)
+        move.b  #ANIM_SKID, anim(a0)
+        rts
+.skid_drop:
+        clr.b   PlayerV.skid_latch(a0)
+.not_skid:
+
+        // (4) push — grounded, ST_PUSHING (facing-aware bit from ground code)
+        btst    #ST_PUSHING, status(a0)
+        beq.s   .not_push
+        move.b  #ANIM_PUSH, anim(a0)
+        rts
+.not_push:
+        // rest vs moving
+        tst.w   PlayerV.ground_speed(a0)
+        bne.s   .walk_or_run
+
+        // --- at rest ---
+        // get-up one-shot: mechanism in place; nothing arms _pl_getup in
+        // gameplay this pass (in-game get-up trigger deferred).
+        tst.b   PlayerV.getup_timer(a0)
+        beq.s   .rest_input
+        subq.b  #1, PlayerV.getup_timer(a0)
+        move.b  #ANIM_GETUP, anim(a0)
+        rts
+.rest_input:
+        // (5) duck
+        btst    #BUTTON_DOWN_BIT, (Ctrl_1_Held).w
+        beq.s   .not_duck
+        move.b  #ANIM_DUCK, anim(a0)
+        rts
+.not_duck:
+        // (6) look up
+        btst    #BUTTON_UP_BIT, (Ctrl_1_Held).w
+        beq.s   .not_lookup
+        move.b  #ANIM_LOOKUP, anim(a0)
+        rts
+.not_lookup:
+        // (9) balance at a ledge edge — (7)/(8) in the priority table are
+        // run/walk, handled below in .walk_or_run (the moving branch)
+        jsr     Player_AtLedgeEdge              // beq = supported
+        beq.s   .idle
+        move.b  #ANIM_BALANCE, anim(a0)
+        rts
+.idle:
+        move.b  #ANIM_IDLE, anim(a0)
+        rts
+
+.walk_or_run:
+        move.w  PlayerV.ground_speed(a0), d1
+        bpl.s   .wr_abs
+        neg.w   d1
+.wr_abs:
+        cmpi.w  #ANIM_RUN_THRESHOLD, d1
+        blt.s   .walk
+        move.b  #ANIM_RUN, anim(a0)
+        rts
+.walk:
+        move.b  #ANIM_WALK, anim(a0)
+        rts
+}
+
+pub data Player_States: [i16; 7] = [
+        extern("PState_Ground")   - extern("Player_States"),    // PSTATE_GROUND
+        extern("PState_Roll")     - extern("Player_States"),    // PSTATE_ROLL (player_ground.asm)
+        extern("PState_Spindash") - extern("Player_States"),    // PSTATE_SPINDASH (player_spindash.asm)
+        extern("PState_Air")      - extern("Player_States"),    // PSTATE_AIR
+        extern("PState_Jump")     - extern("Player_States"),    // PSTATE_JUMP
+        extern("PState_RollJump") - extern("Player_States"),    // PSTATE_ROLLJUMP
+        extern("PState_AirBall")  - extern("Player_States"),    // PSTATE_AIRBALL
+]
+ensure(7 == PSTATE_COUNT, "Player_States table out of sync with PSTATE_*")
+
+// -----------------------------------------------
+// Player_SetState — THE one transition writer for player_state.
+// Old state's exit hook → write state byte → new state's enter hook.
+// In:  a0 = player SST, d0.w = new PSTATE_* (byte offset, word-clean)
+// Out: none
+// Clobbers: d1, a1 (+ hook clobbers: d2, a2)
+// Hooks contract: preserve a0/d0/d7
+// -----------------------------------------------
+pub proc Player_SetState (a0: *Sst) clobbers(d1-d2/a1-a2) {
+        lea     PState_ExitHooks(pc), a1
+        moveq   #0, d1
+        move.b  PlayerV.player_state(a0), d1
+        move.w  (a1,d1.w), d1
+        jsr     (a1,d1.w) as PlayerHook
+        move.b  d0, PlayerV.player_state(a0)    // written BEFORE the enter hook
+        lea     PState_EnterHooks(pc), a1
+        move.w  (a1,d0.w), d1
+        jmp     (a1,d1.w) as PlayerHook
+}
+
+pub data PState_EnterHooks: [i16; 7] = [
+        extern("PHook_GroundEnter")  - extern("PState_EnterHooks"),      // GROUND
+        extern("PHook_RollEnter")    - extern("PState_EnterHooks"),      // ROLL
+        extern("PHook_SpindashEnter") - extern("PState_EnterHooks"),     // SPINDASH
+        extern("PHook_AirEnter")     - extern("PState_EnterHooks"),      // AIR (uncurled)
+        extern("PHook_AirBallEnter") - extern("PState_EnterHooks"),      // JUMP
+        extern("PHook_AirBallEnter") - extern("PState_EnterHooks"),      // ROLLJUMP
+        extern("PHook_AirBallEnter") - extern("PState_EnterHooks"),      // AIRBALL
+]
+ensure(7 == PSTATE_COUNT, "PState_EnterHooks table out of sync with PSTATE_*")
+
+pub data PState_ExitHooks: [i16; 7] = [
+        extern("PHook_Null")        - extern("PState_ExitHooks"),        // GROUND
+        extern("PHook_Null")        - extern("PState_ExitHooks"),        // ROLL
+        extern("PHook_SpindashExit") - extern("PState_ExitHooks"),       // SPINDASH
+        extern("PHook_Null")        - extern("PState_ExitHooks"),        // AIR
+        extern("PHook_Null")        - extern("PState_ExitHooks"),        // JUMP
+        extern("PHook_Null")        - extern("PState_ExitHooks"),        // ROLLJUMP
+        extern("PHook_Null")        - extern("PState_ExitHooks"),        // AIRBALL
+]
+ensure(7 == PSTATE_COUNT, "PState_ExitHooks table out of sync with PSTATE_*")
+
+// ===== Enter/exit hooks — the ONE writer for width/height, curl y-shift,
+// collision-mode resets, and anim latches (spec §3.3). NOTHING outside these
+// hooks may touch those fields — the sole tolerated exception is the debug-fly
+// art swap, which sits outside the state machine entirely. Hooks preserve
+// a0/d0/d7.
+pub proc PHook_Null () clobbers() {
+        rts
+}
+
+pub proc PHook_GroundEnter (a0: *Sst) clobbers() {
+        bsr.s   PHook_EnsureStanding            // uncurl (jump/ball landings;
+                                                // down-held landings go straight
+                                                // to ROLL via Air_LandState)
+        bclr    #ST_IN_AIR, status(a0)
+        rts
+}
+
+pub proc PHook_AirEnter (a0: *Sst) clobbers() { // uncurled airborne
+        bsr.s   PHook_EnsureStanding
+        bset    #ST_IN_AIR, status(a0)
+        rts
+}
+
+pub proc PHook_AirBallEnter (a0: *Sst) clobbers() { // JUMP / ROLLJUMP / AIRBALL
+        bsr.s   PHook_EnsureBall
+        bset    #ST_IN_AIR, status(a0)
+        rts
+}
+
+pub proc PHook_RollEnter (a0: *Sst) clobbers() { // grounded ball — entered from
+        bsr.s   PHook_EnsureBall                // GROUND (roll start), SPINDASH
+        bclr    #ST_IN_AIR, status(a0)          // (release), or a curled/down-
+        rts                                     // held landing (air → cleared)
+}
+
+pub proc PHook_SpindashEnter (a0: *Sst) clobbers() { // entered only from GROUND —
+        bsr.s   PHook_EnsureStanding            // the player is pinned charging
+                                                // at STANDING size (classic S2:
+                                                // curl + feet-planted shift
+                                                // happen at RELEASE via ROLL's
+                                                // enter hook — the donor charge
+                                                // frames are drawn for the
+                                                // standing origin)
+        bclr    #ST_IN_AIR, status(a0)
+        clr.w   PlayerV.ground_speed(a0)
+        clr.w   x_vel(a0)
+        clr.w   y_vel(a0)
+        clr.w   PlayerV.spindash_charge(a0)     // the initiating press is rev 0
+        rts                                     // Rev SFX fired per-tap in player_spindash.asm
+}
+
+pub proc PHook_SpindashExit (a0: *Sst) clobbers() {
+        clr.w   PlayerV.spindash_charge(a0)     // release converts charge→gsp
+        rts                                     // BEFORE SetState; an aborted
+                                                // charge just drops it
+}
+
+// bug #5 fix (structural): the collision box lives ONLY here — every curled
+// state gets ball radii with the symmetric ±CURL_Y_SHIFT feet-planted shift, so
+// the classic roll-jump 5px size mismatch cannot exist. Enter-hook-owns-it:
+// each enter hook ENSURES its size, keyed on the current height byte —
+// idempotent and correct for every transition path.
+//
+// ST_ROLLING is tied to the SAME pair so the "in ball form" bit can never desync
+// from the radii. It is set/cleared UNCONDITIONALLY — outside the height-keyed
+// guard — because the debug-fly art swap writes a third height (16) outside the
+// state machine: a debug round-trip re-enters via SetState and the hook must
+// repair the bit even when the height byte needs no curl work.
+pub proc PHook_EnsureStanding (a0: *Sst) clobbers() {
+        bclr    #ST_ROLLING, status(a0)
+        cmpi.b  #BALL_Y_RADIUS*2+1, height_pixels(a0)
+        bne.s   .keep                           // not curled (incl. debug 16)
+        set_standing_size(a0)
+        subi.l  #CURL_Y_SHIFT<<16, y_pos(a0)
+.keep:
+        rts
+}
+
+pub proc PHook_EnsureBall (a0: *Sst) clobbers() {
+        bset    #ST_ROLLING, status(a0)
+        cmpi.b  #BALL_Y_RADIUS*2+1, height_pixels(a0)
+        beq.s   .keep                           // already curled
+        set_ball_size(a0)
+        addi.l  #CURL_Y_SHIFT<<16, y_pos(a0)
+.keep:
+        rts
+}
+
+// -----------------------------------------------
+// Player_SnapToSurface — move the player a signed pixel distance along the floor
+// pair's PROBE axis. Mirrors Player_SensorFloor's case table EXACTLY
+// (player_sensors.asm) — probe direction per quadrant:
+//   quadrant 0: Collision_ProbeDown  → y_pos += dist
+//   quadrant 1: Collision_ProbeLeft  → x_pos −= dist
+//   quadrant 2: Collision_ProbeUp    → y_pos −= dist
+//   quadrant 3: Collision_ProbeRight → x_pos += dist
+// In:  a0 = player SST, d0.w = signed surface distance (px)
+// Out: none
+// Clobbers: d0, d2
+// -----------------------------------------------
+pub proc Player_SnapToSurface (a0: *Sst) clobbers(d0/d2) {
+        dist_to_fix(d0)
+        move.b  (Player_Quadrant).w, d2
+        beq.s   .down                           // floor mode — common case
+        subq.b  #2, d2
+        bmi.s   .left                           // quadrant 1
+        beq.s   .up                             // quadrant 2
+        add.l   d0, x_pos(a0)                   // quadrant 3
+        rts
+.down:
+        add.l   d0, y_pos(a0)
+        rts
+.left:
+        sub.l   d0, x_pos(a0)
+        rts
+.up:
+        sub.l   d0, y_pos(a0)
+        rts
+}
+
+// Classic Sonic_LevelBound margins: the player center may approach the left
+// playable edge to 16px and the right edge to 24px (asymmetric in the originals
+// — kept verbatim). Bottom margin: detection slack below the playable bottom;
+// must exceed the per-frame fall cap (PHYS_FALL_CAP = 16px) so a single frame's
+// fall can never overshoot the guard transiently.
+const PBOUND_LEFT_MARGIN   = 16
+const PBOUND_RIGHT_MARGIN  = 24
+const PBOUND_BOTTOM_MARGIN = 48
+ensure(PBOUND_BOTTOM_MARGIN > (PHYS_FALL_CAP >> 8), "PBOUND_BOTTOM_MARGIN must exceed the per-frame fall cap")
+
+// -----------------------------------------------
+// Player_LevelBound — clamp the player to the act's playable bounds (classic
+// Sonic_LevelBound, adapted to world coordinates).
+//
+// PLACEMENT: called once from Player_Main right after the state dispatch, before
+// the history rings. A single post-dispatch call clamps the same end-of-frame
+// position without per-state duplication, and the history rings then record the
+// CLAMPED position. Debug-fly never reaches this — bounds are deliberately
+// SKIPPED in debug-fly, which is for inspecting anywhere, including off-world.
+//
+// Continuous-scroll: X/Y are world coordinates spanning the whole act, so the
+// bounds are the act's world extents directly:
+//   left  — world origin: bound = PBOUND_LEFT_MARGIN (x ≥ 0 + margin).
+//   right — level_width − PBOUND_RIGHT_MARGIN, level_width = grid_w << SECTION_SIZE_SHIFT.
+//   bottom — playable bottom = (grid_h << SECTION_SIZE_SHIFT) − SCREEN_HEIGHT.
+//   top   — NO clamp (classic allows above-screen travel).
+//
+// On X clamp: integer x written with subpixel zeroed, x_vel and gsp cleared.
+// On bottom trip: y is clamped to the playable bottom edge and y_vel zeroed
+// (a placeholder until death/respawn exists).
+// In:  a0 = player SST
+// Out: none
+// Clobbers: d0-d2, a1
+// -----------------------------------------------
+pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
+        movea.l (Current_Act_Ptr).w, a1
+        move.w  x_pos(a0), d0                   // integer X (16.16 high word)
+
+        // --- left bound: world [0, level_width) ---
+        move.w  #PBOUND_LEFT_MARGIN, d1
+        cmp.w   d1, d0
+        blt.s   .clamp_x
+        // --- right bound: world level_width − margin ---
+        //     level_width = grid_w << SECTION_SIZE_SHIFT (split 8+3 for AS).
+        moveq   #0, d1
+        move.w  Act.grid_w(a1), d1
+        lsl.l   #8, d1
+        lsl.l   #3, d1                          // grid_w × 2048 = level_width (px)
+        // MEGA-ACT CEILING: word clamp word-wraps for level_width above $FFFF px
+        // — grid_w > 31 sections; guarded by act_descriptor's <= $8000 ensure.
+        subi.w  #PBOUND_RIGHT_MARGIN, d1
+        cmp.w   d1, d0
+        ble.s   .x_done
+.clamp_x:
+        move.w  d1, x_pos(a0)
+        clr.w   SST_x_pos_sub(a0)               // subpixel zeroed (classic)
+        clr.w   x_vel(a0)
+        clr.w   PlayerV.ground_speed(a0)
+.x_done:
+        // --- bottom guard (no top clamp) ---
+        //     playable bottom = (grid_h << SECTION_SIZE_SHIFT) − SCREEN_HEIGHT.
+        move.w  y_pos(a0), d0                   // integer Y
+        moveq   #0, d1
+        move.w  Act.grid_h(a1), d1
+        lsl.l   #8, d1
+        lsl.l   #3, d1
+        // MEGA-ACT CEILING: word clamp word-wraps for level_height above $FFFF px.
+        subi.w  #SCREEN_HEIGHT, d1              // d1 = playable bottom edge (world)
+        move.w  d1, d2
+        addi.w  #PBOUND_BOTTOM_MARGIN, d2
+        cmp.w   d2, d0
+        ble.s   .y_ok                           // above the bottom guard → done
+        // --- player tripped the bottom edge: dispatch on the act's edge_mode ---
+        move.b  Act.edge_mode(a1), d2
+        cmpi.b  #EDGE_WRAP_V, d2
+        beq.s   .edge_wrap
+        cmpi.b  #EDGE_KILL, d2
+        beq.s   .edge_kill
+        // EDGE_CLAMP (default) — clamp to the bottom edge. With editor-authored /
+        // S&K collision the player can fall through air or an erased floor by
+        // design (pits, WIP), so this is expected — just clamp.
+.edge_clamp:
+        move.w  d1, y_pos(a0)                   // d1 still = playable bottom edge
+        clr.w   SST_y_pos_sub(a0)
+        clr.w   y_vel(a0)
+.y_ok:
+        rts
+.edge_wrap:
+        // EDGE_WRAP_V — vertical "fall-forever" wrap (not implemented; current
+        // build uses EDGE_CLAMP). A correct wrap is an atomic live-set shift by
+        // ±level_height + camera Y-clamp edge-mode awareness. Full design: spec
+        // §10. Until built: clamp.
+        bra.s   .edge_clamp
+.edge_kill:
+        // EDGE_KILL — death pit. No death/respawn system exists yet, so this
+        // records intent and clamps meanwhile. When the death system exists it
+        // consumes Player_Death_Pending; this stays the single trigger point.
+        st      (Player_Death_Pending).w        // set the death-pending flag ($FF)
+        bra.s   .edge_clamp                     // clamp until the death system exists
+}
+
+// -----------------------------------------------
+// Debug-fly — suspends the state machine (the obj_control escape hatch). Enter
+// swaps to the yellow marker square; exit restores Sonic and drops into
+// PSTATE_AIR with velocities cleared. The art/size writes here are the one
+// tolerated exception to the hook one-writer rule (outside the state machine).
+// -----------------------------------------------
+// In:  a0 = player SST.  Clobbers: none
+pub proc Player_DebugEnter (a0: *Sst) clobbers() {
+        st      PlayerV.debug_flag(a0)
+        move.l  #Map_TestObj, mappings(a0)
+        move.w  #vram_art(VRAM_TEST_MARKER, 1, 1), art_tile(a0) // PlayerMarkerTile
+        move.b  #16, width_pixels(a0)
+        move.b  #16, height_pixels(a0)
+        move.b  #1, sprite_piece_count(a0)      // debug path skips AnimateSprite's refresh
+        clr.b   mapping_frame(a0)
+        clr.w   x_vel(a0)
+        clr.w   y_vel(a0)
+        clr.w   PlayerV.ground_speed(a0)
+        rts
+}
+
+// In:  a0 = player SST.  Clobbers: d0-d2, a1-a2
+pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
+        sf      PlayerV.debug_flag(a0)
+        bsr.w   Sonic_InitAssets
+        // standing radii until the AIR frame lands and hooks take over
+        set_standing_size(a0)
+        clr.b   mapping_frame(a0)
+        move.b  #$FF, prev_anim(a0)
+        move.b  #$FF, prev_frame(a0)
+        clr.w   x_vel(a0)
+        clr.w   y_vel(a0)
+        clr.w   PlayerV.ground_speed(a0)
+        moveq   #PSTATE_AIR, d0
+        jmp     Player_SetState
+}
+
+// D-pad free flight at PLAYER_DEBUG_FLY_SPEED px/frame (camera Y clamp caps
+// effective follow speed), draw only.
+// In:  a0 = player SST.  Clobbers: d0-d3, a1 (a0/d7 preserved)
+pub proc Player_DebugMove (a0: *Sst) clobbers(d0-d3/a1) {
+        move.b  (Ctrl_1_Held).w, d0
+        moveq   #PLAYER_DEBUG_FLY_SPEED, d1
+        swap    d1                              // px → 16.16
+        btst    #2, d0                          // LEFT
+        beq.s   .check_right
+        sub.l   d1, x_pos(a0)
+.check_right:
+        btst    #3, d0                          // RIGHT
+        beq.s   .check_up
+        add.l   d1, x_pos(a0)
+.check_up:
+        btst    #0, d0                          // UP
+        beq.s   .check_down
+        sub.l   d1, y_pos(a0)
+.check_down:
+        btst    #1, d0                          // DOWN
+        beq.s   .draw
+        add.l   d1, y_pos(a0)
+.draw:
+        jmp     Draw_Sprite
+}

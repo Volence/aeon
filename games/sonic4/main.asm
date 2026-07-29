@@ -46,7 +46,16 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/player/player_ground.asm"
     include "games/sonic4/player/player_air.asm"
     include "games/sonic4/player/player_spindash.asm"
-    include "games/sonic4/player/sonic.asm"
+    ifndef SIGIL_EMP_SONIC
+      include "games/sonic4/player/sonic.asm"
+    else
+        ; sigil mixed build: Sonic_InitAssets/Sonic_LoadArt/PhysTable_Sonic come
+        ; from games/sonic4/player/sonic.emp. Shape-invariant window; ONE org both
+        ; shapes. Resume lands on test_static.asm's first label TestStatic_Main.
+        ; The gate define must never be set for other games (demo takes the
+        ; includes).
+        org     $10C66
+    endif
 
     ifndef SIGIL_EMP_TEST_STATIC
       include "games/sonic4/objects/test_static.asm"

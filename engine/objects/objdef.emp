@@ -19,7 +19,7 @@
 module engine.objects.objdef
 
 use engine.objects.sst.{ObjDef}
-use engine.types.{Velocity, VramArtTile, VramTile, HitboxDim, AnimId}
+use engine.types.{Velocity, VramArtTile, VramTile, VramAddr, HitboxDim, AnimId}
 use engine.system.constants.{RF_PRIORITY_SHIFT}
 
 // vram_art(tile, pal, pri) — pack a VRAM tile INDEX with palette + priority
@@ -37,6 +37,15 @@ pub comptime fn vram_art(
     pri: int where 0..1 = 0,
 ) -> VramArtTile {
     return (pri << 15) | (pal << 13) | tile   // pri→bit15, pal→bits13-14, tile→bits0-12
+}
+
+// vram_bytes(tile) — the VDP BYTE ADDRESS of a tile (tile index × 32), the
+// counterpart of macros.asm's `vram_bytes` function. VramTile in, VramAddr out
+// keeps the tile-vs-address conversion honest. Shared home alongside vram_art
+// (the VRAM-layout home the vram_art header anticipated); consumers
+// test_animated + sonic (the 2nd consumer that tripped the hoist).
+pub comptime fn vram_bytes(tile: VramTile) -> VramAddr {
+    return tile << 5                // << 5 = × 32 bytes per tile
 }
 
 // objdef(...) — one archetype template. `code`/`map` required (a spawn with

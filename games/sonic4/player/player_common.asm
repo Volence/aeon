@@ -112,6 +112,14 @@ distToFix macro dreg
         clr.w   dreg
         endm
 
+; ===== INTERNAL GATE (t34): the zero-byte header above (PlayerV struct, _pl_* /
+; PPHYS_* equates, and the four macros) is ALWAYS emitted so the surviving
+; player_ground/air/spindash resolve it. Only the CODE below is gated — when
+; SIGIL_EMP_PLAYER_COMMON is set the .emp (games/sonic4/player/player_common.emp)
+; provides it and this arm resumes assembly at player_ground's first label. The
+; gate define must never be set for other games (demo takes the code).
+    ifndef SIGIL_EMP_PLAYER_COMMON
+
 ; -----------------------------------------------
 ; Player_Init — set up a player slot as Sonic (called from level state
 ; init; caller writes x_pos/y_pos first). Boots in DEBUG-FLY to preserve
@@ -767,4 +775,12 @@ Player_DebugMove:
         add.l   d1, SST_y_pos(a0)
 .draw:
         jmp     Draw_Sprite
+
+    else
+        ; sigil mixed build: the player_common code comes from
+        ; games/sonic4/player/player_common.emp. Shape-invariant window; ONE org
+        ; both shapes. Resume lands on player_ground.asm's first label
+        ; PState_Ground.
+        org     $10452
+    endif
 
