@@ -1,0 +1,142 @@
+// PathSwap — invisible vertical line that flips Player_1's collision layer.
+//
+// Crossing the line writes layer (0 = path A / primary, 1 = path B /
+// secondary). Side tracking is UNCONDITIONAL (S.C.E. Path Swap arming
+// semantics: the passed flag flips on every crossing); only the LAYER WRITE
+// is gated by the vertical band and the optional grounded check. S.C.E.'s
+// extra |dx| < $40 proximity gate is intentionally dropped — its job
+// (don't fire on far-away re-expression) is covered here by spawn-time
+// re-arming (Init) and by the teleport rebase shifting object and player
+// X by the same delta (side relation invariant).
+//
+// Subtype:
+//   bits 0-3 = half-height in 32px units (0 = default 64px)
+//   bit 4    = direction-sense invert
+//              (normal: crossing rightward -> layer 1, leftward -> layer 0)
+//   bit 5    = reserved: render-priority swap (future)
+//   bit 6    = grounded-only (skip the write while ST_IN_AIR — classic
+//              swappers use this on lines a player may legitimately jump
+//              across without changing path)
+//
+// Line position is read from x_pos/y_pos every frame — never cached in
+// sst_custom (teleport rebases shift SST positions but cannot see absolute
+// coordinates in custom vars).
+//
+// Entity-window lifecycle: despawn (camera leaves) deletes the SST and
+// clears the loaded bit WITHOUT setting the killed bit, so the swapper
+// respawns when scrolled back in and Init re-arms prev_side from the
+// player's current position — re-armable by construction. Never mark a
+// swapper killed.
+module games.sonic4.path_swap in path_swap
+
+use engine.objects.sst.{Sst, ObjDef}
+use engine.objects.objdef.{objdef, vram_art}
+use engine.constants.{ST_IN_AIR, COLLISION_NONE}
+use engine.types.{VramTile}
+
+const PATHSWAP_BIT_INVERT   = 4         // subtype: invert direction sense
+const PATHSWAP_BIT_PRIO     = 5         // subtype: reserved (priority swap)
+const PATHSWAP_BIT_GROUNDED = 6         // subtype: only swap while grounded
+const PATHSWAP_DEFAULT_HH   = 64        // half-height when subtype bits 0-3 = 0
+
+// VRAM_TEST_OBJ — tile 992, test object art. Mirrors config/constants.asm.
+const VRAM_TEST_OBJ: VramTile = $03E0
+ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from path_swap.emp")
+
+// PathSwapV — the write-gate state, overlaying sst_custom. Single-consumer
+// (only this object reads it) so the overlay is UNGUARDED (row-66 class); the
+// always-on window-overflow check subsumes the AS objvarsCheck.
+vars PathSwapV: Sst.sst_custom {
+        half_height: u16,               // vertical write-gate half-extent (px)
+        prev_side: u8,                  // scc byte: $FF = player right of line
+}
+
+// map=/art= are TEST placeholders only — PathSwap is an invisible trigger line
+// (col=COLLISION_NONE, never rendered in release). Real objects that reuse this
+// pattern supply their own mappings/art.
+pub data ObjDef_PathSwap: ObjDef = objdef(
+    code: "PathSwap_Init", map: "Map_TestObj", art: vram_art(VRAM_TEST_OBJ),
+    width: 4, height: 64, collision: COLLISION_NONE)
+
+// -----------------------------------------------
+// PathSwap_Init — behavior-specific init (first-frame code_addr)
+// Decodes half-height from the subtype and arms prev_side from the
+// player's CURRENT position so a spawn/respawn never counts as a crossing.
+// In:  a0 = SST pointer
+// Clobbers: d0-d2, a1
+// -----------------------------------------------
+pub proc PathSwap_Init (a0: *Sst) clobbers(d0-d2/a1) {
+        if DEBUG == 1 {
+                // reserved priority-swap bit is unimplemented — a set bit means stale
+                // level data or a feature wired up without code (fail loud, §7.7)
+                btst    #PATHSWAP_BIT_PRIO, subtype(a0)
+                beq     .prio_unused
+                raise_error "PathSwap: reserved subtype bit PATHSWAP_BIT_PRIO (5) set but unimplemented"
+        .prio_unused:
+        }
+        moveq   #$F, d0
+        and.b   subtype(a0), d0
+        lsl.w   #5, d0                          // units of 32px
+        bne     .have_hh
+        moveq   #PATHSWAP_DEFAULT_HH, d0
+.have_hh:
+        move.w  d0, PathSwapV.half_height(a0)
+
+        lea     Player_1, a1
+        move.w  Sst.x_pos(a1), d0
+        cmp.w   x_pos(a0), d0                   // signed — engine X can be negative
+        sgt     d1
+        move.b  d1, PathSwapV.prev_side(a0)
+
+        move.w  #PathSwap_Main - ObjCodeBase, code_addr(a0)
+        rts                                     // first swap chance is next frame
+}
+
+// -----------------------------------------------
+// PathSwap_Main — per-frame crossing check
+// In:  a0 = SST pointer
+// Clobbers: d0-d3, a1 — plain path is d0-d2/a1; the DEBUG shape tail-calls
+//   Draw_Sprite (d0-d3/a1) as a visible test marker, so d3 rides the superset.
+// -----------------------------------------------
+pub proc PathSwap_Main (a0: *Sst) clobbers(d0-d3/a1) {
+        lea     Player_1, a1
+        move.w  Sst.x_pos(a1), d0
+        cmp.w   x_pos(a0), d0
+        sgt     d1                              // d1 = $FF right of line, $00 left
+        cmp.b   PathSwapV.prev_side(a0), d1
+        beq     .done                           // no crossing
+        move.b  d1, PathSwapV.prev_side(a0)     // track ALWAYS — even when the
+                                                // write below is gated off
+
+        // vertical band gate: |player_y - line_y| <= half_height
+        move.w  Sst.y_pos(a1), d0
+        sub.w   y_pos(a0), d0
+        bpl     .y_abs
+        neg.w   d0
+.y_abs:
+        cmp.w   PathSwapV.half_height(a0), d0
+        bhi     .done
+
+        // grounded-only gate (subtype bit 6)
+        move.b  subtype(a0), d2
+        btst    #PATHSWAP_BIT_GROUNDED, d2
+        beq     .sense
+        btst    #ST_IN_AIR, Sst.status(a1)
+        bne     .done
+
+.sense:
+        // layer = crossing direction (rightward = 1) XOR invert bit
+        moveq   #1, d0
+        and.b   d1, d0                          // $FF -> 1, $00 -> 0
+        btst    #PATHSWAP_BIT_INVERT, d2
+        beq     .write
+        eori.b  #1, d0
+.write:
+        move.b  d0, Sst.layer(a1)
+.done:
+        if DEBUG == 1 {
+                jbra    Draw_Sprite             // DEBUG: visible test marker
+        } else {
+                rts                             // invisible — never enqueued
+        }
+}

@@ -18,6 +18,15 @@ _enemy_direction = SST_sst_custom+TEnemyV_direction
 ENEMY_PATROL_SPEED      = $100
 ENEMY_PATROL_RANGE      = 48            ; pixels each side from spawn centre
 
+; ===== INTERNAL GATE (t39): the zero-byte header above (TEnemyV struct, _enemy_*
+; equates, objvarsCheck, ENEMY_PATROL_SPEED/RANGE) is ALWAYS emitted — the surviving
+; test_objects.emp objdef guard reads ENEMY_PATROL_SPEED. Only the CODE below is
+; gated: when SIGIL_EMP_TEST_ENEMY is set the .emp (games/sonic4/objects/
+; test_enemy.emp) provides it and this arm resumes assembly at test_solid's first
+; label TestSolid_Init. The gate define must never be set for other games (demo
+; takes the code).
+    ifndef SIGIL_EMP_TEST_ENEMY
+
 ; -----------------------------------------------
 ; TestEnemy_Init — behavior-specific init (called as first-frame code_addr)
 ; In:  a0 = SST pointer (base fields already set by Load_Object)
@@ -61,3 +70,7 @@ TestEnemy_Main:
 
 .draw:
         jmp     Draw_Sprite
+
+    else
+        org     $10F4A
+    endif

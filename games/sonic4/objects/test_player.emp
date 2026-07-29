@@ -1,0 +1,306 @@
+// Test player — controllable character with movement, gravity, jumping.
+// Uses Sonic sprite art (DPLC-loaded), reads P1 controller input.
+module games.sonic4.test_player in test_player
+
+use engine.objects.sst.{Sst}
+use engine.constants.{RF_PRIORITY_SHIFT, ST_XFLIP, ST_IN_AIR, ST_ON_OBJECT, COLLISION_NONE}
+use engine.objects.objdef.{vram_art, vram_bytes}
+use engine.types.{VramTile}
+
+// VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). Mirrors
+// games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
+const VRAM_TEST_SONIC: VramTile = $03C0
+ensure(extern("VRAM_TEST_SONIC") == VRAM_TEST_SONIC, "config/constants.asm VRAM_TEST_SONIC drifted from test_player.emp")
+
+// TPlayerV — the player's SST overlay: the shared DPLC prefix (dplc_ptr/art_base,
+// byte-identical to test_animated's DplcV) plus a debug_flag. The GUARDED overlay
+// class (row-61): the surviving AS header (test_player.asm's internal-gated zero-byte
+// header) still defines these equates — test_animated.emp reads _dplc_ptr/_art_base
+// through it too — so the drift guards resolve against the real AS tree. The always-on
+// window-overflow check subsumes the AS objvarsCheck.
+vars TPlayerV: Sst.sst_custom {
+        dplc_ptr: u32,                  // DPLC table pointer (ROM)
+        art_base: u32,                  // uncompressed art base (ROM)
+        debug_flag: u8,
+}
+ensure(extern("_dplc_ptr") == offsetof(Sst, sst_custom) + offsetof(TPlayerV, dplc_ptr), "test_player.asm _dplc_ptr drifted from test_player.emp TPlayerV")
+ensure(extern("_art_base") == offsetof(Sst, sst_custom) + offsetof(TPlayerV, art_base), "test_player.asm _art_base drifted from test_player.emp TPlayerV")
+ensure(extern("_debug_flag") == offsetof(Sst, sst_custom) + offsetof(TPlayerV, debug_flag), "test_player.asm _debug_flag drifted from test_player.emp TPlayerV")
+
+// -----------------------------------------------
+// Physics constants (S2/S.C.E. reference values)
+// -----------------------------------------------
+const GRAVITY              = $38        // vertical acceleration per frame
+const JUMP_VELOCITY        = -$680      // initial jump impulse (negative = up)
+const JUMP_CAP             = -$400      // variable jump — cap y_vel when button released
+const ACCELERATION         = $C         // ground horizontal acceleration
+const DECELERATION         = $80        // ground horizontal deceleration (braking)
+const TOP_SPEED            = $600       // maximum horizontal velocity
+const TERMINAL_VELOCITY    = $1000      // maximum falling velocity
+const AIR_ACCEL            = $18        // air horizontal acceleration
+const DEBUG_FLY_SPEED      = 16         // pixels per frame in debug mode
+const DEBUG_FLY_SPEED_FAST = 16         // = base speed for now (camera clamp); turbo is a no-op
+
+// -----------------------------------------------
+// TestPlayer — init routine
+// In:  a0 = SST pointer (slot already allocated)
+// Clobbers: d0-d6, a1-a3 — falls into TestPlayer_Main (its whole set; a0/d7
+//   preserved per the RunObjects loop contract, see TestPlayer_Main).
+// -----------------------------------------------
+pub proc TestPlayer (a0: *Sst) clobbers(d0-d6/a1-a3) falls_into TestPlayer_Main {
+        move.l  #Map_Sonic, mappings(a0)
+        move.w  #vram_art(VRAM_TEST_SONIC), art_tile(a0)
+        move.l  #Ani_Sonic, anim_table(a0)
+        move.l  #DPLC_Sonic, TPlayerV.dplc_ptr(a0)
+        move.l  #Art_Sonic, TPlayerV.art_base(a0)
+        move.b  #1, anim(a0)                    // idle
+        move.b  #$FF, prev_anim(a0)
+        move.b  #$FF, prev_frame(a0)
+        ori.b   #4<<RF_PRIORITY_SHIFT, render_flags(a0)
+        move.b  #16, width_pixels(a0)
+        move.b  #32, height_pixels(a0)
+        move.b  #COLLISION_NONE, collision_resp(a0)
+        clr.b   status(a0)                      // start grounded (in_air clear)
+        move.w  #TestPlayer_Main - ObjCodeBase, code_addr(a0)
+
+        // Fall through to main for first frame
+}
+
+// -----------------------------------------------
+// TestPlayer_Main — per-frame update
+// In:  a0 = SST pointer
+// Clobbers: d0-d6, a1-a3 — a0 and d7 are PRESERVED (the RunObjects loop contract:
+//   a0 is the slot pointer, d7 the slot counter). d7 is save/restored around
+//   Player_SensorFloor (which clobbers d0-d7); a4-a6 are untouched. The old AS
+//   header's "d0-d7, a0-a6" over-claimed a0/d7/a4-a6, contradicting the preserve
+//   comment below.
+// -----------------------------------------------
+pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d6/a1-a3) {
+        // --- B press toggles debug free-flight mode ---
+        // d4 NOT d7: object routines must preserve a0/d7 (RunObjects loop
+        // contract). A d7.b clobber here overran the player slot loop by
+        // up to 255 slots — executing free-stack words as code offsets
+        // (the intermittent RAM-clobber / ILLEGAL INSTRUCTION root cause).
+        move.b  Ctrl_1_Press, d4
+        btst    #4, d4                          // BUTTON_B
+        beq     .no_toggle
+        tst.b   TPlayerV.debug_flag(a0)
+        bne     .exit_debug
+        // Enter debug mode
+        move.b  #1, TPlayerV.debug_flag(a0)
+        move.l  #Map_TestObj, mappings(a0)
+        move.w  #$A0FA, art_tile(a0)
+        move.b  #16, height_pixels(a0)
+        clr.b   mapping_frame(a0)
+        clr.w   x_vel(a0)
+        clr.w   y_vel(a0)
+        bra     .no_toggle
+.exit_debug:
+        clr.b   TPlayerV.debug_flag(a0)
+        move.l  #Map_Sonic, mappings(a0)
+        move.w  #vram_art(VRAM_TEST_SONIC), art_tile(a0)
+        move.b  #32, height_pixels(a0)
+        clr.b   mapping_frame(a0)
+        move.b  #$FF, prev_anim(a0)
+        move.b  #$FF, prev_frame(a0)
+        bset    #ST_IN_AIR, status(a0)
+.no_toggle:
+
+        tst.b   TPlayerV.debug_flag(a0)
+        bne     TestPlayer_Debug
+        // Fall through to normal physics
+
+        // --- Snapshot on_object, then clear it ---
+        move.b  status(a0), d5
+        bclr    #ST_ON_OBJECT, status(a0)
+
+        // --- Read controller (d4 = press: d7 is the RunObjects counter) ---
+        move.b  Ctrl_1_Held, d6
+        move.b  Ctrl_1_Press, d4
+
+        // --- Jump check (C only, grounded only) ---
+        btst    #ST_IN_AIR, status(a0)
+        bne     .no_jump_start
+        btst    #5, d4                          // BUTTON_C
+        beq     .no_jump_start
+        move.w  #JUMP_VELOCITY, y_vel(a0)
+        bset    #ST_IN_AIR, status(a0)
+        bclr    #ST_ON_OBJECT, status(a0)
+.no_jump_start:
+
+        // --- Horizontal movement ---
+        move.w  x_vel(a0), d0
+
+        move.w  #ACCELERATION, d2
+        move.w  #DECELERATION, d3
+        btst    #ST_IN_AIR, status(a0)
+        beq     .have_phys
+        move.w  #AIR_ACCEL, d2
+        move.w  #AIR_ACCEL, d3
+.have_phys:
+
+        btst    #2, d6                          // LEFT
+        beq     .check_right
+
+        tst.w   d0
+        ble     .accel_left
+        sub.w   d3, d0
+        bpl     .clamp_vel
+        clr.w   d0
+        bra     .clamp_vel
+.accel_left:
+        sub.w   d2, d0
+        cmpi.w  #-TOP_SPEED, d0
+        bge     .set_flip_left
+        move.w  #-TOP_SPEED, d0
+.set_flip_left:
+        bset    #ST_XFLIP, status(a0)
+        bra     .clamp_vel
+
+.check_right:
+        btst    #3, d6                          // RIGHT
+        beq     .no_input
+
+        tst.w   d0
+        bge     .accel_right
+        add.w   d3, d0
+        bmi     .clamp_vel
+        clr.w   d0
+        bra     .clamp_vel
+.accel_right:
+        add.w   d2, d0
+        cmpi.w  #TOP_SPEED, d0
+        ble     .set_flip_right
+        move.w  #TOP_SPEED, d0
+.set_flip_right:
+        bclr    #ST_XFLIP, status(a0)
+        bra     .clamp_vel
+
+.no_input:
+        tst.w   d0
+        beq     .clamp_vel
+        bmi     .friction_neg
+        sub.w   d3, d0
+        bpl     .clamp_vel
+        clr.w   d0
+        bra     .clamp_vel
+.friction_neg:
+        add.w   d3, d0
+        bmi     .clamp_vel
+        clr.w   d0
+
+.clamp_vel:
+        move.w  d0, x_vel(a0)
+
+        // --- Variable jump (cut short if C released while rising) ---
+        btst    #ST_IN_AIR, status(a0)
+        beq     .skip_var_jump
+        move.w  y_vel(a0), d0
+        cmpi.w  #JUMP_CAP, d0
+        bge     .skip_var_jump
+        btst    #5, d6                          // BUTTON_C held
+        bne     .skip_var_jump
+        move.w  #JUMP_CAP, y_vel(a0)
+.skip_var_jump:
+
+        // --- Gravity (only if airborne) ---
+        btst    #ST_IN_AIR, status(a0)
+        beq     .skip_gravity
+        move.w  y_vel(a0), d0
+        addi.w  #GRAVITY, d0
+        cmpi.w  #TERMINAL_VELOCITY, d0
+        ble     .set_yvel
+        move.w  #TERMINAL_VELOCITY, d0
+.set_yvel:
+        move.w  d0, y_vel(a0)
+.skip_gravity:
+
+        // --- Apply velocity to position ---
+        jbsr    ObjectMove
+
+        // --- Floor collision via tile cache ---
+        // Skip when rising — only check when falling or grounded.
+        // Stub collision marks sky tiles as solid, so checking while
+        // rising would snap the player into sky cells.
+        btst    #ST_IN_AIR, status(a0)
+        beq     .do_floor
+        tst.w   y_vel(a0)
+        bmi     .no_floor
+.do_floor:
+        move.w  d7, -(sp)                       // Player_SensorFloor clobbers
+        jbsr    Player_SensorFloor              // d7 (RunObjects counter);
+        move.w  (sp)+, d7                       // a0 is preserved
+        tst.b   d2
+        beq     .no_floor                       // air tile — no surface
+        tst.w   d0
+        bgt     .no_floor
+        cmpi.w  #-16, d0
+        blt     .no_floor                       // too deep — ignore
+        ext.l   d0
+        lsl.l   #8, d0
+        lsl.l   #8, d0                          // distance → 16.16
+        add.l   d0, y_pos(a0)
+        clr.w   y_vel(a0)
+        bclr    #ST_IN_AIR, status(a0)
+        bra     .floor_done
+.no_floor:
+        bset    #ST_IN_AIR, status(a0)
+.floor_done:
+
+        // --- Animation selection ---
+        btst    #ST_IN_AIR, status(a0)
+        bne     .anim_air
+        tst.w   x_vel(a0)
+        beq     .anim_idle
+        move.b  #0, anim(a0)                    // walk
+        bra     .do_anim
+.anim_air:
+        move.b  #2, anim(a0)                    // roll/jump
+        bra     .do_anim
+.anim_idle:
+        move.b  #1, anim(a0)                    // idle
+.do_anim:
+        jbsr    AnimateSprite
+
+        // --- DPLC art streaming ---
+        movea.l TPlayerV.dplc_ptr(a0), a2
+        movea.l TPlayerV.art_base(a0), a3
+        move.w  #vram_bytes(VRAM_TEST_SONIC), d1
+        jbsr    Perform_DPLC
+
+        // --- Draw ---
+        jbra    Draw_Sprite
+}
+
+// -----------------------------------------------
+// TestPlayer_Debug — free-flight debug mode (yellow square)
+// D-pad moves at DEBUG_FLY_SPEED px/frame, B to exit
+// Clobbers: d0-d1, a1 (Draw_Sprite tail call).
+// -----------------------------------------------
+pub proc TestPlayer_Debug (a0: *Sst) clobbers(d0-d3/a1) {
+        move.b  Ctrl_1_Held, d0
+        moveq   #DEBUG_FLY_SPEED, d1
+        btst    #6, d0                          // BUTTON_A = turbo
+        beq     .dbg_speed_ok
+        moveq   #DEBUG_FLY_SPEED_FAST, d1
+.dbg_speed_ok:
+        swap    d1                              // d1 = speed<<16
+
+        btst    #2, d0                          // LEFT
+        beq     .dbg_check_right
+        sub.l   d1, x_pos(a0)
+.dbg_check_right:
+        btst    #3, d0                          // RIGHT
+        beq     .dbg_check_up
+        add.l   d1, x_pos(a0)
+.dbg_check_up:
+        btst    #0, d0                          // UP
+        beq     .dbg_check_down
+        sub.l   d1, y_pos(a0)
+.dbg_check_down:
+        btst    #1, d0                          // DOWN
+        beq     .dbg_draw
+        add.l   d1, y_pos(a0)
+.dbg_draw:
+        jbra    Draw_Sprite
+}
