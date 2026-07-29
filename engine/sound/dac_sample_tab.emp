@@ -1,0 +1,129 @@
+// ===========================================================================
+// engine/sound/dac_sample_tab.emp — the DAC sample descriptor table
+// (1-based id → 9-byte DacSample descriptor).
+// ===========================================================================
+// The .emp port of dac_sample_tab.asm (this directory). 10 descriptors: ids
+// 1=temp_blip 2=kick 3=snare 4=hat, then the 6 S3K HCZ2 drums (5=s3k_kick ..
+// 10=s3k_floortom, matching tools/smps_import.py HCZ2_DAC_REMAP). Each 9-byte
+// descriptor is db ds_bank / db ds_rate / db ds_codec / dw ds_ptr / dw ds_length
+// / dw ds_loop_ofs (the DacSample struct in sound_constants.asm). rate/loop_ofs
+// are 0 (the 1B FILL loop drives the rate; one-shot). ds_codec = 0 (raw 8-bit
+// PCM; the reserved codec-selector slot).
+//
+// All bank/ptr/len cells are the build-time SND_* constants from
+// data/sound/dac_samples.asm — COMPTIME values (the AS twin folds them at
+// assemble time), read here as comptime ints. They are byte/word data cells, not
+// link addresses: a width-1 `db` cannot carry a link symbol in a Z80 section
+// (the un-windowed-pointer guard), and these ARE constants, so they fold to
+// literals exactly as the AS twin does. The size invariant is drift-guarded
+// against the engine's DacSample_len / DAC_SAMPLE_COUNT via `extern(...)` below.
+//
+// BANKED at the engine-table head of the song/SFX bank (main.asm's
+// `cpu z80 / phase 08000h` block), so it costs ZERO against the resident
+// Z80-code ceiling. The table label equals its $8000-window pointer
+// (Snd_DacLookup's pointer math is unchanged).
+//
+// PLACEMENT CONSTRAINT — this table must be readable under the SONG bank, NOT a
+// DAC sample bank: the descriptor fields are read by Snd_StartSample
+// (z80_sound_driver.asm), whose $E2 call context runs MID-Sequencer_Frame where
+// the window holds SND_SONG_BANK and MUST stay there (a switch corrupts the rest
+// of that frame's song-stream reads — the B2 stash-only rule). The DAC samples
+// themselves span TWO banks (blip bank != drums bank), so there is no single
+// "sample bank" to host the table anyway; each descriptor's ds_bank names its
+// payload bank and the B1/B3/B4 brackets latch it for the FILL.
+//
+// BANK GUARANTEES at the read sites (both == THIS bank today):
+//   * $E2 (Seq_HookDac → Snd_StartSample): window = SND_SONG_BANK (B1), and
+//     every song lives in this bank (song_table.asm asserts).
+//   * mailbox SND_REQ_SAMPLE (SndDrv_PollMailbox → Snd_StartSample): the sample
+//     block does an explicit SetBank(SND_ENGINE_TABLE_BANK) before the lookup.
+// ===========================================================================
+
+module engine.dac_sample_tab (cpu: z80)
+
+// The table emits 10 descriptors of 9 bytes (db,db,db,dw,dw,dw) = 90 bytes.
+// Mirror the AS twin's `(End-Start) <> DAC_SAMPLE_COUNT*DacSample_len / fatal`
+// span guard at the seam: a link-time drift guard against the engine's declared
+// count × stride. (A section-length primitive would let this read End-Start
+// directly — see the gap-ledger table-span note; today the emitted total is the
+// declared 10 × 9.)
+ensure(10 * 9 == extern("DAC_SAMPLE_COUNT") * extern("DacSample_len"),
+       "DacSampleTable size (10 descriptors × 9 bytes) disagrees with DAC_SAMPLE_COUNT × DacSample_len")
+
+// Pure data table — the proc emits only `db`/`dc.w` cells and touches no
+// register, so `clobbers()` is the honest empty contract.
+section dac_sample_tab (cpu: z80, vma: $8000) {
+    pub proc DacSampleTable () clobbers() {
+        // id 1 = temp_blip
+        dc.b    SND_BLIP_BANK           // ds_bank
+        dc.b    0                       // ds_rate (reserved)
+        dc.b    0                       // ds_codec (codec selector; 0 = raw 8-bit PCM)
+        dc.w    SND_BLIP_PTR            // ds_ptr (little-endian dw)
+        dc.w    SND_BLIP_LEN            // ds_length
+        dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        // id 2 = kick
+        dc.b    SND_KICK_BANK           // ds_bank
+        dc.b    0                       // ds_rate (reserved)
+        dc.b    0                       // ds_codec (raw 8-bit PCM)
+        dc.w    SND_KICK_PTR            // ds_ptr
+        dc.w    SND_KICK_LEN            // ds_length
+        dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        // id 3 = snare
+        dc.b    SND_SNARE_BANK          // ds_bank
+        dc.b    0                       // ds_rate (reserved)
+        dc.b    0                       // ds_codec (raw 8-bit PCM)
+        dc.w    SND_SNARE_PTR           // ds_ptr
+        dc.w    SND_SNARE_LEN           // ds_length
+        dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        // id 4 = hat
+        dc.b    SND_HAT_BANK            // ds_bank
+        dc.b    0                       // ds_rate (reserved)
+        dc.b    0                       // ds_codec (raw 8-bit PCM)
+        dc.w    SND_HAT_PTR             // ds_ptr
+        dc.w    SND_HAT_LEN             // ds_length
+        dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        // --- S3K HCZ2 drums (Phase 5; ids match tools/smps_import.py HCZ2_DAC_REMAP) ---
+        // id 5 = s3k_kick
+        dc.b    SND_S3K_KICK_BANK       // ds_bank
+        dc.b    0                       // ds_rate (reserved)
+        dc.b    0                       // ds_codec (raw 8-bit PCM)
+        dc.w    SND_S3K_KICK_PTR        // ds_ptr
+        dc.w    SND_S3K_KICK_LEN        // ds_length
+        dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        // id 6 = s3k_snare
+        dc.b    SND_S3K_SNARE_BANK      // ds_bank
+        dc.b    0                       // ds_rate (reserved)
+        dc.b    0                       // ds_codec (raw 8-bit PCM)
+        dc.w    SND_S3K_SNARE_PTR       // ds_ptr
+        dc.w    SND_S3K_SNARE_LEN       // ds_length
+        dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        // id 7 = s3k_hitom
+        dc.b    SND_S3K_HITOM_BANK      // ds_bank
+        dc.b    0                       // ds_rate (reserved)
+        dc.b    0                       // ds_codec (raw 8-bit PCM)
+        dc.w    SND_S3K_HITOM_PTR       // ds_ptr
+        dc.w    SND_S3K_HITOM_LEN       // ds_length
+        dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        // id 8 = s3k_midtom
+        dc.b    SND_S3K_MIDTOM_BANK     // ds_bank
+        dc.b    0                       // ds_rate (reserved)
+        dc.b    0                       // ds_codec (raw 8-bit PCM)
+        dc.w    SND_S3K_MIDTOM_PTR      // ds_ptr
+        dc.w    SND_S3K_MIDTOM_LEN      // ds_length
+        dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        // id 9 = s3k_lowtom
+        dc.b    SND_S3K_LOWTOM_BANK     // ds_bank
+        dc.b    0                       // ds_rate (reserved)
+        dc.b    0                       // ds_codec (raw 8-bit PCM)
+        dc.w    SND_S3K_LOWTOM_PTR      // ds_ptr
+        dc.w    SND_S3K_LOWTOM_LEN      // ds_length
+        dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        // id 10 = s3k_floortom
+        dc.b    SND_S3K_FLOORTOM_BANK   // ds_bank
+        dc.b    0                       // ds_rate (reserved)
+        dc.b    0                       // ds_codec (raw 8-bit PCM)
+        dc.w    SND_S3K_FLOORTOM_PTR    // ds_ptr
+        dc.w    SND_S3K_FLOORTOM_LEN    // ds_length
+        dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+    }
+}
