@@ -129,6 +129,10 @@ section sound_fm (cpu: z80, vma: $12C3) {
     // NEVER touches $2B.
     // ------------------------------------------------------------------
     // Contract: clobbers af (a is scratch). preserves bc, de, hl (+ ix inherited).
+    // f in fact survives (only `ld` instructions run — none write the flags), but the
+    // checker does not track flag writes in its Z80 write set, so a lone `preserves(f)`
+    // would be a manual-honor claim it cannot verify; the conservative `clobbers(af)`
+    // stands (over-claiming a clobber is the safe direction — callers assume worse).
     pub proc Fm_ReparkDac () clobbers(af) preserves(bc, de, hl) {
         ld      a, SND_REG_DAC_DATA      // $2A
         ld      (SND_Z80_YM_A0), a       // re-park part-I addr port on DAC data
@@ -688,7 +692,7 @@ section sound_fm (cpu: z80, vma: $12C3) {
     // Contract: out(hl) = clamped index; clobbers af, de (sign-extension scratch).
     // preserves bc (only c read, as the max bound) (+ ix inherited — leaf, ix
     // never written).
-    pub proc Fm_TransposeClamp () out(hl) clobbers(af, de) preserves(bc) {
+    pub proc Fm_TransposeClamp (a: u8, c: u8, ix: *SeqChannel) out(hl) clobbers(af, de) preserves(bc) {
         ld      l, a
         ld      h, 0                     // hl = note index (positive)
         ld      a, (ix+sc_transpose)     // signed per-pattern transpose
