@@ -166,14 +166,15 @@ CreateChild_Normal:
         move.l  SST_mappings(a0), SST_mappings(a2)
         move.w  SST_art_tile(a0), SST_art_tile(a2)
 
-        ; Inherit the two render_flags bits a child must share with its parent,
-        ; in ONE masked or: the PRIORITY BAND (bits 5-7 - a fresh slot is
-        ; zeroed, so without this every child registers in band 0 and a
-        ; high-priority parent's parts draw behind everything) and COORDMODE
-        ; (a child of a screen-space parent is positioned from screen-space
-        ; coordinates, so rendering it world-space - even for the single frame
-        ; before its own routine runs - puts it at position minus camera).
+        ; Inherit the render_flags bits a child must share with its parent -
+        ; today exactly one, COORDMODE: a child of a screen-space parent is
+        ; positioned from screen-space coordinates, so rendering it
+        ; world-space - even for the single frame before its own routine
+        ; runs - puts it at position minus camera.
         ; DELIBERATELY NOT INHERITED, and each for its own reason:
+        ;   PRIORITY BAND  - a 3-bit VALUE in bits 5-7, and this inherit
+        ;                    composes with `or`; see CHILD_INHERITED_FLAGS
+        ;                    above for the full ruling.
         ;   RF_ONSCREEN    - per-object visibility state, recomputed every
         ;                    frame by Draw_Sprite; copying it publishes a lie.
         ;   RF_XFLIP/YFLIP - flip is owned per creator: CreateChild_FlipAware
@@ -516,7 +517,7 @@ CreateChild_Linked:
 ;      parent_ptr is not cleared separately - DeleteObject zeroes the SST)
 ; Clobbers: d0-d2, a1 - d0-d1 come from DeleteObject's license and d2 is the
 ;           chain cursor this proc rides across the delete; a0 is
-;           movem-preserved across the whole cascade
+;           parked on the stack across the whole cascade
 ; -----------------------------------------------
 DeleteChildren:
         move.w  SST_sibling_ptr(a0), d2
