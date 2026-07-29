@@ -15,7 +15,11 @@
 ;   C     = play the DAC-drum-test song (id 2)
 ;   START = toggle Moving Trucks play/stop
 ; Also exercises Sound_StopMusic and the song-switch silence path (a fresh
-; PlayMusic). Clobbers: d0-d2/a0/a1.
+; PlayMusic). Clobbers: d0-d4/a0-a1 — the honest transitive closure. The body
+; writes d0-d2/a1 directly; Sound_PlayMusic clobbers d0-d4/a0-a1, so d3/d4/a0
+; leak in through that call. (An earlier comment said "d0-d2/a0/a1", which
+; under-declared d3/d4; nothing in the harness relies on them across the call,
+; so it was latent — the .emp contract closure surfaced it.)
 ; -----------------------------------------------
 Debug_MusicToggle:
         ; A button = RESTART the song from pattern 0 (re-trigger Sound_PlayMusic; NO
