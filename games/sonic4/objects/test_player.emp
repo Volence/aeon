@@ -44,10 +44,10 @@ const DEBUG_FLY_SPEED_FAST = 16         // = base speed for now (camera clamp); 
 // -----------------------------------------------
 // TestPlayer — init routine
 // In:  a0 = SST pointer (slot already allocated)
-// Clobbers: d0-d6, a1-a3 — falls into TestPlayer_Main (its whole set; a0/d7
+// Clobbers: d0-d7, a1-a3 — falls into TestPlayer_Main (its whole set; a0
 //   preserved per the RunObjects loop contract, see TestPlayer_Main).
 // -----------------------------------------------
-pub proc TestPlayer (a0: *Sst) clobbers(d0-d6/a1-a3) falls_into TestPlayer_Main {
+pub proc TestPlayer (a0: *Sst) clobbers(d0-d7/a1-a3) falls_into TestPlayer_Main {
         move.l  #Map_Sonic, mappings(a0)
         move.w  #vram_art(VRAM_TEST_SONIC), art_tile(a0)
         move.l  #Ani_Sonic, anim_table(a0)
@@ -69,13 +69,13 @@ pub proc TestPlayer (a0: *Sst) clobbers(d0-d6/a1-a3) falls_into TestPlayer_Main 
 // -----------------------------------------------
 // TestPlayer_Main — per-frame update
 // In:  a0 = SST pointer
-// Clobbers: d0-d6, a1-a3 — a0 and d7 are PRESERVED (the RunObjects loop contract:
-//   a0 is the slot pointer, d7 the slot counter). d7 is save/restored around
-//   Player_SensorFloor (which clobbers d0-d7); a4-a6 are untouched. The old AS
-//   header's "d0-d7, a0-a6" over-claimed a0/d7/a4-a6, contradicting the preserve
-//   comment below.
+// Clobbers: d0-d7, a1-a3 — a0 is PRESERVED (the RunObjects slot pointer); a4-a6
+//   untouched. d7 is clobbered at WHOLE-REGISTER granularity: the `move.w d7`
+//   save/restore around Player_SensorFloor protects only d7's LOW word (the
+//   RunObjects dbf counter), while SensorFloor clobbers the full d7, so the high
+//   word is not preserved. The old AS header's "d0-d7, a0-a6" over-claimed a0/a4-a6.
 // -----------------------------------------------
-pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d6/a1-a3) {
+pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d7/a1-a3) {
         // --- B press toggles debug free-flight mode ---
         // d4 NOT d7: object routines must preserve a0/d7 (RunObjects loop
         // contract). A d7.b clobber here overran the player slot loop by
