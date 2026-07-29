@@ -85,16 +85,18 @@ TestChildPart_Main:
         move.l  a1, d0
         beq.s   .orphan_delete
 
-        ; Advance angle
+        ; Advance angle. The byte add wraps mod 256, so its result IS the 0-255
+        ; value GetSineCosine reads (GetSineCosine's own leading andi.w #$FF clears
+        ; any residual high-word bits, so no caller-side mask is needed).
         move.b  _child_angle(a0), d0
         addq.b  #CHILD_ORBIT_SPEED, d0
         move.b  d0, _child_angle(a0)
 
-        ; sin/cos at d0 → d0=sin*$100, d1=cos*$100
-        andi.w  #$FF, d0
-        movem.l d2-d3/a1, -(sp)
+        ; sin/cos at d0 → d0=sin*$100, d1=cos*$100. No register save around the
+        ; call: GetSineCosine preserves everything but its d0/d1 outputs, so a1
+        ; survives it and d2-d3 are dead here anyway (this LOCKSTEPS test_parent.emp
+        ; — twin-scaffolding kill row 67; edit both sides together).
         jsr     GetSineCosine
-        movem.l (sp)+, d2-d3/a1
 
         ; Scale: sine amplitude = $100 = 256, radius = 32 = 2^5.
         ; offset = (sin × 32) / 256 = sin >> 3. Constant shift, no multiply.
