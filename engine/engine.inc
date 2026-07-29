@@ -680,11 +680,11 @@ NullInterrupt:
         ; NOTE: these org/equ values are sonic4-shape addresses — the gate define
         ; must never be set for other games.
       ifdef __DEBUG__
-        org     $5F65A
-ErrorHandler:   equ $5E704                  ; BusError($5E5AA) + $15A
+        org     $5F65A                      ; EndOfRom (debug) = BusError($5E5AA) + region $10B0
+ErrorHandler:   equ $5E704                  ; BusError($5E5AA) + stub-table $15A
       else
-        org     $5DB60
-ErrorHandler:   equ $5CC0A                  ; BusError($5CAB0) + $15A
+        org     $5DB60                      ; EndOfRom (plain) = BusError($5CAB0) + region $10B0
+ErrorHandler:   equ $5CC0A                  ; BusError($5CAB0) + stub-table $15A
       endif
     endif
     include "engine/debug/mddbg_symbols.asm"

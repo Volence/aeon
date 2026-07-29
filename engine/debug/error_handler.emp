@@ -84,7 +84,7 @@ pub proc ErrorTrap () clobbers() {
 }
 
 // MD Debugger blob — (c) 2016-2024 Vladikcomper. Opaque vendored binary;
-// dc.l verbatim, bytes untouchable. Reached only via `jsr (ErrorHandler).l`
+// dc.l verbatim, bytes untouchable. Reached only via `jsr (MDDBG__ErrorHandler).l`
 // (the stubs) and internal computed transfers; never falls through (its own
 // rts/jmp encodings live inside the data), and it ends the ROM.
 // Named ErrorHandlerBlob (not ErrorHandler): in the mixed build the AS side owns
