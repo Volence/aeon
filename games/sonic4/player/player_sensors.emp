@@ -191,13 +191,13 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 beq     .cl_air
                 moveq   #0, d3
                 move.b  d2, d3                 // attr index
-                lea     (SolidityTable).l, a1
+                lea     SolidityTable, a1      // (SolidityTable).l — ROM table, abs.l by the width rule
                 move.b  (a1, d3.w), d0
                 // gate is "class == SOLID_ALL || (class & mask)"; ALL = TOP|LRB,
                 // so a single AND covers both cases for any nonzero mask
                 and.b   d6, d0
                 beq     .cl_air                // wrong class for this sensor → air
-                lea     (AngleTable).l, a1
+                lea     AngleTable, a1         // (AngleTable).l — ROM table, abs.l by the width rule
                 move.b  (a1, d3.w), d1         // raw angle (odd flag passes through)
                 lsl.w   #4, d3                 // attr × 16
                 move.w  {pcolreg}, d0
@@ -337,7 +337,7 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.b  height_pixels(a0), d1
         lsr.w   #1, d1                 // probe-axis radius (y_rad in floor mode)
         moveq   #0, d2
-        move.b  (Player_Quadrant).w, d2
+        move.b  Player_Quadrant, d2
         add.b   d7, d2
         andi.w  #3, d2                 // effective probe direction
         add.w   d2, d2
@@ -388,7 +388,7 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
         jbsr    Player_SensorPair      // d0/d1/d2 = closer sensor (raw angle)
 
         // angle resolution: cardinal = ((Player_Quadrant + d7) & 3) << 6
-        move.b  (Player_Quadrant).w, d3
+        move.b  Player_Quadrant, d3
         add.b   d7, d3
         andi.b  #3, d3
         ror.b   #2, d3                 // 0/1/2/3 → $00/$40/$80/$C0
