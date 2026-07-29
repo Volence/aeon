@@ -46,7 +46,8 @@ comptime fn bytes_to_lcnt(n: int where 4..$10000) -> int {
 // -----------------------------------------------
 // EntryPoint — first instruction after reset
 // Never returns (falls through Warm/Cold boot into the GameLoop tail), so the
-// contract is the honest ⊤ bound: the body destroys every register.
+// contract is the honest ⊤ bound: the body destroys every register except
+// sp, which keeps the reset vector's stack.
 // RESET-ENTRY ONLY (the reset vector is the sole referencer): everything up
 // to the interrupt unmask relies on the 68000 reset forcing SR=$2700 — a
 // software `jmp EntryPoint` with interrupts live would race the RAM clear
