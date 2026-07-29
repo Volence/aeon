@@ -363,27 +363,12 @@ section z80_sound_driver (cpu: z80, vma: $0000) {
         ld      a, b                    // WR
         sub     c                       // lead = (WR - RD) & $FF
         jp      z, .stop                // lead 0 -> fully drained -> stop
-        nop                             // rept 21 / nop (timing pad -> DRAINING = FILL - 1)
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
+    .draining_pad:                      // cut label: prefix|pad boundary for the derived pad
+        // DERIVED timing pad -> DRAINING = 194 (FILL - 1). measured non-pad
+        // cost = prefix cycles(.loop,.dma_check)=82 + this body pre-pad
+        // cycles(.draining,.draining_pad)=18 + trailing jp .loop=10 = 110;
+        // pad = (194-110)/4 = 21 nops.
+        pad_to_cycles(194, cycles(.loop, .dma_check) + cycles(.draining, .draining_pad) + 10)
         jp      .loop
 
     .stop:
@@ -432,25 +417,10 @@ section z80_sound_driver (cpu: z80, vma: $0000) {
     // pass (195) so the rate never jitters during a DMA; the lead burned here is
     // recovered by the Timer-A tick's bulk-refill. Pure nop pad (reg-safe).
     .drain:
-        nop                             // rept 19 / nop (timing pad -> DRAIN = FILL)
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
+        // DERIVED timing pad -> DRAIN = 195 (== FILL). measured non-pad cost =
+        // prefix cycles(.loop,.fill_body)=109 + trailing jp .loop=10 = 119;
+        // pad = (195-119)/4 = 19 nops (the lead is recovered at the tick).
+        pad_to_cycles(195, cycles(.loop, .fill_body) + 10)
         jp      .loop
     .drain_end:                         // cycles() span cut label (zero bytes)
 
