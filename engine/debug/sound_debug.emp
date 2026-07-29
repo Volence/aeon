@@ -1,0 +1,112 @@
+// STATUS (t25): LANE STOPPED at the checkpoint (LEAN "stop if it balloons"). This
+// transliteration is written but does NOT yet lower — it exposes two frontend
+// gaps the mirror lane needs closed first:
+//   1) PARSE GAP: `lea (extern("SeqChannel_len")-SEQ_MIRROR_CHBYTES)(a0), a0` — an
+//      extern in a displacement expression does not parse ("expected end of
+//      line"). (moveq #extern(...)-1 lowers fine; the gap is the disp form.)
+//   2) LOWER HANG: lowering the whole file does not terminate (SIGKILL >60s) —
+//      needs isolation (the equ-sum / link-time-ensure / extern-operand mix).
+// The mirror-shape byte gate, the both-shape emptiness proofs, and kill row 42's
+// decl deletion (vblank.emp) all wait on a lowering .emp. Not built here.
+//
+// DEBUG-only sound driver state mirror — exposes the Z80 mailbox+status to the
+// Oracle MCP. Zero bytes in BOTH canonical shapes (the triple gate
+// __DEBUG__ + SOUND_DRIVER_ENABLED + SOUND_DBG_MIRROR; SOUND_DBG_MIRROR defaults
+// 0 in build.sh). Ported at the MIRROR shape (DEBUG=1 SOUND_DBG_MIRROR=1); the
+// canonical shapes prove emptiness.
+//
+// Sound_DebugMirror copies the Z80 mailbox+status ($A01F00..$A01F3F) plus the
+// playback/sequencer state and trace ring into Sound_Dbg_Mirror (68k RAM) so the
+// MCP can observe driver state (its emulator_read_memory errors on $A00000, so we
+// snapshot the Z80 region into 68k RAM each frame). Stops the Z80 for the copy,
+// then restarts it.
+//
+// Phase 3: SeqChannel grew 14 -> 36 bytes (the modulation-state block), so we can
+// no longer mirror FULL channel slots within the 176-byte Sound_Dbg_Mirror. The
+// mirror is a DEBUG observability window, not a faithful struct copy, so we mirror
+// a PREFIX of each channel (SEQ_MIRROR_CHBYTES bytes) that captures the
+// controller-observed liveness fields. The shipping songs have 3 channels
+// (FM1, FM2, PSG1), so 3 slots is the window.
+//
+// Per-channel mirror prefix (offsets within the 20-byte slot, from SeqChannel +0):
+//   +0/+1 sc_stream_ptr, +2/+3 sc_mod_ptr, +4 sc_dur_count, +5 sc_dur_default,
+//   +6 sc_patch, +7 sc_last_patch, +8 sc_volume, +9 sc_note, +10 sc_flags,
+//   +11 sc_route, +12/+13 sc_loop_ptr, +14/+15 sc_repeat_ptr, +16 sc_repeat_count,
+//   +17 sc_tempo_mod, +18 sc_tempo_accum, +19 sc_pt_count.
+// (sc_pan +27, sc_opbias +28..+31, sc_last_pan +36 live PAST the 20-byte prefix,
+// so they are not mirrored.)
+// Mirror layout (offsets from Sound_Dbg_Mirror): header [64..71], ch0 [72..91],
+// ch1 [92..111], ch2 [112..131]; trace ring [132..163]. Upper window = 64 + 8 +
+// 3*20 + 32 = 164 <= 176.
+
+module engine.debug.sound_debug in sound_debug
+
+use engine.z80_bus.{stop_z80, start_z80}
+
+// Link-resolved RAM/Z80 addresses (truth: engine/sound_constants.asm, ram.asm).
+equ SND_MIRROR_DEST = extern("Sound_Dbg_Mirror")
+equ SND_REQ_SRC     = extern("Z80_RAM") + extern("SND_REQ_BASE")
+equ SND_STATE_SRC   = extern("Z80_RAM") + extern("SND_STATE_BASE")
+equ SND_SEQ_SRC     = extern("Z80_RAM") + extern("SND_SEQ_BASE")
+equ SND_TRACE_SRC   = extern("Z80_RAM") + extern("SND_SEQ_TRACE")
+
+const SEQ_MIRROR_CHANNELS = 3
+const SEQ_MIRROR_CHBYTES  = 20                       // per-channel prefix (<= SeqChannel_len)
+const SEQ_MIRROR_HDRCH    = 8 + SEQ_MIRROR_CHANNELS * SEQ_MIRROR_CHBYTES
+
+// Fit guards (link-time — SeqChannel_len / SND_SEQ_TRACE_LEN are AS-side).
+ensure(SEQ_MIRROR_CHBYTES <= extern("SeqChannel_len"),
+       "SEQ_MIRROR_CHBYTES exceeds SeqChannel_len")
+ensure(64 + SEQ_MIRROR_HDRCH + extern("SND_SEQ_TRACE_LEN") <= 176,
+       "sound debug mirror window exceeds Sound_Dbg_Mirror (176 bytes)")
+
+pub proc Sound_DebugMirror () clobbers(d0/d1/a0/a1) {
+    {stop_z80()}
+    lea     (SND_MIRROR_DEST).w, a1              // 68k RAM dest
+    lea     (SND_REQ_SRC).l, a0                  // [0..47] = $1F00..$1F2F (req slots + status)
+    // This 48-byte copy already covers SND_STAT_TICK ($1F13 -> mirror byte 19),
+    // the scheduler tick counter the controller reads to verify the Timer-A
+    // overflow rate (tempo $C0 -> ~208/sec). No extra mirror entry needed.
+    moveq   #48-1, d0
+    .copy1:
+        move.b  (a0)+, (a1)+
+        dbf     d0, .copy1
+    lea     (SND_STATE_SRC).l, a0                // [48..63] = $18F0..$18FF (playback state)
+    moveq   #16-1, d0
+    .copy2:
+        move.b  (a0)+, (a1)+
+        dbf     d0, .copy2
+    // --- [64..] sequencer window (Phase 3) ---
+    // a1 now points at Sound_Dbg_Mirror+64. Copy the 8-byte sequencer header,
+    // then a SEQ_MIRROR_CHBYTES-byte PREFIX of each channel (the full 36-byte
+    // SeqChannel no longer fits), then the 32-byte trace ring.
+    //   [64] SND_SEQ_TEMPO      [65] SND_SEQ_CHCOUNT
+    //   [66..67] SND_SEQ_PATCHTAB
+    //   [68] SND_SEQ_ACTIVE     [69] SND_SEQ_BADOP
+    //   [70] SND_SEQ_TRACE_WR   [71] SND_SEQ_TEMPO_MOD
+    //   [72..] channel prefixes (SEQ_MIRROR_CHBYTES each) — see the field map above.
+    //   [...] SND_SEQ_TRACE ring (32 bytes); each = (route<<4)|event_code.
+    lea     (SND_SEQ_SRC).l, a0                  // $1A00.. (header)
+    moveq   #8-1, d0
+    .copy3h:
+        move.b  (a0)+, (a1)+
+        dbf     d0, .copy3h
+    // per-channel prefixes: copy SEQ_MIRROR_CHBYTES, then skip the rest of the
+    // Z80 SeqChannel slot. a0 already at SND_SEQ_CHANNELS ($1A08) after the
+    // header copy (the header is exactly the 8 bytes $1A00..$1A07).
+    moveq   #SEQ_MIRROR_CHANNELS-1, d1
+    .copy3c:
+        moveq   #SEQ_MIRROR_CHBYTES-1, d0
+        .copy3cb:
+            move.b  (a0)+, (a1)+
+            dbf     d0, .copy3cb
+        lea     (extern("SeqChannel_len")-SEQ_MIRROR_CHBYTES)(a0), a0   // skip the unmirrored tail
+        dbf     d1, .copy3c
+    lea     (SND_TRACE_SRC).l, a0                // trace ring (32 B, derived addr)
+    moveq   #extern("SND_SEQ_TRACE_LEN")-1, d0
+    .copy4:
+        move.b  (a0)+, (a1)+
+        dbf     d0, .copy4
+    {start_z80()}
+    rts
+}
