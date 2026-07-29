@@ -77,7 +77,16 @@
 
     org 0
     include "engine/system/header.inc"
-    include "engine/system/vectors.asm"
+    ifndef SIGIL_EMP_VECTORS
+        include "engine/system/vectors.asm"
+    else
+        ; sigil mixed build: the 64-entry vector table ($000-$0FF) comes from
+        ; engine/system/vectors.emp, placed by the sigil map at base 0. The
+        ; region is FIXED SIZE (256 bytes, pure data), so resume placement at
+        ; org $100 — the header lands exactly where vectors.asm's 64 dc.l would
+        ; leave it. Structurally byte-neutral (the boundary is fixed).
+        org     $100
+    endif
     gameHeader
 
 ; -----------------------------------------------
