@@ -29,9 +29,10 @@
 //     too scattered for a clean module-register invariant, so it is a
 //     hardware-contract PROSE fact here, not a checkable register invariant.
 //   * Reg $2A stays parked on the $4000 ADDR port so every `ld (de),a` writes
-//     DAC data; re-parked only by the tick / .stop / Snd_StartSample / the
-//     Timer-A programs (the sole $4000-touching paths). A YM address-port latch
-//     is not a Z80 register, so no register-contract class expresses it — PROSE.
+//     DAC data; it is re-parked at every path that writes a non-$2A reg to $4000 —
+//     init, the idle loop, the Timer-A tick, .stop, Snd_StartSample, Snd_LoadSong,
+//     and the Timer-A programs (ProgramFixed/Rearm). A YM address-port latch is not
+//     a Z80 register, so no register-contract class expresses it — PROSE.
 //   * di/ei lattice: the streaming loop runs `di` for the WHOLE sample. The
 //     load-bearing claim — "the once-per-frame /INT never lands in the long di
 //     window, so the VBlank ISR does not fire during streaming; the Timer-A tick
@@ -39,11 +40,13 @@
 //     assembler cannot evaluate. So di/ei carry NO contract-clause surface; they
 //     live here as C3 hardware-timing prose (a di/ei-balance lint would check the
 //     trivial half while giving false confidence about the unmodelable half).
-//   * BANKED-CODE HAZARD: every in-frame routine is RAM-resident. Banked in-frame
-//     CODE is a proven crash hazard (opcode fetches through the $8000 window
-//     corrupt under 68k bus contention); only DATA tables (DacSampleTable) may
-//     live banked. The banked descriptor reads carry an explicit BANK CONTRACT
-//     (Snd_StartSample) — the ring-lead budget absorbs their latency.
+//   * RESIDENT-CODE / BANKED-DATA discipline: only DATA tables live in the banked
+//     $8000 window; all in-frame CODE stays RAM-resident (banked in-frame code would
+//     fetch opcodes through a bus-contended window — the corpus resident-code rule,
+//     stated in sound_sequencer.emp, not a driver-.asm claim). The .asm-BACKED half
+//     is the DacSampleTable BANK CONTRACT: the driver's one banked reader is
+//     Snd_StartSample's 5-byte descriptor read, valid only while the caller holds the
+//     engine-table bank in the window; the ring-lead budget absorbs its latency.
 //
 // --- ix PRESERVATION (per-proc, NOT a module invariant) --------------------
 // UNLIKE psg/fm, the driver has NO module-scope `invariant: preserves(ix)`: it
@@ -75,6 +78,17 @@
 // prose): cartridge-bus contention (the ~3.3-cyc banked-ROM penalty on FILL's
 // `ld a,(ix+0)`, silicon-only, "noted, not padded"); interrupt latency; 68k bus
 // arbitration; the Timer-A tick's off-hot-path cost; whole-CFG bounds.
+//
+// INHERENT PITCH ASYMMETRY (silicon-only, accepted): the ~3.3-cyc banked-ROM bus
+// penalty lands ONLY on FILL's `ld a,(ix+0)`; DRAIN and DRAINING read no ROM, so
+// they never pay it. FILL's true period is therefore ~195+3.3 cyc while DRAIN/
+// DRAINING run at 195/194 -> during a 68k DMA (DRAIN) or the sample tail (DRAINING)
+// the output pitch runs SHARP vs the FILL steady state: DRAIN ~29 cents
+// (1200*log2(198.3/195)), DRAINING ~38 cents (1200*log2(198.3/194)). It CANNOT be
+// padded out (matching the penalty on DRAIN would require the ROM read DRAIN must
+// avoid while the 68k holds the bus), it is silicon-only (Exodus does not model
+// cartridge-bus contention), and it is transient (DRAIN spans only a DMA window,
+// DRAINING only the buffered tail) -> ACCEPTED, not fixed.
 //
 // --- INBOUND TRUST CONVERSIONS (the Mod_ReArm precedent) -------------------
 // Four already-ported files declared `extern proc` on symbols this driver
