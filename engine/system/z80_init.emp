@@ -1,0 +1,58 @@
+// ===========================================================================
+// engine/system/z80_init.emp — the Z80 idle program (no-sound builds)
+// ===========================================================================
+// The .emp port of z80_init.asm (this directory) — the FIRST Z80 CODE module
+// and the first live `module (cpu: z80)`. It is the Z80 program the boot loader
+// copies into Z80 RAM when SOUND_DRIVER_ENABLED is undefined: it clears Z80 RAM
+// and patches a `jp (hl)` at address 0 so the CPU idles forever.
+//
+// CANONICALLY EMPTY (the game_debug config-shape class): boot_data.asm includes
+// the sound driver blob when SOUND_DRIVER_ENABLED is defined and this idle
+// program only in the `else`. Both shipped shapes have sound ENABLED, so this
+// module emits ZERO bytes canonically — the port is proven by an OFF-CANONICAL
+// no-sound-shape oracle (z80_init_port), never a whole-ROM diff.
+//
+// The idle program is the corpus's only self-modifying code: `ld (hl), $E9`
+// stores the `jp (hl)` opcode ($E9) at address 0, then `jp (hl)` jumps to it —
+// the idle loop is that one-byte program the store just wrote. No SMC feature
+// is needed; it is a plain data store of one opcode byte.
+//
+// The end-of-code marker `Z80_IdleProgram_CodeEnd` (three imm16 references: the
+// ldir clear count, the store cursor, the stack top) is a trailing LOCAL label
+// `.code_end` inside the proc — it resolves to the same address as the AS-side
+// global, and the global has no external consumer (Z80_IDLE_SIZE = End - Start
+// is a SEPARATE boot-cursor equate that these code bytes do not contain).
+// ===========================================================================
+
+module engine.z80_init (cpu: z80)
+
+section z80_idle (cpu: z80, vma: $0) {
+    pub proc Z80_IdleProgram () clobbers() {
+        xor     a
+        ld      bc, extern("Z80_RAM_END") - extern("Z80_RAM") - .code_end - 1
+        ld      de, 1 + .code_end       // (== code_end+1) leading-`.`local bug: see gap-ledger
+        ld      hl, .code_end
+        ld      sp, hl
+        ld      (hl), a
+        ldir
+        pop     ix
+        pop     iy
+        ld      i, a
+        ld      r, a
+        pop     de
+        pop     hl
+        pop     af
+        ex      af, af'
+        exx
+        pop     bc
+        pop     de
+        pop     hl
+        pop     af
+        ld      sp, hl
+        di
+        im      1
+        ld      (hl), $E9               // patch: jp (hl) opcode at address 0
+        jp      (hl)                    // idle loop
+    .code_end:
+    }
+}
