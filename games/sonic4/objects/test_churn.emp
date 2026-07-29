@@ -71,14 +71,13 @@ pub proc TestChurnObj (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestChurnObj_M
 // Clobbers: d0-d3, a1 — AllocDynamic(d0) ∪ DeleteObject(d0-d1/a1) ∪
 //   Draw_Sprite(d0-d3/a1). Main never writes a2 (only the init frame does).
 // a0 is net-PRESERVED (the ObjRoutine dispatch contract preserves(a0, d7)): the
-// expiry path stack-saves self, restores it, and self-deletes via DeleteObject
-// (which preserves a0), so a0 exits == entry. The honest `preserves(a0)` clause
-// is BLOCKED on a verify_preserved gap: a0 is restored (pop), then DeleteObject
-// (a preserving CALL) runs before rts, and the LOCAL verifier conservatively
-// treats that call as clobbering — it cannot credit DeleteObject's preserves(a0)
-// (transitive). See the t30 packet's STOP-finding.
+// expiry path stack-saves self, restores it (pop), and self-deletes via
+// DeleteObject (which itself preserves a0) before rts, so a0 exits == entry. The
+// per-file byte gate cannot see DeleteObject's contract, so it DEFERS the
+// trailing-call proof to the corpus closure, which credits DeleteObject's
+// verified preserves(a0) through the callee-preserves oracle (§5).
 // -----------------------------------------------
-pub proc TestChurnObj_Main (a0: *Sst) clobbers(d0-d3/a1) {
+pub proc TestChurnObj_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
         subq.w  #1, TChurnV.life(a0)
         bne.s   .draw                   // still alive — draw
 
