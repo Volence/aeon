@@ -66,11 +66,11 @@ pub proc TestChildPart (a0: *Sst) clobbers(d0-d3/a1) falls_into TestChildPart_Ma
         // Angle byte: 0=up, 64=right, 128=down, 192=left.
         moveq   #0, d0                          // default: above (-Y)
         tst.w   d2
-        bmi.s   .save_angle                     // dy negative -> above -> keep 0
+        bmi     .save_angle                     // dy negative -> above -> keep 0
         tst.w   d1
-        bmi.s   .set_left
+        bmi     .set_left
         moveq   #64, d0                         // right (+X)
-        bra.s   .save_angle
+        jbra    .save_angle
 .set_left:
         move.w  #192, d0                        // left (-X)
 .save_angle:
@@ -92,7 +92,7 @@ pub proc TestChildPart (a0: *Sst) clobbers(d0-d3/a1) falls_into TestChildPart_Ma
 pub proc TestChildPart_Main (a0: *Sst) clobbers(d0-d3/a1) {
         movea.w parent_ptr(a0), a1
         move.l  a1, d0
-        beq.s   .orphan_delete
+        beq     .orphan_delete
 
         // Advance angle
         move.b  TOrbitChildV.orbit_angle(a0), d0
@@ -102,7 +102,7 @@ pub proc TestChildPart_Main (a0: *Sst) clobbers(d0-d3/a1) {
         // sin/cos at d0 -> d0=sin*$100, d1=cos*$100
         andi.w  #$FF, d0
         movem.l d2-d3/a1, -(sp)
-        jsr     GetSineCosine
+        jbsr    GetSineCosine
         movem.l (sp)+, d2-d3/a1
 
         // Scale: sine amplitude = $100 = 256, radius = 32 = 2^5.
@@ -119,10 +119,10 @@ pub proc TestChildPart_Main (a0: *Sst) clobbers(d0-d3/a1) {
         add.w   Sst.y_pos(a1), d1
         move.w  d1, y_pos(a0)
 
-        jmp     Draw_Sprite
+        jbra    Draw_Sprite
 
 .orphan_delete:
-        jmp     DeleteObject
+        jbra    DeleteObject
 }
 
 // -----------------------------------------------
@@ -145,10 +145,10 @@ pub proc TestParent (a0: *Sst) clobbers(d0-d3/a1-a2) {
 
         // Spawn 3 children around parent
         lea     child_desc(pc), a1
-        jsr     CreateChild_Normal
+        jbsr    CreateChild_Normal
 
         move.w  #TestParent_Main - ObjCodeBase, code_addr(a0)
-        bra.s   TestParent_Main
+        jbra    TestParent_Main
 }
 
 // Child descriptor: 3 children at offsets around parent, then the zero-word
@@ -169,33 +169,33 @@ data child_desc_term: u16 = 0
 // -----------------------------------------------
 pub proc TestParent_Main (a0: *Sst) clobbers(d0-d3/a1) {
         subq.w  #1, TParentV.life_timer(a0)
-        bne.s   .move
+        bne     .move
 
         // Timer expired — kill children then self
-        jsr     DeleteChildren
-        jmp     DeleteObject
+        jbsr    DeleteChildren
+        jbra    DeleteObject
 
 .move:
         // Oscillate parent X. Use lifetime as a phase counter.
         // x_dir: 0 = right, 1 = left.
         tst.b   TParentV.x_dir(a0)
-        bne.s   .moving_left
+        bne     .moving_left
         addq.w  #PARENT_SPEED, x_pos(a0)
         move.w  TParentV.life_timer(a0), d0
         cmpi.w  #PARENT_LIFETIME-PARENT_SWING_RANGE, d0
-        bge.s   .draw
+        bge     .draw
         move.b  #1, TParentV.x_dir(a0)
-        bra.s   .draw
+        jbra    .draw
 
 .moving_left:
         subq.w  #PARENT_SPEED, x_pos(a0)
         move.w  TParentV.life_timer(a0), d0
         cmpi.w  #PARENT_LIFETIME-(2*PARENT_SWING_RANGE), d0
-        bge.s   .draw
+        bge     .draw
         move.b  #0, TParentV.x_dir(a0)
         // reset phase: bump life timer back so we swing right again
         move.w  #PARENT_LIFETIME, TParentV.life_timer(a0)
 
 .draw:
-        jmp     Draw_Sprite
+        jbra    Draw_Sprite
 }
