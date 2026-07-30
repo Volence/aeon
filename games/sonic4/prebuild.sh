@@ -74,5 +74,9 @@ POOL_ASM="${POOL_DIR}/ojz_act_pool.asm"
 echo "Generating OJZ block data..."
 python3 "${TOOLS}/ojz_block_gen.py" generate
 
-echo "Transcoding core SFX set (S3K -> SFX blobs)..."
-python3 "${TOOLS}/sfx_transcode.py" generate
+# seam-2 stage-2d: the SFX .asm twins (sfx_NN{,_patches}.asm, sfx_table.asm,
+# sfx_blob_win_tab.asm) are DELETED — sfx_bank.emp is the canonical source and
+# sigil BINCLUDEs sfx_bank{,_debug}.bin + sfx_blob_win_tab{,_debug}.bin. The
+# committed sfx_NN{,_patches}.bin are sfx_bank.emp's embed() sources; to reseed
+# them from the S3K disasm run `sfx_transcode.py generate --emit-bin` by hand
+# (now a MANUAL generator, like the Moving-Trucks / gen_sound_tables ones).

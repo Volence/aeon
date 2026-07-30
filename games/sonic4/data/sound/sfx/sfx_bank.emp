@@ -1,72 +1,58 @@
 // ===========================================================================
-// data/sound/sfx/sfx_bank.emp — the SFX block DATA (sound-migration T3)
+// data/sound/sfx/sfx_bank.emp — the SFX block DATA
 // ===========================================================================
-// Ports everything from `Sfx_33` through `SfxTable_End` — the 9 core SFX blobs,
+// The SFX block from `Sfx_33` through the id->blob table: the 9 core SFX blobs,
 // their 9 FM-patch banks (two zero-length, PSG-only), and the sparse id->blob
-// `SfxTable` — as ONE `table` construct (Plan 7 T2-d). The block CONTENT is
-// byte-identical in BOTH build shapes (no DEBUG members here — the SFX set is
-// the same plain and debug); only the block's BASE address shifts, because it
-// sits AFTER the shape-dependent song tables (plain $63AE8 / debug $6553A). So
-// this module needs NO `-D` define — see the harness PROVENANCE on any
-// re-baseline for the per-shape map base.
+// `SfxTable`, as ONE `table` construct. The block CONTENT is byte-identical in
+// BOTH build shapes (no DEBUG members — the SFX set is the same plain and debug);
+// only the block's BASE address shifts, because it sits AFTER the shape-dependent
+// song tables (plain $5BAE8 / debug $5D53A). So this module needs NO `-D` define
+// — see the harness PROVENANCE on any re-baseline for the per-shape map base.
 //
-// The win-tab (`sfx_blob_win_tab.asm`, the Z80 `phase 08000h` head passed to
-// `soundBankHead` at main.asm:147) STAYS driver-side `.asm` (R3 — it's
-// inseparable from the Z80 phase head). Its `dw sfx_winptr(Sfx_NN)` entries are
-// the tranche's only `.asm`->`.emp` reads: they resolve cross-seam via T0's `dw`
-// deferral. Those reads see the `Sfx_NN` PART labels the `table` defines below —
-// ordinary module-scoped data labels, real link symbols (design §3).
+// The win-tab (`sfx_blob_win_tab.emp`, the Z80 `phase 08000h` head BINCLUDE'd by
+// `soundBankHead`) references the `SFX_WIN_*` equ layer below cross-module — one
+// window pointer per blob, folded at the co-link from the `Sfx_NN` PART labels
+// the `table` defines. The equ layer lives here, at the producer that owns the
+// blob placement (the DAC `SND_*_PTR` mechanism).
 //
-// Pinned at $63AE8 (plain) / $6553A (debug) by the map region `sfx_bank` (R7,
-// PER SHAPE). Re-pin via the harness PROVENANCE flow on any re-baseline.
+// Pinned at $5BAE8 (plain) / $5D53A (debug) by the map region `sfx_bank`, PER
+// SHAPE. Re-pin via the harness PROVENANCE flow on any re-baseline.
 //
-// The `table` construct subsumes what the hand-written form spelled out:
-//   * one `table` row per SFX id (ascending, contiguous) replaces the 18 `data`
-//     items + 18 `const` binds + the 135-element `SfxTable` array (9 syms + 122
-//     hand-typed `0` holes). Adding an SFX = one row.
-//   * `item_align: 2` replaces every `sfx_NN.asm` / `sfx_NN_patches.asm`
-//     trailing `align 2` — a self-adjusting pad after every emitted part
-//     (D2.29 machinery). Only the two ODD blobs (Sfx_3C 267 B, Sfx_B6 71 B)
-//     fire one $00 today; every patch bank is 32/0 B (even) so its pad folds to
-//     nothing. Regen-safe: a future odd-length blob re-pads automatically.
+// The `table` construct:
+//   * one `table` row per SFX id (ascending, contiguous). Adding an SFX = one row.
+//   * `item_align: 2` is a self-adjusting pad after every emitted part. Only the
+//     two ODD blobs (Sfx_3C 267 B, Sfx_B6 71 B) fire one $00; every patch bank is
+//     32/0 B (even) so its pad folds to nothing. Regen-safe: a future odd-length
+//     blob re-pads automatically.
 //   * `cell: *u8, key: $33..=$B9, hole: 0` is the sparse id->blob table,
-//     SfxTable[id - $33] over [$33..$B9], 0 = unused id — lowering to the same
-//     `[*u8; N]` cell stream the hand table lowered to (D2.27). `SfxTable`
-//     anchors to the FIRST CELL (no header), so `Table[id - SFX_ID_BASE]` reads
-//     stay correct.
-//   * `body: before` places the blob payload BEFORE the cell table (the .asm
-//     include stream order: blobs then the id->blob table) — written explicitly
-//     so the one byte-layout fact correctness hangs on stays on the page.
+//     SfxTable[id - $33] over [$33..$B9], 0 = unused id. `SfxTable` anchors to the
+//     FIRST CELL (no header), so `Table[id - SFX_ID_BASE]` indexed reads are correct.
+//   * `body: before` places the blob payload BEFORE the cell table (blobs then the
+//     id->blob table) — written explicitly so the one byte-layout fact correctness
+//     hangs on stays on the page.
 //
-// What each `.asm` guard becomes here (R5):
-//   * main.asm:252 straddle fatal → the section's `bank: $8000` property
-//     (always-on no-straddle link assert). No hand `if`/`fatal` needed.
-//   * main.asm:260 co-residency fatal → the single `ensure(...)` below (spelled
-//     against the LABEL `MovingTrucks_Bank_Start`, the bankid-label idiom —
-//     bare cross-seam equ reads don't exist).
-//   * sfx_table.asm's `(SfxTable_End-SfxTable)/4 <> SFX_TABLE_LEN` self-check →
-//     STRUCTURAL: the cell count derives from `key: $33..=$B9` ($B9-$33+1 = 135
-//     cells), and a key outside that range is a comptime error. `SfxTable.len`
-//     is the derived cell-count fact.
+// The load-bearing guards:
+//   * no-straddle: the section's `bank: $8000` property (an always-on link assert).
+//   * co-residency: the single `ensure(...)` below (spelled against the LABEL
+//     `MovingTrucks_Bank_Start`, the bankid-label idiom — bare cross-seam equ reads
+//     don't exist).
+//   * table length: STRUCTURAL — the cell count derives from `key: $33..=$B9`
+//     ($B9-$33+1 = 135 cells), and a key outside that range is a comptime error.
+//     `SfxTable.len` is the derived cell-count fact.
 //
-// DELIBERATELY NOT PORTED: the `_End` labels — every cross-seam consumer reads a
-// `Sfx_NN` label or a blob's `.len` (comptime), never an end-minus-start. The
-// patch files' interior Count/len asserts are covered by the `.bin` twin
-// verifier + ROM byte-identity.
+// No `_End` labels: every cross-seam consumer reads a `Sfx_NN` label or a blob's
+// `.len` (comptime), never an end-minus-start. The patch files' interior Count/len
+// invariants are covered by the `.bin` twin verifier + ROM byte-identity.
 // ===========================================================================
 
 module data.sfx_bank
 
-// Mirrors of config/sound_ids.asm (R2), DERIVED from the table rows (design
-// decision 5) — zero bytes, and drift-proof from the SFX SET: a renumber that
-// changes the row set changes these automatically. They document the id contract
-// for readers exactly as the hand-written consts did.
-//
-// SEAM CLOSED: the ensure(extern(...))s below now
-// ALSO tie them back to sound_ids.asm at comptime (all three are ungated equs
-// there) — the same mechanism sound_api's SFXID mirrors use. So a drift in EITHER
-// direction (the table row set here, or the hand-owned counts in sound_ids.asm)
-// fails the link naming the field.
+// The id contract, DERIVED from the table rows — zero bytes, drift-proof from the
+// SFX SET: a renumber that changes the row set changes these automatically. The
+// `ensure(extern(...))`s below tie them to config/sound_ids.asm at comptime (all
+// three are ungated equs there — the same mechanism sound_api's SFXID mirrors
+// use), so a drift in EITHER direction (the table row set here, or the hand-owned
+// counts in sound_ids.asm) fails the link naming the field.
 const SFX_ID_BASE   = SfxTable.min_key   // $33
 const SFX_COUNT     = SfxTable.count     // 9
 const SFX_TABLE_LEN = SfxTable.len       // 135  (max_id - min_id + 1)
@@ -74,13 +60,13 @@ ensure(extern("SFX_ID_BASE") == SFX_ID_BASE, "SFX_ID_BASE drifted from config/so
 ensure(extern("SFX_COUNT") == SFX_COUNT, "SFX_COUNT drifted from config/sound_ids.asm: {SFX_COUNT}")
 ensure(extern("SFX_TABLE_LEN") == SFX_TABLE_LEN, "SFX_TABLE_LEN drifted from config/sound_ids.asm: {SFX_TABLE_LEN}")
 
-// ONE bank: $8000 section = the .asm block's implicit bank alignment + the :252
-// straddle fatal (subsumed by the property).
+// ONE `bank: $8000` section — the bank alignment + the always-on no-straddle
+// link assert.
 section sfx_bank (cpu: m68000, bank: $8000) {
-    // 9 SFX: one row per id. Payload (blob, pad, patches, pad — the .asm include
-    // stream) emits first (body: before), then the sparse id->blob cell table
-    // (135 cells, holes 0). Blob include order == id order == ascending key
-    // order (the ascending-key rule), so the payload stream is deterministic.
+    // 9 SFX: one row per id. Payload (blob, pad, patches, pad) emits first
+    // (body: before), then the sparse id->blob cell table (135 cells, holes 0).
+    // Blob order == id order == ascending key order (the ascending-key rule), so
+    // the payload stream is deterministic.
     table SfxTable (cell: *u8, key: $33..=$B9, hole: 0, item_align: 2, body: before) {
         $33: Sfx_33 = embed("sfx_33.bin"), Sfx_33_Patches = embed("sfx_33_patches.bin"),
         $34: Sfx_34 = embed("sfx_34.bin"), Sfx_34_Patches = embed("sfx_34_patches.bin"),
@@ -94,9 +80,26 @@ section sfx_bank (cpu: m68000, bank: $8000) {
     }
 }
 
-// The engine-table-head co-residency rule (main.asm:260 fatal) — Sfx_Frame reads
-// the FM-patch/pitch/opcode tables window-relative from the bank head, so the SFX
-// blobs MUST share it. Spelled as `bankid(X) == bankid("MovingTrucks_Bank_Start")`
+// The id->blob window-pointer layer the banked head table (sfx_blob_win_tab.emp)
+// consumes cross-module — one SFX_WIN_NN per blob, each the $8000-window pointer
+// of its Sfx_NN part label (winptr(L) = (L & $7FFF) | $8000, the old
+// boot_data.asm sfx_winptr() function folded at LINK from the placed address).
+// The head references these equs by name (the DAC SND_*_PTR mechanism); the
+// values live ONCE here, at the producer that owns the blob placement, so a
+// re-base of the SFX block re-folds every window pointer automatically.
+equ SFX_WIN_33 = winptr(Sfx_33)
+equ SFX_WIN_34 = winptr(Sfx_34)
+equ SFX_WIN_35 = winptr(Sfx_35)
+equ SFX_WIN_36 = winptr(Sfx_36)
+equ SFX_WIN_3C = winptr(Sfx_3C)
+equ SFX_WIN_62 = winptr(Sfx_62)
+equ SFX_WIN_AB = winptr(Sfx_AB)
+equ SFX_WIN_B6 = winptr(Sfx_B6)
+equ SFX_WIN_B9 = winptr(Sfx_B9)
+
+// The engine-table-head co-residency rule — Sfx_Frame reads the FM-patch/pitch/
+// opcode tables window-relative from the bank head, so the SFX blobs MUST share
+// it. Spelled as `bankid(X) == bankid("MovingTrucks_Bank_Start")`
 // rather than the equ name directly (bare cross-seam equ reads don't exist).
 // `Sfx_33` is this module's own data label (a table part label), so it rides the
 // bareword form; the cross-seam bank-start symbol keeps the string spelling.

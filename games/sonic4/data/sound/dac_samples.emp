@@ -1,8 +1,8 @@
 // ===========================================================================
 // data/sound/dac_samples.emp — ROM-resident DAC sample data (Phase 1B)
 // ===========================================================================
-// The .emp port of dac_samples.asm (this directory) — the exemplar the sound
-// migration copies. Raw 8-bit unsigned PCM (centered $80): the Z80 streams each
+// The canonical ROM-resident DAC sample data — the exemplar the sound migration
+// copies. Raw 8-bit unsigned PCM (centered $80): the Z80 streams each
 // blob through its $8000-$FFFF window, selected by the 9-bit bank latch at $6000.
 //
 // In the .asm the Z80-window banking invariant is hand-maintained with three
@@ -23,11 +23,11 @@
 //
 // Placement is HONEST: neither `bank:` section carries a `vma:` (a `bank:`
 // section WITH `vma:` is now a compile error), so labels follow the PLACED LMA —
-// VMA == LMA. The map regions pin `dac_blip_bank` at $50000 and `dac_shared_bank`
-// at $58000 (the aeon-f828406 layout); `bankid()` folds to $A / $B because the
-// bytes are GENUINELY in those banks, not because a `vma:` phase decoupled the
-// label address from the physical placement. A re-baseline moves the pins via
-// the harness PROVENANCE flow (regions place BY SECTION NAME).
+// VMA == LMA. The map regions pin `dac_blip_bank` at $48000 and `dac_shared_bank`
+// at $50000 (the current baseline, per aeon's s4.lst); `bankid()` folds to $9 / $A
+// because the bytes are GENUINELY in those banks, not because a `vma:` phase
+// decoupled the label address from the physical placement. A re-baseline moves
+// the pins via the harness PROVENANCE flow (regions place BY SECTION NAME).
 //
 // The blobs bind to `const` first because a blob's `.len` is only a readable
 // comptime int off a const binding (the `data K = embed(...)` readability gate);
@@ -40,8 +40,9 @@
 //     always-on no-straddle link assert.
 //   * the `align $8000`s — subsumed by the pinned map regions + `bank: $8000`.
 //
-// CONSUMERS (unchanged): engine/sound/dac_sample_tab.asm reads the SND_* equs
-// below via `db`/`dw` into its DacSample descriptors — Z80-side, still AS.
+// CONSUMER: engine/sound/dac_sample_tab.emp reads the SND_* equs below at LINK
+// (cross-module, co-linked) into its DacSample descriptors — the head is native
+// too; build.sh BINCLUDEs the co-linked dac_sample_tab.bin. No AS reader remains.
 // ===========================================================================
 
 module data.dac_samples
@@ -81,8 +82,8 @@ ensure(0 < S3kKickBlob.len   && S3kKickBlob.len   < $8000, "S3K DAC drum length 
 
 // ===========================================================================
 // The blip bank — the single 1B bring-up sample, alone in a $8000 window so one
-// bank id covers it and the Z80 never re-banks mid-sample. Pinned at $50000 by
-// the map (bank $A).
+// bank id covers it and the Z80 never re-banks mid-sample. Pinned at $48000 by
+// the map (bank $9).
 // ===========================================================================
 section dac_blip_bank (cpu: m68000, bank: $8000) {
     data Dac_Temp_Blip = BlipBlob
@@ -93,7 +94,7 @@ section dac_blip_bank (cpu: m68000, bank: $8000) {
 // The shared RAW 8-bit PCM drum bank — all nine drums (the 3 original
 // kick/snare/hat + the 6 S3K HCZ2 drums, ~30908 bytes) packed contiguously into
 // one $8000 window so a single bank id covers the whole region and FILL never
-// re-banks mid-sample. Pinned at $58000 by the map (bank $B). Order matches the
+// re-banks mid-sample. Pinned at $50000 by the map (bank $A). Order matches the
 // .asm exactly. The DPCM codec was dropped for drums (the shared bank made
 // compression moot; raw is higher-rate and cleaner).
 // ===========================================================================
@@ -111,9 +112,10 @@ section dac_shared_bank (cpu: m68000, bank: $8000) {
 
 
 // ===========================================================================
-// The build-time SND_* constants the DAC descriptor table (dac_sample_tab.asm)
-// reads directly — the per-sample {bank, ptr, len} triple, one per blob, spelled
-// EXACTLY as the .asm names them (external consumers depend on these names):
+// The build-time SND_* constants the DAC descriptor table (dac_sample_tab.emp)
+// reads cross-module at link — the per-sample {bank, ptr, len} triple, one per
+// blob, spelled EXACTLY as the co-linked head names them (the consumer folds
+// these SND_* by name at link):
 //   bank = bankid(L) → (L & $7F8000) >> 15   (link-folded from the placed addr)
 //   ptr  = winptr(L) → (L & $7FFF) | $8000    (link-folded)
 //   len  = Blob.len                            (comptime)
