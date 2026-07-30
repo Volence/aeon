@@ -413,8 +413,8 @@ SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK
         ; artifact sigil emits from sfx_bank.emp (the CANONICAL source — the .asm
         ; stream is deleted) — sfx_bank{,_debug}.bin — BINCLUDE'd at $5BAE8 (plain)
         ; / $5D53A (debug). No syms: no surviving AS code reads SfxTable
-        ; (sound_sfx.emp's SfxBlobWinTab reads are native). The old straddle/
-        ; co-residency fatals became sfx_bank.emp's link-time ensures (proven at
+        ; (sound_sfx.emp's SfxBlobWinTab reads are native). The straddle/
+        ; co-residency invariants are sfx_bank.emp's link-time ensures (proven at
         ; emit). Shape-dependent (the SfxTable pointer cells hold the per-shape
         ; absolute Sfx_NN addresses). build.sh's sigil emit step is a HARD dependency.
       ifdef __DEBUG__
