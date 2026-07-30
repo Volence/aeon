@@ -10,12 +10,11 @@
 // this module needs NO `-D` define — see the harness PROVENANCE on any
 // re-baseline for the per-shape map base.
 //
-// The win-tab (`sfx_blob_win_tab.asm`, the Z80 `phase 08000h` head passed to
-// `soundBankHead` at main.asm:147) STAYS driver-side `.asm` (R3 — it's
-// inseparable from the Z80 phase head). Its `dw sfx_winptr(Sfx_NN)` entries are
-// the tranche's only `.asm`->`.emp` reads: they resolve cross-seam via T0's `dw`
-// deferral. Those reads see the `Sfx_NN` PART labels the `table` defines below —
-// ordinary module-scoped data labels, real link symbols (design §3).
+// The win-tab (`sfx_blob_win_tab.emp`, the Z80 `phase 08000h` head BINCLUDE'd by
+// `soundBankHead`) references the `SFX_WIN_*` equ layer below cross-module — one
+// window pointer per blob, folded at the co-link from the `Sfx_NN` PART labels
+// the `table` defines. The equ layer lives here, at the producer that owns the
+// blob placement (the DAC `SND_*_PTR` mechanism).
 //
 // Pinned at $5BAE8 (plain) / $5D53A (debug) by the map region `sfx_bank` (R7,
 // PER SHAPE). Re-pin via the harness PROVENANCE flow on any re-baseline.

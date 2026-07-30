@@ -20,19 +20,37 @@
 ;   pitchfile  — game include that must define SndDefaultPitchTable (the
 ;                fallback pitch table sound_fm.asm uses when a song's
 ;                pitchtable_ptr is 0), inside the window.
-;   sfxtabfile — game include defining SfxBlobWinTab (the id->blob window-
-;                pointer table sound_sfx.asm's readers use under
-;                SetBank(SFX_BLOB_BANK)).
+; SfxBlobWinTab (the id->blob window-pointer table sound_sfx.emp's readers use
+; under SetBank(SFX_BLOB_BANK)) is BINCLUDE'd below as the byte-identical
+; artifact sigil co-links from sfx_blob_win_tab.emp + sfx_bank.emp's SFX_WIN_*
+; equs — sfx_blob_win_tab{,_debug}.bin (the .asm twin is deleted, seam-2 2d).
 ; The game must also define, at its bank start (BEFORE the phase bracket):
 ; a bank-start label and SND_ENGINE_TABLE_BANK = <label> >> 15.
 ;
 ; {GLOBALSYMBOLS}: every label in the included files must be a real global
 ; symbol — AS macro-expansion labels are macro-local by default and would
 ; both break the driver's references and vanish from the symbol table.
-soundBankHead macro pitchfile, sfxtabfile, {GLOBALSYMBOLS}
+soundBankHead macro pitchfile, {GLOBALSYMBOLS}
         include "engine/sound/sound_tables_z80.asm"
         include pitchfile
-        include sfxtabfile
+        ; seam-2 (stage-2d): the SfxBlobWinTab id->blob window-pointer head is the
+        ; byte-identical artifact sigil CO-LINKS from sfx_blob_win_tab.emp +
+        ; sfx_bank.emp's SFX_WIN_* equs — sfx_blob_win_tab{,_debug}.bin —
+        ; BINCLUDE'd here at VMA $845F (the .asm twin is deleted). The label MUST
+        ; precede the BINCLUDE (the resident driver's SfxBlobWinTab=$845F banked
+        ; carrier and sound_sfx.emp's `ld de, SfxBlobWinTab` depend on it).
+        ; SHAPE-DEPENDENT: the SFX blobs sit after the shape-dependent songs, so
+        ; every winptr(Sfx_NN) cell shifts with __DEBUG__.
+SfxBlobWinTab:
+      ifdef __DEBUG__
+        BINCLUDE "engine/sound/generated/sfx_blob_win_tab_debug.bin"
+      else
+        BINCLUDE "engine/sound/generated/sfx_blob_win_tab.bin"
+      endif
+SfxBlobWinTab_End:
+        if (SfxBlobWinTab_End-SfxBlobWinTab) <> SFX_TABLE_LEN*2
+          fatal "SfxBlobWinTab wrong size for SFX_TABLE_LEN"
+        endif
         include "engine/sound/seq_opcode_tab.asm"
         ; seam-2 (Option Y): the DacSampleTable descriptor head is the byte-identical
         ; artifact sigil CO-LINKS from dac_sample_tab.emp + dac_samples.emp's SND_*
