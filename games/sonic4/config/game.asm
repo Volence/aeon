@@ -36,8 +36,9 @@ SFXID_REV_LOOP = SFXID_SPINDASH   ; spindash-rev special case; -1 = feature off 
 ; SndDefaultPitchTable is an engine contract label: sound_fm.asm's
 ; Fm_NoteFromTable falls back to it when a song's pitchtable_ptr is 0. The
 ; song bank head MUST define it inside the $8000 window — Sonic 4 defines it
-; above MovingTrucks_PitchTable: in
-; games/sonic4/data/sound/movingtrucks_pitchtable.asm.
+; (aliased over MovingTrucks_PitchTable:) at the soundBankHead BINCLUDE of
+; movingtrucks_pitchtable.bin, which sigil lowers from
+; games/sonic4/data/sound/movingtrucks_pitchtable.emp.
 
 ; --- engine feature gates ---
 GAME_CAMERA_JUMP_LOCK = 1   ; camera suppresses down-scroll during jump states; requires game-defined _pl_state, PSTATE_JUMP, PSTATE_ROLLJUMP; 0 = plain deadzone follow
