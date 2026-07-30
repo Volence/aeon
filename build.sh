@@ -68,6 +68,28 @@ if [[ "${SOUND_DBG_MIRROR:-0}" == "1" ]]; then
     ASFLAGS="${ASFLAGS} -D SOUND_DBG_MIRROR"
 fi
 
+# seam-1 (Option A): THE NATIVE LINK IS THE BUILD. The resident sound blob is the
+# five sound .emp files linked NATIVELY by sigil, emitted to a binary asl BINCLUDEs
+# (the five .asm twins are DELETED — the .emp is the canonical source). THIS IS THE
+# FIRST HARD aeon→sigil BUILD DEPENDENCY: there is NO asl fallback, so a missing/
+# failed emitter is a HARD ERROR, never a silent skip. Byte-deterministic; the
+# ASSEMBLED-ROM CRC is the provenance bar.
+if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
+    SIGIL_EMIT="${SIGIL_EMIT:-}"
+    if [[ -z "${SIGIL_EMIT}" || ! -x "${SIGIL_EMIT}" ]]; then
+        echo "ERROR: seam-1 needs the sigil emit_sound_blob binary — set SIGIL_EMIT to it."
+        echo "  (the resident sound blob is sigil-native-linked; the .asm twins are gone,"
+        echo "   so there is no asl fallback — build the sigil toolchain first.)"
+        exit 1
+    fi
+    echo "Emitting the native-linked resident sound blob (sigil)..."
+    mkdir -p engine/sound/generated
+    if ! "${SIGIL_EMIT}" --aeon . --out-dir engine/sound/generated; then
+        echo "ERROR: sigil emit_sound_blob failed — cannot build the resident sound blob."
+        exit 1
+    fi
+fi
+
 if [[ "${PRINT_ERRORS_ONLY}" == "0" ]]; then
     ASFLAGS="${ASFLAGS} -E ${ROM_NAME}.log"
 fi

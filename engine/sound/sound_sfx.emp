@@ -62,27 +62,14 @@
 
 module engine.sound_sfx (cpu: z80)
 
-// --- The cross-seam resident callees this file calls (extern boundary of the
-// windowed oracle). Each `preserves(...)` set is VERIFIED BY HAND against the
-// co-resident `pub proc` def (the machine cross-check does NOT exist — the t36
-// extern-decl-vs-def drift hazard; kept exact-or-conservative-subset). ---
-// Sequencer-defined (sound_sequencer.emp):
-extern proc ModUpdate () preserves(ix)                  // def clobbers(af,bc,de,hl) preserves(ix) — EXACT
-extern proc Sequencer_Channel ()                        // def clobbers(af,bc,de,hl), NO preserves(ix) (t36 checker-limitation omission) — matched
-// FM-defined (sound_fm.emp):
-extern proc Fm_PatchLoad () preserves(ix)
-extern proc Fm_NoteOff () preserves(ix)
-extern proc Fm_SetVolume () preserves(ix)
-extern proc Fm_PatchPtr () preserves(ix)
-extern proc Fm_NoteOnFreqExact () preserves(ix)
-// PSG-defined (sound_psg.emp):
-extern proc Psg_NoteOff () preserves(ix)
-extern proc Psg_SetVolume () preserves(de, hl, ix)
-extern proc Psg_NoteOn () preserves(ix)
-extern proc Psg_Noise () preserves(ix)
-// Driver-defined (z80_sound_driver.asm — rung 4, DIE-AT-PORT boundary externs):
-extern proc SndDrv_SetBank () preserves(bc, de, ix)     // driver: clobbers af,hl; preserves bc,de,ix,iy
-extern proc Snd_RouteClassFlags () preserves(bc, de, hl, ix) // driver: clobbers af (out a); preserves bc,de,hl,ix,iy
+// The cross-module resident callees this file calls, resolved by import (each
+// contract is the co-resident `pub proc` definition's, so there is no hand-written
+// decl to drift). Sequencer_Channel's ix survival across its computed dispatch is
+// checker-invisible (see file header); Sfx_Frame clobbers ix regardless.
+use engine.sound_sequencer.{ModUpdate, Sequencer_Channel}
+use engine.sound_fm.{Fm_PatchLoad, Fm_NoteOff, Fm_SetVolume, Fm_PatchPtr, Fm_NoteOnFreqExact}
+use engine.sound_psg.{Psg_NoteOff, Psg_SetVolume, Psg_NoteOn, Psg_Noise}
+use engine.z80_sound_driver.{SndDrv_SetBank, Snd_RouteClassFlags}
 
 section sound_sfx (cpu: z80, vma: $0CD7) {
 

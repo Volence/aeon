@@ -70,18 +70,17 @@
 // untouched set. Several `.asm` `Clobbers` headers OVER-CLAIM `de` — de survives
 // by construction (never loaded with a port address; bracketed by push/pop across
 // the callees that all preserve it) — the checker verifies the honest set. The
-// external callee Mod_ReArm carries an `extern proc` contract so the oracle can
-// credit its ix/de preservation. Snd_ChanClass is DEFINED here (psg's biggest
-// extern trust converts to a checked definition this tranche).
+// cross-module callee Mod_ReArm resolves by import, so the oracle credits its
+// ix/de preservation from sound_sequencer's definition; Snd_ChanClass is DEFINED
+// in this module.
 // ===========================================================================
 
 module engine.sound_fm (cpu: z80, invariant: preserves(ix))
 
-// The one cross-module resident callee fm sub-calls (the FM key-on re-arm). Only
-// its PRESERVES set is load-bearing here (the callee-preserves oracle credits it):
-// Mod_ReArm preserves bc/de/hl/ix. (Snd_ChanClass is DEFINED in this module now,
-// so it is no longer an extern trust.)
-extern proc Mod_ReArm () preserves(bc, de, hl, ix)
+// The one cross-module resident callee fm sub-calls (the FM key-on re-arm),
+// resolved by import; its contract is sound_sequencer's definition. (Snd_ChanClass
+// is DEFINED in this module.)
+use engine.sound_sequencer.{Mod_ReArm}
 
 // FM writer scratch (Z80 RAM in the free sequencer block; single-threaded — only
 // Sequencer_Frame reaches the FM writer, so a static scratch is safe). Placed at

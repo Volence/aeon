@@ -90,29 +90,22 @@
 // cartridge-bus contention), and it is transient (DRAIN spans only a DMA window,
 // DRAINING only the buffered tail) -> ACCEPTED, not fixed.
 //
-// --- INBOUND TRUST CONVERSIONS (the Mod_ReArm precedent) -------------------
-// Four already-ported files declared `extern proc` on symbols this driver
-// DEFINES (die-at-port boundary decls to the then-unported rung-4 driver). The
-// real defs below satisfy them; each hand-declared extern is a CONSERVATIVE
-// SUBSET of the real closure (stated at each def site):
-//   sound_sfx.emp:84  SndDrv_SetBank ()  preserves(bc,de,ix)          (omits iy)
-//   sound_sfx.emp:85  Snd_RouteClassFlags () preserves(bc,de,hl,ix)   (omits iy + out(a))
-//   sound_sequencer.emp:100 Snd_StartSample () preserves(ix)          (omits iy)
-//   sound_sequencer.emp:101 Snd_DacLookup () out(hl,carry:ok) preserves(ix) (omits bc,iy)
-// All four are safe subsets — no drift. They stay in sfx/sequencer as the
-// windowed-oracle boundary until the SEAM SUB-TRANCHE (extern -> import).
+// --- INBOUND CALLEES THIS DRIVER DEFINES -----------------------------------
+// Four symbols the sibling sound modules `use`-import from this driver:
+// SndDrv_SetBank + Snd_RouteClassFlags (sound_sfx) and Snd_StartSample +
+// Snd_DacLookup (sound_sequencer). The importer's credit is DERIVED from the def
+// below (its declared clauses, clobbers-complemented), so there is no separate
+// caller-side decl to drift from the definition.
 // ===========================================================================
 
 module engine.z80_sound_driver (cpu: z80)
 
-// The cross-file resident callees this driver calls (windowed-oracle boundary;
-// `extern proc` decls that DIE at the seam sub-tranche). Sequencer_Frame is the
-// only shape-invariant target ($0565); the other three shift +$7E in the debug
-// shape. Run_SeqFrame_OnSongBank relies on Sequencer_Frame preserving iy.
-extern proc Sequencer_Frame () preserves(iy)
-extern proc Sequencer_StopAll ()
-extern proc Sfx_StopAll ()
-extern proc SfxDispatch ()
+// The cross-file resident callees this driver calls, resolved by import.
+// Sequencer_Frame is the only shape-invariant target ($0565); the other three
+// shift +$7E in the debug shape. SndDrv_IdleTick relies on Sequencer_Frame
+// preserving iy (its definition clobbers af/bc/de/hl/ix — iy untouched).
+use engine.sound_sequencer.{Sequencer_Frame, Sequencer_StopAll}
+use engine.sound_sfx.{Sfx_StopAll, SfxDispatch}
 
 section z80_sound_driver (cpu: z80, vma: $0000) {
 
@@ -123,7 +116,15 @@ section z80_sound_driver (cpu: z80, vma: $0000) {
     // so the $0038 vector is reached by zero-filling $0003..$0037 with real bytes
     // ($00) that the boot loader copies — the vector then physically lands at
     // $0038. (Twin: `rept 38h-$ / db 0`; here: the explicit 53-byte fill below.)
-    pub proc Z80_Sound_Start () clobbers() {
+    // The blob-internal reset-vector entry at the phased VMA $0000. Named
+    // Z80_Sound_Entry, NOT Z80_Sound_Start: the 68k symbol `Z80_Sound_Start` is the
+    // blob's LMA ($3DE) — owned by the boot_data.asm gate arm (the boot copy +
+    // layout-assert wall read it there), and the AS twin defines it as the pre-phase
+    // label, never at VMA $0000. Reusing that name here would name the same point in
+    // two address spaces and collide at the native link. Reached by the Z80 reset,
+    // never by symbol. Non-returning: `jp SndDrv_Init` runs the whole driver, so it
+    // clobbers everything transitively (the contract is vacuous — no caller returns).
+    proc Z80_Sound_Entry () clobbers(af, bc, de, hl, ix, iy) {
         jp      SndDrv_Init             // $0000-$0002
     }
 
@@ -137,7 +138,9 @@ section z80_sound_driver (cpu: z80, vma: $0000) {
     ]
 
     // $0038: RST 38h / IM1 VBlank vector -> the minimal VBlank ISR (mailbox poll).
-    pub proc SndDrv_VBlank () clobbers() {
+    // `jp SndDrv_ISR` folds its callee's clobbers: SndDrv_ISR destroys ix/iy (the
+    // idle context holds none live across `ei`, so the ISR need not save them).
+    pub proc SndDrv_VBlank () clobbers(ix, iy) {
         jp      SndDrv_ISR
     }
 
@@ -147,7 +150,7 @@ section z80_sound_driver (cpu: z80, vma: $0000) {
     // the producer's DRAIN path (gated on the 68k's SND_CTRL_DMA_ACTIVE flag), not
     // the ISR's job. `ei` is issued only AFTER the ring is primed. Falls into the
     // IDLE loop.
-    pub proc SndDrv_Init () clobbers(af, bc, de, hl) falls_into SndDrv_Idle {
+    pub proc SndDrv_Init () clobbers(af, bc, de, hl, ix, iy) falls_into SndDrv_Idle {
         di
         im      1                       // VBlank /INT -> RST 38h -> $0038
         ld      sp, SND_STACK_TOP       // stack top $1FFE (z80-ram-map spec)
@@ -254,7 +257,7 @@ section z80_sound_driver (cpu: z80, vma: $0000) {
     // the SEQUENCER ticks while the DAC is silent (a song whose first DAC trigger
     // is its $E2 needs a tick to run before the DAC starts). On overflow: rearm +
     // tick, then re-check DAC_ACTIVE to enter the streaming loop.
-    pub proc SndDrv_Idle () clobbers(af, bc, de, hl, ix) {
+    pub proc SndDrv_Idle () clobbers(af, bc, de, hl, ix, iy) {
         di
         ld      a, (SND_STAT_DAC_ACTIVE)
         or      a
@@ -289,7 +292,9 @@ section z80_sound_driver (cpu: z80, vma: $0000) {
     // Idle-context Timer-A frame: rearm + run the per-frame engine, then restore
     // de=$4001 (Sequencer_Frame clobbers de). Returns to the idle loop, which
     // re-checks DAC_ACTIVE at the top so a $E2-armed sample enters streaming next.
-    pub proc SndDrv_IdleTick () clobbers(af, bc, de, hl, ix) preserves(iy) {
+    // Clobbers iy: Run_SeqFrame_OnSongBank -> Sequencer_Frame -> Sfx_Frame destroys
+    // it (safe — the idle context holds no live iy).
+    pub proc SndDrv_IdleTick () clobbers(af, bc, de, hl, ix, iy) {
         call    Snd_TimerA_Rearm        // clear overflow, keep counting, re-park $2A
         call    Run_SeqFrame_OnSongBank // B1: frame on song bank, restore sample bank
         ld      de, SND_Z80_YM_A1       // restore de = $4001 (DAC DATA port invariant)
@@ -813,9 +818,11 @@ section z80_sound_driver (cpu: z80, vma: $0000) {
     // $8000 window on the SONG bank, then restore it to the SAMPLE bank. The frame
     // engine streams the song through the window (must see the song bank); the DAC
     // FILL reads the sample payload through the same window (bank restored after).
-    // Both SetBanks are cached. Clobbers af,bc,de,hl,ix (= Sequencer_Frame's set).
-    // The tail-call does NOT re-park $2A or restore de=$4001 — CALLERS must.
-    pub proc Run_SeqFrame_OnSongBank () clobbers(af, bc, de, hl, ix) preserves(iy) {
+    // Both SetBanks are cached. Clobbers af,bc,de,hl,ix,iy (= Sequencer_Frame's
+    // set — its `jp Sfx_Frame` tail destroys iy; there is no push/pop bracket here,
+    // so this pass does NOT preserve iy). The tail-call does NOT re-park $2A or
+    // restore de=$4001 — CALLERS must.
+    pub proc Run_SeqFrame_OnSongBank () clobbers(af, bc, de, hl, ix, iy) {
         ld      a, (SND_SONG_BANK)
         call    SndDrv_SetBank          // window -> song bank (cached no-op if current)
         call    Sequencer_Frame         // one per-frame engine pass (reads the song stream)
