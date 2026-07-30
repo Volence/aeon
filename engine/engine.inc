@@ -77,156 +77,81 @@
 
     org 0
     include "engine/system/header.inc"
-    ifndef SIGIL_EMP_VECTORS
-        include "engine/system/vectors.asm"
-    else
-        ; sigil mixed build: the 64-entry vector table ($000-$0FF) comes from
-        ; engine/system/vectors.emp, placed by the sigil map at base 0. The
-        ; region is FIXED SIZE (256 bytes, pure data), so resume placement at
-        ; org $100 — the header lands exactly where vectors.asm's 64 dc.l would
-        ; leave it. Structurally byte-neutral (the boundary is fixed).
-        org     $100
-    endif
+    ; The 64-entry vector table ($000-$0FF) is native (engine/system/vectors.emp),
+    ; placed by the sigil map at base 0. The region is FIXED SIZE (256 bytes, pure
+    ; data), so the AS residual resumes at org $100 — the header lands exactly
+    ; where vectors.asm's 64 dc.l would leave it (the boundary is fixed).
+    org     $100
     gameHeader
 
 ; -----------------------------------------------
 ; Engine code
 ; -----------------------------------------------
 __BUDGET_ENGINE:
-    ifndef SIGIL_EMP_BOOT
-        include "engine/system/boot.asm"
-    else
-        ; sigil mixed build: the boot code (EntryPoint through the GameLoop
-        ; entry) comes from engine/system/boot.emp, pinned by the sigil map at
-        ; the per-shape reference address. Resume placement at the BootData
-        ; table — the data tail below stays AS-side in BOTH arms (the .emp
-        ; reaches it via `lea BootData(pc)` and the link seam), so no splice
-        ; window ever crosses the nested Z80 source include. Shape-DEPENDENT
-        ; length (debug +4: the __DEBUG__ bsr.w CompressionSelfTest).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; EntryPoint..GameLoop entry (boot): native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $3AC
-      else
+    else
         org     $3A8
-      endif
     endif
     include "engine/system/boot_data.asm"
-    ifndef SIGIL_EMP_VDP_INIT
-        include "engine/system/vdp_init.asm"
-    else
-        ; sigil mixed build: VDP_Shadow_Init/Flush_VDP_Shadow come from
-        ; engine/system/vdp_init.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; VDP_Shadow_Init/Flush_VDP_Shadow: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $1CD4
-      else
+    else
         org     $1C52
-      endif
     endif
-    ifndef SIGIL_EMP_DMA_QUEUE
-        include "engine/system/dma_queue.asm"
-    else
-        ; sigil mixed build: the 3-priority DMA queue (Init_DMA_Queue,
-        ; QueueDMA_* + the shared transfer core, Process_DMA_*,
-        ; Drain_Budgeted_Queue) comes from engine/system/dma_queue.emp, pinned
-        ; by the sigil map at the per-shape reference address. Resume placement
-        ; at the region end (buffers.asm's Init_SpriteTable). Shape-DEPENDENT
-        ; length ($302 plain / $306 debug — the debug surplus is the
-        ; overflow-count bump in the enqueue's full-queue arm), so the two
-        ; resume orgs differ by more than the base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; Init_DMA_Queue/QueueDMA_*/Process_DMA_*: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $1FDA
-      else
+    else
         org     $1F54
-      endif
     endif
-    ifndef SIGIL_EMP_BUFFERS
-        include "engine/system/buffers.asm"
-    else
-        ; sigil mixed build: Init_SpriteTable/BuildStaticDMA/PlaneMapToVRAM/
-        ; Enqueue_Dirty_Buffers come from engine/system/buffers.emp, pinned by
-        ; the sigil map at the per-shape reference address. Resume placement
-        ; at the region end (vblank.asm's VBlank_Handler). Shape-INVARIANT
-        ; length (no ifdef arms), so the two orgs differ only by the base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; Init_SpriteTable/BuildStaticDMA/PlaneMapToVRAM: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $2232
-      else
+    else
         org     $21AC
-      endif
     endif
-    ifndef SIGIL_EMP_VBLANK
-        include "engine/system/vblank.asm"
-    else
-        ; sigil mixed build: VBlank_Handler/VInt_Level/VInt_Lag/VSync_Wait come
-        ; from engine/system/vblank.emp, pinned by the sigil map at the
-        ; per-shape reference address. Resume placement at the region end
-        ; (hblank.asm's HBlank_Install). Shape-DEPENDENT length ($130 plain /
-        ; $138 debug — the debug surplus is VInt_Lag's lag-frame counter bump
-        ; + VSync_Wait's DMA-bytes clear), so the two resume orgs differ by
-        ; more than the base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; VBlank_Handler/VInt_Level/VInt_Lag/VSync_Wait: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $236A
-      else
+    else
         org     $22DC
-      endif
     endif
-    ifndef SIGIL_EMP_HBLANK
-        include "engine/system/hblank.asm"
-    else
-        ; sigil mixed build: HBlank_Install/HBlank_Uninstall come from
-        ; engine/system/hblank.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; HBlank_Install/HBlank_Uninstall: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $23B2
-      else
+    else
         org     $2324
-      endif
     endif
-    ifndef SIGIL_EMP_CONTROLLERS
-        include "engine/system/controllers.asm"
-    else
-        ; sigil mixed build: Read_Controllers comes from
-        ; engine/system/controllers.emp, pinned by the sigil map at the
-        ; per-shape reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; Read_Controllers: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $2428
-      else
-        org     $239A
-      endif
-    endif
-    ifndef SIGIL_EMP_GAME_LOOP
-        include "engine/system/game_loop.asm"
     else
-        ; sigil mixed build: GameLoop/GameState_Idle come from
-        ; engine/system/game_loop.emp, pinned by the sigil map at the
-        ; per-shape reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; The .emp takes -D SOUND_DRIVER_ENABLED / -D SOUND_DEBUG_HOTKEYS
-        ; (0|1) and mirrors BOTH conditionals, including sonic4's
-        ; gameDebugTick expansion (see games/sonic4/config/game.asm).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+        org     $239A
+    endif
+    ; GameLoop/GameState_Idle: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $243A
-      else
+    else
         org     $23AC
-      endif
     endif
     ; S4LZ_DecompressDict/S4LZ_Decompress are native (engine/compression/
     ; s4lz_decompress.emp, sigil-map-pinned at the per-shape reference address).
