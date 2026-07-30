@@ -325,22 +325,15 @@ __BUDGET_ENGINE:
     else
         org     $620A
     endif
-    ifndef SIGIL_EMP_COMPRESSION_SELFTEST
-        include "engine/debug/compression_selftest.asm"
-    else
-        ; sigil mixed build: CompressionSelfTest comes from
-        ; engine/debug/compression_selftest.emp — a DEBUG-ONLY region (the
-        ; twin is whole-file `ifdef __DEBUG__`): the plain shape emits nothing
-        ; and placement stays at the previous region's resume org, so there is
-        ; no plain org arm. The generated golden-vector data (CSelf_*/CSELF_*,
-        ; tools/gen_compression_vectors.py) stays AS-side here — the .emp
-        ; consumes those symbols cross-seam at link.
-        ; NOTE: the org value is a sonic4-shape address — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; CompressionSelfTest is native (engine/debug/compression_selftest.emp) — a
+    ; DEBUG-ONLY region: the plain shape emits nothing, so placement stays at the
+    ; previous region's resume org (no plain arm). The generated golden-vector data
+    ; (CSelf_*/CSELF_*, tools/gen_compression_vectors.py) stays AS-side here — the
+    ; .emp consumes those symbols cross-seam at link. The org is a sonic4-shape
+    ; address; the off-canonical frozen-table chainer ignores it.
+    ifdef __DEBUG__
         org     $72BE
         include "engine/debug/generated/vectors.asm"
-      endif
     endif
     ifdef SOUND_DRIVER_ENABLED
       ifndef SIGIL_EMP_SOUND_API
@@ -364,16 +357,13 @@ __BUDGET_ENGINE:
     endif
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
-        ifndef SIGIL_EMP_SOUND_DEBUG
-        include "engine/debug/sound_debug.asm"
-        else
-        ; sigil mixed build (off-canonical Config A: __DEBUG__ + SOUND_DRIVER_ENABLED
-        ; + SOUND_DBG_MIRROR): Sound_DebugMirror comes from sound_debug.emp, placed
-        ; by the sigil map at the region start. org resumes at the region end.
-        ; Canonically sound_debug.asm emits ZERO bytes (the third gate SOUND_DBG_MIRROR
-        ; is off in every shipped build), so the gate-OFF build is byte-neutral. This
-        ; org value is the CONFIG-A sonic4-shape address — the gate define must NEVER
-        ; be set except by the sigil off-canonical whole-ROM gate at Config A.
+        ifdef SIGIL_EMP_SOUND_DEBUG
+        ; Sound_DebugMirror is native (engine/debug/sound_debug.emp), placed by the
+        ; sigil map (Config-A only: __DEBUG__ + SOUND_DRIVER_ENABLED + SOUND_DBG_MIRROR).
+        ; org resumes at the region end. Canonically this region emits ZERO bytes
+        ; (SOUND_DBG_MIRROR off in every shipped build), so the canonical shapes place
+        ; nothing here (the gate is set only by the sigil Config-A whole-ROM build) —
+        ; byte-neutral. This org is the CONFIG-A sonic4-shape address.
         org     $827C
         endif
       endif
@@ -418,30 +408,24 @@ __BUDGET_DATA:
 NullInterrupt:
     rte
 
-    ifndef SIGIL_EMP_ERROR_HANDLER
-        include "engine/debug/error_handler.asm"
-    else
-        ; sigil mixed build: the exception-vector stubs (BusError..) and the MD
-        ; Debugger blob come from engine/debug/error_handler.emp (ErrorHandlerBlob),
-        ; placed by the sigil map. ErrorHandler is a LINK ALIAS of that .emp label:
-        ; the MDDBG__ equ table (mddbg_symbols.asm, always included below) derives
-        ; MDDBG__X = ErrorHandler+off off this extern base, and the sigil link folds
-        ; the arithmetic per shape AND per game (the "equ off link-external base"
-        ; capability — sigil links it; an asl build cannot, so this gate is never set
-        ; in the asl default build). The blob's .emp label is named ErrorHandlerBlob
-        ; so this alias is not self-referential.
-        ;
-        ; The org resumes AS-residual placement at EndOfRom (error_handler emits
-        ; nothing after the region, so the resume address IS EndOfRom). Its value is
-        ; sonic4-shape; for an off-canonical game the frozen-table chainer relocates
-        ; the resumed section to that game's EndOfRom.
-      ifdef __DEBUG__
+    ; The exception-vector stubs (BusError..) and the MD Debugger blob are native
+    ; (engine/debug/error_handler.emp, ErrorHandlerBlob), placed by the sigil map in
+    ; every build. ErrorHandler is a LINK ALIAS of that .emp label: the MDDBG__ equ
+    ; table (mddbg_symbols.asm, included below) derives MDDBG__X = ErrorHandler+off
+    ; off this extern base, and the sigil link folds the arithmetic per shape AND per
+    ; game (the "equ off link-external base" capability — an asl build cannot). The
+    ; blob's .emp label is named ErrorHandlerBlob so this alias is not self-referential.
+    ;
+    ; The org resumes AS-residual placement at EndOfRom (error_handler emits nothing
+    ; after the region, so the resume address IS EndOfRom). Its value is sonic4-shape;
+    ; the off-canonical frozen-table chainer relocates the resumed section to that
+    ; game's EndOfRom.
+    ifdef __DEBUG__
         org     $5F65A                      ; EndOfRom (sonic4 debug) = BusError($5E5AA) + region $10B0
-      else
+    else
         org     $5DB60                      ; EndOfRom (sonic4 plain) = BusError($5CAB0) + region $10B0
-      endif
-ErrorHandler = ErrorHandlerBlob             ; link alias — resolved per shape/game
     endif
+ErrorHandler = ErrorHandlerBlob             ; link alias — resolved per shape/game
     include "engine/debug/mddbg_symbols.asm"
 
 ; -----------------------------------------------
