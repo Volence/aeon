@@ -1725,7 +1725,7 @@ section sound_sequencer (cpu: z80, vma: $0565) {
         jp      Fm_NoteOn
     }
 
-    pub proc Seq_HookNoteOff () clobbers(af) preserves(ix) {
+    pub proc Seq_HookNoteOff () clobbers(af, bc) preserves(ix) {
         bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
         ret     nz
         bit     SCF_IS_FM_B, (ix+sc_flags)
@@ -1735,7 +1735,7 @@ section sound_sequencer (cpu: z80, vma: $0565) {
         jp      Psg_NoteOff
     }
 
-    pub proc Seq_HookSetVol () clobbers(af, bc) preserves(ix) {
+    pub proc Seq_HookSetVol () clobbers(af, bc, de, hl) preserves(ix) {
         bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
         ret     nz
         bit     SCF_IS_FM_B, (ix+sc_flags)

@@ -74,14 +74,12 @@
 // each result register, `clobbers(...)` the destroyed scratch (the `af` split —
 // `a` is the result, `f` the flag scratch), `preserves(...)` the save/restored or
 // untouched set (a false clobber comment caused a prior bug — the checker closes
-// that class). The external callees carry `extern proc` contracts so the oracle
-// can credit their ix (and de) preservation.
+// that class). The cross-module callees resolve by import, so the oracle credits
+// their ix (and de) preservation from the definitions' own contracts.
 // ===========================================================================
 
 module engine.sound_psg (cpu: z80, invariant: preserves(ix))
 
-// The cross-module resident callees this file tail-/sub-calls. Only their
-// PRESERVES set is load-bearing here (the callee-preserves oracle credits it):
 // The cross-module resident callees psg sub-calls, resolved by import: their
 // contracts (including the project-wide ix preservation) are the definitions'.
 // Snd_ChanClass classifies the active channel (preserves bc/de, on which

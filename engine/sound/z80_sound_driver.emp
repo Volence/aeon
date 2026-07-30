@@ -90,17 +90,12 @@
 // cartridge-bus contention), and it is transient (DRAIN spans only a DMA window,
 // DRAINING only the buffered tail) -> ACCEPTED, not fixed.
 //
-// --- INBOUND TRUST CONVERSIONS (the Mod_ReArm precedent) -------------------
-// Four already-ported files declared `extern proc` on symbols this driver
-// DEFINES (die-at-port boundary decls to the then-unported rung-4 driver). The
-// real defs below satisfy them; each hand-declared extern is a CONSERVATIVE
-// SUBSET of the real closure (stated at each def site):
-//   sound_sfx.emp:84  SndDrv_SetBank ()  preserves(bc,de,ix)          (omits iy)
-//   sound_sfx.emp:85  Snd_RouteClassFlags () preserves(bc,de,hl,ix)   (omits iy + out(a))
-//   sound_sequencer.emp:100 Snd_StartSample () preserves(ix)          (omits iy)
-//   sound_sequencer.emp:101 Snd_DacLookup () out(hl,carry:ok) preserves(ix) (omits bc,iy)
-// All four are safe subsets — no drift. They stay in sfx/sequencer as the
-// windowed-oracle boundary until the SEAM SUB-TRANCHE (extern -> import).
+// --- INBOUND CALLEES THIS DRIVER DEFINES -----------------------------------
+// Four symbols the sibling sound modules `use`-import from this driver:
+// SndDrv_SetBank + Snd_RouteClassFlags (sound_sfx) and Snd_StartSample +
+// Snd_DacLookup (sound_sequencer). The importer's credit is DERIVED from the def
+// below (its declared clauses, clobbers-complemented), so there is no separate
+// caller-side decl to drift from the definition.
 // ===========================================================================
 
 module engine.z80_sound_driver (cpu: z80)
@@ -155,7 +150,7 @@ section z80_sound_driver (cpu: z80, vma: $0000) {
     // the producer's DRAIN path (gated on the 68k's SND_CTRL_DMA_ACTIVE flag), not
     // the ISR's job. `ei` is issued only AFTER the ring is primed. Falls into the
     // IDLE loop.
-    pub proc SndDrv_Init () clobbers(af, bc, de, hl) falls_into SndDrv_Idle {
+    pub proc SndDrv_Init () clobbers(af, bc, de, hl, ix, iy) falls_into SndDrv_Idle {
         di
         im      1                       // VBlank /INT -> RST 38h -> $0038
         ld      sp, SND_STACK_TOP       // stack top $1FFE (z80-ram-map spec)
