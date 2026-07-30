@@ -4,8 +4,8 @@ consistent, with NO donor project required.
 
 The OJZ level tree (games/sonic4/data/generated/) ships as committed artifacts
 the build consumes directly; its generators read out-of-repo donors so the build
-cannot re-derive it (see tools/regenerate-level.sh, the level-gen parcel). This
-is the level analogue of tools/verify_emit_bin.py: it fails the build LOUDLY if a
+cannot re-derive it (see tools/regenerate-level.sh, the level-gen parcel). It
+fails the build LOUDLY if a
 committed head was hand-edited, or a referenced blob went missing, or a .zx0 page
 drifted from its .bin — the drift a whole-ROM byte gate only catches once the ROM
 already moved. It does NOT re-run the generators (those need the donor); it checks

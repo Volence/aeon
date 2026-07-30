@@ -70,9 +70,8 @@ if [[ -z "${SIGIL_BUILD}" || ! -x "${SIGIL_BUILD}" ]]; then
 fi
 
 # The resident sound blob + banked sound data are sigil-native-linked (seam-1/seam-2);
-# the native build regenerates them in-process, but the preflight populates
-# engine/sound/generated so verify_emit_bin can check the twins first. Sound-ON games
-# only (demo is silent).
+# this preflight regenerates engine/sound/generated (the .bin blobs main.asm and
+# boot_data.asm BINCLUDE) from the .emp sources. Sound-ON games only (demo is silent).
 if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
     SIGIL_EMIT="${SIGIL_EMIT:-}"
     if [[ -z "${SIGIL_EMIT}" || ! -x "${SIGIL_EMIT}" ]]; then
@@ -109,15 +108,6 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
         echo "Lint errors found — fix before assembling."
         exit 1
     fi
-fi
-
-# Generated sound data ships as .asm/.bin twins (the .asm for this asl build,
-# the .bin for sigil `embed` — sound-migration DSM.4). A regen that updates one
-# twin but not the other drifts the two builds apart silently; fail fast here.
-echo "Verifying generated sound .asm/.bin twins..."
-if ! python3 "${TOOLS}/verify_emit_bin.py"; then
-    echo "Generated .asm/.bin twin mismatch — re-run the emitter with --emit-bin, then rebuild."
-    exit 1
 fi
 
 # The committed OJZ level tree is consumed directly (its generators need
