@@ -1,0 +1,73 @@
+// ===========================================================================
+// data/sound/sfx_blob_win_tab.emp — id -> blob $8000-window pointer table
+// (dense, indexed by id - SFX_ID_BASE over [$33..$B9]).
+// ===========================================================================
+// The .emp port of sfx_blob_win_tab.asm (this directory). 135 little-endian
+// words: one $8000-window pointer per SFX id in the dense [$33..$B9] range, 0
+// for an unused id. sound_sfx.emp's readers (SfxDispatch, Sfx_BeginSound) index
+// it as SfxBlobWinTab[id - SFX_ID_BASE] under SetBank(SFX_BLOB_BANK).
+//
+// Each real entry is an SFX_WIN_NN equ from sfx_bank.emp — the $8000-window
+// pointer of that blob's Sfx_NN part label (winptr(Sfx_NN), folded at LINK from
+// the placed blob address). The equ layer lives at the producer that owns the
+// SFX block placement, so this head references it by name cross-module (the DAC
+// SND_*_PTR mechanism); a re-base of the SFX block re-folds every pointer.
+//
+// SHAPE-DEPENDENT CONTENT: the SFX blobs sit AFTER the shape-dependent song
+// tables (plain base $5BAE8 / debug $5D53A), so every SFX_WIN_NN — and thus
+// every real cell here — shifts with the build shape, even though this table's
+// own bank-head position is fixed. The emitter co-links this head with
+// sfx_bank.emp PER SHAPE and emits sfx_blob_win_tab{,_debug}.bin.
+//
+// BANKED at the engine-table head of the song/SFX bank (main.asm's
+// `cpu z80 / phase 08000h` block), so it costs ZERO against the resident
+// Z80-code ceiling. The table label equals its $8000-window pointer; the
+// readers need no code change (indexed read).
+//
+// BANK GUARANTEE at the read sites: SfxDispatch/Sfx_BeginSound SetBank(
+// SFX_BLOB_BANK) BEFORE the lookup, and SFX_BLOB_BANK == SND_ENGINE_TABLE_BANK
+// == this bank (main.asm's SFX co-residency guard / sfx_bank.emp's ensure).
+// ===========================================================================
+
+module data.sfx_blob_win_tab (cpu: z80)
+
+// Partial mirror of the AS twin's `(End-Start) <> SFX_TABLE_SPAN*2 / error`
+// span guard: this checks that the DECLARED span (135 cells, the hand literal
+// this table's explicit body emits) still equals the engine's SFX_TABLE_LEN
+// (config/sound_ids.asm, an ungated equ). It does NOT read the EMITTED span, so
+// unlike the AS `End-Start` half it cannot catch this body emitting the wrong
+// NUMBER of cells — that awaits a comptime section-length primitive (gap-
+// ledgered); until then the AS twin's canonical span guard + the co-link byte
+// gate cover body-length drift. A renumber that grows the SFX id range bumps
+// SFX_TABLE_LEN and fires this, prompting a matching edit here.
+ensure(135 == extern("SFX_TABLE_LEN"),
+       "SfxBlobWinTab span (135 cells) disagrees with SFX_TABLE_LEN (config/sound_ids.asm)")
+
+// Pure data table — the proc emits only `dc.w` cells and touches no register, so
+// `clobbers()` is the honest empty contract.
+section sfx_blob_win_tab (cpu: z80, vma: $8000) {
+    pub proc SfxBlobWinTab () clobbers() {
+        dc.w    SFX_WIN_33          // $33 RING_RIGHT
+        dc.w    SFX_WIN_34          // $34 RING_LEFT
+        dc.w    SFX_WIN_35          // $35 DEATH
+        dc.w    SFX_WIN_36          // $36 SKID
+        dc.w    0, 0, 0, 0, 0   // $37..$3B unused (5)
+        dc.w    SFX_WIN_3C          // $3C ROLL
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0   // $3D..$61 unused (37)
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        dc.w    0
+        dc.w    SFX_WIN_62          // $62 JUMP
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0   // $63..$AA unused (72)
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        dc.w    SFX_WIN_AB          // $AB SPINDASH
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0   // $AC..$B5 unused (10)
+        dc.w    SFX_WIN_B6          // $B6 DASH
+        dc.w    0, 0   // $B7..$B8 unused (2)
+        dc.w    SFX_WIN_B9          // $B9 RINGLOSS
+    }
+}

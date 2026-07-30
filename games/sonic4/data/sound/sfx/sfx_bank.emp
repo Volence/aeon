@@ -94,6 +94,23 @@ section sfx_bank (cpu: m68000, bank: $8000) {
     }
 }
 
+// The id->blob window-pointer layer the banked head table (sfx_blob_win_tab.emp)
+// consumes cross-module — one SFX_WIN_NN per blob, each the $8000-window pointer
+// of its Sfx_NN part label (winptr(L) = (L & $7FFF) | $8000, the old
+// boot_data.asm sfx_winptr() function folded at LINK from the placed address).
+// The head references these equs by name (the DAC SND_*_PTR mechanism); the
+// values live ONCE here, at the producer that owns the blob placement, so a
+// re-base of the SFX block re-folds every window pointer automatically.
+equ SFX_WIN_33 = winptr(Sfx_33)
+equ SFX_WIN_34 = winptr(Sfx_34)
+equ SFX_WIN_35 = winptr(Sfx_35)
+equ SFX_WIN_36 = winptr(Sfx_36)
+equ SFX_WIN_3C = winptr(Sfx_3C)
+equ SFX_WIN_62 = winptr(Sfx_62)
+equ SFX_WIN_AB = winptr(Sfx_AB)
+equ SFX_WIN_B6 = winptr(Sfx_B6)
+equ SFX_WIN_B9 = winptr(Sfx_B9)
+
 // The engine-table-head co-residency rule (main.asm:260 fatal) — Sfx_Frame reads
 // the FM-patch/pitch/opcode tables window-relative from the bank head, so the SFX
 // blobs MUST share it. Spelled as `bankid(X) == bankid("MovingTrucks_Bank_Start")`
