@@ -228,35 +228,22 @@ __BUDGET_ENGINE:
         org     $23AC
       endif
     endif
-    ifndef SIGIL_EMP_S4LZ
-        include "engine/compression/s4lz_decompress.asm"
-    else
-        ; sigil mixed build: S4LZ_DecompressDict/S4LZ_Decompress come from
-        ; engine/compression/s4lz_decompress.emp, pinned by the sigil map at
-        ; the per-shape reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; S4LZ_DecompressDict/S4LZ_Decompress are native (engine/compression/
+    ; s4lz_decompress.emp, sigil-map-pinned at the per-shape reference address).
+    ; The AS residual resumes past the native region. These sonic4-shape orgs are
+    ; used directly by the canonical sonic4 build; the off-canonical chainer
+    ; (demo/Config) derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $263A
-      else
-        org     $24A4
-      endif
-    endif
-    ifndef SIGIL_EMP_ZX0
-        include "engine/compression/zx0_decompress.asm"
     else
-        ; sigil mixed build: ZX0_Decompress comes from
-        ; engine/compression/zx0_decompress.emp, pinned by the sigil map at
-        ; the per-shape reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+        org     $24A4
+    endif
+    ; ZX0_Decompress is native (engine/compression/zx0_decompress.emp,
+    ; sigil-map-pinned). Same resume-org contract as s4lz above.
+    ifdef __DEBUG__
         org     $2692
-      else
+    else
         org     $24FC
-      endif
     endif
     ifndef SIGIL_EMP_MATH
         include "engine/system/math.asm"
