@@ -68,19 +68,18 @@ if [[ "${SOUND_DBG_MIRROR:-0}" == "1" ]]; then
     ASFLAGS="${ASFLAGS} -D SOUND_DBG_MIRROR"
 fi
 
-# seam-1 (Option A): the resident sound blob is the five sound .emp files linked
-# NATIVELY by sigil, emitted to a binary asl BINCLUDEs — the .emp is the canonical
-# source, sigil links it, asl packs it. THIS IS THE FIRST HARD aeon→sigil BUILD
-# DEPENDENCY: when the flip is on there is NO asl fallback (the .asm twins are
-# gone), so a missing/failed emitter is a HARD ERROR, never a silent skip. The
-# emit is byte-deterministic; the canonical ROM CRC is the provenance bar. (Stage
-# 1: gated by SIGIL_EMP_Z80_SOUND=1 while the twins still exist, so the gate-off
-# .asm build stays standalone; the deletion commit makes this the only path.)
-if [[ "${SIGIL_EMP_Z80_SOUND:-0}" == "1" ]]; then
+# seam-1 (Option A): THE NATIVE LINK IS THE BUILD. The resident sound blob is the
+# five sound .emp files linked NATIVELY by sigil, emitted to a binary asl BINCLUDEs
+# (the five .asm twins are DELETED — the .emp is the canonical source). THIS IS THE
+# FIRST HARD aeon→sigil BUILD DEPENDENCY: there is NO asl fallback, so a missing/
+# failed emitter is a HARD ERROR, never a silent skip. Byte-deterministic; the
+# ASSEMBLED-ROM CRC is the provenance bar.
+if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
     SIGIL_EMIT="${SIGIL_EMIT:-}"
     if [[ -z "${SIGIL_EMIT}" || ! -x "${SIGIL_EMIT}" ]]; then
         echo "ERROR: seam-1 needs the sigil emit_sound_blob binary — set SIGIL_EMIT to it."
-        echo "  (the resident sound blob is sigil-native-linked; there is no asl fallback)"
+        echo "  (the resident sound blob is sigil-native-linked; the .asm twins are gone,"
+        echo "   so there is no asl fallback — build the sigil toolchain first.)"
         exit 1
     fi
     echo "Emitting the native-linked resident sound blob (sigil)..."
@@ -89,7 +88,6 @@ if [[ "${SIGIL_EMP_Z80_SOUND:-0}" == "1" ]]; then
         echo "ERROR: sigil emit_sound_blob failed — cannot build the resident sound blob."
         exit 1
     fi
-    ASFLAGS="${ASFLAGS} -D SIGIL_EMP_Z80_SOUND"
 fi
 
 if [[ "${PRINT_ERRORS_ONLY}" == "0" ]]; then
