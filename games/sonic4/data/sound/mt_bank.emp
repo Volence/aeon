@@ -1,9 +1,9 @@
 // ===========================================================================
 // data/sound/mt_bank.emp — the MT streaming-bank DATA (sound-migration T2)
 // ===========================================================================
-// Ports everything from `Song_MovingTrucks` ($60607) through
+// Ports everything from `Song_MovingTrucks` ($58607) through
 // `SongPatchTable_End` — the .asm engine-table head (`soundBankHead`, the Z80
-// phase-0 blob, $60000..$60607, incl. `MovingTrucks_Bank_Start` and the
+// phase-0 blob, $58000..$58607, incl. `MovingTrucks_Bank_Start` and the
 // `SND_ENGINE_TABLE_BANK` equ) STAYS driver-side in main.asm; this module
 // picks up right after it, in the SAME bank-aligned 32KB window.
 //
@@ -13,7 +13,7 @@
 // R4 — both shapes emit the SAME data items, with the DEBUG-only ones' value
 // folding to `Data.empty` (zero bytes, label still defined) when DEBUG=0.
 //
-// Pinned at $60607 by the map region `mt_bank` ($60607..$68000, R7). Re-pin
+// Pinned at $58607 by the map region `mt_bank` ($58607..$60000, R7). Re-pin
 // via the harness PROVENANCE flow on any re-baseline.
 //
 // What each .asm guard becomes here (R5):
@@ -165,7 +165,7 @@ section mt_bank (cpu: m68000, bank: $8000) {
     // song_hcz2.asm's trailing `align 2` mirrored explicitly — CRITICAL for
     // byte-identity here (unlike the DrumTest pad above): Hcz2Blob is 6511
     // bytes (ODD) at the current pins, so asl's `align 2` inserts ONE real
-    // $00 pad byte before `HCZ2_Patches` (reference ROM byte at $654A1 is
+    // $00 pad byte before `HCZ2_Patches` (reference ROM byte at $5D4A1 is
     // $00 — verified against the fact base). `.emp` sections never
     // auto-pad (§4.3), so this pad must be emitted EXPLICITLY, spelled as
     // a self-adjusting conditional (not a bare `byte(0)`) so a future HCZ2
