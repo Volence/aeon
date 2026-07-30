@@ -19,9 +19,13 @@ import os
 import struct
 
 # ---------------------------------------------------------------------------
-# Paths (sonic_hack reference project — shared by strip gen + collision)
+# Paths (sonic_hack reference project — shared by strip gen + collision).
+# This is an out-of-repo DONOR only a manual re-bake (tools/regenerate-level.sh)
+# reads; the build consumes the committed generated tree, never this. Override
+# the location with AEON_SONIC_HACK_DIR; absence is caught loudly at re-bake
+# entry (ojz_strip_gen.require_donor()), not silently.
 # ---------------------------------------------------------------------------
-SONIC_HACK = "/home/volence/sonic_hacks/sonic_hack"
+SONIC_HACK = os.environ.get("AEON_SONIC_HACK_DIR") or "/home/volence/sonic_hacks/sonic_hack"
 LAYOUT_DIR = os.path.join(SONIC_HACK, "level/layout")
 CHUNK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/128x128/OJZ.bin")
 BLOCK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/16x16/OJZ.bin")

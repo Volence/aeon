@@ -1124,8 +1124,30 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
 # Generator
 # ---------------------------------------------------------------------------
 
+def require_donor():
+    """Fail LOUDLY if a re-bake is asked for without the inputs that make it
+    reproducible. The old silent fallback (no editor data → bake the legacy
+    sonic_hack layout glob with air-placeholder collision) produced a ~131 KB
+    WRONG level tree with no error — the row-178 hole. A manual re-bake MUST use
+    the editor data + the sonic_hack donor; if either is absent, stop."""
+    if not os.path.isdir(SONIC_HACK):
+        raise SystemExit(
+            f"ojz_strip_gen: sonic_hack donor not found at {SONIC_HACK}. This is a "
+            f"MANUAL re-bake (tools/regenerate-level.sh); set AEON_SONIC_HACK_DIR. "
+            f"The build does NOT run this — it uses the committed level tree under "
+            f"games/sonic4/data/generated/.")
+    if not editor_data_available():
+        raise SystemExit(
+            "ojz_strip_gen: editor section data absent (need editor/ojz/act1/"
+            "section_0.tiles.bin + editor/ojz/chunks_tiles.bin). Refusing the "
+            "silent legacy-air fallback — a re-bake without editor data would "
+            "emit a ~131 KB wrong level tree. Restore the editor working data "
+            "(committed for the shipped act) or point the editor at real data.")
+
+
 def generate():
     """Generate strip data for all OJZ sections."""
+    require_donor()
     out_dir = os.path.normpath(OUTPUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
 

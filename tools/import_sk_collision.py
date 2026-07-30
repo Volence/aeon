@@ -22,7 +22,18 @@ slot) stays air (solidity 0).
 import os
 
 HERE = os.path.dirname(__file__)
-SK = os.path.normpath(os.path.join(HERE, "..", "..", "skdisasm", "Levels", "Misc"))
+# skdisasm is an out-of-repo DONOR only this manual re-bake reads (the build
+# consumes the committed collision tables). Override with AEON_SKDISASM_DIR
+# (pointing at the skdisasm checkout root); absence fails loudly below.
+_SK_ROOT = os.environ.get("AEON_SKDISASM_DIR") or os.path.normpath(
+    os.path.join(HERE, "..", "..", "skdisasm"))
+SK = os.path.join(_SK_ROOT, "Levels", "Misc")
+if not os.path.isdir(SK):
+    raise SystemExit(
+        f"import_sk_collision: skdisasm donor not found at {SK}. This is a MANUAL "
+        f"re-bake tool (tools/regenerate-level.sh); set AEON_SKDISASM_DIR to your "
+        f"skdisasm checkout. The build does NOT run this — it uses the committed "
+        f"collision tables under games/sonic4/data/collision/.")
 OUT = os.path.normpath(os.path.join(HERE, "..", "games", "sonic4", "data", "collision"))
 SHAPES, ROW, SOLID_ALL = 256, 16, 3   # s4 solidity: 0 none, 1 top, 2 sides-bottom, 3 all
 
