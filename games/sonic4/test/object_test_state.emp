@@ -1,0 +1,417 @@
+// Combined integration + stress test scene — the object-CHURN soak vehicle the
+// oracle A/B work drives. Tests all object subsystems at near-capacity: 35+
+// dynamic slots, 10+ effect slots, collision pressure, alloc/free cycling. In a
+// DEBUG build GameState_ObjectTest captures per-frame profiling via the VDP V
+// counter (the `VDP_HV_COUNTER` reads bracket each subsystem call). This module
+// is a game-STATE bank (no objdef header); the GameState_* procs are the state
+// machine's entry points, dispatched through Game_State.
+//
+// Canonical-emission: byte-identical to object_test_state.asm both shapes
+// (object_test_state window; shape-DEPENDENT — the DEBUG profiling block grows
+// the region +$9C). Determinism comes from the fixed churn pattern, not a freeze
+// hook, so the ObjectTest/ObjectTestChurn soak loops run old/new ROMs in lockstep
+// for A/B — behavior is preserved EXACTLY (any byte-gate-blind change names the
+// oracle-A/B rider).
+//
+// C3 (VDP/DMA/timing) surface: setVDPReg mode2 (display-enable), QueueDMA_Critical
+// (test art), and the DEBUG-only VDP_HV_COUNTER profiling reads (the V/H counter
+// used as a per-frame cycle proxy).
+module games.sonic4.object_test_state in object_test_state
+
+use engine.objects.sst.{Sst}
+use engine.objects.objdef.{vram_bytes}
+use engine.constants.{NUM_DYNAMIC, NUM_EFFECTS}
+use engine.vdp.{VDP_MODE2_OFF}
+use engine.types.{VramTile}
+use engine.coords.{pixels_to_coord}
+
+// VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Mirrors
+// games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
+const VRAM_TEST_OBJ: VramTile = $03E0
+ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from object_test_state.emp")
+
+// STUB_FLOOR_Y — the test player/objects rest height (px). Its real home is the
+// test_player.asm surviving-gated header equate; a comptime const here because it
+// feeds `#STUB_FLOOR_Y << 16` and a dc.w in TestObjectList (not a bare link).
+const STUB_FLOOR_Y = 192
+ensure(extern("STUB_FLOOR_Y") == STUB_FLOOR_Y, "test_player.asm STUB_FLOOR_Y drifted from object_test_state.emp")
+
+// VDP_HV_COUNTER — the VDP V/H beam-position register ($C00008), read as a
+// per-frame cycle proxy in the DEBUG profiling block. A local const mirror (its
+// real home is engine/constants.asm) so the absolute-EA width resolves .l at
+// comptime, matching how engine.vdp holds VDP_CTRL/VDP_DATA. (Hoisting it into
+// engine.vdp alongside its sibling registers is ledgered adoption debt.)
+const VDP_HV_COUNTER = $C00008
+ensure(extern("VDP_HV_COUNTER") == VDP_HV_COUNTER, "engine/constants.asm VDP_HV_COUNTER drifted from object_test_state.emp")
+
+// The ring blob (512 B) that tails the two 128-byte colour squares in TestArt.
+const RingArt = embed("games/sonic4/test/ring_art.bin")
+const RING_ART_LEN = 512
+// Drift guard on the embedded blob's size (an `ensure` evaluates the embed in a
+// sandbox-rooted context; a proc-body immediate does not, so TEST_ART_LEN below
+// must stay pure-int). RING_ART_LEN feeds the DMA length.
+ensure(RingArt.len == RING_ART_LEN, "games/sonic4/test/ring_art.bin size drifted from RING_ART_LEN")
+// TestArt_End - TestArt = the two 128-byte squares + the ring blob (the DMA
+// length). A pure-int comptime const (link-time immediate arithmetic on a label
+// pair is not an expressible EA); byte-identical to the twin's TestArt_End - TestArt.
+const TEST_ART_LEN = 128 + 128 + RING_ART_LEN
+
+// -----------------------------------------------
+// GameState_ObjectTest_Init — one-shot setup
+// In:  none
+// Out: none
+// Clobbers: d0-d4, a0-a3 (a0-a2 written directly; a3 rides in through
+//   Load_ObjectList's transitive clobber set — the honest closure exceeds the
+//   .asm header's stated a0-a2, which tracked only the direct writes)
+// -----------------------------------------------
+pub proc GameState_ObjectTest_Init () clobbers(d0-d4/a0-a3) {
+        // Load test palette to CRAM line 0
+        lea     TestPalette(pc), a0
+        lea     Palette_Buffer, a1              // (Palette_Buffer).w
+        moveq   #32/4 - 1, d0
+.copy_pal:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .copy_pal
+        move.b  #$0F, Palette_Dirty            // (Palette_Dirty).w
+
+        // DMA test art to VRAM
+        move.l  #TestArt, d1
+        move.w  #vram_bytes(VRAM_TEST_OBJ), d2
+        move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt
+        jbsr    QueueDMA_Critical @discards(dropped)   // test scene: a dropped DMA (queue full) is acceptable
+
+        // Init object and sprite systems
+        jbsr    InitObjectRAM
+        jbsr    Init_SpriteTable
+
+        // Clear camera
+        move.l  #0, Camera_X                    // (Camera_X).w
+        move.l  #0, Camera_Y                    // (Camera_Y).w
+
+        // --- Player ---
+        lea     Player_1, a1                    // (Player_1).w
+        move.w  #TestPlayer - ObjCodeBase, Sst.code_addr(a1)
+        move.l  #40 << 16, Sst.x_pos(a1)
+        move.l  #STUB_FLOOR_Y << 16, Sst.y_pos(a1)
+
+        // --- Level objects from list (25 objects: 10 enemies + 12 solids + 3 parents) ---
+        lea     TestObjectList(pc), a0
+        jbsr    Load_ObjectList
+
+        // --- 8 fast emitters spread across screen (effect pool pressure) ---
+        // Each spawns every 8 frames; particles live 12 frames
+        // Steady state: ~12 effect slots occupied
+        moveq   #8 - 1, d4
+        lea     EmitterPositions(pc), a2
+.spawn_emitters:
+        jbsr    AllocDynamic
+        bne     .emitters_done
+        move.w  #TestStressEmitter - ObjCodeBase, Sst.code_addr(a1)
+        move.w  (a2)+, d0
+        pixels_to_coord(d0)
+        move.l  d0, Sst.x_pos(a1)
+        move.w  (a2)+, d0
+        pixels_to_coord(d0)
+        move.l  d0, Sst.y_pos(a1)
+        dbf     d4, .spawn_emitters
+.emitters_done:
+
+        // Enable display
+        move.b  #$74, VDP_Shadow_Table + VDP_MODE2_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode2).w
+        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask    // (VDP_Dirty_Mask).w
+
+        // Switch to running loop
+        move.l  #GameState_ObjectTest, (Game_State).w
+        rts
+}
+
+// X, Y screen positions for the 8 stress emitters (dc.w pairs).
+data EmitterPositions: [u16; 16] = [
+        30,   30,
+        70,   25,
+        110,  30,
+        150,  25,
+        190,  30,
+        230,  25,
+        270,  30,
+        300,  25,
+]
+
+// -----------------------------------------------
+// GameState_ObjectTest — per-frame update loop with profiling
+// In:  none
+// Out: none
+// Clobbers: d0-d7, a0-a6
+// -----------------------------------------------
+pub proc GameState_ObjectTest () clobbers(d0-d7/a0-a6) {
+        if DEBUG == 1 {
+                // Absolute EAs in this block: every VDP_HV_COUNTER read is abs.l
+                // ($C00008); every Prof_*/Dynamic_Free_SP/Effect_Free_SP store is
+                // abs.w (RAM). (The .w/.l twin-notes are elided per operand here to
+                // keep the tight profiling brackets readable.)
+                move.w  VDP_HV_COUNTER, -(sp)          // save frame start on stack
+
+                jbsr    InitSpriteSystem
+
+                // --- Profile RunObjects ---
+                move.w  VDP_HV_COUNTER, -(sp)
+                jbsr    RunObjects
+                move.w  VDP_HV_COUNTER, d0
+                move.w  (sp)+, d1
+                sub.w   d1, d0
+                lsr.w   #8, d0
+                move.w  d0, Prof_RunObjects
+                cmp.w   Prof_Peak_RunObjects, d0
+                blo     .no_peak_run
+                move.w  d0, Prof_Peak_RunObjects
+        .no_peak_run:
+
+                // --- Profile TouchResponse ---
+                move.w  VDP_HV_COUNTER, -(sp)
+                jbsr    TouchResponse
+                move.w  VDP_HV_COUNTER, d0
+                move.w  (sp)+, d1
+                sub.w   d1, d0
+                lsr.w   #8, d0
+                move.w  d0, Prof_TouchResponse
+                cmp.w   Prof_Peak_Touch, d0
+                blo     .no_peak_touch
+                move.w  d0, Prof_Peak_Touch
+        .no_peak_touch:
+
+                // --- Profile Render_Sprites ---
+                move.w  VDP_HV_COUNTER, -(sp)
+                jbsr    Render_Sprites
+                move.w  VDP_HV_COUNTER, d0
+                move.w  (sp)+, d1
+                sub.w   d1, d0
+                lsr.w   #8, d0
+                move.w  d0, Prof_RenderSprites
+                cmp.w   Prof_Peak_Render, d0
+                blo     .no_peak_render
+                move.w  d0, Prof_Peak_Render
+        .no_peak_render:
+
+                // --- Total frame time ---
+                move.w  VDP_HV_COUNTER, d0
+                move.w  (sp)+, d1                       // frame start from stack
+                sub.w   d1, d0
+                lsr.w   #8, d0
+                move.w  d0, Prof_FrameTotal
+                cmp.w   Prof_Peak_Frame, d0
+                blo     .no_peak_frame
+                move.w  d0, Prof_Peak_Frame
+        .no_peak_frame:
+
+                // --- Slot usage ---
+                move.w  #Dynamic_Free_Stack + NUM_DYNAMIC*2, d0
+                sub.w   Dynamic_Free_SP, d0
+                lsr.w   #1, d0
+                move.w  d0, Prof_Dynamic_Used
+
+                move.w  #Effect_Free_Stack + NUM_EFFECTS*2, d0
+                sub.w   Effect_Free_SP, d0
+                lsr.w   #1, d0
+                move.w  d0, Prof_Effect_Used
+        } else {
+                jbsr    InitSpriteSystem
+                jbsr    RunObjects
+                jbsr    TouchResponse
+                jbsr    Render_Sprites
+        }
+        rts
+}
+
+// ===============================================
+// GameState_ObjectTestChurn — dynamic-pool CHURN variant (A2 soak vehicle)
+//
+// Unlike GameState_ObjectTest (churn lives in the EFFECT pool; dynamic pool
+// static 40/40), this fills the dynamic pool to capacity with self-replacing
+// TestChurnObj stressors (test_churn.emp). Under this churn Dynamic_Live_Count
+// rides at NUM_DYNAMIC while deletions free stack slots mid-walk — the exact
+// precondition for AllocDynamic's compact-on-full firing during a live-list
+// walk (the A2 hazard the DEBUG Dynamic_Live_Walking rail guards).
+//
+// Entered at runtime by writing GameState_ObjectTestChurn_Init to Game_State
+// (the OJZ scroll test owns Game_Entry). Per-frame it also calls
+// EntityWindow_Scan so the fourth live-list walker (DespawnObjects) is
+// exercised over the churning pool for the churn profile — the window is left
+// inactive (Entity_Window_Active=0) so Scan early-outs to Despawn{Rings,Objects}
+// only; the churners are UNTAGGED so DespawnObjects walks and skips them.
+// ===============================================
+pub proc GameState_ObjectTestChurn_Init () clobbers(d0-d5/a0-a2) {
+        // Load test palette to CRAM line 0
+        lea     TestPalette(pc), a0
+        lea     Palette_Buffer, a1              // (Palette_Buffer).w
+        moveq   #32/4 - 1, d0
+.copy_pal:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .copy_pal
+        move.b  #$0F, Palette_Dirty            // (Palette_Dirty).w
+
+        // DMA test art to VRAM
+        move.l  #TestArt, d1
+        move.w  #vram_bytes(VRAM_TEST_OBJ), d2
+        move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt
+        jbsr    QueueDMA_Critical @discards(dropped)   // test scene: a dropped DMA (queue full) is acceptable
+
+        // Init object and sprite systems
+        jbsr    InitObjectRAM
+        jbsr    Init_SpriteTable
+
+        // Entity-window safe-idle: clear the ring buffer and mark the window
+        // inactive. EntityWindow_Scan then early-outs (Active=0) to
+        // DespawnRings (no-op on the empty buffer) + DespawnObjects (walks the
+        // live list; UNTAGGED churners are skipped, never wrongly deleted).
+        jbsr    RingBuffer_Clear
+        clr.b   Entity_Window_Active          // (Entity_Window_Active).w
+
+        // Clear camera
+        move.l  #0, Camera_X                    // (Camera_X).w
+        move.l  #0, Camera_Y                    // (Camera_Y).w
+
+        // --- Player (physics target for TouchResponse; rests on stub floor,
+        //     placed clear of the churner grid so it is not culled/hurt) ---
+        lea     Player_1, a1                    // (Player_1).w
+        move.w  #TestPlayer - ObjCodeBase, Sst.code_addr(a1)
+        move.l  #300 << 16, Sst.x_pos(a1)
+        move.l  #STUB_FLOOR_Y << 16, Sst.y_pos(a1)
+
+        // --- Fill the dynamic pool to capacity with churn stressors ---
+        moveq   #NUM_DYNAMIC - 1, d4
+        moveq   #0, d5                  // grid index
+.spawn_churn:
+        jbsr    AllocDynamic
+        bne     .churn_done             // pool full — stop
+        move.w  #TestChurnObj - ObjCodeBase, Sst.code_addr(a1)
+        // x = 20 + (i & 7)*36 ; y = 20 + (i>>3)*40  (8-wide grid on screen)
+        move.w  d5, d0
+        andi.w  #7, d0
+        mulu.w  #36, d0
+        addi.w  #20, d0
+        pixels_to_coord(d0)
+        move.l  d0, Sst.x_pos(a1)
+        move.w  d5, d0
+        lsr.w   #3, d0
+        mulu.w  #40, d0
+        addi.w  #20, d0
+        pixels_to_coord(d0)
+        move.l  d0, Sst.y_pos(a1)
+        addq.w  #1, d5
+        dbf     d4, .spawn_churn
+.churn_done:
+
+        // Enable display
+        move.b  #$74, VDP_Shadow_Table + VDP_MODE2_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode2).w
+        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask    // (VDP_Dirty_Mask).w
+
+        move.l  #GameState_ObjectTestChurn, (Game_State).w
+        rts
+}
+
+// -----------------------------------------------
+// GameState_ObjectTestChurn — per-frame update (both build shapes)
+// -----------------------------------------------
+pub proc GameState_ObjectTestChurn () clobbers(d0-d7/a0-a6) {
+        jbsr    InitSpriteSystem
+        jbsr    RunObjects              // DEBUG: A2 assert fires here on the trigger frame
+        jbsr    TouchResponse
+        jbsr    EntityWindow_Scan       // exercises DespawnObjects walk over the churn pool
+        jbsr    Render_Sprites
+        rts
+}
+
+// -----------------------------------------------
+// Object spawn list — stress layout
+//
+// 10 enemies + 12 solids + 3 parents = 25 from list
+// + 8 emitters via AllocDynamic = 33 dynamic slots
+// + 9 children from parents = 42 total at peak (overflows to 40 cap)
+// + up to 16 effect slots from emitters
+//
+// Each row: def ptr (dc.l), x/y/subtype (dc.w).
+// -----------------------------------------------
+struct ObjSpawn {
+        def:     *u8,           // objdef pointer (dc.l)
+        x:       i16,           // world X (dc.w)
+        y:       i16,           // world Y (dc.w)
+        subtype: u16,           // spawn subtype (dc.w)
+}
+
+data TestObjectList: [ObjSpawn; 25] = [
+        // --- 10 enemies across the scene ---
+        ObjSpawn{ def: ObjDef_Enemy, x: 50,  y: STUB_FLOOR_Y, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Enemy, x: 100, y: STUB_FLOOR_Y, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Enemy, x: 150, y: STUB_FLOOR_Y, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Enemy, x: 200, y: STUB_FLOOR_Y, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Enemy, x: 250, y: STUB_FLOOR_Y, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Enemy, x: 80,  y: 155, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Enemy, x: 160, y: 155, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Enemy, x: 240, y: 155, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Enemy, x: 120, y: 120, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Enemy, x: 200, y: 120, subtype: 0 },
+
+        // --- 12 solid platforms ---
+        // Ground-level stepping stones
+        ObjSpawn{ def: ObjDef_Solid, x: 60,  y: 175, subtype: 1 },
+        ObjSpawn{ def: ObjDef_Solid, x: 100, y: 175, subtype: 1 },
+        ObjSpawn{ def: ObjDef_Solid, x: 140, y: 175, subtype: 1 },
+        ObjSpawn{ def: ObjDef_Solid, x: 180, y: 175, subtype: 1 },
+        ObjSpawn{ def: ObjDef_Solid, x: 220, y: 175, subtype: 1 },
+        ObjSpawn{ def: ObjDef_Solid, x: 260, y: 175, subtype: 1 },
+        // Mid platforms
+        ObjSpawn{ def: ObjDef_Solid, x: 80,  y: 140, subtype: 1 },
+        ObjSpawn{ def: ObjDef_Solid, x: 160, y: 140, subtype: 1 },
+        ObjSpawn{ def: ObjDef_Solid, x: 240, y: 140, subtype: 1 },
+        // High platforms
+        ObjSpawn{ def: ObjDef_Solid, x: 120, y: 105, subtype: 1 },
+        ObjSpawn{ def: ObjDef_Solid, x: 200, y: 105, subtype: 1 },
+        ObjSpawn{ def: ObjDef_Solid, x: 280, y: 105, subtype: 1 },
+
+        // --- 3 parents (each spawns 3 children = 9 more dynamic slots) ---
+        ObjSpawn{ def: ObjDef_Parent, x: 60,  y: 70, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Parent, x: 160, y: 60, subtype: 0 },
+        ObjSpawn{ def: ObjDef_Parent, x: 260, y: 70, subtype: 0 },
+]
+
+// list terminator (dc.l 0)
+data TestObjectList_Term: u32 = 0
+
+// -----------------------------------------------
+// Test art — two 16x16 colored squares (4 tiles each = 128 bytes each) then the
+// ring blob. TestArt is the DMA source; TestArt_End - TestArt = TEST_ART_LEN.
+// -----------------------------------------------
+// Square 1 — palette 0, color index 1 (solid fill)
+pub data TestArt: [u32; 32] = [
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+]
+// Square 2 — palette 0, color index 2
+data TestArt_Square2: [u32; 32] = [
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+]
+// Ring art — S3K ring, 4 spin frames × 4 tiles (2×2) = 16 tiles, at
+// VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ+8). Source: skdisasm Ring.bin
+// (Nemesis, 14 tiles): F0 full / F1 narrower / F2 thin-edge (centred) /
+// F3 narrower-mirrored, in VDP 2×2 column-major order per frame; the S3K
+// line-0 gold indices remapped to sonic.bin line-0 (E/F gold, 6 white glint).
+// DrawRings picks a frame with base + Ring_Anim_Frame×4.
+data TestArt_Ring = RingArt
+
+// -----------------------------------------------
+// Test palette — 16 colors for CRAM line 0. TestArt_End lands here.
+// -----------------------------------------------
+pub data TestPalette: [u8; 32] = embed("art/palettes/sonic.bin")

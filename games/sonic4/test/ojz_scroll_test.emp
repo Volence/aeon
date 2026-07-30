@@ -1,0 +1,372 @@
+// OJZ horizontal scroll test state — the game ENTRY state (config/game.asm sets
+// Game_Entry = GameState_OJZScroll_Init). Boots the level: palettes, FG art, the
+// camera, Player_1, section streaming, parallax, then hands to a per-frame update
+// that drives the camera off Player_1 and streams the world.
+//
+// Canonical-emission: byte-identical to ojz_scroll_test.asm both shapes
+// (ojz_scroll_test window; shape-DEPENDENT — the two Debug_Scene_Freeze skip
+// blocks grow the region +$C in DEBUG). As the boot state it is a LIVE oracle-A/B
+// instrument: its two Debug_Scene_Freeze skips (camera + entity-scan) are the
+// deterministic-cache-fill / frame-lock hooks the A/B soak uses, so the port
+// keeps them bit-exact (any byte-gate-blind change names the oracle-A/B rider).
+//
+// C3 (VDP/DMA/timing) surface: setVDPReg mode2/mode3, Level_LoadArt,
+// QueueDMA_Critical, CRAM palette copies, the VBlank-masked marker-tile VRAM copy
+// (ints masked so a mid-copy VBlank cannot retarget the VDP address), the
+// stop_z80/start_z80 bus wraps around Section_UpdateColumns, and the row-35
+// per-frame mode-set-3 force-write (the VDP-command-state reset + the mode-bit
+// derivation).
+module games.sonic4.ojz_scroll_test in ojz_scroll_test
+
+use engine.objects.objdef.{vram_bytes}
+use engine.structs.{Act, Sec, parallax_config}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL, VDP_MODE2_OFF, VDP_MODE3_OFF}
+use engine.z80_bus.{stop_z80, start_z80}
+use engine.types.{VramTile, GridX, GridY}
+use engine.coords.{pixels_to_coord}
+
+// VRAM_TEST_OBJ / VRAM_TEST_MARKER — mirror games/sonic4/config/constants.asm;
+// the drift guards make an AS-side tile-slot change loud. VRAM_TEST_MARKER =
+// VRAM_RING_PLACEHOLDER+16 = VRAM_TEST_OBJ+$18.
+const VRAM_TEST_OBJ:    VramTile = $03E0
+const VRAM_TEST_MARKER: VramTile = $03F8
+ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from ojz_scroll_test.emp")
+ensure(extern("VRAM_TEST_MARKER") == VRAM_TEST_MARKER, "config/constants.asm VRAM_TEST_MARKER drifted from ojz_scroll_test.emp")
+
+// Screen half-extents — the camera-center offsets for the Player_1 spawn. Their
+// real home is engine/level/camera.asm (not exported by camera.emp), mirrored
+// file-local with a drift guard.
+const CAM_SCREEN_HALF_W = 160
+const CAM_SCREEN_HALF_H = 112
+ensure(extern("CAM_SCREEN_HALF_W") == CAM_SCREEN_HALF_W, "camera.asm CAM_SCREEN_HALF_W drifted from ojz_scroll_test.emp")
+ensure(extern("CAM_SCREEN_HALF_H") == CAM_SCREEN_HALF_H, "camera.asm CAM_SCREEN_HALF_H drifted from ojz_scroll_test.emp")
+
+// TestArt_End - TestArt (the marker-DMA length) — object_test_state owns the
+// TestArt blob; this mirrors its length (two 128-byte squares + the 512-byte ring
+// blob, drift-guarded there). A pure-int comptime const (label-pair immediate
+// arithmetic isn't an expressible EA); byte-identical to the twin's TestArt_End - TestArt.
+const TEST_ART_LEN = 128 + 128 + 512
+
+// Player_1 SST-field absolute addresses (the extern-equ-sum idiom, camera.emp's
+// PL_STATE_ADDR precedent) — the init writes the spawn position/velocity directly
+// to (Player_1+field).w without holding the base in a register.
+equ PLAYER_1_X_POS = extern("Player_1") + extern("SST_x_pos")
+equ PLAYER_1_Y_POS = extern("Player_1") + extern("SST_y_pos")
+equ PLAYER_1_X_VEL = extern("Player_1") + extern("SST_x_vel")
+equ PLAYER_1_Y_VEL = extern("Player_1") + extern("SST_y_vel")
+
+// -----------------------------------------------
+// GameState_OJZScroll_Init — one-shot setup
+// -----------------------------------------------
+pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) {
+        // -- per-8-row HScroll mode (reg $0B bits 1:0 = %10) --
+        move.b  #$02, VDP_Shadow_Table + VDP_MODE3_OFF   // setVDPReg VDP_Shadow_vdp_mode3, #$02
+        ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask
+
+        // -- load BGND palette (32 bytes, "SonicAndTails") into CRAM line 0 --
+        // -- load OJZ palette (96 bytes, 3 pages) into CRAM lines 1-3 --
+        // sonic_hack runtime layout: PalPtr_BGND -> line 0, PalPtr_OJZ -> line 1.
+        // The BGND palette is what gives OJZ's clouds + grass band their real
+        // (magenta/pink) colors — chunk-source nametable words use palette bits
+        // 0 to reference these entries. Without BGND loaded, palette-0 BG tiles
+        // render against an empty CRAM line 0 = black.
+        lea     BGND_Palette, a0
+        lea     Palette_Buffer, a1                  // CRAM line 0 base — (Palette_Buffer).w
+        moveq   #32/4 - 1, d0
+.copy_bgnd:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .copy_bgnd
+
+        lea     OJZ_Palette, a0
+        lea     Palette_Buffer + $20, a1            // CRAM line 1 base — (Palette_Buffer+$20).w
+        moveq   #96/4 - 1, d0
+.copy_ojz:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .copy_ojz
+        move.b  #$0F, Palette_Dirty                // (Palette_Dirty).w
+
+        // -- load deduped FG tile pool via S4LZ -> VRAM (display still off) --
+        lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
+        jbsr    Level_LoadArt
+
+        // -- test object + ring placeholder art (9 tiles at VRAM_TEST_OBJ;
+        //    the last tile is VRAM_RING_PLACEHOLDER for DrawRings) --
+        move.l  #TestArt, d1
+        move.w  #vram_bytes(VRAM_TEST_OBJ), d2
+        move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt
+        jbsr    QueueDMA_Critical @discards(dropped)   // test scene: a dropped DMA (queue full) is acceptable
+
+        // -- initialise camera first (Section_FillInitial reads Camera_X) --
+        lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
+        jbsr    Camera_Init
+
+        // -- init object system (must precede Player_1 setup and Section_Init) --
+        jbsr    InitObjectRAM
+
+        // -- initialise Player_1 at camera-center position so Camera_Update's
+        //    deadzone tracking begins at rest (no jolt on first frame).
+        //    Player_1.x_pos = Camera_X + CAM_SCREEN_HALF_W; same for Y.
+        //    Camera_X/Y are WORLD coords (continuous-scroll), and the spawn
+        //    derives purely from Camera_X — no SLOT_ORIGIN bias — so it is
+        //    already world-correct. --
+        move.w  Camera_X, d0                    // (Camera_X).w — high word of camera_x (16.16 -> integer px)
+        addi.w  #CAM_SCREEN_HALF_W, d0
+        pixels_to_coord(d0)
+        move.l  d0, PLAYER_1_X_POS             // (Player_1+SST_x_pos).w
+        move.w  Camera_Y, d0                    // (Camera_Y).w
+        addi.w  #CAM_SCREEN_HALF_H, d0
+        pixels_to_coord(d0)
+        move.l  d0, PLAYER_1_Y_POS             // (Player_1+SST_y_pos).w
+        clr.w   PLAYER_1_X_VEL                 // (Player_1+SST_x_vel).w
+        clr.w   PLAYER_1_Y_VEL                 // (Player_1+SST_y_vel).w
+
+        // -- set up Player_1 as the player (Sonic). Player_Init boots in
+        //    debug-fly (yellow square) so the streaming-test workflow is
+        //    unchanged — B drops into physics. --
+        lea     Player_1, a0                    // (Player_1).w
+        jbsr    Player_Init
+
+        // -- write 4 marker tiles to VRAM (16x16 sprite = 2x2 tiles) at
+        //    VRAM_TEST_MARKER, in the free gap below the BG region — the act
+        //    art pool owns tiles 0..POOL_TILE_CEILING-1, so a low slot would
+        //    stomp live FG art. All pixels colour 12 = solid block. Ints masked:
+        //    a VBlank mid-copy retargets the VDP address and the tail longs land
+        //    in the ISR's last write region (observed: 88/128 bytes arriving).
+        //    Mirrors BG_Init's guard. --
+        move.w  sr, -(sp)
+        move.w  #$2700, sr
+        stop_z80
+        move.l  #vdp_comm(vram_bytes(VRAM_TEST_MARKER), VdpTarget.Vram, VdpOp.Write), VDP_CTRL   // (VDP_CTRL).l
+        lea     PlayerMarkerTile(pc), a0
+        moveq   #128/4 - 1, d0
+.copy_marker:
+        move.l  (a0)+, VDP_DATA                // (VDP_DATA).l
+        dbf     d0, .copy_marker
+        start_z80
+        move.w  (sp)+, sr
+
+        // -- initialise section streaming (fills nametable over 3 VBlanks) --
+        lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
+        jbsr    Section_Init
+
+        // -- populate tile cache (must run AFTER Camera_Init + Section_Init so
+        //    Camera_X and Current_Act_Ptr are valid) --
+        jbsr    Tile_Cache_Init
+
+        // -- synchronous plane fill: trigger Section_RedrawPlanes before display
+        //    on so the nametable is fully populated from frame 1. Without this,
+        //    Section_UpdateColumns gradually fills over ~3 frames, causing a
+        //    visible snap when starting at non-zero X. --
+        st      Section_Plane_Dirty            // (Section_Plane_Dirty).w
+        stop_z80
+        jbsr    Section_UpdateColumns
+        start_z80
+
+        // -- parallax init: pull the start section's parallax_config.
+        //    Section_GetSecPtrXY handles the full grid math (sec_y included);
+        //    runs after Section_Init so Current_Act_Ptr is valid. --
+        lea     OJZ_Act1_Descriptor, a2            // (OJZ_Act1_Descriptor).l
+        move.b  Act.start_sec_x(a2), d2 as GridX
+        move.b  Act.start_sec_y(a2), d3 as GridY
+        jbsr    Section_GetSecPtrXY             // a0 = start Sec ptr (Z set = none)
+        beq     .init_use_act_config
+        movea.l Sec.sec_parallax_config(a0), a0 // a0 = parallax_config* (NULL = act default)
+        cmpa.w  #0, a0
+        bne     .init_have_config
+.init_use_act_config:
+        movea.l Current_Act_Ptr, a0             // (Current_Act_Ptr).w
+        movea.l Act.act_parallax_config(a0), a0
+.init_have_config:
+        jbsr    Parallax_Init
+        jbsr    BgAnim_Init
+
+        // -- prime HScroll/VScroll buffers so the first frame displays with
+        //    correct scroll offsets (otherwise HScroll=0 for one frame) --
+        jbsr    Parallax_Update
+
+        // -- enable display now that VRAM and nametable are populated --
+        move.b  #$74, VDP_Shadow_Table + VDP_MODE2_OFF   // setVDPReg VDP_Shadow_vdp_mode2, #$74 — display/VBlank/DMA/M5 on
+        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask
+
+        // -- set VInt_Ptr to level handler --
+        move.l  #VInt_Level, (VInt_Ptr).w   // explicit .w: link-imm source + relaxable dest can't share one instruction
+
+        // -- transition to update loop --
+        move.l  #GameState_OJZScroll_Update, (Game_State).w
+        rts
+}
+
+// -----------------------------------------------
+// GameState_OJZScroll_Update — per-frame update
+// -----------------------------------------------
+pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
+        // -- initialize sprite system for this frame --
+        jbsr    InitSpriteSystem
+
+        // -- execute all objects (Player_Main handles its own movement) --
+        jbsr    RunObjects
+
+        // -- camera follows Player_1 (deadzone + preview-aware clamp).
+        //    DEBUG scene-pin: skip so a write_memory Camera_X/Y stays put. --
+        if DEBUG == 1 {
+                tst.b   Debug_Scene_Freeze     // (Debug_Scene_Freeze).w
+                bne     .skip_camera_update
+        }
+        jbsr    Camera_Update
+        if DEBUG == 1 {
+        .skip_camera_update:
+        }
+
+        // -- fill tile cache with new blocks as camera scrolls --
+        jbsr    Tile_Cache_Fill
+
+        // -- continuous scroll: no per-frame teleport check. Camera/player/
+        //    section streaming run in WORLD space; the level scrolls live with
+        //    no section rebases. --
+
+        // -- camera-driven entity scan (load/despawn rings + objects).
+        //    DEBUG scene-pin: skip so a hand-placed ring isn't despawned/reloaded.
+        //    (Despawn lives inside EntityWindow_Scan's body, so one gate covers both.) --
+        if DEBUG == 1 {
+                tst.b   Debug_Scene_Freeze     // (Debug_Scene_Freeze).w
+                bne     .skip_entity_scan
+        }
+        jbsr    EntityWindow_Scan
+        if DEBUG == 1 {
+        .skip_entity_scan:
+        }
+
+        // -- per-column nametable streaming --
+        jbsr    Section_UpdateColumns
+
+        // -- collision detection --
+        jbsr    TouchResponse
+        jbsr    RingCollision
+
+        // -- build sprite table from priority bands + ring sprites.
+        //    (Render_Sprites manages Sprite_Table_Dirty itself, including the
+        //    zero-sprite terminator case — no forced dirty needed) --
+        jbsr    Render_Sprites
+
+        // -- Derive active flat section_id (2D-correct). flat_id = sec_y *
+        //    grid_w + sec_x, computed once and reused. Continuous-scroll:
+        //    Camera_X/Y are WORLD px, so the active section is the one under the
+        //    camera CENTER — derive it straight from the world camera
+        //    (camX+160 / camY+112 >> SECTION_SIZE_SHIFT), no slot map or
+        //    SLOT_ORIGIN bias. Always in-grid (camera is clamped to the act), so
+        //    Section_FlatIDXY needs no range check. --
+        movea.l Current_Act_Ptr, a0             // (Current_Act_Ptr).w
+        move.w  Camera_X, d2                    // (Camera_X).w — world X px
+        addi.w  #SCREEN_WIDTH/2, d2
+        moveq   #SECTION_SIZE_SHIFT, d0
+        asr.w   d0, d2                          // d2 = sec_x of the camera center
+        move.w  Camera_Y, d3                    // (Camera_Y).w — world Y px
+        addi.w  #SCREEN_HEIGHT/2, d3
+        asr.w   d0, d3 as GridY                 // d3 = sec_y of the camera center
+        movea.l a0, a2                          // Section_FlatIDXY wants act ptr in a2
+        jbsr    Section_FlatIDXY                // d0.w = flat section_id
+        move.w  d0, d6                          // save flat_id for T14 + T15
+
+        // -- per-section parallax: re-select the config on a section-boundary
+        //    crossing. Edge-triggered inside Parallax_CheckBoundary (watches
+        //    the section under the camera centre, same as flat_id above). --
+        jbsr    Parallax_CheckBoundary
+
+        // -- T15 diagnostic: per-section sky-color marker --
+        move.w  d6, d0                          // flat section_id
+        cmpi.b  #9, d0                          // clamp to grid size (3x3 = 9 sections)
+        blo     .marker_id_ok
+        moveq   #0, d0
+.marker_id_ok:
+        lea     OJZ_SectionMarkerColors(pc), a3
+        add.w   d0, d0
+        move.w  (a3, d0.w), d1                  // d1 = section's marker color
+        move.w  d1, Palette_Buffer             // CRAM[0] = backdrop tint — (Palette_Buffer).w
+        ori.b   #1, Palette_Dirty             // flag palette line 0 dirty — (Palette_Dirty).w
+
+        // Force VDP mode-set-3 (shadow + reg $0B direct) every frame from the
+        // active config. Re-asserts the mode because Parallax_StartTransition
+        // writes it only on a section-boundary crossing (edge-triggered); its
+        // same-config short-circuit would otherwise leave the register stale
+        // across a transition. During a smooth transition the active config is
+        // Target_Config — the HScroll buffer is built from it, so the register
+        // must match its mode bits. Redundant while every act section shares one
+        // config (the transition never fires) — correct when they do not. The
+        // parallax-hardening parcel (gap-ledger t41) moves this write into
+        // Parallax_Update, after which this block is deleted (kill row 35).
+        tst.b   Parallax_Transition_Frames     // (Parallax_Transition_Frames).w
+        beq     .mode_use_current
+        movea.l Parallax_Target_Config, a0     // (Parallax_Target_Config).w
+        jbra    .mode_have_config
+.mode_use_current:
+        movea.l Parallax_Current_Config, a0    // (Parallax_Current_Config).w
+.mode_have_config:
+        cmpa.w  #0, a0
+        beq     .mode_default
+        moveq   #%10, d0                        // per-cell H baseline
+        move.l  parallax_config.pcfg_deform_table_fg(a0), d1
+        or.l    parallax_config.pcfg_deform_table_bg(a0), d1
+        beq     .mode_h_done
+        moveq   #%11, d0                        // per-line if any H-deform
+.mode_h_done:
+        move.l  parallax_config.pcfg_v_deform_table_bg(a0), d1
+        beq     .mode_set
+        ori.b   #%100, d0                       // bit 2 = per-column V-scroll
+        jbra    .mode_set
+.mode_default:
+        moveq   #%10, d0                        // default per-cell H
+.mode_set:
+        move.b  d0, VDP_Shadow_Table + VDP_MODE3_OFF   // setVDPReg VDP_Shadow_vdp_mode3, d0
+        ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask
+        // Also force VDP register $0B directly with proper Z80-stop wrap. First
+        // read VDP_CTRL to reset the command state machine — otherwise a
+        // half-finished 32-bit address command from upstream code (e.g.
+        // Section_UpdateColumns) would consume our $8B?? as its second word,
+        // corrupting the VDP and leaving reg $0B unchanged.
+        andi.w  #$00FF, d0
+        ori.w   #$8B00, d0                      // d0 = $8B?? = "set reg $0B = ??"
+        stop_z80
+        move.w  VDP_CTRL, d1                   // (VDP_CTRL).l — reset command state machine
+        move.w  d0, VDP_CTRL                   // (VDP_CTRL).l
+        start_z80
+
+        // -- update HScroll buffer + Vscroll (parallax) --
+        jbsr    Parallax_Update
+        // -- camera-driven BG tile animation (trunk cores) --
+        jbsr    BgAnim_Update
+        rts
+}
+
+// -----------------------------------------------
+// Per-section sky tint table — referenced by the marker code in Update. CRAM
+// colors (BGR, 9-bit). Section_id indexes into this array, so the backdrop
+// visibly differs per section. T15 diagnostic only.
+// -----------------------------------------------
+data OJZ_SectionMarkerColors: [u16; 9] = [
+        $000E,          // Sec0 (0,0): bright red
+        $00E0,          // Sec1 (1,0): bright green
+        $0E00,          // Sec2 (2,0): bright blue
+        $00EE,          // Sec3 (0,1): yellow
+        $0E0E,          // Sec4 (1,1): magenta
+        $0EE0,          // Sec5 (2,1): cyan
+        $0EEE,          // Sec6 (0,2): white
+        $0888,          // Sec7 (1,2): gray
+        $060E,          // Sec8 (2,2): orange
+]
+
+// -----------------------------------------------
+// PlayerMarkerTile — 4 x 8x8 tiles, all pixels colour 12 (128 bytes). Pal 1
+// entry 12 = $00EE = bright yellow. Written to VRAM_TEST_MARKER at level init.
+// 2x2 layout matches Map_TestObj_F0 (16x16).
+// -----------------------------------------------
+data PlayerMarkerTile: [u32; 32] = [
+        $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC,
+        $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC,
+        $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC,
+        $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC,
+        $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC,
+        $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC,
+        $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC,
+        $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC,
+]

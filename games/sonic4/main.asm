@@ -483,8 +483,40 @@ SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK
 ; Test game states
 ; -----------------------------------------------
 gameStatesIncludes macro {GLOBALSYMBOLS}
-    include "games/sonic4/test/object_test_state.asm"
-    include "games/sonic4/test/ojz_scroll_test.asm"
+    ifndef SIGIL_EMP_OBJECT_TEST_STATE
+      include "games/sonic4/test/object_test_state.asm"
+    else
+        ; sigil mixed build: GameState_ObjectTest{,_Init}/ObjectTestChurn{,_Init}
+        ; + TestObjectList/TestArt/TestPalette come from
+        ; games/sonic4/test/object_test_state.emp. SHAPE-DEPENDENT window (the
+        ; DEBUG profiling block grows the region +$9C). Resume lands on
+        ; ojz_scroll_test's first label GameState_OJZScroll_Init, the next
+        ; placement. AS-side consumers (ojz's `TestArt`/`TestArt_End` refs, the
+        ; runtime GameState_ObjectTestChurn_Init poke) resolve to the .emp-exported
+        ; labels through the shared link. The gate define must never be set for
+        ; other games (demo takes the include).
+      ifdef __DEBUG__
+        org     $5E2DA
+      else
+        org     $5C7EC
+      endif
+    endif
+    ifndef SIGIL_EMP_OJZ_SCROLL_TEST
+      include "games/sonic4/test/ojz_scroll_test.asm"
+    else
+        ; sigil mixed build: GameState_OJZScroll_Init/_Update (Game_Entry) +
+        ; OJZ_SectionMarkerColors/PlayerMarkerTile come from
+        ; games/sonic4/test/ojz_scroll_test.emp. SHAPE-DEPENDENT window (the two
+        ; Debug_Scene_Freeze skip blocks grow the region +$C). Resume lands on
+        ; main.asm's NullInterrupt stub (the post-gameStates level-1 placement).
+        ; config/game.asm's `Game_Entry = GameState_OJZScroll_Init` resolves to
+        ; the .emp export. The gate define must never be set for other games.
+      ifdef __DEBUG__
+        org     $5E5A8
+      else
+        org     $5CAAE
+      endif
+    endif
     endm
 
     include "engine/engine.inc"
