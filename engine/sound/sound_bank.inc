@@ -38,7 +38,16 @@ soundBankHead macro pitchfile, {GLOBALSYMBOLS}
         ; The resident FM/PSG writers read the 8 head labels (FmPitchTableZ ..
         ; FmVolEnv_Ptrs) via the seam-1 banked carriers at their fixed VMAs — the
         ; byte-exact $8000-based layout keeps those addresses correct.
+SoundTablesZ80_Head:
         BINCLUDE "engine/sound/generated/sound_tables_z80.bin"
+SoundTablesZ80_Head_End:
+        ; Guard the head span (it has no generated _End of its own) so a size drift
+        ; fails LOUD and LOCAL here rather than silently shifting the downstream
+        ; heads (SfxBlobWinTab/SeqOpcodeTable/DacSampleTable) off their fixed
+        ; banked-carrier VMAs ($845F/$856D/$85AD).
+        if (SoundTablesZ80_Head_End-SoundTablesZ80_Head) <> 855
+          fatal "sound_tables_z80 head wrong size ($357=855 B) — downstream head VMAs would shift"
+        endif
         include pitchfile
         ; seam-2 (stage-2d): the SfxBlobWinTab id->blob window-pointer head is the
         ; byte-identical artifact sigil CO-LINKS from sfx_blob_win_tab.emp +
