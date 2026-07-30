@@ -255,163 +255,77 @@ __BUDGET_ENGINE:
     else
         org     $2794
     endif
-    ifndef SIGIL_EMP_DPLC
-        include "engine/objects/dplc.asm"
-    else
-        ; sigil mixed build: Perform_DPLC/Perform_DPLC_Deferrable come from
-        ; engine/objects/dplc.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; Perform_DPLC/Perform_DPLC_Deferrable: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $29CE
-      else
+    else
         org     $2838
-      endif
     endif
-    ifndef SIGIL_EMP_CORE
-        include "engine/objects/core.asm"
-    else
-        ; sigil mixed build: InitObjectRAM/AllocDynamic/AllocEffect/
-        ; DeleteObject/RunObjects/RunObjects_Frozen/ObjectMove* come from
-        ; engine/objects/core.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: core is shape-dependent-LENGTH (the __DEBUG__
-        ; Debug_AssertObjLoop proc + the two ifdebug call sites exist only in
-        ; the debug shape), so the two resume orgs differ by more than the
-        ; usual base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; InitObjectRAM..ObjectMove*: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $30FA
-      else
+    else
         org     $2B1C
-      endif
     endif
-    ifndef SIGIL_EMP_SPRITES
-        include "engine/objects/sprites.asm"
-    else
-        ; sigil mixed build: InitSpriteSystem/Draw_Sprite/Render_Sprites/
-        ; Emit_ObjectPieces/InsertSpriteMasks come from
-        ; engine/objects/sprites.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; sprites is shape-INDEPENDENT length ($420 both shapes — no
-        ; __DEBUG__ code), so the two resume orgs differ only by the core
-        ; base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; InitSpriteSystem..InsertSpriteMasks: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $351A
-      else
+    else
         org     $2F3C
-      endif
     endif
-    ifndef SIGIL_EMP_ANIMATE
-        include "engine/objects/animate.asm"
-    else
-        ; sigil mixed build: AnimateSprite/RefreshSpritePieceCount come from
-        ; engine/objects/animate.emp,
-        ; pinned by the sigil map at the per-shape reference address. Resume
-        ; placement at the region end (see sigil-harness golden/PROVENANCE.md;
-        ; re-pin on re-baseline). The AF_* control-code equs the script data
-        ; files read live in engine/constants.asm, NOT here, so they survive
-        ; this gate.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; AnimateSprite/RefreshSpritePieceCount: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $37C2
-      else
+    else
         org     $30C6
-      endif
     endif
-    ifndef SIGIL_EMP_COLLISION
-        include "engine/objects/collision.asm"
-    else
-        ; sigil mixed build: TouchResponse comes from
-        ; engine/objects/collision.emp, pinned by the sigil map at the
-        ; per-shape reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; TouchResponse: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $39CA
-      else
+    else
         org     $32C6
-      endif
     endif
-    ifndef SIGIL_EMP_RINGS
-        include "engine/objects/rings.asm"
-    else
-        ; sigil mixed build: the RingBuffer_*/DrawRings/RingCollision procs
-        ; come from engine/objects/rings.emp, pinned by the sigil map at the
-        ; per-shape reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: rings is the campaign's FIRST shape-dependent-LENGTH region
-        ; (the __DEBUG__ assert block exists only in the debug shape), so the
-        ; two resume orgs differ by more than the usual base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; RingBuffer_*/DrawRings/RingCollision: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $3BDE
-      else
+    else
         org     $347E
-      endif
     endif
-    ifndef SIGIL_EMP_ENTITY_WINDOW
-        include "engine/objects/entity_window.asm"
-    else
-        ; sigil mixed build: entity_window's Collected_*/Killed_*/EntityLoaded_*/
-        ; EntityWindow_* procs come from engine/objects/entity_window.emp, pinned
-        ; by the sigil map at the per-shape reference address. Resume placement at
-        ; the region end (see sigil-harness golden/PROVENANCE.md; re-pin on
-        ; re-baseline). Shape-dependent LENGTH (the 11 asserts + 3 __DEBUG__
-        ; blocks), so the two resume orgs differ by more than the base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; entity_window Collected_*/EntityWindow_*: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $4906
-      else
+    else
         org     $3D38
-      endif
     endif
-    ifndef SIGIL_EMP_CHILDREN
-        include "engine/objects/children.asm"
-    else
-        ; sigil mixed build: PopulateSpawnedPieceCount / CreateChild_* /
-        ; DeleteChildren / CreateEffect_* come from
-        ; engine/objects/children.emp, pinned by the sigil map at the
-        ; per-shape reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; Shape-DEPENDENT length: the debug shape carries the chain-contract
-        ; asserts + their message blobs, so the two resume orgs differ by more
-        ; than the upstream base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; CreateChild_*/CreateEffect_*/DeleteChildren: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $4CE0
-      else
-        org     $4008
-      endif
-    endif
-    ifndef SIGIL_EMP_LOAD_OBJECT
-        include "engine/objects/load_object.asm"
     else
-        ; sigil mixed build: Load_Object / Load_ObjectList come from
-        ; engine/objects/load_object.emp, pinned by the sigil map at the
-        ; per-shape reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; Shape-INVARIANT length (no asserts / no __DEBUG__) — the two resume
-        ; orgs differ only by the upstream base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+        org     $4008
+    endif
+    ; Load_Object/Load_ObjectList: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $4D62
-      else
+    else
         org     $408A
-      endif
     endif
     ifndef SIGIL_EMP_PLANE_BUFFER
         include "engine/level/plane_buffer.asm"
