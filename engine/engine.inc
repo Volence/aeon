@@ -245,20 +245,15 @@ __BUDGET_ENGINE:
     else
         org     $24FC
     endif
-    ifndef SIGIL_EMP_MATH
-        include "engine/system/math.asm"
-    else
-        ; sigil mixed build: GetSineCosine/Sine_Table come from
-        ; engine/system/math.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; GetSineCosine/Sine_Table are native (engine/system/math.emp,
+    ; sigil-map-pinned at the per-shape reference address). The AS residual
+    ; resumes past the native region. These sonic4-shape orgs are used directly
+    ; by the canonical sonic4 build; the off-canonical chainer (demo/Config)
+    ; derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $292A
-      else
+    else
         org     $2794
-      endif
     endif
     ifndef SIGIL_EMP_DPLC
         include "engine/objects/dplc.asm"
