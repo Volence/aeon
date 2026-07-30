@@ -23,7 +23,7 @@ use engine.structs.{Act, Sec, parallax_config}
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{stop_z80, start_z80}
-use engine.types.{VramTile}
+use engine.types.{VramTile, GridX, GridY}
 
 // VRAM_TEST_OBJ / VRAM_TEST_MARKER — mirror games/sonic4/config/constants.asm;
 // the drift guards make an AS-side tile-slot change loud. VRAM_TEST_MARKER =
@@ -58,7 +58,7 @@ equ PLAYER_1_Y_VEL = extern("Player_1") + extern("SST_y_vel")
 // -----------------------------------------------
 // GameState_OJZScroll_Init — one-shot setup
 // -----------------------------------------------
-pub proc GameState_OJZScroll_Init () clobbers(d0-d3/a0-a3) {
+pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) {
         // -- per-8-row HScroll mode (reg $0B bits 1:0 = %10) --
         move.b  #$02, VDP_Shadow_Table + VDP_MODE3_OFF   // setVDPReg VDP_Shadow_vdp_mode3, #$02
         ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask
@@ -94,7 +94,7 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d3/a0-a3) {
         move.l  #TestArt, d1
         move.w  #vram_bytes(VRAM_TEST_OBJ), d2
         move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt
-        jbsr    QueueDMA_Critical
+        jbsr    QueueDMA_Critical @discards(dropped)   // test scene: a dropped DMA (queue full) is acceptable
 
         // -- initialise camera first (Section_FillInitial reads Camera_X) --
         lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
@@ -168,8 +168,8 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d3/a0-a3) {
         //    Section_GetSecPtrXY handles the full grid math (sec_y included);
         //    runs after Section_Init so Current_Act_Ptr is valid. --
         lea     OJZ_Act1_Descriptor, a2            // (OJZ_Act1_Descriptor).l
-        move.b  Act.start_sec_x(a2), d2
-        move.b  Act.start_sec_y(a2), d3
+        move.b  Act.start_sec_x(a2), d2 as GridX
+        move.b  Act.start_sec_y(a2), d3 as GridY
         jbsr    Section_GetSecPtrXY             // a0 = start Sec ptr (Z set = none)
         beq     .init_use_act_config
         movea.l Sec.sec_parallax_config(a0), a0 // a0 = parallax_config* (NULL = act default)
@@ -264,7 +264,7 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         asr.w   d0, d2                          // d2 = sec_x of the camera center
         move.w  Camera_Y, d3                    // (Camera_Y).w — world Y px
         addi.w  #SCREEN_HEIGHT/2, d3
-        asr.w   d0, d3                          // d3 = sec_y of the camera center
+        asr.w   d0, d3 as GridY                 // d3 = sec_y of the camera center
         movea.l a0, a2                          // Section_FlatIDXY wants act ptr in a2
         jbsr    Section_FlatIDXY                // d0.w = flat section_id
         move.w  d0, d6                          // save flat_id for T14 + T15
