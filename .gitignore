@@ -72,8 +72,26 @@ tags
 *.tf
 __pycache__/
 .worktrees/
-games/sonic4/data/generated/
 engine/debug/generated/
+
+# level-gen parcel: the OJZ generated level tree + collision tables ship as
+# COMMITTED artifacts (the sound-migration model — reproducible-by-tracking).
+# The generators (ojz_strip_gen / ojz_block_gen / ojz_entity_gen /
+# import_sk_collision) read out-of-repo donor projects (sonic_hack / skdisasm),
+# so they cannot run in the build; re-bake is MANUAL (tools/regenerate-level.sh).
+# A fresh checkout builds from these tracked bytes with no seed step.
+!games/sonic4/data/generated/**/*.asm
+!games/sonic4/data/generated/**/*.bin
+!games/sonic4/data/generated/**/*.zx0
+!games/sonic4/data/collision/**/*.bin
+# The editor working data the re-bake consumes (painted section nametables +
+# per-section collision); the `section_*` globs never cross `/`, so the
+# .*-backup/ dirs and dead timestamped bg experiments stay ignored.
+!games/sonic4/data/editor/ojz/act1/section_*.tiles.bin
+!games/sonic4/data/editor/ojz/act1/section_*.coll.bin
+!games/sonic4/data/editor/ojz/act1/section_*.collattr.bin
+!games/sonic4/data/editor/ojz/act1/section_*.collattrb.bin
+!games/sonic4/data/editor/ojz/chunks_tiles.bin
 
 # Build tool caches (content-hash keyed)
 tools/.cache/
