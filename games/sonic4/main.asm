@@ -18,22 +18,16 @@ gameRamIncludes macro {GLOBALSYMBOLS}
     endm
 
 gameEngineBlockIncludes macro {GLOBALSYMBOLS}
-    ifndef SIGIL_EMP_PLAYER_SENSORS
-        include "games/sonic4/player/player_sensors.asm"
-    else
-        ; sigil mixed build: the collision sensor primitives (Collision_Probe*,
-        ; Player_Sensor*, Player_AtLedgeEdge) come from player_sensors.emp,
-        ; pinned by the sigil map at the engine-block region start. Unlike the
-        ; object-bank player state files, this region's BASE shifts with upstream
-        ; __DEBUG__ growth (SHAPE-VARYING base, shape-invariant own layout $4FC),
-        ; so the resume org is PER-SHAPE. Resume lands on game_debug.asm's start,
-        ; which emits ZERO canonical bytes (whole-file ifdef SOUND_DEBUG_HOTKEYS),
-        ; i.e. Section_Init. The gate define must never be set for other games.
-      ifdef __DEBUG__
+    ; The collision sensor primitives (Collision_Probe*, Player_Sensor*,
+    ; Player_AtLedgeEdge) are native (player_sensors.emp), pinned by the sigil map
+    ; at the engine-block region start. Unlike the object-bank player state files,
+    ; this region's BASE shifts with upstream __DEBUG__ growth (shape-varying base,
+    ; shape-invariant $4FC own layout), so the resume org is PER-SHAPE; it lands on
+    ; Section_Init (game_debug emits zero canonical bytes). The orgs are sonic4-shape.
+    ifdef __DEBUG__
         org     $633C
-      else
+    else
         org     $55A4
-      endif
     endif
     ifndef SIGIL_EMP_GAME_DEBUG
         include "games/sonic4/debug/game_debug.asm"
@@ -59,43 +53,22 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     ; the state files use; ground/air are reached only via the offset
     ; tables, so order among them is otherwise free.
     include "games/sonic4/player/player_common.asm"
-    ifndef SIGIL_EMP_PLAYER_GROUND
-      include "games/sonic4/player/player_ground.asm"
-    else
-        ; sigil mixed build: the grounded state bodies (PState_Ground/Roll,
-        ; Ground_Move/Cap/PostMove, Player_SlopeRepel, Ground_DetachState,
-        ; Player_Jump) come from games/sonic4/player/player_ground.emp. Pure code,
-        ; shape-invariant window; ONE org both shapes. Resume lands on player_air's
-        ; first label PState_Air. The gate define must never be set for other games.
-        org     $10896
-    endif
-    ifndef SIGIL_EMP_PLAYER_AIR
-      include "games/sonic4/player/player_air.asm"
-    else
-        ; sigil mixed build: the airborne state bodies (PState_Air/AirBall/RollJump/
-        ; Jump/AirShared + the Air_* helpers) come from player_air.emp. Shape-invariant
-        ; window; ONE org both shapes. Resume lands on player_spindash's first label
-        ; PState_Spindash.
-        org     $10B58
-    endif
-    ifndef SIGIL_EMP_PLAYER_SPINDASH
-      include "games/sonic4/player/player_spindash.asm"
-    else
-        ; sigil mixed build: PState_Spindash comes from player_spindash.emp. Shape-
-        ; invariant window; ONE org both shapes. Resume lands on sonic.asm's first
-        ; label Sonic_InitAssets.
-        org     $10BF4
-    endif
-    ifndef SIGIL_EMP_SONIC
-      include "games/sonic4/player/sonic.asm"
-    else
-        ; sigil mixed build: Sonic_InitAssets/Sonic_LoadArt/PhysTable_Sonic come
-        ; from games/sonic4/player/sonic.emp. Shape-invariant window; ONE org both
-        ; shapes. Resume lands on test_static.asm's first label TestStatic_Main.
-        ; The gate define must never be set for other games (demo takes the
-        ; includes).
-        org     $10C34
-    endif
+    ; The grounded state bodies (PState_Ground/Roll, Ground_Move/Cap/PostMove,
+    ; Player_SlopeRepel, Ground_DetachState, Player_Jump) are native
+    ; (player_ground.emp). Pure code, shape-invariant window; ONE org both shapes,
+    ; resuming on player_air's first label PState_Air.
+    org     $10896
+    ; The airborne state bodies (PState_Air/AirBall/RollJump/Jump/AirShared + the
+    ; Air_* helpers) are native (player_air.emp). Shape-invariant window; ONE org
+    ; both shapes, resuming on player_spindash's first label PState_Spindash.
+    org     $10B58
+    ; PState_Spindash is native (player_spindash.emp). Shape-invariant window; ONE
+    ; org both shapes, resuming on sonic.asm's first label Sonic_InitAssets.
+    org     $10BF4
+    ; Sonic_InitAssets/Sonic_LoadArt/PhysTable_Sonic are native (sonic.emp).
+    ; Shape-invariant window; ONE org both shapes, resuming on test_static.asm's
+    ; first label TestStatic_Main.
+    org     $10C34
 
     ifndef SIGIL_EMP_TEST_STATIC
       include "games/sonic4/objects/test_static.asm"
