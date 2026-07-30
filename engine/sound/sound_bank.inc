@@ -34,21 +34,16 @@ soundBankHead macro pitchfile, sfxtabfile, {GLOBALSYMBOLS}
         include pitchfile
         include sfxtabfile
         include "engine/sound/seq_opcode_tab.asm"
-    ifndef SIGIL_EMP_DAC
-        include "engine/sound/dac_sample_tab.asm"
-    else
         ; seam-2 (Option Y): the DacSampleTable descriptor head is the byte-identical
         ; artifact sigil CO-LINKS from dac_sample_tab.emp + dac_samples.emp's SND_*
-        ; equs — dac_sample_tab.bin — BINCLUDE'd here at the same VMA ($85AD) the
-        ; `.asm` head landed. The label MUST precede the BINCLUDE (the resident
-        ; driver's `-D DacSampleTable=$85AD` and Snd_DacLookup pointer math depend on
-        ; it). With the head native, NO AS consumer of SND_* remains — the cross-seam
-        ; coupling dissolves (the whole point of Option Y).
+        ; equs — dac_sample_tab.bin — BINCLUDE'd here at VMA $85AD (the .asm twin is
+        ; deleted). The label MUST precede the BINCLUDE (the resident driver's
+        ; `-D DacSampleTable=$85AD` and Snd_DacLookup pointer math depend on it). With
+        ; the head native, NO AS consumer of SND_* remains — the coupling dissolved.
 DacSampleTable:
         BINCLUDE "engine/sound/generated/dac_sample_tab.bin"
 DacSampleTable_End:
         if (DacSampleTable_End-DacSampleTable) <> DAC_SAMPLE_COUNT*DacSample_len
           fatal "DacSampleTable wrong size for DAC_SAMPLE_COUNT"
         endif
-    endif
     endm

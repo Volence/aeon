@@ -1,8 +1,8 @@
 // ===========================================================================
 // data/sound/dac_samples.emp — ROM-resident DAC sample data (Phase 1B)
 // ===========================================================================
-// The .emp port of dac_samples.asm (this directory) — the exemplar the sound
-// migration copies. Raw 8-bit unsigned PCM (centered $80): the Z80 streams each
+// The canonical ROM-resident DAC sample data — the exemplar the sound migration
+// copies. Raw 8-bit unsigned PCM (centered $80): the Z80 streams each
 // blob through its $8000-$FFFF window, selected by the 9-bit bank latch at $6000.
 //
 // In the .asm the Z80-window banking invariant is hand-maintained with three
@@ -40,8 +40,9 @@
 //     always-on no-straddle link assert.
 //   * the `align $8000`s — subsumed by the pinned map regions + `bank: $8000`.
 //
-// CONSUMERS (unchanged): engine/sound/dac_sample_tab.asm reads the SND_* equs
-// below via `db`/`dw` into its DacSample descriptors — Z80-side, still AS.
+// CONSUMER: engine/sound/dac_sample_tab.emp reads the SND_* equs below at LINK
+// (cross-module, co-linked) into its DacSample descriptors — the head is native
+// too; build.sh BINCLUDEs the co-linked dac_sample_tab.bin. No AS reader remains.
 // ===========================================================================
 
 module data.dac_samples
@@ -111,9 +112,10 @@ section dac_shared_bank (cpu: m68000, bank: $8000) {
 
 
 // ===========================================================================
-// The build-time SND_* constants the DAC descriptor table (dac_sample_tab.asm)
-// reads directly — the per-sample {bank, ptr, len} triple, one per blob, spelled
-// EXACTLY as the .asm names them (external consumers depend on these names):
+// The build-time SND_* constants the DAC descriptor table (dac_sample_tab.emp)
+// reads cross-module at link — the per-sample {bank, ptr, len} triple, one per
+// blob, spelled EXACTLY as the co-linked head names them (the consumer folds
+// these SND_* by name at link):
 //   bank = bankid(L) → (L & $7F8000) >> 15   (link-folded from the placed addr)
 //   ptr  = winptr(L) → (L & $7FFF) | $8000    (link-folded)
 //   len  = Blob.len                            (comptime)

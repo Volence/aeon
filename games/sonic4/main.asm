@@ -309,25 +309,21 @@ Art_Sonic:
     endm
 
 gameSoundDataIncludes macro {GLOBALSYMBOLS}
-    ifndef SIGIL_EMP_DAC
-        include "games/sonic4/data/sound/dac_samples.asm"
-    else
-      ifdef SIGIL_EMP_DAC_BODY_STUB
+    ifdef SIGIL_EMP_DAC_BODY_STUB
         ; sigil DSM mixed harness ONLY: the two DAC banks are composed IN-MEMORY as
         ; dac_samples.emp sections (the dac_port.rs pipeline, pinned at $48000/$50000
         ; by the harness bank map). org skips the two-bank hole; the next align $8000
         ; (MT bank) lands at $58000 exactly as before. This arm exercises the .emp
         ; bank composition inside the whole ROM; the real build takes the BINCLUDE arm.
         org     $58000
-      else
-        ; seam-2 (Option Y) — the real build: the DAC sample banks are the
-        ; byte-identical artifacts sigil emits from dac_samples.emp (the canonical
-        ; source) — dac_blip_bank.bin @ $48000, dac_shared_bank.bin @ $50000 —
-        ; BINCLUDE'd here in the SAME align/label/BINCLUDE order dac_samples.asm laid
-        ; them out, so the assembled bytes are identical. build.sh's sigil emit step is
-        ; a HARD dependency: there is no asl fallback once the twin is deleted. The
-        ; trailing snap to $58000 is the MT bank's own `align $8000` below (the shared
-        ; bank ends at $578BC).
+    else
+        ; seam-2 (Option Y): the DAC sample banks are the byte-identical artifacts
+        ; sigil emits from dac_samples.emp (the CANONICAL source — the .asm twin is
+        ; deleted) — dac_blip_bank.bin @ $48000, dac_shared_bank.bin @ $50000 —
+        ; BINCLUDE'd here in the align/label/BINCLUDE order the descriptor head + the
+        ; runtime bank latch expect. build.sh's sigil emit step is a HARD dependency:
+        ; there is no asl fallback. The trailing snap to $58000 is the MT bank's own
+        ; `align $8000` below (the shared bank ends at $578BC).
         align   $8000                          ; align to a bank start (no boundary cross)
 Dac_Temp_Blip:
         BINCLUDE "engine/sound/generated/dac_blip_bank.bin"
@@ -335,7 +331,6 @@ Dac_Temp_Blip:
 Dac_SharedBank_Start:
 Dac_Kick:
         BINCLUDE "engine/sound/generated/dac_shared_bank.bin"
-      endif
     endif
         ; NOTE: the 68k DUPLICATE sound tables (data/sound/sound_tables.asm =
         ; FmPitchTable/PsgDivisorTable/LogVolumeLut/CarrierMaskTable, and
