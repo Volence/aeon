@@ -363,7 +363,7 @@ SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK
         save
         cpu     z80
         phase   08000h
-        soundBankHead "games/sonic4/data/sound/movingtrucks_pitchtable.asm"
+        soundBankHead
         dephase
         restore
     ifdef SIGIL_EMP_MT_BODY_STUB

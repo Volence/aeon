@@ -60,9 +60,9 @@
 // and `MovingTrucks_Patches_End` / `Song_DrumTest_End` / `Song_HCZ2_End` /
 // `HCZ2_Patches_End` / `SongTable_End` / `SongPatchTable_End` — every
 // consumer here reads a blob's `.len` (comptime) or a table's element type
-// width, never an end-minus-start; and `movingtrucks_pitchtable.asm` (the
-// engine-DEFAULT pitch table, inline in the Z80 blob) — untouched, still
-// `.asm`, per the plan's self-review (not this module's concern).
+// width, never an end-minus-start; and `movingtrucks_pitchtable.emp` (the
+// engine-DEFAULT pitch table, the banked head sigil lowers to
+// movingtrucks_pitchtable.bin) — a separate module, not this module's concern.
 //
 // Re-pin note (PROVENANCE): all six blob lengths and the `$30B1` pitch-table
 // offset are pinned against the aeon `e5b256c` + bg-restore re-baseline (the

@@ -16,10 +16,11 @@
 ; DATA reads tolerate contention (worst case a one-frame glitch); banked CODE
 ; fetches do not. All in-frame code lives in the resident blob.
 ;
-; args:
-;   pitchfile  — game include that must define SndDefaultPitchTable (the
-;                fallback pitch table sound_fm.asm uses when a song's
-;                pitchtable_ptr is 0), inside the window.
+; Every table in this head is now a byte-identical BINCLUDE'd sigil artifact —
+; no game include arg. SndDefaultPitchTable (the fallback pitch table sound_fm.asm
+; uses when a song's pitchtable_ptr is 0) is BINCLUDE'd below from
+; movingtrucks_pitchtable.bin (sigil lowers games/sonic4/data/sound/
+; movingtrucks_pitchtable.emp; the .asm twin is deleted, flip Stage-0).
 ; SfxBlobWinTab (the id->blob window-pointer table sound_sfx.emp's readers use
 ; under SetBank(SFX_BLOB_BANK)) is BINCLUDE'd below as the byte-identical
 ; artifact sigil co-links from sfx_blob_win_tab.emp + sfx_bank.emp's SFX_WIN_*
@@ -30,7 +31,7 @@
 ; {GLOBALSYMBOLS}: every label in the included files must be a real global
 ; symbol — AS macro-expansion labels are macro-local by default and would
 ; both break the driver's references and vanish from the symbol table.
-soundBankHead macro pitchfile, {GLOBALSYMBOLS}
+soundBankHead macro {GLOBALSYMBOLS}
         ; seam-2 (stage-3): the generated FM/PSG data tables (4 pure-math LUTs +
         ; the PSG/FM vol-env id-lists/pointer tables/bodies) are the byte-identical
         ; artifact sigil emits from sound_tables_z80.emp — sound_tables_z80.bin —
@@ -48,7 +49,19 @@ SoundTablesZ80_Head_End:
         if (SoundTablesZ80_Head_End-SoundTablesZ80_Head) <> 855
           fatal "sound_tables_z80 head wrong size ($357=855 B) — downstream head VMAs would shift"
         endif
-        include pitchfile
+        ; flip Stage-0: the SndDefaultPitchTable / MovingTrucks_PitchTable head is the
+        ; byte-identical artifact sigil lowers from games/sonic4/data/sound/
+        ; movingtrucks_pitchtable.emp — movingtrucks_pitchtable.bin — BINCLUDE'd here
+        ; at VMA $8357 (the .asm twin is deleted). Pure data (the 132-entry two-page
+        ; fnum table); the labels MUST precede the BINCLUDE (sound_fm's fallback reads
+        ; SndDefaultPitchTable when a song's pitchtable_ptr is 0). SHAPE-INVARIANT.
+SndDefaultPitchTable:
+MovingTrucks_PitchTable:
+        BINCLUDE "engine/sound/generated/movingtrucks_pitchtable.bin"
+MovingTrucks_PitchTable_End:
+        if (MovingTrucks_PitchTable_End-MovingTrucks_PitchTable) <> 2*PITCHTAB_COUNT
+          fatal "MovingTrucks_PitchTable wrong size: \{MovingTrucks_PitchTable_End-MovingTrucks_PitchTable} != \{2*PITCHTAB_COUNT}"
+        endif
         ; seam-2 (stage-2d): the SfxBlobWinTab id->blob window-pointer head is the
         ; byte-identical artifact sigil CO-LINKS from sfx_blob_win_tab.emp +
         ; sfx_bank.emp's SFX_WIN_* equs — sfx_blob_win_tab{,_debug}.bin —
