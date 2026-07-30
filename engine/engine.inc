@@ -336,24 +336,16 @@ __BUDGET_ENGINE:
         include "engine/debug/generated/vectors.asm"
     endif
     ifdef SOUND_DRIVER_ENABLED
-      ifndef SIGIL_EMP_SOUND_API
-        include "engine/sound/sound_api.asm"
-      else
-        ; sigil mixed build: the Sound_* API procs come from
-        ; engine/sound/sound_api.emp, pinned by the sigil map at the
-        ; per-shape reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; The .emp keeps the slot ADDRESSES AS-owned (extern-equ sums over
-        ; sound_constants.asm) and mirrors only immediate-position values
-        ; (kill-list row 10).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
+        ; The Sound_* API procs are native (engine/sound/sound_api.emp), pinned by
+        ; the sigil map at the per-shape reference address; the AS residual resumes
+        ; at the region end. The .emp keeps the slot ADDRESSES AS-owned (extern-equ
+        ; sums over sound_constants.asm) and mirrors only immediate-position values.
+        ; The org values are sonic4-shape; the off-canonical chainer ignores them.
         ifdef __DEBUG__
         org     $80E4
         else
         org     $6414
         endif
-      endif
     endif
     ifdef __DEBUG__
       ifdef SOUND_DRIVER_ENABLED
