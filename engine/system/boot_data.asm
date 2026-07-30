@@ -46,7 +46,36 @@ BootData_VDPRegs:
 
         ; Z80 program (assembled Z80 code) — sound driver replaces idle when enabled
     ifdef SOUND_DRIVER_ENABLED
+      ifndef SIGIL_EMP_Z80_SOUND
         include "engine/sound/z80_sound_driver.asm"
+      else
+        ; sigil mixed build (seam-1): the resident sound blob comes from the five
+        ; sound .emp files (driver/sequencer/sfx/fm/psg) linked NATIVELY as one Z80
+        ; module set, placed by the sigil map at Z80_Sound_Start. org resumes at
+        ; Z80_Sound_End. Both shipped shapes have sound ENABLED, so this else is
+        ; skipped canonically; the define is set only by the whole-ROM seam-1 gate.
+        ; Z80_SOUND_SIZE is z80_sound_driver.asm's boot-cursor equate (End - Start),
+        ; which the code bytes do not contain; the .emp supplies the code, so the
+        ; equate is defined numerically here (per shape) for the downstream boot
+        ; cursor (the move.w #Z80_SOUND_SIZE-1 copy count + the layout-assert wall).
+        ; Build-time helpers the resident sound_sfx.asm hosts but the BANKED
+        ; sfx_blob_win_tab.asm (still AS-included, seam-2) consumes at assemble
+        ; time — skipped along with the resident twin, so re-supplied here (these
+        ; emit NO bytes; sound_sfx.asm still defines them in the gate-OFF build, so
+        ; there is no double-definition in either arm).
+SFX_WIN_MASK = 32767                         ; $7FFF (low 15 bits)
+SFX_WIN_BASE = 32768                         ; $8000 (window bit15)
+sfx_winptr  function addr, (((addr) & SFX_WIN_MASK) | SFX_WIN_BASE)
+sfx_bankid  function addr, ((addr) >> 15)
+Z80_Sound_Start:
+        ifdef __DEBUG__
+Z80_SOUND_SIZE = $189A                      ; plain $181C + $7E (sequencer debug growth)
+        else
+Z80_SOUND_SIZE = $181C
+        endif
+        org     Z80_Sound_Start+Z80_SOUND_SIZE
+Z80_Sound_End:
+      endif
     else
       ifndef SIGIL_EMP_Z80_INIT
         include "engine/system/z80_init.asm"

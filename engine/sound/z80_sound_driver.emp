@@ -123,7 +123,14 @@ section z80_sound_driver (cpu: z80, vma: $0000) {
     // so the $0038 vector is reached by zero-filling $0003..$0037 with real bytes
     // ($00) that the boot loader copies — the vector then physically lands at
     // $0038. (Twin: `rept 38h-$ / db 0`; here: the explicit 53-byte fill below.)
-    pub proc Z80_Sound_Start () clobbers() {
+    // The blob-internal reset-vector entry at the phased VMA $0000. Named
+    // Z80_Sound_Entry, NOT Z80_Sound_Start: the 68k symbol `Z80_Sound_Start` is the
+    // blob's LMA ($3DE) — owned by the boot_data.asm gate arm (the boot copy +
+    // layout-assert wall read it there), and the AS twin defines it as the pre-phase
+    // label, never at VMA $0000. Reusing that name here would name the same point in
+    // two address spaces and collide at the native link. Reached by the Z80 reset,
+    // never by symbol.
+    proc Z80_Sound_Entry () clobbers() {
         jp      SndDrv_Init             // $0000-$0002
     }
 
