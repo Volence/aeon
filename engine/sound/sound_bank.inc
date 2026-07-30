@@ -31,7 +31,14 @@
 ; symbol — AS macro-expansion labels are macro-local by default and would
 ; both break the driver's references and vanish from the symbol table.
 soundBankHead macro pitchfile, {GLOBALSYMBOLS}
-        include "engine/sound/sound_tables_z80.asm"
+        ; seam-2 (stage-3): the generated FM/PSG data tables (4 pure-math LUTs +
+        ; the PSG/FM vol-env id-lists/pointer tables/bodies) are the byte-identical
+        ; artifact sigil emits from sound_tables_z80.emp — sound_tables_z80.bin —
+        ; BINCLUDE'd here at VMA $8000 (the .asm twin is deleted). SHAPE-INVARIANT.
+        ; The resident FM/PSG writers read the 8 head labels (FmPitchTableZ ..
+        ; FmVolEnv_Ptrs) via the seam-1 banked carriers at their fixed VMAs — the
+        ; byte-exact $8000-based layout keeps those addresses correct.
+        BINCLUDE "engine/sound/generated/sound_tables_z80.bin"
         include pitchfile
         ; seam-2 (stage-2d): the SfxBlobWinTab id->blob window-pointer head is the
         ; byte-identical artifact sigil CO-LINKS from sfx_blob_win_tab.emp +
