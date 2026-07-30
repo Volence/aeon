@@ -23,6 +23,7 @@ use engine.objects.objdef.{vram_bytes}
 use engine.constants.{NUM_DYNAMIC, NUM_EFFECTS}
 use engine.vdp.{VDP_MODE2_OFF}
 use engine.types.{VramTile}
+use engine.coords.{pixels_to_coord}
 
 // VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Mirrors
 // games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
@@ -105,12 +106,10 @@ pub proc GameState_ObjectTest_Init () clobbers(d0-d4/a0-a3) {
         bne     .emitters_done
         move.w  #TestStressEmitter - ObjCodeBase, Sst.code_addr(a1)
         move.w  (a2)+, d0
-        swap    d0
-        clr.w   d0
+        pixels_to_coord(d0)
         move.l  d0, Sst.x_pos(a1)
         move.w  (a2)+, d0
-        swap    d0
-        clr.w   d0
+        pixels_to_coord(d0)
         move.l  d0, Sst.y_pos(a1)
         dbf     d4, .spawn_emitters
 .emitters_done:
@@ -284,15 +283,13 @@ pub proc GameState_ObjectTestChurn_Init () clobbers(d0-d5/a0-a2) {
         andi.w  #7, d0
         mulu.w  #36, d0
         addi.w  #20, d0
-        swap    d0
-        clr.w   d0
+        pixels_to_coord(d0)
         move.l  d0, Sst.x_pos(a1)
         move.w  d5, d0
         lsr.w   #3, d0
         mulu.w  #40, d0
         addi.w  #20, d0
-        swap    d0
-        clr.w   d0
+        pixels_to_coord(d0)
         move.l  d0, Sst.y_pos(a1)
         addq.w  #1, d5
         dbf     d4, .spawn_churn

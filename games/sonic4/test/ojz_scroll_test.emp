@@ -24,6 +24,7 @@ use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{stop_z80, start_z80}
 use engine.types.{VramTile, GridX, GridY}
+use engine.coords.{pixels_to_coord}
 
 // VRAM_TEST_OBJ / VRAM_TEST_MARKER — mirror games/sonic4/config/constants.asm;
 // the drift guards make an AS-side tile-slot change loud. VRAM_TEST_MARKER =
@@ -111,13 +112,11 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) {
         //    already world-correct. --
         move.w  Camera_X, d0                    // (Camera_X).w — high word of camera_x (16.16 -> integer px)
         addi.w  #CAM_SCREEN_HALF_W, d0
-        swap    d0
-        clr.w   d0
+        pixels_to_coord(d0)
         move.l  d0, PLAYER_1_X_POS             // (Player_1+SST_x_pos).w
         move.w  Camera_Y, d0                    // (Camera_Y).w
         addi.w  #CAM_SCREEN_HALF_H, d0
-        swap    d0
-        clr.w   d0
+        pixels_to_coord(d0)
         move.l  d0, PLAYER_1_Y_POS             // (Player_1+SST_y_pos).w
         clr.w   PLAYER_1_X_VEL                 // (Player_1+SST_x_vel).w
         clr.w   PLAYER_1_Y_VEL                 // (Player_1+SST_y_vel).w
