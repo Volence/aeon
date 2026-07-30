@@ -51,7 +51,24 @@ SfxBlobWinTab_End:
         if (SfxBlobWinTab_End-SfxBlobWinTab) <> SFX_TABLE_LEN*2
           fatal "SfxBlobWinTab wrong size for SFX_TABLE_LEN"
         endif
-        include "engine/sound/seq_opcode_tab.asm"
+        ; seam-2 (stage-3): the SeqOpcodeTable coordination-opcode jump table is the
+        ; byte-identical artifact sigil emits from seq_opcode_tab.emp, its 32
+        ; `dc.w Seq_Op_*` cells resolved against the resident handler VMAs in the
+        ; SAME blob link the driver ships from — seq_opcode_tab{,_debug}.bin —
+        ; BINCLUDE'd here at VMA $856D (the .asm twin is deleted). SHAPE-DEPENDENT:
+        ; the handlers re-base after sound_sequencer.emp's `if DEBUG==1` growth.
+        ; The label MUST precede the BINCLUDE (the resident SeqOpcodeTable=$856D
+        ; banked carrier and Sequencer_Channel's indexed read depend on it).
+SeqOpcodeTable:
+      ifdef __DEBUG__
+        BINCLUDE "engine/sound/generated/seq_opcode_tab_debug.bin"
+      else
+        BINCLUDE "engine/sound/generated/seq_opcode_tab.bin"
+      endif
+SeqOpcodeTable_End:
+        if (SeqOpcodeTable_End-SeqOpcodeTable) <> 32*2
+          fatal "SeqOpcodeTable wrong size (must be 32 dw entries $E0..$FF)"
+        endif
         ; seam-2 (Option Y): the DacSampleTable descriptor head is the byte-identical
         ; artifact sigil CO-LINKS from dac_sample_tab.emp + dac_samples.emp's SND_*
         ; equs — dac_sample_tab.bin — BINCLUDE'd here at VMA $85AD (the .asm twin is
