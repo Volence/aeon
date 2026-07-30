@@ -60,7 +60,9 @@ const TEST_ART_LEN = 128 + 128 + RING_ART_LEN
 // GameState_ObjectTest_Init — one-shot setup
 // In:  none
 // Out: none
-// Clobbers: d0-d4, a0-a2
+// Clobbers: d0-d4, a0-a3 (a0-a2 written directly; a3 rides in through
+//   Load_ObjectList's transitive clobber set — the honest closure exceeds the
+//   .asm header's stated a0-a2, which tracked only the direct writes)
 // -----------------------------------------------
 pub proc GameState_ObjectTest_Init () clobbers(d0-d4/a0-a3) {
         // Load test palette to CRAM line 0
@@ -143,6 +145,10 @@ data EmitterPositions: [u16; 16] = [
 // -----------------------------------------------
 pub proc GameState_ObjectTest () clobbers(d0-d7/a0-a6) {
         if DEBUG == 1 {
+                // Absolute EAs in this block: every VDP_HV_COUNTER read is abs.l
+                // ($C00008); every Prof_*/Dynamic_Free_SP/Effect_Free_SP store is
+                // abs.w (RAM). (The .w/.l twin-notes are elided per operand here to
+                // keep the tight profiling brackets readable.)
                 move.w  VDP_HV_COUNTER, -(sp)          // save frame start on stack
 
                 jbsr    InitSpriteSystem
@@ -398,7 +404,7 @@ data TestArt_Square2: [u32; 32] = [
         $22222222, $22222222, $22222222, $22222222,
 ]
 // Ring art — S3K ring, 4 spin frames × 4 tiles (2×2) = 16 tiles, at
-// VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ+8). Ported from skdisasm Ring.bin
+// VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ+8). Source: skdisasm Ring.bin
 // (Nemesis, 14 tiles): F0 full / F1 narrower / F2 thin-edge (centred) /
 // F3 narrower-mirrored, in VDP 2×2 column-major order per frame; the S3K
 // line-0 gold indices remapped to sonic.bin line-0 (E/F gold, 6 white glint).
