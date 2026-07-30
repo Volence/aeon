@@ -366,92 +366,32 @@ SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK
         soundBankHead "games/sonic4/data/sound/movingtrucks_pitchtable.asm", "games/sonic4/data/sound/sfx_blob_win_tab.asm"
         dephase
         restore
-    ifndef SIGIL_EMP_MT
-        include "games/sonic4/data/sound/song_movingtrucks.asm"
-        ; The per-song pitch table (the 132-entry Zyrinx Moving-Trucks fnum table,
-        ; two parallel A4/A0 pages). Placed CONTIGUOUSLY right after the song so the
-        ; header's pitchtable_ptr (= the song length) resolves to base+offset inside
-        ; the same bank-aligned 32KB block. Distinct label from the engine-default
-        ; inline copy in the Z80 blob (no label collision). The loader points
-        ; Snd_PitchTabPtr here via the header offset.
-        include "games/sonic4/data/sound/movingtrucks_pitchtable_stream.asm"
-        ; LAYOUT GUARD: the song header bakes the pitch table's offset as the
-        ; packed song length (MT_PITCHTAB_OFFSET, emitted by the generator). Any
-        ; pad byte between the song and the table shifts every pitch lookup one
-        ; byte early = the whole song plays a semitone flat (shipped bug,
-        ; root-caused 2026-07-01 — the blob's trailing `align 2` did exactly
-        ; this whenever the preceding bank content had odd total length).
-        if (MovingTrucks_PitchTable_Stream - Song_MovingTrucks) <> MT_PITCHTAB_OFFSET
-          fatal "MT pitch table not contiguous with the song: offset \{MovingTrucks_PitchTable_Stream - Song_MovingTrucks} != header's \{MT_PITCHTAB_OFFSET} — a pad byte would detune the whole song"
-        endif
-        ; The per-song FmPatch bank (33 records * 26 = 858 bytes), read by
-        ; Fm_PatchLoad at SND_SEQ_PATCHTAB + local_idx*26. Placed CONTIGUOUSLY after
-        ; the pitch table (no align between) so the whole block stays in the one
-        ; bank-aligned 32KB bank. The stream-path loader points SND_SEQ_PATCHTAB at
-        ; this bank's window ptr (from SongPatchTable). Emitted via the `pbyte`
-        ; single-source pattern (so it can ALSO be inlined in the Z80 blob).
-        include "games/sonic4/data/sound/movingtrucks_patches.asm"
-    ifdef __DEBUG__
-        ; DEBUG STREAM DAC-on drum-test song (DAC-drum phase Layer 5 Task 5.3, id 2).
-        ; Co-located in THIS bank (the only one holding the engine tables, which the
-        ; FM writer reads window-relative): it reuses the engine-default pitch table
-        ; (pitchtable_ptr=0 -> FmPitchTableZ above) and Moving Trucks' FM patch bank
-        ; (SongPatchTable[1] = MovingTrucks_Patches). The drum payloads stay in the
-        ; SEPARATE shared DAC bank (dac_samples.asm), so its song bank != the sample
-        ; bank and the per-frame B1 swap is genuinely exercised. Defined BEFORE
-        ; song_table.asm (which references Song_DrumTest). Tiny (< 300 B) — fits the
-        ; same bank; the no-straddle guard is in song_table.asm.
-        include "games/sonic4/data/sound/song_drumtest.asm"
-
-        ; --- HCZ2 (S3K Hydrocity Zone Act 2) import — Phase 7 (id 3) ----------
-        ; A faithful native sequencer playback (NOT a register replay) of the original
-        ; S3K SMPS song, generated from skdisasm by song_hcz2.py. STREAM song
-        ; (SH_F_STREAM, like Moving Trucks): the Z80 sequencer reads its command streams
-        ; AND its FM patch bank DIRECTLY through the banked $8000 window with ONE SetBank.
-        ; CO-LOCATED in THIS bank (same as Moving Trucks + DrumTest) — NO own `align
-        ; $8000`. WHY: the FM/PSG voice writers read the engine tables (FmPitchTableZ /
-        ; LogVolumeLutZ / CarrierMaskTableZ / PsgDivisorTableZ / PsgVolEnv_* and the
-        ; default MovingTrucks_PitchTable) as bare `phase 08000h` labels = window-
-        ; relative, and those tables physically live ONLY at the start of THIS bank. An
-        ; own HCZ2 bank would window-in a bank WITHOUT them -> garbage pitch/volume. Co-
-        ; locating lets HCZ2 reuse them with zero duplication (pitchtable_ptr=0 ->
-        ; FmPitchTableZ above), exactly as DrumTest does. song_hcz2.asm + its FM patch
-        ; bank (HCZ2_Patches, 4*26=104 B) follow CONTIGUOUSLY so one SetBank covers every
-        ; HCZ2 sequencer ROM read; the whole MT+DrumTest+HCZ2 block must fit ONE 32KB
-        ; bank (the no-straddle + window-top guards in song_table.asm enforce it — if it
-        ; overflows, a label-free engine-table copy in a dedicated HCZ2 bank is the
-        ; fallback). Defined BEFORE song_table.asm (which references Song_HCZ2 +
-        ; HCZ2_Patches in SongTable/SongPatchTable + the bank-fit asserts).
-        include "games/sonic4/data/sound/song_hcz2.asm"
-        include "games/sonic4/data/sound/hcz2_patches.asm"
-    endif
-        include "games/sonic4/data/sound/song_table.asm"
-    else
-      ifdef SIGIL_EMP_MT_BODY_STUB
+    ifdef SIGIL_EMP_MT_BODY_STUB
         ; sigil DSM mixed harness ONLY: everything from Song_MovingTrucks ($58607)
         ; through SongPatchTable_End is composed IN-MEMORY as the mt_bank.emp section
         ; (the mt_port.rs pipeline). org resumes the SFX block at the per-shape
         ; reference address; SongTable/SongPatchTable resolve cross-seam from the
         ; composed .emp. Re-pin on re-baseline (see golden/PROVENANCE.md).
-        ifdef __DEBUG__
+      ifdef __DEBUG__
         org     $5D53A
-        else
-        org     $5BAE8
-        endif
       else
+        org     $5BAE8
+      endif
+    else
         ; seam-2 stage-2c (the real build): the whole Moving-Trucks streaming bank is
-        ; the byte-identical artifact sigil emits from mt_bank.emp (the canonical
-        ; source) — mt_bank{,_debug}.bin — BINCLUDE'd at $58607. mt_syms{,_debug}.asm
-        ; supplies SongTable/SongPatchTable (the two labels sound_api.asm's `movea.l`
-        ; consumes) as equs at their emitted addresses. build.sh's sigil emit step is a
-        ; HARD dependency. Shape-dependent (the debug build adds DrumTest + HCZ2).
-        ifdef __DEBUG__
+        ; the byte-identical artifact sigil emits from mt_bank.emp (the CANONICAL
+        ; source — the .asm stream is deleted) — mt_bank{,_debug}.bin — BINCLUDE'd at
+        ; $58607. mt_syms{,_debug}.asm supplies SongTable/SongPatchTable (the two labels
+        ; sound_api.asm's `movea.l` consumes) as equs at their emitted addresses.
+        ; build.sh's sigil emit step is a HARD dependency. Shape-dependent (the debug
+        ; build adds DrumTest + HCZ2). The MT stream's old contiguity/straddle/window
+        ; guards became mt_bank.emp's link-time ensures (proven at emit).
+      ifdef __DEBUG__
         BINCLUDE "engine/sound/generated/mt_bank_debug.bin"
         include  "engine/sound/generated/mt_syms_debug.asm"
-        else
+      else
         BINCLUDE "engine/sound/generated/mt_bank.bin"
         include  "engine/sound/generated/mt_syms.asm"
-        endif
       endif
     endif
         ; --- Phase 5a SFX data (generated by tools/sfx_transcode.py) ---

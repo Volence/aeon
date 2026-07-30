@@ -49,17 +49,14 @@ _ROOT = os.path.normpath(os.path.join(_HERE, ".."))
 _SOUND_DIR = os.path.join(_ROOT, "games", "sonic4", "data", "sound")
 _SFX_DIR = os.path.join(_SOUND_DIR, "sfx")
 
-# Target .asm files, relative to _SOUND_DIR (the task's explicit list, plus
-# every sfx/*.asm blob+patches pair; sfx_table.asm is deliberately excluded —
-# see the module docstring).
-_FIXED_TARGETS = [
-    "song_movingtrucks.asm",
-    "song_drumtest.asm",
-    "song_hcz2.asm",
-    "movingtrucks_pitchtable_stream.asm",
-    "movingtrucks_patches.asm",
-    "hcz2_patches.asm",
-]
+# Target .asm files, relative to _SOUND_DIR (plus every sfx/*.asm blob+patches
+# pair; sfx_table.asm is deliberately excluded — see the module docstring).
+# The six Moving-Trucks .asm (song_movingtrucks/drumtest/hcz2, movingtrucks_
+# pitchtable_stream/patches, hcz2_patches) RETIRED at seam-2 stage-2c: the .asm
+# are deleted (mt_bank.emp BINCLUDE'd), so there is no .asm to verify against
+# their .bin twins. The .bin (mt_bank.emp's `embed()` source) is now covered by
+# the mt_port region gate + the seam2_mt_rom whole-ROM byte gate instead.
+_FIXED_TARGETS = []
 
 _LABEL_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):\s*$")
 _DATA_DIRECTIVE_RE = re.compile(r"^\s*(dc\.b|db|pbyte)\b\s*(.*)$", re.IGNORECASE)
