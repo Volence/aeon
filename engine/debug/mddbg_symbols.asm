@@ -5,9 +5,9 @@
 ; macro expansions resolve MDDBG__ErrorHandler / _PagesController even when the
 ; error_handler region is .emp-owned (SIGIL_EMP_ERROR_HANDLER): every entry
 ; derives off `ErrorHandler`, which is the blob label in the pure-AS build and a
-; NUMERIC per-shape equ in the mixed build (engine.inc gate-ON arm) — so the
-; derivation folds at assemble time (no link-time-equ-off-external-base needed).
-; Emits ZERO bytes.
+; link alias of the .emp `ErrorHandlerBlob` in the mixed build (engine.inc
+; gate-ON arm) — so the derivation folds at assemble time in the pure-AS build
+; and at link time (off the extern base) in the mixed build. Emits ZERO bytes.
 ; ---------------------------------------------------------------
 ; MD Debugger's exported symbols
 ; ---------------------------------------------------------------

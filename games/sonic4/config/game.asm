@@ -44,22 +44,14 @@ SFXID_REV_LOOP = SFXID_SPINDASH   ; spindash-rev special case; -1 = feature off 
 GAME_CAMERA_JUMP_LOCK = 1   ; camera suppresses down-scroll during jump states; requires game-defined _pl_state, PSTATE_JUMP, PSTATE_ROLLJUMP; 0 = plain deadzone follow
 
 ; --- Boot handoff: the engine boot ends by entering the game here ---
-    ifdef SIGIL_EMP_OJZ_SCROLL_TEST
-        ; sigil mixed build: ojz_scroll_test.emp owns GameState_OJZScroll_Init, so
-        ; the label is a link extern here. boot.asm's `move.l #Game_Entry` needs
-        ; Game_Entry FOLDED at assembly time (a link-time-equ-off-external-base is
-        ; not available — the error_handler ErrorHandler-equ precedent), so define
-        ; it as the per-shape numeric region base (= OJZ_SCROLL_TEST base). These
-        ; are sonic4-shape addresses — the gate define must never be set for other
-        ; games; re-pin on re-baseline.
-      ifdef __DEBUG__
-Game_Entry      = $5E2DA
-      else
-Game_Entry      = $5C7EC
-      endif
-    else
+; Game_Entry is the game-state handoff pointer boot.asm loads (move.l #Game_Entry).
+; ojz_scroll_test owns GameState_OJZScroll_Init — a local label in the pure-AS
+; build (the twin is included) or a placed .emp module in the sigil mixed build
+; (SIGIL_EMP_OJZ_SCROLL_TEST). Either way the equalate resolves it: the assembler
+; folds it in the pure-AS build, the link folds it off the extern base in the
+; mixed build (the "equ off link-external base" capability — sigil links it per
+; shape AND per game, so no sonic4-shape numeric fold is needed).
 Game_Entry      = GameState_OJZScroll_Init
-    endif
 GAME_ENTRY_ID   = GS_OJZ_SCROLL_TEST
 
 ; --- gameBootHook — engine boot invokes this after Sound_Init, before the

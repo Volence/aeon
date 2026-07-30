@@ -688,24 +688,25 @@ NullInterrupt:
         include "engine/debug/error_handler.asm"
     else
         ; sigil mixed build: the exception-vector stubs (BusError..) and the MD
-        ; Debugger blob come from engine/debug/error_handler.emp, pinned by the
-        ; sigil map at the per-shape reference address. Resume placement at
-        ; EndOfRom so the label + its size checks still land (the s4lz gate-else
-        ; precedent; error_handler emits nothing after the region, so the resume
-        ; address IS EndOfRom). ErrorHandler is defined here as a NUMERIC per-shape
-        ; equ so the MDDBG__ equ table (mddbg_symbols.asm, always included below)
-        ; derives off a folded constant — resolving the debugger.asm macro
-        ; consumers without a link-time-equ-off-external-base capability (the
-        ; blob's .emp label is renamed to avoid colliding with this equ).
-        ; NOTE: these org/equ values are sonic4-shape addresses — the gate define
-        ; must never be set for other games.
+        ; Debugger blob come from engine/debug/error_handler.emp (ErrorHandlerBlob),
+        ; placed by the sigil map. ErrorHandler is a LINK ALIAS of that .emp label:
+        ; the MDDBG__ equ table (mddbg_symbols.asm, always included below) derives
+        ; MDDBG__X = ErrorHandler+off off this extern base, and the sigil link folds
+        ; the arithmetic per shape AND per game (the "equ off link-external base"
+        ; capability — sigil links it; an asl build cannot, so this gate is never set
+        ; in the asl default build). The blob's .emp label is named ErrorHandlerBlob
+        ; so this alias is not self-referential.
+        ;
+        ; The org resumes AS-residual placement at EndOfRom (error_handler emits
+        ; nothing after the region, so the resume address IS EndOfRom). Its value is
+        ; sonic4-shape; for an off-canonical game the frozen-table chainer relocates
+        ; the resumed section to that game's EndOfRom.
       ifdef __DEBUG__
-        org     $5F65A                      ; EndOfRom (debug) = BusError($5E5AA) + region $10B0
-ErrorHandler:   equ $5E704                  ; BusError($5E5AA) + stub-table $15A
+        org     $5F65A                      ; EndOfRom (sonic4 debug) = BusError($5E5AA) + region $10B0
       else
-        org     $5DB60                      ; EndOfRom (plain) = BusError($5CAB0) + region $10B0
-ErrorHandler:   equ $5CC0A                  ; BusError($5CAB0) + stub-table $15A
+        org     $5DB60                      ; EndOfRom (sonic4 plain) = BusError($5CAB0) + region $10B0
       endif
+ErrorHandler = ErrorHandlerBlob             ; link alias — resolved per shape/game
     endif
     include "engine/debug/mddbg_symbols.asm"
 
