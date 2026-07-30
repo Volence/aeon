@@ -67,38 +67,18 @@
 
 module engine.sound_sequencer (cpu: z80)
 
-// The cross-module resident callees this file calls/tail-jumps. Their PRESERVES
-// set is load-bearing (the callee-preserves oracle credits it); every sound-driver
-// writer preserves ix (the project reliance). The two vol-env resolvers carry
-// `out(hl, carry: found)` so the sequencer's `ret c` bails EXERCISE the
-// [call.flag-result-unused] cross-proc credit end-to-end (they are DEFINED +
-// checked in sound_psg.emp; extern here is the windowed-oracle boundary).
-extern proc Sfx_Frame ()
-extern proc Fm_FnumApplyDelta () preserves(ix)
-extern proc Fm_WriteFreq () preserves(ix)
-extern proc Fm_NoteFromTable () preserves(ix)
-extern proc Fm_NoteOn () preserves(ix)
-extern proc Fm_NoteOnFreq () preserves(ix)
-extern proc Fm_NoteOff () preserves(ix)
-extern proc Fm_SetVolume () preserves(ix)
-extern proc Fm_SetPan () preserves(ix)
-extern proc Fm_PatchPtr () preserves(ix)
-extern proc Fm_PatchLoad () preserves(ix)
-extern proc Fm_RegDelta () preserves(ix)
-extern proc Fm_YmWrite () preserves(bc, de, hl, ix)
-extern proc Fm_ReparkDac () preserves(bc, de, hl, ix)
-extern proc Psg_SetVolume () preserves(de, hl, ix)
-extern proc Psg_NoteOn () preserves(ix)
-extern proc Psg_NoteOff () preserves(ix)
-extern proc Psg_Noise () preserves(ix)
-extern proc Psg_ApplyMod () preserves(ix)
-extern proc Psg_EmitDivisor () preserves(hl, ix)
-extern proc Psg_SilenceAll () preserves(bc, de, hl, ix)
-extern proc PsgVolEnv_Resolve () out(hl, carry: found) preserves(ix)
-extern proc FmVolEnv_Resolve () out(hl, carry: found) preserves(ix)
-extern proc Snd_ChanClass () out(carry: music) preserves(bc, de, ix)
-extern proc Snd_StartSample () preserves(ix)
-extern proc Snd_DacLookup () out(hl, carry: ok) preserves(ix)
+// The cross-module resident callees this file calls/tail-jumps, resolved by
+// import; every sound-driver writer preserves ix (the project reliance). The two
+// vol-env resolvers carry `out(hl, carry: found)` so the sequencer's `ret c` bails
+// EXERCISE the [call.flag-result-unused] cross-proc credit end-to-end (they are
+// DEFINED + checked in sound_psg.emp).
+use engine.sound_sfx.{Sfx_Frame}
+use engine.sound_fm.{Fm_FnumApplyDelta, Fm_WriteFreq, Fm_NoteFromTable, Fm_NoteOn,
+    Fm_NoteOnFreq, Fm_NoteOff, Fm_SetVolume, Fm_SetPan, Fm_PatchPtr, Fm_PatchLoad,
+    Fm_RegDelta, Fm_YmWrite, Fm_ReparkDac, Snd_ChanClass}
+use engine.sound_psg.{Psg_SetVolume, Psg_NoteOn, Psg_NoteOff, Psg_Noise, Psg_ApplyMod,
+    Psg_EmitDivisor, Psg_SilenceAll, PsgVolEnv_Resolve, FmVolEnv_Resolve}
+use engine.z80_sound_driver.{Snd_StartSample, Snd_DacLookup}
 
 section sound_sequencer (cpu: z80, vma: $0565) {
 

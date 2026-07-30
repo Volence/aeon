@@ -77,11 +77,10 @@
 
 module engine.sound_fm (cpu: z80, invariant: preserves(ix))
 
-// The one cross-module resident callee fm sub-calls (the FM key-on re-arm). Only
-// its PRESERVES set is load-bearing here (the callee-preserves oracle credits it):
-// Mod_ReArm preserves bc/de/hl/ix. (Snd_ChanClass is DEFINED in this module now,
-// so it is no longer an extern trust.)
-extern proc Mod_ReArm () preserves(bc, de, hl, ix)
+// The one cross-module resident callee fm sub-calls (the FM key-on re-arm),
+// resolved by import; its contract is sound_sequencer's definition. (Snd_ChanClass
+// is DEFINED in this module.)
+use engine.sound_sequencer.{Mod_ReArm}
 
 // FM writer scratch (Z80 RAM in the free sequencer block; single-threaded — only
 // Sequencer_Frame reaches the FM writer, so a static scratch is safe). Placed at

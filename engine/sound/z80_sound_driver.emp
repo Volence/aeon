@@ -105,14 +105,12 @@
 
 module engine.z80_sound_driver (cpu: z80)
 
-// The cross-file resident callees this driver calls (windowed-oracle boundary;
-// `extern proc` decls that DIE at the seam sub-tranche). Sequencer_Frame is the
-// only shape-invariant target ($0565); the other three shift +$7E in the debug
-// shape. Run_SeqFrame_OnSongBank relies on Sequencer_Frame preserving iy.
-extern proc Sequencer_Frame () preserves(iy)
-extern proc Sequencer_StopAll ()
-extern proc Sfx_StopAll ()
-extern proc SfxDispatch ()
+// The cross-file resident callees this driver calls, resolved by import.
+// Sequencer_Frame is the only shape-invariant target ($0565); the other three
+// shift +$7E in the debug shape. SndDrv_IdleTick relies on Sequencer_Frame
+// preserving iy (its definition clobbers af/bc/de/hl/ix — iy untouched).
+use engine.sound_sequencer.{Sequencer_Frame, Sequencer_StopAll}
+use engine.sound_sfx.{Sfx_StopAll, SfxDispatch}
 
 section z80_sound_driver (cpu: z80, vma: $0000) {
 
