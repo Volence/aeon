@@ -137,45 +137,65 @@ if ! python3 "${TOOLS}/verify_level_bin.py"; then
     exit 1
 fi
 
-# Remove stale intermediates so a failed assembly can't silently
-# leave a previous .p file for p2bin to convert.
-rm -f "${ROM_NAME}.p" "${ROM_NAME}.h"
+if [[ "${SIGIL_NATIVE:-0}" == "1" ]]; then
+    # THE FLIP BUILD (behind the SIGIL_NATIVE flag — asl stays the default until the
+    # Stage-2 no-return commit). One sigil invocation drives the WHOLE pipeline the
+    # native gates bank: assemble (every .emp module lowered + AS residual) →
+    # declared-order chained link → emit_rom (checksum folded) → sigil-canonical .lst
+    # → convsym deb2 appendix → fixheader. The emitted .bin is byte-identical to the
+    # native_full_rom / native_offcanonical_full gate outputs (proven CRCs).
+    SIGIL_BUILD="${SIGIL_BUILD:-}"
+    if [[ -z "${SIGIL_BUILD}" || ! -x "${SIGIL_BUILD}" ]]; then
+        echo "ERROR: SIGIL_NATIVE=1 needs the sigil build binary — set SIGIL_BUILD to it."
+        echo "  (build the sigil toolchain first; the native build is the flip build.)"
+        exit 1
+    fi
+    NATIVE_FLAGS="--game ${GAME}"
+    if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
+    echo "Building ${MAIN_ASM} natively (sigil)..."
+    "${SIGIL_BUILD}" build --aeon . --native ${NATIVE_FLAGS} \
+        -o "${ROM_NAME}.bin" --emit-lst "${ROM_NAME}.lst"
+else
+    # Remove stale intermediates so a failed assembly can't silently
+    # leave a previous .p file for p2bin to convert.
+    rm -f "${ROM_NAME}.p" "${ROM_NAME}.h"
 
-echo "Assembling ${MAIN_ASM}..."
-"${TOOLS}/asl" ${ASFLAGS} "${MAIN_ASM}"
+    echo "Assembling ${MAIN_ASM}..."
+    "${TOOLS}/asl" ${ASFLAGS} "${MAIN_ASM}"
 
-# asl can report assembler errors to the -E log yet STILL exit 0 and emit a .p
-# with the offending region silently zeroed — a malformed ROM that looks valid
-# by size and passes the .p-exists check below, but poisons provenance baselines
-# (real incident: a `jump distance too big` zeroed the sound_api region). `set -e`
-# does not catch it because asl's exit is 0. Fail HARD on any error line in the
-# log. (With -pe there is no -E log — errors stream to stdout for the dev to see.)
-if [[ -f "${ROM_NAME}.log" ]] && grep -qiE 'error #[0-9]|: error' "${ROM_NAME}.log"; then
-    echo "ERROR: assembler reported errors (see ${ROM_NAME}.log):"
-    grep -iE 'error #[0-9]|: error' "${ROM_NAME}.log" | head
-    exit 1
+    # asl can report assembler errors to the -E log yet STILL exit 0 and emit a .p
+    # with the offending region silently zeroed — a malformed ROM that looks valid
+    # by size and passes the .p-exists check below, but poisons provenance baselines
+    # (real incident: a `jump distance too big` zeroed the sound_api region). `set -e`
+    # does not catch it because asl's exit is 0. Fail HARD on any error line in the
+    # log. (With -pe there is no -E log — errors stream to stdout for the dev to see.)
+    if [[ -f "${ROM_NAME}.log" ]] && grep -qiE 'error #[0-9]|: error' "${ROM_NAME}.log"; then
+        echo "ERROR: assembler reported errors (see ${ROM_NAME}.log):"
+        grep -iE 'error #[0-9]|: error' "${ROM_NAME}.log" | head
+        exit 1
+    fi
+
+    if [[ ! -f "${ROM_NAME}.p" ]]; then
+        echo "ERROR: Assembly produced no output (${ROM_NAME}.p missing)."
+        echo "       Check ${ROM_NAME}.log for errors."
+        exit 1
+    fi
+
+    echo "Converting to binary..."
+    "${TOOLS}/p2bin" "${ROM_NAME}.p" "${ROM_NAME}.bin" "${ROM_NAME}.h"
+
+    # Symbol table for MD Debugger (if listing exists)
+    if [[ -f "${ROM_NAME}.lst" ]]; then
+        "${TOOLS}/convsym" "${ROM_NAME}.lst" "${ROM_NAME}.bin" \
+            -input as_lst -range 0 FFFFFF -exclude -filter "z[A-Z].+" -a 2>/dev/null || true
+    fi
+
+    echo "Fixing header checksum..."
+    "${TOOLS}/fixheader" "${ROM_NAME}.bin"
+
+    # Clean intermediates
+    rm -f "${ROM_NAME}.p" "${ROM_NAME}.h"
 fi
-
-if [[ ! -f "${ROM_NAME}.p" ]]; then
-    echo "ERROR: Assembly produced no output (${ROM_NAME}.p missing)."
-    echo "       Check ${ROM_NAME}.log for errors."
-    exit 1
-fi
-
-echo "Converting to binary..."
-"${TOOLS}/p2bin" "${ROM_NAME}.p" "${ROM_NAME}.bin" "${ROM_NAME}.h"
-
-# Symbol table for MD Debugger (if listing exists)
-if [[ -f "${ROM_NAME}.lst" ]]; then
-    "${TOOLS}/convsym" "${ROM_NAME}.lst" "${ROM_NAME}.bin" \
-        -input as_lst -range 0 FFFFFF -exclude -filter "z[A-Z].+" -a 2>/dev/null || true
-fi
-
-echo "Fixing header checksum..."
-"${TOOLS}/fixheader" "${ROM_NAME}.bin"
-
-# Clean intermediates
-rm -f "${ROM_NAME}.p" "${ROM_NAME}.h"
 
 ROM_SIZE=$(stat -c%s "${ROM_NAME}.bin")
 ROM_KB=$(awk "BEGIN {printf \"%.1f\", ${ROM_SIZE}/1024}")
