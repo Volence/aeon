@@ -127,6 +127,16 @@ if ! python3 "${TOOLS}/verify_emit_bin.py"; then
     exit 1
 fi
 
+# The committed OJZ level tree is consumed directly (its generators need
+# out-of-repo donors — tools/regenerate-level.sh). Fail LOUDLY on internal
+# drift (hand-edited head, missing blob, stale .zx0) the whole-ROM gate would
+# only catch after the ROM already moved.
+echo "Verifying committed OJZ level tree..."
+if ! python3 "${TOOLS}/verify_level_bin.py"; then
+    echo "Level-tree drift — re-bake with tools/regenerate-level.sh, then rebuild."
+    exit 1
+fi
+
 # Remove stale intermediates so a failed assembly can't silently
 # leave a previous .p file for p2bin to convert.
 rm -f "${ROM_NAME}.p" "${ROM_NAME}.h"
