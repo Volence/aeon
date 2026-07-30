@@ -327,165 +327,78 @@ __BUDGET_ENGINE:
     else
         org     $408A
     endif
-    ifndef SIGIL_EMP_PLANE_BUFFER
-        include "engine/level/plane_buffer.asm"
-    else
-        ; sigil mixed build: Plane_Buffer_Reset..VInt_DrawLevel come from
-        ; engine/level/plane_buffer.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end (Tile_Cache_GetTile).
-        ; Shape-INVARIANT length ($29C both shapes; no asserts / no __DEBUG__) — the
-        ; two resume orgs differ only by the upstream base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define must
-        ; never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; Plane_Buffer_Reset..VInt_DrawLevel: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $503C
-      else
+    else
         org     $4364
-      endif
     endif
-    ifndef SIGIL_EMP_TILE_CACHE
-        include "engine/level/tile_cache.asm"
-    else
-        ; sigil mixed build: Tile_Cache_GetTile..TileCache_Reinit come from
-        ; engine/level/tile_cache.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end (collision_lookup's
-        ; Collision_GetType — the SIGIL_EMP_COLLISION_LOOKUP block below). Shape-
-        ; VARYING length ($D04 plain / $DC4 debug — the .raw_direct assert block;
-        ; unified-prefetch grew tile_cache: +$10 (H5 slots), +$14C (H1/H2/H3/H4 prefetch
-        ; tail), +$C (H6 base-lea hoist), +$2A (interim H4 VBlank fix + Cache_Prev_Cam_X
-        ; init), +$2C (H4 reworked to the Frame_Counter-delta trailing-lag gate) over the
-        ; Wave-2 (ii) $996/$A56; +$88 (pass-2 1.1a FillRow nametable segment restructure) + $56 (1.1b FillRow collision segment restructure)).
-        ; The +$22 for pass-2 1.2 (Draw_TileRow_FromCache segment restructure) lands
-        ; in plane_buffer, not tile_cache, but slides every resume org below by +$22.
-        ; +$42 for pass-2 1.3 (CopyBlockColumn wrap-split) lands INSIDE tile_cache
-        ; (grows this region's len) and slides every resume org below by +$42 too.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define must
-        ; never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; Tile_Cache_GetTile..TileCache_Reinit: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $5E1C
-      else
-        org     $5084
-      endif
-    endif
-    ifndef SIGIL_EMP_COLLISION_LOOKUP
-        include "engine/level/collision_lookup.asm"
     else
-        ; sigil mixed build: Collision_GetType comes from
-        ; engine/level/collision_lookup.emp, pinned by the sigil map at the
-        ; per-shape reference address. Resume placement at the region end
-        ; (see sigil-harness golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+        org     $5084
+    endif
+    ; Collision_GetType: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $5E40
-      else
+    else
         org     $50A8
-      endif
     endif
     gameEngineBlockIncludes
-    ifndef SIGIL_EMP_SECTION
-        include "engine/level/section.asm"
-    else
-        ; sigil mixed build: Section_Init..Section_UpdateColumns come from
-        ; engine/level/section.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end (camera.asm's
-        ; Camera_Init). Shape-INVARIANT length ($3EA both shapes) — the two
-        ; resume orgs differ only by the upstream base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; Section_Init..Section_UpdateColumns: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $6718
-      else
+    else
         org     $5980
-      endif
     endif
-    ifndef SIGIL_EMP_CAMERA
-        include "engine/level/camera.asm"
-    else
-        ; sigil mixed build: Camera_Init/Camera_Update come from
-        ; engine/level/camera.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end (parallax.asm's
-        ; Parallax_Init). Shape-INVARIANT length ($164 both shapes — no
-        ; __DEBUG__ code, no asserts) — the two resume orgs differ only by the
-        ; upstream base slide. The .emp takes -D GAME_CAMERA_JUMP_LOCK (0|1)
-        ; and mirrors the conditional (see games/*/config/game.asm).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; Camera_Init/Camera_Update: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $687C
-      else
+    else
         org     $5AE4
-      endif
     endif
-    ifndef SIGIL_EMP_PARALLAX
-        include "engine/level/parallax.asm"
-    else
-        ; sigil mixed build: the §4.6 parallax pipeline (Parallax_Init ..
-        ; Parallax_Fill_PerCell) comes from engine/level/parallax.emp, pinned by
-        ; the sigil map at the per-shape reference address. Resume placement at
-        ; the region end (load_art's Art_Decompress; see sigil-harness
-        ; golden/PROVENANCE.md; re-pin on re-baseline).
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; Parallax pipeline (Parallax_Init..Fill_PerCell): native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $6DF2
-      else
+    else
         org     $605A
-      endif
     endif
-    ifndef SIGIL_EMP_LOAD_ART
-        include "engine/level/load_art.asm"
-    else
-        ; sigil mixed build: Art_Decompress/Level_LoadArt come from
-        ; engine/level/load_art.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end (bg.asm's
-        ; BG_Init). Shape-DEPENDENT length ($68 plain / $B2 debug — the debug
-        ; surplus is the .drop_page RaiseError expansion; the release arm is
-        ; the 6-byte drain-and-retry), so the two resume orgs differ by more
-        ; than the base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; Art_Decompress/Level_LoadArt: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $6EA0
-      else
+    else
         org     $60BE
-      endif
     endif
-    ifndef SIGIL_EMP_BG
-        include "engine/level/bg.asm"
-    else
-        ; sigil mixed build: BG_Init comes from engine/level/bg.emp, pinned by
-        ; the sigil map at the per-shape reference address. Resume placement at
-        ; the region end (bg_anim.asm's BgAnim_Init). Shape-INVARIANT length
-        ; ($AE both shapes — no __DEBUG__ code, no asserts) — the two resume
-        ; orgs differ only by the upstream base slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+    ; BG_Init: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $6F4E
-      else
-        org     $616C
-      endif
-    endif
-    ifndef SIGIL_EMP_BG_ANIM
-        include "engine/level/bg_anim.asm"
     else
-        ; sigil mixed build: BgAnim_Init/BgAnim_Update come from
-        ; engine/level/bg_anim.emp, pinned by the sigil map at the per-shape
-        ; reference address. Resume placement at the region end (the next
-        ; placement is compression_selftest.asm, whose only label is
-        ; __DEBUG__-gated — the region carries a literal length in repin.toml,
-        ; the sound_api precedent). Shape-DEPENDENT length ($9E plain / $100
-        ; debug — the band-count assert + its message blob exist only in the
-        ; debug shape), so the two resume orgs differ by more than the base
-        ; slide.
-        ; NOTE: these org values are sonic4-shape addresses — the gate define
-        ; must never be set for other games (demo builds take the include).
-      ifdef __DEBUG__
+        org     $616C
+    endif
+    ; BgAnim_Init/BgAnim_Update: native (.emp), sigil-map-pinned; the AS residual resumes past it.
+    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
+    ; chainer derives placement from the frozen listing and ignores them.
+    ifdef __DEBUG__
         org     $70A6
-      else
+    else
         org     $620A
-      endif
     endif
     ifndef SIGIL_EMP_COMPRESSION_SELFTEST
         include "engine/debug/compression_selftest.asm"
