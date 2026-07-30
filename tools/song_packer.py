@@ -1079,17 +1079,16 @@ def write_asm(song: SongDesc, label: str, out_path: str,
 def bin_path_for(asm_path: str) -> str:
     """Sibling .bin path for a generated .asm path (same stem, .bin extension).
     Shared convention across every emitter's --emit-bin mode (song_packer,
-    zyrinx_player, smps_import, sfx_transcode) so verify_emit_bin.py can find
-    each .asm's payload-bytes twin without per-tool special-casing."""
+    zyrinx_player, smps_import, sfx_transcode); the .bin is the single-source
+    payload the sigil build BINCLUDEs (the .asm twins retired at the flip)."""
     root, _ext = os.path.splitext(asm_path)
     return root + ".bin"
 
 
 def write_bin(song: SongDesc, out_path: str, pitchtable_offset: int = 0) -> None:
     """Write the EXACT payload bytes pack_song() computes (no labels, no
-    align padding) to out_path. This is what a future .emp `embed` directive
-    would BINCLUDE; it must be byte-identical to what emit_asm's dc.b lines
-    encode (see tools/verify_emit_bin.py)."""
+    align padding) to out_path. This is the single-source blob the sigil build
+    BINCLUDEs (the .emp `embed`/BINCLUDE path)."""
     blob = pack_song(song, pitchtable_offset=pitchtable_offset)
     with open(out_path, "wb") as f:
         f.write(blob)

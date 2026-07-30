@@ -16,10 +16,13 @@ use engine.objects.sst.{Sst}
 use engine.structs.{Sec, Act_grid_w_lo}
 use engine.coords.{abs_w}
 
-// GAME-owned capacity mirrors (truth: games/sonic4/config/constants.asm).
-// Sit in immediate/moveq/displacement positions → comptime mirrors here,
-// drift-locked against the game-contract externs (the rings.emp pattern).
-const COLLECTED_WINDOW_SLOTS    = 9
+// GAME-config input (truth: games/<game>/config/constants.asm).
+// COLLECTED_WINDOW_SLOTS VARIES per game (sonic4: 9; demo: 4), so the engine
+// takes it as a comptime define (-D, the SOUND_DRIVER_ENABLED class) rather
+// than hardcoding sonic4's 9 — the engine/game split's contract. The ensure
+// below cross-checks it against the game's AS-side extern. COLLECTED_SLOT_SIZE
+// / COLLECTED_PARK_SLOTS are ENGINE-invariant slot layout (every game's config
+// carries the same values), so they stay engine consts, ensure-guarded.
 const COLLECTED_SLOT_SIZE       = 34
 const COLLECTED_PARK_SLOTS      = 4
 
@@ -72,7 +75,7 @@ struct EntityScanState (size: $16) {
 
 // Drift-locks: every mirrored value pinned to its AS-side truth. A layout or
 // value change on either side fails the link naming the constant.
-ensure(extern("COLLECTED_WINDOW_SLOTS") == COLLECTED_WINDOW_SLOTS, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_WINDOW_SLOTS — update both")
+ensure(extern("COLLECTED_WINDOW_SLOTS") == COLLECTED_WINDOW_SLOTS, "the game's config/constants.asm and entity_window.emp -D COLLECTED_WINDOW_SLOTS disagree — update both")
 ensure(extern("COLLECTED_SLOT_SIZE") == COLLECTED_SLOT_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_SLOT_SIZE — update both")
 ensure(extern("COLLECTED_PARK_SLOTS") == COLLECTED_PARK_SLOTS, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_PARK_SLOTS — update both")
 ensure(extern("COLLECTED_PARK_ENTRY_SIZE") == COLLECTED_PARK_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_PARK_ENTRY_SIZE — update both")
