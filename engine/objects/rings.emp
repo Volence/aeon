@@ -1,39 +1,42 @@
 // Ring system — buffer ops, draw, collide
 // §4.9 camera-driven entity window
 //
-// Build-shape inputs (-D NAME=0|1, the mt_bank/game_loop convention):
-// DEBUG mirrors the AS twin's `ifdef __DEBUG__` (the RingBuffer_Add
-// drop assert); SOUND_DRIVER_ENABLED gates the ring-collect SFX call.
+// Build-shape inputs (-D NAME=VALUE, the SOUND_DRIVER_ENABLED/game_loop
+// convention): DEBUG mirrors the AS twin's `ifdef __DEBUG__` (the
+// RingBuffer_Add drop assert); SOUND_DRIVER_ENABLED gates the ring-collect
+// SFX call. MAX_RING_BUFFER / VRAM_RING_PLACEHOLDER are GAME-config inputs
+// (see below).
 
 module engine.objects.rings in rings
 
 use engine.objects.sst.{Sst}
 use engine.objects.aabb.{aabb_axis_test}
 use engine.objects.objdef.{vram_art}
-use engine.types.{VramTile}
 use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEED,
                       MAX_VDP_SPRITES, VDP_SPRITE_X_OFFSET, VDP_SPRITE_Y_OFFSET,
                       SCREEN_WIDTH, SCREEN_HEIGHT}
 
-// GAME-owned capacity/geometry mirrors (truth:
-// games/sonic4/config/constants.asm — engine.inc game-contract symbols).
-// All sit in immediate/moveq/addq positions, so the `.b`/`.w` imm-link
-// deferral gap forces comptime mirrors here in the consumer module (the
-// sound_api SFXID pattern, kill-list row 18). VRAM_RING_PLACEHOLDER is a
-// PLACEHOLDER art slot — when real ring art lands, the ensure below makes
-// the change loud on both sides.
-const MAX_RING_BUFFER        = 128
+// GAME-config inputs (truth: games/<game>/config/constants.asm). These VARY
+// per game (sonic4: 128 / $3E8; demo: 16 / $3E4), so the engine takes them as
+// comptime defines (-D, the SOUND_DRIVER_ENABLED class) rather than hardcoding
+// sonic4's values — the engine/game split's contract. Each is cross-checked
+// against the game's AS-side extern by the `ensure`s below, so a profile that
+// supplies the wrong value is loud on both sides. VRAM_RING_PLACEHOLDER is a
+// PLACEHOLDER art slot; its range is enforced where it feeds vram_art.
+//
+// RING_BUFFER_ENTRY_SIZE / RING_WIDTH are ENGINE-invariant buffer layout
+// (every game's config carries the same values, "matches sonic4"), so they
+// stay engine consts — the ensures keep any game's config honest to them.
 const RING_BUFFER_ENTRY_SIZE = 6
 const RING_WIDTH             = 16
-const VRAM_RING_PLACEHOLDER: VramTile = $3E8
 // SAT attr base: priority | palette line 1 | tile. The act palette carries
 // the ring's gold on CRAM line 1 (OJZ_Palette → line 1). The AS twin spells
 // the pack inline (its isolated gate sees no macros.asm).
 const RING_ART_ATTR          = vram_art(VRAM_RING_PLACEHOLDER, 1, 1)
-ensure(extern("MAX_RING_BUFFER") == MAX_RING_BUFFER, "games/sonic4/config/constants.asm and rings.emp disagree on MAX_RING_BUFFER — update both")
+ensure(extern("MAX_RING_BUFFER") == MAX_RING_BUFFER, "the game's config/constants.asm and rings.emp -D MAX_RING_BUFFER disagree — update both")
 ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and rings.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
 ensure(extern("RING_WIDTH") == RING_WIDTH, "games/sonic4/config/constants.asm and rings.emp disagree on RING_WIDTH — update both")
-ensure(extern("VRAM_RING_PLACEHOLDER") == VRAM_RING_PLACEHOLDER, "games/sonic4/config/constants.asm and rings.emp disagree on VRAM_RING_PLACEHOLDER — update both")
+ensure(extern("VRAM_RING_PLACEHOLDER") == VRAM_RING_PLACEHOLDER, "the game's config/constants.asm and rings.emp -D VRAM_RING_PLACEHOLDER disagree — update both")
 
 // -----------------------------------------------
 // RingBuffer_Add — append a ring to the unified buffer
