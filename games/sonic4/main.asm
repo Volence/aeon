@@ -29,17 +29,14 @@ gameEngineBlockIncludes macro {GLOBALSYMBOLS}
     else
         org     $55A4
     endif
-    ifndef SIGIL_EMP_GAME_DEBUG
-        include "games/sonic4/debug/game_debug.asm"
-    else
-        ; sigil mixed build (off-canonical Config A: __DEBUG__ + SOUND_DRIVER_ENABLED
-        ; + SOUND_DEBUG_HOTKEYS): Debug_MusicToggle/Dbg_SfxIdTable come from
-        ; game_debug.emp, placed by the sigil map at the region start. org resumes
-        ; at the region end (Section_Init). Canonically game_debug.asm emits ZERO
-        ; bytes (whole-file ifdef SOUND_DEBUG_HOTKEYS, off in every shipped build),
-        ; so the gate-OFF build is byte-neutral. This org value is the CONFIG-A
-        ; sonic4-shape address — the gate define must NEVER be set except by the
-        ; sigil off-canonical whole-ROM gate at Config A.
+    ifdef SIGIL_EMP_GAME_DEBUG
+        ; Debug_MusicToggle/Dbg_SfxIdTable are native (game_debug.emp), placed by
+        ; the sigil map (Config-A only: __DEBUG__ + SOUND_DRIVER_ENABLED +
+        ; SOUND_DEBUG_HOTKEYS). org resumes at the region end (Section_Init).
+        ; Canonically this region emits ZERO bytes (SOUND_DEBUG_HOTKEYS off in every
+        ; shipped build), so the canonical shapes place nothing here (the gate is set
+        ; only by the sigil Config-A whole-ROM build) — byte-neutral. This org is the
+        ; CONFIG-A sonic4-shape address.
         org     $6408
     endif
     endm
@@ -70,114 +67,53 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     ; first label TestStatic_Main.
     org     $10C34
 
-    ifndef SIGIL_EMP_TEST_STATIC
-      include "games/sonic4/objects/test_static.asm"
-    else
-        ; sigil mixed build: TestStatic_Main comes from
-        ; games/sonic4/objects/test_static.emp, pinned by the sigil map at the
-        ; reference address inside the object code bank (org $10000, ObjCodeBase).
-        ; Shape-invariant window; ONE org serves both shapes while the banks
-        ; coincide (the $8000 abs.w/abs.l bar — see the test_objects arm below).
-        ; The gate define must never be set for other games (demo takes the
-        ; includes).
-        org     $10C38
-    endif
-    ifndef SIGIL_EMP_TEST_ANIMATED
-      include "games/sonic4/objects/test_animated.asm"
-    else
-        ; sigil mixed build: TestAnimated/TestAnimated_Main come from
-        ; games/sonic4/objects/test_animated.emp. The DplcV sst_custom overlay
-        ; is defined AS-side by the surviving test_player.asm copy (identical
-        ; equs), so _dplc_ptr/_art_base still resolve for it. Shape-invariant
-        ; window; ONE org both shapes.
-        org     $10C92
-    endif
+    ; TestStatic_Main is native (test_static.emp), pinned by the sigil map inside
+    ; the object code bank (org $10000, ObjCodeBase). Shape-invariant window; ONE
+    ; org both shapes while the banks coincide (the $8000 abs.w/abs.l bar below).
+    org     $10C38
+    ; TestAnimated/TestAnimated_Main are native (test_animated.emp). Its DplcV
+    ; sst_custom overlay equates come from the AS-side test_player.asm header
+    ; (_dplc_ptr/_art_base), so they still resolve. Shape-invariant window; ONE org.
+    org     $10C92
     include "games/sonic4/objects/test_player.asm"
     include "games/sonic4/objects/test_enemy.asm"
-    ifndef SIGIL_EMP_TEST_OBJECTS
-      include "games/sonic4/objects/test_solid.asm"
-      include "games/sonic4/objects/test_particle.asm"
-    else
-        ; sigil mixed build: TestSolid_Init/Main + TestParticle/Main come from
-        ; games/sonic4/objects/test_solid.emp + test_particle.emp, pinned by
-        ; the sigil map at the reference addresses. Resume placement at the
-        ; region end (see sigil-harness golden/PROVENANCE.md; re-pin on
-        ; re-baseline). These addresses live inside the object code bank
-        ; (org $10000, ObjCodeBase). ONE org serves both shapes only while the
-        ; two banks coincide, which is a CONDITIONAL fact, not a structural
-        ; one: the bank's own contents are __DEBUG__-invariant, but the player
-        ; code inside it calls ENGINE symbols, so a debug-only engine growth
-        ; that pushes one of those symbols past $8000 widens `jsr (Sym).w` to
-        ; abs.l (+2 bytes each) and slides the whole debug bank. If that
-        ; happens, this arm needs per-shape orgs and every harness fixture
-        ; keyed to the bank needs its debug pin (measured at tranche 24, where
-        ; a +$14E debug-only growth did exactly that before it was trimmed).
-        ; AS-side consumers (ObjDef_Solid's objdef, the emitters' objroutine
-        ; words) keep resolving through the shared link.
-        ; NOTE: the gate define must never be set for other games (demo
-        ; builds take the includes).
-        org     $10FAA
-    endif
-    ifndef SIGIL_EMP_TEST_EMITTER
-      include "games/sonic4/objects/test_emitter.asm"
-    else
-        ; sigil mixed build: TestEmitter/TestEmitter_Main come from
-        ; games/sonic4/objects/test_emitter.emp. Shape-invariant window; ONE org
-        ; serves both shapes while the object banks coincide (the $8000
-        ; abs.w/abs.l bar — see the test_objects arm above). Resume lands on
-        ; test_parent.asm's FIRST label TestChildPart (NOT TestParent — that is
-        ; its third label). AS-side consumers (the effect descriptor's objroutine
-        ; word for TestParticle) keep resolving through the shared link. The gate
-        ; define must never be set for other games (demo takes the includes).
-        org     $10FFE
-    endif
-    ifndef SIGIL_EMP_TEST_PARENT
-      include "games/sonic4/objects/test_parent.asm"
-    else
-        ; sigil mixed build: TestChildPart/TestChildPart_Main/TestParent/
-        ; TestParent_Main come from games/sonic4/objects/test_parent.emp. Shape-
-        ; invariant window; ONE org both shapes while the object banks coincide
-        ; (the $8000 abs.w/abs.l bar — see the test_objects arm above). Resume
-        ; lands on test_stress_emitter's first label TestStressEmitter. All
-        ; callees (CreateChild_Normal / DeleteChildren / GetSineCosine /
-        ; DeleteObject / Draw_Sprite) resolve through the shared link. The gate
-        ; define must never be set for other games (demo takes the includes).
-        org     $11128
-    endif
-    ifndef SIGIL_EMP_TEST_STRESS_EMITTER
-      include "games/sonic4/objects/test_stress_emitter.asm"
-    else
-        ; sigil mixed build: TestStressEmitter/TestStressEmitter_Main come from
-        ; games/sonic4/objects/test_stress_emitter.emp. Shape-invariant window;
-        ; ONE org both shapes. Resume lands on test_churn's TestChurnObj.
-        org     $11182
-    endif
-    ifndef SIGIL_EMP_TEST_CHURN
-      include "games/sonic4/objects/test_churn.asm"
-    else
-        ; sigil mixed build: TestChurnObj/TestChurnObj_Main come from
-        ; games/sonic4/objects/test_churn.emp. Shape-invariant window; ONE org
-        ; both shapes. Resume lands on path_swap.asm's ObjDef_PathSwap.
-        org     $111FA
-    endif
-    ifndef SIGIL_EMP_PATH_SWAP
-      include "games/sonic4/objects/path_swap.asm"
-    else
-        ; sigil mixed build: ObjDef_PathSwap descriptor + PathSwap_Init/Main come
-        ; from games/sonic4/objects/path_swap.emp. SHAPE-DEPENDENT window (2
-        ; __DEBUG__ blocks: the reserved-bit RaiseError guard + the debug jmp
-        ; Draw_Sprite vs release rts tail) — the debug shape is +$68 longer, so
-        ; this is the object bank's first PER-SHAPE gate resume org. Resume lands
-        ; on gameDataIncludes' first label DeformTable_Zero (ojz_default.asm), the
-        ; next placement. AS-side consumers (act_descriptor / entity_data
-        ; `dc.l ObjDef_PathSwap`) resolve to the .emp-exported label through the
-        ; shared link. The gate define must never be set for other games (demo
-        ; takes the include).
-      ifdef __DEBUG__
+    ; TestSolid_Init/Main + TestParticle/Main are native (test_solid.emp +
+    ; test_particle.emp), pinned by the sigil map inside the object code bank. ONE
+    ; org serves both shapes while the two banks coincide (the $8000 abs.w/abs.l
+    ; bar): the bank contents are __DEBUG__-invariant, but a debug-only engine
+    ; growth pushing a called ENGINE symbol past $8000 would widen jsr (Sym).w to
+    ; abs.l (+2 bytes each) and slide the whole debug bank — then this arm needs
+    ; per-shape orgs and every bank-keyed harness fixture needs its debug pin
+    ; (measured at t24, where a +$14E debug-only growth did exactly that before it
+    ; was trimmed). AS-side consumers (ObjDef_Solid's objdef, the emitters'
+    ; objroutine words) resolve through the shared link.
+    org     $10FAA
+    ; TestEmitter/TestEmitter_Main are native (test_emitter.emp). Shape-invariant
+    ; window; ONE org both shapes while the object banks coincide. Resume lands on
+    ; test_parent's FIRST label TestChildPart. AS-side consumers (the effect
+    ; descriptor's objroutine word for TestParticle) resolve through the shared link.
+    org     $10FFE
+    ; TestChildPart/TestChildPart_Main/TestParent/TestParent_Main are native
+    ; (test_parent.emp). Shape-invariant window; ONE org both shapes while the
+    ; object banks coincide. Resume lands on test_stress_emitter's TestStressEmitter.
+    ; All callees resolve through the shared link.
+    org     $11128
+    ; TestStressEmitter/TestStressEmitter_Main are native (test_stress_emitter.emp).
+    ; Shape-invariant window; ONE org both shapes, resuming on test_churn's TestChurnObj.
+    org     $11182
+    ; TestChurnObj/TestChurnObj_Main are native (test_churn.emp). Shape-invariant
+    ; window; ONE org both shapes, resuming on path_swap's ObjDef_PathSwap.
+    org     $111FA
+    ; ObjDef_PathSwap descriptor + PathSwap_Init/Main are native (path_swap.emp).
+    ; SHAPE-DEPENDENT window (two __DEBUG__ blocks: the reserved-bit RaiseError guard
+    ; + the debug jmp Draw_Sprite vs release rts tail; the debug shape is +$68), so
+    ; per-shape resume orgs. Resume lands on gameDataIncludes' DeformTable_Zero.
+    ; AS-side consumers (act_descriptor / entity_data dc.l ObjDef_PathSwap) resolve
+    ; to the .emp-exported label through the shared link.
+    ifdef __DEBUG__
         org     $112F4
-      else
+    else
         org     $1128C
-      endif
     endif
     endm
 
@@ -200,52 +136,30 @@ gameDataIncludes macro {GLOBALSYMBOLS}
     include "games/sonic4/data/parallax/scenes/sky_haze.asm"
     include "games/sonic4/data/parallax/scenes/caves.asm"
     include "games/sonic4/data/parallax/scenes/locked_clouds.asm"
-    ifndef SIGIL_EMP_OBJDEFS
-        include "games/sonic4/data/objdefs/test_objects.asm"
-    else
-        ; sigil mixed build: the four ObjDef_* archetype templates come from
-        ; games/sonic4/data/objdefs/test_objects.emp, pinned by the sigil map
-        ; at the per-shape reference address. Resume placement at the region
-        ; end (objdef_port pins OBJDEFS; re-pin on re-baseline). NOTE:
-        ; sonic4-shape addresses — never set the define for other games.
-      ifdef __DEBUG__
+    ; The four ObjDef_* archetype templates are native (test_objects.emp), pinned by
+    ; the sigil map; the AS residual resumes at the region end. The orgs are
+    ; sonic4-shape (the off-canonical chainer ignores them).
+    ifdef __DEBUG__
         org     $11DE6
-      else
+    else
         org     $11D7E
-      endif
     endif
     include "games/sonic4/data/generated/ojz/act1/entity_data.asm"
     include "games/sonic4/data/levels/ojz/act1/act_descriptor.asm"
     include "games/sonic4/data/mappings/test_mappings.asm"
-    ifndef SIGIL_EMP_SONIC_ANIMS
-        include "games/sonic4/data/animations/sonic_anims.asm"
-    else
-        ; sigil mixed build: Ani_Sonic comes from
-        ; games/sonic4/data/animations/sonic_anims.emp, pinned by the sigil
-        ; map at the per-shape reference address. Resume placement at the
-        ; region end (see sigil-harness golden/PROVENANCE.md; re-pin on
-        ; re-baseline). NOTE: sonic4-shape addresses — never set the define
-        ; for other games.
-      ifdef __DEBUG__
+    ; Ani_Sonic is native (sonic_anims.emp), pinned by the sigil map; the AS residual
+    ; resumes at the region end. The orgs are sonic4-shape.
+    ifdef __DEBUG__
         org     $257B2
-      else
-        org     $2574A
-      endif
-    endif
-    ifndef SIGIL_EMP_PARTICLE_ANIMS
-        include "games/sonic4/data/animations/particle_anims.asm"
     else
-        ; sigil mixed build: Ani_Particle comes from
-        ; games/sonic4/data/animations/particle_anims.emp, pinned by the
-        ; sigil map at the per-shape reference address. Resume placement at
-        ; the region end (see sigil-harness golden/PROVENANCE.md; re-pin on
-        ; re-baseline). NOTE: sonic4-shape addresses — never set the define
-        ; for other games.
-      ifdef __DEBUG__
+        org     $2574A
+    endif
+    ; Ani_Particle is native (particle_anims.emp), pinned by the sigil map; the AS
+    ; residual resumes at the region end. The orgs are sonic4-shape.
+    ifdef __DEBUG__
         org     $257BA
-      else
+    else
         org     $25752
-      endif
     endif
 
 ; -----------------------------------------------
@@ -402,39 +316,26 @@ SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK
 ; Test game states
 ; -----------------------------------------------
 gameStatesIncludes macro {GLOBALSYMBOLS}
-    ifndef SIGIL_EMP_OBJECT_TEST_STATE
-      include "games/sonic4/test/object_test_state.asm"
-    else
-        ; sigil mixed build: GameState_ObjectTest{,_Init}/ObjectTestChurn{,_Init}
-        ; + TestObjectList/TestArt/TestPalette come from
-        ; games/sonic4/test/object_test_state.emp. SHAPE-DEPENDENT window (the
-        ; DEBUG profiling block grows the region +$9C). Resume lands on
-        ; ojz_scroll_test's first label GameState_OJZScroll_Init, the next
-        ; placement. AS-side consumers (ojz's `TestArt`/`TestArt_End` refs, the
-        ; runtime GameState_ObjectTestChurn_Init poke) resolve to the .emp-exported
-        ; labels through the shared link. The gate define must never be set for
-        ; other games (demo takes the include).
-      ifdef __DEBUG__
+    ; GameState_ObjectTest{,_Init}/ObjectTestChurn{,_Init} + TestObjectList/TestArt/
+    ; TestPalette are native (object_test_state.emp). SHAPE-DEPENDENT window (the
+    ; DEBUG profiling block grows the region +$9C), so per-shape resume orgs; resume
+    ; lands on ojz_scroll_test's GameState_OJZScroll_Init. AS-side consumers (ojz's
+    ; TestArt/TestArt_End refs, the runtime GameState_ObjectTestChurn_Init poke)
+    ; resolve to the .emp-exported labels through the shared link.
+    ifdef __DEBUG__
         org     $5E2DA
-      else
-        org     $5C7EC
-      endif
-    endif
-    ifndef SIGIL_EMP_OJZ_SCROLL_TEST
-      include "games/sonic4/test/ojz_scroll_test.asm"
     else
-        ; sigil mixed build: GameState_OJZScroll_Init/_Update (Game_Entry) +
-        ; OJZ_SectionMarkerColors/PlayerMarkerTile come from
-        ; games/sonic4/test/ojz_scroll_test.emp. SHAPE-DEPENDENT window (the two
-        ; Debug_Scene_Freeze skip blocks grow the region +$C). Resume lands on
-        ; main.asm's NullInterrupt stub (the post-gameStates level-1 placement).
-        ; config/game.asm's `Game_Entry = GameState_OJZScroll_Init` resolves to
-        ; the .emp export. The gate define must never be set for other games.
-      ifdef __DEBUG__
+        org     $5C7EC
+    endif
+    ; GameState_OJZScroll_Init/_Update (Game_Entry) + OJZ_SectionMarkerColors/
+    ; PlayerMarkerTile are native (ojz_scroll_test.emp). SHAPE-DEPENDENT window (the
+    ; two Debug_Scene_Freeze skip blocks grow the region +$C), so per-shape resume
+    ; orgs; resume lands on main.asm's NullInterrupt stub. config/game.asm's
+    ; Game_Entry = GameState_OJZScroll_Init resolves to the .emp export.
+    ifdef __DEBUG__
         org     $5E5A8
-      else
+    else
         org     $5CAAE
-      endif
     endif
     endm
 
