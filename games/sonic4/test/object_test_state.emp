@@ -143,77 +143,77 @@ data EmitterPositions: [u16; 16] = [
 // Clobbers: d0-d7, a0-a6
 // -----------------------------------------------
 pub proc GameState_ObjectTest () clobbers(d0-d7/a0-a6) {
-    if DEBUG == 1 {
-        move.w  VDP_HV_COUNTER, -(sp)          // save frame start on stack
+        if DEBUG == 1 {
+                move.w  VDP_HV_COUNTER, -(sp)          // save frame start on stack
 
-        jbsr    InitSpriteSystem
+                jbsr    InitSpriteSystem
 
-        // --- Profile RunObjects ---
-        move.w  VDP_HV_COUNTER, -(sp)
-        jbsr    RunObjects
-        move.w  VDP_HV_COUNTER, d0
-        move.w  (sp)+, d1
-        sub.w   d1, d0
-        lsr.w   #8, d0
-        move.w  d0, Prof_RunObjects
-        cmp.w   Prof_Peak_RunObjects, d0
-        blo     .no_peak_run
-        move.w  d0, Prof_Peak_RunObjects
-.no_peak_run:
+                // --- Profile RunObjects ---
+                move.w  VDP_HV_COUNTER, -(sp)
+                jbsr    RunObjects
+                move.w  VDP_HV_COUNTER, d0
+                move.w  (sp)+, d1
+                sub.w   d1, d0
+                lsr.w   #8, d0
+                move.w  d0, Prof_RunObjects
+                cmp.w   Prof_Peak_RunObjects, d0
+                blo     .no_peak_run
+                move.w  d0, Prof_Peak_RunObjects
+        .no_peak_run:
 
-        // --- Profile TouchResponse ---
-        move.w  VDP_HV_COUNTER, -(sp)
-        jbsr    TouchResponse
-        move.w  VDP_HV_COUNTER, d0
-        move.w  (sp)+, d1
-        sub.w   d1, d0
-        lsr.w   #8, d0
-        move.w  d0, Prof_TouchResponse
-        cmp.w   Prof_Peak_Touch, d0
-        blo     .no_peak_touch
-        move.w  d0, Prof_Peak_Touch
-.no_peak_touch:
+                // --- Profile TouchResponse ---
+                move.w  VDP_HV_COUNTER, -(sp)
+                jbsr    TouchResponse
+                move.w  VDP_HV_COUNTER, d0
+                move.w  (sp)+, d1
+                sub.w   d1, d0
+                lsr.w   #8, d0
+                move.w  d0, Prof_TouchResponse
+                cmp.w   Prof_Peak_Touch, d0
+                blo     .no_peak_touch
+                move.w  d0, Prof_Peak_Touch
+        .no_peak_touch:
 
-        // --- Profile Render_Sprites ---
-        move.w  VDP_HV_COUNTER, -(sp)
-        jbsr    Render_Sprites
-        move.w  VDP_HV_COUNTER, d0
-        move.w  (sp)+, d1
-        sub.w   d1, d0
-        lsr.w   #8, d0
-        move.w  d0, Prof_RenderSprites
-        cmp.w   Prof_Peak_Render, d0
-        blo     .no_peak_render
-        move.w  d0, Prof_Peak_Render
-.no_peak_render:
+                // --- Profile Render_Sprites ---
+                move.w  VDP_HV_COUNTER, -(sp)
+                jbsr    Render_Sprites
+                move.w  VDP_HV_COUNTER, d0
+                move.w  (sp)+, d1
+                sub.w   d1, d0
+                lsr.w   #8, d0
+                move.w  d0, Prof_RenderSprites
+                cmp.w   Prof_Peak_Render, d0
+                blo     .no_peak_render
+                move.w  d0, Prof_Peak_Render
+        .no_peak_render:
 
-        // --- Total frame time ---
-        move.w  VDP_HV_COUNTER, d0
-        move.w  (sp)+, d1                       // frame start from stack
-        sub.w   d1, d0
-        lsr.w   #8, d0
-        move.w  d0, Prof_FrameTotal
-        cmp.w   Prof_Peak_Frame, d0
-        blo     .no_peak_frame
-        move.w  d0, Prof_Peak_Frame
-.no_peak_frame:
+                // --- Total frame time ---
+                move.w  VDP_HV_COUNTER, d0
+                move.w  (sp)+, d1                       // frame start from stack
+                sub.w   d1, d0
+                lsr.w   #8, d0
+                move.w  d0, Prof_FrameTotal
+                cmp.w   Prof_Peak_Frame, d0
+                blo     .no_peak_frame
+                move.w  d0, Prof_Peak_Frame
+        .no_peak_frame:
 
-        // --- Slot usage ---
-        move.w  #Dynamic_Free_Stack + NUM_DYNAMIC*2, d0
-        sub.w   Dynamic_Free_SP, d0
-        lsr.w   #1, d0
-        move.w  d0, Prof_Dynamic_Used
+                // --- Slot usage ---
+                move.w  #Dynamic_Free_Stack + NUM_DYNAMIC*2, d0
+                sub.w   Dynamic_Free_SP, d0
+                lsr.w   #1, d0
+                move.w  d0, Prof_Dynamic_Used
 
-        move.w  #Effect_Free_Stack + NUM_EFFECTS*2, d0
-        sub.w   Effect_Free_SP, d0
-        lsr.w   #1, d0
-        move.w  d0, Prof_Effect_Used
-    } else {
-        jbsr    InitSpriteSystem
-        jbsr    RunObjects
-        jbsr    TouchResponse
-        jbsr    Render_Sprites
-    }
+                move.w  #Effect_Free_Stack + NUM_EFFECTS*2, d0
+                sub.w   Effect_Free_SP, d0
+                lsr.w   #1, d0
+                move.w  d0, Prof_Effect_Used
+        } else {
+                jbsr    InitSpriteSystem
+                jbsr    RunObjects
+                jbsr    TouchResponse
+                jbsr    Render_Sprites
+        }
         rts
 }
 

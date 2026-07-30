@@ -210,14 +210,14 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
 
         // -- camera follows Player_1 (deadzone + preview-aware clamp).
         //    DEBUG scene-pin: skip so a write_memory Camera_X/Y stays put. --
-    if DEBUG == 1 {
-        tst.b   Debug_Scene_Freeze             // (Debug_Scene_Freeze).w
-        bne     .skip_camera_update
-    }
+        if DEBUG == 1 {
+                tst.b   Debug_Scene_Freeze     // (Debug_Scene_Freeze).w
+                bne     .skip_camera_update
+        }
         jbsr    Camera_Update
-    if DEBUG == 1 {
-.skip_camera_update:
-    }
+        if DEBUG == 1 {
+        .skip_camera_update:
+        }
 
         // -- fill tile cache with new blocks as camera scrolls --
         jbsr    Tile_Cache_Fill
@@ -229,14 +229,14 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         // -- camera-driven entity scan (load/despawn rings + objects).
         //    DEBUG scene-pin: skip so a hand-placed ring isn't despawned/reloaded.
         //    (Despawn lives inside EntityWindow_Scan's body, so one gate covers both.) --
-    if DEBUG == 1 {
-        tst.b   Debug_Scene_Freeze             // (Debug_Scene_Freeze).w
-        bne     .skip_entity_scan
-    }
+        if DEBUG == 1 {
+                tst.b   Debug_Scene_Freeze     // (Debug_Scene_Freeze).w
+                bne     .skip_entity_scan
+        }
         jbsr    EntityWindow_Scan
-    if DEBUG == 1 {
-.skip_entity_scan:
-    }
+        if DEBUG == 1 {
+        .skip_entity_scan:
+        }
 
         // -- per-column nametable streaming --
         jbsr    Section_UpdateColumns
