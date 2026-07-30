@@ -92,8 +92,10 @@ section sound_sequencer (cpu: z80, vma: $0565) {
     // event-tick (Sequencer_Channel). Reloads ix as the channel cursor, so it
     // CLOBBERS ix (no `preserves(ix)` — see the file header).
     // ----------------------------------------------------------------------
-    // Contract: clobbers af,bc,de,hl,ix; tail-jumps to Sfx_Frame.
-    pub proc Sequencer_Frame () clobbers(af, bc, de, hl, ix) {
+    // Contract: clobbers af,bc,de,hl,ix,iy. The `jp Sfx_Frame` tail-call folds
+    // Sfx_Frame's clobbers into this proc's — Sfx_Frame destroys iy (its SFX-slot
+    // walkers own it), so the per-frame engine pass does NOT preserve iy.
+    pub proc Sequencer_Frame () clobbers(af, bc, de, hl, ix, iy) {
         // --- FRAME OBSERVABILITY: increment SND_STAT_TICK on EVERY call (once per
         // FRAME, the fixed ~59 Hz clock). Placed at the very top (BEFORE the active
         // check) so the counter reflects each Timer-A overflow regardless of
