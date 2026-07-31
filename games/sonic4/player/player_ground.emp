@@ -54,17 +54,14 @@ ensure(extern("SFXID_SPINDASH") == SFXID_SPINDASH, "config/sound_ids.asm SFXID_S
 // drift guards live at the twin. The shift-form assumption ensures below stay
 // (they guard THIS file's asr-shift slope math, not the mirror).
 
-// physics-table field offsets (a4-relative; mirror player_common.asm's PPHYS_*).
+// physics-table field offsets (a4-relative; the Player_Phys field displacements).
+// File-local; a divergent offset shows up as a mismatched instruction byte in the
+// region gate (player_common.asm's mirror equates + their drift guards are gone).
 const PPHYS_ACCEL      = 0
 const PPHYS_DECEL      = 2
 const PPHYS_FRICTION   = 4
 const PPHYS_TOP_SPEED  = 6
 const PPHYS_JUMP_FORCE = 10
-ensure(extern("PPHYS_ACCEL")      == PPHYS_ACCEL,      "player_common.asm PPHYS_ACCEL drifted")
-ensure(extern("PPHYS_DECEL")      == PPHYS_DECEL,      "player_common.asm PPHYS_DECEL drifted")
-ensure(extern("PPHYS_FRICTION")   == PPHYS_FRICTION,   "player_common.asm PPHYS_FRICTION drifted")
-ensure(extern("PPHYS_TOP_SPEED")  == PPHYS_TOP_SPEED,  "player_common.asm PPHYS_TOP_SPEED drifted")
-ensure(extern("PPHYS_JUMP_FORCE") == PPHYS_JUMP_FORCE, "player_common.asm PPHYS_JUMP_FORCE drifted")
 
 // Shift-form assumptions on the slope-factor constants (the slope math uses
 // asr shifts, not muls — see PState_Ground/.slope and PState_Roll/.slope).

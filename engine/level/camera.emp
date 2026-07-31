@@ -58,7 +58,8 @@ ensure(pstate_jump_mirror_ok(), "games/sonic4/config/constants.asm and camera.em
 ensure(pstate_rolljump_mirror_ok(), "games/sonic4/config/constants.asm and camera.emp disagree on PSTATE_ROLLJUMP — update the mirror")
 
 // The player-state byte's absolute address (sound_api's extern-equ-sum idiom;
-// `_pl_state` is the game-declared SST-custom offset). The equ's RHS is
+// `_pl_state` is the game-declared SST-custom offset, link-exported by
+// games.sonic4.player_common as an `equ`). The equ's RHS is
 // COMPTIME-SELECTED on the gate: a GAME_CAMERA_JUMP_LOCK=0 game gets an inert
 // 0 — an equ resolves eagerly even when unused, so an unconditional extern sum
 // would force `_pl_state` onto games without the lock (the =0 link probe in

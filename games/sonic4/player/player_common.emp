@@ -10,12 +10,11 @@
 // Lives in the object code bank: Player_Main is dispatched through
 // SST_code_addr via a code_addr = label − ObjCodeBase store.
 //
-// KEYSTONE NOTE: player_common.asm keeps an INTERNAL gate — its zero-byte
-// header (the PlayerV struct, the _pl_*/PPHYS_* equates, and the four macros)
-// stays ALWAYS-EMITTED so the surviving player_ground/air/spindash still resolve
-// it; only the code span sits under SIGIL_EMP_PLAYER_COMMON. This module IS that
-// code span; the overlay + macro templates below are its .emp-side counterparts,
-// drift-locked to the surviving AS header.
+// This module OWNS the player frame outright — player_common.asm is deleted. The
+// PlayerV overlay, the PPHYS_* / BUTTON_JUMP_MASK / PLAYER_DEBUG_FLY_SPEED consts,
+// the four macro→comptime-fn templates, and the code span all live here; the state
+// files (player_ground/air/spindash) reach them by module `use`, and engine.camera
+// late-binds the one `_pl_state` offset through the link.
 module games.sonic4.player_common in player_common
 
 use engine.objects.sst.{Sst}
@@ -105,12 +104,11 @@ ensure(extern("SFXID_SKID") == SFXID_SKID, "config/sound_ids.asm SFXID_SKID drif
 
 // -----------------------------------------------
 // PlayerV — the SST overlay (research structure-refs §2.2 budget: 12 of 34
-// bytes). The GUARDED overlay class (row-61 DplcV): the surviving AS header in
-// player_common.asm keeps the identical PlayerV struct + _pl_* equates for
-// player_ground/air/spindash, so the fields THEY read carry drift guards; the
-// rest are covered by this module's own region byte gate. The overlay's
-// always-on window-overflow check subsumes the AS objvarsCheck / SST_interact
-// collision assert.
+// bytes). This module owns the overlay outright (player_common.asm deleted); the
+// state files reach the fields through the imported PlayerV struct, so no `_pl_*`
+// mirror equate survives (only the link-exported `_pl_state` offset for camera).
+// The overlay's always-on window-overflow check subsumes the AS objvarsCheck /
+// SST_interact collision assert.
 // -----------------------------------------------
 pub vars PlayerV: Sst.sst_custom {
         ground_speed:     i16,          // inertia — single source of truth on ground
@@ -127,14 +125,14 @@ pub vars PlayerV: Sst.sst_custom {
         getup_timer:      u8,           // >0 = play ANIM_GETUP one-shot, counts down
         look_offset:      u8,           // camera look/duck pan seam — stays 0 this pass
 }
-// Guards: the fields a surviving AS file reads (drift is invisible to this
-// module's region gate). gsp: ground/air/spindash; state/move_lock/stick_convex:
-// ground; spindash_charge: spindash.
-ensure(extern("_pl_gsp")          == offsetof(Sst, sst_custom) + offsetof(PlayerV, ground_speed),    "player_common.asm _pl_gsp drifted from PlayerV")
-ensure(extern("_pl_state")        == offsetof(Sst, sst_custom) + offsetof(PlayerV, player_state),    "player_common.asm _pl_state drifted from PlayerV")
-ensure(extern("_pl_move_lock")    == offsetof(Sst, sst_custom) + offsetof(PlayerV, move_lock),       "player_common.asm _pl_move_lock drifted from PlayerV")
-ensure(extern("_pl_spindash")     == offsetof(Sst, sst_custom) + offsetof(PlayerV, spindash_charge), "player_common.asm _pl_spindash drifted from PlayerV")
-ensure(extern("_pl_stick_convex") == offsetof(Sst, sst_custom) + offsetof(PlayerV, stick_convex),    "player_common.asm _pl_stick_convex drifted from PlayerV")
+// _pl_state — the player-state byte's SST-custom offset, link-exported for
+// engine.camera's GAME_CAMERA_JUMP_LOCK probe (`extern("Player_1") +
+// extern("_pl_state")`, the sound_api extern-equ-sum idiom: an engine module
+// late-binds this game offset through the link rather than a game `use`). This
+// module OWNS PlayerV now (player_common.asm deleted), so it also owns the offset
+// symbol; the state files reach the fields via the imported PlayerV struct, so no
+// other `_pl_*` offset needs a link symbol.
+equ _pl_state = offsetof(Sst, sst_custom) + offsetof(PlayerV, player_state)
 
 // Sub-field displacement consts — the 16.16 subpixel low words (LevelBound
 // clears them). `Sst.field + N` does not compose inside a displacement, so name

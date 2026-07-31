@@ -46,10 +46,12 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     ; objroutine(), which needs the routine within ObjCodeBase+64KB.
     ; (player_sensors.asm stays in the engine block above — it has no
     ; code_addr entry points.)
-    ; player_common first — it defines the overlay equates and macros
-    ; the state files use; ground/air are reached only via the offset
-    ; tables, so order among them is otherwise free.
-    include "games/sonic4/player/player_common.asm"
+    ; Player_Init/Main/Display/RefreshPhysics/SetState + the state dispatch + the
+    ; Player_States/EnterHooks/ExitHooks offset tables are native (player_common.emp),
+    ; pinned by the sigil map inside the object code bank. It owns the PlayerV overlay
+    ; and the PPHYS_*/macro templates the state files import by `use`. Shape-invariant
+    ; window; ONE org both shapes, resuming on player_ground's first label PState_Ground.
+    org     $10448
     ; The grounded state bodies (PState_Ground/Roll, Ground_Move/Cap/PostMove,
     ; Player_SlopeRepel, Ground_DetachState, Player_Jump) are native
     ; (player_ground.emp). Pure code, shape-invariant window; ONE org both shapes,
