@@ -508,6 +508,23 @@ Cs_Memo_Gen:            ds.w 1 ; horizontal scan: Block_Stage_Gen at record ($FF
 HBlank_Vector_Slot:     ds.b 6
 
 ; -----------------------------------------------
+; Block staging data pointers (§4.7) — one per staging slot, parallel to
+; Block_Stage_Keys. TileCache_DecompressBlock writes the slot's staged-data
+; base here at claim time; TileCache_FindStagedBlock returns it. A compressed
+; block points at its RAM slot in Block_Stage_Buffers; a raw block points
+; straight at the uncompressed ROM block; an empty block points at the shared
+; zero page below. Consumers (CopyBlockColumn / FillRow) only READ through the
+; pointer, so ROM / zero-page targets are safe. Placed at the RAM TAIL: the
+; addition ripples ZERO existing RAM addresses (only Engine_RAM_End + game RAM).
+Block_Stage_Ptrs:       ds.l BLOCK_STAGE_SLOTS   ; 64 bytes — per-slot staged data pointer
+
+; Shared all-zero staged block — every empty (blank / out-of-grid) block points
+; here instead of paying a 768-byte zero-fill. BLOCK_RAW_SIZE bytes
+; (nametable + collision), word-even, in the boot-cleared 64KB Work RAM; never
+; written after boot (the staged-pointer read-only contract keeps it zero).
+Block_Stage_ZeroPage:   ds.b BLOCK_RAW_SIZE      ; 768 bytes — read-only zero staged block
+
+; -----------------------------------------------
 ; Engine RAM ends here — game RAM continues from Engine_RAM_End
 ; (games/<game>/config/ram.asm phases from this address).
 ; -----------------------------------------------
