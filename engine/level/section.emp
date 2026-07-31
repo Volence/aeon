@@ -5,7 +5,7 @@
 
 module engine.section in section
 
-use engine.constants.{SECTION_SIZE_SHIFT, PLANE_H_CELLS}
+use engine.constants.{SECTION_SIZE_SHIFT, PLANE_H_CELLS, VRAM_PLANE_B_BYTES}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg, VDP_DATA, VDP_CTRL}
@@ -17,7 +17,6 @@ use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg, VDP_DATA, VDP_CTRL}
 // + TILE_CACHE_* precedent — both consolidated once section became a 2nd
 // consumer). ----
 const VRAM_PLANE_A       = $C000        // Plane A nametable VRAM byte address
-const VRAM_PLANE_B_BYTES = $E000        // Plane B nametable VRAM byte address
 const PLANE_V_CELLS      = 64
 const PLANE_BUFFER_SIZE  = 1536         // plane-update ring buffer bytes
 
@@ -29,7 +28,6 @@ const PLANE_BUFFER_SIZE  = 1536         // plane-update ring buffer bytes
 // source of truth; each compares this twin's value against the real AS-side
 // equ through the link seam. A mismatch fails the link naming the constant. ----
 ensure(extern("VRAM_PLANE_A") == VRAM_PLANE_A, "engine/constants.asm and section.emp disagree on VRAM_PLANE_A — update the twin")
-ensure(extern("VRAM_PLANE_B_BYTES") == VRAM_PLANE_B_BYTES, "engine/level/bg.asm and section.emp disagree on VRAM_PLANE_B_BYTES — update the twin")
 ensure(extern("PLANE_V_CELLS") == PLANE_V_CELLS, "engine/constants.asm and section.emp disagree on PLANE_V_CELLS — update the twin")
 ensure(extern("PLANE_BUFFER_SIZE") == PLANE_BUFFER_SIZE, "engine/constants.asm and section.emp disagree on PLANE_BUFFER_SIZE — update the twin")
 // (TILE_CACHE_* drift guards now live centrally in engine.constants.)

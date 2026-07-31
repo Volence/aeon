@@ -192,6 +192,7 @@ pub const ART_VER_ZX0         = 2           // ZX0 modern/V2 bitstream (load-tim
 // (the static sprite/HScroll DMA entries and PlaneMapToVRAM's row stride).
 pub const VRAM_SPRITE_TABLE = $B800         // relocated from $D800 to free plane rows 48-63
 pub const VRAM_HSCROLL_TABLE = $BC00        // relocated from $DC00 (was inside Plane A 64x64 nametable)
+pub const VRAM_PLANE_B_BYTES = $E000        // Plane B nametable VRAM byte address (bg/plane_buffer/section)
 pub const PLANE_H_CELLS     = 64
 
 // VDP sprite-table geometry (mirrors engine/constants.asm — hoisted there
@@ -212,6 +213,11 @@ pub const SCANLINE_SPRITE_LIMIT = 24        // max sprite pieces per band
 // Visible screen dimensions in pixels (mirror engine/constants.asm).
 pub const SCREEN_WIDTH  = 320
 pub const SCREEN_HEIGHT = 224
+
+// Half-screen camera offsets (screen centre = camera lock point; consumed by
+// camera + ojz_scroll_test). = SCREEN_WIDTH/2 and (SCREEN_HEIGHT-visible-strip)/2.
+pub const CAM_SCREEN_HALF_W = 160
+pub const CAM_SCREEN_HALF_H = 112
 
 // Sprite-frame precomputed bbox byte offsets + first-piece offset (mirror
 // engine/constants.asm; FRAME_PIECE_COUNT above completes the header layout).
