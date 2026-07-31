@@ -373,9 +373,10 @@ __BUDGET_OBJBANK:
 
     gameObjectBankIncludes
 
-    if * > $20000
-      error "Object code bank overflows 64KB by \{*-$20000} bytes"
-    endif
+    ; The 64KB object-bank overflow guard is now a MAP-owned check: sigil's
+    ; `object_bank` region (sigil.map.toml, lma_base $10000 size $10000) is checked
+    ; against the __BUDGET_DATA cursor at link time (native::check_object_bank_budget).
+    ; The __BUDGET_OBJBANK/__BUDGET_DATA labels bracket the bank for that check.
 
 ; -----------------------------------------------
 ; Data (outside object code bank — addressed directly, not via objroutine)
