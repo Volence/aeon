@@ -65,7 +65,8 @@ pub proc Plane_Buffer_Reset () {
 // In:  d0.w = target VDP nametable column (0–63)
 //      d1.w = world tile column
 // Out: none (silently drops if buffer full)
-// Clobbers: d0–d5, a0–a2 (a1 = row-wrap sentinel through both parts)
+// Clobbers: d0–d5, a0–a2 (a1 = zero source for the fill loops; d2 carries
+//           rows-before-physical-wrap across both parts for .copy_col_run)
 // -----------------------------------------------
 pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         // worst case: 2 headers (8 bytes) + 64 data words (128 bytes) = 136
@@ -98,7 +99,9 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         add.w   d1, d0
         lea     Tile_Cache_Nametable, a0
         adda.w  d0, a0                         // a0 = cache source
-        lea     Tile_Cache_Nametable+TILE_CACHE_NT_SIZE, a1   // wrap sentinel
+        move.w  #TILE_CACHE_ROWS, d2
+        sub.w   Cache_Origin_Row, d2           // d2 = rows before the physical wrap
+        suba.l  a1, a1                         // a1 = 0 (zero source, fill loops)
         move.w  (sp)+, d0                      // restore nametable col
 
         add.w   d0, d0                         // d0 = col byte offset
@@ -128,22 +131,14 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         move.w  #TILE_CACHE_ROWS, d4
     .pA_clamp:
         move.w  d4, d1
-        subq.w  #1, d1
-    .pA_data:
-        move.w  (a0), (a2)+
-        lea     TILE_CACHE_STRIDE*2(a0), a0
-        cmpa.l  a1, a0
-        blo     .pa_nowrap
-        suba.w  #TILE_CACHE_NT_SIZE, a0        // physical row 59 → 0
-    .pa_nowrap:
-        dbf     d1, .pA_data
+        jbsr    .copy_col_run
 
         move.w  d5, d1
         sub.w   d4, d1
         beq     .pA_zend
         subq.w  #1, d1
     .pA_zero:
-        clr.w   (a2)+
+        move.w  a1, (a2)+
         dbf     d1, .pA_zero
     .pA_zend:
 
@@ -170,22 +165,14 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         move.w  d5, d1
     .pB_dok:
         move.w  d1, d4
-        subq.w  #1, d1
-    .pB_data:
-        move.w  (a0), (a2)+
-        lea     TILE_CACHE_STRIDE*2(a0), a0
-        cmpa.l  a1, a0
-        blo     .pb_nowrap
-        suba.w  #TILE_CACHE_NT_SIZE, a0        // physical row 59 → 0
-    .pb_nowrap:
-        dbf     d1, .pB_data
+        jbsr    .copy_col_run
 
         move.w  d5, d1
         sub.w   d4, d1
         beq     .pB_zend
         subq.w  #1, d1
     .pB_zfill:
-        clr.w   (a2)+
+        move.w  a1, (a2)+
         dbf     d1, .pB_zfill
         jbra    .pB_zend
 
@@ -193,7 +180,7 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         move.w  d5, d1
         subq.w  #1, d1
     .pB_az:
-        clr.w   (a2)+
+        move.w  a1, (a2)+
         dbf     d1, .pB_az
     .pB_zend:
     .no_pB:
@@ -206,6 +193,38 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         add.w   Plane_Buffer_Ptr, d2
         move.w  d2, Plane_Buffer_Ptr
     .done:
+        rts
+
+    // -- copy d1 (> 0) cache rows to (a2)+, source stride TILE_CACHE_STRIDE*2,
+    //    wrapping physical row 59 → 0 at most once. d2 = rows before the
+    //    physical wrap (≥ 1 on entry, updated for the next call) — the split
+    //    point is known from Cache_Origin_Row up front, so each run is a
+    //    check-free move.w/dbf (the per-iteration sentinel compare is gone).
+    //    Row count ≤ TILE_CACHE_ROWS, so run 2 never wraps again.
+    //    Clobbers d1-d2, a0. --
+    .copy_col_run:
+        sub.w   d1, d2
+        bgt     .ccr_single                    // whole run before the wrap
+        add.w   d2, d1                         // d1 = rows up to the wrap (≥ 1)
+        subq.w  #1, d1
+    .ccr_run1:
+        move.w  (a0), (a2)+
+        lea     TILE_CACHE_STRIDE*2(a0), a0
+        dbf     d1, .ccr_run1
+        suba.w  #TILE_CACHE_NT_SIZE, a0        // physical row 59 → 0
+        move.w  d2, d1
+        neg.w   d1                             // d1 = rows after the wrap
+        move.w  #TILE_CACHE_ROWS, d2
+        sub.w   d1, d2                         // fresh wrap budget minus run 2
+        tst.w   d1
+        beq     .ccr_ret                       // the wrap landed at run end
+    .ccr_single:
+        subq.w  #1, d1
+    .ccr_run2:
+        move.w  (a0), (a2)+
+        lea     TILE_CACHE_STRIDE*2(a0), a0
+        dbf     d1, .ccr_run2
+    .ccr_ret:
         rts
 }
 
@@ -397,7 +416,7 @@ pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
         moveq   #32-1, d3
     .copy:
         move.w  (a1), (a2)+
-        adda.w  #128, a1
+        lea     128(a1), a1
         dbf     d3, .copy
 
         // -- zero terminator + buffer pointer update --

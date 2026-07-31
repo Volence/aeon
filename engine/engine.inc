@@ -89,8 +89,8 @@
 ; -----------------------------------------------
 __BUDGET_ENGINE:
     ; EntryPoint..GameLoop entry (boot): native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $3AC
     else
@@ -98,56 +98,56 @@ __BUDGET_ENGINE:
     endif
     include "engine/system/boot_data.asm"
     ; VDP_Shadow_Init/Flush_VDP_Shadow: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $1CD4
     else
         org     $1C52
     endif
     ; Init_DMA_Queue/QueueDMA_*/Process_DMA_*: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $1FDA
     else
         org     $1F54
     endif
     ; Init_SpriteTable/BuildStaticDMA/PlaneMapToVRAM: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $2232
     else
         org     $21AC
     endif
     ; VBlank_Handler/VInt_Level/VInt_Lag/VSync_Wait: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $236A
     else
         org     $22DC
     endif
     ; HBlank_Install/HBlank_Uninstall: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $23B2
     else
         org     $2324
     endif
     ; Read_Controllers: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $2428
     else
         org     $239A
     endif
     ; GameLoop/GameState_Idle: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $243A
     else
@@ -181,96 +181,96 @@ __BUDGET_ENGINE:
         org     $2794
     endif
     ; Perform_DPLC/Perform_DPLC_Deferrable: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $29CE
     else
         org     $2838
     endif
     ; InitObjectRAM..ObjectMove*: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $30FA
     else
         org     $2B1C
     endif
     ; InitSpriteSystem..InsertSpriteMasks: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $351A
     else
         org     $2F3C
     endif
     ; AnimateSprite/RefreshSpritePieceCount: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $37C2
     else
         org     $30C6
     endif
     ; TouchResponse: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $39CA
     else
         org     $32C6
     endif
     ; RingBuffer_*/DrawRings/RingCollision: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $3BDE
     else
         org     $347E
     endif
     ; entity_window Collected_*/EntityWindow_*: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $4906
     else
         org     $3D38
     endif
     ; CreateChild_*/CreateEffect_*/DeleteChildren: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $4CE0
     else
         org     $4008
     endif
     ; Load_Object/Load_ObjectList: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $4D62
     else
         org     $408A
     endif
     ; Plane_Buffer_Reset..VInt_DrawLevel: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $503C
     else
         org     $4364
     endif
     ; Tile_Cache_GetTile..TileCache_Reinit: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $5E1C
     else
         org     $5084
     endif
     ; Collision_GetType: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $5E40
     else
@@ -278,48 +278,48 @@ __BUDGET_ENGINE:
     endif
     gameEngineBlockIncludes
     ; Section_Init..Section_UpdateColumns: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $6718
     else
         org     $5980
     endif
     ; Camera_Init/Camera_Update: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $687C
     else
         org     $5AE4
     endif
     ; Parallax pipeline (Parallax_Init..Fill_PerCell): native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $6DF2
     else
         org     $605A
     endif
     ; Art_Decompress/Level_LoadArt: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $6EA0
     else
         org     $60BE
     endif
     ; BG_Init: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $6F4E
     else
         org     $616C
     endif
     ; BgAnim_Init/BgAnim_Update: native (.emp), sigil-map-pinned; the AS residual resumes past it.
-    ; The sonic4-shape orgs drive the canonical sonic4 build; the off-canonical
-    ; chainer derives placement from the frozen listing and ignores them.
+    ; INERT: the chainer derives every target's placement from its frozen table +
+    ; live sizes and ignores these orgs (deletion rides the residual-split capstone).
     ifdef __DEBUG__
         org     $70A6
     else
