@@ -14,19 +14,15 @@ const VRAM_TEST_SONIC: VramTile = $03C0
 ensure(extern("VRAM_TEST_SONIC") == VRAM_TEST_SONIC, "config/constants.asm VRAM_TEST_SONIC drifted from test_player.emp")
 
 // TPlayerV — the player's SST overlay: the shared DPLC prefix (dplc_ptr/art_base,
-// byte-identical to test_animated's DplcV) plus a debug_flag. The GUARDED overlay
-// class (row-61): the surviving AS header (test_player.asm's internal-gated zero-byte
-// header) still defines these equates — test_animated.emp reads _dplc_ptr/_art_base
-// through it too — so the drift guards resolve against the real AS tree. The always-on
-// window-overflow check subsumes the AS objvarsCheck.
+// byte-identical to test_animated's DplcV) plus a debug_flag. This module owns the
+// overlay outright now (the AS test_player.asm header that once defined the mirror
+// equates is deleted); the always-on window-overflow check subsumes the AS
+// objvarsCheck. dplc_ptr/art_base share test_animated.emp's DplcV offsets ($2E/$32).
 vars TPlayerV: Sst.sst_custom {
         dplc_ptr: u32,                  // DPLC table pointer (ROM)
         art_base: u32,                  // uncompressed art base (ROM)
         debug_flag: u8,
 }
-ensure(extern("_dplc_ptr") == offsetof(Sst, sst_custom) + offsetof(TPlayerV, dplc_ptr), "test_player.asm _dplc_ptr drifted from test_player.emp TPlayerV")
-ensure(extern("_art_base") == offsetof(Sst, sst_custom) + offsetof(TPlayerV, art_base), "test_player.asm _art_base drifted from test_player.emp TPlayerV")
-ensure(extern("_debug_flag") == offsetof(Sst, sst_custom) + offsetof(TPlayerV, debug_flag), "test_player.asm _debug_flag drifted from test_player.emp TPlayerV")
 
 // -----------------------------------------------
 // Physics constants (S2/S.C.E. reference values)

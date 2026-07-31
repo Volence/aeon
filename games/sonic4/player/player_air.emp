@@ -27,20 +27,17 @@ ensure(extern("PSTATE_GROUND") == PSTATE_GROUND, "config/constants.asm PSTATE_GR
 // ambient-hoist parcel (kill-list row 81) — consumed via `use engine.constants`
 // above; their drift guards live at the twin.
 
-// Jump press sources: A and C only — B is the debug-fly toggle (player_common.asm).
+// Jump press sources: A and C only — B is the debug-fly toggle. File-local now
+// (player_common.asm's BUTTON_JUMP_MASK + its drift guard are gone).
 const BUTTON_JUMP_MASK = BUTTON_A | BUTTON_C
-ensure(extern("BUTTON_JUMP_MASK") == BUTTON_JUMP_MASK, "player_common.asm BUTTON_JUMP_MASK drifted")
 
-// physics-table field offsets (a4-relative displacements; mirror
-// player_common.asm's PPHYS_* = Phys_field − Player_Phys).
+// physics-table field offsets (a4-relative displacements; the Player_Phys field
+// displacements). File-local; a divergent offset shows up as a mismatched
+// instruction byte in the region gate (the mirror equates + guards are gone).
 const PPHYS_TOP_SPEED  = 6
 const PPHYS_GRAVITY    = 8
 const PPHYS_AIR_ACCEL  = 12
 const PPHYS_RELEASE_CAP = 14
-ensure(extern("PPHYS_TOP_SPEED")  == PPHYS_TOP_SPEED,  "player_common.asm PPHYS_TOP_SPEED drifted")
-ensure(extern("PPHYS_GRAVITY")    == PPHYS_GRAVITY,    "player_common.asm PPHYS_GRAVITY drifted")
-ensure(extern("PPHYS_AIR_ACCEL")  == PPHYS_AIR_ACCEL,  "player_common.asm PPHYS_AIR_ACCEL drifted")
-ensure(extern("PPHYS_RELEASE_CAP") == PPHYS_RELEASE_CAP, "player_common.asm PPHYS_RELEASE_CAP drifted")
 
 // Air behavior flag bits, carried in d6.b through body steps 1-2 only —
 // the sensor layer clobbers d6, but nothing after the input block reads

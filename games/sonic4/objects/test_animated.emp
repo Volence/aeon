@@ -11,15 +11,15 @@ use engine.types.{VramTile}
 const VRAM_TEST_SONIC: VramTile = $03C0
 ensure(extern("VRAM_TEST_SONIC") == VRAM_TEST_SONIC, "config/constants.asm VRAM_TEST_SONIC drifted from test_animated.emp")
 
-// DplcV — the per-object DPLC state, overlaying sst_custom. The offsets mirror
-// test_player.asm's DplcV (the drift-guard target below). The overlay's
-// always-on window-overflow check subsumes the AS `objvarsCheck`.
+// DplcV — the per-object DPLC state, overlaying sst_custom. This module owns the
+// overlay now (test_player.asm's shared DplcV struct, the former drift target, is
+// deleted); test_player.emp's TPlayerV carries the byte-identical dplc_ptr/art_base
+// prefix ($2E/$32). The overlay's always-on window-overflow check subsumes the AS
+// `objvarsCheck`.
 vars DplcV: Sst.sst_custom {
         dplc_ptr: u32,                  // DPLC table pointer (ROM)
         art_base: u32,                  // uncompressed art base (ROM)
 }
-ensure(extern("_dplc_ptr") == offsetof(Sst, sst_custom) + offsetof(DplcV, dplc_ptr), "test_player.asm _dplc_ptr drifted from test_animated.emp DplcV")
-ensure(extern("_art_base") == offsetof(Sst, sst_custom) + offsetof(DplcV, art_base), "test_player.asm _art_base drifted from test_animated.emp DplcV")
 
 // -----------------------------------------------
 // TestAnimated — init routine

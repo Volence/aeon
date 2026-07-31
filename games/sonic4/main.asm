@@ -46,10 +46,12 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     ; objroutine(), which needs the routine within ObjCodeBase+64KB.
     ; (player_sensors.asm stays in the engine block above — it has no
     ; code_addr entry points.)
-    ; player_common first — it defines the overlay equates and macros
-    ; the state files use; ground/air are reached only via the offset
-    ; tables, so order among them is otherwise free.
-    include "games/sonic4/player/player_common.asm"
+    ; Player_Init/Main/Display/RefreshPhysics/SetState + the state dispatch + the
+    ; Player_States/EnterHooks/ExitHooks offset tables are native (player_common.emp),
+    ; pinned by the sigil map inside the object code bank. It owns the PlayerV overlay
+    ; and the PPHYS_*/macro templates the state files import by `use`. Shape-invariant
+    ; window; ONE org both shapes, resuming on player_ground's first label PState_Ground.
+    org     $10448
     ; The grounded state bodies (PState_Ground/Roll, Ground_Move/Cap/PostMove,
     ; Player_SlopeRepel, Ground_DetachState, Player_Jump) are native
     ; (player_ground.emp). Pure code, shape-invariant window; ONE org both shapes,
@@ -71,12 +73,19 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     ; the object code bank (org $10000, ObjCodeBase). Shape-invariant window; ONE
     ; org both shapes while the banks coincide (the $8000 abs.w/abs.l bar below).
     org     $10C38
-    ; TestAnimated/TestAnimated_Main are native (test_animated.emp). Its DplcV
-    ; sst_custom overlay equates come from the AS-side test_player.asm header
-    ; (_dplc_ptr/_art_base), so they still resolve. Shape-invariant window; ONE org.
+    ; TestAnimated/TestAnimated_Main are native (test_animated.emp). It owns its
+    ; DplcV sst_custom overlay ($2E/$32). Shape-invariant window; ONE org.
     org     $10C92
-    include "games/sonic4/objects/test_player.asm"
-    include "games/sonic4/objects/test_enemy.asm"
+    ; TestPlayer/TestPlayer_Main/TestPlayer_Debug are native (test_player.emp), pinned
+    ; by the sigil map inside the object code bank. Shape-invariant window; ONE org both
+    ; shapes, resuming on test_enemy's first label TestEnemy_Init. AS-side consumers
+    ; (object_test_state's ObjSpawn code_addr) resolve through the shared link.
+    org     $10F02
+    ; TestEnemy_Init/Main are native (test_enemy.emp), pinned by the sigil map inside
+    ; the object code bank. Shape-invariant window; ONE org both shapes, resuming on
+    ; test_solid's first label TestSolid_Init. AS-side consumers (ObjDef_Enemy's
+    ; objdef x_vel) resolve through the shared link.
+    org     $10F4A
     ; TestSolid_Init/Main + TestParticle/Main are native (test_solid.emp +
     ; test_particle.emp), pinned by the sigil map inside the object code bank. ONE
     ; org serves both shapes while the two banks coincide (the $8000 abs.w/abs.l
