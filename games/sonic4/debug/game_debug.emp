@@ -25,23 +25,15 @@ module games.sonic4.game_debug in game_debug
 // value flowing into each typed slot.
 use engine.types.{SongId, SfxId}
 
-// game_debug mirrors the game-contract const surface it uses, each drift-guarded
-// against the .asm truth (the sfx_bank mirror pattern) so a divergence is a loud
-// comptime error, never a silent wrong instruction. The buttons are mirrored
-// LOCALLY (not `use engine.constants`) to keep this game-side module self-
-// contained — engine.constants.emp carries only the d-pad four (UP/DOWN/LEFT/
-// RIGHT) anyway, so A/B/C/START would need mirroring regardless. LEDGER: when a
-// game-constants .emp module is born (or A/B/C/START hoist into engine.constants),
-// this block collapses into a `use`. Kill-list row tracks the mirror.
-const BUTTON_UP    = 1 << 0          // $01
+// BUTTON_UP/C/A are engine constants — imported from their sole author now that
+// engine.constants is the definition (the P5 ownership flip). BUTTON_B/START are
+// still AS-retained in engine/constants.asm (not yet emp-owned), so they stay
+// local, each drift-guarded against the .asm truth (the sfx_bank mirror
+// pattern). LEDGER: B/START collapse into a `use` when they flip too (row 54).
+use engine.constants.{BUTTON_UP, BUTTON_C, BUTTON_A}
 const BUTTON_B     = 1 << 4          // $10
-const BUTTON_C     = 1 << 5          // $20
-const BUTTON_A     = 1 << 6          // $40
 const BUTTON_START = 1 << 7          // $80
-ensure(extern("BUTTON_UP") == BUTTON_UP, "BUTTON_UP drifted from engine/constants.asm: {BUTTON_UP}")
 ensure(extern("BUTTON_B") == BUTTON_B, "BUTTON_B drifted from engine/constants.asm: {BUTTON_B}")
-ensure(extern("BUTTON_C") == BUTTON_C, "BUTTON_C drifted from engine/constants.asm: {BUTTON_C}")
-ensure(extern("BUTTON_A") == BUTTON_A, "BUTTON_A drifted from engine/constants.asm: {BUTTON_A}")
 ensure(extern("BUTTON_START") == BUTTON_START, "BUTTON_START drifted from engine/constants.asm: {BUTTON_START}")
 
 // Song ids (games/sonic4/config/sound_ids.asm).

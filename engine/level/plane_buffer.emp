@@ -32,7 +32,6 @@ const PLANE_ENTRY_COL_FLAG = $8000      // plane-buffer entry header bit 15: set
 // live centrally in engine.constants. ----
 ensure(extern("VRAM_PLANE_A") == VRAM_PLANE_A, "engine/constants.asm and plane_buffer.emp disagree on VRAM_PLANE_A — update the twin")
 ensure(extern("VRAM_PLANE_B_BYTES") == VRAM_PLANE_B_BYTES, "engine/level/bg.asm and plane_buffer.emp disagree on VRAM_PLANE_B_BYTES — update the twin")
-ensure(extern("PLANE_H_CELLS") == PLANE_H_CELLS, "engine/constants.asm and plane_buffer.emp disagree on PLANE_H_CELLS — update the twin")
 ensure(extern("PLANE_V_CELLS") == PLANE_V_CELLS, "engine/constants.asm and plane_buffer.emp disagree on PLANE_V_CELLS — update the twin")
 ensure(extern("PLANE_BUFFER_SIZE") == PLANE_BUFFER_SIZE, "engine/constants.asm and plane_buffer.emp disagree on PLANE_BUFFER_SIZE — update the twin")
 

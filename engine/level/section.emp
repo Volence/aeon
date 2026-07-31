@@ -30,7 +30,6 @@ const PLANE_BUFFER_SIZE  = 1536         // plane-update ring buffer bytes
 // equ through the link seam. A mismatch fails the link naming the constant. ----
 ensure(extern("VRAM_PLANE_A") == VRAM_PLANE_A, "engine/constants.asm and section.emp disagree on VRAM_PLANE_A — update the twin")
 ensure(extern("VRAM_PLANE_B_BYTES") == VRAM_PLANE_B_BYTES, "engine/level/bg.asm and section.emp disagree on VRAM_PLANE_B_BYTES — update the twin")
-ensure(extern("PLANE_H_CELLS") == PLANE_H_CELLS, "engine/constants.asm and section.emp disagree on PLANE_H_CELLS — update the twin")
 ensure(extern("PLANE_V_CELLS") == PLANE_V_CELLS, "engine/constants.asm and section.emp disagree on PLANE_V_CELLS — update the twin")
 ensure(extern("PLANE_BUFFER_SIZE") == PLANE_BUFFER_SIZE, "engine/constants.asm and section.emp disagree on PLANE_BUFFER_SIZE — update the twin")
 // (TILE_CACHE_* drift guards now live centrally in engine.constants.)
