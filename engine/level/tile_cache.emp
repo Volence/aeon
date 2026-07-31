@@ -214,8 +214,8 @@ pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4) o
         // slot index × 4 = (a1 - 4) - Block_Stage_Keys
         move.w  a1, d3
         subi.w  #(Block_Stage_Keys+4) & $FFFF, d3
-        lea     BlockStage_PtrTable(pc), a1
-        movea.l (a1, d3.w), a1                 // a1 = slot base
+        lea     Block_Stage_Ptrs, a1
+        movea.l (a1, d3.w), a1                 // a1 = staged data pointer (RAM slot / raw ROM block / zero page)
         moveq   #0, d3                         // Z set (hit)
         rts
     .miss:
@@ -274,6 +274,9 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         move.l  d3, (a1, d4.w)
         lea     BlockStage_PtrTable(pc), a1
         movea.l (a1, d4.w), a3                 // a3 = dest slot base
+        move.w  d4, d6                         // preserve slot×4 for the empty/raw pointer store
+        lea     Block_Stage_Ptrs, a1
+        move.l  a3, (a1, d4.w)                 // default staged pointer = RAM slot (compressed decodes into it)
 
         movea.l Current_Act_Ptr, a0
         movea.l Act.sec_grid_ptr(a0), a1
@@ -334,27 +337,23 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
             andi.w  #1, d3
             assert.w d3, eq                    // raw offset must be word-even
         }
-        lea     (a2, d0.l), a0                 // a0 = raw 768-byte block (ROM)
-        movea.l a3, a1
-        // straight ROM→slot copy, 24 × 32-byte movem bursts
-        // (76r + 72w + 8 lea + 10 dbf = 166 c per 32 B ≈ 4.0k c/block —
-        // cheaper than any decompress of the same block)
-        moveq   #(BLOCK_RAW_SIZE/32)-1, d7
-    .raw_copy:
-        movem.l (a0)+, d0-d6/a2
-        movem.l d0-d6/a2, (a1)
-        lea     32(a1), a1
-        dbf     d7, .raw_copy
-        movea.l a3, a1                         // a1 = slot base
+        lea     (a2, d0.l), a0                 // a0 = raw 768-byte block (ROM, slot layout)
+        // point the slot straight at the uncompressed ROM block — no copy. The
+        // ROM block is BLOCK_RAW_SIZE in slot layout (nametable + collision) exactly
+        // as a decompressed slot, and consumers only read through the pointer.
+        lea     Block_Stage_Ptrs, a1
+        move.l  a0, (a1, d6.w)
+        movea.l a0, a1                         // a1 = raw ROM block
         rts
 
     .empty_block:
-        movea.l a3, a0
-        move.w  #(BLOCK_RAW_SIZE/4)-1, d0
-    .zero_loop:
-        clr.l   (a0)+
-        dbf     d0, .zero_loop
-        movea.l a3, a1
+        // point the slot at the shared read-only zero page — no 768-byte zero-fill.
+        // The page is boot-cleared and never written (the staged-pointer read-only
+        // contract), so it stays zero for the life of the ROM.
+        lea     Block_Stage_ZeroPage, a0
+        lea     Block_Stage_Ptrs, a1
+        move.l  a0, (a1, d6.w)
+        movea.l a0, a1                         // a1 = zero page
         rts
 }
 
