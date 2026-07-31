@@ -58,7 +58,7 @@ const RING_BUFFER_ENTRY_SIZE    = 6
 // struct-generated equs through the link seam. This struct has a single
 // consumer (this module), so it lives here rather than in its own module —
 // the complement to sst.emp's precedent that a SHARED struct earns its own.
-struct EntityScanState (size: $16) {
+struct EntityScanState (size: $1A) {
     ess_ring_right_idx: u16 @ $00,    // $00 — ring X-scan ratchet (right edge)
     ess_obj_right_idx: u16 @ $02,     // $02 — object X-scan ratchet (right edge)
     ess_rom_ring_ptr: u32 @ $04,      // $04 — ROM ring list pointer
@@ -68,6 +68,8 @@ struct EntityScanState (size: $16) {
     ess_section_id: u8 @ $12,         // $12 — flat section id
     ess_entry_idx: u8 @ $13,          // $13 — window entry index (0-3)
     ess_origin_y: u16 @ $14,          // $14 — section origin Y (engine-space px)
+    ess_ring_next_x: u16 @ $16,       // $16 — engine-X of next ring entering right (trigger cache; $FFFF = none)
+    ess_obj_next_x: u16 @ $18,        // $18 — engine-X of next object entering right (trigger cache; $FFFF = none)
 }
 
 // Sec (ROM section descriptor) + Act field access comes from the shared
@@ -105,7 +107,9 @@ ensure(extern("EntityScanState_ess_origin_x") == $10, "engine/structs.asm and en
 ensure(extern("EntityScanState_ess_section_id") == $12, "engine/structs.asm and entity_window.emp disagree on ess_section_id — update the twin")
 ensure(extern("EntityScanState_ess_entry_idx") == $13, "engine/structs.asm and entity_window.emp disagree on ess_entry_idx — update the twin")
 ensure(extern("EntityScanState_ess_origin_y") == $14, "engine/structs.asm and entity_window.emp disagree on ess_origin_y — update the twin")
-ensure(extern("EntityScanState_len") == $16, "engine/structs.asm and entity_window.emp disagree on EntityScanState_len — update the twin")
+ensure(extern("EntityScanState_ess_ring_next_x") == $16, "engine/structs.asm and entity_window.emp disagree on ess_ring_next_x — update the twin")
+ensure(extern("EntityScanState_ess_obj_next_x") == $18, "engine/structs.asm and entity_window.emp disagree on ess_obj_next_x — update the twin")
+ensure(extern("EntityScanState_len") == $1A, "engine/structs.asm and entity_window.emp disagree on EntityScanState_len — update the twin")
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
 
 // Loaded-mask geometry static asserts (AS `if <> / error` → ensure).
@@ -650,6 +654,10 @@ proc EntityWindow_InitSection () clobbers(d3, a2) {
         move.b  d6, EntityScanState.ess_entry_idx(a1)
         clr.w   EntityScanState.ess_ring_right_idx(a1)
         clr.w   EntityScanState.ess_obj_right_idx(a1)
+        // trigger caches cleared to 0 so the first post-init scan always runs
+        // (0 < any right edge -> the section-loop gate never skips it)
+        clr.w   EntityScanState.ess_ring_next_x(a1)
+        clr.w   EntityScanState.ess_obj_next_x(a1)
         rts
 }
 
@@ -896,8 +904,20 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a4) {
         btst    d6, d5
         beq     .section_next
         lea     (a3), a1
+        // Trigger-cache gate: each walker cached the engine-X of the next entity
+        // entering from the right (or $FFFF at the list end). Skip the call while
+        // the right load edge d7 has not reached that X — nothing new can enter.
+        // d7 < cached => skip. ScanRingsRight preserves a1 for the object gate.
+        move.w  EntityScanState.ess_ring_next_x(a1), d0
+        cmp.w   d0, d7
+        blo     .skip_rings
         jbsr    EntityWindow_ScanRingsRight
+    .skip_rings:
+        move.w  EntityScanState.ess_obj_next_x(a1), d0
+        cmp.w   d0, d7
+        blo     .skip_objs
         jbsr    EntityWindow_ScanObjectsRight
+    .skip_objs:
     .section_next:
         lea     sizeof(EntityScanState)(a3), a3
         addq.b  #1, d6
@@ -1022,11 +1042,10 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2, a0) preserves(d3, d4) {
 // Clobbers: d0-d4, a0
 // -----------------------------------------------
 proc EntityWindow_ScanRingsRight () clobbers(d0-d4, a0) {
-        move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
-        beq     .done
-        movea.l d0, a0
-
         move.w  EntityScanState.ess_ring_right_idx(a1), d4
+        move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
+        beq     .at_terminator          // null list: no rings ever enter (ratchet unchanged)
+        movea.l d0, a0
         move.w  EntityScanState.ess_origin_x(a1), d3
 
         // Advance a0 to current index (4 bytes per ROM entry: dc.w X, dc.w Y)
@@ -1036,22 +1055,28 @@ proc EntityWindow_ScanRingsRight () clobbers(d0-d4, a0) {
 
     .loop:
         move.l  (a0), d0                // terminator: dc.l 0
-        beq     .update_idx
+        beq     .at_terminator
         move.w  (a0), d0
         add.w   d3, d0                  // engine X
 
         // Past right edge? List is X-sorted, stop
         cmp.w   d7, d0
-        bhi     .update_idx
+        bhi     .at_edge
 
         jbsr    EntityWindow_TrySpawnRing
         addq.w  #1, d4
         addq.w  #4, a0
         jbra    .loop
 
-    .update_idx:
+    .at_edge:
+        // d0 = engine-X of the first ring past the edge — cache it as the trigger
+        move.w  d0, EntityScanState.ess_ring_next_x(a1)
         move.w  d4, EntityScanState.ess_ring_right_idx(a1)
-    .done:
+        rts
+    .at_terminator:
+        // list end or null list: no more rings to the right — $FFFF disables the gate
+        move.w  #$FFFF, EntityScanState.ess_ring_next_x(a1)
+        move.w  d4, EntityScanState.ess_ring_right_idx(a1)
         rts
 }
 
@@ -1096,6 +1121,10 @@ proc EntityWindow_PopulateSectionRings () clobbers(d0-d4, a0, a2) {
         jbra    .pfind
     .pfound:
         move.w  d4, EntityScanState.ess_ring_right_idx(a1)
+        // The trigger cache is left at its InitSection-cleared 0 here: the first
+        // post-slide EntityWindow_Scan runs the ring walker once (0 never gates a
+        // skip) and it re-establishes the cache from the ratchet. Slides are rare,
+        // so seeding it here would buy one skipped walker call per ~2048px.
 
         // Pass 2: offer every listed ring (band/collected/loaded gates inside)
         movea.l a2, a0
@@ -1229,11 +1258,10 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a0-a3) preserves(d3, d5) {
 // Clobbers: d0-d4, a0-a3
 // -----------------------------------------------
 proc EntityWindow_ScanObjectsRight () clobbers(d0-d4, a0-a3) {
-        move.l  EntityScanState.ess_rom_obj_ptr(a1), d0
-        beq     .obj_done
-        movea.l d0, a0
-
         move.w  EntityScanState.ess_obj_right_idx(a1), d4
+        move.l  EntityScanState.ess_rom_obj_ptr(a1), d0
+        beq     .obj_at_terminator      // null list: no objects ever enter (ratchet unchanged)
+        movea.l d0, a0
         move.w  EntityScanState.ess_origin_x(a1), d3
 
         // Advance a0 to current index: d4 × 6 via ×2, ×3, ×6
@@ -1245,22 +1273,28 @@ proc EntityWindow_ScanObjectsRight () clobbers(d0-d4, a0-a3) {
 
     .obj_loop:
         move.w  (a0), d0                // section-local X (or $FFFF sentinel)
-        bmi     .obj_update_idx         // bmi fires on -1 terminator
+        bmi     .obj_at_terminator      // bmi fires on -1 terminator
 
         add.w   d3, d0                  // engine X
 
         // Past right edge? List is X-sorted, stop
         cmp.w   d7, d0
-        bhi     .obj_update_idx
+        bhi     .obj_at_edge
 
         jbsr    EntityWindow_TrySpawnObject
         addq.w  #1, d4
         addq.w  #OBJ_ENTRY_SIZE, a0
         jbra    .obj_loop
 
-    .obj_update_idx:
+    .obj_at_edge:
+        // d0 = engine-X of the first object past the edge — cache it as the trigger
+        move.w  d0, EntityScanState.ess_obj_next_x(a1)
         move.w  d4, EntityScanState.ess_obj_right_idx(a1)
-    .obj_done:
+        rts
+    .obj_at_terminator:
+        // list end or null list: no more objects to the right — $FFFF disables the gate
+        move.w  #$FFFF, EntityScanState.ess_obj_next_x(a1)
+        move.w  d4, EntityScanState.ess_obj_right_idx(a1)
         rts
 }
 
