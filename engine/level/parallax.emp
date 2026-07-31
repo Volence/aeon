@@ -11,6 +11,7 @@ module engine.parallax in parallax
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.structs.{Act, Sec, parallax_config}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL, VDP_MODE3_OFF}
+use engine.z80_bus.{stop_z80, start_z80}
 
 // ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm).
 // Mirrored local + drift-locked to keep this port byte-isolated; hoist each into
@@ -387,6 +388,48 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) {
         // 0 = inert (no parallax config active)
         beq     .no_config
         movea.l d0, a0
+
+        // --- per-frame VDP reg $0B (Mode Set 3) assertion from the active config ---
+        // The register must match the mode the HScroll/VSRAM buffers are built from
+        // THIS frame, and the buffers below build from this same active config.
+        // Parallax_StartTransition writes the mode only on a section-boundary
+        // crossing (edge-triggered, same-config short-circuit), so without a
+        // per-frame re-assert the register goes stale whenever the active config
+        // differs from what the last crossing left (a mid-transition frame, where
+        // the active config is Target). Re-deriving here — the one per-frame site
+        // that already holds the resolved active config in a0 — keeps the register
+        // in lockstep with the buffers every frame. Inert while every act section
+        // shares one mode (the derived value is unchanging); load-bearing when they
+        // do not. The null-config case takes the .no_config early-out above and
+        // asserts nothing (parallax is off, so the mode is don't-care).
+        //   bits 1:0 = HScroll mode: %10 per-cell, %11 per-line
+        //   bit 2    = VScroll mode: 0 whole-plane, 1 per-column
+        moveq   #%10, d0                            // per-cell H baseline
+        move.l  parallax_config.pcfg_deform_table_fg(a0), d1
+        or.l    parallax_config.pcfg_deform_table_bg(a0), d1
+        beq     .mode3_h_done
+        moveq   #%11, d0                            // per-line if any H-deform
+    .mode3_h_done:
+        move.l  parallax_config.pcfg_v_deform_table_bg(a0), d1
+        beq     .mode3_shadow
+        ori.b   #%100, d0                           // bit 2 = per-column V-scroll
+    .mode3_shadow:
+        move.b  d0, VDP_Shadow_Table + VDP_MODE3_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode3).w
+        ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask  // (VDP_Dirty_Mask).w
+        // Also drive reg $0B on the hardware directly (not only the shadow): the
+        // shadow→register flush is a VBlank step, and a config's mode must be live
+        // for the frame it becomes active, not one VBlank later. Read VDP_CTRL
+        // first to reset the command state machine — a half-finished 32-bit address
+        // command from upstream (e.g. Section_UpdateColumns) would otherwise consume
+        // this $8B?? word as its second longword, corrupting the VDP and leaving
+        // reg $0B unchanged. $8B?? has bit 15 set, so it is an atomic single-word
+        // register write regardless of any VBlank that lands mid-wrap.
+        andi.w  #$00FF, d0
+        ori.w   #$8B00, d0                          // d0 = $8B?? = "set reg $0B = ??"
+        stop_z80
+        move.w  VDP_CTRL, d1                        // (VDP_CTRL).l — reset command state machine
+        move.w  d0, VDP_CTRL                        // (VDP_CTRL).l
+        start_z80
 
         moveq   #0, d7
         move.b  parallax_config.pcfg_band_count(a0), d7
