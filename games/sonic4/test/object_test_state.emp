@@ -30,11 +30,10 @@ use engine.coords.{pixels_to_coord}
 const VRAM_TEST_OBJ: VramTile = $03E0
 ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from object_test_state.emp")
 
-// STUB_FLOOR_Y — the test player/objects rest height (px). Its real home is the
-// test_player.asm surviving-gated header equate; a comptime const here because it
-// feeds `#STUB_FLOOR_Y << 16` and a dc.w in TestObjectList (not a bare link).
+// STUB_FLOOR_Y — the test player/objects rest height (px). Owned here now (the AS
+// test_player.asm header that once defined it is deleted); this module is its sole
+// consumer, feeding `#STUB_FLOOR_Y << 16` and a dc.w in TestObjectList.
 const STUB_FLOOR_Y = 192
-ensure(extern("STUB_FLOOR_Y") == STUB_FLOOR_Y, "test_player.asm STUB_FLOOR_Y drifted from object_test_state.emp")
 
 // VDP_HV_COUNTER — the VDP V/H beam-position register ($C00008), read as a
 // per-frame cycle proxy in the DEBUG profiling block. Comes from the shared

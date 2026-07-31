@@ -71,11 +71,14 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     ; the object code bank (org $10000, ObjCodeBase). Shape-invariant window; ONE
     ; org both shapes while the banks coincide (the $8000 abs.w/abs.l bar below).
     org     $10C38
-    ; TestAnimated/TestAnimated_Main are native (test_animated.emp). Its DplcV
-    ; sst_custom overlay equates come from the AS-side test_player.asm header
-    ; (_dplc_ptr/_art_base), so they still resolve. Shape-invariant window; ONE org.
+    ; TestAnimated/TestAnimated_Main are native (test_animated.emp). It owns its
+    ; DplcV sst_custom overlay ($2E/$32). Shape-invariant window; ONE org.
     org     $10C92
-    include "games/sonic4/objects/test_player.asm"
+    ; TestPlayer/TestPlayer_Main/TestPlayer_Debug are native (test_player.emp), pinned
+    ; by the sigil map inside the object code bank. Shape-invariant window; ONE org both
+    ; shapes, resuming on test_enemy's first label TestEnemy_Init. AS-side consumers
+    ; (object_test_state's ObjSpawn code_addr) resolve through the shared link.
+    org     $10F02
     ; TestEnemy_Init/Main are native (test_enemy.emp), pinned by the sigil map inside
     ; the object code bank. Shape-invariant window; ONE org both shapes, resuming on
     ; test_solid's first label TestSolid_Init. AS-side consumers (ObjDef_Enemy's
