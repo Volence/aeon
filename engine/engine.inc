@@ -64,7 +64,6 @@
 ; -----------------------------------------------
 ; Definitions (no ROM output)
 ; -----------------------------------------------
-    include "engine/constants.asm"
     include "engine/sound_constants.asm"
     include "engine/macros.asm"
     include "engine/parallax_macros.inc"

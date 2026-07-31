@@ -19,11 +19,7 @@ use engine.structs.{Act, Sec}
 // author now that engine.constants is the definition (the P5 ownership flip).
 // The imported consts are plain comptime ints, so EDGE_CLAMP range-proves into
 // the u8 field directly (a link-folded extern could not — the old mirror note).
-// MAX_ACT_SECTIONS is still AS-retained in engine/constants.asm, so it stays a
-// drift-guarded mirror until it flips too (kill-list row 8).
-use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP}
-const MAX_ACT_SECTIONS   = 48
-ensure(extern("MAX_ACT_SECTIONS") == MAX_ACT_SECTIONS, "MAX_ACT_SECTIONS drifted: {MAX_ACT_SECTIONS}")
+use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS}
 
 // ---- the act's shape, written once ----
 const GRID_W = 3

@@ -8,24 +8,19 @@
 // .emp reaches the table head via `lea BootData(pc)` across the region seam.
 module engine.boot in boot
 
-use engine.vdp.{VDP_DATA, VDP_CTRL, VDP_MODE2_OFF}
+use engine.constants.{VDP_DATA, VDP_CTRL, PSG_PORT}
+use engine.vdp.{VDP_MODE2_OFF}
 use engine.z80_bus.{stop_z80, start_z80}
 
 // The hardware ports below (HW_*, TMSS_REGISTER, YM2612_A0) are bare
-// link-resolved addresses (truth: engine/constants.asm) — EA-position only,
-// so nothing here needs a comptime mirror (the z80_bus Z80_BUS_REQUEST
-// class). VDP_DATA comes from the shared engine.vdp twin because the PSG
-// displacement below needs it at COMPTIME; VDP_CTRL and VDP_MODE2_OFF ride
-// the same import as shared-twin values.
+// link-resolved addresses (truth: engine.constants) — EA-position only, all in
+// the $A1xxxx / $A0xxxx range that forces abs.l regardless of comptime
+// knownness. VDP_DATA / VDP_CTRL / PSG_PORT come from the shared engine.constants
+// twin because the PSG displacement below needs them at COMPTIME.
 
-// PSG data port (truth: engine/constants.asm) — needed at COMPTIME for the
-// PSG displacement off the VDP_DATA base in a3. Module-local until a second
-// .emp consumer earns it a shared-twin slot. PSG_DATA_OFF is the directional
-// derive the displacement slot consumes (the engine.vdp consumer-side
-// derive pattern) — the twin spells the same subtraction inline.
-const PSG_PORT = $C00011
+// PSG_DATA_OFF is the directional derive the PSG displacement slot consumes off
+// the VDP_DATA base in a3 (the engine.vdp consumer-side derive pattern).
 const PSG_DATA_OFF = PSG_PORT - VDP_DATA
-ensure(extern("PSG_PORT") == PSG_PORT, "engine/constants.asm and boot.emp disagree on PSG_PORT — update the mirror")
 
 // vdpReg (engine/macros.asm): VDP register-set command word — $8000 base,
 // register number in the high byte, value in the low byte. The refinements

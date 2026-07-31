@@ -11,4 +11,4 @@ RING_WIDTH              = 16
 COLLECTED_WINDOW_SLOTS  = 4
 COLLECTED_SLOT_SIZE     = 34            ; 1 tag + 1 pad + 16 ring bitmask + 16 killed bitmask — engine layout (matches sonic4 config/constants.asm)
 COLLECTED_PARK_SLOTS    = 4
-COLLECTED_PARK_ENTRY_SIZE = 1+2*COLLECTED_MASK_BYTES ; 33 — id byte + collected + killed masks (COLLECTED_MASK_BYTES is an engine constant, engine/constants.asm)
+COLLECTED_PARK_ENTRY_SIZE = 1+2*COLLECTED_MASK_BYTES ; 33 — id byte + collected + killed masks (COLLECTED_MASK_BYTES is an engine constant from engine.constants, injected as a guarded define)

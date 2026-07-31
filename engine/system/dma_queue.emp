@@ -7,8 +7,8 @@
 module engine.dma_queue in dma_queue
 
 use engine.structs.{DMAEntry}
-use engine.constants.{DMA_CRITICAL_SLOTS, DMA_TOTAL_SLOTS}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg, VDP_CTRL}
+use engine.constants.{DMA_CRITICAL_SLOTS, DMA_TOTAL_SLOTS, VDP_CTRL}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg}
 
 // Derived entry displacements (one-consumer usage detail — file-local per the
 // engine.structs boundary rule). The ENTRY2_* forms address the SECOND entry

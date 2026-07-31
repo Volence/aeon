@@ -2,8 +2,8 @@
 module engine.buffers in buffers
 
 use engine.structs.{DMAEntry, parallax_config}
-use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, PLANE_H_CELLS}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_delta, plane_loc, dma_length, VDP_DATA, VDP_CTRL}
+use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, PLANE_H_CELLS, VDP_DATA, VDP_CTRL}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_delta, plane_loc, dma_length}
 
 // DMA source word addresses for the static entries — the link-time arm of
 // engine.vdp's dma_source derivation ((addr >> 1) & $7FFFFF): the sources are

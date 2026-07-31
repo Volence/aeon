@@ -7,7 +7,7 @@
 
 module engine.camera in camera
 
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, CAM_MAX_Y_STEP}
 use engine.structs.{Act}
 use engine.objects.sst.{Sst}
 
@@ -17,20 +17,18 @@ use engine.objects.sst.{Sst}
 // section size ever changes.
 ensure(SECTION_SIZE_SHIFT > 8 && SECTION_SIZE_SHIFT <= 16, "SECTION_SIZE_SHIFT {SECTION_SIZE_SHIFT} breaks camera's 8+rest split-shift spelling — respell the chains")
 
-const CAM_MAX_X_STEP    = 16        // no extern drift-lock: this file-pair IS the
-                                    // truth (byte-gate-covered), unlike CAM_MAX_Y_STEP
-                                    // whose truth lives in engine/constants.asm.
+const CAM_MAX_X_STEP    = 16        // file-local: this file-pair IS the truth
+                                    // (byte-gate-covered), unlike CAM_MAX_Y_STEP
+                                    // which is owned by engine.constants (`use`d above).
                                     // max horizontal scroll px/frame (classic S2/CD;
                                     // S3K=24, imperceptible at the 6px/f player top
                                     // speed). Caps large player position jumps (e.g.
                                     // springs) so the camera can't outrun
                                     // Section_UpdateColumns.
 
-// ENGINE constant not yet in the shared twin (truth: engine/constants.asm).
-// Mirrored local + drift-locked to keep this port byte-isolated; hoist into
-// the shared engine.constants twin when a 2nd .emp file consumes it.
-const CAM_MAX_Y_STEP    = 16        // max camera Y movement px/frame
-ensure(extern("CAM_MAX_Y_STEP") == CAM_MAX_Y_STEP, "engine/constants.asm and camera.emp disagree on CAM_MAX_Y_STEP — update the twin")
+// CAM_MAX_Y_STEP (max camera Y movement px/frame) comes from the shared
+// engine.constants twin — `use`d above. Its X partner CAM_MAX_X_STEP stays
+// file-local (this file-pair IS its truth, byte-gate-covered).
 
 const CAM_X_DEADZONE_INIT = $10     // Camera_Deadzone_Base seed: the classic 16px
                                     // asymmetric X window (variable at runtime —

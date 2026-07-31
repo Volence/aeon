@@ -20,7 +20,7 @@ module games.sonic4.object_test_state in object_test_state
 
 use engine.objects.sst.{Sst}
 use engine.objects.objdef.{vram_bytes}
-use engine.constants.{NUM_DYNAMIC, NUM_EFFECTS}
+use engine.constants.{NUM_DYNAMIC, NUM_EFFECTS, VDP_HV_COUNTER}
 use engine.vdp.{VDP_MODE2_OFF}
 use engine.types.{VramTile}
 use engine.coords.{pixels_to_coord}
@@ -37,12 +37,9 @@ const STUB_FLOOR_Y = 192
 ensure(extern("STUB_FLOOR_Y") == STUB_FLOOR_Y, "test_player.asm STUB_FLOOR_Y drifted from object_test_state.emp")
 
 // VDP_HV_COUNTER — the VDP V/H beam-position register ($C00008), read as a
-// per-frame cycle proxy in the DEBUG profiling block. A local const mirror (its
-// real home is engine/constants.asm) so the absolute-EA width resolves .l at
-// comptime, matching how engine.vdp holds VDP_CTRL/VDP_DATA. (Hoisting it into
-// engine.vdp alongside its sibling registers is ledgered adoption debt.)
-const VDP_HV_COUNTER = $C00008
-ensure(extern("VDP_HV_COUNTER") == VDP_HV_COUNTER, "engine/constants.asm VDP_HV_COUNTER drifted from object_test_state.emp")
+// per-frame cycle proxy in the DEBUG profiling block. Comes from the shared
+// engine.constants twin (`use`d above); the comptime const value resolves the
+// absolute EA at .l width.
 
 // The ring blob (512 B) that tails the two 128-byte colour squares in TestArt.
 const RingArt = embed("games/sonic4/test/ring_art.bin")

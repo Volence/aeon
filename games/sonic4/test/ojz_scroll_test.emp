@@ -19,8 +19,8 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 
 use engine.objects.objdef.{vram_bytes}
 use engine.structs.{Act, Sec}
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL, VDP_MODE2_OFF, VDP_MODE3_OFF}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{stop_z80, start_z80}
 use engine.types.{VramTile, GridX, GridY}
 use engine.coords.{pixels_to_coord}

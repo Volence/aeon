@@ -2,16 +2,13 @@
 
 module engine.s4lz in s4lz
 
+use engine.constants.{TILE_SIZE}
+
 // The dictionary blob is an opaque word-aligned ROM byte region with no
 // record shape — DictBase is a MARKER type so `a4: *DictBase` documents
 // intent at signatures and call sites (it is not interchangeable with the
 // stream or dest pointers).
 struct DictBase { }
-
-// TILE_SIZE mirrors engine/constants.asm (first .emp consumer — file-local
-// with drift lock; hoists to engine.constants at the 2nd consumer).
-const TILE_SIZE = 32                            // bytes per 8x8 4bpp tile
-ensure(extern("TILE_SIZE") == TILE_SIZE, "engine/constants.asm and s4lz_decompress.emp disagree on TILE_SIZE — update the mirror")
 
 // -----------------------------------------------
 // S4LZ_Decompress — blocking S4LZ v3 stream decompressor

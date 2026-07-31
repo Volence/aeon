@@ -9,12 +9,7 @@
 module engine.collision_lookup in collision_lookup
 
 use engine.constants.{CTYPE_AIR, TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE}
-
-// COLL_* derivatives from the shared engine.constants twin. The extern drift
-// guards live in tile_cache.emp (same invariant, same source) — not duplicated
-// here.
-const TILE_CACHE_COLL_ROWS  = TILE_CACHE_ROWS / 2                         // 30 collision rows
-const TILE_CACHE_COLL_SIZE  = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS      // 2400 bytes per plane
+use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE}
 
 // -----------------------------------------------
 // Collision_GetType — look up collision type for a world-space position.
