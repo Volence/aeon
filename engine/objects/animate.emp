@@ -110,7 +110,9 @@ pub proc AnimateSprite (a0: *Sst) clobbers(d0-d2/a1-a2) {
         bhs     .control_code
     .set_frame:
         move.b  d0, Sst.mapping_frame(a0)
-        jbsr    RefreshSpritePieceCount
+        jbra    RefreshSpritePieceCount     // tail-call — RefreshSpritePieceCount's
+                                            // rts returns to AnimateSprite's caller
+                                            // (.done's rts stays for the bpl .done above)
     .done:
         rts
 
