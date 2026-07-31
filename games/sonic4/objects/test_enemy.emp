@@ -14,9 +14,8 @@ const ENEMY_PATROL_RANGE = 48           // pixels each side from spawn centre
 
 // TEnemyV — patrol counter state, overlaying sst_custom. Single-consumer (only
 // this object reads it) so the overlay is UNGUARDED (row-66 class); the always-on
-// window-overflow check subsumes the AS objvarsCheck. ENEMY_PATROL_SPEED lives in
-// the surviving AS header (internal-gated) — test_objects.emp's objdef drift guard
-// reads it — so it is NOT re-declared here.
+// window-overflow check subsumes the AS objvarsCheck. The patrol x_vel constant
+// ($100) is owned by test_objects.emp (its sole consumer, the ObjDef_Enemy record).
 vars TEnemyV: Sst.sst_custom {
         steps_remaining: u16,           // pixels remaining before turn
         direction: u8,                  // 0 = moving right, 1 = moving left

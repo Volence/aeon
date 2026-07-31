@@ -76,7 +76,11 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     ; (_dplc_ptr/_art_base), so they still resolve. Shape-invariant window; ONE org.
     org     $10C92
     include "games/sonic4/objects/test_player.asm"
-    include "games/sonic4/objects/test_enemy.asm"
+    ; TestEnemy_Init/Main are native (test_enemy.emp), pinned by the sigil map inside
+    ; the object code bank. Shape-invariant window; ONE org both shapes, resuming on
+    ; test_solid's first label TestSolid_Init. AS-side consumers (ObjDef_Enemy's
+    ; objdef x_vel) resolve through the shared link.
+    org     $10F4A
     ; TestSolid_Init/Main + TestParticle/Main are native (test_solid.emp +
     ; test_particle.emp), pinned by the sigil map inside the object code bank. ONE
     ; org serves both shapes while the two banks coincide (the $8000 abs.w/abs.l
