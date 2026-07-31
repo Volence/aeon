@@ -12,14 +12,13 @@
 //
 // C3 (VDP/DMA/timing) surface: setVDPReg mode2/mode3, Level_LoadArt,
 // QueueDMA_Critical, CRAM palette copies, the VBlank-masked marker-tile VRAM copy
-// (ints masked so a mid-copy VBlank cannot retarget the VDP address), the
-// stop_z80/start_z80 bus wraps around Section_UpdateColumns, and the row-35
-// per-frame mode-set-3 force-write (the VDP-command-state reset + the mode-bit
-// derivation).
+// (ints masked so a mid-copy VBlank cannot retarget the VDP address), and the
+// stop_z80/start_z80 bus wraps around Section_UpdateColumns. The per-frame VDP
+// reg $0B (Mode Set 3) re-assert is owned by Parallax_Update (engine-side).
 module games.sonic4.ojz_scroll_test in ojz_scroll_test
 
 use engine.objects.objdef.{vram_bytes}
-use engine.structs.{Act, Sec, parallax_config}
+use engine.structs.{Act, Sec}
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{stop_z80, start_z80}
@@ -281,53 +280,10 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         move.w  d1, Palette_Buffer             // CRAM[0] = backdrop tint — (Palette_Buffer).w
         ori.b   #1, Palette_Dirty             // flag palette line 0 dirty — (Palette_Dirty).w
 
-        // Force VDP mode-set-3 (shadow + reg $0B direct) every frame from the
-        // active config. Re-asserts the mode because Parallax_StartTransition
-        // writes it only on a section-boundary crossing (edge-triggered); its
-        // same-config short-circuit would otherwise leave the register stale
-        // across a transition. During a smooth transition the active config is
-        // Target_Config — the HScroll buffer is built from it, so the register
-        // must match its mode bits. Redundant while every act section shares one
-        // config (the transition never fires) — correct when they do not. The
-        // parallax-hardening parcel (gap-ledger t41) moves this write into
-        // Parallax_Update, after which this block is deleted (kill row 35).
-        tst.b   Parallax_Transition_Frames     // (Parallax_Transition_Frames).w
-        beq     .mode_use_current
-        movea.l Parallax_Target_Config, a0     // (Parallax_Target_Config).w
-        jbra    .mode_have_config
-.mode_use_current:
-        movea.l Parallax_Current_Config, a0    // (Parallax_Current_Config).w
-.mode_have_config:
-        cmpa.w  #0, a0
-        beq     .mode_default
-        moveq   #%10, d0                        // per-cell H baseline
-        move.l  parallax_config.pcfg_deform_table_fg(a0), d1
-        or.l    parallax_config.pcfg_deform_table_bg(a0), d1
-        beq     .mode_h_done
-        moveq   #%11, d0                        // per-line if any H-deform
-.mode_h_done:
-        move.l  parallax_config.pcfg_v_deform_table_bg(a0), d1
-        beq     .mode_set
-        ori.b   #%100, d0                       // bit 2 = per-column V-scroll
-        jbra    .mode_set
-.mode_default:
-        moveq   #%10, d0                        // default per-cell H
-.mode_set:
-        move.b  d0, VDP_Shadow_Table + VDP_MODE3_OFF   // setVDPReg VDP_Shadow_vdp_mode3, d0
-        ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask
-        // Also force VDP register $0B directly with proper Z80-stop wrap. First
-        // read VDP_CTRL to reset the command state machine — otherwise a
-        // half-finished 32-bit address command from upstream code (e.g.
-        // Section_UpdateColumns) would consume our $8B?? as its second word,
-        // corrupting the VDP and leaving reg $0B unchanged.
-        andi.w  #$00FF, d0
-        ori.w   #$8B00, d0                      // d0 = $8B?? = "set reg $0B = ??"
-        stop_z80
-        move.w  VDP_CTRL, d1                   // (VDP_CTRL).l — reset command state machine
-        move.w  d0, VDP_CTRL                   // (VDP_CTRL).l
-        start_z80
-
-        // -- update HScroll buffer + Vscroll (parallax) --
+        // -- update HScroll buffer + Vscroll (parallax). Parallax_Update owns the
+        //    per-frame VDP reg $0B (Mode Set 3) re-assert from the active config
+        //    (shadow + direct hardware write), so the mode stays in lockstep with
+        //    the HScroll/VSRAM buffers it builds here. --
         jbsr    Parallax_Update
         // -- camera-driven BG tile animation (trunk cores) --
         jbsr    BgAnim_Update
