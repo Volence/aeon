@@ -58,11 +58,10 @@ ensure(extern("SOLID_LRB") == SOLID_LRB, "engine/constants.asm SOLID_LRB drifted
 
 // SST_interact ($4E): the tail custom-window word (TouchResponse lifecycle),
 // NOT a Sst struct field. The call-expr displacement escape (collision.emp's
-// interact_off precedent), drift-locked to engine/structs.asm's SST_interact.
+// interact_off precedent). `sizeof(Sst) - 2` = the AS-side SST_interact value.
 comptime fn interact_off() -> int {
         return sizeof(Sst) - 2
 }
-ensure(extern("SST_interact") == interact_off(), "engine/structs.asm SST_interact and player_sensors.emp interact_off() disagree — update both")
 
 // -----------------------------------------------
 // probe_sub — load the probe-axis sub-coordinate (0-15) into pdst

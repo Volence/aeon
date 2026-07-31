@@ -1,21 +1,20 @@
-// Shared engine struct twins — Act (the 34-byte act descriptor), Sec (the
-// 66-byte section descriptor), DMAEntry (the 14-byte DMA-queue entry), and
-// parallax_config (the 28-byte parallax ROM config header).
-// All are TYPE-ONLY twins: this module emits ZERO bytes. It gives every
-// consumer (act_descriptor.emp, section.emp, tile_cache.emp,
-// entity_window.emp, dma_queue.emp) ONE typed home for field access —
+// Shared engine struct definitions — Act (the 34-byte act descriptor), Sec
+// (the 66-byte section descriptor), DMAEntry (the 14-byte DMA-queue entry),
+// parallax_config (the 28-byte parallax ROM config header), and VdpShadow (the
+// 19-byte RAM mirror of VDP registers $00-$12).
+// All are TYPE-ONLY: this module emits ZERO bytes. It gives every consumer
+// (act_descriptor.emp, section.emp, tile_cache.emp, entity_window.emp,
+// dma_queue.emp, vdp_init.emp) ONE typed home for field access —
 // `Sec.sec_bg_layout(a0)`, `DMAEntry.SizeH(a1)`, `offsetof(Act, grid_w)` —
 // instead of per-file offset-const mirrors.
 //
-// engine/structs.asm's structs stay authoritative for the layout
-// until structs.asm itself ports (Spec 5, the twin-scaffolding kill). Two
-// locks hold this side to that side: the auto-computed field offsets are
-// pinned by the per-field `offsetof(S, f) == extern("S_f")` drift wall below
-// (strictly stronger than a sizeof-only guard — it catches a swapped
-// same-size adjacent pair), and the total sizes by the `sizeof == *_len`
-// guards. Field names are VERBATIM from structs.asm (the `sec_`/`act_`
-// stutter included) for cross-seam greppability; renames are a Spec-5
-// decision.
+// This module is the SOLE AUTHOR of these layouts. The residual AS reads the
+// field offsets + total sizes it needs (`ram.asm`'s `ds` slot sizes,
+// `act_descriptor.asm`'s `Sec`/`Act` access) through the struct-offset harvest:
+// the build harvests each struct's `<Struct>_<field>` / `<Struct>_len` and
+// injects them as guarded AS defines, the struct-offset sibling of the constants
+// flip. Field names are VERBATIM the AS spelling (the `sec_`/`act_` stutter
+// included) for cross-seam greppability.
 //
 // BOUNDARY: this module carries LAYOUT and layout-adjacent struct knowledge
 // (offsets, sizes, blessed sub-field views like the grid-dim low bytes) — NOT
@@ -100,61 +99,6 @@ pub struct DMAEntry {
     Command: u32,           // +10 VDP command (destination + DMA trigger)
 }
 
-// ---- total-size guards (structs.asm's `if *_len <> $XX` checks) ----
-ensure(sizeof(Act) == extern("Act_len"), "Act twin drifted from structs.asm: {sizeof(Act)}")
-ensure(sizeof(Sec) == extern("Sec_len"), "Sec twin drifted from structs.asm: {sizeof(Sec)}")
-ensure(sizeof(DMAEntry) == extern("DMAEntry_len"), "DMAEntry twin drifted from structs.asm: {sizeof(DMAEntry)}")
-
-// ---- per-field drift wall (strictly stronger than sizeof) — every named
-// field's offset pinned to its structs.asm-generated `<Struct>_<field>` equ.
-// Act's $21 pad is ANONYMOUS in structs.asm (no equ), covered by sizeof(Act). ----
-ensure(offsetof(Act, sec_grid_ptr)        == extern("Act_sec_grid_ptr"),        "Act.sec_grid_ptr drifted: {offsetof(Act, sec_grid_ptr)}")
-ensure(offsetof(Act, grid_w)              == extern("Act_grid_w"),              "Act.grid_w drifted: {offsetof(Act, grid_w)}")
-ensure(offsetof(Act, grid_h)              == extern("Act_grid_h"),              "Act.grid_h drifted: {offsetof(Act, grid_h)}")
-ensure(offsetof(Act, start_local_x)       == extern("Act_start_local_x"),       "Act.start_local_x drifted: {offsetof(Act, start_local_x)}")
-ensure(offsetof(Act, start_local_y)       == extern("Act_start_local_y"),       "Act.start_local_y drifted: {offsetof(Act, start_local_y)}")
-ensure(offsetof(Act, start_sec_x)         == extern("Act_start_sec_x"),         "Act.start_sec_x drifted: {offsetof(Act, start_sec_x)}")
-ensure(offsetof(Act, start_sec_y)         == extern("Act_start_sec_y"),         "Act.start_sec_y drifted: {offsetof(Act, start_sec_y)}")
-ensure(offsetof(Act, act_bg_layout)       == extern("Act_act_bg_layout"),       "Act.act_bg_layout drifted: {offsetof(Act, act_bg_layout)}")
-ensure(offsetof(Act, act_bg_tiles)        == extern("Act_act_bg_tiles"),        "Act.act_bg_tiles drifted: {offsetof(Act, act_bg_tiles)}")
-ensure(offsetof(Act, act_parallax_config) == extern("Act_act_parallax_config"), "Act.act_parallax_config drifted: {offsetof(Act, act_parallax_config)}")
-ensure(offsetof(Act, act_art_pool_table)  == extern("Act_act_art_pool_table"),  "Act.act_art_pool_table drifted: {offsetof(Act, act_art_pool_table)}")
-ensure(offsetof(Act, act_art_pool_pages)  == extern("Act_act_art_pool_pages"),  "Act.act_art_pool_pages drifted: {offsetof(Act, act_art_pool_pages)}")
-ensure(offsetof(Act, edge_mode)           == extern("Act_edge_mode"),           "Act.edge_mode drifted: {offsetof(Act, edge_mode)}")
-
-ensure(offsetof(Sec, sec_block_index)     == extern("Sec_sec_block_index"),     "Sec.sec_block_index drifted: {offsetof(Sec, sec_block_index)}")
-ensure(offsetof(Sec, sec_objects)         == extern("Sec_sec_objects"),         "Sec.sec_objects drifted: {offsetof(Sec, sec_objects)}")
-ensure(offsetof(Sec, sec_rings)           == extern("Sec_sec_rings"),           "Sec.sec_rings drifted: {offsetof(Sec, sec_rings)}")
-ensure(offsetof(Sec, sec_plc)             == extern("Sec_sec_plc"),             "Sec.sec_plc drifted: {offsetof(Sec, sec_plc)}")
-ensure(offsetof(Sec, sec_pal)             == extern("Sec_sec_pal"),             "Sec.sec_pal drifted: {offsetof(Sec, sec_pal)}")
-ensure(offsetof(Sec, sec_parallax_config) == extern("Sec_sec_parallax_config"), "Sec.sec_parallax_config drifted: {offsetof(Sec, sec_parallax_config)}")
-ensure(offsetof(Sec, sec_raster_table)    == extern("Sec_sec_raster_table"),    "Sec.sec_raster_table drifted: {offsetof(Sec, sec_raster_table)}")
-ensure(offsetof(Sec, sec_bg_layout)       == extern("Sec_sec_bg_layout"),       "Sec.sec_bg_layout drifted: {offsetof(Sec, sec_bg_layout)}")
-ensure(offsetof(Sec, sec_type_table)      == extern("Sec_sec_type_table"),      "Sec.sec_type_table drifted: {offsetof(Sec, sec_type_table)}")
-ensure(offsetof(Sec, sec_pal_cycle)       == extern("Sec_sec_pal_cycle"),       "Sec.sec_pal_cycle drifted: {offsetof(Sec, sec_pal_cycle)}")
-ensure(offsetof(Sec, sec_sound_bank)      == extern("Sec_sec_sound_bank"),      "Sec.sec_sound_bank drifted: {offsetof(Sec, sec_sound_bank)}")
-ensure(offsetof(Sec, sec_block_dict)      == extern("Sec_sec_block_dict"),      "Sec.sec_block_dict drifted: {offsetof(Sec, sec_block_dict)}")
-ensure(offsetof(Sec, sec_anim_blocks)     == extern("Sec_sec_anim_blocks"),     "Sec.sec_anim_blocks drifted: {offsetof(Sec, sec_anim_blocks)}")
-ensure(offsetof(Sec, sec_collision_s4lz)  == extern("Sec_sec_collision_s4lz"),  "Sec.sec_collision_s4lz drifted: {offsetof(Sec, sec_collision_s4lz)}")
-ensure(offsetof(Sec, sec_flags)           == extern("Sec_sec_flags"),           "Sec.sec_flags drifted: {offsetof(Sec, sec_flags)}")
-ensure(offsetof(Sec, sec_music)           == extern("Sec_sec_music"),           "Sec.sec_music drifted: {offsetof(Sec, sec_music)}")
-ensure(offsetof(Sec, sec_pcfg_pad_3C)     == extern("Sec_sec_pcfg_pad_3C"),     "Sec.sec_pcfg_pad_3C drifted: {offsetof(Sec, sec_pcfg_pad_3C)}")
-ensure(offsetof(Sec, sec_camera_lookahead) == extern("Sec_sec_camera_lookahead"), "Sec.sec_camera_lookahead drifted: {offsetof(Sec, sec_camera_lookahead)}")
-ensure(offsetof(Sec, sec_pcfg_pad_3E)     == extern("Sec_sec_pcfg_pad_3E"),     "Sec.sec_pcfg_pad_3E drifted: {offsetof(Sec, sec_pcfg_pad_3E)}")
-ensure(offsetof(Sec, sec_pcfg_pad_3F)     == extern("Sec_sec_pcfg_pad_3F"),     "Sec.sec_pcfg_pad_3F drifted: {offsetof(Sec, sec_pcfg_pad_3F)}")
-ensure(offsetof(Sec, sec_block_dict_len)  == extern("Sec_sec_block_dict_len"),  "Sec.sec_block_dict_len drifted: {offsetof(Sec, sec_block_dict_len)}")
-ensure(offsetof(DMAEntry, Reg94)   == extern("DMAEntry_Reg94"),   "DMAEntry.Reg94 drifted: {offsetof(DMAEntry, Reg94)}")
-ensure(offsetof(DMAEntry, SizeH)   == extern("DMAEntry_SizeH"),   "DMAEntry.SizeH drifted: {offsetof(DMAEntry, SizeH)}")
-ensure(offsetof(DMAEntry, Reg93)   == extern("DMAEntry_Reg93"),   "DMAEntry.Reg93 drifted: {offsetof(DMAEntry, Reg93)}")
-ensure(offsetof(DMAEntry, SizeL)   == extern("DMAEntry_SizeL"),   "DMAEntry.SizeL drifted: {offsetof(DMAEntry, SizeL)}")
-ensure(offsetof(DMAEntry, Reg97)   == extern("DMAEntry_Reg97"),   "DMAEntry.Reg97 drifted: {offsetof(DMAEntry, Reg97)}")
-ensure(offsetof(DMAEntry, SrcH)    == extern("DMAEntry_SrcH"),    "DMAEntry.SrcH drifted: {offsetof(DMAEntry, SrcH)}")
-ensure(offsetof(DMAEntry, Reg96)   == extern("DMAEntry_Reg96"),   "DMAEntry.Reg96 drifted: {offsetof(DMAEntry, Reg96)}")
-ensure(offsetof(DMAEntry, SrcM)    == extern("DMAEntry_SrcM"),    "DMAEntry.SrcM drifted: {offsetof(DMAEntry, SrcM)}")
-ensure(offsetof(DMAEntry, Reg95)   == extern("DMAEntry_Reg95"),   "DMAEntry.Reg95 drifted: {offsetof(DMAEntry, Reg95)}")
-ensure(offsetof(DMAEntry, SrcL)    == extern("DMAEntry_SrcL"),    "DMAEntry.SrcL drifted: {offsetof(DMAEntry, SrcL)}")
-ensure(offsetof(DMAEntry, Command) == extern("DMAEntry_Command"), "DMAEntry.Command drifted: {offsetof(DMAEntry, Command)}")
-
 // -----------------------------------------------
 // Parallax config (§4.6) — 28-byte header + N × band_entry inline, ROM data.
 // Pointed-to by Sec.sec_parallax_config; one config per section (or shared).
@@ -181,17 +125,30 @@ pub struct parallax_config {
     pcfg_pad2:              [u8; 2],
 }
 
-ensure(sizeof(parallax_config) == extern("parallax_config_len"), "parallax_config twin drifted from structs.asm: {sizeof(parallax_config)}")
-ensure(offsetof(parallax_config, pcfg_band_count) == extern("parallax_config_pcfg_band_count"), "parallax_config.pcfg_band_count drifted: {offsetof(parallax_config, pcfg_band_count)}")
-ensure(offsetof(parallax_config, pcfg_v_factor_bg) == extern("parallax_config_pcfg_v_factor_bg"), "parallax_config.pcfg_v_factor_bg drifted: {offsetof(parallax_config, pcfg_v_factor_bg)}")
-ensure(offsetof(parallax_config, pcfg_layer_mask) == extern("parallax_config_pcfg_layer_mask"), "parallax_config.pcfg_layer_mask drifted: {offsetof(parallax_config, pcfg_layer_mask)}")
-ensure(offsetof(parallax_config, pcfg_v_center_y) == extern("parallax_config_pcfg_v_center_y"), "parallax_config.pcfg_v_center_y drifted: {offsetof(parallax_config, pcfg_v_center_y)}")
-ensure(offsetof(parallax_config, pcfg_v_offset) == extern("parallax_config_pcfg_v_offset"), "parallax_config.pcfg_v_offset drifted: {offsetof(parallax_config, pcfg_v_offset)}")
-ensure(offsetof(parallax_config, pcfg_transition) == extern("parallax_config_pcfg_transition"), "parallax_config.pcfg_transition drifted: {offsetof(parallax_config, pcfg_transition)}")
-ensure(offsetof(parallax_config, pcfg_deform_speed_fg) == extern("parallax_config_pcfg_deform_speed_fg"), "parallax_config.pcfg_deform_speed_fg drifted: {offsetof(parallax_config, pcfg_deform_speed_fg)}")
-ensure(offsetof(parallax_config, pcfg_deform_speed_bg) == extern("parallax_config_pcfg_deform_speed_bg"), "parallax_config.pcfg_deform_speed_bg drifted: {offsetof(parallax_config, pcfg_deform_speed_bg)}")
-ensure(offsetof(parallax_config, pcfg_deform_table_fg) == extern("parallax_config_pcfg_deform_table_fg"), "parallax_config.pcfg_deform_table_fg drifted: {offsetof(parallax_config, pcfg_deform_table_fg)}")
-ensure(offsetof(parallax_config, pcfg_deform_table_bg) == extern("parallax_config_pcfg_deform_table_bg"), "parallax_config.pcfg_deform_table_bg drifted: {offsetof(parallax_config, pcfg_deform_table_bg)}")
-ensure(offsetof(parallax_config, pcfg_v_deform_table_bg) == extern("parallax_config_pcfg_v_deform_table_bg"), "parallax_config.pcfg_v_deform_table_bg drifted: {offsetof(parallax_config, pcfg_v_deform_table_bg)}")
-ensure(offsetof(parallax_config, pcfg_v_deform_speed_bg) == extern("parallax_config_pcfg_v_deform_speed_bg"), "parallax_config.pcfg_v_deform_speed_bg drifted: {offsetof(parallax_config, pcfg_v_deform_speed_bg)}")
-ensure(offsetof(parallax_config, pcfg_v_deform_shift_bg) == extern("parallax_config_pcfg_v_deform_shift_bg"), "parallax_config.pcfg_v_deform_shift_bg drifted: {offsetof(parallax_config, pcfg_v_deform_shift_bg)}")
+// -----------------------------------------------
+// VDP Shadow Table (§0.4) — 19 bytes, RAM mirror of VDP registers $00-$12.
+// Registers $13-$17 (DMA) are NOT shadowed. VDP_Shadow_Init copies boot
+// register values in; Flush_VDP_Shadow write-backs only the dirty ones. The
+// convenience offsets engine.vdp exposes (VDP_MODE1_OFF/…) pin to this layout.
+// -----------------------------------------------
+pub struct VdpShadow {
+    vdp_mode1:       u8,   // reg $00
+    vdp_mode2:       u8,   // reg $01
+    vdp_plane_a:     u8,   // reg $02
+    vdp_window:      u8,   // reg $03
+    vdp_plane_b:     u8,   // reg $04
+    vdp_sprite:      u8,   // reg $05
+    vdp_sprite_gen:  u8,   // reg $06
+    vdp_bgcolor:     u8,   // reg $07
+    vdp_unused08:    u8,   // reg $08
+    vdp_unused09:    u8,   // reg $09
+    vdp_hint_rate:   u8,   // reg $0A
+    vdp_mode3:       u8,   // reg $0B
+    vdp_mode4:       u8,   // reg $0C
+    vdp_hscroll:     u8,   // reg $0D
+    vdp_nametable_gen: u8, // reg $0E
+    vdp_increment:   u8,   // reg $0F
+    vdp_plane_size:  u8,   // reg $10
+    vdp_window_h:    u8,   // reg $11
+    vdp_window_v:    u8,   // reg $12
+}
