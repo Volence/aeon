@@ -463,14 +463,27 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) {
         jbra    .next
 
     .col_entry:
-        // -- COL entry: autoincrement $80, word drain --
+        // -- COL entry: autoincrement $80, longword drain (one move.l = two
+        //    word writes, each autoincremented $80) + an EXACT odd-word tail —
+        //    an extra word past row 63 would land at $E000 (Plane B). a0 is
+        //    word-aligned (even buffer base, 4-byte headers, word data), which
+        //    is all move.l needs. --
         move.w  #$8F80, (a5)
-        andi.w  #$7FFF, d1                         // strip PLANE_ENTRY_COL_FLAG (bit 15) → bare word count
+        andi.w  #$7FFF, d1                         // strip PLANE_ENTRY_COL_FLAG (bit 15) → count-1
         vdp_comm_reg(d0, VdpTarget.Vram, VdpOp.Write, clr: false)
         move.l  d0, (a5)
+        addq.w  #1, d1                             // bare word count
+        move.w  d1, d0                             // save for the odd tail (command already written)
+        lsr.w   #1, d1                             // longword pairs
+        beq     .dc_tail                           // single-word entry
+        subq.w  #1, d1
     .drain_col:
-        move.w  (a0)+, (a6)
+        move.l  (a0)+, (a6)
         dbf     d1, .drain_col
+    .dc_tail:
+        btst    #0, d0
+        beq     .next
+        move.w  (a0)+, (a6)
         jbra    .next
 
     .done:
