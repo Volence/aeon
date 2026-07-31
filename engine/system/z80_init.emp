@@ -26,6 +26,14 @@
 
 module engine.z80_init (cpu: z80)
 
+// OQ-D size mirror: boot_data.asm folds Z80_IDLE_SIZE numerically ($3FE-$3D8 = 38) —
+// its assemble-time cursor protocol cannot fold this cross-seam idle size off the
+// link-external Z80_IdleProgram base (the row-52 wall). This module OWNS the idle
+// body, so it self-asserts that the numeric mirror equals the 38 bytes it fills
+// (0x3d8..0x3fe); the whole-ROM assembled-anchor gate independently checks the body
+// actually spans that region. A drift on either side fires here or there.
+ensure(extern("Z80_IDLE_SIZE") == 38, "boot_data.asm Z80_IDLE_SIZE mirror drifted from z80_init.emp's 38-byte idle body")
+
 section z80_idle (cpu: z80, vma: $0) {
     // No register contract: Z80 contract checking is a rung-2 class (the 68k
     // clobber closure has no Z80 model, so `(cpu: z80)` modules are skipped),
