@@ -251,8 +251,10 @@ ess_origin_x         ds.w 1      ; $10 — section's engine-space X origin
 ess_section_id       ds.b 1      ; $12 — section grid index (sec_y * grid_w + sec_x)
 ess_entry_idx        ds.b 1      ; $13 — this entry's index (0-3) — loaded-mask base derives from it
 ess_origin_y         ds.w 1      ; $14 — section's engine-space Y origin (§4.9 phase 2)
+ess_ring_next_x      ds.w 1      ; $16 — engine-X of the next ring entering from the right ($FFFF = none)
+ess_obj_next_x       ds.w 1      ; $18 — engine-X of the next object entering from the right ($FFFF = none)
 EntityScanState endstruct
 
-    if EntityScanState_len <> $16
-      error "EntityScanState struct is \{EntityScanState_len} bytes, expected $16"
+    if EntityScanState_len <> $1A
+      error "EntityScanState struct is \{EntityScanState_len} bytes, expected $1A"
     endif
