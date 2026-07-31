@@ -25,16 +25,10 @@ module games.sonic4.game_debug in game_debug
 // value flowing into each typed slot.
 use engine.types.{SongId, SfxId}
 
-// BUTTON_UP/C/A are engine constants — imported from their sole author now that
-// engine.constants is the definition (the P5 ownership flip). BUTTON_B/START are
-// still AS-retained in engine/constants.asm (not yet emp-owned), so they stay
-// local, each drift-guarded against the .asm truth (the sfx_bank mirror
-// pattern). LEDGER: B/START collapse into a `use` when they flip too (row 54).
-use engine.constants.{BUTTON_UP, BUTTON_C, BUTTON_A}
-const BUTTON_B     = 1 << 4          // $10
-const BUTTON_START = 1 << 7          // $80
-ensure(extern("BUTTON_B") == BUTTON_B, "BUTTON_B drifted from engine/constants.asm: {BUTTON_B}")
-ensure(extern("BUTTON_START") == BUTTON_START, "BUTTON_START drifted from engine/constants.asm: {BUTTON_START}")
+// The controller button masks are engine constants — imported from their sole
+// author, engine.constants (the ownership flip; BUTTON_B/START joined at the
+// conv-b constants-tail flip).
+use engine.constants.{BUTTON_UP, BUTTON_C, BUTTON_A, BUTTON_B, BUTTON_START}
 
 // Song ids (games/sonic4/config/sound_ids.asm).
 const SONG_MOVINGTRUCKS = 1

@@ -8,62 +8,20 @@ module engine.tile_cache in tile_cache
 
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
+use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COLL_PLANES, TILE_CACHE_MARGIN_H, TILE_CACHE_MARGIN_V}
+use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
+use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
 
 // S4LZ_DecompressDict is .emp-owned (engine.s4lz) and resolves at link — no
 // decl; its contract (a4=dict base, d4.w=dict len preserved, clobbers
 // d0-d3/a0/a2-a4, out a1) travels with the proc itself.
 
-// ---- ENGINE constants. TILE_CACHE_COLS/ROWS/STRIDE/NT_SIZE now come from the
-// shared engine.constants twin (consolidated at the shared-struct-module batch —
-// section + tile_cache were both mirroring them, the 2nd-consumer trigger). The
-// COLL_*/BLOCK_* derivatives below stay file-local (single consumer, tile_cache-
-// specific), drift-locked against engine/constants.asm. ----
-const TILE_CACHE_COLL_ROWS  = TILE_CACHE_ROWS / 2                         // 30 collision rows
-const TILE_CACHE_COLL_SIZE  = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS      // 2400 bytes per plane
-const TILE_CACHE_COLL_PLANES = 2                                         // path A + path B
-const TILE_CACHE_MARGIN_H   = 20
-const TILE_CACHE_MARGIN_V   = 16
-
-const BLOCK_TILE_SIZE       = 16
-const BLOCK_TILE_SHIFT      = 4
-const BLOCK_NT_SIZE         = BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2       // 512 bytes
-const BLOCK_COLL_ROWS       = BLOCK_TILE_SIZE / 2                         // 8
-const BLOCK_COLL_COLS       = BLOCK_TILE_SIZE                             // 16
-const BLOCK_COLL_PLANE_SIZE = BLOCK_COLL_COLS * BLOCK_COLL_ROWS           // 128 bytes per plane
-const BLOCK_COLL_SIZE       = BLOCK_COLL_PLANE_SIZE * TILE_CACHE_COLL_PLANES  // 256 bytes (A+B)
-const BLOCK_RAW_SIZE        = BLOCK_NT_SIZE + BLOCK_COLL_SIZE             // 768 bytes
-const BLOCK_STAGE_SLOTS     = 16
-const BLOCK_DECOMP_BUDGET   = 6
-const BLOCK_INDEX_SIZE      = 1024                                        // 256 entries × 4 (ROM)
-const VFILL_ROWS_PER_FRAME  = 2
-const H_PFX_HYST             = 16
+// The COLL_* / BLOCK_* tile-cache geometry (derived from TILE_CACHE_ROWS/COLS +
+// BLOCK_TILE_SIZE) now lives in the shared engine.constants twin — `use`d above.
 
 // ---- Sec / Act field access comes from the shared engine.structs module
 // (`Sec.field(aN)` / `Act.field(aN)`, the grid-dim low-byte views via
 // Act_grid_w_lo / Act_grid_h_lo) — the file-local offset-const mirrors are gone. ----
-
-// ---- Drift guards — engine/constants.asm + engine/structs.asm are the source
-// of truth; each compares this twin's value against the real AS-side equ through
-// the link seam. A mismatch fails the link naming the constant. ----
-// (TILE_CACHE_COLS/ROWS/STRIDE/NT_SIZE drift guards now live centrally in engine.constants.)
-ensure(extern("TILE_CACHE_COLL_ROWS") == TILE_CACHE_COLL_ROWS, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLL_ROWS — update the twin")
-ensure(extern("TILE_CACHE_COLL_SIZE") == TILE_CACHE_COLL_SIZE, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLL_SIZE — update the twin")
-ensure(extern("TILE_CACHE_COLL_PLANES") == TILE_CACHE_COLL_PLANES, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_COLL_PLANES — update the twin")
-ensure(extern("TILE_CACHE_MARGIN_H") == TILE_CACHE_MARGIN_H, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_MARGIN_H — update the twin")
-ensure(extern("TILE_CACHE_MARGIN_V") == TILE_CACHE_MARGIN_V, "engine/constants.asm and tile_cache.emp disagree on TILE_CACHE_MARGIN_V — update the twin")
-ensure(extern("BLOCK_TILE_SIZE") == BLOCK_TILE_SIZE, "engine/constants.asm and tile_cache.emp disagree on BLOCK_TILE_SIZE — update the twin")
-ensure(extern("BLOCK_TILE_SHIFT") == BLOCK_TILE_SHIFT, "engine/constants.asm and tile_cache.emp disagree on BLOCK_TILE_SHIFT — update the twin")
-ensure(extern("BLOCK_NT_SIZE") == BLOCK_NT_SIZE, "engine/constants.asm and tile_cache.emp disagree on BLOCK_NT_SIZE — update the twin")
-ensure(extern("BLOCK_COLL_ROWS") == BLOCK_COLL_ROWS, "engine/constants.asm and tile_cache.emp disagree on BLOCK_COLL_ROWS — update the twin")
-ensure(extern("BLOCK_COLL_COLS") == BLOCK_COLL_COLS, "engine/constants.asm and tile_cache.emp disagree on BLOCK_COLL_COLS — update the twin")
-ensure(extern("BLOCK_COLL_PLANE_SIZE") == BLOCK_COLL_PLANE_SIZE, "engine/constants.asm and tile_cache.emp disagree on BLOCK_COLL_PLANE_SIZE — update the twin")
-ensure(extern("BLOCK_COLL_SIZE") == BLOCK_COLL_SIZE, "engine/constants.asm and tile_cache.emp disagree on BLOCK_COLL_SIZE — update the twin")
-ensure(extern("BLOCK_RAW_SIZE") == BLOCK_RAW_SIZE, "engine/constants.asm and tile_cache.emp disagree on BLOCK_RAW_SIZE — update the twin")
-ensure(extern("BLOCK_STAGE_SLOTS") == BLOCK_STAGE_SLOTS, "engine/constants.asm and tile_cache.emp disagree on BLOCK_STAGE_SLOTS — update the twin")
-ensure(extern("BLOCK_DECOMP_BUDGET") == BLOCK_DECOMP_BUDGET, "engine/constants.asm and tile_cache.emp disagree on BLOCK_DECOMP_BUDGET — update the twin")
-ensure(extern("BLOCK_INDEX_SIZE") == BLOCK_INDEX_SIZE, "engine/constants.asm and tile_cache.emp disagree on BLOCK_INDEX_SIZE — update the twin")
-ensure(extern("VFILL_ROWS_PER_FRAME") == VFILL_ROWS_PER_FRAME, "engine/constants.asm and tile_cache.emp disagree on VFILL_ROWS_PER_FRAME — update the twin")
-ensure(extern("H_PFX_HYST") == H_PFX_HYST, "engine/constants.asm and tile_cache.emp disagree on H_PFX_HYST — update the twin")
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
 // The ×66 Sec stride (lsl #6 + lsl #1) in TileCache_DecompressBlock assumes the
 // Sec struct is 66 bytes — the AS twin's `if Sec_len <> 66 / error` guard.

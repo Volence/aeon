@@ -12,6 +12,10 @@ module engine.objects.entity_window in entity_window
 
 use engine.constants.{SLOT_TAG_UNTAGGED, SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.constants.{SECTION_SIZE, SECTION_SIZE_SHIFT, SEC_VOID}
+use engine.constants.{MAX_TRACKED_SECTIONS, MAX_LIST_ENTRIES, ENTITY_LOAD_BUFFER, ENTITY_DESPAWN_BUFFER}
+use engine.constants.{ENTITY_LOAD_BUFFER_Y, ENTITY_DESPAWN_BUFFER_Y, ENTITY_LOADED_SLOT_SIZE, ENTITY_LOADED_OBJ_OFFSET}
+use engine.constants.{ENTITY_RESCAN_COARSE_MASK, ENTITY_RESCAN_ROW_SIZE, COLLECTED_BITMASK_OFFSET, KILLED_BITMASK_OFFSET}
+use engine.constants.{COLLECTED_EMPTY_TAG, COLLECTED_MASK_BYTES, OEF_TYPE_SHIFT, OEF_TYPE_MASK, OBJ_ENTRY_SIZE}
 use engine.objects.sst.{Sst}
 use engine.structs.{Sec, Act_grid_w_lo}
 use engine.coords.{abs_w}
@@ -25,29 +29,7 @@ use engine.coords.{abs_w}
 // carries the same values), so they stay engine consts, ensure-guarded.
 const COLLECTED_SLOT_SIZE       = 34
 const COLLECTED_PARK_SLOTS      = 4
-
-// ENGINE constants not yet in constants.emp (truth: engine/constants.asm).
-// Mirrored locally to keep this port byte-isolated; step-4 candidate to hoist
-// the rest as their 2nd consumer appears (SECTION_SIZE/_SHIFT/SEC_VOID
-// consolidated into constants.emp at the tranche-15 section.emp port — `use`d
-// above).
-const MAX_TRACKED_SECTIONS      = 4
-const MAX_LIST_ENTRIES          = 128
-const ENTITY_LOAD_BUFFER        = $180
-const ENTITY_DESPAWN_BUFFER     = $200
-const ENTITY_LOAD_BUFFER_Y      = $100
-const ENTITY_DESPAWN_BUFFER_Y   = $180
-const ENTITY_LOADED_SLOT_SIZE   = 32
-const ENTITY_LOADED_OBJ_OFFSET  = 16
-const ENTITY_RESCAN_COARSE_MASK = $FF80
-const COLLECTED_BITMASK_OFFSET  = 2
-const KILLED_BITMASK_OFFSET     = 18
-const COLLECTED_EMPTY_TAG       = $FF
-const COLLECTED_MASK_BYTES      = KILLED_BITMASK_OFFSET - COLLECTED_BITMASK_OFFSET
 const COLLECTED_PARK_ENTRY_SIZE = 1 + 2*COLLECTED_MASK_BYTES
-const OEF_TYPE_SHIFT            = 8
-const OEF_TYPE_MASK             = $1F
-const OBJ_ENTRY_SIZE            = 6
 const RING_BUFFER_ENTRY_SIZE    = 6
 
 // EntityScanState — one scan-state record per tracked section (4 entries in
@@ -82,28 +64,21 @@ ensure(extern("COLLECTED_WINDOW_SLOTS") == COLLECTED_WINDOW_SLOTS, "the game's c
 ensure(extern("COLLECTED_SLOT_SIZE") == COLLECTED_SLOT_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_SLOT_SIZE — update both")
 ensure(extern("COLLECTED_PARK_SLOTS") == COLLECTED_PARK_SLOTS, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_PARK_SLOTS — update both")
 ensure(extern("COLLECTED_PARK_ENTRY_SIZE") == COLLECTED_PARK_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_PARK_ENTRY_SIZE — update both")
-ensure(extern("MAX_TRACKED_SECTIONS") == MAX_TRACKED_SECTIONS, "engine/constants.asm and entity_window.emp disagree on MAX_TRACKED_SECTIONS — update both")
-ensure(extern("MAX_LIST_ENTRIES") == MAX_LIST_ENTRIES, "engine/constants.asm and entity_window.emp disagree on MAX_LIST_ENTRIES — update both")
-ensure(extern("ENTITY_LOAD_BUFFER") == ENTITY_LOAD_BUFFER, "engine/constants.asm and entity_window.emp disagree on ENTITY_LOAD_BUFFER — update both")
-ensure(extern("ENTITY_DESPAWN_BUFFER") == ENTITY_DESPAWN_BUFFER, "engine/constants.asm and entity_window.emp disagree on ENTITY_DESPAWN_BUFFER — update both")
-ensure(extern("ENTITY_LOAD_BUFFER_Y") == ENTITY_LOAD_BUFFER_Y, "engine/constants.asm and entity_window.emp disagree on ENTITY_LOAD_BUFFER_Y — update both")
-ensure(extern("ENTITY_DESPAWN_BUFFER_Y") == ENTITY_DESPAWN_BUFFER_Y, "engine/constants.asm and entity_window.emp disagree on ENTITY_DESPAWN_BUFFER_Y — update both")
-ensure(extern("ENTITY_LOADED_SLOT_SIZE") == ENTITY_LOADED_SLOT_SIZE, "engine/constants.asm and entity_window.emp disagree on ENTITY_LOADED_SLOT_SIZE — update both")
-ensure(extern("ENTITY_LOADED_OBJ_OFFSET") == ENTITY_LOADED_OBJ_OFFSET, "engine/constants.asm and entity_window.emp disagree on ENTITY_LOADED_OBJ_OFFSET — update both")
-ensure(extern("ENTITY_RESCAN_COARSE_MASK") == ENTITY_RESCAN_COARSE_MASK, "engine/constants.asm and entity_window.emp disagree on ENTITY_RESCAN_COARSE_MASK — update both")
-ensure(extern("COLLECTED_BITMASK_OFFSET") == COLLECTED_BITMASK_OFFSET, "engine/constants.asm and entity_window.emp disagree on COLLECTED_BITMASK_OFFSET — update both")
-ensure(extern("KILLED_BITMASK_OFFSET") == KILLED_BITMASK_OFFSET, "engine/constants.asm and entity_window.emp disagree on KILLED_BITMASK_OFFSET — update both")
-ensure(extern("COLLECTED_EMPTY_TAG") == COLLECTED_EMPTY_TAG, "engine/constants.asm and entity_window.emp disagree on COLLECTED_EMPTY_TAG — update both")
-ensure(extern("COLLECTED_MASK_BYTES") == COLLECTED_MASK_BYTES, "engine/constants.asm and entity_window.emp disagree on COLLECTED_MASK_BYTES — update both")
-ensure(extern("OEF_TYPE_SHIFT") == OEF_TYPE_SHIFT, "engine/constants.asm and entity_window.emp disagree on OEF_TYPE_SHIFT — update both")
-ensure(extern("OEF_TYPE_MASK") == OEF_TYPE_MASK, "engine/constants.asm and entity_window.emp disagree on OEF_TYPE_MASK — update both")
-ensure(extern("OBJ_ENTRY_SIZE") == OBJ_ENTRY_SIZE, "engine/constants.asm and entity_window.emp disagree on OBJ_ENTRY_SIZE — update both")
 ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
 // (Act/Sec field access comes from engine.structs, the sole layout author.)
 
 // Loaded-mask geometry static asserts (AS `if <> / error` → ensure).
 ensure(ENTITY_LOADED_SLOT_SIZE == 32, "EntityLoaded primitives assume 32-byte slots (lsl #5)")
 ensure(ENTITY_LOADED_OBJ_OFFSET*8 == MAX_LIST_ENTRIES, "Loaded-mask half-slot does not cover MAX_LIST_ENTRIES bits")
+
+// Section-size power-of-two invariant (SECTION_SIZE_SHIFT = log2 SECTION_SIZE).
+ensure(SECTION_SIZE == 1 << SECTION_SIZE_SHIFT, "SECTION_SIZE_SHIFT out of sync with SECTION_SIZE")
+
+// Load-bearing Y-band invariants (Y despawn / re-scan): the despawn hysteresis
+// and the load buffer must each cover a full 128px coarse row, or band-edge
+// entities churn / fast vertical travel skips a row between re-scans.
+ensure((ENTITY_DESPAWN_BUFFER_Y - ENTITY_LOAD_BUFFER_Y) >= ENTITY_RESCAN_ROW_SIZE, "Y despawn hysteresis < coarse row size — band-edge entities will churn")
+ensure(ENTITY_LOAD_BUFFER_Y >= ENTITY_RESCAN_ROW_SIZE, "ENTITY_LOAD_BUFFER_Y < coarse row size — vertical re-scan can skip entities")
 
 // clear_slot_bitmasks — zero a collected-window slot's pad byte + both 16-byte
 // bitmasks (ring collected + object killed); a0 = slot pointer, preserved.
@@ -656,7 +631,7 @@ proc EntityWindow_InitSection () clobbers(d3, a2) {
 // The tracked 2×2 = the sections overlapped by the camera's DESPAWN envelope
 // (the widest band), so any live windowed entity's section is always tracked.
 // Envelope spans < SECTION_SIZE on both axes → always exactly 2 cols × 2 rows
-// (screen+2×buffer < SECTION_SIZE on both axes — see constants.asm).
+// (screen+2×buffer < SECTION_SIZE on both axes — see engine.constants).
 //
 // Continuous-scroll: Camera_X/Y are WORLD px, so the anchor section is derived
 // straight from the world camera.

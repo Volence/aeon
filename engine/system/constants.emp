@@ -51,14 +51,17 @@ pub const RF_PRIORITY_SHIFT = 5       // bits 5-7 = sprite priority band (0-7)
 pub const RF_PRIORITY_MASK = $E0      // the band bits themselves — a runtime band change
                                       // must clear these before or-ing the new band in
 
-// Animation script commands + interpreter inputs (mirror engine/constants.asm
-// — the AF_* AS truth re-homed there at the animate port so script DATA files
-// survive the SIGIL_EMP_ANIMATE gate; kill-list row 2, dies at row 1's flip).
-// Consumed values only: AF_CHANGE/ROUTINE/CALLBACK/SOUND/COLLISION have no
-// .emp consumer yet and stay unmirrored.
+// Animation script control codes ($F7-$FF) + interpreter inputs. Script DATA
+// files (anim twins, test objects) read these in both build shapes; the AS
+// spelling is injected from here for the residual side.
 pub const AF_END       = $FF          // loop: restart from first frame
 pub const AF_BACK      = $FE          // jump back N: next byte = rewind count
+pub const AF_CHANGE    = $FD          // switch animation: next byte = new anim ID
+pub const AF_ROUTINE   = $FC          // increment routine counter (SST_custom byte 0) by 2
 pub const AF_DELETE    = $FB          // auto-despawn command
+pub const AF_CALLBACK  = $FA          // call routine: dc.b $FA, target_hi, target_lo, 0
+pub const AF_SOUND     = $F9          // play sound effect: dc.b $F9, sound_id
+pub const AF_COLLISION = $F8          // set collision type: dc.b $F8, collision_type
 pub const AF_SET_FIELD = $F7          // lowest control code — the $F7+ dispatch threshold
 pub const DUR_DYNAMIC  = $FF          // duration sentinel: hold comes from caller's d3
 pub const OBJ_CODE_BANK = 1           // objroutine bank hi-word (moveq/swap → $00010000)
@@ -82,19 +85,32 @@ pub const CULL_DISTANCE_X = $300      // 768px — skip dynamic objects beyond t
 pub const CULL_DISTANCE_Y = $200      // 512px
 pub const SLOT_TAG_UNTAGGED = $FF     // AllocDynamic tags a fresh slot untagged
 
-// Collision response types (mirrors engine/constants.asm). Only the
-// dispatch ceiling is mirrored — the rest of the type family stays
-// AS-owned until a consumer needs it at comptime.
-pub const COLLISION_NONE  = 0
-pub const COLLISION_TOUCH = 12
+// Collision response types — the full TouchResponse dispatch family (index
+// into the branch table; COLLISION_NONE = air, COLLISION_TOUCH = dispatch
+// ceiling).
+pub const COLLISION_NONE        = 0
+pub const COLLISION_ENEMY       = 1
+pub const COLLISION_BOSS        = 2
+pub const COLLISION_HURT        = 3
+pub const COLLISION_MONITOR     = 4
+pub const COLLISION_RING        = 5
+pub const COLLISION_BUBBLE      = 6
+pub const COLLISION_PROJECTILE  = 7
+pub const COLLISION_SOLID       = 8
+pub const COLLISION_SOLID_BREAK = 9
+pub const COLLISION_SPRING      = 10
+pub const COLLISION_SOLID_HURT  = 11
+pub const COLLISION_TOUCH       = 12
 
-// status byte bits — SST_status (mirrors engine/constants.asm).
-// Player interpretation:
-pub const ST_XFLIP       = 1          // 1 = facing left (horizontal flip)
+// status byte bits — SST_status. Player interpretation. Bits 1-2 align with
+// RF_XFLIP/RF_YFLIP for direct propagation.
+pub const ST_XFLIP       = 1          // 1 = facing left (horizontal flip); = RF_XFLIP
+pub const ST_YFLIP       = 2          // = RF_YFLIP — vertical flip
 pub const ST_IN_AIR      = 3          // 1 = airborne (jumped or falling)
 pub const ST_ROLLING     = 4          // 1 = rolled up (ball)
 pub const ST_ON_OBJECT   = 5          // 1 = standing on a solid object
 pub const ST_PUSHING     = 6          // 1 = pushing against a wall
+pub const ST_UNDERWATER  = 7          // 1 = submerged
 
 // Player + ball collision radii and the curl y-shift (mirror engine/constants.asm
 // — player = the 1st .emp consumer of the engine physics block; hoisted here
@@ -133,6 +149,8 @@ pub const PHYS_ROLL_START_MIN   = $100   // min |gsp| to start a roll
 pub const PHYS_JUMP_HEADROOM    = 6      // clearance needed to jump
 pub const PHYS_GSP_CAP          = $1000  // ground-speed cap
 pub const PHYS_ROLL_DECEL       = $20    // roll brake decel
+pub const PHYS_ROLL_FRICTION    = $6     // rolling friction (half PHYS_FRICTION)
+pub const PHYS_ROLL_FORCE_MIN   = $200   // min |gsp| below which a roll cannot start on flat ground
 pub const PHYS_UNROLL_MAX       = $80    // max |gsp| to unroll
 pub const PHYS_KEEP_ROLL_MIN    = $400   // min |gsp| to keep rolling
 pub const PHYS_SLIP_SPEED       = $280   // slip threshold speed
@@ -226,6 +244,207 @@ pub const FRAME_BBOX_X_MAX = 1              // signed byte — rightmost piece p
 pub const FRAME_BBOX_Y_MIN = 2              // signed byte — topmost piece pixel
 pub const FRAME_BBOX_Y_MAX = 3              // signed byte — bottommost piece pixel
 pub const FRAME_PIECES     = 6              // byte offset to first piece datum
+
+// -----------------------------------------------
+// Hardware addresses (memory-mapped MD peripherals).
+// -----------------------------------------------
+pub const Z80_RAM         = $A00000
+pub const Z80_RAM_END     = $A02000     // 8 KB
+pub const Z80_BUS_REQUEST = $A11100
+pub const Z80_RESET       = $A11200
+
+pub const VDP_DATA        = $C00000     // VDP data port
+pub const VDP_CTRL        = $C00004     // VDP control port
+pub const VDP_HV_COUNTER  = $C00008
+pub const PSG_PORT        = $C00011
+
+pub const HW_VERSION            = $A10001
+pub const HW_PORT_EXP_DATA      = $A10007
+pub const HW_PORT_1_CTRL        = $A10009
+pub const HW_PORT_2_CTRL        = $A1000B
+pub const HW_EXPANSION_CTRL     = $A1000D
+pub const HW_PORT_A_CTRL_FULL   = $A10008
+pub const HW_EXPANSION_CTRL_FULL = $A1000C
+
+pub const TMSS_REGISTER   = $A14000
+
+pub const YM2612_A0       = $A04000
+pub const YM2612_D0       = $A04001
+pub const YM2612_A1       = $A04002
+pub const YM2612_D1       = $A04003
+
+// -----------------------------------------------
+// VDP access-type bit patterns (feed the AS `vdpComm` `(type & rwd)` derivation
+// and engine.vdp's target_bits / op_bits mappers — the .emp-native vocabulary).
+// -----------------------------------------------
+pub const VRAM  = %100001
+pub const CRAM  = %101011
+pub const VSRAM = %100101
+pub const READ  = %001100
+pub const WRITE = %000111
+pub const DMA   = %100111
+
+// -----------------------------------------------
+// System.
+// -----------------------------------------------
+pub const SYSTEM_STACK = $FFFFFF00      // initial SP (grows down from RAM top)
+
+// -----------------------------------------------
+// VRAM fixed byte addresses + plane geometry.
+// -----------------------------------------------
+pub const VRAM_PLANE_A     = $C000      // Plane A nametable (tile $600)
+pub const VRAM_PLANE_B     = $E000      // Plane B nametable (tile $700)
+pub const VRAM_WINDOW      = $F000
+pub const PLANE_V_CELLS    = 64
+// Shared BG tile region: reserved permanent VRAM slot range for zone-wide BG
+// tile art, loaded once at level init between the FG section pools and the Plane
+// A nametable. 448 slots ($8000..$B7FF; the SAT sits at $B800) cover the measured
+// worst case. BG_TILE_CAPACITY gates the build tools; engine code doesn't read it.
+pub const BG_TILE_BASE_VRAM = $8000              // byte address (slot 1024)
+pub const BG_TILE_BASE_SLOT = BG_TILE_BASE_VRAM / 32   // 1024 — nametable index remap
+pub const BG_TILE_CAPACITY  = 448
+
+// -----------------------------------------------
+// Timing steps (8.8 fixed frame-advance rate).
+// -----------------------------------------------
+pub const NTSC_TIMING_STEP = $0100      // 1.0
+pub const PAL_TIMING_STEP  = $0133      // 1.2 (6/5 ratio)
+
+// -----------------------------------------------
+// Controller button masks (complete the d-pad/face-button set above).
+// -----------------------------------------------
+pub const BUTTON_B     = 1 << 4         // $10
+pub const BUTTON_START = 1 << 7         // $80
+
+// -----------------------------------------------
+// Game state IDs.
+// -----------------------------------------------
+pub const GS_BOOT = 0
+pub const GS_IDLE = 1
+
+// -----------------------------------------------
+// DMA-queue VBlank budgets (usable DMA bytes per VBlank).
+// -----------------------------------------------
+pub const DMA_BUDGET_NTSC = 7200
+pub const DMA_BUDGET_PAL  = 15000
+
+// -----------------------------------------------
+// Decompression / art staging.
+// -----------------------------------------------
+pub const TILE_SIZE = 32                          // bytes per 8x8 4bpp tile
+pub const ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES * 32   // 8192 — one decompressed pool page
+
+// -----------------------------------------------
+// SST layout constants (the ObjDef-copied template block + custom span).
+// -----------------------------------------------
+pub const SST_CUSTOM_SIZE   = 34        // bytes in sst_custom ($2E-$4F)
+pub const SST_TEMPLATE_START = $0A      // first byte of the ObjDef-copied template block
+pub const SST_TEMPLATE_SIZE = 24        // template bytes copied at spawn ($0A-$21; $20-$21 re-inited)
+
+// -----------------------------------------------
+// Terrain solidity classes (SolidityTable values — generator contract).
+// -----------------------------------------------
+pub const SOLID_NONE = 0
+pub const SOLID_TOP  = 1
+pub const SOLID_LRB  = 2
+pub const SOLID_ALL  = 3
+
+// -----------------------------------------------
+// Section tile geometry (derived from SECTION_SIZE).
+// -----------------------------------------------
+pub const SECTION_TILE_WIDTH  = SECTION_SIZE / 8  // 256 — tile cols per section
+pub const SECTION_TILE_HEIGHT = SECTION_SIZE / 8  // 256 — tile rows per section
+
+// -----------------------------------------------
+// Parallax (§4.6).
+// -----------------------------------------------
+pub const MAX_PARALLAX_BANDS    = 8
+pub const PARALLAX_TRANS_DEFAULT = 16   // default boundary lerp duration (frames)
+pub const PARALLAX_LERP_SHIFT   = 4     // per-frame BG transition lerp = gap>>4
+
+// -----------------------------------------------
+// Act art-pool VRAM ceiling + per-act section grid cap.
+// -----------------------------------------------
+pub const POOL_TILE_CEILING = 960       // pool loads to tiles 0..N-1; DPLC region at tile 960
+pub const MAX_ACT_SECTIONS  = 48        // flat id = sec_y*grid_w + sec_x; build asserts grid_w*grid_h <= this
+
+// -----------------------------------------------
+// Plane-update ring buffer.
+// -----------------------------------------------
+pub const PLANE_BUFFER_SIZE = 1536      // bytes (~22 column entries per frame)
+
+// -----------------------------------------------
+// 2D tile-cache collision geometry + 16x16 block format (§4.7). The COLL_* /
+// BLOCK_* derivatives fold from TILE_CACHE_ROWS/COLS and BLOCK_TILE_SIZE.
+// -----------------------------------------------
+pub const TILE_CACHE_COLL_ROWS   = TILE_CACHE_ROWS / 2                    // 30 collision rows (16px cells)
+pub const TILE_CACHE_COLL_SIZE   = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS // 2400 bytes per plane
+pub const TILE_CACHE_COLL_PLANES = 2                                      // path A (index 0) + path B (index 1)
+pub const TILE_CACHE_MARGIN_H    = 20                                     // horizontal margin (columns each side)
+pub const TILE_CACHE_MARGIN_V    = 16                                     // vertical margin (rows each side)
+
+// Raw block layout: [512B nametable][128B collision plane A][128B collision plane B].
+pub const BLOCK_TILE_SIZE       = 16    // 16x16 tiles per block
+pub const BLOCK_TILE_SHIFT      = 4     // lsr #4 = / 16
+pub const BLOCK_NT_SIZE         = BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2   // 512 bytes
+pub const BLOCK_COLL_ROWS       = BLOCK_TILE_SIZE / 2                     // 8 collision rows per block
+pub const BLOCK_COLL_COLS       = BLOCK_TILE_SIZE                         // 16 collision cells per row
+pub const BLOCK_COLL_PLANE_SIZE = BLOCK_COLL_COLS * BLOCK_COLL_ROWS       // 128 bytes per plane
+pub const BLOCK_COLL_SIZE       = BLOCK_COLL_PLANE_SIZE * TILE_CACHE_COLL_PLANES  // 256 bytes (A+B)
+pub const BLOCK_RAW_SIZE        = BLOCK_NT_SIZE + BLOCK_COLL_SIZE         // 768 bytes
+pub const BLOCK_STAGE_SLOTS     = 16    // staged decompressed blocks (round-robin evict)
+pub const BLOCK_DECOMP_BUDGET   = 6     // max block decompresses per frame (columns + rows share)
+pub const VFILL_ROWS_PER_FRAME  = 2     // rows filled per frame cap (must be >= CAM_MAX_Y_STEP/8)
+pub const H_PFX_HYST            = 16    // net opposite-motion px before the horizontal prefetch latch flips
+pub const BLOCKS_PER_SECTION_AXIS = 16  // 16 blocks across, 16 down
+pub const BLOCK_INDEX_ENTRIES   = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  // 256
+pub const BLOCK_INDEX_SIZE      = BLOCK_INDEX_ENTRIES * 4                 // 1024 bytes (ROM)
+
+// Collision cell shift (pixel -> 16px cell).
+pub const COLLISION_CELL_SHIFT  = 4
+
+// -----------------------------------------------
+// Camera (§4.7 streaming contract; CAM_MAX_Y_STEP <= VFILL_ROWS_PER_FRAME*8).
+// -----------------------------------------------
+pub const CAM_LOOKAHEAD_THRESHOLD = $0600  // ground speed for pan enable
+pub const CAM_PAN_SPEED = 2                // pixels/frame pan rate
+pub const CAM_PAN_LIMIT = 64               // max pan pixels
+pub const CAM_MAX_Y_STEP = 16              // max camera Y movement px/frame
+
+// -----------------------------------------------
+// Entity window scan (§4.9 — camera-driven sliding window).
+// -----------------------------------------------
+pub const MAX_TRACKED_SECTIONS    = 4       // camera-envelope 2x2
+pub const ENTITY_LOAD_BUFFER      = $180    // px ahead/behind camera to load entities
+pub const ENTITY_DESPAWN_BUFFER   = $200    // px beyond load buffer to despawn (hysteresis)
+pub const ENTITY_LOAD_BUFFER_Y    = $100    // px above/below camera to load entities
+pub const ENTITY_DESPAWN_BUFFER_Y = $180    // Y despawn distance (> load = hysteresis)
+pub const ENTITY_LOADED_SLOT_SIZE = 32      // per-entry loaded bitmask: 16B rings + 16B objects
+pub const ENTITY_LOADED_OBJ_OFFSET = 16     // object bits start mid-slot
+pub const ENTITY_RESCAN_COARSE_MASK = $FF80 // camY coarse-row mask (128px rows)
+pub const ENTITY_RESCAN_ROW_SIZE  = $10000 - ENTITY_RESCAN_COARSE_MASK   // 128 — coarse row height
+
+// 3x3 rolling collected/killed bitmask geometry.
+pub const COLLECTED_BITMASK_OFFSET = 2      // ring collected bitmask starts 2 bytes into slot
+pub const KILLED_BITMASK_OFFSET   = 18      // object killed bitmask starts after ring bitmask
+pub const COLLECTED_EMPTY_TAG     = $FF     // slot not owned by any section
+pub const COLLECTED_MASK_BYTES    = KILLED_BITMASK_OFFSET - COLLECTED_BITMASK_OFFSET  // 16 — one bitmask
+pub const MAX_LIST_ENTRIES        = 128     // collected/killed bitmask capacity per section
+
+// Slot tag (SST_slot_tag) — which quadrant entry (0-3) spawned an object.
+pub const SLOT_TAG_LEFT    = 0              // upper-left
+pub const SLOT_TAG_RIGHT   = 1              // upper-right
+pub const SLOT_TAG_LOWER_L = 2              // lower-left
+pub const SLOT_TAG_LOWER_R = 3              // lower-right
+
+// Object placement entry (ROM, 6 bytes): dc.w x, y, flags|type|subtype.
+pub const OEF_ANY_Y        = 15            // spawn regardless of camera Y
+pub const OEF_YFLIP        = 14            // rol.w #4 in Load_Object -> RF_YFLIP
+pub const OEF_XFLIP        = 13            // rol.w #4 in Load_Object -> RF_XFLIP
+pub const OEF_TYPE_SHIFT   = 8             // bits 12-8: type (0-31)
+pub const OEF_TYPE_MASK    = $1F
+pub const OEF_SUBTYPE_MASK = $FF           // bits 7-0
+pub const OBJ_ENTRY_SIZE   = 6
 
 // VDP shadow-table length: 19 shadowed registers, $00-$12. The AS-side
 // `VDP_Shadow_len` symbol is owned by the struct-offset harvest (engine.structs'

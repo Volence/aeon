@@ -5,33 +5,16 @@
 module engine.plane_buffer in plane_buffer
 
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE, PLANE_H_CELLS, VRAM_PLANE_B_BYTES}
+use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, VDP_CTRL}
 use engine.structs.{Act, Sec}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg, VDP_DATA, VDP_CTRL}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg}
 
-// ---- ENGINE constants not yet in the shared twin (truth: engine/constants.asm,
-// except VRAM_PLANE_B_BYTES from engine/level/bg.asm). Mirrored local +
-// drift-locked to keep this port byte-isolated; hoist each into the shared
-// engine.constants twin when a 2nd .emp file consumes it. (VRAM_PLANE_A /
-// VRAM_PLANE_B_BYTES / PLANE_*_CELLS / PLANE_BUFFER_SIZE also mirror section.emp
-// — the shared-home trigger fires now that both files port; tracked for
-// consolidation.) TILE_CACHE_* come from the shared engine.constants twin. ----
-const VRAM_PLANE_A       = $C000        // Plane A nametable VRAM byte address
-const PLANE_V_CELLS      = 64
-const PLANE_BUFFER_SIZE  = 1536         // plane-update ring buffer bytes
 const VDP_CTRL_OFF       = VDP_CTRL - VDP_DATA   // control port = data port + this (byte-saving a6-relative derive; VInt_DrawLevel). The bare A-B(An) disp misparses as a call (gap-ledger), so this named derive is the house spelling until that grammar lands.
 const PLANE_ENTRY_COL_FLAG = $8000      // plane-buffer entry header bit 15: set = column mode (word drain), clear = row mode (longword drain)
 
 // ---- Sec / Act field access comes from the shared engine.structs module
 // (`Sec.sec_bg_layout(a0)` / `Act.act_bg_layout(a2)`) — no file-local offset
 // mirrors (that class is extinct). ----
-
-// ---- Drift guards — engine/constants.asm (+ bg.asm) are the source of truth;
-// each compares this twin's value against the real AS-side equ through the link
-// seam. A mismatch fails the link naming the constant. TILE_CACHE_* drift guards
-// live centrally in engine.constants. ----
-ensure(extern("VRAM_PLANE_A") == VRAM_PLANE_A, "engine/constants.asm and plane_buffer.emp disagree on VRAM_PLANE_A — update the twin")
-ensure(extern("PLANE_V_CELLS") == PLANE_V_CELLS, "engine/constants.asm and plane_buffer.emp disagree on PLANE_V_CELLS — update the twin")
-ensure(extern("PLANE_BUFFER_SIZE") == PLANE_BUFFER_SIZE, "engine/constants.asm and plane_buffer.emp disagree on PLANE_BUFFER_SIZE — update the twin")
 
 // NOTE: VInt_DrawLevel's two drain heads build the VDP write-command longword
 // from a VRAM byte address via engine.vdp's shared `vdp_comm_reg(reg,

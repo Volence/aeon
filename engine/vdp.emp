@@ -22,15 +22,10 @@ module engine.vdp
 pub comptime enum VdpTarget { Vram, Cram, Vsram }
 pub comptime enum VdpOp     { Read, Write, Dma }
 
-// The VDP port base addresses (truth: engine/constants.asm) — hoisted here
-// when bg became the 3rd `.emp` consumer (parallax + plane_buffer carried
-// local mirrors; the 2nd-consumer rule had already triggered). Consumers
-// `use engine.vdp.{VDP_DATA, VDP_CTRL}` and keep any directional derives
-// (e.g. `VDP_DATA_OFF = VDP_DATA - VDP_CTRL`) local.
-pub const VDP_DATA = $C00000
-pub const VDP_CTRL = $C00004
-ensure(extern("VDP_DATA") == VDP_DATA, "engine/constants.asm and engine.vdp disagree on VDP_DATA — update the twin")
-ensure(extern("VDP_CTRL") == VDP_CTRL, "engine/constants.asm and engine.vdp disagree on VDP_CTRL — update the twin")
+// The VDP port base addresses (VDP_DATA / VDP_CTRL) live in engine.constants
+// (the hardware-address authority the residual AS harvests). Consumers
+// `use engine.constants.{VDP_DATA, VDP_CTRL}` and keep any directional derives
+// (e.g. `VDP_CTRL_OFF = VDP_CTRL - VDP_DATA`) local.
 
 // VDP_Shadow register-slot offsets — the write-through-shadow consumers read
 // registers back through these. They mirror the VdpShadow struct (engine.structs,
@@ -42,7 +37,7 @@ pub const VDP_MODE2_OFF = $01                // reg $01 (Mode Set 2) — carries
 pub const VDP_MODE3_OFF = $0B                // reg $0B (Mode Set 3) — ext-int/scroll modes
 pub const VDP_HINT_OFF  = $0A                // reg $0A — HInt line counter
 
-// The %-encodings (truth: engine/constants.asm). Exhaustive match — Plan-3
+// The %-encodings (truth: engine.constants — VRAM/CRAM/VSRAM/READ/WRITE/DMA). Exhaustive match — Plan-3
 // totality checks it, so a new variant FORCES the mapper to grow.
 comptime fn target_bits(t: VdpTarget) -> int {
     match t {
@@ -61,12 +56,12 @@ comptime fn op_bits(o: VdpOp) -> int {
 
 // Drift-lock the MAPPING, not just the constants: each arm is pinned to its
 // AS-side equ through the link seam, so the match itself can't drift.
-ensure(target_bits(VdpTarget.Vram) == extern("VRAM"), "engine/constants.asm and engine.vdp disagree on VRAM — update target_bits")
-ensure(target_bits(VdpTarget.Cram) == extern("CRAM"), "engine/constants.asm and engine.vdp disagree on CRAM — update target_bits")
-ensure(target_bits(VdpTarget.Vsram) == extern("VSRAM"), "engine/constants.asm and engine.vdp disagree on VSRAM — update target_bits")
-ensure(op_bits(VdpOp.Read) == extern("READ"), "engine/constants.asm and engine.vdp disagree on READ — update op_bits")
-ensure(op_bits(VdpOp.Write) == extern("WRITE"), "engine/constants.asm and engine.vdp disagree on WRITE — update op_bits")
-ensure(op_bits(VdpOp.Dma) == extern("DMA"), "engine/constants.asm and engine.vdp disagree on DMA — update op_bits")
+ensure(target_bits(VdpTarget.Vram) == extern("VRAM"), "engine.constants and engine.vdp disagree on VRAM — update target_bits")
+ensure(target_bits(VdpTarget.Cram) == extern("CRAM"), "engine.constants and engine.vdp disagree on CRAM — update target_bits")
+ensure(target_bits(VdpTarget.Vsram) == extern("VSRAM"), "engine.constants and engine.vdp disagree on VSRAM — update target_bits")
+ensure(op_bits(VdpOp.Read) == extern("READ"), "engine.constants and engine.vdp disagree on READ — update op_bits")
+ensure(op_bits(VdpOp.Write) == extern("WRITE"), "engine.constants and engine.vdp disagree on WRITE — update op_bits")
+ensure(op_bits(VdpOp.Dma) == extern("DMA"), "engine.constants and engine.vdp disagree on DMA — update op_bits")
 
 // vdp_comm — build-time VDP command longword from a VRAM/CRAM/VSRAM byte
 // address (mirrors the AS `vdpComm` function). The typed target/op feed the
