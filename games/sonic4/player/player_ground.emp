@@ -668,6 +668,10 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         addq.w  #4, d2
 .dir_fwd:
         lea     .dir_table(pc), a1              // (beyond d8(pc,Xn) reach)
+        moveq   #0, d7                          // clear the high word: the probe
+                                                // code loads as a BYTE but is
+                                                // consumed as a word below
+                                                // (.off_*/.cancel_* move.w/tst.w)
         move.b  (a1,d2.w), d7                   // probe-core direction code
                                                 // (0/1/2/3 = down/up/right/
                                                 // left) — d7 survives the
