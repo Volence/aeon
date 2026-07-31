@@ -37,9 +37,10 @@ const PARALLAX_STATE_LONGS = 61
 ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from ram.asm: expected {PARALLAX_STATE_LONGS} longs")
 
 // ---- Parallax band-entry ROM struct (§4.6) — parallax-private (only parallax
-// reads it); field order/sizes copied from engine/structs.asm, drift-locked
-// below. parallax_config lives in engine.structs (shared with engine.buffers,
-// which keys the HScroll DMA length off the deform-table fields). ----
+// reads it). This module is the sole author of the band_entry layout; the build
+// harvests `band_entry_len` for ram.asm's shadow-band reservation.
+// parallax_config lives in engine.structs (shared with engine.buffers, which
+// keys the HScroll DMA length off the deform-table fields). ----
 
 // Parallax band entry — 10 bytes per band, ROM data.
 struct band_entry {
@@ -54,19 +55,6 @@ struct band_entry {
     band_deform_shift_b: u8,   // Plane B deform amplitude shift
     band_phase_offset:   u8,   // 0..255, added to deform sample index for desync
 }
-
-// ---- struct drift wall — sizes + every field offset pinned to structs.asm ----
-ensure(sizeof(band_entry) == extern("band_entry_len"), "band_entry twin drifted from structs.asm: {sizeof(band_entry)}")
-ensure(offsetof(band_entry, band_top_cell) == extern("band_entry_band_top_cell"), "band_entry.band_top_cell drifted: {offsetof(band_entry, band_top_cell)}")
-ensure(offsetof(band_entry, band_factor_a_s1) == extern("band_entry_band_factor_a_s1"), "band_entry.band_factor_a_s1 drifted: {offsetof(band_entry, band_factor_a_s1)}")
-ensure(offsetof(band_entry, band_factor_a_s2) == extern("band_entry_band_factor_a_s2"), "band_entry.band_factor_a_s2 drifted: {offsetof(band_entry, band_factor_a_s2)}")
-ensure(offsetof(band_entry, band_factor_a_op) == extern("band_entry_band_factor_a_op"), "band_entry.band_factor_a_op drifted: {offsetof(band_entry, band_factor_a_op)}")
-ensure(offsetof(band_entry, band_factor_b_s1) == extern("band_entry_band_factor_b_s1"), "band_entry.band_factor_b_s1 drifted: {offsetof(band_entry, band_factor_b_s1)}")
-ensure(offsetof(band_entry, band_factor_b_s2) == extern("band_entry_band_factor_b_s2"), "band_entry.band_factor_b_s2 drifted: {offsetof(band_entry, band_factor_b_s2)}")
-ensure(offsetof(band_entry, band_factor_b_op) == extern("band_entry_band_factor_b_op"), "band_entry.band_factor_b_op drifted: {offsetof(band_entry, band_factor_b_op)}")
-ensure(offsetof(band_entry, band_deform_shift_a) == extern("band_entry_band_deform_shift_a"), "band_entry.band_deform_shift_a drifted: {offsetof(band_entry, band_deform_shift_a)}")
-ensure(offsetof(band_entry, band_deform_shift_b) == extern("band_entry_band_deform_shift_b"), "band_entry.band_deform_shift_b drifted: {offsetof(band_entry, band_deform_shift_b)}")
-ensure(offsetof(band_entry, band_phase_offset) == extern("band_entry_band_phase_offset"), "band_entry.band_phase_offset drifted: {offsetof(band_entry, band_phase_offset)}")
 
 // Displacement to the NEXT band's band_top_cell (peek-ahead) — the .field-in-disp
 // sugar does not compose in displacement arithmetic (row 1068), so a named const.

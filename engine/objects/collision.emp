@@ -20,12 +20,11 @@ type TouchHandler = proc (a0: *Sst) clobbers(d6-d7/a2-a4)
 // this word overlays its tail with player-slot semantics. Spelled as a
 // comptime fn because a bare const name in displacement position on a
 // TYPED register is (correctly) closed to the field namespace — the
-// call-expr form is the escape. Drift-locked to engine/structs.asm's
-// SST_interact equ through the link seam.
+// call-expr form is the escape. `sizeof(Sst) - 2` is the record's tail
+// word; the build harvests the same value as the AS `SST_interact` equ.
 comptime fn interact_off() -> int {
     return sizeof(Sst) - 2
 }
-ensure(extern("SST_interact") == interact_off(), "engine/structs.asm SST_interact and collision.emp interact_off() disagree — update both")
 
 // -----------------------------------------------
 // touch_test_target — one candidate object vs. the current player (a2)

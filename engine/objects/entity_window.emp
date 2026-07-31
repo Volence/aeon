@@ -53,11 +53,12 @@ const RING_BUFFER_ENTRY_SIZE    = 6
 // EntityScanState — one scan-state record per tracked section (4 entries in
 // Entity_Scan_State, $16 bytes each). TYPE-ONLY twin: emits zero bytes and
 // gives typed `EntityScanState.ess_*(aN)` field access plus `sizeof`/`offsetof`
-// in place of hand-carried displacement consts. Truth: engine/structs.asm's
-// `struct` — the drift guards below pin every offset to the AS-side
-// struct-generated equs through the link seam. This struct has a single
-// consumer (this module), so it lives here rather than in its own module —
-// the complement to sst.emp's precedent that a SHARED struct earns its own.
+// in place of hand-carried displacement consts. This struct is the sole author
+// of its layout: every field carries an `@` literal offset and the struct a
+// `(size: $1A)`, both verified in-file; the build harvests `EntityScanState_len`
+// for ram.asm's `ds` reservation. This struct has a single consumer (this
+// module), so it lives here rather than in its own module — the complement to
+// sst.emp's precedent that a SHARED struct earns its own.
 struct EntityScanState (size: $1A) {
     ess_ring_right_idx: u16 @ $00,    // $00 — ring X-scan ratchet (right edge)
     ess_obj_right_idx: u16 @ $02,     // $02 — object X-scan ratchet (right edge)
@@ -98,19 +99,7 @@ ensure(extern("OEF_TYPE_SHIFT") == OEF_TYPE_SHIFT, "engine/constants.asm and ent
 ensure(extern("OEF_TYPE_MASK") == OEF_TYPE_MASK, "engine/constants.asm and entity_window.emp disagree on OEF_TYPE_MASK — update both")
 ensure(extern("OBJ_ENTRY_SIZE") == OBJ_ENTRY_SIZE, "engine/constants.asm and entity_window.emp disagree on OBJ_ENTRY_SIZE — update both")
 ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
-ensure(extern("EntityScanState_ess_ring_right_idx") == $00, "engine/structs.asm and entity_window.emp disagree on ess_ring_right_idx — update the twin")
-ensure(extern("EntityScanState_ess_obj_right_idx") == $02, "engine/structs.asm and entity_window.emp disagree on ess_obj_right_idx — update the twin")
-ensure(extern("EntityScanState_ess_rom_ring_ptr") == $04, "engine/structs.asm and entity_window.emp disagree on ess_rom_ring_ptr — update the twin")
-ensure(extern("EntityScanState_ess_rom_obj_ptr") == $08, "engine/structs.asm and entity_window.emp disagree on ess_rom_obj_ptr — update the twin")
-ensure(extern("EntityScanState_ess_rom_type_tbl_ptr") == $0C, "engine/structs.asm and entity_window.emp disagree on ess_rom_type_tbl_ptr — update the twin")
-ensure(extern("EntityScanState_ess_origin_x") == $10, "engine/structs.asm and entity_window.emp disagree on ess_origin_x — update the twin")
-ensure(extern("EntityScanState_ess_section_id") == $12, "engine/structs.asm and entity_window.emp disagree on ess_section_id — update the twin")
-ensure(extern("EntityScanState_ess_entry_idx") == $13, "engine/structs.asm and entity_window.emp disagree on ess_entry_idx — update the twin")
-ensure(extern("EntityScanState_ess_origin_y") == $14, "engine/structs.asm and entity_window.emp disagree on ess_origin_y — update the twin")
-ensure(extern("EntityScanState_ess_ring_next_x") == $16, "engine/structs.asm and entity_window.emp disagree on ess_ring_next_x — update the twin")
-ensure(extern("EntityScanState_ess_obj_next_x") == $18, "engine/structs.asm and entity_window.emp disagree on ess_obj_next_x — update the twin")
-ensure(extern("EntityScanState_len") == $1A, "engine/structs.asm and entity_window.emp disagree on EntityScanState_len — update the twin")
-// (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
+// (Act/Sec field access comes from engine.structs, the sole layout author.)
 
 // Loaded-mask geometry static asserts (AS `if <> / error` → ensure).
 ensure(ENTITY_LOADED_SLOT_SIZE == 32, "EntityLoaded primitives assume 32-byte slots (lsl #5)")

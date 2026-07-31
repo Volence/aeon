@@ -4,18 +4,19 @@
 // code typed field access (`Sst.code_addr(a0)`, and bare `code_addr(a0)` on
 // an `a0: *Sst` param) instead of hand-carried displacement equs; ObjDef is
 // the shape the objdef() emitter (engine/objects/objdef.emp) fills and
-// consumers place. engine/structs.asm's SST struct stays authoritative for
-// the layout until its own port.
+// consumers place. Sst is the SOLE author of the object-record layout: the
+// build harvests its field offsets (`SST_*`) + size (`SST_len`) and injects
+// them as guarded AS defines so the residual AS (ram.asm's `ds SST_len` slots,
+// the gated player/test header equates) reads the same offsets.
 //
-// Sst's field offsets are double-locked: the `@` assertion pins this side to
-// the literal, and the drift guards below pin the AS side (its
-// struct-generated `SST_*` equs cross the link seam) to the same literal — a
-// layout change on either side fails the link naming the field. ObjDef is
-// pinned to Sst by the burst-copy ensure-chain (below the guards).
+// Sst's field offsets are pinned in-file: every field carries an `@` literal
+// offset and the struct a `(size: $50)` — the layout engine verifies both, so
+// a drifted field fails the module's own lowering. ObjDef is pinned to Sst by
+// the burst-copy ensure-chain (below).
 //
 // Field types are the engine.types domain vocabulary (construct-walk #3,
-// Volence-ratified): every type erases to the raw width, so the layout,
-// offsets, and guards are untouched — the annotations carry MEANING
+// Volence-ratified): every type erases to the raw width, so the layout and
+// offsets are untouched — the annotations carry MEANING
 // (Coord vs Velocity vs a raw counter) and the fixed<I,F> scales.
 module engine.objects.sst
 
@@ -65,43 +66,6 @@ pub struct Sst (size: $50) {
     // --- per-object custom data ----------------------------------------------
     sst_custom: [u8; 34] @ $2E,   // $2E-$4F — overlay window (`vars X: sst_custom`)
 }
-
-// -----------------------------------------------
-// Drift guards — engine/structs.asm is the source of truth; these compare
-// the twin's asserted offsets against the real AS-side struct-generated
-// equs through the link-symbol seam (D2.27). A mismatch fails the link
-// naming the drifted field.
-// -----------------------------------------------
-ensure(extern("SST_code_addr") == $00, "engine/structs.asm SST and sst.emp disagree on code_addr — update the twin")
-ensure(extern("SST_x_pos") == $02, "engine/structs.asm SST and sst.emp disagree on x_pos — update the twin")
-ensure(extern("SST_y_pos") == $06, "engine/structs.asm SST and sst.emp disagree on y_pos — update the twin")
-ensure(extern("SST_x_vel") == $0A, "engine/structs.asm SST and sst.emp disagree on x_vel — update the twin")
-ensure(extern("SST_y_vel") == $0C, "engine/structs.asm SST and sst.emp disagree on y_vel — update the twin")
-ensure(extern("SST_render_flags") == $0E, "engine/structs.asm SST and sst.emp disagree on render_flags — update the twin")
-ensure(extern("SST_collision_resp") == $0F, "engine/structs.asm SST and sst.emp disagree on collision_resp — update the twin")
-ensure(extern("SST_mappings") == $10, "engine/structs.asm SST and sst.emp disagree on mappings — update the twin")
-ensure(extern("SST_art_tile") == $14, "engine/structs.asm SST and sst.emp disagree on art_tile — update the twin")
-ensure(extern("SST_width_pixels") == $16, "engine/structs.asm SST and sst.emp disagree on width_pixels — update the twin")
-ensure(extern("SST_height_pixels") == $17, "engine/structs.asm SST and sst.emp disagree on height_pixels — update the twin")
-ensure(extern("SST_anim") == $18, "engine/structs.asm SST and sst.emp disagree on anim — update the twin")
-ensure(extern("SST_subtype") == $19, "engine/structs.asm SST and sst.emp disagree on subtype — update the twin")
-ensure(extern("SST_anim_table") == $1A, "engine/structs.asm SST and sst.emp disagree on anim_table — update the twin")
-ensure(extern("SST_status") == $1E, "engine/structs.asm SST and sst.emp disagree on status — update the twin")
-ensure(extern("SST_angle") == $1F, "engine/structs.asm SST and sst.emp disagree on angle — update the twin")
-ensure(extern("SST_prev_anim") == $20, "engine/structs.asm SST and sst.emp disagree on prev_anim — update the twin")
-ensure(extern("SST_anim_frame") == $21, "engine/structs.asm SST and sst.emp disagree on anim_frame — update the twin")
-ensure(extern("SST_anim_timer") == $22, "engine/structs.asm SST and sst.emp disagree on anim_timer — update the twin")
-ensure(extern("SST_mapping_frame") == $23, "engine/structs.asm SST and sst.emp disagree on mapping_frame — update the twin")
-ensure(extern("SST_prev_frame") == $24, "engine/structs.asm SST and sst.emp disagree on prev_frame — update the twin")
-ensure(extern("SST_sprite_piece_count") == $25, "engine/structs.asm SST and sst.emp disagree on sprite_piece_count — update the twin")
-ensure(extern("SST_parent_ptr") == $26, "engine/structs.asm SST and sst.emp disagree on parent_ptr — update the twin")
-ensure(extern("SST_sibling_ptr") == $28, "engine/structs.asm SST and sst.emp disagree on sibling_ptr — update the twin")
-ensure(extern("SST_slot_tag") == $2A, "engine/structs.asm SST and sst.emp disagree on slot_tag — update the twin")
-ensure(extern("SST_entity_section_id") == $2B, "engine/structs.asm SST and sst.emp disagree on entity_section_id — update the twin")
-ensure(extern("SST_entity_list_index") == $2C, "engine/structs.asm SST and sst.emp disagree on entity_list_index — update the twin")
-ensure(extern("SST_layer") == $2D, "engine/structs.asm SST and sst.emp disagree on layer — update the twin")
-ensure(extern("SST_sst_custom") == $2E, "engine/structs.asm SST and sst.emp disagree on sst_custom — update the twin")
-ensure(extern("SST_len") == $50, "engine/structs.asm SST and sst.emp disagree on total size — update the twin")
 
 // -----------------------------------------------
 // ObjDef — the v2 archetype spawn template. A COMPACT 26-byte ROM image
