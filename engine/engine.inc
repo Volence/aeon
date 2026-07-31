@@ -69,7 +69,10 @@
     include "engine/parallax_macros.inc"
     include "engine/sound/sound_bank.inc"
     gameConfigIncludes
-    include "engine/ram.asm"
+    ; Engine RAM is authored in engine/ram.emp (item #7b) — the `.emp` region form.
+    ; Its `pub vars` labels are the joint-link RAM authority; the residual AS reads
+    ; the addresses it needs eagerly (demo_state writes, `phase Engine_RAM_End`) via
+    ; the harvested value defines (native.rs harvest_engine_ram_addresses).
     gameRamIncludes
     include "engine/debug/debugger.asm"
 
