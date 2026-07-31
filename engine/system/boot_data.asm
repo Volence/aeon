@@ -124,13 +124,26 @@ BootData_End:
         fatal "BootData table is \{BootData_End-BootData} bytes — the cursor protocol accounts for \{54+Z80_SOUND_SIZE+4+10}"
     endif
     else
-    if (Z80_IdleProgram-BootData) <> 54
-        fatal "Z80 idle blob starts at BootData+\{Z80_IdleProgram-BootData} — the cursor reaches the copy loop at +54"
-    endif
+    ; The SIZE wall stays live in every shape: Z80_IDLE_SIZE is numeric (the OQ-D
+    ; mirror below) and its evenness is a pure comptime property.
     if (Z80_IDLE_SIZE & 1) <> 0
         fatal "Z80_IDLE_SIZE is odd (\{Z80_IDLE_SIZE}) — the post-blob align would emit a pad byte the (a5)+ cursor never skips"
+    endif
+      ifndef SIGIL_EMP_Z80_INIT
+    ; When the idle is AS-side its BootData-relative WAYPOINTS fold at assemble time.
+    ; With SIGIL_EMP_Z80_INIT set the idle comes from z80_init.emp (placed by the
+    ; frozen chainer at 0x3d8) and boot_data's `org $3FE` leaves it a HOLE, so both
+    ; these positional asserts measure the DENSE pre-relocation residual (wrong: the
+    ; idle bytes are not present here) and the Z80_IdleProgram base is link-external
+    ; (a comptime `if` cannot fold it, the row-52 wall). Gated: the invariants are
+    ; then covered by the frozen `Z80_IdleProgram` placement + the whole-ROM
+    ; assembled-anchor gate, and the SIZE wall stays numeric (above) + z80_init.emp's
+    ; own self-ensure (OQ-D).
+    if (Z80_IdleProgram-BootData) <> 54
+        fatal "Z80 idle blob starts at BootData+\{Z80_IdleProgram-BootData} — the cursor reaches the copy loop at +54"
     endif
     if (BootData_End-BootData) <> (54+Z80_IDLE_SIZE+4+10)
         fatal "BootData table is \{BootData_End-BootData} bytes — the cursor protocol accounts for \{54+Z80_IDLE_SIZE+4+10}"
     endif
+      endif
     endif
