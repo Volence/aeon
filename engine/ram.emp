@@ -1,0 +1,487 @@
+// Engine RAM layout — the `.emp` region form (item #7).
+//
+// Two address windows, declared as `region`s and populated by `vars` blocks that
+// allocate at exact, deterministic addresses:
+//   lower_ram ($FFFF0000+) — large buffers, `.l`-addressed (tile cache, block
+//                            staging, streaming).
+//   upper_ram ($FFFF8000+) — hot data, `.w`-addressed for speed (system, DMA
+//                            queue, sprite/camera/tile-cache metadata, entity/
+//                            ring window, sound state).
+//
+// This module is the SOLE author of the engine RAM layout: its `pub` labels are
+// the link authority every consumer (`.emp` and residual AS) resolves against.
+// The overflow guards, the `.w`-addressability bit-15 rule, and the buffer-reuse
+// overlap are compiler checks now — the region `limit`s, `w_addressable`, and the
+// `alias`+`ensure` below replace ram.asm's `if/error` directives.
+
+module engine.ram
+
+// Glob-import the engine constants: many sizes below are DERIVED consts
+// (e.g. TILE_CACHE_NT_SIZE = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2), whose RHS
+// is evaluated in THIS module's scope, so their base consts must be in scope too
+// — the glob brings the whole invariant set (the game-VARYING sizes still arrive
+// as -D defines: MAX_RING_BUFFER, COLLECTED_WINDOW_SLOTS, DEBUG).
+use engine.constants.*
+use engine.structs.{DMAEntry, VdpShadow}
+use engine.objects.sst.{Sst}
+// Sst's fields carry the engine.types domain vocabulary (Coord/Velocity/… — all
+// erase to raw widths); computing sizeof(Sst)/[Sst; N] here resolves those field
+// types in this module's scope, so the vocabulary must be imported.
+use engine.types.*
+
+// --- struct lengths whose owners live in CODE modules (entity_window /
+//     parallax) and so are not comptime-importable here. Mirror the value as a
+//     local const, drift-guarded against the build's harvested struct length
+//     (the same `_len` the AS side reads) — the rings.emp / entity_window.emp
+//     RING_BUFFER_ENTRY_SIZE pattern. -------------------------------------------
+const ENTITY_SCAN_STATE_LEN = $1A   // sizeof(EntityScanState); pinned in entity_window.emp
+const BAND_ENTRY_LEN        = 10    // sizeof(band_entry); pinned in parallax.emp
+ensure(extern("EntityScanState_len") == ENTITY_SCAN_STATE_LEN, "EntityScanState size drifted from ram.emp's mirror — update ENTITY_SCAN_STATE_LEN")
+ensure(extern("band_entry_len") == BAND_ENTRY_LEN, "band_entry size drifted from ram.emp's mirror — update BAND_ENTRY_LEN")
+
+// --- game-config buffer-layout sizes: ENGINE-INVARIANT (identical in every
+//     game's config/constants.asm), homed here as engine consts + drift-guarded
+//     against the AS game config (the rings.emp convention). MAX_RING_BUFFER /
+//     COLLECTED_WINDOW_SLOTS VARY per game and arrive as -D defines. ------------
+const RING_BUFFER_ENTRY_SIZE   = 6    // dc.w x, y; dc.b section_id, list_index
+const COLLECTED_SLOT_SIZE      = 34   // 1 tag + 1 pad + 16 ring bitmask + 16 killed bitmask
+const COLLECTED_PARK_SLOTS     = 4    // park entries (rolling overwrite)
+const COLLECTED_PARK_ENTRY_SIZE = 33  // 1 id byte + collected + killed masks (byte-packed)
+ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "game config/constants.asm and ram.emp disagree on RING_BUFFER_ENTRY_SIZE")
+ensure(extern("COLLECTED_SLOT_SIZE") == COLLECTED_SLOT_SIZE, "game config/constants.asm and ram.emp disagree on COLLECTED_SLOT_SIZE")
+ensure(extern("COLLECTED_PARK_SLOTS") == COLLECTED_PARK_SLOTS, "game config/constants.asm and ram.emp disagree on COLLECTED_PARK_SLOTS")
+ensure(extern("COLLECTED_PARK_ENTRY_SIZE") == COLLECTED_PARK_ENTRY_SIZE, "game config/constants.asm and ram.emp disagree on COLLECTED_PARK_ENTRY_SIZE")
+
+pub region lower_ram @ $FFFF0000 .. $FFFF8000
+pub region upper_ram @ $FFFF8000 .. SYSTEM_STACK, w_addressable
+
+// -----------------------------------------------
+// Lower RAM — 2D tile cache, block staging, streaming buffers (§4.7).
+// Art_Staging_Buffer reuses the tile-cache nametable RAM during display-off level
+// init to stage decompressed art pages before DMA.
+// -----------------------------------------------
+pub vars lower_ram {
+    // 2D tile cache — world-space sliding window (replaces 1D strip cache)
+    Tile_Cache_Nametable:   [u8; TILE_CACHE_NT_SIZE],                       // 9600 bytes (80×60×2)
+    // Collision: two planes contiguous in memory.
+    //   Plane A: Tile_Cache_Collision + 0                    (2400 bytes, 80×30)
+    //   Plane B: Tile_Cache_Collision + TILE_CACHE_COLL_SIZE (2400 bytes, 80×30)
+    // Tile_Cache_GetCollision selects the plane via the caller's SST_layer value.
+    Tile_Cache_Collision:   [u8; TILE_CACHE_COLL_SIZE * TILE_CACHE_COLL_PLANES],  // 4800 bytes
+    pad(2),                                                                 // pad to even
+
+    // Block staging cache — recently decompressed blocks (§4.7). BLOCK_STAGE_SLOTS
+    // slots of BLOCK_RAW_SIZE each: nametable (512 B) + collision plane A (128 B)
+    // + collision plane B (128 B). Keys live in upper RAM (Block_Stage_Keys).
+    Block_Stage_Buffers:    [u8; BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS],       // 9216 bytes (12×768)
+
+    // Art staging — decompress one art-pool page here at level init (display off),
+    // then DMA it to VRAM. Reuses the tile-cache nametable RAM, which is NOT yet
+    // populated during display-off level init. INIT-ONLY; never used after the
+    // cache goes live.
+    Art_Staging_Buffer: alias(Tile_Cache_Nametable),
+
+    mark Lower_RAM_End,
+}
+
+ensure(ART_STAGING_BUFFER_SIZE <= TILE_CACHE_NT_SIZE, "Art staging buffer exceeds tile-cache RAM")
+
+// -----------------------------------------------
+// Upper RAM — hot data (.w addressing)
+// -----------------------------------------------
+pub vars upper_ram {
+    mark RAM_Start,
+
+    // --- System ---
+    VBlank_Flag:            u8,
+    pad(1),
+    Frame_Counter:          u16,
+    Game_State:             u32,
+    Game_State_ID:          u8,
+    Game_State_Init:        u8,
+
+    // --- VDP Shadow Table (§0.4) ---
+    VDP_Shadow_Table:       [u8; sizeof(VdpShadow)],
+    pad(1),                             // pad to even (sizeof(VdpShadow) is 19 = odd)
+    VDP_Dirty_Mask:         u32,        // bits 0-18 for regs $00-$12
+
+    // --- Interrupt dispatch ---
+    // HBlank dispatch runs through HBlank_Vector_Slot (defined at the RAM tail — so
+    // its addition ripples zero existing upper-RAM addresses). This reserved word
+    // holds that layout stable.
+    pad(4),                             // reserved (interrupt dispatch)
+
+    // --- Region detection (§0.8) ---
+    Hardware_Region:        u8,
+    Region_Flags:           u8,
+    Timing_Step:            u16,
+    Frame_Accumulator:      u16,
+
+    // --- Controllers ---
+    Ctrl_1_Held:            u8,
+    Ctrl_1_Press:           u8,         // tick-stable: latched by VInt_Level, consumed by game logic
+    Ctrl_2_Held:            u8,
+    Ctrl_2_Press:           u8,
+    Ctrl_1_Press_Accum:     u8,         // edges OR'd here by EVERY VBlank (incl. lag)
+    Ctrl_2_Press_Accum:     u8,         // latched into Ctrl_*_Press by the non-lag handler
+
+    // --- RNG ---
+    RNG_Seed:               u32,
+
+    // --- VBlank dispatch (§1 — VDP Pipeline) ---
+    VInt_Ptr:               u32,        // pointer to current VBlank handler
+    VBlank_Ready:           u8,         // set by main loop, cleared by VBlank
+    pad(1),
+
+    // --- DMA Queue (§1.1) — three priority sub-queues, contiguous in memory ---
+    mark DMA_Queue,
+    DMA_Critical:           [u8; DMA_CRITICAL_SLOTS * sizeof(DMAEntry)],
+    mark DMA_Critical_End,
+    DMA_Important:          [u8; DMA_IMPORTANT_SLOTS * sizeof(DMAEntry)],
+    mark DMA_Important_End,
+    DMA_Deferrable:         [u8; DMA_DEFERRABLE_SLOTS * sizeof(DMAEntry)],
+    mark DMA_Deferrable_End,
+    mark DMA_Queue_End,
+
+    DMA_Critical_Slot:      u16,        // next free Critical slot
+    DMA_Important_Slot:     u16,        // next free Important slot
+    DMA_Deferrable_Slot:    u16,        // next free Deferrable slot
+
+    DMA_Budget_Default:     u16,        // per-frame byte budget (set at boot)
+    DMA_Budget_Remaining:   u16,        // remaining bytes this frame
+
+    // --- RAM Buffers and Dirty Flags (§1.3) ---
+    Palette_Buffer:         [u8; 128],  // 4 lines × 32 bytes
+    Palette_Dirty:          u8,         // bits 0-3 = per-line dirty
+    pad(1),
+
+    Sprite_Table_Buffer:    [u8; 640],  // 80 entries × 8 bytes
+    Sprite_Table_Dirty:     u8,
+    pad(1),
+
+    Hscroll_Buffer:         [u8; 896],  // 224 lines × 4 bytes (FG + BG)
+    pad(2),                             // reserved (pad)
+
+    Vscroll_Factor:         u32,        // FG word + BG word
+
+    // --- Parallax state (§4.6) — ~126 bytes ---
+    mark Parallax_State,
+    Parallax_Deform_Phase_FG:    u16,   // (frame_counter * speed_fg) & $FF
+    Parallax_Deform_Phase_BG:    u16,
+    Parallax_V_Deform_Phase_BG:  u16,   // for animated per-column V-scroll
+    Parallax_Current_Scroll_A:   [u16; MAX_PARALLAX_BANDS],  // lerp accumulators, Plane A
+    Parallax_Current_Scroll_B:   [u16; MAX_PARALLAX_BANDS],  // Plane B
+    Parallax_Current_Vscroll_BG: u16,
+    Parallax_Current_Config:     u32,   // ptr to active parallax_config
+    Parallax_Target_Config:      u32,   // ptr to incoming during transition
+    Parallax_Transition_Frames:  u8,    // frames remaining; 0 = stable
+    Parallax_Snap_Pending:       u8,    // 1 = next Update writes target_scroll directly to current (skip lerp)
+    // Per-section parallax: section grid coords under the camera centre on the
+    // previous frame. A change in either is a section-boundary crossing, which
+    // re-selects the active config via Parallax_CheckBoundary. Seeded to $FF in
+    // Parallax_Init so the first frame always re-selects.
+    Parallax_Prev_Sec_X:         u8,
+    Parallax_Prev_Sec_Y:         u8,
+    Parallax_Vscroll_Column_Buf: [u8; 80],  // 40 VSRAM entries × 2 bytes
+    // Per-frame screen-space band view (Step 4a): the config's plane-space band
+    // list rotated by Vscroll_BG, tops rebased to screen cells. Fillers consume
+    // this (or the config's own arrays when vshift = 0).
+    Parallax_Shadow_Bands:       [u8; BAND_ENTRY_LEN * MAX_PARALLAX_BANDS],
+    Parallax_Shadow_Scroll_A:    [u16; MAX_PARALLAX_BANDS],
+    Parallax_Shadow_Scroll_B:    [u16; MAX_PARALLAX_BANDS],
+    mark Parallax_State_End,
+
+    // Driver-keyed BG tile-band animation (engine/level/bg_anim.asm)
+    BgAnim_LastStep:        [u16; 4],   // per band: last DMA'd step; -1 = none yet (size = BGANIM_MAX_BANDS)
+
+    // --- Static DMA Entries (§1.5) — pre-computed 14-byte entries for fixed transfers ---
+    Static_Pal_Line0:       [u8; sizeof(DMAEntry)],
+    Static_Pal_Line1:       [u8; sizeof(DMAEntry)],
+    Static_Pal_Line2:       [u8; sizeof(DMAEntry)],
+    Static_Pal_Line3:       [u8; sizeof(DMAEntry)],
+    Static_Sprite_DMA:      [u8; sizeof(DMAEntry)],
+    Static_Hscroll_Cell:    [u8; sizeof(DMAEntry)],   // §4.6 — 112-byte HScroll per-cell mode
+    Static_Hscroll_Line:    [u8; sizeof(DMAEntry)],   // §4.6 — 896-byte HScroll per-line mode
+
+    // --- Debug profiling (§1.7) — zero in release builds ---
+    if DEBUG == 1 @shape_divergent {
+        DMA_Bytes_ThisFrame:    u16,
+        DMA_Peak_Critical:      u16,
+        DMA_Peak_Important:     u16,
+        DMA_Peak_Deferrable:    u16,
+        DMA_Overflow_Count:     u16,
+        Lag_Frame_Count:        u32,
+
+        Prof_RunObjects:        u16,    // V counter lines spent in RunObjects
+        Prof_TouchResponse:     u16,    // V counter lines spent in TouchResponse
+        Prof_RenderSprites:     u16,    // V counter lines spent in Render_Sprites
+        Prof_FrameTotal:        u16,    // V counter lines for full game loop
+        Prof_Peak_RunObjects:   u16,    // peak RunObjects across all frames
+        Prof_Peak_Touch:        u16,    // peak TouchResponse
+        Prof_Peak_Render:       u16,    // peak Render_Sprites
+        Prof_Peak_Frame:        u16,    // peak full frame
+        Prof_Dynamic_Used:      u16,    // dynamic slots in use this frame
+        Prof_Effect_Used:       u16,    // effect slots in use this frame
+
+        // Debug harness: scene-pin flag. Nonzero = GameState_OJZScroll_Update
+        // skips Camera_Update + EntityWindow_Scan so a write_memory camera+ring
+        // scene survives (R-A1 ring-cull boundary verification).
+        Debug_Scene_Freeze:     u8,     // 0 = normal, nonzero = pin OJZScroll scene
+        pad(1),                         // pad to even (keep the DEBUG block word-aligned)
+    }
+
+    // --- Object System (§3) ---
+    // Object RAM — all slots contiguous, stride = sizeof(Sst) ($50). Reserved
+    // tracked-entity slots — engine camera/rings/collision address slot 0/1
+    // directly; the game's player code claims them at spawn.
+    mark Object_RAM,
+    Player_1:               Sst,
+    Player_2:               Sst,
+    Dynamic_Slots:          [Sst; NUM_DYNAMIC],
+    System_Slots:           [Sst; NUM_SYSTEM],
+    Effect_Slots:           [Sst; NUM_EFFECTS],
+    mark Object_RAM_End,
+
+    // Free slot stacks — word arrays of SST addresses, one per pool
+    Dynamic_Free_Stack:     [u16; NUM_DYNAMIC],
+    Dynamic_Free_SP:        u16,
+
+    Effect_Free_Stack:      [u16; NUM_EFFECTS],
+    Effect_Free_SP:         u16,
+
+    // --- Sprite Rendering (§3.5) ---
+    // Priority band lists — each band holds up to SPRITES_PER_BAND object addresses
+    Sprite_Bands:           [u16; SPRITES_PER_BAND * PRIORITY_BANDS],
+    Sprite_Band_Counts:     [u8; PRIORITY_BANDS],   // PRIORITY_BANDS=8, already even — no pad needed
+
+    Sprites_Rendered:       u16,        // total sprites rendered this frame
+    Sprite_Cycle_Counter:   u16,        // link-order cycling frame counter
+
+    // Sprite X=0 masking configuration. Set SpriteMask_Y to VDP Y (screen Y + 128)
+    // and SpriteMask_Height to scanlines to mask; SpriteMask_After_Band = band
+    // index after which mask sprites insert. SpriteMask_Y = 0 disables masking.
+    SpriteMask_Y:           u16,        // VDP Y position of mask top (0 = disabled)
+    SpriteMask_Height:      u16,        // scanlines to cover
+    SpriteMask_After_Band:  u8,         // insert after this band (0-7)
+    pad(1),
+
+    // Scanline band sprite budgeting (§3.5) — 7 bands of 32 scanlines
+    Scanline_Band_Sprites:  [u8; SCANLINE_BANDS],
+    pad(1),                             // pad to even (7+1=8)
+
+    // --- Camera (stub for §3, real implementation in §4) ---
+    Camera_X:               u32,        // 16.16 camera X position
+    Camera_Y:               u32,        // 16.16 camera Y position
+
+    // Frame-constant biased camera (Render_Sprites): Camera_{X,Y} integer minus the
+    // VDP +128 SAT offset, computed once per render frame so the Emit loops drop
+    // the per-piece `addi #128`. Integer words only.
+    Camera_X_Biased:        u16,        // Camera_X(int) - VDP_SPRITE_X_OFFSET
+    Camera_Y_Biased:        u16,        // Camera_Y(int) - VDP_SPRITE_Y_OFFSET
+
+    Game_Paused:            u8,         // game pause / freeze flag
+    pad(1),
+
+    // --- Level System (§4) ---
+    // Deferred plane write buffer — game loop appends, VBlank drains
+    Plane_Buffer:           [u8; PLANE_BUFFER_SIZE],   // 1536 bytes
+    Plane_Buffer_Ptr:       u16,        // byte offset (0 = empty)
+
+    // Camera position history — 64 frames × 4 bytes (X.w, Y.w)
+    Pos_table:              [u8; 256],
+    H_scroll_frame_offset:  u8,         // camera lag depth (0 = no lag)
+    pad(1),
+
+    // Camera parameters
+    Camera_Deadzone_Base:   u16,        // base deadzone width in pixels
+    Camera_Lookahead:       u16,        // zone-default lookahead pixels
+    Camera_Pan_Offset:      u16,        // current extended lookahead pan
+    Camera_Hold_Frames:     u8,         // frames the camera holds position (game code sets it;
+                                        // Camera_Update tests it each frame to suppress movement,
+                                        // then decrements)
+    pad(1),
+
+    // --- 2D Tile Cache metadata (§4.7 — .w addressable) ---
+    Cache_Left_Col:         u16,        // world tile col of leftmost valid column
+    Cache_Head_Col:         u16,        // world tile col of rightmost valid column
+    Cache_Top_Row:          u16,        // world tile row of topmost valid row
+    Cache_Bottom_Row:       u16,        // world tile row of bottommost valid row
+    Cache_Origin_Col:       u16,        // physical col index where Cache_Left_Col maps (circular)
+    Cache_Origin_Row:       u16,        // physical row index where Cache_Top_Row maps (circular; kept even)
+    Cache_Fill_Last_Frame:  u16,        // Frame_Counter of last fill (cascade prevention)
+    Cache_Fill_Resume_Col:  u16,        // partial FillColumn resume column ($FFFF = none pending)
+    Cache_Fill_Resume_Row:  u16,        // partial FillColumn resume row (valid when Resume_Col set)
+    Cache_Fill_Budget:      u16,        // per-frame block decompress allowance (shared: columns + rows)
+    Cache_Fill_RowResume_Row: u16,      // partial FillRow resume world row ($FFFF = none)
+    Cache_Fill_RowResume_Col: u16,      // partial FillRow resume col cursor
+    Cache_Fill_Rows_Left:   u16,        // rows-this-frame cap countdown (reset to VFILL_ROWS_PER_FRAME)
+    Cache_Prev_Cam_Row:     u16,        // last frame's camera world tile row (vertical prefetch direction)
+    // Horizontal prefetch state (unified direction-aware prefetch, §4.7).
+    Cache_Prev_Cam_X:       u16,        // last frame's camera px (low word) — H prefetch delta/hysteresis
+    Cache_H_Pfx_Dir:        u16,        // latched H prefetch direction (0=none, +1=right, -1=left)
+    Cache_H_Pfx_Accum:      u16,        // net opposite-motion px accumulator (>=0) for the hysteresis flip
+    Cache_Pfx_Row_Target:   u16,        // this-frame vertical prefetch target row ($FFFF = none) — corner input
+    Cache_Pfx_Col_Target:   u16,        // this-frame horizontal prefetch target col ($FFFF = none) — corner input
+    Cache_Pfx_Skip_Armed:   u16,        // 1 = prefetch skipped last frame (bound: never skip two running)
+    Cache_Pfx_Lag_Flag:     u16,        // set =1 by the tile-cache frame gate when Frame_Counter advanced by
+                                        // >1 since the last fill (a frame lagged — trailing detect); the
+                                        // prefetch H4 gate consumes it (skip this frame if the prev lagged)
+
+    // Block staging metadata — keys parallel to Block_Stage_Buffers slots.
+    // Key format: sec_x.b | sec_y.b | block_index.w ($FFFFFFFF = empty)
+    Block_Stage_Keys:       [u32; BLOCK_STAGE_SLOTS],
+    Block_Stage_Next:       u16,        // next round-robin slot to evict
+
+    // Row streaming state (vertical)
+    Section_Top_Row_Written:    u16,
+    Section_Bottom_Row_Written: u16,
+
+    // Section streaming state
+    Section_Plane_Dirty:    u8,         // full plane redraw pending (level init + cache recovery)
+    pad(1),                             // pad to even (Section_Plane_Dirty is 1 odd byte)
+
+    // Column streaming state — world tile columns (Camera_X/8 domain)
+    Section_Right_Col_Written: u16,     // last tile col written to nametable on the right side of view
+    Section_Left_Col_Written:  u16,     // last tile col written to nametable on the left side of view
+
+    // §4.2 preview: cached neighbor section data pointers. Set at teleport/init;
+    // NULL if no neighbor exists (act boundary).
+    Section_Fwd_Neighbor_Data: u32,
+    Section_Bwd_Neighbor_Data: u32,
+
+    // Dynamic tile override (16 entries × 6 bytes: col.w, row.w, new_tile.w)
+    Tile_Override_Table:    [u8; 96],
+
+    // --- Entity System (§4.9 — camera-driven sliding window) ---
+    // Unified ring buffer — 128 entries × 6 bytes (dc.w x, y; dc.b section_id, list_index)
+    Ring_Buffer:            [u8; MAX_RING_BUFFER * RING_BUFFER_ENTRY_SIZE],  // 768 bytes
+
+    // Ring count (unified) + buffer diagnostics (reset by RingBuffer_Clear at level init)
+    Ring_Count:             u8,
+    Ring_HighWater:         u8,         // max Ring_Count observed
+    Ring_Add_Dropped:       u8,         // RingBuffer_Add failures (buffer full) — DEBUG-fatal
+    pad(1),
+
+    // Entity scan state — 4 tracked sections × EntityScanState_len bytes
+    Entity_Scan_State:      [u8; MAX_TRACKED_SECTIONS * ENTITY_SCAN_STATE_LEN],
+
+    // Ring state
+    Ring_Counter:           u16,        // total collected rings (player HUD)
+    Ring_Anim_Frame:        u8,         // global ring animation counter (0-3)
+    Ring_Anim_Timer:        u8,         // countdown to next animation tick
+
+    // Entity window tracking
+    Entity_Window_Active:   u8,         // 4-bit entry validity mask (bit n = entry n valid)
+    Entity_Window_Center_ID: u8,        // section_id of rolling bitmask center
+    Entity_Window_Anchor:   [u8; 2],    // absolute (sec_x0, sec_y0) of entry 0 — slide trigger + teleport invariance
+    Entity_Window_OriginX:  u16,        // column-0 origin base, world px (sec_x0 * SECTION_SIZE)
+    Entity_Window_OriginY:  u16,        // row-0 origin base, world px (sec_y0 * SECTION_SIZE)
+    Entity_Loaded_Masks:    [u8; MAX_TRACKED_SECTIONS * ENTITY_LOADED_SLOT_SIZE],  // 128B — per-entry ring/obj loaded bits (§4.9 ph2)
+    Entity_Mask_Scratch:    [u8; 4 + MAX_TRACKED_SECTIONS * ENTITY_LOADED_SLOT_SIZE],  // 132B (even) — slide snapshot: 4 old section ids + 4×32B old masks
+    Camera_Y_Coarse_Prev:   u16,        // camY & $FF80 at last vertical re-scan
+
+    // Rolling collected/killed bitmask — 9 slots × 34 bytes
+    Ring_Collected_Window:  [u8; COLLECTED_WINDOW_SLOTS * COLLECTED_SLOT_SIZE],  // 306 bytes
+    pad(2),                             // pad to even
+
+    // Respawn park (§4.9.4) — 4 entries × 33 bytes (byte-packed, copied bytewise)
+    Ring_Collected_Park:    [u8; COLLECTED_PARK_SLOTS * COLLECTED_PARK_ENTRY_SIZE],  // 132 bytes
+    pad((COLLECTED_PARK_SLOTS * COLLECTED_PARK_ENTRY_SIZE) & 1),  // pad to even (132 — none needed)
+    Collected_Park_Next:    u8,         // rolling write index (0..COLLECTED_PARK_SLOTS-1)
+    pad(1),                             // pad to even
+
+    // Active level pointer
+    Current_Act_Ptr:        u32,
+
+    // --- Sound driver runtime state ---
+    Ring_Sfx_Speaker:       u8,         // toggles 0/1 each ring collect; 0→LEFT, 1→RIGHT
+    pad(1),                             // pad to even
+    // A2 fix: 68k-side pending-SFX ring. Sound_PlaySFX enqueues here;
+    // Sound_DrainSfxRing (game_loop, post-VSync) posts ONE id/frame into the
+    // single-byte SND_REQ_SFX mailbox once the Z80 has cleared it, so two SFX
+    // requested in one 68k frame are delivered over two frames instead of the
+    // 2nd clobbering the 1st. Empty == (Rd == Wr); cleared to 0 by boot.
+    Sfx_Ring_Buf:           [u8; 8],    // SFX_RING_DEPTH (sound_constants.asm) = 8 pending SFX ids
+    Sfx_Ring_Wr:            u8,         // write cursor (0..SFX_RING_MASK)
+    Sfx_Ring_Rd:            u8,         // read cursor  (0..SFX_RING_MASK); SFX_RING_DEPTH(8)+2 = 10 even
+
+    // Sound driver debug mirror. Declared unconditionally (160 bytes, negligible)
+    // so the RAM layout is identical between DEBUG and release. Only WRITTEN under
+    // DEBUG + SOUND_DRIVER_ENABLED + SOUND_DBG_MIRROR. Lets the Exodus MCP — which
+    // reads 68k RAM but not Z80 RAM at $A00000 — observe the driver's
+    // mailbox+status+sequencer state. Sized for the 5-channel sequencer window +
+    // trace ring: 64 + 78 + 32 = 174 <= 176 (kept EVEN with a 2-byte margin).
+    Sound_Dbg_Mirror:       [u8; 176],  // DEBUG: Z80 mailbox/status, playback state, seq header, 5 SeqChannel slots, trace ring
+
+    // --- Object-pool occupancy — the dynamic-pool "run objects list" ---
+    // Word SST-addresses of the live DYNAMIC slots, in SPAWN order, + count + a
+    // frame-end-compaction dirty flag. SST code_addr==0 stays the single source of
+    // truth; this list is a conservative over-approximation (may briefly hold dead
+    // slots, never misses a live one) that lets RunObjects / TouchResponse /
+    // EntityWindow skip the typically-empty dynamic slots. Placed at the RAM TAIL:
+    // the addition ripples ZERO existing RAM addresses (only Engine_RAM_End + game
+    // RAM shift). Genesis RAM has no locality cost, so tail placement is free.
+    Dynamic_Live:           [u16; NUM_DYNAMIC],  // 80B — live dynamic slot addresses, spawn order
+    Dynamic_Live_Count:     u16,        // live entries (0..NUM_DYNAMIC)
+    Dynamic_Live_Dirty:     u8,         // a dynamic deletion happened; compact at frame end
+    // A2 walk-live rail: set while a dynamic live-list walk holds a cursor into
+    // Dynamic_Live, asserted CLEAR at CompactDynamicLive entry — a set flag there
+    // means a mid-walk compaction is about to move entries under a live cursor
+    // (the A2 hazard). Occupies the release pad slot, so Engine_RAM_End is
+    // shape-INVARIANT (no downstream RAM address moves in either shape).
+    if DEBUG == 1 {
+        Dynamic_Live_Walking:   u8,     // DEBUG-only: a dynamic live-list walk is in progress
+    } else {
+        pad(1),                         // pad to even
+    }
+
+    // Occupancy amendment A2 (overflow latch, spec §9) — RELEASE (both shapes).
+    // AllocDynamic at a full live list latches the popped slot word here instead of
+    // compacting mid-frame under a live walker; RunObjects' tail drains it. Placed
+    // after the DEBUG/pad byte so both shapes carry it at the same offset
+    // (Engine_RAM_End moves identically in both). Word count for even alignment.
+    Dynamic_Live_Pending:       [u16; NUM_DYNAMIC_PENDING],  // latched slot addresses (alloc order)
+    Dynamic_Live_Pending_Count: u16,    // latch occupancy (0..NUM_DYNAMIC_PENDING)
+
+    // Prefetch scan memoize — a generation word plus one keyed memo per axis. The
+    // vertical (.pfx_scan) and horizontal (.cs_scan) prefetch scans skip their
+    // FindStagedBlock all-hits re-probe walk when the target line, cache bounds,
+    // and generation still match the last recorded all-staged result. Every
+    // staging claim and every InvalidateStaging bumps the generation, so a memo
+    // survives only across frames in which no block was staged. Placed at the RAM
+    // tail: the addition ripples ZERO existing RAM addresses.
+    Block_Stage_Gen:        u16,        // bumped on every staging claim + invalidate; the memo generation key
+    Pfx_Memo_Row:           u16,        // vertical scan: memoized target row
+    Pfx_Memo_L:             u16,        // vertical scan: Cache_Left_Col at record (bounds guard — load-bearing)
+    Pfx_Memo_H:             u16,        // vertical scan: Cache_Head_Col at record (bounds guard — load-bearing)
+    Pfx_Memo_Gen:           u16,        // vertical scan: Block_Stage_Gen at record ($FFFF sentinel = no memo)
+    Cs_Memo_Col:            u16,        // horizontal scan: memoized target col
+    Cs_Memo_T:              u16,        // horizontal scan: Cache_Top_Row at record (bounds guard — load-bearing)
+    Cs_Memo_B:              u16,        // horizontal scan: Cache_Bottom_Row at record (bounds guard — load-bearing)
+    Cs_Memo_Gen:            u16,        // horizontal scan: Block_Stage_Gen at record ($FFFF sentinel = no memo)
+
+    // HBlank vector slot (§0.10) — the IRQ4 vector points DIRECTLY here. Holds a
+    // 6-byte executable instruction: idle rte ($4E73) when no raster handler is
+    // installed, or `jmp handler.l` ($4EF9 + 4-byte target) when HBlank_Install
+    // arms one. Entered with no wrapper — the handler owns its save/restore + rte.
+    // Placed at the RAM TAIL: the addition ripples ZERO existing RAM addresses.
+    HBlank_Vector_Slot:     [u8; 6],
+
+    // Block staging data pointers (§4.7) — one per staging slot, parallel to
+    // Block_Stage_Keys. DecompressBlock writes the slot's staged-data base here at
+    // claim time; FindStagedBlock returns it. A compressed block points at its RAM
+    // slot; a raw block points straight at the uncompressed ROM block; an empty
+    // block points at the shared zero page below. Consumers only READ through the
+    // pointer, so ROM / zero-page targets are safe. Placed at the RAM TAIL.
+    Block_Stage_Ptrs:       [u32; BLOCK_STAGE_SLOTS],   // 64 bytes — per-slot staged data pointer
+
+    // Shared all-zero staged block — every empty (blank / out-of-grid) block points
+    // here instead of paying a 768-byte zero-fill. BLOCK_RAW_SIZE bytes
+    // (nametable + collision), word-even, in the boot-cleared 64KB Work RAM; never
+    // written after boot (the staged-pointer read-only contract keeps it zero).
+    Block_Stage_ZeroPage:   [u8; BLOCK_RAW_SIZE],       // 768 bytes — read-only zero staged block
+
+    // Engine RAM ends here — game RAM continues from Engine_RAM_End
+    // (games/<game>/config/ram.asm phases from this address).
+    mark Engine_RAM_End,
+}
