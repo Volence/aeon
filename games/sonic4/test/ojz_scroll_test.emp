@@ -20,7 +20,7 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 
 use engine.objects.objdef.{vram_bytes}
 use engine.structs.{Act, Sec, parallax_config}
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{stop_z80, start_z80}
 use engine.types.{VramTile, GridX, GridY}
@@ -37,10 +37,6 @@ ensure(extern("VRAM_TEST_MARKER") == VRAM_TEST_MARKER, "config/constants.asm VRA
 // Screen half-extents — the camera-center offsets for the Player_1 spawn. Their
 // real home is engine/level/camera.asm (not exported by camera.emp), mirrored
 // file-local with a drift guard.
-const CAM_SCREEN_HALF_W = 160
-const CAM_SCREEN_HALF_H = 112
-ensure(extern("CAM_SCREEN_HALF_W") == CAM_SCREEN_HALF_W, "camera.asm CAM_SCREEN_HALF_W drifted from ojz_scroll_test.emp")
-ensure(extern("CAM_SCREEN_HALF_H") == CAM_SCREEN_HALF_H, "camera.asm CAM_SCREEN_HALF_H drifted from ojz_scroll_test.emp")
 
 // TestArt_End - TestArt (the marker-DMA length) — object_test_state owns the
 // TestArt blob; this mirrors its length (two 128-byte squares + the 512-byte ring

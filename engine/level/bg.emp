@@ -19,7 +19,7 @@
 
 module engine.bg in bg
 
-use engine.constants.{VRAM_SPRITE_TABLE}
+use engine.constants.{VRAM_SPRITE_TABLE, VRAM_PLANE_B_BYTES}
 use engine.structs.{Act}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_DATA, VDP_CTRL}
 use engine.z80_bus.{stop_z80, start_z80}
@@ -33,7 +33,6 @@ const BG_TILE_BASE_VRAM  = $8000        // byte address (slot 1024)
 // consumer; the shared twin carries the drift lock).
 ensure(extern("BG_TILE_BASE_VRAM") == BG_TILE_BASE_VRAM, "engine/constants.asm and bg.emp disagree on BG_TILE_BASE_VRAM — update the twin")
 
-const VRAM_PLANE_B_BYTES  = $E000       // Plane B nametable VRAM byte address
 const BG_LAYOUT_SIZE      = 64*64*2     // 8192 bytes (full Plane B nametable)
 // The shared BG tile region runs from BG_TILE_BASE_VRAM up to the relocated
 // sprite attr table at $B800 — so $8000..$B7FF = 448 tiles is the hard ceiling

@@ -14,8 +14,6 @@ VDP_HV_COUNTER          = $C00008
 PSG_PORT                = $C00011
 
 HW_VERSION              = $A10001
-HW_PORT_1_DATA          = $A10003
-HW_PORT_2_DATA          = $A10005
 HW_PORT_EXP_DATA        = $A10007
 HW_PORT_1_CTRL          = $A10009
 HW_PORT_2_CTRL          = $A1000B
@@ -50,8 +48,6 @@ SYSTEM_STACK            = $FFFFFF00
 ; -----------------------------------------------
 VRAM_PLANE_A            = $C000         ; Byte address (tile $600)
 VRAM_PLANE_B            = $E000         ; Byte address (tile $700)
-VRAM_SPRITE_TABLE       = $B800         ; Relocated from $D800 to free plane rows 48-63
-VRAM_HSCROLL_TABLE      = $BC00         ; Relocated from $DC00 (was inside Plane A 64×64 nametable)
 VRAM_WINDOW             = $F000
 
 ; Shared BG tile region (§2 A.5 T1/T2)
@@ -74,7 +70,6 @@ BG_TILE_CAPACITY        = 448           ; Usable shared-BG tiles: $8000..$B7FF (
                                         ; and inject_editor_bg.py.
 
 ; Plane size
-PLANE_H_CELLS           = 64
 PLANE_V_CELLS           = 64
 
 ; -----------------------------------------------
@@ -86,20 +81,10 @@ PAL_TIMING_STEP         = $0133         ; 1.2 (8.8 fixed, 6/5 ratio)
 ; -----------------------------------------------
 ; Controller button masks
 ; -----------------------------------------------
-BUTTON_UP               = 1<<0          ; $01
-BUTTON_DOWN             = 1<<1          ; $02
-BUTTON_LEFT             = 1<<2          ; $04
-BUTTON_RIGHT            = 1<<3          ; $08
 BUTTON_B                = 1<<4          ; $10
-BUTTON_C                = 1<<5          ; $20
-BUTTON_A                = 1<<6          ; $40
 BUTTON_START            = 1<<7          ; $80
 
 ; Button BIT NUMBERS (for btst on Ctrl_1_Held/Press), paired with the masks above
-BUTTON_UP_BIT           = 0
-BUTTON_DOWN_BIT         = 1
-BUTTON_LEFT_BIT         = 2
-BUTTON_RIGHT_BIT        = 3
 
 ; -----------------------------------------------
 ; Game state IDs
@@ -110,10 +95,6 @@ GS_IDLE                 = 1
 ; -----------------------------------------------
 ; DMA Queue (§1.1)
 ; -----------------------------------------------
-DMA_CRITICAL_SLOTS      = 8
-DMA_IMPORTANT_SLOTS     = 12
-DMA_DEFERRABLE_SLOTS    = 12
-DMA_TOTAL_SLOTS         = DMA_CRITICAL_SLOTS+DMA_IMPORTANT_SLOTS+DMA_DEFERRABLE_SLOTS
 
 DMA_BUDGET_NTSC         = 7200          ; usable DMA bytes per NTSC VBlank
 DMA_BUDGET_PAL          = 15000         ; usable DMA bytes per PAL VBlank
@@ -125,7 +106,6 @@ TILE_SIZE               = 32            ; bytes per 8x8 4bpp tile
 
 ; Act art pool — paged global tileset.
 ; One page = 256 tiles; matches the build tool + ojz_strip_gen page slots.
-ART_POOL_PAGE_TILES     = 256                       ; tiles per pool page (matches build tool + ojz_strip_gen)
 ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES*32    ; 8192 — one decompressed pool page
 
 ; -----------------------------------------------
@@ -133,39 +113,24 @@ ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES*32    ; 8192 — one decompressed 
 ; -----------------------------------------------
 
 ; Slot counts per pool
-NUM_PLAYERS             = 2
-NUM_DYNAMIC             = 40
-NUM_EFFECTS             = 16
-NUM_SYSTEM              = 8
-NUM_TOTAL_SLOTS         = NUM_PLAYERS+NUM_DYNAMIC+NUM_SYSTEM+NUM_EFFECTS
 ; Occupancy amendment A2 (overflow latch): capacity of the frame-end pending
 ; latch. AllocDynamic at a full live list (count==NUM_DYNAMIC) latches the popped
 ; slot here instead of compacting mid-frame; RunObjects' tail drains it (one
 ; compaction, then append latched in alloc order). Bounded, rare (>this many
 ; allocs in one saturated frame → alloc-fail). See spec §9.
-NUM_DYNAMIC_PENDING     = 8
 
 ; Object code bank (ObjCodeBase aligned to $10000)
-OBJ_CODE_BANK           = 1         ; moveq #1,d0; swap d0 → $00010000
 
 ; Sprite priority bands
-PRIORITY_BANDS          = 8
-SPRITES_PER_BAND        = 32
 
 ; VDP sprite-table geometry (hoisted from engine/objects/sprites.asm at the
 ; tranche-11 sprites.emp port — sprites.asm no longer defines them, so they
 ; survive the SIGIL_EMP_SPRITES gate for the gate-off rings.asm twin;
 ; kill-list row 17 → row-1 class). Mirrored in engine/system/constants.emp.
-VDP_SPRITE_Y_OFFSET     = 128           ; VDP adds 128 to sprite Y
-VDP_SPRITE_X_OFFSET     = 128           ; VDP adds 128 to sprite X
-MAX_VDP_SPRITES         = 80
 
 ; Scanline-aware sprite budgeting
-SCANLINE_BANDS          = 7             ; 224 / 32 = 7 bands of 32 scanlines each
-SCANLINE_SPRITE_LIMIT   = 24           ; max sprite pieces per band before skipping
 
 ; Collision response types
-COLLISION_NONE          = 0
 COLLISION_ENEMY         = 1
 COLLISION_BOSS          = 2
 COLLISION_HURT          = 3
@@ -177,28 +142,15 @@ COLLISION_SOLID         = 8
 COLLISION_SOLID_BREAK   = 9
 COLLISION_SPRING        = 10
 COLLISION_SOLID_HURT    = 11
-COLLISION_TOUCH         = 12
 
 ; render_flags bits
-RF_ONSCREEN             = 0         ; set by Draw_Sprite if visible
-RF_XFLIP                = 1         ; horizontal flip
-RF_YFLIP                = 2         ; vertical flip
-RF_COORDMODE            = 3         ; 0 = world coords, 1 = screen coords
-RF_MULTISPRITE          = 4         ; (parent only) batch render via sibling-chain walk
-RF_PRIORITY_SHIFT       = 5         ; bits 5-7 = sprite priority band (0-7)
-RF_PRIORITY_MASK        = $E0       ; runtime priority changes must clear these bits first —
                                     ; ori.b alone accumulates stale bits (spawn-time ori is
                                     ; safe: slots are zeroed by DeleteObject/InitObjectRAM)
 
 ; status byte bits (SST_status)
 ; Bits 1-2 aligned with RF_XFLIP/RF_YFLIP for direct propagation.
 ; Player interpretation:
-ST_XFLIP                = 1         ; = RF_XFLIP — facing left
 ST_YFLIP                = 2         ; = RF_YFLIP — vertical flip
-ST_IN_AIR               = 3         ; 1 = airborne (jumped or falling)
-ST_ROLLING              = 4         ; 1 = in ball form
-ST_ON_OBJECT            = 5         ; 1 = standing on a solid object
-ST_PUSHING              = 6         ; 1 = pushing against object
 ST_UNDERWATER           = 7         ; 1 = submerged
 ; NOTE: per-player object bits (STANDING and PUSHING) are gone — "who stands
 ; on / pushes this solid" is the PLAYER-side SST_interact pointer (structs.asm),
@@ -212,8 +164,6 @@ SST_TEMPLATE_START      = $0A       ; first byte of the ObjDef-copied template b
 SST_TEMPLATE_SIZE       = 24        ; template bytes copied at spawn ($0A-$21; $20-$21 re-inited)
 
 ; Execution culling distances (pixels from camera center)
-CULL_DISTANCE_X         = $300      ; 768px — skip dynamic objects beyond this
-CULL_DISTANCE_Y         = $200      ; 512px
 
 ; -----------------------------------------------
 ; Player physics (§5) — 8.8 fixed point. Values are the verified
@@ -222,40 +172,13 @@ CULL_DISTANCE_Y         = $200      ; 512px
 ; order of these eight must match Player_Phys field order (ram.asm) —
 ; block-copied by Player_RefreshPhysics
 ; -----------------------------------------------
-PHYS_ACCEL              = $C
-PHYS_DECEL              = $80
-PHYS_FRICTION           = $C
-PHYS_TOP_SPEED          = $600
-PHYS_GRAVITY            = $38
-PHYS_JUMP_FORCE         = $680
-PHYS_AIR_ACCEL          = $18
-PHYS_JUMP_RELEASE_CAP   = -$400
-PHYS_JUMP_HEADROOM      = 6         ; px — classic CalcRoomOverHead launch gate
-PHYS_GSP_CAP            = $1000     ; tunneling guard on GROUND SPEED — FEEL DEVIATION coupling, spec §2.1
-PHYS_FALL_CAP           = $1000
-PHYS_SLOPE_WALK         = $20
-PHYS_SLOPE_ROLL_DOWN    = $50
-PHYS_SLOPE_ROLL_UP      = $14
-PHYS_SLOPE_STAND_MIN    = $D        ; S3K standing slope-factor gate
 PHYS_ROLL_FRICTION      = $6
-PHYS_ROLL_DECEL         = $20
-PHYS_ROLL_START_MIN     = $100      ; S3K threshold
-PHYS_UNROLL_MAX         = $80       ; S3K threshold
 PHYS_ROLL_FORCE_MIN     = $200
-PHYS_KEEP_ROLL_MIN      = $400
-PHYS_SLIP_SPEED         = $280
-PHYS_SLIP_ANGLE         = $18       ; S3K slip threshold
-PHYS_FALL_ANGLE         = $30       ; S3K detach threshold
-PHYS_SLIP_NUDGE         = $80
-PHYS_MOVE_LOCK_TIME     = 30
-PHYS_SKID_MIN           = $400
-PHYS_JUMP_BUFFER        = 2         ; frames — the one modern concession
 ; Animation byte-0 duration sentinel: when an animation script's duration
 ; byte == DUR_DYNAMIC, AnimateSprite takes the per-anim hold from d3 (caller
 ; supplies it). Only player walk/run/roll scripts use this; generic objects
 ; never set it, so they never read d3. Value is high so it can't collide with
 ; a real frame-hold (real holds are small: idle 30, wait 5, etc.).
-DUR_DYNAMIC             = $FF
 ; Animation control codes ($F7-$FF; frame bytes 0-$F6 are valid mapping frame
 ; indices — only $F7+ dispatches). Truth lives HERE, not animate.asm, so the
 ; codes survive when SIGIL_EMP_ANIMATE gates the interpreter out of the AS
@@ -263,22 +186,12 @@ DUR_DYNAMIC             = $FF
 ; objects) read them in both build shapes. Full script-format semantics:
 ; engine/objects/animate.asm header. Mirrored .emp-side in
 ; engine/system/constants.emp (consumed values only — sigil kill-list row 2).
-AF_END              = $FF   ; loop: restart from first frame
-AF_BACK             = $FE   ; jump back N: next byte = rewind count
 AF_CHANGE           = $FD   ; switch animation: next byte = new anim ID
 AF_ROUTINE          = $FC   ; increment routine counter (SST_custom byte 0) by 2
-AF_DELETE           = $FB   ; delete the object
 AF_CALLBACK         = $FA   ; call routine: dc.b $FA, target_hi, target_lo, 0
 AF_SOUND            = $F9   ; play sound effect: dc.b $F9, sound_id
 AF_COLLISION        = $F8   ; set collision type: dc.b $F8, collision_type
-AF_SET_FIELD        = $F7   ; set SST byte: dc.b $F7, sst_offset, value, 0
 ; Player collision radii (SPG; sizes are 2r+1)
-PLAYER_X_RADIUS         = 9
-PLAYER_Y_RADIUS         = 19
-BALL_X_RADIUS           = 7
-BALL_Y_RADIUS           = 14
-PUSH_RADIUS             = 10        ; constant, never x_radius
-CURL_Y_SHIFT            = 5         ; y_pos += on curl, -= on uncurl
 ; Solidity classes (SolidityTable values — generator contract, collision_pipeline.py)
 SOLID_NONE              = 0
 SOLID_TOP               = 1
@@ -290,12 +203,9 @@ SOLID_ALL               = 3
 ; -----------------------------------------------
 
 ; Section coordinate space
-SECTION_SIZE            = $0800     ; section width/height in world pixels
-SECTION_SIZE_SHIFT      = 11            ; log2(SECTION_SIZE) — derivation shift
     if SECTION_SIZE <> (1<<SECTION_SIZE_SHIFT)
       error "SECTION_SIZE_SHIFT out of sync with SECTION_SIZE"
     endif
-SEC_VOID                = $FF       ; sec_x sentinel: grid cell holds no section.
                                     ; A window quadrant whose derived grid coords
                                     ; fall outside the act is stamped SEC_VOID and
                                     ; skipped by the entity scan/despawn paths.
@@ -326,10 +236,6 @@ PLANE_BUFFER_SIZE       = 1536      ; bytes (~22 column entries per frame)
 ; -----------------------------------------------
 ; 2D Tile Cache (§4.7)
 ; -----------------------------------------------
-TILE_CACHE_COLS         = 80        ; columns in cache (viewport 40 + margin 20×2)
-TILE_CACHE_ROWS         = 60        ; rows in cache (viewport 28 + margin 16×2)
-TILE_CACHE_STRIDE       = TILE_CACHE_COLS   ; compile-time constant for row stride
-TILE_CACHE_NT_SIZE      = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2  ; 9600 bytes
 TILE_CACHE_COLL_ROWS    = TILE_CACHE_ROWS / 2  ; 30 collision rows (16px cells)
 TILE_CACHE_COLL_SIZE    = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS  ; 2400 bytes per plane
 TILE_CACHE_COLL_PLANES  = 2         ; path A (index 0) + path B (index 1)
@@ -374,16 +280,11 @@ BLOCK_INDEX_SIZE        = BLOCK_INDEX_ENTRIES * 4  ; 1024 bytes (ROM)
 ; Compressed art wrapper — every art blob starts with a 4-byte header:
 ; [u16 BE uncompressed size][u8 flags][u8 version]. Loaders peek the size
 ; for DMA (0 = empty stub, skip) and dispatch on the version byte.
-ART_HDR_VERSION         = 3         ; byte offset of version within wrapper
-ART_HDR_SIZE            = 4         ; wrapper bytes ahead of the stream
-ART_VER_S4LZ            = 1         ; S4LZ v3 token stream (runtime tier)
-ART_VER_ZX0             = 2         ; ZX0 modern/V2 bitstream (load-time tier)
 
 ; Collision (§4.7) — collision bytes embedded in block data, no separate maps
 COLLISION_CELL_SHIFT    = 4         ; pixel → cell (/ 16)
 
 ; Collision types
-CTYPE_AIR               = 0
 
 ; Camera
 CAM_LOOKAHEAD_THRESHOLD = $0600     ; ground speed for pan enable
@@ -410,18 +311,12 @@ CAM_MAX_Y_STEP          = 16        ; max camera Y movement px/frame. The stream
 ;   WRAP_V — fall-forever: crossing the bottom wraps Y by level_height
 ;   KILL   — death pit (deferred hook — clamps until a death system exists)
 ; -----------------------------------------------
-EDGE_CLAMP   = 0
-EDGE_WRAP_V  = 1
-EDGE_KILL    = 2
 
 ; -----------------------------------------------
 ; Entity System (§4.9 — camera-driven sliding window)
 ; -----------------------------------------------
 
 ; Unified ring buffer
-RING_HEIGHT             = 16
-RING_ANIM_FRAMES        = 4
-RING_ANIM_SPEED         = 8             ; frames per animation tick
 
 ; Entity window scan
 MAX_TRACKED_SECTIONS     = 4            ; camera-envelope 2×2 — see EntityWindow_DeriveWindow
@@ -446,8 +341,6 @@ ENTITY_RESCAN_ROW_SIZE   = ($10000-ENTITY_RESCAN_COARSE_MASK)  ; 128 — derived
       error "ENTITY_LOAD_BUFFER_Y < coarse row size — vertical re-scan can skip entities"
     endif
 
-SCREEN_WIDTH             = 320          ; visible screen width in pixels
-SCREEN_HEIGHT            = 224          ; visible screen height in pixels
 
 ; 3×3 rolling collected bitmask (±1 section in each axis)
 ; Slot count and eviction radius must agree: 3×3 = 9 slots, radius = ±1.
@@ -466,7 +359,6 @@ MAX_LIST_ENTRIES        = 128           ; collected/killed bitmask capacity per 
 ; 2 = lower-left (slot L, row r+1), 3 = lower-right (slot R, row r+1)
 ; Bit 7 = OEF_ANY_Y placement (Y-despawn exempt). $80|idx never equals
 ; SLOT_TAG_UNTAGGED ($FF), so exact-$FF untagged compares stay correct.
-SLOT_TAG_UNTAGGED       = $FF
 SLOT_TAG_LEFT           = 0
 SLOT_TAG_RIGHT          = 1
 SLOT_TAG_LOWER_L        = 2             ; lower-left quadrant
@@ -492,9 +384,3 @@ OBJ_ENTRY_SIZE          = 6
 ;
 ; x_max/y_max are the far edge (offset + piece size), not the piece origin.
 ; Extents are FLIP-INVARIANT — see convert_s2_mappings.py _compute_bbox.
-FRAME_BBOX_X_MIN        = 0         ; signed byte — leftmost piece pixel
-FRAME_BBOX_X_MAX        = 1         ; signed byte — rightmost piece pixel (right EDGE: x_off + width)
-FRAME_BBOX_Y_MIN        = 2         ; signed byte — topmost piece pixel
-FRAME_BBOX_Y_MAX        = 3         ; signed byte — bottommost piece pixel (bottom EDGE: y_off + height)
-FRAME_PIECE_COUNT       = 4         ; word — number of pieces in frame
-FRAME_PIECES            = 6         ; byte offset to first piece datum

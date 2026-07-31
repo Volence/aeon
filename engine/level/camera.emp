@@ -7,7 +7,7 @@
 
 module engine.camera in camera
 
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H}
 use engine.structs.{Act}
 use engine.objects.sst.{Sst}
 
@@ -17,8 +17,6 @@ use engine.objects.sst.{Sst}
 // section size ever changes.
 ensure(SECTION_SIZE_SHIFT > 8 && SECTION_SIZE_SHIFT <= 16, "SECTION_SIZE_SHIFT {SECTION_SIZE_SHIFT} breaks camera's 8+rest split-shift spelling — respell the chains")
 
-const CAM_SCREEN_HALF_W = 160
-const CAM_SCREEN_HALF_H = 112
 const CAM_MAX_X_STEP    = 16        // no extern drift-lock: this file-pair IS the
                                     // truth (byte-gate-covered), unlike CAM_MAX_Y_STEP
                                     // whose truth lives in engine/constants.asm.

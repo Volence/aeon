@@ -15,16 +15,15 @@ module games.sonic4.act_descriptor_ojz_act1 in act_descriptor
 // constructor + field defaults below.
 use engine.structs.{Act, Sec}
 
-// ---- engine limits, mirrored for COMPTIME checking (kill-list rows: flip
-// when the owning engine files port) ----
+// SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
+// author now that engine.constants is the definition (the P5 ownership flip).
+// The imported consts are plain comptime ints, so EDGE_CLAMP range-proves into
+// the u8 field directly (a link-folded extern could not — the old mirror note).
+// MAX_ACT_SECTIONS is still AS-retained in engine/constants.asm, so it stays a
+// drift-guarded mirror until it flips too (kill-list row 8).
+use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP}
 const MAX_ACT_SECTIONS   = 48
-const SECTION_SIZE_SHIFT = 11
-const EDGE_CLAMP         = 0        // §10 vertical edge mode (byte field —
-                                    // a link-folded extern can't range-prove
-                                    // into u8, so this one stays a mirror)
 ensure(extern("MAX_ACT_SECTIONS") == MAX_ACT_SECTIONS, "MAX_ACT_SECTIONS drifted: {MAX_ACT_SECTIONS}")
-ensure(extern("SECTION_SIZE_SHIFT") == SECTION_SIZE_SHIFT, "SECTION_SIZE_SHIFT drifted: {SECTION_SIZE_SHIFT}")
-ensure(extern("EDGE_CLAMP") == EDGE_CLAMP, "EDGE_CLAMP drifted: {EDGE_CLAMP}")
 
 // ---- the act's shape, written once ----
 const GRID_W = 3
