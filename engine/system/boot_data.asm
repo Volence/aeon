@@ -61,24 +61,16 @@ Z80_Sound_Start:
 Z80_Sound_End:
 Z80_SOUND_SIZE = Z80_Sound_End - Z80_Sound_Start
     else
-      ifndef SIGIL_EMP_Z80_INIT
-        include "engine/system/z80_init.asm"
-      else
-        ; sigil mixed build (off-canonical Config B: no-sound shape): the idle
-        ; program comes from z80_init.emp, placed by the sigil map at the region
-        ; start. org resumes at Z80_IdleProgram_End. The whole-ROM off-canonical
-        ; placement machinery LANDED at t28 (shared with sound_debug/game_debug);
-        ; the mixed_offcanonical_rom::mixed_z80_init_config_b gate proves the
-        ; placement byte-for-byte, and z80_init_port stays as the region oracle.
-        ; Both shipped shapes have sound ENABLED, so this whole `else` is skipped
-        ; canonically. This org is the CONFIG-B sonic4-shape address — the gate
-        ; define must NEVER be set except by that whole-ROM gate.
-        ; Z80_IDLE_SIZE is z80_init.asm's boot-cursor equate (End - Start), which
-        ; the code bytes do not contain; the .emp supplies the code, so the equate
-        ; is defined numerically here for the downstream boot cursor.
+        ; No-sound builds: the Z80 idle program is z80_init.emp, placed by the sigil
+        ; map at the region start; org resumes at Z80_IdleProgram_End. The whole-ROM
+        ; off-canonical placement is proven byte-for-byte by the
+        ; mixed_offcanonical_rom::mixed_z80_init_config_b gate. Both shipped shapes
+        ; have sound ENABLED, so this whole `else` is skipped canonically; the org is
+        ; the CONFIG-B sonic4-shape address. Z80_IDLE_SIZE is the boot-cursor equate
+        ; (End - Start), which the code bytes do not contain; the .emp supplies the
+        ; code, so the equate is defined numerically here for the downstream cursor.
 Z80_IDLE_SIZE = $3FE-$3D8
         org     $3FE
-      endif
     endif
         align 2
 
@@ -129,21 +121,10 @@ BootData_End:
     if (Z80_IDLE_SIZE & 1) <> 0
         fatal "Z80_IDLE_SIZE is odd (\{Z80_IDLE_SIZE}) — the post-blob align would emit a pad byte the (a5)+ cursor never skips"
     endif
-      ifndef SIGIL_EMP_Z80_INIT
-    ; When the idle is AS-side its BootData-relative WAYPOINTS fold at assemble time.
-    ; With SIGIL_EMP_Z80_INIT set the idle comes from z80_init.emp (placed by the
-    ; frozen chainer at 0x3d8) and boot_data's `org $3FE` leaves it a HOLE, so both
-    ; these positional asserts measure the DENSE pre-relocation residual (wrong: the
-    ; idle bytes are not present here) and the Z80_IdleProgram base is link-external
-    ; (a comptime `if` cannot fold it, the row-52 wall). Gated: the invariants are
-    ; then covered by the frozen `Z80_IdleProgram` placement + the whole-ROM
-    ; assembled-anchor gate, and the SIZE wall stays numeric (above) + z80_init.emp's
-    ; own self-ensure (OQ-D).
-    if (Z80_IdleProgram-BootData) <> 54
-        fatal "Z80 idle blob starts at BootData+\{Z80_IdleProgram-BootData} — the cursor reaches the copy loop at +54"
-    endif
-    if (BootData_End-BootData) <> (54+Z80_IDLE_SIZE+4+10)
-        fatal "BootData table is \{BootData_End-BootData} bytes — the cursor protocol accounts for \{54+Z80_IDLE_SIZE+4+10}"
-    endif
-      endif
+    ; The idle program comes from z80_init.emp (placed by the frozen chainer at
+    ; 0x3d8); boot_data's `org $3FE` leaves it a HOLE here, so the Z80_IdleProgram
+    ; BootData-relative waypoints are link-external (a comptime `if` cannot fold
+    ; them, the row-52 wall). The invariants are covered by the frozen
+    ; Z80_IdleProgram placement + the whole-ROM assembled-anchor gate, the numeric
+    ; SIZE wall (above), and z80_init.emp's own self-ensure (OQ-D).
     endif
