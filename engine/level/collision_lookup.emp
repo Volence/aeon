@@ -8,32 +8,76 @@
 // preserved by contract. New sensor wrappers (§5) must follow this.
 module engine.collision_lookup in collision_lookup
 
-use engine.constants.{CTYPE_AIR}
+use engine.constants.{CTYPE_AIR, TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE}
+
+// COLL_* derivatives from the shared engine.constants twin. The extern drift
+// guards live in tile_cache.emp (same invariant, same source) — not duplicated
+// here.
+const TILE_CACHE_COLL_ROWS  = TILE_CACHE_ROWS / 2                         // 30 collision rows
+const TILE_CACHE_COLL_SIZE  = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS      // 2400 bytes per plane
 
 // -----------------------------------------------
-// Collision_GetType — look up collision type for a world-space position
+// Collision_GetType — look up collision type for a world-space position.
+// Fuses the world-space bounds check with the cache-relative fetch: the
+// former Tile_Cache_GetCollision (its sole caller was this proc's tail call)
+// is folded in, so the shared Cache_Left_Col / Cache_Top_Row reads happen
+// once and the tail branch is gone.
 // In:  d0.w = world X pixel position (same domain as x_pos)
 //      d1.w = world Y pixel position
 //      d3.b = layer select (0 = path A, 1 = path B)
 // Out: d0.b = collision type byte (0 = air)
-// Clobbers: d0-d1 here; d2/a0 via the Tile_Cache_GetCollision tail call,
-//           d3 per the sensor convention above (never preserved)
+// Clobbers: d1-d2/a0 (d3 read-only but declared clobbered per the sensor
+//           convention above — set it before every call).
 // -----------------------------------------------
 pub proc Collision_GetType (d0: u16, d1: u16, d3: u8) clobbers(d1-d3/a0) out(d0) {
+        ensure(TILE_CACHE_STRIDE == 80, "Collision_GetType assumes TILE_CACHE_STRIDE=80 (lsl #6 + lsl #4); update the shifts")
         lsr.w   #3, d0                      // X pixels → world tile col
-        cmp.w   Cache_Left_Col, d0
-        blt     .cgt_air
+        move.w  Cache_Left_Col, d2          // read once: bounds compare + cache-relative
+        cmp.w   d2, d0
+        blt     .cgt_air                     // col < left window edge
         cmp.w   Cache_Head_Col, d0
-        bgt     .cgt_air
-        lsr.w   #3, d1                      // Y pixels → world tile row, in place
-        cmp.w   Cache_Top_Row, d1
+        bgt     .cgt_air                     // col > right window edge
+
+        // col in range → cache-relative physical col (circular)
+        sub.w   d2, d0                       // col - Cache_Left_Col (d2 free after)
+        add.w   Cache_Origin_Col, d0
+        cmpi.w  #TILE_CACHE_COLS, d0
+        blt     .col_nowrap
+        subi.w  #TILE_CACHE_COLS, d0
+    .col_nowrap:
+
+        lsr.w   #3, d1                      // Y pixels → world tile row
+        move.w  Cache_Top_Row, d2           // read once: bounds compare + cache-relative
+        cmp.w   d2, d1
         blt     .cgt_air
         cmp.w   Cache_Bottom_Row, d1
         bgt     .cgt_air
 
-        // d0 = world col, d1 = world row
-        // d3.b = layer (0/1) — passed through from caller to Tile_Cache_GetCollision
-        jbra    Tile_Cache_GetCollision     // tail call — d0.b = collision type (cross-seam: engine/level/tile_cache.asm)
+        // row in range → cache-relative physical collision row (circular)
+        sub.w   d2, d1                       // row - Cache_Top_Row (d2 free after)
+        lsr.w   #1, d1                        // tile rows → collision rows
+        move.w  Cache_Origin_Row, d2
+        lsr.w   #1, d2                        // origin even → exact collision origin
+        add.w   d2, d1
+        cmpi.w  #TILE_CACHE_COLL_ROWS, d1
+        blt     .row_nowrap
+        subi.w  #TILE_CACHE_COLL_ROWS, d1
+    .row_nowrap:
+
+        // d1 = coll_row * TILE_CACHE_STRIDE (row*80 = (row<<6)+(row<<4))
+        move.w  d1, d2
+        lsl.w   #6, d1
+        lsl.w   #4, d2
+        add.w   d2, d1
+        add.w   d0, d1
+        // layer plane select: layer B shifts the byte index into the 2nd plane
+        tst.b   d3
+        beq     .plane_selected
+        addi.w  #TILE_CACHE_COLL_SIZE, d1     // plane B starts at +TILE_CACHE_COLL_SIZE
+    .plane_selected:
+        lea     Tile_Cache_Collision, a0
+        move.b  (a0, d1.w), d0
+        rts
 
     .cgt_air:
         moveq   #CTYPE_AIR, d0
