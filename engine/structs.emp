@@ -4,7 +4,7 @@
 // 19-byte RAM mirror of VDP registers $00-$12).
 // All are TYPE-ONLY: this module emits ZERO bytes. It gives every consumer
 // (act_descriptor.emp, section.emp, tile_cache.emp, entity_window.emp,
-// dma_queue.emp, vdp_init.emp) ONE typed home for field access —
+// dma_queue.emp) ONE typed home for field access —
 // `Sec.sec_bg_layout(a0)`, `DMAEntry.SizeH(a1)`, `offsetof(Act, grid_w)` —
 // instead of per-file offset-const mirrors.
 //
@@ -129,7 +129,9 @@ pub struct parallax_config {
 // VDP Shadow Table (§0.4) — 19 bytes, RAM mirror of VDP registers $00-$12.
 // Registers $13-$17 (DMA) are NOT shadowed. VDP_Shadow_Init copies boot
 // register values in; Flush_VDP_Shadow write-backs only the dirty ones. The
-// convenience offsets engine.vdp exposes (VDP_MODE1_OFF/…) pin to this layout.
+// build harvests these field offsets (`VDP_Shadow_vdp_*`) + `VDP_Shadow_len`
+// for the residual AS (ram.asm's `ds`, demo_state.asm's `setVDPReg`); engine.vdp
+// mirrors the register offsets it needs as convenience constants (VDP_MODE1_OFF/…).
 // -----------------------------------------------
 pub struct VdpShadow {
     vdp_mode1:       u8,   // reg $00

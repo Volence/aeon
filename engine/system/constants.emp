@@ -10,8 +10,9 @@
 //
 // `VDP_Shadow_len` is EXCLUDED from this module's harvest: the AS-side symbol
 // is owned by the struct-offset harvest (engine.structs' VdpShadow, the layout
-// author). The `pub const` here is the `.emp`-side named immediate; vdp_init.emp
-// pins it to `sizeof(VdpShadow)`.
+// author). The `pub const` here is the `.emp`-side named immediate the flush
+// loops read; a wrong value changes the emitted `moveq`, so byte-identity is the
+// drift check against the struct.
 //
 // Pure consts: this module opens no section and emits ZERO bytes in the ROM.
 // -----------------------------------------------
@@ -230,5 +231,5 @@ pub const FRAME_PIECES     = 6              // byte offset to first piece datum
 // `VDP_Shadow_len` symbol is owned by the struct-offset harvest (engine.structs'
 // VdpShadow), so it is EXCLUDED from this module's constant harvest to keep a
 // single injector. This named immediate is the `.emp`-side value the flush code
-// reads; vdp_init.emp pins it to `sizeof(VdpShadow)`.
+// reads; a wrong value changes the emitted `moveq`, so byte-identity checks it.
 pub const VDP_Shadow_len = 19

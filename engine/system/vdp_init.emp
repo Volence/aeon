@@ -2,12 +2,6 @@
 module engine.vdp_init in vdp_init
 
 use engine.constants.{VDP_Shadow_len}
-use engine.structs.{VdpShadow}
-
-// VDP_Shadow_len is the named immediate this file's flush loops read; the
-// residual AS reads the same length from the VdpShadow struct harvest. Pin the
-// two so the constant cannot drift from the struct that authors the layout.
-ensure(VDP_Shadow_len == sizeof(VdpShadow), "engine/constants.emp VDP_Shadow_len drifted from engine.structs' VdpShadow: {sizeof(VdpShadow)}")
 
 // The VDP register-set encoding: a control-port word %100R_RRRR_VVVV_VVVV —
 // command base $8000 plus register-number strides of $0100, value in the
