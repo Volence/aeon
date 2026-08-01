@@ -456,16 +456,22 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         rts
 }
 
-pub data Player_States: [i16; 7] = [
-        extern("PState_Ground")   - extern("Player_States"),    // PSTATE_GROUND
-        extern("PState_Roll")     - extern("Player_States"),    // PSTATE_ROLL (player_ground.asm)
-        extern("PState_Spindash") - extern("Player_States"),    // PSTATE_SPINDASH (player_spindash.asm)
-        extern("PState_Air")      - extern("Player_States"),    // PSTATE_AIR
-        extern("PState_Jump")     - extern("Player_States"),    // PSTATE_JUMP
-        extern("PState_RollJump") - extern("Player_States"),    // PSTATE_ROLLJUMP
-        extern("PState_AirBall")  - extern("Player_States"),    // PSTATE_AIRBALL
-]
-ensure(7 == PSTATE_COUNT, "Player_States table out of sync with PSTATE_*")
+// Player_States — the state-handler jump table (§4.7 `offsets`). Each word is
+// `handler - Player_States`; the dispatch reads it at `player_state` (a word-
+// scaled PSTATE_* byte). The handler targets are bare cross-module link refs
+// (L11: bare = cross-module) — PState_* are `pub proc`s in the sibling player
+// modules (player_ground/air/spindash). Declaration order is PSTATE_* order;
+// `.count` replaces the hand `ensure(7 == PSTATE_COUNT)`.
+pub offsets Player_States {
+        Ground:   PState_Ground,        // PSTATE_GROUND (player_ground)
+        Roll:     PState_Roll,          // PSTATE_ROLL (player_ground)
+        Spindash: PState_Spindash,      // PSTATE_SPINDASH (player_spindash)
+        Air:      PState_Air,           // PSTATE_AIR (player_air)
+        Jump:     PState_Jump,          // PSTATE_JUMP (player_air)
+        RollJump: PState_RollJump,      // PSTATE_ROLLJUMP (player_air)
+        AirBall:  PState_AirBall,       // PSTATE_AIRBALL (player_air)
+}
+ensure(Player_States.count == PSTATE_COUNT, "Player_States table out of sync with PSTATE_*")
 
 // -----------------------------------------------
 // Player_SetState — THE one transition writer for player_state.
@@ -487,27 +493,36 @@ pub proc Player_SetState (a0: *Sst) clobbers(d1-d2/a1-a2) {
         jmp     (a1,d1.w) as PlayerHook
 }
 
-pub data PState_EnterHooks: [i16; 7] = [
-        extern("PHook_GroundEnter")  - extern("PState_EnterHooks"),      // GROUND
-        extern("PHook_RollEnter")    - extern("PState_EnterHooks"),      // ROLL
-        extern("PHook_SpindashEnter") - extern("PState_EnterHooks"),     // SPINDASH
-        extern("PHook_AirEnter")     - extern("PState_EnterHooks"),      // AIR (uncurled)
-        extern("PHook_AirBallEnter") - extern("PState_EnterHooks"),      // JUMP
-        extern("PHook_AirBallEnter") - extern("PState_EnterHooks"),      // ROLLJUMP
-        extern("PHook_AirBallEnter") - extern("PState_EnterHooks"),      // AIRBALL
-]
-ensure(7 == PSTATE_COUNT, "PState_EnterHooks table out of sync with PSTATE_*")
+// PState_EnterHooks — the enter-hook jump table (§4.7 `offsets`), indexed like
+// Player_States. The PHook_* targets are same-module procs (defined below);
+// JUMP/ROLLJUMP/AIRBALL all enter through PHook_AirBallEnter (repeated targets
+// are fine — each word is that handler's self-relative offset). `.count`
+// replaces the hand `ensure`.
+pub offsets PState_EnterHooks {
+        Ground:   PHook_GroundEnter,    // GROUND
+        Roll:     PHook_RollEnter,      // ROLL
+        Spindash: PHook_SpindashEnter,  // SPINDASH
+        Air:      PHook_AirEnter,       // AIR (uncurled)
+        Jump:     PHook_AirBallEnter,   // JUMP
+        RollJump: PHook_AirBallEnter,   // ROLLJUMP
+        AirBall:  PHook_AirBallEnter,   // AIRBALL
+}
+ensure(PState_EnterHooks.count == PSTATE_COUNT, "PState_EnterHooks table out of sync with PSTATE_*")
 
-pub data PState_ExitHooks: [i16; 7] = [
-        extern("PHook_Null")        - extern("PState_ExitHooks"),        // GROUND
-        extern("PHook_Null")        - extern("PState_ExitHooks"),        // ROLL
-        extern("PHook_SpindashExit") - extern("PState_ExitHooks"),       // SPINDASH
-        extern("PHook_Null")        - extern("PState_ExitHooks"),        // AIR
-        extern("PHook_Null")        - extern("PState_ExitHooks"),        // JUMP
-        extern("PHook_Null")        - extern("PState_ExitHooks"),        // ROLLJUMP
-        extern("PHook_Null")        - extern("PState_ExitHooks"),        // AIRBALL
-]
-ensure(7 == PSTATE_COUNT, "PState_ExitHooks table out of sync with PSTATE_*")
+// PState_ExitHooks — the exit-hook jump table (§4.7 `offsets`), indexed like
+// Player_States. Only SPINDASH has a non-null exit hook (charge→gsp convert);
+// every other state exits through PHook_Null. `.count` replaces the hand
+// `ensure`.
+pub offsets PState_ExitHooks {
+        Ground:   PHook_Null,           // GROUND
+        Roll:     PHook_Null,           // ROLL
+        Spindash: PHook_SpindashExit,   // SPINDASH
+        Air:      PHook_Null,           // AIR
+        Jump:     PHook_Null,           // JUMP
+        RollJump: PHook_Null,           // ROLLJUMP
+        AirBall:  PHook_Null,           // AIRBALL
+}
+ensure(PState_ExitHooks.count == PSTATE_COUNT, "PState_ExitHooks table out of sync with PSTATE_*")
 
 // ===== Enter/exit hooks — the ONE writer for width/height, curl y-shift,
 // collision-mode resets, and anim latches (spec §3.3). NOTHING outside these
