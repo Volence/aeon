@@ -409,19 +409,27 @@ NullInterrupt:
     ; ErrorHandlerBlob+off, link-folded per shape AND per game); the AS-side vendored
     ; debugger.asm resolves those names as link externs off that base.
     ;
-    ; The org resumes AS-residual placement at EndOfRom (error_handler emits nothing
-    ; after the region, so the resume address IS EndOfRom). Its value is sonic4-shape;
-    ; the off-canonical frozen-table chainer relocates the resumed section to that
-    ; game's EndOfRom.
+    ; The org resumed AS-residual placement at EndOfRom (error_handler emits nothing
+    ; after the region, so the resume address IS EndOfRom). With the terminus native
+    ; (K4 B1), the AS residual ends here — this inert resume-org lives inside the
+    ; epilogue gate below (holed out in every native build; it resolved to the
+    ; now-native EndOfRom and the chainer discarded the baked literal anyway).
+
+; -----------------------------------------------
+; End of ROM
+; -----------------------------------------------
+    ; EndOfRom + the three ROM-tail walls are native (Parcel K4 B1):
+    ; engine/system/epilogue.emp (module engine.epilogue) emits the zero-length
+    ; EndOfRom terminus label, placed LAST by the chainer (boundary key EndOfRom).
+    ; The plane wall is that module's comptime `ensure`; EndOfRom evenness/4MB are
+    ; its link-time asserts (`ensure` over `extern("EndOfRom")`). header.emp's
+    ; `rom_end = extern("EndOfRom") - 1` resolves cross-seam to the native label.
+    ifndef SIGIL_EMP_EPILOGUE
     ifdef __DEBUG__
         org     $5F65A                      ; EndOfRom (sonic4 debug) = BusError($5E5AA) + region $10B0
     else
         org     $5DB60                      ; EndOfRom (sonic4 plain) = BusError($5CAB0) + region $10B0
     endif
-
-; -----------------------------------------------
-; End of ROM
-; -----------------------------------------------
 EndOfRom:
     align 2
 
@@ -433,9 +441,7 @@ EndOfRom:
       error "ROM exceeds 4MB without banking"
     endif
 
-; -----------------------------------------------
-; Compile-time validation
-; -----------------------------------------------
     if PLANE_H_CELLS * PLANE_V_CELLS > 4096
       error "Plane exceeds 8KB"
+    endif
     endif
