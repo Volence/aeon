@@ -43,7 +43,7 @@ order = [
   "GameState_ObjectTest_Init", "GameState_OJZScroll_Init", "NullInterrupt", "BusError",
 ]
 
-# ── Region geometry (mirrors sigil.map.toml; retires there in K5) ──
+# ── Region geometry (this map is the SOLE owner — sigil.map.toml retired in K5) ──
 [[region]]
 name = "rom"
 lma_base = 0
