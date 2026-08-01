@@ -9,11 +9,14 @@ PAD_TO_POWER_OF_TWO     = 1
 
 gameConfigIncludes macro {GLOBALSYMBOLS}
     ; Game constants are authored in games/sonic4/config/constants.emp (conversion
-    ; Parcel F) — the `.emp` module `games.sonic4.constants`. Its `pub const`s are
-    ; harvested (native.rs harvest_game_constants) into guarded AS `-D` defines +
-    ; link EquSyms, so the residual AS and the game-agnostic engine `.emp` read
-    ; them; game `.emp` consumers read them via `use games.sonic4.constants`.
-    include "games/sonic4/config/sound_ids.asm"
+    ; Parcel F) — the `.emp` module `games.sonic4.constants`. The song / SFX ids +
+    ; priority ladder are in games/sonic4/config/sound_ids.emp (module
+    ; games.sonic4.sound_ids, Parcel F2), and the SFX-bank id counts are DERIVED in
+    ; games/sonic4/data/sound/sfx/sfx_bank.emp. All are harvested (native.rs
+    ; harvest_game_constants) into guarded AS `-D` defines + link EquSyms, so the
+    ; residual AS and the game-agnostic engine `.emp` read them; game `.emp`
+    ; consumers read them via `use games.sonic4.{constants,sound_ids}`. config/
+    ; sound_ids.asm is retired (fully `.emp`-authored now).
     include "games/sonic4/config/game.asm"
     endm
 

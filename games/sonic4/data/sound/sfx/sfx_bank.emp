@@ -47,18 +47,20 @@
 
 module data.sfx_bank
 
-// The id contract, DERIVED from the table rows — zero bytes, drift-proof from the
-// SFX SET: a renumber that changes the row set changes these automatically. The
-// `ensure(extern(...))`s below tie them to config/sound_ids.asm at comptime (all
-// three are ungated equs there — the same mechanism sound_api's SFXID mirrors
-// use), so a drift in EITHER direction (the table row set here, or the hand-owned
-// counts in sound_ids.asm) fails the link naming the field.
-const SFX_ID_BASE   = SfxTable.min_key   // $33
-const SFX_COUNT     = SfxTable.count     // 9
-const SFX_TABLE_LEN = SfxTable.len       // 135  (max_id - min_id + 1)
-ensure(extern("SFX_ID_BASE") == SFX_ID_BASE, "SFX_ID_BASE drifted from config/sound_ids.asm: {SFX_ID_BASE}")
-ensure(extern("SFX_COUNT") == SFX_COUNT, "SFX_COUNT drifted from config/sound_ids.asm: {SFX_COUNT}")
-ensure(extern("SFX_TABLE_LEN") == SFX_TABLE_LEN, "SFX_TABLE_LEN drifted from config/sound_ids.asm: {SFX_TABLE_LEN}")
+// The id contract — the SOLE AUTHORITY (Parcel F2). DERIVED from the table rows:
+// zero bytes, drift-proof from the SFX SET (a renumber that changes the row set
+// changes these automatically). This module owns the SFX bank, so it owns the
+// counts that index it; the former hand-owned config/sound_ids.asm mirror + the
+// seam hardcodes are dissolved into this derivation. Exported (`pub`) so the build
+// harvests them for the residual AS (sound_bank.inc's SfxBlobWinTab span guard reads
+// SFX_TABLE_LEN) + the seam authority-eval (the resident SFX reader's SFX_ID_BASE /
+// SFX_TABLE_LEN -D; the head co-link's SFX_TABLE_LEN carrier). No self-referential
+// ensure(extern("SFX_*") == …): the derivation IS the truth, nothing external to
+// cross-check. The one surviving guard that reads this contract is a CONSUMER's —
+// sfx_blob_win_tab.emp's span guard (its 135-cell hand body vs SFX_TABLE_LEN).
+pub const SFX_ID_BASE   = SfxTable.min_key   // $33
+pub const SFX_COUNT     = SfxTable.count     // 9
+pub const SFX_TABLE_LEN = SfxTable.len       // 135  (max_id - min_id + 1)
 
 // ONE `bank: $8000` section — the bank alignment + the always-on no-straddle
 // link assert.

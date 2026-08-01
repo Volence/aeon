@@ -20,9 +20,10 @@ GAME_REGION     equ "JUE             "
 ; SND_ENGINE_TABLE_BANK, spelled `SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK` —
 ; sound because the SFX co-residency guard (and sfx_bank.emp's ensure successor)
 ; asserts exactly that equality, and it no longer derives from the .emp-side
-; Sfx_33 label. The related SFX_ID_BASE / SFX_COUNT / SFX_TABLE_LEN ints live in
-; config/sound_ids.asm (the residual SFX-bank-count stub). This comment documents
-; the contract; there is no assignment here.
+; Sfx_33 label. The related SFX_ID_BASE / SFX_COUNT / SFX_TABLE_LEN are DERIVED in
+; games/sonic4/data/sound/sfx/sfx_bank.emp (from the SfxTable rows) and harvested
+; into the residual AS (Parcel F2). This comment documents the contract; there is
+; no assignment here.
 
 ; The song ids, symbolic SFX ids (incl. SFXID_RING_LEFT / SFXID_RING_RIGHT for
 ; the engine ring system's L/R stereo alternation, Ring_Sfx_Speaker), the
