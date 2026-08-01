@@ -30,18 +30,29 @@ gameEngineBlockIncludes macro {GLOBALSYMBOLS}
     endm
 
 gameObjectBankIncludes macro {GLOBALSYMBOLS}
-    include "games/demo/objects/demo_box.asm"
+    ; DemoBox_Main is native (games/demo/objects/demo_box.emp, module
+    ; games.demo.demo_box), placed by the sigil chainer inside the object code bank
+    ; (org $10000, ObjCodeBase). Shape-invariant window; ONE org, resuming on the
+    ; next label (ObjDef_DemoBox). Demo-shape address; the off-canonical chainer
+    ; relocates.
+    org     $10006
     endm
 
 gameDataIncludes macro {GLOBALSYMBOLS}
-    include "games/demo/data/demo_data.asm"
+    ; ObjDef_DemoBox .. BgAnim_Table are native (games/demo/data/demo_data.emp,
+    ; module games.demo.data.demo_data). Shape-invariant window; ONE org, resuming
+    ; on the game-states region head (GameState_Demo_Init).
+    org     $10100
     endm
 
 gameSoundDataIncludes macro {GLOBALSYMBOLS}
     endm
 
 gameStatesIncludes macro {GLOBALSYMBOLS}
-    include "games/demo/demo_state.asm"
+    ; GameState_Demo_Init / GameState_Demo are native (games/demo/demo_state.emp,
+    ; module games.demo.demo_state). Shape-invariant window; ONE org, resuming on
+    ; NullInterrupt (engine.inc, right after this macro).
+    org     $10172
     endm
 
     include "engine/engine.inc"

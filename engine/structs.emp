@@ -130,8 +130,9 @@ pub struct parallax_config {
 // Registers $13-$17 (DMA) are NOT shadowed. VDP_Shadow_Init copies boot
 // register values in; Flush_VDP_Shadow write-backs only the dirty ones. The
 // build harvests these field offsets (`VDP_Shadow_vdp_*`) + `VDP_Shadow_len`
-// for the residual AS (ram.asm's `ds`, demo_state.asm's `setVDPReg`); engine.vdp
-// mirrors the register offsets it needs as convenience constants (VDP_MODE1_OFF/…).
+// for the residual AS (ram.asm's `ds`, residual-AS `setVDPReg` expansions);
+// engine.vdp mirrors the register offsets it needs as convenience constants
+// (VDP_MODE1_OFF/…, e.g. demo_state.emp's display-enable).
 // -----------------------------------------------
 pub struct VdpShadow {
     vdp_mode1:       u8,   // reg $00

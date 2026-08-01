@@ -1,0 +1,17 @@
+// Demo object — a static display box (the engine-boots-without-Sonic proof).
+// The base SST fields are set by Load_Object from ObjDef_DemoBox (demo_data.emp);
+// this object has no per-frame logic, so it tail-jumps straight into the engine's
+// Draw_Sprite. TODO: your game's objects start here.
+module games.demo.demo_box in demo_box
+
+use engine.objects.sst.{Sst}
+
+// -----------------------------------------------
+// DemoBox_Main — display-only (no logic)
+// In:  a0 = SST pointer
+// Clobbers: d0-d3, a1 — Draw_Sprite's set (the exhaustive-license contract for a
+//   proc that tail-jumps into Draw_Sprite).
+// -----------------------------------------------
+pub proc DemoBox_Main (a0: *Sst) clobbers(d0-d3/a1) {
+        jbra    Draw_Sprite
+}
