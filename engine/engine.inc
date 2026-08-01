@@ -81,13 +81,13 @@
     include "engine/debug/debugger.asm"
 
     org 0
-    include "engine/system/header.inc"
-    ; The 64-entry vector table ($000-$0FF) is native (engine/system/vectors.emp),
-    ; placed by the sigil map at base 0. The region is FIXED SIZE (256 bytes, pure
-    ; data), so the AS residual resumes at org $100 — the header lands exactly
-    ; where vectors.asm's 64 dc.l would leave it (the boundary is fixed).
+    ; The 64-entry vector table ($000-$0FF) is native (engine/system/vectors.emp)
+    ; and the $100-$1FF ROM header is native too (Parcel K4): games/<g>/config/
+    ; header.emp emits it — the game-declared strings are typed `[u8; N]` (the width
+    ; guard IS the type; header.inc's strlen fatal walls retired), Checksum ($18E)
+    ; is the section's frozen boundary key, and tools/fixheader patches $18E/$1A4.
+    ; Both native sections pack $000-$1FF; the org below is an inert resume.
     org     $100
-    gameHeader
 
 ; -----------------------------------------------
 ; Engine code

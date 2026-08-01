@@ -1,16 +1,10 @@
 ; Aeon engine demo — game contract declarations consumed by the engine.
 ; This is the minimal manifest: the engine-boots-without-Sonic proof.
 
-; --- ROM header fields (exact widths asserted by gameHeader) ---
-GAME_CONSOLE    equ "SEGA GENESIS    "
-GAME_COPYRIGHT  equ "(C)     2026.JUL"
-GAME_TITLE_DOM  equ "AEON ENGINE DEMO                                "
-GAME_TITLE_OVS  equ "AEON ENGINE DEMO                                "
-GAME_SERIAL     equ "GM DEMO-000-00"
-GAME_IO         equ "J               "
-GAME_SRAM       equ "            "
-GAME_MEMO       equ "                                                    "
-GAME_REGION     equ "JUE             "
+; --- ROM header fields ---
+; The $100-$1FF ROM header is authored in games/demo/config/header.emp (Parcel K4):
+; the game-declared strings are typed `[u8; N]` data there (the type is the exact-
+; width guard), placed natively right after the vectors.
 
 ; --- engine feature gates ---
 GAME_CAMERA_JUMP_LOCK = 0   ; no player/camera jump-lock system in the demo
