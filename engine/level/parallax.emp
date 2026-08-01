@@ -35,7 +35,7 @@ ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_S
 // keys the HScroll DMA length off the deform-table fields). ----
 
 // Parallax band entry — 10 bytes per band, ROM data.
-struct band_entry {
+pub struct band_entry {
     band_top_cell:       u8,   // first cell row of band (0..27)
     band_factor_a_s1:    u8,   // Plane A shift1 (15 = whole-factor zero "locked")
     band_factor_a_s2:    u8,   // Plane A shift2 (15 = single-term factor)

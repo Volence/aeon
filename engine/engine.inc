@@ -67,7 +67,8 @@
     ; Sound constants are authored in engine/sound/sound_constants.emp (the sound
     ; contract's single authority); the residual AS reads none of its symbols.
     include "engine/macros.asm"
-    include "engine/parallax_macros.inc"
+    ; The §4.6 parallax authoring vocabulary is engine/level/parallax_dsl.emp (conv-g);
+    ; the config data is games/sonic4/data/parallax/configs.emp. Both are native.
     include "engine/sound/sound_bank.inc"
     gameConfigIncludes
     ; Engine RAM is authored in engine/ram.emp (item #7b) — the `.emp` region form.

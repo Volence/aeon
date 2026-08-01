@@ -1,0 +1,99 @@
+// engine/level/parallax_dsl.emp — the §4.6 parallax authoring vocabulary.
+//
+// The generic, game-agnostic half of the old `engine/parallax_macros.inc`:
+// the factor encoding + the deformation-table generators. A game's config
+// module (e.g. games.sonic4.parallax_configs) builds `parallax_config` /
+// `band_entry` records on top of these, choosing per-band factors from the
+// FACTOR_* set and pointing at tables these generators emit.
+//
+// Pure comptime — this module emits no ROM bytes; it is glob-imported into
+// every module (the native comptime-helper set).
+module engine.level.parallax_dsl
+
+// ---- factor encoding (24-bit packed scroll factor) ----
+// A factor is a fraction p/q (q a power of two) expressed as <=2 shift-add
+// terms, packed so the runtime can reconstruct camX*p/q from two shifts:
+//   bits 0-3: shift1 (0..14; 15 = "term zero" -> factor 0 / locked layer)
+//   bits 4-7: shift2 (0..14; 15 = "single-term factor")
+//   bit  8:   op     (0 = ADD the second term, 1 = SUB)
+// `band` (games' config module) splits a FACTOR_* value back into the three
+// band_entry bytes; this keeps the encoding in one place.
+pub comptime fn packed(s1: int, s2: int, op: int) -> int {
+    return ((op & 1) << 8) | ((s2 & 15) << 4) | (s1 & 15)
+}
+
+pub const FACTOR_LOCKED = $0FF                   // s1=15 -> factor 0 ("locked layer")
+pub const FACTOR_0      = FACTOR_LOCKED          // alias
+pub const FACTOR_1      = packed(s1: 0, s2: 15, op: 0)   // camX
+pub const FACTOR_1_2    = packed(s1: 1, s2: 15, op: 0)   // camX>>1
+pub const FACTOR_1_4    = packed(s1: 2, s2: 15, op: 0)   // camX>>2
+pub const FACTOR_1_8    = packed(s1: 3, s2: 15, op: 0)   // camX>>3
+pub const FACTOR_1_16   = packed(s1: 4, s2: 15, op: 0)   // camX>>4
+pub const FACTOR_1_32   = packed(s1: 5, s2: 15, op: 0)   // camX>>5
+pub const FACTOR_3_4    = packed(s1: 0, s2: 2, op: 1)    // camX - camX>>2
+pub const FACTOR_3_8    = packed(s1: 2, s2: 3, op: 0)    // camX>>2 + camX>>3
+pub const FACTOR_3_16   = packed(s1: 3, s2: 4, op: 0)    // camX>>3 + camX>>4
+pub const FACTOR_5_8    = packed(s1: 1, s2: 3, op: 0)    // camX>>1 + camX>>3
+pub const FACTOR_5_16   = packed(s1: 2, s2: 4, op: 0)    // camX>>2 + camX>>4
+pub const FACTOR_7_8    = packed(s1: 0, s2: 3, op: 1)    // camX - camX>>3
+pub const FACTOR_7_16   = packed(s1: 1, s2: 4, op: 1)    // camX>>1 - camX>>4
+pub const FACTOR_15_16  = packed(s1: 0, s2: 4, op: 1)    // camX - camX>>4
+
+// ---- deformation-table generators (§4.6 T3) ----
+// Each emits exactly 256 signed bytes, sampled at (frame*speed + line + phase)
+// & $FF. `as.sin`/`as.int` reproduce asl 1.42's float routines bit-for-bit
+// (Core §7.1), so the sine tables are byte-identical to the AS `rept 256`
+// expansion, golden-gated (float_ns.rs) on the four shipping amplitudes.
+
+pub const TAU = 6.283185307179586
+
+// deform_sine — signed sine wave. amplitude 1..127; period must divide 256.
+pub comptime fn deform_sine(amplitude: int, period: int) -> [i8; 256] {
+    ensure(256 % period == 0, "deform_sine: period {period} must divide 256")
+    return comptime for i in 0..256 { as.int(amplitude * as.sin(TAU * i / period)) }
+}
+
+// deform_zero — the all-zero table. A NON-NULL pointer to this forces the
+// per-line HScroll pipeline (mode 3, pixel-clean band boundaries) while the
+// per-band deform-shift sentinel (15) skips the pointless (0 >> shift) sample
+// loop — the emitted HScroll is byte-identical, produced without the math.
+pub comptime fn deform_zero() -> [i8; 256] {
+    return comptime for i in 0..256 { 0 }
+}
+
+comptime fn iabs(x: int) -> int {
+    return if x < 0 { 0 - x } else { x }
+}
+
+// deform_triangle — signed triangle wave, pure integer (no sin). Linear ramp
+// -A -> +A -> -A per period. period must divide 256.
+pub comptime fn deform_triangle(amplitude: int, period: int) -> [i8; 256] {
+    ensure(256 % period == 0, "deform_triangle: period {period} must divide 256")
+    return comptime for i in 0..256 {
+        if (i % period) < (period / 2) {
+            (((i % period) * amplitude * 4) / period) - amplitude
+        } else {
+            amplitude - ((((i % period) - period / 2) * amplitude * 4) / period)
+        }
+    }
+}
+
+// v_column_perspective — linear V-tilt ramp for per-column V-scroll. focal is
+// the horizon column (offset 0); max_offset the peak at the far edge. The
+// first 40 entries are the column shape; the rest mirror column 39 (a sentinel
+// for animated indexing, harmless for static-shape sections).
+pub comptime fn v_column_perspective(focal: int, max_offset: int) -> [i8; 256] {
+    return comptime for i in 0..256 {
+        ((if i < 40 { i } else { 39 }) - focal) * max_offset / 20
+    }
+}
+
+// v_column_floor — symmetric V-curve for per-column V-scroll (a floor
+// receding at the screen edges). center is the zero column; max_offset the
+// peak at the furthest edge. First 40 entries are the shape; the rest mirror
+// column 39.
+pub comptime fn v_column_floor(center: int, max_offset: int) -> [i8; 256] {
+    return comptime for i in 0..256 {
+        (iabs((if i < 40 { i } else { 39 }) - center) * max_offset) / center
+    }
+}
