@@ -3,10 +3,8 @@
 // through the Player_States offset table in player_common.asm; shares
 // its overlay equates, macros, and the (a4) physics-table convention.
 //
-// Lives in the object code bank, included from main.asm immediately
-// after player_ground.asm.
-//
-// Gate SIGIL_EMP_PLAYER_AIR (main.asm arms a plain ifndef — pure code).
+// Placed in the object code bank by the sigil registry/map, right after
+// player_ground. Gate SIGIL_EMP_PLAYER_AIR — pure code.
 module games.sonic4.player_air in player_air
 
 use engine.objects.sst.{Sst}

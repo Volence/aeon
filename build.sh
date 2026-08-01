@@ -21,7 +21,7 @@ if [[ "$GAME" == "sonic4" ]]; then ROM_NAME="s4"; else ROM_NAME="$GAME"; fi
 # DEBUG builds emit SUFFIXED artifacts (s4.debug.bin/.lst), so the two shapes never
 # overwrite each other. ROM_NAME threads through -o/--emit-lst and s4budget below.
 if [[ "${DEBUG:-0}" == "1" ]]; then ROM_NAME="${ROM_NAME}.debug"; fi
-MAIN_ASM="games/${GAME}/main.asm"
+MAIN_ASM="games/${GAME}/game_root.asm"
 TOOLS="${TOOLS:-tools}"
 
 # Per-game build config (optional): may set defaults, e.g. SOUND_DRIVER_ENABLED
@@ -70,8 +70,9 @@ if [[ -z "${SIGIL_BUILD}" || ! -x "${SIGIL_BUILD}" ]]; then
 fi
 
 # The resident sound blob + banked sound data are sigil-native-linked (seam-1/seam-2);
-# this preflight regenerates engine/sound/generated (the .bin blobs main.asm and
-# boot_data.asm BINCLUDE) from the .emp sources. Sound-ON games only (demo is silent).
+# this preflight regenerates engine/sound/generated (the .bin blobs the sound-bank .emp
+# sections embed() + the mt_syms cross-seam equs) from the .emp sources. Sound-ON games
+# only (demo is silent).
 if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
     SIGIL_EMIT="${SIGIL_EMIT:-}"
     if [[ -z "${SIGIL_EMIT}" || ! -x "${SIGIL_EMIT}" ]]; then
