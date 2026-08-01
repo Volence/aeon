@@ -280,26 +280,18 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
             // driver is running; registers are free here (post-boot setup).
             jbsr    Sound_Init
         }
-        // sonic4's gameBootHook expansion, mirrored — the game-contract boot
-        // hook (games/sonic4/config/game.asm; kill-list row: this file must
-        // follow that macro body). Empty in normal builds.
-        if SOUND_DEBUG_HOTKEYS == 1 && SOUND_DRIVER_ENABLED == 1 {
-            // bsr.w / (X).w spellings are structural: this block byte-follows
-            // the gameBootHook macro body (kill row 45).
-            moveq   #$3C, d0                // ping with a recognizable value
-            bsr.w   Sound_Ping
-            moveq   #SONG_MOVINGTRUCKS, d0  // autoplay the test song
-            bsr.w   Sound_PlayMusic
-            move.b  #1, (Dbg_Music_On).w    // track play state for the Start-toggle
-        }
+        // The game's boot hook (Game.boot_hook). Bound game-side only in the
+        // sound test-harness shape; `= empty` in every canonical build, where it
+        // emits nothing. When bound it lowers to an absolute jsr (engine→game,
+        // placement-independent).
+        invoke  Game.boot_hook
 
-        // Set initial game state — the game supplies the entry contract:
-        //   Game_Entry    = the first game-state routine
-        //   GAME_ENTRY_ID = its game-state id
-        // Both stores keep explicit `.w` dests (the row-1046 kept-width
-        // class — link-imm source + relaxable dest).
-        move.l  #Game_Entry, (Game_State).w
-        move.b  #GAME_ENTRY_ID, (Game_State_ID).w
+        // Set initial game state — the game supplies the entry contract via its
+        // manifest (Game.entry = the first game-state routine, Game.ENTRY_ID = its
+        // game-state id). Both stores keep explicit `.w` dests (the row-1046
+        // kept-width class — link-imm source + relaxable dest).
+        move.l  #Game.entry, (Game_State).w
+        move.b  #Game.ENTRY_ID, (Game_State_ID).w
         clr.b   Game_State_Init
 
         // Enter main loop — never returns
