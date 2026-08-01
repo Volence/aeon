@@ -15,6 +15,13 @@
 // ======================================================================
 module engine.sound_constants
 
+// The 5 Z80 record layouts below pack their multi-byte fields byte-exactly at
+// whatever offset the Z80 driver reads them from — several words land at odd
+// offsets by design (a Z80 record has no 68k word-alignment need; the driver
+// reads them byte-wise). `@allow("layout.odd-field")` declares that intent, so
+// the odd-field lint stays quiet for this module's structs.
+@allow("layout.odd-field")
+
 use engine.constants.{Z80_RAM}
 
 // --- Z80-space base address (as seen from the 68k bus) ---

@@ -111,31 +111,21 @@ pub proc CompressionSelfTest () clobbers(d0-d4/a0-a4) {
 // -----------------------------------------------
 // Golden vectors — one payload, three encodings + the expected plaintext.
 // Each blob is the SAME generated file the build writes
-// (tools/gen_compression_vectors.py); `embed` reads it root-relative. Bound to
-// consts first so each `.len` is a readable comptime int for the alignment
-// guard below (the `data K = embed(...)` readability gate). These labels sit
-// immediately after the code, so the module region runs [CompressionSelfTest,
-// next placement) — the exact span the AS `include` used to fill.
+// (tools/gen_compression_vectors.py); `embed` reads it root-relative. These
+// labels sit immediately after the code, so the module region runs
+// [CompressionSelfTest, next placement) — the exact span the AS `include` used
+// to fill.
+//
+// Each item declares `(align: 2)`: the runtime `lea CSelf_*, a0` + word ops need
+// every label word-aligned. Per-item alignment pins each base to a word boundary
+// independent of what precedes it, so an odd blob gets a single pad byte instead
+// of misaligning the next label. Word alignment is relaxation-invariant (every
+// m68k relaxation delta is even), so the pad survives the CompressionSelfTest
+// proc's branch relaxables above; a link-time congruence assert backstops the
+// final address. Today every blob is even-length, so every pad is zero bytes.
 // -----------------------------------------------
-const _Vec_S4LZ_Plain = embed("engine/debug/generated/s4lz_plain.bin")
-const _Vec_S4LZ_Dict  = embed("engine/debug/generated/s4lz_dict.bin")
-const _Vec_Dict_Blob  = embed("engine/debug/generated/s4lz_dict_blob.bin")
-const _Vec_ZX0        = embed("engine/debug/generated/zx0.bin")
-const _Vec_Payload    = embed("engine/debug/generated/payload.bin")
-
-// Word-even guard: the runtime `lea CSelf_*, a0` + word ops need every label
-// word-aligned. Every blob is even-length (the AS twin's `align 2`s were
-// no-ops), so the labels stay aligned with NO padding between them. An odd blob
-// would misalign the next label — this fires at COMPILE time if that ever
-// happens, pointing at the fix (re-introduce inter-blob alignment).
-ensure(_Vec_S4LZ_Plain.len % 2 == 0, "s4lz_plain vector is odd-length — CSelf_* labels no longer word-align; re-introduce inter-blob padding in compression_selftest.emp")
-ensure(_Vec_S4LZ_Dict.len % 2 == 0, "s4lz_dict vector is odd-length — CSelf_* labels no longer word-align; re-introduce inter-blob padding in compression_selftest.emp")
-ensure(_Vec_Dict_Blob.len % 2 == 0, "dict_blob vector is odd-length — CSelf_* labels no longer word-align; re-introduce inter-blob padding in compression_selftest.emp")
-ensure(_Vec_ZX0.len % 2 == 0, "zx0 vector is odd-length — CSelf_* labels no longer word-align; re-introduce inter-blob padding in compression_selftest.emp")
-ensure(_Vec_Payload.len % 2 == 0, "payload vector is odd-length — CSelf_* labels no longer word-align; re-introduce inter-blob padding in compression_selftest.emp")
-
-pub data CSelf_S4LZ_Plain = _Vec_S4LZ_Plain
-pub data CSelf_S4LZ_Dict  = _Vec_S4LZ_Dict
-pub data CSelf_Dict_Blob  = _Vec_Dict_Blob
-pub data CSelf_ZX0        = _Vec_ZX0
-pub data CSelf_Expected   = _Vec_Payload
+pub data CSelf_S4LZ_Plain (align: 2) = embed("engine/debug/generated/s4lz_plain.bin")
+pub data CSelf_S4LZ_Dict  (align: 2) = embed("engine/debug/generated/s4lz_dict.bin")
+pub data CSelf_Dict_Blob  (align: 2) = embed("engine/debug/generated/s4lz_dict_blob.bin")
+pub data CSelf_ZX0        (align: 2) = embed("engine/debug/generated/zx0.bin")
+pub data CSelf_Expected   (align: 2) = embed("engine/debug/generated/payload.bin")

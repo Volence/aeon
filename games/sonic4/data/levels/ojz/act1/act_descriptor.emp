@@ -27,7 +27,17 @@ use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS, POOL_TIL
 // consumed directly (they range-prove into the u16 fields; a link-folded extern
 // could not, and the pool-tile ceiling proof below now fails at COMPTIME).
 use games.sonic4.ojz_act_pool_manifest_act1.{OJZ_ACT_POOL_PAGES, OJZ_ACT_POOL_TILES}
-use games.sonic4.ojz_block_dicts_act1.{OJZ_SEC0_BLOCK_DICT_LEN, OJZ_SEC1_BLOCK_DICT_LEN, OJZ_SEC2_BLOCK_DICT_LEN, OJZ_SEC3_BLOCK_DICT_LEN, OJZ_SEC4_BLOCK_DICT_LEN, OJZ_SEC5_BLOCK_DICT_LEN, OJZ_SEC6_BLOCK_DICT_LEN, OJZ_SEC7_BLOCK_DICT_LEN, OJZ_SEC8_BLOCK_DICT_LEN}
+use games.sonic4.ojz_block_dicts_act1.{
+    OJZ_SEC0_BLOCK_DICT_LEN,
+    OJZ_SEC1_BLOCK_DICT_LEN,
+    OJZ_SEC2_BLOCK_DICT_LEN,
+    OJZ_SEC3_BLOCK_DICT_LEN,
+    OJZ_SEC4_BLOCK_DICT_LEN,
+    OJZ_SEC5_BLOCK_DICT_LEN,
+    OJZ_SEC6_BLOCK_DICT_LEN,
+    OJZ_SEC7_BLOCK_DICT_LEN,
+    OJZ_SEC8_BLOCK_DICT_LEN,
+}
 
 // The art pool DMAs to VRAM tiles 0..N-1 with no runtime bounds check — a pool
 // past POOL_TILE_CEILING (960) would overwrite the character DPLC region at tile
