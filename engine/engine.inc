@@ -406,11 +406,9 @@ NullInterrupt:
 
     ; The exception-vector stubs (BusError..) and the MD Debugger blob are native
     ; (engine/debug/error_handler.emp, ErrorHandlerBlob), placed by the sigil map in
-    ; every build. ErrorHandler is a LINK ALIAS of that .emp label: the MDDBG__ equ
-    ; table (mddbg_symbols.asm, included below) derives MDDBG__X = ErrorHandler+off
-    ; off this extern base, and the sigil link folds the arithmetic per shape AND per
-    ; game (the "equ off link-external base" capability — an asl build cannot). The
-    ; blob's .emp label is named ErrorHandlerBlob so this alias is not self-referential.
+    ; every build. That module also owns the MDDBG__* `pub equ` table (each entry
+    ; ErrorHandlerBlob+off, link-folded per shape AND per game); the AS-side vendored
+    ; debugger.asm resolves those names as link externs off that base.
     ;
     ; The org resumes AS-residual placement at EndOfRom (error_handler emits nothing
     ; after the region, so the resume address IS EndOfRom). Its value is sonic4-shape;
@@ -421,8 +419,6 @@ NullInterrupt:
     else
         org     $5DB60                      ; EndOfRom (sonic4 plain) = BusError($5CAB0) + region $10B0
     endif
-ErrorHandler = ErrorHandlerBlob             ; link alias — resolved per shape/game
-    include "engine/debug/mddbg_symbols.asm"
 
 ; -----------------------------------------------
 ; End of ROM
