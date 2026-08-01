@@ -41,12 +41,14 @@ def read(path):
 def verify_act_pool():
     """Manifest page count == the pages the pool include references == the .zx0
     files present; each .zx0 wrapper's uncompressed-size header == its .bin."""
-    manifest = os.path.join(GEN, "ojz_act_pool_manifest.asm")
+    # The manifest is a generated `.emp` const module (Parcel K3); the pool
+    # BINCLUDE head stays AS-side.
+    manifest = os.path.join(GEN, "ojz_act_pool_manifest.emp")
     pool = os.path.join(GEN, "ojz_act_pool.asm")
     if not (os.path.isfile(manifest) and os.path.isfile(pool)):
-        check(False, "act pool: ojz_act_pool_manifest.asm / ojz_act_pool.asm missing")
+        check(False, "act pool: ojz_act_pool_manifest.emp / ojz_act_pool.asm missing")
         return
-    m = re.search(r"^OJZ_ACT_POOL_PAGES\s*=\s*(\d+)$",
+    m = re.search(r"^(?:pub\s+const\s+)?OJZ_ACT_POOL_PAGES\s*=\s*(\d+)$",
                   open(manifest).read(), re.M)
     check(m is not None, "act pool: OJZ_ACT_POOL_PAGES not found in manifest")
     if not m:
@@ -85,10 +87,12 @@ def verify_block_blobs():
     """Every OJZ_Sec{N}_Blocks resolves (BINCLUDE'd blob present, or equ-aliased
     to a present one); sec_block_dicts declares a dict length for every section,
     and the length fits inside the blob (index table + dict region)."""
+    # The dict-length table is a generated `.emp` const module (Parcel K3); the
+    # block-blob BINCLUDE head stays AS-side.
     blobs = os.path.join(GEN, "sec_block_blobs.asm")
-    dicts = os.path.join(GEN, "sec_block_dicts.asm")
+    dicts = os.path.join(GEN, "sec_block_dicts.emp")
     if not (os.path.isfile(blobs) and os.path.isfile(dicts)):
-        check(False, "block blobs: sec_block_blobs.asm / sec_block_dicts.asm missing")
+        check(False, "block blobs: sec_block_blobs.asm / sec_block_dicts.emp missing")
         return
     btxt = open(blobs).read()
     binc = dict(re.findall(r'OJZ_Sec(\d+)_Blocks:\s*\n\s*BINCLUDE\s+"[^"]*/(sec\d+_blocks\.bin)"', btxt))
