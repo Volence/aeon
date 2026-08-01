@@ -138,24 +138,13 @@ gameObjectBankIncludes macro {GLOBALSYMBOLS}
     endm
 
 gameDataIncludes macro {GLOBALSYMBOLS}
-    include "games/sonic4/data/parallax/ojz_default.asm"
-    include "games/sonic4/data/parallax/ojz_windy.asm"
-    ; Reusable parallax effects library — drop new effects under
-    ; data/parallax/effects/ and include them here. Each file defines a
-    ; deform table + ParallaxConfig_* record that any section can point
-    ; at via Sec_sec_parallax_config. Must come AFTER ojz_default.asm
-    ; because some effects reference DeformTable_Zero from there.
-    include "games/sonic4/data/parallax/effects/shimmer.asm"
-    include "games/sonic4/data/parallax/effects/haze.asm"
-    include "games/sonic4/data/parallax/effects/rocking.asm"
-    include "games/sonic4/data/parallax/effects/perspective.asm"
-    ; Composite scenes — hand-authored configs that stack multiple effects
-    ; with custom per-band gradients. Must come AFTER effects/ for the
-    ; deform-table references to resolve.
-    include "games/sonic4/data/parallax/scenes/windy_haze.asm"
-    include "games/sonic4/data/parallax/scenes/sky_haze.asm"
-    include "games/sonic4/data/parallax/scenes/caves.asm"
-    include "games/sonic4/data/parallax/scenes/locked_clouds.asm"
+    ; The OJZ parallax block (DeformTable_Zero .. ParallaxConfig_OJZ_LockedClouds)
+    ; is native (conv-g): games/sonic4/data/parallax/configs.emp emits the 6 deform
+    ; tables + 20 parallax_config records via the engine.level.parallax_dsl authoring
+    ; vocabulary, pinned by the sigil map (PARALLAX_CONFIGS). The path_swap resume org
+    ; above lands on the block's DeformTable_Zero; the AS residual resumes past it at
+    ; the test_objects region below. AS-side consumers (act_descriptor's
+    ; act_parallax_config) resolve ParallaxConfig_OJZ_Default through the shared link.
     ; The four ObjDef_* archetype templates are native (test_objects.emp), pinned by
     ; the sigil map; the AS residual resumes at the region end. The orgs are
     ; sonic4-shape (the off-canonical chainer ignores them).
