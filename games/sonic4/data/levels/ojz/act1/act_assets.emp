@@ -1,0 +1,14 @@
+// OJZ Act 1 palette + background assets (Parcel K3): the four BINCLUDEs that used
+// to sit in act_descriptor.asm after the descriptor, now a natively-placed `.emp`
+// section (ojz_act_assets). Even-length blobs — no inter-blob alignment padding.
+//
+//   OJZ_Palette         — act CRAM palette (line 1..), consumed by act_descriptor.emp
+//   BGND_Palette        — shared/HUD palette (CRAM line 0), consumed by ojz_scroll_test.emp
+//   OJZ_Act1_BG_Layout  — zone-wide Plane B nametable (§2 A.5 T1), act_descriptor.emp
+//   OJZ_Act1_BG_Tiles   — shared BG tile blob, act_descriptor.emp
+module games.sonic4.ojz_act_assets_act1 in ojz_act_assets
+
+pub data OJZ_Palette        = embed("games/sonic4/data/generated/ojz/act1/ojz_palette.bin")
+pub data BGND_Palette       = embed("art/palettes/SonicAndTails.bin")
+pub data OJZ_Act1_BG_Layout = embed("games/sonic4/data/generated/ojz/act1/zone_bg.bin")
+pub data OJZ_Act1_BG_Tiles  = embed("games/sonic4/data/generated/ojz/act1/bg_tiles.bin")

@@ -87,16 +87,17 @@ def verify_block_blobs():
     """Every OJZ_Sec{N}_Blocks resolves (BINCLUDE'd blob present, or equ-aliased
     to a present one); sec_block_dicts declares a dict length for every section,
     and the length fits inside the blob (index table + dict region)."""
-    # The dict-length table is a generated `.emp` const module (Parcel K3); the
-    # block-blob BINCLUDE head stays AS-side.
-    blobs = os.path.join(GEN, "sec_block_blobs.asm")
+    # Both the block-blob embeds and the dict-length table are generated `.emp`
+    # modules (Parcel K3): sec_block_blobs.emp (natively-placed section) +
+    # sec_block_dicts.emp (const module).
+    blobs = os.path.join(GEN, "sec_block_blobs.emp")
     dicts = os.path.join(GEN, "sec_block_dicts.emp")
     if not (os.path.isfile(blobs) and os.path.isfile(dicts)):
-        check(False, "block blobs: sec_block_blobs.asm / sec_block_dicts.emp missing")
+        check(False, "block blobs: sec_block_blobs.emp / sec_block_dicts.emp missing")
         return
     btxt = open(blobs).read()
-    binc = dict(re.findall(r'OJZ_Sec(\d+)_Blocks:\s*\n\s*BINCLUDE\s+"[^"]*/(sec\d+_blocks\.bin)"', btxt))
-    alias = dict(re.findall(r"OJZ_Sec(\d+)_Blocks\s+equ\s+OJZ_Sec(\d+)_Blocks", btxt))
+    binc = dict(re.findall(r'OJZ_Sec(\d+)_Blocks\s*=\s*embed\("[^"]*/(sec\d+_blocks\.bin)"\)', btxt))
+    alias = dict(re.findall(r'OJZ_Sec(\d+)_Blocks\s*=\s*extern\("OJZ_Sec(\d+)_Blocks"\)', btxt))
     dtxt = open(dicts).read()
     dlen = {int(n): int(v) for n, v in
             re.findall(r"OJZ_SEC(\d+)_BLOCK_DICT_LEN\s*=\s*(\d+)", dtxt)}
@@ -121,15 +122,15 @@ def verify_block_blobs():
 
 
 def verify_bininclude_targets():
-    """Every BINCLUDE in the committed generated heads resolves to a present
-    file (catches a renamed/removed blob a hand-edit left dangling)."""
-    for head in ("sec_block_blobs.asm", "ojz_act_pool.asm", "bg_anim.asm"):
+    """Every BINCLUDE / embed() in the committed generated heads resolves to a
+    present file (catches a renamed/removed blob a hand-edit left dangling)."""
+    for head in ("ojz_act_pool.asm", "sec_block_blobs.emp", "bg_anim.emp"):
         hp = os.path.join(GEN, head)
         if not os.path.isfile(hp):
             continue
-        for tgt in re.findall(r'BINCLUDE\s+"([^"]+)"', open(hp).read()):
+        for tgt in re.findall(r'(?:BINCLUDE\s+|embed\()"([^"]+)"', open(hp).read()):
             tp = os.path.join(ROOT, tgt) if not os.path.isabs(tgt) else tgt
-            check(os.path.isfile(tp), f"{head}: BINCLUDE target missing: {tgt}")
+            check(os.path.isfile(tp), f"{head}: BINCLUDE/embed target missing: {tgt}")
 
 
 def main():

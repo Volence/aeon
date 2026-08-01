@@ -16,38 +16,14 @@
 ; OJZ_Act1_Descriptor + OJZ_Act1_Sections are authored in act_descriptor.emp
 ; (same dir): the typed `Act` / `[Sec; 9]` literal, with the grid-capacity and
 ; signed-word axis-clamp guards as comptime `ensure`s. sigil pins the block by
-; the map at the per-shape reference address; the org below resumes placement
-; for the generated block data / palettes / BG that follow (sonic4-shape
-; addresses — the generated includes above and the data below stay AS-side).
-  ifdef __DEBUG__
-    org     $14E06
-  else
-    org     $14D9E
-  endif
-; -----------------------------------------------
-; Generated block data — 16×16 blocks, S4LZ compressed (§4.7 2D)
-; OJZ_Sec{N}_Blocks labels live in the generated include: identical blobs
-; are stored once and duplicate sections alias via equ (content dedup).
-; -----------------------------------------------
-    include "games/sonic4/data/generated/ojz/act1/sec_block_blobs.asm"
-
-OJZ_Palette: BINCLUDE "games/sonic4/data/generated/ojz/act1/ojz_palette.bin"
-    align 2
-
-; Shared/HUD palette (CRAM line 0) — sonic_hack convention for level rendering.
-BGND_Palette: BINCLUDE "art/palettes/SonicAndTails.bin"
-    align 2
-
-; Zone-wide BG layout + shared BG tile blob (§2 A.5 T1)
-OJZ_Act1_BG_Layout: BINCLUDE "games/sonic4/data/generated/ojz/act1/zone_bg.bin"
-    align 2
-OJZ_Act1_BG_Tiles:  BINCLUDE "games/sonic4/data/generated/ojz/act1/bg_tiles.bin"
-    align 2
-
-; Camera-driven BG tile animation banks (generated; TileCount=0 stub when none)
-    include "games/sonic4/data/generated/ojz/act1/bg_anim.asm"
-    align 2
-
-; Per-section tile blobs removed: the act-wide
-; paged art pool (OJZ_Act_Pool_Page* / OJZ_Act_Pool_PageTable) is now included
-; at the top of this file via ojz_act_pool.asm.
+; the map at the per-shape reference address.
+;
+; Parcel K3 run B: the block blobs, the palette/BG BINCLUDEs, and the bg_anim
+; stub that used to follow the descriptor here are now natively-placed `.emp`
+; sections — sec_block_blobs.emp (games.sonic4.ojz_sec_block_blobs_act1),
+; act_assets.emp (games.sonic4.ojz_act_assets_act1: OJZ_Palette / BGND_Palette /
+; OJZ_Act1_BG_Layout / OJZ_Act1_BG_Tiles), and bg_anim.emp
+; (games.sonic4.ojz_bg_anim_act1). The descriptor's org-resume died with them.
+;
+; What remains AS-side is the art-pool include above (#30, run A) — it dissolves
+; in K3 run A (with entity_data.asm), which also deletes this wrapper.
