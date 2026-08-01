@@ -1,0 +1,50 @@
+// The $100-$1FF Mega Drive ROM header (Parcel K4 — was engine/system/header.inc's
+// gameHeader macro). Game-declared strings: the `[u8; N]` FIELD TYPES are the
+// EXACT-width guards — a wrong-length string fails to lower at comptime (this
+// replaces the nine `strlen … fatal` walls; the type IS the assertion). The header
+// splits at the checksum so `Checksum` ($18E) stays a real boundary label: the
+// GameHeader top struct ($100-$18D), the checksum word ($18E), then the tail
+// ($190-$1FF). checksum + rom_end ($1A4) are patched post-pipeline by sigil (both
+// derived from the final image size). Placed natively at the `header` section right
+// after the vectors ($000-$0FF).
+module games.sonic4.header in header
+
+struct HeaderTop {
+    console:   [u8; 16],   // $100
+    copyright: [u8; 16],   // $110
+    title_dom: [u8; 48],   // $120
+    title_ovs: [u8; 48],   // $150
+    serial:    [u8; 14],   // $180
+}
+
+struct HeaderTail {
+    io:        [u8; 16],   // $190
+    rom_start: u32,        // $1A0
+    rom_end:   u32,        // $1A4 — sigil patches to the final image size
+    ram_start: u32,        // $1A8
+    ram_end:   u32,        // $1AC
+    sram:      [u8; 12],   // $1B0
+    memo:      [u8; 52],   // $1BC
+    region:    [u8; 16],   // $1F0
+}
+
+pub data GameHeader: HeaderTop = HeaderTop{
+    console:   "SEGA GENESIS    ",
+    copyright: "(C)     2026.APR",
+    title_dom: "SONIC THE HEDGEHOG 4                            ",
+    title_ovs: "SONIC THE HEDGEHOG 4                            ",
+    serial:    "GM S4-0001-00 ",
+}
+
+pub data Checksum: u16 = 0                                                      // $18E
+
+data _header_tail: HeaderTail = HeaderTail{
+    io:        "J               ",
+    rom_start: 0,
+    rom_end:   extern("EndOfRom") - 1,
+    ram_start: $00FF0000,
+    ram_end:   $00FFFFFF,
+    sram:      "            ",
+    memo:      "                                                    ",
+    region:    "JUE             ",
+}

@@ -21,7 +21,7 @@ fill = 0x00
 #    derivation change fails loud (R2 validate). Zero-byte markers (e.g. __BUDGET_DATA)
 #    are excluded — their tie-position is byte-neutral and shape-varying. ──
 order = [
-  "Vectors", "Checksum", "EntryPoint", "BootData",
+  "Vectors", "GameHeader", "EntryPoint", "BootData",
   "Z80_IdleProgram", "BootData_PostBlob",
   "VDP_Shadow_Init", "Init_DMA_Queue", "Init_SpriteTable", "VBlank_Handler",
   "HBlank_Install", "Read_Controllers", "GameLoop", "S4LZ_DecompressDict",

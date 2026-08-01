@@ -1,15 +1,9 @@
 ; Sonic 4 — game contract declarations consumed by the engine.
 
-; --- ROM header fields (exact widths asserted by gameHeader) ---
-GAME_CONSOLE    equ "SEGA GENESIS    "
-GAME_COPYRIGHT  equ "(C)     2026.APR"
-GAME_TITLE_DOM  equ "SONIC THE HEDGEHOG 4                            "
-GAME_TITLE_OVS  equ "SONIC THE HEDGEHOG 4                            "
-GAME_SERIAL     equ "GM S4-0001-00 "
-GAME_IO         equ "J               "
-GAME_SRAM       equ "            "
-GAME_MEMO       equ "                                                    "
-GAME_REGION     equ "JUE             "
+; --- ROM header fields ---
+; The $100-$1FF ROM header is authored in games/sonic4/config/header.emp (Parcel
+; K4): the game-declared strings are typed `[u8; N]` data there (the type is the
+; exact-width guard), and it places natively right after the vectors.
 
 ; --- sound contract ---
 ; SFX_BLOB_BANK — the bank all SFX blobs live in (engine/sound/sound_sfx.asm

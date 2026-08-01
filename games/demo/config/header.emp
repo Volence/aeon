@@ -1,0 +1,46 @@
+// The $100-$1FF Mega Drive ROM header (Parcel K4 — was engine/system/header.inc's
+// gameHeader macro). The demo's game-declared strings: the `[u8; N]` field types
+// are the EXACT-width guards. The header splits at the checksum so `Checksum`
+// ($18E) stays a real boundary label. checksum + rom_end ($1A4) are sigil-patched
+// post-pipeline. Placed natively at the `header` section right after the vectors.
+module games.demo.header in header
+
+struct HeaderTop {
+    console:   [u8; 16],
+    copyright: [u8; 16],
+    title_dom: [u8; 48],
+    title_ovs: [u8; 48],
+    serial:    [u8; 14],
+}
+
+struct HeaderTail {
+    io:        [u8; 16],
+    rom_start: u32,
+    rom_end:   u32,
+    ram_start: u32,
+    ram_end:   u32,
+    sram:      [u8; 12],
+    memo:      [u8; 52],
+    region:    [u8; 16],
+}
+
+pub data GameHeader: HeaderTop = HeaderTop{
+    console:   "SEGA GENESIS    ",
+    copyright: "(C)     2026.JUL",
+    title_dom: "AEON ENGINE DEMO                                ",
+    title_ovs: "AEON ENGINE DEMO                                ",
+    serial:    "GM DEMO-000-00",
+}
+
+pub data Checksum: u16 = 0
+
+data _header_tail: HeaderTail = HeaderTail{
+    io:        "J               ",
+    rom_start: 0,
+    rom_end:   extern("EndOfRom") - 1,
+    ram_start: $00FF0000,
+    ram_end:   $00FFFFFF,
+    sram:      "            ",
+    memo:      "                                                    ",
+    region:    "JUE             ",
+}
