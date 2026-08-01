@@ -33,33 +33,27 @@ module engine.debug.sound_debug in sound_debug
 
 use engine.z80_bus.{stop_z80, start_z80}
 
-// Link-resolved RAM/Z80 addresses (truth: engine/sound_constants.asm, ram.asm).
+// The sound contract's single authority (SeqChannel_len, SND_SEQ_TRACE_LEN, the
+// Z80 RAM bases). The glob brings the SND_SEQ_TRACE derivation chain into scope;
+// SeqChannel_len (a `sizeof`) and SND_SEQ_TRACE_LEN (=32) fold at comptime, so the
+// `(SeqChannel_len - SEQ_MIRROR_CHBYTES)(a0)` displacement and the
+// `#SND_SEQ_TRACE_LEN-1` moveq immediate size correctly.
+use engine.sound_constants.*
+
+// Z80_RAM is the engine's hardware-address authority (engine.constants); the
+// SND_* offsets are sound_constants'.
 equ SND_MIRROR_DEST = extern("Sound_Dbg_Mirror")
-equ SND_REQ_SRC     = extern("Z80_RAM") + extern("SND_REQ_BASE")
-equ SND_STATE_SRC   = extern("Z80_RAM") + extern("SND_STATE_BASE")
-equ SND_SEQ_SRC     = extern("Z80_RAM") + extern("SND_SEQ_BASE")
-equ SND_TRACE_SRC   = extern("Z80_RAM") + extern("SND_SEQ_TRACE")
+equ SND_REQ_SRC     = extern("Z80_RAM") + SND_REQ_BASE
+equ SND_STATE_SRC   = extern("Z80_RAM") + SND_STATE_BASE
+equ SND_SEQ_SRC     = extern("Z80_RAM") + SND_SEQ_BASE
+equ SND_TRACE_SRC   = extern("Z80_RAM") + SND_SEQ_TRACE
 
 const SEQ_MIRROR_CHANNELS = 3
 const SEQ_MIRROR_CHBYTES  = 20                       // per-channel prefix (<= SeqChannel_len)
 const SEQ_MIRROR_HDRCH    = 8 + SEQ_MIRROR_CHANNELS * SEQ_MIRROR_CHBYTES
 
-// SeqChannel_len / SND_SEQ_TRACE_LEN are COMPTIME constants the AS twin folds
-// (a struct-generated length and a =32 equate); the .emp mirrors them so the
-// `(SeqChannel_len - SEQ_MIRROR_CHBYTES)(a0)` displacement and the
-// `#SND_SEQ_TRACE_LEN-1` moveq immediate FOLD at comptime (a link-external
-// extern cannot size a d16 displacement / imm — the TILE_SIZE precedent, ledger
-// row 1582). The drift guards lock the mirrors against the AS-side truths.
-const SEQ_CHANNEL_LEN    = 60                         // mirror: SeqChannel struct length (AS: endstruct = 60)
-const SND_SEQ_TRACE_LEN  = 32                         // mirror: 32-byte trace ring
-
-ensure(extern("SeqChannel_len") == SEQ_CHANNEL_LEN,
-       "SeqChannel_len drifted from the mirror")
-ensure(extern("SND_SEQ_TRACE_LEN") == SND_SEQ_TRACE_LEN,
-       "SND_SEQ_TRACE_LEN drifted from the mirror")
-
-// Fit guards (comptime now — they mirror the AS twin's `if X > Y / fatal` spans).
-ensure(SEQ_MIRROR_CHBYTES <= SEQ_CHANNEL_LEN,
+// Fit guards (comptime — they mirror the AS twin's `if X > Y / fatal` spans).
+ensure(SEQ_MIRROR_CHBYTES <= SeqChannel_len,
        "SEQ_MIRROR_CHBYTES exceeds SeqChannel_len")
 ensure(64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN <= 176,
        "sound debug mirror window exceeds Sound_Dbg_Mirror (176 bytes)")
@@ -104,7 +98,7 @@ pub proc Sound_DebugMirror () clobbers(d0-d1/a0-a1) {
         .copy3cb:
             move.b  (a0)+, (a1)+
             dbf     d0, .copy3cb
-        lea     (SEQ_CHANNEL_LEN-SEQ_MIRROR_CHBYTES)(a0), a0   // skip the unmirrored tail
+        lea     (SeqChannel_len-SEQ_MIRROR_CHBYTES)(a0), a0   // skip the unmirrored tail
         dbf     d1, .copy3c
     lea     SND_TRACE_SRC, a0                    // (SND_TRACE_SRC).l; trace ring (32 B, derived addr)
     moveq   #SND_SEQ_TRACE_LEN-1, d0
