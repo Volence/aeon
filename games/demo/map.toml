@@ -35,14 +35,9 @@ lma_base = 0x10000
 size = 0x10000
 kind = "object_bank"
 
-# Mirrors sigil.map.toml's region set so emit_rom is byte-identical across the switch;
-# demo is sound-OFF so this bank carries nothing (slims in K5 when sigil.map.toml retires).
-[[region]]
-name = "z80_moving_trucks_bank"
-lma_base = 0x60000
-size = 0x8000
-kind = "z80_bank"
-vma_base = 0x8000
+# K5: demo is sound-OFF, so it declares no Z80 Moving-Trucks bank (the region existed only
+# to mirror the retired sigil.map.toml's region set; nothing places there — its removal is
+# byte-neutral, the demo ROM ends well before 0x60000).
 
 [[anchor]]
 name = "boot_head"
