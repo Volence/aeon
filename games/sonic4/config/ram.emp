@@ -1,0 +1,66 @@
+// Sonic 4 game RAM — the `.emp` region form (item #7c).
+//
+// A single region chained onto the engine RAM: `game_ram @ after(upper_ram)`
+// continues from Engine_RAM_End (the E5 engine/game split), exactly as the
+// retired `phase Engine_RAM_End` did. This module is the SOLE author of the game
+// RAM layout — its `pub` labels are the joint-link authority every game consumer
+// (`.emp` player code + the residual AS test harness) resolves against.
+//
+// The `Game_RAM_End >= SYSTEM_STACK` overflow guard becomes the region `limit`;
+// the `Player_Pos_Ring & $FF` 256-alignment guard becomes `@align(256)` (aligned
+// by construction, so the check is unnecessary); the `ifdef __DEBUG__` counters
+// become an `if DEBUG == 1 @shape_divergent` group. `w_addressable` asserts the
+// whole window is `.w`-reachable — the hot player data is `.w`-addressed (an added
+// invariant the retired `.asm` did not state; it holds because game RAM sits above
+// $FFFF8000 and below SYSTEM_STACK, bit 15 set throughout).
+
+module games.sonic4.ram
+
+use engine.constants.{SYSTEM_STACK}
+
+pub region game_ram @ after(upper_ram) .. SYSTEM_STACK, w_addressable
+
+pub vars game_ram {
+    // DEBUG counters (size-varying → the fields below shift +4 in the debug shape,
+    // exactly as the retired `ifdef __DEBUG__` block did — declared divergent).
+    if DEBUG == 1 @shape_divergent {
+        Dbg_Music_On:   u16,    // 1 = test song playing (Start toggles; low byte only)
+        Dbg_Sfx_Sel:    u16,    // B-button SFX-trigger cycle index (low byte; 0..7)
+    }
+
+    // -----------------------------------------------
+    // Player (§5)
+    // -----------------------------------------------
+    // Effective physics table — recomputed by Player_RefreshPhysics on section
+    // change / status events, NEVER per-frame. a4 points here during player
+    // movement code (classic register convention). Field order must match the
+    // first eight PHYS_* constants (constants.asm).
+    mark Player_Phys,
+    Phys_accel:         u16,
+    Phys_decel:         u16,
+    Phys_friction:      u16,
+    Phys_top_speed:     u16,
+    Phys_gravity:       u16,
+    Phys_jump_force:    u16,
+    Phys_air_accel:     u16,
+    Phys_release_cap:   u16,
+    mark Player_Phys_End,
+
+    Player_Quadrant:        u8,     // (angle+$20)>>6 — derived once per frame
+    Player_JumpBuffer:      u8,     // frames remaining on buffered jump press
+    Player_Death_Pending:   u8,     // EDGE_KILL hook: set when the player crosses a
+                                    // kill-edge; the death system consumes it.
+                                    // Boot-cleared with all Work-RAM.
+    pad(1),                         // keep the following rings even-aligned
+
+    // -----------------------------------------------
+    // Player history rings (§5)
+    // -----------------------------------------------
+    // Position/stat history rings (future Tails follow + trails; recorded from day
+    // one). 256-aligned: index wraps via low-byte increment.
+    Player_Pos_Ring:    [u8; 256] @align(256),  // 64 × (x.w, y.w)
+    Player_Stat_Ring:   [u8; 256],              // 64 × (input.w, status.b, pad.b)
+    Player_Ring_Index:  u16,                    // byte offset into both rings — word-sized for (an,dn.w) index
+
+    mark Game_RAM_End,
+}

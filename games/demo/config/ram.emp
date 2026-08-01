@@ -1,0 +1,16 @@
+// demo game RAM — the `.emp` region form (item #7c). Nothing yet: an empty region
+// chained onto the engine RAM, present only to define `Game_RAM_End` at
+// Engine_RAM_End (where a game's own variables would begin). The
+// `Game_RAM_End >= SYSTEM_STACK` overflow guard becomes the region `limit`.
+//
+// TODO: your game's variables start here — add fields to the `vars` block.
+
+module games.demo.ram
+
+use engine.constants.{SYSTEM_STACK}
+
+pub region game_ram @ after(upper_ram) .. SYSTEM_STACK, w_addressable
+
+pub vars game_ram {
+    mark Game_RAM_End,
+}
