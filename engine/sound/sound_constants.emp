@@ -471,6 +471,7 @@ pub struct FmPatch {
     fp_reserved:   [u8; 2],    // pad the record to 32 bytes (a power of two)
 }
 pub const FmPatch_len            = sizeof(FmPatch)      // = 32
+pub const FmPatch_fp_tl          = offsetof(FmPatch, fp_tl)   // = 6 (patch base -> TL block)
 
 ensure(FmPatch_len == 32, "FmPatch struct is {FmPatch_len} bytes, expected 32")
 
