@@ -99,7 +99,8 @@ __BUDGET_ENGINE:
     else
         org     $3A8
     endif
-    include "engine/system/boot_data.asm"
+    ; BootData table: native (.emp), engine/system/boot_data.emp (Parcel K2). The
+    ; $3FE hole (no-sound shapes) is the declared map hole engine.z80_init fills.
     ; VDP_Shadow_Init/Flush_VDP_Shadow: native (.emp), sigil-map-pinned; the AS residual resumes past it.
     ; INERT: the chainer derives every target's placement from its frozen table +
     ; live sizes and ignores these orgs (deletion rides the residual-split capstone).

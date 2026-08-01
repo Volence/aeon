@@ -2,10 +2,10 @@
 // (§ references = docs/ENGINE_ARCHITECTURE.md)
 //
 // The BootData table (movem preloads, VDP register bytes, DMA fill command,
-// Z80 blob, PSG bytes, post-DMA commands) stays AS-side in
-// engine/system/boot_data.asm — the code walks it with ONE sequential (a5)+
-// cursor, and the table's geometry is locked by the assert wall there. The
-// .emp reaches the table head via `lea BootData(pc)` across the region seam.
+// Z80 blob, PSG bytes, post-DMA commands) is engine/system/boot_data.emp — the
+// code walks it with ONE sequential (a5)+ cursor. The .emp reaches the table
+// head via `lea BootData(pc)` across the region seam; Z80_SOUND_SIZE /
+// Z80_IDLE_SIZE are boot_data.emp's link-exported `equ`s.
 module engine.boot in boot
 
 use engine.constants.{VDP_DATA, VDP_CTRL, PSG_PORT}
