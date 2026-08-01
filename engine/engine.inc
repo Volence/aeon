@@ -71,7 +71,9 @@
     ; with the K3 run-A port; the `.emp` comptime-fn twins carry the load.
     ; The §4.6 parallax authoring vocabulary is engine/level/parallax_dsl.emp (conv-g);
     ; the config data is games/sonic4/data/parallax/configs.emp. Both are native.
-    include "engine/sound/sound_bank.inc"
+    ; engine/sound/sound_bank.inc DELETED (K4 inc-5 Stage 4b): its `soundBankHead`
+    ; macro (the engine-table bank head) is native — games/sonic4/data/sound/
+    ; soundbankhead.emp places the 5 heads as a phase-bank section (vma $8000).
     gameConfigIncludes
     ; Engine RAM is authored in engine/ram.emp (item #7b) — the `.emp` region form.
     ; Its `pub vars` labels are the joint-link RAM authority; the residual AS reads

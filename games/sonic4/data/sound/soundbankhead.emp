@@ -1,0 +1,68 @@
+// ===========================================================================
+// games/sonic4/data/sound/soundbankhead.emp — the engine-table bank HEAD, native
+// (K4 inc-5 Stage 4b, the P2 soundBankHead probe — the last sound-bank piece)
+// ===========================================================================
+// The `soundBankHead` macro (engine/sound/sound_bank.inc) emitted the 5 engine-
+// table heads inside the `phase 08000h` bracket at fixed $8000-window VMAs. This
+// module places them NATIVELY as a PHASE-BANK section (vma $8000, lma $58000 via
+// the map `sound_bank` anchor) embedding the seam-2-emitted artifacts — the P2 path
+// (spec §6): the emit-tool architecture is untouched; this module places the bytes.
+//
+// THE PHASE-BANK-ANCHOR RULE (armed): this is a labeled $8000-window head, so it is
+// a HARD org — the resident Z80 driver holds banked carriers at these exact VMAs
+// ($8000/$8357/$845F/$856D/$85AD, seam-1 banked_carriers + the DacSampleTable -D),
+// so the head NEVER repacks. The 5 head spans are byte-exact and contiguous
+// ($8000..$8607 = $607); a size drift would slide a downstream head off its fixed
+// carrier VMA and desync the Z80 blob — the `ensure`s below catch it LOUD (the AS
+// twin's `fatal` walls, now comptime facts).
+//
+// The head labels have NO whole-ROM-link consumer (the resident Z80 code that reads
+// them is the seam-1 BLOB, resolved separately via the banked carriers — this module
+// just re-homes the same labels the AS soundBankHead defined). SoundTablesZ80_Head is
+// already a frozen boundary key + the `sound_bank` map anchor.
+//
+// SHAPE-INVARIANT SIZE ($607 both), shape-DEPENDENT CONTENT: SfxBlobWinTab (the SFX
+// blob-window pointers, after the shape-dependent songs) and SeqOpcodeTable (the
+// coordination-opcode handlers, re-based after the debug sequencer growth) differ per
+// shape — the embed selects on DEBUG. The other three heads are shape-invariant.
+// ===========================================================================
+
+module games.sonic4.soundbankhead
+
+const _sound_tables = embed("engine/sound/generated/sound_tables_z80.bin")
+const _pitchtab     = embed("engine/sound/generated/movingtrucks_pitchtable.bin")
+const _sfxwin       = if DEBUG == 1 {
+    embed("engine/sound/generated/sfx_blob_win_tab_debug.bin")
+} else {
+    embed("engine/sound/generated/sfx_blob_win_tab.bin")
+}
+const _seqop        = if DEBUG == 1 {
+    embed("engine/sound/generated/seq_opcode_tab_debug.bin")
+} else {
+    embed("engine/sound/generated/seq_opcode_tab.bin")
+}
+const _dacsamp      = embed("engine/sound/generated/dac_sample_tab.bin")
+
+section soundbankhead (cpu: m68000, vma: $8000) {
+    // The generated FM/PSG data tables (4 pure-math LUTs + the PSG/FM vol-env
+    // id-lists/pointer tables/bodies). VMA $8000.
+    pub data SoundTablesZ80_Head = _sound_tables
+    // The fallback pitch table. VMA $8357. SndDefaultPitchTable / MovingTrucks_
+    // PitchTable coincide at the head.
+    pub data SndDefaultPitchTable = Data.empty
+    pub data MovingTrucks_PitchTable = _pitchtab
+    // The id->blob window-pointer table. VMA $845F. Shape-dependent.
+    pub data SfxBlobWinTab = _sfxwin
+    // The coordination-opcode jump table. VMA $856D, 32 dw entries. Shape-dependent.
+    pub data SeqOpcodeTable = _seqop
+    // The DAC-sample descriptor head. VMA $85AD.
+    pub data DacSampleTable = _dacsamp
+}
+
+// The AS twin's `fatal` span walls, now comptime facts: a size drift here would slide
+// a downstream head off its fixed banked-carrier VMA and desync the resident Z80 blob.
+ensure(_sound_tables.len == $357, "sound_tables_z80 head wrong size ($357=855 B) — downstream head VMAs would shift")
+ensure(_pitchtab.len == $108, "MovingTrucks_PitchTable wrong size (must be 2*PITCHTAB_COUNT = $108)")
+ensure(_sfxwin.len == $10E, "SfxBlobWinTab wrong size (must be SFX_TABLE_LEN*2 = $10E)")
+ensure(_seqop.len == $40, "SeqOpcodeTable wrong size (must be 32 dw entries = $40)")
+ensure(_dacsamp.len == $5A, "DacSampleTable wrong size (must be DAC_SAMPLE_COUNT*DacSample_len = $5A)")

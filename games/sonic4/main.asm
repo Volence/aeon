@@ -229,12 +229,18 @@ SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
 ; — declare the contract directly rather than deriving from Sfx_33, whose label
 ; is now .emp-side (the SFX block is the BINCLUDE'd sfx_bank.bin, seam-2 2d).
 SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK
-        save
-        cpu     z80
-        phase   08000h
-        soundBankHead
-        dephase
-        restore
+    ; The engine-table bank HEAD is NATIVE (K4 inc-5 Stage 4b, the P2 soundBankHead
+    ; probe): games/sonic4/data/sound/soundbankhead.emp places the 5 heads
+    ; (SoundTablesZ80_Head / MovingTrucks_PitchTable / SfxBlobWinTab / SeqOpcodeTable /
+    ; DacSampleTable) as a PHASE-BANK section (vma $8000, lma $58000 via the map
+    ; `sound_bank` anchor). The AS residual skips past the native head to the MT body.
+    ; sound_bank.inc + its `soundBankHead` macro are DELETED; the `phase 08000h`
+    ; bracket goes with them (the native section's `vma: $8000` carries the window
+    ; addressing). MovingTrucks_Bank_Start stays AS (its LMA >>15 is SND_ENGINE_TABLE_BANK).
+    ; Structural exclusivity: the native section is the SOLE head placement.
+    ifdef SIGIL_EMP_SOUNDBANKHEAD
+        org     $58607                         ; skip the native soundBankHead ($58000..$58607)
+    endif
     ; The Moving-Trucks streaming bank BODY is NATIVE (K4 inc-5 Stage 3, the P2 MT
     ; probe): games/sonic4/data/sound/mt_bank_blob.emp embeds the seam-2
     ; mt_bank{,_debug}.bin @ $58607. The AS residual SKIPS the native body (per-shape
