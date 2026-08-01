@@ -1,0 +1,73 @@
+// Demo game state — the minimal state machine the engine boot hands off to
+// (Game_Entry = GameState_Demo_Init, config/game.asm). One-shot setup loads the
+// palette + art + one object, then per-frame runs and renders the object system.
+// This is the "engine-boots-without-Sonic" proof. TODO: your game's states,
+// levels, and objects grow from here.
+module games.demo.demo_state in demo_state
+
+use engine.objects.objdef.{vram_bytes}
+use engine.vdp.{VDP_MODE2_OFF}
+use games.demo.constants.{VRAM_DEMO_OBJ}
+
+// DemoArt byte length (DemoArt_End - DemoArt in the AS twin): 40 longs = 160
+// bytes. A pure-int comptime const — the DMA length immediate.
+const DEMO_ART_LEN = 160
+
+// -----------------------------------------------
+// GameState_Demo_Init — one-shot setup: palette, art, one object, display on.
+// In:  none
+// Out: none
+// Clobbers: d0-d4, a0-a3 (a0-a2 written directly; a3 rides in through
+//   Load_ObjectList's transitive clobber set).
+// -----------------------------------------------
+pub proc GameState_Demo_Init () clobbers(d0-d4/a0-a3) {
+        // Load demo palette to CRAM line 0
+        lea     DemoPalette(pc), a0
+        lea     Palette_Buffer, a1              // (Palette_Buffer).w
+        moveq   #32/4 - 1, d0
+.copy_pal:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .copy_pal
+        move.b  #$0F, Palette_Dirty            // (Palette_Dirty).w
+
+        // DMA demo art to VRAM
+        move.l  #DemoArt, d1
+        move.w  #vram_bytes(VRAM_DEMO_OBJ), d2
+        move.w  #DEMO_ART_LEN, d3               // DemoArt_End - DemoArt
+        jbsr    QueueDMA_Critical @discards(dropped)   // demo scene: a dropped DMA (queue full) is acceptable
+
+        // Init object and sprite systems
+        jbsr    InitObjectRAM
+        jbsr    Init_SpriteTable
+
+        // Clear camera
+        move.l  #0, Camera_X                    // (Camera_X).w
+        move.l  #0, Camera_Y                    // (Camera_Y).w
+
+        // Spawn the demo box (one object from the list)
+        lea     DemoObjectList(pc), a0
+        jbsr    Load_ObjectList
+        // TODO: your game starts here — spawn objects, load level data, add states
+
+        // Enable display (the setVDPReg macro's expansion: shadow write + dirty bit)
+        move.b  #$74, VDP_Shadow_Table + VDP_MODE2_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode2).w
+        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask    // (VDP_Dirty_Mask).w
+
+        // Switch to the running loop
+        move.l  #GameState_Demo, (Game_State).w
+        rts
+}
+
+// -----------------------------------------------
+// GameState_Demo — per-frame: run + render the object system.
+// In:  none
+// Out: none
+// Clobbers: d0-d7, a0-a6
+// -----------------------------------------------
+pub proc GameState_Demo () clobbers(d0-d7/a0-a6) {
+        jbsr    InitSpriteSystem
+        jbsr    RunObjects
+        jbsr    TouchResponse
+        jbsr    Render_Sprites
+        rts
+}

@@ -1,0 +1,47 @@
+// -----------------------------------------------
+// games.demo.constants — the Aeon engine demo's game constants (SOLE DEFINITION)
+//
+// The demo is the "start here" template game: the smallest set of constants an
+// engine-agnostic game must declare. Game `.emp` consumers read them via
+// `use games.demo.constants`; the residual AS (config/game.asm's GAME_ENTRY_ID)
+// and the game-AGNOSTIC engine `.emp` (rings.emp / ram.emp) read them through the
+// ownership-flip export — the build harvests every `pub const` here and injects it
+// as a guarded AS `-D` define plus a link EquSym (harvest_game_constants,
+// native.rs), so the engine's `ensure(extern("X") == X)` drift guards cross-check
+// their local copy against this authority.
+//
+// The three engine-VARYING GAME->ENGINE interface values (MAX_RING_BUFFER,
+// VRAM_RING_PLACEHOLDER, COLLECTED_WINDOW_SLOTS) are NOT declared here: they are
+// per-profile `-D`s (native.rs `emp_defines`, demo 16 / $3E4 / 4), the same
+// `-D`-not-in-`.emp` rule the sonic4 constants module follows. Byte-identity is
+// their drift net.
+module games.demo.constants
+
+use engine.types.{VramTile}
+use engine.constants.{COLLECTED_MASK_BYTES}
+
+// Game state id — the demo's single entry state (0/1 are the engine's
+// GS_BOOT / GS_IDLE). config/game.asm's GAME_ENTRY_ID reads this cross-seam.
+pub const GS_DEMO                 = 2
+
+// -----------------------------------------------
+// VRAM allocation
+// -----------------------------------------------
+// tile 992 — demo box art (4 solid tiles + 1 blank ring slot) in the free tile
+// region below the BG base (1024). VRAM_RING_PLACEHOLDER (= VRAM_DEMO_OBJ + 4,
+// the engine ring-art slot DrawRings renders from) is the game-varying `-D`
+// homed in native.rs `emp_defines` ($3E4), not declared here.
+pub const VRAM_DEMO_OBJ           : VramTile = $03E0
+
+// -----------------------------------------------
+// Engine-consumed capacity contracts
+// -----------------------------------------------
+// Ring buffer entry layout (ENGINE-invariant; rings.emp keeps its own copy and
+// `ensure(extern(..))`-checks it against this authority).
+pub const RING_BUFFER_ENTRY_SIZE  = 6           // dc.w x, y; dc.b section_id, list_index
+pub const RING_WIDTH              = 16          // collision AABB pixels
+
+// Rolling collected-window sizing (engine ram.emp cross-checks these).
+pub const COLLECTED_SLOT_SIZE     = 34          // 1 tag + 1 pad + 16 ring bitmask + 16 killed bitmask
+pub const COLLECTED_PARK_SLOTS      = 4         // park entries (rolling overwrite)
+pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id byte + collected + killed masks (byte-packed)

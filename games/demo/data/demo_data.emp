@@ -1,0 +1,124 @@
+// Demo data — the object definition, sprite mapping, spawn list, art, and palette
+// the demo state loads. The minimal ROM-data island a game supplies. TODO: your
+// game's data starts here.
+//
+// The sprite-mapping structs (MapPiece / MapFrame1 / centered) mirror the engine's
+// VDP mapping format; they are authored locally so the template stays self-
+// contained (the sonic4 test_mappings module keeps its own copy the same way — a
+// shared mapping-DSL home is a gap-ledger candidate).
+module games.demo.data.demo_data in demo_data
+
+use engine.objects.sst.{ObjDef}
+use engine.objects.objdef.{objdef, vram_art}
+use games.demo.constants.{VRAM_DEMO_OBJ}
+
+// -----------------------------------------------
+// Object definition — the v2 archetype record Load_Object copies into an SST.
+// -----------------------------------------------
+pub data ObjDef_DemoBox: ObjDef = objdef(
+    code: "DemoBox_Main", map: "Map_DemoBox", art: vram_art(VRAM_DEMO_OBJ))
+
+// -----------------------------------------------
+// Sprite mapping — one 16x16 frame in the engine's VDP mapping format.
+//
+// Shape: `Map_DemoBox` is the frame INDEX (a word-offset table, §4.7 `offsets`);
+// each entry points at its frame record. A frame record is the 4-byte signed
+// bounding box (far edges), a piece count word, then that many 8-byte VDP pieces
+// (Y offset, size|link, tile attrs, X offset). The word offset replaces the old
+// `dc.w Frame - Map_DemoBox` hand-arithmetic — range-checked at link.
+// -----------------------------------------------
+
+// sprSize (engine/macros.asm) packs the VDP piece dimensions: (h-1) in bits 3:2,
+// (w-1) in bits 1:0 — the AS `sprSize(w,h) >> 8` high byte the record carries.
+comptime fn spr_size(w: int where 1..4, h: int where 1..4) -> int {
+    return ((h - 1) << 2) | (w - 1)
+}
+
+// One VDP sprite piece: Y offset, size byte (spr_size), link placeholder, tile
+// attribute word (relative to art_tile), X offset.
+struct MapPiece {
+    y_off: i16,
+    size:  u8,
+    link:  u8,
+    tile:  u16,
+    x_off: i16,
+}
+
+// A single-piece frame: signed bbox (far edges), a piece count of 1, the piece.
+struct MapFrame1 {
+    x_min: i8,
+    x_max: i8,
+    y_min: i8,
+    y_max: i8,
+    piece_count: u16,
+    piece: MapPiece,
+}
+
+// A centered single-piece frame: bbox = (-half, +half) each axis, the piece
+// offset to center. w/h are cell counts (8px); tile is the base tile index.
+comptime fn centered(half: int, w: int, h: int, tile: int) -> MapFrame1 {
+    return MapFrame1{
+        x_min: -half,
+        x_max: half,
+        y_min: -half,
+        y_max: half,
+        piece_count: 1,
+        piece: MapPiece{
+            y_off: -half,
+            size:  spr_size(w, h),
+            link:  0,
+            tile:  tile,
+            x_off: -half,
+        },
+    }
+}
+
+pub offsets Map_DemoBox {
+    F0: MapFrame1 = centered(half: 8, w: 2, h: 2, tile: 0),   // 16x16, color index 1
+}
+
+// -----------------------------------------------
+// Object spawn list — one demo box at screen center. Each row is an objdef
+// pointer (dc.l), x/y/subtype (dc.w); a `dc.l 0` terminator ends the list.
+// -----------------------------------------------
+struct DemoSpawn {
+    def:     *u8,           // objdef pointer (dc.l)
+    x:       i16,           // world X (dc.w)
+    y:       i16,           // world Y (dc.w)
+    subtype: u16,           // spawn subtype (dc.w)
+}
+
+pub data DemoObjectList: DemoSpawn = DemoSpawn{ def: ObjDef_DemoBox, x: 160, y: 112, subtype: 0 }
+data DemoObjectList_Term: u32 = 0
+
+// -----------------------------------------------
+// Art — 4 tiles of solid color index 1, then 1 blank tile (the engine ring slot
+// at VRAM_RING_PLACEHOLDER = VRAM_DEMO_OBJ + 4). DemoArt is the DMA source;
+// DEMO_ART_LEN (demo_state.emp) is its byte length.
+// -----------------------------------------------
+pub data DemoArt: [u32; 40] = [
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        0, 0, 0, 0, 0, 0, 0, 0,
+]
+
+// -----------------------------------------------
+// Palette — 16 colors for CRAM line 0: dark blue backdrop, white box.
+// -----------------------------------------------
+pub data DemoPalette: [u16; 16] = [
+        $0622, $0EEE, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+]
+
+// -----------------------------------------------
+// BG animation table — the engine contract (engine/level/bg_anim.emp,
+// BgAnim_Update): every game supplies BgAnim_Table; band_count = 0 disables the
+// whole system. The demo has no BG animation, so it's just the disabled header.
+// -----------------------------------------------
+pub data BgAnim_Table: u16 = 0                  // band_count = 0 (disabled)
