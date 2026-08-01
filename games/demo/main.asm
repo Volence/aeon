@@ -13,7 +13,10 @@
 PAD_TO_POWER_OF_TWO     = 1
 
 gameConfigIncludes macro {GLOBALSYMBOLS}
-    include "games/demo/config/constants.asm"
+    ; Game constants are authored in games/demo/config/constants.emp (Parcel
+    ; H-demo) — the `.emp` module `games.demo.constants`, harvested (native.rs
+    ; harvest_game_constants) into guarded AS `-D` defines + link EquSyms, so this
+    ; residual AS + the game-agnostic engine `.emp` drift guards resolve them.
     include "games/demo/config/game.asm"
     endm
 
