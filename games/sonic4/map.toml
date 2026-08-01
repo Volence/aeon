@@ -36,7 +36,8 @@ order = [
   "TestAnimated", "TestPlayer", "TestEnemy_Init", "TestSolid_Init",
   "TestParticle", "TestEmitter", "TestChildPart", "TestStressEmitter",
   "TestChurnObj", "ObjDef_PathSwap", "DeformTable_Zero", "ObjDef_Static",
-  "OJZ_Sec0_TypeTable", "OJZ_Act1_Descriptor", "OJZ_Sec0_Blocks", "Map_TestObj",
+  "OJZ_Sec0_TypeTable", "OJZ_Act1_Descriptor", "OJZ_Sec0_Blocks", "OJZ_Palette",
+  "BgAnim_Table", "Map_TestObj",
   "Ani_Sonic", "Ani_Particle", "HeightMaps", "SoundTablesZ80_Head",
   "GameState_ObjectTest_Init", "GameState_OJZScroll_Init", "NullInterrupt", "BusError",
 ]
