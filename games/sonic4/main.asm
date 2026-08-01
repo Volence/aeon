@@ -155,9 +155,9 @@ gameDataIncludes macro {GLOBALSYMBOLS}
     endif
     include "games/sonic4/data/generated/ojz/act1/entity_data.asm"
     include "games/sonic4/data/levels/ojz/act1/act_descriptor.asm"
-    include "games/sonic4/data/mappings/test_mappings.asm"
-    ; Ani_Sonic is native (sonic_anims.emp), pinned by the sigil map; the AS residual
-    ; resumes at the region end. The orgs are sonic4-shape.
+    ; Map_TestObj is native (test_mappings.emp), Ani_Sonic is native
+    ; (sonic_anims.emp) — both pinned by the sigil map; the AS residual resumes
+    ; past them at the region end below. The orgs are sonic4-shape.
     ifdef __DEBUG__
         org     $257B2
     else
