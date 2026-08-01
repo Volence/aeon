@@ -1,9 +1,0 @@
-ojz_SEC0_VRAM = 0 * 32   ; = $0000
-ojz_SEC1_VRAM = 603 * 32   ; = $4B60
-ojz_SEC2_VRAM = 0 * 32   ; = $0000
-ojz_SEC3_VRAM = 603 * 32   ; = $4B60
-ojz_SEC4_VRAM = 0 * 32   ; = $0000
-ojz_SEC5_VRAM = 603 * 32   ; = $4B60
-ojz_SEC6_VRAM = 0 * 32   ; = $0000
-ojz_SEC7_VRAM = 603 * 32   ; = $4B60
-ojz_SEC8_VRAM = 0 * 32   ; = $0000
