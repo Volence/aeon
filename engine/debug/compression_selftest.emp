@@ -2,12 +2,15 @@
 //
 // This module exists ONLY in the debug shape (the .asm twin is whole-file
 // `ifdef __DEBUG__`; the build/harness includes this module only when
-// DEBUG=1 — the plain shape carries zero bytes and no symbols). The
-// generated golden-vector data (CSelf_* labels + CSELF_* values,
-// tools/gen_compression_vectors.py) stays AS-side; every reference below
-// resolves cross-seam at link.
+// DEBUG=1 — the plain shape carries zero bytes and no symbols). The five
+// golden vectors are `.emp`-native: the CSelf_* labels below `embed()` the
+// blobs tools/gen_compression_vectors.py writes, and the three CSELF_* values
+// are `use`d from the generated constants module (that generator is their sole
+// author — nothing here hardcodes them).
 
 module engine.compression_selftest in compression_selftest
+
+use engine.compression_vectors.{CSELF_PAYLOAD_SIZE, CSELF_PAYLOAD_SUM, CSELF_DICT_LEN}
 
 // Addressing modes: every CSelf_*/Art_Staging_Buffer operand is spelled BARE
 // and the width rule picks the mode — the CSelf_* ROM labels sit below $8000
@@ -104,3 +107,35 @@ pub proc CompressionSelfTest () clobbers(d0-d4/a0-a4) {
         assert.w d0, eq, #0
         rts
 }
+
+// -----------------------------------------------
+// Golden vectors — one payload, three encodings + the expected plaintext.
+// Each blob is the SAME generated file the build writes
+// (tools/gen_compression_vectors.py); `embed` reads it root-relative. Bound to
+// consts first so each `.len` is a readable comptime int for the alignment
+// guard below (the `data K = embed(...)` readability gate). These labels sit
+// immediately after the code, so the module region runs [CompressionSelfTest,
+// next placement) — the exact span the AS `include` used to fill.
+// -----------------------------------------------
+const _Vec_S4LZ_Plain = embed("engine/debug/generated/s4lz_plain.bin")
+const _Vec_S4LZ_Dict  = embed("engine/debug/generated/s4lz_dict.bin")
+const _Vec_Dict_Blob  = embed("engine/debug/generated/s4lz_dict_blob.bin")
+const _Vec_ZX0        = embed("engine/debug/generated/zx0.bin")
+const _Vec_Payload    = embed("engine/debug/generated/payload.bin")
+
+// Word-even guard: the runtime `lea CSelf_*, a0` + word ops need every label
+// word-aligned. Every blob is even-length (the AS twin's `align 2`s were
+// no-ops), so the labels stay aligned with NO padding between them. An odd blob
+// would misalign the next label — this fires at COMPILE time if that ever
+// happens, pointing at the fix (re-introduce inter-blob alignment).
+ensure(_Vec_S4LZ_Plain.len % 2 == 0, "s4lz_plain vector is odd-length — CSelf_* labels no longer word-align; re-introduce inter-blob padding in compression_selftest.emp")
+ensure(_Vec_S4LZ_Dict.len % 2 == 0, "s4lz_dict vector is odd-length — CSelf_* labels no longer word-align; re-introduce inter-blob padding in compression_selftest.emp")
+ensure(_Vec_Dict_Blob.len % 2 == 0, "dict_blob vector is odd-length — CSelf_* labels no longer word-align; re-introduce inter-blob padding in compression_selftest.emp")
+ensure(_Vec_ZX0.len % 2 == 0, "zx0 vector is odd-length — CSelf_* labels no longer word-align; re-introduce inter-blob padding in compression_selftest.emp")
+ensure(_Vec_Payload.len % 2 == 0, "payload vector is odd-length — CSelf_* labels no longer word-align; re-introduce inter-blob padding in compression_selftest.emp")
+
+pub data CSelf_S4LZ_Plain = _Vec_S4LZ_Plain
+pub data CSelf_S4LZ_Dict  = _Vec_S4LZ_Dict
+pub data CSelf_Dict_Blob  = _Vec_Dict_Blob
+pub data CSelf_ZX0        = _Vec_ZX0
+pub data CSelf_Expected   = _Vec_Payload
