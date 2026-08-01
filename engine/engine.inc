@@ -370,10 +370,15 @@ __BUDGET_ENGINE:
 ; All object routines must live within this 64KB block.
 ; objroutine() computes offsets from ObjCodeBase.
 ; -----------------------------------------------
+    ; ObjCodeBase + the offset-0 safety rts are native (K4 inc-6):
+    ; engine/objects/objcodebase.emp places them at $10000 via the object_bank anchor,
+    ; so the `org $10000` retires. Holed out behind the gate in every native build.
+    ifndef SIGIL_EMP_OBJCODEBASE
     org $10000
 ObjCodeBase:
     rts                         ; offset 0 = empty slot safety net
 __BUDGET_OBJBANK:
+    endif
 
     gameObjectBankIncludes
 
@@ -400,10 +405,14 @@ __BUDGET_DATA:
     gameStatesIncludes
 
 ; -----------------------------------------------
-; Temporary stubs (replaced in later tasks)
+; No-op IRQ handler — native (K4 inc-6): engine/system/null_interrupt.emp places
+; NullInterrupt (rte) at its frozen boundary key. Holed out behind the gate in
+; every native build (the last hand-written AS bytes left the tree here).
 ; -----------------------------------------------
+    ifndef SIGIL_EMP_NULL_INTERRUPT
 NullInterrupt:
     rte
+    endif
 
     ; The exception-vector stubs (BusError..) and the MD Debugger blob are native
     ; (engine/debug/error_handler.emp, ErrorHandlerBlob), placed by the sigil map in
