@@ -19,7 +19,23 @@ use engine.structs.{Act, Sec}
 // author now that engine.constants is the definition (the P5 ownership flip).
 // The imported consts are plain comptime ints, so EDGE_CLAMP range-proves into
 // the u8 field directly (a link-folded extern could not — the old mirror note).
-use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS}
+use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS, POOL_TILE_CEILING}
+
+// Generated interior-island manifests (Parcel K3): the art-pool page count/tile
+// total and the per-section block-dict lengths are `.emp` const modules the
+// generators emit (tools/ojz_strip_gen.py / ojz_block_gen.py) — comptime ints
+// consumed directly (they range-prove into the u16 fields; a link-folded extern
+// could not, and the pool-tile ceiling proof below now fails at COMPTIME).
+use games.sonic4.ojz_act_pool_manifest_act1.{OJZ_ACT_POOL_PAGES, OJZ_ACT_POOL_TILES}
+use games.sonic4.ojz_block_dicts_act1.{OJZ_SEC0_BLOCK_DICT_LEN, OJZ_SEC1_BLOCK_DICT_LEN, OJZ_SEC2_BLOCK_DICT_LEN, OJZ_SEC3_BLOCK_DICT_LEN, OJZ_SEC4_BLOCK_DICT_LEN, OJZ_SEC5_BLOCK_DICT_LEN, OJZ_SEC6_BLOCK_DICT_LEN, OJZ_SEC7_BLOCK_DICT_LEN, OJZ_SEC8_BLOCK_DICT_LEN}
+
+// The art pool DMAs to VRAM tiles 0..N-1 with no runtime bounds check — a pool
+// past POOL_TILE_CEILING (960) would overwrite the character DPLC region at tile
+// 960. Was the AS `if OJZ_ACT_POOL_TILES > POOL_TILE_CEILING / error` in
+// act_descriptor.asm; now a comptime fact that fails HERE, not at link (mirrors
+// the ojz_strip_gen.py generate-time guard).
+ensure(OJZ_ACT_POOL_TILES <= POOL_TILE_CEILING,
+       "OJZ act 1 art pool {OJZ_ACT_POOL_TILES} tiles exceeds POOL_TILE_CEILING — would DMA over the character region at tile 960")
 
 // ---- the act's shape, written once ----
 const GRID_W = 3
@@ -60,7 +76,7 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     act_bg_tiles:        OJZ_Act1_BG_Tiles,
     act_parallax_config: ParallaxConfig_OJZ_Default,     // fallback for NULL sections
     act_art_pool_table:  OJZ_Act_Pool_PageTable,         // generated include, AS side
-    act_art_pool_pages:  extern("OJZ_ACT_POOL_PAGES"),   // generated count, link-folded
+    act_art_pool_pages:  OJZ_ACT_POOL_PAGES,             // generated manifest const
     edge_mode:           EDGE_CLAMP,                     // §10; OJZ ships CLAMP
     pad_21:              default,
 }
@@ -106,47 +122,47 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             objects: OJZ_Sec0_Objects, rings: OJZ_Sec0_Rings,
             type_table: OJZ_Sec0_TypeTable,
             dict: extern("OJZ_Sec0_Blocks") + extern("BLOCK_INDEX_SIZE"),
-            dict_len: extern("OJZ_SEC0_BLOCK_DICT_LEN")),
+            dict_len: OJZ_SEC0_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec1_Blocks,
             objects: OJZ_Sec1_Objects, rings: OJZ_Sec1_Rings,
             type_table: OJZ_Sec1_TypeTable,
             dict: extern("OJZ_Sec1_Blocks") + extern("BLOCK_INDEX_SIZE"),
-            dict_len: extern("OJZ_SEC1_BLOCK_DICT_LEN")),
+            dict_len: OJZ_SEC1_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec2_Blocks,
             objects: OJZ_Sec2_Objects, rings: OJZ_Sec2_Rings,
             type_table: OJZ_Sec2_TypeTable,
             dict: extern("OJZ_Sec2_Blocks") + extern("BLOCK_INDEX_SIZE"),
-            dict_len: extern("OJZ_SEC2_BLOCK_DICT_LEN")),
+            dict_len: OJZ_SEC2_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec3_Blocks,
             objects: OJZ_Sec3_Objects, rings: OJZ_Sec3_Rings,
             type_table: OJZ_Sec3_TypeTable,
             dict: extern("OJZ_Sec3_Blocks") + extern("BLOCK_INDEX_SIZE"),
-            dict_len: extern("OJZ_SEC3_BLOCK_DICT_LEN")),
+            dict_len: OJZ_SEC3_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec4_Blocks,
             objects: OJZ_Sec4_Objects, rings: OJZ_Sec4_Rings,
             type_table: OJZ_Sec4_TypeTable,
             dict: extern("OJZ_Sec4_Blocks") + extern("BLOCK_INDEX_SIZE"),
-            dict_len: extern("OJZ_SEC4_BLOCK_DICT_LEN")),
+            dict_len: OJZ_SEC4_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec5_Blocks,
             objects: OJZ_Sec5_Objects, rings: OJZ_Sec5_Rings,
             type_table: OJZ_Sec5_TypeTable,
             dict: extern("OJZ_Sec5_Blocks") + extern("BLOCK_INDEX_SIZE"),
-            dict_len: extern("OJZ_SEC5_BLOCK_DICT_LEN")),
+            dict_len: OJZ_SEC5_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec6_Blocks,
             objects: OJZ_Sec6_Objects, rings: OJZ_Sec6_Rings,
             type_table: OJZ_Sec6_TypeTable,
             dict: extern("OJZ_Sec6_Blocks") + extern("BLOCK_INDEX_SIZE"),
-            dict_len: extern("OJZ_SEC6_BLOCK_DICT_LEN")),
+            dict_len: OJZ_SEC6_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec7_Blocks,
             objects: OJZ_Sec7_Objects, rings: OJZ_Sec7_Rings,
             type_table: OJZ_Sec7_TypeTable,
             dict: extern("OJZ_Sec7_Blocks") + extern("BLOCK_INDEX_SIZE"),
-            dict_len: extern("OJZ_SEC7_BLOCK_DICT_LEN")),
+            dict_len: OJZ_SEC7_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec8_Blocks,
             objects: OJZ_Sec8_Objects, rings: OJZ_Sec8_Rings,
             type_table: OJZ_Sec8_TypeTable,
             dict: extern("OJZ_Sec8_Blocks") + extern("BLOCK_INDEX_SIZE"),
-            dict_len: extern("OJZ_SEC8_BLOCK_DICT_LEN")),
+            dict_len: OJZ_SEC8_BLOCK_DICT_LEN),
 ]
 // the [Sec; 9] length IS the table-size check; tie the literal to the grid
 ensure(GRID_W * GRID_H == 9, "the [Sec; 9] table must match grid_w*grid_h")

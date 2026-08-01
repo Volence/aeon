@@ -81,6 +81,7 @@ engine/debug/generated/
 # so they cannot run in the build; re-bake is MANUAL (tools/regenerate-level.sh).
 # A fresh checkout builds from these tracked bytes with no seed step.
 !games/sonic4/data/generated/**/*.asm
+!games/sonic4/data/generated/**/*.emp
 !games/sonic4/data/generated/**/*.bin
 !games/sonic4/data/generated/**/*.zx0
 !games/sonic4/data/collision/**/*.bin
