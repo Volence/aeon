@@ -235,32 +235,23 @@ SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK
         soundBankHead
         dephase
         restore
-    ifdef SIGIL_EMP_MT_BODY_STUB
-        ; sigil DSM mixed harness ONLY: everything from Song_MovingTrucks ($58607)
-        ; through SongPatchTable_End is composed IN-MEMORY as the mt_bank.emp section
-        ; (the mt_port.rs pipeline). org resumes the SFX block at the per-shape
-        ; reference address; SongTable/SongPatchTable resolve cross-seam from the
-        ; composed .emp. Re-pin on re-baseline (see golden/PROVENANCE.md).
+    ; The Moving-Trucks streaming bank BODY is NATIVE (K4 inc-5 Stage 3, the P2 MT
+    ; probe): games/sonic4/data/sound/mt_bank_blob.emp embeds the seam-2
+    ; mt_bank{,_debug}.bin @ $58607. The AS residual SKIPS the native body (per-shape
+    ; end) so the SFX block below lands correctly. mt_syms{,_debug}.asm (an emitted
+    ; artifact) STILL supplies SongTable/SongPatchTable — the two labels sound_api.emp
+    ; externs — because they sit at mid-blob offsets (len - SONG_COUNT*8/4) a single
+    ; embed cannot label. STRUCTURAL EXCLUSIVITY (spec §6): the native section is the
+    ; SOLE MT-body placement (the BINCLUDE is DELETED); the section is unconditional in
+    ; the sound-on registry; SIGIL_EMP_MT is set in every sound-on build. (The dead
+    ; SIGIL_EMP_MT_BODY_STUB arm was deleted.)
+    ifdef SIGIL_EMP_MT
       ifdef __DEBUG__
-        org     $5D53A
-      else
-        org     $5BAE8
-      endif
-    else
-        ; seam-2 stage-2c (the real build): the whole Moving-Trucks streaming bank is
-        ; the byte-identical artifact sigil emits from mt_bank.emp (the CANONICAL
-        ; source — the .asm stream is deleted) — mt_bank{,_debug}.bin — BINCLUDE'd at
-        ; $58607. mt_syms{,_debug}.asm supplies SongTable/SongPatchTable (the two labels
-        ; sound_api.asm's `movea.l` consumes) as equs at their emitted addresses.
-        ; build.sh's sigil emit step is a HARD dependency. Shape-dependent (the debug
-        ; build adds DrumTest + HCZ2). The MT stream's old contiguity/straddle/window
-        ; guards became mt_bank.emp's link-time ensures (proven at emit).
-      ifdef __DEBUG__
-        BINCLUDE "engine/sound/generated/mt_bank_debug.bin"
         include  "engine/sound/generated/mt_syms_debug.asm"
+        org     $5D53A                         ; skip the native MT body (debug ends $5D53A)
       else
-        BINCLUDE "engine/sound/generated/mt_bank.bin"
         include  "engine/sound/generated/mt_syms.asm"
+        org     $5BAE8                         ; skip the native MT body (plain ends $5BAE8)
       endif
     endif
         ; --- Phase 5a SFX data ---

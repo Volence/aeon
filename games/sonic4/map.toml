@@ -39,6 +39,7 @@ order = [
   "OJZ_Sec0_TypeTable", "OJZ_Act_Pool_Page0", "OJZ_Act1_Descriptor", "OJZ_Sec0_Blocks", "OJZ_Palette",
   "BgAnim_Table", "Map_TestObj",
   "Ani_Sonic", "Ani_Particle", "HeightMaps", "Dac_Temp_Blip", "SoundTablesZ80_Head",
+  "Song_MovingTrucks",
   "GameState_ObjectTest_Init", "GameState_OJZScroll_Init", "NullInterrupt", "BusError",
 ]
 
