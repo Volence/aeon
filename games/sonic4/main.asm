@@ -177,36 +177,13 @@ gameDataIncludes macro {GLOBALSYMBOLS}
     endif
 
 ; -----------------------------------------------
-; Collision data (§4.7 — global, shared across all zones)
+; Collision data (§4.7 — global, shared across all zones) + the Sonic character
+; mapping/DPLC/art are native (Parcel K4): games/sonic4/data/collision/
+; collision_data.emp emits HeightMaps / HeightMapsRot / AngleTable / SolidityTable
+; / Map_Sonic / DPLC_Sonic / Art_Sonic as `embed()`s (the word-offset walls are
+; comptime `ensure`s). Placed by the sigil map (boundary key HeightMaps); the org
+; above is an inert resume.
 ; -----------------------------------------------
-HeightMaps:
-    BINCLUDE "games/sonic4/data/collision/heightmaps.bin"
-    align 2
-HeightMapsRot:
-    BINCLUDE "games/sonic4/data/collision/heightmaps_rot.bin"
-    align 2
-AngleTable:
-    BINCLUDE "games/sonic4/data/collision/angles.bin"
-    align 2
-SolidityTable:
-    BINCLUDE "games/sonic4/data/collision/solidity.bin"
-    align 2
-
-Map_Sonic:
-    BINCLUDE "games/sonic4/data/mappings/sonic.bin"
-    align 2
-    if (*-Map_Sonic) > $7FFF
-      error "Map_Sonic exceeds signed word-offset range"
-    endif
-DPLC_Sonic:
-    BINCLUDE "games/sonic4/data/dplc/optimized/sonic.bin"
-    align 2
-    if (*-DPLC_Sonic) > $7FFF
-      error "DPLC_Sonic exceeds signed word-offset range"
-    endif
-Art_Sonic:
-    BINCLUDE "art/optimized/characters/sonic.bin"
-    align 2
     endm
 
 gameSoundDataIncludes macro {GLOBALSYMBOLS}
@@ -225,7 +202,11 @@ gameSoundDataIncludes macro {GLOBALSYMBOLS}
         ; runtime bank latch expect. build.sh's sigil emit step is a HARD dependency:
         ; there is no asl fallback. The trailing snap to $58000 is the MT bank's own
         ; `align $8000` below (the shared bank ends at $578BC).
-        align   $8000                          ; align to a bank start (no boundary cross)
+        ; K4: absolute org (was `align $8000`) — the collision island that used to
+        ; fill the space up to $41BDA before this align is now native
+        ; (collision_data.emp), so the relative align would land the DAC bank early.
+        ; The DAC blip bank's LMA is fixed at $48000 (Z80 SetBank latch); pin it.
+        org     $48000                         ; DAC blip bank start (bank $48000)
 Dac_Temp_Blip:
         BINCLUDE "engine/sound/generated/dac_blip_bank.bin"
         align   $8000                          ; align to a bank start (shared drum bank)
