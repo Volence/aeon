@@ -1,0 +1,90 @@
+# Sonic-4 placement map — the DECLARED ROM placement contract (Parcel K1).
+#
+# Owns the reviewed placement facts the frozen tables used to bootstrap implicitly:
+# the island ANCHORS, the boot_data HOLE (data; K2 enforces), the object-bank BUDGET,
+# and the byte-emitting section ORDER (VALIDATED against the packer's derived order —
+# R2; the map DRIVES order in K5, once the synthetic-named AS residual is gone).
+# Consumed by the sigil chainer (crates/sigil-harness/src/native.rs); the frozen
+# tables (golden/offcanonical_sizes/s4*.txt, config_*.txt) remain the per-label
+# provisional-base MEASUREMENT cache the order-derivation sorts.
+#
+# Covers the four sonic4-rooted targets: s4, s4_debug (add CompressionSelfTest),
+# config_a (adds Debug_MusicToggle / Sound_DebugMirror / CompressionSelfTest, sound+debug),
+# config_b (sound-OFF: adds the Z80 idle Z80_IdleProgram / BootData_End). `when` gates the
+# sound-conditional facts; the ORDER list is the union — each target is a subsequence.
+
+fill = 0x00
+
+# ── Order (byte-emitting section head-labels / module-ids, canonical union order).
+#    Root array — MUST precede the `[[table]]` sections below (TOML scoping). Each
+#    target's derived byte-emitting order must be a SUBSEQUENCE of this list; a
+#    derivation change fails loud (R2 validate). Zero-byte markers (e.g. __BUDGET_DATA)
+#    are excluded — their tie-position is byte-neutral and shape-varying. ──
+order = [
+  "Vectors", "Checksum", "EntryPoint", "BootData",
+  "Z80_IdleProgram", "BootData_End",
+  "VDP_Shadow_Init", "Init_DMA_Queue", "Init_SpriteTable", "VBlank_Handler",
+  "HBlank_Install", "Read_Controllers", "GameLoop", "S4LZ_DecompressDict",
+  "ZX0_Decompress", "GetSineCosine", "Perform_DPLC", "InitObjectRAM",
+  "InitSpriteSystem", "AnimateSprite", "TouchResponse", "RingBuffer_Add",
+  "Collected_Init", "PopulateSpawnedPieceCount", "Load_Object", "Plane_Buffer_Reset",
+  "Tile_Cache_GetTile", "Collision_GetType", "Collision_ProbeDown", "Debug_MusicToggle",
+  "Section_Init", "Camera_Init", "Parallax_Init", "Art_Decompress",
+  "BG_Init", "BgAnim_Init", "CompressionSelfTest", "Sound_PostByte",
+  "Sound_DebugMirror", "ObjCodeBase", "Player_Init", "PState_Ground",
+  "PState_Air", "PState_Spindash", "Sonic_InitAssets", "TestStatic_Main",
+  "TestAnimated", "TestPlayer", "TestEnemy_Init", "TestSolid_Init",
+  "TestParticle", "TestEmitter", "TestChildPart", "TestStressEmitter",
+  "TestChurnObj", "ObjDef_PathSwap", "DeformTable_Zero", "ObjDef_Static",
+  "OJZ_Sec0_TypeTable", "OJZ_Act1_Descriptor", "OJZ_Sec0_Blocks", "Map_TestObj",
+  "Ani_Sonic", "Ani_Particle", "HeightMaps", "SoundTablesZ80_Head",
+  "GameState_ObjectTest_Init", "GameState_OJZScroll_Init", "NullInterrupt", "BusError",
+]
+
+# ── Region geometry (mirrors sigil.map.toml; retires there in K5) ──
+[[region]]
+name = "rom"
+lma_base = 0
+size = 0x400000
+kind = "rom"
+
+[[region]]
+name = "object_bank"
+lma_base = 0x10000
+size = 0x10000
+kind = "object_bank"
+
+[[region]]
+name = "z80_moving_trucks_bank"
+lma_base = 0x60000
+size = 0x8000
+kind = "z80_bank"
+vma_base = 0x8000
+
+# ── Island anchors (replaces the ANCHOR_GAP inference for the declared ones; the
+#    inference stays as the [map.undeclared-island] lint) ──
+[[anchor]]
+name = "boot_head"       # the run head (vectors + header), label-less
+at = 0x0
+
+[[anchor]]
+name = "object_bank"     # ObjCodeBase — the 64KB object code bank
+at = 0x10000
+
+[[anchor]]
+name = "sound_bank"      # SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000)
+at = 0x58000
+vma = 0x8000
+when = "sound_on"
+
+# ── Holes (declared as data now; boot_data enforcement rides K2) ──
+[[hole]]
+after = "Z80_IdleProgram"   # the 38-byte Z80 idle occupies $3d8..$3fe
+at = 0x3FE                   # post-hole AS data (PSG silence, post-DMA) resumes here
+filled_by = "engine.z80_init"
+when = "sound_off"
+
+# ── Budgets (pack-time ceiling; the was-AS `if * > $20000 / error` guard) ──
+[[budget]]
+region = "object_bank"
+ceiling = 0x20000
