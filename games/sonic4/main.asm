@@ -257,30 +257,20 @@ SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK
         ; --- Phase 5a SFX data ---
         ; Small FM/PSG blobs (no DAC, no bank-streaming) — plain inline data the
         ; Z80 SFX loader reads via the $8000 window. SfxTable indexes id -> blob.
-    ifdef SIGIL_EMP_SFX_BODY_STUB
-        ; sigil DSM mixed harness ONLY: everything from Sfx_33 through SfxTable_End
-        ; is composed IN-MEMORY as the sfx_bank.emp section (the sfx_port.rs
-        ; pipeline). org resumes at the per-shape reference address (SfxTable_End).
-        ; Re-pin on re-baseline (see golden/PROVENANCE.md).
+    ; The SFX block is NATIVE (K4 inc-5 Stage 4, the P2 SFX probe):
+    ; games/sonic4/data/sound/sfx_bank_blob.emp embeds the seam-2 sfx_bank{,_debug}.bin
+    ; @ $5BAE8 (plain) / $5D53A (debug). The AS residual SKIPS the native block (per-
+    ; shape end) — nothing byte-emitting follows in this macro. No syms (no surviving
+    ; AS/emp reads SfxTable; sound_sfx.emp's SfxBlobWinTab reads are native, in the
+    ; head). STRUCTURAL EXCLUSIVITY (spec §6): the native section is the SOLE SFX
+    ; placement (the BINCLUDE is DELETED); the section is unconditional in the sound-on
+    ; registry; SIGIL_EMP_SFX is set in every sound-on build. (The dead
+    ; SIGIL_EMP_SFX_BODY_STUB arm was deleted.)
+    ifdef SIGIL_EMP_SFX
       ifdef __DEBUG__
-        org     $5DC82
+        org     $5DC82                         ; skip the native SFX block (debug ends $5DC82)
       else
-        org     $5C230
-      endif
-    else
-        ; seam-2 stage-2d (the real build): the whole SFX block (the 9 blobs, their
-        ; 9 patch banks, and the sparse id->blob SfxTable) is the byte-identical
-        ; artifact sigil emits from sfx_bank.emp (the CANONICAL source — the .asm
-        ; stream is deleted) — sfx_bank{,_debug}.bin — BINCLUDE'd at $5BAE8 (plain)
-        ; / $5D53A (debug). No syms: no surviving AS code reads SfxTable
-        ; (sound_sfx.emp's SfxBlobWinTab reads are native). The straddle/
-        ; co-residency invariants are sfx_bank.emp's link-time ensures (proven at
-        ; emit). Shape-dependent (the SfxTable pointer cells hold the per-shape
-        ; absolute Sfx_NN addresses). build.sh's sigil emit step is a HARD dependency.
-      ifdef __DEBUG__
-        BINCLUDE "engine/sound/generated/sfx_bank_debug.bin"
-      else
-        BINCLUDE "engine/sound/generated/sfx_bank.bin"
+        org     $5C230                         ; skip the native SFX block (plain ends $5C230)
       endif
     endif
     endm
