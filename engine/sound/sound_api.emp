@@ -30,13 +30,15 @@ use engine.sound_constants.*
 // below — nothing to drift, no local literal. EA-position slot ADDRESSES are the
 // sum-of-const equs below.
 //
-// The two TYPED SfxId mirrors STAY as local consts: a bare link name cannot
-// carry the F1 SfxId enforcement (typed-extern grammar is the remaining
-// dependency). engine.sound_api is game-agnostic and cannot `use` a specific
-// game's module, so each is drift-guarded (below) against the game's authority
-// (games.sonic4.sound_ids) via extern(), resolved through the harvest EquSym.
-const SFXID_RING_RIGHT: SfxId = $33   // collect-ring SFX, right speaker
-const SFXID_RING_LEFT: SfxId  = $34   // collect-ring SFX, left speaker
+// The two collect-ring SFX ids are TYPED EXTERNs: the game authority
+// (games.sonic4.sound_ids) owns the values, exported through the build's harvest
+// as link EquSyms; `extern NAME: SfxId` names each WITH its type. engine.sound_api
+// is game-agnostic and cannot `use` a specific game's module, so it references
+// them by link name — the value crosses the seam once, so there is no local mirror
+// to drift and no drift guard to keep. At the `moveq #…` sites below the reference
+// erases to the same link immediate the bare symbol would, carrying SfxId.
+extern SFXID_RING_RIGHT: SfxId   // collect-ring SFX, right speaker ($33)
+extern SFXID_RING_LEFT: SfxId    // collect-ring SFX, left speaker ($34)
 
 // DEBUG watchdog budget for the two Z80-handshake spins (Sound_PlayMusic's
 // await_slot and Sound_Init's wait_alive). At ~15-20us per stop/probe/release
@@ -46,9 +48,6 @@ const SFXID_RING_LEFT: SfxId  = $34   // collect-ring SFX, left speaker
 // where the documented no-timeout tradeoff (a dead driver is a build/ROM fault)
 // stands.
 const SPIN_WATCHDOG_LIMIT = $8000
-
-ensure(extern("SFXID_RING_RIGHT") == SFXID_RING_RIGHT, "SFXID_RING_RIGHT drifted from games.sonic4.sound_ids: {SFXID_RING_RIGHT}")
-ensure(extern("SFXID_RING_LEFT") == SFXID_RING_LEFT, "SFXID_RING_LEFT drifted from games.sonic4.sound_ids: {SFXID_RING_LEFT}")
 
 // 68k-side slot addresses (SND_Z80_BASE + Z80 offset), one equ per slot — the
 // MUSIC_PARAM block derives from a Z80-driver RAM label and floats with every

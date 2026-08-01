@@ -101,10 +101,10 @@ pub const VRAM_TEST_OBJ           : VramTile = $03E0
 // from it) homed in native.rs `emp_defines` (game-varying), NOT declared here — the
 // same `-D`-not-in-`.emp` rule as MAX_RING_BUFFER.
 // tile 1016 — debug-fly marker (2x2 = 4 tiles) in the free gap below the BG region
-// (1024). = VRAM_RING_PLACEHOLDER + 16 = VRAM_TEST_OBJ + $18. Must NOT sit inside
-// the act art pool (every pool slot is referenced FG art — see POOL_TILE_CEILING)
-// nor in the ring sprite's 1000-1003 span.
-pub const VRAM_TEST_MARKER        : VramTile = $03F8
+// (1024). VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ + 8) + 16. Must NOT sit inside the
+// act art pool (every pool slot is referenced FG art — see POOL_TILE_CEILING) nor in
+// the ring sprite's 1000-1003 span.
+pub const VRAM_TEST_MARKER        : VramTile = VRAM_TEST_OBJ + $18
 // tile 960 — character DPLC region (up to 25 tiles). MUST stay clear of: the act
 // art pool (tiles 0..POOL_TILE_CEILING-1), the test-obj/ring/marker span
 // (992-1007), BG region (1024+), SAT/HScroll/planes.
