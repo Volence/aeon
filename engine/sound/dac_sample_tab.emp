@@ -43,24 +43,23 @@
 
 module engine.dac_sample_tab (cpu: z80)
 
-// This table is emitted by the seam-2 DAC-head co-link, whose lower resolves
-// DAC_SAMPLE_COUNT / DacSample_len via its pinned equ carriers (seam2.rs — the
-// co-link's stand-in for the engine's sizes), NOT the main 68k link. So the size
-// guard stays `extern(...)` here in E1; retiring these two to `use
-// engine.sound_constants` rides the seam-2 dissolution (E2), where the carriers
-// are re-pointed at the authority.
-//
+// The size invariant reads the engine's DacSample stride + descriptor count from
+// the sound-constants authority. The seam-2 DAC-head co-link seeds these two as
+// comptime `-D` (sourced from `sound_constants.emp` — the same one-authority path
+// the resident blob folds its consts through), so the guard folds at COMPTIME.
+use engine.sound_constants.{DAC_SAMPLE_COUNT, DacSample_len}
+
 // The table emits 10 descriptors of 9 bytes (db,db,db,dw,dw,dw) = 90 bytes.
 // Partial mirror of the AS twin's `(End-Start) <> DAC_SAMPLE_COUNT*DacSample_len
 // / fatal` span guard: this checks only the RHS — that the engine's DECLARED
-// count × stride still equals this table's declared 90 (a link-time drift guard
-// against DAC_SAMPLE_COUNT / DacSample_len changing). It does NOT read the
-// EMITTED span, so unlike the AS `End-Start` half it cannot catch this `.emp`
-// body emitting the wrong NUMBER of descriptors — the LHS `10*9` is a hand
-// literal, not a measured length. That half awaits a comptime section-length
-// primitive (gap-ledgered); until then the AS twin's canonical `End-Start`
-// guard + the oracle's length pin cover table-body drift.
-ensure(10 * 9 == extern("DAC_SAMPLE_COUNT") * extern("DacSample_len"),
+// count × stride still equals this table's declared 90 (a drift guard against
+// DAC_SAMPLE_COUNT / DacSample_len changing). It does NOT read the EMITTED span,
+// so unlike the AS `End-Start` half it cannot catch this `.emp` body emitting the
+// wrong NUMBER of descriptors — the LHS `10*9` is a hand literal, not a measured
+// length. That half awaits a comptime section-length primitive (gap-ledgered);
+// until then the AS twin's canonical `End-Start` guard + the oracle's length pin
+// cover table-body drift.
+ensure(10 * 9 == DAC_SAMPLE_COUNT * DacSample_len,
        "DacSampleTable size (10 descriptors × 9 bytes) disagrees with DAC_SAMPLE_COUNT × DacSample_len")
 
 // Pure data table — the proc emits only `db`/`dc.w` cells and touches no
