@@ -58,6 +58,9 @@ at = 0x3FE
 filled_by = "engine.z80_init"
 when = "sound_off"
 
+# `cursor` = the first section past the object bank (the demo's data-region head); its
+# resolved LMA is the used-cursor (the map-owned successor to the retired `__BUDGET_DATA`).
 [[budget]]
 region = "object_bank"
 ceiling = 0x20000
+cursor = "ObjDef_DemoBox"
