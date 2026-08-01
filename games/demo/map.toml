@@ -1,0 +1,63 @@
+# Demo placement map — the DECLARED ROM placement contract (Parcel K1).
+#
+# The minimal template a new game author reads: two anchors (boot head + object bank),
+# the sound-OFF Z80-idle hole, the object-bank budget, and the byte-emitting order.
+# Covers demo + demo_debug (debug adds CompressionSelfTest). Both are sound-OFF.
+# See games/sonic4/map.toml for the fuller (sound-on) shape and the format rationale.
+
+fill = 0x00
+
+# Byte-emitting section order (root array — precedes the [[table]] sections below).
+# Each demo target's derived order is a subsequence; a derivation change fails loud.
+order = [
+  "Vectors", "Checksum", "EntryPoint", "BootData",
+  "Z80_IdleProgram", "BootData_End",
+  "VDP_Shadow_Init", "Init_DMA_Queue", "Init_SpriteTable", "VBlank_Handler",
+  "HBlank_Install", "Read_Controllers", "GameLoop", "S4LZ_DecompressDict",
+  "ZX0_Decompress", "GetSineCosine", "Perform_DPLC", "InitObjectRAM",
+  "InitSpriteSystem", "AnimateSprite", "TouchResponse", "RingBuffer_Add",
+  "Collected_Init", "PopulateSpawnedPieceCount", "Load_Object", "Plane_Buffer_Reset",
+  "Tile_Cache_GetTile", "Collision_GetType", "Section_Init", "Camera_Init",
+  "Parallax_Init", "Art_Decompress", "BG_Init", "BgAnim_Init",
+  "CompressionSelfTest", "ObjCodeBase", "DemoBox_Main", "ObjDef_DemoBox",
+  "GameState_Demo_Init", "NullInterrupt", "BusError",
+]
+
+[[region]]
+name = "rom"
+lma_base = 0
+size = 0x400000
+kind = "rom"
+
+[[region]]
+name = "object_bank"
+lma_base = 0x10000
+size = 0x10000
+kind = "object_bank"
+
+# Mirrors sigil.map.toml's region set so emit_rom is byte-identical across the switch;
+# demo is sound-OFF so this bank carries nothing (slims in K5 when sigil.map.toml retires).
+[[region]]
+name = "z80_moving_trucks_bank"
+lma_base = 0x60000
+size = 0x8000
+kind = "z80_bank"
+vma_base = 0x8000
+
+[[anchor]]
+name = "boot_head"
+at = 0x0
+
+[[anchor]]
+name = "object_bank"
+at = 0x10000
+
+[[hole]]
+after = "Z80_IdleProgram"
+at = 0x3FE
+filled_by = "engine.z80_init"
+when = "sound_off"
+
+[[budget]]
+region = "object_bank"
+ceiling = 0x20000
