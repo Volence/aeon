@@ -60,8 +60,12 @@ struct EntityScanState (size: $1A) {
 
 // Drift-locks: every mirrored value pinned to its AS-side truth. A layout or
 // value change on either side fails the link naming the constant.
-ensure(extern("COLLECTED_WINDOW_SLOTS") == COLLECTED_WINDOW_SLOTS, "the game's config/constants.asm and entity_window.emp -D COLLECTED_WINDOW_SLOTS disagree — update both")
-ensure(extern("COLLECTED_SLOT_SIZE") == COLLECTED_SLOT_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_SLOT_SIZE — update both")
+// COLLECTED_WINDOW_SLOTS is a game-varying GAME->ENGINE `-D` interface value
+// (native.rs emp_defines; sonic4 9, demo 4) with no `.emp`/AS authority to
+// cross-check against — six-target byte-identity is its drift net (a wrong `-D`
+// moves ROM bytes). COLLECTED_SLOT_SIZE/PARK_* are engine-invariant game config
+// (game `.emp` / demo AS authority), so their link cross-checks stay.
+ensure(extern("COLLECTED_SLOT_SIZE") == COLLECTED_SLOT_SIZE, "game config and entity_window.emp disagree on COLLECTED_SLOT_SIZE — update both")
 ensure(extern("COLLECTED_PARK_SLOTS") == COLLECTED_PARK_SLOTS, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_PARK_SLOTS — update both")
 ensure(extern("COLLECTED_PARK_ENTRY_SIZE") == COLLECTED_PARK_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_PARK_ENTRY_SIZE — update both")
 ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")

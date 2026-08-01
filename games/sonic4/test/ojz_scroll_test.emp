@@ -25,13 +25,10 @@ use engine.z80_bus.{stop_z80, start_z80}
 use engine.types.{VramTile, GridX, GridY}
 use engine.coords.{pixels_to_coord}
 
-// VRAM_TEST_OBJ / VRAM_TEST_MARKER — mirror games/sonic4/config/constants.asm;
-// the drift guards make an AS-side tile-slot change loud. VRAM_TEST_MARKER =
-// VRAM_RING_PLACEHOLDER+16 = VRAM_TEST_OBJ+$18.
-const VRAM_TEST_OBJ:    VramTile = $03E0
-const VRAM_TEST_MARKER: VramTile = $03F8
-ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from ojz_scroll_test.emp")
-ensure(extern("VRAM_TEST_MARKER") == VRAM_TEST_MARKER, "config/constants.asm VRAM_TEST_MARKER drifted from ojz_scroll_test.emp")
+// VRAM_TEST_OBJ / VRAM_TEST_MARKER — sole authority is games.sonic4.constants
+// (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
+// VRAM_TEST_OBJ+$18.
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER}
 
 // Screen half-extents — the camera-center offsets for the Player_1 spawn. Their
 // real home is engine/level/camera.asm (not exported by camera.emp), mirrored

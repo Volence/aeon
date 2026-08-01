@@ -40,8 +40,7 @@ const PATHSWAP_BIT_GROUNDED = 6         // subtype: only swap while grounded
 const PATHSWAP_DEFAULT_HH   = 64        // half-height when subtype bits 0-3 = 0
 
 // VRAM_TEST_OBJ — tile 992, test object art. Mirrors config/constants.asm.
-const VRAM_TEST_OBJ: VramTile = $03E0
-ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from path_swap.emp")
+use games.sonic4.constants.{VRAM_TEST_OBJ}
 
 // PathSwapV — the write-gate state, overlaying sst_custom. Single-consumer
 // (only this object reads it) so the overlay is UNGUARDED (row-66 class); the

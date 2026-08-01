@@ -1,0 +1,111 @@
+// -----------------------------------------------
+// games.sonic4.constants — the Sonic 4 game constants (SOLE DEFINITION)
+//
+// This module is the AUTHORITATIVE source of the Sonic 4 game constants:
+// tuning, player-state / animation ids, the unified ring buffer + rolling
+// collected-window sizing, and the test-scaffold VRAM allocation. Game `.emp`
+// consumers read them via `use games.sonic4.constants`; the residual AS and the
+// game-AGNOSTIC engine `.emp` modules read them through the ownership-flip
+// export — the build harvests every `pub const` here and injects it as a guarded
+// AS `-D` define (`harvest_game_constants`, native.rs), which also re-exports
+// each as a link EquSym so the engine modules' `ensure(extern("X") == X)` drift
+// guards resolve against this authority (the engine is game-agnostic and cannot
+// `use` a specific game's module — it cross-checks its local copy / injected -D
+// against this file via the link seam).
+//
+// Split from the shared engine constants at E4; flipped from AS to `.emp` at
+// conversion-tail Parcel F (rows 21/54/62/65). The engine-varying values
+// (MAX_RING_BUFFER, VRAM_RING_PLACEHOLDER, COLLECTED_WINDOW_SLOTS) are ALSO
+// injected as per-profile `emp_defines` (native.rs) so the shared engine reads
+// the sonic4 value; those `-D`s are cross-checked against this authority by the
+// engine modules' surviving `ensure(extern(..))` guards.
+
+module games.sonic4.constants
+
+use engine.types.{VramTile}
+use engine.constants.{COLLECTED_MASK_BYTES}
+
+// Game state ids
+pub const GS_OBJECT_TEST          = 2
+
+pub const ANIM_RUN_THRESHOLD      = $600      // |gsp| at/above which walk -> run anim (S3K)
+pub const SPINDASH_BASE           = $800
+pub const SPINDASH_CHARGE_STEP    = $200
+pub const SPINDASH_CHARGE_MAX     = $800
+
+// Player states (jump-table byte offsets: index x 2)
+// ORDERING CONSTRAINT: the curled states (JUMP/ROLLJUMP/AIRBALL) must stay the
+// LAST entries — Player_Display's ball-anim test is `>= PSTATE_JUMP`. Append new
+// states BEFORE PSTATE_JUMP and renumber.
+pub const PSTATE_GROUND           = 0
+pub const PSTATE_ROLL             = 2
+pub const PSTATE_SPINDASH         = 4
+pub const PSTATE_AIR              = 6          // airborne uncurled — no release cap
+pub const PSTATE_JUMP             = 8          // airborne curled from jump — release cap active
+pub const PSTATE_ROLLJUMP         = 10         // as JUMP + air control lockout
+pub const PSTATE_AIRBALL          = 12         // airborne curled, not from jump
+pub const PSTATE_COUNT            = 7          // state/hook tables assert against this
+ensure(PSTATE_AIRBALL == (PSTATE_COUNT - 1) * 2,
+       "curled states must remain the last PSTATE_* entries (Player_Display ball test)")
+
+// Player animation ids — SHARED CONTRACT across all characters. Each character's
+// Ani_<char> script table is ordered by these ids (sonic_anims.emp asserts its
+// entry count == ANIM_COUNT). Player_Animate only ever writes these ids; it never
+// knows which character it animates.
+pub const ANIM_WALK               = 0
+pub const ANIM_RUN                = 1
+pub const ANIM_ROLL               = 2          // also the air ball (jump/airball)
+pub const ANIM_SPINDASH           = 3
+pub const ANIM_PUSH               = 4
+pub const ANIM_IDLE               = 5          // wait/idle (neutral hold -> foot-tap tail)
+pub const ANIM_BALANCE            = 6
+pub const ANIM_LOOKUP             = 7
+pub const ANIM_DUCK               = 8
+pub const ANIM_SKID               = 9
+pub const ANIM_GETUP              = 10
+pub const ANIM_COUNT              = 11         // sonic_anims.emp asserts entry count == this
+
+// Game state ids (extend existing table)
+pub const GS_OJZ_SCROLL_TEST      = 3
+
+// Unified ring buffer. MAX_RING_BUFFER is a GAME->ENGINE interface value the
+// game-agnostic engine (ram.emp/rings.emp) reads as a per-profile `-D` (it varies
+// per game: sonic4 128, demo 16, and the engine cannot `use` a game module); it
+// is NOT declared here because the codebase forbids declaring a `-D` name in any
+// `.emp` module. Its home is native.rs `emp_defines` (byte-identity is the drift
+// net — a wrong value moves ROM bytes).
+pub const RING_BUFFER_ENTRY_SIZE  = 6           // dc.w x, y; dc.b section_id, list_index
+pub const RING_WIDTH              = 16          // collision AABB pixels
+
+// 3x3 rolling collected bitmask sizing (+/-1 section in each axis). Slot count and
+// eviction radius must agree: 3x3 = 9 slots, radius = +/-1. Collected_UpdateCenter
+// evicts any slot where |dx|>1 OR |dy|>1. COLLECTED_WINDOW_SLOTS is a game-varying
+// GAME->ENGINE `-D` interface value (sonic4 9, demo 4) — same as MAX_RING_BUFFER
+// above, homed in native.rs `emp_defines`.
+pub const COLLECTED_SLOT_SIZE     = 34          // 1 tag + 1 pad + 16 ring bitmask + 16 killed bitmask
+
+// Rolling respawn park (spec 4.9.4) — sections evicted from the 3x3 with any
+// collected/killed bit set park here; restored on re-claim. Oldest rolls off.
+// 9 (window) + 4 (park) = 13 remembered sections — covers a 3x3 act entirely.
+pub const COLLECTED_PARK_SLOTS      = 4         // park entries (rolling overwrite)
+pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id byte + collected + killed masks (byte-packed, entries NOT word-aligned)
+
+// -----------------------------------------------
+// Test VRAM allocation
+// -----------------------------------------------
+// tile 992 — test object art (8 tiles) in the free gap between the character DPLC
+// region end (985) and the BG shared region base (1024).
+pub const VRAM_TEST_OBJ           : VramTile = $03E0
+// VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ + 8, tile 1000) is the S3K ring-art base:
+// a GAME->ENGINE `-D` interface value (DrawRings, rings.emp, renders every ring
+// from it) homed in native.rs `emp_defines` (game-varying), NOT declared here — the
+// same `-D`-not-in-`.emp` rule as MAX_RING_BUFFER.
+// tile 1016 — debug-fly marker (2x2 = 4 tiles) in the free gap below the BG region
+// (1024). = VRAM_RING_PLACEHOLDER + 16 = VRAM_TEST_OBJ + $18. Must NOT sit inside
+// the act art pool (every pool slot is referenced FG art — see POOL_TILE_CEILING)
+// nor in the ring sprite's 1000-1003 span.
+pub const VRAM_TEST_MARKER        : VramTile = $03F8
+// tile 960 — character DPLC region (up to 25 tiles). MUST stay clear of: the act
+// art pool (tiles 0..POOL_TILE_CEILING-1), the test-obj/ring/marker span
+// (992-1007), BG region (1024+), SAT/HScroll/planes.
+pub const VRAM_TEST_SONIC         : VramTile = $03C0

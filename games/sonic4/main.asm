@@ -8,7 +8,11 @@
 PAD_TO_POWER_OF_TWO     = 1
 
 gameConfigIncludes macro {GLOBALSYMBOLS}
-    include "games/sonic4/config/constants.asm"
+    ; Game constants are authored in games/sonic4/config/constants.emp (conversion
+    ; Parcel F) — the `.emp` module `games.sonic4.constants`. Its `pub const`s are
+    ; harvested (native.rs harvest_game_constants) into guarded AS `-D` defines +
+    ; link EquSyms, so the residual AS and the game-agnostic engine `.emp` read
+    ; them; game `.emp` consumers read them via `use games.sonic4.constants`.
     include "games/sonic4/config/sound_ids.asm"
     include "games/sonic4/config/game.asm"
     endm

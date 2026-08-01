@@ -25,10 +25,9 @@ use engine.vdp.{VDP_MODE2_OFF}
 use engine.types.{VramTile}
 use engine.coords.{pixels_to_coord}
 
-// VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Mirrors
-// games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
-const VRAM_TEST_OBJ: VramTile = $03E0
-ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from object_test_state.emp")
+// VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Sole authority is
+// games.sonic4.constants (config/constants.emp).
+use games.sonic4.constants.{VRAM_TEST_OBJ}
 
 // STUB_FLOOR_Y — the test player/objects rest height (px). Owned here now (the AS
 // test_player.asm header that once defined it is deleted); this module is its sole

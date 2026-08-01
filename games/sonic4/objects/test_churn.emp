@@ -21,8 +21,7 @@ use engine.types.{VramTile}
 
 // VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Mirrors
 // games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
-const VRAM_TEST_OBJ: VramTile = $03E0
-ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "config/constants.asm VRAM_TEST_OBJ drifted from test_churn.emp")
+use games.sonic4.constants.{VRAM_TEST_OBJ}
 
 const CHURN_MIN_LIFE = 4                // shortest lifetime (frames)
 const CHURN_SPREAD   = 8                // lifetime stagger range (power of two)

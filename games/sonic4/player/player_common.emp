@@ -45,54 +45,15 @@ type PlayerState = proc (a0: *Sst) preserves(a0) clobbers(d0-d7, a1-a4)
 // the clobber set.
 type PlayerHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
 
-// ── game-config mirrors (config/constants.asm + config/sound_ids.asm) ────────
-// The .emp const cannot be seen by the gate-off AS build (row-54 class); each
-// drift guard makes an AS-side change loud.
-const PSTATE_GROUND   = 0
-const PSTATE_ROLL     = 2
-const PSTATE_SPINDASH = 4
-const PSTATE_AIR      = 6
-const PSTATE_JUMP     = 8
-const PSTATE_ROLLJUMP = 10
-const PSTATE_AIRBALL  = 12
-const PSTATE_COUNT    = 7
-ensure(extern("PSTATE_GROUND")   == PSTATE_GROUND,   "config/constants.asm PSTATE_GROUND drifted")
-ensure(extern("PSTATE_ROLL")     == PSTATE_ROLL,     "config/constants.asm PSTATE_ROLL drifted")
-ensure(extern("PSTATE_SPINDASH") == PSTATE_SPINDASH, "config/constants.asm PSTATE_SPINDASH drifted")
-ensure(extern("PSTATE_AIR")      == PSTATE_AIR,      "config/constants.asm PSTATE_AIR drifted")
-ensure(extern("PSTATE_JUMP")     == PSTATE_JUMP,     "config/constants.asm PSTATE_JUMP drifted")
-ensure(extern("PSTATE_ROLLJUMP") == PSTATE_ROLLJUMP, "config/constants.asm PSTATE_ROLLJUMP drifted")
-ensure(extern("PSTATE_AIRBALL")  == PSTATE_AIRBALL,  "config/constants.asm PSTATE_AIRBALL drifted")
-ensure(extern("PSTATE_COUNT")    == PSTATE_COUNT,    "config/constants.asm PSTATE_COUNT drifted")
-
-const ANIM_WALK     = 0
-const ANIM_RUN      = 1
-const ANIM_ROLL     = 2
-const ANIM_SPINDASH = 3
-const ANIM_PUSH     = 4
-const ANIM_IDLE     = 5
-const ANIM_BALANCE  = 6
-const ANIM_LOOKUP   = 7
-const ANIM_DUCK     = 8
-const ANIM_SKID     = 9
-const ANIM_GETUP    = 10
-const ANIM_RUN_THRESHOLD = $600
-ensure(extern("ANIM_WALK")     == ANIM_WALK,     "config/constants.asm ANIM_WALK drifted")
-ensure(extern("ANIM_RUN")      == ANIM_RUN,      "config/constants.asm ANIM_RUN drifted")
-ensure(extern("ANIM_ROLL")     == ANIM_ROLL,     "config/constants.asm ANIM_ROLL drifted")
-ensure(extern("ANIM_SPINDASH") == ANIM_SPINDASH, "config/constants.asm ANIM_SPINDASH drifted")
-ensure(extern("ANIM_PUSH")     == ANIM_PUSH,     "config/constants.asm ANIM_PUSH drifted")
-ensure(extern("ANIM_IDLE")     == ANIM_IDLE,     "config/constants.asm ANIM_IDLE drifted")
-ensure(extern("ANIM_BALANCE")  == ANIM_BALANCE,  "config/constants.asm ANIM_BALANCE drifted")
-ensure(extern("ANIM_LOOKUP")   == ANIM_LOOKUP,   "config/constants.asm ANIM_LOOKUP drifted")
-ensure(extern("ANIM_DUCK")     == ANIM_DUCK,     "config/constants.asm ANIM_DUCK drifted")
-ensure(extern("ANIM_SKID")     == ANIM_SKID,     "config/constants.asm ANIM_SKID drifted")
-ensure(extern("ANIM_GETUP")    == ANIM_GETUP,    "config/constants.asm ANIM_GETUP drifted")
-ensure(extern("ANIM_RUN_THRESHOLD") == ANIM_RUN_THRESHOLD, "config/constants.asm ANIM_RUN_THRESHOLD drifted")
-
-// VRAM_TEST_MARKER — tile 1016, debug-fly marker (2×2). Mirror of config/constants.asm.
-const VRAM_TEST_MARKER: VramTile = $03F8
-ensure(extern("VRAM_TEST_MARKER") == VRAM_TEST_MARKER, "config/constants.asm VRAM_TEST_MARKER drifted")
+// Game-config constants — the sole authority is games.sonic4.constants
+// (config/constants.emp). VRAM_TEST_MARKER is the tile-1016 debug-fly marker.
+use games.sonic4.constants.{
+    PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP,
+    PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_COUNT,
+    ANIM_WALK, ANIM_RUN, ANIM_ROLL, ANIM_SPINDASH, ANIM_PUSH, ANIM_IDLE,
+    ANIM_BALANCE, ANIM_LOOKUP, ANIM_DUCK, ANIM_SKID, ANIM_GETUP,
+    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER
+}
 
 const SFXID_SKID = $36
 ensure(extern("SFXID_SKID") == SFXID_SKID, "config/sound_ids.asm SFXID_SKID drifted")
