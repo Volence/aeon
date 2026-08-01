@@ -66,7 +66,9 @@
 ; -----------------------------------------------
     ; Sound constants are authored in engine/sound/sound_constants.emp (the sound
     ; contract's single authority); the residual AS reads none of its symbols.
-    include "engine/macros.asm"
+    ; engine/macros.asm DELETED (Parcel K4): its object/VDP helpers had zero live
+    ; residual-AS consumers — the last two (objentry/objend, entity_data.asm) died
+    ; with the K3 run-A port; the `.emp` comptime-fn twins carry the load.
     ; The §4.6 parallax authoring vocabulary is engine/level/parallax_dsl.emp (conv-g);
     ; the config data is games/sonic4/data/parallax/configs.emp. Both are native.
     include "engine/sound/sound_bank.inc"
