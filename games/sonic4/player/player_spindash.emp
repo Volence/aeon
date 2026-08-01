@@ -18,19 +18,13 @@ use games.sonic4.player_common.{PlayerV}
 // Player_SensorFloor resolves module-to-module to player_sensors.emp (bare link) —
 // the P4 close retired its extern-proc boundary decl (kill row 80).
 
-// ── game-config mirrors (config/constants.asm + config/sound_ids.asm) ────────
-const PSTATE_ROLL    = 2
-const PSTATE_AIRBALL = 12
-ensure(extern("PSTATE_ROLL")    == PSTATE_ROLL,    "config/constants.asm PSTATE_ROLL drifted")
-ensure(extern("PSTATE_AIRBALL") == PSTATE_AIRBALL, "config/constants.asm PSTATE_AIRBALL drifted")
+// Game-config constants — sole authority is games.sonic4.constants.
+use games.sonic4.constants.{
+    PSTATE_ROLL, PSTATE_AIRBALL, ANIM_SPINDASH,
+    SPINDASH_BASE, SPINDASH_CHARGE_STEP, SPINDASH_CHARGE_MAX
+}
 
-const SPINDASH_BASE        = $800
-const SPINDASH_CHARGE_STEP = $200
-const SPINDASH_CHARGE_MAX  = $800
-ensure(extern("SPINDASH_BASE")        == SPINDASH_BASE,        "config/constants.asm SPINDASH_BASE drifted")
-ensure(extern("SPINDASH_CHARGE_STEP") == SPINDASH_CHARGE_STEP, "config/constants.asm SPINDASH_CHARGE_STEP drifted")
-ensure(extern("SPINDASH_CHARGE_MAX")  == SPINDASH_CHARGE_MAX,  "config/constants.asm SPINDASH_CHARGE_MAX drifted")
-
+// ── sound-id mirrors (config/sound_ids.asm) ──────────────────────────────────
 const SFXID_SPINDASH = $AB
 const SFXID_DASH     = $B6
 ensure(extern("SFXID_SPINDASH") == SFXID_SPINDASH, "config/sound_ids.asm SFXID_SPINDASH drifted")

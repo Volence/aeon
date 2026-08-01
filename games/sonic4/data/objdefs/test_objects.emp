@@ -14,12 +14,9 @@ use engine.objects.objdef.{objdef, vram_art}
 use engine.types.{VramTile}
 use engine.constants.{COLLISION_SOLID, COLLISION_HURT}
 
-const VRAM_TEST_OBJ: VramTile = $03E0   // games/sonic4/config/constants.asm
-const ENEMY_PATROL_SPEED = $100         // patrol x_vel (8.8: 1.0 px/frame) — sole consumer
+use games.sonic4.constants.{VRAM_TEST_OBJ}
 
-// Drift guard (D11): VRAM_TEST_OBJ's real home is config/constants.asm, which
-// survives the test_objects.asm byte-gate twin. Source of truth stays the .asm side.
-ensure(extern("VRAM_TEST_OBJ") == VRAM_TEST_OBJ, "VRAM_TEST_OBJ drifted from config/constants.asm: {VRAM_TEST_OBJ}")
+const ENEMY_PATROL_SPEED = $100         // patrol x_vel (8.8: 1.0 px/frame) — sole consumer
 
 pub data ObjDef_Static: ObjDef = objdef(
     code: "TestStatic_Main", map: "Map_TestObj", art: vram_art(VRAM_TEST_OBJ))

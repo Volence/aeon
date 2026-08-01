@@ -10,8 +10,7 @@ use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHY
 // VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). Mirrors
 // games/sonic4/config/constants.asm (game-config; the .emp const cannot be seen
 // by the gate-off AS build). The drift guard makes an AS-side change loud.
-const VRAM_TEST_SONIC: VramTile = $03C0
-ensure(extern("VRAM_TEST_SONIC") == VRAM_TEST_SONIC, "config/constants.asm VRAM_TEST_SONIC drifted from sonic.emp")
+use games.sonic4.constants.{VRAM_TEST_SONIC}
 
 // PHYS_* — Sonic's 8 section-modifiable physics base values (the PhysTable_Sonic
 // row below) HOISTED to the engine.constants twin at the ambient-hoist parcel

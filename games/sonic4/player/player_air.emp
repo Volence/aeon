@@ -18,9 +18,8 @@ use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix}
 // Player_SensorFloor/Ceiling/WallAt resolve module-to-module to player_sensors.emp
 // (bare link) — the P4 close retired their extern-proc boundary decls (kill row 80).
 
-// ── game-config mirrors (config/constants.asm) ───────────────────────────────
-const PSTATE_GROUND = 0
-ensure(extern("PSTATE_GROUND") == PSTATE_GROUND, "config/constants.asm PSTATE_GROUND drifted")
+// Game-config constants — sole authority is games.sonic4.constants.
+use games.sonic4.constants.{PSTATE_GROUND, PSTATE_ROLL}
 
 // Engine-constant mirrors (PHYS_FALL_CAP / PHYS_ROLL_START_MIN / PUSH_RADIUS /
 // ST_* / BUTTON_LEFT/RIGHT/A/C) HOISTED to the engine.constants twin at the

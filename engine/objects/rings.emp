@@ -33,10 +33,15 @@ const RING_WIDTH             = 16
 // the ring's gold on CRAM line 1 (OJZ_Palette → line 1). The AS twin spells
 // the pack inline (its isolated gate sees no macros.asm).
 const RING_ART_ATTR          = vram_art(VRAM_RING_PLACEHOLDER, 1, 1)
-ensure(extern("MAX_RING_BUFFER") == MAX_RING_BUFFER, "the game's config/constants.asm and rings.emp -D MAX_RING_BUFFER disagree — update both")
-ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and rings.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
-ensure(extern("RING_WIDTH") == RING_WIDTH, "games/sonic4/config/constants.asm and rings.emp disagree on RING_WIDTH — update both")
-ensure(extern("VRAM_RING_PLACEHOLDER") == VRAM_RING_PLACEHOLDER, "the game's config/constants.asm and rings.emp -D VRAM_RING_PLACEHOLDER disagree — update both")
+// MAX_RING_BUFFER / VRAM_RING_PLACEHOLDER are game-varying GAME->ENGINE `-D`
+// interface values (native.rs emp_defines) with NO `.emp`/AS authority to
+// cross-check against (Parcel F flipped sonic4's config to `.emp`, which does not
+// declare a `-D` name); a wrong `-D` moves ROM bytes, so six-target byte-identity
+// is their drift net. RING_BUFFER_ENTRY_SIZE / RING_WIDTH are engine-invariant
+// game config — the game `.emp` (or demo's AS config) is their authority, so the
+// cross-checks against the link export stay.
+ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "game config and rings.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
+ensure(extern("RING_WIDTH") == RING_WIDTH, "game config and rings.emp disagree on RING_WIDTH — update both")
 
 // -----------------------------------------------
 // RingBuffer_Add — append a ring to the unified buffer
