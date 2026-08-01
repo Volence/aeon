@@ -1,0 +1,36 @@
+// ===========================================================================
+// engine/system/epilogue.emp — the ROM terminus (Parcel K4 B1)
+// ===========================================================================
+// The `.emp` home of `EndOfRom` + the three ROM-tail walls, ported out of
+// engine.inc (which owned the AS `EndOfRom:` label + the three `if … error`
+// guards). EndOfRom is the one-past-the-end terminus label the header reads
+// (`games/*/config/header.emp`'s `rom_end = extern("EndOfRom") - 1`) and the
+// address the convsym deb2 appendix rides after. It is a zero-length `pub data`
+// label placed LAST (its boundary key EndOfRom is already frozen in all six
+// tables, so the chainer keys the terminus off it; the packer's last section is
+// exactly this one, abutting error_handler's tail).
+//
+// The three walls:
+//   - PLANE_H_CELLS * PLANE_V_CELLS <= 4096 is a COMPTIME fact (pure constants),
+//     so it stays a comptime `ensure`.
+//   - EndOfRom evenness and the 4 MB ceiling depend on EndOfRom's PLACED address
+//     (a link fact, not comptime), so they are LINK-time asserts: `ensure` over
+//     `extern("EndOfRom")` defers to a LinkAssert (D-H.4) the chainer checks
+//     against the resolved layout.
+// ===========================================================================
+
+module engine.epilogue in epilogue
+
+use engine.constants.{PLANE_H_CELLS, PLANE_V_CELLS}
+
+// Wall 3 (comptime): the plane nametable must fit the 8 KB VDP window.
+ensure(PLANE_H_CELLS * PLANE_V_CELLS <= 4096, "Plane exceeds 8KB")
+
+// Wall 1 (link-time): the assembled ROM must be even-sized (word-aligned tail).
+ensure((extern("EndOfRom") & 1) == 0, "ROM size is odd")
+
+// Wall 2 (link-time): the ROM must fit 4 MB without banking.
+ensure(extern("EndOfRom") <= $3FFFFF, "ROM exceeds 4MB without banking")
+
+// The terminus label — zero-length, at the true image end.
+pub data EndOfRom = Data.empty

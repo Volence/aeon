@@ -187,32 +187,19 @@ gameDataIncludes macro {GLOBALSYMBOLS}
     endm
 
 gameSoundDataIncludes macro {GLOBALSYMBOLS}
-    ifdef SIGIL_EMP_DAC_BODY_STUB
-        ; sigil DSM mixed harness ONLY: the two DAC banks are composed IN-MEMORY as
-        ; dac_samples.emp sections (the dac_port.rs pipeline, pinned at $48000/$50000
-        ; by the harness bank map). org skips the two-bank hole; the next align $8000
-        ; (MT bank) lands at $58000 exactly as before. This arm exercises the .emp
-        ; bank composition inside the whole ROM; the real build takes the BINCLUDE arm.
-        org     $58000
-    else
-        ; seam-2 (Option Y): the DAC sample banks are the byte-identical artifacts
-        ; sigil emits from dac_samples.emp (the CANONICAL source — the .asm twin is
-        ; deleted) — dac_blip_bank.bin @ $48000, dac_shared_bank.bin @ $50000 —
-        ; BINCLUDE'd here in the align/label/BINCLUDE order the descriptor head + the
-        ; runtime bank latch expect. build.sh's sigil emit step is a HARD dependency:
-        ; there is no asl fallback. The trailing snap to $58000 is the MT bank's own
-        ; `align $8000` below (the shared bank ends at $578BC).
-        ; K4: absolute org (was `align $8000`) — the collision island that used to
-        ; fill the space up to $41BDA before this align is now native
-        ; (collision_data.emp), so the relative align would land the DAC bank early.
-        ; The DAC blip bank's LMA is fixed at $48000 (Z80 SetBank latch); pin it.
-        org     $48000                         ; DAC blip bank start (bank $48000)
-Dac_Temp_Blip:
-        BINCLUDE "engine/sound/generated/dac_blip_bank.bin"
-        align   $8000                          ; align to a bank start (shared drum bank)
-Dac_SharedBank_Start:
-Dac_Kick:
-        BINCLUDE "engine/sound/generated/dac_shared_bank.bin"
+    ; The DAC sample banks are NATIVE (K4 inc-5 Stage 2, the P2 probe):
+    ; games/sonic4/data/sound/dac_banks.emp embeds the seam-2 dac_blip_bank.bin @
+    ; $48000 + dac_shared_bank.bin @ $50000 at the declared map anchors. The AS
+    ; residual SKIPS the two-bank hole so the MT bank's `align $8000` below lands at
+    ; $58000. STRUCTURAL EXCLUSIVITY (spec §6): the native section is the SOLE DAC
+    ; placement — the BINCLUDE arm is DELETED (can't-both) and the native section is
+    ; unconditional in the sound-on registry (can't-neither). SIGIL_EMP_DAC is set in
+    ; every sound-on build (native.rs), and gameSoundDataIncludes only runs under
+    ; SOUND_DRIVER_ENABLED, so the skip always runs. (The dead SIGIL_EMP_DAC_BODY_STUB
+    ; arm — a never-set gate on a dead org-skip — was deleted; the bare SIGIL_EMP_DAC
+    ; gate native.rs already sets is the consumed one now.)
+    ifdef SIGIL_EMP_DAC
+        org     $58000                         ; skip the native DAC banks ($48000..$58000)
     endif
         ; NOTE: the 68k DUPLICATE sound tables (data/sound/sound_tables.asm =
         ; FmPitchTable/PsgDivisorTable/LogVolumeLut/CarrierMaskTable, and
@@ -242,67 +229,54 @@ SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15
 ; — declare the contract directly rather than deriving from Sfx_33, whose label
 ; is now .emp-side (the SFX block is the BINCLUDE'd sfx_bank.bin, seam-2 2d).
 SFX_BLOB_BANK = SND_ENGINE_TABLE_BANK
-        save
-        cpu     z80
-        phase   08000h
-        soundBankHead
-        dephase
-        restore
-    ifdef SIGIL_EMP_MT_BODY_STUB
-        ; sigil DSM mixed harness ONLY: everything from Song_MovingTrucks ($58607)
-        ; through SongPatchTable_End is composed IN-MEMORY as the mt_bank.emp section
-        ; (the mt_port.rs pipeline). org resumes the SFX block at the per-shape
-        ; reference address; SongTable/SongPatchTable resolve cross-seam from the
-        ; composed .emp. Re-pin on re-baseline (see golden/PROVENANCE.md).
+    ; The engine-table bank HEAD is NATIVE (K4 inc-5 Stage 4b, the P2 soundBankHead
+    ; probe): games/sonic4/data/sound/soundbankhead.emp places the 5 heads
+    ; (SoundTablesZ80_Head / MovingTrucks_PitchTable / SfxBlobWinTab / SeqOpcodeTable /
+    ; DacSampleTable) as a PHASE-BANK section (vma $8000, lma $58000 via the map
+    ; `sound_bank` anchor). The AS residual skips past the native head to the MT body.
+    ; sound_bank.inc + its `soundBankHead` macro are DELETED; the `phase 08000h`
+    ; bracket goes with them (the native section's `vma: $8000` carries the window
+    ; addressing). MovingTrucks_Bank_Start stays AS (its LMA >>15 is SND_ENGINE_TABLE_BANK).
+    ; Structural exclusivity: the native section is the SOLE head placement.
+    ifdef SIGIL_EMP_SOUNDBANKHEAD
+        org     $58607                         ; skip the native soundBankHead ($58000..$58607)
+    endif
+    ; The Moving-Trucks streaming bank BODY is NATIVE (K4 inc-5 Stage 3, the P2 MT
+    ; probe): games/sonic4/data/sound/mt_bank_blob.emp embeds the seam-2
+    ; mt_bank{,_debug}.bin @ $58607. The AS residual SKIPS the native body (per-shape
+    ; end) so the SFX block below lands correctly. mt_syms{,_debug}.asm (an emitted
+    ; artifact) STILL supplies SongTable/SongPatchTable — the two labels sound_api.emp
+    ; externs — because they sit at mid-blob offsets (len - SONG_COUNT*8/4) a single
+    ; embed cannot label. STRUCTURAL EXCLUSIVITY (spec §6): the native section is the
+    ; SOLE MT-body placement (the BINCLUDE is DELETED); the section is unconditional in
+    ; the sound-on registry; SIGIL_EMP_MT is set in every sound-on build. (The dead
+    ; SIGIL_EMP_MT_BODY_STUB arm was deleted.)
+    ifdef SIGIL_EMP_MT
       ifdef __DEBUG__
-        org     $5D53A
-      else
-        org     $5BAE8
-      endif
-    else
-        ; seam-2 stage-2c (the real build): the whole Moving-Trucks streaming bank is
-        ; the byte-identical artifact sigil emits from mt_bank.emp (the CANONICAL
-        ; source — the .asm stream is deleted) — mt_bank{,_debug}.bin — BINCLUDE'd at
-        ; $58607. mt_syms{,_debug}.asm supplies SongTable/SongPatchTable (the two labels
-        ; sound_api.asm's `movea.l` consumes) as equs at their emitted addresses.
-        ; build.sh's sigil emit step is a HARD dependency. Shape-dependent (the debug
-        ; build adds DrumTest + HCZ2). The MT stream's old contiguity/straddle/window
-        ; guards became mt_bank.emp's link-time ensures (proven at emit).
-      ifdef __DEBUG__
-        BINCLUDE "engine/sound/generated/mt_bank_debug.bin"
         include  "engine/sound/generated/mt_syms_debug.asm"
+        org     $5D53A                         ; skip the native MT body (debug ends $5D53A)
       else
-        BINCLUDE "engine/sound/generated/mt_bank.bin"
         include  "engine/sound/generated/mt_syms.asm"
+        org     $5BAE8                         ; skip the native MT body (plain ends $5BAE8)
       endif
     endif
         ; --- Phase 5a SFX data ---
         ; Small FM/PSG blobs (no DAC, no bank-streaming) — plain inline data the
         ; Z80 SFX loader reads via the $8000 window. SfxTable indexes id -> blob.
-    ifdef SIGIL_EMP_SFX_BODY_STUB
-        ; sigil DSM mixed harness ONLY: everything from Sfx_33 through SfxTable_End
-        ; is composed IN-MEMORY as the sfx_bank.emp section (the sfx_port.rs
-        ; pipeline). org resumes at the per-shape reference address (SfxTable_End).
-        ; Re-pin on re-baseline (see golden/PROVENANCE.md).
+    ; The SFX block is NATIVE (K4 inc-5 Stage 4, the P2 SFX probe):
+    ; games/sonic4/data/sound/sfx_bank_blob.emp embeds the seam-2 sfx_bank{,_debug}.bin
+    ; @ $5BAE8 (plain) / $5D53A (debug). The AS residual SKIPS the native block (per-
+    ; shape end) — nothing byte-emitting follows in this macro. No syms (no surviving
+    ; AS/emp reads SfxTable; sound_sfx.emp's SfxBlobWinTab reads are native, in the
+    ; head). STRUCTURAL EXCLUSIVITY (spec §6): the native section is the SOLE SFX
+    ; placement (the BINCLUDE is DELETED); the section is unconditional in the sound-on
+    ; registry; SIGIL_EMP_SFX is set in every sound-on build. (The dead
+    ; SIGIL_EMP_SFX_BODY_STUB arm was deleted.)
+    ifdef SIGIL_EMP_SFX
       ifdef __DEBUG__
-        org     $5DC82
+        org     $5DC82                         ; skip the native SFX block (debug ends $5DC82)
       else
-        org     $5C230
-      endif
-    else
-        ; seam-2 stage-2d (the real build): the whole SFX block (the 9 blobs, their
-        ; 9 patch banks, and the sparse id->blob SfxTable) is the byte-identical
-        ; artifact sigil emits from sfx_bank.emp (the CANONICAL source — the .asm
-        ; stream is deleted) — sfx_bank{,_debug}.bin — BINCLUDE'd at $5BAE8 (plain)
-        ; / $5D53A (debug). No syms: no surviving AS code reads SfxTable
-        ; (sound_sfx.emp's SfxBlobWinTab reads are native). The straddle/
-        ; co-residency invariants are sfx_bank.emp's link-time ensures (proven at
-        ; emit). Shape-dependent (the SfxTable pointer cells hold the per-shape
-        ; absolute Sfx_NN addresses). build.sh's sigil emit step is a HARD dependency.
-      ifdef __DEBUG__
-        BINCLUDE "engine/sound/generated/sfx_bank_debug.bin"
-      else
-        BINCLUDE "engine/sound/generated/sfx_bank.bin"
+        org     $5C230                         ; skip the native SFX block (plain ends $5C230)
       endif
     endif
     endm

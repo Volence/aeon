@@ -1,0 +1,37 @@
+// ===========================================================================
+// games/sonic4/data/sound/sfx_bank_blob.emp — the SFX block, native (K4 inc-5
+// Stage 4, the P2 SFX probe)
+// ===========================================================================
+// The SFX block (the 9 FM/PSG SFX blobs, their patch banks, and the sparse
+// id->blob SfxTable) was the BINCLUDE at $5BAE8/$5D53A in main.asm's
+// gameSoundDataIncludes (after the native MT body). This module places it
+// NATIVELY by EMBEDDING the seam-2-emitted sfx_bank{,_debug}.bin — the P2 path
+// (spec §6): the emit-tool architecture is untouched; this module just places
+// those bytes natively instead of via AS BINCLUDE.
+//
+// SHAPE-INVARIANT SIZE (shape-DEPENDENT start): the block is 0x748 B both shapes,
+// but the MT body before it differs, so it starts at $5BAE8 plain / $5D53A debug.
+// The embed content also differs per shape (the SfxTable pointer cells hold the
+// per-shape absolute Sfx_NN addresses), so the embed selects on DEBUG.
+//
+// NON-PHASED, NO CROSS-SEAM LABELS: like the MT body, the block is emitted after
+// `dephase/restore` (plain LMA). Unlike the MT body it has NO consumed labels —
+// no surviving AS/emp code reads SfxTable (sound_sfx.emp's SfxBlobWinTab reads are
+// native, in the head). So this module owns only the BYTES + the head label Sfx_33
+// (placement head / map-order / frozen boundary key; no runtime consumer). No syms
+// file needed.
+//
+// STRUCTURAL EXCLUSIVITY (spec §6, inherited): the native section is the SOLE SFX
+// placement — the AS BINCLUDE is DELETED (can't-both), the section is unconditional
+// in the sound-on registry (can't-neither). main.asm's `ifdef SIGIL_EMP_SFX`
+// per-shape skip org moves the AS cursor past this native block.
+// ===========================================================================
+
+module games.sonic4.sfx_bank_blob in sfx_bank_blob
+
+const _sfx       = embed("engine/sound/generated/sfx_bank.bin")
+const _sfx_debug = embed("engine/sound/generated/sfx_bank_debug.bin")
+
+// The whole SFX block (9 blobs + patch banks + the sparse SfxTable) — the head is
+// Sfx_33 (the first SFX, id $33).
+pub data Sfx_33 = if DEBUG == 1 { _sfx_debug } else { _sfx }
