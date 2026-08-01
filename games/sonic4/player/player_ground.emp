@@ -32,13 +32,8 @@ use games.sonic4.constants.{
     PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL
 }
 
-// ── sound-id mirrors (config/sound_ids.asm) ──────────────────────────────────
-const SFXID_ROLL     = $3C
-const SFXID_JUMP     = $62
-const SFXID_SPINDASH = $AB
-ensure(extern("SFXID_ROLL")     == SFXID_ROLL,     "config/sound_ids.asm SFXID_ROLL drifted")
-ensure(extern("SFXID_JUMP")     == SFXID_JUMP,     "config/sound_ids.asm SFXID_JUMP drifted")
-ensure(extern("SFXID_SPINDASH") == SFXID_SPINDASH, "config/sound_ids.asm SFXID_SPINDASH drifted")
+// Sound ids — sole authority is games.sonic4.sound_ids.
+use games.sonic4.sound_ids.{SFXID_ROLL, SFXID_JUMP, SFXID_SPINDASH}
 
 // Engine-constant mirrors (PHYS_* / radii / CURL / PUSH / BUTTON_LEFT/RIGHT /
 // ST_*) HOISTED to the engine.constants twin at the ambient-hoist parcel

@@ -55,8 +55,8 @@ use games.sonic4.constants.{
     ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER
 }
 
-const SFXID_SKID = $36
-ensure(extern("SFXID_SKID") == SFXID_SKID, "config/sound_ids.asm SFXID_SKID drifted")
+// Sound id — sole authority is games.sonic4.sound_ids.
+use games.sonic4.sound_ids.{SFXID_SKID}
 
 // Engine-constant mirrors (PHYS_* / radii / CURL / ST_* / COLLISION_NONE /
 // EDGE_* / BUTTON_A/C / BUTTON_*_BIT) HOISTED to the engine.constants twin at
