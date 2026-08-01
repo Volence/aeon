@@ -148,13 +148,18 @@ gameDataIncludes macro {GLOBALSYMBOLS}
     ; The four ObjDef_* archetype templates are native (test_objects.emp), pinned by
     ; the sigil map; the AS residual resumes at the region end. The orgs are
     ; sonic4-shape (the off-canonical chainer ignores them).
+    ;
+    ; Parcel K3 run A: the OJZ act1 entity data + art pool are native too now —
+    ; entity_data.emp (games.sonic4.ojz_entity_data_act1: the 9-section type
+    ; tables / object placements / ring lists) + ojz_act_pool.emp
+    ; (games.sonic4.ojz_act_pool_act1: the 3 ZX0 page embeds + page table). With
+    ; the descriptor + the run-B tail already native, the whole OJZ block is `.emp`
+    ; and act_descriptor.asm is deleted; the org below is an inert resume.
     ifdef __DEBUG__
         org     $11DE6
     else
         org     $11D7E
     endif
-    include "games/sonic4/data/generated/ojz/act1/entity_data.asm"
-    include "games/sonic4/data/levels/ojz/act1/act_descriptor.asm"
     ; Map_TestObj is native (test_mappings.emp), Ani_Sonic is native
     ; (sonic_anims.emp) — both pinned by the sigil map; the AS residual resumes
     ; past them at the region end below. The orgs are sonic4-shape.

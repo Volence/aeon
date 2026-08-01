@@ -41,12 +41,12 @@ def read(path):
 def verify_act_pool():
     """Manifest page count == the pages the pool include references == the .zx0
     files present; each .zx0 wrapper's uncompressed-size header == its .bin."""
-    # The manifest is a generated `.emp` const module (Parcel K3); the pool
-    # BINCLUDE head stays AS-side.
+    # Both the manifest (const module) and the pool (native section: page embeds
+    # + the OJZ_Act_Pool_PageTable) are generated `.emp` modules (Parcel K3).
     manifest = os.path.join(GEN, "ojz_act_pool_manifest.emp")
-    pool = os.path.join(GEN, "ojz_act_pool.asm")
+    pool = os.path.join(GEN, "ojz_act_pool.emp")
     if not (os.path.isfile(manifest) and os.path.isfile(pool)):
-        check(False, "act pool: ojz_act_pool_manifest.emp / ojz_act_pool.asm missing")
+        check(False, "act pool: ojz_act_pool_manifest.emp / ojz_act_pool.emp missing")
         return
     m = re.search(r"^(?:pub\s+const\s+)?OJZ_ACT_POOL_PAGES\s*=\s*(\d+)$",
                   open(manifest).read(), re.M)
@@ -55,12 +55,12 @@ def verify_act_pool():
         return
     pages = int(m.group(1))
     pool_txt = open(pool).read()
-    binc = re.findall(r'BINCLUDE\s+"[^"]*/act_pool_page(\d+)\.zx0"', pool_txt)
-    dcl = re.findall(r"dc\.l\s+OJZ_Act_Pool_Page(\d+)", pool_txt)
+    binc = re.findall(r'OJZ_Act_Pool_Page(\d+)\s*=\s*embed\("[^"]*/act_pool_page\d+\.zx0"\)', pool_txt)
+    dcl = re.findall(r"OJZ_Act_Pool_Page(\d+)", re.search(r'OJZ_Act_Pool_PageTable[^\]]*\]', pool_txt).group(0)) if 'OJZ_Act_Pool_PageTable' in pool_txt else []
     check([int(x) for x in binc] == list(range(pages)),
-          f"act pool: ojz_act_pool.asm BINCLUDEs {binc}, expected pages 0..{pages-1}")
+          f"act pool: ojz_act_pool.emp embeds {binc}, expected pages 0..{pages-1}")
     check([int(x) for x in dcl] == list(range(pages)),
-          f"act pool: ojz_act_pool.asm page table {dcl}, expected 0..{pages-1}")
+          f"act pool: ojz_act_pool.emp page table {dcl}, expected 0..{pages-1}")
     for k in range(pages):
         pbin = os.path.join(GEN, f"act_pool_page{k}.bin")
         pzx0 = os.path.join(GEN, f"act_pool_page{k}.zx0")
@@ -124,7 +124,7 @@ def verify_block_blobs():
 def verify_bininclude_targets():
     """Every BINCLUDE / embed() in the committed generated heads resolves to a
     present file (catches a renamed/removed blob a hand-edit left dangling)."""
-    for head in ("ojz_act_pool.asm", "sec_block_blobs.emp", "bg_anim.emp"):
+    for head in ("ojz_act_pool.emp", "sec_block_blobs.emp", "bg_anim.emp"):
         hp = os.path.join(GEN, head)
         if not os.path.isfile(hp):
             continue

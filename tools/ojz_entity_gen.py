@@ -50,11 +50,13 @@ import json
 import os
 import sys
 
-# Constants — must match constants.asm
-SECTION_SIZE = 2048          # constants.asm SECTION_SIZE = $0800 (pixels per axis)
-MAX_LIST_ENTRIES = 128       # constants.asm MAX_LIST_ENTRIES — collected/killed/loaded bitmask capacity
-MAX_TYPES_PER_SECTION = 32   # constants.asm OEF_TYPE_MASK = $1F — 5-bit type field
-MAX_SUBTYPE = 255            # constants.asm OEF_SUBTYPE_MASK = $FF
+# Constants — must match constants.emp
+SECTION_SIZE = 2048          # constants.emp SECTION_SIZE = $0800 (pixels per axis)
+MAX_LIST_ENTRIES = 128       # constants.emp MAX_LIST_ENTRIES — collected/killed/loaded bitmask capacity
+MAX_TYPES_PER_SECTION = 32   # constants.emp OEF_TYPE_MASK = $1F — 5-bit type field
+MAX_SUBTYPE = 255            # constants.emp OEF_SUBTYPE_MASK = $FF
+OEF_TYPE_SHIFT = 8           # constants.emp OEF_TYPE_SHIFT — packed = flags | (type<<8) | subtype
+OEF_FLAG_BITS = {"OEF_XFLIP": 13, "OEF_YFLIP": 14, "OEF_ANY_Y": 15}  # constants.emp OEF_* bit numbers
 
 # Pressure-analysis Y band: visible rows + entity-window vertical margins.
 SCREEN_HEIGHT = 224
@@ -71,7 +73,7 @@ FLAG_KEYS = (
 REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 PROJECT_JSON = os.path.join(REPO_ROOT, "project.json")
 OBJECT_LIBRARY_JSON = os.path.join(REPO_ROOT, "games", "sonic4", "data", "editor", "objects.json")
-OUTPUT_PATH = os.path.join(REPO_ROOT, "games", "sonic4", "data", "generated", "ojz", "act1", "entity_data.asm")
+OUTPUT_PATH = os.path.join(REPO_ROOT, "games", "sonic4", "data", "generated", "ojz", "act1", "entity_data.emp")
 
 
 # ---------------------------------------------------------------------------
@@ -262,46 +264,37 @@ def hexw(v: int) -> str:
 
 def emit_section(lines: list[str], sec_idx: int,
                  sorted_objects, type_order, library, sorted_rings) -> None:
-    """Append one section's TypeTable/Objects/Rings blocks to lines."""
-    sep = "; -----------------------------------------------"
+    """Append one section's TypeTable/Objects/Rings `.emp` items to lines
+    (Parcel K3 run A: the entity_data `.emp` native section)."""
+    lines.append(f"// ---- Sec{sec_idx} ----")
 
-    # Type table
-    lines.append(sep)
-    lines.append(f"; Sec{sec_idx} Type Table — {len(type_order)} type"
-                 f"{'' if len(type_order) == 1 else 's'} (count prefix + longword array)")
-    lines.append(sep)
-    lines.append(f"OJZ_Sec{sec_idx}_TypeTable:")
-    lines.append(f"        dc.b    {len(type_order)}, 0                    ; count, pad")
-    for i, tid in enumerate(type_order):
-        label = library[tid]
-        pad = " " * max(1, 24 - len(label))
-        lines.append(f"        dc.l    {label}{pad}; type {i} — {tid}")
-    lines.append("")
+    # Type table: count byte + pad byte, then `count` ObjDef pointers (dc.l). A
+    # packed struct puts the pointer at offset 2 (even), matching the AS layout.
+    k = len(type_order)
+    if k == 0:
+        lines.append(f"pub data OJZ_Sec{sec_idx}_TypeTable: [u8; 2] = [0, 0]")
+    else:
+        fields = ", ".join(f"t{i}: {library[tid]}" for i, tid in enumerate(type_order))
+        lines.append(f"pub data OJZ_Sec{sec_idx}_TypeTable: ObjTypeTable{k} = "
+                     f"ObjTypeTable{k}{{ count: {k}, pad: 0, {fields} }}")
 
-    # Objects
-    lines.append(sep)
-    lines.append(f"; Sec{sec_idx} Object Layout — objentry (x, y, type [, sub] [, oflags]),")
-    lines.append("; X-sorted ascending. objend emits the dc.w -1 terminator.")
-    lines.append(sep)
-    lines.append(f"OJZ_Sec{sec_idx}_Objects:")
+    # Objects: 3 words per entry (x, y, packed) + a $FFFF list terminator.
+    ow: list[str] = []
     for x, y, type_idx, subtype, flags in sorted_objects:
-        args = [hexw(x), hexw(y), str(type_idx)]
-        if subtype != 0 or flags:
-            args.append(str(subtype))
-        if flags:
-            args.append("|".join(f"(1<<{name})" for name in flags))
-        lines.append(f"        objentry {', '.join(args)}")
-    lines.append("        objend")
-    lines.append("")
+        mask = 0
+        for name in flags:
+            mask |= (1 << OEF_FLAG_BITS[name])
+        packed = mask | (type_idx << OEF_TYPE_SHIFT) | subtype
+        ow += [hexw(x), hexw(y), f"${packed:04X}"]
+    ow.append("$FFFF")
+    lines.append(f"pub data OJZ_Sec{sec_idx}_Objects: [u16; {len(ow)}] = [{', '.join(ow)}]")
 
-    # Rings
-    lines.append(sep)
-    lines.append(f"; Sec{sec_idx} Ring Layout — flat X-sorted (dc.w X, dc.w Y per ring)")
-    lines.append(sep)
-    lines.append(f"OJZ_Sec{sec_idx}_Rings:")
+    # Rings: dc.w X,Y pairs + a longword-0 terminator (two zero words).
+    rw: list[str] = []
     for x, y in sorted_rings:
-        lines.append(f"        dc.w    {hexw(x)}, {hexw(y)}")
-    lines.append("        dc.l    0                       ; terminator")
+        rw += [hexw(x), hexw(y)]
+    rw += ["$000", "$000"]
+    lines.append(f"pub data OJZ_Sec{sec_idx}_Rings: [u16; {len(rw)}] = [{', '.join(rw)}]")
     lines.append("")
 
 
@@ -339,25 +332,39 @@ def generate() -> None:
     total_objects = sum(len(o) for o in per_section_objects)
 
     lines: list[str] = []
-    lines.append("; AUTO-GENERATED by tools/ojz_entity_gen.py — DO NOT EDIT;")
-    lines.append("; edit data/editor/ojz/act1/section_N.{rings,objects}.json and")
-    lines.append("; data/editor/objects.json instead, then rebuild.")
-    lines.append(";")
-    lines.append("; OJZ Act 1 entity data — flat X-sorted ring lists + object placements")
-    lines.append("; + per-section minimized type tables (§4.9 camera-driven entity window)")
-    lines.append(";")
-    lines.append("; Stats:")
-    lines.append(f";   grid: {grid_w}×{grid_h} ({num_sections} sections)")
-    lines.append(f";   rings: {total_rings} total "
+    lines.append("// AUTO-GENERATED by tools/ojz_entity_gen.py — DO NOT EDIT;")
+    lines.append("// edit data/editor/ojz/act1/section_N.{rings,objects}.json and")
+    lines.append("// data/editor/objects.json instead, then rebuild.")
+    lines.append("//")
+    lines.append("// OJZ Act 1 entity data — flat X-sorted ring lists + object placements")
+    lines.append("// + per-section minimized type tables (§4.9 camera-driven entity window),")
+    lines.append("// natively placed at the entity_data section (Parcel K3 run A). The AS")
+    lines.append("// objentry/objend macros are gone: an object entry is the packed 3-word")
+    lines.append("// record { x, y, flags|(type<<8)|subtype } + a $FFFF list terminator; a")
+    lines.append("// ring list is dc.w X,Y pairs + a longword-0 terminator.")
+    lines.append("//")
+    lines.append("// Stats:")
+    lines.append(f"//   grid: {grid_w}x{grid_h} ({num_sections} sections)")
+    lines.append(f"//   rings: {total_rings} total "
                  f"({', '.join(f'sec{i}={len(r)}' for i, r in enumerate(per_section_rings) if r)})")
-    lines.append(f";   objects: {total_objects} total "
+    lines.append(f"//   objects: {total_objects} total "
                  f"({', '.join(f'sec{i}={len(o)}' for i, o in enumerate(per_section_objects) if o)})")
-    lines.append(f";   ring pressure ({PRESSURE_BAND_HEIGHT}px Y band over 2×2 section blocks):")
+    lines.append(f"//   ring pressure ({PRESSURE_BAND_HEIGHT}px Y band over 2x2 section blocks):")
     for bx, by, worst in blocks:
         if worst:
-            lines.append(f";     block ({bx},{by}): {worst}")
-    lines.append(f";     global worst: {global_worst} "
+            lines.append(f"//     block ({bx},{by}): {worst}")
+    lines.append(f"//     global worst: {global_worst} "
                  f"(capacity {MAX_LIST_ENTRIES} per section ring buffer)")
+    lines.append("module games.sonic4.ojz_entity_data_act1 in entity_data")
+    lines.append("")
+    lines.append("// Object-type table shapes: a count byte + pad byte, then `count` ObjDef")
+    lines.append("// pointers (`dc.l`). The ObjDef_* archetypes are cross-module link labels")
+    lines.append("// (test_objects / path_swap). Structs pack tight — the pointer sits at")
+    lines.append("// offset 2 (even), matching the AS `dc.b count,0` + `dc.l` layout.")
+    max_types = max((len(t) for t in per_section_types), default=0)
+    for k in range(1, max_types + 1):
+        fields = ", ".join(f"t{i}: *u8" for i in range(k))
+        lines.append(f"struct ObjTypeTable{k} {{ count: u8, pad: u8, {fields} }}")
     lines.append("")
 
     for sec_idx in range(num_sections):
