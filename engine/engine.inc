@@ -331,13 +331,9 @@ __BUDGET_ENGINE:
     ; CompressionSelfTest is native (engine/debug/compression_selftest.emp) — a
     ; DEBUG-ONLY region: the plain shape emits nothing, so placement stays at the
     ; previous region's resume org (no plain arm). The generated golden-vector data
-    ; (CSelf_*/CSELF_*, tools/gen_compression_vectors.py) stays AS-side here — the
-    ; .emp consumes those symbols cross-seam at link. The org is a sonic4-shape
-    ; address; the off-canonical frozen-table chainer ignores it.
-    ifdef __DEBUG__
-        org     $72BE
-        include "engine/debug/generated/vectors.asm"
-    endif
+    ; (CSelf_* labels + CSELF_* values, tools/gen_compression_vectors.py) is now
+    ; `.emp`-native too: the module `embed()`s the blobs and `use`s the constants,
+    ; so nothing is AS-included here. The .emp region resumes at Sound_PostByte.
     ifdef SOUND_DRIVER_ENABLED
         ; The Sound_* API procs are native (engine/sound/sound_api.emp), pinned by
         ; the sigil map at the per-shape reference address; the AS residual resumes
