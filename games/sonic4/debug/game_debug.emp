@@ -1,8 +1,9 @@
-// games/sonic4/debug/game_debug.emp — game-side debug/test-harness code invoked
-// by the engine's gameDebugTick hook (games/sonic4/config/game.asm). The FIRST
-// game-side .emp CODE module. Sonic 4's sound test-harness hotkeys, not engine
-// code; the engine only knows about the gameDebugTick macro, which is empty for
-// games that don't supply one.
+// games/sonic4/debug/game_debug.emp — game-side debug/test-harness code the game
+// binds to the engine's Game.debug_tick / Game.boot_hook hooks (the manifest
+// games/sonic4/config/game.emp, module games.sonic4.game). Sonic 4's sound
+// test-harness hotkeys, not engine code; the engine only invokes the hooks, which
+// stay `= empty` for games that bind none. Debug_MusicToggle is the per-frame
+// debug_tick impl; SoundTest_BootPing is the boot_hook impl.
 //
 // SHAPE: the AS twin (game_debug.asm) is whole-file `ifdef SOUND_DEBUG_HOTKEYS`
 // / `ifdef SOUND_DRIVER_ENABLED` — it emits ZERO bytes in every normal build
@@ -160,6 +161,26 @@ pub proc Debug_MusicToggle () clobbers(d0-d4/a0-a1) {
         bsr.w   Sound_StopMusic         // was playing -> stop
         clr.b   (Dbg_Music_On).w
     .done:
+        rts
+}
+
+// -----------------------------------------------
+// SoundTest_BootPing — the sound test-harness boot hook (Game.boot_hook). Engine
+// boot invokes this once, after Sound_Init and before the game-state handoff:
+// ping the driver with a recognizable value, autoplay the test song, and seed the
+// Start-toggle play state. Bound only in the hotkeys build shape.
+//
+// CLOBBERS = d0-d4/a0-a1: the body writes d0 and Dbg_Music_On directly, Sound_Ping
+// clobbers a0, and Sound_PlayMusic (sound_api.emp) clobbers d0-d4/a0-a1 — so d1-d4
+// leak in through that call. Boot-time, every register is free; the declared hook
+// bound (Game.boot_hook) covers this exactly.
+// -----------------------------------------------
+pub proc SoundTest_BootPing () clobbers(d0-d4/a0-a1) {
+        moveq   #$3C, d0                     // ping with a recognizable value
+        bsr.w   Sound_Ping
+        moveq   #SONG_MOVINGTRUCKS, d0 as SongId  // autoplay the test song (typed slot)
+        bsr.w   Sound_PlayMusic
+        move.b  #1, (Dbg_Music_On).w         // track play state for the Start-toggle
         rts
 }
 

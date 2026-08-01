@@ -1,0 +1,42 @@
+// The engine↔game contract (L1). The engine DECLARES the seam as a typed
+// interface; a game provides the one `implement` block (its manifest,
+// games/<game>/config/game.emp) binding each member to a symbol or value. This
+// module emits nothing — it is pure declaration. The engine names members
+// qualified (`Game.MEMBER`, `#Game.entry`) and calls hooks with
+// `invoke Game.hook`, which lowers to an absolute `jsr` when a game binds the
+// hook and to ZERO bytes when the hook stays `= empty`.
+//
+// GameState (the state-dispatch proc type the `entry` member is typed by) is
+// `pub type`-declared in engine.game_loop, its dispatch-use home; the bind pass
+// resolves member types across the whole reachable module set, so the interface
+// consumes it without a cross-module type import (contract types are module-local
+// by the import model).
+module engine.game_contract
+
+pub interface Game {
+    // Comptime feature gate the engine's lowering consumes: the camera's
+    // landing-lock arms comptime-select on it (a `CAMERA_JUMP_LOCK = false` game
+    // gets the plain deadzone follow).
+    const CAMERA_JUMP_LOCK: bool
+
+    // The boot handoff: the first game-state routine and its state id. Boot ends
+    // with `move.l #Game.entry, (Game_State).w` + `move.b #Game.ENTRY_ID, ...`.
+    const ENTRY_ID: u8
+    proc entry: GameState
+
+    // Engine-invoked, game-implemented hooks. `= empty` declares the default —
+    // an unbound hook's call site emits NOTHING (empty costs zero bytes, the
+    // canonical-shape invariant).
+    //
+    // boot_hook: engine boot invokes this after Sound_Init, before the game-state
+    // handoff. clobbers(d0-d4/a0-a1) is the honest bound: sonic4's
+    // SoundTest_BootPing calls Sound_PlayMusic (clobbers d0-d4/a0-a1), whose
+    // d2-d4 leak past the ping's own d0/a0 — a generous boot-time bound (every
+    // register is free post-boot) that the real impl satisfies exactly.
+    hook boot_hook () clobbers(d0-d4/a0-a1) = empty
+
+    // debug_tick: engine GameLoop invokes this once per frame after VSync/SFX
+    // drain. ⊤ (d0-d7/a0-a6) — it runs beside the GameState dispatch's own ⊤
+    // bound; sonic4's Debug_MusicToggle (clobbers d0-d4/a0-a1) sits inside it.
+    hook debug_tick () clobbers(d0-d7/a0-a6) = empty
+}

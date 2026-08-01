@@ -5,15 +5,12 @@ module engine.game_loop in game_loop
 // mirrors the AS twin's ifdef; SOUND_DEBUG_HOTKEYS is the sound test-harness
 // opt-in (build.sh: requires DEBUG=1; OFF in normal play builds).
 
-// Boundary contracts (contract-grammar v2 §3/§4). These emit nothing — they
-// state the .asm callees' contracts so the transitive clobber closure can see
-// past the cross-seam calls, and bound the state dispatch. VSync_Wait is
-// .emp-owned (engine.vblank) and resolves module-to-module — no decl.
-// Debug_MusicToggle is now .emp-owned too (games.sonic4.game_debug) and
-// resolves module-to-module — no decl (the old extern decl died when
-// game_debug.emp landed; keeping it would §11-Q4-collide with that proc).
-// The Game_State dispatch runs arbitrary state code — an honest ⊤ bound.
-type GameState = proc () clobbers(d0-d7/a0-a6)
+// GameState — the state-dispatch proc type: the Game_State dispatch runs
+// arbitrary state code, an honest ⊤ bound. `pub` so the engine's Game contract
+// (engine.game_contract) types its `entry` member by it — this module is the
+// type's dispatch-use home (the `jsr (a0) as GameState` below); the bind pass
+// resolves the interface's member type across the whole module set.
+pub type GameState = proc () clobbers(d0-d7/a0-a6)
 
 // -----------------------------------------------
 // GameLoop — master loop
@@ -31,17 +28,11 @@ pub proc GameLoop () clobbers(d0-d7/a0-a6) {
         jbsr    Sound_DrainSfxRing      // drain ONE pending SFX/frame into the mailbox
                                         // (release sound builds need this too, not just DEBUG)
         }
-        // sonic4's gameDebugTick expansion, mirrored — the game-contract
-        // per-frame debug hook (games/sonic4/config/game.asm; kill-list row:
-        // this file must follow that macro body). Empty in normal builds.
-        if SOUND_DEBUG_HOTKEYS == 1 && SOUND_DRIVER_ENABLED == 1 {
-        jsr     Debug_MusicToggle       // absolute jsr, not jbsr (structural, macro-mirror): this
-                                        // hook byte-follows game.asm's gameDebugTick macro body, which
-                                        // spells jsr. Debug_MusicToggle is a GAME-side symbol (debug/
-                                        // game_debug.asm); an engine->game cross-seam call stays
-                                        // placement-independent — jbsr would emit bsr.w and PC-relative-
-                                        // couple the engine to the game's debug section.
-        }
+        // The game's per-frame debug hook (Game.debug_tick). Bound game-side only
+        // in the sound test-harness shape; `= empty` in every canonical build,
+        // where it emits nothing. When bound it lowers to an absolute jsr
+        // (engine→game, placement-independent).
+        invoke  Game.debug_tick
         movea.l Game_State, a0
         jsr     (a0) as GameState       // computed dispatch (bare jsr by the jbra/jbsr rule)
         jbra    GameLoop

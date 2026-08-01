@@ -1,0 +1,26 @@
+// Sonic 4 — the game manifest: the one `implement` of the engine's Game contract
+// (engine/system/game_contract.emp). The bind pass resolves it against the
+// interface before lowering, so the engine's `Game.MEMBER` / `invoke Game.hook`
+// sites fold and lower against these bindings. This module emits nothing.
+module games.sonic4.game
+
+// ENTRY_ID's value is the game-state id from the sole constants author.
+use games.sonic4.constants.{GS_OJZ_SCROLL_TEST}
+
+pub implement Game {
+    // The camera landing-lock system is present (requires the game-defined
+    // _pl_state / PSTATE_JUMP / PSTATE_ROLLJUMP the camera's =1 arm reads).
+    const CAMERA_JUMP_LOCK = true
+
+    // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
+    const ENTRY_ID = GS_OJZ_SCROLL_TEST
+    proc entry = GameState_OJZScroll_Init
+
+    // The sound test-harness hooks — bound only in the hotkeys build shape; in
+    // every canonical shape both stay `= empty` (zero bytes, as today). The
+    // bound procs live in games.sonic4.game_debug.
+    if SOUND_DEBUG_HOTKEYS == 1 && SOUND_DRIVER_ENABLED == 1 {
+        hook boot_hook = SoundTest_BootPing
+        hook debug_tick = Debug_MusicToggle
+    }
+}

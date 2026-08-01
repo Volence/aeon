@@ -1,0 +1,17 @@
+// Aeon engine demo — the game manifest: the minimal `implement` of the engine's
+// Game contract (the engine-boots-without-Sonic proof). Three value bindings, no
+// hook binds — the `= empty` defaults carry both hooks, so the demo installs
+// nothing at boot or per-frame. This module emits nothing.
+module games.demo.game
+
+use games.demo.constants.{GS_DEMO}
+
+pub implement Game {
+    // No player/camera jump-lock system in the demo — the camera's inert
+    // deadzone-follow arm.
+    const CAMERA_JUMP_LOCK = false
+
+    // Boot enters the demo's GameState_Demo_Init.
+    const ENTRY_ID = GS_DEMO
+    proc entry = GameState_Demo_Init
+}
