@@ -38,7 +38,7 @@ order = [
   "TestChurnObj", "ObjDef_PathSwap", "DeformTable_Zero", "ObjDef_Static",
   "OJZ_Sec0_TypeTable", "OJZ_Act_Pool_Page0", "OJZ_Act1_Descriptor", "OJZ_Sec0_Blocks", "OJZ_Palette",
   "BgAnim_Table", "Map_TestObj",
-  "Ani_Sonic", "Ani_Particle", "HeightMaps", "SoundTablesZ80_Head",
+  "Ani_Sonic", "Ani_Particle", "HeightMaps", "Dac_Temp_Blip", "SoundTablesZ80_Head",
   "GameState_ObjectTest_Init", "GameState_OJZScroll_Init", "NullInterrupt", "BusError",
 ]
 
@@ -71,6 +71,15 @@ at = 0x0
 [[anchor]]
 name = "object_bank"     # ObjCodeBase — the 64KB object code bank
 at = 0x10000
+
+# The DAC blip bank — fixed LMA (Z80 SetBank latch), was implicitly contiguity-
+# anchored by the collision island that filled the space before it; with collision
+# native (K4) the org $48000 makes it an explicit anchor (dac_shared packs
+# contiguously after it, so it needs no anchor).
+[[anchor]]
+name = "dac_blip_bank"   # dac_blip_bank.bin — bank $48000
+at = 0x48000
+when = "sound_on"
 
 [[anchor]]
 name = "sound_bank"      # SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000)
