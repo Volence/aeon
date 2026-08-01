@@ -187,32 +187,19 @@ gameDataIncludes macro {GLOBALSYMBOLS}
     endm
 
 gameSoundDataIncludes macro {GLOBALSYMBOLS}
-    ifdef SIGIL_EMP_DAC_BODY_STUB
-        ; sigil DSM mixed harness ONLY: the two DAC banks are composed IN-MEMORY as
-        ; dac_samples.emp sections (the dac_port.rs pipeline, pinned at $48000/$50000
-        ; by the harness bank map). org skips the two-bank hole; the next align $8000
-        ; (MT bank) lands at $58000 exactly as before. This arm exercises the .emp
-        ; bank composition inside the whole ROM; the real build takes the BINCLUDE arm.
-        org     $58000
-    else
-        ; seam-2 (Option Y): the DAC sample banks are the byte-identical artifacts
-        ; sigil emits from dac_samples.emp (the CANONICAL source — the .asm twin is
-        ; deleted) — dac_blip_bank.bin @ $48000, dac_shared_bank.bin @ $50000 —
-        ; BINCLUDE'd here in the align/label/BINCLUDE order the descriptor head + the
-        ; runtime bank latch expect. build.sh's sigil emit step is a HARD dependency:
-        ; there is no asl fallback. The trailing snap to $58000 is the MT bank's own
-        ; `align $8000` below (the shared bank ends at $578BC).
-        ; K4: absolute org (was `align $8000`) — the collision island that used to
-        ; fill the space up to $41BDA before this align is now native
-        ; (collision_data.emp), so the relative align would land the DAC bank early.
-        ; The DAC blip bank's LMA is fixed at $48000 (Z80 SetBank latch); pin it.
-        org     $48000                         ; DAC blip bank start (bank $48000)
-Dac_Temp_Blip:
-        BINCLUDE "engine/sound/generated/dac_blip_bank.bin"
-        align   $8000                          ; align to a bank start (shared drum bank)
-Dac_SharedBank_Start:
-Dac_Kick:
-        BINCLUDE "engine/sound/generated/dac_shared_bank.bin"
+    ; The DAC sample banks are NATIVE (K4 inc-5 Stage 2, the P2 probe):
+    ; games/sonic4/data/sound/dac_banks.emp embeds the seam-2 dac_blip_bank.bin @
+    ; $48000 + dac_shared_bank.bin @ $50000 at the declared map anchors. The AS
+    ; residual SKIPS the two-bank hole so the MT bank's `align $8000` below lands at
+    ; $58000. STRUCTURAL EXCLUSIVITY (spec §6): the native section is the SOLE DAC
+    ; placement — the BINCLUDE arm is DELETED (can't-both) and the native section is
+    ; unconditional in the sound-on registry (can't-neither). SIGIL_EMP_DAC is set in
+    ; every sound-on build (native.rs), and gameSoundDataIncludes only runs under
+    ; SOUND_DRIVER_ENABLED, so the skip always runs. (The dead SIGIL_EMP_DAC_BODY_STUB
+    ; arm — a never-set gate on a dead org-skip — was deleted; the bare SIGIL_EMP_DAC
+    ; gate native.rs already sets is the consumed one now.)
+    ifdef SIGIL_EMP_DAC
+        org     $58000                         ; skip the native DAC banks ($48000..$58000)
     endif
         ; NOTE: the 68k DUPLICATE sound tables (data/sound/sound_tables.asm =
         ; FmPitchTable/PsgDivisorTable/LogVolumeLut/CarrierMaskTable, and

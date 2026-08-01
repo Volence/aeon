@@ -72,12 +72,14 @@ at = 0x0
 name = "object_bank"     # ObjCodeBase — the 64KB object code bank
 at = 0x10000
 
-# The DAC blip bank — fixed LMA (Z80 SetBank latch), was implicitly contiguity-
-# anchored by the collision island that filled the space before it; with collision
-# native (K4) the org $48000 makes it an explicit anchor (dac_shared packs
-# contiguously after it, so it needs no anchor).
+# The DAC sample banks — fixed LMAs (Z80 SetBank latches). Native since K4 inc-5
+# Stage 2: games/sonic4/data/sound/dac_banks.emp embeds dac_blip_bank.bin @ $48000
+# + dac_shared_bank.bin @ $50000 as ONE section (head Dac_Temp_Blip @ $48000, the
+# shared bank reached via an intra-section `align $8000`), so only the section head
+# is an island — this single anchor covers it (the shared bank is mid-section, not a
+# separate island). Matched by ADDRESS ($48000), so the section rename is transparent.
 [[anchor]]
-name = "dac_blip_bank"   # dac_blip_bank.bin — bank $48000
+name = "dac_banks"       # dac_banks.emp section head (Dac_Temp_Blip) — bank $48000
 at = 0x48000
 when = "sound_on"
 

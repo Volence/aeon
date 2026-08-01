@@ -1,0 +1,50 @@
+// ===========================================================================
+// games/sonic4/data/sound/dac_banks.emp — the DAC sample banks, native (K4 inc-5
+// Stage 2, the P2 probe)
+// ===========================================================================
+// The ROM-streamed DAC sample banks were the flat BINCLUDE island in
+// games/sonic4/main.asm's gameSoundDataIncludes. This module places them
+// NATIVELY by EMBEDDING the seam-2-emitted artifacts (dac_blip_bank.bin /
+// dac_shared_bank.bin) at their fixed bank LMAs — the P2 path (spec §6): the
+// emit-tool architecture is untouched (`ensure_generated` still lowers
+// dac_samples.emp → the .bin; this module just places those bytes natively
+// instead of via AS BINCLUDE). The .bin are gitignored build artifacts, so the
+// golden gate (dac_bank_port) runs `ensure_generated` first (emit-first).
+//
+// The two banks live one $8000 window apart so a single Z80 bank id covers each
+// and FILL never re-banks mid-sample: the blip bank at $48000 (bank $9), the
+// shared drum bank at $50000 (bank $A). Both LMAs are fixed Z80-SetBank latches
+// (declared map anchors, when="sound_on"). The `align $8000` between them is the
+// AS twin's inter-bank pad (the intervening bytes are $00 fill, matching the
+// reference). One section, one head label Dac_Temp_Blip (the section head +
+// the map-order/frozen boundary key) — the shared-bank labels are mid-section.
+//
+// STRUCTURAL EXCLUSIVITY (spec §6, the ruled mechanism): this native section is
+// the SOLE DAC placement — the AS BINCLUDE arm is DELETED, so it can't double-
+// place (can't-both); it is unconditionally in the sound-on registry, so it can't
+// go missing (can't-neither). main.asm's `ifdef SIGIL_EMP_DAC` skip arm moves the
+// AS cursor past this native region ($48000..$58000) so the MT bank lands at
+// $58000. The map anchor validation + the whole-ROM byte gate enforce it loudly.
+//
+// The SND_* per-sample {bank,ptr,len} triples are NOT here — they are folded into
+// the DacSampleTable head (dac_sample_tab.bin) at emit from dac_samples.emp's
+// bankid()/winptr() equs, so the main build's Dac_* labels have no runtime
+// consumer; they are placement heads only.
+// ===========================================================================
+
+module games.sonic4.dac_banks in dac_banks
+
+const _blip   = embed("engine/sound/generated/dac_blip_bank.bin")
+const _shared = embed("engine/sound/generated/dac_shared_bank.bin")
+
+// The blip bring-up sample — alone in its $8000 window (bank $9 @ $48000).
+pub data Dac_Temp_Blip = _blip
+
+// Pad to the next $8000 bank boundary ($50000): the shared drum bank starts on
+// its own bank id ($A) so FILL never re-banks mid-sample.
+align $8000
+
+// The shared RAW 8-bit PCM drum bank (bank $A @ $50000). Dac_SharedBank_Start and
+// Dac_Kick coincide at the bank head (the first drum is the kick).
+pub data Dac_SharedBank_Start = Data.empty
+pub data Dac_Kick = _shared
