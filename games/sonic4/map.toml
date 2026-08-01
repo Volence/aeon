@@ -98,6 +98,12 @@ filled_by = "engine.z80_init"
 when = "sound_off"
 
 # ── Budgets (pack-time ceiling; the was-AS `if * > $20000 / error` guard) ──
+# `cursor` is the head-label of the first section PAST the object bank (the data-region
+# head): the bank and the data region pack contiguously and the data extends beyond the
+# $20000 window, so the bank terminus is exactly where data begins. Its resolved LMA is
+# the used-cursor — the map-owned successor to engine.inc's retired `__BUDGET_DATA` marker
+# (K4 inc-6B).
 [[budget]]
 region = "object_bank"
 ceiling = 0x20000
+cursor = "DeformTable_Zero"
