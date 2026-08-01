@@ -20,13 +20,15 @@ use engine.irq.{sr_masked}
 
 use engine.types.{SongId, SfxId}
 
-// Immediate-position mirrors (kill-list row 10). The five UNTYPED handshake/
-// command values (SND_ALIVE_MARKER, SND_MUSIC_STOP, SND_FADE_CMD_OUT/IN,
-// SFX_RING_MASK) are RETIRED to bare link names: read directly as
-// `#extern("...")` in their immediate operands below, so the values are
-// AS-owned (sound_constants.asm) and fold from the link — no local literal,
-// nothing to drift, no guard. EA-position slot ADDRESSES are likewise not
-// mirrored (they stay AS-owned as extern-equ sums, below).
+// The sound contract's single authority (engine/sound/sound_constants.emp). The
+// glob brings the full derivation chain into scope so the slot-address sums below
+// fold at comptime.
+use engine.sound_constants.*
+
+// The UNTYPED handshake/command values (SND_ALIVE_MARKER, SND_MUSIC_STOP,
+// SND_FADE_CMD_OUT/IN, SFX_RING_MASK) read directly in their immediate operands
+// below — nothing to drift, no local literal. EA-position slot ADDRESSES are the
+// sum-of-const equs below.
 //
 // The two TYPED SfxId mirrors STAY as local consts: a bare link name cannot
 // carry the F1 SfxId enforcement (typed-extern grammar is the remaining
@@ -46,24 +48,22 @@ const SPIN_WATCHDOG_LIMIT = $8000
 ensure(extern("SFXID_RING_RIGHT") == SFXID_RING_RIGHT, "SFXID_RING_RIGHT drifted from config/sound_ids.asm: {SFXID_RING_RIGHT}")
 ensure(extern("SFXID_RING_LEFT") == SFXID_RING_LEFT, "SFXID_RING_LEFT drifted from config/sound_ids.asm: {SFXID_RING_LEFT}")
 
-// 68k-side slot addresses (SND_Z80_BASE + Z80 offset), one equ per slot —
-// link-folded sums over extern() reads, so the VALUES stay AS-OWNED
-// (sound_constants.asm; the MUSIC_PARAM block derives from a Z80-driver RAM
-// label and floats with every driver resize — nothing here to drift). The
-// *_SLOT names are new (an equ re-spelling an AS name would collide in the
-// shared link).
-equ ALIVE_SLOT        = extern("SND_Z80_BASE") + extern("SND_STAT_ALIVE")
-equ PING_SLOT         = extern("SND_Z80_BASE") + extern("SND_REQ_PING")
-equ SAMPLE_SLOT       = extern("SND_Z80_BASE") + extern("SND_REQ_SAMPLE")
-equ MUSIC_SLOT        = extern("SND_Z80_BASE") + extern("SND_REQ_MUSIC")
-equ SFX_SLOT          = extern("SND_Z80_BASE") + extern("SND_REQ_SFX")
-equ TEMPO_SLOT        = extern("SND_Z80_BASE") + extern("SND_REQ_TEMPO")
-equ FADE_SLOT         = extern("SND_Z80_BASE") + extern("SND_REQ_FADE")
-equ PARAM_BANK        = extern("SND_Z80_BASE") + extern("SND_MUSIC_PARAM_BANK")
-equ PARAM_PTR_LO      = extern("SND_Z80_BASE") + extern("SND_MUSIC_PARAM_PTR")
+// 68k-side slot addresses (SND_Z80_BASE + Z80 offset), one equ per slot — the
+// MUSIC_PARAM block derives from a Z80-driver RAM label and floats with every
+// driver resize (nothing here to drift). The *_SLOT names are new (an equ
+// re-spelling an authority name would collide in the shared link).
+equ ALIVE_SLOT        = SND_Z80_BASE + SND_STAT_ALIVE
+equ PING_SLOT         = SND_Z80_BASE + SND_REQ_PING
+equ SAMPLE_SLOT       = SND_Z80_BASE + SND_REQ_SAMPLE
+equ MUSIC_SLOT        = SND_Z80_BASE + SND_REQ_MUSIC
+equ SFX_SLOT          = SND_Z80_BASE + SND_REQ_SFX
+equ TEMPO_SLOT        = SND_Z80_BASE + SND_REQ_TEMPO
+equ FADE_SLOT         = SND_Z80_BASE + SND_REQ_FADE
+equ PARAM_BANK        = SND_Z80_BASE + SND_MUSIC_PARAM_BANK
+equ PARAM_PTR_LO      = SND_Z80_BASE + SND_MUSIC_PARAM_PTR
 equ PARAM_PTR_HI      = PARAM_PTR_LO + 1
-equ PARAM_FLAGS       = extern("SND_Z80_BASE") + extern("SND_MUSIC_PARAM_FLAGS")
-equ PARAM_PATCHPTR_LO = extern("SND_Z80_BASE") + extern("SND_MUSIC_PARAM_PATCHPTR")
+equ PARAM_FLAGS       = SND_Z80_BASE + SND_MUSIC_PARAM_FLAGS
+equ PARAM_PATCHPTR_LO = SND_Z80_BASE + SND_MUSIC_PARAM_PATCHPTR
 equ PARAM_PATCHPTR_HI = PARAM_PATCHPTR_LO + 1
 
 // The two song tables (games/sonic4 sound data; .emp-side under SIGIL_EMP_MT
@@ -141,7 +141,7 @@ pub proc Sound_Init () clobbers(d0-d1) preserves(sr) {
         stop_z80
         move.b  ALIVE_SLOT, d0                 // capture marker under the hold
         start_z80
-        cmp.b   #extern("SND_ALIVE_MARKER"), d0          // test AFTER release (flags clean)
+        cmp.b   #SND_ALIVE_MARKER, d0          // test AFTER release (flags clean)
         if DEBUG == 1 {
             beq    .alive_go                    // marker present -> proceed to exit
             subq.l #1, d1                       // absent -> spend one iteration of budget
@@ -298,7 +298,7 @@ pub proc Sound_PlaySFX (d0: SfxId) preserves(d1/a0) {
         beq     .ps_checkfull
         // --- same-id dedup vs the most-recent pending slot (Wr-1)&MASK ---
         subq.b  #1, d1
-        and.w   #extern("SFX_RING_MASK"), d1          // d1 = last index (WORD mask: keep d1.w index-safe)
+        and.w   #SFX_RING_MASK, d1          // d1 = last index (WORD mask: keep d1.w index-safe)
         cmp.b   (a0,d1.w), d0
         beq     .ps_drop                    // same id already pending -> skip (no double-fire)
         moveq   #0, d1
@@ -306,7 +306,7 @@ pub proc Sound_PlaySFX (d0: SfxId) preserves(d1/a0) {
     .ps_checkfull:
         lea     (a0,d1.w), a0               // a0 = &Sfx_Ring_Buf[Wr]  (capture BEFORE Wr is bumped)
         addq.b  #1, d1
-        and.b   #extern("SFX_RING_MASK"), d1          // d1 = nextWr (byte ops only from here: cmp.b + move.b commit)
+        and.b   #SFX_RING_MASK, d1          // d1 = nextWr (byte ops only from here: cmp.b + move.b commit)
         cmp.b   Sfx_Ring_Rd, d1         // nextWr == Rd -> ring full -> drop (>7 same-frame: never)
         // assert the ring-full "never"
         // claim (>7 DISTINCT SFX ids enqueued in one frame before the drain ran =
@@ -361,7 +361,7 @@ pub proc Sound_DrainSfxRing () clobbers(d0-d1/a0) preserves(sr) {
         move.b  (a0,d0.w), d1               // d1 = next pending id (d0 = Rd)
         move.b  d1, SFX_SLOT   // post it — still inside the same bus hold
         addq.b  #1, d0
-        and.b   #extern("SFX_RING_MASK"), d0
+        and.b   #SFX_RING_MASK, d0
         move.b  d0, Sfx_Ring_Rd         // advance Rd (slot consumed)
     .dr_done:                               // ONE startZ80, reached z80-stopped from both paths
         start_z80
@@ -398,7 +398,7 @@ pub proc Sound_PlayRing () clobbers(d0) {
 // Clobbers: d0, a0; SR restored.
 // ----------------------------------------------------------------------
 pub proc Sound_StopMusic () clobbers(d0, a0) {
-        move.b  #extern("SND_MUSIC_STOP"), d0         // $FF (out of moveq's signed range)
+        move.b  #SND_MUSIC_STOP, d0         // $FF (out of moveq's signed range)
         lea     MUSIC_SLOT, a0
         jbra    Sound_PostByte
 }
@@ -422,7 +422,7 @@ pub proc Sound_SetTempo (d0: u16) clobbers(a0) {
 // (SFX stay full). Clobbers: d0, a0; SR restored.
 // ----------------------------------------------------------------------
 pub proc Sound_FadeOut () clobbers(d0, a0) {
-        move.b  #extern("SND_FADE_CMD_OUT"), d0
+        move.b  #SND_FADE_CMD_OUT, d0
         lea     FADE_SLOT, a0
         jbra    Sound_PostByte
 }
@@ -432,7 +432,7 @@ pub proc Sound_FadeOut () clobbers(d0, a0) {
 // right after Sound_PlayMusic to fade a song in. Clobbers: d0, a0; SR restored.
 // ----------------------------------------------------------------------
 pub proc Sound_FadeIn () clobbers(d0, a0) {
-        move.b  #extern("SND_FADE_CMD_IN"), d0
+        move.b  #SND_FADE_CMD_IN, d0
         lea     FADE_SLOT, a0
         jbra    Sound_PostByte
 }

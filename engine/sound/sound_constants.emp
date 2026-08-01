@@ -1,0 +1,899 @@
+// ======================================================================
+// engine/sound/sound_constants.emp — shared 68k/Z80 sound equates
+// (the single authority for the sound driver's contract).
+// See docs/superpowers/specs/2026-06-16-sound-command-api.md and -z80-ram-map.md.
+//
+// SOLE AUTHOR of: the 5 Z80 record layouts (DacSample / FmPatch / SfxHeader /
+// SfxChannel / SeqChannel), the request/status mailbox, the derived Z80 RAM map
+// (bases × sizeof(struct)), the music event-list opcode space, the SFX engine
+// constants, and the SongHeader field layout. Field offsets + total sizes flow
+// from the structs as `offsetof`/`sizeof` derivations — never baked literals — so
+// a layout edit propagates to every consumer with nothing to drift. The 68k API
+// modules (sound_api / sound_debug / dac_sample_tab / vblank) import these; the
+// resident Z80 blob and the DAC-head co-link carry sigil-side mirrors of the same
+// values (seam1/seam2), cross-checked by the six-target + Z80-blob byte identity.
+// ======================================================================
+module engine.sound_constants
+
+use engine.constants.{Z80_RAM}
+
+// --- Z80-space base address (as seen from the 68k bus) ---
+pub const SND_Z80_BASE            = Z80_RAM                // $A00000
+
+// --- Request slots (Z80 offsets; 68k address = SND_Z80_BASE + offset) ---
+// Per-command-type byte slots, Flamedriver model: 68k writes a nonzero value,
+// the Z80 acts and clears the slot to 0 (latest-wins). No shared record, no
+// pending flag, no wait-idle spin — different command types never clobber each
+// other, so several can be posted in one frame.
+pub const SND_REQ_BASE            = $1F00
+pub const SND_REQ_PING            = SND_REQ_BASE+$00       // debug: echo this value (0 = idle)
+pub const SND_REQ_SAMPLE          = SND_REQ_BASE+$01       // DAC sample id (0 = idle)
+// SND_REQ_MUSIC: 0 = idle; 1..$FE = play SongTable[id-1]; $FF = STOP (0 cannot mean
+// stop — 0 is the "no request" value in the latest-wins slot). The 68k posts the
+// song id (or $FF) AFTER the SND_MUSIC_PARAM block, under the SAME bus hold, so the
+// Z80 never reads a half-updated param block.
+pub const SND_REQ_MUSIC           = SND_REQ_BASE+$02       // music command (0 idle / 1..$FE play / $FF stop)
+pub const SND_REQ_SFX             = SND_REQ_BASE+$03       // reserved (Phase 1C)
+pub const SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04       // $1F04: 1 = 68k DMA in progress (no ROM reads)
+pub const SND_REQ_FADE            = SND_REQ_BASE+$05       // master-fade cmd (0 idle / 1 out / 2 in)
+pub const SND_REQ_TEMPO           = SND_REQ_BASE+$06       // tempo cmd (0 idle / 1..$FE target mod / $FF restore)
+pub const SND_MUSIC_STOP          = $FF                    // SND_REQ_MUSIC stop sentinel
+
+// --- Status / ack region (Z80 writes, 68k reads) ---
+pub const SND_STAT_BASE           = $1F10
+pub const SND_STAT_ALIVE          = SND_STAT_BASE+$00      // driver writes SND_ALIVE_MARKER
+pub const SND_STAT_PING_ECHO      = SND_STAT_BASE+$01
+pub const SND_STAT_ACK_COUNT      = SND_STAT_BASE+$02      // +1 per consumed request
+pub const SND_STAT_TICK           = SND_STAT_BASE+$03      // scheduler tick counter
+pub const SND_STAT_DAC_ACTIVE     = SND_STAT_BASE+$04      // 1 while a sample plays
+
+// SND_REQ_FADE/TEMPO ($1F05/$1F06) must stay below the status block.
+ensure(SND_REQ_TEMPO < SND_STAT_BASE,
+       "SND_REQ_FADE/TEMPO ({SND_REQ_TEMPO}) collide with the status block at {SND_STAT_BASE}")
+
+pub const SND_ALIVE_MARKER        = $5A
+
+// --- Z80 stack (FIXED, above the mailbox/status block) ---
+// Seeded once by SndDrv_Init (`ld sp, SND_STACK_TOP`); grows DOWNWARD from $1FFE
+// toward the status block at $1F10-$1F14, so $1F15..$1FFD (~233 B) is stack
+// headroom. One word below the $2000 top so the first push lands at $1FFC/$1FFD.
+// SND_REQ_BASE/SND_STAT_BASE ($1F00/$1F10) are a FROZEN external contract — 68k
+// code shares these and debug workflows cite the raw addresses. The movable RAM
+// map (everything below $1F00) must never grow past SND_REQ_BASE.
+pub const SND_STACK_TOP           = $1FFE
+
+ensure(SND_STACK_TOP == $1FFE,
+       "SND_STACK_TOP moved — the z80-ram-map spec + debug docs pin $1FFE")
+
+// --- Sample IDs ---
+pub const SND_SAMPLE_TEST         = 1                      // Foundations test tone
+
+// --- DAC playback state (Z80 RAM; state region, all reads/writes bank-free) ---
+// SND_STATE_BASE is ALSO the resident-code ceiling: the driver CODE blob grows up
+// from $0000 and must stay below it (the build asserts Z80_SOUND_SIZE <=
+// SND_STATE_BASE). The block occupies $18F0..$18FC ($0D bytes), just below the
+// page-aligned DAC ring at SND_RING_BASE ($1900). The word fields
+// (SND_ROM_PTR/LEN/FM6_CHAN_PTR) sit at EVEN absolute offsets off an even base.
+pub const SND_STATE_BASE          = $18F0
+pub const SND_DAC_PHASE           = SND_STATE_BASE+$00     // 0=idle, 1=playing, 2=draining-tail
+pub const SND_SONG_BANK           = SND_STATE_BASE+$01     // current song bank (set in Snd_LoadSong)
+pub const SND_ROM_BANK            = SND_STATE_BASE+$02     // current sample bank (stashed by Snd_StartSample)
+pub const SND_CUR_BANK            = SND_STATE_BASE+$03     // SetBank cache (no-op check)
+pub const SND_RING_RD             = SND_STATE_BASE+$04     // ring read ptr low byte (c in the streaming loop)
+pub const SND_RING_WR             = SND_STATE_BASE+$05     // ring write ptr low byte (b in the streaming loop)
+pub const SND_ROM_PTR             = SND_STATE_BASE+$06     // sample window read ptr (2 bytes; even-aligned)
+pub const SND_ROM_LEN             = SND_STATE_BASE+$08     // sample bytes remaining (2 bytes; even-aligned)
+pub const SND_FM6_CHAN_PTR        = SND_STATE_BASE+$0A     // FM6 SeqChannel ptr (2 bytes, even; 0 = none)
+pub const SND_FM6_ADAPTIVE        = SND_STATE_BASE+$0C     // nonzero = FM6 time-shares ch6 with the DAC
+pub const SND_STATE_END           = SND_STATE_BASE+$0D
+
+// --- YM2612 ports as seen from the Z80 ($4000-$4003) ---
+pub const SND_Z80_YM_A0           = $4000                  // addr part I / status read (reg select)
+pub const SND_Z80_YM_A1           = $4001                  // data part I — DAC $2A write target (de invariant)
+pub const SND_Z80_YM_A2           = $4002                  // addr part II (FM ch 4-6 register select)
+pub const SND_Z80_YM_A3           = $4003                  // data part II
+pub const SND_REG_DAC_DATA        = $2A                    // YM reg: DAC sample byte (parked in the addr port)
+pub const SND_REG_DAC_ENABLE      = $2B                    // YM reg: bit7 = DAC mode (written ONCE at init)
+pub const SND_REG_LFO             = $22                    // YM reg: GLOBAL low-freq osc — bit3 enable, bits0-2 rate
+
+// --- YM2612 FM register bases (Task 3 FM voice writer) ---
+// Per-channel regs add the channel-within-part index (0..2): e.g. $A0+ch.
+// Per-operator regs add (op*4)+ch: e.g. $40+(op*4)+ch (op 0..3 = S1,S3,S2,S4).
+pub const SND_REG_KEY_ONOFF       = $28                    // key on/off (GLOBAL, always via part I)
+pub const SND_REG_FNUM_LO         = $A0                    // +ch : F-number low 8 bits
+pub const SND_REG_FNUM_HI         = $A4                    // +ch : block(7..3) | F-number high(2..0) — write FIRST
+pub const SND_REG_ALG_FB          = $B0                    // +ch : algorithm(0-2) | feedback(3-5)
+pub const SND_REG_LR_AMS_FMS      = $B4                    // +ch : L/R(6-7) | AMS(4-5) | FMS(0-2)
+pub const SND_REG_OP_DT_MUL       = $30                    // +(op*4)+ch : detune | multiple
+pub const SND_REG_OP_TL           = $40                    // +(op*4)+ch : total level (volume-modulated on carriers)
+pub const SND_REG_OP_RS_AR        = $50                    // +(op*4)+ch : rate scale | attack rate
+pub const SND_REG_OP_AM_D1R       = $60                    // +(op*4)+ch : AM | first decay rate
+pub const SND_REG_OP_D2R          = $70                    // +(op*4)+ch : second decay rate
+pub const SND_REG_OP_D1L_RR       = $80                    // +(op*4)+ch : decay level | release rate
+pub const SND_REG_OP_SSG_EG       = $90                    // +(op*4)+ch : SSG-EG (bit3 enable | bits0-2 mode); $00 = off
+pub const SND_FM_KEYON_OPMASK     = $F0                    // key-on byte = $F0 | chsel (all 4 ops on)
+pub const SND_FM_TL_MAX           = $7F                    // TL is 7-bit; $7F = silent, 0 = loud
+// Timer A regs — the streaming loop is the SAMPLE clock; Timer A is the SEQUENCER
+// TICK clock (the DAC loop polls its overflow flag once per pass, re-arms + calls
+// Sequencer_Frame). Timer A does NOT drive the DAC rate.
+pub const SND_REG_TIMER_A_HI      = $24                    // Timer A value bits 9..2
+pub const SND_REG_TIMER_A_LO      = $25                    // Timer A value bits 1..0
+pub const SND_REG_TIMER_CTRL      = $27                    // load/enable/reset Timer A & B
+// Timer A control-byte values written to $27: LOAD:A (bit0) = start/reload from N,
+// ENBL:A (bit2) = let the overflow raise the status flag, RST:A (bit4) = one-shot
+// strobe that CLEARS the overflow status flag (timer keeps counting).
+pub const SND_TIMERA_CTRL_BIT_LOAD = 0
+pub const SND_TIMERA_CTRL_BIT_ENBL = 2
+pub const SND_TIMERA_CTRL_BIT_RST  = 4
+pub const SND_TIMERA_CTRL_PROGRAM = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)                                     // $05 : LOAD:A | ENBL:A
+pub const SND_TIMERA_CTRL_REARM   = (1<<SND_TIMERA_CTRL_BIT_LOAD)|(1<<SND_TIMERA_CTRL_BIT_ENBL)|(1<<SND_TIMERA_CTRL_BIT_RST)        // $15 : LOAD:A | ENBL:A | RST:A
+// Timer A is NEVER disabled at runtime — it is the whole-driver frame clock.
+pub const SND_TIMERA_OVF_MASK     = 1                      // $4000 status bit0 = Timer A overflow
+
+ensure(SND_TIMERA_CTRL_PROGRAM == $05, "SND_TIMERA_CTRL_PROGRAM must be $05 (LOAD:A|ENBL:A)")
+ensure(SND_TIMERA_CTRL_REARM == $15, "SND_TIMERA_CTRL_REARM must be $15 (LOAD:A|ENBL:A|RST:A)")
+
+// --- Tempo: YM Timer A programming from the song-header tempo byte ---
+// YM Timer A is a 10-bit value N (0..1023): reg $24 = N>>2, reg $25 = N&3. The
+// counter COUNTS UP and overflows past 1024, so the overflow PERIOD =
+// 18.773us * (1024 - N) on NTSC. tempo byte maps to N = tempo<<2. These
+// build-time helpers document the live mapping Snd_TimerA_Program implements;
+// they are uncalled in the shipping build (comptime fns emit no bytes).
+pub comptime fn ym_timerA_n_from_tempo(tb: int) -> int { return (tb) << 2 }                                          // N = tempo<<2
+pub comptime fn ym_timerA_period_ns(tb: int) -> int { return (1024 - ym_timerA_n_from_tempo(tb)) * 18773 }
+pub comptime fn ym_timerA_hz(tb: int) -> int { return 1000000000 / ym_timerA_period_ns(tb) }                        // ticks/sec (int div)
+
+// --- Phase 3: FIXED per-frame engine rate (Timer-A is the FRAME clock) ---
+// The engine runs one frame per Timer-A overflow at the NTSC frame rate. The
+// 10-bit reload N is computed at BUILD time from the target rate (never a magic
+// literal): overflow period = 18.773us * (1024 - N), so N = 1024 - period/18.773us.
+// The target is in MILLIHERTZ; 60053 mHz is the load-COMPENSATED value (measured
+// 59.873 Hz under load at N=136 → pinned one step tighter to N=137 for 59.92 Hz).
+pub const SND_FRAME_MILLIHZ       = 60053
+pub comptime fn timerAReload(mhz: int) -> int { return 1024 - (1000000000000 / ((mhz) * 18773)) }
+pub const SND_TIMERA_N            = timerAReload(SND_FRAME_MILLIHZ)
+
+// N must be a valid 10-bit Timer-A value, well clear of the extremes.
+ensure(SND_TIMERA_N >= 0 && SND_TIMERA_N <= 1023,
+       "SND_TIMERA_N ({SND_TIMERA_N}) out of the 10-bit Timer-A range 0..1023")
+// Hard-pin the assembled value: the truncating build-time division makes N
+// sensitive to the formula's exact shape. Any deliberate retune updates this pin.
+ensure(SND_TIMERA_N == 137,
+       "SND_TIMERA_N ({SND_TIMERA_N}) != the pinned 137 — frame clock changed; retune deliberately")
+
+// --- 1B: ring buffer (page-aligned, 256 bytes) ---
+// MUST stay 256-aligned: the streaming loop holds h = SND_RING_PAGE for the whole
+// sample and wraps with `inc l` — the ring IS one page.
+pub const SND_RING_BASE           = $1900                  // Z80 addr; high byte $19 is the page
+pub const SND_RING_PAGE           = SND_RING_BASE>>8       // high byte for `inc l` wrap + full-check
+pub const SND_RING_LEN            = $100
+
+ensure((SND_RING_BASE & $FF) == 0,
+       "DAC ring base ({SND_RING_BASE}) must be 256-aligned (the loop wraps with inc l)")
+
+// --- Register-resident 1:1 streaming loop: ring read-ahead lead bounds ---
+// SND_RING_LEAD_PRIME: lead established at sample start (the $80 the ring is
+//   pre-filled with — a click-free DC-center lead-in, no ROM read in the ISR).
+// SND_RING_LEAD_TARGET: the Timer-A tick's bulk-refill tops the lead up each
+//   frame (the DMA-stall catch-up). PRIME <= TARGET < 256 (guard band so WR never
+//   laps RD). ~200 samples ≈ 11 ms at 18 kHz — outlasts any real 68k DMA stall.
+pub const SND_RING_LEAD_PRIME     = 128                    // $80 lead-in length at sample start
+pub const SND_RING_LEAD_TARGET    = 200                    // tick bulk-refill ceiling (DMA-stall margin)
+
+// --- Effective DAC sample rate (build-time, self-documenting) ---
+// The streaming loop is free-running: the loop trip-time IS the sample clock.
+// Every balanced path costs SND_LOOP_CYC Z80 cycles, so output rate = Z80 clock /
+// loop cycles. Bump SND_LOOP_CYC to the new balanced FILL total and the rate follows.
+pub const Z80_CLOCK_HZ            = 3579545                 // NTSC Z80 clock (master/15)
+pub comptime fn dac_rate_hz(cyc: int) -> int { return Z80_CLOCK_HZ / (cyc) }
+pub const SND_LOOP_CYC            = 195                     // balanced 1:1 FILL pass (emit+poll+phase+DMA+fill+len+2jp)
+pub const SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC)  // = 18356 Hz (3579545/195, int div)
+
+// The DAC state block must stay below the page-aligned DAC ring at SND_RING_BASE.
+ensure(SND_STATE_END <= SND_RING_BASE,
+       "DAC state block (ends {SND_STATE_END}) runs into the DAC ring at {SND_RING_BASE}")
+
+// --- 9-byte ROM-resident sample descriptor (ds_codec selector at +2) ---
+pub struct DacSample {
+    ds_bank:      u8,    // +0  sample bank id = (addr & $7F8000) >> 15
+    ds_rate:      u8,    // +1  RESERVED forward-compat (per-sample rate); v1 ignores it
+    ds_codec:     u8,    // +2  codec selector (0 = raw 8-bit PCM)
+    ds_ptr:       u16,   // +3  Z80-window ptr (addr & $7FFF)|$8000, little-endian
+    ds_length:    u16,   // +5  raw byte count = sample count; < $8000
+    ds_loop_ofs:  u16,   // +7  RESERVED forward-compat (loop restart); v1 = 0, ignored
+}
+pub const DacSample_len           = sizeof(DacSample)      // = 9
+pub const DacSample_ds_bank       = offsetof(DacSample, ds_bank)
+pub const DacSample_ds_rate       = offsetof(DacSample, ds_rate)
+pub const DacSample_ds_codec      = offsetof(DacSample, ds_codec)
+pub const DacSample_ds_ptr        = offsetof(DacSample, ds_ptr)
+pub const DacSample_ds_length     = offsetof(DacSample, ds_length)
+pub const DacSample_ds_loop_ofs   = offsetof(DacSample, ds_loop_ofs)
+
+ensure(DacSample_len == 9, "DacSample struct is {DacSample_len} bytes, expected 9")
+
+// --- Z80 bank register (as seen from the Z80) ---
+pub const SND_Z80_BANKREG         = $6000
+
+// --- SN76489 PSG port (as seen from the Z80) ---
+// Mapped at $7F11. Writes are single bytes with NO inter-byte delay and NO bus
+// contention guard (PSG writes never touch $4000-$4003 or `de`, so the DAC loop's
+// de=$4001 invariant is untouched).
+pub const SND_Z80_PSG             = $7F11                  // PSG write port (Z80 view of the VDP PSG port)
+// PSG command-byte bases. Latch byte D7=1 selects a register: D6-D5 = channel,
+// D4 = type (0 = tone/freq-low, 1 = vol/noise-ctrl).
+pub const SND_PSG_TONE_LATCH      = $80                    // +(ch<<5) : tone freq-low latch
+pub const SND_PSG_VOL_LATCH       = $90                    // +(ch<<5)|atten : channel attenuation ($0F = silent)
+pub const SND_PSG_NOISE_CTRL      = $E0                    // |(mode<<2)|rate : noise control byte
+pub const SND_PSG_NOISE_VOL       = $F0                    // |atten : noise channel attenuation
+pub const SND_PSG_ATTEN_SILENT    = $0F                    // 4-bit attenuation = silence
+// PSG silence-all: max attenuation on tone1/tone2/tone3/noise.
+pub const SND_PSG_SILENCE_T1      = $9F
+pub const SND_PSG_SILENCE_T2      = $BF
+pub const SND_PSG_SILENCE_T3      = $DF
+pub const SND_PSG_SILENCE_N       = $FF
+
+// ======================================================================
+// Music format v0 — build-time contract shared 68k/Z80/Python.
+// ======================================================================
+
+// --- Music event-list opcodes (v0) ---
+// $00–$7F : set default duration = value (ticks)   [range-dispatched]
+pub const MEV_REST        = $80    // rest for default duration (key-off + advance)
+// $81–$DF : note, pitch index = byte-$81           [range-dispatched]
+pub const MEV_NOTE_BASE   = $81    // pitch 0 = MEV_NOTE_BASE
+pub const MEV_NOTE_MAX    = $DF    // highest note opcode (pitch index 0..$5E)
+pub const MEV_VOL         = $E0    // + vv  : set channel volume (linear 0..127)
+pub const MEV_PATCH       = $E1    // + pp  : set FM patch index
+pub const MEV_DAC         = $E2    // + ss  : DAC trigger sample id (DAC channel only)
+pub const MEV_NOTE_DUR    = $E3    // + nn dd : note nn with explicit duration dd
+pub const MEV_PAN         = $E4    // + b4 : set channel pan/AMS/FMS (raw YM $B4 value)
+pub const MEV_REPEAT_START = $E5   // (no operand) start of a repeatable body
+pub const MEV_REPEAT_END   = $E6   // + nn : replay from matching REPEAT_START nn times (1..255)
+pub const MEV_NOTE_RAW    = $E7    // + a4 a0 dd : key a RAW-frequency FM note (exact $A4/$A0 bytes)
+pub const MEV_PITCHENV    = $E8    // + count + count idx bytes : pitch-envelope note + key-on
+pub const MEV_OPBIAS      = $E9    // + op(0..3) + val : per-operator additive TL bias
+pub const MEV_REGDELTA    = $EA    // + count + count*(reg_sel, value) : mid-note minimal reg writes
+pub const MEV_PSGENV      = $EB    // + env_id : set the channel's PSG volume-envelope id (1-based; 0=none)
+pub const MEV_MODSET      = $EC    // + wait speed change step : latch the pitch-modulation params (all 0 = off)
+pub const MEV_NOTEFILL    = $ED    // + master : per-channel note-fill (# frames the note stays keyed)
+pub const MEV_LOOP_POINT  = $EE    // loop-target marker (no operand)
+pub const MEV_JUMP        = $EF    // jump to loop point
+pub const MEV_SPINREV     = $F0    // (no operand) : add the global spindash rev into sc_transpose, cap $10, inc
+pub const MEV_SPINREV_RESET = $F1  // (no operand) : zero the global spindash rev
+pub const MEV_PSGNOISE    = $F2    // + ctrl : set the SN76489 noise control byte (mode+rate)
+pub const MEV_TEMPO       = $F3    // + dd : set the GLOBAL tempo mod (S3K TempoWait units)
+pub const MEV_LFO         = $F4    // + value : write YM2612 $22 (bit3 enable | bits0-2 rate)
+pub const MEV_PORTA       = $F5    // + dd : portamento glide rate (fnum/divisor units/frame); 0 = OFF
+pub const MEV_DETUNE      = $F6    // + dd (signed) : set this channel's sc_detune (fine pitch)
+pub const MEV_FMENV       = $F7    // + env_id : set the channel's FM TL vol-env id (shares sc_env with MEV_PSGENV)
+pub const MEV_REGWRITE    = $F8    // + part + reg + val : raw YM2612 register write (part-explicit)
+pub const MEV_MACRO       = $F9    // + dw blob_offset (BE) : (re)arm the channel's slot[1] macro stream
+pub const MEV_EXT         = $FA    // RESERVED extension prefix — no handler, no packer event yet
+pub const MEV_END         = $FF    // end of stream (channel idle)
+
+// --- slot[1] macro-stream PRIVATE tag namespace (Component D) ---
+// These are NOT slot[0] MEV_* opcodes and NOT YM register values — they live only
+// inside a macro body walked by MacroTick over sc_mod_ptr. Their byte values
+// intentionally OVERLAP the slot[0] MEV_VOL/$E0 block but live in a DISJOINT
+// namespace (only ever interpreted by MacroTick, never dispatched).
+pub const TAG_MAC_NEXT    = $E0    // advance exactly one frame (yield to the next MacroTick call)
+pub const TAG_MAC_REG     = $E1    // + part(0/1) + reg + val : immediate YM write (repark $2A)
+pub const TAG_MAC_LOOP    = $E2    // + dw blob_offset (BE) : cursor = Snd_SongBase + offset, re-read
+pub const TAG_MAC_END     = $E3    // disable this channel's macro stream (sc_mod_ptr = 0, mark inert)
+
+ensure(TAG_MAC_NEXT == $E0 && TAG_MAC_REG == $E1 && TAG_MAC_LOOP == $E2 && TAG_MAC_END == $E3,
+       "TAG_MAC_* must be the contiguous $E0-$E3 macro-stream tags")
+
+// --- Phase 3 Task 5: reg_sel field layout + the per-op register-group base table.
+// reg_sel = (group_code << REGDELTA_GROUP_SHIFT) | op. The engine masks `op` with
+// REGDELTA_OP_MASK and shifts out group_code to index RegDeltaGroupBase[].
+pub const REGDELTA_OP_MASK     = $03    // reg_sel bits 1-0 = op (0..3)
+pub const REGDELTA_GROUP_SHIFT = 2      // reg_sel >> this = group_code
+pub const REGDELTA_GROUP_MASK  = $0F    // group_code field width (bits 5-2 after the shift)
+pub const REGDELTA_GROUP_COUNT = 6      // $30,$40,$50,$60,$70,$80
+
+// --- opcode range + collision walls (the $E0-$FF coordination block) ---
+// The top note opcode is below the first command opcode, so the range dispatch is
+// unambiguous.
+ensure(MEV_NOTE_MAX < MEV_VOL, "MEV_NOTE_MAX ({MEV_NOTE_MAX}) must be < MEV_VOL ({MEV_VOL})")
+
+// MEV_TEMPO / MEV_LFO / MEV_DETUNE / MEV_PORTA — Phase-2 slice slots ($F3-$F6).
+ensure(MEV_TEMPO > MEV_NOTE_MAX && MEV_TEMPO >= MEV_VOL && MEV_TEMPO <= MEV_END && MEV_TEMPO == $F3,
+       "MEV_TEMPO ({MEV_TEMPO}) must be $F3 (Phase-2 global slice slot)")
+ensure(MEV_LFO > MEV_NOTE_MAX && MEV_LFO >= MEV_VOL && MEV_LFO <= MEV_END && MEV_LFO == $F4,
+       "MEV_LFO ({MEV_LFO}) must be $F4 (Phase-2 global slice slot)")
+ensure(MEV_DETUNE > MEV_NOTE_MAX && MEV_DETUNE >= MEV_VOL && MEV_DETUNE <= MEV_END && MEV_DETUNE == $F6,
+       "MEV_DETUNE ({MEV_DETUNE}) must be $F6 (Phase-2 per-note slice slot)")
+ensure(MEV_PORTA > MEV_NOTE_MAX && MEV_PORTA >= MEV_VOL && MEV_PORTA <= MEV_END && MEV_PORTA == $F5 && MEV_PORTA != MEV_DETUNE,
+       "MEV_PORTA ({MEV_PORTA}) must be $F5 (distinct from MEV_DETUNE)")
+
+// MEV_MACRO ($F9) — command opcode, on its assigned slot, clear of every allocated opcode.
+ensure(MEV_MACRO > MEV_NOTE_MAX && MEV_MACRO >= MEV_VOL && MEV_MACRO <= MEV_END && MEV_MACRO == $F9,
+       "MEV_MACRO ({MEV_MACRO}) must be $F9 (its assigned Phase-3 slot)")
+ensure(MEV_MACRO != MEV_VOL && MEV_MACRO != MEV_PATCH && MEV_MACRO != MEV_DAC && MEV_MACRO != MEV_NOTE_DUR && MEV_MACRO != MEV_PAN && MEV_MACRO != MEV_REPEAT_START && MEV_MACRO != MEV_REPEAT_END && MEV_MACRO != MEV_NOTE_RAW && MEV_MACRO != MEV_PITCHENV && MEV_MACRO != MEV_OPBIAS && MEV_MACRO != MEV_REGDELTA && MEV_MACRO != MEV_PSGENV && MEV_MACRO != MEV_MODSET && MEV_MACRO != MEV_NOTEFILL && MEV_MACRO != MEV_LOOP_POINT && MEV_MACRO != MEV_JUMP && MEV_MACRO != MEV_SPINREV && MEV_MACRO != MEV_SPINREV_RESET && MEV_MACRO != MEV_PSGNOISE && MEV_MACRO != MEV_END && MEV_MACRO != MEV_FMENV && MEV_MACRO != MEV_REGWRITE,
+       "MEV_MACRO ({MEV_MACRO}) collides with an allocated $E0-$FF opcode")
+
+// MEV_PAN ($E4) / MEV_OPBIAS ($E9).
+ensure(MEV_PAN > MEV_NOTE_MAX && MEV_OPBIAS > MEV_NOTE_MAX,
+       "MEV_PAN/MEV_OPBIAS must be command opcodes (> MEV_NOTE_MAX)")
+ensure(MEV_PAN >= MEV_VOL && MEV_PAN <= MEV_END && MEV_OPBIAS >= MEV_VOL && MEV_OPBIAS <= MEV_END,
+       "MEV_PAN/MEV_OPBIAS must be inside the $E0-$FF coordination block")
+ensure(MEV_PAN == $E4, "MEV_PAN ({MEV_PAN}) must be $E4 (the reserved pan slot)")
+ensure(MEV_OPBIAS == $E9, "MEV_OPBIAS ({MEV_OPBIAS}) must be $E9 (the free Phase-3 slot)")
+ensure(MEV_PAN != MEV_VOL && MEV_PAN != MEV_PATCH && MEV_PAN != MEV_DAC && MEV_PAN != MEV_NOTE_DUR && MEV_PAN != MEV_REPEAT_START && MEV_PAN != MEV_REPEAT_END && MEV_PAN != MEV_NOTE_RAW && MEV_PAN != MEV_PITCHENV && MEV_PAN != MEV_OPBIAS && MEV_PAN != MEV_LOOP_POINT && MEV_PAN != MEV_JUMP && MEV_PAN != MEV_END,
+       "MEV_PAN ({MEV_PAN}) collides with an allocated $E0-$FF opcode")
+ensure(MEV_OPBIAS != MEV_VOL && MEV_OPBIAS != MEV_PATCH && MEV_OPBIAS != MEV_DAC && MEV_OPBIAS != MEV_NOTE_DUR && MEV_OPBIAS != MEV_PAN && MEV_OPBIAS != MEV_REPEAT_START && MEV_OPBIAS != MEV_REPEAT_END && MEV_OPBIAS != MEV_NOTE_RAW && MEV_OPBIAS != MEV_PITCHENV && MEV_OPBIAS != MEV_LOOP_POINT && MEV_OPBIAS != MEV_JUMP && MEV_OPBIAS != MEV_END,
+       "MEV_OPBIAS ({MEV_OPBIAS}) collides with an allocated $E0-$FF opcode")
+
+// bounded-repeat opcodes ($E5/$E6), above the note range and clear of MEV_PAN / loops.
+ensure(MEV_REPEAT_START > MEV_NOTE_MAX && MEV_REPEAT_END > MEV_NOTE_MAX,
+       "MEV_REPEAT_* must be command opcodes (> MEV_NOTE_MAX)")
+ensure(MEV_REPEAT_START != MEV_REPEAT_END && MEV_REPEAT_START != MEV_LOOP_POINT && MEV_REPEAT_END != MEV_LOOP_POINT,
+       "MEV_REPEAT_* opcode collision")
+
+// MEV_PITCHENV ($E8).
+ensure(MEV_PITCHENV > MEV_NOTE_MAX, "MEV_PITCHENV ({MEV_PITCHENV}) must be a command opcode (> MEV_NOTE_MAX)")
+ensure(MEV_PITCHENV >= MEV_VOL && MEV_PITCHENV <= MEV_END, "MEV_PITCHENV ({MEV_PITCHENV}) must be inside the $E0-$FF coordination block")
+ensure(MEV_PITCHENV != MEV_VOL && MEV_PITCHENV != MEV_PATCH && MEV_PITCHENV != MEV_DAC && MEV_PITCHENV != MEV_NOTE_DUR && MEV_PITCHENV != MEV_NOTE_RAW && MEV_PITCHENV != MEV_REPEAT_START && MEV_PITCHENV != MEV_REPEAT_END && MEV_PITCHENV != MEV_LOOP_POINT && MEV_PITCHENV != MEV_JUMP && MEV_PITCHENV != MEV_END,
+       "MEV_PITCHENV ({MEV_PITCHENV}) collides with an allocated $E0-$FF opcode")
+ensure(MEV_PITCHENV != $E4, "MEV_PITCHENV ({MEV_PITCHENV}) collides with the reserved MEV_PAN ($E4)")
+
+// MEV_REGDELTA ($EA) — range + collision + reg_sel field packing.
+ensure(MEV_REGDELTA > MEV_NOTE_MAX, "MEV_REGDELTA ({MEV_REGDELTA}) must be a command opcode (> MEV_NOTE_MAX)")
+ensure(MEV_REGDELTA >= MEV_VOL && MEV_REGDELTA <= MEV_END, "MEV_REGDELTA ({MEV_REGDELTA}) must be inside the $E0-$FF coordination block")
+ensure(MEV_REGDELTA == $EA, "MEV_REGDELTA ({MEV_REGDELTA}) must be $EA (the free Phase-3 slot)")
+ensure(MEV_REGDELTA != MEV_VOL && MEV_REGDELTA != MEV_PATCH && MEV_REGDELTA != MEV_DAC && MEV_REGDELTA != MEV_NOTE_DUR && MEV_REGDELTA != MEV_PAN && MEV_REGDELTA != MEV_REPEAT_START && MEV_REGDELTA != MEV_REPEAT_END && MEV_REGDELTA != MEV_NOTE_RAW && MEV_REGDELTA != MEV_PITCHENV && MEV_REGDELTA != MEV_OPBIAS && MEV_REGDELTA != MEV_LOOP_POINT && MEV_REGDELTA != MEV_JUMP && MEV_REGDELTA != MEV_END,
+       "MEV_REGDELTA ({MEV_REGDELTA}) collides with an allocated $E0-$FF opcode")
+ensure((REGDELTA_GROUP_COUNT-1) <= REGDELTA_GROUP_MASK,
+       "REGDELTA_GROUP_COUNT ({REGDELTA_GROUP_COUNT}) overflows the reg_sel group_code field")
+ensure((1<<REGDELTA_GROUP_SHIFT) == (REGDELTA_OP_MASK+1),
+       "REGDELTA_GROUP_SHIFT must clear the op field (op uses bits 0..REGDELTA_OP_MASK)")
+
+// SFX-fidelity opcodes ($EB/$EC/$F0/$F1).
+ensure(MEV_PSGENV > MEV_NOTE_MAX && MEV_MODSET > MEV_NOTE_MAX && MEV_SPINREV > MEV_NOTE_MAX && MEV_SPINREV_RESET > MEV_NOTE_MAX,
+       "MEV_PSGENV/MODSET/SPINREV* must be command opcodes (> MEV_NOTE_MAX)")
+ensure(MEV_PSGENV >= MEV_VOL && MEV_PSGENV <= MEV_END && MEV_MODSET >= MEV_VOL && MEV_MODSET <= MEV_END && MEV_SPINREV >= MEV_VOL && MEV_SPINREV <= MEV_END && MEV_SPINREV_RESET >= MEV_VOL && MEV_SPINREV_RESET <= MEV_END,
+       "MEV_PSGENV/MODSET/SPINREV* must be inside the $E0-$FF coordination block")
+ensure(MEV_PSGENV == $EB && MEV_MODSET == $EC && MEV_SPINREV == $F0 && MEV_SPINREV_RESET == $F1,
+       "MEV_PSGENV/MODSET/SPINREV* must be on their assigned free slots ($EB/$EC/$F0/$F1)")
+ensure(MEV_PSGENV != MEV_VOL && MEV_PSGENV != MEV_PATCH && MEV_PSGENV != MEV_DAC && MEV_PSGENV != MEV_NOTE_DUR && MEV_PSGENV != MEV_PAN && MEV_PSGENV != MEV_REPEAT_START && MEV_PSGENV != MEV_REPEAT_END && MEV_PSGENV != MEV_NOTE_RAW && MEV_PSGENV != MEV_PITCHENV && MEV_PSGENV != MEV_OPBIAS && MEV_PSGENV != MEV_REGDELTA && MEV_PSGENV != MEV_NOTEFILL && MEV_PSGENV != MEV_LOOP_POINT && MEV_PSGENV != MEV_JUMP && MEV_PSGENV != MEV_END && MEV_PSGENV != MEV_MODSET,
+       "MEV_PSGENV ({MEV_PSGENV}) collides with an allocated $E0-$FF opcode")
+ensure(MEV_MODSET != MEV_VOL && MEV_MODSET != MEV_PATCH && MEV_MODSET != MEV_DAC && MEV_MODSET != MEV_NOTE_DUR && MEV_MODSET != MEV_PAN && MEV_MODSET != MEV_REPEAT_START && MEV_MODSET != MEV_REPEAT_END && MEV_MODSET != MEV_NOTE_RAW && MEV_MODSET != MEV_PITCHENV && MEV_MODSET != MEV_OPBIAS && MEV_MODSET != MEV_REGDELTA && MEV_MODSET != MEV_NOTEFILL && MEV_MODSET != MEV_LOOP_POINT && MEV_MODSET != MEV_JUMP && MEV_MODSET != MEV_END,
+       "MEV_MODSET ({MEV_MODSET}) collides with an allocated $E0-$FF opcode")
+ensure(MEV_SPINREV != MEV_SPINREV_RESET && MEV_SPINREV != MEV_END && MEV_SPINREV_RESET != MEV_END,
+       "MEV_SPINREV/SPINREV_RESET opcode collision")
+
+// MEV_FMENV ($F7).
+ensure(MEV_FMENV > MEV_NOTE_MAX, "MEV_FMENV ({MEV_FMENV}) must be a command opcode (> MEV_NOTE_MAX)")
+ensure(MEV_FMENV >= MEV_VOL && MEV_FMENV <= MEV_END, "MEV_FMENV ({MEV_FMENV}) must be inside the $E0-$FF coordination block")
+ensure(MEV_FMENV == $F7, "MEV_FMENV ({MEV_FMENV}) must be $F7 (the Phase-3 macro-spine slot)")
+ensure(MEV_FMENV != MEV_VOL && MEV_FMENV != MEV_PATCH && MEV_FMENV != MEV_DAC && MEV_FMENV != MEV_NOTE_DUR && MEV_FMENV != MEV_PAN && MEV_FMENV != MEV_REPEAT_START && MEV_FMENV != MEV_REPEAT_END && MEV_FMENV != MEV_NOTE_RAW && MEV_FMENV != MEV_PITCHENV && MEV_FMENV != MEV_OPBIAS && MEV_FMENV != MEV_REGDELTA && MEV_FMENV != MEV_PSGENV && MEV_FMENV != MEV_MODSET && MEV_FMENV != MEV_NOTEFILL && MEV_FMENV != MEV_LOOP_POINT && MEV_FMENV != MEV_JUMP && MEV_FMENV != MEV_SPINREV && MEV_FMENV != MEV_SPINREV_RESET && MEV_FMENV != MEV_PSGNOISE && MEV_FMENV != MEV_END && MEV_FMENV != MEV_REGWRITE && MEV_FMENV != MEV_MACRO,
+       "MEV_FMENV ({MEV_FMENV}) collides with an allocated $E0-$FF opcode")
+
+// MEV_REGWRITE ($F8).
+ensure(MEV_REGWRITE > MEV_NOTE_MAX, "MEV_REGWRITE ({MEV_REGWRITE}) must be a command opcode (> MEV_NOTE_MAX)")
+ensure(MEV_REGWRITE >= MEV_VOL && MEV_REGWRITE <= MEV_END, "MEV_REGWRITE ({MEV_REGWRITE}) must be inside the $E0-$FF coordination block")
+ensure(MEV_REGWRITE == $F8, "MEV_REGWRITE ({MEV_REGWRITE}) must be $F8 (the fixed music-expr slot)")
+ensure(MEV_REGWRITE != MEV_VOL && MEV_REGWRITE != MEV_PATCH && MEV_REGWRITE != MEV_DAC && MEV_REGWRITE != MEV_NOTE_DUR && MEV_REGWRITE != MEV_PAN && MEV_REGWRITE != MEV_REPEAT_START && MEV_REGWRITE != MEV_REPEAT_END && MEV_REGWRITE != MEV_NOTE_RAW && MEV_REGWRITE != MEV_PITCHENV && MEV_REGWRITE != MEV_OPBIAS && MEV_REGWRITE != MEV_REGDELTA && MEV_REGWRITE != MEV_PSGENV && MEV_REGWRITE != MEV_MODSET && MEV_REGWRITE != MEV_NOTEFILL && MEV_REGWRITE != MEV_LOOP_POINT && MEV_REGWRITE != MEV_JUMP && MEV_REGWRITE != MEV_SPINREV && MEV_REGWRITE != MEV_SPINREV_RESET && MEV_REGWRITE != MEV_PSGNOISE && MEV_REGWRITE != MEV_END && MEV_REGWRITE != MEV_FMENV && MEV_REGWRITE != MEV_MACRO,
+       "MEV_REGWRITE ({MEV_REGWRITE}) collides with an allocated $E0-$FF opcode")
+
+// --- Phase 3: per-song fnum (pitch) table layout ---
+// TWO PARALLEL PAGES: the A4 page (PITCHTAB_COUNT $A4 values) first, then the A0
+// page. For index i: $A4 = page[i], $A0 = page[PITCHTAB_COUNT + i].
+pub const PITCHTAB_COUNT     = 132              // entries per page (idx $00..$83)
+pub const PITCHTAB_MAX_IDX   = PITCHTAB_COUNT-1 // = $83 (the RE's saturating clamp ceiling)
+
+ensure(PITCHTAB_MAX_IDX == $83, "PITCHTAB_MAX_IDX ({PITCHTAB_MAX_IDX}) must be $83 (132-entry Zyrinx table)")
+
+// The highest valid FmPitchTableZ index (chromatic note table holds 95 entries).
+pub const FMPITCH_MAX_IDX    = $5E              // = 94 (FmPitchTableZ has 95 entries)
+
+// --- Block-boundary fnum window for the pitch-modulation octave correction.
+// Normalizing a modulated fnum into [FNUM_LO, FNUM_HI) keeps vibrato/glide
+// continuous across an octave. HI = 2*LO and HI < $0800 so the correction fires
+// BEFORE the 11-bit fnum field overflows into the block bits.
+pub const FNUM_LO = $0284
+pub const FNUM_HI = $0508
+ensure(FNUM_HI == FNUM_LO*2, "FNUM_HI must be exactly 2x FNUM_LO (pitch-preserving octave correction)")
+ensure(FNUM_HI < $0800, "FNUM_HI must be < $0800 so the correction fires before 11-bit fnum overflow")
+
+// --- Channel-route enum ---
+// FM6 is a routable FM voice (part II, ch-in-part 2, chsel $06), inserted
+// contiguously after FM5; the PSG/DAC routes shift up by one. FM6 and the DAC are
+// mutually exclusive on ch6 (shared via $2B bit7).
+pub const CHROUTE_FM1 = 0
+pub const CHROUTE_FM2 = 1
+pub const CHROUTE_FM3 = 2
+pub const CHROUTE_FM4 = 3
+pub const CHROUTE_FM5 = 4
+pub const CHROUTE_FM6 = 5    // 6th FM voice (part II ch2, chsel $06) — DAC-off songs
+pub const CHROUTE_PSG1 = 6
+pub const CHROUTE_PSG2 = 7
+pub const CHROUTE_PSG3 = 8
+pub const CHROUTE_PSGN = 9   // PSG noise
+pub const CHROUTE_DAC  = 10  // emits $E2 DAC triggers only
+pub const CHROUTE_COUNT = 11
+
+ensure(CHROUTE_COUNT == 11, "CHROUTE_COUNT ({CHROUTE_COUNT}) must be 11")
+// The route fits the trace byte's high nibble (route<<4 | event).
+ensure((CHROUTE_COUNT-1) <= 15, "route no longer fits the trace byte high nibble")
+// FM6 must resolve to part II ch 2 via Fm_RoutePart's route-3 split.
+ensure((CHROUTE_FM6 - 3) == 2, "CHROUTE_FM6 must map to part II channel-in-part 2")
+
+// ======================================================================
+// Phase 5a SFX engine — eligibility, ids, priority, ducking, RAM, structs.
+// ======================================================================
+
+// --- SFX channel eligibility (build-time data) ---
+// Each PHYSICAL voice is either NEVER stealable (lead/bass/DAC) or stealable by an
+// SFX. The stealable set sizes the SfxChannel array (3 FM + 3 PSG + noise = 7).
+pub const SFXEL_NONE  = 0    // never stealable (FM1, FM2, FM6, DAC)
+pub const SFXEL_FM    = 1    // stealable FM voice (FM3, FM4, FM5)
+pub const SFXEL_PSG   = 2    // stealable PSG tone voice (PSG1, PSG2, PSG3)
+pub const SFXEL_NOISE = 3    // stealable PSG noise voice (PSGN)
+
+pub const SFX_VOICE_COUNT = 7 // FM3,FM4,FM5,PSG1,PSG2,PSG3,PSGN — the stealable set
+
+// --- 68k-side pending-SFX ring. Sound_PlaySFX ENQUEUES into this 68k-RAM ring and
+// Sound_DrainSfxRing (post-VSync) posts ONE id/frame into the mailbox when the Z80
+// has cleared it. Power-of-two depth -> &-mask wrap, no compare.
+pub const SFX_RING_DEPTH   = 8                // pending-SFX ring slots (68k RAM)
+pub const SFX_RING_MASK    = SFX_RING_DEPTH-1 // cursor wrap mask ($07)
+
+// --- Ducking: a duck-authored SFX (sfh_duck != 0) transiently attenuates the
+// music by ITS OWN depth. The duck-level byte ramps toward the target over N frames.
+pub const SFX_DUCK_PSG_DEPTH = 3   // PSG linear-volume drop applied while ducked
+pub const SFX_DUCK_RAMP_STEP = 4   // duck-level change per frame (linear ramp up/down)
+
+// --- Phase 2: master fade + global tempo (music expression engine) ---
+pub const SND_FADE_CMD_OUT       = 1           // SND_REQ_FADE: ramp the scalar UP to silence
+pub const SND_FADE_CMD_IN        = 2           // SND_REQ_FADE: snap silent, ramp DOWN to full
+pub const SND_FADE_SILENCE       = SND_FM_TL_MAX // $7F = full master-fade attenuation
+pub const SND_FADE_STEP          = 2           // fade change per applied step (TL units)
+pub const SND_FADE_DELAY         = 1           // frames between fade steps (1 = every frame)
+pub const SND_TEMPO_RESTORE      = $FF         // SND_REQ_TEMPO sentinel: ramp back to the authored base
+
+// --- FmPatch struct (the YM record) ---
+// 2 channel regs + 6×4 per-op regs + 4 SSG-EG regs + 2 pad = 32 bytes. Per-op
+// arrays are stored in PHYSICAL REGISTER ORDER: array index 0..3 = register offset
+// +0,+4,+8,+C = operators S1,S3,S2,S4 (the same index space as carrier_mask_table).
+pub struct FmPatch {
+    fp_alg_fb:     u8,         // $B0 value: algorithm (bits0-2) + feedback (bits3-5)
+    fp_lr_ams_fms: u8,         // $B4 value: L/R (bits6-7) + AMS (bits4-5) + FMS (bits0-2)
+    fp_dt_mul:     [u8; 4],    // $30+ : DT/MUL per operator
+    fp_tl:         [u8; 4],    // $40+ : TL per operator (carrier TL is volume-modulated)
+    fp_rs_ar:      [u8; 4],    // $50+ : RS/AR per operator
+    fp_am_d1r:     [u8; 4],    // $60+ : AM/D1R per operator
+    fp_d2r:        [u8; 4],    // $70+ : D2R per operator
+    fp_d1l_rr:     [u8; 4],    // $80+ : D1L/RR per operator
+    fp_ssg_eg:     [u8; 4],    // $90+ : SSG-EG mode per operator ($00 = off)
+    fp_reserved:   [u8; 2],    // pad the record to 32 bytes (a power of two)
+}
+pub const FmPatch_len            = sizeof(FmPatch)      // = 32
+
+ensure(FmPatch_len == 32, "FmPatch struct is {FmPatch_len} bytes, expected 32")
+
+// --- SFX blob header (prefixes the event-list). Big-endian ptr offsets. Grown to
+// 8 bytes to reserve Stage-B gain/duck/cap fields (INERT in Stage A). ---
+pub struct SfxHeader {
+    sfh_priority: u8,      // +0  authored priority byte (SFXPRI_*); higher wins (bit 7 RESERVED Stage B)
+    sfh_flags:    u8,      // +1  SHF_* (continuous / stereo-alt / loop)
+    sfh_chcount:  u8,      // +2  number of SFX channels (1 or 2 for the core set)
+    sfh_gain:     u8,      // +3  Stage B authored master attenuation (INERT in Stage A)
+    sfh_duck:     u8,      // +4  Stage B per-SFX duck depth (0 = never ducks)
+    sfh_cap:      u8,      // +5  Stage B instance cap (INERT in Stage A; engine hard-caps at 1)
+    sfh_rsvd:     [u8; 2], // +6  keep the per-channel records even-aligned
+}
+pub const SfxHeader_len          = sizeof(SfxHeader)    // = 8
+
+ensure(SfxHeader_len == 8, "SfxHeader struct is {SfxHeader_len} bytes, expected 8 (transcoder pack_sfx must match)")
+
+pub const SFXH_PRIORITY = offsetof(SfxHeader, sfh_priority)
+pub const SFXH_FLAGS    = offsetof(SfxHeader, sfh_flags)
+pub const SFXH_CHCOUNT  = offsetof(SfxHeader, sfh_chcount)
+pub const SFXH_GAIN     = offsetof(SfxHeader, sfh_gain)   // +3
+pub const SFXH_DUCK     = offsetof(SfxHeader, sfh_duck)   // +4
+pub const SFXH_CAP      = offsetof(SfxHeader, sfh_cap)    // +5
+pub const SFXH_CHANNELS = SfxHeader_len                   // per-channel array starts after the prefix
+// per-channel record (6 bytes): route, kind, cmd_ptr(BE), voice_ptr(BE)
+pub const SFXHC_ROUTE    = 0
+pub const SFXHC_KIND     = 1
+pub const SFXHC_CMD_HI   = 2
+pub const SFXHC_CMD_LO   = 3
+pub const SFXHC_VOICE_HI = 4
+pub const SFXHC_VOICE_LO = 5
+pub const SFXHC_LEN      = 6
+
+// --- SfxHeader flags (SHF_*). bits 3-7 reserved for 5b (continuous-loop interp).
+pub const SHF_CONTINUOUS_B = 0   // held-loop SFX (5b interprets; 5a honors extend-not-retrigger)
+pub const SHF_STEREO_ALT_B = 1   // ring-style L/R alternation (resolved 68k-side)
+pub const SHF_LOOP_B       = 2   // the blob self-loops (smpsLoop -> MEV_LOOP/JUMP)
+pub const SHF_CONTINUOUS   = 1<<SHF_CONTINUOUS_B
+pub const SHF_STEREO_ALT   = 1<<SHF_STEREO_ALT_B
+pub const SHF_LOOP         = 1<<SHF_LOOP_B
+
+pub const SFX_EXTEND_FRAMES = 10 // Stage C: frames a continuous SFX survives after pings stop
+
+// --- SfxChannel struct (per-active-SFX-voice state; Z80 RAM, indexed by ix). It
+// REUSES the SeqChannel field LAYOUT for the fields ModUpdate/Sequencer_Channel
+// read, then appends the SFX bookkeeping. The shared-prefix fields MUST keep the
+// same offsets as SeqChannel — asserted below. ---
+pub struct SfxChannel {
+    sc_stream_ptr:    u16,     // +0  command stream read ptr (shared with SeqChannel)
+    sc_mod_ptr:       u16,     // +2  modulation stream (NULL in 5a)
+    sc_dur_count:     u8,      // +4
+    sc_dur_default:   u8,      // +5
+    sc_patch:         u8,      // +6  SFX's own FM patch index (into its own bank)
+    sc_last_patch:    u8,      // +7  ($FF = force reload)
+    sc_volume:        u8,      // +8
+    sc_note:          u8,      // +9
+    sc_flags:         u8,      // +10 SCF_* (ACTIVE/KEYED/IS_FM/IS_PSG; never SFX_OVERRIDE)
+    sc_route:         u8,      // +11 the PHYSICAL voice this SFX currently owns (CHROUTE_*)
+    sc_loop_ptr:      u16,     // +12
+    sc_repeat_ptr:    u16,     // +14
+    sc_repeat_count:  u8,      // +16
+    sc_tempo_mod:     u8,      // +17
+    sc_tempo_accum:   u8,      // +18
+    sc_pt_count:      u8,      // +19
+    sc_pt_cursor:     u8,      // +20
+    sc_points:        [u8; 5], // +21
+    sc_transpose:     u8,      // +26
+    sc_pan:           u8,      // +27
+    sc_opbias:        [u8; 4], // +28
+    sc_porta_accum:   u16,     // +32
+    sc_porta_incr:    u16,     // +34
+    sc_last_pan:      u8,      // +36
+    sc_fill_master:   u8,      // +37
+    sc_fill_count:    u8,      // +38
+    sc_psgenv:        u8,      // +39 PSG vol-env id (1-based; 0 = none)
+    sc_psgenv_cur:    u8,      // +40 PSG vol-env cursor
+    sc_psgenv_out:    u8,      // +41 last computed atten delta (write-on-change shadow)
+    sc_mod_ctrl:      u8,      // +42 pitch-mod control (0 = off)
+    sc_mod_wait:      u8,      // +43 frames before modulation starts
+    sc_mod_speed:     u8,      // +44 frames between delta applications
+    sc_mod_delta:     u8,      // +45 signed per-step delta
+    sc_mod_steps:     u8,      // +46 steps until direction reverse
+    sc_mod_speed_raw: u8,      // +47 latched speed (reload source for sc_mod_speed)
+    sc_mod_step_raw:  u8,      // +48 latched FULL step count (reload source for sc_mod_steps)
+    sc_mod_wait_raw:  u8,      // +49 latched onset delay
+    sc_mod_delta_raw: u8,      // +50 latched signed per-step delta
+    sc_mod_accum:     u16,     // +51 signed 16-bit accumulated freq offset
+    sc_base_freq:     u16,     // +53 unmodulated note word latched at key-on
+    sc_last_freq:     u16,     // +55 last modulated freq/divisor written
+    // --- SFX bookkeeping (offsets past the shared block; SeqChannel diverges here) ---
+    sx_priority:      u8,      // +57 the running SFX's priority
+    sx_pad:           u8,      // +58 pad; aliases SeqChannel.sc_detune (MUST stay 0)
+    sx_patch_base:    u16,     // +59 the SFX's own FmPatch-bank window ptr
+    sx_saved_route:   u8,      // +61 the music route whose SeqChannel we overrode
+    sx_saved_note:    u8,      // +62 PSG3 tone note saved on a noise steal
+    sx_kind:          u8,      // +63 SFXEL_* of the owned voice (for restore dispatch)
+    sx_gain:          u8,      // +64 Stage B per-slot copy of the SFX's authored master gain
+    sx_duck:          u8,      // +65 Stage B per-slot copy of the SFX's authored duck depth
+    sx_extend:        u8,      // +66 Stage C continuity/re-ping state
+    sx_pad2:          u8,      // +67 pad to an even struct length
+}
+pub const SfxChannel_len         = sizeof(SfxChannel)   // = 68
+
+ensure(SfxChannel_len == 68, "SfxChannel struct is {SfxChannel_len} bytes, expected 68")
+// largest field offset must stay within the (ix+d) signed-8-bit range.
+ensure(offsetof(SfxChannel, sx_kind) <= 127, "SfxChannel sx_kind offset ({offsetof(SfxChannel, sx_kind)}) exceeds (ix+d) +127")
+ensure(offsetof(SfxChannel, sx_extend) <= 127, "SfxChannel sx_extend offset ({offsetof(SfxChannel, sx_extend)}) exceeds (ix+d) +127")
+
+// sx_* field-offset aliases (the SFX-appended fields).
+pub const sx_priority     = offsetof(SfxChannel, sx_priority)
+pub const sx_gain         = offsetof(SfxChannel, sx_gain)
+pub const sx_patch_base   = offsetof(SfxChannel, sx_patch_base)
+pub const sx_saved_route  = offsetof(SfxChannel, sx_saved_route)
+pub const sx_saved_note   = offsetof(SfxChannel, sx_saved_note)
+pub const sx_kind         = offsetof(SfxChannel, sx_kind)
+pub const sx_duck         = offsetof(SfxChannel, sx_duck)
+pub const sx_extend       = offsetof(SfxChannel, sx_extend)
+
+// --- SeqChannel struct (per-channel sequencer state; Z80 RAM, indexed by ix) ---
+// The v0/1C command-stream fields are unchanged in meaning; the struct appends the
+// C-ready mod-stream seam (sc_mod_ptr), the per-frame tempo gate, and the
+// MODULATION-STATE block ModUpdate renders. The tick loop iterates with `add ix,de`
+// (de = SeqChannel_len), so the layout stays packed (no power-of-2 padding benefit).
+pub struct SeqChannel {
+    sc_stream_ptr:    u16,     // +0  command stream (slot[0]) read ptr
+    sc_mod_ptr:       u16,     // +2  modulation stream (slot[1]) read ptr; 0/NULL for A
+    sc_dur_count:     u8,      // +4  ticks remaining on the current note/rest
+    sc_dur_default:   u8,      // +5  default duration for bare notes
+    sc_patch:         u8,      // +6  current (commanded) FM patch index
+    sc_last_patch:    u8,      // +7  last patch ModUpdate loaded ($FF = force reload)
+    sc_volume:        u8,      // +8  current channel volume (linear 0..127)
+    sc_note:          u8,      // +9  current pitch index (for key-off / debug)
+    sc_flags:         u8,      // +10 bit0=active,1=keyed,2=is_fm,3=is_psg,4=is_dac,6=sfx_override,7=pitch_chromatic
+    sc_route:         u8,      // +11 channel route enum (CHROUTE_*) — selects the writer
+    sc_loop_ptr:      u16,     // +12 saved loop-point ptr (set by $EE, used by $EF)
+    sc_repeat_ptr:    u16,     // +14 body-start ptr saved by $E5, reloaded by $E6
+    sc_repeat_count:  u8,      // +16 reps remaining (0 = no active repeat)
+    sc_tempo_mod:     u8,      // +17 raw S3K tempo mod (header pass-through; 0 = full speed)
+    sc_tempo_accum:   u8,      // +18 running accumulator (the per-channel musical clock)
+    sc_pt_count:      u8,      // +19 pitch-envelope point count (1 = plain note, >=2 = trill/arp)
+    sc_pt_cursor:     u8,      // +20 pitch-envelope cursor
+    sc_points:        [u8; 5], // +21 up to 5 pitch point indices
+    sc_transpose:     u8,      // +26 signed per-pattern transpose
+    sc_pan:           u8,      // +27 pan state (off/L/R/C) -> $B4 L/R bits
+    sc_opbias:        [u8; 4], // +28 per-operator SIGNED TL bias
+    sc_porta_accum:   u16,     // +32 portamento accumulator
+    sc_porta_incr:    u16,     // +34 portamento per-frame increment (0 = no glide)
+    sc_last_pan:      u8,      // +36 last $B4 ModUpdate wrote (0 = none yet)
+    sc_fill_master:   u8,      // +37 note-fill reload
+    sc_fill_count:    u8,      // +38 live per-frame note-fill countdown
+    sc_psgenv:        u8,      // +39 PSG vol-env id (1-based; 0 = none)
+    sc_psgenv_cur:    u8,      // +40 PSG vol-env cursor
+    sc_psgenv_out:    u8,      // +41 last computed atten delta
+    sc_mod_ctrl:      u8,      // +42 pitch-mod control (0 = off)
+    sc_mod_wait:      u8,      // +43 onset delay
+    sc_mod_speed:     u8,      // +44 frames between delta applications
+    sc_mod_delta:     u8,      // +45 signed per-step delta
+    sc_mod_steps:     u8,      // +46 steps until direction reverse
+    sc_mod_speed_raw: u8,      // +47 latched speed
+    sc_mod_step_raw:  u8,      // +48 latched FULL step count
+    sc_mod_wait_raw:  u8,      // +49 latched onset delay
+    sc_mod_delta_raw: u8,      // +50 latched signed per-step delta
+    sc_mod_accum:     u16,     // +51 signed 16-bit accumulated freq offset
+    sc_base_freq:     u16,     // +53 unmodulated note word latched at key-on
+    sc_last_freq:     u16,     // +55 last modulated word written
+    // --- music-only fields (diverge AFTER the shared block) ---
+    sc_noise_mode:    u8,      // +57 SN76489 noise control byte (music-noise channel only)
+    sc_detune:        u8,      // +58 signed fine-pitch offset, folded at FM note-on
+    sc_pad:           u8,      // +59 pad to an even struct length
+}
+pub const SeqChannel_len         = sizeof(SeqChannel)   // = 60
+
+ensure(SeqChannel_len == 60, "SeqChannel struct is {SeqChannel_len} bytes, expected 60")
+// the largest field offset must stay within the signed-8-bit (ix+d) range.
+ensure(offsetof(SeqChannel, sc_detune) <= 127, "sc_detune offset ({offsetof(SeqChannel, sc_detune)}) exceeds the (ix+d) +127 range")
+// The shared interpreter prefix MUST mirror SeqChannel field offsets so ModUpdate/
+// Sequencer_Channel walk an SfxChannel correctly. The shared block runs +0..+56;
+// the structs diverge at +57 (sc_noise_mode vs sx_priority). Per-field invariant.
+ensure(offsetof(SfxChannel, sc_flags) == offsetof(SeqChannel, sc_flags), "SfxChannel.sc_flags diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_route) == offsetof(SeqChannel, sc_route), "SfxChannel.sc_route diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_note) == offsetof(SeqChannel, sc_note), "SfxChannel.sc_note diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_points) == offsetof(SeqChannel, sc_points), "SfxChannel.sc_points diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_last_pan) == offsetof(SeqChannel, sc_last_pan), "SfxChannel.sc_last_pan diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_ctrl) == offsetof(SeqChannel, sc_mod_ctrl), "SfxChannel.sc_mod_ctrl diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_wait_raw) == offsetof(SeqChannel, sc_mod_wait_raw), "SfxChannel.sc_mod_wait_raw diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_delta_raw) == offsetof(SeqChannel, sc_mod_delta_raw), "SfxChannel.sc_mod_delta_raw diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_accum) == offsetof(SeqChannel, sc_mod_accum), "SfxChannel.sc_mod_accum diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_base_freq) == offsetof(SeqChannel, sc_base_freq), "SfxChannel.sc_base_freq diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_last_freq) == offsetof(SeqChannel, sc_last_freq), "SfxChannel.sc_last_freq diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_porta_accum) == offsetof(SeqChannel, sc_porta_accum), "SfxChannel.sc_porta_accum diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_porta_incr) == offsetof(SeqChannel, sc_porta_incr), "SfxChannel.sc_porta_incr diverges from SeqChannel")
+
+// Short field-offset accessors — the sc_* aliases keep the Z80 (ix+d) code terse.
+pub const sc_stream_ptr   = offsetof(SeqChannel, sc_stream_ptr)
+pub const sc_mod_ptr      = offsetof(SeqChannel, sc_mod_ptr)
+pub const sc_dur_count    = offsetof(SeqChannel, sc_dur_count)
+pub const sc_dur_default  = offsetof(SeqChannel, sc_dur_default)
+pub const sc_patch        = offsetof(SeqChannel, sc_patch)
+pub const sc_last_patch   = offsetof(SeqChannel, sc_last_patch)
+pub const sc_volume       = offsetof(SeqChannel, sc_volume)
+pub const sc_note         = offsetof(SeqChannel, sc_note)
+pub const sc_flags        = offsetof(SeqChannel, sc_flags)
+pub const sc_route        = offsetof(SeqChannel, sc_route)
+pub const sc_loop_ptr     = offsetof(SeqChannel, sc_loop_ptr)
+pub const sc_repeat_ptr   = offsetof(SeqChannel, sc_repeat_ptr)
+pub const sc_repeat_count = offsetof(SeqChannel, sc_repeat_count)
+pub const sc_tempo_mod    = offsetof(SeqChannel, sc_tempo_mod)
+pub const sc_tempo_accum  = offsetof(SeqChannel, sc_tempo_accum)
+pub const sc_pt_count     = offsetof(SeqChannel, sc_pt_count)
+pub const sc_pt_cursor    = offsetof(SeqChannel, sc_pt_cursor)
+pub const sc_points       = offsetof(SeqChannel, sc_points)
+pub const sc_transpose    = offsetof(SeqChannel, sc_transpose)
+pub const sc_pan          = offsetof(SeqChannel, sc_pan)
+pub const sc_opbias       = offsetof(SeqChannel, sc_opbias)
+pub const sc_porta_accum  = offsetof(SeqChannel, sc_porta_accum)
+pub const sc_porta_incr   = offsetof(SeqChannel, sc_porta_incr)
+pub const sc_last_pan     = offsetof(SeqChannel, sc_last_pan)
+pub const sc_fill_master  = offsetof(SeqChannel, sc_fill_master)
+pub const sc_fill_count   = offsetof(SeqChannel, sc_fill_count)
+pub const sc_psgenv       = offsetof(SeqChannel, sc_psgenv)
+pub const sc_psgenv_cur   = offsetof(SeqChannel, sc_psgenv_cur)
+pub const sc_psgenv_out   = offsetof(SeqChannel, sc_psgenv_out)
+// Unified vol-env slot: FM TL vol-env + PSG vol-env share ONE 3-byte slot
+// (a channel is FM xor PSG). Aliases the sc_psgenv slot.
+pub const sc_env          = offsetof(SeqChannel, sc_psgenv)
+pub const sc_env_cur      = offsetof(SeqChannel, sc_psgenv_cur)
+pub const sc_env_out      = offsetof(SeqChannel, sc_psgenv_out)
+pub const sc_noise_mode   = offsetof(SeqChannel, sc_noise_mode)
+pub const sc_mod_ctrl     = offsetof(SeqChannel, sc_mod_ctrl)
+pub const sc_mod_wait     = offsetof(SeqChannel, sc_mod_wait)
+pub const sc_mod_speed    = offsetof(SeqChannel, sc_mod_speed)
+pub const sc_mod_delta    = offsetof(SeqChannel, sc_mod_delta)
+pub const sc_mod_steps    = offsetof(SeqChannel, sc_mod_steps)
+pub const sc_mod_speed_raw = offsetof(SeqChannel, sc_mod_speed_raw)
+pub const sc_mod_step_raw = offsetof(SeqChannel, sc_mod_step_raw)
+pub const sc_mod_wait_raw = offsetof(SeqChannel, sc_mod_wait_raw)
+pub const sc_mod_delta_raw = offsetof(SeqChannel, sc_mod_delta_raw)
+pub const sc_mod_accum    = offsetof(SeqChannel, sc_mod_accum)
+pub const sc_base_freq    = offsetof(SeqChannel, sc_base_freq)
+pub const sc_last_freq    = offsetof(SeqChannel, sc_last_freq)
+pub const sc_detune       = offsetof(SeqChannel, sc_detune)
+pub const sc_pad          = offsetof(SeqChannel, sc_pad)
+// slot[1] macro-stream "active" flag (Component D): reuses the even-alignment pad
+// byte (+59). The AUTHORITATIVE per-frame gate is sc_mod_ptr != 0; this is an
+// INFORMATIONAL mirror ("a macro stream is armed").
+pub const sc_macro_active = offsetof(SeqChannel, sc_pad)
+
+// --- sc_flags bit numbers + masks ---
+// Z80 bit/set/res take a bit INDEX (the _B companions); the SCF_* masks are for
+// 68k-style mask ops. Each mask is derived from its _B bit number.
+pub const SCF_ACTIVE_B    = 0    // channel is playing its stream
+pub const SCF_KEYED_B     = 1    // a note is currently keyed-on
+pub const SCF_IS_FM_B     = 2    // route class: FM voice
+pub const SCF_IS_PSG_B    = 3    // route class: PSG voice
+pub const SCF_IS_DAC_B    = 4    // route class: DAC trigger channel
+pub const SCF_REKEY_B     = 5    // ModUpdate should (re)key this channel's note next frame
+pub const SCF_SFX_OVERRIDE_B = 6 // an SfxChannel owns this physical voice (music cursor still advances)
+pub const SCF_PITCH_CHROMATIC_B = 7 // key via the chromatic FmPitchTableZ (SFX) vs the per-song fnum table
+
+pub const SCF_ACTIVE      = 1<<SCF_ACTIVE_B
+pub const SCF_KEYED       = 1<<SCF_KEYED_B
+pub const SCF_IS_FM       = 1<<SCF_IS_FM_B
+pub const SCF_IS_PSG      = 1<<SCF_IS_PSG_B
+pub const SCF_IS_DAC      = 1<<SCF_IS_DAC_B
+pub const SCF_REKEY       = 1<<SCF_REKEY_B
+pub const SCF_SFX_OVERRIDE = 1<<SCF_SFX_OVERRIDE_B
+pub const SCF_PITCH_CHROMATIC = 1<<SCF_PITCH_CHROMATIC_B
+
+// the _B bit numbers and the masks must stay tied together.
+ensure(SCF_ACTIVE == 1<<SCF_ACTIVE_B && SCF_KEYED == 1<<SCF_KEYED_B && SCF_IS_FM == 1<<SCF_IS_FM_B && SCF_IS_PSG == 1<<SCF_IS_PSG_B && SCF_IS_DAC == 1<<SCF_IS_DAC_B && SCF_REKEY == 1<<SCF_REKEY_B && SCF_SFX_OVERRIDE == 1<<SCF_SFX_OVERRIDE_B && SCF_PITCH_CHROMATIC == 1<<SCF_PITCH_CHROMATIC_B,
+       "SCF_* masks and _B bit numbers are out of sync")
+
+// --- Sequencer RAM block (Z80 space) ---
+// Directly ABOVE the 1B DAC ring: code $0000..<SND_STATE_BASE, state $18F0-$18FC,
+// DAC ring $1900-$19FF, sequencer $1A00.., then the derived scratch/param/trace/
+// expression tail, then the page-aligned SFX region, mailbox/status $1F00-$1F14
+// (FROZEN 68k contract), stack top $1FFE (grows down). Every seam is asserted below.
+pub const SND_SEQ_BASE       = $1A00     // sequencer state region (block above the DAC ring)
+
+// the DAC ring must end at/below the sequencer region.
+ensure((SND_RING_BASE + SND_RING_LEN) <= SND_SEQ_BASE,
+       "DAC ring (ends {SND_RING_BASE + SND_RING_LEN}) runs into the sequencer at {SND_SEQ_BASE}")
+pub const SND_SEQ_TEMPO      = SND_SEQ_BASE+$00   // loaded song tempo (LEGACY Timer-A selector; unused Phase 3)
+pub const SND_SEQ_CHCOUNT    = SND_SEQ_BASE+$01   // active channel count (frame-loop djnz bound)
+pub const SND_SEQ_PATCHTAB   = SND_SEQ_BASE+$02   // loaded patch table ptr (2)
+pub const SND_SEQ_ACTIVE     = SND_SEQ_BASE+$04   // 1 = song playing
+pub const SND_SEQ_BADOP      = SND_SEQ_BASE+$05   // DEBUG: last bad opcode seen
+pub const SND_SEQ_TRACE_WR   = SND_SEQ_BASE+$06   // trace ring write index (0..31)
+pub const SND_SEQ_TEMPO_MOD  = SND_SEQ_BASE+$07   // cached song tempo_mod (raw S3K TempoWait addend)
+pub const SND_SEQ_CHANNELS   = SND_SEQ_BASE+$08   // CHROUTE_COUNT * SeqChannel_len
+pub const SND_SEQ_END        = SND_SEQ_CHANNELS + (CHROUTE_COUNT * SeqChannel_len)
+pub const SND_SEQ_TRACE_LEN  = 32                 // 32-byte trace ring of dispatched opcodes
+
+// --- FM voice writer scratch (Task 3): 5 bytes in the free block ABOVE the
+// per-channel array and BELOW the trace ring. DERIVED from SND_SEQ_END so it
+// auto-tracks per-channel-struct growth.
+pub const SND_FM_SCRATCH     = SND_SEQ_END
+pub const SND_FM_SCRATCH_LEN = 5                  // Part,Ch,Log,Mask + Task-6 Op index
+
+ensure(SND_FM_SCRATCH >= SND_SEQ_END,
+       "FM scratch ({SND_FM_SCRATCH}) overlaps sequencer channels ({SND_SEQ_END})")
+
+// --- Snd_LoadSong scratch: the song BASE pointer + per-song pitch-table ptr +
+// escalating spindash rev, in the free block just past the FM scratch.
+pub const Snd_SongBase       = SND_FM_SCRATCH + SND_FM_SCRATCH_LEN  // 2 bytes: song base ptr ($8000 window)
+pub const Snd_PitchTabPtr    = Snd_SongBase + 2   // 2 bytes: per-song pitch table ptr
+pub const Snd_SpindashRev    = Snd_PitchTabPtr + 2 // 1 byte: escalating spindash transposition
+
+// --- Music-load param block — TRACKS the scratch end and slides up automatically.
+// The 68k pre-derives the song's bank + $8000-window ptr and posts them here under
+// the same bus hold as the SND_REQ_MUSIC trigger.
+pub const SND_MUSIC_PARAM          = Snd_SpindashRev + 1
+pub const SND_MUSIC_PARAM_BANK     = SND_MUSIC_PARAM+$00   // song bank id (1 byte)
+pub const SND_MUSIC_PARAM_PTR      = SND_MUSIC_PARAM+$01   // song $8000-window ptr (2 bytes, little-endian)
+pub const SND_MUSIC_PARAM_FLAGS    = SND_MUSIC_PARAM+$03   // song SH_FLAGS byte (1 byte)
+pub const SND_MUSIC_PARAM_PATCHPTR = SND_MUSIC_PARAM+$04   // song patch-bank window ptr (2 bytes, LE)
+pub const SND_MUSIC_PARAM_LEN      = 6
+
+// --- Sequencer opcode trace ring (DEBUG) — derived, above the music-param block.
+pub const SND_SEQ_TRACE      = SND_MUSIC_PARAM + SND_MUSIC_PARAM_LEN
+
+// --- Phase 2 global expression state (master fade + global tempo). Last block of
+// the derived scratch tail; SND_SFX_BASE page-aligns up from its end.
+pub const SND_GLOBAL_EXPR     = SND_SEQ_TRACE + SND_SEQ_TRACE_LEN
+pub const SND_MASTER_FADE     = SND_GLOBAL_EXPR+$00   // current fade atten (0 full .. $7F silent)
+pub const SND_FADE_TARGET     = SND_GLOBAL_EXPR+$01   // fade ramp target
+pub const SND_FADE_DELAY_CTR  = SND_GLOBAL_EXPR+$02   // frames-until-next-step countdown
+pub const SND_FADE_DIRTY      = SND_GLOBAL_EXPR+$03   // 1 = fade stepped this frame
+pub const SND_TEMPO_CUR       = SND_GLOBAL_EXPR+$04   // current tempo mod (0=full speed, bigger=slower)
+pub const SND_TEMPO_TARGET    = SND_GLOBAL_EXPR+$05   // tempo ramp target (mod units)
+pub const SND_TEMPO_BASE      = SND_GLOBAL_EXPR+$06   // authored mod (restore reference)
+pub const SND_GLOBAL_EXPR_LEN = 7
+
+// Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots) must
+// fit between SND_SEQ_BASE and the mailbox base.
+pub const SND_SEQ_HEADER_LEN = SND_SEQ_CHANNELS - SND_SEQ_BASE
+ensure(SND_SEQ_BASE + SND_SEQ_HEADER_LEN + CHROUTE_COUNT*SeqChannel_len <= SND_REQ_BASE,
+       "seq RAM overflow: {SND_SEQ_BASE + SND_SEQ_HEADER_LEN + CHROUTE_COUNT*SeqChannel_len} > mailbox {SND_REQ_BASE}")
+ensure((SND_FM_SCRATCH + SND_FM_SCRATCH_LEN) <= SND_MUSIC_PARAM,
+       "FM scratch ({SND_FM_SCRATCH}) runs into the music param block ({SND_MUSIC_PARAM})")
+ensure((SND_MUSIC_PARAM + SND_MUSIC_PARAM_LEN) <= SND_SEQ_TRACE,
+       "music param block ({SND_MUSIC_PARAM}) runs into the trace ring ({SND_SEQ_TRACE})")
+ensure(SND_SEQ_END <= SND_REQ_BASE,
+       "sequencer RAM ({SND_SEQ_END}) overruns the mailbox at {SND_REQ_BASE}")
+ensure((SND_SEQ_TRACE + SND_SEQ_TRACE_LEN) <= SND_GLOBAL_EXPR,
+       "trace ring ({SND_SEQ_TRACE}+{SND_SEQ_TRACE_LEN}) runs into the Phase-2 globals ({SND_GLOBAL_EXPR})")
+
+// --- Phase 5a SFX RAM region (below the mailbox) ---
+// Page-aligns UP from the end of the scratch tail. It MUST stay 256-aligned:
+// Snd_ChanClass classifies music-vs-SFX channels by comparing the HIGH BYTE of ix
+// against SND_SFX_BASE>>8 — every music SeqChannel sits below this page boundary,
+// every SfxChannel slot at/above it, so the one-byte compare is exact.
+pub const SND_SFX_BASE       = (SND_GLOBAL_EXPR + SND_GLOBAL_EXPR_LEN + $FF) & $FF00
+pub const SND_SFX_CHANNELS   = SND_SFX_BASE                        // the 7-slot SfxChannel array
+pub const SND_SFX_CHAN_END   = SND_SFX_CHANNELS + (SFX_VOICE_COUNT * SfxChannel_len)
+// SFX request queue: a small priority-gated ring. 3 entries * 2 bytes + head/tail/count.
+pub const SND_SFX_QUEUE      = SND_SFX_CHAN_END
+pub const SFX_QUEUE_DEPTH    = 3
+pub const SFX_QUEUE_ENTRY    = 2                                   // id + priority
+pub const SND_SFX_QUEUE_HEAD = SND_SFX_QUEUE + (SFX_QUEUE_DEPTH * SFX_QUEUE_ENTRY)
+pub const SND_SFX_QUEUE_TAIL = SND_SFX_QUEUE_HEAD + 1
+pub const SND_SFX_QUEUE_CNT  = SND_SFX_QUEUE_TAIL + 1
+// Global music duck level (ramped envelope) + the active-duck target.
+pub const SND_SFX_DUCK_LEVEL = SND_SFX_QUEUE_CNT + 1               // current applied duck (0 = none)
+pub const SND_SFX_DUCK_TARGET = SND_SFX_DUCK_LEVEL + 1             // target (set while a duck-SFX runs)
+pub const SND_SFX_RAM_END    = SND_SFX_DUCK_TARGET + 1
+
+ensure(SND_SFX_RAM_END <= SND_REQ_BASE,
+       "SFX RAM ({SND_SFX_RAM_END}) overruns the mailbox at {SND_REQ_BASE}")
+ensure((SND_GLOBAL_EXPR + SND_GLOBAL_EXPR_LEN) <= SND_SFX_BASE,
+       "Phase-2 globals ({SND_GLOBAL_EXPR}+{SND_GLOBAL_EXPR_LEN}) run into the SFX region at {SND_SFX_BASE}")
+// Snd_ChanClass page-compare contract: the SFX base must be 256-aligned and every
+// music SeqChannel byte must sit strictly below it.
+ensure((SND_SFX_BASE & $FF) == 0,
+       "SND_SFX_BASE ({SND_SFX_BASE}) must be 256-aligned (Snd_ChanClass compares ix's high byte)")
+ensure(SND_SEQ_END <= SND_SFX_BASE,
+       "music SeqChannels (end {SND_SEQ_END}) reach the SFX page at {SND_SFX_BASE} — Snd_ChanClass would misclassify")
+
+// --- Trace event_code values (0..15) — the controller decodes the trace ring.
+// Each trace byte is (sc_route << 4) | event_code.
+pub const SEQEV_NOTEON    = 1     // note-on (pitch in sc_note)
+pub const SEQEV_NOTEOFF   = 2     // note-off / rest
+pub const SEQEV_VOL       = 3     // set channel volume
+pub const SEQEV_PATCH     = 4     // set FM patch index
+pub const SEQEV_DAC       = 5     // DAC trigger
+pub const SEQEV_LOOP      = 6     // loop-point marker ($EE)
+pub const SEQEV_JUMP      = 7     // jump to loop point ($EF)
+pub const SEQEV_END       = 8     // end of stream ($FF)
+pub const SEQEV_RPT_START = 9     // bounded-repeat body start ($E5)
+pub const SEQEV_RPT_END   = 10    // bounded-repeat body end ($E6)
+
+// --- SongHeader field offsets (loader; from the song base) ---
+// Fixed-position fields (SH_FLAGS stays at +0 — the 68k forwards it).
+pub const SH_FLAGS        = 0     // +0  per-song playback-mode flags (SH_F_* below)
+pub const SH_TEMPO        = 1     // +1  LEGACY Timer-A selector (Phase 3: unused)
+pub const SH_TEMPO_MOD    = 2     // +2  tempo mod, raw S3K TempoWait addend
+pub const SH_CHCOUNT      = 3     // +3  channel count
+pub const SH_PITCHTAB_HI  = 4     // +4  pitch table offset high byte (big-endian; 0 = default)
+pub const SH_PITCHTAB_LO  = 5     // +5  pitch table offset low byte
+pub const SH_CHANNELS     = 6     // +6  start of the per-channel array
+// Per-channel record (5 bytes): route, cmd_ptr (16-bit BE offset), mod_ptr (16-bit
+// BE offset; 0 for single-stream A). The packer writes each ptr high byte FIRST.
+pub const SHC_ROUTE       = 0     // +0  route byte
+pub const SHC_CMD_HI      = 1     // +1  command-stream offset high byte (big-endian)
+pub const SHC_CMD_LO      = 2     // +2  command-stream offset low byte
+pub const SHC_MOD_HI      = 3     // +3  modulation-stream offset high byte (0 for A)
+pub const SHC_MOD_LO      = 4     // +4  modulation-stream offset low byte
+pub const SHC_LEN         = 5     // per-channel record length
+
+// --- SongHeader flags byte (SH_FLAGS, Sound 1D §5.1) ---
+// bit0 SH_F_FM6_FM       : FM6 is a 6th FM SEQUENCER voice (DAC mode OFF, $2B=$00).
+// bit1 SH_F_STREAM       : RESERVED — always SET (the packer force-sets it).
+// bit2 SH_F_FM6_ADAPTIVE : FM6 TIME-SHARES ch6 with the DAC (requires SH_F_FM6_FM).
+pub const SH_F_FM6_FM_B   = 0
+pub const SH_F_STREAM_B   = 1
+pub const SH_F_FM6_ADAPTIVE_B = 2
+pub const SH_F_FM6_FM     = 1<<SH_F_FM6_FM_B
+pub const SH_F_STREAM     = 1<<SH_F_STREAM_B
+pub const SH_F_FM6_ADAPTIVE = 1<<SH_F_FM6_ADAPTIVE_B
+
+// --- DacSample id -> descriptor table sizing (Task 6 decision 3) ---
+// The $E2 operand (and SND_REQ_SAMPLE) is a 1-based sample id; the handler looks up
+// DacSampleTable[id-1] (each DacSample_len = 9 bytes). DAC_SAMPLE_COUNT is asserted
+// against the table size in dac_sample_tab.
+pub const DAC_SAMPLE_COUNT = 10

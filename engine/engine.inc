@@ -64,7 +64,8 @@
 ; -----------------------------------------------
 ; Definitions (no ROM output)
 ; -----------------------------------------------
-    include "engine/sound_constants.asm"
+    ; Sound constants are authored in engine/sound/sound_constants.emp (the sound
+    ; contract's single authority); the residual AS reads none of its symbols.
     include "engine/macros.asm"
     include "engine/parallax_macros.inc"
     include "engine/sound/sound_bank.inc"

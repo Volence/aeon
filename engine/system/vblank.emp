@@ -4,11 +4,12 @@ module engine.vblank in vblank
 use engine.z80_bus.{stop_z80, start_z80}
 use engine.irq.{sr_masked}
 
+use engine.sound_constants.*
+
 // 68k-side view of the Z80 sound driver's DMA-window flag (SND_Z80_BASE +
-// SND_CTRL_DMA_ACTIVE — truth: engine/sound_constants.asm). Link-resolved sum;
-// the bare operand spelling width-selects abs.l ($A01F04 sits outside the
-// abs.w window).
-equ SND_DMA_ACTIVE_SLOT = extern("SND_Z80_BASE") + extern("SND_CTRL_DMA_ACTIVE")
+// SND_CTRL_DMA_ACTIVE). Comptime-folded sum; the bare operand spelling
+// width-selects abs.l ($A01F04 sits outside the abs.w window).
+equ SND_DMA_ACTIVE_SLOT = SND_Z80_BASE + SND_CTRL_DMA_ACTIVE
 
 // The Z80-state snapshot Sound_DebugMirror is now engine.debug.sound_debug-owned
 // (sound_debug.emp, t28). The comptime-gated CALL below (DEBUG × SOUND_DRIVER_ENABLED
