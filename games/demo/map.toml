@@ -11,7 +11,7 @@ fill = 0x00
 # Each demo target's derived order is a subsequence; a derivation change fails loud.
 order = [
   "Vectors", "Checksum", "EntryPoint", "BootData",
-  "Z80_IdleProgram", "BootData_End",
+  "Z80_IdleProgram", "BootData_PostBlob",
   "VDP_Shadow_Init", "Init_DMA_Queue", "Init_SpriteTable", "VBlank_Handler",
   "HBlank_Install", "Read_Controllers", "GameLoop", "S4LZ_DecompressDict",
   "ZX0_Decompress", "GetSineCosine", "Perform_DPLC", "InitObjectRAM",
