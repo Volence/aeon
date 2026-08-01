@@ -18,7 +18,9 @@ gameConfigIncludes macro {GLOBALSYMBOLS}
     endm
 
 gameRamIncludes macro {GLOBALSYMBOLS}
-    include "games/demo/config/ram.asm"
+    ; Game RAM is authored in games/demo/config/ram.emp (item #7c) — the `.emp`
+    ; region form (`game_ram @ after(upper_ram)`), defining Game_RAM_End. No eager
+    ; AS reference to game RAM in the demo, so nothing to include here.
     endm
 
 gameEngineBlockIncludes macro {GLOBALSYMBOLS}

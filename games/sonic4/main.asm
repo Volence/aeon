@@ -14,7 +14,11 @@ gameConfigIncludes macro {GLOBALSYMBOLS}
     endm
 
 gameRamIncludes macro {GLOBALSYMBOLS}
-    include "games/sonic4/config/ram.asm"
+    ; Game RAM is authored in games/sonic4/config/ram.emp (item #7c) — the `.emp`
+    ; region form (`game_ram @ after(upper_ram)`). Its `pub vars` labels are the
+    ; joint-link RAM authority; the residual AS reads the one address it needs
+    ; eagerly (`move.b #1,(Dbg_Music_On).w` in config/game.asm) via the harvested
+    ; value defines (native.rs harvest_engine_ram_addresses).
     endm
 
 gameEngineBlockIncludes macro {GLOBALSYMBOLS}
