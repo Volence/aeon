@@ -21,17 +21,16 @@ GAME_REGION     equ "JUE             "
 ; sound because the SFX co-residency guard (and sfx_bank.emp's ensure successor)
 ; asserts exactly that equality, and it no longer derives from the .emp-side
 ; Sfx_33 label. The related SFX_ID_BASE / SFX_COUNT / SFX_TABLE_LEN ints live in
-; config/sound_ids.asm beside the SFXID_* ladder. This comment documents the
-; contract; there is no assignment here.
+; config/sound_ids.asm (the residual SFX-bank-count stub). This comment documents
+; the contract; there is no assignment here.
 
-SFXID_REV_LOOP = SFXID_SPINDASH   ; spindash-rev special case; -1 = feature off (games without a spindash)
-
-; SFXID_RING_LEFT / SFXID_RING_RIGHT are engine contract constants: the
-; engine ring system's L/R stereo alternation (Ring_Sfx_Speaker,
-; engine/sound/sound_api.asm) posts one or the other depending on which
-; speaker side the ring pickup should pan toward. Currently defined in
-; sound_constants.asm (root); they move to this file in a later task. No
-; code change here — comment only.
+; The song ids, symbolic SFX ids (incl. SFXID_RING_LEFT / SFXID_RING_RIGHT for
+; the engine ring system's L/R stereo alternation, Ring_Sfx_Speaker), the
+; spindash-rev special case (SFXID_REV_LOOP), and the SFX priority ladder live in
+; games/sonic4/config/sound_ids.emp (module games.sonic4.sound_ids) — flipped
+; from AS at Parcel F2, harvested into the residual AS. sound_api.emp keeps the
+; typed `SFXID_RING_*: SfxId` mirrors (the SfxId newtype is a language-round
+; deferral), drift-guarded against that authority.
 
 ; SndDefaultPitchTable is an engine contract label: sound_fm.asm's
 ; Fm_NoteFromTable falls back to it when a song's pitchtable_ptr is 0. The

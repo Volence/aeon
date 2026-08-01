@@ -30,31 +30,14 @@ use engine.types.{SongId, SfxId}
 // conv-b constants-tail flip).
 use engine.constants.{BUTTON_UP, BUTTON_C, BUTTON_A, BUTTON_B, BUTTON_START}
 
-// Song ids (games/sonic4/config/sound_ids.asm).
-const SONG_MOVINGTRUCKS = 1
-const SONG_DRUMTEST     = 2
-const SONG_HCZ2         = 3
-ensure(extern("SONG_MOVINGTRUCKS") == SONG_MOVINGTRUCKS, "SONG_MOVINGTRUCKS drifted from config/sound_ids.asm: {SONG_MOVINGTRUCKS}")
-ensure(extern("SONG_DRUMTEST") == SONG_DRUMTEST, "SONG_DRUMTEST drifted from config/sound_ids.asm: {SONG_DRUMTEST}")
-ensure(extern("SONG_HCZ2") == SONG_HCZ2, "SONG_HCZ2 drifted from config/sound_ids.asm: {SONG_HCZ2}")
-
-// SFX ids (games/sonic4/config/sound_ids.asm) — the DEBUG SFX-trigger cycle.
-const SFXID_RING_RIGHT = $33
-const SFXID_DEATH      = $35
-const SFXID_SKID       = $36
-const SFXID_ROLL       = $3C
-const SFXID_JUMP       = $62
-const SFXID_SPINDASH   = $AB
-const SFXID_DASH       = $B6
-const SFXID_RINGLOSS   = $B9
-ensure(extern("SFXID_RING_RIGHT") == SFXID_RING_RIGHT, "SFXID_RING_RIGHT drifted from config/sound_ids.asm: {SFXID_RING_RIGHT}")
-ensure(extern("SFXID_DEATH") == SFXID_DEATH, "SFXID_DEATH drifted from config/sound_ids.asm: {SFXID_DEATH}")
-ensure(extern("SFXID_SKID") == SFXID_SKID, "SFXID_SKID drifted from config/sound_ids.asm: {SFXID_SKID}")
-ensure(extern("SFXID_ROLL") == SFXID_ROLL, "SFXID_ROLL drifted from config/sound_ids.asm: {SFXID_ROLL}")
-ensure(extern("SFXID_JUMP") == SFXID_JUMP, "SFXID_JUMP drifted from config/sound_ids.asm: {SFXID_JUMP}")
-ensure(extern("SFXID_SPINDASH") == SFXID_SPINDASH, "SFXID_SPINDASH drifted from config/sound_ids.asm: {SFXID_SPINDASH}")
-ensure(extern("SFXID_DASH") == SFXID_DASH, "SFXID_DASH drifted from config/sound_ids.asm: {SFXID_DASH}")
-ensure(extern("SFXID_RINGLOSS") == SFXID_RINGLOSS, "SFXID_RINGLOSS drifted from config/sound_ids.asm: {SFXID_RINGLOSS}")
+// Song + SFX ids — sole authority is games.sonic4.sound_ids. The DEBUG song
+// selector and the DEBUG SFX-trigger cycle read these; the typed slots (`as
+// SongId`/`as SfxId`) bless the untyped value at each use.
+use games.sonic4.sound_ids.{
+    SONG_MOVINGTRUCKS, SONG_DRUMTEST, SONG_HCZ2,
+    SFXID_RING_RIGHT, SFXID_DEATH, SFXID_SKID, SFXID_ROLL, SFXID_JUMP,
+    SFXID_SPINDASH, SFXID_DASH, SFXID_RINGLOSS
+}
 
 // The four Sound_* callees are .emp-owned (sound_api.emp) — they resolve
 // module-to-module, so NO `extern proc` decl here (a decl of a .emp-owned proc

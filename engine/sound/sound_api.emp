@@ -32,8 +32,10 @@ use engine.sound_constants.*
 //
 // The two TYPED SfxId mirrors STAY as local consts: a bare link name cannot
 // carry the F1 SfxId enforcement (typed-extern grammar is the remaining
-// dependency). Each is drift-guarded against its AS-side truth.
-const SFXID_RING_RIGHT: SfxId = $33   // collect-ring SFX, right speaker (config/sound_ids.asm)
+// dependency). engine.sound_api is game-agnostic and cannot `use` a specific
+// game's module, so each is drift-guarded (below) against the game's authority
+// (games.sonic4.sound_ids) via extern(), resolved through the harvest EquSym.
+const SFXID_RING_RIGHT: SfxId = $33   // collect-ring SFX, right speaker
 const SFXID_RING_LEFT: SfxId  = $34   // collect-ring SFX, left speaker
 
 // DEBUG watchdog budget for the two Z80-handshake spins (Sound_PlayMusic's
@@ -45,8 +47,8 @@ const SFXID_RING_LEFT: SfxId  = $34   // collect-ring SFX, left speaker
 // stands.
 const SPIN_WATCHDOG_LIMIT = $8000
 
-ensure(extern("SFXID_RING_RIGHT") == SFXID_RING_RIGHT, "SFXID_RING_RIGHT drifted from config/sound_ids.asm: {SFXID_RING_RIGHT}")
-ensure(extern("SFXID_RING_LEFT") == SFXID_RING_LEFT, "SFXID_RING_LEFT drifted from config/sound_ids.asm: {SFXID_RING_LEFT}")
+ensure(extern("SFXID_RING_RIGHT") == SFXID_RING_RIGHT, "SFXID_RING_RIGHT drifted from games.sonic4.sound_ids: {SFXID_RING_RIGHT}")
+ensure(extern("SFXID_RING_LEFT") == SFXID_RING_LEFT, "SFXID_RING_LEFT drifted from games.sonic4.sound_ids: {SFXID_RING_LEFT}")
 
 // 68k-side slot addresses (SND_Z80_BASE + Z80 offset), one equ per slot — the
 // MUSIC_PARAM block derives from a Z80-driver RAM label and floats with every

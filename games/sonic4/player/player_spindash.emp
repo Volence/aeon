@@ -24,11 +24,8 @@ use games.sonic4.constants.{
     SPINDASH_BASE, SPINDASH_CHARGE_STEP, SPINDASH_CHARGE_MAX
 }
 
-// ── sound-id mirrors (config/sound_ids.asm) ──────────────────────────────────
-const SFXID_SPINDASH = $AB
-const SFXID_DASH     = $B6
-ensure(extern("SFXID_SPINDASH") == SFXID_SPINDASH, "config/sound_ids.asm SFXID_SPINDASH drifted")
-ensure(extern("SFXID_DASH")     == SFXID_DASH,     "config/sound_ids.asm SFXID_DASH drifted")
+// Sound ids — sole authority is games.sonic4.sound_ids.
+use games.sonic4.sound_ids.{SFXID_SPINDASH, SFXID_DASH}
 
 // Engine-constant mirror (ST_XFLIP) HOISTED to the engine.constants twin at the
 // ambient-hoist parcel (kill-list row 81) — consumed via `use engine.constants`
